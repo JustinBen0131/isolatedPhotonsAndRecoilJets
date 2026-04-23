@@ -2536,7 +2536,8 @@ if (!SSoverlayPerVAR_processONLY)
         [&](const string& tag,
             bool overlayPtBins,
             double ptCenter,
-            bool useTopLeft = false) -> bool
+            bool useTopLeft = false,
+            bool useMiddleRight = false) -> bool
         {
             if (overlayPtBins) return false;
             
@@ -2548,9 +2549,9 @@ if (!SSoverlayPerVAR_processONLY)
             const double xLabel = useTopLeft ? 0.22 : 0.58;
             const double xColL  = useTopLeft ? 0.22 : 0.58;
             const double xColR  = useTopLeft ? 0.40 : 0.77;
-            const double yLabel = useTopLeft ? 0.78 : 0.31;
-            const double yRow1  = useTopLeft ? 0.72 : 0.25;
-            const double yRow2  = useTopLeft ? 0.66 : 0.19;
+            const double yLabel = useTopLeft ? 0.78 : (useMiddleRight ? 0.53 : 0.31);
+            const double yRow1  = useTopLeft ? 0.72 : (useMiddleRight ? 0.46 : 0.25);
+            const double yRow2  = useTopLeft ? 0.66 : (useMiddleRight ? 0.39 : 0.19);
             const double sLabel = useTopLeft ? 0.032 : 0.040;
             const double sRow   = useTopLeft ? 0.026 : 0.032;
             
@@ -2611,9 +2612,10 @@ if (!SSoverlayPerVAR_processONLY)
             double textX,
             double textY,
             double textSize,
-            bool selectionBlockTopLeft = false) -> void
+            bool selectionBlockTopLeft = false,
+            bool selectionBlockMiddleRight = false) -> void
         {
-            const bool drewBottomRightBlock = DrawSSOverlaySelectionBlock(tag, overlayPtBins, ptCenter, selectionBlockTopLeft);
+            const bool drewBottomRightBlock = DrawSSOverlaySelectionBlock(tag, overlayPtBins, ptCenter, selectionBlockTopLeft, selectionBlockMiddleRight);
             
             const string text = GetSSOverlaySelectionText(tag, overlayPtBins, ptCenter);
             if (!text.empty() && !drewBottomRightBlock)
@@ -3800,12 +3802,15 @@ if (!SSoverlayPerVAR_processONLY)
                          (tag == "pre" || tag == "tight" || tag == "nonTight"));
                         const bool useE11InclusiveLegend = (var == "e11e33" && tag == "inclusive");
                         const bool useE11PreLegend = (var == "e11e33" && tag == "pre");
+                        const bool moveLegendSlightlyUp =
+                            (H.folder == "data" && H.variant == "baseVariant" && tag == "pre" &&
+                             pb.folder == "pT_20_35" && (var == "weta" || var == "wphi"));
                         
                         TLegend legVar(
                                        useE11PreLegend ? 0.2 : (useE11InclusiveLegend ? 0.58 : (useSpecialE32Legend ? 0.08 : (useSpecialE11Legend ? 0.17 : 0.22))),
-                                       useE11PreLegend ? 0.80 : (useE11InclusiveLegend ? 0.64 : (useSpecialE32Legend ? 0.79 : (useSpecialE11Legend ? 0.78 : 0.81))),
+                                       useE11PreLegend ? 0.80 : (useE11InclusiveLegend ? 0.64 : (useSpecialE32Legend ? 0.79 : (useSpecialE11Legend ? 0.78 : (moveLegendSlightlyUp ? 0.84 : 0.81)))),
                                        useE11PreLegend ? 0.55 : (useE11InclusiveLegend ? 0.92 : (useSpecialE32Legend ? 0.66 : (useSpecialE11Legend ? 0.69 : 0.74))),
-                                       useE11PreLegend ? 0.91 : (useE11InclusiveLegend ? 0.82 : (useSpecialE32Legend ? 0.91 : (useSpecialE11Legend ? 0.90 : 0.89)))
+                                       useE11PreLegend ? 0.91 : (useE11InclusiveLegend ? 0.82 : (useSpecialE32Legend ? 0.91 : (useSpecialE11Legend ? 0.90 : (moveLegendSlightlyUp ? 0.92 : 0.89))))
                                        );
                         legVar.SetBorderSize(0);
                         legVar.SetFillStyle(0);
@@ -3856,7 +3861,12 @@ if (!SSoverlayPerVAR_processONLY)
                             (H.folder == "inclusiveEmbedded" && var == "weta" && tag == "pre" && pb.folder == "pT_10_12") ||
                             (H.folder == "data" && H.variant == "baseVariant" && tag == "pre" &&
                              pb.folder == "pT_20_35" && (var == "weta" || var == "wphi"));
-                        DrawSSOverlayCutsAndText(var, tag, false, ptCenterForCuts, cutTextX, cutTextY, cutTextSize, !moveSelectionBlockToBottomRight);
+                        const bool moveSelectionBlockToMiddleRight =
+                            (H.folder == "data" && H.variant == "baseVariant" && tag == "pre" &&
+                             pb.folder == "pT_20_35" && (var == "weta" || var == "wphi"));
+                        DrawSSOverlayCutsAndText(var, tag, false, ptCenterForCuts, cutTextX, cutTextY, cutTextSize,
+                                                 !moveSelectionBlockToBottomRight && !moveSelectionBlockToMiddleRight,
+                                                 moveSelectionBlockToMiddleRight);
                         
                         SaveCanvas(cVar, JoinPath(varTagDir,
                                                   TString::Format("centOverlay_%s_%s_%s.png",

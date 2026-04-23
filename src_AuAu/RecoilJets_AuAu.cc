@@ -6602,6 +6602,67 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 else if (tight_fails >= 2) { tightTag = TightTag::kNonTight;   ++m_bk.tight_nonTight; }
                 else                       { tightTag = TightTag::kNeither;    ++m_bk.tight_neither; }
                 
+                {
+                    int tightFailMask = 0;
+                    if (!t_weta)   tightFailMask |= 1;
+                    if (!t_wphi)   tightFailMask |= 2;
+                    if (!t_e11e33) tightFailMask |= 4;
+                    if (!t_et1)    tightFailMask |= 8;
+                    if (!t_e32e35) tightFailMask |= 16;
+                    
+                    for (const auto& trigShort : activeTrig)
+                    {
+                        if (auto* hMaskAll = getOrBookCountHist(trigShort, "h_tightFailMask_allPreselected", ptIdx, effCentIdx_SS))
+                        {
+                            hMaskAll->Fill(tightFailMask);
+                            bumpHistFill(trigShort, std::string("h_tightFailMask_allPreselected") + slice_SS);
+                        }
+                        
+                        if (tightTag == TightTag::kNonTight)
+                        {
+                            if (auto* hMaskNonTight = getOrBookCountHist(trigShort, "h_tightFailMask_nonTight", ptIdx, effCentIdx_SS))
+                            {
+                                hMaskNonTight->Fill(tightFailMask);
+                                bumpHistFill(trigShort, std::string("h_tightFailMask_nonTight") + slice_SS);
+                            }
+                        }
+                        else if (tightTag == TightTag::kNeither)
+                        {
+                            if (auto* hMaskNeither = getOrBookCountHist(trigShort, "h_tightFailMask_neither", ptIdx, effCentIdx_SS))
+                            {
+                                hMaskNeither->Fill(tightFailMask);
+                                bumpHistFill(trigShort, std::string("h_tightFailMask_neither") + slice_SS);
+                            }
+                        }
+                        
+                        if (!t_weta)
+                        {
+                            if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_weta", ptIdx, effCentIdx_SS))
+                            { h->Fill(1); bumpHistFill(trigShort, std::string("h_tightFail_weta") + slice_SS); }
+                        }
+                        if (!t_wphi)
+                        {
+                            if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_wphi", ptIdx, effCentIdx_SS))
+                            { h->Fill(1); bumpHistFill(trigShort, std::string("h_tightFail_wphi") + slice_SS); }
+                        }
+                        if (!t_e11e33)
+                        {
+                            if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_e11e33", ptIdx, effCentIdx_SS))
+                            { h->Fill(1); bumpHistFill(trigShort, std::string("h_tightFail_e11e33") + slice_SS); }
+                        }
+                        if (!t_et1)
+                        {
+                            if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_et1", ptIdx, effCentIdx_SS))
+                            { h->Fill(1); bumpHistFill(trigShort, std::string("h_tightFail_et1") + slice_SS); }
+                        }
+                        if (!t_e32e35)
+                        {
+                            if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_e32e35", ptIdx, effCentIdx_SS))
+                            { h->Fill(1); bumpHistFill(trigShort, std::string("h_tightFail_e32e35") + slice_SS); }
+                        }
+                    }
+                }
+                
                 if (haveAuditSample)
                 {
                     recordIsolationAuditFollowup(activeTrig, auditSample, tightTag);
@@ -8738,6 +8799,65 @@ TH1I* RecoilJets::getOrBookCountHist(const std::string& trig,
         };
         
         for (int ib = 0; ib < 16; ++ib)
+            h->GetXaxis()->SetBinLabel(ib + 1, labels[ib]);
+        
+        H[name] = h;
+        
+        if (prevDir) prevDir->cd();
+        return h;
+    }
+    
+    if (base.rfind("h_tightFailMask_", 0) == 0)
+    {
+        const std::string title = name + ";tight fail mask;entries";
+        
+        if (Verbosity() >= 5)
+            LOG(5, CLR_BLUE, "    [getOrBookCountHist] booking TH1I name=\"" << name << "\" title=\"" << title << '"');
+        
+        auto* h = new TH1I(name.c_str(), title.c_str(), 32, -0.5, 31.5);
+        if (!h)
+        {
+            LOG(1, CLR_YELLOW, "  [getOrBookCountHist] new TH1I failed for \"" << name << '"');
+            if (prevDir) prevDir->cd();
+            return nullptr;
+        }
+        
+        const char* labels[32] = {
+            "pass",
+            "weta",
+            "wphi",
+            "weta+wphi",
+            "e11",
+            "weta+e11",
+            "wphi+e11",
+            "weta+wphi+e11",
+            "et1",
+            "weta+et1",
+            "wphi+et1",
+            "weta+wphi+et1",
+            "e11+et1",
+            "weta+e11+et1",
+            "wphi+e11+et1",
+            "weta+wphi+e11+et1",
+            "e32",
+            "weta+e32",
+            "wphi+e32",
+            "weta+wphi+e32",
+            "e11+e32",
+            "weta+e11+e32",
+            "wphi+e11+e32",
+            "weta+wphi+e11+e32",
+            "et1+e32",
+            "weta+et1+e32",
+            "wphi+et1+e32",
+            "weta+wphi+et1+e32",
+            "e11+et1+e32",
+            "weta+e11+et1+e32",
+            "wphi+e11+et1+e32",
+            "all5"
+        };
+        
+        for (int ib = 0; ib < 32; ++ib)
             h->GetXaxis()->SetBinLabel(ib + 1, labels[ib]);
         
         H[name] = h;

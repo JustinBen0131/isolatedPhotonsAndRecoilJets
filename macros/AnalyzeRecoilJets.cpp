@@ -2767,6 +2767,1018 @@ void RunPreselectionFailureTable(Dataset& ds)
             for (auto* obj : keepExclusive) delete obj;
             
             {
+                const string tightSummaryOutDir = JoinPath(triggerOutDir, "tightNonTightFAILUREqa_centralityXpT");
+                EnsureDir(tightSummaryOutDir);
+                
+                const char* tightInclusiveLabels[5] = {"A", "B", "C", "D", "E"};
+                const int tightInclusiveColors[5] = {
+                    kBlue + 1,
+                    kViolet + 1,
+                    kOrange + 7,
+                    kRed + 1,
+                    kGreen + 2
+                };
+                
+                auto TightPopcount = [&](int mask) -> int
+                {
+                    int n = 0;
+                    while (mask)
+                    {
+                        if (mask & 1) ++n;
+                        mask >>= 1;
+                    }
+                    return n;
+                };
+                
+                auto TightMaskLabel = [&](int mask) -> string
+                {
+                    if (mask == 0) return "pass";
+                    
+                    vector<string> parts;
+                    if (mask & 1)  parts.push_back("weta");
+                    if (mask & 2)  parts.push_back("wphi");
+                    if (mask & 4)  parts.push_back("e11");
+                    if (mask & 8)  parts.push_back("et1");
+                    if (mask & 16) parts.push_back("e32");
+                    
+                    if (parts.empty()) return "pass";
+                    
+                    string out = parts[0];
+                    for (std::size_t ip = 1; ip < parts.size(); ++ip)
+                    {
+                        out += "+" + parts[ip];
+                    }
+                    return out;
+                };
+                
+                vector<string> tightMaskLabels(32);
+                for (int mask = 0; mask <= 31; ++mask) tightMaskLabels[mask] = TightMaskLabel(mask);
+                
+                auto TightMultiplicityColor = [&](int nFail) -> int
+                {
+                    if (nFail <= 0) return kBlack;
+                    if (nFail == 1) return kGray + 1;
+                    if (nFail == 2) return kAzure + 1;
+                    if (nFail == 3) return kGreen + 2;
+                    if (nFail == 4) return kOrange + 7;
+                    return kRed + 1;
+                };
+                
+                struct TightPairDef
+                {
+                    int bitA = 0;
+                    int bitB = 0;
+                    string label;
+                };
+                
+                vector<TightPairDef> tightPairs;
+                tightPairs.push_back({0, 1, "weta+wphi"});
+                tightPairs.push_back({0, 2, "weta+e11"});
+                tightPairs.push_back({0, 3, "weta+et1"});
+                tightPairs.push_back({0, 4, "weta+e32"});
+                tightPairs.push_back({1, 2, "wphi+e11"});
+                tightPairs.push_back({1, 3, "wphi+et1"});
+                tightPairs.push_back({1, 4, "wphi+e32"});
+                tightPairs.push_back({2, 3, "e11+et1"});
+                tightPairs.push_back({2, 4, "e11+e32"});
+                tightPairs.push_back({3, 4, "et1+e32"});
+                
+                const int tightPairColors[10] = {
+                    kBlue + 1,
+                    kAzure + 1,
+                    kCyan + 1,
+                    kTeal + 2,
+                    kGreen + 2,
+                    kSpring + 5,
+                    kOrange + 7,
+                    kMagenta + 1,
+                    kViolet + 1,
+                    kRed + 1
+                };
+                
+                auto FillTightInclusiveSummaryVals =
+                [&](const vector<string>& ptSuffixes,
+                    const vector<string>& centSuffixes,
+                    double vals[5]) -> void
+                {
+                    for (int ib = 0; ib < 5; ++ib) vals[ib] = 0.0;
+                    
+                    vector<string> centSuffixesUse = centSuffixes;
+                    if (centSuffixesUse.empty()) centSuffixesUse.push_back("");
+                    
+                    for (const auto& centSuffix : centSuffixesUse)
+                    {
+                        Dataset dsSel;
+                        dsSel.label = ds.label;
+                        dsSel.isSim = ds.isSim;
+                        dsSel.trigger = ds.trigger;
+                        dsSel.topDirName = ds.topDirName;
+                        dsSel.inFilePath = ds.inFilePath;
+                        dsSel.outBase = ds.outBase;
+                        dsSel.centFolder = "";
+                        dsSel.centSuffix = centSuffix;
+                        dsSel.centLabel = "";
+                        dsSel.file = ds.file;
+                        dsSel.topDir = ds.topDir;
+                        
+                        for (const auto& ptSuffix : ptSuffixes)
+                        {
+                            vals[0] += Read1BinCount(dsSel, "h_tightFail_weta" + ptSuffix);
+                            vals[1] += Read1BinCount(dsSel, "h_tightFail_wphi" + ptSuffix);
+                            vals[2] += Read1BinCount(dsSel, "h_tightFail_e11e33" + ptSuffix);
+                            vals[3] += Read1BinCount(dsSel, "h_tightFail_et1" + ptSuffix);
+                            vals[4] += Read1BinCount(dsSel, "h_tightFail_e32e35" + ptSuffix);
+                        }
+                    }
+                };
+                
+                auto FillTightMaskSummaryVals =
+                [&](const vector<string>& ptSuffixes,
+                    const vector<string>& centSuffixes,
+                    const string& maskBase,
+                    double vals[32]) -> void
+                {
+                    for (int ib = 0; ib < 32; ++ib) vals[ib] = 0.0;
+                    
+                    vector<string> centSuffixesUse = centSuffixes;
+                    if (centSuffixesUse.empty()) centSuffixesUse.push_back("");
+                    
+                    for (const auto& centSuffix : centSuffixesUse)
+                    {
+                        Dataset dsSel;
+                        dsSel.label = ds.label;
+                        dsSel.isSim = ds.isSim;
+                        dsSel.trigger = ds.trigger;
+                        dsSel.topDirName = ds.topDirName;
+                        dsSel.inFilePath = ds.inFilePath;
+                        dsSel.outBase = ds.outBase;
+                        dsSel.centFolder = "";
+                        dsSel.centSuffix = centSuffix;
+                        dsSel.centLabel = "";
+                        dsSel.file = ds.file;
+                        dsSel.topDir = ds.topDir;
+                        
+                        for (const auto& ptSuffix : ptSuffixes)
+                        {
+                            TH1* hMask = GetObj<TH1>(dsSel, maskBase + ptSuffix, false, false, false);
+                            if (!hMask) continue;
+                            
+                            const int nMaskBins = hMask->GetNbinsX();
+                            for (int mask = 0; mask <= 31; ++mask)
+                            {
+                                const int bin = mask + 1;
+                                if (bin > nMaskBins) break;
+                                vals[mask] += hMask->GetBinContent(bin);
+                            }
+                        }
+                    }
+                };
+                
+                auto DrawTightInclusiveSummary =
+                [&](const string& outName,
+                    const string& globalTitle) -> void
+                {
+                    TCanvas cSummary(
+                                     TString::Format("c_tightInclusive_centXpT_%s_%s", ds.trigger.c_str(), ds.centFolder.c_str()).Data(),
+                                     "c_tightInclusive_centXpT", 5000, 3300
+                                     );
+                    cSummary.cd();
+                    cSummary.SetFillColor(0);
+                    cSummary.SetFrameFillColor(0);
+                    
+                    vector<TObject*> keepSummary;
+                    keepSummary.reserve(nSummaryCols * nSummaryRows * 10);
+                    
+                    const double leftSummary   = 0.065;
+                    const double rightSummary  = 0.008;
+                    const double topSummary    = 0.150;
+                    const double bottomSummary = 0.022;
+                    const double xGapSummary   = 0.006;
+                    const double yGapSummary   = 0.010;
+                    
+                    const double rawCellW = (1.0 - leftSummary - rightSummary) / nSummaryCols;
+                    const double rawCellH = (1.0 - topSummary - bottomSummary) / nSummaryRows;
+                    
+                    for (int irow = 0; irow < nSummaryRows; ++irow)
+                    {
+                        for (int icol = 0; icol < nSummaryCols; ++icol)
+                        {
+                            const double x1 = leftSummary + icol * rawCellW + 0.5 * xGapSummary;
+                            const double x2 = leftSummary + (icol + 1) * rawCellW - 0.5 * xGapSummary;
+                            const double y2 = 1.0 - topSummary - irow * rawCellH - 0.5 * yGapSummary;
+                            const double y1 = 1.0 - topSummary - (irow + 1) * rawCellH + 0.5 * yGapSummary;
+                            
+                            TPad* cellPad = new TPad(
+                                                     TString::Format("tightInclusiveCentXpT_pad_r%d_c%d_%s_%s",
+                                                                     irow, icol, ds.trigger.c_str(), ds.centFolder.c_str()).Data(),
+                                                     "",
+                                                     x1, y1, x2, y2
+                                                     );
+                            cellPad->SetLeftMargin(0.13);
+                            cellPad->SetRightMargin(0.025);
+                            cellPad->SetBottomMargin(0.12);
+                            cellPad->SetTopMargin(0.05);
+                            cellPad->SetTicks(1,1);
+                            cellPad->SetBorderMode(0);
+                            cellPad->SetFillColor(0);
+                            cellPad->Draw();
+                            cellPad->cd();
+                            
+                            double vv[5];
+                            FillTightInclusiveSummaryVals(summaryPtReqs[icol].suffixes, summaryCentReqs[irow].suffixes, vv);
+                            
+                            double ymax = 0.0;
+                            for (int ib = 0; ib < 5; ++ib) ymax = std::max(ymax, vv[ib]);
+                            const double yMaxPlot = (ymax > 0.0) ? (1.30 * ymax) : 1.0;
+                            
+                            TH1F* hAxis = new TH1F(
+                                                   TString::Format("h_tightInclusiveCentXpTAxis_%s_%s_%s",
+                                                                   ds.trigger.c_str(),
+                                                                   summaryCentReqs[irow].folder.c_str(),
+                                                                   summaryPtReqs[icol].folder.c_str()).Data(),
+                                                   "",
+                                                   5, 0.5, 5.5
+                                                   );
+                            hAxis->SetDirectory(nullptr);
+                            hAxis->SetStats(0);
+                            hAxis->SetMinimum(0.0);
+                            hAxis->SetMaximum(yMaxPlot);
+                            
+                            for (int ib = 1; ib <= 5; ++ib) hAxis->GetXaxis()->SetBinLabel(ib, tightInclusiveLabels[ib-1]);
+                            
+                            hAxis->GetYaxis()->SetTitle("Fail counts");
+                            hAxis->GetXaxis()->SetTitle("");
+                            hAxis->GetXaxis()->LabelsOption("h");
+                            hAxis->GetXaxis()->SetLabelFont(62);
+                            hAxis->GetXaxis()->SetLabelSize(0.070);
+                            hAxis->GetXaxis()->SetLabelOffset(0.006);
+                            hAxis->GetYaxis()->SetTitleSize(0.052);
+                            hAxis->GetYaxis()->SetTitleOffset(1.15);
+                            hAxis->GetYaxis()->SetLabelSize(0.044);
+                            hAxis->SetLineColor(1);
+                            hAxis->SetLineWidth(2);
+                            hAxis->SetFillStyle(0);
+                            hAxis->Draw("hist");
+                            
+                            for (int ib = 1; ib <= 5; ++ib)
+                            {
+                                TH1F* hb = new TH1F(
+                                                    TString::Format("h_tightInclusiveCentXpTBar_%s_%s_%s_b%d",
+                                                                    ds.trigger.c_str(),
+                                                                    summaryCentReqs[irow].folder.c_str(),
+                                                                    summaryPtReqs[icol].folder.c_str(),
+                                                                    ib).Data(),
+                                                    "",
+                                                    5, 0.5, 5.5
+                                                    );
+                                hb->SetDirectory(nullptr);
+                                hb->SetStats(0);
+                                hb->SetBinContent(ib, vv[ib-1]);
+                                hb->SetFillStyle(1001);
+                                hb->SetFillColor(tightInclusiveColors[ib-1]);
+                                hb->SetLineColor(1);
+                                hb->SetLineWidth(2);
+                                hb->SetBarWidth(0.88);
+                                hb->SetBarOffset(0.06);
+                                hb->Draw("BAR SAME");
+                                keepSummary.push_back(hb);
+                            }
+                            
+                            TLatex tCell;
+                            tCell.SetTextFont(62);
+                            tCell.SetTextAlign(22);
+                            tCell.SetTextSize(0.048);
+                            for (int ib = 1; ib <= 5; ++ib)
+                            {
+                                const double y = vv[ib-1];
+                                if (y <= 0.0) continue;
+                                
+                                const double x = hAxis->GetXaxis()->GetBinCenter(ib);
+                                const double yText = std::min(y + 0.024*yMaxPlot, 0.93*yMaxPlot);
+                                tCell.DrawLatex(x, yText, TString::Format("%.0f", y).Data());
+                            }
+                            
+                            keepSummary.push_back(hAxis);
+                            cSummary.cd();
+                        }
+                    }
+                    
+                    TLatex tSummaryTitle;
+                    tSummaryTitle.SetNDC();
+                    tSummaryTitle.SetTextFont(42);
+                    tSummaryTitle.SetTextAlign(13);
+                    tSummaryTitle.SetTextSize(0.030);
+                    tSummaryTitle.DrawLatex(0.010, 0.982, globalTitle.c_str());
+                    
+                    TPaveText* pSumCol1 = new TPaveText(0.48, 0.900, 0.64, 0.988, "NDC NB");
+                    pSumCol1->SetFillStyle(0);
+                    pSumCol1->SetBorderSize(0);
+                    pSumCol1->SetTextFont(42);
+                    pSumCol1->SetTextAlign(12);
+                    pSumCol1->SetTextSize(0.020);
+                    ((TText*)pSumCol1->AddText("A: w_{#eta}^{cogX}"))->SetTextColor(tightInclusiveColors[0]);
+                    ((TText*)pSumCol1->AddText("B: w_{#phi}^{cogX}"))->SetTextColor(tightInclusiveColors[1]);
+                    pSumCol1->Draw();
+                    keepSummary.push_back(pSumCol1);
+                    
+                    TPaveText* pSumCol2 = new TPaveText(0.63, 0.900, 0.80, 0.988, "NDC NB");
+                    pSumCol2->SetFillStyle(0);
+                    pSumCol2->SetBorderSize(0);
+                    pSumCol2->SetTextFont(42);
+                    pSumCol2->SetTextAlign(12);
+                    pSumCol2->SetTextSize(0.020);
+                    ((TText*)pSumCol2->AddText("C: E_{11}/E_{33}"))->SetTextColor(tightInclusiveColors[2]);
+                    ((TText*)pSumCol2->AddText("D: et1"))->SetTextColor(tightInclusiveColors[3]);
+                    pSumCol2->Draw();
+                    keepSummary.push_back(pSumCol2);
+                    
+                    TPaveText* pSumCol3 = new TPaveText(0.79, 0.900, 0.975, 0.988, "NDC NB");
+                    pSumCol3->SetFillStyle(0);
+                    pSumCol3->SetBorderSize(0);
+                    pSumCol3->SetTextFont(42);
+                    pSumCol3->SetTextAlign(12);
+                    pSumCol3->SetTextSize(0.020);
+                    ((TText*)pSumCol3->AddText("E: E_{32}/E_{35}"))->SetTextColor(tightInclusiveColors[4]);
+                    pSumCol3->AddText("Sample: preselection-pass photons");
+                    pSumCol3->Draw();
+                    keepSummary.push_back(pSumCol3);
+                    
+                    TLatex tCol;
+                    tCol.SetNDC(true);
+                    tCol.SetTextFont(42);
+                    tCol.SetTextAlign(22);
+                    tCol.SetTextSize(0.034);
+                    for (int icol = 0; icol < nSummaryCols; ++icol)
+                    {
+                        const double x = leftSummary + (icol + 0.5) * rawCellW;
+                        tCol.DrawLatex(x, 1.0 - topSummary + 0.010, summaryPtReqs[icol].label.c_str());
+                    }
+                    
+                    TLatex tRow;
+                    tRow.SetNDC(true);
+                    tRow.SetTextFont(42);
+                    tRow.SetTextAlign(22);
+                    tRow.SetTextAngle(270);
+                    tRow.SetTextSize(0.035);
+                    for (int irow = 0; irow < nSummaryRows; ++irow)
+                    {
+                        const double y = 1.0 - topSummary - (irow + 0.5) * rawCellH;
+                        tRow.DrawLatex(0.032, y, summaryCentReqs[irow].label.c_str());
+                    }
+                    
+                    SaveCanvas(cSummary, JoinPath(tightSummaryOutDir, outName));
+                    
+                    for (auto* obj : keepSummary) delete obj;
+                };
+                
+                auto DrawTightMaskSummary =
+                [&](const string& maskBase,
+                    const string& outName,
+                    const string& globalTitle,
+                    const string& infoLine) -> void
+                {
+                    const int nMaskBars = 31;
+                    
+                    TCanvas cSummary(
+                                     TString::Format("c_tightMask_centXpT_%s_%s_%s", maskBase.c_str(), ds.trigger.c_str(), ds.centFolder.c_str()).Data(),
+                                     "c_tightMask_centXpT", 12400, 3300
+                                     );
+                    cSummary.cd();
+                    cSummary.SetFillColor(0);
+                    cSummary.SetFrameFillColor(0);
+                    
+                    vector<TObject*> keepSummary;
+                    keepSummary.reserve(nSummaryCols * nSummaryRows * 40);
+                    
+                    const double leftSummary   = 0.065;
+                    const double rightSummary  = 0.008;
+                    const double topSummary    = 0.145;
+                    const double bottomSummary = 0.022;
+                    const double xGapSummary   = 0.006;
+                    const double yGapSummary   = 0.010;
+                    
+                    const double rawCellW = (1.0 - leftSummary - rightSummary) / nSummaryCols;
+                    const double rawCellH = (1.0 - topSummary - bottomSummary) / nSummaryRows;
+                    
+                    for (int irow = 0; irow < nSummaryRows; ++irow)
+                    {
+                        for (int icol = 0; icol < nSummaryCols; ++icol)
+                        {
+                            const double x1 = leftSummary + icol * rawCellW + 0.5 * xGapSummary;
+                            const double x2 = leftSummary + (icol + 1) * rawCellW - 0.5 * xGapSummary;
+                            const double y2 = 1.0 - topSummary - irow * rawCellH - 0.5 * yGapSummary;
+                            const double y1 = 1.0 - topSummary - (irow + 1) * rawCellH + 0.5 * yGapSummary;
+                            
+                            TPad* cellPad = new TPad(
+                                                     TString::Format("tightMaskCentXpT_pad_r%d_c%d_%s_%s_%s",
+                                                                     irow, icol, maskBase.c_str(), ds.trigger.c_str(), ds.centFolder.c_str()).Data(),
+                                                     "",
+                                                     x1, y1, x2, y2
+                                                     );
+                            cellPad->SetLeftMargin(0.10);
+                            cellPad->SetRightMargin(0.015);
+                            cellPad->SetBottomMargin(0.30);
+                            cellPad->SetTopMargin(0.05);
+                            cellPad->SetTicks(1,1);
+                            cellPad->SetBorderMode(0);
+                            cellPad->SetFillColor(0);
+                            cellPad->Draw();
+                            cellPad->cd();
+                            
+                            double maskVals[32];
+                            FillTightMaskSummaryVals(summaryPtReqs[icol].suffixes, summaryCentReqs[irow].suffixes, maskBase, maskVals);
+                            
+                            double ymax = 0.0;
+                            for (int mask = 1; mask <= 31; ++mask) ymax = std::max(ymax, maskVals[mask]);
+                            const double yMaxPlot = (ymax > 0.0) ? (1.30 * ymax) : 1.0;
+                            
+                            TH1F* hAxis = new TH1F(
+                                                   TString::Format("h_tightMaskCentXpTAxis_%s_%s_%s_%s",
+                                                                   maskBase.c_str(),
+                                                                   ds.trigger.c_str(),
+                                                                   summaryCentReqs[irow].folder.c_str(),
+                                                                   summaryPtReqs[icol].folder.c_str()).Data(),
+                                                   "",
+                                                   nMaskBars, 0.5, nMaskBars + 0.5
+                                                   );
+                            hAxis->SetDirectory(nullptr);
+                            hAxis->SetStats(0);
+                            hAxis->SetMinimum(0.0);
+                            hAxis->SetMaximum(yMaxPlot);
+                            
+                            for (int ib = 1; ib <= nMaskBars; ++ib)
+                                hAxis->GetXaxis()->SetBinLabel(ib, tightMaskLabels[ib].c_str());
+                            
+                            hAxis->GetYaxis()->SetTitle("Photon candidates");
+                            hAxis->GetXaxis()->SetTitle("");
+                            hAxis->GetXaxis()->LabelsOption("v");
+                            hAxis->GetXaxis()->SetLabelFont(42);
+                            hAxis->GetXaxis()->SetLabelSize(0.018);
+                            hAxis->GetXaxis()->SetLabelOffset(0.004);
+                            hAxis->GetYaxis()->SetTitleSize(0.048);
+                            hAxis->GetYaxis()->SetTitleOffset(1.00);
+                            hAxis->GetYaxis()->SetLabelSize(0.040);
+                            hAxis->SetLineColor(1);
+                            hAxis->SetLineWidth(2);
+                            hAxis->SetFillStyle(0);
+                            hAxis->Draw("hist");
+                            
+                            for (int ib = 1; ib <= nMaskBars; ++ib)
+                            {
+                                TH1F* hb = new TH1F(
+                                                    TString::Format("h_tightMaskCentXpTBar_%s_%s_%s_%s_b%d",
+                                                                    maskBase.c_str(),
+                                                                    ds.trigger.c_str(),
+                                                                    summaryCentReqs[irow].folder.c_str(),
+                                                                    summaryPtReqs[icol].folder.c_str(),
+                                                                    ib).Data(),
+                                                    "",
+                                                    nMaskBars, 0.5, nMaskBars + 0.5
+                                                    );
+                                hb->SetDirectory(nullptr);
+                                hb->SetStats(0);
+                                hb->SetBinContent(ib, maskVals[ib]);
+                                hb->SetFillStyle(1001);
+                                hb->SetFillColor(TightMultiplicityColor(TightPopcount(ib)));
+                                hb->SetLineColor(1);
+                                hb->SetLineWidth(2);
+                                hb->SetBarWidth(0.88);
+                                hb->SetBarOffset(0.06);
+                                hb->Draw("BAR SAME");
+                                keepSummary.push_back(hb);
+                            }
+                            
+                            TLatex tCell;
+                            tCell.SetTextFont(42);
+                            tCell.SetTextAlign(22);
+                            tCell.SetTextSize(0.022);
+                            for (int ib = 1; ib <= nMaskBars; ++ib)
+                            {
+                                const double y = maskVals[ib];
+                                if (y <= 0.0) continue;
+                                
+                                const double x = hAxis->GetXaxis()->GetBinCenter(ib);
+                                const double yText = std::min(y + 0.020*yMaxPlot, 0.92*yMaxPlot);
+                                tCell.DrawLatex(x, yText, TString::Format("%.0f", y).Data());
+                            }
+                            
+                            keepSummary.push_back(hAxis);
+                            cSummary.cd();
+                        }
+                    }
+                    
+                    TLatex tSummaryTitle;
+                    tSummaryTitle.SetNDC();
+                    tSummaryTitle.SetTextFont(42);
+                    tSummaryTitle.SetTextAlign(13);
+                    tSummaryTitle.SetTextSize(0.030);
+                    tSummaryTitle.DrawLatex(0.010, 0.982, globalTitle.c_str());
+                    
+                    TPaveText* pInfo = new TPaveText(0.26, 0.900, 0.975, 0.988, "NDC NB");
+                    pInfo->SetFillStyle(0);
+                    pInfo->SetBorderSize(0);
+                    pInfo->SetTextFont(42);
+                    pInfo->SetTextAlign(12);
+                    pInfo->SetTextSize(0.018);
+                    pInfo->AddText("Five-bit tight-failure mask: 1=weta, 2=wphi, 4=e11, 8=et1, 16=e32");
+                    pInfo->AddText(infoLine.c_str());
+                    pInfo->AddText("Bar color encodes number of failed tight cuts in the mask");
+                    pInfo->Draw();
+                    keepSummary.push_back(pInfo);
+                    
+                    TLatex tCol;
+                    tCol.SetNDC(true);
+                    tCol.SetTextFont(42);
+                    tCol.SetTextAlign(22);
+                    tCol.SetTextSize(0.034);
+                    for (int icol = 0; icol < nSummaryCols; ++icol)
+                    {
+                        const double x = leftSummary + (icol + 0.5) * rawCellW;
+                        tCol.DrawLatex(x, 1.0 - topSummary + 0.010, summaryPtReqs[icol].label.c_str());
+                    }
+                    
+                    TLatex tRow;
+                    tRow.SetNDC(true);
+                    tRow.SetTextFont(42);
+                    tRow.SetTextAlign(22);
+                    tRow.SetTextAngle(270);
+                    tRow.SetTextSize(0.035);
+                    for (int irow = 0; irow < nSummaryRows; ++irow)
+                    {
+                        const double y = 1.0 - topSummary - (irow + 0.5) * rawCellH;
+                        tRow.DrawLatex(0.032, y, summaryCentReqs[irow].label.c_str());
+                    }
+                    
+                    SaveCanvas(cSummary, JoinPath(tightSummaryOutDir, outName));
+                    
+                    for (auto* obj : keepSummary) delete obj;
+                };
+                
+                auto DrawTightMultiplicitySummary =
+                [&](const string& maskBase,
+                    const string& outName,
+                    const string& globalTitle,
+                    const string& infoLine) -> void
+                {
+                    TCanvas cSummary(
+                                     TString::Format("c_tightMultiplicity_centXpT_%s_%s_%s", maskBase.c_str(), ds.trigger.c_str(), ds.centFolder.c_str()).Data(),
+                                     "c_tightMultiplicity_centXpT", 5600, 3300
+                                     );
+                    cSummary.cd();
+                    cSummary.SetFillColor(0);
+                    cSummary.SetFrameFillColor(0);
+                    
+                    vector<TObject*> keepSummary;
+                    keepSummary.reserve(nSummaryCols * nSummaryRows * 12);
+                    
+                    const double leftSummary   = 0.065;
+                    const double rightSummary  = 0.008;
+                    const double topSummary    = 0.145;
+                    const double bottomSummary = 0.022;
+                    const double xGapSummary   = 0.006;
+                    const double yGapSummary   = 0.010;
+                    
+                    const double rawCellW = (1.0 - leftSummary - rightSummary) / nSummaryCols;
+                    const double rawCellH = (1.0 - topSummary - bottomSummary) / nSummaryRows;
+                    
+                    const char* multLabels[6] = {"0 fail", "1 fail", "2 fail", "3 fail", "4 fail", "5 fail"};
+                    const int multColors[6] = {
+                        TightMultiplicityColor(0),
+                        TightMultiplicityColor(1),
+                        TightMultiplicityColor(2),
+                        TightMultiplicityColor(3),
+                        TightMultiplicityColor(4),
+                        TightMultiplicityColor(5)
+                    };
+                    
+                    for (int irow = 0; irow < nSummaryRows; ++irow)
+                    {
+                        for (int icol = 0; icol < nSummaryCols; ++icol)
+                        {
+                            const double x1 = leftSummary + icol * rawCellW + 0.5 * xGapSummary;
+                            const double x2 = leftSummary + (icol + 1) * rawCellW - 0.5 * xGapSummary;
+                            const double y2 = 1.0 - topSummary - irow * rawCellH - 0.5 * yGapSummary;
+                            const double y1 = 1.0 - topSummary - (irow + 1) * rawCellH + 0.5 * yGapSummary;
+                            
+                            TPad* cellPad = new TPad(
+                                                     TString::Format("tightMultiplicityCentXpT_pad_r%d_c%d_%s_%s_%s",
+                                                                     irow, icol, maskBase.c_str(), ds.trigger.c_str(), ds.centFolder.c_str()).Data(),
+                                                     "",
+                                                     x1, y1, x2, y2
+                                                     );
+                            cellPad->SetLeftMargin(0.13);
+                            cellPad->SetRightMargin(0.025);
+                            cellPad->SetBottomMargin(0.16);
+                            cellPad->SetTopMargin(0.05);
+                            cellPad->SetTicks(1,1);
+                            cellPad->SetBorderMode(0);
+                            cellPad->SetFillColor(0);
+                            cellPad->Draw();
+                            cellPad->cd();
+                            
+                            double maskVals[32];
+                            double multVals[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+                            FillTightMaskSummaryVals(summaryPtReqs[icol].suffixes, summaryCentReqs[irow].suffixes, maskBase, maskVals);
+                            
+                            for (int mask = 0; mask <= 31; ++mask)
+                            {
+                                const int nFail = TightPopcount(mask);
+                                if (nFail < 0 || nFail > 5) continue;
+                                multVals[nFail] += maskVals[mask];
+                            }
+                            
+                            double ymax = 0.0;
+                            for (int ib = 0; ib < 6; ++ib) ymax = std::max(ymax, multVals[ib]);
+                            const double yMaxPlot = (ymax > 0.0) ? (1.30 * ymax) : 1.0;
+                            
+                            TH1F* hAxis = new TH1F(
+                                                   TString::Format("h_tightMultiplicityCentXpTAxis_%s_%s_%s_%s",
+                                                                   maskBase.c_str(),
+                                                                   ds.trigger.c_str(),
+                                                                   summaryCentReqs[irow].folder.c_str(),
+                                                                   summaryPtReqs[icol].folder.c_str()).Data(),
+                                                   "",
+                                                   6, 0.5, 6.5
+                                                   );
+                            hAxis->SetDirectory(nullptr);
+                            hAxis->SetStats(0);
+                            hAxis->SetMinimum(0.0);
+                            hAxis->SetMaximum(yMaxPlot);
+                            
+                            for (int ib = 1; ib <= 6; ++ib) hAxis->GetXaxis()->SetBinLabel(ib, multLabels[ib-1]);
+                            
+                            hAxis->GetYaxis()->SetTitle("Photon candidates");
+                            hAxis->GetXaxis()->SetTitle("");
+                            hAxis->GetXaxis()->LabelsOption("h");
+                            hAxis->GetXaxis()->SetLabelFont(42);
+                            hAxis->GetXaxis()->SetLabelSize(0.050);
+                            hAxis->GetXaxis()->SetLabelOffset(0.008);
+                            hAxis->GetYaxis()->SetTitleSize(0.052);
+                            hAxis->GetYaxis()->SetTitleOffset(1.15);
+                            hAxis->GetYaxis()->SetLabelSize(0.044);
+                            hAxis->SetLineColor(1);
+                            hAxis->SetLineWidth(2);
+                            hAxis->SetFillStyle(0);
+                            hAxis->Draw("hist");
+                            
+                            for (int ib = 1; ib <= 6; ++ib)
+                            {
+                                TH1F* hb = new TH1F(
+                                                    TString::Format("h_tightMultiplicityCentXpTBar_%s_%s_%s_%s_b%d",
+                                                                    maskBase.c_str(),
+                                                                    ds.trigger.c_str(),
+                                                                    summaryCentReqs[irow].folder.c_str(),
+                                                                    summaryPtReqs[icol].folder.c_str(),
+                                                                    ib).Data(),
+                                                    "",
+                                                    6, 0.5, 6.5
+                                                    );
+                                hb->SetDirectory(nullptr);
+                                hb->SetStats(0);
+                                hb->SetBinContent(ib, multVals[ib-1]);
+                                hb->SetFillStyle(1001);
+                                hb->SetFillColor(multColors[ib-1]);
+                                hb->SetLineColor(1);
+                                hb->SetLineWidth(2);
+                                hb->SetBarWidth(0.88);
+                                hb->SetBarOffset(0.06);
+                                hb->Draw("BAR SAME");
+                                keepSummary.push_back(hb);
+                            }
+                            
+                            TLatex tCell;
+                            tCell.SetTextFont(62);
+                            tCell.SetTextAlign(22);
+                            tCell.SetTextSize(0.046);
+                            for (int ib = 1; ib <= 6; ++ib)
+                            {
+                                const double y = multVals[ib-1];
+                                if (y <= 0.0) continue;
+                                
+                                const double x = hAxis->GetXaxis()->GetBinCenter(ib);
+                                const double yText = std::min(y + 0.024*yMaxPlot, 0.93*yMaxPlot);
+                                tCell.DrawLatex(x, yText, TString::Format("%.0f", y).Data());
+                            }
+                            
+                            keepSummary.push_back(hAxis);
+                            cSummary.cd();
+                        }
+                    }
+                    
+                    TLatex tSummaryTitle;
+                    tSummaryTitle.SetNDC();
+                    tSummaryTitle.SetTextFont(42);
+                    tSummaryTitle.SetTextAlign(13);
+                    tSummaryTitle.SetTextSize(0.030);
+                    tSummaryTitle.DrawLatex(0.010, 0.982, globalTitle.c_str());
+                    
+                    TPaveText* pInfo = new TPaveText(0.52, 0.900, 0.975, 0.988, "NDC NB");
+                    pInfo->SetFillStyle(0);
+                    pInfo->SetBorderSize(0);
+                    pInfo->SetTextFont(42);
+                    pInfo->SetTextAlign(12);
+                    pInfo->SetTextSize(0.020);
+                    pInfo->AddText(infoLine.c_str());
+                    pInfo->AddText("Derived offline from the saved five-bit tight-failure masks");
+                    pInfo->Draw();
+                    keepSummary.push_back(pInfo);
+                    
+                    TLatex tCol;
+                    tCol.SetNDC(true);
+                    tCol.SetTextFont(42);
+                    tCol.SetTextAlign(22);
+                    tCol.SetTextSize(0.034);
+                    for (int icol = 0; icol < nSummaryCols; ++icol)
+                    {
+                        const double x = leftSummary + (icol + 0.5) * rawCellW;
+                        tCol.DrawLatex(x, 1.0 - topSummary + 0.010, summaryPtReqs[icol].label.c_str());
+                    }
+                    
+                    TLatex tRow;
+                    tRow.SetNDC(true);
+                    tRow.SetTextFont(42);
+                    tRow.SetTextAlign(22);
+                    tRow.SetTextAngle(270);
+                    tRow.SetTextSize(0.035);
+                    for (int irow = 0; irow < nSummaryRows; ++irow)
+                    {
+                        const double y = 1.0 - topSummary - (irow + 0.5) * rawCellH;
+                        tRow.DrawLatex(0.032, y, summaryCentReqs[irow].label.c_str());
+                    }
+                    
+                    SaveCanvas(cSummary, JoinPath(tightSummaryOutDir, outName));
+                    
+                    for (auto* obj : keepSummary) delete obj;
+                };
+                
+                auto DrawTightPairSummary =
+                [&](const string& maskBase,
+                    const string& outName,
+                    const string& globalTitle,
+                    const string& infoLine,
+                    bool exactTwoOnly) -> void
+                {
+                    const int nPairBars = (int)tightPairs.size();
+                    
+                    TCanvas cSummary(
+                                     TString::Format("c_tightPair_centXpT_%s_%s_%s_%d", maskBase.c_str(), ds.trigger.c_str(), ds.centFolder.c_str(), exactTwoOnly ? 1 : 0).Data(),
+                                     "c_tightPair_centXpT", 8200, 3300
+                                     );
+                    cSummary.cd();
+                    cSummary.SetFillColor(0);
+                    cSummary.SetFrameFillColor(0);
+                    
+                    vector<TObject*> keepSummary;
+                    keepSummary.reserve(nSummaryCols * nSummaryRows * 16);
+                    
+                    const double leftSummary   = 0.065;
+                    const double rightSummary  = 0.008;
+                    const double topSummary    = 0.145;
+                    const double bottomSummary = 0.022;
+                    const double xGapSummary   = 0.006;
+                    const double yGapSummary   = 0.010;
+                    
+                    const double rawCellW = (1.0 - leftSummary - rightSummary) / nSummaryCols;
+                    const double rawCellH = (1.0 - topSummary - bottomSummary) / nSummaryRows;
+                    
+                    for (int irow = 0; irow < nSummaryRows; ++irow)
+                    {
+                        for (int icol = 0; icol < nSummaryCols; ++icol)
+                        {
+                            const double x1 = leftSummary + icol * rawCellW + 0.5 * xGapSummary;
+                            const double x2 = leftSummary + (icol + 1) * rawCellW - 0.5 * xGapSummary;
+                            const double y2 = 1.0 - topSummary - irow * rawCellH - 0.5 * yGapSummary;
+                            const double y1 = 1.0 - topSummary - (irow + 1) * rawCellH + 0.5 * yGapSummary;
+                            
+                            TPad* cellPad = new TPad(
+                                                     TString::Format("tightPairCentXpT_pad_r%d_c%d_%s_%s_%s_%d",
+                                                                     irow, icol, maskBase.c_str(), ds.trigger.c_str(), ds.centFolder.c_str(), exactTwoOnly ? 1 : 0).Data(),
+                                                     "",
+                                                     x1, y1, x2, y2
+                                                     );
+                            cellPad->SetLeftMargin(0.11);
+                            cellPad->SetRightMargin(0.020);
+                            cellPad->SetBottomMargin(0.28);
+                            cellPad->SetTopMargin(0.05);
+                            cellPad->SetTicks(1,1);
+                            cellPad->SetBorderMode(0);
+                            cellPad->SetFillColor(0);
+                            cellPad->Draw();
+                            cellPad->cd();
+                            
+                            double maskVals[32];
+                            double pairVals[10];
+                            for (int ib = 0; ib < 10; ++ib) pairVals[ib] = 0.0;
+                            FillTightMaskSummaryVals(summaryPtReqs[icol].suffixes, summaryCentReqs[irow].suffixes, maskBase, maskVals);
+                            
+                            for (int mask = 1; mask <= 31; ++mask)
+                            {
+                                const int nFail = TightPopcount(mask);
+                                if (exactTwoOnly)
+                                {
+                                    if (nFail != 2) continue;
+                                }
+                                else
+                                {
+                                    if (nFail < 2) continue;
+                                }
+                                
+                                for (int ipair = 0; ipair < nPairBars; ++ipair)
+                                {
+                                    const int pairMask = (1 << tightPairs[ipair].bitA) | (1 << tightPairs[ipair].bitB);
+                                    if ((mask & pairMask) == pairMask)
+                                    {
+                                        pairVals[ipair] += maskVals[mask];
+                                    }
+                                }
+                            }
+                            
+                            double ymax = 0.0;
+                            for (int ib = 0; ib < nPairBars; ++ib) ymax = std::max(ymax, pairVals[ib]);
+                            const double yMaxPlot = (ymax > 0.0) ? (1.30 * ymax) : 1.0;
+                            
+                            TH1F* hAxis = new TH1F(
+                                                   TString::Format("h_tightPairCentXpTAxis_%s_%s_%s_%s_%d",
+                                                                   maskBase.c_str(),
+                                                                   ds.trigger.c_str(),
+                                                                   summaryCentReqs[irow].folder.c_str(),
+                                                                   summaryPtReqs[icol].folder.c_str(),
+                                                                   exactTwoOnly ? 1 : 0).Data(),
+                                                   "",
+                                                   nPairBars, 0.5, nPairBars + 0.5
+                                                   );
+                            hAxis->SetDirectory(nullptr);
+                            hAxis->SetStats(0);
+                            hAxis->SetMinimum(0.0);
+                            hAxis->SetMaximum(yMaxPlot);
+                            
+                            for (int ib = 1; ib <= nPairBars; ++ib)
+                                hAxis->GetXaxis()->SetBinLabel(ib, tightPairs[ib-1].label.c_str());
+                            
+                            hAxis->GetYaxis()->SetTitle("Photon candidates");
+                            hAxis->GetXaxis()->SetTitle("");
+                            hAxis->GetXaxis()->LabelsOption("v");
+                            hAxis->GetXaxis()->SetLabelFont(42);
+                            hAxis->GetXaxis()->SetLabelSize(0.028);
+                            hAxis->GetXaxis()->SetLabelOffset(0.004);
+                            hAxis->GetYaxis()->SetTitleSize(0.048);
+                            hAxis->GetYaxis()->SetTitleOffset(1.00);
+                            hAxis->GetYaxis()->SetLabelSize(0.040);
+                            hAxis->SetLineColor(1);
+                            hAxis->SetLineWidth(2);
+                            hAxis->SetFillStyle(0);
+                            hAxis->Draw("hist");
+                            
+                            for (int ib = 1; ib <= nPairBars; ++ib)
+                            {
+                                TH1F* hb = new TH1F(
+                                                    TString::Format("h_tightPairCentXpTBar_%s_%s_%s_%s_%d_b%d",
+                                                                    maskBase.c_str(),
+                                                                    ds.trigger.c_str(),
+                                                                    summaryCentReqs[irow].folder.c_str(),
+                                                                    summaryPtReqs[icol].folder.c_str(),
+                                                                    exactTwoOnly ? 1 : 0,
+                                                                    ib).Data(),
+                                                    "",
+                                                    nPairBars, 0.5, nPairBars + 0.5
+                                                    );
+                                hb->SetDirectory(nullptr);
+                                hb->SetStats(0);
+                                hb->SetBinContent(ib, pairVals[ib-1]);
+                                hb->SetFillStyle(1001);
+                                hb->SetFillColor(tightPairColors[ib-1]);
+                                hb->SetLineColor(1);
+                                hb->SetLineWidth(2);
+                                hb->SetBarWidth(0.88);
+                                hb->SetBarOffset(0.06);
+                                hb->Draw("BAR SAME");
+                                keepSummary.push_back(hb);
+                            }
+                            
+                            TLatex tCell;
+                            tCell.SetTextFont(42);
+                            tCell.SetTextAlign(22);
+                            tCell.SetTextSize(0.032);
+                            for (int ib = 1; ib <= nPairBars; ++ib)
+                            {
+                                const double y = pairVals[ib-1];
+                                if (y <= 0.0) continue;
+                                
+                                const double x = hAxis->GetXaxis()->GetBinCenter(ib);
+                                const double yText = std::min(y + 0.020*yMaxPlot, 0.92*yMaxPlot);
+                                tCell.DrawLatex(x, yText, TString::Format("%.0f", y).Data());
+                            }
+                            
+                            keepSummary.push_back(hAxis);
+                            cSummary.cd();
+                        }
+                    }
+                    
+                    TLatex tSummaryTitle;
+                    tSummaryTitle.SetNDC();
+                    tSummaryTitle.SetTextFont(42);
+                    tSummaryTitle.SetTextAlign(13);
+                    tSummaryTitle.SetTextSize(0.030);
+                    tSummaryTitle.DrawLatex(0.010, 0.982, globalTitle.c_str());
+                    
+                    TPaveText* pInfo = new TPaveText(0.30, 0.900, 0.975, 0.988, "NDC NB");
+                    pInfo->SetFillStyle(0);
+                    pInfo->SetBorderSize(0);
+                    pInfo->SetTextFont(42);
+                    pInfo->SetTextAlign(12);
+                    pInfo->SetTextSize(0.018);
+                    pInfo->AddText(infoLine.c_str());
+                    pInfo->AddText("Exact-two plot: only masks with exactly two tight failures contribute");
+                    pInfo->AddText("Any-appearance plot: a pair contributes even if additional tight cuts also fail");
+                    pInfo->Draw();
+                    keepSummary.push_back(pInfo);
+                    
+                    TLatex tCol;
+                    tCol.SetNDC(true);
+                    tCol.SetTextFont(42);
+                    tCol.SetTextAlign(22);
+                    tCol.SetTextSize(0.034);
+                    for (int icol = 0; icol < nSummaryCols; ++icol)
+                    {
+                        const double x = leftSummary + (icol + 0.5) * rawCellW;
+                        tCol.DrawLatex(x, 1.0 - topSummary + 0.010, summaryPtReqs[icol].label.c_str());
+                    }
+                    
+                    TLatex tRow;
+                    tRow.SetNDC(true);
+                    tRow.SetTextFont(42);
+                    tRow.SetTextAlign(22);
+                    tRow.SetTextAngle(270);
+                    tRow.SetTextSize(0.035);
+                    for (int irow = 0; irow < nSummaryRows; ++irow)
+                    {
+                        const double y = 1.0 - topSummary - (irow + 0.5) * rawCellH;
+                        tRow.DrawLatex(0.032, y, summaryCentReqs[irow].label.c_str());
+                    }
+                    
+                    SaveCanvas(cSummary, JoinPath(tightSummaryOutDir, outName));
+                    
+                    for (auto* obj : keepSummary) delete obj;
+                };
+                
+                DrawTightInclusiveSummary(
+                                          "tightInclusiveFails_allPreselected_centralityXpT.png",
+                                          "Inclusive tight-cut fails in preselection-pass sample, Run25auau"
+                                          );
+                
+                DrawTightMaskSummary(
+                                     "h_tightFailMask_allPreselected",
+                                     "tightExclusiveFails_allPreselected_centralityXpT.png",
+                                     "Exact tight-fail masks in preselection-pass sample, Run25auau",
+                                     "All preselection-passing photons contribute; pass mask is handled separately in the multiplicity plot"
+                                     );
+                
+                DrawTightMaskSummary(
+                                     "h_tightFailMask_nonTight",
+                                     "tightExclusiveFails_nonTightOnly_centralityXpT.png",
+                                     "Exact tight-fail masks in non-tight sample, Run25auau",
+                                     "Only photons with #geq 2 failed tight cuts contribute"
+                                     );
+                
+                DrawTightMaskSummary(
+                                     "h_tightFailMask_neither",
+                                     "tightExclusiveFails_neitherOnly_centralityXpT.png",
+                                     "Exact tight-fail masks in neither sample, Run25auau",
+                                     "Only photons with exactly one failed tight cut contribute"
+                                     );
+                
+                DrawTightMultiplicitySummary(
+                                             "h_tightFailMask_allPreselected",
+                                             "tightFailMultiplicity_allPreselected_centralityXpT.png",
+                                             "Tight-failure multiplicity in preselection-pass sample, Run25auau",
+                                             "0-fail entries are the tight photons; 1-fail entries are the neither photons"
+                                             );
+                
+                DrawTightMultiplicitySummary(
+                                             "h_tightFailMask_nonTight",
+                                             "tightFailMultiplicity_nonTightOnly_centralityXpT.png",
+                                             "Tight-failure multiplicity in non-tight sample, Run25auau",
+                                             "Non-tight is defined by #geq 2 failed tight cuts, so only 2-5 fail bars are populated"
+                                             );
+                
+                DrawTightPairSummary(
+                                     "h_tightFailMask_nonTight",
+                                     "tightFailPairOnly_nonTight_centralityXpT.png",
+                                     "Non-tight sample: exact two-cut failure pairs, Run25auau",
+                                     "This plot isolates masks with exactly two failed tight cuts",
+                                     true
+                                     );
+                
+                DrawTightPairSummary(
+                                     "h_tightFailMask_nonTight",
+                                     "tightFailPairAnyAppearance_nonTight_centralityXpT.png",
+                                     "Non-tight sample: pair participation in larger fail masks, Run25auau",
+                                     "This plot counts every non-tight mask containing the listed pair, even if additional tight cuts also fail",
+                                     false
+                                     );
+            }
+            
+            {
                 struct WetaSummaryCurve
                 {
                     string label;
@@ -6318,7 +7330,12 @@ static void Make3x3Table_ABCDCounts(Dataset& ds,
 {
     EnsureDir(outDir);
     
-    const char* xLabelsABCD[4] = {"N_{A}", "N_{B}", "N_{C}", "N_{D}"};
+    const char* xLabelsABCD[4] = {
+        "N_{A} = iso+tight",
+        "N_{B} = iso+nonTight",
+        "N_{C} = nonIso+tight",
+        "N_{D} = nonIso+nonTight"
+    };
     const int   colorsABCD[4]  = {kGreen+2, kRed+1, kAzure+1, kMagenta+1};
     
     TCanvas c(
@@ -6462,6 +7479,129 @@ static void Make3x3Table_ABCDCounts(Dataset& ds,
     tGlobal.SetTextSize(0.028);
     tGlobal.DrawLatex(0.50, 0.965,
                       "ABCD counts after preselection (A=iso&tight, B=nonIso&tight, C=iso&nonTight, D=nonIso&nonTight)");
+    
+    SaveCanvas(c, JoinPath(outDir, outName));
+    
+    for (auto* obj : keepAlive) delete obj;
+}
+
+static void FillABCDCountsForPtSuffixes(Dataset& ds,
+                                        const vector<string>& ptSuffixes,
+                                        double vals[4])
+{
+    for (int ib = 0; ib < 4; ++ib) vals[ib] = 0.0;
+    
+    for (const auto& ptSuffix : ptSuffixes)
+    {
+        vals[0] += Read1BinCount(ds, "h_isIsolated_isTight"     + ptSuffix);
+        vals[1] += Read1BinCount(ds, "h_notIsolated_isTight"    + ptSuffix);
+        vals[2] += Read1BinCount(ds, "h_isIsolated_notTight"    + ptSuffix);
+        vals[3] += Read1BinCount(ds, "h_notIsolated_notTight"   + ptSuffix);
+    }
+}
+
+static void MakeSinglePad_ABCDCounts(const double vals[4],
+                                     const string& outDir,
+                                     const string& outName,
+                                     const string& titleLine,
+                                     const string& ptLabel,
+                                     const string& centLabel = "")
+{
+    EnsureDir(outDir);
+    
+    const char* xLabelsABCD[4] = {
+        "#splitline{N_{A} =}{iso+tight}",
+        "#splitline{N_{B} =}{iso+nonTight}",
+        "#splitline{N_{C} =}{nonIso+tight}",
+        "#splitline{N_{D} =}{nonIso+nonTight}"
+    };
+    const int   colorsABCD[4]  = {kGreen+2, kRed+1, kAzure+1, kMagenta+1};
+    
+    TCanvas c("c_abcd_cnt_single", "c_abcd_cnt_single", 900, 700);
+    ApplyCanvasMargins1D(c);
+    c.cd();
+    gPad->SetBottomMargin(0.24);
+    
+    double ymax = 0.0;
+    for (int ib = 0; ib < 4; ++ib) ymax = std::max(ymax, vals[ib]);
+    const double yMaxPlot = (ymax > 0.0) ? (1.35 * ymax) : 1.0;
+    
+    vector<TObject*> keepAlive;
+    keepAlive.reserve(5);
+    
+    TH1F* hAxis = new TH1F("h_abcdCntSingleAxis", "", 4, 0.5, 4.5);
+    hAxis->SetDirectory(nullptr);
+    hAxis->SetStats(0);
+    hAxis->SetMinimum(0.0);
+    hAxis->SetMaximum(yMaxPlot);
+    for (int ib = 1; ib <= 4; ++ib) hAxis->GetXaxis()->SetBinLabel(ib, xLabelsABCD[ib-1]);
+    hAxis->GetYaxis()->SetTitle("Counts");
+    hAxis->GetXaxis()->SetTitle("");
+    hAxis->GetXaxis()->LabelsOption("h");
+    hAxis->GetXaxis()->SetLabelFont(62);
+    hAxis->GetXaxis()->SetLabelSize(0.040);
+    hAxis->GetXaxis()->SetLabelOffset(0.010);
+    hAxis->GetYaxis()->SetTitleSize(0.050);
+    hAxis->GetYaxis()->SetTitleOffset(1.20);
+    hAxis->GetYaxis()->SetLabelSize(0.042);
+    hAxis->SetLineColor(1);
+    hAxis->SetLineWidth(2);
+    hAxis->SetFillStyle(0);
+    hAxis->Draw("hist");
+    keepAlive.push_back(hAxis);
+    
+    for (int ib = 1; ib <= 4; ++ib)
+    {
+        TH1F* hb = new TH1F(TString::Format("h_abcdCntSingleBar_b%d", ib).Data(), "", 4, 0.5, 4.5);
+        hb->SetDirectory(nullptr);
+        hb->SetStats(0);
+        hb->SetBinContent(ib, vals[ib-1]);
+        hb->SetFillStyle(1001);
+        hb->SetFillColor(colorsABCD[ib-1]);
+        hb->SetLineColor(1);
+        hb->SetLineWidth(2);
+        hb->SetBarWidth(0.90);
+        hb->SetBarOffset(0.05);
+        hb->Draw("BAR SAME");
+        keepAlive.push_back(hb);
+    }
+    
+    TLatex tVals;
+    tVals.SetTextFont(42);
+    tVals.SetTextAlign(22);
+    tVals.SetTextSize(0.045);
+    for (int ib = 1; ib <= 4; ++ib)
+    {
+        const double y = vals[ib-1];
+        if (y <= 0.0) continue;
+        const double x = hAxis->GetXaxis()->GetBinCenter(ib);
+        const double yText = std::min(y + 0.025 * yMaxPlot, 0.93 * yMaxPlot);
+        tVals.DrawLatex(x, yText, TString::Format("%.0f", y).Data());
+    }
+    
+    TLatex tTitle;
+    tTitle.SetNDC(true);
+    tTitle.SetTextFont(42);
+    tTitle.SetTextAlign(23);
+    tTitle.SetTextSize(0.045);
+    tTitle.DrawLatex(0.50, 0.965, titleLine.c_str());
+    
+    TLatex tPt;
+    tPt.SetNDC(true);
+    tPt.SetTextFont(42);
+    tPt.SetTextAlign(33);
+    tPt.SetTextSize(0.042);
+    tPt.DrawLatex(0.93, 0.89, ptLabel.c_str());
+    
+    if (!centLabel.empty())
+    {
+        TLatex tCent;
+        tCent.SetNDC(true);
+        tCent.SetTextFont(42);
+        tCent.SetTextAlign(13);
+        tCent.SetTextSize(0.040);
+        tCent.DrawLatex(0.18, 0.89, centLabel.c_str());
+    }
     
     SaveCanvas(c, JoinPath(outDir, outName));
     
@@ -6675,6 +7815,373 @@ void RunABCDPurityAndSidebandSubtraction(Dataset& ds, const LeakageFactors& lf)
         cntCommon.push_back("C=iso&nonTight   D=nonIso&nonTight");
         
         Make3x3Table_ABCDCounts(ds, cntDir, "table3x3_ABCDCounts.png", cntCommon);
+        
+        vector<string> pt2035Suffixes;
+        for (const auto& pb : PtBins())
+        {
+            if (pb.lo >= 20 && pb.hi <= 35) pt2035Suffixes.push_back(pb.suffix);
+        }
+        
+        if (!pt2035Suffixes.empty() && !ds.centFolder.empty())
+        {
+            const string pt2035Dir = JoinPath(cntDir, "pT_20_35");
+            EnsureDir(pt2035Dir);
+            
+            double vals2035[4];
+            FillABCDCountsForPtSuffixes(ds, pt2035Suffixes, vals2035);
+            MakeSinglePad_ABCDCounts(vals2035,
+                                     pt2035Dir,
+                                     "ABCDCounts_pT_20_35.png",
+                                     ds.isSim ? "ABCD counts (preselection pass), SIM"
+                                              : "ABCD counts (preselection pass), Run25auau",
+                                     "p_{T}^{#gamma}: 20-35 GeV",
+                                     ds.centLabel);
+            
+            if (!ds.isSim)
+            {
+                TFile* fPPcnt = TFile::Open(InputPP(isRun25pp).c_str(), "READ");
+                if (fPPcnt && !fPPcnt->IsZombie())
+                {
+                    TDirectory* ppDirCnt = fPPcnt->GetDirectory(kTriggerPP.c_str());
+                    if (ppDirCnt)
+                    {
+                        Dataset dsPP;
+                        dsPP.label = "DATA_PP_ABCDCounts";
+                        dsPP.isSim = false;
+                        dsPP.trigger = kTriggerPP;
+                        dsPP.topDirName = kTriggerPP;
+                        dsPP.inFilePath = InputPP(isRun25pp);
+                        dsPP.outBase = JoinPath(OutputPP(), kTriggerPP);
+                        dsPP.centFolder = "";
+                        dsPP.centSuffix = "";
+                        dsPP.centLabel = "";
+                        dsPP.file = fPPcnt;
+                        dsPP.topDir = ppDirCnt;
+                        
+                        double valsPP2035[4];
+                        FillABCDCountsForPtSuffixes(dsPP, pt2035Suffixes, valsPP2035);
+                        MakeSinglePad_ABCDCounts(valsPP2035,
+                                                 pt2035Dir,
+                                                 "ABCDCounts_pT_20_35_Run24pp.png",
+                                                 "ABCD counts (preselection pass), Run24pp",
+                                                 "p_{T}^{#gamma}: 20-35 GeV");
+                    }
+                    fPPcnt->Close();
+                    delete fPPcnt;
+                }
+                else if (fPPcnt)
+                {
+                    fPPcnt->Close();
+                    delete fPPcnt;
+                }
+            }
+        }
+    }
+    
+    // ---------------------------------------------------------------------------
+    // Trigger-level centrality x pT summary for ABCD counts
+    // ---------------------------------------------------------------------------
+    if (!ds.isSim && !ds.centFolder.empty() && ds.file && ds.topDir)
+    {
+        struct SummaryPtRequest
+        {
+            string label;
+            string folder;
+            vector<string> suffixes;
+        };
+        
+        struct SummaryCentRequest
+        {
+            string label;
+            string folder;
+            vector<string> suffixes;
+        };
+        
+        vector<SummaryPtRequest> summaryPtReqs;
+        summaryPtReqs.push_back({"10-12 GeV", "pT_10_12", {"_pT_10_12"}});
+        summaryPtReqs.push_back({"14-16 GeV", "pT_14_16", {"_pT_14_16"}});
+        summaryPtReqs.push_back({"18-20 GeV", "pT_18_20", {"_pT_18_20"}});
+        
+        SummaryPtRequest pt2035;
+        pt2035.label = "20-35 GeV";
+        pt2035.folder = "pT_20_35";
+        for (const auto& pb : PtBins())
+        {
+            if (pb.lo >= 20 && pb.hi <= 35)
+            {
+                pt2035.suffixes.push_back(pb.suffix);
+            }
+        }
+        if (!pt2035.suffixes.empty()) summaryPtReqs.push_back(pt2035);
+        
+        vector<SummaryCentRequest> summaryCentReqs;
+        for (const auto& ocb : OverlayCentBins())
+        {
+            if ((ocb.lo == 0  && ocb.hi == 20) ||
+                (ocb.lo == 20 && ocb.hi == 50) ||
+                (ocb.lo == 50 && ocb.hi == 80))
+            {
+                SummaryCentRequest req;
+                req.label = TString::Format("%d-%d%%", ocb.lo, ocb.hi).Data();
+                req.folder = ocb.folder;
+                req.suffixes = ocb.suffixes;
+                summaryCentReqs.push_back(req);
+            }
+        }
+        
+        auto FillABCDSummaryVals =
+        [&](const vector<string>& ptSuffixes,
+            const vector<string>& centSuffixes,
+            double vals[4]) -> void
+        {
+            for (int ib = 0; ib < 4; ++ib) vals[ib] = 0.0;
+            
+            double A = 0.0;
+            double B = 0.0;
+            double C = 0.0;
+            double D = 0.0;
+            
+            for (const auto& centSuffix : centSuffixes)
+            {
+                Dataset dsSel;
+                dsSel.label = ds.label;
+                dsSel.isSim = ds.isSim;
+                dsSel.trigger = ds.trigger;
+                dsSel.topDirName = ds.topDirName;
+                dsSel.inFilePath = ds.inFilePath;
+                dsSel.outBase = ds.outBase;
+                dsSel.centFolder = "";
+                dsSel.centSuffix = centSuffix;
+                dsSel.centLabel = "";
+                dsSel.file = ds.file;
+                dsSel.topDir = ds.topDir;
+                
+                for (const auto& ptSuffix : ptSuffixes)
+                {
+                    A += Read1BinCount(dsSel, "h_isIsolated_isTight"   + ptSuffix);
+                    B += Read1BinCount(dsSel, "h_notIsolated_isTight"  + ptSuffix);
+                    C += Read1BinCount(dsSel, "h_isIsolated_notTight"  + ptSuffix);
+                    D += Read1BinCount(dsSel, "h_notIsolated_notTight" + ptSuffix);
+                }
+            }
+            
+            vals[0] = A;
+            vals[1] = B;
+            vals[2] = C;
+            vals[3] = D;
+        };
+        
+        static std::set<string> abcdCountsCentXpTDone;
+        const string abcdCountsGuardKey = ds.inFilePath + "|" + ds.trigger;
+        
+        if (summaryPtReqs.size() == 4 &&
+            summaryCentReqs.size() == 3 &&
+            abcdCountsCentXpTDone.find(abcdCountsGuardKey) == abcdCountsCentXpTDone.end())
+        {
+            abcdCountsCentXpTDone.insert(abcdCountsGuardKey);
+            
+            const string triggerOutDir = DirnameFromPath(ds.outBase);
+            const string summaryOutDir = JoinPath(triggerOutDir, "ABCDcounts_BarCharts_centralityXpT");
+            EnsureDir(summaryOutDir);
+            
+            const char* xLabelsABCDSummary[4] = {
+                "N_{A}",
+                "N_{B}",
+                "N_{C}",
+                "N_{D}"
+            };
+            
+            const int colorsABCDSummary[4] = {
+                kGreen+2,
+                kRed+1,
+                kAzure+1,
+                kMagenta+1
+            };
+            
+            const int nSummaryCols = (int)summaryPtReqs.size();
+            const int nSummaryRows = (int)summaryCentReqs.size();
+            
+            TCanvas cSummary(
+                             TString::Format("c_abcdCounts_centXpT_%s_%s", ds.trigger.c_str(), ds.centFolder.c_str()).Data(),
+                             "c_abcdCounts_centXpT", 5600, 3300
+                             );
+            cSummary.cd();
+            cSummary.SetFillColor(0);
+            cSummary.SetFrameFillColor(0);
+            
+            vector<TObject*> keepSummary;
+            keepSummary.reserve(nSummaryCols * nSummaryRows * 8);
+            
+            const double leftSummary   = 0.065;
+            const double rightSummary  = 0.008;
+            const double topSummary    = 0.150;
+            const double bottomSummary = 0.022;
+            const double xGapSummary   = 0.006;
+            const double yGapSummary   = 0.010;
+            
+            const double rawCellW = (1.0 - leftSummary - rightSummary) / nSummaryCols;
+            const double rawCellH = (1.0 - topSummary - bottomSummary) / nSummaryRows;
+            
+            for (int irow = 0; irow < nSummaryRows; ++irow)
+            {
+                for (int icol = 0; icol < nSummaryCols; ++icol)
+                {
+                    const double x1 = leftSummary + icol * rawCellW + 0.5 * xGapSummary;
+                    const double x2 = leftSummary + (icol + 1) * rawCellW - 0.5 * xGapSummary;
+                    const double y2 = 1.0 - topSummary - irow * rawCellH - 0.5 * yGapSummary;
+                    const double y1 = 1.0 - topSummary - (irow + 1) * rawCellH + 0.5 * yGapSummary;
+                    
+                    TPad* cellPad = new TPad(
+                                             TString::Format("abcdCountsCentXpT_pad_r%d_c%d_%s_%s",
+                                                             irow, icol, ds.trigger.c_str(), ds.centFolder.c_str()).Data(),
+                                             "",
+                                             x1, y1, x2, y2
+                                             );
+                    cellPad->SetLeftMargin(0.13);
+                    cellPad->SetRightMargin(0.025);
+                    cellPad->SetBottomMargin(0.12);
+                    cellPad->SetTopMargin(0.05);
+                    cellPad->SetTicks(1,1);
+                    cellPad->SetBorderMode(0);
+                    cellPad->SetFillColor(0);
+                    cellPad->Draw();
+                    cellPad->cd();
+                    
+                    double vv[4];
+                    FillABCDSummaryVals(summaryPtReqs[icol].suffixes, summaryCentReqs[irow].suffixes, vv);
+                    
+                    double ymax = 0.0;
+                    for (int ib = 0; ib < 4; ++ib) ymax = std::max(ymax, vv[ib]);
+                    const double yMaxPlot = (ymax > 0.0) ? (1.30 * ymax) : 1.0;
+                    
+                    TH1F* hAxis = new TH1F(
+                                           TString::Format("h_abcdCountsCentXpTAxis_%s_%s_%s",
+                                                           ds.trigger.c_str(),
+                                                           summaryCentReqs[irow].folder.c_str(),
+                                                           summaryPtReqs[icol].folder.c_str()).Data(),
+                                           "",
+                                           4, 0.5, 4.5
+                                           );
+                    hAxis->SetDirectory(nullptr);
+                    hAxis->SetStats(0);
+                    hAxis->SetMinimum(0.0);
+                    hAxis->SetMaximum(yMaxPlot);
+                    
+                    for (int ib = 1; ib <= 4; ++ib) hAxis->GetXaxis()->SetBinLabel(ib, xLabelsABCDSummary[ib-1]);
+                    
+                    hAxis->GetYaxis()->SetTitle("Counts");
+                    hAxis->GetXaxis()->SetTitle("");
+                    hAxis->GetXaxis()->LabelsOption("h");
+                    hAxis->GetXaxis()->SetLabelFont(62);
+                    hAxis->GetXaxis()->SetLabelSize(0.064);
+                    hAxis->GetXaxis()->SetLabelOffset(0.006);
+                    hAxis->GetYaxis()->SetTitleSize(0.052);
+                    hAxis->GetYaxis()->SetTitleOffset(1.15);
+                    hAxis->GetYaxis()->SetLabelSize(0.044);
+                    hAxis->SetLineColor(1);
+                    hAxis->SetLineWidth(2);
+                    hAxis->SetFillStyle(0);
+                    hAxis->Draw("hist");
+                    
+                    for (int ib = 1; ib <= 4; ++ib)
+                    {
+                        TH1F* hb = new TH1F(
+                                            TString::Format("h_abcdCountsCentXpTBar_%s_%s_%s_b%d",
+                                                            ds.trigger.c_str(),
+                                                            summaryCentReqs[irow].folder.c_str(),
+                                                            summaryPtReqs[icol].folder.c_str(),
+                                                            ib).Data(),
+                                            "",
+                                            4, 0.5, 4.5
+                                            );
+                        hb->SetDirectory(nullptr);
+                        hb->SetStats(0);
+                        hb->SetBinContent(ib, vv[ib-1]);
+                        hb->SetFillStyle(1001);
+                        hb->SetFillColor(colorsABCDSummary[ib-1]);
+                        hb->SetLineColor(1);
+                        hb->SetLineWidth(2);
+                        hb->SetBarWidth(0.90);
+                        hb->SetBarOffset(0.05);
+                        hb->Draw("BAR SAME");
+                        keepSummary.push_back(hb);
+                    }
+                    
+                    TLatex tCell;
+                    tCell.SetTextFont(62);
+                    tCell.SetTextAlign(22);
+                    tCell.SetTextSize(0.048);
+                    for (int ib = 1; ib <= 4; ++ib)
+                    {
+                        const double y = vv[ib-1];
+                        if (y <= 0.0) continue;
+                        
+                        const double x = hAxis->GetXaxis()->GetBinCenter(ib);
+                        const double yText = std::min(y + 0.024*yMaxPlot, 0.93*yMaxPlot);
+                        tCell.DrawLatex(x, yText, TString::Format("%.0f", y).Data());
+                    }
+                    
+                    keepSummary.push_back(hAxis);
+                    cSummary.cd();
+                }
+            }
+            
+            TLatex tSummaryTitle;
+            tSummaryTitle.SetNDC();
+            tSummaryTitle.SetTextFont(42);
+            tSummaryTitle.SetTextAlign(13);
+            tSummaryTitle.SetTextSize(0.030);
+            tSummaryTitle.DrawLatex(0.010, 0.982, "ABCD counts (preselection pass), Run25auau");
+            
+            TPaveText* pSumCol1 = new TPaveText(0.53, 0.900, 0.76, 0.988, "NDC NB");
+            pSumCol1->SetFillStyle(0);
+            pSumCol1->SetBorderSize(0);
+            pSumCol1->SetTextFont(42);
+            pSumCol1->SetTextAlign(12);
+            pSumCol1->SetTextSize(0.021);
+            ((TText*)pSumCol1->AddText("N_{A}: iso & tight"))->SetTextColor(colorsABCDSummary[0]);
+            ((TText*)pSumCol1->AddText("N_{B}: nonIso & tight"))->SetTextColor(colorsABCDSummary[1]);
+            pSumCol1->Draw();
+            keepSummary.push_back(pSumCol1);
+            
+            TPaveText* pSumCol2 = new TPaveText(0.75, 0.900, 0.975, 0.988, "NDC NB");
+            pSumCol2->SetFillStyle(0);
+            pSumCol2->SetBorderSize(0);
+            pSumCol2->SetTextFont(42);
+            pSumCol2->SetTextAlign(12);
+            pSumCol2->SetTextSize(0.021);
+            ((TText*)pSumCol2->AddText("N_{C}: iso & nonTight"))->SetTextColor(colorsABCDSummary[2]);
+            ((TText*)pSumCol2->AddText("N_{D}: nonIso & nonTight"))->SetTextColor(colorsABCDSummary[3]);
+            pSumCol2->Draw();
+            keepSummary.push_back(pSumCol2);
+            
+            TLatex tCol;
+            tCol.SetNDC(true);
+            tCol.SetTextFont(42);
+            tCol.SetTextAlign(22);
+            tCol.SetTextSize(0.034);
+            for (int icol = 0; icol < nSummaryCols; ++icol)
+            {
+                const double x = leftSummary + (icol + 0.5) * rawCellW;
+                tCol.DrawLatex(x, 1.0 - topSummary + 0.010, summaryPtReqs[icol].label.c_str());
+            }
+            
+            TLatex tRow;
+            tRow.SetNDC(true);
+            tRow.SetTextFont(42);
+            tRow.SetTextAlign(22);
+            tRow.SetTextAngle(270);
+            tRow.SetTextSize(0.035);
+            for (int irow = 0; irow < nSummaryRows; ++irow)
+            {
+                const double y = 1.0 - topSummary - (irow + 0.5) * rawCellH;
+                tRow.DrawLatex(0.032, y, summaryCentReqs[irow].label.c_str());
+            }
+            
+            SaveCanvas(cSummary, JoinPath(summaryOutDir, "ABCDcounts_BarCharts_centralityXpT.png"));
+            
+            for (auto* obj : keepSummary) delete obj;
+        }
     }
     
     // purity plots: use physical p_{T}^{#gamma} on the x axis and explicit purity uncertainties
@@ -16504,7 +18011,19 @@ int Run()
     for (auto& ds : datasets)
     {
         if (SSoverlayPerVAR_processONLY) break;
-        if (DO_purityAndLeakageCHECKS_ONLY) break;
+        if (DO_purityAndLeakageCHECKS_ONLY)
+        {
+            cout << ANSI_BOLD_YEL
+            << "\n[DATASET][purity-only preselection fails] " << ds.label
+            << "  isSim=" << (ds.isSim ? "true" : "false")
+            << "  trigger=" << ds.trigger
+            << ANSI_RESET << "\n";
+            
+            cout << "  -> [Section 2] Preselection failure table...\n";
+            analysis::RunPreselectionFailureTable(ds);
+            cout << "     [OK] Preselection failure table complete.\n";
+            continue;
+        }
         cout << ANSI_BOLD_YEL
         << "\n[DATASET] " << ds.label
         << "  isSim=" << (ds.isSim ? "true" : "false")

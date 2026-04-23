@@ -1228,6 +1228,8 @@ run_local_counter_test() {
 }
 
 collect_count_results() {
+  section "Step 3/5 — Load and reconcile first-pass result TSVs"
+
   ROOT_OK_FILES=0
   ROOT_OPENFAIL_FILES=0
   ROOT_ZOMBIE_FILES=0
@@ -1241,12 +1243,38 @@ collect_count_results() {
   FILE_REF_SCALED_EVT=()
   FILE_TREE=()
 
+  [[ -d "${TMP_RESULTS_DIR}" ]] || fatal "results directory not found: ${TMP_RESULTS_DIR}"
+  [[ -f "${TMP_UNIQUE_FILES}" ]] || fatal "unique file inventory not found: ${TMP_UNIQUE_FILES}"
+
+  local expected_results="${CHUNK_COUNT:-0}"
   local results_found=0
+  local total_result_rows=0
   local tsv status entries ref_raw ref_live ref_scaled tree path tree_key
+  local rows_this_tsv=0
+  local tsv_progress_every=250
+  local unique_progress_every=10000
+  local missing_results=0
+
+  if (( VERBOSE > 1 )); then
+    tsv_progress_every=50
+    unique_progress_every=2000
+  fi
+  if (( VERBOSE > 2 )); then
+    tsv_progress_every=1
+    unique_progress_every=500
+  fi
+
+  note "Result TSV directory            : ${TMP_RESULTS_DIR}"
+  note "Unique file inventory           : ${TMP_UNIQUE_FILES}"
+  note "Expected result TSV count       : $(fmt_num "${expected_results}")"
+  note "Unique referenced ROOT files    : $(fmt_num "${UNIQUE_FILE_COUNT}")"
+  note "Beginning TSV ingest"
 
   for tsv in "${TMP_RESULTS_DIR}"/audit_chunk_*.tsv "${TMP_RESULTS_DIR}"/audit_chunk_*_LOCAL.tsv; do
     [[ -s "${tsv}" ]] || continue
     ((results_found+=1))
+    rows_this_tsv=0
+
     while IFS=$'\t' read -r status entries ref_raw ref_live ref_scaled tree path; do
       [[ -n "${path:-}" ]] || continue
       FILE_STATUS["$path"]="$status"
@@ -1255,19 +1283,34 @@ collect_count_results() {
       FILE_REF_LIVE_EVT["$path"]="$(num_or_zero "${ref_live:-0}")"
       FILE_REF_SCALED_EVT["$path"]="$(num_or_zero "${ref_scaled:-0}")"
       FILE_TREE["$path"]="$tree"
+      ((rows_this_tsv+=1))
+      ((total_result_rows+=1))
     done < "${tsv}"
+
+    if (( VERBOSE > 0 )) && { (( results_found == 1 )) || (( results_found % tsv_progress_every == 0 )) || (( expected_results > 0 && results_found == expected_results )); }; then
+      say "result TSV ingest progress: $(fmt_num "${results_found}") / $(fmt_num "${expected_results}") files | rows loaded=$(fmt_num "${total_result_rows}") | latest=$(basename "${tsv}") | latest rows=$(fmt_num "${rows_this_tsv}")"
+    fi
   done
 
-  local expected_results="${CHUNK_COUNT:-0}"
+  if (( expected_results > results_found )); then
+    missing_results=$(( expected_results - results_found ))
+    warn "Missing result TSV files before reconciliation: $(fmt_num "${missing_results}")"
+  fi
+
   if (( LOCAL_MODE == 1 )); then
     note "Collected LOCAL validation result files: $(fmt_num "${results_found}")"
   else
-    note "Collected job result files: $(fmt_num "${results_found}") / $(fmt_num "${expected_results}")"
+    note "Collected job result files      : $(fmt_num "${results_found}") / $(fmt_num "${expected_results}")"
   fi
+  note "Total TSV rows ingested         : $(fmt_num "${total_result_rows}")"
+  note "Beginning unique-file reconciliation"
 
   local unique_path
+  local unique_seen=0
   while IFS= read -r unique_path; do
     [[ -n "${unique_path:-}" ]] || continue
+    ((unique_seen+=1))
+
     case "${FILE_STATUS[$unique_path]:-UNSCANNED}" in
       OK)
         ((ROOT_OK_FILES+=1))
@@ -1280,6 +1323,10 @@ collect_count_results() {
       NOTREE)   ((ROOT_NOTREE_FILES+=1))   ;;
       *)        ;;
     esac
+
+    if (( VERBOSE > 0 )) && { (( unique_seen == 1 )) || (( unique_seen % unique_progress_every == 0 )) || (( unique_seen == UNIQUE_FILE_COUNT )); }; then
+      say "unique-file reconcile progress: $(fmt_num "${unique_seen}") / $(fmt_num "${UNIQUE_FILE_COUNT}") | OK=$(fmt_num "${ROOT_OK_FILES}") | OPENFAIL=$(fmt_num "${ROOT_OPENFAIL_FILES}") | ZOMBIE=$(fmt_num "${ROOT_ZOMBIE_FILES}") | NOTREE=$(fmt_num "${ROOT_NOTREE_FILES}")"
+    fi
   done < "${TMP_UNIQUE_FILES}"
 
   good "Collected event-count results"
@@ -1402,8 +1449,8 @@ audit_runs() {
     RUN_EXPECTED_SEG["$r8"]="$expected_seg"
     RUN_CURRENT_SEG["$r8"]="$current_seg"
 
-    (( TOT_EXPECTED_SEG += expected_seg ))
-    (( TOT_CURRENT_SEG  += current_seg  ))
+    TOT_EXPECTED_SEG=$(( TOT_EXPECTED_SEG + expected_seg ))
+    TOT_CURRENT_SEG=$(( TOT_CURRENT_SEG + current_seg ))
 
     if (( expected_seg > 0 )); then (( RUNS_WITH_EXPECTED += 1 )); else (( RUNS_NO_EXPECTED += 1 )); fi
     if (( current_seg  > 0 )); then (( RUNS_WITH_CURRENT  += 1 )); fi
@@ -1432,13 +1479,13 @@ audit_runs() {
       status="${FILE_STATUS[$f]:-UNSCANNED}"
       ent="${FILE_ENTRIES[$f]:-0}"
       if [[ "$status" == "OK" ]]; then
-        (( expected_evt += ent ))
+        expected_evt=$(( expected_evt + ent ))
       fi
 
       if [[ -n "${current_set[$f]:-}" ]]; then
         (( present_seg += 1 ))
         if [[ "$status" == "OK" ]]; then
-          (( present_evt += ent ))
+          present_evt=$(( present_evt + ent ))
         fi
       else
         (( missing_seg += 1 ))
@@ -1449,16 +1496,16 @@ audit_runs() {
       status="${FILE_STATUS[$f]:-UNSCANNED}"
       ent="${FILE_ENTRIES[$f]:-0}"
       if [[ "$status" == "OK" ]]; then
-        (( current_evt += ent ))
-        (( current_ref_raw_evt += ${FILE_REF_RAW_EVT[$f]:-0} ))
-        (( current_ref_live_evt += ${FILE_REF_LIVE_EVT[$f]:-0} ))
-        (( current_ref_scaled_evt += ${FILE_REF_SCALED_EVT[$f]:-0} ))
+        current_evt=$(( current_evt + ent ))
+        current_ref_raw_evt=$(( current_ref_raw_evt + ${FILE_REF_RAW_EVT[$f]:-0} ))
+        current_ref_live_evt=$(( current_ref_live_evt + ${FILE_REF_LIVE_EVT[$f]:-0} ))
+        current_ref_scaled_evt=$(( current_ref_scaled_evt + ${FILE_REF_SCALED_EVT[$f]:-0} ))
       fi
 
       if [[ -z "${expected_set[$f]:-}" ]]; then
         (( extra_seg += 1 ))
         if [[ "$status" == "OK" ]]; then
-          (( extra_evt += ent ))
+          extra_evt=$(( extra_evt + ent ))
         fi
       fi
     done
@@ -1479,19 +1526,19 @@ audit_runs() {
     RUN_CURRENT_REF_LIVE_EVT["$r8"]="$current_ref_live_evt"
     RUN_CURRENT_REF_SCALED_EVT["$r8"]="$current_ref_scaled_evt"
 
-    (( TOT_PRESENT_SEG += present_seg ))
-    (( TOT_MISSING_SEG += missing_seg ))
-    (( TOT_EXTRA_SEG   += extra_seg   ))
+    TOT_PRESENT_SEG=$(( TOT_PRESENT_SEG + present_seg ))
+    TOT_MISSING_SEG=$(( TOT_MISSING_SEG + missing_seg ))
+    TOT_EXTRA_SEG=$(( TOT_EXTRA_SEG + extra_seg ))
 
-    (( TOT_EXPECTED_EVT += expected_evt ))
-    (( TOT_CURRENT_EVT  += current_evt  ))
-    (( TOT_PRESENT_EVT  += present_evt  ))
-    (( TOT_MISSING_EVT  += missing_evt  ))
-    (( TOT_EXTRA_EVT    += extra_evt    ))
+    TOT_EXPECTED_EVT=$(( TOT_EXPECTED_EVT + expected_evt ))
+    TOT_CURRENT_EVT=$(( TOT_CURRENT_EVT + current_evt ))
+    TOT_PRESENT_EVT=$(( TOT_PRESENT_EVT + present_evt ))
+    TOT_MISSING_EVT=$(( TOT_MISSING_EVT + missing_evt ))
+    TOT_EXTRA_EVT=$(( TOT_EXTRA_EVT + extra_evt ))
 
-    (( TOT_CURRENT_REF_RAW_EVT    += current_ref_raw_evt    ))
-    (( TOT_CURRENT_REF_LIVE_EVT   += current_ref_live_evt   ))
-    (( TOT_CURRENT_REF_SCALED_EVT += current_ref_scaled_evt ))
+    TOT_CURRENT_REF_RAW_EVT=$(( TOT_CURRENT_REF_RAW_EVT + current_ref_raw_evt ))
+    TOT_CURRENT_REF_LIVE_EVT=$(( TOT_CURRENT_REF_LIVE_EVT + current_ref_live_evt ))
+    TOT_CURRENT_REF_SCALED_EVT=$(( TOT_CURRENT_REF_SCALED_EVT + current_ref_scaled_evt ))
 
     if (( current_seg > 0 && current_ref_raw_evt == 0 )); then (( RUNS_WITH_CURRENT_ZERO_REF_RAW += 1 )); fi
     if (( current_seg > 0 && current_ref_live_evt == 0 )); then (( RUNS_WITH_CURRENT_ZERO_REF_LIVE += 1 )); fi
@@ -1520,22 +1567,22 @@ audit_runs() {
     RUN_REF_LIVE["$r8"]="$(num_or_zero "${ref_live:-0}")"
     RUN_REF_SCALED["$r8"]="$(num_or_zero "${ref_scaled:-0}")"
 
-    (( TOT_REF_RAW_ALL    += RUN_REF_RAW["$r8"]    ))
-    (( TOT_REF_LIVE_ALL   += RUN_REF_LIVE["$r8"]   ))
-    (( TOT_REF_SCALED_ALL += RUN_REF_SCALED["$r8"] ))
+    TOT_REF_RAW_ALL=$(( TOT_REF_RAW_ALL + RUN_REF_RAW["$r8"] ))
+    TOT_REF_LIVE_ALL=$(( TOT_REF_LIVE_ALL + RUN_REF_LIVE["$r8"] ))
+    TOT_REF_SCALED_ALL=$(( TOT_REF_SCALED_ALL + RUN_REF_SCALED["$r8"] ))
     if (( RUN_REF_ACTIVE["$r8"] != 0 )); then (( TOT_REF_ACTIVE_RUNS_ALL += 1 )); fi
 
     if (( current_seg > 0 )); then
-      (( TOT_REF_RAW_CURRENT    += RUN_REF_RAW["$r8"]    ))
-      (( TOT_REF_LIVE_CURRENT   += RUN_REF_LIVE["$r8"]   ))
-      (( TOT_REF_SCALED_CURRENT += RUN_REF_SCALED["$r8"] ))
+      TOT_REF_RAW_CURRENT=$(( TOT_REF_RAW_CURRENT + RUN_REF_RAW["$r8"] ))
+      TOT_REF_LIVE_CURRENT=$(( TOT_REF_LIVE_CURRENT + RUN_REF_LIVE["$r8"] ))
+      TOT_REF_SCALED_CURRENT=$(( TOT_REF_SCALED_CURRENT + RUN_REF_SCALED["$r8"] ))
       if (( RUN_REF_ACTIVE["$r8"] != 0 )); then (( TOT_REF_ACTIVE_RUNS_CURRENT += 1 )); fi
     fi
 
     if (( expected_seg > 0 && missing_seg == 0 && extra_seg == 0 )); then
-      (( TOT_REF_RAW_COMPLETE    += RUN_REF_RAW["$r8"]    ))
-      (( TOT_REF_LIVE_COMPLETE   += RUN_REF_LIVE["$r8"]   ))
-      (( TOT_REF_SCALED_COMPLETE += RUN_REF_SCALED["$r8"] ))
+      TOT_REF_RAW_COMPLETE=$(( TOT_REF_RAW_COMPLETE + RUN_REF_RAW["$r8"] ))
+      TOT_REF_LIVE_COMPLETE=$(( TOT_REF_LIVE_COMPLETE + RUN_REF_LIVE["$r8"] ))
+      TOT_REF_SCALED_COMPLETE=$(( TOT_REF_SCALED_COMPLETE + RUN_REF_SCALED["$r8"] ))
       if (( RUN_REF_ACTIVE["$r8"] != 0 )); then (( TOT_REF_ACTIVE_RUNS_COMPLETE += 1 )); fi
     fi
 
@@ -1600,7 +1647,10 @@ audit_runs() {
     RUN_NOTES["$r8"]="$notes"
 
     if (( VERBOSE > 0 )) && { (( idx == 1 )) || (( idx % RUN_PROGRESS_EVERY == 0 )) || (( idx == ${#RUN_ORDER[@]} )); }; then
-      say "run audit progress: ${idx} / ${#RUN_ORDER[@]}"
+      say "run audit progress: ${idx} / ${#RUN_ORDER[@]} | run=${r8} | curSeg=$(fmt_num "${current_seg}") | curEvt=$(fmt_num "${current_evt}") | scaledBit=$(fmt_num "${current_ref_scaled_evt}") | daqScaled=$(fmt_num "${RUN_REF_SCALED[$r8]}") | status=${run_status}"
+      if (( VERBOSE > 1 )) && [[ -n "${notes}" ]]; then
+        note "run ${r8} notes: ${notes}"
+      fi
     fi
   done
 
@@ -1947,15 +1997,38 @@ main() {
   fi
   [[ -n "${MANIFEST_PATH}" ]] || fatal "no first-pass manifest found in the current directory; run firstPass first or use --manifest"
 
+  local cli_action="${ACTION}"
+  local cli_verbose="${VERBOSE}"
+  local cli_show_all_run_tables="${SHOW_ALL_RUN_TABLES}"
+  local cli_run_progress_every="${RUN_PROGRESS_EVERY}"
+  local cli_root_progress_every="${ROOT_PROGRESS_EVERY}"
+  local cli_local_mode="${LOCAL_MODE}"
+
   load_firstpass_manifest "${MANIFEST_PATH}"
+
+  ACTION="${cli_action}"
+  VERBOSE="${cli_verbose}"
+  SHOW_ALL_RUN_TABLES="${cli_show_all_run_tables}"
+  RUN_PROGRESS_EVERY="${cli_run_progress_every}"
+  ROOT_PROGRESS_EVERY="${cli_root_progress_every}"
+  LOCAL_MODE="${cli_local_mode}"
+
   read_runs_from_file "${GRL}"
   (( ${#RUN_ORDER[@]} > 0 )) || fatal "no valid runs found in GRL: ${GRL}"
 
   print_startup_context
   note "GRL runs loaded: $(fmt_num "${#RUN_ORDER[@]}")"
+  note "Persisted work dir             : ${TMP_ROOT}"
+  note "Result TSV directory           : ${TMP_RESULTS_DIR}"
+  note "Unique file inventory          : ${TMP_UNIQUE_FILES}"
+  note "Beginning second-pass aggregation"
 
   collect_count_results
+  note "Beginning run-by-run audit against current lists and DAQ counters"
+
   audit_runs
+  note "Preparing final terminal summary output"
+
   print_core_summary
   print_ranked_tables
   print_run_status_table

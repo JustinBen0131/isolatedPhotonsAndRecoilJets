@@ -5536,6 +5536,67 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 else if (tight_fails >= 2) { tightTag = TightTag::kNonTight;   ++m_bk.tight_nonTight; }
                 else                       { tightTag = TightTag::kNeither;    ++m_bk.tight_neither; }
                 
+                {
+                    int tightFailMask = 0;
+                    if (!t_weta)   tightFailMask |= 1;
+                    if (!t_wphi)   tightFailMask |= 2;
+                    if (!t_e11e33) tightFailMask |= 4;
+                    if (!t_et1)    tightFailMask |= 8;
+                    if (!t_e32e35) tightFailMask |= 16;
+                    
+                    for (const auto& trigShort : activeTrig)
+                    {
+                        if (auto* hMaskAll = getOrBookCountHist(trigShort, "h_tightFailMask_allPreselected", ptIdx, effCentIdx_SS))
+                        {
+                            hMaskAll->Fill(tightFailMask);
+                            bumpHistFill(trigShort, std::string("h_tightFailMask_allPreselected") + slice_SS);
+                        }
+                        
+                        if (tightTag == TightTag::kNonTight)
+                        {
+                            if (auto* hMaskNonTight = getOrBookCountHist(trigShort, "h_tightFailMask_nonTight", ptIdx, effCentIdx_SS))
+                            {
+                                hMaskNonTight->Fill(tightFailMask);
+                                bumpHistFill(trigShort, std::string("h_tightFailMask_nonTight") + slice_SS);
+                            }
+                        }
+                        else if (tightTag == TightTag::kNeither)
+                        {
+                            if (auto* hMaskNeither = getOrBookCountHist(trigShort, "h_tightFailMask_neither", ptIdx, effCentIdx_SS))
+                            {
+                                hMaskNeither->Fill(tightFailMask);
+                                bumpHistFill(trigShort, std::string("h_tightFailMask_neither") + slice_SS);
+                            }
+                        }
+                        
+                        if (!t_weta)
+                        {
+                            if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_weta", ptIdx, effCentIdx_SS))
+                            { h->Fill(1); bumpHistFill(trigShort, std::string("h_tightFail_weta") + slice_SS); }
+                        }
+                        if (!t_wphi)
+                        {
+                            if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_wphi", ptIdx, effCentIdx_SS))
+                            { h->Fill(1); bumpHistFill(trigShort, std::string("h_tightFail_wphi") + slice_SS); }
+                        }
+                        if (!t_e11e33)
+                        {
+                            if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_e11e33", ptIdx, effCentIdx_SS))
+                            { h->Fill(1); bumpHistFill(trigShort, std::string("h_tightFail_e11e33") + slice_SS); }
+                        }
+                        if (!t_et1)
+                        {
+                            if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_et1", ptIdx, effCentIdx_SS))
+                            { h->Fill(1); bumpHistFill(trigShort, std::string("h_tightFail_et1") + slice_SS); }
+                        }
+                        if (!t_e32e35)
+                        {
+                            if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_e32e35", ptIdx, effCentIdx_SS))
+                            { h->Fill(1); bumpHistFill(trigShort, std::string("h_tightFail_e32e35") + slice_SS); }
+                        }
+                    }
+                }
+                
                 // -------------------------------------------------------------------------
                 // NEW: PPG12-style SS template histograms (preselection / tight / non-tight)
                 //   - DATA: tagKey = pre / tight / nonTight
@@ -7408,183 +7469,183 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
                                              const Jet* recoTruthBest,
                                              const Jet* truthLeadRecoilJet)
 {
-  if (!m_evtDiagEnabled || !m_evtDiagNodesReady)
-  {
-    return;
-  }
-
-  initEventDisplayDiagnosticsTree();
-  if (!m_evtDiagTree)
-  {
-    return;
-  }
-
-  resetEventDisplayDiagnosticsBuffers();
-
-  if (m_evtHeader)
-  {
-    m_evtDiag_run = m_evtHeader->get_RunNumber();
-    m_evtDiag_evt = m_evtHeader->get_EvtSequence();
-  }
-  m_evtDiag_eventCount = event_count;
-  m_evtDiag_vz = static_cast<float>(m_vz);
-
+    if (!m_evtDiagEnabled || !m_evtDiagNodesReady)
+    {
+        return;
+    }
+    
+    initEventDisplayDiagnosticsTree();
+    if (!m_evtDiagTree)
+    {
+        return;
+    }
+    
+    resetEventDisplayDiagnosticsBuffers();
+    
+    if (m_evtHeader)
+    {
+        m_evtDiag_run = m_evtHeader->get_RunNumber();
+        m_evtDiag_evt = m_evtHeader->get_EvtSequence();
+    }
+    m_evtDiag_eventCount = event_count;
+    m_evtDiag_vz = static_cast<float>(m_vz);
+    
     m_evtDiag_rKey   = rKey;
     m_evtDiag_ptBin  = ptBin;
     m_evtDiag_cat    = static_cast<int>(cat);
     m_evtDiag_isSim  = (m_isSim ? 1 : 0);
-
+    
     m_evtDiag_ptGammaReco   = static_cast<float>(recoGammaPt);
     m_evtDiag_etaGammaReco  = static_cast<float>(recoGammaEta);
     m_evtDiag_phiGammaReco  = static_cast<float>(recoGammaPhi);
-
+    
     if (m_isSim)
     {
-      m_evtDiag_ptGammaTruth  = static_cast<float>(truthGammaPt);
-      m_evtDiag_phiGammaTruth = static_cast<float>(truthGammaPhi);
+        m_evtDiag_ptGammaTruth  = static_cast<float>(truthGammaPt);
+        m_evtDiag_phiGammaTruth = static_cast<float>(truthGammaPhi);
     }
     else
     {
-      m_evtDiag_ptGammaTruth  = -9999.0f;
-      m_evtDiag_phiGammaTruth = -9999.0f;
+        m_evtDiag_ptGammaTruth  = -9999.0f;
+        m_evtDiag_phiGammaTruth = -9999.0f;
     }
-
-  if (selectedRecoilJet)
-  {
-    m_evtDiag_sel_pt  = static_cast<float>(selectedRecoilJet->get_pt());
-    m_evtDiag_sel_eta = static_cast<float>(selectedRecoilJet->get_eta());
-    m_evtDiag_sel_phi = static_cast<float>(selectedRecoilJet->get_phi());
-  }
-
+    
+    if (selectedRecoilJet)
+    {
+        m_evtDiag_sel_pt  = static_cast<float>(selectedRecoilJet->get_pt());
+        m_evtDiag_sel_eta = static_cast<float>(selectedRecoilJet->get_eta());
+        m_evtDiag_sel_phi = static_cast<float>(selectedRecoilJet->get_phi());
+    }
+    
     if (m_isSim && recoTruthBest)
     {
-      m_evtDiag_best_pt  = static_cast<float>(recoTruthBest->get_pt());
-      m_evtDiag_best_eta = static_cast<float>(recoTruthBest->get_eta());
-      m_evtDiag_best_phi = static_cast<float>(recoTruthBest->get_phi());
+        m_evtDiag_best_pt  = static_cast<float>(recoTruthBest->get_pt());
+        m_evtDiag_best_eta = static_cast<float>(recoTruthBest->get_eta());
+        m_evtDiag_best_phi = static_cast<float>(recoTruthBest->get_phi());
     }
-
+    
     if (m_isSim && truthLeadRecoilJet)
     {
-      m_evtDiag_truthLead_pt  = static_cast<float>(truthLeadRecoilJet->get_pt());
-      m_evtDiag_truthLead_eta = static_cast<float>(truthLeadRecoilJet->get_eta());
-      m_evtDiag_truthLead_phi = static_cast<float>(truthLeadRecoilJet->get_phi());
+        m_evtDiag_truthLead_pt  = static_cast<float>(truthLeadRecoilJet->get_pt());
+        m_evtDiag_truthLead_eta = static_cast<float>(truthLeadRecoilJet->get_eta());
+        m_evtDiag_truthLead_phi = static_cast<float>(truthLeadRecoilJet->get_phi());
     }
-
-  auto dR = [](double eta1, double phi1, double eta2, double phi2)
-  {
-    const double dphi = TVector2::Phi_mpi_pi(phi1 - phi2);
-    const double deta = eta1 - eta2;
-    return std::sqrt(deta * deta + dphi * dphi);
-  };
-
+    
+    auto dR = [](double eta1, double phi1, double eta2, double phi2)
+    {
+        const double dphi = TVector2::Phi_mpi_pi(phi1 - phi2);
+        const double deta = eta1 - eta2;
+        return std::sqrt(deta * deta + dphi * dphi);
+    };
+    
     if (m_isSim && selectedRecoilJet && truthLeadRecoilJet)
     {
-      m_evtDiag_drSelToTruthLead = static_cast<float>(dR(selectedRecoilJet->get_eta(),
-                                                         selectedRecoilJet->get_phi(),
-                                                         truthLeadRecoilJet->get_eta(),
-                                                         truthLeadRecoilJet->get_phi()));
+        m_evtDiag_drSelToTruthLead = static_cast<float>(dR(selectedRecoilJet->get_eta(),
+                                                           selectedRecoilJet->get_phi(),
+                                                           truthLeadRecoilJet->get_eta(),
+                                                           truthLeadRecoilJet->get_phi()));
     }
-
+    
     if (m_isSim && recoTruthBest && truthLeadRecoilJet)
     {
-      m_evtDiag_drBestToTruthLead = static_cast<float>(dR(recoTruthBest->get_eta(),
-                                                          recoTruthBest->get_phi(),
-                                                          truthLeadRecoilJet->get_eta(),
-                                                          truthLeadRecoilJet->get_phi()));
+        m_evtDiag_drBestToTruthLead = static_cast<float>(dR(recoTruthBest->get_eta(),
+                                                            recoTruthBest->get_phi(),
+                                                            truthLeadRecoilJet->get_eta(),
+                                                            truthLeadRecoilJet->get_phi()));
     }
-
+    
     const Jet* selForTowers  = selectedRecoilJet;
     const Jet* bestForTowers = recoTruthBest;
-
+    
     auto mapCalibToRawForTowers = [&](const Jet* calibJet) -> const Jet*
     {
-      if (!calibJet) return nullptr;
-
-      auto itCal = m_jets.find(rKey);
-      auto itRaw = m_jetsRaw.find(rKey);
-      if (itCal == m_jets.end() || !itCal->second) return nullptr;
-      if (itRaw == m_jetsRaw.end() || !itRaw->second) return nullptr;
-
-      JetContainer* calib = itCal->second;
-      JetContainer* raw   = itRaw->second;
-
+        if (!calibJet) return nullptr;
+        
+        auto itCal = m_jets.find(rKey);
+        auto itRaw = m_jetsRaw.find(rKey);
+        if (itCal == m_jets.end() || !itCal->second) return nullptr;
+        if (itRaw == m_jetsRaw.end() || !itRaw->second) return nullptr;
+        
+        JetContainer* calib = itCal->second;
+        JetContainer* raw   = itRaw->second;
+        
         // Require RAW constituents; otherwise tower payload will be empty.
         auto hasConstituents = [&](const Jet* j) -> bool
         {
-          return (j && (j->size_comp() > 0));
+            return (j && (j->size_comp() > 0));
         };
-
-      // 1) Primary: ID-based mapping (JetCalib sets calibrated jet id in the same loop as raw jets).
-      const int idC = static_cast<int>(calibJet->get_id());
-      if (idC >= 0)
-      {
-        for (const Jet* jr : *raw)
+        
+        // 1) Primary: ID-based mapping (JetCalib sets calibrated jet id in the same loop as raw jets).
+        const int idC = static_cast<int>(calibJet->get_id());
+        if (idC >= 0)
         {
-          if (!jr) continue;
-          if (static_cast<int>(jr->get_id()) != idC) continue;
-          if (!hasConstituents(jr)) continue;
-          return jr;
-        }
-      }
-
-      // 2) Secondary: index-preserving mapping (if id is not reliable in this container).
-      int idx = -1;
-      int i = 0;
-      for (const Jet* jc : *calib)
-      {
-        if (jc == calibJet)
-        {
-          idx = i;
-          break;
-        }
-        ++i;
-      }
-
-      if (idx >= 0)
-      {
-        int j = 0;
-        for (const Jet* jr : *raw)
-        {
-          if (j == idx)
-          {
-            if (hasConstituents(jr))
+            for (const Jet* jr : *raw)
             {
-              return jr;
+                if (!jr) continue;
+                if (static_cast<int>(jr->get_id()) != idC) continue;
+                if (!hasConstituents(jr)) continue;
+                return jr;
             }
-            break;
-          }
-          ++j;
         }
-      }
-
-      // 3) Fallback: closest-in-ΔR match in RAW container (only if ordering/id differ).
-      const double etaC = calibJet->get_eta();
-      const double phiC = calibJet->get_phi();
-
-      const Jet* best = nullptr;
-      double bestDR2  = 1e9;
-
-      for (const Jet* jr : *raw)
-      {
-        if (!hasConstituents(jr)) continue;
-
-        const double deta = (jr->get_eta() - etaC);
-        const double dphi = TVector2::Phi_mpi_pi(jr->get_phi() - phiC);
-        const double dr2  = deta*deta + dphi*dphi;
-
-        if (dr2 < bestDR2)
+        
+        // 2) Secondary: index-preserving mapping (if id is not reliable in this container).
+        int idx = -1;
+        int i = 0;
+        for (const Jet* jc : *calib)
         {
-          bestDR2 = dr2;
-          best = jr;
+            if (jc == calibJet)
+            {
+                idx = i;
+                break;
+            }
+            ++i;
         }
-      }
-
-      return best;
+        
+        if (idx >= 0)
+        {
+            int j = 0;
+            for (const Jet* jr : *raw)
+            {
+                if (j == idx)
+                {
+                    if (hasConstituents(jr))
+                    {
+                        return jr;
+                    }
+                    break;
+                }
+                ++j;
+            }
+        }
+        
+        // 3) Fallback: closest-in-ΔR match in RAW container (only if ordering/id differ).
+        const double etaC = calibJet->get_eta();
+        const double phiC = calibJet->get_phi();
+        
+        const Jet* best = nullptr;
+        double bestDR2  = 1e9;
+        
+        for (const Jet* jr : *raw)
+        {
+            if (!hasConstituents(jr)) continue;
+            
+            const double deta = (jr->get_eta() - etaC);
+            const double dphi = TVector2::Phi_mpi_pi(jr->get_phi() - phiC);
+            const double dr2  = deta*deta + dphi*dphi;
+            
+            if (dr2 < bestDR2)
+            {
+                bestDR2 = dr2;
+                best = jr;
+            }
+        }
+        
+        return best;
     };
-
+    
     if (const Jet* jr = mapCalibToRawForTowers(selectedRecoilJet)) selForTowers = jr;
     if (const Jet* jr = mapCalibToRawForTowers(recoTruthBest))     bestForTowers = jr;
-
+    
     appendEventDisplayDiagnosticsFromJet(selForTowers,
                                          m_evtDiag_sel_calo,
                                          m_evtDiag_sel_ieta,
@@ -7593,7 +7654,7 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
                                          m_evtDiag_sel_phiTower,
                                          m_evtDiag_sel_etTower,
                                          m_evtDiag_sel_eTower);
-
+    
     appendEventDisplayDiagnosticsFromJet(bestForTowers,
                                          m_evtDiag_best_calo,
                                          m_evtDiag_best_ieta,
@@ -7605,54 +7666,54 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
     const bool hasSelTowers  = !m_evtDiag_sel_etTower.empty();
     const bool hasBestTowers = !m_evtDiag_best_etTower.empty();
     const bool hasAnyTowers  = (hasSelTowers || hasBestTowers);
-
+    
     // If we failed to capture tower constituents, do NOT write a diagnostics entry.
     // This prevents blank/empty event display PNGs.
     if (!hasAnyTowers)
     {
-      if (Verbosity() >= 1)
-      {
-        LOG(1, CLR_YELLOW,
-            "[EventDisplayTree][skip] empty tower payload (no constituents) "
-            << "(event_count=" << event_count
-            << " rKey=" << rKey
-            << " ptBin=" << ptBin
-            << " cat=" << static_cast<int>(cat) << ")");
-      }
-      return;
+        if (Verbosity() >= 1)
+        {
+            LOG(1, CLR_YELLOW,
+                "[EventDisplayTree][skip] empty tower payload (no constituents) "
+                << "(event_count=" << event_count
+                << " rKey=" << rKey
+                << " ptBin=" << ptBin
+                << " cat=" << static_cast<int>(cat) << ")");
+        }
+        return;
     }
-
+    
     ++m_evtDiagNFill;
-
+    
     const int icat = static_cast<int>(cat);
     if (icat >= 0 && icat < 3)
     {
-      ++m_evtDiagNFillByCat[icat];
-      if (hasAnyTowers) ++m_evtDiagNFillWithAnyTowersByCat[icat];
+        ++m_evtDiagNFillByCat[icat];
+        if (hasAnyTowers) ++m_evtDiagNFillWithAnyTowersByCat[icat];
     }
-
+    
     if (hasSelTowers)  ++m_evtDiagNFillWithSelTowers;
     if (hasBestTowers) ++m_evtDiagNFillWithBestTowers;
     if (hasAnyTowers)  ++m_evtDiagNFillWithAnyTowers;
-
+    
     if (Verbosity() >= 1)
     {
-      LOG(1, CLR_CYAN,
-          "[EventDisplayTree][Fill][PHASE A] about to Fill() "
-          << "(event_count=" << event_count
-          << " rKey=" << rKey
-          << " ptBin=" << ptBin
-          << " cat=" << static_cast<int>(cat)
-          << " nSelTowers=" << m_evtDiag_sel_etTower.size()
-          << " nBestTowers=" << m_evtDiag_best_etTower.size() << ")");
+        LOG(1, CLR_CYAN,
+            "[EventDisplayTree][Fill][PHASE A] about to Fill() "
+            << "(event_count=" << event_count
+            << " rKey=" << rKey
+            << " ptBin=" << ptBin
+            << " cat=" << static_cast<int>(cat)
+            << " nSelTowers=" << m_evtDiag_sel_etTower.size()
+            << " nBestTowers=" << m_evtDiag_best_etTower.size() << ")");
     }
-
+    
     m_evtDiagTree->Fill();
-
+    
     if (Verbosity() >= 1)
     {
-      LOG(1, CLR_GREEN,
-          "[EventDisplayTree][Fill][PHASE B] returned from Fill()");
+        LOG(1, CLR_GREEN,
+            "[EventDisplayTree][Fill][PHASE B] returned from Fill()");
     }
 }
 
@@ -7662,121 +7723,179 @@ TH1I* RecoilJets::getOrBookCountHist(const std::string& trig,
                                      const std::string& base,
                                      int etIdx, int centIdx)
 {
-  const std::string suffix = suffixForBins(etIdx, centIdx);
-  const std::string name   = base + suffix;
-
-  if (Verbosity() >= 5)
-    LOG(5, CLR_BLUE, "  [getOrBookCountHist] trig=\"" << trig << "\" base=\"" << base
-           << "\" etIdx=" << etIdx << " centIdx=" << centIdx
-           << " → name=\"" << name << "\"");
-
-  if (trig.empty() || base.empty())
-  {
-    LOG(2, CLR_YELLOW, "  [getOrBookCountHist] empty trig/base (trig=\"" << trig
-           << "\", base=\"" << base << "\") – returning nullptr");
-    return nullptr;
-  }
-
-  // Map slot
-  auto& H = qaHistogramsByTrigger[trig];
-
-  // If already booked, verify type and return
-  if (auto it = H.find(name); it != H.end())
-  {
-    if (auto* h = dynamic_cast<TH1I*>(it->second))
-    {
-      if (Verbosity() >= 6)
-        LOG(6, CLR_GREEN, "    [getOrBookCountHist] reusing existing TH1I \"" << name << "\"");
-      return h;
-    }
-    LOG(2, CLR_YELLOW, "    [getOrBookCountHist] name clash: object \"" << name
-                       << "\" exists but is not TH1I – replacing it");
-    H.erase(it);
-  }
-
-  // Safety: output file & directory
-  if (!out || !out->IsOpen())
-  {
-    LOG(1, CLR_YELLOW, "  [getOrBookCountHist] output TFile invalid/null – returning nullptr");
-    return nullptr;
-  }
-
-  TDirectory* const prevDir = gDirectory;
-  TDirectory* dir = out->GetDirectory(trig.c_str());
-  if (!dir)
-  {
-    if (Verbosity() >= 4) LOG(4, CLR_BLUE, "    [getOrBookCountHist] creating directory \"" << trig << '"');
-    dir = out->mkdir(trig.c_str());
-  }
-  if (!dir)
-  {
-    LOG(1, CLR_YELLOW, "  [getOrBookCountHist] failed to create/access directory \"" << trig << "\"");
-    if (prevDir) prevDir->cd();
-    return nullptr;
-  }
-
-  dir->cd();
-
-  if (base == "h_preFailMask")
-  {
-    const std::string title = name + ";preselection fail mask;entries";
-
+    const std::string suffix = suffixForBins(etIdx, centIdx);
+    const std::string name   = base + suffix;
+    
     if (Verbosity() >= 5)
-      LOG(5, CLR_BLUE, "    [getOrBookCountHist] booking TH1I name=\"" << name << "\" title=\"" << title << '"');
-
-    auto* h = new TH1I(name.c_str(), title.c_str(), 16, -0.5, 15.5);
+        LOG(5, CLR_BLUE, "  [getOrBookCountHist] trig=\"" << trig << "\" base=\"" << base
+            << "\" etIdx=" << etIdx << " centIdx=" << centIdx
+            << " → name=\"" << name << "\"");
+    
+    if (trig.empty() || base.empty())
+    {
+        LOG(2, CLR_YELLOW, "  [getOrBookCountHist] empty trig/base (trig=\"" << trig
+            << "\", base=\"" << base << "\") – returning nullptr");
+        return nullptr;
+    }
+    
+    // Map slot
+    auto& H = qaHistogramsByTrigger[trig];
+    
+    // If already booked, verify type and return
+    if (auto it = H.find(name); it != H.end())
+    {
+        if (auto* h = dynamic_cast<TH1I*>(it->second))
+        {
+            if (Verbosity() >= 6)
+                LOG(6, CLR_GREEN, "    [getOrBookCountHist] reusing existing TH1I \"" << name << "\"");
+            return h;
+        }
+        LOG(2, CLR_YELLOW, "    [getOrBookCountHist] name clash: object \"" << name
+            << "\" exists but is not TH1I – replacing it");
+        H.erase(it);
+    }
+    
+    // Safety: output file & directory
+    if (!out || !out->IsOpen())
+    {
+        LOG(1, CLR_YELLOW, "  [getOrBookCountHist] output TFile invalid/null – returning nullptr");
+        return nullptr;
+    }
+    
+    TDirectory* const prevDir = gDirectory;
+    TDirectory* dir = out->GetDirectory(trig.c_str());
+    if (!dir)
+    {
+        if (Verbosity() >= 4) LOG(4, CLR_BLUE, "    [getOrBookCountHist] creating directory \"" << trig << '"');
+        dir = out->mkdir(trig.c_str());
+    }
+    if (!dir)
+    {
+        LOG(1, CLR_YELLOW, "  [getOrBookCountHist] failed to create/access directory \"" << trig << "\"");
+        if (prevDir) prevDir->cd();
+        return nullptr;
+    }
+    
+    dir->cd();
+    
+    if (base == "h_preFailMask")
+    {
+        const std::string title = name + ";preselection fail mask;entries";
+        
+        if (Verbosity() >= 5)
+            LOG(5, CLR_BLUE, "    [getOrBookCountHist] booking TH1I name=\"" << name << "\" title=\"" << title << '"');
+        
+        auto* h = new TH1I(name.c_str(), title.c_str(), 16, -0.5, 15.5);
+        if (!h)
+        {
+            LOG(1, CLR_YELLOW, "  [getOrBookCountHist] new TH1I failed for \"" << name << '"');
+            if (prevDir) prevDir->cd();
+            return nullptr;
+        }
+        
+        const char* labels[16] = {
+            "pass",
+            "e11",
+            "et1",
+            "e11+et1",
+            "e32",
+            "e11+e32",
+            "et1+e32",
+            "e11+et1+e32",
+            "weta",
+            "e11+weta",
+            "et1+weta",
+            "e11+et1+weta",
+            "e32+weta",
+            "e11+e32+weta",
+            "et1+e32+weta",
+            "all4"
+        };
+        
+        for (int ib = 0; ib < 16; ++ib)
+            h->GetXaxis()->SetBinLabel(ib + 1, labels[ib]);
+        
+        H[name] = h;
+        
+        if (prevDir) prevDir->cd();
+        return h;
+    }
+    
+    if (base.rfind("h_tightFailMask_", 0) == 0)
+    {
+        const std::string title = name + ";tight fail mask;entries";
+        
+        if (Verbosity() >= 5)
+            LOG(5, CLR_BLUE, "    [getOrBookCountHist] booking TH1I name=\"" << name << "\" title=\"" << title << '"');
+        
+        auto* h = new TH1I(name.c_str(), title.c_str(), 32, -0.5, 31.5);
+        if (!h)
+        {
+            LOG(1, CLR_YELLOW, "  [getOrBookCountHist] new TH1I failed for \"" << name << '"');
+            if (prevDir) prevDir->cd();
+            return nullptr;
+        }
+        
+        const char* labels[32] = {
+            "pass",
+            "weta",
+            "wphi",
+            "weta+wphi",
+            "e11",
+            "weta+e11",
+            "wphi+e11",
+            "weta+wphi+e11",
+            "et1",
+            "weta+et1",
+            "wphi+et1",
+            "weta+wphi+et1",
+            "e11+et1",
+            "weta+e11+et1",
+            "wphi+e11+et1",
+            "weta+wphi+e11+et1",
+            "e32",
+            "weta+e32",
+            "wphi+e32",
+            "weta+wphi+e32",
+            "e11+e32",
+            "weta+e11+e32",
+            "wphi+e11+e32",
+            "weta+wphi+e11+e32",
+            "et1+e32",
+            "weta+et1+e32",
+            "wphi+et1+e32",
+            "weta+wphi+et1+e32",
+            "e11+et1+e32",
+            "weta+e11+et1+e32",
+            "wphi+e11+et1+e32",
+            "all5"
+        };
+        
+        for (int ib = 0; ib < 32; ++ib)
+            h->GetXaxis()->SetBinLabel(ib + 1, labels[ib]);
+        
+        H[name] = h;
+        
+        if (prevDir) prevDir->cd();
+        return h;
+    }
+    
+    const std::string title = name + ";count;entries";
+    if (Verbosity() >= 5)
+        LOG(5, CLR_BLUE, "    [getOrBookCountHist] booking TH1I name=\"" << name << "\" title=\"" << title << '"');
+    
+    auto* h = new TH1I(name.c_str(), title.c_str(), 1, 0.5, 1.5);
     if (!h)
     {
-      LOG(1, CLR_YELLOW, "  [getOrBookCountHist] new TH1I failed for \"" << name << '"');
-      if (prevDir) prevDir->cd();
-      return nullptr;
+        LOG(1, CLR_YELLOW, "  [getOrBookCountHist] new TH1I failed for \"" << name << '"');
+        if (prevDir) prevDir->cd();
+        return nullptr;
     }
-
-    const char* labels[16] = {
-      "pass",
-      "e11",
-      "et1",
-      "e11+et1",
-      "e32",
-      "e11+e32",
-      "et1+e32",
-      "e11+et1+e32",
-      "weta",
-      "e11+weta",
-      "et1+weta",
-      "e11+et1+weta",
-      "e32+weta",
-      "e11+e32+weta",
-      "et1+e32+weta",
-      "all4"
-    };
-
-    for (int ib = 0; ib < 16; ++ib)
-      h->GetXaxis()->SetBinLabel(ib + 1, labels[ib]);
-
+    h->GetXaxis()->SetBinLabel(1,"count");
     H[name] = h;
-
+    
     if (prevDir) prevDir->cd();
     return h;
-  }
-
-  const std::string title = name + ";count;entries";
-
-  if (Verbosity() >= 5)
-    LOG(5, CLR_BLUE, "    [getOrBookCountHist] booking TH1I name=\"" << name << "\" title=\"" << title << '"');
-
-  auto* h = new TH1I(name.c_str(), title.c_str(), 1, 0.5, 1.5);
-  if (!h)
-  {
-    LOG(1, CLR_YELLOW, "  [getOrBookCountHist] new TH1I failed for \"" << name << '"');
-    if (prevDir) prevDir->cd();
-    return nullptr;
-  }
-  h->GetXaxis()->SetBinLabel(1,"count");
-  H[name] = h;
-
-  if (prevDir) prevDir->cd();
-  return h;
 }
 
 
