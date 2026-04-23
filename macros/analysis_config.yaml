@@ -105,6 +105,49 @@ centrality_edges: [0, 20, 50, 80]
 clusterUEpipeline: [baseVariant]
 
 # -----------------------------------------------------------------------------
+# Photon-ID logic matrix axes
+#
+# Naming suffix order:
+#   ..._<clusterUEpipeline>_preselection<...>_tight<...>_nonTight<...>
+#
+# reference
+#   Use the current hard-cut/reference analysis logic.
+#
+# variantA
+#   preselection: use the NPB veto (NPB score > npb_cut)
+#   tight       : use the separate tight-ID BDT definition
+#   nonTight    : for tight=variantA, nonTight is derived as the complement
+#                 of the tight-BDT pass inside the preselection sample
+# -----------------------------------------------------------------------------
+preselection: [reference]
+tight: [reference]
+nonTight: [reference]
+
+# -----------------------------------------------------------------------------
+# NPB preselection controls (used only when preselection: variantA)
+#   Slides / Blair convention: NPB score > 0.5
+# -----------------------------------------------------------------------------
+npb_model_file: ""
+npb_cut: 0.5
+npb_features: [vertex_z, ET, weta_cogx, wphi_cogx, et1, e11_over_e33, e32_over_e35]
+
+# -----------------------------------------------------------------------------
+# Tight-ID BDT controls (used only when tight: variantA)
+#   Sam's "base_single" feature order shown in chat:
+#     {vertex_z, cluster_eta, e11_over_e33, et1, et2, et3, et4}
+#
+# Tight decision is applied as:
+#   tight_bdt_score > (tight_bdt_min_slope * ET + tight_bdt_min_intercept)
+#   and
+#   tight_bdt_score < tight_bdt_max
+# -----------------------------------------------------------------------------
+tight_bdt_model_file: ""
+tight_bdt_min_intercept: 0.0
+tight_bdt_min_slope: 0.0
+tight_bdt_max: 1.0
+tight_bdt_features: [vertex_z, cluster_eta, e11_over_e33, et1, et2, et3, et4]
+
+# -----------------------------------------------------------------------------
 # SIM-only event reweighting (Blair-style)
 #
 # Applied multiplicatively in embedded MC / SIM as:

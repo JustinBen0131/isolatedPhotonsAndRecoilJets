@@ -325,6 +325,21 @@ namespace yamlcfg
         bool event_display_tree = true;
         int  event_display_tree_max_per_bin = 0;
         std::string clusterUEpipeline = "noSub";
+
+        std::string preselection = "reference";
+        std::string tight = "reference";
+        std::string nonTight = "reference";
+
+        std::string npb_model_file = "";
+        double npb_cut = 0.5;
+        std::vector<std::string> npb_features;
+
+        std::string tight_bdt_model_file = "";
+        double tight_bdt_min_intercept = 0.0;
+        double tight_bdt_min_slope = 0.0;
+        double tight_bdt_max = 1.0;
+        std::vector<std::string> tight_bdt_features;
+
         bool doPi0Analysis = false;
     };
     
@@ -420,6 +435,32 @@ namespace yamlcfg
         {
             int v = 0;
             if (ParseInt(tok, v)) out.push_back(v);
+        }
+    }
+
+    inline void ParseInlineListStrings(std::string s, std::vector<std::string>& out)
+    {
+        out.clear();
+        s = detail::trim(s);
+        const std::size_t l = s.find('[');
+        const std::size_t r = s.find(']');
+        if (l == std::string::npos || r == std::string::npos || r <= l) return;
+        std::string inner = s.substr(l + 1, r - l - 1);
+        std::stringstream ss(inner);
+        std::string tok;
+        while (std::getline(ss, tok, ','))
+        {
+            tok = detail::trim(tok);
+            if (tok.size() >= 2)
+            {
+                const char q0 = tok.front();
+                const char q1 = tok.back();
+                if ((q0 == '"' && q1 == '"') || (q0 == '\'' && q1 == '\''))
+                {
+                    tok = tok.substr(1, tok.size() - 2);
+                }
+            }
+            if (!tok.empty()) out.push_back(tok);
         }
     }
     
@@ -614,9 +655,10 @@ namespace yamlcfg
             else if (StartsWithKey(line, "clusterUEpipeline"))
             {
                 std::string rhs = AfterColon(line);
-                // trim leading/trailing whitespace
-                while (!rhs.empty() && (rhs.front() == ' ' || rhs.front() == '\t')) rhs.erase(rhs.begin());
-                while (!rhs.empty() && (rhs.back() == ' ' || rhs.back() == '\t')) rhs.pop_back();
+                std::vector<std::string> vals;
+                ParseInlineListStrings(rhs, vals);
+                if (!vals.empty()) rhs = vals.front();
+                rhs = detail::trim(rhs);
                 if (rhs == "true" || rhs == "1")
                     cfg.clusterUEpipeline = "variantA";
                 else if (rhs == "false" || rhs == "0")
@@ -624,7 +666,98 @@ namespace yamlcfg
                 else if (rhs == "noSub" || rhs == "baseVariant" || rhs == "variantA" || rhs == "variantB")
                     cfg.clusterUEpipeline = rhs;
                 else
-                    warn_parse("clusterUEpipeline", rhs, "expected noSub|baseVariant|variantA|variantB (or true/false for compat)");
+                    warn_parse("clusterUEpipeline", rhs, "expected noSub|baseVariant|variantA|variantB (or inline list [..])");
+            }
+            else if (StartsWithKey(line, "preselection"))
+            {
+                std::string rhs = AfterColon(line);
+                std::vector<std::string> vals;
+                ParseInlineListStrings(rhs, vals);
+                if (!vals.empty()) rhs = vals.front();
+                rhs = detail::trim(rhs);
+                if (rhs == "Reference") rhs = "reference";
+                if (rhs == "VariantA") rhs = "variantA";
+                if (rhs == "VariantB") rhs = "variantB";
+                if (rhs == "reference" || rhs == "variantA" || rhs == "variantB")
+                    cfg.preselection = rhs;
+                else
+                    warn_parse("preselection", rhs, "expected reference|variantA|variantB (or inline list [..])");
+            }
+            else if (StartsWithKey(line, "tight"))
+            {
+                std::string rhs = AfterColon(line);
+                std::vector<std::string> vals;
+                ParseInlineListStrings(rhs, vals);
+                if (!vals.empty()) rhs = vals.front();
+                rhs = detail::trim(rhs);
+                if (rhs == "Reference") rhs = "reference";
+                if (rhs == "VariantA") rhs = "variantA";
+                if (rhs == "VariantB") rhs = "variantB";
+                if (rhs == "reference" || rhs == "variantA" || rhs == "variantB")
+                    cfg.tight = rhs;
+                else
+                    warn_parse("tight", rhs, "expected reference|variantA|variantB (or inline list [..])");
+            }
+            else if (StartsWithKey(line, "nonTight"))
+            {
+                std::string rhs = AfterColon(line);
+                std::vector<std::string> vals;
+                ParseInlineListStrings(rhs, vals);
+                if (!vals.empty()) rhs = vals.front();
+                rhs = detail::trim(rhs);
+                if (rhs == "Reference") rhs = "reference";
+                if (rhs == "VariantA") rhs = "variantA";
+                if (rhs == "VariantB") rhs = "variantB";
+                if (rhs == "reference" || rhs == "variantA" || rhs == "variantB")
+                    cfg.nonTight = rhs;
+                else
+                    warn_parse("nonTight", rhs, "expected reference|variantA|variantB (or inline list [..])");
+            }
+            else if (StartsWithKey(line, "npb_model_file"))
+            {
+                cfg.npb_model_file = detail::trim(AfterColon(line));
+            }
+            else if (StartsWithKey(line, "npb_cut"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.npb_cut))
+                    warn_parse("npb_cut", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "npb_features"))
+            {
+                const std::string rhs = AfterColon(line);
+                ParseInlineListStrings(rhs, cfg.npb_features);
+                if (cfg.npb_features.empty())
+                    warn_parse("npb_features", rhs, "expected an inline list of feature names");
+            }
+            else if (StartsWithKey(line, "tight_bdt_model_file"))
+            {
+                cfg.tight_bdt_model_file = detail::trim(AfterColon(line));
+            }
+            else if (StartsWithKey(line, "tight_bdt_min_intercept"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.tight_bdt_min_intercept))
+                    warn_parse("tight_bdt_min_intercept", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "tight_bdt_min_slope"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.tight_bdt_min_slope))
+                    warn_parse("tight_bdt_min_slope", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "tight_bdt_max"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.tight_bdt_max))
+                    warn_parse("tight_bdt_max", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "tight_bdt_features"))
+            {
+                const std::string rhs = AfterColon(line);
+                ParseInlineListStrings(rhs, cfg.tight_bdt_features);
+                if (cfg.tight_bdt_features.empty())
+                    warn_parse("tight_bdt_features", rhs, "expected an inline list of feature names");
             }
             else if (StartsWithKey(line, "doPi0Analysis"))
             {
@@ -1500,6 +1633,25 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         else if (s == "baseVariant") cfg.clusterUEpipeline = "baseVariant";
         else if (s == "variantB") cfg.clusterUEpipeline = "variantB";
         else cfg.clusterUEpipeline = s;  // pass through unknown for diagnostics
+    }
+    if (const char* env = std::getenv("RJ_PRESELECTION_VARIANT"))
+    {
+        std::string s = detail::trim(std::string(env));
+        if (!s.empty()) cfg.preselection = s;
+    }
+    if (const char* env = std::getenv("RJ_TIGHT_VARIANT"))
+    {
+        std::string s = detail::trim(std::string(env));
+        if (!s.empty()) cfg.tight = s;
+    }
+    if (const char* env = std::getenv("RJ_NONTIGHT_VARIANT"))
+    {
+        std::string s = detail::trim(std::string(env));
+        if (!s.empty()) cfg.nonTight = s;
+    }
+    if (cfg.nonTight != "reference")
+    {
+        detail::bail("nonTight variants beyond 'reference' are not implemented yet. Keep nonTight: [reference].");
     }
     
     const std::vector<std::string> activeJetRKeys = yamlcfg::LoadJetRKeys(vlevel);
@@ -2927,9 +3079,8 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         }
     }
     
-    auto* photonBuilder = new PhotonClusterBuilder("PhotonClusterBuilder");
-    photonBuilder->set_input_cluster_node(photonInputClusterNode);
-    photonBuilder->set_output_photon_node("PHOTONCLUSTER_CEMC");
+    std::string preselectionPhotonNode = "PHOTONCLUSTER_CEMC";
+    std::string tightPhotonNode        = "PHOTONCLUSTER_CEMC";
     
     double minPhotonEt = 5.0;
     if (!cfg.jes3_photon_pt_bins.empty())
@@ -2940,32 +3091,87 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             minPhotonEt = *itMin;
         }
     }
-    photonBuilder->set_ET_threshold(static_cast<float>(minPhotonEt));
-    photonBuilder->set_iso_min_tower_energy(static_cast<float>(cfg.isoTowMin));
     
-    photonBuilder->set_use_vz_cut(cfg.use_vz_cut);
-    photonBuilder->set_vz_cut_cm(cfg.vz_cut_cm);
+    auto configurePhotonBuilder =
+    [&](PhotonClusterBuilder* builder, const std::string& outNode)
+    {
+        builder->set_input_cluster_node(photonInputClusterNode);
+        builder->set_output_photon_node(outNode);
+        builder->set_ET_threshold(static_cast<float>(minPhotonEt));
+        builder->set_iso_min_tower_energy(static_cast<float>(cfg.isoTowMin));
+        
+        builder->set_use_vz_cut(cfg.use_vz_cut);
+        builder->set_vz_cut_cm(cfg.vz_cut_cm);
+        
+        builder->set_is_auau(photonBuilderIsAuAu);
+        if ((cfg.clusterUEpipeline == "variantA" || cfg.clusterUEpipeline == "variantB") && isAuAuLike)
+        {
+            builder->set_emc_tower_node(towerPrefixPCB + "_CEMC_PHOSUB");
+            builder->set_ihcal_tower_node(towerPrefixPCB + "_HCALIN_SUB1");
+            builder->set_ohcal_tower_node(towerPrefixPCB + "_HCALOUT_SUB1");
+        }
+        else if (cfg.clusterUEpipeline == "baseVariant" && isAuAuLike)
+        {
+            builder->set_emc_tower_node(towerPrefixPCB + "_CEMC");
+            builder->set_ihcal_tower_node(towerPrefixPCB + "_HCALIN");
+            builder->set_ohcal_tower_node(towerPrefixPCB + "_HCALOUT");
+            builder->set_tower_node_prefix(towerPrefixPCB);
+        }
+        else if (isAuAuLike)
+        {
+            // noSub: standard towers, no AuAu iso path
+            builder->set_emc_tower_node(towerPrefixPCB + "_CEMC");
+            builder->set_ihcal_tower_node(towerPrefixPCB + "_HCALIN");
+            builder->set_ohcal_tower_node(towerPrefixPCB + "_HCALOUT");
+        }
+        
+        builder->Verbosity(vlevel);
+    };
     
-    photonBuilder->set_is_auau(photonBuilderIsAuAu);
-    if ((cfg.clusterUEpipeline == "variantA" || cfg.clusterUEpipeline == "variantB") && isAuAuLike)
+    auto* photonBuilder = new PhotonClusterBuilder("PhotonClusterBuilder");
+    configurePhotonBuilder(photonBuilder, "PHOTONCLUSTER_CEMC");
+    se->registerSubsystem(photonBuilder);
+    
+    if (cfg.preselection == "variantA")
     {
-        photonBuilder->set_emc_tower_node(towerPrefixPCB + "_CEMC_PHOSUB");
-        photonBuilder->set_ihcal_tower_node(towerPrefixPCB + "_HCALIN_SUB1");
-        photonBuilder->set_ohcal_tower_node(towerPrefixPCB + "_HCALOUT_SUB1");
+        if (cfg.npb_model_file.empty())
+        {
+            detail::bail("preselection=variantA requires npb_model_file in analysis_config.yaml");
+        }
+        if (cfg.npb_features.empty())
+        {
+            detail::bail("preselection=variantA requires npb_features in analysis_config.yaml");
+        }
+        
+        preselectionPhotonNode = "PHOTONCLUSTER_CEMC_NPB";
+        
+        auto* photonBuilderNPB = new PhotonClusterBuilder("PhotonClusterBuilder_NPB");
+        configurePhotonBuilder(photonBuilderNPB, preselectionPhotonNode);
+        photonBuilderNPB->set_do_bdt(true);
+        photonBuilderNPB->set_bdt_model_file(cfg.npb_model_file);
+        photonBuilderNPB->set_bdt_feature_list(cfg.npb_features);
+        se->registerSubsystem(photonBuilderNPB);
     }
-    else if (cfg.clusterUEpipeline == "baseVariant" && isAuAuLike)
+    
+    if (cfg.tight == "variantA")
     {
-        photonBuilder->set_emc_tower_node(towerPrefixPCB + "_CEMC");
-        photonBuilder->set_ihcal_tower_node(towerPrefixPCB + "_HCALIN");
-        photonBuilder->set_ohcal_tower_node(towerPrefixPCB + "_HCALOUT");
-        photonBuilder->set_tower_node_prefix(towerPrefixPCB);
-    }
-    else if (isAuAuLike)
-    {
-        // noSub: standard towers, no AuAu iso path
-        photonBuilder->set_emc_tower_node(towerPrefixPCB + "_CEMC");
-        photonBuilder->set_ihcal_tower_node(towerPrefixPCB + "_HCALIN");
-        photonBuilder->set_ohcal_tower_node(towerPrefixPCB + "_HCALOUT");
+        if (cfg.tight_bdt_model_file.empty())
+        {
+            detail::bail("tight=variantA requires tight_bdt_model_file in analysis_config.yaml");
+        }
+        if (cfg.tight_bdt_features.empty())
+        {
+            detail::bail("tight=variantA requires tight_bdt_features in analysis_config.yaml");
+        }
+        
+        tightPhotonNode = "PHOTONCLUSTER_CEMC_TIGHTBDT";
+        
+        auto* photonBuilderTightBDT = new PhotonClusterBuilder("PhotonClusterBuilder_TightBDT");
+        configurePhotonBuilder(photonBuilderTightBDT, tightPhotonNode);
+        photonBuilderTightBDT->set_do_bdt(true);
+        photonBuilderTightBDT->set_bdt_model_file(cfg.tight_bdt_model_file);
+        photonBuilderTightBDT->set_bdt_feature_list(cfg.tight_bdt_features);
+        se->registerSubsystem(photonBuilderTightBDT);
     }
     
     if (vlevel > 0)
@@ -2983,14 +3189,49 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         << " | isSimEmbedded=" << (isSimEmbedded ? "true" : "false")
         << " | photonBuilderIsAuAu=" << (photonBuilderIsAuAu ? "true" : "false")
         << " | clusterUEpipeline=" << cfg.clusterUEpipeline
-        << " | inputClusterNode=" << photonInputClusterNode << "\n";
+        << " | inputClusterNode=" << photonInputClusterNode
+        << " | preselectionVariant=" << cfg.preselection
+        << " | tightVariant=" << cfg.tight
+        << " | preselectionPhotonNode=" << preselectionPhotonNode
+        << " | tightPhotonNode=" << tightPhotonNode << "\n";
     }
     
-    
-    photonBuilder->Verbosity(vlevel);
-    se->registerSubsystem(photonBuilder);
-    
     auto* recoilJets = new RecoilJets(outRoot);
+    
+    auto fmtDouble = [](double x) -> std::string
+    {
+        std::ostringstream os;
+        os << std::setprecision(17) << x;
+        return os.str();
+    };
+    
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PRESELECTION_VARIANT",
+                                               "RJ_PRESELECTION_VARIANT",
+                                               cfg.preselection));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_TIGHT_VARIANT",
+                                               "RJ_TIGHT_VARIANT",
+                                               cfg.tight));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_NONTIGHT_VARIANT",
+                                               "RJ_NONTIGHT_VARIANT",
+                                               cfg.nonTight));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PRESELECTION_PHOTON_NODE",
+                                               "RJ_PRESELECTION_PHOTON_NODE",
+                                               preselectionPhotonNode));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_TIGHT_PHOTON_NODE",
+                                               "RJ_TIGHT_PHOTON_NODE",
+                                               tightPhotonNode));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_NPB_CUT",
+                                               "RJ_NPB_CUT",
+                                               fmtDouble(cfg.npb_cut)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_TIGHT_BDT_MIN_INTERCEPT",
+                                               "RJ_TIGHT_BDT_MIN_INTERCEPT",
+                                               fmtDouble(cfg.tight_bdt_min_intercept)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_TIGHT_BDT_MIN_SLOPE",
+                                               "RJ_TIGHT_BDT_MIN_SLOPE",
+                                               fmtDouble(cfg.tight_bdt_min_slope)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_TIGHT_BDT_MAX",
+                                               "RJ_TIGHT_BDT_MAX",
+                                               fmtDouble(cfg.tight_bdt_max)));
     
     // ------------------------------------------------------------------
     // Apply YAML-driven knobs
@@ -3065,7 +3306,32 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 #endif
         << " phoDR=" << cfg.pho_dr_max
         << " jetDR=" << cfg.jet_dr_max
+        << " preselection=" << cfg.preselection
+        << " tight=" << cfg.tight
+        << " nonTight=" << cfg.nonTight
         << "\n";
+        
+        std::cout << "[CFG] photon nodes:"
+        << " base=PHOTONCLUSTER_CEMC"
+        << " preselectionNode=" << preselectionPhotonNode
+        << " tightNode=" << tightPhotonNode << "\n";
+        
+        if (cfg.preselection == "variantA")
+        {
+            std::cout << "[CFG] NPB preselection:"
+            << " model=" << cfg.npb_model_file
+            << " cut=(score > " << cfg.npb_cut << ")"
+            << " features_n=" << cfg.npb_features.size() << "\n";
+        }
+        
+        if (cfg.tight == "variantA")
+        {
+            std::cout << "[CFG] tight BDT:"
+            << " model=" << cfg.tight_bdt_model_file
+            << " cut=(score > " << cfg.tight_bdt_min_slope << " * ET + " << cfg.tight_bdt_min_intercept
+            << " && score < " << cfg.tight_bdt_max << ")"
+            << " features_n=" << cfg.tight_bdt_features.size() << "\n";
+        }
         
         std::cout << "[CFG] isolation mode:";
         if (!cfg.isSlidingIso)
@@ -3136,6 +3402,10 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         << " | datasetToken=" << datasetToken
         << " | photonInputClusterNode=" << photonInputClusterNode
         << " | photonBuilderIsAuAu=" << (photonBuilderIsAuAu ? "true" : "false")
+        << " | preselectionVariant=" << cfg.preselection
+        << " | tightVariant=" << cfg.tight
+        << " | preselectionPhotonNode=" << preselectionPhotonNode
+        << " | tightPhotonNode=" << tightPhotonNode
         << std::endl;
     }
     recoilJets->setDataType(dtype);
