@@ -1,0 +1,34 @@
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+allow_login_shell = false
+web_search = "disabled"
+
+[sandbox_workspace_write]
+network_access = false
+exclude_slash_tmp = true
+exclude_tmpdir_env_var = true
+
+[shell_environment_policy]
+inherit = "none"
+include_only = [
+  "PATH",
+  "HOME",
+  "TERM",
+  "USER",
+  "SHELL",
+  "LANG",
+  "LC_ALL",
+  "TMPDIR",
+  "CONDA_PREFIX",
+  "SDKROOT",
+  "MACOSX_DEPLOYMENT_TARGET",
+  "ENVROOT",
+  "ROOUNFOLD_OLD",
+  "ROOT_CXXMODULES",
+  "ROOT_INCLUDE_PATH",
+  "CPATH",
+  "DYLD_LIBRARY_PATH",
+  "LD_LIBRARY_PATH",
+  "LIBRARY_PATH",
+  "ROOT_MODULE_PATH"
+]
