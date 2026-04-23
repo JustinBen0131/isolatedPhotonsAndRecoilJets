@@ -3853,7 +3853,9 @@ if (!SSoverlayPerVAR_processONLY)
                         const double cutTextY = useSpecialE32Legend ? 0.73 : 0.84;
                         const double cutTextSize = useSpecialE32Legend ? 0.028 : 0.026;
                         const bool moveSelectionBlockToBottomRight =
-                            (H.folder == "inclusiveEmbedded" && var == "weta" && tag == "pre" && pb.folder == "pT_10_12");
+                            (H.folder == "inclusiveEmbedded" && var == "weta" && tag == "pre" && pb.folder == "pT_10_12") ||
+                            (H.folder == "data" && H.variant == "baseVariant" && tag == "pre" &&
+                             pb.folder == "pT_20_35" && (var == "weta" || var == "wphi"));
                         DrawSSOverlayCutsAndText(var, tag, false, ptCenterForCuts, cutTextX, cutTextY, cutTextSize, !moveSelectionBlockToBottomRight);
                         
                         SaveCanvas(cVar, JoinPath(varTagDir,
@@ -4375,4 +4377,3 @@ if (fSimSS)
   delete fSimSS;
   fSimSS = nullptr;
 }
-
