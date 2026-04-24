@@ -17985,11 +17985,15 @@ int Run()
         }
     }
     
+    const bool ssOverlayOnly =
+        (generateUEcomparisonSSQA && skipToCentralityAndPtOverlaysWithSSQA);
+
     // ---------------------------------------------------------------------------
     // Embedded SIM statistics diagnostic (before any analysis)
     // ---------------------------------------------------------------------------
-    if (mode == RunMode::kSimAndDataAUAU ||
-        (mode == RunMode::kSimOnly && IsEmbeddedSimSample(CurrentSimSample())))
+    if (!ssOverlayOnly &&
+        (mode == RunMode::kSimAndDataAUAU ||
+         (mode == RunMode::kSimOnly && IsEmbeddedSimSample(CurrentSimSample()))))
     {
         cout << ANSI_BOLD_CYN << "\n[STEP 3b] Consolidated event summary\n" << ANSI_RESET;
         analysis::RunConsolidatedEventSummary();
@@ -18003,7 +18007,11 @@ int Run()
     // ---------------------------------------------------------------------------
     cout << ANSI_BOLD_CYN << "\n[STEP 4] Sections 1–3 (per-dataset)\n" << ANSI_RESET;
     
-    if (DO_purityAndLeakageCHECKS_ONLY)
+    if (ssOverlayOnly)
+        cout << ANSI_BOLD_CYN
+        << "  [SS overlay only] Skipping STEP 4 per-dataset QA (Section 1-3).\n"
+        << ANSI_RESET;
+    else if (DO_purityAndLeakageCHECKS_ONLY)
         cout << ANSI_BOLD_CYN
         << "  [DO_purityAndLeakageCHECKS_ONLY] Skipping STEP 4 per-dataset QA (Section 1–3).\n"
         << ANSI_RESET;
@@ -18011,6 +18019,7 @@ int Run()
     for (auto& ds : datasets)
     {
         if (SSoverlayPerVAR_processONLY) break;
+        if (ssOverlayOnly) break;
         if (DO_purityAndLeakageCHECKS_ONLY)
         {
             cout << ANSI_BOLD_YEL
@@ -18079,6 +18088,21 @@ int Run()
             cout << "  -> [isoQA] Inclusive Jet Embedded SIM UE variant comparisons...\n";
             analysis::RunIsoQA_UEComparisons_AuAu(2);
             cout << "     [OK] Inclusive Jet Embedded SIM UE variant comparison overlays complete.\n";
+        }
+
+        if (generateUEcomparisonSSQA && skipToCentralityAndPtOverlaysWithSSQA)
+        {
+            cout << ANSI_BOLD_CYN
+                 << "[INFO] Requested SS QA overlay-only run complete. Exiting before downstream analyses."
+                 << ANSI_RESET << "\n";
+            cout << "\n  -> Closing datasets...\n";
+            for (auto& ds : datasets)
+            {
+                cout << "     closing: " << ds.label << "\n";
+                driver::CloseDataset(ds);
+            }
+            cout << ANSI_BOLD_CYN << "\nDone.\n" << ANSI_RESET;
+            return 0;
         }
         
         if (!SSoverlayPerVAR_processONLY)

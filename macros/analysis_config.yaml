@@ -121,7 +121,7 @@ clusterUEpipeline: [baseVariant]
 # -----------------------------------------------------------------------------
 preselection: [reference]
 tight: [reference]
-nonTight: [reference]
+nonTight: [reference].
 
 # -----------------------------------------------------------------------------
 # NPB preselection controls (used only when preselection: variantA)

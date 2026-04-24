@@ -95,20 +95,20 @@ inline bool isPPdataOnly   = false;
 inline bool pp_beforeChangeInRecoSimDefTruthMatched = false;
 
 inline bool isSimAndDataPP = false;
-inline bool isSimAndDataAUAU = false;
+inline bool isSimAndDataAUAU = true;
 inline bool isSimEmbeddedOnly = false;
-inline bool isAuAuOnly     = true;
+inline bool isAuAuOnly     = false;
 
 inline bool isPPdataAndAUAU = false;
 
-inline bool generateUEcomparisonSSQA = false;
-inline bool skipToCentralityAndPtOverlaysWithSSQA = false;
+inline bool generateUEcomparisonSSQA = true;
+inline bool skipToCentralityAndPtOverlaysWithSSQA = true;
 inline bool SSoverlayPerVAR_processONLY           = false;
 inline bool generateISOpTcentOverlaysONLY         = false;
 inline bool perVariantIsoQA_ONLY                  = false;
 inline bool DO_inclusiveXJcomparisons_ONLY        = false;
 
-inline bool DO_purityAndLeakageCHECKS_ONLY        = true;
+inline bool DO_purityAndLeakageCHECKS_ONLY        = false;
 
 inline bool generatePerRunTriggerAna = false;
 inline bool generatePerRunTriggerAnaForGoodRunsOnly = false;
@@ -142,12 +142,12 @@ inline bool allPhoton5and10and20sim    = false;
 
 //   Embedded Au+Au SIM slices / merges:
 inline bool isPhotonJet10Embedded      = false;
-inline bool isPhotonJet20Embedded      = false;
+inline bool isPhotonJet20Embedded      = true;
 inline bool bothPhoton10and20simEmbedded = false;
 
 
 inline bool isInclusiveJet10Embedded   = false;
-inline bool isInclusiveJet20Embedded   = false;
+inline bool isInclusiveJet20Embedded   = true;
 inline bool bothInclusiveJet10and20simEmbedded = false;
 
 //   Special SIM samples:
@@ -1143,8 +1143,8 @@ struct Dataset
     Dataset() = default;
     Dataset(const Dataset&) = delete;
     Dataset& operator=(const Dataset&) = delete;
-    Dataset(Dataset&&) noexcept = default;
-    Dataset& operator=(Dataset&&) noexcept = default;
+    Dataset(Dataset&&) = default;
+    Dataset& operator=(Dataset&&) = default;
 };
 
 struct MatchCache

@@ -33,7 +33,12 @@ shopt -s nullglob
 #       • aggregates file-level event counts
 #       • performs the full run-by-run audit:
 #           expected lists vs current lists vs counted events
-#       • prints the final summary tables
+#       • writes a cached second-pass state for fast summary/report iteration
+#
+#     thirdPass
+#       • loads the first-pass manifest
+#       • loads the cached second-pass state
+#       • prints the final summary tables without rerunning the audit
 #
 # Supported commands
 #
@@ -67,16 +72,23 @@ shopt -s nullglob
 #        • prints terminal diagnostics so you can verify the parallel logic
 #        • still writes a manifest in the CURRENT directory
 #
-#   3) Final aggregation / audit
+#   3) Final aggregation / audit cache build
 #        ./audit_auau_grl_projection.sh secondPass
 #
 #      What it does
 #        • finds the most recent manifest in the CURRENT directory
 #        • loads the persisted work area from that manifest
 #        • reads completed chunk TSV results
-#        • performs the final audit and prints the summary
+#        • performs the final audit and writes a reusable cache
 #
-#   4) Final aggregation with an explicit manifest
+#   4) Fast summary/report pass
+#        ./audit_auau_grl_projection.sh thirdPass
+#
+#      What it does
+#        • loads the cached second-pass state from the persisted work area
+#        • prints the summary tables without rerunning aggregation or DAQ queries
+#
+#   5) Explicit manifest override
 #        ./audit_auau_grl_projection.sh secondPass --manifest ./audit_auau_firstPass_<timestamp>.txt
 #
 # Important behavior
@@ -88,11 +100,11 @@ shopt -s nullglob
 #   • The default cap is:
 #         MAX_CONDOR_JOBS=15000
 #     and chunk size is chosen automatically from the unique-file count.
-#   • secondPass is fast because it only reads completed TSV results rather
-#     than reopening all DST files itself.
+#   • secondPass avoids reopening DST files and now writes a cache for later reuse.
+#   • thirdPass is fast because it only reads the cached second-pass state.
 #
 # Useful options
-#   --manifest <path>          Use an explicit first-pass manifest in secondPass
+#   --manifest <path>          Use an explicit first-pass manifest in secondPass/thirdPass
 #   --grl <path>               Override the GRL
 #   --lists-dir <path>         Override the current dst list directory
 #   --dataset <token>          Override dataset token
@@ -101,7 +113,7 @@ shopt -s nullglob
 #   --max-condor-jobs <N>      Maximum number of chunk jobs to create
 #   --run-progress-every <N>   Progress cadence for run-level loops
 #   --root-progress-every <N>  Progress cadence inside the ROOT counter macro
-#   --summary-only             Suppress the full per-run table in secondPass
+#   --summary-only             Suppress the full per-run table in thirdPass
 #   -q / --quiet               Reduce chatter
 #   -v / --verbose             Increase chatter
 #
@@ -113,8 +125,11 @@ shopt -s nullglob
 #   Optional validation instead of submit
 #     ./audit_auau_grl_projection.sh firstPass LOCAL
 #
-#   Pass 2: after jobs finish, aggregate + audit
+#   Pass 2: after jobs finish, aggregate + cache
 #     ./audit_auau_grl_projection.sh secondPass
+#
+#   Pass 3: iterate on summary/report output from cache
+#     ./audit_auau_grl_projection.sh thirdPass
 #
 ###############################################################################
 
@@ -165,6 +180,8 @@ TMP_ROOT_RESULTS=""
 TMP_CHUNK_DIR=""
 TMP_RESULTS_DIR=""
 TMP_WRAPPER=""
+TMP_SECONDPASS_CACHE_TXT=""
+TMP_SECONDPASS_RUN_TSV=""
 CHUNK_SIZE=0
 CHUNK_COUNT=0
 
@@ -221,9 +238,10 @@ usage() {
 Usage:
   $(basename "$0") firstPass [LOCAL] [options]
   $(basename "$0") secondPass [options]
+  $(basename "$0") thirdPass [options]
 
 Options:
-  --manifest <path>            Override the first-pass manifest used by secondPass
+  --manifest <path>            Override the first-pass manifest used by secondPass/thirdPass
   --grl <path>                 Override GRL path
   --lists-dir <path>           Override current list directory
   --dataset <token>            Default: ${DATASET}
@@ -234,7 +252,7 @@ Options:
   --max-condor-jobs <N>        Default: ${MAX_CONDOR_JOBS}
   --run-progress-every <N>     Default: ${RUN_PROGRESS_EVERY}
   --root-progress-every <N>    Default: ${ROOT_PROGRESS_EVERY}
-  --summary-only               Suppress full run tables in secondPass
+  --summary-only               Suppress full run tables in thirdPass
   -q, --quiet                  Less chatter
   -v, --verbose                More chatter
   -h, --help                   Show this help
@@ -244,7 +262,8 @@ Examples:
   $(basename "$0") firstPass LOCAL
   $(basename "$0") secondPass
   $(basename "$0") secondPass --manifest ./audit_auau_firstPass_20260101_120000.txt
-  $(basename "$0") secondPass --trigger-bit 14 --trigger-name "MBD N&S >= 2, vtx < 150 cm"
+  $(basename "$0") thirdPass --manifest ./audit_auau_firstPass_20260101_120000.txt
+  $(basename "$0") thirdPass --summary-only
 EOF
   exit 0
 }
@@ -1104,7 +1123,12 @@ write_firstpass_manifest() {
 }
 
 latest_manifest_in_pwd() {
-  ls -1t ./audit_auau_firstPass_*.txt 2>/dev/null | head -n 1
+  ls -1t ./audit_auau_firstPass_*.txt 2>/dev/null | sed -n '1p'
+}
+
+refresh_secondpass_cache_paths() {
+  TMP_SECONDPASS_CACHE_TXT="${TMP_ROOT}/secondpass_cache.txt"
+  TMP_SECONDPASS_RUN_TSV="${TMP_ROOT}/secondpass_run_audit.tsv"
 }
 
 load_firstpass_manifest() {
@@ -1122,6 +1146,70 @@ load_firstpass_manifest() {
   TMP_CHUNK_DIR="${TMP_ROOT}/chunks"
   TMP_RESULTS_DIR="${TMP_ROOT}/results"
   TMP_WRAPPER="${TMP_ROOT}/audit_auau_count_wrapper.sh"
+  refresh_secondpass_cache_paths
+}
+
+write_secondpass_cache() {
+  refresh_secondpass_cache_paths
+
+  {
+    printf 'CACHE_VERSION=%q\n' "1"
+    printf 'CACHE_WRITER_ACTION=%q\n' "secondPass"
+    printf 'CACHE_CREATED_UTC=%q\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    declare -p RUN_ORDER
+    declare -p RUN_EXPECTED_LIST RUN_CURRENT_LIST
+    declare -p RUN_EXPECTED_SEG RUN_CURRENT_SEG RUN_PRESENT_SEG RUN_MISSING_SEG RUN_EXTRA_SEG
+    declare -p RUN_EXPECTED_EVT RUN_CURRENT_EVT RUN_PRESENT_EVT RUN_MISSING_EVT RUN_EXTRA_EVT
+    declare -p RUN_REF_MENU_PRESENT RUN_REF_NAME RUN_REF_ACTIVE RUN_REF_RAW RUN_REF_LIVE RUN_REF_SCALED
+    declare -p RUN_CURRENT_REF_RAW_EVT RUN_CURRENT_REF_LIVE_EVT RUN_CURRENT_REF_SCALED_EVT
+    declare -p RUN_SEG_AVAIL_FRAC RUN_ENTRY_AVAIL_FRAC RUN_APPROX_SCALED_REPR RUN_APPROX_LIVE_REPR
+    declare -p RUN_STATUS RUN_NOTES
+    declare -p TOT_EXPECTED_SEG TOT_CURRENT_SEG TOT_PRESENT_SEG TOT_MISSING_SEG TOT_EXTRA_SEG
+    declare -p TOT_EXPECTED_EVT TOT_CURRENT_EVT TOT_PRESENT_EVT TOT_MISSING_EVT TOT_EXTRA_EVT
+    declare -p TOT_REF_RAW_ALL TOT_REF_LIVE_ALL TOT_REF_SCALED_ALL TOT_REF_ACTIVE_RUNS_ALL
+    declare -p TOT_REF_RAW_CURRENT TOT_REF_LIVE_CURRENT TOT_REF_SCALED_CURRENT TOT_REF_ACTIVE_RUNS_CURRENT
+    declare -p TOT_CURRENT_REF_RAW_EVT TOT_CURRENT_REF_LIVE_EVT TOT_CURRENT_REF_SCALED_EVT
+    declare -p TOT_REF_RAW_COMPLETE TOT_REF_LIVE_COMPLETE TOT_REF_SCALED_COMPLETE TOT_REF_ACTIVE_RUNS_COMPLETE
+    declare -p TOT_APPROX_SCALED_REPR_ALL TOT_APPROX_LIVE_REPR_ALL TOT_APPROX_SCALED_REPR_CURRENT TOT_APPROX_LIVE_REPR_CURRENT TOT_APPROX_SCALED_REPR_COMPLETE TOT_APPROX_LIVE_REPR_COMPLETE
+    declare -p RUNS_WITH_EXPECTED RUNS_WITH_CURRENT RUNS_WITH_PRESENT RUNS_COMPLETE RUNS_PARTIAL RUNS_ZERO_PRESENT RUNS_WITH_EXTRA RUNS_NO_EXPECTED
+    declare -p RUNS_WITH_CURRENT_ZERO_REF_RAW RUNS_WITH_CURRENT_ZERO_REF_LIVE RUNS_WITH_CURRENT_ZERO_REF_SCALED
+    declare -p ROOT_OK_FILES ROOT_OPENFAIL_FILES ROOT_ZOMBIE_FILES ROOT_NOTREE_FILES ROOT_TOTAL_COUNTED_ENTRIES UNIQUE_FILE_COUNT
+    declare -p BASE GRL LIST_DIR DATASET TAG PREFIX PREFIX_STEM REF_TRIG_BIT REF_TRIG_NAME MANIFEST_PATH TMP_ROOT TMP_RESULTS_DIR TMP_UNIQUE_FILES TMP_SECONDPASS_CACHE_TXT TMP_SECONDPASS_RUN_TSV
+  } > "${TMP_SECONDPASS_CACHE_TXT}"
+
+  {
+    printf 'Run\tStatus\tExpectedSeg\tCurrentSeg\tPresentSeg\tMissingSeg\tExtraSeg\tExpectedEvt\tCurrentEvt\tPresentEvt\tMissingEvt\tExtraEvt\tCurrentRawBit\tCurrentLiveBit\tCurrentScaledBit\tDAQRaw\tDAQLive\tDAQScaled\tNotes\n'
+    local r8
+    for r8 in "${RUN_ORDER[@]}"; do
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$r8" \
+        "${RUN_STATUS[$r8]:-}" \
+        "${RUN_EXPECTED_SEG[$r8]:-0}" \
+        "${RUN_CURRENT_SEG[$r8]:-0}" \
+        "${RUN_PRESENT_SEG[$r8]:-0}" \
+        "${RUN_MISSING_SEG[$r8]:-0}" \
+        "${RUN_EXTRA_SEG[$r8]:-0}" \
+        "${RUN_EXPECTED_EVT[$r8]:-0}" \
+        "${RUN_CURRENT_EVT[$r8]:-0}" \
+        "${RUN_PRESENT_EVT[$r8]:-0}" \
+        "${RUN_MISSING_EVT[$r8]:-0}" \
+        "${RUN_EXTRA_EVT[$r8]:-0}" \
+        "${RUN_CURRENT_REF_RAW_EVT[$r8]:-0}" \
+        "${RUN_CURRENT_REF_LIVE_EVT[$r8]:-0}" \
+        "${RUN_CURRENT_REF_SCALED_EVT[$r8]:-0}" \
+        "${RUN_REF_RAW[$r8]:-0}" \
+        "${RUN_REF_LIVE[$r8]:-0}" \
+        "${RUN_REF_SCALED[$r8]:-0}" \
+        "${RUN_NOTES[$r8]:-}"
+    done
+  } > "${TMP_SECONDPASS_RUN_TSV}"
+}
+
+load_secondpass_cache() {
+  local cache_path="$1"
+  [[ -f "${cache_path}" ]] || fatal "second-pass cache not found: ${cache_path}"
+  # shellcheck disable=SC1090
+  source "${cache_path}"
 }
 
 submit_condor_counter_jobs() {
@@ -1163,6 +1251,7 @@ SUB
   write_firstpass_manifest "${MANIFEST_PATH}" "${sub}"
   good "First-pass manifest written: ${MANIFEST_PATH}"
   note "Run second pass later with: ./$(basename "$0") secondPass"
+  note "Then run third pass with    : ./$(basename "$0") thirdPass"
 }
 
 run_local_counter_test() {
@@ -1737,7 +1826,7 @@ print_ranked_tables() {
   done < <(
     for r8 in "${RUN_ORDER[@]}"; do
       printf '%015d\t%s\n' "${RUN_CURRENT_REF_SCALED_EVT[$r8]:-0}" "$r8"
-    done | sort -t $'\t' -k1,1nr -k2,2 | head -n 15
+    done | sort -t $'\t' -k1,1nr -k2,2 | awk 'NR <= 15 { print }'
   )
 
   subsection "G) Runs with zero scaled trigger counts in the current sample"
@@ -1810,7 +1899,7 @@ fatal() {
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      firstPass|secondPass)
+      firstPass|secondPass|thirdPass)
         ACTION="$1"
         shift
         ;;
@@ -1911,6 +2000,9 @@ parse_args() {
   [[ "$MAX_CONDOR_JOBS" =~ ^[0-9]+$ ]] || fatal "--max-condor-jobs must be an integer"
   [[ "$REF_TRIG_BIT" =~ ^[0-9]+$ ]] || fatal "--trigger-bit must be an integer"
   (( MAX_CONDOR_JOBS > 0 )) || fatal "--max-condor-jobs must be > 0"
+  if [[ "${ACTION}" == "thirdPass" && ${LOCAL_MODE} -eq 1 ]]; then
+    fatal "LOCAL is only valid with firstPass"
+  fi
 }
 
 print_startup_context() {
@@ -1988,10 +2080,6 @@ main() {
     exit 0
   fi
 
-  need_cmd psql
-  PSQL=(psql -h "${PSQL_HOST}" -d "${PSQL_DB}" -At -F $'\t' -q)
-  check_psql_connectivity
-
   if [[ -z "${MANIFEST_PATH}" ]]; then
     MANIFEST_PATH="$(latest_manifest_in_pwd)"
   fi
@@ -2016,6 +2104,28 @@ main() {
   read_runs_from_file "${GRL}"
   (( ${#RUN_ORDER[@]} > 0 )) || fatal "no valid runs found in GRL: ${GRL}"
 
+  if [[ "${ACTION}" == "thirdPass" ]]; then
+    load_secondpass_cache "${TMP_SECONDPASS_CACHE_TXT}"
+
+    print_startup_context
+    note "GRL runs loaded: $(fmt_num "${#RUN_ORDER[@]}")"
+    note "Persisted work dir             : ${TMP_ROOT}"
+    note "Loaded second-pass cache       : ${TMP_SECONDPASS_CACHE_TXT}"
+    note "Loaded per-run audit TSV       : ${TMP_SECONDPASS_RUN_TSV}"
+    note "Preparing final terminal summary output from cached second-pass state"
+
+    print_core_summary
+    print_ranked_tables
+    print_run_status_table
+
+    good "Third-pass summary complete"
+    exit 0
+  fi
+
+  need_cmd psql
+  PSQL=(psql -h "${PSQL_HOST}" -d "${PSQL_DB}" -At -F $'\t' -q)
+  check_psql_connectivity
+
   print_startup_context
   note "GRL runs loaded: $(fmt_num "${#RUN_ORDER[@]}")"
   note "Persisted work dir             : ${TMP_ROOT}"
@@ -2027,13 +2137,14 @@ main() {
   note "Beginning run-by-run audit against current lists and DAQ counters"
 
   audit_runs
-  note "Preparing final terminal summary output"
+  note "Writing cached second-pass state for fast third-pass iteration"
 
-  print_core_summary
-  print_ranked_tables
-  print_run_status_table
+  write_secondpass_cache
+  note "Second-pass cache text         : ${TMP_SECONDPASS_CACHE_TXT}"
+  note "Second-pass per-run TSV        : ${TMP_SECONDPASS_RUN_TSV}"
+  note "Run third pass later with      : ./$(basename "$0") thirdPass --manifest ${MANIFEST_PATH}"
 
-  good "Second-pass audit complete"
+  good "Second-pass cache preparation complete"
 }
 
 main "$@"

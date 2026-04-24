@@ -1031,12 +1031,12 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                     tSel.SetTextFont(42);
                     tSel.SetTextAlign(13);
                     tSel.SetTextSize(0.035);
-                    tSel.DrawLatex(0.22, 0.72, "#gamma-presel:");
+                    tSel.DrawLatex(0.60, 0.74, "#gamma-presel:");
                     tSel.SetTextSize(0.026);
-                    tSel.DrawLatex(0.22, 0.66, "#frac{E_{11}}{E_{33}} < 0.98");
-                    tSel.DrawLatex(0.42, 0.66, "0.6 < et1 < 1.0");
-                    tSel.DrawLatex(0.22, 0.6, "0.8 < #frac{E_{32}}{E_{35}} < 1.0");
-                    tSel.DrawLatex(0.42, 0.6, "w_{#eta} < 0.6");
+                    tSel.DrawLatex(0.60, 0.68, "#frac{E_{11}}{E_{33}} < 0.98");
+                    tSel.DrawLatex(0.60, 0.62, "0.6 < et1 < 1.0");
+                    tSel.DrawLatex(0.60, 0.56, "0.8 < #frac{E_{32}}{E_{35}} < 1.0");
+                    tSel.DrawLatex(0.60, 0.50, "w_{#eta} < 0.6");
                 }
                 
                 
@@ -2557,19 +2557,28 @@ if (!SSoverlayPerVAR_processONLY)
             
             if (tag == "pre")
             {
-                const double yLabelPre = useTopLeft ? 0.74 : yLabel;
-                const double yRow1Pre  = useTopLeft ? 0.68 : yRow1;
-                const double yRow2Pre  = useTopLeft ? 0.62 : yRow2;
-                const double xColRPre  = useTopLeft ? 0.37 : xColR;
-                
-                tSel.SetTextSize(sLabel);
-                tSel.DrawLatex(xLabel, yLabelPre, "#gamma-presel:");
-                
-                tSel.SetTextSize(sRow);
-                tSel.DrawLatex(xColL, yRow1Pre, "#frac{E_{11}}{E_{33}} < 0.98");
-                tSel.DrawLatex(xColRPre, yRow1Pre, "0.6 < et1 < 1.0");
-                tSel.DrawLatex(xColL, yRow2Pre, "0.8 < #frac{E_{32}}{E_{35}} < 1.0");
-                tSel.DrawLatex(xColRPre, yRow2Pre, "w_{#eta} < 0.6");
+                if (useTopLeft)
+                {
+                    tSel.SetTextSize(sLabel);
+                    tSel.DrawLatex(0.22, 0.74, "#gamma-presel:");
+
+                    tSel.SetTextSize(sRow);
+                    tSel.DrawLatex(0.22, 0.68, "#frac{E_{11}}{E_{33}} < 0.98");
+                    tSel.DrawLatex(0.37, 0.68, "0.6 < et1 < 1.0");
+                    tSel.DrawLatex(0.22, 0.62, "0.8 < #frac{E_{32}}{E_{35}} < 1.0");
+                    tSel.DrawLatex(0.37, 0.62, "w_{#eta} < 0.6");
+                }
+                else
+                {
+                    tSel.SetTextSize(0.040);
+                    tSel.DrawLatex(0.68, 0.76, "#gamma-presel:");
+
+                    tSel.SetTextSize(0.030);
+                    tSel.DrawLatex(0.68, 0.69, "#frac{E_{11}}{E_{33}} < 0.98");
+                    tSel.DrawLatex(0.84, 0.69, "0.6 < et1 < 1.0");
+                    tSel.DrawLatex(0.68, 0.60, "0.8 < #frac{E_{32}}{E_{35}} < 1.0");
+                    tSel.DrawLatex(0.84, 0.60, "w_{#eta} < 0.6");
+                }
                 return true;
             }
             
@@ -3177,7 +3186,13 @@ if (!SSoverlayPerVAR_processONLY)
                             }
                             
                             const double ptCenterForCuts = 0.5 * (priorityPb->lo + priorityPb->hi);
-                            DrawSSOverlayCutsAndText(priorityVar, priorityTag, false, ptCenterForCuts, 0.16, 0.84, 0.026, true);
+                            const bool prioritySelectionBlockMiddleRight =
+                                (priorityH.variant == "baseVariant" &&
+                                 priorityTag == "pre" && priorityPb->folder == "pT_20_35");
+                            DrawSSOverlayCutsAndText(priorityVar, priorityTag, false, ptCenterForCuts,
+                                                     0.16, 0.84, 0.026,
+                                                     !prioritySelectionBlockMiddleRight,
+                                                     prioritySelectionBlockMiddleRight);
                             
                             const string priorityOutPng = JoinPath(
                                                                    varTagDir,
@@ -3860,10 +3875,10 @@ if (!SSoverlayPerVAR_processONLY)
                         const bool moveSelectionBlockToBottomRight =
                             (H.folder == "inclusiveEmbedded" && var == "weta" && tag == "pre" && pb.folder == "pT_10_12") ||
                             (H.folder == "data" && H.variant == "baseVariant" && tag == "pre" &&
-                             pb.folder == "pT_20_35" && (var == "weta" || var == "wphi"));
+                             pb.folder == "pT_20_35" && (var == "weta" || var == "wphi" || var == "weta35"));
                         const bool moveSelectionBlockToMiddleRight =
                             (H.folder == "data" && H.variant == "baseVariant" && tag == "pre" &&
-                             pb.folder == "pT_20_35" && (var == "weta" || var == "wphi"));
+                             pb.folder == "pT_20_35" && (var == "weta" || var == "wphi" || var == "weta35"));
                         DrawSSOverlayCutsAndText(var, tag, false, ptCenterForCuts, cutTextX, cutTextY, cutTextSize,
                                                  !moveSelectionBlockToBottomRight && !moveSelectionBlockToMiddleRight,
                                                  moveSelectionBlockToMiddleRight);
@@ -3987,6 +4002,15 @@ if (!SSoverlayPerVAR_processONLY)
         
         if (fPCO_PhotEmb) { fPCO_PhotEmb->Close(); delete fPCO_PhotEmb; fPCO_PhotEmb = nullptr; }
         if (fPCO_InclEmb) { fPCO_InclEmb->Close(); delete fPCO_InclEmb; fPCO_InclEmb = nullptr; }
+
+        if (skipToCentralityAndPtOverlaysWithSSQA)
+        {
+            cout << ANSI_BOLD_CYN
+                 << "[SS_QA] Finished per-centrality and per-pT overlay PNG production. "
+                 << "Skipping remaining SS QA sections by request."
+                 << ANSI_RESET << "\n";
+            return;
+        }
     }
     
     {
