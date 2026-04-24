@@ -578,13 +578,59 @@ sim_iso_tag() {
   fi
 }
 
-# Build parallel arrays: iso_tags[], iso_sliding[], iso_fixed[]
-# from YAML keys: isSlidingAndFixed, isSlidingIso, fixedGeV[]
+selection_mode_normalize() {
+  local mode
+  mode="$(trim_ws "$1")"
+  case "$mode" in
+    ""|reference|Reference) echo "reference" ;;
+    variantA|VariantA|varianta) echo "variantA" ;;
+    variantB|VariantB|variantb) echo "variantB" ;;
+    *) echo "$mode" ;;
+  esac
+}
+
+selection_mode_tag() {
+  local key="$1"
+  local mode
+  mode="$(selection_mode_normalize "$2")"
+  case "$mode" in
+    reference) echo "${key}Reference" ;;
+    variantA) echo "${key}VariantA" ;;
+    variantB) echo "${key}VariantB" ;;
+    *)
+      local first="${mode:0:1}"
+      local rest="${mode:1}"
+      echo "${key}${first^^}${rest}"
+      ;;
+  esac
+}
+
+# Build parallel arrays:
+#   iso_tags[]            = full iso + selection label
+#   iso_base_tags[]       = iso-only tag (placed before clusterUEpipeline in cfg_tag)
+#   iso_selection_tags[]  = selection-only tag (placed after clusterUEpipeline in cfg_tag)
+#   iso_sliding[], iso_fixed[]
+#   iso_preselection[], iso_tight[], iso_nonTight[]
+# from YAML keys:
+#   isSlidingAndFixed, isSlidingIso, fixedGeV[],
+#   preselection[], tight[], nonTight[]
 build_iso_modes() {
   local yaml_file="$1"
   iso_tags=()
+  iso_base_tags=()
+  iso_selection_tags=()
   iso_sliding=()
   iso_fixed=()
+  iso_preselection=()
+  iso_tight=()
+  iso_nonTight=()
+
+  local -a _base_tags
+  local -a _base_sliding
+  local -a _base_fixed
+  _base_tags=()
+  _base_sliding=()
+  _base_fixed=()
 
   local _both; _both="$(yaml_get_values "isSlidingAndFixed" "$yaml_file" 2>/dev/null || echo "false")"
   local _slide; _slide="$(yaml_get_values "isSlidingIso" "$yaml_file" 2>/dev/null || echo "false")"
@@ -592,31 +638,69 @@ build_iso_modes() {
   mapfile -t _fixeds < <( yaml_get_values "fixedGeV" "$yaml_file" 2>/dev/null )
   (( ${#_fixeds[@]} )) || _fixeds=( "2.0" )
 
+  local -a _preselection_modes
+  local -a _tight_modes
+  local -a _nonTight_modes
+  mapfile -t _preselection_modes < <( yaml_get_values "preselection" "$yaml_file" 2>/dev/null )
+  mapfile -t _tight_modes < <( yaml_get_values "tight" "$yaml_file" 2>/dev/null )
+  mapfile -t _nonTight_modes < <( yaml_get_values "nonTight" "$yaml_file" 2>/dev/null )
+  (( ${#_preselection_modes[@]} )) || _preselection_modes=( "reference" )
+  (( ${#_tight_modes[@]} )) || _tight_modes=( "reference" )
+  (( ${#_nonTight_modes[@]} )) || _nonTight_modes=( "reference" )
+
   _both="$(trim_ws "$_both")"
   _slide="$(trim_ws "$_slide")"
 
   if [[ "$_both" == "true" ]]; then
-    # sliding mode entry
-    iso_tags+=( "$(sim_iso_tag "true" "0")" )
-    iso_sliding+=( "true" )
-    iso_fixed+=( "${_fixeds[0]}" )
-    # one fixed entry per fixedGeV value
+    _base_tags+=( "$(sim_iso_tag "true" "0")" )
+    _base_sliding+=( "true" )
+    _base_fixed+=( "${_fixeds[0]}" )
     for fv in "${_fixeds[@]}"; do
-      iso_tags+=( "$(sim_iso_tag "false" "$fv")" )
-      iso_sliding+=( "false" )
-      iso_fixed+=( "$fv" )
+      _base_tags+=( "$(sim_iso_tag "false" "$fv")" )
+      _base_sliding+=( "false" )
+      _base_fixed+=( "$fv" )
     done
   elif [[ "$_slide" == "true" ]]; then
-    iso_tags+=( "$(sim_iso_tag "true" "0")" )
-    iso_sliding+=( "true" )
-    iso_fixed+=( "${_fixeds[0]}" )
+    _base_tags+=( "$(sim_iso_tag "true" "0")" )
+    _base_sliding+=( "true" )
+    _base_fixed+=( "${_fixeds[0]}" )
   else
     for fv in "${_fixeds[@]}"; do
-      iso_tags+=( "$(sim_iso_tag "false" "$fv")" )
-      iso_sliding+=( "false" )
-      iso_fixed+=( "$fv" )
+      _base_tags+=( "$(sim_iso_tag "false" "$fv")" )
+      _base_sliding+=( "false" )
+      _base_fixed+=( "$fv" )
     done
   fi
+
+  local _i
+  local _pre
+  local _tight
+  local _nonTight
+  for (( _i=0; _i<${#_base_tags[@]}; _i++ )); do
+    for _pre in "${_preselection_modes[@]}"; do
+      for _tight in "${_tight_modes[@]}"; do
+        for _nonTight in "${_nonTight_modes[@]}"; do
+          local _pre_norm
+          local _tight_norm
+          local _nonTight_norm
+          local selection_tag
+          _pre_norm="$(selection_mode_normalize "$_pre")"
+          _tight_norm="$(selection_mode_normalize "$_tight")"
+          _nonTight_norm="$(selection_mode_normalize "$_nonTight")"
+          selection_tag="$(selection_mode_tag "preselection" "$_pre_norm")_$(selection_mode_tag "tight" "$_tight_norm")_$(selection_mode_tag "nonTight" "$_nonTight_norm")"
+
+          iso_tags+=( "${_base_tags[$_i]}_${selection_tag}" )
+          iso_base_tags+=( "${_base_tags[$_i]}" )
+          iso_selection_tags+=( "${selection_tag}" )
+          iso_sliding+=( "${_base_sliding[$_i]}" )
+          iso_fixed+=( "${_base_fixed[$_i]}" )
+          iso_preselection+=( "${_pre_norm}" )
+          iso_tight+=( "${_tight_norm}" )
+          iso_nonTight+=( "${_nonTight_norm}" )
+        done
+      done
+    done
+  done
 }
 
 # Determine UE pipeline matrix modes based on dataset type.
@@ -628,7 +712,6 @@ read_uepipe_modes() {
   uepipe_in_tag=0
   if [[ "$tag" == "auau" || "$tag" == "oo" || "$tag" == "simembedded" || "$tag" == "simembeddedinclusive" ]]; then
     mapfile -t uepipe_modes < <( yaml_get_values "clusterUEpipeline" "$yaml" 2>/dev/null )
-    # Translate legacy bool values
     local -a cleaned=()
     for v in "${uepipe_modes[@]}"; do
       v="$(trim_ws "$v")"
@@ -649,7 +732,7 @@ read_uepipe_modes() {
 }
 
 sim_make_yaml_override() {
-  local master="$1" pt="$2" frac="$3" vz="$4" cone="$5" sliding="$6" fixed="$7" uepipe="$8" tag="$9" stamp="${10:-}"
+  local master="$1" pt="$2" frac="$3" vz="$4" cone="$5" sliding="$6" fixed="$7" uepipe="$8" preselection="$9" tight="${10}" nonTight="${11}" tag="${12}" stamp="${13:-}"
   mkdir -p "$SIM_YAML_OVERRIDE_DIR"
   local out="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${tag}${stamp:+_${stamp}}.yaml"
 
@@ -658,6 +741,9 @@ sim_make_yaml_override() {
   grep -Eq '^[[:space:]]*back_to_back_dphi_min_pi_fraction:' "$master" || { err "YAML missing key 'back_to_back_dphi_min_pi_fraction' in $master"; exit 71; }
   grep -Eq '^[[:space:]]*vz_cut_cm:' "$master" || { err "YAML missing key 'vz_cut_cm' in $master"; exit 71; }
   grep -Eq '^[[:space:]]*coneR:' "$master" || { err "YAML missing key 'coneR' in $master"; exit 71; }
+  grep -Eq '^[[:space:]]*preselection:' "$master" || { err "YAML missing key 'preselection' in $master"; exit 71; }
+  grep -Eq '^[[:space:]]*tight:' "$master" || { err "YAML missing key 'tight' in $master"; exit 71; }
+  grep -Eq '^[[:space:]]*nonTight:' "$master" || { err "YAML missing key 'nonTight' in $master"; exit 71; }
 
   sed -E \
     -e "s|^([[:space:]]*jet_pt_min:).*|\\1 ${pt}|" \
@@ -667,6 +753,9 @@ sim_make_yaml_override() {
     -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${sliding}|" \
     -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${fixed}|" \
     -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${uepipe}|" \
+    -e "s|^([[:space:]]*preselection:).*|\\1 ${preselection}|" \
+    -e "s|^([[:space:]]*tight:).*|\\1 ${tight}|" \
+    -e "s|^([[:space:]]*nonTight:).*|\\1 ${nonTight}|" \
     "$master" > "$out"
 
   echo "$out"
@@ -1572,7 +1661,8 @@ case "$ACTION" in
         samples=( "${SIM_SAMPLE}" )
       fi
 
-      SIM_DEST_BASE_RESOLVED="$DEST_BASE"
+      SIM_DEST_BASE_RESOLVED="${BASE}/local_sim_outputs/${TAG}"
+      mkdir -p "${SIM_DEST_BASE_RESOLVED}"
 
       say "SIM local smoke test (mirrors condorDoAll matrix)"
       say "  YAML master : ${master_yaml}"
@@ -1588,10 +1678,11 @@ case "$ACTION" in
           for cone in "${sim_cones[@]}"; do
           for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
           for uepipe in "${uepipe_modes[@]}"; do
-          SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso_tags[$iso_idx]}"
+          SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso_base_tags[$iso_idx]}"
           (( uepipe_in_tag )) && SIM_CFG_TAG="${SIM_CFG_TAG}_${uepipe}"
+          SIM_CFG_TAG="${SIM_CFG_TAG}_${iso_selection_tags[$iso_idx]}"
           DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
-          yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$cone" "${iso_sliding[$iso_idx]}" "${iso_fixed[$iso_idx]}" "${uepipe}" "$SIM_CFG_TAG" "LOCAL")"
+          yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$cone" "${iso_sliding[$iso_idx]}" "${iso_fixed[$iso_idx]}" "${uepipe}" "${iso_preselection[$iso_idx]}" "${iso_tight[$iso_idx]}" "${iso_nonTight[$iso_idx]}" "$SIM_CFG_TAG" "LOCAL")"
 
           for samp in "${samples[@]}"; do
             SIM_SAMPLE="$samp"
@@ -1695,8 +1786,9 @@ case "$ACTION" in
         dfrac_tag="$(sim_b2b_tag "$data_frac")"
         dvz_tag="$(sim_vz_tag "$data_vz")"
         dcone_tag="$(sim_cone_tag "$data_cone")"
-        data_cfg_tag="${dpt_tag}_${dfrac_tag}_${dvz_tag}_${dcone_tag}_${iso_tags[$iso_idx]}"
+        data_cfg_tag="${dpt_tag}_${dfrac_tag}_${dvz_tag}_${dcone_tag}_${iso_base_tags[$iso_idx]}"
         (( uepipe_in_tag )) && data_cfg_tag="${data_cfg_tag}_${uepipe}"
+        data_cfg_tag="${data_cfg_tag}_${iso_selection_tags[$iso_idx]}"
         yaml_override="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}_LOCAL.yaml"
         mkdir -p "$SIM_YAML_OVERRIDE_DIR"
         sed -E \
@@ -1707,6 +1799,9 @@ case "$ACTION" in
           -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${iso_sliding[$iso_idx]}|" \
           -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${iso_fixed[$iso_idx]}|" \
           -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${uepipe}|" \
+          -e "s|^([[:space:]]*preselection:).*|\\1 ${iso_preselection[$iso_idx]}|" \
+          -e "s|^([[:space:]]*tight:).*|\\1 ${iso_tight[$iso_idx]}|" \
+          -e "s|^([[:space:]]*nonTight:).*|\\1 ${iso_nonTight[$iso_idx]}|" \
           "$data_yaml_src" > "$yaml_override"
         DEST_BASE="${DATA_DEST_BASE_SAVED}/${data_cfg_tag}"
 
@@ -1797,7 +1892,7 @@ case "$ACTION" in
     dfrac_tag="$(sim_b2b_tag "$frac0")"
     dvz_tag="$(sim_vz_tag "$vz0")"
     dcone_tag="$(sim_cone_tag "$cone0")"
-    data_cfg_tag="${dpt_tag}_${dfrac_tag}_${dvz_tag}_${dcone_tag}_${iso_tags[$iso_idx]}_${selected_uepipe}"
+    data_cfg_tag="${dpt_tag}_${dfrac_tag}_${dvz_tag}_${dcone_tag}_${iso_base_tags[$iso_idx]}_${selected_uepipe}_${iso_selection_tags[$iso_idx]}"
 
     yaml_override="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}_ISOPING.yaml"
     mkdir -p "$SIM_YAML_OVERRIDE_DIR"
@@ -1809,6 +1904,9 @@ case "$ACTION" in
       -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${iso_sliding[$iso_idx]}|" \
       -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${iso_fixed[$iso_idx]}|" \
       -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${selected_uepipe}|" \
+      -e "s|^([[:space:]]*preselection:).*|\\1 ${iso_preselection[$iso_idx]}|" \
+      -e "s|^([[:space:]]*tight:).*|\\1 ${iso_tight[$iso_idx]}|" \
+      -e "s|^([[:space:]]*nonTight:).*|\\1 ${iso_nonTight[$iso_idx]}|" \
       "$data_yaml_src" > "$yaml_override"
 
     r8="$(pick_first_iso_ping_run "$ISO_PING_TRIGGER_BIT")"
@@ -1911,10 +2009,12 @@ case "$ACTION" in
     frac0="${sim_fracs[0]}"
     vz0="${sim_vzs[0]}"
     cone0="${sim_cones[0]}"
-    SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt0")_$(sim_b2b_tag "$frac0")_$(sim_vz_tag "$vz0")_$(sim_cone_tag "$cone0")_${iso_tags[0]}"
+    SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt0")_$(sim_b2b_tag "$frac0")_$(sim_vz_tag "$vz0")_$(sim_cone_tag "$cone0")_${iso_base_tags[0]}"
+    (( uepipe_in_tag )) && SIM_CFG_TAG="${SIM_CFG_TAG}_${uepipe_modes[0]}"
+    SIM_CFG_TAG="${SIM_CFG_TAG}_${iso_selection_tags[0]}"
     DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
     stamp="$(date +%Y%m%d_%H%M%S)"
-    yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt0" "$frac0" "$vz0" "$cone0" "${iso_sliding[0]}" "${iso_fixed[0]}" "noSub" "$SIM_CFG_TAG" "$stamp")"
+    yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt0" "$frac0" "$vz0" "$cone0" "${iso_sliding[0]}" "${iso_fixed[0]}" "${uepipe_modes[0]}" "${iso_preselection[0]}" "${iso_tight[0]}" "${iso_nonTight[0]}" "$SIM_CFG_TAG" "$stamp")"
 
     sim_init
 
@@ -2066,10 +2166,11 @@ SUB
         for cone in "${sim_cones[@]}"; do
         for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
         for uepipe in "${uepipe_modes[@]}"; do
-        SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso_tags[$iso_idx]}"
+        SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso_base_tags[$iso_idx]}"
         (( uepipe_in_tag )) && SIM_CFG_TAG="${SIM_CFG_TAG}_${uepipe}"
+        SIM_CFG_TAG="${SIM_CFG_TAG}_${iso_selection_tags[$iso_idx]}"
         DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
-        yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$cone" "${iso_sliding[$iso_idx]}" "${iso_fixed[$iso_idx]}" "${uepipe}" "$SIM_CFG_TAG" "$doall_stamp")"
+        yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$cone" "${iso_sliding[$iso_idx]}" "${iso_fixed[$iso_idx]}" "${uepipe}" "${iso_preselection[$iso_idx]}" "${iso_tight[$iso_idx]}" "${iso_nonTight[$iso_idx]}" "$SIM_CFG_TAG" "$doall_stamp")"
 
         for samp in "${samples[@]}"; do
           SIM_SAMPLE="$samp"
@@ -2173,8 +2274,9 @@ SUB
         dfrac_tag="$(sim_b2b_tag "$frac0")"
         dvz_tag="$(sim_vz_tag "$vz0")"
         dcone_tag="$(sim_cone_tag "$cone0")"
-        data_cfg_tag="${dpt_tag}_${dfrac_tag}_${dvz_tag}_${dcone_tag}_${iso_tags[0]}"
+        data_cfg_tag="${dpt_tag}_${dfrac_tag}_${dvz_tag}_${dcone_tag}_${iso_base_tags[0]}"
         (( uepipe_in_tag )) && data_cfg_tag="${data_cfg_tag}_${uepipe_modes[0]}"
+        data_cfg_tag="${data_cfg_tag}_${iso_selection_tags[0]}"
 
         stamp="$(date +%Y%m%d_%H%M%S)"
         sub="${SUB_DIR}/RecoilJets_${TAG}_${data_cfg_tag}_${stamp}_TEST.sub"
@@ -2191,6 +2293,9 @@ SUB
           -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${iso_sliding[0]}|" \
           -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${iso_fixed[0]}|" \
           -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${uepipe_modes[0]}|" \
+          -e "s|^([[:space:]]*preselection:).*|\\1 ${iso_preselection[0]}|" \
+          -e "s|^([[:space:]]*tight:).*|\\1 ${iso_tight[0]}|" \
+          -e "s|^([[:space:]]*nonTight:).*|\\1 ${iso_nonTight[0]}|" \
           "$yaml_src" > "$yaml_snap"
         say "YAML snapshot (pt=${pt0}, frac=${frac0}, vz=${vz0}, coneR=${cone0}, iso=${iso_tags[0]}, uepipe=${uepipe_modes[0]}): ${yaml_snap}"
         DEST_BASE="${DATA_DEST_BASE_SAVED}/${data_cfg_tag}"
@@ -2233,8 +2338,9 @@ SUB
           dfrac_tag="$(sim_b2b_tag "$data_frac")"
           dvz_tag="$(sim_vz_tag "$data_vz")"
           dcone_tag="$(sim_cone_tag "$data_cone")"
-          data_cfg_tag="${dpt_tag}_${dfrac_tag}_${dvz_tag}_${dcone_tag}_${iso_tags[$iso_idx]}"
+          data_cfg_tag="${dpt_tag}_${dfrac_tag}_${dvz_tag}_${dcone_tag}_${iso_base_tags[$iso_idx]}"
           (( uepipe_in_tag )) && data_cfg_tag="${data_cfg_tag}_${uepipe}"
+          data_cfg_tag="${data_cfg_tag}_${iso_selection_tags[$iso_idx]}"
           yaml_override="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}.yaml"
           mkdir -p "$SIM_YAML_OVERRIDE_DIR"
           sed -E \
@@ -2245,6 +2351,9 @@ SUB
             -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${iso_sliding[$iso_idx]}|" \
             -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${iso_fixed[$iso_idx]}|" \
             -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${uepipe}|" \
+            -e "s|^([[:space:]]*preselection:).*|\\1 ${iso_preselection[$iso_idx]}|" \
+            -e "s|^([[:space:]]*tight:).*|\\1 ${iso_tight[$iso_idx]}|" \
+            -e "s|^([[:space:]]*nonTight:).*|\\1 ${iso_nonTight[$iso_idx]}|" \
             "$data_yaml_src" > "$yaml_override"
           export RJ_CONFIG_YAML="$yaml_override"
           DEST_BASE="${DATA_DEST_BASE_SAVED}/${data_cfg_tag}"
@@ -2294,8 +2403,9 @@ SUB
           dfrac_tag="$(sim_b2b_tag "$data_frac")"
           dvz_tag="$(sim_vz_tag "$data_vz")"
           dcone_tag="$(sim_cone_tag "$data_cone")"
-          data_cfg_tag="${dpt_tag}_${dfrac_tag}_${dvz_tag}_${dcone_tag}_${iso_tags[$iso_idx]}"
+          data_cfg_tag="${dpt_tag}_${dfrac_tag}_${dvz_tag}_${dcone_tag}_${iso_base_tags[$iso_idx]}"
           (( uepipe_in_tag )) && data_cfg_tag="${data_cfg_tag}_${uepipe}"
+          data_cfg_tag="${data_cfg_tag}_${iso_selection_tags[$iso_idx]}"
           yaml_override="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}.yaml"
           mkdir -p "$SIM_YAML_OVERRIDE_DIR"
           sed -E \
@@ -2306,6 +2416,9 @@ SUB
             -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${iso_sliding[$iso_idx]}|" \
             -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${iso_fixed[$iso_idx]}|" \
             -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${uepipe}|" \
+            -e "s|^([[:space:]]*preselection:).*|\\1 ${iso_preselection[$iso_idx]}|" \
+            -e "s|^([[:space:]]*tight:).*|\\1 ${iso_tight[$iso_idx]}|" \
+            -e "s|^([[:space:]]*nonTight:).*|\\1 ${iso_nonTight[$iso_idx]}|" \
             "$data_yaml_src" > "$yaml_override"
           export RJ_CONFIG_YAML="$yaml_override"
           DEST_BASE="${DATA_DEST_BASE_SAVED}/${data_cfg_tag}"

@@ -177,14 +177,16 @@ public:
     // Shower-shape variables extracted from PhotonClusterv1
     struct SSVars
     {
-        double pt_gamma      = 0.0;
-        double weta_cogx     = 0.0;
-        double wphi_cogx     = 0.0;
-        double weta35_cogx   = 0.0;
-        double wphi53_cogx   = 0.0;
-        double et1           = 0.0;
-        double e11_over_e33  = 0.0;
-        double e32_over_e35  = 0.0;
+        double pt_gamma       = 0.0;
+        double weta_cogx      = 0.0;
+        double wphi_cogx      = 0.0;
+        double weta35_cogx    = 0.0;
+        double wphi53_cogx    = 0.0;
+        double et1            = 0.0;
+        double e11_over_e33   = 0.0;
+        double e32_over_e35   = 0.0;
+        double npb_score      = std::numeric_limits<double>::quiet_NaN();
+        double tight_bdt_score = std::numeric_limits<double>::quiet_NaN();
     };
     
     // Per-(trigger,slice) category counters printed in End()
@@ -718,6 +720,9 @@ private:
     // Photon ID helpers
     // -------------------------------------------------------------------------
     SSVars makeSSFromPhoton(const PhotonClusterv1* pho, double pt_gamma) const;
+    void attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars& v) const;
+    const PhotonClusterv1* findMatchedPhotonByKinematics(const RawClusterContainer* container,
+                                                         const PhotonClusterv1* ref) const;
     bool   passesPhotonPreselection(const SSVars& v);
     TightTag classifyPhotonTightness(const SSVars& v);
     
@@ -1133,6 +1138,16 @@ private:
     double m_phoid_pre_e32e35_max = 1.00;
     double m_phoid_pre_weta_max   = 0.60;
     
+    std::string m_preselectionVariant = "reference";
+    std::string m_tightVariant = "reference";
+    std::string m_nonTightVariant = "reference";
+    std::string m_preselectionPhotonNode = "PHOTONCLUSTER_CEMC";
+    std::string m_tightPhotonNode = "PHOTONCLUSTER_CEMC";
+    double m_npbCut = 0.5;
+    double m_tightBDTMinIntercept = 0.0;
+    double m_tightBDTMinSlope = 0.0;
+    double m_tightBDTMax = 1.0;
+    
     double m_phoid_tight_w_lo           = 0.0;
     double m_phoid_tight_w_hi_intercept = 0.15;
     double m_phoid_tight_w_hi_slope     = 0.006;
@@ -1201,9 +1216,11 @@ private:
     std::string m_xjRecoJetKey = "r04";
     
     // Nodes: photons / clusters
-    RawClusterContainer* m_clus        = nullptr;
-    RawClusterContainer* m_clus_nocorr = nullptr;
-    RawClusterContainer* m_photons     = nullptr;
+    RawClusterContainer* m_clus              = nullptr;
+    RawClusterContainer* m_clus_nocorr       = nullptr;
+    RawClusterContainer* m_photons           = nullptr;
+    RawClusterContainer* m_photons_npb       = nullptr;
+    RawClusterContainer* m_photons_tightbdt  = nullptr;
     
     // Calo tower bundles (node cache)
     struct CaloBundle

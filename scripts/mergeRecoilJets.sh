@@ -330,6 +330,33 @@ yaml_get_inline_list() {
     }'
 }
 
+selection_mode_normalize() {
+  local mode
+  mode="$(trim_ws "$1")"
+  case "$mode" in
+    ""|reference|Reference) echo "reference" ;;
+    variantA|VariantA|varianta) echo "variantA" ;;
+    variantB|VariantB|variantb) echo "variantB" ;;
+    *) echo "$mode" ;;
+  esac
+}
+
+selection_mode_tag() {
+  local key="$1"
+  local mode
+  mode="$(selection_mode_normalize "$2")"
+  case "$mode" in
+    reference) echo "${key}Reference" ;;
+    variantA) echo "${key}VariantA" ;;
+    variantB) echo "${key}VariantB" ;;
+    *)
+      local first="${mode:0:1}"
+      local rest="${mode:1}"
+      echo "${key}${first^^}${rest}"
+      ;;
+  esac
+}
+
 build_iso_mode_tags_from_yaml() {
   local yaml="$1"
   local isSlidingIso isSlidingAndFixed
@@ -367,19 +394,25 @@ build_cfg_tags_from_yaml() {
   yaml="$(merge_yaml_path)"
   [[ -f "$yaml" ]] || { err "YAML not found for cfg-tag generation: $yaml"; exit 40; }
 
-  local -a jet_pts b2bs vzs cones iso_tags uepipes
+  local -a jet_pts b2bs vzs cones iso_base_tags uepipes preselection_modes tight_modes nonTight_modes
   local include_uepipe_in_tag=0
-  mapfile -t jet_pts  < <(yaml_get_inline_list "$yaml" "jet_pt_min")
-  mapfile -t b2bs     < <(yaml_get_inline_list "$yaml" "back_to_back_dphi_min_pi_fraction")
-  mapfile -t vzs      < <(yaml_get_inline_list "$yaml" "vz_cut_cm")
-  mapfile -t cones    < <(yaml_get_inline_list "$yaml" "coneR")
-  mapfile -t iso_tags < <(build_iso_mode_tags_from_yaml "$yaml")
+  mapfile -t jet_pts       < <(yaml_get_inline_list "$yaml" "jet_pt_min")
+  mapfile -t b2bs          < <(yaml_get_inline_list "$yaml" "back_to_back_dphi_min_pi_fraction")
+  mapfile -t vzs           < <(yaml_get_inline_list "$yaml" "vz_cut_cm")
+  mapfile -t cones         < <(yaml_get_inline_list "$yaml" "coneR")
+  mapfile -t iso_base_tags < <(build_iso_mode_tags_from_yaml "$yaml")
+  mapfile -t preselection_modes < <(yaml_get_inline_list "$yaml" "preselection")
+  mapfile -t tight_modes       < <(yaml_get_inline_list "$yaml" "tight")
+  mapfile -t nonTight_modes    < <(yaml_get_inline_list "$yaml" "nonTight")
 
   if (( ${#jet_pts[@]} == 0 )); then jet_pts=( "5.0" ); fi
   if (( ${#b2bs[@]} == 0 )); then b2bs=( "0.875" ); fi
   if (( ${#vzs[@]} == 0 )); then vzs=( "30.0" ); fi
   if (( ${#cones[@]} == 0 )); then cones=( "0.30" ); fi
-  if (( ${#iso_tags[@]} == 0 )); then iso_tags=( "fixedIso2GeV" ); fi
+  if (( ${#iso_base_tags[@]} == 0 )); then iso_base_tags=( "fixedIso2GeV" ); fi
+  if (( ${#preselection_modes[@]} == 0 )); then preselection_modes=( "reference" ); fi
+  if (( ${#tight_modes[@]} == 0 )); then tight_modes=( "reference" ); fi
+  if (( ${#nonTight_modes[@]} == 0 )); then nonTight_modes=( "reference" ); fi
 
   case "$dataset_token" in
     auau|oo|isSimEmbedded|issimembedded|simembedded|SIMEMBEDDED|isSimEmbeddedInclusive|issimembeddedinclusive|simembeddedinclusive|SIMEMBEDDEDINCLUSIVE)
@@ -393,19 +426,26 @@ build_cfg_tags_from_yaml() {
       ;;
   esac
 
-  local pt frac vz cone iso uep tag
+  local pt frac vz cone iso uep pre tight nonTight tag selection_tag
   for pt in "${jet_pts[@]}"; do
     for frac in "${b2bs[@]}"; do
       for vz in "${vzs[@]}"; do
         for cone in "${cones[@]}"; do
-          for iso in "${iso_tags[@]}"; do
-            tag="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_dir_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso}"
-            for uep in "${uepipes[@]}"; do
-              if (( include_uepipe_in_tag )); then
-                echo "${tag}_${uep}"
-              else
-                echo "${tag}"
-              fi
+          for iso in "${iso_base_tags[@]}"; do
+            for pre in "${preselection_modes[@]}"; do
+              for tight in "${tight_modes[@]}"; do
+                for nonTight in "${nonTight_modes[@]}"; do
+                  selection_tag="$(selection_mode_tag "preselection" "$pre")_$(selection_mode_tag "tight" "$tight")_$(selection_mode_tag "nonTight" "$nonTight")"
+                  tag="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_dir_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso}"
+                  for uep in "${uepipes[@]}"; do
+                    if (( include_uepipe_in_tag )); then
+                      echo "${tag}_${uep}_${selection_tag}"
+                    else
+                      echo "${tag}_${selection_tag}"
+                    fi
+                  done
+                done
+              done
             done
           done
         done
@@ -456,7 +496,7 @@ ENDMACRO
   echo "$_yaml" > "$_tmpyaml"
 
   # Parse scalar keys from the per-job override YAML
-  local _pt _frac _vz _cone _sliding _fixed
+  local _pt _frac _vz _cone _sliding _fixed _preselection _tight _nonTight
 
   _pt="$(grep -E '^[[:space:]]*jet_pt_min:' "$_tmpyaml" | head -1 || true)"
   _pt="${_pt#*:}"; _pt="${_pt%%#*}"; _pt="$(trim_ws "$_pt")"
@@ -482,10 +522,21 @@ ENDMACRO
   _fixed="${_fixed#*:}"; _fixed="${_fixed%%#*}"; _fixed="$(trim_ws "$_fixed")"
   [[ -n "$_fixed" ]] || _fixed="2.0"
 
+  _preselection="$(grep -E '^[[:space:]]*preselection:' "$_tmpyaml" | head -1 || true)"
+  _preselection="${_preselection#*:}"; _preselection="${_preselection%%#*}"; _preselection="$(trim_ws "$_preselection")"
+  [[ -n "$_preselection" ]] || _preselection="reference"
+
+  _tight="$(grep -E '^[[:space:]]*tight:' "$_tmpyaml" | head -1 || true)"
+  _tight="${_tight#*:}"; _tight="${_tight%%#*}"; _tight="$(trim_ws "$_tight")"
+  [[ -n "$_tight" ]] || _tight="reference"
+
+  _nonTight="$(grep -E '^[[:space:]]*nonTight:' "$_tmpyaml" | head -1 || true)"
+  _nonTight="${_nonTight#*:}"; _nonTight="${_nonTight%%#*}"; _nonTight="$(trim_ws "$_nonTight")"
+  [[ -n "$_nonTight" ]] || _nonTight="reference"
+
   local _uepipe
   _uepipe="$(grep -E '^[[:space:]]*clusterUEpipeline:' "$_tmpyaml" | head -1 || true)"
   _uepipe="${_uepipe#*:}"; _uepipe="${_uepipe%%#*}"; _uepipe="$(trim_ws "$_uepipe")"
-  # Translate legacy bool values
   case "$_uepipe" in
     true|1) _uepipe="variantA" ;;
     false|0|"") _uepipe="noSub" ;;
@@ -493,11 +544,14 @@ ENDMACRO
 
   rm -f "$_tmpyaml"
 
-  # Build tag using existing helpers (same naming as submission scripts)
+  local _selection_tag
+  _selection_tag="$(selection_mode_tag "preselection" "$_preselection")_$(selection_mode_tag "tight" "$_tight")_$(selection_mode_tag "nonTight" "$_nonTight")"
+
   local _tag="jetMinPt$(sim_pt_tag "$_pt")_$(sim_b2b_dir_tag "$_frac")_$(sim_vz_tag "$_vz")_$(sim_cone_tag "$_cone")_$(sim_iso_tag "$_sliding" "$_fixed")"
-  # Append UE pipeline mode only if not noSub (AuAu files will have a non-noSub value)
   if [[ "$_uepipe" != "noSub" ]]; then
-    _tag="${_tag}_${_uepipe}"
+    _tag="${_tag}_${_uepipe}_${_selection_tag}"
+  else
+    _tag="${_tag}_${_selection_tag}"
   fi
   echo "$_tag"
 }
@@ -982,9 +1036,27 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simm
           continue
         fi
 
-        mapfile -t SIM_INPUTS < <(find "$SIM_INPUT_DIR" -maxdepth 1 -type f -name "*.root" -not -name "*_LOCAL_*" | sort -V || true)
+        mapfile -t SIM_INPUTS_RAW < <(find "$SIM_INPUT_DIR" -maxdepth 1 -type f -name "*.root" -not -name "*_LOCAL_*" -not -name "*_condorTest_*" | sort -V || true)
+        SIM_INPUTS=()
+        SIM_CFG_MISMATCH_COUNT=0
+        SIM_CFG_UNSTAMPED_COUNT=0
+        for _cand in "${SIM_INPUTS_RAW[@]}"; do
+          _cand_tag="$(extract_cfg_tag_from_root "$_cand" 2>/dev/null || true)"
+          if [[ -z "$_cand_tag" ]]; then
+            (( SIM_CFG_UNSTAMPED_COUNT+=1 ))
+            continue
+          fi
+          if [[ "$_cand_tag" != "$cfg_tag" ]]; then
+            (( SIM_CFG_MISMATCH_COUNT+=1 ))
+            continue
+          fi
+          SIM_INPUTS+=( "$_cand" )
+        done
+        if (( SIM_CFG_MISMATCH_COUNT > 0 || SIM_CFG_UNSTAMPED_COUNT > 0 )); then
+          warn "firstRound input filter for cfg=${cfg_tag} sample=${SIM_SAMPLE}: kept=${#SIM_INPUTS[@]} mismatched=${SIM_CFG_MISMATCH_COUNT} unstamped=${SIM_CFG_UNSTAMPED_COUNT}"
+        fi
         if (( ${#SIM_INPUTS[@]} == 0 )); then
-          warn "No *.root files found in: $SIM_INPUT_DIR (skipping)"
+          warn "No cfg-matching *.root files found in: $SIM_INPUT_DIR (skipping)"
           continue
         fi
 

@@ -760,9 +760,53 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     // ------------------------------------------------------------------
     // Clusters & photons
     // ------------------------------------------------------------------
-    m_clus        = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC");
-    m_clus_nocorr = nullptr;
-    m_photons     = findNode::getClass<RawClusterContainer>(top, "PHOTONCLUSTER_CEMC");
+    auto envOrDefault = [&](const char* key, const std::string& def) -> std::string
+    {
+        if (const char* raw = std::getenv(key))
+        {
+            const std::string s = trim(std::string(raw));
+            if (!s.empty()) return s;
+        }
+        return def;
+    };
+    
+    auto envToDouble = [&](const char* key, double def) -> double
+    {
+        if (const char* raw = std::getenv(key))
+        {
+            try { return std::stod(trim(std::string(raw))); }
+            catch (...) { return def; }
+        }
+        return def;
+    };
+    
+    m_preselectionVariant  = envOrDefault("RJ_PRESELECTION_VARIANT", "reference");
+    m_tightVariant         = envOrDefault("RJ_TIGHT_VARIANT", "reference");
+    m_nonTightVariant      = envOrDefault("RJ_NONTIGHT_VARIANT", "reference");
+    m_preselectionPhotonNode = envOrDefault("RJ_PRESELECTION_PHOTON_NODE", "PHOTONCLUSTER_CEMC");
+    m_tightPhotonNode        = envOrDefault("RJ_TIGHT_PHOTON_NODE", "PHOTONCLUSTER_CEMC");
+    m_npbCut               = envToDouble("RJ_NPB_CUT", 0.5);
+    m_tightBDTMinIntercept = envToDouble("RJ_TIGHT_BDT_MIN_INTERCEPT", 0.0);
+    m_tightBDTMinSlope     = envToDouble("RJ_TIGHT_BDT_MIN_SLOPE", 0.0);
+    m_tightBDTMax          = envToDouble("RJ_TIGHT_BDT_MAX", 1.0);
+    
+    m_clus              = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC");
+    m_clus_nocorr       = nullptr;
+    m_photons           = findNode::getClass<RawClusterContainer>(top, "PHOTONCLUSTER_CEMC");
+    m_photons_npb       = nullptr;
+    m_photons_tightbdt  = nullptr;
+    
+    if (m_preselectionVariant == "variantA")
+    {
+        if (m_preselectionPhotonNode == "PHOTONCLUSTER_CEMC") m_photons_npb = m_photons;
+        else m_photons_npb = findNode::getClass<RawClusterContainer>(top, m_preselectionPhotonNode.c_str());
+    }
+    
+    if (m_tightVariant == "variantA")
+    {
+        if (m_tightPhotonNode == "PHOTONCLUSTER_CEMC") m_photons_tightbdt = m_photons;
+        else m_photons_tightbdt = findNode::getClass<RawClusterContainer>(top, m_tightPhotonNode.c_str());
+    }
     
     if (Verbosity() >= 3)
     {
@@ -777,13 +821,27 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
         
         LOG(3, CLR_CYAN,
             "    [fetchNodes] sizes: CLUSTERINFO_CEMC=" << countClusters(m_clus)
-            << " | PHOTONCLUSTER_CEMC=" << countClusters(m_photons));
+            << " | PHOTONCLUSTER_CEMC=" << countClusters(m_photons)
+            << " | " << m_preselectionPhotonNode << "=" << countClusters(m_photons_npb)
+            << " | " << m_tightPhotonNode << "=" << countClusters(m_photons_tightbdt));
     }
     if (!m_photons)
     {
         LOG(0, CLR_YELLOW,
             "    [fetchNodes] PHOTONCLUSTER_CEMC is MISSING → ABORTEVENT. "
             "PhotonClusterBuilder likely did not run or node name mismatch.");
+        return false;
+    }
+    if (m_preselectionVariant == "variantA" && !m_photons_npb)
+    {
+        LOG(0, CLR_YELLOW,
+            "    [fetchNodes] " << m_preselectionPhotonNode << " is MISSING while preselection=variantA.");
+        return false;
+    }
+    if (m_tightVariant == "variantA" && !m_photons_tightbdt)
+    {
+        LOG(0, CLR_YELLOW,
+            "    [fetchNodes] " << m_tightPhotonNode << " is MISSING while tight=variantA.");
         return false;
     }
     
@@ -3683,6 +3741,8 @@ RecoilJets::SSVars RecoilJets::makeSSFromPhoton(const PhotonClusterv1* pho, doub
   v.e11_over_e33 = e11_over_e33_raw;
   v.e32_over_e35 = e32_over_e35_raw;
 
+  attachVariantScoresToSSVars(pho, v);
+
   // Print only when:
   //   - Verbosity >= 8 (always), OR
   //   - Verbosity >= 6 and something looks wrong (non-finite / denom<=0)
@@ -3704,6 +3764,10 @@ RecoilJets::SSVars RecoilJets::makeSSFromPhoton(const PhotonClusterv1* pho, doub
        << " | e32=" << std::setprecision(4) << e32
        << " e35=" << std::setprecision(4) << e35
        << " (e32/e35=" << std::setprecision(4) << (std::isfinite(e32_over_e35_raw) ? e32_over_e35_raw : -999.0) << ")";
+    if (std::isfinite(v.npb_score))
+      os << " | npb=" << std::setprecision(4) << v.npb_score;
+    if (std::isfinite(v.tight_bdt_score))
+      os << " | tightBDT=" << std::setprecision(4) << v.tight_bdt_score;
     if (bad) os << "  [WARN]";
     LOG(6, bad ? CLR_YELLOW : CLR_BLUE, os.str());
   }
@@ -6475,85 +6539,104 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 
                 // ---------- Preselection breakdown (count by criterion) ----------
                 
-                const bool pass_e11e33 = (v.e11_over_e33 < PRE_E11E33_MAX);
-                const bool pass_et1    = in_open_interval(v.et1, PRE_ET1_MIN, PRE_ET1_MAX);
-                const bool pass_e32e35 = in_open_interval(v.e32_over_e35, PRE_E32E35_MIN, PRE_E32E35_MAX);
-                const bool pass_weta   = (v.weta_cogx < PRE_WETA_MAX);
-                
-                bool pre_ok = pass_e11e33 && pass_et1 && pass_e32e35 && pass_weta;
+                const bool pre_ok = passesPhotonPreselection(v);
                 if (!pre_ok)
                 {
-                    // 3) Book/fill per-cut, per-bin FAILURE histograms
-                    const int effCentIdx = (m_isAuAu ? centIdx : -1);
-                    const std::string slice = suffixForBins(ptIdx, effCentIdx);
-                    
-                    const bool fail_e11e33 = !pass_e11e33;
-                    const bool fail_et1    = !pass_et1;
-                    const bool fail_e32e35 = !pass_e32e35;
-                    const bool fail_weta   = !pass_weta;
-                    
-                    int preFailMask = 0;
-                    if (fail_e11e33) preFailMask |= 1;
-                    if (fail_et1)    preFailMask |= 2;
-                    if (fail_e32e35) preFailMask |= 4;
-                    if (fail_weta)   preFailMask |= 8;
-                    
-                    for (const auto& trigShort : activeTrig)
+                    if (m_preselectionVariant == "variantA")
                     {
-                        if (auto* hMask = getOrBookCountHist(trigShort, "h_preFailMask", ptIdx, effCentIdx))
+                        for (const auto& trigShort : activeTrig)
                         {
-                            hMask->Fill(preFailMask);
-                            bumpHistFill(trigShort, std::string("h_preFailMask") + slice);
+                            if (auto* h = getOrBookCountHist(trigShort, "h_preFail_bdt", ptIdx, effCentIdx_SS))
+                            {
+                                h->Fill(1);
+                                bumpHistFill(trigShort, std::string("h_preFail_bdt") + slice_SS);
+                            }
                         }
                         
-                        if (!pass_weta)
+                        if (Verbosity() >= 4)
                         {
-                            if (auto* h = getOrBookCountHist(trigShort, "h_preFail_weta", ptIdx, effCentIdx))
-                            { h->Fill(1); bumpHistFill(trigShort, std::string("h_preFail_weta") + slice); }
-                        }
-                        if (!pass_et1)
-                        {
-                            const char* base = (v.et1 <= PRE_ET1_MIN) ? "h_preFail_et1_low" : "h_preFail_et1_high";
-                            if (auto* h = getOrBookCountHist(trigShort, base, ptIdx, effCentIdx))
-                            { h->Fill(1); bumpHistFill(trigShort, std::string(base) + slice); }
-                        }
-                        if (!pass_e11e33)
-                        {
-                            if (auto* h = getOrBookCountHist(trigShort, "h_preFail_e11e33_high", ptIdx, effCentIdx))
-                            { h->Fill(1); bumpHistFill(trigShort, std::string("h_preFail_e11e33_high") + slice); }
-                        }
-                        if (!pass_e32e35)
-                        {
-                            const char* base = (v.e32_over_e35 <= PRE_E32E35_MIN) ? "h_preFail_e32e35_low" : "h_preFail_e32e35_high";
-                            if (auto* h = getOrBookCountHist(trigShort, base, ptIdx, effCentIdx))
-                            { h->Fill(1); bumpHistFill(trigShort, std::string(base) + slice); }
+                            std::ostringstream msg;
+                            msg << "      [pho#" << iPho << "] preselection FAIL"
+                                << " | variant=variantA(NPB)"
+                                << " | npb_score=" << std::fixed << std::setprecision(4) << v.npb_score
+                                << " | cut:>" << m_npbCut
+                                << " | pT^{#gamma}=" << std::fixed << std::setprecision(2) << v.pt_gamma;
+                            LOG(4, CLR_MAGENTA, msg.str());
                         }
                     }
-                    
-                    // Maintain existing bookkeeping
-                    if (!pass_weta)   ++m_bk.pre_fail_weta;
-                    if (!pass_et1)    { if (v.et1 <= PRE_ET1_MIN) ++m_bk.pre_fail_et1_low; else ++m_bk.pre_fail_et1_high; }
-                    if (!pass_e11e33) ++m_bk.pre_fail_e11e33_high;
-                    if (!pass_e32e35) { if (v.e32_over_e35 <= PRE_E32E35_MIN) ++m_bk.pre_fail_e32e35_low; else ++m_bk.pre_fail_e32e35_high; }
-                    
-                    // 4) Human-readable, single-line diagnostic with ALL values and reasons
-                    if (Verbosity() >= 4)
+                    else
                     {
-                        const char* et1_state    = pass_et1    ? "PASS" : (v.et1 <= PRE_ET1_MIN ? "FAIL(low)" : "FAIL(high)");
-                        const char* e32e35_state = pass_e32e35 ? "PASS" : (v.e32_over_e35 <= PRE_E32E35_MIN ? "FAIL(low)" : "FAIL(high)");
+                        const bool pass_e11e33 = (v.e11_over_e33 < PRE_E11E33_MAX);
+                        const bool pass_et1    = in_open_interval(v.et1, PRE_ET1_MIN, PRE_ET1_MAX);
+                        const bool pass_e32e35 = in_open_interval(v.e32_over_e35, PRE_E32E35_MIN, PRE_E32E35_MAX);
+                        const bool pass_weta   = (v.weta_cogx < PRE_WETA_MAX);
                         
-                        std::ostringstream msg;
-                        msg << "      [pho#" << iPho << "] preselection FAIL"
-                        << " | weta="    << std::fixed << std::setprecision(3) << v.weta_cogx
-                        << "  cut:<"     << PRE_WETA_MAX       << " → " << (pass_weta ? "PASS" : "FAIL")
-                        << " | et1="     << std::fixed << std::setprecision(3) << v.et1
-                        << "  cut:("     << PRE_ET1_MIN        << "," << PRE_ET1_MAX       << ") → " << et1_state
-                        << " | e11/e33=" << std::fixed << std::setprecision(3) << v.e11_over_e33
-                        << "  cut:<"     << PRE_E11E33_MAX     << " → " << (pass_e11e33 ? "PASS" : "FAIL")
-                        << " | e32/e35=" << std::fixed << std::setprecision(3) << v.e32_over_e35
-                        << "  cut:("     << PRE_E32E35_MIN     << "," << PRE_E32E35_MAX    << ") → " << e32e35_state
-                        << " | pT^{#gamma}=" << std::fixed << std::setprecision(2) << v.pt_gamma;
-                        LOG(4, CLR_MAGENTA, msg.str());
+                        const bool fail_e11e33 = !pass_e11e33;
+                        const bool fail_et1    = !pass_et1;
+                        const bool fail_e32e35 = !pass_e32e35;
+                        const bool fail_weta   = !pass_weta;
+                        
+                        int preFailMask = 0;
+                        if (fail_e11e33) preFailMask |= 1;
+                        if (fail_et1)    preFailMask |= 2;
+                        if (fail_e32e35) preFailMask |= 4;
+                        if (fail_weta)   preFailMask |= 8;
+                        
+                        for (const auto& trigShort : activeTrig)
+                        {
+                            if (auto* hMask = getOrBookCountHist(trigShort, "h_preFailMask", ptIdx, effCentIdx_SS))
+                            {
+                                hMask->Fill(preFailMask);
+                                bumpHistFill(trigShort, std::string("h_preFailMask") + slice_SS);
+                            }
+                            
+                            if (!pass_weta)
+                            {
+                                if (auto* h = getOrBookCountHist(trigShort, "h_preFail_weta", ptIdx, effCentIdx_SS))
+                                { h->Fill(1); bumpHistFill(trigShort, std::string("h_preFail_weta") + slice_SS); }
+                            }
+                            if (!pass_et1)
+                            {
+                                const char* base = (v.et1 <= PRE_ET1_MIN) ? "h_preFail_et1_low" : "h_preFail_et1_high";
+                                if (auto* h = getOrBookCountHist(trigShort, base, ptIdx, effCentIdx_SS))
+                                { h->Fill(1); bumpHistFill(trigShort, std::string(base) + slice_SS); }
+                            }
+                            if (!pass_e11e33)
+                            {
+                                if (auto* h = getOrBookCountHist(trigShort, "h_preFail_e11e33_high", ptIdx, effCentIdx_SS))
+                                { h->Fill(1); bumpHistFill(trigShort, std::string("h_preFail_e11e33_high") + slice_SS); }
+                            }
+                            if (!pass_e32e35)
+                            {
+                                const char* base = (v.e32_over_e35 <= PRE_E32E35_MIN) ? "h_preFail_e32e35_low" : "h_preFail_e32e35_high";
+                                if (auto* h = getOrBookCountHist(trigShort, base, ptIdx, effCentIdx_SS))
+                                { h->Fill(1); bumpHistFill(trigShort, std::string(base) + slice_SS); }
+                            }
+                        }
+                        
+                        if (!pass_weta)   ++m_bk.pre_fail_weta;
+                        if (!pass_et1)    { if (v.et1 <= PRE_ET1_MIN) ++m_bk.pre_fail_et1_low; else ++m_bk.pre_fail_et1_high; }
+                        if (!pass_e11e33) ++m_bk.pre_fail_e11e33_high;
+                        if (!pass_e32e35) { if (v.e32_over_e35 <= PRE_E32E35_MIN) ++m_bk.pre_fail_e32e35_low; else ++m_bk.pre_fail_e32e35_high; }
+                        
+                        if (Verbosity() >= 4)
+                        {
+                            const char* et1_state    = pass_et1    ? "PASS" : (v.et1 <= PRE_ET1_MIN ? "FAIL(low)" : "FAIL(high)");
+                            const char* e32e35_state = pass_e32e35 ? "PASS" : (v.e32_over_e35 <= PRE_E32E35_MIN ? "FAIL(low)" : "FAIL(high)");
+                            
+                            std::ostringstream msg;
+                            msg << "      [pho#" << iPho << "] preselection FAIL"
+                                << " | weta="    << std::fixed << std::setprecision(3) << v.weta_cogx
+                                << "  cut:<"     << PRE_WETA_MAX       << " → " << (pass_weta ? "PASS" : "FAIL")
+                                << " | et1="     << std::fixed << std::setprecision(3) << v.et1
+                                << "  cut:("     << PRE_ET1_MIN        << "," << PRE_ET1_MAX       << ") → " << et1_state
+                                << " | e11/e33=" << std::fixed << std::setprecision(3) << v.e11_over_e33
+                                << "  cut:<"     << PRE_E11E33_MAX     << " → " << (pass_e11e33 ? "PASS" : "FAIL")
+                                << " | e32/e35=" << std::fixed << std::setprecision(3) << v.e32_over_e35
+                                << "  cut:("     << PRE_E32E35_MIN     << "," << PRE_E32E35_MAX    << ") → " << e32e35_state
+                                << " | pT^{#gamma}=" << std::fixed << std::setprecision(2) << v.pt_gamma;
+                            LOG(4, CLR_MAGENTA, msg.str());
+                        }
                     }
                     
                     if (haveAuditSample)
@@ -6561,19 +6644,28 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                         recordIsolationAuditFollowup(activeTrig, auditSample, TightTag::kPreselectionFail);
                     }
                     
-                    ++nNotTight; // keep legacy counter of “not usable” for xJ
+                    ++nNotTight;
                     continue;
                 }
                 
                 if (Verbosity() >= 4)
                 {
                     std::ostringstream msg;
-                    msg << "      [pho#" << iPho << "] preselection PASS"
-                    << " | weta="    << std::fixed << std::setprecision(3) << v.weta_cogx  << "  cut:<"  << PRE_WETA_MAX    << " → PASS"
-                    << " | et1="     << std::fixed << std::setprecision(3) << v.et1        << "  cut:("  << PRE_ET1_MIN     << "," << PRE_ET1_MAX     << ") → PASS"
-                    << " | e11/e33=" << std::fixed << std::setprecision(3) << v.e11_over_e33 << "  cut:<" << PRE_E11E33_MAX  << " → PASS"
-                    << " | e32/e35=" << std::fixed << std::setprecision(3) << v.e32_over_e35 << "  cut:(" << PRE_E32E35_MIN  << "," << PRE_E32E35_MAX  << ") → PASS"
-                    << " | pT^{#gamma}=" << std::fixed << std::setprecision(2) << v.pt_gamma;
+                    msg << "      [pho#" << iPho << "] preselection PASS";
+                    if (m_preselectionVariant == "variantA")
+                    {
+                        msg << " | variant=variantA(NPB)"
+                            << " | npb_score=" << std::fixed << std::setprecision(4) << v.npb_score
+                            << " | cut:>" << m_npbCut;
+                    }
+                    else
+                    {
+                        msg << " | weta="    << std::fixed << std::setprecision(3) << v.weta_cogx  << "  cut:<"  << PRE_WETA_MAX    << " → PASS"
+                            << " | et1="     << std::fixed << std::setprecision(3) << v.et1        << "  cut:("  << PRE_ET1_MIN     << "," << PRE_ET1_MAX     << ") → PASS"
+                            << " | e11/e33=" << std::fixed << std::setprecision(3) << v.e11_over_e33 << "  cut:<" << PRE_E11E33_MAX  << " → PASS"
+                            << " | e32/e35=" << std::fixed << std::setprecision(3) << v.e32_over_e35 << "  cut:(" << PRE_E32E35_MIN  << "," << PRE_E32E35_MAX  << ") → PASS";
+                    }
+                    msg << " | pT^{#gamma}=" << std::fixed << std::setprecision(2) << v.pt_gamma;
                     LOG(4, CLR_RED, msg.str());
                 }
                 ++m_bk.pre_pass;
@@ -6583,26 +6675,65 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 if (iso) ++m_bk.iso_pass; else ++m_bk.iso_fail;
                 
                 // ---------- Tight classification breakdown ----------
-                const double w_hi = tight_w_hi(v.pt_gamma);
-                const bool t_weta   = in_open_interval(v.weta_cogx,  TIGHT_W_LO, w_hi);
-                const bool t_wphi   = in_open_interval(v.wphi_cogx,  TIGHT_W_LO, w_hi);
-                const bool t_e11e33 = in_open_interval(v.e11_over_e33, TIGHT_E11E33_MIN, TIGHT_E11E33_MAX);
-                const bool t_et1    = in_open_interval(v.et1,          TIGHT_ET1_MIN,    TIGHT_ET1_MAX);
-                const bool t_e32e35 = in_open_interval(v.e32_over_e35, TIGHT_E32E35_MIN, TIGHT_E32E35_MAX);
-                
-                int tight_fails = 0;
-                if (!t_weta)   { ++m_bk.tight_fail_weta;   ++tight_fails; }
-                if (!t_wphi)   { ++m_bk.tight_fail_wphi;   ++tight_fails; }
-                if (!t_e11e33) { ++m_bk.tight_fail_e11e33; ++tight_fails; }
-                if (!t_et1)    { ++m_bk.tight_fail_et1;    ++tight_fails; }
-                if (!t_e32e35) { ++m_bk.tight_fail_e32e35; ++tight_fails; }
-                
                 RecoilJets::TightTag tightTag;
-                if (tight_fails == 0)      { tightTag = TightTag::kTight;      ++m_bk.tight_tight; }
-                else if (tight_fails >= 2) { tightTag = TightTag::kNonTight;   ++m_bk.tight_nonTight; }
-                else                       { tightTag = TightTag::kNeither;    ++m_bk.tight_neither; }
-                
+                if (m_tightVariant == "variantA")
                 {
+                    const double tight_min = m_tightBDTMinIntercept + m_tightBDTMinSlope * v.pt_gamma;
+                    const bool pass_tight_bdt =
+                        std::isfinite(v.tight_bdt_score) &&
+                        std::isfinite(tight_min) &&
+                        (v.tight_bdt_score > tight_min) &&
+                        (v.tight_bdt_score < m_tightBDTMax);
+                    
+                    tightTag = pass_tight_bdt ? TightTag::kTight : TightTag::kNonTight;
+                    
+                    if (tightTag == TightTag::kTight) ++m_bk.tight_tight;
+                    else                              ++m_bk.tight_nonTight;
+                    
+                    for (const auto& trigShort : activeTrig)
+                    {
+                        if (!pass_tight_bdt)
+                        {
+                            if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_bdt", ptIdx, effCentIdx_SS))
+                            {
+                                h->Fill(1);
+                                bumpHistFill(trigShort, std::string("h_tightFail_bdt") + slice_SS);
+                            }
+                        }
+                    }
+                    
+                    if (Verbosity() >= 4)
+                    {
+                        std::ostringstream msg;
+                        msg << "      [pho#" << iPho << "] tight classification"
+                            << " | variant=variantA(TightBDT)"
+                            << " | tight_bdt_score=" << std::fixed << std::setprecision(4) << v.tight_bdt_score
+                            << " | min=" << (m_tightBDTMinIntercept + m_tightBDTMinSlope * v.pt_gamma)
+                            << " | max=" << m_tightBDTMax
+                            << " | tag=" << tightTagName(tightTag);
+                        LOG(4, (tightTag == TightTag::kTight ? CLR_RED : CLR_GREEN), msg.str());
+                    }
+                }
+                else
+                {
+                    const double w_hi = tight_w_hi(v.pt_gamma);
+                    const bool t_weta   = in_open_interval(v.weta_cogx,  TIGHT_W_LO, w_hi);
+                    const bool t_wphi   = in_open_interval(v.wphi_cogx,  TIGHT_W_LO, w_hi);
+                    const bool t_e11e33 = in_open_interval(v.e11_over_e33, TIGHT_E11E33_MIN, TIGHT_E11E33_MAX);
+                    const bool t_et1    = in_open_interval(v.et1,          TIGHT_ET1_MIN,    TIGHT_ET1_MAX);
+                    const bool t_e32e35 = in_open_interval(v.e32_over_e35, TIGHT_E32E35_MIN, TIGHT_E32E35_MAX);
+                    
+                    int tight_fails = 0;
+                    if (!t_weta)   { ++m_bk.tight_fail_weta;   ++tight_fails; }
+                    if (!t_wphi)   { ++m_bk.tight_fail_wphi;   ++tight_fails; }
+                    if (!t_e11e33) { ++m_bk.tight_fail_e11e33; ++tight_fails; }
+                    if (!t_et1)    { ++m_bk.tight_fail_et1;    ++tight_fails; }
+                    if (!t_e32e35) { ++m_bk.tight_fail_e32e35; ++tight_fails; }
+                    
+                    if (tight_fails == 0)      { tightTag = TightTag::kTight;      ++m_bk.tight_tight; }
+                    else if (tight_fails >= 2) { tightTag = TightTag::kNonTight;   ++m_bk.tight_nonTight; }
+                    else                       { tightTag = TightTag::kNeither;    ++m_bk.tight_neither; }
+                    
                     int tightFailMask = 0;
                     if (!t_weta)   tightFailMask |= 1;
                     if (!t_wphi)   tightFailMask |= 2;

@@ -763,7 +763,7 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
                     DrawMissingPad(TString::Format("AuAu missing: %s, %s, %s, %s", var.c_str(), tag.c_str(), cb.folder.c_str(), ptReq.folder.c_str()).Data());
                     return false;
                 }
-                if (!rawPP && !rawSig && !rawBkg)
+                if (!standalone && !rawPP && !rawSig && !rawBkg)
                 {
                     DrawMissingPad(TString::Format("%s, %s, %s, %s", var.c_str(), tag.c_str(), cb.folder.c_str(), ptReq.folder.c_str()).Data());
                     return false;
@@ -2571,13 +2571,13 @@ if (!SSoverlayPerVAR_processONLY)
                 else
                 {
                     tSel.SetTextSize(0.040);
-                    tSel.DrawLatex(0.68, 0.76, "#gamma-presel:");
+                    tSel.DrawLatex(0.55, 0.76, "#gamma-presel:");
 
                     tSel.SetTextSize(0.030);
-                    tSel.DrawLatex(0.68, 0.69, "#frac{E_{11}}{E_{33}} < 0.98");
-                    tSel.DrawLatex(0.84, 0.69, "0.6 < et1 < 1.0");
-                    tSel.DrawLatex(0.68, 0.60, "0.8 < #frac{E_{32}}{E_{35}} < 1.0");
-                    tSel.DrawLatex(0.84, 0.60, "w_{#eta} < 0.6");
+                    tSel.DrawLatex(0.55, 0.69, "#frac{E_{11}}{E_{33}} < 0.98");
+                    tSel.DrawLatex(0.74, 0.69, "0.6 < et1 < 1.0");
+                    tSel.DrawLatex(0.55, 0.60, "0.8 < #frac{E_{32}}{E_{35}} < 1.0");
+                    tSel.DrawLatex(0.74, 0.60, "w_{#eta} < 0.6");
                 }
                 return true;
             }
@@ -3875,10 +3875,10 @@ if (!SSoverlayPerVAR_processONLY)
                         const bool moveSelectionBlockToBottomRight =
                             (H.folder == "inclusiveEmbedded" && var == "weta" && tag == "pre" && pb.folder == "pT_10_12") ||
                             (H.folder == "data" && H.variant == "baseVariant" && tag == "pre" &&
-                             pb.folder == "pT_20_35" && (var == "weta" || var == "wphi" || var == "weta35"));
+                             pb.folder == "pT_20_35" && (var == "weta" || var == "wphi" || var == "weta35" || var == "wphi53"));
                         const bool moveSelectionBlockToMiddleRight =
                             (H.folder == "data" && H.variant == "baseVariant" && tag == "pre" &&
-                             pb.folder == "pT_20_35" && (var == "weta" || var == "wphi" || var == "weta35"));
+                             pb.folder == "pT_20_35" && (var == "weta" || var == "wphi" || var == "weta35" || var == "wphi53"));
                         DrawSSOverlayCutsAndText(var, tag, false, ptCenterForCuts, cutTextX, cutTextY, cutTextSize,
                                                  !moveSelectionBlockToBottomRight && !moveSelectionBlockToMiddleRight,
                                                  moveSelectionBlockToMiddleRight);
