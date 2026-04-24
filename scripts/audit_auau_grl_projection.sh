@@ -146,6 +146,8 @@ PREFIX="DST_CALOFITTING"
 
 REF_TRIG_BIT=14
 REF_TRIG_NAME="MBD N&S >= 2, vtx < 150 cm"
+REF_LUMI_CROSS_SECTION_BARNS="6.324"
+REF_LUMI_CROSS_SECTION_NOTE="sigma_MBD = 6.8 barns * 0.93 = 6.324 barns"
 PSQL_HOST="sphnxdaqdbreplica"
 PSQL_DB="daq"
 
@@ -335,6 +337,22 @@ fmt_pct() {
 
 fmt_m() {
   awk -v n="${1:-0}" 'BEGIN { printf "%.3f", (n / 1.0e6); }'
+}
+
+fmt_lumi_ub() {
+  awk -v n="${1:-0}" -v sigma="${2:-6.324}" '
+    BEGIN {
+      if (sigma <= 0) printf "n/a";
+      else printf "%.3f", n / sigma / 1.0e6;
+    }'
+}
+
+fmt_lumi_nb() {
+  awk -v n="${1:-0}" -v sigma="${2:-6.324}" '
+    BEGIN {
+      if (sigma <= 0) printf "n/a";
+      else printf "%.3f", n / sigma / 1.0e9;
+    }'
 }
 
 fmt_h() {
@@ -1098,6 +1116,10 @@ write_firstpass_manifest() {
     printf 'TAG=%q\n' "$TAG"
     printf 'PREFIX=%q\n' "$PREFIX"
     printf 'PREFIX_STEM=%q\n' "$PREFIX_STEM"
+    printf 'REF_TRIG_BIT=%q\n' "$REF_TRIG_BIT"
+    printf 'REF_TRIG_NAME=%q\n' "$REF_TRIG_NAME"
+    printf 'REF_LUMI_CROSS_SECTION_BARNS=%q\n' "$REF_LUMI_CROSS_SECTION_BARNS"
+    printf 'REF_LUMI_CROSS_SECTION_NOTE=%q\n' "$REF_LUMI_CROSS_SECTION_NOTE"
     printf 'VERBOSE=%q\n' "$VERBOSE"
     printf 'RUN_PROGRESS_EVERY=%q\n' "$RUN_PROGRESS_EVERY"
     printf 'ROOT_PROGRESS_EVERY=%q\n' "$ROOT_PROGRESS_EVERY"
@@ -1174,7 +1196,7 @@ write_secondpass_cache() {
     declare -p RUNS_WITH_EXPECTED RUNS_WITH_CURRENT RUNS_WITH_PRESENT RUNS_COMPLETE RUNS_PARTIAL RUNS_ZERO_PRESENT RUNS_WITH_EXTRA RUNS_NO_EXPECTED
     declare -p RUNS_WITH_CURRENT_ZERO_REF_RAW RUNS_WITH_CURRENT_ZERO_REF_LIVE RUNS_WITH_CURRENT_ZERO_REF_SCALED
     declare -p ROOT_OK_FILES ROOT_OPENFAIL_FILES ROOT_ZOMBIE_FILES ROOT_NOTREE_FILES ROOT_TOTAL_COUNTED_ENTRIES UNIQUE_FILE_COUNT
-    declare -p BASE GRL LIST_DIR DATASET TAG PREFIX PREFIX_STEM REF_TRIG_BIT REF_TRIG_NAME MANIFEST_PATH TMP_ROOT TMP_RESULTS_DIR TMP_UNIQUE_FILES TMP_SECONDPASS_CACHE_TXT TMP_SECONDPASS_RUN_TSV
+    declare -p BASE GRL LIST_DIR DATASET TAG PREFIX PREFIX_STEM REF_TRIG_BIT REF_TRIG_NAME REF_LUMI_CROSS_SECTION_BARNS REF_LUMI_CROSS_SECTION_NOTE MANIFEST_PATH TMP_ROOT TMP_RESULTS_DIR TMP_UNIQUE_FILES TMP_SECONDPASS_CACHE_TXT TMP_SECONDPASS_RUN_TSV
   } > "${TMP_SECONDPASS_CACHE_TXT}"
 
   {
@@ -1792,7 +1814,14 @@ print_core_summary() {
   printf "  %-42s : %12s\n" "Current-list-subset scaled/live" "$(fmt_pct "${TOT_REF_SCALED_CURRENT}" "${TOT_REF_LIVE_CURRENT}")"
   printf "  %-42s : %12s\n" "Current-list-subset scaled/raw" "$(fmt_pct "${TOT_REF_SCALED_CURRENT}" "${TOT_REF_RAW_CURRENT}")"
 
-  subsection "E) Entry-count health"
+  subsection "E) Trigger-${REF_TRIG_BIT} wide-vertex luminosity / exposure estimate"
+  note "Uses scaled Trigger-${REF_TRIG_BIT} counts and ${REF_LUMI_CROSS_SECTION_NOTE}"
+  note "This is the MBD N&S >= 2, |vtx| < 150 cm sampled exposure estimate; no Trigger-12 narrow-vertex correction is applied."
+  printf "  %-42s : %12s μb^-1  (%s nb^-1)\n" "DAQ full-GRL scaled exposure" "$(fmt_lumi_ub "${TOT_REF_SCALED_ALL}" "${REF_LUMI_CROSS_SECTION_BARNS}")" "$(fmt_lumi_nb "${TOT_REF_SCALED_ALL}" "${REF_LUMI_CROSS_SECTION_BARNS}")"
+  printf "  %-42s : %12s μb^-1  (%s nb^-1)\n" "Current on-disk scaled exposure" "$(fmt_lumi_ub "${TOT_CURRENT_REF_SCALED_EVT}" "${REF_LUMI_CROSS_SECTION_BARNS}")" "$(fmt_lumi_nb "${TOT_CURRENT_REF_SCALED_EVT}" "${REF_LUMI_CROSS_SECTION_BARNS}")"
+  printf "  %-42s : %12s\n" "On-disk / DAQ scaled exposure" "$(fmt_pct "${TOT_CURRENT_REF_SCALED_EVT}" "${TOT_REF_SCALED_ALL}")"
+
+  subsection "F) Entry-count health"
   printf "  %-42s : %12s\n" "Unique referenced ROOT files" "$(fmt_num "${UNIQUE_FILE_COUNT}")"
   printf "  %-42s : %12s\n" "Files with counts available" "$(fmt_num "${ROOT_OK_FILES}")"
   printf "  %-42s : %12s\n" "Open failures" "$(fmt_num "${ROOT_OPENFAIL_FILES}")"
@@ -1802,7 +1831,7 @@ print_core_summary() {
 }
 
 print_ranked_tables() {
-  subsection "F) Top runs by current-sample scaled trigger counts"
+  subsection "G) Top runs by current-sample scaled trigger counts"
 
   printf "  %-8s | %-8s | %-12s | %-12s | %-12s | %-10s\n" \
     "Run" "CurSeg" "CurEvt(M)" "LiveBit(M)" "ScaledBit(M)" "S/DAQS%"
@@ -1829,7 +1858,7 @@ print_ranked_tables() {
     done | sort -t $'\t' -k1,1nr -k2,2 | awk 'NR <= 15 { print }'
   )
 
-  subsection "G) Runs with zero scaled trigger counts in the current sample"
+  subsection "H) Runs with zero scaled trigger counts in the current sample"
 
   printf "  %-8s | %-8s | %-12s | %-12s | %-12s\n" \
     "Run" "CurSeg" "CurEvt(M)" "DAQScaled(M)" "Notes"
@@ -1862,7 +1891,7 @@ print_run_status_table() {
     return 0
   fi
 
-  subsection "H) Full per-run current-sample + trigger-bit table"
+  subsection "I) Full per-run current-sample + trigger-bit table"
 
   printf "  %-8s | %-8s | %-12s | %-12s | %-12s | %-12s | %-10s | %-10s | %-28s\n" \
     "Run" "CurSeg" "CurEvt(M)" "RawBit(M)" "LiveBit(M)" "ScaledBit(M)" "L/DAQL%" "S/DAQS%" "Notes"
@@ -2105,7 +2134,9 @@ main() {
   (( ${#RUN_ORDER[@]} > 0 )) || fatal "no valid runs found in GRL: ${GRL}"
 
   if [[ "${ACTION}" == "thirdPass" ]]; then
-    load_secondpass_cache "${TMP_SECONDPASS_CACHE_TXT}"
+    [[ -f "${TMP_SECONDPASS_CACHE_TXT}" ]] || fatal "second-pass cache not found: ${TMP_SECONDPASS_CACHE_TXT}"
+    # shellcheck disable=SC1090
+    source "${TMP_SECONDPASS_CACHE_TXT}"
 
     print_startup_context
     note "GRL runs loaded: $(fmt_num "${#RUN_ORDER[@]}")"
