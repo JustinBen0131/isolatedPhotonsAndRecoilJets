@@ -109,11 +109,14 @@ clusterUEpipeline: [baseVariant]
 #
 # NPB preselection study:
 #   preselection = reference
-#     Baseline PPG12-style hard-cut preselection.
+#     Use the baseline PPG12-style hard-cut shower-shape preselection:
+#       e11/e33, et1, e32/e35, and weta_cogx.
 #
 #   preselection = variantA
-#     Same reference preselection plus the NPB veto:
-#       npb_score > npb_cut
+#     Replace the shower-shape preselection with an NPB-score preselection:
+#       preselection pass = npb_score > npb_cut
+#
+#     This is NOT "reference + NPB"; it is an alternative preselection gate.
 #
 #   tight = variantA
 #     Use the Sam-inspired tight-ID BDT node:
@@ -121,7 +124,7 @@ clusterUEpipeline: [baseVariant]
 #
 #   nonTight = reference
 #     For tight=variantA, RecoilJets derives non-tight as the complement of
-#     the tight-BDT pass inside the preselected sample:
+#     the tight-BDT pass inside whichever preselection sample is selected:
 #       tight     = passes selected preselection AND tight_bdt_score > cut
 #       non-tight = passes selected preselection AND tight_bdt_score <= cut
 # -----------------------------------------------------------------------------
@@ -135,8 +138,9 @@ nonTight: [reference]
 # CLUSTERINFO_CEMC corresponds to Shuhang's "split" cluster variant, so use:
 #   npb_score_split_tmva.root
 #
-# NPB veto:
+# Used only when preselection = variantA:
 #   keep cluster if npb_score > 0.5
+#   reject cluster if npb_score <= 0.5 or the score is unavailable/non-finite
 # -----------------------------------------------------------------------------
 npb_model_file: /sphenix/user/shuhangli/ppg12/FunWithxgboost/npb_models/npb_score_split_tmva.root
 npb_cut: 0.5
