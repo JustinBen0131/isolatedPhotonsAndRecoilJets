@@ -7596,8 +7596,8 @@ static void Make3x3Table_ABCDCounts(Dataset& ds,
     
     const char* xLabelsABCD[4] = {
         "N_{A} = iso+tight",
-        "N_{B} = iso+nonTight",
-        "N_{C} = nonIso+tight",
+        "N_{B} = nonIso+tight",
+        "N_{C} = iso+nonTight",
         "N_{D} = nonIso+nonTight"
     };
     const int   colorsABCD[4]  = {kGreen+2, kRed+1, kAzure+1, kMagenta+1};
@@ -7775,8 +7775,8 @@ static void MakeSinglePad_ABCDCounts(const double vals[4],
     
     const char* xLabelsABCD[4] = {
         "#splitline{N_{A} =}{iso+tight}",
-        "#splitline{N_{B} =}{iso+nonTight}",
-        "#splitline{N_{C} =}{nonIso+tight}",
+        "#splitline{N_{B} =}{noniso+tight}",
+        "#splitline{N_{C} =}{iso+nonTight}",
         "#splitline{N_{D} =}{nonIso+nonTight}"
     };
     const int   colorsABCD[4]  = {kGreen+2, kRed+1, kAzure+1, kMagenta+1};

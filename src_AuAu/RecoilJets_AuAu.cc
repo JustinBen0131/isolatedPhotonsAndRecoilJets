@@ -6537,6 +6537,114 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                     }
                 }
                 
+                // ---------- NPB preselection shadow QA ----------
+                // If variantA is the real preselection, keep that decision untouched,
+                // but also evaluate the reference pp/PPG12 preselection as diagnostics.
+                if (m_preselectionVariant == "variantA")
+                {
+                    const bool npbPassForAudit =
+                        std::isfinite(v.npb_score) &&
+                        std::isfinite(v.pt_gamma) &&
+                        (v.npb_score > m_npbCut);
+                    
+                    const std::string npbTagKey = (npbPassForAudit ? "npbPass" : "npbFail");
+                    
+                    const bool ref_pass_e11e33 = (v.e11_over_e33 < PRE_E11E33_MAX);
+                    const bool ref_pass_et1    = in_open_interval(v.et1, PRE_ET1_MIN, PRE_ET1_MAX);
+                    const bool ref_pass_e32e35 = in_open_interval(v.e32_over_e35, PRE_E32E35_MIN, PRE_E32E35_MAX);
+                    const bool ref_pass_weta   = (v.weta_cogx < PRE_WETA_MAX);
+                    
+                    const bool ref_fail_e11e33 = !ref_pass_e11e33;
+                    const bool ref_fail_et1    = !ref_pass_et1;
+                    const bool ref_fail_e32e35 = !ref_pass_e32e35;
+                    const bool ref_fail_weta   = !ref_pass_weta;
+                    
+                    int preRefFailMask = 0;
+                    if (ref_fail_e11e33) preRefFailMask |= 1;
+                    if (ref_fail_et1)    preRefFailMask |= 2;
+                    if (ref_fail_e32e35) preRefFailMask |= 4;
+                    if (ref_fail_weta)   preRefFailMask |= 8;
+                    
+                    const bool refPassForAudit = (preRefFailMask == 0);
+                    
+                    auto fillNPBScore = [&](const std::string& trigShort, const std::string& tagKey)
+                    {
+                        if (!std::isfinite(v.npb_score)) return;
+                        
+                        if (auto* h = getOrBookSSHist(trigShort, "npbScore", tagKey, ptIdx, effCentIdx_SS))
+                        {
+                            h->Fill(v.npb_score);
+                            bumpHistFill(trigShort, "h_ss_npbScore_" + tagKey + slice_SS);
+                        }
+                    };
+                    
+                    auto fillPreRefFailCount = [&](const std::string& trigShort, const std::string& base)
+                    {
+                        const std::string baseAll = base + "_all";
+                        if (auto* h = getOrBookCountHist(trigShort, baseAll, ptIdx, effCentIdx_SS))
+                        {
+                            h->Fill(1);
+                            bumpHistFill(trigShort, baseAll + slice_SS);
+                        }
+                        
+                        const std::string baseNPB = base + "_" + npbTagKey;
+                        if (auto* h = getOrBookCountHist(trigShort, baseNPB, ptIdx, effCentIdx_SS))
+                        {
+                            h->Fill(1);
+                            bumpHistFill(trigShort, baseNPB + slice_SS);
+                        }
+                    };
+                    
+                    for (const auto& trigShort : activeTrig)
+                    {
+                        fillSSSpectra(trigShort, npbTagKey);
+                        fillNPBScore(trigShort, "inclusive");
+                        fillNPBScore(trigShort, npbTagKey);
+                        
+                        if (auto* hMaskAll = getOrBookCountHist(trigShort, "h_preRefFailMask_all", ptIdx, effCentIdx_SS))
+                        {
+                            hMaskAll->Fill(preRefFailMask);
+                            bumpHistFill(trigShort, std::string("h_preRefFailMask_all") + slice_SS);
+                        }
+                        
+                        const std::string maskNPB = "h_preRefFailMask_" + npbTagKey;
+                        if (auto* hMaskNPB = getOrBookCountHist(trigShort, maskNPB, ptIdx, effCentIdx_SS))
+                        {
+                            hMaskNPB->Fill(preRefFailMask);
+                            bumpHistFill(trigShort, maskNPB + slice_SS);
+                        }
+                        
+                        const std::string matrixBase =
+                            std::string("h_preRefMatrix_") +
+                            npbTagKey + "_" +
+                            (refPassForAudit ? "refPass" : "refFail");
+                        
+                        if (auto* hMatrix = getOrBookCountHist(trigShort, matrixBase, ptIdx, effCentIdx_SS))
+                        {
+                            hMatrix->Fill(1);
+                            bumpHistFill(trigShort, matrixBase + slice_SS);
+                        }
+                        
+                        if (ref_fail_weta)
+                            fillPreRefFailCount(trigShort, "h_preRefFail_weta");
+                        
+                        if (ref_fail_et1)
+                        {
+                            const std::string base = (v.et1 <= PRE_ET1_MIN) ? "h_preRefFail_et1_low" : "h_preRefFail_et1_high";
+                            fillPreRefFailCount(trigShort, base);
+                        }
+                        
+                        if (ref_fail_e11e33)
+                            fillPreRefFailCount(trigShort, "h_preRefFail_e11e33_high");
+                        
+                        if (ref_fail_e32e35)
+                        {
+                            const std::string base = (v.e32_over_e35 <= PRE_E32E35_MIN) ? "h_preRefFail_e32e35_low" : "h_preRefFail_e32e35_high";
+                            fillPreRefFailCount(trigShort, base);
+                        }
+                    }
+                }
+                
                 // ---------- Preselection breakdown (count by criterion) ----------
                 
                 const bool pre_ok = passesPhotonPreselection(v);
@@ -9037,7 +9145,7 @@ TH1I* RecoilJets::getOrBookCountHist(const std::string& trig,
     
     dir->cd();
     
-    if (base == "h_preFailMask")
+    if (base == "h_preFailMask" || base.rfind("h_preRefFailMask_", 0) == 0)
     {
         const std::string title = name + ";preselection fail mask;entries";
         
@@ -13490,6 +13598,7 @@ TH1F* RecoilJets::getOrBookSSHist(const std::string& trig,
   if (varKey == "weta" || varKey == "wphi" || varKey == "weta35" || varKey == "wphi53") { nb = 120; lo = 0.0; hi = 1.2; }
   else if (varKey == "et1")                 { nb = 120; lo = 0.0; hi = 1.2; }
   else if (varKey == "e11e33" || varKey == "e32e35") { nb = 120; lo = 0.0; hi = 1.2; }
+  else if (varKey == "npbScore")            { nb = 120; lo = -1.0; hi = 1.2; }
   else
   {
     LOG(3, CLR_YELLOW, "  [getOrBookSSHist] unknown varKey \"" << varKey

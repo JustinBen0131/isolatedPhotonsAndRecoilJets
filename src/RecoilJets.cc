@@ -5477,6 +5477,114 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                     if (ssNonIso) fillSSSpectra(trigShort, "nonIso");
                 }
                 
+                // ---------- NPB preselection shadow QA ----------
+                // If variantA is the real preselection, keep that decision untouched,
+                // but also evaluate the reference pp/PPG12 preselection as diagnostics.
+                if (m_preselectionVariant == "variantA")
+                {
+                    const bool npbPassForAudit =
+                        std::isfinite(v.npb_score) &&
+                        std::isfinite(v.pt_gamma) &&
+                        (v.npb_score > m_npbCut);
+                    
+                    const std::string npbTagKey = (npbPassForAudit ? "npbPass" : "npbFail");
+                    
+                    const bool ref_pass_e11e33 = (v.e11_over_e33 < PRE_E11E33_MAX);
+                    const bool ref_pass_et1    = in_open_interval(v.et1, PRE_ET1_MIN, PRE_ET1_MAX);
+                    const bool ref_pass_e32e35 = in_open_interval(v.e32_over_e35, PRE_E32E35_MIN, PRE_E32E35_MAX);
+                    const bool ref_pass_weta   = (v.weta_cogx < PRE_WETA_MAX);
+                    
+                    const bool ref_fail_e11e33 = !ref_pass_e11e33;
+                    const bool ref_fail_et1    = !ref_pass_et1;
+                    const bool ref_fail_e32e35 = !ref_pass_e32e35;
+                    const bool ref_fail_weta   = !ref_pass_weta;
+                    
+                    int preRefFailMask = 0;
+                    if (ref_fail_e11e33) preRefFailMask |= 1;
+                    if (ref_fail_et1)    preRefFailMask |= 2;
+                    if (ref_fail_e32e35) preRefFailMask |= 4;
+                    if (ref_fail_weta)   preRefFailMask |= 8;
+                    
+                    const bool refPassForAudit = (preRefFailMask == 0);
+                    
+                    auto fillNPBScore = [&](const std::string& trigShort, const std::string& tagKey)
+                    {
+                        if (!std::isfinite(v.npb_score)) return;
+                        
+                        if (auto* h = getOrBookSSHist(trigShort, "npbScore", tagKey, ptIdx, effCentIdx_SS))
+                        {
+                            h->Fill(v.npb_score);
+                            bumpHistFill(trigShort, "h_ss_npbScore_" + tagKey + slice_SS);
+                        }
+                    };
+                    
+                    auto fillPreRefFailCount = [&](const std::string& trigShort, const std::string& base)
+                    {
+                        const std::string baseAll = base + "_all";
+                        if (auto* h = getOrBookCountHist(trigShort, baseAll, ptIdx, effCentIdx_SS))
+                        {
+                            h->Fill(1);
+                            bumpHistFill(trigShort, baseAll + slice_SS);
+                        }
+                        
+                        const std::string baseNPB = base + "_" + npbTagKey;
+                        if (auto* h = getOrBookCountHist(trigShort, baseNPB, ptIdx, effCentIdx_SS))
+                        {
+                            h->Fill(1);
+                            bumpHistFill(trigShort, baseNPB + slice_SS);
+                        }
+                    };
+                    
+                    for (const auto& trigShort : activeTrig)
+                    {
+                        fillSSSpectra(trigShort, npbTagKey);
+                        fillNPBScore(trigShort, "inclusive");
+                        fillNPBScore(trigShort, npbTagKey);
+                        
+                        if (auto* hMaskAll = getOrBookCountHist(trigShort, "h_preRefFailMask_all", ptIdx, effCentIdx_SS))
+                        {
+                            hMaskAll->Fill(preRefFailMask);
+                            bumpHistFill(trigShort, std::string("h_preRefFailMask_all") + slice_SS);
+                        }
+                        
+                        const std::string maskNPB = "h_preRefFailMask_" + npbTagKey;
+                        if (auto* hMaskNPB = getOrBookCountHist(trigShort, maskNPB, ptIdx, effCentIdx_SS))
+                        {
+                            hMaskNPB->Fill(preRefFailMask);
+                            bumpHistFill(trigShort, maskNPB + slice_SS);
+                        }
+                        
+                        const std::string matrixBase =
+                            std::string("h_preRefMatrix_") +
+                            npbTagKey + "_" +
+                            (refPassForAudit ? "refPass" : "refFail");
+                        
+                        if (auto* hMatrix = getOrBookCountHist(trigShort, matrixBase, ptIdx, effCentIdx_SS))
+                        {
+                            hMatrix->Fill(1);
+                            bumpHistFill(trigShort, matrixBase + slice_SS);
+                        }
+                        
+                        if (ref_fail_weta)
+                            fillPreRefFailCount(trigShort, "h_preRefFail_weta");
+                        
+                        if (ref_fail_et1)
+                        {
+                            const std::string base = (v.et1 <= PRE_ET1_MIN) ? "h_preRefFail_et1_low" : "h_preRefFail_et1_high";
+                            fillPreRefFailCount(trigShort, base);
+                        }
+                        
+                        if (ref_fail_e11e33)
+                            fillPreRefFailCount(trigShort, "h_preRefFail_e11e33_high");
+                        
+                        if (ref_fail_e32e35)
+                        {
+                            const std::string base = (v.e32_over_e35 <= PRE_E32E35_MIN) ? "h_preRefFail_e32e35_low" : "h_preRefFail_e32e35_high";
+                            fillPreRefFailCount(trigShort, base);
+                        }
+                    }
+                }
+                
                 // ---------- Preselection breakdown (count by criterion) ----------
                 
                 const bool pre_ok = passesPhotonPreselection(v);
@@ -8052,7 +8160,7 @@ TH1I* RecoilJets::getOrBookCountHist(const std::string& trig,
     
     dir->cd();
     
-    if (base == "h_preFailMask")
+    if (base == "h_preFailMask" || base.rfind("h_preRefFailMask_", 0) == 0)
     {
         const std::string title = name + ";preselection fail mask;entries";
         
@@ -12613,84 +12721,85 @@ TH1F* RecoilJets::getOrBookSSHist(const std::string& trig,
                                   const std::string& tagKey,
                                   int etIdx, int centIdx)
 {
-  const std::string base   = "h_ss_" + varKey + "_" + tagKey;
-  const std::string suffix = suffixForBins(etIdx, centIdx);
-  const std::string name   = base + suffix;
-
-  if (Verbosity() >= 5)
-    LOG(5, CLR_BLUE, "  [getOrBookSSHist] trig=\"" << trig << "\" varKey=\"" << varKey
-           << "\" tagKey=\"" << tagKey << "\" etIdx=" << etIdx << " centIdx=" << centIdx
-           << " → name=\"" << name << "\"");
-
-  if (trig.empty() || varKey.empty() || tagKey.empty())
-  {
-    LOG(2, CLR_YELLOW, "  [getOrBookSSHist] empty trig/varKey/tagKey – returning nullptr");
-    return nullptr;
-  }
-
-  auto& H = qaHistogramsByTrigger[trig];
-
-  if (auto it = H.find(name); it != H.end())
-  {
-    if (auto* h = dynamic_cast<TH1F*>(it->second))
+    const std::string base   = "h_ss_" + varKey + "_" + tagKey;
+    const std::string suffix = suffixForBins(etIdx, centIdx);
+    const std::string name   = base + suffix;
+    
+    if (Verbosity() >= 5)
+        LOG(5, CLR_BLUE, "  [getOrBookSSHist] trig=\"" << trig << "\" varKey=\"" << varKey
+            << "\" tagKey=\"" << tagKey << "\" etIdx=" << etIdx << " centIdx=" << centIdx
+            << " → name=\"" << name << "\"");
+    
+    if (trig.empty() || varKey.empty() || tagKey.empty())
     {
-      if (Verbosity() >= 6)
-        LOG(6, CLR_GREEN, "    [getOrBookSSHist] reusing existing TH1F \"" << name << "\"");
-      return h;
+        LOG(2, CLR_YELLOW, "  [getOrBookSSHist] empty trig/varKey/tagKey – returning nullptr");
+        return nullptr;
     }
-    LOG(2, CLR_YELLOW, "    [getOrBookSSHist] name clash: object \"" << name
-                       << "\" exists but is not TH1F – replacing it");
-    H.erase(it);
-  }
-
-  if (!out || !out->IsOpen())
-  {
-    LOG(1, CLR_YELLOW, "  [getOrBookSSHist] output TFile invalid/null – returning nullptr");
-    return nullptr;
-  }
-
-  // Choose sane, variable-specific ranges (matches your previous defaults)
-  int    nb = 120;
-  double lo = 0.0, hi = 1.2;
-  if (varKey == "weta" || varKey == "wphi") { nb = 120; lo = 0.0; hi = 1.2; }
-  else if (varKey == "et1")                 { nb = 120; lo = 0.0; hi = 1.2; }
-  else if (varKey == "e11e33" || varKey == "e32e35") { nb = 120; lo = 0.0; hi = 1.2; }
-  else
-  {
-    LOG(3, CLR_YELLOW, "  [getOrBookSSHist] unknown varKey \"" << varKey
-         << "\" – using default nb=" << nb << " range=[" << lo << "," << hi << "]");
-  }
-
-  TDirectory* const prevDir = gDirectory;
-  TDirectory* dir = out->GetDirectory(trig.c_str());
-  if (!dir) dir = out->mkdir(trig.c_str());
-  if (!dir)
-  {
-    LOG(1, CLR_YELLOW, "  [getOrBookSSHist] failed to create/access directory \"" << trig << "\"");
+    
+    auto& H = qaHistogramsByTrigger[trig];
+    
+    if (auto it = H.find(name); it != H.end())
+    {
+        if (auto* h = dynamic_cast<TH1F*>(it->second))
+        {
+            if (Verbosity() >= 6)
+                LOG(6, CLR_GREEN, "    [getOrBookSSHist] reusing existing TH1F \"" << name << "\"");
+            return h;
+        }
+        LOG(2, CLR_YELLOW, "    [getOrBookSSHist] name clash: object \"" << name
+            << "\" exists but is not TH1F – replacing it");
+        H.erase(it);
+    }
+    
+    if (!out || !out->IsOpen())
+    {
+        LOG(1, CLR_YELLOW, "  [getOrBookSSHist] output TFile invalid/null – returning nullptr");
+        return nullptr;
+    }
+    
+    // Choose sane, variable-specific ranges (matches your previous defaults)
+    int    nb = 120;
+    double lo = 0.0, hi = 1.2;
+    if (varKey == "weta" || varKey == "wphi") { nb = 120; lo = 0.0; hi = 1.2; }
+    else if (varKey == "et1")                 { nb = 120; lo = 0.0; hi = 1.2; }
+    else if (varKey == "e11e33" || varKey == "e32e35") { nb = 120; lo = 0.0; hi = 1.2; }
+    else if (varKey == "npbScore")            { nb = 120; lo = -1.0; hi = 1.2; }
+    else
+    {
+        LOG(3, CLR_YELLOW, "  [getOrBookSSHist] unknown varKey \"" << varKey
+            << "\" – using default nb=" << nb << " range=[" << lo << "," << hi << "]");
+    }
+    
+    TDirectory* const prevDir = gDirectory;
+    TDirectory* dir = out->GetDirectory(trig.c_str());
+    if (!dir) dir = out->mkdir(trig.c_str());
+    if (!dir)
+    {
+        LOG(1, CLR_YELLOW, "  [getOrBookSSHist] failed to create/access directory \"" << trig << "\"");
+        if (prevDir) prevDir->cd();
+        return nullptr;
+    }
+    
+    dir->cd();
+    
+    const std::string title = base + ";" + varKey + ";Entries";
+    
+    if (Verbosity() >= 5)
+        LOG(5, CLR_BLUE, "    [getOrBookSSHist] booking TH1F name=\"" << name
+            << "\" bins=" << nb << " range=[" << lo << "," << hi
+            << "] title=\"" << title << '"');
+    
+    auto* h = new TH1F(name.c_str(), title.c_str(), nb, lo, hi);
+    if (!h)
+    {
+        LOG(1, CLR_YELLOW, "  [getOrBookSSHist] new TH1F failed for \"" << name << '"');
+        if (prevDir) prevDir->cd();
+        return nullptr;
+    }
+    H[name] = h;
+    
     if (prevDir) prevDir->cd();
-    return nullptr;
-  }
-
-  dir->cd();
-
-  const std::string title = base + ";" + varKey + ";Entries";
-
-  if (Verbosity() >= 5)
-    LOG(5, CLR_BLUE, "    [getOrBookSSHist] booking TH1F name=\"" << name
-         << "\" bins=" << nb << " range=[" << lo << "," << hi
-         << "] title=\"" << title << '"');
-
-  auto* h = new TH1F(name.c_str(), title.c_str(), nb, lo, hi);
-  if (!h)
-  {
-    LOG(1, CLR_YELLOW, "  [getOrBookSSHist] new TH1F failed for \"" << name << '"');
-    if (prevDir) prevDir->cd();
-    return nullptr;
-  }
-  H[name] = h;
-
-  if (prevDir) prevDir->cd();
-  return h;
+    return h;
 }
 
 

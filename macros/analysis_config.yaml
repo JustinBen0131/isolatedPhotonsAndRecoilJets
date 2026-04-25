@@ -107,45 +107,60 @@ clusterUEpipeline: [baseVariant]
 # -----------------------------------------------------------------------------
 # Photon-ID logic matrix axes
 #
-# Naming suffix order:
-#   ..._<clusterUEpipeline>_preselection<...>_tight<...>_nonTight<...>
+# NPB preselection study:
+#   preselection = reference
+#     Baseline PPG12-style hard-cut preselection.
 #
-# reference
-#   Use the current hard-cut/reference analysis logic.
+#   preselection = variantA
+#     Same reference preselection plus the NPB veto:
+#       npb_score > npb_cut
 #
-# variantA
-#   preselection: use the NPB veto (NPB score > npb_cut)
-#   tight       : use the separate tight-ID BDT definition
-#   nonTight    : for tight=variantA, nonTight is derived as the complement
-#                 of the tight-BDT pass inside the preselection sample
+#   tight = variantA
+#     Use the Sam-inspired tight-ID BDT node:
+#       PHOTONCLUSTER_CEMC_TIGHTBDT
+#
+#   nonTight = reference
+#     For tight=variantA, RecoilJets derives non-tight as the complement of
+#     the tight-BDT pass inside the preselected sample:
+#       tight     = passes selected preselection AND tight_bdt_score > cut
+#       non-tight = passes selected preselection AND tight_bdt_score <= cut
 # -----------------------------------------------------------------------------
 preselection: [reference, variantA]
-tight: [reference, variantA]
+tight: [variantA]
 nonTight: [reference]
 
 # -----------------------------------------------------------------------------
-# NPB preselection controls (used only when preselection: variantA)
-#   Slides / Blair convention: NPB score > 0.5
+# NPB preselection controls
+#
+# CLUSTERINFO_CEMC corresponds to Shuhang's "split" cluster variant, so use:
+#   npb_score_split_tmva.root
+#
+# NPB veto:
+#   keep cluster if npb_score > 0.5
 # -----------------------------------------------------------------------------
-npb_model_file: ""
+npb_model_file: /sphenix/user/shuhangli/ppg12/FunWithxgboost/npb_models/npb_score_split_tmva.root
 npb_cut: 0.5
 npb_features: [vertex_z, ET, weta_cogx, wphi_cogx, et1, e11_over_e33, e32_over_e35]
 
 # -----------------------------------------------------------------------------
-# Tight-ID BDT controls (used only when tight: variantA)
-#   Sam's "base_single" feature order shown in chat:
-#     {vertex_z, cluster_eta, e11_over_e33, et1, et2, et3, et4}
+# Tight-ID BDT controls (used when tight: variantA)
 #
-# Tight decision is applied as:
-#   tight_bdt_score > (tight_bdt_min_slope * ET + tight_bdt_min_intercept)
-#   and
-#   tight_bdt_score < tight_bdt_max
+# Sam histmaker.cc-inspired first pass:
+#   model index 9 = model_base_v3E_single_tmva.root
+#
+# Feature order:
+#   ET, weta_cogx, wphi_cogx, vertex_z, cluster_eta,
+#   e11_over_e33, et1, et2, et3, et4, e32_over_e35
+#
+# Tight decision:
+#   tight_bdt_score > 0.8
+#   tight_bdt_score < 1.0
 # -----------------------------------------------------------------------------
-tight_bdt_model_file: ""
-tight_bdt_min_intercept: 0.0
+tight_bdt_model_file: /sphenix/user/shuhangli/ppg12/FunWithxgboost/binned_models/model_base_v3E_single_tmva.root
+tight_bdt_min_intercept: 0.8
 tight_bdt_min_slope: 0.0
 tight_bdt_max: 1.0
-tight_bdt_features: [vertex_z, cluster_eta, e11_over_e33, et1, et2, et3, et4]
+tight_bdt_features: [ET, weta_cogx, wphi_cogx, vertex_z, cluster_eta, e11_over_e33, et1, et2, et3, et4, e32_over_e35]
 
 # -----------------------------------------------------------------------------
 # SIM-only event reweighting (Blair-style)
