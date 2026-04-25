@@ -119,9 +119,9 @@ clusterUEpipeline: [baseVariant]
 #   nonTight    : for tight=variantA, nonTight is derived as the complement
 #                 of the tight-BDT pass inside the preselection sample
 # -----------------------------------------------------------------------------
-preselection: [reference]
-tight: [reference]
-nonTight: [reference].
+preselection: [reference, variantA]
+tight: [reference, variantA]
+nonTight: [reference]
 
 # -----------------------------------------------------------------------------
 # NPB preselection controls (used only when preselection: variantA)

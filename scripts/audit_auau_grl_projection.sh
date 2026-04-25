@@ -148,6 +148,9 @@ REF_TRIG_BIT=14
 REF_TRIG_NAME="MBD N&S >= 2, vtx < 150 cm"
 REF_LUMI_CROSS_SECTION_BARNS="6.324"
 REF_LUMI_CROSS_SECTION_NOTE="sigma_MBD = 6.8 barns * 0.93 = 6.324 barns"
+PHYSICS_MIN_RUNTIME=300
+PHYSICS_MIN_GL1_EVT=100000
+PHYSICS_EVT_FILE_PATTERN="%GL1_physics_gl1daq%.evt"
 PSQL_HOST="sphnxdaqdbreplica"
 PSQL_DB="daq"
 
@@ -444,6 +447,91 @@ read_reference_trigger_stats() {
 
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
     "${menu_present}" "${name}" "${active}" "${raw}" "${live}" "${scaled}"
+}
+
+print_daq_evt_baseline_summary() {
+  subsection "G) DAQ physics-like .evt baseline vs GRL vs current DST sample"
+
+  note "DAQ physics-like baseline uses GL1 physics .evt files with runtime >= ${PHYSICS_MIN_RUNTIME}s and GL1 .evt events >= ${PHYSICS_MIN_GL1_EVT}."
+  note ".evt counts are the DAQ-recorded event inventory; luminosity/exposure estimates above still use scaled Trigger-${REF_TRIG_BIT} counts."
+
+  local evt_tsv="${TMP_ROOT}/thirdpass_daq_physics_evt_baseline.tsv"
+  sql "SELECT
+          LPAD(f.runnumber::text,8,'0'),
+          COALESCE(FLOOR(EXTRACT(EPOCH FROM (r.ertimestamp-r.brtimestamp)))::BIGINT,0),
+          COALESCE(SUM(f.lastevent-f.firstevent+1),0)::BIGINT
+       FROM filelist f
+       JOIN run r
+         ON r.runnumber = f.runnumber
+       WHERE f.filename LIKE '${PHYSICS_EVT_FILE_PATTERN}'
+         AND r.brtimestamp IS NOT NULL
+         AND r.ertimestamp IS NOT NULL
+       GROUP BY f.runnumber, r.brtimestamp, r.ertimestamp
+       HAVING COALESCE(FLOOR(EXTRACT(EPOCH FROM (r.ertimestamp-r.brtimestamp)))::BIGINT,0) >= ${PHYSICS_MIN_RUNTIME}
+          AND COALESCE(SUM(f.lastevent-f.firstevent+1),0)::BIGINT >= ${PHYSICS_MIN_GL1_EVT}
+       ORDER BY f.runnumber;" > "${evt_tsv}"
+
+  if [[ ! -s "${evt_tsv}" ]]; then
+    warn "DAQ .evt baseline query returned no rows; skipping .evt baseline summary."
+    return 0
+  fi
+
+  local -A grl_set=()
+  local -A current_set=()
+  local r8
+  for r8 in "${RUN_ORDER[@]}"; do
+    grl_set["$r8"]=1
+    if (( ${RUN_CURRENT_SEG[$r8]:-0} > 0 )); then
+      current_set["$r8"]=1
+    fi
+  done
+
+  local all_evt_runs=0
+  local all_evt_events=0
+  local all_evt_runtime=0
+
+  local grl_evt_runs=0
+  local grl_evt_events=0
+  local grl_evt_runtime=0
+
+  local current_evt_runs=0
+  local current_evt_events=0
+  local current_evt_runtime=0
+
+  local rt ev
+  while IFS=$'\t' read -r r8 rt ev; do
+    [[ -n "${r8:-}" ]] || continue
+    rt="$(num_or_zero "${rt:-0}")"
+    ev="$(num_or_zero "${ev:-0}")"
+
+    ((all_evt_runs+=1))
+    all_evt_events=$((all_evt_events + ev))
+    all_evt_runtime=$((all_evt_runtime + rt))
+
+    if [[ -n "${grl_set[$r8]:-}" ]]; then
+      ((grl_evt_runs+=1))
+      grl_evt_events=$((grl_evt_events + ev))
+      grl_evt_runtime=$((grl_evt_runtime + rt))
+    fi
+
+    if [[ -n "${current_set[$r8]:-}" ]]; then
+      ((current_evt_runs+=1))
+      current_evt_events=$((current_evt_events + ev))
+      current_evt_runtime=$((current_evt_runtime + rt))
+    fi
+  done < "${evt_tsv}"
+
+  printf "  %-42s : %12s\n" "DAQ physics-like .evt runs" "$(fmt_num "${all_evt_runs}")"
+  printf "  %-42s : %12s\n" "DAQ physics-like .evt events" "$(fmt_num "${all_evt_events}")"
+  printf "  %-42s : %12s h\n" "DAQ physics-like runtime" "$(fmt_h "${all_evt_runtime}")"
+  printf "  %-42s : %12s  (%s of DAQ .evt runs)\n" "GRL runs within DAQ .evt baseline" "$(fmt_num "${grl_evt_runs}")" "$(fmt_pct "${grl_evt_runs}" "${all_evt_runs}")"
+  printf "  %-42s : %12s  (%s of DAQ .evt events)\n" "GRL .evt events within baseline" "$(fmt_num "${grl_evt_events}")" "$(fmt_pct "${grl_evt_events}" "${all_evt_events}")"
+  printf "  %-42s : %12s  (%s of DAQ .evt runs)\n" "Current-list runs within baseline" "$(fmt_num "${current_evt_runs}")" "$(fmt_pct "${current_evt_runs}" "${all_evt_runs}")"
+  printf "  %-42s : %12s  (%s of DAQ .evt events)\n" "Current-list .evt events within baseline" "$(fmt_num "${current_evt_events}")" "$(fmt_pct "${current_evt_events}" "${all_evt_events}")"
+  printf "  %-42s : %12s\n" "Current readable DST files" "$(fmt_num "${ROOT_OK_FILES}")"
+  printf "  %-42s : %12s\n" "Current readable DST entries" "$(fmt_num "${TOT_CURRENT_EVT}")"
+  printf "  %-42s : %12s\n" "Current Trigger-${REF_TRIG_BIT} scaled events" "$(fmt_num "${TOT_CURRENT_REF_SCALED_EVT}")"
+  printf "  %-42s : %12s\n" "Current Trigger-${REF_TRIG_BIT} scaled / DAQ scaled" "$(fmt_pct "${TOT_CURRENT_REF_SCALED_EVT}" "${TOT_REF_SCALED_ALL}")"
 }
 
 ########################################
@@ -1828,10 +1916,12 @@ print_core_summary() {
   printf "  %-42s : %12s\n" "Zombie files" "$(fmt_num "${ROOT_ZOMBIE_FILES}")"
   printf "  %-42s : %12s\n" "Files with no tree" "$(fmt_num "${ROOT_NOTREE_FILES}")"
   printf "  %-42s : %12s\n" "Total counted entries available" "$(fmt_num "${ROOT_TOTAL_COUNTED_ENTRIES}")"
+
+  print_daq_evt_baseline_summary
 }
 
 print_ranked_tables() {
-  subsection "G) Top runs by current-sample scaled trigger counts"
+  subsection "H) Top runs by current-sample scaled trigger counts"
 
   printf "  %-8s | %-8s | %-12s | %-12s | %-12s | %-10s\n" \
     "Run" "CurSeg" "CurEvt(M)" "LiveBit(M)" "ScaledBit(M)" "S/DAQS%"
@@ -1858,7 +1948,7 @@ print_ranked_tables() {
     done | sort -t $'\t' -k1,1nr -k2,2 | awk 'NR <= 15 { print }'
   )
 
-  subsection "H) Runs with zero scaled trigger counts in the current sample"
+  subsection "I) Runs with zero scaled trigger counts in the current sample"
 
   printf "  %-8s | %-8s | %-12s | %-12s | %-12s\n" \
     "Run" "CurSeg" "CurEvt(M)" "DAQScaled(M)" "Notes"
@@ -1891,7 +1981,7 @@ print_run_status_table() {
     return 0
   fi
 
-  subsection "I) Full per-run current-sample + trigger-bit table"
+  subsection "J) Full per-run current-sample + trigger-bit table"
 
   printf "  %-8s | %-8s | %-12s | %-12s | %-12s | %-12s | %-10s | %-10s | %-28s\n" \
     "Run" "CurSeg" "CurEvt(M)" "RawBit(M)" "LiveBit(M)" "ScaledBit(M)" "L/DAQL%" "S/DAQS%" "Notes"
@@ -2144,6 +2234,10 @@ main() {
     note "Loaded second-pass cache       : ${TMP_SECONDPASS_CACHE_TXT}"
     note "Loaded per-run audit TSV       : ${TMP_SECONDPASS_RUN_TSV}"
     note "Preparing final terminal summary output from cached second-pass state"
+
+    need_cmd psql
+    PSQL=(psql -h "${PSQL_HOST}" -d "${PSQL_DB}" -At -F $'\t' -q)
+    check_psql_connectivity
 
     print_core_summary
     print_ranked_tables

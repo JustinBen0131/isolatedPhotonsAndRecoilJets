@@ -1914,6 +1914,202 @@ void RunPreselectionFailureTable(Dataset& ds)
     };
     
     const auto& bins = PtBins();
+
+    auto FillPreselectionFailsForPtSuffixes =
+    [&](Dataset& drawDs, const vector<string>& ptSuffixes, double vals[8]) -> void
+    {
+        for (int ib = 0; ib < 8; ++ib) vals[ib] = 0.0;
+
+        for (const auto& ptSuffix : ptSuffixes)
+        {
+            const double weta = Read1BinCount(drawDs, "h_preFail_weta" + ptSuffix);
+            const double et1L = Read1BinCount(drawDs, "h_preFail_et1_low" + ptSuffix);
+            const double et1H = Read1BinCount(drawDs, "h_preFail_et1_high" + ptSuffix);
+            const double e11H = Read1BinCount(drawDs, "h_preFail_e11e33_high" + ptSuffix);
+            const double e32L = Read1BinCount(drawDs, "h_preFail_e32e35_low" + ptSuffix);
+            const double e32H = Read1BinCount(drawDs, "h_preFail_e32e35_high" + ptSuffix);
+
+            vals[0] += e11H;
+            vals[1] += et1L;
+            vals[2] += et1H;
+            vals[3] += (et1L + et1H);
+            vals[4] += e32L;
+            vals[5] += e32H;
+            vals[6] += (e32L + e32H);
+            vals[7] += weta;
+        }
+    };
+
+    auto MakeSinglePad_PreselectionFails =
+    [&](Dataset& drawDs,
+        const double vals[8],
+        const string& targetDir,
+        const string& outName,
+        const string& titleLine,
+        const string& ptLabel) -> void
+    {
+        EnsureDir(targetDir);
+
+        string centText = "inclusive";
+        if (!drawDs.centFolder.empty())
+        {
+            centText = drawDs.centFolder;
+            std::replace(centText.begin(), centText.end(), '_', '-');
+            centText += "%";
+        }
+        else if (!drawDs.centLabel.empty())
+        {
+            centText = drawDs.centLabel;
+        }
+
+        TCanvas c(
+                  TString::Format("c_preFail_single_%s_%s", drawDs.label.c_str(), outName.c_str()).Data(),
+                  "c_preFail_single", 1300, 720
+                  );
+        c.cd();
+        gPad->SetLeftMargin(0.10);
+        gPad->SetRightMargin(0.03);
+        gPad->SetTopMargin(0.16);
+        gPad->SetBottomMargin(0.14);
+        gPad->SetTicks(1,1);
+
+        double ymax = 0.0;
+        for (int ib = 0; ib < 8; ++ib) ymax = std::max(ymax, vals[ib]);
+        const double yMaxPlot = (ymax > 0.0) ? (1.22 * ymax) : 1.0;
+
+        vector<TObject*> keepAlive;
+        keepAlive.reserve(16);
+
+        TH1F* hAxis = new TH1F(
+                               TString::Format("h_preFailSingleAxis_%s_%s", drawDs.label.c_str(), outName.c_str()).Data(),
+                               "",
+                               8, 0.5, 8.5
+                               );
+        hAxis->SetDirectory(nullptr);
+        hAxis->SetStats(0);
+        hAxis->SetMinimum(0.0);
+        hAxis->SetMaximum(yMaxPlot);
+        for (int ib = 1; ib <= 8; ++ib) hAxis->GetXaxis()->SetBinLabel(ib, xLabels[ib-1]);
+        hAxis->GetYaxis()->SetTitle("Fail counts");
+        hAxis->GetXaxis()->SetTitle("");
+        hAxis->GetXaxis()->LabelsOption("h");
+        hAxis->GetXaxis()->SetLabelSize(0.055);
+        hAxis->GetXaxis()->SetLabelOffset(0.008);
+        hAxis->GetYaxis()->SetTitleSize(0.060);
+        hAxis->GetYaxis()->SetTitleOffset(0.94);
+        hAxis->GetYaxis()->SetLabelSize(0.050);
+        hAxis->SetLineColor(1);
+        hAxis->SetLineWidth(2);
+        hAxis->SetFillStyle(0);
+        hAxis->Draw("hist");
+        keepAlive.push_back(hAxis);
+
+        for (int ib = 1; ib <= 8; ++ib)
+        {
+            TH1F* hb = new TH1F(
+                                TString::Format("h_preFailSingleBar_%s_%s_b%d",
+                                                drawDs.label.c_str(), outName.c_str(), ib).Data(),
+                                "",
+                                8, 0.5, 8.5
+                                );
+            hb->SetDirectory(nullptr);
+            hb->SetStats(0);
+            hb->SetBinContent(ib, vals[ib-1]);
+            hb->SetFillStyle(1001);
+            hb->SetFillColor(binColors[ib-1]);
+            hb->SetLineColor(1);
+            hb->SetLineWidth(2);
+            hb->SetBarWidth(0.90);
+            hb->SetBarOffset(0.05);
+            hb->Draw("BAR SAME");
+            keepAlive.push_back(hb);
+        }
+
+        TLatex tVals;
+        tVals.SetTextFont(42);
+        tVals.SetTextAlign(22);
+        tVals.SetTextSize(0.034);
+        for (int ib = 1; ib <= 8; ++ib)
+        {
+            const double y = vals[ib-1];
+            if (y <= 0.0) continue;
+            const double x = hAxis->GetXaxis()->GetBinCenter(ib);
+            const double yText = std::min(y + 0.02*yMaxPlot, 0.95*yMaxPlot);
+            tVals.DrawLatex(x, yText, TString::Format("%.0f", y).Data());
+        }
+
+        TLatex tt;
+        tt.SetTextFont(42);
+        tt.SetNDC();
+        tt.SetTextAlign(23);
+        tt.SetTextSize(0.040);
+        tt.DrawLatex(0.50, 0.975, titleLine.c_str());
+
+        TLatex tPt;
+        tPt.SetNDC(true);
+        tPt.SetTextFont(42);
+        tPt.SetTextAlign(33);
+        tPt.SetTextSize(0.042);
+        tPt.DrawLatex(0.93, 0.89, ptLabel.c_str());
+
+        if (!drawDs.centFolder.empty() || !drawDs.centLabel.empty())
+        {
+            TLatex tCent;
+            tCent.SetNDC(true);
+            tCent.SetTextFont(42);
+            tCent.SetTextAlign(13);
+            tCent.SetTextSize(0.080);
+            tCent.DrawLatex(0.16, 0.78, centText.c_str());
+        }
+
+        TPaveText* pCol1 = new TPaveText(0.12, 0.83, 0.31, 0.93, "NDC NB");
+        pCol1->SetFillStyle(0);
+        pCol1->SetBorderSize(0);
+        pCol1->SetTextFont(42);
+        pCol1->SetTextAlign(12);
+        pCol1->SetTextSize(0.024);
+        pCol1->AddText("A: #frac{E_{11}}{E_{33}} #geq 0.98");
+        pCol1->AddText("B: et1 #leq 0.6");
+        pCol1->Draw();
+        keepAlive.push_back(pCol1);
+
+        TPaveText* pCol2 = new TPaveText(0.30, 0.83, 0.47, 0.93, "NDC NB");
+        pCol2->SetFillStyle(0);
+        pCol2->SetBorderSize(0);
+        pCol2->SetTextFont(42);
+        pCol2->SetTextAlign(12);
+        pCol2->SetTextSize(0.024);
+        pCol2->AddText("C: et1 #geq 1.0");
+        pCol2->AddText("D: et1 out of range");
+        pCol2->Draw();
+        keepAlive.push_back(pCol2);
+
+        TPaveText* pCol3 = new TPaveText(0.46, 0.83, 0.64, 0.93, "NDC NB");
+        pCol3->SetFillStyle(0);
+        pCol3->SetBorderSize(0);
+        pCol3->SetTextFont(42);
+        pCol3->SetTextAlign(12);
+        pCol3->SetTextSize(0.024);
+        pCol3->AddText("E: #frac{E_{32}}{E_{35}} #leq 0.8");
+        pCol3->AddText("F: #frac{E_{32}}{E_{35}} #geq 1.0");
+        pCol3->Draw();
+        keepAlive.push_back(pCol3);
+
+        TPaveText* pCol4 = new TPaveText(0.63, 0.83, 0.86, 0.93, "NDC NB");
+        pCol4->SetFillStyle(0);
+        pCol4->SetBorderSize(0);
+        pCol4->SetTextFont(42);
+        pCol4->SetTextAlign(12);
+        pCol4->SetTextSize(0.024);
+        pCol4->AddText("G: #frac{E_{32}}{E_{35}} out of range");
+        pCol4->AddText("H: w_{#eta}^{cogX} #geq 0.6");
+        pCol4->Draw();
+        keepAlive.push_back(pCol4);
+
+        SaveCanvas(c, JoinPath(targetDir, outName));
+
+        for (auto* obj : keepAlive) delete obj;
+    };
     
     // ---------------------------------------------------------------------------
     // Per pT bin: print terminal row + write an individual PNG
@@ -2200,6 +2396,74 @@ void RunPreselectionFailureTable(Dataset& ds)
         SaveCanvas(cTbl, JoinPath(outDir, "table3x3_preselectionFails.png"));
         
         for (auto* obj : keepTbl) delete obj;
+    }
+
+    {
+        vector<string> pt2035Suffixes;
+        for (const auto& pb : PtBins())
+        {
+            if (pb.lo >= 20 && pb.hi <= 35) pt2035Suffixes.push_back(pb.suffix);
+        }
+
+        if (!pt2035Suffixes.empty() && !ds.centFolder.empty())
+        {
+            const string pt2035Dir = JoinPath(outDir, "pT_20_35");
+            EnsureDir(pt2035Dir);
+
+            double vals2035[8];
+            FillPreselectionFailsForPtSuffixes(ds, pt2035Suffixes, vals2035);
+            MakeSinglePad_PreselectionFails(
+                                           ds,
+                                           vals2035,
+                                           pt2035Dir,
+                                           "preselectionFails_bar_pT_20_35.png",
+                                           ds.isSim ? "Inclusive Fails (Preselection), SIM"
+                                                    : "Inclusive Fails (Preselection), Run25auau",
+                                           "p_{T}^{#gamma}: 20-35 GeV"
+                                           );
+
+            if (!ds.isSim)
+            {
+                TFile* fPPpre = TFile::Open(InputPP(isRun25pp).c_str(), "READ");
+                if (fPPpre && !fPPpre->IsZombie())
+                {
+                    TDirectory* ppDirPre = fPPpre->GetDirectory(kTriggerPP.c_str());
+                    if (ppDirPre)
+                    {
+                        Dataset dsPP;
+                        dsPP.label = "DATA_PP_preselectionFails";
+                        dsPP.isSim = false;
+                        dsPP.trigger = kTriggerPP;
+                        dsPP.topDirName = kTriggerPP;
+                        dsPP.inFilePath = InputPP(isRun25pp);
+                        dsPP.outBase = JoinPath(OutputPP(), kTriggerPP);
+                        dsPP.centFolder = "";
+                        dsPP.centSuffix = "";
+                        dsPP.centLabel = "";
+                        dsPP.file = fPPpre;
+                        dsPP.topDir = ppDirPre;
+
+                        double valsPP2035[8];
+                        FillPreselectionFailsForPtSuffixes(dsPP, pt2035Suffixes, valsPP2035);
+                        MakeSinglePad_PreselectionFails(
+                                                       dsPP,
+                                                       valsPP2035,
+                                                       pt2035Dir,
+                                                       "preselectionFails_bar_pT_20_35_Run24pp.png",
+                                                       "Inclusive Fails (Preselection), Run24pp",
+                                                       "p_{T}^{#gamma}: 20-35 GeV"
+                                                       );
+                    }
+                    fPPpre->Close();
+                    delete fPPpre;
+                }
+                else if (fPPpre)
+                {
+                    fPPpre->Close();
+                    delete fPPpre;
+                }
+            }
+        }
     }
     
     // ---------------------------------------------------------------------------
@@ -18075,41 +18339,37 @@ int Run()
     // ---------------------------------------------------------------------------
     if ((mode == RunMode::kAuAuOnly || mode == RunMode::kSimAndDataAUAU) && !DO_purityAndLeakageCHECKS_ONLY)
     {
-        cout << "  -> [isoQA] AuAu UE variant comparisons...\n";
-        analysis::RunIsoQA_UEComparisons_AuAu();
-        cout << "     [OK] UE variant comparison overlays complete.\n";
-        
-        if (mode == RunMode::kSimAndDataAUAU)
+        if (ssOverlayOnly)
         {
-            cout << "  -> [isoQA] Photon+Jet Embedded SIM UE variant comparisons...\n";
-            analysis::RunIsoQA_UEComparisons_AuAu(1);
-            cout << "     [OK] Photon+Jet Embedded SIM UE variant comparison overlays complete.\n";
-            
-            cout << "  -> [isoQA] Inclusive Jet Embedded SIM UE variant comparisons...\n";
-            analysis::RunIsoQA_UEComparisons_AuAu(2);
-            cout << "     [OK] Inclusive Jet Embedded SIM UE variant comparison overlays complete.\n";
+            cout << "  -> [isoQA] Skipping UE comparison overlays because ssOverlayOnly=true.\n";
         }
-
-        if (generateUEcomparisonSSQA && skipToCentralityAndPtOverlaysWithSSQA)
+        else
         {
-            cout << ANSI_BOLD_CYN
-                 << "[INFO] Requested SS QA overlay-only run complete. Exiting before downstream analyses."
-                 << ANSI_RESET << "\n";
-            cout << "\n  -> Closing datasets...\n";
-            for (auto& ds : datasets)
+            if (SSoverlayPerVAR_processONLY)
             {
-                cout << "     closing: " << ds.label << "\n";
-                driver::CloseDataset(ds);
+                cout << "  -> [isoQA] Skipping UE comparison overlays because SSoverlayPerVAR_processONLY=true.\n";
             }
-            cout << ANSI_BOLD_CYN << "\nDone.\n" << ANSI_RESET;
-            return 0;
-        }
-        
-        if (!SSoverlayPerVAR_processONLY)
-        {
-            cout << "  -> [xJ QA] AuAu UE variant xJ comparisons (leading + inclusive)...\n";
-            analysis::RunXJUEComparisons_AuAu();
-            cout << "     [OK] xJ UE variant comparisons complete.\n";
+            else
+            {
+                cout << "  -> [isoQA] AuAu UE variant comparisons...\n";
+                analysis::RunIsoQA_UEComparisons_AuAu();
+                cout << "     [OK] UE variant comparison overlays complete.\n";
+                
+                if (mode == RunMode::kSimAndDataAUAU)
+                {
+                    cout << "  -> [isoQA] Photon+Jet Embedded SIM UE variant comparisons...\n";
+                    analysis::RunIsoQA_UEComparisons_AuAu(1);
+                    cout << "     [OK] Photon+Jet Embedded SIM UE variant comparison overlays complete.\n";
+                    
+                    cout << "  -> [isoQA] Inclusive Jet Embedded SIM UE variant comparisons...\n";
+                    analysis::RunIsoQA_UEComparisons_AuAu(2);
+                    cout << "     [OK] Inclusive Jet Embedded SIM UE variant comparison overlays complete.\n";
+                }
+
+                cout << "  -> [xJ QA] AuAu UE variant xJ comparisons (leading + inclusive)...\n";
+                analysis::RunXJUEComparisons_AuAu();
+                cout << "     [OK] xJ UE variant comparisons complete.\n";
+            }
         }
     }
     
@@ -19243,6 +19503,190 @@ int Run()
                                 const string outDirYield = JoinPath(JoinPath(OutputAuAu(), trigAA), "yieldOverlays");
                                 EnsureDir(outDirYield);
 
+                                auto TriggerLabelFromName = [&](const std::string& trigName) -> std::string
+                                {
+                                    if (trigName == kTriggerPP)
+                                        return "Trigger: Photon 4 GeV + MBD NS #geq 1";
+                                    int photonPt = 0;
+                                    if (std::sscanf(trigName.c_str(), "photon_%d_plus", &photonPt) == 1)
+                                        return TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
+                                    if (trigName.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
+                                        return "Trigger: MBD NS #geq 2, vtx < 150 cm";
+                                    return "Trigger: " + trigName;
+                                };
+
+                                const string isoConeLabelYield = (kAA_IsoConeR == "isoR40")
+                                ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
+
+                                string isoModeLabelYield;
+                                if (kAA_IsoMode == "fixedIso5GeV") isoModeLabelYield = "E_{T}^{iso} < 5 GeV";
+                                else                               isoModeLabelYield = "Sliding iso cut";
+
+                                const string vzLabelYield = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
+                                const std::string trigLabelYield = TriggerLabelFromName(trigAA);
+                                const std::string trigLabelPP = TriggerLabelFromName(kTriggerPP);
+
+                                struct RegionStyle
+                                {
+                                    string key;
+                                    string label;
+                                    int color;
+                                    int marker;
+                                };
+
+                                const std::vector<RegionStyle> regionStyles = {
+                                    {"A", "Region A", kRed + 1, 20},
+                                    {"B", "Region B", kBlue + 1, 21},
+                                    {"C", "Region C", kGreen + 2, 22},
+                                    {"D", "Region D", kMagenta + 1, 33},
+                                };
+
+                                auto RegionYieldFromPP = [&](TDirectory* ppDirLocal, const string& regionKey, int ptIdx) -> double
+                                {
+                                    if (!ppDirLocal) return 0.0;
+                                    const PtBin& b = PtBins()[ptIdx];
+                                    string histName;
+                                    if      (regionKey == "A") histName = "h_isIsolated_isTight"   + b.suffix;
+                                    else if (regionKey == "B") histName = "h_notIsolated_isTight"  + b.suffix;
+                                    else if (regionKey == "C") histName = "h_isIsolated_notTight"  + b.suffix;
+                                    else if (regionKey == "D") histName = "h_notIsolated_notTight" + b.suffix;
+                                    else return 0.0;
+                                    TH1* h = dynamic_cast<TH1*>(ppDirLocal->Get(histName.c_str()));
+                                    return h ? h->GetBinContent(1) : 0.0;
+                                };
+
+                                auto RegionYieldFromAA = [&](TDirectory* trigDirLocal, const std::vector<std::string>& suffixes,
+                                                             const string& regionKey, int ptIdx) -> double
+                                {
+                                    if (!trigDirLocal) return 0.0;
+                                    const PtBin& b = PtBins()[ptIdx];
+                                    double sum = 0.0;
+                                    for (const auto& suf : suffixes)
+                                    {
+                                        string histName;
+                                        if      (regionKey == "A") histName = "h_isIsolated_isTight"   + b.suffix + suf;
+                                        else if (regionKey == "B") histName = "h_notIsolated_isTight"  + b.suffix + suf;
+                                        else if (regionKey == "C") histName = "h_isIsolated_notTight"  + b.suffix + suf;
+                                        else if (regionKey == "D") histName = "h_notIsolated_notTight" + b.suffix + suf;
+                                        else continue;
+                                        TH1* h = dynamic_cast<TH1*>(trigDirLocal->Get(histName.c_str()));
+                                        if (h) sum += h->GetBinContent(1);
+                                    }
+                                    return sum;
+                                };
+
+                                auto DrawRegionOverlay = [&](const string& outPath,
+                                                             const string& plotTitle,
+                                                             const string& trigLabel,
+                                                             const std::vector<string>& regionKeys,
+                                                             const std::function<double(const string&, int)>& YieldGetter,
+                                                             bool isPP) -> bool
+                                {
+                                    static int overlayCounter = 0;
+                                    ++overlayCounter;
+                                    const TString canvasName = TString::Format("c_reg_overlay_%d", overlayCounter);
+                                    const TString frameName = TString::Format("hYieldRegionFrame_%d", overlayCounter);
+
+                                    TCanvas cReg(canvasName, canvasName, 900,700);
+                                    ApplyCanvasMargins1D(cReg);
+                                    cReg.SetLogy();
+
+                                    TH1F hFrame(frameName,"",100, kPtEdges.front(), kPtEdges.back());
+                                    hFrame.SetDirectory(nullptr);
+                                    hFrame.SetStats(0);
+                                    hFrame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+                                    hFrame.GetYaxis()->SetTitle("Yield");
+
+                                    TLegend leg(0.18, 0.17, 0.50, 0.31);
+                                    leg.SetBorderSize(0);
+                                    leg.SetFillStyle(0);
+                                    leg.SetTextFont(42);
+                                    leg.SetTextSize(0.033);
+                                    leg.SetNColumns(2);
+
+                                    vector<TGraphErrors*> keep;
+                                    double yMin = std::numeric_limits<double>::max();
+                                    double yMax = 0.0;
+
+                                    for (const auto& regionKey : regionKeys)
+                                    {
+                                        const RegionStyle* style = nullptr;
+                                        for (const auto& rs : regionStyles)
+                                        {
+                                            if (rs.key == regionKey)
+                                            {
+                                                style = &rs;
+                                                break;
+                                            }
+                                        }
+                                        if (!style) continue;
+
+                                        vector<double> x;
+                                        vector<double> ex;
+                                        vector<double> y;
+                                        vector<double> ey;
+
+                                        for (int i = 0; i < kNPtBins; ++i)
+                                        {
+                                            const double yield = YieldGetter(regionKey, i);
+                                            if (!(yield > 0.0)) continue;
+                                            const double ptLo = kPtEdges[(std::size_t)i];
+                                            const double ptHi = kPtEdges[(std::size_t)i + 1];
+                                            x.push_back(0.5 * (ptLo + ptHi));
+                                            ex.push_back(0.5 * (ptHi - ptLo));
+                                            y.push_back(yield);
+                                            ey.push_back(std::sqrt(yield));
+                                            yMin = std::min(yMin, std::max(1e-6, yield - std::sqrt(yield)));
+                                            yMax = std::max(yMax, yield + std::sqrt(yield));
+                                        }
+
+                                        if (x.empty()) continue;
+
+                                        TGraphErrors* g = new TGraphErrors((int)x.size(), &x[0], &y[0], &ex[0], &ey[0]);
+                                        g->SetLineWidth(2);
+                                        g->SetLineColor(style->color);
+                                        g->SetMarkerStyle(isPP ? style->marker + 4 : style->marker);
+                                        g->SetMarkerSize(1.1);
+                                        g->SetMarkerColor(style->color);
+                                        keep.push_back(g);
+                                        leg.AddEntry(g, style->label.c_str(), "pe");
+                                    }
+
+                                    if (keep.empty()) return false;
+
+                                    if (!(yMin < std::numeric_limits<double>::max()) || !(yMin > 0.0)) yMin = 0.5;
+                                    if (!(yMax > 0.0)) yMax = 10.0;
+
+                                    hFrame.SetMinimum(std::max(0.5, 0.35 * yMin));
+                                    hFrame.SetMaximum(7.0 * yMax);
+                                    hFrame.Draw();
+
+                                    for (auto* g : keep) g->Draw("P SAME");
+                                    leg.Draw();
+
+                                    TLatex tTitle;
+                                    tTitle.SetNDC(true);
+                                    tTitle.SetTextFont(42);
+                                    tTitle.SetTextAlign(23);
+                                    tTitle.SetTextSize(0.043);
+                                    tTitle.DrawLatex(0.58, 0.975, plotTitle.c_str());
+
+                                    TLatex tCuts;
+                                    tCuts.SetNDC(true);
+                                    tCuts.SetTextFont(42);
+                                    tCuts.SetTextAlign(33);
+                                    tCuts.SetTextSize(0.033);
+                                    tCuts.DrawLatex(0.93, 0.90, trigLabel.c_str());
+                                    tCuts.DrawLatex(0.93, 0.85, isoConeLabelYield.c_str());
+                                    tCuts.DrawLatex(0.93, 0.80, isoModeLabelYield.c_str());
+                                    tCuts.DrawLatex(0.93, 0.75, vzLabelYield.c_str());
+
+                                    SaveCanvas(cReg, outPath);
+                                    cout << ANSI_BOLD_GRN << "[WROTE] " << outPath << ANSI_RESET << "\n";
+                                    for (auto* g : keep) delete g;
+                                    return true;
+                                };
+
                                 TCanvas cYield("c_yield_raw_centSelect","c_yield_raw_centSelect",900,700);
                                 ApplyCanvasMargins1D(cYield);
                                 cYield.SetLogy();
@@ -19253,7 +19697,7 @@ int Run()
                                 hFrameYield.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
                                 hFrameYield.GetYaxis()->SetTitle("Raw signal yield in region A");
 
-                                TLegend legYield(0.15, 0.14, 0.52, 0.28);
+                                TLegend legYield(0.19, 0.17, 0.56, 0.31);
                                 legYield.SetBorderSize(0);
                                 legYield.SetFillStyle(0);
                                 legYield.SetTextFont(42);
@@ -19398,8 +19842,8 @@ int Run()
                                     if (!(yMinYield < std::numeric_limits<double>::max()) || !(yMinYield > 0.0)) yMinYield = 0.5;
                                     if (!(yMaxYield > 0.0)) yMaxYield = 10.0;
 
-                                    hFrameYield.SetMinimum(std::max(0.5, 0.5 * yMinYield));
-                                    hFrameYield.SetMaximum(3.0 * yMaxYield);
+                                    hFrameYield.SetMinimum(std::max(0.5, 0.40 * yMinYield));
+                                    hFrameYield.SetMaximum(4.5 * yMaxYield);
                                     hFrameYield.Draw();
 
                                     for (auto* g : keepYield) g->Draw("P SAME");
@@ -19409,47 +19853,71 @@ int Run()
                                     tTitleYield.SetNDC(true);
                                     tTitleYield.SetTextFont(42);
                                     tTitleYield.SetTextAlign(23);
-                                    tTitleYield.SetTextSize(0.045);
-                                    tTitleYield.DrawLatex(0.50, 0.96,
+                                    tTitleYield.SetTextSize(0.043);
+                                    tTitleYield.DrawLatex(0.56, 0.975,
                                                           "ABCD Raw Signal Yield vs p_{T}^{#gamma} for each centrality, Run3auau");
 
-                                    {
-                                        std::string trigLabelYield;
-                                        {
-                                            int photonPt = 0;
-                                            if (std::sscanf(trigAA.c_str(), "photon_%d_plus", &photonPt) == 1)
-                                                trigLabelYield = TString::Format("Trigger: Photon %d GeV + MBD NS #geq 2, vtx < 150 cm", photonPt).Data();
-                                            else if (trigAA.find("MBD_NS_geq_2_vtx_lt_150") != std::string::npos)
-                                                trigLabelYield = "Trigger: MBD NS #geq 2, vtx < 150 cm";
-                                            else
-                                                trigLabelYield = "Trigger: " + trigAA;
-                                        }
-
-                                        const string isoConeLabel = (kAA_IsoConeR == "isoR40")
-                                        ? "#DeltaR_{cone} < 0.4" : "#DeltaR_{cone} < 0.3";
-
-                                        string isoModeLabel;
-                                        if (kAA_IsoMode == "fixedIso5GeV") isoModeLabel = "E_{T}^{iso} < 5 GeV";
-                                        else                               isoModeLabel = "Sliding iso cut";
-
-                                        const string vzLabel = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
-
-                                        TLatex tCutsYield;
-                                        tCutsYield.SetNDC(true);
-                                        tCutsYield.SetTextFont(42);
-                                        tCutsYield.SetTextAlign(13);
-                                        tCutsYield.SetTextSize(0.035);
-                                        tCutsYield.DrawLatex(0.18, 0.88, trigLabelYield.c_str());
-                                        tCutsYield.DrawLatex(0.18, 0.83, isoConeLabel.c_str());
-                                        tCutsYield.DrawLatex(0.18, 0.78, isoModeLabel.c_str());
-                                        tCutsYield.DrawLatex(0.18, 0.73, vzLabel.c_str());
-                                    }
+                                    TLatex tCutsYield;
+                                    tCutsYield.SetNDC(true);
+                                    tCutsYield.SetTextFont(42);
+                                    tCutsYield.SetTextAlign(23);
+                                    tCutsYield.SetTextSize(0.033);
+                                    tCutsYield.DrawLatex(0.67, 0.90, trigLabelYield.c_str());
+                                    tCutsYield.DrawLatex(0.67, 0.85, isoConeLabelYield.c_str());
+                                    tCutsYield.DrawLatex(0.67, 0.80, isoModeLabelYield.c_str());
+                                    tCutsYield.DrawLatex(0.67, 0.75, vzLabelYield.c_str());
 
                                     SaveCanvas(cYield, JoinPath(outDirYield, "yield_rawSignal_centSelect_ppOverlay.png"));
                                     cout << ANSI_BOLD_GRN << "[WROTE] " << JoinPath(outDirYield, "yield_rawSignal_centSelect_ppOverlay.png") << ANSI_RESET << "\n";
                                 }
 
                                 for (auto* g : keepYield) delete g;
+
+                                for (std::size_t iCent = 0; iCent < selCents.size(); ++iCent)
+                                {
+                                    const auto& sc = selCents[iCent];
+                                    const string centDir = JoinPath(outDirYield, TString::Format("cent_%d_%d", sc.lo, sc.hi).Data());
+                                    EnsureDir(centDir);
+
+                                    DrawRegionOverlay(
+                                        JoinPath(centDir, "yield_regionsABCD_overlay.png"),
+                                        TString::Format("ABCD Region Yields vs p_{T}^{#gamma}, AuAu %d-%d%%", sc.lo, sc.hi).Data(),
+                                        trigLabelYield,
+                                        {"A", "B", "C", "D"},
+                                        [&](const string& regionKey, int ptIdx) { return RegionYieldFromAA(trigDir, sc.suffixes, regionKey, ptIdx); },
+                                        false
+                                    );
+
+                                    DrawRegionOverlay(
+                                        JoinPath(centDir, "yield_regionsAC_overlay.png"),
+                                        TString::Format("AC Region Yields vs p_{T}^{#gamma}, AuAu %d-%d%%", sc.lo, sc.hi).Data(),
+                                        trigLabelYield,
+                                        {"A", "C"},
+                                        [&](const string& regionKey, int ptIdx) { return RegionYieldFromAA(trigDir, sc.suffixes, regionKey, ptIdx); },
+                                        false
+                                    );
+
+                                    if (iCent == 0 && ppDir)
+                                    {
+                                        DrawRegionOverlay(
+                                            JoinPath(centDir, "yield_regionsABCD_overlay_pp.png"),
+                                            "ABCD Region Yields vs p_{T}^{#gamma}, pp",
+                                            trigLabelPP,
+                                            {"A", "B", "C", "D"},
+                                            [&](const string& regionKey, int ptIdx) { return RegionYieldFromPP(ppDir, regionKey, ptIdx); },
+                                            true
+                                        );
+
+                                        DrawRegionOverlay(
+                                            JoinPath(centDir, "yield_regionsAC_overlay_pp.png"),
+                                            "AC Region Yields vs p_{T}^{#gamma}, pp",
+                                            trigLabelPP,
+                                            {"A", "C"},
+                                            [&](const string& regionKey, int ptIdx) { return RegionYieldFromPP(ppDir, regionKey, ptIdx); },
+                                            true
+                                        );
+                                    }
+                                }
                             }
                             
                             if (fPP) { fPP->Close(); delete fPP; }

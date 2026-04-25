@@ -7807,7 +7807,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                       );
         }
         
-        if (generateUEcomparisonSSQA && !skipToCentralityAndPtOverlaysWithSSQA && !SSoverlayPerVAR_processONLY) {
+        if (generateUEcomparisonSSQA && (!skipToCentralityAndPtOverlaysWithSSQA || SSoverlayPerVAR_processONLY)) {
 #include "AnalyzeRecoilJets_SSQA.cpp"
         }
         for (auto& H : handles)

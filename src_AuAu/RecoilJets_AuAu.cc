@@ -7496,8 +7496,119 @@ void RecoilJets::fillPi0MassVsPtHistograms(const std::string& trig,
 
 
 
+const PhotonClusterv1* RecoilJets::findMatchedPhotonByKinematics(const RawClusterContainer* container,
+                                                                 const PhotonClusterv1* ref) const
+{
+  if (!container || !ref) return nullptr;
+
+  const double ref_eta = ref->get_shower_shape_parameter("cluster_eta");
+  const double ref_phi = ref->get_shower_shape_parameter("cluster_phi");
+  const double ref_pt  = ref->get_shower_shape_parameter("cluster_pt");
+
+  if (!std::isfinite(ref_eta) || !std::isfinite(ref_phi) || !std::isfinite(ref_pt))
+    return nullptr;
+
+  constexpr double eps_eta = 1e-5;
+  constexpr double eps_phi = 1e-5;
+  constexpr double eps_pt  = 1e-4;
+
+  const auto range = container->getClusters();
+  for (auto it = range.first; it != range.second; ++it)
+  {
+    const auto* pho = dynamic_cast<const PhotonClusterv1*>(it->second);
+    if (!pho) continue;
+
+    const double eta = pho->get_shower_shape_parameter("cluster_eta");
+    const double phi = pho->get_shower_shape_parameter("cluster_phi");
+    const double pt  = pho->get_shower_shape_parameter("cluster_pt");
+
+    if (!std::isfinite(eta) || !std::isfinite(phi) || !std::isfinite(pt))
+      continue;
+
+    if (std::fabs(eta - ref_eta) < eps_eta &&
+        std::fabs(TVector2::Phi_mpi_pi(phi - ref_phi)) < eps_phi &&
+        std::fabs(pt - ref_pt) < eps_pt)
+    {
+      return pho;
+    }
+  }
+
+  return nullptr;
+}
+
+void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars& v) const
+{
+  v.npb_score = std::numeric_limits<double>::quiet_NaN();
+  v.tight_bdt_score = std::numeric_limits<double>::quiet_NaN();
+
+  if (!pho) return;
+
+  if (m_preselectionVariant == "variantA")
+  {
+    const PhotonClusterv1* match = (m_photons_npb == m_photons)
+      ? pho
+      : findMatchedPhotonByKinematics(m_photons_npb, pho);
+    if (match)
+      v.npb_score = match->get_shower_shape_parameter("bdt_score");
+  }
+
+  if (m_tightVariant == "variantA")
+  {
+    const PhotonClusterv1* match = (m_photons_tightbdt == m_photons)
+      ? pho
+      : findMatchedPhotonByKinematics(m_photons_tightbdt, pho);
+    if (match)
+      v.tight_bdt_score = match->get_shower_shape_parameter("bdt_score");
+  }
+}
+
 bool RecoilJets::passesPhotonPreselection(const SSVars& v)
 {
+  if (m_preselectionVariant == "variantA")
+  {
+    const bool ok_vals =
+      std::isfinite(v.npb_score) &&
+      std::isfinite(v.pt_gamma);
+
+    if (!ok_vals)
+    {
+      LOG(2, CLR_YELLOW,
+          "  [passesPhotonPreselection] non-finite NPB score detected: "
+          << "npb_score=" << v.npb_score
+          << " pT^γ=" << v.pt_gamma);
+      return false;
+    }
+
+    const bool pass_npb = (v.npb_score > m_npbCut);
+
+    if (Verbosity() >= 5)
+    {
+      LOG(5, CLR_BLUE,
+          "  [passesPhotonPreselection] variant=variantA(NPB)"
+          << " | npb_score=" << v.npb_score
+          << " | cut:>" << m_npbCut
+          << " → " << pass_npb);
+    }
+
+    if (Verbosity() >= 4)
+    {
+      if (!pass_npb)
+      {
+        LOG(4, CLR_YELLOW,
+            "  [passesPhotonPreselection] FAILED variantA(NPB): score=" << v.npb_score
+            << " cut:>" << m_npbCut);
+      }
+      else
+      {
+        LOG(4, CLR_RED,
+            "  [passesPhotonPreselection] PASS variantA(NPB): score=" << v.npb_score
+            << " cut:>" << m_npbCut);
+      }
+    }
+
+    return pass_npb;
+  }
+
   // Basic sanity on inputs
   const bool ok_vals =
   std::isfinite(v.weta_cogx) &&
@@ -7517,41 +7628,41 @@ bool RecoilJets::passesPhotonPreselection(const SSVars& v)
     return false;
   }
 
-    const bool pass_e11e33 = (v.e11_over_e33 < m_phoid_pre_e11e33_max);
-    const bool pass_et1    = in_open_interval(v.et1, m_phoid_pre_et1_min, m_phoid_pre_et1_max);
-    const bool pass_e32e35 = in_open_interval(v.e32_over_e35, m_phoid_pre_e32e35_min, m_phoid_pre_e32e35_max);
-    const bool pass_weta   = (v.weta_cogx < m_phoid_pre_weta_max);
+  const bool pass_e11e33 = (v.e11_over_e33 < m_phoid_pre_e11e33_max);
+  const bool pass_et1    = in_open_interval(v.et1, m_phoid_pre_et1_min, m_phoid_pre_et1_max);
+  const bool pass_e32e35 = in_open_interval(v.e32_over_e35, m_phoid_pre_e32e35_min, m_phoid_pre_e32e35_max);
+  const bool pass_weta   = (v.weta_cogx < m_phoid_pre_weta_max);
 
-    if (Verbosity() >= 5)
-    {
-      LOG(5, CLR_BLUE,
-          "  [passesPhotonPreselection] "
-          << "weta=" << v.weta_cogx << " (<" << m_phoid_pre_weta_max << ") → " << pass_weta
-          << " | et1=" << v.et1 << " ∈ (" << m_phoid_pre_et1_min << "," << m_phoid_pre_et1_max << ") → " << pass_et1
-          << " | e11/e33=" << v.e11_over_e33 << " (<" << m_phoid_pre_e11e33_max << ") → " << pass_e11e33
-          << " | e32/e35=" << v.e32_over_e35 << " ∈ (" << m_phoid_pre_e32e35_min << "," << m_phoid_pre_e32e35_max << ") → " << pass_e32e35);
-    }
+  if (Verbosity() >= 5)
+  {
+    LOG(5, CLR_BLUE,
+        "  [passesPhotonPreselection] "
+        << "weta=" << v.weta_cogx << " (<" << m_phoid_pre_weta_max << ") → " << pass_weta
+        << " | et1=" << v.et1 << " ∈ (" << m_phoid_pre_et1_min << "," << m_phoid_pre_et1_max << ") → " << pass_et1
+        << " | e11/e33=" << v.e11_over_e33 << " (<" << m_phoid_pre_e11e33_max << ") → " << pass_e11e33
+        << " | e32/e35=" << v.e32_over_e35 << " ∈ (" << m_phoid_pre_e32e35_min << "," << m_phoid_pre_e32e35_max << ") → " << pass_e32e35);
+  }
 
   const bool pass_all = pass_e11e33 && pass_et1 && pass_e32e35 && pass_weta;
 
   if (Verbosity() >= 4)
   {
-      if (!pass_all)
-      {
-        LOG(4, CLR_YELLOW,
-            "  [passesPhotonPreselection] FAILED: weta=" << v.weta_cogx
-            << ", et1=" << v.et1
-            << ", e11/e33=" << v.e11_over_e33
-            << ", e32/e35=" << v.e32_over_e35);
-      }
-      else
-      {
-        LOG(4, CLR_RED,
-            "  [passesPhotonPreselection] PASS: weta=" << v.weta_cogx
-            << ", et1=" << v.et1
-            << ", e11/e33=" << v.e11_over_e33
-            << ", e32/e35=" << v.e32_over_e35);
-      }
+    if (!pass_all)
+    {
+      LOG(4, CLR_YELLOW,
+          "  [passesPhotonPreselection] FAILED: weta=" << v.weta_cogx
+          << ", et1=" << v.et1
+          << ", e11/e33=" << v.e11_over_e33
+          << ", e32/e35=" << v.e32_over_e35);
+    }
+    else
+    {
+      LOG(4, CLR_RED,
+          "  [passesPhotonPreselection] PASS: weta=" << v.weta_cogx
+          << ", et1=" << v.et1
+          << ", e11/e33=" << v.e11_over_e33
+          << ", e32/e35=" << v.e32_over_e35);
+    }
   }
   return pass_all;
 }
@@ -7567,13 +7678,45 @@ RecoilJets::TightTag RecoilJets::classifyPhotonTightness(const SSVars& v)
     return TightTag::kPreselectionFail;
   }
 
+  if (m_tightVariant == "variantA")
+  {
+    const double tight_min = m_tightBDTMinIntercept + m_tightBDTMinSlope * v.pt_gamma;
+    const bool pass_tight_bdt =
+      std::isfinite(v.tight_bdt_score) &&
+      std::isfinite(tight_min) &&
+      (v.tight_bdt_score > tight_min) &&
+      (v.tight_bdt_score < m_tightBDTMax);
+
+    if (Verbosity() >= 5)
+    {
+      LOG(5, CLR_BLUE,
+          "  [classifyPhotonTightness] variant=variantA(TightBDT)"
+          << " | tight_bdt_score=" << v.tight_bdt_score
+          << " | min=" << tight_min
+          << " | max=" << m_tightBDTMax
+          << " → " << pass_tight_bdt);
+    }
+
+    const TightTag tag = pass_tight_bdt ? TightTag::kTight : TightTag::kNonTight;
+
+    if (Verbosity() >= 4)
+    {
+      const char* tagName = tightTagName(tag);
+      const char* colour  = (tag == TightTag::kTight) ? CLR_RED : CLR_GREEN;
+      LOG(4, colour, "  [classifyPhotonTightness] variantA(TightBDT)"
+                      << " → tag=" << tagName);
+    }
+
+    return tag;
+  }
+
   // Upper width cut is ET-dependent
   const double w_hi = m_phoid_tight_w_hi_intercept + m_phoid_tight_w_hi_slope * v.pt_gamma;
   if (!std::isfinite(w_hi) || !std::isfinite(v.pt_gamma) || v.pt_gamma <= 0.0)
   {
-        LOG(2, CLR_YELLOW, "  [classifyPhotonTightness] non-finite tight_w_hi for pT^γ=" << v.pt_gamma
-                            << " – treating as failure");
-        return TightTag::kNeither;
+    LOG(2, CLR_YELLOW, "  [classifyPhotonTightness] non-finite tight_w_hi for pT^γ=" << v.pt_gamma
+                        << " – treating as failure");
+    return TightTag::kNeither;
   }
 
   const bool pass_weta   = in_open_interval(v.weta_cogx,  m_phoid_tight_w_lo, w_hi);
@@ -7584,14 +7727,14 @@ RecoilJets::TightTag RecoilJets::classifyPhotonTightness(const SSVars& v)
 
   if (Verbosity() >= 5)
   {
-      LOG(5, CLR_BLUE,
-          "  [classifyPhotonTightness] pT^γ=" << v.pt_gamma
-          << " → w_hi=" << w_hi
-          << " | weta=" << v.weta_cogx << " ok=" << pass_weta
-          << " | wphi=" << v.wphi_cogx << " ok=" << pass_wphi
-          << " | e11/e33=" << v.e11_over_e33 << " ok=" << pass_e11e33
-          << " | et1=" << v.et1 << " ok=" << pass_et1
-          << " | e32/e35=" << v.e32_over_e35 << " ok=" << pass_e32e35);
+    LOG(5, CLR_BLUE,
+        "  [classifyPhotonTightness] pT^γ=" << v.pt_gamma
+        << " → w_hi=" << w_hi
+        << " | weta=" << v.weta_cogx << " ok=" << pass_weta
+        << " | wphi=" << v.wphi_cogx << " ok=" << pass_wphi
+        << " | e11/e33=" << v.e11_over_e33 << " ok=" << pass_e11e33
+        << " | et1=" << v.et1 << " ok=" << pass_et1
+        << " | e32/e35=" << v.e32_over_e35 << " ok=" << pass_e32e35);
   }
 
   const int n_fail = (!pass_weta) + (!pass_wphi) + (!pass_e11e33) + (!pass_et1) + (!pass_e32e35);
@@ -7601,16 +7744,15 @@ RecoilJets::TightTag RecoilJets::classifyPhotonTightness(const SSVars& v)
   else if (n_fail >= 2) tag = TightTag::kNonTight;
   else                  tag = TightTag::kNeither;
 
-    if (Verbosity() >= 4)
-    {
-      const char* tagName = tightTagName(tag);
-      const char* colour  = (tag == TightTag::kTight) ? CLR_RED : CLR_GREEN;
-      LOG(4, colour, "  [classifyPhotonTightness] n_fail=" << n_fail
-                      << " → tag=" << tagName);
-    }
+  if (Verbosity() >= 4)
+  {
+    const char* tagName = tightTagName(tag);
+    const char* colour  = (tag == TightTag::kTight) ? CLR_RED : CLR_GREEN;
+    LOG(4, colour, "  [classifyPhotonTightness] n_fail=" << n_fail
+                    << " → tag=" << tagName);
+  }
 
-    return tag;
-
+  return tag;
 }
 
 

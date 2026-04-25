@@ -87,6 +87,7 @@ auto CloneNormalizeStyle = [&](TH1* hIn,
   if (!h) return nullptr;
 
   EnsureSumw2(h);
+  h->SetStats(0);
 
   const double I = h->Integral(0, h->GetNbinsX() + 1);
   if (I > 0.0) h->Scale(1.0 / I);
