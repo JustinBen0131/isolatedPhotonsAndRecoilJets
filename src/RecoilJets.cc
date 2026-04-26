@@ -6718,6 +6718,13 @@ void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars&
 
 bool RecoilJets::passesPhotonPreselection(const SSVars& v)
 {
+  if (m_preselectionVariant == "variantB")
+  {
+    if (Verbosity() >= 5)
+      LOG(5, CLR_BLUE, "  [passesPhotonPreselection] variant=variantB(no preselection cuts) → PASS");
+    return true;
+  }
+
   if (m_preselectionVariant == "variantA")
   {
     const bool ok_vals =

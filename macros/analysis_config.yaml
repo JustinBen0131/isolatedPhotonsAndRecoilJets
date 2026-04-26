@@ -55,6 +55,11 @@ use_vz_cut: true
 # MATRIX AXIS: one job per vz_cut_cm value.
 vz_cut_cm: [30.0]
 
+# AuAu only: when true, RecoilJets also requires
+# MinimumBiasInfo::isAuAuMinimumBias() after the configured GL1 trigger fires.
+# This is an offline MB-quality gate, not a replacement for the trigger gate.
+setMinBiasClassifer: true
+
 # -----------------------------------------------------------------------------
 # Centrality binning (AuAu only; ignored for pp/SIM)
 # -----------------------------------------------------------------------------
@@ -107,29 +112,46 @@ clusterUEpipeline: [baseVariant]
 # -----------------------------------------------------------------------------
 # Photon-ID logic matrix axes
 #
-# NPB preselection study:
+# Preselection axis:
 #   preselection = reference
 #     Use the baseline PPG12-style hard-cut shower-shape preselection:
 #       e11/e33, et1, e32/e35, and weta_cogx.
 #
 #   preselection = variantA
-#     Replace the shower-shape preselection with an NPB-score preselection:
+#     Replace the hard-cut shower-shape preselection with an NPB-score gate:
 #       preselection pass = npb_score > npb_cut
 #
 #     This is NOT "reference + NPB"; it is an alternative preselection gate.
+#
+#   preselection = variantB
+#     Disable preselection completely:
+#       every candidate skips the preselection gate and goes directly to
+#       tight/non-tight ID.
+#
+#     This is NOT "reference with looser cuts"; it means no preselection
+#     shower-shape cuts and no NPB preselection cut are applied.
+#
+# Tight-ID axis:
+#   tight = reference
+#     Use the baseline PPG12-style hard-cut tight-ID definition.
 #
 #   tight = variantA
 #     Use the Sam-inspired tight-ID BDT node:
 #       PHOTONCLUSTER_CEMC_TIGHTBDT
 #
+# Non-tight axis:
 #   nonTight = reference
+#     For tight=reference, non-tight follows the baseline hard-cut sideband logic.
+#
 #     For tight=variantA, RecoilJets derives non-tight as the complement of
 #     the tight-BDT pass inside whichever preselection sample is selected:
 #       tight     = passes selected preselection AND tight_bdt_score > cut
 #       non-tight = passes selected preselection AND tight_bdt_score <= cut
+#
+#     If preselection=variantB, "passes selected preselection" is automatically true.
 # -----------------------------------------------------------------------------
-preselection: [reference, variantA]
-tight: [variantA]
+preselection: [reference, variantA, variantB]
+tight: [reference, variantA]
 nonTight: [reference]
 
 # -----------------------------------------------------------------------------

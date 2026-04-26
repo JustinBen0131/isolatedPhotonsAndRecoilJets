@@ -171,7 +171,8 @@ public:
     {
         None    = 0,
         Trigger = 1,
-        Vz      = 2
+        Vz      = 2,
+        MinBias = 3
     };
     
     // Shower-shape variables extracted from PhotonClusterv1
@@ -206,6 +207,7 @@ public:
         long long evt_seen         = 0;
         long long evt_fail_trigger = 0;
         long long evt_fail_vz      = 0;
+        long long evt_fail_minbias = 0;
         long long evt_accepted     = 0;
         
         // Photon-level
@@ -340,6 +342,7 @@ public:
         m_useVzCut = on;
         m_vzCut    = static_cast<float>(vz);
     }
+    void setMinBiasClassifier(bool on) { m_useMinBiasClassifier = on; }
     void setGammaPtBins(const std::vector<double>& bins)
     {
         // Canonical pT^gamma binning for ALL photon-binned histograms (reco + truth):
@@ -1120,6 +1123,7 @@ private:
     
     bool  m_useVzCut = true;
     float m_vzCut    = 30.0f;
+    bool  m_useMinBiasClassifier = false;
     
     // Centrality
     int m_centBin = -1;                 // 0..99 (Au+Au), or -1 in pp

@@ -2082,8 +2082,8 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
   }
   else
   {
-    // ---------- Au+Au: require ONLY scaled GL1 trigger bits ----------
-    if (outMinimumBiasPass) *outMinimumBiasPass = true;
+    // ---------- Au+Au: require scaled GL1 trigger bits; optionally require offline MB classifier ----------
+    if (outMinimumBiasPass) *outMinimumBiasPass = !m_useMinBiasClassifier;
 
     uint64_t wScaled = 0;
     if (auto* gl1 = findNode::getClass<Gl1Packet>(topNode, "GL1Packet"))
@@ -2096,7 +2096,8 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
       std::ostringstream os;
       os << "    [AuAu trigger] scaled-trigger-only"
          << " | ScaledVector=0x" << std::hex << wScaled << std::dec
-         << " (event_count=" << event_count << ")";
+         << " (event_count=" << event_count << ")"
+         << " | minBiasClassifierGate=" << (m_useMinBiasClassifier ? "ON" : "OFF");
       LOG(6, CLR_CYAN, os.str());
     }
 
@@ -2132,10 +2133,45 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
     if (Verbosity() >= 4)
     {
       std::ostringstream os;
-      os << "    [firstEventCuts] Trigger PASS (Au+Au scaled trigger only)"
+      os << "    [firstEventCuts] Trigger PASS (Au+Au scaled trigger)"
          << " | activeTrig={" << joinList(activeTrig, ", ") << "}"
-         << " | vz=" << std::fixed << std::setprecision(3) << m_vz;
+         << " | vz=" << std::fixed << std::setprecision(3) << m_vz
+         << " | minBiasClassifierGate=" << (m_useMinBiasClassifier ? "ON" : "OFF");
       LOG(4, CLR_GREEN, os.str());
+    }
+
+    if (m_useMinBiasClassifier)
+    {
+      const MinimumBiasInfo* mbInfo = findNode::getClass<MinimumBiasInfo>(topNode, "MinimumBiasInfo");
+      const bool minBiasPass = (mbInfo && mbInfo->isAuAuMinimumBias());
+      if (outMinimumBiasPass) *outMinimumBiasPass = minBiasPass;
+
+      if (!minBiasPass)
+      {
+        m_lastReject = EventReject::MinBias;
+
+        if (Verbosity() >= 4)
+        {
+          std::ostringstream os;
+          os << "    [firstEventCuts] REJECT (Au+Au MinimumBiasClassifier): "
+             << (mbInfo ? "isAuAuMinimumBias=false" : "MinimumBiasInfo node missing")
+             << " | activeTrig={" << joinList(activeTrig, ", ") << "}"
+             << " | vz=" << std::fixed << std::setprecision(3) << m_vz;
+          if (applyVzCut && m_useVzCut) os << " (|vz|cut=" << m_vzCut << ")";
+          else if (m_useVzCut) os << " (|vz|cut deferred)";
+          LOG(4, CLR_YELLOW, os.str());
+        }
+        return false;
+      }
+
+      if (Verbosity() >= 4)
+      {
+        std::ostringstream os;
+        os << "    [firstEventCuts] MinimumBiasClassifier PASS"
+           << " | isAuAuMinimumBias=true"
+           << " | activeTrig={" << joinList(activeTrig, ", ") << "}";
+        LOG(4, CLR_GREEN, os.str());
+      }
     }
   }
 
@@ -2387,10 +2423,12 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         ++m_evtNoTrig;  // keep your legacy counter
         if (m_lastReject == EventReject::Trigger) ++m_bk.evt_fail_trigger;
         else if (m_lastReject == EventReject::Vz) ++m_bk.evt_fail_vz;
+        else if (m_lastReject == EventReject::MinBias) ++m_bk.evt_fail_minbias;
         
         const char* why = "UNKNOWN";
         if (m_lastReject == EventReject::Trigger) why = "Trigger";
         else if (m_lastReject == EventReject::Vz) why = "|vz|";
+        else if (m_lastReject == EventReject::MinBias) why = "MinimumBiasClassifier";
         
         std::ostringstream os;
         os << "    event rejected by " << why << " gate – skip"
@@ -7674,6 +7712,13 @@ void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars&
 
 bool RecoilJets::passesPhotonPreselection(const SSVars& v)
 {
+  if (m_preselectionVariant == "variantB")
+  {
+    if (Verbosity() >= 5)
+      LOG(5, CLR_BLUE, "  [passesPhotonPreselection] variant=variantB(no preselection cuts) → PASS");
+    return true;
+  }
+
   if (m_preselectionVariant == "variantA")
   {
     const bool ok_vals =
@@ -14009,154 +14054,155 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
 
 void RecoilJets::printCutSummary() const
 {
-  using std::cout; using std::endl; using std::setw; using std::left; using std::right;
-
-  cout << "\n\033[1mJob-wide cutflow summary\033[0m\n";
-
-  // Events
-  cout << "\n\033[1mEvents\033[0m\n";
-  cout << "metric              | value\n"
-          "--------------------+-------\n";
-  cout << left << setw(20) << "seen"            << " | " << right << setw(7) << m_bk.evt_seen         << '\n';
-  cout << left << setw(20) << "fail(trigger)"   << " | " << right << setw(7) << m_bk.evt_fail_trigger << '\n';
-  cout << left << setw(20) << "fail(|vz|)"      << " | " << right << setw(7) << m_bk.evt_fail_vz      << '\n';
-  cout << left << setw(20) << "accepted"        << " | " << right << setw(7) << m_bk.evt_accepted     << '\n';
-
-  // Photon candidates: high-level
-  cout << "\n\033[1mPhoton candidates (PHOTONCLUSTER_CEMC)\033[0m\n";
-  cout << "metric                         | value\n"
-          "-------------------------------+-------\n";
-  cout << left << setw(31) << "total (container)"          << " | " << right << setw(7) << m_bk.pho_total           << '\n';
-  cout << left << setw(31) << "early reject: pT^#gamma<5"  << " | " << right << setw(7) << m_bk.pho_early_E         << '\n';
-  cout << left << setw(31) << "fail |eta| fiducial"        << " | " << right << setw(7) << m_bk.pho_eta_fail        << '\n';
-  cout << left << setw(31) << "fail ET bin (out of range)" << " | " << right << setw(7) << m_bk.pho_etbin_out       << '\n';
-  cout << left << setw(31) << "no RawCluster ptr"          << " | " << right << setw(7) << m_bk.pho_noRC            << '\n';
-  cout << left << setw(31) << "reached pre+iso step"       << " | " << right << setw(7) << m_bk.pho_reached_pre_iso << '\n';
-
-  // Preselection breakdown
-  cout << "\n\033[1mPreselection (among reached pre+iso)\033[0m\n";
-  cout << "outcome/criterion              | count\n"
-          "-------------------------------+-------\n";
-  cout << left << setw(31) << "pass preselection"          << " | " << right << setw(7) << m_bk.pre_pass             << '\n';
-  cout << left << setw(31) << "fail weta >= 0.60"          << " | " << right << setw(7) << m_bk.pre_fail_weta        << '\n';
-  cout << left << setw(31) << "fail et1 < 0.60"            << " | " << right << setw(7) << m_bk.pre_fail_et1_low     << '\n';
-  cout << left << setw(31) << "fail et1 > 1.00"            << " | " << right << setw(7) << m_bk.pre_fail_et1_high    << '\n';
-  cout << left << setw(31) << "fail e11/e33 >= 0.98"       << " | " << right << setw(7) << m_bk.pre_fail_e11e33_high << '\n';
-  cout << left << setw(31) << "fail e32/e35 < 0.80"        << " | " << right << setw(7) << m_bk.pre_fail_e32e35_low  << '\n';
-  cout << left << setw(31) << "fail e32/e35 > 1.00"        << " | " << right << setw(7) << m_bk.pre_fail_e32e35_high << '\n';
-
-  // Tight classification (for preselection-passed)
-  cout << "\n\033[1mTight classification (preselection-passed)\033[0m\n";
-  cout << "category                       | count\n"
-          "-------------------------------+-------\n";
-  cout << left << setw(31) << "Tight (all 5 pass)"         << " | " << right << setw(7) << m_bk.tight_tight     << '\n';
-  cout << left << setw(31) << "Neither (exactly 1 fail)"   << " | " << right << setw(7) << m_bk.tight_neither   << '\n';
-  cout << left << setw(31) << "Non-Tight (>=2 fail)"       << " | " << right << setw(7) << m_bk.tight_nonTight  << '\n';
-
-  cout << "— per-cut fails —\n";
-  cout << left << setw(31) << "fail weta tight"            << " | " << right << setw(7) << m_bk.tight_fail_weta   << '\n';
-  cout << left << setw(31) << "fail wphi tight"            << " | " << right << setw(7) << m_bk.tight_fail_wphi   << '\n';
-  cout << left << setw(31) << "fail et1 tight"             << " | " << right << setw(7) << m_bk.tight_fail_et1    << '\n';
-  cout << left << setw(31) << "fail e11/e33 tight"         << " | " << right << setw(7) << m_bk.tight_fail_e11e33 << '\n';
-  cout << left << setw(31) << "fail e32/e35 tight"         << " | " << right << setw(7) << m_bk.tight_fail_e32e35 << '\n';
-
-  // Isolation
-  cout << "\n\033[1mIsolation (preselection-passed)\033[0m\n";
-  cout << "outcome                        | count\n"
-          "-------------------------------+-------\n";
-  cout << left << setw(31) << "isolated (pass)"            << " | " << right << setw(7) << m_bk.iso_pass         << '\n';
-  cout << left << setw(31) << "non-isolated (fail)"        << " | " << right << setw(7) << m_bk.iso_fail         << '\n';
+    using std::cout; using std::endl; using std::setw; using std::left; using std::right;
+    
+    cout << "\n\033[1mJob-wide cutflow summary\033[0m\n";
+    
+    // Events
+    cout << "\n\033[1mEvents\033[0m\n";
+    cout << "metric              | value\n"
+    "--------------------+-------\n";
+    cout << left << setw(20) << "seen"            << " | " << right << setw(7) << m_bk.evt_seen         << '\n';
+    cout << left << setw(20) << "fail(trigger)"   << " | " << right << setw(7) << m_bk.evt_fail_trigger << '\n';
+    cout << left << setw(20) << "fail(|vz|)"      << " | " << right << setw(7) << m_bk.evt_fail_vz      << '\n';
+    cout << left << setw(20) << "fail(minbias)"   << " | " << right << setw(7) << m_bk.evt_fail_minbias << '\n';
+    cout << left << setw(20) << "accepted"        << " | " << right << setw(7) << m_bk.evt_accepted     << '\n';
+    
+    // Photon candidates: high-level
+    cout << "\n\033[1mPhoton candidates (PHOTONCLUSTER_CEMC)\033[0m\n";
+    cout << "metric                         | value\n"
+    "-------------------------------+-------\n";
+    cout << left << setw(31) << "total (container)"          << " | " << right << setw(7) << m_bk.pho_total           << '\n';
+    cout << left << setw(31) << "early reject: pT^#gamma<5"  << " | " << right << setw(7) << m_bk.pho_early_E         << '\n';
+    cout << left << setw(31) << "fail |eta| fiducial"        << " | " << right << setw(7) << m_bk.pho_eta_fail        << '\n';
+    cout << left << setw(31) << "fail ET bin (out of range)" << " | " << right << setw(7) << m_bk.pho_etbin_out       << '\n';
+    cout << left << setw(31) << "no RawCluster ptr"          << " | " << right << setw(7) << m_bk.pho_noRC            << '\n';
+    cout << left << setw(31) << "reached pre+iso step"       << " | " << right << setw(7) << m_bk.pho_reached_pre_iso << '\n';
+    
+    // Preselection breakdown
+    cout << "\n\033[1mPreselection (among reached pre+iso)\033[0m\n";
+    cout << "outcome/criterion              | count\n"
+    "-------------------------------+-------\n";
+    cout << left << setw(31) << "pass preselection"          << " | " << right << setw(7) << m_bk.pre_pass             << '\n';
+    cout << left << setw(31) << "fail weta >= 0.60"          << " | " << right << setw(7) << m_bk.pre_fail_weta        << '\n';
+    cout << left << setw(31) << "fail et1 < 0.60"            << " | " << right << setw(7) << m_bk.pre_fail_et1_low     << '\n';
+    cout << left << setw(31) << "fail et1 > 1.00"            << " | " << right << setw(7) << m_bk.pre_fail_et1_high    << '\n';
+    cout << left << setw(31) << "fail e11/e33 >= 0.98"       << " | " << right << setw(7) << m_bk.pre_fail_e11e33_high << '\n';
+    cout << left << setw(31) << "fail e32/e35 < 0.80"        << " | " << right << setw(7) << m_bk.pre_fail_e32e35_low  << '\n';
+    cout << left << setw(31) << "fail e32/e35 > 1.00"        << " | " << right << setw(7) << m_bk.pre_fail_e32e35_high << '\n';
+    
+    // Tight classification (for preselection-passed)
+    cout << "\n\033[1mTight classification (preselection-passed)\033[0m\n";
+    cout << "category                       | count\n"
+    "-------------------------------+-------\n";
+    cout << left << setw(31) << "Tight (all 5 pass)"         << " | " << right << setw(7) << m_bk.tight_tight     << '\n';
+    cout << left << setw(31) << "Neither (exactly 1 fail)"   << " | " << right << setw(7) << m_bk.tight_neither   << '\n';
+    cout << left << setw(31) << "Non-Tight (>=2 fail)"       << " | " << right << setw(7) << m_bk.tight_nonTight  << '\n';
+    
+    cout << "— per-cut fails —\n";
+    cout << left << setw(31) << "fail weta tight"            << " | " << right << setw(7) << m_bk.tight_fail_weta   << '\n';
+    cout << left << setw(31) << "fail wphi tight"            << " | " << right << setw(7) << m_bk.tight_fail_wphi   << '\n';
+    cout << left << setw(31) << "fail et1 tight"             << " | " << right << setw(7) << m_bk.tight_fail_et1    << '\n';
+    cout << left << setw(31) << "fail e11/e33 tight"         << " | " << right << setw(7) << m_bk.tight_fail_e11e33 << '\n';
+    cout << left << setw(31) << "fail e32/e35 tight"         << " | " << right << setw(7) << m_bk.tight_fail_e32e35 << '\n';
+    
+    // Isolation
+    cout << "\n\033[1mIsolation (preselection-passed)\033[0m\n";
+    cout << "outcome                        | count\n"
+    "-------------------------------+-------\n";
+    cout << left << setw(31) << "isolated (pass)"            << " | " << right << setw(7) << m_bk.iso_pass         << '\n';
+    cout << left << setw(31) << "non-isolated (fail)"        << " | " << right << setw(7) << m_bk.iso_fail         << '\n';
 }
 
 void RecoilJets::initIsolationAudit()
 {
-  m_isoAuditMode = false;
-  if (const char* env = std::getenv("RJ_ISO_AUDIT_MODE"))
-  {
-    m_isoAuditMode = (std::atoi(env) != 0);
-  }
-
-  m_isoAuditTargetReached = false;
-  m_isoAuditStopAnnounced = false;
-  m_isoAuditStopEvent = 0;
-  m_isoAuditStopReason.clear();
-
-  m_isoAuditTargetPerCent = 200;
-  m_isoAuditRequiredCentBins = 0;
-  m_isoAuditProgressEveryEvents = 1;
-  m_isoAuditSkipSummaryEveryEvents = 1000;
-  m_isoAuditExemplarsPerCell = 3;
-  m_isoAuditLargePositiveGeV = 15.0;
-  m_isoAuditNearZeroAbsGeV = 1.0;
-  m_isoAuditMismatchGeV = 0.1;
-
-  m_isoAuditNoPhotonContainerEvents = 0;
-  m_isoAuditNonFiniteKinematics = 0;
-  m_isoAuditOutsideConfiguredCentrality = 0;
-  m_isoAuditSkipLastSummary = IsoAuditSkipSnapshot{};
-
-  if (!m_isoAuditMode)
-  {
+    m_isoAuditMode = false;
+    if (const char* env = std::getenv("RJ_ISO_AUDIT_MODE"))
+    {
+        m_isoAuditMode = (std::atoi(env) != 0);
+    }
+    
+    m_isoAuditTargetReached = false;
+    m_isoAuditStopAnnounced = false;
+    m_isoAuditStopEvent = 0;
+    m_isoAuditStopReason.clear();
+    
+    m_isoAuditTargetPerCent = 200;
+    m_isoAuditRequiredCentBins = 0;
+    m_isoAuditProgressEveryEvents = 1;
+    m_isoAuditSkipSummaryEveryEvents = 1000;
+    m_isoAuditExemplarsPerCell = 3;
+    m_isoAuditLargePositiveGeV = 15.0;
+    m_isoAuditNearZeroAbsGeV = 1.0;
+    m_isoAuditMismatchGeV = 0.1;
+    
+    m_isoAuditNoPhotonContainerEvents = 0;
+    m_isoAuditNonFiniteKinematics = 0;
+    m_isoAuditOutsideConfiguredCentrality = 0;
+    m_isoAuditSkipLastSummary = IsoAuditSkipSnapshot{};
+    
+    if (!m_isoAuditMode)
+    {
+        m_isoAuditFlowGlobal = IsoAuditEventFlow{};
+        m_isoAuditFlowByCent.clear();
+        m_isoAuditCells.clear();
+        return;
+    }
+    
+    if (const char* env = std::getenv("RJ_ISO_AUDIT_TARGET_PER_CENT"))
+    {
+        const int v = std::atoi(env);
+        if (v > 0) m_isoAuditTargetPerCent = v;
+    }
+    
+    if (const char* env = std::getenv("RJ_ISO_AUDIT_REQUIRED_CENT_BINS"))
+    {
+        const int v = std::atoi(env);
+        if (v > 0) m_isoAuditRequiredCentBins = v;
+    }
+    
+    if (const char* env = std::getenv("RJ_ISO_AUDIT_PROGRESS_EVERY_EVENTS"))
+    {
+        const int v = std::atoi(env);
+        if (v > 0) m_isoAuditProgressEveryEvents = v;
+    }
+    
+    if (const char* env = std::getenv("RJ_ISO_AUDIT_SKIP_SUMMARY_EVERY_EVENTS"))
+    {
+        const int v = std::atoi(env);
+        if (v > 0) m_isoAuditSkipSummaryEveryEvents = v;
+    }
+    
+    if (const char* env = std::getenv("RJ_ISO_AUDIT_EXEMPLARS_PER_CELL"))
+    {
+        const int v = std::atoi(env);
+        if (v > 0) m_isoAuditExemplarsPerCell = v;
+    }
+    
+    if (const char* env = std::getenv("RJ_ISO_AUDIT_LARGE_POSITIVE_GEV"))
+    {
+        const double v = std::atof(env);
+        if (std::isfinite(v) && v > 0.0) m_isoAuditLargePositiveGeV = v;
+    }
+    
+    if (const char* env = std::getenv("RJ_ISO_AUDIT_NEAR_ZERO_ABS_GEV"))
+    {
+        const double v = std::atof(env);
+        if (std::isfinite(v) && v > 0.0) m_isoAuditNearZeroAbsGeV = v;
+    }
+    
+    if (const char* env = std::getenv("RJ_ISO_AUDIT_MISMATCH_GEV"))
+    {
+        const double v = std::atof(env);
+        if (std::isfinite(v) && v >= 0.0) m_isoAuditMismatchGeV = v;
+    }
+    
     m_isoAuditFlowGlobal = IsoAuditEventFlow{};
-    m_isoAuditFlowByCent.clear();
-    m_isoAuditCells.clear();
-    return;
-  }
-
-  if (const char* env = std::getenv("RJ_ISO_AUDIT_TARGET_PER_CENT"))
-  {
-    const int v = std::atoi(env);
-    if (v > 0) m_isoAuditTargetPerCent = v;
-  }
-
-  if (const char* env = std::getenv("RJ_ISO_AUDIT_REQUIRED_CENT_BINS"))
-  {
-    const int v = std::atoi(env);
-    if (v > 0) m_isoAuditRequiredCentBins = v;
-  }
-
-  if (const char* env = std::getenv("RJ_ISO_AUDIT_PROGRESS_EVERY_EVENTS"))
-  {
-    const int v = std::atoi(env);
-    if (v > 0) m_isoAuditProgressEveryEvents = v;
-  }
-
-  if (const char* env = std::getenv("RJ_ISO_AUDIT_SKIP_SUMMARY_EVERY_EVENTS"))
-  {
-    const int v = std::atoi(env);
-    if (v > 0) m_isoAuditSkipSummaryEveryEvents = v;
-  }
-
-  if (const char* env = std::getenv("RJ_ISO_AUDIT_EXEMPLARS_PER_CELL"))
-  {
-    const int v = std::atoi(env);
-    if (v > 0) m_isoAuditExemplarsPerCell = v;
-  }
-
-  if (const char* env = std::getenv("RJ_ISO_AUDIT_LARGE_POSITIVE_GEV"))
-  {
-    const double v = std::atof(env);
-    if (std::isfinite(v) && v > 0.0) m_isoAuditLargePositiveGeV = v;
-  }
-
-  if (const char* env = std::getenv("RJ_ISO_AUDIT_NEAR_ZERO_ABS_GEV"))
-  {
-    const double v = std::atof(env);
-    if (std::isfinite(v) && v > 0.0) m_isoAuditNearZeroAbsGeV = v;
-  }
-
-  if (const char* env = std::getenv("RJ_ISO_AUDIT_MISMATCH_GEV"))
-  {
-    const double v = std::atof(env);
-    if (std::isfinite(v) && v >= 0.0) m_isoAuditMismatchGeV = v;
-  }
-
-  m_isoAuditFlowGlobal = IsoAuditEventFlow{};
-  const std::size_t nCent = (m_centEdges.size() > 1 ? (m_centEdges.size() - 1) : 0);
-  const std::size_t nPt = (m_gammaPtBins.size() > 1 ? (m_gammaPtBins.size() - 1) : 0);
-  m_isoAuditFlowByCent.assign(nCent, IsoAuditEventFlow{});
-  m_isoAuditCells.assign(nCent, std::vector<IsoAuditCell>(nPt));
-  m_isoAuditSkipLastSummary = makeIsolationAuditSkipSnapshot();
+    const std::size_t nCent = (m_centEdges.size() > 1 ? (m_centEdges.size() - 1) : 0);
+    const std::size_t nPt = (m_gammaPtBins.size() > 1 ? (m_gammaPtBins.size() - 1) : 0);
+    m_isoAuditFlowByCent.assign(nCent, IsoAuditEventFlow{});
+    m_isoAuditCells.assign(nCent, std::vector<IsoAuditCell>(nPt));
+    m_isoAuditSkipLastSummary = makeIsolationAuditSkipSnapshot();
 }
 
 std::string RecoilJets::isoAuditCentLabel(int centIdx) const

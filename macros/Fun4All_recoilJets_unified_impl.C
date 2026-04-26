@@ -262,6 +262,7 @@ namespace yamlcfg
         
         bool   use_vz_cut = true;
         double vz_cut_cm  = 30.0;
+        bool   setMinBiasClassifer = false;
         
         std::vector<int> centrality_edges = {0, 10, 20, 40, 60, 80, 100};
         
@@ -603,6 +604,12 @@ namespace yamlcfg
                 const std::string rhs = AfterColon(line);
                 if (!ParseDouble(rhs, cfg.vz_cut_cm))
                     warn_parse("vz_cut_cm", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "setMinBiasClassifer") || StartsWithKey(line, "setMinBiasClassifier"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseBool(rhs, cfg.setMinBiasClassifer))
+                    warn_parse("setMinBiasClassifer", rhs, "expected true/false");
             }
             else if (StartsWithKey(line, "coneR"))
             {
@@ -1381,9 +1388,16 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     // ---------------------------------------------------------------
     // Parse list file
     //   DATA:  1 column  -> calo DST
+    //          2 columns -> calo DST + DST_ZDC_RAW  (required when setMinBiasClassifer=true)
     //   SIM :  5 columns -> calo + G4Hits + (truth jets) + global + mbd_epd
+    //
+    // NOTE:
+    //   The second token is interpreted by mode:
+    //     DATA: DST_ZDC_RAW
+    //     SIM : G4Hits
     // ---------------------------------------------------------------
     std::vector<std::string> filesCalo;
+    std::vector<std::string> filesZdc;
     std::vector<std::string> filesG4;
     std::vector<std::string> filesJets;
     std::vector<std::string> filesGlobal;
@@ -1396,11 +1410,11 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         if (!line.empty() && line[0] == '#') continue;
         
         // Columns:
-        //   DATA : <DST_CALO_CLUSTER>
+        //   DATA : <DST_CALO_CLUSTER> [<DST_ZDC_RAW>]
         //   SIM  : <DST_CALO_CLUSTER> <G4Hits> <DST_JETS> <DST_GLOBAL> <DST_MBD_EPD>
         std::istringstream iss(line);
-        std::string fCalo, fG4, fJets, fGlobal, fMbd;
-        iss >> fCalo >> fG4 >> fJets >> fGlobal >> fMbd;
+        std::string fCalo, fAux1, fJets, fGlobal, fMbd;
+        iss >> fCalo >> fAux1 >> fJets >> fGlobal >> fMbd;
         
         if (fCalo.empty()) continue;
         
@@ -1408,7 +1422,8 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         
         // Keep vectors key-aligned (same length as filesCalo):
         // empty string == "not provided on this line"
-        filesG4.emplace_back((!fG4.empty() && fG4 != "NONE") ? fG4 : std::string{});
+        filesZdc.emplace_back((!fAux1.empty() && fAux1 != "NONE") ? fAux1 : std::string{});
+        filesG4.emplace_back((!fAux1.empty() && fAux1 != "NONE") ? fAux1 : std::string{});
         filesJets.emplace_back((!fJets.empty() && fJets != "NONE") ? fJets : std::string{});
         filesGlobal.emplace_back((!fGlobal.empty() && fGlobal != "NONE") ? fGlobal : std::string{});
         filesMbd.emplace_back((!fMbd.empty() && fMbd != "NONE") ? fMbd : std::string{});
@@ -1672,6 +1687,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         << "  -> radians=" << (cfg.back_to_back_dphi_min_pi_fraction * M_PI) << "\n"
         << "  use_vz_cut: " << (cfg.use_vz_cut ? "true" : "false") << "\n"
         << "  vz_cut_cm: " << cfg.vz_cut_cm << "\n"
+        << "  setMinBiasClassifer: " << (cfg.setMinBiasClassifer ? "true" : "false") << "\n"
         << "  coneR: " << cfg.isoConeR << "\n"
         << "  matching: {pho_dr_max=" << cfg.pho_dr_max << ", jet_dr_max=" << cfg.jet_dr_max << "}\n"
         << "  isolation_wp: {aGeV=" << cfg.isoA << ", bPerGeV=" << cfg.isoB
@@ -1800,20 +1816,33 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         return true;
     };
     
+    const bool listHasZdc    = all_nonempty(filesZdc);
     const bool listHasG4     = all_nonempty(filesG4);
     const bool listHasJets   = all_nonempty(filesJets);
     const bool listHasGlobal = all_nonempty(filesGlobal);
     const bool listHasMbd    = all_nonempty(filesMbd);
+
+    const bool needZdcRawForMinBias =
+        cfg.setMinBiasClassifer &&
+        !isSim &&
+        (isAuAuRequested || (!isPPrun25 && run > 53864));
+
+    if (needZdcRawForMinBias && !listHasZdc)
+    {
+        detail::bail("setMinBiasClassifer=true for AuAu data requires a paired DST_ZDC_RAW file in column 2 of each input-list row.");
+    }
     
     if (verbose || vlevel > 0)
     {
         std::cout << "[FLOW] input contract:"
         << " caloFiles=" << filesCalo.size()
+        << " | ZDC_RAW=" << (listHasZdc ? "present" : "missing")
         << " | G4=" << (listHasG4 ? "present" : "missing")
         << " | DST_JETS=" << (listHasJets ? "present" : "missing")
         << " | DST_GLOBAL=" << (listHasGlobal ? "present" : "missing")
         << " | DST_MBD_EPD=" << (listHasMbd ? "present" : "missing")
         << " | caloInputMode=" << caloInputMode
+        << " | minBiasClassifierGate=" << (cfg.setMinBiasClassifer ? "true" : "false")
         << std::endl;
     }
     
@@ -1850,6 +1879,20 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     auto* inCalo = new Fun4AllDstInputManager("DSTcalofitting");
     for (const auto& f : filesCalo) inCalo->AddFile(f);
     se->registerInputManager(inCalo);
+
+    // ------------------ ZDC RAW DST (AuAu MB-classifier gate only) -------------------
+    if (needZdcRawForMinBias)
+    {
+        auto* inZdc = new Fun4AllDstInputManager("DST_ZDC_RAW_IN");
+        for (const auto& f : filesZdc) inZdc->AddFile(f);
+        se->registerInputManager(inZdc);
+
+        if (vlevel > 0)
+        {
+            std::cout << "[INFO] AuAu MinimumBiasClassifier gate enabled: registered paired DST_ZDC_RAW input stream"
+                      << " (nFiles=" << filesZdc.size() << ")" << std::endl;
+        }
+    }
     
     if (isSim)
     {
@@ -2063,6 +2106,19 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         
         if (!isSim && !isPPrun25)
         {
+            if (needZdcRawForMinBias)
+            {
+                if (vlevel > 0) std::cout << "Building ZDC towers from DST_ZDC_RAW for MinimumBiasClassifier" << std::endl;
+                auto* caZDC = new CaloTowerBuilder("ZDCBUILDER");
+                caZDC->set_detector_type(CaloTowerDefs::ZDC);
+                caZDC->set_builder_type(CaloTowerDefs::kPRDFTowerv4);
+                caZDC->set_processing_type(CaloWaveformProcessing::FUNCFIT);
+                caZDC->set_funcfit_type(2);
+                caZDC->set_nsamples(16);
+                caZDC->set_offlineflag();
+                se->registerSubsystem(caZDC);
+            }
+
             if (vlevel > 0) std::cout << "Calibrating ZDC" << std::endl;
             auto* zdcreco = new ZdcReco();
             zdcreco->set_zdc1_cut(0.0);
@@ -2127,18 +2183,22 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     
     if (isAuAuLike && !isSimEmbedded)
     {
-        if (vlevel > 0) std::cout << "building minbias classifier" << std::endl;
-        auto* mb = new MinimumBiasClassifier();
-        mb->Verbosity(0);
-        mb->setOverwriteScale(
-                              "/cvmfs/sphenix.sdcc.bnl.gov/calibrations/sphnxpro/cdb/CentralityScale/42/6b/426bc1b56ba544201b0213766bee9478_cdb_centrality_scale_54912.root");
-        se->registerSubsystem(mb);
+        if (cfg.setMinBiasClassifer)
+        {
+            if (vlevel > 0) std::cout << "building minbias classifier" << std::endl;
+            auto* mb = new MinimumBiasClassifier();
+            mb->Verbosity(0);
+            mb->set_mbd_total_charge_cut(2100);
+            se->registerSubsystem(mb);
+        }
+        else if (vlevel > 0)
+        {
+            std::cout << "[AuAu] skipping MinimumBiasClassifier gate (setMinBiasClassifer=false)" << std::endl;
+        }
         
         if (vlevel > 0) std::cout << "building centrality classifier (Au+Au-like)" << std::endl;
         auto* cent = new CentralityReco();
         cent->Verbosity(0);
-        cent->setOverwriteScale(
-                                "/cvmfs/sphenix.sdcc.bnl.gov/calibrations/sphnxpro/cdb/CentralityScale/42/6b/426bc1b56ba544201b0213766bee9478_cdb_centrality_scale_54912.root");
         se->registerSubsystem(cent);
     }
     else
@@ -3242,6 +3302,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     
     recoilJets->setUseVzCut(cfg.use_vz_cut, cfg.vz_cut_cm);
 #if defined(RJ_UNIFIED_ANALYSIS_AUAU)
+    recoilJets->setMinBiasClassifier(cfg.setMinBiasClassifer);
     recoilJets->setCentEdges(cfg.centrality_edges);
     recoilJets->setVertexReweighting(cfg.vertex_reweight_on,
                                      cfg.vertex_reweight_file,
@@ -3302,6 +3363,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         << " useVzCut=" << (cfg.use_vz_cut ? "true" : "false")
         << " vzCut=" << cfg.vz_cut_cm
 #if defined(RJ_UNIFIED_ANALYSIS_AUAU)
+        << " minBiasClassifierGate=" << (cfg.setMinBiasClassifer ? "true" : "false")
         << " centEdges_n=" << cfg.centrality_edges.size()
 #endif
         << " phoDR=" << cfg.pho_dr_max
