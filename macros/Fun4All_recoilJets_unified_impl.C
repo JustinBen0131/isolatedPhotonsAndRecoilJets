@@ -2106,20 +2106,14 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         
         if (!isSim && !isPPrun25)
         {
-            if (needZdcRawForMinBias)
+            if (vlevel > 0)
             {
-                if (vlevel > 0) std::cout << "Building ZDC towers from DST_ZDC_RAW for MinimumBiasClassifier" << std::endl;
-                auto* caZDC = new CaloTowerBuilder("ZDCBUILDER");
-                caZDC->set_detector_type(CaloTowerDefs::ZDC);
-                caZDC->set_builder_type(CaloTowerDefs::kPRDFTowerv4);
-                caZDC->set_processing_type(CaloWaveformProcessing::FUNCFIT);
-                caZDC->set_funcfit_type(2);
-                caZDC->set_nsamples(16);
-                caZDC->set_offlineflag();
-                se->registerSubsystem(caZDC);
+                if (needZdcRawForMinBias)
+                    std::cout << "Calibrating ZDC after Process_Calo_Calib ZDC tower building" << std::endl;
+                else
+                    std::cout << "Calibrating ZDC" << std::endl;
             }
 
-            if (vlevel > 0) std::cout << "Calibrating ZDC" << std::endl;
             auto* zdcreco = new ZdcReco();
             zdcreco->set_zdc1_cut(0.0);
             zdcreco->set_zdc2_cut(0.0);

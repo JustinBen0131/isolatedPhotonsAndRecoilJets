@@ -33,13 +33,13 @@
 # Photon + jet kinematic selection
 # -----------------------------------------------------------------------------
 photon_eta_abs_max: 0.7
-jet_pt_min: [7.0]
+jet_pt_min: [5.0]
 
 # Jet radii to reconstruct (R values).
 # The steering macro builds reco jets (and SIM truth jets) for each radius.
 # RecoilJets processes only the radii listed here.
 # Baseline: r02 + r04 + r06
-jet_radii: [0.3]
+jet_radii: [0.3, 0.4, 0.6]
 
 # Back-to-back azimuthal cut as a fraction of π.
 #   0.5   → Δφ > π/2
@@ -53,7 +53,7 @@ back_to_back_dphi_min_pi_fraction: [0.875]
 use_vz_cut: true
 
 # MATRIX AXIS: one job per vz_cut_cm value.
-vz_cut_cm: [30.0]
+vz_cut_cm: [60.0]
 
 # AuAu only: when true, RecoilJets also requires
 # MinimumBiasInfo::isAuAuMinimumBias() after the configured GL1 trigger fires.
@@ -150,8 +150,8 @@ clusterUEpipeline: [baseVariant]
 #
 #     If preselection=variantB, "passes selected preselection" is automatically true.
 # -----------------------------------------------------------------------------
-preselection: [reference, variantA, variantB]
-tight: [reference, variantA]
+preselection: [variantB]
+tight: [variantA]
 nonTight: [reference]
 
 # -----------------------------------------------------------------------------
@@ -245,14 +245,14 @@ doPi0Analysis: true
 # MATRIX AXIS: coneR sets the isolation cone radius.
 # PhotonClusterBuilder provides isolation sums for R=0.3 and R=0.4.
 # -----------------------------------------------------------------------------
-isSlidingIso: true
+isSlidingIso: false
 isSlidingAndFixed: false
 
 # MATRIX AXIS: one job per fixedGeV value (when isSlidingIso is false).
-fixedGeV: [4.0]
+fixedGeV: [2.0]
 
 # MATRIX AXIS: isolation cone radius.
-coneR: [0.30]
+coneR: [0.40]
 
 # Global sliding WP parameters.
 # Used directly for pp / non-AuAu SIM when isSlidingIso is true:

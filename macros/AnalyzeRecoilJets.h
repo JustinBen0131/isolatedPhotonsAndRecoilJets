@@ -95,16 +95,16 @@ inline bool isPPdataOnly   = false;
 inline bool pp_beforeChangeInRecoSimDefTruthMatched = false;
 
 inline bool isSimAndDataPP = false;
-inline bool isSimAndDataAUAU = false;
+inline bool isSimAndDataAUAU = true;
 inline bool isSimEmbeddedOnly = false;
-inline bool isAuAuOnly     = true;
+inline bool isAuAuOnly     = false;
 
 inline bool isPPdataAndAUAU = false;
 
 inline bool generateUEcomparisonSSQA = false;
 inline bool skipToCentralityAndPtOverlaysWithSSQA = false;
 inline bool SSoverlayPerVAR_processONLY           = false;
-inline bool generateISOpTcentOverlaysONLY         = false;
+inline bool generateISOpTcentOverlaysONLY         = true;
 inline bool perVariantIsoQA_ONLY                  = false;
 inline bool DO_inclusiveXJcomparisons_ONLY        = false;
 
@@ -138,23 +138,23 @@ inline bool isPhotonJet20              = false;
 inline bool bothPhoton5and10sim        = false;
 inline bool bothPhoton5and20sim        = false;
 inline bool bothPhoton10and20sim       = false;
-inline bool allPhoton5and10and20sim    = false;
+inline bool allPhoton5and10and20sim    = true;
 
 //   Embedded Au+Au SIM slices / merges:
 inline bool isPhotonJet10Embedded      = false;
-inline bool isPhotonJet20Embedded      = false;
+inline bool isPhotonJet20Embedded      = true;
 inline bool bothPhoton10and20simEmbedded = false;
 
 
 inline bool isInclusiveJet10Embedded   = false;
-inline bool isInclusiveJet20Embedded   = false;
+inline bool isInclusiveJet20Embedded   = true;
 inline bool bothInclusiveJet10and20simEmbedded = false;
 
 //   Special SIM samples:
 inline bool isSimMB                    = false;   // MinBias DETROIT tune
 inline bool isSimJet5                  = false;   // inclusive jet5
 
-inline bool doPhotonJetMerge = false;
+inline bool doPhotonJetMerge = true;
 
 //   RooUnfold: true = run both non-purity and purity-corrected passes + overlay.
 inline bool do_xJ_PPunfold = false;
@@ -177,11 +177,18 @@ inline bool doSamVsJustinUnsmearOverlays = false;
 // 3a. PP / SIM CUT DEFAULTS  (drives all PP, SIM, and SIM+PP paths)
 //     All input/output paths are derived automatically from these values.
 // ===========================================================================
-inline const int    kJetPtMin        = 7;            // GeV: 3, 5, or 10
+inline const int    kJetPtMin        = 5;            // GeV: 3, 5, or 10
 inline const string kB2BCut          = "7pi_8";      // "7pi_8" or "pi_2"
-inline const int    kVzCut           = 30;            // cm: 30 or 60
-inline const string kIsoConeR        = "isoR30";     // "isoR30" or "isoR40"
-inline const string kIsoMode         = "isSliding";  // "isSliding" or "fixedIso5GeV"
+inline const int    kVzCut           = 60;            // cm: 30 or 60
+inline const string kIsoConeR        = "isoR40";     // "isoR30" or "isoR40"
+inline const string kIsoMode         = "fixedIso2GeV";  // "isSliding" or "fixedIso5GeV"
+
+// Photon-ID matrix axes.
+// Set all three to "reference" to read legacy files whose names do NOT include
+// the final preselection/tight/nonTight tag.
+inline const string kPreselection    = "variantB";   // "reference", "variantA", or "variantB"
+inline const string kTight           = "variantA";   // "reference" or "variantA"
+inline const string kNonTight        = "reference";  // currently "reference"
 
 // ===========================================================================
 // 3b. Au+Au CUT DEFAULTS  (independent from PP/SIM — drives all AuAu and
@@ -193,6 +200,14 @@ inline const int    kAA_VzCut        = 30;            // cm: 30 or 60
 inline const string kAA_IsoConeR     = "isoR30";     // "isoR30" or "isoR40"
 inline const string kAA_IsoMode      = "isSliding";// "isSliding" or "fixedIso4GeV"
 inline const string kAA_UEVariant    = "baseVariant";      // "noSub","baseVariant","variantA","variantB"
+
+// Photon-ID matrix axes for AuAu / embedded SIM.
+// Set all three to "reference" to read legacy files whose names do NOT include
+// the final preselection/tight/nonTight tag.
+inline const string kAA_Preselection = "reference";   // "reference", "variantA", or "variantB"
+inline const string kAA_Tight        = "reference";   // "reference" or "variantA"
+inline const string kAA_NonTight     = "reference";  // currently "reference"
+
 // Au+Au trigger directory name(s) inside the ROOT file.
 // Set one, two, or all three.  Analysis runs independently for each.
 inline const vector<string> kTriggersAuAu = {
@@ -240,25 +255,80 @@ inline bool IsWeightedSIMSelected()
 }
 
 // --- Derived tag builders (DO NOT EDIT) ---
+inline string PhotonIDModeCanonical(const string& mode)
+{
+    if (mode.empty() || mode == "reference" || mode == "Reference") return "reference";
+    if (mode == "variantA" || mode == "VariantA" || mode == "varianta") return "variantA";
+    if (mode == "variantB" || mode == "VariantB" || mode == "variantb") return "variantB";
+    return mode;
+}
+
+inline string PhotonIDModeDisplay(const string& mode)
+{
+    const string m = PhotonIDModeCanonical(mode);
+    if (m == "reference") return "Reference";
+    if (m == "variantA")  return "VariantA";
+    if (m == "variantB")  return "VariantB";
+    
+    string out = m;
+    if (!out.empty() && out[0] >= 'a' && out[0] <= 'z') out[0] = (char)(out[0] - 'a' + 'A');
+    return out;
+}
+
+inline string PhotonIDTagFor(const string& preselection,
+                             const string& tight,
+                             const string& nonTight)
+{
+    const string pre = PhotonIDModeCanonical(preselection);
+    const string tig = PhotonIDModeCanonical(tight);
+    const string non = PhotonIDModeCanonical(nonTight);
+    
+    if (pre == "reference" && tig == "reference" && non == "reference")
+    {
+        return "";
+    }
+    
+    return "_preselection" + PhotonIDModeDisplay(pre) +
+           "_tight" + PhotonIDModeDisplay(tig) +
+           "_nonTight" + PhotonIDModeDisplay(non);
+}
+
+inline string PhotonIDTag()
+{
+    return PhotonIDTagFor(kPreselection, kTight, kNonTight);
+}
+
+inline string PhotonIDTagAA()
+{
+    return PhotonIDTagFor(kAA_Preselection, kAA_Tight, kAA_NonTight);
+}
+
+inline string CfgBaseTagFor(int jetPtMin,
+                            const string& b2bCut,
+                            int vzCut,
+                            const string& isoConeR,
+                            const string& isoMode)
+{
+    return "jetMinPt" + std::to_string(jetPtMin) + "_" +
+    b2bCut + "_vz" + std::to_string(vzCut) + "_" +
+    isoConeR + "_" + isoMode;
+}
+
 // PP / SIM tag (Section 3a defaults)
 inline string CfgTag()
 {
-    return "jetMinPt" + std::to_string(kJetPtMin) + "_" +
-    kB2BCut + "_vz" + std::to_string(kVzCut) + "_" +
-    kIsoConeR + "_" + kIsoMode;
+    return CfgBaseTagFor(kJetPtMin, kB2BCut, kVzCut, kIsoConeR, kIsoMode) + PhotonIDTag();
 }
 
-// Au+Au tag (Section 3b defaults)
+// Au+Au tag without UE variant, but with photon-ID suffix when non-reference
 inline string CfgTagAA()
 {
-    return "jetMinPt" + std::to_string(kAA_JetPtMin) + "_" +
-    kAA_B2BCut + "_vz" + std::to_string(kAA_VzCut) + "_" +
-    kAA_IsoConeR + "_" + kAA_IsoMode;
+    return CfgBaseTagFor(kAA_JetPtMin, kAA_B2BCut, kAA_VzCut, kAA_IsoConeR, kAA_IsoMode) + PhotonIDTagAA();
 }
 
 inline string CfgTagWithUE_AA()
 {
-    return CfgTagAA() + "_" + kAA_UEVariant;
+    return CfgBaseTagFor(kAA_JetPtMin, kAA_B2BCut, kAA_VzCut, kAA_IsoConeR, kAA_IsoMode) + "_" + kAA_UEVariant + PhotonIDTagAA();
 }
 
 // Convenience alias — all existing CfgTagWithUE() call sites are AuAu-context
@@ -272,11 +342,13 @@ inline string CfgTagFor(int jetPtMin,
                         const string& b2bCut,
                         int vzCut,
                         const string& isoConeR,
-                        const string& isoMode)
+                        const string& isoMode,
+                        const string& preselection = "reference",
+                        const string& tight = "reference",
+                        const string& nonTight = "reference")
 {
-    return "jetMinPt" + std::to_string(jetPtMin) + "_" +
-    b2bCut + "_vz" + std::to_string(vzCut) + "_" +
-    isoConeR + "_" + isoMode;
+    return CfgBaseTagFor(jetPtMin, b2bCut, vzCut, isoConeR, isoMode) +
+           PhotonIDTagFor(preselection, tight, nonTight);
 }
 
 inline string CfgTagWithUEFor(int jetPtMin,
@@ -284,9 +356,14 @@ inline string CfgTagWithUEFor(int jetPtMin,
                               int vzCut,
                               const string& isoConeR,
                               const string& isoMode,
-                              const string& ueVariant)
+                              const string& ueVariant,
+                              const string& preselection = "reference",
+                              const string& tight = "reference",
+                              const string& nonTight = "reference")
 {
-    return CfgTagFor(jetPtMin, b2bCut, vzCut, isoConeR, isoMode) + "_" + ueVariant;
+    return CfgBaseTagFor(jetPtMin, b2bCut, vzCut, isoConeR, isoMode) +
+           "_" + ueVariant +
+           PhotonIDTagFor(preselection, tight, nonTight);
 }
 
 inline string B2BLabelFor(const string& b2bCut)
@@ -343,7 +420,8 @@ inline string InputAuAu()
 inline string InputAuAu(const string& ueVariant)
 {
     return kInputBase + "/auau25/RecoilJets_auau_ALL_" +
-    CfgTagAA() + "_" + ueVariant + ".root";
+    CfgBaseTagFor(kAA_JetPtMin, kAA_B2BCut, kAA_VzCut, kAA_IsoConeR, kAA_IsoMode) +
+    "_" + ueVariant + PhotonIDTagAA() + ".root";
 }
 inline string InputSimBase()
 {
@@ -378,7 +456,8 @@ inline string InputSimEmbedded()
 inline string InputSimEmbedded(const string& ueVariant)
 {
     return kInputBase + "/simEmbedded/RecoilJets_embeddedPhoton20_ALL_" +
-    CfgTagAA() + "_" + ueVariant + ".root";
+    CfgBaseTagFor(kAA_JetPtMin, kAA_B2BCut, kAA_VzCut, kAA_IsoConeR, kAA_IsoMode) +
+    "_" + ueVariant + PhotonIDTagAA() + ".root";
 }
 inline string InputSimEmbeddedSample(const string& sampleTag)
 {
@@ -387,7 +466,8 @@ inline string InputSimEmbeddedSample(const string& sampleTag)
 inline string InputSimEmbeddedSample(const string& sampleTag, const string& ueVariant)
 {
     return kInputBase + "/simEmbedded/RecoilJets_" + sampleTag + "_ALL_" +
-    CfgTagAA() + "_" + ueVariant + ".root";
+    CfgBaseTagFor(kAA_JetPtMin, kAA_B2BCut, kAA_VzCut, kAA_IsoConeR, kAA_IsoMode) +
+    "_" + ueVariant + PhotonIDTagAA() + ".root";
 }
 inline string InputInclusiveJetEmbeddedSample(const string& sampleTag)
 {
@@ -397,7 +477,8 @@ inline string InputInclusiveJetEmbeddedSample(const string& sampleTag)
 inline string InputInclusiveJetEmbeddedSample(const string& sampleTag, const string& ueVariant)
 {
     return kInputBase + "/InclusiveJetSIM_EMBEDDED/RecoilJets_" + sampleTag + "_ALL_" +
-    CfgTagAA() + "_" + ueVariant + ".root";
+    CfgBaseTagFor(kAA_JetPtMin, kAA_B2BCut, kAA_VzCut, kAA_IsoConeR, kAA_IsoMode) +
+    "_" + ueVariant + PhotonIDTagAA() + ".root";
 }
 // =========================================================================
 // OUTPUT PATH BUILDERS — tag-aware, never overwrite across cut combos
