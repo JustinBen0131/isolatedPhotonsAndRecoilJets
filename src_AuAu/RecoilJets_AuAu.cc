@@ -610,6 +610,7 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     m_vx  = 0.0;
     m_vy  = 0.0;
     m_vz  = 0.0;
+    m_truthInfo = nullptr;
     
     double gv_z    = std::numeric_limits<double>::quiet_NaN();
     double mbd_z   = std::numeric_limits<double>::quiet_NaN();
@@ -620,11 +621,12 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     bool haveTruthZ = false;
     
     // ------------------------------------------------------------------
-    // SIM ONLY: truth vertex from G4TruthInfo (requires paired G4Hits DST)
+    // SIM ONLY: truth vertex and Blair/Shuhang truth-isolation source
     // ------------------------------------------------------------------
     if (isSim)
     {
-        auto* truth = findNode::getClass<PHG4TruthInfoContainer>(top, "G4TruthInfo");
+        m_truthInfo = findNode::getClass<PHG4TruthInfoContainer>(top, "G4TruthInfo");
+        auto* truth = m_truthInfo;
         if (!truth)
         {
             LOG(3, CLR_YELLOW,
@@ -8065,166 +8067,169 @@ bool RecoilJets::isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
                                                    const HepMC::GenParticle* pho,
                                                    double& isoEt) const
 {
-  isoEt = std::numeric_limits<double>::quiet_NaN();
-  if (!evt || !pho) return false;
-
-  constexpr double kTruthEtaAbsMax = 0.7;
-
-  // truth isolation parameters
-  const double kIsoConeR  = m_isoConeR;
-  constexpr double kMergerDR  = 0.001;
-  const double kIsoMaxGeV = m_truthIsoMaxGeV;
-
-  // Final-state photon requirement (your project requirement)
-  if (pho->pdg_id() != 22) return false;
-  if (pho->status() != 1)  return false;
-
-  const double etaPho = pho->momentum().pseudoRapidity();
-  const double phiPho = pho->momentum().phi();
-  if (!std::isfinite(etaPho) || !std::isfinite(phiPho)) return false;
-  if (std::fabs(etaPho) >= kTruthEtaAbsMax) return false;
-
-  // -------------------------------------------------------------------------
-  // 1) Prompt classification: walk back photon-in/photon-out vertices, then topology classify
-  // -------------------------------------------------------------------------
-  const HepMC::GenVertex* vertex = pho->production_vertex();
-  if (!vertex) return false;  // CaloAna returns "can't identify" on null vertex
-
-  // Incoming particles at production vertex
-  std::vector<const HepMC::GenParticle*> incoming_particles;
-  incoming_particles.reserve(4);
-  for (auto inItr = vertex->particles_in_const_begin(); inItr != vertex->particles_in_const_end(); ++inItr)
-  {
-    if (*inItr) incoming_particles.push_back(*inItr);
-  }
-
-  // Walk back while there is exactly one incoming particle and it's a photon (pid==22)
-  while (incoming_particles.size() == 1 && incoming_particles[0] && incoming_particles[0]->pdg_id() == 22)
-  {
-    vertex = incoming_particles[0]->production_vertex();
-    if (!vertex) return false;
-
-    incoming_particles.clear();
+    isoEt = std::numeric_limits<double>::quiet_NaN();
+    if (!evt || !pho) return false;
+    
+    constexpr double kTruthEtaAbsMax = 0.7;
+    
+    // truth isolation parameters
+    const double kIsoConeR  = m_isoConeR;
+    constexpr double kMergerDR  = 0.001;
+    const double kIsoMaxGeV = m_truthIsoMaxGeV;
+    
+    // Photon requirement. The embedded G4 primary-particle match below enforces
+    // the same truth-particle source used by Blair/Shuhang's tree isolation.
+    if (pho->pdg_id() != 22) return false;
+    
+    // -------------------------------------------------------------------------
+    // 1) Prompt classification: walk back photon-in/photon-out vertices, then topology classify
+    // -------------------------------------------------------------------------
+    const HepMC::GenVertex* vertex = pho->production_vertex();
+    if (!vertex) return false;  // CaloAna returns "can't identify" on null vertex
+    
+    // Incoming particles at production vertex
+    std::vector<const HepMC::GenParticle*> incoming_particles;
+    incoming_particles.reserve(4);
     for (auto inItr = vertex->particles_in_const_begin(); inItr != vertex->particles_in_const_end(); ++inItr)
     {
-      if (*inItr) incoming_particles.push_back(*inItr);
+        if (*inItr) incoming_particles.push_back(*inItr);
     }
-  }
-
-  // Outgoing particles at the (possibly walked-back) vertex
-  std::vector<const HepMC::GenParticle*> outgoing_particles;
-  outgoing_particles.reserve(4);
-  for (auto outItr = vertex->particles_out_const_begin(); outItr != vertex->particles_out_const_end(); ++outItr)
-  {
-    if (*outItr) outgoing_particles.push_back(*outItr);
-  }
-
-  // Make sure there is a photon in outgoing (CaloAna requirement)
-  bool has_out_photon = false;
-  for (const auto* op : outgoing_particles)
-  {
-    if (op && op->pdg_id() == 22) { has_out_photon = true; break; }
-  }
-  if (!has_out_photon) return false;
-
-  // direct photon:1, fragmentation photon:2, decayed photon:3, can't identify:0
-  int photonclass = 0;
-
-  // direct photon 2->2: both incoming/outgoing are partons+photon (|pdg|<=22)
-  if (incoming_particles.size() == 2 && outgoing_particles.size() == 2)
-  {
-    const int in0 = incoming_particles[0] ? incoming_particles[0]->pdg_id() : 0;
-    const int in1 = incoming_particles[1] ? incoming_particles[1]->pdg_id() : 0;
-    const int out0 = outgoing_particles[0] ? outgoing_particles[0]->pdg_id() : 0;
-    const int out1 = outgoing_particles[1] ? outgoing_particles[1]->pdg_id() : 0;
-
-    if (std::abs(in0) <= 22 && std::abs(in1) <= 22 &&
-        std::abs(out0) <= 22 && std::abs(out1) <= 22)
+    
+    // Walk back while there is exactly one incoming particle and it's a photon (pid==22)
+    while (incoming_particles.size() == 1 && incoming_particles[0] && incoming_particles[0]->pdg_id() == 22)
     {
-      photonclass = 1;
+        vertex = incoming_particles[0]->production_vertex();
+        if (!vertex) return false;
+        
+        incoming_particles.clear();
+        for (auto inItr = vertex->particles_in_const_begin(); inItr != vertex->particles_in_const_end(); ++inItr)
+        {
+            if (*inItr) incoming_particles.push_back(*inItr);
+        }
     }
-  }
-  // fragmentation / decay: one incoming
-  else if (incoming_particles.size() == 1 && incoming_particles[0])
-  {
-    const int inpid = incoming_particles[0]->pdg_id();
-
-    // fragmentation photon 1->2: incoming |pid|<=11, outgoing size==2, outgoing contains incoming pid
-    if (std::abs(inpid) <= 11 && outgoing_particles.size() == 2)
+    
+    // Outgoing particles at the (possibly walked-back) vertex
+    std::vector<const HepMC::GenParticle*> outgoing_particles;
+    outgoing_particles.reserve(4);
+    for (auto outItr = vertex->particles_out_const_begin(); outItr != vertex->particles_out_const_end(); ++outItr)
     {
-      bool has_inpid_out = false;
-      for (const auto* op : outgoing_particles)
-      {
-        if (op && op->pdg_id() == inpid) { has_inpid_out = true; break; }
-      }
-      if (has_inpid_out)
-      {
-        photonclass = 2;
-      }
+        if (*outItr) outgoing_particles.push_back(*outItr);
     }
-
-    // decayed photon: incoming |pid| > 37 (CaloAna sets this after frag check)
-    if (std::abs(inpid) > 37)
+    
+    // Make sure there is a photon in outgoing (CaloAna requirement)
+    bool has_out_photon = false;
+    for (const auto* op : outgoing_particles)
     {
-      photonclass = 3;
+        if (op && op->pdg_id() == 22) { has_out_photon = true; break; }
     }
-  }
-
-  // Accept only direct OR fragmentation (prompt definition used by CaloAna for signal)
-  if (!(photonclass == 1 || photonclass == 2)) return false;
-
-  // -------------------------------------------------------------------------
-  // 2) Truth isolation: IDENTICAL to CaloAna truth iso method
-  //    isoEt = sum_{ΔR<R} Et(p)  -  sum_{ΔR<merger} Et(p)
-  //    where merger=0.001 excludes the photon (and any ultra-close merged stuff)
-  // -------------------------------------------------------------------------
-  auto et_of = [](const HepMC::FourVector& p) -> double
-  {
-    const double px = p.px();
-    const double py = p.py();
-    const double pz = p.pz();
-    const double e  = p.e();
-
-    const double pt = std::hypot(px, py);
-    const double pmag = std::hypot(pt, pz);
-    if (!std::isfinite(e) || !std::isfinite(pt) || !std::isfinite(pmag) || pmag <= 0.0) return 0.0;
-
-    // TLorentzVector::Et equivalent: Et = E * pt / |p|
-    const double et = e * pt / pmag;
-    return (std::isfinite(et) ? et : 0.0);
-  };
-
-  double isoSumEt    = 0.0;
-  double clusterEt   = 0.0;
-
-  for (auto it = evt->particles_begin(); it != evt->particles_end(); ++it)
-  {
-    const HepMC::GenParticle* q = *it;
-    if (!q) continue;
-
-    // CaloAna uses a "primary_particles" list; operationally these are stable primaries.
-    // In HepMC we approximate that with status==1 final-state.
-    if (q->status() != 1) continue;
-
-    const double qeta = q->momentum().pseudoRapidity();
-    const double qphi = q->momentum().phi();
-    if (!std::isfinite(qeta) || !std::isfinite(qphi)) continue;
-
-    const double dphi = TVector2::Phi_mpi_pi(phiPho - qphi);
-    const double deta = etaPho - qeta;
-    const double dr   = std::sqrt(deta*deta + dphi*dphi);
-
-    const double qEt = et_of(q->momentum());
-    if (qEt <= 0.0) continue;
-
-    if (dr < kIsoConeR) isoSumEt += qEt;
-    if (dr < kMergerDR) clusterEt += qEt;
-  }
-
-  isoEt = isoSumEt - clusterEt;
-  if (!std::isfinite(isoEt)) return false;
-
-  return (isoEt < kIsoMaxGeV);
+    if (!has_out_photon) return false;
+    
+    // direct photon:1, fragmentation photon:2, decayed photon:3, can't identify:0
+    int photonclass = 0;
+    
+    // direct photon 2->2: both incoming/outgoing are partons+photon (|pdg|<=22)
+    if (incoming_particles.size() == 2 && outgoing_particles.size() == 2)
+    {
+        const int in0 = incoming_particles[0] ? incoming_particles[0]->pdg_id() : 0;
+        const int in1 = incoming_particles[1] ? incoming_particles[1]->pdg_id() : 0;
+        const int out0 = outgoing_particles[0] ? outgoing_particles[0]->pdg_id() : 0;
+        const int out1 = outgoing_particles[1] ? outgoing_particles[1]->pdg_id() : 0;
+        
+        if (std::abs(in0) <= 22 && std::abs(in1) <= 22 &&
+            std::abs(out0) <= 22 && std::abs(out1) <= 22)
+        {
+            photonclass = 1;
+        }
+    }
+    // fragmentation / decay: one incoming
+    else if (incoming_particles.size() == 1 && incoming_particles[0])
+    {
+        const int inpid = incoming_particles[0]->pdg_id();
+        
+        // fragmentation photon 1->2: incoming |pid|<=11, outgoing size==2, outgoing contains incoming pid
+        if (std::abs(inpid) <= 11 && outgoing_particles.size() == 2)
+        {
+            bool has_inpid_out = false;
+            for (const auto* op : outgoing_particles)
+            {
+                if (op && op->pdg_id() == inpid) { has_inpid_out = true; break; }
+            }
+            if (has_inpid_out)
+            {
+                photonclass = 2;
+            }
+        }
+        
+        // decayed photon: incoming |pid| > 37 (CaloAna sets this after frag check)
+        if (std::abs(inpid) > 37)
+        {
+            photonclass = 3;
+        }
+    }
+    
+    // Accept only direct OR fragmentation (prompt definition used by CaloAna for signal)
+    if (!(photonclass == 1 || photonclass == 2)) return false;
+    
+    // -------------------------------------------------------------------------
+    // 2) Truth isolation: Blair/Shuhang CaloAna truth-iso method
+    //    Source particles:
+    //      PHG4TruthInfoContainer::GetPrimaryParticleRange()
+    //      keep only particles with isEmbeded(trackid) >= 1
+    //
+    //    isoEt = sum_{ΔR<R} Et(primary) - sum_{ΔR<merger} Et(primary)
+    //    where merger=0.001 removes the photon itself and ultra-close merged pieces.
+    // -------------------------------------------------------------------------
+    if (!m_truthInfo) return false;
+    
+    const PHG4Particle* truthPho = nullptr;
+    {
+        auto primaryRange = m_truthInfo->GetPrimaryParticleRange();
+        for (auto truth_itr = primaryRange.first; truth_itr != primaryRange.second; ++truth_itr)
+        {
+            const PHG4Particle* truth = truth_itr->second;
+            if (!truth) continue;
+            if (m_truthInfo->isEmbeded(truth->get_track_id()) < 1) continue;
+            if (truth->get_pid() != 22) continue;
+            if (truth->get_barcode() != pho->barcode()) continue;
+            
+            truthPho = truth;
+            break;
+        }
+    }
+    
+    if (!truthPho) return false;
+    
+    TLorentzVector p1(truthPho->get_px(), truthPho->get_py(), truthPho->get_pz(), truthPho->get_e());
+    const double etaPho = p1.Eta();
+    const double phiPho = p1.Phi();
+    if (!std::isfinite(etaPho) || !std::isfinite(phiPho)) return false;
+    if (std::fabs(etaPho) >= kTruthEtaAbsMax) return false;
+    
+    double isoSumEt  = 0.0;
+    double clusterEt = 0.0;
+    
+    auto primaryRange = m_truthInfo->GetPrimaryParticleRange();
+    for (auto truth_itr = primaryRange.first; truth_itr != primaryRange.second; ++truth_itr)
+    {
+        const PHG4Particle* truth = truth_itr->second;
+        if (!truth) continue;
+        if (m_truthInfo->isEmbeded(truth->get_track_id()) < 1) continue;
+        
+        TLorentzVector p2(truth->get_px(), truth->get_py(), truth->get_pz(), truth->get_e());
+        const double qEt = p2.Et();
+        if (!std::isfinite(qEt) || qEt <= 0.0) continue;
+        
+        const double dr = p1.DeltaR(p2);
+        if (!std::isfinite(dr)) continue;
+        
+        if (dr < kIsoConeR) isoSumEt += qEt;
+        if (dr < kMergerDR) clusterEt += qEt;
+    }
+    
+    isoEt = isoSumEt - clusterEt;
+    if (!std::isfinite(isoEt)) return false;
+    
+    return (isoEt < kIsoMaxGeV);
 }
 
 // -----------------------------------------------------------------------------

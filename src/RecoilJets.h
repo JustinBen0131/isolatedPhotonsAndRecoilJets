@@ -559,19 +559,20 @@ private:
   bool   isIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const;
   bool   isNonIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const;
 
-  // Unified truth-MC signal definition for "isolated prompt photon" (SIM only)
-  // Definition
-  //   |eta| < 0.7, PID=22, status=1 (final state),
-  //   prompt classification via CaloAna photon_type logic:
-  //     - walk back photon-in/photon-out vertices
-  //     - direct=1 if 2->2 with |pdg|<=22 on all legs
-  //     - frag  =2 if 1->2 with |incoming pdg|<=11 and outgoing contains incoming pid (and photon)
-  //   and truth isolation ETiso_truth < 4 GeV where (CaloAna truth-iso):
-  //     ETiso = sum_{ΔR<0.3} Et(final-state)  -  sum_{ΔR<0.001} Et(final-state)
-  //     (the ΔR<0.001 subtraction removes the photon itself, and any ultra-merged pieces).
-  bool isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
-                                            const HepMC::GenParticle* pho,
-                                            double& isoEt) const;
+    // Unified truth-MC signal definition for "isolated prompt photon" (SIM only)
+    // Definition
+    //   |eta| < 0.7, PID=22, embedded G4 primary photon matched by HepMC barcode,
+    //   prompt classification via CaloAna photon_type logic:
+    //     - walk back photon-in/photon-out vertices
+    //     - direct=1 if 2->2 with |pdg|<=22 on all legs
+    //     - frag  =2 if 1->2 with |incoming pdg|<=11 and outgoing contains incoming pid (and photon)
+    //   and truth isolation ETiso_truth < 4 GeV where (Blair/Shuhang CaloAna truth-iso):
+    //     ETiso = sum_{ΔR<0.3} Et(G4 primary particles with embed>=1)
+    //           - sum_{ΔR<0.001} Et(G4 primary particles with embed>=1)
+    //     (the ΔR<0.001 subtraction removes the photon itself, and any ultra-merged pieces).
+    bool isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
+                                              const HepMC::GenParticle* pho,
+                                              double& isoEt) const;
       
   // Unified truth→reco photon matching using CaloRawClusterEval.
   // Match requirements:
@@ -1029,12 +1030,13 @@ private:
   // Legacy "primary" reco jet key (still used for printing/overrides only)
   std::string m_xjRecoJetKey = "r04";
 
-    // Nodes: photons / clusters
-    RawClusterContainer* m_clus              = nullptr;
-    RawClusterContainer* m_clus_nocorr       = nullptr;
-    RawClusterContainer* m_photons           = nullptr;
-    RawClusterContainer* m_photons_npb       = nullptr;
-    RawClusterContainer* m_photons_tightbdt  = nullptr;
+  // Nodes: truth / photons / clusters
+  PHG4TruthInfoContainer* m_truthInfo      = nullptr;
+  RawClusterContainer* m_clus              = nullptr;
+  RawClusterContainer* m_clus_nocorr       = nullptr;
+  RawClusterContainer* m_photons           = nullptr;
+  RawClusterContainer* m_photons_npb       = nullptr;
+  RawClusterContainer* m_photons_tightbdt  = nullptr;
 
   // Calo tower bundles (node cache)
   struct CaloBundle
