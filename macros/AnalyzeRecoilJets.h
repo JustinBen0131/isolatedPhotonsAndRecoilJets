@@ -3435,6 +3435,23 @@ inline SimSample CurrentSimSample()
         return SimSample::kSimEmbedded;
     }
     
+    if (isSimAndDataAUAU)
+    {
+        const int nEmbedded =
+        (isPhotonJet10Embedded ? 1 : 0) +
+        (isPhotonJet20Embedded ? 1 : 0) +
+        (bothPhoton10and20simEmbedded ? 1 : 0);
+        
+        if (nEmbedded == 0) return SimSample::kNone;
+        if (nEmbedded != 1) return SimSample::kInvalid;
+        
+        if (isPhotonJet10Embedded)         return SimSample::kEmbeddedPhoton10;
+        if (isPhotonJet20Embedded)         return SimSample::kEmbeddedPhoton20;
+        if (bothPhoton10and20simEmbedded)  return SimSample::kEmbeddedPhoton10And20Merged;
+        
+        return SimSample::kInvalid;
+    }
+    
     const int nTrue =
     (isPhotonJet5 ? 1 : 0) +
     (isPhotonJet10 ? 1 : 0) +
@@ -3688,20 +3705,43 @@ inline bool ValidateRunConfig(string* errMsg = nullptr)
     }
     
     // SIM+AuAu mode contract.
-    if (isSimAndDataAUAU &&
-        ss != SimSample::kEmbeddedPhoton10 &&
-        ss != SimSample::kEmbeddedPhoton20 &&
-        ss != SimSample::kEmbeddedPhoton10And20Merged)
+    if (isSimAndDataAUAU)
     {
-        if (errMsg)
+        const int nPPAuxSim =
+        (isPhotonJet5 ? 1 : 0) +
+        (isPhotonJet10 ? 1 : 0) +
+        (isPhotonJet20 ? 1 : 0) +
+        (bothPhoton5and10sim ? 1 : 0) +
+        (bothPhoton5and20sim ? 1 : 0) +
+        (bothPhoton10and20sim ? 1 : 0) +
+        (allPhoton5and10and20sim ? 1 : 0) +
+        (isSimMB ? 1 : 0) +
+        (isSimJet5 ? 1 : 0);
+        
+        if (ss != SimSample::kEmbeddedPhoton10 &&
+            ss != SimSample::kEmbeddedPhoton20 &&
+            ss != SimSample::kEmbeddedPhoton10And20Merged)
         {
-            *errMsg =
-            "SIM+DATA AuAu (isSimAndDataAUAU=true) requires one embedded SIM sample. "
-            "Set exactly one of: isPhotonJet10Embedded=true, isPhotonJet20Embedded=true, "
-            "bothPhoton10and20simEmbedded=true "
-            "(all PP SIM toggles false).";
+            if (errMsg)
+            {
+                *errMsg =
+                "SIM+DATA AuAu (isSimAndDataAUAU=true) requires one embedded SIM sample. "
+                "Set exactly one of: isPhotonJet10Embedded=true, isPhotonJet20Embedded=true, "
+                "bothPhoton10and20simEmbedded=true.";
+            }
+            return false;
         }
-        return false;
+        
+        if (nPPAuxSim > 1)
+        {
+            if (errMsg)
+            {
+                *errMsg =
+                "SIM+DATA AuAu allows at most ONE auxiliary PP SIM selector for pp-reference/merge products. "
+                "For the ppMerged isolation plot, set allPhoton5and10and20sim=true and keep the other PP SIM toggles false.";
+            }
+            return false;
+        }
     }
     
     return true;

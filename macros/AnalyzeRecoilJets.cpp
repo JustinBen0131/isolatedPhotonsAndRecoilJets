@@ -17482,6 +17482,48 @@ inline bool MaybeBuildMergedSIM(RunMode mode)
     // Only relevant when a SIM-including mode is running AND a merged SIM sample was selected.
     if (mode == RunMode::kPPDataOnly || mode == RunMode::kAuAuOnly) return true;
     
+    if (mode == RunMode::kSimAndDataAUAU && allPhoton5and10and20sim)
+    {
+        const string outMerged = MergedSimPath("photonJet5and10and20merged_SIM", "RecoilJets_photonjet5plus10plus20_MERGED.root");
+        
+        if (!doPhotonJetMerge)
+        {
+            cout << ANSI_BOLD_CYN
+            << "\n[MERGE SIM] doPhotonJetMerge=false -> skipping auxiliary PP SIM5+10+20 rebuild step.\n"
+            << "            Using existing merged output: " << outMerged << "\n"
+            << ANSI_RESET;
+            
+            if (gSystem->AccessPathName(outMerged.c_str()))
+            {
+                cout << ANSI_BOLD_RED
+                << "[MERGE SIM][FATAL] Auxiliary PP SIM5+10+20 file not found, but doPhotonJetMerge=false:\n"
+                << "  " << outMerged << "\n"
+                << ANSI_RESET;
+                return false;
+            }
+        }
+        else
+        {
+            cout << ANSI_BOLD_CYN
+            << "\n[MERGE SIM] Rebuilding auxiliary PP SIM5+10+20 merged file for AuAu UE comparisons.\n"
+            << "            CfgTag() = " << CfgTag() << "\n"
+            << "            in5     = " << InputSim("photonjet5") << "\n"
+            << "            in10    = " << InputSim("photonjet10") << "\n"
+            << "            in20    = " << InputSim("photonjet20") << "\n"
+            << "            out     = " << outMerged << "\n"
+            << ANSI_RESET;
+            
+            const bool okAuxPP = BuildMergedSIMFile_PhotonSlices(
+                                                                  {InputSim("photonjet5"), InputSim("photonjet10"), InputSim("photonjet20")},
+                                                                  {kSigmaPhoton5_pb, kSigmaPhoton10_pb, kSigmaPhoton20_pb},
+                                                                  outMerged,
+                                                                  kDirSIM,
+                                                                  {"photonJet5", "photonJet10", "photonJet20"}
+                                                                  );
+            if (!okAuxPP) return false;
+        }
+    }
+    
     const SimSample ss = CurrentSimSample();
     if (!IsMergedSimSample(ss)) return true;
     
