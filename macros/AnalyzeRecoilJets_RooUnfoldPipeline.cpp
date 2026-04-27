@@ -9686,12 +9686,14 @@
             const string withAndWithoutJetEffOut = JoinPath(rOut, "withAndWithoutJetEffCorr");
             const string jetEffQAOut = JoinPath(withAndWithoutJetEffOut, "jetEffQA");
             const string finalUnfoldedOut = JoinPath(rOut, "finalUnfolded_dNdXJ");
+            const string finalUnfoldedPtIntegratedOut = JoinPath(finalUnfoldedOut, "pTintegrated");
             const string closurePlotsOut = JoinPath(rOut, "closurePlots");
             const string iterationStabilityOut = JoinPath(rOut, "iterationStabilityCheck");
             const string purityCorrQAOut = JoinPath(rOut, "purityCorrQA");
             EnsureDir(beforeAfterDataOut);
             EnsureDir(beforeAfterTruthOut);
             EnsureDir(finalUnfoldedOut);
+            EnsureDir(finalUnfoldedPtIntegratedOut);
             EnsureDir(closurePlotsOut);
             EnsureDir(iterationStabilityOut);
             if (gApplyPurityCorrectionForUnfolding)
@@ -13314,7 +13316,7 @@
                         if (!dsData.centLabel.empty()) hdrLines.push_back(dsData.centLabel);
                         DrawLatexLines(0.14, 0.92, hdrLines, 0.032, 0.043);
                         
-                        SaveCanvas(c, JoinPath(finalUnfoldedOut, TString::Format("xJ_unfolded_perPhoton_pT%d_%d.png", intLo, intHi).Data()));
+                        SaveCanvas(c, JoinPath(finalUnfoldedPtIntegratedOut, TString::Format("xJ_unfolded_perPhoton_pT%d_%d.png", intLo, intHi).Data()));
                     }
                     
                     delete hPerPho_int;

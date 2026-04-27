@@ -175,6 +175,9 @@ TMP_DIR="${BASE}/tmp_recoil_merge_${HOSTTAG}_$$"
 #   ${ROUND_BASE}/<pp|auau>/goldenRuns_<pp|auau>_segmentK.txt
 ROUND_BASE="${BASE}/condor_segments"
 
+SCALED_TRIG_RUNLIST="${BASE}/dst_lists_auau/scaledEffRuns_MBD_NS_geq_2_vtx_lt_150__Pho10_12.list"
+SCALED_TRIG_CONFIG_TXT="${BASE}/dst_lists_auau/scaledEffConfig_MBD_NS_geq_2_vtx_lt_150__Pho10_12.txt"
+
 CONDOR_EXEC="${TMP_DIR}/hadd_condor.sh"   # small wrapper emitted on-the-fly
 
 # ---------- Naming ----------
@@ -221,6 +224,144 @@ cleanup_current_tmp_dir_after_local_final() {
       warn "Refusing to clean suspicious TMP_DIR: ${TMP_DIR}"
       ;;
   esac
+}
+
+scale_per_run_corrected_histograms_in_file() {
+  local rootfile="$1"
+  [[ "$TAG" == "auau" ]] || return 0
+  [[ -s "$rootfile" ]] || return 0
+
+  local base run run_num
+  base="$(basename "$rootfile")"
+  if [[ ! "$base" =~ ^${PARTIAL_PREFIX}_([0-9]+)\.root$ ]]; then
+    return 0
+  fi
+
+  run="${BASH_REMATCH[1]}"
+  run_num=$((10#$run))
+
+  grep -Eq "^0*${run_num}$" "$SCALED_TRIG_RUNLIST" || return 0
+
+  local scales
+  scales="$(awk -v run="$run_num" '
+    $1=="CONFIG" {
+      r=""; bs=""; s10=""; s12="";
+      for (i=1; i<=NF; ++i) {
+        split($i, a, "=");
+        if (a[1] == "run") r = a[2] + 0;
+        else if (a[1] == "baselineScale") bs = a[2];
+        else if (a[1] == "pho10Scale") s10 = a[2];
+        else if (a[1] == "pho12Scale") s12 = a[2];
+      }
+      if (r == run) {
+        print bs, s10, s12;
+        exit;
+      }
+    }' "$SCALED_TRIG_CONFIG_TXT")"
+
+  if [[ -z "$scales" ]]; then
+    warn "scaledTrigQA: no config entry found for run ${run_num}; leaving ${rootfile} unchanged"
+    return 0
+  fi
+
+  local baselineScale pho10Scale pho12Scale
+  read -r baselineScale pho10Scale pho12Scale <<< "$scales"
+
+  local macro="${TMP_DIR}/scaledTrigQA_scale_run_${run_num}.C"
+  cat > "$macro" <<EOF
+#include <TDirectory.h>
+#include <TFile.h>
+#include <TH1.h>
+#include <TNamed.h>
+#include <TObject.h>
+#include <iostream>
+
+{
+  TFile f("${rootfile}", "UPDATE");
+  if (!f.IsOpen() || f.IsZombie())
+  {
+    std::cerr << "[scaledTrigQA] Could not open ${rootfile} for UPDATE\\n";
+  }
+  else if (!f.Get("scaledTrigQA_perRunCorrected_applied"))
+  {
+    auto scaleOne = [&](const char* objPath, const char* dirName, const char* histName, double factor)
+    {
+      if (factor <= 0.0) return;
+      TH1* h = dynamic_cast<TH1*>(f.Get(objPath));
+      if (!h) return;
+      TDirectory* dir = f.GetDirectory(dirName);
+      if (!dir) return;
+
+      h->Scale(factor);
+      dir->cd();
+      h->Write(histName, TObject::kOverwrite);
+      f.cd();
+    };
+
+    scaleOne(
+      "MBD_NS_geq_2_vtx_lt_150/h_maxEnergyClus_NewTriggerFilling_perRunCorrected_MBD_NS_geq_2_vtx_lt_150",
+      "MBD_NS_geq_2_vtx_lt_150",
+      "h_maxEnergyClus_NewTriggerFilling_perRunCorrected_MBD_NS_geq_2_vtx_lt_150",
+      ${baselineScale}
+    );
+
+    scaleOne(
+      "Photon_10/h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_10",
+      "Photon_10",
+      "h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_10",
+      ${pho10Scale}
+    );
+
+    scaleOne(
+      "Photon_12/h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_12",
+      "Photon_12",
+      "h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_12",
+      ${pho12Scale}
+    );
+
+    TNamed marker("scaledTrigQA_perRunCorrected_applied", "1");
+    marker.Write("scaledTrigQA_perRunCorrected_applied", TObject::kOverwrite);
+    f.Write("", TObject::kOverwrite);
+  }
+  f.Close();
+}
+EOF
+
+  if ! root -l -b -q "$macro" >/dev/null 2>&1; then
+    warn "scaledTrigQA: ROOT scaling failed for ${rootfile}"
+  fi
+  rm -f "$macro"
+}
+
+scale_scaled_trig_qa_partials() {
+  local partial_dir="$1"
+  [[ "$TAG" == "auau" ]] || return 0
+  [[ -d "$partial_dir" ]] || return 0
+
+  if [[ ! -f "$SCALED_TRIG_RUNLIST" ]]; then
+    warn "scaledTrigQA: missing run list ${SCALED_TRIG_RUNLIST}; skipping perRunCorrected scaling"
+    return 0
+  fi
+
+  if [[ ! -f "$SCALED_TRIG_CONFIG_TXT" ]]; then
+    warn "scaledTrigQA: missing config ${SCALED_TRIG_CONFIG_TXT}; skipping perRunCorrected scaling"
+    return 0
+  fi
+
+  need_cmd root
+
+  local -a partials=()
+  mapfile -t partials < <(ls -1 "${partial_dir}/${PARTIAL_PREFIX}_"*.root 2>/dev/null | sort -V || true)
+  if (( ${#partials[@]} == 0 )); then
+    return 0
+  fi
+
+  say "scaledTrigQA: checking ${#partials[@]} per-run partials in ${partial_dir}"
+
+  local f
+  for f in "${partials[@]}"; do
+    scale_per_run_corrected_histograms_in_file "$f"
+  done
 }
 
 # ------------------------ Tag helpers (QA cross-check only) ----------------
@@ -1749,6 +1890,8 @@ if [[ "$MODE" == "addChunks" ]]; then
     else
       _partial_dir="$_PERRUN_BASE"
     fi
+
+    scale_scaled_trig_qa_partials "$_partial_dir"
 
     # ── sliceRuns: intermediate merge of per-run partials into batches ──
     if $SLICE_RUNS; then

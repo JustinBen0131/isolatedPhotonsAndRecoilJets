@@ -2983,3 +2983,202 @@ void RunTriggerAna_DoNotScaleMaxClusterEnergy(Dataset& ds)
         if (f25) { f25->Close(); delete f25; }
     } // end !isAuAuOnly guard
 }
+
+void RunTriggerAna_ScaledMaxClusterEnergy(Dataset& ds)
+{
+    if (ds.isSim) return;
+    if (!ds.file || ds.file->IsZombie()) return;
+    if (!ds.topDir) return;
+    
+    static std::set<std::string> s_doneOutDirs;
+    
+    const std::string baseDir = ds.centFolder.empty()
+    ? DirnameFromPath(ds.outBase)
+    : DirnameFromPath(DirnameFromPath(ds.outBase));
+    
+    if (baseDir.find("/auau") == std::string::npos) return;
+    
+    const std::string outDir = JoinPath(baseDir, "scaledTrigQA");
+    if (s_doneOutDirs.count(outDir)) return;
+    s_doneOutDirs.insert(outDir);
+    
+    EnsureDir(outDir);
+    
+    const std::string histPrefix = "h_maxEnergyClus_NewTriggerFilling_perRunCorrected_";
+    
+    auto loadPerRunCorrectedHist = [&](const std::string& histKey) -> TH1*
+    {
+        TDirectory* dir = dynamic_cast<TDirectory*>(ds.topDir->Get(histKey.c_str()));
+        if (!dir) return nullptr;
+        
+        const std::string histName = histPrefix + histKey;
+        TH1* src = dynamic_cast<TH1*>(dir->Get(histName.c_str()));
+        if (!src) return nullptr;
+        
+        TH1* h = dynamic_cast<TH1*>(src->Clone(TString::Format("%s_clone", histName.c_str()).Data()));
+        if (h) h->SetDirectory(nullptr);
+        return h;
+    };
+    
+    TH1* hBaseRaw  = loadPerRunCorrectedHist("MBD_NS_geq_2_vtx_lt_150");
+    TH1* hPho10Raw = loadPerRunCorrectedHist("Photon_10");
+    TH1* hPho12Raw = loadPerRunCorrectedHist("Photon_12");
+    
+    if (!hBaseRaw || !hPho10Raw || !hPho12Raw)
+    {
+        cout << ANSI_BOLD_YEL
+        << "[WARN] scaledTrigQA: missing one or more perRunCorrected max-cluster histograms.\n"
+        << "       Need:\n"
+        << "         MBD_NS_geq_2_vtx_lt_150/" << histPrefix << "MBD_NS_geq_2_vtx_lt_150\n"
+        << "         Photon_10/"               << histPrefix << "Photon_10\n"
+        << "         Photon_12/"               << histPrefix << "Photon_12\n"
+        << ANSI_RESET << "\n";
+        
+        delete hBaseRaw;
+        delete hPho10Raw;
+        delete hPho12Raw;
+        return;
+    }
+    
+    auto makeNormalizedClone = [&](TH1* src, const std::string& name) -> TH1*
+    {
+        TH1* h = dynamic_cast<TH1*>(src->Clone(name.c_str()));
+        if (!h) return nullptr;
+        h->SetDirectory(nullptr);
+        
+        const double integral = h->Integral(0, h->GetNbinsX() + 1);
+        if (integral > 0.0) h->Scale(1.0 / integral);
+        return h;
+    };
+    
+    auto styleHist = [&](TH1* h, int color, int markerStyle)
+    {
+        if (!h) return;
+        h->SetLineColor(color);
+        h->SetMarkerColor(color);
+        h->SetLineWidth(3);
+        h->SetMarkerStyle(markerStyle);
+        h->SetMarkerSize(1.0);
+        h->SetStats(false);
+    };
+    
+    TH1* hBaseNorm  = makeNormalizedClone(hBaseRaw,  "hBaseNorm_scaledTrigQA");
+    TH1* hPho10Norm = makeNormalizedClone(hPho10Raw, "hPho10Norm_scaledTrigQA");
+    TH1* hPho12Norm = makeNormalizedClone(hPho12Raw, "hPho12Norm_scaledTrigQA");
+    
+    styleHist(hBaseNorm,  kBlack,   20);
+    styleHist(hPho10Norm, kRed + 1, 21);
+    styleHist(hPho12Norm, kBlue + 1, 22);
+    
+    {
+        TCanvas c("c_scaledTrigQA_groupOverlay", "c_scaledTrigQA_groupOverlay", 1100, 800);
+        c.cd();
+        gPad->SetLogy();
+        gPad->SetTicks(1, 1);
+        
+        const double maxY = std::max(
+                                     hBaseNorm->GetMaximum(),
+                                     std::max(hPho10Norm->GetMaximum(), hPho12Norm->GetMaximum())
+                                     );
+        
+        hBaseNorm->GetXaxis()->SetTitle("Max cluster energy [GeV]");
+        hBaseNorm->GetYaxis()->SetTitle("Normalized counts");
+        hBaseNorm->GetXaxis()->SetTitleSize(0.045);
+        hBaseNorm->GetYaxis()->SetTitleSize(0.045);
+        hBaseNorm->GetXaxis()->SetLabelSize(0.040);
+        hBaseNorm->GetYaxis()->SetLabelSize(0.040);
+        hBaseNorm->SetMinimum(1e-6);
+        hBaseNorm->SetMaximum(std::max(1e-4, 1.5 * maxY));
+        hBaseNorm->Draw("hist");
+        hPho10Norm->Draw("hist same");
+        hPho12Norm->Draw("hist same");
+        
+        TLegend leg(0.56, 0.68, 0.90, 0.88);
+        leg.SetBorderSize(0);
+        leg.SetFillStyle(0);
+        leg.SetTextFont(42);
+        leg.SetTextSize(0.034);
+        leg.AddEntry(hBaseNorm,  "MBD N&S #geq 2, |v_{z}| < 150", "l");
+        leg.AddEntry(hPho10Norm, "Photon 10 (per-run corrected)", "l");
+        leg.AddEntry(hPho12Norm, "Photon 12 (per-run corrected)", "l");
+        leg.Draw();
+        
+        TLatex t;
+        t.SetNDC(true);
+        t.SetTextFont(42);
+        t.SetTextSize(0.034);
+        t.DrawLatex(0.14, 0.92, "Scaled-trigger QA");
+        t.DrawLatex(0.14, 0.875, "Runs from scaledEffRuns_MBD_NS_geq_2_vtx_lt_150__Pho10_12.list");
+        t.DrawLatex(0.14, 0.83, "Per-run histograms scaled by live/scaled before merge");
+        
+        const std::string outPng = JoinPath(outDir, "hMaxClusterEnergy_groupOverlay.png");
+        SaveCanvas(c, outPng);
+        
+        cout << ANSI_BOLD_GRN
+        << "[WROTE] " << outPng
+        << ANSI_RESET << "\n";
+    }
+    
+    TH1* hPho10Eff = dynamic_cast<TH1*>(hPho10Raw->Clone("hPho10Eff_scaledTrigQA"));
+    TH1* hPho12Eff = dynamic_cast<TH1*>(hPho12Raw->Clone("hPho12Eff_scaledTrigQA"));
+    if (hPho10Eff) hPho10Eff->SetDirectory(nullptr);
+    if (hPho12Eff) hPho12Eff->SetDirectory(nullptr);
+    
+    hPho10Eff->Divide(hBaseRaw);
+    hPho12Eff->Divide(hBaseRaw);
+    
+    styleHist(hPho10Eff, kRed + 1, 21);
+    styleHist(hPho12Eff, kBlue + 1, 22);
+    
+    {
+        TCanvas c("c_scaledTrigQA_groupTurnOnOverlay", "c_scaledTrigQA_groupTurnOnOverlay", 1100, 800);
+        c.cd();
+        gPad->SetTicks(1, 1);
+        
+        const double maxY = std::max(hPho10Eff->GetMaximum(), hPho12Eff->GetMaximum());
+        
+        hPho10Eff->GetXaxis()->SetTitle("Max cluster energy [GeV]");
+        hPho10Eff->GetYaxis()->SetTitle("Efficiency");
+        hPho10Eff->GetXaxis()->SetTitleSize(0.045);
+        hPho10Eff->GetYaxis()->SetTitleSize(0.045);
+        hPho10Eff->GetXaxis()->SetLabelSize(0.040);
+        hPho10Eff->GetYaxis()->SetLabelSize(0.040);
+        hPho10Eff->SetMinimum(0.0);
+        hPho10Eff->SetMaximum(std::max(1.2, 1.15 * maxY));
+        hPho10Eff->Draw("hist");
+        hPho12Eff->Draw("hist same");
+        
+        TLegend leg(0.56, 0.72, 0.90, 0.88);
+        leg.SetBorderSize(0);
+        leg.SetFillStyle(0);
+        leg.SetTextFont(42);
+        leg.SetTextSize(0.034);
+        leg.AddEntry(hPho10Eff, "Photon 10 / MBD", "l");
+        leg.AddEntry(hPho12Eff, "Photon 12 / MBD", "l");
+        leg.Draw();
+        
+        TLatex t;
+        t.SetNDC(true);
+        t.SetTextFont(42);
+        t.SetTextSize(0.034);
+        t.DrawLatex(0.14, 0.92, "Scaled-trigger QA turn-on");
+        t.DrawLatex(0.14, 0.875, "Common selected-run subset only");
+        t.DrawLatex(0.14, 0.83, "Using per-run live/scaled-corrected histograms");
+        
+        const std::string outPng = JoinPath(outDir, "hMaxClusterEnergy_groupTurnOnOverlay.png");
+        SaveCanvas(c, outPng);
+        
+        cout << ANSI_BOLD_GRN
+        << "[WROTE] " << outPng
+        << ANSI_RESET << "\n";
+    }
+    
+    delete hBaseRaw;
+    delete hPho10Raw;
+    delete hPho12Raw;
+    delete hBaseNorm;
+    delete hPho10Norm;
+    delete hPho12Norm;
+    delete hPho10Eff;
+    delete hPho12Eff;
+}

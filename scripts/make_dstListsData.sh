@@ -1617,29 +1617,19 @@ run_scaled_trigger_ana() {
 
   mkdir -p "$OUT_DIR"
 
+  local selected_study="MBD_NS_geq_2_vtx_lt_150__Pho10_12"
+  local selected_family="MBD N&S >= 2, vtx < 150 cm"
+  local selected_baseline_key="MBD_NS_geq_2_vtx_lt_150"
+  local selected_runlist="$OUT_DIR/scaledEffRuns_${selected_study}.list"
+
   local txt_file="$OUT_DIR/trigger_scaled_efficiency_studies_${LABEL}.txt"
-  local csv_file="$OUT_DIR/trigger_scaled_efficiency_studies_${LABEL}.csv"
+  local run_csv_file="$OUT_DIR/trigger_scaled_efficiency_run_diagnostics_${LABEL}.csv"
+  local summary_csv_file="$OUT_DIR/trigger_scaled_efficiency_summary_${LABEL}.csv"
   local reject_file="$OUT_DIR/trigger_scaled_efficiency_rejections_${LABEL}.txt"
 
-  local -a study_order=(
-    "MBD_NS_geq_2_vtx_lt_150__Pho6_8_10_12"
-    "MBD_NS_geq_2_vtx_lt_10__Pho6_8_10_12"
-  )
-
-  local -A study_family=(
-    ["MBD_NS_geq_2_vtx_lt_150__Pho6_8_10_12"]="MBD N&S >= 2, vtx < 150 cm"
-    ["MBD_NS_geq_2_vtx_lt_10__Pho6_8_10_12"]="MBD N&S >= 2, vtx < 10 cm"
-  )
-
-  local -A study_baseline_key=(
-    ["MBD_NS_geq_2_vtx_lt_150__Pho6_8_10_12"]="MBD_NS_geq_2_vtx_lt_150"
-    ["MBD_NS_geq_2_vtx_lt_10__Pho6_8_10_12"]="MBD_NS_geq_2_vtx_lt_10"
-  )
-
-  local -A study_list_file=(
-    ["MBD_NS_geq_2_vtx_lt_150__Pho6_8_10_12"]="$OUT_DIR/scaledEffRuns_MBD_NS_geq_2_vtx_lt_150__Pho6_8_10_12.list"
-    ["MBD_NS_geq_2_vtx_lt_10__Pho6_8_10_12"]="$OUT_DIR/scaledEffRuns_MBD_NS_geq_2_vtx_lt_10__Pho6_8_10_12.list"
-  )
+  rm -f "$OUT_DIR/scaledEffRuns_MBD_NS_geq_2_vtx_lt_150__Pho6_8_10_12.list"
+  rm -f "$OUT_DIR/scaledEffRuns_MBD_NS_geq_2_vtx_lt_10__Pho6_8_10_12.list"
+  : > "$selected_runlist"
 
   csv_quote() {
     local s="$1"
@@ -1647,14 +1637,15 @@ run_scaled_trigger_ana() {
     printf '"%s"' "$s"
   }
 
-  pho_key_for_study() {
-    local study="$1"
+  pho_key_for_family() {
+    local family="$1"
     local pho="$2"
-    case "$study" in
-      MBD_NS_geq_2_vtx_lt_150__Pho6_8_10_12)
+
+    case "$family" in
+      "MBD N&S >= 2, vtx < 150 cm")
         printf "photon_%s_plus_MBD_NS_geq_2_vtx_lt_150" "$pho"
         ;;
-      MBD_NS_geq_2_vtx_lt_10__Pho6_8_10_12)
+      "MBD N&S >= 2, vtx < 10 cm")
         printf "photon_%s_plus_MBD_NS_geq_2_vtx_lt_10" "$pho"
         ;;
       *)
@@ -1680,50 +1671,70 @@ run_scaled_trigger_ana() {
     echo "# Scaled trigger-efficiency run table for $LABEL"
     echo "# Input golden run list: $LIST_FILE"
     echo "# Produced by: ./make_dstListsData.sh $MODE QA scaledTriggerAna"
-    echo "# Rule: accepted CONFIG rows require baseline + Photon 6/8/10/12 to have scaled > 0 in the same run."
-    echo "# If this file has no CONFIG rows, inspect: $reject_file"
+    echo "# Accepted CONFIG rows require:"
+    echo "#   - MBD N&S >= 2, vtx < 150 cm scaled > 0"
+    echo "#   - Photon 10 GeV + MBD NS >= 2, vtx < 150 cm scaled > 0"
+    echo "#   - Photon 12 GeV + MBD NS >= 2, vtx < 150 cm scaled > 0"
+    echo "# This is the recommended common-run scaled study because Photon 6/8 have no scaled-positive sample."
+    echo "# Run list for source code:"
+    echo "#   $selected_runlist"
     echo "# Format:"
-    echo "# CONFIG study=<studyKey> run=<run> baselineBit=<bit> baselineKey=<key> baselineScale=<live/scaled> pho6Bit=<bit> pho6Key=<key> pho6Scale=<live/scaled> ..."
+    echo "# CONFIG study=<studyKey> run=<run> baselineBit=<bit> baselineKey=<key> baselineScale=<live/scaled> pho10Bit=<bit> pho10Key=<key> pho10Scale=<live/scaled> pho12Bit=<bit> pho12Key=<key> pho12Scale=<live/scaled>"
   } > "$txt_file"
 
   {
-    echo "# Rejection diagnostics for scaled trigger-efficiency studies"
+    echo "# Rejection diagnostics for selected scaled trigger-efficiency study"
     echo "# Input golden run list: $LIST_FILE"
     echo "# Produced by: ./make_dstListsData.sh $MODE QA scaledTriggerAna"
-    echo "# A row is rejected if the baseline or any of Photon 6/8/10/12 is missing or has scaled <= 0."
+    echo "# Selected study: $selected_study"
+    echo "# A run is rejected from the selected run list if MBD vtx<150, Photon 10 vtx<150, or Photon 12 vtx<150 has scaled <= 0 or is missing."
     echo
   } > "$reject_file"
 
-  printf "StudyGroup,Run,Status,Reason,BaselineFamily,BaselineBit,BaselineKey,BaselineName,BaselineRaw,BaselineLive,BaselineScaled,BaselineLiveOverScaled" > "$csv_file"
-  printf ",Pho6Bit,Pho6Key,Pho6Name,Pho6Raw,Pho6Live,Pho6Scaled,Pho6LiveOverScaled" >> "$csv_file"
-  printf ",Pho8Bit,Pho8Key,Pho8Name,Pho8Raw,Pho8Live,Pho8Scaled,Pho8LiveOverScaled" >> "$csv_file"
-  printf ",Pho10Bit,Pho10Key,Pho10Name,Pho10Raw,Pho10Live,Pho10Scaled,Pho10LiveOverScaled" >> "$csv_file"
-  printf ",Pho12Bit,Pho12Key,Pho12Name,Pho12Raw,Pho12Live,Pho12Scaled,Pho12LiveOverScaled\n" >> "$csv_file"
+  printf "Run,SelectedStudy,Status,Reason" > "$run_csv_file"
+  printf ",BaselineBit,BaselineKey,BaselineName,BaselineRaw,BaselineLive,BaselineScaled,BaselineLiveOverScaled" >> "$run_csv_file"
+  printf ",Pho10Bit,Pho10Key,Pho10Name,Pho10Raw,Pho10Live,Pho10Scaled,Pho10LiveOverScaled" >> "$run_csv_file"
+  printf ",Pho12Bit,Pho12Key,Pho12Name,Pho12Raw,Pho12Live,Pho12Scaled,Pho12LiveOverScaled\n" >> "$run_csv_file"
 
-  local study
-  for study in "${study_order[@]}"; do
-    : > "${study_list_file["$study"]}"
-  done
+  printf "BaselineFamily,Photon,PhotonRows,RawPositiveRuns,LivePositiveRuns,ScaledPositiveRuns,RowButScaledZeroRuns,CommonWithBaselineScaledRuns,Decision\n" > "$summary_csv_file"
 
-  declare -A STUDY_ACCEPT=()
-  declare -A STUDY_REJECT=()
-  declare -A REJECT_COUNTS=()
-  declare -A FIRST_REASON=()
+  declare -A FAMILY_BASE_ROWS=()
+  declare -A FAMILY_BASE_RAW_POS=()
+  declare -A FAMILY_BASE_LIVE_POS=()
+  declare -A FAMILY_BASE_SCALED_POS=()
+
+  declare -A PHO_ROW_RUNS=()
+  declare -A PHO_RAW_POS=()
+  declare -A PHO_LIVE_POS=()
+  declare -A PHO_SCALED_POS=()
+  declare -A PHO_COMMON_WITH_BASE_SCALED=()
+
+  local SELECT_ACCEPT=0
+  local SELECT_REJECT=0
+  local REJ_BASE_MISSING=0
+  local REJ_BASE_SCALED_ZERO=0
+  local REJ_PHO10_MISSING=0
+  local REJ_PHO10_SCALED_ZERO=0
+  local REJ_PHO12_MISSING=0
+  local REJ_PHO12_SCALED_ZERO=0
+  local FIRST_SELECT_REJECTION=""
 
   printf "\n%sScaled trigger-efficiency run-list diagnostic%s\n" "$ANSI_BOLD$ANSI_CYAN" "$ANSI_RESET"
   echo "Input golden run list: $LIST_FILE"
   echo "Runs in input list: ${#RUNS_ALL[@]}"
   echo "Output dir: $OUT_DIR"
-  echo "Requested studies:"
-  for study in "${study_order[@]}"; do
-    echo "  - $study"
-    echo "    baseline: ${study_family["$study"]}"
-    echo "    require : Photon 6, 8, 10, 12 all scaled > 0 in the same run"
-  done
+  echo
+  echo "Goal:"
+  echo "  1. Summarize all AuAu photon triggers attached to MBD N&S >= 2, vtx < 150 cm."
+  echo "  2. Show how many runs have scaled > 0 for each photon trigger."
+  echo "  3. Build the simplest valid scaled-efficiency source-code run list:"
+  echo "       $selected_study"
+  echo "     requiring MBD vtx<150 + Photon 10 + Photon 12 all scaled-positive in the same run."
+  echo "  4. Also summarize why the MBD N&S >= 2, vtx < 10 cm subset is not useful for the same scaled-trigger study."
   echo
 
   local run trg idx scaled raw live live_scaled
-  local base_thr base_vtx family pho_e pho_int
+  local base_thr base_vtx family pho_e pho_int key
   local processed=0
 
   for run in "${RUNS_ALL[@]}"; do
@@ -1781,12 +1792,13 @@ run_scaled_trigger_ana() {
         family="MBD N&S >= ${base_thr}"
         [[ -n "$base_vtx" ]] && family+=", vtx < ${base_vtx} cm"
 
-        RUN_PHO_BIT["$family|$pho_int"]="$idx"
-        RUN_PHO_NAME["$family|$pho_int"]="$trg"
-        RUN_PHO_RAW["$family|$pho_int"]="$raw"
-        RUN_PHO_LIVE["$family|$pho_int"]="$live"
-        RUN_PHO_SCALED["$family|$pho_int"]="$scaled"
-        RUN_PHO_SCALE["$family|$pho_int"]="$live_scaled"
+        key="$family|$pho_int"
+        RUN_PHO_BIT["$key"]="$idx"
+        RUN_PHO_NAME["$key"]="$trg"
+        RUN_PHO_RAW["$key"]="$raw"
+        RUN_PHO_LIVE["$key"]="$live"
+        RUN_PHO_SCALED["$key"]="$scaled"
+        RUN_PHO_SCALE["$key"]="$live_scaled"
       fi
     done < <(sql "SELECT s.index, COALESCE(t.triggername,''), s.scaled, s.raw, s.live
                    FROM gl1_scalers s
@@ -1796,142 +1808,236 @@ run_scaled_trigger_ana() {
                   WHERE s.runnumber = $run
                   ORDER BY s.index;")
 
-    for study in "${study_order[@]}"; do
-      family="${study_family["$study"]}"
-      local baseline_key="${study_baseline_key["$study"]}"
-      local pho6_key pho8_key pho10_key pho12_key
-      pho6_key="$(pho_key_for_study "$study" 6)"
-      pho8_key="$(pho_key_for_study "$study" 8)"
-      pho10_key="$(pho_key_for_study "$study" 10)"
-      pho12_key="$(pho_key_for_study "$study" 12)"
-
-      local -a missing=()
-      local status="ACCEPT"
-      local reason="OK"
-
-      if [[ -z "${RUN_BASE_BIT["$family"]:-}" ]]; then
-        missing+=( "missing baseline row: ${family}" )
-        REJECT_COUNTS["$study|missingBaseline"]=$(( ${REJECT_COUNTS["$study|missingBaseline"]:-0} + 1 ))
-      elif (( ${RUN_BASE_SCALED["$family"]:-0} <= 0 )); then
-        missing+=( "baseline scaled<=0: bit=${RUN_BASE_BIT["$family"]} raw=${RUN_BASE_RAW["$family"]:-0} live=${RUN_BASE_LIVE["$family"]:-0} scaled=${RUN_BASE_SCALED["$family"]:-0}" )
-        REJECT_COUNTS["$study|baselineScaledZero"]=$(( ${REJECT_COUNTS["$study|baselineScaledZero"]:-0} + 1 ))
-      fi
-
-      local pho key
-      for pho in 6 8 10 12; do
-        key="$family|$pho"
-        if [[ -z "${RUN_PHO_BIT["$key"]:-}" ]]; then
-          missing+=( "missing Photon ${pho} row for ${family}" )
-          REJECT_COUNTS["$study|missingPho${pho}"]=$(( ${REJECT_COUNTS["$study|missingPho${pho}"]:-0} + 1 ))
-        elif (( ${RUN_PHO_SCALED["$key"]:-0} <= 0 )); then
-          missing+=( "Photon ${pho} scaled<=0: bit=${RUN_PHO_BIT["$key"]} raw=${RUN_PHO_RAW["$key"]:-0} live=${RUN_PHO_LIVE["$key"]:-0} scaled=${RUN_PHO_SCALED["$key"]:-0}" )
-          REJECT_COUNTS["$study|pho${pho}ScaledZero"]=$(( ${REJECT_COUNTS["$study|pho${pho}ScaledZero"]:-0} + 1 ))
-        fi
-      done
-
-      if ((${#missing[@]})); then
-        status="REJECT"
-        reason="$(join_reason_parts "${missing[@]}")"
-        STUDY_REJECT["$study"]=$(( ${STUDY_REJECT["$study"]:-0} + 1 ))
-        [[ -z "${FIRST_REASON["$study"]:-}" ]] && FIRST_REASON["$study"]="run $run: $reason"
-
-        printf "REJECT study=%s run=%s reason=\"%s\"\n" "$study" "$run" "$reason" >> "$reject_file"
-      else
-        STUDY_ACCEPT["$study"]=$(( ${STUDY_ACCEPT["$study"]:-0} + 1 ))
-        printf "%s\n" "$run" >> "${study_list_file["$study"]}"
-
-        printf "CONFIG study=%s run=%s baselineBit=%s baselineKey=%s baselineScale=%s" \
-          "$study" \
-          "$run" \
-          "${RUN_BASE_BIT["$family"]}" \
-          "$baseline_key" \
-          "${RUN_BASE_SCALE["$family"]}" >> "$txt_file"
-        printf " pho6Bit=%s pho6Key=%s pho6Scale=%s" \
-          "${RUN_PHO_BIT["$family|6"]}" \
-          "$pho6_key" \
-          "${RUN_PHO_SCALE["$family|6"]}" >> "$txt_file"
-        printf " pho8Bit=%s pho8Key=%s pho8Scale=%s" \
-          "${RUN_PHO_BIT["$family|8"]}" \
-          "$pho8_key" \
-          "${RUN_PHO_SCALE["$family|8"]}" >> "$txt_file"
-        printf " pho10Bit=%s pho10Key=%s pho10Scale=%s" \
-          "${RUN_PHO_BIT["$family|10"]}" \
-          "$pho10_key" \
-          "${RUN_PHO_SCALE["$family|10"]}" >> "$txt_file"
-        printf " pho12Bit=%s pho12Key=%s pho12Scale=%s\n" \
-          "${RUN_PHO_BIT["$family|12"]}" \
-          "$pho12_key" \
-          "${RUN_PHO_SCALE["$family|12"]}" >> "$txt_file"
-      fi
-
-      csv_quote "$study" >> "$csv_file"
-      printf ",%s," "$run" >> "$csv_file"
-      csv_quote "$status" >> "$csv_file"
-      printf "," >> "$csv_file"
-      csv_quote "$reason" >> "$csv_file"
-      printf "," >> "$csv_file"
-      csv_quote "$family" >> "$csv_file"
-      printf ",%s," "${RUN_BASE_BIT["$family"]:-}" >> "$csv_file"
-      csv_quote "$baseline_key" >> "$csv_file"
-      printf "," >> "$csv_file"
-      csv_quote "${RUN_BASE_NAME["$family"]:-}" >> "$csv_file"
-      printf ",%s,%s,%s,%s" "${RUN_BASE_RAW["$family"]:-0}" "${RUN_BASE_LIVE["$family"]:-0}" "${RUN_BASE_SCALED["$family"]:-0}" "${RUN_BASE_SCALE["$family"]:-0.000000}" >> "$csv_file"
-
-      for pho in 6 8 10 12; do
-        key="$family|$pho"
-        printf ",%s," "${RUN_PHO_BIT["$key"]:-}" >> "$csv_file"
-        csv_quote "$(pho_key_for_study "$study" "$pho")" >> "$csv_file"
-        printf "," >> "$csv_file"
-        csv_quote "${RUN_PHO_NAME["$key"]:-}" >> "$csv_file"
-        printf ",%s,%s,%s,%s" "${RUN_PHO_RAW["$key"]:-0}" "${RUN_PHO_LIVE["$key"]:-0}" "${RUN_PHO_SCALED["$key"]:-0}" "${RUN_PHO_SCALE["$key"]:-0.000000}" >> "$csv_file"
-      done
-      printf "\n" >> "$csv_file"
+    for family in "${!RUN_BASE_BIT[@]}"; do
+      FAMILY_BASE_ROWS["$family"]=$(( ${FAMILY_BASE_ROWS["$family"]:-0} + 1 ))
+      (( ${RUN_BASE_RAW["$family"]:-0} > 0 )) && FAMILY_BASE_RAW_POS["$family"]=$(( ${FAMILY_BASE_RAW_POS["$family"]:-0} + 1 ))
+      (( ${RUN_BASE_LIVE["$family"]:-0} > 0 )) && FAMILY_BASE_LIVE_POS["$family"]=$(( ${FAMILY_BASE_LIVE_POS["$family"]:-0} + 1 ))
+      (( ${RUN_BASE_SCALED["$family"]:-0} > 0 )) && FAMILY_BASE_SCALED_POS["$family"]=$(( ${FAMILY_BASE_SCALED_POS["$family"]:-0} + 1 ))
     done
+
+    for key in "${!RUN_PHO_BIT[@]}"; do
+      family="${key%|*}"
+      PHO_ROW_RUNS["$key"]=$(( ${PHO_ROW_RUNS["$key"]:-0} + 1 ))
+      (( ${RUN_PHO_RAW["$key"]:-0} > 0 )) && PHO_RAW_POS["$key"]=$(( ${PHO_RAW_POS["$key"]:-0} + 1 ))
+      (( ${RUN_PHO_LIVE["$key"]:-0} > 0 )) && PHO_LIVE_POS["$key"]=$(( ${PHO_LIVE_POS["$key"]:-0} + 1 ))
+      (( ${RUN_PHO_SCALED["$key"]:-0} > 0 )) && PHO_SCALED_POS["$key"]=$(( ${PHO_SCALED_POS["$key"]:-0} + 1 ))
+
+      if (( ${RUN_BASE_SCALED["$family"]:-0} > 0 && ${RUN_PHO_SCALED["$key"]:-0} > 0 )); then
+        PHO_COMMON_WITH_BASE_SCALED["$key"]=$(( ${PHO_COMMON_WITH_BASE_SCALED["$key"]:-0} + 1 ))
+      fi
+    done
+
+    local -a reject_reasons=()
+    local status="ACCEPT"
+    local reason="OK"
+
+    if [[ -z "${RUN_BASE_BIT["$selected_family"]:-}" ]]; then
+      reject_reasons+=( "missing baseline row: $selected_family" )
+      ((REJ_BASE_MISSING+=1))
+    elif (( ${RUN_BASE_SCALED["$selected_family"]:-0} <= 0 )); then
+      reject_reasons+=( "baseline scaled<=0: bit=${RUN_BASE_BIT["$selected_family"]} raw=${RUN_BASE_RAW["$selected_family"]:-0} live=${RUN_BASE_LIVE["$selected_family"]:-0} scaled=${RUN_BASE_SCALED["$selected_family"]:-0}" )
+      ((REJ_BASE_SCALED_ZERO+=1))
+    fi
+
+    if [[ -z "${RUN_PHO_BIT["$selected_family|10"]:-}" ]]; then
+      reject_reasons+=( "missing Photon 10 row for $selected_family" )
+      ((REJ_PHO10_MISSING+=1))
+    elif (( ${RUN_PHO_SCALED["$selected_family|10"]:-0} <= 0 )); then
+      reject_reasons+=( "Photon 10 scaled<=0: bit=${RUN_PHO_BIT["$selected_family|10"]} raw=${RUN_PHO_RAW["$selected_family|10"]:-0} live=${RUN_PHO_LIVE["$selected_family|10"]:-0} scaled=${RUN_PHO_SCALED["$selected_family|10"]:-0}" )
+      ((REJ_PHO10_SCALED_ZERO+=1))
+    fi
+
+    if [[ -z "${RUN_PHO_BIT["$selected_family|12"]:-}" ]]; then
+      reject_reasons+=( "missing Photon 12 row for $selected_family" )
+      ((REJ_PHO12_MISSING+=1))
+    elif (( ${RUN_PHO_SCALED["$selected_family|12"]:-0} <= 0 )); then
+      reject_reasons+=( "Photon 12 scaled<=0: bit=${RUN_PHO_BIT["$selected_family|12"]} raw=${RUN_PHO_RAW["$selected_family|12"]:-0} live=${RUN_PHO_LIVE["$selected_family|12"]:-0} scaled=${RUN_PHO_SCALED["$selected_family|12"]:-0}" )
+      ((REJ_PHO12_SCALED_ZERO+=1))
+    fi
+
+    if ((${#reject_reasons[@]})); then
+      status="REJECT"
+      reason="$(join_reason_parts "${reject_reasons[@]}")"
+      ((SELECT_REJECT+=1))
+      [[ -z "$FIRST_SELECT_REJECTION" ]] && FIRST_SELECT_REJECTION="run $run: $reason"
+      printf "REJECT study=%s run=%s reason=\"%s\"\n" "$selected_study" "$run" "$reason" >> "$reject_file"
+    else
+      ((SELECT_ACCEPT+=1))
+      printf "%s\n" "$run" >> "$selected_runlist"
+
+      printf "CONFIG study=%s run=%s baselineBit=%s baselineKey=%s baselineScale=%s" \
+        "$selected_study" \
+        "$run" \
+        "${RUN_BASE_BIT["$selected_family"]}" \
+        "$selected_baseline_key" \
+        "${RUN_BASE_SCALE["$selected_family"]}" >> "$txt_file"
+      printf " pho10Bit=%s pho10Key=%s pho10Scale=%s" \
+        "${RUN_PHO_BIT["$selected_family|10"]}" \
+        "$(pho_key_for_family "$selected_family" 10)" \
+        "${RUN_PHO_SCALE["$selected_family|10"]}" >> "$txt_file"
+      printf " pho12Bit=%s pho12Key=%s pho12Scale=%s\n" \
+        "${RUN_PHO_BIT["$selected_family|12"]}" \
+        "$(pho_key_for_family "$selected_family" 12)" \
+        "${RUN_PHO_SCALE["$selected_family|12"]}" >> "$txt_file"
+    fi
+
+    printf "%s," "$run" >> "$run_csv_file"
+    csv_quote "$selected_study" >> "$run_csv_file"
+    printf "," >> "$run_csv_file"
+    csv_quote "$status" >> "$run_csv_file"
+    printf "," >> "$run_csv_file"
+    csv_quote "$reason" >> "$run_csv_file"
+
+    printf ",%s," "${RUN_BASE_BIT["$selected_family"]:-}" >> "$run_csv_file"
+    csv_quote "$selected_baseline_key" >> "$run_csv_file"
+    printf "," >> "$run_csv_file"
+    csv_quote "${RUN_BASE_NAME["$selected_family"]:-}" >> "$run_csv_file"
+    printf ",%s,%s,%s,%s" "${RUN_BASE_RAW["$selected_family"]:-0}" "${RUN_BASE_LIVE["$selected_family"]:-0}" "${RUN_BASE_SCALED["$selected_family"]:-0}" "${RUN_BASE_SCALE["$selected_family"]:-0.000000}" >> "$run_csv_file"
+
+    key="$selected_family|10"
+    printf ",%s," "${RUN_PHO_BIT["$key"]:-}" >> "$run_csv_file"
+    csv_quote "$(pho_key_for_family "$selected_family" 10)" >> "$run_csv_file"
+    printf "," >> "$run_csv_file"
+    csv_quote "${RUN_PHO_NAME["$key"]:-}" >> "$run_csv_file"
+    printf ",%s,%s,%s,%s" "${RUN_PHO_RAW["$key"]:-0}" "${RUN_PHO_LIVE["$key"]:-0}" "${RUN_PHO_SCALED["$key"]:-0}" "${RUN_PHO_SCALE["$key"]:-0.000000}" >> "$run_csv_file"
+
+    key="$selected_family|12"
+    printf ",%s," "${RUN_PHO_BIT["$key"]:-}" >> "$run_csv_file"
+    csv_quote "$(pho_key_for_family "$selected_family" 12)" >> "$run_csv_file"
+    printf "," >> "$run_csv_file"
+    csv_quote "${RUN_PHO_NAME["$key"]:-}" >> "$run_csv_file"
+    printf ",%s,%s,%s,%s\n" "${RUN_PHO_RAW["$key"]:-0}" "${RUN_PHO_LIVE["$key"]:-0}" "${RUN_PHO_SCALED["$key"]:-0}" "${RUN_PHO_SCALE["$key"]:-0.000000}" >> "$run_csv_file"
 
     if (( processed <= 5 || processed % 100 == 0 || processed == ${#RUNS_ALL[@]} )); then
       printf "[INFO] scaledTriggerAna progress: %d / %d | run=%s\n" "$processed" "${#RUNS_ALL[@]}" "$run"
     fi
   done
 
-  printf "\n%sScaled trigger-efficiency study files for %s%s\n" "$ANSI_BOLD$ANSI_CYAN" "$LABEL" "$ANSI_RESET"
-  printf "  CONFIG table      : %s\n" "$txt_file"
-  printf "  CSV diagnostics   : %s\n" "$csv_file"
-  printf "  Rejection details : %s\n" "$reject_file"
+  print_family_scaled_summary() {
+    local family="$1"
+    local title="$2"
 
-  for study in "${study_order[@]}"; do
-    local accepted rejected
-    accepted="${STUDY_ACCEPT["$study"]:-0}"
-    rejected="${STUDY_REJECT["$study"]:-0}"
+    local base_rows="${FAMILY_BASE_ROWS["$family"]:-0}"
+    local base_raw="${FAMILY_BASE_RAW_POS["$family"]:-0}"
+    local base_live="${FAMILY_BASE_LIVE_POS["$family"]:-0}"
+    local base_scaled="${FAMILY_BASE_SCALED_POS["$family"]:-0}"
+    local any_common=0
 
-    printf "\n%sStudy: %s%s\n" "$ANSI_BOLD" "$study" "$ANSI_RESET"
-    printf "  Baseline family : %s\n" "${study_family["$study"]}"
-    printf "  Accepted runs   : %d\n" "$accepted"
-    printf "  Rejected runs   : %d\n" "$rejected"
-    printf "  Run list        : %s\n" "${study_list_file["$study"]}"
+    printf "\n%s%s%s\n" "$ANSI_BOLD$ANSI_CYAN" "$title" "$ANSI_RESET"
+    printf "  Baseline family         : %s\n" "$family"
+    printf "  Baseline row runs       : %d / %d\n" "$base_rows" "${#RUNS_ALL[@]}"
+    printf "  Baseline raw>0 runs     : %d\n" "$base_raw"
+    printf "  Baseline live>0 runs    : %d\n" "$base_live"
+    printf "  Baseline scaled>0 runs  : %d\n" "$base_scaled"
+    printf "\n"
+    printf "%s  %8s | %8s | %8s | %8s | %9s | %11s | %-38s%s\n" \
+      "$ANSI_BOLD" "Photon" "Rows" "Raw>0" "Live>0" "Scaled>0" "RowsSc0" "Decision" "$ANSI_RESET"
+    printf "%s  %-8s-+-%-8s-+-%-8s-+-%-8s-+-%-9s-+-%-11s-+-%-38s%s\n" \
+      "$ANSI_DIM" "--------" "--------" "--------" "--------" "---------" "-----------" "--------------------------------------" "$ANSI_RESET"
 
-    if (( accepted == 0 )); then
-      printf "%s  First rejection : %s%s\n" "$ANSI_YELLOW" "${FIRST_REASON["$study"]:-none recorded}" "$ANSI_RESET"
+    local -a phos=()
+    local k pho
+    mapfile -t phos < <(
+      for k in "${!PHO_ROW_RUNS[@]}"; do
+        [[ "$k" == "$family|"* ]] || continue
+        printf "%s\n" "${k#"$family|"}"
+      done | sort -n
+    )
+
+    if ((${#phos[@]} == 0)); then
+      printf "  %-8s | %8s | %8s | %8s | %9s | %11s | %-38s\n" "-" "-" "-" "-" "-" "-" "no photon rows found"
+      return
     fi
 
-    printf "  Rejection counters:\n"
-    printf "    missingBaseline      : %d\n" "${REJECT_COUNTS["$study|missingBaseline"]:-0}"
-    printf "    baselineScaledZero   : %d\n" "${REJECT_COUNTS["$study|baselineScaledZero"]:-0}"
-    printf "    missingPho6          : %d\n" "${REJECT_COUNTS["$study|missingPho6"]:-0}"
-    printf "    pho6ScaledZero       : %d\n" "${REJECT_COUNTS["$study|pho6ScaledZero"]:-0}"
-    printf "    missingPho8          : %d\n" "${REJECT_COUNTS["$study|missingPho8"]:-0}"
-    printf "    pho8ScaledZero       : %d\n" "${REJECT_COUNTS["$study|pho8ScaledZero"]:-0}"
-    printf "    missingPho10         : %d\n" "${REJECT_COUNTS["$study|missingPho10"]:-0}"
-    printf "    pho10ScaledZero      : %d\n" "${REJECT_COUNTS["$study|pho10ScaledZero"]:-0}"
-    printf "    missingPho12         : %d\n" "${REJECT_COUNTS["$study|missingPho12"]:-0}"
-    printf "    pho12ScaledZero      : %d\n" "${REJECT_COUNTS["$study|pho12ScaledZero"]:-0}"
+    for pho in "${phos[@]}"; do
+      k="$family|$pho"
 
-    if (( accepted == 0 )); then
-      printf "%s  NOTE: A common cause is that Photon 6/8 are present in raw/live bookkeeping but have scaled=0, so a strict scaled-bit study requiring Photon 6/8/10/12 cannot accept any runs.%s\n" "$ANSI_YELLOW" "$ANSI_RESET"
-      printf "%s        Check the CSV diagnostics columns Pho6Scaled and Pho8Scaled for this study.%s\n" "$ANSI_YELLOW" "$ANSI_RESET"
+      local rows="${PHO_ROW_RUNS["$k"]:-0}"
+      local rawpos="${PHO_RAW_POS["$k"]:-0}"
+      local livepos="${PHO_LIVE_POS["$k"]:-0}"
+      local scaledpos="${PHO_SCALED_POS["$k"]:-0}"
+      local common="${PHO_COMMON_WITH_BASE_SCALED["$k"]:-0}"
+      local rows_scaled_zero=$(( rows - scaledpos ))
+      local decision=""
+
+      if (( common > 0 )); then
+        any_common=1
+      fi
+
+      if [[ "$family" == "$selected_family" && ( "$pho" == "10" || "$pho" == "12" ) ]]; then
+        if (( common > 0 )); then
+          decision="USE in ${selected_study}"
+        else
+          decision="wanted, but no common scaled sample"
+        fi
+      elif (( scaledpos == 0 )); then
+        decision="do not use: scaled=0 in all row runs"
+      elif [[ "$family" == "$selected_family" ]]; then
+        decision="available but not selected for first pass"
+      else
+        decision="diagnostic only for this pass"
+      fi
+
+      printf "  %8s | %8d | %8d | %8d | %9d | %11d | %-38s\n" \
+        "$pho" "$rows" "$rawpos" "$livepos" "$scaledpos" "$rows_scaled_zero" "$decision"
+
+      csv_quote "$family" >> "$summary_csv_file"
+      printf "," >> "$summary_csv_file"
+      csv_quote "$pho" >> "$summary_csv_file"
+      printf ",%d,%d,%d,%d,%d,%d," "$rows" "$rawpos" "$livepos" "$scaledpos" "$rows_scaled_zero" "$common" >> "$summary_csv_file"
+      csv_quote "$decision" >> "$summary_csv_file"
+      printf "\n" >> "$summary_csv_file"
+    done
+
+    printf "\n"
+    printf "  Common scaled-positive runs with baseline:\n"
+    for pho in "${phos[@]}"; do
+      k="$family|$pho"
+      printf "    Photon %-2s : %d\n" "$pho" "${PHO_COMMON_WITH_BASE_SCALED["$k"]:-0}"
+    done
+
+    if [[ "$family" == "$selected_family" ]]; then
+      printf "  Common scaled-positive subset for first-pass overlay:\n"
+      printf "    %s : %d runs\n" "$selected_study" "$SELECT_ACCEPT"
+      printf "    requirement = baseline scaled>0 + Photon 10 scaled>0 + Photon 12 scaled>0 in the same run\n"
+    elif (( any_common == 0 )); then
+      printf "  Conclusion:\n"
+      printf "    no photon trigger has any scaled-positive overlap with this baseline, so this subset is not used for the first scaled-trigger study\n"
     fi
-  done
+  }
 
-  printf "\n%sDone. For the exact per-run failures, open:%s\n  %s\n  %s\n" "$ANSI_GREEN" "$ANSI_RESET" "$csv_file" "$reject_file"
+  print_family_scaled_summary "MBD N&S >= 2, vtx < 150 cm" "Available photon triggers for MBD N&S >= 2, vtx < 150 cm"
+  print_family_scaled_summary "MBD N&S >= 2, vtx < 10 cm" "Diagnostic photon-trigger summary for MBD N&S >= 2, vtx < 10 cm"
+
+  printf "\n%sSelected scaled-efficiency run list%s\n" "$ANSI_BOLD$ANSI_GREEN" "$ANSI_RESET"
+  printf "  Selected study : %s\n" "$selected_study"
+  printf "  Rule           : MBD vtx<150 scaled>0 AND Photon10 vtx<150 scaled>0 AND Photon12 vtx<150 scaled>0\n"
+  printf "  Accepted runs  : %d\n" "$SELECT_ACCEPT"
+  printf "  Rejected runs  : %d\n" "$SELECT_REJECT"
+  printf "  Run list       : %s\n" "$selected_runlist"
+  printf "  CONFIG table   : %s\n" "$txt_file"
+  printf "  Run diagnostics: %s\n" "$run_csv_file"
+  printf "  Summary CSV    : %s\n" "$summary_csv_file"
+  printf "  Rejections     : %s\n" "$reject_file"
+
+  printf "\n%sSelected-study rejection counters%s\n" "$ANSI_BOLD" "$ANSI_RESET"
+  printf "  missing baseline      : %d\n" "$REJ_BASE_MISSING"
+  printf "  baseline scaled<=0    : %d\n" "$REJ_BASE_SCALED_ZERO"
+  printf "  missing Photon 10     : %d\n" "$REJ_PHO10_MISSING"
+  printf "  Photon 10 scaled<=0   : %d\n" "$REJ_PHO10_SCALED_ZERO"
+  printf "  missing Photon 12     : %d\n" "$REJ_PHO12_MISSING"
+  printf "  Photon 12 scaled<=0   : %d\n" "$REJ_PHO12_SCALED_ZERO"
+
+  if (( SELECT_REJECT > 0 )); then
+    printf "%s  First rejection       : %s%s\n" "$ANSI_YELLOW" "${FIRST_SELECT_REJECTION:-none recorded}" "$ANSI_RESET"
+  fi
+
+  printf "\n%sInterpretation%s\n" "$ANSI_BOLD$ANSI_CYAN" "$ANSI_RESET"
+  echo "  - Photon 6/8 can appear in menu/raw/live bookkeeping, but they are not valid for a scaled-bit correction if scaled>0 is zero."
+  echo "  - The first formal scaled-efficiency check should therefore use the common MBD vtx<150 + Photon 10 + Photon 12 scaled-positive run set."
+  echo "  - The vtx<10 table is printed as a diagnostic to show why that subset is not chosen for the first scaled-trigger study."
+  echo
+
   return 0
 }
 

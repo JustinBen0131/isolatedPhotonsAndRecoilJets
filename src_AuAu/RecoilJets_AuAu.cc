@@ -65,6 +65,7 @@
 #include <atomic>
 #include <algorithm>   // std::clamp
 #include <cmath>       // std::cosh, std::hypot, std::fmod
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -2386,6 +2387,124 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
                     if (doNotScaleBitIsSet(liveVector, cfg.probeBit))
                     {
                         fillDoNotScaleHist(cfg.probeHistKey);
+                    }
+                }
+                
+                static bool scaledTrigRunListLoaded = false;
+                static bool scaledTrigRunListWarned = false;
+                static std::vector<uint64_t> scaledTrigSelectedRuns;
+                
+                if (!scaledTrigRunListLoaded)
+                {
+                    scaledTrigRunListLoaded = true;
+                    
+                    const std::string scaledTrigRunListPath =
+                    "/sphenix/u/patsfan753/scratch/thesisAnalysis/dst_lists_auau/"
+                    "scaledEffRuns_MBD_NS_geq_2_vtx_lt_150__Pho10_12.list";
+                    
+                    std::ifstream runListIn(scaledTrigRunListPath);
+                    if (!runListIn)
+                    {
+                        if (!scaledTrigRunListWarned)
+                        {
+                            std::cout
+                            << "RecoilJets::process_event - WARNING: could not open scaled trigger QA run list: "
+                            << scaledTrigRunListPath << std::endl;
+                            scaledTrigRunListWarned = true;
+                        }
+                    }
+                    else
+                    {
+                        uint64_t listedRun = 0;
+                        while (runListIn >> listedRun)
+                        {
+                            scaledTrigSelectedRuns.push_back(listedRun);
+                        }
+                        
+                        std::sort(scaledTrigSelectedRuns.begin(), scaledTrigSelectedRuns.end());
+                        scaledTrigSelectedRuns.erase(
+                                                     std::unique(scaledTrigSelectedRuns.begin(), scaledTrigSelectedRuns.end()),
+                                                     scaledTrigSelectedRuns.end()
+                                                     );
+                    }
+                }
+                
+                if (m_isAuAu && !scaledTrigSelectedRuns.empty())
+                {
+                    uint64_t currentRunForScaledTrigQA = 0;
+                    if (m_evtHeader)
+                    {
+                        currentRunForScaledTrigQA = static_cast<uint64_t>(m_evtHeader->get_RunNumber());
+                    }
+                    if (!currentRunForScaledTrigQA)
+                    {
+                        currentRunForScaledTrigQA = runNumber;
+                    }
+                    
+                    if (std::binary_search(scaledTrigSelectedRuns.begin(),
+                                           scaledTrigSelectedRuns.end(),
+                                           currentRunForScaledTrigQA))
+                    {
+                        uint64_t scaledVector = 0;
+                        if (auto* gl1 = findNode::getClass<Gl1Packet>(topNode, "GL1Packet"))
+                        {
+                            scaledVector = gl1->lValue(0, "ScaledVector");
+                        }
+                        else if (auto* gl1b = findNode::getClass<Gl1Packet>(topNode, "14001"))
+                        {
+                            scaledVector = gl1b->lValue(0, "ScaledVector");
+                        }
+                        
+                        auto fillPerRunCorrectedHist = [&](const std::string& histKey)
+                        {
+                            const std::string histName =
+                            "h_maxEnergyClus_NewTriggerFilling_perRunCorrected_" + histKey;
+                            auto& histogramMap = qaHistogramsByTrigger[histKey];
+                            
+                            TH1F* h = nullptr;
+                            auto it = histogramMap.find(histName);
+                            if (it != histogramMap.end())
+                            {
+                                h = dynamic_cast<TH1F*>(it->second);
+                            }
+                            
+                            if (!h)
+                            {
+                                TDirectory* dir = out->GetDirectory(histKey.c_str());
+                                if (!dir) dir = out->mkdir(histKey.c_str());
+                                if (!dir) return;
+                                
+                                TDirectory* prevDir = gDirectory;
+                                dir->cd();
+                                
+                                h = new TH1F(histName.c_str(),
+                                             "Max Cluster Energy; Cluster Energy [GeV]",
+                                             40, 0, 20);
+                                h->SetDirectory(dir);
+                                histogramMap[histName] = h;
+                                
+                                if (prevDir) prevDir->cd();
+                            }
+                            
+                            h->Fill(max_energy_clus);
+                            bumpHistFill(histKey, histName);
+                        };
+                        
+                        const std::vector<std::pair<std::string, int> > scaledTrigHistBits =
+                        {
+                            {"MBD_NS_geq_2_vtx_lt_150", m_mbdGeq2VtxLt150Bit},
+                            {"Photon_10",               m_photon10Bit},
+                            {"Photon_12",               m_photon12Bit}
+                        };
+                        
+                        for (const auto& histBit : scaledTrigHistBits)
+                        {
+                            const int bit = histBit.second;
+                            if (bit < 0 || bit >= 64) continue;
+                            if (!(scaledVector & (1ULL << bit))) continue;
+                            
+                            fillPerRunCorrectedHist(histBit.first);
+                        }
                     }
                 }
             }

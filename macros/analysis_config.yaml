@@ -150,8 +150,8 @@ clusterUEpipeline: [baseVariant]
 #
 #     If preselection=variantB, "passes selected preselection" is automatically true.
 # -----------------------------------------------------------------------------
-preselection: [variantB]
-tight: [variantA]
+preselection: [reference]
+tight: [reference]
 nonTight: [reference]
 
 # -----------------------------------------------------------------------------
@@ -245,8 +245,8 @@ doPi0Analysis: true
 # MATRIX AXIS: coneR sets the isolation cone radius.
 # PhotonClusterBuilder provides isolation sums for R=0.3 and R=0.4.
 # -----------------------------------------------------------------------------
-isSlidingIso: false
-isSlidingAndFixed: true
+isSlidingIso: true
+isSlidingAndFixed: false
 
 # MATRIX AXIS: one job per fixedGeV value (when isSlidingIso is false).
 fixedGeV: [2.0]

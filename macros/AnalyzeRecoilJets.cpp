@@ -18361,6 +18361,8 @@ int Run()
         
         cout << "  -> [triggerAna] doNotScale max-cluster-energy turn-on plots (DATA only)...\n";
         analysis::RunTriggerAna_DoNotScaleMaxClusterEnergy(ds);
+        cout << "  -> [scaledTrigQA] live/scaled-corrected max-cluster-energy turn-on plots (AuAu only)...\n";
+        analysis::RunTriggerAna_ScaledMaxClusterEnergy(ds);
         cout << "     [OK] triggerAna complete.\n";
         
         cout << "  -> [pi0 QA] corrected vs no-asinh-correction overlays (DATA only)...\n";
