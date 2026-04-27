@@ -417,12 +417,8 @@ create_pipeline_snapshot() {
 
 cleanup_bulk_snapshots_for_tag() {
   mkdir -p "$SNAPSHOT_ROOT"
-  local n_old
-  n_old=$(find "$SNAPSHOT_ROOT" -mindepth 1 -maxdepth 1 -type d -name "${TAG}_*" 2>/dev/null | wc -l | awk '{print $1}')
-  if (( n_old > 0 )); then
-    say "Removing ${n_old} older bulk snapshot dir(s) for tag ${TAG}"
-    find "$SNAPSHOT_ROOT" -mindepth 1 -maxdepth 1 -type d -name "${TAG}_*" -exec rm -rf {} +
-  fi
+  say "Keeping existing bulk snapshot dirs for tag ${TAG}; live Condor jobs may still reference them."
+  say "Manual cleanup later: remove ${SNAPSHOT_ROOT}/${TAG}_* only after all matching jobs have left the queue."
 }
 
 # ------------------------ Helpers --------------------------
@@ -576,6 +572,15 @@ sim_iso_tag() {
       echo "fixedIso${s}GeV"
     fi
   fi
+}
+
+matrix_cfg_tag() {
+  local pt="$1" frac="$2" vz="$3" cone="$4" iso_idx="$5" uepipe="$6"
+  local tag
+  tag="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso_base_tags[$iso_idx]}"
+  (( ${uepipe_in_tag:-0} )) && tag="${tag}_${uepipe}"
+  tag="${tag}_${iso_selection_tags[$iso_idx]}"
+  echo "$tag"
 }
 
 selection_mode_normalize() {
@@ -965,7 +970,11 @@ sim_init() {
   SIM_DIR="${SIM_ROOT}/${SIM_SAMPLE}"
   [[ -d "$SIM_DIR" ]] || { err "Sim sample directory not found: $SIM_DIR"; exit 20; }
 
-  SIM_STAGE_DIR="${STAGE_DIR}/${SIM_SAMPLE}"
+  if [[ -n "${SIM_STAGE_NAMESPACE:-}" ]]; then
+    SIM_STAGE_DIR="${STAGE_DIR}/${SIM_STAGE_NAMESPACE}/${SIM_SAMPLE}"
+  else
+    SIM_STAGE_DIR="${STAGE_DIR}/${SIM_SAMPLE}"
+  fi
   mkdir -p "$SIM_STAGE_DIR"
 
   # Build a staged 5-column master list from the matched lists created by makeThesisSimLists.sh
@@ -1096,8 +1105,12 @@ check_jobs_sim() {
   say "  back_to_back_dphi_min_pi_fraction : [${sim_fracs[*]}]  (${#sim_fracs[@]} values)"
   say "  vz_cut_cm                         : [${sim_vzs[*]}]  (${#sim_vzs[@]} values)"
   say "  coneR                             : [${sim_cones[*]}]  (${#sim_cones[@]} values)"
-  say "  iso modes                         : [${iso_tags[*]}]  (${#iso_tags[@]} values)"
-  say "  clusterUEpipeline                 : [${uepipe_modes[*]}]  (${#uepipe_modes[@]} values)"
+  say "  iso + photon-ID modes             : [${iso_tags[*]}]  (${#iso_tags[@]} values)"
+  if (( ${uepipe_in_tag:-0} )); then
+    say "  clusterUEpipeline                 : [${uepipe_modes[*]}]  (${#uepipe_modes[@]} values; tagged)"
+  else
+    say "  clusterUEpipeline                 : [${uepipe_modes[*]}]  (${#uepipe_modes[@]} forced value; not tagged for ${TAG})"
+  fi
   say "  cfg combos (product)              : ${BOLD}${n_cfg}${RST}"
   echo
 
@@ -1127,8 +1140,7 @@ check_jobs_sim() {
             for _ue in "${uepipe_modes[@]}"; do
               (( cfg_num+=1 ))
               local _tag
-              _tag="jetMinPt$(sim_pt_tag "$_pt")_$(sim_b2b_tag "$_frac")_$(sim_vz_tag "$_vz")_$(sim_cone_tag "$_cone")_${iso_tags[$_ci]}"
-              (( uepipe_in_tag )) && _tag="${_tag}_${_ue}"
+              _tag="$(matrix_cfg_tag "$_pt" "$_frac" "$_vz" "$_cone" "$_ci" "$_ue")"
               printf "  %3d │ %-70s │ %-5s %-6s %-7s %-7s %-18s %-12s\n" \
                      "$cfg_num" "$_tag" "$_pt" "$_frac" "$_vz" "$_cone" "${iso_tags[$_ci]}" "$_ue"
             done
@@ -1171,8 +1183,7 @@ check_jobs_sim() {
 
   say "Output tree: each tag becomes a subdirectory under ${DEST_BASE}/"
   local _ex_tag
-  _ex_tag="jetMinPt$(sim_pt_tag "${sim_pts[0]}")_$(sim_b2b_tag "${sim_fracs[0]}")_$(sim_vz_tag "${sim_vzs[0]}")_$(sim_cone_tag "${sim_cones[0]}")_${iso_tags[0]}"
-  (( uepipe_in_tag )) && _ex_tag="${_ex_tag}_${uepipe_modes[0]}"
+  _ex_tag="$(matrix_cfg_tag "${sim_pts[0]}" "${sim_fracs[0]}" "${sim_vzs[0]}" "${sim_cones[0]}" 0 "${uepipe_modes[0]}")"
   say "  e.g. ${DIM}${DEST_BASE}/${_ex_tag}/run28_photonjet10/*.root${RST}"
 }
 
@@ -1295,8 +1306,12 @@ check_jobs_all() {
   say "  b2b_dphi_pi_fraction : [${ck_fracs[*]}]  (${#ck_fracs[@]} values)"
   say "  vz_cut_cm            : [${ck_vzs[*]}]  (${#ck_vzs[@]} values)"
   say "  coneR                : [${ck_cones[*]}]  (${#ck_cones[@]} values)"
-  say "  iso modes            : [${iso_tags[*]}]  (${#iso_tags[@]} values)"
-  say "  clusterUEpipeline    : [${uepipe_modes[*]}]  (${#uepipe_modes[@]} values)"
+  say "  iso + photon-ID modes: [${iso_tags[*]}]  (${#iso_tags[@]} values)"
+  if (( ${uepipe_in_tag:-0} )); then
+    say "  clusterUEpipeline    : [${uepipe_modes[*]}]  (${#uepipe_modes[@]} values; tagged)"
+  else
+    say "  clusterUEpipeline    : [${uepipe_modes[*]}]  (${#uepipe_modes[@]} forced value; not tagged for ${TAG})"
+  fi
   say "  matrix combos        : ${BOLD}${n_matrix}${RST}"
   echo
   say "${BOLD}Per-matrix-cell base:${RST}"
@@ -1323,8 +1338,8 @@ check_jobs_all() {
       local _dfrac; _dfrac="$(sim_b2b_tag "$_frac")"
       local _dvz; _dvz="$(sim_vz_tag "$_vz")"
       local _dcone; _dcone="$(sim_cone_tag "$_cone")"
-      local _tag="${_dpt}_${_dfrac}_${_dvz}_${_dcone}_${iso_tags[$_ci]}"
-      (( uepipe_in_tag )) && _tag="${_tag}_${_ue}"
+      local _tag
+      _tag="$(matrix_cfg_tag "$_pt" "$_frac" "$_vz" "$_cone" "$_ci" "$_ue")"
       printf "  %3d │ %-70s │ %-5s %-6s %-7s %-7s %-18s %-12s\n" \
              "$cfg_num" "$_tag" "$_pt" "$_frac" "$_vz" "$_cone" "${iso_tags[$_ci]}" "$_ue"
     done
@@ -1365,8 +1380,8 @@ check_jobs_all() {
   echo
 
   say "Output tree: ${DEST_BASE}/<cfg_tag>/<run8>/*.root"
-  local _ex_tag="jetMinPt$(sim_pt_tag "${ck_pts[0]}")_$(sim_b2b_tag "${ck_fracs[0]}")_$(sim_vz_tag "${ck_vzs[0]}")_$(sim_cone_tag "${ck_cones[0]}")_${iso_tags[0]}"
-  (( uepipe_in_tag )) && _ex_tag="${_ex_tag}_${uepipe_modes[0]}"
+  local _ex_tag
+  _ex_tag="$(matrix_cfg_tag "${ck_pts[0]}" "${ck_fracs[0]}" "${ck_vzs[0]}" "${ck_cones[0]}" 0 "${uepipe_modes[0]}")"
   say "  e.g. ${DIM}${DEST_BASE}/${_ex_tag}/00067599/*.root${RST}"
 }
 
@@ -1404,9 +1419,12 @@ submit_condor() {
 
   local stamp; stamp="$(date +%Y%m%d_%H%M%S)"
   local sub="${SUB_DIR}/RecoilJets_${TAG}_${stamp}.sub"
+  local submit_stage_dir="${STAGE_DIR}/${TAG}_${stamp}"
   local exe_to_use="${BULK_FROZEN_EXE:-${EXE}}"
   local macro_env=""
   [[ -n "${BULK_FROZEN_MACRO:-}" ]] && macro_env=";RJ_MACRO_PATH=${BULK_FROZEN_MACRO}"
+  mkdir -p "$submit_stage_dir"
+  say "Submit chunk-list stage: ${submit_stage_dir}"
 
   # Snapshot YAML at submit time so idle jobs are immune to later edits
   local yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
@@ -1472,8 +1490,9 @@ SUB
       fi
     fi
 
-    # Build group lists for this run
-    mapfile -t groups < <( make_groups "$r8" "$GROUP_SIZE" )
+    # Build group lists for this run in this submit's frozen staging directory.
+    # This prevents later submissions from overwriting chunk lists still used by queued jobs.
+    mapfile -t groups < <( STAGE_DIR="$submit_stage_dir" make_groups "$r8" "$GROUP_SIZE" )
 
     (( ${#groups[@]} )) || { warn "No groups produced for run $r8; skipping"; continue; }
 
@@ -2002,6 +2021,7 @@ case "$ACTION" in
     (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
     (( ${#sim_cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
     build_iso_modes "$master_yaml"
+    read_uepipe_modes "$master_yaml" "$TAG"
 
     SIM_DEST_BASE_RESOLVED="$DEST_BASE"
 
@@ -2097,8 +2117,12 @@ SUB
       say "  back_to_back_dphi_min_pi_fraction : [${sim_fracs[*]}]  (${#sim_fracs[@]} values)"
       say "  vz_cut_cm                         : [${sim_vzs[*]}]  (${#sim_vzs[@]} values)"
       say "  coneR                             : [${sim_cones[*]}]  (${#sim_cones[@]} values)"
-      say "  iso modes                         : [${iso_tags[*]}]  (${#iso_tags[@]} values)"
-      say "  clusterUEpipeline                 : [${uepipe_modes[*]}]  (${#uepipe_modes[@]} values)"
+      say "  iso + photon-ID modes             : [${iso_tags[*]}]  (${#iso_tags[@]} values)"
+      if (( ${uepipe_in_tag:-0} )); then
+        say "  clusterUEpipeline                 : [${uepipe_modes[*]}]  (${#uepipe_modes[@]} values; tagged)"
+      else
+        say "  clusterUEpipeline                 : [${uepipe_modes[*]}]  (${#uepipe_modes[@]} forced value; not tagged for ${TAG})"
+      fi
       say "  cfg combos (product)              : ${BOLD}${n_cfg}${RST}"
       say "  samples                           : [${samples[*]}]  (${#samples[@]} values)"
       echo
@@ -2123,8 +2147,7 @@ SUB
           for (( _ci=0; _ci<${#iso_tags[@]}; _ci++ )); do
           for uepipe in "${uepipe_modes[@]}"; do
             (( cfg_num+=1 ))
-            _tag="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso_tags[$_ci]}"
-            (( uepipe_in_tag )) && _tag="${_tag}_${uepipe}"
+            _tag="$(matrix_cfg_tag "$pt" "$frac" "$vz" "$cone" "$_ci" "$uepipe")"
             printf "  ${DIM}%3d${RST} │ %-70s │ pt=%-5s frac=%-6s vz=%-5s cone=%-5s iso=%-16s uepipe=%s\n" \
                    "$cfg_num" "$_tag" "$pt" "$frac" "$vz" "$cone" "${iso_tags[$_ci]}" "$uepipe"
           done
@@ -2142,8 +2165,9 @@ SUB
       say "  ─────────────────────────────────"
       say "  ${BOLD}TOTAL CONDOR JOBS        : ${BOLD}${total_jobs}${RST}"
       echo
+      _ex_tag="$(matrix_cfg_tag "${sim_pts[0]}" "${sim_fracs[0]}" "${sim_vzs[0]}" "${sim_cones[0]}" 0 "${uepipe_modes[0]}")"
       say "Output tree: each tag becomes a subdirectory under ${DEST_BASE}/"
-      say "  e.g. ${DIM}${DEST_BASE}/jetMinPt5_7pi_8_vz30_isoR30_fixedIso2GeV/<sample>/*.root${RST}"
+      say "  e.g. ${DIM}${DEST_BASE}/${_ex_tag}/<sample>/*.root${RST}"
       exit 0
     fi
 
@@ -2157,9 +2181,11 @@ SUB
       isSimEmbedded|isSimEmbeddedInclusive) create_pipeline_snapshot "auau" "$doall_stamp" ;;
       *)                                    create_pipeline_snapshot "pp" "$doall_stamp" ;;
     esac
-    # Clean stale .sub files and YAML overrides for SIM
+    # Clean stale .sub files only. Keep YAML overrides/snapshots because live Condor jobs may still reference them.
     rm -f "${SUB_DIR}/RecoilJets_sim_"*.sub "${SUB_DIR}/RecoilJets_${TAG}_"*.sub 2>/dev/null || true
-    rm -f "${SIM_YAML_OVERRIDE_DIR}/analysis_config_jetMinPt"*.yaml "${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_"*.yaml 2>/dev/null || true
+    SIM_STAGE_NAMESPACE="${TAG}_${doall_stamp}"
+    export SIM_STAGE_NAMESPACE
+    say "SIM chunk-list stage namespace: ${SIM_STAGE_NAMESPACE}"
     for pt in "${sim_pts[@]}"; do
       for frac in "${sim_fracs[@]}"; do
         for vz in "${sim_vzs[@]}"; do
@@ -2325,8 +2351,8 @@ SUB
         round_file="${ROUND_DIR}/goldenRuns_${TAG}_segment${seg}.txt"
         [[ -s "$round_file" ]] || { err "Round file not found: $round_file. Run 'splitGoldenRunList' first."; exit 8; }
 
-        # Clean stale YAML overrides before fresh submission
-        rm -f "${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_"*.yaml 2>/dev/null || true
+        # Keep existing YAML overrides/snapshots; live Condor jobs may still reference them.
+        mkdir -p "$SIM_YAML_OVERRIDE_DIR"
 
         for data_pt in "${data_pts[@]}"; do
         for data_frac in "${data_fracs[@]}"; do
@@ -2370,8 +2396,8 @@ SUB
         done
         ;;
       all|"")
-        # Clean stale YAML overrides before fresh submission
-        rm -f "${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_"*.yaml 2>/dev/null || true
+        # Keep existing YAML overrides/snapshots; live Condor jobs may still reference them.
+        mkdir -p "$SIM_YAML_OVERRIDE_DIR"
 
         # Freeze pipeline for this bulk submission
         cleanup_bulk_snapshots_for_tag

@@ -246,7 +246,7 @@ doPi0Analysis: true
 # PhotonClusterBuilder provides isolation sums for R=0.3 and R=0.4.
 # -----------------------------------------------------------------------------
 isSlidingIso: false
-isSlidingAndFixed: false
+isSlidingAndFixed: true
 
 # MATRIX AXIS: one job per fixedGeV value (when isSlidingIso is false).
 fixedGeV: [2.0]
@@ -261,7 +261,7 @@ coneR: [0.40]
 # sideGapGeV: offset for non-isolated sideband
 # truthIsoGeV: generator-level isolation cut (SIM only)
 # towerMin: minimum tower energy for isolation sum (0 = no floor)
-isolation_wp: {aGeV: 1.08128, bPerGeV: 0.0299107, sideGapGeV: 0.0, truthIsoGeV: 4.0, towerMin: 0.0}
+isolation_wp: {aGeV: 1.764, bPerGeV: 0.038, sideGapGeV: 1.0, truthIsoGeV: 4.0, towerMin: 0.0}
 
 # Exact Au+Au centrality-fit isolation working point.
 # With a SINGLE entry, RecoilJets_AuAu evaluates:

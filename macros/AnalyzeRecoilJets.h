@@ -177,17 +177,17 @@ inline bool doSamVsJustinUnsmearOverlays = false;
 // 3a. PP / SIM CUT DEFAULTS  (drives all PP, SIM, and SIM+PP paths)
 //     All input/output paths are derived automatically from these values.
 // ===========================================================================
-inline const int    kJetPtMin        = 5;            // GeV: 3, 5, or 10
+inline const int    kJetPtMin        = 7;            // GeV: 3, 5, or 10
 inline const string kB2BCut          = "7pi_8";      // "7pi_8" or "pi_2"
-inline const int    kVzCut           = 60;            // cm: 30 or 60
-inline const string kIsoConeR        = "isoR40";     // "isoR30" or "isoR40"
-inline const string kIsoMode         = "fixedIso2GeV";  // "isSliding" or "fixedIso5GeV"
+inline const int    kVzCut           = 30;            // cm: 30 or 60
+inline const string kIsoConeR        = "isoR30";     // "isoR30" or "isoR40"
+inline const string kIsoMode         = "isSliding";  // "isSliding" or "fixedIso5GeV"
 
 // Photon-ID matrix axes.
 // Set all three to "reference" to read legacy files whose names do NOT include
 // the final preselection/tight/nonTight tag.
-inline const string kPreselection    = "variantB";   // "reference", "variantA", or "variantB"
-inline const string kTight           = "variantA";   // "reference" or "variantA"
+inline const string kPreselection    = "reference";   // "reference", "variantA", or "variantB"
+inline const string kTight           = "reference";   // "reference" or "variantA"
 inline const string kNonTight        = "reference";  // currently "reference"
 
 // ===========================================================================

@@ -23,6 +23,7 @@ IN_BASE="/sphenix/u/patsfan753/scratch/thesisAnalysis"
 GRL_BASE="$IN_BASE/GRLs_tanner"
 MODE="${1:-}"
 ACTION="${2:-}"
+EXTRA_ACTION="${3:-}"
 
 usage() {
   cat <<'USAGE'
@@ -30,6 +31,8 @@ Usage:
   ./make_dstListsData.sh pp24 [QA]
   ./make_dstListsData.sh pp25 [QA]
   ./make_dstListsData.sh auau [QA]
+  ./make_dstListsData.sh auau QA doQUICKcheck
+  ./make_dstListsData.sh auau QA scaledTriggerAna
   ./make_dstListsData.sh oo25 [QA]
   ./make_dstListsData.sh run2auau [QA]
   ./make_dstListsData.sh ALL [QA]
@@ -674,8 +677,8 @@ run_trigger_qa() {
         [[ -z "${TRIG_SCALED_FIRSTRUN["$idx"]:-}" ]] && TRIG_SCALED_FIRSTRUN["$idx"]="$run"
       fi
 
-      if (( scaled > 0 && raw >= 0 )); then
-        sdf=$(awk -v r="$raw" -v s="$scaled" 'BEGIN{ if (s>0) printf "%.6f", r/s; else printf "0"; }')
+      if (( scaled > 0 && live >= 0 )); then
+        sdf=$(awk -v l="$live" -v s="$scaled" 'BEGIN{ if (s>0) printf "%.6f", l/s; else printf "0"; }')
         TRIG_SUMSDFACTOR["$idx"]="$(awk -v a="${TRIG_SUMSDFACTOR["$idx"]:-0}" -v b="$sdf" 'BEGIN{ printf "%.6f", a+b }')"
         TRIG_SDCOUNT["$idx"]=$(( ${TRIG_SDCOUNT["$idx"]:-0} + 1 ))
         ((rows_used_for_avg+=1))
@@ -765,7 +768,7 @@ run_trigger_qa() {
   printf "    scaled = -1 : %d\n" "$rows_scaled_minus_one"
   printf "    scaled = 0  : %d\n" "$rows_scaled_zero"
   printf "    scaled > 0  : %d\n" "$rows_scaled_positive"
-  printf "  Rows used for average scaledown calculation (reference only): %d\n" "$rows_used_for_avg"
+  printf "  Rows used for average prescale calculation, live/scaled (reference only): %d\n" "$rows_used_for_avg"
   printf "  Rows with unusable trigger bit values: %d\n" "$rows_bad_idx"
   if [[ -n "$first_problem_run" ]]; then
     printf "%s  First run showing a warning condition: %s%s\n" "$ANSI_YELLOW" "$first_problem_run" "$ANSI_RESET"
@@ -781,7 +784,7 @@ run_trigger_qa() {
     echo
 
     printf "%s  %4s | %-*s | %8s | %8s | %8s | %10s | %14s | %14s | %8s | %11s%s\n" \
-      "$ANSI_BOLD" "Bit" "$maxlen" "TriggerName" "MenuRuns" "RawRuns" "LiveRuns" "ScaledRuns" "SumRaw" "SumLive" "L/R" "AvgScale" "$ANSI_RESET"
+      "$ANSI_BOLD" "Bit" "$maxlen" "TriggerName" "MenuRuns" "RawRuns" "LiveRuns" "ScaledRuns" "SumRaw" "SumLive" "L/R" "AvgPrescale" "$ANSI_RESET"
     printf "%s  %-4s-+-%-*s-+-%-8s-+-%-8s-+-%-8s-+-%-10s-+-%-14s-+-%-14s-+-%-8s-+-%-11s%s\n" \
       "$ANSI_DIM" \
       "$(printf '─%.0s' $(seq 1 4))" \
@@ -1341,8 +1344,234 @@ print_compact_activation_summary() {
     }
     # ── end canonical baseline + photon activation summary ──────────────────────
 
+    generate_scaled_efficiency_study_tables() {
+      local txt_file="$1"
+      local csv_file="$2"
+
+      if [[ "${LABEL:-}" != "auau" ]]; then
+        return 0
+      fi
+
+      local -a study_order=(
+        "MBD_NS_geq_2_vtx_lt_150__Pho6_8_10_12"
+        "MBD_NS_geq_2_vtx_lt_10__Pho6_8_10_12"
+      )
+
+      local -A study_family=(
+        ["MBD_NS_geq_2_vtx_lt_150__Pho6_8_10_12"]="MBD N&S >= 2, vtx < 150 cm"
+        ["MBD_NS_geq_2_vtx_lt_10__Pho6_8_10_12"]="MBD N&S >= 2, vtx < 10 cm"
+      )
+
+      local -A study_baseline_key=(
+        ["MBD_NS_geq_2_vtx_lt_150__Pho6_8_10_12"]="MBD_NS_geq_2_vtx_lt_150"
+        ["MBD_NS_geq_2_vtx_lt_10__Pho6_8_10_12"]="MBD_NS_geq_2_vtx_lt_10"
+      )
+
+      local -A study_list_file=(
+        ["MBD_NS_geq_2_vtx_lt_150__Pho6_8_10_12"]="$OUT_DIR/scaledEffRuns_MBD_NS_geq_2_vtx_lt_150__Pho6_8_10_12.list"
+        ["MBD_NS_geq_2_vtx_lt_10__Pho6_8_10_12"]="$OUT_DIR/scaledEffRuns_MBD_NS_geq_2_vtx_lt_10__Pho6_8_10_12.list"
+      )
+
+      csv_quote() {
+        local s="$1"
+        s="${s//\"/\"\"}"
+        printf '"%s"' "$s"
+      }
+
+      pho_key_for_study() {
+        local study="$1"
+        local pho="$2"
+        case "$study" in
+          MBD_NS_geq_2_vtx_lt_150__Pho6_8_10_12)
+            printf "photon_%s_plus_MBD_NS_geq_2_vtx_lt_150" "$pho"
+            ;;
+          MBD_NS_geq_2_vtx_lt_10__Pho6_8_10_12)
+            printf "photon_%s_plus_MBD_NS_geq_2_vtx_lt_10" "$pho"
+            ;;
+          *)
+            printf "photon_%s_UNKNOWN" "$pho"
+            ;;
+        esac
+      }
+
+      mkdir -p "$OUT_DIR"
+
+      {
+        echo "# Scaled trigger-efficiency run table for $LABEL"
+        echo "# Input golden run list: $LIST_FILE"
+        echo "# Produced by: ./make_dstListsData.sh $MODE QA"
+        echo "# Rule: each CONFIG row requires baseline + Photon 6/8/10/12 to have scaled > 0 in the same run."
+        echo "# These rows are intended only for scaled max-cluster-energy trigger-efficiency studies."
+        echo "# Format:"
+        echo "# CONFIG study=<studyKey> run=<run> baselineBit=<bit> baselineKey=<key> baselineScale=<live/scaled> pho6Bit=<bit> pho6Key=<key> pho6Scale=<live/scaled> ..."
+      } > "$txt_file"
+
+      printf "StudyGroup,Run,BaselineFamily,BaselineBit,BaselineKey,BaselineName,BaselineLiveOverScaled" > "$csv_file"
+      printf ",Pho6Bit,Pho6Key,Pho6Name,Pho6LiveOverScaled" >> "$csv_file"
+      printf ",Pho8Bit,Pho8Key,Pho8Name,Pho8LiveOverScaled" >> "$csv_file"
+      printf ",Pho10Bit,Pho10Key,Pho10Name,Pho10LiveOverScaled" >> "$csv_file"
+      printf ",Pho12Bit,Pho12Key,Pho12Name,Pho12LiveOverScaled\n" >> "$csv_file"
+
+      local study
+      for study in "${study_order[@]}"; do
+        : > "${study_list_file["$study"]}"
+      done
+
+      local run trg idx scaled raw live live_scaled
+      local base_thr base_vtx family pho_e pho_int
+      local study_count
+
+      for run in "${RUNS_ALL[@]}"; do
+        unset RUN_BASE_BIT RUN_BASE_NAME RUN_BASE_SCALE
+        unset RUN_PHO_BIT RUN_PHO_NAME RUN_PHO_SCALE
+        declare -A RUN_BASE_BIT=()
+        declare -A RUN_BASE_NAME=()
+        declare -A RUN_BASE_SCALE=()
+        declare -A RUN_PHO_BIT=()
+        declare -A RUN_PHO_NAME=()
+        declare -A RUN_PHO_SCALE=()
+
+        while IFS=$'\t' read -r trg idx scaled raw live; do
+          [[ -z "$idx" ]] && continue
+
+          idx=$(num_or_zero "$idx")
+          scaled=$(num_or_zero "$scaled")
+          raw=$(num_or_zero "$raw")
+          live=$(num_or_zero "$live")
+
+          [[ "$idx" =~ ^[0-9]+$ ]] || continue
+          (( scaled > 0 )) || continue
+
+          [[ -z "$trg" ]] && trg="${TRIG_NAME["$idx"]:-"(missing-name)"}"
+
+          live_scaled=$(awk -v l="$live" -v s="$scaled" 'BEGIN{ if (s>0) printf "%.6f", l/s; else printf "0.000000"; }')
+
+          if [[ "$trg" =~ ^MBD[[:space:]]+N\&S[[:space:]]+\>\=[[:space:]]+([0-9]+)(,[[:space:]]+vtx[[:space:]]+\<[[:space:]]+([0-9]+([.][0-9]+)?)[[:space:]]+cm)?$ ]]; then
+            base_thr="${BASH_REMATCH[1]}"
+            base_vtx="${BASH_REMATCH[3]:-}"
+
+            family="MBD N&S >= ${base_thr}"
+            [[ -n "$base_vtx" ]] && family+=", vtx < ${base_vtx} cm"
+
+            RUN_BASE_BIT["$family"]="$idx"
+            RUN_BASE_NAME["$family"]="$trg"
+            RUN_BASE_SCALE["$family"]="$live_scaled"
+
+          elif [[ "$trg" =~ ^Photon[[:space:]]+([0-9]+([.][0-9]+)?)[[:space:]]+GeV([[:space:]]*\+|,)[[:space:]]+MBD[[:space:]]+N\&?S[[:space:]]+\>\=[[:space:]]+([0-9]+)(,[[:space:]]+vtx[[:space:]]+\<[[:space:]]+([0-9]+([.][0-9]+)?)[[:space:]]+cm)?$ ]]; then
+            pho_e="${BASH_REMATCH[1]}"
+            base_thr="${BASH_REMATCH[4]}"
+            base_vtx="${BASH_REMATCH[6]:-}"
+
+            pho_int=$(awk -v x="$pho_e" 'BEGIN{ printf "%g", x+0 }')
+
+            family="MBD N&S >= ${base_thr}"
+            [[ -n "$base_vtx" ]] && family+=", vtx < ${base_vtx} cm"
+
+            RUN_PHO_BIT["$family|$pho_int"]="$idx"
+            RUN_PHO_NAME["$family|$pho_int"]="$trg"
+            RUN_PHO_SCALE["$family|$pho_int"]="$live_scaled"
+          fi
+        done < <(sql "SELECT COALESCE(t.triggername,''), s.index, s.scaled, s.raw, s.live
+                       FROM gl1_scalers s
+                       LEFT JOIN gl1_triggernames t
+                         ON s.index = t.index
+                        AND s.runnumber BETWEEN t.runnumber AND t.runnumber_last
+                      WHERE s.runnumber = $run
+                      ORDER BY s.index;")
+
+        for study in "${study_order[@]}"; do
+          family="${study_family["$study"]}"
+
+          [[ -n "${RUN_BASE_BIT["$family"]:-}" ]] || continue
+          [[ -n "${RUN_PHO_BIT["$family|6"]:-}" ]] || continue
+          [[ -n "${RUN_PHO_BIT["$family|8"]:-}" ]] || continue
+          [[ -n "${RUN_PHO_BIT["$family|10"]:-}" ]] || continue
+          [[ -n "${RUN_PHO_BIT["$family|12"]:-}" ]] || continue
+
+          local baseline_key="${study_baseline_key["$study"]}"
+          local pho6_key pho8_key pho10_key pho12_key
+          pho6_key="$(pho_key_for_study "$study" 6)"
+          pho8_key="$(pho_key_for_study "$study" 8)"
+          pho10_key="$(pho_key_for_study "$study" 10)"
+          pho12_key="$(pho_key_for_study "$study" 12)"
+
+          printf "CONFIG study=%s run=%s baselineBit=%s baselineKey=%s baselineScale=%s" \
+            "$study" \
+            "$run" \
+            "${RUN_BASE_BIT["$family"]}" \
+            "$baseline_key" \
+            "${RUN_BASE_SCALE["$family"]}" >> "$txt_file"
+          printf " pho6Bit=%s pho6Key=%s pho6Scale=%s" \
+            "${RUN_PHO_BIT["$family|6"]}" \
+            "$pho6_key" \
+            "${RUN_PHO_SCALE["$family|6"]}" >> "$txt_file"
+          printf " pho8Bit=%s pho8Key=%s pho8Scale=%s" \
+            "${RUN_PHO_BIT["$family|8"]}" \
+            "$pho8_key" \
+            "${RUN_PHO_SCALE["$family|8"]}" >> "$txt_file"
+          printf " pho10Bit=%s pho10Key=%s pho10Scale=%s" \
+            "${RUN_PHO_BIT["$family|10"]}" \
+            "$pho10_key" \
+            "${RUN_PHO_SCALE["$family|10"]}" >> "$txt_file"
+          printf " pho12Bit=%s pho12Key=%s pho12Scale=%s\n" \
+            "${RUN_PHO_BIT["$family|12"]}" \
+            "$pho12_key" \
+            "${RUN_PHO_SCALE["$family|12"]}" >> "$txt_file"
+
+          csv_quote "$study" >> "$csv_file"
+          printf ",%s," "$run" >> "$csv_file"
+          csv_quote "$family" >> "$csv_file"
+          printf ",%s," "${RUN_BASE_BIT["$family"]}" >> "$csv_file"
+          csv_quote "$baseline_key" >> "$csv_file"
+          printf "," >> "$csv_file"
+          csv_quote "${RUN_BASE_NAME["$family"]}" >> "$csv_file"
+          printf ",%s" "${RUN_BASE_SCALE["$family"]}" >> "$csv_file"
+
+          printf ",%s," "${RUN_PHO_BIT["$family|6"]}" >> "$csv_file"
+          csv_quote "$pho6_key" >> "$csv_file"
+          printf "," >> "$csv_file"
+          csv_quote "${RUN_PHO_NAME["$family|6"]}" >> "$csv_file"
+          printf ",%s" "${RUN_PHO_SCALE["$family|6"]}" >> "$csv_file"
+
+          printf ",%s," "${RUN_PHO_BIT["$family|8"]}" >> "$csv_file"
+          csv_quote "$pho8_key" >> "$csv_file"
+          printf "," >> "$csv_file"
+          csv_quote "${RUN_PHO_NAME["$family|8"]}" >> "$csv_file"
+          printf ",%s" "${RUN_PHO_SCALE["$family|8"]}" >> "$csv_file"
+
+          printf ",%s," "${RUN_PHO_BIT["$family|10"]}" >> "$csv_file"
+          csv_quote "$pho10_key" >> "$csv_file"
+          printf "," >> "$csv_file"
+          csv_quote "${RUN_PHO_NAME["$family|10"]}" >> "$csv_file"
+          printf ",%s" "${RUN_PHO_SCALE["$family|10"]}" >> "$csv_file"
+
+          printf ",%s," "${RUN_PHO_BIT["$family|12"]}" >> "$csv_file"
+          csv_quote "$pho12_key" >> "$csv_file"
+          printf "," >> "$csv_file"
+          csv_quote "${RUN_PHO_NAME["$family|12"]}" >> "$csv_file"
+          printf ",%s\n" "${RUN_PHO_SCALE["$family|12"]}" >> "$csv_file"
+
+          printf "%s\n" "$run" >> "${study_list_file["$study"]}"
+        done
+      done
+
+      printf "\n%sScaled trigger-efficiency study files for %s%s\n" "$ANSI_BOLD$ANSI_CYAN" "$LABEL" "$ANSI_RESET"
+      printf "  CONFIG table: %s\n" "$txt_file"
+      printf "  CSV table   : %s\n" "$csv_file"
+
+      for study in "${study_order[@]}"; do
+        study_count=$(awk 'NF{n++} END{print n+0}' "${study_list_file["$study"]}")
+        printf "  Run list    : %s  (%d runs)\n" "${study_list_file["$study"]}" "$study_count"
+      done
+      printf "\n"
+    }
+
     local activation_csv="$OUT_DIR/trigger_activation_summary_${LABEL}.csv"
     print_compact_activation_summary "$activation_csv"
+
+    local scaled_eff_txt="$OUT_DIR/trigger_scaled_efficiency_studies_${LABEL}.txt"
+    local scaled_eff_csv="$OUT_DIR/trigger_scaled_efficiency_studies_${LABEL}.csv"
+    generate_scaled_efficiency_study_tables "$scaled_eff_txt" "$scaled_eff_csv"
 
   else
     printf "%s[WARN] No trigger rows were found for the provided golden run list.%s\n" "$ANSI_YELLOW" "$ANSI_RESET"
@@ -1357,6 +1586,491 @@ print_compact_activation_summary() {
 }
 
 
+
+run_scaled_trigger_ana() {
+  command -v psql >/dev/null 2>&1 || { echo "[ERROR] psql not found in PATH"; exit 1; }
+
+  if [[ "${LABEL:-}" != "auau" ]]; then
+    echo "[ERROR] scaledTriggerAna is currently defined only for auau mode."
+    echo "        Run: ./make_dstListsData.sh auau QA scaledTriggerAna"
+    return 1
+  fi
+
+  [[ -f "$LIST_FILE" ]] || { echo "[ERROR] Run list not found: $LIST_FILE"; return 1; }
+  [[ -s "$LIST_FILE" ]] || { echo "[ERROR] Run list is empty: $LIST_FILE"; return 1; }
+
+  read_runs_from_file "$LIST_FILE" RUNS_ALL
+  (( ${#RUNS_ALL[@]} > 0 )) || { echo "[ERROR] No valid run numbers found in: $LIST_FILE"; return 1; }
+
+  PSQL=(psql -h sphnxdaqdbreplica -d daq -At -F $'\t' -q)
+  sql()         { "${PSQL[@]}" -c "$1" 2>/dev/null || true; }
+  num_or_zero() { [[ $1 =~ ^-?[0-9]+([.][0-9]+)?$ ]] && printf '%s' "$1" || printf 0; }
+
+  local ANSI_BOLD ANSI_DIM ANSI_CYAN ANSI_GREEN ANSI_YELLOW ANSI_RED ANSI_RESET
+  ANSI_BOLD=$'\033[1m'
+  ANSI_DIM=$'\033[2m'
+  ANSI_CYAN=$'\033[36m'
+  ANSI_GREEN=$'\033[32m'
+  ANSI_YELLOW=$'\033[33m'
+  ANSI_RED=$'\033[31m'
+  ANSI_RESET=$'\033[0m'
+
+  mkdir -p "$OUT_DIR"
+
+  local txt_file="$OUT_DIR/trigger_scaled_efficiency_studies_${LABEL}.txt"
+  local csv_file="$OUT_DIR/trigger_scaled_efficiency_studies_${LABEL}.csv"
+  local reject_file="$OUT_DIR/trigger_scaled_efficiency_rejections_${LABEL}.txt"
+
+  local -a study_order=(
+    "MBD_NS_geq_2_vtx_lt_150__Pho6_8_10_12"
+    "MBD_NS_geq_2_vtx_lt_10__Pho6_8_10_12"
+  )
+
+  local -A study_family=(
+    ["MBD_NS_geq_2_vtx_lt_150__Pho6_8_10_12"]="MBD N&S >= 2, vtx < 150 cm"
+    ["MBD_NS_geq_2_vtx_lt_10__Pho6_8_10_12"]="MBD N&S >= 2, vtx < 10 cm"
+  )
+
+  local -A study_baseline_key=(
+    ["MBD_NS_geq_2_vtx_lt_150__Pho6_8_10_12"]="MBD_NS_geq_2_vtx_lt_150"
+    ["MBD_NS_geq_2_vtx_lt_10__Pho6_8_10_12"]="MBD_NS_geq_2_vtx_lt_10"
+  )
+
+  local -A study_list_file=(
+    ["MBD_NS_geq_2_vtx_lt_150__Pho6_8_10_12"]="$OUT_DIR/scaledEffRuns_MBD_NS_geq_2_vtx_lt_150__Pho6_8_10_12.list"
+    ["MBD_NS_geq_2_vtx_lt_10__Pho6_8_10_12"]="$OUT_DIR/scaledEffRuns_MBD_NS_geq_2_vtx_lt_10__Pho6_8_10_12.list"
+  )
+
+  csv_quote() {
+    local s="$1"
+    s="${s//\"/\"\"}"
+    printf '"%s"' "$s"
+  }
+
+  pho_key_for_study() {
+    local study="$1"
+    local pho="$2"
+    case "$study" in
+      MBD_NS_geq_2_vtx_lt_150__Pho6_8_10_12)
+        printf "photon_%s_plus_MBD_NS_geq_2_vtx_lt_150" "$pho"
+        ;;
+      MBD_NS_geq_2_vtx_lt_10__Pho6_8_10_12)
+        printf "photon_%s_plus_MBD_NS_geq_2_vtx_lt_10" "$pho"
+        ;;
+      *)
+        printf "photon_%s_UNKNOWN" "$pho"
+        ;;
+    esac
+  }
+
+  join_reason_parts() {
+    local out=""
+    local part
+    for part in "$@"; do
+      if [[ -n "$out" ]]; then
+        out="${out}; ${part}"
+      else
+        out="$part"
+      fi
+    done
+    printf "%s" "$out"
+  }
+
+  {
+    echo "# Scaled trigger-efficiency run table for $LABEL"
+    echo "# Input golden run list: $LIST_FILE"
+    echo "# Produced by: ./make_dstListsData.sh $MODE QA scaledTriggerAna"
+    echo "# Rule: accepted CONFIG rows require baseline + Photon 6/8/10/12 to have scaled > 0 in the same run."
+    echo "# If this file has no CONFIG rows, inspect: $reject_file"
+    echo "# Format:"
+    echo "# CONFIG study=<studyKey> run=<run> baselineBit=<bit> baselineKey=<key> baselineScale=<live/scaled> pho6Bit=<bit> pho6Key=<key> pho6Scale=<live/scaled> ..."
+  } > "$txt_file"
+
+  {
+    echo "# Rejection diagnostics for scaled trigger-efficiency studies"
+    echo "# Input golden run list: $LIST_FILE"
+    echo "# Produced by: ./make_dstListsData.sh $MODE QA scaledTriggerAna"
+    echo "# A row is rejected if the baseline or any of Photon 6/8/10/12 is missing or has scaled <= 0."
+    echo
+  } > "$reject_file"
+
+  printf "StudyGroup,Run,Status,Reason,BaselineFamily,BaselineBit,BaselineKey,BaselineName,BaselineRaw,BaselineLive,BaselineScaled,BaselineLiveOverScaled" > "$csv_file"
+  printf ",Pho6Bit,Pho6Key,Pho6Name,Pho6Raw,Pho6Live,Pho6Scaled,Pho6LiveOverScaled" >> "$csv_file"
+  printf ",Pho8Bit,Pho8Key,Pho8Name,Pho8Raw,Pho8Live,Pho8Scaled,Pho8LiveOverScaled" >> "$csv_file"
+  printf ",Pho10Bit,Pho10Key,Pho10Name,Pho10Raw,Pho10Live,Pho10Scaled,Pho10LiveOverScaled" >> "$csv_file"
+  printf ",Pho12Bit,Pho12Key,Pho12Name,Pho12Raw,Pho12Live,Pho12Scaled,Pho12LiveOverScaled\n" >> "$csv_file"
+
+  local study
+  for study in "${study_order[@]}"; do
+    : > "${study_list_file["$study"]}"
+  done
+
+  declare -A STUDY_ACCEPT=()
+  declare -A STUDY_REJECT=()
+  declare -A REJECT_COUNTS=()
+  declare -A FIRST_REASON=()
+
+  printf "\n%sScaled trigger-efficiency run-list diagnostic%s\n" "$ANSI_BOLD$ANSI_CYAN" "$ANSI_RESET"
+  echo "Input golden run list: $LIST_FILE"
+  echo "Runs in input list: ${#RUNS_ALL[@]}"
+  echo "Output dir: $OUT_DIR"
+  echo "Requested studies:"
+  for study in "${study_order[@]}"; do
+    echo "  - $study"
+    echo "    baseline: ${study_family["$study"]}"
+    echo "    require : Photon 6, 8, 10, 12 all scaled > 0 in the same run"
+  done
+  echo
+
+  local run trg idx scaled raw live live_scaled
+  local base_thr base_vtx family pho_e pho_int
+  local processed=0
+
+  for run in "${RUNS_ALL[@]}"; do
+    ((processed+=1))
+
+    unset RUN_BASE_BIT RUN_BASE_NAME RUN_BASE_RAW RUN_BASE_LIVE RUN_BASE_SCALED RUN_BASE_SCALE
+    unset RUN_PHO_BIT RUN_PHO_NAME RUN_PHO_RAW RUN_PHO_LIVE RUN_PHO_SCALED RUN_PHO_SCALE
+    declare -A RUN_BASE_BIT=()
+    declare -A RUN_BASE_NAME=()
+    declare -A RUN_BASE_RAW=()
+    declare -A RUN_BASE_LIVE=()
+    declare -A RUN_BASE_SCALED=()
+    declare -A RUN_BASE_SCALE=()
+    declare -A RUN_PHO_BIT=()
+    declare -A RUN_PHO_NAME=()
+    declare -A RUN_PHO_RAW=()
+    declare -A RUN_PHO_LIVE=()
+    declare -A RUN_PHO_SCALED=()
+    declare -A RUN_PHO_SCALE=()
+
+    while IFS=$'\t' read -r idx trg scaled raw live; do
+      [[ -z "$idx" ]] && continue
+
+      idx=$(num_or_zero "$idx")
+      scaled=$(num_or_zero "$scaled")
+      raw=$(num_or_zero "$raw")
+      live=$(num_or_zero "$live")
+
+      [[ "$idx" =~ ^[0-9]+$ ]] || continue
+
+      [[ -z "$trg" ]] && trg="(missing-name)"
+      live_scaled=$(awk -v l="$live" -v s="$scaled" 'BEGIN{ if (s>0) printf "%.6f", l/s; else printf "0.000000"; }')
+
+      if [[ "$trg" =~ ^MBD[[:space:]]+N\&S[[:space:]]+\>\=[[:space:]]+([0-9]+)(,[[:space:]]+vtx[[:space:]]+\<[[:space:]]+([0-9]+([.][0-9]+)?)[[:space:]]+cm)?$ ]]; then
+        base_thr="${BASH_REMATCH[1]}"
+        base_vtx="${BASH_REMATCH[3]:-}"
+
+        family="MBD N&S >= ${base_thr}"
+        [[ -n "$base_vtx" ]] && family+=", vtx < ${base_vtx} cm"
+
+        RUN_BASE_BIT["$family"]="$idx"
+        RUN_BASE_NAME["$family"]="$trg"
+        RUN_BASE_RAW["$family"]="$raw"
+        RUN_BASE_LIVE["$family"]="$live"
+        RUN_BASE_SCALED["$family"]="$scaled"
+        RUN_BASE_SCALE["$family"]="$live_scaled"
+
+      elif [[ "$trg" =~ ^Photon[[:space:]]+([0-9]+([.][0-9]+)?)[[:space:]]+GeV([[:space:]]*\+|,)[[:space:]]+MBD[[:space:]]+N\&?S[[:space:]]+\>\=[[:space:]]+([0-9]+)(,[[:space:]]+vtx[[:space:]]+\<[[:space:]]+([0-9]+([.][0-9]+)?)[[:space:]]+cm)?$ ]]; then
+        pho_e="${BASH_REMATCH[1]}"
+        base_thr="${BASH_REMATCH[4]}"
+        base_vtx="${BASH_REMATCH[6]:-}"
+
+        pho_int=$(awk -v x="$pho_e" 'BEGIN{ printf "%g", x+0 }')
+
+        family="MBD N&S >= ${base_thr}"
+        [[ -n "$base_vtx" ]] && family+=", vtx < ${base_vtx} cm"
+
+        RUN_PHO_BIT["$family|$pho_int"]="$idx"
+        RUN_PHO_NAME["$family|$pho_int"]="$trg"
+        RUN_PHO_RAW["$family|$pho_int"]="$raw"
+        RUN_PHO_LIVE["$family|$pho_int"]="$live"
+        RUN_PHO_SCALED["$family|$pho_int"]="$scaled"
+        RUN_PHO_SCALE["$family|$pho_int"]="$live_scaled"
+      fi
+    done < <(sql "SELECT s.index, COALESCE(t.triggername,''), s.scaled, s.raw, s.live
+                   FROM gl1_scalers s
+                   LEFT JOIN gl1_triggernames t
+                     ON s.index = t.index
+                    AND s.runnumber BETWEEN t.runnumber AND t.runnumber_last
+                  WHERE s.runnumber = $run
+                  ORDER BY s.index;")
+
+    for study in "${study_order[@]}"; do
+      family="${study_family["$study"]}"
+      local baseline_key="${study_baseline_key["$study"]}"
+      local pho6_key pho8_key pho10_key pho12_key
+      pho6_key="$(pho_key_for_study "$study" 6)"
+      pho8_key="$(pho_key_for_study "$study" 8)"
+      pho10_key="$(pho_key_for_study "$study" 10)"
+      pho12_key="$(pho_key_for_study "$study" 12)"
+
+      local -a missing=()
+      local status="ACCEPT"
+      local reason="OK"
+
+      if [[ -z "${RUN_BASE_BIT["$family"]:-}" ]]; then
+        missing+=( "missing baseline row: ${family}" )
+        REJECT_COUNTS["$study|missingBaseline"]=$(( ${REJECT_COUNTS["$study|missingBaseline"]:-0} + 1 ))
+      elif (( ${RUN_BASE_SCALED["$family"]:-0} <= 0 )); then
+        missing+=( "baseline scaled<=0: bit=${RUN_BASE_BIT["$family"]} raw=${RUN_BASE_RAW["$family"]:-0} live=${RUN_BASE_LIVE["$family"]:-0} scaled=${RUN_BASE_SCALED["$family"]:-0}" )
+        REJECT_COUNTS["$study|baselineScaledZero"]=$(( ${REJECT_COUNTS["$study|baselineScaledZero"]:-0} + 1 ))
+      fi
+
+      local pho key
+      for pho in 6 8 10 12; do
+        key="$family|$pho"
+        if [[ -z "${RUN_PHO_BIT["$key"]:-}" ]]; then
+          missing+=( "missing Photon ${pho} row for ${family}" )
+          REJECT_COUNTS["$study|missingPho${pho}"]=$(( ${REJECT_COUNTS["$study|missingPho${pho}"]:-0} + 1 ))
+        elif (( ${RUN_PHO_SCALED["$key"]:-0} <= 0 )); then
+          missing+=( "Photon ${pho} scaled<=0: bit=${RUN_PHO_BIT["$key"]} raw=${RUN_PHO_RAW["$key"]:-0} live=${RUN_PHO_LIVE["$key"]:-0} scaled=${RUN_PHO_SCALED["$key"]:-0}" )
+          REJECT_COUNTS["$study|pho${pho}ScaledZero"]=$(( ${REJECT_COUNTS["$study|pho${pho}ScaledZero"]:-0} + 1 ))
+        fi
+      done
+
+      if ((${#missing[@]})); then
+        status="REJECT"
+        reason="$(join_reason_parts "${missing[@]}")"
+        STUDY_REJECT["$study"]=$(( ${STUDY_REJECT["$study"]:-0} + 1 ))
+        [[ -z "${FIRST_REASON["$study"]:-}" ]] && FIRST_REASON["$study"]="run $run: $reason"
+
+        printf "REJECT study=%s run=%s reason=\"%s\"\n" "$study" "$run" "$reason" >> "$reject_file"
+      else
+        STUDY_ACCEPT["$study"]=$(( ${STUDY_ACCEPT["$study"]:-0} + 1 ))
+        printf "%s\n" "$run" >> "${study_list_file["$study"]}"
+
+        printf "CONFIG study=%s run=%s baselineBit=%s baselineKey=%s baselineScale=%s" \
+          "$study" \
+          "$run" \
+          "${RUN_BASE_BIT["$family"]}" \
+          "$baseline_key" \
+          "${RUN_BASE_SCALE["$family"]}" >> "$txt_file"
+        printf " pho6Bit=%s pho6Key=%s pho6Scale=%s" \
+          "${RUN_PHO_BIT["$family|6"]}" \
+          "$pho6_key" \
+          "${RUN_PHO_SCALE["$family|6"]}" >> "$txt_file"
+        printf " pho8Bit=%s pho8Key=%s pho8Scale=%s" \
+          "${RUN_PHO_BIT["$family|8"]}" \
+          "$pho8_key" \
+          "${RUN_PHO_SCALE["$family|8"]}" >> "$txt_file"
+        printf " pho10Bit=%s pho10Key=%s pho10Scale=%s" \
+          "${RUN_PHO_BIT["$family|10"]}" \
+          "$pho10_key" \
+          "${RUN_PHO_SCALE["$family|10"]}" >> "$txt_file"
+        printf " pho12Bit=%s pho12Key=%s pho12Scale=%s\n" \
+          "${RUN_PHO_BIT["$family|12"]}" \
+          "$pho12_key" \
+          "${RUN_PHO_SCALE["$family|12"]}" >> "$txt_file"
+      fi
+
+      csv_quote "$study" >> "$csv_file"
+      printf ",%s," "$run" >> "$csv_file"
+      csv_quote "$status" >> "$csv_file"
+      printf "," >> "$csv_file"
+      csv_quote "$reason" >> "$csv_file"
+      printf "," >> "$csv_file"
+      csv_quote "$family" >> "$csv_file"
+      printf ",%s," "${RUN_BASE_BIT["$family"]:-}" >> "$csv_file"
+      csv_quote "$baseline_key" >> "$csv_file"
+      printf "," >> "$csv_file"
+      csv_quote "${RUN_BASE_NAME["$family"]:-}" >> "$csv_file"
+      printf ",%s,%s,%s,%s" "${RUN_BASE_RAW["$family"]:-0}" "${RUN_BASE_LIVE["$family"]:-0}" "${RUN_BASE_SCALED["$family"]:-0}" "${RUN_BASE_SCALE["$family"]:-0.000000}" >> "$csv_file"
+
+      for pho in 6 8 10 12; do
+        key="$family|$pho"
+        printf ",%s," "${RUN_PHO_BIT["$key"]:-}" >> "$csv_file"
+        csv_quote "$(pho_key_for_study "$study" "$pho")" >> "$csv_file"
+        printf "," >> "$csv_file"
+        csv_quote "${RUN_PHO_NAME["$key"]:-}" >> "$csv_file"
+        printf ",%s,%s,%s,%s" "${RUN_PHO_RAW["$key"]:-0}" "${RUN_PHO_LIVE["$key"]:-0}" "${RUN_PHO_SCALED["$key"]:-0}" "${RUN_PHO_SCALE["$key"]:-0.000000}" >> "$csv_file"
+      done
+      printf "\n" >> "$csv_file"
+    done
+
+    if (( processed <= 5 || processed % 100 == 0 || processed == ${#RUNS_ALL[@]} )); then
+      printf "[INFO] scaledTriggerAna progress: %d / %d | run=%s\n" "$processed" "${#RUNS_ALL[@]}" "$run"
+    fi
+  done
+
+  printf "\n%sScaled trigger-efficiency study files for %s%s\n" "$ANSI_BOLD$ANSI_CYAN" "$LABEL" "$ANSI_RESET"
+  printf "  CONFIG table      : %s\n" "$txt_file"
+  printf "  CSV diagnostics   : %s\n" "$csv_file"
+  printf "  Rejection details : %s\n" "$reject_file"
+
+  for study in "${study_order[@]}"; do
+    local accepted rejected
+    accepted="${STUDY_ACCEPT["$study"]:-0}"
+    rejected="${STUDY_REJECT["$study"]:-0}"
+
+    printf "\n%sStudy: %s%s\n" "$ANSI_BOLD" "$study" "$ANSI_RESET"
+    printf "  Baseline family : %s\n" "${study_family["$study"]}"
+    printf "  Accepted runs   : %d\n" "$accepted"
+    printf "  Rejected runs   : %d\n" "$rejected"
+    printf "  Run list        : %s\n" "${study_list_file["$study"]}"
+
+    if (( accepted == 0 )); then
+      printf "%s  First rejection : %s%s\n" "$ANSI_YELLOW" "${FIRST_REASON["$study"]:-none recorded}" "$ANSI_RESET"
+    fi
+
+    printf "  Rejection counters:\n"
+    printf "    missingBaseline      : %d\n" "${REJECT_COUNTS["$study|missingBaseline"]:-0}"
+    printf "    baselineScaledZero   : %d\n" "${REJECT_COUNTS["$study|baselineScaledZero"]:-0}"
+    printf "    missingPho6          : %d\n" "${REJECT_COUNTS["$study|missingPho6"]:-0}"
+    printf "    pho6ScaledZero       : %d\n" "${REJECT_COUNTS["$study|pho6ScaledZero"]:-0}"
+    printf "    missingPho8          : %d\n" "${REJECT_COUNTS["$study|missingPho8"]:-0}"
+    printf "    pho8ScaledZero       : %d\n" "${REJECT_COUNTS["$study|pho8ScaledZero"]:-0}"
+    printf "    missingPho10         : %d\n" "${REJECT_COUNTS["$study|missingPho10"]:-0}"
+    printf "    pho10ScaledZero      : %d\n" "${REJECT_COUNTS["$study|pho10ScaledZero"]:-0}"
+    printf "    missingPho12         : %d\n" "${REJECT_COUNTS["$study|missingPho12"]:-0}"
+    printf "    pho12ScaledZero      : %d\n" "${REJECT_COUNTS["$study|pho12ScaledZero"]:-0}"
+
+    if (( accepted == 0 )); then
+      printf "%s  NOTE: A common cause is that Photon 6/8 are present in raw/live bookkeeping but have scaled=0, so a strict scaled-bit study requiring Photon 6/8/10/12 cannot accept any runs.%s\n" "$ANSI_YELLOW" "$ANSI_RESET"
+      printf "%s        Check the CSV diagnostics columns Pho6Scaled and Pho8Scaled for this study.%s\n" "$ANSI_YELLOW" "$ANSI_RESET"
+    fi
+  done
+
+  printf "\n%sDone. For the exact per-run failures, open:%s\n  %s\n  %s\n" "$ANSI_GREEN" "$ANSI_RESET" "$csv_file" "$reject_file"
+  return 0
+}
+
+run_trigger_quickcheck() {
+  command -v psql >/dev/null 2>&1 || { echo "[ERROR] psql not found in PATH"; exit 1; }
+
+  if [[ "${LABEL:-}" != "auau" ]]; then
+    echo "[ERROR] doQUICKcheck is currently defined only for auau mode."
+    echo "        Run: ./make_dstListsData.sh auau QA doQUICKcheck"
+    return 1
+  fi
+
+  PSQL=(psql -h sphnxdaqdbreplica -d daq -At -F $'\t' -q)
+  sql()         { "${PSQL[@]}" -c "$1" 2>/dev/null || true; }
+  num_or_zero() { [[ $1 =~ ^-?[0-9]+([.][0-9]+)?$ ]] && printf '%s' "$1" || printf 0; }
+
+  local GOOD_RUN=78280
+  local -a BAD_RUNS=(68414 68491 71578 75299)
+
+  local ANSI_BOLD ANSI_DIM ANSI_CYAN ANSI_GREEN ANSI_YELLOW ANSI_RESET
+  ANSI_BOLD=$'\033[1m'
+  ANSI_DIM=$'\033[2m'
+  ANSI_CYAN=$'\033[36m'
+  ANSI_GREEN=$'\033[32m'
+  ANSI_YELLOW=$'\033[33m'
+  ANSI_RESET=$'\033[0m'
+
+  echo
+  printf "%sAuAu trigger live/raw quick check%s\n" "$ANSI_BOLD$ANSI_CYAN" "$ANSI_RESET"
+  echo "Good reference run: $GOOD_RUN"
+  echo "Bad-reference runs: ${BAD_RUNS[*]}"
+  echo "Focus: MBD/photon trigger rows from gl1_scalers joined to gl1_triggernames"
+  echo "Columns:"
+  echo "  L/R       = live/raw for that run and trigger"
+  echo "  Ref L/R   = live/raw for the same trigger name in reference run $GOOD_RUN"
+  echo "  Δ(L/R)    = L/R - Ref L/R"
+  echo "  Live/Scal = live/scaled, effective prescale reference when scaled > 0"
+  echo
+
+  declare -A REF_LR
+  declare -A REF_RAW
+  declare -A REF_LIVE
+  declare -A REF_SCALED
+  declare -A REF_BIT
+
+  while IFS=$'\t' read -r idx trg raw live scaled; do
+    [[ -z "$idx" || -z "$trg" ]] && continue
+
+    idx=$(num_or_zero "$idx")
+    raw=$(num_or_zero "$raw")
+    live=$(num_or_zero "$live")
+    scaled=$(num_or_zero "$scaled")
+
+    [[ "$idx" =~ ^[0-9]+$ ]] || continue
+    [[ -n "$trg" ]] || continue
+
+    lr=$(awk -v l="$live" -v r="$raw" 'BEGIN{ if (r>0) printf "%.6f", l/r; else printf "nan"; }')
+
+    REF_LR["$trg"]="$lr"
+    REF_RAW["$trg"]="$raw"
+    REF_LIVE["$trg"]="$live"
+    REF_SCALED["$trg"]="$scaled"
+    REF_BIT["$trg"]="$idx"
+  done < <(sql "SELECT s.index, COALESCE(t.triggername,''), s.raw, s.live, s.scaled
+                 FROM gl1_scalers s
+                 LEFT JOIN gl1_triggernames t
+                   ON s.index = t.index
+                  AND s.runnumber BETWEEN t.runnumber AND t.runnumber_last
+                WHERE s.runnumber = ${GOOD_RUN}
+                  AND (t.triggername ILIKE '%MBD%' OR t.triggername ILIKE '%Photon%')
+                ORDER BY s.index;")
+
+  if ((${#REF_LR[@]} == 0)); then
+    echo "[ERROR] Reference run $GOOD_RUN returned no MBD/photon trigger rows."
+    return 1
+  fi
+
+  printf "%s  %8s | %-5s | %-46s | %14s | %14s | %9s | %9s | %9s | %9s%s\n" \
+    "$ANSI_BOLD" "Run" "Bit" "TriggerName" "Raw" "Live" "L/R" "Ref L/R" "Δ(L/R)" "Live/Scal" "$ANSI_RESET"
+  printf "%s  %-8s-+-%-5s-+-%-46s-+-%-14s-+-%-14s-+-%-9s-+-%-9s-+-%-9s-+-%-9s%s\n" \
+    "$ANSI_DIM" \
+    "--------" "-----" "----------------------------------------------" "--------------" "--------------" "---------" "---------" "---------" "---------" \
+    "$ANSI_RESET"
+
+  print_run_rows() {
+    local run="$1"
+    local tag="$2"
+
+    while IFS=$'\t' read -r idx trg raw live scaled; do
+      [[ -z "$idx" || -z "$trg" ]] && continue
+
+      idx=$(num_or_zero "$idx")
+      raw=$(num_or_zero "$raw")
+      live=$(num_or_zero "$live")
+      scaled=$(num_or_zero "$scaled")
+
+      [[ "$idx" =~ ^[0-9]+$ ]] || continue
+
+      lr=$(awk -v l="$live" -v r="$raw" 'BEGIN{ if (r>0) printf "%.6f", l/r; else printf "nan"; }')
+      live_scaled=$(awk -v l="$live" -v s="$scaled" 'BEGIN{ if (s>0) printf "%.3f", l/s; else printf "0.000"; }')
+
+      ref_lr="${REF_LR["$trg"]:-nan}"
+      if [[ "$ref_lr" == "nan" || "$lr" == "nan" ]]; then
+        delta="nan"
+      else
+        delta=$(awk -v a="$lr" -v b="$ref_lr" 'BEGIN{ printf "%.6f", a-b; }')
+      fi
+
+      printf "  %8s | %5d | %-46.46s | %14d | %14d | %9s | %9s | %9s | %9s\n" \
+        "$run" "$idx" "$trg" "$raw" "$live" "$lr" "$ref_lr" "$delta" "$live_scaled"
+    done < <(sql "SELECT s.index, COALESCE(t.triggername,''), s.raw, s.live, s.scaled
+                   FROM gl1_scalers s
+                   LEFT JOIN gl1_triggernames t
+                     ON s.index = t.index
+                    AND s.runnumber BETWEEN t.runnumber AND t.runnumber_last
+                  WHERE s.runnumber = ${run}
+                    AND (t.triggername ILIKE '%MBD%' OR t.triggername ILIKE '%Photon%')
+                  ORDER BY s.index;")
+
+    if [[ "$tag" == "good" ]]; then
+      printf "%s  %-8s-+-%-5s-+-%-46s-+-%-14s-+-%-14s-+-%-9s-+-%-9s-+-%-9s-+-%-9s%s\n" \
+        "$ANSI_DIM" \
+        "--------" "-----" "----------------------------------------------" "--------------" "--------------" "---------" "---------" "---------" "---------" \
+        "$ANSI_RESET"
+    fi
+  }
+
+  print_run_rows "$GOOD_RUN" "good"
+  for run in "${BAD_RUNS[@]}"; do
+    print_run_rows "$run" "bad"
+  done
+
+  echo
+  printf "%sInterpretation guide:%s\n" "$ANSI_BOLD$ANSI_GREEN" "$ANSI_RESET"
+  echo "  - Compare bad-run L/R against the same trigger-name Ref L/R from run $GOOD_RUN."
+  echo "  - Large negative Δ(L/R) means that trigger has lower live/raw fraction than the good reference."
+  echo "  - Live/Scal is the effective run-level prescale correction for scaled-trigger histograms."
+  echo
+}
 
 build_pp24_lists() {
   command -v CreateDstList.pl >/dev/null 2>&1 || { echo "[ERROR] CreateDstList.pl not in PATH"; exit 1; }
@@ -1489,6 +2203,16 @@ if [[ -n "$ACTION" && "$ACTION" != "QA" ]]; then
   exit 1
 fi
 
+if [[ -n "$EXTRA_ACTION" && "$EXTRA_ACTION" != "doQUICKcheck" && "$EXTRA_ACTION" != "scaledTriggerAna" ]]; then
+  usage
+  exit 1
+fi
+
+if [[ ( "$EXTRA_ACTION" == "doQUICKcheck" || "$EXTRA_ACTION" == "scaledTriggerAna" ) && ( "$MODE" != "auau" || "$ACTION" != "QA" ) ]]; then
+  usage
+  exit 1
+fi
+
 if [[ "$MODE" == "ALL" ]]; then
   run_all_modes
   exit $?
@@ -1497,7 +2221,13 @@ fi
 setup_mode
 
 if [[ "$ACTION" == "QA" ]]; then
-  run_trigger_qa
+  if [[ "$EXTRA_ACTION" == "doQUICKcheck" ]]; then
+    run_trigger_quickcheck
+  elif [[ "$EXTRA_ACTION" == "scaledTriggerAna" ]]; then
+    run_scaled_trigger_ana
+  else
+    run_trigger_qa
+  fi
   exit 0
 fi
 

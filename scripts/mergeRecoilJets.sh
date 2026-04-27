@@ -202,6 +202,27 @@ USAGE
 
 need_cmd(){ command -v "$1" >/dev/null 2>&1 || { err "Missing command: $1"; exit 3; }; }
 
+final_root_is_good() {
+  local f="$1"
+  [[ -s "$f" ]]
+}
+
+cleanup_current_tmp_dir_after_local_final() {
+  [[ -n "${TMP_DIR:-}" ]] || return 0
+
+  case "$TMP_DIR" in
+    "${BASE}"/tmp_recoil_merge*)
+      if [[ -d "$TMP_DIR" ]]; then
+        say "Cleaning current merge tmp dir: ${TMP_DIR}"
+        rm -rf -- "$TMP_DIR"
+      fi
+      ;;
+    *)
+      warn "Refusing to clean suspicious TMP_DIR: ${TMP_DIR}"
+      ;;
+  esac
+}
+
 # ------------------------ Tag helpers (QA cross-check only) ----------------
 trim_ws() {
   local s="$1"
@@ -1011,6 +1032,7 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simm
   fi
 
   final_paths=()
+  sim_cleanup_partial_dirs=()
 
   for cfg_tag in "${SIM_CFG_TAGS[@]}"; do
 
@@ -1036,27 +1058,78 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simm
           continue
         fi
 
+        say "  [scan] sample=${SIM_SAMPLE}"
+        say "  [scan] input dir: ${SIM_INPUT_DIR}"
+        say "  [scan] discovering candidate ROOT files..."
         mapfile -t SIM_INPUTS_RAW < <(find "$SIM_INPUT_DIR" -maxdepth 1 -type f -name "*.root" -not -name "*_LOCAL_*" -not -name "*_condorTest_*" | sort -V || true)
-        SIM_INPUTS=()
-        SIM_CFG_MISMATCH_COUNT=0
-        SIM_CFG_UNSTAMPED_COUNT=0
-        for _cand in "${SIM_INPUTS_RAW[@]}"; do
-          _cand_tag="$(extract_cfg_tag_from_root "$_cand" 2>/dev/null || true)"
-          if [[ -z "$_cand_tag" ]]; then
-            (( SIM_CFG_UNSTAMPED_COUNT+=1 ))
-            continue
-          fi
-          if [[ "$_cand_tag" != "$cfg_tag" ]]; then
-            (( SIM_CFG_MISMATCH_COUNT+=1 ))
-            continue
-          fi
-          SIM_INPUTS+=( "$_cand" )
-        done
-        if (( SIM_CFG_MISMATCH_COUNT > 0 || SIM_CFG_UNSTAMPED_COUNT > 0 )); then
-          warn "firstRound input filter for cfg=${cfg_tag} sample=${SIM_SAMPLE}: kept=${#SIM_INPUTS[@]} mismatched=${SIM_CFG_MISMATCH_COUNT} unstamped=${SIM_CFG_UNSTAMPED_COUNT}"
+        say "  [scan] raw ROOT files found: ${#SIM_INPUTS_RAW[@]}"
+
+        if (( ${#SIM_INPUTS_RAW[@]} == 0 )); then
+          warn "No raw *.root files found in: $SIM_INPUT_DIR (skipping)"
+          continue
         fi
+
+        say "  [fast-filter] using cfg_tag directory + filename match instead of opening ROOT per file"
+        say "  [fast-filter] required filename token: ${cfg_tag}"
+
+        mapfile -t SIM_INPUTS < <(find "$SIM_INPUT_DIR" -maxdepth 1 -type f -name "*${cfg_tag}*.root" -not -name "*_LOCAL_*" -not -name "*_condorTest_*" | sort -V || true)
+
+        SIM_CFG_FILENAME_MISMATCH_COUNT=$(( ${#SIM_INPUTS_RAW[@]} - ${#SIM_INPUTS[@]} ))
+        say "  [fast-filter] kept=${#SIM_INPUTS[@]} rejected_by_filename=${SIM_CFG_FILENAME_MISMATCH_COUNT}"
+
+        if (( SIM_CFG_FILENAME_MISMATCH_COUNT > 0 )); then
+          warn "Some ROOT files in ${SIM_INPUT_DIR} do not contain cfg_tag in the filename and were excluded."
+          if (( ${MERGE_SIM_FAST_FILTER_VERBOSE:-0} )); then
+            say "  [fast-filter] first rejected filenames:"
+            _nrej=0
+            for _raw in "${SIM_INPUTS_RAW[@]}"; do
+              _matched=0
+              for _keep in "${SIM_INPUTS[@]}"; do
+                if [[ "$_raw" == "$_keep" ]]; then
+                  _matched=1
+                  break
+                fi
+              done
+              if (( !_matched )); then
+                printf "    %s\n" "$(basename "$_raw")"
+                (( _nrej+=1 ))
+              fi
+              (( _nrej >= 10 )) && break
+            done
+          fi
+        fi
+
+        if (( ${MERGE_SIM_ROOT_STAMP_AUDIT:-0} && ${#SIM_INPUTS[@]} > 0 )); then
+          SIM_STAMP_AUDIT_LIMIT="${MERGE_SIM_ROOT_STAMP_AUDIT_LIMIT:-3}"
+          [[ "$SIM_STAMP_AUDIT_LIMIT" =~ ^[0-9]+$ ]] || SIM_STAMP_AUDIT_LIMIT=3
+          (( SIM_STAMP_AUDIT_LIMIT > 0 )) || SIM_STAMP_AUDIT_LIMIT=3
+
+          say "  [stamp-audit] optional QA enabled: checking up to ${SIM_STAMP_AUDIT_LIMIT} kept files"
+          SIM_STAMP_AUDIT_CHECKED=0
+          SIM_STAMP_AUDIT_EMPTY=0
+          SIM_STAMP_AUDIT_MISMATCH=0
+
+          for _cand in "${SIM_INPUTS[@]}"; do
+            (( SIM_STAMP_AUDIT_CHECKED+=1 ))
+            _cand_tag="$(extract_cfg_tag_from_root "$_cand" 2>/dev/null || true)"
+
+            if [[ -z "$_cand_tag" ]]; then
+              (( SIM_STAMP_AUDIT_EMPTY+=1 ))
+            elif [[ "$_cand_tag" != "$cfg_tag" ]]; then
+              (( SIM_STAMP_AUDIT_MISMATCH+=1 ))
+              warn "[stamp-audit] filename-selected file has mismatched ROOT-stamped tag: $(basename "$_cand")"
+              warn "[stamp-audit] expected=${cfg_tag}"
+              warn "[stamp-audit] stamped =${_cand_tag}"
+            fi
+
+            (( SIM_STAMP_AUDIT_CHECKED >= SIM_STAMP_AUDIT_LIMIT )) && break
+          done
+
+          say "  [stamp-audit] checked=${SIM_STAMP_AUDIT_CHECKED} empty=${SIM_STAMP_AUDIT_EMPTY} mismatched=${SIM_STAMP_AUDIT_MISMATCH}"
+        fi
+
         if (( ${#SIM_INPUTS[@]} == 0 )); then
-          warn "No cfg-matching *.root files found in: $SIM_INPUT_DIR (skipping)"
+          warn "No cfg-matching *.root files found by filename in: $SIM_INPUT_DIR (skipping)"
           continue
         fi
 
@@ -1218,10 +1291,15 @@ EOT
           need_cmd hadd
           say "Running secondRound final merge locally (ROOT hadd)…"
           hadd -v 3 -f "$SIM_FINAL" @"$LIST"
-          say "Created ${SIM_FINAL}"
+          if final_root_is_good "$SIM_FINAL"; then
+            say "Created ${SIM_FINAL}"
+            final_paths+=( "$SIM_FINAL" )
+            sim_cleanup_partial_dirs+=( "$DEST_DIR" )
+          else
+            err "Local secondRound did not produce a non-empty final ROOT file: ${SIM_FINAL}"
+            exit 31
+          fi
         fi
-
-        final_paths+=( "$SIM_FINAL" )
       fi
 
       echo
@@ -1262,19 +1340,28 @@ EOT
     say "====================================================================="
   fi
 
-  # Clean up firstRound partial directories so only final merged files remain.
-  # This makes the output directory sftp/rsync-friendly (no chunk subdirs).
-  # Only run after secondRound, and only for cfg tags that actually produced a final file.
-  if [[ "$SIM_ACTION" == "secondRound" ]] && (( ${#final_paths[@]} > 0 )); then
-    say "Cleaning firstRound partial directories from ${FLAT_OUT_DIR}…"
-    for _cleanup_cfg in "${SIM_CFG_TAGS[@]}"; do
-      _partials_dir="${FLAT_OUT_DIR}/${_cleanup_cfg}"
-      if compgen -G "${FLAT_OUT_DIR}/${FINAL_PREFIX}_*_ALL_${_cleanup_cfg}.root" > /dev/null && [[ -d "$_partials_dir" ]]; then
-        rm -rf "$_partials_dir"
-        say "  removed: ${_cleanup_cfg}/"
-      fi
+  # Clean up firstRound partial directories only after LOCAL secondRound success.
+  # Do not clean after Condor final submission; those final jobs may still be pending.
+  if [[ "$SIM_ACTION" == "secondRound" ]] && (( ${#sim_cleanup_partial_dirs[@]} > 0 )); then
+    say "Cleaning firstRound partial directories from ${FLAT_OUT_DIR} after verified local final merge…"
+
+    mapfile -t _sim_cleanup_dirs_unique < <(printf "%s\n" "${sim_cleanup_partial_dirs[@]}" | sort -u)
+    for _partials_dir in "${_sim_cleanup_dirs_unique[@]}"; do
+      case "$_partials_dir" in
+        "${FLAT_OUT_DIR}"/*)
+          if [[ -d "$_partials_dir" ]]; then
+            rm -rf -- "$_partials_dir"
+            say "  removed: ${_partials_dir}"
+          fi
+          ;;
+        *)
+          warn "Refusing to clean suspicious SIM partial dir: ${_partials_dir}"
+          ;;
+      esac
     done
-    say "Done. Only final merged files remain under: ${FLAT_OUT_DIR}"
+
+    say "Done. Only final merged SIM files remain under: ${FLAT_OUT_DIR}"
+    cleanup_current_tmp_dir_after_local_final
   fi
 
   exit 0
@@ -1651,6 +1738,9 @@ if [[ "$MODE" == "addChunks" ]]; then
     fi
   fi
 
+  data_cleanup_slice_dirs=()
+  data_local_final_success=0
+
   for _cfg in "${MERGE_CFG_TAGS[@]}"; do
     if [[ -n "$_cfg" ]]; then
       _partial_dir="${_PERRUN_BASE}/${_cfg}"
@@ -1718,8 +1808,10 @@ EOT
     fi
 
     # Collect partials: prefer sliceMerge files if present, else per-run partials
+    _using_slice_partials=0
     mapfile -t partials < <(ls -1 "${_partial_dir}/sliceMerge_grp"*.root 2>/dev/null | sort -V || true)
     if (( ${#partials[@]} > 0 )); then
+      _using_slice_partials=1
       say "  Using ${#partials[@]} sliceMerge partials (from prior sliceRuns step)"
     else
       mapfile -t partials < <(ls -1 "${_partial_dir}/${PARTIAL_PREFIX}_"*.root 2>/dev/null | sort -V || true)
@@ -1777,10 +1869,45 @@ EOT
     else
       say "Running final merge locally (ROOT hadd)…"
       hadd -v 3 -f "$FINAL" @"$LIST"
-      say "Created ${FINAL}"
+      if final_root_is_good "$FINAL"; then
+        say "Created ${FINAL}"
+        data_local_final_success=1
+        if (( _using_slice_partials )); then
+          data_cleanup_slice_dirs+=( "$_partial_dir" )
+        fi
+      else
+        err "Local addChunks did not produce a non-empty final ROOT file: ${FINAL}"
+        exit 32
+      fi
     fi
     echo
   done
+
+  if ! $PREFER_CONDOR && (( data_local_final_success )); then
+    if (( ${#data_cleanup_slice_dirs[@]} > 0 )); then
+      say "Cleaning DATA sliceMerge intermediates after verified local final merge…"
+
+      mapfile -t _data_cleanup_slice_dirs_unique < <(printf "%s\n" "${data_cleanup_slice_dirs[@]}" | sort -u)
+      for _slice_dir in "${_data_cleanup_slice_dirs_unique[@]}"; do
+        case "$_slice_dir" in
+          "${_PERRUN_BASE}"|"${_PERRUN_BASE}"/*)
+            if compgen -G "${_slice_dir}/sliceMerge_grp*.root" > /dev/null; then
+              find "$_slice_dir" -maxdepth 1 -type f -name "sliceMerge_grp*.root" -delete
+              say "  removed sliceMerge_grp*.root from: ${_slice_dir}"
+            fi
+            ;;
+          *)
+            warn "Refusing to clean suspicious DATA slice dir: ${_slice_dir}"
+            ;;
+        esac
+      done
+
+      say "Done. DATA per-run chunkMerge_run_<run8>.root files were kept."
+    fi
+
+    cleanup_current_tmp_dir_after_local_final
+  fi
+
   exit 0
 fi
 

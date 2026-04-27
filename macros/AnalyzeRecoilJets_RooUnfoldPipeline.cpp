@@ -1,4 +1,67 @@
 #if ARJ_HAVE_ROOUNFOLD
+    inline string RooUnfoldTrimTitlePart(string s)
+    {
+        const size_t first = s.find_first_not_of(" \t");
+        if (first == string::npos) return "";
+        const size_t last = s.find_last_not_of(" \t");
+        return s.substr(first, last - first + 1);
+    }
+
+    inline string RooUnfoldAuAuTriggerTitle(const string& trigger)
+    {
+        if (trigger.find("photon_10_plus_MBD_NS_geq_2_vtx_lt_150") != string::npos)
+        {
+            return "Photon 10 GeV + MBD NS #geq 2, vtx < 150 cm";
+        }
+        if (trigger.find("photon_12_plus_MBD_NS_geq_2_vtx_lt_150") != string::npos)
+        {
+            return "Photon 12 GeV + MBD NS #geq 2, vtx < 150 cm";
+        }
+        if (trigger.find("MBD_NS_geq_2_vtx_lt_150") != string::npos)
+        {
+            return "MBD NS #geq 2, vtx < 150 cm";
+        }
+        return trigger;
+    }
+
+    inline string RooUnfoldCentralityTitle(const Dataset& dsData, const Dataset& dsSim)
+    {
+        string cent = !dsData.centLabel.empty() ? dsData.centLabel : dsSim.centLabel;
+        const string prefix = "Centrality:";
+        const size_t pos = cent.find(prefix);
+        if (pos != string::npos) cent = cent.substr(pos + prefix.size());
+        cent = RooUnfoldTrimTitlePart(cent);
+        if (cent.empty()) return "";
+        return cent + " centrality";
+    }
+
+    inline string RooUnfoldCentralityRange(const Dataset& dsData, const Dataset& dsSim)
+    {
+        string cent = !dsData.centLabel.empty() ? dsData.centLabel : dsSim.centLabel;
+        const string prefix = "Centrality:";
+        const size_t pos = cent.find(prefix);
+        if (pos != string::npos) cent = cent.substr(pos + prefix.size());
+        return RooUnfoldTrimTitlePart(cent);
+    }
+
+    inline string RooUnfoldPhoton1DTitle(const Dataset& dsData,
+                                         const Dataset& dsSim,
+                                         bool withLeakageCorrection)
+    {
+        string title = "N_{#gamma} (p_{T}^{#gamma}), ";
+        title += withLeakageCorrection ? "with leakage correction" : "no leakage correction";
+        title += ", ";
+        title += RooUnfoldAuAuTriggerTitle(dsData.trigger.empty() ? kTriggerAuAuGold : dsData.trigger);
+
+        const string cent = RooUnfoldCentralityTitle(dsData, dsSim);
+        if (!cent.empty())
+        {
+            title += ", ";
+            title += cent;
+        }
+        return title;
+    }
+
     // =============================================================================
     // Section 5I: RooUnfold pipeline (SIM+DATA PP only)
     //   - Unfold N_{#gamma}(pT^{#gamma}) using SIM photon response
@@ -3050,7 +3113,7 @@
                 if (truthUFHi > truthMin && truthUFHi < truthMax) lTruthUF2.Draw("same");
                 if (truthOFLo > truthMin && truthOFLo < truthMax) lTruthOF.Draw("same");
                 
-                DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
+                DrawLatexLines(0.14,0.985, DefaultHeaderLines(dsSim), 0.034, 0.045);
                 DrawLatexLines(0.14,0.88, { "SIM photon response (transpose)", "reco #rightarrow truth axis order" }, 0.030, 0.040);
                 DrawLatexLines(0.52,0.36,
                                {
@@ -3340,7 +3403,7 @@
                         leg.Draw();
                         
                         DrawLatexLines(0.14,0.92,
-                                       { "Photon 1D Unfolding, N_{#gamma}(p_{T}^{#gamma}), Photon 4 GeV + MBD NS #geq 1" },
+                                       { RooUnfoldPhoton1DTitle(dsData, dsSim, gApplyPurityCorrectionForUnfolding) },
                                        0.034, 0.045);
                         
                         pBot->cd();
@@ -4722,7 +4785,7 @@
                 if (truthUFHi > truthMin) lTruthUF2.Draw("same");
                 if (truthOFLo > truthMin) lTruthOF.Draw("same");
                 
-                DrawLatexLines(0.14,0.95, DefaultHeaderLines(dsSim), 0.034, 0.045);
+                DrawLatexLines(0.14,0.985, DefaultHeaderLines(dsSim), 0.034, 0.045);
                 DrawLatexLines(0.52,0.36,
                                {
                     "UF / OF support bins:",
@@ -4859,7 +4922,7 @@
                     leg.Draw();
                     
                     DrawLatexLines(0.14,0.92,
-                                   { "Photon 1D Unfolding, N_{#gamma}(p_{T}^{#gamma}), Photon 4 GeV + MBD NS #geq 1" },
+                                   { RooUnfoldPhoton1DTitle(dsData, dsSim, gApplyPurityCorrectionForUnfolding) },
                                    0.034, 0.045);
                     
                     pBot->cd();
@@ -6929,7 +6992,7 @@
                         if (truthUFHi > truthMin && truthUFHi < truthMax) lTruthUF2.Draw("same");
                         if (truthOFLo > truthMin && truthOFLo < truthMax) lTruthOF.Draw("same");
                         
-                        DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
+                        DrawLatexLines(0.14,0.985, DefaultHeaderLines(dsSim), 0.034, 0.045);
                         DrawLatexLines(0.14,0.88, { "SIM photon response (transpose)", "reco #rightarrow truth axis order" }, 0.030, 0.040);
                         DrawLatexLines(0.52,0.36,
                                        {
@@ -7219,7 +7282,7 @@
                                 leg.Draw();
                                 
                                 DrawLatexLines(0.14,0.92,
-                                               { "Photon 1D Unfolding, N_{#gamma}(p_{T}^{#gamma}), Photon 4 GeV + MBD NS #geq 1" },
+                                               { RooUnfoldPhoton1DTitle(dsData, dsSim, gApplyPurityCorrectionForUnfolding) },
                                                0.034, 0.045);
                                 
                                 pBot->cd();
@@ -8294,7 +8357,7 @@
                         if (truthUFHi > truthMin) lTruthUF2.Draw("same");
                         if (truthOFLo > truthMin) lTruthOF.Draw("same");
                         
-                        DrawLatexLines(0.14,0.92, DefaultHeaderLines(dsSim), 0.034, 0.045);
+                        DrawLatexLines(0.14,0.985, DefaultHeaderLines(dsSim), 0.034, 0.045);
                         DrawLatexLines(0.14,0.88, { "SIM photon response (transpose)", "reco #rightarrow truth axis order" }, 0.030, 0.040);
                         DrawLatexLines(0.52,0.36,
                                        {
@@ -8432,7 +8495,7 @@
                             leg.Draw();
                             
                             DrawLatexLines(0.14,0.92,
-                                           { "Photon 1D Unfolding, N_{#gamma}(p_{T}^{#gamma}), Photon 4 GeV + MBD NS #geq 1" },
+                                           { RooUnfoldPhoton1DTitle(dsData, dsSim, gApplyPurityCorrectionForUnfolding) },
                                            0.034, 0.045);
                             
                             pBot->cd();
@@ -10109,20 +10172,16 @@
                     hScat->Draw("COLZ");
                     
                     {
-                        TString simMergeLabel;
-                        if      (allPhoton5and10and20sim) simMergeLabel = "Photon 5+10+20 GeV";
-                        else if (bothPhoton5and10sim)     simMergeLabel = "Photon 5+10 GeV";
-                        else if (bothPhoton5and20sim)     simMergeLabel = "Photon 5+20 GeV";
-                        else if (bothPhoton10and20sim)    simMergeLabel = "Photon 10+20 GeV";
-                        else                              simMergeLabel = "Photon";
-                        
+                        const string centRange = RooUnfoldCentralityRange(dsData, dsSim);
+                        string title = TString::Format("2D Response Matrix, R = %.1f", R).Data();
+                        if (!centRange.empty()) title += ", " + centRange;
+
                         TLatex tx;
                         tx.SetNDC();
                         tx.SetTextFont(42);
                         tx.SetTextAlign(22);
                         tx.SetTextSize(0.040);
-                        tx.DrawLatex(0.50, 0.965,
-                                     TString::Format("2D Response Matrix, %s, R = %.1f", simMergeLabel.Data(), R).Data());
+                        tx.DrawLatex(0.50, 0.965, title.c_str());
                     }
                     
                     SaveCanvas(c, JoinPath(rOut, "unfold_response_globalTruth_vs_globalReco_SCAT.png"));
@@ -11254,13 +11313,16 @@
                     
                     // Centered title (replaces the old TLatex header lines)
                     {
+                        const string centRange = RooUnfoldCentralityRange(dsData, dsSim);
+                        string title = TString::Format("Closure test, unfold(reco) #rightarrow truth, R = %.1f", R).Data();
+                        if (!centRange.empty()) title += ", " + centRange;
+
                         TLatex tx;
                         tx.SetNDC();
                         tx.SetTextFont(42);
                         tx.SetTextAlign(22);
                         tx.SetTextSize(0.040);
-                        tx.DrawLatex(0.50, 0.965,
-                                     TString::Format("Closure test, unfold(reco) #rightarrow truth, R = %.1f", R).Data());
+                        tx.DrawLatex(0.50, 0.965, title.c_str());
                     }
                     
                     // Top-left Bayes annotation (moved up/left)
@@ -11561,13 +11623,16 @@
                             
                             // Centered title
                             {
+                                const string centRange = RooUnfoldCentralityRange(dsData, dsSim);
+                                string title = TString::Format("Half-closure test, train(A) unfold(B), R = %.1f", R).Data();
+                                if (!centRange.empty()) title += ", " + centRange;
+
                                 TLatex tx;
                                 tx.SetNDC();
                                 tx.SetTextFont(42);
                                 tx.SetTextAlign(22);
                                 tx.SetTextSize(0.040);
-                                tx.DrawLatex(0.50, 0.965,
-                                             TString::Format("Half-closure test, train(A) unfold(B), R = %.1f", R).Data());
+                                tx.DrawLatex(0.50, 0.965, title.c_str());
                             }
                             
                             // Top-left Bayes annotation

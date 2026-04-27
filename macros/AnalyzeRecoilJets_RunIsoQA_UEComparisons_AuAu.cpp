@@ -217,14 +217,17 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
     {
         if (fPP) { fPP->Close(); delete fPP; fPP = nullptr; }
         cout << ANSI_BOLD_YEL
-        << "[WARN] Missing PP reference input for UE comparisons: "
+        << "[WARN] Missing PP reference input for UE comparisons; pp-data overlays will be skipped: "
         << InputPP(isRun25pp)
         << ANSI_RESET << "\n";
-        return;
     }
     
-    TDirectory* ppTop = fPP->GetDirectory(kTriggerPP.c_str());
-    if (!ppTop) ppTop = fPP;
+    TDirectory* ppTop = nullptr;
+    if (fPP)
+    {
+        ppTop = fPP->GetDirectory(kTriggerPP.c_str());
+        if (!ppTop) ppTop = fPP;
+    }
     
     // pp photonJet20 SIM file (always open, independent of sim toggles)
     TFile* fPPSim510_20 = nullptr;
@@ -253,6 +256,226 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
             else { if (fPPSimMerged) { fPPSimMerged->Close(); delete fPPSimMerged; fPPSimMerged = nullptr; } }
         }
     }
+    
+    auto DrawStandalonePPMergedIsoCutFitsEarly = [&]() -> void
+    {
+        if (!generateISOpTcentOverlaysONLY) return;
+        
+        if (!ppSimMergedTop)
+        {
+            cout << ANSI_BOLD_YEL
+            << "[WARN] Missing pp 5+10+20 merged SIM input; cannot write ppg12Style_isoCutEfficiencyFits_ppMerged.png"
+            << ANSI_RESET << "\n";
+            return;
+        }
+        
+        auto FindEfficiencyCutPPMerged = [&](TH1* hIn, double eff, double& cut, double& cutErr) -> bool
+        {
+            cut = 0.0;
+            cutErr = 0.0;
+            if (!hIn) return false;
+            
+            const int nb = hIn->GetNbinsX();
+            const double total = hIn->Integral(1, nb);
+            if (!(total > 0.0)) return false;
+            
+            double running = 0.0;
+            int ibCut = nb;
+            for (int ib = 1; ib <= nb; ++ib)
+            {
+                running += hIn->GetBinContent(ib);
+                if ((running / total) >= eff)
+                {
+                    ibCut = ib;
+                    break;
+                }
+            }
+            
+            const double binLo = hIn->GetXaxis()->GetBinLowEdge(ibCut);
+            const double binHi = hIn->GetXaxis()->GetBinUpEdge(ibCut);
+            const double prev = running - hIn->GetBinContent(ibCut);
+            const double binC = hIn->GetBinContent(ibCut);
+            const double target = eff * total;
+            
+            if (binC > 0.0)
+            {
+                const double frac = std::min(1.0, std::max(0.0, (target - prev) / binC));
+                cut = binLo + frac * (binHi - binLo);
+            }
+            else
+            {
+                cut = 0.5 * (binLo + binHi);
+            }
+            
+            cutErr = 0.5 * (binHi - binLo);
+            return std::isfinite(cut);
+        };
+        
+        vector<double> xPPM, exPPM, y90M, ey90M, y80M, ey80M, y70M, ey70M;
+        double yMinM = std::numeric_limits<double>::max();
+        double yMaxM = -std::numeric_limits<double>::max();
+        
+        for (int ipt = 1; ipt < kNPtBins; ++ipt)
+        {
+            const PtBin& b = PtBins()[ipt];
+            const string hName = "h_EisoReco_truthSigMatched" + b.suffix;
+            TH1* hSig = dynamic_cast<TH1*>(ppSimMergedTop->Get(hName.c_str()));
+            if (!hSig || hSig->GetEntries() <= 0.0) continue;
+            
+            double c70 = 0.0, e70 = 0.0;
+            double c80 = 0.0, e80 = 0.0;
+            double c90 = 0.0, e90 = 0.0;
+            
+            if (!FindEfficiencyCutPPMerged(hSig, 0.70, c70, e70)) continue;
+            if (!FindEfficiencyCutPPMerged(hSig, 0.80, c80, e80)) continue;
+            if (!FindEfficiencyCutPPMerged(hSig, 0.90, c90, e90)) continue;
+            
+            xPPM.push_back(0.5 * (kPtEdges[(std::size_t)ipt] + kPtEdges[(std::size_t)ipt + 1]));
+            exPPM.push_back(0.0);
+            y90M.push_back(c90); ey90M.push_back(e90);
+            y80M.push_back(c80); ey80M.push_back(e80);
+            y70M.push_back(c70); ey70M.push_back(e70);
+            
+            yMinM = std::min(yMinM, std::min(c70 - e70, std::min(c80 - e80, c90 - e90)));
+            yMaxM = std::max(yMaxM, std::max(c70 + e70, std::max(c80 + e80, c90 + e90)));
+        }
+        
+        if (xPPM.empty())
+        {
+            cout << ANSI_BOLD_YEL
+            << "[WARN] pp merged SIM has no usable h_EisoReco_truthSigMatched pT bins for ppg12Style_isoCutEfficiencyFits_ppMerged.png"
+            << ANSI_RESET << "\n";
+            return;
+        }
+        
+        if (!std::isfinite(yMinM) || !std::isfinite(yMaxM))
+        {
+            yMinM = 0.0;
+            yMaxM = 1.0;
+        }
+        
+        const double padM = (yMaxM > yMinM) ? (1.2 * (yMaxM - yMinM)) : 0.25;
+        
+        TGraphErrors gM90((int)xPPM.size(), &xPPM[0], &y90M[0], &exPPM[0], &ey90M[0]);
+        TGraphErrors gM80((int)xPPM.size(), &xPPM[0], &y80M[0], &exPPM[0], &ey80M[0]);
+        TGraphErrors gM70((int)xPPM.size(), &xPPM[0], &y70M[0], &exPPM[0], &ey70M[0]);
+        
+        auto StyleMergedEffGraph = [](TGraphErrors& g, int color, int marker)
+        {
+            g.SetLineWidth(2);
+            g.SetLineColor(color);
+            g.SetMarkerColor(color);
+            g.SetMarkerStyle(marker);
+            g.SetMarkerSize(1.2);
+        };
+        
+        StyleMergedEffGraph(gM90, kMagenta + 1, 20);
+        StyleMergedEffGraph(gM80, kGreen + 2,   21);
+        StyleMergedEffGraph(gM70, kBlue + 1,    22);
+        
+        const double fitXLoM = kPtEdges[1];
+        const double fitXHiM = kPtEdges.back();
+        TF1 fM90("fM90_ppMerged_early", "pol1", fitXLoM, fitXHiM);
+        TF1 fM80("fM80_ppMerged_early", "pol1", fitXLoM, fitXHiM);
+        TF1 fM70("fM70_ppMerged_early", "pol1", fitXLoM, fitXHiM);
+        fM90.SetLineColor(kMagenta + 1); fM90.SetLineWidth(3);
+        fM80.SetLineColor(kGreen + 2);   fM80.SetLineWidth(3);
+        fM70.SetLineColor(kBlue + 1);    fM70.SetLineWidth(3);
+        
+        for (const auto& trigAAForPPMerged : kTriggersAuAu)
+        {
+            const string baseVariantPtSummaryDir =
+            JoinPath(JoinPath(JoinPath(JoinPath(outRoot, trigAAForPPMerged),
+                                       "isoQA/UEcomparisons"),
+                              "pTsummaryPerCentrality"),
+                     "baseVariant");
+            EnsureDir(baseVariantPtSummaryDir);
+            
+            TCanvas cPPM(
+                         TString::Format("c_ppg12IsoCutFits_ppMerged_early_%s", trigAAForPPMerged.c_str()).Data(),
+                         "c_ppg12IsoCutFits_ppMerged_early", 900, 700
+                         );
+            ApplyCanvasMargins1D(cPPM);
+            cPPM.SetTopMargin(0.10);
+            cPPM.cd();
+            
+            TH1F hFrM(
+                      TString::Format("hFrM_ppMerged_early_%s", trigAAForPPMerged.c_str()).Data(),
+                      "", 100, kPtEdges[1], kPtEdges[kNPtBins]
+                      );
+            hFrM.SetDirectory(nullptr);
+            hFrM.SetStats(0);
+            hFrM.SetMinimum(std::max(0.0, yMinM - padM));
+            hFrM.SetMaximum(yMaxM + padM);
+            hFrM.GetXaxis()->SetTitle("Cluster p_{T} [GeV]");
+            hFrM.GetYaxis()->SetTitle("E_{T}^{iso} Cutoff [GeV]");
+            hFrM.GetXaxis()->SetTitleSize(0.060);
+            hFrM.GetYaxis()->SetTitleSize(0.060);
+            hFrM.GetXaxis()->SetLabelSize(0.050);
+            hFrM.GetYaxis()->SetLabelSize(0.050);
+            hFrM.GetYaxis()->SetTitleOffset(1.05);
+            hFrM.Draw();
+            
+            gM90.Draw("PE1 SAME");
+            gM80.Draw("PE1 SAME");
+            gM70.Draw("PE1 SAME");
+            
+            if (gM90.GetN() >= 2) { gM90.Fit(&fM90, "Q0"); fM90.Draw("SAME"); }
+            if (gM80.GetN() >= 2) { gM80.Fit(&fM80, "Q0"); fM80.Draw("SAME"); }
+            if (gM70.GetN() >= 2) { gM70.Fit(&fM70, "Q0"); fM70.Draw("SAME"); }
+            
+            TLegend legM(0.50, 0.62, 0.92, 0.78);
+            legM.SetBorderSize(0);
+            legM.SetFillStyle(0);
+            legM.SetTextFont(42);
+            legM.SetTextSize(0.030);
+            legM.AddEntry(&gM90, "90% Efficiency", "ep");
+            legM.AddEntry(&gM80, "80% Efficiency", "ep");
+            legM.AddEntry(&gM70, "70% Efficiency", "ep");
+            legM.Draw();
+            
+            TLatex tInfoM;
+            tInfoM.SetNDC(true);
+            tInfoM.SetTextFont(42);
+            tInfoM.SetTextAlign(13);
+            tInfoM.SetTextSize(0.030);
+            tInfoM.DrawLatex(0.18, 0.88, "Pythia 5+10+20 merged,  #sqrt{s} = 200 GeV");
+            if (gM90.GetN() >= 2)
+                tInfoM.DrawLatex(0.18, 0.83,
+                                 TString::Format("90%%: E_{T}^{iso} = %.3f  + %.3fp_{T}", fM90.GetParameter(0), fM90.GetParameter(1)).Data());
+            if (gM80.GetN() >= 2)
+                tInfoM.DrawLatex(0.18, 0.78,
+                                 TString::Format("80%%: E_{T}^{iso} = %.3f  + %.3fp_{T}", fM80.GetParameter(0), fM80.GetParameter(1)).Data());
+            if (gM70.GetN() >= 2)
+                tInfoM.DrawLatex(0.18, 0.73,
+                                 TString::Format("70%%: E_{T}^{iso} = %.3f  + %.3fp_{T}", fM70.GetParameter(0), fM70.GetParameter(1)).Data());
+            tInfoM.DrawLatex(0.18, 0.68,
+                             TString::Format("|v_{z}| < %d cm, |#eta^{#gamma}| < %.1f, #DeltaR_{cone} < %.1f",
+                                             kVzCut, kPhotonEtaAbsMax, (kIsoConeR == "isoR40") ? 0.4 : 0.3).Data());
+            
+            TLatex tTitleM;
+            tTitleM.SetNDC(true);
+            tTitleM.SetTextFont(42);
+            tTitleM.SetTextAlign(23);
+            tTitleM.SetTextSize(0.042);
+            tTitleM.DrawLatex(0.50, 0.98, "PPG12-style E_{T}^{iso} cutoff fits, pp merged SIM");
+            
+            TLatex tSphM;
+            tSphM.SetNDC(true);
+            tSphM.SetTextFont(42);
+            tSphM.SetTextAlign(33);
+            tSphM.SetTextSize(0.042);
+            tSphM.DrawLatex(0.92, 0.88, "#bf{sPHENIX} #it{Internal}");
+            tSphM.SetTextSize(0.034);
+            tSphM.DrawLatex(0.92, 0.83, "Pythia  #sqrt{s} = 200 GeV");
+            
+            const string savePath = JoinPath(baseVariantPtSummaryDir, "ppg12Style_isoCutEfficiencyFits_ppMerged.png");
+            SaveCanvas(cPPM, savePath);
+            cout << ANSI_BOLD_GRN << "[WROTE] " << savePath << ANSI_RESET << "\n";
+        }
+    };
+    
+    DrawStandalonePPMergedIsoCutFitsEarly();
     
     auto CountEmbeddedSelection = [](bool a, bool b, bool c) -> int
     {
@@ -1274,41 +1497,44 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                     const string hPPName = "h_Eiso" + b.suffix;
                     const string hAAName = "h_Eiso" + b.suffix + cb.suffix;
                     
-                    TH1* hPPsrc = dynamic_cast<TH1*>(ppTop->Get(hPPName.c_str()));
+                    TH1* hPPsrc = ppTop ? dynamic_cast<TH1*>(ppTop->Get(hPPName.c_str())) : nullptr;
                     TH1* hAAsrc = dynamic_cast<TH1*>(aaTop->Get(hAAName.c_str()));
-                    if (!hPPsrc || !hAAsrc) continue;
+                    if (!hAAsrc) continue;
                     
-                    TH1* hPP = CloneTH1(
-                                        hPPsrc,
-                                        TString::Format("hPP_isoOverlay_%s_%s_%s",
-                                                        trigAA.c_str(), cb.folder.c_str(), b.folder.c_str()).Data()
-                                        );
+                    TH1* hPP = hPPsrc ? CloneTH1(
+                                                        hPPsrc,
+                                                        TString::Format("hPP_isoOverlay_%s_%s_%s",
+                                                                        trigAA.c_str(), cb.folder.c_str(), b.folder.c_str()).Data()
+                                                        ) : nullptr;
                     TH1* hAA = CloneTH1(
                                         hAAsrc,
                                         TString::Format("hAA_isoOverlay_%s_%s_%s_%s",
                                                         trigAA.c_str(), H.variant.c_str(), cb.folder.c_str(), b.folder.c_str()).Data()
                                         );
                     
-                    if (!hPP || !hAA)
+                    if (!hAA)
                     {
                         if (hPP) delete hPP;
-                        if (hAA) delete hAA;
                         continue;
                     }
                     
-                    EnsureSumw2(hPP);
+                    if (hPP) EnsureSumw2(hPP);
                     EnsureSumw2(hAA);
                     
-                    xPt.push_back(0.5 * (kPtEdges[(std::size_t)ipt] + kPtEdges[(std::size_t)ipt + 1]));
-                    exPt.push_back(0.5 * (kPtEdges[(std::size_t)ipt + 1] - kPtEdges[(std::size_t)ipt]));
-                    yPP.push_back(hPP->GetMean());
-                    yAA.push_back(hAA->GetMean());
-                    eyPP.push_back((hPP->GetEntries() > 0.0) ? (hPP->GetRMS() / std::sqrt(hPP->GetEntries())) : 0.0);
-                    eyAA.push_back((hAA->GetEntries() > 0.0) ? (hAA->GetRMS() / std::sqrt(hAA->GetEntries())) : 0.0);
+                    if (hPP)
+                    {
+                        xPt.push_back(0.5 * (kPtEdges[(std::size_t)ipt] + kPtEdges[(std::size_t)ipt + 1]));
+                        exPt.push_back(0.5 * (kPtEdges[(std::size_t)ipt + 1] - kPtEdges[(std::size_t)ipt]));
+                        yPP.push_back(hPP->GetMean());
+                        yAA.push_back(hAA->GetMean());
+                        eyPP.push_back((hPP->GetEntries() > 0.0) ? (hPP->GetRMS() / std::sqrt(hPP->GetEntries())) : 0.0);
+                        eyAA.push_back((hAA->GetEntries() > 0.0) ? (hAA->GetRMS() / std::sqrt(hAA->GetEntries())) : 0.0);
+                        
+                        vsCent_yPP[ipt][ic]  = hPP->GetMean();
+                        vsCent_eyPP[ipt][ic] = (hPP->GetEntries() > 0.0) ? (hPP->GetRMS() / std::sqrt(hPP->GetEntries())) : 0.0;
+                    }
                     
                     // accumulate for vs-centrality plot
-                    vsCent_yPP[ipt][ic]  = hPP->GetMean();
-                    vsCent_eyPP[ipt][ic] = (hPP->GetEntries() > 0.0) ? (hPP->GetRMS() / std::sqrt(hPP->GetEntries())) : 0.0;
                     vsCent_yAA[ipt][ic]  = hAA->GetMean();
                     vsCent_eyAA[ipt][ic] = (hAA->GetEntries() > 0.0) ? (hAA->GetRMS() / std::sqrt(hAA->GetEntries())) : 0.0;
                     vsCent_filled[ipt][ic] = true;
@@ -1402,9 +1628,9 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         }
                     }
                     
-                    if (generateISOpTcentOverlaysONLY)
+                    if (generateISOpTcentOverlaysONLY || !hPP)
                     {
-                        delete hPP;
+                        if (hPP) delete hPP;
                         delete hAA;
                         continue;  // skip detail plots, keep accumulation
                     }
@@ -1933,6 +2159,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                         // helper: merge histograms from a TDirectory by summing bins
                         auto MergeHists = [&](TDirectory* dir, const string& baseName, const string& centSuffix, const string& cloneName) -> TH1*
                         {
+                            if (!dir) return nullptr;
+                            
                             TH1* hSum = nullptr;
                             for (int ip : mergeBins)
                             {
@@ -6347,7 +6575,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                                         tInfoM.DrawLatex(0.18, 0.73,
                                                          TString::Format("70%%: E_{T}^{iso} = %.3f  + %.3fp_{T}", fM70.GetParameter(0), fM70.GetParameter(1)).Data());
                                     tInfoM.DrawLatex(0.18, 0.68,
-                                                     TString::Format("vtx |z| < %d cm, |#eta^{#gamma}|<%.1f", kAA_VzCut, kPhotonEtaAbsMax).Data());
+                                                     TString::Format("|v_{z}| < %d cm, |#eta^{#gamma}| < %.1f, #DeltaR_{cone} < %.1f",
+                                                                     kVzCut, kPhotonEtaAbsMax, (kIsoConeR == "isoR40") ? 0.4 : 0.3).Data());
                                     
                                     {
                                         TLatex tSph;
