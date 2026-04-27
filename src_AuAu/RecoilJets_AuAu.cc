@@ -2492,9 +2492,9 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
                         
                         const std::vector<std::pair<std::string, int> > scaledTrigHistBits =
                         {
-                            {"MBD_NS_geq_2_vtx_lt_150", m_mbdGeq2VtxLt150Bit},
-                            {"Photon_10",               m_photon10Bit},
-                            {"Photon_12",               m_photon12Bit}
+                            {"MBD_NS_geq_2_vtx_lt_150", 14},
+                            {"Photon_10",               22},
+                            {"Photon_12",               23}
                         };
                         
                         for (const auto& histBit : scaledTrigHistBits)
