@@ -2182,7 +2182,6 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             if (vlevel > 0) std::cout << "building minbias classifier" << std::endl;
             auto* mb = new MinimumBiasClassifier();
             mb->Verbosity(0);
-            mb->set_mbd_total_charge_cut(2100);
             se->registerSubsystem(mb);
         }
         else if (vlevel > 0)
