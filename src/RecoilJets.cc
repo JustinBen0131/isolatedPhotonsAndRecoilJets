@@ -135,6 +135,74 @@ namespace
     return (etaMax > 0.0 ? etaMax : 0.0);
   }
 
+  constexpr double kPPG12PreWetaAbsMax = 2.0;
+  constexpr double kPPG12PreEt1Min = 0.6;
+  constexpr double kPPG12PreEt1Max = 1.0;
+  constexpr double kPPG12PreE11E33Min = 0.0;
+  constexpr double kPPG12PreE11E33Max = 0.98;
+  constexpr double kPPG12PreE32E35Min = 0.8;
+  constexpr double kPPG12PreE32E35Max = 1.0;
+
+  constexpr double kPPG12TightBDTMinIntercept = 0.8333333333333334;
+  constexpr double kPPG12TightBDTMinSlope = -0.003333333333333336;
+  constexpr double kPPG12TightBDTMax = 1.0;
+
+  constexpr double kPPG12NonTightBDTMinIntercept = 0.7333333333333333;
+  constexpr double kPPG12NonTightBDTMinSlope = -0.01333333333333333;
+  constexpr double kPPG12NonTightBDTMaxIntercept = 0.6666666666666666;
+  constexpr double kPPG12NonTightBDTMaxSlope = 0.003333333333333336;
+
+  inline double ppg12TightBDTMin(const double et)
+  {
+    return kPPG12TightBDTMinIntercept + kPPG12TightBDTMinSlope * et;
+  }
+
+  inline double ppg12NonTightBDTMin(const double et)
+  {
+    return kPPG12NonTightBDTMinIntercept + kPPG12NonTightBDTMinSlope * et;
+  }
+
+  inline double ppg12NonTightBDTMax(const double et)
+  {
+    return kPPG12NonTightBDTMaxIntercept + kPPG12NonTightBDTMaxSlope * et;
+  }
+
+  inline bool ppg12TightBDTPass(const double score, const double et)
+  {
+    const double min = ppg12TightBDTMin(et);
+    return (et > 7.0) &&
+           std::isfinite(score) &&
+           std::isfinite(min) &&
+           (score > min) &&
+           (score < kPPG12TightBDTMax);
+  }
+
+  inline bool ppg12NonTightBDTPass(const double score, const double et)
+  {
+    const double min = ppg12NonTightBDTMin(et);
+    const double max = ppg12NonTightBDTMax(et);
+    return (et > 7.0) &&
+           std::isfinite(score) &&
+           std::isfinite(min) &&
+           std::isfinite(max) &&
+           (score > min) &&
+           (score < max);
+  }
+
+  inline RecoilJets::TightTag ppg12VariantABDTTag(const double score,
+                                                  const double et,
+                                                  const std::string& nonTightVariant)
+  {
+    if (ppg12TightBDTPass(score, et)) return RecoilJets::TightTag::kTight;
+    if (nonTightVariant == "variantA")
+    {
+      return ppg12NonTightBDTPass(score, et)
+        ? RecoilJets::TightTag::kNonTight
+        : RecoilJets::TightTag::kNeither;
+    }
+    return RecoilJets::TightTag::kNonTight;
+  }
+
   struct DoNotScalePairConfig
   {
     uint64_t runMin;
@@ -5648,7 +5716,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                         {
                             std::ostringstream msg;
                             msg << "      [pho#" << iPho << "] preselection FAIL"
-                                << " | variant=variantA(NPB)"
+                                << " | variant=variantA(PPG12 common + NPB)"
                                 << " | npb_score=" << std::fixed << std::setprecision(4) << v.npb_score
                                 << " | cut:>" << m_npbCut
                                 << " | pT^{#gamma}=" << std::fixed << std::setprecision(2) << v.pt_gamma;
@@ -5740,7 +5808,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                     msg << "      [pho#" << iPho << "] preselection PASS";
                     if (m_preselectionVariant == "variantA")
                     {
-                        msg << " | variant=variantA(NPB)"
+                        msg << " | variant=variantA(PPG12 common + NPB)"
                             << " | npb_score=" << std::fixed << std::setprecision(4) << v.npb_score
                             << " | cut:>" << m_npbCut;
                     }
@@ -5776,22 +5844,21 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 RecoilJets::TightTag tightTag;
                 if (m_tightVariant == "variantA")
                 {
-                    const double tight_min = m_tightBDTMinIntercept + m_tightBDTMinSlope * v.pt_gamma;
-                    const bool pass_tight_bdt =
-                        (v.pt_gamma > 7.0) &&
-                        std::isfinite(v.tight_bdt_score) &&
-                        std::isfinite(tight_min) &&
-                        (v.tight_bdt_score > tight_min) &&
-                        (v.tight_bdt_score < m_tightBDTMax);
-                    
-                    tightTag = pass_tight_bdt ? TightTag::kTight : TightTag::kNonTight;
-                    
+                    const double tight_min = ppg12TightBDTMin(v.pt_gamma);
+                    const double non_tight_min = ppg12NonTightBDTMin(v.pt_gamma);
+                    const double non_tight_max = ppg12NonTightBDTMax(v.pt_gamma);
+                    const bool pass_tight_bdt = ppg12TightBDTPass(v.tight_bdt_score, v.pt_gamma);
+                    const bool pass_non_tight_bdt = ppg12NonTightBDTPass(v.tight_bdt_score, v.pt_gamma);
+
+                    tightTag = ppg12VariantABDTTag(v.tight_bdt_score, v.pt_gamma, m_nonTightVariant);
+
                     if (tightTag == TightTag::kTight) ++m_bk.tight_tight;
-                    else                              ++m_bk.tight_nonTight;
+                    else if (tightTag == TightTag::kNonTight) ++m_bk.tight_nonTight;
+                    else ++m_bk.tight_neither;
                     
                     for (const auto& trigShort : activeTrig)
                     {
-                        if (!pass_tight_bdt)
+                        if (tightTag != TightTag::kTight)
                         {
                             if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_bdt", ptIdx, effCentIdx_SS))
                             {
@@ -5805,12 +5872,14 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                     {
                         std::ostringstream msg;
                         msg << "      [pho#" << iPho << "] tight classification"
-                            << " | variant=variantA(TightBDT)"
+                            << " | variant=variantA(PPG12 BDT)"
                             << " | tight_bdt_score=" << std::fixed << std::setprecision(4) << v.tight_bdt_score
-                            << " | min=" << (m_tightBDTMinIntercept + m_tightBDTMinSlope * v.pt_gamma)
-                            << " | max=" << m_tightBDTMax
+                            << " | tight=(" << tight_min << "," << kPPG12TightBDTMax << ") pass=" << pass_tight_bdt
+                            << " | nonTight=(" << non_tight_min << "," << non_tight_max << ") pass=" << pass_non_tight_bdt
+                            << " | nonTightVariant=" << m_nonTightVariant
                             << " | tag=" << tightTagName(tightTag);
-                        LOG(4, (tightTag == TightTag::kTight ? CLR_RED : CLR_GREEN), msg.str());
+                        LOG(4, (tightTag == TightTag::kTight ? CLR_RED :
+                                (tightTag == TightTag::kNonTight ? CLR_GREEN : CLR_YELLOW)), msg.str());
                     }
                 }
                 else
@@ -6793,6 +6862,10 @@ bool RecoilJets::passesPhotonPreselection(const SSVars& v)
   {
     const bool ok_vals =
       std::isfinite(v.npb_score) &&
+      std::isfinite(v.weta_cogx) &&
+      std::isfinite(v.et1) &&
+      std::isfinite(v.e11_over_e33) &&
+      std::isfinite(v.e32_over_e35) &&
       std::isfinite(v.pt_gamma);
 
     const bool in_npb_phase_space = (v.pt_gamma >= 6.0 && v.pt_gamma <= 40.0);
@@ -6802,39 +6875,64 @@ bool RecoilJets::passesPhotonPreselection(const SSVars& v)
       LOG(2, CLR_YELLOW,
           "  [passesPhotonPreselection] invalid NPB score/phase-space: "
           << "npb_score=" << v.npb_score
+          << " weta=" << v.weta_cogx
+          << " et1=" << v.et1
+          << " e11/e33=" << v.e11_over_e33
+          << " e32/e35=" << v.e32_over_e35
           << " pT^γ=" << v.pt_gamma
           << " required 6<=pT^γ<=40");
       return false;
     }
 
     const bool pass_npb = (v.npb_score > m_npbCut);
+    const bool pass_weta   = (std::abs(v.weta_cogx) < kPPG12PreWetaAbsMax);
+    const bool pass_et1    = in_open_interval(v.et1, kPPG12PreEt1Min, kPPG12PreEt1Max);
+    const bool pass_e11e33 = in_open_interval(v.e11_over_e33, kPPG12PreE11E33Min, kPPG12PreE11E33Max);
+    const bool pass_e32e35 = in_open_interval(v.e32_over_e35, kPPG12PreE32E35Min, kPPG12PreE32E35Max);
+    const bool pass_all = pass_npb && pass_weta && pass_et1 && pass_e11e33 && pass_e32e35;
 
     if (Verbosity() >= 5)
     {
       LOG(5, CLR_BLUE,
-          "  [passesPhotonPreselection] variant=variantA(NPB)"
+          "  [passesPhotonPreselection] variant=variantA(PPG12 common + NPB)"
           << " | npb_score=" << v.npb_score
-          << " | cut:>" << m_npbCut
-          << " → " << pass_npb);
+          << " cut:>" << m_npbCut << " → " << pass_npb
+          << " | |weta|=" << std::abs(v.weta_cogx)
+          << " cut:<" << kPPG12PreWetaAbsMax << " → " << pass_weta
+          << " | et1=" << v.et1
+          << " cut:(" << kPPG12PreEt1Min << "," << kPPG12PreEt1Max << ") → " << pass_et1
+          << " | e11/e33=" << v.e11_over_e33
+          << " cut:(" << kPPG12PreE11E33Min << "," << kPPG12PreE11E33Max << ") → " << pass_e11e33
+          << " | e32/e35=" << v.e32_over_e35
+          << " cut:(" << kPPG12PreE32E35Min << "," << kPPG12PreE32E35Max << ") → " << pass_e32e35
+          << " | all → " << pass_all);
     }
 
     if (Verbosity() >= 4)
     {
-      if (!pass_npb)
+      if (!pass_all)
       {
         LOG(4, CLR_YELLOW,
-            "  [passesPhotonPreselection] FAILED variantA(NPB): score=" << v.npb_score
-            << " cut:>" << m_npbCut);
+            "  [passesPhotonPreselection] FAILED variantA(PPG12 common + NPB): "
+            << "npb=" << v.npb_score
+            << ", weta=" << v.weta_cogx
+            << ", et1=" << v.et1
+            << ", e11/e33=" << v.e11_over_e33
+            << ", e32/e35=" << v.e32_over_e35);
       }
       else
       {
         LOG(4, CLR_RED,
-            "  [passesPhotonPreselection] PASS variantA(NPB): score=" << v.npb_score
-            << " cut:>" << m_npbCut);
+            "  [passesPhotonPreselection] PASS variantA(PPG12 common + NPB): "
+            << "npb=" << v.npb_score
+            << ", weta=" << v.weta_cogx
+            << ", et1=" << v.et1
+            << ", e11/e33=" << v.e11_over_e33
+            << ", e32/e35=" << v.e32_over_e35);
       }
     }
 
-    return pass_npb;
+    return pass_all;
   }
 
   // Basic sanity on inputs
@@ -6908,31 +7006,30 @@ RecoilJets::TightTag RecoilJets::classifyPhotonTightness(const SSVars& v)
 
   if (m_tightVariant == "variantA")
   {
-    const double tight_min = m_tightBDTMinIntercept + m_tightBDTMinSlope * v.pt_gamma;
-    const bool pass_tight_bdt =
-      (v.pt_gamma > 7.0) &&
-      std::isfinite(v.tight_bdt_score) &&
-      std::isfinite(tight_min) &&
-      (v.tight_bdt_score > tight_min) &&
-      (v.tight_bdt_score < m_tightBDTMax);
+    const double tight_min = ppg12TightBDTMin(v.pt_gamma);
+    const double non_tight_min = ppg12NonTightBDTMin(v.pt_gamma);
+    const double non_tight_max = ppg12NonTightBDTMax(v.pt_gamma);
+    const bool pass_tight_bdt = ppg12TightBDTPass(v.tight_bdt_score, v.pt_gamma);
+    const bool pass_non_tight_bdt = ppg12NonTightBDTPass(v.tight_bdt_score, v.pt_gamma);
 
     if (Verbosity() >= 5)
     {
       LOG(5, CLR_BLUE,
-          "  [classifyPhotonTightness] variant=variantA(TightBDT)"
+          "  [classifyPhotonTightness] variant=variantA(PPG12 BDT)"
           << " | tight_bdt_score=" << v.tight_bdt_score
-          << " | min=" << tight_min
-          << " | max=" << m_tightBDTMax
-          << " → " << pass_tight_bdt);
+          << " | tight=(" << tight_min << "," << kPPG12TightBDTMax << ") → " << pass_tight_bdt
+          << " | nonTight=(" << non_tight_min << "," << non_tight_max << ") → " << pass_non_tight_bdt
+          << " | nonTightVariant=" << m_nonTightVariant);
     }
 
-    const TightTag tag = pass_tight_bdt ? TightTag::kTight : TightTag::kNonTight;
+    const TightTag tag = ppg12VariantABDTTag(v.tight_bdt_score, v.pt_gamma, m_nonTightVariant);
 
     if (Verbosity() >= 4)
     {
       const char* tagName = tightTagName(tag);
-      const char* colour  = (tag == TightTag::kTight) ? CLR_RED : CLR_GREEN;
-      LOG(4, colour, "  [classifyPhotonTightness] variantA(TightBDT)"
+      const char* colour  = (tag == TightTag::kTight) ? CLR_RED :
+                            (tag == TightTag::kNonTight ? CLR_GREEN : CLR_YELLOW);
+      LOG(4, colour, "  [classifyPhotonTightness] variantA(PPG12 BDT)"
                       << " → tag=" << tagName);
     }
 

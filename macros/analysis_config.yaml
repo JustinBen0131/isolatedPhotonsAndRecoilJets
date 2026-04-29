@@ -118,10 +118,14 @@ clusterUEpipeline: [baseVariant]
 #       e11/e33, et1, e32/e35, and weta_cogx.
 #
 #   preselection = variantA
-#     Replace the hard-cut shower-shape preselection with an NPB-score gate:
-#       preselection pass = npb_score > npb_cut
+#     PPG12 common photon preselection plus the NPB-score gate:
+#       |cluster_weta_cogx| < 2.0
+#       0.6 < cluster_et1 < 1.0
+#       0.0 < e11_over_e33 < 0.98
+#       0.8 < e32_over_e35 < 1.0
+#       npb_score > npb_cut
 #
-#     This is NOT "reference + NPB"; it is an alternative preselection gate.
+#     No cluster_prob cut is applied.
 #
 #   preselection = variantB
 #     Disable preselection completely:
@@ -143,16 +147,16 @@ clusterUEpipeline: [baseVariant]
 #   nonTight = reference
 #     For tight=reference, non-tight follows the baseline hard-cut sideband logic.
 #
-#     For tight=variantA, RecoilJets derives non-tight as the complement of
-#     the tight-BDT pass inside whichever preselection sample is selected:
-#       tight     = passes selected preselection AND tight_bdt_score > cut
-#       non-tight = passes selected preselection AND tight_bdt_score <= cut
+#   nonTight = variantA
+#     Use the PPG12 BDT sideband, not the tight complement:
+#       0.7333333333 - 0.0133333333 * E_T^gamma < tight_bdt_score
+#       tight_bdt_score < 0.6666666667 + 0.0033333333 * E_T^gamma
 #
-#     If preselection=variantB, "passes selected preselection" is automatically true.
+#     BDT scores outside the tight and non-tight windows are treated as neither.
 # -----------------------------------------------------------------------------
-preselection: [variantA, variantB]
+preselection: [variantA]
 tight: [variantA]
-nonTight: [reference]
+nonTight: [variantA]
 
 # -----------------------------------------------------------------------------
 # NPB preselection controls
@@ -171,22 +175,22 @@ npb_features: [cluster_Et, cluster_Eta, vertexz, e11_over_e33, e32_over_e35, e11
 # -----------------------------------------------------------------------------
 # Tight-ID BDT controls (used when tight: variantA)
 #
-# Sam histmaker.cc-inspired first pass:
-#   model index 9 = model_base_v3E_single_tmva.root
+# PPG12 nominal split model:
+#   model_base_v3E_split_single_tmva.root
 #
 # Feature order:
-#   ET, weta_cogx, wphi_cogx, vertex_z, cluster_eta,
-#   e11_over_e33, et1, et2, et3, et4, e32_over_e35
+#   cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, cluster_Eta,
+#   e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35
 #
 # Tight decision:
-#   tight_bdt_score > 0.8
+#   tight_bdt_score > 0.8333333333 - 0.0033333333 * E_T^gamma
 #   tight_bdt_score < 1.0
 # -----------------------------------------------------------------------------
-tight_bdt_model_file: /sphenix/user/shuhangli/ppg12/FunWithxgboost/binned_models/model_base_v3E_single_tmva.root
-tight_bdt_min_intercept: 0.8
-tight_bdt_min_slope: 0.0
+tight_bdt_model_file: /sphenix/user/shuhangli/ppg12/FunWithxgboost/binned_models/model_base_v3E_split_single_tmva.root
+tight_bdt_min_intercept: 0.8333333333333334
+tight_bdt_min_slope: -0.003333333333333336
 tight_bdt_max: 1.0
-tight_bdt_features: [ET, weta_cogx, wphi_cogx, vertex_z, cluster_eta, e11_over_e33, et1, et2, et3, et4, e32_over_e35]
+tight_bdt_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35]
 
 # -----------------------------------------------------------------------------
 # SIM-only event reweighting (Blair-style)
@@ -208,7 +212,7 @@ centrality_reweight_hist: nom_cent_rw_hist
 # -----------------------------------------------------------------------------
 # Pi0 analysis (parallel no-correction cluster branch)
 # -----------------------------------------------------------------------------
-doPi0Analysis: true
+doPi0Analysis: false
 
 # -----------------------------------------------------------------------------
 # Isolation working point
@@ -246,7 +250,7 @@ doPi0Analysis: true
 # PhotonClusterBuilder provides isolation sums for R=0.3 and R=0.4.
 # -----------------------------------------------------------------------------
 isSlidingIso: false
-isSlidingAndFixed: true
+isSlidingAndFixed: false
 
 # MATRIX AXIS: one job per fixedGeV value (when isSlidingIso is false).
 fixedGeV: [2.0]

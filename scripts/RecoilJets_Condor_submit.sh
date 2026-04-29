@@ -27,6 +27,7 @@
 #
 #   isSim:
 #     ./RecoilJets_Condor_submit.sh isSim local
+#     ./RecoilJets_Condor_submit.sh isSim checkModels
 #     ./RecoilJets_Condor_submit.sh isSim condorDoAll
 #
 #   isSimJet5:
@@ -48,7 +49,7 @@
 #       local, isLocalIsoPing, CHECKJOBS, splitGoldenRunList,
 #       condor testJob, condor round, condor all
 #   • SIM modes use staged matched master lists and can do:
-#       local, CHECKJOBS, condorTest, condorDoAll
+#       local, checkModels, CHECKJOBS, condorTest, condorDoAll
 #   • Jobs never mix files across runs in DATA mode.
 #   • SIM condorDoAll/local sweep over the YAML matrix:
 #       jet_pt_min × back_to_back_dphi_min_pi_fraction × vz_cut_cm × coneR × iso mode
@@ -280,7 +281,7 @@ SUB_DIR="${BASE}/condor_sub"
 # Golden lists provided by you
 PP_GOLDEN="${BASE}/GRLs_tanner/run2pp_ana509_2024p022_v001_dst_calofitting_grl.list"
 PP25_GOLDEN="${BASE}/GRLs_tanner/run3pp_new_newcdbtag_v008_dst_calofitting_grl.list"
-AA_GOLDEN="${BASE}/GRLs_tanner/run3auau_new_newcdbtag_v008_dst_calofitting_grl.list"
+AA_GOLDEN="${BASE}/GRLs_tanner/run3auau_pro001_pcdb001_v001_dst_calofitting_grl.list"
 OO_GOLDEN="${BASE}/GRLs_tanner/run3oo_ana536_2025p010_v001_dst_calofitting_grl.list"
 
 # Per-run input list directories
@@ -436,6 +437,7 @@ ${BOLD}DATA modes:${RST}
 
 ${BOLD}SIM mode (photonJet10/20 merged):${RST}
   ${BOLD}$0 isSim local [Nevents] [VERBOSE=N] [SAMPLE=run28_photonjet10]${RST}
+  ${BOLD}$0 isSim checkModels [VERBOSE=N]${RST}
   ${BOLD}$0 isSim CHECKJOBS [groupSize N] [SAMPLE=run28_photonjet10]${RST}
   ${BOLD}$0 isSim condorTest [SAMPLE=run28_photonjet10]${RST}
   ${BOLD}$0 isSim condorDoAll [groupSize N] [SAMPLE=run28_photonjet10]${RST}
@@ -461,6 +463,7 @@ Examples:
 
   $0 isSim CHECKJOBS groupSize 5
   $0 isSim local 5000
+  $0 isSim checkModels
   $0 isSim condorTest
   $0 isSim condorDoAll groupSize 5
 
@@ -737,7 +740,7 @@ read_uepipe_modes() {
 }
 
 sim_make_yaml_override() {
-  local master="$1" pt="$2" frac="$3" vz="$4" cone="$5" sliding="$6" fixed="$7" uepipe="$8" preselection="$9" tight="${10}" nonTight="${11}" tag="${12}" stamp="${13:-}"
+  local master="$1" pt="$2" frac="$3" vz="$4" cone="$5" sliding="$6" fixed="$7" uepipe="$8" preselection="$9" tight="${10}" nonTight="${11}" tag="${12}" stamp="${13:-}" force_sliding_and_fixed="${14:-}"
   mkdir -p "$SIM_YAML_OVERRIDE_DIR"
   local out="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${tag}${stamp:+_${stamp}}.yaml"
 
@@ -750,18 +753,24 @@ sim_make_yaml_override() {
   grep -Eq '^[[:space:]]*tight:' "$master" || { err "YAML missing key 'tight' in $master"; exit 71; }
   grep -Eq '^[[:space:]]*nonTight:' "$master" || { err "YAML missing key 'nonTight' in $master"; exit 71; }
 
-  sed -E \
-    -e "s|^([[:space:]]*jet_pt_min:).*|\\1 ${pt}|" \
-    -e "s|^([[:space:]]*back_to_back_dphi_min_pi_fraction:).*|\\1 ${frac}|" \
-    -e "s|^([[:space:]]*vz_cut_cm:).*|\\1 ${vz}|" \
-    -e "s|^([[:space:]]*coneR:).*|\\1 ${cone}|" \
-    -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${sliding}|" \
-    -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${fixed}|" \
-    -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${uepipe}|" \
-    -e "s|^([[:space:]]*preselection:).*|\\1 ${preselection}|" \
-    -e "s|^([[:space:]]*tight:).*|\\1 ${tight}|" \
-    -e "s|^([[:space:]]*nonTight:).*|\\1 ${nonTight}|" \
-    "$master" > "$out"
+  local -a sed_args
+  sed_args=(
+    -e "s|^([[:space:]]*jet_pt_min:).*|\\1 ${pt}|"
+    -e "s|^([[:space:]]*back_to_back_dphi_min_pi_fraction:).*|\\1 ${frac}|"
+    -e "s|^([[:space:]]*vz_cut_cm:).*|\\1 ${vz}|"
+    -e "s|^([[:space:]]*coneR:).*|\\1 ${cone}|"
+    -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${sliding}|"
+    -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${fixed}|"
+    -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${uepipe}|"
+    -e "s|^([[:space:]]*preselection:).*|\\1 ${preselection}|"
+    -e "s|^([[:space:]]*tight:).*|\\1 ${tight}|"
+    -e "s|^([[:space:]]*nonTight:).*|\\1 ${nonTight}|"
+  )
+  if [[ -n "$force_sliding_and_fixed" ]]; then
+    sed_args+=( -e "s|^([[:space:]]*isSlidingAndFixed:).*|\\1 ${force_sliding_and_fixed}|" )
+  fi
+
+  sed -E "${sed_args[@]}" "$master" > "$out"
 
   echo "$out"
 }
@@ -1538,7 +1547,7 @@ tokens=( "${@:2}" )
 for (( idx=0; idx<${#tokens[@]}; idx++ )); do
   tok="${tokens[$idx]}"
   case "$tok" in
-    local|isLocalIsoPing|condor|splitGoldenRunList|condorTest|condorDoAll)
+    local|checkModels|isLocalIsoPing|condor|splitGoldenRunList|condorTest|condorDoAll)
       ACTION="$tok"
       ;;
     groupSize)
@@ -1621,6 +1630,138 @@ case "$ACTION" in
       check_jobs_sim
     else
       check_jobs_all
+    fi
+    exit 0
+    ;;
+
+  checkModels)
+    [[ "$DATASET" == "isSim" ]] || { err "checkModels is only valid as: $0 isSim checkModels"; exit 2; }
+
+    nevt="${RJ_CHECKMODELS_EVENTS:-1000}"
+    RJV="${RJ_CHECKMODELS_VERBOSITY:-2}"
+    rest=( "${@:3}" )
+    for t in "${rest[@]}"; do
+      if [[ "$t" =~ ^VERBOSE=([0-9]+)$ ]]; then
+        RJV="${BASH_REMATCH[1]}"
+      elif [[ "$t" =~ ^[0-9]+$ ]]; then
+        nevt="$t"
+      fi
+    done
+    [[ "$nevt" =~ ^[0-9]+$ ]] || { err "checkModels event count must be an integer"; exit 2; }
+
+    master_yaml="$(sim_yaml_master_path)"
+    [[ -s "$master_yaml" ]] || { err "Master YAML not found or empty: $master_yaml"; exit 72; }
+
+    mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
+    mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
+    mapfile -t sim_vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
+    mapfile -t sim_cones < <( yaml_get_values "coneR" "$master_yaml" )
+    (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
+    (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
+    (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
+    (( ${#sim_cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
+    read_uepipe_modes "$master_yaml" "$TAG"
+    check_pt="${sim_pts[0]}"
+    check_frac="${sim_fracs[0]}"
+    check_vz="${sim_vzs[0]}"
+    check_cone="${sim_cones[0]}"
+    check_fixed="2.0"
+    check_sliding="false"
+    check_iso_base_tag="$(sim_iso_tag "$check_sliding" "$check_fixed")"
+
+    SIM_SAMPLE="run28_photonjet20"
+    SIM_SAMPLE_EXPLICIT=1
+    SIM_STAGE_NAMESPACE="model_check"
+    SIM_DEST_BASE_RESOLVED="${BASE}/local_sim_outputs/model_check"
+    [[ "$SIM_DEST_BASE_RESOLVED" == "${BASE}/local_sim_outputs/model_check" ]] || { err "Refusing to clean unexpected model-check path: ${SIM_DEST_BASE_RESOLVED}"; exit 74; }
+    say "Cleaning previous model-check outputs: ${SIM_DEST_BASE_RESOLVED}"
+    rm -rf "${SIM_DEST_BASE_RESOLVED}"
+    mkdir -p "${SIM_DEST_BASE_RESOLVED}"
+    model_check_manifest="${SIM_DEST_BASE_RESOLVED}/checkModels_manifest.txt"
+    : > "$model_check_manifest"
+
+    say "SIM model check (local photon20 diagnostic)"
+    say "  YAML master : ${master_yaml}"
+    say "  events      : ${nevt}"
+    say "  sample      : ${SIM_SAMPLE}"
+    say "  scalar axes : jet_pt_min=${check_pt}  back_to_back_pi_fraction=${check_frac}  vz_cut_cm=${check_vz}  coneR=${check_cone}  iso=${check_iso_base_tag}"
+    say "  ID passes   : reference/reference/reference, variantA/variantA/variantA"
+    say "  dest base   : ${SIM_DEST_BASE_RESOLVED}"
+    echo
+
+    check_preselections=( "reference" "variantA" )
+    check_tights=( "reference" "variantA" )
+    check_nonTights=( "reference" "variantA" )
+
+    for check_idx in "${!check_preselections[@]}"; do
+      for uepipe in "${uepipe_modes[@]}"; do
+          preselection="${check_preselections[$check_idx]}"
+          tight="${check_tights[$check_idx]}"
+          nonTight="${check_nonTights[$check_idx]}"
+          selection_tag="$(selection_mode_tag "preselection" "$preselection")_$(selection_mode_tag "tight" "$tight")_$(selection_mode_tag "nonTight" "$nonTight")"
+          SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$check_pt")_$(sim_b2b_tag "$check_frac")_$(sim_vz_tag "$check_vz")_$(sim_cone_tag "$check_cone")_${check_iso_base_tag}"
+          (( uepipe_in_tag )) && SIM_CFG_TAG="${SIM_CFG_TAG}_${uepipe}"
+          SIM_CFG_TAG="${SIM_CFG_TAG}_${selection_tag}"
+          DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
+          yaml_override="$(sim_make_yaml_override "$master_yaml" "$check_pt" "$check_frac" "$check_vz" "$check_cone" "$check_sliding" "$check_fixed" "${uepipe}" "$preselection" "$tight" "$nonTight" "$SIM_CFG_TAG" "CHECKMODELS" "false")"
+
+          GROUP_SIZE="1"
+          sim_init
+
+          tmp="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_CHECKMODELS_firstfile_grp001.list"
+          head -n 1 "$SIM_CLEAN_LIST" > "$tmp"
+          [[ -s "$tmp" ]] || { err "No sim entries (sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG})"; exit 30; }
+
+          in_line="$(head -n 1 "$tmp" 2>/dev/null || true)"
+          chunk_base="$(basename "$tmp")"
+          chunk_tag="${chunk_base%.list}"
+          out_root_preview="${DEST_BASE}/${SIM_SAMPLE}/RecoilJets_${DATASET}_${chunk_tag}.root"
+
+          say "----------------------------------------"
+          say "SIM checkModels: tag=${SIM_CFG_TAG}  sample=${SIM_SAMPLE}"
+          say "  jet_pt_min=${check_pt}  back_to_back_pi_fraction=${check_frac}  vz_cut_cm=${check_vz}  coneR=${check_cone}  iso=${check_iso_base_tag}  uepipe=${uepipe}"
+          say "  photon ID    : preselection=${preselection}  tight=${tight}  nonTight=${nonTight}"
+          say "  YAML override: ${yaml_override}"
+          say "  input line    : ${in_line}"
+          say "  temp list     : ${tmp}"
+          say "  out ROOT      : ${out_root_preview}"
+          say "  wrapper env   : RJ_VERBOSITY=${RJV} RJ_CONFIG_YAML=${yaml_override}"
+          find "${DEST_BASE}/${SIM_SAMPLE}" -type f -name "*_CHECKMODELS_*.root" -delete 2>/dev/null || true
+          say "Invoking wrapper locally..."
+
+          RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
+          if [[ -s "$out_root_preview" ]]; then
+            printf "%s\n" "$out_root_preview" >> "$model_check_manifest"
+          else
+            warn "Expected output ROOT was not produced or is empty: ${out_root_preview}"
+          fi
+          echo
+      done
+    done
+
+    mapfile -t model_check_roots < "$model_check_manifest"
+    say "Model-check ROOT files produced: ${#model_check_roots[@]}"
+    for rf in "${model_check_roots[@]}"; do
+      say "  ${rf}"
+    done
+    say "Model-check manifest: ${model_check_manifest}"
+
+    summary_macro="${BASE}/macros/SummarizeModelCheck.C"
+    if [[ -s "$summary_macro" ]]; then
+      summary_log="${SIM_DEST_BASE_RESOLVED}/checkModels_summary.log"
+      root_arg="${summary_macro}(\"${model_check_manifest}\",\"${summary_log}\")"
+      say "Running final model-check summary..."
+      say "Summary log: ${summary_log}"
+      if [[ -n "${RJ_ROOT_CMD:-}" ]]; then
+        ${RJ_ROOT_CMD} -l -b -q "$root_arg" 2>&1 | tee "$summary_log"
+      elif command -v root >/dev/null 2>&1; then
+        root -l -b -q "$root_arg" 2>&1 | tee "$summary_log"
+      else
+        warn "ROOT is not on PATH; skipping ${summary_macro}"
+      fi
+      say "SFTP summary log from SSH: ${summary_log}"
+    else
+      warn "Summary macro not found: ${summary_macro}"
     fi
     exit 0
     ;;

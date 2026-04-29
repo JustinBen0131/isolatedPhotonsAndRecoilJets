@@ -1665,9 +1665,9 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         std::string s = detail::trim(std::string(env));
         if (!s.empty()) cfg.nonTight = s;
     }
-    if (cfg.nonTight != "reference")
+    if (cfg.nonTight != "reference" && cfg.nonTight != "variantA")
     {
-        detail::bail("nonTight variants beyond 'reference' are not implemented yet. Keep nonTight: [reference].");
+        detail::bail("nonTight must be 'reference' or 'variantA'.");
     }
     
     const std::vector<std::string> activeJetRKeys = yamlcfg::LoadJetRKeys(vlevel);
@@ -3146,8 +3146,13 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         }
     }
     
-    const bool useSamePhotonBDTScores = !isAuAuLike;
+    const bool useSamePhotonBDTScores = true;
+    const bool usePPG12PPIsoTowerFloor = !isAuAuLike;
     constexpr float kPPG12PPIsoTowerMin = 0.12f;
+    const float photonBuilderIsoTowerMin = usePPG12PPIsoTowerFloor
+        ? kPPG12PPIsoTowerMin
+        : 0.0f;
+    const double recoilJetsIsoTowerMin = isAuAuLike ? 0.0 : cfg.isoTowMin;
 
     auto configurePhotonBuilder =
     [&](PhotonClusterBuilder* builder, const std::string& outNode)
@@ -3155,8 +3160,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         builder->set_input_cluster_node(photonInputClusterNode);
         builder->set_output_photon_node(outNode);
         builder->set_ET_threshold(static_cast<float>(minPhotonEt));
-        builder->set_iso_min_tower_energy(useSamePhotonBDTScores ? kPPG12PPIsoTowerMin
-                                                                  : static_cast<float>(cfg.isoTowMin));
+        builder->set_iso_min_tower_energy(photonBuilderIsoTowerMin);
         builder->set_use_ppg12_pp_iso_axis(useSamePhotonBDTScores);
         builder->set_skip_ppg12_edge_clusters(useSamePhotonBDTScores);
         
@@ -3344,7 +3348,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                                          cfg.centrality_reweight_hist);
 #endif
     recoilJets->setActiveJetRKeys(activeJetRKeys);
-    recoilJets->setIsolationWP(cfg.isoA, cfg.isoB, cfg.isoGap, cfg.isoConeR, cfg.isoTowMin, cfg.isoFixed);
+    recoilJets->setIsolationWP(cfg.isoA, cfg.isoB, cfg.isoGap, cfg.isoConeR, recoilJetsIsoTowerMin, cfg.isoFixed);
     recoilJets->setIsSlidingIso(cfg.isSlidingIso);
     recoilJets->setTruthIsoMaxGeV(cfg.truthIsoGeV);
 #if defined(RJ_UNIFIED_ANALYSIS_AUAU)
@@ -3400,6 +3404,8 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 #endif
         << " phoDR=" << cfg.pho_dr_max
         << " jetDR=" << cfg.jet_dr_max
+        << " isoTowerMinApplied=" << recoilJetsIsoTowerMin
+        << (isAuAuLike ? " (AuAu forced no isolation tower floor)" : "")
         << " preselection=" << cfg.preselection
         << " tight=" << cfg.tight
         << " nonTight=" << cfg.nonTight

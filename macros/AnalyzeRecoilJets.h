@@ -94,8 +94,8 @@ using std::map;
 inline bool isPPdataOnly   = false;
 inline bool pp_beforeChangeInRecoSimDefTruthMatched = false;
 
-inline bool isSimAndDataPP = false;
-inline bool isSimAndDataAUAU = true;
+inline bool isSimAndDataPP = true;
+inline bool isSimAndDataAUAU = false;
 inline bool isSimEmbeddedOnly = false;
 inline bool isAuAuOnly     = false;
 
@@ -104,10 +104,9 @@ inline bool isPPdataAndAUAU = false;
 inline bool generateUEcomparisonSSQA = false;
 inline bool skipToCentralityAndPtOverlaysWithSSQA = false;
 inline bool SSoverlayPerVAR_processONLY           = false;
-inline bool generateISOpTcentOverlaysONLY         = true;
+inline bool generateISOpTcentOverlaysONLY         = false;
 inline bool perVariantIsoQA_ONLY                  = false;
 inline bool DO_inclusiveXJcomparisons_ONLY        = false;
-
 inline bool DO_purityAndLeakageCHECKS_ONLY        = false;
 
 inline bool generatePerRunTriggerAna = false;
@@ -142,12 +141,12 @@ inline bool allPhoton5and10and20sim    = true;
 
 //   Embedded Au+Au SIM slices / merges:
 inline bool isPhotonJet10Embedded      = false;
-inline bool isPhotonJet20Embedded      = true;
+inline bool isPhotonJet20Embedded      = false;
 inline bool bothPhoton10and20simEmbedded = false;
 
 
 inline bool isInclusiveJet10Embedded   = false;
-inline bool isInclusiveJet20Embedded   = true;
+inline bool isInclusiveJet20Embedded   = false;
 inline bool bothInclusiveJet10and20simEmbedded = false;
 
 //   Special SIM samples:
@@ -157,13 +156,13 @@ inline bool isSimJet5                  = false;   // inclusive jet5
 inline bool doPhotonJetMerge = true;
 
 //   RooUnfold: true = run both non-purity and purity-corrected passes + overlay.
-inline bool do_xJ_PPunfold = false;
+inline bool do_xJ_PPunfold = true;
 //   RooUnfold AuAu: true = run per-centrality unfolding with purity × combinatoric variants.
 inline bool do_xJ_AAunfold = false;
 
 //   Saved RooUnfold output: true = erase/rebuild/cache live unfolding output for this exact file combination;
 //   false = restore cached unfolding output and skip all unfolding work.
-inline bool saveRooUnfoldOutput = false;
+inline bool saveRooUnfoldOutput = true;
 
 //   Internal: selects raw vs ABCD purity-corrected reco inputs per pass.
 inline bool gApplyPurityCorrectionForUnfolding = false;
@@ -177,10 +176,10 @@ inline bool doSamVsJustinUnsmearOverlays = false;
 // 3a. PP / SIM CUT DEFAULTS  (drives all PP, SIM, and SIM+PP paths)
 //     All input/output paths are derived automatically from these values.
 // ===========================================================================
-inline const int    kJetPtMin        = 7;            // GeV: 3, 5, or 10
+inline const int    kJetPtMin        = 5;            // GeV: 3, 5, or 10
 inline const string kB2BCut          = "7pi_8";      // "7pi_8" or "pi_2"
-inline const int    kVzCut           = 30;            // cm: 30 or 60
-inline const string kIsoConeR        = "isoR30";     // "isoR30" or "isoR40"
+inline const int    kVzCut           = 60;            // cm: 30 or 60
+inline const string kIsoConeR        = "isoR40";     // "isoR30" or "isoR40"
 inline const string kIsoMode         = "isSliding";  // "isSliding" or "fixedIso5GeV"
 
 // Photon-ID matrix axes.

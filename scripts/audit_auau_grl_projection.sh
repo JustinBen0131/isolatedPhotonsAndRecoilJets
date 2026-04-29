@@ -137,11 +137,11 @@ shopt -s nullglob
 # Defaults
 ########################################
 BASE="/sphenix/u/patsfan753/scratch/thesisAnalysis"
-GRL="${BASE}/GRLs_tanner/run3auau_new_newcdbtag_v008_dst_calofitting_grl.list"
+GRL="${BASE}/GRLs_tanner/run3auau_pro001_pcdb001_v001_dst_calofitting_grl.list"
 LIST_DIR="${BASE}/dst_lists_auau"
 
 DATASET="run3auau"
-TAG="new_newcdbtag_v008"
+TAG="pro001_pcdb001_v001"
 PREFIX="DST_CALOFITTING"
 
 REF_TRIG_BIT=14
@@ -607,7 +607,10 @@ normalize_list() {
     {
       sub(/#.*/, "", $0);
       gsub(/^[[:space:]]+|[[:space:]]+$/, "", $0);
-      if ($0 != "") print $0;
+      if ($0 != "") {
+        split($0, fields, /[[:space:]]+/);
+        if (fields[1] != "") print fields[1];
+      }
     }' "$f" | sort -u
 }
 
@@ -1394,7 +1397,10 @@ run_local_counter_test() {
   selected_scaledown="$(sql "SELECT scaledown${REF_TRIG_BIT} FROM gl1_scaledown WHERE runnumber=$((10#$selected_run));" | head -n 1 | tr -d '[:space:]')"
 
   test_chunk="${TMP_CHUNK_DIR}/run${selected_run}_LOCAL_random.list"
-  head -n "${CHUNK_SIZE}" "${selected_list}" > "${test_chunk}"
+  local tmp_norm="${TMP_CHUNK_DIR}/run${selected_run}_LOCAL_random.normalized.tmp"
+  normalize_list "${selected_list}" > "${tmp_norm}"
+  head -n "${CHUNK_SIZE}" "${tmp_norm}" > "${test_chunk}"
+  rm -f "${tmp_norm}"
   [[ -s "${test_chunk}" ]] || fatal "failed to build LOCAL test chunk for run ${selected_run}"
 
   first_file="$(head -n 1 "${test_chunk}" 2>/dev/null || true)"
