@@ -14,8 +14,8 @@
 #         jet5
 #     • Run-28 pp minimum-bias / Detroit sample:
 #         detroit
-#     • Run-28 embedded photon+jet sample:
-#         embeddedPhoton20
+#     • Run-28 embedded photon+jet samples:
+#         embeddedPhoton12, embeddedPhoton20
 #
 #   Standard Run-28 pp packs are built from:
 #     /sphenix/lustre01/sphnxpro/mdc2/js_pp200_signal
@@ -25,8 +25,8 @@
 #       nopileup/jets/run0028/<sample>
 #       nopileup/mbdepd/run0028/<sample>
 #
-#   embeddedPhoton20 is built from:
-#     /sphenix/tg/tg01/commissioning/CaloCalibWG/bseidlitz/embed/photon20/OutDir*/
+#   embedded photon+jet samples are built from:
+#     /sphenix/tg/tg01/commissioning/CaloCalibWG/bseidlitz/embed_2025/photon{12,20}/OutDir*/
 #       DST_CALOFITTING-*.root        -> DST_CALO_CLUSTER.list
 #       DST_TRUTH_G4HIT_*.root        -> G4Hits.list
 #       DST_TRUTH_JET_*.root          -> DST_JETS.list
@@ -40,6 +40,7 @@
 #     ├─ run28_photonjet20/
 #     ├─ run28_jet5/
 #     ├─ run28_detroit/
+#     ├─ run28_embeddedPhoton12/
 #     └─ run28_embeddedPhoton20/
 #
 #   Each pack contains:
@@ -55,6 +56,7 @@
 #
 #   Build only selected packs:
 #     ./makeThesisSimLists.sh photonjet20
+#     ./makeThesisSimLists.sh isSimEmbedded
 #     ./makeThesisSimLists.sh embeddedPhoton20
 #     ./makeThesisSimLists.sh photonjet10 jet5
 #
@@ -100,12 +102,13 @@ RUNNUM="28"
 PHOTONJET_SAMPLES=( "photonjet5" "photonjet10" "photonjet20" )
 JET_SAMPLES=( "jet5" )
 MB_SAMPLES=( "detroit" )
-EMBEDDED_PHOTONJET_SAMPLES=( "embeddedPhoton10" "embeddedPhoton20" )
+EMBEDDED_PHOTONJET_SAMPLES=( "embeddedPhoton12" "embeddedPhoton20" )
 EMBEDDED_INCLUSIVE_SAMPLES=( "embeddedJet10" "embeddedJet20" )
 REQUESTED_SAMPLES=()
+CLEAN_STALE_EMBEDDED_PHOTON10="false"
 
 MDC2_BASE="/sphenix/lustre01/sphnxpro/mdc2/js_pp200_signal"
-EMBED_BASE="/sphenix/tg/tg01/commissioning/CaloCalibWG/bseidlitz/embed"
+EMBED_BASE="/sphenix/tg/tg01/commissioning/CaloCalibWG/bseidlitz/embed_2025"
 
 # These are the exact directories you found:
 #   g4hits/run0028/photonjetX
@@ -116,7 +119,7 @@ EMBED_BASE="/sphenix/tg/tg01/commissioning/CaloCalibWG/bseidlitz/embed"
 #   nopileup/trkrhit/run0028/photonjetX
 #
 # Embedded photon+jet sample:
-#   /sphenix/tg/tg01/commissioning/CaloCalibWG/bseidlitz/embed/photon20/OutDir*/
+#   /sphenix/tg/tg01/commissioning/CaloCalibWG/bseidlitz/embed_2025/photon{12,20}/OutDir*/
 #     DST_CALOFITTING-*.root
 #     DST_GLOBAL_PhotonJet20-*.root
 #     DST_TRUTH_G4HIT_PhotonJet20-*.root
@@ -133,13 +136,15 @@ while [[ $# -gt 0 ]]; do
       sed -n '1,200p' "$0" | sed 's/^# \{0,1\}//g'
       exit 0
       ;;
-    embeddedSim)
-      REQUESTED_SAMPLES+=( "embeddedPhoton10" "embeddedPhoton20" ); shift 1
+    embeddedSim|isSimEmbedded)
+      REQUESTED_SAMPLES+=( "embeddedPhoton12" "embeddedPhoton20" )
+      CLEAN_STALE_EMBEDDED_PHOTON10="true"
+      shift 1
       ;;
     isInclusiveEmbedded)
       REQUESTED_SAMPLES+=( "embeddedJet10" "embeddedJet20" ); shift 1
       ;;
-    photonjet5|photonjet10|photonjet20|jet5|detroit|embeddedPhoton10|embeddedPhoton20|embeddedJet10|embeddedJet20)
+    photonjet5|photonjet10|photonjet20|jet5|detroit|embeddedPhoton12|embeddedPhoton20|embeddedJet10|embeddedJet20)
       REQUESTED_SAMPLES+=( "$1" ); shift 1
       ;;
     *) echo "[WARN $(date '+%H:%M:%S')] Unknown arg: $1"; shift 1 ;;
@@ -810,30 +815,31 @@ build_pack() {
   local embeddir=""
   local embed_mode_note=""
 
-  if [[ "$sample" == "embeddedPhoton10" ]]; then
-    # Flat embedded directory (no OutDir* containers) — use standard scan+pair path
-    local flatdir="${EMBED_BASE}/photon10"
+  if [[ "$sample" == "embeddedPhoton12" ]]; then
+    EMBED_MODE="true"
 
-    g4dir="$flatdir"
-    calodir="$flatdir"
-    gldir="$flatdir"
-    jetsdir="$flatdir"
+    embeddir="${EMBED_BASE}/photon12"
+
+    g4dir="$embeddir"
+    calodir="$embeddir"
+    gldir="$embeddir"
+    jetsdir="$embeddir"
     mbddir=""
-    trkdir="$flatdir"
+    trkdir="$embeddir"
 
     calo_pattern="DST_CALO_*.root"
     g4_pattern="DST_TRUTH_G4HIT_*.root"
     jets_pattern="DST_TRUTH_JET_*.root"
-    global_pattern="DST_GLOBAL_PhotonJet*-*.root"
+    global_pattern="DST_GLOBAL_*.root"
     mbd_pattern=""
 
-    calo_label="DST_CALO_CLUSTER (mapped from embedded DST_CALO, flat dir) [ANCHOR]"
-    jets_label="DST_JETS (mapped from embedded DST_TRUTH_JET, flat dir)"
-    global_label="DST_GLOBAL (embedded, flat dir)"
+    calo_label="DST_CALO_CLUSTER (mapped from embedded DST_CALO) [ANCHOR]"
+    jets_label="DST_JETS (mapped from embedded DST_TRUTH_JET)"
+    global_label="DST_GLOBAL (embedded)"
     mbd_label="DST_MBD_EPD (placeholder NONE; no standalone embedded MBD file found)"
 
     MBD_OK="false"
-    embed_mode_note="embedded photon10 (flat-dir scan)"
+    embed_mode_note="embedded photon12 (OutDir scan)"
 
   elif [[ "$sample" == "embeddedPhoton20" ]]; then
     EMBED_MODE="true"
@@ -1302,6 +1308,14 @@ mkdir -p "$OUTROOT"
 # No aggressive glob wipe here, so building new samples never removes existing outputs.
 rm -f "${OUTROOT}/run${RUNNUM}_candidate_types_"*.txt "${OUTROOT}/run${RUNNUM}_probe_"*.log 2>/dev/null || true
 
+if [[ "$CLEAN_STALE_EMBEDDED_PHOTON10" == "true" ]]; then
+  stale_dir="${OUTROOT}/run${RUNNUM}_embeddedPhoton10"
+  if [[ -d "$stale_dir" ]]; then
+    step "Cleanup: removing stale embedded photon10 list pack → ${stale_dir}"
+    rm -rf "$stale_dir"
+  fi
+fi
+
 ALL_SAMPLES=( "${PHOTONJET_SAMPLES[@]}" "${JET_SAMPLES[@]}" "${MB_SAMPLES[@]}" "${EMBEDDED_PHOTONJET_SAMPLES[@]}" "${EMBEDDED_INCLUSIVE_SAMPLES[@]}" )
 SAMPLES_TO_BUILD=( "${ALL_SAMPLES[@]}" )
 
@@ -1323,4 +1337,3 @@ done
 
 final_summary
 say "All packs completed. Root: ${OUTROOT}"
-

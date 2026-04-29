@@ -42,6 +42,7 @@ class PhotonClusterBuilder : public SubsysReco
     void set_ET_threshold(float e) { m_min_cluster_et = e; }
     void set_shower_shape_min_tower_energy(float e) { m_shape_min_tower_E = e; }
     void set_iso_min_tower_energy(float e) { m_iso_min_tower_E = e; }
+    void set_enable_ss_3x3_moments(bool enable) { m_enable_ss_3x3_moments = enable; }
     void set_bdt_model_file(const std::string& path) { m_bdt_model_file = path; }
     void set_bdt_feature_list(const std::vector<std::string>& features) { m_bdt_feature_list = features; }
     void set_do_bdt(bool do_bdt) { m_do_bdt = do_bdt; }
@@ -133,6 +134,7 @@ class PhotonClusterBuilder : public SubsysReco
         float m_vz_cut_cm{30.0f};
         bool m_use_ppg12_pp_iso_axis{false};
         bool m_skip_ppg12_edge_clusters{false};
+        bool m_enable_ss_3x3_moments{false};
 
         RawClusterContainer* m_rawclusters{nullptr};
       RawClusterContainer* m_photon_container{nullptr};

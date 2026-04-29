@@ -1179,8 +1179,11 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
     float e72 = 0;
     float weta35_cogx = 0;
     float wphi53_cogx = 0;
+    float weta33_cogx = 0;
+    float wphi33_cogx = 0;
     float E35etaphi = 0;
     float E53etaphi = 0;
+    float E33etaphi = 0;
     float detacog = std::abs(maxieta - avg_eta);
     float dphicog = std::abs(maxiphi - avg_phi);
     float drad = std::sqrt(dphicog*dphicog + detacog*detacog);
@@ -1225,6 +1228,16 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
                     if (i != 3 || j != 3)
                     {
                         wphi53_cogx += E77[i][j] * dj_float * dj_float;
+                    }
+                }
+
+                if (m_enable_ss_3x3_moments && di <= 1 && dj <= 1)
+                {
+                    E33etaphi += E77[i][j];
+                    if (i != 3 || j != 3)
+                    {
+                        weta33_cogx += E77[i][j] * di_float * di_float;
+                        wphi33_cogx += E77[i][j] * dj_float * dj_float;
                     }
                 }
             }
@@ -1334,6 +1347,11 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
     {
         wphi53_cogx /= E53etaphi;
     }
+    if (E33etaphi > 0)
+    {
+        weta33_cogx /= E33etaphi;
+        wphi33_cogx /= E33etaphi;
+    }
     
     photon->set_shower_shape_parameter("et1", showershape[0]);
     photon->set_shower_shape_parameter("et2", showershape[1]);
@@ -1371,6 +1389,11 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
     photon->set_shower_shape_parameter("wphi_cogx", wphi_cogx);
     photon->set_shower_shape_parameter("weta35_cogx", weta35_cogx);
     photon->set_shower_shape_parameter("wphi53_cogx", wphi53_cogx);
+    if (m_enable_ss_3x3_moments)
+    {
+        photon->set_shower_shape_parameter("weta33_cogx", weta33_cogx);
+        photon->set_shower_shape_parameter("wphi33_cogx", wphi33_cogx);
+    }
     photon->set_shower_shape_parameter("detamax", detamax);
     photon->set_shower_shape_parameter("dphimax", dphimax);
     photon->set_shower_shape_parameter("nsaturated", nsaturated);

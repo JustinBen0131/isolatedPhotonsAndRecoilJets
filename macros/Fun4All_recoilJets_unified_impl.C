@@ -3163,6 +3163,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         builder->set_iso_min_tower_energy(photonBuilderIsoTowerMin);
         builder->set_use_ppg12_pp_iso_axis(useSamePhotonBDTScores);
         builder->set_skip_ppg12_edge_clusters(useSamePhotonBDTScores);
+        builder->set_enable_ss_3x3_moments(isAuAuLike);
         
         builder->set_use_vz_cut(cfg.use_vz_cut);
         builder->set_vz_cut_cm(cfg.vz_cut_cm);

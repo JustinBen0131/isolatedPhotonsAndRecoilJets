@@ -6,6 +6,8 @@ struct SSVarDef { string var; string label; };
 const vector<SSVarDef> ssVars = {
   {"weta",    "w_{#eta}"},
   {"wphi",    "w_{#phi}"},
+  {"weta33",  "w_{#eta}^{3#times3}"},
+  {"wphi33",  "w_{#phi}^{3#times3}"},
   {"weta35",  "w_{#eta}^{3#times5}"},
   {"wphi53",  "w_{#phi}^{5#times3}"},
   {"e11e33",  "E_{11}/E_{33}"},
@@ -709,7 +711,9 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
             {
                 const std::string& var = ssVars[iv].var;
                 const std::string& vlabel = ssVars[iv].label;
-                const bool isW = (var == "weta" || var == "wphi" || var == "weta35" || var == "wphi53");
+                const bool isW = (var == "weta" || var == "wphi" ||
+                                  var == "weta33" || var == "wphi33" ||
+                                  var == "weta35" || var == "wphi53");
                 
                 TH1* rawPP = GetSSHistForPt(
                                             ppTop,
@@ -1873,7 +1877,9 @@ if (!SSoverlayPerVAR_processONLY)
                             const std::string& var = ssVars[iv].var;
                             const std::string& vlabel = ssVars[iv].label;
                             
-                            const bool isW = (var == "weta" || var == "wphi");
+                            const bool isW = (var == "weta" || var == "wphi" ||
+                                              var == "weta33" || var == "wphi33" ||
+                                              var == "weta35" || var == "wphi53");
                             
                             const string hPPName  = string("h_ss_") + var + string("_") + tag + b.suffix;
                             const string hSigName = string("h_ss_") + var + string("_") + tag + string("_sig") + b.suffix;
@@ -3876,10 +3882,14 @@ if (!SSoverlayPerVAR_processONLY)
                         const bool moveSelectionBlockToBottomRight =
                             (H.folder == "inclusiveEmbedded" && var == "weta" && tag == "pre" && pb.folder == "pT_10_12") ||
                             (H.folder == "data" && H.variant == "baseVariant" && tag == "pre" &&
-                             pb.folder == "pT_20_35" && (var == "weta" || var == "wphi" || var == "weta35" || var == "wphi53"));
+                             pb.folder == "pT_20_35" && (var == "weta" || var == "wphi" ||
+                                                         var == "weta33" || var == "wphi33" ||
+                                                         var == "weta35" || var == "wphi53"));
                         const bool moveSelectionBlockToMiddleRight =
                             (H.folder == "data" && H.variant == "baseVariant" && tag == "pre" &&
-                             pb.folder == "pT_20_35" && (var == "weta" || var == "wphi" || var == "weta35" || var == "wphi53"));
+                             pb.folder == "pT_20_35" && (var == "weta" || var == "wphi" ||
+                                                         var == "weta33" || var == "wphi33" ||
+                                                         var == "weta35" || var == "wphi53"));
                         DrawSSOverlayCutsAndText(var, tag, false, ptCenterForCuts, cutTextX, cutTextY, cutTextSize,
                                                  !moveSelectionBlockToBottomRight && !moveSelectionBlockToMiddleRight,
                                                  moveSelectionBlockToMiddleRight);

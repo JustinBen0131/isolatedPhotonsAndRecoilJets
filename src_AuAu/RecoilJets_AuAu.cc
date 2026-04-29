@@ -3944,6 +3944,8 @@ RecoilJets::SSVars RecoilJets::makeSSFromPhoton(const PhotonClusterv1* pho, doub
     // Raw stored shower-shape parameters (PhotonClusterBuilder names)
     const double weta_cogx   = pho->get_shower_shape_parameter("weta_cogx");
     const double wphi_cogx   = pho->get_shower_shape_parameter("wphi_cogx");
+    const double weta33_cogx = pho->get_shower_shape_parameter("weta33_cogx");
+    const double wphi33_cogx = pho->get_shower_shape_parameter("wphi33_cogx");
     const double weta35_cogx = pho->get_shower_shape_parameter("weta35_cogx");
     const double wphi53_cogx = pho->get_shower_shape_parameter("wphi53_cogx");
     const double et1         = pho->get_shower_shape_parameter("et1");
@@ -3959,6 +3961,8 @@ RecoilJets::SSVars RecoilJets::makeSSFromPhoton(const PhotonClusterv1* pho, doub
 
     v.weta_cogx    = weta_cogx;
     v.wphi_cogx    = wphi_cogx;
+    v.weta33_cogx  = weta33_cogx;
+    v.wphi33_cogx  = wphi33_cogx;
     v.weta35_cogx  = weta35_cogx;
     v.wphi53_cogx  = wphi53_cogx;
     v.et1          = et1;
@@ -6718,6 +6722,8 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                     
                     fill1("weta",   v.weta_cogx);
                     fill1("wphi",   v.wphi_cogx);
+                    fill1("weta33", v.weta33_cogx);
+                    fill1("wphi33", v.wphi33_cogx);
                     fill1("weta35", v.weta35_cogx);
                     fill1("wphi53", v.wphi53_cogx);
                     fill1("et1",    v.et1);
@@ -6756,6 +6762,8 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                     {
                         fill1_incl(trigShort, "weta",   v.weta_cogx);
                         fill1_incl(trigShort, "wphi",   v.wphi_cogx);
+                        fill1_incl(trigShort, "weta33", v.weta33_cogx);
+                        fill1_incl(trigShort, "wphi33", v.wphi33_cogx);
                         fill1_incl(trigShort, "weta35", v.weta35_cogx);
                         fill1_incl(trigShort, "wphi53", v.wphi53_cogx);
                         fill1_incl(trigShort, "et1",    v.et1);
@@ -7172,6 +7180,8 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                         
                         fill1("weta",   v.weta_cogx);
                         fill1("wphi",   v.wphi_cogx);
+                        fill1("weta33", v.weta33_cogx);
+                        fill1("wphi33", v.wphi33_cogx);
                         fill1("weta35", v.weta35_cogx);
                         fill1("wphi53", v.wphi53_cogx);
                         fill1("et1",    v.et1);
@@ -13876,7 +13886,9 @@ TH1F* RecoilJets::getOrBookSSHist(const std::string& trig,
   // Choose sane, variable-specific ranges (matches your previous defaults)
   int    nb = 120;
   double lo = 0.0, hi = 1.2;
-  if (varKey == "weta" || varKey == "wphi" || varKey == "weta35" || varKey == "wphi53") { nb = 120; lo = 0.0; hi = 1.2; }
+  if (varKey == "weta" || varKey == "wphi" ||
+      varKey == "weta33" || varKey == "wphi33" ||
+      varKey == "weta35" || varKey == "wphi53") { nb = 120; lo = 0.0; hi = 1.2; }
   else if (varKey == "et1")                 { nb = 120; lo = 0.0; hi = 1.2; }
   else if (varKey == "e11e33" || varKey == "e32e35") { nb = 120; lo = 0.0; hi = 1.2; }
   else if (varKey == "npbScore")            { nb = 120; lo = -1.0; hi = 1.2; }
@@ -14265,6 +14277,8 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
 
     fillSS("weta",   v.weta_cogx);
     fillSS("wphi",   v.wphi_cogx);
+    fillSS("weta33", v.weta33_cogx);
+    fillSS("wphi33", v.wphi33_cogx);
     fillSS("weta35", v.weta35_cogx);
     fillSS("wphi53", v.wphi53_cogx);
     fillSS("et1",    v.et1);

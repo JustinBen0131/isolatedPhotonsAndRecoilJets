@@ -181,6 +181,8 @@ public:
         double pt_gamma       = 0.0;
         double weta_cogx      = 0.0;
         double wphi_cogx      = 0.0;
+        double weta33_cogx    = 0.0;
+        double wphi33_cogx    = 0.0;
         double weta35_cogx    = 0.0;
         double wphi53_cogx    = 0.0;
         double et1            = 0.0;
