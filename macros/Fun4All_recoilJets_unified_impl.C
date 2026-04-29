@@ -1442,7 +1442,8 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     bool isPPrun25 = false;
     bool isAuAuRequested = false;
     std::string datasetToken = env_lower("RJ_DATASET", "ispp");
-    if (datasetToken == "issimembedded" || datasetToken == "simembedded")
+    if (datasetToken == "issimembedded" || datasetToken == "simembedded" ||
+        datasetToken == "issimembeddedinclusive" || datasetToken == "simembeddedinclusive")
     {
         isSim = true;
         isSimEmbedded = true;
@@ -3145,13 +3146,19 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         }
     }
     
+    const bool useSamePhotonBDTScores = !isAuAuLike;
+    constexpr float kPPG12PPIsoTowerMin = 0.12f;
+
     auto configurePhotonBuilder =
     [&](PhotonClusterBuilder* builder, const std::string& outNode)
     {
         builder->set_input_cluster_node(photonInputClusterNode);
         builder->set_output_photon_node(outNode);
         builder->set_ET_threshold(static_cast<float>(minPhotonEt));
-        builder->set_iso_min_tower_energy(static_cast<float>(cfg.isoTowMin));
+        builder->set_iso_min_tower_energy(useSamePhotonBDTScores ? kPPG12PPIsoTowerMin
+                                                                  : static_cast<float>(cfg.isoTowMin));
+        builder->set_use_ppg12_pp_iso_axis(useSamePhotonBDTScores);
+        builder->set_skip_ppg12_edge_clusters(useSamePhotonBDTScores);
         
         builder->set_use_vz_cut(cfg.use_vz_cut);
         builder->set_vz_cut_cm(cfg.vz_cut_cm);
@@ -3183,7 +3190,10 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     
     auto* photonBuilder = new PhotonClusterBuilder("PhotonClusterBuilder");
     configurePhotonBuilder(photonBuilder, "PHOTONCLUSTER_CEMC");
-    se->registerSubsystem(photonBuilder);
+    if (!useSamePhotonBDTScores)
+    {
+        se->registerSubsystem(photonBuilder);
+    }
     
     if (cfg.preselection == "variantA")
     {
@@ -3195,15 +3205,28 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         {
             detail::bail("preselection=variantA requires npb_features in analysis_config.yaml");
         }
-        
-        preselectionPhotonNode = "PHOTONCLUSTER_CEMC_NPB";
-        
-        auto* photonBuilderNPB = new PhotonClusterBuilder("PhotonClusterBuilder_NPB");
-        configurePhotonBuilder(photonBuilderNPB, preselectionPhotonNode);
-        photonBuilderNPB->set_do_bdt(true);
-        photonBuilderNPB->set_bdt_model_file(cfg.npb_model_file);
-        photonBuilderNPB->set_bdt_feature_list(cfg.npb_features);
-        se->registerSubsystem(photonBuilderNPB);
+
+        if (useSamePhotonBDTScores)
+        {
+            preselectionPhotonNode = "PHOTONCLUSTER_CEMC";
+            photonBuilder->add_named_bdt_score("npb_score",
+                                               cfg.npb_model_file,
+                                               cfg.npb_features,
+                                               6.0f,
+                                               40.0f,
+                                               0.7f);
+        }
+        else
+        {
+            preselectionPhotonNode = "PHOTONCLUSTER_CEMC_NPB";
+
+            auto* photonBuilderNPB = new PhotonClusterBuilder("PhotonClusterBuilder_NPB");
+            configurePhotonBuilder(photonBuilderNPB, preselectionPhotonNode);
+            photonBuilderNPB->set_do_bdt(true);
+            photonBuilderNPB->set_bdt_model_file(cfg.npb_model_file);
+            photonBuilderNPB->set_bdt_feature_list(cfg.npb_features);
+            se->registerSubsystem(photonBuilderNPB);
+        }
     }
     
     if (cfg.tight == "variantA")
@@ -3216,15 +3239,31 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         {
             detail::bail("tight=variantA requires tight_bdt_features in analysis_config.yaml");
         }
-        
-        tightPhotonNode = "PHOTONCLUSTER_CEMC_TIGHTBDT";
-        
-        auto* photonBuilderTightBDT = new PhotonClusterBuilder("PhotonClusterBuilder_TightBDT");
-        configurePhotonBuilder(photonBuilderTightBDT, tightPhotonNode);
-        photonBuilderTightBDT->set_do_bdt(true);
-        photonBuilderTightBDT->set_bdt_model_file(cfg.tight_bdt_model_file);
-        photonBuilderTightBDT->set_bdt_feature_list(cfg.tight_bdt_features);
-        se->registerSubsystem(photonBuilderTightBDT);
+
+        if (useSamePhotonBDTScores)
+        {
+            tightPhotonNode = "PHOTONCLUSTER_CEMC";
+            photonBuilder->add_named_bdt_score("tight_bdt_score",
+                                               cfg.tight_bdt_model_file,
+                                               cfg.tight_bdt_features,
+                                               7.0f);
+        }
+        else
+        {
+            tightPhotonNode = "PHOTONCLUSTER_CEMC_TIGHTBDT";
+
+            auto* photonBuilderTightBDT = new PhotonClusterBuilder("PhotonClusterBuilder_TightBDT");
+            configurePhotonBuilder(photonBuilderTightBDT, tightPhotonNode);
+            photonBuilderTightBDT->set_do_bdt(true);
+            photonBuilderTightBDT->set_bdt_model_file(cfg.tight_bdt_model_file);
+            photonBuilderTightBDT->set_bdt_feature_list(cfg.tight_bdt_features);
+            se->registerSubsystem(photonBuilderTightBDT);
+        }
+    }
+
+    if (useSamePhotonBDTScores)
+    {
+        se->registerSubsystem(photonBuilder);
     }
     
     if (vlevel > 0)
@@ -3505,4 +3544,3 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 }
 
 #endif   // ROOT_VERSION guard
-

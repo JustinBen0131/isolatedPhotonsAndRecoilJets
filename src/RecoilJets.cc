@@ -5428,6 +5428,50 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 // 1) Build shower-shape inputs (for preselection and tightness)
                 const SSVars v = makeSSFromPhoton(pho, pt_gamma);
                 ++m_bk.pho_reached_pre_iso;
+
+                const int effCentIdx_SS = (m_isAuAu ? centIdx : -1);
+                const std::string slice_SS = suffixForBins(ptIdx, effCentIdx_SS);
+
+                for (const auto& trigShort : activeTrig)
+                {
+                    if (m_preselectionVariant == "variantA")
+                    {
+                        const bool finiteNPB = std::isfinite(v.npb_score);
+                        if (auto* h = getOrBookCountHist(trigShort, finiteNPB ? "h_npbScore_finite" : "h_npbScore_missing",
+                                                         ptIdx, effCentIdx_SS))
+                        {
+                            h->Fill(1);
+                            bumpHistFill(trigShort, std::string(finiteNPB ? "h_npbScore_finite" : "h_npbScore_missing") + slice_SS);
+                        }
+                        if (finiteNPB)
+                        {
+                            if (auto* hScore = getOrBookBDTScoreHist(trigShort, "h_npbScore_allCandidates", ptIdx, effCentIdx_SS))
+                            {
+                                hScore->Fill(v.npb_score);
+                                bumpHistFill(trigShort, std::string("h_npbScore_allCandidates") + slice_SS);
+                            }
+                        }
+                    }
+
+                    if (m_tightVariant == "variantA")
+                    {
+                        const bool finiteTight = std::isfinite(v.tight_bdt_score);
+                        if (auto* h = getOrBookCountHist(trigShort, finiteTight ? "h_tightBDTScore_finite" : "h_tightBDTScore_missing",
+                                                         ptIdx, effCentIdx_SS))
+                        {
+                            h->Fill(1);
+                            bumpHistFill(trigShort, std::string(finiteTight ? "h_tightBDTScore_finite" : "h_tightBDTScore_missing") + slice_SS);
+                        }
+                        if (finiteTight)
+                        {
+                            if (auto* hScore = getOrBookBDTScoreHist(trigShort, "h_tightBDTScore_allCandidates", ptIdx, effCentIdx_SS))
+                            {
+                                hScore->Fill(v.tight_bdt_score);
+                                bumpHistFill(trigShort, std::string("h_tightBDTScore_allCandidates") + slice_SS);
+                            }
+                        }
+                    }
+                }
                 
                 // ------------------------------------------------------------------
                 // Deliverable Set A:
@@ -5435,9 +5479,6 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 //   - "iso"    : Eiso < (A + B * pT)           (or fixedGeV if sliding iso disabled)
                 //   - "nonIso" : Eiso > (A + B * pT + gap)     (strict sideband; GAP excluded)
                 // ------------------------------------------------------------------
-                const int effCentIdx_SS = (m_isAuAu ? centIdx : -1);
-                const std::string slice_SS = suffixForBins(ptIdx, effCentIdx_SS);
-                
                 const double eiso_et = eiso(rc, topNode);
                 
                 bool ssIso = false;
@@ -5714,6 +5755,18 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                     LOG(4, CLR_RED, msg.str());
                 }
                 ++m_bk.pre_pass;
+
+                if (m_tightVariant == "variantA" && std::isfinite(v.tight_bdt_score))
+                {
+                    for (const auto& trigShort : activeTrig)
+                    {
+                        if (auto* hScore = getOrBookBDTScoreHist(trigShort, "h_tightBDTScore_preselected", ptIdx, effCentIdx_SS))
+                        {
+                            hScore->Fill(v.tight_bdt_score);
+                            bumpHistFill(trigShort, std::string("h_tightBDTScore_preselected") + slice_SS);
+                        }
+                    }
+                }
                 
                 // ---------- Isolation (count pass/fail) ----------
                 const bool iso = isIsolated(rc, pt_gamma, topNode);
@@ -5725,6 +5778,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 {
                     const double tight_min = m_tightBDTMinIntercept + m_tightBDTMinSlope * v.pt_gamma;
                     const bool pass_tight_bdt =
+                        (v.pt_gamma > 7.0) &&
                         std::isfinite(v.tight_bdt_score) &&
                         std::isfinite(tight_min) &&
                         (v.tight_bdt_score > tight_min) &&
@@ -6699,20 +6753,30 @@ void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars&
 
   if (m_preselectionVariant == "variantA")
   {
-    const PhotonClusterv1* match = (m_photons_npb == m_photons)
-      ? pho
-      : findMatchedPhotonByKinematics(m_photons_npb, pho);
-    if (match)
-      v.npb_score = match->get_shower_shape_parameter("bdt_score");
+    if (m_photons_npb == m_photons)
+    {
+      v.npb_score = pho->get_shower_shape_parameter("npb_score");
+    }
+    else
+    {
+      const PhotonClusterv1* match = findMatchedPhotonByKinematics(m_photons_npb, pho);
+      if (match)
+        v.npb_score = match->get_shower_shape_parameter("bdt_score");
+    }
   }
 
   if (m_tightVariant == "variantA")
   {
-    const PhotonClusterv1* match = (m_photons_tightbdt == m_photons)
-      ? pho
-      : findMatchedPhotonByKinematics(m_photons_tightbdt, pho);
-    if (match)
-      v.tight_bdt_score = match->get_shower_shape_parameter("bdt_score");
+    if (m_photons_tightbdt == m_photons)
+    {
+      v.tight_bdt_score = pho->get_shower_shape_parameter("tight_bdt_score");
+    }
+    else
+    {
+      const PhotonClusterv1* match = findMatchedPhotonByKinematics(m_photons_tightbdt, pho);
+      if (match)
+        v.tight_bdt_score = match->get_shower_shape_parameter("bdt_score");
+    }
   }
 }
 
@@ -6731,12 +6795,15 @@ bool RecoilJets::passesPhotonPreselection(const SSVars& v)
       std::isfinite(v.npb_score) &&
       std::isfinite(v.pt_gamma);
 
-    if (!ok_vals)
+    const bool in_npb_phase_space = (v.pt_gamma >= 6.0 && v.pt_gamma <= 40.0);
+
+    if (!ok_vals || !in_npb_phase_space)
     {
       LOG(2, CLR_YELLOW,
-          "  [passesPhotonPreselection] non-finite NPB score detected: "
+          "  [passesPhotonPreselection] invalid NPB score/phase-space: "
           << "npb_score=" << v.npb_score
-          << " pT^γ=" << v.pt_gamma);
+          << " pT^γ=" << v.pt_gamma
+          << " required 6<=pT^γ<=40");
       return false;
     }
 
@@ -6843,6 +6910,7 @@ RecoilJets::TightTag RecoilJets::classifyPhotonTightness(const SSVars& v)
   {
     const double tight_min = m_tightBDTMinIntercept + m_tightBDTMinSlope * v.pt_gamma;
     const bool pass_tight_bdt =
+      (v.pt_gamma > 7.0) &&
       std::isfinite(v.tight_bdt_score) &&
       std::isfinite(tight_min) &&
       (v.tight_bdt_score > tight_min) &&
@@ -8290,6 +8358,42 @@ TH1I* RecoilJets::getOrBookCountHist(const std::string& trig,
     
     if (prevDir) prevDir->cd();
     return h;
+}
+
+TH1F* RecoilJets::getOrBookBDTScoreHist(const std::string& trig,
+                                        const std::string& base,
+                                        int etIdx, int centIdx)
+{
+  const std::string suffix = suffixForBins(etIdx, centIdx);
+  const std::string name = base + suffix;
+
+  if (trig.empty() || base.empty()) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH1F*>(it->second)) return h;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir)
+  {
+    if (prevDir) prevDir->cd();
+    return nullptr;
+  }
+
+  dir->cd();
+  const std::string title = name + ";BDT score;Entries";
+  auto* h = new TH1F(name.c_str(), title.c_str(), 120, -1.05, 1.05);
+  H[name] = h;
+
+  if (prevDir) prevDir->cd();
+  return h;
 }
 
 

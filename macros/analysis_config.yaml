@@ -33,13 +33,13 @@
 # Photon + jet kinematic selection
 # -----------------------------------------------------------------------------
 photon_eta_abs_max: 0.7
-jet_pt_min: [7.0]
+jet_pt_min: [5.0]
 
 # Jet radii to reconstruct (R values).
 # The steering macro builds reco jets (and SIM truth jets) for each radius.
 # RecoilJets processes only the radii listed here.
 # Baseline: r02 + r04 + r06
-jet_radii: [0.3]
+jet_radii: [0.3, 0.4, 0.6]
 
 # Back-to-back azimuthal cut as a fraction of π.
 #   0.5   → Δφ > π/2
@@ -53,7 +53,7 @@ back_to_back_dphi_min_pi_fraction: [0.875]
 use_vz_cut: true
 
 # MATRIX AXIS: one job per vz_cut_cm value.
-vz_cut_cm: [30.0]
+vz_cut_cm: [60.0]
 
 # AuAu only: when true, RecoilJets also requires
 # MinimumBiasInfo::isAuAuMinimumBias() after the configured GL1 trigger fires.
@@ -150,8 +150,8 @@ clusterUEpipeline: [baseVariant]
 #
 #     If preselection=variantB, "passes selected preselection" is automatically true.
 # -----------------------------------------------------------------------------
-preselection: [variantA]
-tight: [reference]
+preselection: [variantA, variantB]
+tight: [variantA]
 nonTight: [reference]
 
 # -----------------------------------------------------------------------------
@@ -166,7 +166,7 @@ nonTight: [reference]
 # -----------------------------------------------------------------------------
 npb_model_file: /sphenix/user/shuhangli/ppg12/FunWithxgboost/npb_models/npb_score_split_tmva.root
 npb_cut: 0.5
-npb_features: [vertex_z, ET, weta_cogx, wphi_cogx, et1, e11_over_e33, e32_over_e35]
+npb_features: [cluster_Et, cluster_Eta, vertexz, e11_over_e33, e32_over_e35, e11_over_e22, e11_over_e13, e11_over_e15, e11_over_e17, e11_over_e31, e11_over_e51, e11_over_e71, e22_over_e33, e22_over_e35, e22_over_e37, e22_over_e53, cluster_weta_cogx, cluster_wphi_cogx, cluster_et1, cluster_et2, cluster_et3, cluster_et4, cluster_w32, cluster_w52, cluster_w72]
 
 # -----------------------------------------------------------------------------
 # Tight-ID BDT controls (used when tight: variantA)
@@ -245,14 +245,14 @@ doPi0Analysis: true
 # MATRIX AXIS: coneR sets the isolation cone radius.
 # PhotonClusterBuilder provides isolation sums for R=0.3 and R=0.4.
 # -----------------------------------------------------------------------------
-isSlidingIso: true
-isSlidingAndFixed: false
+isSlidingIso: false
+isSlidingAndFixed: true
 
 # MATRIX AXIS: one job per fixedGeV value (when isSlidingIso is false).
 fixedGeV: [2.0]
 
 # MATRIX AXIS: isolation cone radius.
-coneR: [0.30]
+coneR: [0.40]
 
 # Global sliding WP parameters.
 # Used directly for pp / non-AuAu SIM when isSlidingIso is true:

@@ -679,6 +679,9 @@ private:
                         const std::string& varKey,
                         const std::string& tagKey,
                         int ptIdx, int centIdx);
+  TH1F* getOrBookBDTScoreHist(const std::string& trig,
+                              const std::string& base,
+                              int ptIdx, int centIdx);
 
   // Physics outputs (already radius-tagged in your .cc)
   TH1F* getOrBookXJHist(const std::string& trig,

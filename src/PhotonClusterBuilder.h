@@ -45,7 +45,16 @@ class PhotonClusterBuilder : public SubsysReco
     void set_bdt_model_file(const std::string& path) { m_bdt_model_file = path; }
     void set_bdt_feature_list(const std::vector<std::string>& features) { m_bdt_feature_list = features; }
     void set_do_bdt(bool do_bdt) { m_do_bdt = do_bdt; }
+    void add_named_bdt_score(const std::string& score_name,
+                             const std::string& model_file,
+                             const std::vector<std::string>& features,
+                             float min_et = std::numeric_limits<float>::quiet_NaN(),
+                             float max_et = std::numeric_limits<float>::quiet_NaN(),
+                             float max_abs_eta = std::numeric_limits<float>::quiet_NaN());
     const std::vector<std::string>& get_bdt_feature_list() const { return m_bdt_feature_list; }
+
+    void set_use_ppg12_pp_iso_axis(bool use) { m_use_ppg12_pp_iso_axis = use; }
+    void set_skip_ppg12_edge_clusters(bool skip) { m_skip_ppg12_edge_clusters = skip; }
 
     void set_vz_cut(bool use, float vz_cm) { m_use_vz_cut = use; m_vz_cut_cm = vz_cm; }
     void set_use_vz_cut(bool use) { m_use_vz_cut = use; }
@@ -68,8 +77,9 @@ class PhotonClusterBuilder : public SubsysReco
 
  private:
   void CreateNodes(PHCompositeNode* topNode);
-  void calculate_shower_shapes(RawCluster* rc, PhotonClusterv1* photon, float eta, float phi);
+  bool calculate_shower_shapes(RawCluster* rc, PhotonClusterv1* photon, float eta, float phi);
   void calculate_bdt_score(PhotonClusterv1* photon);
+  void calculate_named_bdt_scores(PhotonClusterv1* photon);
   double getTowerEta(RawTowerGeom* tower_geom, double vx, double vy, double vz);
   std::vector<int> find_closest_hcal_tower(float eta, float phi, RawTowerGeomContainer* geom, TowerInfoContainer* towerContainer, float vertex_z, bool isihcal);
   double deltaR(double eta1, double phi1, double eta2, double phi2);
@@ -107,9 +117,22 @@ class PhotonClusterBuilder : public SubsysReco
     float m_iso_min_tower_E{0.0f};
     std::string m_bdt_model_file{"myBDT_5.root"};
         std::vector<std::string> m_bdt_feature_list;
+        struct NamedBDTScoreConfig
+        {
+          std::string score_name;
+          std::string model_file;
+          std::vector<std::string> features;
+          float min_et = std::numeric_limits<float>::quiet_NaN();
+          float max_et = std::numeric_limits<float>::quiet_NaN();
+          float max_abs_eta = std::numeric_limits<float>::quiet_NaN();
+          std::unique_ptr<TMVA::Experimental::RBDT> model;
+        };
+        std::vector<NamedBDTScoreConfig> m_named_bdt_scores;
         float m_vertex{std::numeric_limits<float>::quiet_NaN()};
         bool m_use_vz_cut{true};
         float m_vz_cut_cm{30.0f};
+        bool m_use_ppg12_pp_iso_axis{false};
+        bool m_skip_ppg12_edge_clusters{false};
 
         RawClusterContainer* m_rawclusters{nullptr};
       RawClusterContainer* m_photon_container{nullptr};
