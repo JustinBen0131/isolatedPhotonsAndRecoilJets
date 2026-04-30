@@ -39,7 +39,7 @@ jet_pt_min: [5.0]
 # The steering macro builds reco jets (and SIM truth jets) for each radius.
 # RecoilJets processes only the radii listed here.
 # Baseline: r02 + r04 + r06
-jet_radii: [0.3, 0.4, 0.6]
+jet_radii: [0.3]
 
 # Back-to-back azimuthal cut as a fraction of π.
 #   0.5   → Δφ > π/2
@@ -154,9 +154,9 @@ clusterUEpipeline: [baseVariant]
 #
 #     BDT scores outside the tight and non-tight windows are treated as neither.
 # -----------------------------------------------------------------------------
-preselection: [variantA]
-tight: [variantA]
-nonTight: [variantA]
+preselection: [reference]
+tight: [reference]
+nonTight: [reference]
 
 # -----------------------------------------------------------------------------
 # NPB preselection controls

@@ -207,7 +207,8 @@ void DrawOverlay(const std::vector<VariantSpec>& specs,
                  const std::string& yTitle,
                  const std::string& title,
                  const std::string& outPath,
-                 double yMax)
+                 double yMax,
+                 const std::string& selectionText = "jetMinPt5, 7#pi/8, |v_{z}| < 60 cm, isoR40, sliding iso")
 {
     TCanvas c("c_overlay", "c_overlay", 1000, 760);
     c.SetLeftMargin(0.13);
@@ -264,7 +265,7 @@ void DrawOverlay(const std::vector<VariantSpec>& specs,
     text.DrawLatex(0.16, 0.93, title.c_str());
     text.SetTextSize(0.030);
     text.DrawLatex(0.16, 0.86, "Run24 pp, Photon 4 GeV + MBD NS #geq 1");
-    text.DrawLatex(0.16, 0.815, "jetMinPt5, 7#pi/8, |v_{z}| < 60 cm, isoR40, sliding iso");
+    text.DrawLatex(0.16, 0.815, selectionText.c_str());
 
     c.SaveAs(outPath.c_str());
     std::cout << "[WROTE] " << outPath << "\n";
@@ -317,4 +318,34 @@ void OverlayPPPurityAndLeakageVariants()
                 "Truth-signal leakage into ABCD region C",
                 ARJ::kOutputBase + "/pp/signalLeakage_regionC_overlay_isSliding_photonIDVariants.png",
                 1.05);
+}
+
+void OverlayPPFixedIsoLeakageReferenceVsVariantA()
+{
+    const std::vector<VariantSpec> specs = {
+        {"Box-cuts",
+         "jetMinPt5_7pi_8_vz60_isoR40_fixedIso2GeV_preselectionReference_tightReference_nonTightReference",
+         kBlack, 20},
+        {"NPB, BDT #gamma-ID",
+         "jetMinPt5_7pi_8_vz60_isoR40_fixedIso2GeV_preselectionVariantA_tightVariantA_nonTightVariantA",
+         kBlue + 1, 21}
+    };
+
+    gSystem->mkdir((ARJ::kOutputBase + "/pp").c_str(), true);
+
+    std::vector<std::vector<double>> xs(specs.size()), exs(specs.size());
+    std::vector<std::vector<double>> ys(specs.size()), eys(specs.size());
+
+    for (std::size_t i = 0; i < specs.size(); ++i)
+    {
+        if (!BuildLeakageCGraph(specs[i], xs[i], exs[i], ys[i], eys[i]))
+            std::cerr << "[WARN] Skipping region-C leakage graph for " << specs[i].label << "\n";
+    }
+
+    DrawOverlay(specs, xs, exs, ys, eys,
+                "Region C signal leakage, f_{C} = C_{sig}/A_{sig}",
+                "Truth-signal leakage into ABCD region C",
+                ARJ::kOutputBase + "/pp/signalLeakage_regionC_overlay_fixedIso2GeV_reference_vs_variantA.png",
+                1.05,
+                "jetMinPt5, 7#pi/8, |v_{z}| < 60 cm, isoR40, fixed 2 GeV iso");
 }
