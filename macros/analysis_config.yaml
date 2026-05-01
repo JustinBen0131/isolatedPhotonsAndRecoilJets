@@ -154,9 +154,9 @@ clusterUEpipeline: [baseVariant]
 #
 #     BDT scores outside the tight and non-tight windows are treated as neither.
 # -----------------------------------------------------------------------------
-preselection: [reference, variantA, variantB]
-tight: [reference]
-nonTight: [reference]
+preselection: [variantA]
+tight: [variantA]
+nonTight: [variantA]
 
 # -----------------------------------------------------------------------------
 # NPB preselection controls
@@ -193,17 +193,24 @@ tight_bdt_max: 1.0
 tight_bdt_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35]
 
 # -----------------------------------------------------------------------------
-# SIM-only event reweighting (Blair-style)
+# SIM-only event reweighting
 #
-# Applied multiplicatively in embedded MC / SIM as:
-#   eventWeight = zVertexWeight × centralityWeight
+# pp photon+jet SIM:
+#   - applied online in RecoilJets when vertex_reweight_on_pp is true
+#   - uses PPG12 truth-vz iterative weights
+#   - photon5/10/20 cross-section factors are applied offline when merging
 #
-# zVertexWeight   : histogram lookup vs reco v_{z}
-# centralityWeight: histogram lookup vs event centrality percentile
+# AuAu embedded SIM:
+#   - applied online in RecoilJets_AuAu when vertex_reweight_on_auau is true
+#   - centrality weights remain AuAu-only
 # -----------------------------------------------------------------------------
-vertex_reweight_on: false
-vertex_reweight_file: /sphenix/u/bseidlitz/work/pj_auau/reweightingDer/output/vtxz_reweighting.root
-vertex_reweight_hist: data_over_MC_ratios/h_zvtx_ratio_data_over_photonJet
+vertex_reweight_on_pp: true
+vertex_reweight_file_pp: /sphenix/user/shuhangli/ppg12/efficiencytool/truth_vertex_reweight/output/0mrad/reweight.root
+vertex_reweight_hist_pp: h_w_iterative
+
+vertex_reweight_on_auau: false
+vertex_reweight_file_auau: /sphenix/u/bseidlitz/work/pj_auau/reweightingDer/output/vtxz_reweighting.root
+vertex_reweight_hist_auau: data_over_MC_ratios/h_zvtx_ratio_data_over_photonJet
 
 centrality_reweight_on: false
 centrality_reweight_file: /sphenix/u/bseidlitz/work/pj_auau/reweightingDer/output/centrality_reweighting.root

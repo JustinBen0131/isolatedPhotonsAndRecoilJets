@@ -106,6 +106,13 @@ case "$dataset_raw" in
     ;;
 esac
 
+if [[ "$dataset" == "isSim" ]]; then
+  # For pp photon+jet production run8 is the slice label passed by the submitter
+  # (PhotonJet5, PhotonJet10, PhotonJet20). RecoilJets uses this to apply the
+  # same PPG12 stitching window before any weighted SIM histogram filling.
+  export RJ_PPG12_PHOTON_SAMPLE="$run8"
+fi
+
 # Destination base (if not supplied as arg 8)
 if [[ -z "$dest_base" ]]; then
   if [[ "$analysis_tag" == "isSimJet5" ]]; then

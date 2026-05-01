@@ -140,6 +140,14 @@ DRYRUN="${DRYRUN:-0}"
 # SKIP_TRACE=1 -> print per-run (total/busy/eligible) summaries during planning/submission.
 SKIP_TRACE="${SKIP_TRACE:-0}"
 
+# Condor merge jobs should jump ahead of default-priority analysis jobs.
+# Override with MERGE_CONDOR_PRIORITY=N if a different local priority is needed.
+MERGE_CONDOR_PRIORITY="${MERGE_CONDOR_PRIORITY:-5}"
+if [[ ! "$MERGE_CONDOR_PRIORITY" =~ ^-?[0-9]+$ ]]; then
+  echo "mergeRecoilJets.sh: MERGE_CONDOR_PRIORITY must be an integer, got '${MERGE_CONDOR_PRIORITY}'" >&2
+  exit 2
+fi
+
 # ---------- Pretty printing ----------
 BOLD=$'\e[1m'; RED=$'\e[31m'; YEL=$'\e[33m'; GRN=$'\e[32m'; BLU=$'\e[34m'; RST=$'\e[0m'
 say()  { printf "${BLU}➜${RST} %s\n" "$*"; }
@@ -1327,7 +1335,8 @@ executable = $CONDOR_EXEC
 output     = $OUT_DIR/recoil.sim.${cfg_tag}.${SIM_TAG}.\$(Cluster).\$(Process).out
 error      = $ERR_DIR/recoil.sim.${cfg_tag}.${SIM_TAG}.\$(Cluster).\$(Process).err
 log        = $LOG_DIR/recoil.sim.${cfg_tag}.${SIM_TAG}.\$(Cluster).\$(Process).log
-request_memory = 4GB
+request_memory = 2GB
+priority = $MERGE_CONDOR_PRIORITY
 getenv = True
 should_transfer_files = NO
 stream_output = True
@@ -1424,6 +1433,7 @@ output     = $OUT_DIR/recoil.sim.${cfg_tag}.${SIM_TAG}.final.\$(Cluster).\$(Proc
 error      = $ERR_DIR/recoil.sim.${cfg_tag}.${SIM_TAG}.final.\$(Cluster).\$(Process).err
 log        = $LOG_DIR/recoil.sim.${cfg_tag}.${SIM_TAG}.final.\$(Cluster).\$(Process).log
 request_memory = 6GB
+priority = $MERGE_CONDOR_PRIORITY
 getenv = True
 should_transfer_files = NO
 stream_output = True
@@ -1776,6 +1786,7 @@ output     = $OUT_DIR/recoil.\$(Cluster).\$(Process).out
 error      = $ERR_DIR/recoil.\$(Cluster).\$(Process).err
 log        = $LOG_DIR/recoil.\$(Cluster).\$(Process).log
 request_memory = 2GB
+priority = $MERGE_CONDOR_PRIORITY
 getenv = True
 should_transfer_files = NO
 stream_output = True
@@ -1926,6 +1937,7 @@ output     = $OUT_DIR/recoil.slice.\$(Cluster).\$(Process).out
 error      = $ERR_DIR/recoil.slice.\$(Cluster).\$(Process).err
 log        = $LOG_DIR/recoil.slice.\$(Cluster).\$(Process).log
 request_memory = 4GB
+priority = $MERGE_CONDOR_PRIORITY
 getenv = True
 should_transfer_files = NO
 stream_output = True
@@ -2005,6 +2017,7 @@ output     = $OUT_DIR/recoil.final.\$(Cluster).\$(Process).out
 error      = $ERR_DIR/recoil.final.\$(Cluster).\$(Process).err
 log        = $LOG_DIR/recoil.final.\$(Cluster).\$(Process).log
 request_memory = 3GB
+priority = $MERGE_CONDOR_PRIORITY
 getenv = True
 should_transfer_files = NO
 stream_output = True

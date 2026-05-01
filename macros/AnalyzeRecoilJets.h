@@ -237,9 +237,11 @@ inline const vector<double> kCentralityEdges          = {0, 20, 50, 80};
 // ===========================================================================
 // 6. CROSS SECTIONS  (pb, for SIM slice weighting)
 // ===========================================================================
-inline constexpr double kSigmaPhoton5_pb  = 89266.571;
-inline constexpr double kSigmaPhoton10_pb = 6692.7611;
-inline constexpr double kSigmaPhoton20_pb = 105.79868;
+// Run 28 MDC2 Pythia photon cross sections used by PPG12 for photon5/10/20
+// stitching and weighted merging.
+inline constexpr double kSigmaPhoton5_pb  = 146359.3;
+inline constexpr double kSigmaPhoton10_pb = 6944.675;
+inline constexpr double kSigmaPhoton20_pb = 130.4461;
 // Embedded PhotonJet12 must be the exclusive stitched window:
 //   12 <= pT_filter^gamma < 20 GeV
 // Do not use the old inclusive pT_filter^gamma >= 12 value (2719.20189 pb).
@@ -3206,7 +3208,7 @@ inline bool BuildMergedSIMFile_PhotonSlices(const vector<string>& inFiles,
     
     vector<TFile*> fin(n, nullptr);
     vector<TDirectory*> din(n, nullptr);
-    vector<double> N(n, 0.0);
+    vector<double> Nraw(n, 0.0);
     vector<double> w(n, 0.0);
     
     auto CloseAll = [&](){
@@ -3251,26 +3253,26 @@ inline bool BuildMergedSIMFile_PhotonSlices(const vector<string>& inFiles,
             return false;
         }
         
-        N[i] = ReadEventCountFromFile(fin[i], topDirName);
-        if (N[i] <= 0.0)
-        {
-            cout << ANSI_BOLD_YEL
-            << "[MERGE SIM][WARN] Naccepted <= 0 for input. Skipping this merge target:\n"
-            << "  " << inFiles[i] << "\n"
-            << ANSI_RESET;
-            CloseAll();
-            return false;
-        }
-        
-        w[i] = sigmas_pb[i] / N[i];
+        Nraw[i] = ReadEventCountFromFile(fin[i], topDirName);
+        w[i] = sigmas_pb[i];
     }
     
-    // Normalize by a common factor so merged histograms remain "count-like",
-    // while preserving correct relative (sigma/N) weighting across slices.
-    double wRef = 0.0;
-    for (size_t i = 0; i < n; ++i)
+    // Normalize by the highest-threshold slice when available. For photon5/10/20
+    // this gives the PPG12-style relative merge weights:
+    //   w5=sigma5/sigma20, w10=sigma10/sigma20, w20=1.
+    // The event acceptance/stitching is already applied online, so do not divide
+    // by the post-stitch accepted event count here.
+    double wRef = sigmas_pb.back();
+    if (wRef <= 0.0)
     {
-        if (w[i] > 0.0) { wRef = w[i]; break; }
+        for (size_t i = n; i > 0; --i)
+        {
+            if (sigmas_pb[i - 1] > 0.0)
+            {
+                wRef = sigmas_pb[i - 1];
+                break;
+            }
+        }
     }
     if (wRef <= 0.0)
     {
@@ -3285,11 +3287,11 @@ inline bool BuildMergedSIMFile_PhotonSlices(const vector<string>& inFiles,
         w[i] /= wRef;
     }
     
-    cout << ANSI_BOLD_YEL << "[MERGE SIM] Slice weights (relative): w = (sigma/N)/(sigma0/N0)\n" << ANSI_RESET;
+    cout << ANSI_BOLD_YEL << "[MERGE SIM] Slice weights (relative): w = sigma/sigma_ref; no Naccepted denominator\n" << ANSI_RESET;
     for (size_t i = 0; i < n; ++i)
     {
         const string lab = (!sliceLabels.empty() && sliceLabels.size() == n) ? sliceLabels[i] : std::to_string(i);
-        cout << "  [" << lab << "]  N=" << std::fixed << std::setprecision(0) << N[i]
+        cout << "  [" << lab << "]  Nraw=" << std::fixed << std::setprecision(0) << Nraw[i]
         << "   sigma_pb=" << std::setprecision(12) << sigmas_pb[i]
         << "   w=" << std::setprecision(12) << w[i] << "\n";
     }
@@ -3376,7 +3378,7 @@ inline bool BuildMergedSIMFile_PhotonSlices(const vector<string>& inFiles,
     
     cout << ANSI_BOLD_CYN
     << "[MERGE SIM] Done. Merged file written: " << outMerged << "\n"
-    << "[MERGE SIM] NOTE: histograms are weighted by relative (sigma/N) slice weights (overall normalization arbitrary).\n"
+    << "[MERGE SIM] NOTE: histograms are weighted by relative sigma/sigma_ref slice weights; per-slice stitching and vertex weights are applied upstream.\n"
     << ANSI_RESET;
     
     return true;

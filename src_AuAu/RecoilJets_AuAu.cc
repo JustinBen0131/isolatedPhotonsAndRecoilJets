@@ -6693,6 +6693,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
             HepMC::GenEvent* evtHepMC_SS = nullptr;
             bool haveCaloEval_SS = false;
             std::unique_ptr<CaloRawClusterEval> clustereval_SS;
+            TruthSignalPhotonMap truthSignalByTrackId_SS;
             
             if (m_isSim)
             {
@@ -6723,6 +6724,11 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                     LOG(5, CLR_YELLOW, "      [SS templates] PHHepMCGenEventMap/HepMC event missing → will fill *_bkg only");
                 if (!haveCaloEval_SS && Verbosity() >= 5)
                     LOG(5, CLR_YELLOW, "      [SS templates] CaloRawClusterEval missing required nodes → will fill *_bkg only");
+
+                if (evtHepMC_SS)
+                {
+                    truthSignalByTrackId_SS = buildPPG12TruthSignalPhotonMap(evtHepMC_SS);
+                }
             }
             
             int iPho = 0;
@@ -7004,9 +7010,17 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 if (m_isSim)
                 {
                     bool isSig_incl = false;
-                    double isoEtTruth_incl = std::numeric_limits<double>::quiet_NaN();
                     if (evtHepMC_SS && clustereval_SS && haveCaloEval_SS)
-                        isSig_incl = isRecoClusterTruthSignalPPG12(evtHepMC_SS, *clustereval_SS, rc, isoEtTruth_incl);
+                    {
+                        TruthSignalPhotonInfo matchedTruth_incl;
+                        int clusterTruthTrackId_incl = -1;
+                        float eContrib_incl = std::numeric_limits<float>::lowest();
+                        isSig_incl = classifyRecoPhotonWithPPG12TruthTrack(rc, *clustereval_SS,
+                                                                           truthSignalByTrackId_SS,
+                                                                           matchedTruth_incl,
+                                                                           clusterTruthTrackId_incl,
+                                                                           eContrib_incl);
+                    }
                     const std::string mcSuffix_incl = (isSig_incl ? "_sig" : "_bkg");
                     const std::string tagKey_incl   = std::string("inclusive") + mcSuffix_incl;
                     
@@ -7418,10 +7432,16 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                     else
                     {
                         bool isSig = false;
-                        double isoEtTruth = std::numeric_limits<double>::quiet_NaN();
                         if (evtHepMC_SS && clustereval_SS && haveCaloEval_SS)
                         {
-                            isSig = isRecoClusterTruthSignalPPG12(evtHepMC_SS, *clustereval_SS, rc, isoEtTruth);
+                            TruthSignalPhotonInfo matchedTruth;
+                            int clusterTruthTrackId = -1;
+                            float eContrib = std::numeric_limits<float>::lowest();
+                            isSig = classifyRecoPhotonWithPPG12TruthTrack(rc, *clustereval_SS,
+                                                                          truthSignalByTrackId_SS,
+                                                                          matchedTruth,
+                                                                          clusterTruthTrackId,
+                                                                          eContrib);
                         }
                         mcSuffix = (isSig ? "_sig" : "_bkg");
                     }
@@ -7668,7 +7688,6 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
             double tPtSig  = 0.0;
             double tEtaSig = 0.0;
             double tPhiSig = 0.0;
-            double tIsoEtSig = 0.0;
             
             if (m_isSim)
             {
@@ -7707,7 +7726,6 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                             tPtSig  = pt;
                             tEtaSig = eta;
                             tPhiSig = phi;
-                            tIsoEtSig = isoEt;
                         }
                     }
                 }
@@ -7792,39 +7810,33 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                         }
                         else
                         {
-                            const double kPhoMatchDR = m_phoMatchDRMax;
+                            const TruthSignalPhotonMap truthSignalByTrackId = buildPPG12TruthSignalPhotonMap(evtHepMC);
+                            TruthSignalPhotonInfo leadMatchedTruth;
+                            int leadTruthTrackId = -1;
+                            float leadEContrib = std::numeric_limits<float>::lowest();
                             
-                            const RawCluster* recoMatch = nullptr;
-                            double rPt = 0.0, rEta = 0.0, rPhi = 0.0, drBest = 1e9;
-                            float  eBest = -1.0f;
-                            
-                            if (findRecoPhotonMatchedToTruthSignal(evtHepMC, truthSigPho, clustereval,
-                                                                   recoMatch, rPt, rEta, rPhi, drBest, eBest))
+                            if (classifyRecoPhotonWithPPG12TruthTrack(leadRc, clustereval, truthSignalByTrackId,
+                                                                       leadMatchedTruth, leadTruthTrackId, leadEContrib) &&
+                                leadMatchedTruth.barcode == truthSigPho->barcode())
                             {
-                                // Require: the truth signal photon's matched reco is the event-leading iso∧tight photon
-                                if (recoMatch == leadRc)
+                                haveTruthPho = true;
+                                tPt  = leadMatchedTruth.pt;
+                                tEta = leadMatchedTruth.eta;
+                                tPhi = leadMatchedTruth.phi;
+
+                                if (Verbosity() >= 5)
                                 {
-                                    const double drPho = dR(leadEtaGamma, leadPhiGamma, tEtaSig, tPhiSig);
-                                    if (drPho < kPhoMatchDR)
-                                    {
-                                        haveTruthPho = true;
-                                        tPt  = tPtSig;
-                                        tEta = tEtaSig;
-                                        tPhi = tPhiSig;
-                                        
-                                        if (Verbosity() >= 5)
-                                        {
-                                            LOG(5, CLR_GREEN,
-                                                "      [truthQA] lead reco photon is CaloRawClusterEval-best-matched to the event-leading truth signal photon:"
-                                                << " barcode=" << truthSigPho->barcode()
-                                                << " pT^truth=" << std::fixed << std::setprecision(2) << tPt
-                                                << " eta^truth=" << std::fixed << std::setprecision(3) << tEta
-                                                << " phi^truth=" << std::fixed << std::setprecision(3) << tPhi
-                                                << " ETiso^truth=" << std::fixed << std::setprecision(3) << tIsoEtSig
-                                                << " ΔR=" << std::fixed << std::setprecision(4) << drPho
-                                                << " Edep(best)=" << eBest);
-                                        }
-                                    }
+                                    const double drPho = dR(leadEtaGamma, leadPhiGamma, tEta, tPhi);
+                                    LOG(5, CLR_GREEN,
+                                        "      [truthQA] lead reco photon has PPG12 cluster_truthtrkID matched to the event-leading truth signal photon:"
+                                        << " barcode=" << leadMatchedTruth.barcode
+                                        << " truthTrackID=" << leadTruthTrackId
+                                        << " pT^truth=" << std::fixed << std::setprecision(2) << tPt
+                                        << " eta^truth=" << std::fixed << std::setprecision(3) << tEta
+                                        << " phi^truth=" << std::fixed << std::setprecision(3) << tPhi
+                                        << " ETiso^truth=" << std::fixed << std::setprecision(3) << leadMatchedTruth.isoEt
+                                        << " ΔR(diagnostic)=" << std::fixed << std::setprecision(4) << drPho
+                                        << " Edep(best)=" << leadEContrib);
                                 }
                             }
                             
@@ -8780,8 +8792,85 @@ bool RecoilJets::isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
     return (isoEt < kIsoMaxGeV);
 }
 
+RecoilJets::TruthSignalPhotonMap
+RecoilJets::buildPPG12TruthSignalPhotonMap(const HepMC::GenEvent* evt) const
+{
+  TruthSignalPhotonMap truthSignalByTrackId;
+  if (!evt || !m_truthInfo) return truthSignalByTrackId;
+
+  for (auto it = evt->particles_begin(); it != evt->particles_end(); ++it)
+  {
+    const HepMC::GenParticle* p = *it;
+    if (!p) continue;
+
+    double isoEt = std::numeric_limits<double>::quiet_NaN();
+    if (!isTruthPromptIsolatedSignalPhoton(evt, p, isoEt)) continue;
+
+    const PHG4Particle* g4Pho = nullptr;
+    auto primaryRange = m_truthInfo->GetPrimaryParticleRange();
+    for (auto truth_itr = primaryRange.first; truth_itr != primaryRange.second; ++truth_itr)
+    {
+      const PHG4Particle* truth = truth_itr->second;
+      if (!truth) continue;
+      if (m_truthInfo->isEmbeded(truth->get_track_id()) < 1) continue;
+      if (truth->get_pid() != 22) continue;
+      if (truth->get_barcode() != p->barcode()) continue;
+      g4Pho = truth;
+      break;
+    }
+    if (!g4Pho) continue;
+
+    TruthSignalPhotonInfo info;
+    info.trackId = g4Pho->get_track_id();
+    info.barcode = p->barcode();
+    info.pt = std::hypot(p->momentum().px(), p->momentum().py());
+    info.eta = p->momentum().pseudoRapidity();
+    info.phi = TVector2::Phi_mpi_pi(p->momentum().phi());
+    info.isoEt = isoEt;
+    info.hep = p;
+    info.g4 = g4Pho;
+
+    if (!std::isfinite(info.pt) || !std::isfinite(info.eta) ||
+        !std::isfinite(info.phi) || info.pt <= 0.0) continue;
+
+    auto existing = truthSignalByTrackId.find(info.trackId);
+    if (existing == truthSignalByTrackId.end() || info.pt > existing->second.pt)
+    {
+      truthSignalByTrackId[info.trackId] = info;
+    }
+  }
+
+  return truthSignalByTrackId;
+}
+
+bool RecoilJets::classifyRecoPhotonWithPPG12TruthTrack(const RawCluster* rc,
+                                                       CaloRawClusterEval& clustereval,
+                                                       const TruthSignalPhotonMap& truthSignalByTrackId,
+                                                       TruthSignalPhotonInfo& matchedTruth,
+                                                       int& clusterTruthTrackId,
+                                                       float& eContrib) const
+{
+  matchedTruth = TruthSignalPhotonInfo{};
+  clusterTruthTrackId = -1;
+  eContrib = std::numeric_limits<float>::lowest();
+  if (!rc || truthSignalByTrackId.empty()) return false;
+
+  RawCluster* rc_nc = const_cast<RawCluster*>(rc);
+  PHG4Particle* primary = clustereval.max_truth_primary_particle_by_energy(rc_nc);
+  if (!primary) return false;
+
+  clusterTruthTrackId = primary->get_track_id();
+  eContrib = clustereval.get_energy_contribution(rc_nc, primary);
+
+  const auto found = truthSignalByTrackId.find(clusterTruthTrackId);
+  if (found == truthSignalByTrackId.end()) return false;
+
+  matchedTruth = found->second;
+  return true;
+}
+
 // -----------------------------------------------------------------------------
-// Unified truth→reco photon matching using CaloRawClusterEval (SIM only)
+// Unified truth→reco photon matching using the PPG12 cluster_truthtrkID convention
 // -----------------------------------------------------------------------------
 bool RecoilJets::findRecoPhotonMatchedToTruthSignal(const HepMC::GenEvent* evt,
                                                     const HepMC::GenParticle* truthPho,
@@ -8803,21 +8892,27 @@ bool RecoilJets::findRecoPhotonMatchedToTruthSignal(const HepMC::GenEvent* evt,
   if (!evt || !truthPho) return false;
   if (!m_photons) return false;
 
-  // Reco-side requirements (your spec)
   constexpr double kRecoEtaAbsMax = 0.7;
   constexpr double kRecoPtMinGeV  = 5.0;
-  constexpr double kMatchDR       = 0.05;
 
-  // Truth kinematics
-  const double tEta = truthPho->momentum().pseudoRapidity();
-  const double tPhi = TVector2::Phi_mpi_pi(truthPho->momentum().phi());
-  if (!std::isfinite(tEta) || !std::isfinite(tPhi)) return false;
+  const TruthSignalPhotonMap truthSignalByTrackId = buildPPG12TruthSignalPhotonMap(evt);
+  if (truthSignalByTrackId.empty()) return false;
 
-  const int truthBarcode = truthPho->barcode();
+  int targetTrackId = -1;
+  TruthSignalPhotonInfo targetTruth;
+  for (const auto& kv : truthSignalByTrackId)
+  {
+    if (kv.second.barcode == truthPho->barcode())
+    {
+      targetTrackId = kv.first;
+      targetTruth = kv.second;
+      break;
+    }
+  }
+  if (targetTrackId < 0) return false;
 
   const auto prange = m_photons->getClusters();
-  int iPho = 0;
-  for (auto pit = prange.first; pit != prange.second; ++pit, ++iPho)
+  for (auto pit = prange.first; pit != prange.second; ++pit)
   {
     const auto* pho = dynamic_cast<const PhotonClusterv1*>(pit->second);
     if (!pho) continue;
@@ -8832,23 +8927,16 @@ bool RecoilJets::findRecoPhotonMatchedToTruthSignal(const HepMC::GenEvent* evt,
     if (std::fabs(eta) >= kRecoEtaAbsMax) continue;
     if (pt <= kRecoPtMinGeV) continue;
 
-    const double dphi = TVector2::Phi_mpi_pi(tPhi - phi);
-    const double deta = tEta - eta;
+    TruthSignalPhotonInfo matchedTruth;
+    int clusterTruthTrackId = -1;
+    float econtrib = std::numeric_limits<float>::lowest();
+    if (!classifyRecoPhotonWithPPG12TruthTrack(rc, clustereval, truthSignalByTrackId,
+                                               matchedTruth, clusterTruthTrackId, econtrib)) continue;
+    if (clusterTruthTrackId != targetTrackId) continue;
+
+    const double dphi = TVector2::Phi_mpi_pi(targetTruth.phi - phi);
+    const double deta = targetTruth.eta - eta;
     const double dr   = std::sqrt(deta*deta + dphi*dphi);
-    if (dr >= kMatchDR) continue;
-
-    // BEST-MATCHED truth primary particle (by deposited energy) for this reco cluster
-    RawCluster* rc_nc = const_cast<RawCluster*>(rc);
-    PHG4Particle* primary = clustereval.max_truth_primary_particle_by_energy(rc_nc);
-    if (!primary) continue;
-
-    // Must match the truth photon barcode (truth↔reco association)
-    if (primary->get_barcode() != truthBarcode) continue;
-
-    // Defensive: require it's actually a photon primary
-    if (primary->get_pid() != 22) continue;
-
-    const float econtrib = clustereval.get_energy_contribution(rc_nc, primary);
 
     // Choose by largest energy contribution, tie-break by smallest ΔR
     bool take = false;
@@ -8892,17 +8980,14 @@ bool RecoilJets::isRecoClusterTruthSignalPPG12(const HepMC::GenEvent* evt,
     isoEtTruth = std::numeric_limits<double>::quiet_NaN();
     if (!evt || !rc) return false;
 
-    RawCluster* rc_nc = const_cast<RawCluster*>(rc);
-    PHG4Particle* primary = clustereval.max_truth_primary_particle_by_energy(rc_nc);
-    if (!primary) return false;
-
-    // Require the best-matched truth primary be a photon (PPG12 background selection is the complement of signal)
-    if (primary->get_pid() != 22) return false;
-
-    const HepMC::GenParticle* hepPho = findHepMCParticleByBarcode(evt, primary->get_barcode());
-    if (!hepPho) return false;
-
-    return isTruthPromptIsolatedSignalPhoton(evt, hepPho, isoEtTruth);
+    const TruthSignalPhotonMap truthSignalByTrackId = buildPPG12TruthSignalPhotonMap(evt);
+    TruthSignalPhotonInfo matchedTruth;
+    int clusterTruthTrackId = -1;
+    float eContrib = std::numeric_limits<float>::lowest();
+    if (!classifyRecoPhotonWithPPG12TruthTrack(rc, clustereval, truthSignalByTrackId,
+                                               matchedTruth, clusterTruthTrackId, eContrib)) return false;
+    isoEtTruth = matchedTruth.isoEt;
+    return true;
 }
 
 

@@ -266,9 +266,13 @@ namespace yamlcfg
         
         std::vector<int> centrality_edges = {0, 10, 20, 40, 60, 80, 100};
         
-        bool vertex_reweight_on = false;
-        std::string vertex_reweight_file = "/sphenix/u/bseidlitz/work/pj_auau/reweightingDer/output/vtxz_reweighting.root";
-        std::string vertex_reweight_hist = "data_over_MC_ratios/h_zvtx_ratio_data_over_photonJet";
+        bool vertex_reweight_on_pp = true;
+        std::string vertex_reweight_file_pp = "/sphenix/user/shuhangli/ppg12/efficiencytool/truth_vertex_reweight/output/0mrad/reweight.root";
+        std::string vertex_reweight_hist_pp = "h_w_iterative";
+
+        bool vertex_reweight_on_auau = false;
+        std::string vertex_reweight_file_auau = "/sphenix/u/bseidlitz/work/pj_auau/reweightingDer/output/vtxz_reweighting.root";
+        std::string vertex_reweight_hist_auau = "data_over_MC_ratios/h_zvtx_ratio_data_over_photonJet";
         
         bool centrality_reweight_on = false;
         std::string centrality_reweight_file = "/sphenix/u/bseidlitz/work/pj_auau/reweightingDer/output/centrality_reweighting.root";
@@ -631,19 +635,47 @@ namespace yamlcfg
                 warn_parse("centrality_edges", rhs, "expected an inline list of integers with size >= 2 (e.g. [0, 10, 20, 40, 60, 80, 100])");
               }
             }
+            else if (StartsWithKey(line, "vertex_reweight_on_pp"))
+            {
+              const std::string rhs = AfterColon(line);
+              if (!ParseBool(rhs, cfg.vertex_reweight_on_pp))
+                warn_parse("vertex_reweight_on_pp", rhs, "expected true/false");
+            }
+            else if (StartsWithKey(line, "vertex_reweight_file_pp"))
+            {
+              cfg.vertex_reweight_file_pp = detail::trim(AfterColon(line));
+            }
+            else if (StartsWithKey(line, "vertex_reweight_hist_pp"))
+            {
+              cfg.vertex_reweight_hist_pp = detail::trim(AfterColon(line));
+            }
+            else if (StartsWithKey(line, "vertex_reweight_on_auau"))
+            {
+              const std::string rhs = AfterColon(line);
+              if (!ParseBool(rhs, cfg.vertex_reweight_on_auau))
+                warn_parse("vertex_reweight_on_auau", rhs, "expected true/false");
+            }
+            else if (StartsWithKey(line, "vertex_reweight_file_auau"))
+            {
+              cfg.vertex_reweight_file_auau = detail::trim(AfterColon(line));
+            }
+            else if (StartsWithKey(line, "vertex_reweight_hist_auau"))
+            {
+              cfg.vertex_reweight_hist_auau = detail::trim(AfterColon(line));
+            }
             else if (StartsWithKey(line, "vertex_reweight_on"))
             {
               const std::string rhs = AfterColon(line);
-              if (!ParseBool(rhs, cfg.vertex_reweight_on))
+              if (!ParseBool(rhs, cfg.vertex_reweight_on_auau))
                 warn_parse("vertex_reweight_on", rhs, "expected true/false");
             }
             else if (StartsWithKey(line, "vertex_reweight_file"))
             {
-              cfg.vertex_reweight_file = detail::trim(AfterColon(line));
+              cfg.vertex_reweight_file_auau = detail::trim(AfterColon(line));
             }
             else if (StartsWithKey(line, "vertex_reweight_hist"))
             {
-              cfg.vertex_reweight_hist = detail::trim(AfterColon(line));
+              cfg.vertex_reweight_hist_auau = detail::trim(AfterColon(line));
             }
             else if (StartsWithKey(line, "centrality_reweight_on"))
             {
@@ -3341,12 +3373,16 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 #if defined(RJ_UNIFIED_ANALYSIS_AUAU)
     recoilJets->setMinBiasClassifier(cfg.setMinBiasClassifer);
     recoilJets->setCentEdges(cfg.centrality_edges);
-    recoilJets->setVertexReweighting(cfg.vertex_reweight_on,
-                                     cfg.vertex_reweight_file,
-                                     cfg.vertex_reweight_hist);
+    recoilJets->setVertexReweighting(cfg.vertex_reweight_on_auau,
+                                     cfg.vertex_reweight_file_auau,
+                                     cfg.vertex_reweight_hist_auau);
     recoilJets->setCentralityReweighting(cfg.centrality_reweight_on,
                                          cfg.centrality_reweight_file,
                                          cfg.centrality_reweight_hist);
+#else
+    recoilJets->setVertexReweighting(cfg.vertex_reweight_on_pp,
+                                     cfg.vertex_reweight_file_pp,
+                                     cfg.vertex_reweight_hist_pp);
 #endif
     recoilJets->setActiveJetRKeys(activeJetRKeys);
     recoilJets->setIsolationWP(cfg.isoA, cfg.isoB, cfg.isoGap, cfg.isoConeR, recoilJetsIsoTowerMin, cfg.isoFixed);

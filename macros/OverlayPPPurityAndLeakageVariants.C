@@ -11,7 +11,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -64,6 +67,75 @@ std::string MergedSimPath(const std::string& tag)
 {
     return ARJ::kOutputBase + "/combinedSimOnly/" + tag +
            "/photonJet5and10and20merged_SIM/RecoilJets_photonjet5plus10plus20_MERGED.root";
+}
+
+std::string ExtractTokenAfter(const std::string& text, const std::string& key)
+{
+    const std::size_t pos = text.find(key);
+    if (pos == std::string::npos) return "";
+    const std::size_t begin = pos + key.size();
+    std::size_t end = begin;
+    while (end < text.size() && text[end] != '_') ++end;
+    return text.substr(begin, end - begin);
+}
+
+std::string FormatFixed(double value)
+{
+    std::ostringstream os;
+    os << std::fixed << std::setprecision(1) << value;
+    std::string out = os.str();
+    while (out.size() > 1 && out.back() == '0') out.pop_back();
+    if (!out.empty() && out.back() == '.') out.pop_back();
+    return out;
+}
+
+std::string PPTriggerLabel()
+{
+    const std::string& trig = ARJ::kTriggerPP;
+    std::size_t photonPos = trig.find("Photon_");
+    std::size_t gevPos = trig.find("_GeV", photonPos == std::string::npos ? 0 : photonPos);
+    std::string photon = "4";
+    if (photonPos != std::string::npos && gevPos != std::string::npos)
+        photon = trig.substr(photonPos + 7, gevPos - (photonPos + 7));
+
+    std::string mbd = "1";
+    const std::string mbdKey = "MBD_NS_geq_";
+    std::size_t mbdPos = trig.find(mbdKey);
+    if (mbdPos != std::string::npos)
+        mbd = ExtractTokenAfter(trig.substr(mbdPos), mbdKey);
+
+    return "Photon " + photon + " GeV + MBD N&S #geq " + mbd;
+}
+
+std::vector<std::string> CutLinesFromInputTag(const std::string& tag)
+{
+    int vzCut = ARJ::kVzCut;
+    const std::string vzText = ExtractTokenAfter(tag, "vz");
+    if (!vzText.empty()) vzCut = std::atoi(vzText.c_str());
+
+    double coneR = (ARJ::kIsoConeR == "isoR40") ? 0.4 : 0.3;
+    const std::string isoRText = ExtractTokenAfter(tag, "isoR");
+    if (!isoRText.empty()) coneR = std::atoi(isoRText.c_str()) / 100.0;
+
+    std::string isoLabel = "sliding E_{T}^{iso} cut";
+    const std::string fixedKey = "fixedIso";
+    const std::size_t fixedPos = tag.find(fixedKey);
+    if (fixedPos != std::string::npos)
+    {
+        const std::size_t valBegin = fixedPos + fixedKey.size();
+        const std::size_t valEnd = tag.find("GeV", valBegin);
+        if (valEnd != std::string::npos && valEnd > valBegin)
+        {
+            const double fixedIso = std::atof(tag.substr(valBegin, valEnd - valBegin).c_str());
+            isoLabel = "E_{T}^{iso} < " + FormatFixed(fixedIso) + " GeV";
+        }
+    }
+
+    return {
+        PPTriggerLabel(),
+        "|v_{z}| < " + std::to_string(vzCut) + " cm, #Delta R_{cone} < " +
+            FormatFixed(coneR) + ", " + isoLabel
+    };
 }
 
 bool EnsureMergedSim(const VariantSpec& spec)
@@ -361,13 +433,13 @@ void DrawOverlay(const std::vector<VariantSpec>& specs,
                  const std::string& title,
                  const std::string& outPath,
                  double yMax,
-                 const std::string& selectionText = "jetMinPt5, 7#pi/8, |v_{z}| < 60 cm, isoR40, sliding iso")
+                 const std::string& selectionTag = "")
 {
-    TCanvas c("c_overlay", "c_overlay", 1000, 760);
+    TCanvas c("c_overlay", title.c_str(), 1000, 760);
     c.SetLeftMargin(0.13);
     c.SetRightMargin(0.04);
     c.SetBottomMargin(0.13);
-    c.SetTopMargin(0.08);
+    c.SetTopMargin(0.11);
     c.SetTicks(1, 1);
 
     TH1F frame("frame", "", 100, ARJ::kPtEdges[1], ARJ::kPtEdges.back());
@@ -401,7 +473,7 @@ void DrawOverlay(const std::vector<VariantSpec>& specs,
         graphs.push_back(g);
     }
 
-    TLegend leg(0.58, 0.70, 0.92, 0.89);
+    TLegend leg(0.70, 0.70, 0.96, 0.89);
     leg.SetBorderSize(0);
     leg.SetFillStyle(0);
     leg.SetTextFont(42);
@@ -413,12 +485,18 @@ void DrawOverlay(const std::vector<VariantSpec>& specs,
     TLatex text;
     text.SetNDC(true);
     text.SetTextFont(42);
+    text.SetTextAlign(22);
+    text.SetTextSize(0.040);
+    text.DrawLatex(0.50, 0.935, title.c_str());
+
+    const std::string tagForLabels =
+        selectionTag.empty() ? (specs.empty() ? std::string() : specs.front().tag) : selectionTag;
+    const std::vector<std::string> cutLines = CutLinesFromInputTag(tagForLabels);
+
     text.SetTextAlign(13);
-    text.SetTextSize(0.038);
-    text.DrawLatex(0.16, 0.93, title.c_str());
-    text.SetTextSize(0.030);
-    text.DrawLatex(0.16, 0.86, "Run24 pp, Photon 4 GeV + MBD NS #geq 1");
-    text.DrawLatex(0.16, 0.815, selectionText.c_str());
+    text.SetTextSize(0.033);
+    text.DrawLatex(0.18, 0.855, cutLines[0].c_str());
+    text.DrawLatex(0.18, 0.805, cutLines[1].c_str());
 
     c.SaveAs(outPath.c_str());
     std::cout << "[WROTE] " << outPath << "\n";
@@ -497,10 +575,40 @@ void OverlayPPFixedIsoLeakageReferenceVsVariantA()
 
     DrawOverlay(specs, xs, exs, ys, eys,
                 "Region C signal leakage, f_{C} = C_{sig}/A_{sig}",
-                "Truth-signal leakage into ABCD region C",
+                "Truth-signal Leakage into ABCD Region C - Run24pp",
                 ARJ::kOutputBase + "/pp/signalLeakage_regionC_overlay_fixedIso2GeV_reference_vs_variantA.png",
                 1.05,
-                "jetMinPt5, 7#pi/8, |v_{z}| < 60 cm, isoR40, fixed 2 GeV iso");
+                specs.front().tag);
+}
+
+void OverlayPPFixedIsoRawPurityReferenceVsVariantA()
+{
+    const std::vector<VariantSpec> specs = {
+        {"Box-cuts",
+         "jetMinPt5_7pi_8_vz60_isoR40_fixedIso2GeV_preselectionReference_tightReference_nonTightReference",
+         kBlack, 20},
+        {"BDT + NPB",
+         "jetMinPt5_7pi_8_vz60_isoR40_fixedIso2GeV_preselectionVariantA_tightVariantA_nonTightVariantA",
+         kBlue + 1, 21}
+    };
+
+    gSystem->mkdir((ARJ::kOutputBase + "/pp").c_str(), true);
+
+    std::vector<std::vector<double>> xs(specs.size()), exs(specs.size());
+    std::vector<std::vector<double>> ys(specs.size()), eys(specs.size());
+
+    for (std::size_t i = 0; i < specs.size(); ++i)
+    {
+        if (!BuildPurityGraph(specs[i], xs[i], exs[i], ys[i], eys[i]))
+            std::cerr << "[WARN] Skipping raw purity graph for " << specs[i].label << "\n";
+    }
+
+    DrawOverlay(specs, xs, exs, ys, eys,
+                "Purity (raw ABCD)",
+                "Raw ABCD Purity - Run24pp",
+                ARJ::kOutputBase + "/pp/rawPurity_overlay_fixedIso2GeV_reference_vs_variantA.png",
+                1.05,
+                specs.front().tag);
 }
 
 void OverlayPPFixedIsoCorrectedPurityReferenceVsVariantA()
@@ -527,8 +635,8 @@ void OverlayPPFixedIsoCorrectedPurityReferenceVsVariantA()
 
     DrawOverlay(specs, xs, exs, ys, eys,
                 "Purity (leakage-corrected)",
-                "Leakage-corrected ABCD purity overlay",
+                "Leakage Corrected ABCD Purity - Run24pp",
                 ARJ::kOutputBase + "/pp/purity_leakageCorrected_overlay_fixedIso2GeV_reference_vs_variantA.png",
                 1.05,
-                "jetMinPt5, 7#pi/8, |v_{z}| < 60 cm, isoR40, fixed 2 GeV iso");
+                specs.front().tag);
 }

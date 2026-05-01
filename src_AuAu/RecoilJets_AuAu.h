@@ -752,12 +752,34 @@ private:
                                            const HepMC::GenParticle* pho,
                                            double& isoEt) const;
     
-    // Unified truth→reco photon matching using CaloRawClusterEval.
-    // Match requirements:
-    //   - reco |eta| < 0.7, reco pT > 5 GeV
-    //   - ΔR(truth,reco) < 0.05
-    //   - reco cluster’s BEST-MATCHED truth primary (by deposited energy) has same barcode as truth photon
-    // Chooses the candidate with the largest energy contribution (tie-breaker: smallest ΔR).
+    struct TruthSignalPhotonInfo
+    {
+        int trackId = -1;
+        int barcode = -1;
+        double pt = std::numeric_limits<double>::quiet_NaN();
+        double eta = std::numeric_limits<double>::quiet_NaN();
+        double phi = std::numeric_limits<double>::quiet_NaN();
+        double isoEt = std::numeric_limits<double>::quiet_NaN();
+        const HepMC::GenParticle* hep = nullptr;
+        const PHG4Particle* g4 = nullptr;
+    };
+    using TruthSignalPhotonMap = std::map<int, TruthSignalPhotonInfo>;
+
+    // PPG12 photon truth association:
+    //   cluster_truthtrkID = clustereval.max_truth_primary_particle_by_energy(cluster)->get_track_id()
+    //   signal if that track id maps to a truth photon passing isTruthPromptIsolatedSignalPhoton().
+    // This deliberately does not impose an additional truth-reco ΔR cut.
+    TruthSignalPhotonMap buildPPG12TruthSignalPhotonMap(const HepMC::GenEvent* evt) const;
+    bool classifyRecoPhotonWithPPG12TruthTrack(const RawCluster* rc,
+                                               CaloRawClusterEval& clustereval,
+                                               const TruthSignalPhotonMap& truthSignalByTrackId,
+                                               TruthSignalPhotonInfo& matchedTruth,
+                                               int& clusterTruthTrackId,
+                                             float& eContrib) const;
+
+    // Compatibility helper for callers that start from a truth photon. Uses the
+    // same PPG12 track-id association above and returns the reco photon with the
+    // largest contribution for this truth photon. drBest is diagnostic only.
     bool findRecoPhotonMatchedToTruthSignal(const HepMC::GenEvent* evt,
                                             const HepMC::GenParticle* truthPho,
                                             CaloRawClusterEval& clustereval,
