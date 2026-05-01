@@ -14,6 +14,12 @@ Notes:
 - It forces the known-good RooUnfold install at `external/RooUnfold` to win over partial env copies.
 - Do not rely on interactive shell startup files for ROOT in this repo; use the wrapper explicitly.
 
+# Input Files
+
+- `InputFiles/` contains local analysis input ROOT files and should be treated as a first-class project directory like `macros/`, `scripts/`, `src/`, and `src_AuAu/`.
+- When the user refers to input files or local ROOT inputs, first check `InputFiles/` from the repository base, especially `InputFiles/simEmbedded/`, `InputFiles/simPhotonJet/`, and data-specific subdirectories.
+- The `@InputFiles` UI mention may not autocomplete in all clients; still use the literal path `InputFiles/...` when the user refers to those files.
+
 # Change Control
 
 - Before making any file edit, state exactly which file(s) will change and what the change is intended to do.

@@ -244,8 +244,8 @@ inline constexpr double kSigmaPhoton20_pb = 105.79868;
 //   12 <= pT_filter^gamma < 20 GeV
 // Do not use the old inclusive pT_filter^gamma >= 12 value (2719.20189 pb).
 // Current estimate from scripts/estimateEmbeddedPhotonXsec.sh secondPass
-// on 2026-05-01: 50 shards x 1e6 raw events.
-inline constexpr double kSigmaEmbeddedPhoton12_pb = 2661.18552;
+// on 2026-05-01: 50 shards x 1e6 raw events, max producer-filter photon pT.
+inline constexpr double kSigmaEmbeddedPhoton12_pb = 2598.12425;
 inline constexpr double kSigmaEmbeddedPhoton20_pb = 133.317866;
 
 // #############################################################################

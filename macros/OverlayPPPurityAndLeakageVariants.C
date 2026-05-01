@@ -199,6 +199,159 @@ bool BuildLeakageCGraph(const VariantSpec& spec,
     return true;
 }
 
+double CorrectedPurityValue(double A, double B, double C, double D,
+                            double fB, double fC, double fD)
+{
+    double raw = 0.0;
+    if (A > 0.0 && D > 0.0)
+    {
+        double sig = A - B * (C / D);
+        if (sig < 0.0) sig = 0.0;
+        raw = sig / A;
+    }
+
+    double SA = 0.0;
+    const bool ok = ARJ::SolveLeakageCorrectedSA(A, B, C, D, fB, fC, fD, SA);
+    if (ok && A > 0.0) return SA / A;
+    return raw;
+}
+
+double CorrectedPurityError(double A, double B, double C, double D,
+                            double fB, double fC, double fD,
+                            bool hasCorrection)
+{
+    if (!hasCorrection) return RawPurityError(A, B, C, D);
+    if (A <= 0.0) return 0.0;
+
+    const double dA = std::sqrt(std::max(A, 1.0));
+    const double dB = std::sqrt(std::max(B, 1.0));
+    const double dC = std::sqrt(std::max(C, 1.0));
+    const double dD = std::sqrt(std::max(D, 1.0));
+
+    const double Aup = A + dA;
+    const double Adn = std::max(0.0, A - dA);
+    const double Bup = B + dB;
+    const double Bdn = std::max(0.0, B - dB);
+    const double Cup = C + dC;
+    const double Cdn = std::max(0.0, C - dC);
+    const double Dup = D + dD;
+    const double Ddn = std::max(0.0, D - dD);
+
+    const double dPdA = (Aup > Adn)
+        ? (CorrectedPurityValue(Aup, B,   C,   D,   fB, fC, fD) -
+           CorrectedPurityValue(Adn, B,   C,   D,   fB, fC, fD)) / (Aup - Adn)
+        : 0.0;
+    const double dPdB = (Bup > Bdn)
+        ? (CorrectedPurityValue(A,   Bup, C,   D,   fB, fC, fD) -
+           CorrectedPurityValue(A,   Bdn, C,   D,   fB, fC, fD)) / (Bup - Bdn)
+        : 0.0;
+    const double dPdC = (Cup > Cdn)
+        ? (CorrectedPurityValue(A,   B,   Cup, D,   fB, fC, fD) -
+           CorrectedPurityValue(A,   B,   Cdn, D,   fB, fC, fD)) / (Cup - Cdn)
+        : 0.0;
+    const double dPdD = (Dup > Ddn)
+        ? (CorrectedPurityValue(A,   B,   C,   Dup, fB, fC, fD) -
+           CorrectedPurityValue(A,   B,   C,   Ddn, fB, fC, fD)) / (Dup - Ddn)
+        : 0.0;
+
+    double var = 0.0;
+    if (A > 0.0) var += dPdA * dPdA * A;
+    if (B > 0.0) var += dPdB * dPdB * B;
+    if (C > 0.0) var += dPdC * dPdC * C;
+    if (D > 0.0) var += dPdD * dPdD * D;
+
+    return (var > 0.0) ? std::sqrt(var) : 0.0;
+}
+
+bool BuildLeakageCorrectedPurityGraph(const VariantSpec& spec,
+                                      std::vector<double>& x,
+                                      std::vector<double>& ex,
+                                      std::vector<double>& y,
+                                      std::vector<double>& ey)
+{
+    if (!EnsureMergedSim(spec)) return false;
+
+    TFile fPP(PPPath(spec.tag).c_str(), "READ");
+    if (fPP.IsZombie())
+    {
+        std::cerr << "[ERROR] Cannot open pp input for " << spec.label << ": " << PPPath(spec.tag) << "\n";
+        return false;
+    }
+
+    TDirectory* ppTop = fPP.GetDirectory(ARJ::kTriggerPP.c_str());
+    if (!ppTop) ppTop = &fPP;
+
+    TFile fSim(MergedSimPath(spec.tag).c_str(), "READ");
+    if (fSim.IsZombie())
+    {
+        std::cerr << "[ERROR] Cannot open merged SIM for " << spec.label << ": " << MergedSimPath(spec.tag) << "\n";
+        return false;
+    }
+
+    TDirectory* simTop = fSim.GetDirectory(ARJ::kDirSIM.c_str());
+    if (!simTop) simTop = &fSim;
+
+    const int n = ARJ::kNPtBins - 1;
+    x.assign(n, 0.0);
+    ex.assign(n, 0.0);
+    y.assign(n, 0.0);
+    ey.assign(n, 0.0);
+
+    for (int i = 1; i < ARJ::kNPtBins; ++i)
+    {
+        const int j = i - 1;
+        const auto& b = ARJ::PtBins()[i];
+        const std::string& suf = b.suffix;
+
+        const double A = ReadBin1(ppTop, "h_isIsolated_isTight" + suf);
+        const double B = ReadBin1(ppTop, "h_notIsolated_isTight" + suf);
+        const double C = ReadBin1(ppTop, "h_isIsolated_notTight" + suf);
+        const double D = ReadBin1(ppTop, "h_notIsolated_notTight" + suf);
+
+        const double ptLo = ARJ::kPtEdges[(std::size_t)i];
+        const double ptHi = ARJ::kPtEdges[(std::size_t)i + 1];
+        x[j] = 0.5 * (ptLo + ptHi);
+        ex[j] = 0.5 * (ptHi - ptLo);
+
+        double fB = 0.0;
+        double fC = 0.0;
+        double fD = 0.0;
+        bool hasCorrection = false;
+        TH1* hSig = dynamic_cast<TH1*>(simTop->Get(("h_sigABCD_MC" + suf).c_str()));
+        if (hSig)
+        {
+            const double As = hSig->GetBinContent(1);
+            const double Bs = hSig->GetBinContent(2);
+            const double Cs = hSig->GetBinContent(3);
+            const double Ds = hSig->GetBinContent(4);
+            if (As > 0.0)
+            {
+                fB = Bs / As;
+                fC = Cs / As;
+                fD = Ds / As;
+
+                double SA = 0.0;
+                hasCorrection = ARJ::SolveLeakageCorrectedSA(A, B, C, D, fB, fC, fD, SA) && A > 0.0;
+                y[j] = hasCorrection ? (SA / A) : CorrectedPurityValue(A, B, C, D, fB, fC, fD);
+            }
+            else
+            {
+                y[j] = CorrectedPurityValue(A, B, C, D, fB, fC, fD);
+            }
+        }
+        else
+        {
+            std::cerr << "[WARN] Missing h_sigABCD_MC" << suf << " in merged SIM for " << spec.label
+                      << "; using raw purity fallback\n";
+            y[j] = CorrectedPurityValue(A, B, C, D, fB, fC, fD);
+        }
+
+        ey[j] = CorrectedPurityError(A, B, C, D, fB, fC, fD, hasCorrection);
+    }
+
+    return true;
+}
+
 void DrawOverlay(const std::vector<VariantSpec>& specs,
                  const std::vector<std::vector<double>>& xs,
                  const std::vector<std::vector<double>>& exs,
@@ -326,7 +479,7 @@ void OverlayPPFixedIsoLeakageReferenceVsVariantA()
         {"Box-cuts",
          "jetMinPt5_7pi_8_vz60_isoR40_fixedIso2GeV_preselectionReference_tightReference_nonTightReference",
          kBlack, 20},
-        {"NPB, BDT #gamma-ID",
+        {"BDT + NPB",
          "jetMinPt5_7pi_8_vz60_isoR40_fixedIso2GeV_preselectionVariantA_tightVariantA_nonTightVariantA",
          kBlue + 1, 21}
     };
@@ -346,6 +499,36 @@ void OverlayPPFixedIsoLeakageReferenceVsVariantA()
                 "Region C signal leakage, f_{C} = C_{sig}/A_{sig}",
                 "Truth-signal leakage into ABCD region C",
                 ARJ::kOutputBase + "/pp/signalLeakage_regionC_overlay_fixedIso2GeV_reference_vs_variantA.png",
+                1.05,
+                "jetMinPt5, 7#pi/8, |v_{z}| < 60 cm, isoR40, fixed 2 GeV iso");
+}
+
+void OverlayPPFixedIsoCorrectedPurityReferenceVsVariantA()
+{
+    const std::vector<VariantSpec> specs = {
+        {"Box-cuts",
+         "jetMinPt5_7pi_8_vz60_isoR40_fixedIso2GeV_preselectionReference_tightReference_nonTightReference",
+         kBlack, 20},
+        {"BDT + NPB",
+         "jetMinPt5_7pi_8_vz60_isoR40_fixedIso2GeV_preselectionVariantA_tightVariantA_nonTightVariantA",
+         kBlue + 1, 21}
+    };
+
+    gSystem->mkdir((ARJ::kOutputBase + "/pp").c_str(), true);
+
+    std::vector<std::vector<double>> xs(specs.size()), exs(specs.size());
+    std::vector<std::vector<double>> ys(specs.size()), eys(specs.size());
+
+    for (std::size_t i = 0; i < specs.size(); ++i)
+    {
+        if (!BuildLeakageCorrectedPurityGraph(specs[i], xs[i], exs[i], ys[i], eys[i]))
+            std::cerr << "[WARN] Skipping leakage-corrected purity graph for " << specs[i].label << "\n";
+    }
+
+    DrawOverlay(specs, xs, exs, ys, eys,
+                "Purity (leakage-corrected)",
+                "Leakage-corrected ABCD purity overlay",
+                ARJ::kOutputBase + "/pp/purity_leakageCorrected_overlay_fixedIso2GeV_reference_vs_variantA.png",
                 1.05,
                 "jetMinPt5, 7#pi/8, |v_{z}| < 60 cm, isoR40, fixed 2 GeV iso");
 }

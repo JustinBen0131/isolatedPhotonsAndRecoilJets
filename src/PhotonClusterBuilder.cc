@@ -2091,7 +2091,11 @@ float PhotonClusterBuilder::calculate_layer_et(float seed_eta, float seed_phi, f
         ++nBelowThreshold;
         continue;
       }
-      if (energy <= m_iso_min_tower_E)
+      // Isolation tower floors are a pp-only policy.  In Au+Au/embedded
+      // running m_iso_min_tower_E is configured to 0, which must mean "no
+      // energy cut": UE-subtracted towers can be negative and are required
+      // for the isolation cone sum to cancel correctly.
+      if (m_iso_min_tower_E > 0.0f && energy <= m_iso_min_tower_E)
       {
         ++nBelowThreshold;
         continue;

@@ -154,7 +154,7 @@ clusterUEpipeline: [baseVariant]
 #
 #     BDT scores outside the tight and non-tight windows are treated as neither.
 # -----------------------------------------------------------------------------
-preselection: [reference]
+preselection: [reference, variantA, variantB]
 tight: [reference]
 nonTight: [reference]
 

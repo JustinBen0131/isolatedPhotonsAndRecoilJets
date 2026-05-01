@@ -571,15 +571,8 @@ pair_zdc_raw_for_auau_lists() {
   local partial_pair_runs=0
   local r r8 calo_file zdc_file primary_stem primary_out
   local report_file="${OUT_DIR}/dst_pairing_report_${LABEL}.txt"
-  local clean_grl_file=""
   local unpaired_dir="${OUT_DIR}/unpaired_no_complete_pair"
-  local original_grl_file="${GRL_BASE}/run3auau_new_newcdbtag_v008_dst_calofitting_grl.list"
-  local apurva_grl_file="${GRL_BASE}/run3auau-pro001_pcdb001_v001_fromApurva.list"
   local -a calo_present_runs=()
-
-  if [[ "$LABEL" == "auau" ]]; then
-    clean_grl_file="${GRL_BASE}/run3auau_pro001_pcdb001_v001_dst_calofitting_grl.list"
-  fi
   local -a zdc_present_runs=()
   local -a both_present_runs=()
   local -a paired_runs=()
@@ -739,19 +732,6 @@ pair_zdc_raw_for_auau_lists() {
   segment_retained_pct="$(awk -v n="$matched_segment_pairs" -v d="$calo_total_segments" 'BEGIN{ if (d>0) printf "%.2f", 100*n/d; else printf "0.00"; }')"
   segment_lost_pct="$(awk -v n="$calo_only_segments" -v d="$calo_total_segments" 'BEGIN{ if (d>0) printf "%.2f", 100*n/d; else printf "0.00"; }')"
 
-  if [[ -n "$clean_grl_file" ]]; then
-    mkdir -p "$GRL_BASE"
-
-    {
-      for r8 in "${paired_runs[@]}"; do
-        printf "%d\n" "$((10#$r8))"
-      done
-    } > "$clean_grl_file"
-
-    echo "[INFO] Clean paired-run GRL saved to: $clean_grl_file"
-    echo "[INFO] Clean paired-run GRL entries: ${#paired_runs[@]}"
-  fi
-
   {
     echo "DST pairing report for $LABEL"
     echo "Input golden run list: $LIST_FILE"
@@ -803,32 +783,10 @@ pair_zdc_raw_for_auau_lists() {
     echo "Segment retained fraction: ${segment_retained_pct}%"
     echo "Segment loss fraction: ${segment_lost_pct}%"
     echo
-    echo "Run-list overlap table:"
-    printf "  %-32s | %-32s | %8s | %8s | %8s | %8s | %8s | %10s | %10s\n" \
-      "List A" "List B" "A runs" "B runs" "Overlap" "A only" "B only" "Overlap/A" "Overlap/B"
-    printf "  %-32s-+-%-32s-+-%8s-+-%8s-+-%8s-+-%8s-+-%8s-+-%10s-+-%10s\n" \
-      "--------------------------------" "--------------------------------" "--------" "--------" "--------" "--------" "--------" "----------" "----------"
-    if [[ -n "$clean_grl_file" ]]; then
-      run_list_overlap_row "old newcdbtag GRL" "$original_grl_file" "final clean pro001 GRL" "$clean_grl_file"
-      run_list_overlap_row "old newcdbtag GRL" "$original_grl_file" "Apurva pro001 list" "$apurva_grl_file"
-      run_list_overlap_row "final clean pro001 GRL" "$clean_grl_file" "Apurva pro001 list" "$apurva_grl_file"
-    else
-      echo "  (run-list overlap table is only written for auau clean-GRL production)"
-    fi
-    echo
-    echo "Production segment-inventory table rebuilt from CreateDstList.pl:"
-    echo "  This table answers why Apurva can have more runs/segments: Apurva's list is not GRL-filtered."
-    printf "  %-32s | %8s | %8s | %8s | %8s | %10s | %10s | %12s | %10s | %10s\n" \
-      "Run list" "ReqRuns" "CaloRun" "ZDCRun" "PairRun" "CaloSeg" "ZDCSeg" "MatchedSeg" "CaloOnly" "ZDCOnly"
-    printf "  %-32s-+-%8s-+-%8s-+-%8s-+-%8s-+-%10s-+-%10s-+-%12s-+-%10s-+-%10s\n" \
-      "--------------------------------" "--------" "--------" "--------" "--------" "----------" "----------" "------------" "----------" "----------"
-    if [[ -n "$clean_grl_file" ]]; then
-      run_list_segment_inventory_row "old newcdbtag GRL" "$original_grl_file" "$PREFIX" "$zdc_type" "$DATASET" "$TAG"
-      run_list_segment_inventory_row "final clean pro001 GRL" "$clean_grl_file" "$PREFIX" "$zdc_type" "$DATASET" "$TAG"
-      run_list_segment_inventory_row "Apurva pro001 list" "$apurva_grl_file" "$PREFIX" "$zdc_type" "$DATASET" "$TAG"
-    else
-      echo "  (segment-inventory table is only written for auau clean-GRL production)"
-    fi
+    echo "Run-list policy:"
+    echo "Using the configured input GRL directly. No old/new AuAu production overlap"
+    echo "comparison is produced by this script."
+    echo "Configured input GRL: $LIST_FILE"
     echo
     echo "Runs with ${PREFIX} list:"
     if (( ${#calo_present_runs[@]} > 0 )); then
@@ -910,11 +868,6 @@ pair_zdc_raw_for_auau_lists() {
     echo "Unpaired one-column ${PREFIX} lists moved to:"
     echo "$unpaired_dir"
   } > "$report_file"
-
-  if [[ -n "$clean_grl_file" ]]; then
-    echo "[INFO] Clean paired-run GRL saved to: $clean_grl_file"
-    echo "[INFO] Clean paired-run GRL entries: ${#paired_runs[@]}"
-  fi
 
   echo "----------------------------------------"
   echo "DST pairing diagnostic for $LABEL"
@@ -1159,7 +1112,7 @@ setup_mode() {
       ;;
     auau)
       LABEL="auau"
-      LIST_FILE="${AUAU_GRL_FILE:-$GRL_BASE/run3auau_new_newcdbtag_v008_dst_calofitting_grl.list}"
+      LIST_FILE="${AUAU_GRL_FILE:-$GRL_BASE/run3auau_pro001_pcdb001_v001_dst_calofitting_grl.list}"
       OUT_DIR="$IN_BASE/dst_lists_auau"
       TAG="${AUAU_TAG:-pro001_pcdb001_v001}"
       DATASET="run3auau"
