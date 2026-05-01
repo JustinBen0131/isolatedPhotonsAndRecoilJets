@@ -64,7 +64,9 @@
 // Standard C++ -------------------------------------------------------------
 #include <atomic>
 #include <algorithm>   // std::clamp
+#include <cctype>
 #include <cmath>       // std::cosh, std::hypot, std::fmod
+#include <cstdlib>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -516,16 +518,109 @@ namespace
 }
 
 
-  // Friendly label for printing tight category
+// Friendly label for printing tight category
 static const char* tightTagName(RecoilJets::TightTag t)
 {
-  switch (t) {
-    case RecoilJets::TightTag::kPreselectionFail: return "PreselectionFail";
-    case RecoilJets::TightTag::kTight:            return "Tight";
-    case RecoilJets::TightTag::kNonTight:         return "NonTight(>=2)";
-    case RecoilJets::TightTag::kNeither:          return "Neither(1 fail)";
-    default:                                      return "UNKNOWN";
+switch (t) {
+  case RecoilJets::TightTag::kPreselectionFail: return "PreselectionFail";
+  case RecoilJets::TightTag::kTight:            return "Tight";
+  case RecoilJets::TightTag::kNonTight:         return "NonTight(>=2)";
+  case RecoilJets::TightTag::kNeither:          return "Neither(1 fail)";
+  default:                                      return "UNKNOWN";
+}
+}
+
+static std::string recoilJetsLowerCopy(std::string s)
+{
+std::transform(s.begin(), s.end(), s.begin(),
+               [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+return s;
+}
+
+static int embeddedPhotonSampleCodeFromText(const std::string& text)
+{
+const std::string s = recoilJetsLowerCopy(text);
+
+if (s.find("photonjet12") != std::string::npos ||
+    s.find("embeddedphoton12") != std::string::npos ||
+    s.find("photon12") != std::string::npos)
+{
+  return 12;
+}
+
+if (s.find("photonjet20") != std::string::npos ||
+    s.find("embeddedphoton20") != std::string::npos ||
+    s.find("photon20") != std::string::npos)
+{
+  return 20;
+}
+
+return 0;
+}
+
+static int embeddedPhotonSampleCodeFromContext(const std::string& outFile)
+{
+if (const char* env = std::getenv("RJ_EMBEDDED_PHOTON_SAMPLE"))
+{
+  const int fromEnv = embeddedPhotonSampleCodeFromText(env);
+  if (fromEnv == 12 || fromEnv == 20) return fromEnv;
+}
+
+return embeddedPhotonSampleCodeFromText(outFile);
+}
+
+static double findEmbeddedProducerFilterPhotonPt(PHCompositeNode* topNode)
+{
+PHHepMCGenEventMap* hepmcmap = findNode::getClass<PHHepMCGenEventMap>(topNode, "PHHepMCGenEventMap");
+PHHepMCGenEvent*    hepmc    = nullptr;
+HepMC::GenEvent*    evt      = nullptr;
+
+if (hepmcmap)
+{
+  hepmc = hepmcmap->get(0);
+  if (!hepmc) hepmc = hepmcmap->get(1);
+  if (!hepmc && !hepmcmap->empty()) hepmc = hepmcmap->begin()->second;
+  if (hepmc) evt = hepmc->getEvent();
+}
+
+if (!evt) return -1.0;
+
+double maxPt = -1.0;
+
+for (auto it = evt->particles_begin(); it != evt->particles_end(); ++it)
+{
+  const HepMC::GenParticle* p = *it;
+  if (!p) continue;
+  if (p->pdg_id() != 22) continue;
+
+  const double pt  = std::hypot(p->momentum().px(), p->momentum().py());
+  const double eta = p->momentum().pseudoRapidity();
+
+  if (!std::isfinite(pt) || !std::isfinite(eta) || pt <= 0.0) continue;
+  if (eta < -1.5 || eta > 1.5) continue;
+
+  const HepMC::GenVertex* vtx = p->production_vertex();
+  if (!vtx) continue;
+
+  bool parentOk = false;
+  for (auto inItr = vtx->particles_in_const_begin(); inItr != vtx->particles_in_const_end(); ++inItr)
+  {
+    const HepMC::GenParticle* parent = *inItr;
+    if (!parent) continue;
+
+    const int absParentId = std::abs(parent->pdg_id());
+    if (absParentId >= 1 && absParentId <= 22)
+    {
+      parentOk = true;
+      break;
+    }
   }
+
+  if (!parentOk) continue;
+  if (pt > maxPt) maxPt = pt;
+}
+
+return maxPt;
 }
 
 //==========================================================================
@@ -2636,6 +2731,173 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         
         LOG(4, CLR_YELLOW, os.str());
         return Fun4AllReturnCodes::ABORTEVENT;
+    }
+
+    // ------------------------------------------------------------------
+    // SIM-embedded photon stitching:
+    //
+    //   PhotonJet12 sample keeps only 12 <= pT_filter^gamma < 20 GeV
+    //   PhotonJet20 sample keeps only       pT_filter^gamma >= 20 GeV
+    //
+    // The stitch variable is the producer-style generator photon:
+    //   PDG=22, |eta|<1.5, mother |PDG| in [1,22], no stable-only cut.
+    //
+    // This prevents the inclusive PhotonJet12 and PhotonJet20 samples from
+    // double counting the pT_filter^gamma >= 20 phase space.
+    // ------------------------------------------------------------------
+    if (m_isSimEmbedded)
+    {
+        const int embeddedPhotonSample = embeddedPhotonSampleCodeFromContext(Outfile);
+        const double stitchPhotonPt = findEmbeddedProducerFilterPhotonPt(topNode);
+
+        bool passStitch = true;
+        int decisionBin = 4;
+        std::string decisionText = "unknown sample";
+
+        if (embeddedPhotonSample == 12)
+        {
+            passStitch = (std::isfinite(stitchPhotonPt) && stitchPhotonPt >= 12.0 && stitchPhotonPt < 20.0);
+            decisionBin = passStitch ? 1 : 2;
+            decisionText = "PhotonJet12 keep 12<=pT<20";
+        }
+        else if (embeddedPhotonSample == 20)
+        {
+            passStitch = (std::isfinite(stitchPhotonPt) && stitchPhotonPt >= 20.0);
+            decisionBin = passStitch ? 1 : 2;
+            decisionText = "PhotonJet20 keep pT>=20";
+        }
+        else
+        {
+            static bool warnedUnknownEmbeddedPhotonSample = false;
+            if (!warnedUnknownEmbeddedPhotonSample)
+            {
+                LOG(0, CLR_YELLOW,
+                    "    [embedded stitch] WARNING: could not identify PhotonJet12/PhotonJet20 from Outfile=\""
+                    << Outfile << "\" or RJ_EMBEDDED_PHOTON_SAMPLE; leaving sample unstitched");
+                warnedUnknownEmbeddedPhotonSample = true;
+            }
+        }
+
+        if ((embeddedPhotonSample == 12 || embeddedPhotonSample == 20) &&
+            (!std::isfinite(stitchPhotonPt) || stitchPhotonPt <= 0.0))
+        {
+            passStitch = false;
+            decisionBin = 3;
+            decisionText = "missing producer-filter photon";
+        }
+
+        auto bookStitch1F = [&](const std::string& name,
+                                const std::string& title,
+                                int nbins,
+                                double xmin,
+                                double xmax) -> TH1F*
+        {
+            HistMap& H = qaHistogramsByTrigger["SIM"];
+
+            if (auto it = H.find(name); it != H.end())
+            {
+                return dynamic_cast<TH1F*>(it->second);
+            }
+
+            TDirectory* dir = (out ? out->GetDirectory("SIM") : nullptr);
+            if (!dir && out) dir = out->mkdir("SIM");
+            if (!dir) return nullptr;
+
+            TDirectory* prevDir = gDirectory;
+            dir->cd();
+
+            auto* h = new TH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
+            h->SetDirectory(dir);
+            H[name] = h;
+
+            if (prevDir) prevDir->cd();
+            return h;
+        };
+
+        auto bookStitch1I = [&](const std::string& name,
+                                const std::string& title,
+                                int nbins,
+                                double xmin,
+                                double xmax) -> TH1I*
+        {
+            HistMap& H = qaHistogramsByTrigger["SIM"];
+
+            if (auto it = H.find(name); it != H.end())
+            {
+                return dynamic_cast<TH1I*>(it->second);
+            }
+
+            TDirectory* dir = (out ? out->GetDirectory("SIM") : nullptr);
+            if (!dir && out) dir = out->mkdir("SIM");
+            if (!dir) return nullptr;
+
+            TDirectory* prevDir = gDirectory;
+            dir->cd();
+
+            auto* h = new TH1I(name.c_str(), title.c_str(), nbins, xmin, xmax);
+            h->SetDirectory(dir);
+            H[name] = h;
+
+            if (prevDir) prevDir->cd();
+            return h;
+        };
+
+        if (auto* hAll = bookStitch1F("h_embedStitch_filterPhotonPt_all",
+                                      "h_embedStitch_filterPhotonPt_all;p_{T,filter}^{#gamma} [GeV];Events",
+                                      120, 0.0, 60.0))
+        {
+            if (std::isfinite(stitchPhotonPt) && stitchPhotonPt > 0.0) hAll->Fill(stitchPhotonPt);
+            bumpHistFill("SIM", hAll->GetName());
+        }
+
+        if (passStitch)
+        {
+            if (auto* hKept = bookStitch1F("h_embedStitch_filterPhotonPt_kept",
+                                           "h_embedStitch_filterPhotonPt_kept;p_{T,filter}^{#gamma} [GeV];Events",
+                                           120, 0.0, 60.0))
+            {
+                if (std::isfinite(stitchPhotonPt) && stitchPhotonPt > 0.0) hKept->Fill(stitchPhotonPt);
+                bumpHistFill("SIM", hKept->GetName());
+            }
+        }
+        else
+        {
+            if (auto* hRejected = bookStitch1F("h_embedStitch_filterPhotonPt_rejected",
+                                               "h_embedStitch_filterPhotonPt_rejected;p_{T,filter}^{#gamma} [GeV];Events",
+                                               120, 0.0, 60.0))
+            {
+                if (std::isfinite(stitchPhotonPt) && stitchPhotonPt > 0.0) hRejected->Fill(stitchPhotonPt);
+                bumpHistFill("SIM", hRejected->GetName());
+            }
+        }
+
+        if (auto* hDecision = bookStitch1I("h_embedStitch_decision",
+                                           "h_embedStitch_decision;decision;Events",
+                                           4, 0.5, 4.5))
+        {
+            hDecision->GetXaxis()->SetBinLabel(1, "kept");
+            hDecision->GetXaxis()->SetBinLabel(2, "rejected");
+            hDecision->GetXaxis()->SetBinLabel(3, "missing photon");
+            hDecision->GetXaxis()->SetBinLabel(4, "unknown sample");
+            hDecision->Fill(decisionBin);
+            bumpHistFill("SIM", hDecision->GetName());
+        }
+
+        if (!passStitch)
+        {
+            LOG(5, CLR_YELLOW,
+                "    [embedded stitch] reject event"
+                << " | sample=" << embeddedPhotonSample
+                << " | pT_filter^gamma=" << std::fixed << std::setprecision(3) << stitchPhotonPt
+                << " | decision=" << decisionText);
+            return Fun4AllReturnCodes::ABORTEVENT;
+        }
+
+        LOG(6, CLR_GREEN,
+            "    [embedded stitch] keep event"
+            << " | sample=" << embeddedPhotonSample
+            << " | pT_filter^gamma=" << std::fixed << std::setprecision(3) << stitchPhotonPt
+            << " | decision=" << decisionText);
     }
     
     /* ------------------------------------------------------------------ */

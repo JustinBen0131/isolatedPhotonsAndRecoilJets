@@ -6,8 +6,8 @@
 #   Estimate the effective generator cross sections for the embedded photon
 #   samples now used by isSimEmbedded:
 #
-#     PhotonJet12: phpythia8_10GeV_JS_MDC2.cfg + PHPy8ParticleTrigger pT > 12
-#     PhotonJet20: phpythia8_20GeV_JS_MDC2.cfg + PHPy8ParticleTrigger pT > 20
+#     PhotonJet12: phpythia8_10GeV_JS_MDC2.cfg + 12 <= pT_filter^gamma < 20
+#     PhotonJet20: phpythia8_20GeV_JS_MDC2.cfg + pT_filter^gamma >= 20
 #
 #   This is generator-only. It does not run detector simulation, embedding,
 #   clustering, or RecoilJets. It reproduces the producer-side photon trigger
@@ -16,7 +16,7 @@
 #     id == 22
 #     stable-particle-only disabled
 #     -1.5 < eta < 1.5
-#     pT > threshold
+#     pT in the stitched sample window
 #     abs(mother id) in {1, ..., 22}
 #
 # OUTPUT
@@ -59,9 +59,10 @@
 #     --manifest PATH      # secondPass explicit firstPass manifest
 #
 # NOTES
-#   sigma_eff = sigma_gen * (trigger-passing generator weight sum / total
+#   sigma_eff = sigma_gen * (stitched-window generator weight sum / total
 #   generator weight sum). Pythia reports sigma_gen in mb; this script also
-#   prints pb.
+#   prints pb. The PhotonJet12 value is exclusive to avoid overlap with
+#   PhotonJet20 in the merged embedded sample.
 # ==============================================================================
 
 set -Eeuo pipefail
@@ -551,6 +552,7 @@ namespace
     std::string name;
     std::string config;
     double photonPtLow = 0.0;
+    double photonPtHigh = -1.0;
   };
 
   struct FilterBreakdown
@@ -568,12 +570,15 @@ namespace
     double maxPhotonPtEtaParent = -1.0;
   };
 
-  bool PassProducerPhotonFilter(const Pythia8::Event& event, double ptLow, FilterBreakdown& b)
+  bool PassProducerPhotonFilter(const Pythia8::Event& event,
+                                double ptLow,
+                                double ptHigh,
+                                FilterBreakdown& b)
   {
     bool hasPhoton = false;
     bool hasPhotonEta = false;
-    bool hasPhotonPt = false;
     bool hasPhotonParent = false;
+    double maxProducerFilterPhotonPt = -1.0;
 
     for (int i = 0; i < event.size(); ++i)
     {
@@ -603,14 +608,8 @@ namespace
         b.maxPhotonPtEta = p.pT();
       }
 
-      if (p.pT() < ptLow)
-      {
-        continue;
-      }
-      hasPhotonPt = true;
-      ++b.photonPtCandidates;
-
       const std::vector<int> moms = p.motherList();
+      bool parentOk = false;
       for (const int mom : moms)
       {
         if (mom < 0 || mom >= event.size())
@@ -620,19 +619,42 @@ namespace
         const int absMotherId = std::abs(event[mom].id());
         if (absMotherId >= 1 && absMotherId <= 22)
         {
-          hasPhotonParent = true;
-          ++b.photonParentCandidates;
-          if (p.pT() > b.maxPhotonPtEtaParent)
-          {
-            b.maxPhotonPtEtaParent = p.pT();
-          }
-          ++b.eventsWithPhoton;
-          ++b.eventsWithPhotonEta;
-          ++b.eventsWithPhotonPt;
-          ++b.eventsWithPhotonParent;
-          return true;
+          parentOk = true;
+          break;
         }
       }
+
+      if (!parentOk)
+      {
+        continue;
+      }
+
+      hasPhotonParent = true;
+      ++b.photonParentCandidates;
+      if (p.pT() > b.maxPhotonPtEtaParent)
+      {
+        b.maxPhotonPtEtaParent = p.pT();
+      }
+      if (p.pT() > maxProducerFilterPhotonPt)
+      {
+        maxProducerFilterPhotonPt = p.pT();
+      }
+    }
+
+    const bool passWindow =
+        (maxProducerFilterPhotonPt >= ptLow &&
+         (ptHigh <= 0.0 || maxProducerFilterPhotonPt < ptHigh));
+    if (maxProducerFilterPhotonPt >= ptLow)
+    {
+      ++b.photonPtCandidates;
+    }
+    if (passWindow)
+    {
+      ++b.eventsWithPhoton;
+      ++b.eventsWithPhotonEta;
+      ++b.eventsWithPhotonPt;
+      ++b.eventsWithPhotonParent;
+      return true;
     }
 
     if (hasPhoton)
@@ -643,7 +665,7 @@ namespace
     {
       ++b.eventsWithPhotonEta;
     }
-    if (hasPhotonPt)
+    if (maxProducerFilterPhotonPt >= ptLow)
     {
       ++b.eventsWithPhotonPt;
     }
@@ -691,10 +713,12 @@ void EstimateEmbeddedPhotonXsec(long long nEvents = 1000000,
   std::vector<Sample> samples = {
       {"PhotonJet12",
        std::string(calib) + "/Generators/JetStructure_TG/phpythia8_10GeV_JS_MDC2.cfg",
-       12.0},
+       12.0,
+       20.0},
       {"PhotonJet20",
        std::string(calib) + "/Generators/JetStructure_TG/phpythia8_20GeV_JS_MDC2.cfg",
-       20.0},
+       20.0,
+       -1.0},
   };
   const std::string sampleFilter = sampleFilterC ? sampleFilterC : "all";
 
@@ -711,7 +735,7 @@ void EstimateEmbeddedPhotonXsec(long long nEvents = 1000000,
          "approx_filter_rel_stat,events_with_photon,events_with_photon_eta,"
          "events_with_photon_pt,events_with_photon_parent,max_photon_pt,"
          "max_photon_pt_eta,max_photon_pt_eta_parent,total_weight_sum,"
-         "trigger_pass_weight_sum\n";
+         "trigger_pass_weight_sum,photon_pt_high\n";
 
   std::cout << std::setprecision(10);
   std::cout << "[INFO] Running generator-only estimate with nEvents=" << nEvents
@@ -738,7 +762,16 @@ void EstimateEmbeddedPhotonXsec(long long nEvents = 1000000,
 
     std::cout << "\n[INFO] Sample " << s.name << std::endl;
     std::cout << "[INFO]   config        : " << s.config << std::endl;
-    std::cout << "[INFO]   photon pT cut : " << s.photonPtLow << " GeV" << std::endl;
+    std::cout << "[INFO]   photon pT cut : ";
+    if (s.photonPtHigh > 0.0)
+    {
+      std::cout << s.photonPtLow << " <= pT < " << s.photonPtHigh << " GeV";
+    }
+    else
+    {
+      std::cout << "pT >= " << s.photonPtLow << " GeV";
+    }
+    std::cout << std::endl;
     std::cout << "[INFO]   filter        : id==22, stable-only disabled, -1.5<eta<1.5, mother |id| in [1,22]" << std::endl;
 
     std::string xmlDir;
@@ -802,7 +835,7 @@ void EstimateEmbeddedPhotonXsec(long long nEvents = 1000000,
       sumW += w;
       sumW2 += w * w;
 
-      if (PassProducerPhotonFilter(pythia.event, s.photonPtLow, breakdown))
+      if (PassProducerPhotonFilter(pythia.event, s.photonPtLow, s.photonPtHigh, breakdown))
       {
         ++nPass;
         passW += w;
@@ -902,7 +935,8 @@ void EstimateEmbeddedPhotonXsec(long long nEvents = 1000000,
         << breakdown.maxPhotonPtEta << ","
         << breakdown.maxPhotonPtEtaParent << ","
         << sumW << ","
-        << passW << "\n";
+        << passW << ","
+        << s.photonPtHigh << "\n";
 
     std::cout << "[INFO]   Pythia statistics block follows." << std::endl;
     pythia.stat();
@@ -1013,8 +1047,8 @@ fi
   echo "Sample: ${SAMPLE_FILTER}"
   echo
   echo "Producer mapping:"
-  echo "  PhotonJet12 -> ${CFG12} + photon filter pT > 12 GeV, |eta| < 1.5"
-  echo "  PhotonJet20 -> ${CFG20} + photon filter pT > 20 GeV, |eta| < 1.5"
+  echo "  PhotonJet12 -> ${CFG12} + photon filter 12 <= pT < 20 GeV, |eta| < 1.5"
+  echo "  PhotonJet20 -> ${CFG20} + photon filter pT >= 20 GeV, |eta| < 1.5"
   echo
   echo "Results CSV:"
   cat "${RESULTS}"

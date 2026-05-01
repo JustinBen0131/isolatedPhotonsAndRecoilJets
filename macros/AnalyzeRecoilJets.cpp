@@ -396,21 +396,21 @@ void RunEventLevelQA(Dataset& ds)
         // Photon+Jet embedded
         {
             string path, label;
-            if (bothPhoton10and20simEmbedded)
+            if (bothPhoton12and20simEmbedded)
             {
-                path = MergedSimEmbeddedPath("photonJet10and20merged_SIM",
-                                             "RecoilJets_embeddedPhoton10plus20_MERGED.root");
-                label = "Photon+Jet (10+20) Embedded";
+                path = MergedSimEmbeddedPath("photonJet12and20merged_SIM",
+                                             "RecoilJets_embeddedPhoton12plus20_MERGED.root");
+                label = "Photon+Jet (12+20) Embedded";
             }
             else if (isPhotonJet20Embedded)
             {
                 path = InputSimEmbeddedSample("embeddedPhoton20");
                 label = "Photon+Jet 20 Embedded";
             }
-            else if (isPhotonJet10Embedded)
+            else if (isPhotonJet12Embedded)
             {
-                path = InputSimEmbeddedSample("embeddedPhoton10");
-                label = "Photon+Jet 10 Embedded";
+                path = InputSimEmbeddedSample("embeddedPhoton12");
+                label = "Photon+Jet 12 Embedded";
             }
             if (!path.empty())
                 zvtxEmbSources.push_back({path, label,
@@ -670,11 +670,11 @@ void RunEventLevelQA(Dataset& ds)
             // Photon+Jet embedded
             {
                 string path, label, tag;
-                if (bothPhoton10and20simEmbedded)
+                if (bothPhoton12and20simEmbedded)
                 {
-                    path = MergedSimEmbeddedPath("photonJet10and20merged_SIM",
-                                                 "RecoilJets_embeddedPhoton10plus20_MERGED.root");
-                    label = "Photon+Jet (10+20) Embedded";
+                    path = MergedSimEmbeddedPath("photonJet12and20merged_SIM",
+                                                 "RecoilJets_embeddedPhoton12plus20_MERGED.root");
+                    label = "Photon+Jet (12+20) Embedded";
                     tag = "photonJet";
                 }
                 else if (isPhotonJet20Embedded)
@@ -683,10 +683,10 @@ void RunEventLevelQA(Dataset& ds)
                     label = "Photon+Jet 20 Embedded";
                     tag = "photonJet";
                 }
-                else if (isPhotonJet10Embedded)
+                else if (isPhotonJet12Embedded)
                 {
-                    path = InputSimEmbeddedSample("embeddedPhoton10");
-                    label = "Photon+Jet 10 Embedded";
+                    path = InputSimEmbeddedSample("embeddedPhoton12");
+                    label = "Photon+Jet 12 Embedded";
                     tag = "photonJet";
                 }
                 if (!path.empty() && !gSystem->AccessPathName(path.c_str()))
@@ -5219,11 +5219,11 @@ void RunConsolidatedEventSummary()
     }
     
     // --- Embedded photon+jet samples ---
-    if (isPhotonJet10Embedded || bothPhoton10and20simEmbedded)
-        probes.push_back({InputSimEmbeddedSample("embeddedPhoton10"),
-            kDirSIM, "embPhotonJet10",
+    if (isPhotonJet12Embedded || bothPhoton12and20simEmbedded)
+        probes.push_back({InputSimEmbeddedSample("embeddedPhoton12"),
+            kDirSIM, "embPhotonJet12",
             CfgTagWithUE_AA(), true, true});
-    if (isPhotonJet20Embedded || bothPhoton10and20simEmbedded)
+    if (isPhotonJet20Embedded || bothPhoton12and20simEmbedded)
         probes.push_back({InputSimEmbeddedSample("embeddedPhoton20"),
             kDirSIM, "embPhotonJet20",
             CfgTagWithUE_AA(), true, true});
@@ -5357,7 +5357,7 @@ void RunConsolidatedEventSummary()
 
 // ===================================================================
 // Embedded SIM statistics diagnostic
-//   Opens individual embeddedPhoton10 / embeddedPhoton20 ROOT files,
+//   Opens individual embeddedPhoton12 / embeddedPhoton20 ROOT files,
 //   reads counting histograms, prints a multi-layer funnel table
 //   showing where statistics die.
 // ===================================================================
@@ -5375,7 +5375,7 @@ void RunEmbeddedSimStatsDiagnostic()
     
     struct SampleDef { string tag; string label; };
     const vector<SampleDef> samples = {
-        {"embeddedPhoton10", "embPhoton10"},
+        {"embeddedPhoton12", "embPhoton12"},
         {"embeddedPhoton20", "embPhoton20"}
     };
     
@@ -13166,15 +13166,15 @@ void JES3_R02R04Overlays_MaybeRun(Dataset& ds, const std::string& outDir)
         hA->SetMaximum((yMax > 0.0) ? (1.25 * yMax) : 1.0);
         
         std::string datasetName = "Photon+Jet Embedded";
-        if (isPhotonJet10Embedded) datasetName = "Photon+Jet Embedded 10 GeV";
+        if (isPhotonJet12Embedded) datasetName = "Photon+Jet Embedded 12 GeV";
         else if (isPhotonJet20Embedded) datasetName = "Photon+Jet Embedded 20 GeV";
-        else if (bothPhoton10and20simEmbedded) datasetName = "Photon+Jet Embedded (10+20) GeV";
+        else if (bothPhoton12and20simEmbedded) datasetName = "Photon+Jet Embedded (12+20) GeV";
         else
         {
             const SimSample ss = CurrentSimSample();
-            if (ss == SimSample::kEmbeddedPhoton10) datasetName = "Photon+Jet Embedded 10 GeV";
+            if (ss == SimSample::kEmbeddedPhoton12) datasetName = "Photon+Jet Embedded 12 GeV";
             else if (ss == SimSample::kEmbeddedPhoton20) datasetName = "Photon+Jet Embedded 20 GeV";
-            else if (ss == SimSample::kEmbeddedPhoton10And20Merged) datasetName = "Photon+Jet Embedded (10+20) GeV";
+            else if (ss == SimSample::kEmbeddedPhoton12And20Merged) datasetName = "Photon+Jet Embedded (12+20) GeV";
         }
         
         std::string centText = "Inclusive";
@@ -17591,22 +17591,22 @@ inline bool MaybeBuildMergedSIM(RunMode mode)
                                                  );
         }
     }
-    else if (ss == SimSample::kEmbeddedPhoton10And20Merged)
+    else if (ss == SimSample::kEmbeddedPhoton12And20Merged)
     {
         if (!doPhotonJetMerge)
         {
             const string outMerged =
-            MergedSimEmbeddedPath("photonJet10and20merged_SIM", "RecoilJets_embeddedPhoton10plus20_MERGED.root");
+            MergedSimEmbeddedPath("photonJet12and20merged_SIM", "RecoilJets_embeddedPhoton12plus20_MERGED.root");
             
             cout << ANSI_BOLD_CYN
-            << "\n[MERGE SIM] doPhotonJetMerge=false -> skipping embedded SIM10+20 rebuild step.\n"
+            << "\n[MERGE SIM] doPhotonJetMerge=false -> skipping embedded SIM12+20 rebuild step.\n"
             << "            Using existing merged output: " << outMerged << "\n"
             << ANSI_RESET;
             
             if (gSystem->AccessPathName(outMerged.c_str()))
             {
                 cout << ANSI_BOLD_RED
-                << "[MERGE SIM][FATAL] Merged embedded SIM10+20 file not found, but doPhotonJetMerge=false:\n"
+                << "[MERGE SIM][FATAL] Merged embedded SIM12+20 file not found, but doPhotonJetMerge=false:\n"
                 << "  " << outMerged << "\n"
                 << ANSI_RESET;
                 ok = false;
@@ -17615,22 +17615,22 @@ inline bool MaybeBuildMergedSIM(RunMode mode)
         else
         {
             const string outMerged =
-            MergedSimEmbeddedPath("photonJet10and20merged_SIM", "RecoilJets_embeddedPhoton10plus20_MERGED.root");
+            MergedSimEmbeddedPath("photonJet12and20merged_SIM", "RecoilJets_embeddedPhoton12plus20_MERGED.root");
             
             cout << ANSI_BOLD_CYN
-            << "\n[MERGE SIM] Rebuilding embedded SIM10+20 merged file.\n"
+            << "\n[MERGE SIM] Rebuilding embedded SIM12+20 merged file.\n"
             << "            CfgTagWithUE() = " << CfgTagWithUE() << "\n"
-            << "            in10    = " << InputSimEmbeddedSample("embeddedPhoton10") << "\n"
+            << "            in12    = " << InputSimEmbeddedSample("embeddedPhoton12") << "\n"
             << "            in20    = " << InputSimEmbeddedSample("embeddedPhoton20") << "\n"
             << "            out     = " << outMerged << "\n"
             << ANSI_RESET;
             
             ok = BuildMergedSIMFile_PhotonSlices(
-                                                 {InputSimEmbeddedSample("embeddedPhoton10"), InputSimEmbeddedSample("embeddedPhoton20")},
-                                                 {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
+                                                 {InputSimEmbeddedSample("embeddedPhoton12"), InputSimEmbeddedSample("embeddedPhoton20")},
+                                                 {kSigmaEmbeddedPhoton12_pb, kSigmaEmbeddedPhoton20_pb},
                                                  outMerged,
                                                  kDirSIM,
-                                                 {"embeddedPhoton10", "embeddedPhoton20"}
+                                                 {"embeddedPhoton12", "embeddedPhoton20"}
                                                  );
         }
     }
@@ -17764,9 +17764,9 @@ int Run()
     << "    bothPhoton5and20sim     = " << (bothPhoton5and20sim ? "true" : "false") << "\n"
     << "    bothPhoton10and20sim    = " << (bothPhoton10and20sim ? "true" : "false") << "\n"
     << "    allPhoton5and10and20sim = " << (allPhoton5and10and20sim ? "true" : "false") << "\n"
-    << "    isPhotonJet10Embedded   = " << (isPhotonJet10Embedded ? "true" : "false") << "\n"
+    << "    isPhotonJet12Embedded   = " << (isPhotonJet12Embedded ? "true" : "false") << "\n"
     << "    isPhotonJet20Embedded   = " << (isPhotonJet20Embedded ? "true" : "false") << "\n"
-    << "    bothPhoton10and20simEmbedded = " << (bothPhoton10and20simEmbedded ? "true" : "false") << "\n"
+    << "    bothPhoton12and20simEmbedded = " << (bothPhoton12and20simEmbedded ? "true" : "false") << "\n"
     << "    isSimEmbeddedOnly       = " << (isSimEmbeddedOnly ? "true" : "false") << "\n"
     << "    doPhotonJetMerge        = " << (doPhotonJetMerge ? "true" : "false") << "\n"
     << "    do_xJ_PPunfold          = " << (do_xJ_PPunfold ? "true" : "false") << "\n"
@@ -17990,15 +17990,15 @@ int Run()
         << "    kAA_UEVariant                   = " << kAA_UEVariant << "\n"
         << "    InputAuAu()                     = " << InputAuAu() << "\n";
         
-        if (ss == SimSample::kEmbeddedPhoton10And20Merged)
+        if (ss == SimSample::kEmbeddedPhoton12And20Merged)
         {
-            cout << "    InputSimEmbeddedSample(10)      = " << InputSimEmbeddedSample("embeddedPhoton10") << "\n"
+            cout << "    InputSimEmbeddedSample(12)      = " << InputSimEmbeddedSample("embeddedPhoton12") << "\n"
             << "    InputSimEmbeddedSample(20)      = " << InputSimEmbeddedSample("embeddedPhoton20") << "\n"
-            << "    MergedSimEmbeddedPath(10+20)    = " << MergedSimEmbeddedPath("photonJet10and20merged_SIM", "RecoilJets_embeddedPhoton10plus20_MERGED.root") << "\n";
+            << "    MergedSimEmbeddedPath(12+20)    = " << MergedSimEmbeddedPath("photonJet12and20merged_SIM", "RecoilJets_embeddedPhoton12plus20_MERGED.root") << "\n";
         }
-        else if (ss == SimSample::kEmbeddedPhoton10)
+        else if (ss == SimSample::kEmbeddedPhoton12)
         {
-            cout << "    InputSimEmbeddedSample(10)      = " << InputSimEmbeddedSample("embeddedPhoton10") << "\n";
+            cout << "    InputSimEmbeddedSample(12)      = " << InputSimEmbeddedSample("embeddedPhoton12") << "\n";
         }
         else if (ss == SimSample::kEmbeddedPhoton20)
         {

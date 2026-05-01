@@ -34,8 +34,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
     else
     {
         activeEmbeddedSimFolder =
-        (activeEmbeddedSample == SimSample::kEmbeddedPhoton10) ? "embeddedPhoton10_SIM" :
-        (activeEmbeddedSample == SimSample::kEmbeddedPhoton10And20Merged) ? "photonJet10and20merged_SIM" :
+        (activeEmbeddedSample == SimSample::kEmbeddedPhoton12) ? "embeddedPhoton12_SIM" :
+        (activeEmbeddedSample == SimSample::kEmbeddedPhoton12And20Merged) ? "photonJet12and20merged_SIM" :
         "embeddedPhoton20_SIM";
     }
     
@@ -50,16 +50,16 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
             return "";
         }
         
-        if (activeEmbeddedSample == SimSample::kEmbeddedPhoton10)
+        if (activeEmbeddedSample == SimSample::kEmbeddedPhoton12)
         {
-            return InputSimEmbeddedSample("embeddedPhoton10", ueVariant);
+            return InputSimEmbeddedSample("embeddedPhoton12", ueVariant);
         }
-        if (activeEmbeddedSample == SimSample::kEmbeddedPhoton10And20Merged)
+        if (activeEmbeddedSample == SimSample::kEmbeddedPhoton12And20Merged)
         {
             return MergedSimEmbeddedPath(
                                          CfgTagWithUEFor(kAA_JetPtMin, kAA_B2BCut, kAA_VzCut, kAA_IsoConeR, kAA_IsoMode, ueVariant),
-                                         "photonJet10and20merged_SIM",
-                                         "RecoilJets_embeddedPhoton10plus20_MERGED.root"
+                                         "photonJet12and20merged_SIM",
+                                         "RecoilJets_embeddedPhoton12plus20_MERGED.root"
                                          );
         }
         return InputSimEmbedded(ueVariant);
@@ -485,7 +485,7 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
     const int nInclusiveEmbeddedSel =
     CountEmbeddedSelection(isInclusiveJet10Embedded, isInclusiveJet20Embedded, bothInclusiveJet10and20simEmbedded);
     const int nPhotonEmbeddedSel =
-    CountEmbeddedSelection(isPhotonJet10Embedded, isPhotonJet20Embedded, bothPhoton10and20simEmbedded);
+    CountEmbeddedSelection(isPhotonJet12Embedded, isPhotonJet20Embedded, bothPhoton12and20simEmbedded);
     
     auto InclusiveEmbeddedShortLabel = [&]() -> string
     {
@@ -497,8 +497,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
     
     auto PhotonEmbeddedShortLabel = [&]() -> string
     {
-        if (bothPhoton10and20simEmbedded) return "(10+20)";
-        if (isPhotonJet10Embedded) return "10";
+        if (bothPhoton12and20simEmbedded) return "(12+20)";
+        if (isPhotonJet12Embedded) return "12";
         if (isPhotonJet20Embedded) return "20";
         return "";
     };
@@ -577,31 +577,31 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
             return "";
         }
         
-        if (bothPhoton10and20simEmbedded)
+        if (bothPhoton12and20simEmbedded)
         {
             const string cfgTag = CfgTagWithUEFor(
                                                   kAA_JetPtMin, kAA_B2BCut, kAA_VzCut, kAA_IsoConeR, kAA_IsoMode, ueVariant
                                                   );
             const string mergedPath = MergedSimEmbeddedPath(
                                                             cfgTag,
-                                                            "photonJet10and20merged_SIM",
-                                                            "RecoilJets_embeddedPhoton10plus20_MERGED.root"
+                                                            "photonJet12and20merged_SIM",
+                                                            "RecoilJets_embeddedPhoton12plus20_MERGED.root"
                                                             );
             
             if (doPhotonJetMerge)
             {
-                const string in10 = InputSimEmbeddedSample("embeddedPhoton10", ueVariant);
+                const string in12 = InputSimEmbeddedSample("embeddedPhoton12", ueVariant);
                 const string in20 = InputSimEmbeddedSample("embeddedPhoton20", ueVariant);
                 
-                if (!gSystem->AccessPathName(in10.c_str()) &&
+                if (!gSystem->AccessPathName(in12.c_str()) &&
                     !gSystem->AccessPathName(in20.c_str()))
                 {
                     const bool okMerge = BuildMergedSIMFile_PhotonSlices(
-                                                                         {in10, in20},
-                                                                         {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
+                                                                         {in12, in20},
+                                                                         {kSigmaEmbeddedPhoton12_pb, kSigmaEmbeddedPhoton20_pb},
                                                                          mergedPath,
                                                                          kDirSIM,
-                                                                         {"embeddedPhoton10", "embeddedPhoton20"}
+                                                                         {"embeddedPhoton12", "embeddedPhoton20"}
                                                                          );
                     if (!okMerge) return "";
                 }
@@ -615,11 +615,11 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
             return mergedPath;
         }
         
-        if (isPhotonJet10Embedded)
+        if (isPhotonJet12Embedded)
         {
-            const string in10 = InputSimEmbeddedSample("embeddedPhoton10", ueVariant);
-            if (gSystem->AccessPathName(in10.c_str())) return "";
-            return in10;
+            const string in12 = InputSimEmbeddedSample("embeddedPhoton12", ueVariant);
+            if (gSystem->AccessPathName(in12.c_str())) return "";
+            return in12;
         }
         
         if (isPhotonJet20Embedded)
@@ -5935,12 +5935,12 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
                             string matchedPPLabel;
                             {
                                 SimSample matchedSample = SimSample::kPhotonJet20; // default
-                                if (bothPhoton10and20simEmbedded)
+                                if (bothPhoton12and20simEmbedded)
                                 {
                                     matchedSample = SimSample::kPhotonJet5And10And20Merged;
                                     matchedPPLabel = "Pythia 5+10+20";
                                 }
-                                else if (isPhotonJet10Embedded)
+                                else if (isPhotonJet12Embedded)
                                 {
                                     matchedSample = SimSample::kPhotonJet10;
                                     matchedPPLabel = "Pythia 10";

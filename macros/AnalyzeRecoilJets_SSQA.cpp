@@ -322,19 +322,19 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
         
         string embeddedPath = SimInputPathForSample(activeSS);
         
-        if (activeSS == SimSample::kEmbeddedPhoton10And20Merged)
+        if (activeSS == SimSample::kEmbeddedPhoton12And20Merged)
         {
             if (embeddedPath.empty() || gSystem->AccessPathName(embeddedPath.c_str()))
             {
                 const string outMerged =
-                MergedSimEmbeddedPath("photonJet10and20merged_SIM", "RecoilJets_embeddedPhoton10plus20_MERGED.root");
+                MergedSimEmbeddedPath("photonJet12and20merged_SIM", "RecoilJets_embeddedPhoton12plus20_MERGED.root");
                 
                 const bool okMergeEmbedded = BuildMergedSIMFile_PhotonSlices(
-                                                                             {InputSimEmbeddedSample("embeddedPhoton10"), InputSimEmbeddedSample("embeddedPhoton20")},
-                                                                             {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
+                                                                             {InputSimEmbeddedSample("embeddedPhoton12"), InputSimEmbeddedSample("embeddedPhoton20")},
+                                                                             {kSigmaEmbeddedPhoton12_pb, kSigmaEmbeddedPhoton20_pb},
                                                                              outMerged,
                                                                              kDirSIM,
-                                                                             {"embeddedPhoton10", "embeddedPhoton20"}
+                                                                             {"embeddedPhoton12", "embeddedPhoton20"}
                                                                              );
                 
                 if (okMergeEmbedded && !gSystem->AccessPathName(outMerged.c_str()))
@@ -396,8 +396,8 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
         if (photEmb)
         {
             string tag = "embeddedPhoton20";
-            if (bothPhoton10and20simEmbedded)      tag = "embeddedPhoton10and20merged";
-            else if (isPhotonJet10Embedded)         tag = "embeddedPhoton10";
+            if (bothPhoton12and20simEmbedded)      tag = "embeddedPhoton12and20merged";
+            else if (isPhotonJet12Embedded)         tag = "embeddedPhoton12";
             ssTemplateSources.push_back({"overlaysWithPythia_" + tag, photEmb, nullptr});
         }
     }
@@ -1462,8 +1462,8 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
         {
             // Build embedded-sample tag strings for legend labels
             string photTag;
-            if (bothPhoton10and20simEmbedded)       photTag = "10+20";
-            else if (isPhotonJet10Embedded)          photTag = "10";
+            if (bothPhoton12and20simEmbedded)       photTag = "12+20";
+            else if (isPhotonJet12Embedded)          photTag = "12";
             else                                     photTag = "20";
 
             string inclTag;
@@ -3436,15 +3436,15 @@ if (!SSoverlayPerVAR_processONLY)
         {
             string _embTag;
             string _embPath;
-            if (bothPhoton10and20simEmbedded)
+            if (bothPhoton12and20simEmbedded)
             {
-                _embTag  = "embeddedPhoton10and20merged";
-                _embPath = MergedSimEmbeddedPath("photonJet10and20merged_SIM", "RecoilJets_embeddedPhoton10plus20_MERGED.root");
+                _embTag  = "embeddedPhoton12and20merged";
+                _embPath = MergedSimEmbeddedPath("photonJet12and20merged_SIM", "RecoilJets_embeddedPhoton12plus20_MERGED.root");
             }
-            else if (isPhotonJet10Embedded)
+            else if (isPhotonJet12Embedded)
             {
-                _embTag  = "embeddedPhoton10";
-                _embPath = InputSimEmbeddedSample("embeddedPhoton10");
+                _embTag  = "embeddedPhoton12";
+                _embPath = InputSimEmbeddedSample("embeddedPhoton12");
             }
             else
             {
