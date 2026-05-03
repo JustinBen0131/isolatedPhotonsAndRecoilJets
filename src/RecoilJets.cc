@@ -495,9 +495,9 @@ namespace
       case PPG12PhotonSlice::kPhoton5:
         lo = 0.0; hi = 14.0; return true;
       case PPG12PhotonSlice::kPhoton10:
-        lo = 14.0; hi = 30.0; return true;
+        lo = 14.0; hi = 22.0; return true;
       case PPG12PhotonSlice::kPhoton20:
-        lo = 30.0; hi = 200.0; return true;
+          lo = 22.0; hi = std::numeric_limits<double>::infinity(); return true;
       default:
         lo = std::numeric_limits<double>::quiet_NaN();
         hi = std::numeric_limits<double>::quiet_NaN();
@@ -544,9 +544,9 @@ namespace
     }
     if (!truthInfo) return -1.0;
 
-    // PPG12 RecoEffCalculator initializes maxphotonpT to 0 before scanning
-    // the CaloAna particle array. Keep that convention for no-photon events.
-    double maxPt = 0.0;
+      // Use -1 as "no valid truth photon found" so missing-photon events
+      // are rejected instead of being assigned to the PhotonJet5 slice.
+      double maxPt = -1.0;
 
     auto primaryRange = truthInfo->GetPrimaryParticleRange();
     for (auto truthItr = primaryRange.first; truthItr != primaryRange.second; ++truthItr)
@@ -2415,7 +2415,8 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
       const double maxPhotonPt = ppg12MaxStoredTruthPhotonPt(topNode, m_truthInfo);
       const bool haveTruth = (maxPhotonPt >= 0.0);
       const bool passStitch = haveWindow && haveTruth &&
-                              !(maxPhotonPt > stitchHi || maxPhotonPt < stitchLo);
+                                (maxPhotonPt >= stitchLo) &&
+                                (maxPhotonPt < stitchHi);
 
       auto bookStitch1F = [&](const std::string& name,
                               const std::string& title,

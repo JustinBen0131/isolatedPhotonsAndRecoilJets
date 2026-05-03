@@ -63,7 +63,9 @@ setMinBiasClassifer: true
 # -----------------------------------------------------------------------------
 # Centrality binning (AuAu only; ignored for pp/SIM)
 # -----------------------------------------------------------------------------
-centrality_edges: [0, 20, 50, 80]
+centrality_edges: [0, 10, 20, 30, 40, 50, 60, 80]
+#for sliding isolation centraltiy centrality_edges: [0, 10, 20, 30, 40, 50, 60, 80]
+#[0, 20, 50, 80]
 
 # -----------------------------------------------------------------------------
 # Cluster UE pipeline (AuAu/OO DATA only)
@@ -154,9 +156,9 @@ clusterUEpipeline: [baseVariant]
 #
 #     BDT scores outside the tight and non-tight windows are treated as neither.
 # -----------------------------------------------------------------------------
-preselection: [variantA]
-tight: [variantA]
-nonTight: [variantA]
+preselection: [reference]
+tight: [reference]
+nonTight: [reference]
 
 # -----------------------------------------------------------------------------
 # NPB preselection controls
@@ -289,7 +291,7 @@ isolation_wp: {aGeV: 1.764, bPerGeV: 0.038, sideGapGeV: 1.0, truthIsoGeV: 4.0, t
 #
 # Example below is the 90% working point.
 auau_cent_iso_wp:
-  - {aGeV: 5.99, bPerGeV: -0.0511, sideGapGeV: 0.0}
+  - {aGeV: 7.57, bPerGeV: -0.0658, sideGapGeV: 0.0}
 
 # -----------------------------------------------------------------------------
 # Photon shower-shape ID cuts (PPG12 Table 4)

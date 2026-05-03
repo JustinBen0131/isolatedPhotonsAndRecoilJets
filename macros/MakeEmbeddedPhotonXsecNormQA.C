@@ -1,6 +1,7 @@
 #include <TCanvas.h>
 #include <TDirectory.h>
 #include <TFile.h>
+#include <TF1.h>
 #include <TGraphErrors.h>
 #include <TLegend.h>
 #include <TLatex.h>
@@ -39,6 +40,34 @@ const std::string kFile20 =
 
 const std::string kOutDir =
     "dataOutput/combinedSimOnlyEMBEDDED/" + kConfigTag + "/photonJet12and20merged_SIM";
+
+int VzCutFromConfigTag()
+{
+  if (kConfigTag.find("vz60") != std::string::npos) return 60;
+  if (kConfigTag.find("vz30") != std::string::npos) return 30;
+  std::cerr << "[WARN] Could not infer vz cut from config tag: " << kConfigTag
+            << ". Falling back to 30 cm." << std::endl;
+  return 30;
+}
+
+double IsoConeRFromConfigTag()
+{
+  if (kConfigTag.find("isoR40") != std::string::npos) return 0.4;
+  if (kConfigTag.find("isoR30") != std::string::npos) return 0.3;
+  std::cerr << "[WARN] Could not infer isolation cone radius from config tag: " << kConfigTag
+            << ". Falling back to 0.3." << std::endl;
+  return 0.3;
+}
+
+std::string VzEtaLabel()
+{
+  return TString::Format("|v_{z}| < %d cm,  |#eta^{#gamma}| < 0.7", VzCutFromConfigTag()).Data();
+}
+
+std::string IsoConeLabel()
+{
+  return TString::Format("#DeltaR_{cone} < %.1f", IsoConeRFromConfigTag()).Data();
+}
 
 double ReadEventCount(TFile* f)
 {
@@ -273,9 +302,57 @@ void StyleEffGraph(TGraphErrors& g, int color, int marker)
   g.SetMarkerSize(marker == 22 ? 1.45 : 1.35);
 }
 
-void DrawIsoEfficiencyCutoffQA(TFile* f12, TFile* f20, double w12, double w20)
+struct IsoFlatCentResult
+{
+  int lo = 0;
+  int hi = 0;
+  double center = 0.0;
+  double halfWidth = 0.0;
+  bool have70 = false;
+  bool have80 = false;
+  bool have90 = false;
+  double flat70 = 0.0;
+  double err70 = 0.0;
+  double flat80 = 0.0;
+  double err80 = 0.0;
+  double flat90 = 0.0;
+  double err90 = 0.0;
+};
+
+bool ComputeFlatGraphAverage(TGraphErrors& g, double xLo, double xHi, double& value, double& error)
+{
+  value = 0.0;
+  error = 0.0;
+
+  double sumW = 0.0;
+  double sumWY = 0.0;
+  int nUsed = 0;
+
+  for (int ip = 0; ip < g.GetN(); ++ip)
+  {
+    double x = 0.0;
+    double y = 0.0;
+    g.GetPoint(ip, x, y);
+    if (x < xLo || x > xHi) continue;
+
+    const double ey = g.GetErrorY(ip);
+    const double w = (ey > 0.0) ? (1.0 / (ey * ey)) : 1.0;
+    sumW += w;
+    sumWY += w * y;
+    ++nUsed;
+  }
+
+  if (nUsed <= 0 || !(sumW > 0.0)) return false;
+  value = sumWY / sumW;
+  error = std::sqrt(1.0 / sumW);
+  return std::isfinite(value);
+}
+
+std::vector<IsoFlatCentResult> DrawIsoEfficiencyCutoffQA(TFile* f12, TFile* f20, double w12, double w20)
 {
   const std::vector<double> ptEdges = {8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 35};
+  const double fitXLo = 10.0;
+  const double fitXHi = 35.0;
   struct CentBin
   {
     int lo;
@@ -288,6 +365,8 @@ void DrawIsoEfficiencyCutoffQA(TFile* f12, TFile* f20, double w12, double w20)
       {20, 50, "_cent_20_50", "cent_20_50"},
       {50, 80, "_cent_50_80", "cent_50_80"},
   };
+
+  std::vector<IsoFlatCentResult> flatResults;
 
   for (const auto& cb : centBins)
   {
@@ -368,18 +447,48 @@ void DrawIsoEfficiencyCutoffQA(TFile* f12, TFile* f20, double w12, double w20)
     StyleEffGraph(g90, kMagenta + 1, 20);
     StyleEffGraph(g80, kGreen + 2, 21);
     StyleEffGraph(g70, kBlue + 1, 22);
+
+    IsoFlatCentResult flat;
+    flat.lo = cb.lo;
+    flat.hi = cb.hi;
+    flat.center = 0.5 * (cb.lo + cb.hi);
+    flat.halfWidth = 0.5 * (cb.hi - cb.lo);
+    flat.have70 = ComputeFlatGraphAverage(g70, fitXLo, fitXHi, flat.flat70, flat.err70);
+    flat.have80 = ComputeFlatGraphAverage(g80, fitXLo, fitXHi, flat.flat80, flat.err80);
+    flat.have90 = ComputeFlatGraphAverage(g90, fitXLo, fitXHi, flat.flat90, flat.err90);
+    flatResults.push_back(flat);
+
+    TF1 f90(("f_embeddedIsoFlat90_" + cb.tag).c_str(), "[0]", fitXLo, fitXHi);
+    TF1 f80(("f_embeddedIsoFlat80_" + cb.tag).c_str(), "[0]", fitXLo, fitXHi);
+    TF1 f70(("f_embeddedIsoFlat70_" + cb.tag).c_str(), "[0]", fitXLo, fitXHi);
+    if (flat.have90) f90.SetParameter(0, flat.flat90);
+    if (flat.have80) f80.SetParameter(0, flat.flat80);
+    if (flat.have70) f70.SetParameter(0, flat.flat70);
+    f90.SetLineColor(kMagenta + 1);
+    f80.SetLineColor(kGreen + 2);
+    f70.SetLineColor(kBlue + 1);
+    f90.SetLineWidth(3);
+    f80.SetLineWidth(3);
+    f70.SetLineWidth(3);
+    f90.SetLineStyle(2);
+    f80.SetLineStyle(2);
+    f70.SetLineStyle(2);
+
     g90.Draw("PE1 SAME");
     g80.Draw("PE1 SAME");
     g70.Draw("PE1 SAME");
+    if (flat.have90) f90.Draw("SAME");
+    if (flat.have80) f80.Draw("SAME");
+    if (flat.have70) f70.Draw("SAME");
 
     TLegend leg(0.20, 0.16, 0.78, 0.24);
     leg.SetBorderSize(0);
     leg.SetFillStyle(0);
     leg.SetTextFont(42);
     leg.SetTextSize(0.030);
-    leg.AddEntry(&g70, "70% Efficiency", "ep");
-    leg.AddEntry(&g80, "80% Efficiency", "ep");
-    leg.AddEntry(&g90, "90% Efficiency", "ep");
+    leg.AddEntry(&g70, flat.have70 ? TString::Format("70%% Efficiency, E_{T}^{iso} #sim %.2f", flat.flat70).Data() : "70% Efficiency", "ep");
+    leg.AddEntry(&g80, flat.have80 ? TString::Format("80%% Efficiency, E_{T}^{iso} #sim %.2f", flat.flat80).Data() : "80% Efficiency", "ep");
+    leg.AddEntry(&g90, flat.have90 ? TString::Format("90%% Efficiency, E_{T}^{iso} #sim %.2f", flat.flat90).Data() : "90% Efficiency", "ep");
     leg.SetNColumns(3);
     leg.Draw();
 
@@ -390,8 +499,8 @@ void DrawIsoEfficiencyCutoffQA(TFile* f12, TFile* f20, double w12, double w20)
     info.SetTextSize(0.030);
     info.DrawLatex(0.18, 0.88, "Photon+Jet 12+20 Embedded SIM");
     info.DrawLatex(0.18, 0.83, TString::Format("%d-%d%% centrality", cb.lo, cb.hi).Data());
-    info.DrawLatex(0.18, 0.78, "|v_{z}| < 30 cm,  |#eta^{#gamma}| < 0.7");
-    info.DrawLatex(0.18, 0.73, "#DeltaR_{cone} < 0.3");
+    info.DrawLatex(0.18, 0.78, VzEtaLabel().c_str());
+    info.DrawLatex(0.18, 0.73, IsoConeLabel().c_str());
 
     TLatex sph;
     sph.SetNDC(true);
@@ -406,6 +515,139 @@ void DrawIsoEfficiencyCutoffQA(TFile* f12, TFile* f20, double w12, double w20)
     c.SaveAs(outPng.c_str());
     std::cout << "[DONE] Wrote " << outPng << std::endl;
   }
+
+  return flatResults;
+}
+
+void DrawIsoFlatCutoffVsCentralityQA(const std::vector<IsoFlatCentResult>& flatResults)
+{
+  if (flatResults.empty())
+  {
+    std::cerr << "[WARN] No flat iso cutoff values available for centrality summary" << std::endl;
+    return;
+  }
+
+  std::vector<double> x70, y70, ex70, ey70;
+  std::vector<double> x80, y80, ex80, ey80;
+  std::vector<double> x90, y90, ex90, ey90;
+
+  double yMin = std::numeric_limits<double>::max();
+  double yMax = -std::numeric_limits<double>::max();
+  auto addPoint = [&](std::vector<double>& x,
+                      std::vector<double>& y,
+                      std::vector<double>& ex,
+                      std::vector<double>& ey,
+                      const IsoFlatCentResult& r,
+                      double value,
+                      double err)
+  {
+    x.push_back(r.center);
+    y.push_back(value);
+    ex.push_back(0.0);
+    ey.push_back(err);
+    yMin = std::min(yMin, value - err);
+    yMax = std::max(yMax, value + err);
+  };
+
+  for (const auto& r : flatResults)
+  {
+    if (r.have70) addPoint(x70, y70, ex70, ey70, r, r.flat70, r.err70);
+    if (r.have80) addPoint(x80, y80, ex80, ey80, r, r.flat80, r.err80);
+    if (r.have90) addPoint(x90, y90, ex90, ey90, r, r.flat90, r.err90);
+  }
+
+  if (x70.empty() && x80.empty() && x90.empty()) return;
+
+  const double pad = (yMax > yMin) ? 0.65 * (yMax - yMin) : 0.75;
+  TCanvas c("c_embeddedPhoton_stitchedIsoCutEfficiencyFits_vsCentrality",
+            "stitched embedded photon flat iso-cut fits vs centrality", 900, 700);
+  c.SetLeftMargin(0.14);
+  c.SetRightMargin(0.04);
+  c.SetBottomMargin(0.13);
+  c.SetTopMargin(0.10);
+
+  TH1F frame("hFrame_embeddedPhoton_stitchedIsoCutEfficiencyFits_vsCentrality",
+             "", 100, 0.0, 80.0);
+  frame.SetDirectory(nullptr);
+  frame.SetStats(0);
+  frame.SetMinimum(std::max(0.0, yMin - pad));
+  frame.SetMaximum(yMax + pad);
+  frame.GetXaxis()->SetTitle("Centrality [%]");
+  frame.GetYaxis()->SetTitle("E_{T}^{iso} Cutoff [GeV]");
+  frame.GetXaxis()->SetTitleSize(0.055);
+  frame.GetYaxis()->SetTitleSize(0.055);
+  frame.GetXaxis()->SetLabelSize(0.045);
+  frame.GetYaxis()->SetLabelSize(0.045);
+  frame.GetYaxis()->SetTitleOffset(1.15);
+  frame.Draw();
+
+  TLegend leg(0.48, 0.62, 0.92, 0.78);
+  leg.SetBorderSize(0);
+  leg.SetFillStyle(0);
+  leg.SetTextFont(42);
+  leg.SetTextSize(0.028);
+
+  auto drawFitGraph = [&](std::vector<double>& x,
+                          std::vector<double>& y,
+                          std::vector<double>& ex,
+                          std::vector<double>& ey,
+                          const char* name,
+                          const char* label,
+                          int color,
+                          int marker)
+  {
+    if (x.empty()) return;
+    TGraphErrors* g = new TGraphErrors(static_cast<int>(x.size()), x.data(), y.data(), ex.data(), ey.data());
+    g->SetLineWidth(2);
+    g->SetLineColor(color);
+    g->SetMarkerColor(color);
+    g->SetMarkerStyle(marker);
+    g->SetMarkerSize(marker == 22 ? 1.5 : 1.2);
+    g->Draw("P SAME");
+
+    TF1* fit = new TF1((std::string("fit_") + name).c_str(), "pol1", 0.0, 80.0);
+    fit->SetLineColor(color);
+    fit->SetLineWidth(2);
+    fit->SetLineStyle(2);
+    g->Fit(fit, "QNR");
+    fit->Draw("SAME");
+    leg.AddEntry(g, TString::Format("%s: y = %.4fx %+.2f", label, fit->GetParameter(1), fit->GetParameter(0)).Data(), "lp");
+  };
+
+  drawFitGraph(x90, y90, ex90, ey90, "90", "90% Eff", kMagenta + 1, 20);
+  drawFitGraph(x80, y80, ex80, ey80, "80", "80% Eff", kGreen + 2, 21);
+  drawFitGraph(x70, y70, ex70, ey70, "70", "70% Eff", kBlue + 1, 22);
+  leg.Draw();
+
+  TLatex title;
+  title.SetNDC(true);
+  title.SetTextFont(42);
+  title.SetTextAlign(23);
+  title.SetTextSize(0.042);
+  title.DrawLatex(0.50, 0.98, "Flat E_{T}^{iso} cutoff vs centrality");
+
+  TLatex info;
+  info.SetNDC(true);
+  info.SetTextFont(42);
+  info.SetTextAlign(13);
+  info.SetTextSize(0.030);
+  info.DrawLatex(0.18, 0.88, "Photon+Jet 12+20 Embedded SIM");
+  info.DrawLatex(0.18, 0.83, "constant fit over full plotted p_{T}^{#gamma} range");
+  info.DrawLatex(0.18, 0.78, VzEtaLabel().c_str());
+  info.DrawLatex(0.18, 0.73, IsoConeLabel().c_str());
+
+  TLatex sph;
+  sph.SetNDC(true);
+  sph.SetTextFont(42);
+  sph.SetTextAlign(33);
+  sph.SetTextSize(0.042);
+  sph.DrawLatex(0.92, 0.88, "#bf{sPHENIX} #it{Internal}");
+  sph.SetTextSize(0.034);
+  sph.DrawLatex(0.92, 0.83, "Pythia Overlay  #sqrt{s_{NN}} = 200 GeV");
+
+  const std::string outPng = kOutDir + "/embeddedPhoton_stitchedIsoCutEfficiencyFits_vsCentrality.png";
+  c.SaveAs(outPng.c_str());
+  std::cout << "[DONE] Wrote " << outPng << std::endl;
 }
 
 void DrawIsoCentralityOverlay10To12QA(TFile* f12, TFile* f20, double w12, double w20)
@@ -517,7 +759,7 @@ void DrawIsoCentralityOverlay10To12QA(TFile* f12, TFile* f20, double w12, double
   info.SetTextSize(0.040);
   info.DrawLatex(0.90, 0.88, "PhotonJet12+20 stitched SIM");
   info.DrawLatex(0.90, 0.84, "with UE Sub");
-  info.DrawLatex(0.90, 0.80, "#DeltaR_{cone} < 0.3");
+  info.DrawLatex(0.90, 0.80, IsoConeLabel().c_str());
 
   TLatex sph;
   sph.SetNDC(true);
@@ -782,6 +1024,10 @@ void DrawCompositionQA(std::unique_ptr<TH1> h12,
   const std::string outPng = kOutDir + "/embeddedPhoton_stitchedSampleComposition_ABCDsum.png";
   c.SaveAs(outPng.c_str());
   std::cout << "[DONE] Wrote " << outPng << std::endl;
+
+  const std::string legacyNormPng = kOutDir + "/embeddedPhoton12to20_plusPhoton20_xsecNormalizationQA.png";
+  c.SaveAs(legacyNormPng.c_str());
+  std::cout << "[DONE] Wrote " << legacyNormPng << std::endl;
 }
 }
 
@@ -833,33 +1079,8 @@ void MakeEmbeddedPhotonXsecNormQA()
       w12,
       w20);
 
-  DrawSpectrumSmoothQA(
-      WeightedClone(BuildRegionPtSpectrum(f12.get(), {"A"}, "h_regionA12_weighted"), w12),
-      WeightedClone(BuildRegionPtSpectrum(f20.get(), {"A"}, "h_regionA20_weighted"), w20),
-      "embeddedPhoton_stitchedRecoPhotonPtSpectrum_regionA",
-      "Embedded photon reco Region-A spectrum",
-      "p_{T}^{#gamma} [GeV]",
-      "Uses SIM/h_pTgamma_ABCD_A with centrality fallback",
-      w12,
-      w20);
-
-  DrawSpectrumSmoothQA(
-      WeightedClone(BuildRegionPtSpectrum(f12.get(), {"A", "B", "C", "D"}, "h_abcd12_weighted"), w12),
-      WeightedClone(BuildRegionPtSpectrum(f20.get(), {"A", "B", "C", "D"}, "h_abcd20_weighted"), w20),
-      "embeddedPhoton_stitchedRecoPhotonPtSpectrum_ABCDsum",
-      "Embedded photon reco ABCD-summed spectrum",
-      "p_{T}^{#gamma} [GeV]",
-      "Uses SIM/h_pTgamma_ABCD_{A,B,C,D} with centrality fallback",
-      w12,
-      w20);
-
-  DrawCompositionQA(
-      WeightedClone(BuildRegionPtSpectrum(f12.get(), {"A", "B", "C", "D"}, "h_abcd12_comp_weighted"), w12),
-      WeightedClone(BuildRegionPtSpectrum(f20.get(), {"A", "B", "C", "D"}, "h_abcd20_comp_weighted"), w20),
-      w12,
-      w20);
-
-  DrawIsoEfficiencyCutoffQA(f12.get(), f20.get(), w12, w20);
+  const std::vector<IsoFlatCentResult> flatIsoResults = DrawIsoEfficiencyCutoffQA(f12.get(), f20.get(), w12, w20);
+  DrawIsoFlatCutoffVsCentralityQA(flatIsoResults);
   DrawIsoCentralityOverlay10To12QA(f12.get(), f20.get(), w12, w20);
 
   std::cout << "[INFO] N12=" << n12 << " N20=" << n20

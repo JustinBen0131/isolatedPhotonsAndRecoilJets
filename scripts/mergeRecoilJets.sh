@@ -1091,6 +1091,15 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simm
       ;;
   esac
 
+  # Embedded firstRound hadd jobs can exceed the generic 2 GB request when
+  # merging larger Au+Au-style ROOT outputs. Keep pp/MB/jet SIM unchanged.
+  SIM_FIRSTROUND_REQUEST_MEMORY="2GB"
+  case "$SIM_DATASET_TOKEN" in
+    isSimEmbedded|issimembedded|simembedded|SIMEMBEDDED|isSimEmbeddedInclusive|issimembeddedinclusive|simembeddedinclusive|SIMEMBEDDEDINCLUSIVE)
+      SIM_FIRSTROUND_REQUEST_MEMORY="4GB"
+      ;;
+  esac
+
   # Build sample list (same defaults as submit script, or explicit SAMPLE=)
   samples=()
   if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
@@ -1335,7 +1344,7 @@ executable = $CONDOR_EXEC
 output     = $OUT_DIR/recoil.sim.${cfg_tag}.${SIM_TAG}.\$(Cluster).\$(Process).out
 error      = $ERR_DIR/recoil.sim.${cfg_tag}.${SIM_TAG}.\$(Cluster).\$(Process).err
 log        = $LOG_DIR/recoil.sim.${cfg_tag}.${SIM_TAG}.\$(Cluster).\$(Process).log
-request_memory = 2GB
+request_memory = $SIM_FIRSTROUND_REQUEST_MEMORY
 priority = $MERGE_CONDOR_PRIORITY
 getenv = True
 should_transfer_files = NO
@@ -1347,6 +1356,7 @@ EOT
           say "firstRound plan (cfg=${cfg_tag} sample=${SIM_SAMPLE} tag=${SIM_TAG})"
           say "  inputs total     : ${total}"
           say "  groupSize        : ${SIM_GROUP_SIZE}"
+          say "  request_memory   : ${SIM_FIRSTROUND_REQUEST_MEMORY}"
           say "  expected groups  : ${ngroups}"
           say "  submit file      : ${SUB}"
           say "  output partials  : ${DEST_DIR}/${SIM_PARTIAL_PREFIX}NNN.root"

@@ -3254,22 +3254,30 @@ inline bool BuildMergedSIMFile_PhotonSlices(const vector<string>& inFiles,
         }
         
         Nraw[i] = ReadEventCountFromFile(fin[i], topDirName);
-        w[i] = sigmas_pb[i];
+        if (Nraw[i] <= 0.0)
+        {
+            cout << ANSI_BOLD_YEL
+            << "[MERGE SIM][WARN] Nraw <= 0 for input. Skipping this merge target:\n"
+            << "  " << inFiles[i] << "\n"
+            << ANSI_RESET;
+            CloseAll();
+            return false;
+        }
+        w[i] = sigmas_pb[i] / Nraw[i];
     }
     
-    // Normalize by the highest-threshold slice when available. For photon5/10/20
-    // this gives the PPG12-style relative merge weights:
-    //   w5=sigma5/sigma20, w10=sigma10/sigma20, w20=1.
-    // The event acceptance/stitching is already applied online, so do not divide
-    // by the post-stitch accepted event count here.
-    double wRef = sigmas_pb.back();
+    // Normalize by the highest-threshold slice per-event weight when available.
+    // The sigma values are effective sample cross sections; divide by the
+    // pre-stitch event counter so unequal local file statistics do not bias
+    // the stitched merge. Do not divide by the post-stitch kept count.
+    double wRef = w.back();
     if (wRef <= 0.0)
     {
         for (size_t i = n; i > 0; --i)
         {
-            if (sigmas_pb[i - 1] > 0.0)
+            if (w[i - 1] > 0.0)
             {
-                wRef = sigmas_pb[i - 1];
+                wRef = w[i - 1];
                 break;
             }
         }
@@ -3287,7 +3295,7 @@ inline bool BuildMergedSIMFile_PhotonSlices(const vector<string>& inFiles,
         w[i] /= wRef;
     }
     
-    cout << ANSI_BOLD_YEL << "[MERGE SIM] Slice weights (relative): w = sigma/sigma_ref; no Naccepted denominator\n" << ANSI_RESET;
+    cout << ANSI_BOLD_YEL << "[MERGE SIM] Slice weights (relative): w = (sigma_eff/Nraw)/(sigma_eff_ref/Nraw_ref); no Nkept denominator\n" << ANSI_RESET;
     for (size_t i = 0; i < n; ++i)
     {
         const string lab = (!sliceLabels.empty() && sliceLabels.size() == n) ? sliceLabels[i] : std::to_string(i);
@@ -3362,7 +3370,7 @@ inline bool BuildMergedSIMFile_PhotonSlices(const vector<string>& inFiles,
     {
         const string lab = (!sliceLabels.empty() && sliceLabels.size() == n) ? sliceLabels[i] : std::to_string(i);
         oss << "[" << lab
-        << " N=" << std::fixed << std::setprecision(0) << N[i]
+        << " Nraw=" << std::fixed << std::setprecision(0) << Nraw[i]
         << " sigma_pb=" << std::setprecision(12) << sigmas_pb[i]
         << " w=" << std::setprecision(12) << w[i]
         << "] ";
