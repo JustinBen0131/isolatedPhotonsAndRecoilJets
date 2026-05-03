@@ -251,6 +251,37 @@ std::unique_ptr<TH1> BuildWeightedPairHistogram(TFile* f12,
   return hSum;
 }
 
+std::unique_ptr<TH1> BuildWeightedPairHistogramSum(TFile* f12,
+                                                   TFile* f20,
+                                                   const std::vector<std::string>& histNames,
+                                                   const std::string& cloneName,
+                                                   double w12,
+                                                   double w20)
+{
+  std::unique_ptr<TH1> hSum;
+  int nAdded = 0;
+  for (const std::string& histName : histNames)
+  {
+    std::unique_ptr<TH1> h = BuildWeightedPairHistogram(
+        f12, f20, histName, cloneName + "_" + std::to_string(nAdded), w12, w20);
+    if (!h) continue;
+
+    if (!hSum)
+    {
+      hSum.reset(dynamic_cast<TH1*>(h->Clone(cloneName.c_str())));
+      if (!hSum) return nullptr;
+      hSum->SetDirectory(nullptr);
+      hSum->Reset("ICES");
+      if (hSum->GetSumw2N() == 0) hSum->Sumw2();
+    }
+
+    hSum->Add(h.get());
+    ++nAdded;
+  }
+
+  return hSum;
+}
+
 bool FindEfficiencyCut(TH1* hIn, double eff, double& cut, double& cutErr)
 {
   cut = 0.0;
@@ -357,13 +388,17 @@ std::vector<IsoFlatCentResult> DrawIsoEfficiencyCutoffQA(TFile* f12, TFile* f20,
   {
     int lo;
     int hi;
-    std::string suffix;
+    std::vector<std::string> suffixes;
     std::string tag;
   };
   const std::vector<CentBin> centBins = {
-      {0, 20, "_cent_0_20", "cent_0_20"},
-      {20, 50, "_cent_20_50", "cent_20_50"},
-      {50, 80, "_cent_50_80", "cent_50_80"},
+      {0, 10, {"_cent_0_10"}, "cent_0_10"},
+      {10, 20, {"_cent_10_20"}, "cent_10_20"},
+      {20, 30, {"_cent_20_30"}, "cent_20_30"},
+      {30, 40, {"_cent_30_40"}, "cent_30_40"},
+      {40, 50, {"_cent_40_50"}, "cent_40_50"},
+      {50, 60, {"_cent_50_60"}, "cent_50_60"},
+      {60, 80, {"_cent_60_80"}, "cent_60_80"},
   };
 
   std::vector<IsoFlatCentResult> flatResults;
@@ -382,11 +417,16 @@ std::vector<IsoFlatCentResult> DrawIsoEfficiencyCutoffQA(TFile* f12, TFile* f20,
     {
       const int lo = static_cast<int>(std::llround(ptEdges[ipt]));
       const int hi = static_cast<int>(std::llround(ptEdges[ipt + 1]));
-      const std::string histName =
-          "h_EisoReco_truthSigMatched_pT_" + std::to_string(lo) + "_" + std::to_string(hi) + cb.suffix;
+      std::vector<std::string> histNames;
+      histNames.reserve(cb.suffixes.size());
+      for (const std::string& suffix : cb.suffixes)
+      {
+        histNames.push_back("h_EisoReco_truthSigMatched_pT_" +
+                            std::to_string(lo) + "_" + std::to_string(hi) + suffix);
+      }
 
-      std::unique_ptr<TH1> h = BuildWeightedPairHistogram(
-          f12, f20, histName, "h_weightedIso_" + cb.tag + "_" + std::to_string(lo) + "_" + std::to_string(hi), w12, w20);
+      std::unique_ptr<TH1> h = BuildWeightedPairHistogramSum(
+          f12, f20, histNames, "h_weightedIso_" + cb.tag + "_" + std::to_string(lo) + "_" + std::to_string(hi), w12, w20);
       if (!h || h->Integral(1, h->GetNbinsX()) <= 0.0) continue;
 
       double c70 = 0.0, e70 = 0.0;
@@ -481,14 +521,31 @@ std::vector<IsoFlatCentResult> DrawIsoEfficiencyCutoffQA(TFile* f12, TFile* f20,
     if (flat.have80) f80.Draw("SAME");
     if (flat.have70) f70.Draw("SAME");
 
+    TLatex cutLabel;
+    cutLabel.SetTextFont(42);
+    cutLabel.SetTextAlign(31);
+    cutLabel.SetTextSize(0.030);
+    const double labelX = 34.45;
+    const double labelYOffset = 0.015 * (yHi - yLo);
+    auto drawCutValue = [&](bool have, double value, int color)
+    {
+      if (!have) return;
+      cutLabel.SetTextColor(color);
+      cutLabel.DrawLatex(labelX, value + labelYOffset, TString::Format("%.2f", value).Data());
+    };
+    drawCutValue(flat.have90, flat.flat90, kMagenta + 1);
+    drawCutValue(flat.have80, flat.flat80, kGreen + 2);
+    drawCutValue(flat.have70, flat.flat70, kBlue + 1);
+    cutLabel.SetTextColor(kBlack);
+
     TLegend leg(0.20, 0.16, 0.78, 0.24);
     leg.SetBorderSize(0);
     leg.SetFillStyle(0);
     leg.SetTextFont(42);
     leg.SetTextSize(0.030);
-    leg.AddEntry(&g70, flat.have70 ? TString::Format("70%% Efficiency, E_{T}^{iso} #sim %.2f", flat.flat70).Data() : "70% Efficiency", "ep");
-    leg.AddEntry(&g80, flat.have80 ? TString::Format("80%% Efficiency, E_{T}^{iso} #sim %.2f", flat.flat80).Data() : "80% Efficiency", "ep");
-    leg.AddEntry(&g90, flat.have90 ? TString::Format("90%% Efficiency, E_{T}^{iso} #sim %.2f", flat.flat90).Data() : "90% Efficiency", "ep");
+    leg.AddEntry(&g70, "70% Efficiency", "ep");
+    leg.AddEntry(&g80, "80% Efficiency", "ep");
+    leg.AddEntry(&g90, "90% Efficiency", "ep");
     leg.SetNColumns(3);
     leg.Draw();
 
@@ -656,15 +713,15 @@ void DrawIsoCentralityOverlay10To12QA(TFile* f12, TFile* f20, double w12, double
   {
     int lo;
     int hi;
-    std::string suffix;
+    std::vector<std::string> suffixes;
     std::string tag;
     int color;
   };
 
   const std::vector<CentBin> centBins = {
-      {0, 20, "_cent_0_20", "cent_0_20", kBlack},
-      {20, 50, "_cent_20_50", "cent_20_50", kBlue + 1},
-      {50, 80, "_cent_50_80", "cent_50_80", kOrange + 1},
+      {0, 20, {"_cent_0_10", "_cent_10_20"}, "cent_0_20", kBlack},
+      {20, 50, {"_cent_20_30", "_cent_30_40", "_cent_40_50"}, "cent_20_50", kBlue + 1},
+      {50, 80, {"_cent_50_60", "_cent_60_80"}, "cent_50_80", kOrange + 1},
   };
 
   std::vector<std::unique_ptr<TH1>> hOwned;
@@ -674,12 +731,19 @@ void DrawIsoCentralityOverlay10To12QA(TFile* f12, TFile* f20, double w12, double
 
   for (const auto& cb : centBins)
   {
-    const std::string histName = "h_Eiso_pT_10_12" + cb.suffix;
-    std::unique_ptr<TH1> h = BuildWeightedPairHistogram(
-        f12, f20, histName, "h_combinedIsoCentOverlay_10_12_" + cb.tag, w12, w20);
+    std::vector<std::string> histNames;
+    histNames.reserve(cb.suffixes.size());
+    for (const std::string& suffix : cb.suffixes)
+    {
+      histNames.push_back("h_Eiso_pT_10_12" + suffix);
+    }
+
+    std::unique_ptr<TH1> h = BuildWeightedPairHistogramSum(
+        f12, f20, histNames, "h_combinedIsoCentOverlay_10_12_" + cb.tag, w12, w20);
     if (!h || h->Integral(1, h->GetNbinsX()) <= 0.0)
     {
-      std::cerr << "[WARN] Missing or empty " << histName << " for iso centrality overlay" << std::endl;
+      std::cerr << "[WARN] Missing or empty 10-12 GeV isolation histograms for "
+                << cb.tag << " centrality overlay" << std::endl;
       continue;
     }
 
