@@ -202,12 +202,21 @@ void PrintFlowTable(const std::vector<Sample>& samples, const double targetRaw)
   const std::vector<std::pair<std::string, std::string>> flowHists = {
       {"truthIso truth pT", "h_ppStitchDiag_flow_truthIso_truthPt_noVtxW"},
       {"truthIso+G4 truth pT", "h_ppStitchDiag_flow_truthIsoG4_truthPt_noVtxW"},
-      {"recoMatched reco pT", "h_ppStitchDiag_flow_recoMatched_recoPt_noVtxW"},
+      {"raw cluster dR<0.05 truth pT", "h_ppStitchDiag_flow_rawClusterDR005_truthPt_noVtxW"},
+      {"raw cluster dR<0.10 truth pT", "h_ppStitchDiag_flow_rawClusterDR010_truthPt_noVtxW"},
+      {"raw PPG12 track truth pT", "h_ppStitchDiag_flow_rawPPG12Track_truthPt_noVtxW"},
+      {"raw PPG12 track fid truth pT", "h_ppStitchDiag_flow_rawPPG12TrackFid_truthPt_noVtxW"},
+      {"selected photon dR<0.05 truth pT", "h_ppStitchDiag_flow_selectedPhotonDR005_truthPt_noVtxW"},
+      {"selected photon dR<0.10 truth pT", "h_ppStitchDiag_flow_selectedPhotonDR010_truthPt_noVtxW"},
+      {"selected PPG12 track truth pT", "h_ppStitchDiag_flow_selectedPPG12Track_truthPt_noVtxW"},
+      {"selected PPG12 track fid truth pT", "h_ppStitchDiag_flow_selectedPPG12TrackFid_truthPt_noVtxW"},
+      {"legacy barcode+dR<0.05 truth pT", "h_ppStitchDiag_flow_legacyBarcodeDR005_truthPt_noVtxW"},
+      {"current PPG12 reco pT", "h_ppStitchDiag_flow_recoMatched_recoPt_noVtxW"},
       {"validEiso reco pT", "h_ppStitchDiag_flow_validEiso_recoPt_noVtxW"},
       {"hepmcParent kept validEiso reco pT", "h_ppStitchDiag_flow_stitch_hepmcParent_validEiso_recoPt_noVtxW"},
   };
 
-  std::cout << std::left << std::setw(34) << "counter"
+  std::cout << std::left << std::setw(39) << "counter"
             << std::setw(10) << "sample"
             << std::right << std::setw(12) << "total"
             << std::setw(12) << "14-16"
@@ -228,7 +237,7 @@ void PrintFlowTable(const std::vector<Sample>& samples, const double targetRaw)
       const double b2022 = BinContentByPtBinIndex(h, 6);
       const double sum1420 = b1416 + b1618 + b1820;
 
-      std::cout << std::left << std::setw(34) << fh.first
+      std::cout << std::left << std::setw(39) << fh.first
                 << std::setw(10) << s.label
                 << std::right << std::setw(12) << Fmt(Integral(h), 1)
                 << std::setw(12) << Fmt(b1416, 1)
@@ -246,12 +255,30 @@ void PrintFlowTable(const std::vector<Sample>& samples, const double targetRaw)
   const auto& pj20 = samples.at(2);
   TH1* pj10StitchKept = GetH1(pj10.dir, "h_ppPhotonStitch_hepmcParent_maxPhotonPt_kept");
   TH1* pj10TruthG4 = GetH1(pj10.dir, "h_ppStitchDiag_flow_truthIsoG4_truthPt_noVtxW");
+  TH1* pj10RawDR005 = GetH1(pj10.dir, "h_ppStitchDiag_flow_rawClusterDR005_truthPt_noVtxW");
+  TH1* pj10RawDR010 = GetH1(pj10.dir, "h_ppStitchDiag_flow_rawClusterDR010_truthPt_noVtxW");
+  TH1* pj10RawPPG12 = GetH1(pj10.dir, "h_ppStitchDiag_flow_rawPPG12Track_truthPt_noVtxW");
+  TH1* pj10RawPPG12Fid = GetH1(pj10.dir, "h_ppStitchDiag_flow_rawPPG12TrackFid_truthPt_noVtxW");
+  TH1* pj10SelDR005 = GetH1(pj10.dir, "h_ppStitchDiag_flow_selectedPhotonDR005_truthPt_noVtxW");
+  TH1* pj10SelDR010 = GetH1(pj10.dir, "h_ppStitchDiag_flow_selectedPhotonDR010_truthPt_noVtxW");
+  TH1* pj10SelPPG12 = GetH1(pj10.dir, "h_ppStitchDiag_flow_selectedPPG12Track_truthPt_noVtxW");
+  TH1* pj10SelPPG12Fid = GetH1(pj10.dir, "h_ppStitchDiag_flow_selectedPPG12TrackFid_truthPt_noVtxW");
+  TH1* pj10Legacy = GetH1(pj10.dir, "h_ppStitchDiag_flow_legacyBarcodeDR005_truthPt_noVtxW");
   TH1* pj10ValidReco = GetH1(pj10.dir, "h_ppStitchDiag_flow_validEiso_recoPt_noVtxW");
   TH1* pj10ParentKeptReco = GetH1(pj10.dir, "h_ppStitchDiag_flow_stitch_hepmcParent_validEiso_recoPt_noVtxW");
   TH1* pj20ParentKeptReco = GetH1(pj20.dir, "h_ppStitchDiag_flow_stitch_hepmcParent_validEiso_recoPt_noVtxW");
 
   const double pj10KeptEvents = Integral(pj10StitchKept);
   const double pj10TruthG4_14_22 = SumPtBinRange(pj10TruthG4, 3, 6);
+  const double pj10RawDR005_14_22 = SumPtBinRange(pj10RawDR005, 3, 6);
+  const double pj10RawDR010_14_22 = SumPtBinRange(pj10RawDR010, 3, 6);
+  const double pj10RawPPG12_14_22 = SumPtBinRange(pj10RawPPG12, 3, 6);
+  const double pj10RawPPG12Fid_14_22 = SumPtBinRange(pj10RawPPG12Fid, 3, 6);
+  const double pj10SelDR005_14_22 = SumPtBinRange(pj10SelDR005, 3, 6);
+  const double pj10SelDR010_14_22 = SumPtBinRange(pj10SelDR010, 3, 6);
+  const double pj10SelPPG12_14_22 = SumPtBinRange(pj10SelPPG12, 3, 6);
+  const double pj10SelPPG12Fid_14_22 = SumPtBinRange(pj10SelPPG12Fid, 3, 6);
+  const double pj10Legacy_14_22 = SumPtBinRange(pj10Legacy, 3, 6);
   const double pj10ValidReco_14_20 = SumPtBinRange(pj10ValidReco, 3, 5);
   const double pj10ParentReco_14_20 = SumPtBinRange(pj10ParentKeptReco, 3, 5);
   const double pj20ParentReco_14_20 = SumPtBinRange(pj20ParentKeptReco, 3, 5);
@@ -260,6 +287,15 @@ void PrintFlowTable(const std::vector<Sample>& samples, const double targetRaw)
   std::cout << "LOCALSTITCHTEST_TARGET_RAW=" << Fmt(targetRaw, 1) << "\n";
   std::cout << "LOCALSTITCHTEST_METRIC pj10_hepmcParent_kept_events=" << Fmt(pj10KeptEvents, 1) << "\n";
   std::cout << "LOCALSTITCHTEST_METRIC pj10_truthIsoG4_truthPt_14_22=" << Fmt(pj10TruthG4_14_22, 1) << "\n";
+  std::cout << "LOCALSTITCHTEST_METRIC pj10_rawClusterDR005_truthPt_14_22=" << Fmt(pj10RawDR005_14_22, 1) << "\n";
+  std::cout << "LOCALSTITCHTEST_METRIC pj10_rawClusterDR010_truthPt_14_22=" << Fmt(pj10RawDR010_14_22, 1) << "\n";
+  std::cout << "LOCALSTITCHTEST_METRIC pj10_rawPPG12Track_truthPt_14_22=" << Fmt(pj10RawPPG12_14_22, 1) << "\n";
+  std::cout << "LOCALSTITCHTEST_METRIC pj10_rawPPG12TrackFid_truthPt_14_22=" << Fmt(pj10RawPPG12Fid_14_22, 1) << "\n";
+  std::cout << "LOCALSTITCHTEST_METRIC pj10_selectedPhotonDR005_truthPt_14_22=" << Fmt(pj10SelDR005_14_22, 1) << "\n";
+  std::cout << "LOCALSTITCHTEST_METRIC pj10_selectedPhotonDR010_truthPt_14_22=" << Fmt(pj10SelDR010_14_22, 1) << "\n";
+  std::cout << "LOCALSTITCHTEST_METRIC pj10_selectedPPG12Track_truthPt_14_22=" << Fmt(pj10SelPPG12_14_22, 1) << "\n";
+  std::cout << "LOCALSTITCHTEST_METRIC pj10_selectedPPG12TrackFid_truthPt_14_22=" << Fmt(pj10SelPPG12Fid_14_22, 1) << "\n";
+  std::cout << "LOCALSTITCHTEST_METRIC pj10_legacyBarcodeDR005_truthPt_14_22=" << Fmt(pj10Legacy_14_22, 1) << "\n";
   std::cout << "LOCALSTITCHTEST_METRIC pj10_validEiso_recoPt_14_20=" << Fmt(pj10ValidReco_14_20, 1) << "\n";
   std::cout << "LOCALSTITCHTEST_METRIC pj10_hepmcParent_kept_validEiso_recoPt_14_20=" << Fmt(pj10ParentReco_14_20, 1) << "\n";
   std::cout << "LOCALSTITCHTEST_METRIC pj20_hepmcParent_kept_validEiso_recoPt_14_20=" << Fmt(pj20ParentReco_14_20, 1) << "\n";
@@ -267,13 +303,19 @@ void PrintFlowTable(const std::vector<Sample>& samples, const double targetRaw)
 
   const double minSignal = std::max(3.0, targetRaw / 5.0);
   const bool enoughStitchOwnership = (pj10KeptEvents >= targetRaw);
+  const bool enoughPj10Truth = (pj10TruthG4_14_22 >= targetRaw);
   const bool enoughTransitionReco = (totalParentReco_14_20 >= targetRaw);
-  const bool enoughPj10Stage = (pj10TruthG4_14_22 >= minSignal ||
-                               pj10ValidReco_14_20 >= minSignal ||
-                               pj10ParentReco_14_20 >= minSignal ||
-                               enoughStitchOwnership);
+  const bool decisivePj10Branch =
+      enoughPj10Truth &&
+      (pj10RawDR010_14_22 < minSignal ||
+       pj10RawPPG12Fid_14_22 < minSignal ||
+       pj10SelDR010_14_22 < minSignal ||
+       pj10SelPPG12Fid_14_22 < minSignal ||
+       pj10ValidReco_14_20 < minSignal ||
+       pj10ParentReco_14_20 < minSignal ||
+       enoughTransitionReco);
 
-  if (enoughTransitionReco && enoughPj10Stage)
+  if (decisivePj10Branch || (enoughTransitionReco && enoughStitchOwnership))
   {
     std::cout << "LOCALSTITCHTEST_STATUS=PASS\n";
   }
@@ -286,9 +328,25 @@ void PrintFlowTable(const std::vector<Sample>& samples, const double targetRaw)
   {
     std::cout << "LOCALSTITCHTEST_DIAGNOSIS=pj10 has stitch-owned events, but very few PPG12 truthIso+G4 signal photons in 14-22 GeV; investigate truth-signal definition vs stitch variable.\n";
   }
-  else if (pj10TruthG4_14_22 >= minSignal && pj10ValidReco_14_20 < minSignal)
+  else if (enoughPj10Truth && pj10RawDR010_14_22 < minSignal)
   {
-    std::cout << "LOCALSTITCHTEST_DIAGNOSIS=pj10 has PPG12 truthIso+G4 signal photons, but very few reco matched valid-Eiso photons; investigate truth-reco matching.\n";
+    std::cout << "LOCALSTITCHTEST_DIAGNOSIS=pj10 has PPG12 truthIso+G4 signal photons, but no nearby raw CEMC cluster; investigate sample content/input pairing or truth photon acceptance vs reco cluster formation.\n";
+  }
+  else if (enoughPj10Truth && pj10RawDR010_14_22 >= minSignal && pj10RawPPG12Fid_14_22 < minSignal)
+  {
+    std::cout << "LOCALSTITCHTEST_DIAGNOSIS=pj10 has nearby raw clusters, but few fiducial raw clusters whose max truth primary is the PPG12 signal photon; investigate cluster truth ownership, not stitching weights.\n";
+  }
+  else if (enoughPj10Truth && pj10RawPPG12Fid_14_22 >= minSignal && pj10SelDR010_14_22 < minSignal)
+  {
+    std::cout << "LOCALSTITCHTEST_DIAGNOSIS=pj10 raw PPG12 signal clusters exist, but PhotonClusterBuilder does not produce selected photons near them; investigate photon-builder cuts/preselection.\n";
+  }
+  else if (enoughPj10Truth && pj10SelDR010_14_22 >= minSignal && pj10SelPPG12Fid_14_22 < minSignal)
+  {
+    std::cout << "LOCALSTITCHTEST_DIAGNOSIS=pj10 selected photons exist near signal truth photons, but their PPG12 max-truth track ownership differs; compare PPG12 track match vs legacy barcode+dR.\n";
+  }
+  else if (enoughPj10Truth && pj10SelPPG12Fid_14_22 >= minSignal && pj10ValidReco_14_20 < minSignal)
+  {
+    std::cout << "LOCALSTITCHTEST_DIAGNOSIS=pj10 has selected PPG12 truth-track photons, but very few valid-Eiso reco photons in 14-20; investigate isolation calculation/bin migration.\n";
   }
   else if (pj10ValidReco_14_20 >= minSignal && pj10ParentReco_14_20 < minSignal)
   {

@@ -5733,6 +5733,165 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
                        "truth p_{T}^{#gamma} [GeV]");
     }
 
+    int targetTrackIdForDiag = -1;
+    for (const auto& kv : truthSignalByTrackIdForDiag)
+    {
+      if (kv.second.barcode == p->barcode())
+      {
+        targetTrackIdForDiag = kv.first;
+        break;
+      }
+    }
+
+    if (targetTrackIdForDiag >= 0)
+    {
+      const double truthEtaForDiag = p->momentum().pseudoRapidity();
+      const double truthPhiForDiag = TVector2::Phi_mpi_pi(p->momentum().phi());
+
+      bool rawNearestDR005 = false;
+      bool rawNearestDR010 = false;
+      bool rawPPG12TrackAny = false;
+      bool rawPPG12TrackFid = false;
+
+      if (m_clus && std::isfinite(truthEtaForDiag) && std::isfinite(truthPhiForDiag))
+      {
+        const CLHEP::Hep3Vector vertex(0.0, 0.0, m_vz);
+        const auto crange = m_clus->getClusters();
+        for (auto cit = crange.first; cit != crange.second; ++cit)
+        {
+          const RawCluster* rc = cit->second;
+          if (!rc) continue;
+
+          const CLHEP::Hep3Vector eVec = RawClusterUtility::GetEVec(*rc, vertex);
+          const double e = eVec.mag();
+          if (!std::isfinite(e) || e <= 0.0) continue;
+
+          TLorentzVector rawPhoton;
+          rawPhoton.SetPxPyPzE(eVec.x(), eVec.y(), eVec.z(), e);
+          const double rawPt = rawPhoton.Pt();
+          const double rawEta = rawPhoton.Eta();
+          const double rawPhi = TVector2::Phi_mpi_pi(rawPhoton.Phi());
+          if (!std::isfinite(rawPt) || !std::isfinite(rawEta) || !std::isfinite(rawPhi)) continue;
+
+          const double dr = dR(rawEta, rawPhi, truthEtaForDiag, truthPhiForDiag);
+          if (rawPt > 1.0 && dr < 0.05) rawNearestDR005 = true;
+          if (rawPt > 1.0 && dr < 0.10) rawNearestDR010 = true;
+
+          TruthSignalPhotonInfo matchedTruth;
+          int clusterTruthTrackId = -1;
+          float econtrib = std::numeric_limits<float>::lowest();
+          if (classifyRecoPhotonWithPPG12TruthTrack(rc, clustereval, truthSignalByTrackIdForDiag,
+                                                     matchedTruth, clusterTruthTrackId, econtrib) &&
+              clusterTruthTrackId == targetTrackIdForDiag)
+          {
+            rawPPG12TrackAny = true;
+            if (rawPt > 5.0 && std::fabs(rawEta) < 0.7) rawPPG12TrackFid = true;
+          }
+        }
+      }
+
+      if (rawNearestDR005)
+      {
+        fillPPStitchFlow("h_ppStitchDiag_flow_rawClusterDR005_truthPt_noVtxW",
+                         truthPtForDiag,
+                         "truth p_{T}^{#gamma} [GeV]");
+      }
+      if (rawNearestDR010)
+      {
+        fillPPStitchFlow("h_ppStitchDiag_flow_rawClusterDR010_truthPt_noVtxW",
+                         truthPtForDiag,
+                         "truth p_{T}^{#gamma} [GeV]");
+      }
+      if (rawPPG12TrackAny)
+      {
+        fillPPStitchFlow("h_ppStitchDiag_flow_rawPPG12Track_truthPt_noVtxW",
+                         truthPtForDiag,
+                         "truth p_{T}^{#gamma} [GeV]");
+      }
+      if (rawPPG12TrackFid)
+      {
+        fillPPStitchFlow("h_ppStitchDiag_flow_rawPPG12TrackFid_truthPt_noVtxW",
+                         truthPtForDiag,
+                         "truth p_{T}^{#gamma} [GeV]");
+      }
+
+      bool selectedNearestDR005 = false;
+      bool selectedNearestDR010 = false;
+      bool selectedPPG12TrackAny = false;
+      bool selectedPPG12TrackFid = false;
+      bool legacyBarcodeDR005 = false;
+
+      if (m_photons && std::isfinite(truthEtaForDiag) && std::isfinite(truthPhiForDiag))
+      {
+        const auto prange = m_photons->getClusters();
+        for (auto pit = prange.first; pit != prange.second; ++pit)
+        {
+          const auto* pho = dynamic_cast<const PhotonClusterv1*>(pit->second);
+          if (!pho) continue;
+
+          const RawCluster* rc = pho;
+          const double eta = pho->get_shower_shape_parameter("cluster_eta");
+          const double phi = TVector2::Phi_mpi_pi(pho->get_shower_shape_parameter("cluster_phi"));
+          const double pt = pho->get_shower_shape_parameter("cluster_pt");
+          if (!std::isfinite(eta) || !std::isfinite(phi) || !std::isfinite(pt)) continue;
+
+          const double dr = dR(eta, phi, truthEtaForDiag, truthPhiForDiag);
+          if (pt > 1.0 && dr < 0.05) selectedNearestDR005 = true;
+          if (pt > 1.0 && dr < 0.10) selectedNearestDR010 = true;
+
+          RawCluster* rc_nc = const_cast<RawCluster*>(rc);
+          PHG4Particle* primary = clustereval.max_truth_primary_particle_by_energy(rc_nc);
+          if (primary && primary->get_pid() == 22 &&
+              primary->get_barcode() == p->barcode() && dr < 0.05)
+          {
+            legacyBarcodeDR005 = true;
+          }
+
+          TruthSignalPhotonInfo matchedTruth;
+          int clusterTruthTrackId = -1;
+          float econtrib = std::numeric_limits<float>::lowest();
+          if (classifyRecoPhotonWithPPG12TruthTrack(rc, clustereval, truthSignalByTrackIdForDiag,
+                                                     matchedTruth, clusterTruthTrackId, econtrib) &&
+              clusterTruthTrackId == targetTrackIdForDiag)
+          {
+            selectedPPG12TrackAny = true;
+            if (pt > 5.0 && std::fabs(eta) < 0.7) selectedPPG12TrackFid = true;
+          }
+        }
+      }
+
+      if (selectedNearestDR005)
+      {
+        fillPPStitchFlow("h_ppStitchDiag_flow_selectedPhotonDR005_truthPt_noVtxW",
+                         truthPtForDiag,
+                         "truth p_{T}^{#gamma} [GeV]");
+      }
+      if (selectedNearestDR010)
+      {
+        fillPPStitchFlow("h_ppStitchDiag_flow_selectedPhotonDR010_truthPt_noVtxW",
+                         truthPtForDiag,
+                         "truth p_{T}^{#gamma} [GeV]");
+      }
+      if (selectedPPG12TrackAny)
+      {
+        fillPPStitchFlow("h_ppStitchDiag_flow_selectedPPG12Track_truthPt_noVtxW",
+                         truthPtForDiag,
+                         "truth p_{T}^{#gamma} [GeV]");
+      }
+      if (selectedPPG12TrackFid)
+      {
+        fillPPStitchFlow("h_ppStitchDiag_flow_selectedPPG12TrackFid_truthPt_noVtxW",
+                         truthPtForDiag,
+                         "truth p_{T}^{#gamma} [GeV]");
+      }
+      if (legacyBarcodeDR005)
+      {
+        fillPPStitchFlow("h_ppStitchDiag_flow_legacyBarcodeDR005_truthPt_noVtxW",
+                         truthPtForDiag,
+                         "truth p_{T}^{#gamma} [GeV]");
+      }
+    }
+
     const RawCluster* recoMatch = nullptr;
     double rPt = 0.0, rEta = 0.0, rPhi = 0.0, drBest = 1e9;
     float  eBest = -1.0f;

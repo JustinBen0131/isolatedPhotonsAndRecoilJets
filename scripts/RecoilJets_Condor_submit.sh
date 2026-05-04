@@ -1841,7 +1841,7 @@ case "$ACTION" in
     say "  YAML override: ${yaml_override}"
     say "  events      : ${nevt} per input file line"
     say "  adaptive    : STARTFILES=${start_files} MAXFILES=${max_files} TARGET=${target_raw} raw transition-bin entries"
-    say "  groupSize   : ${gs_local} (not used; localSTITCHtest builds explicit first-N-file lists)"
+    say "  groupSize   : ${gs_local} (not used; localSTITCHtest builds explicit one-file lists and hadded accumulations)"
     say "  samples     : ${samples[*]}"
     say "  tag         : ${SIM_CFG_TAG}"
     say "  dest base   : ${DEST_BASE}"
@@ -1855,25 +1855,32 @@ case "$ACTION" in
     final_diagnostic_log=""
     status="NEED_MORE_STATS"
 
-    for (( nfiles = start_files; nfiles <= max_files; ++nfiles )); do
-      nevt_this=$(( nevt * nfiles ))
-      say "====================================================================="
-      say "localSTITCHtest adaptive pass: first ${nfiles} file line(s) per sample, ${nevt_this} events per sample"
+    declare -A stitch_manifests
+    declare -A stitch_accumulated
+    for samp in "${samples[@]}"; do
+      mkdir -p "${DEST_BASE}/${samp}"
+      stitch_manifests["$samp"]="${DEST_BASE}/${samp}/LOCALSTITCHTEST_accum_manifest.txt"
+      : > "${stitch_manifests[$samp]}"
+    done
 
-      stitch_out5=""
-      stitch_out10=""
-      stitch_out20=""
+    need_cmd hadd
+
+    for (( file_idx = 1; file_idx <= max_files; ++file_idx )); do
+      say "====================================================================="
+      say "localSTITCHtest adaptive pass: adding file line ${file_idx}/${max_files}, ${nevt} events for this new file per sample"
+
       for samp in "${samples[@]}"; do
         SIM_SAMPLE="$samp"
         GROUP_SIZE="$gs_local"
 
         sim_init
         nclean="$(wc -l < "$SIM_CLEAN_LIST" | tr -d ' ')"
-        (( nclean >= nfiles )) || { err "Sample ${SIM_SAMPLE} has only ${nclean} clean entries; cannot take ${nfiles}"; exit 30; }
-        say "  [localSTITCHtest] sample=${SIM_SAMPLE} (${nclean} entries) — extracting first ${nfiles} line(s)"
+        (( nclean >= file_idx )) || { err "Sample ${SIM_SAMPLE} has only ${nclean} clean entries; cannot take file line ${file_idx}"; exit 30; }
+        say "  [localSTITCHtest] sample=${SIM_SAMPLE} (${nclean} entries) — extracting only file line ${file_idx}"
 
-        tmp="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_LOCALSTITCHTEST_first${nfiles}files_grp001.list"
-        head -n "$nfiles" "$SIM_CLEAN_LIST" > "$tmp"
+        printf -v file_tag "%03d" "$file_idx"
+        tmp="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_LOCALSTITCHTEST_file${file_tag}_grp001.list"
+        sed -n "${file_idx}p" "$SIM_CLEAN_LIST" > "$tmp"
         [[ -s "$tmp" ]] || { err "No sim entries (sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG})"; exit 30; }
 
         first_line="$(head -n 1 "$tmp" 2>/dev/null || true)"
@@ -1885,35 +1892,53 @@ case "$ACTION" in
         say "----------------------------------------"
         say "SIM localSTITCHtest: tag=${SIM_CFG_TAG}  sample=${SIM_SAMPLE}"
         say "  jet_pt_min=${pt}  back_to_back_pi_fraction=${frac}  vz_cut_cm=${vz}  coneR=${cone}  iso=${iso_tags[$iso_idx]}  uepipe=${uepipe}"
-        say "  first-N list : ${tmp}"
+        say "  one-file list: ${tmp}"
         say "  first line   : ${first_line}"
         say "  last line    : ${last_line}"
         say "  out ROOT     : ${out_root_preview}"
         say "  wrapper env  : RJ_VERBOSITY=${RJV} RJ_CONFIG_YAML=${yaml_override}"
-        say "  wrapper args : sample=${SIM_SAMPLE} dataset=${DATASET} mode=LOCAL nevents=${nevt_this} chunk=1 dest=${DEST_BASE}"
-        find "${DEST_BASE}/${SIM_SAMPLE}" -type f -name "*LOCALSTITCHTEST*.root" -delete 2>/dev/null || true
+        say "  wrapper args : sample=${SIM_SAMPLE} dataset=${DATASET} mode=LOCAL nevents=${nevt} chunk=1 dest=${DEST_BASE}"
+        rm -f "$out_root_preview"
         say "Invoking wrapper locally..."
 
-        RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt_this" 1 NONE "$DEST_BASE"
+        RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
         [[ -s "$out_root_preview" ]] || { err "Expected output ROOT was not produced: $out_root_preview"; exit 80; }
 
-        case "$SIM_SAMPLE" in
-          run28_photonjet5)  stitch_out5="$out_root_preview" ;;
-          run28_photonjet10) stitch_out10="$out_root_preview" ;;
-          run28_photonjet20) stitch_out20="$out_root_preview" ;;
-        esac
+        printf '%s\n' "$out_root_preview" >> "${stitch_manifests[$SIM_SAMPLE]}"
         echo
       done
 
+      for samp in "${samples[@]}"; do
+        manifest="${stitch_manifests[$samp]}"
+        [[ -s "$manifest" ]] || { err "Internal error: empty localSTITCHtest manifest for ${samp}: ${manifest}"; exit 81; }
+
+        accum="${DEST_BASE}/${samp}/RecoilJets_${DATASET}_${TAG}_${samp}_${SIM_CFG_TAG}_LOCALSTITCHTEST_accum_first${file_idx}files.root"
+        say "Accumulating ${samp} first ${file_idx} file line(s):"
+        say "  manifest: ${manifest}"
+        say "  output  : ${accum}"
+        hadd -f "$accum" $(cat "$manifest")
+        [[ -s "$accum" ]] || { err "hadd did not produce accumulated output: ${accum}"; exit 83; }
+        stitch_accumulated["$samp"]="$accum"
+      done
+
+      if (( file_idx < start_files )); then
+        say "Skipping diagnostic summary until STARTFILES=${start_files}; accumulated ${file_idx} so far."
+        continue
+      fi
+
+      stitch_out5="${stitch_accumulated[run28_photonjet5]}"
+      stitch_out10="${stitch_accumulated[run28_photonjet10]}"
+      stitch_out20="${stitch_accumulated[run28_photonjet20]}"
+
       [[ -s "$stitch_out5" && -s "$stitch_out10" && -s "$stitch_out20" ]] || {
-        err "Missing one or more localSTITCHtest outputs:"
+        err "Missing one or more accumulated localSTITCHtest outputs:"
         err "  photonjet5 : ${stitch_out5:-missing}"
         err "  photonjet10: ${stitch_out10:-missing}"
         err "  photonjet20: ${stitch_out20:-missing}"
         exit 81
       }
 
-      diagnostic_log="${DEST_BASE}/localSTITCHtest_diagnostics_${nevt}perfile_${nfiles}files.log"
+      diagnostic_log="${DEST_BASE}/localSTITCHtest_diagnostics_${nevt}perfile_accum_first${file_idx}files.log"
       root_arg="${diagnostic_macro}(\"${stitch_out5}\",\"${stitch_out10}\",\"${stitch_out20}\",${target_raw})"
       final_root_arg="$root_arg"
       final_diagnostic_log="$diagnostic_log"
@@ -1932,13 +1957,13 @@ case "$ACTION" in
 
       if grep -q '^LOCALSTITCHTEST_STATUS=PASS$' "$diagnostic_log"; then
         status="PASS"
-        say "localSTITCHtest reached diagnostic target with ${nfiles} file line(s) per sample."
+        say "localSTITCHtest reached diagnostic target with accumulated first ${file_idx} file line(s) per sample."
         break
       fi
 
       status="NEED_MORE_STATS"
-      if (( nfiles < max_files )); then
-        warn "Diagnostic target not reached with ${nfiles} file line(s); trying $((nfiles + 1)) file line(s)."
+      if (( file_idx < max_files )); then
+        warn "Diagnostic target not reached with accumulated first ${file_idx} file line(s); adding file line $((file_idx + 1))."
       fi
     done
 
