@@ -22,6 +22,7 @@
 //–––– Standard Fun4All ––––––––––––––––––––––––––––––––––––––
 #include <fun4all/SubsysReco.h>
 #include <fun4all/Fun4AllServer.h>
+#include <fun4all/Fun4AllReturnCodes.h>
 #include <fun4all/Fun4AllDstInputManager.h>
 #include <fun4all/Fun4AllNoSyncDstInputManager.h>
 #include <fun4all/Fun4AllUtils.h>
@@ -32,7 +33,11 @@
 #include <jetbase/JetContainer.h>
 #include <globalvertex/GlobalVertexMap.h>
 #include <globalvertex/GlobalVertex.h>
+#include <globalvertex/MbdVertexMap.h>
+#include <globalvertex/MbdVertex.h>
 #include <mbd/MbdPmtContainer.h>
+#include <ffarawobjects/Gl1Packet.h>
+#include <ffaobjects/EventHeader.h>
 #include <caloreco/CaloTowerStatus.h>
 #include <caloreco/CaloWaveformProcessing.h>
 #include <caloreco/CaloTowerBuilder.h>
@@ -44,6 +49,8 @@
 #include <clusteriso/ClusterIso.h>
 #include <calotrigger/TriggerRunInfoReco.h>
 #include <calobase/RawTowerGeomContainer_Cylinderv1.h>
+#include <calobase/RawClusterContainer.h>
+#include <calobase/RawCluster.h>
 #include <caloreco/CaloGeomMapping.h>
 #include <caloreco/RawClusterPositionCorrection.h>
 #include <caloreco/RawClusterBuilderTemplate.h>
@@ -98,6 +105,13 @@
 #include <execinfo.h>  // backtrace
 #include <unistd.h>    // STDERR_FILENO
 #include <cstdio>      // snprintf
+#include <limits>
+#include <TDirectory.h>
+#include <TFile.h>
+#include <TH1.h>
+#include <TH1F.h>
+#include <TNamed.h>
+#include <TObject.h>
 #include "/sphenix/u/patsfan753/scratch/thesisAnalysis/macros/Calo_Calib.C"
 
 // Load local CaloReco/CaloIO first so PhotonClusterBuilder and CaloReco stay on your thesisAnalysis install.
@@ -164,6 +178,219 @@ namespace detail
     return new FastJetAlgoSub(o);
   }
 }
+
+#if defined(RJ_UNIFIED_ANALYSIS_AUAU)
+class ScaledTriggerStudyReco : public SubsysReco
+{
+ public:
+  explicit ScaledTriggerStudyReco(const std::string& outFile)
+    : SubsysReco("ScaledTriggerStudyReco")
+    , m_outFile(outFile)
+  {
+    if (const char* env = std::getenv("RJ_SCALED_TRIGGER_VZ_MAX_CM"))
+    {
+      const double v = std::atof(env);
+      if (std::isfinite(v) && v > 0.0) m_vzMaxCm = v;
+    }
+    if (const char* env = std::getenv("RJ_SCALED_TRIGGER_RUNLIST"))
+    {
+      const std::string s = detail::trim(std::string(env));
+      if (!s.empty()) m_runListPath = s;
+    }
+  }
+
+  int Init(PHCompositeNode*) override
+  {
+    loadRunList();
+    if (m_selectedRuns.empty())
+    {
+      std::cerr << "[ScaledTriggerStudyReco] empty selected-run list: "
+                << m_runListPath << std::endl;
+      return Fun4AllReturnCodes::ABORTRUN;
+    }
+
+    m_out = TFile::Open(m_outFile.c_str(), "RECREATE");
+    if (!m_out || m_out->IsZombie())
+    {
+      std::cerr << "[ScaledTriggerStudyReco] could not open output file: "
+                << m_outFile << std::endl;
+      return Fun4AllReturnCodes::ABORTRUN;
+    }
+
+    m_hBase = bookHist("MBD_NS_geq_2_vtx_lt_150",
+                       "h_maxEnergyClus_NewTriggerFilling_perRunCorrected_MBD_NS_geq_2_vtx_lt_150");
+    m_hPho10 = bookHist("Photon_10",
+                        "h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_10");
+    m_hPho12 = bookHist("Photon_12",
+                        "h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_12");
+
+    if (!m_hBase || !m_hPho10 || !m_hPho12)
+    {
+      std::cerr << "[ScaledTriggerStudyReco] failed to book required histograms" << std::endl;
+      return Fun4AllReturnCodes::ABORTRUN;
+    }
+
+    return Fun4AllReturnCodes::EVENT_OK;
+  }
+
+  int process_event(PHCompositeNode* topNode) override
+  {
+    if (!topNode) return Fun4AllReturnCodes::ABORTEVENT;
+
+    const uint64_t runNumber = currentRun(topNode);
+    if (!runNumber) return Fun4AllReturnCodes::EVENT_OK;
+    if (!std::binary_search(m_selectedRuns.begin(), m_selectedRuns.end(), runNumber))
+      return Fun4AllReturnCodes::EVENT_OK;
+
+    const double vz = recoVz(topNode);
+    if (!std::isfinite(vz) || std::fabs(vz) >= m_vzMaxCm)
+      return Fun4AllReturnCodes::EVENT_OK;
+
+    Gl1Packet* gl1 = findNode::getClass<Gl1Packet>(topNode, "GL1Packet");
+    if (!gl1) gl1 = findNode::getClass<Gl1Packet>(topNode, "14001");
+    if (!gl1) return Fun4AllReturnCodes::EVENT_OK;
+
+    const uint64_t scaledVector = gl1->lValue(0, "ScaledVector");
+    const float maxEnergy = maxClusterEnergy(topNode);
+
+    if (bitIsSet(scaledVector, 14)) m_hBase->Fill(maxEnergy);
+    if (bitIsSet(scaledVector, 22)) m_hPho10->Fill(maxEnergy);
+    if (bitIsSet(scaledVector, 23)) m_hPho12->Fill(maxEnergy);
+
+    ++m_eventsAccepted;
+    return Fun4AllReturnCodes::EVENT_OK;
+  }
+
+  int End(PHCompositeNode*) override
+  {
+    if (!m_out || !m_out->IsOpen()) return Fun4AllReturnCodes::EVENT_OK;
+
+    writeHist("MBD_NS_geq_2_vtx_lt_150", m_hBase);
+    writeHist("Photon_10", m_hPho10);
+    writeHist("Photon_12", m_hPho12);
+
+    m_out->cd();
+    TNamed mode("scaledTriggerStudyOnly", "1");
+    mode.Write("scaledTriggerStudyOnly", TObject::kOverwrite);
+    TNamed runList("scaledTriggerStudyRunList", m_runListPath.c_str());
+    runList.Write("scaledTriggerStudyRunList", TObject::kOverwrite);
+    TNamed vzCut("scaledTriggerStudyVzMaxCm", std::to_string(m_vzMaxCm).c_str());
+    vzCut.Write("scaledTriggerStudyVzMaxCm", TObject::kOverwrite);
+    TNamed accepted("scaledTriggerStudyEventsAccepted", std::to_string(m_eventsAccepted).c_str());
+    accepted.Write("scaledTriggerStudyEventsAccepted", TObject::kOverwrite);
+
+    m_out->Write("", TObject::kOverwrite);
+    m_out->Close();
+    delete m_out;
+    m_out = nullptr;
+    return Fun4AllReturnCodes::EVENT_OK;
+  }
+
+ private:
+  static bool bitIsSet(uint64_t vec, int bit)
+  {
+    return bit >= 0 && bit < 64 && (vec & (1ULL << bit));
+  }
+
+  void loadRunList()
+  {
+    std::ifstream in(m_runListPath);
+    uint64_t run = 0;
+    while (in >> run)
+    {
+      if (run > 0) m_selectedRuns.push_back(run);
+    }
+    std::sort(m_selectedRuns.begin(), m_selectedRuns.end());
+    m_selectedRuns.erase(std::unique(m_selectedRuns.begin(), m_selectedRuns.end()),
+                         m_selectedRuns.end());
+  }
+
+  TH1F* bookHist(const std::string& dirName, const std::string& histName)
+  {
+    if (!m_out) return nullptr;
+    TDirectory* dir = m_out->GetDirectory(dirName.c_str());
+    if (!dir) dir = m_out->mkdir(dirName.c_str());
+    if (!dir) return nullptr;
+    dir->cd();
+    TH1F* h = new TH1F(histName.c_str(), "Max Cluster Energy; Cluster Energy [GeV]", 40, 0, 20);
+    h->SetDirectory(dir);
+    m_out->cd();
+    return h;
+  }
+
+  void writeHist(const std::string& dirName, TH1* h)
+  {
+    if (!m_out || !h) return;
+    TDirectory* dir = m_out->GetDirectory(dirName.c_str());
+    if (!dir) dir = m_out->mkdir(dirName.c_str());
+    if (!dir) return;
+    dir->cd();
+    h->Write("", TObject::kOverwrite);
+    m_out->cd();
+  }
+
+  static uint64_t currentRun(PHCompositeNode* topNode)
+  {
+    if (auto* evt = findNode::getClass<EventHeader>(topNode, "EventHeader"))
+    {
+      const int run = evt->get_RunNumber();
+      if (run > 0) return static_cast<uint64_t>(run);
+    }
+    return recoConsts::instance()->get_uint64Flag("TIMESTAMP", 0);
+  }
+
+  static double recoVz(PHCompositeNode* topNode)
+  {
+    if (auto* mbdMap = findNode::getClass<MbdVertexMap>(topNode, "MbdVertexMap"))
+    {
+      if (!mbdMap->empty())
+      {
+        MbdVertex* v = mbdMap->begin()->second;
+        if (v && std::isfinite(v->get_z())) return v->get_z();
+      }
+    }
+    if (auto* gvMap = findNode::getClass<GlobalVertexMap>(topNode, "GlobalVertexMap"))
+    {
+      if (!gvMap->empty())
+      {
+        GlobalVertex* v = gvMap->begin()->second;
+        if (v && std::isfinite(v->get_z())) return v->get_z();
+      }
+    }
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+
+  static float maxClusterEnergy(PHCompositeNode* topNode)
+  {
+    float maxEnergy = 0.0f;
+    RawClusterContainer* clusters = findNode::getClass<RawClusterContainer>(topNode, "CLUSTERINFO_CEMC");
+    if (!clusters) return maxEnergy;
+
+    const auto range = clusters->getClusters();
+    for (auto it = range.first; it != range.second; ++it)
+    {
+      const RawCluster* cl = it->second;
+      if (!cl) continue;
+      const float e = cl->get_energy();
+      if (!std::isfinite(e) || e < 1.0f) continue;
+      if (e > maxEnergy) maxEnergy = e;
+    }
+    return maxEnergy;
+  }
+
+  std::string m_outFile;
+  std::string m_runListPath =
+    "/sphenix/u/patsfan753/scratch/thesisAnalysis/dst_lists_auau/"
+    "scaledEffRuns_MBD_NS_geq_2_vtx_lt_150__Pho10_12.list";
+  std::vector<uint64_t> m_selectedRuns;
+  double m_vzMaxCm = 30.0;
+  uint64_t m_eventsAccepted = 0;
+  TFile* m_out = nullptr;
+  TH1F* m_hBase = nullptr;
+  TH1F* m_hPho10 = nullptr;
+  TH1F* m_hPho12 = nullptr;
+};
+#endif
 
 namespace yamlcfg
 {
@@ -350,6 +577,9 @@ namespace yamlcfg
         std::vector<std::string> auau_npb_features;
 
         std::string auau_tight_bdt_model_file = "";
+        std::string auau_tight_bdt_centINDcontrol_model_file = "";
+        std::string auau_tight_bdt_centAsFeat_model_file = "";
+        std::vector<std::string> auau_tight_bdt_centDep_model_files;
         double auau_tight_bdt_min_intercept = 0.0;
         double auau_tight_bdt_min_slope = 0.0;
         double auau_tight_bdt_max = 1.0;
@@ -358,6 +588,9 @@ namespace yamlcfg
         double auau_nontight_bdt_max_intercept = 1.0;
         double auau_nontight_bdt_max_slope = 0.0;
         std::vector<std::string> auau_tight_bdt_features;
+        std::vector<std::string> auau_tight_bdt_centINDcontrol_features;
+        std::vector<std::string> auau_tight_bdt_centAsFeat_features;
+        std::vector<std::string> auau_tight_bdt_centDep_features;
 
         bool auau_bdt_training_tree = false;
         long long auau_bdt_training_tree_max_entries = 0;
@@ -405,6 +638,35 @@ namespace yamlcfg
     static bool PreselectionUsesAuAuNPB(const std::string& mode)
     {
         return mode == "variantE";
+    }
+
+    static std::string NormalizeTightMode(std::string mode)
+    {
+        mode = detail::trim(mode);
+        if (mode == "" || mode == "Reference") return "reference";
+        if (mode == "VariantA" || mode == "varianta") return "variantA";
+        if (mode == "VariantB" || mode == "variantb") return "variantB";
+        if (mode == "centindcontrol" || mode == "CentINDControl" || mode == "centINDControl") return "centINDcontrol";
+        if (mode == "centasfeat" || mode == "CentAsFeat" || mode == "centAsFeature") return "centAsFeat";
+        if (mode == "centdepbdts" || mode == "CentDepBDTs" || mode == "centDepBDT") return "centDepBDTs";
+        return mode;
+    }
+
+    static bool IsTightMode(const std::string& mode)
+    {
+        return mode == "reference" || mode == "variantA" || mode == "variantB" ||
+               mode == "centINDcontrol" || mode == "centAsFeat" || mode == "centDepBDTs";
+    }
+
+    static bool IsAuAuTightBDTMode(const std::string& mode)
+    {
+        return mode == "variantB" || mode == "centINDcontrol" ||
+               mode == "centAsFeat" || mode == "centDepBDTs";
+    }
+
+    static bool IsAutoComplementTightMode(const std::string& mode)
+    {
+        return mode == "centINDcontrol" || mode == "centAsFeat" || mode == "centDepBDTs";
     }
     
     inline std::string DefaultYAMLPath()
@@ -784,15 +1046,11 @@ namespace yamlcfg
                 std::vector<std::string> vals;
                 ParseInlineListStrings(rhs, vals);
                 if (!vals.empty()) rhs = vals.front();
-                rhs = detail::trim(rhs);
-                if (rhs == "Reference") rhs = "reference";
-                if (rhs == "VariantA") rhs = "variantA";
-                if (rhs == "VariantB") rhs = "variantB";
-                if (rhs == "variantb") rhs = "variantB";
-                if (rhs == "reference" || rhs == "variantA" || rhs == "variantB")
+                rhs = NormalizeTightMode(rhs);
+                if (IsTightMode(rhs))
                     cfg.tight = rhs;
                 else
-                    warn_parse("tight", rhs, "expected reference|variantA|variantB (or inline list [..])");
+                    warn_parse("tight", rhs, "expected reference|variantA|variantB|centINDcontrol|centAsFeat|centDepBDTs (or inline list [..])");
             }
             else if (StartsWithKey(line, "nonTight"))
             {
@@ -800,15 +1058,13 @@ namespace yamlcfg
                 std::vector<std::string> vals;
                 ParseInlineListStrings(rhs, vals);
                 if (!vals.empty()) rhs = vals.front();
-                rhs = detail::trim(rhs);
-                if (rhs == "Reference") rhs = "reference";
-                if (rhs == "VariantA") rhs = "variantA";
-                if (rhs == "VariantB") rhs = "variantB";
-                if (rhs == "VariantC") rhs = "variantC";
-                if (rhs == "reference" || rhs == "variantA" || rhs == "variantB" || rhs == "variantC")
+                rhs = NormalizeTightMode(rhs);
+                if (rhs == "VariantC" || rhs == "variantc") rhs = "variantC";
+                if (rhs == "reference" || rhs == "variantA" || rhs == "variantB" || rhs == "variantC" ||
+                    rhs == "centINDcontrol" || rhs == "centAsFeat" || rhs == "centDepBDTs")
                     cfg.nonTight = rhs;
                 else
-                    warn_parse("nonTight", rhs, "expected reference|variantA|variantB|variantC (or inline list [..])");
+                    warn_parse("nonTight", rhs, "expected reference|variantA|variantB|variantC|centINDcontrol|centAsFeat|centDepBDTs (or inline list [..])");
             }
             else if (StartsWithKey(line, "npb_model_file"))
             {
@@ -877,6 +1133,21 @@ namespace yamlcfg
             {
                 cfg.auau_tight_bdt_model_file = detail::trim(AfterColon(line));
             }
+            else if (StartsWithKey(line, "auau_tight_bdt_centINDcontrol_model_file"))
+            {
+                cfg.auau_tight_bdt_centINDcontrol_model_file = detail::trim(AfterColon(line));
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_centAsFeat_model_file"))
+            {
+                cfg.auau_tight_bdt_centAsFeat_model_file = detail::trim(AfterColon(line));
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_centDep_model_files"))
+            {
+                const std::string rhs = AfterColon(line);
+                ParseInlineListStrings(rhs, cfg.auau_tight_bdt_centDep_model_files);
+                if (cfg.auau_tight_bdt_centDep_model_files.empty())
+                    warn_parse("auau_tight_bdt_centDep_model_files", rhs, "expected an inline list of model ROOT files");
+            }
             else if (StartsWithKey(line, "auau_tight_bdt_min_intercept"))
             {
                 const std::string rhs = AfterColon(line);
@@ -925,6 +1196,27 @@ namespace yamlcfg
                 ParseInlineListStrings(rhs, cfg.auau_tight_bdt_features);
                 if (cfg.auau_tight_bdt_features.empty())
                     warn_parse("auau_tight_bdt_features", rhs, "expected an inline list of feature names");
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_centINDcontrol_features"))
+            {
+                const std::string rhs = AfterColon(line);
+                ParseInlineListStrings(rhs, cfg.auau_tight_bdt_centINDcontrol_features);
+                if (cfg.auau_tight_bdt_centINDcontrol_features.empty())
+                    warn_parse("auau_tight_bdt_centINDcontrol_features", rhs, "expected an inline list of feature names");
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_centAsFeat_features"))
+            {
+                const std::string rhs = AfterColon(line);
+                ParseInlineListStrings(rhs, cfg.auau_tight_bdt_centAsFeat_features);
+                if (cfg.auau_tight_bdt_centAsFeat_features.empty())
+                    warn_parse("auau_tight_bdt_centAsFeat_features", rhs, "expected an inline list of feature names");
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_centDep_features"))
+            {
+                const std::string rhs = AfterColon(line);
+                ParseInlineListStrings(rhs, cfg.auau_tight_bdt_centDep_features);
+                if (cfg.auau_tight_bdt_centDep_features.empty())
+                    warn_parse("auau_tight_bdt_centDep_features", rhs, "expected an inline list of feature names");
             }
             else if (StartsWithKey(line, "auau_bdt_training_tree"))
             {
@@ -1908,26 +2200,38 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     }
     if (const char* env = std::getenv("RJ_TIGHT_VARIANT"))
     {
-        std::string s = detail::trim(std::string(env));
+        std::string s = yamlcfg::NormalizeTightMode(std::string(env));
         if (!s.empty()) cfg.tight = s;
     }
     if (const char* env = std::getenv("RJ_NONTIGHT_VARIANT"))
     {
-        std::string s = detail::trim(std::string(env));
+        std::string s = yamlcfg::NormalizeTightMode(std::string(env));
         if (!s.empty()) cfg.nonTight = s;
     }
     if (!yamlcfg::IsPreselectionMode(cfg.preselection))
     {
         detail::bail("preselection must be 'reference', 'variantA', 'variantB', 'variantC', 'variantD', or 'variantE'.");
     }
-    if (cfg.tight != "reference" && cfg.tight != "variantA" && cfg.tight != "variantB")
+    if (!yamlcfg::IsTightMode(cfg.tight))
     {
-        detail::bail("tight must be 'reference', 'variantA', or 'variantB'.");
+        detail::bail("tight must be 'reference', 'variantA', 'variantB', 'centINDcontrol', 'centAsFeat', or 'centDepBDTs'.");
     }
     if (cfg.nonTight != "reference" && cfg.nonTight != "variantA" &&
-        cfg.nonTight != "variantB" && cfg.nonTight != "variantC")
+        cfg.nonTight != "variantB" && cfg.nonTight != "variantC" &&
+        cfg.nonTight != "centINDcontrol" && cfg.nonTight != "centAsFeat" &&
+        cfg.nonTight != "centDepBDTs")
     {
-        detail::bail("nonTight must be 'reference', 'variantA', 'variantB', or 'variantC'.");
+        detail::bail("nonTight must be 'reference', 'variantA', 'variantB', 'variantC', 'centINDcontrol', 'centAsFeat', or 'centDepBDTs'.");
+    }
+    if (yamlcfg::IsAutoComplementTightMode(cfg.tight) && cfg.nonTight != cfg.tight)
+    {
+        if (vlevel > 0)
+        {
+            std::cout << "[CFG] tight=" << cfg.tight
+                      << " uses automatic non-tight complement; overriding nonTight="
+                      << cfg.nonTight << " -> " << cfg.tight << "\n";
+        }
+        cfg.nonTight = cfg.tight;
     }
     
     const std::vector<std::string> activeJetRKeys = yamlcfg::LoadJetRKeys(vlevel);
@@ -2254,6 +2558,17 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         << (buildTruthJetsFromParticles ? "BUILD" : "")
         << "\n";
     }
+
+#if defined(RJ_UNIFIED_ANALYSIS_AUAU)
+    const std::string scaledTriggerOnlyEnv = env_lower("RJ_SCALED_TRIGGER_STUDY_ONLY");
+    const bool scaledTriggerStudyOnly =
+        (scaledTriggerOnlyEnv == "1" || scaledTriggerOnlyEnv == "true" ||
+         scaledTriggerOnlyEnv == "yes" || scaledTriggerOnlyEnv == "on");
+    if (scaledTriggerStudyOnly && (!isAuAuRequested || isSim))
+    {
+        detail::bail("RJ_SCALED_TRIGGER_STUDY_ONLY=1 is valid only for AuAu data.");
+    }
+#endif
     
     // --------------------------------------------------------------------
     // 3.  Geometry + status + calibration + clustering
@@ -2435,6 +2750,34 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         << " | isPPrun25=" << (isPPrun25 ? "true" : "false")
         << std::endl;
     }
+
+#if defined(RJ_UNIFIED_ANALYSIS_AUAU)
+    if (scaledTriggerStudyOnly)
+    {
+        if (vlevel > 0)
+        {
+            std::cout << "[FLOW] scaled-trigger study only: registering lightweight max-cluster module\n"
+                      << "       keeps geometry, calo calibration/clustering, MBD reco, and global vertex reco\n"
+                      << "       skips centrality, photon selection, UE subtraction, jet reco, recoil analysis, and trees\n";
+        }
+
+        se->registerSubsystem(new ScaledTriggerStudyReco(outRoot));
+
+        try
+        {
+            if (vlevel > 0) std::cout << "[INFO] Starting scaled-trigger-only event loop ..." << std::endl;
+            se->run(nEvents);
+            if (vlevel > 0) std::cout << "[INFO] Calling se->End() ..." << std::endl;
+            se->End();
+            if (vlevel > 0) std::cout << "[INFO] Finished scaled-trigger-only job." << std::endl;
+        }
+        catch (const std::exception& e)
+        {
+            detail::bail(std::string("exception in scaled-trigger-only Fun4All path: ") + e.what());
+        }
+        return;
+    }
+#endif
     
     if (isAuAuLike && !isSimEmbedded)
     {
@@ -3546,24 +3889,90 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         }
     }
 
-    if (cfg.tight == "variantB")
+    auto featureListOrFallback = [](const std::vector<std::string>& primary,
+                                    const std::vector<std::string>& fallback) -> std::vector<std::string>
     {
-        if (cfg.auau_tight_bdt_model_file.empty())
+        return primary.empty() ? fallback : primary;
+    };
+    auto appendCentralityFeature = [](std::vector<std::string> features) -> std::vector<std::string>
+    {
+        const auto has = std::find(features.begin(), features.end(), "centrality") != features.end() ||
+                         std::find(features.begin(), features.end(), "cent") != features.end();
+        if (!has) features.push_back("centrality");
+        return features;
+    };
+    std::vector<std::string> auauCentDepScoreNames;
+
+    if (cfg.tight == "variantB" || cfg.tight == "centINDcontrol" || cfg.tight == "centAsFeat")
+    {
+        std::string modelFile = cfg.auau_tight_bdt_model_file;
+        std::vector<std::string> features = cfg.auau_tight_bdt_features;
+        if (cfg.tight == "centINDcontrol")
         {
-            detail::bail("tight=variantB requires auau_tight_bdt_model_file in analysis_config.yaml");
+            if (!cfg.auau_tight_bdt_centINDcontrol_model_file.empty())
+                modelFile = cfg.auau_tight_bdt_centINDcontrol_model_file;
+            features = featureListOrFallback(cfg.auau_tight_bdt_centINDcontrol_features, cfg.auau_tight_bdt_features);
         }
-        if (cfg.auau_tight_bdt_features.empty())
+        else if (cfg.tight == "centAsFeat")
         {
-            detail::bail("tight=variantB requires auau_tight_bdt_features in analysis_config.yaml");
+            if (!cfg.auau_tight_bdt_centAsFeat_model_file.empty())
+                modelFile = cfg.auau_tight_bdt_centAsFeat_model_file;
+            features = appendCentralityFeature(featureListOrFallback(cfg.auau_tight_bdt_centAsFeat_features, cfg.auau_tight_bdt_features));
+        }
+
+        if (modelFile.empty())
+        {
+            detail::bail("AuAu tight BDT mode requires a model file in analysis_config.yaml");
+        }
+        if (features.empty())
+        {
+            detail::bail("AuAu tight BDT mode requires a non-empty feature list in analysis_config.yaml");
         }
 
         tightPhotonNode = "PHOTONCLUSTER_CEMC";
         photonBuilder->add_named_bdt_score("auau_tight_bdt_score",
-                                           cfg.auau_tight_bdt_model_file,
-                                           cfg.auau_tight_bdt_features,
+                                           modelFile,
+                                           features,
                                            5.0f,
                                            80.0f,
                                            static_cast<float>(cfg.photon_eta_abs_max));
+    }
+    else if (cfg.tight == "centDepBDTs")
+    {
+        const std::vector<std::string> features =
+          featureListOrFallback(cfg.auau_tight_bdt_centDep_features, cfg.auau_tight_bdt_features);
+        if (features.empty())
+        {
+            detail::bail("tight=centDepBDTs requires auau_tight_bdt_centDep_features or auau_tight_bdt_features in analysis_config.yaml");
+        }
+        if (cfg.centrality_edges.size() < 2)
+        {
+            detail::bail("tight=centDepBDTs requires centrality_edges with at least two entries");
+        }
+        const std::size_t nCentBins = cfg.centrality_edges.size() - 1;
+        if (cfg.auau_tight_bdt_centDep_model_files.size() != nCentBins)
+        {
+            std::ostringstream msg;
+            msg << "tight=centDepBDTs requires " << nCentBins
+                << " auau_tight_bdt_centDep_model_files, one for each centrality_edges interval; got "
+                << cfg.auau_tight_bdt_centDep_model_files.size();
+            detail::bail(msg.str());
+        }
+
+        tightPhotonNode = "PHOTONCLUSTER_CEMC";
+        for (std::size_t i = 0; i < nCentBins; ++i)
+        {
+            std::ostringstream scoreName;
+            scoreName << "auau_tight_bdt_score_cent_"
+                      << cfg.centrality_edges[i] << "_" << cfg.centrality_edges[i + 1];
+            auauCentDepScoreNames.push_back(scoreName.str());
+            photonBuilder->add_named_bdt_score(scoreName.str(),
+                                               cfg.auau_tight_bdt_centDep_model_files[i],
+                                               features,
+                                               5.0f,
+                                               80.0f,
+                                               static_cast<float>(cfg.photon_eta_abs_max));
+        }
     }
 
     if (useSamePhotonBDTScores)
@@ -3651,6 +4060,12 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_BDT_MAX",
                                                "RJ_AUAU_TIGHT_BDT_MAX",
                                                fmtDouble(cfg.auau_tight_bdt_max)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_BDT_CENTDEP_EDGES",
+                                               "RJ_AUAU_TIGHT_BDT_CENTDEP_EDGES",
+                                               joinInts(cfg.centrality_edges)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_BDT_CENTDEP_SCORE_NAMES",
+                                               "RJ_AUAU_TIGHT_BDT_CENTDEP_SCORE_NAMES",
+                                               joinStrings(auauCentDepScoreNames)));
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NONTIGHT_BDT_MIN_INTERCEPT",
                                                "RJ_AUAU_NONTIGHT_BDT_MIN_INTERCEPT",
                                                fmtDouble(cfg.auau_nontight_bdt_min_intercept)));
@@ -3827,15 +4242,32 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             << " features_n=" << cfg.tight_bdt_features.size() << "\n";
         }
 
-        if (cfg.tight == "variantB")
+        if (yamlcfg::IsAuAuTightBDTMode(cfg.tight))
         {
             std::cout << "[CFG] AuAu tight BDT:"
-            << " model=" << cfg.auau_tight_bdt_model_file
+            << " mode=" << cfg.tight;
+            if (cfg.tight == "centINDcontrol")
+                std::cout << " model=" << (cfg.auau_tight_bdt_centINDcontrol_model_file.empty() ? cfg.auau_tight_bdt_model_file : cfg.auau_tight_bdt_centINDcontrol_model_file)
+                          << " features_n=" << (cfg.auau_tight_bdt_centINDcontrol_features.empty() ? cfg.auau_tight_bdt_features.size() : cfg.auau_tight_bdt_centINDcontrol_features.size());
+            else if (cfg.tight == "centAsFeat")
+                std::cout << " model=" << (cfg.auau_tight_bdt_centAsFeat_model_file.empty() ? cfg.auau_tight_bdt_model_file : cfg.auau_tight_bdt_centAsFeat_model_file)
+                          << " features=PPG12+centrality";
+            else if (cfg.tight == "centDepBDTs")
+                std::cout << " models=" << cfg.auau_tight_bdt_centDep_model_files.size()
+                          << " cent_edges=[" << joinInts(cfg.centrality_edges) << "]"
+                          << " score_names=[" << joinStrings(auauCentDepScoreNames) << "]";
+            else
+                std::cout << " model=" << cfg.auau_tight_bdt_model_file
+                          << " features_n=" << cfg.auau_tight_bdt_features.size();
+            std::cout
             << " cut=(score > " << cfg.auau_tight_bdt_min_slope << " * ET + " << cfg.auau_tight_bdt_min_intercept
-            << " && score < " << cfg.auau_tight_bdt_max << ")"
-            << " nonTight=(" << cfg.auau_nontight_bdt_min_slope << " * ET + " << cfg.auau_nontight_bdt_min_intercept
-            << ", " << cfg.auau_nontight_bdt_max_slope << " * ET + " << cfg.auau_nontight_bdt_max_intercept << ")"
-            << " features_n=" << cfg.auau_tight_bdt_features.size() << "\n";
+            << " && score < " << cfg.auau_tight_bdt_max << ")";
+            if (yamlcfg::IsAutoComplementTightMode(cfg.tight))
+                std::cout << " nonTight=complement";
+            else
+                std::cout << " nonTight=(" << cfg.auau_nontight_bdt_min_slope << " * ET + " << cfg.auau_nontight_bdt_min_intercept
+                          << ", " << cfg.auau_nontight_bdt_max_slope << " * ET + " << cfg.auau_nontight_bdt_max_intercept << ")";
+            std::cout << "\n";
         }
         
         std::cout << "[CFG] isolation mode:";

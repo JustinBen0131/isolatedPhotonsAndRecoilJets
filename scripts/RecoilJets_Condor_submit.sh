@@ -43,8 +43,9 @@
 #     ./RecoilJets_Condor_submit.sh isSimEmbedded condorDoAll
 #
 #   AuAu embedded photon-ID BDT training extraction:
-#     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT local
-#     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT condorDoAll
+#     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT localTest
+#     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT smokeTestFirstPass
+#     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT smokeTestSecondPass SOURCE=/path/to/extraction
 #     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainNPB local
 #     RJ_AUAU_BDT_NPB_DATA_LOCAL=1 ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainNPB local 5000 VERBOSE=10
 #     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainJetMLResidual local
@@ -481,8 +482,9 @@ ${BOLD}SIM mode (MinBias DETROIT):${RST}
   ${BOLD}$0 isSimMB condorDoAll [groupSize N] [SAMPLE=run28_detroit]${RST}
 
 ${BOLD}AuAu embedded photon-ID BDT training:${RST}
-  ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT local [Nevents] [VERBOSE=N]${RST}
-  ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT condorDoAll [groupSize N]${RST}
+  ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT localTest [Nevents] [VERBOSE=N]${RST}
+  ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT smokeTestFirstPass [groupSize N]${RST}
+  ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT smokeTestSecondPass SOURCE=/path/to/finished/extraction${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainNPB local [Nevents] [VERBOSE=N]${RST}
   ${BOLD}RJ_AUAU_BDT_NPB_DATA_LOCAL=1 $0 isSimEmbeddedAndInclusive trainNPB local [Nevents] [VERBOSE=N]${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainJetMLResidual local [Nevents] [VERBOSE=N]${RST}
@@ -638,6 +640,9 @@ selection_mode_normalize() {
     variantC|VariantC|variantc) echo "variantC" ;;
     variantD|VariantD|variantd) echo "variantD" ;;
     variantE|VariantE|variante) echo "variantE" ;;
+    centINDcontrol|CentINDControl|centindcontrol|centINDControl) echo "centINDcontrol" ;;
+    centAsFeat|CentAsFeat|centasfeat|centAsFeature) echo "centAsFeat" ;;
+    centDepBDTs|CentDepBDTs|centdepbdts|centDepBDT) echo "centDepBDTs" ;;
     *) echo "$mode" ;;
   esac
 }
@@ -743,6 +748,11 @@ build_iso_modes() {
           _pre_norm="$(selection_mode_normalize "$_pre")"
           _tight_norm="$(selection_mode_normalize "$_tight")"
           _nonTight_norm="$(selection_mode_normalize "$_nonTight")"
+          case "$_tight_norm" in
+            centINDcontrol|centAsFeat|centDepBDTs)
+              _nonTight_norm="$_tight_norm"
+              ;;
+          esac
           if [[ "$_tight_norm" == "reference" && "$_nonTight_norm" != "reference" ]]; then
             continue
           fi
@@ -1847,17 +1857,151 @@ auau_bdt_train_from_manifest() {
   say "  manifest : ${manifest}"
   say "  outdir   : ${outdir}"
   if [[ "$task" == "tight" && "${RJ_AUAU_BDT_LOCAL_WIDE:-1}" == "1" ]]; then
-    say "  wide scan: nominal weighted PPG12 features"
-    auau_ml_run_python "${BASE}/scripts/train_auau_photon_bdt.py" "${train_args[@]}" --prefix "auau_tight_bdt_nominal"
+    local cent_bins="${RJ_AUAU_TIGHT_BDT_CENT_BINS:-0:20,20:50,50:80}"
+    say "  product: centINDcontrol (PPG12 base_v3E feature order, no centrality feature, all centralities)"
+    auau_ml_run_python "${BASE}/scripts/train_auau_photon_bdt.py" "${train_args[@]}" \
+      --tight-mode centINDcontrol \
+      --prefix "auau_tight_bdt_centINDcontrol" \
+      --cent-bins "$cent_bins" \
+      --test-size 0.2 \
+      --random-seed 42 \
+      --n-estimators 750 \
+      --max-depth 5 \
+      --learning-rate 0.1 \
+      --subsample 0.5 \
+      --colsample-bytree 0.6 \
+      --reg-alpha 5.0 \
+      --reg-lambda 0.3 \
+      --grow-policy lossguide \
+      --max-bin 256 \
+      --background-subsample-fraction 0.3 \
+      --background-subsample-et-threshold 15 \
+      --background-subsample-bins 20 \
+      --background-subsample-seed 42 \
+      --background-subsample-flatten
 
-    say "  wide scan: no Et/eta flattening cross-check"
-    auau_ml_run_python "${BASE}/scripts/train_auau_photon_bdt.py" "${train_args[@]}" --prefix "auau_tight_bdt_noFlatten" --no-et-reweight --no-eta-reweight
+    say "  product: centAsFeat (same model family with centrality appended as a feature)"
+    auau_ml_run_python "${BASE}/scripts/train_auau_photon_bdt.py" "${train_args[@]}" \
+      --tight-mode centAsFeat \
+      --prefix "auau_tight_bdt_centAsFeat" \
+      --cent-bins "$cent_bins" \
+      --test-size 0.2 \
+      --random-seed 42 \
+      --n-estimators 750 \
+      --max-depth 5 \
+      --learning-rate 0.1 \
+      --subsample 0.5 \
+      --colsample-bytree 0.6 \
+      --reg-alpha 5.0 \
+      --reg-lambda 0.3 \
+      --grow-policy lossguide \
+      --max-bin 256 \
+      --background-subsample-fraction 0.3 \
+      --background-subsample-et-threshold 15 \
+      --background-subsample-bins 20 \
+      --background-subsample-seed 42 \
+      --background-subsample-flatten
 
-    say "  wide scan: shallower conservative BDT cross-check"
-    auau_ml_run_python "${BASE}/scripts/train_auau_photon_bdt.py" "${train_args[@]}" --prefix "auau_tight_bdt_shallow" --max-depth 3 --n-estimators 300
+    say "  product: centDepBDTs (one PPG12-like BDT per configured centrality bin: ${cent_bins})"
+    auau_ml_run_python "${BASE}/scripts/train_auau_photon_bdt.py" "${train_args[@]}" \
+      --tight-mode centDepBDTs \
+      --prefix "auau_tight_bdt_centDepBDTs" \
+      --cent-bins "$cent_bins" \
+      --test-size 0.2 \
+      --random-seed 42 \
+      --n-estimators 750 \
+      --max-depth 5 \
+      --learning-rate 0.1 \
+      --subsample 0.5 \
+      --colsample-bytree 0.6 \
+      --reg-alpha 5.0 \
+      --reg-lambda 0.3 \
+      --grow-policy lossguide \
+      --max-bin 256 \
+      --background-subsample-fraction 0.3 \
+      --background-subsample-et-threshold 15 \
+      --background-subsample-bins 20 \
+      --background-subsample-seed 42 \
+      --background-subsample-flatten
   else
     auau_ml_run_python "${BASE}/scripts/train_auau_photon_bdt.py" "${train_args[@]}"
   fi
+}
+
+auau_bdt_csv_to_yaml_list() {
+  local csv="$1"
+  local out="["
+  local IFS=','
+  local item first=1
+  for item in $csv; do
+    [[ -n "$item" ]] || continue
+    if [[ "$first" -eq 0 ]]; then out+=", "; fi
+    out+="$item"
+    first=0
+  done
+  out+="]"
+  printf '%s\n' "$out"
+}
+
+auau_tight_bdt_centdep_model_list() {
+  local model_dir="$1"
+  local cent_bins="${RJ_AUAU_TIGHT_BDT_CENT_BINS:-0:20,20:50,50:80}"
+  local csv="" item lo hi tag model
+  local IFS=','
+  for item in $cent_bins; do
+    lo="${item%%:*}"
+    hi="${item##*:}"
+    printf -v tag "cent_%03d_%03d" "$lo" "$hi"
+    model="${model_dir}/auau_tight_bdt_centDepBDTs_${tag}_tmva.root"
+    [[ -s "$model" ]] || { err "Missing centrality-dependent tight BDT model: $model"; exit 33; }
+    csv+="${csv:+,}${model}"
+  done
+  auau_bdt_csv_to_yaml_list "$csv"
+}
+
+auau_tight_bdt_apply_product() {
+  local product="$1" model_dir="$2" master_yaml="$3" stamp="$4" output_base="$5"
+  shift 5
+  local -a samples=( "$@" )
+  local yaml model
+
+  yaml="$(auau_ml_first_matrix_yaml "$master_yaml" "tightBDTApply_${product}_${stamp}" "$stamp" "reference" "$product" "$product")"
+  ml_yaml_set_scalar "$yaml" "auau_bdt_training_tree" "false"
+  ml_yaml_set_scalar "$yaml" "jet_ml_training_tree" "false"
+  ml_yaml_set_scalar "$yaml" "jet_ml_correction_enabled" "false"
+
+  case "$product" in
+    centINDcontrol)
+      model="${model_dir}/auau_tight_bdt_centINDcontrol_allCent_tmva.root"
+      [[ -s "$model" ]] || { err "Missing centINDcontrol tight BDT model: $model"; exit 33; }
+      ml_yaml_set_scalar "$yaml" "auau_tight_bdt_centINDcontrol_model_file" "$model"
+      ml_yaml_set_scalar "$yaml" "auau_tight_bdt_model_file" "$model"
+      ;;
+    centAsFeat)
+      model="${model_dir}/auau_tight_bdt_centAsFeat_allCent_tmva.root"
+      [[ -s "$model" ]] || { err "Missing centAsFeat tight BDT model: $model"; exit 33; }
+      ml_yaml_set_scalar "$yaml" "auau_tight_bdt_centAsFeat_model_file" "$model"
+      ml_yaml_set_scalar "$yaml" "auau_tight_bdt_model_file" "$model"
+      ;;
+    centDepBDTs)
+      ml_yaml_set_scalar "$yaml" "auau_tight_bdt_centDep_model_files" "$(auau_tight_bdt_centdep_model_list "$model_dir")"
+      ;;
+    *)
+      err "Unknown tight BDT apply product: $product"
+      exit 2
+      ;;
+  esac
+
+  say "Re-applying tight BDT product ${product}"
+  say "  YAML : ${yaml}"
+  local samp
+  for samp in "${samples[@]}"; do
+    RJ_CONFIG_YAML="$yaml" \
+    RJ_SIM_LOCAL_GROUPED=1 \
+    RJ_SIM_LOCAL_NFILES="$AUAU_BDT_LOCAL_NFILES" \
+    RJ_LOCAL_SIM_OUTPUT_BASE="${output_base}/${product}" \
+    "$0" isSimEmbedded local "$AUAU_BDT_LOCAL_EVENTS" "VERBOSE=${AUAU_BDT_LOCAL_VERBOSITY}" "SAMPLE=${samp}"
+  done
 }
 
 auau_bdt_run_local() {
@@ -1941,6 +2085,26 @@ auau_bdt_run_local() {
   else
     auau_bdt_train_from_manifest "$task" "$manifest" "$outdir"
   fi
+
+  if [[ "$task" == "tight" && "${RJ_AUAU_TIGHT_BDT_APPLY_LOCAL:-1}" == "1" ]]; then
+    mkdir -p "${local_root}/apply"
+    say "AuAu tight BDT LOCAL re-apply sanity"
+    auau_tight_bdt_apply_product "centINDcontrol" "$outdir" "$master_yaml" "$stamp" "${local_root}/apply" "${signal_samples[@]}"
+    auau_tight_bdt_apply_product "centAsFeat" "$outdir" "$master_yaml" "$stamp" "${local_root}/apply" "${signal_samples[@]}"
+    auau_tight_bdt_apply_product "centDepBDTs" "$outdir" "$master_yaml" "$stamp" "${local_root}/apply" "${signal_samples[@]}"
+    {
+      echo "run_base=${local_root}"
+      echo "model_dir=${outdir}"
+      echo "manifest=${manifest}"
+      echo "cent_bins=${RJ_AUAU_TIGHT_BDT_CENT_BINS:-0:20,20:50,50:80}"
+      echo "products=centINDcontrol centAsFeat centDepBDTs"
+    } > "${local_root}/tight_bdt_local_summary.env"
+    say "Tight BDT local pass complete."
+    say "  run base : ${local_root}"
+    say "  models   : ${outdir}"
+    say "  pull from Mac with:"
+    say "    ./scripts/sftp_get_recoiljets_outputs.sh tightBDTSmoke ${local_root}"
+  fi
 }
 
 auau_bdt_run_condor_do_all() {
@@ -1995,6 +2159,54 @@ auau_bdt_run_condor_do_all() {
   else
     printf '  %q --task %q --input @%q --outdir %q\n' "${BASE}/scripts/train_auau_photon_bdt.py" "$task" "${outdir}/training_roots.list" "$outdir"
   fi
+}
+
+auau_tight_bdt_smoke_second_pass() {
+  auau_ml_check_python_deps
+  local source_base="${RJ_AUAU_TIGHT_BDT_SMOKE_SOURCE:-}"
+  local t expect_source=0
+  for t in "${tokens[@]}"; do
+    if [[ "$expect_source" -eq 1 ]]; then
+      source_base="$t"
+      expect_source=0
+      continue
+    fi
+    if [[ "$t" == "SOURCE" || "$t" == "source" ]]; then
+      expect_source=1
+    elif [[ "$t" =~ ^SOURCE=(.+)$ ]]; then
+      source_base="${BASH_REMATCH[1]}"
+    elif [[ "$t" == /* || "$t" == ./* ]]; then
+      source_base="$t"
+    fi
+  done
+  [[ -n "$source_base" ]] || { err "smokeTestSecondPass needs SOURCE=/path/to/finished/extraction or a path argument"; exit 2; }
+  [[ -d "$source_base" ]] || { err "smokeTestSecondPass source directory does not exist: $source_base"; exit 2; }
+
+  local stamp outbase manifest model_dir
+  stamp="$(date +%Y%m%d_%H%M%S)"
+  outbase="${AUAU_BDT_LOCAL_BASE}/tightSmokeSecond_${stamp}"
+  manifest="${outbase}/training_roots.list"
+  model_dir="${AUAU_BDT_MODEL_BASE}/tightSmokeSecond_${stamp}"
+  mkdir -p "$outbase" "$model_dir"
+
+  auau_bdt_collect_roots "$source_base" "$manifest"
+  auau_ml_validate_manifest_tree "$manifest" "AuAuPhotonIDTrainingTree" "tight smoke second-pass photon rows" "${outbase}/qa_photon_tree_validation.txt"
+  RJ_AUAU_BDT_LOCAL_WIDE=1 auau_bdt_train_from_manifest "tight" "$manifest" "$model_dir"
+
+  {
+    echo "source_base=${source_base}"
+    echo "run_base=${outbase}"
+    echo "model_dir=${model_dir}"
+    echo "manifest=${manifest}"
+    echo "cent_bins=${RJ_AUAU_TIGHT_BDT_CENT_BINS:-0:20,20:50,50:80}"
+  } > "${outbase}/tight_bdt_smoke_second_pass.env"
+
+  say "Tight BDT smoke second pass complete."
+  say "  source   : ${source_base}"
+  say "  run base : ${outbase}"
+  say "  models   : ${model_dir}"
+  say "  pull from Mac with:"
+  say "    ./scripts/sftp_get_recoiljets_outputs.sh tightBDTSmoke ${outbase}"
 }
 
 auau_jetml_make_training_yaml() {
@@ -2708,14 +2920,31 @@ case "$ACTION" in
     task="tight"
     [[ "$ACTION" == "trainNPB" ]] && task="npb"
     case "${TRAIN_MODE:-local}" in
-      local)
+      local|localTest)
         auau_bdt_run_local "$task"
         ;;
       condorDoAll)
         auau_bdt_run_condor_do_all "$task"
         ;;
+      smokeTestFirstPass)
+        [[ "$task" == "tight" ]] || { err "smokeTestFirstPass is currently only implemented for trainTightBDT"; exit 2; }
+        if [[ -z "${RJ_MAX_JOBS:-}" ]]; then
+          MAX_JOBS="${RJ_AUAU_TIGHT_BDT_SMOKE_MAX_JOBS_PER_SAMPLE:-4}"
+        fi
+        if [[ -z "${RJ_AUAU_BDT_DEST_BASE:-}" ]]; then
+          AUAU_BDT_DEST_BASE="${BASE}/condor_tight_bdt_smoke/tightSmokeFirst_$(date +%Y%m%d_%H%M%S)"
+        fi
+        say "tight BDT smokeTestFirstPass caps extraction at MAX_JOBS=${MAX_JOBS} per sample."
+        say "With default groupSize=7 and 1000 events/input file this is about $(( MAX_JOBS * 7 ))k events per sample."
+        say "Unique smoke output base: ${AUAU_BDT_DEST_BASE}"
+        auau_bdt_run_condor_do_all "$task"
+        ;;
+      smokeTestSecondPass)
+        [[ "$task" == "tight" ]] || { err "smokeTestSecondPass is currently only implemented for trainTightBDT"; exit 2; }
+        auau_tight_bdt_smoke_second_pass
+        ;;
       *)
-        err "${ACTION} mode must be local or condorDoAll, got '${TRAIN_MODE}'"
+        err "${ACTION} mode must be local, localTest, condorDoAll, smokeTestFirstPass, or smokeTestSecondPass; got '${TRAIN_MODE}'"
         exit 2
         ;;
     esac

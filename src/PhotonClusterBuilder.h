@@ -130,6 +130,7 @@ class PhotonClusterBuilder : public SubsysReco
         };
         std::vector<NamedBDTScoreConfig> m_named_bdt_scores;
         float m_vertex{std::numeric_limits<float>::quiet_NaN()};
+        float m_centrality{std::numeric_limits<float>::quiet_NaN()};
         bool m_use_vz_cut{true};
         float m_vz_cut_cm{30.0f};
         bool m_use_ppg12_pp_iso_axis{false};

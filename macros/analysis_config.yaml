@@ -166,8 +166,21 @@ clusterUEpipeline: [baseVariant]
 #       PHOTONCLUSTER_CEMC_TIGHTBDT
 #
 #   tight = variantB
-#     Use the AuAu embedded-trained tight-ID BDT score:
-#       auau_tight_bdt_score
+#     Legacy AuAu embedded-trained tight-ID BDT hook. Kept for compatibility.
+#
+#   tight = centINDcontrol
+#     AuAu-trained control model that mirrors the PPG12 pp base_v3E/split
+#     tight-BDT feature order and does not include centrality as a feature.
+#     nonTight is automatically the complement of the tight decision.
+#
+#   tight = centAsFeat
+#     Same all-centrality AuAu tight-BDT structure, but centrality is appended
+#     to the PPG12 feature vector. nonTight is automatically the complement.
+#
+#   tight = centDepBDTs
+#     One AuAu tight-BDT per interval in centrality_edges. The runtime selects
+#     the model from auau_tight_bdt_centDep_model_files according to the event
+#     centrality. nonTight is automatically the complement.
 #
 # Non-tight axis:
 #   nonTight = reference
@@ -188,10 +201,14 @@ clusterUEpipeline: [baseVariant]
 #     For tight=variantB, use the complement of the AuAu tight BDT after
 #     preselection. This is a broad diagnostic/systematic option, not the
 #     PPG12-style nominal sideband.
+#
+# For tight=centINDcontrol, centAsFeat, or centDepBDTs, nonTight is treated as
+# a derived setting and is overridden to match tight so mismatched YAML cannot
+# silently produce an inconsistent tight/non-tight definition.
 # -----------------------------------------------------------------------------
-preselection: [reference, variantA, variantB, variantC, variantD]
-tight: [reference, variantA]
-nonTight: [reference, variantA]
+preselection: [variantA]
+tight: [variantA]
+nonTight: [variantA]
 
 # -----------------------------------------------------------------------------
 # NPB preselection controls
@@ -230,14 +247,15 @@ tight_bdt_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, 
 # -----------------------------------------------------------------------------
 # AuAu-trained BDT controls
 #
-# Phase-1 consumption uses scalar all-centrality models. Centrality-binned model
-# maps should be added only after the all-centrality training and inference smoke
-# tests are stable.
+# The preferred AuAu tight-BDT modes are now explicit:
+#   centINDcontrol: PPG12 base_v3E/split feature order, no centrality feature.
+#   centAsFeat:     PPG12 base_v3E/split feature order plus centrality.
+#   centDepBDTs:    one PPG12-like model per centrality_edges interval.
 #
 # preselection = variantE uses auau_npb_*:
 #   auau_npb_score > auau_npb_cut
 #
-# tight = variantB uses auau_tight_bdt_*:
+# tight = variantB/centINDcontrol/centAsFeat/centDepBDTs use:
 #   auau_tight_bdt_score > auau_tight_bdt_min_intercept
 #                          + auau_tight_bdt_min_slope * E_T^gamma
 #   auau_tight_bdt_score < auau_tight_bdt_max
@@ -256,6 +274,9 @@ auau_npb_cut: 0.5
 auau_npb_features: [cluster_Et, cluster_Eta, vertexz, e11_over_e33, e32_over_e35, e11_over_e22, e11_over_e13, e11_over_e15, e11_over_e17, e11_over_e31, e11_over_e51, e11_over_e71, e22_over_e33, e22_over_e35, e22_over_e37, e22_over_e53, cluster_weta_cogx, cluster_wphi_cogx, cluster_et1, cluster_et2, cluster_et3, cluster_et4, cluster_w32, cluster_w52, cluster_w72]
 
 auau_tight_bdt_model_file:
+auau_tight_bdt_centINDcontrol_model_file:
+auau_tight_bdt_centAsFeat_model_file:
+auau_tight_bdt_centDep_model_files: []
 auau_tight_bdt_min_intercept: 0.8333333333333334
 auau_tight_bdt_min_slope: -0.003333333333333336
 auau_tight_bdt_max: 1.0
@@ -264,13 +285,17 @@ auau_nontight_bdt_min_slope: -0.013333333333333334
 auau_nontight_bdt_max_intercept: 0.6666666666666666
 auau_nontight_bdt_max_slope: 0.003333333333333333
 auau_tight_bdt_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35]
+auau_tight_bdt_centINDcontrol_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35]
+auau_tight_bdt_centAsFeat_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35, centrality]
+auau_tight_bdt_centDep_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35]
 
 # Optional embedded-sim training row extraction from RecoilJets_AuAu outputs.
 # This is off for normal physics outputs.
 #
 # The submit-script training entry point is intentionally explicit:
-#   ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT local
-#   ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT condorDoAll
+#   ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT localTest
+#   ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT smokeTestFirstPass
+#   ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT smokeTestSecondPass SOURCE=/path/to/extraction
 #
 # By default it uses embedded photon 12/20 as the tight-BDT signal side and
 # embedded inclusive jet 10/20 as the background side. Override samples with

@@ -1259,6 +1259,8 @@ private:
     double m_auauNonTightBDTMinSlope = 0.0;
     double m_auauNonTightBDTMaxIntercept = 1.0;
     double m_auauNonTightBDTMaxSlope = 0.0;
+    std::vector<int> m_auauTightBDTCentDepEdges;
+    std::vector<std::string> m_auauTightBDTCentDepScoreNames;
     double m_tightBDTMinIntercept = 0.0;
     double m_tightBDTMinSlope = 0.0;
     double m_tightBDTMax = 1.0;

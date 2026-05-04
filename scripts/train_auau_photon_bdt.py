@@ -35,6 +35,15 @@ PPG12_TIGHT_FEATURES = [
     "e32_over_e35",
 ]
 
+TIGHT_MODES = ["legacy", "centINDcontrol", "centAsFeat", "centDepBDTs"]
+
+
+def tight_mode_features(mode: str, override: list[str] | None) -> list[str]:
+    features = list(override) if override is not None else list(PPG12_TIGHT_FEATURES)
+    if mode == "centAsFeat" and "centrality" not in features and "cent" not in features:
+        features.append("centrality")
+    return features
+
 PPG12_NPB_FEATURES = [
     "cluster_Et",
     "cluster_Eta",
@@ -258,6 +267,48 @@ def compute_weights(frame, label_branch: str, args) -> tuple[object, dict]:
     return weights, diagnostics
 
 
+def ppg12_background_subsample(frame, label_branch: str, args):
+    import numpy as np
+
+    if args.background_subsample_fraction >= 1.0:
+        return frame, {"enabled": False}
+    if "cluster_Et" not in frame.columns:
+        return frame, {"enabled": False, "reason": "missing cluster_Et"}
+
+    bkg = frame[label_branch].to_numpy(dtype="int32") == 0
+    et = frame["cluster_Et"].to_numpy(dtype="float64")
+    low_bkg = bkg & np.isfinite(et) & (et < args.background_subsample_et_threshold)
+    keep = np.ones(len(frame), dtype=bool)
+
+    rng = np.random.default_rng(args.background_subsample_seed)
+    if args.background_subsample_flatten and low_bkg.sum() > args.background_subsample_bins:
+        edges = np.linspace(float(np.nanmin(et[low_bkg])), float(args.background_subsample_et_threshold), args.background_subsample_bins + 1)
+        for ibin in range(args.background_subsample_bins):
+            mask = low_bkg & (et >= edges[ibin]) & (et < edges[ibin + 1])
+            idx = np.flatnonzero(mask)
+            if len(idx) == 0:
+                continue
+            n_keep = max(1, int(round(len(idx) * args.background_subsample_fraction)))
+            drop = np.setdiff1d(idx, rng.choice(idx, size=n_keep, replace=False), assume_unique=False)
+            keep[drop] = False
+    else:
+        idx = np.flatnonzero(low_bkg)
+        n_keep = max(1, int(round(len(idx) * args.background_subsample_fraction))) if len(idx) else 0
+        if n_keep < len(idx):
+            drop = np.setdiff1d(idx, rng.choice(idx, size=n_keep, replace=False), assume_unique=False)
+            keep[drop] = False
+
+    return frame.loc[keep].copy(), {
+        "enabled": True,
+        "fraction": float(args.background_subsample_fraction),
+        "et_threshold": float(args.background_subsample_et_threshold),
+        "rows_before": int(len(frame)),
+        "rows_after": int(keep.sum()),
+        "low_et_background_before": int(low_bkg.sum()),
+        "low_et_background_after": int((low_bkg & keep).sum()),
+    }
+
+
 def train_one(frame, features: list[str], label_branch: str, output: Path, metadata: dict, args) -> dict | None:
     import numpy as np
     from sklearn.metrics import roc_auc_score
@@ -268,6 +319,7 @@ def train_one(frame, features: list[str], label_branch: str, output: Path, metad
     frame = frame.loc[finite_mask(frame, cols)].copy()
     frame[label_branch] = frame[label_branch].astype(int)
     frame = frame[frame[label_branch].isin([0, 1])].copy()
+    frame, subsample_report = ppg12_background_subsample(frame, label_branch, args)
 
     n_sig = int((frame[label_branch] == 1).sum())
     n_bkg = int((frame[label_branch] == 0).sum())
@@ -297,6 +349,11 @@ def train_one(frame, features: list[str], label_branch: str, output: Path, metad
         learning_rate=args.learning_rate,
         subsample=args.subsample,
         colsample_bytree=args.colsample_bytree,
+        reg_alpha=args.reg_alpha,
+        reg_lambda=args.reg_lambda,
+        grow_policy=args.grow_policy,
+        max_bin=args.max_bin,
+        n_jobs=args.n_jobs,
         objective="binary:logistic",
         eval_metric="auc",
         tree_method=args.tree_method,
@@ -355,7 +412,13 @@ def train_one(frame, features: list[str], label_branch: str, output: Path, metad
             "subsample": args.subsample,
             "colsample_bytree": args.colsample_bytree,
             "tree_method": args.tree_method,
+            "reg_alpha": args.reg_alpha,
+            "reg_lambda": args.reg_lambda,
+            "grow_policy": args.grow_policy,
+            "max_bin": args.max_bin,
+            "n_jobs": args.n_jobs,
         },
+        "background_subsampling": subsample_report,
     }
     output.with_suffix(".metadata.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     if export_error and not args.allow_tmva_export_failure:
@@ -375,6 +438,8 @@ def main() -> int:
     parser.add_argument("--outdir", type=Path, required=True)
     parser.add_argument("--prefix", default="")
     parser.add_argument("--cent-bins", default="0:10,10:20,20:40,40:60,60:80,80:100")
+    parser.add_argument("--tight-mode", choices=TIGHT_MODES, default="legacy",
+                        help="Tight-BDT training product: centINDcontrol=PPG12-like all-cent model, centAsFeat=all-cent plus centrality feature, centDepBDTs=one model per centrality bin.")
     parser.add_argument("--label-branch", default=None)
     parser.add_argument(
         "--missing-label-value",
@@ -403,12 +468,23 @@ def main() -> int:
     parser.add_argument("--subsample", type=float, default=0.85)
     parser.add_argument("--colsample-bytree", type=float, default=0.85)
     parser.add_argument("--tree-method", default="hist")
+    parser.add_argument("--reg-alpha", type=float, default=5.0)
+    parser.add_argument("--reg-lambda", type=float, default=0.3)
+    parser.add_argument("--grow-policy", default="lossguide")
+    parser.add_argument("--max-bin", type=int, default=256)
+    parser.add_argument("--n-jobs", type=int, default=4)
+    parser.add_argument("--background-subsample-fraction", type=float, default=1.0)
+    parser.add_argument("--background-subsample-et-threshold", type=float, default=15.0)
+    parser.add_argument("--background-subsample-bins", type=int, default=20)
+    parser.add_argument("--background-subsample-seed", type=int, default=42)
+    parser.add_argument("--background-subsample-flatten", action="store_true")
     parser.add_argument("--allow-tmva-export-failure", action="store_true",
                         help="Write diagnostics but do not fail if TMVA export fails. Not recommended for production pipeline tests.")
     args = parser.parse_args()
 
-    features = [item.strip() for item in args.features.split(",")] if args.features else (
-        PPG12_TIGHT_FEATURES if args.task == "tight" else PPG12_NPB_FEATURES
+    feature_override = [item.strip() for item in args.features.split(",")] if args.features else None
+    features = tight_mode_features(args.tight_mode, feature_override) if args.task == "tight" else (
+        list(feature_override) if feature_override is not None else list(PPG12_NPB_FEATURES)
     )
     label_branch = args.label_branch or ("is_signal" if args.task == "tight" else "npb_label")
     if args.task == "npb" and label_branch == "is_signal":
@@ -440,34 +516,40 @@ def main() -> int:
         "tree": args.tree,
         "optional_branches_seen": optional_seen,
         "python": sys.version,
+        "tight_mode": args.tight_mode if args.task == "tight" else None,
     }
 
-    all_report = train_one(
-        frame,
-        features,
-        label_branch,
-        args.outdir / f"{prefix}_allCent_tmva.root",
-        {**common_metadata, "cent_range": "all"},
-        args,
-    )
-    if all_report is not None:
-        reports.append(all_report)
+    train_all_cent = args.task != "tight" or args.tight_mode in ("legacy", "centINDcontrol", "centAsFeat")
+    train_cent_bins = args.task != "tight" or args.tight_mode in ("legacy", "centDepBDTs")
 
-    for lo, hi in parse_cent_bins(args.cent_bins):
-        sub = frame[(frame["centrality"] >= lo) & (frame["centrality"] < hi)]
-        if len(sub) == 0:
-            print(f"[WARN] Skipping {cent_tag(lo, hi)}: no rows")
-            continue
-        report = train_one(
-            sub,
+    if train_all_cent:
+        all_report = train_one(
+            frame,
             features,
             label_branch,
-            args.outdir / f"{prefix}_{cent_tag(lo, hi)}_tmva.root",
-            {**common_metadata, "cent_range": [lo, hi]},
+            args.outdir / f"{prefix}_allCent_tmva.root",
+            {**common_metadata, "cent_range": "all"},
             args,
         )
-        if report is not None:
-            reports.append(report)
+        if all_report is not None:
+            reports.append(all_report)
+
+    if train_cent_bins:
+        for lo, hi in parse_cent_bins(args.cent_bins):
+            sub = frame[(frame["centrality"] >= lo) & (frame["centrality"] < hi)]
+            if len(sub) == 0:
+                print(f"[WARN] Skipping {cent_tag(lo, hi)}: no rows")
+                continue
+            report = train_one(
+                sub,
+                features,
+                label_branch,
+                args.outdir / f"{prefix}_{cent_tag(lo, hi)}_tmva.root",
+                {**common_metadata, "cent_range": [lo, hi]},
+                args,
+            )
+            if report is not None:
+                reports.append(report)
 
     summary = args.outdir / f"{prefix}_summary.json"
     summary.write_text(json.dumps(reports, indent=2, sort_keys=True) + "\n")

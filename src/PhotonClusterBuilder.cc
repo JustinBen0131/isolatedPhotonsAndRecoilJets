@@ -9,6 +9,7 @@
 #include <g4main/PHG4TruthInfoContainer.h>
 #include <g4main/PHG4VtxPoint.h>
 #include <calobase/TowerInfoDefs.h>
+#include <centrality/CentralityInfo.h>
 
 // Tower stuff
 #include <calobase/RawTowerGeom.h>
@@ -548,6 +549,16 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
 
     const bool passVz = (!m_use_vz_cut) || (std::fabs(m_vertex) < vzCutForInfo);
 
+    m_centrality = std::numeric_limits<float>::quiet_NaN();
+    if (auto* central = findNode::getClass<CentralityInfo>(topNode, "CentralityInfo"))
+    {
+      const float centile = central->get_centrality_bin(CentralityInfo::PROP::mbd_NS);
+      if (std::isfinite(centile) && centile >= 0.0f)
+      {
+        m_centrality = centile;
+      }
+    }
+
     if (Verbosity() >= 2)
     {
       std::cout << Name()
@@ -680,6 +691,7 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
         photon->set_shower_shape_parameter("cluster_phi", phi);
         photon->set_shower_shape_parameter("cluster_et",  ET);
         photon->set_shower_shape_parameter("cluster_pt",  ET);
+        photon->set_shower_shape_parameter("centrality",  m_centrality);
 
         if (!calculate_shower_shapes(rc, photon, eta, phi))
         {
@@ -796,6 +808,10 @@ void PhotonClusterBuilder::calculate_bdt_score(PhotonClusterv1* photon)
     {
       return m_vertex;
     }
+    if (feature == "centrality" || feature == "cent")
+    {
+      return m_centrality;
+    }
     if (feature == "ET" || feature == "cluster_Et" || feature == "cluster_et")
     {
       const float eta = photon->get_shower_shape_parameter("cluster_eta");
@@ -858,6 +874,10 @@ void PhotonClusterBuilder::calculate_named_bdt_scores(PhotonClusterv1* photon)
     if (feature == "vertex_z" || feature == "vertexz")
     {
       return m_vertex;
+    }
+    if (feature == "centrality" || feature == "cent")
+    {
+      return m_centrality;
     }
     if (feature == "ET" || feature == "cluster_Et" || feature == "cluster_et")
     {

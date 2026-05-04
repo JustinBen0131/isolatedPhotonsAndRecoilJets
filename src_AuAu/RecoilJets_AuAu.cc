@@ -375,6 +375,21 @@ namespace
       return preselectionVariant == "variantE";
     }
 
+    inline bool auauTightBDTMode(const std::string& tightVariant)
+    {
+      return tightVariant == "variantB" ||
+             tightVariant == "centINDcontrol" ||
+             tightVariant == "centAsFeat" ||
+             tightVariant == "centDepBDTs";
+    }
+
+    inline bool auauTightBDTAutoComplementMode(const std::string& tightVariant)
+    {
+      return tightVariant == "centINDcontrol" ||
+             tightVariant == "centAsFeat" ||
+             tightVariant == "centDepBDTs";
+    }
+
     struct DoNotScalePairConfig
     {
       uint64_t runMin;
@@ -993,10 +1008,10 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
         }
         return def;
     };
-    auto envToStringList = [&](const char* key, const std::vector<std::string>& def) -> std::vector<std::string>
-    {
-        const char* raw = std::getenv(key);
-        if (!raw) return def;
+	    auto envToStringList = [&](const char* key, const std::vector<std::string>& def) -> std::vector<std::string>
+	    {
+	        const char* raw = std::getenv(key);
+	        if (!raw) return def;
 
         std::vector<std::string> outList;
         std::stringstream ss(raw);
@@ -1005,9 +1020,26 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
         {
             tok = trim(tok);
             if (!tok.empty()) outList.push_back(tok);
-        }
-        return outList.empty() ? def : outList;
-    };
+	        }
+	        return outList.empty() ? def : outList;
+	    };
+	    auto envToIntList = [&](const char* key, const std::vector<int>& def) -> std::vector<int>
+	    {
+	        const char* raw = std::getenv(key);
+	        if (!raw) return def;
+	
+	        std::vector<int> outList;
+	        std::stringstream ss(raw);
+	        std::string tok;
+	        while (std::getline(ss, tok, ','))
+	        {
+	            tok = trim(tok);
+	            if (tok.empty()) continue;
+	            try { outList.push_back(std::stoi(tok)); }
+	            catch (...) {}
+	        }
+	        return outList.empty() ? def : outList;
+	    };
     
     m_preselectionVariant  = envOrDefault("RJ_PRESELECTION_VARIANT", "reference");
     m_tightVariant         = envOrDefault("RJ_TIGHT_VARIANT", "reference");
@@ -1026,6 +1058,8 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     m_auauNonTightBDTMinSlope     = envToDouble("RJ_AUAU_NONTIGHT_BDT_MIN_SLOPE", 0.0);
     m_auauNonTightBDTMaxIntercept = envToDouble("RJ_AUAU_NONTIGHT_BDT_MAX_INTERCEPT", 1.0);
   m_auauNonTightBDTMaxSlope     = envToDouble("RJ_AUAU_NONTIGHT_BDT_MAX_SLOPE", 0.0);
+  m_auauTightBDTCentDepEdges = envToIntList("RJ_AUAU_TIGHT_BDT_CENTDEP_EDGES", {});
+  m_auauTightBDTCentDepScoreNames = envToStringList("RJ_AUAU_TIGHT_BDT_CENTDEP_SCORE_NAMES", {});
   m_auauBDTTrainingTreeEnabled = envToBool("RJ_AUAU_BDT_TRAINING_TREE", false);
   m_auauBDTTrainingTreeMaxEntries = envToLL("RJ_AUAU_BDT_TRAINING_TREE_MAX_ENTRIES", 0);
   m_auauBDTNPBDataTaggingEnabled = envToBool("RJ_AUAU_BDT_NPB_DATA_TAGGING", false);
@@ -8166,7 +8200,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                                 (tightTag == TightTag::kNonTight ? CLR_GREEN : CLR_YELLOW)), msg.str());
                     }
                 }
-                else if (m_tightVariant == "variantB")
+                else if (auauTightBDTMode(m_tightVariant))
                 {
                     const double score = v.auau_tight_bdt_score;
                     const double intercept = m_auauTightBDTMinIntercept;
@@ -8187,7 +8221,8 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                                                     score < nonTightMax;
 
                     if (pass_tight_bdt) tightTag = TightTag::kTight;
-                    else if (m_nonTightVariant == "variantB") tightTag = (pass_non_tight_bdt ? TightTag::kNonTight : TightTag::kNeither);
+                    else if (!std::isfinite(score)) tightTag = TightTag::kNeither;
+                    else if (m_tightVariant == "variantB" && m_nonTightVariant == "variantB") tightTag = (pass_non_tight_bdt ? TightTag::kNonTight : TightTag::kNeither);
                     else tightTag = TightTag::kNonTight;
                     if (tightTag == TightTag::kTight) ++m_bk.tight_tight;
                     else if (tightTag == TightTag::kNonTight) ++m_bk.tight_nonTight;
@@ -8209,9 +8244,10 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                     {
                         std::ostringstream msg;
                         msg << "      [pho#" << iPho << "] tight classification"
-                            << " | variant=variantB(AuAu BDT)"
+                            << " | variant=" << m_tightVariant << "(AuAu BDT)"
                             << " | score=" << std::fixed << std::setprecision(4) << score
                             << " | tight=(" << minScore << "," << maxScore << ") pass=" << pass_tight_bdt
+                            << " | nonTight=" << (auauTightBDTAutoComplementMode(m_tightVariant) ? "complement" : "legacy")
                             << " | nonTightSideband=(" << nonTightMin << "," << nonTightMax << ") pass=" << pass_non_tight_bdt
                             << " | nonTightVariant=" << m_nonTightVariant
                             << " | tag=" << tightTagName(tightTag);
@@ -9082,7 +9118,32 @@ void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars&
   {
     v.auau_npb_score = pho->get_shower_shape_parameter("auau_npb_score");
   }
-  if (m_tightVariant == "variantB")
+  if (m_tightVariant == "centDepBDTs")
+  {
+    int modelIdx = -1;
+    if (m_auauTightBDTCentDepEdges.size() >= 2 &&
+        m_auauTightBDTCentDepScoreNames.size() + 1 == m_auauTightBDTCentDepEdges.size() &&
+        std::isfinite(m_centPercent))
+    {
+      for (std::size_t i = 0; i + 1 < m_auauTightBDTCentDepEdges.size(); ++i)
+      {
+        const double lo = static_cast<double>(m_auauTightBDTCentDepEdges[i]);
+        const double hi = static_cast<double>(m_auauTightBDTCentDepEdges[i + 1]);
+        const bool inBin = (m_centPercent >= lo) &&
+                           (m_centPercent < hi || (i + 2 == m_auauTightBDTCentDepEdges.size() && m_centPercent <= hi));
+        if (inBin)
+        {
+          modelIdx = static_cast<int>(i);
+          break;
+        }
+      }
+    }
+    if (modelIdx >= 0 && static_cast<std::size_t>(modelIdx) < m_auauTightBDTCentDepScoreNames.size())
+    {
+      v.auau_tight_bdt_score = pho->get_shower_shape_parameter(m_auauTightBDTCentDepScoreNames[modelIdx]);
+    }
+  }
+  else if (auauTightBDTMode(m_tightVariant))
   {
     v.auau_tight_bdt_score = pho->get_shower_shape_parameter("auau_tight_bdt_score");
   }
@@ -9345,7 +9406,7 @@ RecoilJets::TightTag RecoilJets::classifyPhotonTightness(const SSVars& v)
     return tag;
   }
 
-  if (m_tightVariant == "variantB")
+  if (auauTightBDTMode(m_tightVariant))
   {
     const double score = v.auau_tight_bdt_score;
     const double intercept = m_auauTightBDTMinIntercept;
@@ -9369,14 +9430,17 @@ RecoilJets::TightTag RecoilJets::classifyPhotonTightness(const SSVars& v)
     {
       LOG(5, CLR_BLUE,
           "  [classifyPhotonTightness] variantB(AuAu tight BDT)"
+          << " mode=" << m_tightVariant
           << " | score=" << score
           << " | tight=(" << minScore << "," << maxScore << ") -> " << pass
+          << " | nonTight=" << (auauTightBDTAutoComplementMode(m_tightVariant) ? "complement" : "legacy")
           << " | nonTightSideband=(" << nonTightMin << "," << nonTightMax << ") -> " << passNonTightSideband
           << " | nonTightVariant=" << m_nonTightVariant);
     }
 
     if (pass) return TightTag::kTight;
-    if (m_nonTightVariant == "variantB")
+    if (!std::isfinite(score)) return TightTag::kNeither;
+    if (m_tightVariant == "variantB" && m_nonTightVariant == "variantB")
     {
       return passNonTightSideband ? TightTag::kNonTight : TightTag::kNeither;
     }
