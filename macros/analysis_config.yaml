@@ -156,7 +156,7 @@ clusterUEpipeline: [baseVariant]
 #
 #     BDT scores outside the tight and non-tight windows are treated as neither.
 # -----------------------------------------------------------------------------
-preselection: [reference]
+preselection: [reference, variantA, variantB]
 tight: [reference]
 nonTight: [reference]
 
@@ -259,7 +259,7 @@ doPi0Analysis: false
 # PhotonClusterBuilder provides isolation sums for R=0.3 and R=0.4.
 # -----------------------------------------------------------------------------
 isSlidingIso: false
-isSlidingAndFixed: false
+isSlidingAndFixed: true
 
 # MATRIX AXIS: one job per fixedGeV value (when isSlidingIso is false).
 fixedGeV: [2.0]

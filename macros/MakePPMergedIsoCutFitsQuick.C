@@ -206,8 +206,8 @@ void DrawPPPhotonStitchTruthSpectrum(const std::string& in5,
     std::unique_ptr<TH1> hRatio = MakeRatioToSmooth(hSum.get(), hSmooth.get(), "h_ppStitch_ratio");
     StyleHist(hRatio.get(), kBlack, 20);
 
-    const double xMin = 0.0;
-    const double xMax = 60.0;
+    const double xMin = 10.0;
+    const double xMax = 40.0;
 
     TCanvas c("c_ppPhotonStitchTruthSpectrum", "pp photon stitch truth spectrum", 1050, 850);
     TPad top("top", "top", 0.0, 0.30, 1.0, 1.0);
