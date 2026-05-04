@@ -437,6 +437,7 @@ ${BOLD}DATA modes:${RST}
 
 ${BOLD}SIM mode (photonJet10/20 merged):${RST}
   ${BOLD}$0 isSim local [Nevents] [VERBOSE=N] [SAMPLE=run28_photonjet10]${RST}
+  ${BOLD}$0 isSim localSTITCHtest [NeventsPerFile=1000] [VERBOSE=N] [TARGET=30] [STARTFILES=1] [MAXFILES=6]${RST}
   ${BOLD}$0 isSim checkModels [VERBOSE=N]${RST}
   ${BOLD}$0 isSim CHECKJOBS [groupSize N] [SAMPLE=run28_photonjet10]${RST}
   ${BOLD}$0 isSim condorTest [SAMPLE=run28_photonjet10]${RST}
@@ -463,6 +464,7 @@ Examples:
 
   $0 isSim CHECKJOBS groupSize 5
   $0 isSim local 5000
+  $0 isSim localSTITCHtest 1000 VERBOSE=3 TARGET=30 STARTFILES=1 MAXFILES=6
   $0 isSim checkModels
   $0 isSim condorTest
   $0 isSim condorDoAll groupSize 5
@@ -1547,7 +1549,7 @@ tokens=( "${@:2}" )
 for (( idx=0; idx<${#tokens[@]}; idx++ )); do
   tok="${tokens[$idx]}"
   case "$tok" in
-    local|checkModels|isLocalIsoPing|condor|splitGoldenRunList|condorTest|condorDoAll)
+    local|localSTITCHtest|checkModels|isLocalIsoPing|condor|splitGoldenRunList|condorTest|condorDoAll)
       ACTION="$tok"
       ;;
     groupSize)
@@ -1763,6 +1765,188 @@ case "$ACTION" in
     else
       warn "Summary macro not found: ${summary_macro}"
     fi
+    exit 0
+    ;;
+
+  localSTITCHtest)
+    [[ "$DATASET" == "isSim" ]] || { err "localSTITCHtest is only valid for: isSim localSTITCHtest"; exit 2; }
+
+    nevt="1000"
+    RJV="3"
+    target_raw="30"
+    max_files="6"
+    start_files="1"
+    rest=( "${@:3}" )
+    for t in "${rest[@]}"; do
+      if [[ "$t" =~ ^VERBOSE=([0-9]+)$ ]]; then
+        RJV="${BASH_REMATCH[1]}"
+      elif [[ "$t" =~ ^[0-9]+$ ]]; then
+        nevt="$t"
+      elif [[ "$t" =~ ^TARGET=([0-9]+)$ ]]; then
+        target_raw="${BASH_REMATCH[1]}"
+      elif [[ "$t" =~ ^MAXFILES=([0-9]+)$ ]]; then
+        max_files="${BASH_REMATCH[1]}"
+      elif [[ "$t" =~ ^STARTFILES=([0-9]+)$ ]]; then
+        start_files="${BASH_REMATCH[1]}"
+      elif [[ "$t" == SAMPLE=* ]]; then
+        warn "localSTITCHtest ignores SAMPLE=... and always runs photonjet5/10/20."
+      fi
+    done
+    (( target_raw > 0 )) || { err "TARGET must be positive"; exit 2; }
+    (( max_files > 0 )) || { err "MAXFILES must be positive"; exit 2; }
+    (( start_files > 0 )) || { err "STARTFILES must be positive"; exit 2; }
+    (( start_files <= max_files )) || { err "STARTFILES cannot exceed MAXFILES"; exit 2; }
+
+    gs_local="$GROUP_SIZE"
+    if [[ "${GROUP_SIZE_EXPLICIT:-0}" -eq 0 ]]; then
+      gs_local="7"
+    fi
+
+    master_yaml="$(sim_yaml_master_path)"
+    [[ -s "$master_yaml" ]] || { err "Master YAML not found or empty: $master_yaml"; exit 72; }
+
+    mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
+    mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
+    mapfile -t sim_vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
+    mapfile -t sim_cones < <( yaml_get_values "coneR" "$master_yaml" )
+    (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
+    (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
+    (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
+    (( ${#sim_cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
+    build_iso_modes "$master_yaml"
+    read_uepipe_modes "$master_yaml" "$TAG"
+    (( ${#iso_tags[@]} )) || { err "No isolation modes could be built from $master_yaml"; exit 72; }
+    (( ${#uepipe_modes[@]} )) || { err "No clusterUEpipeline modes could be read from $master_yaml"; exit 72; }
+
+    pt="${sim_pts[0]}"
+    frac="${sim_fracs[0]}"
+    vz="${sim_vzs[0]}"
+    cone="${sim_cones[0]}"
+    iso_idx=0
+    uepipe="${uepipe_modes[0]}"
+
+    SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso_base_tags[$iso_idx]}"
+    (( uepipe_in_tag )) && SIM_CFG_TAG="${SIM_CFG_TAG}_${uepipe}"
+    SIM_CFG_TAG="${SIM_CFG_TAG}_${iso_selection_tags[$iso_idx]}"
+
+    SIM_DEST_BASE_RESOLVED="${BASE}/local_sim_outputs/${TAG}_STITCHTEST"
+    DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
+    yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$cone" "${iso_sliding[$iso_idx]}" "${iso_fixed[$iso_idx]}" "${uepipe}" "${iso_preselection[$iso_idx]}" "${iso_tight[$iso_idx]}" "${iso_nonTight[$iso_idx]}" "$SIM_CFG_TAG" "LOCALSTITCHTEST")"
+
+    samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" )
+    mkdir -p "${SIM_DEST_BASE_RESOLVED}"
+
+    say "SIM local stitch diagnostic test"
+    say "  YAML master : ${master_yaml}"
+    say "  YAML override: ${yaml_override}"
+    say "  events      : ${nevt} per input file line"
+    say "  adaptive    : STARTFILES=${start_files} MAXFILES=${max_files} TARGET=${target_raw} raw transition-bin entries"
+    say "  groupSize   : ${gs_local} (not used; localSTITCHtest builds explicit first-N-file lists)"
+    say "  samples     : ${samples[*]}"
+    say "  tag         : ${SIM_CFG_TAG}"
+    say "  dest base   : ${DEST_BASE}"
+    say "  note        : ordinary downstream histograms are debug-contaminated by any-variant keep; use stitch_* variant histograms for this test"
+    echo
+
+    diagnostic_macro="${BASE}/macros/PrintPPStitchDiagnostics.C"
+    [[ -s "$diagnostic_macro" ]] || { err "Diagnostic macro not found: $diagnostic_macro"; exit 82; }
+
+    final_root_arg=""
+    final_diagnostic_log=""
+    status="NEED_MORE_STATS"
+
+    for (( nfiles = start_files; nfiles <= max_files; ++nfiles )); do
+      nevt_this=$(( nevt * nfiles ))
+      say "====================================================================="
+      say "localSTITCHtest adaptive pass: first ${nfiles} file line(s) per sample, ${nevt_this} events per sample"
+
+      stitch_out5=""
+      stitch_out10=""
+      stitch_out20=""
+      for samp in "${samples[@]}"; do
+        SIM_SAMPLE="$samp"
+        GROUP_SIZE="$gs_local"
+
+        sim_init
+        nclean="$(wc -l < "$SIM_CLEAN_LIST" | tr -d ' ')"
+        (( nclean >= nfiles )) || { err "Sample ${SIM_SAMPLE} has only ${nclean} clean entries; cannot take ${nfiles}"; exit 30; }
+        say "  [localSTITCHtest] sample=${SIM_SAMPLE} (${nclean} entries) — extracting first ${nfiles} line(s)"
+
+        tmp="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_LOCALSTITCHTEST_first${nfiles}files_grp001.list"
+        head -n "$nfiles" "$SIM_CLEAN_LIST" > "$tmp"
+        [[ -s "$tmp" ]] || { err "No sim entries (sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG})"; exit 30; }
+
+        first_line="$(head -n 1 "$tmp" 2>/dev/null || true)"
+        last_line="$(tail -n 1 "$tmp" 2>/dev/null || true)"
+        chunk_base="$(basename "$tmp")"
+        chunk_tag="${chunk_base%.list}"
+        out_root_preview="${DEST_BASE}/${SIM_SAMPLE}/RecoilJets_${DATASET}_${chunk_tag}.root"
+
+        say "----------------------------------------"
+        say "SIM localSTITCHtest: tag=${SIM_CFG_TAG}  sample=${SIM_SAMPLE}"
+        say "  jet_pt_min=${pt}  back_to_back_pi_fraction=${frac}  vz_cut_cm=${vz}  coneR=${cone}  iso=${iso_tags[$iso_idx]}  uepipe=${uepipe}"
+        say "  first-N list : ${tmp}"
+        say "  first line   : ${first_line}"
+        say "  last line    : ${last_line}"
+        say "  out ROOT     : ${out_root_preview}"
+        say "  wrapper env  : RJ_VERBOSITY=${RJV} RJ_CONFIG_YAML=${yaml_override}"
+        say "  wrapper args : sample=${SIM_SAMPLE} dataset=${DATASET} mode=LOCAL nevents=${nevt_this} chunk=1 dest=${DEST_BASE}"
+        find "${DEST_BASE}/${SIM_SAMPLE}" -type f -name "*LOCALSTITCHTEST*.root" -delete 2>/dev/null || true
+        say "Invoking wrapper locally..."
+
+        RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt_this" 1 NONE "$DEST_BASE"
+        [[ -s "$out_root_preview" ]] || { err "Expected output ROOT was not produced: $out_root_preview"; exit 80; }
+
+        case "$SIM_SAMPLE" in
+          run28_photonjet5)  stitch_out5="$out_root_preview" ;;
+          run28_photonjet10) stitch_out10="$out_root_preview" ;;
+          run28_photonjet20) stitch_out20="$out_root_preview" ;;
+        esac
+        echo
+      done
+
+      [[ -s "$stitch_out5" && -s "$stitch_out10" && -s "$stitch_out20" ]] || {
+        err "Missing one or more localSTITCHtest outputs:"
+        err "  photonjet5 : ${stitch_out5:-missing}"
+        err "  photonjet10: ${stitch_out10:-missing}"
+        err "  photonjet20: ${stitch_out20:-missing}"
+        exit 81
+      }
+
+      diagnostic_log="${DEST_BASE}/localSTITCHtest_diagnostics_${nevt}perfile_${nfiles}files.log"
+      root_arg="${diagnostic_macro}(\"${stitch_out5}\",\"${stitch_out10}\",\"${stitch_out20}\",${target_raw})"
+      final_root_arg="$root_arg"
+      final_diagnostic_log="$diagnostic_log"
+
+      say "Running pp stitch diagnostic pseudo-merge..."
+      say "  macro : ${diagnostic_macro}"
+      say "  log   : ${diagnostic_log}"
+      mkdir -p "$(dirname "$diagnostic_log")"
+
+      if [[ -n "${RJ_ROOT_CMD:-}" ]]; then
+        ${RJ_ROOT_CMD} -l -b -q "$root_arg" 2>&1 | tee "$diagnostic_log"
+      else
+        need_cmd root
+        root -l -b -q "$root_arg" 2>&1 | tee "$diagnostic_log"
+      fi
+
+      if grep -q '^LOCALSTITCHTEST_STATUS=PASS$' "$diagnostic_log"; then
+        status="PASS"
+        say "localSTITCHtest reached diagnostic target with ${nfiles} file line(s) per sample."
+        break
+      fi
+
+      status="NEED_MORE_STATS"
+      if (( nfiles < max_files )); then
+        warn "Diagnostic target not reached with ${nfiles} file line(s); trying $((nfiles + 1)) file line(s)."
+      fi
+    done
+
+    say "localSTITCHtest complete with status=${status}."
+    say "Rerun just the final diagnostic summary with:"
+    say "  root -l -b -q '${final_root_arg}'"
+    say "Final diagnostic log:"
+    say "  ${final_diagnostic_log}"
     exit 0
     ;;
 

@@ -408,6 +408,54 @@ namespace
     kPhoton20 = 20
   };
 
+  enum class PPStitchDiagVariant : std::size_t
+  {
+    kG4Stored = 0,
+    kHepMCParent = 1,
+    kHepMCParentStable = 2,
+    kHepMCAnyPhoton = 3,
+    kG4NoEmbed = 4
+  };
+
+  static constexpr std::array<PPStitchDiagVariant, 5> kPPStitchDiagVariants = {
+      PPStitchDiagVariant::kG4Stored,
+      PPStitchDiagVariant::kHepMCParent,
+      PPStitchDiagVariant::kHepMCParentStable,
+      PPStitchDiagVariant::kHepMCAnyPhoton,
+      PPStitchDiagVariant::kG4NoEmbed
+  };
+
+  inline std::size_t ppStitchDiagIndex(const PPStitchDiagVariant v)
+  {
+    return static_cast<std::size_t>(v);
+  }
+
+  inline const char* ppStitchDiagKey(const PPStitchDiagVariant v)
+  {
+    switch (v)
+    {
+      case PPStitchDiagVariant::kG4Stored:          return "g4Stored";
+      case PPStitchDiagVariant::kHepMCParent:       return "hepmcParent";
+      case PPStitchDiagVariant::kHepMCParentStable: return "hepmcParentStable";
+      case PPStitchDiagVariant::kHepMCAnyPhoton:    return "hepmcAnyPhoton";
+      case PPStitchDiagVariant::kG4NoEmbed:         return "g4NoEmbed";
+      default:                                      return "unknown";
+    }
+  }
+
+  inline const char* ppStitchDiagTitle(const PPStitchDiagVariant v)
+  {
+    switch (v)
+    {
+      case PPStitchDiagVariant::kG4Stored:          return "G4 stored truth photon";
+      case PPStitchDiagVariant::kHepMCParent:       return "HepMC photon, parent |pdg| 1-22";
+      case PPStitchDiagVariant::kHepMCParentStable: return "HepMC stable photon, parent |pdg| 1-22";
+      case PPStitchDiagVariant::kHepMCAnyPhoton:    return "HepMC any photon";
+      case PPStitchDiagVariant::kG4NoEmbed:         return "G4 stored photon, no embed requirement";
+      default:                                      return "unknown stitch variant";
+    }
+  }
+
   inline std::string lowerCopy(std::string s)
   {
     std::transform(s.begin(), s.end(), s.begin(),
@@ -536,7 +584,8 @@ namespace
   }
 
   double ppg12MaxStoredTruthPhotonPt(PHCompositeNode* topNode,
-                                     PHG4TruthInfoContainer* truthInfo)
+                                     PHG4TruthInfoContainer* truthInfo,
+                                     const bool requireEmbed = true)
   {
     if (!truthInfo && topNode)
     {
@@ -553,7 +602,7 @@ namespace
     {
       const PHG4Particle* p = truthItr->second;
       if (!p) continue;
-      if (truthInfo->isEmbeded(p->get_track_id()) < 1) continue;
+      if (requireEmbed && truthInfo->isEmbeded(p->get_track_id()) < 1) continue;
       if (p->get_pid() != 22) continue;
 
       const double px = p->get_px();
@@ -573,6 +622,84 @@ namespace
     }
 
     return maxPt;
+  }
+
+  double ppHepMCFilterPhotonPt(PHCompositeNode* topNode,
+                               const bool requireParent,
+                               const bool requireStable)
+  {
+    PHHepMCGenEventMap* hepmcmap = findNode::getClass<PHHepMCGenEventMap>(topNode, "PHHepMCGenEventMap");
+    PHHepMCGenEvent* hepmc = nullptr;
+    HepMC::GenEvent* evt = nullptr;
+
+    if (hepmcmap)
+    {
+      hepmc = hepmcmap->get(0);
+      if (!hepmc) hepmc = hepmcmap->get(1);
+      if (!hepmc && !hepmcmap->empty()) hepmc = hepmcmap->begin()->second;
+      if (hepmc) evt = hepmc->getEvent();
+    }
+    if (!evt) return -1.0;
+
+    double maxPt = -1.0;
+    for (auto it = evt->particles_begin(); it != evt->particles_end(); ++it)
+    {
+      const HepMC::GenParticle* p = *it;
+      if (!p) continue;
+      if (p->pdg_id() != 22) continue;
+      if (requireStable && p->status() != 1) continue;
+
+      const double pt = std::hypot(p->momentum().px(), p->momentum().py());
+      const double eta = p->momentum().pseudoRapidity();
+      if (!std::isfinite(pt) || !std::isfinite(eta) || pt <= 0.0) continue;
+      if (eta < -1.5 || eta > 1.5) continue;
+
+      if (requireParent)
+      {
+        const HepMC::GenVertex* vtx = p->production_vertex();
+        if (!vtx) continue;
+
+        bool parentOk = false;
+        for (auto inItr = vtx->particles_in_const_begin(); inItr != vtx->particles_in_const_end(); ++inItr)
+        {
+          const HepMC::GenParticle* parent = *inItr;
+          if (!parent) continue;
+
+          const int absParentId = std::abs(parent->pdg_id());
+          if (absParentId >= 1 && absParentId <= 22)
+          {
+            parentOk = true;
+            break;
+          }
+        }
+        if (!parentOk) continue;
+      }
+
+      if (pt > maxPt) maxPt = pt;
+    }
+
+    return maxPt;
+  }
+
+  double ppStitchDiagPhotonPt(PHCompositeNode* topNode,
+                              PHG4TruthInfoContainer* truthInfo,
+                              const PPStitchDiagVariant variant)
+  {
+    switch (variant)
+    {
+      case PPStitchDiagVariant::kG4Stored:
+        return ppg12MaxStoredTruthPhotonPt(topNode, truthInfo, true);
+      case PPStitchDiagVariant::kHepMCParent:
+        return ppHepMCFilterPhotonPt(topNode, true, false);
+      case PPStitchDiagVariant::kHepMCParentStable:
+        return ppHepMCFilterPhotonPt(topNode, true, true);
+      case PPStitchDiagVariant::kHepMCAnyPhoton:
+        return ppHepMCFilterPhotonPt(topNode, false, false);
+      case PPStitchDiagVariant::kG4NoEmbed:
+        return ppg12MaxStoredTruthPhotonPt(topNode, truthInfo, false);
+      default:
+        return -1.0;
+    }
   }
 
   inline void getDoNotScaleEventVectors(const Gl1Packet* gl1Packet,
@@ -2402,21 +2529,20 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
   /* ------------------------------------------------------------------ */
   PPG12PhotonSlice ppPhotonSlice = PPG12PhotonSlice::kNone;
   bool ppPhotonSliceContext = false;
+  m_ppStitchDiagContext = false;
+  m_ppStitchDiagKeep.fill(false);
+  m_ppStitchDiagPhotonPt.fill(-1.0);
   if (m_isSim && !m_isAuAu)
   {
     ppPhotonSlice = ppg12PhotonSliceFromContext(Outfile);
     ppPhotonSliceContext = (ppPhotonSlice != PPG12PhotonSlice::kNone);
+    m_ppStitchDiagContext = ppPhotonSliceContext;
 
     if (ppPhotonSliceContext)
     {
       double stitchLo = std::numeric_limits<double>::quiet_NaN();
       double stitchHi = std::numeric_limits<double>::quiet_NaN();
       const bool haveWindow = ppg12PhotonSliceWindow(ppPhotonSlice, stitchLo, stitchHi);
-      const double maxPhotonPt = ppg12MaxStoredTruthPhotonPt(topNode, m_truthInfo);
-      const bool haveTruth = (maxPhotonPt >= 0.0);
-      const bool passStitch = haveWindow && haveTruth &&
-                                (maxPhotonPt >= stitchLo) &&
-                                (maxPhotonPt < stitchHi);
 
       auto bookStitch1F = [&](const std::string& name,
                               const std::string& title,
@@ -2438,6 +2564,39 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         dir->cd();
 
         auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
+        h->Sumw2();
+        h->SetDirectory(dir);
+        H[name] = h;
+
+        if (prevDir) prevDir->cd();
+        return h;
+      };
+
+      auto bookStitch2F = [&](const std::string& name,
+                              const std::string& title,
+                              int nxbins,
+                              double xmin,
+                              double xmax,
+                              int nybins,
+                              double ymin,
+                              double ymax) -> TH2F*
+      {
+        HistMap& H = qaHistogramsByTrigger["SIM"];
+        if (auto it = H.find(name); it != H.end())
+        {
+          return dynamic_cast<TH2F*>(it->second);
+        }
+
+        TDirectory* dir = (out ? out->GetDirectory("SIM") : nullptr);
+        if (!dir && out) dir = out->mkdir("SIM");
+        if (!dir) return nullptr;
+
+        TDirectory* prevDir = gDirectory;
+        dir->cd();
+
+        auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
+                                          nxbins, xmin, xmax,
+                                          nybins, ymin, ymax);
         h->Sumw2();
         h->SetDirectory(dir);
         H[name] = h;
@@ -2473,6 +2632,88 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         return h;
       };
 
+      std::array<bool, 5> diagHaveTruth{};
+      std::array<bool, 5> diagPass{};
+      std::array<double, 5> diagPt{};
+      diagPt.fill(-1.0);
+      bool passAnyDiag = false;
+
+      for (std::size_t iv = 0; iv < kPPStitchDiagVariants.size(); ++iv)
+      {
+        const PPStitchDiagVariant variant = kPPStitchDiagVariants[iv];
+        const std::string key = ppStitchDiagKey(variant);
+        const std::string titleKey = ppStitchDiagTitle(variant);
+
+        diagPt[iv] = ppStitchDiagPhotonPt(topNode, m_truthInfo, variant);
+        diagHaveTruth[iv] = (diagPt[iv] >= 0.0);
+        diagPass[iv] = haveWindow && diagHaveTruth[iv] &&
+                       (diagPt[iv] >= stitchLo) &&
+                       (diagPt[iv] < stitchHi);
+
+        m_ppStitchDiagPhotonPt[iv] = diagPt[iv];
+        m_ppStitchDiagKeep[iv] = diagPass[iv];
+        passAnyDiag = passAnyDiag || diagPass[iv];
+
+        const std::string prefix = "h_ppPhotonStitch_" + key;
+        if (auto* hAll = bookStitch1F(prefix + "_maxPhotonPt_all",
+                                      (prefix + "_maxPhotonPt_all;" + titleKey + " p_{T}^{#gamma} [GeV];Events").c_str(),
+                                      1000, 0.0, 100.0))
+        {
+          if (diagHaveTruth[iv]) hAll->Fill(diagPt[iv]);
+          bumpHistFill("SIM", hAll->GetName());
+        }
+
+        if (diagPass[iv])
+        {
+          if (auto* hKept = bookStitch1F(prefix + "_maxPhotonPt_kept",
+                                         (prefix + "_maxPhotonPt_kept;" + titleKey + " p_{T}^{#gamma} [GeV];Events").c_str(),
+                                         1000, 0.0, 100.0))
+          {
+            hKept->Fill(diagPt[iv]);
+            bumpHistFill("SIM", hKept->GetName());
+          }
+        }
+        else
+        {
+          if (auto* hRejected = bookStitch1F(prefix + "_maxPhotonPt_rejected",
+                                             (prefix + "_maxPhotonPt_rejected;" + titleKey + " p_{T}^{#gamma} [GeV];Events").c_str(),
+                                             1000, 0.0, 100.0))
+          {
+            if (diagHaveTruth[iv]) hRejected->Fill(diagPt[iv]);
+            bumpHistFill("SIM", hRejected->GetName());
+          }
+        }
+
+        if (auto* hDecision = bookStitch1I(prefix + "_decision",
+                                           (prefix + "_decision;decision;Events").c_str(),
+                                           4, 0.5, 4.5))
+        {
+          hDecision->GetXaxis()->SetBinLabel(1, "kept");
+          hDecision->GetXaxis()->SetBinLabel(2, "rejected");
+          hDecision->GetXaxis()->SetBinLabel(3, "missing truth");
+          hDecision->GetXaxis()->SetBinLabel(4, "unknown sample");
+          hDecision->Fill(diagPass[iv] ? 1 : (diagHaveTruth[iv] ? 2 : 3));
+          bumpHistFill("SIM", hDecision->GetName());
+        }
+
+        if (auto* hSample = bookStitch1I(prefix + "_sample",
+                                         (prefix + "_sample;sample;Events").c_str(),
+                                         3, 0.5, 3.5))
+        {
+          hSample->GetXaxis()->SetBinLabel(1, "PhotonJet5");
+          hSample->GetXaxis()->SetBinLabel(2, "PhotonJet10");
+          hSample->GetXaxis()->SetBinLabel(3, "PhotonJet20");
+          hSample->Fill(ppg12PhotonSliceBin(ppPhotonSlice));
+          bumpHistFill("SIM", hSample->GetName());
+        }
+      }
+
+      const std::size_t g4Idx = ppStitchDiagIndex(PPStitchDiagVariant::kG4Stored);
+      const double maxPhotonPt = diagPt[g4Idx];
+      const bool haveTruth = diagHaveTruth[g4Idx];
+      const bool passStitch = diagPass[g4Idx];
+
+      // Backward-compatible histogram names used by the quick plotting macros.
       if (auto* hAll = bookStitch1F("h_ppPhotonStitch_maxPhotonPt_all",
                                     "h_ppPhotonStitch_maxPhotonPt_all;max stored truth p_{T}^{#gamma} [GeV];Events",
                                     1000, 0.0, 100.0))
@@ -2480,7 +2721,6 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         if (haveTruth) hAll->Fill(maxPhotonPt);
         bumpHistFill("SIM", hAll->GetName());
       }
-
       if (passStitch)
       {
         if (auto* hKept = bookStitch1F("h_ppPhotonStitch_maxPhotonPt_kept",
@@ -2491,17 +2731,13 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
           bumpHistFill("SIM", hKept->GetName());
         }
       }
-      else
+      else if (auto* hRejected = bookStitch1F("h_ppPhotonStitch_maxPhotonPt_rejected",
+                                              "h_ppPhotonStitch_maxPhotonPt_rejected;max stored truth p_{T}^{#gamma} [GeV];Events",
+                                              1000, 0.0, 100.0))
       {
-        if (auto* hRejected = bookStitch1F("h_ppPhotonStitch_maxPhotonPt_rejected",
-                                           "h_ppPhotonStitch_maxPhotonPt_rejected;max stored truth p_{T}^{#gamma} [GeV];Events",
-                                           1000, 0.0, 100.0))
-        {
-          if (haveTruth) hRejected->Fill(maxPhotonPt);
-          bumpHistFill("SIM", hRejected->GetName());
-        }
+        if (haveTruth) hRejected->Fill(maxPhotonPt);
+        bumpHistFill("SIM", hRejected->GetName());
       }
-
       if (auto* hDecision = bookStitch1I("h_ppPhotonStitch_decision",
                                          "h_ppPhotonStitch_decision;decision;Events",
                                          4, 0.5, 4.5))
@@ -2513,7 +2749,6 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         hDecision->Fill(passStitch ? 1 : (haveTruth ? 2 : 3));
         bumpHistFill("SIM", hDecision->GetName());
       }
-
       if (auto* hSample = bookStitch1I("h_ppPhotonStitch_sample",
                                        "h_ppPhotonStitch_sample;sample;Events",
                                        3, 0.5, 3.5))
@@ -2525,10 +2760,29 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         bumpHistFill("SIM", hSample->GetName());
       }
 
-      if (!passStitch)
+      auto fillCompare2D = [&](PPStitchDiagVariant yVar)
+      {
+        const std::size_t yIdx = ppStitchDiagIndex(yVar);
+        if (!diagHaveTruth[g4Idx] || !diagHaveTruth[yIdx]) return;
+
+        const std::string name = std::string("h2_ppPhotonStitch_") + ppStitchDiagKey(yVar) + "_vs_g4Stored";
+        const std::string title = name + ";G4 stored truth p_{T}^{#gamma} [GeV];" +
+                                  ppStitchDiagTitle(yVar) + std::string(" p_{T}^{#gamma} [GeV]");
+        if (auto* h2 = bookStitch2F(name, title, 250, 0.0, 50.0, 250, 0.0, 50.0))
+        {
+          h2->Fill(diagPt[g4Idx], diagPt[yIdx]);
+          bumpHistFill("SIM", h2->GetName());
+        }
+      };
+      fillCompare2D(PPStitchDiagVariant::kHepMCParent);
+      fillCompare2D(PPStitchDiagVariant::kHepMCParentStable);
+      fillCompare2D(PPStitchDiagVariant::kHepMCAnyPhoton);
+      fillCompare2D(PPStitchDiagVariant::kG4NoEmbed);
+
+      if (!passAnyDiag)
       {
         LOG(5, CLR_YELLOW,
-            "    [pp photon stitch] reject event"
+            "    [pp photon stitch diag] reject event: no diagnostic variant keeps it"
             << " | sample=" << ppg12PhotonSliceName(ppPhotonSlice)
             << " | max stored truth pT^gamma=" << std::fixed << std::setprecision(3) << maxPhotonPt
             << " | keep window=[" << stitchLo << ", " << stitchHi << "]");
@@ -2536,9 +2790,10 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
       }
 
       LOG(6, CLR_GREEN,
-          "    [pp photon stitch] keep event"
+          "    [pp photon stitch diag] process event"
           << " | sample=" << ppg12PhotonSliceName(ppPhotonSlice)
-          << " | max stored truth pT^gamma=" << std::fixed << std::setprecision(3) << maxPhotonPt
+          << " | g4Stored pT^gamma=" << std::fixed << std::setprecision(3) << maxPhotonPt
+          << " | g4Keep=" << passStitch
           << " | keep window=[" << stitchLo << ", " << stitchHi << "]");
     }
     else
@@ -2558,7 +2813,7 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
   {
     m_mcVertexWeight = ppg12TruthVertexWeight(m_vertexReweightH, m_truthVz);
     m_mcEventWeight = m_mcVertexWeight;
-    if (m_mcEventWeight <= 0.0)
+    if (m_mcEventWeight < 0.0)
     {
       return Fun4AllReturnCodes::ABORTEVENT;
     }
@@ -5362,6 +5617,59 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
     return;
   }
 
+  const TruthSignalPhotonMap truthSignalByTrackIdForDiag = buildPPG12TruthSignalPhotonMap(evt);
+
+  auto getOrBookPPStitchFlowHist = [&](const std::string& trig,
+                                       const std::string& name,
+                                       const std::string& xAxisTitle) -> TH1F*
+  {
+    if (trig.empty() || name.empty()) return nullptr;
+    if (m_gammaPtBins.size() < 2) return nullptr;
+
+    auto& H = qaHistogramsByTrigger[trig];
+    if (auto it = H.find(name); it != H.end())
+    {
+      if (auto* h = dynamic_cast<TH1F*>(it->second)) return h;
+      return nullptr;
+    }
+
+    if (!out || !out->IsOpen()) return nullptr;
+
+    TDirectory* const prevDir = gDirectory;
+    TDirectory* dir = out->GetDirectory(trig.c_str());
+    if (!dir) dir = out->mkdir(trig.c_str());
+    if (!dir)
+    {
+      if (prevDir) prevDir->cd();
+      return nullptr;
+    }
+
+    dir->cd();
+    const int nb = static_cast<int>(m_gammaPtBins.size()) - 1;
+    const std::string title = name + ";" + xAxisTitle + ";raw entries";
+    auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nb, m_gammaPtBins.data());
+    if (h) H[name] = h;
+    if (prevDir) prevDir->cd();
+    return h;
+  };
+
+  auto fillPPStitchFlow = [&](const std::string& base,
+                              const double pt,
+                              const std::string& xAxisTitle)
+  {
+    if (!(m_isSim && !m_isAuAu && m_ppStitchDiagContext)) return;
+    if (!std::isfinite(pt)) return;
+
+    for (const auto& trigShort : activeTrig)
+    {
+      if (auto* h = getOrBookPPStitchFlowHist(trigShort, base, xAxisTitle))
+      {
+        h->TH1F::Fill(pt, 1.0);
+        bumpHistFill(trigShort, base);
+      }
+    }
+  };
+
   int nTruthSig        = 0;
   int nTruthSigMatched = 0;
 
@@ -5404,6 +5712,27 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
     if (!passTruthIso) continue;
     ++nTruthSig;
 
+    const double truthPtForDiag = std::hypot(p->momentum().px(), p->momentum().py());
+    fillPPStitchFlow("h_ppStitchDiag_flow_truthIso_truthPt_noVtxW",
+                     truthPtForDiag,
+                     "truth p_{T}^{#gamma} [GeV]");
+
+    bool truthHasMatchedG4ForDiag = false;
+    for (const auto& kv : truthSignalByTrackIdForDiag)
+    {
+      if (kv.second.barcode == p->barcode())
+      {
+        truthHasMatchedG4ForDiag = true;
+        break;
+      }
+    }
+    if (truthHasMatchedG4ForDiag)
+    {
+      fillPPStitchFlow("h_ppStitchDiag_flow_truthIsoG4_truthPt_noVtxW",
+                       truthPtForDiag,
+                       "truth p_{T}^{#gamma} [GeV]");
+    }
+
     const RawCluster* recoMatch = nullptr;
     double rPt = 0.0, rEta = 0.0, rPhi = 0.0, drBest = 1e9;
     float  eBest = -1.0f;
@@ -5420,6 +5749,9 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
       continue;
     }
     ++nTruthSigMatched;
+    fillPPStitchFlow("h_ppStitchDiag_flow_recoMatched_recoPt_noVtxW",
+                     rPt,
+                     "matched reco p_{T}^{#gamma} [GeV]");
 
     const auto* recoPho = dynamic_cast<const PhotonClusterv1*>(recoMatch);
     if (!recoPho)
@@ -5458,6 +5790,9 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
       }
       continue;
     }
+    fillPPStitchFlow("h_ppStitchDiag_flow_validEiso_recoPt_noVtxW",
+                     rPt,
+                     "matched reco p_{T}^{#gamma} [GeV]");
 
     // reco isolation distribution for TRUTH-ISOLATED signal photons (direct+frag),
     // independent of reco shower-shape classification.
@@ -5473,6 +5808,43 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
         {
           hIso->Fill(eiso_et);
           bumpHistFill(trigShort, std::string("h_EisoReco_truthSigMatched") + slice_sig);
+        }
+
+        if (m_isSim && !m_isAuAu && m_ppStitchDiagContext)
+        {
+          for (const PPStitchDiagVariant variant : kPPStitchDiagVariants)
+          {
+            const std::size_t iv = ppStitchDiagIndex(variant);
+            if (iv >= m_ppStitchDiagKeep.size() || !m_ppStitchDiagKeep[iv]) continue;
+
+            const std::string key = ppStitchDiagKey(variant);
+
+            const std::string baseWeighted =
+                std::string("h_EisoReco_truthSigMatched_stitch_") + key + "_vtxW";
+            if (auto* hVar = getOrBookIsoPartHist(trigShort,
+                                                  baseWeighted,
+                                                  "E_{T}^{iso,reco} [GeV] (truth iso signal match, stitch variant, vtx weighted)",
+                                                  ptIdx_sig, effCentIdx_sig))
+            {
+              hVar->Fill(eiso_et);
+              bumpHistFill(trigShort, baseWeighted + slice_sig);
+            }
+
+            const std::string baseUnweighted =
+                std::string("h_EisoReco_truthSigMatched_stitch_") + key + "_noVtxW";
+            if (auto* hVarNoVtx = getOrBookIsoPartHist(trigShort,
+                                                       baseUnweighted,
+                                                       "E_{T}^{iso,reco} [GeV] (truth iso signal match, stitch variant, no vtx weight)",
+                                                       ptIdx_sig, effCentIdx_sig))
+            {
+              hVarNoVtx->TH1F::Fill(eiso_et, 1.0);
+              bumpHistFill(trigShort, baseUnweighted + slice_sig);
+            }
+
+            fillPPStitchFlow(std::string("h_ppStitchDiag_flow_stitch_") + key + "_validEiso_recoPt_noVtxW",
+                             rPt,
+                             "matched reco p_{T}^{#gamma} [GeV]");
+          }
         }
       }
     }

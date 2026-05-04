@@ -999,6 +999,14 @@ private:
   double      m_mcVertexWeight = 1.0;
   double      m_mcEventWeight = 1.0;
 
+  // pp PhotonJet5/10/20 stitching diagnostics.  These are intentionally
+  // parallel to the nominal event weight so a debug production can compare
+  // stitch-variable choices and vertex weighting from the same output files.
+  static constexpr std::size_t kPPStitchDiagVariantCount = 5;
+  bool m_ppStitchDiagContext = false;
+  std::array<bool, kPPStitchDiagVariantCount>   m_ppStitchDiagKeep{};
+  std::array<double, kPPStitchDiagVariantCount> m_ppStitchDiagPhotonPt{};
+
   // Centrality
   int m_centBin = -1;                 // 0..99 (Au+Au), or -1 in pp
   std::vector<int> m_centEdges;       // centrality bin edges, e.g. {0,10,20,...,100}
