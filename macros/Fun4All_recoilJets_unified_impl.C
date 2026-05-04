@@ -4025,6 +4025,16 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         }
         return os.str();
     };
+    auto joinInts = [](const std::vector<int>& vals) -> std::string
+    {
+        std::ostringstream os;
+        for (std::size_t i = 0; i < vals.size(); ++i)
+        {
+            if (i) os << ',';
+            os << vals[i];
+        }
+        return os.str();
+    };
     
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PRESELECTION_VARIANT",
                                                "RJ_PRESELECTION_VARIANT",
