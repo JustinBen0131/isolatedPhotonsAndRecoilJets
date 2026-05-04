@@ -316,6 +316,11 @@ PP25_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/pp25"
 AA_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/auau"
 OO_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/oo"
 
+SCALED_TRIGGER_RUNLIST="${BASE}/dst_lists_auau/scaledEffRuns_MBD_NS_geq_2_vtx_lt_150__Pho10_12.list"
+SCALED_TRIGGER_CONFIG_SRC="${BASE}/dst_lists_auau/trigger_scaled_efficiency_studies_auau.txt"
+SCALED_TRIGGER_CONFIG_EXPECTED="${BASE}/dst_lists_auau/scaledEffConfig_MBD_NS_geq_2_vtx_lt_150__Pho10_12.txt"
+SCALED_TRIGGER_OUTPUT_SUFFIX="${RJ_SCALED_TRIGGER_OUTPUT_SUFFIX:-_scaledTriggerStudy}"
+
 # ------------------------ Defaults -------------------------
 GROUP_SIZE=7         # files per Condor job (never mixes runs)
 MAX_JOBS=50000      # job budget per round file
@@ -1491,6 +1496,9 @@ submit_condor() {
   local exe_to_use="${BULK_FROZEN_EXE:-${EXE}}"
   local macro_env=""
   [[ -n "${BULK_FROZEN_MACRO:-}" ]] && macro_env=";RJ_MACRO_PATH=${BULK_FROZEN_MACRO}"
+  local submit_extra_env="${RJ_SUBMIT_EXTRA_ENV:-}"
+  [[ -n "$submit_extra_env" && "$submit_extra_env" != \;* ]] && submit_extra_env=";${submit_extra_env}"
+  local request_memory="${RJ_REQUEST_MEMORY:-2000MB}"
   mkdir -p "$submit_stage_dir"
   say "Submit chunk-list stage: ${submit_stage_dir}"
 
@@ -1503,7 +1511,7 @@ submit_condor() {
   cp -f "$yaml_src" "$yaml_snap"
   say "YAML snapshot: ${yaml_snap}"
   say "Submit context: source=${source}  runs=${source_runs:-0}  groupSize=${GROUP_SIZE}  firstChunk=${first_chunk:-none}"
-  say "Submit environment: RJ_DATASET=${DATASET}  RJ_VERBOSITY=0  RJ_CONFIG_YAML=${yaml_snap}${macro_env}"
+  say "Submit environment: RJ_DATASET=${DATASET}  RJ_VERBOSITY=0  RJ_CONFIG_YAML=${yaml_snap}${macro_env}${submit_extra_env}"
 
   cat > "$sub" <<SUB
 universe      = vanilla
@@ -1513,12 +1521,12 @@ getenv        = True
 log           = ${LOG_DIR}/job.\$(Cluster).\$(Process).log
 output        = ${OUT_DIR}/job.\$(Cluster).\$(Process).out
 error         = ${ERR_DIR}/job.\$(Cluster).\$(Process).err
-request_memory= 2000MB
+request_memory= ${request_memory}
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
 # Force dataset & quiet macro on Condor (YAML frozen at submit time):
-environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${yaml_snap}${macro_env}
+environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${yaml_snap}${macro_env}${submit_extra_env}
 SUB
 
   local queued=0
@@ -1918,7 +1926,14 @@ auau_bdt_run_local() {
     "$0" isAuAu local "$AUAU_BDT_LOCAL_EVENTS" "VERBOSE=${AUAU_BDT_LOCAL_VERBOSITY}"
     npb_data_manifest="${local_root}/npb_data_training_roots.list"
     auau_bdt_collect_roots "$data_root" "$npb_data_manifest"
-    auau_ml_validate_manifest_tree "$npb_data_manifest" "AuAuPhotonIDTrainingTree" "AuAu data NPB rows" "${local_root}/qa_npb_data_tree_validation.txt"
+    local npb_data_report="${local_root}/qa_npb_data_tree_validation.txt"
+    auau_ml_validate_manifest_tree "$npb_data_manifest" "AuAuPhotonIDTrainingTree" "AuAu data NPB rows" "$npb_data_report"
+    local npb_data_entries
+    npb_data_entries="$(awk -F= '/^entries_total=/{print $2}' "$npb_data_report" 2>/dev/null | tail -n 1)"
+    if [[ "${npb_data_entries:-0}" == "0" ]]; then
+      warn "AuAu data NPB extraction produced zero tagged rows. Skipping NPB training for this local smoke pass."
+      npb_data_manifest=""
+    fi
   fi
 
   if [[ -n "$npb_data_manifest" ]]; then
@@ -2315,8 +2330,17 @@ auau_ml_run_all_local() {
     "$0" isAuAu local "$AUAU_ML_LOCAL_EVENTS" "VERBOSE=${AUAU_ML_LOCAL_VERBOSITY}"
     npb_data_manifest="${run_base}/manifests/npb_data_training_roots.list"
     auau_bdt_collect_roots "$data_root" "$npb_data_manifest"
-    auau_ml_validate_manifest_tree "$npb_data_manifest" "AuAuPhotonIDTrainingTree" "AuAu data NPB rows" "${run_base}/qa/npb_data_tree_validation.txt"
-    RJ_AUAU_BDT_NPB_INPUTS="@${npb_data_manifest}" auau_bdt_train_from_manifest "npb" "$tight_manifest" "$npb_model_dir"
+    local npb_data_report="${run_base}/qa/npb_data_tree_validation.txt"
+    auau_ml_validate_manifest_tree "$npb_data_manifest" "AuAuPhotonIDTrainingTree" "AuAu data NPB rows" "$npb_data_report"
+    local npb_data_entries
+    npb_data_entries="$(awk -F= '/^entries_total=/{print $2}' "$npb_data_report" 2>/dev/null | tail -n 1)"
+    if [[ "${npb_data_entries:-0}" == "0" ]]; then
+      warn "AuAu data NPB extraction produced zero tagged rows. Skipping NPB training/apply for this local smoke pass."
+      npb_data_manifest=""
+      auau_bdt_train_from_manifest "npb" "$tight_manifest" "$npb_model_dir"
+    else
+      RJ_AUAU_BDT_NPB_INPUTS="@${npb_data_manifest}" auau_bdt_train_from_manifest "npb" "$tight_manifest" "$npb_model_dir"
+    fi
   else
     auau_bdt_train_from_manifest "npb" "$tight_manifest" "$npb_model_dir"
   fi
@@ -2431,6 +2455,79 @@ auau_ml_run_all_local() {
   say "    ./scripts/sftp_get_recoiljets_outputs.sh mlIntegrationLatest"
 }
 
+scaled_trigger_prepare_artifacts() {
+  [[ "$DATASET" == "isAuAu" ]] || { err "scaledTriggerStudy is valid only for isAuAu"; exit 2; }
+  [[ -s "$SCALED_TRIGGER_RUNLIST" ]] || {
+    err "Missing scaled-trigger run list: ${SCALED_TRIGGER_RUNLIST}"
+    err "Run first on SDCC: ./scripts/make_dstListsData.sh auau QA scaledTriggerAna"
+    exit 80
+  }
+  [[ -s "$SCALED_TRIGGER_CONFIG_SRC" ]] || {
+    err "Missing scaled-trigger CONFIG table: ${SCALED_TRIGGER_CONFIG_SRC}"
+    err "Run first on SDCC: ./scripts/make_dstListsData.sh auau QA scaledTriggerAna"
+    exit 80
+  }
+  if [[ ! -s "$SCALED_TRIGGER_CONFIG_EXPECTED" ]]; then
+    cp -f "$SCALED_TRIGGER_CONFIG_SRC" "$SCALED_TRIGGER_CONFIG_EXPECTED"
+    say "Created merge config alias: ${SCALED_TRIGGER_CONFIG_EXPECTED}"
+  fi
+}
+
+scaled_trigger_prepare_single_yaml() {
+  local master_yaml="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
+  local -a data_pts data_fracs data_vzs data_cones
+  mapfile -t data_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
+  mapfile -t data_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
+  mapfile -t data_vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
+  mapfile -t data_cones < <( yaml_get_values "coneR" "$master_yaml" )
+  (( ${#data_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
+  (( ${#data_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
+  (( ${#data_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
+  (( ${#data_cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
+
+  build_iso_modes "$master_yaml"
+  read_uepipe_modes "$master_yaml" "$TAG"
+
+  local data_pt="${data_pts[0]}"
+  local data_frac="${data_fracs[0]}"
+  local data_vz="${data_vzs[0]}"
+  local data_cone="${data_cones[0]}"
+  local uepipe="${uepipe_modes[0]}"
+  SCALED_TRIGGER_VZ_CUT="$data_vz"
+
+  local dpt_tag dfrac_tag dvz_tag dcone_tag
+  dpt_tag="jetMinPt$(sim_pt_tag "$data_pt")"
+  dfrac_tag="$(sim_b2b_tag "$data_frac")"
+  dvz_tag="$(sim_vz_tag "$data_vz")"
+  dcone_tag="$(sim_cone_tag "$data_cone")"
+
+  SCALED_TRIGGER_CFG_TAG="${dpt_tag}_${dfrac_tag}_${dvz_tag}_${dcone_tag}_${iso_base_tags[0]}"
+  (( uepipe_in_tag )) && SCALED_TRIGGER_CFG_TAG="${SCALED_TRIGGER_CFG_TAG}_${uepipe}"
+  SCALED_TRIGGER_CFG_TAG="${SCALED_TRIGGER_CFG_TAG}_${iso_selection_tags[0]}"
+  SCALED_TRIGGER_OUTPUT_TAG="${SCALED_TRIGGER_CFG_TAG}${SCALED_TRIGGER_OUTPUT_SUFFIX}"
+
+  SCALED_TRIGGER_YAML="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${SCALED_TRIGGER_CFG_TAG}_scaledTriggerStudy.yaml"
+  mkdir -p "$SIM_YAML_OVERRIDE_DIR"
+  sed -E \
+    -e "s|^([[:space:]]*jet_pt_min:).*|\\1 ${data_pt}|" \
+    -e "s|^([[:space:]]*back_to_back_dphi_min_pi_fraction:).*|\\1 ${data_frac}|" \
+    -e "s|^([[:space:]]*vz_cut_cm:).*|\\1 ${data_vz}|" \
+    -e "s|^([[:space:]]*coneR:).*|\\1 ${data_cone}|" \
+    -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${iso_sliding[0]}|" \
+    -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${iso_fixed[0]}|" \
+    -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${uepipe}|" \
+    -e "s|^([[:space:]]*preselection:).*|\\1 ${iso_preselection[0]}|" \
+    -e "s|^([[:space:]]*tight:).*|\\1 ${iso_tight[0]}|" \
+    -e "s|^([[:space:]]*nonTight:).*|\\1 ${iso_nonTight[0]}|" \
+    "$master_yaml" > "$SCALED_TRIGGER_YAML"
+
+  say "scaledTriggerStudy single config:"
+  say "  cfg_tag       : ${SCALED_TRIGGER_CFG_TAG}"
+  say "  output tag    : ${SCALED_TRIGGER_OUTPUT_TAG}"
+  say "  YAML override : ${SCALED_TRIGGER_YAML}"
+  say "  run list      : ${SCALED_TRIGGER_RUNLIST} ($(grep -cE '^[0-9]+' "$SCALED_TRIGGER_RUNLIST") runs)"
+}
+
 # ------------------------ Parse CLI ------------------------
 [[ $# -ge 1 ]] || usage
 resolve_dataset "$1"
@@ -2448,8 +2545,11 @@ for (( idx=0; idx<${#tokens[@]}; idx++ )); do
     trainTightBDT|trainNPB|trainJetMLResidual|trainMLAll)
       ACTION="$tok"
       ;;
+    scaledTriggerStudy)
+      ACTION="$tok"
+      ;;
     local|condorDoAll|resume)
-      if [[ "$ACTION" == trainTightBDT || "$ACTION" == trainNPB || "$ACTION" == trainJetMLResidual || "$ACTION" == trainMLAll ]]; then
+      if [[ "$ACTION" == trainTightBDT || "$ACTION" == trainNPB || "$ACTION" == trainJetMLResidual || "$ACTION" == trainMLAll || "$ACTION" == scaledTriggerStudy ]]; then
         TRAIN_MODE="$tok"
       else
         ACTION="$tok"
@@ -2504,6 +2604,14 @@ if [[ "$ACTION" == trainTightBDT || "$ACTION" == trainNPB || "$ACTION" == trainJ
   [[ "$DATASET" == "isSimEmbeddedAndInclusive" ]] || { err "${ACTION} is valid only as: $0 isSimEmbeddedAndInclusive ${ACTION} <local|condorDoAll>"; exit 2; }
   [[ -n "$TRAIN_MODE" ]] || TRAIN_MODE="local"
 fi
+if [[ "$ACTION" == "scaledTriggerStudy" ]]; then
+  [[ "$DATASET" == "isAuAu" ]] || { err "scaledTriggerStudy is valid only as: $0 isAuAu scaledTriggerStudy <local|condorDoAll>"; exit 2; }
+  [[ -n "$TRAIN_MODE" ]] || TRAIN_MODE="local"
+  [[ "$TRAIN_MODE" == "local" || "$TRAIN_MODE" == "condorDoAll" ]] || { err "scaledTriggerStudy mode must be local or condorDoAll, got '${TRAIN_MODE}'"; exit 2; }
+  if [[ "${GROUP_SIZE_EXPLICIT:-0}" -eq 0 ]]; then
+    GROUP_SIZE=20
+  fi
+fi
 
 # If a trigger filter is requested, require psql
 if [[ -n "${TRIGGER_BIT}" ]]; then
@@ -2539,6 +2647,63 @@ fi
 
 # ------------------------ Actions --------------------------
 case "$ACTION" in
+  scaledTriggerStudy)
+    scaled_trigger_prepare_artifacts
+    scaled_trigger_prepare_single_yaml
+    export RJ_CONFIG_YAML="$SCALED_TRIGGER_YAML"
+    export RJ_SCALED_TRIGGER_RUNLIST="$SCALED_TRIGGER_RUNLIST"
+    export RJ_SCALED_TRIGGER_STUDY_ONLY=1
+    export RJ_REQUEST_MEMORY="${RJ_SCALED_TRIGGER_REQUEST_MEMORY:-1000MB}"
+    export RJ_SUBMIT_EXTRA_ENV="RJ_SCALED_TRIGGER_STUDY_ONLY=1;RJ_SCALED_TRIGGER_RUNLIST=${SCALED_TRIGGER_RUNLIST};RJ_SCALED_TRIGGER_VZ_MAX_CM=${RJ_SCALED_TRIGGER_VZ_MAX_CM:-${SCALED_TRIGGER_VZ_CUT}}"
+
+    DEST_BASE="${AA_DEST_BASE}/${SCALED_TRIGGER_OUTPUT_TAG}"
+
+    case "$TRAIN_MODE" in
+      local)
+        RJV="10"
+        nevt="$LOCAL_EVENTS"
+        for tok in "${tokens[@]}"; do
+          if [[ "$tok" =~ ^[0-9]+$ ]]; then nevt="$tok"; fi
+          if [[ "$tok" == VERBOSE=* ]]; then RJV="${tok#VERBOSE=}"; fi
+        done
+
+        r8="$(awk 'NF && $1 !~ /^#/ { printf "%08d\n", $1; exit }' "$SCALED_TRIGGER_RUNLIST")"
+        [[ -n "$r8" ]] || { err "No run found in ${SCALED_TRIGGER_RUNLIST}"; exit 81; }
+        mkdir -p "$STAGE_DIR"
+        mapfile -t groups < <( make_groups "$r8" "$GROUP_SIZE" )
+        (( ${#groups[@]} )) || { err "No input groups produced for run ${r8}"; exit 82; }
+        glist="${groups[0]}"
+
+        say "scaledTriggerStudy local smoke test"
+        say "  run          : ${r8}"
+        say "  groupSize    : ${GROUP_SIZE}"
+        say "  list chunk   : ${glist}"
+        say "  events       : ${nevt}"
+        say "  DEST_BASE    : ${DEST_BASE}"
+        say "  memory target: local run (condor default would be ${RJ_REQUEST_MEMORY})"
+        say "Invoking wrapper locally..."
+
+        RJ_DATASET="$DATASET" RJ_VERBOSITY="$RJV" \
+        RJ_CONFIG_YAML="$SCALED_TRIGGER_YAML" \
+        RJ_SCALED_TRIGGER_STUDY_ONLY=1 \
+        RJ_SCALED_TRIGGER_RUNLIST="$SCALED_TRIGGER_RUNLIST" \
+        RJ_SCALED_TRIGGER_VZ_MAX_CM="${RJ_SCALED_TRIGGER_VZ_MAX_CM:-${SCALED_TRIGGER_VZ_CUT}}" \
+        bash "$EXE" "$r8" "$glist" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
+        ;;
+
+      condorDoAll)
+        cleanup_bulk_snapshots_for_tag
+        create_pipeline_snapshot "auau" "$(date +%Y%m%d_%H%M%S)"
+        say "scaledTriggerStudy condorDoAll"
+        say "  runs         : $(grep -cE '^[0-9]+' "$SCALED_TRIGGER_RUNLIST")"
+        say "  groupSize    : ${GROUP_SIZE}"
+        say "  request mem  : ${RJ_REQUEST_MEMORY}"
+        say "  DEST_BASE    : ${DEST_BASE}"
+        submit_condor "$SCALED_TRIGGER_RUNLIST" ""
+        ;;
+    esac
+    ;;
+
   trainTightBDT|trainNPB)
     task="tight"
     [[ "$ACTION" == "trainNPB" ]] && task="npb"

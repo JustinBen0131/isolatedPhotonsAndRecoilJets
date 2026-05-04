@@ -1038,10 +1038,22 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
   m_jetMLTrainingTreeEnabled = envToBool("RJ_JET_ML_TRAINING_TREE", false);
     m_jetMLTrainingTreeMaxEntries = envToLL("RJ_JET_ML_TRAINING_TREE_MAX_ENTRIES", 0);
     m_jetMLCorrectionEnabled = envToBool("RJ_JET_ML_CORRECTION_ENABLED", false);
-    m_jetMLModelFile = envOrDefault("RJ_JET_ML_MODEL_FILE", "");
-    m_jetMLFeatures = envToStringList("RJ_JET_ML_FEATURES",
+  m_jetMLModelFile = envOrDefault("RJ_JET_ML_MODEL_FILE", "");
+  m_jetMLFeatures = envToStringList("RJ_JET_ML_FEATURES",
                                       {"reco_areaSub_pt", "raw_pt", "jet_area",
                                        "jet_eta", "centrality", "R"});
+
+  // Environment-set training modes are first visible once the first event is
+  // processed. Book the trees here as well as lazily on fill so zero-row
+  // diagnostic extractions still write an explicit empty tree.
+  if (m_auauBDTTrainingTreeEnabled && !m_auauBDTTrainingTree)
+  {
+    initAuAuBDTTrainingTree();
+  }
+  if (m_jetMLTrainingTreeEnabled && !m_jetMLTrainingTree)
+  {
+    initJetMLTrainingTree();
+  }
     
   m_clus              = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC");
   m_clus_nocorr       = nullptr;
