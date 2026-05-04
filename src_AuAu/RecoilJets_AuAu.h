@@ -88,6 +88,7 @@ class RawCluster;
 class PhotonClusterv1;
 class Jet;
 class MbdPmtContainer;
+class MbdOut;
 
 // g4eval: used for truth↔reco association of EMCal clusters
 class CaloRawClusterEval;
@@ -213,6 +214,7 @@ public:
         double w32            = 0.0;
         double w52            = 0.0;
         double w72            = 0.0;
+        double mean_time      = std::numeric_limits<double>::quiet_NaN();
         double npb_score      = std::numeric_limits<double>::quiet_NaN();
         double tight_bdt_score = std::numeric_limits<double>::quiet_NaN();
         double auau_npb_score = std::numeric_limits<double>::quiet_NaN();
@@ -764,7 +766,17 @@ private:
                                  double eiso,
                                  int ptIdx,
                                  int centIdx,
-                                 bool isSignal);
+                                 bool isSignal,
+                                 int npbLabel = -1,
+                                 int isNPB = -1,
+                                 double clusterMbdDeltaT = std::numeric_limits<double>::quiet_NaN(),
+                                 double mbdTime = std::numeric_limits<double>::quiet_NaN(),
+                                 bool hasAwayJet = false);
+    bool isPPG12DataNPBTaggedCluster(const SSVars& v,
+                                     double phi,
+                                     double& clusterMbdDeltaT,
+                                     double& mbdTime,
+                                     bool& hasAwayJet) const;
     void initJetMLTrainingTree();
     void fillJetMLTrainingTree(const std::string& rKey,
                                double Rjet,
@@ -1337,6 +1349,7 @@ private:
     std::vector<std::tuple<std::string, std::string, std::string>> m_caloInfo;
     std::map<std::string, CaloBundle> m_calo;
     MbdPmtContainer* m_mbdpmts = nullptr;
+    MbdOut* m_mbdout = nullptr;
     
     // -------------------------------------------------------------------------
     // parallel jet containers by radius key
@@ -1438,6 +1451,13 @@ private:
     long long m_auauBDTTrainingTreeMaxEntries = 0;
     long long m_auauBDTTrainingTreeEntries = 0;
     TTree* m_auauBDTTrainingTree = nullptr;
+    bool m_auauBDTNPBDataTaggingEnabled = false;
+    double m_auauNPBTagDeltaTCut = -7.0;
+    double m_auauNPBTagWetaMin = 0.0;
+    double m_auauNPBTagAwayJetPtMin = 5.0;
+    double m_auauNPBTagAwayJetDPhiMin = 1.5707963267948966;
+    double m_auauNPBTagTimeSampleNs = 17.6;
+    double m_auauNPBMbdT0Offset = 0.0;
 
     int m_bdtTrain_run = 0;
     long long m_bdtTrain_evt = 0;
@@ -1451,6 +1471,12 @@ private:
     float m_bdtTrain_vz = 0.0f;
     float m_bdtTrain_weight = 1.0f;
     float m_bdtTrain_eiso = 0.0f;
+    int m_bdtTrain_npb_label = -1;
+    int m_bdtTrain_is_npb = -1;
+    float m_bdtTrain_cluster_mean_time = -999.0f;
+    float m_bdtTrain_mbd_time = -999.0f;
+    float m_bdtTrain_cluster_mbd_delta_t = -999.0f;
+    int m_bdtTrain_npb_has_away_jet = 0;
     float m_bdtTrain_weta = 0.0f;
     float m_bdtTrain_wphi = 0.0f;
     float m_bdtTrain_weta33 = 0.0f;

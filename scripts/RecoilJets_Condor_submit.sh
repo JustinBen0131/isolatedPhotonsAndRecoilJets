@@ -46,6 +46,7 @@
 #     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT local
 #     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT condorDoAll
 #     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainNPB local
+#     RJ_AUAU_BDT_NPB_DATA_LOCAL=1 ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainNPB local 5000 VERBOSE=10
 #     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainJetMLResidual local
 #     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainMLAll local 50000 NFILES=4 VERBOSE=10
 #     RJ_ML_PYTHON=/path/to/python ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainMLAll resume /path/to/mlIntegration_run
@@ -477,6 +478,7 @@ ${BOLD}AuAu embedded photon-ID BDT training:${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT local [Nevents] [VERBOSE=N]${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT condorDoAll [groupSize N]${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainNPB local [Nevents] [VERBOSE=N]${RST}
+  ${BOLD}RJ_AUAU_BDT_NPB_DATA_LOCAL=1 $0 isSimEmbeddedAndInclusive trainNPB local [Nevents] [VERBOSE=N]${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainJetMLResidual local [Nevents] [VERBOSE=N]${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainMLAll local [Nevents] [NFILES=N] [VERBOSE=N]${RST}
   ${BOLD}RJ_ML_PYTHON=/path/to/python $0 isSimEmbeddedAndInclusive trainMLAll resume /path/to/mlIntegration_run${RST}
@@ -1651,9 +1653,12 @@ auau_bdt_make_training_yaml() {
     "auauBDTTraining_${task}" "$stamp" "false")"
 
   local tmp="${out}.tmp"
+  local npb_data_tagging="false"
+  [[ "$task" == "npbData" ]] && npb_data_tagging="true"
   sed -E \
     -e "s|^([[:space:]]*auau_bdt_training_tree:).*|\\1 true|" \
     -e "s|^([[:space:]]*auau_bdt_training_tree_max_entries:).*|\\1 ${RJ_AUAU_BDT_TRAINING_TREE_MAX_ENTRIES:-0}|" \
+    -e "s|^([[:space:]]*auau_bdt_npb_data_tagging:).*|\\1 ${npb_data_tagging}|" \
     "$out" > "$tmp"
   mv -f "$tmp" "$out"
   echo "$out"
@@ -1734,8 +1739,8 @@ auau_bdt_train_from_manifest() {
   mkdir -p "$outdir"
   if [[ "$task" == "npb" && -z "${RJ_AUAU_BDT_NPB_INPUTS:-}" ]]; then
     warn "NPB extraction smoke test finished, but no real NPB-labeled data inputs were supplied."
-    warn "PPG12-style NPB training needs a branch such as is_npb from timing/streak-tagged data clusters."
-    warn "Set RJ_AUAU_BDT_NPB_INPUTS to a space-separated list of ROOT files with AuAuPhotonIDTrainingTree/is_npb, then rerun."
+    warn "PPG12-style NPB training needs npb_label=0 rows from timing/streak-tagged data clusters."
+    warn "Set RJ_AUAU_BDT_NPB_INPUTS to ROOT files with AuAuPhotonIDTrainingTree/npb_label, then rerun."
     say "Physics-cluster manifest from embedded sim: ${manifest}"
     return 0
   fi
@@ -1745,7 +1750,7 @@ auau_bdt_train_from_manifest() {
   if [[ "$task" == "npb" && -n "${RJ_AUAU_BDT_NPB_INPUTS:-}" ]]; then
     local npb_manifest="${outdir}/npb_labeled_inputs.list"
     auau_bdt_words "${RJ_AUAU_BDT_NPB_INPUTS}" > "$npb_manifest"
-    train_args=( "--task" "$task" "--input" "@${manifest}" "@${npb_manifest}" "--missing-label-value" "0" "--outdir" "$outdir" )
+    train_args=( "--task" "$task" "--input" "@${manifest}" "@${npb_manifest}" "--missing-label-value" "1" "--outdir" "$outdir" )
   fi
 
   say "Training AuAu ${task} BDT:"
@@ -1768,11 +1773,12 @@ auau_bdt_train_from_manifest() {
 auau_bdt_run_local() {
   local task="$1"
   auau_bdt_parse_local_controls
-  if [[ "$task" == "tight" || -n "${RJ_AUAU_BDT_NPB_INPUTS:-}" ]]; then
+  if [[ "$task" == "tight" || -n "${RJ_AUAU_BDT_NPB_INPUTS:-}" || "${RJ_AUAU_BDT_NPB_DATA_LOCAL:-0}" == "1" ]]; then
     auau_ml_check_python_deps
   fi
 
   local stamp master_yaml train_yaml cfg_tag local_root manifest outdir
+  local npb_data_manifest=""
   stamp="$(date +%Y%m%d_%H%M%S)"
   master_yaml="$(sim_yaml_master_path)"
   train_yaml="$(auau_bdt_make_training_yaml "$task" "$stamp" "$master_yaml")"
@@ -1810,7 +1816,27 @@ auau_bdt_run_local() {
   done
 
   auau_bdt_collect_roots "$local_root" "$manifest"
-  auau_bdt_train_from_manifest "$task" "$manifest" "$outdir"
+
+  if [[ "$task" == "npb" && "${RJ_AUAU_BDT_NPB_DATA_LOCAL:-0}" == "1" ]]; then
+    local data_yaml data_root
+    data_yaml="$(auau_bdt_make_training_yaml "npbData" "$stamp" "$master_yaml")"
+    data_root="${local_root}/auau_data_npb"
+    say "AuAu data NPB LOCAL extraction (PPG12 timing-tagged NPB label)"
+    say "  YAML override : ${data_yaml}"
+    say "  output root   : ${data_root}"
+    say "  label policy  : npb_label=0 for tagged data NPB rows"
+    RJ_CONFIG_YAML="$data_yaml" \
+    RJ_LOCAL_DATA_OUTPUT_BASE="$data_root" \
+    "$0" isAuAu local "$AUAU_BDT_LOCAL_EVENTS" "VERBOSE=${AUAU_BDT_LOCAL_VERBOSITY}"
+    npb_data_manifest="${local_root}/npb_data_training_roots.list"
+    auau_bdt_collect_roots "$data_root" "$npb_data_manifest"
+  fi
+
+  if [[ -n "$npb_data_manifest" ]]; then
+    RJ_AUAU_BDT_NPB_INPUTS="@${npb_data_manifest}" auau_bdt_train_from_manifest "$task" "$manifest" "$outdir"
+  else
+    auau_bdt_train_from_manifest "$task" "$manifest" "$outdir"
+  fi
 }
 
 auau_bdt_run_condor_do_all() {
@@ -1859,9 +1885,9 @@ auau_bdt_run_condor_do_all() {
   printf '  mkdir -p %q\n' "$outdir"
   printf '  find %q -path %q -name %q | sort > %q\n' "$AUAU_BDT_DEST_BASE" "*/${cfg_tag}/*" "RecoilJets_*.root" "${outdir}/training_roots.list"
   if [[ "$task" == "npb" ]]; then
-    printf '  # Append real data-tagged NPB ROOT files with is_npb=1/0 labels before training.\n'
-    printf '  # Embedded sim files missing is_npb are treated as physics-side is_npb=0 by --missing-label-value 0.\n'
-    printf '  %q --task %q --input @%q @/path/to/npb_labeled_data_roots.list --missing-label-value 0 --outdir %q\n' "${BASE}/scripts/train_auau_photon_bdt.py" "$task" "${outdir}/training_roots.list" "$outdir"
+    printf '  # Append real data-tagged NPB ROOT files with npb_label=0 rows before training.\n'
+    printf '  # Embedded sim files missing npb_label are treated as physics-side npb_label=1 by --missing-label-value 1.\n'
+    printf '  %q --task %q --input @%q @/path/to/npb_labeled_data_roots.list --missing-label-value 1 --outdir %q\n' "${BASE}/scripts/train_auau_photon_bdt.py" "$task" "${outdir}/training_roots.list" "$outdir"
   else
     printf '  %q --task %q --input @%q --outdir %q\n' "${BASE}/scripts/train_auau_photon_bdt.py" "$task" "${outdir}/training_roots.list" "$outdir"
   fi
@@ -2735,7 +2761,7 @@ case "$ACTION" in
       (( ${#data_cones[@]} )) || { err "No values found for coneR in $data_yaml_src"; exit 72; }
       build_iso_modes "$data_yaml_src"
       read_uepipe_modes "$data_yaml_src" "$TAG"
-      DATA_DEST_BASE_SAVED="$DEST_BASE"
+      DATA_DEST_BASE_SAVED="${RJ_LOCAL_DATA_OUTPUT_BASE:-$DEST_BASE}"
 
       for data_pt in "${data_pts[@]}"; do
       for data_frac in "${data_fracs[@]}"; do

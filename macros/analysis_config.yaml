@@ -189,9 +189,9 @@ clusterUEpipeline: [baseVariant]
 #     preselection. This is a broad diagnostic/systematic option, not the
 #     PPG12-style nominal sideband.
 # -----------------------------------------------------------------------------
-preselection: [reference]
-tight: [reference]
-nonTight: [reference]
+preselection: [reference, variantA, variantB, variantC, variantD]
+tight: [reference, variantA]
+nonTight: [reference, variantA]
 
 # -----------------------------------------------------------------------------
 # NPB preselection controls
@@ -276,10 +276,18 @@ auau_tight_bdt_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vert
 # embedded inclusive jet 10/20 as the background side. Override samples with
 # RJ_AUAU_BDT_SIGNAL_SAMPLES and RJ_AUAU_BDT_BACKGROUND_SAMPLES.
 #
-# NPB training still requires real data-tagged NPB labels such as is_npb.
-# Embedded simulation can provide the physics-cluster side only.
+# PPG12-style NPB training uses label=1 for physics-like embedded clusters and
+# label=0 for real-data timing-tagged NPB clusters. The timing / away-side jet
+# criteria below are used only to create the data-side label, not as BDT inputs.
 auau_bdt_training_tree: false
 auau_bdt_training_tree_max_entries: 0
+auau_bdt_npb_data_tagging: false
+auau_npb_tag_delta_t_cut: -7.0
+auau_npb_tag_weta_min: 0.0
+auau_npb_tag_away_jet_pt_min: 5.0
+auau_npb_tag_away_jet_dphi_min: 1.5707963267948966
+auau_npb_tag_time_sample_ns: 17.6
+auau_npb_mbd_t0_offset: 0.0
 
 # Optional JetML residual-pT correction branch for the ATLAS-like inclusive
 # gamma-jet unfolding inputs.
@@ -363,8 +371,8 @@ doPi0Analysis: false
 # MATRIX AXIS: coneR sets the isolation cone radius.
 # PhotonClusterBuilder provides isolation sums for R=0.3 and R=0.4.
 # -----------------------------------------------------------------------------
-isSlidingIso: false
-isSlidingAndFixed: true
+isSlidingIso: true
+isSlidingAndFixed: false
 
 # MATRIX AXIS: one job per fixedGeV value (when isSlidingIso is false).
 fixedGeV: [2.0]

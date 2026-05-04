@@ -361,6 +361,13 @@ namespace yamlcfg
 
         bool auau_bdt_training_tree = false;
         long long auau_bdt_training_tree_max_entries = 0;
+        bool auau_bdt_npb_data_tagging = false;
+        double auau_npb_tag_delta_t_cut = -7.0;
+        double auau_npb_tag_weta_min = 0.0;
+        double auau_npb_tag_away_jet_pt_min = 5.0;
+        double auau_npb_tag_away_jet_dphi_min = 1.5707963267948966;
+        double auau_npb_tag_time_sample_ns = 17.6;
+        double auau_npb_mbd_t0_offset = 0.0;
 
         bool jet_ml_training_tree = false;
         long long jet_ml_training_tree_max_entries = 0;
@@ -931,6 +938,48 @@ namespace yamlcfg
                 double val = 0.0;
                 if (ParseDouble(rhs, val)) cfg.auau_bdt_training_tree_max_entries = static_cast<long long>(val);
                 else warn_parse("auau_bdt_training_tree_max_entries", rhs, "expected an integer");
+            }
+            else if (StartsWithKey(line, "auau_bdt_npb_data_tagging"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseBool(rhs, cfg.auau_bdt_npb_data_tagging))
+                    warn_parse("auau_bdt_npb_data_tagging", rhs, "expected true/false");
+            }
+            else if (StartsWithKey(line, "auau_npb_tag_delta_t_cut"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_npb_tag_delta_t_cut))
+                    warn_parse("auau_npb_tag_delta_t_cut", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_npb_tag_weta_min"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_npb_tag_weta_min))
+                    warn_parse("auau_npb_tag_weta_min", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_npb_tag_away_jet_pt_min"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_npb_tag_away_jet_pt_min))
+                    warn_parse("auau_npb_tag_away_jet_pt_min", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_npb_tag_away_jet_dphi_min"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_npb_tag_away_jet_dphi_min))
+                    warn_parse("auau_npb_tag_away_jet_dphi_min", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_npb_tag_time_sample_ns"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_npb_tag_time_sample_ns))
+                    warn_parse("auau_npb_tag_time_sample_ns", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_npb_mbd_t0_offset"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_npb_mbd_t0_offset))
+                    warn_parse("auau_npb_mbd_t0_offset", rhs, "expected a scalar double");
             }
             else if (StartsWithKey(line, "jet_ml_training_tree"))
             {
@@ -3620,6 +3669,27 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_BDT_TRAINING_TREE_MAX_ENTRIES",
                                                "RJ_AUAU_BDT_TRAINING_TREE_MAX_ENTRIES",
                                                std::to_string(cfg.auau_bdt_training_tree_max_entries)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_BDT_NPB_DATA_TAGGING",
+                                               "RJ_AUAU_BDT_NPB_DATA_TAGGING",
+                                               cfg.auau_bdt_npb_data_tagging ? "true" : "false"));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NPB_TAG_DELTA_T_CUT",
+                                               "RJ_AUAU_NPB_TAG_DELTA_T_CUT",
+                                               fmtDouble(cfg.auau_npb_tag_delta_t_cut)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NPB_TAG_WETA_MIN",
+                                               "RJ_AUAU_NPB_TAG_WETA_MIN",
+                                               fmtDouble(cfg.auau_npb_tag_weta_min)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NPB_TAG_AWAY_JET_PT_MIN",
+                                               "RJ_AUAU_NPB_TAG_AWAY_JET_PT_MIN",
+                                               fmtDouble(cfg.auau_npb_tag_away_jet_pt_min)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NPB_TAG_AWAY_JET_DPHI_MIN",
+                                               "RJ_AUAU_NPB_TAG_AWAY_JET_DPHI_MIN",
+                                               fmtDouble(cfg.auau_npb_tag_away_jet_dphi_min)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NPB_TAG_TIME_SAMPLE_NS",
+                                               "RJ_AUAU_NPB_TAG_TIME_SAMPLE_NS",
+                                               fmtDouble(cfg.auau_npb_tag_time_sample_ns)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NPB_MBD_T0_OFFSET",
+                                               "RJ_AUAU_NPB_MBD_T0_OFFSET",
+                                               fmtDouble(cfg.auau_npb_mbd_t0_offset)));
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_JET_ML_TRAINING_TREE",
                                                "RJ_JET_ML_TRAINING_TREE",
                                                cfg.jet_ml_training_tree ? "true" : "false"));

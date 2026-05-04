@@ -174,10 +174,16 @@ def save_tmva(model, output: Path, features: list[str]):
     output.parent.mkdir(parents=True, exist_ok=True)
     booster = model.get_booster()
     booster.feature_names = [f"f{i}" for i in range(len(features))]
-    try:
-        ROOT.TMVA.Experimental.SaveXGBoost(model, "myBDT", str(output), num_inputs=len(features))
-    except (AttributeError, TypeError):
-        ROOT.TMVA.Experimental.SaveXGBoost(booster, "myBDT", str(output), num_inputs=len(features))
+    original_save_config = booster.save_config
+
+    def tmva_save_config():
+        import re
+
+        text = original_save_config()
+        return re.sub(r'"base_score":"\[([0-9eE+\-.]+)\]"', r'"base_score":"\1"', text)
+
+    booster.save_config = tmva_save_config  # type: ignore[method-assign]
+    ROOT.TMVA.Experimental.SaveXGBoost(booster, "myBDT", str(output), num_inputs=len(features))
 
 
 def parse_args() -> argparse.Namespace:

@@ -1025,10 +1025,17 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     m_auauNonTightBDTMinIntercept = envToDouble("RJ_AUAU_NONTIGHT_BDT_MIN_INTERCEPT", -1.0);
     m_auauNonTightBDTMinSlope     = envToDouble("RJ_AUAU_NONTIGHT_BDT_MIN_SLOPE", 0.0);
     m_auauNonTightBDTMaxIntercept = envToDouble("RJ_AUAU_NONTIGHT_BDT_MAX_INTERCEPT", 1.0);
-    m_auauNonTightBDTMaxSlope     = envToDouble("RJ_AUAU_NONTIGHT_BDT_MAX_SLOPE", 0.0);
-    m_auauBDTTrainingTreeEnabled = envToBool("RJ_AUAU_BDT_TRAINING_TREE", false);
-    m_auauBDTTrainingTreeMaxEntries = envToLL("RJ_AUAU_BDT_TRAINING_TREE_MAX_ENTRIES", 0);
-    m_jetMLTrainingTreeEnabled = envToBool("RJ_JET_ML_TRAINING_TREE", false);
+  m_auauNonTightBDTMaxSlope     = envToDouble("RJ_AUAU_NONTIGHT_BDT_MAX_SLOPE", 0.0);
+  m_auauBDTTrainingTreeEnabled = envToBool("RJ_AUAU_BDT_TRAINING_TREE", false);
+  m_auauBDTTrainingTreeMaxEntries = envToLL("RJ_AUAU_BDT_TRAINING_TREE_MAX_ENTRIES", 0);
+  m_auauBDTNPBDataTaggingEnabled = envToBool("RJ_AUAU_BDT_NPB_DATA_TAGGING", false);
+  m_auauNPBTagDeltaTCut = envToDouble("RJ_AUAU_NPB_TAG_DELTA_T_CUT", -7.0);
+  m_auauNPBTagWetaMin = envToDouble("RJ_AUAU_NPB_TAG_WETA_MIN", 0.0);
+  m_auauNPBTagAwayJetPtMin = envToDouble("RJ_AUAU_NPB_TAG_AWAY_JET_PT_MIN", 5.0);
+  m_auauNPBTagAwayJetDPhiMin = envToDouble("RJ_AUAU_NPB_TAG_AWAY_JET_DPHI_MIN", M_PI / 2.0);
+  m_auauNPBTagTimeSampleNs = envToDouble("RJ_AUAU_NPB_TAG_TIME_SAMPLE_NS", 17.6);
+  m_auauNPBMbdT0Offset = envToDouble("RJ_AUAU_NPB_MBD_T0_OFFSET", 0.0);
+  m_jetMLTrainingTreeEnabled = envToBool("RJ_JET_ML_TRAINING_TREE", false);
     m_jetMLTrainingTreeMaxEntries = envToLL("RJ_JET_ML_TRAINING_TREE_MAX_ENTRIES", 0);
     m_jetMLCorrectionEnabled = envToBool("RJ_JET_ML_CORRECTION_ENABLED", false);
     m_jetMLModelFile = envOrDefault("RJ_JET_ML_MODEL_FILE", "");
@@ -1036,10 +1043,12 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
                                       {"reco_areaSub_pt", "raw_pt", "jet_area",
                                        "jet_eta", "centrality", "R"});
     
-    m_clus              = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC");
-    m_clus_nocorr       = nullptr;
-    m_photons           = findNode::getClass<RawClusterContainer>(top, "PHOTONCLUSTER_CEMC");
-    m_photons_npb       = nullptr;
+  m_clus              = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC");
+  m_clus_nocorr       = nullptr;
+  m_photons           = findNode::getClass<RawClusterContainer>(top, "PHOTONCLUSTER_CEMC");
+  m_mbdout            = findNode::getClass<MbdOut>(top, "MbdOut");
+  m_mbdpmts           = findNode::getClass<MbdPmtContainer>(top, "MbdPmtContainer");
+  m_photons_npb       = nullptr;
     m_photons_tightbdt  = nullptr;
     
     if (preselectionUsesNPB(m_preselectionVariant))
@@ -1548,6 +1557,12 @@ void RecoilJets::initAuAuBDTTrainingTree()
   add("vertexz", &m_bdtTrain_vz, "vertexz/F");
   add("event_weight", &m_bdtTrain_weight, "event_weight/F");
   add("reco_eiso", &m_bdtTrain_eiso, "reco_eiso/F");
+  add("npb_label", &m_bdtTrain_npb_label, "npb_label/I");
+  add("is_npb", &m_bdtTrain_is_npb, "is_npb/I");
+  add("cluster_mean_time", &m_bdtTrain_cluster_mean_time, "cluster_mean_time/F");
+  add("mbd_time", &m_bdtTrain_mbd_time, "mbd_time/F");
+  add("cluster_mbd_delta_t", &m_bdtTrain_cluster_mbd_delta_t, "cluster_mbd_delta_t/F");
+  add("npb_has_away_jet", &m_bdtTrain_npb_has_away_jet, "npb_has_away_jet/I");
   add("cluster_weta_cogx", &m_bdtTrain_weta, "cluster_weta_cogx/F");
   add("cluster_wphi_cogx", &m_bdtTrain_wphi, "cluster_wphi_cogx/F");
   add("cluster_weta33_cogx", &m_bdtTrain_weta33, "cluster_weta33_cogx/F");
@@ -1584,11 +1599,16 @@ void RecoilJets::initAuAuBDTTrainingTree()
 
 void RecoilJets::fillAuAuBDTTrainingTree(const SSVars& v,
                                          double eta,
-                                         double phi,
-                                         double eiso,
-                                         int ptIdx,
-                                         int centIdx,
-                                         bool isSignal)
+                                 double phi,
+                                 double eiso,
+                                 int ptIdx,
+                                 int centIdx,
+                                 bool isSignal,
+                                 int npbLabel,
+                                 int isNPB,
+                                 double clusterMbdDeltaT,
+                                 double mbdTime,
+                                 bool hasAwayJet)
 {
   if (!m_auauBDTTrainingTreeEnabled) return;
   if (!m_auauBDTTrainingTree) initAuAuBDTTrainingTree();
@@ -1613,6 +1633,12 @@ void RecoilJets::fillAuAuBDTTrainingTree(const SSVars& v,
   m_bdtTrain_vz = bdtFeatureValue(m_vz);
   m_bdtTrain_weight = bdtFeatureValue(m_mcEventWeight);
   m_bdtTrain_eiso = bdtFeatureValue(eiso);
+  m_bdtTrain_npb_label = npbLabel;
+  m_bdtTrain_is_npb = isNPB;
+  m_bdtTrain_cluster_mean_time = std::isfinite(v.mean_time) ? static_cast<float>(v.mean_time) : -999.0f;
+  m_bdtTrain_mbd_time = std::isfinite(mbdTime) ? static_cast<float>(mbdTime) : -999.0f;
+  m_bdtTrain_cluster_mbd_delta_t = std::isfinite(clusterMbdDeltaT) ? static_cast<float>(clusterMbdDeltaT) : -999.0f;
+  m_bdtTrain_npb_has_away_jet = hasAwayJet ? 1 : 0;
   m_bdtTrain_weta = bdtFeatureValue(v.weta_cogx);
   m_bdtTrain_wphi = bdtFeatureValue(v.wphi_cogx);
   m_bdtTrain_weta33 = bdtFeatureValue(v.weta33_cogx);
@@ -1645,6 +1671,59 @@ void RecoilJets::fillAuAuBDTTrainingTree(const SSVars& v,
 
   m_auauBDTTrainingTree->Fill();
   ++m_auauBDTTrainingTreeEntries;
+}
+
+bool RecoilJets::isPPG12DataNPBTaggedCluster(const SSVars& v,
+                                             double phi,
+                                             double& clusterMbdDeltaT,
+                                             double& mbdTime,
+                                             bool& hasAwayJet) const
+{
+  clusterMbdDeltaT = std::numeric_limits<double>::quiet_NaN();
+  mbdTime = std::numeric_limits<double>::quiet_NaN();
+  hasAwayJet = false;
+
+  if (m_isSim || !m_auauBDTNPBDataTaggingEnabled) return false;
+  if (!m_mbdout || m_mbdout->isValid() == 0) return false;
+  if (m_mbdout->get_npmt(0) < 1 || m_mbdout->get_npmt(1) < 1) return false;
+  if (!std::isfinite(v.mean_time) || !std::isfinite(phi)) return false;
+  if (!std::isfinite(v.pt_gamma) || v.pt_gamma < 6.0 || v.pt_gamma > 40.0) return false;
+  if (!std::isfinite(v.weta_cogx) || v.weta_cogx < m_auauNPBTagWetaMin) return false;
+
+  const double rawMbdT0 = static_cast<double>(m_mbdout->get_t0());
+  if (!std::isfinite(rawMbdT0)) return false;
+
+  mbdTime = rawMbdT0 - m_auauNPBMbdT0Offset;
+  const double clusterTime = v.mean_time * m_auauNPBTagTimeSampleNs;
+  if (!std::isfinite(clusterTime) || !std::isfinite(mbdTime)) return false;
+
+  clusterMbdDeltaT = clusterTime - mbdTime;
+  const bool badTime = (clusterMbdDeltaT < m_auauNPBTagDeltaTCut);
+  if (!badTime) return false;
+
+  for (const auto& [rKey, jets] : m_jets)
+  {
+    (void) rKey;
+    if (!jets) continue;
+    for (auto it = jets->begin(); it != jets->end(); ++it)
+    {
+      const Jet* jet = *it;
+      if (!jet) continue;
+      const double jetPt = jet->get_pt();
+      const double jetPhi = jet->get_phi();
+      if (!std::isfinite(jetPt) || !std::isfinite(jetPhi)) continue;
+      if (jetPt < m_auauNPBTagAwayJetPtMin) continue;
+
+      const double dphi = std::fabs(TVector2::Phi_mpi_pi(phi - jetPhi));
+      if (dphi > m_auauNPBTagAwayJetDPhiMin)
+      {
+        hasAwayJet = true;
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
 void RecoilJets::initJetMLTrainingTree()
@@ -4750,6 +4829,7 @@ RecoilJets::SSVars RecoilJets::makeSSFromPhoton(const PhotonClusterv1* pho, doub
     const double w32 = pho->get_shower_shape_parameter("w32");
     const double w52 = pho->get_shower_shape_parameter("w52");
     const double w72 = pho->get_shower_shape_parameter("w72");
+    const double mean_time = pho->get_shower_shape_parameter("mean_time");
 
     // Derived ratios (protect denominators)
     auto ratio = [](double num, double den) -> double
@@ -4788,6 +4868,7 @@ RecoilJets::SSVars RecoilJets::makeSSFromPhoton(const PhotonClusterv1* pho, doub
   v.w32 = w32;
   v.w52 = w52;
   v.w72 = w72;
+  v.mean_time = mean_time;
 
   attachVariantScoresToSSVars(pho, v);
 
@@ -7743,7 +7824,29 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
 
                 if (bdtTrainHaveLabel)
                 {
-                    fillAuAuBDTTrainingTree(v, eta, phi, eiso_et, ptIdx, centIdx, bdtTrainIsSignal);
+                    fillAuAuBDTTrainingTree(v, eta, phi, eiso_et, ptIdx, centIdx,
+                                            bdtTrainIsSignal,
+                                            1, 0,
+                                            std::numeric_limits<double>::quiet_NaN(),
+                                            std::numeric_limits<double>::quiet_NaN(),
+                                            false);
+                }
+                else if (!m_isSim && m_auauBDTNPBDataTaggingEnabled)
+                {
+                    double npbDeltaT = std::numeric_limits<double>::quiet_NaN();
+                    double npbMbdTime = std::numeric_limits<double>::quiet_NaN();
+                    bool npbHasAwayJet = false;
+                    const bool isTaggedNPB =
+                        isPPG12DataNPBTaggedCluster(v, phi, npbDeltaT, npbMbdTime, npbHasAwayJet);
+                    if (isTaggedNPB)
+                    {
+                        fillAuAuBDTTrainingTree(v, eta, phi, eiso_et, ptIdx, centIdx,
+                                                false,
+                                                0, 1,
+                                                npbDeltaT,
+                                                npbMbdTime,
+                                                npbHasAwayJet);
+                    }
                 }
                 
                 // ---------- NPB preselection shadow QA ----------

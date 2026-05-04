@@ -4,9 +4,11 @@
 The expected input tree is ``AuAuPhotonIDTrainingTree``.  For tight photon-ID,
 ``is_signal`` labels truth-matched isolated prompt photons from embedded
 photon+jet signal samples and non-signal clusters from embedded inclusive jet
-background samples.  For NPB, the label must be a real data-assisted NPB branch
-such as ``is_npb``; this script intentionally does not invent an NPB label from
-simulation-only samples.
+background samples.  For NPB, this follows the PPG12 convention:
+``npb_label=1`` means a physics-like cluster and ``npb_label=0`` means a
+timing-tagged non-physics background cluster from data.  The resulting score is
+therefore a physics-like score, so the analysis cut remains
+``auau_npb_score > 0.5``.
 """
 
 from __future__ import annotations
@@ -315,10 +317,19 @@ def train_one(frame, features: list[str], label_branch: str, output: Path, metad
 
         booster = model.get_booster()
         booster.feature_names = [f"f{i}" for i in range(len(features))]
-        try:
-            ROOT.TMVA.Experimental.SaveXGBoost(model, "myBDT", str(output), num_inputs=len(features))
-        except (AttributeError, TypeError):
-            ROOT.TMVA.Experimental.SaveXGBoost(booster, "myBDT", str(output), num_inputs=len(features))
+        # ROOT 6.32's SaveXGBoost cannot parse XGBoost >=3 vector-valued
+        # base_score strings like "[5E-1]". Patch only the Python config view
+        # handed to TMVA; the saved XGBoost JSON remains untouched for audit.
+        original_save_config = booster.save_config
+
+        def tmva_save_config():
+            import re
+
+            text = original_save_config()
+            return re.sub(r'"base_score":"\[([0-9eE+\-.]+)\]"', r'"base_score":"\1"', text)
+
+        booster.save_config = tmva_save_config  # type: ignore[method-assign]
+        ROOT.TMVA.Experimental.SaveXGBoost(booster, "myBDT", str(output), num_inputs=len(features))
         export_status = "ok"
     except Exception as exc:  # noqa: BLE001
         export_status = f"failed: {exc}"
@@ -362,7 +373,7 @@ def main() -> int:
         type=int,
         choices=[0, 1],
         default=None,
-        help="For files missing only the label branch, fill that label with this value. Intended for NPB physics-side sim as is_npb=0.",
+        help="For files missing only the label branch, fill that label with this value. For PPG12-style NPB, use 1 for embedded physics-side sim.",
     )
     parser.add_argument("--features", default=None, help="Comma-separated override feature order")
     parser.add_argument("--weight-branch", default="event_weight")
@@ -389,9 +400,14 @@ def main() -> int:
     features = [item.strip() for item in args.features.split(",")] if args.features else (
         PPG12_TIGHT_FEATURES if args.task == "tight" else PPG12_NPB_FEATURES
     )
-    label_branch = args.label_branch or ("is_signal" if args.task == "tight" else "is_npb")
+    label_branch = args.label_branch or ("is_signal" if args.task == "tight" else "npb_label")
     if args.task == "npb" and label_branch == "is_signal":
         raise SystemExit("NPB training needs a real NPB label branch, not is_signal.")
+    if args.task == "npb" and label_branch == "is_npb":
+        raise SystemExit(
+            "Use npb_label for PPG12-style NPB training: 1=physics-like, 0=NPB. "
+            "The is_npb branch is kept only as an audit inverse."
+        )
 
     paths = expand_input_paths(args.input)
     required_columns = sorted(set(features + [label_branch, "centrality"]))
