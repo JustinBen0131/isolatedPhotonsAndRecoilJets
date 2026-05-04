@@ -48,7 +48,8 @@
 #     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainNPB local
 #     RJ_AUAU_BDT_NPB_DATA_LOCAL=1 ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainNPB local 5000 VERBOSE=10
 #     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainJetMLResidual local
-#     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainMLAll local 50000 NFILES=4 VERBOSE=10
+#     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainMLAll local 5000 VERBOSE=10
+#     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainMLAll local 5000 NFILES=5 VERBOSE=10
 #     RJ_ML_PYTHON=/path/to/python ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainMLAll resume /path/to/mlIntegration_run
 #
 # OVERVIEW
@@ -230,7 +231,7 @@
 #     $ ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT condorDoAll [groupSize N]
 #     $ ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainNPB local [Nevents] [VERBOSE=N]
 #     $ ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainJetMLResidual local [Nevents] [VERBOSE=N]
-#     $ ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainMLAll local [Nevents] [NFILES=N] [VERBOSE=N]
+#     $ ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainMLAll local [NeventsPerSample] [NFILES=N] [VERBOSE=N]
 #     $ RJ_ML_PYTHON=/path/to/python ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainMLAll resume /path/to/mlIntegration_run
 #
 # ISLOCALISOPING ENVIRONMENT / CONTROLS
@@ -480,13 +481,15 @@ ${BOLD}AuAu embedded photon-ID BDT training:${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainNPB local [Nevents] [VERBOSE=N]${RST}
   ${BOLD}RJ_AUAU_BDT_NPB_DATA_LOCAL=1 $0 isSimEmbeddedAndInclusive trainNPB local [Nevents] [VERBOSE=N]${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainJetMLResidual local [Nevents] [VERBOSE=N]${RST}
-  ${BOLD}$0 isSimEmbeddedAndInclusive trainMLAll local [Nevents] [NFILES=N] [VERBOSE=N]${RST}
+  ${BOLD}$0 isSimEmbeddedAndInclusive trainMLAll local [NeventsPerSample] [NFILES=N] [VERBOSE=N]${RST}
   ${BOLD}RJ_ML_PYTHON=/path/to/python $0 isSimEmbeddedAndInclusive trainMLAll resume /path/to/mlIntegration_run${RST}
 
   Signal samples default to:     ${AUAU_BDT_SIGNAL_SAMPLES_DEFAULT}
   Background samples default to: ${AUAU_BDT_BACKGROUND_SAMPLES_DEFAULT}
   Override with RJ_AUAU_BDT_SIGNAL_SAMPLES / RJ_AUAU_BDT_BACKGROUND_SAMPLES.
   ML training uses RJ_ML_PYTHON if set; otherwise it uses python3.
+  Local ML event targets assume ${RJ_SIM_LOCAL_EVENTS_PER_FILE:-1000} events/input file and group enough input lines
+  into one local Fun4All invocation per sample; override with NFILES=N or RJ_SIM_LOCAL_EVENTS_PER_FILE.
 
 Examples:
   $0 isPP  local 5000
@@ -1607,18 +1610,35 @@ auau_bdt_background_samples() {
   auau_bdt_words "${RJ_AUAU_BDT_BACKGROUND_SAMPLES:-$AUAU_BDT_BACKGROUND_SAMPLES_DEFAULT}"
 }
 
+auau_ml_default_nfiles_for_events() {
+  local events="$1"
+  local events_per_file="${RJ_SIM_LOCAL_EVENTS_PER_FILE:-1000}"
+  [[ "$events_per_file" =~ ^[0-9]+$ && "$events_per_file" -ge 1 ]] || events_per_file=1000
+  [[ "$events" =~ ^[0-9]+$ && "$events" -ge 1 ]] || events=1
+  echo $(( (events + events_per_file - 1) / events_per_file ))
+}
+
 auau_bdt_parse_local_controls() {
   AUAU_BDT_LOCAL_EVENTS="${LOCAL_EVENTS}"
   AUAU_BDT_LOCAL_VERBOSITY="10"
+  AUAU_BDT_LOCAL_NFILES="${RJ_AUAU_BDT_LOCAL_NFILES:-}"
   local t
   for t in "${tokens[@]}"; do
     if [[ "$t" =~ ^VERBOSE=([0-9]+)$ ]]; then
       AUAU_BDT_LOCAL_VERBOSITY="${BASH_REMATCH[1]}"
+    elif [[ "$t" =~ ^NFILES=([0-9]+)$ ]]; then
+      AUAU_BDT_LOCAL_NFILES="${BASH_REMATCH[1]}"
+    elif [[ "$t" =~ ^FILES=([0-9]+)$ ]]; then
+      AUAU_BDT_LOCAL_NFILES="${BASH_REMATCH[1]}"
     elif [[ "$t" =~ ^[0-9]+$ ]]; then
       AUAU_BDT_LOCAL_EVENTS="$t"
     fi
   done
   [[ "$AUAU_BDT_LOCAL_EVENTS" =~ ^[0-9]+$ ]] || { err "BDT local event count must be an integer"; exit 2; }
+  if [[ -z "$AUAU_BDT_LOCAL_NFILES" ]]; then
+    AUAU_BDT_LOCAL_NFILES="$(auau_ml_default_nfiles_for_events "$AUAU_BDT_LOCAL_EVENTS")"
+  fi
+  [[ "$AUAU_BDT_LOCAL_NFILES" =~ ^[0-9]+$ && "$AUAU_BDT_LOCAL_NFILES" -ge 1 ]] || { err "BDT local NFILES must be a positive integer"; exit 2; }
 }
 
 auau_bdt_make_training_yaml() {
@@ -1682,6 +1702,68 @@ auau_bdt_collect_roots() {
   mkdir -p "$(dirname "$manifest")"
   find "$root_dir" -type f -name "RecoilJets_*.root" | sort > "$manifest" || true
   [[ -s "$manifest" ]] || { err "No RecoilJets ROOT files found under ${root_dir}"; exit 31; }
+}
+
+auau_ml_validate_manifest_tree() {
+  local manifest="$1"
+  local tree="$2"
+  local label="$3"
+  local report="${4:-}"
+  [[ -s "$manifest" ]] || { err "Cannot validate empty manifest: $manifest"; exit 31; }
+  if [[ -n "$report" ]]; then
+    mkdir -p "$(dirname "$report")"
+  fi
+  auau_ml_run_python - "$manifest" "$tree" "$label" "$report" <<'PY'
+import sys
+from pathlib import Path
+
+manifest = Path(sys.argv[1])
+tree_name = sys.argv[2]
+label = sys.argv[3]
+report = Path(sys.argv[4]) if len(sys.argv) > 4 and sys.argv[4] else None
+
+try:
+    import uproot
+except Exception as exc:
+    raise SystemExit(f"uproot is required to validate {label}: {exc}") from exc
+
+paths = [Path(line.strip()) for line in manifest.read_text().splitlines() if line.strip() and not line.startswith("#")]
+missing = []
+entries = []
+for path in paths:
+    try:
+        with uproot.open(path) as root_file:
+            if tree_name not in root_file:
+                missing.append(str(path))
+                continue
+            entries.append((str(path), int(root_file[tree_name].num_entries)))
+    except Exception as exc:  # noqa: BLE001
+        missing.append(f"{path} ({exc})")
+
+total_entries = sum(count for _, count in entries)
+empty = [path for path, count in entries if count == 0]
+lines = [
+    f"label={label}",
+    f"tree={tree_name}",
+    f"files={len(paths)}",
+    f"files_with_tree={len(entries)}",
+    f"files_missing_tree={len(missing)}",
+    f"files_empty_tree={len(empty)}",
+    f"entries_total={total_entries}",
+]
+if missing:
+    lines.append("missing_tree_preview:")
+    lines.extend(f"  {item}" for item in missing[:20])
+if empty:
+    lines.append("empty_tree_preview:")
+    lines.extend(f"  {item}" for item in empty[:20])
+text = "\n".join(lines) + "\n"
+print(text, end="")
+if report:
+    report.write_text(text)
+if missing:
+    raise SystemExit(f"{label}: {len(missing)} file(s) are missing {tree_name}; refusing to train on stale/incomplete extraction.")
+PY
 }
 
 auau_ml_python_label() {
@@ -1798,6 +1880,7 @@ auau_bdt_run_local() {
   say "  signal samples     : ${signal_samples[*]}"
   say "  background samples : ${background_samples[*]}"
   say "  events/sample      : ${AUAU_BDT_LOCAL_EVENTS}"
+  say "  grouped files/sample: ${AUAU_BDT_LOCAL_NFILES} (assuming ${RJ_SIM_LOCAL_EVENTS_PER_FILE:-1000} events/input file unless overridden)"
   say "  verbosity          : ${AUAU_BDT_LOCAL_VERBOSITY}"
   echo
 
@@ -1805,17 +1888,22 @@ auau_bdt_run_local() {
   for samp in "${signal_samples[@]}"; do
     say "[BDT local] signal extraction sample=${samp}"
     RJ_CONFIG_YAML="$train_yaml" \
+    RJ_SIM_LOCAL_GROUPED=1 \
+    RJ_SIM_LOCAL_NFILES="$AUAU_BDT_LOCAL_NFILES" \
     RJ_LOCAL_SIM_OUTPUT_BASE="${local_root}/simembedded" \
     "$0" isSimEmbedded local "$AUAU_BDT_LOCAL_EVENTS" "VERBOSE=${AUAU_BDT_LOCAL_VERBOSITY}" "SAMPLE=${samp}"
   done
   for samp in "${background_samples[@]}"; do
     say "[BDT local] background extraction sample=${samp}"
     RJ_CONFIG_YAML="$train_yaml" \
+    RJ_SIM_LOCAL_GROUPED=1 \
+    RJ_SIM_LOCAL_NFILES="$AUAU_BDT_LOCAL_NFILES" \
     RJ_LOCAL_SIM_OUTPUT_BASE="${local_root}/simembeddedinclusive" \
     "$0" isSimEmbeddedInclusive local "$AUAU_BDT_LOCAL_EVENTS" "VERBOSE=${AUAU_BDT_LOCAL_VERBOSITY}" "SAMPLE=${samp}"
   done
 
   auau_bdt_collect_roots "$local_root" "$manifest"
+  auau_ml_validate_manifest_tree "$manifest" "AuAuPhotonIDTrainingTree" "${task} photon rows" "${local_root}/qa_photon_tree_validation.txt"
 
   if [[ "$task" == "npb" && "${RJ_AUAU_BDT_NPB_DATA_LOCAL:-0}" == "1" ]]; then
     local data_yaml data_root
@@ -1830,6 +1918,7 @@ auau_bdt_run_local() {
     "$0" isAuAu local "$AUAU_BDT_LOCAL_EVENTS" "VERBOSE=${AUAU_BDT_LOCAL_VERBOSITY}"
     npb_data_manifest="${local_root}/npb_data_training_roots.list"
     auau_bdt_collect_roots "$data_root" "$npb_data_manifest"
+    auau_ml_validate_manifest_tree "$npb_data_manifest" "AuAuPhotonIDTrainingTree" "AuAu data NPB rows" "${local_root}/qa_npb_data_tree_validation.txt"
   fi
 
   if [[ -n "$npb_data_manifest" ]]; then
@@ -1957,6 +2046,7 @@ auau_jetml_run_local() {
   say "  photon+jet samples : ${signal_samples[*]}"
   say "  inclusive samples  : ${background_samples[*]}"
   say "  events/sample      : ${AUAU_BDT_LOCAL_EVENTS}"
+  say "  grouped files/sample: ${AUAU_BDT_LOCAL_NFILES} (assuming ${RJ_SIM_LOCAL_EVENTS_PER_FILE:-1000} events/input file unless overridden)"
   say "  verbosity          : ${AUAU_BDT_LOCAL_VERBOSITY}"
   echo
 
@@ -1964,17 +2054,22 @@ auau_jetml_run_local() {
   for samp in "${signal_samples[@]}"; do
     say "[JetML local] photon+jet extraction sample=${samp}"
     RJ_CONFIG_YAML="$train_yaml" \
+    RJ_SIM_LOCAL_GROUPED=1 \
+    RJ_SIM_LOCAL_NFILES="$AUAU_BDT_LOCAL_NFILES" \
     RJ_LOCAL_SIM_OUTPUT_BASE="${local_root}/simembedded" \
     "$0" isSimEmbedded local "$AUAU_BDT_LOCAL_EVENTS" "VERBOSE=${AUAU_BDT_LOCAL_VERBOSITY}" "SAMPLE=${samp}"
   done
   for samp in "${background_samples[@]}"; do
     say "[JetML local] inclusive extraction sample=${samp}"
     RJ_CONFIG_YAML="$train_yaml" \
+    RJ_SIM_LOCAL_GROUPED=1 \
+    RJ_SIM_LOCAL_NFILES="$AUAU_BDT_LOCAL_NFILES" \
     RJ_LOCAL_SIM_OUTPUT_BASE="${local_root}/simembeddedinclusive" \
     "$0" isSimEmbeddedInclusive local "$AUAU_BDT_LOCAL_EVENTS" "VERBOSE=${AUAU_BDT_LOCAL_VERBOSITY}" "SAMPLE=${samp}"
   done
 
   auau_bdt_collect_roots "$local_root" "$manifest"
+  auau_ml_validate_manifest_tree "$manifest" "JetResidualMLTrainingTree" "JetML residual rows" "${local_root}/qa_jetml_tree_validation.txt"
   mkdir -p "$outdir"
   say "Training JetML residual model:"
   say "  manifest : ${manifest}"
@@ -2087,7 +2182,7 @@ auau_ml_first_matrix_yaml() {
 
 auau_ml_parse_integration_controls() {
   AUAU_ML_LOCAL_EVENTS="${LOCAL_EVENTS}"
-  AUAU_ML_LOCAL_NFILES="${RJ_ML_LOCAL_NFILES:-4}"
+  AUAU_ML_LOCAL_NFILES="${RJ_ML_LOCAL_NFILES:-}"
   AUAU_ML_LOCAL_VERBOSITY="10"
   AUAU_ML_RESUME_BASE="${RJ_ML_RESUME_BASE:-}"
   local t
@@ -2113,6 +2208,9 @@ auau_ml_parse_integration_controls() {
     fi
   done
   [[ "$AUAU_ML_LOCAL_EVENTS" =~ ^[0-9]+$ ]] || { err "trainMLAll event count must be an integer"; exit 2; }
+  if [[ -z "$AUAU_ML_LOCAL_NFILES" ]]; then
+    AUAU_ML_LOCAL_NFILES="$(auau_ml_default_nfiles_for_events "$AUAU_ML_LOCAL_EVENTS")"
+  fi
   [[ "$AUAU_ML_LOCAL_NFILES" =~ ^[0-9]+$ && "$AUAU_ML_LOCAL_NFILES" -ge 1 ]] || { err "NFILES must be a positive integer"; exit 2; }
 }
 
@@ -2129,6 +2227,7 @@ auau_ml_run_sample_set_local() {
   for samp in "${samples[@]}"; do
     say "[ML integration] dataset=${dataset} sample=${samp}"
     RJ_CONFIG_YAML="$yaml" \
+    RJ_SIM_LOCAL_GROUPED=1 \
     RJ_SIM_LOCAL_NFILES="$AUAU_ML_LOCAL_NFILES" \
     RJ_LOCAL_SIM_OUTPUT_BASE="$output_base" \
     "$0" "$dataset" local "$nevents" "VERBOSE=${verbosity}" "SAMPLE=${samp}"
@@ -2173,8 +2272,8 @@ auau_ml_run_all_local() {
   if [[ "${TRAIN_MODE:-local}" == "resume" ]]; then
     say "  resume mode        : reuse existing extraction ROOT files when present"
   fi
-  say "  events/input file  : ${AUAU_ML_LOCAL_EVENTS}"
-  say "  input files/sample : ${AUAU_ML_LOCAL_NFILES}"
+  say "  target events/sample: ${AUAU_ML_LOCAL_EVENTS}"
+  say "  grouped files/sample: ${AUAU_ML_LOCAL_NFILES} (assuming ${RJ_SIM_LOCAL_EVENTS_PER_FILE:-1000} events/input file unless overridden)"
   say "  photon+jet samples : ${signal_samples[*]}"
   say "  inclusive samples  : ${background_samples[*]}"
   say "  reference style    : PPG12 fixed feature order + TMVA/RBDT export + analysis re-apply"
@@ -2194,14 +2293,33 @@ auau_ml_run_all_local() {
 
   tight_manifest="${run_base}/manifests/photon_training_roots.list"
   auau_bdt_collect_roots "${run_base}/extract/photon_rows" "$tight_manifest"
+  auau_ml_validate_manifest_tree "$tight_manifest" "AuAuPhotonIDTrainingTree" "shared photon-ID rows" "${run_base}/qa/photon_tree_validation.txt"
 
   tight_model_dir="${run_base}/models/tight"
   npb_model_dir="${run_base}/models/npb"
   say "Stage B1: train tight BDT variants from shared photon rows"
   RJ_AUAU_BDT_LOCAL_WIDE=1 auau_bdt_train_from_manifest "tight" "$tight_manifest" "$tight_model_dir"
 
-  say "Stage B2: run NPB training sanity on same physics-side rows"
-  auau_bdt_train_from_manifest "npb" "$tight_manifest" "$npb_model_dir"
+  say "Stage B2: run NPB training sanity or PPG12 data-tagged training"
+  local npb_data_manifest=""
+  if [[ "${RJ_AUAU_BDT_NPB_DATA_LOCAL:-0}" == "1" ]]; then
+    local npb_data_yaml="${run_base}/manifests/npb_data_yaml.path"
+    local data_yaml data_root
+    data_yaml="$(auau_bdt_make_training_yaml "npbData" "$stamp" "$master_yaml")"
+    printf "%s\n" "$data_yaml" > "$npb_data_yaml"
+    data_root="${run_base}/extract/npb_data"
+    say "  extracting AuAu timing-tagged NPB rows with PPG12-style labels"
+    say "  row YAML: ${data_yaml}"
+    RJ_CONFIG_YAML="$data_yaml" \
+    RJ_LOCAL_DATA_OUTPUT_BASE="$data_root" \
+    "$0" isAuAu local "$AUAU_ML_LOCAL_EVENTS" "VERBOSE=${AUAU_ML_LOCAL_VERBOSITY}"
+    npb_data_manifest="${run_base}/manifests/npb_data_training_roots.list"
+    auau_bdt_collect_roots "$data_root" "$npb_data_manifest"
+    auau_ml_validate_manifest_tree "$npb_data_manifest" "AuAuPhotonIDTrainingTree" "AuAu data NPB rows" "${run_base}/qa/npb_data_tree_validation.txt"
+    RJ_AUAU_BDT_NPB_INPUTS="@${npb_data_manifest}" auau_bdt_train_from_manifest "npb" "$tight_manifest" "$npb_model_dir"
+  else
+    auau_bdt_train_from_manifest "npb" "$tight_manifest" "$npb_model_dir"
+  fi
 
   jetml_yaml="$(auau_jetml_make_training_yaml "$stamp" "$master_yaml")"
   say "Stage A2: extract JetML residual rows"
@@ -2217,6 +2335,7 @@ auau_ml_run_all_local() {
 
   jetml_manifest="${run_base}/manifests/jetml_training_roots.list"
   auau_bdt_collect_roots "${run_base}/extract/jetml_rows" "$jetml_manifest"
+  auau_ml_validate_manifest_tree "$jetml_manifest" "JetResidualMLTrainingTree" "JetML residual rows" "${run_base}/qa/jetml_tree_validation.txt"
 
   jetml_model_dir="${run_base}/models/jetResidual"
   mkdir -p "$jetml_model_dir"
@@ -2240,7 +2359,25 @@ auau_ml_run_all_local() {
     --features "reco_areaSub_pt,raw_pt,jet_area,jet_eta,centrality,R,vertexz,dphi_gamma_jet"
 
   local tight_model="${tight_model_dir}/auau_tight_bdt_nominal_allCent_tmva.root"
+  local npb_model="${npb_model_dir}/auau_npb_bdt_allCent_tmva.root"
   local jetml_model="${jetml_model_dir}/core/jetResidualBDT_core_allCent_tmva.root"
+
+  if [[ -s "$npb_model" ]]; then
+    local npb_apply_yaml
+    npb_apply_yaml="$(auau_ml_first_matrix_yaml "$master_yaml" "mlApply_npb_${stamp}" "$stamp" "variantE" "reference" "reference")"
+    ml_yaml_set_scalar "$npb_apply_yaml" "auau_npb_model_file" "$npb_model"
+    ml_yaml_set_scalar "$npb_apply_yaml" "auau_bdt_training_tree" "false"
+    ml_yaml_set_scalar "$npb_apply_yaml" "jet_ml_training_tree" "false"
+    ml_yaml_set_scalar "$npb_apply_yaml" "jet_ml_correction_enabled" "false"
+
+    say "Stage C0: re-apply trained NPB model through preselection=variantE"
+    say "  model: ${npb_model}"
+    say "  YAML : ${npb_apply_yaml}"
+    auau_ml_run_sample_set_local "isSimEmbedded" "$npb_apply_yaml" "${run_base}/apply/npb/simembedded" "$AUAU_ML_LOCAL_EVENTS" "$AUAU_ML_LOCAL_VERBOSITY" "${signal_samples[@]}"
+    auau_ml_run_sample_set_local "isSimEmbeddedInclusive" "$npb_apply_yaml" "${run_base}/apply/npb/simembeddedinclusive" "$AUAU_ML_LOCAL_EVENTS" "$AUAU_ML_LOCAL_VERBOSITY" "${background_samples[@]}"
+  else
+    warn "Skipping NPB apply stage because model is missing: ${npb_model}"
+  fi
 
   if [[ -s "$tight_model" ]]; then
     tight_apply_yaml="$(auau_ml_first_matrix_yaml "$master_yaml" "mlApply_tight_${stamp}" "$stamp" "reference" "variantB" "variantB")"
@@ -2275,12 +2412,16 @@ auau_ml_run_all_local() {
 
   {
     echo "run_base=${run_base}"
-    echo "events_per_input_file=${AUAU_ML_LOCAL_EVENTS}"
-    echo "input_files_per_sample=${AUAU_ML_LOCAL_NFILES}"
+    echo "target_events_per_sample=${AUAU_ML_LOCAL_EVENTS}"
+    echo "grouped_input_files_per_sample=${AUAU_ML_LOCAL_NFILES}"
+    echo "assumed_events_per_input_file=${RJ_SIM_LOCAL_EVENTS_PER_FILE:-1000}"
     echo "photon_training_manifest=${tight_manifest}"
+    echo "npb_data_training_manifest=${npb_data_manifest:-}"
     echo "jetml_training_manifest=${jetml_manifest}"
     echo "tight_model=${tight_model}"
+    echo "npb_model=${npb_model}"
     echo "jetml_model=${jetml_model}"
+    echo "qa_dir=${run_base}/qa"
     echo "pull_command=./scripts/sftp_get_recoiljets_outputs.sh mlIntegrationLatest"
   } > "${run_base}/README.local_ml_pipeline.txt"
 
@@ -2613,6 +2754,8 @@ case "$ACTION" in
       fi
       sim_local_nfiles="${RJ_SIM_LOCAL_NFILES:-1}"
       [[ "$sim_local_nfiles" =~ ^[0-9]+$ && "$sim_local_nfiles" -ge 1 ]] || { err "RJ_SIM_LOCAL_NFILES must be a positive integer"; exit 2; }
+      sim_local_grouped="${RJ_SIM_LOCAL_GROUPED:-0}"
+      [[ "$sim_local_grouped" == "1" || "$sim_local_grouped" == "true" ]] && sim_local_grouped=1 || sim_local_grouped=0
 
       master_yaml="$(sim_yaml_master_path)"
       [[ -s "$master_yaml" ]] || { err "Master YAML not found or empty: $master_yaml"; exit 72; }
@@ -2647,8 +2790,13 @@ case "$ACTION" in
       say "SIM local smoke test (mirrors condorDoAll matrix)"
       say "  YAML master : ${master_yaml}"
       say "  groupSize   : ${gs_local} (condorDoAll default)"
-      say "  events      : ${nevt} (default for SIM local)"
+      say "  events      : ${nevt} (target for each local invocation)"
       say "  files/sample: ${sim_local_nfiles}"
+      if (( sim_local_grouped )); then
+        say "  local mode  : grouped list (one Fun4All invocation per sample/config)"
+      else
+        say "  local mode  : sequential one-file smoke jobs"
+      fi
       say "  samples     : ${samples[*]}"
       say "  dest base   : ${SIM_DEST_BASE_RESOLVED}"
       echo
@@ -2671,38 +2819,66 @@ case "$ACTION" in
 
             sim_init
             n_available="$(wc -l < "$SIM_CLEAN_LIST" | tr -d ' ')"
-            say "  [local] sample=${SIM_SAMPLE} (${n_available} entries) — running first ${sim_local_nfiles} input line(s) sequentially"
+            say "  [local] sample=${SIM_SAMPLE} (${n_available} entries) — using first ${sim_local_nfiles} input line(s)"
             mkdir -p "${DEST_BASE}/${SIM_SAMPLE}"
             find "${DEST_BASE}/${SIM_SAMPLE}" -type f -name "*_LOCAL_*.root" -delete 2>/dev/null || true
 
-            local_file_idx=0
-            while IFS= read -r in_line; do
-              [[ -n "$in_line" ]] || continue
-              (( local_file_idx+=1 ))
-
-              tmp="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_LOCAL_file$(printf '%03d' "$local_file_idx")_grp001.list"
-              printf "%s\n" "$in_line" > "$tmp"
+            if (( sim_local_grouped )); then
+              tmp="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_LOCAL_files001-$(printf '%03d' "$sim_local_nfiles")_grp001.list"
+              head -n "$sim_local_nfiles" "$SIM_CLEAN_LIST" > "$tmp"
               [[ -s "$tmp" ]] || { err "No sim entries (sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG})"; exit 30; }
 
               chunk_base="$(basename "$tmp")"
               chunk_tag="${chunk_base%.list}"
               out_root_preview="${DEST_BASE}/${SIM_SAMPLE}/RecoilJets_${DATASET}_${chunk_tag}.root"
+              n_group_lines="$(wc -l < "$tmp" | tr -d ' ')"
+              first_input_line="$(head -n 1 "$tmp" 2>/dev/null || true)"
+              last_input_line="$(tail -n 1 "$tmp" 2>/dev/null || true)"
 
               say "----------------------------------------"
-              say "SIM local: tag=${SIM_CFG_TAG}  sample=${SIM_SAMPLE} file=${local_file_idx}/${sim_local_nfiles}"
+              say "SIM local: tag=${SIM_CFG_TAG}  sample=${SIM_SAMPLE} groupedFiles=${n_group_lines}/${sim_local_nfiles}"
               say "  jet_pt_min=${pt}  back_to_back_pi_fraction=${frac}  vz_cut_cm=${vz}  coneR=${cone}  iso=${iso_tags[$iso_idx]}  uepipe=${uepipe}"
               say "  YAML override: ${yaml_override}"
-              say "  grp001 list   : ${tmp}"
-              say "  input line    : ${in_line}"
-              say "  temp list     : ${tmp}"
+              say "  grouped list : ${tmp}"
+              say "  first input  : ${first_input_line}"
+              say "  last input   : ${last_input_line}"
               say "  out ROOT      : ${out_root_preview}"
               say "  wrapper env   : RJ_VERBOSITY=${RJV} RJ_CONFIG_YAML=${yaml_override}"
-              say "  wrapper args  : sample=${SIM_SAMPLE} dataset=${DATASET} mode=LOCAL nevents=${nevt} chunk=${local_file_idx} dest=${DEST_BASE}"
+              say "  wrapper args  : sample=${SIM_SAMPLE} dataset=${DATASET} mode=LOCAL nevents=${nevt} chunk=1 dest=${DEST_BASE}"
               say "Invoking wrapper locally…"
 
-              RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt" "$local_file_idx" NONE "$DEST_BASE"
+              RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
               echo
-            done < <(head -n "$sim_local_nfiles" "$SIM_CLEAN_LIST")
+            else
+              local_file_idx=0
+              while IFS= read -r in_line; do
+                [[ -n "$in_line" ]] || continue
+                (( local_file_idx+=1 ))
+
+                tmp="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_LOCAL_file$(printf '%03d' "$local_file_idx")_grp001.list"
+                printf "%s\n" "$in_line" > "$tmp"
+                [[ -s "$tmp" ]] || { err "No sim entries (sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG})"; exit 30; }
+
+                chunk_base="$(basename "$tmp")"
+                chunk_tag="${chunk_base%.list}"
+                out_root_preview="${DEST_BASE}/${SIM_SAMPLE}/RecoilJets_${DATASET}_${chunk_tag}.root"
+
+                say "----------------------------------------"
+                say "SIM local: tag=${SIM_CFG_TAG}  sample=${SIM_SAMPLE} file=${local_file_idx}/${sim_local_nfiles}"
+                say "  jet_pt_min=${pt}  back_to_back_pi_fraction=${frac}  vz_cut_cm=${vz}  coneR=${cone}  iso=${iso_tags[$iso_idx]}  uepipe=${uepipe}"
+                say "  YAML override: ${yaml_override}"
+                say "  grp001 list   : ${tmp}"
+                say "  input line    : ${in_line}"
+                say "  temp list     : ${tmp}"
+                say "  out ROOT      : ${out_root_preview}"
+                say "  wrapper env   : RJ_VERBOSITY=${RJV} RJ_CONFIG_YAML=${yaml_override}"
+                say "  wrapper args  : sample=${SIM_SAMPLE} dataset=${DATASET} mode=LOCAL nevents=${nevt} chunk=${local_file_idx} dest=${DEST_BASE}"
+                say "Invoking wrapper locally…"
+
+                RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt" "$local_file_idx" NONE "$DEST_BASE"
+                echo
+              done < <(head -n "$sim_local_nfiles" "$SIM_CLEAN_LIST")
+            fi
           done
           done
           done

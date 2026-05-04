@@ -312,6 +312,7 @@ def train_one(frame, features: list[str], label_branch: str, output: Path, metad
     model.get_booster().save_model(json_model)
 
     export_status = "not_attempted"
+    export_error = ""
     try:
         import ROOT
 
@@ -333,6 +334,7 @@ def train_one(frame, features: list[str], label_branch: str, output: Path, metad
         export_status = "ok"
     except Exception as exc:  # noqa: BLE001
         export_status = f"failed: {exc}"
+        export_error = str(exc)
 
     report = {
         **metadata,
@@ -356,6 +358,12 @@ def train_one(frame, features: list[str], label_branch: str, output: Path, metad
         },
     }
     output.with_suffix(".metadata.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+    if export_error and not args.allow_tmva_export_failure:
+        raise SystemExit(
+            f"TMVA export failed for {output}: {export_error}. "
+            "The XGBoost JSON was written for diagnostics, but this pipeline needs "
+            "the TMVA/RBDT ROOT file for analysis consumption."
+        )
     return report
 
 
@@ -395,6 +403,8 @@ def main() -> int:
     parser.add_argument("--subsample", type=float, default=0.85)
     parser.add_argument("--colsample-bytree", type=float, default=0.85)
     parser.add_argument("--tree-method", default="hist")
+    parser.add_argument("--allow-tmva-export-failure", action="store_true",
+                        help="Write diagnostics but do not fail if TMVA export fails. Not recommended for production pipeline tests.")
     args = parser.parse_args()
 
     features = [item.strip() for item in args.features.split(",")] if args.features else (
