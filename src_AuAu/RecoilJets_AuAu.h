@@ -104,6 +104,12 @@ namespace HepMC
 //   .cc uses:  using namespace PhoIDCuts;
 //   PPG12 defines:
 //     - Preselection cuts applied first (fail => rejected; does NOT enter A–B–C–D)
+//     - Preselection variants:
+//       reference = hard-cut SS preselection
+//       variantA = loose/common SS preselection plus NPB score
+//       variantB = no preselection
+//       variantC = NPB score only
+//       variantD = reference hard-cut SS preselection plus NPB score
 //     - Tight cuts applied only after preselection
 //     - Non-tight: passes preselection AND fails >=2 of the 5 tight cuts
 //   Also: for photons in this context, pT^gamma ≡ ET^gamma (use pt_gamma everywhere).
@@ -186,10 +192,29 @@ public:
         double weta35_cogx    = 0.0;
         double wphi53_cogx    = 0.0;
         double et1            = 0.0;
+        double et2            = 0.0;
+        double et3            = 0.0;
+        double et4            = 0.0;
         double e11_over_e33   = 0.0;
         double e32_over_e35   = 0.0;
+        double e11_over_e22   = 0.0;
+        double e11_over_e13   = 0.0;
+        double e11_over_e15   = 0.0;
+        double e11_over_e17   = 0.0;
+        double e11_over_e31   = 0.0;
+        double e11_over_e51   = 0.0;
+        double e11_over_e71   = 0.0;
+        double e22_over_e33   = 0.0;
+        double e22_over_e35   = 0.0;
+        double e22_over_e37   = 0.0;
+        double e22_over_e53   = 0.0;
+        double w32            = 0.0;
+        double w52            = 0.0;
+        double w72            = 0.0;
         double npb_score      = std::numeric_limits<double>::quiet_NaN();
         double tight_bdt_score = std::numeric_limits<double>::quiet_NaN();
+        double auau_npb_score = std::numeric_limits<double>::quiet_NaN();
+        double auau_tight_bdt_score = std::numeric_limits<double>::quiet_NaN();
     };
     
     // Per-(trigger,slice) category counters printed in End()
@@ -730,6 +755,14 @@ private:
                                                          const PhotonClusterv1* ref) const;
     bool   passesPhotonPreselection(const SSVars& v);
     TightTag classifyPhotonTightness(const SSVars& v);
+    void initAuAuBDTTrainingTree();
+    void fillAuAuBDTTrainingTree(const SSVars& v,
+                                 double eta,
+                                 double phi,
+                                 double eiso,
+                                 int ptIdx,
+                                 int centIdx,
+                                 bool isSignal);
     
     
     // Isolation helpers
@@ -1173,6 +1206,14 @@ private:
     std::string m_preselectionPhotonNode = "PHOTONCLUSTER_CEMC";
     std::string m_tightPhotonNode = "PHOTONCLUSTER_CEMC";
     double m_npbCut = 0.5;
+    double m_auauNPBCut = 0.5;
+    double m_auauTightBDTMinIntercept = 0.0;
+    double m_auauTightBDTMinSlope = 0.0;
+    double m_auauTightBDTMax = 1.0;
+    double m_auauNonTightBDTMinIntercept = -1.0;
+    double m_auauNonTightBDTMinSlope = 0.0;
+    double m_auauNonTightBDTMaxIntercept = 1.0;
+    double m_auauNonTightBDTMaxSlope = 0.0;
     double m_tightBDTMinIntercept = 0.0;
     double m_tightBDTMinSlope = 0.0;
     double m_tightBDTMax = 1.0;
@@ -1359,6 +1400,53 @@ private:
     std::vector<float> m_evtDiag_best_phiTower;
     std::vector<float> m_evtDiag_best_etTower;
     std::vector<float> m_evtDiag_best_eTower;
+
+    bool m_auauBDTTrainingTreeEnabled = false;
+    long long m_auauBDTTrainingTreeMaxEntries = 0;
+    long long m_auauBDTTrainingTreeEntries = 0;
+    TTree* m_auauBDTTrainingTree = nullptr;
+
+    int m_bdtTrain_run = 0;
+    long long m_bdtTrain_evt = 0;
+    int m_bdtTrain_is_signal = 0;
+    int m_bdtTrain_pt_bin = -1;
+    int m_bdtTrain_cent_bin = -1;
+    float m_bdtTrain_pt = 0.0f;
+    float m_bdtTrain_eta = 0.0f;
+    float m_bdtTrain_phi = 0.0f;
+    float m_bdtTrain_cent = -1.0f;
+    float m_bdtTrain_vz = 0.0f;
+    float m_bdtTrain_weight = 1.0f;
+    float m_bdtTrain_eiso = 0.0f;
+    float m_bdtTrain_weta = 0.0f;
+    float m_bdtTrain_wphi = 0.0f;
+    float m_bdtTrain_weta33 = 0.0f;
+    float m_bdtTrain_wphi33 = 0.0f;
+    float m_bdtTrain_weta35 = 0.0f;
+    float m_bdtTrain_wphi53 = 0.0f;
+    float m_bdtTrain_et1 = 0.0f;
+    float m_bdtTrain_et2 = 0.0f;
+    float m_bdtTrain_et3 = 0.0f;
+    float m_bdtTrain_et4 = 0.0f;
+    float m_bdtTrain_e11e33 = 0.0f;
+    float m_bdtTrain_e32e35 = 0.0f;
+    float m_bdtTrain_e11e22 = 0.0f;
+    float m_bdtTrain_e11e13 = 0.0f;
+    float m_bdtTrain_e11e15 = 0.0f;
+    float m_bdtTrain_e11e17 = 0.0f;
+    float m_bdtTrain_e11e31 = 0.0f;
+    float m_bdtTrain_e11e51 = 0.0f;
+    float m_bdtTrain_e11e71 = 0.0f;
+    float m_bdtTrain_e22e33 = 0.0f;
+    float m_bdtTrain_e22e35 = 0.0f;
+    float m_bdtTrain_e22e37 = 0.0f;
+    float m_bdtTrain_e22e53 = 0.0f;
+    float m_bdtTrain_w32 = 0.0f;
+    float m_bdtTrain_w52 = 0.0f;
+    float m_bdtTrain_w72 = 0.0f;
+    float m_bdtTrain_npb_score = -2.0f;
+    float m_bdtTrain_auau_npb_score = -2.0f;
+    float m_bdtTrain_auau_tight_bdt_score = -2.0f;
     
     // -------------------------------------------------------------------------
     // Diagnostics / accounting

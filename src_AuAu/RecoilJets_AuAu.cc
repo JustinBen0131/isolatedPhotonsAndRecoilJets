@@ -16,6 +16,7 @@
 #include <TH2Poly.h>
 #include <TKey.h>
 #include <TObjString.h>
+#include <TBranch.h>
 #include <CLHEP/Vector/ThreeVector.h>
 #include <cdbobjects/CDBTTree.h>
 #include <ffamodules/CDBInterface.h>
@@ -345,6 +346,18 @@ namespace
           : RecoilJets::TightTag::kNeither;
       }
       return RecoilJets::TightTag::kNonTight;
+    }
+
+    inline bool preselectionUsesNPB(const std::string& preselectionVariant)
+    {
+      return preselectionVariant == "variantA" ||
+             preselectionVariant == "variantC" ||
+             preselectionVariant == "variantD";
+    }
+
+    inline bool preselectionUsesAuAuBDT(const std::string& preselectionVariant)
+    {
+      return preselectionVariant == "variantE";
     }
 
     struct DoNotScalePairConfig
@@ -945,6 +958,26 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
         }
         return def;
     };
+    auto envToLL = [&](const char* key, long long def) -> long long
+    {
+        if (const char* raw = std::getenv(key))
+        {
+            try { return std::stoll(trim(std::string(raw))); }
+            catch (...) { return def; }
+        }
+        return def;
+    };
+    auto envToBool = [&](const char* key, bool def) -> bool
+    {
+        if (const char* raw = std::getenv(key))
+        {
+            std::string s = trim(std::string(raw));
+            std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c){ return std::tolower(c); });
+            if (s == "1" || s == "true" || s == "yes" || s == "on") return true;
+            if (s == "0" || s == "false" || s == "no" || s == "off") return false;
+        }
+        return def;
+    };
     
     m_preselectionVariant  = envOrDefault("RJ_PRESELECTION_VARIANT", "reference");
     m_tightVariant         = envOrDefault("RJ_TIGHT_VARIANT", "reference");
@@ -952,9 +985,19 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     m_preselectionPhotonNode = envOrDefault("RJ_PRESELECTION_PHOTON_NODE", "PHOTONCLUSTER_CEMC");
     m_tightPhotonNode        = envOrDefault("RJ_TIGHT_PHOTON_NODE", "PHOTONCLUSTER_CEMC");
     m_npbCut               = envToDouble("RJ_NPB_CUT", 0.5);
+    m_auauNPBCut           = envToDouble("RJ_AUAU_NPB_CUT", 0.5);
     m_tightBDTMinIntercept = envToDouble("RJ_TIGHT_BDT_MIN_INTERCEPT", 0.0);
     m_tightBDTMinSlope     = envToDouble("RJ_TIGHT_BDT_MIN_SLOPE", 0.0);
     m_tightBDTMax          = envToDouble("RJ_TIGHT_BDT_MAX", 1.0);
+    m_auauTightBDTMinIntercept = envToDouble("RJ_AUAU_TIGHT_BDT_MIN_INTERCEPT", 0.0);
+    m_auauTightBDTMinSlope     = envToDouble("RJ_AUAU_TIGHT_BDT_MIN_SLOPE", 0.0);
+    m_auauTightBDTMax          = envToDouble("RJ_AUAU_TIGHT_BDT_MAX", 1.0);
+    m_auauNonTightBDTMinIntercept = envToDouble("RJ_AUAU_NONTIGHT_BDT_MIN_INTERCEPT", -1.0);
+    m_auauNonTightBDTMinSlope     = envToDouble("RJ_AUAU_NONTIGHT_BDT_MIN_SLOPE", 0.0);
+    m_auauNonTightBDTMaxIntercept = envToDouble("RJ_AUAU_NONTIGHT_BDT_MAX_INTERCEPT", 1.0);
+    m_auauNonTightBDTMaxSlope     = envToDouble("RJ_AUAU_NONTIGHT_BDT_MAX_SLOPE", 0.0);
+    m_auauBDTTrainingTreeEnabled = envToBool("RJ_AUAU_BDT_TRAINING_TREE", false);
+    m_auauBDTTrainingTreeMaxEntries = envToLL("RJ_AUAU_BDT_TRAINING_TREE_MAX_ENTRIES", 0);
     
     m_clus              = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC");
     m_clus_nocorr       = nullptr;
@@ -962,7 +1005,7 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     m_photons_npb       = nullptr;
     m_photons_tightbdt  = nullptr;
     
-    if (m_preselectionVariant == "variantA")
+    if (preselectionUsesNPB(m_preselectionVariant))
     {
         if (m_preselectionPhotonNode == "PHOTONCLUSTER_CEMC") m_photons_npb = m_photons;
         else m_photons_npb = findNode::getClass<RawClusterContainer>(top, m_preselectionPhotonNode.c_str());
@@ -998,10 +1041,11 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
             "PhotonClusterBuilder likely did not run or node name mismatch.");
         return false;
     }
-    if (m_preselectionVariant == "variantA" && !m_photons_npb)
+    if (preselectionUsesNPB(m_preselectionVariant) && !m_photons_npb)
     {
         LOG(0, CLR_YELLOW,
-            "    [fetchNodes] " << m_preselectionPhotonNode << " is MISSING while preselection=variantA.");
+            "    [fetchNodes] " << m_preselectionPhotonNode << " is MISSING while preselection="
+            << m_preselectionVariant << ".");
         return false;
     }
     if (m_tightVariant == "variantA" && !m_photons_tightbdt)
@@ -1350,6 +1394,10 @@ int RecoilJets::Init(PHCompositeNode* topNode)
   trigAna = new TriggerAnalyzer();
   LOG(1, CLR_GREEN, "[Init] booking scalar QA histograms …");
   createHistos_Data();
+  if (m_auauBDTTrainingTreeEnabled)
+  {
+    initAuAuBDTTrainingTree();
+  }
     
   /* 1.  optional DST node-tree dump ---------------------------------- */
   if (Verbosity() >= 2)           // ← adjust threshold as desired
@@ -1414,6 +1462,148 @@ int RecoilJets::Init(PHCompositeNode* topNode)
 
   LOG(1, CLR_BLUE, "[Init] RecoilJets – done");
   return Fun4AllReturnCodes::EVENT_OK;
+}
+
+void RecoilJets::initAuAuBDTTrainingTree()
+{
+  if (m_auauBDTTrainingTree) return;
+
+  if (!out || !out->IsOpen())
+  {
+    LOG(1, CLR_YELLOW, "[AuAuBDTTrainingTree] output file is not open; disabling training tree");
+    m_auauBDTTrainingTreeEnabled = false;
+    return;
+  }
+
+  out->cd();
+  m_auauBDTTrainingTree = new TTree("AuAuPhotonIDTrainingTree",
+                                    "AuAu photon-ID/NPB BDT training candidates");
+  if (!m_auauBDTTrainingTree)
+  {
+    LOG(1, CLR_YELLOW, "[AuAuBDTTrainingTree] failed to allocate tree; disabling");
+    m_auauBDTTrainingTreeEnabled = false;
+    return;
+  }
+  m_auauBDTTrainingTree->SetDirectory(out);
+
+  auto add = [&](const char* name, void* addr, const char* leaf)
+  {
+    if (!m_auauBDTTrainingTree->Branch(name, addr, leaf))
+    {
+      LOG(1, CLR_YELLOW, "[AuAuBDTTrainingTree] failed to book branch " << name);
+      m_auauBDTTrainingTreeEnabled = false;
+    }
+  };
+
+  add("run", &m_bdtTrain_run, "run/I");
+  add("evt", &m_bdtTrain_evt, "evt/L");
+  add("is_signal", &m_bdtTrain_is_signal, "is_signal/I");
+  add("pt_bin", &m_bdtTrain_pt_bin, "pt_bin/I");
+  add("cent_bin", &m_bdtTrain_cent_bin, "cent_bin/I");
+  add("cluster_Et", &m_bdtTrain_pt, "cluster_Et/F");
+  add("cluster_Eta", &m_bdtTrain_eta, "cluster_Eta/F");
+  add("cluster_Phi", &m_bdtTrain_phi, "cluster_Phi/F");
+  add("centrality", &m_bdtTrain_cent, "centrality/F");
+  add("vertexz", &m_bdtTrain_vz, "vertexz/F");
+  add("event_weight", &m_bdtTrain_weight, "event_weight/F");
+  add("reco_eiso", &m_bdtTrain_eiso, "reco_eiso/F");
+  add("cluster_weta_cogx", &m_bdtTrain_weta, "cluster_weta_cogx/F");
+  add("cluster_wphi_cogx", &m_bdtTrain_wphi, "cluster_wphi_cogx/F");
+  add("cluster_weta33_cogx", &m_bdtTrain_weta33, "cluster_weta33_cogx/F");
+  add("cluster_wphi33_cogx", &m_bdtTrain_wphi33, "cluster_wphi33_cogx/F");
+  add("cluster_weta35_cogx", &m_bdtTrain_weta35, "cluster_weta35_cogx/F");
+  add("cluster_wphi53_cogx", &m_bdtTrain_wphi53, "cluster_wphi53_cogx/F");
+  add("cluster_et1", &m_bdtTrain_et1, "cluster_et1/F");
+  add("cluster_et2", &m_bdtTrain_et2, "cluster_et2/F");
+  add("cluster_et3", &m_bdtTrain_et3, "cluster_et3/F");
+  add("cluster_et4", &m_bdtTrain_et4, "cluster_et4/F");
+  add("e11_over_e33", &m_bdtTrain_e11e33, "e11_over_e33/F");
+  add("e32_over_e35", &m_bdtTrain_e32e35, "e32_over_e35/F");
+  add("e11_over_e22", &m_bdtTrain_e11e22, "e11_over_e22/F");
+  add("e11_over_e13", &m_bdtTrain_e11e13, "e11_over_e13/F");
+  add("e11_over_e15", &m_bdtTrain_e11e15, "e11_over_e15/F");
+  add("e11_over_e17", &m_bdtTrain_e11e17, "e11_over_e17/F");
+  add("e11_over_e31", &m_bdtTrain_e11e31, "e11_over_e31/F");
+  add("e11_over_e51", &m_bdtTrain_e11e51, "e11_over_e51/F");
+  add("e11_over_e71", &m_bdtTrain_e11e71, "e11_over_e71/F");
+  add("e22_over_e33", &m_bdtTrain_e22e33, "e22_over_e33/F");
+  add("e22_over_e35", &m_bdtTrain_e22e35, "e22_over_e35/F");
+  add("e22_over_e37", &m_bdtTrain_e22e37, "e22_over_e37/F");
+  add("e22_over_e53", &m_bdtTrain_e22e53, "e22_over_e53/F");
+  add("cluster_w32", &m_bdtTrain_w32, "cluster_w32/F");
+  add("cluster_w52", &m_bdtTrain_w52, "cluster_w52/F");
+  add("cluster_w72", &m_bdtTrain_w72, "cluster_w72/F");
+  add("npb_score", &m_bdtTrain_npb_score, "npb_score/F");
+  add("auau_npb_score", &m_bdtTrain_auau_npb_score, "auau_npb_score/F");
+  add("auau_tight_bdt_score", &m_bdtTrain_auau_tight_bdt_score, "auau_tight_bdt_score/F");
+
+  LOG(1, CLR_GREEN, "[AuAuBDTTrainingTree] enabled"
+                    << " maxEntries=" << m_auauBDTTrainingTreeMaxEntries);
+}
+
+void RecoilJets::fillAuAuBDTTrainingTree(const SSVars& v,
+                                         double eta,
+                                         double phi,
+                                         double eiso,
+                                         int ptIdx,
+                                         int centIdx,
+                                         bool isSignal)
+{
+  if (!m_auauBDTTrainingTreeEnabled) return;
+  if (!m_auauBDTTrainingTree) initAuAuBDTTrainingTree();
+  if (!m_auauBDTTrainingTreeEnabled || !m_auauBDTTrainingTree) return;
+  if (m_auauBDTTrainingTreeMaxEntries > 0 &&
+      m_auauBDTTrainingTreeEntries >= m_auauBDTTrainingTreeMaxEntries) return;
+
+  auto bdtFeatureValue = [](double x) -> float
+  {
+    return std::isfinite(x) ? static_cast<float>(x) : 0.0f;
+  };
+
+  m_bdtTrain_run = (m_evtHeader ? m_evtHeader->get_RunNumber() : 0);
+  m_bdtTrain_evt = event_count;
+  m_bdtTrain_is_signal = isSignal ? 1 : 0;
+  m_bdtTrain_pt_bin = ptIdx;
+  m_bdtTrain_cent_bin = centIdx;
+  m_bdtTrain_pt = bdtFeatureValue(v.pt_gamma);
+  m_bdtTrain_eta = bdtFeatureValue(eta);
+  m_bdtTrain_phi = bdtFeatureValue(phi);
+  m_bdtTrain_cent = bdtFeatureValue(m_centPercent);
+  m_bdtTrain_vz = bdtFeatureValue(m_vz);
+  m_bdtTrain_weight = bdtFeatureValue(m_mcEventWeight);
+  m_bdtTrain_eiso = bdtFeatureValue(eiso);
+  m_bdtTrain_weta = bdtFeatureValue(v.weta_cogx);
+  m_bdtTrain_wphi = bdtFeatureValue(v.wphi_cogx);
+  m_bdtTrain_weta33 = bdtFeatureValue(v.weta33_cogx);
+  m_bdtTrain_wphi33 = bdtFeatureValue(v.wphi33_cogx);
+  m_bdtTrain_weta35 = bdtFeatureValue(v.weta35_cogx);
+  m_bdtTrain_wphi53 = bdtFeatureValue(v.wphi53_cogx);
+  m_bdtTrain_et1 = bdtFeatureValue(v.et1);
+  m_bdtTrain_et2 = bdtFeatureValue(v.et2);
+  m_bdtTrain_et3 = bdtFeatureValue(v.et3);
+  m_bdtTrain_et4 = bdtFeatureValue(v.et4);
+  m_bdtTrain_e11e33 = bdtFeatureValue(v.e11_over_e33);
+  m_bdtTrain_e32e35 = bdtFeatureValue(v.e32_over_e35);
+  m_bdtTrain_e11e22 = bdtFeatureValue(v.e11_over_e22);
+  m_bdtTrain_e11e13 = bdtFeatureValue(v.e11_over_e13);
+  m_bdtTrain_e11e15 = bdtFeatureValue(v.e11_over_e15);
+  m_bdtTrain_e11e17 = bdtFeatureValue(v.e11_over_e17);
+  m_bdtTrain_e11e31 = bdtFeatureValue(v.e11_over_e31);
+  m_bdtTrain_e11e51 = bdtFeatureValue(v.e11_over_e51);
+  m_bdtTrain_e11e71 = bdtFeatureValue(v.e11_over_e71);
+  m_bdtTrain_e22e33 = bdtFeatureValue(v.e22_over_e33);
+  m_bdtTrain_e22e35 = bdtFeatureValue(v.e22_over_e35);
+  m_bdtTrain_e22e37 = bdtFeatureValue(v.e22_over_e37);
+  m_bdtTrain_e22e53 = bdtFeatureValue(v.e22_over_e53);
+  m_bdtTrain_w32 = bdtFeatureValue(v.w32);
+  m_bdtTrain_w52 = bdtFeatureValue(v.w52);
+  m_bdtTrain_w72 = bdtFeatureValue(v.w72);
+  m_bdtTrain_npb_score = std::isfinite(v.npb_score) ? static_cast<float>(v.npb_score) : -2.0f;
+  m_bdtTrain_auau_npb_score = std::isfinite(v.auau_npb_score) ? static_cast<float>(v.auau_npb_score) : -2.0f;
+  m_bdtTrain_auau_tight_bdt_score = std::isfinite(v.auau_tight_bdt_score) ? static_cast<float>(v.auau_tight_bdt_score) : -2.0f;
+
+  m_auauBDTTrainingTree->Fill();
+  ++m_auauBDTTrainingTreeEntries;
 }
 
 
@@ -3430,6 +3620,20 @@ int RecoilJets::End(PHCompositeNode*)
     out->cd();
   }
 
+  if (m_auauBDTTrainingTree)
+  {
+    out->cd();
+    if (m_auauBDTTrainingTree->Write("", TObject::kOverwrite) > 0)
+    {
+      info(1, "AuAuPhotonIDTrainingTree written with " +
+              std::to_string(m_auauBDTTrainingTreeEntries) + " entries");
+    }
+    else
+    {
+      warn("AuAuPhotonIDTrainingTree Write() returned 0");
+    }
+  }
+
   //--------------------------------------------------------------------
   // 3. Human-readable histogram summary (must run *before* file deletion)
   //--------------------------------------------------------------------
@@ -4211,15 +4415,34 @@ RecoilJets::SSVars RecoilJets::makeSSFromPhoton(const PhotonClusterv1* pho, doub
     const double weta35_cogx = pho->get_shower_shape_parameter("weta35_cogx");
     const double wphi53_cogx = pho->get_shower_shape_parameter("wphi53_cogx");
     const double et1         = pho->get_shower_shape_parameter("et1");
+    const double et2         = pho->get_shower_shape_parameter("et2");
+    const double et3         = pho->get_shower_shape_parameter("et3");
+    const double et4         = pho->get_shower_shape_parameter("et4");
 
     const double e11 = pho->get_shower_shape_parameter("e11");
+    const double e22 = pho->get_shower_shape_parameter("e22");
     const double e33 = pho->get_shower_shape_parameter("e33");
     const double e32 = pho->get_shower_shape_parameter("e32");
     const double e35 = pho->get_shower_shape_parameter("e35");
+    const double e13 = pho->get_shower_shape_parameter("e13");
+    const double e15 = pho->get_shower_shape_parameter("e15");
+    const double e17 = pho->get_shower_shape_parameter("e17");
+    const double e31 = pho->get_shower_shape_parameter("e31");
+    const double e51 = pho->get_shower_shape_parameter("e51");
+    const double e71 = pho->get_shower_shape_parameter("e71");
+    const double e37 = pho->get_shower_shape_parameter("e37");
+    const double e53 = pho->get_shower_shape_parameter("e53");
+    const double w32 = pho->get_shower_shape_parameter("w32");
+    const double w52 = pho->get_shower_shape_parameter("w52");
+    const double w72 = pho->get_shower_shape_parameter("w72");
 
     // Derived ratios (protect denominators)
-    const double e11_over_e33_raw = (e33 > 0.0) ? (e11 / e33) : std::numeric_limits<double>::quiet_NaN();
-    const double e32_over_e35_raw = (e35 > 0.0) ? (e32 / e35) : std::numeric_limits<double>::quiet_NaN();
+    auto ratio = [](double num, double den) -> double
+    {
+      return (den > 0.0) ? (num / den) : std::numeric_limits<double>::quiet_NaN();
+    };
+    const double e11_over_e33_raw = ratio(e11, e33);
+    const double e32_over_e35_raw = ratio(e32, e35);
 
     v.weta_cogx    = weta_cogx;
     v.wphi_cogx    = wphi_cogx;
@@ -4228,11 +4451,28 @@ RecoilJets::SSVars RecoilJets::makeSSFromPhoton(const PhotonClusterv1* pho, doub
     v.weta35_cogx  = weta35_cogx;
     v.wphi53_cogx  = wphi53_cogx;
     v.et1          = et1;
+    v.et2          = et2;
+    v.et3          = et3;
+    v.et4          = et4;
 
   // Preserve NaN for invalid denominators/inputs.
   // This ensures preselection/tight cuts fail cleanly for invalid SS inputs.
   v.e11_over_e33 = e11_over_e33_raw;
   v.e32_over_e35 = e32_over_e35_raw;
+  v.e11_over_e22 = ratio(e11, e22);
+  v.e11_over_e13 = ratio(e11, e13);
+  v.e11_over_e15 = ratio(e11, e15);
+  v.e11_over_e17 = ratio(e11, e17);
+  v.e11_over_e31 = ratio(e11, e31);
+  v.e11_over_e51 = ratio(e11, e51);
+  v.e11_over_e71 = ratio(e11, e71);
+  v.e22_over_e33 = ratio(e22, e33);
+  v.e22_over_e35 = ratio(e22, e35);
+  v.e22_over_e37 = ratio(e22, e37);
+  v.e22_over_e53 = ratio(e22, e53);
+  v.w32 = w32;
+  v.w52 = w52;
+  v.w72 = w72;
 
   attachVariantScoresToSSVars(pho, v);
 
@@ -7007,6 +7247,8 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 }
                 
                 // ── SIM: fill inclusive _sig / _bkg PPG12-style SS templates (before preselection) ──
+                bool bdtTrainIsSignal = false;
+                bool bdtTrainHaveLabel = false;
                 if (m_isSim)
                 {
                     bool isSig_incl = false;
@@ -7020,6 +7262,8 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                                                                            matchedTruth_incl,
                                                                            clusterTruthTrackId_incl,
                                                                            eContrib_incl);
+                        bdtTrainHaveLabel = true;
+                        bdtTrainIsSignal = isSig_incl;
                     }
                     const std::string mcSuffix_incl = (isSig_incl ? "_sig" : "_bkg");
                     const std::string tagKey_incl   = std::string("inclusive") + mcSuffix_incl;
@@ -7047,11 +7291,16 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                         fill1_incl(trigShort, "e32e35", v.e32_over_e35);
                     }
                 }
+
+                if (bdtTrainHaveLabel)
+                {
+                    fillAuAuBDTTrainingTree(v, eta, phi, eiso_et, ptIdx, centIdx, bdtTrainIsSignal);
+                }
                 
                 // ---------- NPB preselection shadow QA ----------
-                // If variantA is the real preselection, keep that decision untouched,
+                // If an NPB-gated preselection is active, keep that decision untouched,
                 // but also evaluate the reference pp/PPG12 preselection as diagnostics.
-                if (m_preselectionVariant == "variantA")
+                if (preselectionUsesNPB(m_preselectionVariant))
                 {
                     const bool npbPassForAudit =
                         std::isfinite(v.npb_score) &&
@@ -7161,7 +7410,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 const bool pre_ok = passesPhotonPreselection(v);
                 if (!pre_ok)
                 {
-                    if (m_preselectionVariant == "variantA")
+                    if (preselectionUsesNPB(m_preselectionVariant) || preselectionUsesAuAuBDT(m_preselectionVariant))
                     {
                         for (const auto& trigShort : activeTrig)
                         {
@@ -7176,10 +7425,18 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                         {
                             std::ostringstream msg;
                             msg << "      [pho#" << iPho << "] preselection FAIL"
-                                << " | variant=variantA(PPG12 common + NPB)"
-                                << " | npb_score=" << std::fixed << std::setprecision(4) << v.npb_score
-                                << " | cut:>" << m_npbCut
+                                << " | variant=" << m_preselectionVariant
                                 << " | pT^{#gamma}=" << std::fixed << std::setprecision(2) << v.pt_gamma;
+                            if (preselectionUsesNPB(m_preselectionVariant))
+                            {
+                                msg << " | npb_score=" << std::fixed << std::setprecision(4) << v.npb_score
+                                    << " | cut:>" << m_npbCut;
+                            }
+                            else if (m_preselectionVariant == "variantE")
+                            {
+                                msg << " | auau_npb_score=" << std::fixed << std::setprecision(4) << v.auau_npb_score
+                                    << " | cut:>" << m_auauNPBCut;
+                            }
                             LOG(4, CLR_MAGENTA, msg.str());
                         }
                     }
@@ -7271,11 +7528,21 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 {
                     std::ostringstream msg;
                     msg << "      [pho#" << iPho << "] preselection PASS";
-                    if (m_preselectionVariant == "variantA")
+                    if (preselectionUsesNPB(m_preselectionVariant) || preselectionUsesAuAuBDT(m_preselectionVariant))
                     {
-                        msg << " | variant=variantA(PPG12 common + NPB)"
-                            << " | npb_score=" << std::fixed << std::setprecision(4) << v.npb_score
-                            << " | cut:>" << m_npbCut;
+                        msg << " | variant=" << m_preselectionVariant;
+                        if (preselectionUsesNPB(m_preselectionVariant))
+                        {
+                            msg << "(NPB-gated)"
+                                << " | npb_score=" << std::fixed << std::setprecision(4) << v.npb_score
+                                << " | cut:>" << m_npbCut;
+                        }
+                        else if (m_preselectionVariant == "variantE")
+                        {
+                            msg << "(AuAu NPB-only)"
+                                << " | auau_npb_score=" << std::fixed << std::setprecision(4) << v.auau_npb_score
+                                << " | cut:>" << m_auauNPBCut;
+                        }
                     }
                     else
                     {
@@ -7329,6 +7596,59 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                             << " | tight_bdt_score=" << std::fixed << std::setprecision(4) << v.tight_bdt_score
                             << " | tight=(" << tight_min << "," << kPPG12TightBDTMax << ") pass=" << pass_tight_bdt
                             << " | nonTight=(" << non_tight_min << "," << non_tight_max << ") pass=" << pass_non_tight_bdt
+                            << " | nonTightVariant=" << m_nonTightVariant
+                            << " | tag=" << tightTagName(tightTag);
+                        LOG(4, (tightTag == TightTag::kTight ? CLR_RED :
+                                (tightTag == TightTag::kNonTight ? CLR_GREEN : CLR_YELLOW)), msg.str());
+                    }
+                }
+                else if (m_tightVariant == "variantB")
+                {
+                    const double score = v.auau_tight_bdt_score;
+                    const double intercept = m_auauTightBDTMinIntercept;
+                    const double slope = m_auauTightBDTMinSlope;
+                    const double maxScore = m_auauTightBDTMax;
+                    const double minScore = intercept + slope * v.pt_gamma;
+                    const double nonTightMin = m_auauNonTightBDTMinIntercept + m_auauNonTightBDTMinSlope * v.pt_gamma;
+                    const double nonTightMax = m_auauNonTightBDTMaxIntercept + m_auauNonTightBDTMaxSlope * v.pt_gamma;
+                    const bool pass_tight_bdt = std::isfinite(score) &&
+                                                std::isfinite(minScore) &&
+                                                std::isfinite(maxScore) &&
+                                                score > minScore &&
+                                                score < maxScore;
+                    const bool pass_non_tight_bdt = std::isfinite(score) &&
+                                                    std::isfinite(nonTightMin) &&
+                                                    std::isfinite(nonTightMax) &&
+                                                    score > nonTightMin &&
+                                                    score < nonTightMax;
+
+                    if (pass_tight_bdt) tightTag = TightTag::kTight;
+                    else if (m_nonTightVariant == "variantB") tightTag = (pass_non_tight_bdt ? TightTag::kNonTight : TightTag::kNeither);
+                    else tightTag = TightTag::kNonTight;
+                    if (tightTag == TightTag::kTight) ++m_bk.tight_tight;
+                    else if (tightTag == TightTag::kNonTight) ++m_bk.tight_nonTight;
+                    else ++m_bk.tight_neither;
+
+                    for (const auto& trigShort : activeTrig)
+                    {
+                        if (!pass_tight_bdt)
+                        {
+                            if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_bdt", ptIdx, effCentIdx_SS))
+                            {
+                                h->Fill(1);
+                                bumpHistFill(trigShort, std::string("h_tightFail_bdt") + slice_SS);
+                            }
+                        }
+                    }
+
+                    if (Verbosity() >= 4)
+                    {
+                        std::ostringstream msg;
+                        msg << "      [pho#" << iPho << "] tight classification"
+                            << " | variant=variantB(AuAu BDT)"
+                            << " | score=" << std::fixed << std::setprecision(4) << score
+                            << " | tight=(" << minScore << "," << maxScore << ") pass=" << pass_tight_bdt
+                            << " | nonTightSideband=(" << nonTightMin << "," << nonTightMax << ") pass=" << pass_non_tight_bdt
                             << " | nonTightVariant=" << m_nonTightVariant
                             << " | tag=" << tightTagName(tightTag);
                         LOG(4, (tightTag == TightTag::kTight ? CLR_RED :
@@ -8161,10 +8481,12 @@ void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars&
 {
   v.npb_score = std::numeric_limits<double>::quiet_NaN();
   v.tight_bdt_score = std::numeric_limits<double>::quiet_NaN();
+  v.auau_npb_score = std::numeric_limits<double>::quiet_NaN();
+  v.auau_tight_bdt_score = std::numeric_limits<double>::quiet_NaN();
 
   if (!pho) return;
 
-  if (m_preselectionVariant == "variantA")
+  if (preselectionUsesNPB(m_preselectionVariant))
   {
     if (m_photons_npb == m_photons)
     {
@@ -8191,6 +8513,15 @@ void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars&
         v.tight_bdt_score = match->get_shower_shape_parameter("bdt_score");
     }
   }
+
+  if (m_preselectionVariant == "variantE")
+  {
+    v.auau_npb_score = pho->get_shower_shape_parameter("auau_npb_score");
+  }
+  if (m_tightVariant == "variantB")
+  {
+    v.auau_tight_bdt_score = pho->get_shower_shape_parameter("auau_tight_bdt_score");
+  }
 }
 
 bool RecoilJets::passesPhotonPreselection(const SSVars& v)
@@ -8200,6 +8531,30 @@ bool RecoilJets::passesPhotonPreselection(const SSVars& v)
     if (Verbosity() >= 5)
       LOG(5, CLR_BLUE, "  [passesPhotonPreselection] variant=variantB(no preselection cuts) → PASS");
     return true;
+  }
+
+  if (m_preselectionVariant == "variantC")
+  {
+    const bool pass_npb = std::isfinite(v.npb_score) && (v.npb_score > m_npbCut);
+    if (Verbosity() >= 5)
+    {
+      LOG(5, CLR_BLUE,
+          "  [passesPhotonPreselection] variant=variantC(NPB only)"
+          << " | npb_score=" << v.npb_score
+          << " cut:>" << m_npbCut << " -> " << pass_npb);
+    }
+    return pass_npb;
+  }
+
+  if (m_preselectionVariant == "variantE")
+  {
+    const bool pass = std::isfinite(v.auau_npb_score) && (v.auau_npb_score > m_auauNPBCut);
+    if (Verbosity() >= 5)
+      LOG(5, CLR_BLUE,
+          "  [passesPhotonPreselection] variant=variantE(AuAu NPB-only)"
+          << " | auau_npb_score=" << v.auau_npb_score
+          << " cut:>" << m_auauNPBCut << " -> " << pass);
+    return pass;
   }
 
   if (m_preselectionVariant == "variantA")
@@ -8274,6 +8629,52 @@ bool RecoilJets::passesPhotonPreselection(const SSVars& v)
             << ", e11/e33=" << v.e11_over_e33
             << ", e32/e35=" << v.e32_over_e35);
       }
+    }
+
+    return pass_all;
+  }
+
+  if (m_preselectionVariant == "variantD")
+  {
+    const bool ok_vals =
+      std::isfinite(v.npb_score) &&
+      std::isfinite(v.weta_cogx) &&
+      std::isfinite(v.wphi_cogx) &&
+      std::isfinite(v.et1) &&
+      std::isfinite(v.e11_over_e33) &&
+      std::isfinite(v.e32_over_e35) &&
+      std::isfinite(v.pt_gamma);
+
+    if (!ok_vals)
+    {
+      LOG(2, CLR_YELLOW,
+          "  [passesPhotonPreselection] variantD non-finite SSVars/NPB detected: "
+          << "npb_score=" << v.npb_score
+          << " weta=" << v.weta_cogx << " wphi=" << v.wphi_cogx
+          << " et1=" << v.et1
+          << " e11/e33=" << v.e11_over_e33
+          << " e32/e35=" << v.e32_over_e35
+          << " pT^gamma=" << v.pt_gamma);
+      return false;
+    }
+
+    const bool pass_npb    = (v.npb_score > m_npbCut);
+    const bool pass_e11e33 = (v.e11_over_e33 < m_phoid_pre_e11e33_max);
+    const bool pass_et1    = in_open_interval(v.et1, m_phoid_pre_et1_min, m_phoid_pre_et1_max);
+    const bool pass_e32e35 = in_open_interval(v.e32_over_e35, m_phoid_pre_e32e35_min, m_phoid_pre_e32e35_max);
+    const bool pass_weta   = (v.weta_cogx < m_phoid_pre_weta_max);
+    const bool pass_all = pass_npb && pass_e11e33 && pass_et1 && pass_e32e35 && pass_weta;
+
+    if (Verbosity() >= 5)
+    {
+      LOG(5, CLR_BLUE,
+          "  [passesPhotonPreselection] variant=variantD(reference + NPB)"
+          << " | npb_score=" << v.npb_score << " cut:>" << m_npbCut << " -> " << pass_npb
+          << " | weta=" << v.weta_cogx << " (<" << m_phoid_pre_weta_max << ") -> " << pass_weta
+          << " | et1=" << v.et1 << " in (" << m_phoid_pre_et1_min << "," << m_phoid_pre_et1_max << ") -> " << pass_et1
+          << " | e11/e33=" << v.e11_over_e33 << " (<" << m_phoid_pre_e11e33_max << ") -> " << pass_e11e33
+          << " | e32/e35=" << v.e32_over_e35 << " in (" << m_phoid_pre_e32e35_min << "," << m_phoid_pre_e32e35_max << ") -> " << pass_e32e35
+          << " | all -> " << pass_all);
     }
 
     return pass_all;
@@ -8378,6 +8779,44 @@ RecoilJets::TightTag RecoilJets::classifyPhotonTightness(const SSVars& v)
     }
 
     return tag;
+  }
+
+  if (m_tightVariant == "variantB")
+  {
+    const double score = v.auau_tight_bdt_score;
+    const double intercept = m_auauTightBDTMinIntercept;
+    const double slope = m_auauTightBDTMinSlope;
+    const double maxScore = m_auauTightBDTMax;
+    const double minScore = intercept + slope * v.pt_gamma;
+    const double nonTightMin = m_auauNonTightBDTMinIntercept + m_auauNonTightBDTMinSlope * v.pt_gamma;
+    const double nonTightMax = m_auauNonTightBDTMaxIntercept + m_auauNonTightBDTMaxSlope * v.pt_gamma;
+    const bool pass = std::isfinite(score) &&
+                      std::isfinite(minScore) &&
+                      std::isfinite(maxScore) &&
+                      score > minScore &&
+                      score < maxScore;
+    const bool passNonTightSideband = std::isfinite(score) &&
+                                      std::isfinite(nonTightMin) &&
+                                      std::isfinite(nonTightMax) &&
+                                      score > nonTightMin &&
+                                      score < nonTightMax;
+
+    if (Verbosity() >= 5)
+    {
+      LOG(5, CLR_BLUE,
+          "  [classifyPhotonTightness] variantB(AuAu tight BDT)"
+          << " | score=" << score
+          << " | tight=(" << minScore << "," << maxScore << ") -> " << pass
+          << " | nonTightSideband=(" << nonTightMin << "," << nonTightMax << ") -> " << passNonTightSideband
+          << " | nonTightVariant=" << m_nonTightVariant);
+    }
+
+    if (pass) return TightTag::kTight;
+    if (m_nonTightVariant == "variantB")
+    {
+      return passNonTightSideband ? TightTag::kNonTight : TightTag::kNeither;
+    }
+    return TightTag::kNonTight;
   }
 
   // Upper width cut is ET-dependent

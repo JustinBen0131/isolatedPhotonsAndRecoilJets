@@ -507,6 +507,9 @@ selection_mode_normalize() {
     ""|reference|Reference) echo "reference" ;;
     variantA|VariantA|varianta) echo "variantA" ;;
     variantB|VariantB|variantb) echo "variantB" ;;
+    variantC|VariantC|variantc) echo "variantC" ;;
+    variantD|VariantD|variantd) echo "variantD" ;;
+    variantE|VariantE|variante) echo "variantE" ;;
     *) echo "$mode" ;;
   esac
 }
@@ -519,6 +522,9 @@ selection_mode_tag() {
     reference) echo "${key}Reference" ;;
     variantA) echo "${key}VariantA" ;;
     variantB) echo "${key}VariantB" ;;
+    variantC) echo "${key}VariantC" ;;
+    variantD) echo "${key}VariantD" ;;
+    variantE) echo "${key}VariantE" ;;
     *)
       local first="${mode:0:1}"
       local rest="${mode:1}"
@@ -597,6 +603,7 @@ build_cfg_tags_from_yaml() {
   esac
 
   local pt frac vz cone iso uep pre tight nonTight tag selection_tag
+  local tight_norm nonTight_norm
   for pt in "${jet_pts[@]}"; do
     for frac in "${b2bs[@]}"; do
       for vz in "${vzs[@]}"; do
@@ -605,6 +612,11 @@ build_cfg_tags_from_yaml() {
             for pre in "${preselection_modes[@]}"; do
               for tight in "${tight_modes[@]}"; do
                 for nonTight in "${nonTight_modes[@]}"; do
+                  tight_norm="$(selection_mode_normalize "$tight")"
+                  nonTight_norm="$(selection_mode_normalize "$nonTight")"
+                  if [[ "$tight_norm" == "reference" && "$nonTight_norm" != "reference" ]]; then
+                    continue
+                  fi
                   selection_tag="$(selection_mode_tag "preselection" "$pre")_$(selection_mode_tag "tight" "$tight")_$(selection_mode_tag "nonTight" "$nonTight")"
                   tag="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_dir_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso}"
                   for uep in "${uepipes[@]}"; do

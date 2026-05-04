@@ -42,6 +42,11 @@
 #     ./RecoilJets_Condor_submit.sh isSimEmbedded local
 #     ./RecoilJets_Condor_submit.sh isSimEmbedded condorDoAll
 #
+#   AuAu embedded photon-ID BDT training extraction:
+#     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT local
+#     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT condorDoAll
+#     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainNPB local
+#
 # OVERVIEW
 #   • This script is the top-level submission driver for:
 #       isPP, isPPrun25, isAuAu, isOO, isSim, isSimJet5, isSimMB, isSimEmbedded
@@ -217,6 +222,9 @@
 #     $ ./RecoilJets_Condor_submit.sh <simDataset> CHECKJOBS [groupSize N] [SAMPLE=...]
 #     $ ./RecoilJets_Condor_submit.sh <simDataset> condorTest [SAMPLE=...]
 #     $ ./RecoilJets_Condor_submit.sh <simDataset> condorDoAll [groupSize N] [SAMPLE=...]
+#     $ ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT local [Nevents] [VERBOSE=N]
+#     $ ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT condorDoAll [groupSize N]
+#     $ ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainNPB local [Nevents] [VERBOSE=N]
 #
 # ISLOCALISOPING ENVIRONMENT / CONTROLS
 #   • Required dataset:
@@ -325,6 +333,11 @@ SIM_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/sim"
 SIMJET5_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simjet5"
 SIMMB_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simmb"
 SIMEMBED_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simembedded"
+AUAU_BDT_DEST_BASE="${RJ_AUAU_BDT_DEST_BASE:-/sphenix/tg/tg01/bulk/jbennett/thesisAna/simembedded_bdt_training}"
+AUAU_BDT_LOCAL_BASE="${RJ_AUAU_BDT_LOCAL_BASE:-${BASE}/local_bdt_training_outputs}"
+AUAU_BDT_MODEL_BASE="${RJ_AUAU_BDT_MODEL_BASE:-${BASE}/bdt_models}"
+AUAU_BDT_SIGNAL_SAMPLES_DEFAULT="run28_embeddedPhoton12 run28_embeddedPhoton20"
+AUAU_BDT_BACKGROUND_SAMPLES_DEFAULT="run28_embeddedJet10 run28_embeddedJet20"
 
 # Flag: set to 1 for any isSim variant (isSim, isSimJet5, isSimMB, isSimEmbedded)
 IS_SIM=0
@@ -437,7 +450,6 @@ ${BOLD}DATA modes:${RST}
 
 ${BOLD}SIM mode (photonJet10/20 merged):${RST}
   ${BOLD}$0 isSim local [Nevents] [VERBOSE=N] [SAMPLE=run28_photonjet10]${RST}
-  ${BOLD}$0 isSim localSTITCHtest [NeventsPerFile=1000] [VERBOSE=N] [TARGET=30] [STARTFILES=1] [MAXFILES=6]${RST}
   ${BOLD}$0 isSim checkModels [VERBOSE=N]${RST}
   ${BOLD}$0 isSim CHECKJOBS [groupSize N] [SAMPLE=run28_photonjet10]${RST}
   ${BOLD}$0 isSim condorTest [SAMPLE=run28_photonjet10]${RST}
@@ -455,6 +467,15 @@ ${BOLD}SIM mode (MinBias DETROIT):${RST}
   ${BOLD}$0 isSimMB condorTest [SAMPLE=run28_detroit]${RST}
   ${BOLD}$0 isSimMB condorDoAll [groupSize N] [SAMPLE=run28_detroit]${RST}
 
+${BOLD}AuAu embedded photon-ID BDT training:${RST}
+  ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT local [Nevents] [VERBOSE=N]${RST}
+  ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT condorDoAll [groupSize N]${RST}
+  ${BOLD}$0 isSimEmbeddedAndInclusive trainNPB local [Nevents] [VERBOSE=N]${RST}
+
+  Signal samples default to:     ${AUAU_BDT_SIGNAL_SAMPLES_DEFAULT}
+  Background samples default to: ${AUAU_BDT_BACKGROUND_SAMPLES_DEFAULT}
+  Override with RJ_AUAU_BDT_SIGNAL_SAMPLES / RJ_AUAU_BDT_BACKGROUND_SAMPLES.
+
 Examples:
   $0 isPP  local 5000
   $0 isAuAu splitGoldenRunList groupSize 3 maxJobs 12000
@@ -464,7 +485,6 @@ Examples:
 
   $0 isSim CHECKJOBS groupSize 5
   $0 isSim local 5000
-  $0 isSim localSTITCHtest 1000 VERBOSE=3 TARGET=30 STARTFILES=1 MAXFILES=6
   $0 isSim checkModels
   $0 isSim condorTest
   $0 isSim condorDoAll groupSize 5
@@ -595,6 +615,9 @@ selection_mode_normalize() {
     ""|reference|Reference) echo "reference" ;;
     variantA|VariantA|varianta) echo "variantA" ;;
     variantB|VariantB|variantb) echo "variantB" ;;
+    variantC|VariantC|variantc) echo "variantC" ;;
+    variantD|VariantD|variantd) echo "variantD" ;;
+    variantE|VariantE|variante) echo "variantE" ;;
     *) echo "$mode" ;;
   esac
 }
@@ -607,6 +630,9 @@ selection_mode_tag() {
     reference) echo "${key}Reference" ;;
     variantA) echo "${key}VariantA" ;;
     variantB) echo "${key}VariantB" ;;
+    variantC) echo "${key}VariantC" ;;
+    variantD) echo "${key}VariantD" ;;
+    variantE) echo "${key}VariantE" ;;
     *)
       local first="${mode:0:1}"
       local rest="${mode:1}"
@@ -697,6 +723,9 @@ build_iso_modes() {
           _pre_norm="$(selection_mode_normalize "$_pre")"
           _tight_norm="$(selection_mode_normalize "$_tight")"
           _nonTight_norm="$(selection_mode_normalize "$_nonTight")"
+          if [[ "$_tight_norm" == "reference" && "$_nonTight_norm" != "reference" ]]; then
+            continue
+          fi
           selection_tag="$(selection_mode_tag "preselection" "$_pre_norm")_$(selection_mode_tag "tight" "$_tight_norm")_$(selection_mode_tag "nonTight" "$_nonTight_norm")"
 
           iso_tags+=( "${_base_tags[$_i]}_${selection_tag}" )
@@ -836,7 +865,7 @@ resolve_dataset() {
       GOLDEN=""
       LIST_DIR=""
       LIST_PREFIX=""
-      DEST_BASE="$SIMEMBED_DEST_BASE"
+      DEST_BASE="${RJ_SIMEMBED_DEST_BASE:-$SIMEMBED_DEST_BASE}"
       TAG="simembedded"
       MACRO="${BASE}/macros/Fun4All_recoilJets_AuAu.C"
       EXE="${BASE}/RecoilJets_Condor_AuAu.sh"
@@ -849,12 +878,25 @@ resolve_dataset() {
       GOLDEN=""
       LIST_DIR=""
       LIST_PREFIX=""
-      DEST_BASE="$SIMEMBED_DEST_BASE"
+      DEST_BASE="${RJ_SIMEMBED_DEST_BASE:-$SIMEMBED_DEST_BASE}"
       TAG="simembeddedinclusive"
       MACRO="${BASE}/macros/Fun4All_recoilJets_AuAu.C"
       EXE="${BASE}/RecoilJets_Condor_AuAu.sh"
       IS_SIM=1
       SIM_SAMPLE_DEFAULT="run28_embeddedJet20"
+      SIM_SAMPLE="$SIM_SAMPLE_DEFAULT"
+      ;;
+    isSimEmbeddedAndInclusive|issimembeddedandinclusive|simembeddedandinclusive|SIMEMBEDDEDANDINCLUSIVE)
+      DATASET="isSimEmbeddedAndInclusive"
+      GOLDEN=""
+      LIST_DIR=""
+      LIST_PREFIX=""
+      DEST_BASE="$AUAU_BDT_DEST_BASE"
+      TAG="simembeddedandinclusive"
+      MACRO="${BASE}/macros/Fun4All_recoilJets_AuAu.C"
+      EXE="${BASE}/RecoilJets_Condor_AuAu.sh"
+      IS_SIM=1
+      SIM_SAMPLE_DEFAULT="run28_embeddedPhoton20"
       SIM_SAMPLE="$SIM_SAMPLE_DEFAULT"
       ;;
     isSimJet5|isSimjet5|simjet5|SIMJET5)
@@ -1536,12 +1578,230 @@ SUB
   condor_submit "$sub"
 }
 
+# ------------------------ AuAu embedded BDT training helpers --------------------------
+auau_bdt_words() {
+  local text="$1"
+  local word
+  for word in $text; do
+    [[ -n "$word" ]] && printf "%s\n" "$word"
+  done
+}
+
+auau_bdt_signal_samples() {
+  auau_bdt_words "${RJ_AUAU_BDT_SIGNAL_SAMPLES:-$AUAU_BDT_SIGNAL_SAMPLES_DEFAULT}"
+}
+
+auau_bdt_background_samples() {
+  auau_bdt_words "${RJ_AUAU_BDT_BACKGROUND_SAMPLES:-$AUAU_BDT_BACKGROUND_SAMPLES_DEFAULT}"
+}
+
+auau_bdt_parse_local_controls() {
+  AUAU_BDT_LOCAL_EVENTS="${LOCAL_EVENTS}"
+  AUAU_BDT_LOCAL_VERBOSITY="10"
+  local t
+  for t in "${tokens[@]}"; do
+    if [[ "$t" =~ ^VERBOSE=([0-9]+)$ ]]; then
+      AUAU_BDT_LOCAL_VERBOSITY="${BASH_REMATCH[1]}"
+    elif [[ "$t" =~ ^[0-9]+$ ]]; then
+      AUAU_BDT_LOCAL_EVENTS="$t"
+    fi
+  done
+  [[ "$AUAU_BDT_LOCAL_EVENTS" =~ ^[0-9]+$ ]] || { err "BDT local event count must be an integer"; exit 2; }
+}
+
+auau_bdt_make_training_yaml() {
+  local task="$1"
+  local stamp="$2"
+  local master_yaml="$3"
+
+  [[ -s "$master_yaml" ]] || { err "Master YAML not found or empty: $master_yaml"; exit 72; }
+
+  local -a pts fracs vzs cones fixeds uepipes
+  mapfile -t pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
+  mapfile -t fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
+  mapfile -t vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
+  mapfile -t cones < <( yaml_get_values "coneR" "$master_yaml" )
+  mapfile -t fixeds < <( yaml_get_values "fixedGeV" "$master_yaml" 2>/dev/null )
+  (( ${#pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
+  (( ${#fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
+  (( ${#vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
+  (( ${#cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
+  (( ${#fixeds[@]} )) || fixeds=( "2.0" )
+
+  read_uepipe_modes "$master_yaml" "simembedded"
+  uepipes=( "${uepipe_modes[@]}" )
+  (( ${#uepipes[@]} )) || uepipes=( "noSub" )
+
+  local out
+  out="$(sim_make_yaml_override \
+    "$master_yaml" \
+    "${pts[0]}" "${fracs[0]}" "${vzs[0]}" "${cones[0]}" \
+    "false" "${fixeds[0]}" "${uepipes[0]}" \
+    "reference" "reference" "reference" \
+    "auauBDTTraining_${task}" "$stamp" "false")"
+
+  local tmp="${out}.tmp"
+  sed -E \
+    -e "s|^([[:space:]]*auau_bdt_training_tree:).*|\\1 true|" \
+    -e "s|^([[:space:]]*auau_bdt_training_tree_max_entries:).*|\\1 ${RJ_AUAU_BDT_TRAINING_TREE_MAX_ENTRIES:-0}|" \
+    "$out" > "$tmp"
+  mv -f "$tmp" "$out"
+  echo "$out"
+}
+
+auau_bdt_cfg_tag_from_yaml() {
+  local yaml="$1"
+  local -a pts fracs vzs cones
+  mapfile -t pts   < <( yaml_get_values "jet_pt_min" "$yaml" )
+  mapfile -t fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$yaml" )
+  mapfile -t vzs   < <( yaml_get_values "vz_cut_cm" "$yaml" )
+  mapfile -t cones < <( yaml_get_values "coneR" "$yaml" )
+  build_iso_modes "$yaml"
+  read_uepipe_modes "$yaml" "simembedded"
+  matrix_cfg_tag "${pts[0]}" "${fracs[0]}" "${vzs[0]}" "${cones[0]}" 0 "${uepipe_modes[0]}"
+}
+
+auau_bdt_collect_roots() {
+  local root_dir="$1"
+  local manifest="$2"
+  mkdir -p "$(dirname "$manifest")"
+  find "$root_dir" -type f -name "RecoilJets_*.root" | sort > "$manifest" || true
+  [[ -s "$manifest" ]] || { err "No RecoilJets ROOT files found under ${root_dir}"; exit 31; }
+}
+
+auau_bdt_train_from_manifest() {
+  local task="$1"
+  local manifest="$2"
+  local outdir="$3"
+  mkdir -p "$outdir"
+  if [[ "$task" == "npb" && -z "${RJ_AUAU_BDT_NPB_INPUTS:-}" ]]; then
+    warn "NPB extraction smoke test finished, but no real NPB-labeled data inputs were supplied."
+    warn "PPG12-style NPB training needs a branch such as is_npb from timing/streak-tagged data clusters."
+    warn "Set RJ_AUAU_BDT_NPB_INPUTS to a space-separated list of ROOT files with AuAuPhotonIDTrainingTree/is_npb, then rerun."
+    say "Physics-cluster manifest from embedded sim: ${manifest}"
+    return 0
+  fi
+
+  local -a train_args
+  train_args=( "--task" "$task" "--input" "@${manifest}" "--outdir" "$outdir" )
+  if [[ "$task" == "npb" && -n "${RJ_AUAU_BDT_NPB_INPUTS:-}" ]]; then
+    local npb_manifest="${outdir}/npb_labeled_inputs.list"
+    auau_bdt_words "${RJ_AUAU_BDT_NPB_INPUTS}" > "$npb_manifest"
+    train_args=( "--task" "$task" "--input" "@${manifest}" "@${npb_manifest}" "--missing-label-value" "0" "--outdir" "$outdir" )
+  fi
+
+  say "Training AuAu ${task} BDT:"
+  say "  manifest : ${manifest}"
+  say "  outdir   : ${outdir}"
+  "${BASE}/scripts/train_auau_photon_bdt.py" "${train_args[@]}"
+}
+
+auau_bdt_run_local() {
+  local task="$1"
+  auau_bdt_parse_local_controls
+
+  local stamp master_yaml train_yaml cfg_tag local_root manifest outdir
+  stamp="$(date +%Y%m%d_%H%M%S)"
+  master_yaml="$(sim_yaml_master_path)"
+  train_yaml="$(auau_bdt_make_training_yaml "$task" "$stamp" "$master_yaml")"
+  cfg_tag="$(auau_bdt_cfg_tag_from_yaml "$train_yaml")"
+  local_root="${AUAU_BDT_LOCAL_BASE}/${task}_${stamp}"
+  manifest="${local_root}/training_roots.list"
+  outdir="${AUAU_BDT_MODEL_BASE}/${task}_${stamp}"
+
+  local -a signal_samples background_samples
+  mapfile -t signal_samples < <( auau_bdt_signal_samples )
+  mapfile -t background_samples < <( auau_bdt_background_samples )
+
+  say "AuAu embedded ${task} BDT LOCAL extraction"
+  say "  YAML override      : ${train_yaml}"
+  say "  cfg tag            : ${cfg_tag}"
+  say "  local output root  : ${local_root}"
+  say "  signal samples     : ${signal_samples[*]}"
+  say "  background samples : ${background_samples[*]}"
+  say "  events/sample      : ${AUAU_BDT_LOCAL_EVENTS}"
+  say "  verbosity          : ${AUAU_BDT_LOCAL_VERBOSITY}"
+  echo
+
+  local samp
+  for samp in "${signal_samples[@]}"; do
+    say "[BDT local] signal extraction sample=${samp}"
+    RJ_CONFIG_YAML="$train_yaml" \
+    RJ_LOCAL_SIM_OUTPUT_BASE="${local_root}/simembedded" \
+    "$0" isSimEmbedded local "$AUAU_BDT_LOCAL_EVENTS" "VERBOSE=${AUAU_BDT_LOCAL_VERBOSITY}" "SAMPLE=${samp}"
+  done
+  for samp in "${background_samples[@]}"; do
+    say "[BDT local] background extraction sample=${samp}"
+    RJ_CONFIG_YAML="$train_yaml" \
+    RJ_LOCAL_SIM_OUTPUT_BASE="${local_root}/simembeddedinclusive" \
+    "$0" isSimEmbeddedInclusive local "$AUAU_BDT_LOCAL_EVENTS" "VERBOSE=${AUAU_BDT_LOCAL_VERBOSITY}" "SAMPLE=${samp}"
+  done
+
+  auau_bdt_collect_roots "$local_root" "$manifest"
+  auau_bdt_train_from_manifest "$task" "$manifest" "$outdir"
+}
+
+auau_bdt_run_condor_do_all() {
+  local task="$1"
+  local gs_doall="$GROUP_SIZE"
+  if [[ "${GROUP_SIZE_EXPLICIT:-0}" -eq 0 ]]; then
+    gs_doall="7"
+  fi
+
+  local stamp master_yaml train_yaml cfg_tag outdir
+  stamp="$(date +%Y%m%d_%H%M%S)"
+  master_yaml="$(sim_yaml_master_path)"
+  train_yaml="$(auau_bdt_make_training_yaml "$task" "$stamp" "$master_yaml")"
+  cfg_tag="$(auau_bdt_cfg_tag_from_yaml "$train_yaml")"
+  outdir="${AUAU_BDT_MODEL_BASE}/${task}_${stamp}"
+
+  local -a signal_samples background_samples
+  mapfile -t signal_samples < <( auau_bdt_signal_samples )
+  mapfile -t background_samples < <( auau_bdt_background_samples )
+
+  say "AuAu embedded ${task} BDT CONDOR extraction"
+  say "  YAML override      : ${train_yaml}"
+  say "  cfg tag            : ${cfg_tag}"
+  say "  output base        : ${AUAU_BDT_DEST_BASE}"
+  say "  groupSize          : ${gs_doall}"
+  say "  signal samples     : ${signal_samples[*]}"
+  say "  background samples : ${background_samples[*]}"
+  echo
+
+  local samp
+  for samp in "${signal_samples[@]}"; do
+    say "[BDT condor] signal extraction sample=${samp}"
+    RJ_CONFIG_YAML="$train_yaml" \
+    RJ_SIMEMBED_DEST_BASE="$AUAU_BDT_DEST_BASE" \
+    "$0" isSimEmbedded condorDoAll groupSize "$gs_doall" "SAMPLE=${samp}"
+  done
+  for samp in "${background_samples[@]}"; do
+    say "[BDT condor] background extraction sample=${samp}"
+    RJ_CONFIG_YAML="$train_yaml" \
+    RJ_SIMEMBED_DEST_BASE="$AUAU_BDT_DEST_BASE" \
+    "$0" isSimEmbeddedInclusive condorDoAll groupSize "$gs_doall" "SAMPLE=${samp}"
+  done
+
+  say "Condor extraction was submitted. After jobs finish, train from the produced ROOT files with:"
+  echo
+  printf '  mkdir -p %q\n' "$outdir"
+  printf '  find %q -path %q -name %q | sort > %q\n' "$AUAU_BDT_DEST_BASE" "*/${cfg_tag}/*" "RecoilJets_*.root" "${outdir}/training_roots.list"
+  if [[ "$task" == "npb" ]]; then
+    printf '  # Append real data-tagged NPB ROOT files with is_npb=1/0 labels before training.\n'
+    printf '  # Embedded sim files missing is_npb are treated as physics-side is_npb=0 by --missing-label-value 0.\n'
+    printf '  %q --task %q --input @%q @/path/to/npb_labeled_data_roots.list --missing-label-value 0 --outdir %q\n' "${BASE}/scripts/train_auau_photon_bdt.py" "$task" "${outdir}/training_roots.list" "$outdir"
+  else
+    printf '  %q --task %q --input @%q --outdir %q\n' "${BASE}/scripts/train_auau_photon_bdt.py" "$task" "${outdir}/training_roots.list" "$outdir"
+  fi
+}
+
 # ------------------------ Parse CLI ------------------------
 [[ $# -ge 1 ]] || usage
 resolve_dataset "$1"
 
 # Parse remaining tokens (order-agnostic):
 ACTION=""
+TRAIN_MODE=""
 DRYRUN=0
 SIM_SAMPLE_EXPLICIT=0
 GROUP_SIZE_EXPLICIT=0
@@ -1549,7 +1809,17 @@ tokens=( "${@:2}" )
 for (( idx=0; idx<${#tokens[@]}; idx++ )); do
   tok="${tokens[$idx]}"
   case "$tok" in
-    local|localSTITCHtest|checkModels|isLocalIsoPing|condor|splitGoldenRunList|condorTest|condorDoAll)
+    trainTightBDT|trainNPB)
+      ACTION="$tok"
+      ;;
+    local|condorDoAll)
+      if [[ "$ACTION" == trainTightBDT || "$ACTION" == trainNPB ]]; then
+        TRAIN_MODE="$tok"
+      else
+        ACTION="$tok"
+      fi
+      ;;
+    checkModels|isLocalIsoPing|condor|splitGoldenRunList|condorTest)
       ACTION="$tok"
       ;;
     groupSize)
@@ -1594,6 +1864,10 @@ if [[ -z "$ACTION" ]]; then
     ACTION="condor"
   fi
 fi
+if [[ "$ACTION" == trainTightBDT || "$ACTION" == trainNPB ]]; then
+  [[ "$DATASET" == "isSimEmbeddedAndInclusive" ]] || { err "${ACTION} is valid only as: $0 isSimEmbeddedAndInclusive ${ACTION} <local|condorDoAll>"; exit 2; }
+  [[ -n "$TRAIN_MODE" ]] || TRAIN_MODE="local"
+fi
 
 # If a trigger filter is requested, require psql
 if [[ -n "${TRIGGER_BIT}" ]]; then
@@ -1604,6 +1878,9 @@ fi
 if [[ "$ACTION" != "CHECKJOBS" ]]; then
   yaml_src_print="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
   say "Action=${BOLD}${ACTION}${RST}  Dataset=${BOLD}${DATASET}${RST}  Tag=${TAG}"
+  if [[ -n "${TRAIN_MODE:-}" ]]; then
+    say "Training mode=${BOLD}${TRAIN_MODE}${RST}"
+  fi
   say "Executable=${EXE}"
   say "Macro=${MACRO}"
   say "YAML source=${yaml_src_print}"
@@ -1626,6 +1903,23 @@ fi
 
 # ------------------------ Actions --------------------------
 case "$ACTION" in
+  trainTightBDT|trainNPB)
+    task="tight"
+    [[ "$ACTION" == "trainNPB" ]] && task="npb"
+    case "${TRAIN_MODE:-local}" in
+      local)
+        auau_bdt_run_local "$task"
+        ;;
+      condorDoAll)
+        auau_bdt_run_condor_do_all "$task"
+        ;;
+      *)
+        err "${ACTION} mode must be local or condorDoAll, got '${TRAIN_MODE}'"
+        exit 2
+        ;;
+    esac
+    ;;
+
   CHECKJOBS)
     # Dry-run only
     if [[ "$IS_SIM" -eq 1 ]]; then
@@ -1768,213 +2062,6 @@ case "$ACTION" in
     exit 0
     ;;
 
-  localSTITCHtest)
-    [[ "$DATASET" == "isSim" ]] || { err "localSTITCHtest is only valid for: isSim localSTITCHtest"; exit 2; }
-
-    nevt="1000"
-    RJV="3"
-    target_raw="30"
-    max_files="6"
-    start_files="1"
-    rest=( "${@:3}" )
-    for t in "${rest[@]}"; do
-      if [[ "$t" =~ ^VERBOSE=([0-9]+)$ ]]; then
-        RJV="${BASH_REMATCH[1]}"
-      elif [[ "$t" =~ ^[0-9]+$ ]]; then
-        nevt="$t"
-      elif [[ "$t" =~ ^TARGET=([0-9]+)$ ]]; then
-        target_raw="${BASH_REMATCH[1]}"
-      elif [[ "$t" =~ ^MAXFILES=([0-9]+)$ ]]; then
-        max_files="${BASH_REMATCH[1]}"
-      elif [[ "$t" =~ ^STARTFILES=([0-9]+)$ ]]; then
-        start_files="${BASH_REMATCH[1]}"
-      elif [[ "$t" == SAMPLE=* ]]; then
-        warn "localSTITCHtest ignores SAMPLE=... and always runs photonjet5/10/20."
-      fi
-    done
-    (( target_raw > 0 )) || { err "TARGET must be positive"; exit 2; }
-    (( max_files > 0 )) || { err "MAXFILES must be positive"; exit 2; }
-    (( start_files > 0 )) || { err "STARTFILES must be positive"; exit 2; }
-    (( start_files <= max_files )) || { err "STARTFILES cannot exceed MAXFILES"; exit 2; }
-
-    gs_local="$GROUP_SIZE"
-    if [[ "${GROUP_SIZE_EXPLICIT:-0}" -eq 0 ]]; then
-      gs_local="7"
-    fi
-
-    master_yaml="$(sim_yaml_master_path)"
-    [[ -s "$master_yaml" ]] || { err "Master YAML not found or empty: $master_yaml"; exit 72; }
-
-    mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
-    mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
-    mapfile -t sim_vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
-    mapfile -t sim_cones < <( yaml_get_values "coneR" "$master_yaml" )
-    (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
-    (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
-    (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
-    (( ${#sim_cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
-    build_iso_modes "$master_yaml"
-    read_uepipe_modes "$master_yaml" "$TAG"
-    (( ${#iso_tags[@]} )) || { err "No isolation modes could be built from $master_yaml"; exit 72; }
-    (( ${#uepipe_modes[@]} )) || { err "No clusterUEpipeline modes could be read from $master_yaml"; exit 72; }
-
-    pt="${sim_pts[0]}"
-    frac="${sim_fracs[0]}"
-    vz="${sim_vzs[0]}"
-    cone="${sim_cones[0]}"
-    iso_idx=0
-    uepipe="${uepipe_modes[0]}"
-
-    SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso_base_tags[$iso_idx]}"
-    (( uepipe_in_tag )) && SIM_CFG_TAG="${SIM_CFG_TAG}_${uepipe}"
-    SIM_CFG_TAG="${SIM_CFG_TAG}_${iso_selection_tags[$iso_idx]}"
-
-    SIM_DEST_BASE_RESOLVED="${BASE}/local_sim_outputs/${TAG}_STITCHTEST"
-    DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
-    yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$cone" "${iso_sliding[$iso_idx]}" "${iso_fixed[$iso_idx]}" "${uepipe}" "${iso_preselection[$iso_idx]}" "${iso_tight[$iso_idx]}" "${iso_nonTight[$iso_idx]}" "$SIM_CFG_TAG" "LOCALSTITCHTEST")"
-
-    samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" )
-    mkdir -p "${SIM_DEST_BASE_RESOLVED}"
-
-    say "SIM local stitch diagnostic test"
-    say "  YAML master : ${master_yaml}"
-    say "  YAML override: ${yaml_override}"
-    say "  events      : ${nevt} per input file line"
-    say "  adaptive    : STARTFILES=${start_files} MAXFILES=${max_files} TARGET=${target_raw} raw transition-bin entries"
-    say "  groupSize   : ${gs_local} (not used; localSTITCHtest builds explicit one-file lists and hadded accumulations)"
-    say "  samples     : ${samples[*]}"
-    say "  tag         : ${SIM_CFG_TAG}"
-    say "  dest base   : ${DEST_BASE}"
-    say "  note        : ordinary downstream histograms are debug-contaminated by any-variant keep; use stitch_* variant histograms for this test"
-    echo
-
-    diagnostic_macro="${BASE}/macros/PrintPPStitchDiagnostics.C"
-    [[ -s "$diagnostic_macro" ]] || { err "Diagnostic macro not found: $diagnostic_macro"; exit 82; }
-
-    final_root_arg=""
-    final_diagnostic_log=""
-    status="NEED_MORE_STATS"
-
-    declare -A stitch_manifests
-    declare -A stitch_accumulated
-    for samp in "${samples[@]}"; do
-      mkdir -p "${DEST_BASE}/${samp}"
-      stitch_manifests["$samp"]="${DEST_BASE}/${samp}/LOCALSTITCHTEST_accum_manifest.txt"
-      : > "${stitch_manifests[$samp]}"
-    done
-
-    need_cmd hadd
-
-    for (( file_idx = 1; file_idx <= max_files; ++file_idx )); do
-      say "====================================================================="
-      say "localSTITCHtest adaptive pass: adding file line ${file_idx}/${max_files}, ${nevt} events for this new file per sample"
-
-      for samp in "${samples[@]}"; do
-        SIM_SAMPLE="$samp"
-        GROUP_SIZE="$gs_local"
-
-        sim_init
-        nclean="$(wc -l < "$SIM_CLEAN_LIST" | tr -d ' ')"
-        (( nclean >= file_idx )) || { err "Sample ${SIM_SAMPLE} has only ${nclean} clean entries; cannot take file line ${file_idx}"; exit 30; }
-        say "  [localSTITCHtest] sample=${SIM_SAMPLE} (${nclean} entries) — extracting only file line ${file_idx}"
-
-        printf -v file_tag "%03d" "$file_idx"
-        tmp="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_LOCALSTITCHTEST_file${file_tag}_grp001.list"
-        sed -n "${file_idx}p" "$SIM_CLEAN_LIST" > "$tmp"
-        [[ -s "$tmp" ]] || { err "No sim entries (sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG})"; exit 30; }
-
-        first_line="$(head -n 1 "$tmp" 2>/dev/null || true)"
-        last_line="$(tail -n 1 "$tmp" 2>/dev/null || true)"
-        chunk_base="$(basename "$tmp")"
-        chunk_tag="${chunk_base%.list}"
-        out_root_preview="${DEST_BASE}/${SIM_SAMPLE}/RecoilJets_${DATASET}_${chunk_tag}.root"
-
-        say "----------------------------------------"
-        say "SIM localSTITCHtest: tag=${SIM_CFG_TAG}  sample=${SIM_SAMPLE}"
-        say "  jet_pt_min=${pt}  back_to_back_pi_fraction=${frac}  vz_cut_cm=${vz}  coneR=${cone}  iso=${iso_tags[$iso_idx]}  uepipe=${uepipe}"
-        say "  one-file list: ${tmp}"
-        say "  first line   : ${first_line}"
-        say "  last line    : ${last_line}"
-        say "  out ROOT     : ${out_root_preview}"
-        say "  wrapper env  : RJ_VERBOSITY=${RJV} RJ_CONFIG_YAML=${yaml_override}"
-        say "  wrapper args : sample=${SIM_SAMPLE} dataset=${DATASET} mode=LOCAL nevents=${nevt} chunk=1 dest=${DEST_BASE}"
-        rm -f "$out_root_preview"
-        say "Invoking wrapper locally..."
-
-        RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
-        [[ -s "$out_root_preview" ]] || { err "Expected output ROOT was not produced: $out_root_preview"; exit 80; }
-
-        printf '%s\n' "$out_root_preview" >> "${stitch_manifests[$SIM_SAMPLE]}"
-        echo
-      done
-
-      for samp in "${samples[@]}"; do
-        manifest="${stitch_manifests[$samp]}"
-        [[ -s "$manifest" ]] || { err "Internal error: empty localSTITCHtest manifest for ${samp}: ${manifest}"; exit 81; }
-
-        accum="${DEST_BASE}/${samp}/RecoilJets_${DATASET}_${TAG}_${samp}_${SIM_CFG_TAG}_LOCALSTITCHTEST_accum_first${file_idx}files.root"
-        say "Accumulating ${samp} first ${file_idx} file line(s):"
-        say "  manifest: ${manifest}"
-        say "  output  : ${accum}"
-        hadd -f "$accum" $(cat "$manifest")
-        [[ -s "$accum" ]] || { err "hadd did not produce accumulated output: ${accum}"; exit 83; }
-        stitch_accumulated["$samp"]="$accum"
-      done
-
-      if (( file_idx < start_files )); then
-        say "Skipping diagnostic summary until STARTFILES=${start_files}; accumulated ${file_idx} so far."
-        continue
-      fi
-
-      stitch_out5="${stitch_accumulated[run28_photonjet5]}"
-      stitch_out10="${stitch_accumulated[run28_photonjet10]}"
-      stitch_out20="${stitch_accumulated[run28_photonjet20]}"
-
-      [[ -s "$stitch_out5" && -s "$stitch_out10" && -s "$stitch_out20" ]] || {
-        err "Missing one or more accumulated localSTITCHtest outputs:"
-        err "  photonjet5 : ${stitch_out5:-missing}"
-        err "  photonjet10: ${stitch_out10:-missing}"
-        err "  photonjet20: ${stitch_out20:-missing}"
-        exit 81
-      }
-
-      diagnostic_log="${DEST_BASE}/localSTITCHtest_diagnostics_${nevt}perfile_accum_first${file_idx}files.log"
-      root_arg="${diagnostic_macro}(\"${stitch_out5}\",\"${stitch_out10}\",\"${stitch_out20}\",${target_raw})"
-      final_root_arg="$root_arg"
-      final_diagnostic_log="$diagnostic_log"
-
-      say "Running pp stitch diagnostic pseudo-merge..."
-      say "  macro : ${diagnostic_macro}"
-      say "  log   : ${diagnostic_log}"
-      mkdir -p "$(dirname "$diagnostic_log")"
-
-      if [[ -n "${RJ_ROOT_CMD:-}" ]]; then
-        ${RJ_ROOT_CMD} -l -b -q "$root_arg" 2>&1 | tee "$diagnostic_log"
-      else
-        need_cmd root
-        root -l -b -q "$root_arg" 2>&1 | tee "$diagnostic_log"
-      fi
-
-      if grep -q '^LOCALSTITCHTEST_STATUS=PASS$' "$diagnostic_log"; then
-        status="PASS"
-        say "localSTITCHtest reached diagnostic target with accumulated first ${file_idx} file line(s) per sample."
-        break
-      fi
-
-      status="NEED_MORE_STATS"
-      if (( file_idx < max_files )); then
-        warn "Diagnostic target not reached with accumulated first ${file_idx} file line(s); adding file line $((file_idx + 1))."
-      fi
-    done
-
-    say "localSTITCHtest complete with status=${status}."
-    say "Rerun just the final diagnostic summary with:"
-    say "  root -l -b -q '${final_root_arg}'"
-    say "Final diagnostic log:"
-    say "  ${final_diagnostic_log}"
-    exit 0
-    ;;
-
   local)
     # Parse optional [Nevents] and VERBOSE=N from tokens after 'local'
     nevt="$LOCAL_EVENTS"
@@ -2030,7 +2117,7 @@ case "$ACTION" in
         samples=( "${SIM_SAMPLE}" )
       fi
 
-      SIM_DEST_BASE_RESOLVED="${BASE}/local_sim_outputs/${TAG}"
+      SIM_DEST_BASE_RESOLVED="${RJ_LOCAL_SIM_OUTPUT_BASE:-${BASE}/local_sim_outputs/${TAG}}"
       mkdir -p "${SIM_DEST_BASE_RESOLVED}"
 
       say "SIM local smoke test (mirrors condorDoAll matrix)"

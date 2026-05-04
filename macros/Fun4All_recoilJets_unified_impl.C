@@ -345,8 +345,53 @@ namespace yamlcfg
         double tight_bdt_max = 1.0;
         std::vector<std::string> tight_bdt_features;
 
+        std::string auau_npb_model_file = "";
+        double auau_npb_cut = 0.5;
+        std::vector<std::string> auau_npb_features;
+
+        std::string auau_tight_bdt_model_file = "";
+        double auau_tight_bdt_min_intercept = 0.0;
+        double auau_tight_bdt_min_slope = 0.0;
+        double auau_tight_bdt_max = 1.0;
+        double auau_nontight_bdt_min_intercept = -1.0;
+        double auau_nontight_bdt_min_slope = 0.0;
+        double auau_nontight_bdt_max_intercept = 1.0;
+        double auau_nontight_bdt_max_slope = 0.0;
+        std::vector<std::string> auau_tight_bdt_features;
+
+        bool auau_bdt_training_tree = false;
+        long long auau_bdt_training_tree_max_entries = 0;
+
         bool doPi0Analysis = false;
     };
+
+    static std::string NormalizePreselectionMode(std::string mode)
+    {
+        mode = detail::trim(mode);
+        if (mode == "" || mode == "Reference") return "reference";
+        if (mode == "VariantA" || mode == "varianta") return "variantA";
+        if (mode == "VariantB" || mode == "variantb") return "variantB";
+        if (mode == "VariantC" || mode == "variantc") return "variantC";
+        if (mode == "VariantD" || mode == "variantd") return "variantD";
+        if (mode == "VariantE" || mode == "variante") return "variantE";
+        return mode;
+    }
+
+    static bool IsPreselectionMode(const std::string& mode)
+    {
+        return mode == "reference" || mode == "variantA" || mode == "variantB" ||
+               mode == "variantC" || mode == "variantD" || mode == "variantE";
+    }
+
+    static bool PreselectionUsesNPB(const std::string& mode)
+    {
+        return mode == "variantA" || mode == "variantC" || mode == "variantD";
+    }
+
+    static bool PreselectionUsesAuAuNPB(const std::string& mode)
+    {
+        return mode == "variantE";
+    }
     
     inline std::string DefaultYAMLPath()
     {
@@ -713,14 +758,11 @@ namespace yamlcfg
                 std::vector<std::string> vals;
                 ParseInlineListStrings(rhs, vals);
                 if (!vals.empty()) rhs = vals.front();
-                rhs = detail::trim(rhs);
-                if (rhs == "Reference") rhs = "reference";
-                if (rhs == "VariantA") rhs = "variantA";
-                if (rhs == "VariantB") rhs = "variantB";
-                if (rhs == "reference" || rhs == "variantA" || rhs == "variantB")
+                rhs = NormalizePreselectionMode(rhs);
+                if (IsPreselectionMode(rhs))
                     cfg.preselection = rhs;
                 else
-                    warn_parse("preselection", rhs, "expected reference|variantA|variantB (or inline list [..])");
+                    warn_parse("preselection", rhs, "expected reference|variantA|variantB|variantC|variantD|variantE (or inline list [..])");
             }
             else if (StartsWithKey(line, "tight"))
             {
@@ -732,6 +774,7 @@ namespace yamlcfg
                 if (rhs == "Reference") rhs = "reference";
                 if (rhs == "VariantA") rhs = "variantA";
                 if (rhs == "VariantB") rhs = "variantB";
+                if (rhs == "variantb") rhs = "variantB";
                 if (rhs == "reference" || rhs == "variantA" || rhs == "variantB")
                     cfg.tight = rhs;
                 else
@@ -747,10 +790,11 @@ namespace yamlcfg
                 if (rhs == "Reference") rhs = "reference";
                 if (rhs == "VariantA") rhs = "variantA";
                 if (rhs == "VariantB") rhs = "variantB";
-                if (rhs == "reference" || rhs == "variantA" || rhs == "variantB")
+                if (rhs == "VariantC") rhs = "variantC";
+                if (rhs == "reference" || rhs == "variantA" || rhs == "variantB" || rhs == "variantC")
                     cfg.nonTight = rhs;
                 else
-                    warn_parse("nonTight", rhs, "expected reference|variantA|variantB (or inline list [..])");
+                    warn_parse("nonTight", rhs, "expected reference|variantA|variantB|variantC (or inline list [..])");
             }
             else if (StartsWithKey(line, "npb_model_file"))
             {
@@ -797,6 +841,89 @@ namespace yamlcfg
                 ParseInlineListStrings(rhs, cfg.tight_bdt_features);
                 if (cfg.tight_bdt_features.empty())
                     warn_parse("tight_bdt_features", rhs, "expected an inline list of feature names");
+            }
+            else if (StartsWithKey(line, "auau_npb_model_file"))
+            {
+                cfg.auau_npb_model_file = detail::trim(AfterColon(line));
+            }
+            else if (StartsWithKey(line, "auau_npb_cut"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_npb_cut))
+                    warn_parse("auau_npb_cut", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_npb_features"))
+            {
+                const std::string rhs = AfterColon(line);
+                ParseInlineListStrings(rhs, cfg.auau_npb_features);
+                if (cfg.auau_npb_features.empty())
+                    warn_parse("auau_npb_features", rhs, "expected an inline list of feature names");
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_model_file"))
+            {
+                cfg.auau_tight_bdt_model_file = detail::trim(AfterColon(line));
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_min_intercept"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_tight_bdt_min_intercept))
+                    warn_parse("auau_tight_bdt_min_intercept", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_min_slope"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_tight_bdt_min_slope))
+                    warn_parse("auau_tight_bdt_min_slope", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_max"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_tight_bdt_max))
+                    warn_parse("auau_tight_bdt_max", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_nontight_bdt_min_intercept"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_nontight_bdt_min_intercept))
+                    warn_parse("auau_nontight_bdt_min_intercept", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_nontight_bdt_min_slope"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_nontight_bdt_min_slope))
+                    warn_parse("auau_nontight_bdt_min_slope", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_nontight_bdt_max_intercept"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_nontight_bdt_max_intercept))
+                    warn_parse("auau_nontight_bdt_max_intercept", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_nontight_bdt_max_slope"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_nontight_bdt_max_slope))
+                    warn_parse("auau_nontight_bdt_max_slope", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_features"))
+            {
+                const std::string rhs = AfterColon(line);
+                ParseInlineListStrings(rhs, cfg.auau_tight_bdt_features);
+                if (cfg.auau_tight_bdt_features.empty())
+                    warn_parse("auau_tight_bdt_features", rhs, "expected an inline list of feature names");
+            }
+            else if (StartsWithKey(line, "auau_bdt_training_tree"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseBool(rhs, cfg.auau_bdt_training_tree))
+                    warn_parse("auau_bdt_training_tree", rhs, "expected true/false");
+            }
+            else if (StartsWithKey(line, "auau_bdt_training_tree_max_entries"))
+            {
+                const std::string rhs = AfterColon(line);
+                double val = 0.0;
+                if (ParseDouble(rhs, val)) cfg.auau_bdt_training_tree_max_entries = static_cast<long long>(val);
+                else warn_parse("auau_bdt_training_tree_max_entries", rhs, "expected an integer");
             }
             else if (StartsWithKey(line, "doPi0Analysis"))
             {
@@ -1684,7 +1811,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     }
     if (const char* env = std::getenv("RJ_PRESELECTION_VARIANT"))
     {
-        std::string s = detail::trim(std::string(env));
+        std::string s = yamlcfg::NormalizePreselectionMode(std::string(env));
         if (!s.empty()) cfg.preselection = s;
     }
     if (const char* env = std::getenv("RJ_TIGHT_VARIANT"))
@@ -1697,9 +1824,18 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         std::string s = detail::trim(std::string(env));
         if (!s.empty()) cfg.nonTight = s;
     }
-    if (cfg.nonTight != "reference" && cfg.nonTight != "variantA")
+    if (!yamlcfg::IsPreselectionMode(cfg.preselection))
     {
-        detail::bail("nonTight must be 'reference' or 'variantA'.");
+        detail::bail("preselection must be 'reference', 'variantA', 'variantB', 'variantC', 'variantD', or 'variantE'.");
+    }
+    if (cfg.tight != "reference" && cfg.tight != "variantA" && cfg.tight != "variantB")
+    {
+        detail::bail("tight must be 'reference', 'variantA', or 'variantB'.");
+    }
+    if (cfg.nonTight != "reference" && cfg.nonTight != "variantA" &&
+        cfg.nonTight != "variantB" && cfg.nonTight != "variantC")
+    {
+        detail::bail("nonTight must be 'reference', 'variantA', 'variantB', or 'variantC'.");
     }
     
     const std::vector<std::string> activeJetRKeys = yamlcfg::LoadJetRKeys(vlevel);
@@ -3232,15 +3368,15 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         se->registerSubsystem(photonBuilder);
     }
     
-    if (cfg.preselection == "variantA")
+    if (yamlcfg::PreselectionUsesNPB(cfg.preselection))
     {
         if (cfg.npb_model_file.empty())
         {
-            detail::bail("preselection=variantA requires npb_model_file in analysis_config.yaml");
+            detail::bail("NPB preselection variants require npb_model_file in analysis_config.yaml");
         }
         if (cfg.npb_features.empty())
         {
-            detail::bail("preselection=variantA requires npb_features in analysis_config.yaml");
+            detail::bail("NPB preselection variants require npb_features in analysis_config.yaml");
         }
 
         if (useSamePhotonBDTScores)
@@ -3264,6 +3400,26 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             photonBuilderNPB->set_bdt_feature_list(cfg.npb_features);
             se->registerSubsystem(photonBuilderNPB);
         }
+    }
+
+    if (yamlcfg::PreselectionUsesAuAuNPB(cfg.preselection))
+    {
+        if (cfg.auau_npb_model_file.empty())
+        {
+            detail::bail("preselection=variantE requires auau_npb_model_file in analysis_config.yaml");
+        }
+        if (cfg.auau_npb_features.empty())
+        {
+            detail::bail("preselection=variantE requires auau_npb_features in analysis_config.yaml");
+        }
+
+        preselectionPhotonNode = "PHOTONCLUSTER_CEMC";
+        photonBuilder->add_named_bdt_score("auau_npb_score",
+                                           cfg.auau_npb_model_file,
+                                           cfg.auau_npb_features,
+                                           5.0f,
+                                           80.0f,
+                                           static_cast<float>(cfg.photon_eta_abs_max));
     }
     
     if (cfg.tight == "variantA")
@@ -3296,6 +3452,26 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             photonBuilderTightBDT->set_bdt_feature_list(cfg.tight_bdt_features);
             se->registerSubsystem(photonBuilderTightBDT);
         }
+    }
+
+    if (cfg.tight == "variantB")
+    {
+        if (cfg.auau_tight_bdt_model_file.empty())
+        {
+            detail::bail("tight=variantB requires auau_tight_bdt_model_file in analysis_config.yaml");
+        }
+        if (cfg.auau_tight_bdt_features.empty())
+        {
+            detail::bail("tight=variantB requires auau_tight_bdt_features in analysis_config.yaml");
+        }
+
+        tightPhotonNode = "PHOTONCLUSTER_CEMC";
+        photonBuilder->add_named_bdt_score("auau_tight_bdt_score",
+                                           cfg.auau_tight_bdt_model_file,
+                                           cfg.auau_tight_bdt_features,
+                                           5.0f,
+                                           80.0f,
+                                           static_cast<float>(cfg.photon_eta_abs_max));
     }
 
     if (useSamePhotonBDTScores)
@@ -3352,6 +3528,9 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_NPB_CUT",
                                                "RJ_NPB_CUT",
                                                fmtDouble(cfg.npb_cut)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NPB_CUT",
+                                               "RJ_AUAU_NPB_CUT",
+                                               fmtDouble(cfg.auau_npb_cut)));
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_TIGHT_BDT_MIN_INTERCEPT",
                                                "RJ_TIGHT_BDT_MIN_INTERCEPT",
                                                fmtDouble(cfg.tight_bdt_min_intercept)));
@@ -3361,6 +3540,33 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_TIGHT_BDT_MAX",
                                                "RJ_TIGHT_BDT_MAX",
                                                fmtDouble(cfg.tight_bdt_max)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_BDT_MIN_INTERCEPT",
+                                               "RJ_AUAU_TIGHT_BDT_MIN_INTERCEPT",
+                                               fmtDouble(cfg.auau_tight_bdt_min_intercept)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_BDT_MIN_SLOPE",
+                                               "RJ_AUAU_TIGHT_BDT_MIN_SLOPE",
+                                               fmtDouble(cfg.auau_tight_bdt_min_slope)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_BDT_MAX",
+                                               "RJ_AUAU_TIGHT_BDT_MAX",
+                                               fmtDouble(cfg.auau_tight_bdt_max)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NONTIGHT_BDT_MIN_INTERCEPT",
+                                               "RJ_AUAU_NONTIGHT_BDT_MIN_INTERCEPT",
+                                               fmtDouble(cfg.auau_nontight_bdt_min_intercept)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NONTIGHT_BDT_MIN_SLOPE",
+                                               "RJ_AUAU_NONTIGHT_BDT_MIN_SLOPE",
+                                               fmtDouble(cfg.auau_nontight_bdt_min_slope)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NONTIGHT_BDT_MAX_INTERCEPT",
+                                               "RJ_AUAU_NONTIGHT_BDT_MAX_INTERCEPT",
+                                               fmtDouble(cfg.auau_nontight_bdt_max_intercept)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NONTIGHT_BDT_MAX_SLOPE",
+                                               "RJ_AUAU_NONTIGHT_BDT_MAX_SLOPE",
+                                               fmtDouble(cfg.auau_nontight_bdt_max_slope)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_BDT_TRAINING_TREE",
+                                               "RJ_AUAU_BDT_TRAINING_TREE",
+                                               cfg.auau_bdt_training_tree ? "true" : "false"));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_BDT_TRAINING_TREE_MAX_ENTRIES",
+                                               "RJ_AUAU_BDT_TRAINING_TREE_MAX_ENTRIES",
+                                               std::to_string(cfg.auau_bdt_training_tree_max_entries)));
     
     // ------------------------------------------------------------------
     // Apply YAML-driven knobs
@@ -3453,12 +3659,22 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         << " preselectionNode=" << preselectionPhotonNode
         << " tightNode=" << tightPhotonNode << "\n";
         
-        if (cfg.preselection == "variantA")
+        if (yamlcfg::PreselectionUsesNPB(cfg.preselection))
         {
             std::cout << "[CFG] NPB preselection:"
+            << " variant=" << cfg.preselection
             << " model=" << cfg.npb_model_file
             << " cut=(score > " << cfg.npb_cut << ")"
             << " features_n=" << cfg.npb_features.size() << "\n";
+        }
+
+        if (yamlcfg::PreselectionUsesAuAuNPB(cfg.preselection))
+        {
+            std::cout << "[CFG] AuAu NPB preselection:"
+            << " variant=" << cfg.preselection
+            << " model=" << cfg.auau_npb_model_file
+            << " cut=(score > " << cfg.auau_npb_cut << ")"
+            << " features_n=" << cfg.auau_npb_features.size() << "\n";
         }
         
         if (cfg.tight == "variantA")
@@ -3468,6 +3684,17 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             << " cut=(score > " << cfg.tight_bdt_min_slope << " * ET + " << cfg.tight_bdt_min_intercept
             << " && score < " << cfg.tight_bdt_max << ")"
             << " features_n=" << cfg.tight_bdt_features.size() << "\n";
+        }
+
+        if (cfg.tight == "variantB")
+        {
+            std::cout << "[CFG] AuAu tight BDT:"
+            << " model=" << cfg.auau_tight_bdt_model_file
+            << " cut=(score > " << cfg.auau_tight_bdt_min_slope << " * ET + " << cfg.auau_tight_bdt_min_intercept
+            << " && score < " << cfg.auau_tight_bdt_max << ")"
+            << " nonTight=(" << cfg.auau_nontight_bdt_min_slope << " * ET + " << cfg.auau_nontight_bdt_min_intercept
+            << ", " << cfg.auau_nontight_bdt_max_slope << " * ET + " << cfg.auau_nontight_bdt_max_intercept << ")"
+            << " features_n=" << cfg.auau_tight_bdt_features.size() << "\n";
         }
         
         std::cout << "[CFG] isolation mode:";

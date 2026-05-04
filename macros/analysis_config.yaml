@@ -137,6 +137,26 @@ clusterUEpipeline: [baseVariant]
 #     This is NOT "reference with looser cuts"; it means no preselection
 #     shower-shape cuts and no NPB preselection cut are applied.
 #
+#   preselection = variantC
+#     NPB-score-only preselection:
+#       npb_score > npb_cut
+#
+#     No shower-shape preselection cuts are applied.
+#
+#   preselection = variantD
+#     Baseline reference hard-cut shower-shape preselection plus the NPB-score
+#     gate:
+#       reference preselection cuts
+#       npb_score > npb_cut
+#
+#   preselection = variantE
+#     AuAu-trained NPB-score-only preselection:
+#       auau_npb_score > auau_npb_cut
+#
+#     No shower-shape preselection cuts are applied. This is intended for
+#     data-assisted AuAu NPB models; simulation-only NPB training is not
+#     PPG12-faithful because the NPB class is data-timing/streak tagged.
+#
 # Tight-ID axis:
 #   tight = reference
 #     Use the baseline PPG12-style hard-cut tight-ID definition.
@@ -144,6 +164,10 @@ clusterUEpipeline: [baseVariant]
 #   tight = variantA
 #     Use the Sam-inspired tight-ID BDT node:./
 #       PHOTONCLUSTER_CEMC_TIGHTBDT
+#
+#   tight = variantB
+#     Use the AuAu embedded-trained tight-ID BDT score:
+#       auau_tight_bdt_score
 #
 # Non-tight axis:
 #   nonTight = reference
@@ -155,8 +179,17 @@ clusterUEpipeline: [baseVariant]
 #       tight_bdt_score < 0.6666666667 + 0.0033333333 * E_T^gamma
 #
 #     BDT scores outside the tight and non-tight windows are treated as neither.
+#
+#   nonTight = variantB
+#     For tight=variantB, use the AuAu-trained BDT sideband window configured by
+#     auau_nontight_bdt_* parameters. This is the ABCD-style nominal option.
+#
+#   nonTight = variantC
+#     For tight=variantB, use the complement of the AuAu tight BDT after
+#     preselection. This is a broad diagnostic/systematic option, not the
+#     PPG12-style nominal sideband.
 # -----------------------------------------------------------------------------
-preselection: [reference, variantA, variantB]
+preselection: [reference]
 tight: [reference]
 nonTight: [reference]
 
@@ -166,7 +199,7 @@ nonTight: [reference]
 # CLUSTERINFO_CEMC corresponds to Shuhang's "split" cluster variant, so use:
 #   npb_score_split_tmva.root
 #
-# Used only when preselection = variantA:
+# Used only when preselection = variantA, variantC, or variantD:
 #   keep cluster if npb_score > 0.5
 #   reject cluster if npb_score <= 0.5 or the score is unavailable/non-finite
 # -----------------------------------------------------------------------------
@@ -193,6 +226,60 @@ tight_bdt_min_intercept: 0.8333333333333334
 tight_bdt_min_slope: -0.003333333333333336
 tight_bdt_max: 1.0
 tight_bdt_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35]
+
+# -----------------------------------------------------------------------------
+# AuAu-trained BDT controls
+#
+# Phase-1 consumption uses scalar all-centrality models. Centrality-binned model
+# maps should be added only after the all-centrality training and inference smoke
+# tests are stable.
+#
+# preselection = variantE uses auau_npb_*:
+#   auau_npb_score > auau_npb_cut
+#
+# tight = variantB uses auau_tight_bdt_*:
+#   auau_tight_bdt_score > auau_tight_bdt_min_intercept
+#                          + auau_tight_bdt_min_slope * E_T^gamma
+#   auau_tight_bdt_score < auau_tight_bdt_max
+#
+# nonTight = variantB sideband:
+#   auau_nontight_bdt_min_intercept
+#     + auau_nontight_bdt_min_slope * E_T^gamma < score
+#   score < auau_nontight_bdt_max_intercept
+#     + auau_nontight_bdt_max_slope * E_T^gamma
+#
+# nonTight = variantC:
+#   complement of tight=variantB after preselection.
+# -----------------------------------------------------------------------------
+auau_npb_model_file:
+auau_npb_cut: 0.5
+auau_npb_features: [cluster_Et, cluster_Eta, vertexz, e11_over_e33, e32_over_e35, e11_over_e22, e11_over_e13, e11_over_e15, e11_over_e17, e11_over_e31, e11_over_e51, e11_over_e71, e22_over_e33, e22_over_e35, e22_over_e37, e22_over_e53, cluster_weta_cogx, cluster_wphi_cogx, cluster_et1, cluster_et2, cluster_et3, cluster_et4, cluster_w32, cluster_w52, cluster_w72]
+
+auau_tight_bdt_model_file:
+auau_tight_bdt_min_intercept: 0.8333333333333334
+auau_tight_bdt_min_slope: -0.003333333333333336
+auau_tight_bdt_max: 1.0
+auau_nontight_bdt_min_intercept: 0.7333333333333334
+auau_nontight_bdt_min_slope: -0.013333333333333334
+auau_nontight_bdt_max_intercept: 0.6666666666666666
+auau_nontight_bdt_max_slope: 0.003333333333333333
+auau_tight_bdt_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35]
+
+# Optional embedded-sim training row extraction from RecoilJets_AuAu outputs.
+# This is off for normal physics outputs.
+#
+# The submit-script training entry point is intentionally explicit:
+#   ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT local
+#   ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT condorDoAll
+#
+# By default it uses embedded photon 12/20 as the tight-BDT signal side and
+# embedded inclusive jet 10/20 as the background side. Override samples with
+# RJ_AUAU_BDT_SIGNAL_SAMPLES and RJ_AUAU_BDT_BACKGROUND_SAMPLES.
+#
+# NPB training still requires real data-tagged NPB labels such as is_npb.
+# Embedded simulation can provide the physics-cluster side only.
+auau_bdt_training_tree: false
+auau_bdt_training_tree_max_entries: 0
 
 # -----------------------------------------------------------------------------
 # SIM-only event reweighting
