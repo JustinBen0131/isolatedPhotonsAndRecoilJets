@@ -83,7 +83,8 @@
 #
 # NOTES
 #   • Files are matched by the trailing "-<number>-<number>.root" segment key
-#     when possible.
+#     when possible. For standard pp photonjet packs, Detroit files are excluded
+#     so calo/MBD cannot be silently mixed with plain PhotonJet truth/G4/global.
 #   • G4Hits and/or DST_MBD_EPD can be represented by aligned placeholder
 #     "NONE" lists when the upstream sample does not provide a standalone file.
 # ==============================================================================
@@ -388,6 +389,36 @@ pair_check() {
 
   local anchor_base="${anchor%.list}"
 
+  check_duplicate_keys() {
+    local base="$1"
+    local map_file="$2"
+    local dup_out="${outdir}/duplicate_keys_${base}.txt"
+
+    awk -F'\t' '
+      {
+        count[$1]++;
+        paths[$1] = paths[$1] "\n  " $2;
+      }
+      END {
+        for (k in count) {
+          if (count[k] > 1) {
+            print k " (" count[k] " files)" paths[k];
+          }
+        }
+      }' "$map_file" | sort -V > "$dup_out"
+
+    if [[ -s "$dup_out" ]]; then
+      {
+        echo ""
+        echo "DUPLICATE SEGMENT KEYS DETECTED for ${base}:"
+        sed -n '1,80p' "$dup_out"
+      } >> "$report"
+      die "Duplicate segment keys in ${outdir}/${base}.list. Refusing ambiguous matching; see ${dup_out}"
+    fi
+
+    rm -f "$dup_out"
+  }
+
   # ---------------- Build anchor keys + map ----------------
   awk '
     function key_of(path,    b, n, a) {
@@ -406,6 +437,8 @@ pair_check() {
       return b;
     }
     { k=key_of($0); print k "\t" $0 }' "$anchor_list" > "${tmpdir}/${anchor_base}.map"
+
+  check_duplicate_keys "$anchor_base" "${tmpdir}/${anchor_base}.map"
 
   local a_count; a_count=$(wc -l < "${tmpdir}/${anchor_base}.keys" | tr -d ' ')
   printf "ANCHOR: %s  keys=%d\n" "$anchor" "$a_count" >> "$report"
@@ -451,6 +484,8 @@ pair_check() {
       { k=key_of($0); print k "\t" $0 }' "$other_list" > "${tmpdir}/${obase}.map"
 
     MAP["${obase}"]="${tmpdir}/${obase}.map"
+
+    check_duplicate_keys "$obase" "${tmpdir}/${obase}.map"
 
     # reporting vs ANCHOR
     comm -12 "${tmpdir}/${anchor_base}.keys" "${tmpdir}/${obase}.keys" > "${tmpdir}/common_${obase}.keys"
@@ -587,6 +622,58 @@ pair_check() {
         }
       }' "${tmpdir}/common_all.keys" "${MAP[$anchor_base]}" "${MAP[DST_GLOBAL]}" "${MAP[DST_MBD_EPD]}" > "$tripB"
   fi
+
+  # ---------------- Semantic stream-family guard ----------------
+  # The numeric segment key alone is not enough when a directory contains both
+  # plain PhotonJet and PhotonJet_pythia8_Detroit files with the same segment IDs.
+  # Keep this check after matched lists are written so the report captures the
+  # exact rows that would be consumed downstream.
+  local semantic_bad="${outdir}/semantic_mismatch_rows.txt"
+  local semantic_total=0
+  local semantic_bad_count=0
+  paste "$anchor_matched" "${outdir}/G4Hits.matched.list" "${outdir}/DST_JETS.matched.list" "${outdir}/DST_GLOBAL.matched.list" "${outdir}/DST_MBD_EPD.matched.list" \
+    | awk -F'\t' '
+      function fam(p) {
+        if (p == "NONE") return "NONE";
+        return (p ~ /Detroit/) ? "Detroit" : "plain";
+      }
+      {
+        total++;
+        f1=fam($1); f2=fam($2); f3=fam($3); f4=fam($4); f5=fam($5);
+        if (f1 != "NONE" && f2 != "NONE" && f1 != f2) bad=1; else bad=0;
+        if (f1 != "NONE" && f3 != "NONE" && f1 != f3) bad=1;
+        if (f1 != "NONE" && f4 != "NONE" && f1 != f4) bad=1;
+        if (f1 != "NONE" && f5 != "NONE" && f1 != f5) bad=1;
+        if (bad) {
+          print "row " total ": " f1, f2, f3, f4, f5;
+          print "  calo  " $1;
+          print "  g4    " $2;
+          print "  jets  " $3;
+          print "  global" $4;
+          print "  mbd   " $5;
+        }
+      }
+      END {
+        print "TOTAL_ROWS " total > "/dev/stderr";
+      }' > "$semantic_bad" 2> "${tmpdir}/semantic_total.txt"
+
+  semantic_total="$(awk '/TOTAL_ROWS/{print $2}' "${tmpdir}/semantic_total.txt" | tail -n 1)"
+  semantic_bad_count="$(grep -c '^row ' "$semantic_bad" 2>/dev/null || true)"
+  [[ -n "$semantic_total" ]] || semantic_total=0
+  {
+    echo ""
+    echo "SEMANTIC FAMILY CHECK:"
+    echo "  mismatch_rows=${semantic_bad_count} / ${semantic_total}"
+    if (( semantic_bad_count > 0 )); then
+      echo "  details -> ${semantic_bad}"
+    fi
+  } >> "$report"
+
+  if (( semantic_bad_count > 0 )); then
+    die "Semantic plain/Detroit mixing detected in matched lists. See ${semantic_bad}"
+  fi
+
+  rm -f "$semantic_bad"
 
   # ---------------- Report what we produced (FILE ONLY; keep it clean) ----------------
   {
@@ -803,6 +890,11 @@ build_pack() {
   local jets_pattern="*.root"
   local global_pattern="*.root"
   local mbd_pattern="*.root"
+  local calo_exclude_pattern=""
+  local g4_exclude_pattern=""
+  local jets_exclude_pattern=""
+  local global_exclude_pattern=""
+  local mbd_exclude_pattern=""
 
   local calo_label="DST_CALO_CLUSTER (calocluster) [ANCHOR]"
   local jets_label="DST_JETS (nopileup/jets)"
@@ -814,6 +906,18 @@ build_pack() {
   local G4_OK="true"
   local embeddir=""
   local embed_mode_note=""
+
+  if [[ "$sample" == photonjet5 || "$sample" == photonjet10 || "$sample" == photonjet20 ]]; then
+    # These are the standard pp PhotonJet signal packs. Some directories can
+    # also contain PhotonJet*_pythia8_Detroit files with identical numeric
+    # segment IDs; those belong to a different production stream and must not
+    # be paired with plain PhotonJet truth/G4/global files.
+    calo_exclude_pattern="*Detroit*.root"
+    g4_exclude_pattern="*Detroit*.root"
+    jets_exclude_pattern="*Detroit*.root"
+    global_exclude_pattern="*Detroit*.root"
+    mbd_exclude_pattern="*Detroit*.root"
+  fi
 
   if [[ "$sample" == "embeddedPhoton12" ]]; then
     EMBED_MODE="true"
@@ -932,6 +1036,8 @@ build_pack() {
     say "  Mode       = ${embed_mode_note}"
     say "  Patterns   = calo='${calo_pattern}' g4='${g4_pattern}' jets='${jets_pattern}' global='${global_pattern}'"
     say "  MBD_EPD    = placeholder NONE (no standalone DST_MBD_EPD file under embedded sample)"
+  elif [[ -n "$calo_exclude_pattern$g4_exclude_pattern$jets_exclude_pattern$global_exclude_pattern$mbd_exclude_pattern" ]]; then
+    say "  Exclude    = *Detroit*.root for standard pp PhotonJet packs"
   fi
   rule
 
@@ -941,12 +1047,17 @@ build_pack() {
     local out="$2"
     local label="$3"
     local pattern="${4:-*.root}"
+    local exclude_pattern="${5:-}"
 
     if [[ ! -d "$src" ]]; then
       die "Missing directory for ${label}: ${src}"
     fi
 
-    find "$src" \( -type f -o -type l \) -iname "$pattern" -print 2>/dev/null | sort -V > "$out"
+    if [[ -n "$exclude_pattern" ]]; then
+      find "$src" \( -type f -o -type l \) -iname "$pattern" ! -iname "$exclude_pattern" -print 2>/dev/null | sort -V > "$out"
+    else
+      find "$src" \( -type f -o -type l \) -iname "$pattern" -print 2>/dev/null | sort -V > "$out"
+    fi
     local n; n=$(wc -l < "$out" | tr -d ' ')
     if (( n == 0 )); then
       echo "[ERR  $(ts)] 0 ROOT files found for ${label} in: ${src} (pattern=${pattern})" >&2
@@ -968,12 +1079,12 @@ build_pack() {
     build_embedded_pack_lists "$embeddir" "$outdir"
   else
     step "Write raw lists (filesystem scan → *.list)"
-    write_list "$calodir" "${outdir}/DST_CALO_CLUSTER.list" "${calo_label}" "${calo_pattern}"
-    write_list "$jetsdir" "${outdir}/DST_JETS.list"        "${jets_label}" "${jets_pattern}"
-    write_list "$gldir"   "${outdir}/DST_GLOBAL.list"      "${global_label}" "${global_pattern}"
+    write_list "$calodir" "${outdir}/DST_CALO_CLUSTER.list" "${calo_label}" "${calo_pattern}" "${calo_exclude_pattern}"
+    write_list "$jetsdir" "${outdir}/DST_JETS.list"        "${jets_label}" "${jets_pattern}" "${jets_exclude_pattern}"
+    write_list "$gldir"   "${outdir}/DST_GLOBAL.list"      "${global_label}" "${global_pattern}" "${global_exclude_pattern}"
 
     if [[ "$MBD_OK" == "true" ]]; then
-      write_list "$mbddir"  "${outdir}/DST_MBD_EPD.list"   "${mbd_label}" "${mbd_pattern}"
+      write_list "$mbddir"  "${outdir}/DST_MBD_EPD.list"   "${mbd_label}" "${mbd_pattern}" "${mbd_exclude_pattern}"
     else
       printf "\033[31m[WARN %s] No standalone DST_MBD_EPD files configured for %s. Writing placeholder DST_MBD_EPD.list filled with 'NONE' (lines=%d).\033[0m\n" \
         "$(ts)" "${tag}" "$(wc -l < "${outdir}/DST_CALO_CLUSTER.list" | tr -d ' ')" >&2
@@ -985,7 +1096,11 @@ build_pack() {
     # with the same number of lines as the anchor list so downstream stays aligned.
     {
       if [[ -d "$g4dir" ]]; then
-        find "$g4dir" \( -type f -o -type l \) -iname "$g4_pattern" -print 2>/dev/null | sort -V > "${outdir}/G4Hits.list"
+        if [[ -n "$g4_exclude_pattern" ]]; then
+          find "$g4dir" \( -type f -o -type l \) -iname "$g4_pattern" ! -iname "$g4_exclude_pattern" -print 2>/dev/null | sort -V > "${outdir}/G4Hits.list"
+        else
+          find "$g4dir" \( -type f -o -type l \) -iname "$g4_pattern" -print 2>/dev/null | sort -V > "${outdir}/G4Hits.list"
+        fi
       else
         : > "${outdir}/G4Hits.list"
       fi

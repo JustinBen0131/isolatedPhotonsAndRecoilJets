@@ -17,6 +17,7 @@
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -29,32 +30,46 @@ namespace
 constexpr double kSigmaEmbeddedPhoton12To20_pb = 2598.12425;
 constexpr double kSigmaEmbeddedPhoton20Plus_pb = 133.317866;
 
-const std::string kConfigTag =
+std::string gConfigTag =
     "jetMinPt5_7pi_8_vz60_isoR40_fixedIso2GeV_baseVariant_"
     "preselectionReference_tightReference_nonTightReference";
 
-const std::string kFile12 =
-    "InputFiles/simEmbedded/RecoilJets_embeddedPhoton12_ALL_" + kConfigTag + ".root";
-const std::string kFile20 =
-    "InputFiles/simEmbedded/RecoilJets_embeddedPhoton20_ALL_" + kConfigTag + ".root";
+std::string ConfigTag()
+{
+  return gConfigTag;
+}
 
-const std::string kOutDir =
-    "dataOutput/combinedSimOnlyEMBEDDED/" + kConfigTag + "/photonJet12and20merged_SIM";
+std::string File12()
+{
+  return "InputFiles/simEmbedded/RecoilJets_embeddedPhoton12_ALL_" + ConfigTag() + ".root";
+}
+
+std::string File20()
+{
+  return "InputFiles/simEmbedded/RecoilJets_embeddedPhoton20_ALL_" + ConfigTag() + ".root";
+}
+
+std::string OutDir()
+{
+  return "dataOutput/combinedSimOnlyEMBEDDED/" + ConfigTag() + "/photonJet12and20merged_SIM";
+}
 
 int VzCutFromConfigTag()
 {
-  if (kConfigTag.find("vz60") != std::string::npos) return 60;
-  if (kConfigTag.find("vz30") != std::string::npos) return 30;
-  std::cerr << "[WARN] Could not infer vz cut from config tag: " << kConfigTag
+  const std::string cfg = ConfigTag();
+  if (cfg.find("vz60") != std::string::npos) return 60;
+  if (cfg.find("vz30") != std::string::npos) return 30;
+  std::cerr << "[WARN] Could not infer vz cut from config tag: " << cfg
             << ". Falling back to 30 cm." << std::endl;
   return 30;
 }
 
 double IsoConeRFromConfigTag()
 {
-  if (kConfigTag.find("isoR40") != std::string::npos) return 0.4;
-  if (kConfigTag.find("isoR30") != std::string::npos) return 0.3;
-  std::cerr << "[WARN] Could not infer isolation cone radius from config tag: " << kConfigTag
+  const std::string cfg = ConfigTag();
+  if (cfg.find("isoR40") != std::string::npos) return 0.4;
+  if (cfg.find("isoR30") != std::string::npos) return 0.3;
+  std::cerr << "[WARN] Could not infer isolation cone radius from config tag: " << cfg
             << ". Falling back to 0.3." << std::endl;
   return 0.3;
 }
@@ -392,13 +407,9 @@ std::vector<IsoFlatCentResult> DrawIsoEfficiencyCutoffQA(TFile* f12, TFile* f20,
     std::string tag;
   };
   const std::vector<CentBin> centBins = {
-      {0, 10, {"_cent_0_10"}, "cent_0_10"},
-      {10, 20, {"_cent_10_20"}, "cent_10_20"},
-      {20, 30, {"_cent_20_30"}, "cent_20_30"},
-      {30, 40, {"_cent_30_40"}, "cent_30_40"},
-      {40, 50, {"_cent_40_50"}, "cent_40_50"},
-      {50, 60, {"_cent_50_60"}, "cent_50_60"},
-      {60, 80, {"_cent_60_80"}, "cent_60_80"},
+      {0, 20, {"_cent_0_20"}, "cent_0_20"},
+      {20, 50, {"_cent_20_50"}, "cent_20_50"},
+      {50, 80, {"_cent_50_80"}, "cent_50_80"},
   };
 
   std::vector<IsoFlatCentResult> flatResults;
@@ -568,7 +579,7 @@ std::vector<IsoFlatCentResult> DrawIsoEfficiencyCutoffQA(TFile* f12, TFile* f20,
     sph.SetTextSize(0.034);
     sph.DrawLatex(0.92, 0.83, "Pythia Overlay  #sqrt{s_{NN}} = 200 GeV");
 
-    const std::string outPng = kOutDir + "/embeddedPhoton_stitchedIsoCutEfficiency_" + cb.tag + ".png";
+    const std::string outPng = OutDir() + "/embeddedPhoton_stitchedIsoCutEfficiency_" + cb.tag + ".png";
     c.SaveAs(outPng.c_str());
     std::cout << "[DONE] Wrote " << outPng << std::endl;
   }
@@ -702,7 +713,7 @@ void DrawIsoFlatCutoffVsCentralityQA(const std::vector<IsoFlatCentResult>& flatR
   sph.SetTextSize(0.034);
   sph.DrawLatex(0.92, 0.83, "Pythia Overlay  #sqrt{s_{NN}} = 200 GeV");
 
-  const std::string outPng = kOutDir + "/embeddedPhoton_stitchedIsoCutEfficiencyFits_vsCentrality.png";
+  const std::string outPng = OutDir() + "/embeddedPhoton_stitchedIsoCutEfficiencyFits_vsCentrality.png";
   c.SaveAs(outPng.c_str());
   std::cout << "[DONE] Wrote " << outPng << std::endl;
 }
@@ -719,9 +730,9 @@ void DrawIsoCentralityOverlay10To12QA(TFile* f12, TFile* f20, double w12, double
   };
 
   const std::vector<CentBin> centBins = {
-      {0, 20, {"_cent_0_10", "_cent_10_20"}, "cent_0_20", kBlack},
-      {20, 50, {"_cent_20_30", "_cent_30_40", "_cent_40_50"}, "cent_20_50", kBlue + 1},
-      {50, 80, {"_cent_50_60", "_cent_60_80"}, "cent_50_80", kOrange + 1},
+      {0, 20, {"_cent_0_20"}, "cent_0_20", kBlack},
+      {20, 50, {"_cent_20_50"}, "cent_20_50", kBlue + 1},
+      {50, 80, {"_cent_50_80"}, "cent_50_80", kOrange + 1},
   };
 
   std::vector<std::unique_ptr<TH1>> hOwned;
@@ -834,7 +845,7 @@ void DrawIsoCentralityOverlay10To12QA(TFile* f12, TFile* f20, double w12, double
   sph.SetTextSize(0.042);
   sph.DrawLatex(0.90, 0.26, "Au+Au  #sqrt{s_{NN}} = 200 GeV");
 
-  const std::string outPng = kOutDir + "/embeddedPhoton_stitchedIsoCentralityOverlay_pT_10_12.png";
+  const std::string outPng = OutDir() + "/embeddedPhoton_stitchedIsoCentralityOverlay_pT_10_12.png";
   c.SaveAs(outPng.c_str());
   std::cout << "[DONE] Wrote " << outPng << std::endl;
 }
@@ -982,7 +993,7 @@ void DrawSpectrumSmoothQA(std::unique_ptr<TH1> h12,
   one.SetLineStyle(2);
   one.Draw("SAME");
 
-  const std::string outPng = kOutDir + "/" + outputName + ".png";
+  const std::string outPng = OutDir() + "/" + outputName + ".png";
   c.SaveAs(outPng.c_str());
   std::cout << "[DONE] Wrote " << outPng << std::endl;
 }
@@ -1085,11 +1096,11 @@ void DrawCompositionQA(std::unique_ptr<TH1> h12,
   leg2.AddEntry(frac20.get(), "PhotonJet20 / sum", "lep");
   leg2.Draw();
 
-  const std::string outPng = kOutDir + "/embeddedPhoton_stitchedSampleComposition_ABCDsum.png";
+  const std::string outPng = OutDir() + "/embeddedPhoton_stitchedSampleComposition_ABCDsum.png";
   c.SaveAs(outPng.c_str());
   std::cout << "[DONE] Wrote " << outPng << std::endl;
 
-  const std::string legacyNormPng = kOutDir + "/embeddedPhoton12to20_plusPhoton20_xsecNormalizationQA.png";
+  const std::string legacyNormPng = OutDir() + "/embeddedPhoton12to20_plusPhoton20_xsecNormalizationQA.png";
   c.SaveAs(legacyNormPng.c_str());
   std::cout << "[DONE] Wrote " << legacyNormPng << std::endl;
 }
@@ -1101,16 +1112,18 @@ void MakeEmbeddedPhotonXsecNormQA()
   gStyle->SetOptStat(0);
   gStyle->SetErrorX(0.5);
 
-  std::unique_ptr<TFile> f12(TFile::Open(kFile12.c_str(), "READ"));
-  std::unique_ptr<TFile> f20(TFile::Open(kFile20.c_str(), "READ"));
+  const std::string file12 = File12();
+  const std::string file20 = File20();
+  std::unique_ptr<TFile> f12(TFile::Open(file12.c_str(), "READ"));
+  std::unique_ptr<TFile> f20(TFile::Open(file20.c_str(), "READ"));
   if (!f12 || f12->IsZombie())
   {
-    std::cerr << "[ERROR] Cannot open " << kFile12 << std::endl;
+    std::cerr << "[ERROR] Cannot open " << file12 << std::endl;
     return;
   }
   if (!f20 || f20->IsZombie())
   {
-    std::cerr << "[ERROR] Cannot open " << kFile20 << std::endl;
+    std::cerr << "[ERROR] Cannot open " << file20 << std::endl;
     return;
   }
 
@@ -1131,7 +1144,7 @@ void MakeEmbeddedPhotonXsecNormQA()
   const double w12 = kSigmaEmbeddedPhoton12To20_pb / n12;
   const double w20 = kSigmaEmbeddedPhoton20Plus_pb / n20;
 
-  gSystem->mkdir(kOutDir.c_str(), true);
+  gSystem->mkdir(OutDir().c_str(), true);
 
   DrawSpectrumSmoothQA(
       WeightedClone(BuildKeptFilterPtSpectrum(f12.get(), "h_filterPt12_weighted"), w12),
@@ -1150,4 +1163,67 @@ void MakeEmbeddedPhotonXsecNormQA()
   std::cout << "[INFO] N12=" << n12 << " N20=" << n20
             << " w12=" << w12 << " pb/event"
             << " w20=" << w20 << " pb/event" << std::endl;
+}
+
+void MakeEmbeddedPhotonXsecNormQA(const char* configTag)
+{
+  if (!configTag || std::string(configTag).empty())
+  {
+    std::cerr << "[ERROR] Empty config tag passed to MakeEmbeddedPhotonXsecNormQA" << std::endl;
+    return;
+  }
+  gConfigTag = configTag;
+  MakeEmbeddedPhotonXsecNormQA();
+}
+
+std::vector<std::string> EmbeddedPhotonConfigTagsFromLocalInputs()
+{
+  std::set<std::string> tags;
+  const std::string dir = "InputFiles/simEmbedded";
+
+  const std::string prefix = "RecoilJets_embeddedPhoton12_ALL_";
+  const std::string suffix = ".root";
+  const TString listing = gSystem->GetFromPipe(("ls " + dir + "/" + prefix + "*" + suffix + " 2>/dev/null").c_str());
+  std::istringstream in(listing.Data());
+  std::string path;
+  while (std::getline(in, path))
+  {
+    if (path.empty()) continue;
+    const std::size_t slash = path.find_last_of('/');
+    const std::string name = (slash == std::string::npos) ? path : path.substr(slash + 1);
+    if (name.size() <= prefix.size() + suffix.size()) continue;
+    if (name.rfind(prefix, 0) != 0) continue;
+    if (name.substr(name.size() - suffix.size()) != suffix) continue;
+    const std::string tag = name.substr(prefix.size(), name.size() - prefix.size() - suffix.size());
+
+    const std::string file20 = dir + "/RecoilJets_embeddedPhoton20_ALL_" + tag + ".root";
+    if (!gSystem->AccessPathName(file20.c_str()))
+    {
+      tags.insert(tag);
+    }
+    else
+    {
+      std::cerr << "[WARN] Skipping tag without matching embeddedPhoton20 file: " << tag << std::endl;
+    }
+  }
+
+  return std::vector<std::string>(tags.begin(), tags.end());
+}
+
+void MakeEmbeddedPhotonXsecNormQA_AllLocalSimEmbedded()
+{
+  const std::vector<std::string> tags = EmbeddedPhotonConfigTagsFromLocalInputs();
+  if (tags.empty())
+  {
+    std::cerr << "[ERROR] No complete embeddedPhoton12+20 cfg tags found in InputFiles/simEmbedded" << std::endl;
+    return;
+  }
+
+  std::cout << "[INFO] Regenerating embedded photon stitching QA for "
+            << tags.size() << " cfg tag(s)." << std::endl;
+  for (const std::string& tag : tags)
+  {
+    std::cout << "\n[CFG] " << tag << std::endl;
+    MakeEmbeddedPhotonXsecNormQA(tag.c_str());
+  }
 }

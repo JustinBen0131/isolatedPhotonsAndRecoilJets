@@ -46,6 +46,7 @@
 #     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT local
 #     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT condorDoAll
 #     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainNPB local
+#     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainJetMLResidual local
 #
 # OVERVIEW
 #   • This script is the top-level submission driver for:
@@ -225,6 +226,7 @@
 #     $ ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT local [Nevents] [VERBOSE=N]
 #     $ ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT condorDoAll [groupSize N]
 #     $ ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainNPB local [Nevents] [VERBOSE=N]
+#     $ ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainJetMLResidual local [Nevents] [VERBOSE=N]
 #
 # ISLOCALISOPING ENVIRONMENT / CONTROLS
 #   • Required dataset:
@@ -471,6 +473,7 @@ ${BOLD}AuAu embedded photon-ID BDT training:${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT local [Nevents] [VERBOSE=N]${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT condorDoAll [groupSize N]${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainNPB local [Nevents] [VERBOSE=N]${RST}
+  ${BOLD}$0 isSimEmbeddedAndInclusive trainJetMLResidual local [Nevents] [VERBOSE=N]${RST}
 
   Signal samples default to:     ${AUAU_BDT_SIGNAL_SAMPLES_DEFAULT}
   Background samples default to: ${AUAU_BDT_BACKGROUND_SAMPLES_DEFAULT}
@@ -1693,7 +1696,18 @@ auau_bdt_train_from_manifest() {
   say "Training AuAu ${task} BDT:"
   say "  manifest : ${manifest}"
   say "  outdir   : ${outdir}"
-  "${BASE}/scripts/train_auau_photon_bdt.py" "${train_args[@]}"
+  if [[ "$task" == "tight" && "${RJ_AUAU_BDT_LOCAL_WIDE:-1}" == "1" ]]; then
+    say "  wide scan: nominal weighted PPG12 features"
+    "${BASE}/scripts/train_auau_photon_bdt.py" "${train_args[@]}" --prefix "auau_tight_bdt_nominal"
+
+    say "  wide scan: no Et/eta flattening cross-check"
+    "${BASE}/scripts/train_auau_photon_bdt.py" "${train_args[@]}" --prefix "auau_tight_bdt_noFlatten" --no-et-reweight --no-eta-reweight
+
+    say "  wide scan: shallower conservative BDT cross-check"
+    "${BASE}/scripts/train_auau_photon_bdt.py" "${train_args[@]}" --prefix "auau_tight_bdt_shallow" --max-depth 3 --n-estimators 300
+  else
+    "${BASE}/scripts/train_auau_photon_bdt.py" "${train_args[@]}"
+  fi
 }
 
 auau_bdt_run_local() {
@@ -1795,6 +1809,164 @@ auau_bdt_run_condor_do_all() {
   fi
 }
 
+auau_jetml_make_training_yaml() {
+  local stamp="$1"
+  local master_yaml="$2"
+  [[ -s "$master_yaml" ]] || { err "Master YAML not found or empty: $master_yaml"; exit 72; }
+
+  local -a pts fracs vzs cones fixeds uepipes
+  mapfile -t pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
+  mapfile -t fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
+  mapfile -t vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
+  mapfile -t cones < <( yaml_get_values "coneR" "$master_yaml" )
+  mapfile -t fixeds < <( yaml_get_values "fixedGeV" "$master_yaml" 2>/dev/null )
+  (( ${#pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
+  (( ${#fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
+  (( ${#vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
+  (( ${#cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
+  (( ${#fixeds[@]} )) || fixeds=( "2.0" )
+
+  read_uepipe_modes "$master_yaml" "simembedded"
+  uepipes=( "${uepipe_modes[@]}" )
+  (( ${#uepipes[@]} )) || uepipes=( "noSub" )
+
+  local out tmp
+  out="$(sim_make_yaml_override \
+    "$master_yaml" \
+    "${pts[0]}" "${fracs[0]}" "${vzs[0]}" "${cones[0]}" \
+    "false" "${fixeds[0]}" "${uepipes[0]}" \
+    "reference" "reference" "reference" \
+    "jetMLTraining" "$stamp" "false")"
+
+  tmp="${out}.tmp"
+  sed -E \
+    -e "s|^([[:space:]]*auau_bdt_training_tree:).*|\\1 false|" \
+    -e "s|^([[:space:]]*jet_ml_training_tree:).*|\\1 true|" \
+    -e "s|^([[:space:]]*jet_ml_training_tree_max_entries:).*|\\1 ${RJ_JET_ML_TRAINING_TREE_MAX_ENTRIES:-0}|" \
+    -e "s|^([[:space:]]*jet_ml_correction_enabled:).*|\\1 false|" \
+    "$out" > "$tmp"
+  mv -f "$tmp" "$out"
+  echo "$out"
+}
+
+auau_jetml_run_local() {
+  auau_bdt_parse_local_controls
+
+  local stamp master_yaml train_yaml cfg_tag local_root manifest outdir
+  stamp="$(date +%Y%m%d_%H%M%S)"
+  master_yaml="$(sim_yaml_master_path)"
+  train_yaml="$(auau_jetml_make_training_yaml "$stamp" "$master_yaml")"
+  cfg_tag="$(auau_bdt_cfg_tag_from_yaml "$train_yaml")"
+  local_root="${AUAU_BDT_LOCAL_BASE}/jetResidual_${stamp}"
+  manifest="${local_root}/jetml_training_roots.list"
+  outdir="${AUAU_BDT_MODEL_BASE}/jetResidual_${stamp}"
+
+  local -a signal_samples background_samples
+  mapfile -t signal_samples < <( auau_bdt_signal_samples )
+  mapfile -t background_samples < <( auau_bdt_background_samples )
+
+  say "AuAu embedded JetML residual LOCAL extraction"
+  say "  YAML override      : ${train_yaml}"
+  say "  cfg tag            : ${cfg_tag}"
+  say "  local output root  : ${local_root}"
+  say "  photon+jet samples : ${signal_samples[*]}"
+  say "  inclusive samples  : ${background_samples[*]}"
+  say "  events/sample      : ${AUAU_BDT_LOCAL_EVENTS}"
+  say "  verbosity          : ${AUAU_BDT_LOCAL_VERBOSITY}"
+  echo
+
+  local samp
+  for samp in "${signal_samples[@]}"; do
+    say "[JetML local] photon+jet extraction sample=${samp}"
+    RJ_CONFIG_YAML="$train_yaml" \
+    RJ_LOCAL_SIM_OUTPUT_BASE="${local_root}/simembedded" \
+    "$0" isSimEmbedded local "$AUAU_BDT_LOCAL_EVENTS" "VERBOSE=${AUAU_BDT_LOCAL_VERBOSITY}" "SAMPLE=${samp}"
+  done
+  for samp in "${background_samples[@]}"; do
+    say "[JetML local] inclusive extraction sample=${samp}"
+    RJ_CONFIG_YAML="$train_yaml" \
+    RJ_LOCAL_SIM_OUTPUT_BASE="${local_root}/simembeddedinclusive" \
+    "$0" isSimEmbeddedInclusive local "$AUAU_BDT_LOCAL_EVENTS" "VERBOSE=${AUAU_BDT_LOCAL_VERBOSITY}" "SAMPLE=${samp}"
+  done
+
+  auau_bdt_collect_roots "$local_root" "$manifest"
+  mkdir -p "$outdir"
+  say "Training JetML residual model:"
+  say "  manifest : ${manifest}"
+  say "  outdir   : ${outdir}"
+  if [[ "${RJ_JET_ML_LOCAL_WIDE:-1}" == "1" ]]; then
+    say "  wide scan: core low-bias feature set"
+    "${BASE}/scripts/train_auau_jet_residual_bdt.py" \
+      --input "@${manifest}" \
+      --outdir "${outdir}/core" \
+      --model-name "jetResidualBDT_core_allCent_tmva.root" \
+      --features "reco_areaSub_pt,raw_pt,jet_area,jet_eta,centrality,R"
+
+    say "  wide scan: minimal kinematic/background feature set"
+    "${BASE}/scripts/train_auau_jet_residual_bdt.py" \
+      --input "@${manifest}" \
+      --outdir "${outdir}/minimal" \
+      --model-name "jetResidualBDT_minimal_allCent_tmva.root" \
+      --features "reco_areaSub_pt,jet_eta,centrality,R"
+
+    say "  wide scan: core plus vertex and recoil-angle diagnostics"
+    "${BASE}/scripts/train_auau_jet_residual_bdt.py" \
+      --input "@${manifest}" \
+      --outdir "${outdir}/core_dphi_vz" \
+      --model-name "jetResidualBDT_coreDphiVz_allCent_tmva.root" \
+      --features "reco_areaSub_pt,raw_pt,jet_area,jet_eta,centrality,R,vertexz,dphi_gamma_jet"
+  else
+    "${BASE}/scripts/train_auau_jet_residual_bdt.py" --input "@${manifest}" --outdir "$outdir"
+  fi
+}
+
+auau_jetml_run_condor_do_all() {
+  local gs_doall="$GROUP_SIZE"
+  if [[ "${GROUP_SIZE_EXPLICIT:-0}" -eq 0 ]]; then
+    gs_doall="7"
+  fi
+
+  local stamp master_yaml train_yaml cfg_tag outdir
+  stamp="$(date +%Y%m%d_%H%M%S)"
+  master_yaml="$(sim_yaml_master_path)"
+  train_yaml="$(auau_jetml_make_training_yaml "$stamp" "$master_yaml")"
+  cfg_tag="$(auau_bdt_cfg_tag_from_yaml "$train_yaml")"
+  outdir="${AUAU_BDT_MODEL_BASE}/jetResidual_${stamp}"
+
+  local -a signal_samples background_samples
+  mapfile -t signal_samples < <( auau_bdt_signal_samples )
+  mapfile -t background_samples < <( auau_bdt_background_samples )
+
+  say "AuAu embedded JetML residual CONDOR extraction"
+  say "  YAML override      : ${train_yaml}"
+  say "  cfg tag            : ${cfg_tag}"
+  say "  output base        : ${AUAU_BDT_DEST_BASE}"
+  say "  groupSize          : ${gs_doall}"
+  say "  photon+jet samples : ${signal_samples[*]}"
+  say "  inclusive samples  : ${background_samples[*]}"
+  echo
+
+  local samp
+  for samp in "${signal_samples[@]}"; do
+    say "[JetML condor] photon+jet extraction sample=${samp}"
+    RJ_CONFIG_YAML="$train_yaml" \
+    RJ_SIMEMBED_DEST_BASE="$AUAU_BDT_DEST_BASE" \
+    "$0" isSimEmbedded condorDoAll groupSize "$gs_doall" "SAMPLE=${samp}"
+  done
+  for samp in "${background_samples[@]}"; do
+    say "[JetML condor] inclusive extraction sample=${samp}"
+    RJ_CONFIG_YAML="$train_yaml" \
+    RJ_SIMEMBED_DEST_BASE="$AUAU_BDT_DEST_BASE" \
+    "$0" isSimEmbeddedInclusive condorDoAll groupSize "$gs_doall" "SAMPLE=${samp}"
+  done
+
+  say "Condor extraction was submitted. After jobs finish, train from the produced ROOT files with:"
+  echo
+  printf '  mkdir -p %q\n' "$outdir"
+  printf '  find %q -path %q -name %q | sort > %q\n' "$AUAU_BDT_DEST_BASE" "*/${cfg_tag}/*" "RecoilJets_*.root" "${outdir}/jetml_training_roots.list"
+  printf '  %q --input @%q --outdir %q\n' "${BASE}/scripts/train_auau_jet_residual_bdt.py" "${outdir}/jetml_training_roots.list" "$outdir"
+}
+
 # ------------------------ Parse CLI ------------------------
 [[ $# -ge 1 ]] || usage
 resolve_dataset "$1"
@@ -1809,11 +1981,11 @@ tokens=( "${@:2}" )
 for (( idx=0; idx<${#tokens[@]}; idx++ )); do
   tok="${tokens[$idx]}"
   case "$tok" in
-    trainTightBDT|trainNPB)
+    trainTightBDT|trainNPB|trainJetMLResidual)
       ACTION="$tok"
       ;;
     local|condorDoAll)
-      if [[ "$ACTION" == trainTightBDT || "$ACTION" == trainNPB ]]; then
+      if [[ "$ACTION" == trainTightBDT || "$ACTION" == trainNPB || "$ACTION" == trainJetMLResidual ]]; then
         TRAIN_MODE="$tok"
       else
         ACTION="$tok"
@@ -1864,7 +2036,7 @@ if [[ -z "$ACTION" ]]; then
     ACTION="condor"
   fi
 fi
-if [[ "$ACTION" == trainTightBDT || "$ACTION" == trainNPB ]]; then
+if [[ "$ACTION" == trainTightBDT || "$ACTION" == trainNPB || "$ACTION" == trainJetMLResidual ]]; then
   [[ "$DATASET" == "isSimEmbeddedAndInclusive" ]] || { err "${ACTION} is valid only as: $0 isSimEmbeddedAndInclusive ${ACTION} <local|condorDoAll>"; exit 2; }
   [[ -n "$TRAIN_MODE" ]] || TRAIN_MODE="local"
 fi
@@ -1912,6 +2084,21 @@ case "$ACTION" in
         ;;
       condorDoAll)
         auau_bdt_run_condor_do_all "$task"
+        ;;
+      *)
+        err "${ACTION} mode must be local or condorDoAll, got '${TRAIN_MODE}'"
+        exit 2
+        ;;
+    esac
+    ;;
+
+  trainJetMLResidual)
+    case "${TRAIN_MODE:-local}" in
+      local)
+        auau_jetml_run_local
+        ;;
+      condorDoAll)
+        auau_jetml_run_condor_do_all
         ;;
       *)
         err "${ACTION} mode must be local or condorDoAll, got '${TRAIN_MODE}'"

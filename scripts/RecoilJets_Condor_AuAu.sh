@@ -108,6 +108,7 @@ case "$dataset_raw" in
     export RJ_IS_SIM=0
     ;;
 esac
+export RJ_SIM_SAMPLE="$run8"
 
 # Destination base (if not supplied as arg 8)
 if [[ -z "$dest_base" ]]; then

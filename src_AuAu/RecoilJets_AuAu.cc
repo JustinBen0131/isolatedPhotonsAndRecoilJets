@@ -17,6 +17,7 @@
 #include <TKey.h>
 #include <TObjString.h>
 #include <TBranch.h>
+#include <TMVA/RBDT.hxx>
 #include <CLHEP/Vector/ThreeVector.h>
 #include <cdbobjects/CDBTTree.h>
 #include <ffamodules/CDBInterface.h>
@@ -210,6 +211,11 @@ namespace RJMCWeighting
                          Int_t nbinsy, Double_t ylow, Double_t yup)
   { return new WeightedTH2F(name, title, nbinsx, xbins, nbinsy, ylow, yup); }
 
+  inline TH2F* RJNewTH2F(const char* name, const char* title,
+                         Int_t nbinsx, const Double_t* xbins,
+                         Int_t nbinsy, const Double_t* ybins)
+  { return new WeightedTH2F(name, title, nbinsx, xbins, nbinsy, ybins); }
+
   inline TH2D* RJNewTH2D(const char* name, const char* title,
                          Int_t nbinsx, Double_t xlow, Double_t xup,
                          Int_t nbinsy, Double_t ylow, Double_t yup)
@@ -245,6 +251,15 @@ namespace RJMCWeighting
       (void)tmin;
       (void)tmax;
       return new WeightedTProfile3D(name, title, nbinsx, xbins, nbinsy, ybins, nbinsz, zbins);
+  }
+
+  inline TProfile3D* RJNewTProfile3D(const char* name, const char* title,
+                                      Int_t nbinsx, const Double_t* xbins,
+                                      Int_t nbinsy, const Double_t* ybins,
+                                      Int_t nbinsz, const Double_t* zbins,
+                                      Option_t* option)
+  {
+      return new WeightedTProfile3D(name, title, nbinsx, xbins, nbinsy, ybins, nbinsz, zbins, option);
   }
 }
 
@@ -978,6 +993,21 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
         }
         return def;
     };
+    auto envToStringList = [&](const char* key, const std::vector<std::string>& def) -> std::vector<std::string>
+    {
+        const char* raw = std::getenv(key);
+        if (!raw) return def;
+
+        std::vector<std::string> outList;
+        std::stringstream ss(raw);
+        std::string tok;
+        while (std::getline(ss, tok, ','))
+        {
+            tok = trim(tok);
+            if (!tok.empty()) outList.push_back(tok);
+        }
+        return outList.empty() ? def : outList;
+    };
     
     m_preselectionVariant  = envOrDefault("RJ_PRESELECTION_VARIANT", "reference");
     m_tightVariant         = envOrDefault("RJ_TIGHT_VARIANT", "reference");
@@ -998,6 +1028,13 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     m_auauNonTightBDTMaxSlope     = envToDouble("RJ_AUAU_NONTIGHT_BDT_MAX_SLOPE", 0.0);
     m_auauBDTTrainingTreeEnabled = envToBool("RJ_AUAU_BDT_TRAINING_TREE", false);
     m_auauBDTTrainingTreeMaxEntries = envToLL("RJ_AUAU_BDT_TRAINING_TREE_MAX_ENTRIES", 0);
+    m_jetMLTrainingTreeEnabled = envToBool("RJ_JET_ML_TRAINING_TREE", false);
+    m_jetMLTrainingTreeMaxEntries = envToLL("RJ_JET_ML_TRAINING_TREE_MAX_ENTRIES", 0);
+    m_jetMLCorrectionEnabled = envToBool("RJ_JET_ML_CORRECTION_ENABLED", false);
+    m_jetMLModelFile = envOrDefault("RJ_JET_ML_MODEL_FILE", "");
+    m_jetMLFeatures = envToStringList("RJ_JET_ML_FEATURES",
+                                      {"reco_areaSub_pt", "raw_pt", "jet_area",
+                                       "jet_eta", "centrality", "R"});
     
     m_clus              = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC");
     m_clus_nocorr       = nullptr;
@@ -1398,6 +1435,10 @@ int RecoilJets::Init(PHCompositeNode* topNode)
   {
     initAuAuBDTTrainingTree();
   }
+  if (m_jetMLTrainingTreeEnabled)
+  {
+    initJetMLTrainingTree();
+  }
     
   /* 1.  optional DST node-tree dump ---------------------------------- */
   if (Verbosity() >= 2)           // ← adjust threshold as desired
@@ -1604,6 +1645,266 @@ void RecoilJets::fillAuAuBDTTrainingTree(const SSVars& v,
 
   m_auauBDTTrainingTree->Fill();
   ++m_auauBDTTrainingTreeEntries;
+}
+
+void RecoilJets::initJetMLTrainingTree()
+{
+  if (m_jetMLTrainingTree) return;
+
+  if (!out || !out->IsOpen())
+  {
+    LOG(1, CLR_YELLOW, "[JetMLTrainingTree] output file is not open; disabling training tree");
+    m_jetMLTrainingTreeEnabled = false;
+    return;
+  }
+
+  out->cd();
+  m_jetMLTrainingTree = new TTree("JetResidualMLTrainingTree",
+                                  "Inclusive gamma-jet recoil candidates for residual jet-pT ML training");
+  if (!m_jetMLTrainingTree)
+  {
+    LOG(1, CLR_YELLOW, "[JetMLTrainingTree] failed to allocate tree; disabling");
+    m_jetMLTrainingTreeEnabled = false;
+    return;
+  }
+  m_jetMLTrainingTree->SetDirectory(out);
+
+  auto add = [&](const char* name, void* addr, const char* leaf)
+  {
+    if (!m_jetMLTrainingTree->Branch(name, addr, leaf))
+    {
+      LOG(1, CLR_YELLOW, "[JetMLTrainingTree] failed to book branch " << name);
+      m_jetMLTrainingTreeEnabled = false;
+    }
+  };
+
+  add("run", &m_jetMLTrain_run, "run/I");
+  add("evt", &m_jetMLTrain_evt, "evt/L");
+  m_jetMLTrainingTree->Branch("sample", &m_jetMLTrain_sample);
+  m_jetMLTrainingTree->Branch("rKey", &m_jetMLTrain_rKey);
+  add("is_sim", &m_jetMLTrain_is_sim, "is_sim/I");
+  add("is_recoil", &m_jetMLTrain_is_recoil, "is_recoil/I");
+  add("is_matched", &m_jetMLTrain_is_matched, "is_matched/I");
+  add("R", &m_jetMLTrain_R, "R/F");
+  add("centrality", &m_jetMLTrain_centrality, "centrality/F");
+  add("vertexz", &m_jetMLTrain_vertexz, "vertexz/F");
+  add("event_weight", &m_jetMLTrain_event_weight, "event_weight/F");
+  add("photon_pt", &m_jetMLTrain_photon_pt, "photon_pt/F");
+  add("photon_eta", &m_jetMLTrain_photon_eta, "photon_eta/F");
+  add("photon_phi", &m_jetMLTrain_photon_phi, "photon_phi/F");
+  add("reco_areaSub_pt", &m_jetMLTrain_reco_pt, "reco_areaSub_pt/F");
+  add("raw_pt", &m_jetMLTrain_raw_pt, "raw_pt/F");
+  add("jet_eta", &m_jetMLTrain_jet_eta, "jet_eta/F");
+  add("jet_phi", &m_jetMLTrain_jet_phi, "jet_phi/F");
+  add("jet_area", &m_jetMLTrain_jet_area, "jet_area/F");
+  add("dphi_gamma_jet", &m_jetMLTrain_dphi, "dphi_gamma_jet/F");
+  add("rho", &m_jetMLTrain_rho, "rho/F");
+  add("local_rho", &m_jetMLTrain_local_rho, "local_rho/F");
+  add("local_et", &m_jetMLTrain_local_et, "local_et/F");
+  add("truth_pt", &m_jetMLTrain_truth_pt, "truth_pt/F");
+  add("truth_eta", &m_jetMLTrain_truth_eta, "truth_eta/F");
+  add("truth_phi", &m_jetMLTrain_truth_phi, "truth_phi/F");
+  add("match_dr", &m_jetMLTrain_match_dr, "match_dr/F");
+  add("delta_pt", &m_jetMLTrain_delta_pt, "delta_pt/F");
+  add("response_ratio", &m_jetMLTrain_response_ratio, "response_ratio/F");
+
+  LOG(1, CLR_GREEN, "[JetMLTrainingTree] enabled"
+                    << " maxEntries=" << m_jetMLTrainingTreeMaxEntries);
+}
+
+void RecoilJets::fillJetMLTrainingTree(const std::string& rKey,
+                                       double Rjet,
+                                       double leadPtGamma,
+                                       double leadEtaGamma,
+                                       double leadPhiGamma,
+                                       const Jet* recoJet,
+                                       bool recoIsRecoil,
+                                       const Jet* matchedTruthJet,
+                                       double matchDR)
+{
+  if (!m_jetMLTrainingTreeEnabled) return;
+  if (!m_jetMLTrainingTree) initJetMLTrainingTree();
+  if (!m_jetMLTrainingTreeEnabled || !m_jetMLTrainingTree || !recoJet) return;
+  if (m_jetMLTrainingTreeMaxEntries > 0 &&
+      m_jetMLTrainingTreeEntries >= m_jetMLTrainingTreeMaxEntries) return;
+
+  auto finiteFloat = [](double x, double fallback = 0.0) -> float
+  {
+    return std::isfinite(x) ? static_cast<float>(x) : static_cast<float>(fallback);
+  };
+  auto sampleEnv = []() -> std::string
+  {
+    auto localTrim = [](std::string s) -> std::string
+    {
+      const char* ws = " \t\r\n";
+      const auto first = s.find_first_not_of(ws);
+      if (first == std::string::npos) return std::string{};
+      const auto last = s.find_last_not_of(ws);
+      return s.substr(first, last - first + 1);
+    };
+    if (const char* s = std::getenv("RJ_SIM_SAMPLE"))
+    {
+      const std::string v = localTrim(std::string(s));
+      if (!v.empty()) return v;
+    }
+    if (const char* s = std::getenv("RJ_DATASET"))
+    {
+      const std::string v = localTrim(std::string(s));
+      if (!v.empty()) return v;
+    }
+    return "";
+  };
+
+  const double recoPt = recoJet->get_pt();
+  const double recoEta = recoJet->get_eta();
+  const double recoPhi = recoJet->get_phi();
+  const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(recoPhi - leadPhiGamma));
+  const double area = (std::isfinite(Rjet) && Rjet > 0.0) ? (M_PI * Rjet * Rjet) : 0.0;
+  const bool isMatched = (matchedTruthJet != nullptr);
+
+  m_jetMLTrain_run = (m_evtHeader ? m_evtHeader->get_RunNumber() : 0);
+  m_jetMLTrain_evt = event_count;
+  m_jetMLTrain_sample = sampleEnv();
+  m_jetMLTrain_rKey = rKey;
+  m_jetMLTrain_is_sim = m_isSim ? 1 : 0;
+  m_jetMLTrain_is_recoil = recoIsRecoil ? 1 : 0;
+  m_jetMLTrain_is_matched = isMatched ? 1 : 0;
+  m_jetMLTrain_R = finiteFloat(Rjet);
+  m_jetMLTrain_centrality = finiteFloat(m_centPercent, -1.0);
+  m_jetMLTrain_vertexz = finiteFloat(m_vz);
+  m_jetMLTrain_event_weight = finiteFloat(m_mcEventWeight, 1.0);
+  m_jetMLTrain_photon_pt = finiteFloat(leadPtGamma);
+  m_jetMLTrain_photon_eta = finiteFloat(leadEtaGamma);
+  m_jetMLTrain_photon_phi = finiteFloat(leadPhiGamma);
+  m_jetMLTrain_reco_pt = finiteFloat(recoPt);
+  m_jetMLTrain_raw_pt = finiteFloat(recoPt);
+  m_jetMLTrain_jet_eta = finiteFloat(recoEta);
+  m_jetMLTrain_jet_phi = finiteFloat(recoPhi);
+  m_jetMLTrain_jet_area = finiteFloat(area);
+  m_jetMLTrain_dphi = finiteFloat(dphiAbs);
+  m_jetMLTrain_rho = 0.0f;
+  m_jetMLTrain_local_rho = 0.0f;
+  m_jetMLTrain_local_et = 0.0f;
+  m_jetMLTrain_truth_pt = isMatched ? finiteFloat(matchedTruthJet->get_pt(), -1.0) : -1.0f;
+  m_jetMLTrain_truth_eta = isMatched ? finiteFloat(matchedTruthJet->get_eta()) : 0.0f;
+  m_jetMLTrain_truth_phi = isMatched ? finiteFloat(matchedTruthJet->get_phi()) : 0.0f;
+  m_jetMLTrain_match_dr = isMatched ? finiteFloat(matchDR, -1.0) : -1.0f;
+  m_jetMLTrain_delta_pt = isMatched ? finiteFloat(matchedTruthJet->get_pt() - recoPt) : 0.0f;
+  m_jetMLTrain_response_ratio = (isMatched && matchedTruthJet->get_pt() > 0.0)
+                              ? finiteFloat(recoPt / matchedTruthJet->get_pt())
+                              : 0.0f;
+
+  m_jetMLTrainingTree->Fill();
+  ++m_jetMLTrainingTreeEntries;
+}
+
+bool RecoilJets::initJetMLModelIfNeeded()
+{
+  if (!m_jetMLCorrectionEnabled) return false;
+  if (m_jetMLModel) return true;
+  if (m_jetMLModelInitAttempted) return false;
+  m_jetMLModelInitAttempted = true;
+
+  if (m_jetMLModelFile.empty())
+  {
+    LOG(1, CLR_YELLOW, "[JetML] correction requested but RJ_JET_ML_MODEL_FILE is empty; disabling ML branch");
+    m_jetMLCorrectionEnabled = false;
+    return false;
+  }
+  if (m_jetMLFeatures.empty())
+  {
+    LOG(1, CLR_YELLOW, "[JetML] correction requested but feature list is empty; disabling ML branch");
+    m_jetMLCorrectionEnabled = false;
+    return false;
+  }
+
+  try
+  {
+    m_jetMLModel = std::make_unique<TMVA::Experimental::RBDT>("myBDT", m_jetMLModelFile);
+  }
+  catch (const std::exception& e)
+  {
+    LOG(1, CLR_YELLOW, "[JetML] failed to load model '" << m_jetMLModelFile
+                       << "': " << e.what() << "; disabling ML branch");
+    m_jetMLCorrectionEnabled = false;
+    return false;
+  }
+  catch (...)
+  {
+    LOG(1, CLR_YELLOW, "[JetML] failed to load model '" << m_jetMLModelFile
+                       << "'; disabling ML branch");
+    m_jetMLCorrectionEnabled = false;
+    return false;
+  }
+
+  LOG(1, CLR_GREEN, "[JetML] loaded residual-pT model " << m_jetMLModelFile
+                    << " with " << m_jetMLFeatures.size() << " features");
+  return true;
+}
+
+double RecoilJets::jetMLFeatureValue(const std::string& feature,
+                                     const std::string& rKey,
+                                     double Rjet,
+                                     double leadPtGamma,
+                                     double leadEtaGamma,
+                                     double leadPhiGamma,
+                                     const Jet* recoJet) const
+{
+  if (!recoJet) return std::numeric_limits<double>::quiet_NaN();
+
+  const double recoPt = recoJet->get_pt();
+  const double recoEta = recoJet->get_eta();
+  const double recoPhi = recoJet->get_phi();
+  const double area = (std::isfinite(Rjet) && Rjet > 0.0) ? (M_PI * Rjet * Rjet) : 0.0;
+  const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(recoPhi - leadPhiGamma));
+
+  if (feature == "reco_areaSub_pt" || feature == "reco_sub_pt" || feature == "jet_pt") return recoPt;
+  if (feature == "raw_pt") return recoPt;
+  if (feature == "jet_area") return area;
+  if (feature == "jet_eta") return recoEta;
+  if (feature == "jet_phi") return recoPhi;
+  if (feature == "centrality") return m_centPercent;
+  if (feature == "vertexz" || feature == "zvtx") return m_vz;
+  if (feature == "R" || feature == "jet_R") return Rjet;
+  if (feature == "dphi_gamma_jet") return dphiAbs;
+  if (feature == "photon_pt") return leadPtGamma;
+  if (feature == "photon_eta") return leadEtaGamma;
+  if (feature == "photon_phi") return leadPhiGamma;
+  if (feature == "rho" || feature == "sigma" || feature == "local_rho" || feature == "local_et") return 0.0;
+  if (feature == "rKey")
+  {
+    if (rKey == "r02") return 0.2;
+    if (rKey == "r03") return 0.3;
+    if (rKey == "r04") return 0.4;
+    return Rjet;
+  }
+
+  return std::numeric_limits<double>::quiet_NaN();
+}
+
+double RecoilJets::predictJetMLDeltaPt(const std::string& rKey,
+                                       double Rjet,
+                                       double leadPtGamma,
+                                       double leadEtaGamma,
+                                       double leadPhiGamma,
+                                       const Jet* recoJet) const
+{
+  if (!m_jetMLCorrectionEnabled || !m_jetMLModel || !recoJet) return 0.0;
+
+  std::vector<float> x;
+  x.reserve(m_jetMLFeatures.size());
+  for (const auto& feature : m_jetMLFeatures)
+  {
+    const double val = jetMLFeatureValue(feature, rKey, Rjet,
+                                         leadPtGamma, leadEtaGamma, leadPhiGamma,
+                                         recoJet);
+    if (!std::isfinite(val)) return 0.0;
+    x.push_back(static_cast<float>(val));
+  }
+
+  const auto y = m_jetMLModel->Compute(x);
+  if (y.empty() || !std::isfinite(y[0])) return 0.0;
+  return static_cast<double>(y[0]);
 }
 
 
@@ -3634,6 +3935,20 @@ int RecoilJets::End(PHCompositeNode*)
     }
   }
 
+  if (m_jetMLTrainingTree)
+  {
+    out->cd();
+    if (m_jetMLTrainingTree->Write("", TObject::kOverwrite) > 0)
+    {
+      info(1, "JetResidualMLTrainingTree written with " +
+              std::to_string(m_jetMLTrainingTreeEntries) + " entries");
+    }
+    else
+    {
+      warn("JetResidualMLTrainingTree Write() returned 0");
+    }
+  }
+
   //--------------------------------------------------------------------
   // 3. Human-readable histogram summary (must run *before* file deletion)
   //--------------------------------------------------------------------
@@ -5125,6 +5440,42 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
   std::vector<char> recoMatched(recoJetsFid.size(), 0);
   std::vector<char> truthMatched(truthJetsFid.size(), 0);
 
+  if (m_jetMLTrainingTreeEnabled && haveRecoPhoton)
+  {
+    const double Rjet = jetRFromKey(rKey);
+    for (std::size_t ir = 0; ir < recoJetsFid.size(); ++ir)
+    {
+      if (!recoJetsFidIsRecoil[ir]) continue;
+
+      const Jet* rj = recoJetsFid[ir];
+      if (!rj) continue;
+
+      const Jet* bestTruth = nullptr;
+      double bestDR = std::numeric_limits<double>::infinity();
+      for (const Jet* tj : truthJetsFid)
+      {
+        if (!tj) continue;
+        const double dr = dR(rj->get_eta(), rj->get_phi(), tj->get_eta(), tj->get_phi());
+        if (std::isfinite(dr) && dr < bestDR)
+        {
+          bestDR = dr;
+          bestTruth = tj;
+        }
+      }
+
+      if (!(std::isfinite(bestDR) && bestDR < m_jetMatchDRMax))
+      {
+        bestTruth = nullptr;
+        bestDR = -1.0;
+      }
+
+      fillJetMLTrainingTree(rKey, Rjet,
+                            leadPtGamma, leadEtaGamma, leadPhiGamma,
+                            rj, true,
+                            bestTruth, bestDR);
+    }
+  }
+
   for (const auto& trigShort : activeTrig)
   {
       // IMPORTANT:
@@ -5140,6 +5491,24 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
       auto* hComb   = getOrBookUnfoldRecoCombinatoricPtXJIncl(trigShort, rKey, effCentIdx_M);
       auto* hFake   = getOrBookUnfoldRecoFakesPtXJIncl(trigShort, rKey, effCentIdx_M);
       auto* hMiss   = getOrBookUnfoldTruthMissesPtXJIncl(trigShort, rKey, effCentIdx_M);
+
+      const double Rjet = jetRFromKey(rKey);
+      const bool haveJetML = m_jetMLCorrectionEnabled && initJetMLModelIfNeeded();
+      auto* h2RecoML = haveJetML ? getOrBookUnfoldRecoJetMLPtXJIncl(trigShort, rKey, effCentIdx_M) : nullptr;
+      auto* hRspML   = haveJetML ? getOrBookUnfoldResponseJetMLPtXJIncl(trigShort, rKey, effCentIdx_M) : nullptr;
+      auto* hCombML  = haveJetML ? getOrBookUnfoldRecoCombinatoricJetMLPtXJIncl(trigShort, rKey, effCentIdx_M) : nullptr;
+      auto* hFakeML  = haveJetML ? getOrBookUnfoldRecoFakesJetMLPtXJIncl(trigShort, rKey, effCentIdx_M) : nullptr;
+      auto* hMissML  = haveJetML ? getOrBookUnfoldTruthMissesJetMLPtXJIncl(trigShort, rKey, effCentIdx_M) : nullptr;
+      auto xJRecoML = [&](const Jet* rj) -> double
+      {
+        if (!haveJetML || !rj || leadPtGamma <= 0.0) return std::numeric_limits<double>::quiet_NaN();
+        const double correctedPt = rj->get_pt() + predictJetMLDeltaPt(rKey, Rjet,
+                                                                       leadPtGamma, leadEtaGamma, leadPhiGamma,
+                                                                       rj);
+        return (std::isfinite(correctedPt) && correctedPt > 0.0)
+             ? correctedPt / leadPtGamma
+             : std::numeric_limits<double>::quiet_NaN();
+      };
 
       auto* h2RecoM  = getOrBookUnfoldRecoMatchedPtXJIncl(trigShort, rKey, effCentIdx_M);
       auto* h2TruthM = getOrBookUnfoldTruthMatchedPtXJIncl(trigShort, rKey, effCentIdx_M);
@@ -5198,6 +5567,12 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
           {
             hComb->Fill(leadPtGamma, xJr);
             bumpHistFill(trigShort, hComb->GetName());
+            const double xJrML = xJRecoML(rj);
+            if (hCombML && std::isfinite(xJrML))
+            {
+              hCombML->Fill(leadPtGamma, xJrML);
+              bumpHistFill(trigShort, hCombML->GetName());
+            }
           }
         }
       }
@@ -5248,6 +5623,11 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
 
             hMiss->Fill(tPt, xJt);
             bumpHistFill(trigShort, hMiss->GetName());
+            if (hMissML)
+            {
+              hMissML->Fill(tPt, xJt);
+              bumpHistFill(trigShort, hMissML->GetName());
+            }
           }
         }
 
@@ -5264,6 +5644,12 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
 
             hFake->Fill(leadPtGamma, xJr);
             bumpHistFill(trigShort, hFake->GetName());
+            const double xJrML = xJRecoML(rj);
+            if (hFakeML && std::isfinite(xJrML))
+            {
+              hFakeML->Fill(leadPtGamma, xJrML);
+              bumpHistFill(trigShort, hFakeML->GetName());
+            }
           }
         }
 
@@ -5320,6 +5706,14 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
           hRsp->Fill(static_cast<double>(gTruth), static_cast<double>(gReco));
           bumpHistFill(trigShort, hRsp->GetName());
 
+          const double xJrML = xJRecoML(rj);
+          if (hRspML && h2RecoML && std::isfinite(xJrML))
+          {
+            const int gRecoML = h2RecoML->FindBin(leadPtGamma, xJrML);
+            hRspML->Fill(static_cast<double>(gTruth), static_cast<double>(gRecoML));
+            bumpHistFill(trigShort, hRspML->GetName());
+          }
+
           if (h2TruthM)
           { h2TruthM->Fill(tPt, xJt); bumpHistFill(trigShort, h2TruthM->GetName()); }
 
@@ -5336,6 +5730,11 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
       {
         hMiss->Fill(tPt, xJt);
         bumpHistFill(trigShort, hMiss->GetName());
+        if (hMissML)
+        {
+          hMissML->Fill(tPt, xJt);
+          bumpHistFill(trigShort, hMissML->GetName());
+        }
 
         if (hMissA)
         { hMissA->Fill(tPt, xJt); bumpHistFill(trigShort, hMissA->GetName()); }
@@ -5344,6 +5743,12 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
       {
         hFake->Fill(leadPtGamma, xJr);
         bumpHistFill(trigShort, hFake->GetName());
+        const double xJrML = xJRecoML(rj);
+        if (hFakeML && std::isfinite(xJrML))
+        {
+          hFakeML->Fill(leadPtGamma, xJrML);
+          bumpHistFill(trigShort, hFakeML->GetName());
+        }
 
         if (hFakeA)
         { hFakeA->Fill(leadPtGamma, xJr); bumpHistFill(trigShort, hFakeA->GetName()); }
@@ -5363,6 +5768,11 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
 
       hMiss->Fill(tPt, xJt);
       bumpHistFill(trigShort, hMiss->GetName());
+      if (hMissML)
+      {
+        hMissML->Fill(tPt, xJt);
+        bumpHistFill(trigShort, hMissML->GetName());
+      }
 
       if (hMissB)
       { hMissB->Fill(tPt, xJt); bumpHistFill(trigShort, hMissB->GetName()); }
@@ -5381,6 +5791,12 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
 
       hFake->Fill(leadPtGamma, xJr);
       bumpHistFill(trigShort, hFake->GetName());
+      const double xJrML = xJRecoML(rj);
+      if (hFakeML && std::isfinite(xJrML))
+      {
+        hFakeML->Fill(leadPtGamma, xJrML);
+        bumpHistFill(trigShort, hFakeML->GetName());
+      }
 
       if (hFakeB)
       { hFakeB->Fill(leadPtGamma, xJr); bumpHistFill(trigShort, hFakeB->GetName()); }
@@ -5815,6 +6231,14 @@ bool RecoilJets::runLeadIsoTightPhotonJetLoopAllRadii(
 
           const double xJr     = jpt / leadPtGamma;
           const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(jphi - leadPhiGamma));
+          const bool haveJetML = m_jetMLCorrectionEnabled && initJetMLModelIfNeeded();
+          const double deltaML = haveJetML
+                               ? predictJetMLDeltaPt(rKey, Rjet,
+                                                     leadPtGamma, leadEtaGamma, leadPhiGamma,
+                                                     rj)
+                               : 0.0;
+          const double jptML = jpt + deltaML;
+          const bool fillJetML = haveJetML && std::isfinite(jptML) && jptML > 0.0;
 
           for (const auto& trigShort : activeTrig)
           {
@@ -5822,6 +6246,14 @@ bool RecoilJets::runLeadIsoTightPhotonJetLoopAllRadii(
             {
               h2->Fill(leadPtGamma, xJr);
               bumpHistFill(trigShort, h2->GetName());
+            }
+            if (fillJetML)
+            {
+              if (auto* h2 = getOrBookUnfoldRecoJetMLPtXJIncl(trigShort, rKey, effCentIdx_M))
+              {
+                h2->Fill(leadPtGamma, jptML / leadPtGamma);
+                bumpHistFill(trigShort, h2->GetName());
+              }
             }
 
             // inclusive |Δphi(γ,jet)| for each recoil jet passing cuts
@@ -6052,6 +6484,15 @@ void RecoilJets::runLeadIsoNonTightPhotonJetLoopAllRadii_SidebandC(
         if (!std::isfinite(jpt) || jpt <= 0.0) continue;
 
         const double xJr = jpt / leadPtGamma;
+        const double Rjet = jetRFromKey(rKey);
+        const bool haveJetML = m_jetMLCorrectionEnabled && initJetMLModelIfNeeded();
+        const double deltaML = haveJetML
+                             ? predictJetMLDeltaPt(rKey, Rjet,
+                                                   leadPtGamma, leadEtaGamma, leadPhiGamma,
+                                                   rj)
+                             : 0.0;
+        const double jptML = jpt + deltaML;
+        const bool fillJetML = haveJetML && std::isfinite(jptML) && jptML > 0.0;
 
         for (const auto& trigShort : activeTrig)
         {
@@ -6059,6 +6500,14 @@ void RecoilJets::runLeadIsoNonTightPhotonJetLoopAllRadii_SidebandC(
           {
             h2->Fill(leadPtGamma, xJr);
             bumpHistFill(trigShort, h2->GetName());
+          }
+          if (fillJetML)
+          {
+            if (auto* h2 = getOrBookUnfoldRecoJetMLPtXJInclSidebandC(trigShort, rKey, effCentIdx_M))
+            {
+              h2->Fill(leadPtGamma, jptML / leadPtGamma);
+              bumpHistFill(trigShort, h2->GetName());
+            }
           }
         }
       }
@@ -10408,7 +10857,7 @@ TH1F* RecoilJets::getOrBookXJHist(const std::string& trig,
          << "\" bins=" << nbins << " range=[" << xmin << "," << xmax
          << "] title=\"" << title << '"');
 
-  auto* h = new TH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
+  auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
   if (!h)
   {
     LOG(1, CLR_YELLOW, "  [getOrBookXJHist] new TH1F failed for \"" << name << '"');
@@ -10450,7 +10899,7 @@ TH1F* RecoilJets::getOrBookJet1PtHist(const std::string& trig,
   const double hi = 60.0;
 
   const std::string title = name + ";p_{T}^{jet1} [GeV];Entries";
-  auto* h = new TH1F(name.c_str(), title.c_str(), nb, lo, hi);
+  auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nb, lo, hi);
   H[name] = h;
 
   if (prevDir) prevDir->cd();
@@ -10485,7 +10934,7 @@ TH1F* RecoilJets::getOrBookJet2PtHist(const std::string& trig,
   const double hi = 60.0;
 
   const std::string title = name + ";p_{T}^{jet2} [GeV];Entries";
-  auto* h = new TH1F(name.c_str(), title.c_str(), nb, lo, hi);
+  auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nb, lo, hi);
   H[name] = h;
 
   if (prevDir) prevDir->cd();
@@ -10520,7 +10969,7 @@ TH1F* RecoilJets::getOrBookAlphaHist(const std::string& trig,
   const double hi = 2.0;
 
   const std::string title = name + ";#alpha=p_{T}^{jet2}/p_{T}^{#gamma};Entries";
-  auto* h = new TH1F(name.c_str(), title.c_str(), nb, lo, hi);
+  auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nb, lo, hi);
   H[name] = h;
 
   if (prevDir) prevDir->cd();
@@ -10572,7 +11021,7 @@ TH2F* RecoilJets::getOrBookUnfoldRecoPtXJIncl(const std::string& trig,
   const std::string title =
     name + ";p_{T}^{#gamma,reco} [GeV];x_{J#gamma}^{reco}=p_{T}^{jet,reco}/p_{T}^{#gamma,reco}";
 
-  auto* h = new TH2F(name.c_str(), title.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
                      nx, kPtReco.data(),
                      ny, kXJ.data());
   h->Sumw2();
@@ -10616,7 +11065,7 @@ TH2F* RecoilJets::getOrBookUnfoldRecoPtXJInclSidebandC(const std::string& trig,
   const std::string title =
     name + ";p_{T}^{#gamma,reco} [GeV];x_{J#gamma}^{reco}=p_{T}^{jet,reco}/p_{T}^{#gamma,reco}";
 
-  auto* h = new TH2F(name.c_str(), title.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
                      nx, kPtReco.data(),
                      ny, kXJ.data());
   h->Sumw2();
@@ -10660,7 +11109,7 @@ TH2F* RecoilJets::getOrBookUnfoldRecoPtDphiIncl(const std::string& trig,
     const std::string title =
       name + ";p_{T}^{#gamma,reco} [GeV];|#Delta#phi(#gamma,jet)| [rad]";
 
-    auto* h = new TH2F(name.c_str(), title.c_str(),
+    auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
                        nx, kPtReco.data(),
                        ny, 0.0, M_PI);
     h->Sumw2();
@@ -10704,7 +11153,7 @@ TH2F* RecoilJets::getOrBookUnfoldTruthPtDphiIncl(const std::string& trig,
     const std::string title =
       name + ";p_{T}^{#gamma,truth} [GeV];|#Delta#phi(#gamma^{truth},jet^{truth})| [rad]";
 
-    auto* h = new TH2F(name.c_str(), title.c_str(),
+    auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
                        nx, kPtTruth.data(),
                        ny, 0.0, M_PI);
     h->Sumw2();
@@ -10751,7 +11200,7 @@ TH2F* RecoilJets::getOrBookUnfoldTruthPtXJIncl(const std::string& trig,
   const std::string title =
     name + ";p_{T}^{#gamma,truth} [GeV];x_{J#gamma}^{truth}=p_{T}^{jet,truth}/p_{T}^{#gamma,truth}";
 
-  auto* h = new TH2F(name.c_str(), title.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
                      nx, kPtTruth.data(),
                      ny, kXJ.data());
   h->Sumw2();
@@ -10803,7 +11252,7 @@ TH2F* RecoilJets::getOrBookUnfoldResponsePtXJIncl(const std::string& trig,
   const std::string title =
     name + ";global bin (truth: p_{T}^{#gamma}, x_{J#gamma});global bin (reco: p_{T}^{#gamma}, x_{J#gamma})";
 
-  auto* h = new TH2F(name.c_str(), title.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
                      nGlobTruth, -0.5, static_cast<double>(nGlobTruth) - 0.5,
                      nGlobReco,  -0.5, static_cast<double>(nGlobReco)  - 0.5);
   h->Sumw2();
@@ -10847,7 +11296,7 @@ TH2F* RecoilJets::getOrBookUnfoldRecoCombinatoricPtXJIncl(const std::string& tri
   const std::string title =
     name + ";p_{T}^{#gamma,reco} [GeV];x_{J#gamma}^{reco} (COMBINATORIC)";
 
-  auto* h = new TH2F(name.c_str(), title.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
                      nx, kPtReco.data(),
                      ny, kXJ.data());
   h->Sumw2();
@@ -10891,7 +11340,7 @@ TH2F* RecoilJets::getOrBookUnfoldRecoFakesPtXJIncl(const std::string& trig,
   const std::string title =
     name + ";p_{T}^{#gamma,reco} [GeV];x_{J#gamma}^{reco} (FAKES)";
 
-  auto* h = new TH2F(name.c_str(), title.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
                      nx, kPtReco.data(),
                      ny, kXJ.data());
   h->Sumw2();
@@ -10935,11 +11384,239 @@ TH2F* RecoilJets::getOrBookUnfoldTruthMissesPtXJIncl(const std::string& trig,
   const std::string title =
     name + ";p_{T}^{#gamma,truth} [GeV];x_{J#gamma}^{truth} (MISSES)";
 
-  auto* h = new TH2F(name.c_str(), title.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
                      nx, kPtTruth.data(),
                      ny, kXJ.data());
   h->Sumw2();
 
+  H[name] = h;
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+TH2F* RecoilJets::getOrBookUnfoldRecoJetMLPtXJIncl(const std::string& trig,
+                                                   const std::string& rKey,
+                                                   int centIdx)
+{
+  const std::string base   = "h2_unfoldRecoJetML_pTgamma_xJ_incl";
+  const std::string suffix = suffixForBins(-1, centIdx);
+  const std::string name   = base + "_" + rKey + suffix;
+
+  if (trig.empty() || rKey.empty()) return nullptr;
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+    H.erase(it);
+  }
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+  dir->cd();
+
+  const std::vector<double>& kPtReco = m_unfoldRecoPhotonPtBins;
+  const std::vector<double>& kXJ = m_unfoldXJBins;
+  const int nx = static_cast<int>(kPtReco.size()) - 1;
+  const int ny = static_cast<int>(kXJ.size()) - 1;
+
+  const std::string title =
+    name + ";p_{T}^{#gamma,reco} [GeV];x_{J#gamma}^{reco,JetML}=p_{T}^{jet,ML}/p_{T}^{#gamma,reco}";
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(), nx, kPtReco.data(), ny, kXJ.data());
+  h->Sumw2();
+  H[name] = h;
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+TH2F* RecoilJets::getOrBookUnfoldRecoJetMLPtXJInclSidebandC(const std::string& trig,
+                                                            const std::string& rKey,
+                                                            int centIdx)
+{
+  const std::string base   = "h2_unfoldRecoJetML_pTgamma_xJ_incl_sidebandC";
+  const std::string suffix = suffixForBins(-1, centIdx);
+  const std::string name   = base + "_" + rKey + suffix;
+
+  if (trig.empty() || rKey.empty()) return nullptr;
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+    H.erase(it);
+  }
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+  dir->cd();
+
+  const std::vector<double>& kPtReco = m_unfoldRecoPhotonPtBins;
+  const std::vector<double>& kXJ = m_unfoldXJBins;
+  const int nx = static_cast<int>(kPtReco.size()) - 1;
+  const int ny = static_cast<int>(kXJ.size()) - 1;
+
+  const std::string title =
+    name + ";p_{T}^{#gamma,reco} [GeV];x_{J#gamma}^{reco,JetML}=p_{T}^{jet,ML}/p_{T}^{#gamma,reco}";
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(), nx, kPtReco.data(), ny, kXJ.data());
+  h->Sumw2();
+  H[name] = h;
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+TH2F* RecoilJets::getOrBookUnfoldResponseJetMLPtXJIncl(const std::string& trig,
+                                                       const std::string& rKey,
+                                                       int centIdx)
+{
+  const std::string base   = "h2_unfoldResponseJetML_pTgamma_xJ_incl";
+  const std::string suffix = suffixForBins(-1, centIdx);
+  const std::string name   = base + "_" + rKey + suffix;
+
+  if (trig.empty() || rKey.empty()) return nullptr;
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+    H.erase(it);
+  }
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+  dir->cd();
+
+  const std::vector<double>& kPtReco  = m_unfoldRecoPhotonPtBins;
+  const std::vector<double>& kPtTruth = m_unfoldTruthPhotonPtBins;
+  const std::vector<double>& kXJ      = m_unfoldXJBins;
+  const int nPtReco  = static_cast<int>(kPtReco.size()) - 1;
+  const int nPtTruth = static_cast<int>(kPtTruth.size()) - 1;
+  const int nXJ      = static_cast<int>(kXJ.size()) - 1;
+  const int nGlobTruth = (nPtTruth + 2) * (nXJ + 2);
+  const int nGlobReco  = (nPtReco  + 2) * (nXJ + 2);
+
+  const std::string title =
+    name + ";global bin (truth: p_{T}^{#gamma}, x_{J#gamma});global bin (reco JetML: p_{T}^{#gamma}, x_{J#gamma})";
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
+                     nGlobTruth, -0.5, static_cast<double>(nGlobTruth) - 0.5,
+                     nGlobReco,  -0.5, static_cast<double>(nGlobReco)  - 0.5);
+  h->Sumw2();
+  H[name] = h;
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+TH2F* RecoilJets::getOrBookUnfoldRecoCombinatoricJetMLPtXJIncl(const std::string& trig,
+                                                               const std::string& rKey,
+                                                               int centIdx)
+{
+  const std::string base   = "h2_unfoldRecoCombinatoricJetML_pTgamma_xJ_incl";
+  const std::string suffix = suffixForBins(-1, centIdx);
+  const std::string name   = base + "_" + rKey + suffix;
+
+  if (trig.empty() || rKey.empty()) return nullptr;
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+    H.erase(it);
+  }
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+  dir->cd();
+
+  const std::vector<double>& kPtReco = m_unfoldRecoPhotonPtBins;
+  const std::vector<double>& kXJ = m_unfoldXJBins;
+  const int nx = static_cast<int>(kPtReco.size()) - 1;
+  const int ny = static_cast<int>(kXJ.size()) - 1;
+
+  const std::string title =
+    name + ";p_{T}^{#gamma,reco} [GeV];x_{J#gamma}^{reco,JetML} (COMBINATORIC)";
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(), nx, kPtReco.data(), ny, kXJ.data());
+  h->Sumw2();
+  H[name] = h;
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+TH2F* RecoilJets::getOrBookUnfoldRecoFakesJetMLPtXJIncl(const std::string& trig,
+                                                        const std::string& rKey,
+                                                        int centIdx)
+{
+  const std::string base   = "h2_unfoldRecoFakesJetML_pTgamma_xJ_incl";
+  const std::string suffix = suffixForBins(-1, centIdx);
+  const std::string name   = base + "_" + rKey + suffix;
+
+  if (trig.empty() || rKey.empty()) return nullptr;
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+    H.erase(it);
+  }
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+  dir->cd();
+
+  const std::vector<double>& kPtReco = m_unfoldRecoPhotonPtBins;
+  const std::vector<double>& kXJ = m_unfoldXJBins;
+  const int nx = static_cast<int>(kPtReco.size()) - 1;
+  const int ny = static_cast<int>(kXJ.size()) - 1;
+
+  const std::string title =
+    name + ";p_{T}^{#gamma,reco} [GeV];x_{J#gamma}^{reco,JetML} (FAKES)";
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(), nx, kPtReco.data(), ny, kXJ.data());
+  h->Sumw2();
+  H[name] = h;
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+TH2F* RecoilJets::getOrBookUnfoldTruthMissesJetMLPtXJIncl(const std::string& trig,
+                                                          const std::string& rKey,
+                                                          int centIdx)
+{
+  const std::string base   = "h2_unfoldTruthMissesJetML_pTgamma_xJ_incl";
+  const std::string suffix = suffixForBins(-1, centIdx);
+  const std::string name   = base + "_" + rKey + suffix;
+
+  if (trig.empty() || rKey.empty()) return nullptr;
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+    H.erase(it);
+  }
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+  dir->cd();
+
+  const std::vector<double>& kPtTruth = m_unfoldTruthPhotonPtBins;
+  const std::vector<double>& kXJ = m_unfoldXJBins;
+  const int nx = static_cast<int>(kPtTruth.size()) - 1;
+  const int ny = static_cast<int>(kXJ.size()) - 1;
+
+  const std::string title =
+    name + ";p_{T}^{#gamma,truth} [GeV];x_{J#gamma}^{truth} (MISSES, JetML family)";
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(), nx, kPtTruth.data(), ny, kXJ.data());
+  h->Sumw2();
   H[name] = h;
   if (prevDir) prevDir->cd();
   return h;
@@ -10978,7 +11655,7 @@ TH1F* RecoilJets::getOrBookUnfoldRecoPhoPtGamma(const std::string& trig,
   const std::string title =
     name + ";p_{T}^{#gamma,reco} [GeV];N_{#gamma}^{reco}";
 
-  auto* h = new TH1F(name.c_str(), title.c_str(), nb, kPtReco.data());
+  auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nb, kPtReco.data());
   h->Sumw2();
 
   H[name] = h;
@@ -11016,7 +11693,7 @@ TH1F* RecoilJets::getOrBookUnfoldTruthPhoPtGamma(const std::string& trig,
   const std::string title =
     name + ";p_{T}^{#gamma,truth} [GeV];N_{#gamma}^{truth}";
 
-  auto* h = new TH1F(name.c_str(), title.c_str(), nb, kPtTruth.data());
+  auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nb, kPtTruth.data());
   h->Sumw2();
 
   H[name] = h;
@@ -11057,7 +11734,7 @@ TH2F* RecoilJets::getOrBookUnfoldResponsePhoPtGamma(const std::string& trig,
   const std::string title =
     name + ";p_{T}^{#gamma,truth} [GeV];p_{T}^{#gamma,reco} [GeV]";
 
-  auto* h = new TH2F(name.c_str(), title.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
                      nx, kPtTruth.data(),
                      ny, kPtReco.data());
   h->Sumw2();
@@ -11097,7 +11774,7 @@ TH1F* RecoilJets::getOrBookUnfoldRecoPhoFakesPtGamma(const std::string& trig,
   const std::string title =
     name + ";p_{T}^{#gamma,reco} [GeV];Reco fakes";
 
-  auto* h = new TH1F(name.c_str(), title.c_str(), nb, kPtReco.data());
+  auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nb, kPtReco.data());
   h->Sumw2();
 
   H[name] = h;
@@ -11135,7 +11812,7 @@ TH1F* RecoilJets::getOrBookUnfoldTruthPhoMissesPtGamma(const std::string& trig,
   const std::string title =
     name + ";p_{T}^{#gamma,truth} [GeV];Truth misses";
 
-  auto* h = new TH1F(name.c_str(), title.c_str(), nb, kPtTruth.data());
+  auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nb, kPtTruth.data());
   h->Sumw2();
 
   H[name] = h;
@@ -11180,7 +11857,7 @@ TH2F* RecoilJets::getOrBookUnfoldTruthMatchedPtXJIncl(const std::string& trig,
   const std::string title =
     name + ";p_{T}^{#gamma,truth} [GeV];x_{J#gamma}^{truth} (MATCHED)";
 
-  auto* h = new TH2F(name.c_str(), title.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
                      nx, kPtTruth.data(),
                      ny, kXJ.data());
   h->Sumw2();
@@ -11224,7 +11901,7 @@ TH2F* RecoilJets::getOrBookUnfoldRecoMatchedPtXJIncl(const std::string& trig,
   const std::string title =
     name + ";p_{T}^{#gamma,reco} [GeV];x_{J#gamma}^{reco} (MATCHED)";
 
-  auto* h = new TH2F(name.c_str(), title.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
                      nx, kPtReco.data(),
                      ny, kXJ.data());
   h->Sumw2();
@@ -11268,7 +11945,7 @@ TH2F* RecoilJets::getOrBookUnfoldJetEffDenPtXJIncl(const std::string& trig,
   const std::string title =
     name + ";p_{T}^{#gamma,truth} [GeV];x_{J#gamma}^{truth} (jet-eff DEN: truth recoil jets in unfolding phase space)";
 
-  auto* h = new TH2F(name.c_str(), title.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
                      nx, kPtTruth.data(),
                      ny, kXJ.data());
   h->Sumw2();
@@ -11312,7 +11989,7 @@ TH2F* RecoilJets::getOrBookUnfoldJetEffNumPtXJIncl(const std::string& trig,
   const std::string title =
     name + ";p_{T}^{#gamma,truth} [GeV];x_{J#gamma}^{truth} (jet-eff NUM: selected reco jet matched to truth recoil jet)";
 
-  auto* h = new TH2F(name.c_str(), title.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
                      nx, kPtTruth.data(),
                      ny, kXJ.data());
   h->Sumw2();
@@ -11356,7 +12033,7 @@ TH2F* RecoilJets::getOrBookUnfoldRecoFakesPtXJIncl_typeA(const std::string& trig
   const std::string title =
     name + ";p_{T}^{#gamma,reco} [GeV];x_{J#gamma}^{reco} (FAKES typeA)";
 
-  auto* h = new TH2F(name.c_str(), title.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
                      nx, kPtReco.data(),
                      ny, kXJ.data());
   h->Sumw2();
@@ -11400,7 +12077,7 @@ TH2F* RecoilJets::getOrBookUnfoldRecoFakesPtXJIncl_typeB(const std::string& trig
   const std::string title =
     name + ";p_{T}^{#gamma,reco} [GeV];x_{J#gamma}^{reco} (FAKES typeB)";
 
-  auto* h = new TH2F(name.c_str(), title.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
                      nx, kPtReco.data(),
                      ny, kXJ.data());
   h->Sumw2();
@@ -11444,7 +12121,7 @@ TH2F* RecoilJets::getOrBookUnfoldTruthMissesPtXJIncl_typeA(const std::string& tr
   const std::string title =
     name + ";p_{T}^{#gamma,truth} [GeV];x_{J#gamma}^{truth} (MISSES typeA)";
 
-  auto* h = new TH2F(name.c_str(), title.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
                      nx, kPtTruth.data(),
                      ny, kXJ.data());
   h->Sumw2();
@@ -11488,7 +12165,7 @@ TH2F* RecoilJets::getOrBookUnfoldTruthMissesPtXJIncl_typeB(const std::string& tr
   const std::string title =
     name + ";p_{T}^{#gamma,truth} [GeV];x_{J#gamma}^{truth} (MISSES typeB)";
 
-  auto* h = new TH2F(name.c_str(), title.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
                      nx, kPtTruth.data(),
                      ny, kXJ.data());
   h->Sumw2();
@@ -11523,7 +12200,7 @@ TH1F* RecoilJets::getOrBookUnfoldJetMatchDR(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  auto* h = new TH1F(name.c_str(),
+  auto* h = RJMCWeighting::RJNewTH1F(name.c_str(),
                        (name + ";#DeltaR(reco jet, truth jet);Counts").c_str(),
                        60, 0.0, m_jetMatchDRMax);
   h->Sumw2();
@@ -11570,7 +12247,7 @@ TH2F* RecoilJets::getOrBookUnfoldJetPtResponsePtTruth(const std::string& trig,
   }
 
   const int nb = static_cast<int>(pJetPt->size()) - 1;
-  h = new TH2F(name.c_str(),
+  h = RJMCWeighting::RJNewTH2F(name.c_str(),
                 (name + ";p_{T}^{jet,truth} [GeV];p_{T}^{jet,reco}/p_{T}^{jet,truth}").c_str(),
                 nb, pJetPt->data(),
                 120, 0.0, 2.0);
@@ -11618,7 +12295,7 @@ TH2F* RecoilJets::getOrBookUnfoldJetPtResponseAllPtTruth(const std::string& trig
   }
 
   const int nb = static_cast<int>(pJetPt->size()) - 1;
-  h = new TH2F(name.c_str(),
+  h = RJMCWeighting::RJNewTH2F(name.c_str(),
                 (name + ";p_{T}^{jet,truth} [GeV];p_{T}^{jet,reco}/p_{T}^{jet,truth} (all matched fid jets)").c_str(),
                 nb, pJetPt->data(),
                 120, 0.0, 2.0);
@@ -11662,7 +12339,7 @@ TH2F* RecoilJets::getOrBookLeadRecoilJetPtResponsePtTruth(const std::string& tri
   const std::vector<double>* pJetPt = &tmpJetPt;
 
   const int nb = static_cast<int>(pJetPt->size()) - 1;
-  h = new TH2F(name.c_str(),
+  h = RJMCWeighting::RJNewTH2F(name.c_str(),
                 (name + ";p_{T}^{jet,truth} [GeV];p_{T}^{jet,reco}/p_{T}^{jet,truth} (lead recoil jet1)").c_str(),
                 nb, pJetPt->data(),
                 120, 0.0, 2.0);
@@ -11706,7 +12383,7 @@ TH2F* RecoilJets::getOrBookLeadRecoilJetPtTruthPtReco(const std::string& trig,
   const std::vector<double>* pJetPt = &tmpJetPt;
 
   const int nb = static_cast<int>(pJetPt->size()) - 1;
-  h = new TH2F(name.c_str(),
+  h = RJMCWeighting::RJNewTH2F(name.c_str(),
                 (name + ";p_{T}^{jet,truth} [GeV];p_{T}^{jet,reco} [GeV] (lead recoil jet1)").c_str(),
                 nb, pJetPt->data(),
                 nb, pJetPt->data());
@@ -11742,7 +12419,7 @@ TH1F* RecoilJets::getOrBookLeadRecoilJetMatchDR(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  auto* h = new TH1F(name.c_str(),
+  auto* h = RJMCWeighting::RJNewTH1F(name.c_str(),
                        (name + ";#DeltaR(lead recoil jet1, matched truth jet);Counts").c_str(),
                        60, 0.0, m_jetMatchDRMax);
   h->Sumw2();
@@ -11791,7 +12468,7 @@ TH1F* RecoilJets::getOrBookLeadTruthRecoilMatchDenPtGammaTruth(const std::string
     const std::string title =
       name + ";p_{T}^{#gamma,truth} [GeV];Den (truth lead recoil jet1 exists)";
 
-    auto* h = new TH1F(name.c_str(), title.c_str(), nb, kPtTruth.data());
+    auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nb, kPtTruth.data());
     h->Sumw2();
 
     H[name] = h;
@@ -11830,7 +12507,7 @@ TH1F* RecoilJets::getOrBookLeadTruthRecoilMatchNumPtGammaTruth(const std::string
     const std::string title =
       name + ";p_{T}^{#gamma,truth} [GeV];Num (reco recoil jet1 matches truth jet1)";
 
-    auto* h = new TH1F(name.c_str(), title.c_str(), nb, kPtTruth.data());
+    auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nb, kPtTruth.data());
     h->Sumw2();
 
     H[name] = h;
@@ -11869,7 +12546,7 @@ TH1F* RecoilJets::getOrBookLeadTruthRecoilMatchMissA_PtGammaTruth(const std::str
     const std::string title =
       name + ";p_{T}^{#gamma,truth} [GeV];MissA (reco fid jet near truth jet1, but Num failed)";
 
-    auto* h = new TH1F(name.c_str(), title.c_str(), nb, kPtTruth.data());
+    auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nb, kPtTruth.data());
     h->Sumw2();
 
     H[name] = h;
@@ -11908,7 +12585,7 @@ TH1F* RecoilJets::getOrBookLeadTruthRecoilMatchMissA1_PtGammaTruth(const std::st
     const std::string title =
       name + ";p_{T}^{#gamma,truth} [GeV];MissA1 (truth-match passes recoil cuts; competitor/ordering)";
 
-    auto* h = new TH1F(name.c_str(), title.c_str(), nb, kPtTruth.data());
+    auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nb, kPtTruth.data());
     h->Sumw2();
 
     H[name] = h;
@@ -11947,7 +12624,7 @@ TH1F* RecoilJets::getOrBookLeadTruthRecoilMatchMissA2_PtGammaTruth(const std::st
     const std::string title =
       name + ";p_{T}^{#gamma,truth} [GeV];MissA2 (truth-match fails recoil cuts; gate-exclusion)";
 
-    auto* h = new TH1F(name.c_str(), title.c_str(), nb, kPtTruth.data());
+    auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nb, kPtTruth.data());
     h->Sumw2();
 
     H[name] = h;
@@ -11980,7 +12657,7 @@ TH1I* RecoilJets::getOrBookLeadTruthRecoilMatchMissA2_Cutflow(const std::string&
     if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
     dir->cd();
 
-    auto* h = new TH1I(name.c_str(),
+    auto* h = RJMCWeighting::RJNewTH1I(name.c_str(),
                        (name + ";cut stage;Counts (MissA2 only)").c_str(),
                        3, 0.5, 3.5);
     h->Sumw2();
@@ -12024,7 +12701,7 @@ TH1F* RecoilJets::getOrBookLeadTruthRecoilMatchMissB_PtGammaTruth(const std::str
     const std::string title =
       name + ";p_{T}^{#gamma,truth} [GeV];MissB (no reco fid jet within jet-match #DeltaR of truth jet1)";
 
-    auto* h = new TH1F(name.c_str(), title.c_str(), nb, kPtTruth.data());
+    auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nb, kPtTruth.data());
     h->Sumw2();
 
     H[name] = h;
@@ -12068,7 +12745,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_num(const
   const std::vector<double>* pJetPt = &tmpJetPt;
 
   const int nb = static_cast<int>(pJetPt->size()) - 1;
-  auto* h = new TH2F(name.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(),
                        (name + ";p_{T}^{lead recoil jet,truth} [GeV];p_{T}^{recoilJet1,reco} [GeV] (NUM)").c_str(),
                        nb, pJetPt->data(),
                        nb, pJetPt->data());
@@ -12110,7 +12787,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missA(con
   const std::vector<double>* pJetPt = &tmpJetPt;
 
   const int nb = static_cast<int>(pJetPt->size()) - 1;
-  auto* h = new TH2F(name.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(),
                        (name + ";p_{T}^{lead recoil jet,truth} [GeV];p_{T}^{recoilJet1,reco} [GeV] (MissA)").c_str(),
                        nb, pJetPt->data(),
                        nb, pJetPt->data());
@@ -12152,7 +12829,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missA1(co
   const std::vector<double>* pJetPt = &tmpJetPt;
 
   const int nb = static_cast<int>(pJetPt->size()) - 1;
-  auto* h = new TH2F(name.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(),
                        (name + ";p_{T}^{lead recoil jet,truth} [GeV];p_{T}^{recoilJet1,reco} [GeV] (MissA1)").c_str(),
                        nb, pJetPt->data(),
                        nb, pJetPt->data());
@@ -12194,7 +12871,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missA2(co
   const std::vector<double>* pJetPt = &tmpJetPt;
 
   const int nb = static_cast<int>(pJetPt->size()) - 1;
-  auto* h = new TH2F(name.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(),
                        (name + ";p_{T}^{lead recoil jet,truth} [GeV];p_{T}^{recoilJet1,reco} [GeV] (MissA2)").c_str(),
                        nb, pJetPt->data(),
                        nb, pJetPt->data());
@@ -12236,7 +12913,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtTruthLead_missB(con
   const std::vector<double>* pJetPt = &tmpJetPt;
 
   const int nb = static_cast<int>(pJetPt->size()) - 1;
-  auto* h = new TH2F(name.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(),
                        (name + ";p_{T}^{lead recoil jet,truth} [GeV];p_{T}^{recoilJet1,reco} [GeV] (MissB)").c_str(),
                        nb, pJetPt->data(),
                        nb, pJetPt->data());
@@ -12280,7 +12957,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_num(
   const std::vector<double>* pJetPt = &tmpJetPt;
 
   const int nb = static_cast<int>(pJetPt->size()) - 1;
-  auto* h = new TH2F(name.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(),
                        (name + ";p_{T}^{reco match to truth-lead} [GeV];p_{T}^{recoilJet1,reco} [GeV] (NUM)").c_str(),
                        nb, pJetPt->data(),
                        nb, pJetPt->data());
@@ -12322,7 +12999,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_miss
   const std::vector<double>* pJetPt = &tmpJetPt;
 
   const int nb = static_cast<int>(pJetPt->size()) - 1;
-  auto* h = new TH2F(name.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(),
                        (name + ";p_{T}^{reco match to truth-lead} [GeV];p_{T}^{recoilJet1,reco} [GeV] (MissA)").c_str(),
                        nb, pJetPt->data(),
                        nb, pJetPt->data());
@@ -12364,7 +13041,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_miss
   const std::vector<double>* pJetPt = &tmpJetPt;
 
   const int nb = static_cast<int>(pJetPt->size()) - 1;
-  auto* h = new TH2F(name.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(),
                        (name + ";p_{T}^{reco match to truth-lead} [GeV];p_{T}^{recoilJet1,reco} [GeV] (MissA1)").c_str(),
                        nb, pJetPt->data(),
                        nb, pJetPt->data());
@@ -12406,7 +13083,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchPtRecoJet1VsPtRecoTruthMatch_miss
   const std::vector<double>* pJetPt = &tmpJetPt;
 
   const int nb = static_cast<int>(pJetPt->size()) - 1;
-  auto* h = new TH2F(name.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(),
                        (name + ";p_{T}^{reco match to truth-lead} [GeV];p_{T}^{recoilJet1,reco} [GeV] (MissA2)").c_str(),
                        nb, pJetPt->data(),
                        nb, pJetPt->data());
@@ -12447,7 +13124,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchDphiRecoJet1VsPtGammaTruth_num(co
   const std::vector<double>& kPtTruth = m_gammaPtBins;
   const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
-  auto* h = new TH2F(name.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(),
                      (name + ";p_{T}^{#gamma,truth} [GeV];|#Delta#phi(#gamma^{truth}, recoilJet1^{reco})| [rad] (NUM)").c_str(),
                      nb, kPtTruth.data(),
                      64, 0.0, M_PI);
@@ -12486,7 +13163,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchDphiRecoJet1VsPtGammaTruth_missA(
     const std::vector<double>& kPtTruth = m_gammaPtBins;
   const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
-  auto* h = new TH2F(name.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(),
                      (name + ";p_{T}^{#gamma,truth} [GeV];|#Delta#phi(#gamma^{truth}, recoilJet1^{reco})| [rad] (MissA)").c_str(),
                      nb, kPtTruth.data(),
                      64, 0.0, M_PI);
@@ -12525,7 +13202,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchDphiRecoJet1VsPtGammaTruth_missB(
   const std::vector<double>& kPtTruth = m_gammaPtBins;
   const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
-  auto* h = new TH2F(name.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(),
                      (name + ";p_{T}^{#gamma,truth} [GeV];|#Delta#phi(#gamma^{truth}, recoilJet1^{reco})| [rad] (MissB)").c_str(),
                      nb, kPtTruth.data(),
                      64, 0.0, M_PI);
@@ -12566,7 +13243,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchDRRecoJet1VsPtGammaTruth_num(cons
   const std::vector<double>& kPtTruth = m_gammaPtBins;
   const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
-  auto* h = new TH2F(name.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(),
                      (name + ";p_{T}^{#gamma,truth} [GeV];#DeltaR(recoilJet1^{reco}, truth lead recoil) (NUM)").c_str(),
                      nb, kPtTruth.data(),
                      70, 0.0, 3.5);
@@ -12605,7 +13282,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchDRRecoJet1VsPtGammaTruth_missA(co
   const std::vector<double>& kPtTruth = m_gammaPtBins;
   const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
-  auto* h = new TH2F(name.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(),
                      (name + ";p_{T}^{#gamma,truth} [GeV];#DeltaR(recoilJet1^{reco}, truth lead recoil) (MissA)").c_str(),
                      nb, kPtTruth.data(),
                      70, 0.0, 3.5);
@@ -12644,7 +13321,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchDRRecoJet1VsPtGammaTruth_missB(co
   const std::vector<double>& kPtTruth = m_gammaPtBins;
   const int nb = static_cast<int>(kPtTruth.size()) - 1;
 
-  auto* h = new TH2F(name.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(),
                      (name + ";p_{T}^{#gamma,truth} [GeV];#DeltaR(recoilJet1^{reco}, truth lead recoil) (MissB)").c_str(),
                      nb, kPtTruth.data(),
                      70, 0.0, 3.5);
@@ -12682,7 +13359,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchXJRecoJet1VsDphiRecoJet1_num(cons
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  auto* h = new TH2F(name.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(),
                      (name + ";|#Delta#phi(#gamma^{truth}, recoilJet1^{reco})| [rad];x_{J}^{reco}=p_{T}^{recoilJet1}/p_{T}^{#gamma} (NUM)").c_str(),
                      64, 0.0, M_PI,
                      60, 0.0, 3.0);
@@ -12718,7 +13395,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchXJRecoJet1VsDphiRecoJet1_missA(co
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  auto* h = new TH2F(name.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(),
                      (name + ";|#Delta#phi(#gamma^{truth}, recoilJet1^{reco})| [rad];x_{J}^{reco}=p_{T}^{recoilJet1}/p_{T}^{#gamma} (MissA)").c_str(),
                      64, 0.0, M_PI,
                      60, 0.0, 3.0);
@@ -12754,7 +13431,7 @@ TH2F* RecoilJets::getOrBookLeadTruthRecoilMatchXJRecoJet1VsDphiRecoJet1_missB(co
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  auto* h = new TH2F(name.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(),
                      (name + ";|#Delta#phi(#gamma^{truth}, recoilJet1^{reco})| [rad];x_{J}^{reco}=p_{T}^{recoilJet1}/p_{T}^{#gamma} (MissB)").c_str(),
                      64, 0.0, M_PI,
                      60, 0.0, 3.0);
@@ -12815,7 +13492,7 @@ TH3F* RecoilJets::getOrBookJES3_xJ_alphaHist(const std::string& trig,
   for (int i = 0; i <= nz; ++i)
     zbins[i] = zlo + (zhi - zlo) * (static_cast<double>(i) / nz);
 
-  auto* h = new TH3F(name.c_str(), title.c_str(),
+  auto* h = RJMCWeighting::RJNewTH3F(name.c_str(), title.c_str(),
                      nx, xbins,
                      ny, ybins.data(),
                      nz, zbins.data());
@@ -12876,7 +13553,7 @@ TH3F* RecoilJets::getOrBookJES3_jet1Pt_alphaHist(const std::string& trig,
   for (int i = 0; i <= nz; ++i)
     zbins[i] = zlo + (zhi - zlo) * (static_cast<double>(i) / nz);
 
-  auto* h = new TH3F(name.c_str(), title.c_str(),
+  auto* h = RJMCWeighting::RJNewTH3F(name.c_str(), title.c_str(),
                      nx, xbins,
                      ny, ybins.data(),
                      nz, zbins.data());
@@ -12927,7 +13604,7 @@ TH2F* RecoilJets::getOrBookMatchDphiVsPtGamma(const std::string& trig,
   const std::string title =
     name + ";p_{T}^{#gamma} [GeV];|#Delta#phi(#gamma, recoil jet)| [rad]";
 
-  auto* h = new TH2F(name.c_str(), title.c_str(), nx, xbins, ny, ylo, yhi);
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(), nx, xbins, ny, ylo, yhi);
   H[name] = h;
 
   if (prevDir) prevDir->cd();
@@ -12970,7 +13647,7 @@ TH2F* RecoilJets::getOrBookMatchStatusVsPtGamma(const std::string& trig,
   const std::string title =
     name + ";p_{T}^{#gamma} [GeV];match status";
 
-  auto* h = new TH2F(name.c_str(), title.c_str(), nx, xbins, ny, ylo, yhi);
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(), nx, xbins, ny, ylo, yhi);
 
   h->GetYaxis()->SetBinLabel(1, "NoJetPt");
   h->GetYaxis()->SetBinLabel(2, "NoJetEta");
@@ -13019,7 +13696,7 @@ TH2F* RecoilJets::getOrBookJetCutflowStatusVsPtGamma(const std::string& trig,
   const std::string title =
     name + ";p_{T}^{#gamma} [GeV];jet cutflow status";
 
-  auto* h = new TH2F(name.c_str(), title.c_str(), nx, xbins, ny, ylo, yhi);
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(), nx, xbins, ny, ylo, yhi);
 
   h->GetYaxis()->SetBinLabel(1, "FailJetPt");
   h->GetYaxis()->SetBinLabel(2, "FailJetEta");
@@ -13068,7 +13745,7 @@ TH2F* RecoilJets::getOrBookMatchMaxDphiVsPtGamma(const std::string& trig,
   const std::string title =
     name + ";p_{T}^{#gamma} [GeV];max |#Delta#phi(#gamma, jet)| over jets passing p_{T}+|#eta| [rad]";
 
-  auto* h = new TH2F(name.c_str(), title.c_str(), nx, xbins, ny, ylo, yhi);
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(), nx, xbins, ny, ylo, yhi);
   H[name] = h;
 
   if (prevDir) prevDir->cd();
@@ -13107,7 +13784,7 @@ TProfile* RecoilJets::getOrBookNRecoilJetsVsPtGamma(const std::string& trig,
   const std::string title =
     name + ";p_{T}^{#gamma} [GeV];#LT N_{recoil jets} #GT (jets passing p_{T}+|#eta|+#Delta#phi cut)";
 
-  auto* p = new TProfile(name.c_str(), title.c_str(), nx, xbins, 0.0, 50.0);
+  auto* p = RJMCWeighting::RJNewTProfile(name.c_str(), title.c_str(), nx, xbins, 0.0, 50.0);
   H[name] = p;
 
   if (prevDir) prevDir->cd();
@@ -13150,7 +13827,7 @@ TH2F* RecoilJets::getOrBookRecoilIsLeadingVsPtGamma(const std::string& trig,
   const std::string title =
     name + ";p_{T}^{#gamma} [GeV];recoil jet is leading jet (p_{T}+|#eta| set)";
 
-  auto* h = new TH2F(name.c_str(), title.c_str(), nx, xbins, ny, ylo, yhi);
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(), nx, xbins, ny, ylo, yhi);
   h->GetYaxis()->SetBinLabel(1, "NotLeading");
   h->GetYaxis()->SetBinLabel(2, "Leading");
 
@@ -13211,7 +13888,7 @@ TH3F* RecoilJets::getOrBookPho3TightIso(const std::string& trig)
       zbins[i] = zlo + (zhi - zlo) * (static_cast<double>(i) / static_cast<double>(nz));
     }
 
-    auto* h = new TH3F(name.c_str(), title.c_str(),
+    auto* h = RJMCWeighting::RJNewTH3F(name.c_str(), title.c_str(),
                        nx, xbins,
                        ny, ybins.data(),
                        nz, zbins.data());
@@ -13270,7 +13947,7 @@ TH3F* RecoilJets::getOrBookJet13RecoilJet1(const std::string& trig,
       zbins[i] = zlo + (zhi - zlo) * (static_cast<double>(i) / static_cast<double>(nz));
     }
 
-    auto* h = new TH3F(name.c_str(), title.c_str(),
+    auto* h = RJMCWeighting::RJNewTH3F(name.c_str(), title.c_str(),
                        nx, xbins,
                        ny, ybins.data(),
                        nz, zbins.data());
@@ -13330,7 +14007,7 @@ TProfile3D* RecoilJets::getOrBookBalance3(const std::string& trig,
       zbins[i] = zlo + (zhi - zlo) * (static_cast<double>(i) / static_cast<double>(nz));
     }
 
-    auto* p = new TProfile3D(name.c_str(), title.c_str(),
+    auto* p = RJMCWeighting::RJNewTProfile3D(name.c_str(), title.c_str(),
                              nx, xbins,
                              ny, ybins.data(),
                              nz, zbins.data(),
@@ -13392,7 +14069,7 @@ TH3F* RecoilJets::getOrBookJES3Truth_xJ_alphaHist(const std::string& trig,
   const std::string title =
     name + ";p_{T}^{#gamma,truth} [GeV];x_{J}^{truth}=p_{T}^{jet1,truth}/p_{T}^{#gamma,truth};#alpha^{truth}=p_{T}^{jet2,truth}/p_{T}^{#gamma,truth}";
 
-  auto* h = new TH3F(name.c_str(), title.c_str(),
+  auto* h = RJMCWeighting::RJNewTH3F(name.c_str(), title.c_str(),
                      nx, xbins,
                      ny, ybins.data(),
                      nz, zbins.data());
@@ -13449,7 +14126,7 @@ TH3F* RecoilJets::getOrBookJES3TruthRecoCondNoJetMatch_xJ_alphaHist(const std::s
   const std::string title =
     name + ";p_{T}^{#gamma,truth} [GeV];x_{J}^{truth}=p_{T}^{jet1,truth}/p_{T}^{#gamma,truth};#alpha^{truth}=p_{T}^{jet2,truth}/p_{T}^{#gamma,truth}";
 
-  auto* h = new TH3F(name.c_str(), title.c_str(),
+  auto* h = RJMCWeighting::RJNewTH3F(name.c_str(), title.c_str(),
                      nx, xbins,
                      ny, ybins.data(),
                      nz, zbins.data());
@@ -13506,7 +14183,7 @@ TH3F* RecoilJets::getOrBookJES3RecoTruthPhoTagged_xJ_alphaHist(const std::string
   const std::string title =
     name + ";p_{T}^{#gamma,reco} [GeV];x_{J}^{reco}=p_{T}^{jet1}/p_{T}^{#gamma};#alpha^{reco}=p_{T}^{jet2}/p_{T}^{#gamma}";
 
-  auto* h = new TH3F(name.c_str(), title.c_str(),
+  auto* h = RJMCWeighting::RJNewTH3F(name.c_str(), title.c_str(),
                      nx, xbins,
                      ny, ybins.data(),
                      nz, zbins.data());
@@ -13563,7 +14240,7 @@ TH3F* RecoilJets::getOrBookJES3RecoTruthTagged_xJ_alphaHist(const std::string& t
   const std::string title =
     name + ";p_{T}^{#gamma,reco} [GeV];x_{J}^{reco}=p_{T}^{jet1}/p_{T}^{#gamma};#alpha^{reco}=p_{T}^{jet2}/p_{T}^{#gamma}";
 
-  auto* h = new TH3F(name.c_str(), title.c_str(),
+  auto* h = RJMCWeighting::RJNewTH3F(name.c_str(), title.c_str(),
                      nx, xbins,
                      ny, ybins.data(),
                      nz, zbins.data());
@@ -13623,7 +14300,7 @@ TH3F* RecoilJets::getOrBookJES3TruthPure_xJ_alphaHist(const std::string& trig,
   const std::string title =
     name + ";p_{T}^{#gamma,truth} [GeV];x_{J}^{truth}=p_{T}^{jet1,truth}/p_{T}^{#gamma,truth};#alpha^{truth}=p_{T}^{jet2,truth}/p_{T}^{#gamma,truth}";
 
-  auto* h = new TH3F(name.c_str(), title.c_str(),
+  auto* h = RJMCWeighting::RJNewTH3F(name.c_str(), title.c_str(),
                      nx, xbins,
                      ny, ybins.data(),
                      nz, zbins.data());
@@ -13679,7 +14356,7 @@ TH3F* RecoilJets::getOrBookJES3Truth_jet1Pt_alphaHist(const std::string& trig,
   const std::string title =
     name + ";p_{T}^{#gamma,truth} [GeV];p_{T}^{jet1,truth} [GeV];#alpha^{truth}=p_{T}^{jet2,truth}/p_{T}^{#gamma,truth}";
 
-  auto* h = new TH3F(name.c_str(), title.c_str(),
+  auto* h = RJMCWeighting::RJNewTH3F(name.c_str(), title.c_str(),
                      nx, xbins,
                      ny, ybins.data(),
                      nz, zbins.data());
@@ -13756,7 +14433,7 @@ TH1F* RecoilJets::getOrBookIsoHist(const std::string& trig, int etIdx, int centI
          << "\" bins=" << nbins << " range=[" << xmin << "," << xmax
          << "] title=\"" << title << '"');
 
-  auto* h = new TH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
+  auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
   if (!h)
   {
     LOG(1, CLR_YELLOW, "  [getOrBookIsoHist] new TH1F failed for \"" << name << '"');
@@ -13826,7 +14503,7 @@ TH1F* RecoilJets::getOrBookIsoPartHist(const std::string& trig,
   const std::string xlab  = (xAxisTitle.empty() ? "E_{T}^{iso} [GeV]" : xAxisTitle);
   const std::string title = name + ";" + xlab + ";Entries";
 
-  auto* h = new TH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
+  auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
   if (!h)
   {
     LOG(1, CLR_YELLOW, "  [getOrBookIsoPartHist] new TH1F failed for \"" << name << '"');
@@ -13870,7 +14547,7 @@ TH1F* RecoilJets::getOrBookPtGammaHist(const std::string& trig,
 
     const std::string title = name + ";p_{T}^{#gamma} [GeV];Entries";
 
-    auto* h = new TH1F(name.c_str(), title.c_str(), nb, m_gammaPtBins.data());
+    auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nb, m_gammaPtBins.data());
     h->Sumw2();
 
     H[name] = h;
@@ -13929,7 +14606,7 @@ TH1I* RecoilJets::getOrBookIsoDecisionHist(const std::string& trig, int ptIdx, i
 
   dir->cd();
 
-  auto* h = new TH1I(name.c_str(), (name + ";Isolation decision;Entries").c_str(), 2, 0.5, 2.5);
+  auto* h = RJMCWeighting::RJNewTH1I(name.c_str(), (name + ";Isolation decision;Entries").c_str(), 2, 0.5, 2.5);
   if (!h)
   {
     LOG(1, CLR_YELLOW, "  [getOrBookIsoDecisionHist] new TH1I failed for \"" << name << '"');
@@ -13995,7 +14672,7 @@ TH1I* RecoilJets::getOrBookNIsoTightPhoCandHist(const std::string& trig, int ptI
   dir->cd();
 
   // Integer multiplicity: 0..10
-  auto* h = new TH1I(name.c_str(),
+  auto* h = RJMCWeighting::RJNewTH1I(name.c_str(),
                      (name + ";N_{#gamma}^{iso+tight} candidates;Entries").c_str(),
                      11, -0.5, 10.5);
   if (!h)
@@ -14039,7 +14716,7 @@ TH1F* RecoilJets::getOrBookTruthIsoHist(const std::string& trig,
   dir->cd();
 
   const std::string title = name + ";E_{T}^{iso,truth} [GeV];Entries";
-  auto* h = new TH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
+  auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
   h->Sumw2();
   H[name] = h;
 
@@ -14068,7 +14745,7 @@ TH1I* RecoilJets::getOrBookTruthIsoDecisionHist(const std::string& trig,
   dir->cd();
 
   const std::string title = name + ";Truth isolation cut decision;Entries";
-  auto* h = new TH1I(name.c_str(), title.c_str(), 2, 0.5, 2.5);
+  auto* h = RJMCWeighting::RJNewTH1I(name.c_str(), title.c_str(), 2, 0.5, 2.5);
   h->GetXaxis()->SetBinLabel(1, "PASS");
   h->GetXaxis()->SetBinLabel(2, "FAIL");
   H[name] = h;
@@ -14110,7 +14787,7 @@ TH1I* RecoilJets::getOrBookSigABCDLeakageHist(const std::string& trig, int ptIdx
     const std::string title =
       name + ";Reco ABCD region for matched truth-signal photons;Entries";
 
-    auto* h = new TH1I(name.c_str(), title.c_str(), 4, 0.5, 4.5);
+    auto* h = RJMCWeighting::RJNewTH1I(name.c_str(), title.c_str(), 4, 0.5, 4.5);
     h->GetXaxis()->SetBinLabel(1, "A");
     h->GetXaxis()->SetBinLabel(2, "B");
     h->GetXaxis()->SetBinLabel(3, "C");
@@ -14162,7 +14839,7 @@ TH1I* RecoilJets::getOrBookJetQA1I(const std::string& trig,
   const std::string xlab  = (xAxisTitle.empty() ? base : xAxisTitle);
   const std::string title = name + ";" + xlab + ";Entries";
 
-  auto* h = new TH1I(name.c_str(), title.c_str(), nbins, xmin, xmax);
+  auto* h = RJMCWeighting::RJNewTH1I(name.c_str(), title.c_str(), nbins, xmin, xmax);
   H[name] = h;
 
   if (prevDir) prevDir->cd();
@@ -14202,7 +14879,7 @@ TH1F* RecoilJets::getOrBookJetQA1F(const std::string& trig,
   const std::string xlab  = (xAxisTitle.empty() ? base : xAxisTitle);
   const std::string title = name + ";" + xlab + ";Entries";
 
-  auto* h = new TH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
+  auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
   H[name] = h;
 
   if (prevDir) prevDir->cd();
@@ -14245,7 +14922,7 @@ TH2F* RecoilJets::getOrBookJetQA2F(const std::string& trig,
   const std::string ylab  = (yAxisTitle.empty() ? "y" : yAxisTitle);
   const std::string title = name + ";" + xlab + ";" + ylab;
 
-  auto* h = new TH2F(name.c_str(), title.c_str(),
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
                      nxbins, xmin, xmax,
                      nybins, ymin, ymax);
   H[name] = h;
@@ -14703,7 +15380,7 @@ TH1F* RecoilJets::getOrBookSSHist(const std::string& trig,
          << "\" bins=" << nb << " range=[" << lo << "," << hi
          << "] title=\"" << title << '"');
 
-  auto* h = new TH1F(name.c_str(), title.c_str(), nb, lo, hi);
+  auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nb, lo, hi);
   if (!h)
   {
     LOG(1, CLR_YELLOW, "  [getOrBookSSHist] new TH1F failed for \"" << name << '"');

@@ -1,3 +1,6 @@
+#include <cctype>
+#include <cstdlib>
+
 #if ARJ_HAVE_ROOUNFOLD
     inline string RooUnfoldTrimTitlePart(string s)
     {
@@ -9844,10 +9847,30 @@
                 }
             };
             
-            const string nameReco      = "h2_unfoldReco_pTgamma_xJ_incl_"           + rKey;
-            const string nameRecoC     = "h2_unfoldReco_pTgamma_xJ_incl_sidebandC_" + rKey;
+            string unfoldJetVariant = "area";
+            if (const char* envJetVariant = std::getenv("RJ_UNFOLD_JET_PT_INPUT_VARIANT"))
+            {
+                unfoldJetVariant = envJetVariant;
+            }
+            unfoldJetVariant.erase(0, unfoldJetVariant.find_first_not_of(" \t\r\n"));
+            const auto unfoldVariantLast = unfoldJetVariant.find_last_not_of(" \t\r\n");
+            if (unfoldVariantLast != string::npos) unfoldJetVariant.erase(unfoldVariantLast + 1);
+            std::transform(unfoldJetVariant.begin(), unfoldJetVariant.end(), unfoldJetVariant.begin(),
+                           [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+            const bool useJetMLInput = (unfoldJetVariant == "jetml" ||
+                                        unfoldJetVariant == "ml" ||
+                                        unfoldJetVariant == "residualml");
+
+            const string nameReco      = (useJetMLInput
+                                          ? "h2_unfoldRecoJetML_pTgamma_xJ_incl_"
+                                          : "h2_unfoldReco_pTgamma_xJ_incl_") + rKey;
+            const string nameRecoC     = (useJetMLInput
+                                          ? "h2_unfoldRecoJetML_pTgamma_xJ_incl_sidebandC_"
+                                          : "h2_unfoldReco_pTgamma_xJ_incl_sidebandC_") + rKey;
             const string nameTruth     = "h2_unfoldTruth_pTgamma_xJ_incl_"          + rKey;
-            const string nameRsp       = "h2_unfoldResponse_pTgamma_xJ_incl_"       + rKey;
+            const string nameRsp       = (useJetMLInput
+                                          ? "h2_unfoldResponseJetML_pTgamma_xJ_incl_"
+                                          : "h2_unfoldResponse_pTgamma_xJ_incl_") + rKey;
             const string nameJetEffDen = "h2_unfoldJetEffDen_pTgamma_xJ_incl_"      + rKey;
             const string nameJetEffNum = "h2_unfoldJetEffNum_pTgamma_xJ_incl_"      + rKey;
             
@@ -9974,7 +9997,9 @@
             // The combinatoric template lives in the SIM (embedded) file.
             if (gApplyCombinatoricSubtractionForUnfolding && isEmbeddedAuAu)
             {
-                const string nameComb = "h2_unfoldRecoCombinatoric_pTgamma_xJ_incl_" + rKey;
+                const string nameComb = (useJetMLInput
+                                         ? "h2_unfoldRecoCombinatoricJetML_pTgamma_xJ_incl_"
+                                         : "h2_unfoldRecoCombinatoric_pTgamma_xJ_incl_") + rKey;
                 TH2* h2Comb_in = GetObj<TH2>(dsSim, nameComb, true, true, false);
                 
                 if (h2Comb_in)
@@ -9982,8 +10007,64 @@
                     TH2* h2Comb = CloneTH2(h2Comb_in, TString::Format("h2Comb_%s", rKey.c_str()).Data());
                     EnsureSumw2(h2Comb);
                     
-                    DumpTH2Summary(TString::Format("SIM combinatoric template BEFORE subtraction (%s)", rKey.c_str()).Data(), h2Comb);
+                    DumpTH2Summary(TString::Format("SIM combinatoric template BEFORE photon-yield scaling (%s)", rKey.c_str()).Data(), h2Comb);
                     DumpTH2Summary(TString::Format("DATA reco BEFORE combinatoric subtraction (%s)", rKey.c_str()).Data(), h2RecoData);
+
+                    if (!hPhoRecoData || !hPhoRecoSim ||
+                        h2Comb->GetNbinsX() != hPhoRecoData->GetNbinsX() ||
+                        h2Comb->GetNbinsX() != hPhoRecoSim->GetNbinsX())
+                    {
+                        cout << ANSI_BOLD_YEL
+                        << "[WARN] Cannot photon-yield scale combinatoric template for " << rKey
+                        << " because photon reco inputs are missing or have incompatible pT binning. "
+                        << "Proceeding with the unscaled template.\n"
+                        << ANSI_RESET;
+                    }
+                    else
+                    {
+                        double rawCombIntegral = 0.0;
+                        double scaledCombIntegral = 0.0;
+
+                        for (int ix = 0; ix <= h2Comb->GetNbinsX() + 1; ++ix)
+                        {
+                            const double nPhoData = hPhoRecoData->GetBinContent(ix);
+                            const double nPhoSim  = hPhoRecoSim ->GetBinContent(ix);
+                            const double scale    = (nPhoSim > 0.0 ? nPhoData / nPhoSim : 0.0);
+
+                            double rawRow = 0.0;
+                            for (int iy = 0; iy <= h2Comb->GetNbinsY() + 1; ++iy)
+                            {
+                                rawRow += h2Comb->GetBinContent(ix, iy);
+                            }
+                            rawCombIntegral += rawRow;
+
+                            if (nPhoSim <= 0.0 && rawRow > 0.0)
+                            {
+                                cout << ANSI_BOLD_YEL
+                                << "[WARN] Combinatoric template row has yield but SIM photon yield is zero; "
+                                << "zeroing row. rKey=" << rKey
+                                << " ix=" << ix
+                                << " rawRow=" << rawRow << "\n"
+                                << ANSI_RESET;
+                            }
+
+                            for (int iy = 0; iy <= h2Comb->GetNbinsY() + 1; ++iy)
+                            {
+                                h2Comb->SetBinContent(ix, iy, h2Comb->GetBinContent(ix, iy) * scale);
+                                h2Comb->SetBinError  (ix, iy, h2Comb->GetBinError  (ix, iy) * scale);
+                            }
+
+                            scaledCombIntegral += rawRow * scale;
+                        }
+
+                        DumpTH2Summary(TString::Format("SIM combinatoric template AFTER photon-yield scaling (%s)", rKey.c_str()).Data(), h2Comb);
+                        cout << ANSI_BOLD_CYN
+                        << "[COMB SUB] Photon-yield scaled combinatoric template for " << rKey
+                        << "  rawIntegral=" << rawCombIntegral
+                        << "  scaledIntegral=" << scaledCombIntegral
+                        << "\n"
+                        << ANSI_RESET;
+                    }
                     
                     h2RecoData->Add(h2Comb, -1.0);
                     

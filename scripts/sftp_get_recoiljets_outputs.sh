@@ -9,6 +9,7 @@ usage() {
   cat <<'EOF'
 Usage:
   ./scripts/sftp_get_recoiljets_outputs.sh <dataset>
+  ./scripts/sftp_get_recoiljets_outputs.sh trainingLatest <tight|npb|jetResidual>
 
 Datasets:
   isAuAu                    -> InputFiles/auau25
@@ -23,6 +24,12 @@ Datasets:
 The script builds the expected final ROOT filenames from the current
 macros/analysis_config.yaml matrix, prints the local overwrite preview, then
 opens interactive sftp once to fetch those files. No password is stored.
+
+trainingLatest pulls the newest SDCC local smoke-test training output directory
+from:
+  /sphenix/u/patsfan753/scratch/thesisAnalysis/local_bdt_training_outputs
+and the matching model directory from:
+  /sphenix/u/patsfan753/scratch/thesisAnalysis/bdt_models
 EOF
 }
 
@@ -281,6 +288,137 @@ build_cfg_tags_from_yaml() {
   done | sort -u
 }
 
+training_prefix_for_task() {
+  case "$1" in
+    tight|trainTightBDT) echo "tight_" ;;
+    npb|trainNPB) echo "npb_" ;;
+    jetResidual|jetML|trainJetMLResidual) echo "jetResidual_" ;;
+    *)
+      echo "[ERROR] Unknown training task: $1" >&2
+      echo "[ERROR] Use one of: tight, npb, jetResidual" >&2
+      exit 2
+      ;;
+  esac
+}
+
+training_latest_remote_dir() {
+  local remote_parent="$1"
+  local prefix="$2"
+  local optional="${3:-false}"
+  local ls_batch ls_out latest
+  ls_batch="$(mktemp "${TMPDIR:-/tmp}/sftp_get_recoiljets_ls.XXXXXX")"
+  {
+    printf 'cd %s\n' "$remote_parent"
+    printf 'ls -1 %s*\n' "$prefix"
+  } > "$ls_batch"
+
+  set +e
+  ls_out="$(sftp \
+      -oBatchMode=no \
+      -oPreferredAuthentications=publickey,password,keyboard-interactive \
+      -b "$ls_batch" \
+      "$REMOTE_HOST" 2>&1)"
+  local status=$?
+  set -e
+  rm -f "$ls_batch"
+
+  if (( status != 0 )); then
+    if [[ "$optional" == "true" ]]; then
+      return 1
+    fi
+    echo "[ERROR] Could not list ${remote_parent}/${prefix}* on SDCC." >&2
+    echo "$ls_out" >&2
+    exit "$status"
+  fi
+
+  latest="$(printf "%s\n" "$ls_out" \
+    | awk -v p="$prefix" '
+        index($0,p)>0 {
+          n=split($0,a,"/");
+          v=a[n];
+          gsub(/^[[:space:]]+|[[:space:]]+$/,"",v);
+          if (v ~ "^" p) print v;
+        }' \
+    | sort \
+    | tail -n 1)"
+
+  if [[ -z "$latest" ]]; then
+    if [[ "$optional" == "true" ]]; then
+      return 1
+    fi
+    echo "[ERROR] No remote training directories found under ${remote_parent}/${prefix}*" >&2
+    exit 4
+  fi
+  printf "%s\n" "$latest"
+}
+
+download_training_latest() {
+  local task="$1"
+  local prefix train_parent model_parent latest_train latest_model local_dir batch
+  prefix="$(training_prefix_for_task "$task")"
+  train_parent="${REMOTE_BASE}/local_bdt_training_outputs"
+  model_parent="${REMOTE_BASE}/bdt_models"
+  latest_train="$(training_latest_remote_dir "$train_parent" "$prefix")"
+
+  latest_model=""
+  if latest_model="$(training_latest_remote_dir "$model_parent" "$prefix" true 2>/dev/null)"; then
+    :
+  else
+    latest_model=""
+  fi
+
+  local_dir="${LOCAL_BASE}/InputFiles/trainingSmoke/${prefix%_}"
+  mkdir -p "$local_dir"
+  batch="$(mktemp "${TMPDIR:-/tmp}/sftp_get_recoiljets_training.XXXXXX")"
+  cleanup_training() { rm -f "$batch"; }
+  trap cleanup_training EXIT
+
+  {
+    printf 'lcd %s\n' "$local_dir"
+    printf 'get -r %s/%s %s\n' "$train_parent" "$latest_train" "$latest_train"
+    if [[ -n "$latest_model" ]]; then
+      printf 'get -r %s/%s %s\n' "$model_parent" "$latest_model" "$latest_model"
+    fi
+  } > "$batch"
+
+  echo
+  echo "Remote host       : ${REMOTE_HOST}"
+  echo "Training remote   : ${train_parent}/${latest_train}"
+  if [[ -n "$latest_model" ]]; then
+    echo "Model remote      : ${model_parent}/${latest_model}"
+  else
+    echo "Model remote      : not found yet"
+  fi
+  echo "Local dir         : ${local_dir}"
+  echo
+  echo "This will overwrite matching local files/directories."
+  read -r -p "Continue? [y/N]: " confirm
+  case "$confirm" in
+    y|Y|yes|YES|Yes) ;;
+    *) echo "Aborted."; exit 0 ;;
+  esac
+
+  echo
+  echo "sftp batch commands:"
+  sed 's/^/  /' "$batch"
+  echo
+  echo "Opening interactive sftp to download selected training outputs."
+  if sftp \
+      -oBatchMode=no \
+      -oPreferredAuthentications=publickey,password,keyboard-interactive \
+      -b "$batch" \
+      "$REMOTE_HOST"; then
+    echo
+    echo "[OK] Training output download complete."
+    echo "Downloaded into: ${local_dir}"
+  else
+    status=$?
+    echo
+    echo "[ERROR] sftp download failed with exit code ${status}." >&2
+    exit "$status"
+  fi
+}
+
 dataset="${1:-}"
 case "$dataset" in
   -h|--help|help|"")
@@ -289,6 +427,11 @@ case "$dataset" in
     exit 2
     ;;
 esac
+
+if [[ "$dataset" == "trainingLatest" || "$dataset" == "trainingSmoke" ]]; then
+  download_training_latest "${2:-}"
+  exit 0
+fi
 
 remote_tag=""
 local_subdir=""
@@ -421,10 +564,10 @@ echo "sftp batch commands:"
 sed 's/^/  /' "$get_batch"
 echo
 echo "Opening interactive sftp to download selected files."
-echo "Enter your SDCC password/passphrase if prompted."
+echo "Public-key auth is tried first; no password is needed if your SDCC key is installed."
 if sftp \
     -oBatchMode=no \
-    -oPreferredAuthentications=password,keyboard-interactive,publickey \
+    -oPreferredAuthentications=publickey,password,keyboard-interactive \
     -b "$get_batch" \
     "$REMOTE_HOST"; then
   echo

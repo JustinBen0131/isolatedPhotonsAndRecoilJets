@@ -15,6 +15,8 @@ LOCAL_FILES=(
   "scripts/RecoilJets_Condor_AuAu.sh"
   "scripts/RecoilJets_Condor_submit.sh"
   "scripts/RecoilJets_Condor.sh"
+  "scripts/train_auau_jet_residual_bdt.py"
+  "scripts/train_auau_photon_bdt.py"
   "macros/analysis_config.yaml"
   "macros/Fun4All_recoilJets.C"
   "macros/Fun4All_recoilJets_AuAu.C"
@@ -36,6 +38,8 @@ REMOTE_FILES=(
   "RecoilJets_Condor_AuAu.sh"
   "RecoilJets_Condor_submit.sh"
   "RecoilJets_Condor.sh"
+  "scripts/train_auau_jet_residual_bdt.py"
+  "scripts/train_auau_photon_bdt.py"
   "macros/analysis_config.yaml"
   "macros/Fun4All_recoilJets.C"
   "macros/Fun4All_recoilJets_AuAu.C"
@@ -68,6 +72,8 @@ GROUP_SCRIPTS=(
   "scripts/makeThesisSimLists.sh"
   "scripts/mergeRecoilJets.sh"
   "scripts/root_in_analysis_env.sh"
+  "scripts/train_auau_jet_residual_bdt.py"
+  "scripts/train_auau_photon_bdt.py"
 )
 
 usage() {

@@ -543,7 +543,9 @@ inline string OutputSimEmbedded()
     return kOutputBase + "/auau/embeddedPhoton20/" + CfgTagWithUE();
 }
 
-// Merged SIM ROOT file path (lives inside the combinedSimOnly output dir)
+// Merged SIM ROOT file paths.
+// Plot/QA products belong under dataOutput; merged ROOT samples are analysis
+// inputs, so keep them under InputFiles where they can be inspected/reused.
 inline string MergedSimPath(const string& comboLabel, const string& mergedFilename)
 {
     // e.g. MergedSimPath("photonJet10and20merged_SIM", "RecoilJets_photonjet10plus20_MERGED.root")
@@ -555,11 +557,11 @@ inline string MergedSimPath(const string& cfgTag, const string& comboLabel, cons
 }
 inline string MergedSimEmbeddedPath(const string& comboLabel, const string& mergedFilename)
 {
-    return OutputCombinedSimOnlyEMBEDDED(comboLabel) + "/" + mergedFilename;
+    return kInputBase + "/simEmbedded/merged/" + CfgTagWithUE() + "/" + comboLabel + "/" + mergedFilename;
 }
 inline string MergedSimEmbeddedPath(const string& cfgTag, const string& comboLabel, const string& mergedFilename)
 {
-    return OutputCombinedSimOnlyEMBEDDED(cfgTag, comboLabel) + "/" + mergedFilename;
+    return kInputBase + "/simEmbedded/merged/" + cfgTag + "/" + comboLabel + "/" + mergedFilename;
 }
 
 // =============================================================================

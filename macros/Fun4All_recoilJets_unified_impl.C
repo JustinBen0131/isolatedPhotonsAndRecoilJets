@@ -362,6 +362,13 @@ namespace yamlcfg
         bool auau_bdt_training_tree = false;
         long long auau_bdt_training_tree_max_entries = 0;
 
+        bool jet_ml_training_tree = false;
+        long long jet_ml_training_tree_max_entries = 0;
+        bool jet_ml_correction_enabled = false;
+        bool jet_ml_use_as_nominal = false;
+        std::string jet_ml_model_file = "";
+        std::vector<std::string> jet_ml_features;
+
         bool doPi0Analysis = false;
     };
 
@@ -924,6 +931,42 @@ namespace yamlcfg
                 double val = 0.0;
                 if (ParseDouble(rhs, val)) cfg.auau_bdt_training_tree_max_entries = static_cast<long long>(val);
                 else warn_parse("auau_bdt_training_tree_max_entries", rhs, "expected an integer");
+            }
+            else if (StartsWithKey(line, "jet_ml_training_tree"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseBool(rhs, cfg.jet_ml_training_tree))
+                    warn_parse("jet_ml_training_tree", rhs, "expected true/false");
+            }
+            else if (StartsWithKey(line, "jet_ml_training_tree_max_entries"))
+            {
+                const std::string rhs = AfterColon(line);
+                double val = 0.0;
+                if (ParseDouble(rhs, val)) cfg.jet_ml_training_tree_max_entries = static_cast<long long>(val);
+                else warn_parse("jet_ml_training_tree_max_entries", rhs, "expected an integer");
+            }
+            else if (StartsWithKey(line, "jet_ml_correction_enabled"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseBool(rhs, cfg.jet_ml_correction_enabled))
+                    warn_parse("jet_ml_correction_enabled", rhs, "expected true/false");
+            }
+            else if (StartsWithKey(line, "jet_ml_use_as_nominal"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseBool(rhs, cfg.jet_ml_use_as_nominal))
+                    warn_parse("jet_ml_use_as_nominal", rhs, "expected true/false");
+            }
+            else if (StartsWithKey(line, "jet_ml_model_file"))
+            {
+                cfg.jet_ml_model_file = detail::trim(AfterColon(line));
+            }
+            else if (StartsWithKey(line, "jet_ml_features"))
+            {
+                const std::string rhs = AfterColon(line);
+                ParseInlineListStrings(rhs, cfg.jet_ml_features);
+                if (cfg.jet_ml_features.empty())
+                    warn_parse("jet_ml_features", rhs, "expected an inline list of feature names");
             }
             else if (StartsWithKey(line, "doPi0Analysis"))
             {
@@ -3509,6 +3552,16 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         os << std::setprecision(17) << x;
         return os.str();
     };
+    auto joinStrings = [](const std::vector<std::string>& vals) -> std::string
+    {
+        std::ostringstream os;
+        for (std::size_t i = 0; i < vals.size(); ++i)
+        {
+            if (i) os << ',';
+            os << vals[i];
+        }
+        return os.str();
+    };
     
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PRESELECTION_VARIANT",
                                                "RJ_PRESELECTION_VARIANT",
@@ -3567,6 +3620,24 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_BDT_TRAINING_TREE_MAX_ENTRIES",
                                                "RJ_AUAU_BDT_TRAINING_TREE_MAX_ENTRIES",
                                                std::to_string(cfg.auau_bdt_training_tree_max_entries)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_JET_ML_TRAINING_TREE",
+                                               "RJ_JET_ML_TRAINING_TREE",
+                                               cfg.jet_ml_training_tree ? "true" : "false"));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_JET_ML_TRAINING_TREE_MAX_ENTRIES",
+                                               "RJ_JET_ML_TRAINING_TREE_MAX_ENTRIES",
+                                               std::to_string(cfg.jet_ml_training_tree_max_entries)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_JET_ML_CORRECTION_ENABLED",
+                                               "RJ_JET_ML_CORRECTION_ENABLED",
+                                               cfg.jet_ml_correction_enabled ? "true" : "false"));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_JET_ML_MODEL_FILE",
+                                               "RJ_JET_ML_MODEL_FILE",
+                                               cfg.jet_ml_model_file));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_JET_ML_FEATURES",
+                                               "RJ_JET_ML_FEATURES",
+                                               joinStrings(cfg.jet_ml_features)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_JET_ML_USE_AS_NOMINAL",
+                                               "RJ_JET_ML_USE_AS_NOMINAL",
+                                               cfg.jet_ml_use_as_nominal ? "true" : "false"));
     
     // ------------------------------------------------------------------
     // Apply YAML-driven knobs

@@ -1,0 +1,327 @@
+#!/usr/bin/env python3
+"""Summarize available local RecoilJets input variants by dataset."""
+
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+from collections import defaultdict
+from dataclasses import dataclass
+from pathlib import Path
+
+
+LOCAL_BASE = Path("/Users/patsfan753/Desktop/ThesisAnalysis")
+
+
+@dataclass(frozen=True)
+class Dataset:
+    label: str
+    local_subdir: str
+    aliases: tuple[str, ...]
+    expected_samples: tuple[str, ...]
+    sim_coverage: bool
+
+
+DATASETS: tuple[Dataset, ...] = (
+    Dataset("isAuAu", "InputFiles/auau25", ("isauau", "auau", "aauu"), ("auau",), False),
+    Dataset("isPP", "InputFiles/pp24", ("ispp", "pp"), ("pp",), False),
+    Dataset("isPPrun25", "InputFiles/pp25", ("ispprun25", "pprun25", "pp25"), ("pp25",), False),
+    Dataset("isSim", "InputFiles/simPhotonJet", ("issim", "sim"), ("photonjet5", "photonjet10", "photonjet20"), True),
+    Dataset("isSimJet5", "InputFiles/InclusiveJetSIM", ("issimjet5", "simjet5"), ("jet5",), True),
+    Dataset("isSimInclusive", "InputFiles/InclusiveJetSIM", ("issiminclusive", "siminclusive"), ("jet5", "jet10", "jet20"), True),
+    Dataset("isSimMB", "InputFiles/MinBiasSIM_DETROITtune", ("issimmb", "simmb"), ("detroit",), True),
+    Dataset(
+        "isSimEmbedded",
+        "InputFiles/simEmbedded",
+        ("issimembedded", "simembedded"),
+        ("embeddedPhoton12", "embeddedPhoton20"),
+        True,
+    ),
+    Dataset(
+        "isSimEmbeddedInclusive",
+        "InputFiles/InclusiveJetSIM_EMBEDDED",
+        ("issimembeddedinclusive", "simembeddedinclusive"),
+        ("embeddedJet10", "embeddedJet20"),
+        True,
+    ),
+)
+
+
+DATASET_BY_ALIAS = {
+    alias: dataset
+    for dataset in DATASETS
+    for alias in (dataset.label.lower(), *dataset.aliases)
+}
+
+
+FILENAME_RE = re.compile(r"^RecoilJets_(?P<sample>.+)_ALL_(?P<cfg>.+)\.root$")
+CFG_RE = re.compile(
+    r"^jetMinPt(?P<jet_min_pt>[^_]+)_"
+    r"(?P<back_to_back>7pi_8|pi_2|piFrac[^_]+)_"
+    r"(?P<vz>vz[^_]+)_"
+    r"(?P<cone>isoR[^_]+)_"
+    r"(?P<isolation>isSliding|fixedIso[^_]+)"
+    r"(?P<rest>(?:_.+)?)$"
+)
+
+CLUSTER_UE_VALUES = {"noSub", "baseVariant", "variantA", "variantB"}
+FIELD_LABELS = {
+    "jet_min_pt": "jet pT min",
+    "back_to_back": "back-to-back cut",
+    "vz": "vertex cut",
+    "cone": "isolation cone",
+    "isolation": "isolation mode",
+    "cluster_ue": "cluster UE pipeline",
+    "preselection": "preselection",
+    "tight": "tight ID",
+    "non_tight": "non-tight ID",
+}
+BASE_FIELDS = ("jet_min_pt", "back_to_back", "vz", "cone")
+VARIANT_FIELDS = ("isolation", "cluster_ue", "preselection", "tight", "non_tight")
+
+
+@dataclass(frozen=True)
+class Entry:
+    sample: str
+    cfg: str
+    file: Path
+    fields: dict[str, str]
+
+
+def normalize_dataset(token: str) -> Dataset:
+    key = token.strip().lower()
+    if key in DATASET_BY_ALIAS:
+        return DATASET_BY_ALIAS[key]
+    known = ", ".join(dataset.label for dataset in DATASETS)
+    raise SystemExit(f"[ERROR] Unknown dataset '{token}'. Known datasets: {known}")
+
+
+def parse_cfg(cfg: str) -> dict[str, str]:
+    match = CFG_RE.match(cfg)
+    if not match:
+        return {"unparsed_cfg": cfg}
+
+    fields = match.groupdict()
+    rest = fields.pop("rest") or ""
+    tokens = [token for token in rest.split("_") if token]
+
+    if tokens and tokens[0] in CLUSTER_UE_VALUES:
+        fields["cluster_ue"] = tokens.pop(0)
+
+    for token in tokens:
+        if token.startswith("preselection"):
+            fields["preselection"] = token
+        elif token.startswith("tight"):
+            fields["tight"] = token
+        elif token.startswith("nonTight"):
+            fields["non_tight"] = token
+        else:
+            fields.setdefault("other", token)
+
+    return fields
+
+
+def read_entries(dataset: Dataset) -> list[Entry]:
+    directory = LOCAL_BASE / dataset.local_subdir
+    if not directory.is_dir():
+        raise SystemExit(f"[ERROR] Input directory does not exist: {directory}")
+
+    entries: list[Entry] = []
+    for path in sorted(directory.glob("RecoilJets_*_ALL_*.root")):
+        match = FILENAME_RE.match(path.name)
+        if not match:
+            continue
+        sample = match.group("sample")
+        cfg = match.group("cfg")
+        entries.append(Entry(sample=sample, cfg=cfg, file=path, fields=parse_cfg(cfg)))
+    return entries
+
+
+def sorted_values(values: set[str]) -> list[str]:
+    return sorted(values, key=lambda x: (x.lower(), x))
+
+
+def fmt_values(values: set[str] | list[str] | tuple[str, ...]) -> str:
+    vals = list(values)
+    if not vals:
+        return "none"
+    return ", ".join(vals)
+
+
+def phrase_samples(samples: tuple[str, ...]) -> str:
+    if len(samples) == 1:
+        return samples[0]
+    if len(samples) == 2:
+        return f"both {samples[0]} and {samples[1]}"
+    return ", ".join(samples[:-1]) + f", and {samples[-1]}"
+
+
+def values_by_field(entries: list[Entry], fields: tuple[str, ...]) -> dict[str, set[str]]:
+    out: dict[str, set[str]] = {}
+    for field in fields:
+        vals = {entry.fields[field] for entry in entries if field in entry.fields}
+        if vals:
+            out[field] = vals
+    return out
+
+
+def cfg_coverage(entries: list[Entry]) -> dict[str, set[str]]:
+    coverage: dict[str, set[str]] = defaultdict(set)
+    for entry in entries:
+        coverage[entry.cfg].add(entry.sample)
+    return dict(coverage)
+
+
+def group_key(entry: Entry) -> tuple[str, ...]:
+    return tuple(entry.fields.get(field, "(missing)") for field in BASE_FIELDS)
+
+
+def print_header(dataset: Dataset, entries: list[Entry]) -> None:
+    directory = LOCAL_BASE / dataset.local_subdir
+    samples_found = sorted_values({entry.sample for entry in entries})
+    cfgs_found = sorted_values({entry.cfg for entry in entries})
+
+    print()
+    print("Available RecoilJets Input Variants")
+    print("=" * 38)
+    print(f"Dataset   : {dataset.label}")
+    print(f"Directory : {directory}")
+    print(f"Files     : {len(entries)} ROOT file(s)")
+    print(f"Samples   : {fmt_values(samples_found)}")
+    print(f"Cfg tags  : {len(cfgs_found)} unique")
+
+
+def print_common_and_varying(entries: list[Entry]) -> None:
+    print()
+    print("Common Cuts Across All Files")
+    print("-" * 29)
+
+    all_fields = BASE_FIELDS + VARIANT_FIELDS
+    values = values_by_field(entries, all_fields)
+    common = {field: vals for field, vals in values.items() if len(vals) == 1}
+    varying = {field: vals for field, vals in values.items() if len(vals) > 1}
+
+    if not common:
+        print("  No parsed cut field is constant across every file.")
+    else:
+        for field in all_fields:
+            if field in common:
+                print(f"  {FIELD_LABELS[field]:20s}: {next(iter(common[field]))}")
+
+    print()
+    print("Available Variant Axes")
+    print("-" * 22)
+    if not varying:
+        print("  No parsed variant axis changes across the files found.")
+    else:
+        for field in all_fields:
+            if field in varying:
+                print(f"  {FIELD_LABELS[field]:20s}: {fmt_values(sorted_values(varying[field]))}")
+
+
+def print_sim_coverage(dataset: Dataset, entries: list[Entry]) -> None:
+    if not dataset.sim_coverage:
+        return
+
+    expected = set(dataset.expected_samples)
+    coverage = cfg_coverage(entries)
+    complete = []
+    incomplete = []
+    extra_samples = sorted_values({entry.sample for entry in entries if entry.sample not in expected})
+
+    for cfg in sorted_values(set(coverage)):
+        present = coverage[cfg]
+        missing = sorted_values(expected - present)
+        if missing:
+            incomplete.append((cfg, missing, sorted_values(present)))
+        else:
+            complete.append(cfg)
+
+    print()
+    print("Sample Coverage")
+    print("-" * 15)
+    print(f"  Expected samples: {fmt_values(dataset.expected_samples)}")
+    if complete:
+        print(f"  Complete cfg tags: {len(complete)} for {phrase_samples(dataset.expected_samples)}")
+    else:
+        print("  Complete cfg tags: 0")
+
+    if incomplete:
+        print(f"  Incomplete cfg tags: {len(incomplete)}")
+        for cfg, missing, present in incomplete:
+            print(f"    - {cfg}")
+            print(f"      present: {fmt_values(present)}")
+            print(f"      missing: {fmt_values(missing)}")
+    else:
+        print("  Incomplete cfg tags: none")
+
+    if extra_samples:
+        print(f"  Extra samples not expected for this dataset: {fmt_values(extra_samples)}")
+
+
+def print_groups(entries: list[Entry]) -> None:
+    groups: dict[tuple[str, ...], list[Entry]] = defaultdict(list)
+    for entry in entries:
+        groups[group_key(entry)].append(entry)
+
+    print()
+    print("Variant Groups By Base Cuts")
+    print("-" * 27)
+
+    for idx, key in enumerate(sorted(groups), start=1):
+        group_entries = groups[key]
+        base_summary = ", ".join(
+            f"{FIELD_LABELS[field]}={value}" for field, value in zip(BASE_FIELDS, key)
+        )
+        print(f"{idx}. {base_summary}")
+
+        group_values = values_by_field(group_entries, VARIANT_FIELDS)
+        constants = {field: vals for field, vals in group_values.items() if len(vals) == 1}
+        variants = {field: vals for field, vals in group_values.items() if len(vals) > 1}
+
+        if constants:
+            print("   constant within this group:")
+            for field in VARIANT_FIELDS:
+                if field in constants:
+                    print(f"     {FIELD_LABELS[field]:18s}: {next(iter(constants[field]))}")
+
+        if variants:
+            print("   variants available:")
+            for field in VARIANT_FIELDS:
+                if field in variants:
+                    print(f"     {FIELD_LABELS[field]:18s}: {fmt_values(sorted_values(variants[field]))}")
+
+        cfgs = sorted_values({entry.cfg for entry in group_entries})
+        print(f"   cfg tags: {len(cfgs)}")
+        for cfg in cfgs:
+            print(f"     - {cfg}")
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="checkAvailableVariant",
+        description="Summarize local RecoilJets input variants for a dataset.",
+    )
+    parser.add_argument("dataset", help="Dataset token, e.g. isSimEmbedded, isAuAu, isSim")
+    args = parser.parse_args(argv)
+
+    dataset = normalize_dataset(args.dataset)
+    entries = read_entries(dataset)
+
+    if not entries:
+        directory = LOCAL_BASE / dataset.local_subdir
+        print(f"No local RecoilJets ROOT files found for {dataset.label}.")
+        print(f"Checked: {directory}")
+        return 1
+
+    print_header(dataset, entries)
+    print_common_and_varying(entries)
+    print_sim_coverage(dataset, entries)
+    print_groups(entries)
+    print()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

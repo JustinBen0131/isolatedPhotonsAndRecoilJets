@@ -370,6 +370,13 @@ namespace
     return RecoilJets::TightTag::kNonTight;
   }
 
+  inline bool preselectionUsesNPB(const std::string& preselectionVariant)
+  {
+    return preselectionVariant == "variantA" ||
+           preselectionVariant == "variantC" ||
+           preselectionVariant == "variantD";
+  }
+
   struct DoNotScalePairConfig
   {
     uint64_t runMin;
@@ -1197,7 +1204,7 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
       m_clus_nocorr = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC_NOCORR");
     }
 
-    if (m_preselectionVariant == "variantA")
+    if (preselectionUsesNPB(m_preselectionVariant))
     {
       if (m_preselectionPhotonNode == "PHOTONCLUSTER_CEMC") m_photons_npb = m_photons;
       else m_photons_npb = findNode::getClass<RawClusterContainer>(top, m_preselectionPhotonNode.c_str());
@@ -1241,10 +1248,11 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
           "PhotonClusterBuilder likely did not run or node name mismatch.");
       return false;
     }
-    if (m_preselectionVariant == "variantA" && !m_photons_npb)
+    if (preselectionUsesNPB(m_preselectionVariant) && !m_photons_npb)
     {
       LOG(0, CLR_YELLOW,
-          "    [fetchNodes] " << m_preselectionPhotonNode << " is MISSING while preselection=variantA.");
+          "    [fetchNodes] " << m_preselectionPhotonNode << " is MISSING while preselection="
+          << m_preselectionVariant << ".");
       return false;
     }
     if (m_tightVariant == "variantA" && !m_photons_tightbdt)
@@ -2636,7 +2644,6 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
       std::array<bool, 5> diagPass{};
       std::array<double, 5> diagPt{};
       diagPt.fill(-1.0);
-      bool passAnyDiag = false;
 
       for (std::size_t iv = 0; iv < kPPStitchDiagVariants.size(); ++iv)
       {
@@ -2652,7 +2659,6 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
 
         m_ppStitchDiagPhotonPt[iv] = diagPt[iv];
         m_ppStitchDiagKeep[iv] = diagPass[iv];
-        passAnyDiag = passAnyDiag || diagPass[iv];
 
         const std::string prefix = "h_ppPhotonStitch_" + key;
         if (auto* hAll = bookStitch1F(prefix + "_maxPhotonPt_all",
@@ -2779,21 +2785,24 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
       fillCompare2D(PPStitchDiagVariant::kHepMCAnyPhoton);
       fillCompare2D(PPStitchDiagVariant::kG4NoEmbed);
 
-      if (!passAnyDiag)
+      // Production pp PhotonJet stitching uses one event-ownership decision:
+      // the stored G4 truth photon pT in the PPG12 sample window. Alternate
+      // HepMC/G4-no-embed variants above are QA only and must not keep events.
+      if (!passStitch)
       {
         LOG(5, CLR_YELLOW,
-            "    [pp photon stitch diag] reject event: no diagnostic variant keeps it"
+            "    [pp photon stitch] reject event: canonical G4-stored photon outside sample window"
             << " | sample=" << ppg12PhotonSliceName(ppPhotonSlice)
             << " | max stored truth pT^gamma=" << std::fixed << std::setprecision(3) << maxPhotonPt
+            << " | haveTruth=" << haveTruth
             << " | keep window=[" << stitchLo << ", " << stitchHi << "]");
         return Fun4AllReturnCodes::ABORTEVENT;
       }
 
       LOG(6, CLR_GREEN,
-          "    [pp photon stitch diag] process event"
+          "    [pp photon stitch] process event"
           << " | sample=" << ppg12PhotonSliceName(ppPhotonSlice)
           << " | g4Stored pT^gamma=" << std::fixed << std::setprecision(3) << maxPhotonPt
-          << " | g4Keep=" << passStitch
           << " | keep window=[" << stitchLo << ", " << stitchHi << "]");
     }
     else
@@ -5773,7 +5782,9 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
           const double rawPhi = TVector2::Phi_mpi_pi(rawPhoton.Phi());
           if (!std::isfinite(rawPt) || !std::isfinite(rawEta) || !std::isfinite(rawPhi)) continue;
 
-          const double dr = dR(rawEta, rawPhi, truthEtaForDiag, truthPhiForDiag);
+          const double rawDphi = TVector2::Phi_mpi_pi(rawPhi - truthPhiForDiag);
+          const double rawDeta = rawEta - truthEtaForDiag;
+          const double dr = std::sqrt(rawDeta * rawDeta + rawDphi * rawDphi);
           if (rawPt > 1.0 && dr < 0.05) rawNearestDR005 = true;
           if (rawPt > 1.0 && dr < 0.10) rawNearestDR010 = true;
 
@@ -5835,7 +5846,9 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
           const double pt = pho->get_shower_shape_parameter("cluster_pt");
           if (!std::isfinite(eta) || !std::isfinite(phi) || !std::isfinite(pt)) continue;
 
-          const double dr = dR(eta, phi, truthEtaForDiag, truthPhiForDiag);
+          const double selDphi = TVector2::Phi_mpi_pi(phi - truthPhiForDiag);
+          const double selDeta = eta - truthEtaForDiag;
+          const double dr = std::sqrt(selDeta * selDeta + selDphi * selDphi);
           if (pt > 1.0 && dr < 0.05) selectedNearestDR005 = true;
           if (pt > 1.0 && dr < 0.10) selectedNearestDR010 = true;
 
@@ -6620,7 +6633,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
 
                 for (const auto& trigShort : activeTrig)
                 {
-                    if (m_preselectionVariant == "variantA")
+                    if (preselectionUsesNPB(m_preselectionVariant))
                     {
                         const bool finiteNPB = std::isfinite(v.npb_score);
                         if (auto* h = getOrBookCountHist(trigShort, finiteNPB ? "h_npbScore_finite" : "h_npbScore_missing",
@@ -6707,9 +6720,9 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 }
                 
                 // ---------- NPB preselection shadow QA ----------
-                // If variantA is the real preselection, keep that decision untouched,
+                // If an NPB-gated preselection is active, keep that decision untouched,
                 // but also evaluate the reference pp/PPG12 preselection as diagnostics.
-                if (m_preselectionVariant == "variantA")
+                if (preselectionUsesNPB(m_preselectionVariant))
                 {
                     const bool npbPassForAudit =
                         std::isfinite(v.npb_score) &&
@@ -6819,7 +6832,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 const bool pre_ok = passesPhotonPreselection(v);
                 if (!pre_ok)
                 {
-                    if (m_preselectionVariant == "variantA")
+                    if (preselectionUsesNPB(m_preselectionVariant))
                     {
                         for (const auto& trigShort : activeTrig)
                         {
@@ -6834,7 +6847,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                         {
                             std::ostringstream msg;
                             msg << "      [pho#" << iPho << "] preselection FAIL"
-                                << " | variant=variantA(PPG12 common + NPB)"
+                                << " | variant=" << m_preselectionVariant << "(NPB-gated)"
                                 << " | npb_score=" << std::fixed << std::setprecision(4) << v.npb_score
                                 << " | cut:>" << m_npbCut
                                 << " | pT^{#gamma}=" << std::fixed << std::setprecision(2) << v.pt_gamma;
@@ -6924,9 +6937,9 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 {
                     std::ostringstream msg;
                     msg << "      [pho#" << iPho << "] preselection PASS";
-                    if (m_preselectionVariant == "variantA")
+                    if (preselectionUsesNPB(m_preselectionVariant))
                     {
-                        msg << " | variant=variantA(PPG12 common + NPB)"
+                        msg << " | variant=" << m_preselectionVariant << "(NPB-gated)"
                             << " | npb_score=" << std::fixed << std::setprecision(4) << v.npb_score
                             << " | cut:>" << m_npbCut;
                     }
@@ -7945,7 +7958,7 @@ void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars&
 
   if (!pho) return;
 
-  if (m_preselectionVariant == "variantA")
+  if (preselectionUsesNPB(m_preselectionVariant))
   {
     if (m_photons_npb == m_photons)
     {
@@ -7981,6 +7994,19 @@ bool RecoilJets::passesPhotonPreselection(const SSVars& v)
     if (Verbosity() >= 5)
       LOG(5, CLR_BLUE, "  [passesPhotonPreselection] variant=variantB(no preselection cuts) → PASS");
     return true;
+  }
+
+  if (m_preselectionVariant == "variantC")
+  {
+    const bool pass_npb = std::isfinite(v.npb_score) && (v.npb_score > m_npbCut);
+    if (Verbosity() >= 5)
+    {
+      LOG(5, CLR_BLUE,
+          "  [passesPhotonPreselection] variant=variantC(NPB only)"
+          << " | npb_score=" << v.npb_score
+          << " cut:>" << m_npbCut << " -> " << pass_npb);
+    }
+    return pass_npb;
   }
 
   if (m_preselectionVariant == "variantA")
@@ -8055,6 +8081,52 @@ bool RecoilJets::passesPhotonPreselection(const SSVars& v)
             << ", e11/e33=" << v.e11_over_e33
             << ", e32/e35=" << v.e32_over_e35);
       }
+    }
+
+    return pass_all;
+  }
+
+  if (m_preselectionVariant == "variantD")
+  {
+    const bool ok_vals =
+      std::isfinite(v.npb_score) &&
+      std::isfinite(v.weta_cogx) &&
+      std::isfinite(v.wphi_cogx) &&
+      std::isfinite(v.et1) &&
+      std::isfinite(v.e11_over_e33) &&
+      std::isfinite(v.e32_over_e35) &&
+      std::isfinite(v.pt_gamma);
+
+    if (!ok_vals)
+    {
+      LOG(2, CLR_YELLOW,
+          "  [passesPhotonPreselection] variantD non-finite SSVars/NPB detected: "
+          << "npb_score=" << v.npb_score
+          << " weta=" << v.weta_cogx << " wphi=" << v.wphi_cogx
+          << " et1=" << v.et1
+          << " e11/e33=" << v.e11_over_e33
+          << " e32/e35=" << v.e32_over_e35
+          << " pT^gamma=" << v.pt_gamma);
+      return false;
+    }
+
+    const bool pass_npb    = (v.npb_score > m_npbCut);
+    const bool pass_e11e33 = (v.e11_over_e33 < m_phoid_pre_e11e33_max);
+    const bool pass_et1    = in_open_interval(v.et1, m_phoid_pre_et1_min, m_phoid_pre_et1_max);
+    const bool pass_e32e35 = in_open_interval(v.e32_over_e35, m_phoid_pre_e32e35_min, m_phoid_pre_e32e35_max);
+    const bool pass_weta   = (v.weta_cogx < m_phoid_pre_weta_max);
+    const bool pass_all = pass_npb && pass_e11e33 && pass_et1 && pass_e32e35 && pass_weta;
+
+    if (Verbosity() >= 5)
+    {
+      LOG(5, CLR_BLUE,
+          "  [passesPhotonPreselection] variant=variantD(reference + NPB)"
+          << " | npb_score=" << v.npb_score << " cut:>" << m_npbCut << " -> " << pass_npb
+          << " | weta=" << v.weta_cogx << " (<" << m_phoid_pre_weta_max << ") -> " << pass_weta
+          << " | et1=" << v.et1 << " in (" << m_phoid_pre_et1_min << "," << m_phoid_pre_et1_max << ") -> " << pass_et1
+          << " | e11/e33=" << v.e11_over_e33 << " (<" << m_phoid_pre_e11e33_max << ") -> " << pass_e11e33
+          << " | e32/e35=" << v.e32_over_e35 << " in (" << m_phoid_pre_e32e35_min << "," << m_phoid_pre_e32e35_max << ") -> " << pass_e32e35
+          << " | all -> " << pass_all);
     }
 
     return pass_all;

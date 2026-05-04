@@ -106,6 +106,12 @@ namespace HepMC
 //   .cc uses:  using namespace PhoIDCuts;
 //   PPG12 defines:
 //     - Preselection cuts applied first (fail => rejected; does NOT enter A–B–C–D)
+//     - Preselection variants:
+//       reference = hard-cut SS preselection
+//       variantA = loose/common SS preselection plus NPB score
+//       variantB = no preselection
+//       variantC = NPB score only
+//       variantD = reference hard-cut SS preselection plus NPB score
 //     - Tight cuts applied only after preselection
 //     - Non-tight: passes preselection AND fails >=2 of the 5 tight cuts
 //   Also: for photons in this context, pT^gamma ≡ ET^gamma (use pt_gamma everywhere).

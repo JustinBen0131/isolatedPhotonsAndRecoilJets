@@ -61,6 +61,7 @@
 #include <iomanip>
 #include <limits>
 #include <map>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <tuple>
@@ -78,6 +79,7 @@ class CentralityInfo;
 class Gl1Packet;
 class EventHeader;
 class PHG4TruthInfoContainer;
+namespace TMVA { namespace Experimental { class RBDT; } }
 class PHG4Particle;
 class PHG4VtxPoint;
 
@@ -763,6 +765,30 @@ private:
                                  int ptIdx,
                                  int centIdx,
                                  bool isSignal);
+    void initJetMLTrainingTree();
+    void fillJetMLTrainingTree(const std::string& rKey,
+                               double Rjet,
+                               double leadPtGamma,
+                               double leadEtaGamma,
+                               double leadPhiGamma,
+                               const Jet* recoJet,
+                               bool recoIsRecoil,
+                               const Jet* matchedTruthJet,
+                               double matchDR);
+    bool initJetMLModelIfNeeded();
+    double predictJetMLDeltaPt(const std::string& rKey,
+                               double Rjet,
+                               double leadPtGamma,
+                               double leadEtaGamma,
+                               double leadPhiGamma,
+                               const Jet* recoJet) const;
+    double jetMLFeatureValue(const std::string& feature,
+                             const std::string& rKey,
+                             double Rjet,
+                             double leadPtGamma,
+                             double leadEtaGamma,
+                             double leadPhiGamma,
+                             const Jet* recoJet) const;
     
     
     // Isolation helpers
@@ -956,6 +982,13 @@ private:
     TH2F* getOrBookUnfoldRecoCombinatoricPtXJIncl(const std::string& trig, const std::string& rKey, int centIdx);
     TH2F* getOrBookUnfoldRecoFakesPtXJIncl (const std::string& trig, const std::string& rKey, int centIdx);
     TH2F* getOrBookUnfoldTruthMissesPtXJIncl(const std::string& trig, const std::string& rKey, int centIdx);
+
+    TH2F* getOrBookUnfoldRecoJetMLPtXJIncl(const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookUnfoldRecoJetMLPtXJInclSidebandC(const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookUnfoldResponseJetMLPtXJIncl(const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookUnfoldRecoCombinatoricJetMLPtXJIncl(const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookUnfoldRecoFakesJetMLPtXJIncl(const std::string& trig, const std::string& rKey, int centIdx);
+    TH2F* getOrBookUnfoldTruthMissesJetMLPtXJIncl(const std::string& trig, const std::string& rKey, int centIdx);
     
     // photon-only unfolding (for N_gamma normalization): DATA+SIM reco, SIM truth
     TH1F* getOrBookUnfoldRecoPhoPtGamma        (const std::string& trig, int centIdx);
@@ -1447,6 +1480,47 @@ private:
     float m_bdtTrain_npb_score = -2.0f;
     float m_bdtTrain_auau_npb_score = -2.0f;
     float m_bdtTrain_auau_tight_bdt_score = -2.0f;
+
+    bool m_jetMLTrainingTreeEnabled = false;
+    long long m_jetMLTrainingTreeMaxEntries = 0;
+    long long m_jetMLTrainingTreeEntries = 0;
+    TTree* m_jetMLTrainingTree = nullptr;
+
+    bool m_jetMLCorrectionEnabled = false;
+    bool m_jetMLModelInitAttempted = false;
+    std::string m_jetMLModelFile;
+    std::vector<std::string> m_jetMLFeatures;
+    std::unique_ptr<TMVA::Experimental::RBDT> m_jetMLModel;
+
+    int m_jetMLTrain_run = 0;
+    long long m_jetMLTrain_evt = 0;
+    std::string m_jetMLTrain_sample;
+    std::string m_jetMLTrain_rKey;
+    int m_jetMLTrain_is_sim = 0;
+    int m_jetMLTrain_is_recoil = 0;
+    int m_jetMLTrain_is_matched = 0;
+    float m_jetMLTrain_R = 0.0f;
+    float m_jetMLTrain_centrality = -1.0f;
+    float m_jetMLTrain_vertexz = 0.0f;
+    float m_jetMLTrain_event_weight = 1.0f;
+    float m_jetMLTrain_photon_pt = 0.0f;
+    float m_jetMLTrain_photon_eta = 0.0f;
+    float m_jetMLTrain_photon_phi = 0.0f;
+    float m_jetMLTrain_reco_pt = 0.0f;
+    float m_jetMLTrain_raw_pt = 0.0f;
+    float m_jetMLTrain_jet_eta = 0.0f;
+    float m_jetMLTrain_jet_phi = 0.0f;
+    float m_jetMLTrain_jet_area = 0.0f;
+    float m_jetMLTrain_dphi = 0.0f;
+    float m_jetMLTrain_rho = 0.0f;
+    float m_jetMLTrain_local_rho = 0.0f;
+    float m_jetMLTrain_local_et = 0.0f;
+    float m_jetMLTrain_truth_pt = -1.0f;
+    float m_jetMLTrain_truth_eta = 0.0f;
+    float m_jetMLTrain_truth_phi = 0.0f;
+    float m_jetMLTrain_match_dr = -1.0f;
+    float m_jetMLTrain_delta_pt = 0.0f;
+    float m_jetMLTrain_response_ratio = 0.0f;
     
     // -------------------------------------------------------------------------
     // Diagnostics / accounting
