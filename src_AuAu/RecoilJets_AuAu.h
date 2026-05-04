@@ -755,6 +755,11 @@ private:
     // -------------------------------------------------------------------------
     SSVars makeSSFromPhoton(const PhotonClusterv1* pho, double pt_gamma) const;
     void attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars& v) const;
+    bool initAuAuTightBDTModelsIfNeeded() const;
+    double auauTightBDTFeatureValue(const std::string& feature,
+                                    const PhotonClusterv1* pho,
+                                    const SSVars& v) const;
+    double predictAuAuTightBDTScore(const PhotonClusterv1* pho, const SSVars& v) const;
     const PhotonClusterv1* findMatchedPhotonByKinematics(const RawClusterContainer* container,
                                                          const PhotonClusterv1* ref) const;
     bool   passesPhotonPreselection(const SSVars& v);
@@ -1261,6 +1266,12 @@ private:
     double m_auauNonTightBDTMaxSlope = 0.0;
     std::vector<int> m_auauTightBDTCentDepEdges;
     std::vector<std::string> m_auauTightBDTCentDepScoreNames;
+    std::string m_auauTightBDTModelFile;
+    std::vector<std::string> m_auauTightBDTFeatures;
+    std::vector<std::string> m_auauTightBDTCentDepModelFiles;
+    mutable bool m_auauTightBDTModelInitAttempted = false;
+    mutable std::unique_ptr<TMVA::Experimental::RBDT> m_auauTightBDTModel;
+    mutable std::vector<std::unique_ptr<TMVA::Experimental::RBDT>> m_auauTightBDTCentDepModels;
     double m_tightBDTMinIntercept = 0.0;
     double m_tightBDTMinSlope = 0.0;
     double m_tightBDTMax = 1.0;

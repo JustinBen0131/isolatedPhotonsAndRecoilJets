@@ -1053,8 +1053,11 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     m_tightBDTMax          = envToDouble("RJ_TIGHT_BDT_MAX", 1.0);
     m_auauTightBDTMinIntercept = envToDouble("RJ_AUAU_TIGHT_BDT_MIN_INTERCEPT", 0.0);
     m_auauTightBDTMinSlope     = envToDouble("RJ_AUAU_TIGHT_BDT_MIN_SLOPE", 0.0);
-    m_auauTightBDTMax          = envToDouble("RJ_AUAU_TIGHT_BDT_MAX", 1.0);
-    m_auauNonTightBDTMinIntercept = envToDouble("RJ_AUAU_NONTIGHT_BDT_MIN_INTERCEPT", -1.0);
+  m_auauTightBDTMax          = envToDouble("RJ_AUAU_TIGHT_BDT_MAX", 1.0);
+  m_auauTightBDTModelFile = envOrDefault("RJ_AUAU_TIGHT_BDT_MODEL_FILE", "");
+  m_auauTightBDTFeatures = envToStringList("RJ_AUAU_TIGHT_BDT_FEATURES", {});
+  m_auauTightBDTCentDepModelFiles = envToStringList("RJ_AUAU_TIGHT_BDT_CENTDEP_MODEL_FILES", {});
+  m_auauNonTightBDTMinIntercept = envToDouble("RJ_AUAU_NONTIGHT_BDT_MIN_INTERCEPT", -1.0);
     m_auauNonTightBDTMinSlope     = envToDouble("RJ_AUAU_NONTIGHT_BDT_MIN_SLOPE", 0.0);
     m_auauNonTightBDTMaxIntercept = envToDouble("RJ_AUAU_NONTIGHT_BDT_MAX_INTERCEPT", 1.0);
   m_auauNonTightBDTMaxSlope     = envToDouble("RJ_AUAU_NONTIGHT_BDT_MAX_SLOPE", 0.0);
@@ -2029,6 +2032,131 @@ double RecoilJets::predictJetMLDeltaPt(const std::string& rKey,
 
   const auto y = m_jetMLModel->Compute(x);
   if (y.empty() || !std::isfinite(y[0])) return 0.0;
+  return static_cast<double>(y[0]);
+}
+
+bool RecoilJets::initAuAuTightBDTModelsIfNeeded() const
+{
+  if (!auauTightBDTMode(m_tightVariant) || m_tightVariant == "variantB") return true;
+  if (m_auauTightBDTModel || !m_auauTightBDTCentDepModels.empty()) return true;
+  if (m_auauTightBDTModelInitAttempted) return false;
+  m_auauTightBDTModelInitAttempted = true;
+
+  if (m_auauTightBDTFeatures.empty())
+  {
+    LOG(1, CLR_YELLOW, "[AuAuTightBDT] feature list is empty; cannot score " << m_tightVariant);
+    return false;
+  }
+
+  try
+  {
+    if (m_tightVariant == "centDepBDTs")
+    {
+      if (m_auauTightBDTCentDepModelFiles.empty())
+      {
+        LOG(1, CLR_YELLOW, "[AuAuTightBDT] no centrality-dependent model files configured");
+        return false;
+      }
+      m_auauTightBDTCentDepModels.reserve(m_auauTightBDTCentDepModelFiles.size());
+      for (const auto& modelFile : m_auauTightBDTCentDepModelFiles)
+      {
+        m_auauTightBDTCentDepModels.push_back(std::make_unique<TMVA::Experimental::RBDT>("myBDT", modelFile));
+      }
+      LOG(1, CLR_GREEN, "[AuAuTightBDT] loaded " << m_auauTightBDTCentDepModels.size()
+                         << " centrality-dependent tight models with "
+                         << m_auauTightBDTFeatures.size() << " features");
+    }
+    else
+    {
+      if (m_auauTightBDTModelFile.empty())
+      {
+        LOG(1, CLR_YELLOW, "[AuAuTightBDT] model file is empty for " << m_tightVariant);
+        return false;
+      }
+      m_auauTightBDTModel = std::make_unique<TMVA::Experimental::RBDT>("myBDT", m_auauTightBDTModelFile);
+      LOG(1, CLR_GREEN, "[AuAuTightBDT] loaded " << m_tightVariant << " model "
+                         << m_auauTightBDTModelFile << " with "
+                         << m_auauTightBDTFeatures.size() << " features");
+    }
+  }
+  catch (const std::exception& e)
+  {
+    LOG(1, CLR_YELLOW, "[AuAuTightBDT] failed to load model(s): " << e.what());
+    return false;
+  }
+  catch (...)
+  {
+    LOG(1, CLR_YELLOW, "[AuAuTightBDT] failed to load model(s)");
+    return false;
+  }
+
+  return true;
+}
+
+double RecoilJets::auauTightBDTFeatureValue(const std::string& feature,
+                                            const PhotonClusterv1* pho,
+                                            const SSVars& v) const
+{
+  if (feature == "cluster_Et" || feature == "cluster_et" || feature == "ET") return v.pt_gamma;
+  if (feature == "cluster_weta_cogx") return v.weta_cogx;
+  if (feature == "cluster_wphi_cogx") return v.wphi_cogx;
+  if (feature == "vertexz" || feature == "vertex_z" || feature == "zvtx") return m_vz;
+  if (feature == "centrality" || feature == "cent") return m_centPercent;
+  if (feature == "e11_over_e33") return v.e11_over_e33;
+  if (feature == "e32_over_e35") return v.e32_over_e35;
+  if (feature == "cluster_et1") return v.et1;
+  if (feature == "cluster_et2") return v.et2;
+  if (feature == "cluster_et3") return v.et3;
+  if (feature == "cluster_et4") return v.et4;
+  if (feature == "cluster_Eta" || feature == "cluster_eta") return pho ? pho->get_shower_shape_parameter("cluster_eta") : std::numeric_limits<double>::quiet_NaN();
+  if (feature == "cluster_Phi" || feature == "cluster_phi") return pho ? pho->get_shower_shape_parameter("cluster_phi") : std::numeric_limits<double>::quiet_NaN();
+  if (feature == "mean_time") return v.mean_time;
+  if (!pho) return std::numeric_limits<double>::quiet_NaN();
+  if (feature.rfind("cluster_", 0) == 0) return pho->get_shower_shape_parameter(feature.substr(8));
+  return pho->get_shower_shape_parameter(feature);
+}
+
+double RecoilJets::predictAuAuTightBDTScore(const PhotonClusterv1* pho, const SSVars& v) const
+{
+  if (!initAuAuTightBDTModelsIfNeeded()) return std::numeric_limits<double>::quiet_NaN();
+
+  const TMVA::Experimental::RBDT* model = m_auauTightBDTModel.get();
+  if (m_tightVariant == "centDepBDTs")
+  {
+    int modelIdx = -1;
+    if (m_auauTightBDTCentDepEdges.size() >= 2 &&
+        m_auauTightBDTCentDepModels.size() + 1 == m_auauTightBDTCentDepEdges.size() &&
+        std::isfinite(m_centPercent))
+    {
+      for (std::size_t i = 0; i + 1 < m_auauTightBDTCentDepEdges.size(); ++i)
+      {
+        const double lo = static_cast<double>(m_auauTightBDTCentDepEdges[i]);
+        const double hi = static_cast<double>(m_auauTightBDTCentDepEdges[i + 1]);
+        const bool inBin = (m_centPercent >= lo) &&
+                           (m_centPercent < hi || (i + 2 == m_auauTightBDTCentDepEdges.size() && m_centPercent <= hi));
+        if (inBin)
+        {
+          modelIdx = static_cast<int>(i);
+          break;
+        }
+      }
+    }
+    if (modelIdx < 0 || static_cast<std::size_t>(modelIdx) >= m_auauTightBDTCentDepModels.size())
+      return std::numeric_limits<double>::quiet_NaN();
+    model = m_auauTightBDTCentDepModels[modelIdx].get();
+  }
+  if (!model) return std::numeric_limits<double>::quiet_NaN();
+
+  std::vector<float> x;
+  x.reserve(m_auauTightBDTFeatures.size());
+  for (const auto& feature : m_auauTightBDTFeatures)
+  {
+    const double val = auauTightBDTFeatureValue(feature, pho, v);
+    if (!std::isfinite(val)) return std::numeric_limits<double>::quiet_NaN();
+    x.push_back(static_cast<float>(val));
+  }
+  const auto y = model->Compute(x);
+  if (y.empty() || !std::isfinite(y[0])) return std::numeric_limits<double>::quiet_NaN();
   return static_cast<double>(y[0]);
 }
 
@@ -9120,30 +9248,13 @@ void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars&
   }
   if (m_tightVariant == "centDepBDTs")
   {
-    int modelIdx = -1;
-    if (m_auauTightBDTCentDepEdges.size() >= 2 &&
-        m_auauTightBDTCentDepScoreNames.size() + 1 == m_auauTightBDTCentDepEdges.size() &&
-        std::isfinite(m_centPercent))
-    {
-      for (std::size_t i = 0; i + 1 < m_auauTightBDTCentDepEdges.size(); ++i)
-      {
-        const double lo = static_cast<double>(m_auauTightBDTCentDepEdges[i]);
-        const double hi = static_cast<double>(m_auauTightBDTCentDepEdges[i + 1]);
-        const bool inBin = (m_centPercent >= lo) &&
-                           (m_centPercent < hi || (i + 2 == m_auauTightBDTCentDepEdges.size() && m_centPercent <= hi));
-        if (inBin)
-        {
-          modelIdx = static_cast<int>(i);
-          break;
-        }
-      }
-    }
-    if (modelIdx >= 0 && static_cast<std::size_t>(modelIdx) < m_auauTightBDTCentDepScoreNames.size())
-    {
-      v.auau_tight_bdt_score = pho->get_shower_shape_parameter(m_auauTightBDTCentDepScoreNames[modelIdx]);
-    }
+    v.auau_tight_bdt_score = predictAuAuTightBDTScore(pho, v);
   }
-  else if (auauTightBDTMode(m_tightVariant))
+  else if (m_tightVariant == "centINDcontrol" || m_tightVariant == "centAsFeat")
+  {
+    v.auau_tight_bdt_score = predictAuAuTightBDTScore(pho, v);
+  }
+  else if (m_tightVariant == "variantB")
   {
     v.auau_tight_bdt_score = pho->get_shower_shape_parameter("auau_tight_bdt_score");
   }

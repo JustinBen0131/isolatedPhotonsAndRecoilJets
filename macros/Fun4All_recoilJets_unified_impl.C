@@ -3903,6 +3903,10 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     };
     std::vector<std::string> auauCentDepScoreNames;
 
+    std::string auauRuntimeTightModelFile;
+    std::vector<std::string> auauRuntimeTightFeatures;
+    std::vector<std::string> auauRuntimeCentDepModelFiles;
+
     if (cfg.tight == "variantB" || cfg.tight == "centINDcontrol" || cfg.tight == "centAsFeat")
     {
         std::string modelFile = cfg.auau_tight_bdt_model_file;
@@ -3930,12 +3934,17 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         }
 
         tightPhotonNode = "PHOTONCLUSTER_CEMC";
-        photonBuilder->add_named_bdt_score("auau_tight_bdt_score",
-                                           modelFile,
-                                           features,
-                                           5.0f,
-                                           80.0f,
-                                           static_cast<float>(cfg.photon_eta_abs_max));
+        auauRuntimeTightModelFile = modelFile;
+        auauRuntimeTightFeatures = features;
+        if (cfg.tight == "variantB")
+        {
+            photonBuilder->add_named_bdt_score("auau_tight_bdt_score",
+                                               modelFile,
+                                               features,
+                                               5.0f,
+                                               80.0f,
+                                               static_cast<float>(cfg.photon_eta_abs_max));
+        }
     }
     else if (cfg.tight == "centDepBDTs")
     {
@@ -3966,13 +3975,9 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             scoreName << "auau_tight_bdt_score_cent_"
                       << cfg.centrality_edges[i] << "_" << cfg.centrality_edges[i + 1];
             auauCentDepScoreNames.push_back(scoreName.str());
-            photonBuilder->add_named_bdt_score(scoreName.str(),
-                                               cfg.auau_tight_bdt_centDep_model_files[i],
-                                               features,
-                                               5.0f,
-                                               80.0f,
-                                               static_cast<float>(cfg.photon_eta_abs_max));
         }
+        auauRuntimeTightFeatures = features;
+        auauRuntimeCentDepModelFiles = cfg.auau_tight_bdt_centDep_model_files;
     }
 
     if (useSamePhotonBDTScores)
@@ -4060,6 +4065,15 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_BDT_MAX",
                                                "RJ_AUAU_TIGHT_BDT_MAX",
                                                fmtDouble(cfg.auau_tight_bdt_max)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_BDT_MODEL_FILE",
+                                               "RJ_AUAU_TIGHT_BDT_MODEL_FILE",
+                                               auauRuntimeTightModelFile));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_BDT_FEATURES",
+                                               "RJ_AUAU_TIGHT_BDT_FEATURES",
+                                               joinStrings(auauRuntimeTightFeatures)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_BDT_CENTDEP_MODEL_FILES",
+                                               "RJ_AUAU_TIGHT_BDT_CENTDEP_MODEL_FILES",
+                                               joinStrings(auauRuntimeCentDepModelFiles)));
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_BDT_CENTDEP_EDGES",
                                                "RJ_AUAU_TIGHT_BDT_CENTDEP_EDGES",
                                                joinInts(cfg.centrality_edges)));
