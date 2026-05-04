@@ -47,6 +47,8 @@
 #     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT condorDoAll
 #     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainNPB local
 #     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainJetMLResidual local
+#     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainMLAll local 50000 NFILES=4 VERBOSE=10
+#     RJ_ML_PYTHON=/path/to/python ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainMLAll resume /path/to/mlIntegration_run
 #
 # OVERVIEW
 #   • This script is the top-level submission driver for:
@@ -227,6 +229,8 @@
 #     $ ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT condorDoAll [groupSize N]
 #     $ ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainNPB local [Nevents] [VERBOSE=N]
 #     $ ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainJetMLResidual local [Nevents] [VERBOSE=N]
+#     $ ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainMLAll local [Nevents] [NFILES=N] [VERBOSE=N]
+#     $ RJ_ML_PYTHON=/path/to/python ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainMLAll resume /path/to/mlIntegration_run
 #
 # ISLOCALISOPING ENVIRONMENT / CONTROLS
 #   • Required dataset:
@@ -474,10 +478,13 @@ ${BOLD}AuAu embedded photon-ID BDT training:${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT condorDoAll [groupSize N]${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainNPB local [Nevents] [VERBOSE=N]${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainJetMLResidual local [Nevents] [VERBOSE=N]${RST}
+  ${BOLD}$0 isSimEmbeddedAndInclusive trainMLAll local [Nevents] [NFILES=N] [VERBOSE=N]${RST}
+  ${BOLD}RJ_ML_PYTHON=/path/to/python $0 isSimEmbeddedAndInclusive trainMLAll resume /path/to/mlIntegration_run${RST}
 
   Signal samples default to:     ${AUAU_BDT_SIGNAL_SAMPLES_DEFAULT}
   Background samples default to: ${AUAU_BDT_BACKGROUND_SAMPLES_DEFAULT}
   Override with RJ_AUAU_BDT_SIGNAL_SAMPLES / RJ_AUAU_BDT_BACKGROUND_SAMPLES.
+  ML training uses RJ_ML_PYTHON if set; otherwise it uses python3.
 
 Examples:
   $0 isPP  local 5000
@@ -1672,6 +1679,54 @@ auau_bdt_collect_roots() {
   [[ -s "$manifest" ]] || { err "No RecoilJets ROOT files found under ${root_dir}"; exit 31; }
 }
 
+auau_ml_python_label() {
+  echo "${RJ_ML_PYTHON:-python3}"
+}
+
+auau_ml_run_python() {
+  local py="${RJ_ML_PYTHON:-python3}"
+  local -a pycmd
+  read -r -a pycmd <<< "$py"
+  "${pycmd[@]}" "$@"
+}
+
+auau_ml_check_python_deps() {
+  if [[ "${RJ_ML_SKIP_PYTHON_PREFLIGHT:-0}" == "1" ]]; then
+    warn "Skipping ML Python dependency preflight because RJ_ML_SKIP_PYTHON_PREFLIGHT=1"
+    return 0
+  fi
+
+  say "Checking ML Python environment: $(auau_ml_python_label)"
+  if auau_ml_run_python - <<'PY'
+import importlib
+import sys
+
+required = ["uproot", "pandas", "numpy", "sklearn", "xgboost", "ROOT"]
+missing = []
+for module in required:
+    try:
+        importlib.import_module(module)
+    except Exception as exc:
+        missing.append((module, str(exc)))
+
+if missing:
+    print("[ERROR] Missing ML Python dependencies:", file=sys.stderr)
+    for module, exc in missing:
+        print(f"  {module}: {exc}", file=sys.stderr)
+    sys.exit(17)
+
+print("[OK] ML Python dependencies available: " + ", ".join(required))
+PY
+  then
+    return 0
+  fi
+
+  err "ML Python dependency preflight failed."
+  err "Set RJ_ML_PYTHON to a Python with uproot, pandas, numpy, scikit-learn, xgboost, and PyROOT."
+  err "Example: RJ_ML_PYTHON=/path/to/python ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainMLAll resume /path/to/mlIntegration_run"
+  return 17
+}
+
 auau_bdt_train_from_manifest() {
   local task="$1"
   local manifest="$2"
@@ -1698,21 +1753,24 @@ auau_bdt_train_from_manifest() {
   say "  outdir   : ${outdir}"
   if [[ "$task" == "tight" && "${RJ_AUAU_BDT_LOCAL_WIDE:-1}" == "1" ]]; then
     say "  wide scan: nominal weighted PPG12 features"
-    "${BASE}/scripts/train_auau_photon_bdt.py" "${train_args[@]}" --prefix "auau_tight_bdt_nominal"
+    auau_ml_run_python "${BASE}/scripts/train_auau_photon_bdt.py" "${train_args[@]}" --prefix "auau_tight_bdt_nominal"
 
     say "  wide scan: no Et/eta flattening cross-check"
-    "${BASE}/scripts/train_auau_photon_bdt.py" "${train_args[@]}" --prefix "auau_tight_bdt_noFlatten" --no-et-reweight --no-eta-reweight
+    auau_ml_run_python "${BASE}/scripts/train_auau_photon_bdt.py" "${train_args[@]}" --prefix "auau_tight_bdt_noFlatten" --no-et-reweight --no-eta-reweight
 
     say "  wide scan: shallower conservative BDT cross-check"
-    "${BASE}/scripts/train_auau_photon_bdt.py" "${train_args[@]}" --prefix "auau_tight_bdt_shallow" --max-depth 3 --n-estimators 300
+    auau_ml_run_python "${BASE}/scripts/train_auau_photon_bdt.py" "${train_args[@]}" --prefix "auau_tight_bdt_shallow" --max-depth 3 --n-estimators 300
   else
-    "${BASE}/scripts/train_auau_photon_bdt.py" "${train_args[@]}"
+    auau_ml_run_python "${BASE}/scripts/train_auau_photon_bdt.py" "${train_args[@]}"
   fi
 }
 
 auau_bdt_run_local() {
   local task="$1"
   auau_bdt_parse_local_controls
+  if [[ "$task" == "tight" || -n "${RJ_AUAU_BDT_NPB_INPUTS:-}" ]]; then
+    auau_ml_check_python_deps
+  fi
 
   local stamp master_yaml train_yaml cfg_tag local_root manifest outdir
   stamp="$(date +%Y%m%d_%H%M%S)"
@@ -1851,6 +1909,7 @@ auau_jetml_make_training_yaml() {
 
 auau_jetml_run_local() {
   auau_bdt_parse_local_controls
+  auau_ml_check_python_deps
 
   local stamp master_yaml train_yaml cfg_tag local_root manifest outdir
   stamp="$(date +%Y%m%d_%H%M%S)"
@@ -1896,27 +1955,27 @@ auau_jetml_run_local() {
   say "  outdir   : ${outdir}"
   if [[ "${RJ_JET_ML_LOCAL_WIDE:-1}" == "1" ]]; then
     say "  wide scan: core low-bias feature set"
-    "${BASE}/scripts/train_auau_jet_residual_bdt.py" \
+    auau_ml_run_python "${BASE}/scripts/train_auau_jet_residual_bdt.py" \
       --input "@${manifest}" \
       --outdir "${outdir}/core" \
       --model-name "jetResidualBDT_core_allCent_tmva.root" \
       --features "reco_areaSub_pt,raw_pt,jet_area,jet_eta,centrality,R"
 
     say "  wide scan: minimal kinematic/background feature set"
-    "${BASE}/scripts/train_auau_jet_residual_bdt.py" \
+    auau_ml_run_python "${BASE}/scripts/train_auau_jet_residual_bdt.py" \
       --input "@${manifest}" \
       --outdir "${outdir}/minimal" \
       --model-name "jetResidualBDT_minimal_allCent_tmva.root" \
       --features "reco_areaSub_pt,jet_eta,centrality,R"
 
     say "  wide scan: core plus vertex and recoil-angle diagnostics"
-    "${BASE}/scripts/train_auau_jet_residual_bdt.py" \
+    auau_ml_run_python "${BASE}/scripts/train_auau_jet_residual_bdt.py" \
       --input "@${manifest}" \
       --outdir "${outdir}/core_dphi_vz" \
       --model-name "jetResidualBDT_coreDphiVz_allCent_tmva.root" \
       --features "reco_areaSub_pt,raw_pt,jet_area,jet_eta,centrality,R,vertexz,dphi_gamma_jet"
   else
-    "${BASE}/scripts/train_auau_jet_residual_bdt.py" --input "@${manifest}" --outdir "$outdir"
+    auau_ml_run_python "${BASE}/scripts/train_auau_jet_residual_bdt.py" --input "@${manifest}" --outdir "$outdir"
   fi
 }
 
@@ -1967,6 +2026,244 @@ auau_jetml_run_condor_do_all() {
   printf '  %q --input @%q --outdir %q\n' "${BASE}/scripts/train_auau_jet_residual_bdt.py" "${outdir}/jetml_training_roots.list" "$outdir"
 }
 
+ml_yaml_set_scalar() {
+  local yaml="$1" key="$2" value="$3"
+  local tmp="${yaml}.tmp"
+  sed -E "s|^([[:space:]]*${key}:).*|\\1 ${value}|" "$yaml" > "$tmp"
+  mv -f "$tmp" "$yaml"
+}
+
+auau_ml_first_matrix_yaml() {
+  local master_yaml="$1" tag="$2" stamp="$3" preselection="$4" tight="$5" nonTight="$6"
+  local -a pts fracs vzs cones fixeds uepipes
+  mapfile -t pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
+  mapfile -t fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
+  mapfile -t vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
+  mapfile -t cones < <( yaml_get_values "coneR" "$master_yaml" )
+  mapfile -t fixeds < <( yaml_get_values "fixedGeV" "$master_yaml" 2>/dev/null )
+  (( ${#pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
+  (( ${#fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
+  (( ${#vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
+  (( ${#cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
+  (( ${#fixeds[@]} )) || fixeds=( "2.0" )
+
+  read_uepipe_modes "$master_yaml" "simembedded"
+  uepipes=( "${uepipe_modes[@]}" )
+  (( ${#uepipes[@]} )) || uepipes=( "noSub" )
+
+  sim_make_yaml_override \
+    "$master_yaml" \
+    "${pts[0]}" "${fracs[0]}" "${vzs[0]}" "${cones[0]}" \
+    "false" "${fixeds[0]}" "${uepipes[0]}" \
+    "$preselection" "$tight" "$nonTight" \
+    "$tag" "$stamp" "false"
+}
+
+auau_ml_parse_integration_controls() {
+  AUAU_ML_LOCAL_EVENTS="${LOCAL_EVENTS}"
+  AUAU_ML_LOCAL_NFILES="${RJ_ML_LOCAL_NFILES:-4}"
+  AUAU_ML_LOCAL_VERBOSITY="10"
+  AUAU_ML_RESUME_BASE="${RJ_ML_RESUME_BASE:-}"
+  local t
+  local expect_resume_path=0
+  for t in "${tokens[@]}"; do
+    if [[ "$expect_resume_path" -eq 1 ]]; then
+      AUAU_ML_RESUME_BASE="$t"
+      expect_resume_path=0
+      continue
+    fi
+    if [[ "$t" =~ ^VERBOSE=([0-9]+)$ ]]; then
+      AUAU_ML_LOCAL_VERBOSITY="${BASH_REMATCH[1]}"
+    elif [[ "$t" =~ ^NFILES=([0-9]+)$ ]]; then
+      AUAU_ML_LOCAL_NFILES="${BASH_REMATCH[1]}"
+    elif [[ "$t" =~ ^FILES=([0-9]+)$ ]]; then
+      AUAU_ML_LOCAL_NFILES="${BASH_REMATCH[1]}"
+    elif [[ "$t" == "resume" ]]; then
+      expect_resume_path=1
+    elif [[ "$t" =~ ^(BASE|RUN_BASE|RESUME_BASE)=(.+)$ ]]; then
+      AUAU_ML_RESUME_BASE="${BASH_REMATCH[2]}"
+    elif [[ "$t" =~ ^[0-9]+$ ]]; then
+      AUAU_ML_LOCAL_EVENTS="$t"
+    fi
+  done
+  [[ "$AUAU_ML_LOCAL_EVENTS" =~ ^[0-9]+$ ]] || { err "trainMLAll event count must be an integer"; exit 2; }
+  [[ "$AUAU_ML_LOCAL_NFILES" =~ ^[0-9]+$ && "$AUAU_ML_LOCAL_NFILES" -ge 1 ]] || { err "NFILES must be a positive integer"; exit 2; }
+}
+
+auau_ml_run_sample_set_local() {
+  local dataset="$1"
+  local yaml="$2"
+  local output_base="$3"
+  local nevents="$4"
+  local verbosity="$5"
+  shift 5
+  local -a samples=( "$@" )
+
+  local samp
+  for samp in "${samples[@]}"; do
+    say "[ML integration] dataset=${dataset} sample=${samp}"
+    RJ_CONFIG_YAML="$yaml" \
+    RJ_SIM_LOCAL_NFILES="$AUAU_ML_LOCAL_NFILES" \
+    RJ_LOCAL_SIM_OUTPUT_BASE="$output_base" \
+    "$0" "$dataset" local "$nevents" "VERBOSE=${verbosity}" "SAMPLE=${samp}"
+  done
+}
+
+auau_ml_root_count() {
+  local dir="$1"
+  if [[ -d "$dir" ]]; then
+    find "$dir" -type f -name "RecoilJets_*.root" | wc -l | tr -d '[:space:]'
+  else
+    echo 0
+  fi
+}
+
+auau_ml_run_all_local() {
+  auau_ml_parse_integration_controls
+
+  local stamp run_base master_yaml row_yaml jetml_yaml tight_manifest jetml_manifest
+  local tight_model_dir npb_model_dir jetml_model_dir tight_apply_yaml jetml_apply_yaml
+  if [[ "${TRAIN_MODE:-local}" == "resume" ]]; then
+    [[ -n "${AUAU_ML_RESUME_BASE:-}" ]] || { err "trainMLAll resume requires a run directory path"; exit 2; }
+    run_base="$AUAU_ML_RESUME_BASE"
+    [[ -d "$run_base" ]] || { err "Resume directory does not exist: $run_base"; exit 2; }
+    stamp="$(basename "$run_base")"
+    stamp="${stamp#mlIntegration_}"
+  else
+    stamp="$(date +%Y%m%d_%H%M%S)"
+    run_base="${RJ_ML_LOCAL_BASE:-${BASE}/local_ml_pipeline_tests}/mlIntegration_${stamp}"
+  fi
+  master_yaml="$(sim_yaml_master_path)"
+  mkdir -p "$run_base"/{extract,models,apply,manifests,qa}
+
+  auau_ml_check_python_deps
+
+  local -a signal_samples background_samples
+  mapfile -t signal_samples < <( auau_bdt_signal_samples )
+  mapfile -t background_samples < <( auau_bdt_background_samples )
+
+  say "AuAu ML integrated LOCAL pipeline"
+  say "  output base        : ${run_base}"
+  if [[ "${TRAIN_MODE:-local}" == "resume" ]]; then
+    say "  resume mode        : reuse existing extraction ROOT files when present"
+  fi
+  say "  events/input file  : ${AUAU_ML_LOCAL_EVENTS}"
+  say "  input files/sample : ${AUAU_ML_LOCAL_NFILES}"
+  say "  photon+jet samples : ${signal_samples[*]}"
+  say "  inclusive samples  : ${background_samples[*]}"
+  say "  reference style    : PPG12 fixed feature order + TMVA/RBDT export + analysis re-apply"
+  echo
+
+  row_yaml="$(auau_bdt_make_training_yaml "allMLPhotonRows" "$stamp" "$master_yaml")"
+  say "Stage A1: extract shared photon-ID rows for tight BDT and NPB sanity"
+  say "  row YAML: ${row_yaml}"
+  local photon_root_count
+  photon_root_count="$(auau_ml_root_count "${run_base}/extract/photon_rows")"
+  if [[ "${TRAIN_MODE:-local}" == "resume" && "$photon_root_count" -gt 0 ]]; then
+    say "  found existing photon-row ROOT files: ${photon_root_count}; skipping photon extraction"
+  else
+    auau_ml_run_sample_set_local "isSimEmbedded" "$row_yaml" "${run_base}/extract/photon_rows/simembedded" "$AUAU_ML_LOCAL_EVENTS" "$AUAU_ML_LOCAL_VERBOSITY" "${signal_samples[@]}"
+    auau_ml_run_sample_set_local "isSimEmbeddedInclusive" "$row_yaml" "${run_base}/extract/photon_rows/simembeddedinclusive" "$AUAU_ML_LOCAL_EVENTS" "$AUAU_ML_LOCAL_VERBOSITY" "${background_samples[@]}"
+  fi
+
+  tight_manifest="${run_base}/manifests/photon_training_roots.list"
+  auau_bdt_collect_roots "${run_base}/extract/photon_rows" "$tight_manifest"
+
+  tight_model_dir="${run_base}/models/tight"
+  npb_model_dir="${run_base}/models/npb"
+  say "Stage B1: train tight BDT variants from shared photon rows"
+  RJ_AUAU_BDT_LOCAL_WIDE=1 auau_bdt_train_from_manifest "tight" "$tight_manifest" "$tight_model_dir"
+
+  say "Stage B2: run NPB training sanity on same physics-side rows"
+  auau_bdt_train_from_manifest "npb" "$tight_manifest" "$npb_model_dir"
+
+  jetml_yaml="$(auau_jetml_make_training_yaml "$stamp" "$master_yaml")"
+  say "Stage A2: extract JetML residual rows"
+  say "  row YAML: ${jetml_yaml}"
+  local jetml_root_count
+  jetml_root_count="$(auau_ml_root_count "${run_base}/extract/jetml_rows")"
+  if [[ "${TRAIN_MODE:-local}" == "resume" && "$jetml_root_count" -gt 0 ]]; then
+    say "  found existing JetML-row ROOT files: ${jetml_root_count}; skipping JetML extraction"
+  else
+    auau_ml_run_sample_set_local "isSimEmbedded" "$jetml_yaml" "${run_base}/extract/jetml_rows/simembedded" "$AUAU_ML_LOCAL_EVENTS" "$AUAU_ML_LOCAL_VERBOSITY" "${signal_samples[@]}"
+    auau_ml_run_sample_set_local "isSimEmbeddedInclusive" "$jetml_yaml" "${run_base}/extract/jetml_rows/simembeddedinclusive" "$AUAU_ML_LOCAL_EVENTS" "$AUAU_ML_LOCAL_VERBOSITY" "${background_samples[@]}"
+  fi
+
+  jetml_manifest="${run_base}/manifests/jetml_training_roots.list"
+  auau_bdt_collect_roots "${run_base}/extract/jetml_rows" "$jetml_manifest"
+
+  jetml_model_dir="${run_base}/models/jetResidual"
+  mkdir -p "$jetml_model_dir"
+  say "Stage B3: train JetML residual feature-set scan"
+  RJ_JET_ML_LOCAL_WIDE=1 \
+  AUAU_BDT_MODEL_BASE="${run_base}/models" \
+  auau_ml_run_python "${BASE}/scripts/train_auau_jet_residual_bdt.py" \
+    --input "@${jetml_manifest}" \
+    --outdir "${jetml_model_dir}/core" \
+    --model-name "jetResidualBDT_core_allCent_tmva.root" \
+    --features "reco_areaSub_pt,raw_pt,jet_area,jet_eta,centrality,R"
+  auau_ml_run_python "${BASE}/scripts/train_auau_jet_residual_bdt.py" \
+    --input "@${jetml_manifest}" \
+    --outdir "${jetml_model_dir}/minimal" \
+    --model-name "jetResidualBDT_minimal_allCent_tmva.root" \
+    --features "reco_areaSub_pt,jet_eta,centrality,R"
+  auau_ml_run_python "${BASE}/scripts/train_auau_jet_residual_bdt.py" \
+    --input "@${jetml_manifest}" \
+    --outdir "${jetml_model_dir}/core_dphi_vz" \
+    --model-name "jetResidualBDT_coreDphiVz_allCent_tmva.root" \
+    --features "reco_areaSub_pt,raw_pt,jet_area,jet_eta,centrality,R,vertexz,dphi_gamma_jet"
+
+  local tight_model="${tight_model_dir}/auau_tight_bdt_nominal_allCent_tmva.root"
+  local jetml_model="${jetml_model_dir}/core/jetResidualBDT_core_allCent_tmva.root"
+
+  if [[ -s "$tight_model" ]]; then
+    tight_apply_yaml="$(auau_ml_first_matrix_yaml "$master_yaml" "mlApply_tight_${stamp}" "$stamp" "reference" "variantB" "variantB")"
+    ml_yaml_set_scalar "$tight_apply_yaml" "auau_tight_bdt_model_file" "$tight_model"
+    ml_yaml_set_scalar "$tight_apply_yaml" "auau_bdt_training_tree" "false"
+    ml_yaml_set_scalar "$tight_apply_yaml" "jet_ml_training_tree" "false"
+    ml_yaml_set_scalar "$tight_apply_yaml" "jet_ml_correction_enabled" "false"
+
+    say "Stage C1: re-apply trained tight BDT model through production analysis path"
+    say "  model: ${tight_model}"
+    say "  YAML : ${tight_apply_yaml}"
+    auau_ml_run_sample_set_local "isSimEmbedded" "$tight_apply_yaml" "${run_base}/apply/tight" "$AUAU_ML_LOCAL_EVENTS" "$AUAU_ML_LOCAL_VERBOSITY" "${signal_samples[@]}"
+  else
+    warn "Skipping tight apply stage because model is missing: ${tight_model}"
+  fi
+
+  if [[ -s "$jetml_model" ]]; then
+    jetml_apply_yaml="$(auau_ml_first_matrix_yaml "$master_yaml" "mlApply_jetResidual_${stamp}" "$stamp" "reference" "reference" "reference")"
+    ml_yaml_set_scalar "$jetml_apply_yaml" "auau_bdt_training_tree" "false"
+    ml_yaml_set_scalar "$jetml_apply_yaml" "jet_ml_training_tree" "false"
+    ml_yaml_set_scalar "$jetml_apply_yaml" "jet_ml_correction_enabled" "true"
+    ml_yaml_set_scalar "$jetml_apply_yaml" "jet_ml_model_file" "$jetml_model"
+    ml_yaml_set_scalar "$jetml_apply_yaml" "jet_ml_features" "[reco_areaSub_pt, raw_pt, jet_area, jet_eta, centrality, R]"
+
+    say "Stage C2: re-apply trained JetML core residual model through production analysis path"
+    say "  model: ${jetml_model}"
+    say "  YAML : ${jetml_apply_yaml}"
+    auau_ml_run_sample_set_local "isSimEmbedded" "$jetml_apply_yaml" "${run_base}/apply/jetResidual" "$AUAU_ML_LOCAL_EVENTS" "$AUAU_ML_LOCAL_VERBOSITY" "${signal_samples[@]}"
+  else
+    warn "Skipping JetML apply stage because model is missing: ${jetml_model}"
+  fi
+
+  {
+    echo "run_base=${run_base}"
+    echo "events_per_input_file=${AUAU_ML_LOCAL_EVENTS}"
+    echo "input_files_per_sample=${AUAU_ML_LOCAL_NFILES}"
+    echo "photon_training_manifest=${tight_manifest}"
+    echo "jetml_training_manifest=${jetml_manifest}"
+    echo "tight_model=${tight_model}"
+    echo "jetml_model=${jetml_model}"
+    echo "pull_command=./scripts/sftp_get_recoiljets_outputs.sh mlIntegrationLatest"
+  } > "${run_base}/README.local_ml_pipeline.txt"
+
+  say "Integrated local ML pipeline complete."
+  say "  run base : ${run_base}"
+  say "  pull from Mac with:"
+  say "    ./scripts/sftp_get_recoiljets_outputs.sh mlIntegrationLatest"
+}
+
 # ------------------------ Parse CLI ------------------------
 [[ $# -ge 1 ]] || usage
 resolve_dataset "$1"
@@ -1981,11 +2278,11 @@ tokens=( "${@:2}" )
 for (( idx=0; idx<${#tokens[@]}; idx++ )); do
   tok="${tokens[$idx]}"
   case "$tok" in
-    trainTightBDT|trainNPB|trainJetMLResidual)
+    trainTightBDT|trainNPB|trainJetMLResidual|trainMLAll)
       ACTION="$tok"
       ;;
-    local|condorDoAll)
-      if [[ "$ACTION" == trainTightBDT || "$ACTION" == trainNPB || "$ACTION" == trainJetMLResidual ]]; then
+    local|condorDoAll|resume)
+      if [[ "$ACTION" == trainTightBDT || "$ACTION" == trainNPB || "$ACTION" == trainJetMLResidual || "$ACTION" == trainMLAll ]]; then
         TRAIN_MODE="$tok"
       else
         ACTION="$tok"
@@ -2036,7 +2333,7 @@ if [[ -z "$ACTION" ]]; then
     ACTION="condor"
   fi
 fi
-if [[ "$ACTION" == trainTightBDT || "$ACTION" == trainNPB || "$ACTION" == trainJetMLResidual ]]; then
+if [[ "$ACTION" == trainTightBDT || "$ACTION" == trainNPB || "$ACTION" == trainJetMLResidual || "$ACTION" == trainMLAll ]]; then
   [[ "$DATASET" == "isSimEmbeddedAndInclusive" ]] || { err "${ACTION} is valid only as: $0 isSimEmbeddedAndInclusive ${ACTION} <local|condorDoAll>"; exit 2; }
   [[ -n "$TRAIN_MODE" ]] || TRAIN_MODE="local"
 fi
@@ -2102,6 +2399,18 @@ case "$ACTION" in
         ;;
       *)
         err "${ACTION} mode must be local or condorDoAll, got '${TRAIN_MODE}'"
+        exit 2
+        ;;
+    esac
+    ;;
+
+  trainMLAll)
+    case "${TRAIN_MODE:-local}" in
+      local|resume)
+        auau_ml_run_all_local
+        ;;
+      *)
+        err "${ACTION} currently supports local or resume mode, got '${TRAIN_MODE}'"
         exit 2
         ;;
     esac
@@ -2276,6 +2585,8 @@ case "$ACTION" in
       if [[ "${GROUP_SIZE_EXPLICIT:-0}" -eq 0 ]]; then
         gs_local="7"
       fi
+      sim_local_nfiles="${RJ_SIM_LOCAL_NFILES:-1}"
+      [[ "$sim_local_nfiles" =~ ^[0-9]+$ && "$sim_local_nfiles" -ge 1 ]] || { err "RJ_SIM_LOCAL_NFILES must be a positive integer"; exit 2; }
 
       master_yaml="$(sim_yaml_master_path)"
       [[ -s "$master_yaml" ]] || { err "Master YAML not found or empty: $master_yaml"; exit 72; }
@@ -2311,6 +2622,7 @@ case "$ACTION" in
       say "  YAML master : ${master_yaml}"
       say "  groupSize   : ${gs_local} (condorDoAll default)"
       say "  events      : ${nevt} (default for SIM local)"
+      say "  files/sample: ${sim_local_nfiles}"
       say "  samples     : ${samples[*]}"
       say "  dest base   : ${SIM_DEST_BASE_RESOLVED}"
       echo
@@ -2331,34 +2643,40 @@ case "$ACTION" in
             SIM_SAMPLE="$samp"
             GROUP_SIZE="$gs_local"
 
-            # For local mode we only need the first input line — skip creating all group files
             sim_init
-            say "  [local] sample=${SIM_SAMPLE} ($(wc -l < "$SIM_CLEAN_LIST" | tr -d ' ') entries) — extracting first line, skipping full grouping"
-
-            tmp="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_LOCAL_firstfile_grp001.list"
-            head -n 1 "$SIM_CLEAN_LIST" > "$tmp"
-            [[ -s "$tmp" ]] || { err "No sim entries (sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG})"; exit 30; }
-
-            in_line="$(head -n 1 "$tmp" 2>/dev/null || true)"
-            chunk_base="$(basename "$tmp")"
-            chunk_tag="${chunk_base%.list}"
-            out_root_preview="${DEST_BASE}/${SIM_SAMPLE}/RecoilJets_${DATASET}_${chunk_tag}.root"
-
-            say "----------------------------------------"
-            say "SIM local: tag=${SIM_CFG_TAG}  sample=${SIM_SAMPLE}"
-            say "  jet_pt_min=${pt}  back_to_back_pi_fraction=${frac}  vz_cut_cm=${vz}  coneR=${cone}  iso=${iso_tags[$iso_idx]}  uepipe=${uepipe}"
-            say "  YAML override: ${yaml_override}"
-            say "  grp001 list   : ${tmp}"
-            say "  input line    : ${in_line}"
-            say "  temp list     : ${tmp}"
-            say "  out ROOT      : ${out_root_preview}"
-            say "  wrapper env   : RJ_VERBOSITY=${RJV} RJ_CONFIG_YAML=${yaml_override}"
-            say "  wrapper args  : sample=${SIM_SAMPLE} dataset=${DATASET} mode=LOCAL nevents=${nevt} chunk=1 dest=${DEST_BASE}"
+            n_available="$(wc -l < "$SIM_CLEAN_LIST" | tr -d ' ')"
+            say "  [local] sample=${SIM_SAMPLE} (${n_available} entries) — running first ${sim_local_nfiles} input line(s) sequentially"
+            mkdir -p "${DEST_BASE}/${SIM_SAMPLE}"
             find "${DEST_BASE}/${SIM_SAMPLE}" -type f -name "*_LOCAL_*.root" -delete 2>/dev/null || true
-            say "Invoking wrapper locally…"
 
-            RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
-            echo
+            local_file_idx=0
+            while IFS= read -r in_line; do
+              [[ -n "$in_line" ]] || continue
+              (( local_file_idx+=1 ))
+
+              tmp="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_LOCAL_file$(printf '%03d' "$local_file_idx")_grp001.list"
+              printf "%s\n" "$in_line" > "$tmp"
+              [[ -s "$tmp" ]] || { err "No sim entries (sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG})"; exit 30; }
+
+              chunk_base="$(basename "$tmp")"
+              chunk_tag="${chunk_base%.list}"
+              out_root_preview="${DEST_BASE}/${SIM_SAMPLE}/RecoilJets_${DATASET}_${chunk_tag}.root"
+
+              say "----------------------------------------"
+              say "SIM local: tag=${SIM_CFG_TAG}  sample=${SIM_SAMPLE} file=${local_file_idx}/${sim_local_nfiles}"
+              say "  jet_pt_min=${pt}  back_to_back_pi_fraction=${frac}  vz_cut_cm=${vz}  coneR=${cone}  iso=${iso_tags[$iso_idx]}  uepipe=${uepipe}"
+              say "  YAML override: ${yaml_override}"
+              say "  grp001 list   : ${tmp}"
+              say "  input line    : ${in_line}"
+              say "  temp list     : ${tmp}"
+              say "  out ROOT      : ${out_root_preview}"
+              say "  wrapper env   : RJ_VERBOSITY=${RJV} RJ_CONFIG_YAML=${yaml_override}"
+              say "  wrapper args  : sample=${SIM_SAMPLE} dataset=${DATASET} mode=LOCAL nevents=${nevt} chunk=${local_file_idx} dest=${DEST_BASE}"
+              say "Invoking wrapper locally…"
+
+              RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt" "$local_file_idx" NONE "$DEST_BASE"
+              echo
+            done < <(head -n "$sim_local_nfiles" "$SIM_CLEAN_LIST")
           done
           done
           done
