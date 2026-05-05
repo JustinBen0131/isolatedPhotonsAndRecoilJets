@@ -2760,7 +2760,7 @@ for (( idx=0; idx<${#tokens[@]}; idx++ )); do
     scaledTriggerStudy)
       ACTION="$tok"
       ;;
-    local|condorDoAll|resume)
+    local|localTest|condorDoAll|resume|smokeTestFirstPass|smokeTestSecondPass)
       if [[ "$ACTION" == trainTightBDT || "$ACTION" == trainNPB || "$ACTION" == trainJetMLResidual || "$ACTION" == trainMLAll || "$ACTION" == scaledTriggerStudy ]]; then
         TRAIN_MODE="$tok"
       else
