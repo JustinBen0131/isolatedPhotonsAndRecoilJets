@@ -236,6 +236,7 @@ cleanup_current_tmp_dir_after_local_final() {
 
 scale_per_run_corrected_histograms_in_file() {
   local rootfile="$1"
+  SCALED_TRIG_LAST_STATUS="not_checked"
   [[ "$TAG" == "auau" ]] || return 0
   [[ -s "$rootfile" ]] || return 0
 
@@ -248,6 +249,7 @@ scale_per_run_corrected_histograms_in_file() {
   run="${BASH_REMATCH[1]}"
   run_num=$((10#$run))
 
+  SCALED_TRIG_LAST_STATUS="not_in_runlist"
   grep -Eq "^0*${run_num}$" "$SCALED_TRIG_RUNLIST" || return 0
 
   local scales
@@ -269,11 +271,20 @@ scale_per_run_corrected_histograms_in_file() {
 
   if [[ -z "$scales" ]]; then
     warn "scaledTrigQA: no config entry found for run ${run_num}; leaving ${rootfile} unchanged"
+    SCALED_TRIG_LAST_STATUS="no_config"
     return 0
   fi
 
   local baselineScale pho10Scale pho12Scale
   read -r baselineScale pho10Scale pho12Scale <<< "$scales"
+  local numeric_re='^[-+]?([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][-+]?[0-9]+)?$'
+  if [[ ! "$baselineScale" =~ $numeric_re ]] || [[ ! "$pho10Scale" =~ $numeric_re ]] || [[ ! "$pho12Scale" =~ $numeric_re ]]; then
+    warn "scaledTrigQA: invalid scale config for run ${run_num}; leaving ${rootfile} unchanged"
+    SCALED_TRIG_LAST_STATUS="no_config"
+    return 0
+  fi
+
+  SCALED_TRIG_LAST_STATUS="unknown"
 
   local macro="${TMP_DIR}/scaledTrigQA_scale_run_${run_num}.C"
   cat > "$macro" <<EOF
@@ -289,56 +300,118 @@ scale_per_run_corrected_histograms_in_file() {
   if (!f.IsOpen() || f.IsZombie())
   {
     std::cerr << "[scaledTrigQA] Could not open ${rootfile} for UPDATE\\n";
+    std::cout << "__SCALEDTRIGQA_STATUS__ open_failed\\n";
   }
   else if (!f.Get("scaledTrigQA_perRunCorrected_applied"))
   {
-    auto scaleOne = [&](const char* objPath, const char* dirName, const char* histName, double factor)
-    {
-      if (factor <= 0.0) return;
-      TH1* h = dynamic_cast<TH1*>(f.Get(objPath));
-      if (!h) return;
-      TDirectory* dir = f.GetDirectory(dirName);
-      if (!dir) return;
-
-      h->Scale(factor);
-      dir->cd();
-      h->Write(histName, TObject::kOverwrite);
-      f.cd();
+    const char* objPaths[3] = {
+      "MBD_NS_geq_2_vtx_lt_150/h_maxEnergyClus_NewTriggerFilling_perRunCorrected_MBD_NS_geq_2_vtx_lt_150",
+      "Photon_10/h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_10",
+      "Photon_12/h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_12"
+    };
+    const char* dirNames[3] = {
+      "MBD_NS_geq_2_vtx_lt_150",
+      "Photon_10",
+      "Photon_12"
+    };
+    const char* histNames[3] = {
+      "h_maxEnergyClus_NewTriggerFilling_perRunCorrected_MBD_NS_geq_2_vtx_lt_150",
+      "h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_10",
+      "h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_12"
+    };
+    double factors[3] = {
+      ${baselineScale},
+      ${pho10Scale},
+      ${pho12Scale}
     };
 
-    scaleOne(
-      "MBD_NS_geq_2_vtx_lt_150/h_maxEnergyClus_NewTriggerFilling_perRunCorrected_MBD_NS_geq_2_vtx_lt_150",
-      "MBD_NS_geq_2_vtx_lt_150",
-      "h_maxEnergyClus_NewTriggerFilling_perRunCorrected_MBD_NS_geq_2_vtx_lt_150",
-      ${baselineScale}
-    );
+    int foundTargets = 0;
+    for (int i = 0; i < 3; ++i)
+    {
+      if (factors[i] <= 0.0) continue;
+      TH1* h = dynamic_cast<TH1*>(f.Get(objPaths[i]));
+      if (h) ++foundTargets;
+    }
 
-    scaleOne(
-      "Photon_10/h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_10",
-      "Photon_10",
-      "h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_10",
-      ${pho10Scale}
-    );
+    if (foundTargets == 0)
+    {
+      std::cout << "__SCALEDTRIGQA_STATUS__ skip_no_targets\\n";
+    }
+    else
+    {
+      int scaledTargets = 0;
+      for (int i = 0; i < 3; ++i)
+      {
+        if (factors[i] <= 0.0) continue;
+        TH1* h = dynamic_cast<TH1*>(f.Get(objPaths[i]));
+        if (!h) continue;
+        TDirectory* dir = f.GetDirectory(dirNames[i]);
+        if (!dir) continue;
 
-    scaleOne(
-      "Photon_12/h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_12",
-      "Photon_12",
-      "h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_12",
-      ${pho12Scale}
-    );
+        h->Scale(factors[i]);
+        dir->cd();
+        h->Write(histNames[i], TObject::kOverwrite);
+        f.cd();
+        ++scaledTargets;
+      }
 
-    TNamed marker("scaledTrigQA_perRunCorrected_applied", "1");
-    marker.Write("scaledTrigQA_perRunCorrected_applied", TObject::kOverwrite);
-    f.Write("", TObject::kOverwrite);
+      if (scaledTargets > 0)
+      {
+        TNamed marker("scaledTrigQA_perRunCorrected_applied", "1");
+        marker.Write("scaledTrigQA_perRunCorrected_applied", TObject::kOverwrite);
+        std::cout << "__SCALEDTRIGQA_STATUS__ scaled " << scaledTargets << "\\n";
+      }
+      else
+      {
+        std::cout << "__SCALEDTRIGQA_STATUS__ skip_no_writable_targets\\n";
+      }
+    }
+  }
+  else
+  {
+    std::cout << "__SCALEDTRIGQA_STATUS__ already_applied\\n";
   }
   f.Close();
 }
 EOF
 
-  if ! root -l -b -q "$macro" >/dev/null 2>&1; then
-    warn "scaledTrigQA: ROOT scaling failed for ${rootfile}"
-  fi
+  local root_output root_rc
+  set +e
+  root_output="$(root -l -b -q "$macro" 2>&1)"
+  root_rc=$?
+  set -e
   rm -f "$macro"
+
+  if (( root_rc != 0 )); then
+    if (( root_rc == 130 || root_rc == 143 )); then
+      warn "scaledTrigQA: interrupted while scaling ${rootfile}; stopping"
+      return "$root_rc"
+    fi
+    warn "scaledTrigQA: ROOT scaling failed for ${rootfile}"
+    SCALED_TRIG_LAST_STATUS="failed"
+    return 0
+  fi
+
+  case "$root_output" in
+    *"__SCALEDTRIGQA_STATUS__ scaled "*)
+      SCALED_TRIG_LAST_STATUS="scaled"
+      ;;
+    *"__SCALEDTRIGQA_STATUS__ skip_no_targets"*)
+      SCALED_TRIG_LAST_STATUS="skip_no_targets"
+      ;;
+    *"__SCALEDTRIGQA_STATUS__ skip_no_writable_targets"*)
+      SCALED_TRIG_LAST_STATUS="skip_no_writable_targets"
+      ;;
+    *"__SCALEDTRIGQA_STATUS__ already_applied"*)
+      SCALED_TRIG_LAST_STATUS="already_applied"
+      ;;
+    *"__SCALEDTRIGQA_STATUS__ open_failed"*)
+      SCALED_TRIG_LAST_STATUS="failed"
+      ;;
+    *)
+      SCALED_TRIG_LAST_STATUS="unknown"
+      ;;
+  esac
 }
 
 scale_scaled_trig_qa_partials() {
@@ -367,9 +440,51 @@ scale_scaled_trig_qa_partials() {
   say "scaledTrigQA: checking ${#partials[@]} per-run partials in ${partial_dir}"
 
   local f
+  local checked=0 scaled=0 skipped_no_targets=0 skipped_no_writable_targets=0 already_applied=0 no_config=0 failed=0 unknown=0
   for f in "${partials[@]}"; do
     scale_per_run_corrected_histograms_in_file "$f"
+    case "${SCALED_TRIG_LAST_STATUS:-unknown}" in
+      not_checked|not_in_runlist)
+        ;;
+      scaled)
+        (( checked += 1 ))
+        (( scaled += 1 ))
+        ;;
+      skip_no_targets)
+        (( checked += 1 ))
+        (( skipped_no_targets += 1 ))
+        ;;
+      skip_no_writable_targets)
+        (( checked += 1 ))
+        (( skipped_no_writable_targets += 1 ))
+        ;;
+      already_applied)
+        (( checked += 1 ))
+        (( already_applied += 1 ))
+        ;;
+      no_config)
+        (( checked += 1 ))
+        (( no_config += 1 ))
+        ;;
+      failed)
+        (( checked += 1 ))
+        (( failed += 1 ))
+        ;;
+      *)
+        (( checked += 1 ))
+        (( unknown += 1 ))
+        ;;
+    esac
   done
+
+  if (( checked > 0 )); then
+    say "scaledTrigQA: inspected ${checked} run-listed partials: scaled=${scaled}, skipped_no_targets=${skipped_no_targets}, already_applied=${already_applied}, missing_config=${no_config}, failed=${failed}"
+    if (( skipped_no_writable_targets > 0 || unknown > 0 )); then
+      warn "scaledTrigQA: additional skipped/unknown statuses: skip_no_writable_targets=${skipped_no_writable_targets}, unknown=${unknown}"
+    fi
+  else
+    say "scaledTrigQA: no per-run partials matched the scaled-trigger run list"
+  fi
 }
 
 # ------------------------ Tag helpers (QA cross-check only) ----------------
@@ -602,7 +717,8 @@ build_cfg_tags_from_yaml() {
       ;;
   esac
 
-  local pt frac vz cone iso uep pre tight nonTight tag selection_tag
+  local pt frac vz cone iso uep pre tight nonTight tag selection_tag full_tag
+  local cfg_suffix="${MERGE_CFG_SUFFIX:-}"
   local tight_norm nonTight_norm
   for pt in "${jet_pts[@]}"; do
     for frac in "${b2bs[@]}"; do
@@ -621,10 +737,11 @@ build_cfg_tags_from_yaml() {
                   tag="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_dir_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso}"
                   for uep in "${uepipes[@]}"; do
                     if (( include_uepipe_in_tag )); then
-                      echo "${tag}_${uep}_${selection_tag}"
+                      full_tag="${tag}_${uep}_${selection_tag}"
                     else
-                      echo "${tag}_${selection_tag}"
+                      full_tag="${tag}_${selection_tag}"
                     fi
+                    echo "${full_tag}${cfg_suffix}"
                   done
                 done
               done
