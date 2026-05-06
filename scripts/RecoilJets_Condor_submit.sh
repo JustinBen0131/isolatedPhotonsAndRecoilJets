@@ -1005,6 +1005,35 @@ split_pool_replay_fanout_shards() {
   done
 }
 
+check_dag_worker_job_budget() {
+  local label="$1" capture_jobs="$2" replay_jobs="$3" dryrun="${4:-0}"
+  local max_jobs="${RJ_DAG_MAX_WORKER_JOBS:-50000}"
+  local warn_jobs="${RJ_DAG_WARN_WORKER_JOBS:-40000}"
+  [[ "$max_jobs" =~ ^[0-9]+$ && "$max_jobs" -gt 0 ]] || max_jobs=50000
+  [[ "$warn_jobs" =~ ^[0-9]+$ && "$warn_jobs" -gt 0 ]] || warn_jobs=40000
+  local total_jobs=$(( capture_jobs + replay_jobs ))
+
+  say "${BOLD}Worker-job budget check:${RST} ${label}"
+  say "  capture worker jobs : ${capture_jobs}"
+  say "  replay worker jobs  : ${replay_jobs}"
+  say "  total worker jobs   : ${total_jobs}"
+  say "  warning / hard cap  : ${warn_jobs} / ${max_jobs}"
+
+  if (( total_jobs > max_jobs )); then
+    if (( dryrun )); then
+      warn "Dry-run DAG exceeds RJ_DAG_MAX_WORKER_JOBS=${max_jobs}; not submitting because RJ_DAG_DRYRUN=1."
+    elif [[ "${RJ_DAG_ALLOW_OVER_BUDGET:-0}" == "1" || "${RJ_DAG_ALLOW_OVER_BUDGET:-0}" == "true" || "${RJ_DAG_ALLOW_OVER_BUDGET:-0}" == "TRUE" ]]; then
+      warn "DAG exceeds RJ_DAG_MAX_WORKER_JOBS=${max_jobs}, but RJ_DAG_ALLOW_OVER_BUDGET is enabled."
+    else
+      err "Refusing to submit ${label}: planned worker jobs (${total_jobs}) exceed RJ_DAG_MAX_WORKER_JOBS=${max_jobs}."
+      err "Reduce job count by increasing groupSize / RJ_POOL_REPLAY_GROUP_SIZE, increasing RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD, or splitting the production into smaller rounds."
+      exit 64
+    fi
+  elif (( total_jobs >= warn_jobs )); then
+    warn "${label} is in the high job-count zone (${total_jobs} worker jobs). This is allowed, but keep it near the 40k-50k comfort band."
+  fi
+}
+
 publish_production_manifest() {
   local manifest="$1" out_base="$2"
   [[ -s "$manifest" && -n "$out_base" ]] || return 0
@@ -2721,6 +2750,8 @@ submit_data_pool_workflow() {
   declare -A pool_list_by_tag_run=()
   local capture_count=0
   local replay_count=0
+  local capture_job_total=0
+  local replay_job_total=0
   local analysis_tag
   analysis_tag="$(data_analysis_tag_for_dataset "$DATASET")"
 
@@ -2842,6 +2873,7 @@ SUB
         printf 'JOB %s %s\n' "$cap_node" "$cap_sub" >> "$dag"
         cap_node_by_tag["$cap_tag"]="$cap_node"
         (( capture_count+=1 ))
+        (( capture_job_total+=queued ))
         echo "capture_node=${cap_node} tag=${cap_tag} jobs=${queued} yaml=${cap_yaml} output=${cap_root}" >> "$manifest"
         echo "profile_glob=${OUT_DIR}/${cap_prefix}.*.out" >> "$manifest"
         (( trace_pool )) && say "[poolSmoke] capture node ready: node=${cap_node} jobs=${queued} runsSeen=${runs_seen} runsWithGroups=${runs_with_groups} sub=${cap_sub}"
@@ -2960,6 +2992,7 @@ SUB
         printf 'JOB %s %s\n' "$replay_node" "$replay_sub" >> "$dag"
       fi
       (( replay_count+=1 ))
+      (( replay_job_total+=queued ))
       (( cell_num+=shard_rows ))
       echo "replay_node=${replay_node} cap_tag=${cap_tag} shard=${shard_i}/${#fanout_shards[@]} jobs=${queued} fanout_outputs=${shard_rows} fanout_roots=${shard_roots} fanout=${fanout_shard} parent_fanout=${fanout_dirs}" >> "$manifest"
       echo "profile_glob=${OUT_DIR}/${replay_prefix}.*.out" >> "$manifest"
@@ -2985,8 +3018,18 @@ SUB
   say "DATA pool DAG build summary:"
   say "  capture nodes : ${capture_count}"
   say "  replay nodes  : ${replay_count}"
+  say "  capture jobs  : ${capture_job_total}"
+  say "  replay jobs   : ${replay_job_total}"
   say "  manifest      : ${manifest}"
   say "  dag           : ${dag}"
+  {
+    echo "capture_worker_jobs=${capture_job_total}"
+    echo "replay_worker_jobs=${replay_job_total}"
+    echo "total_worker_jobs=$(( capture_job_total + replay_job_total ))"
+    echo "dag_max_worker_jobs=${RJ_DAG_MAX_WORKER_JOBS:-50000}"
+    echo "dag_warn_worker_jobs=${RJ_DAG_WARN_WORKER_JOBS:-40000}"
+  } >> "$manifest"
+  check_dag_worker_job_budget "DATA pool workflow ${TAG}" "$capture_job_total" "$replay_job_total" "$dag_dryrun"
   (( trace_pool )) && say "[poolSmoke] publishing latest manifest marker under ${out_base}"
   publish_production_manifest "$manifest" "$out_base"
   (( trace_pool )) && say "[poolSmoke] DAG build complete; submit step next (dryrun=${dag_dryrun})"
@@ -5233,6 +5276,8 @@ SUB
     declare -A pool_list_by_key=()
     capture_count=0
     replay_count=0
+    capture_job_total=0
+    replay_job_total=0
 
     say "${BOLD}${ACTION} DAG requested${RST}"
     say "  dataset       : ${DATASET}"
@@ -5317,6 +5362,7 @@ SUB
           cap_node_by_key["${POOL_CAPTURE_TAG}|${SIM_SAMPLE}"]="$cap_node"
           pool_list_by_key["${POOL_CAPTURE_TAG}|${SIM_SAMPLE}"]="$expected_pool_list"
           (( capture_count+=1 ))
+          (( capture_job_total+=${#groups[@]} ))
           {
             echo "capture_node=${cap_node} tag=${POOL_CAPTURE_TAG} sample=${SIM_SAMPLE} jobs=${#groups[@]} yaml=${cap_yaml} output=${pool_out_dir}"
             echo "profile_glob=${OUT_DIR}/${cap_prefix}.*.out"
@@ -5401,6 +5447,7 @@ SUB
           printf 'JOB %s %s\n' "$replay_node" "$replay_sub" >> "$dag"
           printf 'PARENT %s CHILD %s\n' "$cap_node" "$replay_node" >> "$dag"
           (( replay_count+=1 ))
+          (( replay_job_total+=${#groups[@]} ))
           echo "replay_node=${replay_node} cap_tag=${POOL_CAPTURE_TAG} sample=${samp} shard=${shard_i}/${#fanout_shards[@]} jobs=${#groups[@]} fanout_outputs=${shard_rows} fanout_roots=${shard_roots} parent=${cap_node} fanout=${fanout_shard} parent_fanout=${fanout_dirs}" >> "$manifest"
           echo "profile_glob=${OUT_DIR}/${replay_prefix}.*.out" >> "$manifest"
           (( sim_smoke )) && say "[simSmoke] replay node ready: node=${replay_node} sample=${samp} jobs=${#groups[@]} parent=${cap_node} shard=${shard_i}/${#fanout_shards[@]} fanoutRows=${shard_rows} fanoutRoots=${shard_roots} sub=${replay_sub}"
@@ -5421,8 +5468,18 @@ SUB
     say "DAG build summary:"
     say "  capture nodes : ${capture_count}"
     say "  replay nodes  : ${replay_count}"
+    say "  capture jobs  : ${capture_job_total}"
+    say "  replay jobs   : ${replay_job_total}"
     say "  manifest      : ${manifest}"
     say "  dag           : ${dag}"
+    {
+      echo "capture_worker_jobs=${capture_job_total}"
+      echo "replay_worker_jobs=${replay_job_total}"
+      echo "total_worker_jobs=$(( capture_job_total + replay_job_total ))"
+      echo "dag_max_worker_jobs=${RJ_DAG_MAX_WORKER_JOBS:-50000}"
+      echo "dag_warn_worker_jobs=${RJ_DAG_WARN_WORKER_JOBS:-40000}"
+    } >> "$manifest"
+    check_dag_worker_job_budget "SIM pool workflow ${TAG}" "$capture_job_total" "$replay_job_total" "$dag_dryrun"
     publish_production_manifest "$manifest" "$out_base"
     if (( dag_dryrun && sim_smoke )); then
       echo "RECOILJETS_SMOKETEST_DRYRUN_V1"
@@ -5520,6 +5577,7 @@ SUB
       echo "submitted_at=${replay_stamp}"
     } > "$manifest"
     replay_count=0
+    replay_job_total=0
 
     DEST_BASE="${DEST_BASE%/}"
     for cone in "${capture_cones[@]}"; do
@@ -5600,6 +5658,7 @@ SUB
           replay_node="REP_$(sanitize_node_name "${POOL_CAPTURE_TAG}_${samp}_shard$(printf "%03d" "$shard_i")")"
           printf 'JOB %s %s\n' "$replay_node" "$sub" >> "$dag"
           (( replay_count+=1 ))
+          (( replay_job_total+=${#groups[@]} ))
           echo "replay_node=${replay_node} cap_tag=${POOL_CAPTURE_TAG} sample=${samp} shard=${shard_i}/${#fanout_shards[@]} jobs=${#groups[@]} fanout_outputs=${shard_rows} fanout_roots=${shard_roots} pool=${pool_dir} fanout=${fanout_shard} parent_fanout=${fanout_dirs}" >> "$manifest"
           echo "profile_glob=${OUT_DIR}/${SIM_JOB_PREFIX}.job.*.out" >> "$manifest"
           done
@@ -5611,8 +5670,17 @@ SUB
     printf 'FINAL FINAL_SUMMARY %s\n' "$final_sub" >> "$dag"
     say "Pool replay DAG build summary:"
     say "  replay nodes : ${replay_count}"
+    say "  replay jobs  : ${replay_job_total}"
     say "  manifest     : ${manifest}"
     say "  dag          : ${dag}"
+    {
+      echo "capture_worker_jobs=0"
+      echo "replay_worker_jobs=${replay_job_total}"
+      echo "total_worker_jobs=${replay_job_total}"
+      echo "dag_max_worker_jobs=${RJ_DAG_MAX_WORKER_JOBS:-50000}"
+      echo "dag_warn_worker_jobs=${RJ_DAG_WARN_WORKER_JOBS:-40000}"
+    } >> "$manifest"
+    check_dag_worker_job_budget "SIM pool replay ${TAG}" 0 "$replay_job_total" 0
     publish_production_manifest "$manifest" "$DEST_BASE"
     submit_dag_with_notify "$dag"
     ;;
