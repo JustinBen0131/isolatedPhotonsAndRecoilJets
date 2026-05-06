@@ -16,6 +16,8 @@
 #         detroit
 #     • Run-28 embedded photon+jet samples:
 #         embeddedPhoton12, embeddedPhoton20
+#     • Run-28 embedded inclusive jet samples:
+#         embeddedJet12, embeddedJet20
 #
 #   Standard Run-28 pp packs are built from:
 #     /sphenix/lustre01/sphnxpro/mdc2/js_pp200_signal
@@ -41,7 +43,9 @@
 #     ├─ run28_jet5/
 #     ├─ run28_detroit/
 #     ├─ run28_embeddedPhoton12/
-#     └─ run28_embeddedPhoton20/
+#     ├─ run28_embeddedPhoton20/
+#     ├─ run28_embeddedJet12/
+#     └─ run28_embeddedJet20/
 #
 #   Each pack contains:
 #     • raw single-column lists
@@ -104,9 +108,12 @@ PHOTONJET_SAMPLES=( "photonjet5" "photonjet10" "photonjet20" )
 JET_SAMPLES=( "jet5" )
 MB_SAMPLES=( "detroit" )
 EMBEDDED_PHOTONJET_SAMPLES=( "embeddedPhoton12" "embeddedPhoton20" )
-EMBEDDED_INCLUSIVE_SAMPLES=( "embeddedJet10" "embeddedJet20" )
+# Current embedded inclusive background production uses jet12/jet20.
+# embeddedJet10 remains supported as an explicit legacy sample name below.
+EMBEDDED_INCLUSIVE_SAMPLES=( "embeddedJet12" "embeddedJet20" )
 REQUESTED_SAMPLES=()
 CLEAN_STALE_EMBEDDED_PHOTON10="false"
+PING_ONLY="false"
 
 MDC2_BASE="/sphenix/lustre01/sphnxpro/mdc2/js_pp200_signal"
 EMBED_BASE="/sphenix/tg/tg01/commissioning/CaloCalibWG/bseidlitz/embed_2025"
@@ -133,6 +140,9 @@ while [[ $# -gt 0 ]]; do
     --outroot) OUTROOT="${2:-}"; shift 2 ;;
     --head)    HEAD_TAIL_LINES="${2:-8}"; shift 2 ;;
     --quiet)   VERBOSE="false"; shift 1 ;;
+    ping|PING|--ping)
+      PING_ONLY="true"; shift 1
+      ;;
     -h|--help)
       sed -n '1,200p' "$0" | sed 's/^# \{0,1\}//g'
       exit 0
@@ -142,10 +152,10 @@ while [[ $# -gt 0 ]]; do
       CLEAN_STALE_EMBEDDED_PHOTON10="true"
       shift 1
       ;;
-    isInclusiveEmbedded)
-      REQUESTED_SAMPLES+=( "embeddedJet10" "embeddedJet20" ); shift 1
+    isInclusiveEmbedded|isSimEmbeddedInclusive)
+      REQUESTED_SAMPLES+=( "embeddedJet12" "embeddedJet20" ); shift 1
       ;;
-    photonjet5|photonjet10|photonjet20|jet5|detroit|embeddedPhoton12|embeddedPhoton20|embeddedJet10|embeddedJet20)
+    photonjet5|photonjet10|photonjet20|jet5|detroit|embeddedPhoton12|embeddedPhoton20|embeddedJet10|embeddedJet12|embeddedJet20)
       REQUESTED_SAMPLES+=( "$1" ); shift 1
       ;;
     *) echo "[WARN $(date '+%H:%M:%S')] Unknown arg: $1"; shift 1 ;;
@@ -779,6 +789,15 @@ build_embedded_pack_lists() {
 
   (( n_keep > 0 )) || die "No complete embedded OutDir entries found under: ${embeddir}"
 
+  local n_incomplete
+  n_incomplete=$(( n_outdirs - n_keep ))
+  if (( n_incomplete == 0 )); then
+    ok "Embedded completeness: COMPLETE (${n_keep}/${n_outdirs} OutDirs have calo+G4+truth-jet+global)"
+  else
+    warn "Embedded completeness: INCOMPLETE (${n_keep}/${n_outdirs} usable; dropped ${n_incomplete})"
+    warn "  missing calo=${n_miss_calo}  g4=${n_miss_g4}  truthJets=${n_miss_jets}  global=${n_miss_global}"
+  fi
+
   ok "Wrote $(printf '%6d' "$n_keep") -> DST_CALO_CLUSTER.list"
   preview_head "$raw_calo" "$HEAD_TAIL_LINES"
   ok "Wrote $(printf '%6d' "$n_keep") -> DST_JETS.list"
@@ -809,6 +828,7 @@ build_embedded_pack_lists() {
     echo "SOURCE ROOT: ${embeddir}"
     echo "TOTAL OutDir containers : ${n_outdirs}"
     echo "USABLE aligned entries  : ${n_keep}"
+    echo "INCOMPLETE OutDirs      : ${n_incomplete}"
     echo "MISSING COUNTS:"
     printf "  DST_CALO_CLUSTER : %d  (%s)\n" "$n_miss_calo" "$miss_calo"
     printf "  G4Hits           : %d  (%s)\n" "$n_miss_g4" "$miss_g4"
@@ -850,6 +870,98 @@ preview_head() {
   else
     printf "%b  preview (first %d basenames):%b\n" "$C_DIM" "$k" "$C_RESET" >&2
     head -n "$k" "$f" 2>/dev/null | awk -F/ '{print "    " $NF}' >&2 || true
+  fi
+}
+
+embedded_sample_dir() {
+  local sample="$1"
+  case "$sample" in
+    embeddedPhoton12) printf '%s\n' "${EMBED_BASE}/photon12" ;;
+    embeddedPhoton20) printf '%s\n' "${EMBED_BASE}/photon20" ;;
+    embeddedJet10)    printf '%s\n' "${EMBED_BASE}/jet10" ;;
+    embeddedJet12)    printf '%s\n' "${EMBED_BASE}/jet12" ;;
+    embeddedJet20)    printf '%s\n' "${EMBED_BASE}/jet20" ;;
+    *) return 1 ;;
+  esac
+}
+
+ping_embedded_pack() {
+  local sample="$1"
+  local embeddir
+  embeddir="$(embedded_sample_dir "$sample")" || {
+    warn "ping supports only embedded samples; skipping ${sample}"
+    return 0
+  }
+
+  [[ -d "$embeddir" ]] || die "Embedded source directory missing for ${sample}: ${embeddir}"
+
+  local tmpdir; tmpdir="$(mktemp -d)"
+  trap '[[ -n "${tmpdir:-}" ]] && rm -rf "${tmpdir}"' RETURN
+
+  local outdirs="${tmpdir}/outdirs.list"
+  find "$embeddir" -mindepth 1 -maxdepth 1 -type d -name 'OutDir*' -print | sort -V > "$outdirs"
+
+  local n_outdirs max_idx expected_from_max n_holes
+  n_outdirs="$(wc -l < "$outdirs" | tr -d ' ')"
+  if (( n_outdirs == 0 )); then
+    printf 'sample=%s source=%s outdirs=0 status=MISSING_OUTDIRS\n' "$sample" "$embeddir"
+    return 0
+  fi
+
+  max_idx="$(
+    awk -F/ '
+      {
+        name=$NF
+        sub(/^OutDir/, "", name)
+        if (name ~ /^[0-9]+$/ && name+0 > max) max=name+0
+      }
+      END { print max+0 }
+    ' "$outdirs"
+  )"
+  expected_from_max=$(( max_idx + 1 ))
+  n_holes=$(( expected_from_max - n_outdirs ))
+
+  local missing_ids="${tmpdir}/missing_outdir_ids.list"
+  awk -F/ '
+    {
+      name=$NF
+      sub(/^OutDir/, "", name)
+      if (name ~ /^[0-9]+$/) seen[name+0]=1
+    }
+    END {
+      for (i=0; i<=max; ++i) if (!(i in seen)) print i
+    }
+  ' "$outdirs" > "$missing_ids"
+
+  local n_complete=0 n_miss_calo=0 n_miss_g4=0 n_miss_jets=0 n_miss_global=0
+  local od calo g4 jets global complete
+  while IFS= read -r od; do
+    [[ -n "$od" ]] || continue
+    calo="$(find "$od" -maxdepth 1 \( -type f -o -type l \) -iname 'DST_CALO_*.root' -print | sort -V | head -n 1 || true)"
+    g4="$(find "$od" -maxdepth 1 \( -type f -o -type l \) -iname 'DST_TRUTH_G4HIT_*.root' -print | sort -V | head -n 1 || true)"
+    jets="$(find "$od" -maxdepth 1 \( -type f -o -type l \) -iname 'DST_TRUTH_JET_*.root' -print | sort -V | head -n 1 || true)"
+    global="$(find "$od" -maxdepth 1 \( -type f -o -type l \) -iname 'DST_GLOBAL_*.root' -print | sort -V | head -n 1 || true)"
+
+    complete="true"
+    [[ -n "$calo" ]] || { n_miss_calo=$(( n_miss_calo + 1 )); complete="false"; }
+    [[ -n "$g4" ]] || { n_miss_g4=$(( n_miss_g4 + 1 )); complete="false"; }
+    [[ -n "$jets" ]] || { n_miss_jets=$(( n_miss_jets + 1 )); complete="false"; }
+    [[ -n "$global" ]] || { n_miss_global=$(( n_miss_global + 1 )); complete="false"; }
+    [[ "$complete" == "true" ]] && n_complete=$(( n_complete + 1 ))
+  done < "$outdirs"
+
+  local n_incomplete status
+  n_incomplete=$(( n_outdirs - n_complete ))
+  status="INCOMPLETE"
+  (( n_holes == 0 && n_incomplete == 0 )) && status="COMPLETE"
+
+  printf 'sample=%s source=%s status=%s outdirs=%d maxOutDir=%d expected0ToMax=%d holes=%d completeFiles=%d incompleteFiles=%d missing(calo,g4,truthJet,global)=(%d,%d,%d,%d)\n' \
+    "$sample" "$embeddir" "$status" "$n_outdirs" "$max_idx" "$expected_from_max" "$n_holes" \
+    "$n_complete" "$n_incomplete" "$n_miss_calo" "$n_miss_g4" "$n_miss_jets" "$n_miss_global"
+
+  if (( n_holes > 0 )); then
+    printf '  firstMissingOutDirIds: '
+    head -n 20 "$missing_ids" | paste -sd' ' -
   fi
 }
 
@@ -996,6 +1108,32 @@ build_pack() {
 
     MBD_OK="false"
     embed_mode_note="embedded jet10 (OutDir scan)"
+
+  elif [[ "$sample" == "embeddedJet12" ]]; then
+    EMBED_MODE="true"
+
+    embeddir="${EMBED_BASE}/jet12"
+
+    g4dir="$embeddir"
+    calodir="$embeddir"
+    gldir="$embeddir"
+    jetsdir="$embeddir"
+    mbddir=""
+    trkdir="$embeddir"
+
+    calo_pattern="DST_CALO_*.root"
+    g4_pattern="DST_TRUTH_G4HIT_*.root"
+    jets_pattern="DST_TRUTH_JET_*.root"
+    global_pattern="DST_GLOBAL_*.root"
+    mbd_pattern=""
+
+    calo_label="DST_CALO_CLUSTER (mapped from embedded DST_CALO) [ANCHOR]"
+    jets_label="DST_JETS (mapped from embedded DST_TRUTH_JET)"
+    global_label="DST_GLOBAL (embedded)"
+    mbd_label="DST_MBD_EPD (placeholder NONE; no standalone embedded MBD file found)"
+
+    MBD_OK="false"
+    embed_mode_note="embedded jet12 (OutDir scan)"
 
   elif [[ "$sample" == "embeddedJet20" ]]; then
     EMBED_MODE="true"
@@ -1436,6 +1574,13 @@ SAMPLES_TO_BUILD=( "${ALL_SAMPLES[@]}" )
 
 if (( ${#REQUESTED_SAMPLES[@]} > 0 )); then
   SAMPLES_TO_BUILD=( "${REQUESTED_SAMPLES[@]}" )
+fi
+
+if [[ "$PING_ONLY" == "true" ]]; then
+  for sample in "${SAMPLES_TO_BUILD[@]}"; do
+    ping_embedded_pack "$sample"
+  done
+  exit 0
 fi
 
 rule

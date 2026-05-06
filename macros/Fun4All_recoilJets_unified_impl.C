@@ -567,9 +567,13 @@ namespace yamlcfg
         std::vector<std::string> npb_features;
 
         std::string tight_bdt_model_file = "";
-        double tight_bdt_min_intercept = 0.0;
-        double tight_bdt_min_slope = 0.0;
+        double tight_bdt_min_intercept = 0.8333333333333334;
+        double tight_bdt_min_slope = -0.003333333333333336;
         double tight_bdt_max = 1.0;
+        double nontight_bdt_min_intercept = 0.7333333333333333;
+        double nontight_bdt_min_slope = -0.01333333333333333;
+        double nontight_bdt_max_intercept = 0.6666666666666666;
+        double nontight_bdt_max_slope = 0.003333333333333336;
         std::vector<std::string> tight_bdt_features;
 
         std::string auau_npb_model_file = "";
@@ -580,13 +584,13 @@ namespace yamlcfg
         std::string auau_tight_bdt_centINDcontrol_model_file = "";
         std::string auau_tight_bdt_centAsFeat_model_file = "";
         std::vector<std::string> auau_tight_bdt_centDep_model_files;
-        double auau_tight_bdt_min_intercept = 0.0;
-        double auau_tight_bdt_min_slope = 0.0;
+        double auau_tight_bdt_min_intercept = 0.8333333333333334;
+        double auau_tight_bdt_min_slope = -0.003333333333333336;
         double auau_tight_bdt_max = 1.0;
-        double auau_nontight_bdt_min_intercept = -1.0;
-        double auau_nontight_bdt_min_slope = 0.0;
-        double auau_nontight_bdt_max_intercept = 1.0;
-        double auau_nontight_bdt_max_slope = 0.0;
+        double auau_nontight_bdt_min_intercept = 0.7333333333333333;
+        double auau_nontight_bdt_min_slope = -0.01333333333333333;
+        double auau_nontight_bdt_max_intercept = 0.6666666666666666;
+        double auau_nontight_bdt_max_slope = 0.003333333333333336;
         std::vector<std::string> auau_tight_bdt_features;
         std::vector<std::string> auau_tight_bdt_centINDcontrol_features;
         std::vector<std::string> auau_tight_bdt_centAsFeat_features;
@@ -609,66 +613,103 @@ namespace yamlcfg
         std::string jet_ml_model_file = "";
         std::vector<std::string> jet_ml_features;
 
+        bool pool_capture_enabled = false;
+        bool pool_capture_only = true;
+        double pool_capture_photon_pt_min = 4.0;
+        double pool_capture_jet_pt_min = 0.0;
+        double pool_capture_truth_photon_pt_min = 4.0;
+        double pool_capture_truth_jet_pt_min = 0.0;
+        std::string pool_capture_output_base = "";
+
+        bool pool_replay_enabled = false;
+        std::string pool_replay_input_base = "";
+        std::string pool_replay_output_base = "";
+        std::string pool_replay_submit_action = "condorDoAll";
+
         bool doPi0Analysis = false;
     };
 
     static std::string NormalizePreselectionMode(std::string mode)
     {
         mode = detail::trim(mode);
-        if (mode == "" || mode == "Reference") return "reference";
-        if (mode == "VariantA" || mode == "varianta") return "variantA";
-        if (mode == "VariantB" || mode == "variantb") return "variantB";
-        if (mode == "VariantC" || mode == "variantc") return "variantC";
-        if (mode == "VariantD" || mode == "variantd") return "variantD";
-        if (mode == "VariantE" || mode == "variante") return "variantE";
+        std::string key = mode;
+        std::transform(key.begin(), key.end(), key.begin(),
+                       [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+        if (key == "" || key == "reference") return "reference";
+        if (key == "varianta" || key == "newppg12") return "newPPG12";
+        if (key == "variantb" || key == "noprecriteria") return "noPreCriteria";
+        if (key == "variantc" || key == "onlynpb") return "onlyNPB";
+        if (key == "variantd" || key == "refplusnpb") return "refPlusNPB";
+        if (key == "variante" || key == "auauonlynpb") return "auauOnlyNPB";
         return mode;
     }
 
     static bool IsPreselectionMode(const std::string& mode)
     {
-        return mode == "reference" || mode == "variantA" || mode == "variantB" ||
-               mode == "variantC" || mode == "variantD" || mode == "variantE";
+        return mode == "reference" || mode == "newPPG12" || mode == "noPreCriteria" ||
+               mode == "onlyNPB" || mode == "refPlusNPB" || mode == "auauOnlyNPB";
     }
 
     static bool PreselectionUsesNPB(const std::string& mode)
     {
-        return mode == "variantA" || mode == "variantC" || mode == "variantD";
+        return mode == "newPPG12" || mode == "onlyNPB" || mode == "refPlusNPB";
     }
 
     static bool PreselectionUsesAuAuNPB(const std::string& mode)
     {
-        return mode == "variantE";
+        return mode == "auauOnlyNPB";
     }
 
     static std::string NormalizeTightMode(std::string mode)
     {
         mode = detail::trim(mode);
-        if (mode == "" || mode == "Reference") return "reference";
-        if (mode == "VariantA" || mode == "varianta") return "variantA";
-        if (mode == "VariantB" || mode == "variantb") return "variantB";
-        if (mode == "centindcontrol" || mode == "CentINDControl" || mode == "centINDControl") return "centINDcontrol";
-        if (mode == "centasfeat" || mode == "CentAsFeat" || mode == "centAsFeature") return "centAsFeat";
-        if (mode == "centdepbdts" || mode == "CentDepBDTs" || mode == "centDepBDT") return "centDepBDTs";
+        std::string key = mode;
+        std::transform(key.begin(), key.end(), key.begin(),
+                       [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+        if (key == "" || key == "reference") return "reference";
+        if (key == "varianta" || key == "newppg12") return "newPPG12";
+        if (key == "variantb" || key == "auauembeddedbdt") return "auauEmbeddedBDT";
+        if (key == "centindcontrol") return "centINDcontrol";
+        if (key == "centasfeat" || key == "centasfeature") return "centAsFeat";
+        if (key == "centdepbdts" || key == "centdepbdt") return "centDepBDTs";
+        return mode;
+    }
+
+    static std::string NormalizeNonTightMode(std::string mode)
+    {
+        mode = detail::trim(mode);
+        std::string key = mode;
+        std::transform(key.begin(), key.end(), key.begin(),
+                       [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+        if (key == "" || key == "reference") return "reference";
+        if (key == "varianta" || key == "newppg12" || key == "bdtsideband") return "newPPG12";
+        if (key == "variantb" || key == "auaubdtsideband") return "auauBDTSideband";
+        if (key == "variantc" || key == "auaubdtcomplement") return "auauBDTComplement";
+        if (key == "centindcontrol") return "centINDcontrol";
+        if (key == "centasfeat" || key == "centasfeature") return "centAsFeat";
+        if (key == "centdepbdts" || key == "centdepbdt") return "centDepBDTs";
         return mode;
     }
 
     static bool IsTightMode(const std::string& mode)
     {
-        return mode == "reference" || mode == "variantA" || mode == "variantB" ||
+        return mode == "reference" || mode == "newPPG12" || mode == "auauEmbeddedBDT" ||
                mode == "centINDcontrol" || mode == "centAsFeat" || mode == "centDepBDTs";
+    }
+
+    static bool IsNonTightMode(const std::string& mode)
+    {
+        return mode == "reference" || mode == "newPPG12" || mode == "auauBDTSideband" ||
+               mode == "auauBDTComplement" || mode == "centINDcontrol" || mode == "centAsFeat" ||
+               mode == "centDepBDTs";
     }
 
     static bool IsAuAuTightBDTMode(const std::string& mode)
     {
-        return mode == "variantB" || mode == "centINDcontrol" ||
+        return mode == "auauEmbeddedBDT" || mode == "centINDcontrol" ||
                mode == "centAsFeat" || mode == "centDepBDTs";
     }
 
-    static bool IsAutoComplementTightMode(const std::string& mode)
-    {
-        return mode == "centINDcontrol" || mode == "centAsFeat" || mode == "centDepBDTs";
-    }
-    
     inline std::string DefaultYAMLPath()
     {
         std::string here = __FILE__;
@@ -864,12 +905,95 @@ namespace yamlcfg
             return cfg;
         }
         
+        std::string yamlSection;
         std::istringstream iss(cfg.yamlText);
-        for (std::string line; std::getline(iss, line); )
+        for (std::string rawLine; std::getline(iss, rawLine); )
         {
-            line = detail::trim(line);
+            std::string line = detail::trim(rawLine);
             if (line.empty()) continue;
             if (!line.empty() && line[0] == '#') continue;
+
+            if (line.size() > 1 && line.back() == ':' && line.find('[') == std::string::npos && line.find('{') == std::string::npos)
+            {
+                yamlSection = detail::trim(line.substr(0, line.size() - 1));
+                continue;
+            }
+
+            if (yamlSection == "pool_capture")
+            {
+                if (StartsWithKey(line, "enabled"))
+                {
+                    const std::string rhs = AfterColon(line);
+                    if (!ParseBool(rhs, cfg.pool_capture_enabled))
+                        warn_parse("pool_capture.enabled", rhs, "expected true/false");
+                    continue;
+                }
+                if (StartsWithKey(line, "capture_only"))
+                {
+                    const std::string rhs = AfterColon(line);
+                    if (!ParseBool(rhs, cfg.pool_capture_only))
+                        warn_parse("pool_capture.capture_only", rhs, "expected true/false");
+                    continue;
+                }
+                if (StartsWithKey(line, "output_base"))
+                {
+                    cfg.pool_capture_output_base = detail::trim(AfterColon(line));
+                    continue;
+                }
+                if (StartsWithKey(line, "photon_pt_min"))
+                {
+                    const std::string rhs = AfterColon(line);
+                    if (!ParseDouble(rhs, cfg.pool_capture_photon_pt_min))
+                        warn_parse("pool_capture.photon_pt_min", rhs, "expected a scalar double");
+                    continue;
+                }
+                if (StartsWithKey(line, "jet_pt_min"))
+                {
+                    const std::string rhs = AfterColon(line);
+                    if (!ParseDouble(rhs, cfg.pool_capture_jet_pt_min))
+                        warn_parse("pool_capture.jet_pt_min", rhs, "expected a scalar double");
+                    continue;
+                }
+                if (StartsWithKey(line, "truth_photon_pt_min"))
+                {
+                    const std::string rhs = AfterColon(line);
+                    if (!ParseDouble(rhs, cfg.pool_capture_truth_photon_pt_min))
+                        warn_parse("pool_capture.truth_photon_pt_min", rhs, "expected a scalar double");
+                    continue;
+                }
+                if (StartsWithKey(line, "truth_jet_pt_min"))
+                {
+                    const std::string rhs = AfterColon(line);
+                    if (!ParseDouble(rhs, cfg.pool_capture_truth_jet_pt_min))
+                        warn_parse("pool_capture.truth_jet_pt_min", rhs, "expected a scalar double");
+                    continue;
+                }
+            }
+            else if (yamlSection == "pool_replay")
+            {
+                if (StartsWithKey(line, "enabled"))
+                {
+                    const std::string rhs = AfterColon(line);
+                    if (!ParseBool(rhs, cfg.pool_replay_enabled))
+                        warn_parse("pool_replay.enabled", rhs, "expected true/false");
+                    continue;
+                }
+                if (StartsWithKey(line, "input_base"))
+                {
+                    cfg.pool_replay_input_base = detail::trim(AfterColon(line));
+                    continue;
+                }
+                if (StartsWithKey(line, "output_base"))
+                {
+                    cfg.pool_replay_output_base = detail::trim(AfterColon(line));
+                    continue;
+                }
+                if (StartsWithKey(line, "submit_action"))
+                {
+                    cfg.pool_replay_submit_action = detail::trim(AfterColon(line));
+                    continue;
+                }
+            }
             
             if (StartsWithKey(line, "photon_eta_abs_max"))
             {
@@ -1038,7 +1162,7 @@ namespace yamlcfg
                 if (IsPreselectionMode(rhs))
                     cfg.preselection = rhs;
                 else
-                    warn_parse("preselection", rhs, "expected reference|variantA|variantB|variantC|variantD|variantE (or inline list [..])");
+                    warn_parse("preselection", rhs, "expected reference|newPPG12|noPreCriteria|onlyNPB|refPlusNPB|auauOnlyNPB (old variantA/B/C/D/E aliases also accepted)");
             }
             else if (StartsWithKey(line, "tight"))
             {
@@ -1050,7 +1174,7 @@ namespace yamlcfg
                 if (IsTightMode(rhs))
                     cfg.tight = rhs;
                 else
-                    warn_parse("tight", rhs, "expected reference|variantA|variantB|centINDcontrol|centAsFeat|centDepBDTs (or inline list [..])");
+                    warn_parse("tight", rhs, "expected reference|newPPG12|auauEmbeddedBDT|centINDcontrol|centAsFeat|centDepBDTs");
             }
             else if (StartsWithKey(line, "nonTight"))
             {
@@ -1058,13 +1182,11 @@ namespace yamlcfg
                 std::vector<std::string> vals;
                 ParseInlineListStrings(rhs, vals);
                 if (!vals.empty()) rhs = vals.front();
-                rhs = NormalizeTightMode(rhs);
-                if (rhs == "VariantC" || rhs == "variantc") rhs = "variantC";
-                if (rhs == "reference" || rhs == "variantA" || rhs == "variantB" || rhs == "variantC" ||
-                    rhs == "centINDcontrol" || rhs == "centAsFeat" || rhs == "centDepBDTs")
+                rhs = NormalizeNonTightMode(rhs);
+                if (IsNonTightMode(rhs))
                     cfg.nonTight = rhs;
                 else
-                    warn_parse("nonTight", rhs, "expected reference|variantA|variantB|variantC|centINDcontrol|centAsFeat|centDepBDTs (or inline list [..])");
+                    warn_parse("nonTight", rhs, "expected reference|newPPG12|auauBDTSideband|auauBDTComplement|centINDcontrol|centAsFeat|centDepBDTs");
             }
             else if (StartsWithKey(line, "npb_model_file"))
             {
@@ -1104,6 +1226,30 @@ namespace yamlcfg
                 const std::string rhs = AfterColon(line);
                 if (!ParseDouble(rhs, cfg.tight_bdt_max))
                     warn_parse("tight_bdt_max", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "nontight_bdt_min_intercept"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.nontight_bdt_min_intercept))
+                    warn_parse("nontight_bdt_min_intercept", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "nontight_bdt_min_slope"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.nontight_bdt_min_slope))
+                    warn_parse("nontight_bdt_min_slope", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "nontight_bdt_max_intercept"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.nontight_bdt_max_intercept))
+                    warn_parse("nontight_bdt_max_intercept", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "nontight_bdt_max_slope"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.nontight_bdt_max_slope))
+                    warn_parse("nontight_bdt_max_slope", rhs, "expected a scalar double");
             }
             else if (StartsWithKey(line, "tight_bdt_features"))
             {
@@ -1493,6 +1639,111 @@ namespace yamlcfg
             edges.push_back(start + step * (double)i);
         }
         if (edges.empty() || std::fabs(edges.back() - stop) > 1e-9) edges.push_back(stop);
+    }
+}
+
+namespace idfanout
+{
+    struct Entry
+    {
+        std::string outRoot;
+        std::string cfgTag;
+        std::string preselection;
+        std::string tight;
+        std::string nonTight;
+    };
+
+    inline std::vector<std::string> SplitPipe(const std::string& line)
+    {
+        std::vector<std::string> out;
+        std::string cur;
+        std::istringstream ss(line);
+        while (std::getline(ss, cur, '|')) out.push_back(detail::trim(cur));
+        return out;
+    }
+
+    inline std::vector<Entry> LoadFromEnv()
+    {
+        std::vector<Entry> entries;
+        const char* rawPath = std::getenv("RJ_ID_FANOUT_FILE");
+        if (!rawPath || !*rawPath) return entries;
+
+        const std::string path = detail::trim(std::string(rawPath));
+        if (path.empty()) return entries;
+
+        std::ifstream in(path);
+        if (!in.is_open())
+        {
+            detail::bail("RJ_ID_FANOUT_FILE is set but cannot be opened: " + path);
+        }
+
+        for (std::string line; std::getline(in, line); )
+        {
+            line = detail::trim(line);
+            if (line.empty() || line[0] == '#') continue;
+            const auto cols = SplitPipe(line);
+            if (cols.size() != 5)
+            {
+                detail::bail("Bad RJ_ID_FANOUT_FILE row. Expected outRoot|cfgTag|preselection|tight|nonTight, got: " + line);
+            }
+
+            Entry e;
+            e.outRoot = cols[0];
+            e.cfgTag = cols[1];
+            e.preselection = yamlcfg::NormalizePreselectionMode(cols[2]);
+            e.tight = yamlcfg::NormalizeTightMode(cols[3]);
+            e.nonTight = yamlcfg::NormalizeNonTightMode(cols[4]);
+
+            if (e.outRoot.empty()) detail::bail("RJ_ID_FANOUT_FILE row has empty outRoot: " + line);
+            if (!yamlcfg::IsPreselectionMode(e.preselection))
+                detail::bail("RJ_ID_FANOUT_FILE row has invalid preselection: " + cols[2]);
+            if (!yamlcfg::IsTightMode(e.tight))
+                detail::bail("RJ_ID_FANOUT_FILE row has invalid tight: " + cols[3]);
+            if (!yamlcfg::IsNonTightMode(e.nonTight))
+                detail::bail("RJ_ID_FANOUT_FILE row has invalid nonTight: " + cols[4]);
+
+            entries.push_back(e);
+        }
+
+        if (entries.empty())
+        {
+            detail::bail("RJ_ID_FANOUT_FILE was provided but contained no usable rows: " + path);
+        }
+        return entries;
+    }
+
+    inline void ReplaceOrAppendScalar(std::string& text,
+                                      const std::string& key,
+                                      const std::string& value)
+    {
+        std::istringstream in(text);
+        std::ostringstream out;
+        bool replaced = false;
+        for (std::string line; std::getline(in, line); )
+        {
+            std::string trimmed = detail::trim(line);
+            if (!replaced && trimmed.rfind(key + ":", 0) == 0)
+            {
+                out << key << ": " << value << '\n';
+                replaced = true;
+            }
+            else
+            {
+                out << line << '\n';
+            }
+        }
+        if (!replaced) out << key << ": " << value << '\n';
+        text = out.str();
+    }
+
+    inline std::string YAMLForEntry(const std::string& baseYaml, const Entry& e)
+    {
+        std::string text = baseYaml;
+        ReplaceOrAppendScalar(text, "preselection", e.preselection);
+        ReplaceOrAppendScalar(text, "tight", e.tight);
+        ReplaceOrAppendScalar(text, "nonTight", e.nonTight);
+        if (!e.cfgTag.empty()) ReplaceOrAppendScalar(text, "analysis_cfg_tag", e.cfgTag);
+        return text;
     }
 }
 
@@ -2205,35 +2456,85 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     }
     if (const char* env = std::getenv("RJ_NONTIGHT_VARIANT"))
     {
-        std::string s = yamlcfg::NormalizeTightMode(std::string(env));
+        std::string s = yamlcfg::NormalizeNonTightMode(std::string(env));
         if (!s.empty()) cfg.nonTight = s;
+    }
+    std::string poolMode = "";
+    if (const char* env = std::getenv("RJ_POOL_MODE"))
+    {
+        poolMode = detail::trim(std::string(env));
+        std::string key = poolMode;
+        std::transform(key.begin(), key.end(), key.begin(),
+                       [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+        if (key == "capture" || key == "captureonly" || key == "capture_only")
+        {
+            cfg.pool_capture_enabled = true;
+            cfg.pool_capture_only = true;
+        }
+        else if (key == "captureplushist" || key == "capture_and_hist")
+        {
+            cfg.pool_capture_enabled = true;
+            cfg.pool_capture_only = false;
+        }
+        else if (key == "off" || key == "none")
+        {
+            cfg.pool_capture_enabled = false;
+            cfg.pool_capture_only = false;
+        }
+        else if (!key.empty())
+        {
+            detail::bail("RJ_POOL_MODE must be off|capture|captureOnly|capturePlusHist, got: " + poolMode);
+        }
     }
     if (!yamlcfg::IsPreselectionMode(cfg.preselection))
     {
-        detail::bail("preselection must be 'reference', 'variantA', 'variantB', 'variantC', 'variantD', or 'variantE'.");
+        detail::bail("preselection must be 'reference', 'newPPG12', 'noPreCriteria', 'onlyNPB', 'refPlusNPB', or 'auauOnlyNPB'. Old variantA/B/C/D/E aliases are accepted in YAML/env parsing.");
     }
     if (!yamlcfg::IsTightMode(cfg.tight))
     {
-        detail::bail("tight must be 'reference', 'variantA', 'variantB', 'centINDcontrol', 'centAsFeat', or 'centDepBDTs'.");
+        detail::bail("tight must be 'reference', 'newPPG12', 'auauEmbeddedBDT', 'centINDcontrol', 'centAsFeat', or 'centDepBDTs'.");
     }
-    if (cfg.nonTight != "reference" && cfg.nonTight != "variantA" &&
-        cfg.nonTight != "variantB" && cfg.nonTight != "variantC" &&
-        cfg.nonTight != "centINDcontrol" && cfg.nonTight != "centAsFeat" &&
-        cfg.nonTight != "centDepBDTs")
+    if (!yamlcfg::IsNonTightMode(cfg.nonTight))
     {
-        detail::bail("nonTight must be 'reference', 'variantA', 'variantB', 'variantC', 'centINDcontrol', 'centAsFeat', or 'centDepBDTs'.");
+        detail::bail("nonTight must be 'reference', 'newPPG12', 'auauBDTSideband', 'auauBDTComplement', 'centINDcontrol', 'centAsFeat', or 'centDepBDTs'.");
     }
-    if (yamlcfg::IsAutoComplementTightMode(cfg.tight) && cfg.nonTight != cfg.tight)
+
+    std::vector<idfanout::Entry> idFanoutEntries = idfanout::LoadFromEnv();
+    if (cfg.pool_capture_enabled)
     {
-        if (vlevel > 0)
-        {
-            std::cout << "[CFG] tight=" << cfg.tight
-                      << " uses automatic non-tight complement; overriding nonTight="
-                      << cfg.nonTight << " -> " << cfg.tight << "\n";
-        }
-        cfg.nonTight = cfg.tight;
+        idFanoutEntries.clear();
     }
-    
+    if (idFanoutEntries.empty())
+    {
+        idfanout::Entry single;
+        single.outRoot = outRoot;
+        single.cfgTag = "";
+        single.preselection = cfg.preselection;
+        single.tight = cfg.tight;
+        single.nonTight = cfg.nonTight;
+        idFanoutEntries.push_back(single);
+    }
+
+    bool fanoutUsesNPB = false;
+    bool fanoutUsesAuAuNPB = false;
+    bool fanoutUsesNewPPG12Tight = false;
+    for (const auto& e : idFanoutEntries)
+    {
+        fanoutUsesNPB = fanoutUsesNPB || yamlcfg::PreselectionUsesNPB(e.preselection);
+        fanoutUsesAuAuNPB = fanoutUsesAuAuNPB || yamlcfg::PreselectionUsesAuAuNPB(e.preselection);
+        fanoutUsesNewPPG12Tight = fanoutUsesNewPPG12Tight || (e.tight == "newPPG12");
+    }
+    if (cfg.pool_capture_enabled)
+    {
+        fanoutUsesNPB = true;
+        fanoutUsesAuAuNPB = true;
+        fanoutUsesNewPPG12Tight = true;
+    }
+
+    cfg.preselection = idFanoutEntries.front().preselection;
+    cfg.tight = idFanoutEntries.front().tight;
+    cfg.nonTight = idFanoutEntries.front().nonTight;
+
     const std::vector<std::string> activeJetRKeys = yamlcfg::LoadJetRKeys(vlevel);
     
     std::vector<double> unfoldJetPtEdges;
@@ -3803,7 +4104,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         se->registerSubsystem(photonBuilder);
     }
     
-    if (yamlcfg::PreselectionUsesNPB(cfg.preselection))
+    if (fanoutUsesNPB)
     {
         if (cfg.npb_model_file.empty())
         {
@@ -3837,15 +4138,15 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         }
     }
 
-    if (yamlcfg::PreselectionUsesAuAuNPB(cfg.preselection))
+    if (fanoutUsesAuAuNPB)
     {
         if (cfg.auau_npb_model_file.empty())
         {
-            detail::bail("preselection=variantE requires auau_npb_model_file in analysis_config.yaml");
+            detail::bail("preselection=auauOnlyNPB requires auau_npb_model_file in analysis_config.yaml");
         }
         if (cfg.auau_npb_features.empty())
         {
-            detail::bail("preselection=variantE requires auau_npb_features in analysis_config.yaml");
+            detail::bail("preselection=auauOnlyNPB requires auau_npb_features in analysis_config.yaml");
         }
 
         preselectionPhotonNode = "PHOTONCLUSTER_CEMC";
@@ -3857,15 +4158,15 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                                            static_cast<float>(cfg.photon_eta_abs_max));
     }
     
-    if (cfg.tight == "variantA")
+    if (fanoutUsesNewPPG12Tight)
     {
         if (cfg.tight_bdt_model_file.empty())
         {
-            detail::bail("tight=variantA requires tight_bdt_model_file in analysis_config.yaml");
+            detail::bail("tight=newPPG12 requires tight_bdt_model_file in analysis_config.yaml");
         }
         if (cfg.tight_bdt_features.empty())
         {
-            detail::bail("tight=variantA requires tight_bdt_features in analysis_config.yaml");
+            detail::bail("tight=newPPG12 requires tight_bdt_features in analysis_config.yaml");
         }
 
         if (useSamePhotonBDTScores)
@@ -3907,7 +4208,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     std::vector<std::string> auauRuntimeTightFeatures;
     std::vector<std::string> auauRuntimeCentDepModelFiles;
 
-    if (cfg.tight == "variantB" || cfg.tight == "centINDcontrol" || cfg.tight == "centAsFeat")
+    if (cfg.tight == "auauEmbeddedBDT" || cfg.tight == "centINDcontrol" || cfg.tight == "centAsFeat")
     {
         std::string modelFile = cfg.auau_tight_bdt_model_file;
         std::vector<std::string> features = cfg.auau_tight_bdt_features;
@@ -3936,7 +4237,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         tightPhotonNode = "PHOTONCLUSTER_CEMC";
         auauRuntimeTightModelFile = modelFile;
         auauRuntimeTightFeatures = features;
-        if (cfg.tight == "variantB")
+        if (cfg.tight == "auauEmbeddedBDT")
         {
             photonBuilder->add_named_bdt_score("auau_tight_bdt_score",
                                                modelFile,
@@ -4007,8 +4308,6 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         << " | tightPhotonNode=" << tightPhotonNode << "\n";
     }
     
-    auto* recoilJets = new RecoilJets(outRoot);
-    
     auto fmtDouble = [](double x) -> std::string
     {
         std::ostringstream os;
@@ -4066,6 +4365,18 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_TIGHT_BDT_MAX",
                                                "RJ_TIGHT_BDT_MAX",
                                                fmtDouble(cfg.tight_bdt_max)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_NONTIGHT_BDT_MIN_INTERCEPT",
+                                               "RJ_NONTIGHT_BDT_MIN_INTERCEPT",
+                                               fmtDouble(cfg.nontight_bdt_min_intercept)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_NONTIGHT_BDT_MIN_SLOPE",
+                                               "RJ_NONTIGHT_BDT_MIN_SLOPE",
+                                               fmtDouble(cfg.nontight_bdt_min_slope)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_NONTIGHT_BDT_MAX_INTERCEPT",
+                                               "RJ_NONTIGHT_BDT_MAX_INTERCEPT",
+                                               fmtDouble(cfg.nontight_bdt_max_intercept)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_NONTIGHT_BDT_MAX_SLOPE",
+                                               "RJ_NONTIGHT_BDT_MAX_SLOPE",
+                                               fmtDouble(cfg.nontight_bdt_max_slope)));
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_BDT_MIN_INTERCEPT",
                                                "RJ_AUAU_TIGHT_BDT_MIN_INTERCEPT",
                                                fmtDouble(cfg.auau_tight_bdt_min_intercept)));
@@ -4149,13 +4460,26 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                                                cfg.jet_ml_use_as_nominal ? "true" : "false"));
     
     // ------------------------------------------------------------------
-    // Apply YAML-driven knobs
+    // Apply YAML-driven knobs. In fanout mode each RecoilJets instance gets
+    // its own output file and photon-ID triplet, but shares the expensive
+    // upstream DST, cluster, photon-score, and jet reconstruction pass.
     // ------------------------------------------------------------------
+    auto configureRecoilJetsInstance =
+    [&](RecoilJets* recoilJets, const idfanout::Entry& idEntry)
+    {
+    recoilJets->setPhotonIDVariants(idEntry.preselection,
+                                    idEntry.tight,
+                                    idEntry.nonTight,
+                                    preselectionPhotonNode,
+                                    tightPhotonNode);
     recoilJets->setPhotonEtaAbsMax(cfg.photon_eta_abs_max);
     recoilJets->setMinJetPt(cfg.jet_pt_min);
     recoilJets->setMinBackToBack(cfg.back_to_back_dphi_min_pi_fraction * M_PI);
     
-    recoilJets->setUseVzCut(cfg.use_vz_cut, cfg.vz_cut_cm);
+    if (cfg.pool_capture_enabled)
+        recoilJets->setUseVzCut(false, cfg.vz_cut_cm);
+    else
+        recoilJets->setUseVzCut(cfg.use_vz_cut, cfg.vz_cut_cm);
 #if defined(RJ_UNIFIED_ANALYSIS_AUAU)
     recoilJets->setMinBiasClassifier(cfg.setMinBiasClassifer);
     recoilJets->setCentEdges(cfg.centrality_edges);
@@ -4211,7 +4535,13 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     recoilJets->setUnfoldXJBins(cfg.unfold_xj_bins);
     
     recoilJets->enablePi0Analysis(cfg.doPi0Analysis);
-    recoilJets->setAnalysisConfigYAML(cfg.yamlText, "analysis_config.yaml");
+    recoilJets->enableAnalysisPoolCapture(cfg.pool_capture_enabled,
+                                          cfg.pool_capture_only,
+                                          cfg.pool_capture_photon_pt_min,
+                                          cfg.pool_capture_jet_pt_min,
+                                          cfg.pool_capture_truth_photon_pt_min,
+                                          cfg.pool_capture_truth_jet_pt_min);
+    recoilJets->setAnalysisConfigYAML(idfanout::YAMLForEntry(cfg.yamlText, idEntry), "analysis_config.yaml");
     
     if (vlevel > 0)
     {
@@ -4229,54 +4559,71 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         << " jetDR=" << cfg.jet_dr_max
         << " isoTowerMinApplied=" << recoilJetsIsoTowerMin
         << (isAuAuLike ? " (AuAu forced no isolation tower floor)" : "")
-        << " preselection=" << cfg.preselection
-        << " tight=" << cfg.tight
-        << " nonTight=" << cfg.nonTight
+        << " preselection=" << idEntry.preselection
+        << " tight=" << idEntry.tight
+        << " nonTight=" << idEntry.nonTight
+        << " output=" << idEntry.outRoot
         << "\n";
+        if (cfg.pool_capture_enabled)
+        {
+            std::cout << "[CFG] AnalysisPool capture:"
+                      << " captureOnly=" << (cfg.pool_capture_only ? "true" : "false")
+                      << " photonPtMin=" << cfg.pool_capture_photon_pt_min
+                      << " jetPtMin=" << cfg.pool_capture_jet_pt_min
+                      << " truthPhotonPtMin=" << cfg.pool_capture_truth_photon_pt_min
+                      << " truthJetPtMin=" << cfg.pool_capture_truth_jet_pt_min
+                      << "\n";
+        }
         
         std::cout << "[CFG] photon nodes:"
         << " base=PHOTONCLUSTER_CEMC"
         << " preselectionNode=" << preselectionPhotonNode
         << " tightNode=" << tightPhotonNode << "\n";
         
-        if (yamlcfg::PreselectionUsesNPB(cfg.preselection))
+        if (yamlcfg::PreselectionUsesNPB(idEntry.preselection))
         {
             std::cout << "[CFG] NPB preselection:"
-            << " variant=" << cfg.preselection
+            << " variant=" << idEntry.preselection
             << " model=" << cfg.npb_model_file
             << " cut=(score > " << cfg.npb_cut << ")"
             << " features_n=" << cfg.npb_features.size() << "\n";
         }
 
-        if (yamlcfg::PreselectionUsesAuAuNPB(cfg.preselection))
+        if (yamlcfg::PreselectionUsesAuAuNPB(idEntry.preselection))
         {
             std::cout << "[CFG] AuAu NPB preselection:"
-            << " variant=" << cfg.preselection
+            << " variant=" << idEntry.preselection
             << " model=" << cfg.auau_npb_model_file
             << " cut=(score > " << cfg.auau_npb_cut << ")"
             << " features_n=" << cfg.auau_npb_features.size() << "\n";
         }
         
-        if (cfg.tight == "variantA")
+        if (idEntry.tight == "newPPG12")
         {
             std::cout << "[CFG] tight BDT:"
             << " model=" << cfg.tight_bdt_model_file
             << " cut=(score > " << cfg.tight_bdt_min_slope << " * ET + " << cfg.tight_bdt_min_intercept
-            << " && score < " << cfg.tight_bdt_max << ")"
-            << " features_n=" << cfg.tight_bdt_features.size() << "\n";
+            << ")"
+            << " features_n=" << cfg.tight_bdt_features.size();
+            if (idEntry.nonTight == "newPPG12")
+            {
+                std::cout << " nonTight=(" << cfg.nontight_bdt_min_slope << " * ET + " << cfg.nontight_bdt_min_intercept
+                          << ", " << cfg.nontight_bdt_max_slope << " * ET + " << cfg.nontight_bdt_max_intercept << ")";
+            }
+            std::cout << "\n";
         }
 
-        if (yamlcfg::IsAuAuTightBDTMode(cfg.tight))
+        if (yamlcfg::IsAuAuTightBDTMode(idEntry.tight))
         {
             std::cout << "[CFG] AuAu tight BDT:"
-            << " mode=" << cfg.tight;
-            if (cfg.tight == "centINDcontrol")
+            << " mode=" << idEntry.tight;
+            if (idEntry.tight == "centINDcontrol")
                 std::cout << " model=" << (cfg.auau_tight_bdt_centINDcontrol_model_file.empty() ? cfg.auau_tight_bdt_model_file : cfg.auau_tight_bdt_centINDcontrol_model_file)
                           << " features_n=" << (cfg.auau_tight_bdt_centINDcontrol_features.empty() ? cfg.auau_tight_bdt_features.size() : cfg.auau_tight_bdt_centINDcontrol_features.size());
-            else if (cfg.tight == "centAsFeat")
+            else if (idEntry.tight == "centAsFeat")
                 std::cout << " model=" << (cfg.auau_tight_bdt_centAsFeat_model_file.empty() ? cfg.auau_tight_bdt_model_file : cfg.auau_tight_bdt_centAsFeat_model_file)
                           << " features=PPG12+centrality";
-            else if (cfg.tight == "centDepBDTs")
+            else if (idEntry.tight == "centDepBDTs")
                 std::cout << " models=" << cfg.auau_tight_bdt_centDep_model_files.size()
                           << " cent_edges=[" << joinInts(cfg.centrality_edges) << "]"
                           << " score_names=[" << joinStrings(auauCentDepScoreNames) << "]";
@@ -4286,11 +4633,15 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             std::cout
             << " cut=(score > " << cfg.auau_tight_bdt_min_slope << " * ET + " << cfg.auau_tight_bdt_min_intercept
             << " && score < " << cfg.auau_tight_bdt_max << ")";
-            if (yamlcfg::IsAutoComplementTightMode(cfg.tight))
-                std::cout << " nonTight=complement";
-            else
+            if (idEntry.nonTight == "auauBDTSideband")
+            {
                 std::cout << " nonTight=(" << cfg.auau_nontight_bdt_min_slope << " * ET + " << cfg.auau_nontight_bdt_min_intercept
                           << ", " << cfg.auau_nontight_bdt_max_slope << " * ET + " << cfg.auau_nontight_bdt_max_intercept << ")";
+            }
+            else
+            {
+                std::cout << " nonTight=complement";
+            }
             std::cout << "\n";
         }
         
@@ -4324,7 +4675,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         std::cout << " sideGap=" << cfg.isoGap << "\n";
     }
     
-    recoilJets->enableEventDisplayDiagnostics(cfg.event_display_tree);
+    recoilJets->enableEventDisplayDiagnostics(cfg.pool_capture_enabled ? false : cfg.event_display_tree);
     recoilJets->setEventDisplayDiagnosticsMaxPerBin(cfg.event_display_tree_max_per_bin);
     
     if (vlevel > 0)
@@ -4363,15 +4714,33 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         << " | datasetToken=" << datasetToken
         << " | photonInputClusterNode=" << photonInputClusterNode
         << " | photonBuilderIsAuAu=" << (photonBuilderIsAuAu ? "true" : "false")
-        << " | preselectionVariant=" << cfg.preselection
-        << " | tightVariant=" << cfg.tight
+        << " | preselectionVariant=" << idEntry.preselection
+        << " | tightVariant=" << idEntry.tight
         << " | preselectionPhotonNode=" << preselectionPhotonNode
         << " | tightPhotonNode=" << tightPhotonNode
         << std::endl;
     }
     recoilJets->setDataType(dtype);
+    };
     
-    se->registerSubsystem(recoilJets);
+    for (std::size_t i = 0; i < idFanoutEntries.size(); ++i)
+    {
+        const auto& entry = idFanoutEntries[i];
+        std::ostringstream moduleName;
+        moduleName << "RecoilJets_ID" << i;
+        auto* recoilJets = new RecoilJets(entry.outRoot, moduleName.str());
+        configureRecoilJetsInstance(recoilJets, entry);
+        se->registerSubsystem(recoilJets);
+        if (vlevel > 0)
+        {
+            std::cout << "[ID-FANOUT] registered " << moduleName.str()
+                      << " cfgTag=" << entry.cfgTag
+                      << " output=" << entry.outRoot
+                      << " preselection=" << entry.preselection
+                      << " tight=" << entry.tight
+                      << " nonTight=" << entry.nonTight << "\n";
+        }
+    }
     
     //--------------------------------------------------------------------
     // 6.  Run

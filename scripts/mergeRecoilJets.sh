@@ -148,6 +148,12 @@ if [[ ! "$MERGE_CONDOR_PRIORITY" =~ ^-?[0-9]+$ ]]; then
   exit 2
 fi
 
+# scaledTrigQA correction diagnostics. These are intentionally verbose by
+# default because this step opens many ROOT files one-by-one before sliceRuns.
+SCALED_TRIG_VERBOSE="${SCALED_TRIG_VERBOSE:-1}"
+SCALED_TRIG_HEARTBEAT_SECONDS="${SCALED_TRIG_HEARTBEAT_SECONDS:-30}"
+SCALED_TRIG_ADDCHUNKS_APPLY="${SCALED_TRIG_ADDCHUNKS_APPLY:-0}"
+
 # ---------- Pretty printing ----------
 BOLD=$'\e[1m'; RED=$'\e[31m'; YEL=$'\e[33m'; GRN=$'\e[32m'; BLU=$'\e[34m'; RST=$'\e[0m'
 say()  { printf "${BLU}➜${RST} %s\n" "$*"; }
@@ -297,6 +303,8 @@ scale_per_run_corrected_histograms_in_file() {
 
 {
   TFile f("${rootfile}", "UPDATE");
+  std::cout << "[scaledTrigQA] run=${run_num} file=${rootfile}\\n";
+  std::cout << "[scaledTrigQA] factors baseline=${baselineScale} pho10=${pho10Scale} pho12=${pho12Scale}\\n";
   if (!f.IsOpen() || f.IsZombie())
   {
     std::cerr << "[scaledTrigQA] Could not open ${rootfile} for UPDATE\\n";
@@ -330,11 +338,20 @@ scale_per_run_corrected_histograms_in_file() {
     {
       if (factors[i] <= 0.0) continue;
       TH1* h = dynamic_cast<TH1*>(f.Get(objPaths[i]));
-      if (h) ++foundTargets;
+      if (h)
+      {
+        ++foundTargets;
+        std::cout << "[scaledTrigQA] target found: " << objPaths[i] << " factor=" << factors[i] << "\\n";
+      }
+      else
+      {
+        std::cout << "[scaledTrigQA] target missing: " << objPaths[i] << "\\n";
+      }
     }
 
     if (foundTargets == 0)
     {
+      std::cout << "[scaledTrigQA] no target histograms exist in this file; leaving it unchanged\\n";
       std::cout << "__SCALEDTRIGQA_STATUS__ skip_no_targets\\n";
     }
     else
@@ -352,6 +369,7 @@ scale_per_run_corrected_histograms_in_file() {
         dir->cd();
         h->Write(histNames[i], TObject::kOverwrite);
         f.cd();
+        std::cout << "[scaledTrigQA] scaled: " << objPaths[i] << " factor=" << factors[i] << "\\n";
         ++scaledTargets;
       }
 
@@ -363,23 +381,59 @@ scale_per_run_corrected_histograms_in_file() {
       }
       else
       {
+        std::cout << "[scaledTrigQA] targets existed but no writable directory/positive factor combination was available\\n";
         std::cout << "__SCALEDTRIGQA_STATUS__ skip_no_writable_targets\\n";
       }
     }
   }
   else
   {
+    std::cout << "[scaledTrigQA] marker already present; leaving file unchanged\\n";
     std::cout << "__SCALEDTRIGQA_STATUS__ already_applied\\n";
   }
   f.Close();
 }
 EOF
 
-  local root_output root_rc
+  local root_log="${TMP_DIR}/scaledTrigQA_scale_run_${run_num}.log"
+  local start_ts elapsed root_rc root_pid watcher_pid
+  start_ts="$(date +%s)"
+  if [[ "$SCALED_TRIG_VERBOSE" != "0" ]]; then
+    say "scaledTrigQA: run ${run} ROOT check/update start: ${rootfile}"
+    say "scaledTrigQA: run ${run} scale factors: baseline=${baselineScale}, pho10=${pho10Scale}, pho12=${pho12Scale}"
+  fi
+
+  local old_int_trap
+  old_int_trap="$(trap -p INT || true)"
+  SCALED_TRIG_ROOT_PID=""
+  trap 'warn "scaledTrigQA: interrupt received; terminating ROOT child"; if [[ -n "${SCALED_TRIG_ROOT_PID:-}" ]]; then kill "$SCALED_TRIG_ROOT_PID" 2>/dev/null || true; fi; exit 130' INT
+
   set +e
-  root_output="$(root -l -b -q "$macro" 2>&1)"
+  root -l -b -q "$macro" > "$root_log" 2>&1 &
+  root_pid=$!
+  SCALED_TRIG_ROOT_PID="$root_pid"
+  (
+    sleep "$SCALED_TRIG_HEARTBEAT_SECONDS"
+    while kill -0 "$root_pid" 2>/dev/null; do
+      elapsed=$(( $(date +%s) - start_ts ))
+      warn "scaledTrigQA: run ${run} still inside ROOT after ${elapsed}s: ${rootfile}"
+      sleep "$SCALED_TRIG_HEARTBEAT_SECONDS"
+    done
+  ) &
+  watcher_pid=$!
+  wait "$root_pid"
   root_rc=$?
+  kill "$watcher_pid" 2>/dev/null || true
+  wait "$watcher_pid" 2>/dev/null || true
   set -e
+  SCALED_TRIG_ROOT_PID=""
+  if [[ -n "$old_int_trap" ]]; then
+    eval "$old_int_trap"
+  else
+    trap - INT
+  fi
+
+  elapsed=$(( $(date +%s) - start_ts ))
   rm -f "$macro"
 
   if (( root_rc != 0 )); then
@@ -387,11 +441,18 @@ EOF
       warn "scaledTrigQA: interrupted while scaling ${rootfile}; stopping"
       return "$root_rc"
     fi
-    warn "scaledTrigQA: ROOT scaling failed for ${rootfile}"
+    warn "scaledTrigQA: ROOT scaling failed for ${rootfile} after ${elapsed}s"
+    if [[ -s "$root_log" ]]; then
+      warn "scaledTrigQA: ROOT log for failed run ${run}:"
+      sed 's/^/[scaledTrigQA ROOT] /' "$root_log" >&2 || true
+    fi
     SCALED_TRIG_LAST_STATUS="failed"
+    rm -f "$root_log"
     return 0
   fi
 
+  local root_output
+  root_output="$(cat "$root_log" 2>/dev/null || true)"
   case "$root_output" in
     *"__SCALEDTRIGQA_STATUS__ scaled "*)
       SCALED_TRIG_LAST_STATUS="scaled"
@@ -412,6 +473,20 @@ EOF
       SCALED_TRIG_LAST_STATUS="unknown"
       ;;
   esac
+
+  if [[ "$SCALED_TRIG_VERBOSE" != "0" ]]; then
+    case "$SCALED_TRIG_LAST_STATUS" in
+      scaled|skip_no_writable_targets|already_applied|failed|unknown)
+        sed 's/^/[scaledTrigQA ROOT] /' "$root_log" >&2 || true
+        ;;
+      skip_no_targets)
+        grep -E 'target missing|no target histograms|__SCALEDTRIGQA_STATUS__' "$root_log" | sed 's/^/[scaledTrigQA ROOT] /' >&2 || true
+        ;;
+    esac
+    say "scaledTrigQA: run ${run} status=${SCALED_TRIG_LAST_STATUS} elapsed=${elapsed}s"
+  fi
+
+  rm -f "$root_log"
 }
 
 scale_scaled_trig_qa_partials() {
@@ -615,12 +690,127 @@ yaml_get_inline_list() {
     }'
 }
 
+merge_notify_emails_csv() {
+  if [[ -n "${RJ_NOTIFY_EMAILS:-}" ]]; then
+    printf "%s\n" "$RJ_NOTIFY_EMAILS"
+    return 0
+  fi
+  local yaml
+  yaml="$(merge_yaml_path)"
+  [[ -f "$yaml" ]] || return 0
+  local -a emails=()
+  mapfile -t emails < <(yaml_get_inline_list "$yaml" "notify_emails")
+  local out=""
+  local e
+  for e in "${emails[@]}"; do
+    e="$(trim_ws "$e")"
+    [[ -z "$e" ]] && continue
+    out="${out:+${out},}${e}"
+  done
+  printf "%s\n" "$out"
+}
+
+append_condor_complete_notification() {
+  local sub="$1"
+  local emails
+  emails="$(merge_notify_emails_csv)"
+  [[ -n "$emails" ]] || return 0
+  cat >> "$sub" <<EOT
+notification = Complete
+notify_user = ${emails}
+EOT
+}
+
+submit_condor_stage_with_ready_email() {
+  local sub="$1"
+  local stage_key="$2"
+  local subject="$3"
+  local body="$4"
+
+  local emails
+  emails="$(merge_notify_emails_csv)"
+  if [[ -z "$emails" ]]; then
+    condor_submit "$sub"
+    return $?
+  fi
+
+  if ! command -v condor_submit_dag >/dev/null 2>&1; then
+    warn "condor_submit_dag not found; submitting without one-shot ready email"
+    condor_submit "$sub"
+    return $?
+  fi
+
+  local notify_exec="${TMP_DIR}/notify_${stage_key}_$$.sh"
+  local notify_sub="${TMP_DIR}/notify_${stage_key}_$$.sub"
+  local notify_body="${TMP_DIR}/notify_${stage_key}_$$.txt"
+  local dag="${TMP_DIR}/notify_${stage_key}_$$.dag"
+
+  printf "%s\n" "$body" > "$notify_body"
+  cat > "$notify_exec" <<'EOS'
+#!/usr/bin/env bash
+set -euo pipefail
+emails="${1:?emails required}"
+subject="${2:?subject required}"
+body_file="${3:?body file required}"
+if command -v mail >/dev/null 2>&1; then
+  mail -s "$subject" "$emails" < "$body_file"
+elif command -v mailx >/dev/null 2>&1; then
+  mailx -s "$subject" "$emails" < "$body_file"
+else
+  echo "[notify] mail/mailx not found; notification skipped for ${emails}" >&2
+fi
+EOS
+  chmod +x "$notify_exec"
+
+  cat > "$notify_sub" <<EOT
+universe   = vanilla
+executable = $notify_exec
+output     = $OUT_DIR/notify.${stage_key}.\$(Cluster).\$(Process).out
+error      = $ERR_DIR/notify.${stage_key}.\$(Cluster).\$(Process).err
+log        = $LOG_DIR/notify.${stage_key}.\$(Cluster).\$(Process).log
+getenv = True
+should_transfer_files = NO
+stream_output = True
+stream_error  = True
+arguments = $emails $subject $notify_body
+queue
+EOT
+
+  cat > "$dag" <<EOT
+JOB MERGE $sub
+JOB NOTIFY $notify_sub
+PARENT MERGE CHILD NOTIFY
+EOT
+
+  condor_submit_dag "$dag"
+}
+
 selection_mode_normalize() {
+  selection_mode_normalize_for_key "" "$1"
+}
+
+selection_mode_normalize_for_key() {
+  local key="$1"
   local mode
-  mode="$(trim_ws "$1")"
+  mode="$(trim_ws "$2")"
+  case "$key:$mode" in
+    preselection:variantA|preselection:VariantA|preselection:varianta|preselection:newPPG12|preselection:NewPPG12|preselection:newppg12) echo "newPPG12"; return 0 ;;
+    preselection:variantB|preselection:VariantB|preselection:variantb|preselection:noPreCriteria|preselection:NoPreCriteria|preselection:noprecriteria) echo "noPreCriteria"; return 0 ;;
+    preselection:variantC|preselection:VariantC|preselection:variantc|preselection:onlyNPB|preselection:OnlyNPB|preselection:onlynpb) echo "onlyNPB"; return 0 ;;
+    preselection:variantD|preselection:VariantD|preselection:variantd|preselection:refPlusNPB|preselection:RefPlusNPB|preselection:refplusnpb) echo "refPlusNPB"; return 0 ;;
+    preselection:variantE|preselection:VariantE|preselection:variante|preselection:auauOnlyNPB|preselection:AuAuOnlyNPB|preselection:auauonlynpb) echo "auauOnlyNPB"; return 0 ;;
+    tight:variantA|tight:VariantA|tight:varianta|tight:newPPG12|tight:NewPPG12|tight:newppg12) echo "newPPG12"; return 0 ;;
+    tight:variantB|tight:VariantB|tight:variantb|tight:auauEmbeddedBDT|tight:AuAuEmbeddedBDT|tight:auauembeddedbdt) echo "auauEmbeddedBDT"; return 0 ;;
+    nonTight:variantA|nonTight:VariantA|nonTight:varianta|nonTight:bdtSideband|nonTight:BDTSideband|nonTight:bdtsideband|nonTight:newPPG12|nonTight:NewPPG12|nonTight:newppg12) echo "newPPG12"; return 0 ;;
+    nonTight:variantB|nonTight:VariantB|nonTight:variantb|nonTight:auauBDTSideband|nonTight:AuAuBDTSideband|nonTight:auaubdtsideband) echo "auauBDTSideband"; return 0 ;;
+    nonTight:variantC|nonTight:VariantC|nonTight:variantc|nonTight:auauBDTComplement|nonTight:AuAuBDTComplement|nonTight:auaubdtcomplement) echo "auauBDTComplement"; return 0 ;;
+  esac
   case "$mode" in
     ""|reference|Reference) echo "reference" ;;
-    variantA|VariantA|varianta) echo "variantA" ;;
+    variantA|VariantA|varianta|newPPG12|NewPPG12|newppg12) echo "newPPG12" ;;
+    auauEmbeddedBDT|AuAuEmbeddedBDT|auauembeddedbdt) echo "auauEmbeddedBDT" ;;
+    auauBDTSideband|AuAuBDTSideband|auaubdtsideband) echo "auauBDTSideband" ;;
+    auauBDTComplement|AuAuBDTComplement|auaubdtcomplement) echo "auauBDTComplement" ;;
     variantB|VariantB|variantb) echo "variantB" ;;
     variantC|VariantC|variantc) echo "variantC" ;;
     variantD|VariantD|variantd) echo "variantD" ;;
@@ -632,10 +822,17 @@ selection_mode_normalize() {
 selection_mode_tag() {
   local key="$1"
   local mode
-  mode="$(selection_mode_normalize "$2")"
+  mode="$(selection_mode_normalize_for_key "$key" "$2")"
   case "$mode" in
     reference) echo "${key}Reference" ;;
-    variantA) echo "${key}VariantA" ;;
+    newPPG12) echo "${key}NewPPG12" ;;
+    noPreCriteria) echo "${key}NoPreCriteria" ;;
+    onlyNPB) echo "${key}OnlyNPB" ;;
+    refPlusNPB) echo "${key}RefPlusNPB" ;;
+    auauOnlyNPB) echo "${key}AuAuOnlyNPB" ;;
+    auauEmbeddedBDT) echo "${key}AuAuEmbeddedBDT" ;;
+    auauBDTSideband) echo "${key}AuAuBDTSideband" ;;
+    auauBDTComplement) echo "${key}AuAuBDTComplement" ;;
     variantB) echo "${key}VariantB" ;;
     variantC) echo "${key}VariantC" ;;
     variantD) echo "${key}VariantD" ;;
@@ -646,6 +843,24 @@ selection_mode_tag() {
       echo "${key}${first^^}${rest}"
       ;;
   esac
+}
+
+yaml_get_photon_id_sets() {
+  local yaml="$1"
+  awk '
+    function trim(s){ gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return s }
+    BEGIN{inset=0}
+    {
+      line=$0
+      sub(/#.*/, "", line)
+      if (line ~ /^[[:space:]]*photon_id_sets[[:space:]]*:/) { inset=1; next }
+      if (inset && line ~ /^[[:alnum:]_][[:alnum:]_[:space:]-]*:/) { exit }
+      if (!inset || line !~ /\[/) next
+      sub(/^.*\[/, "", line)
+      sub(/\].*$/, "", line)
+      n=split(line, a, ",")
+      if (n >= 3) print trim(a[1]) "|" trim(a[2]) "|" trim(a[3])
+    }' "$yaml"
 }
 
 build_iso_mode_tags_from_yaml() {
@@ -685,25 +900,22 @@ build_cfg_tags_from_yaml() {
   yaml="$(merge_yaml_path)"
   [[ -f "$yaml" ]] || { err "YAML not found for cfg-tag generation: $yaml"; exit 40; }
 
-  local -a jet_pts b2bs vzs cones iso_base_tags uepipes preselection_modes tight_modes nonTight_modes
+  local -a jet_pts b2bs vzs cones iso_base_tags uepipes
   local include_uepipe_in_tag=0
   mapfile -t jet_pts       < <(yaml_get_inline_list "$yaml" "jet_pt_min")
   mapfile -t b2bs          < <(yaml_get_inline_list "$yaml" "back_to_back_dphi_min_pi_fraction")
   mapfile -t vzs           < <(yaml_get_inline_list "$yaml" "vz_cut_cm")
   mapfile -t cones         < <(yaml_get_inline_list "$yaml" "coneR")
   mapfile -t iso_base_tags < <(build_iso_mode_tags_from_yaml "$yaml")
-  mapfile -t preselection_modes < <(yaml_get_inline_list "$yaml" "preselection")
-  mapfile -t tight_modes       < <(yaml_get_inline_list "$yaml" "tight")
-  mapfile -t nonTight_modes    < <(yaml_get_inline_list "$yaml" "nonTight")
+  local -a photon_id_rows
+  mapfile -t photon_id_rows < <(yaml_get_photon_id_sets "$yaml")
+  (( ${#photon_id_rows[@]} > 0 )) || { err "YAML must define photon_id_sets for cfg-tag generation: $yaml"; exit 41; }
 
   if (( ${#jet_pts[@]} == 0 )); then jet_pts=( "5.0" ); fi
   if (( ${#b2bs[@]} == 0 )); then b2bs=( "0.875" ); fi
   if (( ${#vzs[@]} == 0 )); then vzs=( "30.0" ); fi
   if (( ${#cones[@]} == 0 )); then cones=( "0.30" ); fi
   if (( ${#iso_base_tags[@]} == 0 )); then iso_base_tags=( "fixedIso2GeV" ); fi
-  if (( ${#preselection_modes[@]} == 0 )); then preselection_modes=( "reference" ); fi
-  if (( ${#tight_modes[@]} == 0 )); then tight_modes=( "reference" ); fi
-  if (( ${#nonTight_modes[@]} == 0 )); then nonTight_modes=( "reference" ); fi
 
   case "$dataset_token" in
     auau|oo|isSimEmbedded|issimembedded|simembedded|SIMEMBEDDED|isSimEmbeddedInclusive|issimembeddedinclusive|simembeddedinclusive|SIMEMBEDDEDINCLUSIVE)
@@ -719,31 +931,27 @@ build_cfg_tags_from_yaml() {
 
   local pt frac vz cone iso uep pre tight nonTight tag selection_tag full_tag
   local cfg_suffix="${MERGE_CFG_SUFFIX:-}"
-  local tight_norm nonTight_norm
+  local tight_norm nonTight_norm pre_norm
   for pt in "${jet_pts[@]}"; do
     for frac in "${b2bs[@]}"; do
       for vz in "${vzs[@]}"; do
         for cone in "${cones[@]}"; do
           for iso in "${iso_base_tags[@]}"; do
-            for pre in "${preselection_modes[@]}"; do
-              for tight in "${tight_modes[@]}"; do
-                for nonTight in "${nonTight_modes[@]}"; do
-                  tight_norm="$(selection_mode_normalize "$tight")"
-                  nonTight_norm="$(selection_mode_normalize "$nonTight")"
-                  if [[ "$tight_norm" == "reference" && "$nonTight_norm" != "reference" ]]; then
-                    continue
-                  fi
-                  selection_tag="$(selection_mode_tag "preselection" "$pre")_$(selection_mode_tag "tight" "$tight")_$(selection_mode_tag "nonTight" "$nonTight")"
-                  tag="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_dir_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso}"
-                  for uep in "${uepipes[@]}"; do
-                    if (( include_uepipe_in_tag )); then
-                      full_tag="${tag}_${uep}_${selection_tag}"
-                    else
-                      full_tag="${tag}_${selection_tag}"
-                    fi
-                    echo "${full_tag}${cfg_suffix}"
-                  done
-                done
+            local row
+            for row in "${photon_id_rows[@]}"; do
+              IFS='|' read -r pre tight nonTight <<< "$row"
+              pre_norm="$(selection_mode_normalize_for_key "preselection" "$pre")"
+              tight_norm="$(selection_mode_normalize_for_key "tight" "$tight")"
+              nonTight_norm="$(selection_mode_normalize_for_key "nonTight" "$nonTight")"
+              selection_tag="$(selection_mode_tag "preselection" "$pre_norm")_$(selection_mode_tag "tight" "$tight_norm")_$(selection_mode_tag "nonTight" "$nonTight_norm")"
+              tag="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_dir_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso}"
+              for uep in "${uepipes[@]}"; do
+                if (( include_uepipe_in_tag )); then
+                  full_tag="${tag}_${uep}_${selection_tag}"
+                else
+                  full_tag="${tag}_${selection_tag}"
+                fi
+                echo "${full_tag}${cfg_suffix}"
               done
             done
           done
@@ -751,6 +959,13 @@ build_cfg_tags_from_yaml() {
       done
     done
   done | sort -u
+}
+
+build_cfg_tags_from_manifest() {
+  local root_base="$1"
+  local manifest="${MERGE_PRODUCTION_MANIFEST:-${root_base}/.recoiljets_latest_manifest.txt}"
+  [[ -s "$manifest" ]] || return 1
+  awk -F= '$1 == "cfg_tag" && $2 != "" { print $2 }' "$manifest" | sort -u
 }
 
 # ---------------------------------------------------------------------------
@@ -897,8 +1112,183 @@ if [[ $# -ne 2 ]]; then
   exit 1
 fi
 LIST="$1"; OUT="$2"
+
+scale_scaled_trig_after_hadd() {
+  local rootfile="$1"
+  [[ "${RJ_SCALED_TRIG_AFTER_HADD:-0}" == "1" ]] || return 0
+  [[ -s "$rootfile" ]] || { echo "[scaledTrigQA stage1] skip: output is missing or empty: $rootfile"; return 0; }
+
+  local base run run_num
+  base="$(basename "$rootfile")"
+  if [[ ! "$base" =~ ^chunkMerge_run_([0-9]+)\.root$ ]]; then
+    echo "[scaledTrigQA stage1] skip: output is not a per-run chunkMerge file: $base"
+    return 0
+  fi
+
+  run="${BASH_REMATCH[1]}"
+  run_num=$((10#$run))
+
+  local analysis_base="${RJ_ANALYSIS_BASE:-/sphenix/u/${USER}/scratch/thesisAnalysis}"
+  local runlist="${RJ_SCALED_TRIG_RUNLIST:-${analysis_base}/dst_lists_auau/scaledEffRuns_MBD_NS_geq_2_vtx_lt_150__Pho10_12.list}"
+  local config="${RJ_SCALED_TRIG_CONFIG_TXT:-${analysis_base}/dst_lists_auau/scaledEffConfig_MBD_NS_geq_2_vtx_lt_150__Pho10_12.txt}"
+
+  if [[ ! -s "$runlist" ]]; then
+    echo "[scaledTrigQA stage1] skip: missing run list: $runlist"
+    return 0
+  fi
+  if [[ ! -s "$config" ]]; then
+    echo "[scaledTrigQA stage1] skip: missing scale config: $config"
+    return 0
+  fi
+  if ! grep -Eq "^0*${run_num}$" "$runlist"; then
+    echo "[scaledTrigQA stage1] skip: run ${run} is not in scaled-trigger run list"
+    return 0
+  fi
+
+  local scales baselineScale pho10Scale pho12Scale
+  scales="$(awk -v run="$run_num" '
+    $1=="CONFIG" {
+      r=""; bs=""; s10=""; s12="";
+      for (i=1; i<=NF; ++i) {
+        split($i, a, "=");
+        if (a[1] == "run") r = a[2] + 0;
+        else if (a[1] == "baselineScale") bs = a[2];
+        else if (a[1] == "pho10Scale") s10 = a[2];
+        else if (a[1] == "pho12Scale") s12 = a[2];
+      }
+      if (r == run) {
+        print bs, s10, s12;
+        exit;
+      }
+    }' "$config")"
+
+  if [[ -z "$scales" ]]; then
+    echo "[scaledTrigQA stage1] skip: no scale config entry for run ${run_num}"
+    return 0
+  fi
+
+  read -r baselineScale pho10Scale pho12Scale <<< "$scales"
+  local numeric_re='^[-+]?([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][-+]?[0-9]+)?$'
+  if [[ ! "$baselineScale" =~ $numeric_re ]] || [[ ! "$pho10Scale" =~ $numeric_re ]] || [[ ! "$pho12Scale" =~ $numeric_re ]]; then
+    echo "[scaledTrigQA stage1] skip: invalid scale config for run ${run_num}: $scales"
+    return 0
+  fi
+
+  local macro
+  macro="$(mktemp "${TMPDIR:-/tmp}/scaledTrigQA_stage1_${run_num}.XXXXXX.C")"
+  cat > "$macro" <<EOF2
+#include <TDirectory.h>
+#include <TFile.h>
+#include <TH1.h>
+#include <TNamed.h>
+#include <TObject.h>
+#include <iostream>
+
+{
+  TFile f("${rootfile}", "UPDATE");
+  std::cout << "[scaledTrigQA stage1] run=${run_num} file=${rootfile}\\n";
+  std::cout << "[scaledTrigQA stage1] factors baseline=${baselineScale} pho10=${pho10Scale} pho12=${pho12Scale}\\n";
+  if (!f.IsOpen() || f.IsZombie())
+  {
+    std::cerr << "[scaledTrigQA stage1] could not open file for UPDATE\\n";
+  }
+  else if (f.Get("scaledTrigQA_perRunCorrected_applied"))
+  {
+    std::cout << "[scaledTrigQA stage1] marker already present; leaving output unchanged\\n";
+  }
+  else
+  {
+    const char* objPaths[3] = {
+      "MBD_NS_geq_2_vtx_lt_150/h_maxEnergyClus_NewTriggerFilling_perRunCorrected_MBD_NS_geq_2_vtx_lt_150",
+      "Photon_10/h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_10",
+      "Photon_12/h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_12"
+    };
+    const char* dirNames[3] = {
+      "MBD_NS_geq_2_vtx_lt_150",
+      "Photon_10",
+      "Photon_12"
+    };
+    const char* histNames[3] = {
+      "h_maxEnergyClus_NewTriggerFilling_perRunCorrected_MBD_NS_geq_2_vtx_lt_150",
+      "h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_10",
+      "h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_12"
+    };
+    double factors[3] = {
+      ${baselineScale},
+      ${pho10Scale},
+      ${pho12Scale}
+    };
+
+    int scaledTargets = 0;
+    int foundTargets = 0;
+    for (int i = 0; i < 3; ++i)
+    {
+      if (factors[i] <= 0.0) continue;
+      TH1* h = dynamic_cast<TH1*>(f.Get(objPaths[i]));
+      if (!h)
+      {
+        std::cout << "[scaledTrigQA stage1] target missing: " << objPaths[i] << "\\n";
+        continue;
+      }
+      ++foundTargets;
+      TDirectory* dir = f.GetDirectory(dirNames[i]);
+      if (!dir)
+      {
+        std::cout << "[scaledTrigQA stage1] directory missing for target: " << dirNames[i] << "\\n";
+        continue;
+      }
+      h->Scale(factors[i]);
+      dir->cd();
+      h->Write(histNames[i], TObject::kOverwrite);
+      f.cd();
+      ++scaledTargets;
+      std::cout << "[scaledTrigQA stage1] scaled: " << objPaths[i] << " factor=" << factors[i] << "\\n";
+    }
+
+    if (scaledTargets > 0)
+    {
+      TNamed marker("scaledTrigQA_perRunCorrected_applied", "1");
+      marker.Write("scaledTrigQA_perRunCorrected_applied", TObject::kOverwrite);
+      std::cout << "[scaledTrigQA stage1] wrote marker scaledTrigQA_perRunCorrected_applied; scaledTargets=" << scaledTargets << "\\n";
+    }
+    else if (foundTargets == 0)
+    {
+      std::cout << "[scaledTrigQA stage1] no target histograms found; leaving output unchanged\\n";
+    }
+    else
+    {
+      std::cout << "[scaledTrigQA stage1] targets existed, but none were writable/scalable; leaving marker absent\\n";
+    }
+  }
+  f.Close();
+}
+EOF2
+
+  echo "[scaledTrigQA stage1] post-hadd check/update start: run=${run} out=${rootfile}"
+  if ! root -l -b -q "$macro"; then
+    echo "[scaledTrigQA stage1] WARNING: ROOT scaling command failed for ${rootfile}; keeping hadd output" >&2
+  fi
+  rm -f "$macro"
+}
+
+send_recoiljets_merge_notification() {
+  [[ -n "${RJ_NOTIFY_EMAILS:-}" ]] || return 0
+  [[ -n "${RJ_NOTIFY_MESSAGE:-}" ]] || return 0
+  local subject="${RJ_NOTIFY_SUBJECT:-RecoilJets merge complete}"
+  local body="${RJ_NOTIFY_MESSAGE}"
+  if command -v mail >/dev/null 2>&1; then
+    printf "%s\n" "$body" | mail -s "$subject" "$RJ_NOTIFY_EMAILS" || true
+  elif command -v mailx >/dev/null 2>&1; then
+    printf "%s\n" "$body" | mailx -s "$subject" "$RJ_NOTIFY_EMAILS" || true
+  else
+    echo "[notify] mail/mailx not found; notification skipped for ${RJ_NOTIFY_EMAILS}" >&2
+  fi
+}
+
 echo "[hadd_condor] inputs=$(wc -l < "$LIST")  ->  $OUT"
 hadd -v 3 -f "$OUT" @"$LIST"
+scale_scaled_trig_after_hadd "$OUT"
+send_recoiljets_merge_notification
 EOS
   chmod +x "$exe"
 }
@@ -1275,13 +1665,19 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simm
     find "$_discover_base" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V
   )
 
-  mapfile -t _YAML_SIM_CFG_TAGS < <(build_cfg_tags_from_yaml "$SIM_DATASET_TOKEN")
+  _CFG_SOURCE="manifest"
+  mapfile -t _YAML_SIM_CFG_TAGS < <(build_cfg_tags_from_manifest "$_discover_base" || true)
+  if (( ${#_YAML_SIM_CFG_TAGS[@]} == 0 )); then
+    _CFG_SOURCE="YAML"
+    mapfile -t _YAML_SIM_CFG_TAGS < <(build_cfg_tags_from_yaml "$SIM_DATASET_TOKEN")
+  fi
 
   SIM_CFG_TAGS=()
   for _cfg in "${_ALL_SIM_CFG_TAGS[@]}"; do
     _keep_cfg=0
 
-    # First require that the cfg_tag is part of the CURRENT master YAML matrix
+    # First require that the cfg_tag is part of the production manifest, or
+    # the current YAML matrix for older productions without a manifest.
     for _y in "${_YAML_SIM_CFG_TAGS[@]}"; do
       if [[ "$_cfg" == "$_y" ]]; then
         _keep_cfg=1
@@ -1302,8 +1698,9 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simm
   done
 
   if (( ${#SIM_CFG_TAGS[@]} == 0 )); then
-    err "No cfg_tag subdirectories found under ${_discover_base} that match the CURRENT YAML matrix for requested samples: ${samples[*]}"
-    err "YAML used: $(merge_yaml_path)"
+    err "No cfg_tag subdirectories found under ${_discover_base} that match the ${_CFG_SOURCE} cfg-tag list for requested samples: ${samples[*]}"
+    [[ "$_CFG_SOURCE" == "YAML" ]] && err "YAML used: $(merge_yaml_path)"
+    [[ "$_CFG_SOURCE" == "manifest" ]] && err "Manifest used: ${MERGE_PRODUCTION_MANIFEST:-${_discover_base}/.recoiljets_latest_manifest.txt}"
     err "Run RecoilJets_Condor_submit.sh ${SIM_DATASET_TOKEN} condorDoAll first to create the output tree."
     exit 20
   fi
@@ -1314,8 +1711,8 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simm
   say "Output base : ${FLAT_OUT_DIR}"
   say "groupSize   : ${SIM_GROUP_SIZE}"
   say "Samples     : ${samples[*]}"
-  say "YAML cfg_tags allowed: ${#_YAML_SIM_CFG_TAGS[@]}"
-  say "Discovered cfg_tags (filtered by CURRENT YAML + requested samples): ${#SIM_CFG_TAGS[@]}"
+  say "${_CFG_SOURCE} cfg_tags allowed: ${#_YAML_SIM_CFG_TAGS[@]}"
+  say "Discovered cfg_tags (filtered by ${_CFG_SOURCE} + requested samples): ${#SIM_CFG_TAGS[@]}"
   echo
 
   # Clean TMP_DIR at start of firstRound to avoid stale listfiles/submits
@@ -1479,6 +1876,7 @@ getenv = True
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
+notification = Never
 EOT
 
           ngroups=$(( (total + SIM_GROUP_SIZE - 1) / SIM_GROUP_SIZE ))
@@ -1527,7 +1925,11 @@ EOT
           fi
 
           say "Submitting ${BOLD}${grp}${RST} firstRound Condor merge jobs → $(basename "$SUB")"
-          condor_submit "$SUB"
+          submit_condor_stage_with_ready_email \
+            "$SUB" \
+            "sim_firstRound_${cfg_tag}_${SIM_TAG}" \
+            "RecoilJets_SIM_firstRound_ready" \
+            "SIM firstRound merge is complete for cfg=${cfg_tag}, sample=${SIM_TAG}. You can now run the local secondRound merge for this sample/cfg set."
           say "FirstRound submitted. Partials will appear under: ${DEST_DIR}"
         fi
 
@@ -1565,6 +1967,11 @@ EOT
 
           SUB="${TMP_DIR}/recoil_sim_${cfg_tag}_${SIM_TAG}_secondRound.sub"
           rm -f "$SUB"
+          notify_lines=""
+          notify_emails="$(merge_notify_emails_csv)"
+          if [[ -n "$notify_emails" ]]; then
+            notify_lines=$'notification = Complete\n'"notify_user = ${notify_emails}"
+          fi
           cat > "$SUB" <<EOT
 universe   = vanilla
 executable = $CONDOR_EXEC
@@ -1577,6 +1984,7 @@ getenv = True
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
+${notify_lines}
 arguments = $LIST $SIM_FINAL
 queue
 EOT
@@ -1707,7 +2115,12 @@ if (( ${#_ALL_DATA_CFG_TAGS[@]} == 0 )); then
   DATA_CFG_TAGS=( "" )
   say "No cfg_tag subdirectories found; using flat layout (legacy)"
 else
-  mapfile -t _YAML_DATA_CFG_TAGS < <(build_cfg_tags_from_yaml "$TAG")
+  _CFG_SOURCE="manifest"
+  mapfile -t _YAML_DATA_CFG_TAGS < <(build_cfg_tags_from_manifest "$RUN_BASE" || true)
+  if (( ${#_YAML_DATA_CFG_TAGS[@]} == 0 )); then
+    _CFG_SOURCE="YAML"
+    mapfile -t _YAML_DATA_CFG_TAGS < <(build_cfg_tags_from_yaml "$TAG")
+  fi
   DATA_CFG_TAGS=()
   for _ct in "${_ALL_DATA_CFG_TAGS[@]}"; do
     for _y in "${_YAML_DATA_CFG_TAGS[@]}"; do
@@ -1719,13 +2132,14 @@ else
   done
 
   if (( ${#DATA_CFG_TAGS[@]} == 0 )); then
-    err "No discovered cfg_tag directories under ${RUN_BASE} match the CURRENT YAML matrix."
-    err "YAML used: $(merge_yaml_path)"
+    err "No discovered cfg_tag directories under ${RUN_BASE} match the ${_CFG_SOURCE} cfg-tag list."
+    [[ "$_CFG_SOURCE" == "YAML" ]] && err "YAML used: $(merge_yaml_path)"
+    [[ "$_CFG_SOURCE" == "manifest" ]] && err "Manifest used: ${MERGE_PRODUCTION_MANIFEST:-${RUN_BASE}/.recoiljets_latest_manifest.txt}"
     exit 21
   fi
 
-  say "YAML cfg_tags allowed: ${#_YAML_DATA_CFG_TAGS[@]}"
-  say "Discovered cfg_tags (filtered by CURRENT YAML): ${#DATA_CFG_TAGS[@]}"
+  say "${_CFG_SOURCE} cfg_tags allowed: ${#_YAML_DATA_CFG_TAGS[@]}"
+  say "Discovered cfg_tags (filtered by ${_CFG_SOURCE}): ${#DATA_CFG_TAGS[@]}"
   for _ct in "${DATA_CFG_TAGS[@]}"; do say "  ${_ct}"; done
 fi
 
@@ -1930,7 +2344,13 @@ getenv = True
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
+notification = Never
 EOT
+    if [[ "$TAG" == "auau" ]]; then
+      cat >> "$SUB" <<EOT
+environment = "RJ_SCALED_TRIG_AFTER_HADD=1 RJ_ANALYSIS_BASE=${BASE} RJ_SCALED_TRIG_RUNLIST=${SCALED_TRIG_RUNLIST} RJ_SCALED_TRIG_CONFIG_TXT=${SCALED_TRIG_CONFIG_TXT}"
+EOT
+    fi
 
     queued=0
     skipped=0
@@ -1962,8 +2382,12 @@ EOT
     fi
 
     say "Submitting ${BOLD}${queued}${RST} Condor merge jobs → $(basename "$SUB")"
-    condor_submit "$SUB"
-    say "Stage-1 submitted. Partial outputs will appear under: ${PERRUN_CFG_DIR}"
+    submit_condor_stage_with_ready_email \
+      "$SUB" \
+      "data_perRun_${TAG}_${_cfg:-flat}" \
+      "RecoilJets_${TAG}_perRun_ready" \
+      "Data per-run merge is complete for dataset=${TAG}, cfg=${_cfg:-flat}. AuAu scaled-trigger corrections, when configured, have been applied inside the per-run hadd job. You can now run the sliceRuns merge stage."
+    say "Stage-1 submitted. A one-shot ready email will fire after this cfg stage finishes. Partial outputs will appear under: ${PERRUN_CFG_DIR}"
     echo
   done
 
@@ -1996,19 +2420,25 @@ if [[ "$MODE" == "addChunks" ]]; then
     # Fallback: flat layout (partials directly in perRun base)
     MERGE_CFG_TAGS=( "" )
   else
-    # Filter discovered perRun cfg_tags against the CURRENT YAML matrix
-    mapfile -t _YAML_MERGE_CFG_TAGS < <(build_cfg_tags_from_yaml "$TAG")
+    # Filter discovered perRun cfg_tags against the submit-time manifest when
+    # available; fall back to the current YAML for older productions.
+    _CFG_SOURCE="manifest"
+    mapfile -t _YAML_MERGE_CFG_TAGS < <(build_cfg_tags_from_manifest "$RUN_BASE" || true)
+    if (( ${#_YAML_MERGE_CFG_TAGS[@]} == 0 )); then
+      _CFG_SOURCE="YAML"
+      mapfile -t _YAML_MERGE_CFG_TAGS < <(build_cfg_tags_from_yaml "$TAG")
+    fi
     MERGE_CFG_TAGS=()
     for _ct in "${_ALL_MERGE_CFG_TAGS[@]}"; do
       for _y in "${_YAML_MERGE_CFG_TAGS[@]}"; do
         [[ "$_ct" == "$_y" ]] && { MERGE_CFG_TAGS+=( "$_ct" ); break; }
       done
     done
-    say "YAML cfg_tags allowed: ${#_YAML_MERGE_CFG_TAGS[@]}"
-    say "Discovered cfg_tags (filtered by CURRENT YAML): ${#MERGE_CFG_TAGS[@]}"
+    say "${_CFG_SOURCE} cfg_tags allowed: ${#_YAML_MERGE_CFG_TAGS[@]}"
+    say "Discovered cfg_tags (filtered by ${_CFG_SOURCE}): ${#MERGE_CFG_TAGS[@]}"
     for _ct in "${MERGE_CFG_TAGS[@]}"; do say "  ${_ct}"; done
     if (( ${#MERGE_CFG_TAGS[@]} == 0 )); then
-      die "No perRun cfg_tag directories under ${_PERRUN_BASE} match the CURRENT YAML matrix."
+      die "No perRun cfg_tag directories under ${_PERRUN_BASE} match the ${_CFG_SOURCE} cfg-tag list."
     fi
   fi
 
@@ -2046,7 +2476,13 @@ if [[ "$MODE" == "addChunks" ]]; then
       _partial_dir="$_PERRUN_BASE"
     fi
 
-    scale_scaled_trig_qa_partials "$_partial_dir"
+    if [[ "$TAG" == "auau" && "$SCALED_TRIG_ADDCHUNKS_APPLY" == "1" ]]; then
+      warn "scaledTrigQA: SCALED_TRIG_ADDCHUNKS_APPLY=1; applying legacy addChunks pre-pass to existing partials"
+      scale_scaled_trig_qa_partials "$_partial_dir"
+    elif [[ "$TAG" == "auau" ]]; then
+      say "scaledTrigQA: skipping addChunks pre-pass; future per-run Condor hadd jobs apply this after stage-1 hadd"
+      say "scaledTrigQA: for old partials that still need correction, rerun with SCALED_TRIG_ADDCHUNKS_APPLY=1"
+    fi
 
     # ── sliceRuns: intermediate merge of per-run partials into batches ──
     if $SLICE_RUNS; then
@@ -2081,6 +2517,7 @@ getenv = True
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
+notification = Never
 EOT
 
       _offset=0
@@ -2101,7 +2538,11 @@ EOT
       done
 
       say "Submitting ${_ngroups} slice merge jobs → $(basename "$SUB")"
-      condor_submit "$SUB"
+      submit_condor_stage_with_ready_email \
+        "$SUB" \
+        "sliceRuns_${TAG}_${_cfg:-flat}" \
+        "RecoilJets_${TAG}_sliceRuns_ready" \
+        "Data sliceRuns merge is complete for dataset=${TAG}, cfg=${_cfg:-flat}. You can now run the final local addChunks merge."
       echo
       continue
     fi
@@ -2149,6 +2590,11 @@ EOT
 
       SUB="${TMP_DIR}/recoil_final_${TAG}_${_cfg:-flat}.sub"
       rm -f "$SUB"
+      notify_lines=""
+      notify_emails="$(merge_notify_emails_csv)"
+      if [[ -n "$notify_emails" ]]; then
+        notify_lines=$'notification = Complete\n'"notify_user = ${notify_emails}"
+      fi
       cat > "$SUB" <<EOT
 universe   = vanilla
 executable = $CONDOR_EXEC
@@ -2161,6 +2607,7 @@ getenv = True
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
+${notify_lines}
 arguments = $LIST $FINAL
 queue
 EOT

@@ -295,10 +295,8 @@ namespace
     return (etaMax > 0.0 ? etaMax : 0.0);
     }
 
-    constexpr double kPPG12PreWetaAbsMax = 2.0;
     constexpr double kPPG12PreEt1Min = 0.6;
     constexpr double kPPG12PreEt1Max = 1.0;
-    constexpr double kPPG12PreE11E33Min = 0.0;
     constexpr double kPPG12PreE11E33Max = 0.98;
     constexpr double kPPG12PreE32E35Min = 0.8;
     constexpr double kPPG12PreE32E35Max = 1.0;
@@ -312,80 +310,86 @@ namespace
     constexpr double kPPG12NonTightBDTMaxIntercept = 0.6666666666666666;
     constexpr double kPPG12NonTightBDTMaxSlope = 0.003333333333333336;
 
-    inline double ppg12TightBDTMin(const double et)
-    {
-      return kPPG12TightBDTMinIntercept + kPPG12TightBDTMinSlope * et;
-    }
-
-    inline double ppg12NonTightBDTMin(const double et)
-    {
-      return kPPG12NonTightBDTMinIntercept + kPPG12NonTightBDTMinSlope * et;
-    }
-
-    inline double ppg12NonTightBDTMax(const double et)
-    {
-      return kPPG12NonTightBDTMaxIntercept + kPPG12NonTightBDTMaxSlope * et;
-    }
-
-    inline bool ppg12TightBDTPass(const double score, const double et)
-    {
-      const double min = ppg12TightBDTMin(et);
-      return (et > 7.0) &&
-             std::isfinite(score) &&
-             std::isfinite(min) &&
-             (score > min) &&
-             (score < kPPG12TightBDTMax);
-    }
-
-    inline bool ppg12NonTightBDTPass(const double score, const double et)
-    {
-      const double min = ppg12NonTightBDTMin(et);
-      const double max = ppg12NonTightBDTMax(et);
-      return (et > 7.0) &&
-             std::isfinite(score) &&
-             std::isfinite(min) &&
-             std::isfinite(max) &&
-             (score > min) &&
-             (score < max);
-    }
-
-    inline RecoilJets::TightTag ppg12VariantABDTTag(const double score,
-                                                    const double et,
-                                                    const std::string& nonTightVariant)
-    {
-      if (ppg12TightBDTPass(score, et)) return RecoilJets::TightTag::kTight;
-      if (nonTightVariant == "variantA")
-      {
-        return ppg12NonTightBDTPass(score, et)
-          ? RecoilJets::TightTag::kNonTight
-          : RecoilJets::TightTag::kNeither;
-      }
-      return RecoilJets::TightTag::kNonTight;
-    }
-
     inline bool preselectionUsesNPB(const std::string& preselectionVariant)
     {
-      return preselectionVariant == "variantA" ||
+      return preselectionVariant == "newPPG12" ||
+             preselectionVariant == "onlyNPB" ||
+             preselectionVariant == "refPlusNPB" ||
+             preselectionVariant == "variantA" ||
              preselectionVariant == "variantC" ||
              preselectionVariant == "variantD";
     }
 
+    inline std::string normalizePreselectionVariantName(const std::string& preselectionVariant)
+    {
+      if (preselectionVariant == "variantA" || preselectionVariant == "VariantA" || preselectionVariant == "varianta") return "newPPG12";
+      if (preselectionVariant == "variantB" || preselectionVariant == "VariantB" || preselectionVariant == "variantb") return "noPreCriteria";
+      if (preselectionVariant == "variantC" || preselectionVariant == "VariantC" || preselectionVariant == "variantc") return "onlyNPB";
+      if (preselectionVariant == "variantD" || preselectionVariant == "VariantD" || preselectionVariant == "variantd") return "refPlusNPB";
+      if (preselectionVariant == "variantE" || preselectionVariant == "VariantE" || preselectionVariant == "variante") return "auauOnlyNPB";
+      return preselectionVariant;
+    }
+
+    inline std::string normalizeTightVariantName(const std::string& tightVariant)
+    {
+      if (tightVariant == "variantA" || tightVariant == "VariantA" || tightVariant == "varianta") return "newPPG12";
+      if (tightVariant == "variantB" || tightVariant == "VariantB" || tightVariant == "variantb" ||
+          tightVariant == "auauEmbeddedBDT" || tightVariant == "AuAuEmbeddedBDT" || tightVariant == "auauembeddedbdt")
+      {
+        return "auauEmbeddedBDT";
+      }
+      return tightVariant;
+    }
+
+    inline std::string normalizeNonTightVariantName(const std::string& nonTightVariant)
+    {
+      if (nonTightVariant == "variantA" || nonTightVariant == "VariantA" || nonTightVariant == "varianta" ||
+          nonTightVariant == "bdtSideband" || nonTightVariant == "BDTSideband" || nonTightVariant == "bdtsideband")
+      {
+        return "newPPG12";
+      }
+      if (nonTightVariant == "variantB" || nonTightVariant == "VariantB" || nonTightVariant == "variantb" ||
+          nonTightVariant == "auauBDTSideband" || nonTightVariant == "AuAuBDTSideband" || nonTightVariant == "auaubdtsideband")
+      {
+        return "auauBDTSideband";
+      }
+      if (nonTightVariant == "variantC" || nonTightVariant == "VariantC" || nonTightVariant == "variantc" ||
+          nonTightVariant == "auauBDTComplement" || nonTightVariant == "AuAuBDTComplement" || nonTightVariant == "auaubdtcomplement")
+      {
+        return "auauBDTComplement";
+      }
+      return nonTightVariant;
+    }
+
     inline bool preselectionUsesAuAuBDT(const std::string& preselectionVariant)
     {
-      return preselectionVariant == "variantE";
+      return preselectionVariant == "auauOnlyNPB" || preselectionVariant == "variantE";
+    }
+
+    inline bool preselectionIsNoPreCriteria(const std::string& preselectionVariant)
+    {
+      return preselectionVariant == "noPreCriteria" || preselectionVariant == "variantB";
+    }
+
+    inline bool preselectionIsOnlyNPB(const std::string& preselectionVariant)
+    {
+      return preselectionVariant == "onlyNPB" || preselectionVariant == "variantC";
+    }
+
+    inline bool preselectionIsNewPPG12(const std::string& preselectionVariant)
+    {
+      return preselectionVariant == "newPPG12" || preselectionVariant == "variantA";
+    }
+
+    inline bool preselectionIsRefPlusNPB(const std::string& preselectionVariant)
+    {
+      return preselectionVariant == "refPlusNPB" || preselectionVariant == "variantD";
     }
 
     inline bool auauTightBDTMode(const std::string& tightVariant)
     {
-      return tightVariant == "variantB" ||
+      return tightVariant == "auauEmbeddedBDT" ||
              tightVariant == "centINDcontrol" ||
-             tightVariant == "centAsFeat" ||
-             tightVariant == "centDepBDTs";
-    }
-
-    inline bool auauTightBDTAutoComplementMode(const std::string& tightVariant)
-    {
-      return tightVariant == "centINDcontrol" ||
              tightVariant == "centAsFeat" ||
              tightVariant == "centDepBDTs";
     }
@@ -669,8 +673,9 @@ return maxPt;
 //==========================================================================
 //  ctor
 //==========================================================================
-RecoilJets::RecoilJets(const std::string& outFile)
-: SubsysReco("RecoilJets"),
+RecoilJets::RecoilJets(const std::string& outFile,
+                       const std::string& moduleName)
+: SubsysReco(moduleName),
   Outfile(outFile)
 {
   if (Outfile.empty())
@@ -678,6 +683,20 @@ RecoilJets::RecoilJets(const std::string& outFile)
     std::cerr << "[FATAL] output filename is empty.\n";
     std::exit(EXIT_FAILURE);
   }
+}
+
+void RecoilJets::setPhotonIDVariants(const std::string& preselection,
+                                     const std::string& tight,
+                                     const std::string& nonTight,
+                                     const std::string& preselectionPhotonNode,
+                                     const std::string& tightPhotonNode)
+{
+  m_preselectionVariant = normalizePreselectionVariantName(preselection);
+  m_tightVariant = normalizeTightVariantName(tight);
+  m_nonTightVariant = normalizeNonTightVariantName(nonTight);
+  m_preselectionPhotonNode = preselectionPhotonNode.empty() ? "PHOTONCLUSTER_CEMC" : preselectionPhotonNode;
+  m_tightPhotonNode = tightPhotonNode.empty() ? "PHOTONCLUSTER_CEMC" : tightPhotonNode;
+  m_explicitPhotonIDVariants = true;
 }
 
 RecoilJets::~RecoilJets()
@@ -1041,32 +1060,39 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
 	        return outList.empty() ? def : outList;
 	    };
     
-    m_preselectionVariant  = envOrDefault("RJ_PRESELECTION_VARIANT", "reference");
-    m_tightVariant         = envOrDefault("RJ_TIGHT_VARIANT", "reference");
-    m_nonTightVariant      = envOrDefault("RJ_NONTIGHT_VARIANT", "reference");
-    m_preselectionPhotonNode = envOrDefault("RJ_PRESELECTION_PHOTON_NODE", "PHOTONCLUSTER_CEMC");
-    m_tightPhotonNode        = envOrDefault("RJ_TIGHT_PHOTON_NODE", "PHOTONCLUSTER_CEMC");
-    m_npbCut               = envToDouble("RJ_NPB_CUT", 0.5);
-    m_auauNPBCut           = envToDouble("RJ_AUAU_NPB_CUT", 0.5);
-    m_tightBDTMinIntercept = envToDouble("RJ_TIGHT_BDT_MIN_INTERCEPT", 0.0);
-    m_tightBDTMinSlope     = envToDouble("RJ_TIGHT_BDT_MIN_SLOPE", 0.0);
-    m_tightBDTMax          = envToDouble("RJ_TIGHT_BDT_MAX", 1.0);
-    m_auauTightBDTMinIntercept = envToDouble("RJ_AUAU_TIGHT_BDT_MIN_INTERCEPT", 0.0);
-    m_auauTightBDTMinSlope     = envToDouble("RJ_AUAU_TIGHT_BDT_MIN_SLOPE", 0.0);
-  m_auauTightBDTMax          = envToDouble("RJ_AUAU_TIGHT_BDT_MAX", 1.0);
-  m_auauTightBDTModelFile = envOrDefault("RJ_AUAU_TIGHT_BDT_MODEL_FILE", "");
-  m_auauTightBDTFeatures = envToStringList("RJ_AUAU_TIGHT_BDT_FEATURES", {});
-  m_auauTightBDTCentDepModelFiles = envToStringList("RJ_AUAU_TIGHT_BDT_CENTDEP_MODEL_FILES", {});
-  m_auauNonTightBDTMinIntercept = envToDouble("RJ_AUAU_NONTIGHT_BDT_MIN_INTERCEPT", -1.0);
-    m_auauNonTightBDTMinSlope     = envToDouble("RJ_AUAU_NONTIGHT_BDT_MIN_SLOPE", 0.0);
-    m_auauNonTightBDTMaxIntercept = envToDouble("RJ_AUAU_NONTIGHT_BDT_MAX_INTERCEPT", 1.0);
-  m_auauNonTightBDTMaxSlope     = envToDouble("RJ_AUAU_NONTIGHT_BDT_MAX_SLOPE", 0.0);
-  m_auauTightBDTCentDepEdges = envToIntList("RJ_AUAU_TIGHT_BDT_CENTDEP_EDGES", {});
-  m_auauTightBDTCentDepScoreNames = envToStringList("RJ_AUAU_TIGHT_BDT_CENTDEP_SCORE_NAMES", {});
-  m_auauBDTTrainingTreeEnabled = envToBool("RJ_AUAU_BDT_TRAINING_TREE", false);
-  m_auauBDTTrainingTreeMaxEntries = envToLL("RJ_AUAU_BDT_TRAINING_TREE_MAX_ENTRIES", 0);
-  m_auauBDTNPBDataTaggingEnabled = envToBool("RJ_AUAU_BDT_NPB_DATA_TAGGING", false);
-  m_auauNPBTagDeltaTCut = envToDouble("RJ_AUAU_NPB_TAG_DELTA_T_CUT", -7.0);
+    if (!m_explicitPhotonIDVariants)
+    {
+      m_preselectionVariant       = normalizePreselectionVariantName(envOrDefault("RJ_PRESELECTION_VARIANT", "reference"));
+      m_tightVariant              = normalizeTightVariantName(envOrDefault("RJ_TIGHT_VARIANT", "reference"));
+      m_nonTightVariant           = normalizeNonTightVariantName(envOrDefault("RJ_NONTIGHT_VARIANT", "reference"));
+      m_preselectionPhotonNode    = envOrDefault("RJ_PRESELECTION_PHOTON_NODE", "PHOTONCLUSTER_CEMC");
+      m_tightPhotonNode           = envOrDefault("RJ_TIGHT_PHOTON_NODE", "PHOTONCLUSTER_CEMC");
+    }
+    m_npbCut                    = envToDouble("RJ_NPB_CUT", 0.5);
+    m_auauNPBCut                = envToDouble("RJ_AUAU_NPB_CUT", 0.5);
+    m_tightBDTMinIntercept      = envToDouble("RJ_TIGHT_BDT_MIN_INTERCEPT", kPPG12TightBDTMinIntercept);
+    m_tightBDTMinSlope          = envToDouble("RJ_TIGHT_BDT_MIN_SLOPE", kPPG12TightBDTMinSlope);
+    m_tightBDTMax               = envToDouble("RJ_TIGHT_BDT_MAX", kPPG12TightBDTMax);
+    m_nonTightBDTMinIntercept   = envToDouble("RJ_NONTIGHT_BDT_MIN_INTERCEPT", kPPG12NonTightBDTMinIntercept);
+    m_nonTightBDTMinSlope       = envToDouble("RJ_NONTIGHT_BDT_MIN_SLOPE", kPPG12NonTightBDTMinSlope);
+    m_nonTightBDTMaxIntercept   = envToDouble("RJ_NONTIGHT_BDT_MAX_INTERCEPT", kPPG12NonTightBDTMaxIntercept);
+    m_nonTightBDTMaxSlope       = envToDouble("RJ_NONTIGHT_BDT_MAX_SLOPE", kPPG12NonTightBDTMaxSlope);
+    m_auauTightBDTMinIntercept  = envToDouble("RJ_AUAU_TIGHT_BDT_MIN_INTERCEPT", kPPG12TightBDTMinIntercept);
+    m_auauTightBDTMinSlope      = envToDouble("RJ_AUAU_TIGHT_BDT_MIN_SLOPE", kPPG12TightBDTMinSlope);
+    m_auauTightBDTMax           = envToDouble("RJ_AUAU_TIGHT_BDT_MAX", kPPG12TightBDTMax);
+    m_auauTightBDTModelFile     = envOrDefault("RJ_AUAU_TIGHT_BDT_MODEL_FILE", "");
+    m_auauTightBDTFeatures      = envToStringList("RJ_AUAU_TIGHT_BDT_FEATURES", {});
+    m_auauTightBDTCentDepModelFiles = envToStringList("RJ_AUAU_TIGHT_BDT_CENTDEP_MODEL_FILES", {});
+    m_auauNonTightBDTMinIntercept = envToDouble("RJ_AUAU_NONTIGHT_BDT_MIN_INTERCEPT", kPPG12NonTightBDTMinIntercept);
+    m_auauNonTightBDTMinSlope     = envToDouble("RJ_AUAU_NONTIGHT_BDT_MIN_SLOPE", kPPG12NonTightBDTMinSlope);
+    m_auauNonTightBDTMaxIntercept = envToDouble("RJ_AUAU_NONTIGHT_BDT_MAX_INTERCEPT", kPPG12NonTightBDTMaxIntercept);
+    m_auauNonTightBDTMaxSlope     = envToDouble("RJ_AUAU_NONTIGHT_BDT_MAX_SLOPE", kPPG12NonTightBDTMaxSlope);
+    m_auauTightBDTCentDepEdges = envToIntList("RJ_AUAU_TIGHT_BDT_CENTDEP_EDGES", {});
+    m_auauTightBDTCentDepScoreNames = envToStringList("RJ_AUAU_TIGHT_BDT_CENTDEP_SCORE_NAMES", {});
+    m_auauBDTTrainingTreeEnabled = envToBool("RJ_AUAU_BDT_TRAINING_TREE", false);
+    m_auauBDTTrainingTreeMaxEntries = envToLL("RJ_AUAU_BDT_TRAINING_TREE_MAX_ENTRIES", 0);
+    m_auauBDTNPBDataTaggingEnabled = envToBool("RJ_AUAU_BDT_NPB_DATA_TAGGING", false);
+    m_auauNPBTagDeltaTCut = envToDouble("RJ_AUAU_NPB_TAG_DELTA_T_CUT", -7.0);
   m_auauNPBTagWetaMin = envToDouble("RJ_AUAU_NPB_TAG_WETA_MIN", 0.0);
   m_auauNPBTagAwayJetPtMin = envToDouble("RJ_AUAU_NPB_TAG_AWAY_JET_PT_MIN", 5.0);
   m_auauNPBTagAwayJetDPhiMin = envToDouble("RJ_AUAU_NPB_TAG_AWAY_JET_DPHI_MIN", M_PI / 2.0);
@@ -1106,7 +1132,7 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
         else m_photons_npb = findNode::getClass<RawClusterContainer>(top, m_preselectionPhotonNode.c_str());
     }
     
-    if (m_tightVariant == "variantA")
+    if (m_tightVariant == "newPPG12")
     {
         if (m_tightPhotonNode == "PHOTONCLUSTER_CEMC") m_photons_tightbdt = m_photons;
         else m_photons_tightbdt = findNode::getClass<RawClusterContainer>(top, m_tightPhotonNode.c_str());
@@ -1143,10 +1169,10 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
             << m_preselectionVariant << ".");
         return false;
     }
-    if (m_tightVariant == "variantA" && !m_photons_tightbdt)
+    if (m_tightVariant == "newPPG12" && !m_photons_tightbdt)
     {
         LOG(0, CLR_YELLOW,
-            "    [fetchNodes] " << m_tightPhotonNode << " is MISSING while tight=variantA.");
+            "    [fetchNodes] " << m_tightPhotonNode << " is MISSING while tight=newPPG12.");
         return false;
     }
     
@@ -1487,8 +1513,16 @@ int RecoilJets::Init(PHCompositeNode* topNode)
   LOG(1, CLR_GREEN, "[Init] opened output file: " << Outfile);
 
   trigAna = new TriggerAnalyzer();
-  LOG(1, CLR_GREEN, "[Init] booking scalar QA histograms …");
-  createHistos_Data();
+  if (!m_poolCaptureOnly)
+  {
+    LOG(1, CLR_GREEN, "[Init] booking scalar QA histograms …");
+    createHistos_Data();
+  }
+  else
+  {
+    LOG(1, CLR_GREEN, "[Init] pool-capture-only mode: skipping upfront histogram booking");
+  }
+  initAnalysisPoolTrees();
   if (m_auauBDTTrainingTreeEnabled)
   {
     initAuAuBDTTrainingTree();
@@ -1561,6 +1595,531 @@ int RecoilJets::Init(PHCompositeNode* topNode)
 
   LOG(1, CLR_BLUE, "[Init] RecoilJets – done");
   return Fun4AllReturnCodes::EVENT_OK;
+}
+
+void RecoilJets::initAnalysisPoolTrees()
+{
+  if (!m_poolCaptureEnabled) return;
+  if (!out)
+  {
+    LOG(1, CLR_YELLOW, "[AnalysisPool][init] output file is null; pool capture disabled");
+    m_poolCaptureEnabled = false;
+    m_poolCaptureOnly = false;
+    return;
+  }
+
+  out->cd();
+  m_poolEventTree = new TTree("AnalysisEventPool",
+                              "Loose event records for offline RecoilJets replay");
+  m_poolEventTree->SetDirectory(out);
+  m_poolEventTree->Branch("schema", &m_pool_schema, "schema/I");
+  m_poolEventTree->Branch("run", &m_pool_run, "run/I");
+  m_poolEventTree->Branch("evt", &m_pool_evt, "evt/I");
+  m_poolEventTree->Branch("eventKey", &m_pool_eventKey, "eventKey/L");
+  m_poolEventTree->Branch("isSim", &m_pool_isSim, "isSim/I");
+  m_poolEventTree->Branch("isAuAu", &m_pool_isAuAu, "isAuAu/I");
+  m_poolEventTree->Branch("centBin", &m_pool_centBin, "centBin/I");
+  m_poolEventTree->Branch("centIdx", &m_pool_centIdx, "centIdx/I");
+  m_poolEventTree->Branch("centPercent", &m_pool_centPercent, "centPercent/F");
+  m_poolEventTree->Branch("vz", &m_pool_vz, "vz/F");
+  m_poolEventTree->Branch("weight", &m_pool_weight, "weight/F");
+  m_poolEventTree->Branch("triggers", &m_pool_triggers);
+
+  m_poolPhotonTree = new TTree("AnalysisPhotonPool",
+                               "Loose photon-candidate records for offline RecoilJets replay");
+  m_poolPhotonTree->SetDirectory(out);
+  m_poolPhotonTree->Branch("schema", &m_pool_schema, "schema/I");
+  m_poolPhotonTree->Branch("run", &m_pool_run, "run/I");
+  m_poolPhotonTree->Branch("evt", &m_pool_evt, "evt/I");
+  m_poolPhotonTree->Branch("eventKey", &m_pool_eventKey, "eventKey/L");
+  m_poolPhotonTree->Branch("centBin", &m_pool_centBin, "centBin/I");
+  m_poolPhotonTree->Branch("centIdx", &m_pool_centIdx, "centIdx/I");
+  m_poolPhotonTree->Branch("index", &m_pool_phoIndex, "index/I");
+  m_poolPhotonTree->Branch("pt", &m_pool_pho_pt, "pt/F");
+  m_poolPhotonTree->Branch("eta", &m_pool_pho_eta, "eta/F");
+  m_poolPhotonTree->Branch("phi", &m_pool_pho_phi, "phi/F");
+  m_poolPhotonTree->Branch("energy", &m_pool_pho_energy, "energy/F");
+  m_poolPhotonTree->Branch("eiso", &m_pool_pho_eiso, "eiso/F");
+  m_poolPhotonTree->Branch("eiso_r03", &m_pool_pho_eiso_r03, "eiso_r03/F");
+  m_poolPhotonTree->Branch("eiso_r04", &m_pool_pho_eiso_r04, "eiso_r04/F");
+  m_poolPhotonTree->Branch("iso_03_emcal", &m_pool_pho_iso03_emcal, "iso_03_emcal/F");
+  m_poolPhotonTree->Branch("iso_03_hcalin", &m_pool_pho_iso03_hcalin, "iso_03_hcalin/F");
+  m_poolPhotonTree->Branch("iso_03_hcalout", &m_pool_pho_iso03_hcalout, "iso_03_hcalout/F");
+  m_poolPhotonTree->Branch("iso_04_emcal", &m_pool_pho_iso04_emcal, "iso_04_emcal/F");
+  m_poolPhotonTree->Branch("iso_04_hcalin", &m_pool_pho_iso04_hcalin, "iso_04_hcalin/F");
+  m_poolPhotonTree->Branch("iso_04_hcalout", &m_pool_pho_iso04_hcalout, "iso_04_hcalout/F");
+  m_poolPhotonTree->Branch("weta_cogx", &m_pool_pho_weta, "weta_cogx/F");
+  m_poolPhotonTree->Branch("wphi_cogx", &m_pool_pho_wphi, "wphi_cogx/F");
+  m_poolPhotonTree->Branch("weta33_cogx", &m_pool_pho_weta33, "weta33_cogx/F");
+  m_poolPhotonTree->Branch("wphi33_cogx", &m_pool_pho_wphi33, "wphi33_cogx/F");
+  m_poolPhotonTree->Branch("weta35_cogx", &m_pool_pho_weta35, "weta35_cogx/F");
+  m_poolPhotonTree->Branch("wphi53_cogx", &m_pool_pho_wphi53, "wphi53_cogx/F");
+  m_poolPhotonTree->Branch("et1", &m_pool_pho_et1, "et1/F");
+  m_poolPhotonTree->Branch("et2", &m_pool_pho_et2, "et2/F");
+  m_poolPhotonTree->Branch("et3", &m_pool_pho_et3, "et3/F");
+  m_poolPhotonTree->Branch("et4", &m_pool_pho_et4, "et4/F");
+  m_poolPhotonTree->Branch("e11_over_e33", &m_pool_pho_e11e33, "e11_over_e33/F");
+  m_poolPhotonTree->Branch("e32_over_e35", &m_pool_pho_e32e35, "e32_over_e35/F");
+  m_poolPhotonTree->Branch("e11_over_e22", &m_pool_pho_e11e22, "e11_over_e22/F");
+  m_poolPhotonTree->Branch("e11_over_e13", &m_pool_pho_e11e13, "e11_over_e13/F");
+  m_poolPhotonTree->Branch("e11_over_e15", &m_pool_pho_e11e15, "e11_over_e15/F");
+  m_poolPhotonTree->Branch("e11_over_e17", &m_pool_pho_e11e17, "e11_over_e17/F");
+  m_poolPhotonTree->Branch("e11_over_e31", &m_pool_pho_e11e31, "e11_over_e31/F");
+  m_poolPhotonTree->Branch("e11_over_e51", &m_pool_pho_e11e51, "e11_over_e51/F");
+  m_poolPhotonTree->Branch("e11_over_e71", &m_pool_pho_e11e71, "e11_over_e71/F");
+  m_poolPhotonTree->Branch("e22_over_e33", &m_pool_pho_e22e33, "e22_over_e33/F");
+  m_poolPhotonTree->Branch("e22_over_e35", &m_pool_pho_e22e35, "e22_over_e35/F");
+  m_poolPhotonTree->Branch("e22_over_e37", &m_pool_pho_e22e37, "e22_over_e37/F");
+  m_poolPhotonTree->Branch("e22_over_e53", &m_pool_pho_e22e53, "e22_over_e53/F");
+  m_poolPhotonTree->Branch("w32", &m_pool_pho_w32, "w32/F");
+  m_poolPhotonTree->Branch("w52", &m_pool_pho_w52, "w52/F");
+  m_poolPhotonTree->Branch("w72", &m_pool_pho_w72, "w72/F");
+  m_poolPhotonTree->Branch("mean_time", &m_pool_pho_mean_time, "mean_time/F");
+  m_poolPhotonTree->Branch("npb_score", &m_pool_pho_npb, "npb_score/F");
+  m_poolPhotonTree->Branch("tight_bdt_score", &m_pool_pho_tight_bdt, "tight_bdt_score/F");
+  m_poolPhotonTree->Branch("auau_npb_score", &m_pool_pho_auau_npb, "auau_npb_score/F");
+  m_poolPhotonTree->Branch("auau_tight_bdt_score", &m_pool_pho_auau_tight_bdt, "auau_tight_bdt_score/F");
+  m_poolPhotonTree->Branch("mbd_time", &m_pool_pho_mbd_time, "mbd_time/F");
+  m_poolPhotonTree->Branch("cluster_mbd_delta_t", &m_pool_pho_cluster_mbd_delta_t, "cluster_mbd_delta_t/F");
+  m_poolPhotonTree->Branch("npb_has_away_jet", &m_pool_pho_npb_has_away_jet, "npb_has_away_jet/I");
+  m_poolPhotonTree->Branch("npb_label", &m_pool_pho_npb_label, "npb_label/I");
+  m_poolPhotonTree->Branch("is_npb", &m_pool_pho_is_npb, "is_npb/I");
+  m_poolPhotonTree->Branch("truthSignal", &m_pool_pho_truthSignal, "truthSignal/I");
+  m_poolPhotonTree->Branch("truthTrackId", &m_pool_pho_truthTrackId, "truthTrackId/I");
+  m_poolPhotonTree->Branch("truthPt", &m_pool_pho_truthPt, "truthPt/F");
+  m_poolPhotonTree->Branch("truthEta", &m_pool_pho_truthEta, "truthEta/F");
+  m_poolPhotonTree->Branch("truthPhi", &m_pool_pho_truthPhi, "truthPhi/F");
+  m_poolPhotonTree->Branch("truthIso", &m_pool_pho_truthIso, "truthIso/F");
+
+  m_poolJetTree = new TTree("AnalysisJetPool",
+                            "Loose reco/truth jet records for offline RecoilJets replay");
+  m_poolJetTree->SetDirectory(out);
+  m_poolJetTree->Branch("schema", &m_pool_schema, "schema/I");
+  m_poolJetTree->Branch("run", &m_pool_run, "run/I");
+  m_poolJetTree->Branch("evt", &m_pool_evt, "evt/I");
+  m_poolJetTree->Branch("eventKey", &m_pool_eventKey, "eventKey/L");
+  m_poolJetTree->Branch("rKey", &m_pool_jet_rKey);
+  m_poolJetTree->Branch("isTruth", &m_pool_jet_isTruth, "isTruth/I");
+  m_poolJetTree->Branch("index", &m_pool_jet_index, "index/I");
+  m_poolJetTree->Branch("pt", &m_pool_jet_pt, "pt/F");
+  m_poolJetTree->Branch("raw_pt", &m_pool_jet_raw_pt, "raw_pt/F");
+  m_poolJetTree->Branch("areaSub_pt", &m_pool_jet_areaSub_pt, "areaSub_pt/F");
+  m_poolJetTree->Branch("eta", &m_pool_jet_eta, "eta/F");
+  m_poolJetTree->Branch("phi", &m_pool_jet_phi, "phi/F");
+  m_poolJetTree->Branch("jet_area", &m_pool_jet_area, "jet_area/F");
+  m_poolJetTree->Branch("rho", &m_pool_jet_rho, "rho/F");
+  m_poolJetTree->Branch("local_rho", &m_pool_jet_local_rho, "local_rho/F");
+
+  m_poolTruthPhotonTree = new TTree("AnalysisTruthPhotonPool",
+                                    "Truth signal photon records for offline RecoilJets replay");
+  m_poolTruthPhotonTree->SetDirectory(out);
+  m_poolTruthPhotonTree->Branch("schema", &m_pool_schema, "schema/I");
+  m_poolTruthPhotonTree->Branch("run", &m_pool_run, "run/I");
+  m_poolTruthPhotonTree->Branch("evt", &m_pool_evt, "evt/I");
+  m_poolTruthPhotonTree->Branch("eventKey", &m_pool_eventKey, "eventKey/L");
+  m_poolTruthPhotonTree->Branch("index", &m_pool_truth_index, "index/I");
+  m_poolTruthPhotonTree->Branch("trackId", &m_pool_truth_trackId, "trackId/I");
+  m_poolTruthPhotonTree->Branch("barcode", &m_pool_truth_barcode, "barcode/I");
+  m_poolTruthPhotonTree->Branch("pt", &m_pool_truth_pt, "pt/F");
+  m_poolTruthPhotonTree->Branch("eta", &m_pool_truth_eta, "eta/F");
+  m_poolTruthPhotonTree->Branch("phi", &m_pool_truth_phi, "phi/F");
+  m_poolTruthPhotonTree->Branch("iso", &m_pool_truth_iso, "iso/F");
+
+  LOG(1, CLR_GREEN,
+      "[AnalysisPool][init] enabled"
+      << " captureOnly=" << (m_poolCaptureOnly ? "true" : "false")
+      << " photonPtMin=" << m_poolPhotonPtMin
+      << " jetPtMin=" << m_poolJetPtMin
+      << " truthPhotonPtMin=" << m_poolTruthPhotonPtMin
+      << " truthJetPtMin=" << m_poolTruthJetPtMin);
+}
+
+void RecoilJets::resetAnalysisPoolBuffers()
+{
+  const float nan = std::numeric_limits<float>::quiet_NaN();
+
+  m_pool_phoIndex = -1;
+  m_pool_pho_pt = nan;
+  m_pool_pho_eta = nan;
+  m_pool_pho_phi = nan;
+  m_pool_pho_energy = nan;
+  m_pool_pho_eiso = nan;
+  m_pool_pho_eiso_r03 = nan;
+  m_pool_pho_eiso_r04 = nan;
+  m_pool_pho_iso03_emcal = nan;
+  m_pool_pho_iso03_hcalin = nan;
+  m_pool_pho_iso03_hcalout = nan;
+  m_pool_pho_iso04_emcal = nan;
+  m_pool_pho_iso04_hcalin = nan;
+  m_pool_pho_iso04_hcalout = nan;
+  m_pool_pho_weta = nan;
+  m_pool_pho_wphi = nan;
+  m_pool_pho_weta33 = nan;
+  m_pool_pho_wphi33 = nan;
+  m_pool_pho_weta35 = nan;
+  m_pool_pho_wphi53 = nan;
+  m_pool_pho_et1 = nan;
+  m_pool_pho_et2 = nan;
+  m_pool_pho_et3 = nan;
+  m_pool_pho_et4 = nan;
+  m_pool_pho_e11e33 = nan;
+  m_pool_pho_e32e35 = nan;
+  m_pool_pho_e11e22 = nan;
+  m_pool_pho_e11e13 = nan;
+  m_pool_pho_e11e15 = nan;
+  m_pool_pho_e11e17 = nan;
+  m_pool_pho_e11e31 = nan;
+  m_pool_pho_e11e51 = nan;
+  m_pool_pho_e11e71 = nan;
+  m_pool_pho_e22e33 = nan;
+  m_pool_pho_e22e35 = nan;
+  m_pool_pho_e22e37 = nan;
+  m_pool_pho_e22e53 = nan;
+  m_pool_pho_w32 = nan;
+  m_pool_pho_w52 = nan;
+  m_pool_pho_w72 = nan;
+  m_pool_pho_mean_time = nan;
+  m_pool_pho_npb = nan;
+  m_pool_pho_tight_bdt = nan;
+  m_pool_pho_auau_npb = nan;
+  m_pool_pho_auau_tight_bdt = nan;
+  m_pool_pho_mbd_time = nan;
+  m_pool_pho_cluster_mbd_delta_t = nan;
+  m_pool_pho_npb_has_away_jet = 0;
+  m_pool_pho_npb_label = -1;
+  m_pool_pho_is_npb = -1;
+  m_pool_pho_truthSignal = 0;
+  m_pool_pho_truthTrackId = -1;
+  m_pool_pho_truthPt = nan;
+  m_pool_pho_truthEta = nan;
+  m_pool_pho_truthPhi = nan;
+  m_pool_pho_truthIso = nan;
+
+  m_pool_jet_rKey.clear();
+  m_pool_jet_isTruth = 0;
+  m_pool_jet_index = -1;
+  m_pool_jet_pt = nan;
+  m_pool_jet_raw_pt = nan;
+  m_pool_jet_areaSub_pt = nan;
+  m_pool_jet_eta = nan;
+  m_pool_jet_phi = nan;
+  m_pool_jet_area = nan;
+  m_pool_jet_rho = nan;
+  m_pool_jet_local_rho = nan;
+
+  m_pool_truth_index = -1;
+  m_pool_truth_trackId = -1;
+  m_pool_truth_barcode = -1;
+  m_pool_truth_pt = nan;
+  m_pool_truth_eta = nan;
+  m_pool_truth_phi = nan;
+  m_pool_truth_iso = nan;
+}
+
+void RecoilJets::captureAnalysisPoolEvent(PHCompositeNode* topNode,
+                                          const std::vector<std::string>& activeTrig,
+                                          int centIdx)
+{
+  if (!m_poolCaptureEnabled || !m_poolEventTree) return;
+
+  const EventHeader* hdr = findNode::getClass<EventHeader>(topNode, "EventHeader");
+  m_pool_run = hdr ? hdr->get_RunNumber()
+                   : static_cast<int>(recoConsts::instance()->get_uint64Flag("TIMESTAMP", 0));
+  m_pool_evt = hdr ? hdr->get_EvtSequence()
+                   : static_cast<int>(event_count);
+  m_pool_eventKey = event_count;
+  m_pool_isSim = m_isSim ? 1 : 0;
+  m_pool_isAuAu = m_isAuAu ? 1 : 0;
+  m_pool_centBin = m_centBin;
+  m_pool_centIdx = centIdx;
+  m_pool_centPercent = static_cast<float>(m_centPercent);
+  m_pool_vz = static_cast<float>(m_vz);
+  m_pool_weight = static_cast<float>(RJMCWeighting::CurrentWeight());
+  m_pool_triggers = activeTrig;
+  m_poolEventTree->Fill();
+
+  captureAnalysisPoolPhotons(topNode, m_pool_eventKey, m_pool_run, m_pool_evt, centIdx);
+  captureAnalysisPoolJets(m_pool_eventKey, m_pool_run, m_pool_evt);
+  captureAnalysisPoolTruthPhotons(topNode, m_pool_eventKey, m_pool_run, m_pool_evt);
+}
+
+void RecoilJets::captureAnalysisPoolJets(long long eventKey, int run, int evt)
+{
+  if (!m_poolJetTree) return;
+
+  auto rFromKey = [](const std::string& rKey) -> double
+  {
+    if (rKey.size() >= 2 && (rKey[0] == 'r' || rKey[0] == 'R'))
+    {
+      char* endptr = nullptr;
+      const std::string tail = rKey.substr(1);
+      const double v = std::strtod(tail.c_str(), &endptr);
+      if (endptr != tail.c_str()) return v / 100.0;
+    }
+    return 0.0;
+  };
+
+  auto fillContainer = [&](const std::map<std::string, JetContainer*>& containers, int isTruth)
+  {
+    for (const auto& kv : containers)
+    {
+      const std::string& rKey = kv.first;
+      JetContainer* jets = kv.second;
+      if (!jets) continue;
+
+      int i = 0;
+      for (const Jet* jet : *jets)
+      {
+        if (!jet) { ++i; continue; }
+        const double pt = jet->get_pt();
+        const double eta = jet->get_eta();
+        const double phi = jet->get_phi();
+        if (!std::isfinite(pt) || !std::isfinite(eta) || !std::isfinite(phi) || pt < m_poolJetPtMin)
+        {
+          ++i;
+          continue;
+        }
+        if (isTruth && pt < m_poolTruthJetPtMin)
+        {
+          ++i;
+          continue;
+        }
+
+        m_pool_run = run;
+        m_pool_evt = evt;
+        m_pool_eventKey = eventKey;
+        m_pool_jet_rKey = rKey;
+        m_pool_jet_isTruth = isTruth;
+        m_pool_jet_index = i;
+        m_pool_jet_pt = static_cast<float>(pt);
+        m_pool_jet_raw_pt = static_cast<float>(pt);
+        m_pool_jet_areaSub_pt = static_cast<float>(pt);
+        m_pool_jet_eta = static_cast<float>(eta);
+        m_pool_jet_phi = static_cast<float>(TVector2::Phi_mpi_pi(phi));
+        const double r = rFromKey(rKey);
+        m_pool_jet_area = static_cast<float>(r > 0.0 ? M_PI * r * r : std::numeric_limits<double>::quiet_NaN());
+        m_pool_jet_rho = 0.0f;
+        m_pool_jet_local_rho = 0.0f;
+        m_poolJetTree->Fill();
+        ++i;
+      }
+    }
+  };
+
+  fillContainer(m_jets, 0);
+  fillContainer(m_truthJetsByRKey, 1);
+}
+
+void RecoilJets::captureAnalysisPoolTruthPhotons(PHCompositeNode* topNode,
+                                                 long long eventKey,
+                                                 int run,
+                                                 int evt)
+{
+  if (!m_isSim || !m_poolTruthPhotonTree) return;
+
+  PHHepMCGenEventMap* hepmcmap = findNode::getClass<PHHepMCGenEventMap>(topNode, "PHHepMCGenEventMap");
+  PHHepMCGenEvent* hepmc = nullptr;
+  HepMC::GenEvent* event = nullptr;
+  if (hepmcmap)
+  {
+    hepmc = hepmcmap->get(0);
+    if (!hepmc) hepmc = hepmcmap->get(1);
+    if (!hepmc && !hepmcmap->empty()) hepmc = hepmcmap->begin()->second;
+    if (hepmc) event = hepmc->getEvent();
+  }
+  if (!event) return;
+
+  int idx = 0;
+  for (auto it = event->particles_begin(); it != event->particles_end(); ++it)
+  {
+    const HepMC::GenParticle* p = *it;
+    if (!p) continue;
+
+    double isoEt = 0.0;
+    if (!isTruthPromptIsolatedSignalPhoton(event, p, isoEt)) continue;
+
+    const double pt = std::hypot(p->momentum().px(), p->momentum().py());
+    const double eta = p->momentum().pseudoRapidity();
+    const double phi = TVector2::Phi_mpi_pi(p->momentum().phi());
+    if (!std::isfinite(pt) || pt < m_poolTruthPhotonPtMin) continue;
+
+    m_pool_run = run;
+    m_pool_evt = evt;
+    m_pool_eventKey = eventKey;
+    m_pool_truth_index = idx++;
+    m_pool_truth_trackId = -1;
+    m_pool_truth_barcode = p->barcode();
+    m_pool_truth_pt = static_cast<float>(pt);
+    m_pool_truth_eta = static_cast<float>(eta);
+    m_pool_truth_phi = static_cast<float>(phi);
+    m_pool_truth_iso = static_cast<float>(isoEt);
+    m_poolTruthPhotonTree->Fill();
+  }
+}
+
+void RecoilJets::captureAnalysisPoolPhotons(PHCompositeNode* topNode,
+                                            long long eventKey,
+                                            int run,
+                                            int evt,
+                                            int centIdx)
+{
+  if (!m_poolPhotonTree || !m_photons) return;
+
+  HepMC::GenEvent* evtHepMC = nullptr;
+  bool haveCaloEval = false;
+  std::unique_ptr<CaloRawClusterEval> clustereval;
+  TruthSignalPhotonMap truthSignalByTrackId;
+
+  if (m_isSim)
+  {
+    PHHepMCGenEventMap* hepmcmap = findNode::getClass<PHHepMCGenEventMap>(topNode, "PHHepMCGenEventMap");
+    PHHepMCGenEvent* hepmc = nullptr;
+    if (hepmcmap)
+    {
+      hepmc = hepmcmap->get(0);
+      if (!hepmc) hepmc = hepmcmap->get(1);
+      if (!hepmc && !hepmcmap->empty()) hepmc = hepmcmap->begin()->second;
+      if (hepmc) evtHepMC = hepmc->getEvent();
+    }
+
+    clustereval.reset(new CaloRawClusterEval(topNode, "CEMC"));
+    clustereval->set_usetowerinfo(true);
+    clustereval->next_event(topNode);
+    if (!clustereval->has_reduced_node_pointers())
+    {
+      clustereval->set_usetowerinfo(false);
+      clustereval->next_event(topNode);
+    }
+    haveCaloEval = clustereval->has_reduced_node_pointers();
+    if (evtHepMC) truthSignalByTrackId = buildPPG12TruthSignalPhotonMap(evtHepMC);
+  }
+
+  RawClusterContainer::ConstRange range = m_photons->getClusters();
+  int iPho = 0;
+  for (auto pit = range.first; pit != range.second; ++pit, ++iPho)
+  {
+    resetAnalysisPoolBuffers();
+
+    const auto* pho = dynamic_cast<const PhotonClusterv1*>(pit->second);
+    if (!pho) continue;
+    const RawCluster* rc = pho;
+
+    const double eta = pho->get_shower_shape_parameter("cluster_eta");
+    const double phi = pho->get_shower_shape_parameter("cluster_phi");
+    const double pt = pho->get_shower_shape_parameter("cluster_pt");
+    const double energy = rc->get_energy();
+    if (!std::isfinite(pt) || pt < m_poolPhotonPtMin) continue;
+
+    const SSVars ss = makeSSFromPhoton(pho, pt);
+    auto getSS = [&](const char* key) -> float
+    {
+      const double v = pho->get_shower_shape_parameter(key);
+      return static_cast<float>(std::isfinite(v) ? v : std::numeric_limits<double>::quiet_NaN());
+    };
+    auto isoSum = [&](const char* emKey, const char* hiKey, const char* hoKey) -> float
+    {
+      const double em = pho->get_shower_shape_parameter(emKey);
+      const double hi = pho->get_shower_shape_parameter(hiKey);
+      const double ho = pho->get_shower_shape_parameter(hoKey);
+      return static_cast<float>((std::isfinite(em) && std::isfinite(hi) && std::isfinite(ho))
+                                ? (em + hi + ho)
+                                : std::numeric_limits<double>::quiet_NaN());
+    };
+
+    m_pool_run = run;
+    m_pool_evt = evt;
+    m_pool_eventKey = eventKey;
+    m_pool_centBin = m_centBin;
+    m_pool_centIdx = centIdx;
+    m_pool_phoIndex = iPho;
+    m_pool_pho_pt = static_cast<float>(pt);
+    m_pool_pho_eta = static_cast<float>(eta);
+    m_pool_pho_phi = static_cast<float>(TVector2::Phi_mpi_pi(phi));
+    m_pool_pho_energy = static_cast<float>(energy);
+    m_pool_pho_eiso = static_cast<float>(eiso(rc, topNode));
+    m_pool_pho_iso03_emcal = getSS("iso_03_emcal");
+    m_pool_pho_iso03_hcalin = getSS("iso_03_hcalin");
+    m_pool_pho_iso03_hcalout = getSS("iso_03_hcalout");
+    m_pool_pho_iso04_emcal = getSS("iso_04_emcal");
+    m_pool_pho_iso04_hcalin = getSS("iso_04_hcalin");
+    m_pool_pho_iso04_hcalout = getSS("iso_04_hcalout");
+    m_pool_pho_eiso_r03 = isoSum("iso_03_emcal", "iso_03_hcalin", "iso_03_hcalout");
+    m_pool_pho_eiso_r04 = isoSum("iso_04_emcal", "iso_04_hcalin", "iso_04_hcalout");
+    m_pool_pho_weta = static_cast<float>(ss.weta_cogx);
+    m_pool_pho_wphi = static_cast<float>(ss.wphi_cogx);
+    m_pool_pho_weta33 = static_cast<float>(ss.weta33_cogx);
+    m_pool_pho_wphi33 = static_cast<float>(ss.wphi33_cogx);
+    m_pool_pho_weta35 = static_cast<float>(ss.weta35_cogx);
+    m_pool_pho_wphi53 = static_cast<float>(ss.wphi53_cogx);
+    m_pool_pho_et1 = static_cast<float>(ss.et1);
+    m_pool_pho_et2 = static_cast<float>(ss.et2);
+    m_pool_pho_et3 = static_cast<float>(ss.et3);
+    m_pool_pho_et4 = static_cast<float>(ss.et4);
+    m_pool_pho_e11e33 = static_cast<float>(ss.e11_over_e33);
+    m_pool_pho_e32e35 = static_cast<float>(ss.e32_over_e35);
+    m_pool_pho_e11e22 = static_cast<float>(ss.e11_over_e22);
+    m_pool_pho_e11e13 = static_cast<float>(ss.e11_over_e13);
+    m_pool_pho_e11e15 = static_cast<float>(ss.e11_over_e15);
+    m_pool_pho_e11e17 = static_cast<float>(ss.e11_over_e17);
+    m_pool_pho_e11e31 = static_cast<float>(ss.e11_over_e31);
+    m_pool_pho_e11e51 = static_cast<float>(ss.e11_over_e51);
+    m_pool_pho_e11e71 = static_cast<float>(ss.e11_over_e71);
+    m_pool_pho_e22e33 = static_cast<float>(ss.e22_over_e33);
+    m_pool_pho_e22e35 = static_cast<float>(ss.e22_over_e35);
+    m_pool_pho_e22e37 = static_cast<float>(ss.e22_over_e37);
+    m_pool_pho_e22e53 = static_cast<float>(ss.e22_over_e53);
+    m_pool_pho_w32 = static_cast<float>(ss.w32);
+    m_pool_pho_w52 = static_cast<float>(ss.w52);
+    m_pool_pho_w72 = static_cast<float>(ss.w72);
+    m_pool_pho_mean_time = static_cast<float>(ss.mean_time);
+    m_pool_pho_npb = static_cast<float>(ss.npb_score);
+    m_pool_pho_tight_bdt = static_cast<float>(ss.tight_bdt_score);
+    m_pool_pho_auau_npb = static_cast<float>(ss.auau_npb_score);
+    m_pool_pho_auau_tight_bdt = static_cast<float>(ss.auau_tight_bdt_score);
+
+    if (!m_isSim && m_auauBDTNPBDataTaggingEnabled)
+    {
+      double npbDeltaT = std::numeric_limits<double>::quiet_NaN();
+      double npbMbdTime = std::numeric_limits<double>::quiet_NaN();
+      bool npbHasAwayJet = false;
+      const bool isTaggedNPB =
+        isPPG12DataNPBTaggedCluster(ss, phi, npbDeltaT, npbMbdTime, npbHasAwayJet);
+      m_pool_pho_mbd_time = static_cast<float>(std::isfinite(npbMbdTime) ? npbMbdTime : std::numeric_limits<double>::quiet_NaN());
+      m_pool_pho_cluster_mbd_delta_t = static_cast<float>(std::isfinite(npbDeltaT) ? npbDeltaT : std::numeric_limits<double>::quiet_NaN());
+      m_pool_pho_npb_has_away_jet = npbHasAwayJet ? 1 : 0;
+      if (isTaggedNPB)
+      {
+        m_pool_pho_npb_label = 0;
+        m_pool_pho_is_npb = 1;
+      }
+    }
+
+    if (m_isSim && evtHepMC && haveCaloEval && clustereval)
+    {
+      TruthSignalPhotonInfo matchedTruth;
+      int clusterTruthTrackId = -1;
+      float eContrib = 0.0f;
+      const bool sig = classifyRecoPhotonWithPPG12TruthTrack(rc,
+                                                             *clustereval,
+                                                             truthSignalByTrackId,
+                                                             matchedTruth,
+                                                             clusterTruthTrackId,
+                                                             eContrib);
+      m_pool_pho_truthSignal = sig ? 1 : 0;
+      m_pool_pho_truthTrackId = clusterTruthTrackId;
+      m_pool_pho_npb_label = 1;
+      m_pool_pho_is_npb = 0;
+      if (sig)
+      {
+        m_pool_pho_truthPt = static_cast<float>(matchedTruth.pt);
+        m_pool_pho_truthEta = static_cast<float>(matchedTruth.eta);
+        m_pool_pho_truthPhi = static_cast<float>(matchedTruth.phi);
+        m_pool_pho_truthIso = static_cast<float>(matchedTruth.isoEt);
+      }
+    }
+
+    m_poolPhotonTree->Fill();
+  }
 }
 
 void RecoilJets::initAuAuBDTTrainingTree()
@@ -2037,7 +2596,7 @@ double RecoilJets::predictJetMLDeltaPt(const std::string& rKey,
 
 bool RecoilJets::initAuAuTightBDTModelsIfNeeded() const
 {
-  if (!auauTightBDTMode(m_tightVariant) || m_tightVariant == "variantB") return true;
+  if (!auauTightBDTMode(m_tightVariant) || m_tightVariant == "auauEmbeddedBDT") return true;
   if (m_auauTightBDTModel || !m_auauTightBDTCentDepModels.empty()) return true;
   if (m_auauTightBDTModelInitAttempted) return false;
   m_auauTightBDTModelInitAttempted = true;
@@ -3204,7 +3763,7 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     //   - numerator   is filled ONCE per pair when baseline AND probe are on
     //   - run-range/bit mapping is hard-coded from the ALL QA output above
     // ------------------------------------------------------------------
-    if (!m_isSim)
+    if (!m_poolCaptureOnly && !m_isSim)
     {
         Gl1Packet* gl1Packet = findNode::getClass<Gl1Packet>(topNode, "GL1Packet");
         if (!gl1Packet) gl1Packet = findNode::getClass<Gl1Packet>(topNode, "14001");
@@ -3832,7 +4391,7 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         }
     }
 
-    if (m_doPi0Analysis)
+    if (!m_poolCaptureOnly && m_doPi0Analysis)
     {
         const bool passPi0Vz = (!m_useVzCut || std::fabs(m_vz) < m_vzCut);
         
@@ -3857,6 +4416,17 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     /*     Filled once per accepted event, after centrality/vz.            */
     /* ------------------------------------------------------------------ */
     const int centIdxForJets = (m_isAuAu ? findCentBin(m_centBin) : -1);
+    if (m_poolCaptureEnabled)
+    {
+        captureAnalysisPoolEvent(topNode, activeTrig, centIdxForJets);
+        if (m_poolCaptureOnly)
+        {
+            ++m_bk.evt_accepted;
+            LOG(4, CLR_GREEN, "  [process_event] – pool captured; histogram filling skipped");
+            return Fun4AllReturnCodes::EVENT_OK;
+        }
+    }
+
     for (const auto& kv : m_jets)
     {
         fillInclusiveJetQA(activeTrig, centIdxForJets, kv.first);
@@ -4942,6 +5512,29 @@ int RecoilJets::End(PHCompositeNode*)
       TObjString yamlObj(m_analysisConfigYAMLText.c_str());
       yamlObj.Write("analysis_config_yaml", TObject::kOverwrite);
       m_analysisConfigStamped = true;
+    }
+
+    if (m_poolCaptureEnabled)
+    {
+      out->cd();
+      std::ostringstream poolMeta;
+      poolMeta << "schema_version: " << m_pool_schema << "\n";
+      poolMeta << "capture_only: " << (m_poolCaptureOnly ? "true" : "false") << "\n";
+      poolMeta << "photon_pt_min: " << m_poolPhotonPtMin << "\n";
+      poolMeta << "jet_pt_min: " << m_poolJetPtMin << "\n";
+      poolMeta << "truth_photon_pt_min: " << m_poolTruthPhotonPtMin << "\n";
+      poolMeta << "truth_jet_pt_min: " << m_poolTruthJetPtMin << "\n";
+      poolMeta << "capture_axes: clusterUEpipeline,pool_schema,stored_isolation_cones,stored_jet_radii,stored_pool_features\n";
+      poolMeta << "required_event_branches: schema,eventKey,isAuAu,centBin,centPercent,vz,weight,triggers\n";
+      poolMeta << "required_photon_branches: schema,eventKey,pt,eta,phi,eiso,eiso_r03,eiso_r04,weta_cogx,wphi_cogx,et1,e11_over_e33,e32_over_e35,npb_score,tight_bdt_score,auau_npb_score,auau_tight_bdt_score,mbd_time,cluster_mbd_delta_t,npb_has_away_jet,npb_label,is_npb,truthSignal,truthTrackId,truthPt,truthEta,truthPhi\n";
+      poolMeta << "required_jet_branches: schema,eventKey,rKey,isTruth,pt,raw_pt,areaSub_pt,eta,phi,jet_area,rho,local_rho\n";
+      poolMeta << "required_truth_photon_branches: schema,eventKey,trackId,barcode,pt,eta,phi,iso\n";
+      TObjString poolMetaObj(poolMeta.str().c_str());
+      poolMetaObj.Write("analysis_pool_metadata", TObject::kOverwrite);
+      if (m_poolEventTree)       m_poolEventTree->Write("", TObject::kOverwrite);
+      if (m_poolPhotonTree)      m_poolPhotonTree->Write("", TObject::kOverwrite);
+      if (m_poolJetTree)         m_poolJetTree->Write("", TObject::kOverwrite);
+      if (m_poolTruthPhotonTree) m_poolTruthPhotonTree->Write("", TObject::kOverwrite);
     }
 
     try
@@ -7615,6 +8208,17 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
             double leadNonTightPtGamma  = -1.0;
             double leadNonTightEtaGamma = 0.0;
             double leadNonTightPhiGamma = 0.0;
+            const RawCluster* leadNonTightRc = nullptr;
+
+            // Event-leading ABCD photons for xJ purity normalization.  These
+            // are deliberately separate from the candidate-level ABCD counters:
+            // the xJ spectra use one leading photon per event/region.
+            bool   haveLeadNonIsoTight = false;
+            double leadNonIsoTightPtGamma = -1.0;
+            const RawCluster* leadNonIsoTightRc = nullptr;
+            bool   haveLeadNonIsoNonTight = false;
+            double leadNonIsoNonTightPtGamma = -1.0;
+            const RawCluster* leadNonIsoNonTightRc = nullptr;
             
             //  leading reco photon candidate in pT^gamma within analysis pT bins,
             // WITHOUT requiring iso or tightness (used for jet-level cutflow QA vs pT^gamma)
@@ -8158,7 +8762,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                                 msg << " | npb_score=" << std::fixed << std::setprecision(4) << v.npb_score
                                     << " | cut:>" << m_npbCut;
                             }
-                            else if (m_preselectionVariant == "variantE")
+                            else if (preselectionUsesAuAuBDT(m_preselectionVariant))
                             {
                                 msg << " | auau_npb_score=" << std::fixed << std::setprecision(4) << v.auau_npb_score
                                     << " | cut:>" << m_auauNPBCut;
@@ -8263,7 +8867,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                                 << " | npb_score=" << std::fixed << std::setprecision(4) << v.npb_score
                                 << " | cut:>" << m_npbCut;
                         }
-                        else if (m_preselectionVariant == "variantE")
+                        else if (preselectionUsesAuAuBDT(m_preselectionVariant))
                         {
                             msg << "(AuAu NPB-only)"
                                 << " | auau_npb_score=" << std::fixed << std::setprecision(4) << v.auau_npb_score
@@ -8283,20 +8887,31 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 ++m_bk.pre_pass;
                 
                 // ---------- Isolation (count pass/fail) ----------
-                const bool iso = isIsolated(rc, pt_gamma, topNode);
+                // Use the same strict ISO / NONISO / GAP definition as
+                // fillIsoSSTagCounters so xJ-purity leading-region counters are
+                // matched to the ABCD sideband definitions.
+                double isoAForABCD = 0.0;
+                double isoBForABCD = 0.0;
+                double isoGapForABCD = 0.0;
+                getIsoParams(centIdx, isoAForABCD, isoBForABCD, isoGapForABCD);
+                const double thrIsoForABCD    = (m_isSlidingIso ? (isoAForABCD + isoBForABCD * pt_gamma) : m_isoFixed);
+                const double thrNonIsoForABCD = thrIsoForABCD + isoGapForABCD;
+                const bool validIsoForABCD = (std::isfinite(eiso_et) && eiso_et < 1e8);
+                const bool iso    = validIsoForABCD && (eiso_et < thrIsoForABCD);
+                const bool nonIso = validIsoForABCD && (eiso_et > thrNonIsoForABCD);
                 if (iso) ++m_bk.iso_pass; else ++m_bk.iso_fail;
                 
                 // ---------- Tight classification breakdown ----------
                 RecoilJets::TightTag tightTag;
-                if (m_tightVariant == "variantA")
+                if (m_tightVariant == "newPPG12")
                 {
-                    const double tight_min = ppg12TightBDTMin(v.pt_gamma);
-                    const double non_tight_min = ppg12NonTightBDTMin(v.pt_gamma);
-                    const double non_tight_max = ppg12NonTightBDTMax(v.pt_gamma);
-                    const bool pass_tight_bdt = ppg12TightBDTPass(v.tight_bdt_score, v.pt_gamma);
-                    const bool pass_non_tight_bdt = ppg12NonTightBDTPass(v.tight_bdt_score, v.pt_gamma);
+                    const double tight_min = configuredTightBDTMin(v.pt_gamma);
+                    const double non_tight_min = configuredNonTightBDTMin(v.pt_gamma);
+                    const double non_tight_max = configuredNonTightBDTMax(v.pt_gamma);
+                    const bool pass_tight_bdt = configuredTightBDTPass(v.tight_bdt_score, v.pt_gamma);
+                    const bool pass_non_tight_bdt = configuredNonTightBDTPass(v.tight_bdt_score, v.pt_gamma);
 
-                    tightTag = ppg12VariantABDTTag(v.tight_bdt_score, v.pt_gamma, m_nonTightVariant);
+                    tightTag = configuredVariantABDTTag(v.tight_bdt_score, v.pt_gamma);
 
                     if (tightTag == TightTag::kTight) ++m_bk.tight_tight;
                     else if (tightTag == TightTag::kNonTight) ++m_bk.tight_nonTight;
@@ -8318,9 +8933,9 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                     {
                         std::ostringstream msg;
                         msg << "      [pho#" << iPho << "] tight classification"
-                            << " | variant=variantA(PPG12 BDT)"
+                            << " | variant=newPPG12(PPG12 BDT)"
                             << " | tight_bdt_score=" << std::fixed << std::setprecision(4) << v.tight_bdt_score
-                            << " | tight=(" << tight_min << "," << kPPG12TightBDTMax << ") pass=" << pass_tight_bdt
+                            << " | tight=(" << tight_min << ",+inf) pass=" << pass_tight_bdt
                             << " | nonTight=(" << non_tight_min << "," << non_tight_max << ") pass=" << pass_non_tight_bdt
                             << " | nonTightVariant=" << m_nonTightVariant
                             << " | tag=" << tightTagName(tightTag);
@@ -8350,7 +8965,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
 
                     if (pass_tight_bdt) tightTag = TightTag::kTight;
                     else if (!std::isfinite(score)) tightTag = TightTag::kNeither;
-                    else if (m_tightVariant == "variantB" && m_nonTightVariant == "variantB") tightTag = (pass_non_tight_bdt ? TightTag::kNonTight : TightTag::kNeither);
+                    else if (m_nonTightVariant == "auauBDTSideband") tightTag = (pass_non_tight_bdt ? TightTag::kNonTight : TightTag::kNeither);
                     else tightTag = TightTag::kNonTight;
                     if (tightTag == TightTag::kTight) ++m_bk.tight_tight;
                     else if (tightTag == TightTag::kNonTight) ++m_bk.tight_nonTight;
@@ -8375,7 +8990,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                             << " | variant=" << m_tightVariant << "(AuAu BDT)"
                             << " | score=" << std::fixed << std::setprecision(4) << score
                             << " | tight=(" << minScore << "," << maxScore << ") pass=" << pass_tight_bdt
-                            << " | nonTight=" << (auauTightBDTAutoComplementMode(m_tightVariant) ? "complement" : "legacy")
+                            << " | nonTight=" << (m_nonTightVariant == "auauBDTSideband" ? "sideband" : "complement")
                             << " | nonTightSideband=(" << nonTightMin << "," << nonTightMax << ") pass=" << pass_non_tight_bdt
                             << " | nonTightVariant=" << m_nonTightVariant
                             << " | tag=" << tightTagName(tightTag);
@@ -8534,7 +9149,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 //   - inclusive: already filled in fillPureIsolationQA() as:
                 //       h_Eiso, h_Eiso_emcal, h_Eiso_hcalin, h_Eiso_hcalout
                 //
-                //   - tight / nonTight (PPG12 non-tight = fails >=2 of 5 tight cuts; "Neither" excluded):
+                //   - tight / nonTight use the active configured tight/non-tight variant; "Neither" excluded:
                 //       h_Eiso_tight,            h_Eiso_nonTight
                 //       h_Eiso_emcal_tight,      h_Eiso_emcal_nonTight
                 //       h_Eiso_hcalin_tight,     h_Eiso_hcalin_nonTight
@@ -8623,7 +9238,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 // This also fills h_Eiso once and prints a detailed decision line.
                 for (const auto& trigShort : activeTrig)
                 {
-                    fillIsoSSTagCounters(trigShort, rc, v, pt_gamma, centIdx, topNode);
+                    fillIsoSSTagCounters(trigShort, rc, v, tightTag, pt_gamma, centIdx, topNode);
                 }
                 
                 //  xJ / unfolding gate (preselection already passed above):
@@ -8632,6 +9247,22 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 //    - all other categories are NOT used for jet-level xJ filling
                 const bool useSignalA   = (iso && tightTag == TightTag::kTight);
                 const bool useSidebandC = (iso && tightTag == TightTag::kNonTight);
+                const bool useSidebandB = (nonIso && tightTag == TightTag::kTight);
+                const bool useSidebandD = (nonIso && tightTag == TightTag::kNonTight);
+
+                if (useSidebandB && (!haveLeadNonIsoTight || pt_gamma > leadNonIsoTightPtGamma))
+                {
+                    haveLeadNonIsoTight = true;
+                    leadNonIsoTightPtGamma = pt_gamma;
+                    leadNonIsoTightRc = rc;
+                }
+
+                if (useSidebandD && (!haveLeadNonIsoNonTight || pt_gamma > leadNonIsoNonTightPtGamma))
+                {
+                    haveLeadNonIsoNonTight = true;
+                    leadNonIsoNonTightPtGamma = pt_gamma;
+                    leadNonIsoNonTightRc = rc;
+                }
                 
                 if (!useSignalA && !useSidebandC)
                 {
@@ -8692,6 +9323,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                     leadNonTightPtGamma  = pt_gamma;
                     leadNonTightEtaGamma = eta;
                     leadNonTightPhiGamma = phi_gamma;
+                    leadNonTightRc       = rc;
                     
                     if (Verbosity() >= 6)
                         LOG(6, CLR_CYAN, "      [pho#" << iPho << "] marked as event-leading iso∧nonTight photon for sideband-C recoil filling (pT="
@@ -8727,6 +9359,72 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
             
             // Centrality index used for unfolding/matching-QA suffixing (centrality-only suffix in Au+Au)
             const int effCentIdx_M = (m_isAuAu ? centIdx : -1);
+
+            auto fillLeadXJPurityABCDCount =
+                [&](const char* base, const bool have, const double pt)
+            {
+                if (!have || !(std::isfinite(pt) && pt > 0.0)) return;
+                const int idx = findPtBin(pt);
+                if (idx < 0) return;
+
+                const std::string slice = suffixForBins(idx, effCentIdx_M);
+                for (const auto& trigShort : activeTrig)
+                {
+                    if (auto* h = getOrBookCountHist(trigShort, base, idx, effCentIdx_M))
+                    {
+                        h->Fill(1);
+                        bumpHistFill(trigShort, std::string(base) + slice);
+                    }
+                }
+            };
+
+            fillLeadXJPurityABCDCount("h_xJpurityLead_isIsolated_isTight",
+                                      haveLeadIsoTight, leadPtGamma);
+            fillLeadXJPurityABCDCount("h_xJpurityLead_notIsolated_isTight",
+                                      haveLeadNonIsoTight, leadNonIsoTightPtGamma);
+            fillLeadXJPurityABCDCount("h_xJpurityLead_isIsolated_notTight",
+                                      haveLeadIsoNonTight, leadNonTightPtGamma);
+            fillLeadXJPurityABCDCount("h_xJpurityLead_notIsolated_notTight",
+                                      haveLeadNonIsoNonTight, leadNonIsoNonTightPtGamma);
+
+            if (m_isSim && evtHepMC_SS && clustereval_SS && haveCaloEval_SS)
+            {
+                auto fillLeadXJPurityLeakage =
+                    [&](const bool have, const RawCluster* rcLead, const double pt, const int regBin)
+                {
+                    if (!have || !rcLead || !(std::isfinite(pt) && pt > 0.0) || regBin <= 0) return;
+
+                    TruthSignalPhotonInfo matchedTruth;
+                    int clusterTruthTrackId = -1;
+                    float eContrib = std::numeric_limits<float>::lowest();
+                    if (!classifyRecoPhotonWithPPG12TruthTrack(rcLead, *clustereval_SS,
+                                                               truthSignalByTrackId_SS,
+                                                               matchedTruth,
+                                                               clusterTruthTrackId,
+                                                               eContrib))
+                    {
+                        return;
+                    }
+
+                    const int idx = findPtBin(pt);
+                    if (idx < 0) return;
+
+                    for (const auto& trigShort : activeTrig)
+                    {
+                        if (auto* h = getOrBookSigABCDLeakageHist(trigShort, idx, effCentIdx_M,
+                                                                  "h_xJpurityLead_sigABCD_MC"))
+                        {
+                            h->Fill(regBin);
+                            bumpHistFill(trigShort, h->GetName());
+                        }
+                    }
+                };
+
+                fillLeadXJPurityLeakage(haveLeadIsoTight, leadRc, leadPtGamma, 1);
+                fillLeadXJPurityLeakage(haveLeadNonIsoTight, leadNonIsoTightRc, leadNonIsoTightPtGamma, 2);
+                fillLeadXJPurityLeakage(haveLeadIsoNonTight, leadNonTightRc, leadNonTightPtGamma, 3);
+                fillLeadXJPurityLeakage(haveLeadNonIsoNonTight, leadNonIsoNonTightRc, leadNonIsoNonTightPtGamma, 4);
+            }
             
             // -------------------- SIM: define the event-leading truth signal photon (for N_gamma unfolding) --------------------
             HepMC::GenEvent* evtHepMC = nullptr;
@@ -9214,7 +9912,7 @@ void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars&
 
   if (!pho) return;
 
-  if (preselectionUsesNPB(m_preselectionVariant))
+  if (m_poolCaptureEnabled || preselectionUsesNPB(m_preselectionVariant))
   {
     if (m_photons_npb == m_photons)
     {
@@ -9228,7 +9926,7 @@ void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars&
     }
   }
 
-  if (m_tightVariant == "variantA")
+  if (m_poolCaptureEnabled || m_tightVariant == "newPPG12")
   {
     if (m_photons_tightbdt == m_photons)
     {
@@ -9242,7 +9940,7 @@ void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars&
     }
   }
 
-  if (m_preselectionVariant == "variantE")
+  if (m_poolCaptureEnabled || preselectionUsesAuAuBDT(m_preselectionVariant))
   {
     v.auau_npb_score = pho->get_shower_shape_parameter("auau_npb_score");
   }
@@ -9254,7 +9952,7 @@ void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars&
   {
     v.auau_tight_bdt_score = predictAuAuTightBDTScore(pho, v);
   }
-  else if (m_tightVariant == "variantB")
+  else if (m_poolCaptureEnabled || m_tightVariant == "auauEmbeddedBDT")
   {
     v.auau_tight_bdt_score = pho->get_shower_shape_parameter("auau_tight_bdt_score");
   }
@@ -9262,82 +9960,72 @@ void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars&
 
 bool RecoilJets::passesPhotonPreselection(const SSVars& v)
 {
-  if (m_preselectionVariant == "variantB")
+  if (preselectionIsNoPreCriteria(m_preselectionVariant))
   {
     if (Verbosity() >= 5)
-      LOG(5, CLR_BLUE, "  [passesPhotonPreselection] variant=variantB(no preselection cuts) → PASS");
+      LOG(5, CLR_BLUE, "  [passesPhotonPreselection] preselection=noPreCriteria(no preselection cuts) → PASS");
     return true;
   }
 
-  if (m_preselectionVariant == "variantC")
+  if (preselectionIsOnlyNPB(m_preselectionVariant))
   {
     const bool pass_npb = std::isfinite(v.npb_score) && (v.npb_score > m_npbCut);
     if (Verbosity() >= 5)
     {
       LOG(5, CLR_BLUE,
-          "  [passesPhotonPreselection] variant=variantC(NPB only)"
+          "  [passesPhotonPreselection] preselection=onlyNPB(NPB only)"
           << " | npb_score=" << v.npb_score
           << " cut:>" << m_npbCut << " -> " << pass_npb);
     }
     return pass_npb;
   }
 
-  if (m_preselectionVariant == "variantE")
+  if (preselectionUsesAuAuBDT(m_preselectionVariant))
   {
     const bool pass = std::isfinite(v.auau_npb_score) && (v.auau_npb_score > m_auauNPBCut);
     if (Verbosity() >= 5)
       LOG(5, CLR_BLUE,
-          "  [passesPhotonPreselection] variant=variantE(AuAu NPB-only)"
+          "  [passesPhotonPreselection] preselection=auauOnlyNPB(AuAu NPB-only)"
           << " | auau_npb_score=" << v.auau_npb_score
           << " cut:>" << m_auauNPBCut << " -> " << pass);
     return pass;
   }
 
-  if (m_preselectionVariant == "variantA")
+  if (preselectionIsNewPPG12(m_preselectionVariant))
   {
     const bool ok_vals =
       std::isfinite(v.npb_score) &&
-      std::isfinite(v.weta_cogx) &&
       std::isfinite(v.et1) &&
       std::isfinite(v.e11_over_e33) &&
-      std::isfinite(v.e32_over_e35) &&
-      std::isfinite(v.pt_gamma);
+      std::isfinite(v.e32_over_e35);
 
-    const bool in_npb_phase_space = (v.pt_gamma >= 6.0 && v.pt_gamma <= 40.0);
-
-    if (!ok_vals || !in_npb_phase_space)
+    if (!ok_vals)
     {
       LOG(2, CLR_YELLOW,
-          "  [passesPhotonPreselection] invalid NPB score/phase-space: "
+          "  [passesPhotonPreselection] invalid newPPG12 preselection inputs: "
           << "npb_score=" << v.npb_score
-          << " weta=" << v.weta_cogx
           << " et1=" << v.et1
           << " e11/e33=" << v.e11_over_e33
-          << " e32/e35=" << v.e32_over_e35
-          << " pT^γ=" << v.pt_gamma
-          << " required 6<=pT^γ<=40");
+          << " e32/e35=" << v.e32_over_e35);
       return false;
     }
 
     const bool pass_npb = (v.npb_score > m_npbCut);
-    const bool pass_weta   = (std::abs(v.weta_cogx) < kPPG12PreWetaAbsMax);
     const bool pass_et1    = in_open_interval(v.et1, kPPG12PreEt1Min, kPPG12PreEt1Max);
-    const bool pass_e11e33 = in_open_interval(v.e11_over_e33, kPPG12PreE11E33Min, kPPG12PreE11E33Max);
+    const bool pass_e11e33 = (v.e11_over_e33 < kPPG12PreE11E33Max);
     const bool pass_e32e35 = in_open_interval(v.e32_over_e35, kPPG12PreE32E35Min, kPPG12PreE32E35Max);
-    const bool pass_all = pass_npb && pass_weta && pass_et1 && pass_e11e33 && pass_e32e35;
+    const bool pass_all = pass_npb && pass_et1 && pass_e11e33 && pass_e32e35;
 
     if (Verbosity() >= 5)
     {
       LOG(5, CLR_BLUE,
-          "  [passesPhotonPreselection] variant=variantA(PPG12 common + NPB)"
+          "  [passesPhotonPreselection] preselection=newPPG12(PPG12 common + NPB, no weta cut)"
           << " | npb_score=" << v.npb_score
           << " cut:>" << m_npbCut << " → " << pass_npb
-          << " | |weta|=" << std::abs(v.weta_cogx)
-          << " cut:<" << kPPG12PreWetaAbsMax << " → " << pass_weta
           << " | et1=" << v.et1
           << " cut:(" << kPPG12PreEt1Min << "," << kPPG12PreEt1Max << ") → " << pass_et1
           << " | e11/e33=" << v.e11_over_e33
-          << " cut:(" << kPPG12PreE11E33Min << "," << kPPG12PreE11E33Max << ") → " << pass_e11e33
+          << " cut:<" << kPPG12PreE11E33Max << " → " << pass_e11e33
           << " | e32/e35=" << v.e32_over_e35
           << " cut:(" << kPPG12PreE32E35Min << "," << kPPG12PreE32E35Max << ") → " << pass_e32e35
           << " | all → " << pass_all);
@@ -9348,9 +10036,8 @@ bool RecoilJets::passesPhotonPreselection(const SSVars& v)
       if (!pass_all)
       {
         LOG(4, CLR_YELLOW,
-            "  [passesPhotonPreselection] FAILED variantA(PPG12 common + NPB): "
+            "  [passesPhotonPreselection] FAILED newPPG12(PPG12 common + NPB, no weta cut): "
             << "npb=" << v.npb_score
-            << ", weta=" << v.weta_cogx
             << ", et1=" << v.et1
             << ", e11/e33=" << v.e11_over_e33
             << ", e32/e35=" << v.e32_over_e35);
@@ -9358,9 +10045,8 @@ bool RecoilJets::passesPhotonPreselection(const SSVars& v)
       else
       {
         LOG(4, CLR_RED,
-            "  [passesPhotonPreselection] PASS variantA(PPG12 common + NPB): "
+            "  [passesPhotonPreselection] PASS newPPG12(PPG12 common + NPB, no weta cut): "
             << "npb=" << v.npb_score
-            << ", weta=" << v.weta_cogx
             << ", et1=" << v.et1
             << ", e11/e33=" << v.e11_over_e33
             << ", e32/e35=" << v.e32_over_e35);
@@ -9370,7 +10056,7 @@ bool RecoilJets::passesPhotonPreselection(const SSVars& v)
     return pass_all;
   }
 
-  if (m_preselectionVariant == "variantD")
+  if (preselectionIsRefPlusNPB(m_preselectionVariant))
   {
     const bool ok_vals =
       std::isfinite(v.npb_score) &&
@@ -9384,7 +10070,7 @@ bool RecoilJets::passesPhotonPreselection(const SSVars& v)
     if (!ok_vals)
     {
       LOG(2, CLR_YELLOW,
-          "  [passesPhotonPreselection] variantD non-finite SSVars/NPB detected: "
+          "  [passesPhotonPreselection] refPlusNPB non-finite SSVars/NPB detected: "
           << "npb_score=" << v.npb_score
           << " weta=" << v.weta_cogx << " wphi=" << v.wphi_cogx
           << " et1=" << v.et1
@@ -9404,7 +10090,7 @@ bool RecoilJets::passesPhotonPreselection(const SSVars& v)
     if (Verbosity() >= 5)
     {
       LOG(5, CLR_BLUE,
-          "  [passesPhotonPreselection] variant=variantD(reference + NPB)"
+          "  [passesPhotonPreselection] preselection=refPlusNPB(reference + NPB)"
           << " | npb_score=" << v.npb_score << " cut:>" << m_npbCut << " -> " << pass_npb
           << " | weta=" << v.weta_cogx << " (<" << m_phoid_pre_weta_max << ") -> " << pass_weta
           << " | et1=" << v.et1 << " in (" << m_phoid_pre_et1_min << "," << m_phoid_pre_et1_max << ") -> " << pass_et1
@@ -9475,6 +10161,51 @@ bool RecoilJets::passesPhotonPreselection(const SSVars& v)
 }
 
 
+double RecoilJets::configuredTightBDTMin(const double et) const
+{
+  return m_tightBDTMinIntercept + m_tightBDTMinSlope * et;
+}
+
+double RecoilJets::configuredNonTightBDTMin(const double et) const
+{
+  return m_nonTightBDTMinIntercept + m_nonTightBDTMinSlope * et;
+}
+
+double RecoilJets::configuredNonTightBDTMax(const double et) const
+{
+  return m_nonTightBDTMaxIntercept + m_nonTightBDTMaxSlope * et;
+}
+
+bool RecoilJets::configuredTightBDTPass(const double score, const double et) const
+{
+  const double min = configuredTightBDTMin(et);
+  return std::isfinite(score) &&
+         std::isfinite(min) &&
+         (score > min);
+}
+
+bool RecoilJets::configuredNonTightBDTPass(const double score, const double et) const
+{
+  const double min = configuredNonTightBDTMin(et);
+  const double max = configuredNonTightBDTMax(et);
+  return std::isfinite(score) &&
+         std::isfinite(min) &&
+         std::isfinite(max) &&
+         (score > min) &&
+         (score < max);
+}
+
+RecoilJets::TightTag RecoilJets::configuredVariantABDTTag(const double score, const double et) const
+{
+  if (configuredTightBDTPass(score, et)) return TightTag::kTight;
+  if (m_nonTightVariant == "newPPG12")
+  {
+    return configuredNonTightBDTPass(score, et) ? TightTag::kNonTight : TightTag::kNeither;
+  }
+  return TightTag::kNonTight;
+}
+
+
 RecoilJets::TightTag RecoilJets::classifyPhotonTightness(const SSVars& v)
 {
   // If preselection fails, short-circuit
@@ -9485,32 +10216,32 @@ RecoilJets::TightTag RecoilJets::classifyPhotonTightness(const SSVars& v)
     return TightTag::kPreselectionFail;
   }
 
-  if (m_tightVariant == "variantA")
+  if (m_tightVariant == "newPPG12")
   {
-    const double tight_min = ppg12TightBDTMin(v.pt_gamma);
-    const double non_tight_min = ppg12NonTightBDTMin(v.pt_gamma);
-    const double non_tight_max = ppg12NonTightBDTMax(v.pt_gamma);
-    const bool pass_tight_bdt = ppg12TightBDTPass(v.tight_bdt_score, v.pt_gamma);
-    const bool pass_non_tight_bdt = ppg12NonTightBDTPass(v.tight_bdt_score, v.pt_gamma);
+    const double tight_min = configuredTightBDTMin(v.pt_gamma);
+    const double non_tight_min = configuredNonTightBDTMin(v.pt_gamma);
+    const double non_tight_max = configuredNonTightBDTMax(v.pt_gamma);
+    const bool pass_tight_bdt = configuredTightBDTPass(v.tight_bdt_score, v.pt_gamma);
+    const bool pass_non_tight_bdt = configuredNonTightBDTPass(v.tight_bdt_score, v.pt_gamma);
 
     if (Verbosity() >= 5)
     {
       LOG(5, CLR_BLUE,
-          "  [classifyPhotonTightness] variant=variantA(PPG12 BDT)"
+          "  [classifyPhotonTightness] variant=newPPG12(PPG12 BDT)"
           << " | tight_bdt_score=" << v.tight_bdt_score
-          << " | tight=(" << tight_min << "," << kPPG12TightBDTMax << ") → " << pass_tight_bdt
+          << " | tight=(" << tight_min << ",+inf) → " << pass_tight_bdt
           << " | nonTight=(" << non_tight_min << "," << non_tight_max << ") → " << pass_non_tight_bdt
           << " | nonTightVariant=" << m_nonTightVariant);
     }
 
-    const TightTag tag = ppg12VariantABDTTag(v.tight_bdt_score, v.pt_gamma, m_nonTightVariant);
+    const TightTag tag = configuredVariantABDTTag(v.tight_bdt_score, v.pt_gamma);
 
     if (Verbosity() >= 4)
     {
       const char* tagName = tightTagName(tag);
       const char* colour  = (tag == TightTag::kTight) ? CLR_RED :
                             (tag == TightTag::kNonTight ? CLR_GREEN : CLR_YELLOW);
-      LOG(4, colour, "  [classifyPhotonTightness] variantA(PPG12 BDT)"
+      LOG(4, colour, "  [classifyPhotonTightness] newPPG12(PPG12 BDT)"
                       << " → tag=" << tagName);
     }
 
@@ -9540,18 +10271,18 @@ RecoilJets::TightTag RecoilJets::classifyPhotonTightness(const SSVars& v)
     if (Verbosity() >= 5)
     {
       LOG(5, CLR_BLUE,
-          "  [classifyPhotonTightness] variantB(AuAu tight BDT)"
+          "  [classifyPhotonTightness] auauEmbeddedBDT(AuAu tight BDT)"
           << " mode=" << m_tightVariant
           << " | score=" << score
           << " | tight=(" << minScore << "," << maxScore << ") -> " << pass
-          << " | nonTight=" << (auauTightBDTAutoComplementMode(m_tightVariant) ? "complement" : "legacy")
+          << " | nonTight=" << (m_nonTightVariant == "auauBDTSideband" ? "sideband" : "complement")
           << " | nonTightSideband=(" << nonTightMin << "," << nonTightMax << ") -> " << passNonTightSideband
           << " | nonTightVariant=" << m_nonTightVariant);
     }
 
     if (pass) return TightTag::kTight;
     if (!std::isfinite(score)) return TightTag::kNeither;
-    if (m_tightVariant == "variantB" && m_nonTightVariant == "variantB")
+    if (m_nonTightVariant == "auauBDTSideband")
     {
       return passNonTightSideband ? TightTag::kNonTight : TightTag::kNeither;
     }
@@ -15049,9 +15780,9 @@ TH1I* RecoilJets::getOrBookTruthIsoDecisionHist(const std::string& trig,
 //   - one histogram per (pT[/cent]) slice
 //   - bins: 1=A, 2=B, 3=C, 4=D
 // ------------------------------------------------------------------
-TH1I* RecoilJets::getOrBookSigABCDLeakageHist(const std::string& trig, int ptIdx, int centIdx)
+TH1I* RecoilJets::getOrBookSigABCDLeakageHist(const std::string& trig, int ptIdx, int centIdx,
+                                              const std::string& base)
 {
-    const std::string base   = "h_sigABCD_MC";
     const std::string suffix = suffixForBins(ptIdx, centIdx);
     const std::string name   = base + suffix;
 
@@ -15689,6 +16420,7 @@ TH1F* RecoilJets::getOrBookSSHist(const std::string& trig,
 void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
                                       const RawCluster* clus,
                                       const SSVars& v,
+                                      const TightTag tightTag,
                                       double pt_gamma,
                                       int centIdx,
                                       PHCompositeNode* topNode)
@@ -15758,34 +16490,15 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
   }
 
   // -------------------------------------------------------------------------
-  // Tight sub-cuts (PPG12 Table 4) — applied AFTER preselection
+  // ABCD tight axis
   //
-  // IMPORTANT PPG12 detail:
-  //   Non-tight is defined as "fails at least TWO of the five tight requirements".
-  //   Clusters failing exactly ONE of the five tight requirements are NOT "non-tight"
-  //   and must be EXCLUDED from the ABCD purity regions.
+  // The caller already resolved tight/non-tight with the active configured
+  // tightVariant and nonTightVariant. Use that exact tag here so the raw ABCD
+  // purity histograms, leakage histograms, and signal-region logic all share
+  // the same photon-ID definition.
   // -------------------------------------------------------------------------
-  const double w_hi = tight_w_hi(v.pt_gamma);
+  const TightTag tag = tightTag;
 
-  const bool pass_weta   = in_open_interval(v.weta_cogx,     TIGHT_W_LO,       w_hi);
-  const bool pass_wphi   = in_open_interval(v.wphi_cogx,     TIGHT_W_LO,       w_hi);
-  const bool pass_e11e33 = in_open_interval(v.e11_over_e33,  TIGHT_E11E33_MIN, TIGHT_E11E33_MAX);
-  const bool pass_et1    = in_open_interval(v.et1,           TIGHT_ET1_MIN,    TIGHT_ET1_MAX);
-  const bool pass_e32e35 = in_open_interval(v.e32_over_e35,  TIGHT_E32E35_MIN, TIGHT_E32E35_MAX);
-
-  const int tight_fails =
-      (!pass_weta) + (!pass_wphi) + (!pass_e11e33) + (!pass_et1) + (!pass_e32e35);
-
-  TightTag tag;
-  if (tight_fails == 0)      tag = TightTag::kTight;
-  else if (tight_fails >= 2) tag = TightTag::kNonTight;   // PPG12 "non-tight"
-  else                       tag = TightTag::kNeither;    // exactly 1 fail (EXCLUDE from ABCD)
-
-  // -------------------------------------------------------------------------
-  // PPG12-equivalent ABCD gating:
-  //   - Only Tight and NonTight(>=2 fails) enter the A–B–C–D regions
-  //   - kNeither (exactly 1 fail) is explicitly excluded
-  // -------------------------------------------------------------------------
   if (tag == TightTag::kNeither)
   {
     if (Verbosity() >= 5)
@@ -15797,8 +16510,8 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
          << " thrIso=" << std::setprecision(3) << thrIso
          << " thrNonIso=" << std::setprecision(3) << thrNonIso
          << " → region=" << (iso ? "ISO" : "NONISO")
-         << " | tight=" << tightTagName(tag) << " (fails=" << tight_fails << ")"
-         << " | NOTE: exactly-1-fail is NOT PPG12 non-tight → excluded from ABCD";
+         << " | tight=" << tightTagName(tag)
+         << " | NOTE: active variant assigns neither tight nor non-tight → excluded from ABCD";
       LOG(5, CLR_YELLOW, os.str());
     }
     return;
@@ -15814,6 +16527,15 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
     return;
   }
 
+  const double ref_w_hi = tight_w_hi(pt_gamma);
+  const bool ref_pass_weta   = in_open_interval(v.weta_cogx,    TIGHT_W_LO,       ref_w_hi);
+  const bool ref_pass_wphi   = in_open_interval(v.wphi_cogx,    TIGHT_W_LO,       ref_w_hi);
+  const bool ref_pass_e11e33 = in_open_interval(v.e11_over_e33, TIGHT_E11E33_MIN, TIGHT_E11E33_MAX);
+  const bool ref_pass_et1    = in_open_interval(v.et1,          TIGHT_ET1_MIN,    TIGHT_ET1_MAX);
+  const bool ref_pass_e32e35 = in_open_interval(v.e32_over_e35, TIGHT_E32E35_MIN, TIGHT_E32E35_MAX);
+  const int ref_tight_fails =
+      (!ref_pass_weta) + (!ref_pass_wphi) + (!ref_pass_e11e33) + (!ref_pass_et1) + (!ref_pass_e32e35);
+
   // -------------------------------------------------------------------------
   // Update per-slice counters (only for candidates that ACTUALLY enter ABCD)
   // -------------------------------------------------------------------------
@@ -15821,10 +16543,11 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
   S.seen += 1;
 
   // -------------------------------------------------------------------------
-  // Choose A–B–C–D category using ISO vs NONISO sideband AND Tight vs NonTight(>=2 fails)
+  // Choose A–B–C–D category using ISO vs NONISO sideband and the active
+  // tight/non-tight definition.
   //
   // Keep histogram names for backward compatibility:
-  //   - "notTight" in names below now means "PPG12 non-tight (>=2 fails)" ONLY.
+  //   - "notTight" means the configured non-tight sideband.
   // -------------------------------------------------------------------------
   const char* comboBase  = nullptr;
   const char* comboKeySS = nullptr;
@@ -15848,7 +16571,7 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
   }
   else if (iso && tag == TightTag::kNonTight)
   {
-    // Region C: NON-TIGHT (>=2 fails), isolated
+    // Region C: configured non-tight, isolated
     region    = 'C';
     comboBase = "h_isIsolated_notTight";     // legacy name retained
     comboKeySS= "isIsolated_notTight";       // legacy key retained
@@ -15856,7 +16579,7 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
   }
   else if (nonIso && tag == TightTag::kNonTight)
   {
-    // Region D: NON-TIGHT (>=2 fails), non-isolated (strict NONISO sideband)
+    // Region D: configured non-tight, non-isolated (strict NONISO sideband)
     region    = 'D';
     comboBase = "h_notIsolated_notTight";    // legacy name retained
     comboKeySS= "notIsolated_notTight";      // legacy key retained
@@ -15873,7 +16596,7 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
       std::ostringstream os;
       os << "  [fillIsoSSTagCounters] UNREACHABLE mapping hit:"
          << " iso=" << iso << " nonIso=" << nonIso
-         << " tag=" << tightTagName(tag) << " (fails=" << tight_fails << ")"
+         << " tag=" << tightTagName(tag)
          << " | Eiso=" << eiso_et
          << " thrIso=" << thrIso
          << " thrNonIso=" << thrNonIso
@@ -15959,8 +16682,16 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
          << " thrIso=" << std::setprecision(3) << thrIso
          << " thrNonIso=" << std::setprecision(3) << thrNonIso
          << " → region=" << region << "(" << (iso ? "ISO" : "NONISO") << ")"
-         << " | tight=" << tightTagName(tag) << " (fails=" << tight_fails << ")"
-         << " | w_hi=" << std::setprecision(3) << w_hi;
+         << " | tight=" << tightTagName(tag);
+      if (m_tightVariant == "reference")
+      {
+        os << " (refFails=" << ref_tight_fails << ")";
+      }
+      else if (m_tightVariant == "newPPG12")
+      {
+        os << " | tightBDT=" << std::setprecision(4) << v.tight_bdt_score;
+      }
+      os << " | ref_w_hi=" << std::setprecision(3) << ref_w_hi;
 
       // Highlight the true signal region A in red; others cyan
       const char* colour = (region == 'A') ? CLR_RED : CLR_CYAN;
@@ -15996,15 +16727,15 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
         std::ostringstream os;
         os << "      [SS vars] "
            << "weta=" << std::fixed << std::setprecision(3) << v.weta_cogx
-           << " ∈ (" << TIGHT_W_LO << "," << std::setprecision(3) << w_hi << ") → " << (pass_weta ? "PASS" : "FAIL")
+           << " ∈ (" << TIGHT_W_LO << "," << std::setprecision(3) << ref_w_hi << ") → " << (ref_pass_weta ? "PASS" : "FAIL")
            << " | wphi=" << std::setprecision(3) << v.wphi_cogx
-           << " ∈ (" << TIGHT_W_LO << "," << std::setprecision(3) << w_hi << ") → " << (pass_wphi ? "PASS" : "FAIL")
+           << " ∈ (" << TIGHT_W_LO << "," << std::setprecision(3) << ref_w_hi << ") → " << (ref_pass_wphi ? "PASS" : "FAIL")
            << " | et1=" << std::setprecision(3) << v.et1
-           << " ∈ (" << TIGHT_ET1_MIN << "," << TIGHT_ET1_MAX << ") → " << (pass_et1 ? "PASS" : "FAIL")
+           << " ∈ (" << TIGHT_ET1_MIN << "," << TIGHT_ET1_MAX << ") → " << (ref_pass_et1 ? "PASS" : "FAIL")
            << " | e11/e33=" << std::setprecision(3) << v.e11_over_e33
-           << " ∈ (" << TIGHT_E11E33_MIN << "," << TIGHT_E11E33_MAX << ") → " << (pass_e11e33 ? "PASS" : "FAIL")
+           << " ∈ (" << TIGHT_E11E33_MIN << "," << TIGHT_E11E33_MAX << ") → " << (ref_pass_e11e33 ? "PASS" : "FAIL")
            << " | e32/e35=" << std::setprecision(3) << v.e32_over_e35
-           << " ∈ (" << TIGHT_E32E35_MIN << "," << TIGHT_E32E35_MAX << ") → " << (pass_e32e35 ? "PASS" : "FAIL");
+           << " ∈ (" << TIGHT_E32E35_MIN << "," << TIGHT_E32E35_MAX << ") → " << (ref_pass_e32e35 ? "PASS" : "FAIL");
         LOG(6, CLR_BLUE, os.str());
       }
     }

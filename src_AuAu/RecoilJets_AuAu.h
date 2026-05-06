@@ -109,10 +109,11 @@ namespace HepMC
 //     - Preselection cuts applied first (fail => rejected; does NOT enter A–B–C–D)
 //     - Preselection variants:
 //       reference = hard-cut SS preselection
-//       variantA = loose/common SS preselection plus NPB score
-//       variantB = no preselection
-//       variantC = NPB score only
-//       variantD = reference hard-cut SS preselection plus NPB score
+//       newPPG12 = PPG12 common SS preselection plus NPB score, no weta cut
+//       noPreCriteria = no preselection
+//       onlyNPB = NPB score only
+//       refPlusNPB = reference hard-cut SS preselection plus NPB score
+//       auauOnlyNPB = AuAu-trained NPB score only
 //     - Tight cuts applied only after preselection
 //     - Non-tight: passes preselection AND fails >=2 of the 5 tight cuts
 //   Also: for photons in this context, pT^gamma ≡ ET^gamma (use pt_gamma everywhere).
@@ -334,7 +335,8 @@ public:
     // -------------------------------------------------------------------------
     // Construction / Fun4All hooks
     // -------------------------------------------------------------------------
-    explicit RecoilJets(const std::string& outFile);
+    explicit RecoilJets(const std::string& outFile,
+                        const std::string& moduleName = "RecoilJets");
     ~RecoilJets() override;
     
     int Init(PHCompositeNode* topNode) override;
@@ -406,8 +408,27 @@ public:
     }
     
     void enablePi0Analysis(bool on = true) { m_doPi0Analysis = on; }
-    
+
     void setCentEdges(const std::vector<int>& edges)     { m_centEdges = edges; }
+
+    // Two-stage workflow support. Capture mode writes a loose analysis pool
+    // (event/photon/jet/truth TTrees) that can be replayed offline without
+    // reopening DSTs. When captureOnly is true, expensive histogram filling is
+    // skipped after the pool record is written.
+    void enableAnalysisPoolCapture(bool on = true,
+                                   bool captureOnly = false,
+                                   double photonPtMin = 4.0,
+                                   double jetPtMin = 0.0,
+                                   double truthPhotonPtMin = 4.0,
+                                   double truthJetPtMin = 0.0)
+    {
+        m_poolCaptureEnabled = on;
+        m_poolCaptureOnly = on && captureOnly;
+        m_poolPhotonPtMin = photonPtMin;
+        m_poolJetPtMin = jetPtMin;
+        m_poolTruthPhotonPtMin = truthPhotonPtMin;
+        m_poolTruthJetPtMin = truthJetPtMin;
+    }
 
     void setVertexReweighting(bool on,
                               const std::string& filePath,
@@ -487,6 +508,12 @@ public:
         m_phoid_tight_e32e35_min = tight_e32e35_min;
         m_phoid_tight_e32e35_max = tight_e32e35_max;
     }
+
+    void setPhotonIDVariants(const std::string& preselection,
+                             const std::string& tight,
+                             const std::string& nonTight,
+                             const std::string& preselectionPhotonNode = "PHOTONCLUSTER_CEMC",
+                             const std::string& tightPhotonNode = "PHOTONCLUSTER_CEMC");
     
     // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
     // When enabled, a compact per-event-per-radius TTree ("EventDisplayTree") is written to the output ROOT file.
@@ -736,8 +763,25 @@ private:
     
     void processCandidates(PHCompositeNode* topNode, const std::vector<std::string>& activeTrig);
     void fillPi0MassVsPtHistograms(const std::string& trig, RawClusterContainer* clusterContainer, bool useCorr);
-    
+
     bool getCentralitySlice(int& lo, int& hi, std::string& tag) const;
+
+    // Analysis pool capture helpers
+    void initAnalysisPoolTrees();
+    void resetAnalysisPoolBuffers();
+    void captureAnalysisPoolEvent(PHCompositeNode* topNode,
+                                  const std::vector<std::string>& activeTrig,
+                                  int centIdx);
+    void captureAnalysisPoolJets(long long eventKey, int run, int evt);
+    void captureAnalysisPoolTruthPhotons(PHCompositeNode* topNode,
+                                         long long eventKey,
+                                         int run,
+                                         int evt);
+    void captureAnalysisPoolPhotons(PHCompositeNode* topNode,
+                                    long long eventKey,
+                                    int run,
+                                    int evt,
+                                    int centIdx);
     
     // Au+Au scaled trigger helper (safe default behavior)
     static std::bitset<64> extractTriggerBits(std::uint64_t scaledVec, int /*eventNumber*/)
@@ -764,6 +808,12 @@ private:
                                                          const PhotonClusterv1* ref) const;
     bool   passesPhotonPreselection(const SSVars& v);
     TightTag classifyPhotonTightness(const SSVars& v);
+    double configuredTightBDTMin(double et) const;
+    double configuredNonTightBDTMin(double et) const;
+    double configuredNonTightBDTMax(double et) const;
+    bool configuredTightBDTPass(double score, double et) const;
+    bool configuredNonTightBDTPass(double score, double et) const;
+    TightTag configuredVariantABDTTag(double score, double et) const;
     void initAuAuBDTTrainingTree();
     void fillAuAuBDTTrainingTree(const SSVars& v,
                                  double eta,
@@ -939,7 +989,8 @@ private:
     // SIM ONLY: matched truth-signal → reco ABCD leakage counters (per pT[/cent] slice)
     //   bins: 1=A, 2=B, 3=C, 4=D
     // -------------------------------------------------------------------------
-    TH1I* getOrBookSigABCDLeakageHist(const std::string& trig, int ptIdx, int centIdx);
+    TH1I* getOrBookSigABCDLeakageHist(const std::string& trig, int ptIdx, int centIdx,
+                                      const std::string& base = "h_sigABCD_MC");
     
     // Isolation QA (truth, SIM only)
     // These are NOT sliced; they live in the trigger directory (SIM => /SIM/).
@@ -1201,6 +1252,7 @@ private:
     void fillIsoSSTagCounters(const std::string& trig,
                               const RawCluster* clus,
                               const SSVars& v,
+                              TightTag tightTag,
                               double pt_gamma,
                               int centIdx,
                               PHCompositeNode* topNode);
@@ -1255,15 +1307,16 @@ private:
     std::string m_nonTightVariant = "reference";
     std::string m_preselectionPhotonNode = "PHOTONCLUSTER_CEMC";
     std::string m_tightPhotonNode = "PHOTONCLUSTER_CEMC";
+    bool m_explicitPhotonIDVariants = false;
     double m_npbCut = 0.5;
     double m_auauNPBCut = 0.5;
-    double m_auauTightBDTMinIntercept = 0.0;
-    double m_auauTightBDTMinSlope = 0.0;
+    double m_auauTightBDTMinIntercept = 0.8333333333333334;
+    double m_auauTightBDTMinSlope = -0.003333333333333336;
     double m_auauTightBDTMax = 1.0;
-    double m_auauNonTightBDTMinIntercept = -1.0;
-    double m_auauNonTightBDTMinSlope = 0.0;
-    double m_auauNonTightBDTMaxIntercept = 1.0;
-    double m_auauNonTightBDTMaxSlope = 0.0;
+    double m_auauNonTightBDTMinIntercept = 0.7333333333333333;
+    double m_auauNonTightBDTMinSlope = -0.01333333333333333;
+    double m_auauNonTightBDTMaxIntercept = 0.6666666666666666;
+    double m_auauNonTightBDTMaxSlope = 0.003333333333333336;
     std::vector<int> m_auauTightBDTCentDepEdges;
     std::vector<std::string> m_auauTightBDTCentDepScoreNames;
     std::string m_auauTightBDTModelFile;
@@ -1272,9 +1325,13 @@ private:
     mutable bool m_auauTightBDTModelInitAttempted = false;
     mutable std::unique_ptr<TMVA::Experimental::RBDT> m_auauTightBDTModel;
     mutable std::vector<std::unique_ptr<TMVA::Experimental::RBDT>> m_auauTightBDTCentDepModels;
-    double m_tightBDTMinIntercept = 0.0;
-    double m_tightBDTMinSlope = 0.0;
+    double m_tightBDTMinIntercept = 0.8333333333333334;
+    double m_tightBDTMinSlope = -0.003333333333333336;
     double m_tightBDTMax = 1.0;
+    double m_nonTightBDTMinIntercept = 0.7333333333333333;
+    double m_nonTightBDTMinSlope = -0.01333333333333333;
+    double m_nonTightBDTMaxIntercept = 0.6666666666666666;
+    double m_nonTightBDTMaxSlope = 0.003333333333333336;
     
     double m_phoid_tight_w_lo           = 0.0;
     double m_phoid_tight_w_hi_intercept = 0.15;
@@ -1457,8 +1514,113 @@ private:
     std::vector<int>   m_evtDiag_best_iphi;
     std::vector<float> m_evtDiag_best_etaTower;
     std::vector<float> m_evtDiag_best_phiTower;
-    std::vector<float> m_evtDiag_best_etTower;
-    std::vector<float> m_evtDiag_best_eTower;
+  std::vector<float> m_evtDiag_best_etTower;
+  std::vector<float> m_evtDiag_best_eTower;
+
+  // -------------------------------------------------------------------------
+  // Reusable analysis pool capture payload.
+  // -------------------------------------------------------------------------
+  bool m_poolCaptureEnabled = false;
+  bool m_poolCaptureOnly = false;
+  double m_poolPhotonPtMin = 4.0;
+  double m_poolJetPtMin = 0.0;
+  double m_poolTruthPhotonPtMin = 4.0;
+  double m_poolTruthJetPtMin = 0.0;
+
+  TTree* m_poolEventTree = nullptr;
+  TTree* m_poolPhotonTree = nullptr;
+  TTree* m_poolJetTree = nullptr;
+  TTree* m_poolTruthPhotonTree = nullptr;
+
+  int m_pool_schema = 2;
+  int m_pool_run = 0;
+  int m_pool_evt = 0;
+  long long m_pool_eventKey = 0;
+  int m_pool_isSim = 0;
+  int m_pool_isAuAu = 0;
+  int m_pool_centBin = -1;
+  int m_pool_centIdx = -1;
+  float m_pool_centPercent = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_vz = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_weight = 1.0f;
+  std::vector<std::string> m_pool_triggers;
+
+  int m_pool_phoIndex = -1;
+  float m_pool_pho_pt = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_eta = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_phi = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_energy = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_eiso = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_eiso_r03 = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_eiso_r04 = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_iso03_emcal = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_iso03_hcalin = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_iso03_hcalout = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_iso04_emcal = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_iso04_hcalin = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_iso04_hcalout = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_weta = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_wphi = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_weta33 = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_wphi33 = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_weta35 = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_wphi53 = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_et1 = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_et2 = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_et3 = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_et4 = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_e11e33 = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_e32e35 = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_e11e22 = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_e11e13 = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_e11e15 = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_e11e17 = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_e11e31 = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_e11e51 = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_e11e71 = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_e22e33 = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_e22e35 = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_e22e37 = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_e22e53 = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_w32 = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_w52 = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_w72 = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_mean_time = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_npb = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_tight_bdt = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_auau_npb = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_auau_tight_bdt = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_mbd_time = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_cluster_mbd_delta_t = std::numeric_limits<float>::quiet_NaN();
+  int m_pool_pho_npb_has_away_jet = 0;
+  int m_pool_pho_npb_label = -1;
+  int m_pool_pho_is_npb = -1;
+  int m_pool_pho_truthSignal = 0;
+  int m_pool_pho_truthTrackId = -1;
+  float m_pool_pho_truthPt = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_truthEta = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_truthPhi = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_pho_truthIso = std::numeric_limits<float>::quiet_NaN();
+
+  std::string m_pool_jet_rKey;
+  int m_pool_jet_isTruth = 0;
+  int m_pool_jet_index = -1;
+  float m_pool_jet_pt = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_jet_raw_pt = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_jet_areaSub_pt = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_jet_eta = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_jet_phi = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_jet_area = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_jet_rho = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_jet_local_rho = std::numeric_limits<float>::quiet_NaN();
+
+  int m_pool_truth_index = -1;
+  int m_pool_truth_trackId = -1;
+  int m_pool_truth_barcode = -1;
+  float m_pool_truth_pt = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_truth_eta = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_truth_phi = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_truth_iso = std::numeric_limits<float>::quiet_NaN();
 
     bool m_auauBDTTrainingTreeEnabled = false;
     long long m_auauBDTTrainingTreeMaxEntries = 0;

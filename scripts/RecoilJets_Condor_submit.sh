@@ -28,7 +28,9 @@
 #   isSim:
 #     ./RecoilJets_Condor_submit.sh isSim local
 #     ./RecoilJets_Condor_submit.sh isSim checkModels
+#     ./RecoilJets_Condor_submit.sh isSim condorDoAllFromScratch
 #     ./RecoilJets_Condor_submit.sh isSim condorDoAll
+#     ./RecoilJets_Condor_submit.sh isSim condorHistFromPool
 #
 #   isSimJet5:
 #     ./RecoilJets_Condor_submit.sh isSimJet5 local
@@ -41,11 +43,13 @@
 #   isSimEmbedded:
 #     ./RecoilJets_Condor_submit.sh isSimEmbedded local
 #     ./RecoilJets_Condor_submit.sh isSimEmbedded condorDoAll
+#     ./RecoilJets_Condor_submit.sh isSimEmbedded condorHistFromPool
 #
 #   AuAu embedded photon-ID BDT training extraction:
 #     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT localTest
 #     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT smokeTestFirstPass
 #     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT smokeTestSecondPass SOURCE=/path/to/extraction
+#     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT smokeTestApplyExisting MODEL_DIR=/path/to/tight/models
 #     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainNPB local
 #     RJ_AUAU_BDT_NPB_DATA_LOCAL=1 ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainNPB local 5000 VERBOSE=10
 #     ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainJetMLResidual local
@@ -58,14 +62,18 @@
 #       isPP, isPPrun25, isAuAu, isOO, isSim, isSimJet5, isSimMB, isSimEmbedded
 #   • DATA modes use per-run runlists and can do:
 #       local, isLocalIsoPing, CHECKJOBS, splitGoldenRunList,
-#       condor testJob, condor round, condor all
+#       condor testJob, condor round, condor allFromScratch, condor all
 #   • SIM modes use staged matched master lists and can do:
-#       local, checkModels, CHECKJOBS, condorTest, condorDoAll
+#       local, checkModels, CHECKJOBS, condorTest,
+#       condorDoAllFromScratch, condorDoAll, condorDoAllDirect
 #   • Jobs never mix files across runs in DATA mode.
-#   • SIM condorDoAll/local sweep over the YAML matrix:
+#   • Direct DST/local sweeps use the YAML matrix:
 #       jet_pt_min × back_to_back_dphi_min_pi_fraction × vz_cut_cm × coneR × iso mode
 #       and, for AuAu-like tags, also clusterUEpipeline.
-#   • DATA condor/local matrix sweeps use the same scalar-YAML override strategy.
+#   • Pool workflows split the expensive DST pass from replay-only variations:
+#       condorDoAllFromScratch / condor allFromScratch capture reusable pools,
+#       while condorDoAll / condor all replay existing pools into the same
+#       cfg-tagged output tree expected by the merge/get scripts.
 #
 # NEW: AUAU LOCAL ISOLATION AUDIT MODE
 #   • Action token:
@@ -137,6 +145,7 @@
 #   SIM:
 #     ./RecoilJets_Condor_submit.sh isSim local
 #     ./RecoilJets_Condor_submit.sh isSim condorDoAll
+#     ./RecoilJets_Condor_submit.sh isSim condorHistFromPool
 #
 #     ./RecoilJets_Condor_submit.sh isSimJet5 local
 #     ./RecoilJets_Condor_submit.sh isSimJet5 condorDoAll
@@ -146,6 +155,7 @@
 #
 #     ./RecoilJets_Condor_submit.sh isSimEmbedded local
 #     ./RecoilJets_Condor_submit.sh isSimEmbedded condorDoAll
+#     ./RecoilJets_Condor_submit.sh isSimEmbedded condorHistFromPool
 #
 # INPUT CONTRACTS
 #   DATA:
@@ -228,6 +238,7 @@
 #     $ ./RecoilJets_Condor_submit.sh <simDataset> CHECKJOBS [groupSize N] [SAMPLE=...]
 #     $ ./RecoilJets_Condor_submit.sh <simDataset> condorTest [SAMPLE=...]
 #     $ ./RecoilJets_Condor_submit.sh <simDataset> condorDoAll [groupSize N] [SAMPLE=...]
+#     $ ./RecoilJets_Condor_submit.sh <simDataset> condorHistFromPool [groupSize N] [SAMPLE=...]
 #     $ ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT local [Nevents] [VERBOSE=N]
 #     $ ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainTightBDT condorDoAll [groupSize N]
 #     $ ./RecoilJets_Condor_submit.sh isSimEmbeddedAndInclusive trainNPB local [Nevents] [VERBOSE=N]
@@ -348,6 +359,7 @@ SIMJET5_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simjet5"
 SIMMB_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simmb"
 SIMEMBED_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simembedded"
 AUAU_BDT_DEST_BASE="${RJ_AUAU_BDT_DEST_BASE:-/sphenix/tg/tg01/bulk/jbennett/thesisAna/simembedded_bdt_training}"
+POOL_DEST_ROOT="${RJ_POOL_DEST_ROOT:-/sphenix/tg/tg01/bulk/jbennett/thesisAnaPools}"
 AUAU_BDT_LOCAL_BASE="${RJ_AUAU_BDT_LOCAL_BASE:-${BASE}/local_bdt_training_outputs}"
 AUAU_BDT_MODEL_BASE="${RJ_AUAU_BDT_MODEL_BASE:-${BASE}/bdt_models}"
 AUAU_BDT_SIGNAL_SAMPLES_DEFAULT="run28_embeddedPhoton12 run28_embeddedPhoton20"
@@ -460,31 +472,39 @@ ${BOLD}DATA modes:${RST}
   ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> splitGoldenRunList [groupSize N] [maxJobs M]${RST}
   ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> condor testJob${RST}
   ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> condor round <N> [groupSize N] [firstChunk]${RST}
+  ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> condor allFromScratch [groupSize N]${RST}
   ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> condor all [groupSize N]${RST}
+  ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> condor allDirect [groupSize N]${RST}
 
 ${BOLD}SIM mode (photonJet10/20 merged):${RST}
   ${BOLD}$0 isSim local [Nevents] [VERBOSE=N] [SAMPLE=run28_photonjet10]${RST}
   ${BOLD}$0 isSim checkModels [VERBOSE=N]${RST}
   ${BOLD}$0 isSim CHECKJOBS [groupSize N] [SAMPLE=run28_photonjet10]${RST}
   ${BOLD}$0 isSim condorTest [SAMPLE=run28_photonjet10]${RST}
+  ${BOLD}$0 isSim condorDoAllFromScratch [groupSize N] [SAMPLE=run28_photonjet10]${RST}
   ${BOLD}$0 isSim condorDoAll [groupSize N] [SAMPLE=run28_photonjet10]${RST}
+  ${BOLD}$0 isSim condorHistFromPool [groupSize N] [SAMPLE=run28_photonjet10]${RST}
+  ${BOLD}$0 isSim condorDoAllDirect [groupSize N] [SAMPLE=run28_photonjet10]${RST}
 
 ${BOLD}SIM mode (photonJet5 single-slice):${RST}
   ${BOLD}$0 isSimJet5 local [Nevents] [VERBOSE=N] [SAMPLE=run28_jet5]${RST}
   ${BOLD}$0 isSimJet5 CHECKJOBS [groupSize N] [SAMPLE=run28_jet5]${RST}
   ${BOLD}$0 isSimJet5 condorTest [SAMPLE=run28_jet5]${RST}
   ${BOLD}$0 isSimJet5 condorDoAll [groupSize N] [SAMPLE=run28_jet5]${RST}
+  ${BOLD}$0 isSimJet5 condorHistFromPool [groupSize N] [SAMPLE=run28_jet5]${RST}
 
 ${BOLD}SIM mode (MinBias DETROIT):${RST}
   ${BOLD}$0 isSimMB local [Nevents] [VERBOSE=N] [SAMPLE=run28_detroit]${RST}
   ${BOLD}$0 isSimMB CHECKJOBS [groupSize N] [SAMPLE=run28_detroit]${RST}
   ${BOLD}$0 isSimMB condorTest [SAMPLE=run28_detroit]${RST}
   ${BOLD}$0 isSimMB condorDoAll [groupSize N] [SAMPLE=run28_detroit]${RST}
+  ${BOLD}$0 isSimMB condorHistFromPool [groupSize N] [SAMPLE=run28_detroit]${RST}
 
 ${BOLD}AuAu embedded photon-ID BDT training:${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT localTest [Nevents] [VERBOSE=N]${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT smokeTestFirstPass [groupSize N]${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT smokeTestSecondPass SOURCE=/path/to/finished/extraction${RST}
+  ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT smokeTestApplyExisting MODEL_DIR=/path/to/tight/models [Nevents] [NFILES=N] [VERBOSE=N]${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainNPB local [Nevents] [VERBOSE=N]${RST}
   ${BOLD}RJ_AUAU_BDT_NPB_DATA_LOCAL=1 $0 isSimEmbeddedAndInclusive trainNPB local [Nevents] [VERBOSE=N]${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainJetMLResidual local [Nevents] [VERBOSE=N]${RST}
@@ -509,12 +529,16 @@ Examples:
   $0 isSim local 5000
   $0 isSim checkModels
   $0 isSim condorTest
+  $0 isSim condorDoAllFromScratch groupSize 5
   $0 isSim condorDoAll groupSize 5
+  $0 isSim condorHistFromPool groupSize 5
 
   $0 isSimJet5 local 5000
   $0 isSimJet5 condorDoAll groupSize 5
+  $0 isSimJet5 condorHistFromPool groupSize 5
   $0 isSimMB local 5000
   $0 isSimMB condorDoAll groupSize 5
+  $0 isSimMB condorHistFromPool groupSize 5
 USAGE
   exit 2
 }
@@ -556,6 +580,40 @@ yaml_get_values() {
     done
   else
     [[ -n "$rhs" ]] && echo "$rhs"
+  fi
+}
+
+notify_emails_csv() {
+  if [[ -n "${RJ_NOTIFY_EMAILS:-}" ]]; then
+    printf "%s\n" "$RJ_NOTIFY_EMAILS"
+    return 0
+  fi
+  local yaml
+  yaml="$(sim_yaml_master_path)"
+  [[ -f "$yaml" ]] || return 0
+  local -a emails=()
+  mapfile -t emails < <( yaml_get_values "notify_emails" "$yaml" 2>/dev/null || true )
+  local out=""
+  local e
+  for e in "${emails[@]}"; do
+    e="$(trim_ws "$e")"
+    [[ -z "$e" ]] && continue
+    out="${out:+${out},}${e}"
+  done
+  printf "%s\n" "$out"
+}
+
+submit_dag_with_notify() {
+  local dag="$1"
+  need_cmd condor_submit_dag
+  local emails
+  emails="$(notify_emails_csv)"
+  if [[ -n "$emails" ]]; then
+    say "Submitting DAG with one DAGMan completion/error notification → ${emails}"
+    condor_submit_dag -notification Complete -append "notify_user = ${emails}" "$dag"
+  else
+    say "Submitting DAG without email notification; notify_emails/RJ_NOTIFY_EMAILS is empty."
+    condor_submit_dag "$dag"
   fi
 }
 
@@ -630,12 +688,275 @@ matrix_cfg_tag() {
   echo "$tag"
 }
 
+working_point_cfg_tag() {
+  local iso_idx="$1" uepipe="$2"
+  local tag="wp_${iso_selection_tags[$iso_idx]}"
+  (( ${uepipe_in_tag:-0} )) && tag="${uepipe}_${tag}"
+  echo "$tag"
+}
+
+analysis_view_id() {
+  local pt="$1" frac="$2" vz="$3" cone="$4" iso_idx="$5"
+  printf 'jetPt%s_%s_%s_%s_%s\n' \
+    "$(sim_pt_tag "$pt")" \
+    "$(sim_b2b_tag "$frac")" \
+    "$(sim_vz_tag "$vz")" \
+    "${iso_base_tags[$iso_idx]}" \
+    "$(sim_cone_tag "$cone")"
+}
+
+read_replay_cones() {
+  local yaml="$1"
+  replay_cones=()
+  mapfile -t replay_cones < <( yaml_get_values "coneR" "$yaml" 2>/dev/null )
+  (( ${#replay_cones[@]} )) || replay_cones=( "0.4" )
+}
+
+read_capture_cones() {
+  local yaml="$1"
+  capture_cones=()
+  local -a stored_cones_tmp
+  mapfile -t stored_cones_tmp < <( yaml_get_values "stored_isolation_cones" "$yaml" 2>/dev/null )
+  if (( ${#stored_cones_tmp[@]} > 0 )); then
+    capture_cones=( "${stored_cones_tmp[0]}" )
+  fi
+  if (( ${#capture_cones[@]} == 0 )); then
+    mapfile -t capture_cones < <( yaml_get_values "captured_coneR" "$yaml" 2>/dev/null )
+  fi
+  if (( ${#capture_cones[@]} == 0 )); then
+    local -a replay_tmp
+    mapfile -t replay_tmp < <( yaml_get_values "coneR" "$yaml" 2>/dev/null )
+    (( ${#replay_tmp[@]} )) && capture_cones=( "${replay_tmp[0]}" )
+  fi
+  (( ${#capture_cones[@]} )) || capture_cones=( "0.4" )
+}
+
+pool_schema_tag() {
+  local yaml="$1"
+  local line rhs
+  line="$(grep -E "^[[:space:]]*(pool_schema_version|schema_version):" "$yaml" | head -n 1 || true)"
+  rhs="${line#*:}"
+  rhs="$(trim_ws "${rhs%%#*}")"
+  [[ -n "$rhs" ]] || rhs="2"
+  rhs="${rhs//./p}"
+  printf "schema%s\n" "$rhs"
+}
+
+pool_capture_cfg_tag() {
+  local cone="$1" uepipe="$2" yaml="$3"
+  local tag
+  local -a stored
+  mapfile -t stored < <( yaml_get_values "stored_isolation_cones" "$yaml" 2>/dev/null )
+  if (( ${#stored[@]} > 1 )); then
+    tag="pool_$(pool_schema_tag "$yaml")_isoRmulti"
+  else
+    tag="pool_$(pool_schema_tag "$yaml")_$(sim_cone_tag "$cone")"
+  fi
+  (( ${uepipe_in_tag:-0} )) && tag="${tag}_${uepipe}"
+  echo "$tag"
+}
+
+sim_analysis_tag_for_dataset() {
+  case "$1" in
+    isSimJet5) echo "isSimJet5" ;;
+    isSimMB) echo "isSimMB" ;;
+    isSimEmbedded) echo "isSimEmbedded" ;;
+    isSimEmbeddedInclusive) echo "isSimEmbeddedInclusive" ;;
+    *) echo "isSim" ;;
+  esac
+}
+
+sanitize_node_name() {
+  local s="$1"
+  s="${s//[^A-Za-z0-9_]/_}"
+  [[ "$s" =~ ^[A-Za-z] ]] || s="N_${s}"
+  printf "%s\n" "$s"
+}
+
+iso_group_key() {
+  local iso_idx="$1"
+  printf '%s|%s|%s\n' "${iso_base_tags[$iso_idx]}" "${iso_sliding[$iso_idx]}" "${iso_fixed[$iso_idx]}"
+}
+
+iso_idx_is_group_leader() {
+  local iso_idx="$1"
+  local key
+  key="$(iso_group_key "$iso_idx")"
+  local j
+  for (( j=0; j<iso_idx; j++ )); do
+    [[ "$(iso_group_key "$j")" == "$key" ]] && return 1
+  done
+  return 0
+}
+
+iso_group_count() {
+  local c=0 i
+  for (( i=0; i<${#iso_tags[@]}; i++ )); do
+    if iso_idx_is_group_leader "$i"; then (( c+=1 )); fi
+  done
+  printf '%d\n' "$c"
+}
+
+emit_id_fanout_dirs_file() {
+  local out_file="$1" dest_root="$2" pt="$3" frac="$4" vz="$5" cone="$6" iso_idx="$7" uepipe="$8"
+  local key cfg j
+  key="$(iso_group_key "$iso_idx")"
+  : > "$out_file"
+  for (( j=0; j<${#iso_tags[@]}; j++ )); do
+    [[ "$(iso_group_key "$j")" == "$key" ]] || continue
+    cfg="$(matrix_cfg_tag "$pt" "$frac" "$vz" "$cone" "$j" "$uepipe")"
+    printf '%s|%s|%s|%s|%s\n' \
+      "${dest_root}/${cfg}" "$cfg" "${iso_preselection[$j]}" "${iso_tight[$j]}" "${iso_nonTight[$j]}" >> "$out_file"
+  done
+}
+
+emit_pool_replay_fanout_dirs_file() {
+  local out_file="$1" dest_root="$2" master="$3" stamp="$4" cones_text="$5" uepipe="$6" pts_text="$7" fracs_text="$8" vzs_text="$9"
+  local pt frac vz cone iso_idx cfg wp_cfg view_id yaml_override
+  : > "$out_file"
+  for cone in $cones_text; do
+    for pt in $pts_text; do
+      for frac in $fracs_text; do
+        for vz in $vzs_text; do
+          for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
+            cfg="$(matrix_cfg_tag "$pt" "$frac" "$vz" "$cone" "$iso_idx" "$uepipe")"
+            wp_cfg="$(working_point_cfg_tag "$iso_idx" "$uepipe")"
+            view_id="$(analysis_view_id "$pt" "$frac" "$vz" "$cone" "$iso_idx")"
+            yaml_override="$(sim_make_yaml_override "$master" "$pt" "$frac" "$vz" "$cone" "${iso_sliding[$iso_idx]}" "${iso_fixed[$iso_idx]}" "$uepipe" "${iso_preselection[$iso_idx]}" "${iso_tight[$iso_idx]}" "${iso_nonTight[$iso_idx]}" "$cfg" "$stamp")"
+            printf '%s|%s|%s|%s|%s|%s|%s|%s\n' \
+              "${dest_root}/${wp_cfg}" "$cfg" "$yaml_override" "${iso_preselection[$iso_idx]}" "${iso_tight[$iso_idx]}" "${iso_nonTight[$iso_idx]}" "$view_id" "physics" >> "$out_file"
+          done
+        done
+      done
+    done
+  done
+}
+
+append_fanout_cfgs_to_manifest() {
+  local fanout_file="$1" manifest="$2"
+  [[ -s "$fanout_file" ]] || return 0
+  awk -F'|' '
+    NF >= 2 && $1 !~ /^#/ && $1 != "" {
+      out=$1
+      sub(/\/$/, "", out)
+      n=split(out, parts, "/")
+      if (parts[n] != "") print "cfg_tag=" parts[n]
+      if ($2 != "") print "view_cfg_tag=" $2
+      if (NF >= 7 && $7 != "") print "view_id=" $7
+    }' "$fanout_file" >> "$manifest"
+}
+
+publish_production_manifest() {
+  local manifest="$1" out_base="$2"
+  [[ -s "$manifest" && -n "$out_base" ]] || return 0
+  mkdir -p "$out_base"
+  cp "$manifest" "${out_base}/.recoiljets_latest_manifest.txt"
+}
+
+write_dag_final_summary_files() {
+  local dag_dir="$1" workflow="$2" dataset="$3" pool_base="$4" out_base="$5" manifest="$6"
+  local emails
+  emails="$(notify_emails_csv)"
+  local exec_file="${dag_dir}/final_summary_${workflow}.sh"
+  local sub_file="${dag_dir}/final_summary_${workflow}.sub"
+  mkdir -p "$dag_dir"
+
+  cat > "$exec_file" <<'EOS'
+#!/usr/bin/env bash
+set -euo pipefail
+workflow="${1:?workflow required}"
+dataset="${2:?dataset required}"
+pool_base="${3:?pool base required}"
+out_base="${4:?output base required}"
+manifest="${5:?manifest required}"
+emails="${6:-}"
+[[ "$emails" == "NONE" ]] && emails=""
+
+pool_count=0
+out_count=0
+[[ -d "$pool_base" ]] && pool_count=$(find "$pool_base" -type f -name '*.root' 2>/dev/null | wc -l | awk '{print $1}')
+[[ -d "$out_base" ]] && out_count=$(find "$out_base" -type f -name '*.root' 2>/dev/null | wc -l | awk '{print $1}')
+
+body="$(mktemp "${TMPDIR:-/tmp}/recoiljets_dag_summary.XXXXXX")"
+{
+  echo "RecoilJets DAG final summary"
+  echo
+  echo "workflow : ${workflow}"
+  echo "dataset  : ${dataset}"
+  echo "pool base: ${pool_base}"
+  echo "out base : ${out_base}"
+  echo "pool ROOT files currently found  : ${pool_count}"
+  echo "output ROOT files currently found: ${out_count}"
+  echo
+  if [[ -s "$manifest" ]]; then
+    echo "manifest:"
+    sed -n '1,160p' "$manifest"
+  else
+    echo "manifest missing or empty: ${manifest}"
+  fi
+} > "$body"
+
+cat "$body"
+
+if [[ -n "$emails" ]]; then
+  subject="[RecoilJets] ${workflow} ${dataset} DAG finished"
+  if command -v mail >/dev/null 2>&1; then
+    mail -s "$subject" "$emails" < "$body" || true
+  elif command -v mailx >/dev/null 2>&1; then
+    mailx -s "$subject" "$emails" < "$body" || true
+  else
+    echo "[notify] mail/mailx not found; DAGMan built-in notification may still have been sent to ${emails}" >&2
+  fi
+fi
+rm -f "$body"
+EOS
+  chmod +x "$exec_file"
+
+  cat > "$sub_file" <<SUB
+universe      = vanilla
+executable    = ${exec_file}
+initialdir    = ${BASE}
+getenv        = True
+log           = ${LOG_DIR}/final_summary_${workflow}.\$(Cluster).\$(Process).log
+output        = ${OUT_DIR}/final_summary_${workflow}.\$(Cluster).\$(Process).out
+error         = ${ERR_DIR}/final_summary_${workflow}.\$(Cluster).\$(Process).err
+request_memory= 512MB
+should_transfer_files = NO
+stream_output = True
+stream_error  = True
+notification  = Never
+arguments     = ${workflow} ${dataset} ${pool_base} ${out_base} ${manifest} ${emails:-NONE}
+queue
+SUB
+  printf "%s\n" "$sub_file"
+}
+
 selection_mode_normalize() {
+  selection_mode_normalize_for_key "" "$1"
+}
+
+selection_mode_normalize_for_key() {
+  local key="$1"
   local mode
-  mode="$(trim_ws "$1")"
+  mode="$(trim_ws "$2")"
+  case "$key:$mode" in
+    preselection:variantA|preselection:VariantA|preselection:varianta|preselection:newPPG12|preselection:NewPPG12|preselection:newppg12) echo "newPPG12"; return 0 ;;
+    preselection:variantB|preselection:VariantB|preselection:variantb|preselection:noPreCriteria|preselection:NoPreCriteria|preselection:noprecriteria) echo "noPreCriteria"; return 0 ;;
+    preselection:variantC|preselection:VariantC|preselection:variantc|preselection:onlyNPB|preselection:OnlyNPB|preselection:onlynpb) echo "onlyNPB"; return 0 ;;
+    preselection:variantD|preselection:VariantD|preselection:variantd|preselection:refPlusNPB|preselection:RefPlusNPB|preselection:refplusnpb) echo "refPlusNPB"; return 0 ;;
+    preselection:variantE|preselection:VariantE|preselection:variante|preselection:auauOnlyNPB|preselection:AuAuOnlyNPB|preselection:auauonlynpb) echo "auauOnlyNPB"; return 0 ;;
+    tight:variantA|tight:VariantA|tight:varianta|tight:newPPG12|tight:NewPPG12|tight:newppg12) echo "newPPG12"; return 0 ;;
+    tight:variantB|tight:VariantB|tight:variantb|tight:auauEmbeddedBDT|tight:AuAuEmbeddedBDT|tight:auauembeddedbdt) echo "auauEmbeddedBDT"; return 0 ;;
+    nonTight:variantA|nonTight:VariantA|nonTight:varianta|nonTight:bdtSideband|nonTight:BDTSideband|nonTight:bdtsideband|nonTight:newPPG12|nonTight:NewPPG12|nonTight:newppg12) echo "newPPG12"; return 0 ;;
+    nonTight:variantB|nonTight:VariantB|nonTight:variantb|nonTight:auauBDTSideband|nonTight:AuAuBDTSideband|nonTight:auaubdtsideband) echo "auauBDTSideband"; return 0 ;;
+    nonTight:variantC|nonTight:VariantC|nonTight:variantc|nonTight:auauBDTComplement|nonTight:AuAuBDTComplement|nonTight:auaubdtcomplement) echo "auauBDTComplement"; return 0 ;;
+  esac
   case "$mode" in
     ""|reference|Reference) echo "reference" ;;
-    variantA|VariantA|varianta) echo "variantA" ;;
+    variantA|VariantA|varianta|newPPG12|NewPPG12|newppg12) echo "newPPG12" ;;
+    auauEmbeddedBDT|AuAuEmbeddedBDT|auauembeddedbdt) echo "auauEmbeddedBDT" ;;
+    auauBDTSideband|AuAuBDTSideband|auaubdtsideband) echo "auauBDTSideband" ;;
+    auauBDTComplement|AuAuBDTComplement|auaubdtcomplement) echo "auauBDTComplement" ;;
     variantB|VariantB|variantb) echo "variantB" ;;
     variantC|VariantC|variantc) echo "variantC" ;;
     variantD|VariantD|variantd) echo "variantD" ;;
@@ -650,10 +971,17 @@ selection_mode_normalize() {
 selection_mode_tag() {
   local key="$1"
   local mode
-  mode="$(selection_mode_normalize "$2")"
+  mode="$(selection_mode_normalize_for_key "$key" "$2")"
   case "$mode" in
     reference) echo "${key}Reference" ;;
-    variantA) echo "${key}VariantA" ;;
+    newPPG12) echo "${key}NewPPG12" ;;
+    noPreCriteria) echo "${key}NoPreCriteria" ;;
+    onlyNPB) echo "${key}OnlyNPB" ;;
+    refPlusNPB) echo "${key}RefPlusNPB" ;;
+    auauOnlyNPB) echo "${key}AuAuOnlyNPB" ;;
+    auauEmbeddedBDT) echo "${key}AuAuEmbeddedBDT" ;;
+    auauBDTSideband) echo "${key}AuAuBDTSideband" ;;
+    auauBDTComplement) echo "${key}AuAuBDTComplement" ;;
     variantB) echo "${key}VariantB" ;;
     variantC) echo "${key}VariantC" ;;
     variantD) echo "${key}VariantD" ;;
@@ -664,6 +992,24 @@ selection_mode_tag() {
       echo "${key}${first^^}${rest}"
       ;;
   esac
+}
+
+yaml_get_photon_id_sets() {
+  local yaml="$1"
+  awk '
+    function trim(s){ gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return s }
+    BEGIN{inset=0}
+    {
+      line=$0
+      sub(/#.*/, "", line)
+      if (line ~ /^[[:space:]]*photon_id_sets[[:space:]]*:/) { inset=1; next }
+      if (inset && line ~ /^[[:alnum:]_][[:alnum:]_[:space:]-]*:/) { exit }
+      if (!inset || line !~ /\[/) next
+      sub(/^.*\[/, "", line)
+      sub(/\].*$/, "", line)
+      n=split(line, a, ",")
+      if (n >= 3) print trim(a[1]) "|" trim(a[2]) "|" trim(a[3])
+    }' "$yaml"
 }
 
 # Build parallel arrays:
@@ -699,15 +1045,9 @@ build_iso_modes() {
   mapfile -t _fixeds < <( yaml_get_values "fixedGeV" "$yaml_file" 2>/dev/null )
   (( ${#_fixeds[@]} )) || _fixeds=( "2.0" )
 
-  local -a _preselection_modes
-  local -a _tight_modes
-  local -a _nonTight_modes
-  mapfile -t _preselection_modes < <( yaml_get_values "preselection" "$yaml_file" 2>/dev/null )
-  mapfile -t _tight_modes < <( yaml_get_values "tight" "$yaml_file" 2>/dev/null )
-  mapfile -t _nonTight_modes < <( yaml_get_values "nonTight" "$yaml_file" 2>/dev/null )
-  (( ${#_preselection_modes[@]} )) || _preselection_modes=( "reference" )
-  (( ${#_tight_modes[@]} )) || _tight_modes=( "reference" )
-  (( ${#_nonTight_modes[@]} )) || _nonTight_modes=( "reference" )
+  local -a _id_rows
+  mapfile -t _id_rows < <( yaml_get_photon_id_sets "$yaml_file" )
+  (( ${#_id_rows[@]} > 0 )) || { err "YAML must define photon_id_sets with rows like [preselection, tight, nonTight]: $yaml_file"; exit 74; }
 
   _both="$(trim_ws "$_both")"
   _slide="$(trim_ws "$_slide")"
@@ -738,36 +1078,26 @@ build_iso_modes() {
   local _tight
   local _nonTight
   for (( _i=0; _i<${#_base_tags[@]}; _i++ )); do
-    for _pre in "${_preselection_modes[@]}"; do
-      for _tight in "${_tight_modes[@]}"; do
-        for _nonTight in "${_nonTight_modes[@]}"; do
-          local _pre_norm
-          local _tight_norm
-          local _nonTight_norm
-          local selection_tag
-          _pre_norm="$(selection_mode_normalize "$_pre")"
-          _tight_norm="$(selection_mode_normalize "$_tight")"
-          _nonTight_norm="$(selection_mode_normalize "$_nonTight")"
-          case "$_tight_norm" in
-            centINDcontrol|centAsFeat|centDepBDTs)
-              _nonTight_norm="$_tight_norm"
-              ;;
-          esac
-          if [[ "$_tight_norm" == "reference" && "$_nonTight_norm" != "reference" ]]; then
-            continue
-          fi
-          selection_tag="$(selection_mode_tag "preselection" "$_pre_norm")_$(selection_mode_tag "tight" "$_tight_norm")_$(selection_mode_tag "nonTight" "$_nonTight_norm")"
+    local _row
+    for _row in "${_id_rows[@]}"; do
+      IFS='|' read -r _pre _tight _nonTight <<< "$_row"
+      local _pre_norm
+      local _tight_norm
+      local _nonTight_norm
+      local selection_tag
+      _pre_norm="$(selection_mode_normalize_for_key "preselection" "$_pre")"
+      _tight_norm="$(selection_mode_normalize_for_key "tight" "$_tight")"
+      _nonTight_norm="$(selection_mode_normalize_for_key "nonTight" "$_nonTight")"
+      selection_tag="$(selection_mode_tag "preselection" "$_pre_norm")_$(selection_mode_tag "tight" "$_tight_norm")_$(selection_mode_tag "nonTight" "$_nonTight_norm")"
 
-          iso_tags+=( "${_base_tags[$_i]}_${selection_tag}" )
-          iso_base_tags+=( "${_base_tags[$_i]}" )
-          iso_selection_tags+=( "${selection_tag}" )
-          iso_sliding+=( "${_base_sliding[$_i]}" )
-          iso_fixed+=( "${_base_fixed[$_i]}" )
-          iso_preselection+=( "${_pre_norm}" )
-          iso_tight+=( "${_tight_norm}" )
-          iso_nonTight+=( "${_nonTight_norm}" )
-        done
-      done
+      iso_tags+=( "${_base_tags[$_i]}_${selection_tag}" )
+      iso_base_tags+=( "${_base_tags[$_i]}" )
+      iso_selection_tags+=( "${selection_tag}" )
+      iso_sliding+=( "${_base_sliding[$_i]}" )
+      iso_fixed+=( "${_base_fixed[$_i]}" )
+      iso_preselection+=( "${_pre_norm}" )
+      iso_tight+=( "${_tight_norm}" )
+      iso_nonTight+=( "${_nonTight_norm}" )
     done
   done
 }
@@ -800,6 +1130,27 @@ read_uepipe_modes() {
   fi
 }
 
+yaml_set_scalar_in_place() {
+  local file="$1" key="$2" value="$3"
+  local tmp="${file}.tmp.$$"
+  if grep -Eq "^[[:space:]]*${key}:" "$file"; then
+    sed -E "s|^([[:space:]]*${key}:).*|\\1 ${value}|" "$file" > "$tmp"
+    mv "$tmp" "$file"
+  else
+    {
+      printf '\n'
+      printf '%s: %s\n' "$key" "$value"
+    } >> "$file"
+  fi
+}
+
+pin_photon_id_scalars_in_yaml() {
+  local file="$1" preselection="$2" tight="$3" nonTight="$4"
+  yaml_set_scalar_in_place "$file" "preselection" "$preselection"
+  yaml_set_scalar_in_place "$file" "tight" "$tight"
+  yaml_set_scalar_in_place "$file" "nonTight" "$nonTight"
+}
+
 sim_make_yaml_override() {
   local master="$1" pt="$2" frac="$3" vz="$4" cone="$5" sliding="$6" fixed="$7" uepipe="$8" preselection="$9" tight="${10}" nonTight="${11}" tag="${12}" stamp="${13:-}" force_sliding_and_fixed="${14:-}"
   mkdir -p "$SIM_YAML_OVERRIDE_DIR"
@@ -810,9 +1161,6 @@ sim_make_yaml_override() {
   grep -Eq '^[[:space:]]*back_to_back_dphi_min_pi_fraction:' "$master" || { err "YAML missing key 'back_to_back_dphi_min_pi_fraction' in $master"; exit 71; }
   grep -Eq '^[[:space:]]*vz_cut_cm:' "$master" || { err "YAML missing key 'vz_cut_cm' in $master"; exit 71; }
   grep -Eq '^[[:space:]]*coneR:' "$master" || { err "YAML missing key 'coneR' in $master"; exit 71; }
-  grep -Eq '^[[:space:]]*preselection:' "$master" || { err "YAML missing key 'preselection' in $master"; exit 71; }
-  grep -Eq '^[[:space:]]*tight:' "$master" || { err "YAML missing key 'tight' in $master"; exit 71; }
-  grep -Eq '^[[:space:]]*nonTight:' "$master" || { err "YAML missing key 'nonTight' in $master"; exit 71; }
 
   local -a sed_args
   sed_args=(
@@ -823,15 +1171,13 @@ sim_make_yaml_override() {
     -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${sliding}|"
     -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${fixed}|"
     -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${uepipe}|"
-    -e "s|^([[:space:]]*preselection:).*|\\1 ${preselection}|"
-    -e "s|^([[:space:]]*tight:).*|\\1 ${tight}|"
-    -e "s|^([[:space:]]*nonTight:).*|\\1 ${nonTight}|"
   )
   if [[ -n "$force_sliding_and_fixed" ]]; then
     sed_args+=( -e "s|^([[:space:]]*isSlidingAndFixed:).*|\\1 ${force_sliding_and_fixed}|" )
   fi
 
   sed -E "${sed_args[@]}" "$master" > "$out"
+  pin_photon_id_scalars_in_yaml "$out" "$preselection" "$tight" "$nonTight"
 
   echo "$out"
 }
@@ -962,6 +1308,9 @@ resolve_dataset() {
 
   STAGE_DIR="${STAGE_ROOT}/${TAG}"
   ROUND_DIR="${ROUND_ROOT}/${TAG}"
+  if [[ -n "${RJ_DEST_BASE_OVERRIDE:-}" ]]; then
+    DEST_BASE="$RJ_DEST_BASE_OVERRIDE"
+  fi
   mkdir -p "$STAGE_DIR" "$ROUND_DIR" "$LOG_DIR" "$OUT_DIR" "$ERR_DIR" "$SUB_DIR"
 }
 
@@ -1174,7 +1523,7 @@ check_jobs_sim() {
     samples=( "${SIM_SAMPLE}" )
   fi
 
-  n_cfg=$(( ${#sim_pts[@]} * ${#sim_fracs[@]} * ${#sim_vzs[@]} * ${#sim_cones[@]} * ${#iso_tags[@]} * ${#uepipe_modes[@]} ))
+  n_cfg=$(( ${#sim_pts[@]} * ${#sim_fracs[@]} * ${#sim_vzs[@]} * ${#sim_cones[@]} * $(iso_group_count) * ${#uepipe_modes[@]} ))
 
   say "CHECKJOBS (dataset=${DATASET}, tag=${TAG})"
   say "  YAML master         : ${master_yaml}"
@@ -1188,13 +1537,14 @@ check_jobs_sim() {
   say "  back_to_back_dphi_min_pi_fraction : [${sim_fracs[*]}]  (${#sim_fracs[@]} values)"
   say "  vz_cut_cm                         : [${sim_vzs[*]}]  (${#sim_vzs[@]} values)"
   say "  coneR                             : [${sim_cones[*]}]  (${#sim_cones[@]} values)"
-  say "  iso + photon-ID modes             : [${iso_tags[*]}]  (${#iso_tags[@]} values)"
+  say "  iso groups submitted              : $(iso_group_count) upstream mode(s)"
+  say "  photon-ID fanout outputs          : ${#iso_tags[@]} cfg tag(s) across those iso groups"
   if (( ${uepipe_in_tag:-0} )); then
     say "  clusterUEpipeline                 : [${uepipe_modes[*]}]  (${#uepipe_modes[@]} values; tagged)"
   else
     say "  clusterUEpipeline                 : [${uepipe_modes[*]}]  (${#uepipe_modes[@]} forced value; not tagged for ${TAG})"
   fi
-  say "  cfg combos (product)              : ${BOLD}${n_cfg}${RST}"
+  say "  upstream DST jobs configs         : ${BOLD}${n_cfg}${RST}"
   echo
 
   say "${BOLD}Per-sample input file counts:${RST}"
@@ -1210,7 +1560,7 @@ check_jobs_sim() {
   done
   echo
 
-  say "${BOLD}Full cfg tag list (${n_cfg} entries × ${#samples[@]} samples = ${BOLD}$((n_cfg * ${#samples[@]}))${RST} submit blocks):${RST}"
+  say "${BOLD}Full upstream ID-fanout cell list (${n_cfg} entries × ${#samples[@]} samples = ${BOLD}$((n_cfg * ${#samples[@]}))${RST} submit blocks):${RST}"
   printf "  ${BOLD}%3s │ %-70s │ %-5s %-6s %-7s %-7s %-18s %-12s${RST}\n" \
          "#" "cfg_tag" "pt" "frac" "vz" "cone" "iso" "uepipe"
   printf "  ────┼────────────────────────────────────────────────────────────────────────┼───── ────── ─────── ─────── ────────────────── ────────────\n"
@@ -1236,7 +1586,7 @@ check_jobs_sim() {
 
   total_jobs=$(( n_cfg * per_cfg_jobs ))
   say "${BOLD}Job count summary:${RST}"
-  say "  cfg combos             : ${n_cfg}"
+  say "  upstream configs       : ${n_cfg}"
   say "  jobs per combo (Σsamp) : ${per_cfg_jobs}"
   say "  ─────────────────────────────────"
   say "  ${BOLD}TOTAL CONDOR JOBS        : ${BOLD}${total_jobs}${RST}"
@@ -1377,7 +1727,7 @@ check_jobs_all() {
     (( base_jobs   += nj   ))
   done < "$GOLDEN"
 
-  local n_matrix=$(( ${#ck_pts[@]} * ${#ck_fracs[@]} * ${#ck_vzs[@]} * ${#ck_cones[@]} * ${#iso_tags[@]} * ${#uepipe_modes[@]} ))
+  local n_matrix=$(( ${#ck_pts[@]} * ${#ck_fracs[@]} * ${#ck_vzs[@]} * ${#ck_cones[@]} * $(iso_group_count) * ${#uepipe_modes[@]} ))
   local total_jobs=$(( n_matrix * base_jobs ))
 
   say "CHECKJOBS (dataset=${DATASET}, tag=${TAG})"
@@ -1389,13 +1739,14 @@ check_jobs_all() {
   say "  b2b_dphi_pi_fraction : [${ck_fracs[*]}]  (${#ck_fracs[@]} values)"
   say "  vz_cut_cm            : [${ck_vzs[*]}]  (${#ck_vzs[@]} values)"
   say "  coneR                : [${ck_cones[*]}]  (${#ck_cones[@]} values)"
-  say "  iso + photon-ID modes: [${iso_tags[*]}]  (${#iso_tags[@]} values)"
+  say "  iso groups submitted : $(iso_group_count) upstream mode(s)"
+  say "  photon-ID fanout cfgs: ${#iso_tags[@]} cfg tag(s) across those iso groups"
   if (( ${uepipe_in_tag:-0} )); then
     say "  clusterUEpipeline    : [${uepipe_modes[*]}]  (${#uepipe_modes[@]} values; tagged)"
   else
     say "  clusterUEpipeline    : [${uepipe_modes[*]}]  (${#uepipe_modes[@]} forced value; not tagged for ${TAG})"
   fi
-  say "  matrix combos        : ${BOLD}${n_matrix}${RST}"
+  say "  upstream matrix cells: ${BOLD}${n_matrix}${RST}"
   echo
   say "${BOLD}Per-matrix-cell base:${RST}"
   say "  golden runs (w/lists): ${total_runs}"
@@ -1404,7 +1755,7 @@ check_jobs_all() {
   (( missing > 0 )) && warn "  runs skipped (missing lists): ${missing}"
   echo
 
-  say "${BOLD}Full cfg tag list (${n_matrix} entries):${RST}"
+  say "${BOLD}Full upstream ID-fanout cell list (${n_matrix} entries):${RST}"
   echo
   printf "  ${BOLD}%3s │ %-70s │ %-5s %-6s %-7s %-7s %-18s %-12s${RST}\n" \
          "#" "cfg_tag" "pt" "frac" "vz" "cone" "iso" "uepipe"
@@ -1415,6 +1766,7 @@ check_jobs_all() {
   for _vz in "${ck_vzs[@]}"; do
     for _cone in "${ck_cones[@]}"; do
     for (( _ci=0; _ci<${#iso_tags[@]}; _ci++ )); do
+    iso_idx_is_group_leader "$_ci" || continue
     for _ue in "${uepipe_modes[@]}"; do
       (( ++cfg_num ))
       local _dpt; _dpt="jetMinPt$(sim_pt_tag "$_pt")"
@@ -1434,7 +1786,7 @@ check_jobs_all() {
   echo
 
   say "${BOLD}Job count summary (groupSize=${gs}):${RST}"
-  say "  matrix combos          : ${n_matrix}"
+  say "  upstream matrix cells  : ${n_matrix}"
   say "  base jobs per combo    : ${base_jobs}"
   say "  ─────────────────────────────────"
   say "  ${BOLD}TOTAL CONDOR JOBS        : ${total_jobs}${RST}"
@@ -1466,6 +1818,44 @@ check_jobs_all() {
   local _ex_tag
   _ex_tag="$(matrix_cfg_tag "${ck_pts[0]}" "${ck_fracs[0]}" "${ck_vzs[0]}" "${ck_cones[0]}" 0 "${uepipe_modes[0]}")"
   say "  e.g. ${DIM}${DEST_BASE}/${_ex_tag}/00067599/*.root${RST}"
+}
+
+workflow_check() {
+  local yaml_src
+  yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
+  [[ -s "$yaml_src" ]] || { err "Workflow check YAML not found or empty: $yaml_src"; exit 72; }
+
+  local -a pts fracs vzs cones
+  mapfile -t pts   < <( yaml_get_values "jet_pt_min" "$yaml_src" )
+  mapfile -t fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$yaml_src" )
+  mapfile -t vzs   < <( yaml_get_values "vz_cut_cm" "$yaml_src" )
+  mapfile -t cones < <( yaml_get_values "coneR" "$yaml_src" )
+  (( ${#pts[@]} ))   || { err "No values found for jet_pt_min in $yaml_src"; exit 72; }
+  (( ${#fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $yaml_src"; exit 72; }
+  (( ${#vzs[@]} ))   || { err "No values found for vz_cut_cm in $yaml_src"; exit 72; }
+  (( ${#cones[@]} )) || { err "No values found for coneR in $yaml_src"; exit 72; }
+
+  build_iso_modes "$yaml_src"
+  read_uepipe_modes "$yaml_src" "$TAG"
+
+  local n_cfg=$(( ${#pts[@]} * ${#fracs[@]} * ${#vzs[@]} * ${#cones[@]} * $(iso_group_count) * ${#uepipe_modes[@]} ))
+  local ex_tag
+  ex_tag="$(matrix_cfg_tag "${pts[0]}" "${fracs[0]}" "${vzs[0]}" "${cones[0]}" 0 "${uepipe_modes[0]}")"
+  local override
+  override="$(sim_make_yaml_override "$yaml_src" "${pts[0]}" "${fracs[0]}" "${vzs[0]}" "${cones[0]}" "${iso_sliding[0]}" "${iso_fixed[0]}" "${uepipe_modes[0]}" "${iso_preselection[0]}" "${iso_tight[0]}" "${iso_nonTight[0]}" "$ex_tag" "WORKFLOWCHECK" "false")"
+
+  say "${BOLD}Workflow check${RST}"
+  say "  dataset          : ${DATASET}"
+  say "  YAML             : ${yaml_src}"
+  say "  photon_id_sets   : ${#iso_selection_tags[@]} ID/iso rows after expansion"
+  say "  matrix cfg count : ${n_cfg}"
+  say "  example cfg_tag  : ${ex_tag}"
+  say "  example override : ${override}"
+  say "  override scalars : preselection=$(grep -E '^[[:space:]]*preselection:' "$override" | tail -1 | awk -F: '{print $2}' | xargs)"
+  say "                     tight=$(grep -E '^[[:space:]]*tight:' "$override" | tail -1 | awk -F: '{print $2}' | xargs)"
+  say "                     nonTight=$(grep -E '^[[:space:]]*nonTight:' "$override" | tail -1 | awk -F: '{print $2}' | xargs)"
+  say "  notify_emails    : $(grep -E '^[[:space:]]*notify_emails:' "$yaml_src" | head -1 | cut -d: -f2- | xargs || true)"
+  say "  note             : pool replay is active; from-scratch workflows capture only DST-dependent axes, then fan out replay-only ID/cut/bin variations."
 }
 
 # Submit a set of runs (from a round file or the whole golden list) to Condor
@@ -1535,6 +1925,7 @@ request_memory= ${request_memory}
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
+notification  = Never
 # Force dataset & quiet macro on Condor (YAML frozen at submit time):
 environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${yaml_snap}${macro_env}${submit_extra_env}
 SUB
@@ -1609,6 +2000,257 @@ SUB
   say "Wrapper path: ${exe_to_use}"
   need_cmd condor_submit
   condor_submit "$sub"
+}
+
+data_analysis_tag_for_dataset() {
+  case "$1" in
+    isAuAu) echo "isAuAu" ;;
+    isOO) echo "isOO" ;;
+    *) echo "isPP" ;;
+  esac
+}
+
+submit_data_pool_workflow() {
+  local from_scratch="$1"  # 1: DST->pool->replay DAG, 0: replay existing pools
+  local master_yaml="$data_yaml_src"
+  local pool_base="${RJ_POOL_INPUT_BASE:-${RJ_POOL_OUTPUT_BASE:-${POOL_DEST_ROOT}/${TAG}}}"
+  local out_base="${DATA_DEST_BASE_SAVED%/}"
+  local workflow_stamp
+  workflow_stamp="$(date +%Y%m%d_%H%M%S)"
+  local dag_dir="${SUB_DIR}/pool_workflow_${TAG}_${workflow_stamp}"
+  local dag="${dag_dir}/RecoilJets_pool_${DATASET}_${workflow_stamp}.dag"
+  local manifest="${dag_dir}/manifest.txt"
+  local pool_macro="${BASE}/macros/Fun4All_recoilJets_poolReplay.C"
+  local replay_gs="${RJ_POOL_REPLAY_GROUP_SIZE:-$GROUP_SIZE}"
+  [[ "$replay_gs" =~ ^[0-9]+$ && "$replay_gs" -gt 0 ]] || replay_gs="$GROUP_SIZE"
+
+  need_cmd condor_submit_dag
+  [[ -f "$pool_macro" ]] || { err "Pool replay macro not found: $pool_macro"; exit 92; }
+  mkdir -p "$dag_dir" "$SIM_YAML_OVERRIDE_DIR"
+  : > "$dag"
+
+  read_replay_cones "$master_yaml"
+  read_capture_cones "$master_yaml"
+  local -a data_replay_cones=( "${replay_cones[@]}" )
+  local -a data_capture_cones=( "${capture_cones[@]}" )
+
+  if [[ "$from_scratch" -eq 1 ]]; then
+    cleanup_bulk_snapshots_for_tag
+    case "$DATASET" in
+      isAuAu|isOO) create_pipeline_snapshot "auau" "$workflow_stamp" ;;
+      *)           create_pipeline_snapshot "pp" "$workflow_stamp" ;;
+    esac
+  fi
+
+  {
+    echo "workflow=$([[ "$from_scratch" -eq 1 ]] && echo dataAllFromScratch || echo dataAllFromPool)"
+    echo "dataset=${DATASET}"
+    echo "yaml=${master_yaml}"
+    echo "pool_base=${pool_base}"
+    echo "output_base=${out_base}"
+    echo "group_size=${GROUP_SIZE}"
+    echo "replay_group_size=${replay_gs}"
+    echo "replay_cones=${data_replay_cones[*]}"
+    echo "capture_cones=${data_capture_cones[*]}"
+    echo "uepipe_modes=${uepipe_modes[*]}"
+    echo "photon_id_sets_expanded=${#iso_selection_tags[@]}"
+    echo "submitted_at=${workflow_stamp}"
+  } > "$manifest"
+
+  declare -A cap_node_by_tag=()
+  declare -A pool_list_by_tag_run=()
+  local capture_count=0
+  local replay_count=0
+  local analysis_tag
+  analysis_tag="$(data_analysis_tag_for_dataset "$DATASET")"
+
+  say "${BOLD}DATA pool workflow requested${RST}"
+  say "  mode        : $([[ "$from_scratch" -eq 1 ]] && echo allFromScratch || echo all-from-existing-pools)"
+  say "  dataset     : ${DATASET}"
+  say "  pool base   : ${pool_base}"
+  say "  output base : ${out_base}"
+  say "  DAG dir     : ${dag_dir}"
+
+  if [[ "$from_scratch" -eq 1 ]]; then
+    for data_cone in "${data_capture_cones[@]}"; do
+      for uepipe in "${uepipe_modes[@]}"; do
+        local cap_tag
+        cap_tag="$(pool_capture_cfg_tag "$data_cone" "$uepipe" "$master_yaml")"
+        local cap_yaml
+        cap_yaml="$(sim_make_yaml_override "$master_yaml" "${data_pts[0]}" "${data_fracs[0]}" "${data_vzs[0]}" "$data_cone" "${iso_sliding[0]}" "${iso_fixed[0]}" "$uepipe" "${iso_preselection[0]}" "${iso_tight[0]}" "${iso_nonTight[0]}" "$cap_tag" "$workflow_stamp" "false")"
+        local cap_stage_dir="${STAGE_DIR}/${TAG}_${workflow_stamp}_capture_${cap_tag}"
+        mkdir -p "$cap_stage_dir"
+        local cap_root="${pool_base}/${cap_tag}"
+        case "$cap_root" in
+          */thesisAnaPools/*) ;;
+          *) err "Refusing to wipe pool capture root outside thesisAnaPools: ${cap_root}"; exit 62 ;;
+        esac
+        mkdir -p "$cap_root"
+        find "$cap_root" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+
+        local cap_sub="${dag_dir}/capture_${cap_tag}.sub"
+        local exe_for_sub="${BULK_FROZEN_EXE:-${EXE}}"
+        local macro_env_for_sub=""
+        [[ -n "${BULK_FROZEN_MACRO:-}" ]] && macro_env_for_sub=";RJ_MACRO_PATH=${BULK_FROZEN_MACRO}"
+        cat > "$cap_sub" <<SUB
+universe      = vanilla
+executable    = ${exe_for_sub}
+initialdir    = ${BASE}
+getenv        = True
+log           = ${LOG_DIR}/capture_${TAG}_${cap_tag}.\$(Cluster).\$(Process).log
+output        = ${OUT_DIR}/capture_${TAG}_${cap_tag}.\$(Cluster).\$(Process).out
+error         = ${ERR_DIR}/capture_${TAG}_${cap_tag}.\$(Cluster).\$(Process).err
+request_memory= ${RJ_REQUEST_MEMORY:-2000MB}
+should_transfer_files = NO
+stream_output = True
+stream_error  = True
+notification  = Never
+environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${cap_yaml}${macro_env_for_sub};RJ_POOL_MODE=capture
+SUB
+
+        local queued=0
+        while IFS= read -r rn; do
+          [[ -z "$rn" || "$rn" =~ ^# ]] && continue
+          local r8
+          r8="$(run8 "$rn")"
+          if [[ -n "${TRIGGER_BIT}" ]] && ! is_trigger_active "$r8" "$TRIGGER_BIT"; then
+            continue
+          fi
+          mapfile -t groups < <( STAGE_DIR="$cap_stage_dir" make_groups "$r8" "$GROUP_SIZE" )
+          (( ${#groups[@]} )) || continue
+          local expected_pool_list="${dag_dir}/pool_expected_${cap_tag}_${r8}.list"
+          : > "$expected_pool_list"
+          local gidx=0
+          for glist in "${groups[@]}"; do
+            (( gidx+=1 ))
+            local chunk_base chunk_tag
+            chunk_base="$(basename "$glist")"
+            chunk_tag="${chunk_base%.list}"
+            printf '%s\n' "${cap_root}/${r8}/RecoilJets_${analysis_tag}_${chunk_tag}.root" >> "$expected_pool_list"
+            printf 'arguments = %s %s %s $(Cluster) 0 %d NONE %s\nqueue\n\n' \
+                   "$r8" "$glist" "$DATASET" "$gidx" "$cap_root" >> "$cap_sub"
+            (( queued+=1 ))
+          done
+          pool_list_by_tag_run["${cap_tag}|${r8}"]="$expected_pool_list"
+        done < "$GOLDEN"
+
+        local cap_node
+        cap_node="CAP_$(sanitize_node_name "${cap_tag}")"
+        printf 'JOB %s %s\n' "$cap_node" "$cap_sub" >> "$dag"
+        cap_node_by_tag["$cap_tag"]="$cap_node"
+        (( capture_count+=1 ))
+        echo "capture_node=${cap_node} tag=${cap_tag} jobs=${queued} yaml=${cap_yaml} output=${cap_root}" >> "$manifest"
+      done
+    done
+  fi
+
+  local cell_num=0
+  for data_cone in "${data_capture_cones[@]}"; do
+  for uepipe in "${uepipe_modes[@]}"; do
+      local cap_tag fanout_dirs replay_sub replay_node fanout_count
+      cap_tag="$(pool_capture_cfg_tag "$data_cone" "$uepipe" "$master_yaml")"
+      fanout_dirs="${SIM_YAML_OVERRIDE_DIR}/pool_replay_fanout_${TAG}_${cap_tag}_${workflow_stamp}.txt"
+      emit_pool_replay_fanout_dirs_file "$fanout_dirs" "$out_base" "$master_yaml" "$workflow_stamp" "${data_replay_cones[*]}" "$uepipe" "${data_pts[*]}" "${data_fracs[*]}" "${data_vzs[*]}"
+      fanout_count="$(wc -l < "$fanout_dirs" | awk '{print $1}')"
+      append_fanout_cfgs_to_manifest "$fanout_dirs" "$manifest"
+
+      while IFS= read -r fan_line; do
+        [[ -z "${fan_line:-}" || "${fan_line:0:1}" == "#" ]] && continue
+        IFS='|' read -r fan_dest _fan_cfg _fan_yaml _fan_pre _fan_tight _fan_nonTight <<< "$fan_line"
+        [[ -z "${fan_dest:-}" || "${fan_dest:0:1}" == "#" ]] && continue
+        case "$fan_dest" in
+          */thesisAna/pp/*|*/thesisAna/pp25/*|*/thesisAna/auau/*|*/thesisAna/oo/*) ;;
+          *) err "Refusing to wipe fanout DEST_BASE='$fan_dest'"; exit 62 ;;
+        esac
+        mkdir -p "$fan_dest"
+        find "$fan_dest" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+      done < "$fanout_dirs"
+
+      replay_sub="${dag_dir}/replay_${cap_tag}.sub"
+      cat > "$replay_sub" <<SUB
+universe      = vanilla
+executable    = ${EXE}
+initialdir    = ${BASE}
+getenv        = True
+log           = ${LOG_DIR}/replay_${TAG}_${cap_tag}.\$(Cluster).\$(Process).log
+output        = ${OUT_DIR}/replay_${TAG}_${cap_tag}.\$(Cluster).\$(Process).out
+error         = ${ERR_DIR}/replay_${TAG}_${cap_tag}.\$(Cluster).\$(Process).err
+request_memory= ${RJ_REQUEST_MEMORY:-2000MB}
+should_transfer_files = NO
+stream_output = True
+stream_error  = True
+notification  = Never
+environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${master_yaml};RJ_MACRO_PATH=${pool_macro};RJ_ID_FANOUT_DIRS_FILE=${fanout_dirs};RJ_REPLAY_MAX_OPEN_OUTPUTS=${RJ_REPLAY_MAX_OPEN_OUTPUTS:-48}
+SUB
+
+      local queued=0
+      while IFS= read -r rn; do
+        [[ -z "$rn" || "$rn" =~ ^# ]] && continue
+        local r8
+        r8="$(run8 "$rn")"
+        if [[ -n "${TRIGGER_BIT}" ]] && ! is_trigger_active "$r8" "$TRIGGER_BIT"; then
+          continue
+        fi
+
+        local pool_all
+        if [[ "$from_scratch" -eq 1 ]]; then
+          pool_all="${pool_list_by_tag_run["${cap_tag}|${r8}"]:-}"
+          [[ -n "$pool_all" && -s "$pool_all" ]] || continue
+        else
+          local pool_dir="${pool_base}/${cap_tag}/${r8}"
+          [[ -d "$pool_dir" ]] || { err "Missing pool directory for ${cap_tag}/${r8}: $pool_dir"; exit 93; }
+          pool_all="${dag_dir}/pool_existing_${cap_tag}_${r8}.list"
+          find "$pool_dir" -maxdepth 1 -type f -name '*.root' | sort > "$pool_all"
+          [[ -s "$pool_all" ]] || { err "No pool ROOT files found in $pool_dir"; exit 94; }
+        fi
+
+        local pool_stage_dir="${dag_dir}/poolReplayLists/${cap_tag}/${r8}"
+        mkdir -p "$pool_stage_dir"
+        rm -f "${pool_stage_dir}/pool_grp"*.list "${pool_stage_dir}/pool_grp_raw_"* 2>/dev/null || true
+        split -l "$replay_gs" -d -a 5 "$pool_all" "${pool_stage_dir}/pool_grp_raw_"
+        local gidx=0
+        for raw in "${pool_stage_dir}/pool_grp_raw_"*; do
+          [[ -s "$raw" ]] || { rm -f "$raw"; continue; }
+          (( gidx+=1 ))
+          local out_list="${pool_stage_dir}/pool_grp$(printf "%03d" "$gidx").list"
+          mv "$raw" "$out_list"
+          printf 'arguments = %s %s %s $(Cluster) 0 %d NONE %s\nqueue\n\n' \
+                 "$r8" "$out_list" "$DATASET" "$gidx" "${out_base}/${cap_tag}" >> "$replay_sub"
+          (( queued+=1 ))
+        done
+      done < "$GOLDEN"
+
+      if (( queued == 0 )); then
+        warn "No DATA pool replay jobs queued for ${cap_tag}; skipping replay node"
+        rm -f "$replay_sub"
+        continue
+      fi
+
+      replay_node="REP_$(sanitize_node_name "${cap_tag}")"
+      printf 'JOB %s %s\n' "$replay_node" "$replay_sub" >> "$dag"
+      if [[ "$from_scratch" -eq 1 ]]; then
+        local cap_node="${cap_node_by_tag[$cap_tag]:-}"
+        [[ -n "$cap_node" ]] || { err "Internal DAG build error: missing capture node for ${cap_tag}"; exit 97; }
+        printf 'PARENT %s CHILD %s\n' "$cap_node" "$replay_node" >> "$dag"
+      fi
+      (( replay_count+=1 ))
+      (( cell_num+=fanout_count ))
+      echo "replay_node=${replay_node} cap_tag=${cap_tag} jobs=${queued} fanout_outputs=${fanout_count} fanout=${fanout_dirs}" >> "$manifest"
+  done
+  done
+
+  local final_sub workflow_name
+  workflow_name="$([[ "$from_scratch" -eq 1 ]] && echo "dataPoolFromScratch_${TAG}_${workflow_stamp}" || echo "dataPoolReplay_${TAG}_${workflow_stamp}")"
+  final_sub="$(write_dag_final_summary_files "$dag_dir" "$workflow_name" "$DATASET" "$pool_base" "$out_base" "$manifest")"
+  printf 'FINAL FINAL_SUMMARY %s\n' "$final_sub" >> "$dag"
+
+  say "DATA pool DAG build summary:"
+  say "  capture nodes : ${capture_count}"
+  say "  replay nodes  : ${replay_count}"
+  say "  manifest      : ${manifest}"
+  say "  dag           : ${dag}"
+  publish_production_manifest "$manifest" "$out_base"
+  submit_dag_with_notify "$dag"
 }
 
 # ------------------------ AuAu embedded BDT training helpers --------------------------
@@ -1718,7 +2360,12 @@ auau_bdt_collect_roots() {
   local root_dir="$1"
   local manifest="$2"
   mkdir -p "$(dirname "$manifest")"
-  find "$root_dir" -type f -name "RecoilJets_*.root" | sort > "$manifest" || true
+  find "$root_dir" \
+    -type f \
+    -name "RecoilJets_*.root" \
+    ! -path "*/_bad_root_files_*/*" \
+    ! -path "*/bad_root_quarantine/*" \
+    | sort > "$manifest" || true
   [[ -s "$manifest" ]] || { err "No RecoilJets ROOT files found under ${root_dir}"; exit 31; }
 }
 
@@ -2139,13 +2786,13 @@ auau_bdt_run_condor_do_all() {
     say "[BDT condor] signal extraction sample=${samp}"
     RJ_CONFIG_YAML="$train_yaml" \
     RJ_SIMEMBED_DEST_BASE="$AUAU_BDT_DEST_BASE" \
-    "$0" isSimEmbedded condorDoAll groupSize "$gs_doall" "SAMPLE=${samp}"
+    "$0" isSimEmbedded condorDoAll groupSize "$gs_doall" maxJobs "$MAX_JOBS" "SAMPLE=${samp}"
   done
   for samp in "${background_samples[@]}"; do
     say "[BDT condor] background extraction sample=${samp}"
     RJ_CONFIG_YAML="$train_yaml" \
     RJ_SIMEMBED_DEST_BASE="$AUAU_BDT_DEST_BASE" \
-    "$0" isSimEmbeddedInclusive condorDoAll groupSize "$gs_doall" "SAMPLE=${samp}"
+    "$0" isSimEmbeddedInclusive condorDoAll groupSize "$gs_doall" maxJobs "$MAX_JOBS" "SAMPLE=${samp}"
   done
 
   say "Condor extraction was submitted. After jobs finish, train from the produced ROOT files with:"
@@ -2203,6 +2850,69 @@ auau_tight_bdt_smoke_second_pass() {
 
   say "Tight BDT smoke second pass complete."
   say "  source   : ${source_base}"
+  say "  run base : ${outbase}"
+  say "  models   : ${model_dir}"
+  say "  pull from Mac with:"
+  say "    ./scripts/sftp_get_recoiljets_outputs.sh tightBDTSmoke ${outbase}"
+}
+
+auau_tight_bdt_smoke_apply_existing() {
+  auau_bdt_parse_local_controls
+
+  local model_dir="${RJ_AUAU_TIGHT_BDT_MODEL_DIR:-${RJ_AUAU_TIGHT_BDT_APPLY_MODEL_DIR:-}}"
+  local t expect_model_dir=0
+  for t in "${tokens[@]}"; do
+    if [[ "$expect_model_dir" -eq 1 ]]; then
+      model_dir="$t"
+      expect_model_dir=0
+      continue
+    fi
+    if [[ "$t" == "MODEL_DIR" || "$t" == "MODELDIR" || "$t" == "model_dir" || "$t" == "modelDir" ]]; then
+      expect_model_dir=1
+    elif [[ "$t" =~ ^MODEL_DIR=(.+)$ ]]; then
+      model_dir="${BASH_REMATCH[1]}"
+    elif [[ "$t" =~ ^MODELDIR=(.+)$ ]]; then
+      model_dir="${BASH_REMATCH[1]}"
+    elif [[ "$t" =~ ^model_dir=(.+)$ ]]; then
+      model_dir="${BASH_REMATCH[1]}"
+    elif [[ "$t" =~ ^modelDir=(.+)$ ]]; then
+      model_dir="${BASH_REMATCH[1]}"
+    fi
+  done
+
+  [[ -n "$model_dir" ]] || { err "smokeTestApplyExisting needs MODEL_DIR=/path/to/tight/models"; exit 2; }
+  [[ -d "$model_dir" ]] || { err "Tight-BDT model directory does not exist: $model_dir"; exit 2; }
+
+  local stamp master_yaml outbase
+  stamp="$(date +%Y%m%d_%H%M%S)"
+  master_yaml="$(sim_yaml_master_path)"
+  outbase="${AUAU_BDT_LOCAL_BASE}/tightSmokeApply_${stamp}"
+  mkdir -p "$outbase"
+
+  local -a signal_samples
+  mapfile -t signal_samples < <( auau_bdt_signal_samples )
+
+  say "AuAu tight BDT APPLY-ONLY smoke using existing models"
+  say "  model dir          : ${model_dir}"
+  say "  local output root  : ${outbase}"
+  say "  signal samples     : ${signal_samples[*]}"
+  say "  events/sample      : ${AUAU_BDT_LOCAL_EVENTS}"
+  say "  grouped files/sample: ${AUAU_BDT_LOCAL_NFILES} (assuming ${RJ_SIM_LOCAL_EVENTS_PER_FILE:-1000} events/input file unless overridden)"
+  say "  verbosity          : ${AUAU_BDT_LOCAL_VERBOSITY}"
+  echo
+
+  auau_tight_bdt_apply_product "centINDcontrol" "$model_dir" "$master_yaml" "$stamp" "$outbase" "${signal_samples[@]}"
+  auau_tight_bdt_apply_product "centAsFeat" "$model_dir" "$master_yaml" "$stamp" "$outbase" "${signal_samples[@]}"
+  auau_tight_bdt_apply_product "centDepBDTs" "$model_dir" "$master_yaml" "$stamp" "$outbase" "${signal_samples[@]}"
+
+  {
+    echo "run_base=${outbase}"
+    echo "model_dir=${model_dir}"
+    echo "cent_bins=${RJ_AUAU_TIGHT_BDT_CENT_BINS:-0:20,20:50,50:80}"
+    echo "products=centINDcontrol centAsFeat centDepBDTs"
+  } > "${outbase}/tight_bdt_apply_existing_summary.env"
+
+  say "Tight BDT apply-only smoke complete."
   say "  run base : ${outbase}"
   say "  models   : ${model_dir}"
   say "  pull from Mac with:"
@@ -2600,13 +3310,13 @@ auau_ml_run_all_local() {
 
   if [[ -s "$npb_model" ]]; then
     local npb_apply_yaml
-    npb_apply_yaml="$(auau_ml_first_matrix_yaml "$master_yaml" "mlApply_npb_${stamp}" "$stamp" "variantE" "reference" "reference")"
+    npb_apply_yaml="$(auau_ml_first_matrix_yaml "$master_yaml" "mlApply_npb_${stamp}" "$stamp" "auauOnlyNPB" "reference" "reference")"
     ml_yaml_set_scalar "$npb_apply_yaml" "auau_npb_model_file" "$npb_model"
     ml_yaml_set_scalar "$npb_apply_yaml" "auau_bdt_training_tree" "false"
     ml_yaml_set_scalar "$npb_apply_yaml" "jet_ml_training_tree" "false"
     ml_yaml_set_scalar "$npb_apply_yaml" "jet_ml_correction_enabled" "false"
 
-    say "Stage C0: re-apply trained NPB model through preselection=variantE"
+    say "Stage C0: re-apply trained NPB model through preselection=auauOnlyNPB"
     say "  model: ${npb_model}"
     say "  YAML : ${npb_apply_yaml}"
     auau_ml_run_sample_set_local "isSimEmbedded" "$npb_apply_yaml" "${run_base}/apply/npb/simembedded" "$AUAU_ML_LOCAL_EVENTS" "$AUAU_ML_LOCAL_VERBOSITY" "${signal_samples[@]}"
@@ -2616,7 +3326,7 @@ auau_ml_run_all_local() {
   fi
 
   if [[ -s "$tight_model" ]]; then
-    tight_apply_yaml="$(auau_ml_first_matrix_yaml "$master_yaml" "mlApply_tight_${stamp}" "$stamp" "reference" "variantB" "variantB")"
+    tight_apply_yaml="$(auau_ml_first_matrix_yaml "$master_yaml" "mlApply_tight_${stamp}" "$stamp" "reference" "auauEmbeddedBDT" "auauBDTSideband")"
     ml_yaml_set_scalar "$tight_apply_yaml" "auau_tight_bdt_model_file" "$tight_model"
     ml_yaml_set_scalar "$tight_apply_yaml" "auau_bdt_training_tree" "false"
     ml_yaml_set_scalar "$tight_apply_yaml" "jet_ml_training_tree" "false"
@@ -2728,10 +3438,8 @@ scaled_trigger_prepare_single_yaml() {
     -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${iso_sliding[0]}|" \
     -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${iso_fixed[0]}|" \
     -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${uepipe}|" \
-    -e "s|^([[:space:]]*preselection:).*|\\1 ${iso_preselection[0]}|" \
-    -e "s|^([[:space:]]*tight:).*|\\1 ${iso_tight[0]}|" \
-    -e "s|^([[:space:]]*nonTight:).*|\\1 ${iso_nonTight[0]}|" \
     "$master_yaml" > "$SCALED_TRIGGER_YAML"
+  pin_photon_id_scalars_in_yaml "$SCALED_TRIGGER_YAML" "${iso_preselection[0]}" "${iso_tight[0]}" "${iso_nonTight[0]}"
 
   say "scaledTriggerStudy single config:"
   say "  cfg_tag       : ${SCALED_TRIGGER_CFG_TAG}"
@@ -2760,14 +3468,14 @@ for (( idx=0; idx<${#tokens[@]}; idx++ )); do
     scaledTriggerStudy)
       ACTION="$tok"
       ;;
-    local|localTest|condorDoAll|resume|smokeTestFirstPass|smokeTestSecondPass)
+    local|localTest|condorDoAll|condorDoAllDirect|condorDoAllFromScratch|condorHistFromPool|resume|smokeTestFirstPass|smokeTestSecondPass|smokeTestApplyExisting)
       if [[ "$ACTION" == trainTightBDT || "$ACTION" == trainNPB || "$ACTION" == trainJetMLResidual || "$ACTION" == trainMLAll || "$ACTION" == scaledTriggerStudy ]]; then
         TRAIN_MODE="$tok"
       else
         ACTION="$tok"
       fi
       ;;
-    checkModels|isLocalIsoPing|condor|splitGoldenRunList|condorTest)
+    checkModels|workflowCheck|isLocalIsoPing|condor|splitGoldenRunList|condorTest)
       ACTION="$tok"
       ;;
     groupSize)
@@ -2943,8 +3651,12 @@ case "$ACTION" in
         [[ "$task" == "tight" ]] || { err "smokeTestSecondPass is currently only implemented for trainTightBDT"; exit 2; }
         auau_tight_bdt_smoke_second_pass
         ;;
+      smokeTestApplyExisting)
+        [[ "$task" == "tight" ]] || { err "smokeTestApplyExisting is currently only implemented for trainTightBDT"; exit 2; }
+        auau_tight_bdt_smoke_apply_existing
+        ;;
       *)
-        err "${ACTION} mode must be local, localTest, condorDoAll, smokeTestFirstPass, or smokeTestSecondPass; got '${TRAIN_MODE}'"
+        err "${ACTION} mode must be local, localTest, condorDoAll, smokeTestFirstPass, smokeTestSecondPass, or smokeTestApplyExisting; got '${TRAIN_MODE}'"
         exit 2
         ;;
     esac
@@ -2987,6 +3699,11 @@ case "$ACTION" in
     exit 0
     ;;
 
+  workflowCheck)
+    workflow_check
+    exit 0
+    ;;
+
   checkModels)
     [[ "$DATASET" == "isSim" ]] || { err "checkModels is only valid as: $0 isSim checkModels"; exit 2; }
 
@@ -3008,11 +3725,14 @@ case "$ACTION" in
     mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
     mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
     mapfile -t sim_vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
-    mapfile -t sim_cones < <( yaml_get_values "coneR" "$master_yaml" )
+    read_replay_cones "$master_yaml"
+    read_capture_cones "$master_yaml"
+    sim_cones=( "${replay_cones[@]}" )
     (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
     (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
     (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
     (( ${#sim_cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
+    (( ${#capture_cones[@]} )) || { err "No capture cone could be derived from $master_yaml"; exit 72; }
     read_uepipe_modes "$master_yaml" "$TAG"
     check_pt="${sim_pts[0]}"
     check_frac="${sim_fracs[0]}"
@@ -3038,13 +3758,13 @@ case "$ACTION" in
     say "  events      : ${nevt}"
     say "  sample      : ${SIM_SAMPLE}"
     say "  scalar axes : jet_pt_min=${check_pt}  back_to_back_pi_fraction=${check_frac}  vz_cut_cm=${check_vz}  coneR=${check_cone}  iso=${check_iso_base_tag}"
-    say "  ID passes   : reference/reference/reference, variantA/variantA/variantA"
+    say "  ID passes   : reference/reference/reference, newPPG12/newPPG12/newPPG12"
     say "  dest base   : ${SIM_DEST_BASE_RESOLVED}"
     echo
 
-    check_preselections=( "reference" "variantA" )
-    check_tights=( "reference" "variantA" )
-    check_nonTights=( "reference" "variantA" )
+    check_preselections=( "reference" "newPPG12" )
+    check_tights=( "reference" "newPPG12" )
+    check_nonTights=( "reference" "newPPG12" )
 
     for check_idx in "${!check_preselections[@]}"; do
       for uepipe in "${uepipe_modes[@]}"; do
@@ -3356,10 +4076,8 @@ case "$ACTION" in
           -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${iso_sliding[$iso_idx]}|" \
           -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${iso_fixed[$iso_idx]}|" \
           -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${uepipe}|" \
-          -e "s|^([[:space:]]*preselection:).*|\\1 ${iso_preselection[$iso_idx]}|" \
-          -e "s|^([[:space:]]*tight:).*|\\1 ${iso_tight[$iso_idx]}|" \
-          -e "s|^([[:space:]]*nonTight:).*|\\1 ${iso_nonTight[$iso_idx]}|" \
           "$data_yaml_src" > "$yaml_override"
+        pin_photon_id_scalars_in_yaml "$yaml_override" "${iso_preselection[$iso_idx]}" "${iso_tight[$iso_idx]}" "${iso_nonTight[$iso_idx]}"
         DEST_BASE="${DATA_DEST_BASE_SAVED}/${data_cfg_tag}"
 
         say "----------------------------------------"
@@ -3461,10 +4179,8 @@ case "$ACTION" in
       -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${iso_sliding[$iso_idx]}|" \
       -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${iso_fixed[$iso_idx]}|" \
       -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${selected_uepipe}|" \
-      -e "s|^([[:space:]]*preselection:).*|\\1 ${iso_preselection[$iso_idx]}|" \
-      -e "s|^([[:space:]]*tight:).*|\\1 ${iso_tight[$iso_idx]}|" \
-      -e "s|^([[:space:]]*nonTight:).*|\\1 ${iso_nonTight[$iso_idx]}|" \
       "$data_yaml_src" > "$yaml_override"
+    pin_photon_id_scalars_in_yaml "$yaml_override" "${iso_preselection[$iso_idx]}" "${iso_tight[$iso_idx]}" "${iso_nonTight[$iso_idx]}"
 
     r8="$(pick_first_iso_ping_run "$ISO_PING_TRIGGER_BIT")"
     [[ -n "$r8" ]] || { err "No Au+Au run with a non-empty per-run list and active ${ISO_PING_TRIGGER_KEY} trigger"; exit 6; }
@@ -3553,11 +4269,14 @@ case "$ACTION" in
     mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
     mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
     mapfile -t sim_vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
-    mapfile -t sim_cones < <( yaml_get_values "coneR" "$master_yaml" )
+    read_replay_cones "$master_yaml"
+    read_capture_cones "$master_yaml"
+    sim_cones=( "${replay_cones[@]}" )
     (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
     (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
     (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
     (( ${#sim_cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
+    (( ${#capture_cones[@]} )) || { err "No capture cone could be derived from $master_yaml"; exit 72; }
     build_iso_modes "$master_yaml"
     read_uepipe_modes "$master_yaml" "$TAG"
 
@@ -3606,9 +4325,440 @@ SUB
     condor_submit "$sub"
     ;;
 
+  condorDoAllFromScratch)
+    [[ "$IS_SIM" -eq 1 ]] || { err "condorDoAllFromScratch is currently implemented for SIM-style pool capture/replay DAGs."; exit 2; }
+
+    master_yaml="$(sim_yaml_master_path)"
+    [[ -s "$master_yaml" ]] || { err "Master YAML not found or empty: $master_yaml"; exit 72; }
+
+    gs_capture="$GROUP_SIZE"
+    gs_replay="${RJ_POOL_REPLAY_GROUP_SIZE:-20}"
+    if [[ "${GROUP_SIZE_EXPLICIT:-0}" -eq 1 ]]; then
+      gs_replay="$GROUP_SIZE"
+    fi
+    [[ "$gs_replay" =~ ^[0-9]+$ && "$gs_replay" -gt 0 ]] || gs_replay=20
+
+    mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
+    mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
+    mapfile -t sim_vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
+    read_replay_cones "$master_yaml"
+    read_capture_cones "$master_yaml"
+    sim_cones=( "${replay_cones[@]}" )
+    (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
+    (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
+    (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
+    (( ${#sim_cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
+    (( ${#capture_cones[@]} )) || { err "No capture cone could be derived from $master_yaml"; exit 72; }
+    build_iso_modes "$master_yaml"
+    read_uepipe_modes "$master_yaml" "$TAG"
+
+    samples=()
+    if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
+      case "$DATASET" in
+        isSimEmbedded)          samples=( "run28_embeddedPhoton12" "run28_embeddedPhoton20" ) ;;
+        isSimEmbeddedInclusive) samples=( "run28_embeddedJet10" "run28_embeddedJet20" ) ;;
+        isSimJet5)              samples=( "run28_jet5" ) ;;
+        isSimMB)                samples=( "run28_detroit" ) ;;
+        *)                      samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
+      esac
+    else
+      samples=( "${SIM_SAMPLE}" )
+    fi
+
+    need_cmd condor_submit_dag
+
+    pool_base="${RJ_POOL_OUTPUT_BASE:-${POOL_DEST_ROOT}/${TAG}}"
+    out_base="${DEST_BASE%/}"
+    workflow_stamp="$(date +%Y%m%d_%H%M%S)"
+    dag_dir="${SUB_DIR}/pool_workflow_${TAG}_${workflow_stamp}"
+    mkdir -p "$dag_dir" "$SIM_YAML_OVERRIDE_DIR"
+    dag="${dag_dir}/RecoilJets_pool_${DATASET}_${workflow_stamp}.dag"
+    manifest="${dag_dir}/manifest.txt"
+    : > "$dag"
+
+    cleanup_bulk_snapshots_for_tag
+    case "$DATASET" in
+      isSimEmbedded|isSimEmbeddedInclusive) create_pipeline_snapshot "auau" "$workflow_stamp" ;;
+      *)                                    create_pipeline_snapshot "pp" "$workflow_stamp" ;;
+    esac
+
+    pool_macro="${BASE}/macros/Fun4All_recoilJets_poolReplay.C"
+    [[ -f "$pool_macro" ]] || { err "Pool replay macro not found: $pool_macro"; exit 92; }
+
+    {
+      echo "workflow=condorDoAllFromScratch"
+      echo "dataset=${DATASET}"
+      echo "yaml=${master_yaml}"
+      echo "pool_base=${pool_base}"
+      echo "output_base=${out_base}"
+      echo "capture_group_size=${gs_capture}"
+      echo "replay_group_size=${gs_replay}"
+      echo "samples=${samples[*]}"
+      echo "replay_cones=${sim_cones[*]}"
+      echo "capture_cones=${capture_cones[*]}"
+      echo "uepipe_modes=${uepipe_modes[*]}"
+      echo "photon_id_sets_expanded=${#iso_selection_tags[@]}"
+      echo "submitted_at=${workflow_stamp}"
+    } > "$manifest"
+
+    declare -A cap_node_by_key=()
+    declare -A pool_list_by_key=()
+    capture_count=0
+    replay_count=0
+
+    say "${BOLD}condorDoAllFromScratch DAG requested${RST}"
+    say "  dataset       : ${DATASET}"
+    say "  pool base     : ${pool_base}"
+    say "  output base   : ${out_base}"
+    say "  capture axes  : storedIsolation=[${capture_cones[*]}], clusterUE=[${uepipe_modes[*]}]"
+    say "  replay axes   : pT=[${sim_pts[*]}], dphi=[${sim_fracs[*]}], vz=[${sim_vzs[*]}], ID rows=${#iso_selection_tags[@]}"
+    say "  DAG dir       : ${dag_dir}"
+
+    for cone in "${capture_cones[@]}"; do
+      for uepipe in "${uepipe_modes[@]}"; do
+        POOL_CAPTURE_TAG="$(pool_capture_cfg_tag "$cone" "$uepipe" "$master_yaml")"
+        cap_yaml="$(sim_make_yaml_override "$master_yaml" "${sim_pts[0]}" "${sim_fracs[0]}" "${sim_vzs[0]}" "$cone" "${iso_sliding[0]}" "${iso_fixed[0]}" "$uepipe" "${iso_preselection[0]}" "${iso_tight[0]}" "${iso_nonTight[0]}" "$POOL_CAPTURE_TAG" "$workflow_stamp" "false")"
+
+        for samp in "${samples[@]}"; do
+          SIM_SAMPLE="$samp"
+          SIM_CFG_TAG="$POOL_CAPTURE_TAG"
+          DEST_BASE="${pool_base}/${POOL_CAPTURE_TAG}"
+          GROUP_SIZE="$gs_capture"
+          SIM_STAGE_NAMESPACE="${TAG}_${workflow_stamp}_capture_${POOL_CAPTURE_TAG}"
+          export SIM_STAGE_NAMESPACE
+          mapfile -t groups < <( make_sim_groups "$GROUP_SIZE" )
+          (( ${#groups[@]} )) || { err "No sim capture groups produced (sample=${SIM_SAMPLE}, tag=${POOL_CAPTURE_TAG})"; exit 30; }
+          if [[ "$MAX_JOBS" =~ ^[0-9]+$ && "$MAX_JOBS" -gt 0 && "${#groups[@]}" -gt "$MAX_JOBS" ]]; then
+            say "Capping pool capture group list for sample=${SIM_SAMPLE}, tag=${POOL_CAPTURE_TAG}: ${#groups[@]} → ${MAX_JOBS} jobs"
+            groups=( "${groups[@]:0:$MAX_JOBS}" )
+          fi
+
+          pool_out_dir="${pool_base}/${POOL_CAPTURE_TAG}/${SIM_SAMPLE}"
+          mkdir -p "$pool_out_dir"
+          rm -f "${pool_out_dir}/"*.root 2>/dev/null || true
+
+          expected_pool_list="${dag_dir}/pool_expected_${POOL_CAPTURE_TAG}_${SIM_SAMPLE}.list"
+          : > "$expected_pool_list"
+          analysis_tag="$(sim_analysis_tag_for_dataset "$DATASET")"
+          for glist in "${groups[@]}"; do
+            chunk_base="$(basename "$glist")"
+            chunk_tag="${chunk_base%.list}"
+            printf '%s\n' "${pool_out_dir}/RecoilJets_${analysis_tag}_${chunk_tag}.root" >> "$expected_pool_list"
+          done
+
+          cap_sub="${dag_dir}/capture_${POOL_CAPTURE_TAG}_${SIM_SAMPLE}.sub"
+          exe_for_sub="${BULK_FROZEN_EXE:-${EXE}}"
+          macro_env_for_sub=""
+          [[ -n "${BULK_FROZEN_MACRO:-}" ]] && macro_env_for_sub=";RJ_MACRO_PATH=${BULK_FROZEN_MACRO}"
+          cap_prefix="capture_${SIM_SAMPLE}_${POOL_CAPTURE_TAG}"
+          cat > "$cap_sub" <<SUB
+universe      = vanilla
+executable    = ${exe_for_sub}
+initialdir    = ${BASE}
+getenv        = True
+log           = ${LOG_DIR}/${cap_prefix}.\$(Cluster).\$(Process).log
+output        = ${OUT_DIR}/${cap_prefix}.\$(Cluster).\$(Process).out
+error         = ${ERR_DIR}/${cap_prefix}.\$(Cluster).\$(Process).err
+request_memory= 2000MB
+should_transfer_files = NO
+stream_output = True
+stream_error  = True
+notification  = Never
+environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${cap_yaml}${macro_env_for_sub};RJ_POOL_MODE=capture
+SUB
+          gidx=0
+          for glist in "${groups[@]}"; do
+            (( gidx+=1 ))
+            printf 'arguments = %s %s %s $(Cluster) 0 %d NONE %s\nqueue\n\n' \
+                   "$SIM_SAMPLE" "$glist" "$DATASET" "$gidx" "${pool_base}/${POOL_CAPTURE_TAG}" >> "$cap_sub"
+          done
+
+          cap_node="CAP_$(sanitize_node_name "${POOL_CAPTURE_TAG}_${SIM_SAMPLE}")"
+          printf 'JOB %s %s\n' "$cap_node" "$cap_sub" >> "$dag"
+          cap_node_by_key["${POOL_CAPTURE_TAG}|${SIM_SAMPLE}"]="$cap_node"
+          pool_list_by_key["${POOL_CAPTURE_TAG}|${SIM_SAMPLE}"]="$expected_pool_list"
+          (( capture_count+=1 ))
+          {
+            echo "capture_node=${cap_node} tag=${POOL_CAPTURE_TAG} sample=${SIM_SAMPLE} jobs=${#groups[@]} yaml=${cap_yaml} output=${pool_out_dir}"
+          } >> "$manifest"
+        done
+      done
+    done
+
+    for cone in "${capture_cones[@]}"; do
+      for uepipe in "${uepipe_modes[@]}"; do
+        POOL_CAPTURE_TAG="$(pool_capture_cfg_tag "$cone" "$uepipe" "$master_yaml")"
+        fanout_dirs="${SIM_YAML_OVERRIDE_DIR}/pool_replay_fanout_${TAG}_${POOL_CAPTURE_TAG}_${workflow_stamp}.txt"
+        emit_pool_replay_fanout_dirs_file "$fanout_dirs" "$out_base" "$master_yaml" "$workflow_stamp" "${sim_cones[*]}" "$uepipe" "${sim_pts[*]}" "${sim_fracs[*]}" "${sim_vzs[*]}"
+        fanout_count="$(wc -l < "$fanout_dirs" | awk '{print $1}')"
+        append_fanout_cfgs_to_manifest "$fanout_dirs" "$manifest"
+
+        while IFS= read -r fan_line; do
+          [[ -z "${fan_line:-}" || "${fan_line:0:1}" == "#" ]] && continue
+          IFS='|' read -r fan_dest _fan_cfg _fan_yaml _fan_pre _fan_tight _fan_nonTight <<< "$fan_line"
+          [[ -z "${fan_dest:-}" || "${fan_dest:0:1}" == "#" ]] && continue
+          for samp in "${samples[@]}"; do
+            mkdir -p "${fan_dest}/${samp}"
+            rm -f "${fan_dest}/${samp}/"*.root 2>/dev/null || true
+          done
+        done < "$fanout_dirs"
+
+        for samp in "${samples[@]}"; do
+          cap_key="${POOL_CAPTURE_TAG}|${samp}"
+          cap_node="${cap_node_by_key[$cap_key]:-}"
+          pool_all="${pool_list_by_key[$cap_key]:-}"
+          [[ -n "$cap_node" && -s "$pool_all" ]] || { err "Internal DAG build error: missing capture node/pool list for ${cap_key}"; exit 97; }
+
+          pool_stage_dir="${dag_dir}/poolReplayLists/${POOL_CAPTURE_TAG}/${samp}"
+          mkdir -p "$pool_stage_dir"
+          rm -f "${pool_stage_dir}/pool_grp"*.list "${pool_stage_dir}/pool_grp_raw_"* 2>/dev/null || true
+          split -l "$gs_replay" -d -a 5 "$pool_all" "${pool_stage_dir}/pool_grp_raw_"
+          groups=()
+          gidx=0
+          for raw in "${pool_stage_dir}/pool_grp_raw_"*; do
+            [[ -s "$raw" ]] || { rm -f "$raw"; continue; }
+            (( gidx+=1 ))
+            out_list="${pool_stage_dir}/pool_grp$(printf "%03d" "$gidx").list"
+            mv "$raw" "$out_list"
+            groups+=( "$out_list" )
+          done
+          (( ${#groups[@]} )) || { err "No replay pool groups produced for ${POOL_CAPTURE_TAG}/${samp}"; exit 95; }
+
+          replay_sub="${dag_dir}/replay_${POOL_CAPTURE_TAG}_${samp}.sub"
+          replay_prefix="replay_${samp}_${POOL_CAPTURE_TAG}"
+          cat > "$replay_sub" <<SUB
+universe      = vanilla
+executable    = ${EXE}
+initialdir    = ${BASE}
+getenv        = True
+log           = ${LOG_DIR}/${replay_prefix}.\$(Cluster).\$(Process).log
+output        = ${OUT_DIR}/${replay_prefix}.\$(Cluster).\$(Process).out
+error         = ${ERR_DIR}/${replay_prefix}.\$(Cluster).\$(Process).err
+request_memory= 2000MB
+should_transfer_files = NO
+stream_output = True
+stream_error  = True
+notification  = Never
+environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${master_yaml};RJ_MACRO_PATH=${pool_macro};RJ_ID_FANOUT_DIRS_FILE=${fanout_dirs};RJ_REPLAY_MAX_OPEN_OUTPUTS=${RJ_REPLAY_MAX_OPEN_OUTPUTS:-48}
+SUB
+          g=0
+          for glist in "${groups[@]}"; do
+            (( g+=1 ))
+            printf 'arguments = %s %s %s $(Cluster) 0 %d NONE %s\nqueue\n\n' \
+                   "$samp" "$glist" "$DATASET" "$g" "${out_base}/${POOL_CAPTURE_TAG}" >> "$replay_sub"
+          done
+          replay_node="REP_$(sanitize_node_name "${POOL_CAPTURE_TAG}_${samp}")"
+          printf 'JOB %s %s\n' "$replay_node" "$replay_sub" >> "$dag"
+          printf 'PARENT %s CHILD %s\n' "$cap_node" "$replay_node" >> "$dag"
+          (( replay_count+=1 ))
+          echo "replay_node=${replay_node} cap_tag=${POOL_CAPTURE_TAG} sample=${samp} jobs=${#groups[@]} fanout_outputs=${fanout_count} parent=${cap_node} fanout=${fanout_dirs}" >> "$manifest"
+        done
+      done
+    done
+
+    final_sub="$(write_dag_final_summary_files "$dag_dir" "poolFromScratch_${TAG}_${workflow_stamp}" "$DATASET" "$pool_base" "$out_base" "$manifest")"
+    printf 'FINAL FINAL_SUMMARY %s\n' "$final_sub" >> "$dag"
+
+    say "DAG build summary:"
+    say "  capture nodes : ${capture_count}"
+    say "  replay nodes  : ${replay_count}"
+    say "  manifest      : ${manifest}"
+    say "  dag           : ${dag}"
+    publish_production_manifest "$manifest" "$out_base"
+    submit_dag_with_notify "$dag"
+    ;;
+
+  condorHistFromPool)
+    [[ "$IS_SIM" -eq 1 ]] || { err "condorHistFromPool is currently defined for SIM-style staged pool replay only."; exit 2; }
+
+    master_yaml="$(sim_yaml_master_path)"
+    [[ -s "$master_yaml" ]] || { err "Master YAML not found or empty: $master_yaml"; exit 72; }
+
+    gs_doall="$GROUP_SIZE"
+    if [[ "${GROUP_SIZE_EXPLICIT:-0}" -eq 0 ]]; then
+      gs_doall="20"
+    fi
+
+    mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
+    mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
+    mapfile -t sim_vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
+    read_replay_cones "$master_yaml"
+    read_capture_cones "$master_yaml"
+    sim_cones=( "${replay_cones[@]}" )
+    (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
+    (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
+    (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
+    (( ${#sim_cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
+    (( ${#capture_cones[@]} )) || { err "No capture cone could be derived from $master_yaml"; exit 72; }
+    build_iso_modes "$master_yaml"
+    read_uepipe_modes "$master_yaml" "$TAG"
+
+    samples=()
+    if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
+      case "$DATASET" in
+        isSimEmbedded)          samples=( "run28_embeddedPhoton12" "run28_embeddedPhoton20" ) ;;
+        isSimEmbeddedInclusive) samples=( "run28_embeddedJet10" "run28_embeddedJet20" ) ;;
+        isSimJet5)              samples=( "run28_jet5" ) ;;
+        isSimMB)                samples=( "run28_detroit" ) ;;
+        *)                      samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
+      esac
+    else
+      samples=( "${SIM_SAMPLE}" )
+    fi
+
+    pool_base="${RJ_POOL_INPUT_BASE:-${POOL_DEST_ROOT}/${TAG}}"
+
+    say "${BOLD}condorHistFromPool requested${RST}"
+    say "  dataset        : ${DATASET}"
+    say "  YAML           : ${master_yaml}"
+    say "  pool base      : ${pool_base}"
+    say "  output base    : ${DEST_BASE}"
+    say "  groupSize      : ${gs_doall}"
+    say "  photon_id_sets : ${#iso_selection_tags[@]} ID rows after expansion"
+    say "  iso groups     : $(iso_group_count)"
+    say "  clusterUE modes: [${uepipe_modes[*]}]"
+
+    need_cmd condor_submit_dag
+    replay_stamp="$(date +%Y%m%d_%H%M%S)"
+    dag_dir="${SUB_DIR}/pool_replay_${TAG}_${replay_stamp}"
+    dag="${dag_dir}/RecoilJets_poolReplay_${DATASET}_${replay_stamp}.dag"
+    manifest="${dag_dir}/manifest.txt"
+    mkdir -p "$dag_dir"
+    : > "$dag"
+    pool_macro="${BASE}/macros/Fun4All_recoilJets_poolReplay.C"
+    [[ -f "$pool_macro" ]] || { err "Pool replay macro not found: $pool_macro"; exit 92; }
+    {
+      echo "workflow=condorHistFromPool"
+      echo "dataset=${DATASET}"
+      echo "yaml=${master_yaml}"
+      echo "pool_base=${pool_base}"
+      echo "output_base=${DEST_BASE}"
+      echo "group_size=${gs_doall}"
+      echo "samples=${samples[*]}"
+      echo "submitted_at=${replay_stamp}"
+    } > "$manifest"
+    replay_count=0
+
+    DEST_BASE="${DEST_BASE%/}"
+    for cone in "${capture_cones[@]}"; do
+      for uepipe in "${uepipe_modes[@]}"; do
+        POOL_CAPTURE_TAG="$(pool_capture_cfg_tag "$cone" "$uepipe" "$master_yaml")"
+        fanout_dirs="${SIM_YAML_OVERRIDE_DIR}/pool_replay_fanout_${TAG}_${POOL_CAPTURE_TAG}_${replay_stamp}.txt"
+        emit_pool_replay_fanout_dirs_file "$fanout_dirs" "$DEST_BASE" "$master_yaml" "$replay_stamp" "${sim_cones[*]}" "$uepipe" "${sim_pts[*]}" "${sim_fracs[*]}" "${sim_vzs[*]}"
+        fanout_count="$(wc -l < "$fanout_dirs" | awk '{print $1}')"
+        append_fanout_cfgs_to_manifest "$fanout_dirs" "$manifest"
+
+        while IFS= read -r fan_line; do
+          [[ -z "${fan_line:-}" || "${fan_line:0:1}" == "#" ]] && continue
+          IFS='|' read -r fan_dest _fan_cfg _fan_yaml _fan_pre _fan_tight _fan_nonTight <<< "$fan_line"
+          [[ -z "${fan_dest:-}" || "${fan_dest:0:1}" == "#" ]] && continue
+          for samp in "${samples[@]}"; do
+            mkdir -p "${fan_dest}/${samp}"
+            rm -f "${fan_dest}/${samp}/"*.root 2>/dev/null || true
+          done
+        done < "$fanout_dirs"
+
+        for samp in "${samples[@]}"; do
+          pool_dir="${pool_base}/${POOL_CAPTURE_TAG}/${samp}"
+          [[ -d "$pool_dir" ]] || { err "Missing pool directory for ${POOL_CAPTURE_TAG}/${samp}: $pool_dir"; exit 93; }
+          pool_stage_dir="${STAGE_DIR}/poolReplay_${replay_stamp}/${POOL_CAPTURE_TAG}/${samp}"
+          mkdir -p "$pool_stage_dir"
+          pool_all="${pool_stage_dir}/pool_all.list"
+          find "$pool_dir" -maxdepth 1 -type f -name '*.root' | sort > "$pool_all"
+          [[ -s "$pool_all" ]] || { err "No pool ROOT files found in $pool_dir"; exit 94; }
+
+          rm -f "${pool_stage_dir}/pool_grp"*.list 2>/dev/null || true
+          split -l "$gs_doall" -d -a 5 "$pool_all" "${pool_stage_dir}/pool_grp_raw_"
+          groups=()
+          gidx=0
+          for raw in "${pool_stage_dir}/pool_grp_raw_"*; do
+            [[ -s "$raw" ]] || { rm -f "$raw"; continue; }
+            (( gidx+=1 ))
+            out_list="${pool_stage_dir}/pool_grp$(printf "%03d" "$gidx").list"
+            mv "$raw" "$out_list"
+            groups+=( "$out_list" )
+          done
+          (( ${#groups[@]} )) || { err "No pool replay groups produced for ${POOL_CAPTURE_TAG}/${samp}"; exit 95; }
+          if [[ "$MAX_JOBS" =~ ^[0-9]+$ && "$MAX_JOBS" -gt 0 && "${#groups[@]}" -gt "$MAX_JOBS" ]]; then
+            groups=( "${groups[@]:0:$MAX_JOBS}" )
+          fi
+
+          SIM_SAMPLE="$samp"
+          SIM_JOB_PREFIX="poolReplay_${samp}_${POOL_CAPTURE_TAG}"
+          sub="${dag_dir}/RecoilJets_poolReplay_${POOL_CAPTURE_TAG}_${samp}.sub"
+
+          cat > "$sub" <<SUB
+universe      = vanilla
+executable    = ${EXE}
+initialdir    = ${BASE}
+getenv        = True
+log           = ${LOG_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).log
+output        = ${OUT_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).out
+error         = ${ERR_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).err
+request_memory= 2000MB
+should_transfer_files = NO
+stream_output = True
+stream_error  = True
+notification  = Never
+environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${master_yaml};RJ_MACRO_PATH=${pool_macro};RJ_ID_FANOUT_DIRS_FILE=${fanout_dirs};RJ_REPLAY_MAX_OPEN_OUTPUTS=${RJ_REPLAY_MAX_OPEN_OUTPUTS:-48}
+SUB
+          g=0
+          for glist in "${groups[@]}"; do
+            (( g+=1 ))
+            printf 'arguments = %s %s %s $(Cluster) 0 %d NONE %s\nqueue\n\n' \
+                   "$samp" "$glist" "$DATASET" "$g" "${DEST_BASE}/${POOL_CAPTURE_TAG}" >> "$sub"
+          done
+
+          say "Submitting pool replay (pool tag=${POOL_CAPTURE_TAG}, sample=${samp}) → jobs=${BOLD}${#groups[@]}${RST}"
+          say "  fanout cfgs : ${fanout_count}"
+          say "  pool dir    : ${pool_dir}"
+          replay_node="REP_$(sanitize_node_name "${POOL_CAPTURE_TAG}_${samp}")"
+          printf 'JOB %s %s\n' "$replay_node" "$sub" >> "$dag"
+          (( replay_count+=1 ))
+          echo "replay_node=${replay_node} cap_tag=${POOL_CAPTURE_TAG} sample=${samp} jobs=${#groups[@]} fanout_outputs=${fanout_count} pool=${pool_dir} fanout=${fanout_dirs}" >> "$manifest"
+        done
+      done
+    done
+    (( replay_count > 0 )) || { err "No pool replay DAG nodes were produced"; exit 96; }
+    final_sub="$(write_dag_final_summary_files "$dag_dir" "poolReplay_${TAG}_${replay_stamp}" "$DATASET" "$pool_base" "$DEST_BASE" "$manifest")"
+    printf 'FINAL FINAL_SUMMARY %s\n' "$final_sub" >> "$dag"
+    say "Pool replay DAG build summary:"
+    say "  replay nodes : ${replay_count}"
+    say "  manifest     : ${manifest}"
+    say "  dag          : ${dag}"
+    publish_production_manifest "$manifest" "$DEST_BASE"
+    submit_dag_with_notify "$dag"
+    ;;
+
+  condorDoAllDirect)
+    [[ "$IS_SIM" -eq 1 ]] || { err "condorDoAllDirect is only valid for isSim variants"; exit 2; }
+    warn "condorDoAllDirect reopens DSTs. Prefer condorDoAllFromScratch once to build pools, then condorDoAll for replay."
+    _direct_args=( "$DATASET" condorDoAll groupSize "$GROUP_SIZE" )
+    if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 1 ]]; then
+      _direct_args+=( "SAMPLE=${SIM_SAMPLE}" )
+    fi
+    if [[ "$MAX_JOBS" =~ ^[0-9]+$ && "$MAX_JOBS" -gt 0 ]]; then
+      _direct_args+=( maxJobs "$MAX_JOBS" )
+    fi
+    RJ_DIRECT_DST_DOALL=1 "$0" "${_direct_args[@]}"
+    ;;
+
   condorDoAll)
     # Submit all sim files in grouped chunks. MUST wipe outputs/logs first.
     [[ "$IS_SIM" -eq 1 ]] || { err "condorDoAll is only valid for isSim variants"; exit 2; }
+    if [[ "${RJ_DIRECT_DST_DOALL:-0}" != "1" && "${RJ_POOL_MODE:-}" != "capture" && "${RJ_POOL_MODE:-}" != "captureOnly" && "${RJ_POOL_MODE:-}" != "capture_only" ]]; then
+      say "${BOLD}condorDoAll now replays existing AnalysisPool ROOT files.${RST}"
+      say "Use ${BOLD}${0} ${DATASET} condorDoAllFromScratch${RST} to build pools from DST first."
+      _pool_replay_args=( "$DATASET" condorHistFromPool groupSize "$GROUP_SIZE" )
+      if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 1 ]]; then
+        _pool_replay_args+=( "SAMPLE=${SIM_SAMPLE}" )
+      fi
+      if [[ "$MAX_JOBS" =~ ^[0-9]+$ && "$MAX_JOBS" -gt 0 ]]; then
+        _pool_replay_args+=( maxJobs "$MAX_JOBS" )
+      fi
+      "$0" "${_pool_replay_args[@]}"
+      exit $?
+    fi
     gs_doall="$GROUP_SIZE"
     if [[ "${GROUP_SIZE_EXPLICIT:-0}" -eq 0 ]]; then
       gs_doall="7"
@@ -3643,7 +4793,7 @@ SUB
 
     # If CHECKJOBS was also provided, do a dry-run count for the FULL condorDoAll matrix and exit.
     if [[ "${DRYRUN:-0}" -eq 1 ]]; then
-      n_cfg=$(( ${#sim_pts[@]} * ${#sim_fracs[@]} * ${#sim_vzs[@]} * ${#sim_cones[@]} * ${#iso_tags[@]} * ${#uepipe_modes[@]} ))
+      n_cfg=$(( ${#sim_pts[@]} * ${#sim_fracs[@]} * ${#sim_vzs[@]} * ${#sim_cones[@]} * $(iso_group_count) * ${#uepipe_modes[@]} ))
       per_cfg_jobs=0
 
       say "CHECKJOBS (${DATASET} condorDoAll matrix)"
@@ -3655,13 +4805,14 @@ SUB
       say "  back_to_back_dphi_min_pi_fraction : [${sim_fracs[*]}]  (${#sim_fracs[@]} values)"
       say "  vz_cut_cm                         : [${sim_vzs[*]}]  (${#sim_vzs[@]} values)"
       say "  coneR                             : [${sim_cones[*]}]  (${#sim_cones[@]} values)"
-      say "  iso + photon-ID modes             : [${iso_tags[*]}]  (${#iso_tags[@]} values)"
+      say "  iso groups submitted              : $(iso_group_count) upstream mode(s)"
+      say "  photon-ID fanout outputs          : ${#iso_tags[@]} cfg tag(s) across those iso groups"
       if (( ${uepipe_in_tag:-0} )); then
         say "  clusterUEpipeline                 : [${uepipe_modes[*]}]  (${#uepipe_modes[@]} values; tagged)"
       else
         say "  clusterUEpipeline                 : [${uepipe_modes[*]}]  (${#uepipe_modes[@]} forced value; not tagged for ${TAG})"
       fi
-      say "  cfg combos (product)              : ${BOLD}${n_cfg}${RST}"
+      say "  upstream DST job configs          : ${BOLD}${n_cfg}${RST}"
       say "  samples                           : [${samples[*]}]  (${#samples[@]} values)"
       echo
 
@@ -3676,13 +4827,14 @@ SUB
       done
       echo
 
-      say "${BOLD}Full cfg tag list (${n_cfg} entries × ${#samples[@]} samples = ${BOLD}$((n_cfg * ${#samples[@]}))${RST} submit blocks):${RST}"
+      say "${BOLD}Full upstream ID-fanout cell list (${n_cfg} entries × ${#samples[@]} samples = ${BOLD}$((n_cfg * ${#samples[@]}))${RST} submit blocks):${RST}"
       cfg_num=0
       for pt in "${sim_pts[@]}"; do
         for frac in "${sim_fracs[@]}"; do
           for vz in "${sim_vzs[@]}"; do
           for cone in "${sim_cones[@]}"; do
           for (( _ci=0; _ci<${#iso_tags[@]}; _ci++ )); do
+          iso_idx_is_group_leader "$_ci" || continue
           for uepipe in "${uepipe_modes[@]}"; do
             (( cfg_num+=1 ))
             _tag="$(matrix_cfg_tag "$pt" "$frac" "$vz" "$cone" "$_ci" "$uepipe")"
@@ -3698,7 +4850,7 @@ SUB
 
       total_jobs=$(( n_cfg * per_cfg_jobs ))
       say "${BOLD}Job count summary:${RST}"
-      say "  cfg combos             : ${n_cfg}"
+      say "  upstream configs       : ${n_cfg}"
       say "  jobs per combo (Σsamp) : ${per_cfg_jobs}"
       say "  ─────────────────────────────────"
       say "  ${BOLD}TOTAL CONDOR JOBS        : ${BOLD}${total_jobs}${RST}"
@@ -3723,33 +4875,67 @@ SUB
     rm -f "${SUB_DIR}/RecoilJets_sim_"*.sub "${SUB_DIR}/RecoilJets_${TAG}_"*.sub 2>/dev/null || true
     SIM_STAGE_NAMESPACE="${TAG}_${doall_stamp}"
     export SIM_STAGE_NAMESPACE
+    pool_capture_submit=0
+    case "${RJ_POOL_MODE:-}" in
+      capture|captureOnly|capture_only) pool_capture_submit=1 ;;
+    esac
     say "SIM chunk-list stage namespace: ${SIM_STAGE_NAMESPACE}"
     for pt in "${sim_pts[@]}"; do
       for frac in "${sim_fracs[@]}"; do
         for vz in "${sim_vzs[@]}"; do
         for cone in "${sim_cones[@]}"; do
         for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
+        iso_idx_is_group_leader "$iso_idx" || continue
         for uepipe in "${uepipe_modes[@]}"; do
-        SIM_CFG_TAG="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso_base_tags[$iso_idx]}"
-        (( uepipe_in_tag )) && SIM_CFG_TAG="${SIM_CFG_TAG}_${uepipe}"
-        SIM_CFG_TAG="${SIM_CFG_TAG}_${iso_selection_tags[$iso_idx]}"
+        SIM_CFG_TAG="$(matrix_cfg_tag "$pt" "$frac" "$vz" "$cone" "$iso_idx" "$uepipe")"
         DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
+        fanout_dirs="${SIM_YAML_OVERRIDE_DIR}/id_fanout_${SIM_CFG_TAG}_${doall_stamp}.txt"
+        if [[ "$pool_capture_submit" -eq 0 ]]; then
+          emit_id_fanout_dirs_file "$fanout_dirs" "$SIM_DEST_BASE_RESOLVED" "$pt" "$frac" "$vz" "$cone" "$iso_idx" "$uepipe"
+        else
+          : > "$fanout_dirs"
+        fi
         yaml_override="$(sim_make_yaml_override "$master_yaml" "$pt" "$frac" "$vz" "$cone" "${iso_sliding[$iso_idx]}" "${iso_fixed[$iso_idx]}" "${uepipe}" "${iso_preselection[$iso_idx]}" "${iso_tight[$iso_idx]}" "${iso_nonTight[$iso_idx]}" "$SIM_CFG_TAG" "$doall_stamp")"
 
         for samp in "${samples[@]}"; do
           SIM_SAMPLE="$samp"
           GROUP_SIZE="$gs_doall"
+          sim_init
 
-          wipe_sim_artifacts
+          if [[ "$pool_capture_submit" -eq 1 ]]; then
+            SIM_OUT_DIR="${DEST_BASE}/${SIM_SAMPLE}"
+            mkdir -p "$SIM_OUT_DIR"
+            rm -f "${SIM_OUT_DIR}/"*.root 2>/dev/null || true
+            find "${SIM_OUT_DIR}" -maxdepth 1 -name "*_LOCAL_*.root" -delete 2>/dev/null || true
+          else
+            while IFS='|' read -r fan_dest _fan_cfg _fan_pre _fan_tight _fan_nonTight; do
+              [[ -z "${fan_dest:-}" || "${fan_dest:0:1}" == "#" ]] && continue
+              SIM_OUT_DIR="${fan_dest}/${SIM_SAMPLE}"
+              mkdir -p "$SIM_OUT_DIR"
+              rm -f "${SIM_OUT_DIR}/"*.root 2>/dev/null || true
+              find "${SIM_OUT_DIR}" -maxdepth 1 -name "*_LOCAL_*.root" -delete 2>/dev/null || true
+            done < "$fanout_dirs"
+          fi
+          rm -f "${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_grp"*.list 2>/dev/null || true
+          rm -f "${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_LOCAL_"*.list 2>/dev/null || true
+          rm -f "${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_condorTest_"*.list 2>/dev/null || true
 
           mapfile -t groups < <( make_sim_groups "$GROUP_SIZE" )
           (( ${#groups[@]} )) || { err "No sim groups produced (sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG})"; exit 30; }
+          if [[ "$MAX_JOBS" =~ ^[0-9]+$ && "$MAX_JOBS" -gt 0 && "${#groups[@]}" -gt "$MAX_JOBS" ]]; then
+            say "Capping ${DATASET} group list for sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG}: ${#groups[@]} → ${MAX_JOBS} jobs"
+            groups=( "${groups[@]:0:$MAX_JOBS}" )
+          fi
 
           stamp="$(date +%Y%m%d_%H%M%S)"
           sub="${SUB_DIR}/RecoilJets_sim_${SIM_CFG_TAG}_${SIM_SAMPLE}_${stamp}.sub"
           exe_for_sub="${BULK_FROZEN_EXE:-${EXE}}"
           macro_env_for_sub=""
           [[ -n "${BULK_FROZEN_MACRO:-}" ]] && macro_env_for_sub=";RJ_MACRO_PATH=${BULK_FROZEN_MACRO}"
+          fanout_env_for_sub=""
+          [[ "$pool_capture_submit" -eq 0 ]] && fanout_env_for_sub=";RJ_ID_FANOUT_DIRS_FILE=${fanout_dirs}"
+          pool_env_for_sub=""
+          [[ "$pool_capture_submit" -eq 1 ]] && pool_env_for_sub=";RJ_POOL_MODE=capture"
 
           cat > "$sub" <<SUB
 universe      = vanilla
@@ -3763,7 +4949,8 @@ request_memory= 2000MB
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
-environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${yaml_override}${macro_env_for_sub}
+notification  = Never
+environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${yaml_override}${macro_env_for_sub}${fanout_env_for_sub}${pool_env_for_sub}
 SUB
 
           gidx=0
@@ -3773,8 +4960,14 @@ SUB
                    "$SIM_SAMPLE" "$glist" "$DATASET" "$gidx" "$DEST_BASE" >> "$sub"
           done
 
-          say "Submitting ${DATASET} condorDoAll (tag=${SIM_CFG_TAG}, sample=${SIM_SAMPLE}, groupSize=${GROUP_SIZE}, uepipe=${uepipe}) → jobs=${BOLD}${#groups[@]}${RST}"
-          say "Output ROOT dir: ${DEST_BASE}/${SIM_SAMPLE}"
+          if [[ "$pool_capture_submit" -eq 1 ]]; then
+            say "Submitting ${DATASET} pool capture (tag=${SIM_CFG_TAG}, sample=${SIM_SAMPLE}, groupSize=${GROUP_SIZE}, uepipe=${uepipe}) → jobs=${BOLD}${#groups[@]}${RST}"
+            say "Pool output dir: ${DEST_BASE}/${SIM_SAMPLE}"
+          else
+            say "Submitting ${DATASET} condorDoAll ID-fanout (base tag=${SIM_CFG_TAG}, sample=${SIM_SAMPLE}, groupSize=${GROUP_SIZE}, uepipe=${uepipe}) → jobs=${BOLD}${#groups[@]}${RST}"
+            say "Fanout outputs: $(wc -l < "$fanout_dirs" | awk '{print $1}') cfg tags from one DST pass"
+            say "Fanout dirs file: ${fanout_dirs}"
+          fi
           say "YAML override: ${yaml_override}"
           condor_submit "$sub"
         done
@@ -3857,10 +5050,8 @@ SUB
           -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${iso_sliding[0]}|" \
           -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${iso_fixed[0]}|" \
           -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${uepipe_modes[0]}|" \
-          -e "s|^([[:space:]]*preselection:).*|\\1 ${iso_preselection[0]}|" \
-          -e "s|^([[:space:]]*tight:).*|\\1 ${iso_tight[0]}|" \
-          -e "s|^([[:space:]]*nonTight:).*|\\1 ${iso_nonTight[0]}|" \
           "$yaml_src" > "$yaml_snap"
+        pin_photon_id_scalars_in_yaml "$yaml_snap" "${iso_preselection[0]}" "${iso_tight[0]}" "${iso_nonTight[0]}"
         say "YAML snapshot (pt=${pt0}, frac=${frac0}, vz=${vz0}, coneR=${cone0}, iso=${iso_tags[0]}, uepipe=${uepipe_modes[0]}): ${yaml_snap}"
         DEST_BASE="${DATA_DEST_BASE_SAVED}/${data_cfg_tag}"
 
@@ -3876,6 +5067,7 @@ request_memory= 2000MB
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
+notification  = Never
 environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=10;RJ_CONFIG_YAML=${yaml_snap}
 arguments     = ${r8} ${glist} ${DATASET} \$(Cluster) 0 1 NONE ${DEST_BASE}
 queue
@@ -3897,15 +5089,11 @@ SUB
         for data_vz in "${data_vzs[@]}"; do
           for data_cone in "${data_cones[@]}"; do
           for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
+          iso_idx_is_group_leader "$iso_idx" || continue
           for uepipe in "${uepipe_modes[@]}"; do
-          dpt_tag="jetMinPt$(sim_pt_tag "$data_pt")"
-          dfrac_tag="$(sim_b2b_tag "$data_frac")"
-          dvz_tag="$(sim_vz_tag "$data_vz")"
-          dcone_tag="$(sim_cone_tag "$data_cone")"
-          data_cfg_tag="${dpt_tag}_${dfrac_tag}_${dvz_tag}_${dcone_tag}_${iso_base_tags[$iso_idx]}"
-          (( uepipe_in_tag )) && data_cfg_tag="${data_cfg_tag}_${uepipe}"
-          data_cfg_tag="${data_cfg_tag}_${iso_selection_tags[$iso_idx]}"
+          data_cfg_tag="$(matrix_cfg_tag "$data_pt" "$data_frac" "$data_vz" "$data_cone" "$iso_idx" "$uepipe")"
           yaml_override="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}.yaml"
+          fanout_dirs="${SIM_YAML_OVERRIDE_DIR}/id_fanout_${TAG}_${data_cfg_tag}.txt"
           mkdir -p "$SIM_YAML_OVERRIDE_DIR"
           sed -E \
             -e "s|^([[:space:]]*jet_pt_min:).*|\\1 ${data_pt}|" \
@@ -3915,17 +5103,29 @@ SUB
             -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${iso_sliding[$iso_idx]}|" \
             -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${iso_fixed[$iso_idx]}|" \
             -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${uepipe}|" \
-            -e "s|^([[:space:]]*preselection:).*|\\1 ${iso_preselection[$iso_idx]}|" \
-            -e "s|^([[:space:]]*tight:).*|\\1 ${iso_tight[$iso_idx]}|" \
-            -e "s|^([[:space:]]*nonTight:).*|\\1 ${iso_nonTight[$iso_idx]}|" \
             "$data_yaml_src" > "$yaml_override"
+          pin_photon_id_scalars_in_yaml "$yaml_override" "${iso_preselection[$iso_idx]}" "${iso_tight[$iso_idx]}" "${iso_nonTight[$iso_idx]}"
+          emit_id_fanout_dirs_file "$fanout_dirs" "$DATA_DEST_BASE_SAVED" "$data_pt" "$data_frac" "$data_vz" "$data_cone" "$iso_idx" "$uepipe"
           export RJ_CONFIG_YAML="$yaml_override"
           DEST_BASE="${DATA_DEST_BASE_SAVED}/${data_cfg_tag}"
 
           say "DATA condor round (pt=${data_pt}, frac=${data_frac}, vz=${data_vz}, coneR=${data_cone}, iso=${iso_tags[$iso_idx]}, uepipe=${uepipe}, tag=${data_cfg_tag})"
           say "  YAML override: ${yaml_override}"
-          say "  DEST_BASE    : ${DEST_BASE}"
+          say "  Fanout cfgs  : $(wc -l < "$fanout_dirs" | awk '{print $1}') output cfg tags from one DST pass"
+          say "  Fanout file  : ${fanout_dirs}"
+          while IFS='|' read -r fan_dest _fan_cfg _fan_pre _fan_tight _fan_nonTight; do
+            [[ -z "${fan_dest:-}" || "${fan_dest:0:1}" == "#" ]] && continue
+            case "$fan_dest" in
+              */thesisAna/pp/*|*/thesisAna/pp25/*|*/thesisAna/auau/*|*/thesisAna/oo/*) ;;
+              *) err "Refusing to wipe fanout DEST_BASE='$fan_dest'"; exit 62 ;;
+            esac
+            mkdir -p "$fan_dest"
+            find "$fan_dest" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+          done < "$fanout_dirs"
+          _old_submit_extra_env="${RJ_SUBMIT_EXTRA_ENV:-}"
+          export RJ_SUBMIT_EXTRA_ENV="${_old_submit_extra_env:+${_old_submit_extra_env};}RJ_ID_FANOUT_DIRS_FILE=${fanout_dirs}"
           submit_condor "$round_file" "$firstChunk"
+          export RJ_SUBMIT_EXTRA_ENV="$_old_submit_extra_env"
           done
           done
           done
@@ -3933,7 +5133,23 @@ SUB
         done
         done
         ;;
+      allFromScratch)
+        submit_data_pool_workflow 1
+        ;;
+      allDirect)
+        warn "condor allDirect reopens DSTs. Prefer 'condor allFromScratch' once, then 'condor all' for pool replay."
+        _direct_args=( "$DATASET" condor all groupSize "$GROUP_SIZE" )
+        if [[ "$MAX_JOBS" =~ ^[0-9]+$ && "$MAX_JOBS" -gt 0 ]]; then
+          _direct_args+=( maxJobs "$MAX_JOBS" )
+        fi
+        RJ_DIRECT_DST_DOALL=1 "$0" "${_direct_args[@]}"
+        ;;
       all|"")
+        if [[ "${RJ_DIRECT_DST_DOALL:-0}" != "1" && "${RJ_POOL_MODE:-}" != "capture" && "${RJ_POOL_MODE:-}" != "captureOnly" && "${RJ_POOL_MODE:-}" != "capture_only" ]]; then
+          say "${BOLD}condor all now replays existing AnalysisPool ROOT files for DATA.${RST}"
+          say "Use ${BOLD}${0} ${DATASET} condor allFromScratch${RST} to build pools from DST first."
+          submit_data_pool_workflow 0
+        else
         # Keep existing YAML overrides/snapshots; live Condor jobs may still reference them.
         mkdir -p "$SIM_YAML_OVERRIDE_DIR"
 
@@ -3944,7 +5160,7 @@ SUB
           *)           create_pipeline_snapshot "pp" "$(date +%Y%m%d_%H%M%S)" ;;
         esac
 
-        n_matrix=$(( ${#data_pts[@]} * ${#data_fracs[@]} * ${#data_vzs[@]} * ${#data_cones[@]} * ${#iso_tags[@]} * ${#uepipe_modes[@]} ))
+        n_matrix=$(( ${#data_pts[@]} * ${#data_fracs[@]} * ${#data_vzs[@]} * ${#data_cones[@]} * $(iso_group_count) * ${#uepipe_modes[@]} ))
         say "═══════════════════════════════════════════════════════════════"
         say "${BOLD}CONDOR ALL: ${n_matrix} matrix configuration(s), groupSize=${GROUP_SIZE}${RST}"
         say "  dataset       : ${DATASET}"
@@ -3962,15 +5178,11 @@ SUB
         for data_vz in "${data_vzs[@]}"; do
           for data_cone in "${data_cones[@]}"; do
           for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
+          iso_idx_is_group_leader "$iso_idx" || continue
           for uepipe in "${uepipe_modes[@]}"; do
-          dpt_tag="jetMinPt$(sim_pt_tag "$data_pt")"
-          dfrac_tag="$(sim_b2b_tag "$data_frac")"
-          dvz_tag="$(sim_vz_tag "$data_vz")"
-          dcone_tag="$(sim_cone_tag "$data_cone")"
-          data_cfg_tag="${dpt_tag}_${dfrac_tag}_${dvz_tag}_${dcone_tag}_${iso_base_tags[$iso_idx]}"
-          (( uepipe_in_tag )) && data_cfg_tag="${data_cfg_tag}_${uepipe}"
-          data_cfg_tag="${data_cfg_tag}_${iso_selection_tags[$iso_idx]}"
+          data_cfg_tag="$(matrix_cfg_tag "$data_pt" "$data_frac" "$data_vz" "$data_cone" "$iso_idx" "$uepipe")"
           yaml_override="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}.yaml"
+          fanout_dirs="${SIM_YAML_OVERRIDE_DIR}/id_fanout_${TAG}_${data_cfg_tag}.txt"
           mkdir -p "$SIM_YAML_OVERRIDE_DIR"
           sed -E \
             -e "s|^([[:space:]]*jet_pt_min:).*|\\1 ${data_pt}|" \
@@ -3980,10 +5192,9 @@ SUB
             -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${iso_sliding[$iso_idx]}|" \
             -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${iso_fixed[$iso_idx]}|" \
             -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${uepipe}|" \
-            -e "s|^([[:space:]]*preselection:).*|\\1 ${iso_preselection[$iso_idx]}|" \
-            -e "s|^([[:space:]]*tight:).*|\\1 ${iso_tight[$iso_idx]}|" \
-            -e "s|^([[:space:]]*nonTight:).*|\\1 ${iso_nonTight[$iso_idx]}|" \
             "$data_yaml_src" > "$yaml_override"
+          pin_photon_id_scalars_in_yaml "$yaml_override" "${iso_preselection[$iso_idx]}" "${iso_tight[$iso_idx]}" "${iso_nonTight[$iso_idx]}"
+          emit_id_fanout_dirs_file "$fanout_dirs" "$DATA_DEST_BASE_SAVED" "$data_pt" "$data_frac" "$data_vz" "$data_cone" "$iso_idx" "$uepipe"
           export RJ_CONFIG_YAML="$yaml_override"
           DEST_BASE="${DATA_DEST_BASE_SAVED}/${data_cfg_tag}"
 
@@ -3991,11 +5202,25 @@ SUB
           say "───────────────────────────────────────────────────────────────"
           say "${BOLD}[${cell_num}/${n_matrix}] ${data_cfg_tag}${RST}"
           say "  YAML override : ${yaml_override}"
-          say "  DEST_BASE     : ${DEST_BASE}"
+          say "  Fanout cfgs   : $(wc -l < "$fanout_dirs" | awk '{print $1}') output cfg tags from one DST pass"
+          say "  Fanout file   : ${fanout_dirs}"
           tmp_src="${ROUND_DIR}/ALL_${TAG}_${data_cfg_tag}_$(date +%s).txt"
           grep -E '^[0-9]+' "$GOLDEN" > "$tmp_src"
 
+          while IFS='|' read -r fan_dest _fan_cfg _fan_pre _fan_tight _fan_nonTight; do
+            [[ -z "${fan_dest:-}" || "${fan_dest:0:1}" == "#" ]] && continue
+            case "$fan_dest" in
+              */thesisAna/pp/*|*/thesisAna/pp25/*|*/thesisAna/auau/*|*/thesisAna/oo/*) ;;
+              *) err "Refusing to wipe fanout DEST_BASE='$fan_dest'"; exit 62 ;;
+            esac
+            mkdir -p "$fan_dest"
+            find "$fan_dest" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+          done < "$fanout_dirs"
+
+          _old_submit_extra_env="${RJ_SUBMIT_EXTRA_ENV:-}"
+          export RJ_SUBMIT_EXTRA_ENV="${_old_submit_extra_env:+${_old_submit_extra_env};}RJ_ID_FANOUT_DIRS_FILE=${fanout_dirs}"
           submit_condor "$tmp_src" ""
+          export RJ_SUBMIT_EXTRA_ENV="$_old_submit_extra_env"
           done
           done
           done
@@ -4007,6 +5232,7 @@ SUB
         say "═══════════════════════════════════════════════════════════════"
         say "${BOLD}CONDOR ALL complete: ${cell_num} configurations submitted (${elapsed_all}s)${RST}"
         say "═══════════════════════════════════════════════════════════════"
+        fi
         ;;
       *)
         usage

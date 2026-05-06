@@ -138,6 +138,51 @@ out_root="${out_dir}/RecoilJets_${analysis_tag}_${chunk_tag}.root"
 echo "[INFO] Output path = $out_root"
 echo "[INFO] Debug env  : RJ_VERBOSITY=${RJ_VERBOSITY:-unset}  RJ_F4A_VERBOSE=${RJ_F4A_VERBOSE:-unset}  RJ_STEP_EVENTS=${RJ_STEP_EVENTS:-unset}  RJ_CRASH_BACKTRACE=${RJ_CRASH_BACKTRACE:-unset}"
 
+fanout_outputs=()
+if [[ -n "${RJ_ID_FANOUT_DIRS_FILE:-}" ]]; then
+  [[ -f "$RJ_ID_FANOUT_DIRS_FILE" ]] || { echo "[FATAL] RJ_ID_FANOUT_DIRS_FILE not found: $RJ_ID_FANOUT_DIRS_FILE"; exit 6; }
+  fanout_file="${TMPDIR:-/tmp}/rj_id_fanout_$$_${chunk_tag}.txt"
+  : > "$fanout_file"
+  while IFS= read -r fan_line; do
+    [[ -z "${fan_line:-}" || "${fan_line:0:1}" == "#" ]] && continue
+    IFS='|' read -r -a fan_cols <<< "$fan_line"
+    fan_dest="${fan_cols[0]:-}"
+    fan_cfg="${fan_cols[1]:-}"
+    fan_yaml=""
+    if (( ${#fan_cols[@]} >= 6 )); then
+      fan_yaml="${fan_cols[2]:-}"
+      fan_pre="${fan_cols[3]:-}"
+      fan_tight="${fan_cols[4]:-}"
+      fan_nonTight="${fan_cols[5]:-}"
+      fan_view="${fan_cols[6]:-}"
+      fan_materialize="${fan_cols[7]:-}"
+    else
+      fan_pre="${fan_cols[2]:-}"
+      fan_tight="${fan_cols[3]:-}"
+      fan_nonTight="${fan_cols[4]:-}"
+      fan_view=""
+      fan_materialize=""
+    fi
+    [[ -z "${fan_dest:-}" || "${fan_dest:0:1}" == "#" ]] && continue
+    fan_out_dir="${fan_dest}/${run8}"
+    mkdir -p "$fan_out_dir"
+    fan_out_root="${fan_out_dir}/RecoilJets_${analysis_tag}_${chunk_tag}.root"
+    if [[ -n "$fan_yaml" ]]; then
+      printf '%s|%s|%s|%s|%s|%s|%s|%s\n' "$fan_out_root" "$fan_cfg" "$fan_yaml" "$fan_pre" "$fan_tight" "$fan_nonTight" "$fan_view" "$fan_materialize" >> "$fanout_file"
+    else
+      printf '%s|%s|%s|%s|%s\n' "$fan_out_root" "$fan_cfg" "$fan_pre" "$fan_tight" "$fan_nonTight" >> "$fanout_file"
+    fi
+    fanout_outputs+=( "$fan_out_root" )
+  done < "$RJ_ID_FANOUT_DIRS_FILE"
+  [[ -s "$fanout_file" ]] || { echo "[FATAL] fanout dirs file produced no output rows: $RJ_ID_FANOUT_DIRS_FILE"; exit 7; }
+  export RJ_ID_FANOUT_FILE="$fanout_file"
+  export RJ_REPLAY_FANOUT_FILE="$fanout_file"
+  out_root="${fanout_outputs[0]}"
+  echo "[INFO] ID fanout enabled: $(wc -l < "$fanout_file") outputs from one Fun4All pass"
+  echo "[INFO] ID fanout file   : $fanout_file"
+  echo "[INFO] Primary output   : $out_root"
+fi
+
 # The macro expects to find the ROOT files listed inside chunk_list. If those
 # entries are relative file names, make sure the CWD is the directory where
 # the ROOT files live (we use the list’s directory as a safe default).
@@ -165,5 +210,17 @@ if (( rc != 0 )); then
   echo "[ERROR] Fun4All macro failed (rc=$rc)"
   exit $rc
 fi
-echo "[OK]   Finished successfully → $(ls -l "$out_root" 2>/dev/null || echo '(file not found!)')"
+if (( ${#fanout_outputs[@]} > 0 )); then
+  missing=0
+  for f in "${fanout_outputs[@]}"; do
+    if [[ ! -s "$f" ]]; then
+      echo "[ERROR] Missing fanout output: $f"
+      missing=1
+    fi
+  done
+  (( missing == 0 )) || exit 8
+  echo "[OK]   Finished successfully → ${#fanout_outputs[@]} fanout ROOT files"
+else
+  echo "[OK]   Finished successfully → $(ls -l "$out_root" 2>/dev/null || echo '(file not found!)')"
+fi
 exit 0

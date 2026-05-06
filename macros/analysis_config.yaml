@@ -17,35 +17,74 @@
 #      derive the cfg tag for naming merged outputs — no re-read of this
 #      master file is needed at merge time.
 #
-# MATRIX DIMENSIONS
-#   The submit script loops over the Cartesian product of all array-valued
-#   keys below. Each combination becomes one independent Condor job (or
-#   local invocation) with its own scalar YAML override.
+# WORKFLOW HIERARCHY
+#   capture_axes:
+#     Change these only when you are willing to run the long DST capture stage.
+#     They control which reusable event/photon/jet/truth ingredients are stored.
 #
-#   Current matrix axes (order matches loop nesting):
-#     jet_pt_min × back_to_back_dphi_min_pi_fraction × vz_cut_cm × coneR
-#       × iso_mode (derived from isSlidingAndFixed/isSlidingIso/fixedGeV)
-#       × clusterUEpipeline (AuAu/OO DATA only; SIM always "noSub")
+#   output_working_points:
+#     Major photon-ID physics families. Pool replay writes one cfg-tag ROOT
+#     family per working point, then stores cut scans as internal views.
+#
+#   internal_scan_axes:
+#     UI-like offline views. Changing these should be pool replay only once the
+#     required ingredients exist in the pool.
+#
+# COMMAND GUIDE
+#   Changed capture_axes or added a missing raw feature?
+#     ./scripts/RecoilJets_Condor_submit.sh isAuAu condor allFromScratch
+#     ./scripts/RecoilJets_Condor_submit.sh isSim  condorDoAllFromScratch
+#
+#   Changed output_working_points, photon-ID score cuts, or internal_scan_axes?
+#     ./scripts/RecoilJets_Condor_submit.sh isAuAu condor all
+#     ./scripts/RecoilJets_Condor_submit.sh isSim  condorDoAll
+#
+#   Changed only which plots/slides/views you want?
+#     No Condor. Use pulled merged ROOT files and AnalysisViewCatalog.
 #
 # =============================================================================
+
+capture_axes:
+  clusterUEpipeline: [noSub, baseVariant]
+  stored_isolation_cones: [0.30, 0.40]
+  captured_jet_radii: [0.2, 0.3, 0.4]
+  pool_schema_version: 2
+
+pool_schema_version: 2
+stored_isolation_cones: [0.30, 0.40]
+
+internal_scan_axes:
+  jet_pt_min: [5.0, 7.0, 10.0, 12.0]
+  back_to_back_dphi_min_pi_fraction: [0.5, 0.875]
+  vz_cut_cm: [10, 30, 60]
+  coneR: [0.30, 0.40]
+  isolation:
+    fixedGeV: [2.0, 4.0]
+    sliding: true
+
+materialize:
+  light_all_views: [event_counts, vertex, abcd, leakage]
+  physics_scan_views: [xJ, dphi, JES3, photon_response]
+  unfolding_views: [nominal, explicit_only]
+  diagnostics: explicit_only
 
 # -----------------------------------------------------------------------------
 # Photon + jet kinematic selection
 # -----------------------------------------------------------------------------
 photon_eta_abs_max: 0.7
-jet_pt_min: [5.0]
+jet_pt_min: [5.0, 7.0, 10.0, 12.0]
 
 # Jet radii to reconstruct (R values).
 # The steering macro builds reco jets (and SIM truth jets) for each radius.
 # RecoilJets processes only the radii listed here.
 # Baseline: r02 + r04 + r06
-jet_radii: [0.3]
+jet_radii: [0.2, 0.3, 0.4]
 
 # Back-to-back azimuthal cut as a fraction of π.
 #   0.5   → Δφ > π/2
 #   0.875 → Δφ > 7π/8  (ATLAS-like)
 # The macro computes: back_to_back_dphi_min_rad = fraction × π
-back_to_back_dphi_min_pi_fraction: [0.875]
+back_to_back_dphi_min_pi_fraction: [0.5, 0.875]
 
 # -----------------------------------------------------------------------------
 # Vertex selection
@@ -53,7 +92,7 @@ back_to_back_dphi_min_pi_fraction: [0.875]
 use_vz_cut: true
 
 # MATRIX AXIS: one job per vz_cut_cm value.
-vz_cut_cm: [60.0]
+vz_cut_cm: [10, 30, 60]
 
 # AuAu only: when true, RecoilJets also requires
 # MinimumBiasInfo::isAuAuMinimumBias() after the configured GL1 trigger fires.
@@ -109,7 +148,7 @@ centrality_edges: [0, 20, 50, 80]
 #     shapes, isolation) is identical to variantA.
 #
 # -----------------------------------------------------------------------------
-clusterUEpipeline: [baseVariant]
+clusterUEpipeline: [noSub, baseVariant]
 
 # -----------------------------------------------------------------------------
 # Photon-ID logic matrix axes
@@ -119,17 +158,17 @@ clusterUEpipeline: [baseVariant]
 #     Use the baseline PPG12-style hard-cut shower-shape preselection:
 #       e11/e33, et1, e32/e35, and weta_cogx.
 #
-#   preselection = variantA
-#     PPG12 common photon preselection plus the NPB-score gate:
-#       |cluster_weta_cogx| < 2.0
+#   preselection = newPPG12
+#     PPG12 common photon preselection plus the NPB-score gate, without the
+#     reference weta cut:
 #       0.6 < cluster_et1 < 1.0
-#       0.0 < e11_over_e33 < 0.98
+#       e11_over_e33 < 0.98
 #       0.8 < e32_over_e35 < 1.0
 #       npb_score > npb_cut
 #
 #     No cluster_prob cut is applied.
 #
-#   preselection = variantB
+#   preselection = noPreCriteria
 #     Disable preselection completely:
 #       every candidate skips the preselection gate and goes directly to
 #       tight/non-tight ID.
@@ -137,19 +176,19 @@ clusterUEpipeline: [baseVariant]
 #     This is NOT "reference with looser cuts"; it means no preselection
 #     shower-shape cuts and no NPB preselection cut are applied.
 #
-#   preselection = variantC
+#   preselection = onlyNPB
 #     NPB-score-only preselection:
 #       npb_score > npb_cut
 #
 #     No shower-shape preselection cuts are applied.
 #
-#   preselection = variantD
+#   preselection = refPlusNPB
 #     Baseline reference hard-cut shower-shape preselection plus the NPB-score
 #     gate:
 #       reference preselection cuts
 #       npb_score > npb_cut
 #
-#   preselection = variantE
+#   preselection = auauOnlyNPB
 #     AuAu-trained NPB-score-only preselection:
 #       auau_npb_score > auau_npb_cut
 #
@@ -161,54 +200,140 @@ clusterUEpipeline: [baseVariant]
 #   tight = reference
 #     Use the baseline PPG12-style hard-cut tight-ID definition.
 #
-#   tight = variantA
-#     Use the Sam-inspired tight-ID BDT node:./
+#   tight = newPPG12
+#     Use the tight-ID BDT node:
 #       PHOTONCLUSTER_CEMC_TIGHTBDT
+#     with tight_bdt_score above the configured pT-dependent threshold and no
+#     upper score cap.
 #
-#   tight = variantB
+#   tight = auauEmbeddedBDT
 #     Legacy AuAu embedded-trained tight-ID BDT hook. Kept for compatibility.
 #
 #   tight = centINDcontrol
 #     AuAu-trained control model that mirrors the PPG12 pp base_v3E/split
 #     tight-BDT feature order and does not include centrality as a feature.
-#     nonTight is automatically the complement of the tight decision.
 #
 #   tight = centAsFeat
 #     Same all-centrality AuAu tight-BDT structure, but centrality is appended
-#     to the PPG12 feature vector. nonTight is automatically the complement.
+#     to the PPG12 feature vector.
 #
 #   tight = centDepBDTs
 #     One AuAu tight-BDT per interval in centrality_edges. The runtime selects
 #     the model from auau_tight_bdt_centDep_model_files according to the event
-#     centrality. nonTight is automatically the complement.
+#     centrality.
 #
 # Non-tight axis:
 #   nonTight = reference
 #     For tight=reference, non-tight follows the baseline hard-cut sideband logic.
 #
-#   nonTight = variantA
+#   nonTight = newPPG12
 #     Use the PPG12 BDT sideband, not the tight complement:
 #       0.7333333333 - 0.0133333333 * E_T^gamma < tight_bdt_score
 #       tight_bdt_score < 0.6666666667 + 0.0033333333 * E_T^gamma
 #
 #     BDT scores outside the tight and non-tight windows are treated as neither.
 #
-#   nonTight = variantB
-#     For tight=variantB, use the AuAu-trained BDT sideband window configured by
-#     auau_nontight_bdt_* parameters. This is the ABCD-style nominal option.
+#   nonTight = auauBDTSideband
+#     For tight=auauEmbeddedBDT, centINDcontrol, centAsFeat, or centDepBDTs, use
+#     the AuAu-trained BDT sideband window configured by auau_nontight_bdt_*
+#     parameters. This is the ABCD-style nominal option.
 #
-#   nonTight = variantC
-#     For tight=variantB, use the complement of the AuAu tight BDT after
-#     preselection. This is a broad diagnostic/systematic option, not the
-#     PPG12-style nominal sideband.
+#   nonTight = auauBDTComplement
+#     For tight=auauEmbeddedBDT, centINDcontrol, centAsFeat, or centDepBDTs, use
+#     the complement of the AuAu tight BDT after preselection. This is a broad
+#     diagnostic/systematic option, not the PPG12-style nominal sideband.
 #
-# For tight=centINDcontrol, centAsFeat, or centDepBDTs, nonTight is treated as
-# a derived setting and is overridden to match tight so mismatched YAML cannot
-# silently produce an inconsistent tight/non-tight definition.
+# Photon-ID triplet axis:
+#   photon_id_sets is mandatory in the master YAML. Each row is
+#   [preselection, tight, nonTight] and becomes one ID matrix entry.
+#   The submit script writes scalar preselection/tight/nonTight keys into
+#   generated per-job YAML snapshots so final cfg tags and ROOT filenames keep
+#   the existing preselectionX_tightY_nonTightZ naming scheme.
 # -----------------------------------------------------------------------------
-preselection: [variantA]
-tight: [variantA]
-nonTight: [variantA]
+photon_id_sets:
+  # Reference tight/non-tight ID with each pp-compatible preselection.
+  - [reference, reference, reference]
+  - [refPlusNPB, reference, reference]
+  - [newPPG12, reference, reference]
+  - [onlyNPB, reference, reference]
+  - [noPreCriteria, reference, reference]
+
+  # PPG12 tight BDT with broad complement non-tight.
+  - [reference, newPPG12, reference]
+  - [refPlusNPB, newPPG12, reference]
+  - [newPPG12, newPPG12, reference]
+  - [onlyNPB, newPPG12, reference]
+  - [noPreCriteria, newPPG12, reference]
+
+  # PPG12 tight BDT with the PPG12 BDT sideband non-tight window.
+  - [reference, newPPG12, newPPG12]
+  - [refPlusNPB, newPPG12, newPPG12]
+  - [newPPG12, newPPG12, newPPG12]
+  - [onlyNPB, newPPG12, newPPG12]
+  - [noPreCriteria, newPPG12, newPPG12]
+
+  # AuAu-specific model hooks. Uncomment only for AuAu/embedded runs with the
+  # corresponding model files/features configured.
+  # - [reference, auauEmbeddedBDT, auauBDTSideband]
+  # - [reference, auauEmbeddedBDT, auauBDTComplement]
+  # - [reference, centINDcontrol, centINDcontrol]
+  # - [reference, centAsFeat, centAsFeat]
+  # - [reference, centDepBDTs, centDepBDTs]
+  # - [auauOnlyNPB, auauEmbeddedBDT, auauBDTSideband]
+  # - [auauOnlyNPB, auauEmbeddedBDT, auauBDTComplement]
+  # - [auauOnlyNPB, centINDcontrol, centINDcontrol]
+  # - [auauOnlyNPB, centAsFeat, centAsFeat]
+  # - [auauOnlyNPB, centDepBDTs, centDepBDTs]
+
+output_working_points:
+  # These names document the major physics families that become top-level
+  # cfg-tag ROOT directories in the pool replay/view workflow. The authoritative
+  # active list remains photon_id_sets above; each active triplet maps to one
+  # working-point output family while jet/dphi/vz/iso/cone choices become views.
+  - {name: referenceHardCut, photon_id: [reference, reference, reference]}
+  - {name: ppg12BDTComplement, photon_id: [newPPG12, newPPG12, reference]}
+  - {name: ppg12BDTSideband, photon_id: [newPPG12, newPPG12, newPPG12]}
+  - {name: refPlusNPBBDTSideband, photon_id: [refPlusNPB, newPPG12, newPPG12]}
+  # AuAu model families stay commented until their model files are configured.
+  # - {name: auauCentINDControl, photon_id: [auauOnlyNPB, centINDcontrol, auauBDTSideband]}
+  # - {name: auauCentAsFeat, photon_id: [auauOnlyNPB, centAsFeat, auauBDTSideband]}
+  # - {name: auauCentDepBDTs, photon_id: [auauOnlyNPB, centDepBDTs, auauBDTSideband]}
+
+# Workflow notification.
+# Final merge jobs should notify these addresses after grab-ready ROOT files are
+# produced. The submit/merge scripts also accept RJ_NOTIFY_EMAILS as an override.
+notify_emails: [jmb15@illinois.edu, just0131@gmail.com]
+
+# Pool/replay workflow boundary.
+#
+# pool_capture settings require condorDoAllFromScratch/allFromScratch because
+# they control what is read or reconstructed from DSTs and stored in the pool.
+# Capture intentionally disables the analysis |vz| cut and writes loose photon,
+# jet, event, and truth records so vertex, pT, centrality, jet-pT, dphi, and
+# photon-ID choices can move to replay.
+#
+# pool_replay settings can be changed without reopening DSTs if the captured
+# pool contains the needed raw variables. New photon_id_sets, BDT score cuts,
+# BDT model scans over stored features, pT/centrality/vz binning, jet pT cuts,
+# and dphi cuts belong here. New isolation cone radii or new reconstructed jet
+# radii require from-scratch capture unless that cone/radius was already stored.
+pool_capture:
+  enabled: false
+  capture_only: true
+  output_base:
+  schema_version: 2
+  photon_pt_min: 4.0
+  truth_photon_pt_min: 4.0
+  jet_pt_min: 0.0
+  truth_jet_pt_min: 0.0
+  captured_coneR: [0.30, 0.40]
+  captured_jet_radii: [0.2, 0.3, 0.4]
+
+pool_replay:
+  enabled: false
+  input_base:
+  output_base:
+  submit_action: condorDoAll
 
 # -----------------------------------------------------------------------------
 # NPB preselection controls
@@ -216,7 +341,7 @@ nonTight: [variantA]
 # CLUSTERINFO_CEMC corresponds to Shuhang's "split" cluster variant, so use:
 #   npb_score_split_tmva.root
 #
-# Used only when preselection = variantA, variantC, or variantD:
+# Used only when preselection = newPPG12, onlyNPB, or refPlusNPB:
 #   keep cluster if npb_score > 0.5
 #   reject cluster if npb_score <= 0.5 or the score is unavailable/non-finite
 # -----------------------------------------------------------------------------
@@ -225,7 +350,7 @@ npb_cut: 0.5
 npb_features: [cluster_Et, cluster_Eta, vertexz, e11_over_e33, e32_over_e35, e11_over_e22, e11_over_e13, e11_over_e15, e11_over_e17, e11_over_e31, e11_over_e51, e11_over_e71, e22_over_e33, e22_over_e35, e22_over_e37, e22_over_e53, cluster_weta_cogx, cluster_wphi_cogx, cluster_et1, cluster_et2, cluster_et3, cluster_et4, cluster_w32, cluster_w52, cluster_w72]
 
 # -----------------------------------------------------------------------------
-# Tight-ID BDT controls (used when tight: variantA)
+# Tight-ID BDT controls (used when tight: newPPG12)
 #
 # PPG12 nominal split model:
 #   model_base_v3E_split_single_tmva.root
@@ -236,12 +361,21 @@ npb_features: [cluster_Et, cluster_Eta, vertexz, e11_over_e33, e32_over_e35, e11
 #
 # Tight decision:
 #   tight_bdt_score > 0.8333333333 - 0.0033333333 * E_T^gamma
-#   tight_bdt_score < 1.0
+#   no upper tight_bdt_score cap is applied for tight: newPPG12
+#
+# PPG12 BDT non-tight sideband, used when nonTight: newPPG12:
+#   0.7333333333 - 0.0133333333 * E_T^gamma < tight_bdt_score
+#   tight_bdt_score < 0.6666666667 + 0.0033333333 * E_T^gamma
 # -----------------------------------------------------------------------------
 tight_bdt_model_file: /sphenix/user/shuhangli/ppg12/FunWithxgboost/binned_models/model_base_v3E_split_single_tmva.root
 tight_bdt_min_intercept: 0.8333333333333334
 tight_bdt_min_slope: -0.003333333333333336
+# Kept for backward-compatible parsing; tight: newPPG12 no longer applies this upper cap.
 tight_bdt_max: 1.0
+nontight_bdt_min_intercept: 0.7333333333333333
+nontight_bdt_min_slope: -0.01333333333333333
+nontight_bdt_max_intercept: 0.6666666666666666
+nontight_bdt_max_slope: 0.003333333333333336
 tight_bdt_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35]
 
 # -----------------------------------------------------------------------------
@@ -252,22 +386,22 @@ tight_bdt_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, 
 #   centAsFeat:     PPG12 base_v3E/split feature order plus centrality.
 #   centDepBDTs:    one PPG12-like model per centrality_edges interval.
 #
-# preselection = variantE uses auau_npb_*:
+# preselection = auauOnlyNPB uses auau_npb_*:
 #   auau_npb_score > auau_npb_cut
 #
-# tight = variantB/centINDcontrol/centAsFeat/centDepBDTs use:
+# tight = auauEmbeddedBDT/centINDcontrol/centAsFeat/centDepBDTs use:
 #   auau_tight_bdt_score > auau_tight_bdt_min_intercept
 #                          + auau_tight_bdt_min_slope * E_T^gamma
 #   auau_tight_bdt_score < auau_tight_bdt_max
 #
-# nonTight = variantB sideband:
+# nonTight = auauBDTSideband:
 #   auau_nontight_bdt_min_intercept
 #     + auau_nontight_bdt_min_slope * E_T^gamma < score
 #   score < auau_nontight_bdt_max_intercept
 #     + auau_nontight_bdt_max_slope * E_T^gamma
 #
-# nonTight = variantC:
-#   complement of tight=variantB after preselection.
+# nonTight = auauBDTComplement:
+#   complement of the AuAu tight BDT after preselection.
 # -----------------------------------------------------------------------------
 auau_npb_model_file:
 auau_npb_cut: 0.5
@@ -396,14 +530,14 @@ doPi0Analysis: false
 # MATRIX AXIS: coneR sets the isolation cone radius.
 # PhotonClusterBuilder provides isolation sums for R=0.3 and R=0.4.
 # -----------------------------------------------------------------------------
-isSlidingIso: true
-isSlidingAndFixed: false
+isSlidingIso: false
+isSlidingAndFixed: true
 
 # MATRIX AXIS: one job per fixedGeV value (when isSlidingIso is false).
-fixedGeV: [2.0]
+fixedGeV: [2.0, 4.0]
 
 # MATRIX AXIS: isolation cone radius.
-coneR: [0.40]
+coneR: [0.30, 0.40]
 
 # Global sliding WP parameters.
 # Used directly for pp / non-AuAu SIM when isSlidingIso is true:
@@ -412,7 +546,7 @@ coneR: [0.40]
 # sideGapGeV: offset for non-isolated sideband
 # truthIsoGeV: generator-level isolation cut (SIM only)
 # towerMin: minimum tower energy for isolation sum (0 = no floor)
-isolation_wp: {aGeV: 1.764, bPerGeV: 0.038, sideGapGeV: 1.0, truthIsoGeV: 4.0, towerMin: 0.0}
+isolation_wp: {aGeV: 0.081, bPerGeV: 0.019, sideGapGeV: 0.8, truthIsoGeV: 4.0, towerMin: 0.0}
 
 # Exact Au+Au centrality-fit isolation working point.
 # With a SINGLE entry, RecoilJets_AuAu evaluates:
