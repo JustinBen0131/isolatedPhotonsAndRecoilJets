@@ -4021,6 +4021,89 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         LOG(4, CLR_YELLOW, "    mandatory node(s) missing → ABORTEVENT");
         return Fun4AllReturnCodes::ABORTEVENT;
     }
+
+    if (m_poolCaptureOnly && m_isSim)
+    {
+        std::vector<std::string> poolActiveTrig{"SIM"};
+
+        if (m_isAuAu)
+        {
+            CentralityInfo* central =
+            findNode::getClass<CentralityInfo>(topNode, "CentralityInfo");
+
+            if (central)
+            {
+                const float centile =
+                central->get_centrality_bin(CentralityInfo::PROP::mbd_NS);
+
+                if (std::isfinite(centile) && centile >= 0.f)
+                {
+                    m_centBin = static_cast<int>(centile);
+                    m_centPercent = static_cast<double>(centile);
+                }
+                else
+                {
+                    m_centBin = -1;
+                    m_centPercent = -1.0;
+                }
+            }
+            else
+            {
+                m_centBin = -1;
+                m_centPercent = -1.0;
+            }
+        }
+        else
+        {
+            m_centBin = -1;
+            m_centPercent = -1.0;
+        }
+
+        m_mcVertexWeight = 1.0;
+        m_mcCentralityWeight = 1.0;
+        m_mcEventWeight = 1.0;
+
+        if (m_isSimEmbedded)
+        {
+            if (m_vertexReweightOn && m_vertexReweightH)
+            {
+                int bin = m_vertexReweightH->FindBin(m_vz);
+                if (bin < 1) bin = 1;
+                if (bin > m_vertexReweightH->GetNbinsX()) bin = m_vertexReweightH->GetNbinsX();
+
+                m_mcVertexWeight = m_vertexReweightH->GetBinContent(bin);
+                if (!std::isfinite(m_mcVertexWeight) || m_mcVertexWeight <= 0.0)
+                {
+                    m_mcVertexWeight = 1.0;
+                }
+            }
+
+            if (m_centralityReweightOn && m_centralityReweightH && m_isAuAu && m_centPercent >= 0.0)
+            {
+                int bin = m_centralityReweightH->FindBin(m_centPercent);
+                if (bin < 1) bin = 1;
+                if (bin > m_centralityReweightH->GetNbinsX()) bin = m_centralityReweightH->GetNbinsX();
+
+                m_mcCentralityWeight = m_centralityReweightH->GetBinContent(bin);
+                if (!std::isfinite(m_mcCentralityWeight) || m_mcCentralityWeight <= 0.0)
+                {
+                    m_mcCentralityWeight = 1.0;
+                }
+            }
+
+            m_mcEventWeight = m_mcVertexWeight * m_mcCentralityWeight;
+        }
+
+        RJMCWeighting::CurrentWeight() = (m_isSimEmbedded ? m_mcEventWeight : 1.0);
+
+        const int poolCentIdx = (m_isAuAu ? findCentBin(m_centBin) : -1);
+        captureAnalysisPoolEvent(topNode, poolActiveTrig, poolCentIdx);
+        ++m_bk.evt_accepted;
+
+        LOG(4, CLR_GREEN,
+            "  [process_event] - SIM pool captured before analysis stitching; histogram filling skipped");
+        return Fun4AllReturnCodes::EVENT_OK;
+    }
     
     if (m_isoAuditMode)
     {

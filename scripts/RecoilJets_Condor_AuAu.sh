@@ -249,7 +249,31 @@ emit_profile_summary() {
     fanout_view_count="$(awk 'NF && $0 !~ /^[[:space:]]*#/ {c++} END{print c+0}' "$RJ_ID_FANOUT_FILE" 2>/dev/null)"
     fanout_output_roots="$(awk -F'|' 'NF && $1 !~ /^#/ && $1 != "" {seen[$1]=1} END{for(k in seen)c++; print c+0}' "$RJ_ID_FANOUT_FILE" 2>/dev/null || echo 0)"
   fi
-  echo "RECOILJETS_JOB_PROFILE_V1 stage=${profile_stage} label=${profile_label} dataset=${dataset} analysis_tag=${analysis_tag} run=${run8} chunk=${chunk_tag} input_files=${input_files} nevents=${nevents} cluster_id=${cluster_id} exit_code=${exit_code} elapsed_seconds=${elapsed} max_rss_kb=${max_rss_kb} output_files=${output_files} output_bytes=${output_bytes} request_memory_mb=${RJ_REQUEST_MEMORY_MB:-unknown} fanout_view_count=${fanout_view_count} fanout_output_roots=${fanout_output_roots} replay_output_roots_per_shard=${RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD:-unknown} macro=${MACRO} config=${RJ_CONFIG_YAML:-unset} pool_mode=${RJ_POOL_MODE:-unset}"
+
+  pool_event_entries=na
+  pool_photon_entries=na
+  pool_jet_entries=na
+  pool_truth_photon_entries=na
+  pool_profile_counts="${RJ_POOL_PROFILE_COUNTS:-${RJ_PROFILE_JOB:-0}}"
+  if [[ "${RJ_POOL_MODE:-}" == capture* && -s "$out_root" &&
+        ( "$pool_profile_counts" == "1" || "$pool_profile_counts" == "true" || "$pool_profile_counts" == "TRUE" ) ]]; then
+    pool_counts="$(
+      root -l -b -q -e "TFile f(\"${out_root}\"); const char* names[] = {\"AnalysisEventPool\", \"AnalysisPhotonPool\", \"AnalysisJetPool\", \"AnalysisTruthPhotonPool\"}; for (const char* n : names) { auto* t = dynamic_cast<TTree*>(f.Get(n)); std::cout << n << \"=\" << (t ? t->GetEntries() : -1) << std::endl; }" 2>/dev/null || true
+    )"
+    pool_event_entries="$(printf '%s\n' "$pool_counts" | awk -F= '$1=="AnalysisEventPool"{print $2}' | tail -1)"
+    pool_photon_entries="$(printf '%s\n' "$pool_counts" | awk -F= '$1=="AnalysisPhotonPool"{print $2}' | tail -1)"
+    pool_jet_entries="$(printf '%s\n' "$pool_counts" | awk -F= '$1=="AnalysisJetPool"{print $2}' | tail -1)"
+    pool_truth_photon_entries="$(printf '%s\n' "$pool_counts" | awk -F= '$1=="AnalysisTruthPhotonPool"{print $2}' | tail -1)"
+    pool_event_entries="${pool_event_entries:-unknown}"
+    pool_photon_entries="${pool_photon_entries:-unknown}"
+    pool_jet_entries="${pool_jet_entries:-unknown}"
+    pool_truth_photon_entries="${pool_truth_photon_entries:-unknown}"
+    if [[ "$pool_event_entries" == "0" ]]; then
+      echo "[WARN] Pool capture produced zero AnalysisEventPool entries: ${out_root}"
+    fi
+  fi
+
+  echo "RECOILJETS_JOB_PROFILE_V1 stage=${profile_stage} label=${profile_label} dataset=${dataset} analysis_tag=${analysis_tag} run=${run8} chunk=${chunk_tag} input_files=${input_files} nevents=${nevents} cluster_id=${cluster_id} exit_code=${exit_code} elapsed_seconds=${elapsed} max_rss_kb=${max_rss_kb} output_files=${output_files} output_bytes=${output_bytes} request_memory_mb=${RJ_REQUEST_MEMORY_MB:-unknown} fanout_view_count=${fanout_view_count} fanout_output_roots=${fanout_output_roots} replay_output_roots_per_shard=${RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD:-unknown} pool_event_entries=${pool_event_entries} pool_photon_entries=${pool_photon_entries} pool_jet_entries=${pool_jet_entries} pool_truth_photon_entries=${pool_truth_photon_entries} macro=${MACRO} config=${RJ_CONFIG_YAML:-unset} pool_mode=${RJ_POOL_MODE:-unset}"
   if [[ -s "$profile_file" ]]; then
     sed 's/^/[time-v] /' "$profile_file"
   fi
