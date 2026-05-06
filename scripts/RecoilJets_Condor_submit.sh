@@ -579,6 +579,16 @@ trim_ws() {
   printf "%s" "$s"
 }
 
+memory_request_to_mb() {
+  local request="$1"
+  local digits="${request//[^0-9]/}"
+  local mb="${digits:-0}"
+  case "$request" in
+    *[Gg][Bb]|*[Gg]) mb=$(( mb * 1024 )) ;;
+  esac
+  printf '%s\n' "$mb"
+}
+
 sim_yaml_master_path() {
   if [[ -n "${RJ_CONFIG_YAML:-}" ]]; then
     local p; p="$(trim_ws "${RJ_CONFIG_YAML}")"
@@ -948,6 +958,53 @@ append_fanout_cfgs_to_manifest() {
     }' "$fanout_file" >> "$manifest"
 }
 
+split_pool_replay_fanout_shards() {
+  local fanout_file="$1" shard_dir="$2" label="$3" roots_per_shard="${4:-2}" trace="${5:-0}"
+  [[ -s "$fanout_file" ]] || { err "Cannot shard empty fanout file: ${fanout_file}"; exit 95; }
+  [[ "$roots_per_shard" =~ ^[0-9]+$ && "$roots_per_shard" -gt 0 ]] || roots_per_shard=2
+  mkdir -p "$shard_dir"
+
+  local safe_label shard_idx roots_in_shard rows unique_roots line dest shard_file i
+  safe_label="$(sanitize_node_name "$label")"
+  rm -f "${shard_dir}/${safe_label}_shard"*.txt 2>/dev/null || true
+
+  declare -A root_to_shard=()
+  shard_idx=0
+  roots_in_shard=0
+  rows=0
+  unique_roots=0
+
+  while IFS= read -r line; do
+    [[ -z "${line:-}" || "${line:0:1}" == "#" ]] && continue
+    dest="${line%%|*}"
+    [[ -n "$dest" ]] || continue
+    if [[ -z "${root_to_shard[$dest]:-}" ]]; then
+      if (( shard_idx == 0 || roots_in_shard >= roots_per_shard )); then
+        (( shard_idx+=1 ))
+        roots_in_shard=0
+        shard_file="${shard_dir}/${safe_label}_shard$(printf "%03d" "$shard_idx").txt"
+        : > "$shard_file"
+      fi
+      root_to_shard["$dest"]="$shard_idx"
+      (( roots_in_shard+=1 ))
+      (( unique_roots+=1 ))
+    fi
+    shard_file="${shard_dir}/${safe_label}_shard$(printf "%03d" "${root_to_shard[$dest]}").txt"
+    printf '%s\n' "$line" >> "$shard_file"
+    (( rows+=1 ))
+  done < "$fanout_file"
+
+  (( shard_idx > 0 )) || { err "Fanout sharding produced no shards for ${fanout_file}"; exit 95; }
+  (( trace )) && say "[poolFanout] sharded ${rows} rows / ${unique_roots} output roots into ${shard_idx} replay shard(s), rootsPerShard=${roots_per_shard} (${label})" >&2
+  FANOUT_SHARD_LAST_COUNT="$shard_idx"
+  FANOUT_SHARD_LAST_ROOTS="$unique_roots"
+  FANOUT_SHARD_LAST_ROWS="$rows"
+  for (( i=1; i<=shard_idx; i++ )); do
+    shard_file="${shard_dir}/${safe_label}_shard$(printf "%03d" "$i").txt"
+    [[ -s "$shard_file" ]] && printf '%s\n' "$shard_file"
+  done
+}
+
 publish_production_manifest() {
   local manifest="$1" out_base="$2"
   [[ -s "$manifest" && -n "$out_base" ]] || return 0
@@ -1028,6 +1085,11 @@ manifest_group_size="$(manifest_get group_size)"
 manifest_replay_group_size="$(manifest_get replay_group_size)"
 manifest_request_memory="$(manifest_get request_memory)"
 manifest_request_memory_mb="$(manifest_get request_memory_mb)"
+manifest_capture_request_memory="$(manifest_get capture_request_memory)"
+manifest_replay_request_memory="$(manifest_get replay_request_memory)"
+manifest_capture_request_memory_mb="$(manifest_get capture_request_memory_mb)"
+manifest_replay_request_memory_mb="$(manifest_get replay_request_memory_mb)"
+manifest_replay_output_roots_per_shard="$(manifest_get replay_output_roots_per_shard)"
 manifest_capture_nevents="$(manifest_get capture_nevents)"
 manifest_smoke_cap="$(manifest_get smoke_capture_job_cap)"
 manifest_photon_rows="$(manifest_get photon_id_sets_expanded)"
@@ -1151,6 +1213,11 @@ fi
             -v replay_group_size="${manifest_replay_group_size}" \
             -v request_memory="${manifest_request_memory}" \
             -v request_memory_mb="${manifest_request_memory_mb}" \
+            -v capture_request_memory="${manifest_capture_request_memory}" \
+            -v replay_request_memory="${manifest_replay_request_memory}" \
+            -v capture_request_memory_mb="${manifest_capture_request_memory_mb}" \
+            -v replay_request_memory_mb="${manifest_replay_request_memory_mb}" \
+            -v replay_output_roots_per_shard="${manifest_replay_output_roots_per_shard}" \
             -v capture_nevents="${manifest_capture_nevents}" \
             -v smoke_cap="${manifest_smoke_cap}" \
             -v photon_rows="${manifest_photon_rows}" \
@@ -1181,6 +1248,7 @@ fi
               inputs = getv("input_files") + 0
               outputs = getv("output_files") + 0
               bytes = getv("output_bytes") + 0
+              req_mb = getv("request_memory_mb") + 0
               n[stage] += 1
               total += 1
               elapsed_sum[stage] += elapsed
@@ -1190,7 +1258,9 @@ fi
               if (!(stage in elapsed_min) || elapsed < elapsed_min[stage]) elapsed_min[stage] = elapsed
               if (elapsed > elapsed_max[stage]) elapsed_max[stage] = elapsed
               if (rss > rss_max[stage]) rss_max[stage] = rss
+              if (req_mb > request_max[stage]) request_max[stage] = req_mb
               if (rss > overall_rss_max) overall_rss_max = rss
+              if (req_mb > overall_request_max) overall_request_max = req_mb
               overall_elapsed += elapsed
               overall_inputs += inputs
               overall_outputs += outputs
@@ -1208,6 +1278,11 @@ fi
               print "replay_group_size=" replay_group_size
               print "request_memory=" request_memory
               print "request_memory_mb=" request_memory_mb
+              print "capture_request_memory=" capture_request_memory
+              print "replay_request_memory=" replay_request_memory
+              print "capture_request_memory_mb=" capture_request_memory_mb
+              print "replay_request_memory_mb=" replay_request_memory_mb
+              print "replay_output_roots_per_shard=" replay_output_roots_per_shard
               print "capture_nevents_per_worker=" capture_nevents
               print "smoke_capture_job_cap=" smoke_cap
               print "photon_id_rows=" photon_rows
@@ -1218,10 +1293,12 @@ fi
                 max_mb = mb_from_kb(rss_max[stage])
                 rec_mb = rec_mem_mb(max_mb)
                 sec_per_input = (input_sum[stage] > 0 ? elapsed_sum[stage] / input_sum[stage] : 0)
-                printf("stage_summary stage=%s jobs=%d failed=%d elapsed_avg_s=%.1f elapsed_min_s=%d elapsed_max_s=%d input_files=%d sec_per_input_file=%.2f max_rss_mb=%d output_files=%d output_mb=%.1f headroom_request_memory_mb=%d\n",
+                stage_req = request_max[stage] + 0
+                stage_usage = (stage_req > 0 && max_mb > 0 ? max_mb / stage_req : 0)
+                printf("stage_summary stage=%s jobs=%d failed=%d elapsed_avg_s=%.1f elapsed_min_s=%d elapsed_max_s=%d input_files=%d sec_per_input_file=%.2f max_rss_mb=%d requested_mb=%d usage_fraction=%.2f output_files=%d output_mb=%.1f headroom_request_memory_mb=%d\n",
                        stage, n[stage], failed_stage[stage] + 0, avg_elapsed,
                        elapsed_min[stage], elapsed_max[stage], input_sum[stage],
-                       sec_per_input, max_mb, output_sum[stage], bytes_sum[stage] / 1048576.0, rec_mb)
+                       sec_per_input, max_mb, stage_req, stage_usage, output_sum[stage], bytes_sum[stage] / 1048576.0, rec_mb)
               }
               overall_max_mb = mb_from_kb(overall_rss_max)
               recommended_mb = rec_mem_mb(overall_max_mb)
@@ -1229,7 +1306,7 @@ fi
               printf("overall_summary jobs=%d elapsed_total_s=%.1f input_files=%d sec_per_input_file=%.2f max_rss_mb=%d output_files=%d output_mb=%.1f headroom_request_memory_mb=%d\n",
                      total, overall_elapsed, overall_inputs, overall_sec_per_input,
                      overall_max_mb, overall_outputs, overall_bytes / 1048576.0, recommended_mb)
-              req_mb = int_or_zero(request_memory_mb)
+              req_mb = (overall_request_max > 0 ? overall_request_max : int_or_zero(request_memory_mb))
               if (req_mb > 0 && overall_max_mb > 0) {
                 usage = overall_max_mb / req_mb
                 printf("memory_headroom requested_mb=%d max_rss_mb=%d usage_fraction=%.2f spare_mb=%d\n",
@@ -1349,6 +1426,9 @@ cat > "$report_tuning_json" <<JSON
   "current_groupSize": ${current_group_json},
   "current_replay_groupSize": ${manifest_replay_group_size:-0},
   "current_request_memory_mb": ${manifest_request_memory_mb:-0},
+  "current_capture_request_memory_mb": ${manifest_capture_request_memory_mb:-0},
+  "current_replay_request_memory_mb": ${manifest_replay_request_memory_mb:-0},
+  "replay_output_roots_per_shard": ${manifest_replay_output_roots_per_shard:-0},
   "profile_rows": ${profile_rows_json:-0},
   "failure_count": ${failure_count_json:-0},
   "rss_max_mb": ${rss_max_json:-0},
@@ -2568,6 +2648,14 @@ submit_data_pool_workflow() {
   case "$request_memory" in
     *[Gg][Bb]|*[Gg]) request_memory_mb=$(( request_memory_mb * 1024 )) ;;
   esac
+  local capture_request_memory="${RJ_CAPTURE_REQUEST_MEMORY:-$request_memory}"
+  local replay_request_memory="${RJ_REPLAY_REQUEST_MEMORY:-$request_memory}"
+  local capture_request_memory_mb replay_request_memory_mb
+  capture_request_memory_mb="$(memory_request_to_mb "$capture_request_memory")"
+  replay_request_memory_mb="$(memory_request_to_mb "$replay_request_memory")"
+  local replay_roots_per_shard="${RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD:-${RJ_POOL_REPLAY_OUTPUT_ROOTS_PER_SHARD:-2}}"
+  [[ "$replay_roots_per_shard" =~ ^[0-9]+$ && "$replay_roots_per_shard" -gt 0 ]] || replay_roots_per_shard=2
+  local replay_max_open_outputs="${RJ_REPLAY_MAX_OPEN_OUTPUTS:-$replay_roots_per_shard}"
 
   if [[ "${RJ_DAG_DRYRUN:-0}" != "1" && "${RJ_DAG_DRYRUN:-0}" != "true" && "${RJ_DAG_DRYRUN:-0}" != "TRUE" ]]; then
     need_cmd condor_submit_dag
@@ -2611,11 +2699,17 @@ submit_data_pool_workflow() {
     echo "profile_job=${profile_job}"
     echo "request_memory=${request_memory}"
     echo "request_memory_mb=${request_memory_mb}"
+    echo "capture_request_memory=${capture_request_memory}"
+    echo "replay_request_memory=${replay_request_memory}"
+    echo "capture_request_memory_mb=${capture_request_memory_mb}"
+    echo "replay_request_memory_mb=${replay_request_memory_mb}"
     echo "yaml=${master_yaml}"
     echo "pool_base=${pool_base}"
     echo "output_base=${out_base}"
     echo "group_size=${GROUP_SIZE}"
     echo "replay_group_size=${replay_gs}"
+    echo "replay_output_roots_per_shard=${replay_roots_per_shard}"
+    echo "replay_max_open_outputs=${replay_max_open_outputs}"
     echo "replay_cones=${data_replay_cones[*]}"
     echo "capture_cones=${data_capture_cones[*]}"
     echo "uepipe_modes=${uepipe_modes[*]}"
@@ -2635,6 +2729,8 @@ submit_data_pool_workflow() {
   say "  dataset     : ${DATASET}"
   say "  pool base   : ${pool_base}"
   say "  output base : ${out_base}"
+  say "  memory      : capture=${capture_request_memory} replay=${replay_request_memory}"
+  say "  replay split: poolFiles/job=${replay_gs} outputRoots/shard=${replay_roots_per_shard} maxOpenOutputs=${replay_max_open_outputs}"
   (( is_smoke )) && say "  smoke cap   : ${smoke_capture_cap} capture jobs total; profiling enabled"
   (( is_smoke )) && say "  smoke events: capture nEvents=${capture_nevents} per worker; replay nEvents=0 over captured pools"
   say "  DAG dir     : ${dag_dir}"
@@ -2681,12 +2777,12 @@ getenv        = True
 log           = ${LOG_DIR}/${cap_prefix}.\$(Cluster).\$(Process).log
 output        = ${OUT_DIR}/${cap_prefix}.\$(Cluster).\$(Process).out
 error         = ${ERR_DIR}/${cap_prefix}.\$(Cluster).\$(Process).err
-request_memory= ${request_memory}
+request_memory= ${capture_request_memory}
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification  = Never
-environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${cap_yaml}${macro_env_for_sub};RJ_POOL_MODE=capture;RJ_PROFILE_JOB=${profile_job};RJ_PROFILE_STAGE=capture;RJ_PROFILE_LABEL=${cap_tag}
+environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${cap_yaml}${macro_env_for_sub};RJ_POOL_MODE=capture;RJ_PROFILE_JOB=${profile_job};RJ_PROFILE_STAGE=capture;RJ_PROFILE_LABEL=${cap_tag};RJ_REQUEST_MEMORY_MB=${capture_request_memory_mb}
 queue arguments from ${cap_args}
 SUB
 
@@ -2769,10 +2865,20 @@ SUB
       clean_fanout_output_dirs_from_file "$fanout_dirs" "$cap_tag" "$trace_pool" "$trace_every"
       (( trace_pool )) && say "[poolSmoke] cleaning fanout output dirs done: cap_tag=${cap_tag} uniqueRoots=${CLEAN_FANOUT_LAST_COUNT:-0}"
 
-      replay_sub="${dag_dir}/replay_${cap_tag}.sub"
-      local replay_args="${dag_dir}/replay_${cap_tag}.args"
+      local -a fanout_shards=()
+      mapfile -t fanout_shards < <(split_pool_replay_fanout_shards "$fanout_dirs" "${dag_dir}/fanoutShards/${cap_tag}" "$cap_tag" "$replay_roots_per_shard" "$trace_pool")
+      (( ${#fanout_shards[@]} )) || { err "No replay fanout shards were produced for ${cap_tag}"; exit 95; }
+
+      local shard_i=0
+      local fanout_shard shard_rows shard_roots
+      for fanout_shard in "${fanout_shards[@]}"; do
+      (( shard_i+=1 ))
+      shard_rows="$(wc -l < "$fanout_shard" | awk '{print $1}')"
+      shard_roots="$(awk -F'|' 'NF && $1 !~ /^#/ && $1 != "" {seen[$1]=1} END{for(k in seen)c++; print c+0}' "$fanout_shard")"
+      replay_sub="${dag_dir}/replay_${cap_tag}_shard$(printf "%03d" "$shard_i").sub"
+      local replay_args="${dag_dir}/replay_${cap_tag}_shard$(printf "%03d" "$shard_i").args"
       : > "$replay_args"
-      local replay_prefix="replay_${TAG}_${workflow_stamp}_${cap_tag}"
+      local replay_prefix="replay_${TAG}_${workflow_stamp}_${cap_tag}_shard$(printf "%03d" "$shard_i")"
       cat > "$replay_sub" <<SUB
 universe      = vanilla
 executable    = ${EXE}
@@ -2781,12 +2887,12 @@ getenv        = True
 log           = ${LOG_DIR}/${replay_prefix}.\$(Cluster).\$(Process).log
 output        = ${OUT_DIR}/${replay_prefix}.\$(Cluster).\$(Process).out
 error         = ${ERR_DIR}/${replay_prefix}.\$(Cluster).\$(Process).err
-request_memory= ${request_memory}
+request_memory= ${replay_request_memory}
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification  = Never
-environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${master_yaml};RJ_MACRO_PATH=${pool_macro};RJ_ID_FANOUT_DIRS_FILE=${fanout_dirs};RJ_REPLAY_MAX_OPEN_OUTPUTS=${RJ_REPLAY_MAX_OPEN_OUTPUTS:-48};RJ_PROFILE_JOB=${profile_job};RJ_PROFILE_STAGE=replay;RJ_PROFILE_LABEL=${cap_tag}
+environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${master_yaml};RJ_MACRO_PATH=${pool_macro};RJ_ID_FANOUT_DIRS_FILE=${fanout_shard};RJ_REPLAY_MAX_OPEN_OUTPUTS=${replay_max_open_outputs};RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD=${replay_roots_per_shard};RJ_PROFILE_JOB=${profile_job};RJ_PROFILE_STAGE=replay;RJ_PROFILE_LABEL=${cap_tag}_shard$(printf "%03d" "$shard_i");RJ_REQUEST_MEMORY_MB=${replay_request_memory_mb}
 queue arguments from ${replay_args}
 SUB
 
@@ -2834,28 +2940,31 @@ SUB
       done < "$workflow_golden"
 
       if (( queued == 0 )); then
-        warn "No DATA pool replay jobs queued for ${cap_tag}; skipping replay node"
+        warn "No DATA pool replay jobs queued for ${cap_tag} shard ${shard_i}; skipping replay node"
         rm -f "$replay_sub"
         continue
       fi
 
-      replay_node="REP_$(sanitize_node_name "${cap_tag}")"
-      printf 'JOB %s %s\n' "$replay_node" "$replay_sub" >> "$dag"
+      replay_node="REP_$(sanitize_node_name "${cap_tag}_shard$(printf "%03d" "$shard_i")")"
       if [[ "$from_scratch" -eq 1 ]]; then
         local cap_node="${cap_node_by_tag[$cap_tag]:-}"
         if [[ -z "$cap_node" && "$is_smoke" -eq 1 ]]; then
-          warn "Smoke cap did not include capture jobs for ${cap_tag}; skipping replay node"
+          warn "Smoke cap did not include capture jobs for ${cap_tag}; skipping replay shard ${shard_i}"
           rm -f "$replay_sub"
           continue
         fi
         [[ -n "$cap_node" ]] || { err "Internal DAG build error: missing capture node for ${cap_tag}"; exit 97; }
+        printf 'JOB %s %s\n' "$replay_node" "$replay_sub" >> "$dag"
         printf 'PARENT %s CHILD %s\n' "$cap_node" "$replay_node" >> "$dag"
+      else
+        printf 'JOB %s %s\n' "$replay_node" "$replay_sub" >> "$dag"
       fi
       (( replay_count+=1 ))
-      (( cell_num+=fanout_count ))
-      echo "replay_node=${replay_node} cap_tag=${cap_tag} jobs=${queued} fanout_outputs=${fanout_count} fanout=${fanout_dirs}" >> "$manifest"
+      (( cell_num+=shard_rows ))
+      echo "replay_node=${replay_node} cap_tag=${cap_tag} shard=${shard_i}/${#fanout_shards[@]} jobs=${queued} fanout_outputs=${shard_rows} fanout_roots=${shard_roots} fanout=${fanout_shard} parent_fanout=${fanout_dirs}" >> "$manifest"
       echo "profile_glob=${OUT_DIR}/${replay_prefix}.*.out" >> "$manifest"
-      (( trace_pool )) && say "[poolSmoke] replay node ready: node=${replay_node} jobs=${queued} runsSeen=${replay_runs_seen} runsWithPools=${replay_runs_with_pools} fanoutOutputs=${fanout_count} sub=${replay_sub}"
+      (( trace_pool )) && say "[poolSmoke] replay node ready: node=${replay_node} jobs=${queued} runsSeen=${replay_runs_seen} runsWithPools=${replay_runs_with_pools} shard=${shard_i}/${#fanout_shards[@]} fanoutRows=${shard_rows} fanoutRoots=${shard_roots} sub=${replay_sub}"
+      done
   done
   done
 
@@ -4989,11 +5098,13 @@ SUB
         *)                      GROUP_SIZE="${RJ_SMOKE_GROUPSIZE_SIM:-7}" ;;
       esac
     fi
+    request_memory_was_explicit=0
+    [[ -n "${RJ_REQUEST_MEMORY:-}" ]] && request_memory_was_explicit=1
     if (( sim_smoke )) && [[ -z "${RJ_REQUEST_MEMORY:-}" ]]; then
       case "$DATASET" in
-        isSimEmbedded)          RJ_REQUEST_MEMORY="${RJ_SMOKE_REQUEST_MEMORY_EMBEDDED:-6000MB}" ;;
-        isSimEmbeddedInclusive) RJ_REQUEST_MEMORY="${RJ_SMOKE_REQUEST_MEMORY_EMBEDDED_INCLUSIVE:-${RJ_SMOKE_REQUEST_MEMORY_EMBEDDED:-6000MB}}" ;;
-        *)                      RJ_REQUEST_MEMORY="${RJ_SMOKE_REQUEST_MEMORY_SIM:-4000MB}" ;;
+        isSimEmbedded)          RJ_REQUEST_MEMORY="${RJ_SMOKE_REQUEST_MEMORY_EMBEDDED:-3000MB}" ;;
+        isSimEmbeddedInclusive) RJ_REQUEST_MEMORY="${RJ_SMOKE_REQUEST_MEMORY_EMBEDDED_INCLUSIVE:-${RJ_SMOKE_REQUEST_MEMORY_EMBEDDED:-3000MB}}" ;;
+        *)                      RJ_REQUEST_MEMORY="${RJ_SMOKE_REQUEST_MEMORY_SIM:-2000MB}" ;;
       esac
       export RJ_REQUEST_MEMORY
     fi
@@ -5003,6 +5114,24 @@ SUB
     case "$request_memory" in
       *[Gg][Bb]|*[Gg]) request_memory_mb=$(( request_memory_mb * 1024 )) ;;
     esac
+    capture_request_memory="${RJ_CAPTURE_REQUEST_MEMORY:-$request_memory}"
+    replay_request_memory="${RJ_REPLAY_REQUEST_MEMORY:-}"
+    if [[ -z "$replay_request_memory" ]]; then
+      if (( sim_smoke )) && (( request_memory_was_explicit == 0 )); then
+        case "$DATASET" in
+          isSimEmbedded)          replay_request_memory="${RJ_SMOKE_REPLAY_REQUEST_MEMORY_EMBEDDED:-4000MB}" ;;
+          isSimEmbeddedInclusive) replay_request_memory="${RJ_SMOKE_REPLAY_REQUEST_MEMORY_EMBEDDED_INCLUSIVE:-${RJ_SMOKE_REPLAY_REQUEST_MEMORY_EMBEDDED:-4000MB}}" ;;
+          *)                      replay_request_memory="${RJ_SMOKE_REPLAY_REQUEST_MEMORY_SIM:-3000MB}" ;;
+        esac
+      else
+        replay_request_memory="$request_memory"
+      fi
+    fi
+    replay_roots_per_shard="${RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD:-${RJ_POOL_REPLAY_OUTPUT_ROOTS_PER_SHARD:-2}}"
+    [[ "$replay_roots_per_shard" =~ ^[0-9]+$ && "$replay_roots_per_shard" -gt 0 ]] || replay_roots_per_shard=2
+    replay_max_open_outputs="${RJ_REPLAY_MAX_OPEN_OUTPUTS:-$replay_roots_per_shard}"
+    capture_request_memory_mb="$(memory_request_to_mb "$capture_request_memory")"
+    replay_request_memory_mb="$(memory_request_to_mb "$replay_request_memory")"
     profile_job="${RJ_PROFILE_JOB:-0}"
     (( sim_smoke )) && profile_job=1
     sim_capture_nevents="${RJ_SMOKE_SIM_NEVENTS:-0}"
@@ -5084,6 +5213,12 @@ SUB
       echo "replay_group_size=${gs_replay}"
       echo "request_memory=${request_memory}"
       echo "request_memory_mb=${request_memory_mb}"
+      echo "capture_request_memory=${capture_request_memory}"
+      echo "replay_request_memory=${replay_request_memory}"
+      echo "capture_request_memory_mb=${capture_request_memory_mb}"
+      echo "replay_request_memory_mb=${replay_request_memory_mb}"
+      echo "replay_output_roots_per_shard=${replay_roots_per_shard}"
+      echo "replay_max_open_outputs=${replay_max_open_outputs}"
       echo "capture_nevents=${sim_capture_nevents}"
       echo "profile_job=${profile_job}"
       echo "samples=${samples[*]}"
@@ -5104,7 +5239,8 @@ SUB
     say "  pool base     : ${pool_base}"
     say "  output base   : ${out_base}"
     (( sim_smoke )) && say "  smoke outputs : isolated thesisAnaSmoke/thesisAnaPoolsSmoke directories"
-    say "  request mem   : ${request_memory}"
+    say "  memory        : capture=${capture_request_memory} replay=${replay_request_memory}"
+    say "  replay split  : poolFiles/job=${gs_replay} outputRoots/shard=${replay_roots_per_shard} maxOpenOutputs=${replay_max_open_outputs}"
     say "  profiling     : ${profile_job}"
     say "  capture axes  : storedIsolation=[${capture_cones[*]}], clusterUE=[${uepipe_modes[*]}]"
     say "  replay axes   : pT=[${sim_pts[*]}], dphi=[${sim_fracs[*]}], vz=[${sim_vzs[*]}], ID rows=${#iso_selection_tags[@]}"
@@ -5161,12 +5297,12 @@ getenv        = True
 log           = ${LOG_DIR}/${cap_prefix}.\$(Cluster).\$(Process).log
 output        = ${OUT_DIR}/${cap_prefix}.\$(Cluster).\$(Process).out
 error         = ${ERR_DIR}/${cap_prefix}.\$(Cluster).\$(Process).err
-request_memory= ${request_memory}
+request_memory= ${capture_request_memory}
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification  = Never
-environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${cap_yaml}${macro_env_for_sub};RJ_POOL_MODE=capture;RJ_PROFILE_JOB=${profile_job};RJ_PROFILE_STAGE=capture;RJ_PROFILE_LABEL=${POOL_CAPTURE_TAG}_${SIM_SAMPLE}
+environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${cap_yaml}${macro_env_for_sub};RJ_POOL_MODE=capture;RJ_PROFILE_JOB=${profile_job};RJ_PROFILE_STAGE=capture;RJ_PROFILE_LABEL=${POOL_CAPTURE_TAG}_${SIM_SAMPLE};RJ_REQUEST_MEMORY_MB=${capture_request_memory_mb}
 queue arguments from ${cap_args}
 SUB
           gidx=0
@@ -5205,6 +5341,10 @@ SUB
         clean_fanout_output_dirs_from_file "$fanout_dirs" "${POOL_CAPTURE_TAG}" 1 25 "${samples[@]}"
         (( sim_smoke )) && say "[simSmoke] cleaning fanout output dirs done: cap_tag=${POOL_CAPTURE_TAG} uniqueRoots=${CLEAN_FANOUT_LAST_COUNT:-0}"
 
+        fanout_shards=()
+        mapfile -t fanout_shards < <(split_pool_replay_fanout_shards "$fanout_dirs" "${dag_dir}/fanoutShards/${POOL_CAPTURE_TAG}" "$POOL_CAPTURE_TAG" "$replay_roots_per_shard" "$sim_smoke")
+        (( ${#fanout_shards[@]} )) || { err "No replay fanout shards were produced for ${POOL_CAPTURE_TAG}"; exit 95; }
+
         for samp in "${samples[@]}"; do
           cap_key="${POOL_CAPTURE_TAG}|${samp}"
           cap_node="${cap_node_by_key[$cap_key]:-}"
@@ -5226,10 +5366,15 @@ SUB
           done
           (( ${#groups[@]} )) || { err "No replay pool groups produced for ${POOL_CAPTURE_TAG}/${samp}"; exit 95; }
 
-          replay_sub="${dag_dir}/replay_${POOL_CAPTURE_TAG}_${samp}.sub"
-          replay_args="${dag_dir}/replay_${POOL_CAPTURE_TAG}_${samp}.args"
+          shard_i=0
+          for fanout_shard in "${fanout_shards[@]}"; do
+          (( shard_i+=1 ))
+          shard_rows="$(wc -l < "$fanout_shard" | awk '{print $1}')"
+          shard_roots="$(awk -F'|' 'NF && $1 !~ /^#/ && $1 != "" {seen[$1]=1} END{for(k in seen)c++; print c+0}' "$fanout_shard")"
+          replay_sub="${dag_dir}/replay_${POOL_CAPTURE_TAG}_${samp}_shard$(printf "%03d" "$shard_i").sub"
+          replay_args="${dag_dir}/replay_${POOL_CAPTURE_TAG}_${samp}_shard$(printf "%03d" "$shard_i").args"
           : > "$replay_args"
-          replay_prefix="replay_${workflow_stamp}_${samp}_${POOL_CAPTURE_TAG}"
+          replay_prefix="replay_${workflow_stamp}_${samp}_${POOL_CAPTURE_TAG}_shard$(printf "%03d" "$shard_i")"
           cat > "$replay_sub" <<SUB
 universe      = vanilla
 executable    = ${EXE}
@@ -5238,12 +5383,12 @@ getenv        = True
 log           = ${LOG_DIR}/${replay_prefix}.\$(Cluster).\$(Process).log
 output        = ${OUT_DIR}/${replay_prefix}.\$(Cluster).\$(Process).out
 error         = ${ERR_DIR}/${replay_prefix}.\$(Cluster).\$(Process).err
-request_memory= ${request_memory}
+request_memory= ${replay_request_memory}
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification  = Never
-environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${master_yaml};RJ_MACRO_PATH=${pool_macro};RJ_ID_FANOUT_DIRS_FILE=${fanout_dirs};RJ_REPLAY_MAX_OPEN_OUTPUTS=${RJ_REPLAY_MAX_OPEN_OUTPUTS:-48};RJ_PROFILE_JOB=${profile_job};RJ_PROFILE_STAGE=replay;RJ_PROFILE_LABEL=${POOL_CAPTURE_TAG}_${samp}
+environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${master_yaml};RJ_MACRO_PATH=${pool_macro};RJ_ID_FANOUT_DIRS_FILE=${fanout_shard};RJ_REPLAY_MAX_OPEN_OUTPUTS=${replay_max_open_outputs};RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD=${replay_roots_per_shard};RJ_PROFILE_JOB=${profile_job};RJ_PROFILE_STAGE=replay;RJ_PROFILE_LABEL=${POOL_CAPTURE_TAG}_${samp}_shard$(printf "%03d" "$shard_i");RJ_REQUEST_MEMORY_MB=${replay_request_memory_mb}
 queue arguments from ${replay_args}
 SUB
           g=0
@@ -5252,13 +5397,14 @@ SUB
             printf '%s %s %s $(Cluster) 0 %d NONE %s\n' \
                    "$samp" "$glist" "$DATASET" "$g" "${out_base}/${POOL_CAPTURE_TAG}" >> "$replay_args"
           done
-          replay_node="REP_$(sanitize_node_name "${POOL_CAPTURE_TAG}_${samp}")"
+          replay_node="REP_$(sanitize_node_name "${POOL_CAPTURE_TAG}_${samp}_shard$(printf "%03d" "$shard_i")")"
           printf 'JOB %s %s\n' "$replay_node" "$replay_sub" >> "$dag"
           printf 'PARENT %s CHILD %s\n' "$cap_node" "$replay_node" >> "$dag"
           (( replay_count+=1 ))
-          echo "replay_node=${replay_node} cap_tag=${POOL_CAPTURE_TAG} sample=${samp} jobs=${#groups[@]} fanout_outputs=${fanout_count} parent=${cap_node} fanout=${fanout_dirs}" >> "$manifest"
+          echo "replay_node=${replay_node} cap_tag=${POOL_CAPTURE_TAG} sample=${samp} shard=${shard_i}/${#fanout_shards[@]} jobs=${#groups[@]} fanout_outputs=${shard_rows} fanout_roots=${shard_roots} parent=${cap_node} fanout=${fanout_shard} parent_fanout=${fanout_dirs}" >> "$manifest"
           echo "profile_glob=${OUT_DIR}/${replay_prefix}.*.out" >> "$manifest"
-          (( sim_smoke )) && say "[simSmoke] replay node ready: node=${replay_node} sample=${samp} jobs=${#groups[@]} parent=${cap_node} sub=${replay_sub}"
+          (( sim_smoke )) && say "[simSmoke] replay node ready: node=${replay_node} sample=${samp} jobs=${#groups[@]} parent=${cap_node} shard=${shard_i}/${#fanout_shards[@]} fanoutRows=${shard_rows} fanoutRoots=${shard_roots} sub=${replay_sub}"
+          done
         done
       done
     done
@@ -5300,6 +5446,12 @@ SUB
     if [[ "${GROUP_SIZE_EXPLICIT:-0}" -eq 0 ]]; then
       gs_doall="20"
     fi
+    replay_request_memory="${RJ_REPLAY_REQUEST_MEMORY:-${RJ_REQUEST_MEMORY:-3000MB}}"
+    replay_request_memory_mb="$(memory_request_to_mb "$replay_request_memory")"
+    replay_roots_per_shard="${RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD:-${RJ_POOL_REPLAY_OUTPUT_ROOTS_PER_SHARD:-2}}"
+    [[ "$replay_roots_per_shard" =~ ^[0-9]+$ && "$replay_roots_per_shard" -gt 0 ]] || replay_roots_per_shard=2
+    replay_max_open_outputs="${RJ_REPLAY_MAX_OPEN_OUTPUTS:-$replay_roots_per_shard}"
+    profile_job="${RJ_PROFILE_JOB:-0}"
 
     mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
     mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
@@ -5336,6 +5488,8 @@ SUB
     say "  pool base      : ${pool_base}"
     say "  output base    : ${DEST_BASE}"
     say "  groupSize      : ${gs_doall}"
+    say "  request mem    : replay=${replay_request_memory}"
+    say "  replay split   : outputRoots/shard=${replay_roots_per_shard} maxOpenOutputs=${replay_max_open_outputs}"
     say "  photon_id_sets : ${#iso_selection_tags[@]} ID rows after expansion"
     say "  iso groups     : $(iso_group_count)"
     say "  clusterUE modes: [${uepipe_modes[*]}]"
@@ -5356,6 +5510,12 @@ SUB
       echo "pool_base=${pool_base}"
       echo "output_base=${DEST_BASE}"
       echo "group_size=${gs_doall}"
+      echo "replay_group_size=${gs_doall}"
+      echo "replay_request_memory=${replay_request_memory}"
+      echo "replay_request_memory_mb=${replay_request_memory_mb}"
+      echo "replay_output_roots_per_shard=${replay_roots_per_shard}"
+      echo "replay_max_open_outputs=${replay_max_open_outputs}"
+      echo "profile_job=${profile_job}"
       echo "samples=${samples[*]}"
       echo "submitted_at=${replay_stamp}"
     } > "$manifest"
@@ -5371,6 +5531,9 @@ SUB
         append_fanout_cfgs_to_manifest "$fanout_dirs" "$manifest"
 
         clean_fanout_output_dirs_from_file "$fanout_dirs" "${POOL_CAPTURE_TAG}" 1 25 "${samples[@]}"
+        fanout_shards=()
+        mapfile -t fanout_shards < <(split_pool_replay_fanout_shards "$fanout_dirs" "${dag_dir}/fanoutShards/${POOL_CAPTURE_TAG}" "$POOL_CAPTURE_TAG" "$replay_roots_per_shard" 1)
+        (( ${#fanout_shards[@]} )) || { err "No replay fanout shards were produced for ${POOL_CAPTURE_TAG}"; exit 95; }
 
         for samp in "${samples[@]}"; do
           pool_dir="${pool_base}/${POOL_CAPTURE_TAG}/${samp}"
@@ -5398,9 +5561,14 @@ SUB
           fi
 
           SIM_SAMPLE="$samp"
-          SIM_JOB_PREFIX="poolReplay_${samp}_${POOL_CAPTURE_TAG}"
-          sub="${dag_dir}/RecoilJets_poolReplay_${POOL_CAPTURE_TAG}_${samp}.sub"
-          args_file="${dag_dir}/RecoilJets_poolReplay_${POOL_CAPTURE_TAG}_${samp}.args"
+          shard_i=0
+          for fanout_shard in "${fanout_shards[@]}"; do
+          (( shard_i+=1 ))
+          shard_rows="$(wc -l < "$fanout_shard" | awk '{print $1}')"
+          shard_roots="$(awk -F'|' 'NF && $1 !~ /^#/ && $1 != "" {seen[$1]=1} END{for(k in seen)c++; print c+0}' "$fanout_shard")"
+          SIM_JOB_PREFIX="poolReplay_${samp}_${POOL_CAPTURE_TAG}_shard$(printf "%03d" "$shard_i")"
+          sub="${dag_dir}/RecoilJets_poolReplay_${POOL_CAPTURE_TAG}_${samp}_shard$(printf "%03d" "$shard_i").sub"
+          args_file="${dag_dir}/RecoilJets_poolReplay_${POOL_CAPTURE_TAG}_${samp}_shard$(printf "%03d" "$shard_i").args"
           : > "$args_file"
 
           cat > "$sub" <<SUB
@@ -5411,12 +5579,12 @@ getenv        = True
 log           = ${LOG_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).log
 output        = ${OUT_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).out
 error         = ${ERR_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).err
-request_memory= 2000MB
+request_memory= ${replay_request_memory}
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification  = Never
-environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${master_yaml};RJ_MACRO_PATH=${pool_macro};RJ_ID_FANOUT_DIRS_FILE=${fanout_dirs};RJ_REPLAY_MAX_OPEN_OUTPUTS=${RJ_REPLAY_MAX_OPEN_OUTPUTS:-48}
+environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${master_yaml};RJ_MACRO_PATH=${pool_macro};RJ_ID_FANOUT_DIRS_FILE=${fanout_shard};RJ_REPLAY_MAX_OPEN_OUTPUTS=${replay_max_open_outputs};RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD=${replay_roots_per_shard};RJ_PROFILE_JOB=${profile_job};RJ_PROFILE_STAGE=replay;RJ_PROFILE_LABEL=${POOL_CAPTURE_TAG}_${samp}_shard$(printf "%03d" "$shard_i");RJ_REQUEST_MEMORY_MB=${replay_request_memory_mb}
 queue arguments from ${args_file}
 SUB
           g=0
@@ -5427,12 +5595,14 @@ SUB
           done
 
           say "Submitting pool replay (pool tag=${POOL_CAPTURE_TAG}, sample=${samp}) → jobs=${BOLD}${#groups[@]}${RST}"
-          say "  fanout cfgs : ${fanout_count}"
+          say "  shard       : ${shard_i}/${#fanout_shards[@]} (${shard_rows} rows, ${shard_roots} output roots)"
           say "  pool dir    : ${pool_dir}"
-          replay_node="REP_$(sanitize_node_name "${POOL_CAPTURE_TAG}_${samp}")"
+          replay_node="REP_$(sanitize_node_name "${POOL_CAPTURE_TAG}_${samp}_shard$(printf "%03d" "$shard_i")")"
           printf 'JOB %s %s\n' "$replay_node" "$sub" >> "$dag"
           (( replay_count+=1 ))
-          echo "replay_node=${replay_node} cap_tag=${POOL_CAPTURE_TAG} sample=${samp} jobs=${#groups[@]} fanout_outputs=${fanout_count} pool=${pool_dir} fanout=${fanout_dirs}" >> "$manifest"
+          echo "replay_node=${replay_node} cap_tag=${POOL_CAPTURE_TAG} sample=${samp} shard=${shard_i}/${#fanout_shards[@]} jobs=${#groups[@]} fanout_outputs=${shard_rows} fanout_roots=${shard_roots} pool=${pool_dir} fanout=${fanout_shard} parent_fanout=${fanout_dirs}" >> "$manifest"
+          echo "profile_glob=${OUT_DIR}/${SIM_JOB_PREFIX}.job.*.out" >> "$manifest"
+          done
         done
       done
     done

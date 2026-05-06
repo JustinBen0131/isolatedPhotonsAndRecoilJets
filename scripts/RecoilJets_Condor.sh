@@ -234,7 +234,7 @@ file_size_bytes() {
 
 emit_profile_summary() {
   local exit_code="$1"
-  local end_epoch elapsed max_rss_kb output_files output_bytes f sz
+  local end_epoch elapsed max_rss_kb output_files output_bytes f sz fanout_view_count fanout_output_roots
   end_epoch="$(date +%s)"
   elapsed=$(( end_epoch - profile_start_epoch ))
   max_rss_kb="unknown"
@@ -255,7 +255,13 @@ emit_profile_summary() {
     output_bytes="$(file_size_bytes "$out_root")"
     output_files=1
   fi
-  echo "RECOILJETS_JOB_PROFILE_V1 stage=${profile_stage} label=${profile_label} dataset=${dataset} analysis_tag=${analysis_tag} run=${run8} chunk=${chunk_tag} input_files=${input_files} nevents=${nevents} cluster_id=${cluster_id} exit_code=${exit_code} elapsed_seconds=${elapsed} max_rss_kb=${max_rss_kb} output_files=${output_files} output_bytes=${output_bytes} macro=${MACRO} config=${RJ_CONFIG_YAML:-unset} pool_mode=${RJ_POOL_MODE:-unset}"
+  fanout_view_count=0
+  fanout_output_roots=0
+  if [[ -n "${RJ_ID_FANOUT_FILE:-}" && -s "$RJ_ID_FANOUT_FILE" ]]; then
+    fanout_view_count="$(awk 'NF && $0 !~ /^[[:space:]]*#/ {c++} END{print c+0}' "$RJ_ID_FANOUT_FILE" 2>/dev/null)"
+    fanout_output_roots="$(awk -F'|' 'NF && $1 !~ /^#/ && $1 != "" {seen[$1]=1} END{for(k in seen)c++; print c+0}' "$RJ_ID_FANOUT_FILE" 2>/dev/null || echo 0)"
+  fi
+  echo "RECOILJETS_JOB_PROFILE_V1 stage=${profile_stage} label=${profile_label} dataset=${dataset} analysis_tag=${analysis_tag} run=${run8} chunk=${chunk_tag} input_files=${input_files} nevents=${nevents} cluster_id=${cluster_id} exit_code=${exit_code} elapsed_seconds=${elapsed} max_rss_kb=${max_rss_kb} output_files=${output_files} output_bytes=${output_bytes} request_memory_mb=${RJ_REQUEST_MEMORY_MB:-unknown} fanout_view_count=${fanout_view_count} fanout_output_roots=${fanout_output_roots} replay_output_roots_per_shard=${RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD:-unknown} macro=${MACRO} config=${RJ_CONFIG_YAML:-unset} pool_mode=${RJ_POOL_MODE:-unset}"
   if [[ -s "$profile_file" ]]; then
     sed 's/^/[time-v] /' "$profile_file"
   fi
