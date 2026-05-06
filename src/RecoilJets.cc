@@ -105,6 +105,221 @@
 
 using namespace PhoIDCuts;
 
+namespace
+{
+  const std::vector<std::string>& analysisPoolExtraFeatureNames()
+  {
+    static const std::vector<std::string> names = {
+      "cluster_energy", "cluster_et", "cluster_pt", "cluster_eta", "cluster_phi", "cluster_r", "cluster_z",
+      "cluster_ecore", "cluster_prob", "cluster_chi2", "cluster_ntowers", "cluster_sum_tower_e",
+      "cluster_max_tower_e", "cluster_max_tower_ieta", "cluster_max_tower_iphi",
+      "e11", "e22", "e33", "e55", "e77", "e13", "e15", "e17", "e31", "e51", "e71",
+      "e35", "e37", "e53", "e73", "e57", "e75", "e32", "e52", "e72",
+      "et1", "et2", "et3", "et4",
+      "e11_over_e33", "e32_over_e35", "e11_over_e22", "e11_over_e13", "e11_over_e15",
+      "e11_over_e17", "e11_over_e31", "e11_over_e51", "e11_over_e71",
+      "e22_over_e33", "e22_over_e35", "e22_over_e37", "e22_over_e53",
+      "e11_over_e55", "e11_over_e77", "e33_over_e55", "e33_over_e77",
+      "weta", "wphi", "weta_cog", "wphi_cog", "weta_cogx", "wphi_cogx",
+      "weta33_cogx", "wphi33_cogx", "weta35_cogx", "wphi53_cogx",
+      "w32", "w52", "w72", "detamax", "dphimax", "detacog", "dphicog", "drad",
+      "ppg12_iso_axis_eta", "ppg12_iso_axis_phi", "vertex_z",
+      "mean_time", "mbd_time", "cluster_mbd_delta_t",
+      "npb_has_away_jet", "npb_label", "is_npb",
+      "npb_score", "tight_bdt_score", "auau_npb_score", "auau_tight_bdt_score",
+      "eiso", "eiso_r03", "eiso_r04",
+      "iso_04_emcal", "iso_04_hcalin", "iso_04_hcalout",
+      "iso_03_emcal", "iso_03_hcalin", "iso_03_hcalout",
+      "iso_02_emcal", "iso_01_emcal", "iso_005_emcal",
+      "ihcal_et", "ohcal_et", "ihcal_et22", "ohcal_et22", "ihcal_et33", "ohcal_et33",
+      "ihcal_ieta", "ihcal_iphi", "ohcal_ieta", "ohcal_iphi",
+      "cluster_tower_x_raw", "cluster_tower_y_raw", "cluster_tower_x_corr", "cluster_tower_y_corr",
+      "cluster_incidence_alpha_phi", "cluster_incidence_alpha_eta"
+    };
+    return names;
+  }
+
+  float poolFinite(double v)
+  {
+    return static_cast<float>(std::isfinite(v) ? v : std::numeric_limits<double>::quiet_NaN());
+  }
+
+  float poolSS(const PhotonClusterv1* pho, const char* key)
+  {
+    return pho ? poolFinite(pho->get_shower_shape_parameter(key))
+               : std::numeric_limits<float>::quiet_NaN();
+  }
+
+  float poolRatio(double num, double den)
+  {
+    return poolFinite((std::isfinite(num) && std::isfinite(den) && den > 0.0)
+                      ? num / den
+                      : std::numeric_limits<double>::quiet_NaN());
+  }
+
+  void fillAnalysisPoolExtraFeatureValues(const PhotonClusterv1* pho,
+                                          const RawCluster* rc,
+                                          double pt,
+                                          double eta,
+                                          double phi,
+                                          float eiso,
+                                          float eisoR03,
+                                          float eisoR04,
+                                          float mbdTime,
+                                          float clusterMbdDeltaT,
+                                          int npbHasAwayJet,
+                                          int npbLabel,
+                                          int isNPB,
+                                          std::vector<float>& out)
+  {
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    out.clear();
+    out.reserve(analysisPoolExtraFeatureNames().size());
+
+    double towerSum = 0.0;
+    double maxTowerE = -std::numeric_limits<double>::infinity();
+    int maxTowerIeta = -1;
+    int maxTowerIphi = -1;
+    int nTowers = 0;
+    if (rc)
+    {
+      const auto& towers = rc->get_towermap();
+      nTowers = static_cast<int>(towers.size());
+      for (const auto& tw : towers)
+      {
+        const double e = tw.second;
+        if (std::isfinite(e))
+        {
+          towerSum += e;
+          if (e > maxTowerE)
+          {
+            maxTowerE = e;
+            maxTowerIeta = RawTowerDefs::decode_index1(tw.first);
+            maxTowerIphi = RawTowerDefs::decode_index2(tw.first);
+          }
+        }
+      }
+    }
+    if (!std::isfinite(maxTowerE)) maxTowerE = std::numeric_limits<double>::quiet_NaN();
+
+    const double e11 = poolSS(pho, "e11");
+    const double e22 = poolSS(pho, "e22");
+    const double e33 = poolSS(pho, "e33");
+    const double e55 = poolSS(pho, "e55");
+    const double e77 = poolSS(pho, "e77");
+    const double e13 = poolSS(pho, "e13");
+    const double e15 = poolSS(pho, "e15");
+    const double e17 = poolSS(pho, "e17");
+    const double e31 = poolSS(pho, "e31");
+    const double e51 = poolSS(pho, "e51");
+    const double e71 = poolSS(pho, "e71");
+    const double e35 = poolSS(pho, "e35");
+    const double e37 = poolSS(pho, "e37");
+    const double e53 = poolSS(pho, "e53");
+    const double e73 = poolSS(pho, "e73");
+    const double e57 = poolSS(pho, "e57");
+    const double e75 = poolSS(pho, "e75");
+    const double e32 = poolSS(pho, "e32");
+    const double e52 = poolSS(pho, "e52");
+    const double e72 = poolSS(pho, "e72");
+
+    auto push = [&](float v) { out.push_back(v); };
+    push(poolFinite(rc ? rc->get_energy() : std::numeric_limits<double>::quiet_NaN()));
+    push(poolFinite(pt));
+    push(poolFinite(pt));
+    push(poolFinite(eta));
+    push(poolFinite(phi));
+    push(poolFinite(rc ? rc->get_r() : std::numeric_limits<double>::quiet_NaN()));
+    push(poolFinite(rc ? rc->get_z() : std::numeric_limits<double>::quiet_NaN()));
+    push(poolFinite(rc ? rc->get_ecore() : std::numeric_limits<double>::quiet_NaN()));
+    push(poolFinite(rc ? rc->get_prob() : std::numeric_limits<double>::quiet_NaN()));
+    push(poolFinite(rc ? rc->get_chi2() : std::numeric_limits<double>::quiet_NaN()));
+    push(static_cast<float>(nTowers));
+    push(poolFinite(towerSum));
+    push(poolFinite(maxTowerE));
+    push(maxTowerIeta >= 0 ? static_cast<float>(maxTowerIeta) : nan);
+    push(maxTowerIphi >= 0 ? static_cast<float>(maxTowerIphi) : nan);
+
+    for (double v : {e11, e22, e33, e55, e77, e13, e15, e17, e31, e51, e71,
+                     e35, e37, e53, e73, e57, e75, e32, e52, e72})
+      push(poolFinite(v));
+    for (const char* k : {"et1", "et2", "et3", "et4"}) push(poolSS(pho, k));
+
+    push(poolRatio(e11, e33));
+    push(poolRatio(e32, e35));
+    push(poolRatio(e11, e22));
+    push(poolRatio(e11, e13));
+    push(poolRatio(e11, e15));
+    push(poolRatio(e11, e17));
+    push(poolRatio(e11, e31));
+    push(poolRatio(e11, e51));
+    push(poolRatio(e11, e71));
+    push(poolRatio(e22, e33));
+    push(poolRatio(e22, e35));
+    push(poolRatio(e22, e37));
+    push(poolRatio(e22, e53));
+    push(poolRatio(e11, e55));
+    push(poolRatio(e11, e77));
+    push(poolRatio(e33, e55));
+    push(poolRatio(e33, e77));
+
+    for (const char* k : {"weta", "wphi", "weta_cog", "wphi_cog", "weta_cogx", "wphi_cogx",
+                          "weta33_cogx", "wphi33_cogx", "weta35_cogx", "wphi53_cogx",
+                          "w32", "w52", "w72", "detamax", "dphimax", "detacog", "dphicog", "drad",
+                          "ppg12_iso_axis_eta", "ppg12_iso_axis_phi", "vertex_z", "mean_time"})
+      push(poolSS(pho, k));
+
+    push(mbdTime);
+    push(clusterMbdDeltaT);
+    push(static_cast<float>(npbHasAwayJet));
+    push(static_cast<float>(npbLabel));
+    push(static_cast<float>(isNPB));
+    for (const char* k : {"npb_score", "tight_bdt_score", "auau_npb_score", "auau_tight_bdt_score"})
+      push(poolSS(pho, k));
+    push(eiso);
+    push(eisoR03);
+    push(eisoR04);
+    for (const char* k : {"iso_04_emcal", "iso_04_hcalin", "iso_04_hcalout",
+                          "iso_03_emcal", "iso_03_hcalin", "iso_03_hcalout",
+                          "iso_02_emcal", "iso_01_emcal", "iso_005_emcal",
+                          "ihcal_et", "ohcal_et", "ihcal_et22", "ohcal_et22", "ihcal_et33", "ohcal_et33",
+                          "ihcal_ieta", "ihcal_iphi", "ohcal_ieta", "ohcal_iphi"})
+      push(poolSS(pho, k));
+
+    push(poolFinite(rc ? rc->x_tower_raw() : std::numeric_limits<double>::quiet_NaN()));
+    push(poolFinite(rc ? rc->y_tower_raw() : std::numeric_limits<double>::quiet_NaN()));
+    push(poolFinite(rc ? rc->x_tower_corr() : std::numeric_limits<double>::quiet_NaN()));
+    push(poolFinite(rc ? rc->y_tower_corr() : std::numeric_limits<double>::quiet_NaN()));
+    push(poolFinite(rc ? rc->get_property_float(RawCluster::prop_incidence_alpha_phi) : std::numeric_limits<double>::quiet_NaN()));
+    push(poolFinite(rc ? rc->get_property_float(RawCluster::prop_incidence_alpha_eta) : std::numeric_limits<double>::quiet_NaN()));
+  }
+
+  void writeAnalysisPoolFeatureCatalog(TFile* out, int schema)
+  {
+    if (!out) return;
+    out->cd();
+    int schemaOut = schema;
+    int featureIndex = 0;
+    std::string featureName;
+    std::string source;
+    TTree catalog("AnalysisPhotonFeatureCatalog", "Catalog for AnalysisPhotonPool.extra_feature_values");
+    catalog.Branch("schema", &schemaOut, "schema/I");
+    catalog.Branch("feature_index", &featureIndex, "feature_index/I");
+    catalog.Branch("feature_name", &featureName);
+    catalog.Branch("source", &source);
+    for (const std::string& name : analysisPoolExtraFeatureNames())
+    {
+      featureName = name;
+      source = (name.rfind("cluster_", 0) == 0) ? "RawCluster"
+             : (name.find("iso_") == 0 || name.find("ihcal_") == 0 || name.find("ohcal_") == 0) ? "PhotonClusterBuilder/isolation"
+             : "PhotonClusterBuilder/shower_shape";
+      catalog.Fill();
+      ++featureIndex;
+    }
+    catalog.Write("", TObject::kOverwrite);
+  }
+}
+
 namespace RJMCWeighting
 {
   inline double& CurrentWeight()
@@ -1786,6 +2001,7 @@ void RecoilJets::initAnalysisPoolTrees()
   m_poolPhotonTree->Branch("truthEta", &m_pool_pho_truthEta, "truthEta/F");
   m_poolPhotonTree->Branch("truthPhi", &m_pool_pho_truthPhi, "truthPhi/F");
   m_poolPhotonTree->Branch("truthIso", &m_pool_pho_truthIso, "truthIso/F");
+  m_poolPhotonTree->Branch("extra_feature_values", &m_pool_pho_extra_features);
 
   m_poolJetTree = new TTree("AnalysisJetPool",
                             "Loose reco/truth jet records for offline RecoilJets replay");
@@ -1820,6 +2036,7 @@ void RecoilJets::initAnalysisPoolTrees()
   m_poolTruthPhotonTree->Branch("eta", &m_pool_truth_eta, "eta/F");
   m_poolTruthPhotonTree->Branch("phi", &m_pool_truth_phi, "phi/F");
   m_poolTruthPhotonTree->Branch("iso", &m_pool_truth_iso, "iso/F");
+  writeAnalysisPoolFeatureCatalog(out, m_pool_schema);
 
   LOG(1, CLR_GREEN,
       "[AnalysisPool][init] enabled"
@@ -1890,6 +2107,7 @@ void RecoilJets::resetAnalysisPoolBuffers()
   m_pool_pho_truthEta = nan;
   m_pool_pho_truthPhi = nan;
   m_pool_pho_truthIso = nan;
+  m_pool_pho_extra_features.clear();
 
   m_pool_jet_rKey.clear();
   m_pool_jet_isTruth = 0;
@@ -2203,6 +2421,20 @@ void RecoilJets::captureAnalysisPoolPhotons(PHCompositeNode* topNode,
       }
     }
 
+    fillAnalysisPoolExtraFeatureValues(pho,
+                                       rc,
+                                       pt,
+                                       eta,
+                                       TVector2::Phi_mpi_pi(phi),
+                                       m_pool_pho_eiso,
+                                       m_pool_pho_eiso_r03,
+                                       m_pool_pho_eiso_r04,
+                                       m_pool_pho_mbd_time,
+                                       m_pool_pho_cluster_mbd_delta_t,
+                                       m_pool_pho_npb_has_away_jet,
+                                       m_pool_pho_npb_label,
+                                       m_pool_pho_is_npb,
+                                       m_pool_pho_extra_features);
     m_poolPhotonTree->Fill();
   }
 }
@@ -4316,15 +4548,18 @@ int RecoilJets::End(PHCompositeNode*)
         poolMeta << "truth_jet_pt_min: " << m_poolTruthJetPtMin << "\n";
         poolMeta << "capture_axes: clusterUEpipeline,pool_schema,stored_isolation_cones,stored_jet_radii,stored_pool_features\n";
         poolMeta << "required_event_branches: schema,eventKey,isAuAu,centBin,centPercent,vz,weight,triggers\n";
-        poolMeta << "required_photon_branches: schema,eventKey,pt,eta,phi,eiso,eiso_r03,eiso_r04,weta_cogx,wphi_cogx,et1,e11_over_e33,e32_over_e35,npb_score,tight_bdt_score,auau_npb_score,auau_tight_bdt_score,mbd_time,cluster_mbd_delta_t,npb_has_away_jet,npb_label,is_npb,truthSignal,truthTrackId,truthPt,truthEta,truthPhi\n";
+        poolMeta << "required_photon_branches: schema,eventKey,pt,eta,phi,eiso,eiso_r03,eiso_r04,weta_cogx,wphi_cogx,et1,e11_over_e33,e32_over_e35,npb_score,tight_bdt_score,auau_npb_score,auau_tight_bdt_score,mbd_time,cluster_mbd_delta_t,npb_has_away_jet,npb_label,is_npb,truthSignal,truthTrackId,truthPt,truthEta,truthPhi,extra_feature_values\n";
         poolMeta << "required_jet_branches: schema,eventKey,rKey,isTruth,pt,raw_pt,areaSub_pt,eta,phi,jet_area,rho,local_rho\n";
         poolMeta << "required_truth_photon_branches: schema,eventKey,trackId,barcode,pt,eta,phi,iso\n";
+        poolMeta << "extra_feature_catalog: AnalysisPhotonFeatureCatalog\n";
+        poolMeta << "extra_feature_count: " << analysisPoolExtraFeatureNames().size() << "\n";
         TObjString poolMetaObj(poolMeta.str().c_str());
         poolMetaObj.Write("analysis_pool_metadata", TObject::kOverwrite);
         if (m_poolEventTree)       m_poolEventTree->Write("", TObject::kOverwrite);
         if (m_poolPhotonTree)      m_poolPhotonTree->Write("", TObject::kOverwrite);
         if (m_poolJetTree)         m_poolJetTree->Write("", TObject::kOverwrite);
         if (m_poolTruthPhotonTree) m_poolTruthPhotonTree->Write("", TObject::kOverwrite);
+        writeAnalysisPoolFeatureCatalog(out, m_pool_schema);
       }
 
     try

@@ -472,6 +472,7 @@ ${BOLD}DATA modes:${RST}
   ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> splitGoldenRunList [groupSize N] [maxJobs M]${RST}
   ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> condor testJob${RST}
   ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> condor round <N> [groupSize N] [firstChunk]${RST}
+  ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> condor smokeTest [groupSize N]${RST}
   ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> condor poolSmoke [groupSize N] [maxJobs 12]${RST}
   ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> condor allFromScratch [groupSize N]${RST}
   ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> condor all [groupSize N]${RST}
@@ -482,6 +483,7 @@ ${BOLD}SIM mode (photonJet10/20 merged):${RST}
   ${BOLD}$0 isSim checkModels [VERBOSE=N]${RST}
   ${BOLD}$0 isSim CHECKJOBS [groupSize N] [SAMPLE=run28_photonjet10]${RST}
   ${BOLD}$0 isSim condorTest [SAMPLE=run28_photonjet10]${RST}
+  ${BOLD}$0 isSim condorDoAllSmoke [groupSize N] [SAMPLE=run28_photonjet10]${RST}
   ${BOLD}$0 isSim condorDoAllFromScratch [groupSize N] [SAMPLE=run28_photonjet10]${RST}
   ${BOLD}$0 isSim condorDoAll [groupSize N] [SAMPLE=run28_photonjet10]${RST}
   ${BOLD}$0 isSim condorHistFromPool [groupSize N] [SAMPLE=run28_photonjet10]${RST}
@@ -523,6 +525,7 @@ Examples:
   $0 isPP  local 5000
   $0 isAuAu splitGoldenRunList groupSize 3 maxJobs 12000
   $0 isAuAu condor round 1
+  $0 isPP  condor smokeTest
   $0 isPP  condor poolSmoke groupSize 7 maxJobs 12
   $0 isPP  condor all groupSize 4
   $0 isPP  CHECKJOBS groupSize 4
@@ -531,6 +534,7 @@ Examples:
   $0 isSim local 5000
   $0 isSim checkModels
   $0 isSim condorTest
+  $0 isSim condorDoAllSmoke
   $0 isSim condorDoAllFromScratch groupSize 5
   $0 isSim condorDoAll groupSize 5
   $0 isSim condorHistFromPool groupSize 5
@@ -870,6 +874,9 @@ fanout_dest_allowed() {
     */thesisAna/pp/*|*/thesisAna/pp25/*|*/thesisAna/auau/*|*/thesisAna/oo/*|*/thesisAna/sim/*|*/thesisAna/simembedded/*|*/thesisAna/simembeddedinclusive/*|*/thesisAna/simjet5/*|*/thesisAna/simmb/*)
       return 0
       ;;
+    */thesisAnaSmoke/pp_smokeTest_*/*|*/thesisAnaSmoke/pp25_smokeTest_*/*|*/thesisAnaSmoke/auau_smokeTest_*/*|*/thesisAnaSmoke/oo_smokeTest_*/*|*/thesisAnaSmoke/sim_smokeTest_*/*|*/thesisAnaSmoke/simembedded_smokeTest_*/*|*/thesisAnaSmoke/simembeddedinclusive_smokeTest_*/*|*/thesisAnaSmoke/simjet5_smokeTest_*/*|*/thesisAnaSmoke/simmb_smokeTest_*/*)
+      return 0
+      ;;
   esac
   return 1
 }
@@ -983,6 +990,14 @@ report_summary="${report_dir}/final_summary.txt"
 report_manifest="${report_dir}/manifest.txt"
 report_profile="${report_dir}/smoke_profile_summary.txt"
 report_profile_rows="${report_dir}/smoke_profile_rows.txt"
+report_job_profile="${report_dir}/job_profile_summary.txt"
+report_job_profile_rows="${report_dir}/job_profile_rows.txt"
+report_merge_profile="${report_dir}/merge_profile_summary.txt"
+report_merge_profile_rows="${report_dir}/merge_profile_rows.txt"
+report_root_summary="${report_dir}/root_output_summary.txt"
+report_hist_summary="${report_dir}/histogram_sanity_summary.txt"
+report_failure_summary="${report_dir}/failure_summary.txt"
+report_tuning_json="${report_dir}/tuning_inputs.json"
 manifest_get() {
   local key="$1"
   [[ -s "$manifest" ]] || return 0
@@ -1160,7 +1175,7 @@ manifest_capture_cones="$(manifest_get capture_cones)"
                   print "measurement_status=complete_one_pass_tuning"
                   print "measurement_note=Measurements are complete enough for local inference of production groupSize and request_memory."
                 }
-                print "one_pass_smoke_target=RJ_POOL_SMOKE_NEVENTS defaults to 20000; maxJobs 12 provides enough worker profiles in one submission."
+                print "one_pass_smoke_target=smokeTest uses full worker inputs by default; legacy poolSmoke uses RJ_POOL_SMOKE_NEVENTS=20000."
               }
             }' "$profile_lines"
         } > "$profile_summary"
@@ -1191,6 +1206,70 @@ cp "$body" "$report_summary"
 [[ -s "$manifest" ]] && cp "$manifest" "$report_manifest"
 [[ -s "$profile_summary" ]] && cp "$profile_summary" "$report_profile"
 [[ -s "$profile_raw" ]] && cp "$profile_raw" "$report_profile_rows"
+[[ -s "$profile_summary" ]] && cp "$profile_summary" "$report_job_profile"
+[[ -s "$profile_raw" ]] && cp "$profile_raw" "$report_job_profile_rows"
+{
+  echo "RECOILJETS_ROOT_OUTPUT_SUMMARY_V1"
+  echo "dataset=${dataset}"
+  echo "workflow=${workflow}"
+  echo "pool_root_files=${pool_count}"
+  echo "output_root_files=${out_count}"
+  [[ -d "$out_base" ]] && find "$out_base" -type f -name '*.root' -printf '%s %p\n' 2>/dev/null | sort -nr | head -50 || true
+} > "$report_root_summary"
+{
+  echo "RECOILJETS_HISTOGRAM_SANITY_SUMMARY_V1"
+  echo "dataset=${dataset}"
+  echo "workflow=${workflow}"
+  echo "status=deferred_root_level_check"
+  echo "note=Final DAG node confirmed ROOT file presence. Histogram-level semantic checks run after reports/ROOT outputs are pulled locally."
+} > "$report_hist_summary"
+{
+  echo "RECOILJETS_FAILURE_SUMMARY_V1"
+  echo "dataset=${dataset}"
+  echo "workflow=${workflow}"
+  echo "status=${status}"
+  echo "status_note=${status_note}"
+  echo "rescue_file_count=${rescue_count}"
+  echo "dagman_out=${dagman_out}"
+  echo "nodes_log=${nodes_log}"
+  [[ -s "$profile_summary" ]] && grep -E 'profile_failures=|failed_profile=|measurement_status=' "$profile_summary" || true
+} > "$report_failure_summary"
+[[ -s "$profile_summary" ]] && cp "$profile_summary" "$report_merge_profile"
+[[ -s "$profile_raw" ]] && cp "$profile_raw" "$report_merge_profile_rows"
+profile_rows_json=0
+failure_count_json=0
+rss_max_json=0
+elapsed_max_json=0
+if [[ -s "$profile_summary" ]]; then
+  profile_rows_json="$(awk -F= '$1=="profile_rows"{print $2; exit}' "$profile_summary")"
+  failure_count_json="$(awk -F= '$1=="profile_failures"{print $2; exit}' "$profile_summary")"
+  rss_max_json="$(awk -F'[ =]' '/overall_summary/ {for(i=1;i<=NF;i++) if($i=="max_rss_mb"){print $(i+1); exit}}' "$profile_summary")"
+  elapsed_max_json="$(awk -F'[ =]' '/stage_summary/ {for(i=1;i<=NF;i++) if($i=="elapsed_max_s" && $(i+1)>m)m=$(i+1)} END{print m+0}' "$profile_summary")"
+fi
+rec_mem_json=0
+if [[ "${rss_max_json:-0}" =~ ^[0-9]+$ && "${rss_max_json:-0}" -gt 0 ]]; then
+  rec_mem_json=$(( (rss_max_json * 135 + 99) / 100 + 512 ))
+fi
+current_group_json="${manifest_group_size:-0}"
+if [[ ! "$current_group_json" =~ ^[0-9]+$ || "$current_group_json" -le 0 ]]; then current_group_json=1; fi
+cat > "$report_tuning_json" <<JSON
+{
+  "dataset": "${dataset}",
+  "workflow": "${workflow}",
+  "current_groupSize": ${current_group_json},
+  "current_replay_groupSize": ${manifest_replay_group_size:-0},
+  "current_request_memory_mb": ${manifest_request_memory_mb:-0},
+  "profile_rows": ${profile_rows_json:-0},
+  "failure_count": ${failure_count_json:-0},
+  "rss_max_mb": ${rss_max_json:-0},
+  "elapsed_max_s": ${elapsed_max_json:-0},
+  "input_files_per_job": null,
+  "output_bytes_per_job": null,
+  "recommended_memory_floor_mb": ${rec_mem_json},
+  "recommended_groupSize_candidates": [$(( current_group_json > 1 ? current_group_json / 2 : 1 )), ${current_group_json}, $(( (current_group_json * 3 + 1) / 2 )), $(( current_group_json * 2 ))],
+  "notes": "Use this as tuning input only. Codex should infer final dataset-specific groupSize and request_memory after pulling reports."
+}
+JSON
 
 cat "$body"
 
@@ -2309,6 +2388,32 @@ data_analysis_tag_for_dataset() {
   esac
 }
 
+select_largest_stat_data_runs() {
+  local count="${1:-10}"
+  local out_file="${2:?output run list required}"
+  [[ "$count" =~ ^[0-9]+$ && "$count" -gt 0 ]] || count=10
+  mkdir -p "$(dirname "$out_file")"
+  : > "$out_file"
+  local ranked
+  ranked="$(mktemp "${TMPDIR:-/tmp}/recoiljets_smoke_runs.XXXXXX")"
+  while IFS= read -r rn; do
+    [[ -z "$rn" || "$rn" =~ ^# ]] && continue
+    local r8 src nfiles
+    r8="$(run8 "$rn")"
+    if [[ -n "${TRIGGER_BIT}" ]] && ! is_trigger_active "$r8" "$TRIGGER_BIT"; then
+      continue
+    fi
+    src="${LIST_DIR}/${LIST_PREFIX}-${r8}.list"
+    [[ -s "$src" ]] || continue
+    nfiles="$(grep -Evc '^[[:space:]]*($|#)' "$src" 2>/dev/null || echo 0)"
+    [[ "$nfiles" =~ ^[0-9]+$ && "$nfiles" -gt 0 ]] || continue
+    printf '%012d %s\n' "$nfiles" "$r8" >> "$ranked"
+  done < "$GOLDEN"
+  sort -nr "$ranked" | head -n "$count" | awk '{print $2}' > "$out_file"
+  rm -f "$ranked"
+  [[ -s "$out_file" ]]
+}
+
 submit_data_pool_workflow() {
   local from_scratch="$1"  # 1: DST->pool->replay DAG, 0: replay existing pools
   local smoke_capture_cap="${2:-0}"
@@ -2322,7 +2427,7 @@ submit_data_pool_workflow() {
   fi
   [[ "$smoke_capture_cap" =~ ^[0-9]+$ ]] || smoke_capture_cap=0
   local is_smoke=0
-  if [[ "$workflow_flavor" == "poolSmoke" || "$workflow_flavor" == "smoke" || "$smoke_capture_cap" -gt 0 ]]; then
+  if [[ "$workflow_flavor" == "poolSmoke" || "$workflow_flavor" == "smokeTest" || "$workflow_flavor" == "smoke" || "$smoke_capture_cap" -gt 0 ]]; then
     is_smoke=1
   fi
   local trace_pool=0
@@ -2333,8 +2438,13 @@ submit_data_pool_workflow() {
   [[ "$trace_every" =~ ^[0-9]+$ && "$trace_every" -gt 0 ]] || trace_every=25
   local pool_base out_base
   if (( is_smoke )); then
-    pool_base="${RJ_POOL_OUTPUT_BASE:-${POOL_DEST_ROOT}/${TAG}_poolSmoke_${workflow_stamp}}"
-    out_base="${RJ_POOL_SMOKE_OUTPUT_BASE:-${DATA_DEST_BASE_SAVED%/}/_poolSmoke_${workflow_stamp}}"
+    if [[ "$workflow_flavor" == "smokeTest" ]]; then
+      pool_base="${RJ_POOL_OUTPUT_BASE:-/sphenix/tg/tg01/bulk/jbennett/thesisAnaPoolsSmoke/${TAG}_smokeTest_${workflow_stamp}}"
+      out_base="${RJ_POOL_SMOKE_OUTPUT_BASE:-/sphenix/tg/tg01/bulk/jbennett/thesisAnaSmoke/${TAG}_smokeTest_${workflow_stamp}}"
+    else
+      pool_base="${RJ_POOL_OUTPUT_BASE:-${POOL_DEST_ROOT}/${TAG}_poolSmoke_${workflow_stamp}}"
+      out_base="${RJ_POOL_SMOKE_OUTPUT_BASE:-${DATA_DEST_BASE_SAVED%/}/_poolSmoke_${workflow_stamp}}"
+    fi
   else
     pool_base="${RJ_POOL_INPUT_BASE:-${RJ_POOL_OUTPUT_BASE:-${POOL_DEST_ROOT}/${TAG}}}"
     out_base="${DATA_DEST_BASE_SAVED%/}"
@@ -2352,9 +2462,13 @@ submit_data_pool_workflow() {
   (( is_smoke )) && profile_job=1
   local capture_nevents=0
   if (( is_smoke )); then
-    capture_nevents="${RJ_POOL_SMOKE_NEVENTS:-20000}"
+    if [[ "$workflow_flavor" == "smokeTest" ]]; then
+      capture_nevents="${RJ_SMOKE_DATA_NEVENTS:-0}"
+    else
+      capture_nevents="${RJ_POOL_SMOKE_NEVENTS:-20000}"
+    fi
   fi
-  [[ "$capture_nevents" =~ ^[0-9]+$ ]] || { err "RJ_POOL_SMOKE_NEVENTS must be a non-negative integer, got '${capture_nevents}'"; exit 2; }
+  [[ "$capture_nevents" == "-1" || "$capture_nevents" =~ ^[0-9]+$ ]] || { err "Smoke nEvents must be -1 or a non-negative integer, got '${capture_nevents}'"; exit 2; }
   local request_memory="${RJ_REQUEST_MEMORY:-2000MB}"
   local request_memory_digits="${request_memory//[^0-9]/}"
   local request_memory_mb="${request_memory_digits:-0}"
@@ -2373,8 +2487,16 @@ submit_data_pool_workflow() {
   read_capture_cones "$master_yaml"
   local -a data_replay_cones=( "${replay_cones[@]}" )
   local -a data_capture_cones=( "${capture_cones[@]}" )
+  local workflow_golden="$GOLDEN"
+  local smoke_selected_runs=""
+  if [[ "$workflow_flavor" == "smokeTest" ]]; then
+    local smoke_run_count="${RJ_SMOKE_DATA_RUNS:-10}"
+    smoke_selected_runs="${dag_dir}/smoke_selected_runs_${TAG}.list"
+    select_largest_stat_data_runs "$smoke_run_count" "$smoke_selected_runs" || { err "smokeTest could not select any DATA runs from ${GOLDEN}"; exit 99; }
+    workflow_golden="$smoke_selected_runs"
+  fi
   local golden_rows=0
-  [[ -s "$GOLDEN" ]] && golden_rows="$(grep -Evc '^[[:space:]]*($|#)' "$GOLDEN" 2>/dev/null || echo 0)"
+  [[ -s "$workflow_golden" ]] && golden_rows="$(grep -Evc '^[[:space:]]*($|#)' "$workflow_golden" 2>/dev/null || echo 0)"
 
   if [[ "$from_scratch" -eq 1 ]]; then
     cleanup_bulk_snapshots_for_tag
@@ -2389,6 +2511,8 @@ submit_data_pool_workflow() {
     echo "dataset=${DATASET}"
     echo "smoke=${is_smoke}"
     echo "smoke_capture_job_cap=${smoke_capture_cap}"
+    [[ -n "$smoke_selected_runs" ]] && echo "smoke_selected_runs_file=${smoke_selected_runs}"
+    [[ -n "$smoke_selected_runs" ]] && echo "smoke_selected_runs=${golden_rows}"
     echo "capture_nevents=${capture_nevents}"
     echo "replay_nevents=0"
     echo "profile_job=${profile_job}"
@@ -2441,7 +2565,7 @@ submit_data_pool_workflow() {
         mkdir -p "$cap_stage_dir"
         local cap_root="${pool_base}/${cap_tag}"
         case "$cap_root" in
-          */thesisAnaPools/*) ;;
+          */thesisAnaPools/*|*/thesisAnaPoolsSmoke/*) ;;
           *) err "Refusing to wipe pool capture root outside thesisAnaPools: ${cap_root}"; exit 62 ;;
         esac
         mkdir -p "$cap_root"
@@ -2512,7 +2636,7 @@ SUB
           done
           pool_list_by_tag_run["${cap_tag}|${r8}"]="$expected_pool_list"
           (( trace_pool )) && say "[poolSmoke] capture queue ${cap_tag}/${r8}: groups=${#groups[@]} queuedForTag=${queued} queuedTotal=${smoke_capture_queued_total}"
-        done < "$GOLDEN"
+        done < "$workflow_golden"
 
         if (( queued == 0 )); then
           warn "No DATA pool capture jobs queued for ${cap_tag}; skipping capture node"
@@ -2606,7 +2730,7 @@ SUB
           (( queued+=1 ))
         done
         (( trace_pool )) && say "[poolSmoke] replay queue ${cap_tag}/${r8}: replayChunks=${gidx} queuedForTag=${queued}"
-      done < "$GOLDEN"
+      done < "$workflow_golden"
 
       if (( queued == 0 )); then
         warn "No DATA pool replay jobs queued for ${cap_tag}; skipping replay node"
@@ -2656,6 +2780,14 @@ SUB
   (( trace_pool )) && say "[poolSmoke] publishing latest manifest marker under ${out_base}"
   publish_production_manifest "$manifest" "$out_base"
   (( trace_pool )) && say "[poolSmoke] DAG build complete; submit step next (dryrun=${dag_dryrun})"
+  if (( dag_dryrun )) && [[ "$workflow_flavor" == "smokeTest" ]]; then
+    echo "RECOILJETS_SMOKETEST_DRYRUN_V1"
+    echo "dataset=${DATASET}"
+    echo "mode=condor smokeTest"
+    echo "runs_or_samples=${golden_rows}"
+    echo "manifest=${manifest}"
+    echo "dag=${dag}"
+  fi
   submit_dag_with_notify "$dag"
 }
 
@@ -3875,7 +4007,7 @@ for (( idx=0; idx<${#tokens[@]}; idx++ )); do
     scaledTriggerStudy)
       ACTION="$tok"
       ;;
-    local|localTest|condorDoAll|condorDoAllDirect|condorDoAllFromScratch|condorHistFromPool|resume|smokeTestFirstPass|smokeTestSecondPass|smokeTestApplyExisting)
+    local|localTest|condorDoAll|condorDoAllSmoke|condorDoAllDirect|condorDoAllFromScratch|condorHistFromPool|resume|smokeTestFirstPass|smokeTestSecondPass|smokeTestApplyExisting)
       if [[ "$ACTION" == trainTightBDT || "$ACTION" == trainNPB || "$ACTION" == trainJetMLResidual || "$ACTION" == trainMLAll || "$ACTION" == scaledTriggerStudy ]]; then
         TRAIN_MODE="$tok"
       else
@@ -4733,11 +4865,44 @@ SUB
     condor_submit "$sub"
     ;;
 
-  condorDoAllFromScratch)
-    [[ "$IS_SIM" -eq 1 ]] || { err "condorDoAllFromScratch is currently implemented for SIM-style pool capture/replay DAGs."; exit 2; }
+  condorDoAllFromScratch|condorDoAllSmoke)
+    [[ "$IS_SIM" -eq 1 ]] || { err "${ACTION} is currently implemented for SIM-style pool capture/replay DAGs."; exit 2; }
+    sim_smoke=0
+    [[ "$ACTION" == "condorDoAllSmoke" ]] && sim_smoke=1
+    if (( sim_smoke )); then
+      set -E
+      trap 'rc=$?; err "SIM smoke DAG build failed (dataset=${DATASET:-unknown}, action=${ACTION:-unknown}, line=${LINENO}, rc=${rc}, command=${BASH_COMMAND}, dag_dir=${dag_dir:-unset})"; exit "$rc"' ERR
+    fi
+    dag_dryrun=0
+    if [[ "${RJ_DAG_DRYRUN:-0}" == "1" || "${RJ_DAG_DRYRUN:-0}" == "true" || "${RJ_DAG_DRYRUN:-0}" == "TRUE" ]]; then
+      dag_dryrun=1
+    fi
 
     master_yaml="$(sim_yaml_master_path)"
     [[ -s "$master_yaml" ]] || { err "Master YAML not found or empty: $master_yaml"; exit 72; }
+
+    if (( sim_smoke )) && [[ "${GROUP_SIZE_EXPLICIT:-0}" -eq 0 ]]; then
+      case "$DATASET" in
+        isSimEmbedded) GROUP_SIZE="${RJ_SMOKE_GROUPSIZE_EMBEDDED:-7}" ;;
+        *)             GROUP_SIZE="${RJ_SMOKE_GROUPSIZE_SIM:-7}" ;;
+      esac
+    fi
+    if (( sim_smoke )) && [[ -z "${RJ_REQUEST_MEMORY:-}" ]]; then
+      case "$DATASET" in
+        isSimEmbedded) RJ_REQUEST_MEMORY="${RJ_SMOKE_REQUEST_MEMORY_EMBEDDED:-3000MB}" ;;
+        *)             RJ_REQUEST_MEMORY="${RJ_SMOKE_REQUEST_MEMORY_SIM:-2000MB}" ;;
+      esac
+      export RJ_REQUEST_MEMORY
+    fi
+    request_memory="${RJ_REQUEST_MEMORY:-2000MB}"
+    request_memory_digits="${request_memory//[^0-9]/}"
+    request_memory_mb="${request_memory_digits:-0}"
+    case "$request_memory" in
+      *[Gg][Bb]|*[Gg]) request_memory_mb=$(( request_memory_mb * 1024 )) ;;
+    esac
+    profile_job="${RJ_PROFILE_JOB:-0}"
+    (( sim_smoke )) && profile_job=1
+    sim_capture_nevents="${RJ_SMOKE_SIM_NEVENTS:-0}"
 
     gs_capture="$GROUP_SIZE"
     gs_replay="${RJ_POOL_REPLAY_GROUP_SIZE:-20}"
@@ -4773,11 +4938,16 @@ SUB
       samples=( "${SIM_SAMPLE}" )
     fi
 
-    need_cmd condor_submit_dag
+    (( dag_dryrun )) || need_cmd condor_submit_dag
 
-    pool_base="${RJ_POOL_OUTPUT_BASE:-${POOL_DEST_ROOT}/${TAG}}"
-    out_base="${DEST_BASE%/}"
     workflow_stamp="$(date +%Y%m%d_%H%M%S)"
+    if (( sim_smoke )); then
+      pool_base="${RJ_POOL_OUTPUT_BASE:-/sphenix/tg/tg01/bulk/jbennett/thesisAnaPoolsSmoke/${TAG}_smokeTest_${workflow_stamp}}"
+      out_base="${RJ_SMOKE_OUTPUT_BASE:-/sphenix/tg/tg01/bulk/jbennett/thesisAnaSmoke/${TAG}_smokeTest_${workflow_stamp}}"
+    else
+      pool_base="${RJ_POOL_OUTPUT_BASE:-${POOL_DEST_ROOT}/${TAG}}"
+      out_base="${DEST_BASE%/}"
+    fi
     dag_dir="${SUB_DIR}/pool_workflow_${TAG}_${workflow_stamp}"
     mkdir -p "$dag_dir" "$SIM_YAML_OVERRIDE_DIR"
     dag="${dag_dir}/RecoilJets_pool_${DATASET}_${workflow_stamp}.dag"
@@ -4794,13 +4964,18 @@ SUB
     [[ -f "$pool_macro" ]] || { err "Pool replay macro not found: $pool_macro"; exit 92; }
 
     {
-      echo "workflow=condorDoAllFromScratch"
+      echo "workflow=${ACTION}"
       echo "dataset=${DATASET}"
+      echo "smoke=${sim_smoke}"
       echo "yaml=${master_yaml}"
       echo "pool_base=${pool_base}"
       echo "output_base=${out_base}"
       echo "capture_group_size=${gs_capture}"
       echo "replay_group_size=${gs_replay}"
+      echo "request_memory=${request_memory}"
+      echo "request_memory_mb=${request_memory_mb}"
+      echo "capture_nevents=${sim_capture_nevents}"
+      echo "profile_job=${profile_job}"
       echo "samples=${samples[*]}"
       echo "replay_cones=${sim_cones[*]}"
       echo "capture_cones=${capture_cones[*]}"
@@ -4814,10 +4989,13 @@ SUB
     capture_count=0
     replay_count=0
 
-    say "${BOLD}condorDoAllFromScratch DAG requested${RST}"
+    say "${BOLD}${ACTION} DAG requested${RST}"
     say "  dataset       : ${DATASET}"
     say "  pool base     : ${pool_base}"
     say "  output base   : ${out_base}"
+    (( sim_smoke )) && say "  smoke outputs : isolated thesisAnaSmoke/thesisAnaPoolsSmoke directories"
+    say "  request mem   : ${request_memory}"
+    say "  profiling     : ${profile_job}"
     say "  capture axes  : storedIsolation=[${capture_cones[*]}], clusterUE=[${uepipe_modes[*]}]"
     say "  replay axes   : pT=[${sim_pts[*]}], dphi=[${sim_fracs[*]}], vz=[${sim_vzs[*]}], ID rows=${#iso_selection_tags[@]}"
     say "  DAG dir       : ${dag_dir}"
@@ -4825,6 +5003,7 @@ SUB
     for cone in "${capture_cones[@]}"; do
       for uepipe in "${uepipe_modes[@]}"; do
         POOL_CAPTURE_TAG="$(pool_capture_cfg_tag "$cone" "$uepipe" "$master_yaml")"
+        (( sim_smoke )) && say "[simSmoke] capture planning begin: cap_tag=${POOL_CAPTURE_TAG} cone=${cone} clusterUE=${uepipe}"
         cap_yaml="$(sim_make_yaml_override "$master_yaml" "${sim_pts[0]}" "${sim_fracs[0]}" "${sim_vzs[0]}" "$cone" "${iso_sliding[0]}" "${iso_fixed[0]}" "$uepipe" "${iso_preselection[0]}" "${iso_tight[0]}" "${iso_nonTight[0]}" "$POOL_CAPTURE_TAG" "$workflow_stamp" "false")"
 
         for samp in "${samples[@]}"; do
@@ -4836,9 +5015,11 @@ SUB
           export SIM_STAGE_NAMESPACE
           mapfile -t groups < <( make_sim_groups "$GROUP_SIZE" )
           (( ${#groups[@]} )) || { err "No sim capture groups produced (sample=${SIM_SAMPLE}, tag=${POOL_CAPTURE_TAG})"; exit 30; }
+          (( sim_smoke )) && say "[simSmoke] capture groups ready: cap_tag=${POOL_CAPTURE_TAG} sample=${SIM_SAMPLE} groups=${#groups[@]} groupSize=${GROUP_SIZE}"
           if [[ "$MAX_JOBS" =~ ^[0-9]+$ && "$MAX_JOBS" -gt 0 && "${#groups[@]}" -gt "$MAX_JOBS" ]]; then
             say "Capping pool capture group list for sample=${SIM_SAMPLE}, tag=${POOL_CAPTURE_TAG}: ${#groups[@]} → ${MAX_JOBS} jobs"
             groups=( "${groups[@]:0:$MAX_JOBS}" )
+            (( sim_smoke )) && say "[simSmoke] capture cap applied: cap_tag=${POOL_CAPTURE_TAG} sample=${SIM_SAMPLE} cappedGroups=${#groups[@]}"
           fi
 
           pool_out_dir="${pool_base}/${POOL_CAPTURE_TAG}/${SIM_SAMPLE}"
@@ -4853,6 +5034,7 @@ SUB
             chunk_tag="${chunk_base%.list}"
             printf '%s\n' "${pool_out_dir}/RecoilJets_${analysis_tag}_${chunk_tag}.root" >> "$expected_pool_list"
           done
+          (( sim_smoke )) && say "[simSmoke] expected pool list written: cap_tag=${POOL_CAPTURE_TAG} sample=${SIM_SAMPLE} file=${expected_pool_list}"
 
           cap_sub="${dag_dir}/capture_${POOL_CAPTURE_TAG}_${SIM_SAMPLE}.sub"
           exe_for_sub="${BULK_FROZEN_EXE:-${EXE}}"
@@ -4867,18 +5049,18 @@ getenv        = True
 log           = ${LOG_DIR}/${cap_prefix}.\$(Cluster).\$(Process).log
 output        = ${OUT_DIR}/${cap_prefix}.\$(Cluster).\$(Process).out
 error         = ${ERR_DIR}/${cap_prefix}.\$(Cluster).\$(Process).err
-request_memory= 2000MB
+request_memory= ${request_memory}
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification  = Never
-environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${cap_yaml}${macro_env_for_sub};RJ_POOL_MODE=capture
+environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${cap_yaml}${macro_env_for_sub};RJ_POOL_MODE=capture;RJ_PROFILE_JOB=${profile_job};RJ_PROFILE_STAGE=capture;RJ_PROFILE_LABEL=${POOL_CAPTURE_TAG}_${SIM_SAMPLE}
 SUB
           gidx=0
           for glist in "${groups[@]}"; do
             (( gidx+=1 ))
-            printf 'arguments = %s %s %s $(Cluster) 0 %d NONE %s\nqueue\n\n' \
-                   "$SIM_SAMPLE" "$glist" "$DATASET" "$gidx" "${pool_base}/${POOL_CAPTURE_TAG}" >> "$cap_sub"
+            printf 'arguments = %s %s %s $(Cluster) %s %d NONE %s\nqueue\n\n' \
+                   "$SIM_SAMPLE" "$glist" "$DATASET" "$sim_capture_nevents" "$gidx" "${pool_base}/${POOL_CAPTURE_TAG}" >> "$cap_sub"
           done
 
           cap_node="CAP_$(sanitize_node_name "${POOL_CAPTURE_TAG}_${SIM_SAMPLE}")"
@@ -4888,7 +5070,9 @@ SUB
           (( capture_count+=1 ))
           {
             echo "capture_node=${cap_node} tag=${POOL_CAPTURE_TAG} sample=${SIM_SAMPLE} jobs=${#groups[@]} yaml=${cap_yaml} output=${pool_out_dir}"
+            echo "profile_glob=${OUT_DIR}/${cap_prefix}.*.out"
           } >> "$manifest"
+          (( sim_smoke )) && say "[simSmoke] capture node ready: node=${cap_node} sample=${SIM_SAMPLE} jobs=${#groups[@]} sub=${cap_sub}"
         done
       done
     done
@@ -4897,11 +5081,16 @@ SUB
       for uepipe in "${uepipe_modes[@]}"; do
         POOL_CAPTURE_TAG="$(pool_capture_cfg_tag "$cone" "$uepipe" "$master_yaml")"
         fanout_dirs="${SIM_YAML_OVERRIDE_DIR}/pool_replay_fanout_${TAG}_${POOL_CAPTURE_TAG}_${workflow_stamp}.txt"
+        (( sim_smoke )) && say "[simSmoke] replay fanout begin: cap_tag=${POOL_CAPTURE_TAG} outputBase=${out_base}"
         emit_pool_replay_fanout_dirs_file "$fanout_dirs" "$out_base" "$master_yaml" "$workflow_stamp" "${sim_cones[*]}" "$uepipe" "${sim_pts[*]}" "${sim_fracs[*]}" "${sim_vzs[*]}"
         fanout_count="$(wc -l < "$fanout_dirs" | awk '{print $1}')"
+        (( fanout_count > 0 )) || { err "Pool replay fanout is empty for ${POOL_CAPTURE_TAG}: ${fanout_dirs}"; exit 95; }
+        (( sim_smoke )) && say "[simSmoke] replay fanout written: cap_tag=${POOL_CAPTURE_TAG} fanoutOutputs=${fanout_count} file=${fanout_dirs}"
         append_fanout_cfgs_to_manifest "$fanout_dirs" "$manifest"
 
+        (( sim_smoke )) && say "[simSmoke] cleaning fanout output dirs begin: cap_tag=${POOL_CAPTURE_TAG} rows=${fanout_count}"
         clean_fanout_output_dirs_from_file "$fanout_dirs" "${POOL_CAPTURE_TAG}" 1 25 "${samples[@]}"
+        (( sim_smoke )) && say "[simSmoke] cleaning fanout output dirs done: cap_tag=${POOL_CAPTURE_TAG} uniqueRoots=${CLEAN_FANOUT_LAST_COUNT:-0}"
 
         for samp in "${samples[@]}"; do
           cap_key="${POOL_CAPTURE_TAG}|${samp}"
@@ -4934,12 +5123,12 @@ getenv        = True
 log           = ${LOG_DIR}/${replay_prefix}.\$(Cluster).\$(Process).log
 output        = ${OUT_DIR}/${replay_prefix}.\$(Cluster).\$(Process).out
 error         = ${ERR_DIR}/${replay_prefix}.\$(Cluster).\$(Process).err
-request_memory= 2000MB
+request_memory= ${request_memory}
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification  = Never
-environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${master_yaml};RJ_MACRO_PATH=${pool_macro};RJ_ID_FANOUT_DIRS_FILE=${fanout_dirs};RJ_REPLAY_MAX_OPEN_OUTPUTS=${RJ_REPLAY_MAX_OPEN_OUTPUTS:-48}
+environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${master_yaml};RJ_MACRO_PATH=${pool_macro};RJ_ID_FANOUT_DIRS_FILE=${fanout_dirs};RJ_REPLAY_MAX_OPEN_OUTPUTS=${RJ_REPLAY_MAX_OPEN_OUTPUTS:-48};RJ_PROFILE_JOB=${profile_job};RJ_PROFILE_STAGE=replay;RJ_PROFILE_LABEL=${POOL_CAPTURE_TAG}_${samp}
 SUB
           g=0
           for glist in "${groups[@]}"; do
@@ -4952,11 +5141,19 @@ SUB
           printf 'PARENT %s CHILD %s\n' "$cap_node" "$replay_node" >> "$dag"
           (( replay_count+=1 ))
           echo "replay_node=${replay_node} cap_tag=${POOL_CAPTURE_TAG} sample=${samp} jobs=${#groups[@]} fanout_outputs=${fanout_count} parent=${cap_node} fanout=${fanout_dirs}" >> "$manifest"
+          echo "profile_glob=${OUT_DIR}/${replay_prefix}.*.out" >> "$manifest"
+          (( sim_smoke )) && say "[simSmoke] replay node ready: node=${replay_node} sample=${samp} jobs=${#groups[@]} parent=${cap_node} sub=${replay_sub}"
         done
       done
     done
 
-    final_sub="$(write_dag_final_summary_files "$dag_dir" "poolFromScratch_${TAG}_${workflow_stamp}" "$DATASET" "$pool_base" "$out_base" "$manifest" "$dag")"
+    if (( sim_smoke )) && (( capture_count == 0 || replay_count == 0 )); then
+      err "condorDoAllSmoke produced capture_count=${capture_count}, replay_count=${replay_count}; refusing to submit an empty SIM smoke DAG"
+      exit 98
+    fi
+
+    sim_workflow_name="$([[ "$sim_smoke" -eq 1 ]] && echo "simPoolSmoke_${TAG}_${workflow_stamp}" || echo "poolFromScratch_${TAG}_${workflow_stamp}")"
+    final_sub="$(write_dag_final_summary_files "$dag_dir" "$sim_workflow_name" "$DATASET" "$pool_base" "$out_base" "$manifest" "$dag")"
     printf 'FINAL FINAL_SUMMARY %s\n' "$final_sub" >> "$dag"
 
     say "DAG build summary:"
@@ -4965,7 +5162,16 @@ SUB
     say "  manifest      : ${manifest}"
     say "  dag           : ${dag}"
     publish_production_manifest "$manifest" "$out_base"
+    if (( dag_dryrun && sim_smoke )); then
+      echo "RECOILJETS_SMOKETEST_DRYRUN_V1"
+      echo "dataset=${DATASET}"
+      echo "mode=${ACTION}"
+      echo "runs_or_samples=${samples[*]}"
+      echo "manifest=${manifest}"
+      echo "dag=${dag}"
+    fi
     submit_dag_with_notify "$dag"
+    (( sim_smoke )) && trap - ERR
     ;;
 
   condorHistFromPool)
@@ -5481,6 +5687,29 @@ SUB
         say "  profiling      : enabled via RJ_PROFILE_JOB=1 in capture/replay workers"
         say "  outputs        : isolated _poolSmoke_<timestamp> directories, not production cfg dirs"
         submit_data_pool_workflow 1 "$smoke_jobs" "poolSmoke"
+        ;;
+      smokeTest)
+        if [[ "${GROUP_SIZE_EXPLICIT:-0}" -eq 0 ]]; then
+          case "$DATASET" in
+            isAuAu|isOO) GROUP_SIZE="${RJ_SMOKE_GROUPSIZE_AUAU:-20}" ;;
+            *)           GROUP_SIZE="${RJ_SMOKE_GROUPSIZE_PP:-7}" ;;
+          esac
+        fi
+        if [[ -z "${RJ_REQUEST_MEMORY:-}" ]]; then
+          case "$DATASET" in
+            isAuAu|isOO) RJ_REQUEST_MEMORY="${RJ_SMOKE_REQUEST_MEMORY_AUAU:-3000MB}" ;;
+            *)           RJ_REQUEST_MEMORY="${RJ_SMOKE_REQUEST_MEMORY_PP:-2000MB}" ;;
+          esac
+          export RJ_REQUEST_MEMORY
+        fi
+        say "${BOLD}DATA smokeTest requested${RST}"
+        say "  dataset       : ${DATASET}"
+        say "  selected runs : ${RJ_SMOKE_DATA_RUNS:-10} largest-statistics golden runs"
+        say "  groupSize     : ${GROUP_SIZE}"
+        say "  nEvents       : ${RJ_SMOKE_DATA_NEVENTS:-0} (0 means full worker input)"
+        say "  request mem   : ${RJ_REQUEST_MEMORY}"
+        say "  outputs       : isolated thesisAnaSmoke/thesisAnaPoolsSmoke directories"
+        submit_data_pool_workflow 1 0 "smokeTest"
         ;;
       round)
         seg="${4:?round number required}"

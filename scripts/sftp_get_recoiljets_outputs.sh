@@ -16,6 +16,8 @@ Usage:
   ./scripts/sftp_get_recoiljets_outputs.sh mlIntegration <remote-path-or-dir-name>
   ./scripts/sftp_get_recoiljets_outputs.sh poolSmokeLatest <dataset>
   ./scripts/sftp_get_recoiljets_outputs.sh poolSmoke <dataset> <remote-path-or-dir-name>
+  ./scripts/sftp_get_recoiljets_outputs.sh smokeTestLatest <dataset> [--roots]
+  ./scripts/sftp_get_recoiljets_outputs.sh smokeTest <dataset> <remote-path-or-dir-name> [--roots]
 
 Datasets:
   isAuAu                    -> InputFiles/auau25
@@ -56,6 +58,10 @@ poolSmokeLatest/poolSmoke download only the small pipeline tuning reports from
 the SDCC bulk smoke output directory, not the bulky ROOT outputs. Reports land
 under:
   InputFiles/pipelineSmoke/<dataset>
+
+smokeTestLatest/smokeTest do the same for the overnight per-dataset smokeTest
+workflow under thesisAnaSmoke. Pass --roots only when you intentionally want the
+disposable smoke ROOT files too.
 EOF
 }
 
@@ -790,11 +796,18 @@ resolve_smoke_dataset() {
 download_pool_smoke_report() {
   local requested_dataset="${1:-}"
   local requested="${2:-}"
+  local smoke_kind="${3:-poolSmoke}"
+  local include_roots="${4:-0}"
   local parent prefix latest remote_dir local_dir batch
-  [[ -n "$requested_dataset" ]] || { echo "[ERROR] poolSmokeLatest requires a dataset, e.g. isPP" >&2; exit 2; }
+  [[ -n "$requested_dataset" ]] || { echo "[ERROR] ${smoke_kind}Latest requires a dataset, e.g. isPP" >&2; exit 2; }
   resolve_smoke_dataset "$requested_dataset"
-  parent="/sphenix/tg/tg01/bulk/jbennett/thesisAna/${SMOKE_REMOTE_TAG}"
-  prefix="_poolSmoke_"
+  if [[ "$smoke_kind" == "smokeTest" ]]; then
+    parent="/sphenix/tg/tg01/bulk/jbennett/thesisAnaSmoke"
+    prefix="${SMOKE_REMOTE_TAG}_smokeTest_"
+  else
+    parent="/sphenix/tg/tg01/bulk/jbennett/thesisAna/${SMOKE_REMOTE_TAG}"
+    prefix="_poolSmoke_"
+  fi
 
   if [[ -n "$requested" ]]; then
     if [[ "$requested" == /* ]]; then
@@ -810,28 +823,35 @@ download_pool_smoke_report() {
   fi
 
   if [[ "$latest" != ${prefix}* ]]; then
-    echo "[ERROR] poolSmoke directory must start with ${prefix}: ${latest}" >&2
+    echo "[ERROR] ${smoke_kind} directory must start with ${prefix}: ${latest}" >&2
     exit 2
   fi
 
   local_dir="${LOCAL_BASE}/InputFiles/pipelineSmoke/${SMOKE_LABEL}"
   mkdir -p "$local_dir"
-  batch="$(make_tmp_file "sftp_get_recoiljets_poolsmoke")"
+  batch="$(make_tmp_file "sftp_get_recoiljets_${smoke_kind}")"
   cleanup_poolsmoke() { rm -f "$batch"; }
   trap cleanup_poolsmoke EXIT
 
   {
     printf 'lcd %s\n' "$local_dir"
     printf 'get -r %s/_pipeline_reports %s_reports\n' "$remote_dir" "$latest"
+    if [[ "$include_roots" == "1" ]]; then
+      printf 'get -r %s %s_roots\n' "$remote_dir" "$latest"
+    fi
   } > "$batch"
 
   echo
   echo "Remote host       : ${REMOTE_HOST}"
-  echo "Pool smoke remote : ${remote_dir}"
+  echo "Smoke remote      : ${remote_dir}"
   echo "Report remote     : ${remote_dir}/_pipeline_reports"
   echo "Local dir         : ${local_dir}"
   echo
-  echo "This downloads only small smoke tuning/report files, not ROOT outputs."
+  if [[ "$include_roots" == "1" ]]; then
+    echo "This downloads reports plus disposable smoke ROOT outputs."
+  else
+    echo "This downloads only small smoke tuning/report files, not ROOT outputs."
+  fi
   read -r -p "Continue? [y/N]: " confirm
   case "$confirm" in
     y|Y|yes|YES|Yes) ;;
@@ -842,15 +862,16 @@ download_pool_smoke_report() {
   echo "sftp batch commands:"
   sed 's/^/  /' "$batch"
   echo
-  echo "Opening interactive sftp to download selected poolSmoke reports."
+  echo "Opening interactive sftp to download selected ${smoke_kind} reports."
   if sftp \
       -oBatchMode=no \
       -oPreferredAuthentications=publickey,password,keyboard-interactive \
       -b "$batch" \
       "$REMOTE_HOST"; then
     echo
-    echo "[OK] poolSmoke report download complete."
+    echo "[OK] ${smoke_kind} report download complete."
     echo "Downloaded into: ${local_dir}/${latest}_reports"
+    [[ "$include_roots" == "1" ]] && echo "Smoke ROOT copy: ${local_dir}/${latest}_roots"
     trap - EXIT
     rm -f "$batch"
   else
@@ -907,6 +928,20 @@ fi
 
 if [[ "$dataset" == "poolSmoke" ]]; then
   download_pool_smoke_report "${2:-}" "${3:-}"
+  exit 0
+fi
+
+if [[ "$dataset" == "smokeTestLatest" ]]; then
+  include_roots=0
+  [[ "${3:-}" == "--roots" ]] && include_roots=1
+  download_pool_smoke_report "${2:-}" "" "smokeTest" "$include_roots"
+  exit 0
+fi
+
+if [[ "$dataset" == "smokeTest" ]]; then
+  include_roots=0
+  [[ "${4:-}" == "--roots" ]] && include_roots=1
+  download_pool_smoke_report "${2:-}" "${3:-}" "smokeTest" "$include_roots"
   exit 0
 fi
 

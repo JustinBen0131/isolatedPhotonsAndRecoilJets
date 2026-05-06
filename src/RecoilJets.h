@@ -1344,6 +1344,7 @@ private:
   float m_pool_pho_truthEta = std::numeric_limits<float>::quiet_NaN();
   float m_pool_pho_truthPhi = std::numeric_limits<float>::quiet_NaN();
   float m_pool_pho_truthIso = std::numeric_limits<float>::quiet_NaN();
+  std::vector<float> m_pool_pho_extra_features;
 
   std::string m_pool_jet_rKey;
   int m_pool_jet_isTruth = 0;

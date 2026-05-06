@@ -9,17 +9,21 @@
 #include <TProfile.h>
 #include <TTree.h>
 #include <TVector2.h>
+#include <TMVA/RBDT.hxx>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cctype>
 #include <cstdlib>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <limits>
 #include <map>
+#include <memory>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -117,6 +121,47 @@ namespace rjpool
     for (double v : vals) out.push_back(static_cast<int>(std::lround(v)));
   }
 
+  void parseStrings(std::string s, std::vector<std::string>& out)
+  {
+    out.clear();
+    const std::size_t hash = s.find('#');
+    if (hash != std::string::npos) s = s.substr(0, hash);
+    const std::size_t l = s.find('[');
+    const std::size_t r = s.rfind(']');
+    if (l == std::string::npos || r == std::string::npos || r <= l) return;
+    std::stringstream ss(s.substr(l + 1, r - l - 1));
+    for (std::string tok; std::getline(ss, tok, ','); )
+    {
+      tok = trim(tok);
+      if (tok.size() >= 2 &&
+          ((tok.front() == '"' && tok.back() == '"') ||
+           (tok.front() == '\'' && tok.back() == '\'')))
+      {
+        tok = tok.substr(1, tok.size() - 2);
+      }
+      tok = trim(tok);
+      if (!tok.empty()) out.push_back(tok);
+    }
+  }
+
+  bool hasFeature(const std::vector<std::string>& features, const std::string& wanted)
+  {
+    for (const std::string& f : features)
+    {
+      std::string k = f;
+      std::transform(k.begin(), k.end(), k.begin(), [](unsigned char c) { return std::tolower(c); });
+      if (k == wanted) return true;
+    }
+    return false;
+  }
+
+  std::vector<std::string> withCentralityFeature(std::vector<std::string> features)
+  {
+    if (!hasFeature(features, "centrality") && !hasFeature(features, "cent"))
+      features.push_back("centrality");
+    return features;
+  }
+
   bool parseInlineMapDouble(const std::string& line, const std::string& key, double& out)
   {
     const std::size_t p = line.find(key + ":");
@@ -204,6 +249,16 @@ namespace rjpool
     double auauNonTightBDTMinSlope = -0.01333333333333333;
     double auauNonTightBDTMaxIntercept = 0.6666666666666666;
     double auauNonTightBDTMaxSlope = 0.003333333333333336;
+    std::string auauNpbModelFile;
+    std::vector<std::string> auauNpbFeatures;
+    std::string auauTightBDTModelFile;
+    std::string auauTightBDTCentINDControlModelFile;
+    std::string auauTightBDTCentAsFeatModelFile;
+    std::vector<std::string> auauTightBDTCentDepModelFiles;
+    std::vector<std::string> auauTightBDTFeatures;
+    std::vector<std::string> auauTightBDTCentINDControlFeatures;
+    std::vector<std::string> auauTightBDTCentAsFeatFeatures;
+    std::vector<std::string> auauTightBDTCentDepFeatures;
     std::string pre = "reference";
     std::string tight = "reference";
     std::string nonTight = "reference";
@@ -270,6 +325,16 @@ namespace rjpool
       else if (startsWithKey(line, "auau_nontight_bdt_min_slope")) parseDouble(afterColon(line), cfg.auauNonTightBDTMinSlope);
       else if (startsWithKey(line, "auau_nontight_bdt_max_intercept")) parseDouble(afterColon(line), cfg.auauNonTightBDTMaxIntercept);
       else if (startsWithKey(line, "auau_nontight_bdt_max_slope")) parseDouble(afterColon(line), cfg.auauNonTightBDTMaxSlope);
+      else if (startsWithKey(line, "auau_npb_model_file")) cfg.auauNpbModelFile = afterColon(line);
+      else if (startsWithKey(line, "auau_npb_features")) parseStrings(afterColon(line), cfg.auauNpbFeatures);
+      else if (startsWithKey(line, "auau_tight_bdt_model_file")) cfg.auauTightBDTModelFile = afterColon(line);
+      else if (startsWithKey(line, "auau_tight_bdt_centINDcontrol_model_file")) cfg.auauTightBDTCentINDControlModelFile = afterColon(line);
+      else if (startsWithKey(line, "auau_tight_bdt_centAsFeat_model_file")) cfg.auauTightBDTCentAsFeatModelFile = afterColon(line);
+      else if (startsWithKey(line, "auau_tight_bdt_centDep_model_files")) parseStrings(afterColon(line), cfg.auauTightBDTCentDepModelFiles);
+      else if (startsWithKey(line, "auau_tight_bdt_features")) parseStrings(afterColon(line), cfg.auauTightBDTFeatures);
+      else if (startsWithKey(line, "auau_tight_bdt_centINDcontrol_features")) parseStrings(afterColon(line), cfg.auauTightBDTCentINDControlFeatures);
+      else if (startsWithKey(line, "auau_tight_bdt_centAsFeat_features")) parseStrings(afterColon(line), cfg.auauTightBDTCentAsFeatFeatures);
+      else if (startsWithKey(line, "auau_tight_bdt_centDep_features")) parseStrings(afterColon(line), cfg.auauTightBDTCentDepFeatures);
       else if (startsWithKey(line, "preselection")) cfg.pre = normalizePre(afterColon(line));
       else if (startsWithKey(line, "tight")) cfg.tight = normalizeTight(afterColon(line));
       else if (startsWithKey(line, "nonTight")) cfg.nonTight = normalizeNonTight(afterColon(line));
@@ -570,6 +635,7 @@ namespace rjpool
   struct PhotonRec
   {
     long long eventKey = 0;
+    int index = -1;
     float pt = std::numeric_limits<float>::quiet_NaN();
     float eta = std::numeric_limits<float>::quiet_NaN();
     float phi = std::numeric_limits<float>::quiet_NaN();
@@ -618,7 +684,243 @@ namespace rjpool
     float truthPt = std::numeric_limits<float>::quiet_NaN();
     float truthEta = std::numeric_limits<float>::quiet_NaN();
     float truthPhi = std::numeric_limits<float>::quiet_NaN();
+    std::vector<float> extraFeatures;
   };
+
+  const std::vector<std::string>& analysisPoolExtraFeatureNames()
+  {
+    static const std::vector<std::string> names = {
+      "cluster_energy", "cluster_et", "cluster_pt", "cluster_eta", "cluster_phi", "cluster_r", "cluster_z",
+      "cluster_ecore", "cluster_prob", "cluster_chi2", "cluster_ntowers", "cluster_sum_tower_e",
+      "cluster_max_tower_e", "cluster_max_tower_ieta", "cluster_max_tower_iphi",
+      "e11", "e22", "e33", "e55", "e77", "e13", "e15", "e17", "e31", "e51", "e71",
+      "e35", "e37", "e53", "e73", "e57", "e75", "e32", "e52", "e72",
+      "et1", "et2", "et3", "et4",
+      "e11_over_e33", "e32_over_e35", "e11_over_e22", "e11_over_e13", "e11_over_e15",
+      "e11_over_e17", "e11_over_e31", "e11_over_e51", "e11_over_e71",
+      "e22_over_e33", "e22_over_e35", "e22_over_e37", "e22_over_e53",
+      "e11_over_e55", "e11_over_e77", "e33_over_e55", "e33_over_e77",
+      "weta", "wphi", "weta_cog", "wphi_cog", "weta_cogx", "wphi_cogx",
+      "weta33_cogx", "wphi33_cogx", "weta35_cogx", "wphi53_cogx",
+      "w32", "w52", "w72", "detamax", "dphimax", "detacog", "dphicog", "drad",
+      "ppg12_iso_axis_eta", "ppg12_iso_axis_phi", "vertex_z",
+      "mean_time", "mbd_time", "cluster_mbd_delta_t",
+      "npb_has_away_jet", "npb_label", "is_npb",
+      "npb_score", "tight_bdt_score", "auau_npb_score", "auau_tight_bdt_score",
+      "eiso", "eiso_r03", "eiso_r04",
+      "iso_04_emcal", "iso_04_hcalin", "iso_04_hcalout",
+      "iso_03_emcal", "iso_03_hcalin", "iso_03_hcalout",
+      "iso_02_emcal", "iso_01_emcal", "iso_005_emcal",
+      "ihcal_et", "ohcal_et", "ihcal_et22", "ohcal_et22", "ihcal_et33", "ohcal_et33",
+      "ihcal_ieta", "ihcal_iphi", "ohcal_ieta", "ohcal_iphi",
+      "cluster_tower_x_raw", "cluster_tower_y_raw", "cluster_tower_x_corr", "cluster_tower_y_corr",
+      "cluster_incidence_alpha_phi", "cluster_incidence_alpha_eta"
+    };
+    return names;
+  }
+
+  std::string scoreCacheKey(const std::string& modelFile,
+                            const std::vector<std::string>& features,
+                            const EventRec& ev,
+                            const PhotonRec& ph)
+  {
+    std::ostringstream os;
+    os << modelFile << '|';
+    for (const std::string& f : features) os << f << ',';
+    os << '|' << ev.run << '|' << ev.evt << '|' << ph.index << '|'
+       << std::setprecision(8) << ph.pt << '|' << ph.eta << '|' << ph.phi;
+    return os.str();
+  }
+
+  double photonFeatureValue(const std::string& feature, const EventRec& ev, const PhotonRec& ph)
+  {
+    if (feature == "cluster_Et" || feature == "cluster_et" || feature == "ET") return ph.pt;
+    if (feature == "cluster_Eta" || feature == "cluster_eta") return ph.eta;
+    if (feature == "cluster_Phi" || feature == "cluster_phi") return ph.phi;
+    if (feature == "vertexz" || feature == "vertex_z" || feature == "zvtx") return ev.vz;
+    if (feature == "centrality" || feature == "cent") return std::isfinite(ev.centPercent) ? ev.centPercent : static_cast<float>(ev.centBin);
+    if (feature == "event_weight") return ev.weight;
+    if (feature == "reco_eiso") return std::isfinite(ph.eisoR04) ? ph.eisoR04 : ph.eiso;
+    if (feature == "cluster_weta_cogx") return ph.weta;
+    if (feature == "cluster_wphi_cogx") return ph.wphi;
+    if (feature == "cluster_weta33_cogx") return ph.weta33;
+    if (feature == "cluster_wphi33_cogx") return ph.wphi33;
+    if (feature == "cluster_weta35_cogx") return ph.weta35;
+    if (feature == "cluster_wphi53_cogx") return ph.wphi53;
+    if (feature == "cluster_et1") return ph.et1;
+    if (feature == "cluster_et2") return ph.et2;
+    if (feature == "cluster_et3") return ph.et3;
+    if (feature == "cluster_et4") return ph.et4;
+    if (feature == "e11_over_e33") return ph.e11e33;
+    if (feature == "e32_over_e35") return ph.e32e35;
+    if (feature == "e11_over_e22") return ph.e11e22;
+    if (feature == "e11_over_e13") return ph.e11e13;
+    if (feature == "e11_over_e15") return ph.e11e15;
+    if (feature == "e11_over_e17") return ph.e11e17;
+    if (feature == "e11_over_e31") return ph.e11e31;
+    if (feature == "e11_over_e51") return ph.e11e51;
+    if (feature == "e11_over_e71") return ph.e11e71;
+    if (feature == "e22_over_e33") return ph.e22e33;
+    if (feature == "e22_over_e35") return ph.e22e35;
+    if (feature == "e22_over_e37") return ph.e22e37;
+    if (feature == "e22_over_e53") return ph.e22e53;
+    if (feature == "cluster_w32") return ph.w32;
+    if (feature == "cluster_w52") return ph.w52;
+    if (feature == "cluster_w72") return ph.w72;
+    if (feature == "mean_time" || feature == "cluster_mean_time") return ph.meanTime;
+    if (feature == "mbd_time") return ph.mbdTime;
+    if (feature == "cluster_mbd_delta_t") return ph.clusterMbdDeltaT;
+    if (feature == "npb_score") return ph.npb;
+    if (feature == "auau_npb_score") return ph.auauNpb;
+    if (feature == "auau_tight_bdt_score") return ph.auauTightBDT;
+    if (feature == "npb_has_away_jet") return ph.npbHasAwayJet;
+    if (feature == "npb_label") return ph.npbLabel;
+    if (feature == "is_npb") return ph.isNPB;
+    const auto& extraNames = analysisPoolExtraFeatureNames();
+    const auto it = std::find(extraNames.begin(), extraNames.end(), feature);
+    if (it != extraNames.end())
+    {
+      const std::size_t idx = static_cast<std::size_t>(std::distance(extraNames.begin(), it));
+      if (idx < ph.extraFeatures.size()) return ph.extraFeatures[idx];
+    }
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+
+  struct ReplayBDTModels
+  {
+    std::unordered_map<std::string, std::unique_ptr<TMVA::Experimental::RBDT>> models;
+    std::unordered_map<std::string, double> scores;
+    std::unordered_map<std::string, int> warned;
+
+    TMVA::Experimental::RBDT* model(const std::string& file)
+    {
+      if (file.empty()) return nullptr;
+      auto it = models.find(file);
+      if (it != models.end()) return it->second.get();
+      try
+      {
+        auto ptr = std::make_unique<TMVA::Experimental::RBDT>("myBDT", file);
+        auto* raw = ptr.get();
+        models.emplace(file, std::move(ptr));
+        std::cout << "[RecoilJetsPoolReplay] loaded replay BDT model " << file << "\n";
+        return raw;
+      }
+      catch (const std::exception& e)
+      {
+        if (!warned[file]++)
+          std::cerr << "[RecoilJetsPoolReplay] failed to load replay BDT model " << file
+                    << ": " << e.what() << "\n";
+      }
+      catch (...)
+      {
+        if (!warned[file]++)
+          std::cerr << "[RecoilJetsPoolReplay] failed to load replay BDT model " << file << "\n";
+      }
+      return nullptr;
+    }
+
+    double eval(const std::string& file,
+                const std::vector<std::string>& features,
+                const EventRec& ev,
+                const PhotonRec& ph)
+    {
+      if (file.empty() || features.empty()) return std::numeric_limits<double>::quiet_NaN();
+      const std::string key = scoreCacheKey(file, features, ev, ph);
+      if (auto it = scores.find(key); it != scores.end()) return it->second;
+      auto* m = model(file);
+      if (!m) return std::numeric_limits<double>::quiet_NaN();
+      std::vector<float> x;
+      x.reserve(features.size());
+      for (const std::string& f : features)
+      {
+        const double v = photonFeatureValue(f, ev, ph);
+        if (!std::isfinite(v))
+        {
+          std::ostringstream msg;
+          msg << "[RecoilJetsPoolReplay] missing feature for replay BDT"
+              << " feature=" << f
+              << " model=" << file
+              << " run=" << ev.run
+              << " evt=" << ev.evt
+              << " photon_index=" << ph.index
+              << " pt=" << ph.pt;
+          throw std::runtime_error(msg.str());
+        }
+        x.push_back(static_cast<float>(v));
+      }
+      const auto y = m->Compute(x);
+      scores[key] = (!y.empty() && std::isfinite(y[0])) ? static_cast<double>(y[0])
+                                                        : std::numeric_limits<double>::quiet_NaN();
+      return scores[key];
+    }
+  };
+
+  std::vector<std::string> fallbackFeatures(const std::vector<std::string>& preferred,
+                                            const std::vector<std::string>& fallback)
+  {
+    return preferred.empty() ? fallback : preferred;
+  }
+
+  double replayAuAuNpbScore(ReplayBDTModels& bdt, const Entry& e, const EventRec& ev, const PhotonRec& ph)
+  {
+    const Config& cfg = e.cfg;
+    if (!cfg.auauNpbModelFile.empty() && !cfg.auauNpbFeatures.empty())
+    {
+      const double s = bdt.eval(cfg.auauNpbModelFile, cfg.auauNpbFeatures, ev, ph);
+      if (std::isfinite(s)) return s;
+    }
+    return ph.auauNpb;
+  }
+
+  double replayAuAuTightScore(ReplayBDTModels& bdt, const Entry& e, const EventRec& ev, const PhotonRec& ph)
+  {
+    const Config& cfg = e.cfg;
+    std::string modelFile;
+    std::vector<std::string> features;
+
+    if (e.tight == "centDepBDTs")
+    {
+      features = fallbackFeatures(cfg.auauTightBDTCentDepFeatures, cfg.auauTightBDTFeatures);
+      if (cfg.auauTightBDTCentDepModelFiles.size() + 1 == cfg.centEdges.size())
+      {
+        const double cent = std::isfinite(ev.centPercent) ? ev.centPercent : static_cast<double>(ev.centBin);
+        for (std::size_t i = 0; i + 1 < cfg.centEdges.size(); ++i)
+        {
+          const bool inBin = cent >= cfg.centEdges[i] &&
+            (cent < cfg.centEdges[i + 1] || (i + 2 == cfg.centEdges.size() && cent <= cfg.centEdges[i + 1]));
+          if (inBin)
+          {
+            modelFile = cfg.auauTightBDTCentDepModelFiles[i];
+            break;
+          }
+        }
+      }
+    }
+    else if (e.tight == "centINDcontrol")
+    {
+      modelFile = cfg.auauTightBDTCentINDControlModelFile.empty() ? cfg.auauTightBDTModelFile
+                                                                  : cfg.auauTightBDTCentINDControlModelFile;
+      features = fallbackFeatures(cfg.auauTightBDTCentINDControlFeatures, cfg.auauTightBDTFeatures);
+    }
+    else if (e.tight == "centAsFeat")
+    {
+      modelFile = cfg.auauTightBDTCentAsFeatModelFile.empty() ? cfg.auauTightBDTModelFile
+                                                              : cfg.auauTightBDTCentAsFeatModelFile;
+      features = withCentralityFeature(fallbackFeatures(cfg.auauTightBDTCentAsFeatFeatures, cfg.auauTightBDTFeatures));
+    }
+    else if (e.tight == "auauEmbeddedBDT")
+    {
+      modelFile = cfg.auauTightBDTModelFile;
+      features = cfg.auauTightBDTFeatures;
+    }
+
+    if (!modelFile.empty() && !features.empty())
+    {
+      const double s = bdt.eval(modelFile, features, ev, ph);
+      if (std::isfinite(s)) return s;
+    }
+    return ph.auauTightBDT;
+  }
 
   struct JetRec
   {
@@ -1428,10 +1730,12 @@ void Fun4All_recoilJets_poolReplay(const int nEvents,
   float e22e33 = 0, e22e35 = 0, e22e37 = 0, e22e53 = 0, w32 = 0, w52 = 0, w72 = 0, meanTime = 0;
   float npb = 0, tightBDT = 0, auauNpb = 0, auauTightBDT = 0;
   float mbdTime = 0, clusterMbdDeltaT = 0;
-  int npbHasAwayJet = 0, npbLabel = -1, isNPB = -1;
+  int phoIndex = -1, npbHasAwayJet = 0, npbLabel = -1, isNPB = -1;
   int truthSignal = 0, truthTrackId = -1;
   float truthPt = 0, truthEta = 0, truthPhi = 0;
+  std::vector<float>* extraFeatureValues = nullptr;
   photons.SetBranchAddress("eventKey", &eventKey);
+  if (photons.GetBranch("index")) photons.SetBranchAddress("index", &phoIndex);
   photons.SetBranchAddress("pt", &pt);
   photons.SetBranchAddress("eta", &eta);
   photons.SetBranchAddress("phi", &phi);
@@ -1480,6 +1784,10 @@ void Fun4All_recoilJets_poolReplay(const int nEvents,
   photons.SetBranchAddress("truthPt", &truthPt);
   photons.SetBranchAddress("truthEta", &truthEta);
   photons.SetBranchAddress("truthPhi", &truthPhi);
+  if (photons.GetBranch("extra_feature_values"))
+  {
+    photons.SetBranchAddress("extra_feature_values", &extraFeatureValues);
+  }
 
   const Long64_t nPho = photons.GetEntries();
   for (Long64_t i = 0; i < nPho; ++i)
@@ -1490,6 +1798,7 @@ void Fun4All_recoilJets_poolReplay(const int nEvents,
     if (evIt == eventMap.end()) continue;
     PhotonRec pr;
     pr.eventKey = key;
+    pr.index = phoIndex;
     pr.pt = pt;
     pr.eta = eta;
     pr.phi = phi;
@@ -1538,6 +1847,7 @@ void Fun4All_recoilJets_poolReplay(const int nEvents,
     pr.truthPt = truthPt;
     pr.truthEta = truthEta;
     pr.truthPhi = truthPhi;
+    if (extraFeatureValues) pr.extraFeatures = *extraFeatureValues;
     photonsByEvent[key].push_back(pr);
   }
 
@@ -1754,6 +2064,8 @@ void Fun4All_recoilJets_poolReplay(const int nEvents,
     return;
   }
 
+  ReplayBDTModels replayBdt;
+
   for (long long key : eventOrder)
   {
     const auto evIt = eventMap.find(key);
@@ -1796,8 +2108,10 @@ void Fun4All_recoilJets_poolReplay(const int nEvents,
           const bool nonIso = std::isfinite(isoValue) && isoValue > nonIsoThr;
           if (!iso && !nonIso) continue;
 
-          if (!passPre(view.entry, ocfg, ph.pt, ph.weta, ph.et1, ph.e11e33, ph.e32e35, ph.npb, ph.auauNpb)) continue;
-          const int tag = tightTag(view.entry, ocfg, ph.pt, ph.weta, ph.wphi, ph.et1, ph.e11e33, ph.e32e35, ph.tightBDT, ph.auauTightBDT);
+          const double auauNpbScore = replayAuAuNpbScore(replayBdt, view.entry, ev, ph);
+          const double auauTightBDTScore = replayAuAuTightScore(replayBdt, view.entry, ev, ph);
+          if (!passPre(view.entry, ocfg, ph.pt, ph.weta, ph.et1, ph.e11e33, ph.e32e35, ph.npb, auauNpbScore)) continue;
+          const int tag = tightTag(view.entry, ocfg, ph.pt, ph.weta, ph.wphi, ph.et1, ph.e11e33, ph.e32e35, ph.tightBDT, auauTightBDTScore);
           if (tag == 3) continue;
 
           const char* base = nullptr;

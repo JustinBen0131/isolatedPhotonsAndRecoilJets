@@ -18,6 +18,64 @@ Use this file for short dated notes about local inspections, user-reported SDCC/
   pipeline to resolve semantic requests through working-point files plus
   `AnalysisViewCatalog`/internal view directories, while preserving the
   mathematical correction and plotting functionality the user relies on.
+- Added running task for the non-embedded pp inclusive-jet SIM path:
+  `isSimInclusive` / `InputFiles/InclusiveJetSIM` should not remain a
+  one-sample `jet5` placeholder if jet5/jet10/jet20 are available. Need to
+  inspect the current PPG12 inclusive-jet stitching/weighting prescription and
+  implement a canonical stitched product analogous in spirit to the pp
+  PhotonJet5/10/20 combination, so later comparisons can choose among
+  inclusive-jet stitching configurations cleanly.
+- Added prerequisite task for embedded inclusive-jet samples: after embedded
+  inclusive `jet12` production finishes, generate/download the `jet12` and
+  `jet20` outputs, run the cross-section estimator over that sample set, then
+  implement and validate proper stitching before using the products in any
+  final analysis code. This should mirror the care used for `isSimEmbedded`
+  stitching rather than treating the files as immediately analysis-ready.
+- Added two high-priority post-regeneration tasks. First, after all new final
+  ROOT inputs are available in the target `InputFiles/` folders, rerun the pp
+  isolation-efficiency fit workflow beginning with
+  `dataOutput/pp/ppg12Style_isoCutEfficiencyFits_ppMerged_fixedIso2GeV_reference.png`
+  and use it to tune/validate the pp and AuAu sliding-window configuration for
+  the relevant `isoR=0.30`, `isoR=0.40`, and photon-ID variants before rerunning
+  affected `isSliding` outputs from the correct pipeline stage. Second,
+  regenerate the Figure-30-like pp photon pT reweighting comparison beginning
+  with
+  `dataOutput/combinedSimOnly/pp_reference_vs_variantA_unfolding_overlay/figure30LikePhotonReweighting/reference_leadingPhoton_figure30_like_purityCorrectedData_vs_pythiaSignal.png`,
+  then implement PPG12-style pT reweighting for pp response matrices and decide
+  the analogous independently derived AuAu treatment before final response use.
+- Added future analysis-development tasks to pursue after a general analysis
+  cut set is pinned down: pi0/diphoton distribution studies with fitting and
+  diphoton cluster tagging, plus a later UE-subtraction scan that exercises
+  existing `clusterUEpipeline` options and adds more finely spaced
+  cluster-level UE-subtraction variants. These should be focused quick reruns
+  around the chosen baseline, not another broad all-cuts production pass.
+- Added high-priority embedded-inclusive ML follow-up: once embedded inclusive
+  `jet12` production exists, run `scripts/makeThesisSimLists.sh`, sanity-check
+  the `jet12` file count against embedded inclusive `jet20`, then train the
+  available ML modes including photon BDT variants, JetML/residual variants,
+  and NPB. NPB must be gated by cluster-timing QA first, checking whether the
+  timing behavior is similar enough to the pp NPB use case before trusting NPB
+  labels or model outputs.
+- Recorded pool-schema direction from the user's workflow: for the next broad
+  DST pass, it is worth over-storing cheap scalar photon/cluster information so
+  future feature/cut/model scans do not require reopening DSTs. Inspection of
+  `PhotonClusterBuilder.cc` and `RawClusterBuilderTemplate.cc` shows useful
+  scalar candidates beyond the current pool subset: raw energy-window scalars
+  (`e11`, `e22`, `e33`, `e55`, `e77`, `e13`, `e15`, `e17`, `e31`, `e51`,
+  `e71`, `e35`, `e37`, `e53`, `e73`, `e57`, `e75`, `e32`, `e52`, `e72`),
+  widths/CoG/position helpers (`weta`, `wphi`, `weta_cog`, `wphi_cog`,
+  `detamax`, `dphimax`, `detacog`, `dphicog`, `drad`, raw/corrected tower CoG
+  where accessible), HCAL leakage/nearest-tower scalars (`ihcal_et`,
+  `ohcal_et`, `ihcal_et22`, `ohcal_et22`, `ihcal_et33`, `ohcal_et33`,
+  `ihcal_ieta`, `ihcal_iphi`, `ohcal_ieta`, `ohcal_iphi`), extra isolation
+  scalars (`iso_02_emcal`, `iso_01_emcal`, `iso_005_emcal`,
+  `ppg12_iso_axis_eta`, `ppg12_iso_axis_phi`), and RawClusterBuilderTemplate
+  cluster metadata (`energy`, `ecore`, `prob`, `chi2/ndf`, mean time,
+  incidence alpha phi/eta, tower thresholds, peak threshold, profile/noise
+  settings, input/output node names, tower-info mode, tower selection flag,
+  detailed-geometry flag, alternate-vertex mode, and subcluster splitting).
+  Do not store full tower maps by default; the intended payload is scalar-rich,
+  not DST-like.
 
 ## 2026-05-05
 

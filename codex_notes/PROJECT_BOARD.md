@@ -37,6 +37,63 @@ Last updated: 2026-05-06
   corrections, and functionality so user requests can resolve semantic choices
   like photon-ID working point, coneR, jet pT cut, dphi, vz, isolation mode, and
   UE pipeline without relying on the old one-file-per-cut-variant layout.
+- HIGH PRIORITY after the regenerated local final inputs are present in every
+  target folder: rerun the pp isolation-efficiency fit workflow and use it to
+  tune/validate the sliding-window configuration for pp and AuAu. The concrete
+  reference output to reproduce/update first is
+  `dataOutput/pp/ppg12Style_isoCutEfficiencyFits_ppMerged_fixedIso2GeV_reference.png`.
+  The follow-up should cover the relevant pp `isoR=0.30`/`isoR=0.40`
+  variants and any working-point variant whose photon selection changes the
+  derived sliding-window behavior. After the correct pp/AuAu sliding-window
+  configuration is established, rerun all affected `isSliding` variants from
+  the earliest required pipeline stage, not from scratch unless the stored pool
+  variables are insufficient.
+- HIGH PRIORITY after the regenerated local final inputs are present: reproduce
+  the pp photon pT reweighting / Figure-30-like comparison and implement the
+  corresponding simulation response-matrix weighting policy. The concrete
+  reference output to regenerate first is
+  `dataOutput/combinedSimOnly/pp_reference_vs_variantA_unfolding_overlay/figure30LikePhotonReweighting/reference_leadingPhoton_figure30_like_purityCorrectedData_vs_pythiaSignal.png`.
+  Match the PPG12-style pp pT reweighting behavior, apply it independently to
+  the relevant pp simulation response matrices, then decide and implement the
+  analogous AuAu treatment so AuAu response matrices receive the correct
+  independently derived weighting where needed.
+- Fix and validate the non-embedded pp inclusive-jet SIM path
+  (`isSimInclusive` / `InputFiles/InclusiveJetSIM`) before relying on it for
+  final comparisons. The intended task is to stitch/combine the inclusive jet
+  samples in the same spirit as the pp PhotonJet5/10/20 stitching path, using
+  the proper PPG12-style sample boundaries/weights where applicable, instead
+  of treating only one `jet5` file as the canonical inclusive product.
+  Preserve the user's ability to choose the final configuration later, but
+  make the offline products organized so the inclusive-jet stitching choice can
+  be compared cleanly.
+- Treat embedded inclusive-jet sample generation/stitching as a separate
+  prerequisite before using it in final code paths. When the embedded
+  inclusive `jet12` sample finishes production, generate the `jet12` and
+  `jet20` embedded inclusive outputs, run the cross-section estimator over the
+  new sample set, then implement/validate the proper stitched combination
+  analogous to the existing `isSimEmbedded` stitching workflow before using
+  those products in analysis macros or comparisons.
+- HIGH PRIORITY after embedded inclusive `jet12` production exists: run
+  `scripts/makeThesisSimLists.sh` for the new embedded inclusive sample,
+  verify the produced `jet12` list has the expected file count and compare it
+  against embedded inclusive `jet20`, then proceed to the AuAu/embedded ML
+  training path. Train the available ML modes, including photon tight-BDT
+  variants, JetML/residual correction variants, and the NPB variant. For the
+  NPB variant, first run cluster-timing QA and confirm the timing behavior is
+  plausibly analogous to the pp NPB usage before treating NPB training labels
+  or outputs as analysis-ready.
+- Before the next broad pool production, extend the photon pool schema to
+  intentionally over-store cheap scalar cluster information from
+  `PhotonClusterBuilder` and `RawClusterBuilderTemplate`. The goal is to make
+  future photon-ID cuts, BDT/NPB feature studies, cluster-timing QA, HCAL-leakage
+  checks, and shower-shape scans replay-only whenever the needed information is
+  already computed in the first DST pass. Store scalar values, not raw tower
+  maps: all PhotonClusterBuilder shower-shape scalars, isolation pieces,
+  timing scalars, HCAL nearest-tower/leakage scalars, raw/corrected CoG style
+  variables, cluster probability/chi2/ecore/mean-time/incidence-angle metadata,
+  and enough cluster-builder configuration metadata to know how the clusters
+  were made. Avoid storing full tower maps or DST-like constituent arrays by
+  default unless a later task explicitly needs them.
 - Transfer the source fix to SDCC when ready:
   `./scripts/sftp_push_recoiljets.sh RecoilJets.cc RecoilJets_AuAu.cc`
 - Rerun affected pp, embedded SIM, and AuAu jobs that used non-reference tight/non-tight photon-ID variants.
@@ -58,6 +115,31 @@ Last updated: 2026-05-06
 
 - Decide which affected variant set gets rerun first after the pipeline infrastructure/speed update is ready.
 - Decide when the local ABCD/purity tight-axis fix is ready to transfer to SDCC and rerun.
+- Decide/confirm the desired `isSimInclusive` pp inclusive-jet stitching
+  prescription after inspecting current PPG12 treatment and the available
+  jet5/jet10/jet20 samples, then implement it in the local merge/plot path.
+- Do not promote embedded inclusive `jet12`/`jet20` products to final-use
+  inputs until `jet12` production is complete, the cross-section estimator has
+  been run, and the stitching prescription has been implemented/validated.
+- Do not promote embedded-inclusive ML models trained from the new `jet12`/`jet20`
+  sample set until file-count/list sanity checks, cluster-timing QA for NPB,
+  and basic training/application QA have been recorded.
+
+## Future Analysis Development
+
+- After a general analysis cut set is pinned down, analyze pi0/diphoton
+  background structure in more depth: generate pi0 mass and related diphoton
+  distributions, fit them, and implement/use diphoton cluster tagging so the
+  background sample composition can be understood beyond the current photon-ID
+  sideband machinery. This should be a focused rerun/scan around the chosen
+  baseline cuts, not another broad all-cuts production pass.
+- After a general analysis cut set is pinned down and the main production
+  pipeline is stable, explore additional UE-subtraction variations. This
+  includes trying cluster-level UE-subtracted inputs, exercising all currently
+  available `clusterUEpipeline` variants, and adding more finely spaced
+  UE-subtraction variations with smaller controlled changes between adjacent
+  configurations. The point is to make these reruns quick and interpretable by
+  anchoring them to the chosen baseline cuts.
 
 ## Done Recently
 
