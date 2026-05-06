@@ -305,7 +305,7 @@ output_working_points:
 # subjects like [RecoilJets][isAuAu][data_perRun_auau_wp_reference][READY].
 # Codex/Gmail automation can use those emails as the secure progress interface.
 # The submit/merge scripts also accept RJ_NOTIFY_EMAILS as an override.
-notify_emails: [jmb15@illinois.edu, just0131@gmail.com]
+notify_emails: [just0131@gmail.com]
 
 # Pool/replay workflow boundary.
 #

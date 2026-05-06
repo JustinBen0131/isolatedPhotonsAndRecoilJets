@@ -94,8 +94,8 @@ using std::map;
 inline bool isPPdataOnly   = false;
 inline bool pp_beforeChangeInRecoSimDefTruthMatched = false;
 
-inline bool isSimAndDataPP = true;
-inline bool isSimAndDataAUAU = false;
+inline bool isSimAndDataPP = false;
+inline bool isSimAndDataAUAU = true;
 inline bool isSimEmbeddedOnly = false;
 inline bool isAuAuOnly     = false;
 
@@ -137,12 +137,12 @@ inline bool isPhotonJet20              = false;
 inline bool bothPhoton5and10sim        = false;
 inline bool bothPhoton5and20sim        = false;
 inline bool bothPhoton10and20sim       = false;
-inline bool allPhoton5and10and20sim    = true;
+inline bool allPhoton5and10and20sim    = false;
 
 //   Embedded Au+Au SIM slices / merges:
 inline bool isPhotonJet12Embedded      = false;
 inline bool isPhotonJet20Embedded      = false;
-inline bool bothPhoton12and20simEmbedded = false;
+inline bool bothPhoton12and20simEmbedded = true;
 
 
 inline bool isInclusiveJet10Embedded   = false;
@@ -153,12 +153,15 @@ inline bool bothInclusiveJet10and20simEmbedded = false;
 inline bool isSimMB                    = false;   // MinBias DETROIT tune
 inline bool isSimJet5                  = false;   // inclusive jet5
 
-inline bool doPhotonJetMerge = true;
+// Canonical SIM merges are materialized by scripts/sftp_get_recoiljets_outputs.sh
+// when SIM files are pulled locally. Analysis macros should consume those
+// merged products by default; set true only for one-off local diagnostics.
+inline bool doPhotonJetMerge = false;
 
 //   RooUnfold: true = run both non-purity and purity-corrected passes + overlay.
 inline bool do_xJ_PPunfold = true;
 //   RooUnfold AuAu: true = run per-centrality unfolding with purity × combinatoric variants.
-inline bool do_xJ_AAunfold = false;
+inline bool do_xJ_AAunfold = true;
 
 //   Saved RooUnfold output: true = erase/rebuild/cache live unfolding output for this exact file combination;
 //   false = restore cached unfolding output and skip all unfolding work.
@@ -193,10 +196,10 @@ inline const string kNonTight        = "reference";  // currently "reference"
 // 3b. Au+Au CUT DEFAULTS  (independent from PP/SIM — drives all AuAu and
 //     embedded-SIM paths; does NOT need to match the PP cuts above)
 // ===========================================================================
-inline const int    kAA_JetPtMin     = 7;            // GeV: 3, 5, or 10
+inline const int    kAA_JetPtMin     = 5;            // GeV: 3, 5, or 10
 inline const string kAA_B2BCut       = "7pi_8";      // "7pi_8" or "pi_2"
-inline const int    kAA_VzCut        = 30;            // cm: 30 or 60
-inline const string kAA_IsoConeR     = "isoR30";     // "isoR30" or "isoR40"
+inline const int    kAA_VzCut        = 60;            // cm: 30 or 60
+inline const string kAA_IsoConeR     = "isoR40";     // "isoR30" or "isoR40"
 inline const string kAA_IsoMode      = "isSliding";// "isSliding" or "fixedIso4GeV"
 inline const string kAA_UEVariant    = "baseVariant";      // "noSub","baseVariant","variantA","variantB"
 
@@ -308,7 +311,9 @@ inline string PhotonIDTag()
 
 inline string PhotonIDTagAA()
 {
-    return PhotonIDTagFor(kAA_Preselection, kAA_Tight, kAA_NonTight);
+    return "_preselection" + PhotonIDModeDisplay(PhotonIDModeCanonical(kAA_Preselection)) +
+           "_tight" + PhotonIDModeDisplay(PhotonIDModeCanonical(kAA_Tight)) +
+           "_nonTight" + PhotonIDModeDisplay(PhotonIDModeCanonical(kAA_NonTight));
 }
 
 inline string CfgBaseTagFor(int jetPtMin,
@@ -1511,6 +1516,27 @@ inline void SetupGlobalStyle()
     gStyle->SetLegendFillColor(0);
 }
 
+inline void RemoveStatsBoxesFromPad(TVirtualPad* pad)
+{
+    if (!pad) return;
+
+    TList* prims = pad->GetListOfPrimitives();
+    if (!prims) return;
+
+    while (TObject* stats = prims->FindObject("stats"))
+    {
+        prims->Remove(stats);
+        delete stats;
+    }
+
+    TIter next(prims);
+    while (TObject* obj = next())
+    {
+        TVirtualPad* child = dynamic_cast<TVirtualPad*>(obj);
+        if (child) RemoveStatsBoxesFromPad(child);
+    }
+}
+
 inline void ApplyCanvasMargins1D(TCanvas& c)
 {
     c.SetLeftMargin(0.16);
@@ -1580,6 +1606,8 @@ inline vector<string> DefaultHeaderLines(const Dataset& ds)
 
 inline void SaveCanvas(TCanvas& c, const string& filepath)
 {
+    gStyle->SetOptStat(0);
+    RemoveStatsBoxesFromPad(&c);
     EnsureParentDirForFile(filepath);
     c.SaveAs(filepath.c_str());
 }

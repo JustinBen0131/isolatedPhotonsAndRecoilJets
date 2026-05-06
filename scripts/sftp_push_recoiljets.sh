@@ -7,6 +7,7 @@ REMOTE_HOST="patsfan753@sftp.sdcc.bnl.gov"
 
 LOCAL_FILES=(
   "scripts/audit_auau_grl_projection.sh"
+  "scripts/audit_auau_ml_training_smoke.py"
   "scripts/estimateEmbeddedPhotonXsec.sh"
   "scripts/make_dstListsData.sh"
   "scripts/makeThesisSimLists.sh"
@@ -20,8 +21,11 @@ LOCAL_FILES=(
   "macros/analysis_config.yaml"
   "macros/Fun4All_recoilJets.C"
   "macros/Fun4All_recoilJets_AuAu.C"
+  "macros/Fun4All_recoilJets_poolReplay.C"
   "macros/Fun4All_recoilJets_unified_impl.C"
   "macros/PrintPPStitchDiagnostics.C"
+  "src/PhotonClusterBuilder.cc"
+  "src/PhotonClusterBuilder.h"
   "src/RecoilJets.cc"
   "src/RecoilJets.h"
   "src_AuAu/RecoilJets_AuAu.cc"
@@ -30,6 +34,7 @@ LOCAL_FILES=(
 
 REMOTE_FILES=(
   "scripts/audit_auau_grl_projection.sh"
+  "scripts/audit_auau_ml_training_smoke.py"
   "scripts/estimateEmbeddedPhotonXsec.sh"
   "scripts/make_dstListsData.sh"
   "scripts/makeThesisSimLists.sh"
@@ -43,8 +48,11 @@ REMOTE_FILES=(
   "macros/analysis_config.yaml"
   "macros/Fun4All_recoilJets.C"
   "macros/Fun4All_recoilJets_AuAu.C"
+  "macros/Fun4All_recoilJets_poolReplay.C"
   "macros/Fun4All_recoilJets_unified_impl.C"
   "macros/PrintPPStitchDiagnostics.C"
+  "coresoftware_local/offline/packages/CaloReco/PhotonClusterBuilder.cc"
+  "coresoftware_local/offline/packages/CaloReco/PhotonClusterBuilder.h"
   "src/RecoilJets.cc"
   "src/RecoilJets.h"
   "src_AuAu/RecoilJets_AuAu.cc"
@@ -61,12 +69,14 @@ GROUP_MACROS=(
   "macros/analysis_config.yaml"
   "macros/Fun4All_recoilJets.C"
   "macros/Fun4All_recoilJets_AuAu.C"
+  "macros/Fun4All_recoilJets_poolReplay.C"
   "macros/Fun4All_recoilJets_unified_impl.C"
   "macros/PrintPPStitchDiagnostics.C"
 )
 
 GROUP_SCRIPTS=(
   "scripts/audit_auau_grl_projection.sh"
+  "scripts/audit_auau_ml_training_smoke.py"
   "scripts/estimateEmbeddedPhotonXsec.sh"
   "scripts/make_dstListsData.sh"
   "scripts/makeThesisSimLists.sh"
@@ -80,19 +90,38 @@ usage() {
   cat <<'EOF'
 Usage:
   ./scripts/sftp_push_recoiljets.sh <group-or-file> [group-or-file ...] [--commit-push -m "message"]
+  ./scripts/sftp_push_recoiljets.sh status [group-or-file ...]
+  ./scripts/sftp_push_recoiljets.sh diff [group-or-file ...]
 
 Uploads selected known files from the local Mac checkout to the SDCC analysis
 checkout via interactive sftp. No password is stored; sftp prompts normally.
+Upload mode prints the overwrite preview and then starts sftp directly; it does
+not ask for an extra y/N confirmation.
+
+Read-only modes:
+  status
+      Fetch selected mapped remote files into a temp directory and print whether
+      each SDCC file matches the local file. With no selection, checks pipeline.
+  diff
+      Fetch selected mapped remote files and print unified diffs for files that
+      differ. With no selection, checks pipeline.
 
 Groups:
   condor    RecoilJets_Condor*.sh submit/wrapper files
   macros    known pipeline macros/configs
   scripts   known pipeline helper scripts
   pipeline  all known transferable pipeline files except local-only sftp helpers
+  all       alias for pipeline
+  changed   all changed known transferable files in this checkout
 
 Examples:
+  ./scripts/sftp_push_recoiljets.sh status
+  ./scripts/sftp_push_recoiljets.sh status changed
+  ./scripts/sftp_push_recoiljets.sh status pipeline
+  ./scripts/sftp_push_recoiljets.sh diff RecoilJets_Condor_submit.sh
   ./scripts/sftp_push_recoiljets.sh RecoilJets.cc RecoilJets.h
   ./scripts/sftp_push_recoiljets.sh condor
+  ./scripts/sftp_push_recoiljets.sh changed
   ./scripts/sftp_push_recoiljets.sh mergeRecoilJets.sh analysis_config.yaml RecoilJets_AuAu.cc
   ./scripts/sftp_push_recoiljets.sh scripts/mergeRecoilJets.sh
   ./scripts/sftp_push_recoiljets.sh RecoilJets.cc RecoilJets.h RecoilJets_Condor_submit.sh --commit-push -m "Update PP recoil jet stitching diagnostics"
@@ -197,6 +226,26 @@ add_local_rel() {
   add_index "$idx"
 }
 
+add_changed_known_files() {
+  local line path idx any=0
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    path="${line:3}"
+    if [[ "$path" == *" -> "* ]]; then
+      path="${path##* -> }"
+    fi
+    path="${path#\"}"
+    path="${path%\"}"
+    path="$(normalize_arg "$path")"
+    if idx="$(find_index_for_local "$path")"; then
+      add_index "$idx"
+      any=1
+    fi
+  done < <(cd "$LOCAL_BASE" && git status --porcelain --untracked-files=all)
+
+  (( any )) || die_with_usage "No changed known transferable files found in ${LOCAL_BASE}."
+}
+
 add_group() {
   local group="$1"
   local f
@@ -210,7 +259,9 @@ add_group() {
     scripts)
       for f in "${GROUP_SCRIPTS[@]}"; do add_local_rel "$f"; done
       ;;
-    pipeline)
+    pipeline|all)
+      add_local_rel "src/PhotonClusterBuilder.cc"
+      add_local_rel "src/PhotonClusterBuilder.h"
       add_local_rel "src/RecoilJets.cc"
       add_local_rel "src/RecoilJets.h"
       add_local_rel "src_AuAu/RecoilJets_AuAu.cc"
@@ -218,6 +269,9 @@ add_group() {
       add_group condor
       add_group macros
       add_group scripts
+      ;;
+    changed|changed-pipeline|changedPipeline|changed-known)
+      add_changed_known_files
       ;;
     *)
       return 1
@@ -262,6 +316,104 @@ resolve_file_arg() {
   add_index "${matches[0]}"
 }
 
+hash_file() {
+  local file="$1"
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$file" | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file" | awk '{print $1}'
+  else
+    echo "[ERROR] Need shasum or sha256sum for status/diff mode." >&2
+    exit 5
+  fi
+}
+
+run_remote_compare() {
+  local compare_mode="$1"
+  local tmp_dir
+  tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/sftp_push_recoiljets_check.XXXXXX")"
+  local batch
+  batch="${tmp_dir}/fetch.sftp"
+
+  {
+    printf 'cd %s\n' "$REMOTE_BASE"
+    local i
+    for (( i=0; i<${#selected_remote[@]}; i++ )); do
+      printf -- '-get %s %s\n' "${selected_remote[$i]}" "${tmp_dir}/remote_${i}"
+    done
+  } > "$batch"
+
+  echo
+  echo "Remote host : ${REMOTE_HOST}"
+  echo "Local base  : ${LOCAL_BASE}"
+  echo "Remote base : ${REMOTE_BASE}"
+  echo
+  echo "Read-only ${compare_mode}: fetching ${#selected_local[@]} mapped file(s) into a temp directory."
+  echo "No remote files will be modified."
+  echo "Opening interactive sftp. Enter your SDCC password when prompted."
+
+  if sftp \
+      -oBatchMode=no \
+      -oPreferredAuthentications=password,keyboard-interactive,publickey \
+      -b "$batch" \
+      "$REMOTE_HOST"; then
+    :
+  else
+    local status=$?
+    rm -rf "$tmp_dir"
+    echo
+    echo "[ERROR] sftp fetch failed with exit code ${status}." >&2
+    exit "$status"
+  fi
+
+  echo
+  printf '%-8s  %-45s  %s\n' "STATUS" "LOCAL" "REMOTE"
+  printf '%-8s  %-45s  %s\n' "--------" "---------------------------------------------" "---------------------------------------------"
+
+  local matches=0 differs=0 missing=0 checked=0
+  local i local_file remote_copy local_hash remote_hash result
+  for (( i=0; i<${#selected_local[@]}; i++ )); do
+    local_file="${LOCAL_BASE}/${selected_local[$i]}"
+    remote_copy="${tmp_dir}/remote_${i}"
+    checked=$(( checked + 1 ))
+    if [[ ! -f "$remote_copy" ]]; then
+      result="MISSING"
+      missing=$(( missing + 1 ))
+    else
+      local_hash="$(hash_file "$local_file")"
+      remote_hash="$(hash_file "$remote_copy")"
+      if [[ "$local_hash" == "$remote_hash" ]]; then
+        result="MATCH"
+        matches=$(( matches + 1 ))
+      else
+        result="DIFFER"
+        differs=$(( differs + 1 ))
+      fi
+    fi
+    printf '%-8s  %-45s  %s\n' "$result" "${selected_local[$i]}" "${selected_remote[$i]}"
+
+    if [[ "$compare_mode" == "diff" && "$result" == "DIFFER" ]]; then
+      echo
+      echo "Diff for ${selected_local[$i]}:"
+      diff -u "$local_file" "$remote_copy" | sed \
+        -e "1s|.*|--- local:${selected_local[$i]}|" \
+        -e "2s|.*|+++ sdcc:${selected_remote[$i]}|" || true
+      echo
+    elif [[ "$compare_mode" == "diff" && "$result" == "MISSING" ]]; then
+      echo
+      echo "Remote file missing for ${selected_local[$i]} -> ${selected_remote[$i]}"
+      echo
+    fi
+  done
+
+  rm -rf "$tmp_dir"
+  echo
+  echo "Summary: checked=${checked} match=${matches} differ=${differs} missing=${missing}"
+  if (( differs > 0 || missing > 0 )); then
+    exit 1
+  fi
+}
+
 if (( $# == 0 )); then
   usage
   exit 2
@@ -271,6 +423,22 @@ case "${1:-}" in
   -h|--help|help)
     usage
     exit 0
+    ;;
+esac
+
+mode="upload"
+case "${1:-}" in
+  status|check)
+    mode="status"
+    shift
+    ;;
+  diff)
+    mode="diff"
+    shift
+    ;;
+  upload|push)
+    mode="upload"
+    shift
     ;;
 esac
 
@@ -306,8 +474,16 @@ while (( $# > 0 )); do
   esac
 done
 
+if [[ "$mode" != "upload" && "$commit_push" -eq 1 ]]; then
+  die_with_usage "--commit-push is only valid for upload mode"
+fi
+
 if (( commit_push )) && [[ -z "$commit_message" ]]; then
   die_with_usage "--commit-push requires -m \"commit message\""
+fi
+
+if (( ${#selection_args[@]} == 0 )) && [[ "$mode" != "upload" ]]; then
+  selection_args+=( "pipeline" )
 fi
 
 if (( ${#selection_args[@]} == 0 )); then
@@ -338,6 +514,11 @@ for f in "${selected_local[@]}"; do
   fi
 done
 
+if [[ "$mode" == "status" || "$mode" == "diff" ]]; then
+  run_remote_compare "$mode"
+  exit 0
+fi
+
 echo
 echo "Remote host : ${REMOTE_HOST}"
 echo "Local base  : ${LOCAL_BASE}"
@@ -350,15 +531,7 @@ for (( i=0; i<${#selected_local[@]}; i++ )); do
 done
 echo
 echo "This will overwrite the remote files listed above."
-read -r -p "Continue? [y/N]: " confirm
-case "$confirm" in
-  y|Y|yes|YES|Yes)
-    ;;
-  *)
-    echo "Aborted."
-    exit 0
-    ;;
-esac
+echo "Proceeding without an extra y/N prompt."
 
 batch_file="$(mktemp "${TMPDIR:-/tmp}/sftp_push_recoiljets.XXXXXX")"
 cleanup() {

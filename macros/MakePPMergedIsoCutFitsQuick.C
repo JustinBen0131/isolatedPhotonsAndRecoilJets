@@ -168,9 +168,9 @@ void DrawPPPhotonStitchTruthSpectrum(const std::string& in5,
         return;
     }
 
-    h5->Rebin(2);
-    h10->Rebin(2);
-    h20->Rebin(2);
+    h5->Rebin(5);
+    h10->Rebin(5);
+    h20->Rebin(5);
 
     const double n5 = ReadSIMEventCount(f5);
     const double n10 = ReadSIMEventCount(f10);
@@ -182,25 +182,26 @@ void DrawPPPhotonStitchTruthSpectrum(const std::string& in5,
         return;
     }
 
-    const double ew5 = ARJ::kSigmaPhoton5_pb / n5;
-    const double ew10 = ARJ::kSigmaPhoton10_pb / n10;
-    const double ew20 = ARJ::kSigmaPhoton20_pb / n20;
-    const double w5 = ew5 / ew20;
-    const double w10 = ew10 / ew20;
-    const double w20 = 1.0;
+    const double w5 = ARJ::kSigmaPhoton5_pb / n5 / h5->GetBinWidth(1);
+    const double w10 = ARJ::kSigmaPhoton10_pb / n10 / h10->GetBinWidth(1);
+    const double w20 = ARJ::kSigmaPhoton20_pb / n20 / h20->GetBinWidth(1);
     h5->Scale(w5);
     h10->Scale(w10);
     h20->Scale(w20);
 
-    StyleHist(h5.get(), kBlue + 1, 20);
+    StyleHist(h5.get(), kMagenta + 1, 20);
     StyleHist(h10.get(), kGreen + 2, 21);
-    StyleHist(h20.get(), kRed + 1, 22);
+    StyleHist(h20.get(), kBlue + 1, 22);
+    h10->SetMarkerStyle(20);
+    h20->SetMarkerStyle(20);
 
     std::unique_ptr<TH1> hSum(dynamic_cast<TH1*>(h5->Clone("h_ppStitch_sum")));
     hSum->SetDirectory(nullptr);
     hSum->Add(h10.get());
     hSum->Add(h20.get());
     StyleHist(hSum.get(), kBlack, 24);
+    hSum->SetMarkerSize(0.65);
+    hSum->SetLineWidth(3);
 
     std::unique_ptr<TH1> hSmooth = MakeSmoothReference(hSum.get(), "h_ppStitch_smooth");
     std::unique_ptr<TH1> hRatio = MakeRatioToSmooth(hSum.get(), hSmooth.get(), "h_ppStitch_ratio");
@@ -229,24 +230,26 @@ void DrawPPPhotonStitchTruthSpectrum(const std::string& in5,
     hSum->GetXaxis()->SetRangeUser(xMin, xMax);
     hSum->GetXaxis()->SetLabelSize(0.0);
     hSum->GetXaxis()->SetTitleSize(0.0);
-    hSum->GetYaxis()->SetTitle("#sigma/#sigma_{20} scaled entries [arb. / bin]");
+    hSum->GetYaxis()->SetTitle("d#sigma/dE_{T}^{#gamma} [pb/GeV]");
     hSum->GetYaxis()->SetTitleOffset(1.12);
-    hSum->SetMinimum(std::max(1.0e-8, ymax * 2.0e-5));
-    hSum->SetMaximum(std::max(1.0e-6, ymax * 85.0));
+    hSum->SetMinimum(1.0e-1);
+    hSum->SetMaximum(std::max(5.0e3, ymax * 3.0));
     hSum->Draw("E1");
-    h5->Draw("E1 SAME");
-    h10->Draw("E1 SAME");
-    h20->Draw("E1 SAME");
     hSmooth->SetLineColor(kGray + 2);
     hSmooth->SetLineStyle(2);
     hSmooth->SetLineWidth(2);
     hSmooth->SetMarkerSize(0);
     hSmooth->Draw("HIST SAME");
+    hSum->Draw("E1 SAME");
+    h5->Draw("E1 SAME");
+    h10->Draw("E1 SAME");
+    h20->Draw("E1 SAME");
 
-    TLegend leg(0.15, 0.15, 0.52, 0.43);
+    TLegend leg(0.48, 0.59, 0.88, 0.73);
     leg.SetBorderSize(0);
     leg.SetFillStyle(0);
-    leg.SetTextSize(0.036);
+    leg.SetNColumns(2);
+    leg.SetTextSize(0.030);
     leg.AddEntry(h5.get(), "PhotonJet5 stitched", "lep");
     leg.AddEntry(h10.get(), "PhotonJet10 stitched", "lep");
     leg.AddEntry(h20.get(), "PhotonJet20 stitched", "lep");
@@ -259,9 +262,8 @@ void DrawPPPhotonStitchTruthSpectrum(const std::string& in5,
     lat.SetTextSize(0.040);
     lat.DrawLatex(0.15, 0.86, "PP photon generator stitching spectrum");
     lat.SetTextSize(0.031);
-    lat.DrawLatex(0.15, 0.80, "Uses SIM/h_ppPhotonStitch_maxPhotonPt_kept");
-    lat.DrawLatex(0.15, 0.75, "PhotonJet5: p_{T}^{#gamma}<14; PhotonJet10: 14#leq p_{T}^{#gamma}<22; PhotonJet20: p_{T}^{#gamma}#geq22 GeV");
-    lat.DrawLatex(0.15, 0.70, "relative weights: #sigma_{5}/#sigma_{20}, #sigma_{10}/#sigma_{20}, 1");
+    lat.DrawLatex(0.15, 0.80, "PhotonJet5: p_{T}^{#gamma}<14; PhotonJet10: 14#leq p_{T}^{#gamma}<22; PhotonJet20: p_{T}^{#gamma}#geq22 GeV");
+    lat.DrawLatex(0.15, 0.75, "normalization: #sigma_{sample}/N_{evt}/#Delta E_{T}");
 
     TLatex sph;
     sph.SetNDC(true);
@@ -275,7 +277,7 @@ void DrawPPPhotonStitchTruthSpectrum(const std::string& in5,
     bot.cd();
     hRatio->SetTitle("");
     hRatio->GetXaxis()->SetRangeUser(xMin, xMax);
-    hRatio->GetXaxis()->SetTitle("max stored truth p_{T}^{#gamma} [GeV]");
+    hRatio->GetXaxis()->SetTitle("max truth p_{T}^{#gamma} (|#eta|<0.7) [GeV]");
     hRatio->GetYaxis()->SetTitle("sum / smooth");
     hRatio->GetYaxis()->SetRangeUser(0.85, 1.15);
     hRatio->GetYaxis()->SetNdivisions(505);

@@ -23,6 +23,12 @@ int GenerateYieldOverlayQuick()
     else                               isoModeLabel = "Sliding iso cut";
     const string vzLabel = TString::Format("|v_{z}| < %d cm", kAA_VzCut).Data();
 
+    const string ppReferenceTag =
+        CfgBaseTagFor(kAA_JetPtMin, kAA_B2BCut, kAA_VzCut, kAA_IsoConeR, "fixedIso2GeV") +
+        "_preselectionReference_tightReference_nonTightReference";
+    const string ppReferenceInput =
+        kInputBase + "/pp24/RecoilJets_pp_ALL_" + ppReferenceTag + ".root";
+
     TFile* fAA = TFile::Open(InputAuAu().c_str(), "READ");
     if (!fAA || fAA->IsZombie())
     {
@@ -31,13 +37,13 @@ int GenerateYieldOverlayQuick()
         return 1;
     }
 
-    TFile* fPP = TFile::Open(InputPP(isRun25pp).c_str(), "READ");
+    TFile* fPP = TFile::Open(ppReferenceInput.c_str(), "READ");
     if (!fPP || fPP->IsZombie())
     {
         if (fPP) { fPP->Close(); delete fPP; }
         fAA->Close();
         delete fAA;
-        std::cerr << "[FATAL] Cannot open PP input: " << InputPP(isRun25pp) << "\n";
+        std::cerr << "[FATAL] Cannot open PP reference input: " << ppReferenceInput << "\n";
         return 1;
     }
 
@@ -98,9 +104,9 @@ int GenerateYieldOverlayQuick()
 
     const std::vector<RegionStyle> kRegionStyles = {
         {"A", "Region A", kRed + 1, 20},
-        {"B", "Region B", kBlue + 1, 21},
-        {"C", "Region C", kGreen + 2, 22},
-        {"D", "Region D", kMagenta + 1, 33},
+        {"B", "Region B", kBlue + 1, 20},
+        {"C", "Region C", kGreen + 2, 20},
+        {"D", "Region D", kMagenta + 1, 20},
     };
 
     auto RegionYieldFromPP = [&](TDirectory* ppDir, const string& regionKey, int ptIdx) -> double
@@ -326,8 +332,10 @@ int GenerateYieldOverlayQuick()
                 gPP->SetMarkerStyle(24);
                 gPP->SetMarkerSize(1.1);
                 gPP->SetMarkerColor(kRed + 1);
+                gPP->SetFillColor(0);
+                gPP->SetFillStyle(0);
                 keepYield.push_back(gPP);
-                legYield.AddEntry(gPP, "pp", "pe");
+                legYield.AddEntry(gPP, "pp reference", "pe");
             }
         }
 

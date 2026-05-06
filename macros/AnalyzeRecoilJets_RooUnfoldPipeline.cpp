@@ -487,8 +487,15 @@
         
         // ----------------------------------------------------------------------
         // Helpers for ATLAS-style purity correction before unfolding:
-        //   - photon normalization input: use S_A(pT^{#gamma}) from ABCD
+        //   - photon normalization input: use S_A(pT^{#gamma}) from the
+        //     event-leading xJ-purity ABCD counters
         //   - measured xJ input: H_A - (N_{bkg}^{A} / N_C) * H_C  in each pT^{#gamma} bin
+        //
+        // Important: the xJ spectra are filled from one event-leading photon in
+        // each relevant ABCD region, not from every photon candidate.  Therefore
+        // the unfolding purity correction must use the h_xJpurityLead_* counters,
+        // while the older h_isIsolated_* counters remain candidate-level PPG12
+        // validation inputs only.
         //
         // The response matrix remains the nominal signal response (truth signal -> reco A),
         // which is the correct thing to use once the fake-photon recoil template has been
@@ -506,10 +513,10 @@
         {
             const PtBin& b = PtBins()[iPt];
             
-            A = Read1BinCount(dsData, "h_isIsolated_isTight"   + b.suffix);
-            B = Read1BinCount(dsData, "h_notIsolated_isTight"  + b.suffix);
-            C = Read1BinCount(dsData, "h_isIsolated_notTight"  + b.suffix);
-            D = Read1BinCount(dsData, "h_notIsolated_notTight" + b.suffix);
+            A = Read1BinCount(dsData, "h_xJpurityLead_isIsolated_isTight"   + b.suffix);
+            B = Read1BinCount(dsData, "h_xJpurityLead_notIsolated_isTight"  + b.suffix);
+            C = Read1BinCount(dsData, "h_xJpurityLead_isIsolated_notTight"  + b.suffix);
+            D = Read1BinCount(dsData, "h_xJpurityLead_notIsolated_notTight" + b.suffix);
             
             SA = 0.0;
             if (A > 0.0 && D > 0.0)
@@ -547,6 +554,28 @@
             eSA = (varSA > 0.0) ? std::sqrt(varSA) : 0.0;
             nbkgA = std::max(0.0, A - SA);
         };
+
+        auto EstimateABCDScaleVariance =
+        [&](double A, double C, double SA, double eSA, double nbkgA)->double
+        {
+            if (C <= 0.0 || nbkgA <= 0.0) return 0.0;
+
+            // The purity-subtracted recoil shape uses scaleC = N_bkg^A / C.
+            // N_bkg^A is derived from the same ABCD counts as S_A, so this is a
+            // conservative diagonal propagation of the scale uncertainty into
+            // each xJ bin.  The binwise A/C statistical terms below only cover
+            // the recoil-shape histograms, not the uncertainty on the ABCD
+            // normalization that sets the sideband scale.
+            const double eNbkgA2 = std::max(0.0, A) + eSA * eSA;
+            const double eC2 = std::max(0.0, C);
+            const double dScale_dNbkgA = 1.0 / C;
+            const double dScale_dC = -nbkgA / (C * C);
+            const double varScale =
+                dScale_dNbkgA * dScale_dNbkgA * eNbkgA2 +
+                dScale_dC * dScale_dC * eC2;
+
+            return (std::isfinite(varScale) && varScale > 0.0) ? varScale : 0.0;
+        };
         
         auto ApplyPurityCorrectionToRecoPhotonHist =
         [&](TH1* h)->bool
@@ -559,6 +588,7 @@
             
             const auto& recoBins = UnfoldRecoPtBins();
             const int nRecoBins = (int)recoBins.size();
+            bool anyEventLeadABCD = false;
             
             for (int i = 0; i < nRecoBins; ++i)
             {
@@ -591,6 +621,9 @@
                     if (iCanon < 0) continue;
                     ComputeABCDSignalCounts(iCanon, A, B, C, D, SA, eSA, nbkgA);
                 }
+
+                if ((A + B + C + D) <= 0.0) continue;
+                anyEventLeadABCD = true;
                 
                 const double cen = 0.5 * (b.lo + b.hi);
                 const int ib = h->GetXaxis()->FindBin(cen);
@@ -600,7 +633,14 @@
                 h->SetBinError  (ib, eSA);
             }
             
-            return true;
+            if (!anyEventLeadABCD)
+            {
+                cout << ANSI_BOLD_RED
+                     << "[ERROR] No h_xJpurityLead_* ABCD counters were found for the photon purity correction. "
+                     << "Regenerate the RecoilJets ROOT input with the updated source-side event-leading ABCD fills."
+                     << ANSI_RESET << "\n";
+            }
+            return anyEventLeadABCD;
         };
         
         auto ApplyPurityCorrectionToRecoXJHist =
@@ -620,6 +660,61 @@
             const int ny = h->GetYaxis()->GetNbins();
             const auto& recoBins = UnfoldRecoPtBins();
             const int nRecoBins = (int)recoBins.size();
+            bool anyEventLeadABCD = false;
+
+            auto SidebandCShapeForBin =
+            [&](int ix, const PtBin& b, double purity,
+                vector<double>& vals, vector<double>& errs)->bool
+            {
+                vals.assign(ny + 2, 0.0);
+                errs.assign(ny + 2, 0.0);
+
+                const bool sparseHighPt =
+                    (b.lo >= 22.0 && b.hi <= 35.0 && (purity < 0.45 || b.hi >= 26.0));
+                if (!sparseHighPt) return false;
+
+                double rawSum = 0.0;
+                for (int iy = 0; iy <= ny + 1; ++iy)
+                    rawSum += hSideC->GetBinContent(ix, iy);
+                if (!(rawSum > 0.0)) return false;
+
+                vector<double> pooledVals(ny + 2, 0.0);
+                vector<double> pooledErr2(ny + 2, 0.0);
+                double pooledSum = 0.0;
+
+                for (const PtBin& bp : recoBins)
+                {
+                    if (bp.lo < 20.0 || bp.hi > 35.0) continue;
+                    const double cenP = 0.5 * (bp.lo + bp.hi);
+                    const int ixP = hSideC->GetXaxis()->FindBin(cenP);
+                    if (ixP < 1 || ixP > hSideC->GetXaxis()->GetNbins()) continue;
+
+                    for (int iy = 0; iy <= ny + 1; ++iy)
+                    {
+                        const double v = hSideC->GetBinContent(ixP, iy);
+                        const double e = hSideC->GetBinError(ixP, iy);
+                        pooledVals[iy] += v;
+                        pooledErr2[iy] += e * e;
+                        pooledSum += v;
+                    }
+                }
+
+                if (!(pooledSum > 0.0)) return false;
+
+                const double norm = rawSum / pooledSum;
+                for (int iy = 0; iy <= ny + 1; ++iy)
+                {
+                    vals[iy] = pooledVals[iy] * norm;
+                    errs[iy] = std::sqrt(std::max(0.0, pooledErr2[iy])) * norm;
+                }
+
+                cout << "[PURITY XJ] " << b.label
+                     << ": using pooled region-C xJ sideband shape over 20-35 GeV"
+                     << " (purity=" << purity
+                     << ", rawCJets=" << rawSum
+                     << ", pooledCJets=" << pooledSum << ")\n";
+                return true;
+            };
             
             for (int i = 0; i < nRecoBins; ++i)
             {
@@ -652,28 +747,77 @@
                     if (iCanon < 0) continue;
                     ComputeABCDSignalCounts(iCanon, A, B, C, D, SA, eSA, nbkgA);
                 }
+
+                if ((A + B + C + D) <= 0.0) continue;
+                anyEventLeadABCD = true;
                 
-                const double scaleC = (C > 0.0) ? (nbkgA / C) : 0.0;
+                int iLeak = -1;
+                if (b.lo == 8  && b.hi == 10) iLeak = 0;
+                else if (b.lo == 35 && b.hi == 40) iLeak = kNPtBins - 1;
+                else
+                {
+                    for (int j = 0; j < kNPtBins; ++j)
+                    {
+                        const PtBin& pb = PtBins()[j];
+                        if (pb.lo == b.lo && pb.hi == b.hi)
+                        {
+                            iLeak = j;
+                            break;
+                        }
+                    }
+                }
+
+                const double fCLeak =
+                    (lfForPurity.available &&
+                     iLeak >= 0 &&
+                     iLeak < (int)lfForPurity.fC.size())
+                    ? std::max(0.0, lfForPurity.fC[iLeak])
+                    : 0.0;
+                const double cBkg = std::max(0.0, C - fCLeak * SA);
+                const double scaleC = (cBkg > 0.0) ? (nbkgA / cBkg) : 0.0;
+                const double denomSigLeak = 1.0 - scaleC * fCLeak;
+                const double invDenom =
+                    (std::isfinite(denomSigLeak) && std::fabs(denomSigLeak) > 1e-6)
+                    ? (1.0 / denomSigLeak)
+                    : 1.0;
+                const double varScaleC = EstimateABCDScaleVariance(A, cBkg, SA, eSA, nbkgA);
+                const double purity = (A > 0.0) ? (SA / A) : 0.0;
                 
                 const double cen = 0.5 * (b.lo + b.hi);
                 const int ix = h->GetXaxis()->FindBin(cen);
                 if (ix < 1 || ix > h->GetXaxis()->GetNbins()) continue;
+
+                vector<double> sideCVals;
+                vector<double> sideCErrs;
+                const bool usePooledSideC =
+                    SidebandCShapeForBin(ix, b, purity, sideCVals, sideCErrs);
                 
                 for (int iy = 0; iy <= ny + 1; ++iy)
                 {
                     const double valA = hAorig->GetBinContent(ix, iy);
                     const double errA = hAorig->GetBinError  (ix, iy);
                     
-                    const double valC = hSideC->GetBinContent(ix, iy);
-                    const double errC = hSideC->GetBinError  (ix, iy);
-                    
-                    double val  = valA - scaleC * valC;
-                    double err2 = errA * errA + scaleC * scaleC * errC * errC;
+                    const double valC = usePooledSideC
+                        ? sideCVals[iy]
+                        : hSideC->GetBinContent(ix, iy);
+                    const double errC = usePooledSideC
+                        ? sideCErrs[iy]
+                        : hSideC->GetBinError(ix, iy);
+
+                    // ATLAS-style photon-purity background subtraction with the
+                    // same SIM prompt-leakage correction used for the ABCD purity.
+                    // Region C is not assumed pure background: H_C = H_C^bkg + f_C H_A^sig.
+                    // Solving H_A^sig = H_A - k H_C^bkg gives
+                    // H_A^sig = (H_A - k H_C)/(1 - k f_C), k=N_bkg^A/N_bkg^C.
+                    // Keep signed bins; zero-clipping sparse subtracted bins biases the
+                    // measured spectrum upward and can create artificial low-x_J bumps.
+                    double val  = (valA - scaleC * valC) * invDenom;
+                    double err2 = errA * errA + scaleC * scaleC * errC * errC
+                                + valC * valC * varScaleC;
+                    err2 *= invDenom * invDenom;
                     
                     if (!std::isfinite(val))  val  = 0.0;
                     if (!std::isfinite(err2)) err2 = 0.0;
-                    
-                    if (val < 0.0) val = 0.0;
                     
                     h->SetBinContent(ix, iy, val);
                     h->SetBinError  (ix, iy, (err2 > 0.0) ? std::sqrt(err2) : 0.0);
@@ -681,7 +825,14 @@
             }
             
             delete hAorig;
-            return true;
+            if (!anyEventLeadABCD)
+            {
+                cout << ANSI_BOLD_RED
+                     << "[ERROR] No h_xJpurityLead_* ABCD counters were found for the xJ purity correction. "
+                     << "Regenerate the RecoilJets ROOT input with the updated source-side event-leading ABCD fills."
+                     << ANSI_RESET << "\n";
+            }
+            return anyEventLeadABCD;
         };
         
         // ----------------------------------------------------------------------
@@ -698,6 +849,142 @@
         EnsureDir(phoDir);
         const string phoYieldDir = JoinPath(phoDir, "yields");
         EnsureDir(phoYieldDir);
+        const string phoPurityDir = JoinPath(phoDir, "purity");
+        EnsureDir(phoPurityDir);
+
+        auto MakePhotonABCDPurityOverlay =
+        [&]()->void
+        {
+            vector<double> x;
+            vector<double> ex;
+            vector<double> yRaw;
+            vector<double> eyRaw;
+            vector<double> yCorr;
+            vector<double> eyCorr;
+            vector<string> summary;
+
+            const bool haveLeakage =
+                lfForPurity.available &&
+                lfForPurity.fB.size() >= (std::size_t)kNPtBins &&
+                lfForPurity.fC.size() >= (std::size_t)kNPtBins &&
+                lfForPurity.fD.size() >= (std::size_t)kNPtBins;
+
+            summary.push_back("Photon ABCD purity summary");
+            summary.push_back("raw purity = S_A(raw) / A, where S_A(raw) = A - B*C/D");
+            summary.push_back("leakage-corrected purity = S_A(corrected) / A from SolveLeakageCorrectedSA");
+            summary.push_back(TString::Format("leakage factors available = %s", haveLeakage ? "true" : "false").Data());
+            summary.push_back("");
+            summary.push_back("pTbin  A  B  C  D  Sraw  Scorr  ScorrOverSraw  purityRaw  purityLeakageCorrected");
+
+            for (int i = 0; i < kNPtBins; ++i)
+            {
+                const PtBin& b = PtBins()[i];
+
+                const double A = Read1BinCount(dsData, "h_isIsolated_isTight"   + b.suffix);
+                const double B = Read1BinCount(dsData, "h_notIsolated_isTight"  + b.suffix);
+                const double C = Read1BinCount(dsData, "h_isIsolated_notTight"  + b.suffix);
+                const double D = Read1BinCount(dsData, "h_notIsolated_notTight" + b.suffix);
+
+                if (!(A > 0.0))
+                {
+                    summary.push_back(
+                        TString::Format("%s  %.10g  %.10g  %.10g  %.10g  nan  nan  nan  nan  nan",
+                                        b.label.c_str(), A, B, C, D).Data()
+                    );
+                    continue;
+                }
+
+                double sRaw = 0.0;
+                if (A > 0.0 && D > 0.0)
+                {
+                    sRaw = A - B * (C / D);
+                    if (sRaw < 0.0) sRaw = 0.0;
+                }
+
+                double sCorr = sRaw;
+                bool corrOK = false;
+                if (haveLeakage)
+                {
+                    double tmp = 0.0;
+                    corrOK = SolveLeakageCorrectedSA(A, B, C, D,
+                                                     lfForPurity.fB[i],
+                                                     lfForPurity.fC[i],
+                                                     lfForPurity.fD[i],
+                                                     tmp);
+                    if (corrOK && A > 0.0) sCorr = tmp;
+                    else sCorr = sRaw;
+                }
+
+                const double pRaw = sRaw / A;
+                const double epRaw = 0.0;
+                const double pCorr = sCorr / A;
+                const double epCorr = 0.0;
+                const double sRatio = (sRaw > 0.0) ? (sCorr / sRaw) : 0.0;
+
+                x.push_back(0.5 * (b.lo + b.hi));
+                ex.push_back(0.5 * (b.hi - b.lo));
+                yRaw.push_back(pRaw);
+                eyRaw.push_back(epRaw);
+                yCorr.push_back(pCorr);
+                eyCorr.push_back(epCorr);
+
+                summary.push_back(
+                    TString::Format("%s  %.10g  %.10g  %.10g  %.10g  %.10g  %.10g  %.10g  %.10g  %.10g",
+                                    b.label.c_str(), A, B, C, D, sRaw, sCorr,
+                                    sRatio, pRaw, pCorr).Data()
+                );
+            }
+
+            WriteTextFile(JoinPath(phoPurityDir, "pho_abcdPurity_raw_vs_leakageCorrected.txt"), summary);
+
+            if (x.empty()) return;
+
+            TCanvas c("c_pho_abcdPurity", "c_pho_abcdPurity", 950, 720);
+            ApplyCanvasMargins1D(c);
+
+            TH1F frame("hFrame_pho_abcdPurity", "", 1, 8.0, 35.0);
+            frame.SetMinimum(0.0);
+            frame.SetMaximum(1.15);
+            frame.GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
+            frame.GetYaxis()->SetTitle("ABCD photon purity");
+            frame.Draw("axis");
+
+            TGraphErrors gRaw((int)x.size(), &x[0], &yRaw[0], &ex[0], &eyRaw[0]);
+            gRaw.SetMarkerStyle(20);
+            gRaw.SetMarkerSize(1.0);
+            gRaw.SetMarkerColor(kBlack);
+            gRaw.SetLineColor(kBlack);
+            gRaw.SetLineWidth(2);
+            gRaw.Draw("P same");
+
+            TGraphErrors gCorr;
+            if (haveLeakage)
+            {
+                gCorr = TGraphErrors((int)x.size(), &x[0], &yCorr[0], &ex[0], &eyCorr[0]);
+                gCorr.SetMarkerStyle(24);
+                gCorr.SetMarkerSize(1.0);
+                gCorr.SetMarkerColor(kRed + 1);
+                gCorr.SetLineColor(kRed + 1);
+                gCorr.SetLineWidth(2);
+                gCorr.Draw("P same");
+            }
+
+            TLegend leg(0.50, 0.76, 0.91, 0.90);
+            leg.SetBorderSize(0);
+            leg.SetFillStyle(0);
+            leg.SetTextFont(42);
+            leg.SetTextSize(0.033);
+            leg.AddEntry(&gRaw, "Raw ABCD purity", "p");
+            if (haveLeakage) leg.AddEntry(&gCorr, "Leakage-corrected ABCD purity", "p");
+            leg.Draw();
+
+            DrawLatexLines(0.14, 0.92, DefaultHeaderLines(dsData), 0.034, 0.045);
+            DrawLatexLines(0.14, 0.78, { "Photon normalization purity input" }, 0.030, 0.040);
+
+            SaveCanvas(c, JoinPath(phoPurityDir, "pho_abcdPurity_raw_vs_leakageCorrected.png"));
+        };
+
+        MakePhotonABCDPurityOverlay();
         
         auto MakePhotonFigure30Like =
         [&](TH1* hRecoDataForFit,
@@ -984,14 +1271,12 @@
             
             TCanvas c(TString::Format("c_phoFig30_%s", plotTag.c_str()).Data(),
                       TString::Format("c_phoFig30_%s", plotTag.c_str()).Data(),
-                      950, 1050);
+                      760, 1000);
             
             TPad* pTop = new TPad(TString::Format("pTop_phoFig30_%s", plotTag.c_str()).Data(), "",
-                                  0.0, 0.46, 1.0, 1.0);
+                                  0.0, 0.35, 1.0, 1.0);
             TPad* pMid = new TPad(TString::Format("pMid_phoFig30_%s", plotTag.c_str()).Data(), "",
-                                  0.0, 0.18, 1.0, 0.46);
-            TPad* pBot = new TPad(TString::Format("pBot_phoFig30_%s", plotTag.c_str()).Data(), "",
-                                  0.0, 0.00, 1.0, 0.18);
+                                  0.0, 0.00, 1.0, 0.35);
             
             pTop->SetLeftMargin(0.14);
             pTop->SetRightMargin(0.04);
@@ -1003,19 +1288,11 @@
             pMid->SetLeftMargin(0.14);
             pMid->SetRightMargin(0.04);
             pMid->SetTopMargin(0.02);
-            pMid->SetBottomMargin(0.02);
+            pMid->SetBottomMargin(0.24);
             pMid->SetTicks(1, 1);
-            
-            pBot->SetLeftMargin(0.14);
-            pBot->SetRightMargin(0.04);
-            pBot->SetTopMargin(0.02);
-            pBot->SetBottomMargin(0.32);
-            pBot->SetTicks(1, 1);
-            pBot->SetGridy(1);
             
             pTop->Draw();
             pMid->Draw();
-            pBot->Draw();
             
             pTop->cd();
             
@@ -1040,12 +1317,25 @@
             gData.Draw("PZ same");
             gSim.Draw("PZ same");
             
-            TLegend legTop(0.14, 0.14, 0.42, 0.28);
+            TLegend legTop(0.14, 0.06, 0.70, 0.19);
             legTop.SetBorderSize(0);
             legTop.SetFillStyle(0);
             legTop.SetTextFont(42);
-            legTop.SetTextSize(0.040);
-            legTop.AddEntry(&gData, "Data (purity corrected)", "pe");
+            legTop.SetTextSize(0.030);
+            string dataLegendLabel = "Data (purity corrected)";
+            if (dsData.inFilePath.find("preselectionReference_tightReference_nonTightReference") != string::npos ||
+                dsData.label.find("reference") != string::npos ||
+                dsData.label.find("Reference") != string::npos)
+            {
+                dataLegendLabel = "Data (purity corrected) box-cuts";
+            }
+            else if (dsData.inFilePath.find("preselectionVariantA_tightVariantA_nonTightVariantA") != string::npos ||
+                     dsData.label.find("variantA") != string::npos ||
+                     dsData.label.find("VariantA") != string::npos)
+            {
+                dataLegendLabel = "NPB + BDT";
+            }
+            legTop.AddEntry(&gData, dataLegendLabel.c_str(), "pe");
             legTop.AddEntry(&gSim,  "Pythia signal", "pe");
             legTop.Draw();
             
@@ -1054,7 +1344,7 @@
             tTop.SetTextFont(42);
             tTop.SetTextAlign(33);
             tTop.SetTextSize(0.048);
-            tTop.DrawLatex(0.93, 0.93, "sPHENIX Internal");
+            tTop.DrawLatex(0.93, 0.93, "#bf{sPHENIX} #it{Internal}");
             tTop.DrawLatex(0.93, 0.86, "p+p  #sqrt{s} = 200 GeV");
             tTop.DrawLatex(0.93, 0.79, "|#eta^{#gamma}| < 0.7");
             tTop.SetTextSize(0.035);
@@ -1071,9 +1361,10 @@
             hFrameMid.SetTitle("");
             hFrameMid.SetMinimum(0.0);
             hFrameMid.SetMaximum(std::max(1.45, 1.15 * ratioMax));
-            hFrameMid.GetXaxis()->SetTitle("");
-            hFrameMid.GetXaxis()->SetLabelSize(0.0);
-            hFrameMid.GetXaxis()->SetTitleSize(0.0);
+            hFrameMid.GetXaxis()->SetTitle("E_{T}^{#gamma} [GeV]");
+            hFrameMid.GetXaxis()->SetTitleSize(0.075);
+            hFrameMid.GetXaxis()->SetTitleOffset(0.95);
+            hFrameMid.GetXaxis()->SetLabelSize(0.060);
             hFrameMid.GetYaxis()->SetTitle("Reweighting factor");
             hFrameMid.GetYaxis()->SetTitleSize(0.055);
             hFrameMid.GetYaxis()->SetTitleOffset(1.10);
@@ -1089,45 +1380,6 @@
                 l1.SetLineWidth(2);
                 l1.Draw("same");
             }
-            
-            TLatex tMid;
-            tMid.SetNDC(true);
-            tMid.SetTextFont(42);
-            tMid.SetTextAlign(13);
-            tMid.SetTextSize(0.038);
-            tMid.DrawLatex(0.16, 0.88, "Fit: Pade [2/2], 8-35 GeV");
-            tMid.DrawLatex(0.16, 0.78, "Non-positive ratio points shown, but excluded from fit");
-            
-            pBot->cd();
-            
-            TH1D hFrameBot(TString::Format("hPhoFig30Bot_%s", plotTag.c_str()).Data(),
-                           "",
-                           (int) displayEdges.size() - 1,
-                           &displayEdges[0]);
-            hFrameBot.SetDirectory(nullptr);
-            hFrameBot.SetStats(0);
-            hFrameBot.SetTitle("");
-            hFrameBot.SetMinimum(-pullAbsMax);
-            hFrameBot.SetMaximum(+pullAbsMax);
-            hFrameBot.GetXaxis()->SetTitle("E_{T}^{#gamma} [GeV]");
-            hFrameBot.GetXaxis()->SetTitleSize(0.15);
-            hFrameBot.GetXaxis()->SetTitleOffset(0.95);
-            hFrameBot.GetXaxis()->SetLabelSize(0.12);
-            hFrameBot.GetYaxis()->SetTitle("Pull");
-            hFrameBot.GetYaxis()->SetTitleSize(0.12);
-            hFrameBot.GetYaxis()->SetTitleOffset(0.45);
-            hFrameBot.GetYaxis()->SetLabelSize(0.10);
-            hFrameBot.GetYaxis()->SetNdivisions(505);
-            hFrameBot.Draw("axis");
-            
-            {
-                TLine l0(fitMin, 0.0, fitMax, 0.0);
-                l0.SetLineStyle(2);
-                l0.SetLineWidth(2);
-                l0.Draw("same");
-            }
-            
-            if (gPull) gPull->Draw("PZ same");
             
             c.cd();
             c.Modified();
@@ -1218,7 +1470,6 @@
             if (gPull) delete gPull;
             delete pTop;
             delete pMid;
-            delete pBot;
         };
         
         auto MakeSamOverlayRawPurityPlot =
@@ -1998,6 +2249,7 @@
             vector<double> eyQuad;
             int bestIt = -1;
             double bestQuad = std::numeric_limits<double>::max();
+            string bestReason;
         };
         
         auto BuildPhotonIterScan = [&](RooUnfoldResponse& resp,
@@ -2041,6 +2293,7 @@
             hPrev->SetDirectory(nullptr);
             EnsureSumw2(hPrev);
             hPrev->Reset("ICES");
+            bool choseStableIteration = false;
             
             for (int ib = 1; ib <= hPrev->GetNbinsX(); ++ib)
             {
@@ -2068,32 +2321,33 @@
                 hIt->SetDirectory(nullptr);
                 EnsureSumw2(hIt);
                 
-                double sumV = 0.0;
-                for (const int ib : selTruthBins)
-                {
-                    if (ib < 1 || ib > hIt->GetNbinsX()) continue;
-                    sumV += hIt->GetBinContent(ib);
-                }
-                
-                double sumCov = 0.0;
+                double sumDiagCov = 0.0;
+                double sumV2ForStat = 0.0;
                 const int nCovRows = cov.GetNrows();
                 const int nCovCols = cov.GetNcols();
                 
                 for (size_t i = 0; i < selTruthBins.size(); ++i)
                 {
                     const int ii = selTruthBins[i] - 1;
-                    if (ii < 0 || ii >= nCovRows) continue;
-                    
-                    for (size_t j = 0; j < selTruthBins.size(); ++j)
-                    {
-                        const int jj = selTruthBins[j] - 1;
-                        if (jj < 0 || jj >= nCovCols) continue;
-                        sumCov += cov(ii, jj);
-                    }
+                    if (ii < 0 || ii >= nCovRows || ii >= nCovCols) continue;
+
+                    const double cii = cov(ii, ii);
+                    if (!(std::isfinite(cii) && cii > 0.0)) continue;
+
+                    sumDiagCov += cii;
+
+                    const int hbin = ii + 1;
+                    if (hbin < 1 || hbin > hIt->GetNbinsX()) continue;
+                    const double v = hIt->GetBinContent(hbin);
+                    if (!std::isfinite(v)) continue;
+                    sumV2ForStat += v * v;
                 }
                 
                 double relStat = 0.0;
-                if (sumV > 0.0) relStat = std::sqrt(std::max(0.0, sumCov)) / sumV;
+                if (sumV2ForStat > 0.0)
+                {
+                    relStat = std::sqrt(std::max(0.0, sumDiagCov / sumV2ForStat));
+                }
                 
                 double relDev = 0.0;
                 {
@@ -2115,7 +2369,12 @@
                     if (den2 > 0.0) relDev = std::sqrt(num2 / den2);
                 }
                 
-                const double quad = std::sqrt(relStat * relStat + relDev * relDev);
+                if (!std::isfinite(relStat)) relStat = 0.0;
+
+                const double stableThreshold = std::max(relStat, 0.025);
+                const bool stableEnough = (it >= 3 && relDev <= stableThreshold);
+                const double iterPenalty = 0.010 * std::max(0, it - 3);
+                const double stabilityScore = std::sqrt(relStat * relStat + relDev * relDev) + iterPenalty;
                 
                 s.xIt.push_back((double)it);
                 s.exIt.push_back(0.0);
@@ -2123,13 +2382,23 @@
                 s.eyRelStat.push_back(0.0);
                 s.yRelChange.push_back(relDev);
                 s.eyRelChange.push_back(0.0);
-                s.yQuad.push_back(quad);
+                s.yQuad.push_back(stabilityScore);
                 s.eyQuad.push_back(0.0);
                 
-                if (quad < s.bestQuad)
+                if (stableEnough && !choseStableIteration)
                 {
-                    s.bestQuad = quad;
+                    s.bestQuad = stabilityScore;
                     s.bestIt = it;
+                    s.bestReason = TString::Format(
+                        "earliest stable iteration: relChange %.6g <= max(relStat %.6g, 0.025)",
+                        relDev, relStat).Data();
+                    choseStableIteration = true;
+                }
+                else if (!choseStableIteration && stabilityScore < s.bestQuad)
+                {
+                    s.bestQuad = stabilityScore;
+                    s.bestIt = it;
+                    s.bestReason = "minimum regularized stability score";
                 }
                 
                 delete hPrev;
@@ -2202,6 +2471,7 @@
             hPrev->SetDirectory(nullptr);
             EnsureSumw2(hPrev);
             hPrev->Reset("ICES");
+            bool choseStableIteration = false;
             
             const int nbPrevFill = std::min(hPrev->GetNbinsX(), hMeasuredGlob->GetNbinsX());
             for (int ib = 1; ib <= nbPrevFill; ++ib)
@@ -2255,7 +2525,6 @@
                 hCurr2D->SetDirectory(nullptr);
                 hPrev2D->SetDirectory(nullptr);
                 
-                double sumV  = 0.0;
                 double sumV2 = 0.0;
                 double sumD2 = 0.0;
                 
@@ -2273,58 +2542,82 @@
                         
                         if (v == 0.0 && vp == 0.0) continue;
                         
-                        sumV  += v;
                         sumV2 += v * v;
                         sumD2 += d * d;
                     }
                 }
                 
-                double sumCov = 0.0;
+                double sumDiagCov = 0.0;
                 const int nCovRows = cov.GetNrows();
                 const int nCovCols = cov.GetNcols();
                 
                 for (size_t i = 0; i < selTruthGlobalBins.size(); ++i)
                 {
                     const int ii = selTruthGlobalBins[i];
-                    if (ii < 0 || ii >= nCovRows) continue;
-                    
-                    for (size_t j = 0; j < selTruthGlobalBins.size(); ++j)
-                    {
-                        const int jj = selTruthGlobalBins[j];
-                        if (jj < 0 || jj >= nCovCols) continue;
-                        sumCov += cov(ii, jj);
-                    }
+                    if (ii < 0 || ii >= nCovRows || ii >= nCovCols) continue;
+
+                    const double cii = cov(ii, ii);
+                    if (!(std::isfinite(cii) && cii > 0.0)) continue;
+
+                    sumDiagCov += cii;
                 }
-                
-                const double relStat = (sumV > 0.0) ? (std::sqrt(std::max(0.0, sumCov)) / sumV) : 0.0;
+
+                double relStat = 0.0;
+                if (sumV2 > 0.0)
+                {
+                    relStat = std::sqrt(std::max(0.0, sumDiagCov / sumV2));
+                }
+
+                if (!std::isfinite(relStat)) relStat = 0.0;
+
                 const double relChg  = (sumV2 > 0.0) ? std::sqrt(sumD2 / sumV2) : 0.0;
-                
+
+                // RooUnfoldBayes changes monotonically smaller at high iteration,
+                // so a plain successive-iteration quadrature almost always picks
+                // the scan maximum.  Stop at the early elbow: the L2 iterate
+                // change should be below the covariance scale, but low-stat
+                // purity-corrected pp spectra should not be driven to tiny
+                // percent-level changes where Bayes iterations amplify noise.
+                const double stableThreshold = std::max(2.0 * relStat, 0.15);
+                const bool stableEnough = (it >= 3 && relChg <= stableThreshold);
+                const double iterPenalty = 0.015 * std::max(0, it - 3);
+                const double stabilityScore = std::sqrt(relStat * relStat + relChg * relChg) + iterPenalty;
+
                 s.xIt.push_back((double)it);
                 s.exIt.push_back(0.0);
                 s.yRelStat.push_back(relStat);
                 s.eyRelStat.push_back(0.0);
                 s.yRelChange.push_back(relChg);
                 s.eyRelChange.push_back(0.0);
-                s.yQuad.push_back(std::sqrt(relStat * relStat + relChg * relChg));
+                s.yQuad.push_back(stabilityScore);
                 s.eyQuad.push_back(0.0);
-                
-                if (s.yQuad.back() < s.bestQuad)
+
+                if (stableEnough && !choseStableIteration)
                 {
-                    s.bestQuad = s.yQuad.back();
+                    s.bestQuad = stabilityScore;
                     s.bestIt = it;
+                    s.bestReason = TString::Format(
+                        "earliest stable iteration: relChange %.6g <= max(2*relStat %.6g, 0.15)",
+                        relChg, relStat).Data();
+                    choseStableIteration = true;
                 }
-                
+                else if (!choseStableIteration && stabilityScore < s.bestQuad)
+                {
+                    s.bestQuad = stabilityScore;
+                    s.bestIt = it;
+                    s.bestReason = "minimum regularized stability score";
+                }
+
                 delete hCurr2D;
                 delete hPrev2D;
                 delete hPrev;
                 hPrev = hCurr;
             }
-            
+
             if (hPrev) delete hPrev;
-            
+
             return s;
         };
-        
         cout << "\n  [5I] Photon unfolding inputs:\n";
         PrintGet(dsData, phoRecoName,   hPhoRecoData_in);
         PrintGet(dsSim,  phoRecoName,   hPhoRecoSim_in);
@@ -2996,7 +3289,7 @@
         << "[PHO ITER AUTO] Using Bayes iteration " << kBayesIterPho;
         if (phoIterScan.bestIt > 0 && std::isfinite(phoIterScan.bestQuad))
         {
-            cout << " from quadrature-sum minimum (" << phoIterScan.bestQuad << ")";
+            cout << " from stability criterion (" << phoIterScan.bestQuad << ")";
         }
         else
         {
@@ -3041,6 +3334,7 @@
             {
                 TCanvas c("c_pho_respT","c_pho_respT", 900, 750);
                 ApplyCanvasMargins2D(c);
+                c.SetTopMargin(0.16);
                 c.SetLogz();
                 
                 hPhoResp_measXtruth->SetTitle("");
@@ -3116,15 +3410,17 @@
                 if (truthUFHi > truthMin && truthUFHi < truthMax) lTruthUF2.Draw("same");
                 if (truthOFLo > truthMin && truthOFLo < truthMax) lTruthOF.Draw("same");
                 
-                DrawLatexLines(0.14,0.985, DefaultHeaderLines(dsSim), 0.034, 0.045);
-                DrawLatexLines(0.14,0.88, { "SIM photon response (transpose)", "reco #rightarrow truth axis order" }, 0.030, 0.040);
-                DrawLatexLines(0.52,0.36,
+                DrawLatexLines(0.14,0.965, DefaultHeaderLines(dsSim), 0.034, 0.045);
+                DrawLatexLines(0.14,0.905, { "SIM photon response (transpose)", "reco #rightarrow truth axis order" }, 0.030, 0.040);
+                DrawLatexLines(0.66,0.405,
                                {
                     "UF / OF support bins:",
-                    "reco: 8-10 = UF, 35-40 = OF",
-                    "truth: 5-8 and 8-10 = UF, 35-40 = OF"
+                    "reco: 8-10 = UF",
+                    "reco: 35-40 = OF",
+                    "truth: 5-8, 8-10 = UF",
+                    "truth: 35-40 = OF"
                 },
-                               0.026, 0.035);
+                               0.023, 0.029);
                 
                 c.Modified();
                 c.Update();
@@ -3166,7 +3462,7 @@
                     TLegend leg(0.55,0.76,0.92,0.90);
                     leg.SetTextFont(42);
                     leg.SetTextSize(0.032);
-                    leg.AddEntry(hRecoShape, "Run24pp Reco", "lep");
+                    leg.AddEntry(hRecoShape, "DATA reco", "lep");
                     leg.AddEntry(hUnfShape,  TString::Format("Unfolded (truth), Bayes it=%d", kBayesIterPho).Data(), "lep");
                     leg.Draw();
                     
@@ -3401,7 +3697,7 @@
                         TLegend leg(0.55,0.76,0.92,0.90);
                         leg.SetTextFont(42);
                         leg.SetTextSize(0.032);
-                        leg.AddEntry(hRecoShape, "PP DATA (reco)", "lep");
+                        leg.AddEntry(hRecoShape, "DATA reco", "lep");
                         leg.AddEntry(hUnfShape,  TString::Format("Unfolded (truth), Bayes it=%d", kBayesIterPho).Data(), "lep");
                         leg.Draw();
                         
@@ -3654,8 +3950,8 @@
                             TLegend leg3(0.48, 0.70, 0.92, 0.90);
                             leg3.SetTextFont(42);
                             leg3.SetTextSize(0.032);
-                            leg3.AddEntry(hRaw, "PP DATA (reco, non-purity-corrected)", "lep");
-                            leg3.AddEntry(hPur, "PP DATA (reco, purity-corrected)", "lep");
+                            leg3.AddEntry(hRaw, "DATA reco, non-purity-corrected", "lep");
+                            leg3.AddEntry(hPur, "DATA reco, purity-corrected", "lep");
                             leg3.AddEntry(hUnf, TString::Format("Unfolded (truth), Bayes it=%d", kBayesIterPho).Data(), "lep");
                             leg3.Draw();
                             
@@ -4711,7 +5007,7 @@
                 h->GetYaxis()->SetRangeUser(yMin, yMax);
             };
             
-            const bool buildPhotonQA = gApplyPurityCorrectionForUnfolding;
+            const bool buildPhotonQA = true;
             const string phoQADir       = JoinPath(phoDir, "QA");
             const string qaMasterDir    = JoinPath(phoQADir, "01_master");
             const string qaBudgetDir    = JoinPath(phoQADir, "02_budget");
@@ -4920,7 +5216,7 @@
                     TLegend leg(0.55,0.76,0.92,0.90);
                     leg.SetTextFont(42);
                     leg.SetTextSize(0.032);
-                    leg.AddEntry(hRecoShape, "PP DATA (reco)", "lep");
+                    leg.AddEntry(hRecoShape, "DATA reco", "lep");
                     leg.AddEntry(hUnfShape,  TString::Format("Unfolded (truth), Bayes it=%d", kBayesIterPho).Data(), "lep");
                     leg.Draw();
                     
@@ -5508,7 +5804,7 @@
         
         // Photon summary for unfolding RECO pT bins
         vector<string> phoSummary;
-        phoSummary.push_back("Photon unfolding summary (PP DATA unfolded to truth pTgamma)");
+        phoSummary.push_back("Photon unfolding summary (DATA unfolded to truth pTgamma)");
         phoSummary.push_back(TString::Format("Method: RooUnfoldBayes, iterations=%d, error=kCovToy, Ntoys=%d", kBayesIterPho, kNToysPhoFinal).Data());
         phoSummary.push_back("");
         
@@ -5559,6 +5855,33 @@
                 if (hPhoUnfoldTruth_cov)  hPhoUnfoldTruth_cov->Write("h_phoTruth_unfolded_data_covariance");
                 f.Close();
             }
+        }
+
+        {
+            vector<string> index;
+            index.push_back("Photon unfolding output index");
+            index.push_back("outputDir = " + phoDir);
+            index.push_back("variant = " + unfoldFolderLabel);
+            index.push_back("data = " + dsData.inFilePath);
+            index.push_back("sim = " + dsSim.inFilePath);
+            index.push_back("trigger = " + dsData.trigger);
+            index.push_back("centrality = " + (dsData.centLabel.empty() ? string("inclusive") : dsData.centLabel));
+            index.push_back("");
+            index.push_back("Open first:");
+            index.push_back("  yields/pho_unfolded_truth_pTgamma_overlay_logy.png");
+            index.push_back("  purity/pho_abcdPurity_raw_vs_leakageCorrected.png");
+            index.push_back("  QA/03_response/pho_responseShape_summary.png");
+            index.push_back("  QA/01_master/pho_master_yields_and_ratios.png");
+            index.push_back("  QA/02_budget/pho_correction_budget_summary.png");
+            index.push_back("  QA/04_support/pho_supportFeedin_summary.png");
+            index.push_back("  validation/pho_unfold_iterStability_relChange_relStat.png");
+            index.push_back("  validation/pho_unfold_iterStability_quadratureSum.png");
+            index.push_back("  validation/pho_closure_unfoldedOverTruth_vs_pTgamma.png");
+            index.push_back("  validation/pho_halfClosure_unfoldedOverTruth_vs_pTgamma.png");
+            index.push_back("");
+            index.push_back("ROOT payload:");
+            index.push_back("  rooUnfold_photons.root");
+            WriteTextFile(JoinPath(phoDir, "photon_output_index.txt"), index);
         }
         
         // ----------------------------------------------------------------------
@@ -5669,7 +5992,7 @@
                         tx.SetTextFont(42);
                         tx.SetTextAlign(22);
                         tx.SetTextSize(0.040);
-                        tx.DrawLatex(0.50, 0.965, "Iteration Stability, Photon 4 + MBD NS #geq 1, Run24pp");
+                        tx.DrawLatex(0.50, 0.965, "Photon iteration stability");
                     }
                     
                     {
@@ -5733,7 +6056,7 @@
                             tx.SetTextFont(42);
                             tx.SetTextAlign(22);
                             tx.SetTextSize(0.040);
-                            tx.DrawLatex(0.50, 0.965, "Iteration Stability, Photon 4 + MBD NS #geq 1, Run24pp");
+                            tx.DrawLatex(0.50, 0.965, "Photon iteration stability");
                         }
                         
                         {
@@ -5761,7 +6084,7 @@
                     frameQ.SetMaximum(ymaxQ);
                     frameQ.SetTitle("");
                     frameQ.GetXaxis()->SetTitle("Iteration");
-                    frameQ.GetYaxis()->SetTitle("Quadrature sum");
+                    frameQ.GetYaxis()->SetTitle("Stability score");
                     frameQ.Draw("axis");
                     
                     TGraphErrors gQuad((int)xIt.size(), &xIt[0], &yQuad[0], &exIt[0], &eyQuad[0]);
@@ -5793,10 +6116,10 @@
                     legQ.SetFillStyle(0);
                     legQ.SetTextFont(42);
                     legQ.SetTextSize(0.033);
-                    legQ.AddEntry(&gQuad, "quadrature sum", "lp");
+                    legQ.AddEntry(&gQuad, "stability score", "lp");
                     if (bestIt > 0 && std::isfinite(bestQuad))
                     {
-                        legQ.AddEntry(&gBest, TString::Format("minimum: it=%d", bestIt).Data(), "p");
+                        legQ.AddEntry(&gBest, TString::Format("selected: it=%d", bestIt).Data(), "p");
                     }
                     legQ.Draw();
                     
@@ -5806,7 +6129,7 @@
                         tx.SetTextFont(42);
                         tx.SetTextAlign(22);
                         tx.SetTextSize(0.040);
-                        tx.DrawLatex(0.50, 0.965, "Quadrature-sum optimization, Photon 4 + MBD NS #geq 1, Run24pp");
+                        tx.DrawLatex(0.50, 0.965, "Photon stability-score optimization");
                     }
                     
                     {
@@ -5835,7 +6158,7 @@
                         frameQNo1.SetMaximum(ymaxQNo1);
                         frameQNo1.SetTitle("");
                         frameQNo1.GetXaxis()->SetTitle("Iteration");
-                        frameQNo1.GetYaxis()->SetTitle("Quadrature sum");
+                        frameQNo1.GetYaxis()->SetTitle("Stability score");
                         frameQNo1.Draw("axis");
                         
                         TGraphErrors gQuadNo1((int)xItNo1.size(), &xItNo1[0], &yQuadNo1[0], &exItNo1[0], &eyQuadNo1[0]);
@@ -5851,7 +6174,7 @@
                         legQNo1.SetFillStyle(0);
                         legQNo1.SetTextFont(42);
                         legQNo1.SetTextSize(0.033);
-                        legQNo1.AddEntry(&gQuadNo1, "quadrature sum", "lp");
+                        legQNo1.AddEntry(&gQuadNo1, "stability score", "lp");
                         legQNo1.Draw();
                         
                         {
@@ -5860,7 +6183,7 @@
                             tx.SetTextFont(42);
                             tx.SetTextAlign(22);
                             tx.SetTextSize(0.040);
-                            tx.DrawLatex(0.50, 0.965, "Quadrature-sum optimization, Photon 4 + MBD NS #geq 1, Run24pp");
+                            tx.DrawLatex(0.50, 0.965, "Photon stability-score optimization");
                         }
                         
                         {
@@ -5877,20 +6200,21 @@
                     
                     vector<string> iterSummary;
                     iterSummary.push_back("Photon iteration-stability summary");
-                    iterSummary.push_back(TString::Format("best iteration from quadrature sum = %d", bestIt).Data());
-                    iterSummary.push_back(TString::Format("minimum quadrature sum = %.10g", bestQuad).Data());
+                    iterSummary.push_back(TString::Format("selected iteration from stability criterion = %d", bestIt).Data());
+                    iterSummary.push_back(TString::Format("selected stability score = %.10g", bestQuad).Data());
+                    if (!phoIterScan.bestReason.empty()) iterSummary.push_back("selection reason: " + phoIterScan.bestReason);
                     iterSummary.push_back("relChange is defined as the successive-iterate difference it vs (it-1), with iteration 1 using the explicit 0->1 baseline.");
                     iterSummary.push_back("iteration 0 baseline is the measured input histogram mapped onto the unfolding comparison axis, so iteration 1 is included in the best-iteration choice.");
                     iterSummary.push_back("additional plots with suffix _noIter1 exclude iteration 1 from the display only; they do not change the scan or best-iteration choice.");
                     iterSummary.push_back("relStat is built from the full RooUnfold::kCovToy covariance restricted to the 9 analysis p_{T}^{#gamma} bins.");
                     iterSummary.push_back("support / underflow / overflow bins are excluded from the stability scalar.");
-                    iterSummary.push_back("quadrature sum definition: sqrt(relStat^2 + relChange^2)");
+                    iterSummary.push_back("stability score definition: sqrt(relStat^2 + relChange^2) + small high-iteration penalty; selected iteration is the earliest stable point when relChange falls below the per-bin statistical precision.");
                     iterSummary.push_back("");
                     
                     for (size_t i = 0; i < xIt.size(); ++i)
                     {
                         iterSummary.push_back(
-                                              TString::Format("it=%d  relStat=%.10g  relChange=%.10g  quadratureSum=%.10g",
+                                              TString::Format("it=%d  relStat=%.10g  relChange=%.10g  stabilityScore=%.10g",
                                                               (int)xIt[i], yRelStat[i], yRelDev[i], yQuad[i]).Data()
                                               );
                     }
@@ -5898,8 +6222,8 @@
                     WriteTextFile(JoinPath(phoValDir, "pho_unfold_iterStability_bestIteration.txt"), iterSummary);
                     
                     cout << ANSI_BOLD_CYN
-                    << "[PHO ITER QA] best iteration from quadrature sum = " << bestIt
-                    << "  minimum = " << bestQuad
+                    << "[PHO ITER QA] selected iteration from stability criterion = " << bestIt
+                    << "  score = " << bestQuad
                     << ANSI_RESET << "\n";
                 }
             }
@@ -6880,7 +7204,7 @@
                 << "[PHO ITER AUTO] Using Bayes iteration " << kBayesIterPho;
                 if (phoIterScan.bestIt > 0 && std::isfinite(phoIterScan.bestQuad))
                 {
-                    cout << " from quadrature-sum minimum (" << phoIterScan.bestQuad << ")";
+                    cout << " from stability criterion (" << phoIterScan.bestQuad << ")";
                 }
                 else
                 {
@@ -6925,6 +7249,7 @@
                     {
                         TCanvas c("c_pho_respT","c_pho_respT", 900, 750);
                         ApplyCanvasMargins2D(c);
+                        c.SetTopMargin(0.16);
                         c.SetLogz();
                         
                         hPhoResp_measXtruth->SetTitle("");
@@ -6995,15 +7320,17 @@
                         if (truthUFHi > truthMin && truthUFHi < truthMax) lTruthUF2.Draw("same");
                         if (truthOFLo > truthMin && truthOFLo < truthMax) lTruthOF.Draw("same");
                         
-                        DrawLatexLines(0.14,0.985, DefaultHeaderLines(dsSim), 0.034, 0.045);
-                        DrawLatexLines(0.14,0.88, { "SIM photon response (transpose)", "reco #rightarrow truth axis order" }, 0.030, 0.040);
-                        DrawLatexLines(0.52,0.36,
+                        DrawLatexLines(0.14,0.965, DefaultHeaderLines(dsSim), 0.034, 0.045);
+                        DrawLatexLines(0.14,0.905, { "SIM photon response (transpose)", "reco #rightarrow truth axis order" }, 0.030, 0.040);
+                        DrawLatexLines(0.66,0.405,
                                        {
                             "UF / OF support bins:",
-                            "reco: 8-10 = UF, 35-40 = OF",
-                            "truth: 5-8 and 8-10 = UF, 35-40 = OF"
+                            "reco: 8-10 = UF",
+                            "reco: 35-40 = OF",
+                            "truth: 5-8, 8-10 = UF",
+                            "truth: 35-40 = OF"
                         },
-                                       0.026, 0.035);
+                                       0.023, 0.029);
                         
                         c.Modified();
                         c.Update();
@@ -7045,7 +7372,7 @@
                             TLegend leg(0.55,0.76,0.92,0.90);
                             leg.SetTextFont(42);
                             leg.SetTextSize(0.032);
-                            leg.AddEntry(hRecoShape, "Run24pp Reco", "lep");
+                            leg.AddEntry(hRecoShape, "DATA reco", "lep");
                             leg.AddEntry(hUnfShape,  TString::Format("Unfolded (truth), Bayes it=%d", kBayesIterPho).Data(), "lep");
                             leg.Draw();
                             
@@ -7280,7 +7607,7 @@
                                 TLegend leg(0.55,0.76,0.92,0.90);
                                 leg.SetTextFont(42);
                                 leg.SetTextSize(0.032);
-                                leg.AddEntry(hRecoShape, "PP DATA (reco)", "lep");
+                                leg.AddEntry(hRecoShape, "DATA reco", "lep");
                                 leg.AddEntry(hUnfShape,  TString::Format("Unfolded (truth), Bayes it=%d", kBayesIterPho).Data(), "lep");
                                 leg.Draw();
                                 
@@ -8285,7 +8612,7 @@
                         h->GetYaxis()->SetRangeUser(yMin, yMax);
                     };
                     
-                    const bool buildPhotonQA = gApplyPurityCorrectionForUnfolding;
+                    const bool buildPhotonQA = true;
                     const string phoQADir       = JoinPath(phoDir, "QA");
                     const string qaMasterDir    = JoinPath(phoQADir, "01_master");
                     const string qaBudgetDir    = JoinPath(phoQADir, "02_budget");
@@ -8305,6 +8632,7 @@
                     {
                         TCanvas c("c_pho_respT","c_pho_respT", 900, 750);
                         ApplyCanvasMargins2D(c);
+                        c.SetTopMargin(0.16);
                         c.SetLogz();
                         
                         hPhoResp_measXtruth->SetTitle("");
@@ -8360,15 +8688,17 @@
                         if (truthUFHi > truthMin) lTruthUF2.Draw("same");
                         if (truthOFLo > truthMin) lTruthOF.Draw("same");
                         
-                        DrawLatexLines(0.14,0.985, DefaultHeaderLines(dsSim), 0.034, 0.045);
-                        DrawLatexLines(0.14,0.88, { "SIM photon response (transpose)", "reco #rightarrow truth axis order" }, 0.030, 0.040);
-                        DrawLatexLines(0.52,0.36,
+                        DrawLatexLines(0.14,0.965, DefaultHeaderLines(dsSim), 0.034, 0.045);
+                        DrawLatexLines(0.14,0.905, { "SIM photon response (transpose)", "reco #rightarrow truth axis order" }, 0.030, 0.040);
+                        DrawLatexLines(0.66,0.405,
                                        {
                             "UF / OF support bins:",
-                            "reco: 8-10 = UF, 35-40 = OF",
-                            "truth: 5-8 and 8-10 = UF, 35-40 = OF"
+                            "reco: 8-10 = UF",
+                            "reco: 35-40 = OF",
+                            "truth: 5-8, 8-10 = UF",
+                            "truth: 35-40 = OF"
                         },
-                                       0.026, 0.035);
+                                       0.023, 0.029);
                         
                         c.Modified();
                         c.Update();
@@ -8493,7 +8823,7 @@
                             TLegend leg(0.55,0.76,0.92,0.90);
                             leg.SetTextFont(42);
                             leg.SetTextSize(0.032);
-                            leg.AddEntry(hRecoShape, "PP DATA (reco)", "lep");
+                            leg.AddEntry(hRecoShape, "DATA reco", "lep");
                             leg.AddEntry(hUnfShape,  TString::Format("Unfolded (truth), Bayes it=%d", kBayesIterPho).Data(), "lep");
                             leg.Draw();
                             
@@ -9081,7 +9411,7 @@
                 
                 // Photon summary for unfolding RECO pT bins
                 vector<string> phoSummary;
-                phoSummary.push_back("Photon unfolding summary (PP DATA unfolded to truth pTgamma)");
+                phoSummary.push_back("Photon unfolding summary (DATA unfolded to truth pTgamma)");
                 phoSummary.push_back(TString::Format("Method: RooUnfoldBayes, iterations=%d, error=kCovToy, Ntoys=%d", kBayesIterPho, kNToysPhoFinal).Data());
                 phoSummary.push_back("");
                 
@@ -9220,7 +9550,7 @@
                                 tx.SetTextFont(42);
                                 tx.SetTextAlign(22);
                                 tx.SetTextSize(0.040);
-                                tx.DrawLatex(0.50, 0.965, "Iteration Stability, Photon 4 + MBD NS #geq 1, Run24pp");
+                                tx.DrawLatex(0.50, 0.965, "Photon iteration stability");
                             }
                             
                             // Label under legend (photon 1D unfolding)
@@ -9248,7 +9578,7 @@
                             frameQ.SetMaximum(ymaxQ);
                             frameQ.SetTitle("");
                             frameQ.GetXaxis()->SetTitle("Iteration");
-                            frameQ.GetYaxis()->SetTitle("Quadrature sum");
+                            frameQ.GetYaxis()->SetTitle("Stability score");
                             frameQ.Draw("axis");
                             
                             TGraphErrors gQuad((int)xIt.size(), &xIt[0], &yQuad[0], &exIt[0], &eyQuad[0]);
@@ -9280,10 +9610,10 @@
                             legQ.SetFillStyle(0);
                             legQ.SetTextFont(42);
                             legQ.SetTextSize(0.033);
-                            legQ.AddEntry(&gQuad, "quadrature sum", "lp");
+                            legQ.AddEntry(&gQuad, "stability score", "lp");
                             if (bestIt > 0 && std::isfinite(bestQuad))
                             {
-                                legQ.AddEntry(&gBest, TString::Format("minimum: it=%d", bestIt).Data(), "p");
+                                legQ.AddEntry(&gBest, TString::Format("selected: it=%d", bestIt).Data(), "p");
                             }
                             legQ.Draw();
                             
@@ -9293,7 +9623,7 @@
                                 tx.SetTextFont(42);
                                 tx.SetTextAlign(22);
                                 tx.SetTextSize(0.040);
-                                tx.DrawLatex(0.50, 0.965, "Quadrature-sum optimization, Photon 4 + MBD NS #geq 1, Run24pp");
+                                tx.DrawLatex(0.50, 0.965, "Photon stability-score optimization");
                             }
                             
                             {
@@ -9309,19 +9639,19 @@
                             
                             vector<string> iterSummary;
                             iterSummary.push_back("Photon iteration-stability summary");
-                            iterSummary.push_back(TString::Format("best iteration from quadrature sum = %d", bestIt).Data());
-                            iterSummary.push_back(TString::Format("minimum quadrature sum = %.10g", bestQuad).Data());
+                            iterSummary.push_back(TString::Format("selected iteration from stability criterion = %d", bestIt).Data());
+                            iterSummary.push_back(TString::Format("selected stability score = %.10g", bestQuad).Data());
                             iterSummary.push_back("relChange is defined as the successive-iterate difference it vs (it-1), with iteration 1 using the explicit 0->1 baseline.");
                             iterSummary.push_back("iteration 0 baseline is the measured input histogram mapped onto the unfolding comparison axis, so iteration 1 is included in the best-iteration choice.");
                             iterSummary.push_back("relStat is built from the full RooUnfold::kCovToy covariance restricted to the 9 analysis p_{T}^{#gamma} bins.");
                             iterSummary.push_back("support / underflow / overflow bins are excluded from the stability scalar.");
-                            iterSummary.push_back("quadrature sum definition: sqrt(relStat^2 + relChange^2)");
+                            iterSummary.push_back("stability score definition: sqrt(relStat^2 + relChange^2) + small high-iteration penalty; selected iteration is the earliest stable point when relChange falls below the per-bin statistical precision.");
                             iterSummary.push_back("");
                             
                             for (size_t i = 0; i < xIt.size(); ++i)
                             {
                                 iterSummary.push_back(
-                                                      TString::Format("it=%d  relStat=%.10g  relChange=%.10g  quadratureSum=%.10g",
+                                                      TString::Format("it=%d  relStat=%.10g  relChange=%.10g  stabilityScore=%.10g",
                                                                       (int)xIt[i], yRelStat[i], yRelDev[i], yQuad[i]).Data()
                                                       );
                             }
@@ -9329,8 +9659,8 @@
                             WriteTextFile(JoinPath(phoValDir, "pho_unfold_iterStability_bestIteration.txt"), iterSummary);
                             
                             cout << ANSI_BOLD_CYN
-                            << "[PHO ITER QA] best iteration from quadrature sum = " << bestIt
-                            << "  minimum = " << bestQuad
+                            << "[PHO ITER QA] selected iteration from stability criterion = " << bestIt
+                            << "  score = " << bestQuad
                             << ANSI_RESET << "\n";
                         }
                     }
@@ -10173,7 +10503,7 @@
             << "  Using Bayes iteration " << kBayesIterXJ;
             if (xjIterScan.bestIt > 0 && std::isfinite(xjIterScan.bestQuad))
             {
-                cout << " from quadrature-sum minimum (" << xjIterScan.bestQuad << ")";
+                cout << " from stability criterion (" << xjIterScan.bestQuad << ")";
             }
             else
             {
@@ -14342,7 +14672,7 @@
                     frameQ.SetMaximum(1.20 * yMaxQ);
                     frameQ.SetTitle("");
                     frameQ.GetXaxis()->SetTitle("Iteration");
-                    frameQ.GetYaxis()->SetTitle("Quadrature sum");
+                    frameQ.GetYaxis()->SetTitle("Stability score");
                     frameQ.Draw("axis");
                     
                     TGraphErrors gQuad((int)xIt.size(), &xIt[0], &yQuad[0], &exIt[0], &eyQuad[0]);
@@ -14374,10 +14704,10 @@
                     legQ.SetFillStyle(0);
                     legQ.SetTextFont(42);
                     legQ.SetTextSize(0.032);
-                    legQ.AddEntry(&gQuad, "quadrature sum", "lp");
+                    legQ.AddEntry(&gQuad, "stability score", "lp");
                     if (bestIt > 0 && std::isfinite(bestQuad))
                     {
-                        legQ.AddEntry(&gBest, TString::Format("minimum: it=%d", bestIt).Data(), "p");
+                        legQ.AddEntry(&gBest, TString::Format("selected: it=%d", bestIt).Data(), "p");
                     }
                     legQ.Draw();
                     
@@ -14396,7 +14726,7 @@
                         tx.SetTextFont(42);
                         tx.SetTextAlign(22);
                         tx.SetTextSize(0.040);
-                        tx.DrawLatex(0.50, 0.965, TString::Format("Quadrature-sum optimization, R = %.1f, Photon 4 + MBD NS #geq 1, Run24pp", R).Data());
+                        tx.DrawLatex(0.50, 0.965, TString::Format("Stability-score optimization, R = %.1f, Photon 4 + MBD NS #geq 1, Run24pp", R).Data());
                     }
                     
                     const std::string outQuadPng = JoinPath(iterationStabilityOut, "unfold_iterStability_quadratureSum.png");
@@ -14417,7 +14747,7 @@
                         frameQNo1.SetMaximum(1.20 * yMaxQNo1);
                         frameQNo1.SetTitle("");
                         frameQNo1.GetXaxis()->SetTitle("Iteration");
-                        frameQNo1.GetYaxis()->SetTitle("Quadrature sum");
+                        frameQNo1.GetYaxis()->SetTitle("Stability score");
                         frameQNo1.Draw("axis");
                         
                         TGraphErrors gQuadNo1((int)xItNo1.size(), &xItNo1[0], &yQuadNo1[0], &exItNo1[0], &eyQuadNo1[0]);
@@ -14433,7 +14763,7 @@
                         legQNo1.SetFillStyle(0);
                         legQNo1.SetTextFont(42);
                         legQNo1.SetTextSize(0.032);
-                        legQNo1.AddEntry(&gQuadNo1, "quadrature sum", "lp");
+                        legQNo1.AddEntry(&gQuadNo1, "stability score", "lp");
                         legQNo1.Draw();
                         
                         {
@@ -14451,7 +14781,7 @@
                             tx.SetTextFont(42);
                             tx.SetTextAlign(22);
                             tx.SetTextSize(0.040);
-                            tx.DrawLatex(0.50, 0.965, TString::Format("Quadrature-sum optimization, R = %.1f, Photon 4 + MBD NS #geq 1, Run24pp", R).Data());
+                            tx.DrawLatex(0.50, 0.965, TString::Format("Stability-score optimization, R = %.1f, Photon 4 + MBD NS #geq 1, Run24pp", R).Data());
                         }
                         
                         const std::string outQuadPngNo1 = JoinPath(iterationStabilityOut, "unfold_iterStability_quadratureSum_noIter1.png");
@@ -14462,20 +14792,21 @@
                     vector<string> iterSummary;
                     iterSummary.push_back("xJ iteration-stability summary");
                     iterSummary.push_back(TString::Format("radius = %s (R=%.1f)", rKey.c_str(), R).Data());
-                    iterSummary.push_back(TString::Format("best iteration from quadrature sum = %d", bestIt).Data());
-                    iterSummary.push_back(TString::Format("minimum quadrature sum = %.10g", bestQuad).Data());
+                    iterSummary.push_back(TString::Format("selected iteration from stability criterion = %d", bestIt).Data());
+                    iterSummary.push_back(TString::Format("selected stability score = %.10g", bestQuad).Data());
+                    if (!xjIterScan.bestReason.empty()) iterSummary.push_back("selection reason: " + xjIterScan.bestReason);
                     iterSummary.push_back("relChange is defined as the successive-iterate difference it vs (it-1), with iteration 1 using the explicit 0->1 baseline.");
                     iterSummary.push_back("iteration 0 baseline is the measured reco global-bin histogram mapped onto the truth comparison axis, so iteration 1 is included in the best-iteration choice.");
                     iterSummary.push_back("additional plots with suffix _noIter1 exclude iteration 1 from the display only; they do not change the scan or best-iteration choice.");
                     iterSummary.push_back("The stability scan is evaluated only in the 9 analysis p_{T}^{#gamma} bins and in-range x_{J} bins; support / underflow / overflow bins are excluded.");
                     iterSummary.push_back("relStat is built from the full RooUnfold::kCovToy covariance restricted to those physics bins.");
-                    iterSummary.push_back("quadrature sum definition: sqrt(relStat^2 + relChange^2)");
+                    iterSummary.push_back("stability score definition: sqrt(relStat^2 + relChange^2) + small high-iteration penalty; selected iteration is the earliest stable point when the L2 iterate change falls below max(2*relStat, 0.15).");
                     iterSummary.push_back("");
                     
                     for (size_t i = 0; i < xIt.size(); ++i)
                     {
                         iterSummary.push_back(
-                                              TString::Format("it=%d  relStat=%.10g  relChange=%.10g  quadratureSum=%.10g",
+                                              TString::Format("it=%d  relStat=%.10g  relChange=%.10g  stabilityScore=%.10g",
                                                               (int)xIt[i], yRelStat[i], yRelChange[i], yQuad[i]).Data()
                                               );
                     }
@@ -14483,8 +14814,8 @@
                     WriteTextFile(JoinPath(rOut, "unfold_iterStability_bestIteration.txt"), iterSummary);
                     
                     cout << ANSI_BOLD_CYN
-                    << "[UNF ITER QA] best iteration from quadrature sum = " << bestIt
-                    << "  minimum = " << bestQuad
+                    << "[UNF ITER QA] selected iteration from stability criterion = " << bestIt
+                    << "  score = " << bestQuad
                     << ANSI_RESET << "\n";
                 }
                 else
@@ -15527,7 +15858,7 @@
       const string simRootBase = SimOutBaseForSample(CurrentSimSample());
       if (simRootBase.empty()) return;
 
-      const string overlayBase = JoinPath(simRootBase, "unfolding");
+      const string overlayBase = JoinPath(JoinPath(simRootBase, trigger), "unfolding");
       EnsureDir(overlayBase);
       EnsureDir(JoinPath(overlayBase, "photonOverlays"));
       EnsureDir(JoinPath(overlayBase, "r02"));
@@ -15595,6 +15926,7 @@
         {
           string folder;
           vector<string> cents;
+          bool includePP = true;
         };
 
         vector<string> nativeCentFolders;
@@ -15619,14 +15951,16 @@
         const bool haveMerged020ForPairs = haveNative0_20 || haveNative0_10 || haveNative10_20;
 
         vector<OverlaySpec> overlaySpecs;
-        auto AddOverlaySpec = [&](const string& folder, const vector<string>& cents)->void
+        auto AddOverlaySpec = [&](const string& folder, const vector<string>& cents, bool includePP = true)->void
         {
           OverlaySpec spec;
           spec.folder = folder;
           spec.cents = cents;
+          spec.includePP = includePP;
           overlaySpecs.push_back(spec);
         };
 
+        AddOverlaySpec("allCentralities", nativeCentFolders, false);
         AddOverlaySpec("allCentralitiesAndPP", nativeCentFolders);
         if (haveNative0_10 && haveNative40_60) AddOverlaySpec("0_10and40_60AndPP", {"0_10", "40_60"});
         if (haveMerged020ForPairs && haveNative40_60) AddOverlaySpec("0_20and40_60AndPP", {"0_20", "40_60"});
@@ -16045,14 +16379,17 @@
       auto DrawPhotonOverlay = [&](const vector<std::pair<string, TH1*> >& hs,
                                    const string& outPath,
                                    const string& yTitle,
-                                   const string& title)->void
+                                   const string& title,
+                                   bool logY)->void
       {
         if (hs.empty()) return;
 
         TCanvas c("c_phoTop", "c_phoTop", 950, 750);
         ApplyCanvasMargins1D(c);
+        if (logY) c.SetLogy();
 
         double maxY = 0.0;
+        double minPosY = 1e99;
         TH1* hBase = nullptr;
 
         for (const auto& kv : hs)
@@ -16064,16 +16401,27 @@
           {
             const double v = h->GetBinContent(ib) + h->GetBinError(ib);
             if (std::isfinite(v) && v > maxY) maxY = v;
+            const double y = h->GetBinContent(ib);
+            if (std::isfinite(y) && y > 0.0 && y < minPosY) minPosY = y;
           }
         }
 
         if (!hBase) return;
+        if (!(minPosY < 1e98)) minPosY = 1e-6;
 
         hBase->SetTitle("");
         hBase->GetXaxis()->SetTitle("p_{T}^{#gamma} [GeV]");
         hBase->GetYaxis()->SetTitle(yTitle.c_str());
-        hBase->SetMinimum(0.0);
-        hBase->SetMaximum((maxY > 0.0) ? (1.20 * maxY) : 1.0);
+        if (logY)
+        {
+          hBase->SetMinimum(std::max(0.35 * minPosY, 1e-9));
+          hBase->SetMaximum((maxY > 0.0) ? (3.0 * maxY) : 1.0);
+        }
+        else
+        {
+          hBase->SetMinimum(0.0);
+          hBase->SetMaximum((maxY > 0.0) ? (1.20 * maxY) : 1.0);
+        }
         hBase->Draw("E1");
 
         for (std::size_t i = 1; i < hs.size(); ++i)
@@ -16214,6 +16562,7 @@
             if (hRat) hRatios.push_back({CentLabelFromFolder(centFolder), hRat});
           }
 
+          if (ov.includePP)
           {
             TFile* fPP = OpenCached(BuildPPRootPath(photonVariant, photonRKey));
             TH1* hRawPP = CloneFromRoot(
@@ -16245,21 +16594,24 @@
             hRaws,
             JoinPath(outDir, "rawPhotonYield_vs_pTgamma.png"),
             "Reco photon yield",
-            TString::Format("Photon raw-yield overlay, %s", ov.folder.c_str()).Data()
+            TString::Format("Photon raw-yield overlay, %s", ov.folder.c_str()).Data(),
+            true
           );
 
           DrawPhotonOverlay(
             hUnfs,
             JoinPath(outDir, "unfoldedPhotonYield_vs_pTgamma.png"),
             "Unfolded photon yield",
-            TString::Format("Photon unfolded-yield overlay, %s", ov.folder.c_str()).Data()
+            TString::Format("Photon unfolded-yield overlay, %s", ov.folder.c_str()).Data(),
+            true
           );
 
           DrawPhotonOverlay(
             hRatios,
             JoinPath(outDir, "ratio_rawOverUnfoldedPhotonYield_vs_pTgamma.png"),
             "Raw / unfolded",
-            TString::Format("Photon raw/unfolded overlay, %s", ov.folder.c_str()).Data()
+            TString::Format("Photon raw/unfolded overlay, %s", ov.folder.c_str()).Data(),
+            false
           );
 
           for (auto& kv : hRaws)   delete kv.second;
@@ -16301,6 +16653,7 @@
                 hs.push_back({CentLabelFromFolder(centFolder), h});
               }
 
+              if (ov.includePP)
               {
                 TFile* fPP = OpenCached(BuildPPRootPath(variant.ppFolder, rKey));
                 TH1* hPP = LoadPerPhotonXJ(
@@ -16352,6 +16705,7 @@
                   hsC.push_back({CentLabelFromFolder(centFolder), h});
                 }
 
+                if (ov.includePP)
                 {
                   TFile* fPP = OpenCached(BuildPPRootPath("purityCorrected", rKey));
                   TH1D* hPP = LoadRegionCProjection(
@@ -16838,7 +17192,13 @@
             }
           }
 
-          AddSavedDir("aa_topLevel_unfolding", JoinPath(simRootBase, "unfolding"));
+          for (const auto& trigEntry : dataByTriggerCent)
+          {
+            AddSavedDir(
+              TString::Format("aa_topLevel_%s_unfolding", trigEntry.first.c_str()).Data(),
+              JoinPath(JoinPath(simRootBase, trigEntry.first), "unfolding")
+            );
+          }
           AddSavedDir("pp_default_unfolding", ppDefaultLiveUnfoldDir);
         }
 

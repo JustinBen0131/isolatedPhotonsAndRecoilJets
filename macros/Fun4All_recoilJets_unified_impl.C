@@ -2526,8 +2526,11 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     }
     if (cfg.pool_capture_enabled)
     {
+        // Capture pp-side scores needed by the active pp/newPPG12 working-point
+        // scan. Do not turn on AuAu NPB/BDT machinery implicitly; those models
+        // are only required when an active photon-ID triplet explicitly asks for
+        // auauOnlyNPB or an AuAu tight/non-tight mode.
         fanoutUsesNPB = true;
-        fanoutUsesAuAuNPB = true;
         fanoutUsesNewPPG12Tight = true;
     }
 
@@ -4690,7 +4693,8 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     std::string dtype;
     if (isSim)
     {
-        if (datasetToken == "issimembedded" || datasetToken == "simembedded")
+        if (datasetToken == "issimembedded" || datasetToken == "simembedded" ||
+            datasetToken == "issimembeddedinclusive" || datasetToken == "simembeddedinclusive")
             dtype = "isSimEmbedded";
         else if (datasetToken == "issimjet5" || datasetToken == "simjet5")
             dtype = "isSimJet5";

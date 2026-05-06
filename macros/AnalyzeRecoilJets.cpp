@@ -7527,7 +7527,10 @@ void LoadLeakageFactorsFromSIM(Dataset& sim, LeakageFactors& lf)
     
     bool any = false;
     
-    cout << ANSI_BOLD_CYN << "\n[SECTION 4] Reading SIM leakage factors (h_sigABCD_MC_pT_*)\n" << ANSI_RESET;
+    cout << ANSI_BOLD_CYN
+         << "\n[SECTION 4] Reading SIM leakage factors "
+         << "(prefer h_xJpurityLead_sigABCD_MC_pT_*, fallback h_sigABCD_MC_pT_*)\n"
+         << ANSI_RESET;
     
     const int wBin = 10;
     const int wN   = 14;
@@ -7547,9 +7550,22 @@ void LoadLeakageFactorsFromSIM(Dataset& sim, LeakageFactors& lf)
     for (int i = 0; i < kNPtBins; ++i)
     {
         const PtBin& b = PtBins()[i];
-        const string hname = "h_sigABCD_MC" + b.suffix;
-        
-        TH1* h = GetObj<TH1>(sim, hname, true, true, false);
+        const string hnameLead = "h_xJpurityLead_sigABCD_MC" + b.suffix;
+        const string hnameCand = "h_sigABCD_MC" + b.suffix;
+
+        TH1* h = GetObj<TH1>(sim, hnameLead, true, true, false);
+        if (!h)
+        {
+            h = GetObj<TH1>(sim, hnameCand, true, true, false);
+            if (h)
+            {
+                cout << ANSI_BOLD_YEL
+                     << "[WARN] Missing " << hnameLead
+                     << "; using candidate-level fallback " << hnameCand
+                     << " for leakage only. Regenerate SIM for event-leading xJ purity leakage."
+                     << ANSI_RESET << "\n";
+            }
+        }
         double A = 0, B = 0, C = 0, D = 0;
         if (h)
         {
@@ -17701,7 +17717,7 @@ int Run()
         sDidLoadSPhenixStyle = true;
         if (!gROOT->GetStyle("sPHENIX"))
         {
-            gROOT->LoadMacro("sPhenixStyle.C");
+            gROOT->LoadMacro("macros/sPhenixStyle.C");
             gROOT->ProcessLine("SetsPhenixStyle();");
         }
         else
@@ -19318,13 +19334,23 @@ int Run()
                                 selCents[isc].color = selCentColors[isc % 6];
                             }
                             
-                            // Open PP file for purity
-                            TFile* fPP = TFile::Open(InputPP(isRun25pp).c_str(), "READ");
+                            // Open the matched Run24pp reference-reference-reference file for pp overlays.
+                            const string ppReferenceTag =
+                                CfgBaseTagFor(kAA_JetPtMin, kAA_B2BCut, kAA_VzCut, kAA_IsoConeR, "fixedIso2GeV") +
+                                "_preselectionReference_tightReference_nonTightReference";
+                            const string ppReferenceInput =
+                                kInputBase + "/pp24/RecoilJets_pp_ALL_" + ppReferenceTag + ".root";
+                            TFile* fPP = TFile::Open(ppReferenceInput.c_str(), "READ");
                             TDirectory* ppDir = nullptr;
                             if (fPP && !fPP->IsZombie())
                             {
                                 ppDir = fPP->GetDirectory(kTriggerPP.c_str());
                                 if (!ppDir) ppDir = fPP;
+                            }
+                            else
+                            {
+                                cout << ANSI_BOLD_YEL << "[WARN] Cannot open PP reference input for purity/yield overlays: "
+                                     << ppReferenceInput << ANSI_RESET << "\n";
                             }
                             
                             TCanvas cSel("c_pur_raw_centSelect","c_pur_raw_centSelect",900,700);
@@ -19580,9 +19606,9 @@ int Run()
 
                                 const std::vector<RegionStyle> regionStyles = {
                                     {"A", "Region A", kRed + 1, 20},
-                                    {"B", "Region B", kBlue + 1, 21},
-                                    {"C", "Region C", kGreen + 2, 22},
-                                    {"D", "Region D", kMagenta + 1, 33},
+                                    {"B", "Region B", kBlue + 1, 20},
+                                    {"C", "Region C", kGreen + 2, 20},
+                                    {"D", "Region D", kMagenta + 1, 20},
                                 };
 
                                 auto RegionYieldFromPP = [&](TDirectory* ppDirLocal, const string& regionKey, int ptIdx) -> double
@@ -19826,8 +19852,10 @@ int Run()
                                         gPP->SetMarkerStyle(24);
                                         gPP->SetMarkerSize(1.1);
                                         gPP->SetMarkerColor(kRed + 1);
+                                        gPP->SetFillColor(0);
+                                        gPP->SetFillStyle(0);
                                         keepYield.push_back(gPP);
-                                        legYield.AddEntry(gPP, "pp", "pe");
+                                        legYield.AddEntry(gPP, "pp reference", "pe");
                                     }
                                 }
 

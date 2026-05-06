@@ -147,6 +147,7 @@ if [[ -n "${RJ_ID_FANOUT_DIRS_FILE:-}" ]]; then
   [[ -f "$RJ_ID_FANOUT_DIRS_FILE" ]] || { echo "[FATAL] RJ_ID_FANOUT_DIRS_FILE not found: $RJ_ID_FANOUT_DIRS_FILE"; exit 6; }
   fanout_file="${TMPDIR:-/tmp}/rj_id_fanout_$$_${chunk_tag}.txt"
   : > "$fanout_file"
+  declare -A fanout_dir_seen=()
   while IFS= read -r fan_line; do
     [[ -z "${fan_line:-}" || "${fan_line:0:1}" == "#" ]] && continue
     IFS='|' read -r -a fan_cols <<< "$fan_line"
@@ -169,7 +170,10 @@ if [[ -n "${RJ_ID_FANOUT_DIRS_FILE:-}" ]]; then
     fi
     [[ -z "${fan_dest:-}" || "${fan_dest:0:1}" == "#" ]] && continue
     fan_out_dir="${fan_dest}/${run8}"
-    mkdir -p "$fan_out_dir"
+    if [[ -z "${fanout_dir_seen[$fan_out_dir]:-}" ]]; then
+      mkdir -p "$fan_out_dir"
+      fanout_dir_seen["$fan_out_dir"]=1
+    fi
     fan_out_root="${fan_out_dir}/RecoilJets_${analysis_tag}_${chunk_tag}.root"
     if [[ -n "$fan_yaml" ]]; then
       printf '%s|%s|%s|%s|%s|%s|%s|%s\n' "$fan_out_root" "$fan_cfg" "$fan_yaml" "$fan_pre" "$fan_tight" "$fan_nonTight" "$fan_view" "$fan_materialize" >> "$fanout_file"
@@ -182,7 +186,7 @@ if [[ -n "${RJ_ID_FANOUT_DIRS_FILE:-}" ]]; then
   export RJ_ID_FANOUT_FILE="$fanout_file"
   export RJ_REPLAY_FANOUT_FILE="$fanout_file"
   out_root="${fanout_outputs[0]}"
-  echo "[INFO] ID fanout enabled: $(wc -l < "$fanout_file") outputs from one Fun4All pass"
+  echo "[INFO] ID fanout enabled: $(wc -l < "$fanout_file") view rows, ${#fanout_dir_seen[@]} output directories from one Fun4All pass"
   echo "[INFO] ID fanout file   : $fanout_file"
   echo "[INFO] Primary output   : $out_root"
 fi

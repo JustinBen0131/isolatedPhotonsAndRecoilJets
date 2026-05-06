@@ -10,6 +10,12 @@ usage() {
 Usage:
   ./scripts/sftp_get_recoiljets_outputs.sh <dataset>
   ./scripts/sftp_get_recoiljets_outputs.sh trainingLatest <tight|npb|jetResidual>
+  ./scripts/sftp_get_recoiljets_outputs.sh tightBDTSmokeLatest
+  ./scripts/sftp_get_recoiljets_outputs.sh tightBDTSmoke <remote-path-or-dir-name>
+  ./scripts/sftp_get_recoiljets_outputs.sh mlIntegrationLatest
+  ./scripts/sftp_get_recoiljets_outputs.sh mlIntegration <remote-path-or-dir-name>
+  ./scripts/sftp_get_recoiljets_outputs.sh poolSmokeLatest <dataset>
+  ./scripts/sftp_get_recoiljets_outputs.sh poolSmoke <dataset> <remote-path-or-dir-name>
 
 Datasets:
   isAuAu                    -> InputFiles/auau25
@@ -20,16 +26,36 @@ Datasets:
   isSimEmbeddedInclusive    -> InputFiles/InclusiveJetSIM_EMBEDDED
   isSimInclusive            -> InputFiles/InclusiveJetSIM
   isSimJet5                 -> InputFiles/InclusiveJetSIM
+  mergeLocalSim [dataset|all] -> build canonical local merged SIM products
+                                from already-present InputFiles without sftp
 
 The script builds the expected final ROOT filenames from the current
 macros/analysis_config.yaml matrix, prints the local overwrite preview, then
 opens interactive sftp once to fetch those files. No password is stored.
+For SIM datasets it then materializes canonical merged outputs under
+dataOutput/combinedSimOnly or dataOutput/combinedSimOnlyEMBEDDED.
 
 trainingLatest pulls the newest SDCC local smoke-test training output directory
 from:
   /sphenix/u/patsfan753/scratch/thesisAnalysis/local_bdt_training_outputs
 and the matching model directory from:
   /sphenix/u/patsfan753/scratch/thesisAnalysis/bdt_models
+
+tightBDTSmokeLatest/tightBDTSmoke are focused aliases for the tight-BDT-only
+local/smoke workflow. They download into:
+  InputFiles/trainingSmoke/tightBDT
+
+mlIntegrationLatest pulls the newest full local ML integration test directory
+from:
+  /sphenix/u/patsfan753/scratch/thesisAnalysis/local_ml_pipeline_tests
+
+mlIntegration with an explicit path or directory name bypasses latest-directory
+discovery and downloads that exact run.
+
+poolSmokeLatest/poolSmoke download only the small pipeline tuning reports from
+the SDCC bulk smoke output directory, not the bulky ROOT outputs. Reports land
+under:
+  InputFiles/pipelineSmoke/<dataset>
 EOF
 }
 
@@ -42,6 +68,13 @@ trim_ws() {
 
 yaml_path() {
   printf "%s\n" "${LOCAL_BASE}/macros/analysis_config.yaml"
+}
+
+make_tmp_file() {
+  local prefix="$1"
+  local tmp_dir="${LOCAL_BASE}/.tmp"
+  mkdir -p "$tmp_dir"
+  mktemp "${tmp_dir}/${prefix}.XXXXXX"
 }
 
 yaml_get_scalar_bool() {
@@ -142,12 +175,159 @@ sim_iso_tag() {
   fi
 }
 
+is_merge_dataset() {
+  case "$1" in
+    isSim|isSimEmbedded|isSimEmbeddedInclusive|isSimInclusive)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+local_input_dir_for_merge_dataset() {
+  case "$1" in
+    isSim) echo "${LOCAL_BASE}/InputFiles/simPhotonJet" ;;
+    isSimEmbedded) echo "${LOCAL_BASE}/InputFiles/simEmbedded" ;;
+    isSimEmbeddedInclusive) echo "${LOCAL_BASE}/InputFiles/InclusiveJetSIM_EMBEDDED" ;;
+    isSimInclusive) echo "${LOCAL_BASE}/InputFiles/InclusiveJetSIM" ;;
+    *) return 1 ;;
+  esac
+}
+
+primary_sample_for_merge_dataset() {
+  case "$1" in
+    isSim) echo "photonjet5" ;;
+    isSimEmbedded) echo "embeddedPhoton12" ;;
+    isSimEmbeddedInclusive) echo "embeddedJet10" ;;
+    isSimInclusive) echo "jet5" ;;
+    *) return 1 ;;
+  esac
+}
+
+required_samples_for_merge_dataset() {
+  case "$1" in
+    isSim) printf "%s\n" photonjet5 photonjet10 photonjet20 ;;
+    isSimEmbedded) printf "%s\n" embeddedPhoton12 embeddedPhoton20 ;;
+    isSimEmbeddedInclusive) printf "%s\n" embeddedJet10 embeddedJet20 ;;
+    isSimInclusive) printf "%s\n" jet5 ;;
+    *) return 1 ;;
+  esac
+}
+
+discover_complete_local_sim_cfg_tags() {
+  local label="$1" dir primary f base cfg sample ok
+  is_merge_dataset "$label" || return 0
+  dir="$(local_input_dir_for_merge_dataset "$label")"
+  primary="$(primary_sample_for_merge_dataset "$label")"
+  [[ -d "$dir" ]] || return 0
+
+  shopt -s nullglob
+  for f in "${dir}/RecoilJets_${primary}_ALL_"*.root; do
+    base="${f##*/}"
+    cfg="${base#RecoilJets_${primary}_ALL_}"
+    cfg="${cfg%.root}"
+    ok=1
+    while IFS= read -r sample; do
+      [[ -n "$sample" ]] || continue
+      if [[ ! -f "${dir}/RecoilJets_${sample}_ALL_${cfg}.root" ]]; then
+        ok=0
+        break
+      fi
+    done < <(required_samples_for_merge_dataset "$label")
+    if (( ok )); then
+      printf "%s\n" "$cfg"
+    fi
+  done
+  shopt -u nullglob
+}
+
+merge_recoiljets_sim_outputs() {
+  local label="$1"
+  shift || true
+  local cfgs=( "$@" )
+  local cfg_list root_cmd
+
+  is_merge_dataset "$label" || return 0
+  if (( ${#cfgs[@]} == 0 )); then
+    echo "[MERGE] No complete local SIM cfg tags found for ${label}; skipping."
+    return 0
+  fi
+
+  cfg_list="$(make_tmp_file "recoiljets_merge_cfgs")"
+  printf "%s\n" "${cfgs[@]}" | sort -u > "$cfg_list"
+  root_cmd="scripts/MergeDownloadedRecoilJetsSim.C(\"${label}\",\"${cfg_list}\")"
+
+  echo
+  echo "[MERGE] Building canonical local merged SIM output for ${label}"
+  echo "[MERGE] cfg count: $(wc -l < "$cfg_list" | tr -d ' ')"
+  echo "[MERGE] ROOT helper: ${root_cmd}"
+
+  if ( cd "$LOCAL_BASE" && TMPDIR="${LOCAL_BASE}/.tmp" ./scripts/root_in_analysis_env.sh /Users/patsfan753/Desktop/analysis/env/bin/root -l -b -q "$root_cmd" ); then
+    rm -f "$cfg_list"
+    echo "[MERGE][OK] Canonical merged SIM outputs are current for ${label}."
+  else
+    local status=$?
+    rm -f "$cfg_list"
+    echo "[MERGE][ERROR] Canonical SIM merge failed for ${label}." >&2
+    exit "$status"
+  fi
+}
+
+merge_local_existing_sim_outputs() {
+  local requested="${1:-all}"
+  local labels=()
+  local label cfgs=()
+
+  case "$requested" in
+    all|"")
+      labels=( isSim isSimEmbedded isSimEmbeddedInclusive isSimInclusive )
+      ;;
+    isSim|isSimEmbedded|isSimEmbeddedInclusive|isSimInclusive)
+      labels=( "$requested" )
+      ;;
+    *)
+      echo "[ERROR] mergeLocalSim target must be one of: all, isSim, isSimEmbedded, isSimEmbeddedInclusive, isSimInclusive" >&2
+      exit 2
+      ;;
+  esac
+
+  for label in "${labels[@]}"; do
+    cfgs=()
+    while IFS= read -r cfg; do
+      [[ -n "$cfg" ]] && cfgs+=( "$cfg" )
+    done < <(discover_complete_local_sim_cfg_tags "$label" | sort -u)
+    merge_recoiljets_sim_outputs "$label" "${cfgs[@]}"
+  done
+}
+
 selection_mode_normalize() {
+  selection_mode_normalize_for_key "" "$1"
+}
+
+selection_mode_normalize_for_key() {
+  local key="$1"
   local mode
-  mode="$(trim_ws "$1")"
+  mode="$(trim_ws "$2")"
+  case "$key:$mode" in
+    preselection:variantA|preselection:VariantA|preselection:varianta|preselection:newPPG12|preselection:NewPPG12|preselection:newppg12) echo "newPPG12"; return 0 ;;
+    preselection:variantB|preselection:VariantB|preselection:variantb|preselection:noPreCriteria|preselection:NoPreCriteria|preselection:noprecriteria) echo "noPreCriteria"; return 0 ;;
+    preselection:variantC|preselection:VariantC|preselection:variantc|preselection:onlyNPB|preselection:OnlyNPB|preselection:onlynpb) echo "onlyNPB"; return 0 ;;
+    preselection:variantD|preselection:VariantD|preselection:variantd|preselection:refPlusNPB|preselection:RefPlusNPB|preselection:refplusnpb) echo "refPlusNPB"; return 0 ;;
+    preselection:variantE|preselection:VariantE|preselection:variante|preselection:auauOnlyNPB|preselection:AuAuOnlyNPB|preselection:auauonlynpb) echo "auauOnlyNPB"; return 0 ;;
+    tight:variantA|tight:VariantA|tight:varianta|tight:newPPG12|tight:NewPPG12|tight:newppg12) echo "newPPG12"; return 0 ;;
+    tight:variantB|tight:VariantB|tight:variantb|tight:auauEmbeddedBDT|tight:AuAuEmbeddedBDT|tight:auauembeddedbdt) echo "auauEmbeddedBDT"; return 0 ;;
+    nonTight:variantA|nonTight:VariantA|nonTight:varianta|nonTight:bdtSideband|nonTight:BDTSideband|nonTight:bdtsideband|nonTight:newPPG12|nonTight:NewPPG12|nonTight:newppg12) echo "newPPG12"; return 0 ;;
+    nonTight:variantB|nonTight:VariantB|nonTight:variantb|nonTight:auauBDTSideband|nonTight:AuAuBDTSideband|nonTight:auaubdtsideband) echo "auauBDTSideband"; return 0 ;;
+    nonTight:variantC|nonTight:VariantC|nonTight:variantc|nonTight:auauBDTComplement|nonTight:AuAuBDTComplement|nonTight:auaubdtcomplement) echo "auauBDTComplement"; return 0 ;;
+  esac
   case "$mode" in
     ""|reference|Reference) echo "reference" ;;
-    variantA|VariantA|varianta) echo "variantA" ;;
+    variantA|VariantA|varianta|newPPG12|NewPPG12|newppg12) echo "newPPG12" ;;
+    auauEmbeddedBDT|AuAuEmbeddedBDT|auauembeddedbdt) echo "auauEmbeddedBDT" ;;
+    auauBDTSideband|AuAuBDTSideband|auaubdtsideband) echo "auauBDTSideband" ;;
+    auauBDTComplement|AuAuBDTComplement|auaubdtcomplement) echo "auauBDTComplement" ;;
     variantB|VariantB|variantb) echo "variantB" ;;
     *) echo "$mode" ;;
   esac
@@ -156,10 +336,17 @@ selection_mode_normalize() {
 selection_mode_tag() {
   local key="$1"
   local mode
-  mode="$(selection_mode_normalize "$2")"
+  mode="$(selection_mode_normalize_for_key "$key" "$2")"
   case "$mode" in
     reference) echo "${key}Reference" ;;
-    variantA) echo "${key}VariantA" ;;
+    newPPG12) echo "${key}NewPPG12" ;;
+    noPreCriteria) echo "${key}NoPreCriteria" ;;
+    onlyNPB) echo "${key}OnlyNPB" ;;
+    refPlusNPB) echo "${key}RefPlusNPB" ;;
+    auauOnlyNPB) echo "${key}AuAuOnlyNPB" ;;
+    auauEmbeddedBDT) echo "${key}AuAuEmbeddedBDT" ;;
+    auauBDTSideband) echo "${key}AuAuBDTSideband" ;;
+    auauBDTComplement) echo "${key}AuAuBDTComplement" ;;
     variantB) echo "${key}VariantB" ;;
     *)
       awk -v key="$key" -v mode="$mode" '
@@ -170,6 +357,24 @@ selection_mode_tag() {
         }'
       ;;
   esac
+}
+
+yaml_get_photon_id_sets() {
+  local yaml="$1"
+  awk '
+    function trim(s){ gsub(/^[[:space:]]+|[[:space:]]+$/, "", s); return s }
+    BEGIN{inset=0}
+    {
+      line=$0
+      sub(/#.*/, "", line)
+      if (line ~ /^[[:space:]]*photon_id_sets[[:space:]]*:/) { inset=1; next }
+      if (inset && line ~ /^[[:alnum:]_][[:alnum:]_[:space:]-]*:/) { exit }
+      if (!inset || line !~ /\[/) next
+      sub(/^.*\[/, "", line)
+      sub(/\].*$/, "", line)
+      n=split(line, a, ",")
+      if (n >= 3) print trim(a[1]) "|" trim(a[2]) "|" trim(a[3])
+    }' "$yaml"
 }
 
 build_iso_mode_tags_from_yaml() {
@@ -223,16 +428,13 @@ build_cfg_tags_from_yaml() {
   yaml="$(yaml_path)"
   [[ -f "$yaml" ]] || { echo "[ERROR] YAML not found: $yaml" >&2; exit 40; }
 
-  local -a jet_pts b2bs vzs cones iso_base_tags uepipes preselection_modes tight_modes nonTight_modes
+  local -a jet_pts b2bs vzs cones iso_base_tags uepipes
   jet_pts=()
   b2bs=()
   vzs=()
   cones=()
   iso_base_tags=()
   uepipes=()
-  preselection_modes=()
-  tight_modes=()
-  nonTight_modes=()
 
   local line
   while IFS= read -r line; do jet_pts+=( "$line" ); done < <(yaml_get_inline_list "$yaml" "jet_pt_min")
@@ -240,18 +442,15 @@ build_cfg_tags_from_yaml() {
   while IFS= read -r line; do vzs+=( "$line" ); done < <(yaml_get_inline_list "$yaml" "vz_cut_cm")
   while IFS= read -r line; do cones+=( "$line" ); done < <(yaml_get_inline_list "$yaml" "coneR")
   while IFS= read -r line; do iso_base_tags+=( "$line" ); done < <(build_iso_mode_tags_from_yaml "$yaml")
-  while IFS= read -r line; do preselection_modes+=( "$line" ); done < <(yaml_get_inline_list "$yaml" "preselection")
-  while IFS= read -r line; do tight_modes+=( "$line" ); done < <(yaml_get_inline_list "$yaml" "tight")
-  while IFS= read -r line; do nonTight_modes+=( "$line" ); done < <(yaml_get_inline_list "$yaml" "nonTight")
+  local -a photon_id_rows=()
+  while IFS= read -r line; do photon_id_rows+=( "$line" ); done < <(yaml_get_photon_id_sets "$yaml")
+  (( ${#photon_id_rows[@]} > 0 )) || { echo "[ERROR] YAML must define photon_id_sets for cfg-tag generation: $yaml" >&2; exit 41; }
 
   (( ${#jet_pts[@]} )) || jet_pts=( "5.0" )
   (( ${#b2bs[@]} )) || b2bs=( "0.875" )
   (( ${#vzs[@]} )) || vzs=( "30.0" )
   (( ${#cones[@]} )) || cones=( "0.30" )
   (( ${#iso_base_tags[@]} )) || iso_base_tags=( "fixedIso2GeV" )
-  (( ${#preselection_modes[@]} )) || preselection_modes=( "reference" )
-  (( ${#tight_modes[@]} )) || tight_modes=( "reference" )
-  (( ${#nonTight_modes[@]} )) || nonTight_modes=( "reference" )
 
   if dataset_includes_uepipe_in_tag "$dataset_token"; then
     while IFS= read -r line; do uepipes+=( "$line" ); done < <(yaml_get_inline_list "$yaml" "clusterUEpipeline")
@@ -260,25 +459,29 @@ build_cfg_tags_from_yaml() {
     uepipes=( "noSub" )
   fi
 
-  local pt frac vz cone iso uep pre tight nonTight tag selection_tag
+  local pt frac vz cone iso uep pre tight nonTight tag selection_tag full_tag
+  local cfg_suffix="${SFTP_GET_CFG_SUFFIX:-}"
+  local tight_norm nonTight_norm pre_norm
   for pt in "${jet_pts[@]}"; do
     for frac in "${b2bs[@]}"; do
       for vz in "${vzs[@]}"; do
         for cone in "${cones[@]}"; do
           for iso in "${iso_base_tags[@]}"; do
-            for pre in "${preselection_modes[@]}"; do
-              for tight in "${tight_modes[@]}"; do
-                for nonTight in "${nonTight_modes[@]}"; do
-                  selection_tag="$(selection_mode_tag "preselection" "$pre")_$(selection_mode_tag "tight" "$tight")_$(selection_mode_tag "nonTight" "$nonTight")"
-                  tag="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_dir_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso}"
-                  for uep in "${uepipes[@]}"; do
-                    if dataset_includes_uepipe_in_tag "$dataset_token"; then
-                      echo "${tag}_${uep}_${selection_tag}"
-                    else
-                      echo "${tag}_${selection_tag}"
-                    fi
-                  done
-                done
+            local row
+            for row in "${photon_id_rows[@]}"; do
+              IFS='|' read -r pre tight nonTight <<< "$row"
+              pre_norm="$(selection_mode_normalize_for_key "preselection" "$pre")"
+              tight_norm="$(selection_mode_normalize_for_key "tight" "$tight")"
+              nonTight_norm="$(selection_mode_normalize_for_key "nonTight" "$nonTight")"
+              selection_tag="$(selection_mode_tag "preselection" "$pre_norm")_$(selection_mode_tag "tight" "$tight_norm")_$(selection_mode_tag "nonTight" "$nonTight_norm")"
+              tag="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_dir_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso}"
+              for uep in "${uepipes[@]}"; do
+                if dataset_includes_uepipe_in_tag "$dataset_token"; then
+                  full_tag="${tag}_${uep}_${selection_tag}"
+                else
+                  full_tag="${tag}_${selection_tag}"
+                fi
+                echo "${full_tag}${cfg_suffix}"
               done
             done
           done
@@ -306,10 +509,9 @@ training_latest_remote_dir() {
   local prefix="$2"
   local optional="${3:-false}"
   local ls_batch ls_out latest
-  ls_batch="$(mktemp "${TMPDIR:-/tmp}/sftp_get_recoiljets_ls.XXXXXX")"
+  ls_batch="$(make_tmp_file "sftp_get_recoiljets_ls")"
   {
-    printf 'cd %s\n' "$remote_parent"
-    printf 'ls -1 %s*\n' "$prefix"
+    printf 'ls %s/%s*\n' "$remote_parent" "$prefix"
   } > "$ls_batch"
 
   set +e
@@ -333,11 +535,16 @@ training_latest_remote_dir() {
 
   latest="$(printf "%s\n" "$ls_out" \
     | awk -v p="$prefix" '
-        index($0,p)>0 {
-          n=split($0,a,"/");
-          v=a[n];
-          gsub(/^[[:space:]]+|[[:space:]]+$/,"",v);
-          if (v ~ "^" p) print v;
+        {
+          for (i=1; i<=NF; i++) {
+            v=$i;
+            gsub(/:$/, "", v);
+            gsub(/\/$/, "", v);
+            n=split(v,a,"/");
+            v=a[n];
+            gsub(/^[[:space:]]+|[[:space:]]+$/,"",v);
+            if (v ~ "^" p) print v;
+          }
         }' \
     | sort \
     | tail -n 1)"
@@ -347,6 +554,8 @@ training_latest_remote_dir() {
       return 1
     fi
     echo "[ERROR] No remote training directories found under ${remote_parent}/${prefix}*" >&2
+    echo "[ERROR] Raw sftp listing output:" >&2
+    printf "%s\n" "$ls_out" >&2
     exit 4
   fi
   printf "%s\n" "$latest"
@@ -369,7 +578,7 @@ download_training_latest() {
 
   local_dir="${LOCAL_BASE}/InputFiles/trainingSmoke/${prefix%_}"
   mkdir -p "$local_dir"
-  batch="$(mktemp "${TMPDIR:-/tmp}/sftp_get_recoiljets_training.XXXXXX")"
+  batch="$(make_tmp_file "sftp_get_recoiljets_training")"
   cleanup_training() { rm -f "$batch"; }
   trap cleanup_training EXIT
 
@@ -411,6 +620,239 @@ download_training_latest() {
     echo
     echo "[OK] Training output download complete."
     echo "Downloaded into: ${local_dir}"
+    trap - EXIT
+    rm -f "$batch"
+  else
+    status=$?
+    echo
+    echo "[ERROR] sftp download failed with exit code ${status}." >&2
+    exit "$status"
+  fi
+}
+
+download_tight_bdt_smoke() {
+  local requested="${1:-}"
+  local parent prefix latest remote_dir local_dir batch
+  parent="${REMOTE_BASE}/local_bdt_training_outputs"
+  prefix="tight"
+  if [[ -n "$requested" ]]; then
+    if [[ "$requested" == /* ]]; then
+      remote_dir="${requested%/}"
+      latest="${remote_dir##*/}"
+    else
+      latest="${requested%/}"
+      remote_dir="${parent}/${latest}"
+    fi
+  else
+    latest="$(training_latest_remote_dir "$parent" "$prefix")"
+    remote_dir="${parent}/${latest}"
+  fi
+
+  local_dir="${LOCAL_BASE}/InputFiles/trainingSmoke/tightBDT"
+  mkdir -p "$local_dir"
+  batch="$(make_tmp_file "sftp_get_recoiljets_tightbdt")"
+  cleanup_tightbdt() { rm -f "$batch"; }
+  trap cleanup_tightbdt EXIT
+
+  {
+    printf 'lcd %s\n' "$local_dir"
+    printf 'get -r %s %s\n' "$remote_dir" "$latest"
+    printf 'get -r %s/bdt_models/%s %s_models\n' "$REMOTE_BASE" "$latest" "$latest"
+  } > "$batch"
+
+  echo
+  echo "Remote host     : ${REMOTE_HOST}"
+  echo "Tight-BDT remote: ${remote_dir}"
+  echo "Model remote    : ${REMOTE_BASE}/bdt_models/${latest}"
+  echo "Local dir       : ${local_dir}"
+  echo
+  echo "This will overwrite matching local files/directories."
+  read -r -p "Continue? [y/N]: " confirm
+  case "$confirm" in
+    y|Y|yes|YES|Yes) ;;
+    *) echo "Aborted."; exit 0 ;;
+  esac
+
+  echo
+  echo "sftp batch commands:"
+  sed 's/^/  /' "$batch"
+  echo
+  echo "Opening interactive sftp to download selected tight-BDT outputs."
+  if sftp \
+      -oBatchMode=no \
+      -oPreferredAuthentications=publickey,password,keyboard-interactive \
+      -b "$batch" \
+      "$REMOTE_HOST"; then
+    echo
+    echo "[OK] Tight-BDT smoke download complete."
+    echo "Downloaded into: ${local_dir}"
+    trap - EXIT
+    rm -f "$batch"
+  else
+    status=$?
+    echo
+    echo "[ERROR] sftp download failed with exit code ${status}." >&2
+    exit "$status"
+  fi
+}
+
+download_ml_integration_latest() {
+  local requested="${1:-}"
+  local parent prefix latest remote_dir local_dir batch
+  parent="${REMOTE_BASE}/local_ml_pipeline_tests"
+  prefix="mlIntegration_"
+  if [[ -n "$requested" ]]; then
+    if [[ "$requested" == /* ]]; then
+      remote_dir="${requested%/}"
+      latest="${remote_dir##*/}"
+    else
+      latest="${requested%/}"
+      remote_dir="${parent}/${latest}"
+    fi
+    if [[ "$latest" != ${prefix}* ]]; then
+      echo "[ERROR] ML integration directory must start with ${prefix}: ${latest}" >&2
+      exit 2
+    fi
+  else
+    latest="$(training_latest_remote_dir "$parent" "$prefix")"
+    remote_dir="${parent}/${latest}"
+  fi
+  local_dir="${LOCAL_BASE}/InputFiles/trainingSmoke/mlIntegration"
+  mkdir -p "$local_dir"
+  batch="$(make_tmp_file "sftp_get_recoiljets_mlint")"
+  cleanup_mlint() { rm -f "$batch"; }
+  trap cleanup_mlint EXIT
+
+  {
+    printf 'lcd %s\n' "$local_dir"
+    printf 'get -r %s %s\n' "$remote_dir" "$latest"
+  } > "$batch"
+
+  echo
+  echo "Remote host       : ${REMOTE_HOST}"
+  echo "Integration remote: ${remote_dir}"
+  echo "Local dir         : ${local_dir}"
+  echo
+  echo "This will overwrite matching local files/directories."
+  read -r -p "Continue? [y/N]: " confirm
+  case "$confirm" in
+    y|Y|yes|YES|Yes) ;;
+    *) echo "Aborted."; exit 0 ;;
+  esac
+
+  echo
+  echo "sftp batch commands:"
+  sed 's/^/  /' "$batch"
+  echo
+  echo "Opening interactive sftp to download selected ML integration outputs."
+  if sftp \
+      -oBatchMode=no \
+      -oPreferredAuthentications=publickey,password,keyboard-interactive \
+      -b "$batch" \
+      "$REMOTE_HOST"; then
+    echo
+    echo "[OK] ML integration download complete."
+    echo "Downloaded into: ${local_dir}"
+    trap - EXIT
+    rm -f "$batch"
+  else
+    status=$?
+    echo
+    echo "[ERROR] sftp download failed with exit code ${status}." >&2
+    exit "$status"
+  fi
+}
+
+resolve_smoke_dataset() {
+  case "$1" in
+    isAuAu|auau|AuAu|AUAU)
+      SMOKE_LABEL="isAuAu"; SMOKE_REMOTE_TAG="auau" ;;
+    isPP|pp|PP)
+      SMOKE_LABEL="isPP"; SMOKE_REMOTE_TAG="pp" ;;
+    isPPrun25|pprun25|pp25|PP25)
+      SMOKE_LABEL="isPPrun25"; SMOKE_REMOTE_TAG="pp25" ;;
+    isSim|sim|SIM)
+      SMOKE_LABEL="isSim"; SMOKE_REMOTE_TAG="sim" ;;
+    isSimEmbedded|simembedded|SIMEMBEDDED)
+      SMOKE_LABEL="isSimEmbedded"; SMOKE_REMOTE_TAG="simembedded" ;;
+    isSimEmbeddedInclusive|simembeddedinclusive|SIMEMBEDDEDINCLUSIVE)
+      SMOKE_LABEL="isSimEmbeddedInclusive"; SMOKE_REMOTE_TAG="simembeddedinclusive" ;;
+    isSimInclusive|siminclusive|SIMINCLUSIVE|isSimJet5|simjet5|SIMJET5)
+      SMOKE_LABEL="isSimInclusive"; SMOKE_REMOTE_TAG="simjet5" ;;
+    *)
+      echo "[ERROR] Unknown poolSmoke dataset: $1" >&2
+      echo "[ERROR] Use one of: isPP, isAuAu, isSim, isSimEmbedded, isSimEmbeddedInclusive, isSimInclusive" >&2
+      exit 2
+      ;;
+  esac
+}
+
+download_pool_smoke_report() {
+  local requested_dataset="${1:-}"
+  local requested="${2:-}"
+  local parent prefix latest remote_dir local_dir batch
+  [[ -n "$requested_dataset" ]] || { echo "[ERROR] poolSmokeLatest requires a dataset, e.g. isPP" >&2; exit 2; }
+  resolve_smoke_dataset "$requested_dataset"
+  parent="/sphenix/tg/tg01/bulk/jbennett/thesisAna/${SMOKE_REMOTE_TAG}"
+  prefix="_poolSmoke_"
+
+  if [[ -n "$requested" ]]; then
+    if [[ "$requested" == /* ]]; then
+      remote_dir="${requested%/}"
+      latest="${remote_dir##*/}"
+    else
+      latest="${requested%/}"
+      remote_dir="${parent}/${latest}"
+    fi
+  else
+    latest="$(training_latest_remote_dir "$parent" "$prefix")"
+    remote_dir="${parent}/${latest}"
+  fi
+
+  if [[ "$latest" != ${prefix}* ]]; then
+    echo "[ERROR] poolSmoke directory must start with ${prefix}: ${latest}" >&2
+    exit 2
+  fi
+
+  local_dir="${LOCAL_BASE}/InputFiles/pipelineSmoke/${SMOKE_LABEL}"
+  mkdir -p "$local_dir"
+  batch="$(make_tmp_file "sftp_get_recoiljets_poolsmoke")"
+  cleanup_poolsmoke() { rm -f "$batch"; }
+  trap cleanup_poolsmoke EXIT
+
+  {
+    printf 'lcd %s\n' "$local_dir"
+    printf 'get -r %s/_pipeline_reports %s_reports\n' "$remote_dir" "$latest"
+  } > "$batch"
+
+  echo
+  echo "Remote host       : ${REMOTE_HOST}"
+  echo "Pool smoke remote : ${remote_dir}"
+  echo "Report remote     : ${remote_dir}/_pipeline_reports"
+  echo "Local dir         : ${local_dir}"
+  echo
+  echo "This downloads only small smoke tuning/report files, not ROOT outputs."
+  read -r -p "Continue? [y/N]: " confirm
+  case "$confirm" in
+    y|Y|yes|YES|Yes) ;;
+    *) echo "Aborted."; exit 0 ;;
+  esac
+
+  echo
+  echo "sftp batch commands:"
+  sed 's/^/  /' "$batch"
+  echo
+  echo "Opening interactive sftp to download selected poolSmoke reports."
+  if sftp \
+      -oBatchMode=no \
+      -oPreferredAuthentications=publickey,password,keyboard-interactive \
+      -b "$batch" \
+      "$REMOTE_HOST"; then
+    echo
+    echo "[OK] poolSmoke report download complete."
+    echo "Downloaded into: ${local_dir}/${latest}_reports"
+    trap - EXIT
+    rm -f "$batch"
   else
     status=$?
     echo
@@ -430,6 +872,41 @@ esac
 
 if [[ "$dataset" == "trainingLatest" || "$dataset" == "trainingSmoke" ]]; then
   download_training_latest "${2:-}"
+  exit 0
+fi
+
+if [[ "$dataset" == "mergeLocalSim" ]]; then
+  merge_local_existing_sim_outputs "${2:-all}"
+  exit 0
+fi
+
+if [[ "$dataset" == "tightBDTSmokeLatest" ]]; then
+  download_tight_bdt_smoke
+  exit 0
+fi
+
+if [[ "$dataset" == "tightBDTSmoke" ]]; then
+  download_tight_bdt_smoke "${2:-}"
+  exit 0
+fi
+
+if [[ "$dataset" == "mlIntegrationLatest" ]]; then
+  download_ml_integration_latest
+  exit 0
+fi
+
+if [[ "$dataset" == "mlIntegration" ]]; then
+  download_ml_integration_latest "${2:-}"
+  exit 0
+fi
+
+if [[ "$dataset" == "poolSmokeLatest" ]]; then
+  download_pool_smoke_report "${2:-}"
+  exit 0
+fi
+
+if [[ "$dataset" == "poolSmoke" ]]; then
+  download_pool_smoke_report "${2:-}" "${3:-}"
   exit 0
 fi
 
@@ -499,7 +976,7 @@ fi
 
 mkdir -p "$local_dir"
 
-get_batch="$(mktemp "${TMPDIR:-/tmp}/sftp_get_recoiljets_get.XXXXXX")"
+get_batch="$(make_tmp_file "sftp_get_recoiljets_get")"
 cleanup() {
   rm -f "$get_batch"
 }
@@ -516,9 +993,16 @@ if (( ${#cfg_tags[@]} == 0 )); then
 fi
 
 remote_files=()
+local_files=()
+existing_files=()
 for cfg in "${cfg_tags[@]}"; do
   for sample in "${sample_tags[@]}"; do
-    remote_files+=( "RecoilJets_${sample}_ALL_${cfg}.root" )
+    file="RecoilJets_${sample}_ALL_${cfg}.root"
+    remote_files+=( "$file" )
+    local_files+=( "${local_dir}/${file}" )
+    if [[ -e "${local_dir}/${file}" ]]; then
+      existing_files+=( "${local_dir}/${file}" )
+    fi
   done
 done
 
@@ -540,7 +1024,44 @@ for f in "${remote_files[@]}"; do
   echo "    -> ${local_dir}/${f}"
 done
 echo
-echo "This will overwrite matching local files."
+if (( ${#existing_files[@]} > 0 )); then
+  echo "Existing local files with the same requested tag were found (${#existing_files[@]}):"
+  for f in "${existing_files[@]}"; do
+    echo "  ${f}"
+  done
+  echo
+  echo "Choose how to handle existing files before download:"
+  echo "  o = overwrite in place"
+  echo "  p = move existing files to ${local_dir}/previous/<timestamp>/ first"
+  echo "  a = abort"
+  read -r -p "Action? [o/p/a]: " conflict_action
+  case "$conflict_action" in
+    o|O|overwrite|OVERWRITE)
+      echo "Proceeding with overwrite in place."
+      ;;
+    p|P|previous|PREVIOUS)
+      previous_dir="${local_dir}/previous/$(date +%Y%m%d_%H%M%S)_${label}"
+      mkdir -p "$previous_dir"
+      echo "Moving existing files to: ${previous_dir}"
+      for f in "${existing_files[@]}"; do
+        mv "$f" "${previous_dir}/"
+      done
+      ;;
+    a|A|abort|ABORT|"")
+      echo "Aborted."
+      exit 0
+      ;;
+    *)
+      echo "[ERROR] Unknown action: ${conflict_action}" >&2
+      exit 2
+      ;;
+  esac
+else
+  echo "No matching local files exist for this requested tag set."
+fi
+
+echo
+echo "Ready to download ${#remote_files[@]} file(s)."
 read -r -p "Continue? [y/N]: " confirm
 case "$confirm" in
   y|Y|yes|YES|Yes)
@@ -582,3 +1103,7 @@ fi
 
 echo
 echo "Downloaded ${#remote_files[@]} file(s) into: ${local_dir}"
+
+if is_merge_dataset "$label"; then
+  merge_recoiljets_sim_outputs "$label" "${cfg_tags[@]}"
+fi

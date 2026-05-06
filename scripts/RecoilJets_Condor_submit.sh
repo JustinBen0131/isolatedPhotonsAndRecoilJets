@@ -828,24 +828,82 @@ emit_id_fanout_dirs_file() {
 
 emit_pool_replay_fanout_dirs_file() {
   local out_file="$1" dest_root="$2" master="$3" stamp="$4" cones_text="$5" uepipe="$6" pts_text="$7" fracs_text="$8" vzs_text="$9"
-  local pt frac vz cone iso_idx cfg wp_cfg view_id yaml_override
+  local pt frac vz cone iso_idx cfg wp_cfg view_id inline_spec
+  local -a cones_arr pts_arr fracs_arr vzs_arr
+  read -r -a cones_arr <<< "$cones_text"
+  read -r -a pts_arr <<< "$pts_text"
+  read -r -a fracs_arr <<< "$fracs_text"
+  read -r -a vzs_arr <<< "$vzs_text"
+  local total=$(( ${#cones_arr[@]} * ${#pts_arr[@]} * ${#fracs_arr[@]} * ${#vzs_arr[@]} * ${#iso_tags[@]} ))
+  local count=0
+  local emit_trace=0
+  if [[ "${trace_pool:-0}" == "1" || "${RJ_POOL_TRACE:-0}" == "1" || "${RJ_POOL_TRACE:-0}" == "true" || "${RJ_POOL_TRACE:-0}" == "TRUE" ]]; then
+    emit_trace=1
+  fi
+  local emit_every="${trace_every:-${RJ_POOL_TRACE_EVERY:-250}}"
+  [[ "$emit_every" =~ ^[0-9]+$ && "$emit_every" -gt 0 ]] || emit_every=250
+  (( emit_trace )) && say "[poolFanout] writing ${total} inline replay view rows → ${out_file}"
   : > "$out_file"
-  for cone in $cones_text; do
-    for pt in $pts_text; do
-      for frac in $fracs_text; do
-        for vz in $vzs_text; do
+  for cone in "${cones_arr[@]}"; do
+    for pt in "${pts_arr[@]}"; do
+      for frac in "${fracs_arr[@]}"; do
+        for vz in "${vzs_arr[@]}"; do
           for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
             cfg="$(matrix_cfg_tag "$pt" "$frac" "$vz" "$cone" "$iso_idx" "$uepipe")"
             wp_cfg="$(working_point_cfg_tag "$iso_idx" "$uepipe")"
             view_id="$(analysis_view_id "$pt" "$frac" "$vz" "$cone" "$iso_idx")"
-            yaml_override="$(sim_make_yaml_override "$master" "$pt" "$frac" "$vz" "$cone" "${iso_sliding[$iso_idx]}" "${iso_fixed[$iso_idx]}" "$uepipe" "${iso_preselection[$iso_idx]}" "${iso_tight[$iso_idx]}" "${iso_nonTight[$iso_idx]}" "$cfg" "$stamp")"
+            inline_spec="INLINE_VIEW_V1;jet_pt_min=${pt};back_to_back_dphi_min_pi_fraction=${frac};vz_cut_cm=${vz};coneR=${cone};isSlidingIso=${iso_sliding[$iso_idx]};fixedGeV=${iso_fixed[$iso_idx]};clusterUEpipeline=${uepipe};cfg_tag=${cfg};view_id=${view_id}"
             printf '%s|%s|%s|%s|%s|%s|%s|%s\n' \
-              "${dest_root}/${wp_cfg}" "$cfg" "$yaml_override" "${iso_preselection[$iso_idx]}" "${iso_tight[$iso_idx]}" "${iso_nonTight[$iso_idx]}" "$view_id" "physics" >> "$out_file"
+              "${dest_root}/${wp_cfg}" "$cfg" "$inline_spec" "${iso_preselection[$iso_idx]}" "${iso_tight[$iso_idx]}" "${iso_nonTight[$iso_idx]}" "$view_id" "physics" >> "$out_file"
+            (( count+=1 ))
+            (( emit_trace && (count == 1 || count % emit_every == 0 || count == total) )) && say "[poolFanout] wrote ${count}/${total} rows (${cfg})"
           done
         done
       done
     done
   done
+}
+
+fanout_dest_allowed() {
+  local fan_dest="$1"
+  case "$fan_dest" in
+    */thesisAna/pp/*|*/thesisAna/pp25/*|*/thesisAna/auau/*|*/thesisAna/oo/*|*/thesisAna/sim/*|*/thesisAna/simembedded/*|*/thesisAna/simembeddedinclusive/*|*/thesisAna/simjet5/*|*/thesisAna/simmb/*)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+clean_fanout_output_dirs_from_file() {
+  local fanout_file="$1" label="$2" trace="${3:-0}" every="${4:-25}"
+  shift 4 || true
+  local -a leaf_dirs=( "$@" )
+  declare -A cleaned_dest=()
+  local fan_line fan_dest
+  local rows=0 cleaned=0
+  while IFS= read -r fan_line; do
+    [[ -z "${fan_line:-}" || "${fan_line:0:1}" == "#" ]] && continue
+    IFS='|' read -r fan_dest _fan_cfg _fan_yaml _fan_pre _fan_tight _fan_nonTight <<< "$fan_line"
+    [[ -z "${fan_dest:-}" || "${fan_dest:0:1}" == "#" ]] && continue
+    (( rows+=1 ))
+    [[ -n "${cleaned_dest[$fan_dest]:-}" ]] && continue
+    cleaned_dest["$fan_dest"]=1
+    fanout_dest_allowed "$fan_dest" || { err "Refusing to wipe fanout DEST_BASE='$fan_dest'"; exit 62; }
+    (( cleaned+=1 ))
+    (( trace && (cleaned == 1 || cleaned % every == 0) )) && say "[poolFanout] cleaning unique output ${cleaned} (${label}): ${fan_dest}"
+    if (( ${#leaf_dirs[@]} > 0 )); then
+      local leaf
+      for leaf in "${leaf_dirs[@]}"; do
+        mkdir -p "${fan_dest}/${leaf}"
+        rm -f "${fan_dest}/${leaf}/"*.root 2>/dev/null || true
+      done
+    else
+      mkdir -p "$fan_dest"
+      find "$fan_dest" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+    fi
+  done < "$fanout_file"
+  (( trace )) && say "[poolFanout] cleaned ${cleaned} unique output roots from ${rows} fanout rows (${label})"
+  CLEAN_FANOUT_LAST_COUNT="$cleaned"
 }
 
 append_fanout_cfgs_to_manifest() {
@@ -888,6 +946,7 @@ manifest="${5:?manifest required}"
 emails="${6:-}"
 dag_file="${7:-}"
 [[ "$emails" == "NONE" ]] && emails=""
+dag_dir="$(dirname "$manifest")"
 
 pool_count=0
 out_count=0
@@ -906,13 +965,38 @@ if [[ -n "$dag_file" && "$dag_file" != "NONE" ]]; then
     rescue_count=$(compgen -G "${dag_file}.rescue*" | wc -l | awk '{print $1}')
     status="FAILED"
     status_note="DAGMan rescue file(s) were produced; inspect the DAG logs before continuing."
-  elif [[ -s "$dagman_out" ]] && grep -Eiq 'ERROR|failed with|DAG abort|aborted|Job was held|held job' "$dagman_out"; then
+  elif [[ -s "$dagman_out" ]] && grep -Eiq 'DAG_STATUS_NODE_FAILED|ERROR: the following Node|failed with status|Node return val:[[:space:]]*[1-9]' "$dagman_out"; then
+    status="FAILED"
+    status_note="At least one DAG node failed; inspect the failed worker stdout/err before continuing."
+  elif [[ -s "$dagman_out" ]] && grep -Eiq 'DAG abort|aborted|Job was held|held job|ULOG_JOB_HELD|DAG_STATUS_RM' "$dagman_out"; then
     status="CHECK"
     status_note="DAGMan log contains error/hold-like text; inspect logs before treating outputs as final."
   fi
 fi
 
 body="$(mktemp "${TMPDIR:-/tmp}/recoiljets_dag_summary.XXXXXX")"
+profile_lines="$(mktemp "${TMPDIR:-/tmp}/recoiljets_profile_lines.XXXXXX")"
+profile_summary="${dag_dir}/smoke_profile_summary_${workflow}.txt"
+profile_raw="${dag_dir}/smoke_profile_rows_${workflow}.txt"
+report_dir="${out_base%/}/_pipeline_reports/${workflow}"
+report_summary="${report_dir}/final_summary.txt"
+report_manifest="${report_dir}/manifest.txt"
+report_profile="${report_dir}/smoke_profile_summary.txt"
+report_profile_rows="${report_dir}/smoke_profile_rows.txt"
+manifest_get() {
+  local key="$1"
+  [[ -s "$manifest" ]] || return 0
+  awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' "$manifest" 2>/dev/null || true
+}
+manifest_group_size="$(manifest_get group_size)"
+manifest_replay_group_size="$(manifest_get replay_group_size)"
+manifest_request_memory="$(manifest_get request_memory)"
+manifest_request_memory_mb="$(manifest_get request_memory_mb)"
+manifest_capture_nevents="$(manifest_get capture_nevents)"
+manifest_smoke_cap="$(manifest_get smoke_capture_job_cap)"
+manifest_photon_rows="$(manifest_get photon_id_sets_expanded)"
+manifest_replay_cones="$(manifest_get replay_cones)"
+manifest_capture_cones="$(manifest_get capture_cones)"
 {
   echo "RECOILJETS_STAGE_EMAIL_V1"
   echo "status=${status}"
@@ -929,6 +1013,12 @@ body="$(mktemp "${TMPDIR:-/tmp}/recoiljets_dag_summary.XXXXXX")"
   echo "dagman_out=${dagman_out}"
   echo "nodes_log=${nodes_log}"
   echo "rescue_file_count=${rescue_count}"
+  echo "profile_summary=${profile_summary}"
+  echo "published_report_dir=${report_dir}"
+  echo "published_final_summary=${report_summary}"
+  echo "published_manifest=${report_manifest}"
+  echo "published_profile_summary=${report_profile}"
+  echo "published_profile_rows=${report_profile_rows}"
   echo "next_action=If status is READY, continue with the normal merge/pull/plot step for this dataset. If status is CHECK or FAILED, inspect dagman_out, nodes_log, and the job .err files first."
   echo
   if [[ -s "$manifest" ]]; then
@@ -941,28 +1031,183 @@ body="$(mktemp "${TMPDIR:-/tmp}/recoiljets_dag_summary.XXXXXX")"
       for profile_glob in "${profile_globs[@]}"; do
         while IFS= read -r profile_file; do
           [[ -s "$profile_file" ]] || continue
-          grep -h 'RECOILJETS_JOB_PROFILE_V1' "$profile_file" || true
+          grep -h 'RECOILJETS_JOB_PROFILE_V1' "$profile_file" | tee -a "$profile_lines" || true
         done < <(compgen -G "$profile_glob" || true)
       done
+      if [[ -s "$profile_lines" ]]; then
+        {
+          echo "RECOILJETS_SMOKE_PROFILE_SUMMARY_V1"
+          echo "workflow=${workflow}"
+          echo "dataset=${dataset}"
+          echo "manifest=${manifest}"
+          awk \
+            -v dataset="${dataset}" \
+            -v group_size="${manifest_group_size}" \
+            -v replay_group_size="${manifest_replay_group_size}" \
+            -v request_memory="${manifest_request_memory}" \
+            -v request_memory_mb="${manifest_request_memory_mb}" \
+            -v capture_nevents="${manifest_capture_nevents}" \
+            -v smoke_cap="${manifest_smoke_cap}" \
+            -v photon_rows="${manifest_photon_rows}" \
+            -v replay_cones="${manifest_replay_cones}" \
+            -v capture_cones="${manifest_capture_cones}" '
+            function getv(k,    i, s) {
+              for (i = 1; i <= NF; ++i) {
+                s = $i
+                if (s ~ "^" k "=") {
+                  sub("^" k "=", "", s)
+                  return s
+                }
+              }
+              return ""
+            }
+            function mb_from_kb(kb) { return int((kb + 1023) / 1024) }
+            function rec_mem_mb(max_mb) {
+              if (max_mb <= 0) return 0
+              return int(((max_mb * 3 / 2) + 512 + 499) / 500) * 500
+            }
+            function max(a,b) { return (a > b ? a : b) }
+            function int_or_zero(x) { return (x == "" ? 0 : x + 0) }
+            {
+              stage = getv("stage"); if (stage == "") stage = "unknown"
+              exit_code = getv("exit_code")
+              elapsed = getv("elapsed_seconds") + 0
+              rss = getv("max_rss_kb") + 0
+              inputs = getv("input_files") + 0
+              outputs = getv("output_files") + 0
+              bytes = getv("output_bytes") + 0
+              n[stage] += 1
+              total += 1
+              elapsed_sum[stage] += elapsed
+              input_sum[stage] += inputs
+              output_sum[stage] += outputs
+              bytes_sum[stage] += bytes
+              if (!(stage in elapsed_min) || elapsed < elapsed_min[stage]) elapsed_min[stage] = elapsed
+              if (elapsed > elapsed_max[stage]) elapsed_max[stage] = elapsed
+              if (rss > rss_max[stage]) rss_max[stage] = rss
+              if (rss > overall_rss_max) overall_rss_max = rss
+              overall_elapsed += elapsed
+              overall_inputs += inputs
+              overall_outputs += outputs
+              overall_bytes += bytes
+              if (exit_code != "0") {
+                failed += 1
+                failed_stage[stage] += 1
+                failed_lines = failed_lines "\nfailed_profile=" $0
+              }
+            }
+            END {
+              print "profile_rows=" total
+              print "profile_failures=" failed + 0
+              print "group_size=" group_size
+              print "replay_group_size=" replay_group_size
+              print "request_memory=" request_memory
+              print "request_memory_mb=" request_memory_mb
+              print "capture_nevents_per_worker=" capture_nevents
+              print "smoke_capture_job_cap=" smoke_cap
+              print "photon_id_rows=" photon_rows
+              print "capture_cones=" capture_cones
+              print "replay_cones=" replay_cones
+              for (stage in n) {
+                avg_elapsed = elapsed_sum[stage] / n[stage]
+                max_mb = mb_from_kb(rss_max[stage])
+                rec_mb = rec_mem_mb(max_mb)
+                sec_per_input = (input_sum[stage] > 0 ? elapsed_sum[stage] / input_sum[stage] : 0)
+                printf("stage_summary stage=%s jobs=%d failed=%d elapsed_avg_s=%.1f elapsed_min_s=%d elapsed_max_s=%d input_files=%d sec_per_input_file=%.2f max_rss_mb=%d output_files=%d output_mb=%.1f headroom_request_memory_mb=%d\n",
+                       stage, n[stage], failed_stage[stage] + 0, avg_elapsed,
+                       elapsed_min[stage], elapsed_max[stage], input_sum[stage],
+                       sec_per_input, max_mb, output_sum[stage], bytes_sum[stage] / 1048576.0, rec_mb)
+              }
+              overall_max_mb = mb_from_kb(overall_rss_max)
+              recommended_mb = rec_mem_mb(overall_max_mb)
+              overall_sec_per_input = (overall_inputs > 0 ? overall_elapsed / overall_inputs : 0)
+              printf("overall_summary jobs=%d elapsed_total_s=%.1f input_files=%d sec_per_input_file=%.2f max_rss_mb=%d output_files=%d output_mb=%.1f headroom_request_memory_mb=%d\n",
+                     total, overall_elapsed, overall_inputs, overall_sec_per_input,
+                     overall_max_mb, overall_outputs, overall_bytes / 1048576.0, recommended_mb)
+              req_mb = int_or_zero(request_memory_mb)
+              if (req_mb > 0 && overall_max_mb > 0) {
+                usage = overall_max_mb / req_mb
+                printf("memory_headroom requested_mb=%d max_rss_mb=%d usage_fraction=%.2f spare_mb=%d\n",
+                       req_mb, overall_max_mb, usage, req_mb - overall_max_mb)
+              } else {
+                usage = 0
+                print "memory_headroom requested_mb=unknown max_rss_mb=" overall_max_mb " usage_fraction=unknown spare_mb=unknown"
+              }
+              cap_events = int_or_zero(capture_nevents)
+              smoke_jobs = int_or_zero(smoke_cap)
+              if (cap_events == 0) {
+                print "resource_confidence=high_for_this_exact_grouping_full_event_workers"
+              } else if (cap_events < 10000) {
+                print "resource_confidence=fast_pipeline_check_only"
+              } else {
+                print "resource_confidence=single_pass_tuning_smoke"
+              }
+              if (failed > 0) {
+                print "measurement_status=invalid_worker_failures"
+                print "measurement_note=Worker failures make timing and memory summaries incomplete. Inspect failed_profile lines and worker logs before inferring production settings."
+                printf "%s\n", failed_lines
+              } else {
+                if (req_mb > 0 && usage > 0.90) {
+                  print "measurement_status=complete_memory_tight"
+                  print "measurement_note=Measurements were collected, but max_rss is close to requested memory. Use the report locally to infer whether to increase memory or reduce groupSize."
+                } else if (cap_events > 0 && cap_events < 10000) {
+                  print "measurement_status=complete_small_event_cap"
+                  print "measurement_note=Measurements were collected, but the event cap is below the intended one-pass tuning default. Treat runtime scaling cautiously."
+                } else if (total < 6) {
+                  print "measurement_status=complete_low_profile_count"
+                  print "measurement_note=Measurements were collected from too few worker profiles for robust groupSize inference."
+                } else {
+                  print "measurement_status=complete_one_pass_tuning"
+                  print "measurement_note=Measurements are complete enough for local inference of production groupSize and request_memory."
+                }
+                print "one_pass_smoke_target=RJ_POOL_SMOKE_NEVENTS defaults to 20000; maxJobs 12 provides enough worker profiles in one submission."
+              }
+            }' "$profile_lines"
+        } > "$profile_summary"
+        echo
+        echo "profile_summary_report:"
+        cat "$profile_summary"
+      else
+        {
+          echo "RECOILJETS_SMOKE_PROFILE_SUMMARY_V1"
+          echo "workflow=${workflow}"
+          echo "dataset=${dataset}"
+          echo "profile_rows=0"
+          echo "recommendation=No RECOILJETS_JOB_PROFILE_V1 lines were found. Inspect worker stdout/err paths from the submit files."
+        } > "$profile_summary"
+        echo
+        echo "profile_summary_report:"
+        cat "$profile_summary"
+      fi
     fi
   else
     echo "manifest missing or empty: ${manifest}"
   fi
 } > "$body"
 
+mkdir -p "$report_dir"
+[[ -s "$profile_lines" ]] && cp "$profile_lines" "$profile_raw"
+cp "$body" "$report_summary"
+[[ -s "$manifest" ]] && cp "$manifest" "$report_manifest"
+[[ -s "$profile_summary" ]] && cp "$profile_summary" "$report_profile"
+[[ -s "$profile_raw" ]] && cp "$profile_raw" "$report_profile_rows"
+
 cat "$body"
 
 if [[ -n "$emails" ]]; then
   subject="[RecoilJets][${dataset}][${workflow}][${status}]"
+  mail_recipients="${emails//,/ }"
   if command -v mail >/dev/null 2>&1; then
-    mail -s "$subject" "$emails" < "$body" || true
+    # shellcheck disable=SC2086
+    mail -s "$subject" $mail_recipients < "$body" || true
   elif command -v mailx >/dev/null 2>&1; then
-    mailx -s "$subject" "$emails" < "$body" || true
+    # shellcheck disable=SC2086
+    mailx -s "$subject" $mail_recipients < "$body" || true
   else
     echo "[notify] mail/mailx not found; notification skipped for ${emails}" >&2
   fi
 fi
-rm -f "$body"
+rm -f "$body" "$profile_lines"
 EOS
   chmod +x "$exec_file"
 
@@ -2071,11 +2316,21 @@ submit_data_pool_workflow() {
   local master_yaml="$data_yaml_src"
   local workflow_stamp
   workflow_stamp="$(date +%Y%m%d_%H%M%S)"
+  local dag_dryrun=0
+  if [[ "${RJ_DAG_DRYRUN:-0}" == "1" || "${RJ_DAG_DRYRUN:-0}" == "true" || "${RJ_DAG_DRYRUN:-0}" == "TRUE" ]]; then
+    dag_dryrun=1
+  fi
   [[ "$smoke_capture_cap" =~ ^[0-9]+$ ]] || smoke_capture_cap=0
   local is_smoke=0
   if [[ "$workflow_flavor" == "poolSmoke" || "$workflow_flavor" == "smoke" || "$smoke_capture_cap" -gt 0 ]]; then
     is_smoke=1
   fi
+  local trace_pool=0
+  if (( is_smoke || dag_dryrun )) || [[ "${RJ_POOL_TRACE:-0}" == "1" || "${RJ_POOL_TRACE:-0}" == "true" || "${RJ_POOL_TRACE:-0}" == "TRUE" ]]; then
+    trace_pool=1
+  fi
+  local trace_every="${RJ_POOL_TRACE_EVERY:-25}"
+  [[ "$trace_every" =~ ^[0-9]+$ && "$trace_every" -gt 0 ]] || trace_every=25
   local pool_base out_base
   if (( is_smoke )); then
     pool_base="${RJ_POOL_OUTPUT_BASE:-${POOL_DEST_ROOT}/${TAG}_poolSmoke_${workflow_stamp}}"
@@ -2095,6 +2350,17 @@ submit_data_pool_workflow() {
   fi
   local profile_job="${RJ_PROFILE_JOB:-0}"
   (( is_smoke )) && profile_job=1
+  local capture_nevents=0
+  if (( is_smoke )); then
+    capture_nevents="${RJ_POOL_SMOKE_NEVENTS:-20000}"
+  fi
+  [[ "$capture_nevents" =~ ^[0-9]+$ ]] || { err "RJ_POOL_SMOKE_NEVENTS must be a non-negative integer, got '${capture_nevents}'"; exit 2; }
+  local request_memory="${RJ_REQUEST_MEMORY:-2000MB}"
+  local request_memory_digits="${request_memory//[^0-9]/}"
+  local request_memory_mb="${request_memory_digits:-0}"
+  case "$request_memory" in
+    *[Gg][Bb]|*[Gg]) request_memory_mb=$(( request_memory_mb * 1024 )) ;;
+  esac
 
   if [[ "${RJ_DAG_DRYRUN:-0}" != "1" && "${RJ_DAG_DRYRUN:-0}" != "true" && "${RJ_DAG_DRYRUN:-0}" != "TRUE" ]]; then
     need_cmd condor_submit_dag
@@ -2107,6 +2373,8 @@ submit_data_pool_workflow() {
   read_capture_cones "$master_yaml"
   local -a data_replay_cones=( "${replay_cones[@]}" )
   local -a data_capture_cones=( "${capture_cones[@]}" )
+  local golden_rows=0
+  [[ -s "$GOLDEN" ]] && golden_rows="$(grep -Evc '^[[:space:]]*($|#)' "$GOLDEN" 2>/dev/null || echo 0)"
 
   if [[ "$from_scratch" -eq 1 ]]; then
     cleanup_bulk_snapshots_for_tag
@@ -2121,7 +2389,11 @@ submit_data_pool_workflow() {
     echo "dataset=${DATASET}"
     echo "smoke=${is_smoke}"
     echo "smoke_capture_job_cap=${smoke_capture_cap}"
+    echo "capture_nevents=${capture_nevents}"
+    echo "replay_nevents=0"
     echo "profile_job=${profile_job}"
+    echo "request_memory=${request_memory}"
+    echo "request_memory_mb=${request_memory_mb}"
     echo "yaml=${master_yaml}"
     echo "pool_base=${pool_base}"
     echo "output_base=${out_base}"
@@ -2147,7 +2419,14 @@ submit_data_pool_workflow() {
   say "  pool base   : ${pool_base}"
   say "  output base : ${out_base}"
   (( is_smoke )) && say "  smoke cap   : ${smoke_capture_cap} capture jobs total; profiling enabled"
+  (( is_smoke )) && say "  smoke events: capture nEvents=${capture_nevents} per worker; replay nEvents=0 over captured pools"
   say "  DAG dir     : ${dag_dir}"
+  if (( trace_pool )); then
+    say "  trace       : enabled (RJ_POOL_TRACE_EVERY=${trace_every}; dryrun=${dag_dryrun}; smoke=${is_smoke})"
+    say "  golden runs : ${golden_rows}"
+    say "  capture axes: storedIsolation=[${data_capture_cones[*]}] clusterUE=[${uepipe_modes[*]}]"
+    say "  replay axes : coneR=[${data_replay_cones[*]}] jetPt=[${data_pts[*]}] dphi=[${data_fracs[*]}] vz=[${data_vzs[*]}] ID/iso rows=${#iso_selection_tags[@]}"
+  fi
 
   local smoke_capture_queued_total=0
   if [[ "$from_scratch" -eq 1 ]]; then
@@ -2155,6 +2434,7 @@ submit_data_pool_workflow() {
       for uepipe in "${uepipe_modes[@]}"; do
         local cap_tag
         cap_tag="$(pool_capture_cfg_tag "$data_cone" "$uepipe" "$master_yaml")"
+        (( trace_pool )) && say "[poolSmoke] capture planning begin: cap_tag=${cap_tag} cone=${data_cone} clusterUE=${uepipe}"
         local cap_yaml
         cap_yaml="$(sim_make_yaml_override "$master_yaml" "${data_pts[0]}" "${data_fracs[0]}" "${data_vzs[0]}" "$data_cone" "${iso_sliding[0]}" "${iso_fixed[0]}" "$uepipe" "${iso_preselection[0]}" "${iso_tight[0]}" "${iso_nonTight[0]}" "$cap_tag" "$workflow_stamp" "false")"
         local cap_stage_dir="${STAGE_DIR}/${TAG}_${workflow_stamp}_capture_${cap_tag}"
@@ -2165,7 +2445,9 @@ submit_data_pool_workflow() {
           *) err "Refusing to wipe pool capture root outside thesisAnaPools: ${cap_root}"; exit 62 ;;
         esac
         mkdir -p "$cap_root"
+        (( trace_pool )) && say "[poolSmoke] cleaning capture pool root: ${cap_root}"
         find "$cap_root" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+        (( trace_pool )) && say "[poolSmoke] capture pool root clean: ${cap_root}"
 
         local cap_sub="${dag_dir}/capture_${cap_tag}.sub"
         local exe_for_sub="${BULK_FROZEN_EXE:-${EXE}}"
@@ -2179,7 +2461,7 @@ getenv        = True
 log           = ${LOG_DIR}/capture_${TAG}_${cap_tag}.\$(Cluster).\$(Process).log
 output        = ${OUT_DIR}/capture_${TAG}_${cap_tag}.\$(Cluster).\$(Process).out
 error         = ${ERR_DIR}/capture_${TAG}_${cap_tag}.\$(Cluster).\$(Process).err
-request_memory= ${RJ_REQUEST_MEMORY:-2000MB}
+request_memory= ${request_memory}
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
@@ -2188,18 +2470,24 @@ environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${cap_yaml}$
 SUB
 
         local queued=0
+        local runs_seen=0 runs_with_groups=0
         while IFS= read -r rn; do
           if (( is_smoke && smoke_capture_cap > 0 && smoke_capture_queued_total >= smoke_capture_cap )); then
+            (( trace_pool )) && say "[poolSmoke] capture cap reached (${smoke_capture_queued_total}/${smoke_capture_cap}); stopping capture scan for ${cap_tag}"
             break
           fi
           [[ -z "$rn" || "$rn" =~ ^# ]] && continue
+          (( runs_seen+=1 ))
           local r8
           r8="$(run8 "$rn")"
           if [[ -n "${TRIGGER_BIT}" ]] && ! is_trigger_active "$r8" "$TRIGGER_BIT"; then
+            (( trace_pool && (runs_seen == 1 || runs_seen % trace_every == 0) )) && say "[poolSmoke] capture scan ${cap_tag}: run ${runs_seen}/${golden_rows} ${r8} skipped by trigger bit ${TRIGGER_BIT}"
             continue
           fi
+          (( trace_pool && (runs_seen == 1 || runs_seen % trace_every == 0) )) && say "[poolSmoke] capture scan ${cap_tag}: run ${runs_seen}/${golden_rows} ${r8} grouping DST lists"
           mapfile -t groups < <( STAGE_DIR="$cap_stage_dir" make_groups "$r8" "$GROUP_SIZE" )
           (( ${#groups[@]} )) || continue
+          (( runs_with_groups+=1 ))
           if (( is_smoke && smoke_capture_cap > 0 )); then
             local remaining=$(( smoke_capture_cap - smoke_capture_queued_total ))
             (( remaining > 0 )) || break
@@ -2217,12 +2505,13 @@ SUB
             chunk_base="$(basename "$glist")"
             chunk_tag="${chunk_base%.list}"
             printf '%s\n' "${cap_root}/${r8}/RecoilJets_${analysis_tag}_${chunk_tag}.root" >> "$expected_pool_list"
-            printf 'arguments = %s %s %s $(Cluster) 0 %d NONE %s\nqueue\n\n' \
-                   "$r8" "$glist" "$DATASET" "$gidx" "$cap_root" >> "$cap_sub"
+            printf 'arguments = %s %s %s $(Cluster) %s %d NONE %s\nqueue\n\n' \
+                   "$r8" "$glist" "$DATASET" "$capture_nevents" "$gidx" "$cap_root" >> "$cap_sub"
             (( queued+=1 ))
             (( smoke_capture_queued_total+=1 ))
           done
           pool_list_by_tag_run["${cap_tag}|${r8}"]="$expected_pool_list"
+          (( trace_pool )) && say "[poolSmoke] capture queue ${cap_tag}/${r8}: groups=${#groups[@]} queuedForTag=${queued} queuedTotal=${smoke_capture_queued_total}"
         done < "$GOLDEN"
 
         if (( queued == 0 )); then
@@ -2238,6 +2527,7 @@ SUB
         (( capture_count+=1 ))
         echo "capture_node=${cap_node} tag=${cap_tag} jobs=${queued} yaml=${cap_yaml} output=${cap_root}" >> "$manifest"
         echo "profile_glob=${OUT_DIR}/capture_${TAG}_${cap_tag}.*.out" >> "$manifest"
+        (( trace_pool )) && say "[poolSmoke] capture node ready: node=${cap_node} jobs=${queued} runsSeen=${runs_seen} runsWithGroups=${runs_with_groups} sub=${cap_sub}"
       done
     done
   fi
@@ -2248,21 +2538,15 @@ SUB
       local cap_tag fanout_dirs replay_sub replay_node fanout_count
       cap_tag="$(pool_capture_cfg_tag "$data_cone" "$uepipe" "$master_yaml")"
       fanout_dirs="${SIM_YAML_OVERRIDE_DIR}/pool_replay_fanout_${TAG}_${cap_tag}_${workflow_stamp}.txt"
+      (( trace_pool )) && say "[poolSmoke] replay fanout begin: cap_tag=${cap_tag} outputBase=${out_base}"
       emit_pool_replay_fanout_dirs_file "$fanout_dirs" "$out_base" "$master_yaml" "$workflow_stamp" "${data_replay_cones[*]}" "$uepipe" "${data_pts[*]}" "${data_fracs[*]}" "${data_vzs[*]}"
       fanout_count="$(wc -l < "$fanout_dirs" | awk '{print $1}')"
+      (( trace_pool )) && say "[poolSmoke] replay fanout written: cap_tag=${cap_tag} fanoutOutputs=${fanout_count} file=${fanout_dirs}"
       append_fanout_cfgs_to_manifest "$fanout_dirs" "$manifest"
 
-      while IFS= read -r fan_line; do
-        [[ -z "${fan_line:-}" || "${fan_line:0:1}" == "#" ]] && continue
-        IFS='|' read -r fan_dest _fan_cfg _fan_yaml _fan_pre _fan_tight _fan_nonTight <<< "$fan_line"
-        [[ -z "${fan_dest:-}" || "${fan_dest:0:1}" == "#" ]] && continue
-        case "$fan_dest" in
-          */thesisAna/pp/*|*/thesisAna/pp25/*|*/thesisAna/auau/*|*/thesisAna/oo/*) ;;
-          *) err "Refusing to wipe fanout DEST_BASE='$fan_dest'"; exit 62 ;;
-        esac
-        mkdir -p "$fan_dest"
-        find "$fan_dest" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
-      done < "$fanout_dirs"
+      (( trace_pool )) && say "[poolSmoke] cleaning fanout output dirs begin: cap_tag=${cap_tag} rows=${fanout_count}"
+      clean_fanout_output_dirs_from_file "$fanout_dirs" "$cap_tag" "$trace_pool" "$trace_every"
+      (( trace_pool )) && say "[poolSmoke] cleaning fanout output dirs done: cap_tag=${cap_tag} uniqueRoots=${CLEAN_FANOUT_LAST_COUNT:-0}"
 
       replay_sub="${dag_dir}/replay_${cap_tag}.sub"
       cat > "$replay_sub" <<SUB
@@ -2273,7 +2557,7 @@ getenv        = True
 log           = ${LOG_DIR}/replay_${TAG}_${cap_tag}.\$(Cluster).\$(Process).log
 output        = ${OUT_DIR}/replay_${TAG}_${cap_tag}.\$(Cluster).\$(Process).out
 error         = ${ERR_DIR}/replay_${TAG}_${cap_tag}.\$(Cluster).\$(Process).err
-request_memory= ${RJ_REQUEST_MEMORY:-2000MB}
+request_memory= ${request_memory}
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
@@ -2282,11 +2566,14 @@ environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${master_yam
 SUB
 
       local queued=0
+      local replay_runs_seen=0 replay_runs_with_pools=0
       while IFS= read -r rn; do
         [[ -z "$rn" || "$rn" =~ ^# ]] && continue
+        (( replay_runs_seen+=1 ))
         local r8
         r8="$(run8 "$rn")"
         if [[ -n "${TRIGGER_BIT}" ]] && ! is_trigger_active "$r8" "$TRIGGER_BIT"; then
+          (( trace_pool && (replay_runs_seen == 1 || replay_runs_seen % trace_every == 0) )) && say "[poolSmoke] replay scan ${cap_tag}: run ${replay_runs_seen}/${golden_rows} ${r8} skipped by trigger bit ${TRIGGER_BIT}"
           continue
         fi
 
@@ -2301,6 +2588,8 @@ SUB
           find "$pool_dir" -maxdepth 1 -type f -name '*.root' | sort > "$pool_all"
           [[ -s "$pool_all" ]] || { err "No pool ROOT files found in $pool_dir"; exit 94; }
         fi
+        (( replay_runs_with_pools+=1 ))
+        (( trace_pool )) && say "[poolSmoke] replay queue source ${cap_tag}/${r8}: poolList=${pool_all} replayGroupSize=${replay_gs}"
 
         local pool_stage_dir="${dag_dir}/poolReplayLists/${cap_tag}/${r8}"
         mkdir -p "$pool_stage_dir"
@@ -2316,6 +2605,7 @@ SUB
                  "$r8" "$out_list" "$DATASET" "$gidx" "${out_base}/${cap_tag}" >> "$replay_sub"
           (( queued+=1 ))
         done
+        (( trace_pool )) && say "[poolSmoke] replay queue ${cap_tag}/${r8}: replayChunks=${gidx} queuedForTag=${queued}"
       done < "$GOLDEN"
 
       if (( queued == 0 )); then
@@ -2340,6 +2630,7 @@ SUB
       (( cell_num+=fanout_count ))
       echo "replay_node=${replay_node} cap_tag=${cap_tag} jobs=${queued} fanout_outputs=${fanout_count} fanout=${fanout_dirs}" >> "$manifest"
       echo "profile_glob=${OUT_DIR}/replay_${TAG}_${cap_tag}.*.out" >> "$manifest"
+      (( trace_pool )) && say "[poolSmoke] replay node ready: node=${replay_node} jobs=${queued} runsSeen=${replay_runs_seen} runsWithPools=${replay_runs_with_pools} fanoutOutputs=${fanout_count} sub=${replay_sub}"
   done
   done
 
@@ -2362,7 +2653,9 @@ SUB
   say "  replay nodes  : ${replay_count}"
   say "  manifest      : ${manifest}"
   say "  dag           : ${dag}"
+  (( trace_pool )) && say "[poolSmoke] publishing latest manifest marker under ${out_base}"
   publish_production_manifest "$manifest" "$out_base"
+  (( trace_pool )) && say "[poolSmoke] DAG build complete; submit step next (dryrun=${dag_dryrun})"
   submit_dag_with_notify "$dag"
 }
 
@@ -4608,15 +4901,7 @@ SUB
         fanout_count="$(wc -l < "$fanout_dirs" | awk '{print $1}')"
         append_fanout_cfgs_to_manifest "$fanout_dirs" "$manifest"
 
-        while IFS= read -r fan_line; do
-          [[ -z "${fan_line:-}" || "${fan_line:0:1}" == "#" ]] && continue
-          IFS='|' read -r fan_dest _fan_cfg _fan_yaml _fan_pre _fan_tight _fan_nonTight <<< "$fan_line"
-          [[ -z "${fan_dest:-}" || "${fan_dest:0:1}" == "#" ]] && continue
-          for samp in "${samples[@]}"; do
-            mkdir -p "${fan_dest}/${samp}"
-            rm -f "${fan_dest}/${samp}/"*.root 2>/dev/null || true
-          done
-        done < "$fanout_dirs"
+        clean_fanout_output_dirs_from_file "$fanout_dirs" "${POOL_CAPTURE_TAG}" 1 25 "${samples[@]}"
 
         for samp in "${samples[@]}"; do
           cap_key="${POOL_CAPTURE_TAG}|${samp}"
@@ -4763,15 +5048,7 @@ SUB
         fanout_count="$(wc -l < "$fanout_dirs" | awk '{print $1}')"
         append_fanout_cfgs_to_manifest "$fanout_dirs" "$manifest"
 
-        while IFS= read -r fan_line; do
-          [[ -z "${fan_line:-}" || "${fan_line:0:1}" == "#" ]] && continue
-          IFS='|' read -r fan_dest _fan_cfg _fan_yaml _fan_pre _fan_tight _fan_nonTight <<< "$fan_line"
-          [[ -z "${fan_dest:-}" || "${fan_dest:0:1}" == "#" ]] && continue
-          for samp in "${samples[@]}"; do
-            mkdir -p "${fan_dest}/${samp}"
-            rm -f "${fan_dest}/${samp}/"*.root 2>/dev/null || true
-          done
-        done < "$fanout_dirs"
+        clean_fanout_output_dirs_from_file "$fanout_dirs" "${POOL_CAPTURE_TAG}" 1 25 "${samples[@]}"
 
         for samp in "${samples[@]}"; do
           pool_dir="${pool_base}/${POOL_CAPTURE_TAG}/${samp}"

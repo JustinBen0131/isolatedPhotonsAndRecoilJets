@@ -284,6 +284,38 @@ namespace rjpool
     return loadConfigFromPath(path);
   }
 
+  bool isInlineViewSpec(const std::string& s)
+  {
+    return s.rfind("INLINE_VIEW_V1", 0) == 0;
+  }
+
+  void applyInlineViewSpec(Config& cfg, const std::string& spec)
+  {
+    if (!isInlineViewSpec(spec)) return;
+    std::stringstream ss(spec);
+    for (std::string tok; std::getline(ss, tok, ';'); )
+    {
+      tok = trim(tok);
+      if (tok.empty() || tok == "INLINE_VIEW_V1") continue;
+      const std::size_t eq = tok.find('=');
+      if (eq == std::string::npos) continue;
+      const std::string key = trim(tok.substr(0, eq));
+      const std::string val = trim(tok.substr(eq + 1));
+
+      if (key == "jet_pt_min") parseDouble(val, cfg.minJetPt);
+      else if (key == "back_to_back_dphi_min_pi_fraction")
+      {
+        double frac = 0.0;
+        if (parseDouble(val, frac)) cfg.minBackToBack = frac * M_PI;
+      }
+      else if (key == "vz_cut_cm") parseDouble(val, cfg.vzCutCm);
+      else if (key == "coneR") parseDouble(val, cfg.coneR);
+      else if (key == "isSlidingIso") parseBool(val, cfg.slidingIso);
+      else if (key == "fixedGeV") parseDouble(val, cfg.isoFixed);
+      else if (key == "view_id") cfg.viewId = val;
+    }
+  }
+
   struct Entry
   {
     std::string outRoot;
@@ -332,8 +364,16 @@ namespace rjpool
       e.cfg = cfg;
       if (cols.size() >= 6)
       {
-        e.yamlPath = cols[2];
-        if (!e.yamlPath.empty()) e.cfg = loadConfigFromPath(e.yamlPath);
+        const std::string viewSpecOrYaml = cols[2];
+        if (isInlineViewSpec(viewSpecOrYaml))
+        {
+          applyInlineViewSpec(e.cfg, viewSpecOrYaml);
+        }
+        else
+        {
+          e.yamlPath = viewSpecOrYaml;
+          if (!e.yamlPath.empty()) e.cfg = loadConfigFromPath(e.yamlPath);
+        }
         e.pre = normalizePre(cols[3]);
         e.tight = normalizeTight(cols[4]);
         e.nonTight = normalizeNonTight(cols[5]);
@@ -1869,7 +1909,7 @@ void Fun4All_recoilJets_poolReplay(const int nEvents,
       isoFixed = static_cast<float>(view.cfg.isoFixed);
       legacyTopLevel = view.legacyTopLevel ? 1 : 0;
       catalog.Fill();
-      if (!view.cfg.yamlText.empty())
+      if (!view.entry.yamlPath.empty() && !isInlineViewSpec(view.entry.yamlPath) && !view.cfg.yamlText.empty())
       {
         TObjString viewYaml(view.cfg.yamlText.c_str());
         const std::string yamlName = "analysis_config_yaml_" + view.viewId;

@@ -35,6 +35,11 @@ const std::string kOutDir = "dataOutput/combinedSimOnlyEMBEDDED/b-leakageCompare
 const std::string kCOutDir = "dataOutput/combinedSimOnlyEMBEDDED/c-leakageCompare";
 const std::string kTopDir = "SIM";
 const std::string kMergedFilename = "RecoilJets_embeddedPhoton12plus20_MERGED.root";
+const std::string kReferencePreselectionLabel = "reference preselection";
+const std::string kVariantAPreselectionLabel = "New PPG12 Presel";
+const std::string kVariantCPreselectionLabel = "NPB Only Presel";
+const std::string kVariantDPreselectionLabel = "reference + NPB presel";
+const std::string kNoPreselectionLabel = "no preselection";
 
 struct PtBin
 {
@@ -657,7 +662,8 @@ void DrawCPreselectionPair(const std::string& title,
                            const Variant& first,
                            const Variant& second,
                            const std::string& firstLegend,
-                           const std::string& secondLegend)
+                           const std::string& secondLegend,
+                           const std::string& outputSubdir = "")
 {
   if (!BuildMergedFile(first.tag)) return;
   if (!BuildMergedFile(second.tag)) return;
@@ -770,7 +776,13 @@ void DrawCPreselectionPair(const std::string& title,
   tx.DrawLatex(0.92, 0.675, "#bf{sPHENIX} #it{Internal}");
   tx.DrawLatex(0.92, 0.635, "Pythia Overlay  #sqrt{s_{NN}} = 200 GeV");
 
-  const std::string outPng = kCOutDir + "/" + outStem + ".png";
+  std::string outDir = kCOutDir;
+  if (!outputSubdir.empty())
+  {
+    outDir += "/" + outputSubdir;
+    gSystem->mkdir(outDir.c_str(), true);
+  }
+  const std::string outPng = outDir + "/" + outStem + ".png";
   c.SaveAs(outPng.c_str());
   Log("[DONE] Wrote " + outPng);
 }
@@ -883,34 +895,138 @@ void MakeEmbeddedCLeakageCompare_SlidingOnly()
   const Variant reference{base + "preselectionReference" + tail, "sliding_reference", kBlack, 20};
   const Variant variantA{base + "preselectionVariantA" + tail, "sliding_variantA", kBlack, 20};
   const Variant variantB{base + "preselectionVariantB" + tail, "sliding_variantB", kBlack, 20};
+  const Variant variantC{base + "preselectionVariantC" + tail, "sliding_variantC", kBlack, 20};
+  const Variant variantD{base + "preselectionVariantD" + tail, "sliding_variantD", kBlack, 20};
 
   DrawCPreselectionPair(
-      "C-leakage, reference vs NPB preselection, Photon+Jet Embedded Pythia (12 + 20) GeV",
+      "C-leakage, reference vs New PPG12 Presel, Photon+Jet Embedded Pythia (12 + 20) GeV",
       "cLeakage_referenceVsNPBPreselection_isSliding",
       reference,
       variantA,
-      "reference preselection",
-      "NPB preselection");
+      kReferencePreselectionLabel,
+      kVariantAPreselectionLabel);
 
   DrawCPreselectionPair(
       "C-leakage, reference vs no preselection, Photon+Jet Embedded Pythia (12 + 20) GeV",
       "cLeakage_referenceVsNoPreselection_isSliding",
       reference,
       variantB,
-      "reference preselection",
-      "no preselection");
+      kReferencePreselectionLabel,
+      kNoPreselectionLabel);
 
   DrawCPreselectionPair(
-      "C-leakage, NPB vs no preselection, Photon+Jet Embedded Pythia (12 + 20) GeV",
+      "C-leakage, New PPG12 Presel vs no preselection, Photon+Jet Embedded Pythia (12 + 20) GeV",
       "cLeakage_NPBVsNoPreselection_isSliding",
       variantA,
       variantB,
-      "NPB preselection",
-      "no preselection");
+      kVariantAPreselectionLabel,
+      kNoPreselectionLabel);
+
+  DrawCPreselectionPair(
+      "C-leakage, NPB Only Presel vs no preselection, Photon+Jet Embedded Pythia (12 + 20) GeV",
+      "cLeakage_NPBOnlyPreselVsNoPreselection_isSliding",
+      variantC,
+      variantB,
+      kVariantCPreselectionLabel,
+      kNoPreselectionLabel);
+
+  DrawCPreselectionPair(
+      "C-leakage, reference vs reference + NPB presel, Photon+Jet Embedded Pythia (12 + 20) GeV",
+      "cLeakage_referenceVsReferencePlusNPBPresel_isSliding",
+      reference,
+      variantD,
+      kReferencePreselectionLabel,
+      kVariantDPreselectionLabel);
 
   PrintCPreselectionSummary();
   if (gSummary.is_open()) gSummary.close();
 }
+
+void MakeEmbeddedCLeakageCompare_ReferencePlusNPBTightOverlay()
+{
+  gROOT->SetBatch(kTRUE);
+  gStyle->SetOptStat(0);
+  gStyle->SetErrorX(0.5);
+  gRecords.clear();
+  gSystem->mkdir(kCOutDir.c_str(), true);
+
+  if (gSummary.is_open()) gSummary.close();
+  gSummary.open((kCOutDir + "/summary_cLeakageReferencePlusNPBTightOverlay_fromMergedFiles.txt").c_str());
+  Log("[C-LEAKAGE DEBUG] Reference+NPB preselection tight/non-tight overlay.");
+  Log("  merged base: " + kMergedDir);
+  Log("  plot base  : " + kCOutDir);
+
+  const std::string base = "jetMinPt5_7pi_8_vz60_isoR40_isSliding_baseVariant_preselectionVariantD_";
+  const Variant refId{
+      base + "tightReference_nonTightReference",
+      "reference + NPB presel, Reference tight/nontight",
+      kBlack,
+      20};
+  const Variant bdtLooseNt{
+      base + "tightVariantA_nonTightReference",
+      "reference + NPB presel, BDT tight/loose nontight",
+      kBlack,
+      24};
+
+  DrawCPreselectionPair(
+      "C-leakage, reference + NPB presel ID comparison, Photon+Jet Embedded Pythia (12 + 20) GeV",
+      "cLeakage_refPlusNPB_referenceID_vs_BDTTightLooseNT_isSliding",
+      refId,
+      bdtLooseNt,
+      "Reference tight/nontight",
+      "BDT tight/loose nontight",
+      "04_reference_plus_npb_id_overlays");
+
+  if (gSummary.is_open()) gSummary.close();
+}
+
+void MakeEmbeddedCLeakageCompare_ReferencePlusNPBBDTSidebandOverlay()
+{
+  gROOT->SetBatch(kTRUE);
+  gStyle->SetOptStat(0);
+  gStyle->SetErrorX(0.5);
+  gRecords.clear();
+  gSystem->mkdir(kCOutDir.c_str(), true);
+
+  if (gSummary.is_open()) gSummary.close();
+  gSummary.open((kCOutDir + "/06_text_summaries/summary_cLeakageReferencePlusNPBBDTSidebandOverlay_fromMergedFiles.txt").c_str());
+  Log("[C-LEAKAGE DEBUG] Reference+NPB preselection reference ID vs BDT sideband ID overlay.");
+  Log("  merged base: " + kMergedDir);
+  Log("  plot base  : " + kCOutDir);
+
+  const std::string base = "jetMinPt5_7pi_8_vz60_isoR40_isSliding_baseVariant_preselectionVariantD_";
+  const Variant refId{
+      base + "tightReference_nonTightReference",
+      "reference + NPB presel, Reference tight/nontight",
+      kBlack,
+      20};
+  const Variant bdtSidebandNt{
+      base + "tightVariantA_nonTightVariantA",
+      "reference + NPB presel, BDT tight/BDT nontight",
+      kBlack,
+      24};
+
+  DrawCPreselectionPair(
+      "C-leakage, reference + NPB presel ID comparison, Photon+Jet Embedded Pythia (12 + 20) GeV",
+      "cLeakage_refPlusNPB_referenceID_vs_BDTTightBDTNT_isSliding",
+      refId,
+      bdtSidebandNt,
+      "Reference tight/nontight",
+      "BDT tight/BDT nontight",
+      "04_reference_plus_npb_id_overlays");
+
+  if (gSummary.is_open()) gSummary.close();
+}
+}
+
+void MakeEmbeddedCLeakageCompare_ReferencePlusNPBTightOverlayOnly()
+{
+  MakeEmbeddedCLeakageCompare_ReferencePlusNPBTightOverlay();
+}
+
+void MakeEmbeddedCLeakageCompare_ReferencePlusNPBBDTSidebandOverlayOnly()
+{
+  MakeEmbeddedCLeakageCompare_ReferencePlusNPBBDTSidebandOverlay();
 }
 
 void MakeEmbeddedBLeakageCompare()
@@ -938,7 +1054,7 @@ void MakeEmbeddedBLeakageCompare()
       {base + "isSliding" + mid + "preselectionReference" + tail, "sliding_reference", kBlue + 1, 24});
 
   DrawOne(
-      "B-leakage, NPB preselection, Photon+Jet Embedded Pythia (12 + 20) GeV",
+      "B-leakage, New PPG12 Presel, Photon+Jet Embedded Pythia (12 + 20) GeV",
       "bLeakage_NPBPreselection_fixedVsSliding",
       {base + "fixedIso2GeV" + mid + "preselectionVariantA" + tail, "fixed_variantA", kBlack, 20},
       {base + "isSliding" + mid + "preselectionVariantA" + tail, "sliding_variantA", kBlue + 1, 24});

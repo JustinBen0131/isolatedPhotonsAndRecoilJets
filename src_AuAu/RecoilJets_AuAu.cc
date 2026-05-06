@@ -778,7 +778,9 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     {
         const std::string s = toLower(trim(std::string(ds)));
         
-        if (s == "isimembedded" || s == "simembedded")
+        if (s == "issimembedded" || s == "isimembedded" || s == "simembedded" ||
+            s == "issimembeddedinclusive" || s == "isimembeddedinclusive" ||
+            s == "simembeddedinclusive")
         {
             isSim         = true;
             isAuAu        = true;
