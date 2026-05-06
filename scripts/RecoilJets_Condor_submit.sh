@@ -472,6 +472,7 @@ ${BOLD}DATA modes:${RST}
   ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> splitGoldenRunList [groupSize N] [maxJobs M]${RST}
   ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> condor testJob${RST}
   ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> condor round <N> [groupSize N] [firstChunk]${RST}
+  ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> condor poolSmoke [groupSize N] [maxJobs 12]${RST}
   ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> condor allFromScratch [groupSize N]${RST}
   ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> condor all [groupSize N]${RST}
   ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> condor allDirect [groupSize N]${RST}
@@ -522,6 +523,7 @@ Examples:
   $0 isPP  local 5000
   $0 isAuAu splitGoldenRunList groupSize 3 maxJobs 12000
   $0 isAuAu condor round 1
+  $0 isPP  condor poolSmoke groupSize 7 maxJobs 12
   $0 isPP  condor all groupSize 4
   $0 isPP  CHECKJOBS groupSize 4
 
@@ -605,7 +607,16 @@ notify_emails_csv() {
 
 submit_dag_with_notify() {
   local dag="$1"
-  need_cmd condor_submit_dag
+  if [[ "${RJ_DAG_DRYRUN:-0}" == "1" || "${RJ_DAG_DRYRUN:-0}" == "true" || "${RJ_DAG_DRYRUN:-0}" == "TRUE" ]]; then
+    say "RJ_DAG_DRYRUN=1 → DAG files were built but not submitted."
+    say "  dag      : ${dag}"
+    say "  manifest : $(dirname "$dag")/manifest.txt"
+    echo "RECOILJETS_DAG_DRYRUN_V1 dag=${dag} manifest=$(dirname "$dag")/manifest.txt"
+    return 0
+  fi
+  if [[ "${RJ_DAG_DRYRUN:-0}" != "1" && "${RJ_DAG_DRYRUN:-0}" != "true" && "${RJ_DAG_DRYRUN:-0}" != "TRUE" ]]; then
+    need_cmd condor_submit_dag
+  fi
   local emails
   emails="$(notify_emails_csv)"
   if [[ -n "$emails" ]]; then
@@ -923,6 +934,17 @@ body="$(mktemp "${TMPDIR:-/tmp}/recoiljets_dag_summary.XXXXXX")"
   if [[ -s "$manifest" ]]; then
     echo "manifest:"
     sed -n '1,160p' "$manifest"
+    mapfile -t profile_globs < <(awk -F= '/^profile_glob=/ {print $2}' "$manifest" | sort -u)
+    if (( ${#profile_globs[@]} > 0 )); then
+      echo
+      echo "job_profiles:"
+      for profile_glob in "${profile_globs[@]}"; do
+        while IFS= read -r profile_file; do
+          [[ -s "$profile_file" ]] || continue
+          grep -h 'RECOILJETS_JOB_PROFILE_V1' "$profile_file" || true
+        done < <(compgen -G "$profile_glob" || true)
+      done
+    fi
   else
     echo "manifest missing or empty: ${manifest}"
   fi
@@ -2044,19 +2066,39 @@ data_analysis_tag_for_dataset() {
 
 submit_data_pool_workflow() {
   local from_scratch="$1"  # 1: DST->pool->replay DAG, 0: replay existing pools
+  local smoke_capture_cap="${2:-0}"
+  local workflow_flavor="${3:-}"
   local master_yaml="$data_yaml_src"
-  local pool_base="${RJ_POOL_INPUT_BASE:-${RJ_POOL_OUTPUT_BASE:-${POOL_DEST_ROOT}/${TAG}}}"
-  local out_base="${DATA_DEST_BASE_SAVED%/}"
   local workflow_stamp
   workflow_stamp="$(date +%Y%m%d_%H%M%S)"
+  [[ "$smoke_capture_cap" =~ ^[0-9]+$ ]] || smoke_capture_cap=0
+  local is_smoke=0
+  if [[ "$workflow_flavor" == "poolSmoke" || "$workflow_flavor" == "smoke" || "$smoke_capture_cap" -gt 0 ]]; then
+    is_smoke=1
+  fi
+  local pool_base out_base
+  if (( is_smoke )); then
+    pool_base="${RJ_POOL_OUTPUT_BASE:-${POOL_DEST_ROOT}/${TAG}_poolSmoke_${workflow_stamp}}"
+    out_base="${RJ_POOL_SMOKE_OUTPUT_BASE:-${DATA_DEST_BASE_SAVED%/}/_poolSmoke_${workflow_stamp}}"
+  else
+    pool_base="${RJ_POOL_INPUT_BASE:-${RJ_POOL_OUTPUT_BASE:-${POOL_DEST_ROOT}/${TAG}}}"
+    out_base="${DATA_DEST_BASE_SAVED%/}"
+  fi
   local dag_dir="${SUB_DIR}/pool_workflow_${TAG}_${workflow_stamp}"
   local dag="${dag_dir}/RecoilJets_pool_${DATASET}_${workflow_stamp}.dag"
   local manifest="${dag_dir}/manifest.txt"
   local pool_macro="${BASE}/macros/Fun4All_recoilJets_poolReplay.C"
   local replay_gs="${RJ_POOL_REPLAY_GROUP_SIZE:-$GROUP_SIZE}"
   [[ "$replay_gs" =~ ^[0-9]+$ && "$replay_gs" -gt 0 ]] || replay_gs="$GROUP_SIZE"
+  if (( is_smoke )) && [[ -z "${RJ_POOL_REPLAY_GROUP_SIZE:-}" ]] && (( smoke_capture_cap > 0 )); then
+    replay_gs="$smoke_capture_cap"
+  fi
+  local profile_job="${RJ_PROFILE_JOB:-0}"
+  (( is_smoke )) && profile_job=1
 
-  need_cmd condor_submit_dag
+  if [[ "${RJ_DAG_DRYRUN:-0}" != "1" && "${RJ_DAG_DRYRUN:-0}" != "true" && "${RJ_DAG_DRYRUN:-0}" != "TRUE" ]]; then
+    need_cmd condor_submit_dag
+  fi
   [[ -f "$pool_macro" ]] || { err "Pool replay macro not found: $pool_macro"; exit 92; }
   mkdir -p "$dag_dir" "$SIM_YAML_OVERRIDE_DIR"
   : > "$dag"
@@ -2077,6 +2119,9 @@ submit_data_pool_workflow() {
   {
     echo "workflow=$([[ "$from_scratch" -eq 1 ]] && echo dataAllFromScratch || echo dataAllFromPool)"
     echo "dataset=${DATASET}"
+    echo "smoke=${is_smoke}"
+    echo "smoke_capture_job_cap=${smoke_capture_cap}"
+    echo "profile_job=${profile_job}"
     echo "yaml=${master_yaml}"
     echo "pool_base=${pool_base}"
     echo "output_base=${out_base}"
@@ -2097,12 +2142,14 @@ submit_data_pool_workflow() {
   analysis_tag="$(data_analysis_tag_for_dataset "$DATASET")"
 
   say "${BOLD}DATA pool workflow requested${RST}"
-  say "  mode        : $([[ "$from_scratch" -eq 1 ]] && echo allFromScratch || echo all-from-existing-pools)"
+  say "  mode        : $([[ "$from_scratch" -eq 1 ]] && echo allFromScratch || echo all-from-existing-pools)$([[ "$is_smoke" -eq 1 ]] && echo ' smoke' || true)"
   say "  dataset     : ${DATASET}"
   say "  pool base   : ${pool_base}"
   say "  output base : ${out_base}"
+  (( is_smoke )) && say "  smoke cap   : ${smoke_capture_cap} capture jobs total; profiling enabled"
   say "  DAG dir     : ${dag_dir}"
 
+  local smoke_capture_queued_total=0
   if [[ "$from_scratch" -eq 1 ]]; then
     for data_cone in "${data_capture_cones[@]}"; do
       for uepipe in "${uepipe_modes[@]}"; do
@@ -2137,11 +2184,14 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification  = Never
-environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${cap_yaml}${macro_env_for_sub};RJ_POOL_MODE=capture
+environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${cap_yaml}${macro_env_for_sub};RJ_POOL_MODE=capture;RJ_PROFILE_JOB=${profile_job};RJ_PROFILE_STAGE=capture;RJ_PROFILE_LABEL=${cap_tag}
 SUB
 
         local queued=0
         while IFS= read -r rn; do
+          if (( is_smoke && smoke_capture_cap > 0 && smoke_capture_queued_total >= smoke_capture_cap )); then
+            break
+          fi
           [[ -z "$rn" || "$rn" =~ ^# ]] && continue
           local r8
           r8="$(run8 "$rn")"
@@ -2150,6 +2200,14 @@ SUB
           fi
           mapfile -t groups < <( STAGE_DIR="$cap_stage_dir" make_groups "$r8" "$GROUP_SIZE" )
           (( ${#groups[@]} )) || continue
+          if (( is_smoke && smoke_capture_cap > 0 )); then
+            local remaining=$(( smoke_capture_cap - smoke_capture_queued_total ))
+            (( remaining > 0 )) || break
+            if (( ${#groups[@]} > remaining )); then
+              say "Smoke cap: trimming capture groups for ${cap_tag}/${r8}: ${#groups[@]} → ${remaining}"
+              groups=( "${groups[@]:0:$remaining}" )
+            fi
+          fi
           local expected_pool_list="${dag_dir}/pool_expected_${cap_tag}_${r8}.list"
           : > "$expected_pool_list"
           local gidx=0
@@ -2162,9 +2220,16 @@ SUB
             printf 'arguments = %s %s %s $(Cluster) 0 %d NONE %s\nqueue\n\n' \
                    "$r8" "$glist" "$DATASET" "$gidx" "$cap_root" >> "$cap_sub"
             (( queued+=1 ))
+            (( smoke_capture_queued_total+=1 ))
           done
           pool_list_by_tag_run["${cap_tag}|${r8}"]="$expected_pool_list"
         done < "$GOLDEN"
+
+        if (( queued == 0 )); then
+          warn "No DATA pool capture jobs queued for ${cap_tag}; skipping capture node"
+          rm -f "$cap_sub"
+          continue
+        fi
 
         local cap_node
         cap_node="CAP_$(sanitize_node_name "${cap_tag}")"
@@ -2172,6 +2237,7 @@ SUB
         cap_node_by_tag["$cap_tag"]="$cap_node"
         (( capture_count+=1 ))
         echo "capture_node=${cap_node} tag=${cap_tag} jobs=${queued} yaml=${cap_yaml} output=${cap_root}" >> "$manifest"
+        echo "profile_glob=${OUT_DIR}/capture_${TAG}_${cap_tag}.*.out" >> "$manifest"
       done
     done
   fi
@@ -2212,7 +2278,7 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification  = Never
-environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${master_yaml};RJ_MACRO_PATH=${pool_macro};RJ_ID_FANOUT_DIRS_FILE=${fanout_dirs};RJ_REPLAY_MAX_OPEN_OUTPUTS=${RJ_REPLAY_MAX_OPEN_OUTPUTS:-48}
+environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${master_yaml};RJ_MACRO_PATH=${pool_macro};RJ_ID_FANOUT_DIRS_FILE=${fanout_dirs};RJ_REPLAY_MAX_OPEN_OUTPUTS=${RJ_REPLAY_MAX_OPEN_OUTPUTS:-48};RJ_PROFILE_JOB=${profile_job};RJ_PROFILE_STAGE=replay;RJ_PROFILE_LABEL=${cap_tag}
 SUB
 
       local queued=0
@@ -2262,17 +2328,32 @@ SUB
       printf 'JOB %s %s\n' "$replay_node" "$replay_sub" >> "$dag"
       if [[ "$from_scratch" -eq 1 ]]; then
         local cap_node="${cap_node_by_tag[$cap_tag]:-}"
+        if [[ -z "$cap_node" && "$is_smoke" -eq 1 ]]; then
+          warn "Smoke cap did not include capture jobs for ${cap_tag}; skipping replay node"
+          rm -f "$replay_sub"
+          continue
+        fi
         [[ -n "$cap_node" ]] || { err "Internal DAG build error: missing capture node for ${cap_tag}"; exit 97; }
         printf 'PARENT %s CHILD %s\n' "$cap_node" "$replay_node" >> "$dag"
       fi
       (( replay_count+=1 ))
       (( cell_num+=fanout_count ))
       echo "replay_node=${replay_node} cap_tag=${cap_tag} jobs=${queued} fanout_outputs=${fanout_count} fanout=${fanout_dirs}" >> "$manifest"
+      echo "profile_glob=${OUT_DIR}/replay_${TAG}_${cap_tag}.*.out" >> "$manifest"
   done
   done
 
+  if (( is_smoke )) && (( capture_count == 0 || replay_count == 0 )); then
+    err "poolSmoke produced capture_count=${capture_count}, replay_count=${replay_count}; refusing to submit an empty smoke DAG"
+    exit 98
+  fi
+
   local final_sub workflow_name
-  workflow_name="$([[ "$from_scratch" -eq 1 ]] && echo "dataPoolFromScratch_${TAG}_${workflow_stamp}" || echo "dataPoolReplay_${TAG}_${workflow_stamp}")"
+  if (( is_smoke )); then
+    workflow_name="dataPoolSmoke_${TAG}_${workflow_stamp}"
+  else
+    workflow_name="$([[ "$from_scratch" -eq 1 ]] && echo "dataPoolFromScratch_${TAG}_${workflow_stamp}" || echo "dataPoolReplay_${TAG}_${workflow_stamp}")"
+  fi
   final_sub="$(write_dag_final_summary_files "$dag_dir" "$workflow_name" "$DATASET" "$pool_base" "$out_base" "$manifest" "$dag")"
   printf 'FINAL FINAL_SUMMARY %s\n' "$final_sub" >> "$dag"
 
@@ -3490,6 +3571,7 @@ TRAIN_MODE=""
 DRYRUN=0
 SIM_SAMPLE_EXPLICIT=0
 GROUP_SIZE_EXPLICIT=0
+MAX_JOBS_EXPLICIT=0
 tokens=( "${@:2}" )
 for (( idx=0; idx<${#tokens[@]}; idx++ )); do
   tok="${tokens[$idx]}"
@@ -3521,6 +3603,7 @@ for (( idx=0; idx<${#tokens[@]}; idx++ )); do
       next=$((idx+1))
       [[ $next -lt ${#tokens[@]} ]] || { err "maxJobs requires a value"; exit 2; }
       MAX_JOBS="${tokens[$next]}"
+      MAX_JOBS_EXPLICIT=1
       idx=$next
       ;;
     TRIGGER=*)
@@ -5106,6 +5189,21 @@ queue
 SUB
         say "Submitting 1 test job on run ${BOLD}${r8}${RST} (first chunk, groupSize=1, vz=${vz0}) → $(basename "$sub")"
         condor_submit "$sub"
+        ;;
+      poolSmoke)
+        smoke_jobs="${RJ_POOL_SMOKE_JOBS:-12}"
+        if [[ "${MAX_JOBS_EXPLICIT:-0}" -eq 1 ]]; then
+          smoke_jobs="$MAX_JOBS"
+        fi
+        [[ "$smoke_jobs" =~ ^[0-9]+$ && "$smoke_jobs" -gt 0 ]] || { err "poolSmoke job cap must be a positive integer, got '${smoke_jobs}'"; exit 2; }
+        say "${BOLD}DATA poolSmoke requested${RST}"
+        say "  dataset        : ${DATASET}"
+        say "  groupSize      : ${GROUP_SIZE}"
+        say "  capture jobs   : ${smoke_jobs} total cap"
+        say "  replay grouping: ${RJ_POOL_REPLAY_GROUP_SIZE:-${smoke_jobs}} pool files/job unless overridden"
+        say "  profiling      : enabled via RJ_PROFILE_JOB=1 in capture/replay workers"
+        say "  outputs        : isolated _poolSmoke_<timestamp> directories, not production cfg dirs"
+        submit_data_pool_workflow 1 "$smoke_jobs" "poolSmoke"
         ;;
       round)
         seg="${4:?round number required}"

@@ -210,14 +210,67 @@ if [[ ! -s "$chunk_list" ]]; then
 fi
 
 # ------------------------ Run ROOT macro -------------------
+profile_start_epoch="$(date +%s)"
+profile_enabled="${RJ_PROFILE_JOB:-0}"
+profile_stage="${RJ_PROFILE_STAGE:-analysis}"
+profile_label="${RJ_PROFILE_LABEL:-${chunk_tag}}"
+profile_file="${TMPDIR:-/tmp}/recoiljets_time_$$_${chunk_tag}.txt"
+input_files="$(grep -Ev '^[[:space:]]*($|#)' "$chunk_list" | wc -l | awk '{print $1}')"
+
+file_size_bytes() {
+  local f="$1"
+  if [[ ! -f "$f" ]]; then
+    echo 0
+  elif stat -c '%s' "$f" >/dev/null 2>&1; then
+    stat -c '%s' "$f"
+  else
+    wc -c < "$f" | awk '{print $1}'
+  fi
+}
+
+emit_profile_summary() {
+  local exit_code="$1"
+  local end_epoch elapsed max_rss_kb output_files output_bytes f sz
+  end_epoch="$(date +%s)"
+  elapsed=$(( end_epoch - profile_start_epoch ))
+  max_rss_kb="unknown"
+  if [[ -s "$profile_file" ]]; then
+    max_rss_kb="$(awk -F: '/Maximum resident set size/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}' "$profile_file")"
+    [[ -n "$max_rss_kb" ]] || max_rss_kb="unknown"
+  fi
+  output_files=0
+  output_bytes=0
+  if (( ${#fanout_outputs[@]} > 0 )); then
+    for f in "${fanout_outputs[@]}"; do
+      [[ -f "$f" ]] || continue
+      sz="$(file_size_bytes "$f")"
+      output_bytes=$(( output_bytes + sz ))
+      output_files=$(( output_files + 1 ))
+    done
+  elif [[ -f "$out_root" ]]; then
+    output_bytes="$(file_size_bytes "$out_root")"
+    output_files=1
+  fi
+  echo "RECOILJETS_JOB_PROFILE_V1 stage=${profile_stage} label=${profile_label} dataset=${dataset} analysis_tag=${analysis_tag} run=${run8} chunk=${chunk_tag} input_files=${input_files} nevents=${nevents} cluster_id=${cluster_id} exit_code=${exit_code} elapsed_seconds=${elapsed} max_rss_kb=${max_rss_kb} output_files=${output_files} output_bytes=${output_bytes} macro=${MACRO} config=${RJ_CONFIG_YAML:-unset} pool_mode=${RJ_POOL_MODE:-unset}"
+  if [[ -s "$profile_file" ]]; then
+    sed 's/^/[time-v] /' "$profile_file"
+  fi
+}
+
 set +e
 echo "[INFO] Running ROOT:"
 echo "root -b -q -l \"${MACRO}(${nevents}, \\\"${chunk_list}\\\", \\\"${out_root}\\\", false)\""
-root -b -q -l "${MACRO}(${nevents}, \"${chunk_list}\", \"${out_root}\", false)"
+if [[ "$profile_enabled" == "1" || "$profile_enabled" == "true" || "$profile_enabled" == "TRUE" ]] && command -v /usr/bin/time >/dev/null 2>&1; then
+  /usr/bin/time -v -o "$profile_file" root -b -q -l "${MACRO}(${nevents}, \"${chunk_list}\", \"${out_root}\", false)"
+else
+  root -b -q -l "${MACRO}(${nevents}, \"${chunk_list}\", \"${out_root}\", false)"
+fi
 rc=$?
 set -e
 
 echo "---------------------------------------------------------------------"
+emit_profile_summary "$rc"
+rm -f "$profile_file"
 if (( rc != 0 )); then
   echo "[ERROR] Fun4All macro failed (rc=$rc)"
   exit $rc
