@@ -10,8 +10,8 @@
 #     PhotonJet12: phpythia8_10GeV_JS_MDC2.cfg + 12 <= pT_filter^gamma < 20
 #     PhotonJet20: phpythia8_20GeV_JS_MDC2.cfg + pT_filter^gamma >= 20
 #
-#     EmbeddedJet12: pythia8 Jet12 config + 12 <= pT_filter^jet < 20
-#     EmbeddedJet20: pythia8 Jet20 config + pT_filter^jet >= 20
+#     EmbeddedJet12: pythia8 Jet12 config + 14 < pT_filter^jet < 21
+#     EmbeddedJet20: pythia8 Jet20 config + 21 < pT_filter^jet < 32
 #
 #   This is generator-only. It does not run detector simulation, embedding,
 #   clustering, or RecoilJets. For photon samples it reproduces the producer-side
@@ -27,8 +27,8 @@
 #   generator-jet selection and applies the same exclusive lower-slice window
 #   used for stitching:
 #
-#     EmbeddedJet12: 12 <= pT_filter^jet < 20
-#     EmbeddedJet20: pT_filter^jet >= 20
+#     EmbeddedJet12: 14 < pT_filter^jet < 21
+#     EmbeddedJet20: 21 < pT_filter^jet < 32
 #
 # OUTPUT
 #   By default, overwrites a compact output directory:
@@ -75,7 +75,9 @@
 #   sigma_eff = sigma_gen * (stitched-window generator weight sum / total
 #   generator weight sum). Pythia reports sigma_gen in mb; this script also
 #   prints pb. The lower-threshold sample value is exclusive to avoid overlap
-#   with the 20 GeV sample in stitched merged products.
+#   with adjacent samples in stitched merged products. For the inclusive Jet12
+#   and Jet20 samples, the PPG12 reference windows are taken from
+#   ppg12codeGit/efficiencytool/CrossSectionWeights.h.
 # ==============================================================================
 
 set -Eeuo pipefail
@@ -891,19 +893,27 @@ void EstimateEmbeddedPhotonXsec(long long nEvents = 1000000,
       {"EmbeddedJet12",
        ConfigCandidates("RJ_XSEC_EMBEDDED_JET12_CFG", calib,
                         {"Generators/JetStructure_TG/phpythia8_Jet12_JS_MDC2.cfg",
+                         "Generators/JetStructure_TG/phpythia8_Jet12.cfg",
+                         "Generators/JetStructure_TG/pythia8_Jet12.cfg",
                          "Generators/JetStructure_TG/phpythia8_12GeV_JS_MDC2.cfg",
-                         "Generators/JetStructure_TG/phpythia8_jet12_JS_MDC2.cfg"}),
+                         "Generators/JetStructure_TG/phpythia8_jet12_JS_MDC2.cfg",
+                         "Generators/phpythia8_Jet12.cfg",
+                         "Generators/pythia8_Jet12.cfg"}),
        "jet",
-       12.0,
-       20.0},
+       14.0,
+       21.0},
       {"EmbeddedJet20",
        ConfigCandidates("RJ_XSEC_EMBEDDED_JET20_CFG", calib,
                         {"Generators/JetStructure_TG/phpythia8_Jet20_JS_MDC2.cfg",
+                         "Generators/JetStructure_TG/phpythia8_Jet20.cfg",
+                         "Generators/JetStructure_TG/pythia8_Jet20.cfg",
                          "Generators/JetStructure_TG/phpythia8_20GeV_JS_MDC2.cfg",
-                         "Generators/JetStructure_TG/phpythia8_jet20_JS_MDC2.cfg"}),
+                         "Generators/JetStructure_TG/phpythia8_jet20_JS_MDC2.cfg",
+                         "Generators/phpythia8_Jet20.cfg",
+                         "Generators/pythia8_Jet20.cfg"}),
        "jet",
-       20.0,
-       -1.0},
+       21.0,
+       32.0},
   };
   const std::string sampleFilter = sampleFilterC ? sampleFilterC : "all";
   const std::string sampleFamily = sampleFamilyC ? sampleFamilyC : "photon";
@@ -1176,7 +1186,7 @@ echo "Family   : ${SAMPLE_FAMILY}"
 echo "Sample   : ${SAMPLE_FILTER}"
 echo "Config12 : ${CFG12}"
 echo "Config20 : ${CFG20}"
-echo "Jet cfgs : auto-detected from CALIBRATIONROOT/Generators/JetStructure_TG,"
+echo "Jet cfgs : auto-detected from CALIBRATIONROOT/Generators*/Jet* naming,"
 echo "           or override with RJ_XSEC_EMBEDDED_JET12_CFG / RJ_XSEC_EMBEDDED_JET20_CFG."
 echo "Macro    : ${MACRO}"
 echo "Log      : ${LOG}"
@@ -1265,8 +1275,8 @@ fi
   echo "Producer mapping:"
   echo "  PhotonJet12 -> ${CFG12} + photon filter 12 <= pT < 20 GeV, |eta| < 1.5"
   echo "  PhotonJet20 -> ${CFG20} + photon filter pT >= 20 GeV, |eta| < 1.5"
-  echo "  EmbeddedJet12 -> Jet12 Pythia config + anti-kT generator-jet filter 12 <= pT < 20 GeV"
-  echo "  EmbeddedJet20 -> Jet20 Pythia config + anti-kT generator-jet filter pT >= 20 GeV"
+  echo "  EmbeddedJet12 -> Jet12 Pythia config + anti-kT generator-jet filter 14 < pT < 21 GeV"
+  echo "  EmbeddedJet20 -> Jet20 Pythia config + anti-kT generator-jet filter 21 < pT < 32 GeV"
   echo
   echo "Results CSV:"
   cat "${RESULTS}"

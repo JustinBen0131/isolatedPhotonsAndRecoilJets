@@ -66,22 +66,24 @@ Last updated: 2026-05-06
   Preserve the user's ability to choose the final configuration later, but
   make the offline products organized so the inclusive-jet stitching choice can
   be compared cleanly.
-- Treat embedded inclusive-jet sample generation/stitching as a separate
-  prerequisite before using it in final code paths. When the embedded
-  inclusive `jet12` sample finishes production, generate the `jet12` and
-  `jet20` embedded inclusive outputs, run the cross-section estimator over the
-  new sample set, then implement/validate the proper stitched combination
-  analogous to the existing `isSimEmbedded` stitching workflow before using
-  those products in analysis macros or comparisons.
-- HIGH PRIORITY after embedded inclusive `jet12` production exists: run
-  `scripts/makeThesisSimLists.sh` for the new embedded inclusive sample,
-  verify the produced `jet12` list has the expected file count and compare it
-  against embedded inclusive `jet20`, then proceed to the AuAu/embedded ML
-  training path. Train the available ML modes, including photon tight-BDT
-  variants, JetML/residual correction variants, and the NPB variant. For the
-  NPB variant, first run cluster-timing QA and confirm the timing behavior is
-  plausibly analogous to the pp NPB usage before treating NPB training labels
-  or outputs as analysis-ready.
+- Embedded inclusive-jet list generation for the current desired samples is
+  complete on SDCC: terminal evidence from 2026-05-06 shows
+  `run28_embeddedJet12` and `run28_embeddedJet20` each produced 10,000 raw,
+  matched, pair, and triplet list rows, with `DST_MBD_EPD` correctly represented
+  by a 10,000-line `NONE` placeholder. All `isSimEmbeddedInclusive` analysis
+  purposes should now use `run28_embeddedJet12` + `run28_embeddedJet20`, not the
+  old `run28_embeddedJet10` + `run28_embeddedJet20` pair.
+- HIGH PRIORITY now: run the embedded-inclusive cross-section estimator for
+  Jet12 and Jet20, copy the resulting `sigma_eff_pb` values into
+  `macros/AnalyzeRecoilJets.h`, then generate/pull/merge the
+  `isSimEmbeddedInclusive` RecoilJets outputs and validate the
+  `embeddedJet12and20merged_SIM` stitched products before using them in final
+  analysis. After that, proceed to the AuAu/embedded ML training path. Train the
+  available ML modes, including photon tight-BDT variants, JetML/residual
+  correction variants, and the NPB variant. For the NPB variant, first run
+  cluster-timing QA and confirm the timing behavior is plausibly analogous to
+  the pp NPB usage before treating NPB training labels or outputs as
+  analysis-ready.
 - Before the next broad pool production, extend the photon pool schema to
   intentionally over-store cheap scalar cluster information from
   `PhotonClusterBuilder` and `RawClusterBuilderTemplate`. The goal is to make
@@ -101,6 +103,20 @@ Last updated: 2026-05-06
 
 ## Waiting On SDCC
 
+- Overnight smoke-test DAGs were submitted on `sphnxuser03` on 2026-05-06.
+  Check them first on the next session before any full production decision:
+  `isPP` cluster `3016331`, `isAuAu` cluster `3016333`, `isSim` cluster
+  `3016336`, and `isSimEmbedded` cluster `3016340`. The visible `condor_q`
+  showed the DAGMan jobs plus first child nodes in the queue with no held jobs
+  for the user's jobs at submission time. When these finish, pull smoke reports
+  with `scripts/sftp_get_recoiljets_outputs.sh smokeTestLatest <dataset>` for
+  `isPP`, `isAuAu`, `isSim`, and `isSimEmbedded`; use the profiling summaries
+  and `tuning_inputs.json` to choose full-production `groupSize` and
+  `request_memory` for each dataset. Then inspect the smoke ROOT outputs enough
+  to confirm all expected working-point/view information exists, compare SIM
+  output against existing local `InputFiles/` variants for matching
+  configurations where possible, and only then decide whether to promote the
+  full-SIM smoke outputs as final products and move pp/AuAu to full submission.
 - `scaledTriggerStudy` AuAu production cluster `1127133` should be monitored
   until it leaves the queue. The prompt line in the pasted terminal showed
   `condor_q 1127132`, but the scaled-trigger submission itself reported
@@ -119,8 +135,9 @@ Last updated: 2026-05-06
   prescription after inspecting current PPG12 treatment and the available
   jet5/jet10/jet20 samples, then implement it in the local merge/plot path.
 - Do not promote embedded inclusive `jet12`/`jet20` products to final-use
-  inputs until `jet12` production is complete, the cross-section estimator has
-  been run, and the stitching prescription has been implemented/validated.
+  inputs until the new cross-section estimator has been run, the resulting
+  constants have been propagated, and the ROOT production/merge/stitching
+  prescription has been implemented/validated.
 - Do not promote embedded-inclusive ML models trained from the new `jet12`/`jet20`
   sample set until file-count/list sanity checks, cluster-timing QA for NPB,
   and basic training/application QA have been recorded.

@@ -29,10 +29,13 @@ namespace
 //   generator cross section for 12 <= pT_filter^gamma < 20 GeV.
 constexpr double kSigmaEmbeddedPhoton12To20_pb = 2598.12425;
 constexpr double kSigmaEmbeddedPhoton20Plus_pb = 133.317866;
+constexpr double kSigmaEmbeddedInclusiveJet12_pb = 1.4903e6;
+constexpr double kSigmaEmbeddedInclusiveJet20_pb = 6.2623e4;
 
 std::string gConfigTag =
     "jetMinPt5_7pi_8_vz60_isoR40_fixedIso2GeV_baseVariant_"
     "preselectionReference_tightReference_nonTightReference";
+std::string gOutDirOverride;
 
 std::string ConfigTag()
 {
@@ -51,7 +54,23 @@ std::string File20()
 
 std::string OutDir()
 {
+  if (!gOutDirOverride.empty()) return gOutDirOverride;
   return "dataOutput/combinedSimOnlyEMBEDDED/" + ConfigTag() + "/photonJet12and20merged_SIM";
+}
+
+std::string InclusiveFile12()
+{
+  return "InputFiles/InclusiveJetSIM_EMBEDDED/RecoilJets_embeddedJet12_ALL_" + ConfigTag() + ".root";
+}
+
+std::string InclusiveFile20()
+{
+  return "InputFiles/InclusiveJetSIM_EMBEDDED/RecoilJets_embeddedJet20_ALL_" + ConfigTag() + ".root";
+}
+
+std::string InclusiveOutDir()
+{
+  return "dataOutput/combinedSimOnlyEMBEDDED/" + ConfigTag() + "/embeddedJet12and20merged_SIM";
 }
 
 int VzCutFromConfigTag()
@@ -162,6 +181,13 @@ std::unique_ptr<TH1> BuildKeptFilterPtSpectrum(TFile* f, const std::string& clon
   if (!f) return nullptr;
   TDirectory* d = f->GetDirectory("SIM");
   return std::unique_ptr<TH1>(CloneFromDir(d, "h_embedStitch_filterPhotonPt_kept", cloneName));
+}
+
+std::unique_ptr<TH1> BuildKeptInclusiveJetFilterPtSpectrum(TFile* f, const std::string& cloneName)
+{
+  if (!f) return nullptr;
+  TDirectory* d = f->GetDirectory("SIM");
+  return std::unique_ptr<TH1>(CloneFromDir(d, "h_embedInclusiveStitch_filterJetPt_kept", cloneName));
 }
 
 void StyleHist(TH1* h, int color, int marker)
@@ -865,7 +891,9 @@ void DrawSpectrumSmoothQA(std::unique_ptr<TH1> h12,
     return;
   }
 
-  const bool isFilterPtQA = (outputName == "embeddedPhoton_stitchedTruthFilterPtSpectrum");
+  const bool isPhotonFilterPtQA = (outputName == "embeddedPhoton_stitchedTruthFilterPtSpectrum");
+  const bool isInclusiveJetFilterPtQA = (outputName == "embeddedInclusiveJet_stitchedTruthFilterPtSpectrum");
+  const bool isFilterPtQA = (isPhotonFilterPtQA || isInclusiveJetFilterPtQA);
   const double xMin = isFilterPtQA ? 10.0 : h12->GetXaxis()->GetXmin();
   const double xMax = isFilterPtQA ? 45.0 : h12->GetXaxis()->GetXmax();
   const double ratioMin = isFilterPtQA ? 0.85 : 0.45;
@@ -952,8 +980,8 @@ void DrawSpectrumSmoothQA(std::unique_ptr<TH1> h12,
   leg.SetBorderSize(0);
   leg.SetFillStyle(0);
   leg.SetTextSize(0.038);
-  leg.AddEntry(h12.get(), isFilterPtQA ? "PhotonJet12 stitched" : "weighted PhotonJet12", "lep");
-  leg.AddEntry(h20.get(), isFilterPtQA ? "PhotonJet20 stitched" : "weighted PhotonJet20", "lep");
+  leg.AddEntry(h12.get(), isInclusiveJetFilterPtQA ? "Jet12 stitched" : (isFilterPtQA ? "PhotonJet12 stitched" : "weighted PhotonJet12"), "lep");
+  leg.AddEntry(h20.get(), isInclusiveJetFilterPtQA ? "Jet20 stitched" : (isFilterPtQA ? "PhotonJet20 stitched" : "weighted PhotonJet20"), "lep");
   leg.AddEntry(hSum.get(), isFilterPtQA ? "Combined" : "weighted sum", "lep");
   leg.AddEntry(hSmooth.get(), isFilterPtQA ? "Smoothed reference" : "smoothed sum reference", "l");
   leg.Draw();
@@ -964,10 +992,15 @@ void DrawSpectrumSmoothQA(std::unique_ptr<TH1> h12,
   lat.DrawLatex(0.15, 0.86, title.c_str());
   lat.SetTextSize(0.031);
   lat.DrawLatex(0.15, 0.80, note.c_str());
-  if (isFilterPtQA)
+  if (isPhotonFilterPtQA)
   {
     lat.DrawLatex(0.15, 0.75, "PhotonJet12: 12 #leq p_{T,filter}^{#gamma} < 20 GeV; PhotonJet20: p_{T,filter}^{#gamma} #geq 20 GeV");
     lat.DrawLatex(0.15, 0.70, ("w_{12#rightarrow20}=" + Sci(w12) + " pb/event, w_{20+}=" + Sci(w20) + " pb/event").c_str());
+  }
+  else if (isInclusiveJetFilterPtQA)
+  {
+    lat.DrawLatex(0.15, 0.75, "Jet12: 14 #leq max p_{T}^{jet,truth} < 21 GeV; Jet20: 21 #leq max p_{T}^{jet,truth} < 32 GeV");
+    lat.DrawLatex(0.15, 0.70, ("w_{12}=" + Sci(w12) + " pb/event, w_{20}=" + Sci(w20) + " pb/event").c_str());
   }
   else
   {
@@ -1174,6 +1207,70 @@ void MakeEmbeddedPhotonXsecNormQA(const char* configTag)
   }
   gConfigTag = configTag;
   MakeEmbeddedPhotonXsecNormQA();
+}
+
+void MakeEmbeddedInclusiveJetXsecNormQA()
+{
+  gROOT->SetBatch(kTRUE);
+  gStyle->SetOptStat(0);
+  gStyle->SetErrorX(0.5);
+
+  const std::string file12 = InclusiveFile12();
+  const std::string file20 = InclusiveFile20();
+  std::unique_ptr<TFile> f12(TFile::Open(file12.c_str(), "READ"));
+  std::unique_ptr<TFile> f20(TFile::Open(file20.c_str(), "READ"));
+  if (!f12 || f12->IsZombie())
+  {
+    std::cerr << "[ERROR] Cannot open " << file12 << std::endl;
+    return;
+  }
+  if (!f20 || f20->IsZombie())
+  {
+    std::cerr << "[ERROR] Cannot open " << file20 << std::endl;
+    return;
+  }
+
+  const double n12 = ReadEventCount(f12.get());
+  const double n20 = ReadEventCount(f20.get());
+  if (n12 <= 0.0 || n20 <= 0.0)
+  {
+    std::cerr << "[ERROR] Bad inclusive-jet event counts: N12=" << n12 << " N20=" << n20 << std::endl;
+    return;
+  }
+
+  const double w12 = kSigmaEmbeddedInclusiveJet12_pb / n12;
+  const double w20 = kSigmaEmbeddedInclusiveJet20_pb / n20;
+
+  const std::string oldOutDir = gOutDirOverride;
+  gOutDirOverride = InclusiveOutDir();
+  gSystem->mkdir(OutDir().c_str(), true);
+
+  DrawSpectrumSmoothQA(
+      WeightedClone(BuildKeptInclusiveJetFilterPtSpectrum(f12.get(), "h_inclusiveFilterJetPt12_weighted"), w12),
+      WeightedClone(BuildKeptInclusiveJetFilterPtSpectrum(f20.get(), "h_inclusiveFilterJetPt20_weighted"), w20),
+      "embeddedInclusiveJet_stitchedTruthFilterPtSpectrum",
+      "Embedded inclusive-jet generator stitching spectrum",
+      "max p_{T}^{jet,truth} [GeV]",
+      "Uses SIM/h_embedInclusiveStitch_filterJetPt_kept",
+      w12,
+      w20);
+
+  gOutDirOverride = oldOutDir;
+
+  std::cout << "[INFO] Inclusive N12=" << n12 << " N20=" << n20
+            << " w12=" << w12 << " pb/event"
+            << " w20=" << w20 << " pb/event" << std::endl;
+}
+
+void MakeEmbeddedInclusiveJetXsecNormQA(const char* configTag)
+{
+  if (!configTag || std::string(configTag).empty())
+  {
+    std::cerr << "[ERROR] Empty config tag passed to MakeEmbeddedInclusiveJetXsecNormQA" << std::endl;
+    return;
+  }
+  gConfigTag = configTag;
+  MakeEmbeddedInclusiveJetXsecNormQA();
 }
 
 std::vector<std::string> EmbeddedPhotonConfigTagsFromLocalInputs()

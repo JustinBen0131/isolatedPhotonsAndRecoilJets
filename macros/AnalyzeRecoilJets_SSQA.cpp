@@ -407,7 +407,7 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
     {
         string inclPath;
         string inclTag;
-        if (bothInclusiveJet10and20simEmbedded)
+        if (bothInclusiveJet12and20simEmbedded)
         {
             // TODO: merged inclusive jet embedded
         }
@@ -416,10 +416,10 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
             inclPath = InputInclusiveJetEmbeddedSample("embeddedJet20");
             inclTag  = "embeddedJet20";
         }
-        else if (isInclusiveJet10Embedded)
+        else if (isInclusiveJet12Embedded)
         {
-            inclPath = InputInclusiveJetEmbeddedSample("embeddedJet10");
-            inclTag  = "embeddedJet10";
+            inclPath = InputInclusiveJetEmbeddedSample("embeddedJet12");
+            inclTag  = "embeddedJet12";
         }
         if (!inclPath.empty() && !gSystem->AccessPathName(inclPath.c_str()))
         {
@@ -1467,8 +1467,8 @@ if (!skipToCentralityAndPtOverlaysWithSSQA)
             else                                     photTag = "20";
 
             string inclTag;
-            if (bothInclusiveJet10and20simEmbedded)  inclTag = "10+20";
-            else if (isInclusiveJet10Embedded)       inclTag = "10";
+            if (bothInclusiveJet12and20simEmbedded)  inclTag = "12+20";
+            else if (isInclusiveJet12Embedded)       inclTag = "10";
             else                                     inclTag = "20";
 
             const string sigLabel = "Signal MC (#gamma+jet " + photTag + " emb)";
@@ -3474,10 +3474,10 @@ if (!SSoverlayPerVAR_processONLY)
                 _inclTag  = "embeddedJet20";
                 _inclPath = InputInclusiveJetEmbeddedSample("embeddedJet20");
             }
-            else if (isInclusiveJet10Embedded)
+            else if (isInclusiveJet12Embedded)
             {
-                _inclTag  = "embeddedJet10";
-                _inclPath = InputInclusiveJetEmbeddedSample("embeddedJet10");
+                _inclTag  = "embeddedJet12";
+                _inclPath = InputInclusiveJetEmbeddedSample("embeddedJet12");
             }
             if (!_inclPath.empty() && !gSystem->AccessPathName(_inclPath.c_str()))
             {

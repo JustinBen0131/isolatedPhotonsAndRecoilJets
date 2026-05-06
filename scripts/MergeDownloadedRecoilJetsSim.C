@@ -121,18 +121,18 @@ bool MergeOne(const string& dataset, const string& cfg)
     if (dataset == "isSimEmbeddedInclusive")
     {
         const vector<string> inputs = {
-            kBase + "/InputFiles/InclusiveJetSIM_EMBEDDED/RecoilJets_embeddedJet10_ALL_" + cfg + ".root",
+            kBase + "/InputFiles/InclusiveJetSIM_EMBEDDED/RecoilJets_embeddedJet12_ALL_" + cfg + ".root",
             kBase + "/InputFiles/InclusiveJetSIM_EMBEDDED/RecoilJets_embeddedJet20_ALL_" + cfg + ".root"
         };
         const string out = kBase + "/dataOutput/combinedSimOnlyEMBEDDED/" + cfg +
-            "/embeddedJet10and20merged_SIM/RecoilJets_embeddedJet10plus20_MERGED.root";
+            "/embeddedJet12and20merged_SIM/RecoilJets_embeddedJet12plus20_MERGED.root";
         if (!RequireInputs(inputs)) return false;
         return ARJ::BuildMergedSIMFile_PhotonSlices(
             inputs,
-            {ARJ::kSigmaPhoton10_pb, ARJ::kSigmaPhoton20_pb},
+            {ARJ::kSigmaEmbeddedInclusiveJet12_pb, ARJ::kSigmaEmbeddedInclusiveJet20_pb},
             out,
             ARJ::kDirSIM,
-            {"embeddedJet10", "embeddedJet20"}
+            {"embeddedJet12", "embeddedJet20"}
         );
     }
 

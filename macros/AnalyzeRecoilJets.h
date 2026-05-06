@@ -145,9 +145,9 @@ inline bool isPhotonJet20Embedded      = false;
 inline bool bothPhoton12and20simEmbedded = true;
 
 
-inline bool isInclusiveJet10Embedded   = false;
+inline bool isInclusiveJet12Embedded   = false;
 inline bool isInclusiveJet20Embedded   = false;
-inline bool bothInclusiveJet10and20simEmbedded = false;
+inline bool bothInclusiveJet12and20simEmbedded = false;
 
 //   Special SIM samples:
 inline bool isSimMB                    = false;   // MinBias DETROIT tune
@@ -252,6 +252,12 @@ inline constexpr double kSigmaPhoton20_pb = 130.4461;
 // on 2026-05-01: 50 shards x 1e6 raw events, max producer-filter photon pT.
 inline constexpr double kSigmaEmbeddedPhoton12_pb = 2598.12425;
 inline constexpr double kSigmaEmbeddedPhoton20_pb = 133.317866;
+// Embedded inclusive-jet background samples now use Jet12+Jet20. These values
+// match the PPG12 Run-28 MDC2 PYTHIA8 Jet12/Jet20 cross sections in
+// ppg12codeGit/efficiencytool/CrossSectionWeights.h.
+// PPG12 stitched truth-jet windows: Jet12 = 14-21 GeV, Jet20 = 21-32 GeV.
+inline constexpr double kSigmaEmbeddedInclusiveJet12_pb = 1.4903e6;
+inline constexpr double kSigmaEmbeddedInclusiveJet20_pb = 6.2623e4;
 
 // #############################################################################
 // #                  END OF CONFIGURATION PANEL                               #
@@ -639,9 +645,9 @@ inline const vector<string>& DiscoveryInputPaths()
             add(InputSimEmbeddedSample("embeddedPhoton12"));
         if (isPhotonJet20Embedded || bothPhoton12and20simEmbedded || isSimEmbeddedOnly || isSimAndDataAUAU)
             add(InputSimEmbeddedSample("embeddedPhoton20"));
-        if (isInclusiveJet10Embedded || bothInclusiveJet10and20simEmbedded || isSimEmbeddedOnly || isSimAndDataAUAU)
-            add(InputInclusiveJetEmbeddedSample("embeddedJet10"));
-        if (isInclusiveJet20Embedded || bothInclusiveJet10and20simEmbedded || isSimEmbeddedOnly || isSimAndDataAUAU)
+        if (isInclusiveJet12Embedded || bothInclusiveJet12and20simEmbedded || isSimEmbeddedOnly || isSimAndDataAUAU)
+            add(InputInclusiveJetEmbeddedSample("embeddedJet12"));
+        if (isInclusiveJet20Embedded || bothInclusiveJet12and20simEmbedded || isSimEmbeddedOnly || isSimAndDataAUAU)
             add(InputInclusiveJetEmbeddedSample("embeddedJet20"));
         
         if (out.empty())

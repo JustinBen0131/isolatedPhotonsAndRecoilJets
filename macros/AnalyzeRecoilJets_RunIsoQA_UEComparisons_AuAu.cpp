@@ -22,12 +22,12 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
     string activeEmbeddedSimFolder;
     if (embeddedMode == 2)
     {
-        if (bothInclusiveJet10and20simEmbedded)
-            activeEmbeddedSimFolder = "embeddedJet10and20merged_SIM";
+        if (bothInclusiveJet12and20simEmbedded)
+            activeEmbeddedSimFolder = "embeddedJet12and20merged_SIM";
         else if (isInclusiveJet20Embedded)
             activeEmbeddedSimFolder = "embeddedJet20_SIM";
-        else if (isInclusiveJet10Embedded)
-            activeEmbeddedSimFolder = "embeddedJet10_SIM";
+        else if (isInclusiveJet12Embedded)
+            activeEmbeddedSimFolder = "embeddedJet12_SIM";
         else
             activeEmbeddedSimFolder = "embeddedJet20_SIM";
     }
@@ -45,8 +45,8 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
         {
             if (isInclusiveJet20Embedded)
                 return InputInclusiveJetEmbeddedSample("embeddedJet20", ueVariant);
-            if (isInclusiveJet10Embedded)
-                return InputInclusiveJetEmbeddedSample("embeddedJet10", ueVariant);
+            if (isInclusiveJet12Embedded)
+                return InputInclusiveJetEmbeddedSample("embeddedJet12", ueVariant);
             return "";
         }
         
@@ -483,14 +483,14 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
     };
     
     const int nInclusiveEmbeddedSel =
-    CountEmbeddedSelection(isInclusiveJet10Embedded, isInclusiveJet20Embedded, bothInclusiveJet10and20simEmbedded);
+    CountEmbeddedSelection(isInclusiveJet12Embedded, isInclusiveJet20Embedded, bothInclusiveJet12and20simEmbedded);
     const int nPhotonEmbeddedSel =
     CountEmbeddedSelection(isPhotonJet12Embedded, isPhotonJet20Embedded, bothPhoton12and20simEmbedded);
     
     auto InclusiveEmbeddedShortLabel = [&]() -> string
     {
-        if (bothInclusiveJet10and20simEmbedded) return "(10+20)";
-        if (isInclusiveJet10Embedded) return "10";
+        if (bothInclusiveJet12and20simEmbedded) return "(12+20)";
+        if (isInclusiveJet12Embedded) return "12";
         if (isInclusiveJet20Embedded) return "20";
         return "";
     };
@@ -515,31 +515,31 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
             return "";
         }
         
-        if (bothInclusiveJet10and20simEmbedded)
+        if (bothInclusiveJet12and20simEmbedded)
         {
             const string cfgTag = CfgTagWithUEFor(
                                                   kAA_JetPtMin, kAA_B2BCut, kAA_VzCut, kAA_IsoConeR, kAA_IsoMode, ueVariant
                                                   );
             const string mergedPath = MergedSimEmbeddedPath(
                                                             cfgTag,
-                                                            "embeddedJet10and20merged_SIM",
-                                                            "RecoilJets_embeddedJet10plus20_MERGED.root"
+                                                            "embeddedJet12and20merged_SIM",
+                                                            "RecoilJets_embeddedJet12plus20_MERGED.root"
                                                             );
             
             if (doPhotonJetMerge)
             {
-                const string in10 = InputInclusiveJetEmbeddedSample("embeddedJet10", ueVariant);
+                const string in12 = InputInclusiveJetEmbeddedSample("embeddedJet12", ueVariant);
                 const string in20 = InputInclusiveJetEmbeddedSample("embeddedJet20", ueVariant);
                 
-                if (!gSystem->AccessPathName(in10.c_str()) &&
+                if (!gSystem->AccessPathName(in12.c_str()) &&
                     !gSystem->AccessPathName(in20.c_str()))
                 {
                     const bool okMerge = BuildMergedSIMFile_PhotonSlices(
-                                                                         {in10, in20},
-                                                                         {kSigmaPhoton10_pb, kSigmaPhoton20_pb},
+                                                                         {in12, in20},
+                                                                         {kSigmaEmbeddedInclusiveJet12_pb, kSigmaEmbeddedInclusiveJet20_pb},
                                                                          mergedPath,
                                                                          kDirSIM,
-                                                                         {"embeddedJet10", "embeddedJet20"}
+                                                                         {"embeddedJet12", "embeddedJet20"}
                                                                          );
                     if (!okMerge) return "";
                 }
@@ -553,11 +553,11 @@ void RunIsoQA_UEComparisons_AuAu(int embeddedMode = 0)
             return mergedPath;
         }
         
-        if (isInclusiveJet10Embedded)
+        if (isInclusiveJet12Embedded)
         {
-            const string in10 = InputInclusiveJetEmbeddedSample("embeddedJet10", ueVariant);
-            if (gSystem->AccessPathName(in10.c_str())) return "";
-            return in10;
+            const string in12 = InputInclusiveJetEmbeddedSample("embeddedJet12", ueVariant);
+            if (gSystem->AccessPathName(in12.c_str())) return "";
+            return in12;
         }
         
         if (isInclusiveJet20Embedded)

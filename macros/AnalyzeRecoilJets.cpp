@@ -420,7 +420,7 @@ void RunEventLevelQA(Dataset& ds)
         // Inclusive jet embedded
         {
             string path, label;
-            if (bothInclusiveJet10and20simEmbedded)
+            if (bothInclusiveJet12and20simEmbedded)
             {
                 // TODO: merged
             }
@@ -429,10 +429,10 @@ void RunEventLevelQA(Dataset& ds)
                 path = InputInclusiveJetEmbeddedSample("embeddedJet20");
                 label = "Inclusive Jet 20 Embedded";
             }
-            else if (isInclusiveJet10Embedded)
+            else if (isInclusiveJet12Embedded)
             {
-                path = InputInclusiveJetEmbeddedSample("embeddedJet10");
-                label = "Inclusive Jet 10 Embedded";
+                path = InputInclusiveJetEmbeddedSample("embeddedJet12");
+                label = "Inclusive Jet 12 Embedded";
             }
             if (!path.empty())
                 zvtxEmbSources.push_back({path, label,
@@ -696,7 +696,7 @@ void RunEventLevelQA(Dataset& ds)
             // Inclusive jet embedded
             {
                 string path, label, tag;
-                if (bothInclusiveJet10and20simEmbedded)
+                if (bothInclusiveJet12and20simEmbedded)
                 { /* TODO: merged */ }
                 else if (isInclusiveJet20Embedded)
                 {
@@ -704,10 +704,10 @@ void RunEventLevelQA(Dataset& ds)
                     label = "Inclusive Jet 20 Embedded";
                     tag = "inclusiveJet";
                 }
-                else if (isInclusiveJet10Embedded)
+                else if (isInclusiveJet12Embedded)
                 {
-                    path = InputInclusiveJetEmbeddedSample("embeddedJet10");
-                    label = "Inclusive Jet 10 Embedded";
+                    path = InputInclusiveJetEmbeddedSample("embeddedJet12");
+                    label = "Inclusive Jet 12 Embedded";
                     tag = "inclusiveJet";
                 }
                 if (!path.empty() && !gSystem->AccessPathName(path.c_str()))
@@ -5229,11 +5229,11 @@ void RunConsolidatedEventSummary()
             CfgTagWithUE_AA(), true, true});
     
     // --- Embedded inclusive jet samples ---
-    if (isInclusiveJet10Embedded || bothInclusiveJet10and20simEmbedded)
-        probes.push_back({InputInclusiveJetEmbeddedSample("embeddedJet10"),
-            kDirSIM, "embInclJet10",
+    if (isInclusiveJet12Embedded || bothInclusiveJet12and20simEmbedded)
+        probes.push_back({InputInclusiveJetEmbeddedSample("embeddedJet12"),
+            kDirSIM, "embInclJet12",
             CfgTagWithUE_AA(), true, true});
-    if (isInclusiveJet20Embedded || bothInclusiveJet10and20simEmbedded)
+    if (isInclusiveJet20Embedded || bothInclusiveJet12and20simEmbedded)
         probes.push_back({InputInclusiveJetEmbeddedSample("embeddedJet20"),
             kDirSIM, "embInclJet20",
             CfgTagWithUE_AA(), true, true});

@@ -18,6 +18,7 @@ Usage:
   ./scripts/sftp_get_recoiljets_outputs.sh poolSmoke <dataset> <remote-path-or-dir-name>
   ./scripts/sftp_get_recoiljets_outputs.sh smokeTestLatest <dataset> [--roots]
   ./scripts/sftp_get_recoiljets_outputs.sh smokeTest <dataset> <remote-path-or-dir-name> [--roots]
+  ./scripts/sftp_get_recoiljets_outputs.sh scaledTriggerStudy
 
 Datasets:
   isAuAu                    -> InputFiles/auau25
@@ -62,6 +63,9 @@ under:
 smokeTestLatest/smokeTest do the same for the overnight per-dataset smokeTest
 workflow under thesisAnaSmoke. Pass --roots only when you intentionally want the
 disposable smoke ROOT files too.
+
+scaledTriggerStudy pulls the one-off AuAu scaled-trigger final ROOT file into:
+  InputFiles/auau25
 EOF
 }
 
@@ -206,7 +210,7 @@ primary_sample_for_merge_dataset() {
   case "$1" in
     isSim) echo "photonjet5" ;;
     isSimEmbedded) echo "embeddedPhoton12" ;;
-    isSimEmbeddedInclusive) echo "embeddedJet10" ;;
+    isSimEmbeddedInclusive) echo "embeddedJet12" ;;
     isSimInclusive) echo "jet5" ;;
     *) return 1 ;;
   esac
@@ -216,7 +220,7 @@ required_samples_for_merge_dataset() {
   case "$1" in
     isSim) printf "%s\n" photonjet5 photonjet10 photonjet20 ;;
     isSimEmbedded) printf "%s\n" embeddedPhoton12 embeddedPhoton20 ;;
-    isSimEmbeddedInclusive) printf "%s\n" embeddedJet10 embeddedJet20 ;;
+    isSimEmbeddedInclusive) printf "%s\n" embeddedJet12 embeddedJet20 ;;
     isSimInclusive) printf "%s\n" jet5 ;;
     *) return 1 ;;
   esac
@@ -882,6 +886,86 @@ download_pool_smoke_report() {
   fi
 }
 
+download_scaled_trigger_study() {
+  local cfg file remote_dir local_dir batch
+  cfg="jetMinPt5_7pi_8_vz60_isoR40_isSliding_baseVariant_preselectionReference_tightReference_nonTightReference_scaledTriggerStudy"
+  file="RecoilJets_auau_ALL_${cfg}.root"
+  remote_dir="${REMOTE_BASE}/output/auau"
+  local_dir="${LOCAL_BASE}/InputFiles/auau25"
+
+  mkdir -p "$local_dir"
+  batch="$(make_tmp_file "sftp_get_scaled_trigger_study")"
+  cleanup_scaled_trigger() { rm -f "$batch"; }
+  trap cleanup_scaled_trigger EXIT
+
+  echo
+  echo "Remote host : ${REMOTE_HOST}"
+  echo "Remote file : ${remote_dir}/${file}"
+  echo "Local file  : ${local_dir}/${file}"
+  echo "Study       : scaledTriggerStudy"
+  echo
+
+  if [[ -e "${local_dir}/${file}" ]]; then
+    echo "Existing local file found:"
+    echo "  ${local_dir}/${file}"
+    echo
+    echo "Choose how to handle it before download:"
+    echo "  o = overwrite in place"
+    echo "  p = move existing file to ${local_dir}/previous/<timestamp>/ first"
+    echo "  a = abort"
+    read -r -p "Action? [o/p/a]: " conflict_action
+    case "$conflict_action" in
+      o|O|overwrite|OVERWRITE)
+        echo "Proceeding with overwrite in place."
+        ;;
+      p|P|previous|PREVIOUS)
+        previous_dir="${local_dir}/previous/$(date +%Y%m%d_%H%M%S)_scaledTriggerStudy"
+        mkdir -p "$previous_dir"
+        echo "Moving existing file to: ${previous_dir}"
+        mv "${local_dir}/${file}" "${previous_dir}/"
+        ;;
+      a|A|abort|ABORT|"")
+        echo "Aborted."
+        exit 0
+        ;;
+      *)
+        echo "[ERROR] Unknown action: ${conflict_action}" >&2
+        exit 2
+        ;;
+    esac
+  fi
+
+  echo "Proceeding without an extra y/N prompt."
+
+  {
+    printf 'lcd %s\n' "$local_dir"
+    printf 'cd %s\n' "$remote_dir"
+    printf 'get %s %s\n' "$file" "$file"
+  } > "$batch"
+
+  echo
+  echo "sftp batch commands:"
+  sed 's/^/  /' "$batch"
+  echo
+  echo "Opening interactive sftp to download the scaled-trigger study ROOT file."
+  if sftp \
+      -oBatchMode=no \
+      -oPreferredAuthentications=publickey,password,keyboard-interactive \
+      -b "$batch" \
+      "$REMOTE_HOST"; then
+    echo
+    echo "[OK] scaledTriggerStudy download complete."
+    echo "Downloaded into: ${local_dir}/${file}"
+    trap - EXIT
+    rm -f "$batch"
+  else
+    status=$?
+    echo
+    echo "[ERROR] sftp download failed with exit code ${status}." >&2
+    exit "$status"
+  fi
+}
+
 dataset="${1:-}"
 case "$dataset" in
   -h|--help|help|"")
@@ -945,6 +1029,11 @@ if [[ "$dataset" == "smokeTest" ]]; then
   exit 0
 fi
 
+if [[ "$dataset" == "scaledTriggerStudy" ]]; then
+  download_scaled_trigger_study
+  exit 0
+fi
+
 remote_tag=""
 local_subdir=""
 sample_tags=()
@@ -985,7 +1074,7 @@ case "$dataset" in
     label="isSimEmbeddedInclusive"
     remote_tag="simembeddedinclusive"
     local_subdir="InputFiles/InclusiveJetSIM_EMBEDDED"
-    sample_tags=( "embeddedJet10" "embeddedJet20" )
+    sample_tags=( "embeddedJet12" "embeddedJet20" )
     ;;
   isSimInclusive|siminclusive|SIMINCLUSIVE|isSimJet5|simjet5|SIMJET5)
     label="isSimInclusive"

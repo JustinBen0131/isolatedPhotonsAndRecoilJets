@@ -92,6 +92,36 @@ isolation mode.
 
 ## Active SDCC Productions
 
+- Embedded-inclusive SIM list generation
+  - Status: `Valid` for list-building/matched-list input preparation only.
+  - User-visible SDCC terminal evidence from 2026-05-06 showed both
+    `run28_embeddedJet12` and `run28_embeddedJet20` completed
+    `scripts/makeThesisSimLists.sh` with 10,000 raw rows, 10,000 matched rows,
+    and 10,000 pair/triplet rows. `DST_MBD_EPD` is an expected `NONE`
+    placeholder for these embedded packs.
+  - Current desired `isSimEmbeddedInclusive` sample pair:
+    `run28_embeddedJet12` + `run28_embeddedJet20`.
+  - Not yet `Valid` for final analysis merged ROOT use: cross-section estimates
+    for Jet12/Jet20, propagated constants, RecoilJets ROOT production, local
+    pulls, and stitched `embeddedJet12and20merged_SIM` validation still need
+    recorded evidence.
+- Overnight pool/replay smoke tests
+  - Status: `Needs Rerun`.
+  - Clusters: `isPP` `3016331`, `isAuAu` `3016333`, `isSim` `3016336`,
+    `isSimEmbedded` `3016340`.
+  - Gmail evidence showed the `isPP` `20260506_022824` DAG reached its final
+    node, but only one pool ROOT was reported from hundreds of planned capture
+    jobs, so the smoke result is not a valid production-tuning measurement.
+    Local submitter fix has been made so rerun smoke DAGs use args-file queue
+    syntax and final emails validate expected vs produced/profiled jobs.
+  - Output/report bases are the timestamped `thesisAnaSmoke`,
+    `thesisAnaPoolsSmoke`, and `condor_sub/pool_workflow_*_20260506_*`
+    directories printed by the submitter.
+  - Next evidence needed: queue completion, final parseable stage emails or
+    terminal/log evidence, pulled smoke reports via
+    `scripts/sftp_get_recoiljets_outputs.sh smokeTestLatest <dataset>`, tuning
+    summaries reviewed, ROOT output sanity checked, and SIM comparisons against
+    existing local `InputFiles/` variants where configurations overlap.
 - AuAu `scaledTriggerStudy`
   - Status: `Running` based on user-pasted SDCC terminal output.
   - Cluster: `1127133` on `sphnxuser04`.

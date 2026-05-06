@@ -42,7 +42,7 @@ DATASETS: tuple[Dataset, ...] = (
         "isSimEmbeddedInclusive",
         "InputFiles/InclusiveJetSIM_EMBEDDED",
         ("issimembeddedinclusive", "simembeddedinclusive"),
-        ("embeddedJet10", "embeddedJet20"),
+        ("embeddedJet12", "embeddedJet20"),
         True,
     ),
 )

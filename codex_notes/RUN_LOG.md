@@ -4,6 +4,49 @@ Use this file for short dated notes about local inspections, user-reported SDCC/
 
 ## 2026-05-06
 
+- User-visible SDCC terminal output showed `scripts/makeThesisSimLists.sh`
+  completed the embedded-inclusive list packs for both current target samples:
+  `run28_embeddedJet12` and `run28_embeddedJet20`. Each sample reported 10,000
+  raw rows for `DST_CALO_CLUSTER`, `G4Hits`, `DST_JETS`, `DST_GLOBAL`, and the
+  placeholder `DST_MBD_EPD`; 10,000 matched rows for the same lists; and 10,000
+  rows in all pair/triplet convenience lists. The terminal also reported
+  embedded completeness as `COMPLETE (10000/10000 OutDirs have
+  calo+G4+truth-jet+global)`. Treat `run28_embeddedJet12` +
+  `run28_embeddedJet20` as the active `isSimEmbeddedInclusive` sample pair.
+  Remaining work before final-use promotion: run the inclusive Jet12/Jet20
+  cross-section estimator, propagate constants, run/pull RecoilJets outputs,
+  and validate `embeddedJet12and20merged_SIM` stitching.
+- Gmail inspection of RecoilJets stage emails showed the `isPP`
+  `dataPoolSmoke_pp_20260506_022824` DAG reached its final node, but the
+  payload was not a valid 10-run smoke validation: it reported only
+  `pool_root_files=1` despite `588` planned capture jobs, and the profile
+  summary was contaminated by an older failed `20260505` profile row because
+  profile globs did not include the workflow timestamp. Local submitter fix:
+  `scripts/RecoilJets_Condor_submit.sh` now writes Condor worker arguments to
+  explicit `.args` files and uses `queue arguments from ...`, avoiding repeated
+  `arguments/queue` blocks inside DAG submit files; pool/DAG profile prefixes
+  now include the workflow timestamp; final stage emails now include
+  `expected_capture_jobs`, `expected_replay_jobs`, `profile_rows`, and
+  `profile_failures`, and mark missing pool/profile evidence as `FAILED` or
+  `CHECK` instead of reporting a misleading `READY`.
+- User submitted the overnight smoke-test DAGs from `sphnxuser03` after the
+  pool fanout arithmetic-return fix was pushed. Terminal evidence showed all
+  four dataset commands reached DAG submission:
+  `isPP` DAGMan cluster `3016331`,
+  `isAuAu` DAGMan cluster `3016333`,
+  `isSim` DAGMan cluster `3016336`,
+  and `isSimEmbedded` DAGMan cluster `3016340`.
+  The submitted shapes were: pp `588` capture jobs and `90` replay jobs; AuAu
+  two capture/replay axes (`noSub`, `baseVariant`) with `216+216` capture jobs
+  and `20+20` replay jobs; pp SIM three photon-jet samples with `1429` capture
+  jobs and `72` replay jobs per sample; embedded SIM two embedded photon
+  samples times two UE axes with `1429` capture jobs and `72` replay jobs per
+  sample/axis. The visible `condor_q` after submission showed the DAGMan
+  clusters and initial child nodes queued with no user-held jobs. Next morning:
+  check `sphnxuser03`, pull smoke reports, tune `groupSize`/memory from
+  `tuning_inputs.json`, inspect smoke ROOT outputs, compare matching SIM
+  configurations to existing local `InputFiles/` variants, and decide whether
+  full-SIM smoke products can be renamed/promoted rather than rerun.
 - Added standing regeneration target: reproduce final local analysis inputs in
   `InputFiles/auau25`, `InputFiles/pp24`, `InputFiles/simPhotonJet`,
   `InputFiles/simEmbedded`, `InputFiles/InclusiveJetSIM`, and

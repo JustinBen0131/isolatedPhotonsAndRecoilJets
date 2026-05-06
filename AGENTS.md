@@ -39,6 +39,10 @@ Notes:
   groupSize 7 maxJobs 12` to build the exact DAG without submitting, followed
   by `./RecoilJets_Condor_submit.sh isPP condor poolSmoke groupSize 7 maxJobs
   12` for the real capped capture/replay profiling DAG.
+- When RecoilJets trigger logic, GL1 bits, `ScaledVector`, live/scaled counts,
+  or scaledown interpretation needs closer grounding, use the local manual
+  `usefulDocs/Gl1-gtm_user_manual_v53.pdf` as the first reference before making
+  trigger-semantics claims or code changes.
 - When the user asks which SDCC node/submit host to use, or any variation of
   "which node should I submit to?", do not run the helper automatically.
   Instead, tell the user to run `./checkCondorQ` from the local repository base
@@ -52,6 +56,30 @@ Notes:
   active and which submit host/config/output it belongs to. The helper streams
   only small queue/log snippets from SDCC and stores temporary local copies
   under `/tmp/checkCondorQ.*` during the run.
+
+# RecoilJets Gmail Pipeline Emails
+
+- The Gmail label `RecoilJets Pipeline` is the live email dashboard for
+  RecoilJets/SDCC/Condor/DAGMan stage notifications. Treat messages matching
+  `RECOILJETS_STAGE_EMAIL_V1`, `[RecoilJets]`, DAGMan, Condor, HTCondor,
+  `READY`, `CHECK`, `FAILED`, held, rescue, or removed as pipeline-status
+  messages.
+- When Codex reads a new RecoilJets pipeline email and uses its information in
+  the chat, extract the actionable fields first: dataset, stage, status,
+  manifest/output paths, DAG/log/error paths, rescue count, profile summary,
+  next action, and any job/cluster IDs. Report the useful status compactly.
+- After the message has been consumed and either reported to the user or folded
+  into `codex_notes/` when explicitly requested, mark that RecoilJets pipeline
+  email read by removing Gmail's `UNREAD` label. This keeps the label useful as
+  a dashboard for genuinely new stage changes.
+- Do not delete RecoilJets pipeline emails. Do not archive fresh actionable
+  `READY`, `CHECK`, or `FAILED` emails unless the user explicitly asks. It is
+  fine to label or mark stale already-consumed RecoilJets job emails read when
+  the user asks for inbox/label cleanup.
+- If an email reports a failure or `CHECK`, do not mark the stage itself
+  resolved just because the email was marked read. Marking the email read only
+  means Codex consumed the notification; the pipeline state still needs terminal
+  logs, report pulls, or user confirmation before being called fixed.
 
 # Input Files
 
@@ -115,6 +143,16 @@ Notes:
   legends must not cover the important distributions unless there is no better
   placement. If a template is reused across many plots, inspect representative
   outputs from each template and rerun after adjustments.
+- When the user asks Codex to generate or regenerate plots for slides, Codex
+  must first show the generated PNGs directly in the conversation and discuss
+  any physics or formatting concerns before editing Google Slides. Iterate on
+  the plot images in chat until the user explicitly says the plots are ready for
+  slides. Only after that approval should Codex insert or replace the plots in
+  the requested Google Slides deck.
+- If a generated plot looks physically surprising or inconsistent with the
+  user's expectation, pause the slide-update step and debug the plotted inputs,
+  histogram normalization/scaling, numerator/denominator definitions, and
+  relevant ROOT contents before presenting it as slide-ready.
 
 # Change Control
 
@@ -166,6 +204,16 @@ Notes:
   fences, no expected-output notes.
 - After copying, tell the user that the command is on their clipboard, where to
   run it, and ask them to paste the terminal output back verbatim.
+- Keep the SSH diagnostic handoff continuous: after giving the command, do not
+  treat the task as complete until the user runs it, visible terminal output or
+  pasted output has been inspected, and Codex has extracted the needed
+  conclusion or next fix. If the command reveals a problem, respond with the
+  precise diagnosis, the file/code change or operational next step, the relevant
+  SDCC-safe resubmission/retry command for the affected jobs only, and any
+  required local `scripts/sftp_push_recoiljets.sh ...` upload command. If the
+  output confirms the expected state, say so clearly and record any important
+  job IDs, manifests, output paths, or tuning evidence in the project notes when
+  it affects future analysis continuity.
 - If `pbcopy` is unavailable or blocked, say that clipboard copy failed and
   provide the command in a fenced shell block instead. Do not create a temp
   text file for this workflow unless the user explicitly asks for one.
