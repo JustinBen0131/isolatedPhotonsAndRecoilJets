@@ -831,6 +831,46 @@ if (const char* env = std::getenv("RJ_EMBEDDED_PHOTON_SAMPLE"))
 return embeddedPhotonSampleCodeFromText(outFile);
 }
 
+static int embeddedInclusiveJetSampleCodeFromText(const std::string& text)
+{
+const std::string s = recoilJetsLowerCopy(text);
+
+// Keep the inclusive-jet parser intentionally narrower than the photon parser:
+// "PhotonJet12" also contains "jet12", but it is not an inclusive Jet12 sample.
+if (s.find("photon") != std::string::npos) return 0;
+
+if (s.find("embeddedjet12") != std::string::npos ||
+    s.find("run28_embeddedjet12") != std::string::npos)
+{
+  return 12;
+}
+
+if (s.find("embeddedjet20") != std::string::npos ||
+    s.find("run28_embeddedjet20") != std::string::npos)
+{
+  return 20;
+}
+
+return 0;
+}
+
+static int embeddedInclusiveJetSampleCodeFromContext(const std::string& outFile)
+{
+if (const char* env = std::getenv("RJ_SIM_SAMPLE"))
+{
+  const int fromEnv = embeddedInclusiveJetSampleCodeFromText(env);
+  if (fromEnv == 12 || fromEnv == 20) return fromEnv;
+}
+
+if (const char* env = std::getenv("RJ_EMBEDDED_INCLUSIVE_JET_SAMPLE"))
+{
+  const int fromEnv = embeddedInclusiveJetSampleCodeFromText(env);
+  if (fromEnv == 12 || fromEnv == 20) return fromEnv;
+}
+
+return embeddedInclusiveJetSampleCodeFromText(outFile);
+}
+
 static double findEmbeddedProducerFilterPhotonPt(PHCompositeNode* topNode)
 {
 PHHepMCGenEventMap* hepmcmap = findNode::getClass<PHHepMCGenEventMap>(topNode, "PHHepMCGenEventMap");
@@ -883,6 +923,40 @@ for (auto it = evt->particles_begin(); it != evt->particles_end(); ++it)
 }
 
 return maxPt;
+}
+
+static double findEmbeddedInclusiveStitchTruthJetPt(PHCompositeNode* topNode)
+{
+// PPG12 inclusive-jet stitching uses the per-event maximum truth-jet pT.
+// Prefer the Run-28 r04 truth jet container used by the PPG12 truth-spectrum
+// QA, then fall back to other available truth-jet radii if r04 is absent.
+const std::vector<std::string> candidates = {
+  "AntiKt_Truth_r04",
+  "AntiKt_TruthFromParticles_r04",
+  "AntiKt_Truth_r03",
+  "AntiKt_TruthFromParticles_r03",
+  "AntiKt_Truth_r02",
+  "AntiKt_TruthFromParticles_r02"
+};
+
+for (const std::string& node : candidates)
+{
+  JetContainer* jets = findNode::getClass<JetContainer>(topNode, node);
+  if (!jets) continue;
+
+  double maxPt = -1.0;
+  for (const Jet* jet : *jets)
+  {
+    if (!jet) continue;
+    const double pt = jet->get_pt();
+    if (!std::isfinite(pt) || pt <= 0.0) continue;
+    if (pt > maxPt) maxPt = pt;
+  }
+
+  if (maxPt > 0.0) return maxPt;
+}
+
+return -1.0;
 }
 
 //==========================================================================
@@ -4273,19 +4347,166 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     }
 
     // ------------------------------------------------------------------
-    // SIM-embedded photon stitching:
+    // SIM-embedded generator-slice stitching:
     //
     //   PhotonJet12 sample keeps only 12 <= pT_filter^gamma < 20 GeV
     //   PhotonJet20 sample keeps only       pT_filter^gamma >= 20 GeV
+    //   EmbeddedJet12 sample keeps only 14 <= max pT^jet,truth < 21 GeV
+    //   EmbeddedJet20 sample keeps only 21 <= max pT^jet,truth < 32 GeV
     //
-    // The stitch variable is the producer-style generator photon:
+    // Photon+jet uses the producer-style generator photon:
     //   PDG=22, |eta|<1.5, mother |PDG| in [1,22], no stable-only cut.
     //
-    // This prevents the inclusive PhotonJet12 and PhotonJet20 samples from
-    // double counting the pT_filter^gamma >= 20 phase space.
+    // Inclusive-jet uses the PPG12 max-truth-jet stitching variable from the
+    // Run-28 r04 truth jet container. The Jet12/Jet20 boundaries mirror
+    // ppg12codeGit/efficiencytool/CrossSectionWeights.h.
     // ------------------------------------------------------------------
     if (m_isSimEmbedded)
     {
+        const int embeddedInclusiveJetSample = embeddedInclusiveJetSampleCodeFromContext(Outfile);
+        if (embeddedInclusiveJetSample == 12 || embeddedInclusiveJetSample == 20)
+        {
+            const double stitchJetPt = findEmbeddedInclusiveStitchTruthJetPt(topNode);
+
+            bool passStitch = true;
+            int decisionBin = 4;
+            std::string decisionText = "unknown sample";
+
+            if (embeddedInclusiveJetSample == 12)
+            {
+                passStitch = (std::isfinite(stitchJetPt) && stitchJetPt >= 14.0 && stitchJetPt < 21.0);
+                decisionBin = passStitch ? 1 : 2;
+                decisionText = "EmbeddedJet12 keep 14<=pT<21";
+            }
+            else if (embeddedInclusiveJetSample == 20)
+            {
+                passStitch = (std::isfinite(stitchJetPt) && stitchJetPt >= 21.0 && stitchJetPt < 32.0);
+                decisionBin = passStitch ? 1 : 2;
+                decisionText = "EmbeddedJet20 keep 21<=pT<32";
+            }
+
+            if (!std::isfinite(stitchJetPt) || stitchJetPt <= 0.0)
+            {
+                passStitch = false;
+                decisionBin = 3;
+                decisionText = "missing truth jet";
+            }
+
+            auto bookStitch1F = [&](const std::string& name,
+                                    const std::string& title,
+                                    int nbins,
+                                    double xmin,
+                                    double xmax) -> TH1F*
+            {
+                HistMap& H = qaHistogramsByTrigger["SIM"];
+
+                if (auto it = H.find(name); it != H.end())
+                {
+                    return dynamic_cast<TH1F*>(it->second);
+                }
+
+                TDirectory* dir = (out ? out->GetDirectory("SIM") : nullptr);
+                if (!dir && out) dir = out->mkdir("SIM");
+                if (!dir) return nullptr;
+
+                TDirectory* prevDir = gDirectory;
+                dir->cd();
+
+                auto* h = new TH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
+                h->SetDirectory(dir);
+                H[name] = h;
+
+                if (prevDir) prevDir->cd();
+                return h;
+            };
+
+            auto bookStitch1I = [&](const std::string& name,
+                                    const std::string& title,
+                                    int nbins,
+                                    double xmin,
+                                    double xmax) -> TH1I*
+            {
+                HistMap& H = qaHistogramsByTrigger["SIM"];
+
+                if (auto it = H.find(name); it != H.end())
+                {
+                    return dynamic_cast<TH1I*>(it->second);
+                }
+
+                TDirectory* dir = (out ? out->GetDirectory("SIM") : nullptr);
+                if (!dir && out) dir = out->mkdir("SIM");
+                if (!dir) return nullptr;
+
+                TDirectory* prevDir = gDirectory;
+                dir->cd();
+
+                auto* h = new TH1I(name.c_str(), title.c_str(), nbins, xmin, xmax);
+                h->SetDirectory(dir);
+                H[name] = h;
+
+                if (prevDir) prevDir->cd();
+                return h;
+            };
+
+            if (auto* hAll = bookStitch1F("h_embedInclusiveStitch_filterJetPt_all",
+                                          "h_embedInclusiveStitch_filterJetPt_all;max p_{T}^{jet,truth} [GeV];Events",
+                                          120, 0.0, 60.0))
+            {
+                if (std::isfinite(stitchJetPt) && stitchJetPt > 0.0) hAll->Fill(stitchJetPt);
+                bumpHistFill("SIM", hAll->GetName());
+            }
+
+            if (passStitch)
+            {
+                if (auto* hKept = bookStitch1F("h_embedInclusiveStitch_filterJetPt_kept",
+                                               "h_embedInclusiveStitch_filterJetPt_kept;max p_{T}^{jet,truth} [GeV];Events",
+                                               120, 0.0, 60.0))
+                {
+                    if (std::isfinite(stitchJetPt) && stitchJetPt > 0.0) hKept->Fill(stitchJetPt);
+                    bumpHistFill("SIM", hKept->GetName());
+                }
+            }
+            else
+            {
+                if (auto* hRejected = bookStitch1F("h_embedInclusiveStitch_filterJetPt_rejected",
+                                                   "h_embedInclusiveStitch_filterJetPt_rejected;max p_{T}^{jet,truth} [GeV];Events",
+                                                   120, 0.0, 60.0))
+                {
+                    if (std::isfinite(stitchJetPt) && stitchJetPt > 0.0) hRejected->Fill(stitchJetPt);
+                    bumpHistFill("SIM", hRejected->GetName());
+                }
+            }
+
+            if (auto* hDecision = bookStitch1I("h_embedInclusiveStitch_decision",
+                                               "h_embedInclusiveStitch_decision;decision;Events",
+                                               4, 0.5, 4.5))
+            {
+                hDecision->GetXaxis()->SetBinLabel(1, "kept");
+                hDecision->GetXaxis()->SetBinLabel(2, "rejected");
+                hDecision->GetXaxis()->SetBinLabel(3, "missing truth jet");
+                hDecision->GetXaxis()->SetBinLabel(4, "unknown sample");
+                hDecision->Fill(decisionBin);
+                bumpHistFill("SIM", hDecision->GetName());
+            }
+
+            if (!passStitch)
+            {
+                LOG(5, CLR_YELLOW,
+                    "    [embedded inclusive stitch] reject event"
+                    << " | sample=" << embeddedInclusiveJetSample
+                    << " | max pT^jet,truth=" << std::fixed << std::setprecision(3) << stitchJetPt
+                    << " | decision=" << decisionText);
+                return Fun4AllReturnCodes::ABORTEVENT;
+            }
+
+            LOG(6, CLR_GREEN,
+                "    [embedded inclusive stitch] keep event"
+                << " | sample=" << embeddedInclusiveJetSample
+                << " | max pT^jet,truth=" << std::fixed << std::setprecision(3) << stitchJetPt
+                << " | decision=" << decisionText);
+        }
+        else
+        {
         const int embeddedPhotonSample = embeddedPhotonSampleCodeFromContext(Outfile);
         const double stitchPhotonPt = findEmbeddedProducerFilterPhotonPt(topNode);
 
@@ -4437,6 +4658,7 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
             << " | sample=" << embeddedPhotonSample
             << " | pT_filter^gamma=" << std::fixed << std::setprecision(3) << stitchPhotonPt
             << " | decision=" << decisionText);
+        }
     }
     
     /* ------------------------------------------------------------------ */
