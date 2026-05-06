@@ -609,8 +609,13 @@ submit_dag_with_notify() {
   local emails
   emails="$(notify_emails_csv)"
   if [[ -n "$emails" ]]; then
-    say "Submitting DAG with one DAGMan completion/error notification → ${emails}"
-    condor_submit_dag -notification Complete -append "notify_user = ${emails}" "$dag"
+    if [[ "${RJ_DAGMAN_NATIVE_EMAIL:-0}" == "1" || "${RJ_DAGMAN_NATIVE_EMAIL:-0}" == "true" || "${RJ_DAGMAN_NATIVE_EMAIL:-0}" == "TRUE" ]]; then
+      say "Submitting DAG with native DAGMan error email plus parseable FINAL summary → ${emails}"
+      condor_submit_dag -notification Error -append "notify_user = ${emails}" "$dag"
+    else
+      say "Submitting DAG with quiet DAGMan native mail; parseable FINAL summary will notify → ${emails}"
+      condor_submit_dag -notification Never "$dag"
+    fi
   else
     say "Submitting DAG without email notification; notify_emails/RJ_NOTIFY_EMAILS is empty."
     condor_submit_dag "$dag"
@@ -854,7 +859,7 @@ publish_production_manifest() {
 }
 
 write_dag_final_summary_files() {
-  local dag_dir="$1" workflow="$2" dataset="$3" pool_base="$4" out_base="$5" manifest="$6"
+  local dag_dir="$1" workflow="$2" dataset="$3" pool_base="$4" out_base="$5" manifest="$6" dag_file="${7:-}"
   local emails
   emails="$(notify_emails_csv)"
   local exec_file="${dag_dir}/final_summary_${workflow}.sh"
@@ -870,6 +875,7 @@ pool_base="${3:?pool base required}"
 out_base="${4:?output base required}"
 manifest="${5:?manifest required}"
 emails="${6:-}"
+dag_file="${7:-}"
 [[ "$emails" == "NONE" ]] && emails=""
 
 pool_count=0
@@ -877,16 +883,42 @@ out_count=0
 [[ -d "$pool_base" ]] && pool_count=$(find "$pool_base" -type f -name '*.root' 2>/dev/null | wc -l | awk '{print $1}')
 [[ -d "$out_base" ]] && out_count=$(find "$out_base" -type f -name '*.root' 2>/dev/null | wc -l | awk '{print $1}')
 
+status="READY"
+status_note="DAG reached its FINAL summary node."
+dagman_out=""
+nodes_log=""
+rescue_count=0
+if [[ -n "$dag_file" && "$dag_file" != "NONE" ]]; then
+  dagman_out="${dag_file}.dagman.out"
+  nodes_log="${dag_file}.nodes.log"
+  if compgen -G "${dag_file}.rescue*" >/dev/null 2>&1; then
+    rescue_count=$(compgen -G "${dag_file}.rescue*" | wc -l | awk '{print $1}')
+    status="FAILED"
+    status_note="DAGMan rescue file(s) were produced; inspect the DAG logs before continuing."
+  elif [[ -s "$dagman_out" ]] && grep -Eiq 'ERROR|failed with|DAG abort|aborted|Job was held|held job' "$dagman_out"; then
+    status="CHECK"
+    status_note="DAGMan log contains error/hold-like text; inspect logs before treating outputs as final."
+  fi
+fi
+
 body="$(mktemp "${TMPDIR:-/tmp}/recoiljets_dag_summary.XXXXXX")"
 {
-  echo "RecoilJets DAG final summary"
-  echo
-  echo "workflow : ${workflow}"
-  echo "dataset  : ${dataset}"
-  echo "pool base: ${pool_base}"
-  echo "out base : ${out_base}"
-  echo "pool ROOT files currently found  : ${pool_count}"
-  echo "output ROOT files currently found: ${out_count}"
+  echo "RECOILJETS_STAGE_EMAIL_V1"
+  echo "status=${status}"
+  echo "status_note=${status_note}"
+  echo "dataset=${dataset}"
+  echo "stage=${workflow}"
+  echo "stage_type=pool_dag"
+  echo "pool_base=${pool_base}"
+  echo "out_base=${out_base}"
+  echo "manifest=${manifest}"
+  echo "pool_root_files=${pool_count}"
+  echo "output_root_files=${out_count}"
+  echo "dag_file=${dag_file}"
+  echo "dagman_out=${dagman_out}"
+  echo "nodes_log=${nodes_log}"
+  echo "rescue_file_count=${rescue_count}"
+  echo "next_action=If status is READY, continue with the normal merge/pull/plot step for this dataset. If status is CHECK or FAILED, inspect dagman_out, nodes_log, and the job .err files first."
   echo
   if [[ -s "$manifest" ]]; then
     echo "manifest:"
@@ -899,13 +931,13 @@ body="$(mktemp "${TMPDIR:-/tmp}/recoiljets_dag_summary.XXXXXX")"
 cat "$body"
 
 if [[ -n "$emails" ]]; then
-  subject="[RecoilJets] ${workflow} ${dataset} DAG finished"
+  subject="[RecoilJets][${dataset}][${workflow}][${status}]"
   if command -v mail >/dev/null 2>&1; then
     mail -s "$subject" "$emails" < "$body" || true
   elif command -v mailx >/dev/null 2>&1; then
     mailx -s "$subject" "$emails" < "$body" || true
   else
-    echo "[notify] mail/mailx not found; DAGMan built-in notification may still have been sent to ${emails}" >&2
+    echo "[notify] mail/mailx not found; notification skipped for ${emails}" >&2
   fi
 fi
 rm -f "$body"
@@ -925,7 +957,7 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification  = Never
-arguments     = ${workflow} ${dataset} ${pool_base} ${out_base} ${manifest} ${emails:-NONE}
+arguments     = ${workflow} ${dataset} ${pool_base} ${out_base} ${manifest} ${emails:-NONE} ${dag_file:-NONE}
 queue
 SUB
   printf "%s\n" "$sub_file"
@@ -2241,7 +2273,7 @@ SUB
 
   local final_sub workflow_name
   workflow_name="$([[ "$from_scratch" -eq 1 ]] && echo "dataPoolFromScratch_${TAG}_${workflow_stamp}" || echo "dataPoolReplay_${TAG}_${workflow_stamp}")"
-  final_sub="$(write_dag_final_summary_files "$dag_dir" "$workflow_name" "$DATASET" "$pool_base" "$out_base" "$manifest")"
+  final_sub="$(write_dag_final_summary_files "$dag_dir" "$workflow_name" "$DATASET" "$pool_base" "$out_base" "$manifest" "$dag")"
   printf 'FINAL FINAL_SUMMARY %s\n' "$final_sub" >> "$dag"
 
   say "DATA pool DAG build summary:"
@@ -4556,7 +4588,7 @@ SUB
       done
     done
 
-    final_sub="$(write_dag_final_summary_files "$dag_dir" "poolFromScratch_${TAG}_${workflow_stamp}" "$DATASET" "$pool_base" "$out_base" "$manifest")"
+    final_sub="$(write_dag_final_summary_files "$dag_dir" "poolFromScratch_${TAG}_${workflow_stamp}" "$DATASET" "$pool_base" "$out_base" "$manifest" "$dag")"
     printf 'FINAL FINAL_SUMMARY %s\n' "$final_sub" >> "$dag"
 
     say "DAG build summary:"
@@ -4720,7 +4752,7 @@ SUB
       done
     done
     (( replay_count > 0 )) || { err "No pool replay DAG nodes were produced"; exit 96; }
-    final_sub="$(write_dag_final_summary_files "$dag_dir" "poolReplay_${TAG}_${replay_stamp}" "$DATASET" "$pool_base" "$DEST_BASE" "$manifest")"
+    final_sub="$(write_dag_final_summary_files "$dag_dir" "poolReplay_${TAG}_${replay_stamp}" "$DATASET" "$pool_base" "$DEST_BASE" "$manifest" "$dag")"
     printf 'FINAL FINAL_SUMMARY %s\n' "$final_sub" >> "$dag"
     say "Pool replay DAG build summary:"
     say "  replay nodes : ${replay_count}"

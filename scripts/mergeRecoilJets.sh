@@ -710,22 +710,12 @@ merge_notify_emails_csv() {
   printf "%s\n" "$out"
 }
 
-append_condor_complete_notification() {
-  local sub="$1"
-  local emails
-  emails="$(merge_notify_emails_csv)"
-  [[ -n "$emails" ]] || return 0
-  cat >> "$sub" <<EOT
-notification = Complete
-notify_user = ${emails}
-EOT
-}
-
 submit_condor_stage_with_ready_email() {
   local sub="$1"
   local stage_key="$2"
-  local subject="$3"
+  local legacy_subject="$3"
   local body="$4"
+  : "$legacy_subject"
 
   local emails
   emails="$(merge_notify_emails_csv)"
@@ -750,15 +740,58 @@ submit_condor_stage_with_ready_email() {
 #!/usr/bin/env bash
 set -euo pipefail
 emails="${1:?emails required}"
-subject="${2:?subject required}"
+stage_key="${2:?stage key required}"
 body_file="${3:?body file required}"
+dag_file="${4:?dag file required}"
+submit_file="${5:?submit file required}"
+out_dir="${6:?out dir required}"
+err_dir="${7:?err dir required}"
+log_dir="${8:?log dir required}"
+
+status="READY"
+status_note="Condor stage DAG reached its final notification node."
+dagman_out="${dag_file}.dagman.out"
+nodes_log="${dag_file}.nodes.log"
+rescue_count=0
+if compgen -G "${dag_file}.rescue*" >/dev/null 2>&1; then
+  rescue_count=$(compgen -G "${dag_file}.rescue*" | wc -l | awk '{print $1}')
+  status="FAILED"
+  status_note="DAGMan rescue file(s) were produced; inspect the DAG logs before continuing."
+elif [[ -s "$dagman_out" ]] && grep -Eiq 'ERROR|failed with|DAG abort|aborted|Job was held|held job' "$dagman_out"; then
+  status="CHECK"
+  status_note="DAGMan log contains error/hold-like text; inspect logs before treating outputs as ready."
+fi
+
+subject="[RecoilJets][${stage_key}][${status}]"
+message_file="$(mktemp "${TMPDIR:-/tmp}/recoiljets_stage_notify.XXXXXX")"
+{
+  echo "RECOILJETS_STAGE_EMAIL_V1"
+  echo "status=${status}"
+  echo "status_note=${status_note}"
+  echo "stage=${stage_key}"
+  echo "stage_type=merge_dag"
+  echo "submit_file=${submit_file}"
+  echo "dag_file=${dag_file}"
+  echo "dagman_out=${dagman_out}"
+  echo "nodes_log=${nodes_log}"
+  echo "rescue_file_count=${rescue_count}"
+  echo "job_output_dir=${out_dir}"
+  echo "job_error_dir=${err_dir}"
+  echo "job_log_dir=${log_dir}"
+  echo "next_action=If status is READY, continue with the next merge/pull/plot step named below. If status is CHECK or FAILED, inspect dagman_out, nodes_log, and the job .err files first."
+  echo
+  echo "message:"
+  sed 's/^/  /' "$body_file"
+} > "$message_file"
+
 if command -v mail >/dev/null 2>&1; then
-  mail -s "$subject" "$emails" < "$body_file"
+  mail -s "$subject" "$emails" < "$message_file"
 elif command -v mailx >/dev/null 2>&1; then
-  mailx -s "$subject" "$emails" < "$body_file"
+  mailx -s "$subject" "$emails" < "$message_file"
 else
   echo "[notify] mail/mailx not found; notification skipped for ${emails}" >&2
 fi
+rm -f "$message_file"
 EOS
   chmod +x "$notify_exec"
 
@@ -772,17 +805,17 @@ getenv = True
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
-arguments = $emails $subject $notify_body
+notification = Never
+arguments = $emails $stage_key $notify_body $dag $sub $OUT_DIR $ERR_DIR $LOG_DIR
 queue
 EOT
 
   cat > "$dag" <<EOT
 JOB MERGE $sub
-JOB NOTIFY $notify_sub
-PARENT MERGE CHILD NOTIFY
+FINAL NOTIFY $notify_sub
 EOT
 
-  condor_submit_dag "$dag"
+  condor_submit_dag -notification Never "$dag"
 }
 
 selection_mode_normalize() {
@@ -1967,11 +2000,6 @@ EOT
 
           SUB="${TMP_DIR}/recoil_sim_${cfg_tag}_${SIM_TAG}_secondRound.sub"
           rm -f "$SUB"
-          notify_lines=""
-          notify_emails="$(merge_notify_emails_csv)"
-          if [[ -n "$notify_emails" ]]; then
-            notify_lines=$'notification = Complete\n'"notify_user = ${notify_emails}"
-          fi
           cat > "$SUB" <<EOT
 universe   = vanilla
 executable = $CONDOR_EXEC
@@ -1984,12 +2012,16 @@ getenv = True
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
-${notify_lines}
+notification = Never
 arguments = $LIST $SIM_FINAL
 queue
 EOT
           say "Submitting secondRound final merge on Condor → $(basename "$SUB")"
-          condor_submit "$SUB"
+          submit_condor_stage_with_ready_email \
+            "$SUB" \
+            "sim_secondRound_${cfg_tag}_${SIM_TAG}" \
+            "RecoilJets_SIM_secondRound_ready" \
+            "SIM secondRound final merge is complete for cfg=${cfg_tag}, sample=${SIM_TAG}. Final ROOT output: ${SIM_FINAL}. You can now pull/plot this sample or continue the combined local SIM merger."
         else
           need_cmd hadd
           say "Running secondRound final merge locally (ROOT hadd)…"
@@ -2590,11 +2622,6 @@ EOT
 
       SUB="${TMP_DIR}/recoil_final_${TAG}_${_cfg:-flat}.sub"
       rm -f "$SUB"
-      notify_lines=""
-      notify_emails="$(merge_notify_emails_csv)"
-      if [[ -n "$notify_emails" ]]; then
-        notify_lines=$'notification = Complete\n'"notify_user = ${notify_emails}"
-      fi
       cat > "$SUB" <<EOT
 universe   = vanilla
 executable = $CONDOR_EXEC
@@ -2607,12 +2634,16 @@ getenv = True
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
-${notify_lines}
+notification = Never
 arguments = $LIST $FINAL
 queue
 EOT
       say "Submitting final merge on Condor → $(basename "$SUB")"
-      condor_submit "$SUB"
+      submit_condor_stage_with_ready_email \
+        "$SUB" \
+        "data_final_${TAG}_${_cfg:-flat}" \
+        "RecoilJets_${TAG}_final_ready" \
+        "Data final addChunks merge is complete for dataset=${TAG}, cfg=${_cfg:-flat}. Final ROOT output: ${FINAL}. You can now pull the output locally and make plots."
     else
       say "Running final merge locally (ROOT hadd)…"
       hadd -v 3 -f "$FINAL" @"$LIST"
