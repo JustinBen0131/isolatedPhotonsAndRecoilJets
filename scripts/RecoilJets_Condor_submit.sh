@@ -489,6 +489,24 @@ ${BOLD}SIM mode (photonJet10/20 merged):${RST}
   ${BOLD}$0 isSim condorHistFromPool [groupSize N] [SAMPLE=run28_photonjet10]${RST}
   ${BOLD}$0 isSim condorDoAllDirect [groupSize N] [SAMPLE=run28_photonjet10]${RST}
 
+${BOLD}SIM mode (embedded photon AuAu-like signal):${RST}
+  ${BOLD}$0 isSimEmbedded local [Nevents] [VERBOSE=N] [SAMPLE=run28_embeddedPhoton20]${RST}
+  ${BOLD}$0 isSimEmbedded CHECKJOBS [groupSize N] [SAMPLE=run28_embeddedPhoton20]${RST}
+  ${BOLD}$0 isSimEmbedded condorDoAllSmoke [groupSize N] [SAMPLE=run28_embeddedPhoton20]${RST}
+  ${BOLD}$0 isSimEmbedded condorDoAllFromScratch [groupSize N] [SAMPLE=run28_embeddedPhoton20]${RST}
+  ${BOLD}$0 isSimEmbedded condorDoAll [groupSize N] [SAMPLE=run28_embeddedPhoton20]${RST}
+  ${BOLD}$0 isSimEmbedded condorHistFromPool [groupSize N] [SAMPLE=run28_embeddedPhoton20]${RST}
+  ${BOLD}$0 isSimEmbedded condorDoAllDirect [groupSize N] [SAMPLE=run28_embeddedPhoton20]${RST}
+
+${BOLD}SIM mode (embedded inclusive-jet AuAu-like background):${RST}
+  ${BOLD}$0 isSimEmbeddedInclusive local [Nevents] [VERBOSE=N] [SAMPLE=run28_embeddedJet20]${RST}
+  ${BOLD}$0 isSimEmbeddedInclusive CHECKJOBS [groupSize N] [SAMPLE=run28_embeddedJet20]${RST}
+  ${BOLD}$0 isSimEmbeddedInclusive condorDoAllSmoke [groupSize N] [SAMPLE=run28_embeddedJet20]${RST}
+  ${BOLD}$0 isSimEmbeddedInclusive condorDoAllFromScratch [groupSize N] [SAMPLE=run28_embeddedJet20]${RST}
+  ${BOLD}$0 isSimEmbeddedInclusive condorDoAll [groupSize N] [SAMPLE=run28_embeddedJet20]${RST}
+  ${BOLD}$0 isSimEmbeddedInclusive condorHistFromPool [groupSize N] [SAMPLE=run28_embeddedJet20]${RST}
+  ${BOLD}$0 isSimEmbeddedInclusive condorDoAllDirect [groupSize N] [SAMPLE=run28_embeddedJet20]${RST}
+
 ${BOLD}SIM mode (photonJet5 single-slice):${RST}
   ${BOLD}$0 isSimJet5 local [Nevents] [VERBOSE=N] [SAMPLE=run28_jet5]${RST}
   ${BOLD}$0 isSimJet5 CHECKJOBS [groupSize N] [SAMPLE=run28_jet5]${RST}
@@ -535,6 +553,8 @@ Examples:
   $0 isSim checkModels
   $0 isSim condorTest
   $0 isSim condorDoAllSmoke
+  $0 isSimEmbedded condorDoAllSmoke
+  $0 isSimEmbeddedInclusive condorDoAllSmoke
   $0 isSim condorDoAllFromScratch groupSize 5
   $0 isSim condorDoAll groupSize 5
   $0 isSim condorHistFromPool groupSize 5
@@ -4964,14 +4984,16 @@ SUB
 
     if (( sim_smoke )) && [[ "${GROUP_SIZE_EXPLICIT:-0}" -eq 0 ]]; then
       case "$DATASET" in
-        isSimEmbedded) GROUP_SIZE="${RJ_SMOKE_GROUPSIZE_EMBEDDED:-7}" ;;
-        *)             GROUP_SIZE="${RJ_SMOKE_GROUPSIZE_SIM:-7}" ;;
+        isSimEmbedded)          GROUP_SIZE="${RJ_SMOKE_GROUPSIZE_EMBEDDED:-7}" ;;
+        isSimEmbeddedInclusive) GROUP_SIZE="${RJ_SMOKE_GROUPSIZE_EMBEDDED_INCLUSIVE:-${RJ_SMOKE_GROUPSIZE_EMBEDDED:-7}}" ;;
+        *)                      GROUP_SIZE="${RJ_SMOKE_GROUPSIZE_SIM:-7}" ;;
       esac
     fi
     if (( sim_smoke )) && [[ -z "${RJ_REQUEST_MEMORY:-}" ]]; then
       case "$DATASET" in
-        isSimEmbedded) RJ_REQUEST_MEMORY="${RJ_SMOKE_REQUEST_MEMORY_EMBEDDED:-3000MB}" ;;
-        *)             RJ_REQUEST_MEMORY="${RJ_SMOKE_REQUEST_MEMORY_SIM:-2000MB}" ;;
+        isSimEmbedded)          RJ_REQUEST_MEMORY="${RJ_SMOKE_REQUEST_MEMORY_EMBEDDED:-6000MB}" ;;
+        isSimEmbeddedInclusive) RJ_REQUEST_MEMORY="${RJ_SMOKE_REQUEST_MEMORY_EMBEDDED_INCLUSIVE:-${RJ_SMOKE_REQUEST_MEMORY_EMBEDDED:-6000MB}}" ;;
+        *)                      RJ_REQUEST_MEMORY="${RJ_SMOKE_REQUEST_MEMORY_SIM:-4000MB}" ;;
       esac
       export RJ_REQUEST_MEMORY
     fi
@@ -4987,6 +5009,13 @@ SUB
 
     gs_capture="$GROUP_SIZE"
     gs_replay="${RJ_POOL_REPLAY_GROUP_SIZE:-20}"
+    if (( sim_smoke )) && [[ -z "${RJ_POOL_REPLAY_GROUP_SIZE:-}" ]]; then
+      case "$DATASET" in
+        isSimEmbedded)          gs_replay="${RJ_SMOKE_REPLAY_GROUPSIZE_EMBEDDED:-5}" ;;
+        isSimEmbeddedInclusive) gs_replay="${RJ_SMOKE_REPLAY_GROUPSIZE_EMBEDDED_INCLUSIVE:-${RJ_SMOKE_REPLAY_GROUPSIZE_EMBEDDED:-5}}" ;;
+        *)                      gs_replay="${RJ_SMOKE_REPLAY_GROUPSIZE_SIM:-5}" ;;
+      esac
+    fi
     if [[ "${GROUP_SIZE_EXPLICIT:-0}" -eq 1 ]]; then
       gs_replay="$GROUP_SIZE"
     fi
