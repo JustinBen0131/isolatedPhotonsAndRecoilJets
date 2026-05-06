@@ -1006,19 +1006,24 @@ split_pool_replay_fanout_shards() {
 }
 
 check_dag_worker_job_budget() {
-  local label="$1" capture_jobs="$2" replay_jobs="$3" dryrun="${4:-0}"
+  local label="$1" capture_jobs="$2" replay_jobs="$3" dryrun="${4:-0}" min_jobs="${5:-0}"
   local max_jobs="${RJ_DAG_MAX_WORKER_JOBS:-50000}"
   local warn_jobs="${RJ_DAG_WARN_WORKER_JOBS:-40000}"
   [[ "$max_jobs" =~ ^[0-9]+$ && "$max_jobs" -gt 0 ]] || max_jobs=50000
   [[ "$warn_jobs" =~ ^[0-9]+$ && "$warn_jobs" -gt 0 ]] || warn_jobs=40000
+  [[ "$min_jobs" =~ ^[0-9]+$ ]] || min_jobs=0
   local total_jobs=$(( capture_jobs + replay_jobs ))
 
   say "${BOLD}Worker-job budget check:${RST} ${label}"
   say "  capture worker jobs : ${capture_jobs}"
   say "  replay worker jobs  : ${replay_jobs}"
   say "  total worker jobs   : ${total_jobs}"
+  (( min_jobs > 0 )) && say "  target minimum jobs : ${min_jobs}"
   say "  warning / hard cap  : ${warn_jobs} / ${max_jobs}"
 
+  if (( min_jobs > 0 && total_jobs < min_jobs )); then
+    warn "${label} is below the preferred worker-job target (${total_jobs} < ${min_jobs}). This is allowed, but jobs may be too coarse to justify lower memory requests; consider lowering groupSize/RJ_POOL_REPLAY_GROUP_SIZE or RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD if runtime or slot matching looks poor."
+  fi
   if (( total_jobs > max_jobs )); then
     if (( dryrun )); then
       warn "Dry-run DAG exceeds RJ_DAG_MAX_WORKER_JOBS=${max_jobs}; not submitting because RJ_DAG_DRYRUN=1."
@@ -2655,11 +2660,17 @@ submit_data_pool_workflow() {
   local dag="${dag_dir}/RecoilJets_pool_${DATASET}_${workflow_stamp}.dag"
   local manifest="${dag_dir}/manifest.txt"
   local pool_macro="${BASE}/macros/Fun4All_recoilJets_poolReplay.C"
-  local replay_gs="${RJ_POOL_REPLAY_GROUP_SIZE:-$GROUP_SIZE}"
-  [[ "$replay_gs" =~ ^[0-9]+$ && "$replay_gs" -gt 0 ]] || replay_gs="$GROUP_SIZE"
+  local replay_gs="${RJ_POOL_REPLAY_GROUP_SIZE:-}"
+  if [[ -z "$replay_gs" ]]; then
+    case "$DATASET" in
+      isAuAu|isOO) replay_gs="${RJ_DATA_REPLAY_GROUPSIZE_AUAU:-7}" ;;
+      *)           replay_gs="${RJ_DATA_REPLAY_GROUPSIZE_PP:-$GROUP_SIZE}" ;;
+    esac
+  fi
   if (( is_smoke )) && [[ -z "${RJ_POOL_REPLAY_GROUP_SIZE:-}" ]] && (( smoke_capture_cap > 0 )); then
     replay_gs="$smoke_capture_cap"
   fi
+  [[ "$replay_gs" =~ ^[0-9]+$ && "$replay_gs" -gt 0 ]] || replay_gs="$GROUP_SIZE"
   local profile_job="${RJ_PROFILE_JOB:-0}"
   (( is_smoke )) && profile_job=1
   local capture_nevents=0
@@ -2678,12 +2689,18 @@ submit_data_pool_workflow() {
     *[Gg][Bb]|*[Gg]) request_memory_mb=$(( request_memory_mb * 1024 )) ;;
   esac
   local capture_request_memory="${RJ_CAPTURE_REQUEST_MEMORY:-$request_memory}"
-  local replay_request_memory="${RJ_REPLAY_REQUEST_MEMORY:-$request_memory}"
+  local replay_request_memory="${RJ_REPLAY_REQUEST_MEMORY:-}"
+  if [[ -z "$replay_request_memory" ]]; then
+    case "$DATASET" in
+      isAuAu|isOO) replay_request_memory="${RJ_DEFAULT_REPLAY_REQUEST_MEMORY_AUAU:-2500MB}" ;;
+      *)           replay_request_memory="${RJ_DEFAULT_REPLAY_REQUEST_MEMORY_DATA:-1800MB}" ;;
+    esac
+  fi
   local capture_request_memory_mb replay_request_memory_mb
   capture_request_memory_mb="$(memory_request_to_mb "$capture_request_memory")"
   replay_request_memory_mb="$(memory_request_to_mb "$replay_request_memory")"
-  local replay_roots_per_shard="${RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD:-${RJ_POOL_REPLAY_OUTPUT_ROOTS_PER_SHARD:-2}}"
-  [[ "$replay_roots_per_shard" =~ ^[0-9]+$ && "$replay_roots_per_shard" -gt 0 ]] || replay_roots_per_shard=2
+  local replay_roots_per_shard="${RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD:-${RJ_POOL_REPLAY_OUTPUT_ROOTS_PER_SHARD:-1}}"
+  [[ "$replay_roots_per_shard" =~ ^[0-9]+$ && "$replay_roots_per_shard" -gt 0 ]] || replay_roots_per_shard=1
   local replay_max_open_outputs="${RJ_REPLAY_MAX_OPEN_OUTPUTS:-$replay_roots_per_shard}"
 
   if [[ "${RJ_DAG_DRYRUN:-0}" != "1" && "${RJ_DAG_DRYRUN:-0}" != "true" && "${RJ_DAG_DRYRUN:-0}" != "TRUE" ]]; then
@@ -3029,7 +3046,12 @@ SUB
     echo "dag_max_worker_jobs=${RJ_DAG_MAX_WORKER_JOBS:-50000}"
     echo "dag_warn_worker_jobs=${RJ_DAG_WARN_WORKER_JOBS:-40000}"
   } >> "$manifest"
-  check_dag_worker_job_budget "DATA pool workflow ${TAG}" "$capture_job_total" "$replay_job_total" "$dag_dryrun"
+  local data_min_worker_jobs=0
+  if (( ! is_smoke )); then
+    data_min_worker_jobs="${RJ_DAG_MIN_WORKER_JOBS:-${RJ_DAG_MIN_WORKER_JOBS_DATA:-25000}}"
+  fi
+  echo "dag_min_worker_jobs=${data_min_worker_jobs}" >> "$manifest"
+  check_dag_worker_job_budget "DATA pool workflow ${TAG}" "$capture_job_total" "$replay_job_total" "$dag_dryrun" "$data_min_worker_jobs"
   (( trace_pool )) && say "[poolSmoke] publishing latest manifest marker under ${out_base}"
   publish_production_manifest "$manifest" "$out_base"
   (( trace_pool )) && say "[poolSmoke] DAG build complete; submit step next (dryrun=${dag_dryrun})"
@@ -5162,16 +5184,16 @@ SUB
     if [[ -z "$replay_request_memory" ]]; then
       if (( sim_smoke )) && (( request_memory_was_explicit == 0 )); then
         case "$DATASET" in
-          isSimEmbedded)          replay_request_memory="${RJ_SMOKE_REPLAY_REQUEST_MEMORY_EMBEDDED:-4000MB}" ;;
-          isSimEmbeddedInclusive) replay_request_memory="${RJ_SMOKE_REPLAY_REQUEST_MEMORY_EMBEDDED_INCLUSIVE:-${RJ_SMOKE_REPLAY_REQUEST_MEMORY_EMBEDDED:-4000MB}}" ;;
-          *)                      replay_request_memory="${RJ_SMOKE_REPLAY_REQUEST_MEMORY_SIM:-3000MB}" ;;
+          isSimEmbedded)          replay_request_memory="${RJ_SMOKE_REPLAY_REQUEST_MEMORY_EMBEDDED:-3000MB}" ;;
+          isSimEmbeddedInclusive) replay_request_memory="${RJ_SMOKE_REPLAY_REQUEST_MEMORY_EMBEDDED_INCLUSIVE:-${RJ_SMOKE_REPLAY_REQUEST_MEMORY_EMBEDDED:-3000MB}}" ;;
+          *)                      replay_request_memory="${RJ_SMOKE_REPLAY_REQUEST_MEMORY_SIM:-2500MB}" ;;
         esac
       else
         replay_request_memory="$request_memory"
       fi
     fi
-    replay_roots_per_shard="${RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD:-${RJ_POOL_REPLAY_OUTPUT_ROOTS_PER_SHARD:-2}}"
-    [[ "$replay_roots_per_shard" =~ ^[0-9]+$ && "$replay_roots_per_shard" -gt 0 ]] || replay_roots_per_shard=2
+    replay_roots_per_shard="${RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD:-${RJ_POOL_REPLAY_OUTPUT_ROOTS_PER_SHARD:-1}}"
+    [[ "$replay_roots_per_shard" =~ ^[0-9]+$ && "$replay_roots_per_shard" -gt 0 ]] || replay_roots_per_shard=1
     replay_max_open_outputs="${RJ_REPLAY_MAX_OPEN_OUTPUTS:-$replay_roots_per_shard}"
     capture_request_memory_mb="$(memory_request_to_mb "$capture_request_memory")"
     replay_request_memory_mb="$(memory_request_to_mb "$replay_request_memory")"
@@ -5479,7 +5501,9 @@ SUB
       echo "dag_max_worker_jobs=${RJ_DAG_MAX_WORKER_JOBS:-50000}"
       echo "dag_warn_worker_jobs=${RJ_DAG_WARN_WORKER_JOBS:-40000}"
     } >> "$manifest"
-    check_dag_worker_job_budget "SIM pool workflow ${TAG}" "$capture_job_total" "$replay_job_total" "$dag_dryrun"
+    sim_min_worker_jobs="${RJ_DAG_MIN_WORKER_JOBS:-${RJ_DAG_MIN_WORKER_JOBS_SIM:-15000}}"
+    echo "dag_min_worker_jobs=${sim_min_worker_jobs}" >> "$manifest"
+    check_dag_worker_job_budget "SIM pool workflow ${TAG}" "$capture_job_total" "$replay_job_total" "$dag_dryrun" "$sim_min_worker_jobs"
     publish_production_manifest "$manifest" "$out_base"
     if (( dag_dryrun && sim_smoke )); then
       echo "RECOILJETS_SMOKETEST_DRYRUN_V1"
@@ -5503,10 +5527,16 @@ SUB
     if [[ "${GROUP_SIZE_EXPLICIT:-0}" -eq 0 ]]; then
       gs_doall="20"
     fi
-    replay_request_memory="${RJ_REPLAY_REQUEST_MEMORY:-${RJ_REQUEST_MEMORY:-3000MB}}"
+    replay_request_memory="${RJ_REPLAY_REQUEST_MEMORY:-}"
+    if [[ -z "$replay_request_memory" ]]; then
+      case "$DATASET" in
+        isSimEmbedded|isSimEmbeddedInclusive) replay_request_memory="${RJ_DEFAULT_REPLAY_REQUEST_MEMORY_EMBEDDED:-3000MB}" ;;
+        *)                                   replay_request_memory="${RJ_DEFAULT_REPLAY_REQUEST_MEMORY_SIM:-2500MB}" ;;
+      esac
+    fi
     replay_request_memory_mb="$(memory_request_to_mb "$replay_request_memory")"
-    replay_roots_per_shard="${RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD:-${RJ_POOL_REPLAY_OUTPUT_ROOTS_PER_SHARD:-2}}"
-    [[ "$replay_roots_per_shard" =~ ^[0-9]+$ && "$replay_roots_per_shard" -gt 0 ]] || replay_roots_per_shard=2
+    replay_roots_per_shard="${RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD:-${RJ_POOL_REPLAY_OUTPUT_ROOTS_PER_SHARD:-1}}"
+    [[ "$replay_roots_per_shard" =~ ^[0-9]+$ && "$replay_roots_per_shard" -gt 0 ]] || replay_roots_per_shard=1
     replay_max_open_outputs="${RJ_REPLAY_MAX_OPEN_OUTPUTS:-$replay_roots_per_shard}"
     profile_job="${RJ_PROFILE_JOB:-0}"
 
@@ -5680,7 +5710,9 @@ SUB
       echo "dag_max_worker_jobs=${RJ_DAG_MAX_WORKER_JOBS:-50000}"
       echo "dag_warn_worker_jobs=${RJ_DAG_WARN_WORKER_JOBS:-40000}"
     } >> "$manifest"
-    check_dag_worker_job_budget "SIM pool replay ${TAG}" 0 "$replay_job_total" 0
+    sim_min_worker_jobs="${RJ_DAG_MIN_WORKER_JOBS:-${RJ_DAG_MIN_WORKER_JOBS_SIM:-15000}}"
+    echo "dag_min_worker_jobs=${sim_min_worker_jobs}" >> "$manifest"
+    check_dag_worker_job_budget "SIM pool replay ${TAG}" 0 "$replay_job_total" 0 "$sim_min_worker_jobs"
     publish_production_manifest "$manifest" "$DEST_BASE"
     submit_dag_with_notify "$dag"
     ;;
