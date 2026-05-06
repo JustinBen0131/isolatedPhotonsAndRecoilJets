@@ -715,6 +715,7 @@ submit_condor_stage_with_ready_email() {
   local stage_key="$2"
   local legacy_subject="$3"
   local body="$4"
+  local validation_file="${5:-}"
   : "$legacy_subject"
 
   local emails
@@ -734,6 +735,8 @@ submit_condor_stage_with_ready_email() {
   local notify_sub="${TMP_DIR}/notify_${stage_key}_$$.sub"
   local notify_body="${TMP_DIR}/notify_${stage_key}_$$.txt"
   local dag="${TMP_DIR}/notify_${stage_key}_$$.dag"
+  local validation_arg="__none__"
+  [[ -n "$validation_file" ]] && validation_arg="$validation_file"
 
   printf "%s\n" "$body" > "$notify_body"
   cat > "$notify_exec" <<'EOS'
@@ -747,12 +750,19 @@ submit_file="${5:?submit file required}"
 out_dir="${6:?out dir required}"
 err_dir="${7:?err dir required}"
 log_dir="${8:?log dir required}"
+validation_file="${9:-__none__}"
 
 status="READY"
 status_note="Condor stage DAG reached its final notification node."
 dagman_out="${dag_file}.dagman.out"
 nodes_log="${dag_file}.nodes.log"
 rescue_count=0
+expected_count=0
+present_count=0
+missing_count=0
+empty_count=0
+first_missing=""
+first_empty=""
 if compgen -G "${dag_file}.rescue*" >/dev/null 2>&1; then
   rescue_count=$(compgen -G "${dag_file}.rescue*" | wc -l | awk '{print $1}')
   status="FAILED"
@@ -760,6 +770,27 @@ if compgen -G "${dag_file}.rescue*" >/dev/null 2>&1; then
 elif [[ -s "$dagman_out" ]] && grep -Eiq 'ERROR|failed with|DAG abort|aborted|Job was held|held job' "$dagman_out"; then
   status="CHECK"
   status_note="DAGMan log contains error/hold-like text; inspect logs before treating outputs as ready."
+fi
+
+if [[ "$validation_file" != "__none__" && -s "$validation_file" ]]; then
+  while IFS= read -r expected_path; do
+    [[ -n "$expected_path" ]] || continue
+    [[ "$expected_path" == \#* ]] && continue
+    expected_count=$((expected_count + 1))
+    if [[ ! -e "$expected_path" ]]; then
+      missing_count=$((missing_count + 1))
+      [[ -z "$first_missing" ]] && first_missing="$expected_path"
+    elif [[ ! -s "$expected_path" ]]; then
+      empty_count=$((empty_count + 1))
+      [[ -z "$first_empty" ]] && first_empty="$expected_path"
+    else
+      present_count=$((present_count + 1))
+    fi
+  done < "$validation_file"
+  if (( missing_count > 0 || empty_count > 0 )); then
+    status="CHECK"
+    status_note="Stage DAG completed, but expected output validation failed; inspect merge outputs before continuing."
+  fi
 fi
 
 subject="[RecoilJets][${stage_key}][${status}]"
@@ -778,6 +809,13 @@ message_file="$(mktemp "${TMPDIR:-/tmp}/recoiljets_stage_notify.XXXXXX")"
   echo "job_output_dir=${out_dir}"
   echo "job_error_dir=${err_dir}"
   echo "job_log_dir=${log_dir}"
+  echo "validation_file=${validation_file}"
+  echo "expected_outputs=${expected_count}"
+  echo "present_outputs=${present_count}"
+  echo "missing_outputs=${missing_count}"
+  echo "empty_outputs=${empty_count}"
+  echo "first_missing_output=${first_missing}"
+  echo "first_empty_output=${first_empty}"
   echo "next_action=If status is READY, continue with the next merge/pull/plot step named below. If status is CHECK or FAILED, inspect dagman_out, nodes_log, and the job .err files first."
   echo
   echo "message:"
@@ -806,7 +844,7 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification = Never
-arguments = $emails $stage_key $notify_body $dag $sub $OUT_DIR $ERR_DIR $LOG_DIR
+arguments = $emails $stage_key $notify_body $dag $sub $OUT_DIR $ERR_DIR $LOG_DIR $validation_arg
 queue
 EOT
 
@@ -1896,7 +1934,11 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simm
           emit_hadd_wrapper "$CONDOR_EXEC"
 
           SUB="${TMP_DIR}/recoil_sim_${cfg_tag}_${SIM_TAG}_firstRound.sub"
+          ARGS="${TMP_DIR}/recoil_sim_${cfg_tag}_${SIM_TAG}_firstRound.args"
+          EXPECTED="${TMP_DIR}/recoil_sim_${cfg_tag}_${SIM_TAG}_firstRound.expected"
           rm -f "$SUB"
+          : > "$ARGS"
+          : > "$EXPECTED"
           cat > "$SUB" <<EOT
 universe   = vanilla
 executable = $CONDOR_EXEC
@@ -1910,6 +1952,7 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification = Never
+queue arguments from ${ARGS}
 EOT
 
           ngroups=$(( (total + SIM_GROUP_SIZE - 1) / SIM_GROUP_SIZE ))
@@ -1949,11 +1992,12 @@ EOT
             (( n_in > 0 )) && { say "  first: ${first_in}"; say "  last : ${last_in}"; }
             echo
 
-            printf 'arguments = %s %s\nqueue\n\n' "$listfile" "$out" >> "$SUB"
+            printf '%s %s\n' "$listfile" "$out" >> "$ARGS"
+            printf '%s\n' "$out" >> "$EXPECTED"
           done
 
-          if [[ ! -s "$SUB" ]]; then
-            err "firstRound: submit file is empty/unwritten → ${SUB}"
+          if [[ ! -s "$ARGS" ]]; then
+            err "firstRound: args file is empty/unwritten → ${ARGS}"
             exit 27
           fi
 
@@ -1962,7 +2006,8 @@ EOT
             "$SUB" \
             "sim_firstRound_${cfg_tag}_${SIM_TAG}" \
             "RecoilJets_SIM_firstRound_ready" \
-            "SIM firstRound merge is complete for cfg=${cfg_tag}, sample=${SIM_TAG}. You can now run the local secondRound merge for this sample/cfg set."
+            "SIM firstRound merge is complete for cfg=${cfg_tag}, sample=${SIM_TAG}. You can now run the local secondRound merge for this sample/cfg set." \
+            "$EXPECTED"
           say "FirstRound submitted. Partials will appear under: ${DEST_DIR}"
         fi
 
@@ -1999,7 +2044,9 @@ EOT
           emit_hadd_wrapper "$CONDOR_EXEC"
 
           SUB="${TMP_DIR}/recoil_sim_${cfg_tag}_${SIM_TAG}_secondRound.sub"
+          EXPECTED="${TMP_DIR}/recoil_sim_${cfg_tag}_${SIM_TAG}_secondRound.expected"
           rm -f "$SUB"
+          printf '%s\n' "$SIM_FINAL" > "$EXPECTED"
           cat > "$SUB" <<EOT
 universe   = vanilla
 executable = $CONDOR_EXEC
@@ -2021,7 +2068,8 @@ EOT
             "$SUB" \
             "sim_secondRound_${cfg_tag}_${SIM_TAG}" \
             "RecoilJets_SIM_secondRound_ready" \
-            "SIM secondRound final merge is complete for cfg=${cfg_tag}, sample=${SIM_TAG}. Final ROOT output: ${SIM_FINAL}. You can now pull/plot this sample or continue the combined local SIM merger."
+            "SIM secondRound final merge is complete for cfg=${cfg_tag}, sample=${SIM_TAG}. Final ROOT output: ${SIM_FINAL}. You can now pull/plot this sample or continue the combined local SIM merger." \
+            "$EXPECTED"
         else
           need_cmd hadd
           say "Running secondRound final merge locally (ROOT hadd)…"
@@ -2363,7 +2411,11 @@ if [[ "$MODE" == "condor" ]]; then
     emit_hadd_wrapper "$CONDOR_EXEC"
 
     SUB="${TMP_DIR}/recoil_partials_${TAG}_${_cfg:-flat}.sub"
+    ARGS="${TMP_DIR}/recoil_partials_${TAG}_${_cfg:-flat}.args"
+    EXPECTED="${TMP_DIR}/recoil_partials_${TAG}_${_cfg:-flat}.expected"
     rm -f "$SUB"
+    : > "$ARGS"
+    : > "$EXPECTED"
     cat > "$SUB" <<EOT
 universe   = vanilla
 executable = $CONDOR_EXEC
@@ -2383,6 +2435,9 @@ EOT
 environment = "RJ_SCALED_TRIG_AFTER_HADD=1 RJ_ANALYSIS_BASE=${BASE} RJ_SCALED_TRIG_RUNLIST=${SCALED_TRIG_RUNLIST} RJ_SCALED_TRIG_CONFIG_TXT=${SCALED_TRIG_CONFIG_TXT}"
 EOT
     fi
+    cat >> "$SUB" <<EOT
+queue arguments from ${ARGS}
+EOT
 
     queued=0
     skipped=0
@@ -2402,7 +2457,8 @@ EOT
       nfiles=$(wc -l < "$listfile" | awk '{print $1}')
       (( SKIP_TRACE )) && say "Queueing run ${r}: inputs=${nfiles} -> $(basename "$out")"
 
-      printf 'arguments = %s %s\nqueue\n\n' "$listfile" "$out" >> "$SUB"
+      printf '%s %s\n' "$listfile" "$out" >> "$ARGS"
+      printf '%s\n' "$out" >> "$EXPECTED"
       ((queued+=1))
     done
 
@@ -2418,7 +2474,8 @@ EOT
       "$SUB" \
       "data_perRun_${TAG}_${_cfg:-flat}" \
       "RecoilJets_${TAG}_perRun_ready" \
-      "Data per-run merge is complete for dataset=${TAG}, cfg=${_cfg:-flat}. AuAu scaled-trigger corrections, when configured, have been applied inside the per-run hadd job. You can now run the sliceRuns merge stage."
+      "Data per-run merge is complete for dataset=${TAG}, cfg=${_cfg:-flat}. AuAu scaled-trigger corrections, when configured, have been applied inside the per-run hadd job. You can now run the sliceRuns merge stage." \
+      "$EXPECTED"
     say "Stage-1 submitted. A one-shot ready email will fire after this cfg stage finishes. Partial outputs will appear under: ${PERRUN_CFG_DIR}"
     echo
   done
@@ -2536,7 +2593,11 @@ if [[ "$MODE" == "addChunks" ]]; then
       emit_hadd_wrapper "$CONDOR_EXEC"
 
       SUB="${TMP_DIR}/recoil_slice_${TAG}_${_cfg:-flat}.sub"
+      ARGS="${TMP_DIR}/recoil_slice_${TAG}_${_cfg:-flat}.args"
+      EXPECTED="${TMP_DIR}/recoil_slice_${TAG}_${_cfg:-flat}.expected"
       rm -f "$SUB"
+      : > "$ARGS"
+      : > "$EXPECTED"
       cat > "$SUB" <<EOT
 universe   = vanilla
 executable = $CONDOR_EXEC
@@ -2550,6 +2611,7 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification = Never
+queue arguments from ${ARGS}
 EOT
 
       _offset=0
@@ -2564,7 +2626,8 @@ EOT
         _out="${_partial_dir}/sliceMerge_grp${_grpTag}.root"
 
         say "  slice grp${_grpTag}: ${_sz} partials → $(basename "$_out")"
-        printf 'arguments = %s %s\nqueue\n\n' "$_list" "$_out" >> "$SUB"
+        printf '%s %s\n' "$_list" "$_out" >> "$ARGS"
+        printf '%s\n' "$_out" >> "$EXPECTED"
 
         (( _offset = _end ))
       done
@@ -2574,7 +2637,8 @@ EOT
         "$SUB" \
         "sliceRuns_${TAG}_${_cfg:-flat}" \
         "RecoilJets_${TAG}_sliceRuns_ready" \
-        "Data sliceRuns merge is complete for dataset=${TAG}, cfg=${_cfg:-flat}. You can now run the final local addChunks merge."
+        "Data sliceRuns merge is complete for dataset=${TAG}, cfg=${_cfg:-flat}. You can now run the final local addChunks merge." \
+        "$EXPECTED"
       echo
       continue
     fi
@@ -2621,7 +2685,9 @@ EOT
       emit_hadd_wrapper "$CONDOR_EXEC"
 
       SUB="${TMP_DIR}/recoil_final_${TAG}_${_cfg:-flat}.sub"
+      EXPECTED="${TMP_DIR}/recoil_final_${TAG}_${_cfg:-flat}.expected"
       rm -f "$SUB"
+      printf '%s\n' "$FINAL" > "$EXPECTED"
       cat > "$SUB" <<EOT
 universe   = vanilla
 executable = $CONDOR_EXEC
@@ -2643,7 +2709,8 @@ EOT
         "$SUB" \
         "data_final_${TAG}_${_cfg:-flat}" \
         "RecoilJets_${TAG}_final_ready" \
-        "Data final addChunks merge is complete for dataset=${TAG}, cfg=${_cfg:-flat}. Final ROOT output: ${FINAL}. You can now pull the output locally and make plots."
+        "Data final addChunks merge is complete for dataset=${TAG}, cfg=${_cfg:-flat}. Final ROOT output: ${FINAL}. You can now pull the output locally and make plots." \
+        "$EXPECTED"
     else
       say "Running final merge locally (ROOT hadd)…"
       hadd -v 3 -f "$FINAL" @"$LIST"
