@@ -1659,7 +1659,7 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simm
       isSimJet5|isSimjet5|simjet5|SIMJET5) samples=( "run28_jet5" ) ;;
       isSimMB|simmb|SIMMB)       samples=( "run28_detroit" ) ;;
       isSimEmbedded|issimembedded|simembedded|SIMEMBEDDED) samples=( "run28_embeddedPhoton12" "run28_embeddedPhoton20" ) ;;
-      isSimEmbeddedInclusive|issimembeddedinclusive|simembeddedinclusive|SIMEMBEDDEDINCLUSIVE) samples=( "run28_embeddedJet10" "run28_embeddedJet20" ) ;;
+      isSimEmbeddedInclusive|issimembeddedinclusive|simembeddedinclusive|SIMEMBEDDEDINCLUSIVE) samples=( "run28_embeddedJet12" "run28_embeddedJet20" ) ;;
       *)                         samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
     esac
   else

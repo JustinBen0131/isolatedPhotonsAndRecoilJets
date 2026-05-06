@@ -363,7 +363,7 @@ POOL_DEST_ROOT="${RJ_POOL_DEST_ROOT:-/sphenix/tg/tg01/bulk/jbennett/thesisAnaPoo
 AUAU_BDT_LOCAL_BASE="${RJ_AUAU_BDT_LOCAL_BASE:-${BASE}/local_bdt_training_outputs}"
 AUAU_BDT_MODEL_BASE="${RJ_AUAU_BDT_MODEL_BASE:-${BASE}/bdt_models}"
 AUAU_BDT_SIGNAL_SAMPLES_DEFAULT="run28_embeddedPhoton12 run28_embeddedPhoton20"
-AUAU_BDT_BACKGROUND_SAMPLES_DEFAULT="run28_embeddedJet10 run28_embeddedJet20"
+AUAU_BDT_BACKGROUND_SAMPLES_DEFAULT="run28_embeddedJet12 run28_embeddedJet20"
 
 # Flag: set to 1 for any isSim variant (isSim, isSimJet5, isSimMB, isSimEmbedded)
 IS_SIM=0
@@ -866,6 +866,7 @@ emit_pool_replay_fanout_dirs_file() {
       done
     done
   done
+  return 0
 }
 
 fanout_dest_allowed() {
@@ -1012,6 +1013,77 @@ manifest_smoke_cap="$(manifest_get smoke_capture_job_cap)"
 manifest_photon_rows="$(manifest_get photon_id_sets_expanded)"
 manifest_replay_cones="$(manifest_get replay_cones)"
 manifest_capture_cones="$(manifest_get capture_cones)"
+manifest_profile_job="$(manifest_get profile_job)"
+expected_capture_jobs=0
+expected_replay_jobs=0
+expected_total_jobs=0
+if [[ -s "$manifest" ]]; then
+  expected_capture_jobs="$(awk '
+    /^capture_node=/ {
+      for (i = 1; i <= NF; ++i) {
+        if ($i ~ /^jobs=/) {
+          sub(/^jobs=/, "", $i)
+          s += $i + 0
+        }
+      }
+    }
+    END { print s + 0 }
+  ' "$manifest")"
+  expected_replay_jobs="$(awk '
+    /^replay_node=/ {
+      for (i = 1; i <= NF; ++i) {
+        if ($i ~ /^jobs=/) {
+          sub(/^jobs=/, "", $i)
+          s += $i + 0
+        }
+      }
+    }
+    END { print s + 0 }
+  ' "$manifest")"
+fi
+expected_total_jobs=$(( expected_capture_jobs + expected_replay_jobs ))
+
+mapfile -t profile_globs_status < <([[ -s "$manifest" ]] && awk -F= '/^profile_glob=/ {print $2}' "$manifest" | sort -u || true)
+if (( ${#profile_globs_status[@]} > 0 )); then
+  for profile_glob in "${profile_globs_status[@]}"; do
+    while IFS= read -r profile_file; do
+      [[ -s "$profile_file" ]] || continue
+      grep -h 'RECOILJETS_JOB_PROFILE_V1' "$profile_file" >> "$profile_lines" || true
+    done < <(compgen -G "$profile_glob" || true)
+  done
+fi
+profile_row_count=0
+profile_failure_count=0
+if [[ -s "$profile_lines" ]]; then
+  profile_row_count="$(grep -c 'RECOILJETS_JOB_PROFILE_V1' "$profile_lines" || echo 0)"
+  profile_failure_count="$(awk '
+    {
+      code = ""
+      for (i = 1; i <= NF; ++i) {
+        if ($i ~ /^exit_code=/) {
+          code = $i
+          sub(/^exit_code=/, "", code)
+        }
+      }
+      if (code != "" && code != "0") failed += 1
+    }
+    END { print failed + 0 }
+  ' "$profile_lines")"
+fi
+if (( expected_capture_jobs > 0 && pool_count < expected_capture_jobs )); then
+  status="FAILED"
+  status_note="Fewer pool ROOT files were produced than planned capture jobs; inspect worker stdout/err and DAG logs before continuing."
+elif (( expected_replay_jobs > 0 && out_count == 0 )); then
+  status="FAILED"
+  status_note="Replay jobs were planned but no output ROOT files were produced; inspect replay worker stdout/err and DAG logs."
+elif [[ "$manifest_profile_job" == "1" ]] && (( expected_total_jobs > 0 && profile_row_count < expected_total_jobs )); then
+  status="CHECK"
+  status_note="Fewer worker profile rows were found than planned DAG worker jobs; inspect profile globs and worker stdout before tuning."
+fi
+if (( profile_failure_count > 0 )); then
+  status="FAILED"
+  status_note="One or more worker profiles reported non-zero exit codes; inspect failed_profile lines and worker logs before continuing."
+fi
 {
   echo "RECOILJETS_STAGE_EMAIL_V1"
   echo "status=${status}"
@@ -1024,6 +1096,10 @@ manifest_capture_cones="$(manifest_get capture_cones)"
   echo "manifest=${manifest}"
   echo "pool_root_files=${pool_count}"
   echo "output_root_files=${out_count}"
+  echo "expected_capture_jobs=${expected_capture_jobs}"
+  echo "expected_replay_jobs=${expected_replay_jobs}"
+  echo "profile_rows=${profile_row_count}"
+  echo "profile_failures=${profile_failure_count}"
   echo "dag_file=${dag_file}"
   echo "dagman_out=${dagman_out}"
   echo "nodes_log=${nodes_log}"
@@ -1039,16 +1115,10 @@ manifest_capture_cones="$(manifest_get capture_cones)"
   if [[ -s "$manifest" ]]; then
     echo "manifest:"
     sed -n '1,160p' "$manifest"
-    mapfile -t profile_globs < <(awk -F= '/^profile_glob=/ {print $2}' "$manifest" | sort -u)
-    if (( ${#profile_globs[@]} > 0 )); then
+    if (( ${#profile_globs_status[@]} > 0 )); then
       echo
       echo "job_profiles:"
-      for profile_glob in "${profile_globs[@]}"; do
-        while IFS= read -r profile_file; do
-          [[ -s "$profile_file" ]] || continue
-          grep -h 'RECOILJETS_JOB_PROFILE_V1' "$profile_file" | tee -a "$profile_lines" || true
-        done < <(compgen -G "$profile_glob" || true)
-      done
+      [[ -s "$profile_lines" ]] && cat "$profile_lines"
       if [[ -s "$profile_lines" ]]; then
         {
           echo "RECOILJETS_SMOKE_PROFILE_SUMMARY_V1"
@@ -1892,7 +1962,7 @@ check_jobs_sim() {
   if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
     case "$DATASET" in
       isSimEmbedded)          samples=( "run28_embeddedPhoton12" "run28_embeddedPhoton20" ) ;;
-      isSimEmbeddedInclusive) samples=( "run28_embeddedJet10" "run28_embeddedJet20" ) ;;
+      isSimEmbeddedInclusive) samples=( "run28_embeddedJet12" "run28_embeddedJet20" ) ;;
       isSimJet5)              samples=( "run28_jet5" ) ;;
       isSimMB)                samples=( "run28_detroit" ) ;;
       *)                      samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
@@ -2270,6 +2340,7 @@ submit_condor() {
 
   local stamp; stamp="$(date +%Y%m%d_%H%M%S)"
   local sub="${SUB_DIR}/RecoilJets_${TAG}_${stamp}.sub"
+  local args_file="${SUB_DIR}/RecoilJets_${TAG}_${stamp}.args"
   local submit_stage_dir="${STAGE_DIR}/${TAG}_${stamp}"
   local exe_to_use="${BULK_FROZEN_EXE:-${EXE}}"
   local macro_env=""
@@ -2278,6 +2349,7 @@ submit_condor() {
   [[ -n "$submit_extra_env" && "$submit_extra_env" != \;* ]] && submit_extra_env=";${submit_extra_env}"
   local request_memory="${RJ_REQUEST_MEMORY:-2000MB}"
   mkdir -p "$submit_stage_dir"
+  : > "$args_file"
   say "Submit chunk-list stage: ${submit_stage_dir}"
 
   # Snapshot YAML at submit time so idle jobs are immune to later edits
@@ -2306,6 +2378,7 @@ stream_error  = True
 notification  = Never
 # Force dataset & quiet macro on Condor (YAML frozen at submit time):
 environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${yaml_snap}${macro_env}${submit_extra_env}
+queue arguments from ${args_file}
 SUB
 
   local queued=0
@@ -2364,8 +2437,8 @@ SUB
     local gidx=0
     for glist in "${groups[@]}"; do
       (( gidx+=1 ))
-      printf 'arguments = %s %s %s $(Cluster) 0 %d NONE %s\nqueue\n\n' \
-             "$r8" "$glist" "$DATASET" "$gidx" "$DEST_BASE" >> "$sub"
+      printf '%s %s %s $(Cluster) 0 %d NONE %s\n' \
+             "$r8" "$glist" "$DATASET" "$gidx" "$DEST_BASE" >> "$args_file"
       (( queued+=1 ))
     done
 
@@ -2574,23 +2647,27 @@ submit_data_pool_workflow() {
         (( trace_pool )) && say "[poolSmoke] capture pool root clean: ${cap_root}"
 
         local cap_sub="${dag_dir}/capture_${cap_tag}.sub"
+        local cap_args="${dag_dir}/capture_${cap_tag}.args"
+        : > "$cap_args"
         local exe_for_sub="${BULK_FROZEN_EXE:-${EXE}}"
         local macro_env_for_sub=""
         [[ -n "${BULK_FROZEN_MACRO:-}" ]] && macro_env_for_sub=";RJ_MACRO_PATH=${BULK_FROZEN_MACRO}"
+        local cap_prefix="capture_${TAG}_${workflow_stamp}_${cap_tag}"
         cat > "$cap_sub" <<SUB
 universe      = vanilla
 executable    = ${exe_for_sub}
 initialdir    = ${BASE}
 getenv        = True
-log           = ${LOG_DIR}/capture_${TAG}_${cap_tag}.\$(Cluster).\$(Process).log
-output        = ${OUT_DIR}/capture_${TAG}_${cap_tag}.\$(Cluster).\$(Process).out
-error         = ${ERR_DIR}/capture_${TAG}_${cap_tag}.\$(Cluster).\$(Process).err
+log           = ${LOG_DIR}/${cap_prefix}.\$(Cluster).\$(Process).log
+output        = ${OUT_DIR}/${cap_prefix}.\$(Cluster).\$(Process).out
+error         = ${ERR_DIR}/${cap_prefix}.\$(Cluster).\$(Process).err
 request_memory= ${request_memory}
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification  = Never
 environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${cap_yaml}${macro_env_for_sub};RJ_POOL_MODE=capture;RJ_PROFILE_JOB=${profile_job};RJ_PROFILE_STAGE=capture;RJ_PROFILE_LABEL=${cap_tag}
+queue arguments from ${cap_args}
 SUB
 
         local queued=0
@@ -2629,8 +2706,8 @@ SUB
             chunk_base="$(basename "$glist")"
             chunk_tag="${chunk_base%.list}"
             printf '%s\n' "${cap_root}/${r8}/RecoilJets_${analysis_tag}_${chunk_tag}.root" >> "$expected_pool_list"
-            printf 'arguments = %s %s %s $(Cluster) %s %d NONE %s\nqueue\n\n' \
-                   "$r8" "$glist" "$DATASET" "$capture_nevents" "$gidx" "$cap_root" >> "$cap_sub"
+            printf '%s %s %s $(Cluster) %s %d NONE %s\n' \
+                   "$r8" "$glist" "$DATASET" "$capture_nevents" "$gidx" "$cap_root" >> "$cap_args"
             (( queued+=1 ))
             (( smoke_capture_queued_total+=1 ))
           done
@@ -2650,7 +2727,7 @@ SUB
         cap_node_by_tag["$cap_tag"]="$cap_node"
         (( capture_count+=1 ))
         echo "capture_node=${cap_node} tag=${cap_tag} jobs=${queued} yaml=${cap_yaml} output=${cap_root}" >> "$manifest"
-        echo "profile_glob=${OUT_DIR}/capture_${TAG}_${cap_tag}.*.out" >> "$manifest"
+        echo "profile_glob=${OUT_DIR}/${cap_prefix}.*.out" >> "$manifest"
         (( trace_pool )) && say "[poolSmoke] capture node ready: node=${cap_node} jobs=${queued} runsSeen=${runs_seen} runsWithGroups=${runs_with_groups} sub=${cap_sub}"
       done
     done
@@ -2673,20 +2750,24 @@ SUB
       (( trace_pool )) && say "[poolSmoke] cleaning fanout output dirs done: cap_tag=${cap_tag} uniqueRoots=${CLEAN_FANOUT_LAST_COUNT:-0}"
 
       replay_sub="${dag_dir}/replay_${cap_tag}.sub"
+      local replay_args="${dag_dir}/replay_${cap_tag}.args"
+      : > "$replay_args"
+      local replay_prefix="replay_${TAG}_${workflow_stamp}_${cap_tag}"
       cat > "$replay_sub" <<SUB
 universe      = vanilla
 executable    = ${EXE}
 initialdir    = ${BASE}
 getenv        = True
-log           = ${LOG_DIR}/replay_${TAG}_${cap_tag}.\$(Cluster).\$(Process).log
-output        = ${OUT_DIR}/replay_${TAG}_${cap_tag}.\$(Cluster).\$(Process).out
-error         = ${ERR_DIR}/replay_${TAG}_${cap_tag}.\$(Cluster).\$(Process).err
+log           = ${LOG_DIR}/${replay_prefix}.\$(Cluster).\$(Process).log
+output        = ${OUT_DIR}/${replay_prefix}.\$(Cluster).\$(Process).out
+error         = ${ERR_DIR}/${replay_prefix}.\$(Cluster).\$(Process).err
 request_memory= ${request_memory}
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification  = Never
 environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${master_yaml};RJ_MACRO_PATH=${pool_macro};RJ_ID_FANOUT_DIRS_FILE=${fanout_dirs};RJ_REPLAY_MAX_OPEN_OUTPUTS=${RJ_REPLAY_MAX_OPEN_OUTPUTS:-48};RJ_PROFILE_JOB=${profile_job};RJ_PROFILE_STAGE=replay;RJ_PROFILE_LABEL=${cap_tag}
+queue arguments from ${replay_args}
 SUB
 
       local queued=0
@@ -2725,8 +2806,8 @@ SUB
           (( gidx+=1 ))
           local out_list="${pool_stage_dir}/pool_grp$(printf "%03d" "$gidx").list"
           mv "$raw" "$out_list"
-          printf 'arguments = %s %s %s $(Cluster) 0 %d NONE %s\nqueue\n\n' \
-                 "$r8" "$out_list" "$DATASET" "$gidx" "${out_base}/${cap_tag}" >> "$replay_sub"
+          printf '%s %s %s $(Cluster) 0 %d NONE %s\n' \
+                 "$r8" "$out_list" "$DATASET" "$gidx" "${out_base}/${cap_tag}" >> "$replay_args"
           (( queued+=1 ))
         done
         (( trace_pool )) && say "[poolSmoke] replay queue ${cap_tag}/${r8}: replayChunks=${gidx} queuedForTag=${queued}"
@@ -2753,7 +2834,7 @@ SUB
       (( replay_count+=1 ))
       (( cell_num+=fanout_count ))
       echo "replay_node=${replay_node} cap_tag=${cap_tag} jobs=${queued} fanout_outputs=${fanout_count} fanout=${fanout_dirs}" >> "$manifest"
-      echo "profile_glob=${OUT_DIR}/replay_${TAG}_${cap_tag}.*.out" >> "$manifest"
+      echo "profile_glob=${OUT_DIR}/${replay_prefix}.*.out" >> "$manifest"
       (( trace_pool )) && say "[poolSmoke] replay node ready: node=${replay_node} jobs=${queued} runsSeen=${replay_runs_seen} runsWithPools=${replay_runs_with_pools} fanoutOutputs=${fanout_count} sub=${replay_sub}"
   done
   done
@@ -4429,7 +4510,7 @@ case "$ACTION" in
       if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
         case "$DATASET" in
           isSimEmbedded)          samples=( "run28_embeddedPhoton12" "run28_embeddedPhoton20" ) ;;
-          isSimEmbeddedInclusive) samples=( "run28_embeddedJet10" "run28_embeddedJet20" ) ;;
+          isSimEmbeddedInclusive) samples=( "run28_embeddedJet12" "run28_embeddedJet20" ) ;;
           isSimJet5)              samples=( "run28_jet5" ) ;;
           isSimMB)                samples=( "run28_detroit" ) ;;
           *)                      samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
@@ -4929,7 +5010,7 @@ SUB
     if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
       case "$DATASET" in
         isSimEmbedded)          samples=( "run28_embeddedPhoton12" "run28_embeddedPhoton20" ) ;;
-        isSimEmbeddedInclusive) samples=( "run28_embeddedJet10" "run28_embeddedJet20" ) ;;
+        isSimEmbeddedInclusive) samples=( "run28_embeddedJet12" "run28_embeddedJet20" ) ;;
         isSimJet5)              samples=( "run28_jet5" ) ;;
         isSimMB)                samples=( "run28_detroit" ) ;;
         *)                      samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
@@ -5037,10 +5118,12 @@ SUB
           (( sim_smoke )) && say "[simSmoke] expected pool list written: cap_tag=${POOL_CAPTURE_TAG} sample=${SIM_SAMPLE} file=${expected_pool_list}"
 
           cap_sub="${dag_dir}/capture_${POOL_CAPTURE_TAG}_${SIM_SAMPLE}.sub"
+          cap_args="${dag_dir}/capture_${POOL_CAPTURE_TAG}_${SIM_SAMPLE}.args"
+          : > "$cap_args"
           exe_for_sub="${BULK_FROZEN_EXE:-${EXE}}"
           macro_env_for_sub=""
           [[ -n "${BULK_FROZEN_MACRO:-}" ]] && macro_env_for_sub=";RJ_MACRO_PATH=${BULK_FROZEN_MACRO}"
-          cap_prefix="capture_${SIM_SAMPLE}_${POOL_CAPTURE_TAG}"
+          cap_prefix="capture_${workflow_stamp}_${SIM_SAMPLE}_${POOL_CAPTURE_TAG}"
           cat > "$cap_sub" <<SUB
 universe      = vanilla
 executable    = ${exe_for_sub}
@@ -5055,12 +5138,13 @@ stream_output = True
 stream_error  = True
 notification  = Never
 environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${cap_yaml}${macro_env_for_sub};RJ_POOL_MODE=capture;RJ_PROFILE_JOB=${profile_job};RJ_PROFILE_STAGE=capture;RJ_PROFILE_LABEL=${POOL_CAPTURE_TAG}_${SIM_SAMPLE}
+queue arguments from ${cap_args}
 SUB
           gidx=0
           for glist in "${groups[@]}"; do
             (( gidx+=1 ))
-            printf 'arguments = %s %s %s $(Cluster) %s %d NONE %s\nqueue\n\n' \
-                   "$SIM_SAMPLE" "$glist" "$DATASET" "$sim_capture_nevents" "$gidx" "${pool_base}/${POOL_CAPTURE_TAG}" >> "$cap_sub"
+            printf '%s %s %s $(Cluster) %s %d NONE %s\n' \
+                   "$SIM_SAMPLE" "$glist" "$DATASET" "$sim_capture_nevents" "$gidx" "${pool_base}/${POOL_CAPTURE_TAG}" >> "$cap_args"
           done
 
           cap_node="CAP_$(sanitize_node_name "${POOL_CAPTURE_TAG}_${SIM_SAMPLE}")"
@@ -5114,7 +5198,9 @@ SUB
           (( ${#groups[@]} )) || { err "No replay pool groups produced for ${POOL_CAPTURE_TAG}/${samp}"; exit 95; }
 
           replay_sub="${dag_dir}/replay_${POOL_CAPTURE_TAG}_${samp}.sub"
-          replay_prefix="replay_${samp}_${POOL_CAPTURE_TAG}"
+          replay_args="${dag_dir}/replay_${POOL_CAPTURE_TAG}_${samp}.args"
+          : > "$replay_args"
+          replay_prefix="replay_${workflow_stamp}_${samp}_${POOL_CAPTURE_TAG}"
           cat > "$replay_sub" <<SUB
 universe      = vanilla
 executable    = ${EXE}
@@ -5129,12 +5215,13 @@ stream_output = True
 stream_error  = True
 notification  = Never
 environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${master_yaml};RJ_MACRO_PATH=${pool_macro};RJ_ID_FANOUT_DIRS_FILE=${fanout_dirs};RJ_REPLAY_MAX_OPEN_OUTPUTS=${RJ_REPLAY_MAX_OPEN_OUTPUTS:-48};RJ_PROFILE_JOB=${profile_job};RJ_PROFILE_STAGE=replay;RJ_PROFILE_LABEL=${POOL_CAPTURE_TAG}_${samp}
+queue arguments from ${replay_args}
 SUB
           g=0
           for glist in "${groups[@]}"; do
             (( g+=1 ))
-            printf 'arguments = %s %s %s $(Cluster) 0 %d NONE %s\nqueue\n\n' \
-                   "$samp" "$glist" "$DATASET" "$g" "${out_base}/${POOL_CAPTURE_TAG}" >> "$replay_sub"
+            printf '%s %s %s $(Cluster) 0 %d NONE %s\n' \
+                   "$samp" "$glist" "$DATASET" "$g" "${out_base}/${POOL_CAPTURE_TAG}" >> "$replay_args"
           done
           replay_node="REP_$(sanitize_node_name "${POOL_CAPTURE_TAG}_${samp}")"
           printf 'JOB %s %s\n' "$replay_node" "$replay_sub" >> "$dag"
@@ -5203,7 +5290,7 @@ SUB
     if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
       case "$DATASET" in
         isSimEmbedded)          samples=( "run28_embeddedPhoton12" "run28_embeddedPhoton20" ) ;;
-        isSimEmbeddedInclusive) samples=( "run28_embeddedJet10" "run28_embeddedJet20" ) ;;
+        isSimEmbeddedInclusive) samples=( "run28_embeddedJet12" "run28_embeddedJet20" ) ;;
         isSimJet5)              samples=( "run28_jet5" ) ;;
         isSimMB)                samples=( "run28_detroit" ) ;;
         *)                      samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
@@ -5284,6 +5371,8 @@ SUB
           SIM_SAMPLE="$samp"
           SIM_JOB_PREFIX="poolReplay_${samp}_${POOL_CAPTURE_TAG}"
           sub="${dag_dir}/RecoilJets_poolReplay_${POOL_CAPTURE_TAG}_${samp}.sub"
+          args_file="${dag_dir}/RecoilJets_poolReplay_${POOL_CAPTURE_TAG}_${samp}.args"
+          : > "$args_file"
 
           cat > "$sub" <<SUB
 universe      = vanilla
@@ -5299,12 +5388,13 @@ stream_output = True
 stream_error  = True
 notification  = Never
 environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${master_yaml};RJ_MACRO_PATH=${pool_macro};RJ_ID_FANOUT_DIRS_FILE=${fanout_dirs};RJ_REPLAY_MAX_OPEN_OUTPUTS=${RJ_REPLAY_MAX_OPEN_OUTPUTS:-48}
+queue arguments from ${args_file}
 SUB
           g=0
           for glist in "${groups[@]}"; do
             (( g+=1 ))
-            printf 'arguments = %s %s %s $(Cluster) 0 %d NONE %s\nqueue\n\n' \
-                   "$samp" "$glist" "$DATASET" "$g" "${DEST_BASE}/${POOL_CAPTURE_TAG}" >> "$sub"
+            printf '%s %s %s $(Cluster) 0 %d NONE %s\n' \
+                   "$samp" "$glist" "$DATASET" "$g" "${DEST_BASE}/${POOL_CAPTURE_TAG}" >> "$args_file"
           done
 
           say "Submitting pool replay (pool tag=${POOL_CAPTURE_TAG}, sample=${samp}) → jobs=${BOLD}${#groups[@]}${RST}"
@@ -5380,7 +5470,7 @@ SUB
     if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
       case "$DATASET" in
         isSimEmbedded)          samples=( "run28_embeddedPhoton12" "run28_embeddedPhoton20" ) ;;
-        isSimEmbeddedInclusive) samples=( "run28_embeddedJet10" "run28_embeddedJet20" ) ;;
+        isSimEmbeddedInclusive) samples=( "run28_embeddedJet12" "run28_embeddedJet20" ) ;;
         isSimJet5)              samples=( "run28_jet5" ) ;;
         isSimMB)                samples=( "run28_detroit" ) ;;
         *)                      samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
@@ -5527,6 +5617,8 @@ SUB
 
           stamp="$(date +%Y%m%d_%H%M%S)"
           sub="${SUB_DIR}/RecoilJets_sim_${SIM_CFG_TAG}_${SIM_SAMPLE}_${stamp}.sub"
+          args_file="${SUB_DIR}/RecoilJets_sim_${SIM_CFG_TAG}_${SIM_SAMPLE}_${stamp}.args"
+          : > "$args_file"
           exe_for_sub="${BULK_FROZEN_EXE:-${EXE}}"
           macro_env_for_sub=""
           [[ -n "${BULK_FROZEN_MACRO:-}" ]] && macro_env_for_sub=";RJ_MACRO_PATH=${BULK_FROZEN_MACRO}"
@@ -5549,13 +5641,14 @@ stream_output = True
 stream_error  = True
 notification  = Never
 environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${yaml_override}${macro_env_for_sub}${fanout_env_for_sub}${pool_env_for_sub}
+queue arguments from ${args_file}
 SUB
 
           gidx=0
           for glist in "${groups[@]}"; do
             (( gidx+=1 ))
-            printf 'arguments = %s %s %s $(Cluster) 0 %d NONE %s\nqueue\n\n' \
-                   "$SIM_SAMPLE" "$glist" "$DATASET" "$gidx" "$DEST_BASE" >> "$sub"
+            printf '%s %s %s $(Cluster) 0 %d NONE %s\n' \
+                   "$SIM_SAMPLE" "$glist" "$DATASET" "$gidx" "$DEST_BASE" >> "$args_file"
           done
 
           if [[ "$pool_capture_submit" -eq 1 ]]; then

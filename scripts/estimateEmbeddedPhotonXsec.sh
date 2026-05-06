@@ -4,20 +4,31 @@
 # ==============================================================================
 # PURPOSE
 #   Estimate the effective generator cross sections for the embedded photon
-#   samples now used by isSimEmbedded:
+#   and embedded inclusive-jet samples now used by isSimEmbedded and
+#   isSimEmbeddedInclusive:
 #
 #     PhotonJet12: phpythia8_10GeV_JS_MDC2.cfg + 12 <= pT_filter^gamma < 20
 #     PhotonJet20: phpythia8_20GeV_JS_MDC2.cfg + pT_filter^gamma >= 20
 #
+#     EmbeddedJet12: pythia8 Jet12 config + 12 <= pT_filter^jet < 20
+#     EmbeddedJet20: pythia8 Jet20 config + pT_filter^jet >= 20
+#
 #   This is generator-only. It does not run detector simulation, embedding,
-#   clustering, or RecoilJets. It reproduces the producer-side photon trigger
-#   logic directly from PHPy8ParticleTrigger:
+#   clustering, or RecoilJets. For photon samples it reproduces the producer-side
+#   photon trigger logic directly from PHPy8ParticleTrigger:
 #
 #     id == 22
 #     stable-particle-only disabled
 #     -1.5 < eta < 1.5
 #     pT in the stitched sample window
 #     abs(mother id) in {1, ..., 22}
+#
+#   For inclusive-jet samples it reproduces the PHPy8JetTrigger-style anti-kT
+#   generator-jet selection and applies the same exclusive lower-slice window
+#   used for stitching:
+#
+#     EmbeddedJet12: 12 <= pT_filter^jet < 20
+#     EmbeddedJet20: pT_filter^jet >= 20
 #
 # OUTPUT
 #   By default, overwrites a compact output directory:
@@ -45,12 +56,14 @@
 #   Preferred final-estimate mode:
 #
 #     ./scripts/estimateEmbeddedPhotonXsec.sh --target-pass 10000 --max-raw-events 50000000
+#     ./scripts/estimateEmbeddedPhotonXsec.sh --family inclusive --target-pass 10000 --max-raw-events 50000000
 #
 #   Optional:
 #
 #     --seed N
 #     --outdir DIR
-#     --sample all|PhotonJet12|PhotonJet20
+#     --family photon|inclusive|all
+#     --sample all|PhotonJet12|PhotonJet20|EmbeddedJet12|EmbeddedJet20
 #     --mode compiled      # default; faster event loop, first run compiles
 #     --mode interpreted   # useful for tiny smoke tests; avoids ACLiC compile
 #     --xsec-shards N      # firstPass default: 50 per sample
@@ -61,8 +74,8 @@
 # NOTES
 #   sigma_eff = sigma_gen * (stitched-window generator weight sum / total
 #   generator weight sum). Pythia reports sigma_gen in mb; this script also
-#   prints pb. The PhotonJet12 value is exclusive to avoid overlap with
-#   PhotonJet20 in the merged embedded sample.
+#   prints pb. The lower-threshold sample value is exclusive to avoid overlap
+#   with the 20 GeV sample in stitched merged products.
 # ==============================================================================
 
 set -Eeuo pipefail
@@ -78,6 +91,7 @@ RUN_MODE="compiled"
 RUN_MODE_EXPLICIT=0
 STREAM_LOG="true"
 SAMPLE_FILTER="all"
+SAMPLE_FAMILY="photon"
 ACTION="run"
 LOCAL_MODE=0
 WORKER_ARGS=()
@@ -134,6 +148,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --sample)
       SAMPLE_FILTER="${2:-}"
+      shift 2
+      ;;
+    --family)
+      SAMPLE_FAMILY="${2:-}"
       shift 2
       ;;
     --mode)
@@ -206,10 +224,21 @@ if [[ "${RUN_MODE}" != "compiled" && "${RUN_MODE}" != "interpreted" ]]; then
   exit 2
 fi
 
-if [[ "${SAMPLE_FILTER}" != "all" && "${SAMPLE_FILTER}" != "PhotonJet12" && "${SAMPLE_FILTER}" != "PhotonJet20" ]]; then
-  echo "[ERROR] --sample must be 'all', 'PhotonJet12', or 'PhotonJet20'; got '${SAMPLE_FILTER}'" >&2
+case "${SAMPLE_FAMILY}" in
+  photon|inclusive|all) ;;
+  *)
+    echo "[ERROR] --family must be 'photon', 'inclusive', or 'all'; got '${SAMPLE_FAMILY}'" >&2
+    exit 2
+    ;;
+esac
+
+case "${SAMPLE_FILTER}" in
+  all|PhotonJet12|PhotonJet20|EmbeddedJet12|EmbeddedJet20) ;;
+  *)
+  echo "[ERROR] --sample must be one of: all, PhotonJet12, PhotonJet20, EmbeddedJet12, EmbeddedJet20; got '${SAMPLE_FILTER}'" >&2
   exit 2
-fi
+  ;;
+esac
 
 if ! [[ "${XSEC_SHARDS}" =~ ^[0-9]+$ ]] || [[ "${XSEC_SHARDS}" -le 0 ]]; then
   echo "[ERROR] --xsec-shards must be a positive integer; got '${XSEC_SHARDS}'" >&2
@@ -257,10 +286,13 @@ xsec_worker() {
   local workdir="$5"
   local mode="$6"
 
-  if [[ "${sample}" != "PhotonJet12" && "${sample}" != "PhotonJet20" ]]; then
+  case "${sample}" in
+    PhotonJet12|PhotonJet20|EmbeddedJet12|EmbeddedJet20) ;;
+    *)
     echo "[ERROR] Invalid worker sample: ${sample}" >&2
     exit 2
-  fi
+    ;;
+  esac
 
   setup_sphenix_env_for_worker
 
@@ -272,7 +304,7 @@ xsec_worker() {
   mkdir -p "${tmp_out}" "${result_dir}" "${log_dir}"
 
   echo "====================================================================="
-  echo "Embedded photon xsec worker"
+  echo "Embedded xsec worker"
   echo "====================================================================="
   echo "Sample    : ${sample}"
   echo "Shard     : ${shard}"
@@ -308,6 +340,16 @@ xsec_first_pass() {
   if [[ "${RUN_MODE_EXPLICIT}" -eq 0 ]]; then
     worker_mode="interpreted"
   fi
+  local -a xsec_samples=()
+  if [[ "${SAMPLE_FILTER}" != "all" ]]; then
+    xsec_samples=( "${SAMPLE_FILTER}" )
+  else
+    case "${SAMPLE_FAMILY}" in
+      photon)    xsec_samples=( "PhotonJet12" "PhotonJet20" ) ;;
+      inclusive) xsec_samples=( "EmbeddedJet12" "EmbeddedJet20" ) ;;
+      all)       xsec_samples=( "PhotonJet12" "PhotonJet20" "EmbeddedJet12" "EmbeddedJet20" ) ;;
+    esac
+  fi
 
   mkdir -p "${workdir}/results" "${workdir}/worker_logs" "${workdir}/tmp"
 
@@ -317,16 +359,19 @@ xsec_first_pass() {
     echo "PYTHIA_XSEC_RAW_EVENTS='${XSEC_RAW_EVENTS}'"
     echo "PYTHIA_XSEC_BASE_SEED='${XSEC_BASE_SEED}'"
     echo "PYTHIA_XSEC_MODE='${worker_mode}'"
+    echo "PYTHIA_XSEC_FAMILY='${SAMPLE_FAMILY}'"
+    echo "PYTHIA_XSEC_SAMPLES='${xsec_samples[*]}'"
     echo "PYTHIA_XSEC_CREATED='${timestamp}'"
   } > "${manifest}"
 
   echo "====================================================================="
-  echo "Embedded photon xsec firstPass"
+  echo "Embedded xsec firstPass"
   echo "====================================================================="
   echo "Mode        : $([[ "${LOCAL_MODE}" -eq 1 ]] && echo LOCAL || echo CONDOR)"
   echo "Workdir     : ${workdir}"
   echo "Manifest    : ${manifest}"
   echo "Shards      : ${XSEC_SHARDS} per sample"
+  echo "Samples     : ${xsec_samples[*]}"
   echo "Raw events  : ${XSEC_RAW_EVENTS} per shard"
   echo "Base seed   : ${XSEC_BASE_SEED}"
   echo "Worker mode : ${worker_mode}"
@@ -334,9 +379,13 @@ xsec_first_pass() {
   echo "====================================================================="
 
   if [[ "${LOCAL_MODE}" -eq 1 ]]; then
-    echo "[LOCAL] Running one local shard for PhotonJet12 and PhotonJet20."
-    xsec_worker "PhotonJet12" 0 "${XSEC_RAW_EVENTS}" "${XSEC_BASE_SEED}" "${workdir}" "${worker_mode}"
-    xsec_worker "PhotonJet20" 0 "${XSEC_RAW_EVENTS}" "$((XSEC_BASE_SEED + 1000000))" "${workdir}" "${worker_mode}"
+    echo "[LOCAL] Running one local shard for: ${xsec_samples[*]}."
+    local sample_idx=0
+    local sample
+    for sample in "${xsec_samples[@]}"; do
+      xsec_worker "${sample}" 0 "${XSEC_RAW_EVENTS}" "$((XSEC_BASE_SEED + 1000000 * sample_idx))" "${workdir}" "${worker_mode}"
+      sample_idx=$(( sample_idx + 1 ))
+    done
     echo "[LOCAL DONE] Now aggregate this smoke test with:"
     echo "  ./scripts/estimateEmbeddedPhotonXsec.sh secondPass --manifest ${manifest}"
     return 0
@@ -367,20 +416,20 @@ xsec_first_pass() {
     echo "stream_output = True"
     echo "stream_error = True"
     echo
-    local shard
+    local shard sample_idx sample
+    sample_idx=0
+    for sample in "${xsec_samples[@]}"; do
     for ((shard = 0; shard < XSEC_SHARDS; ++shard)); do
-      echo "arguments = xsecWorker PhotonJet12 ${shard} ${XSEC_RAW_EVENTS} $((XSEC_BASE_SEED + shard)) ${workdir} ${worker_mode}"
+        echo "arguments = xsecWorker ${sample} ${shard} ${XSEC_RAW_EVENTS} $((XSEC_BASE_SEED + 1000000 * sample_idx + shard)) ${workdir} ${worker_mode}"
       echo "queue"
     done
-    for ((shard = 0; shard < XSEC_SHARDS; ++shard)); do
-      echo "arguments = xsecWorker PhotonJet20 ${shard} ${XSEC_RAW_EVENTS} $((XSEC_BASE_SEED + 1000000 + shard)) ${workdir} ${worker_mode}"
-      echo "queue"
+      sample_idx=$(( sample_idx + 1 ))
     done
   } > "${submit_file}"
 
   echo "[INFO] Submit file: ${submit_file}"
   condor_submit "${submit_file}"
-  echo "[DONE] Submitted $((2 * XSEC_SHARDS)) jobs."
+  echo "[DONE] Submitted $((${#xsec_samples[@]} * XSEC_SHARDS)) jobs."
   echo "[NEXT] After Condor finishes, aggregate with:"
   echo "  ./scripts/estimateEmbeddedPhotonXsec.sh secondPass --manifest ${manifest}"
 }
@@ -405,12 +454,13 @@ xsec_second_pass() {
     exit 1
   fi
 
-  local expected=$((2 * PYTHIA_XSEC_SHARDS))
+  read -r -a manifest_samples <<< "${PYTHIA_XSEC_SAMPLES:-PhotonJet12 PhotonJet20}"
+  local expected=$((${#manifest_samples[@]} * PYTHIA_XSEC_SHARDS))
   local found
-  found="$(find "${workdir}/results" -maxdepth 1 -name 'PhotonJet*_shard*.csv' | wc -l | tr -d ' ')"
+  found="$(find "${workdir}/results" -maxdepth 1 -name '*_shard*.csv' | wc -l | tr -d ' ')"
 
   echo "====================================================================="
-  echo "Embedded photon xsec secondPass"
+  echo "Embedded xsec secondPass"
   echo "====================================================================="
   echo "Manifest : ${MANIFEST_PATH}"
   echo "Workdir  : ${workdir}"
@@ -427,8 +477,8 @@ xsec_second_pass() {
   fi
 
   {
-    head -n 1 "$(find "${workdir}/results" -maxdepth 1 -name 'PhotonJet*_shard*.csv' | sort | head -n 1)"
-    find "${workdir}/results" -maxdepth 1 -name 'PhotonJet*_shard*.csv' | sort | while read -r f; do
+    head -n 1 "$(find "${workdir}/results" -maxdepth 1 -name '*_shard*.csv' | sort | head -n 1)"
+    find "${workdir}/results" -maxdepth 1 -name '*_shard*.csv' | sort | while read -r f; do
       tail -n +2 "${f}"
     done
   } > "${combined}"
@@ -446,7 +496,7 @@ xsec_second_pass() {
       files[s] += 1
     }
     END {
-      print "Embedded photon Pythia cross-section combined estimate"
+      print "Embedded Pythia cross-section combined estimate"
       print "Generated: " strftime("%Y-%m-%d %H:%M:%S")
       print ""
       printf "%-12s %8s %14s %12s %14s %14s %14s %12s\n", "sample", "files", "n_ok", "n_pass", "eff_weight", "sigma_gen_mb", "sigma_eff_pb", "rel_stat"
@@ -505,12 +555,18 @@ fi
 CFG12="${CALIBRATIONROOT}/Generators/JetStructure_TG/phpythia8_10GeV_JS_MDC2.cfg"
 CFG20="${CALIBRATIONROOT}/Generators/JetStructure_TG/phpythia8_20GeV_JS_MDC2.cfg"
 
-for cfg in "${CFG12}" "${CFG20}"; do
-  if [[ ! -r "${cfg}" ]]; then
-    echo "[ERROR] Cannot read Pythia config: ${cfg}" >&2
-    exit 1
-  fi
-done
+needs_photon_configs=0
+case "${SAMPLE_FILTER}:${SAMPLE_FAMILY}" in
+  PhotonJet12:*|PhotonJet20:*|all:photon|all:all) needs_photon_configs=1 ;;
+esac
+if [[ "${needs_photon_configs}" -eq 1 ]]; then
+  for cfg in "${CFG12}" "${CFG20}"; do
+    if [[ ! -r "${cfg}" ]]; then
+      echo "[ERROR] Cannot read Pythia config: ${cfg}" >&2
+      exit 1
+    fi
+  done
+fi
 
 mkdir -p "${OUTDIR}"
 RESULTS="${OUTDIR}/results.csv"
@@ -531,11 +587,17 @@ MACRO="${MACRO_CACHE}"
 
 cat > "${MACRO}" <<'EOF'
 R__LOAD_LIBRARY(libpythia8)
+R__LOAD_LIBRARY(libfastjet)
 
 #include <Pythia8/Pythia.h>
 
 #include <TSystem.h>
 
+#include <fastjet/ClusterSequence.hh>
+#include <fastjet/JetDefinition.hh>
+#include <fastjet/PseudoJet.hh>
+
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
@@ -550,9 +612,15 @@ namespace
   struct Sample
   {
     std::string name;
-    std::string config;
-    double photonPtLow = 0.0;
-    double photonPtHigh = -1.0;
+    std::vector<std::string> configCandidates;
+    std::string filterKind;
+    double filterPtLow = 0.0;
+    double filterPtHigh = -1.0;
+    double jetEtaLow = -1.1;
+    double jetEtaHigh = 1.1;
+    double jetR = 0.4;
+    double jetMinZ = 0.0;
+    int jetMinConstituents = 0;
   };
 
   struct FilterBreakdown
@@ -677,6 +745,102 @@ namespace
     return false;
   }
 
+  bool PassProducerJetFilter(const Pythia8::Event& event,
+                             double ptLow,
+                             double ptHigh,
+                             double etaLow,
+                             double etaHigh,
+                             double jetR,
+                             double minZ,
+                             int minConstituents,
+                             FilterBreakdown& b)
+  {
+    std::vector<fastjet::PseudoJet> pseudojets;
+    for (int i = 0; i < event.size(); ++i)
+    {
+      const auto& p = event[i];
+      if (p.status() <= 0) continue;
+      const int absId = std::abs(p.id());
+      if (absId >= 12 && absId <= 16) continue;
+      if (p.px() == 0.0 && p.py() == 0.0) continue;
+      if (p.eta() < etaLow || p.eta() > etaHigh) continue;
+      fastjet::PseudoJet pseudojet(p.px(), p.py(), p.pz(), p.e());
+      pseudojet.set_user_index(i);
+      pseudojets.push_back(pseudojet);
+    }
+
+    if (pseudojets.empty()) return false;
+
+    fastjet::JetDefinition jetdef(fastjet::antikt_algorithm, jetR, fastjet::E_scheme, fastjet::Best);
+    fastjet::ClusterSequence jetFinder(pseudojets, jetdef);
+    std::vector<fastjet::PseudoJet> jets = jetFinder.inclusive_jets();
+    if (jets.empty()) return false;
+
+    bool hasJet = false;
+    bool hasJetPt = false;
+    for (auto& jet : jets)
+    {
+      const double pt = jet.pt();
+      hasJet = true;
+      if (pt > b.maxPhotonPt) b.maxPhotonPt = pt;
+      const auto constituents = jet.constituents();
+      if (static_cast<int>(constituents.size()) < minConstituents) continue;
+      if (pt <= ptLow) continue;
+      hasJetPt = true;
+      if (pt > b.maxPhotonPtEta) b.maxPhotonPtEta = pt;
+      if (ptHigh > 0.0 && pt >= ptHigh) continue;
+
+      if (minZ > 0.0)
+      {
+        double leadingZ = 0.0;
+        const double jetP = std::sqrt(jet.px() * jet.px() + jet.py() * jet.py() + jet.pz() * jet.pz());
+        if (jetP <= 0.0) continue;
+        for (const auto& constituent : constituents)
+        {
+          const double cP = std::sqrt(constituent.px() * constituent.px() +
+                                      constituent.py() * constituent.py() +
+                                      constituent.pz() * constituent.pz());
+          if (cP <= 0.0) continue;
+          const double ctheta = (constituent.px() * jet.px() +
+                                 constituent.py() * jet.py() +
+                                 constituent.pz() * jet.pz()) / (cP * jetP);
+          const double z = cP * ctheta / jetP;
+          if (z > leadingZ) leadingZ = z;
+        }
+        if (leadingZ <= minZ) continue;
+      }
+
+      b.maxPhotonPtEtaParent = std::max(b.maxPhotonPtEtaParent, pt);
+      return true;
+    }
+
+    if (hasJet) ++b.eventsWithPhoton;
+    if (hasJetPt) ++b.eventsWithPhotonPt;
+    return false;
+  }
+
+  std::string FirstReadable(const std::vector<std::string>& candidates)
+  {
+    for (const auto& c : candidates)
+    {
+      if (!c.empty() && !gSystem->AccessPathName(c.c_str())) return c;
+    }
+    return "";
+  }
+
+  std::vector<std::string> ConfigCandidates(const char* envName,
+                                            const std::string& calib,
+                                            const std::vector<std::string>& rels)
+  {
+    std::vector<std::string> out;
+    if (const char* env = std::getenv(envName))
+    {
+      if (*env) out.push_back(env);
+    }
+    for (const auto& rel : rels) out.push_back(calib + "/" + rel);
+    return out;
+  }
+
   std::string CsvQuote(const std::string& s)
   {
     std::string out = "\"";
@@ -701,7 +865,8 @@ void EstimateEmbeddedPhotonXsec(long long nEvents = 1000000,
                                 const char* outCsv = "results.csv",
                                 long long targetPass = 0,
                                 long long maxRawEvents = 0,
-                                const char* sampleFilterC = "all")
+                                const char* sampleFilterC = "all",
+                                const char* sampleFamilyC = "photon")
 {
   const char* calib = std::getenv("CALIBRATIONROOT");
   if (!calib)
@@ -712,15 +877,36 @@ void EstimateEmbeddedPhotonXsec(long long nEvents = 1000000,
 
   std::vector<Sample> samples = {
       {"PhotonJet12",
-       std::string(calib) + "/Generators/JetStructure_TG/phpythia8_10GeV_JS_MDC2.cfg",
+       ConfigCandidates("RJ_XSEC_PHOTONJET12_CFG", calib,
+                        {"Generators/JetStructure_TG/phpythia8_10GeV_JS_MDC2.cfg"}),
+       "photon",
        12.0,
        20.0},
       {"PhotonJet20",
-       std::string(calib) + "/Generators/JetStructure_TG/phpythia8_20GeV_JS_MDC2.cfg",
+       ConfigCandidates("RJ_XSEC_PHOTONJET20_CFG", calib,
+                        {"Generators/JetStructure_TG/phpythia8_20GeV_JS_MDC2.cfg"}),
+       "photon",
+       20.0,
+       -1.0},
+      {"EmbeddedJet12",
+       ConfigCandidates("RJ_XSEC_EMBEDDED_JET12_CFG", calib,
+                        {"Generators/JetStructure_TG/phpythia8_Jet12_JS_MDC2.cfg",
+                         "Generators/JetStructure_TG/phpythia8_12GeV_JS_MDC2.cfg",
+                         "Generators/JetStructure_TG/phpythia8_jet12_JS_MDC2.cfg"}),
+       "jet",
+       12.0,
+       20.0},
+      {"EmbeddedJet20",
+       ConfigCandidates("RJ_XSEC_EMBEDDED_JET20_CFG", calib,
+                        {"Generators/JetStructure_TG/phpythia8_Jet20_JS_MDC2.cfg",
+                         "Generators/JetStructure_TG/phpythia8_20GeV_JS_MDC2.cfg",
+                         "Generators/JetStructure_TG/phpythia8_jet20_JS_MDC2.cfg"}),
+       "jet",
        20.0,
        -1.0},
   };
   const std::string sampleFilter = sampleFilterC ? sampleFilterC : "all";
+  const std::string sampleFamily = sampleFamilyC ? sampleFamilyC : "photon";
 
   std::ofstream csv(outCsv);
   if (!csv)
@@ -751,6 +937,7 @@ void EstimateEmbeddedPhotonXsec(long long nEvents = 1000000,
   }
   std::cout << "[INFO] Stages per sample: configure Pythia -> init -> event loop -> sigma_eff calculation" << std::endl;
   std::cout << "[INFO] Sample filter: " << sampleFilter << std::endl;
+  std::cout << "[INFO] Sample family: " << sampleFamily << std::endl;
 
   for (std::size_t is = 0; is < samples.size(); ++is)
   {
@@ -759,20 +946,42 @@ void EstimateEmbeddedPhotonXsec(long long nEvents = 1000000,
     {
       continue;
     }
+    if (sampleFilter == "all")
+    {
+      if (sampleFamily == "photon" && s.filterKind != "photon") continue;
+      if (sampleFamily == "inclusive" && s.filterKind != "jet") continue;
+    }
+    const std::string config = FirstReadable(s.configCandidates);
+    if (config.empty())
+    {
+      std::cerr << "[ERROR] No readable Pythia config found for " << s.name << ". Tried:" << std::endl;
+      for (const auto& c : s.configCandidates) std::cerr << "  " << c << std::endl;
+      gSystem->Exit(1);
+    }
 
     std::cout << "\n[INFO] Sample " << s.name << std::endl;
-    std::cout << "[INFO]   config        : " << s.config << std::endl;
-    std::cout << "[INFO]   photon pT cut : ";
-    if (s.photonPtHigh > 0.0)
+    std::cout << "[INFO]   config        : " << config << std::endl;
+    std::cout << "[INFO]   filter kind   : " << s.filterKind << std::endl;
+    std::cout << "[INFO]   filter pT cut : ";
+    if (s.filterPtHigh > 0.0)
     {
-      std::cout << s.photonPtLow << " <= pT < " << s.photonPtHigh << " GeV";
+      std::cout << s.filterPtLow << " <= pT < " << s.filterPtHigh << " GeV";
     }
     else
     {
-      std::cout << "pT >= " << s.photonPtLow << " GeV";
+      std::cout << "pT >= " << s.filterPtLow << " GeV";
     }
     std::cout << std::endl;
-    std::cout << "[INFO]   filter        : id==22, stable-only disabled, -1.5<eta<1.5, mother |id| in [1,22]" << std::endl;
+    if (s.filterKind == "photon")
+    {
+      std::cout << "[INFO]   filter        : id==22, stable-only disabled, -1.5<eta<1.5, mother |id| in [1,22]" << std::endl;
+    }
+    else
+    {
+      std::cout << "[INFO]   filter        : stable particles, no mu/tau/neutrinos, anti-kT R="
+                << s.jetR << ", " << s.jetEtaLow << "<eta<" << s.jetEtaHigh
+                << ", stitched jet pT window" << std::endl;
+    }
 
     std::string xmlDir;
     if (const char* pythia8data = std::getenv("PYTHIA8DATA"))
@@ -788,7 +997,7 @@ void EstimateEmbeddedPhotonXsec(long long nEvents = 1000000,
     std::cout << "[INFO]   configuring Pythia..." << std::endl;
 
     Pythia8::Pythia pythia(xmlDir, false);
-    pythia.readFile(s.config);
+    pythia.readFile(config);
     pythia.readString("Random:setSeed = on");
     const int sampleSeed = seed + static_cast<int>(1000 * is);
     pythia.readString("Random:seed = " + std::to_string(sampleSeed));
@@ -835,7 +1044,12 @@ void EstimateEmbeddedPhotonXsec(long long nEvents = 1000000,
       sumW += w;
       sumW2 += w * w;
 
-      if (PassProducerPhotonFilter(pythia.event, s.photonPtLow, s.photonPtHigh, breakdown))
+      const bool pass = (s.filterKind == "photon")
+        ? PassProducerPhotonFilter(pythia.event, s.filterPtLow, s.filterPtHigh, breakdown)
+        : PassProducerJetFilter(pythia.event, s.filterPtLow, s.filterPtHigh,
+                                s.jetEtaLow, s.jetEtaHigh, s.jetR,
+                                s.jetMinZ, s.jetMinConstituents, breakdown);
+      if (pass)
       {
         ++nPass;
         passW += w;
@@ -911,8 +1125,8 @@ void EstimateEmbeddedPhotonXsec(long long nEvents = 1000000,
     std::cout << std::defaultfloat << std::setprecision(10);
 
     csv << s.name << ","
-        << CsvQuote(s.config) << ","
-        << s.photonPtLow << ","
+        << CsvQuote(config) << ","
+        << s.filterPtLow << ","
         << nEvents << ","
         << targetPass << ","
         << rawLimit << ","
@@ -936,7 +1150,7 @@ void EstimateEmbeddedPhotonXsec(long long nEvents = 1000000,
         << breakdown.maxPhotonPtEtaParent << ","
         << sumW << ","
         << passW << ","
-        << s.photonPtHigh << "\n";
+        << s.filterPtHigh << "\n";
 
     std::cout << "[INFO]   Pythia statistics block follows." << std::endl;
     pythia.stat();
@@ -949,7 +1163,7 @@ void EstimateEmbeddedPhotonXsec(long long nEvents = 1000000,
 EOF
 
 echo "====================================================================="
-echo "Embedded photon Pythia cross-section estimate"
+echo "Embedded Pythia cross-section estimate"
 echo "====================================================================="
 echo "Base dir : ${BASE_DIR}"
 echo "Out dir  : ${OUTDIR}"
@@ -958,9 +1172,12 @@ echo "Target   : ${TARGET_PASS} filter-passing events per sample (0 = fixed raw 
 echo "Max raw  : ${MAX_RAW_EVENTS} raw attempts per sample in target-pass mode"
 echo "Seed     : ${SEED}"
 echo "Mode     : ${RUN_MODE}"
+echo "Family   : ${SAMPLE_FAMILY}"
 echo "Sample   : ${SAMPLE_FILTER}"
 echo "Config12 : ${CFG12}"
 echo "Config20 : ${CFG20}"
+echo "Jet cfgs : auto-detected from CALIBRATIONROOT/Generators/JetStructure_TG,"
+echo "           or override with RJ_XSEC_EMBEDDED_JET12_CFG / RJ_XSEC_EMBEDDED_JET20_CFG."
 echo "Macro    : ${MACRO}"
 echo "Log      : ${LOG}"
 echo "====================================================================="
@@ -973,22 +1190,20 @@ else
 echo "  [2] ROOT interprets ${MACRO##*/}. This avoids compile time but is slower for large samples."
 fi
 if [[ "${TARGET_PASS}" -gt 0 ]]; then
-echo "  [3] Pythia initializes PhotonJet12, then runs until ${TARGET_PASS} filter passes or ${MAX_RAW_EVENTS} raw attempts."
-echo "  [4] Pythia initializes PhotonJet20, then runs until ${TARGET_PASS} filter passes or ${MAX_RAW_EVENTS} raw attempts."
+echo "  [3] Pythia initializes the requested samples, then each runs until ${TARGET_PASS} filter passes or ${MAX_RAW_EVENTS} raw attempts."
 else
-echo "  [3] Pythia initializes PhotonJet12, then runs ${NEVENTS} raw events."
-echo "  [4] Pythia initializes PhotonJet20, then runs ${NEVENTS} raw events."
+echo "  [3] Pythia initializes the requested samples, then each runs ${NEVENTS} raw events."
 fi
-echo "  [5] The script writes results.csv and summary.txt."
+echo "  [4] The script writes results.csv and summary.txt."
 echo "====================================================================="
 
 rm -f "${LOG}"
 touch "${LOG}"
 
 if [[ "${RUN_MODE}" == "compiled" ]]; then
-  ROOT_EXPR="${MACRO}+(${NEVENTS}, ${SEED}, \"${RESULTS}\", ${TARGET_PASS}, ${MAX_RAW_EVENTS}, \"${SAMPLE_FILTER}\")"
+  ROOT_EXPR="${MACRO}+(${NEVENTS}, ${SEED}, \"${RESULTS}\", ${TARGET_PASS}, ${MAX_RAW_EVENTS}, \"${SAMPLE_FILTER}\", \"${SAMPLE_FAMILY}\")"
 else
-  ROOT_EXPR="${MACRO}(${NEVENTS}, ${SEED}, \"${RESULTS}\", ${TARGET_PASS}, ${MAX_RAW_EVENTS}, \"${SAMPLE_FILTER}\")"
+  ROOT_EXPR="${MACRO}(${NEVENTS}, ${SEED}, \"${RESULTS}\", ${TARGET_PASS}, ${MAX_RAW_EVENTS}, \"${SAMPLE_FILTER}\", \"${SAMPLE_FAMILY}\")"
 fi
 
 say "[ROOT] Command: root -l -b -q '${ROOT_EXPR}'"
@@ -1037,18 +1252,21 @@ if [[ "${ROOT_STATUS}" -ne 0 ]]; then
 fi
 
 {
-  echo "Embedded photon Pythia cross-section estimate"
+  echo "Embedded Pythia cross-section estimate"
   echo "Generated: $(date '+%Y-%m-%d %H:%M:%S')"
   echo "Events per sample: ${NEVENTS}"
   echo "Target filter passes per sample: ${TARGET_PASS}"
   echo "Max raw attempts per sample: ${MAX_RAW_EVENTS}"
   echo "Seed: ${SEED}"
   echo "Mode: ${RUN_MODE}"
+  echo "Family: ${SAMPLE_FAMILY}"
   echo "Sample: ${SAMPLE_FILTER}"
   echo
   echo "Producer mapping:"
   echo "  PhotonJet12 -> ${CFG12} + photon filter 12 <= pT < 20 GeV, |eta| < 1.5"
   echo "  PhotonJet20 -> ${CFG20} + photon filter pT >= 20 GeV, |eta| < 1.5"
+  echo "  EmbeddedJet12 -> Jet12 Pythia config + anti-kT generator-jet filter 12 <= pT < 20 GeV"
+  echo "  EmbeddedJet20 -> Jet20 Pythia config + anti-kT generator-jet filter pT >= 20 GeV"
   echo
   echo "Results CSV:"
   cat "${RESULTS}"
