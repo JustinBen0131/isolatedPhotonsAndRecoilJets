@@ -167,7 +167,7 @@ RUN_BASE_AA="/sphenix/tg/tg01/bulk/jbennett/thesisAna/auau"
 RUN_BASE_OO="/sphenix/tg/tg01/bulk/jbennett/thesisAna/oo"
 
 # ---------- Output base (required by you) ----------
-OUT_BASE="/sphenix/u/patsfan753/scratch/thesisAnalysis/output"
+OUT_BASE="${MERGE_OUT_BASE_OVERRIDE:-/sphenix/u/patsfan753/scratch/thesisAnalysis/output}"
 
 # Per-dataset output dirs end up as:
 #   /sphenix/u/patsfan753/scratch/thesisAnalysis/output/pp
@@ -1038,12 +1038,32 @@ build_cfg_tags_from_yaml() {
   local pt frac vz cone iso uep pre tight nonTight tag selection_tag full_tag
   local cfg_suffix="${MERGE_CFG_SUFFIX:-}"
   local tight_norm nonTight_norm pre_norm
+
+  # Optimized direct-fanout production writes one public cfg directory per
+  # photon-ID triplet, with jet pT/dphi/iso/cone held as internal histogram
+  # views. Emit those tags first so merge discovery accepts the new layout.
+  local row
+  for row in "${photon_id_rows[@]}"; do
+    IFS='|' read -r pre tight nonTight <<< "$row"
+    pre_norm="$(selection_mode_normalize_for_key "preselection" "$pre")"
+    tight_norm="$(selection_mode_normalize_for_key "tight" "$tight")"
+    nonTight_norm="$(selection_mode_normalize_for_key "nonTight" "$nonTight")"
+    selection_tag="$(selection_mode_tag "preselection" "$pre_norm")_$(selection_mode_tag "tight" "$tight_norm")_$(selection_mode_tag "nonTight" "$nonTight_norm")"
+    for uep in "${uepipes[@]}"; do
+      if (( include_uepipe_in_tag )); then
+        echo "${selection_tag}_${uep}${cfg_suffix}"
+      else
+        echo "${selection_tag}${cfg_suffix}"
+      fi
+    done
+  done
+
+  # Legacy scalar cfg tags remain accepted for allDirect / old productions.
   for pt in "${jet_pts[@]}"; do
     for frac in "${b2bs_submit[@]}"; do
       for vz in "${vzs[@]}"; do
         for cone in "${cones[@]}"; do
           for iso in "${iso_base_tags[@]}"; do
-            local row
             for row in "${photon_id_rows[@]}"; do
               IFS='|' read -r pre tight nonTight <<< "$row"
               pre_norm="$(selection_mode_normalize_for_key "preselection" "$pre")"
@@ -1204,6 +1224,9 @@ resolve_dataset() {
     auau) RUN_BASE="$RUN_BASE_AA" ;;
     oo)   RUN_BASE="$RUN_BASE_OO" ;;
   esac
+  if [[ -n "${MERGE_RUN_BASE_OVERRIDE:-}" ]]; then
+    RUN_BASE="$MERGE_RUN_BASE_OVERRIDE"
+  fi
 
   DEST_DIR="${OUT_BASE}/${TAG}"      # where partials and final live
   PERRUN_DIR="${OUT_BASE}/${TAG}/perRun"  # per-run partials (stage-1 merge output)
@@ -1725,6 +1748,9 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|isSimInclusive|issiminclusiv
       SIM_OUTPUT_TAG="sim"
       ;;
   esac
+  if [[ -n "${MERGE_SIM_INPUT_BASE_OVERRIDE:-}" ]]; then
+    SIM_INPUT_BASE="$MERGE_SIM_INPUT_BASE_OVERRIDE"
+  fi
 
   # Embedded firstRound hadd jobs can exceed the generic 2 GB request when
   # merging larger Au+Au-style ROOT outputs. Keep pp/MB/jet SIM unchanged.

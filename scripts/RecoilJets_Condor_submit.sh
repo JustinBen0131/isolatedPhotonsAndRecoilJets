@@ -4870,6 +4870,7 @@ SUB
     smoke_stamp="$(date +%Y%m%d_%H%M%S)"
     sim_smoke_out="${RJ_SMOKE_OUTPUT_BASE:-/sphenix/tg/tg01/bulk/jbennett/thesisAnaSmoke/${TAG}_smokeTest_${smoke_stamp}}"
     export RJ_DEST_BASE_OVERRIDE="$sim_smoke_out"
+    export RJ_MERGE_OUT_BASE_OVERRIDE="${RJ_MERGE_OUT_BASE_OVERRIDE:-${BASE}/outputSmoke/${TAG}_smokeTest_${smoke_stamp}}"
     export RJ_PROFILE_JOB=1
     export RJ_DIRECT_NEVENTS="${RJ_SMOKE_SIM_NEVENTS:-3000}"
     export RJ_JOB_HEARTBEAT_SECONDS="${RJ_JOB_HEARTBEAT_SECONDS:-${RJ_SMOKE_JOB_HEARTBEAT_SECONDS:-120}}"
@@ -4879,6 +4880,7 @@ SUB
     say "${BOLD}SIM direct-fanout smokeTest requested${RST}"
     say "  dataset      : ${DATASET}"
     say "  output base  : ${RJ_DEST_BASE_OVERRIDE}"
+    say "  merge output : ${RJ_MERGE_OUT_BASE_OVERRIDE}"
     say "  groupSize    : ${GROUP_SIZE}"
     say "  maxJobs/cfg/sample: ${MAX_JOBS}"
     say "  nEvents/job  : ${RJ_DIRECT_NEVENTS} (0 means full worker input)"
@@ -4896,7 +4898,8 @@ SUB
       echo "engine=direct_legacy_fanout"
       echo "legacy_output_parity=NOT_RUN_DIRECT_RECOILJETS_ENGINE"
       echo "output_base=${RJ_DEST_BASE_OVERRIDE}"
-      exit 0
+      echo "merge_output_base=${RJ_MERGE_OUT_BASE_OVERRIDE}"
+      echo "continuing_to_build_full_auto_dag=1"
     fi
     _smoke_args=( "$DATASET" condorDoAll groupSize "$GROUP_SIZE" maxJobs "$MAX_JOBS" )
     if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 1 ]]; then
@@ -5163,7 +5166,8 @@ SUB
       final_notify="${auto_dag_dir}/auto_final_notify.sh"
       write_auto_stage_runner "$runner"
       write_auto_final_notify "$final_notify"
-      first_round_args=( "${BASE}/scripts/mergeRecoilJets.sh" "$DATASET" firstRound groupSize "${RJ_SIM_MERGE_GROUP_SIZE:-300}" )
+      sim_merge_out_base="${RJ_MERGE_OUT_BASE_OVERRIDE:-${BASE}/output}"
+      first_round_args=( env "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED}" "MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base}" "${BASE}/scripts/mergeRecoilJets.sh" "$DATASET" firstRound groupSize "${RJ_SIM_MERGE_GROUP_SIZE:-300}" )
       if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 1 ]]; then
         first_round_args+=( "SAMPLE=${SIM_SAMPLE}" )
       fi
@@ -5173,7 +5177,7 @@ SUB
         printf ' %s' "${RJ_DAG_COLLECTED_NODES[@]}" >> "$auto_dag"
         printf ' CHILD SIM_FIRSTROUND\n' >> "$auto_dag"
       fi
-      add_auto_final_node "$auto_dag" "FINAL_NOTIFY" "$final_notify" "auto_${TAG}_firstRound_ready" "$DATASET" "${BASE}/scripts/mergeRecoilJets.sh ${DATASET} secondRound condor"
+      add_auto_final_node "$auto_dag" "FINAL_NOTIFY" "$final_notify" "auto_${TAG}_firstRound_ready" "$DATASET" "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED} MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base} ${BASE}/scripts/mergeRecoilJets.sh ${DATASET} secondRound condor"
       say "Automatic workflow DAG built:"
       say "  analysis nodes : ${#RJ_DAG_COLLECTED_NODES[@]}"
       say "  merge stages   : SIM_FIRSTROUND"
@@ -5183,7 +5187,7 @@ SUB
         echo "dataset=${DATASET}"
         echo "dag=${auto_dag}"
         echo "analysis_nodes=${#RJ_DAG_COLLECTED_NODES[@]}"
-        echo "next_action_after_ready=${BASE}/scripts/mergeRecoilJets.sh ${DATASET} secondRound condor"
+        echo "next_action_after_ready=MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED} MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base} ${BASE}/scripts/mergeRecoilJets.sh ${DATASET} secondRound condor"
         sed -n '1,240p' "$auto_dag"
       else
         condor_submit_dag -notification Never "$auto_dag"
@@ -5313,6 +5317,7 @@ SUB
         select_largest_stat_data_runs "$smoke_run_count" "$smoke_selected_runs" "$smoke_selected_stats" || { err "smokeTest could not select DATA runs from ${GOLDEN}"; exit 99; }
         smoke_out_base="${RJ_SMOKE_OUTPUT_BASE:-/sphenix/tg/tg01/bulk/jbennett/thesisAnaSmoke/${TAG}_smokeTest_${smoke_stamp}}"
         export RJ_DEST_BASE_OVERRIDE="$smoke_out_base"
+        export RJ_MERGE_OUT_BASE_OVERRIDE="${RJ_MERGE_OUT_BASE_OVERRIDE:-${BASE}/outputSmoke/${TAG}_smokeTest_${smoke_stamp}}"
         export RJ_GOLDEN_OVERRIDE="$smoke_selected_runs"
         export RJ_PROFILE_JOB=1
         export RJ_DIRECT_NEVENTS="${RJ_SMOKE_DATA_NEVENTS:-3000}"
@@ -5325,6 +5330,7 @@ SUB
         say "  run list      : ${smoke_selected_runs}"
         say "  run stats     : ${smoke_selected_stats}"
         say "  output base   : ${RJ_DEST_BASE_OVERRIDE}"
+        say "  merge output  : ${RJ_MERGE_OUT_BASE_OVERRIDE}"
         say "  groupSize     : ${GROUP_SIZE}"
         say "  nEvents/job   : ${RJ_DIRECT_NEVENTS} (0 means full worker input)"
         say "  request mem   : ${RJ_REQUEST_MEMORY}"
@@ -5339,7 +5345,8 @@ SUB
           echo "runs_or_samples=$(grep -cE '^[0-9]+' "$smoke_selected_runs" 2>/dev/null || echo 0)"
           echo "selected_run_stats=${smoke_selected_stats}"
           echo "output_base=${RJ_DEST_BASE_OVERRIDE}"
-          exit 0
+          echo "merge_output_base=${RJ_MERGE_OUT_BASE_OVERRIDE}"
+          echo "continuing_to_build_full_auto_dag=1"
         fi
         "$0" "$DATASET" condor all groupSize "$GROUP_SIZE"
         ;;
@@ -5607,15 +5614,16 @@ SUB
           final_notify="${auto_dag_dir}/auto_final_notify.sh"
           write_auto_stage_runner "$runner"
           write_auto_final_notify "$final_notify"
-          add_auto_stage_node "$auto_dag" "DATA_PERRUN" "$runner" "data_perRun_${TAG}_all" "${BASE}/scripts/mergeRecoilJets.sh" condor "$TAG"
-          add_auto_stage_node "$auto_dag" "DATA_SLICERUNS" "$runner" "data_sliceRuns_${TAG}_all" "${BASE}/scripts/mergeRecoilJets.sh" addChunks "$TAG" condor sliceRuns
+          data_merge_out_base="${RJ_MERGE_OUT_BASE_OVERRIDE:-${BASE}/output}"
+          add_auto_stage_node "$auto_dag" "DATA_PERRUN" "$runner" "data_perRun_${TAG}_all" env "MERGE_RUN_BASE_OVERRIDE=${DATA_DEST_BASE_SAVED}" "MERGE_OUT_BASE_OVERRIDE=${data_merge_out_base}" "${BASE}/scripts/mergeRecoilJets.sh" condor "$TAG"
+          add_auto_stage_node "$auto_dag" "DATA_SLICERUNS" "$runner" "data_sliceRuns_${TAG}_all" env "MERGE_RUN_BASE_OVERRIDE=${DATA_DEST_BASE_SAVED}" "MERGE_OUT_BASE_OVERRIDE=${data_merge_out_base}" "${BASE}/scripts/mergeRecoilJets.sh" addChunks "$TAG" condor sliceRuns
           if (( ${#RJ_DAG_COLLECTED_NODES[@]} > 0 )); then
             printf 'PARENT' >> "$auto_dag"
             printf ' %s' "${RJ_DAG_COLLECTED_NODES[@]}" >> "$auto_dag"
             printf ' CHILD DATA_PERRUN\n' >> "$auto_dag"
           fi
           printf 'PARENT DATA_PERRUN CHILD DATA_SLICERUNS\n' >> "$auto_dag"
-          add_auto_final_node "$auto_dag" "FINAL_NOTIFY" "$final_notify" "auto_${TAG}_sliceRuns_ready" "$DATASET" "${BASE}/scripts/mergeRecoilJets.sh addChunks ${TAG}"
+          add_auto_final_node "$auto_dag" "FINAL_NOTIFY" "$final_notify" "auto_${TAG}_sliceRuns_ready" "$DATASET" "MERGE_RUN_BASE_OVERRIDE=${DATA_DEST_BASE_SAVED} MERGE_OUT_BASE_OVERRIDE=${data_merge_out_base} ${BASE}/scripts/mergeRecoilJets.sh addChunks ${TAG}"
           say "Automatic workflow DAG built:"
           say "  analysis nodes : ${#RJ_DAG_COLLECTED_NODES[@]}"
           say "  merge stages   : DATA_PERRUN -> DATA_SLICERUNS"
@@ -5625,7 +5633,7 @@ SUB
             echo "dataset=${DATASET}"
             echo "dag=${auto_dag}"
             echo "analysis_nodes=${#RJ_DAG_COLLECTED_NODES[@]}"
-            echo "next_action_after_ready=${BASE}/scripts/mergeRecoilJets.sh addChunks ${TAG}"
+            echo "next_action_after_ready=MERGE_RUN_BASE_OVERRIDE=${DATA_DEST_BASE_SAVED} MERGE_OUT_BASE_OVERRIDE=${data_merge_out_base} ${BASE}/scripts/mergeRecoilJets.sh addChunks ${TAG}"
             sed -n '1,240p' "$auto_dag"
           else
             condor_submit_dag -notification Never "$auto_dag"
