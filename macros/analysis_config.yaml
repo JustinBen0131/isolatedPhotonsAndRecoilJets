@@ -17,56 +17,28 @@
 #      derive the cfg tag for naming merged outputs — no re-read of this
 #      master file is needed at merge time.
 #
-# WORKFLOW HIERARCHY
-#   capture_axes:
-#     Change these only when you are willing to run the long DST capture stage.
-#     They control which reusable event/photon/jet/truth ingredients are stored.
-#
-#   output_working_points:
-#     Major photon-ID physics families. Pool replay writes one cfg-tag ROOT
-#     family per working point, then stores cut scans as internal views.
-#
-#   internal_scan_axes:
-#     UI-like offline views. Changing these should be pool replay only once the
-#     required ingredients exist in the pool.
-#
-# COMMAND GUIDE
-#   Changed capture_axes or added a missing raw feature?
-#     ./scripts/RecoilJets_Condor_submit.sh isAuAu condor allFromScratch
-#     ./scripts/RecoilJets_Condor_submit.sh isSim  condorDoAllFromScratch
-#
-#   Changed output_working_points, photon-ID score cuts, or internal_scan_axes?
+# PRODUCTION COMMAND GUIDE
+#   DATA:
+#     ./scripts/RecoilJets_Condor_submit.sh isPP   condor all
 #     ./scripts/RecoilJets_Condor_submit.sh isAuAu condor all
-#     ./scripts/RecoilJets_Condor_submit.sh isSim  condorDoAll
 #
-#   Changed only which plots/slides/views you want?
-#     No Condor. Use pulled merged ROOT files and AnalysisViewCatalog.
+#   SIM:
+#     ./scripts/RecoilJets_Condor_submit.sh isSim                  condorDoAll
+#     ./scripts/RecoilJets_Condor_submit.sh isSimEmbedded          condorDoAll
+#     ./scripts/RecoilJets_Condor_submit.sh isSimEmbeddedInclusive condorDoAll
+#
+#   Smoke checks:
+#     ./scripts/RecoilJets_Condor_submit.sh isPP   condor smokeTest
+#     ./scripts/RecoilJets_Condor_submit.sh isAuAu condor smokeTest
+#     ./scripts/RecoilJets_Condor_submit.sh isSim  condorDoAllSmoke
+#
+# Production uses the legacy RecoilJets/RecoilJets_AuAu histogram machinery.
+# The submitter may fan out compatible photon-ID rows inside one Fun4All DST
+# pass, but every final product remains an ordinary cfg-tagged ROOT file with
+# the same histogram names, classes, directories, and merge/read behavior as
+# the original one-cfg-at-a-time pipeline.
 #
 # =============================================================================
-
-capture_axes:
-  clusterUEpipeline: [noSub, baseVariant]
-  stored_isolation_cones: [0.30, 0.40]
-  captured_jet_radii: [0.2, 0.3, 0.4]
-  pool_schema_version: 2
-
-pool_schema_version: 2
-stored_isolation_cones: [0.30, 0.40]
-
-internal_scan_axes:
-  jet_pt_min: [5.0, 7.0, 10.0, 12.0]
-  back_to_back_dphi_min_pi_fraction: [0.5, 0.875]
-  vz_cut_cm: [10, 30, 60]
-  coneR: [0.30, 0.40]
-  isolation:
-    fixedGeV: [2.0, 4.0]
-    sliding: true
-
-materialize:
-  light_all_views: [event_counts, vertex, abcd, leakage]
-  physics_scan_views: [xJ, dphi, JES3, photon_response]
-  unfolding_views: [nominal, explicit_only]
-  diagnostics: explicit_only
 
 # -----------------------------------------------------------------------------
 # Photon + jet kinematic selection
@@ -285,41 +257,17 @@ photon_id_sets:
   # - [auauOnlyNPB, centAsFeat, centAsFeat]
   # - [auauOnlyNPB, centDepBDTs, centDepBDTs]
 
-output_working_points:
-  # These names document the major physics families that become top-level
-  # cfg-tag ROOT directories in the pool replay/view workflow. The authoritative
-  # active list remains photon_id_sets above; each active triplet maps to one
-  # working-point output family while jet/dphi/vz/iso/cone choices become views.
-  - {name: referenceHardCut, photon_id: [reference, reference, reference]}
-  - {name: ppg12BDTComplement, photon_id: [newPPG12, newPPG12, reference]}
-  - {name: ppg12BDTSideband, photon_id: [newPPG12, newPPG12, newPPG12]}
-  - {name: refPlusNPBBDTSideband, photon_id: [refPlusNPB, newPPG12, newPPG12]}
-  # AuAu model families stay commented until their model files are configured.
-  # - {name: auauCentINDControl, photon_id: [auauOnlyNPB, centINDcontrol, auauBDTSideband]}
-  # - {name: auauCentAsFeat, photon_id: [auauOnlyNPB, centAsFeat, auauBDTSideband]}
-  # - {name: auauCentDepBDTs, photon_id: [auauOnlyNPB, centDepBDTs, auauBDTSideband]}
-
 # Workflow notification.
 # These addresses receive compact stage-boundary emails only. Worker jobs use
-# notification=Never; pool/replay DAGs and merge-stage DAGs send parseable
+# notification=Never; smoke/final/merge-stage DAGs send parseable
 # subjects like [RecoilJets][isAuAu][data_perRun_auau_wp_reference][READY].
 # Codex/Gmail automation can use those emails as the secure progress interface.
 # The submit/merge scripts also accept RJ_NOTIFY_EMAILS as an override.
 notify_emails: [just0131@gmail.com]
 
-# Pool/replay workflow boundary.
-#
-# pool_capture settings require condorDoAllFromScratch/allFromScratch because
-# they control what is read or reconstructed from DSTs and stored in the pool.
-# Capture intentionally disables the analysis |vz| cut and writes loose photon,
-# jet, event, and truth records so vertex, pT, centrality, jet-pT, dphi, and
-# photon-ID choices can move to replay.
-#
-# pool_replay settings can be changed without reopening DSTs if the captured
-# pool contains the needed raw variables. New photon_id_sets, BDT score cuts,
-# BDT model scans over stored features, pT/centrality/vz binning, jet pT cuts,
-# and dphi cuts belong here. New isolation cone radii or new reconstructed jet
-# radii require from-scratch capture unless that cone/radius was already stored.
+# Experimental pool settings.
+# Disabled for production. The analysis-facing production output comes from
+# direct RecoilJets fanout, not Fun4All_recoilJets_poolReplay.C.
 pool_capture:
   enabled: false
   capture_only: true
