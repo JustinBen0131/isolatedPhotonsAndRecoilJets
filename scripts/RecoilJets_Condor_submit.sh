@@ -5028,7 +5028,7 @@ SUB
     (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
     (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
     (( ${#sim_cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
-    local -a sim_view_cones=( "${sim_cones[@]}" )
+    sim_view_cones=( "${sim_cones[@]}" )
     if iso_view_internal_enabled; then
       mapfile -t sim_cones < <( cone_submit_values "${sim_view_cones[@]}" )
     fi
@@ -5288,7 +5288,7 @@ SUB
     (( ${#data_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $data_yaml_src"; exit 72; }
     (( ${#data_vzs[@]} ))   || { err "No values found for vz_cut_cm in $data_yaml_src"; exit 72; }
     (( ${#data_cones[@]} )) || { err "No values found for coneR in $data_yaml_src"; exit 72; }
-    local -a data_view_cones=( "${data_cones[@]}" )
+    data_view_cones=( "${data_cones[@]}" )
     if iso_view_internal_enabled; then
       mapfile -t data_cones < <( cone_submit_values "${data_view_cones[@]}" )
     fi
