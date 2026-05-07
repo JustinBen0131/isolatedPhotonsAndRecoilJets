@@ -1,8 +1,0 @@
-#ifndef FUN4ALLRAW_MICROMEGASBCOMATCHINGINFORMATION_H
-#define FUN4ALLRAW_MICROMEGASBCOMATCHINGINFORMATION_H
-
-#include "MicromegasBcoMatchingInformation_v1.h"
-#include "MicromegasBcoMatchingInformation_v2.h"
-
-using MicromegasBcoMatchingInformation = MicromegasBcoMatchingInformation_v2;
-#endif

@@ -1,24 +1,37 @@
-# Ignore all outputs
-dataOutput/
+# GitHub-facing repository surface
+#
+# Keep the public/reviewable analysis code small and intentional. Local inputs,
+# outputs, notes, cached dependencies, presentations, scratch files, and helper
+# state stay on disk but should not be transferred to GitHub.
 
-# Ignore simulation inputs
-InputFiles/
+*
 
-# Local external deps + build artifacts
-external/
-external/**
-ppg12codeGit/
-.claude/
+!README.md
+!.gitignore
 
-# ROOT/ACLiC artifacts
+!/src/
+!/src/**
+
+!/src_AuAu/
+!/src_AuAu/**
+
+!/macros/
+!/macros/**
+
+!/scripts/
+!/scripts/**
+
+# Generated/build artifacts, including those created inside tracked directories.
 *.so
 *.dylib
 *.pcm
 *.rootmap
+*.root
+*.d
 *_C.d
 *_C.so
 *_C_ACLiC_dict_rdict.pcm
 
-# macOS
+# Platform/editor noise.
 .DS_Store
 **/.DS_Store
