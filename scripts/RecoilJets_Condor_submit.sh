@@ -479,7 +479,6 @@ ${BOLD}DATA modes:${RST}
   ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> condor round <N> [groupSize N] [firstChunk]${RST}
   ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> condor smokeTest [groupSize N]${RST}
   ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> condor all [groupSize N]${RST}
-  ${BOLD}$0 <isPP|isPPrun25|isAuAu|isOO> condor allDirect [groupSize N]${RST}
   ${DIM}$0 <isPP|isPPrun25|isAuAu|isOO> condor allFromScratch [groupSize N]          # alias for direct fanout${RST}
 
 ${BOLD}SIM mode (photonJet10/20 merged):${RST}
@@ -489,7 +488,6 @@ ${BOLD}SIM mode (photonJet10/20 merged):${RST}
   ${BOLD}$0 isSim condorTest [SAMPLE=run28_photonjet10]${RST}
   ${BOLD}$0 isSim condorDoAllSmoke [groupSize N] [SAMPLE=run28_photonjet10]${RST}
   ${BOLD}$0 isSim condorDoAll [groupSize N] [SAMPLE=run28_photonjet10]${RST}
-  ${BOLD}$0 isSim condorDoAllDirect [groupSize N] [SAMPLE=run28_photonjet10]${RST}
   ${DIM}$0 isSim condorDoAllFromScratch [groupSize N] [SAMPLE=run28_photonjet10]  # alias for direct fanout${RST}
 
 ${BOLD}SIM mode (embedded photon AuAu-like signal):${RST}
@@ -497,7 +495,6 @@ ${BOLD}SIM mode (embedded photon AuAu-like signal):${RST}
   ${BOLD}$0 isSimEmbedded CHECKJOBS [groupSize N] [SAMPLE=run28_embeddedPhoton20]${RST}
   ${BOLD}$0 isSimEmbedded condorDoAllSmoke [groupSize N] [SAMPLE=run28_embeddedPhoton20]${RST}
   ${BOLD}$0 isSimEmbedded condorDoAll [groupSize N] [SAMPLE=run28_embeddedPhoton20]${RST}
-  ${BOLD}$0 isSimEmbedded condorDoAllDirect [groupSize N] [SAMPLE=run28_embeddedPhoton20]${RST}
   ${DIM}$0 isSimEmbedded condorDoAllFromScratch [groupSize N] [SAMPLE=run28_embeddedPhoton20]  # alias for direct fanout${RST}
 
 ${BOLD}SIM mode (embedded inclusive-jet AuAu-like background):${RST}
@@ -505,7 +502,6 @@ ${BOLD}SIM mode (embedded inclusive-jet AuAu-like background):${RST}
   ${BOLD}$0 isSimEmbeddedInclusive CHECKJOBS [groupSize N] [SAMPLE=run28_embeddedJet20]${RST}
   ${BOLD}$0 isSimEmbeddedInclusive condorDoAllSmoke [groupSize N] [SAMPLE=run28_embeddedJet20]${RST}
   ${BOLD}$0 isSimEmbeddedInclusive condorDoAll [groupSize N] [SAMPLE=run28_embeddedJet20]${RST}
-  ${BOLD}$0 isSimEmbeddedInclusive condorDoAllDirect [groupSize N] [SAMPLE=run28_embeddedJet20]${RST}
   ${DIM}$0 isSimEmbeddedInclusive condorDoAllFromScratch [groupSize N] [SAMPLE=run28_embeddedJet20]  # alias for direct fanout${RST}
 
 ${BOLD}SIM mode (photonJet5 single-slice):${RST}
@@ -561,7 +557,9 @@ Examples:
   $0 isSimMB condorDoAll groupSize 5
 
 Production histogram jobs use the original RecoilJets modules with direct
-photon-ID fanout. Pool/replay histogram production was removed.
+photon-ID fanout plus internal jet-pT, dphi, and iso/cone histogram views.
+Use RJ_ID_FANOUT_MAX_ROWS=5 or 10 only if a smoke test shows memory pressure.
+Pool/replay histogram production was removed.
 USAGE
   exit 2
 }
@@ -990,8 +988,20 @@ iso_group_key() {
   printf '%s|%s|%s\n' "${iso_base_tags[$iso_idx]}" "${iso_sliding[$iso_idx]}" "${iso_fixed[$iso_idx]}"
 }
 
+id_fanout_max_rows() {
+  local n="${RJ_ID_FANOUT_MAX_ROWS:-15}"
+  [[ "$n" =~ ^[0-9]+$ && "$n" -gt 0 ]] || { err "RJ_ID_FANOUT_MAX_ROWS must be a positive integer, got '${n}'"; exit 2; }
+  printf '%d\n' "$n"
+}
+
 iso_idx_is_group_leader() {
   local iso_idx="$1"
+  if iso_view_internal_enabled && id_fanout_enabled; then
+    local max_rows
+    max_rows="$(id_fanout_max_rows)"
+    (( iso_idx % max_rows == 0 ))
+    return $?
+  fi
   local key
   key="$(iso_group_key "$iso_idx")"
   local j
@@ -1002,6 +1012,12 @@ iso_idx_is_group_leader() {
 }
 
 iso_group_count() {
+  if iso_view_internal_enabled && id_fanout_enabled; then
+    local max_rows
+    max_rows="$(id_fanout_max_rows)"
+    ceil_div "${#iso_tags[@]}" "$max_rows"
+    return 0
+  fi
   local c=0 i
   for (( i=0; i<${#iso_tags[@]}; i++ )); do
     if iso_idx_is_group_leader "$i"; then (( c+=1 )); fi
@@ -1035,28 +1051,9 @@ dag_collect_enabled() {
 }
 
 iso_cone_fanout_enabled() {
-  id_fanout_enabled || return 1
-  iso_view_internal_enabled && return 1
-  case "${RJ_DISABLE_ISO_CONE_FANOUT:-0}" in
-    1|true|TRUE|yes|YES|on|ON) return 1 ;;
-  esac
-  return 0
-}
-
-direct_fanout_max_outputs() {
-  local n="${RJ_DIRECT_FANOUT_MAX_OUTPUTS:-30}"
-  [[ "$n" =~ ^[0-9]+$ && "$n" -gt 0 ]] || { err "RJ_DIRECT_FANOUT_MAX_OUTPUTS must be a positive integer, got '${n}'"; exit 2; }
-  if declare -p iso_tags >/dev/null 2>&1 && (( ${#iso_tags[@]} > 0 )); then
-    local groups min_rows
-    groups="$(iso_group_count)"
-    (( groups > 0 )) || groups=1
-    min_rows=$(( (${#iso_tags[@]} + groups - 1) / groups ))
-    if (( n < min_rows )); then
-      err "RJ_DIRECT_FANOUT_MAX_OUTPUTS=${n} is too small for the current photon-ID rows; use at least ${min_rows}."
-      exit 2
-    fi
-  fi
-  printf '%s\n' "$n"
+  # Production no longer uses separate iso/cone output fanout shards. ConeR and
+  # fixed/sliding isolation are internal histogram views inside each cfg ROOT.
+  return 1
 }
 
 direct_fanout_shard_count() {
@@ -1065,7 +1062,7 @@ direct_fanout_shard_count() {
   if iso_cone_fanout_enabled; then
     local total=$(( n_cones * n_rows ))
     local max_outputs
-    max_outputs="$(direct_fanout_max_outputs)"
+    max_outputs="$(id_fanout_max_rows)"
     ceil_div "$total" "$max_outputs"
   else
     iso_submit_count
@@ -1096,8 +1093,22 @@ iso_submit_count() {
 emit_id_fanout_dirs_file() {
   local out_file="$1" dest_root="$2" pt="$3" frac="$4" vz="$5" cone="$6" iso_idx="$7" uepipe="$8"
   local key cfg j
-  key="$(iso_group_key "$iso_idx")"
   : > "$out_file"
+  if iso_view_internal_enabled; then
+    local max_rows start end
+    max_rows="$(id_fanout_max_rows)"
+    start="$iso_idx"
+    end=$(( start + max_rows ))
+    (( end > ${#iso_tags[@]} )) && end="${#iso_tags[@]}"
+    for (( j=start; j<end; j++ )); do
+      cfg="$(matrix_cfg_tag "$pt" "$frac" "$vz" "$cone" "$j" "$uepipe")"
+      printf '%s|%s|%s|%s|%s\n' \
+        "${dest_root}/${cfg}" "$cfg" "${iso_preselection[$j]}" "${iso_tight[$j]}" "${iso_nonTight[$j]}" >> "$out_file"
+    done
+    return 0
+  fi
+
+  key="$(iso_group_key "$iso_idx")"
   for (( j=0; j<${#iso_tags[@]}; j++ )); do
     [[ "$(iso_group_key "$j")" == "$key" ]] || continue
     cfg="$(matrix_cfg_tag "$pt" "$frac" "$vz" "$cone" "$j" "$uepipe")"
@@ -1138,7 +1149,7 @@ emit_direct_fanout_shard_file() {
   shift 7
   local -a cones=( "$@" )
   local max_outputs
-  max_outputs="$(direct_fanout_max_outputs)"
+  max_outputs="$(id_fanout_max_rows)"
   : > "$out_file"
   local row=0 written=0 cone j cfg row_shard
   for cone in "${cones[@]}"; do
@@ -2061,11 +2072,11 @@ check_jobs_sim() {
   fi
   if id_fanout_enabled; then
     if iso_cone_fanout_enabled; then
-      say "  iso/cone fanout shards            : ${fanout_shards_per_axis} upstream shard(s) per pt/dphi/vz/UE axis (cap=$(direct_fanout_max_outputs) outputs/pass)"
+      say "  iso/cone fanout shards            : ${fanout_shards_per_axis} upstream shard(s) per pt/dphi/vz/UE axis (cap=$(id_fanout_max_rows) outputs/pass)"
       say "  final cone×iso×ID outputs         : $(( ${#sim_cones[@]} * ${#iso_tags[@]} )) cfg tag(s) per pt/dphi/vz/UE axis"
     else
-      say "  iso groups submitted              : ${iso_submit_n} upstream mode(s)"
-      say "  photon-ID fanout outputs          : ${#iso_tags[@]} cfg tag(s) across those iso groups"
+      say "  photon-ID fanout shards           : ${iso_submit_n} upstream shard(s), cap=${RJ_ID_FANOUT_MAX_ROWS:-15} cfg outputs/pass"
+      say "  photon-ID cfg outputs             : ${#iso_tags[@]} final cfg ROOT file(s)"
       iso_view_internal_enabled && say "  final ROOT layout                  : ${#iso_tags[@]} cfg file(s); each contains 4 suffixed iso/cone histogram views"
     fi
   else
@@ -2366,11 +2377,11 @@ check_jobs_all() {
   fi
   if id_fanout_enabled; then
     if iso_cone_fanout_enabled; then
-      say "  iso/cone fanout      : ${fanout_shards_per_axis} upstream shard(s) per pt/dphi/vz/UE axis (cap=$(direct_fanout_max_outputs) outputs/pass)"
+      say "  iso/cone fanout      : ${fanout_shards_per_axis} upstream shard(s) per pt/dphi/vz/UE axis (cap=$(id_fanout_max_rows) outputs/pass)"
       say "  final cone×iso×ID cfgs: $(( ${#ck_cones[@]} * ${#iso_tags[@]} )) cfg tag(s) per pt/dphi/vz/UE axis"
     else
-      say "  iso groups submitted : ${iso_submit_n} upstream mode(s)"
-      say "  photon-ID fanout cfgs: ${#iso_tags[@]} cfg tag(s) across those iso groups"
+      say "  photon-ID fanout     : ${iso_submit_n} upstream shard(s), cap=${RJ_ID_FANOUT_MAX_ROWS:-15} cfg outputs/pass"
+      say "  photon-ID cfg outputs: ${#iso_tags[@]} final cfg ROOT file(s)"
       iso_view_internal_enabled && say "  final ROOT layout     : ${#iso_tags[@]} cfg file(s); each contains 4 suffixed iso/cone histogram views"
     fi
   else
@@ -2554,7 +2565,7 @@ workflow_check() {
   say "                     nonTight=$(grep -E '^[[:space:]]*nonTight:' "$override" | tail -1 | awk -F: '{print $2}' | xargs)"
   say "  notify_emails    : $(grep -E '^[[:space:]]*notify_emails:' "$yaml_src" | head -1 | cut -d: -f2- | xargs || true)"
   if id_fanout_enabled; then
-    say "  production mode  : direct legacy RecoilJets fanout (${#iso_tags[@]} cfg-tag outputs across ${iso_submit_n} upstream iso groups)"
+    say "  production mode  : direct RecoilJets histogram machinery (${#iso_tags[@]} final cfg ROOT files; ${iso_submit_n} photon-ID fanout shard(s), cap=${RJ_ID_FANOUT_MAX_ROWS:-15})"
   else
     say "  production mode  : direct legacy one-cfg-per-job validation (ID fanout disabled)"
   fi
@@ -5144,7 +5155,7 @@ SUB
             say "Fanout outputs: $(wc -l < "$fanout_dirs" | awk '{print $1}') cfg tags from one DST pass"
             say "Fanout dirs file: ${fanout_dirs}"
           elif id_fanout_enabled; then
-            say "Submitting ${DATASET} condorDoAll ID-fanout (base tag=${SIM_CFG_TAG}, sample=${SIM_SAMPLE}, groupSize=${GROUP_SIZE}, nEvents=${direct_nevents}, uepipe=${uepipe}) → jobs=${BOLD}${#groups[@]}${RST}"
+            say "Submitting ${DATASET} condorDoAll RecoilJets fanout (base tag=${SIM_CFG_TAG}, sample=${SIM_SAMPLE}, groupSize=${GROUP_SIZE}, nEvents=${direct_nevents}, uepipe=${uepipe}) → jobs=${BOLD}${#groups[@]}${RST}"
             say "Fanout outputs: $(wc -l < "$fanout_dirs" | awk '{print $1}') cfg tags from one DST pass"
             say "Fanout dirs file: ${fanout_dirs}"
           else
@@ -5482,9 +5493,9 @@ SUB
         say "  golden list   : $(basename "$GOLDEN") ($(grep -cE '^[0-9]+' "$GOLDEN") runs)"
         if id_fanout_enabled; then
           if iso_cone_fanout_enabled; then
-            say "  engine        : direct legacy iso/cone/ID fanout (${final_cfg_n} final cfg outputs; ${fanout_shards_per_axis} shard(s) per pt/dphi/vz/UE axis; cap=$(direct_fanout_max_outputs))"
+            say "  engine        : direct legacy iso/cone/ID fanout (${final_cfg_n} final cfg outputs; ${fanout_shards_per_axis} shard(s) per pt/dphi/vz/UE axis; cap=$(id_fanout_max_rows))"
           else
-            say "  engine        : direct legacy RecoilJets fanout (${#iso_tags[@]} cfg outputs across ${iso_submit_n} upstream iso groups)"
+            say "  engine        : direct RecoilJets modules (${#iso_tags[@]} final cfg ROOT files; ${iso_submit_n} photon-ID fanout shard(s), cap=${RJ_ID_FANOUT_MAX_ROWS:-15})"
           fi
         else
           say "  engine        : direct legacy one-cfg-per-pass validation (fanout disabled)"

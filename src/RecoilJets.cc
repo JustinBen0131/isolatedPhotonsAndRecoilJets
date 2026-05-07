@@ -994,7 +994,7 @@ std::string RecoilJets::histRKeyForJetPt(const std::string& rKey, double ptGeV) 
 
 std::string RecoilJets::histRKeyForJetPtAndDphi(const std::string& rKey, double ptGeV, double cutRad) const
 {
-  return withIsoViewSuffix(histRKeyForDphi(histRKeyForJetPt(rKey, ptGeV), cutRad));
+  return recoilRKeyForScope(rKey, ptGeV, cutRad, HistViewScope::IsoView);
 }
 
 void RecoilJets::setInternalIsoViews(const std::vector<IsoView>& views)
@@ -1100,6 +1100,27 @@ std::string RecoilJets::withIsoViewSuffix(const std::string& base) const
   if (m_activeIsoViewSuffix.empty() || base.empty()) return base;
   if (base.find(m_activeIsoViewSuffix) != std::string::npos) return base;
   return base + m_activeIsoViewSuffix;
+}
+
+bool RecoilJets::fillCanonicalThisView() const
+{
+  if (m_internalIsoViews.empty()) return true;
+  if (m_activeIsoViewSuffix.empty()) return true;
+  return m_activeIsoViewSuffix == "_" + m_internalIsoViews.front().label;
+}
+
+std::string RecoilJets::histBaseForScope(const std::string& base, HistViewScope scope) const
+{
+  return (scope == HistViewScope::IsoView) ? withIsoViewSuffix(base) : base;
+}
+
+std::string RecoilJets::recoilRKeyForScope(const std::string& rKey,
+                                           double ptGeV,
+                                           double cutRad,
+                                           HistViewScope scope) const
+{
+  const std::string scanned = histRKeyForDphi(histRKeyForJetPt(rKey, ptGeV), cutRad);
+  return histBaseForScope(scanned, scope);
 }
 
 std::string RecoilJets::stripIsoViewSuffix(const std::string& key) const
@@ -1945,7 +1966,7 @@ int RecoilJets::Init(PHCompositeNode* topNode)
   trigAna = new TriggerAnalyzer();
   LOG(1, CLR_GREEN, "[Init] booking scalar QA histograms …");
   createHistos_Data();
-    
+
   /* 1.  optional DST node-tree dump ---------------------------------- */
   if (Verbosity() >= 2)           // ← adjust threshold as desired
   {
@@ -3269,7 +3290,7 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
 
 int RecoilJets::ResetEvent(PHCompositeNode*)
 {
-  
+
   m_centBin = -1;
 
   return Fun4AllReturnCodes::EVENT_OK;
@@ -4545,7 +4566,7 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
             // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
             // One entry per (event, rKey) when enabled.
             // -------------------------------------------------------------------------
-            if (m_evtDiagEnabled)
+            if (m_evtDiagEnabled && fillCanonicalThisView())
             {
               if (!m_evtDiagNodesReady)
               {
@@ -5318,7 +5339,7 @@ bool RecoilJets::runLeadIsoTightPhotonJetLoopAllRadii(
 
         const bool passEta = (std::fabs(jeta) < jetEtaAbsMaxUse);
 
-          
+
  //      // Track leading+subleading jets in the pT+eta set (NO Δφ requirement)
   //      if (jpt > all1Pt)
   //      {
@@ -5773,7 +5794,7 @@ bool RecoilJets::runLeadIsoTightPhotonJetMatchingAndUnfolding(
       // Measured reco photon spectrum for the exploratory PPG12-style object-match family
       // is filled per reco iso+tight photon candidate in the photon loop for DATA only.
       // The SIM truth-tagged reco marginal is filled later, at the truth-object match point.
-    
+
       if (m_isSim)
       {
         // Baseline reco photon fakes: selected reco photon not matching the truth signal photon
@@ -5787,14 +5808,14 @@ bool RecoilJets::runLeadIsoTightPhotonJetMatchingAndUnfolding(
           // Exploratory reco photon fakes under the PPG12-style object-match definition
           // are filled per reco iso+tight photon candidate before this event-level
           // jet-matching call so unmatched candidates are counted inclusively.
-      
+
           // Baseline photon response (truth -> reco): strict selected-anchor definition.
           if (haveTruthSigPho && haveTruthPho)
           {
             if (auto* hResp = getOrBookUnfoldResponsePhoPtGamma(trigShort, effCentIdx_M))
             { hResp->Fill(tPtSig, leadPtGamma); bumpHistFill(trigShort, hResp->GetName()); }
           }
-      
+
           // Baseline truth misses: strict selected-anchor definition.
           if (haveTruthSigPho && !haveTruthPho)
           {
@@ -5804,7 +5825,7 @@ bool RecoilJets::runLeadIsoTightPhotonJetMatchingAndUnfolding(
       }
     }
 
-  
+
   if (Verbosity() >= 5)
   {
     LOG(5, CLR_CYAN,
@@ -5813,9 +5834,9 @@ bool RecoilJets::runLeadIsoTightPhotonJetMatchingAndUnfolding(
         << " eta^γ=" << std::fixed << std::setprecision(3) << leadEtaGamma
         << " phi^γ=" << std::fixed << std::setprecision(3) << leadPhiGamma);
   }
-  
+
   bool filledAnyRadius = false;
-  
+
     filledAnyRadius =
         runLeadIsoTightPhotonJetLoopAllRadii(activeTrig,
                                              effCentIdx_M,
@@ -5909,7 +5930,7 @@ void RecoilJets::fillPureIsolationQA(PHCompositeNode* topNode,
     if (auto* hIso = getOrBookIsoHist(trigShort, ptIdx, effCentIdx))
     {
       hIso->Fill(eiso_tot);
-      bumpHistFill(trigShort, std::string("h_Eiso") + slice);
+      bumpHistFill(trigShort, hIso->GetName());
     }
 
     // (B) component isolation histograms (EMCal / IHCal / OHCal)
@@ -5918,7 +5939,7 @@ void RecoilJets::fillPureIsolationQA(PHCompositeNode* topNode,
                                          ptIdx, effCentIdx))
     {
       hEm->Fill(eiso_emcal);
-      bumpHistFill(trigShort, std::string("h_Eiso_emcal") + slice);
+      bumpHistFill(trigShort, hEm->GetName());
     }
 
     if (auto* hHi = getOrBookIsoPartHist(trigShort, "h_Eiso_hcalin",
@@ -5926,7 +5947,7 @@ void RecoilJets::fillPureIsolationQA(PHCompositeNode* topNode,
                                          ptIdx, effCentIdx))
     {
       hHi->Fill(eiso_hcalin);
-      bumpHistFill(trigShort, std::string("h_Eiso_hcalin") + slice);
+      bumpHistFill(trigShort, hHi->GetName());
     }
 
     if (auto* hHo = getOrBookIsoPartHist(trigShort, "h_Eiso_hcalout",
@@ -5934,14 +5955,14 @@ void RecoilJets::fillPureIsolationQA(PHCompositeNode* topNode,
                                          ptIdx, effCentIdx))
     {
       hHo->Fill(eiso_hcalout);
-      bumpHistFill(trigShort, std::string("h_Eiso_hcalout") + slice);
+      bumpHistFill(trigShort, hHo->GetName());
     }
 
     // (C) NEW isolation decision counts (PASS vs FAIL), independent of SS
     if (auto* hDec = getOrBookIsoDecisionHist(trigShort, ptIdx, effCentIdx))
     {
       hDec->Fill(isoPass ? 1 : 2);   // bin 1 = PASS, bin 2 = FAIL
-      bumpHistFill(trigShort, std::string("h_isoDecision") + slice);
+      bumpHistFill(trigShort, hDec->GetName());
     }
   }
 }
@@ -5952,6 +5973,7 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
                                                  const int centIdx)
 {
   const int effCentIdx_sig = (m_isAuAu ? centIdx : -1);
+  const bool doCanonical = fillCanonicalThisView();
 
   // Need HepMC event for truth-signal definition
   PHHepMCGenEventMap* hepmcmap = findNode::getClass<PHHepMCGenEventMap>(topNode, "PHHepMCGenEventMap");
@@ -6012,7 +6034,7 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
   {
     if (trig.empty() || name.empty()) return nullptr;
     if (m_gammaPtBins.size() < 2) return nullptr;
-    const std::string viewName = withIsoViewSuffix(name);
+    const std::string viewName = name;
 
     auto& H = qaHistogramsByTrigger[trig];
     if (auto it = H.find(viewName); it != H.end())
@@ -6045,6 +6067,7 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
                               const double pt,
                               const std::string& xAxisTitle)
   {
+    if (!doCanonical) return;
     if (!(m_isSim && !m_isAuAu && m_ppStitchDiagContext)) return;
     if (!std::isfinite(pt)) return;
 
@@ -6076,7 +6099,7 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
     // ---------------------------
     // Fill the isoEtTruth distribution for ALL prompt truth photons where isoEtTruth was computed
     // (this includes both PASS and FAIL of the iso cut).
-    if (std::isfinite(isoEtTruth))
+    if (doCanonical && std::isfinite(isoEtTruth))
     {
       for (const auto& trigShort : activeTrig)
       {
@@ -6358,7 +6381,7 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
                                              ptIdx_sig, effCentIdx_sig))
         {
           hIso->Fill(eiso_et);
-          bumpHistFill(trigShort, std::string("h_EisoReco_truthSigMatched") + slice_sig);
+          bumpHistFill(trigShort, hIso->GetName());
         }
 
         if (m_isSim && !m_isAuAu && m_ppStitchDiagContext)
@@ -6378,7 +6401,7 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
                                                   ptIdx_sig, effCentIdx_sig))
             {
               hVar->Fill(eiso_et);
-              bumpHistFill(trigShort, baseWeighted + slice_sig);
+              bumpHistFill(trigShort, hVar->GetName());
             }
 
             const std::string baseUnweighted =
@@ -6389,7 +6412,7 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
                                                        ptIdx_sig, effCentIdx_sig))
             {
               hVarNoVtx->TH1F::Fill(eiso_et, 1.0);
-              bumpHistFill(trigShort, baseUnweighted + slice_sig);
+              bumpHistFill(trigShort, hVarNoVtx->GetName());
             }
 
             fillPPStitchFlow(std::string("h_ppStitchDiag_flow_stitch_") + key + "_validEiso_recoPt_noVtxW",
@@ -6532,10 +6555,11 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
         LOG(0, CLR_YELLOW, "  [processCandidates] activeTrig is EMPTY – nothing to fill this event :(");
         return;
     }
-    
+
     // Centrality bin index (Au+Au only, else -1)
     const int centIdx = (m_isAuAu ? findCentBin(m_centBin) : -1);
-    
+    const bool doCanonical = fillCanonicalThisView();
+
     if (Verbosity() >= 4)
     {
         std::ostringstream os;
@@ -6544,24 +6568,24 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
         << "  m_centBin=" << m_centBin
         << "  nTriggers=" << activeTrig.size()
         << "  triggers={";
-        
+
         for (std::size_t i = 0; i < activeTrig.size(); ++i)
         {
             if (i) os << ", ";
             os << activeTrig[i];
         }
         os << "}";
-        
+
         LOG(4, CLR_BLUE, os.str());
     }
-    
+
     // If neither photons nor clusters are present, we cannot do anything
     if (!m_photons && !m_clus)
     {
         LOG(2, CLR_YELLOW, "  [processCandidates] PHOTONCLUSTER_CEMC and CLUSTERINFO_CEMC both MISSING – nothing to process - sus");
         return;
     }
-    
+
     // ==========================================================================
     //  Truth-signal → reco ABCD leakage counters
     //
@@ -6579,7 +6603,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
     {
         fillTruthSigABCDLeakageCounters(topNode, activeTrig, centIdx);
     }
-    
+
     // ==========================================================================
     // (SIM ONLY): PURE truth xJgamma distribution (NO reco gating)
     //
@@ -6598,15 +6622,15 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
     // Then fill:
     //   (tPt, xJt=tj1Pt/tPt, aT=tj2Pt/tPt)
     // ==========================================================================
-    if (m_isSim)
+    if (m_isSim && doCanonical)
     {
         const int effCentIdx_truth = (m_isAuAu ? centIdx : -1);
-        
+
         // Need HepMC event for truth-signal definition
         PHHepMCGenEventMap* hepmcmap = findNode::getClass<PHHepMCGenEventMap>(topNode, "PHHepMCGenEventMap");
         PHHepMCGenEvent*    hepmc    = nullptr;
         HepMC::GenEvent*    evt      = nullptr;
-        
+
         if (hepmcmap)
         {
             hepmc = hepmcmap->get(0);
@@ -6614,7 +6638,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
             if (!hepmc && !hepmcmap->empty()) hepmc = hepmcmap->begin()->second;
             if (hepmc) evt = hepmc->getEvent();
         }
-        
+
         if (!evt)
         {
             if (Verbosity() >= 4)
@@ -6630,21 +6654,21 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
             double tPt  = -1.0;
             double tEta = 0.0;
             double tPhi = 0.0;
-            
+
             for (auto it = evt->particles_begin(); it != evt->particles_end(); ++it)
             {
                 const HepMC::GenParticle* p = *it;
                 if (!p) continue;
-                
+
                 double isoEt = 0.0;
                 if (!isTruthPromptIsolatedSignalPhoton(evt, p, isoEt)) continue;
-                
+
                 const double pt  = std::hypot(p->momentum().px(), p->momentum().py());
                 const double eta = p->momentum().pseudoRapidity();
                 const double phi = TVector2::Phi_mpi_pi(p->momentum().phi());
-                
+
                 if (!std::isfinite(pt) || !std::isfinite(eta) || !std::isfinite(phi) || pt <= 0.0) continue;
-                
+
                 if (!haveTruthSigPho || pt > tPt)
                 {
                     haveTruthSigPho = true;
@@ -6653,7 +6677,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     tPhi = phi;
                 }
             }
-            
+
             if (!haveTruthSigPho || tPt <= 0.0)
             {
                 if (Verbosity() >= 5)
@@ -6668,9 +6692,9 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 for (const auto& kvT : m_truthJetsByRKey)
                 {
                     const std::string baseRKey = kvT.first;
-                    
+
                     JetContainer* truthJets = kvT.second;
-                    
+
                     if (!truthJets)
                     {
                         if (Verbosity() >= 5)
@@ -6680,7 +6704,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                         }
                         continue;
                     }
-                    
+
                     const double etaMaxTruth = jetEtaAbsMaxForRKey(baseRKey);
                     const double savedMinJetPt = m_minJetPt;
                     const double savedMinBackToBack = m_minBackToBack;
@@ -6690,46 +6714,46 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     for (const double dphiCut : activeBackToBackCuts())
                     {
                     m_minBackToBack = dphiCut;
-                    const std::string rKey = histRKeyForJetPtAndDphi(baseRKey, jetPtCut, dphiCut);
-                    
+                    const std::string rKey = recoilRKeyForScope(baseRKey, jetPtCut, dphiCut, HistViewScope::Canonical);
+
                     double tj1Pt = -1.0;
                     const Jet* tj1 = nullptr;
-                    
+
                     // 1) Histmaker-style truth recoil jet1 definition (mirror RECO chronology):
                     //   - pick GLOBAL leading truth jet first (after pT gate + photon overlap veto; NO eta/dphi pre-veto)
                     //   - then veto if that chosen jet is not fiducial in eta (NO fallback)
                     //   - then require it be back-to-back to the truth gamma
                     double all1PtTruth = -1.0;
                     const Jet* all1Truth = nullptr;
-                    
+
                     for (const Jet* tj : *truthJets)
                     {
                         if (!tj) continue;
-                        
+
                         const double ptj  = tj->get_pt();
                         const double etaj = tj->get_eta();
                         const double phij = tj->get_phi();
-                        
+
                         if (!std::isfinite(ptj) || !std::isfinite(etaj) || !std::isfinite(phij)) continue;
                         if (ptj < m_minJetPt) continue;
-                        
+
                         // Photon–jet overlap veto: exclude jets near the truth photon direction (ΔR < 0.4)
                         const double dphiPho = TVector2::Phi_mpi_pi(phij - tPhi);
                         const double detaPho = (etaj - tEta);
                         const double dRPho2  = (detaPho*detaPho + dphiPho*dphiPho);
-                        
+
                         if (!std::isfinite(dRPho2) || (dRPho2 < (0.4 * 0.4)))
                         {
                             continue;
                         }
-                        
+
                         if (ptj > all1PtTruth)
                         {
                             all1PtTruth = ptj;
                             all1Truth   = tj;
                         }
                     }
-                    
+
                     if (!all1Truth || all1PtTruth <= 0.0)
                     {
                         if (Verbosity() >= 6)
@@ -6739,7 +6763,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                         }
                         continue;
                     }
-                    
+
                     {
                         const double etaj = all1Truth->get_eta();
                         if (!std::isfinite(etaj) || (std::fabs(etaj) >= etaMaxTruth))
@@ -6752,7 +6776,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                             continue;
                         }
                     }
-                    
+
                     {
                         const double phij = all1Truth->get_phi();
                         const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(phij - tPhi));
@@ -6766,42 +6790,42 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                             continue;
                         }
                     }
-                    
+
                     tj1Pt = all1PtTruth;
                     tj1   = all1Truth;
-                    
+
                     // 2) truth jet2 for α: highest-pT fiducial truth jet excluding tj1 (NO Δφ requirement)
                     double tj2Pt = -1.0;
                     for (const Jet* tj : *truthJets)
                     {
                         if (!tj) continue;
-                        
+
                         const double ptj  = tj->get_pt();
                         const double etaj = tj->get_eta();
                         const double phij = tj->get_phi();
-                        
+
                         if (!std::isfinite(ptj) || !std::isfinite(etaj) || !std::isfinite(phij)) continue;
                         if (ptj < m_minJetPt) continue;
-                        
+
                         // Photon–jet overlap veto: exclude jets near the truth photon direction (ΔR < 0.4)
                         const double dphiPho = TVector2::Phi_mpi_pi(phij - tPhi);
                         const double detaPho = (etaj - tEta);
                         const double dRPho2  = (detaPho*detaPho + dphiPho*dphiPho);
-                        
+
                         if (!std::isfinite(dRPho2) || (dRPho2 < (0.4 * 0.4)))
                         {
                             continue;
                         }
-                        
+
                         if (std::fabs(etaj) >= etaMaxTruth) continue;
                         if (tj == tj1) continue;
-                        
+
                         if (ptj > tj2Pt) tj2Pt = ptj;
                     }
-                    
+
                     const double xJt = tj1Pt / tPt;
                     const double aT  = (tj2Pt > 0.0 ? (tj2Pt / tPt) : 0.0);
-                    
+
                     for (const auto& trigShort : activeTrig)
                     {
                         if (auto* ht3_pure = getOrBookJES3TruthPure_xJ_alphaHist(trigShort, rKey, effCentIdx_truth))
@@ -6810,7 +6834,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                             bumpHistFill(trigShort, ht3_pure->GetName());
                         }
                     }
-                    
+
                     if (Verbosity() >= 7)
                     {
                         LOG(7, CLR_CYAN,
@@ -6829,23 +6853,23 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
             }
         }
     }
-    
+
     // ========================= PHOTON path ========================
     if (m_photons)
     {
         RawClusterContainer::ConstRange prange = m_photons->getClusters();
-        
+
         // Quick emptiness check
         std::size_t nPho = 0;
         for (auto tmp = prange.first; tmp != prange.second; ++tmp) ++nPho;
         LOG(4, CLR_BLUE, "    [processCandidates] photons present: " << nPho);
         if (nPho == 0)
             LOG(3, CLR_YELLOW, "    [processCandidates] photon container is EMPTY for this event");
-        
+
         // Per-event counters
         std::size_t nUsed = 0;
         std::size_t nSkipEta = 0, nSkipEtBin = 0, nSkipPhi = 0, nNoRC = 0, nNotIso = 0, nNotTight = 0;
-        
+
         try
         {
             // ---- Event-level de-duplication for jet matching / JES fills ----
@@ -6857,7 +6881,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
             double leadPtGamma      = -1.0;
             double leadEtaGamma     = 0.0;
             double leadPhiGamma     = 0.0;
-            
+
             // Region-C sideband candidate for purity subtraction:
             // keep ONLY the event-leading iso ∧ nonTight photon (PPG12 non-tight = fails >=2 tight cuts).
             bool   haveLeadIsoNonTight = false;
@@ -6875,27 +6899,27 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
             bool   haveLeadNonIsoNonTight = false;
             double leadNonIsoNonTightPtGamma  = -1.0;
             const RawCluster* leadNonIsoNonTightRc = nullptr;
-            
+
             //  leading reco photon candidate in pT^gamma within analysis pT bins,
             // WITHOUT requiring iso or tightness (used for jet-level cutflow QA vs pT^gamma)
             bool   haveLeadAnyPho  = false;
             int    leadAnyPtIdx    = -1;
             double leadAnyPtGamma  = -1.0;
             double leadAnyPhiGamma = 0.0;
-            
+
             // Keep a pointer to the actual leading reco photon cluster (needed for SIM truth↔reco association)
             const RawCluster* leadRc = nullptr;
-            
+
             // Event-level diagnostic: number of reco photon candidates that pass the SAME
             // iso∧tight gate used for the event-leading photon selection in this event.
             int nIsoTightPhoCand = 0;
-            
+
             // PPG12-style photon-only bookkeeping: keep every reco iso∧tight candidate so the
             // alternate reco and fake spectra can be filled per object, independent of leading selection.
             std::vector<const RawCluster*> recoIsoTightPhoClustersPPG12;
             std::vector<double>            recoIsoTightPhoPtsPPG12;
             std::vector<const RawCluster*> recoMatchedTruthPhoClustersPPG12;
-            
+
             // ------------------------------------------------------------------
             // SIM ONLY: objects needed to truth-tag reco clusters for PPG12-style
             // shower-shape templates (signal vs background).
@@ -6904,12 +6928,12 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
             bool haveCaloEval_SS = false;
             std::unique_ptr<CaloRawClusterEval> clustereval_SS;
             TruthSignalPhotonMap truthSignalByTrackId_SS;
-            
+
             if (m_isSim)
             {
                 PHHepMCGenEventMap* hepmcmap_SS = findNode::getClass<PHHepMCGenEventMap>(topNode, "PHHepMCGenEventMap");
                 PHHepMCGenEvent*    hepmc_SS    = nullptr;
-                
+
                 if (hepmcmap_SS)
                 {
                     hepmc_SS = hepmcmap_SS->get(0);
@@ -6917,19 +6941,19 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     if (!hepmc_SS && !hepmcmap_SS->empty()) hepmc_SS = hepmcmap_SS->begin()->second;
                     if (hepmc_SS) evtHepMC_SS = hepmc_SS->getEvent();
                 }
-                
+
                 clustereval_SS.reset(new CaloRawClusterEval(topNode, "CEMC"));
                 clustereval_SS->set_usetowerinfo(true);
                 clustereval_SS->next_event(topNode);
-                
+
                 if (!clustereval_SS->has_reduced_node_pointers())
                 {
                     clustereval_SS->set_usetowerinfo(false);
                     clustereval_SS->next_event(topNode);
                 }
-                
+
                 haveCaloEval_SS = clustereval_SS->has_reduced_node_pointers();
-                
+
                 if (!evtHepMC_SS && Verbosity() >= 5)
                     LOG(5, CLR_YELLOW, "      [SS templates] PHHepMCGenEventMap/HepMC event missing → will fill *_bkg only");
                 if (!haveCaloEval_SS && Verbosity() >= 5)
@@ -6940,7 +6964,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     truthSignalByTrackId_SS = buildPPG12TruthSignalPhotonMap(evtHepMC_SS);
                 }
             }
-            
+
             int iPho = 0;
             for (auto pit = prange.first; pit != prange.second; ++pit, ++iPho)
             {
@@ -6951,14 +6975,14 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     LOG(5, CLR_YELLOW, "      [pho#" << iPho << "] pointer is not PhotonClusterv1 – skipping");
                     continue;
                 }
-                
+
                 // Upcast through inheritance (no RTTI, no second cast)
                 const RawCluster* rc = pho;
-                
-                
-                
-                ++m_bk.pho_total;
-                
+
+
+
+                if (doCanonical) ++m_bk.pho_total;
+
                 // --------------------------------------------------------------
                 // Use the EXACT kinematics produced by PhotonClusterBuilder:
                 //   - vertex_z    (MBD z used in builder)
@@ -6972,7 +6996,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 double phi      = pho->get_shower_shape_parameter("cluster_phi");
                 double pt_gamma = pho->get_shower_shape_parameter("cluster_pt");
                 const double energy = rc->get_energy();
-                
+
                 // Strict mode: ONLY use PhotonClusterBuilder-provided kinematics.
                 // If they are missing/non-finite, skip this candidate and print why.
                 if (!std::isfinite(eta) || !std::isfinite(phi) || !std::isfinite(pt_gamma))
@@ -6983,19 +7007,19 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                         << " → skipping candidate.");
                     continue;
                 }
-                
+
                 // -------- reco pT^gamma floor (PPG12 reco-matching requirement) ----
                 // PPG12 requirement you stated: pT_reco > 5 GeV  (and for photons pT == ET).
                 constexpr double kMinPtGamma = 5.0; // GeV
-                
+
                 if (pt_gamma < kMinPtGamma)
                 {
-                    ++nSkipEtBin; ++m_bk.pho_early_E;
-                    
+                    ++nSkipEtBin; if (doCanonical) ++m_bk.pho_early_E;
+
                     if (Verbosity() >= 6)
                     {
                         const int dbgPtIdx = findPtBin(pt_gamma);
-                        
+
                         std::ostringstream os;
                         os << "      [pho#" << iPho << "] early reject (pT^#gamma floor)"
                         << " | pT="  << std::fixed << std::setprecision(2) << pt_gamma
@@ -7008,11 +7032,11 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     }
                     continue;
                 }
-                
+
                 // |η| fiducial cut
                 if (!std::isfinite(eta) || std::fabs(eta) >= m_etaAbsMax)
                 {
-                    ++nSkipEta; ++m_bk.pho_eta_fail;
+                    ++nSkipEta; if (doCanonical) ++m_bk.pho_eta_fail;
                     if (Verbosity() >= 2)
                     {
                         std::cout << CLR_MAGENTA
@@ -7026,12 +7050,12 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     }
                     continue;
                 }
-                
+
                 // Now do your configured pT binning (drives ALL pT-sliced histograms + JES objects)
                 const int ptIdx = findPtBin(pt_gamma);
                 if (ptIdx < 0)
                 {
-                    ++nSkipEtBin; ++m_bk.pho_etbin_out;
+                    ++nSkipEtBin; if (doCanonical) ++m_bk.pho_etbin_out;
                     if (Verbosity() >= 2)
                     {
                         std::cout << CLR_MAGENTA
@@ -7044,10 +7068,10 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     }
                     continue;
                 }
-                
+
                 // φ to use for jet matching (used later for jet scan)
                 const double phi_gamma = phi;
-                
+
                 //  choose event-leading reco photon candidate in pT^gamma (within analysis bins),
                 // WITHOUT iso/tight requirement.
                 if (!haveLeadAnyPho || pt_gamma > leadAnyPtGamma)
@@ -7057,57 +7081,60 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     leadAnyPtGamma  = pt_gamma;
                     leadAnyPhiGamma = phi_gamma;
                 }
-                
+
                 fillPureIsolationQA(topNode, activeTrig, pho, rc, ptIdx, centIdx, pt_gamma);
-                
+
                 // 1) Build shower-shape inputs (for preselection and tightness)
                 const SSVars v = makeSSFromPhoton(pho, pt_gamma);
-                ++m_bk.pho_reached_pre_iso;
+                if (doCanonical) ++m_bk.pho_reached_pre_iso;
 
                 const int effCentIdx_SS = (m_isAuAu ? centIdx : -1);
                 const std::string slice_SS = suffixForBins(ptIdx, effCentIdx_SS);
 
-                for (const auto& trigShort : activeTrig)
+                if (doCanonical)
                 {
-                    if (preselectionUsesNPB(m_preselectionVariant))
+                    for (const auto& trigShort : activeTrig)
                     {
-                        const bool finiteNPB = std::isfinite(v.npb_score);
-                        if (auto* h = getOrBookCountHist(trigShort, finiteNPB ? "h_npbScore_finite" : "h_npbScore_missing",
-                                                         ptIdx, effCentIdx_SS))
+                        if (preselectionUsesNPB(m_preselectionVariant))
                         {
-                            h->Fill(1);
-                            bumpHistFill(trigShort, std::string(finiteNPB ? "h_npbScore_finite" : "h_npbScore_missing") + slice_SS);
-                        }
-                        if (finiteNPB)
-                        {
-                            if (auto* hScore = getOrBookBDTScoreHist(trigShort, "h_npbScore_allCandidates", ptIdx, effCentIdx_SS))
+                            const bool finiteNPB = std::isfinite(v.npb_score);
+                            if (auto* h = getOrBookCountHist(trigShort, finiteNPB ? "h_npbScore_finite" : "h_npbScore_missing",
+                                                             ptIdx, effCentIdx_SS, HistViewScope::Canonical))
                             {
-                                hScore->Fill(v.npb_score);
-                                bumpHistFill(trigShort, std::string("h_npbScore_allCandidates") + slice_SS);
+                                h->Fill(1);
+                                bumpHistFill(trigShort, std::string(finiteNPB ? "h_npbScore_finite" : "h_npbScore_missing") + slice_SS);
+                            }
+                            if (finiteNPB)
+                            {
+                                if (auto* hScore = getOrBookBDTScoreHist(trigShort, "h_npbScore_allCandidates", ptIdx, effCentIdx_SS))
+                                {
+                                    hScore->Fill(v.npb_score);
+                                    bumpHistFill(trigShort, std::string("h_npbScore_allCandidates") + slice_SS);
+                                }
                             }
                         }
-                    }
 
-                    if (m_tightVariant == "newPPG12")
-                    {
-                        const bool finiteTight = std::isfinite(v.tight_bdt_score);
-                        if (auto* h = getOrBookCountHist(trigShort, finiteTight ? "h_tightBDTScore_finite" : "h_tightBDTScore_missing",
-                                                         ptIdx, effCentIdx_SS))
+                        if (m_tightVariant == "newPPG12")
                         {
-                            h->Fill(1);
-                            bumpHistFill(trigShort, std::string(finiteTight ? "h_tightBDTScore_finite" : "h_tightBDTScore_missing") + slice_SS);
-                        }
-                        if (finiteTight)
-                        {
-                            if (auto* hScore = getOrBookBDTScoreHist(trigShort, "h_tightBDTScore_allCandidates", ptIdx, effCentIdx_SS))
+                            const bool finiteTight = std::isfinite(v.tight_bdt_score);
+                            if (auto* h = getOrBookCountHist(trigShort, finiteTight ? "h_tightBDTScore_finite" : "h_tightBDTScore_missing",
+                                                             ptIdx, effCentIdx_SS, HistViewScope::Canonical))
                             {
-                                hScore->Fill(v.tight_bdt_score);
-                                bumpHistFill(trigShort, std::string("h_tightBDTScore_allCandidates") + slice_SS);
+                                h->Fill(1);
+                                bumpHistFill(trigShort, std::string(finiteTight ? "h_tightBDTScore_finite" : "h_tightBDTScore_missing") + slice_SS);
+                            }
+                            if (finiteTight)
+                            {
+                                if (auto* hScore = getOrBookBDTScoreHist(trigShort, "h_tightBDTScore_allCandidates", ptIdx, effCentIdx_SS))
+                                {
+                                    hScore->Fill(v.tight_bdt_score);
+                                    bumpHistFill(trigShort, std::string("h_tightBDTScore_allCandidates") + slice_SS);
+                                }
                             }
                         }
                     }
                 }
-                
+
                 // ------------------------------------------------------------------
                 // Deliverable Set A:
                 //   Shower-shape spectra split by isolation tag (inclusive / iso / nonIso)
@@ -7115,146 +7142,146 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 //   - "nonIso" : Eiso > (A + B * pT + gap)     (strict sideband; GAP excluded)
                 // ------------------------------------------------------------------
                 const double eiso_et = eiso(rc, topNode);
-                
+
                 bool ssIso = false;
                 bool ssNonIso = false;
-                
+
                 if (std::isfinite(eiso_et) && eiso_et < 1e8)
                 {
                     const double thrIsoSS    = (m_isSlidingIso ? (m_isoA + m_isoB * pt_gamma) : m_isoFixed);
                     const double thrNonIsoSS = thrIsoSS + m_isoGap;
-                    
+
                     ssIso    = (eiso_et < thrIsoSS);
                     ssNonIso = (eiso_et > thrNonIsoSS);
                 }
-                
-                auto fillSSSpectra = [&](const std::string& trigShort, const std::string& tagKey)
+
+                auto fillSSSpectra = [&](const std::string& trigShort, const std::string& tagKey, HistViewScope scope)
                 {
                     auto fill1 = [&](const std::string& key, double val)
                     {
                         if (!std::isfinite(val)) return;
-                        
-                        if (auto* h = getOrBookSSHist(trigShort, key, tagKey, ptIdx, effCentIdx_SS))
+
+                        if (auto* h = getOrBookSSHist(trigShort, key, tagKey, ptIdx, effCentIdx_SS, scope))
                         {
                             h->Fill(val);
-                            bumpHistFill(trigShort, "h_ss_" + key + "_" + tagKey + slice_SS);
+                            bumpHistFill(trigShort, h->GetName());
                         }
                     };
-                    
+
                     fill1("weta",   v.weta_cogx);
                     fill1("wphi",   v.wphi_cogx);
                     fill1("et1",    v.et1);
                     fill1("e11e33", v.e11_over_e33);
                     fill1("e32e35", v.e32_over_e35);
                 };
-                
+
                 for (const auto& trigShort : activeTrig)
                 {
-                    fillSSSpectra(trigShort, "inclusive");
-                    if (ssIso)    fillSSSpectra(trigShort, "iso");
-                    if (ssNonIso) fillSSSpectra(trigShort, "nonIso");
+                    if (doCanonical) fillSSSpectra(trigShort, "inclusive", HistViewScope::Canonical);
+                    if (ssIso)    fillSSSpectra(trigShort, "iso", HistViewScope::IsoView);
+                    if (ssNonIso) fillSSSpectra(trigShort, "nonIso", HistViewScope::IsoView);
                 }
-                
+
                 // ---------- NPB preselection shadow QA ----------
                 // If an NPB-gated preselection is active, keep that decision untouched,
                 // but also evaluate the reference pp/PPG12 preselection as diagnostics.
-                if (preselectionUsesNPB(m_preselectionVariant))
+                if (doCanonical && preselectionUsesNPB(m_preselectionVariant))
                 {
                     const bool npbPassForAudit =
                         std::isfinite(v.npb_score) &&
                         std::isfinite(v.pt_gamma) &&
                         (v.npb_score > m_npbCut);
-                    
+
                     const std::string npbTagKey = (npbPassForAudit ? "npbPass" : "npbFail");
-                    
+
                     const bool ref_pass_e11e33 = (v.e11_over_e33 < PRE_E11E33_MAX);
                     const bool ref_pass_et1    = in_open_interval(v.et1, PRE_ET1_MIN, PRE_ET1_MAX);
                     const bool ref_pass_e32e35 = in_open_interval(v.e32_over_e35, PRE_E32E35_MIN, PRE_E32E35_MAX);
                     const bool ref_pass_weta   = (v.weta_cogx < PRE_WETA_MAX);
-                    
+
                     const bool ref_fail_e11e33 = !ref_pass_e11e33;
                     const bool ref_fail_et1    = !ref_pass_et1;
                     const bool ref_fail_e32e35 = !ref_pass_e32e35;
                     const bool ref_fail_weta   = !ref_pass_weta;
-                    
+
                     int preRefFailMask = 0;
                     if (ref_fail_e11e33) preRefFailMask |= 1;
                     if (ref_fail_et1)    preRefFailMask |= 2;
                     if (ref_fail_e32e35) preRefFailMask |= 4;
                     if (ref_fail_weta)   preRefFailMask |= 8;
-                    
+
                     const bool refPassForAudit = (preRefFailMask == 0);
-                    
+
                     auto fillNPBScore = [&](const std::string& trigShort, const std::string& tagKey)
                     {
                         if (!std::isfinite(v.npb_score)) return;
-                        
-                        if (auto* h = getOrBookSSHist(trigShort, "npbScore", tagKey, ptIdx, effCentIdx_SS))
+
+                        if (auto* h = getOrBookSSHist(trigShort, "npbScore", tagKey, ptIdx, effCentIdx_SS, HistViewScope::Canonical))
                         {
                             h->Fill(v.npb_score);
-                            bumpHistFill(trigShort, "h_ss_npbScore_" + tagKey + slice_SS);
+                            bumpHistFill(trigShort, h->GetName());
                         }
                     };
-                    
+
                     auto fillPreRefFailCount = [&](const std::string& trigShort, const std::string& base)
                     {
                         const std::string baseAll = base + "_all";
-                        if (auto* h = getOrBookCountHist(trigShort, baseAll, ptIdx, effCentIdx_SS))
+                        if (auto* h = getOrBookCountHist(trigShort, baseAll, ptIdx, effCentIdx_SS, HistViewScope::Canonical))
                         {
                             h->Fill(1);
                             bumpHistFill(trigShort, baseAll + slice_SS);
                         }
-                        
+
                         const std::string baseNPB = base + "_" + npbTagKey;
-                        if (auto* h = getOrBookCountHist(trigShort, baseNPB, ptIdx, effCentIdx_SS))
+                        if (auto* h = getOrBookCountHist(trigShort, baseNPB, ptIdx, effCentIdx_SS, HistViewScope::Canonical))
                         {
                             h->Fill(1);
                             bumpHistFill(trigShort, baseNPB + slice_SS);
                         }
                     };
-                    
+
                     for (const auto& trigShort : activeTrig)
                     {
-                        fillSSSpectra(trigShort, npbTagKey);
+                        fillSSSpectra(trigShort, npbTagKey, HistViewScope::Canonical);
                         fillNPBScore(trigShort, "inclusive");
                         fillNPBScore(trigShort, npbTagKey);
-                        
-                        if (auto* hMaskAll = getOrBookCountHist(trigShort, "h_preRefFailMask_all", ptIdx, effCentIdx_SS))
+
+                        if (auto* hMaskAll = getOrBookCountHist(trigShort, "h_preRefFailMask_all", ptIdx, effCentIdx_SS, HistViewScope::Canonical))
                         {
                             hMaskAll->Fill(preRefFailMask);
                             bumpHistFill(trigShort, std::string("h_preRefFailMask_all") + slice_SS);
                         }
-                        
+
                         const std::string maskNPB = "h_preRefFailMask_" + npbTagKey;
-                        if (auto* hMaskNPB = getOrBookCountHist(trigShort, maskNPB, ptIdx, effCentIdx_SS))
+                        if (auto* hMaskNPB = getOrBookCountHist(trigShort, maskNPB, ptIdx, effCentIdx_SS, HistViewScope::Canonical))
                         {
                             hMaskNPB->Fill(preRefFailMask);
                             bumpHistFill(trigShort, maskNPB + slice_SS);
                         }
-                        
+
                         const std::string matrixBase =
                             std::string("h_preRefMatrix_") +
                             npbTagKey + "_" +
                             (refPassForAudit ? "refPass" : "refFail");
-                        
-                        if (auto* hMatrix = getOrBookCountHist(trigShort, matrixBase, ptIdx, effCentIdx_SS))
+
+                        if (auto* hMatrix = getOrBookCountHist(trigShort, matrixBase, ptIdx, effCentIdx_SS, HistViewScope::Canonical))
                         {
                             hMatrix->Fill(1);
                             bumpHistFill(trigShort, matrixBase + slice_SS);
                         }
-                        
+
                         if (ref_fail_weta)
                             fillPreRefFailCount(trigShort, "h_preRefFail_weta");
-                        
+
                         if (ref_fail_et1)
                         {
                             const std::string base = (v.et1 <= PRE_ET1_MIN) ? "h_preRefFail_et1_low" : "h_preRefFail_et1_high";
                             fillPreRefFailCount(trigShort, base);
                         }
-                        
+
                         if (ref_fail_e11e33)
                             fillPreRefFailCount(trigShort, "h_preRefFail_e11e33_high");
-                        
+
                         if (ref_fail_e32e35)
                         {
                             const std::string base = (v.e32_over_e35 <= PRE_E32E35_MIN) ? "h_preRefFail_e32e35_low" : "h_preRefFail_e32e35_high";
@@ -7262,23 +7289,26 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                         }
                     }
                 }
-                
+
                 // ---------- Preselection breakdown (count by criterion) ----------
-                
+
                 const bool pre_ok = passesPhotonPreselection(v);
                 if (!pre_ok)
                 {
                     if (preselectionUsesNPB(m_preselectionVariant))
                     {
-                        for (const auto& trigShort : activeTrig)
+                        if (doCanonical)
                         {
-                            if (auto* h = getOrBookCountHist(trigShort, "h_preFail_bdt", ptIdx, effCentIdx_SS))
+                            for (const auto& trigShort : activeTrig)
                             {
-                                h->Fill(1);
-                                bumpHistFill(trigShort, std::string("h_preFail_bdt") + slice_SS);
+                                if (auto* h = getOrBookCountHist(trigShort, "h_preFail_bdt", ptIdx, effCentIdx_SS, HistViewScope::Canonical))
+                                {
+                                    h->Fill(1);
+                                    bumpHistFill(trigShort, std::string("h_preFail_bdt") + slice_SS);
+                                }
                             }
                         }
-                        
+
                         if (Verbosity() >= 4)
                         {
                             std::ostringstream msg;
@@ -7296,60 +7326,66 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                         const bool pass_et1    = in_open_interval(v.et1, PRE_ET1_MIN, PRE_ET1_MAX);
                         const bool pass_e32e35 = in_open_interval(v.e32_over_e35, PRE_E32E35_MIN, PRE_E32E35_MAX);
                         const bool pass_weta   = (v.weta_cogx < PRE_WETA_MAX);
-                        
+
                         const bool fail_e11e33 = !pass_e11e33;
                         const bool fail_et1    = !pass_et1;
                         const bool fail_e32e35 = !pass_e32e35;
                         const bool fail_weta   = !pass_weta;
-                        
+
                         int preFailMask = 0;
                         if (fail_e11e33) preFailMask |= 1;
                         if (fail_et1)    preFailMask |= 2;
                         if (fail_e32e35) preFailMask |= 4;
                         if (fail_weta)   preFailMask |= 8;
-                        
-                        for (const auto& trigShort : activeTrig)
+
+                        if (doCanonical)
                         {
-                            if (auto* hMask = getOrBookCountHist(trigShort, "h_preFailMask", ptIdx, effCentIdx_SS))
+                            for (const auto& trigShort : activeTrig)
                             {
-                                hMask->Fill(preFailMask);
-                                bumpHistFill(trigShort, std::string("h_preFailMask") + slice_SS);
-                            }
-                            
-                            if (!pass_weta)
-                            {
-                                if (auto* h = getOrBookCountHist(trigShort, "h_preFail_weta", ptIdx, effCentIdx_SS))
-                                { h->Fill(1); bumpHistFill(trigShort, std::string("h_preFail_weta") + slice_SS); }
-                            }
-                            if (!pass_et1)
-                            {
-                                const char* base = (v.et1 <= PRE_ET1_MIN) ? "h_preFail_et1_low" : "h_preFail_et1_high";
-                                if (auto* h = getOrBookCountHist(trigShort, base, ptIdx, effCentIdx_SS))
-                                { h->Fill(1); bumpHistFill(trigShort, std::string(base) + slice_SS); }
-                            }
-                            if (!pass_e11e33)
-                            {
-                                if (auto* h = getOrBookCountHist(trigShort, "h_preFail_e11e33_high", ptIdx, effCentIdx_SS))
-                                { h->Fill(1); bumpHistFill(trigShort, std::string("h_preFail_e11e33_high") + slice_SS); }
-                            }
-                            if (!pass_e32e35)
-                            {
-                                const char* base = (v.e32_over_e35 <= PRE_E32E35_MIN) ? "h_preFail_e32e35_low" : "h_preFail_e32e35_high";
-                                if (auto* h = getOrBookCountHist(trigShort, base, ptIdx, effCentIdx_SS))
-                                { h->Fill(1); bumpHistFill(trigShort, std::string(base) + slice_SS); }
+                                if (auto* hMask = getOrBookCountHist(trigShort, "h_preFailMask", ptIdx, effCentIdx_SS, HistViewScope::Canonical))
+                                {
+                                    hMask->Fill(preFailMask);
+                                    bumpHistFill(trigShort, std::string("h_preFailMask") + slice_SS);
+                                }
+
+                                if (!pass_weta)
+                                {
+                                    if (auto* h = getOrBookCountHist(trigShort, "h_preFail_weta", ptIdx, effCentIdx_SS, HistViewScope::Canonical))
+                                    { h->Fill(1); bumpHistFill(trigShort, std::string("h_preFail_weta") + slice_SS); }
+                                }
+                                if (!pass_et1)
+                                {
+                                    const char* base = (v.et1 <= PRE_ET1_MIN) ? "h_preFail_et1_low" : "h_preFail_et1_high";
+                                    if (auto* h = getOrBookCountHist(trigShort, base, ptIdx, effCentIdx_SS, HistViewScope::Canonical))
+                                    { h->Fill(1); bumpHistFill(trigShort, std::string(base) + slice_SS); }
+                                }
+                                if (!pass_e11e33)
+                                {
+                                    if (auto* h = getOrBookCountHist(trigShort, "h_preFail_e11e33_high", ptIdx, effCentIdx_SS, HistViewScope::Canonical))
+                                    { h->Fill(1); bumpHistFill(trigShort, std::string("h_preFail_e11e33_high") + slice_SS); }
+                                }
+                                if (!pass_e32e35)
+                                {
+                                    const char* base = (v.e32_over_e35 <= PRE_E32E35_MIN) ? "h_preFail_e32e35_low" : "h_preFail_e32e35_high";
+                                    if (auto* h = getOrBookCountHist(trigShort, base, ptIdx, effCentIdx_SS, HistViewScope::Canonical))
+                                    { h->Fill(1); bumpHistFill(trigShort, std::string(base) + slice_SS); }
+                                }
                             }
                         }
-                        
-                        if (!pass_weta)   ++m_bk.pre_fail_weta;
-                        if (!pass_et1)    { if (v.et1 <= PRE_ET1_MIN) ++m_bk.pre_fail_et1_low; else ++m_bk.pre_fail_et1_high; }
-                        if (!pass_e11e33) ++m_bk.pre_fail_e11e33_high;
-                        if (!pass_e32e35) { if (v.e32_over_e35 <= PRE_E32E35_MIN) ++m_bk.pre_fail_e32e35_low; else ++m_bk.pre_fail_e32e35_high; }
-                        
+
+                        if (doCanonical)
+                        {
+                            if (!pass_weta)   ++m_bk.pre_fail_weta;
+                            if (!pass_et1)    { if (v.et1 <= PRE_ET1_MIN) ++m_bk.pre_fail_et1_low; else ++m_bk.pre_fail_et1_high; }
+                            if (!pass_e11e33) ++m_bk.pre_fail_e11e33_high;
+                            if (!pass_e32e35) { if (v.e32_over_e35 <= PRE_E32E35_MIN) ++m_bk.pre_fail_e32e35_low; else ++m_bk.pre_fail_e32e35_high; }
+                        }
+
                         if (Verbosity() >= 4)
                         {
                             const char* et1_state    = pass_et1    ? "PASS" : (v.et1 <= PRE_ET1_MIN ? "FAIL(low)" : "FAIL(high)");
                             const char* e32e35_state = pass_e32e35 ? "PASS" : (v.e32_over_e35 <= PRE_E32E35_MIN ? "FAIL(low)" : "FAIL(high)");
-                            
+
                             std::ostringstream msg;
                             msg << "      [pho#" << iPho << "] preselection FAIL"
                                 << " | weta="    << std::fixed << std::setprecision(3) << v.weta_cogx
@@ -7364,11 +7400,11 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                             LOG(4, CLR_MAGENTA, msg.str());
                         }
                     }
-                    
+
                     ++nNotTight;
                     continue;
                 }
-                
+
                 if (Verbosity() >= 4)
                 {
                     std::ostringstream msg;
@@ -7389,9 +7425,9 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     msg << " | pT^{#gamma}=" << std::fixed << std::setprecision(2) << v.pt_gamma;
                     LOG(4, CLR_RED, msg.str());
                 }
-                ++m_bk.pre_pass;
+                if (doCanonical) ++m_bk.pre_pass;
 
-                if (m_tightVariant == "newPPG12" && std::isfinite(v.tight_bdt_score))
+                if (doCanonical && m_tightVariant == "newPPG12" && std::isfinite(v.tight_bdt_score))
                 {
                     for (const auto& trigShort : activeTrig)
                     {
@@ -7402,7 +7438,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                         }
                     }
                 }
-                
+
                 // ---------- Isolation (count pass/fail) ----------
                 // Use the same strict ISO / NONISO / GAP definition as
                 // fillIsoSSTagCounters so xJ-purity leading-region counters are
@@ -7412,8 +7448,12 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 const bool validIsoForABCD = (std::isfinite(eiso_et) && eiso_et < 1e8);
                 const bool iso    = validIsoForABCD && (eiso_et < thrIsoForABCD);
                 const bool nonIso = validIsoForABCD && (eiso_et > thrNonIsoForABCD);
-                if (iso) ++m_bk.iso_pass; else ++m_bk.iso_fail;
-                
+                if (doCanonical)
+                {
+                    if (iso) ++m_bk.iso_pass;
+                    else ++m_bk.iso_fail;
+                }
+
                 // ---------- Tight classification breakdown ----------
                 RecoilJets::TightTag tightTag;
                 if (m_tightVariant == "newPPG12")
@@ -7426,22 +7466,28 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
 
                     tightTag = configuredVariantABDTTag(v.tight_bdt_score, v.pt_gamma);
 
-                    if (tightTag == TightTag::kTight) ++m_bk.tight_tight;
-                    else if (tightTag == TightTag::kNonTight) ++m_bk.tight_nonTight;
-                    else ++m_bk.tight_neither;
-                    
-                    for (const auto& trigShort : activeTrig)
+                    if (doCanonical)
                     {
-                        if (tightTag != TightTag::kTight)
+                        if (tightTag == TightTag::kTight) ++m_bk.tight_tight;
+                        else if (tightTag == TightTag::kNonTight) ++m_bk.tight_nonTight;
+                        else ++m_bk.tight_neither;
+                    }
+
+                    if (doCanonical)
+                    {
+                        for (const auto& trigShort : activeTrig)
                         {
-                            if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_bdt", ptIdx, effCentIdx_SS))
+                            if (tightTag != TightTag::kTight)
                             {
-                                h->Fill(1);
-                                bumpHistFill(trigShort, std::string("h_tightFail_bdt") + slice_SS);
+                                if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_bdt", ptIdx, effCentIdx_SS, HistViewScope::Canonical))
+                                {
+                                    h->Fill(1);
+                                    bumpHistFill(trigShort, std::string("h_tightFail_bdt") + slice_SS);
+                                }
                             }
                         }
                     }
-                    
+
                     if (Verbosity() >= 4)
                     {
                         std::ostringstream msg;
@@ -7464,84 +7510,88 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     const bool t_e11e33 = in_open_interval(v.e11_over_e33, TIGHT_E11E33_MIN, TIGHT_E11E33_MAX);
                     const bool t_et1    = in_open_interval(v.et1,          TIGHT_ET1_MIN,    TIGHT_ET1_MAX);
                     const bool t_e32e35 = in_open_interval(v.e32_over_e35, TIGHT_E32E35_MIN, TIGHT_E32E35_MAX);
-                    
+
                     int tight_fails = 0;
-                    if (!t_weta)   { ++m_bk.tight_fail_weta;   ++tight_fails; }
-                    if (!t_wphi)   { ++m_bk.tight_fail_wphi;   ++tight_fails; }
-                    if (!t_e11e33) { ++m_bk.tight_fail_e11e33; ++tight_fails; }
-                    if (!t_et1)    { ++m_bk.tight_fail_et1;    ++tight_fails; }
-                    if (!t_e32e35) { ++m_bk.tight_fail_e32e35; ++tight_fails; }
-                    
-                    if (tight_fails == 0)      { tightTag = TightTag::kTight;      ++m_bk.tight_tight; }
-                    else if (tight_fails >= 2) { tightTag = TightTag::kNonTight;   ++m_bk.tight_nonTight; }
-                    else                       { tightTag = TightTag::kNeither;    ++m_bk.tight_neither; }
-                    
+                    if (!t_weta)   { if (doCanonical) ++m_bk.tight_fail_weta;   ++tight_fails; }
+                    if (!t_wphi)   { if (doCanonical) ++m_bk.tight_fail_wphi;   ++tight_fails; }
+                    if (!t_e11e33) { if (doCanonical) ++m_bk.tight_fail_e11e33; ++tight_fails; }
+                    if (!t_et1)    { if (doCanonical) ++m_bk.tight_fail_et1;    ++tight_fails; }
+                    if (!t_e32e35) { if (doCanonical) ++m_bk.tight_fail_e32e35; ++tight_fails; }
+
+                    if (tight_fails == 0)      { tightTag = TightTag::kTight;      if (doCanonical) ++m_bk.tight_tight; }
+                    else if (tight_fails >= 2) { tightTag = TightTag::kNonTight;   if (doCanonical) ++m_bk.tight_nonTight; }
+                    else                       { tightTag = TightTag::kNeither;    if (doCanonical) ++m_bk.tight_neither; }
+
                     int tightFailMask = 0;
                     if (!t_weta)   tightFailMask |= 1;
                     if (!t_wphi)   tightFailMask |= 2;
                     if (!t_e11e33) tightFailMask |= 4;
                     if (!t_et1)    tightFailMask |= 8;
                     if (!t_e32e35) tightFailMask |= 16;
-                    
-                    for (const auto& trigShort : activeTrig)
+
+                    if (doCanonical)
                     {
-                        if (auto* hMaskAll = getOrBookCountHist(trigShort, "h_tightFailMask_allPreselected", ptIdx, effCentIdx_SS))
+                        for (const auto& trigShort : activeTrig)
                         {
-                            hMaskAll->Fill(tightFailMask);
-                            bumpHistFill(trigShort, std::string("h_tightFailMask_allPreselected") + slice_SS);
-                        }
-                        
-                        if (tightTag == TightTag::kNonTight)
-                        {
-                            if (auto* hMaskNonTight = getOrBookCountHist(trigShort, "h_tightFailMask_nonTight", ptIdx, effCentIdx_SS))
+                            if (auto* hMaskAll = getOrBookCountHist(trigShort, "h_tightFailMask_allPreselected", ptIdx, effCentIdx_SS, HistViewScope::Canonical))
                             {
-                                hMaskNonTight->Fill(tightFailMask);
-                                bumpHistFill(trigShort, std::string("h_tightFailMask_nonTight") + slice_SS);
+                                hMaskAll->Fill(tightFailMask);
+                                bumpHistFill(trigShort, std::string("h_tightFailMask_allPreselected") + slice_SS);
                             }
-                        }
-                        else if (tightTag == TightTag::kNeither)
-                        {
-                            if (auto* hMaskNeither = getOrBookCountHist(trigShort, "h_tightFailMask_neither", ptIdx, effCentIdx_SS))
+
+                            if (tightTag == TightTag::kNonTight)
                             {
-                                hMaskNeither->Fill(tightFailMask);
-                                bumpHistFill(trigShort, std::string("h_tightFailMask_neither") + slice_SS);
+                                if (auto* hMaskNonTight = getOrBookCountHist(trigShort, "h_tightFailMask_nonTight", ptIdx, effCentIdx_SS, HistViewScope::Canonical))
+                                {
+                                    hMaskNonTight->Fill(tightFailMask);
+                                    bumpHistFill(trigShort, std::string("h_tightFailMask_nonTight") + slice_SS);
+                                }
                             }
-                        }
-                        
-                        if (!t_weta)
-                        {
-                            if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_weta", ptIdx, effCentIdx_SS))
-                            { h->Fill(1); bumpHistFill(trigShort, std::string("h_tightFail_weta") + slice_SS); }
-                        }
-                        if (!t_wphi)
-                        {
-                            if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_wphi", ptIdx, effCentIdx_SS))
-                            { h->Fill(1); bumpHistFill(trigShort, std::string("h_tightFail_wphi") + slice_SS); }
-                        }
-                        if (!t_e11e33)
-                        {
-                            if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_e11e33", ptIdx, effCentIdx_SS))
-                            { h->Fill(1); bumpHistFill(trigShort, std::string("h_tightFail_e11e33") + slice_SS); }
-                        }
-                        if (!t_et1)
-                        {
-                            if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_et1", ptIdx, effCentIdx_SS))
-                            { h->Fill(1); bumpHistFill(trigShort, std::string("h_tightFail_et1") + slice_SS); }
-                        }
-                        if (!t_e32e35)
-                        {
-                            if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_e32e35", ptIdx, effCentIdx_SS))
-                            { h->Fill(1); bumpHistFill(trigShort, std::string("h_tightFail_e32e35") + slice_SS); }
+                            else if (tightTag == TightTag::kNeither)
+                            {
+                                if (auto* hMaskNeither = getOrBookCountHist(trigShort, "h_tightFailMask_neither", ptIdx, effCentIdx_SS, HistViewScope::Canonical))
+                                {
+                                    hMaskNeither->Fill(tightFailMask);
+                                    bumpHistFill(trigShort, std::string("h_tightFailMask_neither") + slice_SS);
+                                }
+                            }
+
+                            if (!t_weta)
+                            {
+                                if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_weta", ptIdx, effCentIdx_SS, HistViewScope::Canonical))
+                                { h->Fill(1); bumpHistFill(trigShort, std::string("h_tightFail_weta") + slice_SS); }
+                            }
+                            if (!t_wphi)
+                            {
+                                if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_wphi", ptIdx, effCentIdx_SS, HistViewScope::Canonical))
+                                { h->Fill(1); bumpHistFill(trigShort, std::string("h_tightFail_wphi") + slice_SS); }
+                            }
+                            if (!t_e11e33)
+                            {
+                                if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_e11e33", ptIdx, effCentIdx_SS, HistViewScope::Canonical))
+                                { h->Fill(1); bumpHistFill(trigShort, std::string("h_tightFail_e11e33") + slice_SS); }
+                            }
+                            if (!t_et1)
+                            {
+                                if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_et1", ptIdx, effCentIdx_SS, HistViewScope::Canonical))
+                                { h->Fill(1); bumpHistFill(trigShort, std::string("h_tightFail_et1") + slice_SS); }
+                            }
+                            if (!t_e32e35)
+                            {
+                                if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_e32e35", ptIdx, effCentIdx_SS, HistViewScope::Canonical))
+                                { h->Fill(1); bumpHistFill(trigShort, std::string("h_tightFail_e32e35") + slice_SS); }
+                            }
                         }
                     }
                 }
-                
+
                 // -------------------------------------------------------------------------
                 // NEW: PPG12-style SS template histograms (preselection / tight / non-tight)
                 //   - DATA: tagKey = pre / tight / nonTight
                 //   - SIM : tagKey = pre_sig / pre_bkg, tight_sig / tight_bkg, nonTight_sig / nonTight_bkg
                 //     where "sig" is the truth isolated prompt photon definition and "bkg" is its complement.
                 // -------------------------------------------------------------------------
+                if (doCanonical)
                 {
                     std::string mcSuffix;
                     if (!m_isSim) mcSuffix = "";
@@ -7561,28 +7611,28 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                         }
                         mcSuffix = (isSig ? "_sig" : "_bkg");
                     }
-                    
+
                     auto fillSSPPG12 = [&](const std::string& trigShort, const std::string& baseTag)
                     {
                         const std::string tagKey = baseTag + mcSuffix;
-                        
+
                         auto fill1 = [&](const std::string& key, double val)
                         {
                             if (!std::isfinite(val)) return;
-                            if (auto* h = getOrBookSSHist(trigShort, key, tagKey, ptIdx, effCentIdx_SS))
+                            if (auto* h = getOrBookSSHist(trigShort, key, tagKey, ptIdx, effCentIdx_SS, HistViewScope::Canonical))
                             {
                                 h->Fill(val);
-                                bumpHistFill(trigShort, "h_ss_" + key + "_" + tagKey + slice_SS);
+                                bumpHistFill(trigShort, h->GetName());
                             }
                         };
-                        
+
                         fill1("weta",   v.weta_cogx);
                         fill1("wphi",   v.wphi_cogx);
                         fill1("et1",    v.et1);
                         fill1("e11e33", v.e11_over_e33);
                         fill1("e32e35", v.e32_over_e35);
                     };
-                    
+
                     for (const auto& trigShort : activeTrig)
                     {
                         fillSSPPG12(trigShort, "pre");
@@ -7590,7 +7640,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                         else if (tightTag == TightTag::kNonTight) fillSSPPG12(trigShort, "nonTight");
                     }
                 }
-                
+
                 // -------------------------------------------------------------------------
                 // Deliverable Set B:
                 //   Isolation-energy spectra split by tightness (NO isolation requirement)
@@ -7610,18 +7660,18 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     const char* base_em  = (tightTag == TightTag::kTight) ? "h_Eiso_emcal_tight" : "h_Eiso_emcal_nonTight";
                     const char* base_hi  = (tightTag == TightTag::kTight) ? "h_Eiso_hcalin_tight" : "h_Eiso_hcalin_nonTight";
                     const char* base_ho  = (tightTag == TightTag::kTight) ? "h_Eiso_hcalout_tight" : "h_Eiso_hcalout_nonTight";
-                    
+
                     // Component isolation (PhotonClusterBuilder iso_* pieces)
                     double eiso_emcal   = 1e9;
                     double eiso_hcalin  = 1e9;
                     double eiso_hcalout = 1e9;
-                    
+
                     const int cone10 = static_cast<int>(std::lround(10.0 * m_isoConeR));
-                    
+
                     const char* k_em = nullptr;
                     const char* k_hi = nullptr;
                     const char* k_ho = nullptr;
-                    
+
                     if (cone10 == 3)
                     {
                         k_em = "iso_03_emcal";
@@ -7634,19 +7684,19 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                         k_hi = "iso_04_hcalin";
                         k_ho = "iso_04_hcalout";
                     }
-                    
+
                     if (pho && k_em && k_hi && k_ho)
                     {
                         eiso_emcal   = pho->get_shower_shape_parameter(k_em);
                         eiso_hcalin  = pho->get_shower_shape_parameter(k_hi);
                         eiso_hcalout = pho->get_shower_shape_parameter(k_ho);
-                        
+
                         if (!std::isfinite(eiso_emcal) || !std::isfinite(eiso_hcalin) || !std::isfinite(eiso_hcalout))
                         {
                             eiso_emcal = eiso_hcalin = eiso_hcalout = 1e9;
                         }
                     }
-                    
+
                     for (const auto& trigShort : activeTrig)
                     {
                         if (auto* hIso = getOrBookIsoPartHist(trigShort, base_tot,
@@ -7656,7 +7706,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                             hIso->Fill(eiso_et);
                             bumpHistFill(trigShort, std::string(base_tot) + slice_SS);
                         }
-                        
+
                         if (auto* hEm = getOrBookIsoPartHist(trigShort, base_em,
                                                              "E_{T}^{iso,EMCal} [GeV]",
                                                              ptIdx, effCentIdx_SS))
@@ -7664,7 +7714,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                             hEm->Fill(eiso_emcal);
                             bumpHistFill(trigShort, std::string(base_em) + slice_SS);
                         }
-                        
+
                         if (auto* hHi = getOrBookIsoPartHist(trigShort, base_hi,
                                                              "E_{T}^{iso,IHCAL} [GeV]",
                                                              ptIdx, effCentIdx_SS))
@@ -7672,7 +7722,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                             hHi->Fill(eiso_hcalin);
                             bumpHistFill(trigShort, std::string(base_hi) + slice_SS);
                         }
-                        
+
                         if (auto* hHo = getOrBookIsoPartHist(trigShort, base_ho,
                                                              "E_{T}^{iso,OHCAL} [GeV]",
                                                              ptIdx, effCentIdx_SS))
@@ -7682,14 +7732,14 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                         }
                     }
                 }
-                
+
                 // record the 2×2 (iso, tight) category + SS variable hists
                 // This also fills h_Eiso once and prints a detailed decision line.
                 for (const auto& trigShort : activeTrig)
                 {
                     fillIsoSSTagCounters(trigShort, rc, v, tightTag, pt_gamma, centIdx, topNode);
                 }
-                
+
                 //  xJ / unfolding gate (preselection already passed above):
                 //    - Region A: iso ∧ tight               -> nominal signal sample
                 //    - Region C: iso ∧ nonTight(>=2 fail) -> fake-photon sideband template
@@ -7712,7 +7762,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     leadNonIsoNonTightPtGamma = pt_gamma;
                     leadNonIsoNonTightRc = rc;
                 }
-                
+
                 if (!useSignalA && !useSidebandC)
                 {
                     if (!iso) ++nNotIso;
@@ -7722,12 +7772,12 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                             << ", tightTag=" << tightTagName(tightTag) << ")");
                     continue;
                 }
-                
+
                 if (useSignalA)
                 {
                     // Count ALL iso∧tight photon candidates in this event (photon-side ambiguity diagnostic)
                     ++nIsoTightPhoCand;
-                    
+
                     for (const auto& trigShort : activeTrig)
                     {
                         if (auto* h3 = getOrBookPho3TightIso(trigShort))
@@ -7736,10 +7786,10 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                             bumpHistFill(trigShort, h3->GetName());
                         }
                     }
-                    
+
                     recoIsoTightPhoClustersPPG12.push_back(rc);
                     recoIsoTightPhoPtsPPG12.push_back(pt_gamma);
-                    
+
                     const int effCentIdx_PPG12 = (m_isAuAu ? centIdx : -1);
                     if (!m_isSim)
                     {
@@ -7752,7 +7802,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                             }
                         }
                     }
-                    
+
                     // Do NOT jet-match here. If >1 photon passes iso∧tight in the same event,
                     // jet-matching here would double-fill xJ/JES histograms.
                     //
@@ -7766,22 +7816,22 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                         leadPtGamma      = pt_gamma;
                         leadEtaGamma     = eta;
                         leadPhiGamma     = phi_gamma;
-                        
+
                         // Store the actual cluster pointer for later truth↔reco association
                         leadRc           = rc;
-                        
+
                         if (Verbosity() >= 6)
                             LOG(6, CLR_GREEN, "      [pho#" << iPho << "] marked as event-leading iso∧tight photon for jet matching (pT="
                                 << std::fixed << std::setprecision(2) << leadPtGamma << ")");
                     }
-                    
+
                     // Defer jet matching (prevents double-filling JES TH3s if multiple photons pass).
                     continue;
                 }
-                
+
                 // Region C sideband: keep ONLY the event-leading iso∧nonTight photon.
                 ++nNotTight;
-                
+
                 if (!haveLeadIsoNonTight || pt_gamma > leadNonTightPtGamma)
                 {
                     haveLeadIsoNonTight = true;
@@ -7789,15 +7839,15 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     leadNonTightEtaGamma = eta;
                     leadNonTightPhiGamma = phi_gamma;
                     leadNonTightRc       = rc;
-                    
+
                     if (Verbosity() >= 6)
                         LOG(6, CLR_CYAN, "      [pho#" << iPho << "] marked as event-leading iso∧nonTight photon for sideband-C recoil filling (pT="
                             << std::fixed << std::setprecision(2) << leadNonTightPtGamma << ")");
                 }
-                
+
                 continue;
             } // photon loop
-            
+
             // ------------------------------------------------------------------
             // Event-level photon-side diagnostic:
             //   N = number of iso∧tight photon candidates in this event.
@@ -7815,13 +7865,13 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     }
                 }
             }
-            
+
             // ------------------------------------------------------------------
             // Jet matching + JES fills ONCE per event using the event-leading
             // iso∧tight photon (by pT^gamma), but run identically for ALL radii
             // in kJetRadii (r02 + r04) in the SAME loop.
             // ------------------------------------------------------------------
-            
+
             // Centrality index used for unfolding/matching-QA suffixing (centrality-only suffix in Au+Au)
             const int effCentIdx_M = (m_isAuAu ? centIdx : -1);
 
@@ -7832,13 +7882,12 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 const int idx = findPtBin(pt);
                 if (idx < 0) return;
 
-                const std::string slice = suffixForBins(idx, effCentIdx_M) + m_activeIsoViewSuffix;
                 for (const auto& trigShort : activeTrig)
                 {
                     if (auto* h = getOrBookCountHist(trigShort, base, idx, effCentIdx_M))
                     {
                         h->Fill(1);
-                        bumpHistFill(trigShort, std::string(base) + slice);
+                        bumpHistFill(trigShort, h->GetName());
                     }
                 }
             };
@@ -7890,10 +7939,10 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 fillLeadXJPurityLeakage(haveLeadIsoNonTight, leadNonTightRc, leadNonTightPtGamma, 3);
                 fillLeadXJPurityLeakage(haveLeadNonIsoNonTight, leadNonIsoNonTightRc, leadNonIsoNonTightPtGamma, 4);
             }
-            
+
             // -------------------- SIM: define the event-leading truth signal photon (for N_gamma unfolding) --------------------
             HepMC::GenEvent* evtHepMC = nullptr;
-            
+
             bool   haveTruthSigPho = false;
             const HepMC::GenParticle* truthSigPho = nullptr;
             double tPtSig  = 0.0;
@@ -7901,13 +7950,13 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
             double tPhiSig = 0.0;
             double tIsoEtSig = 0.0;
             std::vector<const HepMC::GenParticle*> truthSigPhoPPG12Objs;
-            
+
             if (m_isSim)
             {
                 // Grab HepMC event (required for prompt/direct/fragmentation classification)
                 PHHepMCGenEventMap* hepmcmap = findNode::getClass<PHHepMCGenEventMap>(topNode, "PHHepMCGenEventMap");
                 PHHepMCGenEvent*    hepmc    = nullptr;
-                
+
                 if (hepmcmap)
                 {
                     // Try common keys then fallback to first entry
@@ -7916,24 +7965,24 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     if (!hepmc && !hepmcmap->empty()) hepmc = hepmcmap->begin()->second;
                     if (hepmc) evtHepMC = hepmc->getEvent();
                 }
-                
+
                 if (evtHepMC)
                 {
                     for (auto it = evtHepMC->particles_begin(); it != evtHepMC->particles_end(); ++it)
                     {
                         const HepMC::GenParticle* p = *it;
                         if (!p) continue;
-                        
+
                         double isoEt = 0.0;
                         if (!isTruthPromptIsolatedSignalPhoton(evtHepMC, p, isoEt)) continue;
-                        
+
                         const double pt  = std::hypot(p->momentum().px(), p->momentum().py());
                         const double eta = p->momentum().pseudoRapidity();
                         const double phi = p->momentum().phi();
                         if (!std::isfinite(pt) || !std::isfinite(eta) || !std::isfinite(phi) || pt <= 0.0) continue;
-                        
+
                         truthSigPhoPPG12Objs.push_back(p);
-                        
+
                         if (!haveTruthSigPho || pt > tPtSig)
                         {
                             haveTruthSigPho = true;
@@ -7951,15 +8000,18 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                         LOG(5, CLR_YELLOW,
                             "      [truthQA] PHHepMCGenEventMap/HepMC event missing → skip truth photon unfolding helpers");
                 }
-                
+
                 // Fill truth photon spectrum once per event (SIM) for the baseline selected-anchor family.
                 if (haveTruthSigPho)
                 {
-                    for (const auto& trigShort : activeTrig)
-                    {
-                        if (auto* hT = getOrBookUnfoldTruthPhoPtGamma(trigShort, effCentIdx_M))
-                        { hT->Fill(tPtSig); bumpHistFill(trigShort, hT->GetName()); }
-                        
+	                    for (const auto& trigShort : activeTrig)
+	                    {
+	                        if (doCanonical)
+	                        {
+	                            if (auto* hT = getOrBookUnfoldTruthPhoPtGamma(trigShort, effCentIdx_M))
+	                            { hT->Fill(tPtSig); bumpHistFill(trigShort, hT->GetName()); }
+	                        }
+
                         // If no reco leading iso∧tight photon exists, this truth photon is a MISS for N_gamma
                         if (!haveLeadIsoTight)
                         {
@@ -7968,21 +8020,24 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                         }
                     }
                 }
-                
+
                 // Fill the exploratory PPG12-style truth photon spectrum per truth signal photon object.
                 for (const auto* truthPhoPPG12 : truthSigPhoPPG12Objs)
                 {
                     if (!truthPhoPPG12) continue;
-                    
+
                     const double tPtPPG12 = std::hypot(truthPhoPPG12->momentum().px(),
                                                        truthPhoPPG12->momentum().py());
                     if (!std::isfinite(tPtPPG12) || tPtPPG12 <= 0.0) continue;
-                    
-                    for (const auto& trigShort : activeTrig)
-                    {
-                        if (auto* hTAlt = getOrBookUnfoldTruthPhoPtGammaPPG12Obj(trigShort, effCentIdx_M))
-                        { hTAlt->Fill(tPtPPG12); bumpHistFill(trigShort, hTAlt->GetName()); }
-                        
+
+	                    for (const auto& trigShort : activeTrig)
+	                    {
+	                        if (doCanonical)
+	                        {
+	                            if (auto* hTAlt = getOrBookUnfoldTruthPhoPtGammaPPG12Obj(trigShort, effCentIdx_M))
+	                            { hTAlt->Fill(tPtPPG12); bumpHistFill(trigShort, hTAlt->GetName()); }
+	                        }
+
                         if (!haveLeadIsoTight)
                         {
                             if (auto* hTMAlt = getOrBookUnfoldTruthPhoMissesPtGammaPPG12Obj(trigShort, effCentIdx_M))
@@ -7991,7 +8046,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     }
                 }
             }
-            
+
             if (haveLeadIsoTight)
             {
                 // ΔR helper (used for SIM truth matching)
@@ -8001,7 +8056,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     const double deta = eta1 - eta2;
                     return std::sqrt(deta*deta + dphi*dphi);
                 };
-                
+
                 // -------------------- SIM truth↔reco photon association --------------------
                 //   haveTruthPho:
                 //     selected leading reco iso∧tight photon has PPG12 cluster_truthtrkID
@@ -8014,13 +8069,13 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 bool   haveTruthPho = false;
                 bool   haveTruthPhoPPG12 = false;
                 double recoPtTruthMatchPPG12 = 0.0;
-                
+
                 double tPt  = (haveTruthSigPho ? tPtSig  : 0.0);
                 double tEta = (haveTruthSigPho ? tEtaSig : 0.0);
                 double tPhi = (haveTruthSigPho ? tPhiSig : 0.0);
-                
+
                 PHG4TruthInfoContainer* truth = nullptr;
-                
+
                 if (m_isSim)
                 {
                     truth = findNode::getClass<PHG4TruthInfoContainer>(topNode, "G4TruthInfo");
@@ -8044,14 +8099,14 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                         CaloRawClusterEval clustereval(topNode, "CEMC");
                         clustereval.set_usetowerinfo(true);
                         clustereval.next_event(topNode);
-                        
+
                         // Fallback if CLUSTERINFO_* is not available in the DST
                         if (!clustereval.has_reduced_node_pointers())
                         {
                             clustereval.set_usetowerinfo(false);
                             clustereval.next_event(topNode);
                         }
-                        
+
                         if (!clustereval.has_reduced_node_pointers())
                         {
                             LOG(4, CLR_YELLOW,
@@ -8062,7 +8117,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                             const RawCluster* recoMatch = nullptr;
                             double rPt = 0.0, rEta = 0.0, rPhi = 0.0, drBest = 1e9;
                             float  eBest = -1.0f;
-                            
+
                             if (findRecoPhotonMatchedToTruthSignal(evtHepMC, truthSigPho, clustereval,
                                                                    recoMatch, rPt, rEta, rPhi, drBest, eBest))
                             {
@@ -8072,12 +8127,12 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                                     const SSVars vMatch = makeSSFromPhoton(recoPhoPPG12, rPt);
                                     const TightTag recoMatchTag = classifyPhotonTightness(vMatch);
                                     const bool recoMatchIso = isIsolated(recoMatch, rPt, topNode);
-                                    
+
                                     if (recoMatchTag == TightTag::kTight && recoMatchIso)
                                     {
                                         haveTruthPhoPPG12 = true;
                                         recoPtTruthMatchPPG12 = rPt;
-                                        
+
                                         if (Verbosity() >= 5)
                                         {
                                             LOG(5, CLR_GREEN,
@@ -8093,7 +8148,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                                         }
                                     }
                                 }
-                                
+
                             }
 
                             const TruthSignalPhotonMap truthSignalByTrackId = buildPPG12TruthSignalPhotonMap(evtHepMC);
@@ -8124,33 +8179,33 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                                         << " Edep(best)=" << leadEContrib);
                                 }
                             }
-                            
+
                             if (!haveTruthPho && Verbosity() >= 5)
                             {
                                 LOG(5, CLR_YELLOW,
                                     "      [truthQA] event-leading truth signal photon does NOT match the event-leading reco iso∧tight photon");
                             }
-                            
+
                             if (haveTruthPhoPPG12 && !haveTruthPho && Verbosity() >= 5)
                             {
                                 LOG(5, CLR_CYAN,
                                     "      [truthQA] PPG12 photon match passes iso+tight, but is not the selected event-leading reco iso∧tight photon");
                             }
-                            
+
                             for (const auto* truthPhoPPG12 : truthSigPhoPPG12Objs)
                             {
                                 if (!truthPhoPPG12) continue;
-                                
+
                                 const double tPtPPG12 = std::hypot(truthPhoPPG12->momentum().px(),
                                                                    truthPhoPPG12->momentum().py());
                                 if (!std::isfinite(tPtPPG12) || tPtPPG12 <= 0.0) continue;
-                                
+
                                 const RawCluster* recoMatchAlt = nullptr;
                                 double rPtAlt = 0.0, rEtaAlt = 0.0, rPhiAlt = 0.0, drBestAlt = 1e9;
                                 float  eBestAlt = -1.0f;
-                                
+
                                 bool haveTruthPhoPPG12Obj = false;
-                                
+
                                 if (findRecoPhotonMatchedToTruthSignal(evtHepMC, truthPhoPPG12, clustereval,
                                                                        recoMatchAlt, rPtAlt, rEtaAlt, rPhiAlt, drBestAlt, eBestAlt))
                                 {
@@ -8160,7 +8215,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                                         const SSVars vMatchAlt = makeSSFromPhoton(recoPhoPPG12Obj, rPtAlt);
                                         const TightTag recoMatchTagAlt = classifyPhotonTightness(vMatchAlt);
                                         const bool recoMatchIsoAlt = isIsolated(recoMatchAlt, rPtAlt, topNode);
-                                        
+
                                         if (recoMatchTagAlt == TightTag::kTight && recoMatchIsoAlt)
                                         {
                                             haveTruthPhoPPG12Obj = true;
@@ -8168,14 +8223,14 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                                         }
                                     }
                                 }
-                                
+
                                 for (const auto& trigShort : activeTrig)
                                 {
                                     if (haveTruthPhoPPG12Obj)
                                     {
                                         if (auto* hRAlt = getOrBookUnfoldRecoPhoPtGammaPPG12Obj(trigShort, effCentIdx_M))
                                         { hRAlt->Fill(rPtAlt); bumpHistFill(trigShort, hRAlt->GetName()); }
-                                        
+
                                         if (auto* hRespAlt = getOrBookUnfoldResponsePhoPtGammaPPG12Obj(trigShort, effCentIdx_M))
                                         { hRespAlt->Fill(tPtPPG12, rPtAlt); bumpHistFill(trigShort, hRespAlt->GetName()); }
                                     }
@@ -8189,7 +8244,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                         }
                     }
                 }
-                
+
                 if (m_isSim)
                 {
                     for (const auto& trigShort : activeTrig)
@@ -8207,7 +8262,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                         }
                     }
                 }
-                
+
                 const bool filledAnyRadius =
                 runLeadIsoTightPhotonJetMatchingAndUnfolding(activeTrig,
                                                              effCentIdx_M,
@@ -8226,20 +8281,20 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                                                              tEta,
                                                              tPhi,
                                                              truth);
-                
+
                 if (filledAnyRadius) ++nUsed;
-                
+
             }
             else
             {
                 if (Verbosity() >= 5)
                     LOG(5, CLR_BLUE, "      [processCandidates] no iso∧tight photon in this event → no jet matching / JES fills");
-                
+
                 if (m_isSim && haveTruthSigPho)
                 {
                     const std::vector<const Jet*> noRecoJetsFid;
                     const std::vector<char>       noRecoJetsFidIsRecoil;
-                    
+
                     for (const auto& kv : m_jets)
                     {
                         const std::string baseRKey = kv.first;
@@ -8272,7 +8327,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     }
                 }
             }
-            
+
             if (haveLeadIsoNonTight)
             {
                 runLeadIsoNonTightPhotonJetLoopAllRadii_SidebandC(activeTrig,
@@ -8286,7 +8341,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 if (Verbosity() >= 6)
                     LOG(6, CLR_BLUE, "      [processCandidates] no iso∧nonTight photon in this event → no sideband-C recoil fill");
             }
-            
+
             // ------------------------------------------------------------------
             //  jet-by-jet cutflow status vs pT^gamma (NOT event-level).
             // Uses the event-leading reco photon candidate in pT^gamma WITHOUT requiring iso/tight.
@@ -8298,16 +8353,16 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
             //   3 = FailBackToBack
             //   4 = PassAll
             // ------------------------------------------------------------------
-            if (haveLeadAnyPho && leadAnyPtIdx >= 0)
+            if (doCanonical && haveLeadAnyPho && leadAnyPtIdx >= 0)
             {
-                
+
                 for (const auto& kvJ : m_jets)
                 {
                     const std::string& baseRKey = kvJ.first;
-                    
+
                     JetContainer* jets = kvJ.second;
                     if (!jets) continue;
-                    
+
                     const double jetEtaAbsMaxUse = jetEtaAbsMaxForRKey(baseRKey);
                     const double savedMinJetPt = m_minJetPt;
                     const double savedMinBackToBack = m_minBackToBack;
@@ -8317,18 +8372,18 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     for (const double dphiCut : activeBackToBackCuts())
                     {
                     m_minBackToBack = dphiCut;
-                    const std::string rKey = histRKeyForJetPtAndDphi(baseRKey, jetPtCut, dphiCut);
-                    
+                    const std::string rKey = recoilRKeyForScope(baseRKey, jetPtCut, dphiCut, HistViewScope::Canonical);
+
                     for (const Jet* j : *jets)
                     {
                         if (!j) continue;
-                        
+
                         const double jpt  = j->get_pt();
                         const double jeta = j->get_eta();
                         const double jphi = j->get_phi();
-                        
+
                         if (!std::isfinite(jpt) || !std::isfinite(jeta) || !std::isfinite(jphi)) continue;
-                        
+
                         int jStatus = 0;
                         if (jpt < m_minJetPt) jStatus = 1;
                         else if (std::fabs(jeta) >= jetEtaAbsMaxUse) jStatus = 2;
@@ -8337,7 +8392,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                             const double dphiAbs = std::fabs(TVector2::Phi_mpi_pi(jphi - leadAnyPhiGamma));
                             jStatus = (dphiAbs >= m_minBackToBack) ? 4 : 3;
                         }
-                        
+
                         for (const auto& trigShort : activeTrig)
                         {
                             if (auto* hj = getOrBookJetCutflowStatusVsPtGamma(trigShort, rKey, effCentIdx_M))
@@ -8350,7 +8405,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     m_minJetPt = savedMinJetPt;
                 }
             }
-            
+
             // Summary for photon path
             if (Verbosity() >= 4)
                 LOG(4, CLR_BLUE, "    [processCandidates] photon summary: used=" << nUsed
@@ -8369,13 +8424,13 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
         {
             LOG(0, CLR_YELLOW, "    [processCandidates] UNKNOWN exception in photon path");
         }
-        
+
         return; // keep original behavior: prefer photon path and return
     } // end photon path
     // Require PhotonClusterBuilder products for ALL photon kinematics.
     LOG(0, CLR_YELLOW,
         "  [processCandidates] PHOTONCLUSTER_CEMC is MISSING for this event. ");
-    
+
     return;
 }
 
@@ -9064,24 +9119,24 @@ bool RecoilJets::isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
 {
     isoEt = std::numeric_limits<double>::quiet_NaN();
     if (!evt || !pho) return false;
-    
+
     constexpr double kTruthEtaAbsMax = 0.7;
-    
+
     // truth isolation parameters
     const double kIsoConeR  = m_isoConeR;
     constexpr double kMergerDR  = 0.001;
     const double kIsoMaxGeV = m_truthIsoMaxGeV;
-    
+
     // Photon requirement. The embedded G4 primary-particle match below enforces
     // the same truth-particle source used by Blair/Shuhang's tree isolation.
     if (pho->pdg_id() != 22) return false;
-    
+
     // -------------------------------------------------------------------------
     // 1) Prompt classification: walk back photon-in/photon-out vertices, then topology classify
     // -------------------------------------------------------------------------
     const HepMC::GenVertex* vertex = pho->production_vertex();
     if (!vertex) return false;  // CaloAna returns "can't identify" on null vertex
-    
+
     // Incoming particles at production vertex
     std::vector<const HepMC::GenParticle*> incoming_particles;
     incoming_particles.reserve(4);
@@ -9089,20 +9144,20 @@ bool RecoilJets::isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
     {
         if (*inItr) incoming_particles.push_back(*inItr);
     }
-    
+
     // Walk back while there is exactly one incoming particle and it's a photon (pid==22)
     while (incoming_particles.size() == 1 && incoming_particles[0] && incoming_particles[0]->pdg_id() == 22)
     {
         vertex = incoming_particles[0]->production_vertex();
         if (!vertex) return false;
-        
+
         incoming_particles.clear();
         for (auto inItr = vertex->particles_in_const_begin(); inItr != vertex->particles_in_const_end(); ++inItr)
         {
             if (*inItr) incoming_particles.push_back(*inItr);
         }
     }
-    
+
     // Outgoing particles at the (possibly walked-back) vertex
     std::vector<const HepMC::GenParticle*> outgoing_particles;
     outgoing_particles.reserve(4);
@@ -9110,7 +9165,7 @@ bool RecoilJets::isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
     {
         if (*outItr) outgoing_particles.push_back(*outItr);
     }
-    
+
     // Make sure there is a photon in outgoing (CaloAna requirement)
     bool has_out_photon = false;
     for (const auto* op : outgoing_particles)
@@ -9118,10 +9173,10 @@ bool RecoilJets::isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
         if (op && op->pdg_id() == 22) { has_out_photon = true; break; }
     }
     if (!has_out_photon) return false;
-    
+
     // direct photon:1, fragmentation photon:2, decayed photon:3, can't identify:0
     int photonclass = 0;
-    
+
     // direct photon 2->2: both incoming/outgoing are partons+photon (|pdg|<=22)
     if (incoming_particles.size() == 2 && outgoing_particles.size() == 2)
     {
@@ -9129,7 +9184,7 @@ bool RecoilJets::isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
         const int in1 = incoming_particles[1] ? incoming_particles[1]->pdg_id() : 0;
         const int out0 = outgoing_particles[0] ? outgoing_particles[0]->pdg_id() : 0;
         const int out1 = outgoing_particles[1] ? outgoing_particles[1]->pdg_id() : 0;
-        
+
         if (std::abs(in0) <= 22 && std::abs(in1) <= 22 &&
             std::abs(out0) <= 22 && std::abs(out1) <= 22)
         {
@@ -9140,7 +9195,7 @@ bool RecoilJets::isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
     else if (incoming_particles.size() == 1 && incoming_particles[0])
     {
         const int inpid = incoming_particles[0]->pdg_id();
-        
+
         // fragmentation photon 1->2: incoming |pid|<=11, outgoing size==2, outgoing contains incoming pid
         if (std::abs(inpid) <= 11 && outgoing_particles.size() == 2)
         {
@@ -9154,17 +9209,17 @@ bool RecoilJets::isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
                 photonclass = 2;
             }
         }
-        
+
         // decayed photon: incoming |pid| > 37 (CaloAna sets this after frag check)
         if (std::abs(inpid) > 37)
         {
             photonclass = 3;
         }
     }
-    
+
     // Accept only direct OR fragmentation (prompt definition used by CaloAna for signal)
     if (!(photonclass == 1 || photonclass == 2)) return false;
-    
+
     // -------------------------------------------------------------------------
     // 2) Truth isolation: Blair/Shuhang CaloAna truth-iso method
     //    Source particles:
@@ -9175,7 +9230,7 @@ bool RecoilJets::isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
     //    where merger=0.001 removes the photon itself and ultra-close merged pieces.
     // -------------------------------------------------------------------------
     if (!m_truthInfo) return false;
-    
+
     const PHG4Particle* truthPho = nullptr;
     {
         auto primaryRange = m_truthInfo->GetPrimaryParticleRange();
@@ -9186,44 +9241,44 @@ bool RecoilJets::isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
             if (m_truthInfo->isEmbeded(truth->get_track_id()) < 1) continue;
             if (truth->get_pid() != 22) continue;
             if (truth->get_barcode() != pho->barcode()) continue;
-            
+
             truthPho = truth;
             break;
         }
     }
-    
+
     if (!truthPho) return false;
-    
+
     TLorentzVector p1(truthPho->get_px(), truthPho->get_py(), truthPho->get_pz(), truthPho->get_e());
     const double etaPho = p1.Eta();
     const double phiPho = p1.Phi();
     if (!std::isfinite(etaPho) || !std::isfinite(phiPho)) return false;
     if (std::fabs(etaPho) >= kTruthEtaAbsMax) return false;
-    
+
     double isoSumEt  = 0.0;
     double clusterEt = 0.0;
-    
+
     auto primaryRange = m_truthInfo->GetPrimaryParticleRange();
     for (auto truth_itr = primaryRange.first; truth_itr != primaryRange.second; ++truth_itr)
     {
         const PHG4Particle* truth = truth_itr->second;
         if (!truth) continue;
         if (m_truthInfo->isEmbeded(truth->get_track_id()) < 1) continue;
-        
+
         TLorentzVector p2(truth->get_px(), truth->get_py(), truth->get_pz(), truth->get_e());
         const double qEt = p2.Et();
         if (!std::isfinite(qEt) || qEt <= 0.0) continue;
-        
+
         const double dr = p1.DeltaR(p2);
         if (!std::isfinite(dr)) continue;
-        
+
         if (dr < kIsoConeR) isoSumEt += qEt;
         if (dr < kMergerDR) clusterEt += qEt;
     }
-    
+
     isoEt = isoSumEt - clusterEt;
     if (!std::isfinite(isoEt)) return false;
-    
+
     return (isoEt < kIsoMaxGeV);
 }
 
@@ -9888,15 +9943,15 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
     {
         return;
     }
-    
+
     initEventDisplayDiagnosticsTree();
     if (!m_evtDiagTree)
     {
         return;
     }
-    
+
     resetEventDisplayDiagnosticsBuffers();
-    
+
     if (m_evtHeader)
     {
         m_evtDiag_run = m_evtHeader->get_RunNumber();
@@ -9904,16 +9959,16 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
     }
     m_evtDiag_eventCount = event_count;
     m_evtDiag_vz = static_cast<float>(m_vz);
-    
+
     m_evtDiag_rKey   = rKey;
     m_evtDiag_ptBin  = ptBin;
     m_evtDiag_cat    = static_cast<int>(cat);
     m_evtDiag_isSim  = (m_isSim ? 1 : 0);
-    
+
     m_evtDiag_ptGammaReco   = static_cast<float>(recoGammaPt);
     m_evtDiag_etaGammaReco  = static_cast<float>(recoGammaEta);
     m_evtDiag_phiGammaReco  = static_cast<float>(recoGammaPhi);
-    
+
     if (m_isSim)
     {
         m_evtDiag_ptGammaTruth  = static_cast<float>(truthGammaPt);
@@ -9924,35 +9979,35 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
         m_evtDiag_ptGammaTruth  = -9999.0f;
         m_evtDiag_phiGammaTruth = -9999.0f;
     }
-    
+
     if (selectedRecoilJet)
     {
         m_evtDiag_sel_pt  = static_cast<float>(selectedRecoilJet->get_pt());
         m_evtDiag_sel_eta = static_cast<float>(selectedRecoilJet->get_eta());
         m_evtDiag_sel_phi = static_cast<float>(selectedRecoilJet->get_phi());
     }
-    
+
     if (m_isSim && recoTruthBest)
     {
         m_evtDiag_best_pt  = static_cast<float>(recoTruthBest->get_pt());
         m_evtDiag_best_eta = static_cast<float>(recoTruthBest->get_eta());
         m_evtDiag_best_phi = static_cast<float>(recoTruthBest->get_phi());
     }
-    
+
     if (m_isSim && truthLeadRecoilJet)
     {
         m_evtDiag_truthLead_pt  = static_cast<float>(truthLeadRecoilJet->get_pt());
         m_evtDiag_truthLead_eta = static_cast<float>(truthLeadRecoilJet->get_eta());
         m_evtDiag_truthLead_phi = static_cast<float>(truthLeadRecoilJet->get_phi());
     }
-    
+
     auto dR = [](double eta1, double phi1, double eta2, double phi2)
     {
         const double dphi = TVector2::Phi_mpi_pi(phi1 - phi2);
         const double deta = eta1 - eta2;
         return std::sqrt(deta * deta + dphi * dphi);
     };
-    
+
     if (m_isSim && selectedRecoilJet && truthLeadRecoilJet)
     {
         m_evtDiag_drSelToTruthLead = static_cast<float>(dR(selectedRecoilJet->get_eta(),
@@ -9960,7 +10015,7 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
                                                            truthLeadRecoilJet->get_eta(),
                                                            truthLeadRecoilJet->get_phi()));
     }
-    
+
     if (m_isSim && recoTruthBest && truthLeadRecoilJet)
     {
         m_evtDiag_drBestToTruthLead = static_cast<float>(dR(recoTruthBest->get_eta(),
@@ -9968,29 +10023,29 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
                                                             truthLeadRecoilJet->get_eta(),
                                                             truthLeadRecoilJet->get_phi()));
     }
-    
+
     const Jet* selForTowers  = selectedRecoilJet;
     const Jet* bestForTowers = recoTruthBest;
-    
+
     auto mapCalibToRawForTowers = [&](const Jet* calibJet) -> const Jet*
     {
         if (!calibJet) return nullptr;
-        
+
         const std::string jetRKey = baseRKeyFromDphiHistKey(rKey);
         auto itCal = m_jets.find(jetRKey);
         auto itRaw = m_jetsRaw.find(jetRKey);
         if (itCal == m_jets.end() || !itCal->second) return nullptr;
         if (itRaw == m_jetsRaw.end() || !itRaw->second) return nullptr;
-        
+
         JetContainer* calib = itCal->second;
         JetContainer* raw   = itRaw->second;
-        
+
         // Require RAW constituents; otherwise tower payload will be empty.
         auto hasConstituents = [&](const Jet* j) -> bool
         {
             return (j && (j->size_comp() > 0));
         };
-        
+
         // 1) Primary: ID-based mapping (JetCalib sets calibrated jet id in the same loop as raw jets).
         const int idC = static_cast<int>(calibJet->get_id());
         if (idC >= 0)
@@ -10003,7 +10058,7 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
                 return jr;
             }
         }
-        
+
         // 2) Secondary: index-preserving mapping (if id is not reliable in this container).
         int idx = -1;
         int i = 0;
@@ -10016,7 +10071,7 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
             }
             ++i;
         }
-        
+
         if (idx >= 0)
         {
             int j = 0;
@@ -10033,35 +10088,35 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
                 ++j;
             }
         }
-        
+
         // 3) Fallback: closest-in-ΔR match in RAW container (only if ordering/id differ).
         const double etaC = calibJet->get_eta();
         const double phiC = calibJet->get_phi();
-        
+
         const Jet* best = nullptr;
         double bestDR2  = 1e9;
-        
+
         for (const Jet* jr : *raw)
         {
             if (!hasConstituents(jr)) continue;
-            
+
             const double deta = (jr->get_eta() - etaC);
             const double dphi = TVector2::Phi_mpi_pi(jr->get_phi() - phiC);
             const double dr2  = deta*deta + dphi*dphi;
-            
+
             if (dr2 < bestDR2)
             {
                 bestDR2 = dr2;
                 best = jr;
             }
         }
-        
+
         return best;
     };
-    
+
     if (const Jet* jr = mapCalibToRawForTowers(selectedRecoilJet)) selForTowers = jr;
     if (const Jet* jr = mapCalibToRawForTowers(recoTruthBest))     bestForTowers = jr;
-    
+
     appendEventDisplayDiagnosticsFromJet(selForTowers,
                                          m_evtDiag_sel_calo,
                                          m_evtDiag_sel_ieta,
@@ -10070,7 +10125,7 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
                                          m_evtDiag_sel_phiTower,
                                          m_evtDiag_sel_etTower,
                                          m_evtDiag_sel_eTower);
-    
+
     appendEventDisplayDiagnosticsFromJet(bestForTowers,
                                          m_evtDiag_best_calo,
                                          m_evtDiag_best_ieta,
@@ -10082,7 +10137,7 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
     const bool hasSelTowers  = !m_evtDiag_sel_etTower.empty();
     const bool hasBestTowers = !m_evtDiag_best_etTower.empty();
     const bool hasAnyTowers  = (hasSelTowers || hasBestTowers);
-    
+
     // If we failed to capture tower constituents, do NOT write a diagnostics entry.
     // This prevents blank/empty event display PNGs.
     if (!hasAnyTowers)
@@ -10098,20 +10153,20 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
         }
         return;
     }
-    
+
     ++m_evtDiagNFill;
-    
+
     const int icat = static_cast<int>(cat);
     if (icat >= 0 && icat < 3)
     {
         ++m_evtDiagNFillByCat[icat];
         if (hasAnyTowers) ++m_evtDiagNFillWithAnyTowersByCat[icat];
     }
-    
+
     if (hasSelTowers)  ++m_evtDiagNFillWithSelTowers;
     if (hasBestTowers) ++m_evtDiagNFillWithBestTowers;
     if (hasAnyTowers)  ++m_evtDiagNFillWithAnyTowers;
-    
+
     if (Verbosity() >= 1)
     {
         LOG(1, CLR_CYAN,
@@ -10123,9 +10178,9 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
             << " nSelTowers=" << m_evtDiag_sel_etTower.size()
             << " nBestTowers=" << m_evtDiag_best_etTower.size() << ")");
     }
-    
+
     m_evtDiagTree->Fill();
-    
+
     if (Verbosity() >= 1)
     {
         LOG(1, CLR_GREEN,
@@ -10137,26 +10192,27 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
 
 TH1I* RecoilJets::getOrBookCountHist(const std::string& trig,
                                      const std::string& base,
-                                     int etIdx, int centIdx)
+                                     int etIdx, int centIdx,
+                                     HistViewScope scope)
 {
     const std::string suffix = suffixForBins(etIdx, centIdx);
-    const std::string name   = withIsoViewSuffix(base) + suffix;
-    
+    const std::string name   = histBaseForScope(base, scope) + suffix;
+
     if (Verbosity() >= 5)
         LOG(5, CLR_BLUE, "  [getOrBookCountHist] trig=\"" << trig << "\" base=\"" << base
             << "\" etIdx=" << etIdx << " centIdx=" << centIdx
             << " → name=\"" << name << "\"");
-    
+
     if (trig.empty() || base.empty())
     {
         LOG(2, CLR_YELLOW, "  [getOrBookCountHist] empty trig/base (trig=\"" << trig
             << "\", base=\"" << base << "\") – returning nullptr");
         return nullptr;
     }
-    
+
     // Map slot
     auto& H = qaHistogramsByTrigger[trig];
-    
+
     // If already booked, verify type and return
     if (auto it = H.find(name); it != H.end())
     {
@@ -10170,14 +10226,14 @@ TH1I* RecoilJets::getOrBookCountHist(const std::string& trig,
             << "\" exists but is not TH1I – replacing it");
         H.erase(it);
     }
-    
+
     // Safety: output file & directory
     if (!out || !out->IsOpen())
     {
         LOG(1, CLR_YELLOW, "  [getOrBookCountHist] output TFile invalid/null – returning nullptr");
         return nullptr;
     }
-    
+
     TDirectory* const prevDir = gDirectory;
     TDirectory* dir = out->GetDirectory(trig.c_str());
     if (!dir)
@@ -10191,16 +10247,16 @@ TH1I* RecoilJets::getOrBookCountHist(const std::string& trig,
         if (prevDir) prevDir->cd();
         return nullptr;
     }
-    
+
     dir->cd();
-    
+
     if (base == "h_preFailMask" || base.rfind("h_preRefFailMask_", 0) == 0)
     {
         const std::string title = name + ";preselection fail mask;entries";
-        
+
         if (Verbosity() >= 5)
             LOG(5, CLR_BLUE, "    [getOrBookCountHist] booking TH1I name=\"" << name << "\" title=\"" << title << '"');
-        
+
         auto* h = RJMCWeighting::RJNewTH1I(name.c_str(), title.c_str(), 16, -0.5, 15.5);
         if (!h)
         {
@@ -10208,7 +10264,7 @@ TH1I* RecoilJets::getOrBookCountHist(const std::string& trig,
             if (prevDir) prevDir->cd();
             return nullptr;
         }
-        
+
         const char* labels[16] = {
             "pass",
             "e11",
@@ -10227,23 +10283,23 @@ TH1I* RecoilJets::getOrBookCountHist(const std::string& trig,
             "et1+e32+weta",
             "all4"
         };
-        
+
         for (int ib = 0; ib < 16; ++ib)
             h->GetXaxis()->SetBinLabel(ib + 1, labels[ib]);
-        
+
         H[name] = h;
-        
+
         if (prevDir) prevDir->cd();
         return h;
     }
-    
+
     if (base.rfind("h_tightFailMask_", 0) == 0)
     {
         const std::string title = name + ";tight fail mask;entries";
-        
+
         if (Verbosity() >= 5)
             LOG(5, CLR_BLUE, "    [getOrBookCountHist] booking TH1I name=\"" << name << "\" title=\"" << title << '"');
-        
+
         auto* h = RJMCWeighting::RJNewTH1I(name.c_str(), title.c_str(), 32, -0.5, 31.5);
         if (!h)
         {
@@ -10251,7 +10307,7 @@ TH1I* RecoilJets::getOrBookCountHist(const std::string& trig,
             if (prevDir) prevDir->cd();
             return nullptr;
         }
-        
+
         const char* labels[32] = {
             "pass",
             "weta",
@@ -10286,20 +10342,20 @@ TH1I* RecoilJets::getOrBookCountHist(const std::string& trig,
             "wphi+e11+et1+e32",
             "all5"
         };
-        
+
         for (int ib = 0; ib < 32; ++ib)
             h->GetXaxis()->SetBinLabel(ib + 1, labels[ib]);
-        
+
         H[name] = h;
-        
+
         if (prevDir) prevDir->cd();
         return h;
     }
-    
+
     const std::string title = name + ";count;entries";
     if (Verbosity() >= 5)
         LOG(5, CLR_BLUE, "    [getOrBookCountHist] booking TH1I name=\"" << name << "\" title=\"" << title << '"');
-    
+
     auto* h = RJMCWeighting::RJNewTH1I(name.c_str(), title.c_str(), 1, 0.5, 1.5);
     if (!h)
     {
@@ -10309,7 +10365,7 @@ TH1I* RecoilJets::getOrBookCountHist(const std::string& trig,
     }
     h->GetXaxis()->SetBinLabel(1,"count");
     H[name] = h;
-    
+
     if (prevDir) prevDir->cd();
     return h;
 }
@@ -10319,7 +10375,7 @@ TH1F* RecoilJets::getOrBookBDTScoreHist(const std::string& trig,
                                         int etIdx, int centIdx)
 {
   const std::string suffix = suffixForBins(etIdx, centIdx);
-  const std::string name = withIsoViewSuffix(base) + suffix;
+  const std::string name = histBaseForScope(base, HistViewScope::Canonical) + suffix;
 
   if (trig.empty() || base.empty()) return nullptr;
 
@@ -10954,7 +11010,7 @@ TH1F* RecoilJets::getOrBookUnfoldTruthPhoPtGamma(const std::string& trig,
 {
   const std::string base   = "h_unfoldTruthPho_pTgamma";
   const std::string suffix = suffixForBins(-1, centIdx);
-  const std::string name   = withIsoViewSuffix(base) + suffix;
+  const std::string name   = histBaseForScope(base, HistViewScope::Canonical) + suffix;
 
   if (trig.empty()) return nullptr;
 
@@ -11149,7 +11205,7 @@ TH1F* RecoilJets::getOrBookUnfoldTruthPhoPtGammaPPG12Obj(const std::string& trig
 {
   const std::string base   = "h_unfoldTruthPho_pTgamma_ppg12obj";
   const std::string suffix = suffixForBins(-1, centIdx);
-  const std::string name   = withIsoViewSuffix(base) + suffix;
+  const std::string name   = histBaseForScope(base, HistViewScope::Canonical) + suffix;
 
   if (trig.empty()) return nullptr;
 
@@ -14181,7 +14237,7 @@ TH1F* RecoilJets::getOrBookTruthIsoHist(const std::string& trig,
                                        int nbins, double xmin, double xmax)
 {
   if (trig.empty() || name.empty()) return nullptr;
-  const std::string viewName = withIsoViewSuffix(name);
+  const std::string viewName = name;
 
   auto& H = qaHistogramsByTrigger[trig];
   if (auto it = H.find(viewName); it != H.end())
@@ -14211,7 +14267,7 @@ TH1I* RecoilJets::getOrBookTruthIsoDecisionHist(const std::string& trig,
                                                const std::string& name)
 {
   if (trig.empty() || name.empty()) return nullptr;
-  const std::string viewName = withIsoViewSuffix(name);
+  const std::string viewName = name;
 
   auto& H = qaHistogramsByTrigger[trig];
   if (auto it = H.find(viewName); it != H.end())
@@ -14792,25 +14848,26 @@ void RecoilJets::bumpHistFill(const std::string& trig, const std::string& hnameW
 TH1F* RecoilJets::getOrBookSSHist(const std::string& trig,
                                   const std::string& varKey,
                                   const std::string& tagKey,
-                                  int etIdx, int centIdx)
+                                  int etIdx, int centIdx,
+                                  HistViewScope scope)
 {
     const std::string base   = "h_ss_" + varKey + "_" + tagKey;
     const std::string suffix = suffixForBins(etIdx, centIdx);
-    const std::string name   = withIsoViewSuffix(base) + suffix;
-    
+    const std::string name   = histBaseForScope(base, scope) + suffix;
+
     if (Verbosity() >= 5)
         LOG(5, CLR_BLUE, "  [getOrBookSSHist] trig=\"" << trig << "\" varKey=\"" << varKey
             << "\" tagKey=\"" << tagKey << "\" etIdx=" << etIdx << " centIdx=" << centIdx
             << " → name=\"" << name << "\"");
-    
+
     if (trig.empty() || varKey.empty() || tagKey.empty())
     {
         LOG(2, CLR_YELLOW, "  [getOrBookSSHist] empty trig/varKey/tagKey – returning nullptr");
         return nullptr;
     }
-    
+
     auto& H = qaHistogramsByTrigger[trig];
-    
+
     if (auto it = H.find(name); it != H.end())
     {
         if (auto* h = dynamic_cast<TH1F*>(it->second))
@@ -14823,13 +14880,13 @@ TH1F* RecoilJets::getOrBookSSHist(const std::string& trig,
             << "\" exists but is not TH1F – replacing it");
         H.erase(it);
     }
-    
+
     if (!out || !out->IsOpen())
     {
         LOG(1, CLR_YELLOW, "  [getOrBookSSHist] output TFile invalid/null – returning nullptr");
         return nullptr;
     }
-    
+
     // Choose sane, variable-specific ranges (matches your previous defaults)
     int    nb = 120;
     double lo = 0.0, hi = 1.2;
@@ -14842,7 +14899,7 @@ TH1F* RecoilJets::getOrBookSSHist(const std::string& trig,
         LOG(3, CLR_YELLOW, "  [getOrBookSSHist] unknown varKey \"" << varKey
             << "\" – using default nb=" << nb << " range=[" << lo << "," << hi << "]");
     }
-    
+
     TDirectory* const prevDir = gDirectory;
     TDirectory* dir = out->GetDirectory(trig.c_str());
     if (!dir) dir = out->mkdir(trig.c_str());
@@ -14852,16 +14909,16 @@ TH1F* RecoilJets::getOrBookSSHist(const std::string& trig,
         if (prevDir) prevDir->cd();
         return nullptr;
     }
-    
+
     dir->cd();
-    
+
     const std::string title = base + ";" + varKey + ";Entries";
-    
+
     if (Verbosity() >= 5)
         LOG(5, CLR_BLUE, "    [getOrBookSSHist] booking TH1F name=\"" << name
             << "\" bins=" << nb << " range=[" << lo << "," << hi
             << "] title=\"" << title << '"');
-    
+
     auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nb, lo, hi);
     if (!h)
     {
@@ -14870,7 +14927,7 @@ TH1F* RecoilJets::getOrBookSSHist(const std::string& trig,
         return nullptr;
     }
     H[name] = h;
-    
+
     if (prevDir) prevDir->cd();
     return h;
 }
@@ -15071,7 +15128,7 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
     if (auto* hc = getOrBookCountHist(trig, comboBase, ptIdx, effCentIdx))
     {
       hc->Fill(1);
-      bumpHistFill(trig, std::string(comboBase) + slice);
+      bumpHistFill(trig, hc->GetName());
     }
     else
     {
@@ -15088,7 +15145,7 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
       if (auto* hIsoReg = getOrBookIsoPartHist(trig, hBase, "E_{T}^{iso} [GeV]", ptIdx, effCentIdx))
       {
         hIsoReg->Fill(eiso_et);
-        bumpHistFill(trig, hBase + slice);
+        bumpHistFill(trig, hIsoReg->GetName());
       }
     }
 
@@ -15208,7 +15265,7 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
     if (auto* h = getOrBookSSHist(trig, key, comboKeySS, ptIdx, effCentIdx))
     {
       h->Fill(val);
-      bumpHistFill(trig, "h_ss_" + key + "_" + comboKeySS + slice);
+      bumpHistFill(trig, h->GetName());
     }
     else
     {
@@ -15293,6 +15350,6 @@ void RecoilJets::printCutSummary() const
   cout << "\n\033[1mIsolation (preselection-passed)\033[0m\n";
   cout << "outcome                        | count\n"
           "-------------------------------+-------\n";
-  cout << left << setw(31) << "isolated (pass)"            << " | " << right << setw(7) << m_bk.iso_pass         << '\n';
-  cout << left << setw(31) << "non-isolated (fail)"        << " | " << right << setw(7) << m_bk.iso_fail         << '\n';
+  cout << left << setw(31) << "isolated (canonical view)"     << " | " << right << setw(7) << m_bk.iso_pass         << '\n';
+  cout << left << setw(31) << "non-isolated (canonical view)" << " | " << right << setw(7) << m_bk.iso_fail         << '\n';
 }

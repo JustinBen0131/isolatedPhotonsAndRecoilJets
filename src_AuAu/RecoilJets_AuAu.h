@@ -915,6 +915,10 @@ private:
     std::string histRKeyForJetPt(const std::string& rKey, double ptGeV) const;
     std::string histRKeyForJetPtAndDphi(const std::string& rKey, double ptGeV, double cutRad) const;
     void        configureInternalIsoViewsFromEnv();
+    enum class HistViewScope { Canonical, IsoView };
+    bool        fillCanonicalThisView() const;
+    std::string histBaseForScope(const std::string& base, HistViewScope scope) const;
+    std::string recoilRKeyForScope(const std::string& rKey, double ptGeV, double cutRad, HistViewScope scope) const;
     std::string withIsoViewSuffix(const std::string& base) const;
     std::string stripIsoViewSuffix(const std::string& key) const;
     void        configureInternalBackToBackScanFromEnv();
@@ -955,7 +959,8 @@ private:
     // -------------------------------------------------------------------------
     TH1I* getOrBookCountHist(const std::string& trig,
                              const std::string& base,
-                             int ptIdx, int centIdx);
+                             int ptIdx, int centIdx,
+                             HistViewScope scope = HistViewScope::IsoView);
     
     // Isolation spectra (reco)
     TH1F* getOrBookIsoHist(const std::string& trig, int ptIdx, int centIdx);
@@ -995,7 +1000,8 @@ private:
     TH1F* getOrBookSSHist(const std::string& trig,
                           const std::string& varKey,
                           const std::string& tagKey,
-                          int ptIdx, int centIdx);
+                          int ptIdx, int centIdx,
+                          HistViewScope scope = HistViewScope::IsoView);
     
     // Physics outputs (already radius-tagged in your .cc)
     TH1F* getOrBookXJHist(const std::string& trig,
