@@ -149,21 +149,9 @@ if [[ -n "${RJ_ID_FANOUT_DIRS_FILE:-}" ]]; then
     IFS='|' read -r -a fan_cols <<< "$fan_line"
     fan_dest="${fan_cols[0]:-}"
     fan_cfg="${fan_cols[1]:-}"
-    fan_yaml=""
-    if (( ${#fan_cols[@]} >= 6 )); then
-      fan_yaml="${fan_cols[2]:-}"
-      fan_pre="${fan_cols[3]:-}"
-      fan_tight="${fan_cols[4]:-}"
-      fan_nonTight="${fan_cols[5]:-}"
-      fan_view="${fan_cols[6]:-}"
-      fan_materialize="${fan_cols[7]:-}"
-    else
-      fan_pre="${fan_cols[2]:-}"
-      fan_tight="${fan_cols[3]:-}"
-      fan_nonTight="${fan_cols[4]:-}"
-      fan_view=""
-      fan_materialize=""
-    fi
+    fan_pre="${fan_cols[2]:-}"
+    fan_tight="${fan_cols[3]:-}"
+    fan_nonTight="${fan_cols[4]:-}"
     [[ -z "${fan_dest:-}" || "${fan_dest:0:1}" == "#" ]] && continue
     fan_out_dir="${fan_dest}/${run8}"
     if [[ -z "${fanout_dir_seen[$fan_out_dir]:-}" ]]; then
@@ -171,18 +159,13 @@ if [[ -n "${RJ_ID_FANOUT_DIRS_FILE:-}" ]]; then
       fanout_dir_seen["$fan_out_dir"]=1
     fi
     fan_out_root="${fan_out_dir}/RecoilJets_${analysis_tag}_${chunk_tag}.root"
-    if [[ -n "$fan_yaml" ]]; then
-      printf '%s|%s|%s|%s|%s|%s|%s|%s\n' "$fan_out_root" "$fan_cfg" "$fan_yaml" "$fan_pre" "$fan_tight" "$fan_nonTight" "$fan_view" "$fan_materialize" >> "$fanout_file"
-    else
-      printf '%s|%s|%s|%s|%s\n' "$fan_out_root" "$fan_cfg" "$fan_pre" "$fan_tight" "$fan_nonTight" >> "$fanout_file"
-    fi
+    printf '%s|%s|%s|%s|%s\n' "$fan_out_root" "$fan_cfg" "$fan_pre" "$fan_tight" "$fan_nonTight" >> "$fanout_file"
     fanout_outputs+=( "$fan_out_root" )
   done < "$RJ_ID_FANOUT_DIRS_FILE"
   [[ -s "$fanout_file" ]] || { echo "[FATAL] fanout dirs file produced no output rows: $RJ_ID_FANOUT_DIRS_FILE"; exit 7; }
   export RJ_ID_FANOUT_FILE="$fanout_file"
-  export RJ_REPLAY_FANOUT_FILE="$fanout_file"
   out_root="${fanout_outputs[0]}"
-  echo "[INFO] ID fanout enabled: $(wc -l < "$fanout_file") view rows, ${#fanout_dir_seen[@]} output directories from one Fun4All pass"
+  echo "[INFO] ID fanout enabled: $(wc -l < "$fanout_file") cfg rows, ${#fanout_dir_seen[@]} output directories from one Fun4All pass"
   echo "[INFO] ID fanout file   : $fanout_file"
   echo "[INFO] Primary output   : $out_root"
 fi
@@ -277,30 +260,7 @@ emit_profile_summary() {
     fanout_output_roots="$(awk -F'|' 'NF && $1 !~ /^#/ && $1 != "" {seen[$1]=1} END{for(k in seen)c++; print c+0}' "$RJ_ID_FANOUT_FILE" 2>/dev/null || echo 0)"
   fi
 
-  pool_event_entries=na
-  pool_photon_entries=na
-  pool_jet_entries=na
-  pool_truth_photon_entries=na
-  pool_profile_counts="${RJ_POOL_PROFILE_COUNTS:-${RJ_PROFILE_JOB:-0}}"
-  if [[ "${RJ_POOL_MODE:-}" == capture* && -s "$out_root" &&
-        ( "$pool_profile_counts" == "1" || "$pool_profile_counts" == "true" || "$pool_profile_counts" == "TRUE" ) ]]; then
-    pool_counts="$(
-      root -l -b -q -e "TFile f(\"${out_root}\"); const char* names[] = {\"AnalysisEventPool\", \"AnalysisPhotonPool\", \"AnalysisJetPool\", \"AnalysisTruthPhotonPool\"}; for (const char* n : names) { auto* t = dynamic_cast<TTree*>(f.Get(n)); std::cout << n << \"=\" << (t ? t->GetEntries() : -1) << std::endl; }" 2>/dev/null || true
-    )"
-    pool_event_entries="$(printf '%s\n' "$pool_counts" | awk -F= '$1=="AnalysisEventPool"{print $2}' | tail -1)"
-    pool_photon_entries="$(printf '%s\n' "$pool_counts" | awk -F= '$1=="AnalysisPhotonPool"{print $2}' | tail -1)"
-    pool_jet_entries="$(printf '%s\n' "$pool_counts" | awk -F= '$1=="AnalysisJetPool"{print $2}' | tail -1)"
-    pool_truth_photon_entries="$(printf '%s\n' "$pool_counts" | awk -F= '$1=="AnalysisTruthPhotonPool"{print $2}' | tail -1)"
-    pool_event_entries="${pool_event_entries:-unknown}"
-    pool_photon_entries="${pool_photon_entries:-unknown}"
-    pool_jet_entries="${pool_jet_entries:-unknown}"
-    pool_truth_photon_entries="${pool_truth_photon_entries:-unknown}"
-    if [[ "$pool_event_entries" == "0" ]]; then
-      echo "[WARN] Pool capture produced zero AnalysisEventPool entries: ${out_root}"
-    fi
-  fi
-
-  echo "RECOILJETS_JOB_PROFILE_V1 stage=${profile_stage} label=${profile_label} dataset=${dataset} analysis_tag=${analysis_tag} run=${run8} chunk=${chunk_tag} input_files=${input_files} nevents=${nevents} cluster_id=${cluster_id} exit_code=${exit_code} elapsed_seconds=${elapsed} max_rss_kb=${max_rss_kb} user_cpu_s=${user_cpu_s} system_cpu_s=${system_cpu_s} cpu_percent=${cpu_percent} major_page_faults=${major_faults} minor_page_faults=${minor_faults} voluntary_context_switches=${voluntary_cs} involuntary_context_switches=${involuntary_cs} fs_inputs=${fs_inputs} fs_outputs=${fs_outputs} output_files=${output_files} output_bytes=${output_bytes} request_memory_mb=${RJ_REQUEST_MEMORY_MB:-unknown} fanout_view_count=${fanout_view_count} fanout_output_roots=${fanout_output_roots} replay_output_roots_per_shard=${RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD:-unknown} pool_event_entries=${pool_event_entries} pool_photon_entries=${pool_photon_entries} pool_jet_entries=${pool_jet_entries} pool_truth_photon_entries=${pool_truth_photon_entries} macro=${MACRO} config=${RJ_CONFIG_YAML:-unset} pool_mode=${RJ_POOL_MODE:-unset}"
+  echo "RECOILJETS_JOB_PROFILE_V1 stage=${profile_stage} label=${profile_label} dataset=${dataset} analysis_tag=${analysis_tag} run=${run8} chunk=${chunk_tag} input_files=${input_files} nevents=${nevents} cluster_id=${cluster_id} exit_code=${exit_code} elapsed_seconds=${elapsed} max_rss_kb=${max_rss_kb} user_cpu_s=${user_cpu_s} system_cpu_s=${system_cpu_s} cpu_percent=${cpu_percent} major_page_faults=${major_faults} minor_page_faults=${minor_faults} voluntary_context_switches=${voluntary_cs} involuntary_context_switches=${involuntary_cs} fs_inputs=${fs_inputs} fs_outputs=${fs_outputs} output_files=${output_files} output_bytes=${output_bytes} request_memory_mb=${RJ_REQUEST_MEMORY_MB:-unknown} fanout_view_count=${fanout_view_count} fanout_output_roots=${fanout_output_roots} macro=${MACRO} config=${RJ_CONFIG_YAML:-unset}"
   if [[ -s "$profile_file" ]]; then
     sed 's/^/[time-v] /' "$profile_file"
   fi
@@ -320,7 +280,7 @@ start_heartbeat() {
       if [[ -f "$out_root" ]]; then
         out_bytes="$(file_size_bytes "$out_root")"
       fi
-      echo "RECOILJETS_JOB_HEARTBEAT_V1 stage=${profile_stage} label=${profile_label} dataset=${dataset} run=${run8} chunk=${chunk_tag} elapsed_seconds=${elapsed} input_files=${input_files} nevents=${nevents} output_bytes=${out_bytes} pool_mode=${RJ_POOL_MODE:-unset}"
+      echo "RECOILJETS_JOB_HEARTBEAT_V1 stage=${profile_stage} label=${profile_label} dataset=${dataset} run=${run8} chunk=${chunk_tag} elapsed_seconds=${elapsed} input_files=${input_files} nevents=${nevents} output_bytes=${out_bytes}"
     done
   ) &
   heartbeat_pid="$!"

@@ -598,6 +598,40 @@ sim_b2b_dir_tag() {
   fi
 }
 
+dphi_internal_enabled() {
+  case "${RJ_DISABLE_DPHI_INTERNALIZATION:-0}" in
+    1|true|TRUE|yes|YES|on|ON) return 1 ;;
+  esac
+  case "${RJ_INTERNALIZE_DPHI:-1}" in
+    0|false|FALSE|no|NO|off|OFF) return 1 ;;
+  esac
+  return 0
+}
+
+dphi_submit_values() {
+  if dphi_internal_enabled && (( "$#" > 0 )); then
+    local v
+    for v in "$@"; do
+      if sim_is_close "$v" "0.875"; then
+        printf '%s\n' "$v"
+        return 0
+      fi
+    done
+    printf '%s\n' "$1"
+  else
+    printf '%s\n' "$@"
+  fi
+}
+
+dphi_dir_tag_component() {
+  local frac="$1"
+  if dphi_internal_enabled; then
+    echo "dphiScan"
+  else
+    sim_b2b_dir_tag "$frac"
+  fi
+}
+
 sim_vz_tag() {
   local vz="$1"
   if [[ "$vz" =~ ^([0-9]+)\.0+$ ]]; then
@@ -971,7 +1005,7 @@ build_cfg_tags_from_yaml() {
   yaml="$(merge_yaml_path)"
   [[ -f "$yaml" ]] || { err "YAML not found for cfg-tag generation: $yaml"; exit 40; }
 
-  local -a jet_pts b2bs vzs cones iso_base_tags uepipes
+  local -a jet_pts b2bs b2bs_submit vzs cones iso_base_tags uepipes
   local include_uepipe_in_tag=0
   mapfile -t jet_pts       < <(yaml_get_inline_list "$yaml" "jet_pt_min")
   mapfile -t b2bs          < <(yaml_get_inline_list "$yaml" "back_to_back_dphi_min_pi_fraction")
@@ -984,6 +1018,7 @@ build_cfg_tags_from_yaml() {
 
   if (( ${#jet_pts[@]} == 0 )); then jet_pts=( "5.0" ); fi
   if (( ${#b2bs[@]} == 0 )); then b2bs=( "0.875" ); fi
+  mapfile -t b2bs_submit < <(dphi_submit_values "${b2bs[@]}")
   if (( ${#vzs[@]} == 0 )); then vzs=( "30.0" ); fi
   if (( ${#cones[@]} == 0 )); then cones=( "0.30" ); fi
   if (( ${#iso_base_tags[@]} == 0 )); then iso_base_tags=( "fixedIso2GeV" ); fi
@@ -1004,7 +1039,7 @@ build_cfg_tags_from_yaml() {
   local cfg_suffix="${MERGE_CFG_SUFFIX:-}"
   local tight_norm nonTight_norm pre_norm
   for pt in "${jet_pts[@]}"; do
-    for frac in "${b2bs[@]}"; do
+    for frac in "${b2bs_submit[@]}"; do
       for vz in "${vzs[@]}"; do
         for cone in "${cones[@]}"; do
           for iso in "${iso_base_tags[@]}"; do
@@ -1015,7 +1050,7 @@ build_cfg_tags_from_yaml() {
               tight_norm="$(selection_mode_normalize_for_key "tight" "$tight")"
               nonTight_norm="$(selection_mode_normalize_for_key "nonTight" "$nonTight")"
               selection_tag="$(selection_mode_tag "preselection" "$pre_norm")_$(selection_mode_tag "tight" "$tight_norm")_$(selection_mode_tag "nonTight" "$nonTight_norm")"
-              tag="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_dir_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso}"
+              tag="jetMinPt$(sim_pt_tag "$pt")_$(dphi_dir_tag_component "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso}"
               for uep in "${uepipes[@]}"; do
                 if (( include_uepipe_in_tag )); then
                   full_tag="${tag}_${uep}_${selection_tag}"
@@ -1091,6 +1126,9 @@ ENDMACRO
   _frac="${_frac#*:}"; _frac="${_frac%%#*}"; _frac="$(trim_ws "$_frac")"
   [[ -n "$_frac" ]] || _frac="0.875"
 
+  local _internal_dphi
+  _internal_dphi="$(grep -E '^[[:space:]]*internal_back_to_back_dphi_min_pi_fraction:' "$_tmpyaml" | head -1 || true)"
+
   _vz="$(grep -E '^[[:space:]]*vz_cut_cm:' "$_tmpyaml" | head -1 || true)"
   _vz="${_vz#*:}"; _vz="${_vz%%#*}"; _vz="$(trim_ws "$_vz")"
   [[ -n "$_vz" ]] || _vz="30.0"
@@ -1132,7 +1170,14 @@ ENDMACRO
   local _selection_tag
   _selection_tag="$(selection_mode_tag "preselection" "$_preselection")_$(selection_mode_tag "tight" "$_tight")_$(selection_mode_tag "nonTight" "$_nonTight")"
 
-  local _tag="jetMinPt$(sim_pt_tag "$_pt")_$(sim_b2b_dir_tag "$_frac")_$(sim_vz_tag "$_vz")_$(sim_cone_tag "$_cone")_$(sim_iso_tag "$_sliding" "$_fixed")"
+  local _dphi_tag
+  if [[ -n "$_internal_dphi" ]] && dphi_internal_enabled; then
+    _dphi_tag="dphiScan"
+  else
+    _dphi_tag="$(sim_b2b_dir_tag "$_frac")"
+  fi
+
+  local _tag="jetMinPt$(sim_pt_tag "$_pt")_${_dphi_tag}_$(sim_vz_tag "$_vz")_$(sim_cone_tag "$_cone")_$(sim_iso_tag "$_sliding" "$_fixed")"
   if [[ "$_uepipe" != "noSub" ]]; then
     _tag="${_tag}_${_uepipe}_${_selection_tag}"
   else

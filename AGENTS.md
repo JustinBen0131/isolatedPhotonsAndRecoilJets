@@ -30,15 +30,25 @@ Notes:
   checkout, for example `./RecoilJets_Condor_submit.sh isAuAu CHECKJOBS
   groupSize 7` or the corresponding SIM dataset. Use those counts before
   recommending a large production submission.
+- The user has typically never seen more than about 15k of their own Condor
+  jobs running simultaneously, even when more jobs are submitted. Treat that as
+  a practical concurrency ceiling for throughput planning: submitted DAG size
+  can be larger, but memory requests should be low enough for many jobs to match
+  slots quickly within that real simultaneous-running limit.
 - For large productions, prefer a staged ramp: upload code, run model/workflow
   checks, submit a small pilot or capped segment/sample, inspect the parseable
   stage email/logs, then scale to the full DAG once the job count and failure
   behavior are understood.
-- The preferred real Condor preproduction test is the DATA pool smoke path, for
-  example `RJ_DAG_DRYRUN=1 ./RecoilJets_Condor_submit.sh isPP condor poolSmoke
-  groupSize 7 maxJobs 12` to build the exact DAG without submitting, followed
-  by `./RecoilJets_Condor_submit.sh isPP condor poolSmoke groupSize 7 maxJobs
-  12` for the real capped capture/replay profiling DAG.
+- For AuAu ML training commands on SDCC, use the user's working ML Python
+  environment explicitly instead of default `python3`:
+  `RJ_ML_PYTHON=/sphenix/u/patsfan753/.venvs/thesis-ml/bin/python`. This env
+  has been verified to import `uproot`, `pandas`, `numpy`, `sklearn`,
+  `xgboost`, and `ROOT`. The default sPHENIX CVMFS Python may have PyROOT but
+  can be missing `uproot` and `xgboost`, causing `trainTightBDT`/`trainMLAll`
+  preflight failures.
+- The production RecoilJets histogram path is direct RecoilJets fanout, not
+  pool/replay. Use `condor all` / `condorDoAll` for optimized production and
+  `allDirect` / `condorDoAllDirect` only for one-cfg-per-pass validation.
 - When RecoilJets trigger logic, GL1 bits, `ScaledVector`, live/scaled counts,
   or scaledown interpretation needs closer grounding, use the local manual
   `usefulDocs/Gl1-gtm_user_manual_v53.pdf` as the first reference before making
@@ -143,6 +153,11 @@ Notes:
   legends must not cover the important distributions unless there is no better
   placement. If a template is reused across many plots, inspect representative
   outputs from each template and rerun after adjustments.
+- Match the analysis label style used in `macros/AnalyzeRecoilJets_RunTriggerAna.cpp`:
+  write the experiment label as `#it{#bf{sPHENIX}} Internal`, not
+  `#bf{sPHENIX Internal}` or plain `sPHENIX Internal`. Use ROOT text font 42
+  for the label block unless the existing macro helper already provides a
+  stricter local style.
 - When the user asks Codex to generate or regenerate plots for slides, Codex
   must first show the generated PNGs directly in the conversation and discuss
   any physics or formatting concerns before editing Google Slides. Iterate on
@@ -153,6 +168,15 @@ Notes:
   user's expectation, pause the slide-update step and debug the plotted inputs,
   histogram normalization/scaling, numerator/denominator definitions, and
   relevant ROOT contents before presenting it as slide-ready.
+
+# Slide Style Preferences
+
+- For Google Slides and other presentation edits, prefer body text at least
+  14 pt when possible. Use line spacing around 1.2-1.8 so text fills the slide
+  space cleanly instead of looking cramped or stranded.
+- For overview and conclusion slides, it is okay to use larger fonts and
+  larger spacing to fill the space nicely, as long as the slide remains clear
+  and easy to read.
 
 # Change Control
 
@@ -172,30 +196,51 @@ Notes:
 
 # SSH Diagnostic CLI Handoff
 
-- SDCC terminal read-only mode:
+- SDCC terminal default mode:
   When the user is working in a visible terminal in this chat and that terminal
   is SSHed into SDCC/BNL or otherwise operating in the remote SDCC analysis
-  checkout, Codex must treat that terminal as user-controlled. Codex may inspect
-  visible terminal output, scroll/read terminal state when available, summarize
-  what happened, track submitted job IDs/DAG paths/manifests/output paths, and
-  tell the user what command to run next. Codex must not type into that terminal,
-  send stdin, run commands, submit jobs, transfer files, or mutate remote state
-  from the SDCC terminal. Provide paste-ready commands for the user to run
-  manually instead.
-- This read-only restriction applies only to SDCC/remote SSH terminals. For the
-  local Mac checkout/workspace terminal, Codex may continue to run commands,
-  edit files, inspect outputs, run tests, and operate normally within the
-  active sandbox and approval rules.
+  checkout, Codex should initially treat that terminal as user-controlled.
+  Codex may inspect visible terminal output, scroll/read terminal state when
+  available, summarize what happened, track submitted job IDs/DAG paths/
+  manifests/output paths, and tell the user what command to run next.
+- Open SSH terminal delegation:
+  If the user explicitly authorizes Codex to drive the visible SSH terminal for
+  the current diagnostic task or current chat, for example "you can drive the
+  open SSH terminal for this diagnostic" or "run the needed SSH checks in the
+  terminal below", Codex may type and run compact diagnostic commands directly
+  in that already-open SSH terminal and then inspect the resulting output. Treat
+  that authorization as applying only to the visible SSH terminal and only while
+  the task remains related to the user's current question.
+- Diagnostic commands that may be run under open SSH terminal delegation include
+  read-only or low-risk inspection commands such as `pwd`, `ls`, `find`, `rg`,
+  `grep`, `sed`, `awk`, `python3` one-off parsers, `jq`, `wc`, `head`, `tail`,
+  `diff`, `comm`, `sort`, `condor_q`, `condor_history`, and project-specific
+  status/report inspection commands. Prefer commands that print compact
+  summaries over huge raw dumps. If a large output is unavoidable, write it to a
+  clear temporary path and print only the key summary plus that path.
+- Even under open SSH terminal delegation, Codex must still ask for explicit
+  approval before running commands that submit jobs, remove or overwrite files,
+  edit remote files, transfer files, change permissions, kill/hold/release
+  jobs, run `sftp`/`scp`/`rsync`, install software, expose secrets, or otherwise
+  mutate remote SDCC state. Do not ask for, read, store, repeat, or type SDCC
+  passwords or other secrets.
+- If the visible terminal is not clearly SSHed into the intended SDCC checkout,
+  or if the needed command is risky or ambiguous, fall back to showing the
+  paste-ready command and asking before running it.
+- This SSH delegation policy applies only to visible SDCC/remote SSH terminals.
+  For the local Mac checkout/workspace terminal, Codex may continue to run
+  commands, edit files, inspect outputs, run tests, and operate normally within
+  the active sandbox and approval rules.
 - Track SDCC-side workflow state from visible terminal output or user-pasted
   output: which dataset/mode was submitted, exact command, job/DAG ids, manifest
-  paths, pool/output bases, transfer commands/results, held/failed reasons, and
+  paths, output bases, transfer commands/results, held/failed reasons, and
   parseable profile lines such as `RECOILJETS_JOB_PROFILE_V1`.
 - When Codex needs information that can only be obtained from the user's
-  private Brookhaven/SDCC SSH terminal, and the needed CLI is multi-line or
-  otherwise awkward to copy, prepare one paste-ready shell command. Before
-  copying it, show the command verbatim in the conversation, describe concisely
-  what it checks or does, and ask the user to approve copying it to the
-  clipboard.
+  private Brookhaven/SDCC SSH terminal and open SSH terminal delegation has not
+  been granted for the current task, prepare one paste-ready shell command. If
+  the command is multi-line or otherwise awkward to copy, show it verbatim in
+  the conversation, describe concisely what it checks or does, and ask the user
+  to approve copying it to the clipboard.
 - Only run `pbcopy` after the user confirms approval, for example by replying
   `y` or otherwise clearly approving. If the user's current message explicitly
   asks Codex to copy a specific command to the clipboard, that request itself is
@@ -204,16 +249,22 @@ Notes:
   fences, no expected-output notes.
 - After copying, tell the user that the command is on their clipboard, where to
   run it, and ask them to paste the terminal output back verbatim.
-- Keep the SSH diagnostic handoff continuous: after giving the command, do not
-  treat the task as complete until the user runs it, visible terminal output or
-  pasted output has been inspected, and Codex has extracted the needed
-  conclusion or next fix. If the command reveals a problem, respond with the
-  precise diagnosis, the file/code change or operational next step, the relevant
-  SDCC-safe resubmission/retry command for the affected jobs only, and any
-  required local `scripts/sftp_push_recoiljets.sh ...` upload command. If the
-  output confirms the expected state, say so clearly and record any important
-  job IDs, manifests, output paths, or tuning evidence in the project notes when
-  it affects future analysis continuity.
+- Keep the SSH diagnostic handoff continuous: after running or giving a
+  diagnostic command, do not treat the task as complete until the visible
+  terminal output or pasted output has been inspected and Codex has extracted
+  the needed conclusion or next fix. If the command reveals a problem, respond
+  with the precise diagnosis, the file/code change or operational next step,
+  the relevant SDCC-safe resubmission/retry command for the affected jobs only,
+  and any required local `scripts/sftp_push_recoiljets.sh ...` upload command.
+  If the output confirms the expected state, say so clearly and record any
+  important job IDs, manifests, output paths, or tuning evidence in the project
+  notes when it affects future analysis continuity.
+- For iterative SDCC debugging where Codex asks the user to run CLI diagnostics
+  and paste or show the output, keep the assistant response logically open while
+  inspecting the visible terminal output. Do not answer only the first fragment
+  of a long pasted diagnostic; continue watching the terminal/readback in the
+  same debugging turn until the command has finished or until the visible output
+  clearly identifies the next needed command or code fix.
 - If `pbcopy` is unavailable or blocked, say that clipboard copy failed and
   provide the command in a fenced shell block instead. Do not create a temp
   text file for this workflow unless the user explicitly asks for one.
@@ -254,8 +305,7 @@ should be treated as local-only code.
 
 - Large intermediate pipeline products belong on the SDCC bulk `/sphenix/tg/tg01/bulk/...`
   filesystem, matching the original production pipeline. This includes per-run
-  folders, per-segment/per-chunk ROOT outputs, pool TTrees, captured reusable
-  DST-derived objects, temporary replay outputs, Condor production trees, and
+  folders, per-segment/per-chunk ROOT outputs, Condor production trees, and
   other high-volume artifacts created before final merge/analysis consumption.
 - Final merged outputs, local analysis-ready ROOT files, pulled products, plots,
   slide inputs, and other user-facing final artifacts belong in the user's
@@ -264,7 +314,7 @@ should be treated as local-only code.
   workspace once explicitly requested.
 - When changing pipeline paths, preserve this split: bulk for scalable
   production intermediates, user/local analysis areas for final products and
-  presentation-ready outputs. Do not redirect large per-segment or pool outputs
+  presentation-ready outputs. Do not redirect large per-segment outputs
   into the user's basis/home directory unless the user explicitly asks.
 
 # SDCC Transfer Workflow
@@ -449,7 +499,6 @@ scripts/train_auau_photon_bdt.py          -> scripts/train_auau_photon_bdt.py
 macros/analysis_config.yaml               -> macros/analysis_config.yaml
 macros/Fun4All_recoilJets.C               -> macros/Fun4All_recoilJets.C
 macros/Fun4All_recoilJets_AuAu.C          -> macros/Fun4All_recoilJets_AuAu.C
-macros/Fun4All_recoilJets_poolReplay.C    -> macros/Fun4All_recoilJets_poolReplay.C
 macros/Fun4All_recoilJets_unified_impl.C  -> macros/Fun4All_recoilJets_unified_impl.C
 macros/PrintPPStitchDiagnostics.C         -> macros/PrintPPStitchDiagnostics.C
 src/RecoilJets.cc                         -> src/RecoilJets.cc

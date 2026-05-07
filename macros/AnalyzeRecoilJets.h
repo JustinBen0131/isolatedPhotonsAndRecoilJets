@@ -36,6 +36,7 @@
 #include <TLine.h>
 #include <TGraph.h>
 #include <TGraphErrors.h>
+#include <TPaveText.h>
 #include <TF1.h>
 #include <TFitResult.h>
 #include <TFitResultPtr.h>
@@ -61,6 +62,8 @@
 #include <utility>
 #include <limits>
 #include <random>
+#include <memory>
+#include <regex>
 
 namespace ARJ
 {
@@ -181,6 +184,7 @@ inline bool doSamVsJustinUnsmearOverlays = false;
 // ===========================================================================
 inline const int    kJetPtMin        = 5;            // GeV: 3, 5, or 10
 inline const string kB2BCut          = "7pi_8";      // "7pi_8" or "pi_2"
+inline const bool   kUseInternalDphiCfgTag = true;   // true reads dphiScan cfg files
 inline const int    kVzCut           = 60;            // cm: 30 or 60
 inline const string kIsoConeR        = "isoR40";     // "isoR30" or "isoR40"
 inline const string kIsoMode         = "isSliding";  // "isSliding" or "fixedIso5GeV"
@@ -322,6 +326,25 @@ inline string PhotonIDTagAA()
            "_nonTight" + PhotonIDModeDisplay(PhotonIDModeCanonical(kAA_NonTight));
 }
 
+inline string DphiCfgTagFor(const string& b2bCut)
+{
+    return kUseInternalDphiCfgTag ? "dphiScan" : b2bCut;
+}
+
+inline string DphiHistSuffixFor(const string& b2bCut)
+{
+    if (!kUseInternalDphiCfgTag) return "";
+    if (b2bCut == "7pi_8") return "";          // nominal dphi keeps legacy rKey names
+    if (b2bCut == "pi_2") return "_dphiPi2";
+    if (b2bCut.rfind("piFrac", 0) == 0) return "_dphi" + b2bCut.substr(6) + "Pi";
+    return "";
+}
+
+inline string RKeyForB2BCut(const string& rKey, const string& b2bCut)
+{
+    return rKey + DphiHistSuffixFor(b2bCut);
+}
+
 inline string CfgBaseTagFor(int jetPtMin,
                             const string& b2bCut,
                             int vzCut,
@@ -329,7 +352,7 @@ inline string CfgBaseTagFor(int jetPtMin,
                             const string& isoMode)
 {
     return "jetMinPt" + std::to_string(jetPtMin) + "_" +
-    b2bCut + "_vz" + std::to_string(vzCut) + "_" +
+    DphiCfgTagFor(b2bCut) + "_vz" + std::to_string(vzCut) + "_" +
     isoConeR + "_" + isoMode;
 }
 
@@ -866,8 +889,9 @@ inline const int kNUnfoldTruthPtBins = (int)kUnfoldTruthPtEdges.size() - 1;
 inline const vector<string> kRKeys = []()
 {
     vector<string> keys = DiscoverRKeysFromInputFiles();
-    if (!keys.empty()) return keys;
-    return vector<string>{"r03"};
+    if (keys.empty()) keys = vector<string>{"r03"};
+    for (auto& key : keys) key = RKeyForB2BCut(key, kB2BCut);
+    return keys;
 }();
 
 // =============================================================================
@@ -1200,10 +1224,11 @@ inline const vector<OverlayCentBin>& OverlayCentBins()
 
 inline double RFromKey(const string& rKey)
 {
-    if (rKey == "r02") return 0.2;
-    if (rKey == "r03") return 0.3;
-    if (rKey == "r04") return 0.4;
-    if (rKey == "r06") return 0.6;
+    const string base = rKey.substr(0, rKey.find("_dphi"));
+    if (base == "r02") return 0.2;
+    if (base == "r03") return 0.3;
+    if (base == "r04") return 0.4;
+    if (base == "r06") return 0.6;
     return 0.0;
 }
 

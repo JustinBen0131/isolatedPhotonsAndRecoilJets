@@ -2,8 +2,51 @@
 
 Use this file for short dated notes about local inspections, user-reported SDCC/Condor activity, pulls, merges, plot-generation passes, and status changes.
 
+## 2026-05-07
+
+- Priority decision: stop broad redesign and focus on getting the pipeline to
+  production quickly. The code is believed to be close, but not yet proven; the
+  remaining risk is practical SDCC/pipeline bugs such as wrapper environment
+  mismatches, empty pool outputs, missing replay branches/features, strict final
+  summary checks, or merge/pull mapping issues. The next useful information
+  should come from smoke outputs, not more speculative architecture work.
+- Immediate execution priority is embedded SIM first, because it unlocks the
+  AuAu ML tight-ID path the user cares about most:
+  `isSimEmbedded` for embedded photon signal samples and
+  `isSimEmbeddedInclusive` for embedded inclusive-jet/background samples. Use
+  quick 1k-event smoke DAGs first to test list resolution, pool capture,
+  replay fanout, output ROOT production, emails, and reports:
+  `RJ_NOTIFY_EMAILS=just0131@gmail.com RJ_SMOKE_SIM_NEVENTS=1000
+  RJ_SMOKE_SIM_MAX_JOBS_PER_SAMPLE=1 ./RecoilJets_Condor_submit.sh
+  isSimEmbedded condorDoAllSmoke`, then the same command for
+  `isSimEmbeddedInclusive`.
+- If the embedded smoke DAGs finish cleanly, proceed aggressively to real
+  embedded SIM production and only do the minimum additional smoke testing
+  needed for pp/AuAu DATA before full submissions. The intended near-term order
+  is: finish `isSimEmbedded` smoke, finish `isSimEmbeddedInclusive` smoke, fix
+  only concrete failures, submit real embedded SIM production, run quick pp/AuAu
+  smoke checks, then submit full pp/AuAu passes. Do not spend many more days
+  tuning before getting full passes over data moving.
+- Clarified current `sphnxuser02` status from visible terminal output:
+  `isSimEmbedded condorDoAllSmoke` was building the DAG, not yet running
+  worker jobs. The output showed matched 10,000-line lists for
+  `run28_embeddedPhoton12` and `run28_embeddedPhoton20`, split into
+  `groupSize=2` chunks and capped to one capture job/sample for the quick smoke.
+  It then built replay fanout over 2,160 view rows, 15 working-point output
+  roots, and 15 replay shards per capture axis/sample. This is the intended
+  mini full-pipeline shape: capture small DST chunks to pools, replay into
+  cfg-tagged smoke ROOT outputs, then final summary/email.
+
 ## 2026-05-06
 
+- User reported that the AuAu scaled-trigger efficiency plots are now placed
+  on slide 9 of the trigger-analysis Google Slides deck
+  (`1yrtM1Xxyb-uSrSyQqAbLOwUFlg9gTE41F4i0Uyr7Sbk`, slide
+  `id.g3dd90ada7d5_0_161`). Scaled-trigger plot generation is therefore no
+  longer an open todo for the current presentation pass. Remaining priority:
+  clean the slide formatting and write/explain the interpretation by
+  2026-05-07 11:00 EDT if possible, and definitely before the 14:00 EDT group
+  meeting.
 - User-visible SDCC terminal output showed `scripts/makeThesisSimLists.sh`
   completed the embedded-inclusive list packs for both current target samples:
   `run28_embeddedJet12` and `run28_embeddedJet20`. Each sample reported 10,000

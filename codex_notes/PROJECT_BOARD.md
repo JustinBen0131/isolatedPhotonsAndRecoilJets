@@ -1,15 +1,39 @@
 # Project Board
 
-Last updated: 2026-05-06
+Last updated: 2026-05-07
 
 ## Now
 
-- Pipeline infrastructure/speed update is active.
-- AuAu scaled-trigger efficiency study is running on SDCC from user-reported
-  submission cluster `1127133` on `sphnxuser04`. This is a special
-  `scaledTriggerStudy` production intended to make scaled trigger turn-on
-  overlays from max-cluster-energy information, with scaledowns applied during
-  merge.
+- Pipeline infrastructure/speed update is active, but the priority is now
+  concrete validation and production movement rather than more broad redesign.
+  Treat the code as close but not proven: run quick smoke DAGs, fix only
+  concrete failures, then scale to production as soon as the embedded SIM and
+  data smoke evidence is clean enough.
+- Highest pipeline priority: get `isSimEmbedded` and
+  `isSimEmbeddedInclusive` working first, because those unlock the AuAu ML
+  tight-ID path. Run quick 1k-event smoke DAGs for embedded photon signal and
+  embedded inclusive-jet/background, confirm nonempty pools/replay outputs and
+  reports, then move to real embedded SIM production. Use these canonical quick
+  checks:
+  `RJ_NOTIFY_EMAILS=just0131@gmail.com RJ_SMOKE_SIM_NEVENTS=1000
+  RJ_SMOKE_SIM_MAX_JOBS_PER_SAMPLE=1 ./RecoilJets_Condor_submit.sh
+  isSimEmbedded condorDoAllSmoke` and the same command with
+  `isSimEmbeddedInclusive`.
+- Near-term production sequence: finish embedded smoke, finish embedded
+  inclusive smoke, fix only concrete failures, submit real embedded SIM
+  production, run the minimum pp/AuAu smoke needed to prove data capture/replay
+  is no longer hanging, then submit full pp/AuAu passes. Do not spend many more
+  days tuning before full passes over the data are moving.
+- HIGH PRIORITY for 2026-05-07: clean and explain the scaled-trigger efficiency
+  plots now placed on slide 9 of the trigger-analysis deck
+  (`1yrtM1Xxyb-uSrSyQqAbLOwUFlg9gTE41F4i0Uyr7Sbk`, slide
+  `id.g3dd90ada7d5_0_161`). Preferred target is by 11:00 EDT, and it must be
+  ready before the 14:00 EDT group meeting. The remaining work is slide polish,
+  clear labels/context, and a coherent spoken explanation of the max-cluster
+  energy distributions and scaled-trigger efficiency turn-ons; the plot
+  generation itself is no longer an open todo.
+- Working follow-up: analyze centrality-dependent efficiencies as well, not
+  only inclusive/all-centrality trigger and photon-efficiency summaries.
 - ABCD/purity tight-axis fix is present in local git commit `507eabd3` in `src/RecoilJets.cc` and `src_AuAu/RecoilJets_AuAu.cc`, but affected ABCD/purity-derived histogram families are not valid until the fix is transferred to SDCC and rerun.
 - Treat current `InputFiles/` ROOT products using non-reference tight/non-tight photon-ID axes such as `tightVariantA`, `nonTightVariantA`, or `newPPG12`-style settings as stale only for affected ABCD/purity-derived histograms and downstream corrections unless later evidence says otherwise. The files are still usable for unrelated histograms and QA.
 
@@ -20,6 +44,14 @@ Last updated: 2026-05-06
   `InputFiles/simEmbedded`, `InputFiles/InclusiveJetSIM`, and
   `InputFiles/InclusiveJetSIM_EMBEDDED` with the new pool/replay YAML/view
   architecture.
+- Production planning policy: submit each dataset independently by default.
+  Keep each DAG/submission in the user's preferred comfort band of about
+  40k-50k Condor worker jobs. If more total throughput is needed, split into
+  independent dataset/round DAGs and optionally submit those separate DAGs from
+  different `sphnxuserXX` hosts, rather than creating one huge 80k-100k DAG.
+  The user usually observes at most about 15k of their own jobs running
+  simultaneously, so optimize for lower-memory jobs that start easily inside
+  that practical concurrency ceiling instead of very large memory-hungry jobs.
 - Expected regenerated output shape:
   - pp/data-style final outputs: 15 ROOT files per dataset output, one per
     active `photon_id_sets` working point.
@@ -117,14 +149,6 @@ Last updated: 2026-05-06
   output against existing local `InputFiles/` variants for matching
   configurations where possible, and only then decide whether to promote the
   full-SIM smoke outputs as final products and move pp/AuAu to full submission.
-- `scaledTriggerStudy` AuAu production cluster `1127133` should be monitored
-  until it leaves the queue. The prompt line in the pasted terminal showed
-  `condor_q 1127132`, but the scaled-trigger submission itself reported
-  `6404 job(s) submitted to cluster 1127133`; use `1127133` for this task.
-- When cluster `1127133` is done: run the AuAu merge stages for the
-  `_scaledTriggerStudy` output, pull the single final AuAu ROOT file locally,
-  then make scaled-trigger efficiency turn-on overlays using the logic in
-  `macros/AnalyzeRecoilJets_RunTriggerAna.cpp`.
 - Future Condor status should be recorded from user-pasted SDCC terminal output or approved clipboard handoff commands.
 
 ## Needs User Decision
@@ -162,3 +186,7 @@ Last updated: 2026-05-06
 
 - 2026-05-05: Identified that the ABCD/purity tight-axis fix is in local commit `507eabd3` and later than current affected `InputFiles/` products.
 - 2026-05-05: Created durable Codex tracking notes for project state, dataset status, known issues, and run logs.
+- 2026-05-06: User reported the scaled-trigger efficiency plots are now on
+  slide 9 of the trigger-analysis deck, so scaled-trigger plot generation is
+  complete for the current presentation pass. Remaining work is slide cleanup
+  and explanation before the 2026-05-07 group meeting.

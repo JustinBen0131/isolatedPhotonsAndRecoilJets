@@ -58,7 +58,7 @@ DATASET_BY_ALIAS = {
 FILENAME_RE = re.compile(r"^RecoilJets_(?P<sample>.+)_ALL_(?P<cfg>.+)\.root$")
 CFG_RE = re.compile(
     r"^jetMinPt(?P<jet_min_pt>[^_]+)_"
-    r"(?P<back_to_back>7pi_8|pi_2|piFrac[^_]+)_"
+    r"(?P<back_to_back>dphiScan|7pi_8|pi_2|piFrac[^_]+)_"
     r"(?P<vz>vz[^_]+)_"
     r"(?P<cone>isoR[^_]+)_"
     r"(?P<isolation>isSliding|fixedIso[^_]+)"

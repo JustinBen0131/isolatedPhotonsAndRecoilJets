@@ -123,7 +123,9 @@ isolation mode.
     summaries reviewed, ROOT output sanity checked, and SIM comparisons against
     existing local `InputFiles/` variants where configurations overlap.
 - AuAu `scaledTriggerStudy`
-  - Status: `Running` based on user-pasted SDCC terminal output.
+  - Status: `Valid` for the current presentation plot-generation task based on
+    the user's 2026-05-06 report that the scaled-trigger plots are now on slide
+    9 of the trigger-analysis deck.
   - Cluster: `1127133` on `sphnxuser04`.
   - Submitted command:
     `RJ_SCALED_TRIGGER_REQUEST_MEMORY=2000MB ./RecoilJets_Condor_submit.sh isAuAu scaledTriggerStudy condorDoAll`.
@@ -134,9 +136,8 @@ isolation mode.
     distributions and trigger-relevant information, with scaledowns applied in
     the merge stage; offline overlays should follow
     `macros/AnalyzeRecoilJets_RunTriggerAna.cpp`.
-  - Next evidence needed: cluster leaves queue, merge-stage output/ready email
-    or pasted merge terminal output, final ROOT pulled locally, and generated
-    trigger overlay plot outputs inspected.
+  - Current follow-up: no further plot-generation task is open for this study.
+    Clean and explain slide 9 before the 2026-05-07 group meeting.
 
 ## Required Evidence To Mark Affected Outputs Valid
 

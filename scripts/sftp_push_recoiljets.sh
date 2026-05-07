@@ -21,7 +21,6 @@ LOCAL_FILES=(
   "macros/analysis_config.yaml"
   "macros/Fun4All_recoilJets.C"
   "macros/Fun4All_recoilJets_AuAu.C"
-  "macros/Fun4All_recoilJets_poolReplay.C"
   "macros/Fun4All_recoilJets_unified_impl.C"
   "macros/PrintPPStitchDiagnostics.C"
   "src/PhotonClusterBuilder.cc"
@@ -48,7 +47,6 @@ REMOTE_FILES=(
   "macros/analysis_config.yaml"
   "macros/Fun4All_recoilJets.C"
   "macros/Fun4All_recoilJets_AuAu.C"
-  "macros/Fun4All_recoilJets_poolReplay.C"
   "macros/Fun4All_recoilJets_unified_impl.C"
   "macros/PrintPPStitchDiagnostics.C"
   "coresoftware_local/offline/packages/CaloReco/PhotonClusterBuilder.cc"
@@ -69,7 +67,6 @@ GROUP_MACROS=(
   "macros/analysis_config.yaml"
   "macros/Fun4All_recoilJets.C"
   "macros/Fun4All_recoilJets_AuAu.C"
-  "macros/Fun4All_recoilJets_poolReplay.C"
   "macros/Fun4All_recoilJets_unified_impl.C"
   "macros/PrintPPStitchDiagnostics.C"
 )

@@ -339,6 +339,7 @@ public:
   void setPhotonEtaAbsMax(double v) { m_etaAbsMax = v; }
   void setMinJetPt(double v)        { m_minJetPt = v; }
   void setMinBackToBack(double v)   { m_minBackToBack = v; }
+  void setInternalBackToBackScan(const std::vector<double>& values);
 
   void setUseVzCut(bool on, double vz = 60.0)
   {
@@ -387,25 +388,6 @@ public:
   void enablePi0Analysis(bool on = true) { m_doPi0Analysis = on; }
 
   void setCentEdges(const std::vector<int>& edges)     { m_centEdges = edges; }
-
-  // Two-stage workflow support.  Capture mode writes a loose analysis pool
-  // (event/photon/jet/truth TTrees) that can be replayed offline without
-  // reopening DSTs.  When captureOnly is true, expensive histogram filling is
-  // skipped after the pool record is written.
-  void enableAnalysisPoolCapture(bool on = true,
-                                 bool captureOnly = false,
-                                 double photonPtMin = 4.0,
-                                 double jetPtMin = 0.0,
-                                 double truthPhotonPtMin = 4.0,
-                                 double truthJetPtMin = 0.0)
-  {
-    m_poolCaptureEnabled = on;
-    m_poolCaptureOnly = on && captureOnly;
-    m_poolPhotonPtMin = photonPtMin;
-    m_poolJetPtMin = jetPtMin;
-    m_poolTruthPhotonPtMin = truthPhotonPtMin;
-    m_poolTruthJetPtMin = truthJetPtMin;
-  }
 
   // Isolation WP (implemented in .cc)
   void setIsolationWP(double aGeV, double bPerGeV,
@@ -576,23 +558,6 @@ private:
 
   bool getCentralitySlice(int& lo, int& hi, std::string& tag) const;
 
-  // Analysis pool capture helpers
-  void initAnalysisPoolTrees();
-  void resetAnalysisPoolBuffers();
-  void captureAnalysisPoolEvent(PHCompositeNode* topNode,
-                                const std::vector<std::string>& activeTrig,
-                                int centIdx);
-  void captureAnalysisPoolJets(long long eventKey, int run, int evt);
-  void captureAnalysisPoolTruthPhotons(PHCompositeNode* topNode,
-                                       long long eventKey,
-                                       int run,
-                                       int evt);
-  void captureAnalysisPoolPhotons(PHCompositeNode* topNode,
-                                  long long eventKey,
-                                  int run,
-                                  int evt,
-                                  int centIdx);
-
   // Au+Au scaled trigger helper (safe default behavior)
   static std::bitset<64> extractTriggerBits(std::uint64_t scaledVec, int /*eventNumber*/)
   {
@@ -695,6 +660,11 @@ private:
   int         findPtBin(double pt) const;
   int         findCentBin(int cent) const;
   std::string suffixForBins(int ptIdx, int centIdx) const;
+  void        configureInternalBackToBackScanFromEnv();
+  std::vector<double> activeBackToBackCuts() const;
+  std::string dphiKeyForCut(double cutRad) const;
+  std::string histRKeyForDphi(const std::string& rKey, double cutRad) const;
+  std::string baseRKeyFromDphiHistKey(const std::string& rKey) const;
 
   // EventDisplay categories (used by the diagnostics payload stored in EventDisplayTree)
   enum class EventDisplayCat : int { NUM = 0, MissA = 1, MissB = 2 };
@@ -1141,6 +1111,8 @@ private:
   //  double m_minJetPt      = 5.0;
   double m_minJetPt      = 10.0;
   double m_minBackToBack = 7.0 * M_PI / 8.0;    // radians
+  std::vector<double> m_internalBackToBackCuts;
+  double m_internalBackToBackBaseKeyCut = -1.0;
 
   // Legacy "primary" reco jet key (still used for printing/overrides only)
   std::string m_xjRecoJetKey = "r04";
@@ -1259,113 +1231,6 @@ private:
   std::vector<float> m_evtDiag_best_phiTower;
   std::vector<float> m_evtDiag_best_etTower;
   std::vector<float> m_evtDiag_best_eTower;
-
-  // -------------------------------------------------------------------------
-  // Reusable analysis pool capture payload.
-  // -------------------------------------------------------------------------
-  bool m_poolCaptureEnabled = false;
-  bool m_poolCaptureOnly = false;
-  double m_poolPhotonPtMin = 4.0;
-  double m_poolJetPtMin = 0.0;
-  double m_poolTruthPhotonPtMin = 4.0;
-  double m_poolTruthJetPtMin = 0.0;
-
-  TTree* m_poolEventTree = nullptr;
-  TTree* m_poolPhotonTree = nullptr;
-  TTree* m_poolJetTree = nullptr;
-  TTree* m_poolTruthPhotonTree = nullptr;
-
-  int m_pool_schema = 2;
-  int m_pool_run = 0;
-  int m_pool_evt = 0;
-  long long m_pool_eventKey = 0;
-  int m_pool_isSim = 0;
-  int m_pool_isAuAu = 0;
-  int m_pool_centBin = -1;
-  int m_pool_centIdx = -1;
-  float m_pool_centPercent = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_vz = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_weight = 1.0f;
-  std::vector<std::string> m_pool_triggers;
-
-  int m_pool_phoIndex = -1;
-  float m_pool_pho_pt = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_eta = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_phi = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_energy = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_eiso = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_eiso_r03 = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_eiso_r04 = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_iso03_emcal = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_iso03_hcalin = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_iso03_hcalout = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_iso04_emcal = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_iso04_hcalin = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_iso04_hcalout = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_weta = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_wphi = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_weta33 = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_wphi33 = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_weta35 = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_wphi53 = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_et1 = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_et2 = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_et3 = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_et4 = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_e11e33 = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_e32e35 = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_e11e22 = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_e11e13 = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_e11e15 = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_e11e17 = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_e11e31 = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_e11e51 = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_e11e71 = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_e22e33 = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_e22e35 = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_e22e37 = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_e22e53 = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_w32 = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_w52 = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_w72 = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_mean_time = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_npb = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_tight_bdt = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_auau_npb = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_auau_tight_bdt = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_mbd_time = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_cluster_mbd_delta_t = std::numeric_limits<float>::quiet_NaN();
-  int m_pool_pho_npb_has_away_jet = 0;
-  int m_pool_pho_npb_label = -1;
-  int m_pool_pho_is_npb = -1;
-  int m_pool_pho_truthSignal = 0;
-  int m_pool_pho_truthTrackId = -1;
-  float m_pool_pho_truthPt = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_truthEta = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_truthPhi = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_pho_truthIso = std::numeric_limits<float>::quiet_NaN();
-  std::vector<float> m_pool_pho_extra_features;
-
-  std::string m_pool_jet_rKey;
-  int m_pool_jet_isTruth = 0;
-  int m_pool_jet_index = -1;
-  float m_pool_jet_pt = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_jet_raw_pt = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_jet_areaSub_pt = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_jet_eta = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_jet_phi = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_jet_mass = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_jet_area = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_jet_rho = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_jet_local_rho = std::numeric_limits<float>::quiet_NaN();
-
-  int m_pool_truth_index = -1;
-  int m_pool_truth_trackId = -1;
-  int m_pool_truth_barcode = -1;
-  float m_pool_truth_pt = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_truth_eta = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_truth_phi = std::numeric_limits<float>::quiet_NaN();
-  float m_pool_truth_iso = std::numeric_limits<float>::quiet_NaN();
 
   // -------------------------------------------------------------------------
   // Diagnostics / accounting

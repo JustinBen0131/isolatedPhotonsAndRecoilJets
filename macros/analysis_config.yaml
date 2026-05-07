@@ -55,7 +55,12 @@ jet_radii: [0.2, 0.3, 0.4]
 # Back-to-back azimuthal cut as a fraction of π.
 #   0.5   → Δφ > π/2
 #   0.875 → Δφ > 7π/8  (ATLAS-like)
-# The macro computes: back_to_back_dphi_min_rad = fraction × π
+# Production submits one cfg tag for this list and RecoilJets writes the
+# dphi-specific recoil/unfolding/JES histograms under dphi-suffixed rKey names
+# such as r04_dphiPi2. The nominal 7π/8 cut keeps the legacy base rKey name
+# (for example r04) for compatibility with existing default plotting code.
+# Direct validation modes can still disable that internal scan and submit one
+# legacy scalar dphi cfg at a time.
 back_to_back_dphi_min_pi_fraction: [0.5, 0.875]
 
 # -----------------------------------------------------------------------------
@@ -265,27 +270,6 @@ photon_id_sets:
 # Codex/Gmail automation can use those emails as the secure progress interface.
 # The submit/merge scripts also accept RJ_NOTIFY_EMAILS as an override.
 notify_emails: [just0131@gmail.com]
-
-# Experimental pool settings.
-# Disabled for production. The analysis-facing production output comes from
-# direct RecoilJets fanout, not Fun4All_recoilJets_poolReplay.C.
-pool_capture:
-  enabled: false
-  capture_only: true
-  output_base:
-  schema_version: 2
-  photon_pt_min: 4.0
-  truth_photon_pt_min: 4.0
-  jet_pt_min: 0.0
-  truth_jet_pt_min: 0.0
-  captured_coneR: [0.30, 0.40]
-  captured_jet_radii: [0.2, 0.3, 0.4]
-
-pool_replay:
-  enabled: false
-  input_base:
-  output_base:
-  submit_action: condorDoAll
 
 # -----------------------------------------------------------------------------
 # NPB preselection controls

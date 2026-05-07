@@ -613,19 +613,6 @@ namespace yamlcfg
         std::string jet_ml_model_file = "";
         std::vector<std::string> jet_ml_features;
 
-        bool pool_capture_enabled = false;
-        bool pool_capture_only = true;
-        double pool_capture_photon_pt_min = 4.0;
-        double pool_capture_jet_pt_min = 0.0;
-        double pool_capture_truth_photon_pt_min = 4.0;
-        double pool_capture_truth_jet_pt_min = 0.0;
-        std::string pool_capture_output_base = "";
-
-        bool pool_replay_enabled = false;
-        std::string pool_replay_input_base = "";
-        std::string pool_replay_output_base = "";
-        std::string pool_replay_submit_action = "condorDoAll";
-
         bool doPi0Analysis = false;
     };
 
@@ -919,82 +906,6 @@ namespace yamlcfg
                 continue;
             }
 
-            if (yamlSection == "pool_capture")
-            {
-                if (StartsWithKey(line, "enabled"))
-                {
-                    const std::string rhs = AfterColon(line);
-                    if (!ParseBool(rhs, cfg.pool_capture_enabled))
-                        warn_parse("pool_capture.enabled", rhs, "expected true/false");
-                    continue;
-                }
-                if (StartsWithKey(line, "capture_only"))
-                {
-                    const std::string rhs = AfterColon(line);
-                    if (!ParseBool(rhs, cfg.pool_capture_only))
-                        warn_parse("pool_capture.capture_only", rhs, "expected true/false");
-                    continue;
-                }
-                if (StartsWithKey(line, "output_base"))
-                {
-                    cfg.pool_capture_output_base = detail::trim(AfterColon(line));
-                    continue;
-                }
-                if (StartsWithKey(line, "photon_pt_min"))
-                {
-                    const std::string rhs = AfterColon(line);
-                    if (!ParseDouble(rhs, cfg.pool_capture_photon_pt_min))
-                        warn_parse("pool_capture.photon_pt_min", rhs, "expected a scalar double");
-                    continue;
-                }
-                if (StartsWithKey(line, "jet_pt_min"))
-                {
-                    const std::string rhs = AfterColon(line);
-                    if (!ParseDouble(rhs, cfg.pool_capture_jet_pt_min))
-                        warn_parse("pool_capture.jet_pt_min", rhs, "expected a scalar double");
-                    continue;
-                }
-                if (StartsWithKey(line, "truth_photon_pt_min"))
-                {
-                    const std::string rhs = AfterColon(line);
-                    if (!ParseDouble(rhs, cfg.pool_capture_truth_photon_pt_min))
-                        warn_parse("pool_capture.truth_photon_pt_min", rhs, "expected a scalar double");
-                    continue;
-                }
-                if (StartsWithKey(line, "truth_jet_pt_min"))
-                {
-                    const std::string rhs = AfterColon(line);
-                    if (!ParseDouble(rhs, cfg.pool_capture_truth_jet_pt_min))
-                        warn_parse("pool_capture.truth_jet_pt_min", rhs, "expected a scalar double");
-                    continue;
-                }
-            }
-            else if (yamlSection == "pool_replay")
-            {
-                if (StartsWithKey(line, "enabled"))
-                {
-                    const std::string rhs = AfterColon(line);
-                    if (!ParseBool(rhs, cfg.pool_replay_enabled))
-                        warn_parse("pool_replay.enabled", rhs, "expected true/false");
-                    continue;
-                }
-                if (StartsWithKey(line, "input_base"))
-                {
-                    cfg.pool_replay_input_base = detail::trim(AfterColon(line));
-                    continue;
-                }
-                if (StartsWithKey(line, "output_base"))
-                {
-                    cfg.pool_replay_output_base = detail::trim(AfterColon(line));
-                    continue;
-                }
-                if (StartsWithKey(line, "submit_action"))
-                {
-                    cfg.pool_replay_submit_action = detail::trim(AfterColon(line));
-                    continue;
-                }
-            }
-            
             if (StartsWithKey(line, "photon_eta_abs_max"))
             {
                 const std::string rhs = AfterColon(line);
@@ -2459,33 +2370,6 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         std::string s = yamlcfg::NormalizeNonTightMode(std::string(env));
         if (!s.empty()) cfg.nonTight = s;
     }
-    std::string poolMode = "";
-    if (const char* env = std::getenv("RJ_POOL_MODE"))
-    {
-        poolMode = detail::trim(std::string(env));
-        std::string key = poolMode;
-        std::transform(key.begin(), key.end(), key.begin(),
-                       [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
-        if (key == "capture" || key == "captureonly" || key == "capture_only")
-        {
-            cfg.pool_capture_enabled = true;
-            cfg.pool_capture_only = true;
-        }
-        else if (key == "captureplushist" || key == "capture_and_hist")
-        {
-            cfg.pool_capture_enabled = true;
-            cfg.pool_capture_only = false;
-        }
-        else if (key == "off" || key == "none")
-        {
-            cfg.pool_capture_enabled = false;
-            cfg.pool_capture_only = false;
-        }
-        else if (!key.empty())
-        {
-            detail::bail("RJ_POOL_MODE must be off|capture|captureOnly|capturePlusHist, got: " + poolMode);
-        }
-    }
     if (!yamlcfg::IsPreselectionMode(cfg.preselection))
     {
         detail::bail("preselection must be 'reference', 'newPPG12', 'noPreCriteria', 'onlyNPB', 'refPlusNPB', or 'auauOnlyNPB'. Old variantA/B/C/D/E aliases are accepted in YAML/env parsing.");
@@ -2500,10 +2384,6 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     }
 
     std::vector<idfanout::Entry> idFanoutEntries = idfanout::LoadFromEnv();
-    if (cfg.pool_capture_enabled)
-    {
-        idFanoutEntries.clear();
-    }
     if (idFanoutEntries.empty())
     {
         idfanout::Entry single;
@@ -2523,15 +2403,6 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         fanoutUsesNPB = fanoutUsesNPB || yamlcfg::PreselectionUsesNPB(e.preselection);
         fanoutUsesAuAuNPB = fanoutUsesAuAuNPB || yamlcfg::PreselectionUsesAuAuNPB(e.preselection);
         fanoutUsesNewPPG12Tight = fanoutUsesNewPPG12Tight || (e.tight == "newPPG12");
-    }
-    if (cfg.pool_capture_enabled)
-    {
-        // Capture pp-side scores needed by the active pp/newPPG12 working-point
-        // scan. Do not turn on AuAu NPB/BDT machinery implicitly; those models
-        // are only required when an active photon-ID triplet explicitly asks for
-        // auauOnlyNPB or an AuAu tight/non-tight mode.
-        fanoutUsesNPB = true;
-        fanoutUsesNewPPG12Tight = true;
     }
 
     cfg.preselection = idFanoutEntries.front().preselection;
@@ -4479,10 +4350,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     recoilJets->setMinJetPt(cfg.jet_pt_min);
     recoilJets->setMinBackToBack(cfg.back_to_back_dphi_min_pi_fraction * M_PI);
     
-    if (cfg.pool_capture_enabled)
-        recoilJets->setUseVzCut(false, cfg.vz_cut_cm);
-    else
-        recoilJets->setUseVzCut(cfg.use_vz_cut, cfg.vz_cut_cm);
+    recoilJets->setUseVzCut(cfg.use_vz_cut, cfg.vz_cut_cm);
 #if defined(RJ_UNIFIED_ANALYSIS_AUAU)
     recoilJets->setMinBiasClassifier(cfg.setMinBiasClassifer);
     recoilJets->setCentEdges(cfg.centrality_edges);
@@ -4538,13 +4406,46 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     recoilJets->setUnfoldXJBins(cfg.unfold_xj_bins);
     
     recoilJets->enablePi0Analysis(cfg.doPi0Analysis);
-    recoilJets->enableAnalysisPoolCapture(cfg.pool_capture_enabled,
-                                          cfg.pool_capture_only,
-                                          cfg.pool_capture_photon_pt_min,
-                                          cfg.pool_capture_jet_pt_min,
-                                          cfg.pool_capture_truth_photon_pt_min,
-                                          cfg.pool_capture_truth_jet_pt_min);
-    recoilJets->setAnalysisConfigYAML(idfanout::YAMLForEntry(cfg.yamlText, idEntry), "analysis_config.yaml");
+    std::string stampedYaml = idfanout::YAMLForEntry(cfg.yamlText, idEntry);
+    if (const char* dphiRaw = std::getenv("RJ_INTERNAL_DPHI_PI_FRACTIONS"))
+    {
+        const char* disableRaw = std::getenv("RJ_DISABLE_DPHI_INTERNALIZATION");
+        const bool disabled = disableRaw &&
+                              (std::string(disableRaw) == "1" ||
+                               std::string(disableRaw) == "true" ||
+                               std::string(disableRaw) == "TRUE" ||
+                               std::string(disableRaw) == "yes" ||
+                               std::string(disableRaw) == "YES" ||
+                               std::string(disableRaw) == "on" ||
+                               std::string(disableRaw) == "ON");
+        if (!disabled && *dphiRaw)
+        {
+            std::string text(dphiRaw);
+            for (char& c : text)
+            {
+                if (c == ',' || c == ';' || c == ':') c = ' ';
+            }
+            std::stringstream ss(text);
+            std::string token;
+            std::ostringstream list;
+            bool first = true;
+            list << "[";
+            while (ss >> token)
+            {
+                if (!first) list << ", ";
+                first = false;
+                list << token;
+            }
+            list << "]";
+            if (!first)
+            {
+                idfanout::ReplaceOrAppendScalar(stampedYaml,
+                                                "internal_back_to_back_dphi_min_pi_fraction",
+                                                list.str());
+            }
+        }
+    }
+    recoilJets->setAnalysisConfigYAML(stampedYaml, "analysis_config.yaml");
     
     if (vlevel > 0)
     {
@@ -4567,17 +4468,6 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         << " nonTight=" << idEntry.nonTight
         << " output=" << idEntry.outRoot
         << "\n";
-        if (cfg.pool_capture_enabled)
-        {
-            std::cout << "[CFG] AnalysisPool capture:"
-                      << " captureOnly=" << (cfg.pool_capture_only ? "true" : "false")
-                      << " photonPtMin=" << cfg.pool_capture_photon_pt_min
-                      << " jetPtMin=" << cfg.pool_capture_jet_pt_min
-                      << " truthPhotonPtMin=" << cfg.pool_capture_truth_photon_pt_min
-                      << " truthJetPtMin=" << cfg.pool_capture_truth_jet_pt_min
-                      << "\n";
-        }
-        
         std::cout << "[CFG] photon nodes:"
         << " base=PHOTONCLUSTER_CEMC"
         << " preselectionNode=" << preselectionPhotonNode
@@ -4678,7 +4568,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         std::cout << " sideGap=" << cfg.isoGap << "\n";
     }
     
-    recoilJets->enableEventDisplayDiagnostics(cfg.pool_capture_enabled ? false : cfg.event_display_tree);
+    recoilJets->enableEventDisplayDiagnostics(cfg.event_display_tree);
     recoilJets->setEventDisplayDiagnosticsMaxPerBin(cfg.event_display_tree_max_per_bin);
     
     if (vlevel > 0)

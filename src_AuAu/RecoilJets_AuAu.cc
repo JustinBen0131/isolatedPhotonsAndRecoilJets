@@ -108,221 +108,6 @@
 
 using namespace PhoIDCuts;
 
-namespace
-{
-  const std::vector<std::string>& analysisPoolExtraFeatureNames()
-  {
-    static const std::vector<std::string> names = {
-      "cluster_energy", "cluster_et", "cluster_pt", "cluster_eta", "cluster_phi", "cluster_r", "cluster_z",
-      "cluster_ecore", "cluster_prob", "cluster_chi2", "cluster_ntowers", "cluster_sum_tower_e",
-      "cluster_max_tower_e", "cluster_max_tower_ieta", "cluster_max_tower_iphi",
-      "e11", "e22", "e33", "e55", "e77", "e13", "e15", "e17", "e31", "e51", "e71",
-      "e35", "e37", "e53", "e73", "e57", "e75", "e32", "e52", "e72",
-      "et1", "et2", "et3", "et4",
-      "e11_over_e33", "e32_over_e35", "e11_over_e22", "e11_over_e13", "e11_over_e15",
-      "e11_over_e17", "e11_over_e31", "e11_over_e51", "e11_over_e71",
-      "e22_over_e33", "e22_over_e35", "e22_over_e37", "e22_over_e53",
-      "e11_over_e55", "e11_over_e77", "e33_over_e55", "e33_over_e77",
-      "weta", "wphi", "weta_cog", "wphi_cog", "weta_cogx", "wphi_cogx",
-      "weta33_cogx", "wphi33_cogx", "weta35_cogx", "wphi53_cogx",
-      "w32", "w52", "w72", "detamax", "dphimax", "detacog", "dphicog", "drad",
-      "ppg12_iso_axis_eta", "ppg12_iso_axis_phi", "vertex_z",
-      "mean_time", "mbd_time", "cluster_mbd_delta_t",
-      "npb_has_away_jet", "npb_label", "is_npb",
-      "npb_score", "tight_bdt_score", "auau_npb_score", "auau_tight_bdt_score",
-      "eiso", "eiso_r03", "eiso_r04",
-      "iso_04_emcal", "iso_04_hcalin", "iso_04_hcalout",
-      "iso_03_emcal", "iso_03_hcalin", "iso_03_hcalout",
-      "iso_02_emcal", "iso_01_emcal", "iso_005_emcal",
-      "ihcal_et", "ohcal_et", "ihcal_et22", "ohcal_et22", "ihcal_et33", "ohcal_et33",
-      "ihcal_ieta", "ihcal_iphi", "ohcal_ieta", "ohcal_iphi",
-      "cluster_tower_x_raw", "cluster_tower_y_raw", "cluster_tower_x_corr", "cluster_tower_y_corr",
-      "cluster_incidence_alpha_phi", "cluster_incidence_alpha_eta"
-    };
-    return names;
-  }
-
-  float poolFinite(double v)
-  {
-    return static_cast<float>(std::isfinite(v) ? v : std::numeric_limits<double>::quiet_NaN());
-  }
-
-  float poolSS(const PhotonClusterv1* pho, const char* key)
-  {
-    return pho ? poolFinite(pho->get_shower_shape_parameter(key))
-               : std::numeric_limits<float>::quiet_NaN();
-  }
-
-  float poolRatio(double num, double den)
-  {
-    return poolFinite((std::isfinite(num) && std::isfinite(den) && den > 0.0)
-                      ? num / den
-                      : std::numeric_limits<double>::quiet_NaN());
-  }
-
-  void fillAnalysisPoolExtraFeatureValues(const PhotonClusterv1* pho,
-                                          const RawCluster* rc,
-                                          double pt,
-                                          double eta,
-                                          double phi,
-                                          float eiso,
-                                          float eisoR03,
-                                          float eisoR04,
-                                          float mbdTime,
-                                          float clusterMbdDeltaT,
-                                          int npbHasAwayJet,
-                                          int npbLabel,
-                                          int isNPB,
-                                          std::vector<float>& out)
-  {
-    const float nan = std::numeric_limits<float>::quiet_NaN();
-    out.clear();
-    out.reserve(analysisPoolExtraFeatureNames().size());
-
-    double towerSum = 0.0;
-    double maxTowerE = -std::numeric_limits<double>::infinity();
-    int maxTowerIeta = -1;
-    int maxTowerIphi = -1;
-    int nTowers = 0;
-    if (rc)
-    {
-      const auto& towers = rc->get_towermap();
-      nTowers = static_cast<int>(towers.size());
-      for (const auto& tw : towers)
-      {
-        const double e = tw.second;
-        if (std::isfinite(e))
-        {
-          towerSum += e;
-          if (e > maxTowerE)
-          {
-            maxTowerE = e;
-            maxTowerIeta = RawTowerDefs::decode_index1(tw.first);
-            maxTowerIphi = RawTowerDefs::decode_index2(tw.first);
-          }
-        }
-      }
-    }
-    if (!std::isfinite(maxTowerE)) maxTowerE = std::numeric_limits<double>::quiet_NaN();
-
-    const double e11 = poolSS(pho, "e11");
-    const double e22 = poolSS(pho, "e22");
-    const double e33 = poolSS(pho, "e33");
-    const double e55 = poolSS(pho, "e55");
-    const double e77 = poolSS(pho, "e77");
-    const double e13 = poolSS(pho, "e13");
-    const double e15 = poolSS(pho, "e15");
-    const double e17 = poolSS(pho, "e17");
-    const double e31 = poolSS(pho, "e31");
-    const double e51 = poolSS(pho, "e51");
-    const double e71 = poolSS(pho, "e71");
-    const double e35 = poolSS(pho, "e35");
-    const double e37 = poolSS(pho, "e37");
-    const double e53 = poolSS(pho, "e53");
-    const double e73 = poolSS(pho, "e73");
-    const double e57 = poolSS(pho, "e57");
-    const double e75 = poolSS(pho, "e75");
-    const double e32 = poolSS(pho, "e32");
-    const double e52 = poolSS(pho, "e52");
-    const double e72 = poolSS(pho, "e72");
-
-    auto push = [&](float v) { out.push_back(v); };
-    push(poolFinite(rc ? rc->get_energy() : std::numeric_limits<double>::quiet_NaN()));
-    push(poolFinite(pt));
-    push(poolFinite(pt));
-    push(poolFinite(eta));
-    push(poolFinite(phi));
-    push(poolFinite(rc ? rc->get_r() : std::numeric_limits<double>::quiet_NaN()));
-    push(poolFinite(rc ? rc->get_z() : std::numeric_limits<double>::quiet_NaN()));
-    push(poolFinite(rc ? rc->get_ecore() : std::numeric_limits<double>::quiet_NaN()));
-    push(poolFinite(rc ? rc->get_prob() : std::numeric_limits<double>::quiet_NaN()));
-    push(poolFinite(rc ? rc->get_chi2() : std::numeric_limits<double>::quiet_NaN()));
-    push(static_cast<float>(nTowers));
-    push(poolFinite(towerSum));
-    push(poolFinite(maxTowerE));
-    push(maxTowerIeta >= 0 ? static_cast<float>(maxTowerIeta) : nan);
-    push(maxTowerIphi >= 0 ? static_cast<float>(maxTowerIphi) : nan);
-
-    for (double v : {e11, e22, e33, e55, e77, e13, e15, e17, e31, e51, e71,
-                     e35, e37, e53, e73, e57, e75, e32, e52, e72})
-      push(poolFinite(v));
-    for (const char* k : {"et1", "et2", "et3", "et4"}) push(poolSS(pho, k));
-
-    push(poolRatio(e11, e33));
-    push(poolRatio(e32, e35));
-    push(poolRatio(e11, e22));
-    push(poolRatio(e11, e13));
-    push(poolRatio(e11, e15));
-    push(poolRatio(e11, e17));
-    push(poolRatio(e11, e31));
-    push(poolRatio(e11, e51));
-    push(poolRatio(e11, e71));
-    push(poolRatio(e22, e33));
-    push(poolRatio(e22, e35));
-    push(poolRatio(e22, e37));
-    push(poolRatio(e22, e53));
-    push(poolRatio(e11, e55));
-    push(poolRatio(e11, e77));
-    push(poolRatio(e33, e55));
-    push(poolRatio(e33, e77));
-
-    for (const char* k : {"weta", "wphi", "weta_cog", "wphi_cog", "weta_cogx", "wphi_cogx",
-                          "weta33_cogx", "wphi33_cogx", "weta35_cogx", "wphi53_cogx",
-                          "w32", "w52", "w72", "detamax", "dphimax", "detacog", "dphicog", "drad",
-                          "ppg12_iso_axis_eta", "ppg12_iso_axis_phi", "vertex_z", "mean_time"})
-      push(poolSS(pho, k));
-
-    push(mbdTime);
-    push(clusterMbdDeltaT);
-    push(static_cast<float>(npbHasAwayJet));
-    push(static_cast<float>(npbLabel));
-    push(static_cast<float>(isNPB));
-    for (const char* k : {"npb_score", "tight_bdt_score", "auau_npb_score", "auau_tight_bdt_score"})
-      push(poolSS(pho, k));
-    push(eiso);
-    push(eisoR03);
-    push(eisoR04);
-    for (const char* k : {"iso_04_emcal", "iso_04_hcalin", "iso_04_hcalout",
-                          "iso_03_emcal", "iso_03_hcalin", "iso_03_hcalout",
-                          "iso_02_emcal", "iso_01_emcal", "iso_005_emcal",
-                          "ihcal_et", "ohcal_et", "ihcal_et22", "ohcal_et22", "ihcal_et33", "ohcal_et33",
-                          "ihcal_ieta", "ihcal_iphi", "ohcal_ieta", "ohcal_iphi"})
-      push(poolSS(pho, k));
-
-    push(poolFinite(rc ? rc->x_tower_raw() : std::numeric_limits<double>::quiet_NaN()));
-    push(poolFinite(rc ? rc->y_tower_raw() : std::numeric_limits<double>::quiet_NaN()));
-    push(poolFinite(rc ? rc->x_tower_corr() : std::numeric_limits<double>::quiet_NaN()));
-    push(poolFinite(rc ? rc->y_tower_corr() : std::numeric_limits<double>::quiet_NaN()));
-    push(poolFinite(rc ? rc->get_property_float(RawCluster::prop_incidence_alpha_phi) : std::numeric_limits<double>::quiet_NaN()));
-    push(poolFinite(rc ? rc->get_property_float(RawCluster::prop_incidence_alpha_eta) : std::numeric_limits<double>::quiet_NaN()));
-  }
-
-  void writeAnalysisPoolFeatureCatalog(TFile* out, int schema)
-  {
-    if (!out) return;
-    out->cd();
-    int schemaOut = schema;
-    int featureIndex = 0;
-    std::string featureName;
-    std::string source;
-    TTree catalog("AnalysisPhotonFeatureCatalog", "Catalog for AnalysisPhotonPool.extra_feature_values");
-    catalog.Branch("schema", &schemaOut, "schema/I");
-    catalog.Branch("feature_index", &featureIndex, "feature_index/I");
-    catalog.Branch("feature_name", &featureName);
-    catalog.Branch("source", &source);
-    for (const std::string& name : analysisPoolExtraFeatureNames())
-    {
-      featureName = name;
-      source = (name.rfind("cluster_", 0) == 0) ? "RawCluster"
-             : (name.find("iso_") == 0 || name.find("ihcal_") == 0 || name.find("ohcal_") == 0) ? "PhotonClusterBuilder/isolation"
-             : "PhotonClusterBuilder/shower_shape";
-      catalog.Fill();
-      ++featureIndex;
-    }
-    catalog.Write("", TObject::kOverwrite);
-  }
-}
-
 namespace RJMCWeighting
 {
   inline double& CurrentWeight()
@@ -986,6 +771,109 @@ void RecoilJets::setPhotonIDVariants(const std::string& preselection,
   m_preselectionPhotonNode = preselectionPhotonNode.empty() ? "PHOTONCLUSTER_CEMC" : preselectionPhotonNode;
   m_tightPhotonNode = tightPhotonNode.empty() ? "PHOTONCLUSTER_CEMC" : tightPhotonNode;
   m_explicitPhotonIDVariants = true;
+}
+
+void RecoilJets::setInternalBackToBackScan(const std::vector<double>& values)
+{
+  m_internalBackToBackCuts.clear();
+  for (double v : values)
+  {
+    if (!std::isfinite(v) || v <= 0.0 || v > M_PI) continue;
+    bool seen = false;
+    for (double old : m_internalBackToBackCuts)
+    {
+      if (std::fabs(old - v) < 1e-6) { seen = true; break; }
+    }
+    if (!seen) m_internalBackToBackCuts.push_back(v);
+  }
+}
+
+void RecoilJets::configureInternalBackToBackScanFromEnv()
+{
+  const char* disableRaw = std::getenv("RJ_DISABLE_DPHI_INTERNALIZATION");
+  if (disableRaw && *disableRaw)
+  {
+    const std::string disable(disableRaw);
+    if (disable == "1" || disable == "true" || disable == "TRUE" ||
+        disable == "yes" || disable == "YES" || disable == "on" ||
+        disable == "ON")
+    {
+      m_internalBackToBackCuts.clear();
+      m_internalBackToBackBaseKeyCut = -1.0;
+      return;
+    }
+  }
+
+  std::vector<double> values;
+
+  auto parseList = [&](const char* raw, double scale)
+  {
+    if (!raw || !*raw) return;
+    std::string text(raw);
+    for (char& c : text)
+    {
+      if (c == ',' || c == ';' || c == ':') c = ' ';
+    }
+    std::stringstream ss(text);
+    double x = 0.0;
+    while (ss >> x)
+    {
+      values.push_back(x * scale);
+    }
+  };
+
+  parseList(std::getenv("RJ_INTERNAL_DPHI_PI_FRACTIONS"), M_PI);
+  parseList(std::getenv("RJ_INTERNAL_DPHI_MINS_RAD"), 1.0);
+
+  if (!values.empty())
+  {
+    m_internalBackToBackBaseKeyCut = m_minBackToBack;
+    setInternalBackToBackScan(values);
+    if (m_internalBackToBackCuts.size() > 1 && Verbosity() >= 1)
+    {
+      std::cout << "[RecoilJets_AuAu] internal dphi scan enabled:";
+      for (double cut : m_internalBackToBackCuts) std::cout << ' ' << dphiKeyForCut(cut) << '=' << cut;
+      std::cout << '\n';
+    }
+  }
+}
+
+std::vector<double> RecoilJets::activeBackToBackCuts() const
+{
+  if (!m_internalBackToBackCuts.empty()) return m_internalBackToBackCuts;
+  return {m_minBackToBack};
+}
+
+std::string RecoilJets::dphiKeyForCut(double cutRad) const
+{
+  const double frac = cutRad / M_PI;
+  if (std::fabs(frac - 0.5) < 1e-4) return "dphiPi2";
+  if (std::fabs(frac - 0.875) < 1e-4) return "dphi7Pi8";
+
+  std::ostringstream os;
+  os << "dphi";
+  os << std::fixed << std::setprecision(3) << frac;
+  std::string s = os.str();
+  for (char& c : s)
+  {
+    if (c == '.') c = 'p';
+  }
+  return s + "Pi";
+}
+
+std::string RecoilJets::histRKeyForDphi(const std::string& rKey, double cutRad) const
+{
+  if (activeBackToBackCuts().size() <= 1) return rKey;
+  if (std::isfinite(m_internalBackToBackBaseKeyCut) &&
+      std::fabs(cutRad - m_internalBackToBackBaseKeyCut) < 1e-6) return rKey;
+  return rKey + "_" + dphiKeyForCut(cutRad);
+}
+
+std::string RecoilJets::baseRKeyFromDphiHistKey(const std::string& rKey) const
+{
+  const std::size_t pos = rKey.find("_dphi");
+  if (pos == std::string::npos) return rKey;
+  return rKey.substr(0, pos);
 }
 
 RecoilJets::~RecoilJets()
@@ -1798,22 +1686,15 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
 int RecoilJets::Init(PHCompositeNode* topNode)
 {
   LOG(1, CLR_BLUE, "[Init] RecoilJets – starting");
+  configureInternalBackToBackScanFromEnv();
 
   /* 0.  book-keeping & QA histograms --------------------------------- */
   out = new TFile(Outfile.c_str(), "RECREATE");
   LOG(1, CLR_GREEN, "[Init] opened output file: " << Outfile);
 
   trigAna = new TriggerAnalyzer();
-  if (!m_poolCaptureOnly)
-  {
-    LOG(1, CLR_GREEN, "[Init] booking scalar QA histograms …");
-    createHistos_Data();
-  }
-  else
-  {
-    LOG(1, CLR_GREEN, "[Init] pool-capture-only mode: skipping upfront histogram booking");
-  }
-  initAnalysisPoolTrees();
+  LOG(1, CLR_GREEN, "[Init] booking scalar QA histograms …");
+  createHistos_Data();
   if (m_auauBDTTrainingTreeEnabled)
   {
     initAuAuBDTTrainingTree();
@@ -1888,551 +1769,6 @@ int RecoilJets::Init(PHCompositeNode* topNode)
   return Fun4AllReturnCodes::EVENT_OK;
 }
 
-void RecoilJets::initAnalysisPoolTrees()
-{
-  if (!m_poolCaptureEnabled) return;
-  if (!out)
-  {
-    LOG(1, CLR_YELLOW, "[AnalysisPool][init] output file is null; pool capture disabled");
-    m_poolCaptureEnabled = false;
-    m_poolCaptureOnly = false;
-    return;
-  }
-
-  out->cd();
-  m_poolEventTree = new TTree("AnalysisEventPool",
-                              "Loose event records for offline RecoilJets replay");
-  m_poolEventTree->SetDirectory(out);
-  m_poolEventTree->Branch("schema", &m_pool_schema, "schema/I");
-  m_poolEventTree->Branch("run", &m_pool_run, "run/I");
-  m_poolEventTree->Branch("evt", &m_pool_evt, "evt/I");
-  m_poolEventTree->Branch("eventKey", &m_pool_eventKey, "eventKey/L");
-  m_poolEventTree->Branch("isSim", &m_pool_isSim, "isSim/I");
-  m_poolEventTree->Branch("isAuAu", &m_pool_isAuAu, "isAuAu/I");
-  m_poolEventTree->Branch("centBin", &m_pool_centBin, "centBin/I");
-  m_poolEventTree->Branch("centIdx", &m_pool_centIdx, "centIdx/I");
-  m_poolEventTree->Branch("centPercent", &m_pool_centPercent, "centPercent/F");
-  m_poolEventTree->Branch("vz", &m_pool_vz, "vz/F");
-  m_poolEventTree->Branch("weight", &m_pool_weight, "weight/F");
-  m_poolEventTree->Branch("triggers", &m_pool_triggers);
-
-  m_poolPhotonTree = new TTree("AnalysisPhotonPool",
-                               "Loose photon-candidate records for offline RecoilJets replay");
-  m_poolPhotonTree->SetDirectory(out);
-  m_poolPhotonTree->Branch("schema", &m_pool_schema, "schema/I");
-  m_poolPhotonTree->Branch("run", &m_pool_run, "run/I");
-  m_poolPhotonTree->Branch("evt", &m_pool_evt, "evt/I");
-  m_poolPhotonTree->Branch("eventKey", &m_pool_eventKey, "eventKey/L");
-  m_poolPhotonTree->Branch("centBin", &m_pool_centBin, "centBin/I");
-  m_poolPhotonTree->Branch("centIdx", &m_pool_centIdx, "centIdx/I");
-  m_poolPhotonTree->Branch("index", &m_pool_phoIndex, "index/I");
-  m_poolPhotonTree->Branch("pt", &m_pool_pho_pt, "pt/F");
-  m_poolPhotonTree->Branch("eta", &m_pool_pho_eta, "eta/F");
-  m_poolPhotonTree->Branch("phi", &m_pool_pho_phi, "phi/F");
-  m_poolPhotonTree->Branch("energy", &m_pool_pho_energy, "energy/F");
-  m_poolPhotonTree->Branch("eiso", &m_pool_pho_eiso, "eiso/F");
-  m_poolPhotonTree->Branch("eiso_r03", &m_pool_pho_eiso_r03, "eiso_r03/F");
-  m_poolPhotonTree->Branch("eiso_r04", &m_pool_pho_eiso_r04, "eiso_r04/F");
-  m_poolPhotonTree->Branch("iso_03_emcal", &m_pool_pho_iso03_emcal, "iso_03_emcal/F");
-  m_poolPhotonTree->Branch("iso_03_hcalin", &m_pool_pho_iso03_hcalin, "iso_03_hcalin/F");
-  m_poolPhotonTree->Branch("iso_03_hcalout", &m_pool_pho_iso03_hcalout, "iso_03_hcalout/F");
-  m_poolPhotonTree->Branch("iso_04_emcal", &m_pool_pho_iso04_emcal, "iso_04_emcal/F");
-  m_poolPhotonTree->Branch("iso_04_hcalin", &m_pool_pho_iso04_hcalin, "iso_04_hcalin/F");
-  m_poolPhotonTree->Branch("iso_04_hcalout", &m_pool_pho_iso04_hcalout, "iso_04_hcalout/F");
-  m_poolPhotonTree->Branch("weta_cogx", &m_pool_pho_weta, "weta_cogx/F");
-  m_poolPhotonTree->Branch("wphi_cogx", &m_pool_pho_wphi, "wphi_cogx/F");
-  m_poolPhotonTree->Branch("weta33_cogx", &m_pool_pho_weta33, "weta33_cogx/F");
-  m_poolPhotonTree->Branch("wphi33_cogx", &m_pool_pho_wphi33, "wphi33_cogx/F");
-  m_poolPhotonTree->Branch("weta35_cogx", &m_pool_pho_weta35, "weta35_cogx/F");
-  m_poolPhotonTree->Branch("wphi53_cogx", &m_pool_pho_wphi53, "wphi53_cogx/F");
-  m_poolPhotonTree->Branch("et1", &m_pool_pho_et1, "et1/F");
-  m_poolPhotonTree->Branch("et2", &m_pool_pho_et2, "et2/F");
-  m_poolPhotonTree->Branch("et3", &m_pool_pho_et3, "et3/F");
-  m_poolPhotonTree->Branch("et4", &m_pool_pho_et4, "et4/F");
-  m_poolPhotonTree->Branch("e11_over_e33", &m_pool_pho_e11e33, "e11_over_e33/F");
-  m_poolPhotonTree->Branch("e32_over_e35", &m_pool_pho_e32e35, "e32_over_e35/F");
-  m_poolPhotonTree->Branch("e11_over_e22", &m_pool_pho_e11e22, "e11_over_e22/F");
-  m_poolPhotonTree->Branch("e11_over_e13", &m_pool_pho_e11e13, "e11_over_e13/F");
-  m_poolPhotonTree->Branch("e11_over_e15", &m_pool_pho_e11e15, "e11_over_e15/F");
-  m_poolPhotonTree->Branch("e11_over_e17", &m_pool_pho_e11e17, "e11_over_e17/F");
-  m_poolPhotonTree->Branch("e11_over_e31", &m_pool_pho_e11e31, "e11_over_e31/F");
-  m_poolPhotonTree->Branch("e11_over_e51", &m_pool_pho_e11e51, "e11_over_e51/F");
-  m_poolPhotonTree->Branch("e11_over_e71", &m_pool_pho_e11e71, "e11_over_e71/F");
-  m_poolPhotonTree->Branch("e22_over_e33", &m_pool_pho_e22e33, "e22_over_e33/F");
-  m_poolPhotonTree->Branch("e22_over_e35", &m_pool_pho_e22e35, "e22_over_e35/F");
-  m_poolPhotonTree->Branch("e22_over_e37", &m_pool_pho_e22e37, "e22_over_e37/F");
-  m_poolPhotonTree->Branch("e22_over_e53", &m_pool_pho_e22e53, "e22_over_e53/F");
-  m_poolPhotonTree->Branch("w32", &m_pool_pho_w32, "w32/F");
-  m_poolPhotonTree->Branch("w52", &m_pool_pho_w52, "w52/F");
-  m_poolPhotonTree->Branch("w72", &m_pool_pho_w72, "w72/F");
-  m_poolPhotonTree->Branch("mean_time", &m_pool_pho_mean_time, "mean_time/F");
-  m_poolPhotonTree->Branch("npb_score", &m_pool_pho_npb, "npb_score/F");
-  m_poolPhotonTree->Branch("tight_bdt_score", &m_pool_pho_tight_bdt, "tight_bdt_score/F");
-  m_poolPhotonTree->Branch("auau_npb_score", &m_pool_pho_auau_npb, "auau_npb_score/F");
-  m_poolPhotonTree->Branch("auau_tight_bdt_score", &m_pool_pho_auau_tight_bdt, "auau_tight_bdt_score/F");
-  m_poolPhotonTree->Branch("mbd_time", &m_pool_pho_mbd_time, "mbd_time/F");
-  m_poolPhotonTree->Branch("cluster_mbd_delta_t", &m_pool_pho_cluster_mbd_delta_t, "cluster_mbd_delta_t/F");
-  m_poolPhotonTree->Branch("npb_has_away_jet", &m_pool_pho_npb_has_away_jet, "npb_has_away_jet/I");
-  m_poolPhotonTree->Branch("npb_label", &m_pool_pho_npb_label, "npb_label/I");
-  m_poolPhotonTree->Branch("is_npb", &m_pool_pho_is_npb, "is_npb/I");
-  m_poolPhotonTree->Branch("truthSignal", &m_pool_pho_truthSignal, "truthSignal/I");
-  m_poolPhotonTree->Branch("truthTrackId", &m_pool_pho_truthTrackId, "truthTrackId/I");
-  m_poolPhotonTree->Branch("truthPt", &m_pool_pho_truthPt, "truthPt/F");
-  m_poolPhotonTree->Branch("truthEta", &m_pool_pho_truthEta, "truthEta/F");
-  m_poolPhotonTree->Branch("truthPhi", &m_pool_pho_truthPhi, "truthPhi/F");
-  m_poolPhotonTree->Branch("truthIso", &m_pool_pho_truthIso, "truthIso/F");
-  m_poolPhotonTree->Branch("extra_feature_values", &m_pool_pho_extra_features);
-
-  m_poolJetTree = new TTree("AnalysisJetPool",
-                            "Loose reco/truth jet records for offline RecoilJets replay");
-  m_poolJetTree->SetDirectory(out);
-  m_poolJetTree->Branch("schema", &m_pool_schema, "schema/I");
-  m_poolJetTree->Branch("run", &m_pool_run, "run/I");
-  m_poolJetTree->Branch("evt", &m_pool_evt, "evt/I");
-  m_poolJetTree->Branch("eventKey", &m_pool_eventKey, "eventKey/L");
-  m_poolJetTree->Branch("rKey", &m_pool_jet_rKey);
-  m_poolJetTree->Branch("isTruth", &m_pool_jet_isTruth, "isTruth/I");
-  m_poolJetTree->Branch("index", &m_pool_jet_index, "index/I");
-  m_poolJetTree->Branch("pt", &m_pool_jet_pt, "pt/F");
-  m_poolJetTree->Branch("raw_pt", &m_pool_jet_raw_pt, "raw_pt/F");
-  m_poolJetTree->Branch("areaSub_pt", &m_pool_jet_areaSub_pt, "areaSub_pt/F");
-  m_poolJetTree->Branch("eta", &m_pool_jet_eta, "eta/F");
-  m_poolJetTree->Branch("phi", &m_pool_jet_phi, "phi/F");
-  m_poolJetTree->Branch("mass", &m_pool_jet_mass, "mass/F");
-  m_poolJetTree->Branch("jet_area", &m_pool_jet_area, "jet_area/F");
-  m_poolJetTree->Branch("rho", &m_pool_jet_rho, "rho/F");
-  m_poolJetTree->Branch("local_rho", &m_pool_jet_local_rho, "local_rho/F");
-
-  m_poolTruthPhotonTree = new TTree("AnalysisTruthPhotonPool",
-                                    "Truth signal photon records for offline RecoilJets replay");
-  m_poolTruthPhotonTree->SetDirectory(out);
-  m_poolTruthPhotonTree->Branch("schema", &m_pool_schema, "schema/I");
-  m_poolTruthPhotonTree->Branch("run", &m_pool_run, "run/I");
-  m_poolTruthPhotonTree->Branch("evt", &m_pool_evt, "evt/I");
-  m_poolTruthPhotonTree->Branch("eventKey", &m_pool_eventKey, "eventKey/L");
-  m_poolTruthPhotonTree->Branch("index", &m_pool_truth_index, "index/I");
-  m_poolTruthPhotonTree->Branch("trackId", &m_pool_truth_trackId, "trackId/I");
-  m_poolTruthPhotonTree->Branch("barcode", &m_pool_truth_barcode, "barcode/I");
-  m_poolTruthPhotonTree->Branch("pt", &m_pool_truth_pt, "pt/F");
-  m_poolTruthPhotonTree->Branch("eta", &m_pool_truth_eta, "eta/F");
-  m_poolTruthPhotonTree->Branch("phi", &m_pool_truth_phi, "phi/F");
-  m_poolTruthPhotonTree->Branch("iso", &m_pool_truth_iso, "iso/F");
-  writeAnalysisPoolFeatureCatalog(out, m_pool_schema);
-
-  LOG(1, CLR_GREEN,
-      "[AnalysisPool][init] enabled"
-      << " captureOnly=" << (m_poolCaptureOnly ? "true" : "false")
-      << " photonPtMin=" << m_poolPhotonPtMin
-      << " jetPtMin=" << m_poolJetPtMin
-      << " truthPhotonPtMin=" << m_poolTruthPhotonPtMin
-      << " truthJetPtMin=" << m_poolTruthJetPtMin);
-}
-
-void RecoilJets::resetAnalysisPoolBuffers()
-{
-  const float nan = std::numeric_limits<float>::quiet_NaN();
-
-  m_pool_phoIndex = -1;
-  m_pool_pho_pt = nan;
-  m_pool_pho_eta = nan;
-  m_pool_pho_phi = nan;
-  m_pool_pho_energy = nan;
-  m_pool_pho_eiso = nan;
-  m_pool_pho_eiso_r03 = nan;
-  m_pool_pho_eiso_r04 = nan;
-  m_pool_pho_iso03_emcal = nan;
-  m_pool_pho_iso03_hcalin = nan;
-  m_pool_pho_iso03_hcalout = nan;
-  m_pool_pho_iso04_emcal = nan;
-  m_pool_pho_iso04_hcalin = nan;
-  m_pool_pho_iso04_hcalout = nan;
-  m_pool_pho_weta = nan;
-  m_pool_pho_wphi = nan;
-  m_pool_pho_weta33 = nan;
-  m_pool_pho_wphi33 = nan;
-  m_pool_pho_weta35 = nan;
-  m_pool_pho_wphi53 = nan;
-  m_pool_pho_et1 = nan;
-  m_pool_pho_et2 = nan;
-  m_pool_pho_et3 = nan;
-  m_pool_pho_et4 = nan;
-  m_pool_pho_e11e33 = nan;
-  m_pool_pho_e32e35 = nan;
-  m_pool_pho_e11e22 = nan;
-  m_pool_pho_e11e13 = nan;
-  m_pool_pho_e11e15 = nan;
-  m_pool_pho_e11e17 = nan;
-  m_pool_pho_e11e31 = nan;
-  m_pool_pho_e11e51 = nan;
-  m_pool_pho_e11e71 = nan;
-  m_pool_pho_e22e33 = nan;
-  m_pool_pho_e22e35 = nan;
-  m_pool_pho_e22e37 = nan;
-  m_pool_pho_e22e53 = nan;
-  m_pool_pho_w32 = nan;
-  m_pool_pho_w52 = nan;
-  m_pool_pho_w72 = nan;
-  m_pool_pho_mean_time = nan;
-  m_pool_pho_npb = nan;
-  m_pool_pho_tight_bdt = nan;
-  m_pool_pho_auau_npb = nan;
-  m_pool_pho_auau_tight_bdt = nan;
-  m_pool_pho_mbd_time = nan;
-  m_pool_pho_cluster_mbd_delta_t = nan;
-  m_pool_pho_npb_has_away_jet = 0;
-  m_pool_pho_npb_label = -1;
-  m_pool_pho_is_npb = -1;
-  m_pool_pho_truthSignal = 0;
-  m_pool_pho_truthTrackId = -1;
-  m_pool_pho_truthPt = nan;
-  m_pool_pho_truthEta = nan;
-  m_pool_pho_truthPhi = nan;
-  m_pool_pho_truthIso = nan;
-  m_pool_pho_extra_features.clear();
-
-  m_pool_jet_rKey.clear();
-  m_pool_jet_isTruth = 0;
-  m_pool_jet_index = -1;
-  m_pool_jet_pt = nan;
-  m_pool_jet_raw_pt = nan;
-  m_pool_jet_areaSub_pt = nan;
-  m_pool_jet_eta = nan;
-  m_pool_jet_phi = nan;
-  m_pool_jet_mass = nan;
-  m_pool_jet_area = nan;
-  m_pool_jet_rho = nan;
-  m_pool_jet_local_rho = nan;
-
-  m_pool_truth_index = -1;
-  m_pool_truth_trackId = -1;
-  m_pool_truth_barcode = -1;
-  m_pool_truth_pt = nan;
-  m_pool_truth_eta = nan;
-  m_pool_truth_phi = nan;
-  m_pool_truth_iso = nan;
-}
-
-void RecoilJets::captureAnalysisPoolEvent(PHCompositeNode* topNode,
-                                          const std::vector<std::string>& activeTrig,
-                                          int centIdx)
-{
-  if (!m_poolCaptureEnabled || !m_poolEventTree) return;
-
-  const EventHeader* hdr = findNode::getClass<EventHeader>(topNode, "EventHeader");
-  m_pool_run = hdr ? hdr->get_RunNumber()
-                   : static_cast<int>(recoConsts::instance()->get_uint64Flag("TIMESTAMP", 0));
-  m_pool_evt = hdr ? hdr->get_EvtSequence()
-                   : static_cast<int>(event_count);
-  m_pool_eventKey = event_count;
-  m_pool_isSim = m_isSim ? 1 : 0;
-  m_pool_isAuAu = m_isAuAu ? 1 : 0;
-  m_pool_centBin = m_centBin;
-  m_pool_centIdx = centIdx;
-  m_pool_centPercent = static_cast<float>(m_centPercent);
-  m_pool_vz = static_cast<float>(m_vz);
-  m_pool_weight = static_cast<float>(RJMCWeighting::CurrentWeight());
-  m_pool_triggers = activeTrig;
-  m_poolEventTree->Fill();
-
-  captureAnalysisPoolPhotons(topNode, m_pool_eventKey, m_pool_run, m_pool_evt, centIdx);
-  captureAnalysisPoolJets(m_pool_eventKey, m_pool_run, m_pool_evt);
-  captureAnalysisPoolTruthPhotons(topNode, m_pool_eventKey, m_pool_run, m_pool_evt);
-}
-
-void RecoilJets::captureAnalysisPoolJets(long long eventKey, int run, int evt)
-{
-  if (!m_poolJetTree) return;
-
-  auto rFromKey = [](const std::string& rKey) -> double
-  {
-    if (rKey.size() >= 2 && (rKey[0] == 'r' || rKey[0] == 'R'))
-    {
-      char* endptr = nullptr;
-      const std::string tail = rKey.substr(1);
-      const double v = std::strtod(tail.c_str(), &endptr);
-      if (endptr != tail.c_str()) return v / 100.0;
-    }
-    return 0.0;
-  };
-
-  auto fillContainer = [&](const std::map<std::string, JetContainer*>& containers, int isTruth)
-  {
-    for (const auto& kv : containers)
-    {
-      const std::string& rKey = kv.first;
-      JetContainer* jets = kv.second;
-      if (!jets) continue;
-
-      int i = 0;
-      for (const Jet* jet : *jets)
-      {
-        if (!jet) { ++i; continue; }
-        const double pt = jet->get_pt();
-        const double eta = jet->get_eta();
-        const double phi = jet->get_phi();
-        const double mass = jet->get_mass();
-        if (!std::isfinite(pt) || !std::isfinite(eta) || !std::isfinite(phi) || pt < m_poolJetPtMin)
-        {
-          ++i;
-          continue;
-        }
-        if (isTruth && pt < m_poolTruthJetPtMin)
-        {
-          ++i;
-          continue;
-        }
-
-        m_pool_run = run;
-        m_pool_evt = evt;
-        m_pool_eventKey = eventKey;
-        m_pool_jet_rKey = rKey;
-        m_pool_jet_isTruth = isTruth;
-        m_pool_jet_index = i;
-        m_pool_jet_pt = static_cast<float>(pt);
-        m_pool_jet_raw_pt = static_cast<float>(pt);
-        m_pool_jet_areaSub_pt = static_cast<float>(pt);
-        m_pool_jet_eta = static_cast<float>(eta);
-        m_pool_jet_phi = static_cast<float>(TVector2::Phi_mpi_pi(phi));
-        m_pool_jet_mass = static_cast<float>(std::isfinite(mass) ? mass : std::numeric_limits<double>::quiet_NaN());
-        const double r = rFromKey(rKey);
-        m_pool_jet_area = static_cast<float>(r > 0.0 ? M_PI * r * r : std::numeric_limits<double>::quiet_NaN());
-        m_pool_jet_rho = 0.0f;
-        m_pool_jet_local_rho = 0.0f;
-        m_poolJetTree->Fill();
-        ++i;
-      }
-    }
-  };
-
-  fillContainer(m_jets, 0);
-  fillContainer(m_truthJetsByRKey, 1);
-}
-
-void RecoilJets::captureAnalysisPoolTruthPhotons(PHCompositeNode* topNode,
-                                                 long long eventKey,
-                                                 int run,
-                                                 int evt)
-{
-  if (!m_isSim || !m_poolTruthPhotonTree) return;
-
-  PHHepMCGenEventMap* hepmcmap = findNode::getClass<PHHepMCGenEventMap>(topNode, "PHHepMCGenEventMap");
-  PHHepMCGenEvent* hepmc = nullptr;
-  HepMC::GenEvent* event = nullptr;
-  if (hepmcmap)
-  {
-    hepmc = hepmcmap->get(0);
-    if (!hepmc) hepmc = hepmcmap->get(1);
-    if (!hepmc && !hepmcmap->empty()) hepmc = hepmcmap->begin()->second;
-    if (hepmc) event = hepmc->getEvent();
-  }
-  if (!event) return;
-
-  int idx = 0;
-  for (auto it = event->particles_begin(); it != event->particles_end(); ++it)
-  {
-    const HepMC::GenParticle* p = *it;
-    if (!p) continue;
-
-    double isoEt = 0.0;
-    if (!isTruthPromptIsolatedSignalPhoton(event, p, isoEt)) continue;
-
-    const double pt = std::hypot(p->momentum().px(), p->momentum().py());
-    const double eta = p->momentum().pseudoRapidity();
-    const double phi = TVector2::Phi_mpi_pi(p->momentum().phi());
-    if (!std::isfinite(pt) || pt < m_poolTruthPhotonPtMin) continue;
-
-    m_pool_run = run;
-    m_pool_evt = evt;
-    m_pool_eventKey = eventKey;
-    m_pool_truth_index = idx++;
-    m_pool_truth_trackId = -1;
-    m_pool_truth_barcode = p->barcode();
-    m_pool_truth_pt = static_cast<float>(pt);
-    m_pool_truth_eta = static_cast<float>(eta);
-    m_pool_truth_phi = static_cast<float>(phi);
-    m_pool_truth_iso = static_cast<float>(isoEt);
-    m_poolTruthPhotonTree->Fill();
-  }
-}
-
-void RecoilJets::captureAnalysisPoolPhotons(PHCompositeNode* topNode,
-                                            long long eventKey,
-                                            int run,
-                                            int evt,
-                                            int centIdx)
-{
-  if (!m_poolPhotonTree || !m_photons) return;
-
-  HepMC::GenEvent* evtHepMC = nullptr;
-  bool haveCaloEval = false;
-  std::unique_ptr<CaloRawClusterEval> clustereval;
-  TruthSignalPhotonMap truthSignalByTrackId;
-
-  if (m_isSim)
-  {
-    PHHepMCGenEventMap* hepmcmap = findNode::getClass<PHHepMCGenEventMap>(topNode, "PHHepMCGenEventMap");
-    PHHepMCGenEvent* hepmc = nullptr;
-    if (hepmcmap)
-    {
-      hepmc = hepmcmap->get(0);
-      if (!hepmc) hepmc = hepmcmap->get(1);
-      if (!hepmc && !hepmcmap->empty()) hepmc = hepmcmap->begin()->second;
-      if (hepmc) evtHepMC = hepmc->getEvent();
-    }
-
-    clustereval.reset(new CaloRawClusterEval(topNode, "CEMC"));
-    clustereval->set_usetowerinfo(true);
-    clustereval->next_event(topNode);
-    if (!clustereval->has_reduced_node_pointers())
-    {
-      clustereval->set_usetowerinfo(false);
-      clustereval->next_event(topNode);
-    }
-    haveCaloEval = clustereval->has_reduced_node_pointers();
-    if (evtHepMC) truthSignalByTrackId = buildPPG12TruthSignalPhotonMap(evtHepMC);
-  }
-
-  RawClusterContainer::ConstRange range = m_photons->getClusters();
-  int iPho = 0;
-  for (auto pit = range.first; pit != range.second; ++pit, ++iPho)
-  {
-    resetAnalysisPoolBuffers();
-
-    const auto* pho = dynamic_cast<const PhotonClusterv1*>(pit->second);
-    if (!pho) continue;
-    const RawCluster* rc = pho;
-
-    const double eta = pho->get_shower_shape_parameter("cluster_eta");
-    const double phi = pho->get_shower_shape_parameter("cluster_phi");
-    const double pt = pho->get_shower_shape_parameter("cluster_pt");
-    const double energy = rc->get_energy();
-    if (!std::isfinite(pt) || pt < m_poolPhotonPtMin) continue;
-
-    const SSVars ss = makeSSFromPhoton(pho, pt);
-    auto getSS = [&](const char* key) -> float
-    {
-      const double v = pho->get_shower_shape_parameter(key);
-      return static_cast<float>(std::isfinite(v) ? v : std::numeric_limits<double>::quiet_NaN());
-    };
-    auto isoSum = [&](const char* emKey, const char* hiKey, const char* hoKey) -> float
-    {
-      const double em = pho->get_shower_shape_parameter(emKey);
-      const double hi = pho->get_shower_shape_parameter(hiKey);
-      const double ho = pho->get_shower_shape_parameter(hoKey);
-      return static_cast<float>((std::isfinite(em) && std::isfinite(hi) && std::isfinite(ho))
-                                ? (em + hi + ho)
-                                : std::numeric_limits<double>::quiet_NaN());
-    };
-
-    m_pool_run = run;
-    m_pool_evt = evt;
-    m_pool_eventKey = eventKey;
-    m_pool_centBin = m_centBin;
-    m_pool_centIdx = centIdx;
-    m_pool_phoIndex = iPho;
-    m_pool_pho_pt = static_cast<float>(pt);
-    m_pool_pho_eta = static_cast<float>(eta);
-    m_pool_pho_phi = static_cast<float>(TVector2::Phi_mpi_pi(phi));
-    m_pool_pho_energy = static_cast<float>(energy);
-    m_pool_pho_eiso = static_cast<float>(eiso(rc, topNode));
-    m_pool_pho_iso03_emcal = getSS("iso_03_emcal");
-    m_pool_pho_iso03_hcalin = getSS("iso_03_hcalin");
-    m_pool_pho_iso03_hcalout = getSS("iso_03_hcalout");
-    m_pool_pho_iso04_emcal = getSS("iso_04_emcal");
-    m_pool_pho_iso04_hcalin = getSS("iso_04_hcalin");
-    m_pool_pho_iso04_hcalout = getSS("iso_04_hcalout");
-    m_pool_pho_eiso_r03 = isoSum("iso_03_emcal", "iso_03_hcalin", "iso_03_hcalout");
-    m_pool_pho_eiso_r04 = isoSum("iso_04_emcal", "iso_04_hcalin", "iso_04_hcalout");
-    m_pool_pho_weta = static_cast<float>(ss.weta_cogx);
-    m_pool_pho_wphi = static_cast<float>(ss.wphi_cogx);
-    m_pool_pho_weta33 = static_cast<float>(ss.weta33_cogx);
-    m_pool_pho_wphi33 = static_cast<float>(ss.wphi33_cogx);
-    m_pool_pho_weta35 = static_cast<float>(ss.weta35_cogx);
-    m_pool_pho_wphi53 = static_cast<float>(ss.wphi53_cogx);
-    m_pool_pho_et1 = static_cast<float>(ss.et1);
-    m_pool_pho_et2 = static_cast<float>(ss.et2);
-    m_pool_pho_et3 = static_cast<float>(ss.et3);
-    m_pool_pho_et4 = static_cast<float>(ss.et4);
-    m_pool_pho_e11e33 = static_cast<float>(ss.e11_over_e33);
-    m_pool_pho_e32e35 = static_cast<float>(ss.e32_over_e35);
-    m_pool_pho_e11e22 = static_cast<float>(ss.e11_over_e22);
-    m_pool_pho_e11e13 = static_cast<float>(ss.e11_over_e13);
-    m_pool_pho_e11e15 = static_cast<float>(ss.e11_over_e15);
-    m_pool_pho_e11e17 = static_cast<float>(ss.e11_over_e17);
-    m_pool_pho_e11e31 = static_cast<float>(ss.e11_over_e31);
-    m_pool_pho_e11e51 = static_cast<float>(ss.e11_over_e51);
-    m_pool_pho_e11e71 = static_cast<float>(ss.e11_over_e71);
-    m_pool_pho_e22e33 = static_cast<float>(ss.e22_over_e33);
-    m_pool_pho_e22e35 = static_cast<float>(ss.e22_over_e35);
-    m_pool_pho_e22e37 = static_cast<float>(ss.e22_over_e37);
-    m_pool_pho_e22e53 = static_cast<float>(ss.e22_over_e53);
-    m_pool_pho_w32 = static_cast<float>(ss.w32);
-    m_pool_pho_w52 = static_cast<float>(ss.w52);
-    m_pool_pho_w72 = static_cast<float>(ss.w72);
-    m_pool_pho_mean_time = static_cast<float>(ss.mean_time);
-    m_pool_pho_npb = static_cast<float>(ss.npb_score);
-    m_pool_pho_tight_bdt = static_cast<float>(ss.tight_bdt_score);
-    m_pool_pho_auau_npb = static_cast<float>(ss.auau_npb_score);
-    m_pool_pho_auau_tight_bdt = static_cast<float>(ss.auau_tight_bdt_score);
-
-    if (!m_isSim)
-    {
-      double npbDeltaT = std::numeric_limits<double>::quiet_NaN();
-      double npbMbdTime = std::numeric_limits<double>::quiet_NaN();
-      bool npbHasAwayJet = false;
-      const bool isTaggedNPB =
-        isPPG12DataNPBTaggedCluster(ss, phi, npbDeltaT, npbMbdTime, npbHasAwayJet, false);
-      m_pool_pho_mbd_time = static_cast<float>(std::isfinite(npbMbdTime) ? npbMbdTime : std::numeric_limits<double>::quiet_NaN());
-      m_pool_pho_cluster_mbd_delta_t = static_cast<float>(std::isfinite(npbDeltaT) ? npbDeltaT : std::numeric_limits<double>::quiet_NaN());
-      m_pool_pho_npb_has_away_jet = npbHasAwayJet ? 1 : 0;
-      if (isTaggedNPB)
-      {
-        m_pool_pho_npb_label = 0;
-        m_pool_pho_is_npb = 1;
-      }
-    }
-
-    if (m_isSim && evtHepMC && haveCaloEval && clustereval)
-    {
-      TruthSignalPhotonInfo matchedTruth;
-      int clusterTruthTrackId = -1;
-      float eContrib = 0.0f;
-      const bool sig = classifyRecoPhotonWithPPG12TruthTrack(rc,
-                                                             *clustereval,
-                                                             truthSignalByTrackId,
-                                                             matchedTruth,
-                                                             clusterTruthTrackId,
-                                                             eContrib);
-      m_pool_pho_truthSignal = sig ? 1 : 0;
-      m_pool_pho_truthTrackId = clusterTruthTrackId;
-      m_pool_pho_npb_label = 1;
-      m_pool_pho_is_npb = 0;
-      if (sig)
-      {
-        m_pool_pho_truthPt = static_cast<float>(matchedTruth.pt);
-        m_pool_pho_truthEta = static_cast<float>(matchedTruth.eta);
-        m_pool_pho_truthPhi = static_cast<float>(matchedTruth.phi);
-        m_pool_pho_truthIso = static_cast<float>(matchedTruth.isoEt);
-      }
-    }
-
-    fillAnalysisPoolExtraFeatureValues(pho,
-                                       rc,
-                                       pt,
-                                       eta,
-                                       TVector2::Phi_mpi_pi(phi),
-                                       m_pool_pho_eiso,
-                                       m_pool_pho_eiso_r03,
-                                       m_pool_pho_eiso_r04,
-                                       m_pool_pho_mbd_time,
-                                       m_pool_pho_cluster_mbd_delta_t,
-                                       m_pool_pho_npb_has_away_jet,
-                                       m_pool_pho_npb_label,
-                                       m_pool_pho_is_npb,
-                                       m_pool_pho_extra_features);
-    m_poolPhotonTree->Fill();
-  }
-}
 
 void RecoilJets::initAuAuBDTTrainingTree()
 {
@@ -4026,89 +3362,6 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         return Fun4AllReturnCodes::ABORTEVENT;
     }
 
-    if (m_poolCaptureOnly && m_isSim)
-    {
-        std::vector<std::string> poolActiveTrig{"SIM"};
-
-        if (m_isAuAu)
-        {
-            CentralityInfo* central =
-            findNode::getClass<CentralityInfo>(topNode, "CentralityInfo");
-
-            if (central)
-            {
-                const float centile =
-                central->get_centrality_bin(CentralityInfo::PROP::mbd_NS);
-
-                if (std::isfinite(centile) && centile >= 0.f)
-                {
-                    m_centBin = static_cast<int>(centile);
-                    m_centPercent = static_cast<double>(centile);
-                }
-                else
-                {
-                    m_centBin = -1;
-                    m_centPercent = -1.0;
-                }
-            }
-            else
-            {
-                m_centBin = -1;
-                m_centPercent = -1.0;
-            }
-        }
-        else
-        {
-            m_centBin = -1;
-            m_centPercent = -1.0;
-        }
-
-        m_mcVertexWeight = 1.0;
-        m_mcCentralityWeight = 1.0;
-        m_mcEventWeight = 1.0;
-
-        if (m_isSimEmbedded)
-        {
-            if (m_vertexReweightOn && m_vertexReweightH)
-            {
-                int bin = m_vertexReweightH->FindBin(m_vz);
-                if (bin < 1) bin = 1;
-                if (bin > m_vertexReweightH->GetNbinsX()) bin = m_vertexReweightH->GetNbinsX();
-
-                m_mcVertexWeight = m_vertexReweightH->GetBinContent(bin);
-                if (!std::isfinite(m_mcVertexWeight) || m_mcVertexWeight <= 0.0)
-                {
-                    m_mcVertexWeight = 1.0;
-                }
-            }
-
-            if (m_centralityReweightOn && m_centralityReweightH && m_isAuAu && m_centPercent >= 0.0)
-            {
-                int bin = m_centralityReweightH->FindBin(m_centPercent);
-                if (bin < 1) bin = 1;
-                if (bin > m_centralityReweightH->GetNbinsX()) bin = m_centralityReweightH->GetNbinsX();
-
-                m_mcCentralityWeight = m_centralityReweightH->GetBinContent(bin);
-                if (!std::isfinite(m_mcCentralityWeight) || m_mcCentralityWeight <= 0.0)
-                {
-                    m_mcCentralityWeight = 1.0;
-                }
-            }
-
-            m_mcEventWeight = m_mcVertexWeight * m_mcCentralityWeight;
-        }
-
-        RJMCWeighting::CurrentWeight() = (m_isSimEmbedded ? m_mcEventWeight : 1.0);
-
-        const int poolCentIdx = (m_isAuAu ? findCentBin(m_centBin) : -1);
-        captureAnalysisPoolEvent(topNode, poolActiveTrig, poolCentIdx);
-        ++m_bk.evt_accepted;
-
-        LOG(4, CLR_GREEN,
-            "  [process_event] - SIM pool captured before analysis stitching; histogram filling skipped");
-        return Fun4AllReturnCodes::EVENT_OK;
-    }
-    
     if (m_isoAuditMode)
     {
         ++m_isoAuditFlowGlobal.mandatory_nodes_ok;
@@ -4160,7 +3413,7 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     //   - numerator   is filled ONCE per pair when baseline AND probe are on
     //   - run-range/bit mapping is hard-coded from the ALL QA output above
     // ------------------------------------------------------------------
-    if (!m_poolCaptureOnly && !m_isSim)
+    if (!m_isSim)
     {
         Gl1Packet* gl1Packet = findNode::getClass<Gl1Packet>(topNode, "GL1Packet");
         if (!gl1Packet) gl1Packet = findNode::getClass<Gl1Packet>(topNode, "14001");
@@ -4936,7 +4189,7 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         }
     }
 
-    if (!m_poolCaptureOnly && m_doPi0Analysis)
+    if (m_doPi0Analysis)
     {
         const bool passPi0Vz = (!m_useVzCut || std::fabs(m_vz) < m_vzCut);
         
@@ -4961,17 +4214,6 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     /*     Filled once per accepted event, after centrality/vz.            */
     /* ------------------------------------------------------------------ */
     const int centIdxForJets = (m_isAuAu ? findCentBin(m_centBin) : -1);
-    if (m_poolCaptureEnabled)
-    {
-        captureAnalysisPoolEvent(topNode, activeTrig, centIdxForJets);
-        if (m_poolCaptureOnly)
-        {
-            ++m_bk.evt_accepted;
-            LOG(4, CLR_GREEN, "  [process_event] – pool captured; histogram filling skipped");
-            return Fun4AllReturnCodes::EVENT_OK;
-        }
-    }
-
     for (const auto& kv : m_jets)
     {
         fillInclusiveJetQA(activeTrig, centIdxForJets, kv.first);
@@ -6059,32 +5301,6 @@ int RecoilJets::End(PHCompositeNode*)
       m_analysisConfigStamped = true;
     }
 
-    if (m_poolCaptureEnabled)
-    {
-      out->cd();
-      std::ostringstream poolMeta;
-      poolMeta << "schema_version: " << m_pool_schema << "\n";
-      poolMeta << "capture_only: " << (m_poolCaptureOnly ? "true" : "false") << "\n";
-      poolMeta << "photon_pt_min: " << m_poolPhotonPtMin << "\n";
-      poolMeta << "jet_pt_min: " << m_poolJetPtMin << "\n";
-      poolMeta << "truth_photon_pt_min: " << m_poolTruthPhotonPtMin << "\n";
-      poolMeta << "truth_jet_pt_min: " << m_poolTruthJetPtMin << "\n";
-      poolMeta << "capture_axes: clusterUEpipeline,pool_schema,stored_isolation_cones,stored_jet_radii,stored_pool_features\n";
-      poolMeta << "required_event_branches: schema,eventKey,isSim,isAuAu,centBin,centPercent,vz,weight,triggers\n";
-      poolMeta << "required_photon_branches: schema,eventKey,pt,eta,phi,eiso,eiso_r03,eiso_r04,iso_03_emcal,iso_03_hcalin,iso_03_hcalout,iso_04_emcal,iso_04_hcalin,iso_04_hcalout,weta_cogx,wphi_cogx,et1,e11_over_e33,e32_over_e35,npb_score,tight_bdt_score,auau_npb_score,auau_tight_bdt_score,mbd_time,cluster_mbd_delta_t,npb_has_away_jet,npb_label,is_npb,truthSignal,truthTrackId,truthPt,truthEta,truthPhi,extra_feature_values\n";
-      poolMeta << "required_jet_branches: schema,eventKey,rKey,isTruth,pt,raw_pt,areaSub_pt,eta,phi,mass,jet_area,rho,local_rho\n";
-      poolMeta << "required_truth_photon_branches: schema,eventKey,trackId,barcode,pt,eta,phi,iso\n";
-      poolMeta << "extra_feature_catalog: AnalysisPhotonFeatureCatalog\n";
-      poolMeta << "extra_feature_count: " << analysisPoolExtraFeatureNames().size() << "\n";
-      TObjString poolMetaObj(poolMeta.str().c_str());
-      poolMetaObj.Write("analysis_pool_metadata", TObject::kOverwrite);
-      if (m_poolEventTree)       m_poolEventTree->Write("", TObject::kOverwrite);
-      if (m_poolPhotonTree)      m_poolPhotonTree->Write("", TObject::kOverwrite);
-      if (m_poolJetTree)         m_poolJetTree->Write("", TObject::kOverwrite);
-      if (m_poolTruthPhotonTree) m_poolTruthPhotonTree->Write("", TObject::kOverwrite);
-      writeAnalysisPoolFeatureCatalog(out, m_pool_schema);
-    }
-
     try
     {
       out->Close();
@@ -6247,14 +5463,16 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
     const bool haveRecoPhoton  = (std::isfinite(leadPtGamma) && leadPtGamma > 0.0);
     const bool haveTruthTarget = (std::isfinite(tPt) && tPt > 0.0);
 
+    const std::string jetRKey = baseRKeyFromDphiHistKey(rKey);
+
     JetContainer* truthJets = nullptr;
     if (haveTruthTarget)
     {
-      if (auto itT = m_truthJetsByRKey.find(rKey); itT != m_truthJetsByRKey.end()) truthJets = itT->second;
+      if (auto itT = m_truthJetsByRKey.find(jetRKey); itT != m_truthJetsByRKey.end()) truthJets = itT->second;
       if (!truthJets) return;
     }
 
-    const double etaMaxTruth = jetEtaAbsMaxForRKey(rKey);
+    const double etaMaxTruth = jetEtaAbsMaxForRKey(jetRKey);
 
     std::vector<const Jet*> truthJetsFid;
     std::vector<char>       truthJetsFidIsRecoil;
@@ -6327,14 +5545,14 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
     if (haveTruthTarget)
     {
       JetContainer* recoJetsAll = nullptr;
-      if (auto itR = m_jets.find(rKey); itR != m_jets.end()) recoJetsAll = itR->second;
+      if (auto itR = m_jets.find(jetRKey); itR != m_jets.end()) recoJetsAll = itR->second;
 
       std::vector<const Jet*> recoJetsForJetEff;
       if (recoJetsAll)
       {
         recoJetsForJetEff.reserve(recoJetsAll->size());
 
-        const double etaMaxRecoJetEff = jetEtaAbsMaxForRKey(rKey);
+        const double etaMaxRecoJetEff = jetEtaAbsMaxForRKey(jetRKey);
         const double xJMinJetEff = (!m_unfoldXJBins.empty() ? m_unfoldXJBins.front() : 0.0);
         const double xJMaxJetEff = (!m_unfoldXJBins.empty() ? m_unfoldXJBins.back() : std::numeric_limits<double>::infinity());
 
@@ -6838,7 +6056,7 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
 
   if (m_jetMLTrainingTreeEnabled && haveRecoPhoton)
   {
-    const double Rjet = jetRFromKey(rKey);
+    const double Rjet = jetRFromKey(jetRKey);
     for (std::size_t ir = 0; ir < recoJetsFid.size(); ++ir)
     {
       if (!recoJetsFidIsRecoil[ir]) continue;
@@ -6888,7 +6106,7 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
       auto* hFake   = getOrBookUnfoldRecoFakesPtXJIncl(trigShort, rKey, effCentIdx_M);
       auto* hMiss   = getOrBookUnfoldTruthMissesPtXJIncl(trigShort, rKey, effCentIdx_M);
 
-      const double Rjet = jetRFromKey(rKey);
+      const double Rjet = jetRFromKey(jetRKey);
       const bool haveJetML = m_jetMLCorrectionEnabled && initJetMLModelIfNeeded();
       auto* h2RecoML = haveJetML ? getOrBookUnfoldRecoJetMLPtXJIncl(trigShort, rKey, effCentIdx_M) : nullptr;
       auto* hRspML   = haveJetML ? getOrBookUnfoldResponseJetMLPtXJIncl(trigShort, rKey, effCentIdx_M) : nullptr;
@@ -6928,7 +6146,7 @@ void RecoilJets::fillUnfoldResponseMatrixAndTruthDistributions(
 
       if (m_isAuAu && haveRecoPhoton && haveTruthPho)
       {
-        const double combMatchDR = (std::isfinite(jetRFromKey(rKey)) ? jetRFromKey(rKey) : m_jetMatchDRMax);
+        const double combMatchDR = (std::isfinite(jetRFromKey(jetRKey)) ? jetRFromKey(jetRKey) : m_jetMatchDRMax);
 
         for (std::size_t ir = 0; ir < recoJetsFid.size(); ++ir)
         {
@@ -7228,8 +6446,9 @@ void RecoilJets::fillRecoTruthJES3MatchingQA(const std::vector<std::string>& act
     { hTagPho->Fill(leadPtGamma, xJ, alpha); bumpHistFill(trigShort, hTagPho->GetName()); }
   }
 
+  const std::string jetRKey = baseRKeyFromDphiHistKey(rKey);
   JetContainer* truthJets = nullptr;
-  if (auto itT = m_truthJetsByRKey.find(rKey); itT != m_truthJetsByRKey.end()) truthJets = itT->second;
+  if (auto itT = m_truthJetsByRKey.find(jetRKey); itT != m_truthJetsByRKey.end()) truthJets = itT->second;
 
   if (!truthJets)
   {
@@ -7248,7 +6467,7 @@ void RecoilJets::fillRecoTruthJES3MatchingQA(const std::vector<std::string>& act
   //   - pick GLOBAL leading truth jet first (after pT gate; NO eta/dphi pre-veto)
   //   - then veto if that chosen jet is not fiducial in eta (NO fallback)
   //   - then require it be back-to-back to the truth gamma
-  const double etaMaxTruth = jetEtaAbsMaxForRKey(rKey);
+  const double etaMaxTruth = jetEtaAbsMaxForRKey(jetRKey);
 
   double tj1Pt = -1.0;
   const Jet* tj1 = nullptr;
@@ -7400,37 +6619,43 @@ bool RecoilJets::runLeadIsoTightPhotonJetLoopAllRadii(
     // Run the EXACT SAME jet logic for every configured radius in parallel
   for (const auto& kv : m_jets)
   {
-    const std::string rKey = kv.first;
-
+    const std::string baseRKey = kv.first;
     JetContainer* jets = kv.second;
 
     // Radius-dependent containment cut: |eta_jet| < 1.1 - R
-    const double Rjet            = jetRFromKey(rKey);
-    const double jetEtaAbsMaxUse = jetEtaAbsMaxForRKey(rKey);
+    const double Rjet            = jetRFromKey(baseRKey);
+    const double jetEtaAbsMaxUse = jetEtaAbsMaxForRKey(baseRKey);
+    const double savedMinBackToBack = m_minBackToBack;
+    const std::vector<double> dphiCuts = activeBackToBackCuts();
 
-    if (!jets)
+    for (const double dphiCut : dphiCuts)
     {
-      LOG(3, CLR_YELLOW,
-          "      [lead pho#" << leadPhoIndex << "] rKey=" << rKey
-          << " jet container is nullptr – cannot form xJ");
+      m_minBackToBack = dphiCut;
+      const std::string rKey = histRKeyForDphi(baseRKey, dphiCut);
 
-      // Still fill matching-QA once per event-leading iso∧tight photon (per rKey)
-      const int    status = 1;          // NoJetPt
-      const double maxDphiFill = -0.01; // underflow sentinel
-
-      for (const auto& trigShort : activeTrig)
+      if (!jets)
       {
-        if (auto* hs = getOrBookMatchStatusVsPtGamma(trigShort, rKey, effCentIdx_M))
-        { hs->Fill(leadPtGamma, status); bumpHistFill(trigShort, hs->GetName()); }
+        LOG(3, CLR_YELLOW,
+            "      [lead pho#" << leadPhoIndex << "] rKey=" << rKey
+            << " jet container is nullptr - cannot form xJ");
 
-        if (auto* hm = getOrBookMatchMaxDphiVsPtGamma(trigShort, rKey, effCentIdx_M))
-        { hm->Fill(leadPtGamma, maxDphiFill); bumpHistFill(trigShort, hm->GetName()); }
+        // Still fill matching-QA once per event-leading iso+tight photon (per rKey)
+        const int    status = 1;          // NoJetPt
+        const double maxDphiFill = -0.01; // underflow sentinel
 
-        if (auto* pn = getOrBookNRecoilJetsVsPtGamma(trigShort, rKey, effCentIdx_M))
-        { pn->Fill(leadPtGamma, 0.0); bumpHistFill(trigShort, pn->GetName()); }
+        for (const auto& trigShort : activeTrig)
+        {
+          if (auto* hs = getOrBookMatchStatusVsPtGamma(trigShort, rKey, effCentIdx_M))
+          { hs->Fill(leadPtGamma, status); bumpHistFill(trigShort, hs->GetName()); }
+
+          if (auto* hm = getOrBookMatchMaxDphiVsPtGamma(trigShort, rKey, effCentIdx_M))
+          { hm->Fill(leadPtGamma, maxDphiFill); bumpHistFill(trigShort, hm->GetName()); }
+
+          if (auto* pn = getOrBookNRecoilJetsVsPtGamma(trigShort, rKey, effCentIdx_M))
+          { pn->Fill(leadPtGamma, 0.0); bumpHistFill(trigShort, pn->GetName()); }
+        }
+        continue;
       }
-      continue;
-    }
 
     // Scan jets:
     //   - baseline pT gate:        pT > m_minJetPt
@@ -7819,6 +7044,7 @@ bool RecoilJets::runLeadIsoTightPhotonJetLoopAllRadii(
             << ", |eta|<" << std::fixed << std::setprecision(2) << jetEtaAbsMaxUse << "]");
       }
     }
+    m_minBackToBack = savedMinBackToBack;
   } // radii loop
 
   return filledAnyRadius;
@@ -7834,11 +7060,19 @@ void RecoilJets::runLeadIsoNonTightPhotonJetLoopAllRadii_SidebandC(
 {
     for (const auto& kv : m_jets)
     {
-      const std::string rKey = kv.first;
+      const std::string baseRKey = kv.first;
       JetContainer* jets = kv.second;
-      const double jetEtaAbsMaxUse = jetEtaAbsMaxForRKey(rKey);
+      const double jetEtaAbsMaxUse = jetEtaAbsMaxForRKey(baseRKey);
 
       if (!jets) continue;
+
+      const double Rjet = jetRFromKey(baseRKey);
+      const double savedMinBackToBack = m_minBackToBack;
+      const std::vector<double> dphiCuts = activeBackToBackCuts();
+      for (const double dphiCut : dphiCuts)
+      {
+      m_minBackToBack = dphiCut;
+      const std::string rKey = histRKeyForDphi(baseRKey, dphiCut);
 
       std::vector<const Jet*> recoJetsFid;
       std::vector<char> recoJetsFidIsRecoil;
@@ -7880,7 +7114,6 @@ void RecoilJets::runLeadIsoNonTightPhotonJetLoopAllRadii_SidebandC(
         if (!std::isfinite(jpt) || jpt <= 0.0) continue;
 
         const double xJr = jpt / leadPtGamma;
-        const double Rjet = jetRFromKey(rKey);
         const bool haveJetML = m_jetMLCorrectionEnabled && initJetMLModelIfNeeded();
         const double deltaML = haveJetML
                              ? predictJetMLDeltaPt(rKey, Rjet,
@@ -7907,6 +7140,8 @@ void RecoilJets::runLeadIsoNonTightPhotonJetLoopAllRadii_SidebandC(
           }
         }
       }
+      }
+      m_minBackToBack = savedMinBackToBack;
    }
 }
 
@@ -8569,7 +7804,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 // Fill per jet radius (truth jets are radius-tagged)
                 for (const auto& kvT : m_truthJetsByRKey)
                 {
-                    const std::string rKey = kvT.first;
+                    const std::string baseRKey = kvT.first;
                     
                     JetContainer* truthJets = kvT.second;
                     
@@ -8578,12 +7813,17 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                         if (Verbosity() >= 5)
                         {
                             LOG(5, CLR_YELLOW,
-                                "    [truthXJgamma] rKey=" << rKey << " truth jet container missing → skip");
+                                "    [truthXJgamma] rKey=" << baseRKey << " truth jet container missing -> skip");
                         }
                         continue;
                     }
                     
-                    const double etaMaxTruth = jetEtaAbsMaxForRKey(rKey);
+                    const double etaMaxTruth = jetEtaAbsMaxForRKey(baseRKey);
+                    const double savedMinBackToBack = m_minBackToBack;
+                    for (const double dphiCut : activeBackToBackCuts())
+                    {
+                    m_minBackToBack = dphiCut;
+                    const std::string rKey = histRKeyForDphi(baseRKey, dphiCut);
                     
                     double tj1Pt = -1.0;
                     const Jet* tj1 = nullptr;
@@ -8714,6 +7954,8 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                             << " → xJt=" << std::fixed << std::setprecision(3) << xJt
                             << " aT="  << std::fixed << std::setprecision(3) << aT);
                     }
+                    }
+                    m_minBackToBack = savedMinBackToBack;
                 } // end rKey loop
             }
         }
@@ -10174,19 +9416,27 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                     
                     for (const auto& kv : m_jets)
                     {
-                        fillUnfoldResponseMatrixAndTruthDistributions(activeTrig,
-                                                                      kv.first,
-                                                                      effCentIdx_M,
-                                                                      0.0,
-                                                                      0.0,
-                                                                      0.0,
-                                                                      false,
-                                                                      tPtSig,
-                                                                      tEtaSig,
-                                                                      tPhiSig,
-                                                                      noRecoJetsFid,
-                                                                      noRecoJetsFidIsRecoil,
-                                                                      nullptr);
+                        const std::string baseRKey = kv.first;
+                        const double savedMinBackToBack = m_minBackToBack;
+                        for (const double dphiCut : activeBackToBackCuts())
+                        {
+                            m_minBackToBack = dphiCut;
+                            const std::string histRKey = histRKeyForDphi(baseRKey, dphiCut);
+                            fillUnfoldResponseMatrixAndTruthDistributions(activeTrig,
+                                                                          histRKey,
+                                                                          effCentIdx_M,
+                                                                          0.0,
+                                                                          0.0,
+                                                                          0.0,
+                                                                          false,
+                                                                          tPtSig,
+                                                                          tEtaSig,
+                                                                          tPhiSig,
+                                                                          noRecoJetsFid,
+                                                                          noRecoJetsFidIsRecoil,
+                                                                          nullptr);
+                        }
+                        m_minBackToBack = savedMinBackToBack;
                     }
                 }
             }
@@ -10221,12 +9471,17 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 
                 for (const auto& kvJ : m_jets)
                 {
-                    const std::string& rKey = kvJ.first;
+                    const std::string& baseRKey = kvJ.first;
                     
                     JetContainer* jets = kvJ.second;
                     if (!jets) continue;
                     
-                    const double jetEtaAbsMaxUse = jetEtaAbsMaxForRKey(rKey);
+                    const double jetEtaAbsMaxUse = jetEtaAbsMaxForRKey(baseRKey);
+                    const double savedMinBackToBack = m_minBackToBack;
+                    for (const double dphiCut : activeBackToBackCuts())
+                    {
+                    m_minBackToBack = dphiCut;
+                    const std::string rKey = histRKeyForDphi(baseRKey, dphiCut);
                     
                     for (const Jet* j : *jets)
                     {
@@ -10253,6 +9508,8 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                             { hj->Fill(leadAnyPtGamma, jStatus); bumpHistFill(trigShort, hj->GetName()); }
                         }
                     }
+                    }
+                    m_minBackToBack = savedMinBackToBack;
                 }
             }
             
@@ -10460,7 +9717,7 @@ void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars&
 
   if (!pho) return;
 
-  if (m_poolCaptureEnabled || preselectionUsesNPB(m_preselectionVariant))
+  if (preselectionUsesNPB(m_preselectionVariant))
   {
     if (m_photons_npb == m_photons)
     {
@@ -10474,7 +9731,7 @@ void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars&
     }
   }
 
-  if (m_poolCaptureEnabled || m_tightVariant == "newPPG12")
+  if (m_tightVariant == "newPPG12")
   {
     if (m_photons_tightbdt == m_photons)
     {
@@ -10488,7 +9745,7 @@ void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars&
     }
   }
 
-  if (m_poolCaptureEnabled || preselectionUsesAuAuBDT(m_preselectionVariant))
+  if (preselectionUsesAuAuBDT(m_preselectionVariant))
   {
     v.auau_npb_score = pho->get_shower_shape_parameter("auau_npb_score");
   }
@@ -10500,7 +9757,7 @@ void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars&
   {
     v.auau_tight_bdt_score = predictAuAuTightBDTScore(pho, v);
   }
-  else if (m_poolCaptureEnabled || m_tightVariant == "auauEmbeddedBDT")
+  else if (m_tightVariant == "auauEmbeddedBDT")
   {
     v.auau_tight_bdt_score = pho->get_shower_shape_parameter("auau_tight_bdt_score");
   }
@@ -12023,8 +11280,9 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
     {
       if (!calibJet) return nullptr;
 
-      auto itCal = m_jets.find(rKey);
-      auto itRaw = m_jetsRaw.find(rKey);
+      const std::string jetRKey = baseRKeyFromDphiHistKey(rKey);
+      auto itCal = m_jets.find(jetRKey);
+      auto itRaw = m_jetsRaw.find(jetRKey);
       if (itCal == m_jets.end() || !itCal->second) return nullptr;
       if (itRaw == m_jetsRaw.end() || !itRaw->second) return nullptr;
 

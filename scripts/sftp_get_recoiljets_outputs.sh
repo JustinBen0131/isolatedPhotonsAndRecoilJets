@@ -14,8 +14,6 @@ Usage:
   ./scripts/sftp_get_recoiljets_outputs.sh tightBDTSmoke <remote-path-or-dir-name>
   ./scripts/sftp_get_recoiljets_outputs.sh mlIntegrationLatest
   ./scripts/sftp_get_recoiljets_outputs.sh mlIntegration <remote-path-or-dir-name>
-  ./scripts/sftp_get_recoiljets_outputs.sh poolSmokeLatest <dataset>
-  ./scripts/sftp_get_recoiljets_outputs.sh poolSmoke <dataset> <remote-path-or-dir-name>
   ./scripts/sftp_get_recoiljets_outputs.sh smokeTestLatest <dataset> [--roots]
   ./scripts/sftp_get_recoiljets_outputs.sh smokeTest <dataset> <remote-path-or-dir-name> [--roots]
   ./scripts/sftp_get_recoiljets_outputs.sh scaledTriggerStudy
@@ -54,11 +52,6 @@ from:
 
 mlIntegration with an explicit path or directory name bypasses latest-directory
 discovery and downloads that exact run.
-
-poolSmokeLatest/poolSmoke download only the small pipeline tuning reports from
-the SDCC bulk smoke output directory, not the bulky ROOT outputs. Reports land
-under:
-  InputFiles/pipelineSmoke/<dataset>
 
 smokeTestLatest/smokeTest do the same for the overnight per-dataset smokeTest
 workflow under thesisAnaSmoke. Pass --roots only when you intentionally want the
@@ -150,6 +143,40 @@ sim_b2b_dir_tag() {
     s="${s//./p}"
     s="${s//-/m}"
     echo "piFrac${s}"
+  fi
+}
+
+dphi_internal_enabled() {
+  case "${RJ_DISABLE_DPHI_INTERNALIZATION:-0}" in
+    1|true|TRUE|yes|YES|on|ON) return 1 ;;
+  esac
+  case "${RJ_INTERNALIZE_DPHI:-1}" in
+    0|false|FALSE|no|NO|off|OFF) return 1 ;;
+  esac
+  return 0
+}
+
+dphi_submit_values() {
+  if dphi_internal_enabled && (( "$#" > 0 )); then
+    local v
+    for v in "$@"; do
+      if sim_is_close "$v" "0.875"; then
+        printf '%s\n' "$v"
+        return 0
+      fi
+    done
+    printf '%s\n' "$1"
+  else
+    printf '%s\n' "$@"
+  fi
+}
+
+dphi_dir_tag_component() {
+  local frac="$1"
+  if dphi_internal_enabled; then
+    echo "dphiScan"
+  else
+    sim_b2b_dir_tag "$frac"
   fi
 }
 
@@ -438,7 +465,7 @@ build_cfg_tags_from_yaml() {
   yaml="$(yaml_path)"
   [[ -f "$yaml" ]] || { echo "[ERROR] YAML not found: $yaml" >&2; exit 40; }
 
-  local -a jet_pts b2bs vzs cones iso_base_tags uepipes
+  local -a jet_pts b2bs b2bs_submit vzs cones iso_base_tags uepipes
   jet_pts=()
   b2bs=()
   vzs=()
@@ -458,6 +485,7 @@ build_cfg_tags_from_yaml() {
 
   (( ${#jet_pts[@]} )) || jet_pts=( "5.0" )
   (( ${#b2bs[@]} )) || b2bs=( "0.875" )
+  while IFS= read -r line; do b2bs_submit+=( "$line" ); done < <(dphi_submit_values "${b2bs[@]}")
   (( ${#vzs[@]} )) || vzs=( "30.0" )
   (( ${#cones[@]} )) || cones=( "0.30" )
   (( ${#iso_base_tags[@]} )) || iso_base_tags=( "fixedIso2GeV" )
@@ -473,7 +501,7 @@ build_cfg_tags_from_yaml() {
   local cfg_suffix="${SFTP_GET_CFG_SUFFIX:-}"
   local tight_norm nonTight_norm pre_norm
   for pt in "${jet_pts[@]}"; do
-    for frac in "${b2bs[@]}"; do
+    for frac in "${b2bs_submit[@]}"; do
       for vz in "${vzs[@]}"; do
         for cone in "${cones[@]}"; do
           for iso in "${iso_base_tags[@]}"; do
@@ -484,7 +512,7 @@ build_cfg_tags_from_yaml() {
               tight_norm="$(selection_mode_normalize_for_key "tight" "$tight")"
               nonTight_norm="$(selection_mode_normalize_for_key "nonTight" "$nonTight")"
               selection_tag="$(selection_mode_tag "preselection" "$pre_norm")_$(selection_mode_tag "tight" "$tight_norm")_$(selection_mode_tag "nonTight" "$nonTight_norm")"
-              tag="jetMinPt$(sim_pt_tag "$pt")_$(sim_b2b_dir_tag "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso}"
+              tag="jetMinPt$(sim_pt_tag "$pt")_$(dphi_dir_tag_component "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso}"
               for uep in "${uepipes[@]}"; do
                 if dataset_includes_uepipe_in_tag "$dataset_token"; then
                   full_tag="${tag}_${uep}_${selection_tag}"
@@ -790,28 +818,23 @@ resolve_smoke_dataset() {
     isSimInclusive|siminclusive|SIMINCLUSIVE|isSimJet5|simjet5|SIMJET5)
       SMOKE_LABEL="isSimInclusive"; SMOKE_REMOTE_TAG="simjet5" ;;
     *)
-      echo "[ERROR] Unknown poolSmoke dataset: $1" >&2
+      echo "[ERROR] Unknown smokeTest dataset: $1" >&2
       echo "[ERROR] Use one of: isPP, isAuAu, isSim, isSimEmbedded, isSimEmbeddedInclusive, isSimInclusive" >&2
       exit 2
       ;;
   esac
 }
 
-download_pool_smoke_report() {
+download_smoke_test_report() {
   local requested_dataset="${1:-}"
   local requested="${2:-}"
-  local smoke_kind="${3:-poolSmoke}"
+  local smoke_kind="${3:-smokeTest}"
   local include_roots="${4:-0}"
   local parent prefix latest remote_dir local_dir batch
   [[ -n "$requested_dataset" ]] || { echo "[ERROR] ${smoke_kind}Latest requires a dataset, e.g. isPP" >&2; exit 2; }
   resolve_smoke_dataset "$requested_dataset"
-  if [[ "$smoke_kind" == "smokeTest" ]]; then
-    parent="/sphenix/tg/tg01/bulk/jbennett/thesisAnaSmoke"
-    prefix="${SMOKE_REMOTE_TAG}_smokeTest_"
-  else
-    parent="/sphenix/tg/tg01/bulk/jbennett/thesisAna/${SMOKE_REMOTE_TAG}"
-    prefix="_poolSmoke_"
-  fi
+  parent="/sphenix/tg/tg01/bulk/jbennett/thesisAnaSmoke"
+  prefix="${SMOKE_REMOTE_TAG}_smokeTest_"
 
   if [[ -n "$requested" ]]; then
     if [[ "$requested" == /* ]]; then
@@ -834,8 +857,8 @@ download_pool_smoke_report() {
   local_dir="${LOCAL_BASE}/InputFiles/pipelineSmoke/${SMOKE_LABEL}"
   mkdir -p "$local_dir"
   batch="$(make_tmp_file "sftp_get_recoiljets_${smoke_kind}")"
-  cleanup_poolsmoke() { rm -f "$batch"; }
-  trap cleanup_poolsmoke EXIT
+  cleanup_smoketest() { rm -f "$batch"; }
+  trap cleanup_smoketest EXIT
 
   {
     printf 'lcd %s\n' "$local_dir"
@@ -1005,27 +1028,17 @@ if [[ "$dataset" == "mlIntegration" ]]; then
   exit 0
 fi
 
-if [[ "$dataset" == "poolSmokeLatest" ]]; then
-  download_pool_smoke_report "${2:-}"
-  exit 0
-fi
-
-if [[ "$dataset" == "poolSmoke" ]]; then
-  download_pool_smoke_report "${2:-}" "${3:-}"
-  exit 0
-fi
-
 if [[ "$dataset" == "smokeTestLatest" ]]; then
   include_roots=0
   [[ "${3:-}" == "--roots" ]] && include_roots=1
-  download_pool_smoke_report "${2:-}" "" "smokeTest" "$include_roots"
+  download_smoke_test_report "${2:-}" "" "smokeTest" "$include_roots"
   exit 0
 fi
 
 if [[ "$dataset" == "smokeTest" ]]; then
   include_roots=0
   [[ "${4:-}" == "--roots" ]] && include_roots=1
-  download_pool_smoke_report "${2:-}" "${3:-}" "smokeTest" "$include_roots"
+  download_smoke_test_report "${2:-}" "${3:-}" "smokeTest" "$include_roots"
   exit 0
 fi
 
