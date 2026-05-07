@@ -90,7 +90,7 @@
 # STEP 1 — firstRound (group raw segment outputs into chunk-partials)
 #   ./mergeRecoilJets.sh isSim firstRound
 #   ./mergeRecoilJets.sh isSim firstRound groupSize 300 SAMPLE=run28_photonjet10
-#   ./mergeRecoilJets.sh isSimJet5 firstRound
+#   ./mergeRecoilJets.sh isSimInclusive firstRound
 #   ./mergeRecoilJets.sh isSimEmbedded firstRound
 #
 # STEP 2 — secondRound (merge chunk-partials into one final file per cfg_tag)
@@ -126,6 +126,12 @@
 #     RecoilJets_Condor.sh job is still in condor_q (IDLE/RUNNING/HELD/etc).
 #   • DRYRUN=1   → NO deletions, NO hadd, NO condor_submit (prints the plan).
 #   • SKIP_TRACE=1 → prints per-run total/busy/eligible counts.
+#   • RJ_STAGE_EMAIL_MODE=per_cfg (default) sends one READY/CHECK email per
+#     Condor merge stage when notify emails are configured.
+#   • RJ_STAGE_EMAIL_MODE=none suppresses those emails while still wrapping the
+#     merge in a tracking DAG when RJ_STAGE_EMAIL_STRICT=1 is set. This is used
+#     by the top-level production DAG to avoid inbox spam while preserving
+#     failure propagation.
 #
 # NOTES
 #   • Only top-level *.root files are considered (maxdepth=1).
@@ -744,6 +750,43 @@ merge_notify_emails_csv() {
   printf "%s\n" "$out"
 }
 
+merge_stage_email_mode() {
+  local mode="${RJ_STAGE_EMAIL_MODE:-per_cfg}"
+  case "$mode" in
+    none|quiet|off|0|false|FALSE|no|NO)
+      printf '%s\n' "none"
+      ;;
+    per_cfg|per-cfg|cfg|default|"")
+      printf '%s\n' "per_cfg"
+      ;;
+    *)
+      warn "Unknown RJ_STAGE_EMAIL_MODE='${mode}', using per_cfg"
+      printf '%s\n' "per_cfg"
+      ;;
+  esac
+}
+
+merge_stage_strict_enabled() {
+  case "${RJ_STAGE_EMAIL_STRICT:-0}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+  esac
+  return 1
+}
+
+merge_stage_tracking_description() {
+  local mode
+  mode="$(merge_stage_email_mode)"
+  if [[ "$mode" == "none" ]]; then
+    if merge_stage_strict_enabled; then
+      printf '%s\n' "quiet strict DAG validation (no per-cfg email)"
+    else
+      printf '%s\n' "quiet DAG tracking (no per-cfg email)"
+    fi
+  else
+    printf '%s\n' "one-shot per-cfg READY/CHECK email"
+  fi
+}
+
 submit_condor_stage_with_ready_email() {
   local sub="$1"
   local stage_key="$2"
@@ -754,13 +797,22 @@ submit_condor_stage_with_ready_email() {
 
   local emails
   emails="$(merge_notify_emails_csv)"
-  if [[ -z "$emails" ]]; then
+  local email_mode
+  email_mode="$(merge_stage_email_mode)"
+  local strict="0"
+  merge_stage_strict_enabled && strict="1"
+  if [[ "$email_mode" == "none" ]]; then
+    emails="__none__"
+  fi
+
+  if [[ -z "$emails" && "$strict" != "1" ]]; then
     condor_submit "$sub"
     return $?
   fi
+  [[ -n "$emails" ]] || emails="__none__"
 
   if ! command -v condor_submit_dag >/dev/null 2>&1; then
-    warn "condor_submit_dag not found; submitting without one-shot ready email"
+    warn "condor_submit_dag not found; submitting merge stage directly without DAG-stage tracking"
     condor_submit "$sub"
     return $?
   fi
@@ -785,6 +837,8 @@ out_dir="${6:?out dir required}"
 err_dir="${7:?err dir required}"
 log_dir="${8:?log dir required}"
 validation_file="${9:-__none__}"
+email_mode="${10:-per_cfg}"
+strict="${11:-0}"
 
 status="READY"
 status_note="Condor stage DAG reached its final notification node."
@@ -835,6 +889,8 @@ message_file="$(mktemp "${TMPDIR:-/tmp}/recoiljets_stage_notify.XXXXXX")"
   echo "status_note=${status_note}"
   echo "stage=${stage_key}"
   echo "stage_type=merge_dag"
+  echo "email_mode=${email_mode}"
+  echo "strict_validation=${strict}"
   echo "submit_file=${submit_file}"
   echo "dag_file=${dag_file}"
   echo "dagman_out=${dagman_out}"
@@ -856,14 +912,22 @@ message_file="$(mktemp "${TMPDIR:-/tmp}/recoiljets_stage_notify.XXXXXX")"
   sed 's/^/  /' "$body_file"
 } > "$message_file"
 
-if command -v mail >/dev/null 2>&1; then
-  mail -s "$subject" "$emails" < "$message_file"
+if [[ "$email_mode" == "none" || "$emails" == "__none__" ]]; then
+  echo "[notify] ${stage_key}: email suppressed by RJ_STAGE_EMAIL_MODE=none; status=${status}" >&2
+  cat "$message_file" >&2
+elif command -v mail >/dev/null 2>&1; then
+  mail -s "$subject" "$emails" < "$message_file" || echo "[notify] mail command failed for ${emails}; status=${status}" >&2
 elif command -v mailx >/dev/null 2>&1; then
-  mailx -s "$subject" "$emails" < "$message_file"
+  mailx -s "$subject" "$emails" < "$message_file" || echo "[notify] mailx command failed for ${emails}; status=${status}" >&2
 else
   echo "[notify] mail/mailx not found; notification skipped for ${emails}" >&2
 fi
 rm -f "$message_file"
+
+if [[ "$strict" == "1" && "$status" != "READY" ]]; then
+  echo "[notify] ${stage_key}: strict validation status=${status}; failing merge stage DAG" >&2
+  exit 42
+fi
 EOS
   chmod +x "$notify_exec"
 
@@ -878,7 +942,7 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification = Never
-arguments = $emails $stage_key $notify_body $dag $sub $OUT_DIR $ERR_DIR $LOG_DIR $validation_arg
+arguments = $emails $stage_key $notify_body $dag $sub $OUT_DIR $ERR_DIR $LOG_DIR $validation_arg $email_mode $strict
 queue
 EOT
 
@@ -887,6 +951,7 @@ JOB MERGE $sub
 FINAL NOTIFY $notify_sub
 EOT
 
+  say "Stage tracking: $(merge_stage_tracking_description)"
   condor_submit_dag -notification Never "$dag"
 }
 
@@ -1089,7 +1154,17 @@ build_cfg_tags_from_yaml() {
 
 build_cfg_tags_from_manifest() {
   local root_base="$1"
-  local manifest="${MERGE_PRODUCTION_MANIFEST:-${root_base}/.recoiljets_latest_manifest.txt}"
+  local manifest=""
+  # Avoid letting an old .recoiljets_latest_manifest.txt silently constrain a
+  # fresh production. Use a manifest only when the caller explicitly provides
+  # one, or opts into the latest marker for a known matching production.
+  if [[ -n "${MERGE_PRODUCTION_MANIFEST:-}" ]]; then
+    manifest="$MERGE_PRODUCTION_MANIFEST"
+  elif [[ "${RJ_MERGE_USE_LATEST_MANIFEST:-0}" == "1" ]]; then
+    manifest="${root_base}/.recoiljets_latest_manifest.txt"
+  else
+    return 1
+  fi
   [[ -s "$manifest" ]] || return 1
   awk -F= '$1 == "cfg_tag" && $2 != "" { print $2 }' "$manifest" | sort -u
 }
@@ -1723,9 +1798,14 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|isSimInclusive|issiminclusiv
 
   # Input sim outputs live here (matches Condor output layout per variant)
   case "$SIM_DATASET_TOKEN" in
-    isSimJet5|isSimjet5|isSimInclusive|issiminclusive|simjet5|siminclusive|SIMJET5|SIMINCLUSIVE)
-      SIM_INPUT_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simjet5"
-      SIM_OUTPUT_TAG="simjet5"
+    isSimJet5|isSimjet5|simjet5|SIMJET5)
+      SIM_INPUT_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/siminclusive"
+      SIM_OUTPUT_TAG="siminclusive"
+      [[ "$SIM_SAMPLE_EXPLICIT" -eq 0 ]] && SIM_SAMPLE="run28_jet5"
+      ;;
+    isSimInclusive|issiminclusive|siminclusive|SIMINCLUSIVE)
+      SIM_INPUT_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/siminclusive"
+      SIM_OUTPUT_TAG="siminclusive"
       [[ "$SIM_SAMPLE_EXPLICIT" -eq 0 ]] && SIM_SAMPLE="run28_jet5"
       ;;
     isSimMB|simmb|SIMMB)
@@ -1765,7 +1845,9 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|isSimInclusive|issiminclusiv
   samples=()
   if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
     case "$SIM_DATASET_TOKEN" in
-      isSimJet5|isSimjet5|isSimInclusive|issiminclusive|simjet5|siminclusive|SIMJET5|SIMINCLUSIVE) samples=( "run28_jet5" ) ;;
+      isSimJet5|isSimjet5|simjet5|SIMJET5|isSimInclusive|issiminclusive|siminclusive|SIMINCLUSIVE)
+        samples=( "run28_jet5" "run28_jet8" "run28_jet12" "run28_jet20" "run28_jet30" "run28_jet40" )
+        ;;
       isSimMB|simmb|SIMMB)       samples=( "run28_detroit" ) ;;
       isSimEmbedded|issimembedded|simembedded|SIMEMBEDDED) samples=( "run28_embeddedPhoton12" "run28_embeddedPhoton20" ) ;;
       isSimEmbeddedInclusive|issimembeddedinclusive|simembeddedinclusive|SIMEMBEDDEDINCLUSIVE) samples=( "run28_embeddedJet12" "run28_embeddedJet20" ) ;;
@@ -2079,7 +2161,7 @@ EOT
             "RecoilJets_SIM_firstRound_ready" \
             "SIM firstRound merge is complete for cfg=${cfg_tag}, sample=${SIM_TAG}. You can now run the local secondRound merge for this sample/cfg set." \
             "$EXPECTED"
-          say "FirstRound submitted. Partials will appear under: ${DEST_DIR}"
+          say "FirstRound submitted. Stage tracking: $(merge_stage_tracking_description). Partials will appear under: ${DEST_DIR}"
         fi
 
       elif [[ "$SIM_ACTION" == "secondRound" ]]; then
@@ -2547,7 +2629,7 @@ EOT
       "RecoilJets_${TAG}_perRun_ready" \
       "Data per-run merge is complete for dataset=${TAG}, cfg=${_cfg:-flat}. AuAu scaled-trigger corrections, when configured, have been applied inside the per-run hadd job. You can now run the sliceRuns merge stage." \
       "$EXPECTED"
-    say "Stage-1 submitted. A one-shot ready email will fire after this cfg stage finishes. Partial outputs will appear under: ${PERRUN_CFG_DIR}"
+    say "Stage-1 submitted. Stage tracking: $(merge_stage_tracking_description). Partial outputs will appear under: ${PERRUN_CFG_DIR}"
     echo
   done
 

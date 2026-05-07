@@ -569,6 +569,10 @@ Production histogram jobs use the original RecoilJets modules with direct
 photon-ID fanout plus internal jet-pT, dphi, and iso/cone histogram views.
 Use RJ_ID_FANOUT_MAX_ROWS=5 or 10 only if a smoke test shows memory pressure.
 Pool/replay histogram production was removed.
+Automatic production DAGs send one final READY/CHECK/FAILED email by default;
+nested merge DAGs run quiet with strict output validation. Use RJ_AUTO_MERGE=0
+for analysis-only submission, or run mergeRecoilJets.sh manually for per-cfg
+debug emails.
 Production output cleanup is explicit via RJ_CLEAN_OUTPUT_BASE=1 or
 ./scripts/recoiljets_cleanup.sh dryrun|apply <target>.
 USAGE
@@ -1301,7 +1305,7 @@ for dlog in "${dagman_logs[@]}"; do
     echo "[auto-stage] rescue file found for ${stage_key}: ${dag}.rescue*" >&2
     status=30
   fi
-  if [[ -s "$dlog" ]] && grep -Eiq 'ERROR|failed with|DAG abort|aborted|Job was held|held job' "$dlog"; then
+  if [[ -s "$dlog" ]] && grep -Eiq 'ERROR|failed with|DAG abort|aborted|Job was held|held job|return value 42|strict validation status|FINAL Node failed' "$dlog"; then
     echo "[auto-stage] error/hold-like text found in ${dlog}" >&2
     status=31
   fi
@@ -1347,6 +1351,7 @@ msg="$(mktemp "${TMPDIR:-/tmp}/recoiljets_auto_notify.XXXXXX")"
   echo "stage=${stage_key}"
   echo "stage_type=analysis_to_merge_dag"
   echo "dataset=${dataset}"
+  echo "email_policy=one final auto-workflow email; nested merge DAG emails suppressed with strict validation"
   echo "dag_file=${dag_file}"
   echo "dagman_out=${dagman_out}"
   echo "nodes_log=${nodes_log}"
@@ -1358,9 +1363,9 @@ msg="$(mktemp "${TMPDIR:-/tmp}/recoiljets_auto_notify.XXXXXX")"
   echo "  Next action: ${next_action}"
 } > "$msg"
 if command -v mail >/dev/null 2>&1; then
-  mail -s "$subject" "$emails" < "$msg"
+  mail -s "$subject" "$emails" < "$msg" || echo "[auto-notify] mail command failed for ${emails}; status=${status}" >&2
 elif command -v mailx >/dev/null 2>&1; then
-  mailx -s "$subject" "$emails" < "$msg"
+  mailx -s "$subject" "$emails" < "$msg" || echo "[auto-notify] mailx command failed for ${emails}; status=${status}" >&2
 else
   echo "[auto-notify] mail/mailx not found; notification skipped for ${emails}" >&2
   cat "$msg" >&2
@@ -5237,7 +5242,7 @@ SUB
       write_auto_stage_runner "$runner"
       write_auto_final_notify "$final_notify"
       sim_merge_out_base="${RJ_MERGE_OUT_BASE_OVERRIDE:-${BASE}/output}"
-      first_round_args=( env "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED}" "MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base}" "${BASE}/scripts/mergeRecoilJets.sh" "$DATASET" firstRound groupSize "${RJ_SIM_MERGE_GROUP_SIZE:-300}" )
+      first_round_args=( env "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED}" "MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" "${BASE}/scripts/mergeRecoilJets.sh" "$DATASET" firstRound groupSize "${RJ_SIM_MERGE_GROUP_SIZE:-300}" )
       if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 1 ]]; then
         first_round_args+=( "SAMPLE=${SIM_SAMPLE}" )
       fi
@@ -5250,7 +5255,7 @@ SUB
       add_auto_final_node "$auto_dag" "FINAL_NOTIFY" "$final_notify" "auto_${TAG}_firstRound_ready" "$DATASET" "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED} MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base} ${BASE}/scripts/mergeRecoilJets.sh ${DATASET} secondRound condor"
       say "Automatic workflow DAG built:"
       say "  analysis nodes : ${#RJ_DAG_COLLECTED_NODES[@]}"
-      say "  merge stages   : SIM_FIRSTROUND"
+      say "  merge stages   : SIM_FIRSTROUND (quiet strict validation; final email only)"
       say "  dag            : ${auto_dag}"
       if dag_dryrun_enabled; then
         echo "RECOILJETS_AUTO_DAG_DRYRUN_V1"
@@ -5698,8 +5703,8 @@ SUB
           write_auto_stage_runner "$runner"
           write_auto_final_notify "$final_notify"
           data_merge_out_base="${RJ_MERGE_OUT_BASE_OVERRIDE:-${BASE}/output}"
-          add_auto_stage_node "$auto_dag" "DATA_PERRUN" "$runner" "data_perRun_${TAG}_all" env "MERGE_RUN_BASE_OVERRIDE=${DATA_DEST_BASE_SAVED}" "MERGE_OUT_BASE_OVERRIDE=${data_merge_out_base}" "${BASE}/scripts/mergeRecoilJets.sh" condor "$TAG"
-          add_auto_stage_node "$auto_dag" "DATA_SLICERUNS" "$runner" "data_sliceRuns_${TAG}_all" env "MERGE_RUN_BASE_OVERRIDE=${DATA_DEST_BASE_SAVED}" "MERGE_OUT_BASE_OVERRIDE=${data_merge_out_base}" "${BASE}/scripts/mergeRecoilJets.sh" addChunks "$TAG" condor sliceRuns
+          add_auto_stage_node "$auto_dag" "DATA_PERRUN" "$runner" "data_perRun_${TAG}_all" env "MERGE_RUN_BASE_OVERRIDE=${DATA_DEST_BASE_SAVED}" "MERGE_OUT_BASE_OVERRIDE=${data_merge_out_base}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" "${BASE}/scripts/mergeRecoilJets.sh" condor "$TAG"
+          add_auto_stage_node "$auto_dag" "DATA_SLICERUNS" "$runner" "data_sliceRuns_${TAG}_all" env "MERGE_RUN_BASE_OVERRIDE=${DATA_DEST_BASE_SAVED}" "MERGE_OUT_BASE_OVERRIDE=${data_merge_out_base}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" "${BASE}/scripts/mergeRecoilJets.sh" addChunks "$TAG" condor sliceRuns
           if (( ${#RJ_DAG_COLLECTED_NODES[@]} > 0 )); then
             printf 'PARENT' >> "$auto_dag"
             printf ' %s' "${RJ_DAG_COLLECTED_NODES[@]}" >> "$auto_dag"
@@ -5709,7 +5714,7 @@ SUB
           add_auto_final_node "$auto_dag" "FINAL_NOTIFY" "$final_notify" "auto_${TAG}_sliceRuns_ready" "$DATASET" "MERGE_RUN_BASE_OVERRIDE=${DATA_DEST_BASE_SAVED} MERGE_OUT_BASE_OVERRIDE=${data_merge_out_base} ${BASE}/scripts/mergeRecoilJets.sh addChunks ${TAG}"
           say "Automatic workflow DAG built:"
           say "  analysis nodes : ${#RJ_DAG_COLLECTED_NODES[@]}"
-          say "  merge stages   : DATA_PERRUN -> DATA_SLICERUNS"
+          say "  merge stages   : DATA_PERRUN -> DATA_SLICERUNS (quiet strict validation; final email only)"
           say "  dag            : ${auto_dag}"
           if dag_dryrun_enabled; then
             echo "RECOILJETS_AUTO_DAG_DRYRUN_V1"
