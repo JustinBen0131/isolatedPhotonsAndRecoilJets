@@ -1061,6 +1061,12 @@ direct_worker_nevents() {
   printf '%s\n' "$n"
 }
 
+checkjobs_max_output_tags() {
+  local n="${RJ_CHECKJOBS_MAX_OUTPUT_TAGS:-200}"
+  [[ "$n" =~ ^[0-9]+$ && "$n" -gt 0 ]] || { err "RJ_CHECKJOBS_MAX_OUTPUT_TAGS must be a positive integer, got '${n}'"; exit 2; }
+  printf '%s\n' "$n"
+}
+
 iso_submit_count() {
   if id_fanout_enabled; then
     iso_group_count
@@ -1881,9 +1887,10 @@ check_jobs_sim() {
   done
   echo
 
-  say "${BOLD}Full upstream fanout cell list (${n_cfg} entries × ${#samples[@]} samples = ${BOLD}$((n_cfg * ${#samples[@]}))${RST} submit blocks):${RST}"
+  say "${BOLD}Upstream DST-pass cell list (${n_cfg} entries × ${#samples[@]} samples = ${BOLD}$((n_cfg * ${#samples[@]}))${RST} submit blocks):${RST}"
+  say "  These are the expensive Fun4All/DST passes. In fanout mode a representative row can write many final cfg-tag ROOT outputs."
   printf "  ${BOLD}%3s │ %-70s │ %-5s %-6s %-7s %-7s %-18s %-12s${RST}\n" \
-         "#" "cfg_tag" "pt" "frac" "vz" "cone" "iso" "uepipe"
+         "#" "representative_cfg_or_shard" "pt" "frac" "vz" "cone" "iso" "uepipe"
   printf "  ────┼────────────────────────────────────────────────────────────────────────┼───── ────── ─────── ─────── ────────────────── ────────────\n"
   local cfg_num=0
   for _pt in "${sim_submit_pts[@]}"; do
@@ -1918,10 +1925,56 @@ check_jobs_sim() {
   done
   echo
 
+  say "${BOLD}Final ROOT output cfg tags written by those upstream passes:${RST}"
+  if iso_view_internal_enabled; then
+    say "  Layout: one cfg ROOT file per photon-ID triplet; each file contains 4 suffixed iso/cone views:"
+    say "          $(iso_view_env_value)"
+  elif iso_cone_fanout_enabled; then
+    say "  Layout: one cfg ROOT file per cone × iso × photon-ID output."
+  elif id_fanout_enabled; then
+    say "  Layout: one cfg ROOT file per photon-ID output in each upstream iso group."
+  else
+    say "  Layout: one scalar legacy cfg ROOT file per upstream pass."
+  fi
+  local _max_tags _shown_tags _total_tags_expected
+  _max_tags="$(checkjobs_max_output_tags)"
+  _shown_tags=0
+  _total_tags_expected=0
+  printf "  ${BOLD}%3s │ %-80s │ %-28s │ %-12s${RST}\n" "#" "final_cfg_tag" "photon_id_triplet" "sample dirs"
+  printf "  ────┼──────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────┼────────────\n"
+  for _pt in "${sim_submit_pts[@]}"; do
+    for _frac in "${sim_submit_fracs[@]}"; do
+      for _vz in "${sim_vzs[@]}"; do
+        for _cone in "${sim_cones[@]}"; do
+          for (( _ci=0; _ci<${#iso_tags[@]}; _ci++ )); do
+            for _ue in "${uepipe_modes[@]}"; do
+              (( _total_tags_expected+=1 ))
+              (( _shown_tags >= _max_tags )) && continue
+              local _tag _trip
+              _tag="$(matrix_cfg_tag "$_pt" "$_frac" "$_vz" "$_cone" "$_ci" "$_ue")"
+              _trip="${iso_preselection[$_ci]}/${iso_tight[$_ci]}/${iso_nonTight[$_ci]}"
+              (( _shown_tags+=1 ))
+              printf "  %3d │ %-80s │ %-28s │ %-12s\n" "$_shown_tags" "$_tag" "$_trip" "${#samples[@]} sample(s)"
+            done
+          done
+        done
+      done
+    done
+  done
+  if (( _total_tags_expected > _shown_tags )); then
+    say "  ... showing ${_shown_tags}/${_total_tags_expected}; set RJ_CHECKJOBS_MAX_OUTPUT_TAGS=${_total_tags_expected} to print all."
+  fi
+  echo
+
   total_jobs=$(( n_cfg * per_cfg_jobs ))
   say "${BOLD}Job count summary:${RST}"
   say "  upstream configs       : ${n_cfg}"
   say "  jobs per combo (Σsamp) : ${per_cfg_jobs}"
+  if id_fanout_enabled; then
+    say "  final cfg outputs      : ${final_cfg_n} per sample set; written by fanout, not extra DST passes"
+  else
+    say "  final cfg outputs      : ${final_cfg_n}; one output cfg per upstream pass"
+  fi
   say "  ─────────────────────────────────"
   say "  ${BOLD}TOTAL CONDOR JOBS        : ${BOLD}${total_jobs}${RST}"
   echo
@@ -2132,10 +2185,11 @@ check_jobs_all() {
   (( missing > 0 )) && warn "  runs skipped (missing lists): ${missing}"
   echo
 
-  say "${BOLD}Full upstream fanout cell list (${n_matrix} entries):${RST}"
+  say "${BOLD}Upstream DST-pass cell list (${n_matrix} entries):${RST}"
+  say "  These are the expensive Fun4All/DST passes. In fanout mode a representative row can write many final cfg-tag ROOT outputs."
   echo
   printf "  ${BOLD}%3s │ %-70s │ %-5s %-6s %-7s %-7s %-18s %-12s${RST}\n" \
-         "#" "cfg_tag" "pt" "frac" "vz" "cone" "iso" "uepipe"
+         "#" "representative_cfg_or_shard" "pt" "frac" "vz" "cone" "iso" "uepipe"
   printf "  ────┼────────────────────────────────────────────────────────────────────────┼───── ────── ─────── ─────── ────────────────── ────────────\n"
   local cfg_num=0
   for _pt in "${ck_submit_pts[@]}"; do
@@ -2170,9 +2224,55 @@ check_jobs_all() {
   done
   echo
 
+  say "${BOLD}Final ROOT output cfg tags written by those upstream passes:${RST}"
+  if iso_view_internal_enabled; then
+    say "  Layout: one cfg ROOT file per photon-ID triplet; each file contains 4 suffixed iso/cone views:"
+    say "          $(iso_view_env_value)"
+  elif iso_cone_fanout_enabled; then
+    say "  Layout: one cfg ROOT file per cone × iso × photon-ID output."
+  elif id_fanout_enabled; then
+    say "  Layout: one cfg ROOT file per photon-ID output in each upstream iso group."
+  else
+    say "  Layout: one scalar legacy cfg ROOT file per upstream pass."
+  fi
+  local _max_tags _shown_tags _total_tags_expected
+  _max_tags="$(checkjobs_max_output_tags)"
+  _shown_tags=0
+  _total_tags_expected=0
+  printf "  ${BOLD}%3s │ %-80s │ %-28s │ %-18s${RST}\n" "#" "final_cfg_tag" "photon_id_triplet" "output tree"
+  printf "  ────┼──────────────────────────────────────────────────────────────────────────────────┼──────────────────────────────┼──────────────────\n"
+  for _pt in "${ck_submit_pts[@]}"; do
+  for _frac in "${ck_submit_fracs[@]}"; do
+  for _vz in "${ck_vzs[@]}"; do
+    for _cone in "${ck_cones[@]}"; do
+    for (( _ci=0; _ci<${#iso_tags[@]}; _ci++ )); do
+    for _ue in "${uepipe_modes[@]}"; do
+      (( _total_tags_expected+=1 ))
+      (( _shown_tags >= _max_tags )) && continue
+      local _tag _trip
+      _tag="$(matrix_cfg_tag "$_pt" "$_frac" "$_vz" "$_cone" "$_ci" "$_ue")"
+      _trip="${iso_preselection[$_ci]}/${iso_tight[$_ci]}/${iso_nonTight[$_ci]}"
+      (( _shown_tags+=1 ))
+      printf "  %3d │ %-80s │ %-28s │ %-18s\n" "$_shown_tags" "$_tag" "$_trip" "<run8>/*.root"
+    done
+    done
+    done
+  done
+  done
+  done
+  if (( _total_tags_expected > _shown_tags )); then
+    say "  ... showing ${_shown_tags}/${_total_tags_expected}; set RJ_CHECKJOBS_MAX_OUTPUT_TAGS=${_total_tags_expected} to print all."
+  fi
+  echo
+
   say "${BOLD}Job count summary (groupSize=${gs}):${RST}"
   say "  upstream matrix cells  : ${n_matrix}"
   say "  base jobs per combo    : ${base_jobs}"
+  if id_fanout_enabled; then
+    say "  final cfg outputs      : ${final_cfg_n}; written by fanout, not extra DST passes"
+  else
+    say "  final cfg outputs      : ${final_cfg_n}; one output cfg per upstream pass"
+  fi
   say "  ─────────────────────────────────"
   say "  ${BOLD}TOTAL CONDOR JOBS        : ${total_jobs}${RST}"
   echo
