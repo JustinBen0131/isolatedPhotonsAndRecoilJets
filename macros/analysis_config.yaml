@@ -81,7 +81,8 @@ centrality_edges: [0, 20, 50, 80]
 # -----------------------------------------------------------------------------
 # Cluster UE pipeline (AuAu/OO DATA only)
 #
-# MATRIX AXIS: one independent job per entry.
+# MATRIX AXIS: one independent job per entry. Keep this intentionally narrow
+# for production unless doing a dedicated UE-systematics scan.
 # For pp and SIM jobs the submit script forces "noSub" and excludes
 # this axis from the naming tag.
 #
@@ -120,7 +121,7 @@ centrality_edges: [0, 20, 50, 80]
 #     shapes, isolation) is identical to variantA.
 #
 # -----------------------------------------------------------------------------
-clusterUEpipeline: [noSub, baseVariant]
+clusterUEpipeline: [baseVariant]
 
 # -----------------------------------------------------------------------------
 # Photon-ID logic matrix axes
