@@ -1016,6 +1016,24 @@ id_fanout_enabled() {
   return 0
 }
 
+auto_merge_enabled() {
+  case "${RJ_AUTO_MERGE:-1}" in
+    0|false|FALSE|no|NO|off|OFF) return 1 ;;
+  esac
+  return 0
+}
+
+dag_dryrun_enabled() {
+  case "${RJ_DAG_DRYRUN:-0}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+  esac
+  return 1
+}
+
+dag_collect_enabled() {
+  [[ -n "${RJ_COLLECT_DAG_FILE:-}" ]]
+}
+
 iso_cone_fanout_enabled() {
   id_fanout_enabled || return 1
   iso_view_internal_enabled && return 1
@@ -1149,6 +1167,194 @@ fanout_dest_allowed() {
       ;;
   esac
   return 1
+}
+
+declare -a RJ_DAG_COLLECTED_NODES=()
+
+submit_or_collect_condor() {
+  local sub="$1"
+  local label="${2:-job}"
+  if dag_collect_enabled; then
+    local node
+    node="$(sanitize_node_name "${RJ_COLLECT_NODE_PREFIX:-RJ}_${label}_${#RJ_DAG_COLLECTED_NODES[@]}")"
+    printf 'JOB %s %s\n' "$node" "$sub" >> "$RJ_COLLECT_DAG_FILE"
+    RJ_DAG_COLLECTED_NODES+=( "$node" )
+    say "Added Condor submit to orchestration DAG: node=${node} sub=${sub}"
+    return 0
+  fi
+  need_cmd condor_submit
+  condor_submit "$sub"
+}
+
+write_auto_stage_runner() {
+  local runner="$1"
+  cat > "$runner" <<'EOS'
+#!/usr/bin/env bash
+set -euo pipefail
+stage_key="${1:?stage key required}"
+shift
+poll_seconds="${RJ_ORCH_POLL_SECONDS:-120}"
+[[ "$poll_seconds" =~ ^[0-9]+$ && "$poll_seconds" -gt 0 ]] || poll_seconds=120
+log_file="${TMPDIR:-/tmp}/recoiljets_auto_${stage_key}_$$_submit.log"
+echo "[auto-stage] stage=${stage_key}"
+echo "[auto-stage] command=$*"
+"$@" 2>&1 | tee "$log_file"
+mapfile -t clusters < <(grep -Eo 'submitted to cluster [0-9]+' "$log_file" | awk '{print $4}' | sort -u)
+if (( ${#clusters[@]} == 0 )); then
+  echo "[auto-stage] no Condor cluster was detected in submit output for ${stage_key}" >&2
+  exit 20
+fi
+echo "[auto-stage] clusters=${clusters[*]}"
+while :; do
+  active=0
+  for c in "${clusters[@]}"; do
+    if condor_q "$c" -autoformat ClusterId ProcId 2>/dev/null | grep -q .; then
+      active=1
+      break
+    fi
+  done
+  (( active == 0 )) && break
+  echo "[auto-stage] waiting stage=${stage_key} active_clusters=${clusters[*]} poll=${poll_seconds}s"
+  sleep "$poll_seconds"
+done
+
+mapfile -t dagman_logs < <(
+  grep -Eo '/[^[:space:]]+\.dag\.dagman\.out' "$log_file" | sort -u || true
+)
+status=0
+for dlog in "${dagman_logs[@]}"; do
+  dag="${dlog%.dagman.out}"
+  if compgen -G "${dag}.rescue*" >/dev/null 2>&1; then
+    echo "[auto-stage] rescue file found for ${stage_key}: ${dag}.rescue*" >&2
+    status=30
+  fi
+  if [[ -s "$dlog" ]] && grep -Eiq 'ERROR|failed with|DAG abort|aborted|Job was held|held job' "$dlog"; then
+    echo "[auto-stage] error/hold-like text found in ${dlog}" >&2
+    status=31
+  fi
+done
+if (( status != 0 )); then
+  echo "[auto-stage] stage=${stage_key} finished with CHECK status; stopping parent DAG" >&2
+  exit "$status"
+fi
+echo "[auto-stage] stage=${stage_key} complete"
+EOS
+  chmod +x "$runner"
+}
+
+write_auto_final_notify() {
+  local script="$1"
+  cat > "$script" <<'EOS'
+#!/usr/bin/env bash
+set -euo pipefail
+emails="${1:?emails required}"
+stage_key="${2:?stage key required}"
+dataset="${3:?dataset required}"
+dag_file="${4:?dag file required}"
+next_action="${5:?next action required}"
+dagman_out="${dag_file}.dagman.out"
+nodes_log="${dag_file}.nodes.log"
+status="READY"
+status_note="Automatic RecoilJets workflow reached the final notification node."
+rescue_count=0
+if compgen -G "${dag_file}.rescue*" >/dev/null 2>&1; then
+  rescue_count=$(compgen -G "${dag_file}.rescue*" | wc -l | awk '{print $1}')
+  status="FAILED"
+  status_note="Top-level DAGMan rescue file(s) were produced; inspect the DAG logs before continuing."
+elif [[ -s "$dagman_out" ]] && grep -Eiq 'ERROR|failed with|DAG abort|aborted|Job was held|held job|POST Script failed' "$dagman_out"; then
+  status="CHECK"
+  status_note="Top-level DAGMan log contains error/hold-like text; inspect logs before treating outputs as ready."
+fi
+subject="[RecoilJets][${stage_key}][${status}]"
+msg="$(mktemp "${TMPDIR:-/tmp}/recoiljets_auto_notify.XXXXXX")"
+{
+  echo "RECOILJETS_STAGE_EMAIL_V1"
+  echo "status=${status}"
+  echo "status_note=${status_note}"
+  echo "stage=${stage_key}"
+  echo "stage_type=analysis_to_merge_dag"
+  echo "dataset=${dataset}"
+  echo "dag_file=${dag_file}"
+  echo "dagman_out=${dagman_out}"
+  echo "nodes_log=${nodes_log}"
+  echo "rescue_file_count=${rescue_count}"
+  echo "next_action=${next_action}"
+  echo
+  echo "message:"
+  echo "  Automatic RecoilJets workflow finished its remote stages for dataset=${dataset}."
+  echo "  Next action: ${next_action}"
+} > "$msg"
+if command -v mail >/dev/null 2>&1; then
+  mail -s "$subject" "$emails" < "$msg"
+elif command -v mailx >/dev/null 2>&1; then
+  mailx -s "$subject" "$emails" < "$msg"
+else
+  echo "[auto-notify] mail/mailx not found; notification skipped for ${emails}" >&2
+  cat "$msg" >&2
+fi
+rm -f "$msg"
+EOS
+  chmod +x "$script"
+}
+
+notify_emails_csv_from_yaml() {
+  if [[ -n "${RJ_NOTIFY_EMAILS:-}" ]]; then
+    printf '%s\n' "$RJ_NOTIFY_EMAILS"
+    return 0
+  fi
+  local yaml="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
+  [[ -f "$yaml" ]] || return 0
+  local line
+  line="$(grep -E '^[[:space:]]*notify_emails:' "$yaml" | head -1 | sed 's/^[^:]*://; s/[][]//g; s/[[:space:]]//g' || true)"
+  printf '%s\n' "$line"
+}
+
+add_auto_stage_node() {
+  local dag="$1" node="$2" runner="$3" stage_key="$4"
+  shift 4
+  local sub="${dag%/*}/${node}.sub"
+  cat > "$sub" <<EOT
+universe   = vanilla
+executable = $runner
+initialdir = $BASE
+getenv     = True
+output     = $OUT_DIR/auto.${node}.\$(Cluster).\$(Process).out
+error      = $ERR_DIR/auto.${node}.\$(Cluster).\$(Process).err
+log        = $LOG_DIR/auto.${node}.\$(Cluster).\$(Process).log
+request_memory = 512MB
+should_transfer_files = NO
+stream_output = True
+stream_error  = True
+notification = Never
+arguments = $stage_key "$@"
+queue
+EOT
+  printf 'JOB %s %s\n' "$node" "$sub" >> "$dag"
+}
+
+add_auto_final_node() {
+  local dag="$1" node="$2" notify_script="$3" stage_key="$4" dataset="$5" next_action="$6"
+  local emails
+  emails="$(notify_emails_csv_from_yaml)"
+  [[ -n "$emails" ]] || return 0
+  local sub="${dag%/*}/${node}.sub"
+  cat > "$sub" <<EOT
+universe   = vanilla
+executable = $notify_script
+initialdir = $BASE
+getenv     = True
+output     = $OUT_DIR/auto.${node}.\$(Cluster).\$(Process).out
+error      = $ERR_DIR/auto.${node}.\$(Cluster).\$(Process).err
+log        = $LOG_DIR/auto.${node}.\$(Cluster).\$(Process).log
+request_memory = 256MB
+should_transfer_files = NO
+stream_output = True
+stream_error  = True
+notification = Never
+arguments = "$emails" "$stage_key" "$dataset" "$dag" "$next_action"
+queue
+EOT
+  printf 'FINAL %s %s\n' "$node" "$sub" >> "$dag"
 }
 
 clean_fanout_output_dirs_from_file() {
@@ -2362,8 +2568,12 @@ submit_condor() {
 
   [[ -s "$source" ]] || { err "Run source not found or empty: $source"; exit 5; }
 
-  # Clean stale .sub files for this TAG
-  rm -f "${SUB_DIR}/RecoilJets_${TAG}_"*.sub 2>/dev/null || true
+  # Clean stale .sub files for this TAG only in direct-submit mode. In
+  # orchestration mode previous analysis nodes are still referenced by the
+  # parent DAG being built.
+  if ! dag_collect_enabled; then
+    rm -f "${SUB_DIR}/RecoilJets_${TAG}_"*.sub 2>/dev/null || true
+  fi
 
   # -------------------------------------------------------------------
   # DATA output wipe (pp/auau/oo only): unconditional on every submit
@@ -2383,9 +2593,13 @@ submit_condor() {
         ;;
     esac
 
-    say "WIPING OUTPUT TREE (dataset=${DATASET}) → ${DEST_BASE}"
-    mkdir -p "$DEST_BASE"
-    find "$DEST_BASE" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+    if dag_dryrun_enabled; then
+      say "DRYRUN: would wipe output tree (dataset=${DATASET}) → ${DEST_BASE}"
+    else
+      say "WIPING OUTPUT TREE (dataset=${DATASET}) → ${DEST_BASE}"
+      mkdir -p "$DEST_BASE"
+      find "$DEST_BASE" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+    fi
   fi
 
   local stamp; stamp="$(date +%Y%m%d_%H%M%S)"
@@ -2412,7 +2626,8 @@ submit_condor() {
   local source_runs
   source_runs=$(grep -cE '^[0-9]+' "$source" 2>/dev/null || true)
   mkdir -p "$SIM_YAML_OVERRIDE_DIR"
-  cp -f "$yaml_src" "$yaml_snap"  say "YAML snapshot: ${yaml_snap}"
+  cp -f "$yaml_src" "$yaml_snap"
+  say "YAML snapshot: ${yaml_snap}"
   say "Submit context: source=${source}  runs=${source_runs:-0}  groupSize=${GROUP_SIZE}  nEvents=${direct_nevents}  firstChunk=${first_chunk:-none}"
   say "Submit environment: RJ_DATASET=${DATASET}  RJ_VERBOSITY=0  RJ_CONFIG_YAML=${yaml_snap}${macro_env}${submit_extra_env};RJ_PROFILE_JOB=${RJ_PROFILE_JOB:-0};RJ_PROFILE_STAGE=${RJ_PROFILE_STAGE:-direct};RJ_REQUEST_MEMORY_MB=${request_memory_mb}"
 
@@ -2499,11 +2714,14 @@ SUB
 
   local submit_elapsed
   submit_elapsed=$(( $(date +%s) - t0 ))
-  say "Submitting ${BOLD}${queued}${RST} jobs → $(basename "$sub")"
+  if dag_collect_enabled; then
+    say "Queueing ${BOLD}${queued}${RST} jobs as DAG node → $(basename "$sub")"
+  else
+    say "Submitting ${BOLD}${queued}${RST} jobs → $(basename "$sub")"
+  fi
   say "Submit summary: runsProcessed=${run_counter}  groupSize=${GROUP_SIZE}  firstChunk=${first_chunk:-none}  elapsed=${submit_elapsed}s"
   say "Wrapper path: ${exe_to_use}"
-  need_cmd condor_submit
-  condor_submit "$sub"
+  submit_or_collect_condor "$sub" "analysis_${TAG}"
 }
 
 data_analysis_tag_for_dataset() {
@@ -4775,7 +4993,11 @@ SUB
 
     SIM_DEST_BASE_RESOLVED="$DEST_BASE"
 
-    need_cmd condor_submit
+    if auto_merge_enabled; then
+      need_cmd condor_submit_dag
+    else
+      need_cmd condor_submit
+    fi
     doall_stamp="$(date +%Y%m%d_%H%M%S)"
     say "SIM production vz selection:"
     say_vz_selection_summary "$master_yaml" "${sim_vzs[@]}"
@@ -4786,10 +5008,30 @@ SUB
       *)                                    create_pipeline_snapshot "pp" "$doall_stamp" ;;
     esac
     # Clean stale .sub files only. Keep YAML overrides/snapshots because live Condor jobs may still reference them.
-    rm -f "${SUB_DIR}/RecoilJets_sim_"*.sub "${SUB_DIR}/RecoilJets_${TAG}_"*.sub 2>/dev/null || true
+    if ! auto_merge_enabled; then
+      rm -f "${SUB_DIR}/RecoilJets_sim_"*.sub "${SUB_DIR}/RecoilJets_${TAG}_"*.sub 2>/dev/null || true
+    fi
     SIM_STAGE_NAMESPACE="${TAG}_${doall_stamp}"
     export SIM_STAGE_NAMESPACE
     say "SIM chunk-list stage namespace: ${SIM_STAGE_NAMESPACE}"
+
+    auto_workflow=0
+    auto_dag=""
+    auto_dag_dir=""
+    if auto_merge_enabled; then
+      auto_workflow=1
+      auto_dag_dir="${SUB_DIR}/auto_workflow_${TAG}_${doall_stamp}"
+      mkdir -p "$auto_dag_dir"
+      auto_dag="${auto_dag_dir}/RecoilJets_auto_${TAG}_${doall_stamp}.dag"
+      : > "$auto_dag"
+      RJ_DAG_COLLECTED_NODES=()
+      export RJ_COLLECT_DAG_FILE="$auto_dag"
+      export RJ_COLLECT_NODE_PREFIX="ANALYSIS_${TAG}"
+      say "${BOLD}Automatic analysis-to-merge DAG enabled${RST}"
+      say "  dag          : ${auto_dag}"
+      say "  escape hatch : RJ_AUTO_MERGE=0 keeps analysis-only submission"
+    fi
+
     for pt in "${sim_submit_pts[@]}"; do
       for frac in "${sim_submit_fracs[@]}"; do
         for vz in "${sim_vzs[@]}"; do
@@ -4831,15 +5073,23 @@ SUB
             while IFS='|' read -r fan_dest _fan_cfg _fan_pre _fan_tight _fan_nonTight; do
               [[ -z "${fan_dest:-}" || "${fan_dest:0:1}" == "#" ]] && continue
               SIM_OUT_DIR="${fan_dest}/${SIM_SAMPLE}"
-              mkdir -p "$SIM_OUT_DIR"
-              rm -f "${SIM_OUT_DIR}/"*.root 2>/dev/null || true
-              find "${SIM_OUT_DIR}" -maxdepth 1 -name "*_LOCAL_*.root" -delete 2>/dev/null || true
+              if dag_dryrun_enabled; then
+                say "DRYRUN: would clean SIM_OUT_DIR=${SIM_OUT_DIR}"
+              else
+                mkdir -p "$SIM_OUT_DIR"
+                rm -f "${SIM_OUT_DIR}/"*.root 2>/dev/null || true
+                find "${SIM_OUT_DIR}" -maxdepth 1 -name "*_LOCAL_*.root" -delete 2>/dev/null || true
+              fi
             done < "$fanout_dirs"
           else
             SIM_OUT_DIR="${DEST_BASE}/${SIM_SAMPLE}"
-            mkdir -p "$SIM_OUT_DIR"
-            rm -f "${SIM_OUT_DIR}/"*.root 2>/dev/null || true
-            find "${SIM_OUT_DIR}" -maxdepth 1 -name "*_LOCAL_*.root" -delete 2>/dev/null || true
+            if dag_dryrun_enabled; then
+              say "DRYRUN: would clean SIM_OUT_DIR=${SIM_OUT_DIR}"
+            else
+              mkdir -p "$SIM_OUT_DIR"
+              rm -f "${SIM_OUT_DIR}/"*.root 2>/dev/null || true
+              find "${SIM_OUT_DIR}" -maxdepth 1 -name "*_LOCAL_*.root" -delete 2>/dev/null || true
+            fi
           fi
           rm -f "${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_grp"*.list 2>/dev/null || true
           rm -f "${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_LOCAL_"*.list 2>/dev/null || true
@@ -4898,7 +5148,7 @@ SUB
             say "Submitting ${DATASET} condorDoAllDirect legacy cfg (tag=${SIM_CFG_TAG}, sample=${SIM_SAMPLE}, groupSize=${GROUP_SIZE}, nEvents=${direct_nevents}, uepipe=${uepipe}) → jobs=${BOLD}${#groups[@]}${RST}"
           fi
           say "YAML override: ${yaml_override}"
-          condor_submit "$sub"
+          submit_or_collect_condor "$sub" "analysis_${TAG}_${SIM_SAMPLE}"
         done
         done
         done
@@ -4906,6 +5156,39 @@ SUB
         done
       done
     done
+    if (( auto_workflow )); then
+      unset RJ_COLLECT_DAG_FILE
+      unset RJ_COLLECT_NODE_PREFIX
+      runner="${auto_dag_dir}/auto_stage_runner.sh"
+      final_notify="${auto_dag_dir}/auto_final_notify.sh"
+      write_auto_stage_runner "$runner"
+      write_auto_final_notify "$final_notify"
+      first_round_args=( "${BASE}/scripts/mergeRecoilJets.sh" "$DATASET" firstRound groupSize "${RJ_SIM_MERGE_GROUP_SIZE:-300}" )
+      if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 1 ]]; then
+        first_round_args+=( "SAMPLE=${SIM_SAMPLE}" )
+      fi
+      add_auto_stage_node "$auto_dag" "SIM_FIRSTROUND" "$runner" "sim_firstRound_${TAG}_all" "${first_round_args[@]}"
+      if (( ${#RJ_DAG_COLLECTED_NODES[@]} > 0 )); then
+        printf 'PARENT' >> "$auto_dag"
+        printf ' %s' "${RJ_DAG_COLLECTED_NODES[@]}" >> "$auto_dag"
+        printf ' CHILD SIM_FIRSTROUND\n' >> "$auto_dag"
+      fi
+      add_auto_final_node "$auto_dag" "FINAL_NOTIFY" "$final_notify" "auto_${TAG}_firstRound_ready" "$DATASET" "${BASE}/scripts/mergeRecoilJets.sh ${DATASET} secondRound condor"
+      say "Automatic workflow DAG built:"
+      say "  analysis nodes : ${#RJ_DAG_COLLECTED_NODES[@]}"
+      say "  merge stages   : SIM_FIRSTROUND"
+      say "  dag            : ${auto_dag}"
+      if dag_dryrun_enabled; then
+        echo "RECOILJETS_AUTO_DAG_DRYRUN_V1"
+        echo "dataset=${DATASET}"
+        echo "dag=${auto_dag}"
+        echo "analysis_nodes=${#RJ_DAG_COLLECTED_NODES[@]}"
+        echo "next_action_after_ready=${BASE}/scripts/mergeRecoilJets.sh ${DATASET} secondRound condor"
+        sed -n '1,240p' "$auto_dag"
+      else
+        condor_submit_dag -notification Never "$auto_dag"
+      fi
+    fi
     ;;
 
   splitGoldenRunList)
@@ -5202,6 +5485,25 @@ SUB
         say "═══════════════════════════════════════════════════════════════"
         echo
 
+        auto_workflow=0
+        auto_dag=""
+        auto_dag_dir=""
+        if auto_merge_enabled; then
+          auto_workflow=1
+          need_cmd condor_submit_dag
+          auto_stamp="$(date +%Y%m%d_%H%M%S)"
+          auto_dag_dir="${SUB_DIR}/auto_workflow_${TAG}_${auto_stamp}"
+          mkdir -p "$auto_dag_dir"
+          auto_dag="${auto_dag_dir}/RecoilJets_auto_${TAG}_${auto_stamp}.dag"
+          : > "$auto_dag"
+          RJ_DAG_COLLECTED_NODES=()
+          export RJ_COLLECT_DAG_FILE="$auto_dag"
+          export RJ_COLLECT_NODE_PREFIX="ANALYSIS_${TAG}"
+          say "${BOLD}Automatic analysis-to-merge DAG enabled${RST}"
+          say "  dag          : ${auto_dag}"
+          say "  escape hatch : RJ_AUTO_MERGE=0 keeps analysis-only submission"
+        fi
+
         cell_num=0
         total_queued_all=0
         t0_all="$(date +%s)"
@@ -5271,8 +5573,12 @@ SUB
             while IFS='|' read -r fan_dest _fan_cfg _fan_pre _fan_tight _fan_nonTight; do
               [[ -z "${fan_dest:-}" || "${fan_dest:0:1}" == "#" ]] && continue
               fanout_dest_allowed "$fan_dest" || { err "Refusing to wipe fanout DEST_BASE='$fan_dest'"; exit 62; }
-              mkdir -p "$fan_dest"
-              find "$fan_dest" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+              if dag_dryrun_enabled; then
+                say "DRYRUN: would clean fanout DEST_BASE=${fan_dest}"
+              else
+                mkdir -p "$fan_dest"
+                find "$fan_dest" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+              fi
             done < "$fanout_dirs"
           fi
 
@@ -5294,6 +5600,37 @@ SUB
         elapsed_all=$(( $(date +%s) - t0_all ))
         say "═══════════════════════════════════════════════════════════════"
         say "${BOLD}CONDOR ALL complete: ${cell_num} upstream configurations submitted (${elapsed_all}s)${RST}"
+        if (( auto_workflow )); then
+          unset RJ_COLLECT_DAG_FILE
+          unset RJ_COLLECT_NODE_PREFIX
+          runner="${auto_dag_dir}/auto_stage_runner.sh"
+          final_notify="${auto_dag_dir}/auto_final_notify.sh"
+          write_auto_stage_runner "$runner"
+          write_auto_final_notify "$final_notify"
+          add_auto_stage_node "$auto_dag" "DATA_PERRUN" "$runner" "data_perRun_${TAG}_all" "${BASE}/scripts/mergeRecoilJets.sh" condor "$TAG"
+          add_auto_stage_node "$auto_dag" "DATA_SLICERUNS" "$runner" "data_sliceRuns_${TAG}_all" "${BASE}/scripts/mergeRecoilJets.sh" addChunks "$TAG" condor sliceRuns
+          if (( ${#RJ_DAG_COLLECTED_NODES[@]} > 0 )); then
+            printf 'PARENT' >> "$auto_dag"
+            printf ' %s' "${RJ_DAG_COLLECTED_NODES[@]}" >> "$auto_dag"
+            printf ' CHILD DATA_PERRUN\n' >> "$auto_dag"
+          fi
+          printf 'PARENT DATA_PERRUN CHILD DATA_SLICERUNS\n' >> "$auto_dag"
+          add_auto_final_node "$auto_dag" "FINAL_NOTIFY" "$final_notify" "auto_${TAG}_sliceRuns_ready" "$DATASET" "${BASE}/scripts/mergeRecoilJets.sh addChunks ${TAG}"
+          say "Automatic workflow DAG built:"
+          say "  analysis nodes : ${#RJ_DAG_COLLECTED_NODES[@]}"
+          say "  merge stages   : DATA_PERRUN -> DATA_SLICERUNS"
+          say "  dag            : ${auto_dag}"
+          if dag_dryrun_enabled; then
+            echo "RECOILJETS_AUTO_DAG_DRYRUN_V1"
+            echo "dataset=${DATASET}"
+            echo "dag=${auto_dag}"
+            echo "analysis_nodes=${#RJ_DAG_COLLECTED_NODES[@]}"
+            echo "next_action_after_ready=${BASE}/scripts/mergeRecoilJets.sh addChunks ${TAG}"
+            sed -n '1,240p' "$auto_dag"
+          else
+            condor_submit_dag -notification Never "$auto_dag"
+          fi
+        fi
         say "═══════════════════════════════════════════════════════════════"
         ;;
       *)

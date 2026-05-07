@@ -1653,7 +1653,7 @@ make_run_list() {
 #   /sphenix/u/patsfan753/scratch/thesisAnalysis/output/<simTag>/
 #     RecoilJets_<sampleTag>_ALL_<cfg_tag>.root
 # ============================================================
-if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simmb|SIMMB|isSimEmbedded|issimembedded|simembedded|SIMEMBEDDED|isSimEmbeddedInclusive|issimembeddedinclusive|simembeddedinclusive|SIMEMBEDDEDINCLUSIVE)$ ]]; then
+if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|isSimInclusive|issiminclusive|simjet5|siminclusive|SIMJET5|SIMINCLUSIVE|isSimMB|simmb|SIMMB|isSimEmbedded|issimembedded|simembedded|SIMEMBEDDED|isSimEmbeddedInclusive|issimembeddedinclusive|simembeddedinclusive|SIMEMBEDDEDINCLUSIVE)$ ]]; then
   SIM_DATASET_TOKEN="${1}"
   SIM_ACTION="${2:-}"
   shift 2
@@ -1700,7 +1700,7 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simm
 
   # Input sim outputs live here (matches Condor output layout per variant)
   case "$SIM_DATASET_TOKEN" in
-    isSimJet5|isSimjet5|simjet5|SIMJET5)
+    isSimJet5|isSimjet5|isSimInclusive|issiminclusive|simjet5|siminclusive|SIMJET5|SIMINCLUSIVE)
       SIM_INPUT_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simjet5"
       SIM_OUTPUT_TAG="simjet5"
       [[ "$SIM_SAMPLE_EXPLICIT" -eq 0 ]] && SIM_SAMPLE="run28_jet5"
@@ -1739,7 +1739,7 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|simjet5|SIMJET5|isSimMB|simm
   samples=()
   if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
     case "$SIM_DATASET_TOKEN" in
-      isSimJet5|isSimjet5|simjet5|SIMJET5) samples=( "run28_jet5" ) ;;
+      isSimJet5|isSimjet5|isSimInclusive|issiminclusive|simjet5|siminclusive|SIMJET5|SIMINCLUSIVE) samples=( "run28_jet5" ) ;;
       isSimMB|simmb|SIMMB)       samples=( "run28_detroit" ) ;;
       isSimEmbedded|issimembedded|simembedded|SIMEMBEDDED) samples=( "run28_embeddedPhoton12" "run28_embeddedPhoton20" ) ;;
       isSimEmbeddedInclusive|issimembeddedinclusive|simembeddedinclusive|SIMEMBEDDEDINCLUSIVE) samples=( "run28_embeddedJet12" "run28_embeddedJet20" ) ;;
