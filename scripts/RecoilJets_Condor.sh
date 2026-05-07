@@ -234,13 +234,40 @@ file_size_bytes() {
 
 emit_profile_summary() {
   local exit_code="$1"
-  local end_epoch elapsed max_rss_kb output_files output_bytes f sz fanout_view_count fanout_output_roots
+  local end_epoch elapsed max_rss_kb user_cpu_s system_cpu_s cpu_percent major_faults minor_faults voluntary_cs involuntary_cs fs_inputs fs_outputs output_files output_bytes f sz fanout_view_count fanout_output_roots
   end_epoch="$(date +%s)"
   elapsed=$(( end_epoch - profile_start_epoch ))
   max_rss_kb="unknown"
+  user_cpu_s="unknown"
+  system_cpu_s="unknown"
+  cpu_percent="unknown"
+  major_faults="unknown"
+  minor_faults="unknown"
+  voluntary_cs="unknown"
+  involuntary_cs="unknown"
+  fs_inputs="unknown"
+  fs_outputs="unknown"
   if [[ -s "$profile_file" ]]; then
     max_rss_kb="$(awk -F: '/Maximum resident set size/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}' "$profile_file")"
     [[ -n "$max_rss_kb" ]] || max_rss_kb="unknown"
+    user_cpu_s="$(awk -F: '/User time \(seconds\)/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}' "$profile_file")"
+    system_cpu_s="$(awk -F: '/System time \(seconds\)/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}' "$profile_file")"
+    cpu_percent="$(awk -F: '/Percent of CPU this job got/ {gsub(/^[[:space:]]+|[[:space:]]+|%$/, "", $2); print $2; exit}' "$profile_file")"
+    major_faults="$(awk -F: '/Major \(requiring I\/O\) page faults/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}' "$profile_file")"
+    minor_faults="$(awk -F: '/Minor \(reclaiming a frame\) page faults/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}' "$profile_file")"
+    voluntary_cs="$(awk -F: '/Voluntary context switches/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}' "$profile_file")"
+    involuntary_cs="$(awk -F: '/Involuntary context switches/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}' "$profile_file")"
+    fs_inputs="$(awk -F: '/File system inputs/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}' "$profile_file")"
+    fs_outputs="$(awk -F: '/File system outputs/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}' "$profile_file")"
+    user_cpu_s="${user_cpu_s:-unknown}"
+    system_cpu_s="${system_cpu_s:-unknown}"
+    cpu_percent="${cpu_percent:-unknown}"
+    major_faults="${major_faults:-unknown}"
+    minor_faults="${minor_faults:-unknown}"
+    voluntary_cs="${voluntary_cs:-unknown}"
+    involuntary_cs="${involuntary_cs:-unknown}"
+    fs_inputs="${fs_inputs:-unknown}"
+    fs_outputs="${fs_outputs:-unknown}"
   fi
   output_files=0
   output_bytes=0
@@ -285,21 +312,51 @@ emit_profile_summary() {
     fi
   fi
 
-  echo "RECOILJETS_JOB_PROFILE_V1 stage=${profile_stage} label=${profile_label} dataset=${dataset} analysis_tag=${analysis_tag} run=${run8} chunk=${chunk_tag} input_files=${input_files} nevents=${nevents} cluster_id=${cluster_id} exit_code=${exit_code} elapsed_seconds=${elapsed} max_rss_kb=${max_rss_kb} output_files=${output_files} output_bytes=${output_bytes} request_memory_mb=${RJ_REQUEST_MEMORY_MB:-unknown} fanout_view_count=${fanout_view_count} fanout_output_roots=${fanout_output_roots} replay_output_roots_per_shard=${RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD:-unknown} pool_event_entries=${pool_event_entries} pool_photon_entries=${pool_photon_entries} pool_jet_entries=${pool_jet_entries} pool_truth_photon_entries=${pool_truth_photon_entries} macro=${MACRO} config=${RJ_CONFIG_YAML:-unset} pool_mode=${RJ_POOL_MODE:-unset}"
+  echo "RECOILJETS_JOB_PROFILE_V1 stage=${profile_stage} label=${profile_label} dataset=${dataset} analysis_tag=${analysis_tag} run=${run8} chunk=${chunk_tag} input_files=${input_files} nevents=${nevents} cluster_id=${cluster_id} exit_code=${exit_code} elapsed_seconds=${elapsed} max_rss_kb=${max_rss_kb} user_cpu_s=${user_cpu_s} system_cpu_s=${system_cpu_s} cpu_percent=${cpu_percent} major_page_faults=${major_faults} minor_page_faults=${minor_faults} voluntary_context_switches=${voluntary_cs} involuntary_context_switches=${involuntary_cs} fs_inputs=${fs_inputs} fs_outputs=${fs_outputs} output_files=${output_files} output_bytes=${output_bytes} request_memory_mb=${RJ_REQUEST_MEMORY_MB:-unknown} fanout_view_count=${fanout_view_count} fanout_output_roots=${fanout_output_roots} replay_output_roots_per_shard=${RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD:-unknown} pool_event_entries=${pool_event_entries} pool_photon_entries=${pool_photon_entries} pool_jet_entries=${pool_jet_entries} pool_truth_photon_entries=${pool_truth_photon_entries} macro=${MACRO} config=${RJ_CONFIG_YAML:-unset} pool_mode=${RJ_POOL_MODE:-unset}"
   if [[ -s "$profile_file" ]]; then
     sed 's/^/[time-v] /' "$profile_file"
+  fi
+}
+
+heartbeat_pid=""
+start_heartbeat() {
+  local hb="${RJ_JOB_HEARTBEAT_SECONDS:-0}"
+  [[ "$hb" =~ ^[0-9]+$ && "$hb" -gt 0 ]] || return 0
+  (
+    while true; do
+      sleep "$hb" || exit 0
+      local now elapsed out_bytes
+      now="$(date +%s)"
+      elapsed=$(( now - profile_start_epoch ))
+      out_bytes=0
+      if [[ -f "$out_root" ]]; then
+        out_bytes="$(file_size_bytes "$out_root")"
+      fi
+      echo "RECOILJETS_JOB_HEARTBEAT_V1 stage=${profile_stage} label=${profile_label} dataset=${dataset} run=${run8} chunk=${chunk_tag} elapsed_seconds=${elapsed} input_files=${input_files} nevents=${nevents} output_bytes=${out_bytes} pool_mode=${RJ_POOL_MODE:-unset}"
+    done
+  ) &
+  heartbeat_pid="$!"
+}
+
+stop_heartbeat() {
+  if [[ -n "${heartbeat_pid:-}" ]]; then
+    kill "$heartbeat_pid" >/dev/null 2>&1 || true
+    wait "$heartbeat_pid" >/dev/null 2>&1 || true
+    heartbeat_pid=""
   fi
 }
 
 set +e
 echo "[INFO] Running ROOT:"
 echo "root -b -q -l \"${MACRO}(${nevents}, \\\"${chunk_list}\\\", \\\"${out_root}\\\", false)\""
+start_heartbeat
 if [[ "$profile_enabled" == "1" || "$profile_enabled" == "true" || "$profile_enabled" == "TRUE" ]] && command -v /usr/bin/time >/dev/null 2>&1; then
   /usr/bin/time -v -o "$profile_file" root -b -q -l "${MACRO}(${nevents}, \"${chunk_list}\", \"${out_root}\", false)"
 else
   root -b -q -l "${MACRO}(${nevents}, \"${chunk_list}\", \"${out_root}\", false)"
 fi
 rc=$?
+stop_heartbeat
 set -e
 
 echo "---------------------------------------------------------------------"

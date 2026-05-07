@@ -242,6 +242,21 @@ count_lines() {
   fi
 }
 
+embedded_outdir_is_ignored() {
+  local sample="$1"
+  local od="$2"
+  local base="${od##*/}"
+
+  # Known tiny bad embedded-inclusive Jet12 containers reported by the
+  # production owners. Skipping them here keeps all valid OutDirs and all
+  # downstream list/matching behavior unchanged.
+  case "${sample}:${base}" in
+    embeddedJet12:OutDir9569|embeddedJet12:OutDir9585) return 0 ;;
+  esac
+
+  return 1
+}
+
 # Global run summary accumulators (filled per PACK, printed at end)
 START_EPOCH="$(date +%s)"
 START_HUMAN="$(ts)"
@@ -717,6 +732,7 @@ pair_check() {
 build_embedded_pack_lists() {
   local embeddir="$1"
   local outdir="$2"
+  local sample="${3:-}"
 
   local report="${outdir}/pair_report.txt"
   : > "$report"
@@ -724,15 +740,37 @@ build_embedded_pack_lists() {
   local tmpdir; tmpdir="$(mktemp -d)"
   trap '[[ -n "${tmpdir:-}" ]] && rm -rf "${tmpdir}"' RETURN
 
-  local outdir_list="${tmpdir}/embedded_outdirs.list"
-  find "$embeddir" -mindepth 1 -maxdepth 1 -type d -name 'OutDir*' -print | sort -V > "$outdir_list"
+  local source_outdir_list="${tmpdir}/embedded_outdirs_all.list"
+  local ignored_outdir_list="${tmpdir}/embedded_outdirs_ignored.list"
+  local outdir_list="${tmpdir}/embedded_outdirs_considered.list"
+  find "$embeddir" -mindepth 1 -maxdepth 1 -type d -name 'OutDir*' -print | sort -V > "$source_outdir_list"
 
-  local n_outdirs
+  : > "$ignored_outdir_list"
+  : > "$outdir_list"
+  local od0
+  while IFS= read -r od0; do
+    [[ -n "$od0" ]] || continue
+    if embedded_outdir_is_ignored "$sample" "$od0"; then
+      printf '%s\n' "$od0" >> "$ignored_outdir_list"
+    else
+      printf '%s\n' "$od0" >> "$outdir_list"
+    fi
+  done < "$source_outdir_list"
+
+  local n_source_outdirs n_ignored_outdirs n_outdirs
+  n_source_outdirs=$(wc -l < "$source_outdir_list" | tr -d ' ')
+  n_ignored_outdirs=$(wc -l < "$ignored_outdir_list" | tr -d ' ')
   n_outdirs=$(wc -l < "$outdir_list" | tr -d ' ')
-  (( n_outdirs > 0 )) || die "No OutDir* directories found under: ${embeddir}"
+  (( n_source_outdirs > 0 )) || die "No OutDir* directories found under: ${embeddir}"
+  (( n_outdirs > 0 )) || die "All OutDir* directories were ignored under: ${embeddir}"
 
   say "Embedded mode: pairing by OutDir container (not filename segment key)"
-  ok "Found $(printf '%6d' "$n_outdirs") -> OutDir containers"
+  ok "Found $(printf '%6d' "$n_source_outdirs") -> OutDir containers"
+  if (( n_ignored_outdirs > 0 )); then
+    warn "Ignoring $(printf '%6d' "$n_ignored_outdirs") known-bad ${sample:-embedded} OutDir container(s)"
+    preview_head "$ignored_outdir_list" "$HEAD_TAIL_LINES"
+  fi
+  ok "Using $(printf '%6d' "$n_outdirs") -> OutDir containers after known-bad filters"
 
   local raw_calo="${outdir}/DST_CALO_CLUSTER.list"
   local raw_g4="${outdir}/G4Hits.list"
@@ -826,7 +864,12 @@ build_embedded_pack_lists() {
   {
     echo "EMBEDDED MODE: paired by OutDir container"
     echo "SOURCE ROOT: ${embeddir}"
-    echo "TOTAL OutDir containers : ${n_outdirs}"
+    echo "TOTAL OutDir containers : ${n_source_outdirs}"
+    echo "KNOWN IGNORED OutDirs   : ${n_ignored_outdirs}"
+    if (( n_ignored_outdirs > 0 )); then
+      sed 's/^/  /' "$ignored_outdir_list"
+    fi
+    echo "CONSIDERED OutDirs      : ${n_outdirs}"
     echo "USABLE aligned entries  : ${n_keep}"
     echo "INCOMPLETE OutDirs      : ${n_incomplete}"
     echo "MISSING COUNTS:"
@@ -898,13 +941,34 @@ ping_embedded_pack() {
   local tmpdir; tmpdir="$(mktemp -d)"
   trap '[[ -n "${tmpdir:-}" ]] && rm -rf "${tmpdir}"' RETURN
 
-  local outdirs="${tmpdir}/outdirs.list"
-  find "$embeddir" -mindepth 1 -maxdepth 1 -type d -name 'OutDir*' -print | sort -V > "$outdirs"
+  local source_outdirs="${tmpdir}/outdirs_all.list"
+  local ignored_outdirs="${tmpdir}/outdirs_ignored.list"
+  local outdirs="${tmpdir}/outdirs_considered.list"
+  find "$embeddir" -mindepth 1 -maxdepth 1 -type d -name 'OutDir*' -print | sort -V > "$source_outdirs"
 
-  local n_outdirs max_idx expected_from_max n_holes
+  : > "$ignored_outdirs"
+  : > "$outdirs"
+  local od0
+  while IFS= read -r od0; do
+    [[ -n "$od0" ]] || continue
+    if embedded_outdir_is_ignored "$sample" "$od0"; then
+      printf '%s\n' "$od0" >> "$ignored_outdirs"
+    else
+      printf '%s\n' "$od0" >> "$outdirs"
+    fi
+  done < "$source_outdirs"
+
+  local n_source_outdirs n_ignored_outdirs n_outdirs max_idx expected_from_max n_holes
+  n_source_outdirs="$(wc -l < "$source_outdirs" | tr -d ' ')"
+  n_ignored_outdirs="$(wc -l < "$ignored_outdirs" | tr -d ' ')"
   n_outdirs="$(wc -l < "$outdirs" | tr -d ' ')"
-  if (( n_outdirs == 0 )); then
+  if (( n_source_outdirs == 0 )); then
     printf 'sample=%s source=%s outdirs=0 status=MISSING_OUTDIRS\n' "$sample" "$embeddir"
+    return 0
+  fi
+  if (( n_outdirs == 0 )); then
+    printf 'sample=%s source=%s status=ALL_OUTDIRS_IGNORED outdirs=%d ignoredOutDirs=%d consideredOutDirs=0\n' \
+      "$sample" "$embeddir" "$n_source_outdirs" "$n_ignored_outdirs"
     return 0
   fi
 
@@ -916,10 +980,10 @@ ping_embedded_pack() {
         if (name ~ /^[0-9]+$/ && name+0 > max) max=name+0
       }
       END { print max+0 }
-    ' "$outdirs"
+    ' "$source_outdirs"
   )"
   expected_from_max=$(( max_idx + 1 ))
-  n_holes=$(( expected_from_max - n_outdirs ))
+  n_holes=$(( expected_from_max - n_source_outdirs ))
 
   local missing_ids="${tmpdir}/missing_outdir_ids.list"
   awk -F/ '
@@ -931,7 +995,7 @@ ping_embedded_pack() {
     END {
       for (i=0; i<=max; ++i) if (!(i in seen)) print i
     }
-  ' "$outdirs" > "$missing_ids"
+  ' "$source_outdirs" > "$missing_ids"
 
   local n_complete=0 n_miss_calo=0 n_miss_g4=0 n_miss_jets=0 n_miss_global=0
   local od calo g4 jets global complete
@@ -953,11 +1017,19 @@ ping_embedded_pack() {
   local n_incomplete status
   n_incomplete=$(( n_outdirs - n_complete ))
   status="INCOMPLETE"
-  (( n_holes == 0 && n_incomplete == 0 )) && status="COMPLETE"
+  if (( n_holes == 0 && n_incomplete == 0 )); then
+    status="COMPLETE"
+    (( n_ignored_outdirs > 0 )) && status="COMPLETE_WITH_KNOWN_IGNORES"
+  fi
 
-  printf 'sample=%s source=%s status=%s outdirs=%d maxOutDir=%d expected0ToMax=%d holes=%d completeFiles=%d incompleteFiles=%d missing(calo,g4,truthJet,global)=(%d,%d,%d,%d)\n' \
-    "$sample" "$embeddir" "$status" "$n_outdirs" "$max_idx" "$expected_from_max" "$n_holes" \
+  printf 'sample=%s source=%s status=%s outdirs=%d ignoredOutDirs=%d consideredOutDirs=%d maxOutDir=%d expected0ToMax=%d holes=%d completeFiles=%d incompleteFiles=%d missing(calo,g4,truthJet,global)=(%d,%d,%d,%d)\n' \
+    "$sample" "$embeddir" "$status" "$n_source_outdirs" "$n_ignored_outdirs" "$n_outdirs" "$max_idx" "$expected_from_max" "$n_holes" \
     "$n_complete" "$n_incomplete" "$n_miss_calo" "$n_miss_g4" "$n_miss_jets" "$n_miss_global"
+
+  if (( n_ignored_outdirs > 0 )); then
+    printf '  ignoredOutDirs: '
+    awk -F/ '{print $NF}' "$ignored_outdirs" | paste -sd' ' -
+  fi
 
   if (( n_holes > 0 )); then
     printf '  firstMissingOutDirIds: '
@@ -1214,7 +1286,7 @@ build_pack() {
 
   if [[ "$EMBED_MODE" == "true" ]]; then
     step "Write raw lists (filesystem scan → *.list) [EMBEDDED OutDir mode]"
-    build_embedded_pack_lists "$embeddir" "$outdir"
+    build_embedded_pack_lists "$embeddir" "$outdir" "$sample"
   else
     step "Write raw lists (filesystem scan → *.list)"
     write_list "$calodir" "${outdir}/DST_CALO_CLUSTER.list" "${calo_label}" "${calo_pattern}" "${calo_exclude_pattern}"

@@ -589,6 +589,54 @@ memory_request_to_mb() {
   printf '%s\n' "$mb"
 }
 
+truthy_env() {
+  case "${1:-}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+condor_pool_submit_extra_lines() {
+  local stage="$1"
+  local is_smoke="${2:-0}"
+  local use_late="${RJ_CONDOR_USE_LATE_MATERIALIZATION:-1}"
+  local max_idle="" max_materialize="" max_runtime=""
+
+  if truthy_env "$use_late"; then
+    case "$stage" in
+      capture)
+        max_idle="${RJ_CONDOR_CAPTURE_MAX_IDLE:-${RJ_CONDOR_MAX_IDLE:-2000}}"
+        max_materialize="${RJ_CONDOR_CAPTURE_MAX_MATERIALIZE:-${RJ_CONDOR_MAX_MATERIALIZE:-5000}}"
+        ;;
+      replay)
+        max_idle="${RJ_CONDOR_REPLAY_MAX_IDLE:-${RJ_CONDOR_MAX_IDLE:-1000}}"
+        max_materialize="${RJ_CONDOR_REPLAY_MAX_MATERIALIZE:-${RJ_CONDOR_MAX_MATERIALIZE:-3000}}"
+        ;;
+      *)
+        max_idle="${RJ_CONDOR_MAX_IDLE:-1000}"
+        max_materialize="${RJ_CONDOR_MAX_MATERIALIZE:-3000}"
+        ;;
+    esac
+    if [[ "$max_idle" =~ ^[0-9]+$ && "$max_idle" -gt 0 ]]; then
+      printf 'max_idle     = %s\n' "$max_idle"
+    fi
+    if [[ "$max_materialize" =~ ^[0-9]+$ && "$max_materialize" -gt 0 ]]; then
+      printf 'max_materialize = %s\n' "$max_materialize"
+    fi
+  fi
+
+  if [[ "$is_smoke" == "1" ]]; then
+    case "$stage" in
+      capture) max_runtime="${RJ_SMOKE_CAPTURE_MAX_RUNTIME_SECONDS:-${RJ_SMOKE_MAX_RUNTIME_SECONDS:-1200}}" ;;
+      replay)  max_runtime="${RJ_SMOKE_REPLAY_MAX_RUNTIME_SECONDS:-${RJ_SMOKE_MAX_RUNTIME_SECONDS:-1200}}" ;;
+      *)       max_runtime="${RJ_SMOKE_MAX_RUNTIME_SECONDS:-1200}" ;;
+    esac
+    if [[ "$max_runtime" =~ ^[0-9]+$ && "$max_runtime" -gt 0 ]]; then
+      printf 'periodic_remove = (JobStatus == 2) && ((time() - EnteredCurrentStatus) > %s)\n' "$max_runtime"
+    fi
+  fi
+}
+
 sim_yaml_master_path() {
   if [[ -n "${RJ_CONFIG_YAML:-}" ]]; then
     local p; p="$(trim_ws "${RJ_CONFIG_YAML}")"
@@ -1095,6 +1143,7 @@ fi
 
 body="$(mktemp "${TMPDIR:-/tmp}/recoiljets_dag_summary.XXXXXX")"
 profile_lines="$(mktemp "${TMPDIR:-/tmp}/recoiljets_profile_lines.XXXXXX")"
+heartbeat_lines="$(mktemp "${TMPDIR:-/tmp}/recoiljets_heartbeat_lines.XXXXXX")"
 profile_summary="${dag_dir}/smoke_profile_summary_${workflow}.txt"
 profile_raw="${dag_dir}/smoke_profile_rows_${workflow}.txt"
 report_dir="${out_base%/}/_pipeline_reports/${workflow}"
@@ -1104,12 +1153,14 @@ report_profile="${report_dir}/smoke_profile_summary.txt"
 report_profile_rows="${report_dir}/smoke_profile_rows.txt"
 report_job_profile="${report_dir}/job_profile_summary.txt"
 report_job_profile_rows="${report_dir}/job_profile_rows.txt"
+report_job_heartbeat_rows="${report_dir}/job_heartbeat_rows.txt"
 report_merge_profile="${report_dir}/merge_profile_summary.txt"
 report_merge_profile_rows="${report_dir}/merge_profile_rows.txt"
 report_root_summary="${report_dir}/root_output_summary.txt"
 report_hist_summary="${report_dir}/histogram_sanity_summary.txt"
 report_failure_summary="${report_dir}/failure_summary.txt"
 report_tuning_json="${report_dir}/tuning_inputs.json"
+report_smoke_run_stats="${report_dir}/smoke_selected_runs_stats.txt"
 manifest_get() {
   local key="$1"
   [[ -s "$manifest" ]] || return 0
@@ -1126,6 +1177,7 @@ manifest_replay_request_memory_mb="$(manifest_get replay_request_memory_mb)"
 manifest_replay_output_roots_per_shard="$(manifest_get replay_output_roots_per_shard)"
 manifest_capture_nevents="$(manifest_get capture_nevents)"
 manifest_smoke_cap="$(manifest_get smoke_capture_job_cap)"
+manifest_smoke_run_stats="$(manifest_get smoke_selected_run_stats)"
 manifest_photon_rows="$(manifest_get photon_id_sets_expanded)"
 manifest_replay_cones="$(manifest_get replay_cones)"
 manifest_capture_cones="$(manifest_get capture_cones)"
@@ -1165,6 +1217,7 @@ if (( ${#profile_globs_status[@]} > 0 )); then
     while IFS= read -r profile_file; do
       [[ -s "$profile_file" ]] || continue
       grep -h 'RECOILJETS_JOB_PROFILE_V1' "$profile_file" >> "$profile_lines" || true
+      grep -h 'RECOILJETS_JOB_HEARTBEAT_V1' "$profile_file" >> "$heartbeat_lines" || true
     done < <(compgen -G "$profile_glob" || true)
   done
 fi
@@ -1226,6 +1279,8 @@ fi
   echo "published_manifest=${report_manifest}"
   echo "published_profile_summary=${report_profile}"
   echo "published_profile_rows=${report_profile_rows}"
+  echo "published_heartbeat_rows=${report_job_heartbeat_rows}"
+  [[ -n "$manifest_smoke_run_stats" ]] && echo "published_smoke_selected_run_stats=${report_smoke_run_stats}"
   echo "next_action=If status is READY, continue with the normal merge/pull/plot step for this dataset. If status is CHECK or FAILED, inspect dagman_out, nodes_log, and the job .err files first."
   echo
   if [[ -s "$manifest" ]]; then
@@ -1283,9 +1338,23 @@ fi
               outputs = getv("output_files") + 0
               bytes = getv("output_bytes") + 0
               req_mb = getv("request_memory_mb") + 0
+              user_cpu = getv("user_cpu_s") + 0
+              system_cpu = getv("system_cpu_s") + 0
+              cpu_pct = getv("cpu_percent") + 0
+              major_faults = getv("major_page_faults") + 0
+              minor_faults = getv("minor_page_faults") + 0
+              fs_in = getv("fs_inputs") + 0
+              fs_out = getv("fs_outputs") + 0
               n[stage] += 1
               total += 1
               elapsed_sum[stage] += elapsed
+              user_cpu_sum[stage] += user_cpu
+              system_cpu_sum[stage] += system_cpu
+              cpu_pct_sum[stage] += cpu_pct
+              major_fault_sum[stage] += major_faults
+              minor_fault_sum[stage] += minor_faults
+              fs_input_sum[stage] += fs_in
+              fs_output_sum[stage] += fs_out
               input_sum[stage] += inputs
               output_sum[stage] += outputs
               bytes_sum[stage] += bytes
@@ -1296,6 +1365,13 @@ fi
               if (rss > overall_rss_max) overall_rss_max = rss
               if (req_mb > overall_request_max) overall_request_max = req_mb
               overall_elapsed += elapsed
+              overall_user_cpu += user_cpu
+              overall_system_cpu += system_cpu
+              overall_cpu_pct += cpu_pct
+              overall_major_faults += major_faults
+              overall_minor_faults += minor_faults
+              overall_fs_inputs += fs_in
+              overall_fs_outputs += fs_out
               overall_inputs += inputs
               overall_outputs += outputs
               overall_bytes += bytes
@@ -1327,19 +1403,27 @@ fi
                 max_mb = mb_from_kb(rss_max[stage])
                 rec_mb = rec_mem_mb(max_mb)
                 sec_per_input = (input_sum[stage] > 0 ? elapsed_sum[stage] / input_sum[stage] : 0)
+                avg_cpu_pct = (n[stage] > 0 ? cpu_pct_sum[stage] / n[stage] : 0)
                 stage_req = request_max[stage] + 0
                 stage_usage = (stage_req > 0 && max_mb > 0 ? max_mb / stage_req : 0)
-                printf("stage_summary stage=%s jobs=%d failed=%d elapsed_avg_s=%.1f elapsed_min_s=%d elapsed_max_s=%d input_files=%d sec_per_input_file=%.2f max_rss_mb=%d requested_mb=%d usage_fraction=%.2f output_files=%d output_mb=%.1f headroom_request_memory_mb=%d\n",
+                printf("stage_summary stage=%s jobs=%d failed=%d elapsed_avg_s=%.1f elapsed_min_s=%d elapsed_max_s=%d input_files=%d sec_per_input_file=%.2f user_cpu_total_s=%.1f system_cpu_total_s=%.1f cpu_avg_pct=%.1f fs_inputs=%d fs_outputs=%d major_page_faults=%d minor_page_faults=%d max_rss_mb=%d requested_mb=%d usage_fraction=%.2f output_files=%d output_mb=%.1f headroom_request_memory_mb=%d\n",
                        stage, n[stage], failed_stage[stage] + 0, avg_elapsed,
                        elapsed_min[stage], elapsed_max[stage], input_sum[stage],
-                       sec_per_input, max_mb, stage_req, stage_usage, output_sum[stage], bytes_sum[stage] / 1048576.0, rec_mb)
+                       sec_per_input, user_cpu_sum[stage], system_cpu_sum[stage],
+                       avg_cpu_pct, fs_input_sum[stage], fs_output_sum[stage],
+                       major_fault_sum[stage], minor_fault_sum[stage],
+                       max_mb, stage_req, stage_usage, output_sum[stage], bytes_sum[stage] / 1048576.0, rec_mb)
               }
               overall_max_mb = mb_from_kb(overall_rss_max)
               recommended_mb = rec_mem_mb(overall_max_mb)
               overall_sec_per_input = (overall_inputs > 0 ? overall_elapsed / overall_inputs : 0)
-              printf("overall_summary jobs=%d elapsed_total_s=%.1f input_files=%d sec_per_input_file=%.2f max_rss_mb=%d output_files=%d output_mb=%.1f headroom_request_memory_mb=%d\n",
+              overall_cpu_avg = (total > 0 ? overall_cpu_pct / total : 0)
+              printf("overall_summary jobs=%d elapsed_total_s=%.1f input_files=%d sec_per_input_file=%.2f user_cpu_total_s=%.1f system_cpu_total_s=%.1f cpu_avg_pct=%.1f fs_inputs=%d fs_outputs=%d major_page_faults=%d minor_page_faults=%d max_rss_mb=%d output_files=%d output_mb=%.1f headroom_request_memory_mb=%d\n",
                      total, overall_elapsed, overall_inputs, overall_sec_per_input,
-                     overall_max_mb, overall_outputs, overall_bytes / 1048576.0, recommended_mb)
+                     overall_user_cpu, overall_system_cpu, overall_cpu_avg,
+                     overall_fs_inputs, overall_fs_outputs, overall_major_faults,
+                     overall_minor_faults, overall_max_mb, overall_outputs,
+                     overall_bytes / 1048576.0, recommended_mb)
               req_mb = (overall_request_max > 0 ? overall_request_max : int_or_zero(request_memory_mb))
               if (req_mb > 0 && overall_max_mb > 0) {
                 usage = overall_max_mb / req_mb
@@ -1376,7 +1460,7 @@ fi
                   print "measurement_status=complete_one_pass_tuning"
                   print "measurement_note=Measurements are complete enough for local inference of production groupSize and request_memory."
                 }
-                print "one_pass_smoke_target=smokeTest uses full worker inputs by default; legacy poolSmoke uses RJ_POOL_SMOKE_NEVENTS=20000."
+                print "one_pass_smoke_target=smokeTest is a capped fast pipeline check by default; set RJ_SMOKE_DATA_NEVENTS=0 or RJ_SMOKE_SIM_NEVENTS=0 for full worker-input tuning, and use legacy poolSmoke/RJ_POOL_SMOKE_NEVENTS for DATA-only capped pool checks."
               }
             }' "$profile_lines"
         } > "$profile_summary"
@@ -1405,10 +1489,19 @@ mkdir -p "$report_dir"
 [[ -s "$profile_lines" ]] && cp "$profile_lines" "$profile_raw"
 cp "$body" "$report_summary"
 [[ -s "$manifest" ]] && cp "$manifest" "$report_manifest"
+[[ -n "$manifest_smoke_run_stats" && -s "$manifest_smoke_run_stats" ]] && cp "$manifest_smoke_run_stats" "$report_smoke_run_stats"
 [[ -s "$profile_summary" ]] && cp "$profile_summary" "$report_profile"
 [[ -s "$profile_raw" ]] && cp "$profile_raw" "$report_profile_rows"
 [[ -s "$profile_summary" ]] && cp "$profile_summary" "$report_job_profile"
 [[ -s "$profile_raw" ]] && cp "$profile_raw" "$report_job_profile_rows"
+[[ -s "$heartbeat_lines" ]] && cp "$heartbeat_lines" "$report_job_heartbeat_rows"
+if [[ ! -s "$report_job_heartbeat_rows" ]]; then
+  {
+    echo "RECOILJETS_JOB_HEARTBEAT_ROWS_V1"
+    echo "status=no_heartbeat_rows_found"
+    echo "note=Short jobs may finish before the first RJ_JOB_HEARTBEAT_SECONDS interval."
+  } > "$report_job_heartbeat_rows"
+fi
 {
   echo "RECOILJETS_ROOT_OUTPUT_SUMMARY_V1"
   echo "dataset=${dataset}"
@@ -1490,7 +1583,7 @@ if [[ -n "$emails" ]]; then
     echo "[notify] mail/mailx not found; notification skipped for ${emails}" >&2
   fi
 fi
-rm -f "$body" "$profile_lines"
+rm -f "$body" "$profile_lines" "$heartbeat_lines"
 EOS
   chmod +x "$exec_file"
 
@@ -2598,11 +2691,15 @@ data_analysis_tag_for_dataset() {
 select_largest_stat_data_runs() {
   local count="${1:-10}"
   local out_file="${2:?output run list required}"
+  local stats_file="${3:-}"
   [[ "$count" =~ ^[0-9]+$ && "$count" -gt 0 ]] || count=10
   mkdir -p "$(dirname "$out_file")"
   : > "$out_file"
+  [[ -z "$stats_file" ]] || { mkdir -p "$(dirname "$stats_file")"; : > "$stats_file"; }
   local ranked
   ranked="$(mktemp "${TMPDIR:-/tmp}/recoiljets_smoke_runs.XXXXXX")"
+  local ranked_top
+  ranked_top="$(mktemp "${TMPDIR:-/tmp}/recoiljets_smoke_runs_top.XXXXXX")"
   while IFS= read -r rn; do
     [[ -z "$rn" || "$rn" =~ ^# ]] && continue
     local r8 src nfiles
@@ -2616,8 +2713,12 @@ select_largest_stat_data_runs() {
     [[ "$nfiles" =~ ^[0-9]+$ && "$nfiles" -gt 0 ]] || continue
     printf '%012d %s\n' "$nfiles" "$r8" >> "$ranked"
   done < "$GOLDEN"
-  sort -nr "$ranked" | head -n "$count" | awk '{print $2}' > "$out_file"
-  rm -f "$ranked"
+  sort -nr "$ranked" | head -n "$count" > "$ranked_top"
+  awk '{print $2}' "$ranked_top" > "$out_file"
+  if [[ -n "$stats_file" ]]; then
+    awk '{printf "run=%s input_files=%d\n", $2, $1+0}' "$ranked_top" > "$stats_file"
+  fi
+  rm -f "$ranked" "$ranked_top"
   [[ -s "$out_file" ]]
 }
 
@@ -2676,7 +2777,7 @@ submit_data_pool_workflow() {
   local capture_nevents=0
   if (( is_smoke )); then
     if [[ "$workflow_flavor" == "smokeTest" ]]; then
-      capture_nevents="${RJ_SMOKE_DATA_NEVENTS:-0}"
+      capture_nevents="${RJ_SMOKE_DATA_NEVENTS:-3000}"
     else
       capture_nevents="${RJ_POOL_SMOKE_NEVENTS:-20000}"
     fi
@@ -2702,6 +2803,13 @@ submit_data_pool_workflow() {
   local replay_roots_per_shard="${RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD:-${RJ_POOL_REPLAY_OUTPUT_ROOTS_PER_SHARD:-1}}"
   [[ "$replay_roots_per_shard" =~ ^[0-9]+$ && "$replay_roots_per_shard" -gt 0 ]] || replay_roots_per_shard=1
   local replay_max_open_outputs="${RJ_REPLAY_MAX_OPEN_OUTPUTS:-$replay_roots_per_shard}"
+  local job_heartbeat_seconds="${RJ_JOB_HEARTBEAT_SECONDS:-0}"
+  if (( is_smoke )) && [[ "$job_heartbeat_seconds" == "0" ]]; then
+    job_heartbeat_seconds="${RJ_SMOKE_JOB_HEARTBEAT_SECONDS:-120}"
+  fi
+  local capture_submit_extra replay_submit_extra
+  capture_submit_extra="$(condor_pool_submit_extra_lines capture "$is_smoke")"
+  replay_submit_extra="$(condor_pool_submit_extra_lines replay "$is_smoke")"
 
   if [[ "${RJ_DAG_DRYRUN:-0}" != "1" && "${RJ_DAG_DRYRUN:-0}" != "true" && "${RJ_DAG_DRYRUN:-0}" != "TRUE" ]]; then
     need_cmd condor_submit_dag
@@ -2716,14 +2824,21 @@ submit_data_pool_workflow() {
   local -a data_capture_cones=( "${capture_cones[@]}" )
   local workflow_golden="$GOLDEN"
   local smoke_selected_runs=""
+  local smoke_selected_run_stats=""
   if [[ "$workflow_flavor" == "smokeTest" ]]; then
     local smoke_run_count="${RJ_SMOKE_DATA_RUNS:-10}"
     smoke_selected_runs="${dag_dir}/smoke_selected_runs_${TAG}.list"
-    select_largest_stat_data_runs "$smoke_run_count" "$smoke_selected_runs" || { err "smokeTest could not select any DATA runs from ${GOLDEN}"; exit 99; }
+    smoke_selected_run_stats="${dag_dir}/smoke_selected_runs_${TAG}_stats.txt"
+    select_largest_stat_data_runs "$smoke_run_count" "$smoke_selected_runs" "$smoke_selected_run_stats" || { err "smokeTest could not select any DATA runs from ${GOLDEN}"; exit 99; }
     workflow_golden="$smoke_selected_runs"
   fi
   local golden_rows=0
   [[ -s "$workflow_golden" ]] && golden_rows="$(grep -Evc '^[[:space:]]*($|#)' "$workflow_golden" 2>/dev/null || echo 0)"
+  local smoke_capture_jobs_per_run=0
+  if (( is_smoke )); then
+    smoke_capture_jobs_per_run="${RJ_SMOKE_CAPTURE_JOBS_PER_RUN:-1}"
+    [[ "$smoke_capture_jobs_per_run" =~ ^[0-9]+$ ]] || smoke_capture_jobs_per_run=1
+  fi
 
   if [[ "$from_scratch" -eq 1 ]]; then
     cleanup_bulk_snapshots_for_tag
@@ -2738,11 +2853,20 @@ submit_data_pool_workflow() {
     echo "dataset=${DATASET}"
     echo "smoke=${is_smoke}"
     echo "smoke_capture_job_cap=${smoke_capture_cap}"
+    (( is_smoke )) && echo "smoke_capture_jobs_per_run=${smoke_capture_jobs_per_run}"
     [[ -n "$smoke_selected_runs" ]] && echo "smoke_selected_runs_file=${smoke_selected_runs}"
     [[ -n "$smoke_selected_runs" ]] && echo "smoke_selected_runs=${golden_rows}"
+    [[ -n "$smoke_selected_run_stats" ]] && echo "smoke_selected_run_stats=${smoke_selected_run_stats}"
     echo "capture_nevents=${capture_nevents}"
     echo "replay_nevents=0"
     echo "profile_job=${profile_job}"
+    echo "pool_profile_counts=1"
+    echo "job_heartbeat_seconds=${job_heartbeat_seconds}"
+    echo "condor_use_late_materialization=${RJ_CONDOR_USE_LATE_MATERIALIZATION:-1}"
+    echo "condor_capture_max_idle=${RJ_CONDOR_CAPTURE_MAX_IDLE:-${RJ_CONDOR_MAX_IDLE:-2000}}"
+    echo "condor_capture_max_materialize=${RJ_CONDOR_CAPTURE_MAX_MATERIALIZE:-${RJ_CONDOR_MAX_MATERIALIZE:-5000}}"
+    echo "condor_replay_max_idle=${RJ_CONDOR_REPLAY_MAX_IDLE:-${RJ_CONDOR_MAX_IDLE:-1000}}"
+    echo "condor_replay_max_materialize=${RJ_CONDOR_REPLAY_MAX_MATERIALIZE:-${RJ_CONDOR_MAX_MATERIALIZE:-3000}}"
     echo "request_memory=${request_memory}"
     echo "request_memory_mb=${request_memory_mb}"
     echo "capture_request_memory=${capture_request_memory}"
@@ -2779,7 +2903,7 @@ submit_data_pool_workflow() {
   say "  output base : ${out_base}"
   say "  memory      : capture=${capture_request_memory} replay=${replay_request_memory}"
   say "  replay split: poolFiles/job=${replay_gs} outputRoots/shard=${replay_roots_per_shard} maxOpenOutputs=${replay_max_open_outputs}"
-  (( is_smoke )) && say "  smoke cap   : ${smoke_capture_cap} capture jobs total; profiling enabled"
+  (( is_smoke )) && say "  smoke cap   : ${smoke_capture_cap} capture jobs total, ${smoke_capture_jobs_per_run}/selected-run; profiling enabled"
   (( is_smoke )) && say "  smoke events: capture nEvents=${capture_nevents} per worker; replay nEvents=0 over captured pools"
   say "  DAG dir     : ${dag_dir}"
   if (( trace_pool )); then
@@ -2830,7 +2954,8 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification  = Never
-environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${cap_yaml}${macro_env_for_sub};RJ_POOL_MODE=capture;RJ_PROFILE_JOB=${profile_job};RJ_PROFILE_STAGE=capture;RJ_PROFILE_LABEL=${cap_tag};RJ_REQUEST_MEMORY_MB=${capture_request_memory_mb}
+environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${cap_yaml}${macro_env_for_sub};RJ_POOL_MODE=capture;RJ_PROFILE_JOB=${profile_job};RJ_POOL_PROFILE_COUNTS=1;RJ_JOB_HEARTBEAT_SECONDS=${job_heartbeat_seconds};RJ_PROFILE_STAGE=capture;RJ_PROFILE_LABEL=${cap_tag};RJ_REQUEST_MEMORY_MB=${capture_request_memory_mb}
+${capture_submit_extra}
 queue arguments from ${cap_args}
 SUB
 
@@ -2856,6 +2981,10 @@ SUB
           if (( is_smoke && smoke_capture_cap > 0 )); then
             local remaining=$(( smoke_capture_cap - smoke_capture_queued_total ))
             (( remaining > 0 )) || break
+            if (( smoke_capture_jobs_per_run > 0 && ${#groups[@]} > smoke_capture_jobs_per_run )); then
+              say "Smoke per-run cap: trimming capture groups for ${cap_tag}/${r8}: ${#groups[@]} → ${smoke_capture_jobs_per_run}"
+              groups=( "${groups[@]:0:$smoke_capture_jobs_per_run}" )
+            fi
             if (( ${#groups[@]} > remaining )); then
               say "Smoke cap: trimming capture groups for ${cap_tag}/${r8}: ${#groups[@]} → ${remaining}"
               groups=( "${groups[@]:0:$remaining}" )
@@ -2941,7 +3070,8 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification  = Never
-environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${master_yaml};RJ_MACRO_PATH=${pool_macro};RJ_ID_FANOUT_DIRS_FILE=${fanout_shard};RJ_REPLAY_MAX_OPEN_OUTPUTS=${replay_max_open_outputs};RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD=${replay_roots_per_shard};RJ_PROFILE_JOB=${profile_job};RJ_PROFILE_STAGE=replay;RJ_PROFILE_LABEL=${cap_tag}_shard$(printf "%03d" "$shard_i");RJ_REQUEST_MEMORY_MB=${replay_request_memory_mb}
+environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${master_yaml};RJ_MACRO_PATH=${pool_macro};RJ_ID_FANOUT_DIRS_FILE=${fanout_shard};RJ_REPLAY_MAX_OPEN_OUTPUTS=${replay_max_open_outputs};RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD=${replay_roots_per_shard};RJ_PROFILE_JOB=${profile_job};RJ_POOL_PROFILE_COUNTS=1;RJ_JOB_HEARTBEAT_SECONDS=${job_heartbeat_seconds};RJ_PROFILE_STAGE=replay;RJ_PROFILE_LABEL=${cap_tag}_shard$(printf "%03d" "$shard_i");RJ_REQUEST_MEMORY_MB=${replay_request_memory_mb}
+${replay_submit_extra}
 queue arguments from ${replay_args}
 SUB
 
@@ -5148,6 +5278,13 @@ SUB
       set -E
       trap 'rc=$?; err "SIM smoke DAG build failed (dataset=${DATASET:-unknown}, action=${ACTION:-unknown}, line=${LINENO}, rc=${rc}, command=${BASH_COMMAND}, dag_dir=${dag_dir:-unset})"; exit "$rc"' ERR
     fi
+    if (( sim_smoke )) && [[ "${MAX_JOBS_EXPLICIT:-0}" -eq 0 ]]; then
+      case "$DATASET" in
+        isSimEmbedded)          MAX_JOBS="${RJ_SMOKE_SIM_MAX_JOBS_PER_SAMPLE_EMBEDDED:-${RJ_SMOKE_SIM_MAX_JOBS_PER_SAMPLE:-12}}" ;;
+        isSimEmbeddedInclusive) MAX_JOBS="${RJ_SMOKE_SIM_MAX_JOBS_PER_SAMPLE_EMBEDDED_INCLUSIVE:-${RJ_SMOKE_SIM_MAX_JOBS_PER_SAMPLE_EMBEDDED:-${RJ_SMOKE_SIM_MAX_JOBS_PER_SAMPLE:-12}}}" ;;
+        *)                      MAX_JOBS="${RJ_SMOKE_SIM_MAX_JOBS_PER_SAMPLE:-12}" ;;
+      esac
+    fi
     dag_dryrun=0
     if [[ "${RJ_DAG_DRYRUN:-0}" == "1" || "${RJ_DAG_DRYRUN:-0}" == "true" || "${RJ_DAG_DRYRUN:-0}" == "TRUE" ]]; then
       dag_dryrun=1
@@ -5158,18 +5295,18 @@ SUB
 
     if (( sim_smoke )) && [[ "${GROUP_SIZE_EXPLICIT:-0}" -eq 0 ]]; then
       case "$DATASET" in
-        isSimEmbedded)          GROUP_SIZE="${RJ_SMOKE_GROUPSIZE_EMBEDDED:-7}" ;;
-        isSimEmbeddedInclusive) GROUP_SIZE="${RJ_SMOKE_GROUPSIZE_EMBEDDED_INCLUSIVE:-${RJ_SMOKE_GROUPSIZE_EMBEDDED:-7}}" ;;
-        *)                      GROUP_SIZE="${RJ_SMOKE_GROUPSIZE_SIM:-7}" ;;
+        isSimEmbedded)          GROUP_SIZE="${RJ_SMOKE_GROUPSIZE_EMBEDDED:-2}" ;;
+        isSimEmbeddedInclusive) GROUP_SIZE="${RJ_SMOKE_GROUPSIZE_EMBEDDED_INCLUSIVE:-${RJ_SMOKE_GROUPSIZE_EMBEDDED:-2}}" ;;
+        *)                      GROUP_SIZE="${RJ_SMOKE_GROUPSIZE_SIM:-2}" ;;
       esac
     fi
     request_memory_was_explicit=0
     [[ -n "${RJ_REQUEST_MEMORY:-}" ]] && request_memory_was_explicit=1
     if (( sim_smoke )) && [[ -z "${RJ_REQUEST_MEMORY:-}" ]]; then
       case "$DATASET" in
-        isSimEmbedded)          RJ_REQUEST_MEMORY="${RJ_SMOKE_REQUEST_MEMORY_EMBEDDED:-3000MB}" ;;
-        isSimEmbeddedInclusive) RJ_REQUEST_MEMORY="${RJ_SMOKE_REQUEST_MEMORY_EMBEDDED_INCLUSIVE:-${RJ_SMOKE_REQUEST_MEMORY_EMBEDDED:-3000MB}}" ;;
-        *)                      RJ_REQUEST_MEMORY="${RJ_SMOKE_REQUEST_MEMORY_SIM:-2000MB}" ;;
+        isSimEmbedded)          RJ_REQUEST_MEMORY="${RJ_SMOKE_REQUEST_MEMORY_EMBEDDED:-2500MB}" ;;
+        isSimEmbeddedInclusive) RJ_REQUEST_MEMORY="${RJ_SMOKE_REQUEST_MEMORY_EMBEDDED_INCLUSIVE:-${RJ_SMOKE_REQUEST_MEMORY_EMBEDDED:-2500MB}}" ;;
+        *)                      RJ_REQUEST_MEMORY="${RJ_SMOKE_REQUEST_MEMORY_SIM:-1800MB}" ;;
       esac
       export RJ_REQUEST_MEMORY
     fi
@@ -5184,9 +5321,9 @@ SUB
     if [[ -z "$replay_request_memory" ]]; then
       if (( sim_smoke )) && (( request_memory_was_explicit == 0 )); then
         case "$DATASET" in
-          isSimEmbedded)          replay_request_memory="${RJ_SMOKE_REPLAY_REQUEST_MEMORY_EMBEDDED:-3000MB}" ;;
-          isSimEmbeddedInclusive) replay_request_memory="${RJ_SMOKE_REPLAY_REQUEST_MEMORY_EMBEDDED_INCLUSIVE:-${RJ_SMOKE_REPLAY_REQUEST_MEMORY_EMBEDDED:-3000MB}}" ;;
-          *)                      replay_request_memory="${RJ_SMOKE_REPLAY_REQUEST_MEMORY_SIM:-2500MB}" ;;
+          isSimEmbedded)          replay_request_memory="${RJ_SMOKE_REPLAY_REQUEST_MEMORY_EMBEDDED:-2500MB}" ;;
+          isSimEmbeddedInclusive) replay_request_memory="${RJ_SMOKE_REPLAY_REQUEST_MEMORY_EMBEDDED_INCLUSIVE:-${RJ_SMOKE_REPLAY_REQUEST_MEMORY_EMBEDDED:-2500MB}}" ;;
+          *)                      replay_request_memory="${RJ_SMOKE_REPLAY_REQUEST_MEMORY_SIM:-2200MB}" ;;
         esac
       else
         replay_request_memory="$request_memory"
@@ -5199,7 +5336,13 @@ SUB
     replay_request_memory_mb="$(memory_request_to_mb "$replay_request_memory")"
     profile_job="${RJ_PROFILE_JOB:-0}"
     (( sim_smoke )) && profile_job=1
-    sim_capture_nevents="${RJ_SMOKE_SIM_NEVENTS:-0}"
+    sim_capture_nevents="${RJ_SMOKE_SIM_NEVENTS:-3000}"
+    job_heartbeat_seconds="${RJ_JOB_HEARTBEAT_SECONDS:-0}"
+    if (( sim_smoke )) && [[ "$job_heartbeat_seconds" == "0" ]]; then
+      job_heartbeat_seconds="${RJ_SMOKE_JOB_HEARTBEAT_SECONDS:-120}"
+    fi
+    capture_submit_extra="$(condor_pool_submit_extra_lines capture "$sim_smoke")"
+    replay_submit_extra="$(condor_pool_submit_extra_lines replay "$sim_smoke")"
 
     gs_capture="$GROUP_SIZE"
     gs_replay="${RJ_POOL_REPLAY_GROUP_SIZE:-20}"
@@ -5275,7 +5418,9 @@ SUB
       echo "pool_base=${pool_base}"
       echo "output_base=${out_base}"
       echo "capture_group_size=${gs_capture}"
+      echo "group_size=${gs_capture}"
       echo "replay_group_size=${gs_replay}"
+      echo "smoke_capture_job_cap=${MAX_JOBS}"
       echo "request_memory=${request_memory}"
       echo "request_memory_mb=${request_memory_mb}"
       echo "capture_request_memory=${capture_request_memory}"
@@ -5286,6 +5431,13 @@ SUB
       echo "replay_max_open_outputs=${replay_max_open_outputs}"
       echo "capture_nevents=${sim_capture_nevents}"
       echo "profile_job=${profile_job}"
+      echo "pool_profile_counts=1"
+      echo "job_heartbeat_seconds=${job_heartbeat_seconds}"
+      echo "condor_use_late_materialization=${RJ_CONDOR_USE_LATE_MATERIALIZATION:-1}"
+      echo "condor_capture_max_idle=${RJ_CONDOR_CAPTURE_MAX_IDLE:-${RJ_CONDOR_MAX_IDLE:-2000}}"
+      echo "condor_capture_max_materialize=${RJ_CONDOR_CAPTURE_MAX_MATERIALIZE:-${RJ_CONDOR_MAX_MATERIALIZE:-5000}}"
+      echo "condor_replay_max_idle=${RJ_CONDOR_REPLAY_MAX_IDLE:-${RJ_CONDOR_MAX_IDLE:-1000}}"
+      echo "condor_replay_max_materialize=${RJ_CONDOR_REPLAY_MAX_MATERIALIZE:-${RJ_CONDOR_MAX_MATERIALIZE:-3000}}"
       echo "samples=${samples[*]}"
       echo "replay_cones=${sim_cones[*]}"
       echo "capture_cones=${capture_cones[*]}"
@@ -5307,6 +5459,7 @@ SUB
     say "  output base   : ${out_base}"
     (( sim_smoke )) && say "  smoke outputs : isolated thesisAnaSmoke/thesisAnaPoolsSmoke directories"
     say "  memory        : capture=${capture_request_memory} replay=${replay_request_memory}"
+    (( sim_smoke )) && say "  smoke cap     : max ${MAX_JOBS} capture jobs/sample, nevents=${sim_capture_nevents}/worker, heartbeat=${job_heartbeat_seconds}s"
     say "  replay split  : poolFiles/job=${gs_replay} outputRoots/shard=${replay_roots_per_shard} maxOpenOutputs=${replay_max_open_outputs}"
     say "  profiling     : ${profile_job}"
     say "  capture axes  : storedIsolation=[${capture_cones[*]}], clusterUE=[${uepipe_modes[*]}]"
@@ -5369,7 +5522,8 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification  = Never
-environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${cap_yaml}${macro_env_for_sub};RJ_POOL_MODE=capture;RJ_PROFILE_JOB=${profile_job};RJ_PROFILE_STAGE=capture;RJ_PROFILE_LABEL=${POOL_CAPTURE_TAG}_${SIM_SAMPLE};RJ_REQUEST_MEMORY_MB=${capture_request_memory_mb}
+environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${cap_yaml}${macro_env_for_sub};RJ_POOL_MODE=capture;RJ_PROFILE_JOB=${profile_job};RJ_POOL_PROFILE_COUNTS=1;RJ_JOB_HEARTBEAT_SECONDS=${job_heartbeat_seconds};RJ_PROFILE_STAGE=capture;RJ_PROFILE_LABEL=${POOL_CAPTURE_TAG}_${SIM_SAMPLE};RJ_REQUEST_MEMORY_MB=${capture_request_memory_mb}
+${capture_submit_extra}
 queue arguments from ${cap_args}
 SUB
           gidx=0
@@ -5456,7 +5610,8 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification  = Never
-environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${master_yaml};RJ_MACRO_PATH=${pool_macro};RJ_ID_FANOUT_DIRS_FILE=${fanout_shard};RJ_REPLAY_MAX_OPEN_OUTPUTS=${replay_max_open_outputs};RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD=${replay_roots_per_shard};RJ_PROFILE_JOB=${profile_job};RJ_PROFILE_STAGE=replay;RJ_PROFILE_LABEL=${POOL_CAPTURE_TAG}_${samp}_shard$(printf "%03d" "$shard_i");RJ_REQUEST_MEMORY_MB=${replay_request_memory_mb}
+environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${master_yaml};RJ_MACRO_PATH=${pool_macro};RJ_ID_FANOUT_DIRS_FILE=${fanout_shard};RJ_REPLAY_MAX_OPEN_OUTPUTS=${replay_max_open_outputs};RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD=${replay_roots_per_shard};RJ_PROFILE_JOB=${profile_job};RJ_POOL_PROFILE_COUNTS=1;RJ_JOB_HEARTBEAT_SECONDS=${job_heartbeat_seconds};RJ_PROFILE_STAGE=replay;RJ_PROFILE_LABEL=${POOL_CAPTURE_TAG}_${samp}_shard$(printf "%03d" "$shard_i");RJ_REQUEST_MEMORY_MB=${replay_request_memory_mb}
+${replay_submit_extra}
 queue arguments from ${replay_args}
 SUB
           g=0
@@ -5501,7 +5656,10 @@ SUB
       echo "dag_max_worker_jobs=${RJ_DAG_MAX_WORKER_JOBS:-50000}"
       echo "dag_warn_worker_jobs=${RJ_DAG_WARN_WORKER_JOBS:-40000}"
     } >> "$manifest"
-    sim_min_worker_jobs="${RJ_DAG_MIN_WORKER_JOBS:-${RJ_DAG_MIN_WORKER_JOBS_SIM:-15000}}"
+    sim_min_worker_jobs=0
+    if (( ! sim_smoke )); then
+      sim_min_worker_jobs="${RJ_DAG_MIN_WORKER_JOBS:-${RJ_DAG_MIN_WORKER_JOBS_SIM:-15000}}"
+    fi
     echo "dag_min_worker_jobs=${sim_min_worker_jobs}" >> "$manifest"
     check_dag_worker_job_budget "SIM pool workflow ${TAG}" "$capture_job_total" "$replay_job_total" "$dag_dryrun" "$sim_min_worker_jobs"
     publish_production_manifest "$manifest" "$out_base"
@@ -6083,25 +6241,33 @@ SUB
       smokeTest)
         if [[ "${GROUP_SIZE_EXPLICIT:-0}" -eq 0 ]]; then
           case "$DATASET" in
-            isAuAu|isOO) GROUP_SIZE="${RJ_SMOKE_GROUPSIZE_AUAU:-20}" ;;
-            *)           GROUP_SIZE="${RJ_SMOKE_GROUPSIZE_PP:-7}" ;;
+            isAuAu|isOO) GROUP_SIZE="${RJ_SMOKE_GROUPSIZE_AUAU:-1}" ;;
+            *)           GROUP_SIZE="${RJ_SMOKE_GROUPSIZE_PP:-2}" ;;
           esac
         fi
         if [[ -z "${RJ_REQUEST_MEMORY:-}" ]]; then
           case "$DATASET" in
-            isAuAu|isOO) RJ_REQUEST_MEMORY="${RJ_SMOKE_REQUEST_MEMORY_AUAU:-3000MB}" ;;
-            *)           RJ_REQUEST_MEMORY="${RJ_SMOKE_REQUEST_MEMORY_PP:-2000MB}" ;;
+            isAuAu|isOO) RJ_REQUEST_MEMORY="${RJ_SMOKE_REQUEST_MEMORY_AUAU:-2500MB}" ;;
+            *)           RJ_REQUEST_MEMORY="${RJ_SMOKE_REQUEST_MEMORY_PP:-1800MB}" ;;
           esac
           export RJ_REQUEST_MEMORY
         fi
+        smoke_jobs="${RJ_SMOKE_CAPTURE_JOBS:-${RJ_SMOKE_DATA_RUNS:-10}}"
+        if [[ "${MAX_JOBS_EXPLICIT:-0}" -eq 1 ]]; then
+          smoke_jobs="$MAX_JOBS"
+        fi
+        [[ "$smoke_jobs" =~ ^[0-9]+$ && "$smoke_jobs" -gt 0 ]] || { err "DATA smokeTest capture cap must be a positive integer, got '${smoke_jobs}'"; exit 2; }
         say "${BOLD}DATA smokeTest requested${RST}"
         say "  dataset       : ${DATASET}"
         say "  selected runs : ${RJ_SMOKE_DATA_RUNS:-10} largest-statistics golden runs"
         say "  groupSize     : ${GROUP_SIZE}"
-        say "  nEvents       : ${RJ_SMOKE_DATA_NEVENTS:-0} (0 means full worker input)"
+        say "  capture jobs  : ${smoke_jobs} total cap"
+        say "  jobs/run cap  : ${RJ_SMOKE_CAPTURE_JOBS_PER_RUN:-1}"
+        say "  nEvents       : ${RJ_SMOKE_DATA_NEVENTS:-3000} per capture worker (0 means full worker input)"
         say "  request mem   : ${RJ_REQUEST_MEMORY}"
+        say "  heartbeats    : ${RJ_SMOKE_JOB_HEARTBEAT_SECONDS:-120}s while workers run"
         say "  outputs       : isolated thesisAnaSmoke/thesisAnaPoolsSmoke directories"
-        submit_data_pool_workflow 1 0 "smokeTest"
+        submit_data_pool_workflow 1 "$smoke_jobs" "smokeTest"
         ;;
       round)
         seg="${4:?round number required}"
