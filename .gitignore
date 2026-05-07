@@ -8,6 +8,7 @@ InputFiles/
 external/
 external/**
 ppg12codeGit/
+.claude/
 
 # ROOT/ACLiC artifacts
 *.so

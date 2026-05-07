@@ -7,7 +7,9 @@
 # DATA FLOW
 #   1. RecoilJets_Condor_submit.sh reads this file to build the matrix of
 #      job configurations. For each matrix cell it produces a per-job YAML
-#      override with array keys replaced by scalar values.
+#      override with public cfg axes replaced by scalar values. Some
+#      recoil-only scan axes are intentionally kept internal to the RecoilJets
+#      histogram loop to avoid repeated DST passes.
 #   2. Fun4All_recoilJets_unified_impl.C parses the (scalar) per-job YAML,
 #      validates it, prints a summary, and passes values to RecoilJets via
 #      setter calls. No YAML parsing happens inside RecoilJets itself.
@@ -44,6 +46,13 @@
 # Photon + jet kinematic selection
 # -----------------------------------------------------------------------------
 photon_eta_abs_max: 0.7
+
+# Production submits one cfg tag for this list and RecoilJets writes the
+# jet-pT-specific recoil/unfolding/JES histograms under jetPt-suffixed rKey
+# names such as r04_jetPt10. The first value keeps the legacy base rKey name
+# (for example r04) inside the jetMinPtScan cfg tag. Direct validation modes
+# can still disable this internal scan and submit one legacy scalar jet-pT cfg
+# at a time.
 jet_pt_min: [5.0, 7.0, 10.0, 12.0]
 
 # Jet radii to reconstruct (R values).
@@ -68,7 +77,12 @@ back_to_back_dphi_min_pi_fraction: [0.5, 0.875]
 # -----------------------------------------------------------------------------
 use_vz_cut: true
 
-# MATRIX AXIS: one job per vz_cut_cm value.
+# Available vertex-cut values. Production collapses this list to one
+# dataset-default cfg axis unless explicitly told to scan:
+#   AuAu-like datasets (isAuAu, isSimEmbedded, isSimEmbeddedInclusive): 10 cm
+#   pp-like datasets (isPP, isPPrun25, isSim, isSimJet5/isSimMB):       60 cm
+# Use RJ_VZ_SCAN_ALL=1 to submit the full list, or
+# RJ_VZ_CUT_OVERRIDE=<value> to pick one listed value.
 vz_cut_cm: [10, 30, 60]
 
 # AuAu only: when true, RecoilJets also requires
@@ -455,24 +469,30 @@ doPi0Analysis: false
 #                                     per fixedGeV value. Allows direct
 #                                     comparison of sliding-enabled vs fixed.
 #
-# MATRIX AXIS: the submit script calls build_iso_modes() to expand these
-# three keys into parallel arrays (iso_tags[], iso_sliding[], iso_fixed[])
-# and loops over them. Each job's override YAML receives scalar values
-# for isSlidingIso and fixedGeV.
+# OUTPUT AXIS: the submit script calls build_iso_modes() to expand these
+# three keys into parallel arrays (iso_tags[], iso_sliding[], iso_fixed[]).
+# Optimized production fans these output sinks out inside each direct Fun4All
+# pass, capped by RJ_DIRECT_FANOUT_MAX_OUTPUTS. Each final cfg-tagged ROOT file
+# still receives scalar isSlidingIso/fixedGeV in its stamped YAML and is filled
+# by the normal RecoilJets histogram machinery. Direct validation modes keep
+# the old one-scalar-cfg-per-pass behavior.
 #
 # The non-isolated sideband is always: thrNonIso = thrReco + sideGapGeV.
 # Truth isolation (SIM only) uses truthIsoGeV independently.
 #
-# MATRIX AXIS: coneR sets the isolation cone radius.
-# PhotonClusterBuilder provides isolation sums for R=0.3 and R=0.4.
+# OUTPUT AXIS: coneR sets the isolation cone radius. PhotonClusterBuilder
+# provides isolation sums for R=0.3 and R=0.4 in the same upstream pass, so
+# optimized production fans coneR out together with iso mode and photon ID.
 # -----------------------------------------------------------------------------
 isSlidingIso: false
 isSlidingAndFixed: true
 
-# MATRIX AXIS: one job per fixedGeV value (when isSlidingIso is false).
+# OUTPUT AXIS: one final cfg tag per fixedGeV value when fixed isolation is
+# enabled. Optimized direct fanout may group several fixed/sliding outputs into
+# one upstream DST pass.
 fixedGeV: [2.0, 4.0]
 
-# MATRIX AXIS: isolation cone radius.
+# OUTPUT AXIS: isolation cone radius.
 coneR: [0.30, 0.40]
 
 # Global sliding WP parameters.

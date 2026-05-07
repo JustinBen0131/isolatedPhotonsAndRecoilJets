@@ -773,6 +773,109 @@ void RecoilJets::setPhotonIDVariants(const std::string& preselection,
   m_explicitPhotonIDVariants = true;
 }
 
+void RecoilJets::setInternalJetPtScan(const std::vector<double>& values)
+{
+  m_internalJetPtCuts.clear();
+  for (double v : values)
+  {
+    if (!std::isfinite(v) || v <= 0.0) continue;
+    bool seen = false;
+    for (double old : m_internalJetPtCuts)
+    {
+      if (std::fabs(old - v) < 1e-6) { seen = true; break; }
+    }
+    if (!seen) m_internalJetPtCuts.push_back(v);
+  }
+}
+
+void RecoilJets::configureInternalJetPtScanFromEnv()
+{
+  const char* disableRaw = std::getenv("RJ_DISABLE_JET_PT_INTERNALIZATION");
+  if (disableRaw && *disableRaw)
+  {
+    const std::string disable(disableRaw);
+    if (disable == "1" || disable == "true" || disable == "TRUE" ||
+        disable == "yes" || disable == "YES" || disable == "on" ||
+        disable == "ON")
+    {
+      m_internalJetPtCuts.clear();
+      m_internalJetPtBaseKeyCut = -1.0;
+      return;
+    }
+  }
+
+  std::vector<double> values;
+  const char* raw = std::getenv("RJ_INTERNAL_JET_PT_MINS");
+  if (raw && *raw)
+  {
+    std::string text(raw);
+    for (char& c : text)
+    {
+      if (c == ',' || c == ';' || c == ':') c = ' ';
+    }
+    std::stringstream ss(text);
+    double x = 0.0;
+    while (ss >> x)
+    {
+      values.push_back(x);
+    }
+  }
+
+  if (!values.empty())
+  {
+    m_internalJetPtBaseKeyCut = m_minJetPt;
+    setInternalJetPtScan(values);
+    if (m_internalJetPtCuts.size() > 1 && Verbosity() >= 1)
+    {
+      std::cout << "[RecoilJets] internal jet pT scan enabled:";
+      for (double cut : m_internalJetPtCuts) std::cout << ' ' << jetPtKeyForCut(cut) << '=' << cut;
+      std::cout << '\n';
+    }
+  }
+}
+
+std::vector<double> RecoilJets::activeJetPtCuts() const
+{
+  if (!m_internalJetPtCuts.empty()) return m_internalJetPtCuts;
+  return {m_minJetPt};
+}
+
+std::string RecoilJets::jetPtKeyForCut(double ptGeV) const
+{
+  const double rounded = std::round(ptGeV);
+  if (std::fabs(ptGeV - rounded) < 1e-4)
+  {
+    std::ostringstream os;
+    os << "jetPt" << static_cast<int>(rounded);
+    return os.str();
+  }
+
+  std::ostringstream os;
+  os << "jetPt" << std::fixed << std::setprecision(2) << ptGeV;
+  std::string s = os.str();
+  while (!s.empty() && s.back() == '0') s.pop_back();
+  if (!s.empty() && s.back() == '.') s.pop_back();
+  for (char& c : s)
+  {
+    if (c == '.') c = 'p';
+    if (c == '-') c = 'm';
+  }
+  return s;
+}
+
+std::string RecoilJets::histRKeyForJetPt(const std::string& rKey, double ptGeV) const
+{
+  if (activeJetPtCuts().size() <= 1) return rKey;
+  if (std::isfinite(m_internalJetPtBaseKeyCut) &&
+      std::fabs(ptGeV - m_internalJetPtBaseKeyCut) < 1e-6) return rKey;
+  return rKey + "_" + jetPtKeyForCut(ptGeV);
+}
+
+std::string RecoilJets::histRKeyForJetPtAndDphi(const std::string& rKey, double ptGeV, double cutRad) const
+{
+  return histRKeyForDphi(histRKeyForJetPt(rKey, ptGeV), cutRad);
+}
+
 void RecoilJets::setInternalBackToBackScan(const std::vector<double>& values)
 {
   m_internalBackToBackCuts.clear();
@@ -871,7 +974,11 @@ std::string RecoilJets::histRKeyForDphi(const std::string& rKey, double cutRad) 
 
 std::string RecoilJets::baseRKeyFromDphiHistKey(const std::string& rKey) const
 {
-  const std::size_t pos = rKey.find("_dphi");
+  const std::size_t dphiPos = rKey.find("_dphi");
+  const std::size_t jetPtPos = rKey.find("_jetPt");
+  std::size_t pos = std::string::npos;
+  if (dphiPos != std::string::npos) pos = dphiPos;
+  if (jetPtPos != std::string::npos) pos = (pos == std::string::npos) ? jetPtPos : std::min(pos, jetPtPos);
   if (pos == std::string::npos) return rKey;
   return rKey.substr(0, pos);
 }
@@ -1686,6 +1793,7 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
 int RecoilJets::Init(PHCompositeNode* topNode)
 {
   LOG(1, CLR_BLUE, "[Init] RecoilJets – starting");
+  configureInternalJetPtScanFromEnv();
   configureInternalBackToBackScanFromEnv();
 
   /* 0.  book-keeping & QA histograms --------------------------------- */
@@ -6625,13 +6733,18 @@ bool RecoilJets::runLeadIsoTightPhotonJetLoopAllRadii(
     // Radius-dependent containment cut: |eta_jet| < 1.1 - R
     const double Rjet            = jetRFromKey(baseRKey);
     const double jetEtaAbsMaxUse = jetEtaAbsMaxForRKey(baseRKey);
+    const double savedMinJetPt = m_minJetPt;
     const double savedMinBackToBack = m_minBackToBack;
+    const std::vector<double> jetPtCuts = activeJetPtCuts();
     const std::vector<double> dphiCuts = activeBackToBackCuts();
 
+    for (const double jetPtCut : jetPtCuts)
+    {
+      m_minJetPt = jetPtCut;
     for (const double dphiCut : dphiCuts)
     {
       m_minBackToBack = dphiCut;
-      const std::string rKey = histRKeyForDphi(baseRKey, dphiCut);
+      const std::string rKey = histRKeyForJetPtAndDphi(baseRKey, jetPtCut, dphiCut);
 
       if (!jets)
       {
@@ -7044,7 +7157,10 @@ bool RecoilJets::runLeadIsoTightPhotonJetLoopAllRadii(
             << ", |eta|<" << std::fixed << std::setprecision(2) << jetEtaAbsMaxUse << "]");
       }
     }
+    }
+    }
     m_minBackToBack = savedMinBackToBack;
+    m_minJetPt = savedMinJetPt;
   } // radii loop
 
   return filledAnyRadius;
@@ -7067,12 +7183,17 @@ void RecoilJets::runLeadIsoNonTightPhotonJetLoopAllRadii_SidebandC(
       if (!jets) continue;
 
       const double Rjet = jetRFromKey(baseRKey);
+      const double savedMinJetPt = m_minJetPt;
       const double savedMinBackToBack = m_minBackToBack;
+      const std::vector<double> jetPtCuts = activeJetPtCuts();
       const std::vector<double> dphiCuts = activeBackToBackCuts();
+      for (const double jetPtCut : jetPtCuts)
+      {
+      m_minJetPt = jetPtCut;
       for (const double dphiCut : dphiCuts)
       {
       m_minBackToBack = dphiCut;
-      const std::string rKey = histRKeyForDphi(baseRKey, dphiCut);
+      const std::string rKey = histRKeyForJetPtAndDphi(baseRKey, jetPtCut, dphiCut);
 
       std::vector<const Jet*> recoJetsFid;
       std::vector<char> recoJetsFidIsRecoil;
@@ -7141,7 +7262,9 @@ void RecoilJets::runLeadIsoNonTightPhotonJetLoopAllRadii_SidebandC(
         }
       }
       }
+      }
       m_minBackToBack = savedMinBackToBack;
+      m_minJetPt = savedMinJetPt;
    }
 }
 
@@ -7819,11 +7942,15 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                     }
                     
                     const double etaMaxTruth = jetEtaAbsMaxForRKey(baseRKey);
+                    const double savedMinJetPt = m_minJetPt;
                     const double savedMinBackToBack = m_minBackToBack;
+                    for (const double jetPtCut : activeJetPtCuts())
+                    {
+                    m_minJetPt = jetPtCut;
                     for (const double dphiCut : activeBackToBackCuts())
                     {
                     m_minBackToBack = dphiCut;
-                    const std::string rKey = histRKeyForDphi(baseRKey, dphiCut);
+                    const std::string rKey = histRKeyForJetPtAndDphi(baseRKey, jetPtCut, dphiCut);
                     
                     double tj1Pt = -1.0;
                     const Jet* tj1 = nullptr;
@@ -7955,7 +8082,9 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                             << " aT="  << std::fixed << std::setprecision(3) << aT);
                     }
                     }
+                    }
                     m_minBackToBack = savedMinBackToBack;
+                    m_minJetPt = savedMinJetPt;
                 } // end rKey loop
             }
         }
@@ -9417,11 +9546,15 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                     for (const auto& kv : m_jets)
                     {
                         const std::string baseRKey = kv.first;
+                        const double savedMinJetPt = m_minJetPt;
                         const double savedMinBackToBack = m_minBackToBack;
+                        for (const double jetPtCut : activeJetPtCuts())
+                        {
+                            m_minJetPt = jetPtCut;
                         for (const double dphiCut : activeBackToBackCuts())
                         {
                             m_minBackToBack = dphiCut;
-                            const std::string histRKey = histRKeyForDphi(baseRKey, dphiCut);
+                            const std::string histRKey = histRKeyForJetPtAndDphi(baseRKey, jetPtCut, dphiCut);
                             fillUnfoldResponseMatrixAndTruthDistributions(activeTrig,
                                                                           histRKey,
                                                                           effCentIdx_M,
@@ -9436,7 +9569,9 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                                                                           noRecoJetsFidIsRecoil,
                                                                           nullptr);
                         }
+                        }
                         m_minBackToBack = savedMinBackToBack;
+                        m_minJetPt = savedMinJetPt;
                     }
                 }
             }
@@ -9477,11 +9612,15 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                     if (!jets) continue;
                     
                     const double jetEtaAbsMaxUse = jetEtaAbsMaxForRKey(baseRKey);
+                    const double savedMinJetPt = m_minJetPt;
                     const double savedMinBackToBack = m_minBackToBack;
+                    for (const double jetPtCut : activeJetPtCuts())
+                    {
+                    m_minJetPt = jetPtCut;
                     for (const double dphiCut : activeBackToBackCuts())
                     {
                     m_minBackToBack = dphiCut;
-                    const std::string rKey = histRKeyForDphi(baseRKey, dphiCut);
+                    const std::string rKey = histRKeyForJetPtAndDphi(baseRKey, jetPtCut, dphiCut);
                     
                     for (const Jet* j : *jets)
                     {
@@ -9509,7 +9648,9 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                         }
                     }
                     }
+                    }
                     m_minBackToBack = savedMinBackToBack;
+                    m_minJetPt = savedMinJetPt;
                 }
             }
             

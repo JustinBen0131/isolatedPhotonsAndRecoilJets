@@ -163,6 +163,16 @@ namespace detail
     s.erase(s.find_last_not_of(ws) + 1);
     return s;
   }
+
+  inline std::string fmt(double x, int precision = 6)
+  {
+    std::ostringstream os;
+    os << std::fixed << std::setprecision(precision) << x;
+    std::string s = os.str();
+    while (!s.empty() && s.back() == '0') s.pop_back();
+    if (!s.empty() && s.back() == '.') s.pop_back();
+    return s.empty() ? "0" : s;
+  }
 }
 
 namespace detail
@@ -1562,6 +1572,10 @@ namespace idfanout
         std::string preselection;
         std::string tight;
         std::string nonTight;
+        bool hasIsoOverride = false;
+        double coneR = 0.0;
+        bool isSlidingIso = false;
+        double fixedGeV = 0.0;
     };
 
     inline std::vector<std::string> SplitPipe(const std::string& line)
@@ -1593,9 +1607,9 @@ namespace idfanout
             line = detail::trim(line);
             if (line.empty() || line[0] == '#') continue;
             const auto cols = SplitPipe(line);
-            if (cols.size() != 5)
+            if (!(cols.size() == 5 || cols.size() == 8))
             {
-                detail::bail("Bad RJ_ID_FANOUT_FILE row. Expected outRoot|cfgTag|preselection|tight|nonTight, got: " + line);
+                detail::bail("Bad RJ_ID_FANOUT_FILE row. Expected outRoot|cfgTag|preselection|tight|nonTight or outRoot|cfgTag|preselection|tight|nonTight|coneR|isSlidingIso|fixedGeV, got: " + line);
             }
 
             Entry e;
@@ -1612,6 +1626,24 @@ namespace idfanout
                 detail::bail("RJ_ID_FANOUT_FILE row has invalid tight: " + cols[3]);
             if (!yamlcfg::IsNonTightMode(e.nonTight))
                 detail::bail("RJ_ID_FANOUT_FILE row has invalid nonTight: " + cols[4]);
+
+            if (cols.size() == 8)
+            {
+                try
+                {
+                    e.coneR = std::stod(cols[5]);
+                    e.fixedGeV = std::stod(cols[7]);
+                }
+                catch (...)
+                {
+                    detail::bail("RJ_ID_FANOUT_FILE row has invalid coneR/fixedGeV numeric fields: " + line);
+                }
+                if (!ParseBool(cols[6], e.isSlidingIso))
+                    detail::bail("RJ_ID_FANOUT_FILE row has invalid isSlidingIso field: " + cols[6]);
+                if (!std::isfinite(e.coneR) || !std::isfinite(e.fixedGeV))
+                    detail::bail("RJ_ID_FANOUT_FILE row has non-finite coneR/fixedGeV: " + line);
+                e.hasIsoOverride = true;
+            }
 
             entries.push_back(e);
         }
@@ -1653,6 +1685,13 @@ namespace idfanout
         ReplaceOrAppendScalar(text, "preselection", e.preselection);
         ReplaceOrAppendScalar(text, "tight", e.tight);
         ReplaceOrAppendScalar(text, "nonTight", e.nonTight);
+        if (e.hasIsoOverride)
+        {
+            ReplaceOrAppendScalar(text, "coneR", detail::fmt(e.coneR, 3));
+            ReplaceOrAppendScalar(text, "isSlidingIso", e.isSlidingIso ? "true" : "false");
+            ReplaceOrAppendScalar(text, "isSlidingAndFixed", "false");
+            ReplaceOrAppendScalar(text, "fixedGeV", detail::fmt(e.fixedGeV, 3));
+        }
         if (!e.cfgTag.empty()) ReplaceOrAppendScalar(text, "analysis_cfg_tag", e.cfgTag);
         return text;
     }
@@ -4366,8 +4405,11 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                                      cfg.vertex_reweight_hist_pp);
 #endif
     recoilJets->setActiveJetRKeys(activeJetRKeys);
-    recoilJets->setIsolationWP(cfg.isoA, cfg.isoB, cfg.isoGap, cfg.isoConeR, recoilJetsIsoTowerMin, cfg.isoFixed);
-    recoilJets->setIsSlidingIso(cfg.isSlidingIso);
+    const double entryConeR = idEntry.hasIsoOverride ? idEntry.coneR : cfg.isoConeR;
+    const bool entryIsSlidingIso = idEntry.hasIsoOverride ? idEntry.isSlidingIso : cfg.isSlidingIso;
+    const double entryFixedGeV = idEntry.hasIsoOverride ? idEntry.fixedGeV : cfg.isoFixed;
+    recoilJets->setIsolationWP(cfg.isoA, cfg.isoB, cfg.isoGap, entryConeR, recoilJetsIsoTowerMin, entryFixedGeV);
+    recoilJets->setIsSlidingIso(entryIsSlidingIso);
     recoilJets->setTruthIsoMaxGeV(cfg.truthIsoGeV);
 #if defined(RJ_UNIFIED_ANALYSIS_AUAU)
     if (!cfg.auauCentIsoWP.empty())
@@ -4407,6 +4449,44 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     
     recoilJets->enablePi0Analysis(cfg.doPi0Analysis);
     std::string stampedYaml = idfanout::YAMLForEntry(cfg.yamlText, idEntry);
+    if (const char* jetPtRaw = std::getenv("RJ_INTERNAL_JET_PT_MINS"))
+    {
+        const char* disableRaw = std::getenv("RJ_DISABLE_JET_PT_INTERNALIZATION");
+        const bool disabled = disableRaw &&
+                              (std::string(disableRaw) == "1" ||
+                               std::string(disableRaw) == "true" ||
+                               std::string(disableRaw) == "TRUE" ||
+                               std::string(disableRaw) == "yes" ||
+                               std::string(disableRaw) == "YES" ||
+                               std::string(disableRaw) == "on" ||
+                               std::string(disableRaw) == "ON");
+        if (!disabled && *jetPtRaw)
+        {
+            std::string text(jetPtRaw);
+            for (char& c : text)
+            {
+                if (c == ',' || c == ';' || c == ':') c = ' ';
+            }
+            std::stringstream ss(text);
+            std::string token;
+            std::ostringstream list;
+            bool first = true;
+            list << "[";
+            while (ss >> token)
+            {
+                if (!first) list << ", ";
+                first = false;
+                list << token;
+            }
+            list << "]";
+            if (!first)
+            {
+                idfanout::ReplaceOrAppendScalar(stampedYaml,
+                                                "internal_jet_pt_min",
+                                                list.str());
+            }
+        }
+    }
     if (const char* dphiRaw = std::getenv("RJ_INTERNAL_DPHI_PI_FRACTIONS"))
     {
         const char* disableRaw = std::getenv("RJ_DISABLE_DPHI_INTERNALIZATION");
@@ -4462,6 +4542,9 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         << " phoDR=" << cfg.pho_dr_max
         << " jetDR=" << cfg.jet_dr_max
         << " isoTowerMinApplied=" << recoilJetsIsoTowerMin
+        << " coneR=" << entryConeR
+        << " fixedGeV=" << entryFixedGeV
+        << " isSlidingIso=" << (entryIsSlidingIso ? "true" : "false")
         << (isAuAuLike ? " (AuAu forced no isolation tower floor)" : "")
         << " preselection=" << idEntry.preselection
         << " tight=" << idEntry.tight
@@ -4539,9 +4622,9 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         }
         
         std::cout << "[CFG] isolation mode:";
-        if (!cfg.isSlidingIso)
+        if (!entryIsSlidingIso)
         {
-            std::cout << " fixed (thrReco=fixedGeV=" << cfg.isoFixed << ")";
+            std::cout << " fixed (thrReco=fixedGeV=" << entryFixedGeV << ")";
         }
         else
         {

@@ -370,6 +370,7 @@ public:
     
     void setPhotonEtaAbsMax(double v) { m_etaAbsMax = v; }
     void setMinJetPt(double v)        { m_minJetPt = v; }
+    void setInternalJetPtScan(const std::vector<double>& values);
     void setMinBackToBack(double v)   { m_minBackToBack = v; }
     void setInternalBackToBackScan(const std::vector<double>& values);
     
@@ -900,6 +901,11 @@ private:
     int         findPtBin(double pt) const;
     int         findCentBin(int cent) const;
     std::string suffixForBins(int ptIdx, int centIdx) const;
+    void        configureInternalJetPtScanFromEnv();
+    std::vector<double> activeJetPtCuts() const;
+    std::string jetPtKeyForCut(double ptGeV) const;
+    std::string histRKeyForJetPt(const std::string& rKey, double ptGeV) const;
+    std::string histRKeyForJetPtAndDphi(const std::string& rKey, double ptGeV, double cutRad) const;
     void        configureInternalBackToBackScanFromEnv();
     std::vector<double> activeBackToBackCuts() const;
     std::string dphiKeyForCut(double cutRad) const;
@@ -1368,6 +1374,8 @@ private:
     // Jet selection WP
     //  double m_minJetPt      = 5.0;
     double m_minJetPt      = 10.0;
+    std::vector<double> m_internalJetPtCuts;
+    double m_internalJetPtBaseKeyCut = -1.0;
     double m_minBackToBack = 7.0 * M_PI / 8.0;    // radians
     std::vector<double> m_internalBackToBackCuts;
     double m_internalBackToBackBaseKeyCut = -1.0;

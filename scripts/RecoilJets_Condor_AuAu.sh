@@ -159,7 +159,13 @@ if [[ -n "${RJ_ID_FANOUT_DIRS_FILE:-}" ]]; then
       fanout_dir_seen["$fan_out_dir"]=1
     fi
     fan_out_root="${fan_out_dir}/RecoilJets_${analysis_tag}_${chunk_tag}.root"
-    printf '%s|%s|%s|%s|%s\n' "$fan_out_root" "$fan_cfg" "$fan_pre" "$fan_tight" "$fan_nonTight" >> "$fanout_file"
+    if (( ${#fan_cols[@]} >= 8 )); then
+      printf '%s|%s|%s|%s|%s|%s|%s|%s\n' \
+        "$fan_out_root" "$fan_cfg" "$fan_pre" "$fan_tight" "$fan_nonTight" \
+        "${fan_cols[5]}" "${fan_cols[6]}" "${fan_cols[7]}" >> "$fanout_file"
+    else
+      printf '%s|%s|%s|%s|%s\n' "$fan_out_root" "$fan_cfg" "$fan_pre" "$fan_tight" "$fan_nonTight" >> "$fanout_file"
+    fi
     fanout_outputs+=( "$fan_out_root" )
   done < "$RJ_ID_FANOUT_DIRS_FILE"
   [[ -s "$fanout_file" ]] || { echo "[FATAL] fanout dirs file produced no output rows: $RJ_ID_FANOUT_DIRS_FILE"; exit 7; }

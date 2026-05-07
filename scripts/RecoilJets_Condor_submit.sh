@@ -66,9 +66,14 @@
 #       condorDoAllSmoke, condorDoAll, condorDoAllDirect
 #   • Jobs never mix files across runs in DATA mode.
 #   • Production sweeps use the legacy RecoilJets histogram engine with
-#     direct photon-ID fanout inside each Fun4All DST pass:
-#       jet_pt_min × back_to_back_dphi_min_pi_fraction × vz_cut_cm × coneR × iso mode
+#     direct output-sink fanout inside each Fun4All DST pass:
+#       dataset-default vz_cut_cm × ceil((coneR × iso mode × photon-ID) /
+#       RJ_DIRECT_FANOUT_MAX_OUTPUTS)
 #       and, for AuAu-like tags, also clusterUEpipeline.
+#     jet_pt_min and back_to_back_dphi_min_pi_fraction are internal recoil
+#     histogram scans by default, so they do not force repeated DST passes.
+#     vz_cut_cm is collapsed by dataset default unless RJ_VZ_SCAN_ALL=1
+#     or RJ_VZ_CUT_OVERRIDE=<cm> is set.
 #     Each fanout output is still an ordinary cfg-tagged ROOT file filled by
 #     RecoilJets/RecoilJets_AuAu, so AnalyzeRecoilJets* sees the legacy output
 #     contract unchanged.
@@ -108,7 +113,7 @@
 #
 #   SIM:
 #     isSim         | sim         | SIM
-#     isSimJet5     | simjet5     | SIMJET5
+#     isSimJet5     | isSimInclusive | simjet5 | siminclusive | SIMJET5
 #     isSimMB       | simmb       | SIMMB
 #     isSimEmbedded          | simembedded          | SIMEMBEDDED
 #     isSimEmbeddedInclusive | simembeddedinclusive | SIMEMBEDDEDINCLUSIVE
@@ -614,6 +619,108 @@ yaml_get_values() {
 
 sim_is_close() { awk -v x="$1" -v y="$2" 'BEGIN{d=x-y; if(d<0)d=-d; exit !(d<1e-6)}'; }
 
+env_truthy() {
+  case "${1:-0}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+  esac
+  return 1
+}
+
+dataset_default_vz_cut() {
+  case "${DATASET:-}" in
+    isAuAu|isOO|isSimEmbedded|isSimEmbeddedInclusive|isSimEmbeddedAndInclusive)
+      printf '%s\n' "10"
+      ;;
+    isPP|isPPrun25|isSim|isSimJet5|isSimInclusive|isSimMB|"")
+      printf '%s\n' "60"
+      ;;
+    *)
+      printf '%s\n' "60"
+      ;;
+  esac
+}
+
+vz_value_in_list() {
+  local needle="$1"; shift || true
+  local v
+  for v in "$@"; do
+    sim_is_close "$needle" "$v" && return 0
+  done
+  return 1
+}
+
+vz_selection_reason() {
+  if env_truthy "${RJ_VZ_SCAN_ALL:-0}"; then
+    printf '%s\n' "full YAML scan via RJ_VZ_SCAN_ALL=1"
+  elif [[ -n "${RJ_VZ_CUT_OVERRIDE:-}" ]]; then
+    printf '%s\n' "explicit override via RJ_VZ_CUT_OVERRIDE=${RJ_VZ_CUT_OVERRIDE}"
+  else
+    printf '%s\n' "dataset default for ${DATASET:-unknown}: $(dataset_default_vz_cut) cm"
+  fi
+}
+
+vz_selection_reason_for_yaml() {
+  local yaml="$1"
+  local -a yaml_vzs=()
+  mapfile -t yaml_vzs < <( yaml_get_values "vz_cut_cm" "$yaml" )
+  if env_truthy "${RJ_VZ_SCAN_ALL:-0}"; then
+    printf '%s\n' "full YAML scan via RJ_VZ_SCAN_ALL=1"
+  elif [[ -n "${RJ_VZ_CUT_OVERRIDE:-}" ]]; then
+    printf '%s\n' "explicit override via RJ_VZ_CUT_OVERRIDE=${RJ_VZ_CUT_OVERRIDE}"
+  elif (( ${#yaml_vzs[@]} == 1 )); then
+    printf '%s\n' "scalar YAML value"
+  else
+    printf '%s\n' "dataset default for ${DATASET:-unknown}: $(dataset_default_vz_cut) cm"
+  fi
+}
+
+dataset_vz_values() {
+  local yaml="$1"
+  local -a yaml_vzs=()
+  mapfile -t yaml_vzs < <( yaml_get_values "vz_cut_cm" "$yaml" )
+  (( ${#yaml_vzs[@]} )) || { err "No values found for vz_cut_cm in $yaml"; exit 72; }
+
+  if env_truthy "${RJ_VZ_SCAN_ALL:-0}"; then
+    printf '%s\n' "${yaml_vzs[@]}"
+    return 0
+  fi
+
+  local selected="${RJ_VZ_CUT_OVERRIDE:-}"
+  if [[ -z "$selected" ]]; then
+    if (( ${#yaml_vzs[@]} == 1 )); then
+      selected="${yaml_vzs[0]}"
+    else
+      selected="$(dataset_default_vz_cut)"
+    fi
+  fi
+  selected="$(trim_ws "$selected")"
+  [[ -n "$selected" ]] || { err "Selected vz_cut_cm is empty for dataset=${DATASET:-unknown}"; exit 72; }
+  if ! [[ "$selected" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
+    err "Selected vz_cut_cm must be numeric, got '${selected}'"
+    exit 72
+  fi
+
+  if ! vz_value_in_list "$selected" "${yaml_vzs[@]}"; then
+    if env_truthy "${RJ_ALLOW_VZ_CUT_OVERRIDE_OUTSIDE_YAML:-0}"; then
+      warn "Selected vz_cut_cm=${selected} is not listed in ${yaml}; allowing because RJ_ALLOW_VZ_CUT_OVERRIDE_OUTSIDE_YAML=1"
+    else
+      err "Selected vz_cut_cm=${selected} is not in YAML vz_cut_cm list [${yaml_vzs[*]}] for dataset=${DATASET:-unknown}"
+      err "Use RJ_VZ_SCAN_ALL=1 to scan YAML values, RJ_VZ_CUT_OVERRIDE=<listed value>, or RJ_ALLOW_VZ_CUT_OVERRIDE_OUTSIDE_YAML=1 for an explicit non-YAML value."
+      exit 72
+    fi
+  fi
+  printf '%s\n' "$selected"
+}
+
+say_vz_selection_summary() {
+  local yaml="$1"; shift
+  local -a selected=( "$@" )
+  local -a available=()
+  mapfile -t available < <( yaml_get_values "vz_cut_cm" "$yaml" )
+  say "  vz YAML available                  : [${available[*]}]"
+  say "  vz selected for production         : [${selected[*]}]  ($(vz_selection_reason_for_yaml "$yaml"))"
+}
+
 sim_pt_tag() {
   local pt="$1"
   if [[ "$pt" =~ ^([0-9]+)\.0+$ ]]; then
@@ -624,6 +731,56 @@ sim_pt_tag() {
     s="${s//-/m}"
     echo "$s"
   fi
+}
+
+jetpt_internal_enabled() {
+  case "${RJ_DISABLE_JET_PT_INTERNALIZATION:-0}" in
+    1|true|TRUE|yes|YES|on|ON) return 1 ;;
+  esac
+  case "${RJ_INTERNALIZE_JET_PT:-1}" in
+    0|false|FALSE|no|NO|off|OFF) return 1 ;;
+  esac
+  return 0
+}
+
+jetpt_scan_csv() {
+  local out="" v
+  for v in "$@"; do
+    v="$(trim_ws "$v")"
+    [[ -z "$v" ]] && continue
+    out="${out:+${out},}${v}"
+  done
+  printf '%s\n' "$out"
+}
+
+jetpt_nominal_value() {
+  (( "$#" > 0 )) && printf '%s\n' "$1"
+}
+
+jetpt_submit_values() {
+  if jetpt_internal_enabled && (( "$#" > 0 )); then
+    jetpt_nominal_value "$@"
+  else
+    printf '%s\n' "$@"
+  fi
+}
+
+jetpt_tag_component() {
+  local pt="$1"
+  if jetpt_internal_enabled; then
+    echo "jetMinPtScan"
+  else
+    echo "jetMinPt$(sim_pt_tag "$pt")"
+  fi
+}
+
+jetpt_env_fragment() {
+  if ! jetpt_internal_enabled; then
+    return 0
+  fi
+  local csv
+  csv="$(jetpt_scan_csv "$@")"
+  [[ -n "$csv" ]] && printf ';RJ_INTERNAL_JET_PT_MINS=%s' "$csv"
 }
 
 sim_b2b_tag() {
@@ -734,10 +891,18 @@ sim_iso_tag() {
 matrix_cfg_tag() {
   local pt="$1" frac="$2" vz="$3" cone="$4" iso_idx="$5" uepipe="$6"
   local tag
-  tag="jetMinPt$(sim_pt_tag "$pt")_$(dphi_tag_component "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso_base_tags[$iso_idx]}"
+  tag="$(jetpt_tag_component "$pt")_$(dphi_tag_component "$frac")_$(sim_vz_tag "$vz")_$(sim_cone_tag "$cone")_${iso_base_tags[$iso_idx]}"
   (( ${uepipe_in_tag:-0} )) && tag="${tag}_${uepipe}"
   tag="${tag}_${iso_selection_tags[$iso_idx]}"
   echo "$tag"
+}
+
+direct_fanout_shard_tag() {
+  local pt="$1" frac="$2" vz="$3" uepipe="$4" shard_idx="$5"
+  local tag
+  tag="$(jetpt_tag_component "$pt")_$(dphi_tag_component "$frac")_$(sim_vz_tag "$vz")_isoConeFanout"
+  (( ${uepipe_in_tag:-0} )) && tag="${tag}_${uepipe}"
+  printf '%s_shard%03d\n' "$tag" "$shard_idx"
 }
 
 sim_analysis_tag_for_dataset() {
@@ -788,11 +953,40 @@ id_fanout_enabled() {
   return 0
 }
 
-iso_submit_count() {
-  if id_fanout_enabled; then
-    iso_group_count
+iso_cone_fanout_enabled() {
+  id_fanout_enabled || return 1
+  case "${RJ_DISABLE_ISO_CONE_FANOUT:-0}" in
+    1|true|TRUE|yes|YES|on|ON) return 1 ;;
+  esac
+  return 0
+}
+
+direct_fanout_max_outputs() {
+  local n="${RJ_DIRECT_FANOUT_MAX_OUTPUTS:-30}"
+  [[ "$n" =~ ^[0-9]+$ && "$n" -gt 0 ]] || { err "RJ_DIRECT_FANOUT_MAX_OUTPUTS must be a positive integer, got '${n}'"; exit 2; }
+  if declare -p iso_tags >/dev/null 2>&1 && (( ${#iso_tags[@]} > 0 )); then
+    local groups min_rows
+    groups="$(iso_group_count)"
+    (( groups > 0 )) || groups=1
+    min_rows=$(( (${#iso_tags[@]} + groups - 1) / groups ))
+    if (( n < min_rows )); then
+      err "RJ_DIRECT_FANOUT_MAX_OUTPUTS=${n} is too small for the current photon-ID rows; use at least ${min_rows}."
+      exit 2
+    fi
+  fi
+  printf '%s\n' "$n"
+}
+
+direct_fanout_shard_count() {
+  local n_cones="$1"
+  local n_rows="$2"
+  if iso_cone_fanout_enabled; then
+    local total=$(( n_cones * n_rows ))
+    local max_outputs
+    max_outputs="$(direct_fanout_max_outputs)"
+    ceil_div "$total" "$max_outputs"
   else
-    printf '%d\n' "${#iso_tags[@]}"
+    iso_submit_count
   fi
 }
 
@@ -801,6 +995,14 @@ direct_worker_nevents() {
   [[ "$n" == "-1" ]] && n=0
   [[ "$n" =~ ^[0-9]+$ ]] || { err "RJ_DIRECT_NEVENTS must be -1 or a non-negative integer, got '${RJ_DIRECT_NEVENTS}'"; exit 2; }
   printf '%s\n' "$n"
+}
+
+iso_submit_count() {
+  if id_fanout_enabled; then
+    iso_group_count
+  else
+    printf '%d\n' "${#iso_tags[@]}"
+  fi
 }
 
 emit_id_fanout_dirs_file() {
@@ -814,6 +1016,56 @@ emit_id_fanout_dirs_file() {
     printf '%s|%s|%s|%s|%s\n' \
       "${dest_root}/${cfg}" "$cfg" "${iso_preselection[$j]}" "${iso_tight[$j]}" "${iso_nonTight[$j]}" >> "$out_file"
   done
+}
+
+iso_group_leader_ordinal() {
+  local iso_idx="$1"
+  local ord=0 j
+  for (( j=0; j<=iso_idx; j++ )); do
+    iso_idx_is_group_leader "$j" && (( ord+=1 ))
+  done
+  printf '%d\n' "$ord"
+}
+
+direct_fanout_cell_ordinal() {
+  local cone="$1" iso_idx="$2"
+  shift 2
+  local -a cones=( "$@" )
+  local cone_pos=-1 i
+  for (( i=0; i<${#cones[@]}; i++ )); do
+    if [[ "${cones[$i]}" == "$cone" ]]; then
+      cone_pos="$i"
+      break
+    fi
+  done
+  (( cone_pos >= 0 )) || { err "Internal fanout error: cone ${cone} not found in cone list [${cones[*]}]"; exit 2; }
+  local groups ord
+  groups="$(iso_group_count)"
+  ord="$(iso_group_leader_ordinal "$iso_idx")"
+  printf '%d\n' $(( cone_pos * groups + ord ))
+}
+
+emit_direct_fanout_shard_file() {
+  local out_file="$1" dest_root="$2" pt="$3" frac="$4" vz="$5" uepipe="$6" shard_idx="$7"
+  shift 7
+  local -a cones=( "$@" )
+  local max_outputs
+  max_outputs="$(direct_fanout_max_outputs)"
+  : > "$out_file"
+  local row=0 written=0 cone j cfg row_shard
+  for cone in "${cones[@]}"; do
+    for (( j=0; j<${#iso_tags[@]}; j++ )); do
+      (( row+=1 ))
+      row_shard=$(( (row - 1) / max_outputs + 1 ))
+      (( row_shard == shard_idx )) || continue
+      cfg="$(matrix_cfg_tag "$pt" "$frac" "$vz" "$cone" "$j" "$uepipe")"
+      printf '%s|%s|%s|%s|%s|%s|%s|%s\n' \
+        "${dest_root}/${cfg}" "$cfg" "${iso_preselection[$j]}" "${iso_tight[$j]}" "${iso_nonTight[$j]}" \
+        "$cone" "${iso_sliding[$j]}" "${iso_fixed[$j]}" >> "$out_file"
+      (( written+=1 ))
+    done
+  done
+  (( written > 0 )) || { err "Internal fanout error: shard ${shard_idx} wrote no rows to ${out_file}"; exit 2; }
 }
 
 fanout_dest_allowed() {
@@ -1204,7 +1456,7 @@ resolve_dataset() {
       SIM_SAMPLE_DEFAULT="run28_embeddedPhoton20"
       SIM_SAMPLE="$SIM_SAMPLE_DEFAULT"
       ;;
-    isSimJet5|isSimjet5|simjet5|SIMJET5)
+    isSimJet5|isSimjet5|isSimInclusive|issiminclusive|simjet5|siminclusive|SIMJET5|SIMINCLUSIVE)
       DATASET="isSimJet5"
       GOLDEN=""
       LIST_DIR=""
@@ -1434,13 +1686,14 @@ check_jobs_sim() {
 
   mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
   mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
-  mapfile -t sim_vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
+  mapfile -t sim_vzs   < <( dataset_vz_values "$master_yaml" )
   mapfile -t sim_cones < <( yaml_get_values "coneR" "$master_yaml" )
   (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
   (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
   (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
   (( ${#sim_cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
-  local -a sim_submit_fracs
+  local -a sim_submit_pts sim_submit_fracs
+  mapfile -t sim_submit_pts < <( jetpt_submit_values "${sim_pts[@]}" )
   mapfile -t sim_submit_fracs < <( dphi_submit_values "${sim_fracs[@]}" )
   build_iso_modes "$master_yaml"
   read_uepipe_modes "$master_yaml" "$TAG"
@@ -1459,7 +1712,16 @@ check_jobs_sim() {
 
   local iso_submit_n
   iso_submit_n="$(iso_submit_count)"
-  n_cfg=$(( ${#sim_pts[@]} * ${#sim_submit_fracs[@]} * ${#sim_vzs[@]} * ${#sim_cones[@]} * iso_submit_n * ${#uepipe_modes[@]} ))
+  local fanout_shards_per_axis=0
+  local final_cfg_n=0
+  if iso_cone_fanout_enabled; then
+    fanout_shards_per_axis="$(direct_fanout_shard_count "${#sim_cones[@]}" "${#iso_tags[@]}")"
+    n_cfg=$(( ${#sim_submit_pts[@]} * ${#sim_submit_fracs[@]} * ${#sim_vzs[@]} * fanout_shards_per_axis * ${#uepipe_modes[@]} ))
+    final_cfg_n=$(( ${#sim_submit_pts[@]} * ${#sim_submit_fracs[@]} * ${#sim_vzs[@]} * ${#sim_cones[@]} * ${#iso_tags[@]} * ${#uepipe_modes[@]} ))
+  else
+    n_cfg=$(( ${#sim_submit_pts[@]} * ${#sim_submit_fracs[@]} * ${#sim_vzs[@]} * ${#sim_cones[@]} * iso_submit_n * ${#uepipe_modes[@]} ))
+    final_cfg_n=$(( ${#sim_submit_pts[@]} * ${#sim_submit_fracs[@]} * ${#sim_vzs[@]} * ${#sim_cones[@]} * ${#iso_tags[@]} * ${#uepipe_modes[@]} ))
+  fi
 
   say "CHECKJOBS (dataset=${DATASET}, tag=${TAG})"
   say "  YAML master         : ${master_yaml}"
@@ -1469,17 +1731,27 @@ check_jobs_sim() {
   echo
 
   say "${BOLD}Matrix dimensions:${RST}"
-  say "  jet_pt_min                        : [${sim_pts[*]}]  (${#sim_pts[@]} values)"
+  if jetpt_internal_enabled; then
+    say "  jet_pt_min                        : [${sim_pts[*]}]  (${#sim_pts[@]} values; internal hist scan)"
+  else
+    say "  jet_pt_min                        : [${sim_pts[*]}]  (${#sim_pts[@]} cfg-tag values)"
+  fi
   if dphi_internal_enabled; then
     say "  back_to_back_dphi_min_pi_fraction : [${sim_fracs[*]}]  (${#sim_fracs[@]} values; internal hist scan)"
   else
     say "  back_to_back_dphi_min_pi_fraction : [${sim_fracs[*]}]  (${#sim_fracs[@]} cfg-tag values)"
   fi
-  say "  vz_cut_cm                         : [${sim_vzs[*]}]  (${#sim_vzs[@]} values)"
+  say "  vz_cut_cm                         : [${sim_vzs[*]}]  (${#sim_vzs[@]} cfg-tag value(s); $(vz_selection_reason_for_yaml "$master_yaml"))"
+  say_vz_selection_summary "$master_yaml" "${sim_vzs[@]}"
   say "  coneR                             : [${sim_cones[*]}]  (${#sim_cones[@]} values)"
   if id_fanout_enabled; then
-    say "  iso groups submitted              : ${iso_submit_n} upstream mode(s)"
-    say "  photon-ID fanout outputs          : ${#iso_tags[@]} cfg tag(s) across those iso groups"
+    if iso_cone_fanout_enabled; then
+      say "  iso/cone fanout shards            : ${fanout_shards_per_axis} upstream shard(s) per pt/dphi/vz/UE axis (cap=$(direct_fanout_max_outputs) outputs/pass)"
+      say "  final cone×iso×ID outputs         : $(( ${#sim_cones[@]} * ${#iso_tags[@]} )) cfg tag(s) per pt/dphi/vz/UE axis"
+    else
+      say "  iso groups submitted              : ${iso_submit_n} upstream mode(s)"
+      say "  photon-ID fanout outputs          : ${#iso_tags[@]} cfg tag(s) across those iso groups"
+    fi
   else
     say "  photon-ID modes submitted         : ${iso_submit_n} independent cfg tag(s) (fanout disabled)"
   fi
@@ -1488,7 +1760,8 @@ check_jobs_sim() {
   else
     say "  clusterUEpipeline                 : [${uepipe_modes[*]}]  (${#uepipe_modes[@]} forced value; not tagged for ${TAG})"
   fi
-  say "  upstream DST jobs configs         : ${BOLD}${n_cfg}${RST}"
+  say "  upstream DST job configs          : ${BOLD}${n_cfg}${RST}"
+  say "  final output cfg tags             : ${BOLD}${final_cfg_n}${RST}"
   echo
 
   say "${BOLD}Per-sample input file counts:${RST}"
@@ -1504,26 +1777,38 @@ check_jobs_sim() {
   done
   echo
 
-  say "${BOLD}Full upstream ID-fanout cell list (${n_cfg} entries × ${#samples[@]} samples = ${BOLD}$((n_cfg * ${#samples[@]}))${RST} submit blocks):${RST}"
+  say "${BOLD}Full upstream fanout cell list (${n_cfg} entries × ${#samples[@]} samples = ${BOLD}$((n_cfg * ${#samples[@]}))${RST} submit blocks):${RST}"
   printf "  ${BOLD}%3s │ %-70s │ %-5s %-6s %-7s %-7s %-18s %-12s${RST}\n" \
          "#" "cfg_tag" "pt" "frac" "vz" "cone" "iso" "uepipe"
   printf "  ────┼────────────────────────────────────────────────────────────────────────┼───── ────── ─────── ─────── ────────────────── ────────────\n"
   local cfg_num=0
-  for _pt in "${sim_pts[@]}"; do
+  for _pt in "${sim_submit_pts[@]}"; do
     for _frac in "${sim_submit_fracs[@]}"; do
       for _vz in "${sim_vzs[@]}"; do
-        for _cone in "${sim_cones[@]}"; do
-          for (( _ci=0; _ci<${#iso_tags[@]}; _ci++ )); do
-            id_fanout_enabled && ! iso_idx_is_group_leader "$_ci" && continue
-            for _ue in "${uepipe_modes[@]}"; do
+        if iso_cone_fanout_enabled; then
+          for _ue in "${uepipe_modes[@]}"; do
+            local _shards _sh
+            _shards="$(direct_fanout_shard_count "${#sim_cones[@]}" "${#iso_tags[@]}")"
+            for (( _sh=1; _sh<=_shards; _sh++ )); do
               (( cfg_num+=1 ))
-              local _tag
-              _tag="$(matrix_cfg_tag "$_pt" "$_frac" "$_vz" "$_cone" "$_ci" "$_ue")"
               printf "  %3d │ %-70s │ %-5s %-6s %-7s %-7s %-18s %-12s\n" \
-                     "$cfg_num" "$_tag" "$_pt" "$_frac" "$_vz" "$_cone" "${iso_tags[$_ci]}" "$_ue"
+                     "$cfg_num" "isoConeFanoutShard$(printf '%03d' "$_sh")" "$_pt" "$_frac" "$_vz" "scan" "cone×iso×ID" "$_ue"
             done
           done
-        done
+        else
+          for _cone in "${sim_cones[@]}"; do
+            for (( _ci=0; _ci<${#iso_tags[@]}; _ci++ )); do
+              id_fanout_enabled && ! iso_idx_is_group_leader "$_ci" && continue
+              for _ue in "${uepipe_modes[@]}"; do
+                (( cfg_num+=1 ))
+                local _tag
+                _tag="$(matrix_cfg_tag "$_pt" "$_frac" "$_vz" "$_cone" "$_ci" "$_ue")"
+                printf "  %3d │ %-70s │ %-5s %-6s %-7s %-7s %-18s %-12s\n" \
+                       "$cfg_num" "$_tag" "$_pt" "$_frac" "$_vz" "$_cone" "${iso_tags[$_ci]}" "$_ue"
+              done
+            done
+          done
+        fi
       done
     done
   done
@@ -1561,7 +1846,7 @@ check_jobs_sim() {
 
   say "Output tree: each tag becomes a subdirectory under ${DEST_BASE}/"
   local _ex_tag
-  _ex_tag="$(matrix_cfg_tag "${sim_pts[0]}" "${sim_fracs[0]}" "${sim_vzs[0]}" "${sim_cones[0]}" 0 "${uepipe_modes[0]}")"
+  _ex_tag="$(matrix_cfg_tag "${sim_submit_pts[0]}" "${sim_submit_fracs[0]}" "${sim_vzs[0]}" "${sim_cones[0]}" 0 "${uepipe_modes[0]}")"
   say "  e.g. ${DIM}${DEST_BASE}/${_ex_tag}/run28_photonjet10/*.root${RST}"
 }
 
@@ -1639,15 +1924,16 @@ check_jobs_all() {
 
   # Read YAML matrix dimensions (same logic as condor all / local paths)
   local data_yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
-  local -a ck_pts ck_fracs ck_submit_fracs ck_vzs ck_cones
+  local -a ck_pts ck_submit_pts ck_fracs ck_submit_fracs ck_vzs ck_cones
   mapfile -t ck_pts   < <( yaml_get_values "jet_pt_min" "$data_yaml_src" )
   mapfile -t ck_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$data_yaml_src" )
-  mapfile -t ck_vzs   < <( yaml_get_values "vz_cut_cm" "$data_yaml_src" )
+  mapfile -t ck_vzs   < <( dataset_vz_values "$data_yaml_src" )
   mapfile -t ck_cones < <( yaml_get_values "coneR" "$data_yaml_src" )
   (( ${#ck_pts[@]} ))   || { err "No values found for jet_pt_min in $data_yaml_src"; exit 72; }
   (( ${#ck_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $data_yaml_src"; exit 72; }
   (( ${#ck_vzs[@]} ))   || { err "No values found for vz_cut_cm in $data_yaml_src"; exit 72; }
   (( ${#ck_cones[@]} )) || { err "No values found for coneR in $data_yaml_src"; exit 72; }
+  mapfile -t ck_submit_pts < <( jetpt_submit_values "${ck_pts[@]}" )
   mapfile -t ck_submit_fracs < <( dphi_submit_values "${ck_fracs[@]}" )
   build_iso_modes "$data_yaml_src"
   read_uepipe_modes "$data_yaml_src" "$TAG"
@@ -1675,7 +1961,17 @@ check_jobs_all() {
 
   local iso_submit_n
   iso_submit_n="$(iso_submit_count)"
-  local n_matrix=$(( ${#ck_pts[@]} * ${#ck_submit_fracs[@]} * ${#ck_vzs[@]} * ${#ck_cones[@]} * iso_submit_n * ${#uepipe_modes[@]} ))
+  local fanout_shards_per_axis=0
+  local final_cfg_n=0
+  local n_matrix=0
+  if iso_cone_fanout_enabled; then
+    fanout_shards_per_axis="$(direct_fanout_shard_count "${#ck_cones[@]}" "${#iso_tags[@]}")"
+    n_matrix=$(( ${#ck_submit_pts[@]} * ${#ck_submit_fracs[@]} * ${#ck_vzs[@]} * fanout_shards_per_axis * ${#uepipe_modes[@]} ))
+    final_cfg_n=$(( ${#ck_submit_pts[@]} * ${#ck_submit_fracs[@]} * ${#ck_vzs[@]} * ${#ck_cones[@]} * ${#iso_tags[@]} * ${#uepipe_modes[@]} ))
+  else
+    n_matrix=$(( ${#ck_submit_pts[@]} * ${#ck_submit_fracs[@]} * ${#ck_vzs[@]} * ${#ck_cones[@]} * iso_submit_n * ${#uepipe_modes[@]} ))
+    final_cfg_n=$(( ${#ck_submit_pts[@]} * ${#ck_submit_fracs[@]} * ${#ck_vzs[@]} * ${#ck_cones[@]} * ${#iso_tags[@]} * ${#uepipe_modes[@]} ))
+  fi
   local total_jobs=$(( n_matrix * base_jobs ))
 
   say "CHECKJOBS (dataset=${DATASET}, tag=${TAG})"
@@ -1683,17 +1979,27 @@ check_jobs_all() {
   say "  groupSize            : ${gs}"
   echo
   say "${BOLD}Matrix dimensions:${RST}"
-  say "  jet_pt_min           : [${ck_pts[*]}]  (${#ck_pts[@]} values)"
+  if jetpt_internal_enabled; then
+    say "  jet_pt_min           : [${ck_pts[*]}]  (${#ck_pts[@]} values; internal hist scan)"
+  else
+    say "  jet_pt_min           : [${ck_pts[*]}]  (${#ck_pts[@]} cfg-tag values)"
+  fi
   if dphi_internal_enabled; then
     say "  b2b_dphi_pi_fraction : [${ck_fracs[*]}]  (${#ck_fracs[@]} values; internal hist scan)"
   else
     say "  b2b_dphi_pi_fraction : [${ck_fracs[*]}]  (${#ck_fracs[@]} cfg-tag values)"
   fi
-  say "  vz_cut_cm            : [${ck_vzs[*]}]  (${#ck_vzs[@]} values)"
+  say "  vz_cut_cm            : [${ck_vzs[*]}]  (${#ck_vzs[@]} cfg-tag value(s); $(vz_selection_reason_for_yaml "$data_yaml_src"))"
+  say_vz_selection_summary "$data_yaml_src" "${ck_vzs[@]}"
   say "  coneR                : [${ck_cones[*]}]  (${#ck_cones[@]} values)"
   if id_fanout_enabled; then
-    say "  iso groups submitted : ${iso_submit_n} upstream mode(s)"
-    say "  photon-ID fanout cfgs: ${#iso_tags[@]} cfg tag(s) across those iso groups"
+    if iso_cone_fanout_enabled; then
+      say "  iso/cone fanout      : ${fanout_shards_per_axis} upstream shard(s) per pt/dphi/vz/UE axis (cap=$(direct_fanout_max_outputs) outputs/pass)"
+      say "  final cone×iso×ID cfgs: $(( ${#ck_cones[@]} * ${#iso_tags[@]} )) cfg tag(s) per pt/dphi/vz/UE axis"
+    else
+      say "  iso groups submitted : ${iso_submit_n} upstream mode(s)"
+      say "  photon-ID fanout cfgs: ${#iso_tags[@]} cfg tag(s) across those iso groups"
+    fi
   else
     say "  photon-ID cfgs       : ${iso_submit_n} independent cfg tag(s) (fanout disabled)"
   fi
@@ -1703,6 +2009,7 @@ check_jobs_all() {
     say "  clusterUEpipeline    : [${uepipe_modes[*]}]  (${#uepipe_modes[@]} forced value; not tagged for ${TAG})"
   fi
   say "  upstream matrix cells: ${BOLD}${n_matrix}${RST}"
+  say "  final output cfg tags: ${BOLD}${final_cfg_n}${RST}"
   echo
   say "${BOLD}Per-matrix-cell base:${RST}"
   say "  golden runs (w/lists): ${total_runs}"
@@ -1711,31 +2018,39 @@ check_jobs_all() {
   (( missing > 0 )) && warn "  runs skipped (missing lists): ${missing}"
   echo
 
-  say "${BOLD}Full upstream ID-fanout cell list (${n_matrix} entries):${RST}"
+  say "${BOLD}Full upstream fanout cell list (${n_matrix} entries):${RST}"
   echo
   printf "  ${BOLD}%3s │ %-70s │ %-5s %-6s %-7s %-7s %-18s %-12s${RST}\n" \
          "#" "cfg_tag" "pt" "frac" "vz" "cone" "iso" "uepipe"
   printf "  ────┼────────────────────────────────────────────────────────────────────────┼───── ────── ─────── ─────── ────────────────── ────────────\n"
   local cfg_num=0
-  for _pt in "${ck_pts[@]}"; do
+  for _pt in "${ck_submit_pts[@]}"; do
   for _frac in "${ck_submit_fracs[@]}"; do
   for _vz in "${ck_vzs[@]}"; do
-    for _cone in "${ck_cones[@]}"; do
-    for (( _ci=0; _ci<${#iso_tags[@]}; _ci++ )); do
-    id_fanout_enabled && ! iso_idx_is_group_leader "$_ci" && continue
-    for _ue in "${uepipe_modes[@]}"; do
-      (( ++cfg_num ))
-      local _dpt; _dpt="jetMinPt$(sim_pt_tag "$_pt")"
-      local _dfrac; _dfrac="$(sim_b2b_tag "$_frac")"
-      local _dvz; _dvz="$(sim_vz_tag "$_vz")"
-      local _dcone; _dcone="$(sim_cone_tag "$_cone")"
-      local _tag
-      _tag="$(matrix_cfg_tag "$_pt" "$_frac" "$_vz" "$_cone" "$_ci" "$_ue")"
-      printf "  %3d │ %-70s │ %-5s %-6s %-7s %-7s %-18s %-12s\n" \
-             "$cfg_num" "$_tag" "$_pt" "$_frac" "$_vz" "$_cone" "${iso_tags[$_ci]}" "$_ue"
-    done
-    done
-    done
+    if iso_cone_fanout_enabled; then
+      for _ue in "${uepipe_modes[@]}"; do
+        local _shards _sh
+        _shards="$(direct_fanout_shard_count "${#ck_cones[@]}" "${#iso_tags[@]}")"
+        for (( _sh=1; _sh<=_shards; _sh++ )); do
+          (( ++cfg_num ))
+          printf "  %3d │ %-70s │ %-5s %-6s %-7s %-7s %-18s %-12s\n" \
+                 "$cfg_num" "isoConeFanoutShard$(printf '%03d' "$_sh")" "$_pt" "$_frac" "$_vz" "scan" "cone×iso×ID" "$_ue"
+        done
+      done
+    else
+      for _cone in "${ck_cones[@]}"; do
+      for (( _ci=0; _ci<${#iso_tags[@]}; _ci++ )); do
+      id_fanout_enabled && ! iso_idx_is_group_leader "$_ci" && continue
+      for _ue in "${uepipe_modes[@]}"; do
+        (( ++cfg_num ))
+        local _tag
+        _tag="$(matrix_cfg_tag "$_pt" "$_frac" "$_vz" "$_cone" "$_ci" "$_ue")"
+        printf "  %3d │ %-70s │ %-5s %-6s %-7s %-7s %-18s %-12s\n" \
+               "$cfg_num" "$_tag" "$_pt" "$_frac" "$_vz" "$_cone" "${iso_tags[$_ci]}" "$_ue"
+      done
+      done
+      done
+    fi
   done
   done
   done
@@ -1772,7 +2087,7 @@ check_jobs_all() {
 
   say "Output tree: ${DEST_BASE}/<cfg_tag>/<run8>/*.root"
   local _ex_tag
-  _ex_tag="$(matrix_cfg_tag "${ck_pts[0]}" "${ck_submit_fracs[0]}" "${ck_vzs[0]}" "${ck_cones[0]}" 0 "${uepipe_modes[0]}")"
+  _ex_tag="$(matrix_cfg_tag "${ck_submit_pts[0]}" "${ck_submit_fracs[0]}" "${ck_vzs[0]}" "${ck_cones[0]}" 0 "${uepipe_modes[0]}")"
   say "  e.g. ${DIM}${DEST_BASE}/${_ex_tag}/00067599/*.root${RST}"
 }
 
@@ -1781,15 +2096,16 @@ workflow_check() {
   yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
   [[ -s "$yaml_src" ]] || { err "Workflow check YAML not found or empty: $yaml_src"; exit 72; }
 
-  local -a pts fracs submit_fracs vzs cones
+  local -a pts submit_pts fracs submit_fracs vzs cones
   mapfile -t pts   < <( yaml_get_values "jet_pt_min" "$yaml_src" )
   mapfile -t fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$yaml_src" )
-  mapfile -t vzs   < <( yaml_get_values "vz_cut_cm" "$yaml_src" )
+  mapfile -t vzs   < <( dataset_vz_values "$yaml_src" )
   mapfile -t cones < <( yaml_get_values "coneR" "$yaml_src" )
   (( ${#pts[@]} ))   || { err "No values found for jet_pt_min in $yaml_src"; exit 72; }
   (( ${#fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $yaml_src"; exit 72; }
   (( ${#vzs[@]} ))   || { err "No values found for vz_cut_cm in $yaml_src"; exit 72; }
   (( ${#cones[@]} )) || { err "No values found for coneR in $yaml_src"; exit 72; }
+  mapfile -t submit_pts < <( jetpt_submit_values "${pts[@]}" )
   mapfile -t submit_fracs < <( dphi_submit_values "${fracs[@]}" )
 
   build_iso_modes "$yaml_src"
@@ -1797,11 +2113,11 @@ workflow_check() {
 
   local iso_submit_n
   iso_submit_n="$(iso_submit_count)"
-  local n_cfg=$(( ${#pts[@]} * ${#submit_fracs[@]} * ${#vzs[@]} * ${#cones[@]} * iso_submit_n * ${#uepipe_modes[@]} ))
+  local n_cfg=$(( ${#submit_pts[@]} * ${#submit_fracs[@]} * ${#vzs[@]} * ${#cones[@]} * iso_submit_n * ${#uepipe_modes[@]} ))
   local ex_tag
-  ex_tag="$(matrix_cfg_tag "${pts[0]}" "${submit_fracs[0]}" "${vzs[0]}" "${cones[0]}" 0 "${uepipe_modes[0]}")"
+  ex_tag="$(matrix_cfg_tag "${submit_pts[0]}" "${submit_fracs[0]}" "${vzs[0]}" "${cones[0]}" 0 "${uepipe_modes[0]}")"
   local override
-  override="$(sim_make_yaml_override "$yaml_src" "${pts[0]}" "${fracs[0]}" "${vzs[0]}" "${cones[0]}" "${iso_sliding[0]}" "${iso_fixed[0]}" "${uepipe_modes[0]}" "${iso_preselection[0]}" "${iso_tight[0]}" "${iso_nonTight[0]}" "$ex_tag" "WORKFLOWCHECK" "false")"
+  override="$(sim_make_yaml_override "$yaml_src" "${submit_pts[0]}" "${submit_fracs[0]}" "${vzs[0]}" "${cones[0]}" "${iso_sliding[0]}" "${iso_fixed[0]}" "${uepipe_modes[0]}" "${iso_preselection[0]}" "${iso_tight[0]}" "${iso_nonTight[0]}" "$ex_tag" "WORKFLOWCHECK" "false")"
 
   say "${BOLD}Workflow check${RST}"
   say "  dataset          : ${DATASET}"
@@ -2073,7 +2389,7 @@ auau_bdt_make_training_yaml() {
   local -a pts fracs vzs cones fixeds uepipes
   mapfile -t pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
   mapfile -t fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
-  mapfile -t vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
+  mapfile -t vzs   < <( dataset_vz_values "$master_yaml" )
   mapfile -t cones < <( yaml_get_values "coneR" "$master_yaml" )
   mapfile -t fixeds < <( yaml_get_values "fixedGeV" "$master_yaml" 2>/dev/null )
   (( ${#pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
@@ -2111,7 +2427,7 @@ auau_bdt_cfg_tag_from_yaml() {
   local -a pts fracs vzs cones
   mapfile -t pts   < <( yaml_get_values "jet_pt_min" "$yaml" )
   mapfile -t fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$yaml" )
-  mapfile -t vzs   < <( yaml_get_values "vz_cut_cm" "$yaml" )
+  mapfile -t vzs   < <( dataset_vz_values "$yaml" )
   mapfile -t cones < <( yaml_get_values "coneR" "$yaml" )
   build_iso_modes "$yaml"
   read_uepipe_modes "$yaml" "simembedded"
@@ -2689,7 +3005,7 @@ auau_jetml_make_training_yaml() {
   local -a pts fracs vzs cones fixeds uepipes
   mapfile -t pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
   mapfile -t fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
-  mapfile -t vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
+  mapfile -t vzs   < <( dataset_vz_values "$master_yaml" )
   mapfile -t cones < <( yaml_get_values "coneR" "$master_yaml" )
   mapfile -t fixeds < <( yaml_get_values "fixedGeV" "$master_yaml" 2>/dev/null )
   (( ${#pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
@@ -2858,7 +3174,7 @@ auau_ml_first_matrix_yaml() {
   local -a pts fracs vzs cones fixeds uepipes
   mapfile -t pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
   mapfile -t fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
-  mapfile -t vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
+  mapfile -t vzs   < <( dataset_vz_values "$master_yaml" )
   mapfile -t cones < <( yaml_get_values "coneR" "$master_yaml" )
   mapfile -t fixeds < <( yaml_get_values "fixedGeV" "$master_yaml" 2>/dev/null )
   (( ${#pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
@@ -3162,7 +3478,7 @@ scaled_trigger_prepare_single_yaml() {
   local -a data_pts data_fracs data_vzs data_cones
   mapfile -t data_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
   mapfile -t data_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
-  mapfile -t data_vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
+  mapfile -t data_vzs   < <( dataset_vz_values "$master_yaml" )
   mapfile -t data_cones < <( yaml_get_values "coneR" "$master_yaml" )
   (( ${#data_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
   (( ${#data_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
@@ -3488,7 +3804,7 @@ case "$ACTION" in
 
     mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
     mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
-    mapfile -t sim_vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
+    mapfile -t sim_vzs   < <( dataset_vz_values "$master_yaml" )
     mapfile -t sim_cones < <( yaml_get_values "coneR" "" )
     (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
     (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
@@ -3637,7 +3953,7 @@ case "$ACTION" in
 
       mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
       mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
-      mapfile -t sim_vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
+      mapfile -t sim_vzs   < <( dataset_vz_values "$master_yaml" )
       mapfile -t sim_cones < <( yaml_get_values "coneR" "$master_yaml" )
       (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
       (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
@@ -3804,7 +4120,7 @@ case "$ACTION" in
       data_yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
       mapfile -t data_pts   < <( yaml_get_values "jet_pt_min" "$data_yaml_src" )
       mapfile -t data_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$data_yaml_src" )
-      mapfile -t data_vzs   < <( yaml_get_values "vz_cut_cm" "$data_yaml_src" )
+      mapfile -t data_vzs   < <( dataset_vz_values "$data_yaml_src" )
       mapfile -t data_cones < <( yaml_get_values "coneR" "$data_yaml_src" )
       (( ${#data_pts[@]} ))   || { err "No values found for jet_pt_min in $data_yaml_src"; exit 72; }
       (( ${#data_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $data_yaml_src"; exit 72; }
@@ -3899,7 +4215,7 @@ case "$ACTION" in
 
     mapfile -t data_pts   < <( yaml_get_values "jet_pt_min" "$data_yaml_src" )
     mapfile -t data_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$data_yaml_src" )
-    mapfile -t data_vzs   < <( yaml_get_values "vz_cut_cm" "$data_yaml_src" )
+    mapfile -t data_vzs   < <( dataset_vz_values "$data_yaml_src" )
     mapfile -t data_cones < <( yaml_get_values "coneR" "$data_yaml_src" )
     (( ${#data_pts[@]} ))   || { err "No values found for jet_pt_min in $data_yaml_src"; exit 72; }
     (( ${#data_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $data_yaml_src"; exit 72; }
@@ -4029,7 +4345,7 @@ case "$ACTION" in
 
     mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
     mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
-    mapfile -t sim_vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
+    mapfile -t sim_vzs   < <( dataset_vz_values "$master_yaml" )
     mapfile -t sim_cones < <( yaml_get_values "coneR" "" )
     (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
     (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
@@ -4174,7 +4490,7 @@ SUB
     if [[ "$MAX_JOBS" =~ ^[0-9]+$ && "$MAX_JOBS" -gt 0 ]]; then
       _direct_args+=( maxJobs "$MAX_JOBS" )
     fi
-    RJ_DISABLE_ID_FANOUT=1 RJ_DISABLE_DPHI_INTERNALIZATION=1 RJ_DIRECT_DST_DOALL=1 "$0" "${_direct_args[@]}"
+    RJ_DISABLE_ID_FANOUT=1 RJ_DISABLE_JET_PT_INTERNALIZATION=1 RJ_DISABLE_DPHI_INTERNALIZATION=1 RJ_DIRECT_DST_DOALL=1 "$0" "${_direct_args[@]}"
     ;;
 
   condorDoAll)
@@ -4193,13 +4509,15 @@ SUB
 
     mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
     mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
-    mapfile -t sim_vzs   < <( yaml_get_values "vz_cut_cm" "$master_yaml" )
+    mapfile -t sim_vzs   < <( dataset_vz_values "$master_yaml" )
     mapfile -t sim_cones < <( yaml_get_values "coneR" "$master_yaml" )
     (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
     (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
     (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
     (( ${#sim_cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
+    mapfile -t sim_submit_pts < <( jetpt_submit_values "${sim_pts[@]}" )
     mapfile -t sim_submit_fracs < <( dphi_submit_values "${sim_fracs[@]}" )
+    jetpt_env_for_sub="$(jetpt_env_fragment "${sim_pts[@]}")"
     dphi_env_for_sub="$(dphi_env_fragment "${sim_fracs[@]}")"
     build_iso_modes "$master_yaml"
     read_uepipe_modes "$master_yaml" "$TAG"
@@ -4219,80 +4537,8 @@ SUB
 
     # If CHECKJOBS was also provided, do a dry-run count for the FULL condorDoAll matrix and exit.
     if [[ "${DRYRUN:-0}" -eq 1 ]]; then
-      iso_submit_n="$(iso_submit_count)"
-      n_cfg=$(( ${#sim_pts[@]} * ${#sim_submit_fracs[@]} * ${#sim_vzs[@]} * ${#sim_cones[@]} * iso_submit_n * ${#uepipe_modes[@]} ))
-      per_cfg_jobs=0
-
-      say "CHECKJOBS (${DATASET} condorDoAll matrix)"
-      say "  YAML master         : ${master_yaml}"
-      say "  groupSize (baseline): ${gs_doall}"
-      echo
-      say "${BOLD}Matrix dimensions:${RST}"
-      say "  jet_pt_min                        : [${sim_pts[*]}]  (${#sim_pts[@]} values)"
-      if dphi_internal_enabled; then
-        say "  back_to_back_dphi_min_pi_fraction : [${sim_fracs[*]}]  (${#sim_fracs[@]} values; internal hist scan, one cfg-tag axis)"
-      else
-        say "  back_to_back_dphi_min_pi_fraction : [${sim_fracs[*]}]  (${#sim_fracs[@]} cfg-tag values)"
-      fi
-      say "  vz_cut_cm                         : [${sim_vzs[*]}]  (${#sim_vzs[@]} values)"
-      say "  coneR                             : [${sim_cones[*]}]  (${#sim_cones[@]} values)"
-      if id_fanout_enabled; then
-        say "  iso groups submitted              : ${iso_submit_n} upstream mode(s)"
-        say "  photon-ID fanout outputs          : ${#iso_tags[@]} cfg tag(s) across those iso groups"
-      else
-        say "  photon-ID modes submitted         : ${iso_submit_n} independent cfg tag(s) (fanout disabled)"
-      fi
-      if (( ${uepipe_in_tag:-0} )); then
-        say "  clusterUEpipeline                 : [${uepipe_modes[*]}]  (${#uepipe_modes[@]} values; tagged)"
-      else
-        say "  clusterUEpipeline                 : [${uepipe_modes[*]}]  (${#uepipe_modes[@]} forced value; not tagged for ${TAG})"
-      fi
-      say "  upstream DST job configs          : ${BOLD}${n_cfg}${RST}"
-      say "  samples                           : [${samples[*]}]  (${#samples[@]} values)"
-      echo
-
-      say "${BOLD}Per-sample input file counts:${RST}"
-      for samp in "${samples[@]}"; do
-        SIM_SAMPLE="$samp"
-        sim_init
-        nfiles=$(wc -l < "$SIM_CLEAN_LIST" | awk '{print $1}')
-        njobs=$(ceil_div "$nfiles" "$gs_doall")
-        say "  sample=${BOLD}${SIM_SAMPLE}${RST}  input_files=${nfiles}  jobs_per_cfg=${njobs}"
-        per_cfg_jobs=$(( per_cfg_jobs + njobs ))
-      done
-      echo
-
-      say "${BOLD}Full upstream ID-fanout cell list (${n_cfg} entries × ${#samples[@]} samples = ${BOLD}$((n_cfg * ${#samples[@]}))${RST} submit blocks):${RST}"
-      cfg_num=0
-      for pt in "${sim_pts[@]}"; do
-        for frac in "${sim_submit_fracs[@]}"; do
-          for vz in "${sim_vzs[@]}"; do
-          for cone in "${sim_cones[@]}"; do
-          for (( _ci=0; _ci<${#iso_tags[@]}; _ci++ )); do
-          id_fanout_enabled && ! iso_idx_is_group_leader "$_ci" && continue
-          for uepipe in "${uepipe_modes[@]}"; do
-            (( cfg_num+=1 ))
-            _tag="$(matrix_cfg_tag "$pt" "$frac" "$vz" "$cone" "$_ci" "$uepipe")"
-            printf "  ${DIM}%3d${RST} │ %-70s │ pt=%-5s frac=%-6s vz=%-5s cone=%-5s iso=%-16s uepipe=%s\n" \
-                   "$cfg_num" "$_tag" "$pt" "$frac" "$vz" "$cone" "${iso_tags[$_ci]}" "$uepipe"
-          done
-          done
-          done
-          done
-        done
-      done
-      echo
-
-      total_jobs=$(( n_cfg * per_cfg_jobs ))
-      say "${BOLD}Job count summary:${RST}"
-      say "  upstream configs       : ${n_cfg}"
-      say "  jobs per combo (Σsamp) : ${per_cfg_jobs}"
-      say "  ─────────────────────────────────"
-      say "  ${BOLD}TOTAL CONDOR JOBS        : ${BOLD}${total_jobs}${RST}"
-      echo
-      _ex_tag="$(matrix_cfg_tag "${sim_pts[0]}" "${sim_submit_fracs[0]}" "${sim_vzs[0]}" "${sim_cones[0]}" 0 "${uepipe_modes[0]}")"
-      say "Output tree: each tag becomes a subdirectory under ${DEST_BASE}/"
-      say "  e.g. ${DIM}${DEST_BASE}/${_ex_tag}/<sample>/*.root${RST}"
+      GROUP_SIZE="$gs_doall"
+      check_jobs_sim
       exit 0
     fi
 
@@ -4300,6 +4546,8 @@ SUB
 
     need_cmd condor_submit
     doall_stamp="$(date +%Y%m%d_%H%M%S)"
+    say "SIM production vz selection:"
+    say_vz_selection_summary "$master_yaml" "${sim_vzs[@]}"
     # Freeze pipeline for this bulk submission
     cleanup_bulk_snapshots_for_tag
     case "$DATASET" in
@@ -4311,17 +4559,32 @@ SUB
     SIM_STAGE_NAMESPACE="${TAG}_${doall_stamp}"
     export SIM_STAGE_NAMESPACE
     say "SIM chunk-list stage namespace: ${SIM_STAGE_NAMESPACE}"
-    for pt in "${sim_pts[@]}"; do
+    for pt in "${sim_submit_pts[@]}"; do
       for frac in "${sim_submit_fracs[@]}"; do
         for vz in "${sim_vzs[@]}"; do
         for cone in "${sim_cones[@]}"; do
         for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
-        id_fanout_enabled && ! iso_idx_is_group_leader "$iso_idx" && continue
+        direct_shard_idx=0
+        direct_shard_total=0
+        if iso_cone_fanout_enabled; then
+          iso_idx_is_group_leader "$iso_idx" || continue
+          direct_shard_idx="$(direct_fanout_cell_ordinal "$cone" "$iso_idx" "${sim_cones[@]}")"
+          direct_shard_total="$(direct_fanout_shard_count "${#sim_cones[@]}" "${#iso_tags[@]}")"
+          (( direct_shard_idx <= direct_shard_total )) || continue
+        else
+          id_fanout_enabled && ! iso_idx_is_group_leader "$iso_idx" && continue
+        fi
         for uepipe in "${uepipe_modes[@]}"; do
-        SIM_CFG_TAG="$(matrix_cfg_tag "$pt" "$frac" "$vz" "$cone" "$iso_idx" "$uepipe")"
+        if iso_cone_fanout_enabled; then
+          SIM_CFG_TAG="$(direct_fanout_shard_tag "$pt" "$frac" "$vz" "$uepipe" "$direct_shard_idx")"
+        else
+          SIM_CFG_TAG="$(matrix_cfg_tag "$pt" "$frac" "$vz" "$cone" "$iso_idx" "$uepipe")"
+        fi
         DEST_BASE="${SIM_DEST_BASE_RESOLVED}/${SIM_CFG_TAG}"
         fanout_dirs="${SIM_YAML_OVERRIDE_DIR}/id_fanout_${SIM_CFG_TAG}_${doall_stamp}.txt"
-        if id_fanout_enabled; then
+        if iso_cone_fanout_enabled; then
+          emit_direct_fanout_shard_file "$fanout_dirs" "$SIM_DEST_BASE_RESOLVED" "$pt" "$frac" "$vz" "$uepipe" "$direct_shard_idx" "${sim_cones[@]}"
+        elif id_fanout_enabled; then
           emit_id_fanout_dirs_file "$fanout_dirs" "$SIM_DEST_BASE_RESOLVED" "$pt" "$frac" "$vz" "$cone" "$iso_idx" "$uepipe"
         else
           : > "$fanout_dirs"
@@ -4381,7 +4644,7 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification  = Never
-environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${yaml_override}${macro_env_for_sub}${fanout_env_for_sub}${dphi_env_for_sub};RJ_PROFILE_JOB=${RJ_PROFILE_JOB:-0};RJ_JOB_HEARTBEAT_SECONDS=${RJ_JOB_HEARTBEAT_SECONDS:-0};RJ_PROFILE_STAGE=${RJ_PROFILE_STAGE:-direct};RJ_PROFILE_LABEL=${RJ_PROFILE_LABEL:-${TAG}};RJ_REQUEST_MEMORY_MB=${direct_request_memory_mb}
+environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${yaml_override}${macro_env_for_sub}${fanout_env_for_sub}${jetpt_env_for_sub}${dphi_env_for_sub};RJ_PROFILE_JOB=${RJ_PROFILE_JOB:-0};RJ_JOB_HEARTBEAT_SECONDS=${RJ_JOB_HEARTBEAT_SECONDS:-0};RJ_PROFILE_STAGE=${RJ_PROFILE_STAGE:-direct};RJ_PROFILE_LABEL=${RJ_PROFILE_LABEL:-${TAG}};RJ_REQUEST_MEMORY_MB=${direct_request_memory_mb}
 queue arguments from ${args_file}
 SUB
 
@@ -4392,7 +4655,11 @@ SUB
                    "$SIM_SAMPLE" "$glist" "$DATASET" "$direct_nevents" "$gidx" "$DEST_BASE" >> "$args_file"
           done
 
-          if id_fanout_enabled; then
+          if iso_cone_fanout_enabled; then
+            say "Submitting ${DATASET} condorDoAll iso/cone/ID fanout (shard=${direct_shard_idx}/${direct_shard_total}, sample=${SIM_SAMPLE}, groupSize=${GROUP_SIZE}, nEvents=${direct_nevents}, uepipe=${uepipe}) → jobs=${BOLD}${#groups[@]}${RST}"
+            say "Fanout outputs: $(wc -l < "$fanout_dirs" | awk '{print $1}') cfg tags from one DST pass"
+            say "Fanout dirs file: ${fanout_dirs}"
+          elif id_fanout_enabled; then
             say "Submitting ${DATASET} condorDoAll ID-fanout (base tag=${SIM_CFG_TAG}, sample=${SIM_SAMPLE}, groupSize=${GROUP_SIZE}, nEvents=${direct_nevents}, uepipe=${uepipe}) → jobs=${BOLD}${#groups[@]}${RST}"
             say "Fanout outputs: $(wc -l < "$fanout_dirs" | awk '{print $1}') cfg tags from one DST pass"
             say "Fanout dirs file: ${fanout_dirs}"
@@ -4422,17 +4689,21 @@ SUB
     data_yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
     mapfile -t data_pts   < <( yaml_get_values "jet_pt_min" "$data_yaml_src" )
     mapfile -t data_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$data_yaml_src" )
-    mapfile -t data_vzs   < <( yaml_get_values "vz_cut_cm" "$data_yaml_src" )
+    mapfile -t data_vzs   < <( dataset_vz_values "$data_yaml_src" )
     mapfile -t data_cones < <( yaml_get_values "coneR" "$data_yaml_src" )
     (( ${#data_pts[@]} ))   || { err "No values found for jet_pt_min in $data_yaml_src"; exit 72; }
     (( ${#data_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $data_yaml_src"; exit 72; }
     (( ${#data_vzs[@]} ))   || { err "No values found for vz_cut_cm in $data_yaml_src"; exit 72; }
     (( ${#data_cones[@]} )) || { err "No values found for coneR in $data_yaml_src"; exit 72; }
+    mapfile -t data_submit_pts < <( jetpt_submit_values "${data_pts[@]}" )
     mapfile -t data_submit_fracs < <( dphi_submit_values "${data_fracs[@]}" )
+    jetpt_env_for_sub="$(jetpt_env_fragment "${data_pts[@]}")"
     dphi_env_for_sub="$(dphi_env_fragment "${data_fracs[@]}")"
     build_iso_modes "$data_yaml_src"
     read_uepipe_modes "$data_yaml_src" "$TAG"
     DATA_DEST_BASE_SAVED="$DEST_BASE"
+    say "DATA production vz selection:"
+    say_vz_selection_summary "$data_yaml_src" "${data_vzs[@]}"
 
     # DATA ONLY: condor testJob | condor round <N> [firstChunk] | condor all
     submode="${3:-}"
@@ -4456,7 +4727,7 @@ SUB
         glist="${groups[0]}"
 
         # Use first values for testJob (mirrors SIM condorTest)
-        pt0="${data_pts[0]}"
+        pt0="${data_submit_pts[0]}"
         frac0="${data_submit_fracs[0]}"
         vz0="${data_vzs[0]}"
         cone0="${data_cones[0]}"
@@ -4495,7 +4766,7 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification  = Never
-environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=10;RJ_CONFIG_YAML=${yaml_snap}${dphi_env_for_sub}
+environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=10;RJ_CONFIG_YAML=${yaml_snap}${jetpt_env_for_sub}${dphi_env_for_sub}
 arguments     = ${r8} ${glist} ${DATASET} \$(Cluster) 0 1 NONE ${DEST_BASE}
 queue
 SUB
@@ -4562,14 +4833,27 @@ SUB
         # Keep existing YAML overrides/snapshots; live Condor jobs may still reference them.
         mkdir -p "$SIM_YAML_OVERRIDE_DIR"
 
-        for data_pt in "${data_pts[@]}"; do
+        for data_pt in "${data_submit_pts[@]}"; do
         for data_frac in "${data_submit_fracs[@]}"; do
         for data_vz in "${data_vzs[@]}"; do
           for data_cone in "${data_cones[@]}"; do
           for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
-          id_fanout_enabled && ! iso_idx_is_group_leader "$iso_idx" && continue
+          direct_shard_idx=0
+          direct_shard_total=0
+          if iso_cone_fanout_enabled; then
+            iso_idx_is_group_leader "$iso_idx" || continue
+            direct_shard_idx="$(direct_fanout_cell_ordinal "$data_cone" "$iso_idx" "${data_cones[@]}")"
+            direct_shard_total="$(direct_fanout_shard_count "${#data_cones[@]}" "${#iso_tags[@]}")"
+            (( direct_shard_idx <= direct_shard_total )) || continue
+          else
+            id_fanout_enabled && ! iso_idx_is_group_leader "$iso_idx" && continue
+          fi
           for uepipe in "${uepipe_modes[@]}"; do
-          data_cfg_tag="$(matrix_cfg_tag "$data_pt" "$data_frac" "$data_vz" "$data_cone" "$iso_idx" "$uepipe")"
+          if iso_cone_fanout_enabled; then
+            data_cfg_tag="$(direct_fanout_shard_tag "$data_pt" "$data_frac" "$data_vz" "$uepipe" "$direct_shard_idx")"
+          else
+            data_cfg_tag="$(matrix_cfg_tag "$data_pt" "$data_frac" "$data_vz" "$data_cone" "$iso_idx" "$uepipe")"
+          fi
           yaml_override="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}.yaml"
           fanout_dirs="${SIM_YAML_OVERRIDE_DIR}/id_fanout_${TAG}_${data_cfg_tag}.txt"
           mkdir -p "$SIM_YAML_OVERRIDE_DIR"
@@ -4583,7 +4867,9 @@ SUB
             -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${uepipe}|" \
             "$data_yaml_src" > "$yaml_override"
           pin_photon_id_scalars_in_yaml "$yaml_override" "${iso_preselection[$iso_idx]}" "${iso_tight[$iso_idx]}" "${iso_nonTight[$iso_idx]}"
-          if id_fanout_enabled; then
+          if iso_cone_fanout_enabled; then
+            emit_direct_fanout_shard_file "$fanout_dirs" "$DATA_DEST_BASE_SAVED" "$data_pt" "$data_frac" "$data_vz" "$uepipe" "$direct_shard_idx" "${data_cones[@]}"
+          elif id_fanout_enabled; then
             emit_id_fanout_dirs_file "$fanout_dirs" "$DATA_DEST_BASE_SAVED" "$data_pt" "$data_frac" "$data_vz" "$data_cone" "$iso_idx" "$uepipe"
           else
             : > "$fanout_dirs"
@@ -4591,7 +4877,11 @@ SUB
           export RJ_CONFIG_YAML="$yaml_override"
           DEST_BASE="${DATA_DEST_BASE_SAVED}/${data_cfg_tag}"
 
-          say "DATA condor round (pt=${data_pt}, frac=${data_frac}, vz=${data_vz}, coneR=${data_cone}, iso=${iso_tags[$iso_idx]}, uepipe=${uepipe}, tag=${data_cfg_tag})"
+          if iso_cone_fanout_enabled; then
+            say "DATA condor round iso/cone/ID fanout (pt=${data_pt}, frac=${data_frac}, vz=${data_vz}, shard=${direct_shard_idx}/${direct_shard_total}, uepipe=${uepipe}, tag=${data_cfg_tag})"
+          else
+            say "DATA condor round (pt=${data_pt}, frac=${data_frac}, vz=${data_vz}, coneR=${data_cone}, iso=${iso_tags[$iso_idx]}, uepipe=${uepipe}, tag=${data_cfg_tag})"
+          fi
           say "  YAML override: ${yaml_override}"
           if id_fanout_enabled; then
             say "  Fanout cfgs  : $(wc -l < "$fanout_dirs" | awk '{print $1}') output cfg tags from one DST pass"
@@ -4607,9 +4897,9 @@ SUB
           fi
           _old_submit_extra_env="${RJ_SUBMIT_EXTRA_ENV:-}"
           if id_fanout_enabled; then
-            export RJ_SUBMIT_EXTRA_ENV="${_old_submit_extra_env:+${_old_submit_extra_env};}RJ_ID_FANOUT_FILE=${fanout_dirs};RJ_ID_FANOUT_DIRS_FILE=${fanout_dirs}${dphi_env_for_sub}"
+            export RJ_SUBMIT_EXTRA_ENV="${_old_submit_extra_env:+${_old_submit_extra_env};}RJ_ID_FANOUT_FILE=${fanout_dirs};RJ_ID_FANOUT_DIRS_FILE=${fanout_dirs}${jetpt_env_for_sub}${dphi_env_for_sub}"
           else
-            export RJ_SUBMIT_EXTRA_ENV="${_old_submit_extra_env}${dphi_env_for_sub}"
+            export RJ_SUBMIT_EXTRA_ENV="${_old_submit_extra_env}${jetpt_env_for_sub}${dphi_env_for_sub}"
           fi
           submit_condor "$round_file" "$firstChunk"
           export RJ_SUBMIT_EXTRA_ENV="$_old_submit_extra_env"
@@ -4634,7 +4924,7 @@ SUB
         if [[ "$MAX_JOBS" =~ ^[0-9]+$ && "$MAX_JOBS" -gt 0 ]]; then
           _direct_args+=( maxJobs "$MAX_JOBS" )
         fi
-        RJ_DISABLE_ID_FANOUT=1 RJ_DISABLE_DPHI_INTERNALIZATION=1 RJ_DIRECT_DST_DOALL=1 "$0" "${_direct_args[@]}"
+        RJ_DISABLE_ID_FANOUT=1 RJ_DISABLE_JET_PT_INTERNALIZATION=1 RJ_DISABLE_DPHI_INTERNALIZATION=1 RJ_DIRECT_DST_DOALL=1 "$0" "${_direct_args[@]}"
         ;;
       all|"")
         # Keep existing YAML overrides/snapshots; live Condor jobs may still reference them.
@@ -4648,14 +4938,28 @@ SUB
         esac
 
         iso_submit_n="$(iso_submit_count)"
-        n_matrix=$(( ${#data_pts[@]} * ${#data_submit_fracs[@]} * ${#data_vzs[@]} * ${#data_cones[@]} * iso_submit_n * ${#uepipe_modes[@]} ))
+        fanout_shards_per_axis=0
+        final_cfg_n=0
+        if iso_cone_fanout_enabled; then
+          fanout_shards_per_axis="$(direct_fanout_shard_count "${#data_cones[@]}" "${#iso_tags[@]}")"
+          n_matrix=$(( ${#data_submit_pts[@]} * ${#data_submit_fracs[@]} * ${#data_vzs[@]} * fanout_shards_per_axis * ${#uepipe_modes[@]} ))
+          final_cfg_n=$(( ${#data_submit_pts[@]} * ${#data_submit_fracs[@]} * ${#data_vzs[@]} * ${#data_cones[@]} * ${#iso_tags[@]} * ${#uepipe_modes[@]} ))
+        else
+          n_matrix=$(( ${#data_submit_pts[@]} * ${#data_submit_fracs[@]} * ${#data_vzs[@]} * ${#data_cones[@]} * iso_submit_n * ${#uepipe_modes[@]} ))
+          final_cfg_n=$(( ${#data_submit_pts[@]} * ${#data_submit_fracs[@]} * ${#data_vzs[@]} * ${#data_cones[@]} * ${#iso_tags[@]} * ${#uepipe_modes[@]} ))
+        fi
         say "═══════════════════════════════════════════════════════════════"
-        say "${BOLD}CONDOR ALL: ${n_matrix} matrix configuration(s), groupSize=${GROUP_SIZE}${RST}"
+        say "${BOLD}CONDOR ALL: ${n_matrix} upstream matrix configuration(s), groupSize=${GROUP_SIZE}${RST}"
         say "  dataset       : ${DATASET}"
         say "  YAML source   : ${data_yaml_src}"
+        say "  vz selection  : [${data_vzs[*]}] ($(vz_selection_reason_for_yaml "$data_yaml_src"))"
         say "  golden list   : $(basename "$GOLDEN") ($(grep -cE '^[0-9]+' "$GOLDEN") runs)"
         if id_fanout_enabled; then
-          say "  engine        : direct legacy RecoilJets fanout (${#iso_tags[@]} cfg outputs across ${iso_submit_n} upstream iso groups)"
+          if iso_cone_fanout_enabled; then
+            say "  engine        : direct legacy iso/cone/ID fanout (${final_cfg_n} final cfg outputs; ${fanout_shards_per_axis} shard(s) per pt/dphi/vz/UE axis; cap=$(direct_fanout_max_outputs))"
+          else
+            say "  engine        : direct legacy RecoilJets fanout (${#iso_tags[@]} cfg outputs across ${iso_submit_n} upstream iso groups)"
+          fi
         else
           say "  engine        : direct legacy one-cfg-per-pass validation (fanout disabled)"
         fi
@@ -4666,14 +4970,27 @@ SUB
         total_queued_all=0
         t0_all="$(date +%s)"
 
-        for data_pt in "${data_pts[@]}"; do
+        for data_pt in "${data_submit_pts[@]}"; do
         for data_frac in "${data_submit_fracs[@]}"; do
         for data_vz in "${data_vzs[@]}"; do
           for data_cone in "${data_cones[@]}"; do
           for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
-          id_fanout_enabled && ! iso_idx_is_group_leader "$iso_idx" && continue
+          direct_shard_idx=0
+          direct_shard_total=0
+          if iso_cone_fanout_enabled; then
+            iso_idx_is_group_leader "$iso_idx" || continue
+            direct_shard_idx="$(direct_fanout_cell_ordinal "$data_cone" "$iso_idx" "${data_cones[@]}")"
+            direct_shard_total="$(direct_fanout_shard_count "${#data_cones[@]}" "${#iso_tags[@]}")"
+            (( direct_shard_idx <= direct_shard_total )) || continue
+          else
+            id_fanout_enabled && ! iso_idx_is_group_leader "$iso_idx" && continue
+          fi
           for uepipe in "${uepipe_modes[@]}"; do
-          data_cfg_tag="$(matrix_cfg_tag "$data_pt" "$data_frac" "$data_vz" "$data_cone" "$iso_idx" "$uepipe")"
+          if iso_cone_fanout_enabled; then
+            data_cfg_tag="$(direct_fanout_shard_tag "$data_pt" "$data_frac" "$data_vz" "$uepipe" "$direct_shard_idx")"
+          else
+            data_cfg_tag="$(matrix_cfg_tag "$data_pt" "$data_frac" "$data_vz" "$data_cone" "$iso_idx" "$uepipe")"
+          fi
           yaml_override="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${data_cfg_tag}.yaml"
           fanout_dirs="${SIM_YAML_OVERRIDE_DIR}/id_fanout_${TAG}_${data_cfg_tag}.txt"
           mkdir -p "$SIM_YAML_OVERRIDE_DIR"
@@ -4687,7 +5004,9 @@ SUB
             -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${uepipe}|" \
             "$data_yaml_src" > "$yaml_override"
           pin_photon_id_scalars_in_yaml "$yaml_override" "${iso_preselection[$iso_idx]}" "${iso_tight[$iso_idx]}" "${iso_nonTight[$iso_idx]}"
-          if id_fanout_enabled; then
+          if iso_cone_fanout_enabled; then
+            emit_direct_fanout_shard_file "$fanout_dirs" "$DATA_DEST_BASE_SAVED" "$data_pt" "$data_frac" "$data_vz" "$uepipe" "$direct_shard_idx" "${data_cones[@]}"
+          elif id_fanout_enabled; then
             emit_id_fanout_dirs_file "$fanout_dirs" "$DATA_DEST_BASE_SAVED" "$data_pt" "$data_frac" "$data_vz" "$data_cone" "$iso_idx" "$uepipe"
           else
             : > "$fanout_dirs"
@@ -4697,7 +5016,11 @@ SUB
 
           (( ++cell_num ))
           say "───────────────────────────────────────────────────────────────"
-          say "${BOLD}[${cell_num}/${n_matrix}] ${data_cfg_tag}${RST}"
+          if iso_cone_fanout_enabled; then
+            say "${BOLD}[${cell_num}/${n_matrix}] ${data_cfg_tag} (iso/cone/ID shard ${direct_shard_idx}/${direct_shard_total})${RST}"
+          else
+            say "${BOLD}[${cell_num}/${n_matrix}] ${data_cfg_tag}${RST}"
+          fi
           say "  YAML override : ${yaml_override}"
           if id_fanout_enabled; then
             say "  Fanout cfgs   : $(wc -l < "$fanout_dirs" | awk '{print $1}') output cfg tags from one DST pass"
@@ -4719,9 +5042,9 @@ SUB
 
           _old_submit_extra_env="${RJ_SUBMIT_EXTRA_ENV:-}"
           if id_fanout_enabled; then
-            export RJ_SUBMIT_EXTRA_ENV="${_old_submit_extra_env:+${_old_submit_extra_env};}RJ_ID_FANOUT_FILE=${fanout_dirs};RJ_ID_FANOUT_DIRS_FILE=${fanout_dirs}${dphi_env_for_sub}"
+            export RJ_SUBMIT_EXTRA_ENV="${_old_submit_extra_env:+${_old_submit_extra_env};}RJ_ID_FANOUT_FILE=${fanout_dirs};RJ_ID_FANOUT_DIRS_FILE=${fanout_dirs}${jetpt_env_for_sub}${dphi_env_for_sub}"
           else
-            export RJ_SUBMIT_EXTRA_ENV="${_old_submit_extra_env}${dphi_env_for_sub}"
+            export RJ_SUBMIT_EXTRA_ENV="${_old_submit_extra_env}${jetpt_env_for_sub}${dphi_env_for_sub}"
           fi
           submit_condor "$tmp_src" ""
           export RJ_SUBMIT_EXTRA_ENV="$_old_submit_extra_env"
@@ -4734,7 +5057,7 @@ SUB
 
         elapsed_all=$(( $(date +%s) - t0_all ))
         say "═══════════════════════════════════════════════════════════════"
-        say "${BOLD}CONDOR ALL complete: ${cell_num} configurations submitted (${elapsed_all}s)${RST}"
+        say "${BOLD}CONDOR ALL complete: ${cell_num} upstream configurations submitted (${elapsed_all}s)${RST}"
         say "═══════════════════════════════════════════════════════════════"
         ;;
       *)
