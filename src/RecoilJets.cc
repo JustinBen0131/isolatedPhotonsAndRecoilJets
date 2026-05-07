@@ -994,7 +994,119 @@ std::string RecoilJets::histRKeyForJetPt(const std::string& rKey, double ptGeV) 
 
 std::string RecoilJets::histRKeyForJetPtAndDphi(const std::string& rKey, double ptGeV, double cutRad) const
 {
-  return histRKeyForDphi(histRKeyForJetPt(rKey, ptGeV), cutRad);
+  return withIsoViewSuffix(histRKeyForDphi(histRKeyForJetPt(rKey, ptGeV), cutRad));
+}
+
+void RecoilJets::setInternalIsoViews(const std::vector<IsoView>& views)
+{
+  m_internalIsoViews.clear();
+  for (const auto& in : views)
+  {
+    if (in.label.empty()) continue;
+    if (!std::isfinite(in.coneR)) continue;
+    const int cone10 = static_cast<int>(std::lround(10.0 * in.coneR));
+    if (cone10 != 3 && cone10 != 4) continue;
+
+    IsoView v = in;
+    v.coneR = 0.1 * static_cast<double>(cone10);
+    if (!std::isfinite(v.fixedGeV) || v.fixedGeV < 0.0) v.fixedGeV = 0.0;
+    std::string clean;
+    clean.reserve(v.label.size());
+    for (char c : v.label)
+    {
+      if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+          (c >= '0' && c <= '9') || c == '_')
+      {
+        clean.push_back(c);
+      }
+    }
+    if (clean.empty()) continue;
+    v.label = clean;
+    bool seen = false;
+    for (const auto& old : m_internalIsoViews)
+    {
+      if (old.label == v.label) { seen = true; break; }
+    }
+    if (!seen) m_internalIsoViews.push_back(v);
+  }
+}
+
+void RecoilJets::configureInternalIsoViewsFromEnv()
+{
+  const char* disableRaw = std::getenv("RJ_DISABLE_ISO_CONE_INTERNALIZATION");
+  if (disableRaw && *disableRaw)
+  {
+    const std::string disable(disableRaw);
+    if (disable == "1" || disable == "true" || disable == "TRUE" ||
+        disable == "yes" || disable == "YES" || disable == "on" || disable == "ON")
+    {
+      m_internalIsoViews.clear();
+      return;
+    }
+  }
+
+  const char* raw = std::getenv("RJ_INTERNAL_ISO_VIEWS");
+  if (!raw || !*raw) return;
+
+  std::string text(raw);
+  std::vector<IsoView> parsed;
+  std::stringstream rows(text);
+  std::string row;
+  while (std::getline(rows, row, ','))
+  {
+    if (row.empty()) continue;
+    std::vector<std::string> cols;
+    std::stringstream ss(row);
+    std::string col;
+    while (std::getline(ss, col, ':')) cols.push_back(col);
+    if (cols.size() != 4)
+    {
+      LOG(1, CLR_YELLOW, "[IsoView] ignoring malformed RJ_INTERNAL_ISO_VIEWS row: " << row);
+      continue;
+    }
+    IsoView v;
+    v.label = cols[0];
+    try
+    {
+      v.coneR = std::stod(cols[1]);
+      v.fixedGeV = std::stod(cols[3]);
+    }
+    catch (...)
+    {
+      LOG(1, CLR_YELLOW, "[IsoView] ignoring non-numeric RJ_INTERNAL_ISO_VIEWS row: " << row);
+      continue;
+    }
+    const std::string b = cols[2];
+    v.isSliding = (b == "1" || b == "true" || b == "TRUE" ||
+                   b == "yes" || b == "YES" || b == "on" || b == "ON");
+    parsed.push_back(v);
+  }
+  setInternalIsoViews(parsed);
+  if (!m_internalIsoViews.empty())
+  {
+    std::cout << CLR_CYAN << "[IsoView] internal iso/cone views:";
+    for (const auto& v : m_internalIsoViews)
+    {
+      std::cout << " " << v.label << "(R=" << std::fixed << std::setprecision(2)
+                << v.coneR << "," << (v.isSliding ? "sliding" : "fixed")
+                << ",fixed=" << std::setprecision(1) << v.fixedGeV << ")";
+    }
+    std::cout << CLR_RESET << std::endl;
+  }
+}
+
+std::string RecoilJets::withIsoViewSuffix(const std::string& base) const
+{
+  if (m_activeIsoViewSuffix.empty() || base.empty()) return base;
+  if (base.find(m_activeIsoViewSuffix) != std::string::npos) return base;
+  return base + m_activeIsoViewSuffix;
+}
+
+std::string RecoilJets::stripIsoViewSuffix(const std::string& key) const
+{
+  const std::size_t pos = key.find("_isoR");
+  if (pos == std::string::npos) return key;
+  return key.substr(0, pos);
 }
 
 void RecoilJets::setInternalBackToBackScan(const std::vector<double>& values)
@@ -1095,13 +1207,14 @@ std::string RecoilJets::histRKeyForDphi(const std::string& rKey, double cutRad) 
 
 std::string RecoilJets::baseRKeyFromDphiHistKey(const std::string& rKey) const
 {
-  const std::size_t dphiPos = rKey.find("_dphi");
-  const std::size_t jetPtPos = rKey.find("_jetPt");
+  const std::string cleanKey = stripIsoViewSuffix(rKey);
+  const std::size_t dphiPos = cleanKey.find("_dphi");
+  const std::size_t jetPtPos = cleanKey.find("_jetPt");
   std::size_t pos = std::string::npos;
   if (dphiPos != std::string::npos) pos = dphiPos;
   if (jetPtPos != std::string::npos) pos = (pos == std::string::npos) ? jetPtPos : std::min(pos, jetPtPos);
-  if (pos == std::string::npos) return rKey;
-  return rKey.substr(0, pos);
+  if (pos == std::string::npos) return cleanKey;
+  return cleanKey.substr(0, pos);
 }
 
 RecoilJets::~RecoilJets()
@@ -1823,6 +1936,7 @@ int RecoilJets::Init(PHCompositeNode* topNode)
   LOG(1, CLR_BLUE, "[Init] RecoilJets – starting");
   configureInternalJetPtScanFromEnv();
   configureInternalBackToBackScanFromEnv();
+  configureInternalIsoViewsFromEnv();
 
   /* 0.  book-keeping & QA histograms --------------------------------- */
   out = new TFile(Outfile.c_str(), "RECREATE");
@@ -5729,7 +5843,7 @@ void RecoilJets::fillPureIsolationQA(PHCompositeNode* topNode,
                                      const double pt_gamma)
 {
   const int effCentIdx = (m_isAuAu ? centIdx : -1);
-  const std::string slice = suffixForBins(ptIdx, effCentIdx);
+  const std::string slice = suffixForBins(ptIdx, effCentIdx) + m_activeIsoViewSuffix;
 
   // Total isolation (existing behavior)
   const double eiso_tot = eiso(rc, topNode);
@@ -5898,9 +6012,10 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
   {
     if (trig.empty() || name.empty()) return nullptr;
     if (m_gammaPtBins.size() < 2) return nullptr;
+    const std::string viewName = withIsoViewSuffix(name);
 
     auto& H = qaHistogramsByTrigger[trig];
-    if (auto it = H.find(name); it != H.end())
+    if (auto it = H.find(viewName); it != H.end())
     {
       if (auto* h = dynamic_cast<TH1F*>(it->second)) return h;
       return nullptr;
@@ -5919,9 +6034,9 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
 
     dir->cd();
     const int nb = static_cast<int>(m_gammaPtBins.size()) - 1;
-    const std::string title = name + ";" + xAxisTitle + ";raw entries";
-    auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nb, m_gammaPtBins.data());
-    if (h) H[name] = h;
+    const std::string title = viewName + ";" + xAxisTitle + ";raw entries";
+    auto* h = RJMCWeighting::RJNewTH1F(viewName.c_str(), title.c_str(), nb, m_gammaPtBins.data());
+    if (h) H[viewName] = h;
     if (prevDir) prevDir->cd();
     return h;
   };
@@ -6369,9 +6484,42 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
 
 
 
-// Centralized candidate processing for the event
+// Centralized candidate processing for the event.  In optimized production,
+// coneR and fixed/sliding isolation are internal histogram views inside one
+// cfg-tagged output file.  Each view reuses the exact legacy candidate/recoil
+// logic below under a scoped isolation setting.
 void RecoilJets::processCandidates(PHCompositeNode* topNode,
                                    const std::vector<std::string>& activeTrig)
+{
+    if (m_internalIsoViews.empty())
+    {
+        m_activeIsoViewSuffix.clear();
+        processCandidatesForCurrentIsoView(topNode, activeTrig);
+        return;
+    }
+
+    const double savedConeR = m_isoConeR;
+    const double savedFixed = m_isoFixed;
+    const bool savedSliding = m_isSlidingIso;
+    const std::string savedSuffix = m_activeIsoViewSuffix;
+
+    for (const auto& view : m_internalIsoViews)
+    {
+        m_isoConeR = view.coneR;
+        m_isoFixed = view.fixedGeV;
+        m_isSlidingIso = view.isSliding;
+        m_activeIsoViewSuffix = "_" + view.label;
+        processCandidatesForCurrentIsoView(topNode, activeTrig);
+    }
+
+    m_isoConeR = savedConeR;
+    m_isoFixed = savedFixed;
+    m_isSlidingIso = savedSliding;
+    m_activeIsoViewSuffix = savedSuffix;
+}
+
+void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
+                                                    const std::vector<std::string>& activeTrig)
 {
     // -------- guards & context ------------------------------------------------
     if (!topNode)
@@ -7684,7 +7832,7 @@ void RecoilJets::processCandidates(PHCompositeNode* topNode,
                 const int idx = findPtBin(pt);
                 if (idx < 0) return;
 
-                const std::string slice = suffixForBins(idx, effCentIdx_M);
+                const std::string slice = suffixForBins(idx, effCentIdx_M) + m_activeIsoViewSuffix;
                 for (const auto& trigShort : activeTrig)
                 {
                     if (auto* h = getOrBookCountHist(trigShort, base, idx, effCentIdx_M))
@@ -9992,7 +10140,7 @@ TH1I* RecoilJets::getOrBookCountHist(const std::string& trig,
                                      int etIdx, int centIdx)
 {
     const std::string suffix = suffixForBins(etIdx, centIdx);
-    const std::string name   = base + suffix;
+    const std::string name   = withIsoViewSuffix(base) + suffix;
     
     if (Verbosity() >= 5)
         LOG(5, CLR_BLUE, "  [getOrBookCountHist] trig=\"" << trig << "\" base=\"" << base
@@ -10171,7 +10319,7 @@ TH1F* RecoilJets::getOrBookBDTScoreHist(const std::string& trig,
                                         int etIdx, int centIdx)
 {
   const std::string suffix = suffixForBins(etIdx, centIdx);
-  const std::string name = base + suffix;
+  const std::string name = withIsoViewSuffix(base) + suffix;
 
   if (trig.empty() || base.empty()) return nullptr;
 
@@ -10768,7 +10916,7 @@ TH1F* RecoilJets::getOrBookUnfoldRecoPhoPtGamma(const std::string& trig,
 {
   const std::string base   = "h_unfoldRecoPho_pTgamma";
   const std::string suffix = suffixForBins(-1, centIdx);
-  const std::string name   = base + suffix;
+  const std::string name   = withIsoViewSuffix(base) + suffix;
 
   if (trig.empty()) return nullptr;
 
@@ -10806,7 +10954,7 @@ TH1F* RecoilJets::getOrBookUnfoldTruthPhoPtGamma(const std::string& trig,
 {
   const std::string base   = "h_unfoldTruthPho_pTgamma";
   const std::string suffix = suffixForBins(-1, centIdx);
-  const std::string name   = base + suffix;
+  const std::string name   = withIsoViewSuffix(base) + suffix;
 
   if (trig.empty()) return nullptr;
 
@@ -10844,7 +10992,7 @@ TH2F* RecoilJets::getOrBookUnfoldResponsePhoPtGamma(const std::string& trig,
 {
   const std::string base   = "h2_unfoldResponsePho_pTgamma";
   const std::string suffix = suffixForBins(-1, centIdx);
-  const std::string name   = base + suffix;
+  const std::string name   = withIsoViewSuffix(base) + suffix;
 
   if (trig.empty()) return nullptr;
 
@@ -10887,7 +11035,7 @@ TH1F* RecoilJets::getOrBookUnfoldRecoPhoFakesPtGamma(const std::string& trig,
 {
   const std::string base   = "h_unfoldRecoPhoFakes_pTgamma";
   const std::string suffix = suffixForBins(-1, centIdx);
-  const std::string name   = base + suffix;
+  const std::string name   = withIsoViewSuffix(base) + suffix;
 
   if (trig.empty()) return nullptr;
 
@@ -10925,7 +11073,7 @@ TH1F* RecoilJets::getOrBookUnfoldTruthPhoMissesPtGamma(const std::string& trig,
 {
   const std::string base   = "h_unfoldTruthPhoMisses_pTgamma";
   const std::string suffix = suffixForBins(-1, centIdx);
-  const std::string name   = base + suffix;
+  const std::string name   = withIsoViewSuffix(base) + suffix;
 
   if (trig.empty()) return nullptr;
 
@@ -10963,7 +11111,7 @@ TH1F* RecoilJets::getOrBookUnfoldRecoPhoPtGammaPPG12Obj(const std::string& trig,
 {
   const std::string base   = "h_unfoldRecoPho_pTgamma_ppg12obj";
   const std::string suffix = suffixForBins(-1, centIdx);
-  const std::string name   = base + suffix;
+  const std::string name   = withIsoViewSuffix(base) + suffix;
 
   if (trig.empty()) return nullptr;
 
@@ -11001,7 +11149,7 @@ TH1F* RecoilJets::getOrBookUnfoldTruthPhoPtGammaPPG12Obj(const std::string& trig
 {
   const std::string base   = "h_unfoldTruthPho_pTgamma_ppg12obj";
   const std::string suffix = suffixForBins(-1, centIdx);
-  const std::string name   = base + suffix;
+  const std::string name   = withIsoViewSuffix(base) + suffix;
 
   if (trig.empty()) return nullptr;
 
@@ -11039,7 +11187,7 @@ TH2F* RecoilJets::getOrBookUnfoldResponsePhoPtGammaPPG12Obj(const std::string& t
 {
   const std::string base   = "h2_unfoldResponsePho_pTgamma_ppg12obj";
   const std::string suffix = suffixForBins(-1, centIdx);
-  const std::string name   = base + suffix;
+  const std::string name   = withIsoViewSuffix(base) + suffix;
 
   if (trig.empty()) return nullptr;
 
@@ -11082,7 +11230,7 @@ TH1F* RecoilJets::getOrBookUnfoldRecoPhoFakesPtGammaPPG12Obj(const std::string& 
 {
   const std::string base   = "h_unfoldRecoPhoFakes_pTgamma_ppg12obj";
   const std::string suffix = suffixForBins(-1, centIdx);
-  const std::string name   = base + suffix;
+  const std::string name   = withIsoViewSuffix(base) + suffix;
 
   if (trig.empty()) return nullptr;
 
@@ -11120,7 +11268,7 @@ TH1F* RecoilJets::getOrBookUnfoldTruthPhoMissesPtGammaPPG12Obj(const std::string
 {
   const std::string base   = "h_unfoldTruthPhoMisses_pTgamma_ppg12obj";
   const std::string suffix = suffixForBins(-1, centIdx);
-  const std::string name   = base + suffix;
+  const std::string name   = withIsoViewSuffix(base) + suffix;
 
   if (trig.empty()) return nullptr;
 
@@ -13177,7 +13325,7 @@ TH2F* RecoilJets::getOrBookRecoilIsLeadingVsPtGamma(const std::string& trig,
 
 TH3F* RecoilJets::getOrBookPho3TightIso(const std::string& trig)
 {
-  const std::string name = "h_Pho3_pT_eta_phi_tightIso";
+  const std::string name = withIsoViewSuffix("h_Pho3_pT_eta_phi_tightIso");
   if (trig.empty()) return nullptr;
 
   auto& H = qaHistogramsByTrigger[trig];
@@ -13701,14 +13849,15 @@ TH3F* RecoilJets::getOrBookJES3Truth_jet1Pt_alphaHist(const std::string& trig,
 
 
 // ============================================================================
-//  Your original getOrBookIsoHist (UNCHANGED) follows
+//  Legacy isolation bookers.  Optimized production adds the active iso-view
+//  suffix to the histogram base name; direct scalar mode leaves names unchanged.
 // ============================================================================
 
 TH1F* RecoilJets::getOrBookIsoHist(const std::string& trig, int etIdx, int centIdx)
 {
   const std::string base   = "h_Eiso";
   const std::string suffix = suffixForBins(etIdx, centIdx);
-  const std::string name   = base + suffix;
+  const std::string name   = withIsoViewSuffix(base) + suffix;
 
   if (Verbosity() >= 5)
     LOG(5, CLR_BLUE, "  [getOrBookIsoHist] trig=\"" << trig
@@ -13787,7 +13936,7 @@ TH1F* RecoilJets::getOrBookIsoPartHist(const std::string& trig,
                                        int ptIdx, int centIdx)
 {
   const std::string suffix = suffixForBins(ptIdx, centIdx);
-  const std::string name   = base + suffix;
+  const std::string name   = withIsoViewSuffix(base) + suffix;
 
   if (Verbosity() >= 5)
     LOG(5, CLR_BLUE, "  [getOrBookIsoPartHist] trig=\"" << trig
@@ -13856,7 +14005,7 @@ TH1F* RecoilJets::getOrBookPtGammaHist(const std::string& trig,
                                          int centIdx)
 {
     const std::string suffix = suffixForBins(-1, centIdx);
-    const std::string name   = base + suffix;
+    const std::string name   = withIsoViewSuffix(base) + suffix;
 
     if (trig.empty() || base.empty()) return nullptr;
 
@@ -13898,7 +14047,7 @@ TH1I* RecoilJets::getOrBookIsoDecisionHist(const std::string& trig, int ptIdx, i
 {
   const std::string base   = "h_isoDecision";
   const std::string suffix = suffixForBins(ptIdx, centIdx);
-  const std::string name   = base + suffix;
+  const std::string name   = withIsoViewSuffix(base) + suffix;
 
   if (Verbosity() >= 5)
     LOG(5, CLR_BLUE, "  [getOrBookIsoDecisionHist] trig=\"" << trig
@@ -13963,7 +14112,7 @@ TH1I* RecoilJets::getOrBookNIsoTightPhoCandHist(const std::string& trig, int ptI
 {
   const std::string base   = "h_nIsoTightPhoCand";
   const std::string suffix = suffixForBins(ptIdx, centIdx);
-  const std::string name   = base + suffix;
+  const std::string name   = withIsoViewSuffix(base) + suffix;
 
   if (Verbosity() >= 5)
     LOG(5, CLR_BLUE, "  [getOrBookNIsoTightPhoCandHist] trig=\"" << trig
@@ -14032,9 +14181,10 @@ TH1F* RecoilJets::getOrBookTruthIsoHist(const std::string& trig,
                                        int nbins, double xmin, double xmax)
 {
   if (trig.empty() || name.empty()) return nullptr;
+  const std::string viewName = withIsoViewSuffix(name);
 
   auto& H = qaHistogramsByTrigger[trig];
-  if (auto it = H.find(name); it != H.end())
+  if (auto it = H.find(viewName); it != H.end())
   {
     if (auto* h = dynamic_cast<TH1F*>(it->second)) return h;
     H.erase(it);
@@ -14048,10 +14198,10 @@ TH1F* RecoilJets::getOrBookTruthIsoHist(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  const std::string title = name + ";E_{T}^{iso,truth} [GeV];Entries";
-  auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
+  const std::string title = viewName + ";E_{T}^{iso,truth} [GeV];Entries";
+  auto* h = RJMCWeighting::RJNewTH1F(viewName.c_str(), title.c_str(), nbins, xmin, xmax);
   h->Sumw2();
-  H[name] = h;
+  H[viewName] = h;
 
   if (prevDir) prevDir->cd();
   return h;
@@ -14061,9 +14211,10 @@ TH1I* RecoilJets::getOrBookTruthIsoDecisionHist(const std::string& trig,
                                                const std::string& name)
 {
   if (trig.empty() || name.empty()) return nullptr;
+  const std::string viewName = withIsoViewSuffix(name);
 
   auto& H = qaHistogramsByTrigger[trig];
-  if (auto it = H.find(name); it != H.end())
+  if (auto it = H.find(viewName); it != H.end())
   {
     if (auto* h = dynamic_cast<TH1I*>(it->second)) return h;
     H.erase(it);
@@ -14077,11 +14228,11 @@ TH1I* RecoilJets::getOrBookTruthIsoDecisionHist(const std::string& trig,
   if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
   dir->cd();
 
-  const std::string title = name + ";Truth isolation cut decision;Entries";
-  auto* h = RJMCWeighting::RJNewTH1I(name.c_str(), title.c_str(), 2, 0.5, 2.5);
+  const std::string title = viewName + ";Truth isolation cut decision;Entries";
+  auto* h = RJMCWeighting::RJNewTH1I(viewName.c_str(), title.c_str(), 2, 0.5, 2.5);
   h->GetXaxis()->SetBinLabel(1, "PASS");
   h->GetXaxis()->SetBinLabel(2, "FAIL");
-  H[name] = h;
+  H[viewName] = h;
 
   if (prevDir) prevDir->cd();
   return h;
@@ -14096,7 +14247,7 @@ TH1I* RecoilJets::getOrBookSigABCDLeakageHist(const std::string& trig, int ptIdx
                                               const std::string& base)
 {
     const std::string suffix = suffixForBins(ptIdx, centIdx);
-    const std::string name   = base + suffix;
+    const std::string name   = withIsoViewSuffix(base) + suffix;
 
     if (trig.empty()) return nullptr;
 
@@ -14645,7 +14796,7 @@ TH1F* RecoilJets::getOrBookSSHist(const std::string& trig,
 {
     const std::string base   = "h_ss_" + varKey + "_" + tagKey;
     const std::string suffix = suffixForBins(etIdx, centIdx);
-    const std::string name   = base + suffix;
+    const std::string name   = withIsoViewSuffix(base) + suffix;
     
     if (Verbosity() >= 5)
         LOG(5, CLR_BLUE, "  [getOrBookSSHist] trig=\"" << trig << "\" varKey=\"" << varKey
@@ -14752,7 +14903,7 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
   }
 
   const int effCentIdx = (m_isAuAu ? centIdx : -1);
-  const std::string slice = suffixForBins(ptIdx, effCentIdx);
+  const std::string slice = suffixForBins(ptIdx, effCentIdx) + m_activeIsoViewSuffix;
 
   // -------------------------------------------------------------------------
   // Isolation region definition for purity (PPG12)

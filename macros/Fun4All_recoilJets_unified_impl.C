@@ -4525,6 +4525,24 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             }
         }
     }
+    if (const char* isoViewsRaw = std::getenv("RJ_INTERNAL_ISO_VIEWS"))
+    {
+        const char* disableRaw = std::getenv("RJ_DISABLE_ISO_CONE_INTERNALIZATION");
+        const bool disabled = disableRaw &&
+                              (std::string(disableRaw) == "1" ||
+                               std::string(disableRaw) == "true" ||
+                               std::string(disableRaw) == "TRUE" ||
+                               std::string(disableRaw) == "yes" ||
+                               std::string(disableRaw) == "YES" ||
+                               std::string(disableRaw) == "on" ||
+                               std::string(disableRaw) == "ON");
+        if (!disabled && *isoViewsRaw)
+        {
+            idfanout::ReplaceOrAppendScalar(stampedYaml,
+                                            "internal_iso_cone_views",
+                                            std::string(isoViewsRaw));
+        }
+    }
     recoilJets->setAnalysisConfigYAML(stampedYaml, "analysis_config.yaml");
     
     if (vlevel > 0)

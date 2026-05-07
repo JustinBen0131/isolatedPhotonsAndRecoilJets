@@ -469,30 +469,34 @@ doPi0Analysis: false
 #                                     per fixedGeV value. Allows direct
 #                                     comparison of sliding-enabled vs fixed.
 #
-# OUTPUT AXIS: the submit script calls build_iso_modes() to expand these
-# three keys into parallel arrays (iso_tags[], iso_sliding[], iso_fixed[]).
-# Optimized production fans these output sinks out inside each direct Fun4All
-# pass, capped by RJ_DIRECT_FANOUT_MAX_OUTPUTS. Each final cfg-tagged ROOT file
-# still receives scalar isSlidingIso/fixedGeV in its stamped YAML and is filled
-# by the normal RecoilJets histogram machinery. Direct validation modes keep
-# the old one-scalar-cfg-per-pass behavior.
+# OPTIMIZED PRODUCTION INTERNAL VIEW: normal all/condorDoAll modes keep iso
+# mode and cone radius out of the cfg tag. Each photon-ID cfg ROOT file contains
+# explicit histogram views:
+#   pp-like    : isoR30_fixedIso2GeV, isoR40_fixedIso2GeV,
+#                isoR30_isSliding,    isoR40_isSliding
+#   AuAu-like  : isoR30_fixedIso4GeV, isoR40_fixedIso4GeV,
+#                isoR30_isSliding,    isoR40_isSliding
+# The submitter passes those views through RJ_INTERNAL_ISO_VIEWS, and the same
+# RecoilJets/RecoilJets_AuAu histogram machinery fills each view with suffixed
+# names. Direct validation modes keep the old one-scalar-cfg-per-pass behavior.
 #
 # The non-isolated sideband is always: thrNonIso = thrReco + sideGapGeV.
 # Truth isolation (SIM only) uses truthIsoGeV independently.
 #
-# OUTPUT AXIS: coneR sets the isolation cone radius. PhotonClusterBuilder
-# provides isolation sums for R=0.3 and R=0.4 in the same upstream pass, so
-# optimized production fans coneR out together with iso mode and photon ID.
+# coneR sets the isolation cone radius. PhotonClusterBuilder provides isolation
+# sums for R=0.3 and R=0.4 in the same upstream pass, so optimized production
+# scans the configured cone list internally as histogram views.
 # -----------------------------------------------------------------------------
 isSlidingIso: false
 isSlidingAndFixed: true
 
-# OUTPUT AXIS: one final cfg tag per fixedGeV value when fixed isolation is
-# enabled. Optimized direct fanout may group several fixed/sliding outputs into
-# one upstream DST pass.
+# Available fixed-isolation values. Optimized production currently uses the
+# dataset-family default inside the internal views: pp-like uses fixedIso2GeV;
+# AuAu-like and embedded uses fixedIso4GeV. Override/validation modes may still
+# use scalar YAML values directly.
 fixedGeV: [2.0, 4.0]
 
-# OUTPUT AXIS: isolation cone radius.
+# Available isolation cone radii scanned internally in optimized production.
 coneR: [0.30, 0.40]
 
 # Global sliding WP parameters.

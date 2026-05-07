@@ -395,6 +395,14 @@ public:
                                   double sideGapGeV, double coneR, double towerMin,
                                   double fixedGeV = 2.0);
   void setIsSlidingIso(bool on) { m_isSlidingIso = on; }
+  struct IsoView
+  {
+      std::string label;
+      double coneR = 0.3;
+      bool isSliding = false;
+      double fixedGeV = 2.0;
+  };
+  void setInternalIsoViews(const std::vector<IsoView>& views);
 
   // Truth isolation max (independent of sliding/fixed reco mode)
   void setTruthIsoMaxGeV(double isoGeV)
@@ -666,6 +674,9 @@ private:
   std::string jetPtKeyForCut(double ptGeV) const;
   std::string histRKeyForJetPt(const std::string& rKey, double ptGeV) const;
   std::string histRKeyForJetPtAndDphi(const std::string& rKey, double ptGeV, double cutRad) const;
+  void        configureInternalIsoViewsFromEnv();
+  std::string withIsoViewSuffix(const std::string& base) const;
+  std::string stripIsoViewSuffix(const std::string& key) const;
   void        configureInternalBackToBackScanFromEnv();
   std::vector<double> activeBackToBackCuts() const;
   std::string dphiKeyForCut(double cutRad) const;
@@ -992,6 +1003,8 @@ private:
   // -------------------------------------------------------------------------
   // SS + Iso category accounting
   // -------------------------------------------------------------------------
+  void processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
+                                          const std::vector<std::string>& activeTrig);
   void fillIsoSSTagCounters(const std::string& trig,
                             const RawCluster* clus,
                             const SSVars& v,
@@ -1112,6 +1125,8 @@ private:
   double m_isoConeR  = 0.3;
   double m_isoTowMin = 0.0;
   bool   m_isSlidingIso = true;
+  std::vector<IsoView> m_internalIsoViews;
+  std::string m_activeIsoViewSuffix;
 
   // Jet selection WP
   //  double m_minJetPt      = 5.0;
