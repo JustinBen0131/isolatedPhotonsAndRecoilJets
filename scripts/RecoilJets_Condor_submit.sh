@@ -213,7 +213,8 @@
 #
 #   SIM:
 #     • isSim         → /sphenix/tg/tg01/bulk/jbennett/thesisAna/sim
-#     • isSimJet5     → /sphenix/tg/tg01/bulk/jbennett/thesisAna/simjet5
+#     • isSimInclusive → /sphenix/tg/tg01/bulk/jbennett/thesisAna/siminclusive
+#     • isSimJet5      → legacy alias for isSimInclusive
 #     • isSimMB       → /sphenix/tg/tg01/bulk/jbennett/thesisAna/simmb
 #     • isSimEmbedded → /sphenix/tg/tg01/bulk/jbennett/thesisAna/simembedded
 #     • isSimEmbeddedInclusive → /sphenix/tg/tg01/bulk/jbennett/thesisAna/simembedded
@@ -280,9 +281,11 @@
 #   • splitGoldenRunList:
 #       removes previous goldenRuns_<tag>_segment*.txt before rebuilding rounds.
 #   • submit_condor() in DATA mode:
-#       wipes the dataset output tree under DEST_BASE before submission.
+#       production output cleanup is explicit via RJ_CLEAN_OUTPUT_BASE=1.
 #   • condorDoAll() in SIM mode:
-#       wipes previous staged group files, outputs, and tagged logs before resubmitting.
+#       production output cleanup is explicit via RJ_CLEAN_OUTPUT_BASE=1.
+#   • local mode:
+#       removes disposable *_LOCAL* YAML/list/root artifacts before running.
 #   • isLocalIsoPing:
 #       creates a combined local chunk list but does not alter condor segmentation.
 #
@@ -311,6 +314,7 @@ LOG_DIR="${BASE}/log"
 OUT_DIR="${BASE}/stdout"
 ERR_DIR="${BASE}/error"
 SUB_DIR="${BASE}/condor_sub"
+CLEANUP_HELPER="${BASE}/scripts/recoiljets_cleanup.sh"
 
 # Golden lists provided by you
 PP_GOLDEN="${BASE}/GRLs_tanner/run2pp_ana509_2024p022_v001_dst_calofitting_grl.list"
@@ -361,7 +365,8 @@ SIM_MASTER5_NAME="DST_SIM_MASTER_5COL.list"
 
 # Output dir root for sim is: ${SIM_DEST_BASE}/<cfgTag>/<SIM_SAMPLE>
 SIM_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/sim"
-SIMJET5_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simjet5"
+SIMINCLUSIVE_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/siminclusive"
+SIMJET5_DEST_BASE="$SIMINCLUSIVE_DEST_BASE"
 SIMMB_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simmb"
 SIMEMBED_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simembedded"
 AUAU_BDT_DEST_BASE="${RJ_AUAU_BDT_DEST_BASE:-/sphenix/tg/tg01/bulk/jbennett/thesisAna/simembedded_bdt_training}"
@@ -504,11 +509,12 @@ ${BOLD}SIM mode (embedded inclusive-jet AuAu-like background):${RST}
   ${BOLD}$0 isSimEmbeddedInclusive condorDoAll [groupSize N] [SAMPLE=run28_embeddedJet20]${RST}
   ${DIM}$0 isSimEmbeddedInclusive condorDoAllFromScratch [groupSize N] [SAMPLE=run28_embeddedJet20]  # alias for direct fanout${RST}
 
-${BOLD}SIM mode (photonJet5 single-slice):${RST}
-  ${BOLD}$0 isSimJet5 local [Nevents] [VERBOSE=N] [SAMPLE=run28_jet5]${RST}
-  ${BOLD}$0 isSimJet5 CHECKJOBS [groupSize N] [SAMPLE=run28_jet5]${RST}
-  ${BOLD}$0 isSimJet5 condorTest [SAMPLE=run28_jet5]${RST}
-  ${BOLD}$0 isSimJet5 condorDoAll [groupSize N] [SAMPLE=run28_jet5]${RST}
+${BOLD}SIM mode (inclusive jet 5/8/12/20/30/40):${RST}
+  ${BOLD}$0 isSimInclusive local [Nevents] [VERBOSE=N] [SAMPLE=run28_jet5]${RST}
+  ${BOLD}$0 isSimInclusive CHECKJOBS [groupSize N] [SAMPLE=run28_jet5]${RST}
+  ${BOLD}$0 isSimInclusive condorTest [SAMPLE=run28_jet5]${RST}
+  ${BOLD}$0 isSimInclusive condorDoAll [groupSize N] [SAMPLE=run28_jet5]${RST}
+  ${DIM}$0 isSimJet5 ...  # legacy alias for isSimInclusive${RST}
 
 ${BOLD}SIM mode (MinBias DETROIT):${RST}
   ${BOLD}$0 isSimMB local [Nevents] [VERBOSE=N] [SAMPLE=run28_detroit]${RST}
@@ -556,15 +562,71 @@ Examples:
   $0 isSimMB local 5000
   $0 isSimMB condorDoAll groupSize 5
 
+  RJ_CLEAN_OUTPUT_BASE=1 $0 isAuAu condor all groupSize 7
+  RJ_CLEAN_OUTPUT_BASE=1 $0 isSimEmbedded condorDoAll groupSize 7
+
 Production histogram jobs use the original RecoilJets modules with direct
 photon-ID fanout plus internal jet-pT, dphi, and iso/cone histogram views.
 Use RJ_ID_FANOUT_MAX_ROWS=5 or 10 only if a smoke test shows memory pressure.
 Pool/replay histogram production was removed.
+Production output cleanup is explicit via RJ_CLEAN_OUTPUT_BASE=1 or
+./scripts/recoiljets_cleanup.sh dryrun|apply <target>.
 USAGE
   exit 2
 }
 
 need_cmd() { command -v "$1" >/dev/null 2>&1 || { err "Missing required command: $1"; exit 3; }; }
+
+cleanup_helper_available() {
+  [[ -x "$CLEANUP_HELPER" ]]
+}
+
+cleanup_apply_or_dryrun_mode() {
+  if dag_dryrun_enabled; then
+    printf '%s\n' "dryrun"
+  else
+    printf '%s\n' "apply"
+  fi
+}
+
+cleanup_dataset_outputs_if_requested() {
+  [[ "${RJ_CLEAN_OUTPUT_BASE:-0}" == "1" ]] || return 0
+  cleanup_helper_available || { err "RJ_CLEAN_OUTPUT_BASE=1 requested but cleanup helper is missing/executable bit is off: ${CLEANUP_HELPER}"; exit 66; }
+  local clean_mode
+  clean_mode="$(cleanup_apply_or_dryrun_mode)"
+  say "RJ_CLEAN_OUTPUT_BASE=1 → ${clean_mode} cleanup for dataset ${DATASET}"
+  "$CLEANUP_HELPER" "$clean_mode" dataset "$DATASET"
+}
+
+cleanup_local_artifacts_before_local_run() {
+  cleanup_helper_available || {
+    warn "Cleanup helper missing/executable bit is off; skipping automatic local artifact cleanup: ${CLEANUP_HELPER}"
+    return 0
+  }
+  say "Cleaning disposable *_LOCAL* artifacts before local test"
+  "$CLEANUP_HELPER" apply local
+}
+
+write_cleanup_manifest() {
+  local manifest="$1"
+  shift || true
+  mkdir -p "$(dirname "$manifest")"
+  {
+    echo "RECOILJETS_CLEANUP_MANIFEST_V1"
+    echo "created=$(date '+%Y-%m-%d %H:%M:%S %Z')"
+    echo "dataset=${DATASET}"
+    echo "tag=${TAG}"
+    echo "action=${ACTION:-}"
+    echo "dest_base=${DEST_BASE:-}"
+    echo "stage_dir=${STAGE_DIR:-}"
+    echo "yaml_override_dir=${SIM_YAML_OVERRIDE_DIR:-}"
+    echo "sub_dir=${SUB_DIR:-}"
+    local item
+    for item in "$@"; do
+      echo "artifact=${item}"
+    done
+  } > "$manifest"
+}
 
 # ------------------------ SIM YAML sweep helpers --------------------------
 trim_ws() {
@@ -968,7 +1030,7 @@ direct_fanout_shard_tag() {
 
 sim_analysis_tag_for_dataset() {
   case "$1" in
-    isSimJet5) echo "isSimJet5" ;;
+    isSimInclusive|isSimJet5) echo "isSimInclusive" ;;
     isSimMB) echo "isSimMB" ;;
     isSimEmbedded) echo "isSimEmbedded" ;;
     isSimEmbeddedInclusive) echo "isSimEmbeddedInclusive" ;;
@@ -1170,10 +1232,10 @@ emit_direct_fanout_shard_file() {
 fanout_dest_allowed() {
   local fan_dest="$1"
   case "$fan_dest" in
-    */thesisAna/pp/*|*/thesisAna/pp25/*|*/thesisAna/auau/*|*/thesisAna/oo/*|*/thesisAna/sim/*|*/thesisAna/simembedded/*|*/thesisAna/simembeddedinclusive/*|*/thesisAna/simjet5/*|*/thesisAna/simmb/*)
+    */thesisAna/pp/*|*/thesisAna/pp25/*|*/thesisAna/auau/*|*/thesisAna/oo/*|*/thesisAna/sim/*|*/thesisAna/simembedded/*|*/thesisAna/simembeddedinclusive/*|*/thesisAna/siminclusive/*|*/thesisAna/simjet5/*|*/thesisAna/simmb/*)
       return 0
       ;;
-    */thesisAnaSmoke/pp_smokeTest_*/*|*/thesisAnaSmoke/pp25_smokeTest_*/*|*/thesisAnaSmoke/auau_smokeTest_*/*|*/thesisAnaSmoke/oo_smokeTest_*/*|*/thesisAnaSmoke/sim_smokeTest_*/*|*/thesisAnaSmoke/simembedded_smokeTest_*/*|*/thesisAnaSmoke/simembeddedinclusive_smokeTest_*/*|*/thesisAnaSmoke/simjet5_smokeTest_*/*|*/thesisAnaSmoke/simmb_smokeTest_*/*)
+    */thesisAnaSmoke/pp_smokeTest_*/*|*/thesisAnaSmoke/pp25_smokeTest_*/*|*/thesisAnaSmoke/auau_smokeTest_*/*|*/thesisAnaSmoke/oo_smokeTest_*/*|*/thesisAnaSmoke/sim_smokeTest_*/*|*/thesisAnaSmoke/simembedded_smokeTest_*/*|*/thesisAnaSmoke/simembeddedinclusive_smokeTest_*/*|*/thesisAnaSmoke/siminclusive_smokeTest_*/*|*/thesisAnaSmoke/simjet5_smokeTest_*/*|*/thesisAnaSmoke/simmb_smokeTest_*/*)
       return 0
       ;;
   esac
@@ -1773,13 +1835,26 @@ resolve_dataset() {
       SIM_SAMPLE_DEFAULT="run28_embeddedPhoton20"
       SIM_SAMPLE="$SIM_SAMPLE_DEFAULT"
       ;;
-    isSimJet5|isSimjet5|isSimInclusive|issiminclusive|simjet5|siminclusive|SIMJET5|SIMINCLUSIVE)
+    isSimInclusive|issiminclusive|siminclusive|SIMINCLUSIVE)
+      DATASET="isSimInclusive"
+      GOLDEN=""
+      LIST_DIR=""
+      LIST_PREFIX=""
+      DEST_BASE="$SIMINCLUSIVE_DEST_BASE"
+      TAG="siminclusive"
+      MACRO="${BASE}/macros/Fun4All_recoilJets.C"
+      EXE="${BASE}/RecoilJets_Condor.sh"
+      IS_SIM=1
+      SIM_SAMPLE_DEFAULT="run28_jet5"
+      SIM_SAMPLE="$SIM_SAMPLE_DEFAULT"
+      ;;
+    isSimJet5|isSimjet5|simjet5|SIMJET5)
       DATASET="isSimJet5"
       GOLDEN=""
       LIST_DIR=""
       LIST_PREFIX=""
       DEST_BASE="$SIMJET5_DEST_BASE"
-      TAG="simjet5"
+      TAG="siminclusive"
       MACRO="${BASE}/macros/Fun4All_recoilJets.C"
       EXE="${BASE}/RecoilJets_Condor.sh"
       IS_SIM=1
@@ -2023,7 +2098,7 @@ check_jobs_sim() {
     case "$DATASET" in
       isSimEmbedded)          samples=( "run28_embeddedPhoton12" "run28_embeddedPhoton20" ) ;;
       isSimEmbeddedInclusive) samples=( "run28_embeddedJet12" "run28_embeddedJet20" ) ;;
-      isSimJet5)              samples=( "run28_jet5" ) ;;
+      isSimInclusive|isSimJet5) samples=( "run28_jet5" "run28_jet8" "run28_jet12" "run28_jet20" "run28_jet30" "run28_jet40" ) ;;
       isSimMB)                samples=( "run28_detroit" ) ;;
       *)                      samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
     esac
@@ -2584,33 +2659,6 @@ submit_condor() {
   # parent DAG being built.
   if ! dag_collect_enabled; then
     rm -f "${SUB_DIR}/RecoilJets_${TAG}_"*.sub 2>/dev/null || true
-  fi
-
-  # -------------------------------------------------------------------
-  # DATA output wipe (pp/auau/oo only): unconditional on every submit
-  # -------------------------------------------------------------------
-  if [[ "$DATASET" != "isSim" ]]; then
-    [[ -n "${DEST_BASE:-}" ]] || { err "DEST_BASE is empty; refusing to wipe."; exit 60; }
-    [[ "$DEST_BASE" != "/" ]] || { err "DEST_BASE is '/' ; refusing to wipe."; exit 60; }
-
-    case "$DEST_BASE" in
-      */thesisAna/pp|*/thesisAna/pp25|*/thesisAna/auau|*/thesisAna/oo) ;;
-      */thesisAna/pp/*|*/thesisAna/pp25/*|*/thesisAna/auau/*|*/thesisAna/oo/*) ;;
-      */thesisAnaSmoke/pp_smokeTest_*|*/thesisAnaSmoke/pp25_smokeTest_*|*/thesisAnaSmoke/auau_smokeTest_*|*/thesisAnaSmoke/oo_smokeTest_*) ;;
-      */thesisAnaSmoke/pp_smokeTest_*/*|*/thesisAnaSmoke/pp25_smokeTest_*/*|*/thesisAnaSmoke/auau_smokeTest_*/*|*/thesisAnaSmoke/oo_smokeTest_*/*) ;;
-      *)
-        err "Refusing to wipe DEST_BASE='$DEST_BASE' (not an expected thesisAna/{pp|pp25|auau|oo} or thesisAnaSmoke path)"
-        exit 61
-        ;;
-    esac
-
-    if dag_dryrun_enabled; then
-      say "DRYRUN: would wipe output tree (dataset=${DATASET}) → ${DEST_BASE}"
-    else
-      say "WIPING OUTPUT TREE (dataset=${DATASET}) → ${DEST_BASE}"
-      mkdir -p "$DEST_BASE"
-      find "$DEST_BASE" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
-    fi
   fi
 
   local stamp; stamp="$(date +%Y%m%d_%H%M%S)"
@@ -4377,6 +4425,8 @@ case "$ACTION" in
       fi
     done
 
+    cleanup_local_artifacts_before_local_run
+
     if [[ "$IS_SIM" -eq 1 ]]; then
       # Default SIM local smoke test should be fast unless user explicitly sets Nevents
       if (( user_nevt_set == 0 )); then
@@ -4418,7 +4468,7 @@ case "$ACTION" in
         case "$DATASET" in
           isSimEmbedded)          samples=( "run28_embeddedPhoton12" "run28_embeddedPhoton20" ) ;;
           isSimEmbeddedInclusive) samples=( "run28_embeddedJet12" "run28_embeddedJet20" ) ;;
-          isSimJet5)              samples=( "run28_jet5" ) ;;
+          isSimInclusive|isSimJet5) samples=( "run28_jet5" "run28_jet8" "run28_jet12" "run28_jet20" "run28_jet30" "run28_jet40" ) ;;
           isSimMB)                samples=( "run28_detroit" ) ;;
           *)                      samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
         esac
@@ -4990,7 +5040,7 @@ SUB
       case "$DATASET" in
         isSimEmbedded)          samples=( "run28_embeddedPhoton12" "run28_embeddedPhoton20" ) ;;
         isSimEmbeddedInclusive) samples=( "run28_embeddedJet12" "run28_embeddedJet20" ) ;;
-        isSimJet5)              samples=( "run28_jet5" ) ;;
+        isSimInclusive|isSimJet5) samples=( "run28_jet5" "run28_jet8" "run28_jet12" "run28_jet20" "run28_jet30" "run28_jet40" ) ;;
         isSimMB)                samples=( "run28_detroit" ) ;;
         *)                      samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
       esac
@@ -5006,6 +5056,7 @@ SUB
     fi
 
     SIM_DEST_BASE_RESOLVED="$DEST_BASE"
+    cleanup_dataset_outputs_if_requested
 
     if auto_merge_enabled; then
       need_cmd condor_submit_dag
@@ -5013,6 +5064,9 @@ SUB
       need_cmd condor_submit
     fi
     doall_stamp="$(date +%Y%m%d_%H%M%S)"
+    SIM_YAML_OVERRIDE_DIR="${SIM_YAML_OVERRIDE_DIR}/${TAG}_condorDoAll_${doall_stamp}"
+    mkdir -p "$SIM_YAML_OVERRIDE_DIR"
+    say "SIM YAML/fanout artifact dir: ${SIM_YAML_OVERRIDE_DIR}"
     say "SIM production vz selection:"
     say_vz_selection_summary "$master_yaml" "${sim_vzs[@]}"
     # Freeze pipeline for this bulk submission
@@ -5038,6 +5092,7 @@ SUB
       mkdir -p "$auto_dag_dir"
       auto_dag="${auto_dag_dir}/RecoilJets_auto_${TAG}_${doall_stamp}.dag"
       : > "$auto_dag"
+      write_cleanup_manifest "${auto_dag_dir}/cleanup_manifest.txt" "$SIM_YAML_OVERRIDE_DIR" "$SIM_DEST_BASE_RESOLVED"
       RJ_DAG_COLLECTED_NODES=()
       export RJ_COLLECT_DAG_FILE="$auto_dag"
       export RJ_COLLECT_NODE_PREFIX="ANALYSIS_${TAG}"
@@ -5087,22 +5142,26 @@ SUB
             while IFS='|' read -r fan_dest _fan_cfg _fan_pre _fan_tight _fan_nonTight; do
               [[ -z "${fan_dest:-}" || "${fan_dest:0:1}" == "#" ]] && continue
               SIM_OUT_DIR="${fan_dest}/${SIM_SAMPLE}"
-              if dag_dryrun_enabled; then
+              if [[ "${RJ_CLEAN_OUTPUT_BASE:-0}" == "1" ]] && dag_dryrun_enabled; then
                 say "DRYRUN: would clean SIM_OUT_DIR=${SIM_OUT_DIR}"
-              else
+              elif [[ "${RJ_CLEAN_OUTPUT_BASE:-0}" == "1" ]]; then
                 mkdir -p "$SIM_OUT_DIR"
                 rm -f "${SIM_OUT_DIR}/"*.root 2>/dev/null || true
                 find "${SIM_OUT_DIR}" -maxdepth 1 -name "*_LOCAL_*.root" -delete 2>/dev/null || true
+              else
+                mkdir -p "$SIM_OUT_DIR"
               fi
             done < "$fanout_dirs"
           else
             SIM_OUT_DIR="${DEST_BASE}/${SIM_SAMPLE}"
-            if dag_dryrun_enabled; then
+            if [[ "${RJ_CLEAN_OUTPUT_BASE:-0}" == "1" ]] && dag_dryrun_enabled; then
               say "DRYRUN: would clean SIM_OUT_DIR=${SIM_OUT_DIR}"
-            else
+            elif [[ "${RJ_CLEAN_OUTPUT_BASE:-0}" == "1" ]]; then
               mkdir -p "$SIM_OUT_DIR"
               rm -f "${SIM_OUT_DIR}/"*.root 2>/dev/null || true
               find "${SIM_OUT_DIR}" -maxdepth 1 -name "*_LOCAL_*.root" -delete 2>/dev/null || true
+            else
+              mkdir -p "$SIM_OUT_DIR"
             fi
           fi
           rm -f "${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_grp"*.list 2>/dev/null || true
@@ -5236,6 +5295,9 @@ SUB
     build_iso_modes "$data_yaml_src"
     read_uepipe_modes "$data_yaml_src" "$TAG"
     DATA_DEST_BASE_SAVED="$DEST_BASE"
+    if [[ "${3:-}" == "all" || -z "${3:-}" ]]; then
+      cleanup_dataset_outputs_if_requested
+    fi
     say "DATA production vz selection:"
     say_vz_selection_summary "$data_yaml_src" "${data_vzs[@]}"
 
@@ -5426,8 +5488,12 @@ SUB
             while IFS='|' read -r fan_dest _fan_cfg _fan_pre _fan_tight _fan_nonTight; do
               [[ -z "${fan_dest:-}" || "${fan_dest:0:1}" == "#" ]] && continue
               fanout_dest_allowed "$fan_dest" || { err "Refusing to wipe fanout DEST_BASE='$fan_dest'"; exit 62; }
-              mkdir -p "$fan_dest"
-              find "$fan_dest" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+              if [[ "${RJ_CLEAN_OUTPUT_BASE:-0}" == "1" ]]; then
+                mkdir -p "$fan_dest"
+                find "$fan_dest" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+              else
+                mkdir -p "$fan_dest"
+              fi
             done < "$fanout_dirs"
           else
             say "  Fanout cfgs  : disabled; this submits exactly ${data_cfg_tag}"
@@ -5464,14 +5530,17 @@ SUB
         RJ_DISABLE_ID_FANOUT=1 RJ_DISABLE_JET_PT_INTERNALIZATION=1 RJ_DISABLE_DPHI_INTERNALIZATION=1 RJ_DIRECT_DST_DOALL=1 "$0" "${_direct_args[@]}"
         ;;
       all|"")
+        all_stamp="$(date +%Y%m%d_%H%M%S)"
+        SIM_YAML_OVERRIDE_DIR="${SIM_YAML_OVERRIDE_DIR}/${TAG}_condorAll_${all_stamp}"
+        say "DATA YAML/fanout artifact dir: ${SIM_YAML_OVERRIDE_DIR}"
         # Keep existing YAML overrides/snapshots; live Condor jobs may still reference them.
         mkdir -p "$SIM_YAML_OVERRIDE_DIR"
 
         # Freeze pipeline for this bulk submission
         cleanup_bulk_snapshots_for_tag
         case "$DATASET" in
-          isAuAu|isOO) create_pipeline_snapshot "auau" "$(date +%Y%m%d_%H%M%S)" ;;
-          *)           create_pipeline_snapshot "pp" "$(date +%Y%m%d_%H%M%S)" ;;
+          isAuAu|isOO) create_pipeline_snapshot "auau" "$all_stamp" ;;
+          *)           create_pipeline_snapshot "pp" "$all_stamp" ;;
         esac
 
         iso_submit_n="$(iso_submit_count)"
@@ -5509,11 +5578,12 @@ SUB
         if auto_merge_enabled; then
           auto_workflow=1
           need_cmd condor_submit_dag
-          auto_stamp="$(date +%Y%m%d_%H%M%S)"
+          auto_stamp="$all_stamp"
           auto_dag_dir="${SUB_DIR}/auto_workflow_${TAG}_${auto_stamp}"
           mkdir -p "$auto_dag_dir"
           auto_dag="${auto_dag_dir}/RecoilJets_auto_${TAG}_${auto_stamp}.dag"
           : > "$auto_dag"
+          write_cleanup_manifest "${auto_dag_dir}/cleanup_manifest.txt" "$SIM_YAML_OVERRIDE_DIR" "$DATA_DEST_BASE_SAVED"
           RJ_DAG_COLLECTED_NODES=()
           export RJ_COLLECT_DAG_FILE="$auto_dag"
           export RJ_COLLECT_NODE_PREFIX="ANALYSIS_${TAG}"
@@ -5591,11 +5661,13 @@ SUB
             while IFS='|' read -r fan_dest _fan_cfg _fan_pre _fan_tight _fan_nonTight; do
               [[ -z "${fan_dest:-}" || "${fan_dest:0:1}" == "#" ]] && continue
               fanout_dest_allowed "$fan_dest" || { err "Refusing to wipe fanout DEST_BASE='$fan_dest'"; exit 62; }
-              if dag_dryrun_enabled; then
+              if [[ "${RJ_CLEAN_OUTPUT_BASE:-0}" == "1" ]] && dag_dryrun_enabled; then
                 say "DRYRUN: would clean fanout DEST_BASE=${fan_dest}"
-              else
+              elif [[ "${RJ_CLEAN_OUTPUT_BASE:-0}" == "1" ]]; then
                 mkdir -p "$fan_dest"
                 find "$fan_dest" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+              else
+                mkdir -p "$fan_dest"
               fi
             done < "$fanout_dirs"
           fi
