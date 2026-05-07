@@ -910,7 +910,11 @@ emit_id_fanout_dirs_file() {
 
 emit_pool_replay_fanout_dirs_file() {
   local out_file="$1" dest_root="$2" master="$3" stamp="$4" cones_text="$5" uepipe="$6" pts_text="$7" fracs_text="$8" vzs_text="$9"
-  local pt frac vz cone iso_idx cfg wp_cfg view_id inline_spec
+  local pt frac vz cone iso_idx cfg wp_cfg view_id inline_spec out_cfg materialize
+  local public_layout="${RJ_POOL_REPLAY_PUBLIC_LAYOUT:-legacy}"
+  if [[ "${RJ_POOL_REPLAY_USE_INTERNAL_VIEWS:-0}" == "1" || "${RJ_POOL_REPLAY_USE_INTERNAL_VIEWS:-0}" == "true" || "${RJ_POOL_REPLAY_USE_INTERNAL_VIEWS:-0}" == "TRUE" ]]; then
+    public_layout="views"
+  fi
   local -a cones_arr pts_arr fracs_arr vzs_arr
   read -r -a cones_arr <<< "$cones_text"
   read -r -a pts_arr <<< "$pts_text"
@@ -933,10 +937,18 @@ emit_pool_replay_fanout_dirs_file() {
           for (( iso_idx=0; iso_idx<${#iso_tags[@]}; iso_idx++ )); do
             cfg="$(matrix_cfg_tag "$pt" "$frac" "$vz" "$cone" "$iso_idx" "$uepipe")"
             wp_cfg="$(working_point_cfg_tag "$iso_idx" "$uepipe")"
-            view_id="$(analysis_view_id "$pt" "$frac" "$vz" "$cone" "$iso_idx")"
+            if [[ "$public_layout" == "views" ]]; then
+              out_cfg="$wp_cfg"
+              view_id="$(analysis_view_id "$pt" "$frac" "$vz" "$cone" "$iso_idx")"
+              materialize="physics"
+            else
+              out_cfg="$cfg"
+              view_id="legacy"
+              materialize="legacy"
+            fi
             inline_spec="INLINE_VIEW_V1;jet_pt_min=${pt};back_to_back_dphi_min_pi_fraction=${frac};vz_cut_cm=${vz};coneR=${cone};isSlidingIso=${iso_sliding[$iso_idx]};fixedGeV=${iso_fixed[$iso_idx]};clusterUEpipeline=${uepipe};cfg_tag=${cfg};view_id=${view_id}"
             printf '%s|%s|%s|%s|%s|%s|%s|%s\n' \
-              "${dest_root}/${wp_cfg}" "$cfg" "$inline_spec" "${iso_preselection[$iso_idx]}" "${iso_tight[$iso_idx]}" "${iso_nonTight[$iso_idx]}" "$view_id" "physics" >> "$out_file"
+              "${dest_root}/${out_cfg}" "$cfg" "$inline_spec" "${iso_preselection[$iso_idx]}" "${iso_tight[$iso_idx]}" "${iso_nonTight[$iso_idx]}" "$view_id" "$materialize" >> "$out_file"
             (( count+=1 ))
             (( emit_trace && (count == 1 || count % emit_every == 0 || count == total) )) && say "[poolFanout] wrote ${count}/${total} rows (${cfg})"
           done
@@ -2800,8 +2812,8 @@ submit_data_pool_workflow() {
   local capture_request_memory_mb replay_request_memory_mb
   capture_request_memory_mb="$(memory_request_to_mb "$capture_request_memory")"
   replay_request_memory_mb="$(memory_request_to_mb "$replay_request_memory")"
-  local replay_roots_per_shard="${RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD:-${RJ_POOL_REPLAY_OUTPUT_ROOTS_PER_SHARD:-1}}"
-  [[ "$replay_roots_per_shard" =~ ^[0-9]+$ && "$replay_roots_per_shard" -gt 0 ]] || replay_roots_per_shard=1
+  local replay_roots_per_shard="${RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD:-${RJ_POOL_REPLAY_OUTPUT_ROOTS_PER_SHARD:-999999}}"
+  [[ "$replay_roots_per_shard" =~ ^[0-9]+$ && "$replay_roots_per_shard" -gt 0 ]] || replay_roots_per_shard=999999
   local replay_max_open_outputs="${RJ_REPLAY_MAX_OPEN_OUTPUTS:-$replay_roots_per_shard}"
   local job_heartbeat_seconds="${RJ_JOB_HEARTBEAT_SECONDS:-0}"
   if (( is_smoke )) && [[ "$job_heartbeat_seconds" == "0" ]]; then
@@ -5329,8 +5341,8 @@ SUB
         replay_request_memory="$request_memory"
       fi
     fi
-    replay_roots_per_shard="${RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD:-${RJ_POOL_REPLAY_OUTPUT_ROOTS_PER_SHARD:-1}}"
-    [[ "$replay_roots_per_shard" =~ ^[0-9]+$ && "$replay_roots_per_shard" -gt 0 ]] || replay_roots_per_shard=1
+    replay_roots_per_shard="${RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD:-${RJ_POOL_REPLAY_OUTPUT_ROOTS_PER_SHARD:-999999}}"
+    [[ "$replay_roots_per_shard" =~ ^[0-9]+$ && "$replay_roots_per_shard" -gt 0 ]] || replay_roots_per_shard=999999
     replay_max_open_outputs="${RJ_REPLAY_MAX_OPEN_OUTPUTS:-$replay_roots_per_shard}"
     capture_request_memory_mb="$(memory_request_to_mb "$capture_request_memory")"
     replay_request_memory_mb="$(memory_request_to_mb "$replay_request_memory")"
@@ -5693,8 +5705,8 @@ SUB
       esac
     fi
     replay_request_memory_mb="$(memory_request_to_mb "$replay_request_memory")"
-    replay_roots_per_shard="${RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD:-${RJ_POOL_REPLAY_OUTPUT_ROOTS_PER_SHARD:-1}}"
-    [[ "$replay_roots_per_shard" =~ ^[0-9]+$ && "$replay_roots_per_shard" -gt 0 ]] || replay_roots_per_shard=1
+    replay_roots_per_shard="${RJ_REPLAY_OUTPUT_ROOTS_PER_SHARD:-${RJ_POOL_REPLAY_OUTPUT_ROOTS_PER_SHARD:-999999}}"
+    [[ "$replay_roots_per_shard" =~ ^[0-9]+$ && "$replay_roots_per_shard" -gt 0 ]] || replay_roots_per_shard=999999
     replay_max_open_outputs="${RJ_REPLAY_MAX_OPEN_OUTPUTS:-$replay_roots_per_shard}"
     profile_job="${RJ_PROFILE_JOB:-0}"
 

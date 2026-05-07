@@ -1614,6 +1614,7 @@ private:
   float m_pool_jet_areaSub_pt = std::numeric_limits<float>::quiet_NaN();
   float m_pool_jet_eta = std::numeric_limits<float>::quiet_NaN();
   float m_pool_jet_phi = std::numeric_limits<float>::quiet_NaN();
+  float m_pool_jet_mass = std::numeric_limits<float>::quiet_NaN();
   float m_pool_jet_area = std::numeric_limits<float>::quiet_NaN();
   float m_pool_jet_rho = std::numeric_limits<float>::quiet_NaN();
   float m_pool_jet_local_rho = std::numeric_limits<float>::quiet_NaN();

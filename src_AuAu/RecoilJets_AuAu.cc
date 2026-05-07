@@ -1998,6 +1998,7 @@ void RecoilJets::initAnalysisPoolTrees()
   m_poolJetTree->Branch("areaSub_pt", &m_pool_jet_areaSub_pt, "areaSub_pt/F");
   m_poolJetTree->Branch("eta", &m_pool_jet_eta, "eta/F");
   m_poolJetTree->Branch("phi", &m_pool_jet_phi, "phi/F");
+  m_poolJetTree->Branch("mass", &m_pool_jet_mass, "mass/F");
   m_poolJetTree->Branch("jet_area", &m_pool_jet_area, "jet_area/F");
   m_poolJetTree->Branch("rho", &m_pool_jet_rho, "rho/F");
   m_poolJetTree->Branch("local_rho", &m_pool_jet_local_rho, "local_rho/F");
@@ -2097,6 +2098,7 @@ void RecoilJets::resetAnalysisPoolBuffers()
   m_pool_jet_areaSub_pt = nan;
   m_pool_jet_eta = nan;
   m_pool_jet_phi = nan;
+  m_pool_jet_mass = nan;
   m_pool_jet_area = nan;
   m_pool_jet_rho = nan;
   m_pool_jet_local_rho = nan;
@@ -2168,6 +2170,7 @@ void RecoilJets::captureAnalysisPoolJets(long long eventKey, int run, int evt)
         const double pt = jet->get_pt();
         const double eta = jet->get_eta();
         const double phi = jet->get_phi();
+        const double mass = jet->get_mass();
         if (!std::isfinite(pt) || !std::isfinite(eta) || !std::isfinite(phi) || pt < m_poolJetPtMin)
         {
           ++i;
@@ -2190,6 +2193,7 @@ void RecoilJets::captureAnalysisPoolJets(long long eventKey, int run, int evt)
         m_pool_jet_areaSub_pt = static_cast<float>(pt);
         m_pool_jet_eta = static_cast<float>(eta);
         m_pool_jet_phi = static_cast<float>(TVector2::Phi_mpi_pi(phi));
+        m_pool_jet_mass = static_cast<float>(std::isfinite(mass) ? mass : std::numeric_limits<double>::quiet_NaN());
         const double r = rFromKey(rKey);
         m_pool_jet_area = static_cast<float>(r > 0.0 ? M_PI * r * r : std::numeric_limits<double>::quiet_NaN());
         m_pool_jet_rho = 0.0f;
@@ -6066,9 +6070,9 @@ int RecoilJets::End(PHCompositeNode*)
       poolMeta << "truth_photon_pt_min: " << m_poolTruthPhotonPtMin << "\n";
       poolMeta << "truth_jet_pt_min: " << m_poolTruthJetPtMin << "\n";
       poolMeta << "capture_axes: clusterUEpipeline,pool_schema,stored_isolation_cones,stored_jet_radii,stored_pool_features\n";
-      poolMeta << "required_event_branches: schema,eventKey,isAuAu,centBin,centPercent,vz,weight,triggers\n";
-      poolMeta << "required_photon_branches: schema,eventKey,pt,eta,phi,eiso,eiso_r03,eiso_r04,weta_cogx,wphi_cogx,et1,e11_over_e33,e32_over_e35,npb_score,tight_bdt_score,auau_npb_score,auau_tight_bdt_score,mbd_time,cluster_mbd_delta_t,npb_has_away_jet,npb_label,is_npb,truthSignal,truthTrackId,truthPt,truthEta,truthPhi,extra_feature_values\n";
-      poolMeta << "required_jet_branches: schema,eventKey,rKey,isTruth,pt,raw_pt,areaSub_pt,eta,phi,jet_area,rho,local_rho\n";
+      poolMeta << "required_event_branches: schema,eventKey,isSim,isAuAu,centBin,centPercent,vz,weight,triggers\n";
+      poolMeta << "required_photon_branches: schema,eventKey,pt,eta,phi,eiso,eiso_r03,eiso_r04,iso_03_emcal,iso_03_hcalin,iso_03_hcalout,iso_04_emcal,iso_04_hcalin,iso_04_hcalout,weta_cogx,wphi_cogx,et1,e11_over_e33,e32_over_e35,npb_score,tight_bdt_score,auau_npb_score,auau_tight_bdt_score,mbd_time,cluster_mbd_delta_t,npb_has_away_jet,npb_label,is_npb,truthSignal,truthTrackId,truthPt,truthEta,truthPhi,extra_feature_values\n";
+      poolMeta << "required_jet_branches: schema,eventKey,rKey,isTruth,pt,raw_pt,areaSub_pt,eta,phi,mass,jet_area,rho,local_rho\n";
       poolMeta << "required_truth_photon_branches: schema,eventKey,trackId,barcode,pt,eta,phi,iso\n";
       poolMeta << "extra_feature_catalog: AnalysisPhotonFeatureCatalog\n";
       poolMeta << "extra_feature_count: " << analysisPoolExtraFeatureNames().size() << "\n";
