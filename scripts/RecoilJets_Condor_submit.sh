@@ -1403,7 +1403,7 @@ add_auto_stage_node() {
   local args_file="${dag%/*}/${node}.args"
   printf '%s\n' "$@" > "$args_file"
   cat > "$sub" <<EOT
-universe   = vanilla
+universe   = local
 executable = $runner
 initialdir = $BASE
 getenv     = True
@@ -1430,7 +1430,7 @@ add_auto_final_node() {
   local meta_file="${dag%/*}/${node}.meta"
   printf '%s\n%s\n%s\n%s\n%s\n' "$emails" "$stage_key" "$dataset" "$dag" "$next_action" > "$meta_file"
   cat > "$sub" <<EOT
-universe   = vanilla
+universe   = local
 executable = $notify_script
 initialdir = $BASE
 getenv     = True
