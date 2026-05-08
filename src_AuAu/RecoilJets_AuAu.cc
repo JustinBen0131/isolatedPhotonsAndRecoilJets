@@ -3969,7 +3969,7 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     // Run-28 r04 truth jet container. The Jet12/Jet20 boundaries mirror
     // ppg12codeGit/efficiencytool/CrossSectionWeights.h.
     // ------------------------------------------------------------------
-    if (m_isSimEmbedded)
+    if (m_isSimEmbedded && !m_auauBDTExtractOnly)
     {
         const int embeddedInclusiveJetSample = embeddedInclusiveJetSampleCodeFromContext(Outfile);
         if (embeddedInclusiveJetSample == 12 || embeddedInclusiveJetSample == 20)
@@ -8683,6 +8683,16 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                                                                            eContrib_incl);
                         bdtTrainHaveLabel = true;
                         bdtTrainIsSignal = isSig_incl;
+                    }
+                    if (m_auauBDTExtractOnly && !bdtTrainHaveLabel &&
+                        m_isSimEmbedded &&
+                        embeddedInclusiveJetSampleCodeFromContext(Outfile) != 0)
+                    {
+                        // Sidecar tight-BDT extraction uses embedded inclusive-jet
+                        // samples as the background class.  Do not require a
+                        // signal-photon truth match to write those background rows.
+                        bdtTrainHaveLabel = true;
+                        bdtTrainIsSignal = false;
                     }
                     const std::string mcSuffix_incl = (isSig_incl ? "_sig" : "_bkg");
                     const std::string tagKey_incl   = std::string("inclusive") + mcSuffix_incl;

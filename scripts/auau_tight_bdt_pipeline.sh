@@ -136,6 +136,8 @@ report = Path(sys.argv[2])
 paths = [Path(x.strip()) for x in manifest.read_text().splitlines() if x.strip()]
 rows = []
 total = 0
+signal = 0
+background = 0
 try:
     import uproot
 except Exception as exc:
@@ -144,15 +146,27 @@ except Exception as exc:
     sys.exit(0)
 for path in paths:
     with uproot.open(path) as f:
-        if "AuAuPhotonIDTrainingTree" not in f:
+        keys = {k.split(";")[0] for k in f.keys()}
+        if "AuAuPhotonIDTrainingTree" not in keys:
             rows.append({"file": str(path), "entries": 0, "missing_tree": True})
             continue
         n = int(f["AuAuPhotonIDTrainingTree"].num_entries)
         total += n
-        rows.append({"file": str(path), "entries": n})
-status = "PASS" if total > 0 and all(not r.get("missing_tree") for r in rows) else "FAIL"
-report.write_text(json.dumps({"status": status, "total_entries": total, "files": rows}, indent=2, sort_keys=True) + "\n")
-print(f"[OK] training tree validation: status={status} entries={total} files={len(paths)}")
+        sample_class = "signal" if "/signal/" in str(path) else ("background" if "/background/" in str(path) else "unknown")
+        if sample_class == "signal":
+            signal += n
+        elif sample_class == "background":
+            background += n
+        rows.append({"file": str(path), "entries": n, "class": sample_class})
+status = "PASS" if total > 0 and signal > 0 and background > 0 and all(not r.get("missing_tree") for r in rows) else "FAIL"
+report.write_text(json.dumps({
+    "status": status,
+    "total_entries": total,
+    "signal_entries": signal,
+    "background_entries": background,
+    "files": rows
+}, indent=2, sort_keys=True) + "\n")
+print(f"[OK] training tree validation: status={status} entries={total} signal={signal} background={background} files={len(paths)}")
 sys.exit(0 if status == "PASS" else 3)
 PY
 }
@@ -329,6 +343,8 @@ except Exception as exc:
     raise SystemExit(0)
 manifest = Path(sys.argv[1])
 total = 0
+signal = 0
+background = 0
 missing = 0
 for raw in manifest.read_text().splitlines():
     path = raw.strip()
@@ -336,20 +352,30 @@ for raw in manifest.read_text().splitlines():
         continue
     try:
         with uproot.open(path) as f:
-            if "AuAuPhotonIDTrainingTree" not in f:
+            keys = {k.split(";")[0] for k in f.keys()}
+            if "AuAuPhotonIDTrainingTree" not in keys:
                 missing += 1
                 continue
-            total += int(f["AuAuPhotonIDTrainingTree"].num_entries)
+            n = int(f["AuAuPhotonIDTrainingTree"].num_entries)
+            total += n
+            if "/signal/" in path:
+                signal += n
+            elif "/background/" in path:
+                background += n
     except Exception as exc:
         print(f"ROOT_OPEN_FAILED {path} {exc}")
-print(f"TREE_ENTRIES {total} MISSING_TREE_FILES {missing}")
+print(f"TREE_ENTRIES {total} SIGNAL_ENTRIES {signal} BACKGROUND_ENTRIES {background} MISSING_TREE_FILES {missing}")
 PY
 )
   tree_entries=\$(printf '%s\n' "\$validation_note" | awk '/TREE_ENTRIES/ {print \$2; exit}')
   tree_entries="\${tree_entries:-0}"
+  signal_entries=\$(printf '%s\n' "\$validation_note" | awk '/TREE_ENTRIES/ {for (i=1; i<=NF; ++i) if (\$i=="SIGNAL_ENTRIES") {print \$(i+1); exit}}')
+  background_entries=\$(printf '%s\n' "\$validation_note" | awk '/TREE_ENTRIES/ {for (i=1; i<=NF; ++i) if (\$i=="BACKGROUND_ENTRIES") {print \$(i+1); exit}}')
+  signal_entries="\${signal_entries:-0}"
+  background_entries="\${background_entries:-0}"
 fi
 status=READY
-if [[ "\$nroots" == "0" || "\$tree_entries" == "0" ]]; then status=CHECK; fi
+if [[ "\$nroots" == "0" || "\$tree_entries" == "0" || "\${signal_entries:-0}" == "0" || "\${background_entries:-0}" == "0" ]]; then status=CHECK; fi
 summary="${report_dir}/final_summary.txt"
 {
   echo "RECOILJETS_STAGE_EMAIL_V1"
@@ -360,6 +386,8 @@ summary="${report_dir}/final_summary.txt"
   echo "root_manifest=\${root_manifest}"
   echo "root_count=\${nroots}"
   echo "tree_entries=\${tree_entries}"
+  echo "signal_entries=\${signal_entries:-0}"
+  echo "background_entries=\${background_entries:-0}"
   if [[ -n "\${validation_note:-}" ]]; then
     echo "validation_note=\${validation_note}"
   fi
