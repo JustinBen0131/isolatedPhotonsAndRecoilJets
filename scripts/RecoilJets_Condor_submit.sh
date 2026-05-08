@@ -1481,7 +1481,13 @@ add_auto_stage_node() {
     DATA_PERRUN)
       next_stage_note="If READY, analysis outputs merged per run and the parent DAG will start DATA_SLICERUNS next." ;;
     DATA_SLICERUNS)
-      next_stage_note="If READY, remote data sliceRuns outputs are ready; the final user-controlled addChunks/pull step is next." ;;
+      if [[ "${RJ_AUTO_FINAL_ADDCHUNKS:-1}" == "0" ]]; then
+        next_stage_note="If READY, remote data sliceRuns outputs are ready; the final user-controlled addChunks/pull step is next."
+      else
+        next_stage_note="If READY, remote data sliceRuns outputs are ready and the parent DAG will start DATA_FINAL_ADDCHUNKS next."
+      fi ;;
+    DATA_FINAL_ADDCHUNKS)
+      next_stage_note="If READY, final data ROOT files exist and are ready to pull or inspect." ;;
     SIM_FIRSTROUND)
       next_stage_note="If READY, remote SIM firstRound outputs are ready; the secondRound merge/pull step is next." ;;
     *)
@@ -4358,6 +4364,36 @@ case "$ACTION" in
   trainTightBDT|trainNPB)
     task="tight"
     [[ "$ACTION" == "trainNPB" ]] && task="npb"
+    if [[ "$ACTION" == "trainTightBDT" ]]; then
+      sidecar="${BASE}/scripts/auau_tight_bdt_pipeline.sh"
+      [[ -x "$sidecar" ]] || { err "Missing sidecar tight-BDT workflow: $sidecar"; exit 2; }
+      case "${TRAIN_MODE:-local}" in
+        local|localTest)
+          say "trainTightBDT is now sidecar-managed; forwarding to: ${sidecar} localTest"
+          exec "$sidecar" localTest "${ARGS[@]:3}"
+          ;;
+        smokeTest|smokeTestFirstPass)
+          say "trainTightBDT smoke extraction is now sidecar-managed; forwarding to: ${sidecar} smokeTest"
+          exec "$sidecar" smokeTest "${ARGS[@]:3}"
+          ;;
+        condorDoAll|condorExtract)
+          say "trainTightBDT Condor extraction is now sidecar-managed; forwarding to: ${sidecar} condorExtract"
+          exec "$sidecar" condorExtract "${ARGS[@]:3}"
+          ;;
+        smokeTestSecondPass|trainFromExtraction)
+          say "trainTightBDT model training is now sidecar-managed; forwarding to: ${sidecar} trainFromExtraction"
+          exec "$sidecar" trainFromExtraction "${ARGS[@]:3}"
+          ;;
+        smokeTestApplyExisting|applyCheck)
+          say "trainTightBDT model apply check is now sidecar-managed; forwarding to: ${sidecar} applyCheck"
+          exec "$sidecar" applyCheck "${ARGS[@]:3}"
+          ;;
+        *)
+          err "trainTightBDT mode must be localTest, smokeTest, condorExtract, trainFromExtraction, or applyCheck; got '${TRAIN_MODE:-local}'"
+          exit 2
+          ;;
+      esac
+    fi
     case "${TRAIN_MODE:-local}" in
       local|localTest)
         auau_bdt_run_local "$task"
@@ -5855,25 +5891,43 @@ SUB
           write_auto_stage_runner "$runner"
           write_auto_final_notify "$final_notify"
           data_merge_out_base="${RJ_MERGE_OUT_BASE_OVERRIDE:-${BASE}/output}"
+          auto_final_addchunks="${RJ_AUTO_FINAL_ADDCHUNKS:-1}"
+          if [[ "$auto_final_addchunks" != "0" ]]; then
+            auto_final_stage_label="DATA_PERRUN -> DATA_SLICERUNS -> DATA_FINAL_ADDCHUNKS"
+            auto_final_notify_key="auto_${TAG}_final_ready"
+            auto_final_next_action="./scripts/sftp_get_recoiljets_outputs.sh ${DATASET}"
+          else
+            auto_final_stage_label="DATA_PERRUN -> DATA_SLICERUNS"
+            auto_final_notify_key="auto_${TAG}_sliceRuns_ready"
+            auto_final_next_action="MERGE_RUN_BASE_OVERRIDE=${DATA_DEST_BASE_SAVED} MERGE_OUT_BASE_OVERRIDE=${data_merge_out_base} ${BASE}/scripts/mergeRecoilJets.sh addChunks ${TAG}"
+          fi
+
           add_auto_stage_node "$auto_dag" "DATA_PERRUN" "$runner" "data_perRun_${TAG}_all" env "MERGE_RUN_BASE_OVERRIDE=${DATA_DEST_BASE_SAVED}" "MERGE_OUT_BASE_OVERRIDE=${data_merge_out_base}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" "${BASE}/scripts/mergeRecoilJets.sh" condor "$TAG"
           add_auto_stage_node "$auto_dag" "DATA_SLICERUNS" "$runner" "data_sliceRuns_${TAG}_all" env "MERGE_RUN_BASE_OVERRIDE=${DATA_DEST_BASE_SAVED}" "MERGE_OUT_BASE_OVERRIDE=${data_merge_out_base}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" "${BASE}/scripts/mergeRecoilJets.sh" addChunks "$TAG" condor sliceRuns
+          if [[ "$auto_final_addchunks" != "0" ]]; then
+            add_auto_stage_node "$auto_dag" "DATA_FINAL_ADDCHUNKS" "$runner" "data_final_${TAG}_all" env "MERGE_RUN_BASE_OVERRIDE=${DATA_DEST_BASE_SAVED}" "MERGE_OUT_BASE_OVERRIDE=${data_merge_out_base}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" "${BASE}/scripts/mergeRecoilJets.sh" addChunks "$TAG" condor
+          fi
           if (( ${#RJ_DAG_COLLECTED_NODES[@]} > 0 )); then
             printf 'PARENT' >> "$auto_dag"
             printf ' %s' "${RJ_DAG_COLLECTED_NODES[@]}" >> "$auto_dag"
             printf ' CHILD DATA_PERRUN\n' >> "$auto_dag"
           fi
           printf 'PARENT DATA_PERRUN CHILD DATA_SLICERUNS\n' >> "$auto_dag"
-          add_auto_final_node "$auto_dag" "FINAL_NOTIFY" "$final_notify" "auto_${TAG}_sliceRuns_ready" "$DATASET" "MERGE_RUN_BASE_OVERRIDE=${DATA_DEST_BASE_SAVED} MERGE_OUT_BASE_OVERRIDE=${data_merge_out_base} ${BASE}/scripts/mergeRecoilJets.sh addChunks ${TAG}"
+          if [[ "$auto_final_addchunks" != "0" ]]; then
+            printf 'PARENT DATA_SLICERUNS CHILD DATA_FINAL_ADDCHUNKS\n' >> "$auto_dag"
+          fi
+          add_auto_final_node "$auto_dag" "FINAL_NOTIFY" "$final_notify" "$auto_final_notify_key" "$DATASET" "$auto_final_next_action"
           say "Automatic workflow DAG built:"
           say "  analysis nodes : ${#RJ_DAG_COLLECTED_NODES[@]}"
-          say "  merge stages   : DATA_PERRUN -> DATA_SLICERUNS (quiet strict validation; final email only)"
+          say "  merge stages   : ${auto_final_stage_label} (quiet strict validation; stage-boundary and final emails)"
           say "  dag            : ${auto_dag}"
           if dag_dryrun_enabled; then
             echo "RECOILJETS_AUTO_DAG_DRYRUN_V1"
             echo "dataset=${DATASET}"
             echo "dag=${auto_dag}"
             echo "analysis_nodes=${#RJ_DAG_COLLECTED_NODES[@]}"
-            echo "next_action_after_ready=MERGE_RUN_BASE_OVERRIDE=${DATA_DEST_BASE_SAVED} MERGE_OUT_BASE_OVERRIDE=${data_merge_out_base} ${BASE}/scripts/mergeRecoilJets.sh addChunks ${TAG}"
+            echo "auto_final_addchunks=${auto_final_addchunks}"
+            echo "next_action_after_ready=${auto_final_next_action}"
             sed -n '1,240p' "$auto_dag"
           else
             condor_submit_dag -notification Never "$auto_dag"
