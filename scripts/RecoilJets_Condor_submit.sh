@@ -59,10 +59,10 @@
 #       isPP, isPPrun25, isAuAu, isOO, isSim, isSimJet5, isSimMB,
 #       isSimEmbedded, isSimEmbeddedInclusive
 #   • DATA modes use per-run runlists and can do:
-#       local, isLocalIsoPing, CHECKJOBS, splitGoldenRunList,
+#       local, isLocalIsoPing, CHECKJOBS, orchestrationSelfTest, splitGoldenRunList,
 #       condor testJob, condor round, condor smokeTest, condor all
 #   • SIM modes use staged matched master lists and can do:
-#       local, checkModels, CHECKJOBS, condorTest,
+#       local, checkModels, CHECKJOBS, orchestrationSelfTest, condorTest,
 #       condorDoAllSmoke, condorDoAll, condorDoAllDirect
 #   • Jobs never mix files across runs in DATA mode.
 #   • Production sweeps use the legacy RecoilJets histogram engine with direct
@@ -1268,6 +1268,7 @@ write_auto_stage_runner() {
   cat > "$runner" <<'EOS'
 #!/usr/bin/env bash
 set -euo pipefail
+recoiljets_dagman_failure_re='failed with|DAG abort|aborted|Job was held|held job|POST Script failed|Node Status:[[:space:]]*STATUS_ERROR|Error:[[:space:]].*failed|return value [1-9][0-9]*|strict validation status=(CHECK|FAILED)|FINAL Node failed'
 stage_key="${1:?stage key required}"
 args_file="${2:?stage argument file required}"
 [[ -s "$args_file" ]] || { echo "[auto-stage] missing/empty argument file: ${args_file}" >&2; exit 19; }
@@ -1310,7 +1311,7 @@ for dlog in "${dagman_logs[@]}"; do
     echo "[auto-stage] rescue file found for ${stage_key}: ${dag}.rescue*" >&2
     status=30
   fi
-  if [[ -s "$dlog" ]] && grep -Eiq 'ERROR|failed with|DAG abort|aborted|Job was held|held job|return value 42|strict validation status|FINAL Node failed' "$dlog"; then
+  if [[ -s "$dlog" ]] && grep -Eiq "$recoiljets_dagman_failure_re" "$dlog"; then
     echo "[auto-stage] error/hold-like text found in ${dlog}" >&2
     status=31
   fi
@@ -1329,6 +1330,7 @@ write_auto_final_notify() {
   cat > "$script" <<'EOS'
 #!/usr/bin/env bash
 set -euo pipefail
+recoiljets_dagman_failure_re='failed with|DAG abort|aborted|Job was held|held job|POST Script failed|Node Status:[[:space:]]*STATUS_ERROR|Error:[[:space:]].*failed|return value [1-9][0-9]*|strict validation status=(CHECK|FAILED)|FINAL Node failed'
 meta_file="${1:?metadata file required}"
 [[ -s "$meta_file" ]] || { echo "[auto-notify] missing/empty metadata file: ${meta_file}" >&2; exit 19; }
 mapfile -t meta < "$meta_file"
@@ -1347,7 +1349,7 @@ if compgen -G "${dag_file}.rescue*" >/dev/null 2>&1; then
   rescue_count=$(compgen -G "${dag_file}.rescue*" | wc -l | awk '{print $1}')
   status="FAILED"
   status_note="Top-level DAGMan rescue file(s) were produced; inspect the DAG logs before continuing."
-elif [[ -s "$dagman_out" ]] && grep -Eiq 'ERROR|failed with|DAG abort|aborted|Job was held|held job|POST Script failed' "$dagman_out"; then
+elif [[ -s "$dagman_out" ]] && grep -Eiq "$recoiljets_dagman_failure_re" "$dagman_out"; then
   status="CHECK"
   status_note="Top-level DAGMan log contains error/hold-like text; inspect logs before treating outputs as ready."
 fi
@@ -1438,6 +1440,57 @@ arguments = $meta_file
 queue
 EOT
   printf 'FINAL %s %s\n' "$node" "$sub" >> "$dag"
+}
+
+orchestration_self_test() {
+  local failure_re='failed with|DAG abort|aborted|Job was held|held job|POST Script failed|Node Status:[[:space:]]*STATUS_ERROR|Error:[[:space:]].*failed|return value [1-9][0-9]*|strict validation status=(CHECK|FAILED)|FINAL Node failed'
+  local tmp
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/recoiljets_orch_selftest.XXXXXX")"
+  trap 'rm -rf "$tmp"' RETURN
+
+  cat > "${tmp}/normal.dagman.out" <<'EOF'
+05/07/26 21:03:45 Daemon Log is logging: D_ALWAYS D_ERROR D_STATUS
+05/07/26 21:03:45 DAGMAN_LOG_ON_NFS_IS_ERROR setting: False
+05/07/26 21:03:45 DAG status: 0 (DAG_STATUS_OK)
+05/07/26 21:05:25 Node MERGE job proc (123.0.0) completed successfully.
+EOF
+
+  cat > "${tmp}/failed_post.dagman.out" <<'EOF'
+05/07/26 21:05:45 POST Script of node DATA_PERRUN failed with status 31
+05/07/26 21:05:45 Node Status: STATUS_ERROR
+EOF
+
+  cat > "${tmp}/held_job.dagman.out" <<'EOF'
+05/07/26 21:05:45 Job was held.
+EOF
+
+  cat > "${tmp}/strict_failed.dagman.out" <<'EOF'
+[notify] data_perRun_auau_all: strict validation status=CHECK; failing merge stage DAG
+EOF
+
+  local failures=0
+  if grep -Eiq "$failure_re" "${tmp}/normal.dagman.out"; then
+    echo "RECOILJETS_ORCH_SELFTEST_FAIL normal_log_false_positive=${tmp}/normal.dagman.out"
+    failures=$((failures + 1))
+  else
+    echo "RECOILJETS_ORCH_SELFTEST_PASS normal_dagman_noise_ignored"
+  fi
+
+  local f
+  for f in failed_post held_job strict_failed; do
+    if grep -Eiq "$failure_re" "${tmp}/${f}.dagman.out"; then
+      echo "RECOILJETS_ORCH_SELFTEST_PASS ${f}_detected"
+    else
+      echo "RECOILJETS_ORCH_SELFTEST_FAIL ${f}_missed=${tmp}/${f}.dagman.out"
+      failures=$((failures + 1))
+    fi
+  done
+
+  if (( failures > 0 )); then
+    echo "RECOILJETS_ORCH_SELFTEST_V1 status=FAIL failures=${failures}"
+    return 1
+  fi
+  echo "RECOILJETS_ORCH_SELFTEST_V1 status=PASS"
 }
 
 clean_fanout_output_dirs_from_file() {
@@ -4032,6 +4085,10 @@ scaled_trigger_prepare_single_yaml() {
 
 # ------------------------ Parse CLI ------------------------
 [[ $# -ge 1 ]] || usage
+if [[ "${1:-}" == "orchestrationSelfTest" || "${2:-}" == "orchestrationSelfTest" ]]; then
+  orchestration_self_test
+  exit $?
+fi
 resolve_dataset "$1"
 
 # Parse remaining tokens (order-agnostic):
@@ -4058,7 +4115,7 @@ for (( idx=0; idx<${#tokens[@]}; idx++ )); do
         ACTION="$tok"
       fi
       ;;
-    checkModels|workflowCheck|isLocalIsoPing|condor|splitGoldenRunList|condorTest)
+    checkModels|workflowCheck|isLocalIsoPing|orchestrationSelfTest|condor|splitGoldenRunList|condorTest)
       ACTION="$tok"
       ;;
     groupSize)
@@ -4151,6 +4208,11 @@ fi
 
 # ------------------------ Actions --------------------------
 case "$ACTION" in
+  orchestrationSelfTest)
+    orchestration_self_test
+    exit $?
+    ;;
+
   scaledTriggerStudy)
     scaled_trigger_prepare_artifacts
     scaled_trigger_prepare_single_yaml

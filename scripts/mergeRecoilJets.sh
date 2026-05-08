@@ -855,7 +855,7 @@ if compgen -G "${dag_file}.rescue*" >/dev/null 2>&1; then
   rescue_count=$(compgen -G "${dag_file}.rescue*" | wc -l | awk '{print $1}')
   status="FAILED"
   status_note="DAGMan rescue file(s) were produced; inspect the DAG logs before continuing."
-elif [[ -s "$dagman_out" ]] && grep -Eiq 'ERROR|failed with|DAG abort|aborted|Job was held|held job' "$dagman_out"; then
+elif [[ -s "$dagman_out" ]] && grep -Eiq 'failed with|DAG abort|aborted|Job was held|held job|POST Script failed|Node Status:[[:space:]]*STATUS_ERROR|Error:[[:space:]].*failed|return value [1-9][0-9]*' "$dagman_out"; then
   status="CHECK"
   status_note="DAGMan log contains error/hold-like text; inspect logs before treating outputs as ready."
 fi
