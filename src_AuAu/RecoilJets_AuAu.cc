@@ -1509,7 +1509,9 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     m_auauNonTightBDTMaxSlope     = envToDouble("RJ_AUAU_NONTIGHT_BDT_MAX_SLOPE", kPPG12NonTightBDTMaxSlope);
     m_auauTightBDTCentDepEdges = envToIntList("RJ_AUAU_TIGHT_BDT_CENTDEP_EDGES", {});
     m_auauTightBDTCentDepScoreNames = envToStringList("RJ_AUAU_TIGHT_BDT_CENTDEP_SCORE_NAMES", {});
+    m_auauBDTExtractOnly = envToBool("RJ_AUAU_BDT_EXTRACT_ONLY", m_auauBDTExtractOnly);
     m_auauBDTTrainingTreeEnabled = envToBool("RJ_AUAU_BDT_TRAINING_TREE", false);
+    if (m_auauBDTExtractOnly) m_auauBDTTrainingTreeEnabled = true;
     m_auauBDTTrainingTreeMaxEntries = envToLL("RJ_AUAU_BDT_TRAINING_TREE_MAX_ENTRIES", 0);
     m_auauBDTNPBDataTaggingEnabled = envToBool("RJ_AUAU_BDT_NPB_DATA_TAGGING", false);
     m_auauNPBTagDeltaTCut = envToDouble("RJ_AUAU_NPB_TAG_DELTA_T_CUT", -7.0);
@@ -1931,13 +1933,36 @@ int RecoilJets::Init(PHCompositeNode* topNode)
   configureInternalBackToBackScanFromEnv();
   configureInternalIsoViewsFromEnv();
 
+  auto initEnvBool = [](const char* name, bool def) -> bool
+  {
+    const char* raw = std::getenv(name);
+    if (!raw) return def;
+    std::string s(raw);
+    std::transform(s.begin(), s.end(), s.begin(),
+                   [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+    return (s == "1" || s == "true" || s == "yes" || s == "on");
+  };
+  m_auauBDTExtractOnly = initEnvBool("RJ_AUAU_BDT_EXTRACT_ONLY", m_auauBDTExtractOnly);
+  if (m_auauBDTExtractOnly)
+  {
+    m_auauBDTTrainingTreeEnabled = true;
+    m_internalIsoViews.clear();
+    m_activeIsoViewSuffix.clear();
+    LOG(1, CLR_MAGENTA,
+        "[Init] RJ_AUAU_BDT_EXTRACT_ONLY=1: writing AuAuPhotonIDTrainingTree only; "
+        "normal histogram booking/filling disabled for this module");
+  }
+
   /* 0.  book-keeping & QA histograms --------------------------------- */
   out = new TFile(Outfile.c_str(), "RECREATE");
   LOG(1, CLR_GREEN, "[Init] opened output file: " << Outfile);
 
   trigAna = new TriggerAnalyzer();
-  LOG(1, CLR_GREEN, "[Init] booking scalar QA histograms …");
-  createHistos_Data();
+  if (!m_auauBDTExtractOnly)
+  {
+    LOG(1, CLR_GREEN, "[Init] booking scalar QA histograms …");
+    createHistos_Data();
+  }
   if (m_auauBDTTrainingTreeEnabled)
   {
     initAuAuBDTTrainingTree();
@@ -7499,7 +7524,6 @@ void RecoilJets::fillPureIsolationQA(PHCompositeNode* topNode,
                                      const double pt_gamma)
 {
   const int effCentIdx = (m_isAuAu ? centIdx : -1);
-  const std::string slice = suffixForBins(ptIdx, effCentIdx) + m_activeIsoViewSuffix;
 
   // Total isolation (existing behavior)
   const double eiso_tot = eiso(rc, topNode);
@@ -8636,9 +8660,9 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
 
                 for (const auto& trigShort : activeTrig)
                 {
-                    if (doCanonical) fillSSSpectra(trigShort, "inclusive", HistViewScope::Canonical);
-                    if (ssIso)    fillSSSpectra(trigShort, "iso", HistViewScope::IsoView);
-                    if (ssNonIso) fillSSSpectra(trigShort, "nonIso", HistViewScope::IsoView);
+                    if (doCanonical && !m_auauBDTExtractOnly) fillSSSpectra(trigShort, "inclusive", HistViewScope::Canonical);
+                    if (ssIso && !m_auauBDTExtractOnly)    fillSSSpectra(trigShort, "iso", HistViewScope::IsoView);
+                    if (ssNonIso && !m_auauBDTExtractOnly) fillSSSpectra(trigShort, "nonIso", HistViewScope::IsoView);
                 }
 
                 // ── SIM: fill inclusive _sig / _bkg PPG12-style SS templates (before preselection) ──
@@ -8663,31 +8687,37 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     const std::string mcSuffix_incl = (isSig_incl ? "_sig" : "_bkg");
                     const std::string tagKey_incl   = std::string("inclusive") + mcSuffix_incl;
 
-                    auto fill1_incl = [&](const std::string& trigShort, const std::string& key, double val)
+                    if (!m_auauBDTExtractOnly)
                     {
-                        if (!std::isfinite(val)) return;
-                        if (auto* h = getOrBookSSHist(trigShort, key, tagKey_incl, ptIdx, effCentIdx_SS, HistViewScope::Canonical))
+                        auto fill1_incl = [&](const std::string& trigShort, const std::string& key, double val)
                         {
-                            h->Fill(val);
-                            bumpHistFill(trigShort, h->GetName());
-                        }
-                    };
+                            if (!std::isfinite(val)) return;
+                            if (auto* h = getOrBookSSHist(trigShort, key, tagKey_incl, ptIdx, effCentIdx_SS, HistViewScope::Canonical))
+                            {
+                                h->Fill(val);
+                                bumpHistFill(trigShort, h->GetName());
+                            }
+                        };
 
-                    for (const auto& trigShort : activeTrig)
-                    {
-                        fill1_incl(trigShort, "weta",   v.weta_cogx);
-                        fill1_incl(trigShort, "wphi",   v.wphi_cogx);
-                        fill1_incl(trigShort, "weta33", v.weta33_cogx);
-                        fill1_incl(trigShort, "wphi33", v.wphi33_cogx);
-                        fill1_incl(trigShort, "weta35", v.weta35_cogx);
-                        fill1_incl(trigShort, "wphi53", v.wphi53_cogx);
-                        fill1_incl(trigShort, "et1",    v.et1);
-                        fill1_incl(trigShort, "e11e33", v.e11_over_e33);
-                        fill1_incl(trigShort, "e32e35", v.e32_over_e35);
+                        for (const auto& trigShort : activeTrig)
+                        {
+                            fill1_incl(trigShort, "weta",   v.weta_cogx);
+                            fill1_incl(trigShort, "wphi",   v.wphi_cogx);
+                            fill1_incl(trigShort, "weta33", v.weta33_cogx);
+                            fill1_incl(trigShort, "wphi33", v.wphi33_cogx);
+                            fill1_incl(trigShort, "weta35", v.weta35_cogx);
+                            fill1_incl(trigShort, "wphi53", v.wphi53_cogx);
+                            fill1_incl(trigShort, "et1",    v.et1);
+                            fill1_incl(trigShort, "e11e33", v.e11_over_e33);
+                            fill1_incl(trigShort, "e32e35", v.e32_over_e35);
+                        }
                     }
                 }
 
-                if (doCanonical && bdtTrainHaveLabel)
+                const bool bdtTrainPassCommonGate =
+                    (!m_auauBDTExtractOnly || passesPhotonPreselection(v));
+
+                if (doCanonical && bdtTrainHaveLabel && bdtTrainPassCommonGate)
                 {
                     fillAuAuBDTTrainingTree(v, eta, phi, eiso_et, ptIdx, centIdx,
                                             bdtTrainIsSignal,
@@ -8696,7 +8726,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                                             std::numeric_limits<double>::quiet_NaN(),
                                             false);
                 }
-                else if (doCanonical && !m_isSim && m_auauBDTNPBDataTaggingEnabled)
+                else if (doCanonical && !m_isSim && m_auauBDTNPBDataTaggingEnabled && bdtTrainPassCommonGate)
                 {
                     double npbDeltaT = std::numeric_limits<double>::quiet_NaN();
                     double npbMbdTime = std::numeric_limits<double>::quiet_NaN();
@@ -8712,6 +8742,11 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                                                 npbMbdTime,
                                                 npbHasAwayJet);
                     }
+                }
+
+                if (m_auauBDTExtractOnly)
+                {
+                    continue;
                 }
 
                 // ---------- NPB preselection shadow QA ----------

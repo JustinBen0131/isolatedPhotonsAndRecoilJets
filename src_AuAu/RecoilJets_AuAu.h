@@ -1522,6 +1522,7 @@ private:
   std::vector<float> m_evtDiag_best_eTower;
 
     bool m_auauBDTTrainingTreeEnabled = false;
+    bool m_auauBDTExtractOnly = false;
     long long m_auauBDTTrainingTreeMaxEntries = 0;
     long long m_auauBDTTrainingTreeEntries = 0;
     TTree* m_auauBDTTrainingTree = nullptr;

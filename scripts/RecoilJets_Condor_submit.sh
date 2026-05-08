@@ -523,10 +523,10 @@ ${BOLD}SIM mode (MinBias DETROIT):${RST}
   ${BOLD}$0 isSimMB condorDoAll [groupSize N] [SAMPLE=run28_detroit]${RST}
 
 ${BOLD}AuAu embedded photon-ID BDT training:${RST}
-  ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT localTest [Nevents] [VERBOSE=N]${RST}
-  ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT smokeTestFirstPass [groupSize N]${RST}
-  ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT smokeTestSecondPass SOURCE=/path/to/finished/extraction${RST}
-  ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT smokeTestApplyExisting MODEL_DIR=/path/to/tight/models [Nevents] [NFILES=N] [VERBOSE=N]${RST}
+  ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT localTest [Nevents] [NFILES=N]${RST}  ${DIM}# forwards to scripts/auau_tight_bdt_pipeline.sh${RST}
+  ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT smokeTest [groupSize N]${RST}         ${DIM}# sidecar extraction DAG${RST}
+  ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT trainFromExtraction SOURCE=/path${RST}
+  ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT applyCheck MODEL_DIR=/path/to/tight/models${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainNPB local [Nevents] [VERBOSE=N]${RST}
   ${BOLD}RJ_AUAU_BDT_NPB_DATA_LOCAL=1 $0 isSimEmbeddedAndInclusive trainNPB local [Nevents] [VERBOSE=N]${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainJetMLResidual local [Nevents] [VERBOSE=N]${RST}
@@ -4199,7 +4199,7 @@ for (( idx=0; idx<${#tokens[@]}; idx++ )); do
     scaledTriggerStudy)
       ACTION="$tok"
       ;;
-    local|localTest|condorDoAll|condorDoAllSmoke|condorDoAllDirect|condorDoAllFromScratch|condorHistFromPool|resume|smokeTestFirstPass|smokeTestSecondPass|smokeTestApplyExisting)
+    local|localTest|condorDoAll|condorDoAllSmoke|condorDoAllDirect|condorDoAllFromScratch|condorHistFromPool|resume|smokeTest|condorExtract|trainFromExtraction|applyCheck|smokeTestFirstPass|smokeTestSecondPass|smokeTestApplyExisting)
       if [[ "$ACTION" == trainTightBDT || "$ACTION" == trainNPB || "$ACTION" == trainJetMLResidual || "$ACTION" == trainMLAll || "$ACTION" == scaledTriggerStudy ]]; then
         TRAIN_MODE="$tok"
       else
@@ -4366,27 +4366,35 @@ case "$ACTION" in
     [[ "$ACTION" == "trainNPB" ]] && task="npb"
     if [[ "$ACTION" == "trainTightBDT" ]]; then
       sidecar="${BASE}/scripts/auau_tight_bdt_pipeline.sh"
-      [[ -x "$sidecar" ]] || { err "Missing sidecar tight-BDT workflow: $sidecar"; exit 2; }
+      [[ -f "$sidecar" ]] || { err "Missing sidecar tight-BDT workflow: $sidecar"; exit 2; }
+      sidecar_args=()
+      for tok in "${tokens[@]}"; do
+        case "$tok" in
+          trainTightBDT|local|localTest|smokeTest|smokeTestFirstPass|condorDoAll|condorExtract|smokeTestSecondPass|trainFromExtraction|smokeTestApplyExisting|applyCheck)
+            ;;
+          *) sidecar_args+=( "$tok" ) ;;
+        esac
+      done
       case "${TRAIN_MODE:-local}" in
         local|localTest)
           say "trainTightBDT is now sidecar-managed; forwarding to: ${sidecar} localTest"
-          exec "$sidecar" localTest "${ARGS[@]:3}"
+          exec bash "$sidecar" localTest "${sidecar_args[@]}"
           ;;
         smokeTest|smokeTestFirstPass)
           say "trainTightBDT smoke extraction is now sidecar-managed; forwarding to: ${sidecar} smokeTest"
-          exec "$sidecar" smokeTest "${ARGS[@]:3}"
+          exec bash "$sidecar" smokeTest "${sidecar_args[@]}"
           ;;
         condorDoAll|condorExtract)
           say "trainTightBDT Condor extraction is now sidecar-managed; forwarding to: ${sidecar} condorExtract"
-          exec "$sidecar" condorExtract "${ARGS[@]:3}"
+          exec bash "$sidecar" condorExtract "${sidecar_args[@]}"
           ;;
         smokeTestSecondPass|trainFromExtraction)
           say "trainTightBDT model training is now sidecar-managed; forwarding to: ${sidecar} trainFromExtraction"
-          exec "$sidecar" trainFromExtraction "${ARGS[@]:3}"
+          exec bash "$sidecar" trainFromExtraction "${sidecar_args[@]}"
           ;;
         smokeTestApplyExisting|applyCheck)
           say "trainTightBDT model apply check is now sidecar-managed; forwarding to: ${sidecar} applyCheck"
-          exec "$sidecar" applyCheck "${ARGS[@]:3}"
+          exec bash "$sidecar" applyCheck "${sidecar_args[@]}"
           ;;
         *)
           err "trainTightBDT mode must be localTest, smokeTest, condorExtract, trainFromExtraction, or applyCheck; got '${TRAIN_MODE:-local}'"
