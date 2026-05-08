@@ -1400,6 +1400,7 @@ stage_key="${meta[1]}"
 dataset="${meta[2]}"
 dag_file="${meta[3]}"
 next_action="${meta[4]}"
+final_output_base="${meta[5]:-}"
 dagman_out="${dag_file}.dagman.out"
 nodes_log="${dag_file}.nodes.log"
 status="READY"
@@ -1427,10 +1428,16 @@ msg="$(mktemp "${TMPDIR:-/tmp}/recoiljets_auto_notify.XXXXXX")"
   echo "dagman_out=${dagman_out}"
   echo "nodes_log=${nodes_log}"
   echo "rescue_file_count=${rescue_count}"
+  if [[ -n "$final_output_base" ]]; then
+    echo "final_output_base=${final_output_base}"
+  fi
   echo "next_action=${next_action}"
   echo
   echo "message:"
   echo "  Automatic RecoilJets workflow finished its remote stages for dataset=${dataset}."
+  if [[ -n "$final_output_base" ]]; then
+    echo "  Final output base: ${final_output_base}"
+  fi
   echo "  Next action: ${next_action}"
 } > "$msg"
 timeout_s="${RJ_STAGE_EMAIL_TIMEOUT_SECONDS:-25}"
@@ -1507,13 +1514,13 @@ EOT
 }
 
 add_auto_final_node() {
-  local dag="$1" node="$2" notify_script="$3" stage_key="$4" dataset="$5" next_action="$6"
+  local dag="$1" node="$2" notify_script="$3" stage_key="$4" dataset="$5" next_action="$6" final_output_base="${7:-}"
   local emails
   emails="$(notify_emails_csv_from_yaml)"
   [[ -n "$emails" ]] || return 0
   local sub="${dag%/*}/${node}.sub"
   local meta_file="${dag%/*}/${node}.meta"
-  printf '%s\n%s\n%s\n%s\n%s\n' "$emails" "$stage_key" "$dataset" "$dag" "$next_action" > "$meta_file"
+  printf '%s\n%s\n%s\n%s\n%s\n%s\n' "$emails" "$stage_key" "$dataset" "$dag" "$next_action" "$final_output_base" > "$meta_file"
   cat > "$sub" <<EOT
 universe   = scheduler
 executable = /bin/true
@@ -5442,7 +5449,7 @@ SUB
         printf ' %s' "${RJ_DAG_COLLECTED_NODES[@]}" >> "$auto_dag"
         printf ' CHILD SIM_FIRSTROUND\n' >> "$auto_dag"
       fi
-      add_auto_final_node "$auto_dag" "FINAL_NOTIFY" "$final_notify" "auto_${TAG}_firstRound_ready" "$DATASET" "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED} MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base} ${BASE}/scripts/mergeRecoilJets.sh ${DATASET} secondRound condor"
+      add_auto_final_node "$auto_dag" "FINAL_NOTIFY" "$final_notify" "auto_${TAG}_firstRound_ready" "$DATASET" "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED} MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base} ${BASE}/scripts/mergeRecoilJets.sh ${DATASET} secondRound condor" "${sim_merge_out_base}/${TAG}"
       say "Automatic workflow DAG built:"
       say "  analysis nodes : ${#RJ_DAG_COLLECTED_NODES[@]}"
       say "  merge stages   : SIM_FIRSTROUND (quiet strict validation; final email only)"
@@ -5918,7 +5925,7 @@ SUB
           if [[ "$auto_final_addchunks" != "0" ]]; then
             printf 'PARENT DATA_SLICERUNS CHILD DATA_FINAL_ADDCHUNKS\n' >> "$auto_dag"
           fi
-          add_auto_final_node "$auto_dag" "FINAL_NOTIFY" "$final_notify" "$auto_final_notify_key" "$DATASET" "$auto_final_next_action"
+          add_auto_final_node "$auto_dag" "FINAL_NOTIFY" "$final_notify" "$auto_final_notify_key" "$DATASET" "$auto_final_next_action" "${data_merge_out_base}/${TAG}"
           say "Automatic workflow DAG built:"
           say "  analysis nodes : ${#RJ_DAG_COLLECTED_NODES[@]}"
           say "  merge stages   : ${auto_final_stage_label} (quiet strict validation; stage-boundary and final emails)"
