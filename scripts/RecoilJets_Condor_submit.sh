@@ -1271,20 +1271,78 @@ set -euo pipefail
 recoiljets_dagman_failure_re='failed with|DAG abort|aborted|Job was held|held job|POST Script failed|Node Status:[[:space:]]*STATUS_ERROR|Error:[[:space:]].*failed|return value [1-9][0-9]*|strict validation status=(CHECK|FAILED)|FINAL Node failed'
 stage_key="${1:?stage key required}"
 args_file="${2:?stage argument file required}"
+meta_file="${3:-}"
 [[ -s "$args_file" ]] || { echo "[auto-stage] missing/empty argument file: ${args_file}" >&2; exit 19; }
 mapfile -t stage_cmd < "$args_file"
 (( ${#stage_cmd[@]} > 0 )) || { echo "[auto-stage] no command arguments in ${args_file}" >&2; exit 19; }
+emails=""
+dataset="unknown"
+dag_file=""
+next_stage=""
+if [[ -n "$meta_file" && -s "$meta_file" ]]; then
+  mapfile -t meta < "$meta_file"
+  emails="${meta[0]:-}"
+  dataset="${meta[1]:-unknown}"
+  dag_file="${meta[2]:-}"
+  next_stage="${meta[3]:-}"
+fi
 poll_seconds="${RJ_ORCH_POLL_SECONDS:-120}"
 [[ "$poll_seconds" =~ ^[0-9]+$ && "$poll_seconds" -gt 0 ]] || poll_seconds=120
 log_file="${TMPDIR:-/tmp}/recoiljets_auto_${stage_key}_$$_submit.log"
+
+send_stage_mail() {
+  local status="$1" note="$2" clusters="${3:-}"
+  [[ -n "$emails" ]] || return 0
+  local subject="[RecoilJets][${stage_key}][${status}]"
+  local msg
+  msg="$(mktemp "${TMPDIR:-/tmp}/recoiljets_auto_stage.XXXXXX")"
+  {
+    echo "RECOILJETS_STAGE_EMAIL_V1"
+    echo "status=${status}"
+    echo "status_note=${note}"
+    echo "stage=${stage_key}"
+    echo "stage_type=analysis_to_merge_stage"
+    echo "dataset=${dataset}"
+    echo "email_policy=dataset-level stage boundary emails; nested per-cfg merge emails suppressed"
+    echo "dag_file=${dag_file}"
+    echo "stage_command_log=${log_file}"
+    echo "clusters=${clusters}"
+    echo "next_stage=${next_stage}"
+    echo
+    echo "message:"
+    echo "  ${note}"
+  } > "$msg"
+  local timeout_s="${RJ_STAGE_EMAIL_TIMEOUT_SECONDS:-25}"
+  [[ "$timeout_s" =~ ^[0-9]+$ && "$timeout_s" -gt 0 ]] || timeout_s=25
+  if command -v mail >/dev/null 2>&1; then
+    if command -v timeout >/dev/null 2>&1; then
+      timeout "$timeout_s" mail -s "$subject" "$emails" < "$msg" || echo "[auto-stage] mail failed/timed out for ${emails}; status=${status}" >&2
+    else
+      mail -s "$subject" "$emails" < "$msg" || echo "[auto-stage] mail failed for ${emails}; status=${status}" >&2
+    fi
+  elif command -v mailx >/dev/null 2>&1; then
+    if command -v timeout >/dev/null 2>&1; then
+      timeout "$timeout_s" mailx -s "$subject" "$emails" < "$msg" || echo "[auto-stage] mailx failed/timed out for ${emails}; status=${status}" >&2
+    else
+      mailx -s "$subject" "$emails" < "$msg" || echo "[auto-stage] mailx failed for ${emails}; status=${status}" >&2
+    fi
+  else
+    echo "[auto-stage] mail/mailx not found; notification skipped for ${emails}" >&2
+    cat "$msg" >&2
+  fi
+  rm -f "$msg"
+}
+
 echo "[auto-stage] stage=${stage_key}"
 printf '[auto-stage] command:'
 printf ' %q' "${stage_cmd[@]}"
 printf '\n'
+send_stage_mail "STARTED" "Dataset=${dataset}: upstream DAG node reached ${stage_key}; launching this merge/check stage now."
 "${stage_cmd[@]}" 2>&1 | tee "$log_file"
 mapfile -t clusters < <(grep -Eo 'submitted to cluster [0-9]+' "$log_file" | awk '{print $4}' | sort -u)
 if (( ${#clusters[@]} == 0 )); then
   echo "[auto-stage] no Condor cluster was detected in submit output for ${stage_key}" >&2
+  send_stage_mail "FAILED" "Dataset=${dataset}: ${stage_key} did not report a submitted Condor cluster; inspect stage_command_log."
   exit 20
 fi
 echo "[auto-stage] clusters=${clusters[*]}"
@@ -1318,9 +1376,11 @@ for dlog in "${dagman_logs[@]}"; do
 done
 if (( status != 0 )); then
   echo "[auto-stage] stage=${stage_key} finished with CHECK status; stopping parent DAG" >&2
+  send_stage_mail "CHECK" "Dataset=${dataset}: ${stage_key} completed but strict validation found rescue/error/hold-like evidence; parent DAG will stop." "${clusters[*]}"
   exit "$status"
 fi
 echo "[auto-stage] stage=${stage_key} complete"
+send_stage_mail "READY" "Dataset=${dataset}: ${stage_key} finished cleanly. ${next_stage}" "${clusters[*]}"
 EOS
   chmod +x "$runner"
 }
@@ -1373,10 +1433,20 @@ msg="$(mktemp "${TMPDIR:-/tmp}/recoiljets_auto_notify.XXXXXX")"
   echo "  Automatic RecoilJets workflow finished its remote stages for dataset=${dataset}."
   echo "  Next action: ${next_action}"
 } > "$msg"
+timeout_s="${RJ_STAGE_EMAIL_TIMEOUT_SECONDS:-25}"
+[[ "$timeout_s" =~ ^[0-9]+$ && "$timeout_s" -gt 0 ]] || timeout_s=25
 if command -v mail >/dev/null 2>&1; then
-  mail -s "$subject" "$emails" < "$msg" || echo "[auto-notify] mail command failed for ${emails}; status=${status}" >&2
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$timeout_s" mail -s "$subject" "$emails" < "$msg" || echo "[auto-notify] mail command failed/timed out for ${emails}; status=${status}" >&2
+  else
+    mail -s "$subject" "$emails" < "$msg" || echo "[auto-notify] mail command failed for ${emails}; status=${status}" >&2
+  fi
 elif command -v mailx >/dev/null 2>&1; then
-  mailx -s "$subject" "$emails" < "$msg" || echo "[auto-notify] mailx command failed for ${emails}; status=${status}" >&2
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$timeout_s" mailx -s "$subject" "$emails" < "$msg" || echo "[auto-notify] mailx command failed/timed out for ${emails}; status=${status}" >&2
+  else
+    mailx -s "$subject" "$emails" < "$msg" || echo "[auto-notify] mailx command failed for ${emails}; status=${status}" >&2
+  fi
 else
   echo "[auto-notify] mail/mailx not found; notification skipped for ${emails}" >&2
   cat "$msg" >&2
@@ -1403,7 +1473,22 @@ add_auto_stage_node() {
   shift 4
   local sub="${dag%/*}/${node}.sub"
   local args_file="${dag%/*}/${node}.args"
+  local meta_file="${dag%/*}/${node}.meta"
+  local emails
+  local next_stage_note
+  emails="$(notify_emails_csv_from_yaml)"
+  case "$node" in
+    DATA_PERRUN)
+      next_stage_note="If READY, analysis outputs merged per run and the parent DAG will start DATA_SLICERUNS next." ;;
+    DATA_SLICERUNS)
+      next_stage_note="If READY, remote data sliceRuns outputs are ready; the final user-controlled addChunks/pull step is next." ;;
+    SIM_FIRSTROUND)
+      next_stage_note="If READY, remote SIM firstRound outputs are ready; the secondRound merge/pull step is next." ;;
+    *)
+      next_stage_note="If READY, the next DAG dependency is eligible to run." ;;
+  esac
   printf '%s\n' "$@" > "$args_file"
+  printf '%s\n%s\n%s\n%s\n' "$emails" "$DATASET" "$dag" "$next_stage_note" > "$meta_file"
   cat > "$sub" <<EOT
 universe   = scheduler
 executable = /bin/true
@@ -1412,7 +1497,7 @@ notification = Never
 queue
 EOT
   printf 'JOB %s %s NOOP\n' "$node" "$sub" >> "$dag"
-  printf 'SCRIPT POST %s %s %s %s\n' "$node" "$runner" "$stage_key" "$args_file" >> "$dag"
+  printf 'SCRIPT POST %s %s %s %s %s\n' "$node" "$runner" "$stage_key" "$args_file" "$meta_file" >> "$dag"
 }
 
 add_auto_final_node() {
