@@ -1515,22 +1515,14 @@ add_auto_final_node() {
   local meta_file="${dag%/*}/${node}.meta"
   printf '%s\n%s\n%s\n%s\n%s\n' "$emails" "$stage_key" "$dataset" "$dag" "$next_action" > "$meta_file"
   cat > "$sub" <<EOT
-universe   = local
-executable = $notify_script
-initialdir = $BASE
-getenv     = True
-output     = $OUT_DIR/auto.${node}.\$(Cluster).\$(Process).out
-error      = $ERR_DIR/auto.${node}.\$(Cluster).\$(Process).err
+universe   = scheduler
+executable = /bin/true
 log        = $LOG_DIR/auto.${node}.\$(Cluster).\$(Process).log
-request_memory = 256MB
-should_transfer_files = NO
-stream_output = True
-stream_error  = True
 notification = Never
-arguments = $meta_file
 queue
 EOT
-  printf 'FINAL %s %s\n' "$node" "$sub" >> "$dag"
+  printf 'FINAL %s %s NOOP\n' "$node" "$sub" >> "$dag"
+  printf 'SCRIPT POST %s %s %s\n' "$node" "$notify_script" "$meta_file" >> "$dag"
 }
 
 orchestration_self_test() {
