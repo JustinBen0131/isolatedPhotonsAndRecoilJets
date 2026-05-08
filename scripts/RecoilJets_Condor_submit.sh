@@ -1269,13 +1269,18 @@ write_auto_stage_runner() {
 #!/usr/bin/env bash
 set -euo pipefail
 stage_key="${1:?stage key required}"
-shift
+args_file="${2:?stage argument file required}"
+[[ -s "$args_file" ]] || { echo "[auto-stage] missing/empty argument file: ${args_file}" >&2; exit 19; }
+mapfile -t stage_cmd < "$args_file"
+(( ${#stage_cmd[@]} > 0 )) || { echo "[auto-stage] no command arguments in ${args_file}" >&2; exit 19; }
 poll_seconds="${RJ_ORCH_POLL_SECONDS:-120}"
 [[ "$poll_seconds" =~ ^[0-9]+$ && "$poll_seconds" -gt 0 ]] || poll_seconds=120
 log_file="${TMPDIR:-/tmp}/recoiljets_auto_${stage_key}_$$_submit.log"
 echo "[auto-stage] stage=${stage_key}"
-echo "[auto-stage] command=$*"
-"$@" 2>&1 | tee "$log_file"
+printf '[auto-stage] command:'
+printf ' %q' "${stage_cmd[@]}"
+printf '\n'
+"${stage_cmd[@]}" 2>&1 | tee "$log_file"
 mapfile -t clusters < <(grep -Eo 'submitted to cluster [0-9]+' "$log_file" | awk '{print $4}' | sort -u)
 if (( ${#clusters[@]} == 0 )); then
   echo "[auto-stage] no Condor cluster was detected in submit output for ${stage_key}" >&2
@@ -1324,11 +1329,15 @@ write_auto_final_notify() {
   cat > "$script" <<'EOS'
 #!/usr/bin/env bash
 set -euo pipefail
-emails="${1:?emails required}"
-stage_key="${2:?stage key required}"
-dataset="${3:?dataset required}"
-dag_file="${4:?dag file required}"
-next_action="${5:?next action required}"
+meta_file="${1:?metadata file required}"
+[[ -s "$meta_file" ]] || { echo "[auto-notify] missing/empty metadata file: ${meta_file}" >&2; exit 19; }
+mapfile -t meta < "$meta_file"
+(( ${#meta[@]} >= 5 )) || { echo "[auto-notify] metadata file has too few rows: ${meta_file}" >&2; exit 19; }
+emails="${meta[0]}"
+stage_key="${meta[1]}"
+dataset="${meta[2]}"
+dag_file="${meta[3]}"
+next_action="${meta[4]}"
 dagman_out="${dag_file}.dagman.out"
 nodes_log="${dag_file}.nodes.log"
 status="READY"
@@ -1391,6 +1400,8 @@ add_auto_stage_node() {
   local dag="$1" node="$2" runner="$3" stage_key="$4"
   shift 4
   local sub="${dag%/*}/${node}.sub"
+  local args_file="${dag%/*}/${node}.args"
+  printf '%s\n' "$@" > "$args_file"
   cat > "$sub" <<EOT
 universe   = vanilla
 executable = $runner
@@ -1404,7 +1415,7 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification = Never
-arguments = $stage_key "$@"
+arguments = $stage_key $args_file
 queue
 EOT
   printf 'JOB %s %s\n' "$node" "$sub" >> "$dag"
@@ -1416,6 +1427,8 @@ add_auto_final_node() {
   emails="$(notify_emails_csv_from_yaml)"
   [[ -n "$emails" ]] || return 0
   local sub="${dag%/*}/${node}.sub"
+  local meta_file="${dag%/*}/${node}.meta"
+  printf '%s\n%s\n%s\n%s\n%s\n' "$emails" "$stage_key" "$dataset" "$dag" "$next_action" > "$meta_file"
   cat > "$sub" <<EOT
 universe   = vanilla
 executable = $notify_script
@@ -1429,7 +1442,7 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification = Never
-arguments = "$emails" "$stage_key" "$dataset" "$dag" "$next_action"
+arguments = $meta_file
 queue
 EOT
   printf 'FINAL %s %s\n' "$node" "$sub" >> "$dag"
