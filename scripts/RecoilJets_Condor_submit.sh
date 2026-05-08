@@ -217,7 +217,7 @@
 #     • isSimJet5      → legacy alias for isSimInclusive
 #     • isSimMB       → /sphenix/tg/tg01/bulk/jbennett/thesisAna/simmb
 #     • isSimEmbedded → /sphenix/tg/tg01/bulk/jbennett/thesisAna/simembedded
-#     • isSimEmbeddedInclusive → /sphenix/tg/tg01/bulk/jbennett/thesisAna/simembedded
+#     • isSimEmbeddedInclusive → /sphenix/tg/tg01/bulk/jbennett/thesisAna/simembeddedinclusive
 #
 # VERBOSITY POLICY
 #   • LOCAL mode:
@@ -369,6 +369,7 @@ SIMINCLUSIVE_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/siminclusive"
 SIMJET5_DEST_BASE="$SIMINCLUSIVE_DEST_BASE"
 SIMMB_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simmb"
 SIMEMBED_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simembedded"
+SIMEMBEDINCLUSIVE_DEST_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simembeddedinclusive"
 AUAU_BDT_DEST_BASE="${RJ_AUAU_BDT_DEST_BASE:-/sphenix/tg/tg01/bulk/jbennett/thesisAna/simembedded_bdt_training}"
 AUAU_BDT_LOCAL_BASE="${RJ_AUAU_BDT_LOCAL_BASE:-${BASE}/local_bdt_training_outputs}"
 AUAU_BDT_MODEL_BASE="${RJ_AUAU_BDT_MODEL_BASE:-${BASE}/bdt_models}"
@@ -527,6 +528,8 @@ ${BOLD}AuAu embedded photon-ID BDT training:${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT smokeTest [groupSize N]${RST}         ${DIM}# sidecar extraction DAG${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT trainFromExtraction SOURCE=/path${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT applyCheck MODEL_DIR=/path/to/tight/models${RST}
+  ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT validateOnSim SOURCE=/path MODEL_DIR=/path${RST}
+  ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT validateOnSimCondor SOURCE=/path MODEL_DIR=/path [groupSize N]${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainNPB local [Nevents] [VERBOSE=N]${RST}
   ${BOLD}RJ_AUAU_BDT_NPB_DATA_LOCAL=1 $0 isSimEmbeddedAndInclusive trainNPB local [Nevents] [VERBOSE=N]${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainJetMLResidual local [Nevents] [VERBOSE=N]${RST}
@@ -648,6 +651,26 @@ memory_request_to_mb() {
     *[Gg][Bb]|*[Gg]) mb=$(( mb * 1024 )) ;;
   esac
   printf '%s\n' "$mb"
+}
+
+condor_auto_memory_retry_block() {
+  local base_mb="${1:-0}"
+  [[ "$base_mb" =~ ^[0-9]+$ ]] || base_mb=0
+  local cap_mb="${RJ_AUTO_MEMORY_RETRY_CAP_MB:-8000}"
+  local retries="${RJ_AUTO_MEMORY_RETRY_MAX_RELEASES:-2}"
+  [[ "$cap_mb" =~ ^[0-9]+$ ]] || cap_mb=8000
+  [[ "$retries" =~ ^[0-9]+$ ]] || retries=2
+  if [[ "${RJ_AUTO_MEMORY_RETRY:-1}" == "0" || "$base_mb" -le 0 || "$base_mb" -ge "$cap_mb" || "$retries" -le 0 ]]; then
+    printf 'request_memory= %s\n' "$base_mb"
+    return 0
+  fi
+  cat <<EOT
++RJBaseRequestMemoryMb = ${base_mb}
++RJMemoryRetryCapMb = ${cap_mb}
++RJMemoryRetryMaxReleases = ${retries}
+request_memory = ifThenElse(MemoryUsage =!= undefined, ifThenElse(int(MemoryUsage * 1.35 + 512) > ${cap_mb}, ${cap_mb}, ifThenElse(int(MemoryUsage * 1.35 + 512) > ${base_mb}, int(MemoryUsage * 1.35 + 512), ${base_mb})), ${base_mb})
+periodic_release = (JobStatus == 5) && (NumJobStarts <= ${retries}) && (RequestMemory < ${cap_mb}) && ((HoldReasonCode == 34) || ((HoldReason =!= undefined) && regexp("memory|Memory|cgroup|request_memory|request memory", HoldReason)))
+EOT
 }
 
 sim_yaml_master_path() {
@@ -1496,7 +1519,11 @@ add_auto_stage_node() {
     DATA_FINAL_ADDCHUNKS)
       next_stage_note="If READY, final data ROOT files exist and are ready to pull or inspect." ;;
     SIM_FIRSTROUND)
-      next_stage_note="If READY, remote SIM firstRound outputs are ready; the secondRound merge/pull step is next." ;;
+      next_stage_note="If READY, remote SIM firstRound outputs are ready and the parent DAG will start SIM_SECONDROUND next." ;;
+    SIM_SECONDROUND)
+      next_stage_note="If READY, final SIM sample ROOT outputs exist and the parent DAG will start SIM_FINALSTITCH next." ;;
+    SIM_FINALSTITCH)
+      next_stage_note="If READY, final stitched SIM ROOT outputs exist and are ready to pull or inspect." ;;
     *)
       next_stage_note="If READY, the next DAG dependency is eligible to run." ;;
   esac
@@ -1967,7 +1994,7 @@ resolve_dataset() {
       GOLDEN=""
       LIST_DIR=""
       LIST_PREFIX=""
-      DEST_BASE="${RJ_SIMEMBED_DEST_BASE:-$SIMEMBED_DEST_BASE}"
+      DEST_BASE="${RJ_SIMEMBEDINCLUSIVE_DEST_BASE:-$SIMEMBEDINCLUSIVE_DEST_BASE}"
       TAG="simembeddedinclusive"
       MACRO="${BASE}/macros/Fun4All_recoilJets_AuAu.C"
       EXE="${BASE}/RecoilJets_Condor_AuAu.sh"
@@ -2851,7 +2878,7 @@ getenv        = True
 log           = ${LOG_DIR}/job.\$(Cluster).\$(Process).log
 output        = ${OUT_DIR}/job.\$(Cluster).\$(Process).out
 error         = ${ERR_DIR}/job.\$(Cluster).\$(Process).err
-request_memory= ${request_memory}
+$(condor_auto_memory_retry_block "$request_memory_mb")
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
@@ -4198,7 +4225,7 @@ for (( idx=0; idx<${#tokens[@]}; idx++ )); do
     scaledTriggerStudy)
       ACTION="$tok"
       ;;
-    local|localTest|condorDoAll|condorDoAllSmoke|condorDoAllDirect|condorDoAllFromScratch|condorHistFromPool|resume|smokeTest|condorExtract|trainFromExtraction|applyCheck|smokeTestFirstPass|smokeTestSecondPass|smokeTestApplyExisting)
+    local|localTest|condorDoAll|condorDoAllSmoke|condorDoAllDirect|condorDoAllFromScratch|condorHistFromPool|resume|smokeTest|condorExtract|trainFromExtraction|applyCheck|validateOnSim|validateSim|simValidation|validateOnSimCondor|condorValidateOnSim|validateSimCondor|smokeTestFirstPass|smokeTestSecondPass|smokeTestApplyExisting)
       if [[ "$ACTION" == trainTightBDT || "$ACTION" == trainNPB || "$ACTION" == trainJetMLResidual || "$ACTION" == trainMLAll || "$ACTION" == scaledTriggerStudy ]]; then
         TRAIN_MODE="$tok"
       elif [[ "$ACTION" == "condor" && "$tok" == "smokeTest" ]]; then
@@ -4371,7 +4398,7 @@ case "$ACTION" in
       sidecar_args=()
       for tok in "${tokens[@]}"; do
         case "$tok" in
-          trainTightBDT|local|localTest|smokeTest|smokeTestFirstPass|condorDoAll|condorExtract|smokeTestSecondPass|trainFromExtraction|smokeTestApplyExisting|applyCheck)
+          trainTightBDT|local|localTest|smokeTest|smokeTestFirstPass|condorDoAll|condorExtract|smokeTestSecondPass|trainFromExtraction|smokeTestApplyExisting|applyCheck|validateOnSim|validateSim|simValidation|validateOnSimCondor|condorValidateOnSim|validateSimCondor)
             ;;
           *) sidecar_args+=( "$tok" ) ;;
         esac
@@ -4397,8 +4424,16 @@ case "$ACTION" in
           say "trainTightBDT model apply check is now sidecar-managed; forwarding to: ${sidecar} applyCheck"
           exec bash "$sidecar" applyCheck "${sidecar_args[@]}"
           ;;
+        validateOnSim|validateSim|simValidation)
+          say "trainTightBDT simulation validation is now sidecar-managed; forwarding to: ${sidecar} validateOnSim"
+          exec bash "$sidecar" validateOnSim "${sidecar_args[@]}"
+          ;;
+        validateOnSimCondor|condorValidateOnSim|validateSimCondor)
+          say "trainTightBDT Condor simulation validation is now sidecar-managed; forwarding to: ${sidecar} validateOnSimCondor"
+          exec bash "$sidecar" validateOnSimCondor "${sidecar_args[@]}"
+          ;;
         *)
-          err "trainTightBDT mode must be localTest, smokeTest, condorExtract, trainFromExtraction, or applyCheck; got '${TRAIN_MODE:-local}'"
+          err "trainTightBDT mode must be localTest, smokeTest, condorExtract, trainFromExtraction, applyCheck, validateOnSim, or validateOnSimCondor; got '${TRAIN_MODE:-local}'"
           exit 2
           ;;
       esac
@@ -5091,7 +5126,7 @@ getenv        = True
 log           = ${LOG_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).log
 output        = ${OUT_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).out
 error         = ${ERR_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).err
-request_memory= 2000MB
+$(condor_auto_memory_retry_block "2000")
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
@@ -5395,7 +5430,7 @@ getenv        = True
 log           = ${LOG_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).log
 output        = ${OUT_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).out
 error         = ${ERR_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).err
-request_memory= ${direct_request_memory}
+$(condor_auto_memory_retry_block "$direct_request_memory_mb")
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
@@ -5439,27 +5474,56 @@ SUB
       write_auto_stage_runner "$runner"
       write_auto_final_notify "$final_notify"
       sim_merge_out_base="${RJ_MERGE_OUT_BASE_OVERRIDE:-${BASE}/output}"
-      first_round_args=( env "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED}" "MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" "${BASE}/scripts/mergeRecoilJets.sh" "$DATASET" firstRound groupSize "${RJ_SIM_MERGE_GROUP_SIZE:-300}" )
+      sim_merge_group_size_default=300
+      case "$DATASET" in
+        isSimEmbedded|isSimEmbeddedInclusive)
+          sim_merge_group_size_default=75
+          ;;
+      esac
+      sim_merge_group_size="${RJ_SIM_MERGE_GROUP_SIZE:-${sim_merge_group_size_default}}"
+      first_round_args=( env "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED}" "MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" "${BASE}/scripts/mergeRecoilJets.sh" "$DATASET" firstRound groupSize "${sim_merge_group_size}" )
       if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 1 ]]; then
         first_round_args+=( "SAMPLE=${SIM_SAMPLE}" )
       fi
       add_auto_stage_node "$auto_dag" "SIM_FIRSTROUND" "$runner" "sim_firstRound_${TAG}_all" "${first_round_args[@]}"
+      second_round_args=( env "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED}" "MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" "${BASE}/scripts/mergeRecoilJets.sh" "$DATASET" secondRound condor )
+      if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 1 ]]; then
+        second_round_args+=( "SAMPLE=${SIM_SAMPLE}" )
+      fi
+      add_auto_stage_node "$auto_dag" "SIM_SECONDROUND" "$runner" "sim_secondRound_${TAG}_all" "${second_round_args[@]}"
+      if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
+        final_stitch_args=( env "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED}" "MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" "${BASE}/scripts/mergeRecoilJets.sh" "$DATASET" finalStitch condor )
+        add_auto_stage_node "$auto_dag" "SIM_FINALSTITCH" "$runner" "sim_finalStitch_${TAG}_all" "${final_stitch_args[@]}"
+      fi
       if (( ${#RJ_DAG_COLLECTED_NODES[@]} > 0 )); then
         printf 'PARENT' >> "$auto_dag"
         printf ' %s' "${RJ_DAG_COLLECTED_NODES[@]}" >> "$auto_dag"
         printf ' CHILD SIM_FIRSTROUND\n' >> "$auto_dag"
       fi
-      add_auto_final_node "$auto_dag" "FINAL_NOTIFY" "$final_notify" "auto_${TAG}_firstRound_ready" "$DATASET" "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED} MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base} ${BASE}/scripts/mergeRecoilJets.sh ${DATASET} secondRound condor" "${sim_merge_out_base}/${TAG}"
+      printf 'PARENT SIM_FIRSTROUND CHILD SIM_SECONDROUND\n' >> "$auto_dag"
+      if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
+        printf 'PARENT SIM_SECONDROUND CHILD SIM_FINALSTITCH\n' >> "$auto_dag"
+      fi
+      add_auto_final_node "$auto_dag" "FINAL_NOTIFY" "$final_notify" "auto_${TAG}_final_ready" "$DATASET" "./scripts/sftp_get_recoiljets_outputs.sh ${DATASET}" "${sim_merge_out_base}/${TAG}"
       say "Automatic workflow DAG built:"
       say "  analysis nodes : ${#RJ_DAG_COLLECTED_NODES[@]}"
-      say "  merge stages   : SIM_FIRSTROUND (quiet strict validation; final email only)"
+      if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
+        say "  merge stages   : SIM_FIRSTROUND -> SIM_SECONDROUND -> SIM_FINALSTITCH (quiet strict validation; stage-boundary and final emails)"
+      else
+        say "  merge stages   : SIM_FIRSTROUND -> SIM_SECONDROUND (sample-explicit run; final stitching skipped)"
+      fi
       say "  dag            : ${auto_dag}"
       if dag_dryrun_enabled; then
         echo "RECOILJETS_AUTO_DAG_DRYRUN_V1"
         echo "dataset=${DATASET}"
         echo "dag=${auto_dag}"
         echo "analysis_nodes=${#RJ_DAG_COLLECTED_NODES[@]}"
-        echo "next_action_after_ready=MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED} MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base} ${BASE}/scripts/mergeRecoilJets.sh ${DATASET} secondRound condor"
+        if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
+          echo "sim_final_stitch=1"
+        else
+          echo "sim_final_stitch=0"
+        fi
+        echo "next_action_after_ready=./scripts/sftp_get_recoiljets_outputs.sh ${DATASET}"
         sed -n '1,240p' "$auto_dag"
       else
         condor_submit_dag -notification Never "$auto_dag"
@@ -5559,7 +5623,7 @@ getenv        = True
 log           = ${LOG_DIR}/job.\$(Cluster).\$(Process).log
 output        = ${OUT_DIR}/job.\$(Cluster).\$(Process).out
 error         = ${ERR_DIR}/job.\$(Cluster).\$(Process).err
-request_memory= 2000MB
+$(condor_auto_memory_retry_block "2000")
 should_transfer_files = NO
 stream_output = True
 stream_error  = True

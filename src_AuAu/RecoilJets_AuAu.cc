@@ -712,9 +712,10 @@ return maxPt;
 
 static double findEmbeddedInclusiveStitchTruthJetPt(PHCompositeNode* topNode)
 {
-// PPG12 inclusive-jet stitching uses the per-event maximum truth-jet pT.
-// Prefer the Run-28 r04 truth jet container used by the PPG12 truth-spectrum
-// QA, then fall back to other available truth-jet radii if r04 is absent.
+// Brian's embed_2025 inclusive-jet production applies PHPy8JetTrigger to
+// anti-kT R=0.4 generator jets with thresholds Jet12 >= 12 and Jet20 >= 20.
+// Prefer the r04 truth jet container, then fall back to other available truth
+// jet radii only for diagnostics/robustness if r04 is absent.
 const std::vector<std::string> candidates = {
   "AntiKt_Truth_r04",
   "AntiKt_TruthFromParticles_r04",
@@ -3959,15 +3960,17 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     //
     //   PhotonJet12 sample keeps only 12 <= pT_filter^gamma < 20 GeV
     //   PhotonJet20 sample keeps only       pT_filter^gamma >= 20 GeV
-    //   EmbeddedJet12 sample keeps only 14 <= max pT^jet,truth < 21 GeV
-    //   EmbeddedJet20 sample keeps only 21 <= max pT^jet,truth < 32 GeV
+    //   EmbeddedJet12 sample keeps only 12 <= max pT^jet,truth < 20 GeV
+    //   EmbeddedJet20 sample keeps only       max pT^jet,truth >= 20 GeV
     //
     // Photon+jet uses the producer-style generator photon:
     //   PDG=22, |eta|<1.5, mother |PDG| in [1,22], no stable-only cut.
     //
-    // Inclusive-jet uses the PPG12 max-truth-jet stitching variable from the
-    // Run-28 r04 truth jet container. The Jet12/Jet20 boundaries mirror
-    // ppg12codeGit/efficiencytool/CrossSectionWeights.h.
+    // Inclusive-jet uses the embedded-production max truth-jet stitching
+    // variable from the Run-28 r04 truth jet container. The Jet12/Jet20
+    // boundaries mirror Brian Seidlitz's embed_2025 Jet12/Jet20 macros:
+    // phpythia8_10GeV_JS_MDC2.cfg + SetMinJetPt(12) and
+    // phpythia8_20GeV_JS_MDC2.cfg + SetMinJetPt(20).
     // ------------------------------------------------------------------
     if (m_isSimEmbedded && !m_auauBDTExtractOnly)
     {
@@ -3982,15 +3985,15 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
 
             if (embeddedInclusiveJetSample == 12)
             {
-                passStitch = (std::isfinite(stitchJetPt) && stitchJetPt >= 14.0 && stitchJetPt < 21.0);
+                passStitch = (std::isfinite(stitchJetPt) && stitchJetPt >= 12.0 && stitchJetPt < 20.0);
                 decisionBin = passStitch ? 1 : 2;
-                decisionText = "EmbeddedJet12 keep 14<=pT<21";
+                decisionText = "EmbeddedJet12 keep 12<=pT<20";
             }
             else if (embeddedInclusiveJetSample == 20)
             {
-                passStitch = (std::isfinite(stitchJetPt) && stitchJetPt >= 21.0 && stitchJetPt < 32.0);
+                passStitch = (std::isfinite(stitchJetPt) && stitchJetPt >= 20.0);
                 decisionBin = passStitch ? 1 : 2;
-                decisionText = "EmbeddedJet20 keep 21<=pT<32";
+                decisionText = "EmbeddedJet20 keep pT>=20";
             }
 
             if (!std::isfinite(stitchJetPt) || stitchJetPt <= 0.0)

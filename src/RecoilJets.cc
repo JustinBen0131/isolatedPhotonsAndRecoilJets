@@ -411,6 +411,17 @@ namespace
     kPhoton20 = 20
   };
 
+  enum class PPG12InclusiveJetSlice
+  {
+    kNone = 0,
+    kJet5,
+    kJet8,
+    kJet12,
+    kJet20,
+    kJet30,
+    kJet40
+  };
+
   enum class PPStitchDiagVariant : std::size_t
   {
     kG4Stored = 0,
@@ -553,6 +564,77 @@ namespace
         lo = std::numeric_limits<double>::quiet_NaN();
         hi = std::numeric_limits<double>::quiet_NaN();
         return false;
+    }
+  }
+
+  inline PPG12InclusiveJetSlice ppg12InclusiveJetSliceFromText(const std::string& text)
+  {
+    const std::string s = lowerCopy(text);
+
+    if (s == "5" || s == "jet5" || s.find("run28_jet5") != std::string::npos) return PPG12InclusiveJetSlice::kJet5;
+    if (s == "8" || s == "jet8" || s.find("run28_jet8") != std::string::npos) return PPG12InclusiveJetSlice::kJet8;
+    if (s == "12" || s == "jet12" || s.find("run28_jet12") != std::string::npos) return PPG12InclusiveJetSlice::kJet12;
+    if (s == "20" || s == "jet20" || s.find("run28_jet20") != std::string::npos) return PPG12InclusiveJetSlice::kJet20;
+    if (s == "30" || s == "jet30" || s.find("run28_jet30") != std::string::npos) return PPG12InclusiveJetSlice::kJet30;
+    if (s == "40" || s == "jet40" || s.find("run28_jet40") != std::string::npos) return PPG12InclusiveJetSlice::kJet40;
+
+    return PPG12InclusiveJetSlice::kNone;
+  }
+
+  inline PPG12InclusiveJetSlice ppg12InclusiveJetSliceFromContext(const std::string& outFile)
+  {
+    static const char* kEnvNames[] = {"RJ_INCLUSIVE_JET_SAMPLE", "RJ_SIM_SAMPLE"};
+    for (const char* envName : kEnvNames)
+    {
+      if (const char* env = std::getenv(envName))
+      {
+        const PPG12InclusiveJetSlice fromEnv = ppg12InclusiveJetSliceFromText(env);
+        if (fromEnv != PPG12InclusiveJetSlice::kNone) return fromEnv;
+      }
+    }
+
+    return ppg12InclusiveJetSliceFromText(outFile);
+  }
+
+  inline const char* ppg12InclusiveJetSliceName(const PPG12InclusiveJetSlice slice)
+  {
+    switch (slice)
+    {
+      case PPG12InclusiveJetSlice::kJet5:  return "Jet5";
+      case PPG12InclusiveJetSlice::kJet8:  return "Jet8";
+      case PPG12InclusiveJetSlice::kJet12: return "Jet12";
+      case PPG12InclusiveJetSlice::kJet20: return "Jet20";
+      case PPG12InclusiveJetSlice::kJet30: return "Jet30";
+      case PPG12InclusiveJetSlice::kJet40: return "Jet40";
+      default:                             return "unknown";
+    }
+  }
+
+  inline int ppg12InclusiveJetSliceBin(const PPG12InclusiveJetSlice slice)
+  {
+    switch (slice)
+    {
+      case PPG12InclusiveJetSlice::kJet5:  return 1;
+      case PPG12InclusiveJetSlice::kJet8:  return 2;
+      case PPG12InclusiveJetSlice::kJet12: return 3;
+      case PPG12InclusiveJetSlice::kJet20: return 4;
+      case PPG12InclusiveJetSlice::kJet30: return 5;
+      case PPG12InclusiveJetSlice::kJet40: return 6;
+      default:                             return 0;
+    }
+  }
+
+  inline double ppg12InclusiveJetClusterEtUpper(const PPG12InclusiveJetSlice slice)
+  {
+    switch (slice)
+    {
+      case PPG12InclusiveJetSlice::kJet5:  return 10.0;
+      case PPG12InclusiveJetSlice::kJet8:  return 15.0;
+      case PPG12InclusiveJetSlice::kJet12: return 23.0;
+      case PPG12InclusiveJetSlice::kJet20: return 35.0;
+      case PPG12InclusiveJetSlice::kJet30: return 45.0;
+      case PPG12InclusiveJetSlice::kJet40: return 100.0;
+      default:                             return std::numeric_limits<double>::infinity();
     }
   }
 
@@ -1320,7 +1402,10 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
   {
     const std::string s = toLower(trim(std::string(ds)));
 
-    if (s == "issim" || s == "sim" || s == "issimjet5" || s == "simjet5" || s == "issimmb" || s == "simmb")
+    if (s == "issim" || s == "sim" ||
+        s == "issimjet5" || s == "simjet5" ||
+        s == "issiminclusive" || s == "siminclusive" ||
+        s == "issimmb" || s == "simmb")
     {
       isSim  = true;
       isAuAu = false;
@@ -5864,7 +5949,6 @@ void RecoilJets::fillPureIsolationQA(PHCompositeNode* topNode,
                                      const double pt_gamma)
 {
   const int effCentIdx = (m_isAuAu ? centIdx : -1);
-  const std::string slice = suffixForBins(ptIdx, effCentIdx) + m_activeIsoViewSuffix;
 
   // Total isolation (existing behavior)
   const double eiso_tot = eiso(rc, topNode);
@@ -6559,6 +6643,10 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
     // Centrality bin index (Au+Au only, else -1)
     const int centIdx = (m_isAuAu ? findCentBin(m_centBin) : -1);
     const bool doCanonical = fillCanonicalThisView();
+    const PPG12InclusiveJetSlice ppInclusiveJetSlice =
+        (m_isSim && !m_isAuAu) ? ppg12InclusiveJetSliceFromContext(Outfile) : PPG12InclusiveJetSlice::kNone;
+    const bool ppInclusiveJetContext = (ppInclusiveJetSlice != PPG12InclusiveJetSlice::kNone);
+    const double ppInclusiveJetClusterEtUpper = ppg12InclusiveJetClusterEtUpper(ppInclusiveJetSlice);
 
     if (Verbosity() >= 4)
     {
@@ -6854,6 +6942,76 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
         }
     }
 
+    if (m_isSim && !m_isAuAu && doCanonical && ppInclusiveJetContext)
+    {
+        double maxTruthJetPt = -1.0;
+        for (const auto& kvT : m_truthJetsByRKey)
+        {
+            JetContainer* truthJets = kvT.second;
+            if (!truthJets) continue;
+            for (const Jet* tj : *truthJets)
+            {
+                if (!tj) continue;
+                const double ptj = tj->get_pt();
+                if (std::isfinite(ptj) && ptj > maxTruthJetPt) maxTruthJetPt = ptj;
+            }
+        }
+
+        for (const auto& trigShort : activeTrig)
+        {
+            HistMap& H = qaHistogramsByTrigger[trigShort];
+            TDirectory* dir = (out ? out->GetDirectory(trigShort.c_str()) : nullptr);
+            if (!dir && out) dir = out->mkdir(trigShort.c_str());
+            if (!dir) continue;
+            TDirectory* prevDir = gDirectory;
+            dir->cd();
+
+            TH1F* hMax = nullptr;
+            if (auto it = H.find("h_ppInclusiveJetStitch_maxTruthJetPt_all"); it != H.end())
+            {
+                hMax = dynamic_cast<TH1F*>(it->second);
+            }
+            if (!hMax)
+            {
+                hMax = RJMCWeighting::RJNewTH1F("h_ppInclusiveJetStitch_maxTruthJetPt_all",
+                                                "h_ppInclusiveJetStitch_maxTruthJetPt_all;max truth jet p_{T} [GeV];Events",
+                                                1000, 0.0, 200.0);
+                hMax->Sumw2();
+                hMax->SetDirectory(dir);
+                H["h_ppInclusiveJetStitch_maxTruthJetPt_all"] = hMax;
+            }
+            if (maxTruthJetPt >= 0.0)
+            {
+                hMax->Fill(maxTruthJetPt);
+                bumpHistFill(trigShort, hMax->GetName());
+            }
+
+            TH1I* hSample = nullptr;
+            if (auto it = H.find("h_ppInclusiveJetStitch_sample"); it != H.end())
+            {
+                hSample = dynamic_cast<TH1I*>(it->second);
+            }
+            if (!hSample)
+            {
+                hSample = RJMCWeighting::RJNewTH1I("h_ppInclusiveJetStitch_sample",
+                                                  "h_ppInclusiveJetStitch_sample;sample;Events",
+                                                  6, 0.5, 6.5);
+                hSample->GetXaxis()->SetBinLabel(1, "Jet5");
+                hSample->GetXaxis()->SetBinLabel(2, "Jet8");
+                hSample->GetXaxis()->SetBinLabel(3, "Jet12");
+                hSample->GetXaxis()->SetBinLabel(4, "Jet20");
+                hSample->GetXaxis()->SetBinLabel(5, "Jet30");
+                hSample->GetXaxis()->SetBinLabel(6, "Jet40");
+                hSample->SetDirectory(dir);
+                H["h_ppInclusiveJetStitch_sample"] = hSample;
+            }
+            hSample->Fill(ppg12InclusiveJetSliceBin(ppInclusiveJetSlice));
+            bumpHistFill(trigShort, hSample->GetName());
+
+            if (prevDir) prevDir->cd();
+        }
+    }
+
     // ========================= PHOTON path ========================
     if (m_photons)
     {
@@ -6995,6 +7153,11 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 double eta      = pho->get_shower_shape_parameter("cluster_eta");
                 double phi      = pho->get_shower_shape_parameter("cluster_phi");
                 double pt_gamma = pho->get_shower_shape_parameter("cluster_pt");
+                double cluster_et_for_inclusive_cut = pho->get_shower_shape_parameter("cluster_et");
+                if (!std::isfinite(cluster_et_for_inclusive_cut))
+                {
+                    cluster_et_for_inclusive_cut = pt_gamma;
+                }
                 const double energy = rc->get_energy();
 
                 // Strict mode: ONLY use PhotonClusterBuilder-provided kinematics.
@@ -7029,6 +7192,23 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                         << " | phi=" << std::fixed << std::setprecision(3) << phi
                         << " | pTbinIdx=" << dbgPtIdx;
                         LOG(6, CLR_YELLOW, os.str());
+                    }
+                    continue;
+                }
+
+                if (ppInclusiveJetContext &&
+                    std::isfinite(ppInclusiveJetClusterEtUpper) &&
+                    cluster_et_for_inclusive_cut > ppInclusiveJetClusterEtUpper)
+                {
+                    ++nSkipEtBin; if (doCanonical) ++m_bk.pho_early_E;
+
+                    if (Verbosity() >= 6)
+                    {
+                        LOG(6, CLR_YELLOW,
+                            "      [pho#" << iPho << "] inclusive-jet sample reject"
+                            << " | sample=" << ppg12InclusiveJetSliceName(ppInclusiveJetSlice)
+                            << " | cluster_ET=" << std::fixed << std::setprecision(2) << cluster_et_for_inclusive_cut
+                            << " > cluster_ET_upper=" << ppInclusiveJetClusterEtUpper);
                     }
                     continue;
                 }

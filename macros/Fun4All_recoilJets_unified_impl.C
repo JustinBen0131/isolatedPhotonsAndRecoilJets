@@ -1638,7 +1638,7 @@ namespace idfanout
                 {
                     detail::bail("RJ_ID_FANOUT_FILE row has invalid coneR/fixedGeV numeric fields: " + line);
                 }
-                if (!ParseBool(cols[6], e.isSlidingIso))
+                if (!yamlcfg::ParseBool(cols[6], e.isSlidingIso))
                     detail::bail("RJ_ID_FANOUT_FILE row has invalid isSlidingIso field: " + cols[6]);
                 if (!std::isfinite(e.coneR) || !std::isfinite(e.fixedGeV))
                     detail::bail("RJ_ID_FANOUT_FILE row has non-finite coneR/fixedGeV: " + line);
@@ -2195,6 +2195,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     }
     else if (datasetToken == "issim" || datasetToken == "sim"
              || datasetToken == "issimjet5" || datasetToken == "simjet5"
+             || datasetToken == "issiminclusive" || datasetToken == "siminclusive"
              || datasetToken == "issimmb" || datasetToken == "simmb")
     {
         isSim = true;
@@ -4687,8 +4688,9 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         if (datasetToken == "issimembedded" || datasetToken == "simembedded" ||
             datasetToken == "issimembeddedinclusive" || datasetToken == "simembeddedinclusive")
             dtype = "isSimEmbedded";
-        else if (datasetToken == "issimjet5" || datasetToken == "simjet5")
-            dtype = "isSimJet5";
+        else if (datasetToken == "issimjet5" || datasetToken == "simjet5"
+                 || datasetToken == "issiminclusive" || datasetToken == "siminclusive")
+            dtype = "isSimInclusive";
         else if (datasetToken == "issimmb" || datasetToken == "simmb")
             dtype = "isSimMB";
         else

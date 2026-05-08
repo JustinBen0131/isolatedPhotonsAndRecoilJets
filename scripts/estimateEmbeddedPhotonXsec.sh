@@ -10,8 +10,8 @@
 #     PhotonJet12: phpythia8_10GeV_JS_MDC2.cfg + 12 <= pT_filter^gamma < 20
 #     PhotonJet20: phpythia8_20GeV_JS_MDC2.cfg + pT_filter^gamma >= 20
 #
-#     EmbeddedJet12: pythia8 Jet12 config + 14 < pT_filter^jet < 21
-#     EmbeddedJet20: pythia8 Jet20 config + 21 < pT_filter^jet < 32
+#     EmbeddedJet12: phpythia8_10GeV_JS_MDC2.cfg + 12 <= pT_filter^jet < 20
+#     EmbeddedJet20: phpythia8_20GeV_JS_MDC2.cfg + pT_filter^jet >= 20
 #
 #   This is generator-only. It does not run detector simulation, embedding,
 #   clustering, or RecoilJets. For photon samples it reproduces the producer-side
@@ -27,8 +27,8 @@
 #   generator-jet selection and applies the same exclusive lower-slice window
 #   used for stitching:
 #
-#     EmbeddedJet12: 14 < pT_filter^jet < 21
-#     EmbeddedJet20: 21 < pT_filter^jet < 32
+#     EmbeddedJet12: 12 <= pT_filter^jet < 20
+#     EmbeddedJet20: pT_filter^jet >= 20
 #
 # OUTPUT
 #   By default, overwrites a compact output directory:
@@ -75,9 +75,11 @@
 #   sigma_eff = sigma_gen * (stitched-window generator weight sum / total
 #   generator weight sum). Pythia reports sigma_gen in mb; this script also
 #   prints pb. The lower-threshold sample value is exclusive to avoid overlap
-#   with adjacent samples in stitched merged products. For the inclusive Jet12
-#   and Jet20 samples, the PPG12 reference windows are taken from
-#   ppg12codeGit/efficiencytool/CrossSectionWeights.h.
+#   with adjacent samples in stitched merged products. For the embedded
+#   inclusive Jet12 and Jet20 samples, the config and trigger thresholds follow
+#   Brian Seidlitz's embed_2025 production macros:
+#     Jet12 -> phpythia8_10GeV_JS_MDC2.cfg + PHPy8JetTrigger::SetMinJetPt(12)
+#     Jet20 -> phpythia8_20GeV_JS_MDC2.cfg + PHPy8JetTrigger::SetMinJetPt(20)
 # ==============================================================================
 
 set -Eeuo pipefail
@@ -787,7 +789,7 @@ namespace
       if (pt > b.maxPhotonPt) b.maxPhotonPt = pt;
       const auto constituents = jet.constituents();
       if (static_cast<int>(constituents.size()) < minConstituents) continue;
-      if (pt <= ptLow) continue;
+      if (pt < ptLow) continue;
       hasJetPt = true;
       if (pt > b.maxPhotonPtEta) b.maxPhotonPtEta = pt;
       if (ptHigh > 0.0 && pt >= ptHigh) continue;
@@ -892,28 +894,16 @@ void EstimateEmbeddedPhotonXsec(long long nEvents = 1000000,
        -1.0},
       {"EmbeddedJet12",
        ConfigCandidates("RJ_XSEC_EMBEDDED_JET12_CFG", calib,
-                        {"Generators/JetStructure_TG/phpythia8_Jet12_JS_MDC2.cfg",
-                         "Generators/JetStructure_TG/phpythia8_Jet12.cfg",
-                         "Generators/JetStructure_TG/pythia8_Jet12.cfg",
-                         "Generators/JetStructure_TG/phpythia8_12GeV_JS_MDC2.cfg",
-                         "Generators/JetStructure_TG/phpythia8_jet12_JS_MDC2.cfg",
-                         "Generators/phpythia8_Jet12.cfg",
-                         "Generators/pythia8_Jet12.cfg"}),
+                        {"Generators/JetStructure_TG/phpythia8_10GeV_JS_MDC2.cfg"}),
        "jet",
-       14.0,
-       21.0},
+       12.0,
+       20.0},
       {"EmbeddedJet20",
        ConfigCandidates("RJ_XSEC_EMBEDDED_JET20_CFG", calib,
-                        {"Generators/JetStructure_TG/phpythia8_Jet20_JS_MDC2.cfg",
-                         "Generators/JetStructure_TG/phpythia8_Jet20.cfg",
-                         "Generators/JetStructure_TG/pythia8_Jet20.cfg",
-                         "Generators/JetStructure_TG/phpythia8_20GeV_JS_MDC2.cfg",
-                         "Generators/JetStructure_TG/phpythia8_jet20_JS_MDC2.cfg",
-                         "Generators/phpythia8_Jet20.cfg",
-                         "Generators/pythia8_Jet20.cfg"}),
+                        {"Generators/JetStructure_TG/phpythia8_20GeV_JS_MDC2.cfg"}),
        "jet",
-       21.0,
-       32.0},
+       20.0,
+       -1.0},
   };
   const std::string sampleFilter = sampleFilterC ? sampleFilterC : "all";
   const std::string sampleFamily = sampleFamilyC ? sampleFamilyC : "photon";
@@ -1186,8 +1176,10 @@ echo "Family   : ${SAMPLE_FAMILY}"
 echo "Sample   : ${SAMPLE_FILTER}"
 echo "Config12 : ${CFG12}"
 echo "Config20 : ${CFG20}"
-echo "Jet cfgs : auto-detected from CALIBRATIONROOT/Generators*/Jet* naming,"
-echo "           or override with RJ_XSEC_EMBEDDED_JET12_CFG / RJ_XSEC_EMBEDDED_JET20_CFG."
+echo "Jet cfgs : embedded-inclusive production mapping from Brian's embed_2025 macros:"
+echo "           Jet12 -> phpythia8_10GeV_JS_MDC2.cfg + PHPy8JetTrigger min pT 12"
+echo "           Jet20 -> phpythia8_20GeV_JS_MDC2.cfg + PHPy8JetTrigger min pT 20"
+echo "           Override only with RJ_XSEC_EMBEDDED_JET12_CFG / RJ_XSEC_EMBEDDED_JET20_CFG."
 echo "Macro    : ${MACRO}"
 echo "Log      : ${LOG}"
 echo "====================================================================="
@@ -1275,8 +1267,8 @@ fi
   echo "Producer mapping:"
   echo "  PhotonJet12 -> ${CFG12} + photon filter 12 <= pT < 20 GeV, |eta| < 1.5"
   echo "  PhotonJet20 -> ${CFG20} + photon filter pT >= 20 GeV, |eta| < 1.5"
-  echo "  EmbeddedJet12 -> Jet12 Pythia config + anti-kT generator-jet filter 14 < pT < 21 GeV"
-  echo "  EmbeddedJet20 -> Jet20 Pythia config + anti-kT generator-jet filter 21 < pT < 32 GeV"
+  echo "  EmbeddedJet12 -> ${CALIBRATIONROOT}/Generators/JetStructure_TG/phpythia8_10GeV_JS_MDC2.cfg + anti-kT generator-jet filter 12 <= pT < 20 GeV"
+  echo "  EmbeddedJet20 -> ${CALIBRATIONROOT}/Generators/JetStructure_TG/phpythia8_20GeV_JS_MDC2.cfg + anti-kT generator-jet filter pT >= 20 GeV"
   echo
   echo "Results CSV:"
   cat "${RESULTS}"

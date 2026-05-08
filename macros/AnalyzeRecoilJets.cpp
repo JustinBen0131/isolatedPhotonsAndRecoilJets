@@ -1052,7 +1052,7 @@ void RunPi0QA(Dataset& ds)
         return;
     }
     
-    const string datasetTitle = isSimMBDataset ? (isSimJet5 ? "InclusiveJet5 SIM" : "MinBias SIM (DETROIT)") : "Run24pp";
+    const string datasetTitle = isSimMBDataset ? (isSimJet5 ? "InclusiveJet5-40 SIM" : "MinBias SIM (DETROIT)") : "Run24pp";
     const bool vzIsInteger = (std::fabs(vzCutCm - std::round(vzCutCm)) < 1e-6);
     const string vertexLabel =
     vzIsInteger

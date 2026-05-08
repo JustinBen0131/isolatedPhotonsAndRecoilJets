@@ -152,7 +152,8 @@ dataset_output_root() {
     isSim|sim) echo "${THESIS_ANA}/sim" ;;
     isSimInclusive|isSimJet5|siminclusive|simjet5) echo "${THESIS_ANA}/siminclusive" ;;
     isSimMB|simmb) echo "${THESIS_ANA}/simmb" ;;
-    isSimEmbedded|isSimEmbeddedInclusive|simembedded|simembeddedinclusive) echo "${THESIS_ANA}/simembedded" ;;
+    isSimEmbedded|simembedded) echo "${THESIS_ANA}/simembedded" ;;
+    isSimEmbeddedInclusive|simembeddedinclusive) echo "${THESIS_ANA}/simembeddedinclusive" ;;
     *) err "Unknown dataset: $1"; exit 2 ;;
   esac
 }
@@ -161,8 +162,10 @@ clean_local_artifacts() {
   say "Scanning disposable local test/staging artifacts under ${BASE}"
   [[ -d "$BASE" ]] || { err "BASE does not exist: $BASE"; exit 65; }
 
+  # Merge-stage temp directories may belong to active DAGMan/hadd workflows on
+  # another submit host. Local smoke cleanup must not remove them.
   while IFS= read -r d; do remove_dir_local "$d"; done < <(
-    find "$BASE" -maxdepth 1 -type d \( -name 'tmp_recoil_merge_*' -o -name '.recoiljets_tmp*' \) 2>/dev/null | sort
+    find "$BASE" -maxdepth 1 -type d -name '.recoiljets_tmp*' 2>/dev/null | sort
   )
   while IFS= read -r d; do remove_dir_local "$d"; done < <(
     find "${BASE}/condor_sub" -maxdepth 1 -type d \( -name '*smoke*' -o -name 'pool_workflow_*' \) 2>/dev/null | sort
@@ -221,7 +224,7 @@ case "$TARGET" in
   all)
     clean_local_artifacts
     clean_smoke_bulk
-    for ds in isPP isAuAu isSim isSimInclusive isSimEmbedded; do
+    for ds in isPP isAuAu isSim isSimInclusive isSimEmbedded isSimEmbeddedInclusive; do
       clean_dataset_bulk "$ds"
     done
     ;;

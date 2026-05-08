@@ -10,8 +10,8 @@
 #   Supported packs:
 #     • Run-28 pp photon+jet truth samples:
 #         photonjet5, photonjet10, photonjet20
-#     • Run-28 pp jet truth sample:
-#         jet5
+#     • Run-28 pp inclusive jet truth samples:
+#         jet5, jet8, jet12, jet20, jet30, jet40
 #     • Run-28 pp minimum-bias / Detroit sample:
 #         detroit
 #     • Run-28 embedded photon+jet samples:
@@ -41,6 +41,11 @@
 #     ├─ run28_photonjet10/
 #     ├─ run28_photonjet20/
 #     ├─ run28_jet5/
+#     ├─ run28_jet8/
+#     ├─ run28_jet12/
+#     ├─ run28_jet20/
+#     ├─ run28_jet30/
+#     ├─ run28_jet40/
 #     ├─ run28_detroit/
 #     ├─ run28_embeddedPhoton12/
 #     ├─ run28_embeddedPhoton20/
@@ -105,7 +110,7 @@ VERBOSE="true"
 # We will NOT use the catalog. We will scan lustre directories directly.
 RUNNUM="28"
 PHOTONJET_SAMPLES=( "photonjet5" "photonjet10" "photonjet20" )
-JET_SAMPLES=( "jet5" )
+JET_SAMPLES=( "jet5" "jet8" "jet12" "jet20" "jet30" "jet40" )
 MB_SAMPLES=( "detroit" )
 EMBEDDED_PHOTONJET_SAMPLES=( "embeddedPhoton12" "embeddedPhoton20" )
 # Current embedded inclusive background production uses jet12/jet20.
@@ -152,10 +157,13 @@ while [[ $# -gt 0 ]]; do
       CLEAN_STALE_EMBEDDED_PHOTON10="true"
       shift 1
       ;;
+    isSimInclusive|siminclusive|SIMINCLUSIVE)
+      REQUESTED_SAMPLES+=( "jet5" "jet8" "jet12" "jet20" "jet30" "jet40" ); shift 1
+      ;;
     isInclusiveEmbedded|isSimEmbeddedInclusive)
       REQUESTED_SAMPLES+=( "embeddedJet12" "embeddedJet20" ); shift 1
       ;;
-    photonjet5|photonjet10|photonjet20|jet5|detroit|embeddedPhoton12|embeddedPhoton20|embeddedJet10|embeddedJet12|embeddedJet20)
+    photonjet5|photonjet10|photonjet20|jet5|jet8|jet12|jet20|jet30|jet40|detroit|embeddedPhoton12|embeddedPhoton20|embeddedJet10|embeddedJet12|embeddedJet20)
       REQUESTED_SAMPLES+=( "$1" ); shift 1
       ;;
     *) echo "[WARN $(date '+%H:%M:%S')] Unknown arg: $1"; shift 1 ;;
@@ -1091,11 +1099,13 @@ build_pack() {
   local embeddir=""
   local embed_mode_note=""
 
-  if [[ "$sample" == photonjet5 || "$sample" == photonjet10 || "$sample" == photonjet20 ]]; then
-    # These are the standard pp PhotonJet signal packs. Some directories can
-    # also contain PhotonJet*_pythia8_Detroit files with identical numeric
-    # segment IDs; those belong to a different production stream and must not
-    # be paired with plain PhotonJet truth/G4/global files.
+  if [[ "$sample" == photonjet5 || "$sample" == photonjet10 || "$sample" == photonjet20 ||
+        "$sample" == jet5 || "$sample" == jet8 || "$sample" == jet12 ||
+        "$sample" == jet20 || "$sample" == jet30 || "$sample" == jet40 ]]; then
+    # These are standard pp signal packs. Some directories can also contain
+    # *_pythia8_Detroit files with identical numeric segment IDs; those belong
+    # to a different production stream and must not be paired with plain
+    # truth/G4/global files.
     calo_exclude_pattern="*Detroit*.root"
     g4_exclude_pattern="*Detroit*.root"
     jets_exclude_pattern="*Detroit*.root"
@@ -1247,7 +1257,7 @@ build_pack() {
     say "  Patterns   = calo='${calo_pattern}' g4='${g4_pattern}' jets='${jets_pattern}' global='${global_pattern}'"
     say "  MBD_EPD    = placeholder NONE (no standalone DST_MBD_EPD file under embedded sample)"
   elif [[ -n "$calo_exclude_pattern$g4_exclude_pattern$jets_exclude_pattern$global_exclude_pattern$mbd_exclude_pattern" ]]; then
-    say "  Exclude    = *Detroit*.root for standard pp PhotonJet packs"
+    say "  Exclude    = *Detroit*.root for standard pp signal packs"
   fi
   rule
 

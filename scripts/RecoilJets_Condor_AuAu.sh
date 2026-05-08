@@ -158,7 +158,7 @@ if [[ -n "${RJ_ID_FANOUT_DIRS_FILE:-}" ]]; then
       mkdir -p "$fan_out_dir"
       fanout_dir_seen["$fan_out_dir"]=1
     fi
-    fan_out_root="${fan_out_dir}/RecoilJets_${analysis_tag}_${chunk_tag}.root"
+    fan_out_root="${fan_out_dir}/RecoilJets_${analysis_tag}_${fan_cfg}_${chunk_tag}.root"
     if (( ${#fan_cols[@]} >= 8 )); then
       printf '%s|%s|%s|%s|%s|%s|%s|%s\n' \
         "$fan_out_root" "$fan_cfg" "$fan_pre" "$fan_tight" "$fan_nonTight" \

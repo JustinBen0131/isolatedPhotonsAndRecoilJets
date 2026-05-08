@@ -141,9 +141,10 @@ def load_frame(
     seen_optional: set[str] = set()
     for path in paths:
         with uproot.open(path) as root_file:
-            if tree_name not in root_file:
-                raise SystemExit(f"{path} does not contain tree {tree_name}")
-            tree = root_file[tree_name]
+            try:
+                tree = root_file[tree_name]
+            except Exception as exc:
+                raise SystemExit(f"{path} does not contain tree {tree_name}") from exc
             keys = set(tree.keys())
             missing = [col for col in required_columns if col not in keys]
             allow_missing_label = (

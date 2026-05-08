@@ -29,8 +29,8 @@ namespace
 //   generator cross section for 12 <= pT_filter^gamma < 20 GeV.
 constexpr double kSigmaEmbeddedPhoton12To20_pb = 2598.12425;
 constexpr double kSigmaEmbeddedPhoton20Plus_pb = 133.317866;
-constexpr double kSigmaEmbeddedInclusiveJet12_pb = 1.4903e6;
-constexpr double kSigmaEmbeddedInclusiveJet20_pb = 6.2623e4;
+constexpr double kSigmaEmbeddedInclusiveJet12_pb = 1.21692467e6;
+constexpr double kSigmaEmbeddedInclusiveJet20_pb = 5.56198698e4;
 
 std::string gConfigTag =
     "jetMinPt5_7pi_8_vz60_isoR40_fixedIso2GeV_baseVariant_"
@@ -999,7 +999,7 @@ void DrawSpectrumSmoothQA(std::unique_ptr<TH1> h12,
   }
   else if (isInclusiveJetFilterPtQA)
   {
-    lat.DrawLatex(0.15, 0.75, "Jet12: 14 #leq max p_{T}^{jet,truth} < 21 GeV; Jet20: 21 #leq max p_{T}^{jet,truth} < 32 GeV");
+    lat.DrawLatex(0.15, 0.75, "Jet12: 12 #leq max p_{T}^{jet,truth} < 20 GeV; Jet20: max p_{T}^{jet,truth} #geq 20 GeV");
     lat.DrawLatex(0.15, 0.70, ("w_{12}=" + Sci(w12) + " pb/event, w_{20}=" + Sci(w20) + " pb/event").c_str());
   }
   else

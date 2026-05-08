@@ -77,10 +77,16 @@ case "$dataset_raw" in
     export RJ_DATASET="isSim"
     export RJ_IS_SIM=1
     ;;
+  isSimInclusive|issiminclusive|siminclusive|SIMINCLUSIVE)
+    dataset="isSimInclusive"
+    analysis_tag="isSimInclusive"
+    export RJ_DATASET="isSimInclusive"
+    export RJ_IS_SIM=1
+    ;;
   isSimJet5|simjet5|SIMJET5)
     dataset="isSimJet5"
-    analysis_tag="isSimJet5"
-    export RJ_DATASET="isSimJet5"
+    analysis_tag="isSimInclusive"
+    export RJ_DATASET="isSimInclusive"
     export RJ_IS_SIM=1
     ;;
   isSimMB|simmb|SIMMB)
@@ -105,6 +111,7 @@ case "$dataset_raw" in
     export RJ_IS_SIM=0
     ;;
 esac
+export RJ_SIM_SAMPLE="$run8"
 
 if [[ "$dataset" == "isSim" ]]; then
   # For pp photon+jet production run8 is the slice label passed by the submitter
@@ -115,8 +122,8 @@ fi
 
 # Destination base (if not supplied as arg 8)
 if [[ -z "$dest_base" ]]; then
-  if [[ "$analysis_tag" == "isSimJet5" ]]; then
-    dest_base="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simjet5"
+  if [[ "$analysis_tag" == "isSimInclusive" ]]; then
+    dest_base="/sphenix/tg/tg01/bulk/jbennett/thesisAna/siminclusive"
   elif [[ "$analysis_tag" == "isSimMB" ]]; then
     dest_base="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simmb"
   elif [[ "$analysis_tag" == "isSim" ]]; then
@@ -162,7 +169,7 @@ if [[ -n "${RJ_ID_FANOUT_DIRS_FILE:-}" ]]; then
       mkdir -p "$fan_out_dir"
       fanout_dir_seen["$fan_out_dir"]=1
     fi
-    fan_out_root="${fan_out_dir}/RecoilJets_${analysis_tag}_${chunk_tag}.root"
+    fan_out_root="${fan_out_dir}/RecoilJets_${analysis_tag}_${fan_cfg}_${chunk_tag}.root"
     if (( ${#fan_cols[@]} >= 8 )); then
       printf '%s|%s|%s|%s|%s|%s|%s|%s\n' \
         "$fan_out_root" "$fan_cfg" "$fan_pre" "$fan_tight" "$fan_nonTight" \

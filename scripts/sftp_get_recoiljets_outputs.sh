@@ -12,10 +12,13 @@ Usage:
   ./scripts/sftp_get_recoiljets_outputs.sh trainingLatest <tight|npb|jetResidual>
   ./scripts/sftp_get_recoiljets_outputs.sh tightBDTSmokeLatest
   ./scripts/sftp_get_recoiljets_outputs.sh tightBDTSmoke <remote-path-or-dir-name>
+  ./scripts/sftp_get_recoiljets_outputs.sh auauTightBDTValidation <remote-report-dir>
   ./scripts/sftp_get_recoiljets_outputs.sh mlIntegrationLatest
   ./scripts/sftp_get_recoiljets_outputs.sh mlIntegration <remote-path-or-dir-name>
   ./scripts/sftp_get_recoiljets_outputs.sh smokeTestLatest <dataset> [--roots]
   ./scripts/sftp_get_recoiljets_outputs.sh smokeTest <dataset> <remote-path-or-dir-name> [--roots]
+  ./scripts/sftp_get_recoiljets_outputs.sh smokeFinalLatest <dataset>
+  ./scripts/sftp_get_recoiljets_outputs.sh smokeFinal <dataset> <remote-path-or-dir-name>
   ./scripts/sftp_get_recoiljets_outputs.sh scaledTriggerStudy
 
 Datasets:
@@ -46,6 +49,10 @@ tightBDTSmokeLatest/tightBDTSmoke are focused aliases for the tight-BDT-only
 local/smoke workflow. They download into:
   InputFiles/trainingSmoke/tightBDT
 
+auauTightBDTValidation pulls a single finished simulation-validation report
+directory into:
+  dataOutput/auauTightBDTValidation
+
 mlIntegrationLatest pulls the newest full local ML integration test directory
 from:
   /sphenix/u/patsfan753/scratch/thesisAnalysis/local_ml_pipeline_tests
@@ -56,6 +63,10 @@ discovery and downloads that exact run.
 smokeTestLatest/smokeTest do the same for the overnight per-dataset smokeTest
 workflow under thesisAnaSmoke. Pass --roots only when you intentionally want the
 disposable smoke ROOT files too.
+
+smokeFinalLatest/smokeFinal pull only the final merged smoke ROOT files from
+outputSmoke/<dataset>_smokeTest_<timestamp>/<tag>, which is the right mode for
+quick post-DAG output validation.
 
 scaledTriggerStudy pulls the one-off AuAu scaled-trigger final ROOT file into:
   InputFiles/auau25
@@ -248,8 +259,40 @@ required_samples_for_merge_dataset() {
     isSim) printf "%s\n" photonjet5 photonjet10 photonjet20 ;;
     isSimEmbedded) printf "%s\n" embeddedPhoton12 embeddedPhoton20 ;;
     isSimEmbeddedInclusive) printf "%s\n" embeddedJet12 embeddedJet20 ;;
-    isSimInclusive) printf "%s\n" jet5 ;;
+    isSimInclusive) printf "%s\n" jet5 jet8 jet12 jet20 jet30 jet40 ;;
     *) return 1 ;;
+  esac
+}
+
+sim_combined_remote_file() {
+  local label="$1" cfg="$2"
+  case "$label" in
+    isSim)
+      echo "${cfg}/photonJet5and10and20merged_SIM/RecoilJets_photonjet5plus10plus20_MERGED.root" ;;
+    isSimEmbedded)
+      echo "${cfg}/photonJet12and20merged_SIM/RecoilJets_embeddedPhoton12plus20_MERGED.root" ;;
+    isSimEmbeddedInclusive)
+      echo "${cfg}/embeddedJet12and20merged_SIM/RecoilJets_embeddedJet12plus20_MERGED.root" ;;
+    isSimInclusive)
+      echo "${cfg}/inclusiveJet5to40_SIM/RecoilJets_jet5plus8plus12plus20plus30plus40_MERGED.root" ;;
+    *)
+      return 1 ;;
+  esac
+}
+
+sim_combined_local_file() {
+  local label="$1" cfg="$2"
+  case "$label" in
+    isSim)
+      echo "${LOCAL_BASE}/dataOutput/combinedSimOnly/${cfg}/photonJet5and10and20merged_SIM/RecoilJets_photonjet5plus10plus20_MERGED.root" ;;
+    isSimEmbedded)
+      echo "${LOCAL_BASE}/dataOutput/combinedSimOnlyEMBEDDED/${cfg}/photonJet12and20merged_SIM/RecoilJets_embeddedPhoton12plus20_MERGED.root" ;;
+    isSimEmbeddedInclusive)
+      echo "${LOCAL_BASE}/dataOutput/combinedSimOnlyEMBEDDED/${cfg}/embeddedJet12and20merged_SIM/RecoilJets_embeddedJet12plus20_MERGED.root" ;;
+    isSimInclusive)
+      echo "${LOCAL_BASE}/dataOutput/combinedSimOnly/${cfg}/inclusiveJet5to40_SIM/RecoilJets_jet5plus8plus12plus20plus30plus40_MERGED.root" ;;
+    *)
+      return 1 ;;
   esac
 }
 
@@ -482,6 +525,39 @@ build_cfg_tags_from_yaml() {
   local -a photon_id_rows=()
   while IFS= read -r line; do photon_id_rows+=( "$line" ); done < <(yaml_get_photon_id_sets "$yaml")
   (( ${#photon_id_rows[@]} > 0 )) || { echo "[ERROR] YAML must define photon_id_sets for cfg-tag generation: $yaml" >&2; exit 41; }
+
+  # Production outputs now internalize jet pT, dphi, vz, and iso/cone views.
+  # The analysis-facing final ROOT files are keyed only by photon-ID selection
+  # plus the real tagged UE axis for AuAu-like datasets. Keep an explicit
+  # legacy mode for archived scalar outputs from older productions.
+  if [[ "${SFTP_GET_LEGACY_SCALAR_TAGS:-0}" != "1" ]]; then
+    if dataset_includes_uepipe_in_tag "$dataset_token"; then
+      while IFS= read -r line; do uepipes+=( "$line" ); done < <(yaml_get_inline_list "$yaml" "clusterUEpipeline")
+      (( ${#uepipes[@]} )) || uepipes=( "baseVariant" )
+    else
+      uepipes=( "" )
+    fi
+
+    local row pre tight nonTight selection_tag full_tag
+    local cfg_suffix="${SFTP_GET_CFG_SUFFIX:-}"
+    local tight_norm nonTight_norm pre_norm uep
+    for row in "${photon_id_rows[@]}"; do
+      IFS='|' read -r pre tight nonTight <<< "$row"
+      pre_norm="$(selection_mode_normalize_for_key "preselection" "$pre")"
+      tight_norm="$(selection_mode_normalize_for_key "tight" "$tight")"
+      nonTight_norm="$(selection_mode_normalize_for_key "nonTight" "$nonTight")"
+      selection_tag="$(selection_mode_tag "preselection" "$pre_norm")_$(selection_mode_tag "tight" "$tight_norm")_$(selection_mode_tag "nonTight" "$nonTight_norm")"
+      for uep in "${uepipes[@]}"; do
+        if [[ -n "$uep" ]]; then
+          full_tag="${selection_tag}_${uep}"
+        else
+          full_tag="${selection_tag}"
+        fi
+        echo "${full_tag}${cfg_suffix}"
+      done
+    done | sort -u
+    return 0
+  fi
 
   (( ${#jet_pts[@]} )) || jet_pts=( "5.0" )
   (( ${#b2bs[@]} )) || b2bs=( "0.875" )
@@ -734,6 +810,66 @@ download_tight_bdt_smoke() {
   fi
 }
 
+download_auau_tight_bdt_validation() {
+  local remote_dir="${1:-}"
+  local report_name local_dir batch
+  if [[ -z "$remote_dir" ]]; then
+    echo "[ERROR] auauTightBDTValidation requires the remote model_validation_* report directory." >&2
+    echo "[ERROR] Example:" >&2
+    echo "  ./scripts/sftp_get_recoiljets_outputs.sh auauTightBDTValidation /sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_YYYYMMDD_HHMMSS/reports/model_validation_YYYYMMDD_HHMMSS" >&2
+    exit 2
+  fi
+  remote_dir="${remote_dir%/}"
+  report_name="${remote_dir##*/}"
+
+  case "$remote_dir" in
+    /sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_*/reports/model_validation_*) ;;
+    *)
+      echo "[ERROR] Refusing to pull non-validation path:" >&2
+      echo "  ${remote_dir}" >&2
+      echo "[ERROR] Expected /sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_*/reports/model_validation_*" >&2
+      exit 2
+      ;;
+  esac
+
+  local_dir="${LOCAL_BASE}/dataOutput/auauTightBDTValidation"
+  mkdir -p "$local_dir"
+  batch="$(make_tmp_file "sftp_get_recoiljets_auau_bdt_validation")"
+  cleanup_auau_bdt_validation() { rm -f "$batch"; }
+  trap cleanup_auau_bdt_validation EXIT
+
+  {
+    printf 'lcd %s\n' "$local_dir"
+    printf 'get -r %s %s\n' "$remote_dir" "$report_name"
+  } > "$batch"
+
+  echo
+  echo "Remote host       : ${REMOTE_HOST}"
+  echo "Validation remote : ${remote_dir}"
+  echo "Local dir         : ${local_dir}/${report_name}"
+  echo
+  echo "sftp batch commands:"
+  sed 's/^/  /' "$batch"
+  echo
+  echo "Opening interactive sftp to download the AuAu tight-BDT validation report."
+  if sftp \
+      -oBatchMode=no \
+      -oPreferredAuthentications=publickey,password,keyboard-interactive \
+      -b "$batch" \
+      "$REMOTE_HOST"; then
+    echo
+    echo "[OK] AuAu tight-BDT validation report download complete."
+    echo "Downloaded into: ${local_dir}/${report_name}"
+    trap - EXIT
+    rm -f "$batch"
+  else
+    status=$?
+    echo
+    echo "[ERROR] sftp download failed with exit code ${status}." >&2
+    exit "$status"
+  fi
+}
+
 download_ml_integration_latest() {
   local requested="${1:-}"
   local parent prefix latest remote_dir local_dir batch
@@ -815,8 +951,8 @@ resolve_smoke_dataset() {
       SMOKE_LABEL="isSimEmbedded"; SMOKE_REMOTE_TAG="simembedded" ;;
     isSimEmbeddedInclusive|simembeddedinclusive|SIMEMBEDDEDINCLUSIVE)
       SMOKE_LABEL="isSimEmbeddedInclusive"; SMOKE_REMOTE_TAG="simembeddedinclusive" ;;
-    isSimInclusive|siminclusive|SIMINCLUSIVE|isSimJet5|simjet5|SIMJET5)
-      SMOKE_LABEL="isSimInclusive"; SMOKE_REMOTE_TAG="simjet5" ;;
+  isSimInclusive|siminclusive|SIMINCLUSIVE|isSimJet5|simjet5|SIMJET5)
+      SMOKE_LABEL="isSimInclusive"; SMOKE_REMOTE_TAG="siminclusive" ;;
     *)
       echo "[ERROR] Unknown smokeTest dataset: $1" >&2
       echo "[ERROR] Use one of: isPP, isAuAu, isSim, isSimEmbedded, isSimEmbeddedInclusive, isSimInclusive" >&2
@@ -862,7 +998,7 @@ download_smoke_test_report() {
 
   {
     printf 'lcd %s\n' "$local_dir"
-    printf 'get -r %s/_pipeline_reports %s_reports\n' "$remote_dir" "$latest"
+    printf '%s\n' "-get -r ${remote_dir}/_pipeline_reports ${latest}_reports"
     if [[ "$include_roots" == "1" ]]; then
       printf 'get -r %s %s_roots\n' "$remote_dir" "$latest"
     fi
@@ -899,6 +1035,78 @@ download_smoke_test_report() {
     echo "[OK] ${smoke_kind} report download complete."
     echo "Downloaded into: ${local_dir}/${latest}_reports"
     [[ "$include_roots" == "1" ]] && echo "Smoke ROOT copy: ${local_dir}/${latest}_roots"
+    trap - EXIT
+    rm -f "$batch"
+  else
+    status=$?
+    echo
+    echo "[ERROR] sftp download failed with exit code ${status}." >&2
+    exit "$status"
+  fi
+}
+
+download_smoke_final_outputs() {
+  local requested_dataset="${1:-}"
+  local requested="${2:-}"
+  local smoke_kind="${3:-smokeFinal}"
+  local parent prefix latest remote_dir remote_final_dir local_dir local_final_dir batch
+  [[ -n "$requested_dataset" ]] || { echo "[ERROR] ${smoke_kind}Latest requires a dataset, e.g. isAuAu" >&2; exit 2; }
+  resolve_smoke_dataset "$requested_dataset"
+  parent="${REMOTE_BASE}/outputSmoke"
+  prefix="${SMOKE_REMOTE_TAG}_smokeTest_"
+
+  if [[ -n "$requested" ]]; then
+    if [[ "$requested" == /* ]]; then
+      remote_dir="${requested%/}"
+      latest="${remote_dir##*/}"
+    else
+      latest="${requested%/}"
+      remote_dir="${parent}/${latest}"
+    fi
+  else
+    latest="$(training_latest_remote_dir "$parent" "$prefix")"
+    remote_dir="${parent}/${latest}"
+  fi
+
+  if [[ "$latest" != ${prefix}* ]]; then
+    echo "[ERROR] ${smoke_kind} directory must start with ${prefix}: ${latest}" >&2
+    exit 2
+  fi
+
+  remote_final_dir="${remote_dir}/${SMOKE_REMOTE_TAG}"
+  local_dir="${LOCAL_BASE}/InputFiles/pipelineSmoke/${SMOKE_LABEL}"
+  local_final_dir="${local_dir}/${latest}_final"
+  mkdir -p "$local_final_dir"
+  batch="$(make_tmp_file "sftp_get_recoiljets_${smoke_kind}")"
+  cleanup_smokefinal() { rm -f "$batch"; }
+  trap cleanup_smokefinal EXIT
+
+  {
+    printf 'lcd %s\n' "$local_final_dir"
+    printf 'mget %s/RecoilJets_*_ALL_*.root\n' "$remote_final_dir"
+  } > "$batch"
+
+  echo
+  echo "Remote host       : ${REMOTE_HOST}"
+  echo "Smoke final remote: ${remote_final_dir}"
+  echo "Local final dir   : ${local_final_dir}"
+  echo
+  echo "This downloads only final merged smoke ROOT outputs, not per-run/per-segment trees."
+  echo "Proceeding without an extra y/N prompt."
+
+  echo
+  echo "sftp batch commands:"
+  sed 's/^/  /' "$batch"
+  echo
+  echo "Opening interactive sftp to download selected ${smoke_kind} ROOT outputs."
+  if sftp \
+      -oBatchMode=no \
+      -oPreferredAuthentications=publickey,password,keyboard-interactive \
+      -b "$batch" \
+      "$REMOTE_HOST"; then
+    echo
+    echo "[OK] ${smoke_kind} final ROOT download complete."
+    echo "Downloaded into: ${local_final_dir}"
     trap - EXIT
     rm -f "$batch"
   else
@@ -1018,6 +1226,11 @@ if [[ "$dataset" == "tightBDTSmoke" ]]; then
   exit 0
 fi
 
+if [[ "$dataset" == "auauTightBDTValidation" ]]; then
+  download_auau_tight_bdt_validation "${2:-}"
+  exit 0
+fi
+
 if [[ "$dataset" == "mlIntegrationLatest" ]]; then
   download_ml_integration_latest
   exit 0
@@ -1039,6 +1252,16 @@ if [[ "$dataset" == "smokeTest" ]]; then
   include_roots=0
   [[ "${4:-}" == "--roots" ]] && include_roots=1
   download_smoke_test_report "${2:-}" "${3:-}" "smokeTest" "$include_roots"
+  exit 0
+fi
+
+if [[ "$dataset" == "smokeFinalLatest" ]]; then
+  download_smoke_final_outputs "${2:-}" "" "smokeFinal"
+  exit 0
+fi
+
+if [[ "$dataset" == "smokeFinal" ]]; then
+  download_smoke_final_outputs "${2:-}" "${3:-}" "smokeFinal"
   exit 0
 fi
 
@@ -1091,9 +1314,9 @@ case "$dataset" in
     ;;
   isSimInclusive|siminclusive|SIMINCLUSIVE|isSimJet5|simjet5|SIMJET5)
     label="isSimInclusive"
-    remote_tag="simjet5"
+    remote_tag="siminclusive"
     local_subdir="InputFiles/InclusiveJetSIM"
-    sample_tags=( "jet5" )
+    sample_tags=( "jet5" "jet8" "jet12" "jet20" "jet30" "jet40" )
     ;;
   *)
     echo "[ERROR] Unknown dataset: $dataset" >&2
@@ -1132,15 +1355,32 @@ fi
 remote_files=()
 local_files=()
 existing_files=()
+sim_combined_pull=0
+if is_merge_dataset "$label" && [[ "${SFTP_GET_SIM_RAW:-0}" != "1" ]]; then
+  sim_combined_pull=1
+  local_dir="${LOCAL_BASE}"
+fi
+
 for cfg in "${cfg_tags[@]}"; do
-  for sample in "${sample_tags[@]}"; do
-    file="RecoilJets_${sample}_ALL_${cfg}.root"
+  if (( sim_combined_pull )); then
+    file="$(sim_combined_remote_file "$label" "$cfg")"
+    local_file="$(sim_combined_local_file "$label" "$cfg")"
     remote_files+=( "$file" )
-    local_files+=( "${local_dir}/${file}" )
-    if [[ -e "${local_dir}/${file}" ]]; then
-      existing_files+=( "${local_dir}/${file}" )
+    local_files+=( "$local_file" )
+    mkdir -p "$(dirname "$local_file")"
+    if [[ -e "$local_file" ]]; then
+      existing_files+=( "$local_file" )
     fi
-  done
+  else
+    for sample in "${sample_tags[@]}"; do
+      file="RecoilJets_${sample}_ALL_${cfg}.root"
+      remote_files+=( "$file" )
+      local_files+=( "${local_dir}/${file}" )
+      if [[ -e "${local_dir}/${file}" ]]; then
+        existing_files+=( "${local_dir}/${file}" )
+      fi
+    done
+  fi
 done
 
 echo
@@ -1150,15 +1390,23 @@ echo "Local dir   : ${local_dir}"
 echo "Variant     : ${label}"
 echo "Config YAML : $(yaml_path)"
 echo
+if (( sim_combined_pull )); then
+  echo "Pull mode   : combined SIM products built by remote Condor finalStitch"
+  echo "             set SFTP_GET_SIM_RAW=1 to pull raw per-sample secondRound files instead"
+else
+  echo "Pull mode   : raw/final dataset ROOT files"
+fi
+echo
 echo "Samples:"
 for sample in "${sample_tags[@]}"; do
   echo "  ${sample}"
 done
 echo
 echo "Files to download (${#remote_files[@]}):"
-for f in "${remote_files[@]}"; do
+for i in "${!remote_files[@]}"; do
+  f="${remote_files[$i]}"
   echo "  ${remote_dir}/${f}"
-  echo "    -> ${local_dir}/${f}"
+  echo "    -> ${local_files[$i]}"
 done
 echo
 if (( ${#existing_files[@]} > 0 )); then
@@ -1212,8 +1460,8 @@ esac
 {
   printf 'lcd %s\n' "$local_dir"
   printf 'cd %s\n' "$remote_dir"
-  for f in "${remote_files[@]}"; do
-    printf 'get %s %s\n' "$f" "$f"
+  for i in "${!remote_files[@]}"; do
+    printf 'get %s %s\n' "${remote_files[$i]}" "${local_files[$i]}"
   done
 } > "$get_batch"
 
@@ -1239,8 +1487,8 @@ else
 fi
 
 echo
-echo "Downloaded ${#remote_files[@]} file(s) into: ${local_dir}"
+echo "Downloaded ${#remote_files[@]} file(s)."
 
-if is_merge_dataset "$label"; then
+if is_merge_dataset "$label" && (( sim_combined_pull == 0 )); then
   merge_recoiljets_sim_outputs "$label" "${cfg_tags[@]}"
 fi

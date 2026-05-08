@@ -154,7 +154,7 @@ inline bool bothInclusiveJet12and20simEmbedded = false;
 
 //   Special SIM samples:
 inline bool isSimMB                    = false;   // MinBias DETROIT tune
-inline bool isSimJet5                  = false;   // inclusive jet5
+inline bool isSimJet5                  = false;   // inclusive jet5/8/12/20/30/40
 
 // Canonical SIM merges are materialized by scripts/sftp_get_recoiljets_outputs.sh
 // when SIM files are pulled locally. Analysis macros should consume those
@@ -249,6 +249,12 @@ inline const vector<double> kCentralityEdges          = {0, 20, 50, 80};
 inline constexpr double kSigmaPhoton5_pb  = 146359.3;
 inline constexpr double kSigmaPhoton10_pb = 6944.675;
 inline constexpr double kSigmaPhoton20_pb = 130.4461;
+inline constexpr double kSigmaInclusiveJet5_pb  = 1.3878e8;
+inline constexpr double kSigmaInclusiveJet8_pb  = 1.15e7;
+inline constexpr double kSigmaInclusiveJet12_pb = 1.4903e6;
+inline constexpr double kSigmaInclusiveJet20_pb = 6.2623e4;
+inline constexpr double kSigmaInclusiveJet30_pb = 2.5298e3;
+inline constexpr double kSigmaInclusiveJet40_pb = 1.3553e2;
 // Embedded PhotonJet12 must be the exclusive stitched window:
 //   12 <= pT_filter^gamma < 20 GeV
 // Do not use the old inclusive pT_filter^gamma >= 12 value (2719.20189 pb).
@@ -256,12 +262,14 @@ inline constexpr double kSigmaPhoton20_pb = 130.4461;
 // on 2026-05-01: 50 shards x 1e6 raw events, max producer-filter photon pT.
 inline constexpr double kSigmaEmbeddedPhoton12_pb = 2598.12425;
 inline constexpr double kSigmaEmbeddedPhoton20_pb = 133.317866;
-// Embedded inclusive-jet background samples now use Jet12+Jet20. These values
-// match the PPG12 Run-28 MDC2 PYTHIA8 Jet12/Jet20 cross sections in
-// ppg12codeGit/efficiencytool/CrossSectionWeights.h.
-// PPG12 stitched truth-jet windows: Jet12 = 14-21 GeV, Jet20 = 21-32 GeV.
-inline constexpr double kSigmaEmbeddedInclusiveJet12_pb = 1.4903e6;
-inline constexpr double kSigmaEmbeddedInclusiveJet20_pb = 6.2623e4;
+// Embedded inclusive-jet background samples reproduce Brian Seidlitz's
+// embed_2025 Jet12/Jet20 production, not the PPG12 14/21/32 truth-jet windows:
+//   Jet12 -> phpythia8_10GeV_JS_MDC2.cfg + 12 <= pT_filter^jet < 20 GeV
+//   Jet20 -> phpythia8_20GeV_JS_MDC2.cfg + pT_filter^jet >= 20 GeV
+// Derived with scripts/estimateEmbeddedPhotonXsec.sh secondPass on 2026-05-08:
+//   50 shards/sample x 1e6 raw events/shard.
+inline constexpr double kSigmaEmbeddedInclusiveJet12_pb = 1.21692467e6;
+inline constexpr double kSigmaEmbeddedInclusiveJet20_pb = 5.56198698e4;
 
 // #############################################################################
 // #                  END OF CONFIGURATION PANEL                               #
@@ -486,6 +494,10 @@ inline string InputSimJet5()
 {
     return kInputBase + "/InclusiveJetSIM/RecoilJets_jet5_ALL_" + CfgTag() + ".root";
 }
+inline string InputSimInclusiveSample(const string& sampleTag)
+{
+    return kInputBase + "/InclusiveJetSIM/RecoilJets_" + sampleTag + "_ALL_" + CfgTag() + ".root";
+}
 inline string InputSimMB()
 {
     return kInputBase + "/MinBiasSIM_DETROITtune/RecoilJets_detroit_ALL_" + CfgTag() + ".root";
@@ -589,6 +601,10 @@ inline string MergedSimPath(const string& cfgTag, const string& comboLabel, cons
 {
     return OutputCombinedSimOnly(cfgTag, comboLabel) + "/" + mergedFilename;
 }
+inline string MergedSimInclusiveJet5To40Path()
+{
+    return MergedSimPath("inclusiveJet5to40_SIM", "RecoilJets_jet5plus8plus12plus20plus30plus40_MERGED.root");
+}
 inline string MergedSimEmbeddedPath(const string& comboLabel, const string& mergedFilename)
 {
     return kInputBase + "/simEmbedded/merged/" + CfgTagWithUE() + "/" + comboLabel + "/" + mergedFilename;
@@ -662,7 +678,15 @@ inline const vector<string>& DiscoveryInputPaths()
             add(InputSim("photonjet20"));
         
         if (isSimMB) add(InputSimMB());
-        if (isSimJet5) add(InputSimJet5());
+        if (isSimJet5)
+        {
+            add(InputSimInclusiveSample("jet5"));
+            add(InputSimInclusiveSample("jet8"));
+            add(InputSimInclusiveSample("jet12"));
+            add(InputSimInclusiveSample("jet20"));
+            add(InputSimInclusiveSample("jet30"));
+            add(InputSimInclusiveSample("jet40"));
+        }
         
         if (isPhotonJet12Embedded || bothPhoton12and20simEmbedded || isSimEmbeddedOnly || isSimAndDataAUAU)
             add(InputSimEmbeddedSample("embeddedPhoton12"));
@@ -3483,6 +3507,7 @@ enum class SimSample
     kPhotonJet5And10And20Merged,
     kSimMB,
     kSimJet5,
+    kSimInclusiveJet5To40Merged,
     kEmbeddedPhoton12,
     kEmbeddedPhoton20,
     kEmbeddedPhoton12And20Merged,
@@ -3565,7 +3590,7 @@ inline SimSample CurrentSimSample()
     if (bothPhoton10and20sim)       return SimSample::kPhotonJet10And20Merged;
     if (allPhoton5and10and20sim)    return SimSample::kPhotonJet5And10And20Merged;
     if (isSimMB)                    return SimSample::kSimMB;
-    if (isSimJet5)                  return SimSample::kSimJet5;
+    if (isSimJet5)                  return SimSample::kSimInclusiveJet5To40Merged;
     if (isPhotonJet12Embedded)      return SimSample::kEmbeddedPhoton12;
     if (isPhotonJet20Embedded)      return SimSample::kEmbeddedPhoton20;
     if (bothPhoton12and20simEmbedded) return SimSample::kEmbeddedPhoton12And20Merged;
@@ -3587,6 +3612,7 @@ inline string SimSampleLabel(SimSample s)
         case SimSample::kPhotonJet5And10And20Merged: return "photonJet5and10and20merged";
         case SimSample::kSimMB:                      return "simMB";
         case SimSample::kSimJet5:                    return "simJet5";
+        case SimSample::kSimInclusiveJet5To40Merged: return "inclusiveJet5to40merged";
         case SimSample::kEmbeddedPhoton12:           return "embeddedPhoton12";
         case SimSample::kEmbeddedPhoton20:           return "embeddedPhoton20";
         case SimSample::kEmbeddedPhoton12And20Merged:return "embeddedPhoton12and20merged";
@@ -3608,6 +3634,7 @@ inline string SimInputPathForSample(SimSample s)
         case SimSample::kPhotonJet5And10And20Merged: return MergedSimPath("photonJet5and10and20merged_SIM", "RecoilJets_photonjet5plus10plus20_MERGED.root");
         case SimSample::kSimMB:                      return InputSimMB();
         case SimSample::kSimJet5:                    return InputSimJet5();
+        case SimSample::kSimInclusiveJet5To40Merged: return MergedSimInclusiveJet5To40Path();
         case SimSample::kEmbeddedPhoton12:           return InputSimEmbeddedSample("embeddedPhoton12");
         case SimSample::kEmbeddedPhoton20:           return InputSimEmbeddedSample("embeddedPhoton20");
         case SimSample::kEmbeddedPhoton12And20Merged:return MergedSimEmbeddedPath("photonJet12and20merged_SIM", "RecoilJets_embeddedPhoton12plus20_MERGED.root");

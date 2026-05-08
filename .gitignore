@@ -8,6 +8,18 @@
 
 !README.md
 !.gitignore
+!AGENTS.md
+!checkAvailableVariant
+!checkCondorQ
+
+!/agent_context/
+!/agent_context/REFERENCE_MAP.md
+!/agent_context/TASK_BOARD.md
+!/agent_context/STATUS_DASHBOARD.md
+
+!/codex_notes/
+!/codex_notes/KNOWN_ISSUES.md
+!/codex_notes/DATASET_STATUS.md
 
 !/src/
 !/src/**

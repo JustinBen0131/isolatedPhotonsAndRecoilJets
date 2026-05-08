@@ -98,6 +98,10 @@
 #   ./mergeRecoilJets.sh isSim secondRound condor
 #   ./mergeRecoilJets.sh isSim secondRound condor SAMPLE=run28_photonjet10
 #
+# STEP 3 — finalStitch (Condor weighted stitch across SIM samples per cfg_tag)
+#   ./mergeRecoilJets.sh isSim finalStitch condor
+#   ./mergeRecoilJets.sh isSimEmbedded finalStitch condor
+#
 # ═══════════════════════════════════════════════════════════════════════════════
 # OUTPUT LOCATIONS
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -116,6 +120,9 @@
 #
 # SIM secondRound final files:
 #   output/<simTag>/RecoilJets_<sampleTag>_ALL_<cfg_tag>.root
+#
+# SIM finalStitch combined files:
+#   output/<simTag>/<cfg_tag>/<comboDir>/RecoilJets_*_MERGED.root
 #
 # ═══════════════════════════════════════════════════════════════════════════════
 # SAFETY / RESUME BEHAVIOR
@@ -165,6 +172,45 @@ BOLD=$'\e[1m'; RED=$'\e[31m'; YEL=$'\e[33m'; GRN=$'\e[32m'; BLU=$'\e[34m'; RST=$
 say()  { printf "${BLU}➜${RST} %s\n" "$*"; }
 warn() { printf "${YEL}⚠ %s${RST}\n" "$*" >&2; }
 err()  { printf "${RED}✘ %s${RST}\n" "$*" >&2; }
+
+memory_spec_to_mb() {
+  local spec="${1:-}"
+  spec="${spec//[[:space:]]/}"
+  local upper="${spec^^}"
+  if [[ "$upper" =~ ^([0-9]+)GB$ ]]; then
+    printf '%d\n' "$(( ${BASH_REMATCH[1]} * 1024 ))"
+  elif [[ "$upper" =~ ^([0-9]+)MB$ ]]; then
+    printf '%d\n' "${BASH_REMATCH[1]}"
+  elif [[ "$upper" =~ ^[0-9]+$ ]]; then
+    printf '%d\n' "$upper"
+  else
+    return 1
+  fi
+}
+
+condor_auto_memory_retry_block() {
+  local base_spec="${1:?base memory required}"
+  local base_mb
+  base_mb="$(memory_spec_to_mb "$base_spec")" || {
+    printf 'request_memory = %s\n' "$base_spec"
+    return 0
+  }
+  local cap_mb="${RJ_AUTO_MEMORY_RETRY_CAP_MB:-8000}"
+  local retries="${RJ_AUTO_MEMORY_RETRY_MAX_RELEASES:-2}"
+  [[ "$cap_mb" =~ ^[0-9]+$ ]] || cap_mb=8000
+  [[ "$retries" =~ ^[0-9]+$ ]] || retries=2
+  if [[ "${RJ_AUTO_MEMORY_RETRY:-1}" == "0" || "$base_mb" -ge "$cap_mb" || "$retries" -le 0 ]]; then
+    printf 'request_memory = %s\n' "$base_mb"
+    return 0
+  fi
+  cat <<EOT
++RJBaseRequestMemoryMb = ${base_mb}
++RJMemoryRetryCapMb = ${cap_mb}
++RJMemoryRetryMaxReleases = ${retries}
+request_memory = ifThenElse(MemoryUsage =!= undefined, ifThenElse(int(MemoryUsage * 1.35 + 512) > ${cap_mb}, ${cap_mb}, ifThenElse(int(MemoryUsage * 1.35 + 512) > ${base_mb}, int(MemoryUsage * 1.35 + 512), ${base_mb})), ${base_mb})
+periodic_release = (JobStatus == 5) && (NumJobStarts <= ${retries}) && (RequestMemory < ${cap_mb}) && ((HoldReasonCode == 34) || ((HoldReason =!= undefined) && regexp("memory|Memory|cgroup|request_memory|request memory", HoldReason)))
+EOT
+}
 
 # ---------- Fixed dataset roots ----------
 RUN_BASE_PP="/sphenix/tg/tg01/bulk/jbennett/thesisAna/pp"
@@ -1507,6 +1553,421 @@ EOS
   chmod +x "$exe"
 }
 
+emit_sim_stitch_wrapper() {
+  local exe="$1"
+  cat > "$exe" <<'EOS'
+#!/usr/bin/env bash
+set -eo pipefail
+set +u
+export USER="$(id -un)"; export LOGNAME="$USER"; export HOME="/sphenix/u/$USER"
+MYINSTALL="/sphenix/u/$USER/thesisAnalysis/install"
+source /opt/sphenix/core/bin/sphenix_setup.sh -n
+source /opt/sphenix/core/bin/setup_local.sh "$MYINSTALL" || true
+set -u
+if [[ $# -ne 1 ]]; then
+  echo "[ERROR] Usage: $0 <stitch_spec>" >&2
+  exit 1
+fi
+SPEC="$1"
+[[ -s "$SPEC" ]] || { echo "[ERROR] Missing/empty stitch spec: $SPEC" >&2; exit 2; }
+
+cxx_quote() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  printf '"%s"' "$s"
+}
+
+mapfile -t rows < "$SPEC"
+(( ${#rows[@]} >= 5 )) || { echo "[ERROR] Stitch spec has too few rows: $SPEC" >&2; exit 3; }
+dataset="${rows[0]}"
+cfg="${rows[1]}"
+out="${rows[2]}"
+topdir="${rows[3]}"
+nslices="${rows[4]}"
+[[ "$nslices" =~ ^[0-9]+$ ]] || { echo "[ERROR] Invalid nslices in stitch spec: $nslices" >&2; exit 4; }
+(( ${#rows[@]} == 5 + nslices )) || { echo "[ERROR] Stitch spec row count mismatch: rows=${#rows[@]} nslices=${nslices}" >&2; exit 5; }
+
+for ((i=0; i<nslices; ++i)); do
+  IFS='|' read -r label sigma path <<< "${rows[$((5+i))]}"
+  [[ -n "$label" && -n "$sigma" && -n "$path" ]] || { echo "[ERROR] Bad slice row: ${rows[$((5+i))]}" >&2; exit 6; }
+  [[ -s "$path" ]] || { echo "[ERROR] Missing/empty input slice: $path" >&2; exit 7; }
+done
+
+mkdir -p "$(dirname "$out")"
+rm -f "$out"
+
+macro_dir="$(mktemp -d "${TMPDIR:-/tmp}/recoiljets_sim_stitch_${dataset}_${cfg}.XXXXXX")"
+macro="${macro_dir}/recoiljets_sim_stitch.C"
+cat > "$macro" <<'ROOTMACRO'
+#include <TFile.h>
+#include <TDirectory.h>
+#include <TKey.h>
+#include <TObject.h>
+#include <TNamed.h>
+#include <TH1.h>
+#include <TTree.h>
+#include <TSystem.h>
+
+#include <iomanip>
+#include <iostream>
+#include <set>
+#include <sstream>
+#include <string>
+#include <vector>
+
+namespace RJSimStitch
+{
+using std::cout;
+using std::endl;
+using std::set;
+using std::string;
+using std::vector;
+
+void EnsureParentDirForFile(const string& filepath)
+{
+  const size_t pos = filepath.find_last_of('/');
+  if (pos == string::npos) return;
+  const string dir = filepath.substr(0, pos);
+  if (!dir.empty()) gSystem->mkdir(dir.c_str(), true);
+}
+
+double ReadEventCountFromFile(TFile* f, const string& topDirName)
+{
+  if (!f) return 0.0;
+  TDirectory* d = f->GetDirectory(topDirName.c_str());
+  if (!d) return 0.0;
+  TH1* cnt = dynamic_cast<TH1*>(d->Get(("cnt_" + topDirName).c_str()));
+  if (!cnt) return 0.0;
+  return cnt->GetBinContent(1);
+}
+
+void AddScaledRecursive(TDirectory* outDir, TDirectory* inDir, double w)
+{
+  if (!outDir || !inDir) return;
+
+  auto IsDirClass = [](const std::string& cls)->bool
+  {
+    return (cls == "TDirectoryFile" || cls == "TDirectory");
+  };
+
+  TIter next(inDir->GetListOfKeys());
+  while (TKey* key = static_cast<TKey*>(next()))
+  {
+    const std::string name = key->GetName();
+    const std::string cls = key->GetClassName();
+
+    if (IsDirClass(cls))
+    {
+      TDirectory* subIn = dynamic_cast<TDirectory*>(inDir->Get(name.c_str()));
+      if (!subIn) continue;
+
+      outDir->cd();
+      TDirectory* subOut = outDir->GetDirectory(name.c_str());
+      if (!subOut) subOut = outDir->mkdir(name.c_str());
+      if (!subOut) continue;
+
+      AddScaledRecursive(subOut, subIn, w);
+      continue;
+    }
+
+    TObject* objIn = inDir->Get(name.c_str());
+    if (!objIn) continue;
+
+    if (auto* hIn = dynamic_cast<TH1*>(objIn))
+    {
+      outDir->cd();
+      TH1* hOut = dynamic_cast<TH1*>(outDir->Get(name.c_str()));
+
+      if (!hOut)
+      {
+        TH1* hNew = dynamic_cast<TH1*>(hIn->Clone(name.c_str()));
+        if (!hNew) continue;
+        hNew->SetDirectory(outDir);
+        if (hNew->GetSumw2N() == 0) hNew->Sumw2();
+        if (w != 0.0) hNew->Scale(w);
+        hNew->Write(name.c_str(), TObject::kOverwrite);
+      }
+      else
+      {
+        TH1* tmp = dynamic_cast<TH1*>(hIn->Clone((name + "_tmpAdd").c_str()));
+        if (!tmp) continue;
+        tmp->SetDirectory(nullptr);
+        if (tmp->GetSumw2N() == 0) tmp->Sumw2();
+        if (w != 0.0) tmp->Scale(w);
+        hOut->Add(tmp);
+        hOut->Write(name.c_str(), TObject::kOverwrite);
+        delete tmp;
+      }
+
+      continue;
+    }
+
+    outDir->cd();
+    if (!outDir->Get(name.c_str()))
+    {
+      TObject* c = objIn->Clone(name.c_str());
+      if (c) c->Write(name.c_str(), TObject::kOverwrite);
+    }
+  }
+}
+
+bool BuildMergedSIMFile_PhotonSlices(const vector<string>& inFiles,
+                                     const vector<double>& sigmas_pb,
+                                     const string& outMerged,
+                                     const string& topDirName,
+                                     const vector<string>& sliceLabels)
+{
+  cout << "\n[MERGE SIM] Building merged SIM file with cross-section weights\n"
+       << "  out    = " << outMerged << "\n"
+       << "  topDir = " << topDirName << "\n";
+
+  const size_t n = inFiles.size();
+  if (n < 2 || sigmas_pb.size() != n)
+  {
+    cout << "[MERGE SIM][ERROR] Need >=2 inputs and a matching sigma list.\n";
+    return false;
+  }
+
+  vector<TFile*> fin(n, nullptr);
+  vector<TDirectory*> din(n, nullptr);
+  vector<double> Nraw(n, 0.0);
+  vector<double> w(n, 0.0);
+
+  auto CloseAll = [&](){
+    for (auto* f : fin) { if (f) f->Close(); }
+  };
+
+  for (size_t i = 0; i < n; ++i)
+  {
+    cout << "  in[" << i << "] = " << inFiles[i]
+         << "   sigma_pb=" << std::setprecision(12) << sigmas_pb[i] << "\n";
+
+    if (sigmas_pb[i] <= 0.0)
+    {
+      cout << "[MERGE SIM][ERROR] sigma_pb <= 0 for input: " << inFiles[i] << "\n";
+      CloseAll();
+      return false;
+    }
+
+    fin[i] = TFile::Open(inFiles[i].c_str(), "READ");
+    if (!fin[i] || fin[i]->IsZombie())
+    {
+      cout << "[MERGE SIM][ERROR] Cannot open input SIM file: " << inFiles[i] << "\n";
+      CloseAll();
+      return false;
+    }
+
+    din[i] = fin[i]->GetDirectory(topDirName.c_str());
+    if (!din[i])
+    {
+      cout << "[MERGE SIM][ERROR] Missing topDir '" << topDirName
+           << "' in input SIM file: " << inFiles[i] << "\n";
+      CloseAll();
+      return false;
+    }
+
+    Nraw[i] = ReadEventCountFromFile(fin[i], topDirName);
+    if (Nraw[i] <= 0.0)
+    {
+      cout << "[MERGE SIM][ERROR] Nraw <= 0 for input: " << inFiles[i] << "\n";
+      CloseAll();
+      return false;
+    }
+    w[i] = sigmas_pb[i] / Nraw[i];
+  }
+
+  double wRef = w.back();
+  if (wRef <= 0.0)
+  {
+    for (size_t i = n; i > 0; --i)
+    {
+      if (w[i - 1] > 0.0)
+      {
+        wRef = w[i - 1];
+        break;
+      }
+    }
+  }
+  if (wRef <= 0.0)
+  {
+    cout << "[MERGE SIM][ERROR] wRef <= 0; cannot normalize slice weights.\n";
+    CloseAll();
+    return false;
+  }
+  for (size_t i = 0; i < n; ++i) w[i] /= wRef;
+
+  cout << "[MERGE SIM] Slice weights: w = (sigma_eff/Nraw)/(sigma_eff_ref/Nraw_ref)\n";
+  for (size_t i = 0; i < n; ++i)
+  {
+    const string lab = (!sliceLabels.empty() && sliceLabels.size() == n) ? sliceLabels[i] : std::to_string(i);
+    cout << "  [" << lab << "]  Nraw=" << std::fixed << std::setprecision(0) << Nraw[i]
+         << "   sigma_pb=" << std::setprecision(12) << sigmas_pb[i]
+         << "   w=" << std::setprecision(12) << w[i] << "\n";
+  }
+
+  EnsureParentDirForFile(outMerged);
+  TFile* fout = TFile::Open(outMerged.c_str(), "RECREATE");
+  if (!fout || fout->IsZombie())
+  {
+    cout << "[MERGE SIM][ERROR] Cannot create merged output file: " << outMerged << "\n";
+    CloseAll();
+    return false;
+  }
+
+  fout->cd();
+  TDirectory* outTop = fout->mkdir(topDirName.c_str());
+  if (!outTop)
+  {
+    cout << "[MERGE SIM][ERROR] Cannot create output topDir: " << topDirName << "\n";
+    fout->Close();
+    CloseAll();
+    return false;
+  }
+
+  for (size_t i = 0; i < n; ++i) AddScaledRecursive(outTop, din[i], w[i]);
+
+  TTree* tOutED = nullptr;
+  for (size_t i = 0; i < n; ++i)
+  {
+    TTree* tInED = dynamic_cast<TTree*>(fin[i] ? fin[i]->Get("EventDisplayTree") : nullptr);
+    if (!tInED && din[i]) tInED = dynamic_cast<TTree*>(din[i]->Get("EventDisplayTree"));
+    if (!tInED) continue;
+
+    if (!tOutED)
+    {
+      outTop->cd();
+      tOutED = tInED->CloneTree(0);
+      if (tOutED) tOutED->SetDirectory(outTop);
+    }
+    if (tOutED) tOutED->CopyEntries(tInED);
+  }
+  if (tOutED)
+  {
+    outTop->cd();
+    tOutED->Write("EventDisplayTree", TObject::kOverwrite);
+  }
+
+  std::ostringstream oss;
+  oss << "Merged photonJet slices. Nslices=" << n << " ";
+  for (size_t i = 0; i < n; ++i)
+  {
+    const string lab = (!sliceLabels.empty() && sliceLabels.size() == n) ? sliceLabels[i] : std::to_string(i);
+    oss << "[" << lab
+        << " Nraw=" << std::fixed << std::setprecision(0) << Nraw[i]
+        << " sigma_pb=" << std::setprecision(12) << sigmas_pb[i]
+        << " w=" << std::setprecision(12) << w[i]
+        << "] ";
+  }
+
+  outTop->cd();
+  TNamed meta("MERGE_INFO", oss.str().c_str());
+  meta.Write("MERGE_INFO", TObject::kOverwrite);
+
+  fout->Write();
+  fout->Close();
+  CloseAll();
+
+  cout << "[MERGE SIM] Done. Merged file written: " << outMerged << "\n";
+  return true;
+}
+} // namespace RJSimStitch
+ROOTMACRO
+{
+  printf '\n'
+  printf 'void %s() {\n' "recoiljets_sim_stitch"
+  printf '  std::vector<std::string> inputs = {'
+  for ((i=0; i<nslices; ++i)); do
+    IFS='|' read -r label sigma path <<< "${rows[$((5+i))]}"
+    (( i > 0 )) && printf ', '
+    cxx_quote "$path"
+  done
+  printf '};\n'
+  printf '  std::vector<double> sigmas = {'
+  for ((i=0; i<nslices; ++i)); do
+    IFS='|' read -r label sigma path <<< "${rows[$((5+i))]}"
+    (( i > 0 )) && printf ', '
+    printf '%s' "$sigma"
+  done
+  printf '};\n'
+  printf '  std::vector<std::string> labels = {'
+  for ((i=0; i<nslices; ++i)); do
+    IFS='|' read -r label sigma path <<< "${rows[$((5+i))]}"
+    (( i > 0 )) && printf ', '
+    cxx_quote "$label"
+  done
+  printf '};\n'
+  printf '  const std::string out = '
+  cxx_quote "$out"
+  printf ';\n'
+  printf '  const std::string topdir = '
+  cxx_quote "$topdir"
+  printf ';\n'
+  printf '  const bool ok = RJSimStitch::BuildMergedSIMFile_PhotonSlices(inputs, sigmas, out, topdir, labels);\n'
+  printf '  if (!ok) gSystem->Exit(10);\n'
+  printf '}\n'
+} >> "$macro"
+
+echo "[sim_stitch] dataset=${dataset} cfg=${cfg} nslices=${nslices}"
+echo "[sim_stitch] out=${out}"
+root -l -b -q "$macro"
+rc=$?
+rm -rf "$macro_dir"
+exit "$rc"
+EOS
+  chmod +x "$exe"
+}
+
+sim_stitch_plan_for_dataset() {
+  local token="$1"
+  case "$token" in
+    isSim|sim|SIM)
+      SIM_STITCH_COMBO_DIR="photonJet5and10and20merged_SIM"
+      SIM_STITCH_OUTPUT_FILE="RecoilJets_photonjet5plus10plus20_MERGED.root"
+      SIM_STITCH_TOPDIR="SIM"
+      SIM_STITCH_ROWS=(
+        "photonJet5|146359.3|photonjet5"
+        "photonJet10|6944.675|photonjet10"
+        "photonJet20|130.4461|photonjet20"
+      )
+      ;;
+    isSimInclusive|issiminclusive|siminclusive|SIMINCLUSIVE|isSimJet5|isSimjet5|simjet5|SIMJET5)
+      SIM_STITCH_COMBO_DIR="inclusiveJet5to40_SIM"
+      SIM_STITCH_OUTPUT_FILE="RecoilJets_jet5plus8plus12plus20plus30plus40_MERGED.root"
+      SIM_STITCH_TOPDIR="SIM"
+      SIM_STITCH_ROWS=(
+        "jet5|1.3878e8|jet5"
+        "jet8|1.15e7|jet8"
+        "jet12|1.4903e6|jet12"
+        "jet20|6.2623e4|jet20"
+        "jet30|2.5298e3|jet30"
+        "jet40|1.3553e2|jet40"
+      )
+      ;;
+    isSimEmbedded|issimembedded|simembedded|SIMEMBEDDED)
+      SIM_STITCH_COMBO_DIR="photonJet12and20merged_SIM"
+      SIM_STITCH_OUTPUT_FILE="RecoilJets_embeddedPhoton12plus20_MERGED.root"
+      SIM_STITCH_TOPDIR="SIM"
+      SIM_STITCH_ROWS=(
+        "embeddedPhoton12|2598.12425|embeddedPhoton12"
+        "embeddedPhoton20|133.317866|embeddedPhoton20"
+      )
+      ;;
+    isSimEmbeddedInclusive|issimembeddedinclusive|simembeddedinclusive|SIMEMBEDDEDINCLUSIVE)
+      SIM_STITCH_COMBO_DIR="embeddedJet12and20merged_SIM"
+      SIM_STITCH_OUTPUT_FILE="RecoilJets_embeddedJet12plus20_MERGED.root"
+      SIM_STITCH_TOPDIR="SIM"
+      SIM_STITCH_ROWS=(
+        "embeddedJet12|1.21692467e6|embeddedJet12"
+        "embeddedJet20|5.56198698e4|embeddedJet20"
+      )
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 # Collect run directories that actually contain at least one *.root file
 discover_runs() {
   local base="$1"
@@ -1819,7 +2280,7 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|isSimInclusive|issiminclusiv
       [[ "$SIM_SAMPLE_EXPLICIT" -eq 0 ]] && SIM_SAMPLE="run28_embeddedPhoton20"
       ;;
     isSimEmbeddedInclusive|issimembeddedinclusive|simembeddedinclusive|SIMEMBEDDEDINCLUSIVE)
-      SIM_INPUT_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simembedded"
+      SIM_INPUT_BASE="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simembeddedinclusive"
       SIM_OUTPUT_TAG="simembeddedinclusive"
       [[ "$SIM_SAMPLE_EXPLICIT" -eq 0 ]] && SIM_SAMPLE="run28_embeddedJet20"
       ;;
@@ -1834,12 +2295,17 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|isSimInclusive|issiminclusiv
 
   # Embedded firstRound hadd jobs can exceed the generic 2 GB request when
   # merging larger Au+Au-style ROOT outputs. Keep pp/MB/jet SIM unchanged.
+  # RJ_SIM_FIRSTROUND_REQUEST_MEMORY is intentionally an operational override:
+  # it lets a held merge stage be retried without rerunning the DST analysis.
   SIM_FIRSTROUND_REQUEST_MEMORY="2GB"
   case "$SIM_DATASET_TOKEN" in
     isSimEmbedded|issimembedded|simembedded|SIMEMBEDDED|isSimEmbeddedInclusive|issimembeddedinclusive|simembeddedinclusive|SIMEMBEDDEDINCLUSIVE)
       SIM_FIRSTROUND_REQUEST_MEMORY="4GB"
       ;;
   esac
+  if [[ -n "${RJ_SIM_FIRSTROUND_REQUEST_MEMORY:-}" ]]; then
+    SIM_FIRSTROUND_REQUEST_MEMORY="${RJ_SIM_FIRSTROUND_REQUEST_MEMORY}"
+  fi
 
   # Build sample list (same defaults as submit script, or explicit SAMPLE=)
   samples=()
@@ -1861,27 +2327,21 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|isSimInclusive|issiminclusiv
   # DISCOVER cfg_tag directories from the filesystem.
   #
   # IMPORTANT:
-  #   isSimEmbedded and isSimEmbeddedInclusive currently share the same TG
-  #   input base:
-  #     /sphenix/tg/tg01/bulk/jbennett/thesisAna/simembedded
-  #
-  #   So after the raw cfg_tag discovery, we must FILTER to only cfg_tag
-  #   directories that actually contain one of the requested sample
-  #   subdirectories for THIS dataset token. This prevents
-  #   isSimEmbeddedInclusive from trying to merge the old photon-embedded
-  #   output tree, and vice versa.
+  #   isSimEmbedded and isSimEmbeddedInclusive use separate TG input bases.
+  #   We still filter cfg_tag directories by requested sample subdirectories
+  #   so stale or manually copied trees cannot be merged into the wrong dataset.
   # ---------------------------------------------------------------
   FLAT_OUT_DIR="${OUT_BASE}/${SIM_OUTPUT_TAG}"
   mkdir -p "$FLAT_OUT_DIR" "$LOG_DIR" "$OUT_DIR" "$ERR_DIR" "$TMP_DIR"
 
   if [[ "$SIM_ACTION" == "firstRound" ]]; then
     _discover_base="$SIM_INPUT_BASE"
-  elif [[ "$SIM_ACTION" == "secondRound" ]]; then
+  elif [[ "$SIM_ACTION" == "secondRound" || "$SIM_ACTION" == "finalStitch" ]]; then
     # Keep discovery anchored to the TG input base, but filter cfg_tags below
     # by the requested sample directories for this dataset token.
     _discover_base="$SIM_INPUT_BASE"
   else
-    err "Unknown isSim action '${SIM_ACTION}'. Allowed: firstRound | secondRound"
+    err "Unknown isSim action '${SIM_ACTION}'. Allowed: firstRound | secondRound | finalStitch"
     exit 2
   fi
 
@@ -1958,6 +2418,73 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|isSimInclusive|issiminclusiv
     say "  Input : ${COMBO_INPUT_BASE}"
     say "  Work  : ${DEST_DIR}"
     echo
+
+    if [[ "$SIM_ACTION" == "finalStitch" ]]; then
+      sim_stitch_plan_for_dataset "$SIM_DATASET_TOKEN" || {
+        err "No SIM final-stitch plan is configured for dataset token: ${SIM_DATASET_TOKEN}"
+        exit 41
+      }
+
+      need_cmd condor_submit
+      emit_sim_stitch_wrapper "$CONDOR_EXEC"
+
+      STITCH_SUB="${TMP_DIR}/recoil_sim_${cfg_tag}_finalStitch.sub"
+      STITCH_ARGS="${TMP_DIR}/recoil_sim_${cfg_tag}_finalStitch.args"
+      STITCH_EXPECTED="${TMP_DIR}/recoil_sim_${cfg_tag}_finalStitch.expected"
+      STITCH_SPEC="${TMP_DIR}/recoil_sim_${cfg_tag}_finalStitch.spec"
+      STITCH_OUT="${DEST_DIR}/${SIM_STITCH_COMBO_DIR}/${SIM_STITCH_OUTPUT_FILE}"
+
+      : > "$STITCH_SPEC"
+      printf '%s\n' "$SIM_DATASET_TOKEN" >> "$STITCH_SPEC"
+      printf '%s\n' "$cfg_tag" >> "$STITCH_SPEC"
+      printf '%s\n' "$STITCH_OUT" >> "$STITCH_SPEC"
+      printf '%s\n' "$SIM_STITCH_TOPDIR" >> "$STITCH_SPEC"
+      printf '%s\n' "${#SIM_STITCH_ROWS[@]}" >> "$STITCH_SPEC"
+
+      _stitch_missing=0
+      for _row in "${SIM_STITCH_ROWS[@]}"; do
+        IFS='|' read -r _label _sigma _sample_tag <<< "$_row"
+        _sample_final="${FLAT_OUT_DIR}/${FINAL_PREFIX}_${_sample_tag}_ALL_${cfg_tag}.root"
+        if [[ ! -s "$_sample_final" ]]; then
+          warn "Missing sample-level secondRound input for finalStitch: ${_sample_final}"
+          _stitch_missing=1
+        fi
+        printf '%s|%s|%s\n' "$_label" "$_sigma" "$_sample_final" >> "$STITCH_SPEC"
+      done
+      (( _stitch_missing == 0 )) || {
+        err "Cannot submit finalStitch for cfg=${cfg_tag}; one or more sample-level secondRound files are missing."
+        exit 42
+      }
+
+      printf '%s\n' "$STITCH_SPEC" > "$STITCH_ARGS"
+      printf '%s\n' "$STITCH_OUT" > "$STITCH_EXPECTED"
+
+      cat > "$STITCH_SUB" <<EOT
+universe   = vanilla
+executable = $CONDOR_EXEC
+output     = $OUT_DIR/recoil.sim.${cfg_tag}.finalStitch.\$(Cluster).\$(Process).out
+error      = $ERR_DIR/recoil.sim.${cfg_tag}.finalStitch.\$(Cluster).\$(Process).err
+log        = $LOG_DIR/recoil.sim.${cfg_tag}.finalStitch.\$(Cluster).\$(Process).log
+$(condor_auto_memory_retry_block "${RJ_SIM_FINAL_STITCH_REQUEST_MEMORY:-6GB}")
+priority = $MERGE_CONDOR_PRIORITY
+getenv = True
+should_transfer_files = NO
+stream_output = True
+stream_error  = True
+notification = Never
+queue arguments from ${STITCH_ARGS}
+EOT
+
+      say "SIM finalStitch: cfg=${cfg_tag} samples=${#SIM_STITCH_ROWS[@]} -> ${STITCH_OUT}"
+      submit_condor_stage_with_ready_email \
+        "$STITCH_SUB" \
+        "sim_finalStitch_${cfg_tag}" \
+        "RecoilJets_SIM_finalStitch_ready" \
+        "SIM final weighted stitch validation finished for cfg=${cfg_tag}. If status is READY, canonical combined ROOT output: ${STITCH_OUT}." \
+        "$STITCH_EXPECTED"
+      echo
+      continue
+    fi
 
     for samp in "${samples[@]}"; do
       SIM_SAMPLE="$samp"
@@ -2098,7 +2625,7 @@ executable = $CONDOR_EXEC
 output     = $OUT_DIR/recoil.sim.${cfg_tag}.${SIM_TAG}.\$(Cluster).\$(Process).out
 error      = $ERR_DIR/recoil.sim.${cfg_tag}.${SIM_TAG}.\$(Cluster).\$(Process).err
 log        = $LOG_DIR/recoil.sim.${cfg_tag}.${SIM_TAG}.\$(Cluster).\$(Process).log
-request_memory = $SIM_FIRSTROUND_REQUEST_MEMORY
+$(condor_auto_memory_retry_block "$SIM_FIRSTROUND_REQUEST_MEMORY")
 priority = $MERGE_CONDOR_PRIORITY
 getenv = True
 should_transfer_files = NO
@@ -2206,7 +2733,7 @@ executable = $CONDOR_EXEC
 output     = $OUT_DIR/recoil.sim.${cfg_tag}.${SIM_TAG}.final.\$(Cluster).\$(Process).out
 error      = $ERR_DIR/recoil.sim.${cfg_tag}.${SIM_TAG}.final.\$(Cluster).\$(Process).err
 log        = $LOG_DIR/recoil.sim.${cfg_tag}.${SIM_TAG}.final.\$(Cluster).\$(Process).log
-request_memory = 6GB
+$(condor_auto_memory_retry_block "6GB")
 priority = $MERGE_CONDOR_PRIORITY
 getenv = True
 should_transfer_files = NO
@@ -2575,7 +3102,7 @@ executable = $CONDOR_EXEC
 output     = $OUT_DIR/recoil.\$(Cluster).\$(Process).out
 error      = $ERR_DIR/recoil.\$(Cluster).\$(Process).err
 log        = $LOG_DIR/recoil.\$(Cluster).\$(Process).log
-request_memory = 2GB
+$(condor_auto_memory_retry_block "2GB")
 priority = $MERGE_CONDOR_PRIORITY
 getenv = True
 should_transfer_files = NO
@@ -2757,7 +3284,7 @@ executable = $CONDOR_EXEC
 output     = $OUT_DIR/recoil.slice.\$(Cluster).\$(Process).out
 error      = $ERR_DIR/recoil.slice.\$(Cluster).\$(Process).err
 log        = $LOG_DIR/recoil.slice.\$(Cluster).\$(Process).log
-request_memory = 4GB
+$(condor_auto_memory_retry_block "4GB")
 priority = $MERGE_CONDOR_PRIORITY
 getenv = True
 should_transfer_files = NO
@@ -2847,7 +3374,7 @@ executable = $CONDOR_EXEC
 output     = $OUT_DIR/recoil.final.\$(Cluster).\$(Process).out
 error      = $ERR_DIR/recoil.final.\$(Cluster).\$(Process).err
 log        = $LOG_DIR/recoil.final.\$(Cluster).\$(Process).log
-request_memory = 3GB
+$(condor_auto_memory_retry_block "3GB")
 priority = $MERGE_CONDOR_PRIORITY
 getenv = True
 should_transfer_files = NO

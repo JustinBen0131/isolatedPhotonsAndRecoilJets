@@ -57,7 +57,9 @@ void Process_Calo_Calib()
   if (const char* ds = getenv("RJ_DATASET"))
   {
     std::string dataset(ds);
-    if (dataset == "isSimEmbedded" || dataset == "issimembedded" || dataset == "simembedded")
+    if (dataset == "isSimEmbedded" || dataset == "issimembedded" || dataset == "simembedded" ||
+        dataset == "isSimEmbeddedInclusive" || dataset == "issimembeddedinclusive" ||
+        dataset == "simembeddedinclusive")
     {
       isSimEmbedded = true;
     }

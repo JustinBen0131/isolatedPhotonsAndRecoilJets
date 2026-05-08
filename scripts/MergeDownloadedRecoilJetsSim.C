@@ -62,23 +62,6 @@ bool RequireInputs(const vector<string>& inputs)
     return ok;
 }
 
-bool CopySingleSample(const string& in, const string& out)
-{
-    if (!RequireInputs({in})) return false;
-    EnsureParent(out);
-    const int rc = gSystem ? gSystem->CopyFile(in.c_str(), out.c_str(), true) : -1;
-    if (rc != 0)
-    {
-        cerr << "[MERGE DOWNLOADED SIM][ERROR] CopyFile failed rc=" << rc << "\n"
-             << "  in  = " << in << "\n"
-             << "  out = " << out << "\n";
-        return false;
-    }
-    cout << "[MERGE DOWNLOADED SIM][OK] Materialized single-sample canonical output:\n"
-         << "  " << out << "\n";
-    return true;
-}
-
 bool MergeOne(const string& dataset, const string& cfg)
 {
     if (dataset == "isSim")
@@ -138,10 +121,26 @@ bool MergeOne(const string& dataset, const string& cfg)
 
     if (dataset == "isSimInclusive")
     {
-        const string in = kBase + "/InputFiles/InclusiveJetSIM/RecoilJets_jet5_ALL_" + cfg + ".root";
+        const vector<string> inputs = {
+            kBase + "/InputFiles/InclusiveJetSIM/RecoilJets_jet5_ALL_" + cfg + ".root",
+            kBase + "/InputFiles/InclusiveJetSIM/RecoilJets_jet8_ALL_" + cfg + ".root",
+            kBase + "/InputFiles/InclusiveJetSIM/RecoilJets_jet12_ALL_" + cfg + ".root",
+            kBase + "/InputFiles/InclusiveJetSIM/RecoilJets_jet20_ALL_" + cfg + ".root",
+            kBase + "/InputFiles/InclusiveJetSIM/RecoilJets_jet30_ALL_" + cfg + ".root",
+            kBase + "/InputFiles/InclusiveJetSIM/RecoilJets_jet40_ALL_" + cfg + ".root"
+        };
         const string out = kBase + "/dataOutput/combinedSimOnly/" + cfg +
-            "/inclusiveJet5_SIM/RecoilJets_jet5_MERGED.root";
-        return CopySingleSample(in, out);
+            "/inclusiveJet5to40_SIM/RecoilJets_jet5plus8plus12plus20plus30plus40_MERGED.root";
+        if (!RequireInputs(inputs)) return false;
+        return ARJ::BuildMergedSIMFile_PhotonSlices(
+            inputs,
+            {ARJ::kSigmaInclusiveJet5_pb, ARJ::kSigmaInclusiveJet8_pb,
+             ARJ::kSigmaInclusiveJet12_pb, ARJ::kSigmaInclusiveJet20_pb,
+             ARJ::kSigmaInclusiveJet30_pb, ARJ::kSigmaInclusiveJet40_pb},
+            out,
+            ARJ::kDirSIM,
+            {"jet5", "jet8", "jet12", "jet20", "jet30", "jet40"}
+        );
     }
 
     cerr << "[MERGE DOWNLOADED SIM][ERROR] Unsupported dataset: " << dataset << "\n";
