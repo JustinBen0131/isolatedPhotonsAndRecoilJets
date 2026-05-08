@@ -265,6 +265,10 @@ run_condor_extract() {
   : > "$args_file"
   local wrapper; wrapper="$(wrapper_path)"
   local chunk_idx=0
+  local nevents_for_jobs="${RJ_AUAU_TIGHT_BDT_NEVENTS:-0}"
+  if [[ "$mode" == "smokeTest" && -z "${RJ_AUAU_TIGHT_BDT_NEVENTS:-}" ]]; then
+    nevents_for_jobs=1000
+  fi
   for sample in "${ALL_SAMPLES[@]}"; do
     local master="${manifest_dir}/${sample}_5col.list"
     build_sample_master "$sample" "$master"
@@ -284,7 +288,7 @@ run_condor_extract() {
       local dataset; dataset="$(sample_dataset "$sample")"
       local klass; klass="$(sample_class "$sample")"
       local dest="${extraction_root}/${klass}/${sample}"
-      printf '%s %s %s %s %s %s\n' "$sample" "$chunk" "$dataset" "${RJ_AUAU_TIGHT_BDT_NEVENTS:-0}" "$chunk_idx" "$dest" >> "$args_file"
+      printf '%s %s %s %s %s %s\n' "$sample" "$chunk" "$dataset" "$nevents_for_jobs" "$chunk_idx" "$dest" >> "$args_file"
     done
     say "planned sample=${sample} chunks=${queued} cap=${max_jobs_per_sample:-0}"
   done
@@ -301,7 +305,7 @@ error = ${sub_root}/extract_\$(Cluster)_\$(Process).err
 log = ${sub_root}/extract_\$(Cluster).log
 request_memory = ${reqmem}
 notification = Never
-environment = "RJ_CONFIG_YAML=${yaml};RJ_MACRO_PATH=${TRAIN_MACRO};RJ_AUAU_BDT_EXTRACT_ONLY=1;RJ_AUAU_BDT_TRAINING_TREE=1;RJ_DISABLE_ID_FANOUT=1;RJ_DISABLE_ISO_CONE_INTERNALIZATION=1;RJ_DISABLE_JET_PT_INTERNALIZATION=1;RJ_DISABLE_DPHI_INTERNALIZATION=1;RJ_PROFILE_JOB=1"
+environment = "RJ_CONFIG_YAML=${yaml} RJ_MACRO_PATH=${TRAIN_MACRO} RJ_AUAU_BDT_EXTRACT_ONLY=1 RJ_AUAU_BDT_TRAINING_TREE=1 RJ_DISABLE_ID_FANOUT=1 RJ_DISABLE_ISO_CONE_INTERNALIZATION=1 RJ_DISABLE_JET_PT_INTERNALIZATION=1 RJ_DISABLE_DPHI_INTERNALIZATION=1 RJ_PROFILE_JOB=1"
 queue sample,chunk,dataset,nevents,chunkidx,dest from ${args_file}
 EOF
 
@@ -312,8 +316,40 @@ set -euo pipefail
 root_manifest="${manifest_dir}/training_roots.list"
 find "${extraction_root}" -type f -name '*.root' | sort -V > "\$root_manifest" || true
 nroots=\$(wc -l < "\$root_manifest" | tr -d ' ')
+tree_entries=0
+validation_note=""
+if [[ "\$nroots" != "0" ]]; then
+  validation_note=\$("${ML_PYTHON}" - "\$root_manifest" <<'PY' || true
+import sys
+from pathlib import Path
+try:
+    import uproot
+except Exception as exc:
+    print(f"UPROOT_IMPORT_FAILED {exc}")
+    raise SystemExit(0)
+manifest = Path(sys.argv[1])
+total = 0
+missing = 0
+for raw in manifest.read_text().splitlines():
+    path = raw.strip()
+    if not path:
+        continue
+    try:
+        with uproot.open(path) as f:
+            if "AuAuPhotonIDTrainingTree" not in f:
+                missing += 1
+                continue
+            total += int(f["AuAuPhotonIDTrainingTree"].num_entries)
+    except Exception as exc:
+        print(f"ROOT_OPEN_FAILED {path} {exc}")
+print(f"TREE_ENTRIES {total} MISSING_TREE_FILES {missing}")
+PY
+)
+  tree_entries=\$(printf '%s\n' "\$validation_note" | awk '/TREE_ENTRIES/ {print \$2; exit}')
+  tree_entries="\${tree_entries:-0}"
+fi
 status=READY
-if [[ "\$nroots" == "0" ]]; then status=CHECK; fi
+if [[ "\$nroots" == "0" || "\$tree_entries" == "0" ]]; then status=CHECK; fi
 summary="${report_dir}/final_summary.txt"
 {
   echo "RECOILJETS_STAGE_EMAIL_V1"
@@ -323,6 +359,10 @@ summary="${report_dir}/final_summary.txt"
   echo "training_root=${run_root}"
   echo "root_manifest=\${root_manifest}"
   echo "root_count=\${nroots}"
+  echo "tree_entries=\${tree_entries}"
+  if [[ -n "\${validation_note:-}" ]]; then
+    echo "validation_note=\${validation_note}"
+  fi
   echo "next_action=RJ_ML_PYTHON=${ML_PYTHON} ./scripts/auau_tight_bdt_pipeline.sh trainFromExtraction SOURCE=${run_root}"
 } > "\$summary"
 if command -v mail >/dev/null 2>&1; then
@@ -348,7 +388,7 @@ FINAL NOTIFY ${notify_sub}
 EOF
   say "DAG: $dag"
   say "run root: $run_root"
-  say "jobs: $(wc -l < "$args_file" | tr -d ' ')  groupSize=${group_size}  request_memory=${reqmem}"
+  say "jobs: $(wc -l < "$args_file" | tr -d ' ')  groupSize=${group_size}  nevents=${nevents_for_jobs}  request_memory=${reqmem}"
   if [[ "${RJ_DAG_DRYRUN:-0}" == "1" ]]; then
     echo "RECOILJETS_AUAU_TIGHT_BDT_DRYRUN_V1"
     echo "mode=${mode}"
