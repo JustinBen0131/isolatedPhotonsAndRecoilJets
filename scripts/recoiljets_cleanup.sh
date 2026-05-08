@@ -173,6 +173,13 @@ clean_local_artifacts() {
   while IFS= read -r f; do remove_file_local "$f"; done < <(
     find "${BASE}/condor_lists" -type f -name '*LOCAL*' 2>/dev/null | sort
   )
+  say "Scanning stdout/error/log files under ${BASE}"
+  for _log_dir in stdout error log; do
+    [[ -d "${BASE}/${_log_dir}" ]] || continue
+    while IFS= read -r f; do remove_file_local "$f"; done < <(
+      find "${BASE}/${_log_dir}" -type f 2>/dev/null | sort
+    )
+  done
 }
 
 clean_smoke_bulk() {
