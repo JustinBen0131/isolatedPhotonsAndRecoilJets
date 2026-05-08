@@ -1403,22 +1403,14 @@ add_auto_stage_node() {
   local args_file="${dag%/*}/${node}.args"
   printf '%s\n' "$@" > "$args_file"
   cat > "$sub" <<EOT
-universe   = local
-executable = $runner
-initialdir = $BASE
-getenv     = True
-output     = $OUT_DIR/auto.${node}.\$(Cluster).\$(Process).out
-error      = $ERR_DIR/auto.${node}.\$(Cluster).\$(Process).err
+universe   = scheduler
+executable = /bin/true
 log        = $LOG_DIR/auto.${node}.\$(Cluster).\$(Process).log
-request_memory = 512MB
-should_transfer_files = NO
-stream_output = True
-stream_error  = True
 notification = Never
-arguments = $stage_key $args_file
 queue
 EOT
-  printf 'JOB %s %s\n' "$node" "$sub" >> "$dag"
+  printf 'JOB %s %s NOOP\n' "$node" "$sub" >> "$dag"
+  printf 'SCRIPT POST %s %s %s %s\n' "$node" "$runner" "$stage_key" "$args_file" >> "$dag"
 }
 
 add_auto_final_node() {
