@@ -4194,6 +4194,8 @@ for (( idx=0; idx<${#tokens[@]}; idx++ )); do
     local|localTest|condorDoAll|condorDoAllSmoke|condorDoAllDirect|condorDoAllFromScratch|condorHistFromPool|resume|smokeTest|condorExtract|trainFromExtraction|applyCheck|smokeTestFirstPass|smokeTestSecondPass|smokeTestApplyExisting)
       if [[ "$ACTION" == trainTightBDT || "$ACTION" == trainNPB || "$ACTION" == trainJetMLResidual || "$ACTION" == trainMLAll || "$ACTION" == scaledTriggerStudy ]]; then
         TRAIN_MODE="$tok"
+      elif [[ "$ACTION" == "condor" && "$tok" == "smokeTest" ]]; then
+        :  # DATA smokeTest is a condor submode consumed positionally below.
       else
         ACTION="$tok"
       fi
