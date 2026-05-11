@@ -180,7 +180,12 @@ clean_local_artifacts() {
   for _log_dir in stdout error log; do
     [[ -d "${BASE}/${_log_dir}" ]] || continue
     while IFS= read -r f; do remove_file_local "$f"; done < <(
-      find "${BASE}/${_log_dir}" -type f 2>/dev/null | sort
+      find "${BASE}/${_log_dir}" -type f \( \
+        -name '*LOCAL*' -o \
+        -name '*LOCALSTITCHTEST*' -o \
+        -name '*CHECKMODELS*' -o \
+        -name '*local*' \
+      \) 2>/dev/null | sort
     )
   done
 }

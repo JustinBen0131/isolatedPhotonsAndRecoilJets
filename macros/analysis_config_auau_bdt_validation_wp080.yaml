@@ -1,0 +1,92 @@
+# Campaign-specific embedded-MC validation config for expanded AuAu tight-BDT
+# families with a stricter tight working point. The production analysis_config.yaml
+# and the nominal 0.50 validation config are intentionally untouched.
+
+photon_eta_abs_max: 0.7
+jet_pt_min: [5.0, 7.0, 10.0, 12.0]
+jet_radii: [0.2, 0.3, 0.4]
+back_to_back_dphi_min_pi_fraction: [0.5, 0.875]
+use_vz_cut: true
+vz_cut_cm: [10, 30, 60]
+setMinBiasClassifer: true
+centrality_edges: [0, 20, 50, 80]
+clusterUEpipeline: [baseVariant]
+
+isSlidingIso: false
+isSlidingAndFixed: true
+fixedGeV: [2.0, 4.0]
+coneR: [0.30, 0.40]
+isolation_wp: {aGeV: 0.081, bPerGeV: 0.019, sideGapGeV: 0.8, truthIsoGeV: 4.0, towerMin: 0.0}
+auau_cent_iso_wp:
+  - {aGeV: 7.57, bPerGeV: -0.0658, sideGapGeV: 0.0}
+
+photon_id_pre:   {e11e33_max: 0.98, et1_min: 0.60, et1_max: 1.00, e32e35_min: 0.80, e32e35_max: 1.00, weta_max: 0.60}
+photon_id_tight: {w_lo: 0.0, w_hi_intercept: 0.15, w_hi_slope: 0.006, e11e33_min: 0.40, e11e33_max: 0.98, et1_min: 0.90, et1_max: 1.00, e32e35_min: 0.92, e32e35_max: 1.00}
+matching: {pho_dr_max: 0.05, jet_dr_max: 0.3}
+jes3_photon_pt_bins: [5, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 35]
+unfold_reco_photon_pt_bins:  [8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 35, 40]
+unfold_truth_photon_pt_bins: [5, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 35, 40]
+unfold_jet_pt_binning: {start: 0.0, stop: 60.0, step: 0.5}
+unfold_xj_bins: [0.0, 0.20, 0.24, 0.29, 0.35, 0.41, 0.50, 0.60, 0.72, 0.86, 1.03, 1.24, 1.49, 1.78, 2.14, 3.0]
+
+photon_id_sets:
+  - [newPPG12, reference, reference]
+  - [newPPG12, newPPG12, reference]
+  - [newPPG12, auauNoCentBDT, auauBDTComplement]
+  - [newPPG12, auauCentInputBDT, auauBDTComplement]
+  - [newPPG12, auauCentInput3x3BDT, auauBDTComplement]
+  - [newPPG12, auauCentInputMinOptBDT, auauBDTComplement]
+  - [newPPG12, auauCent3BDT, auauBDTComplement]
+  - [newPPG12, auauCent7BDT, auauBDTComplement]
+  - [newPPG12, auauPtBinCentInputBDT, auauBDTComplement]
+  - [newPPG12, auauPtCent3BDT, auauBDTComplement]
+  - [newPPG12, auauPtCent7BDT, auauBDTComplement]
+
+notify_emails: [just0131@gmail.com]
+
+npb_model_file: /sphenix/user/shuhangli/ppg12/FunWithxgboost/npb_models/npb_score_split_tmva.root
+npb_cut: 0.5
+npb_features: [cluster_Et, cluster_Eta, vertexz, e11_over_e33, e32_over_e35, e11_over_e22, e11_over_e13, e11_over_e15, e11_over_e17, e11_over_e31, e11_over_e51, e11_over_e71, e22_over_e33, e22_over_e35, e22_over_e37, e22_over_e53, cluster_weta_cogx, cluster_wphi_cogx, cluster_et1, cluster_et2, cluster_et3, cluster_et4, cluster_w32, cluster_w52, cluster_w72]
+
+tight_bdt_model_file: /sphenix/user/shuhangli/ppg12/FunWithxgboost/binned_models/model_base_v3E_split_single_tmva.root
+tight_bdt_min_intercept: 0.8333333333333334
+tight_bdt_min_slope: -0.003333333333333336
+tight_bdt_max: 1.0
+nontight_bdt_min_intercept: 0.7333333333333333
+nontight_bdt_min_slope: -0.01333333333333333
+nontight_bdt_max_intercept: 0.6666666666666666
+nontight_bdt_max_slope: 0.003333333333333336
+tight_bdt_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35]
+
+auau_tight_bdt_expanded_model_dir: /gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/tight_expanded_20260509_152604
+auau_tight_bdt_min_intercept: 0.80
+auau_tight_bdt_min_slope: 0.0
+auau_tight_bdt_max: 1.0
+auau_nontight_bdt_min_intercept: 0.7333333333333334
+auau_nontight_bdt_min_slope: -0.013333333333333334
+auau_nontight_bdt_max_intercept: 0.6666666666666666
+auau_nontight_bdt_max_slope: 0.003333333333333333
+
+auau_tight_bdt_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35]
+auau_tight_bdt_centINDcontrol_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35]
+auau_tight_bdt_centAsFeat_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35, centrality]
+auau_tight_bdt_centAsFeat3x3_features: [cluster_Et, cluster_weta33_cogx, cluster_wphi33_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35, centrality]
+auau_tight_bdt_centDep_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35]
+
+auau_tight_bdt_centInput3x3_model_file: /gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/tight_expanded_20260509_152604/auau_tight_bdt_centAsFeat3x3_pt5to40_tmva.root
+
+# Dedicated pT-binned models stop at 26-35 GeV. Candidates with
+# 35 <= cluster_Et < 40 GeV use the corresponding inclusive 5-40 GeV fallback.
+auau_tight_bdt_pt_bin_edges: [5, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 35]
+auau_tight_bdt_cent3_edges: [0, 20, 50, 80]
+auau_tight_bdt_cent7_edges: [0, 10, 20, 30, 40, 50, 60, 80]
+auau_tight_bdt_pt_fallback_min: 35.0
+auau_tight_bdt_pt_fallback_max: 40.0
+
+auau_bdt_training_tree: false
+auau_bdt_training_tree_max_entries: 0
+auau_bdt_npb_data_tagging: false
+
+vertex_reweight_on_auau: false
+centrality_reweight_on: false
+event_display_tree: false

@@ -133,12 +133,12 @@
 #     RecoilJets_Condor.sh job is still in condor_q (IDLE/RUNNING/HELD/etc).
 #   • DRYRUN=1   → NO deletions, NO hadd, NO condor_submit (prints the plan).
 #   • SKIP_TRACE=1 → prints per-run total/busy/eligible counts.
-#   • RJ_STAGE_EMAIL_MODE=per_cfg (default) sends one READY/CHECK email per
-#     Condor merge stage when notify emails are configured.
-#   • RJ_STAGE_EMAIL_MODE=none suppresses those emails while still wrapping the
-#     merge in a tracking DAG when RJ_STAGE_EMAIL_STRICT=1 is set. This is used
-#     by the top-level production DAG to avoid inbox spam while preserving
-#     failure propagation.
+#   • RJ_STAGE_EMAIL_MODE=none (default) suppresses per-cfg merge emails while
+#     still wrapping the merge in a tracking DAG when RJ_STAGE_EMAIL_STRICT=1 is
+#     set. This keeps large SIM cfg matrices from flooding the inbox.
+#   • RJ_STAGE_EMAIL_MODE=per_cfg sends one READY/CHECK email per Condor merge
+#     stage when notify emails are configured. Use it only for focused
+#     diagnostics where per-cfg mail is genuinely useful.
 #
 # NOTES
 #   • Only top-level *.root files are considered (maxdepth=1).
@@ -797,17 +797,20 @@ merge_notify_emails_csv() {
 }
 
 merge_stage_email_mode() {
-  local mode="${RJ_STAGE_EMAIL_MODE:-per_cfg}"
+  local mode="${RJ_STAGE_EMAIL_MODE:-none}"
   case "$mode" in
     none|quiet|off|0|false|FALSE|no|NO)
       printf '%s\n' "none"
       ;;
-    per_cfg|per-cfg|cfg|default|"")
+    per_cfg|per-cfg|cfg)
       printf '%s\n' "per_cfg"
       ;;
+    default|"")
+      printf '%s\n' "none"
+      ;;
     *)
-      warn "Unknown RJ_STAGE_EMAIL_MODE='${mode}', using per_cfg"
-      printf '%s\n' "per_cfg"
+      warn "Unknown RJ_STAGE_EMAIL_MODE='${mode}', using none"
+      printf '%s\n' "none"
       ;;
   esac
 }
@@ -839,6 +842,7 @@ submit_condor_stage_with_ready_email() {
   local legacy_subject="$3"
   local body="$4"
   local validation_file="${5:-}"
+  local post_script="${6:-}"
   : "$legacy_subject"
 
   local emails
@@ -994,6 +998,7 @@ EOT
 
   cat > "$dag" <<EOT
 JOB MERGE $sub
+$(if [[ -n "$post_script" ]]; then printf 'SCRIPT POST MERGE %s\n' "$post_script"; fi)
 FINAL NOTIFY $notify_sub
 EOT
 
@@ -1017,6 +1022,15 @@ selection_mode_normalize_for_key() {
     preselection:variantE|preselection:VariantE|preselection:variante|preselection:auauOnlyNPB|preselection:AuAuOnlyNPB|preselection:auauonlynpb) echo "auauOnlyNPB"; return 0 ;;
     tight:variantA|tight:VariantA|tight:varianta|tight:newPPG12|tight:NewPPG12|tight:newppg12) echo "newPPG12"; return 0 ;;
     tight:variantB|tight:VariantB|tight:variantb|tight:auauEmbeddedBDT|tight:AuAuEmbeddedBDT|tight:auauembeddedbdt) echo "auauEmbeddedBDT"; return 0 ;;
+    tight:auauNoCentBDT|tight:AuAuNoCentBDT|tight:auaunocentbdt) echo "auauNoCentBDT"; return 0 ;;
+    tight:auauCentInputBDT|tight:AuAuCentInputBDT|tight:auaucentinputbdt) echo "auauCentInputBDT"; return 0 ;;
+    tight:auauCentInput3x3BDT|tight:AuAuCentInput3x3BDT|tight:auaucentinput3x3bdt) echo "auauCentInput3x3BDT"; return 0 ;;
+    tight:auauCentInputMinOptBDT|tight:AuAuCentInputMinOptBDT|tight:auaucentinputminoptbdt) echo "auauCentInputMinOptBDT"; return 0 ;;
+    tight:auauCent3BDT|tight:AuAuCent3BDT|tight:auaucent3bdt) echo "auauCent3BDT"; return 0 ;;
+    tight:auauCent7BDT|tight:AuAuCent7BDT|tight:auaucent7bdt) echo "auauCent7BDT"; return 0 ;;
+    tight:auauPtBinCentInputBDT|tight:AuAuPtBinCentInputBDT|tight:auauptbincentinputbdt) echo "auauPtBinCentInputBDT"; return 0 ;;
+    tight:auauPtCent3BDT|tight:AuAuPtCent3BDT|tight:auauptcent3bdt) echo "auauPtCent3BDT"; return 0 ;;
+    tight:auauPtCent7BDT|tight:AuAuPtCent7BDT|tight:auauptcent7bdt) echo "auauPtCent7BDT"; return 0 ;;
     nonTight:variantA|nonTight:VariantA|nonTight:varianta|nonTight:bdtSideband|nonTight:BDTSideband|nonTight:bdtsideband|nonTight:newPPG12|nonTight:NewPPG12|nonTight:newppg12) echo "newPPG12"; return 0 ;;
     nonTight:variantB|nonTight:VariantB|nonTight:variantb|nonTight:auauBDTSideband|nonTight:AuAuBDTSideband|nonTight:auaubdtsideband) echo "auauBDTSideband"; return 0 ;;
     nonTight:variantC|nonTight:VariantC|nonTight:variantc|nonTight:auauBDTComplement|nonTight:AuAuBDTComplement|nonTight:auaubdtcomplement) echo "auauBDTComplement"; return 0 ;;
@@ -1025,6 +1039,15 @@ selection_mode_normalize_for_key() {
     ""|reference|Reference) echo "reference" ;;
     variantA|VariantA|varianta|newPPG12|NewPPG12|newppg12) echo "newPPG12" ;;
     auauEmbeddedBDT|AuAuEmbeddedBDT|auauembeddedbdt) echo "auauEmbeddedBDT" ;;
+    auauNoCentBDT|AuAuNoCentBDT|auaunocentbdt) echo "auauNoCentBDT" ;;
+    auauCentInputBDT|AuAuCentInputBDT|auaucentinputbdt) echo "auauCentInputBDT" ;;
+    auauCentInput3x3BDT|AuAuCentInput3x3BDT|auaucentinput3x3bdt) echo "auauCentInput3x3BDT" ;;
+    auauCentInputMinOptBDT|AuAuCentInputMinOptBDT|auaucentinputminoptbdt) echo "auauCentInputMinOptBDT" ;;
+    auauCent3BDT|AuAuCent3BDT|auaucent3bdt) echo "auauCent3BDT" ;;
+    auauCent7BDT|AuAuCent7BDT|auaucent7bdt) echo "auauCent7BDT" ;;
+    auauPtBinCentInputBDT|AuAuPtBinCentInputBDT|auauptbincentinputbdt) echo "auauPtBinCentInputBDT" ;;
+    auauPtCent3BDT|AuAuPtCent3BDT|auauptcent3bdt) echo "auauPtCent3BDT" ;;
+    auauPtCent7BDT|AuAuPtCent7BDT|auauptcent7bdt) echo "auauPtCent7BDT" ;;
     auauBDTSideband|AuAuBDTSideband|auaubdtsideband) echo "auauBDTSideband" ;;
     auauBDTComplement|AuAuBDTComplement|auaubdtcomplement) echo "auauBDTComplement" ;;
     variantB|VariantB|variantb) echo "variantB" ;;
@@ -1047,6 +1070,15 @@ selection_mode_tag() {
     refPlusNPB) echo "${key}RefPlusNPB" ;;
     auauOnlyNPB) echo "${key}AuAuOnlyNPB" ;;
     auauEmbeddedBDT) echo "${key}AuAuEmbeddedBDT" ;;
+    auauNoCentBDT) echo "${key}AuAuNoCentBDT" ;;
+    auauCentInputBDT) echo "${key}AuAuCentInputBDT" ;;
+    auauCentInput3x3BDT) echo "${key}AuAuCentInput3x3BDT" ;;
+    auauCentInputMinOptBDT) echo "${key}AuAuCentInputMinOptBDT" ;;
+    auauCent3BDT) echo "${key}AuAuCent3BDT" ;;
+    auauCent7BDT) echo "${key}AuAuCent7BDT" ;;
+    auauPtBinCentInputBDT) echo "${key}AuAuPtBinCentInputBDT" ;;
+    auauPtCent3BDT) echo "${key}AuAuPtCent3BDT" ;;
+    auauPtCent7BDT) echo "${key}AuAuPtCent7BDT" ;;
     auauBDTSideband) echo "${key}AuAuBDTSideband" ;;
     auauBDTComplement) echo "${key}AuAuBDTComplement" ;;
     variantB) echo "${key}VariantB" ;;
@@ -1126,6 +1158,23 @@ build_cfg_tags_from_yaml() {
   local -a photon_id_rows
   mapfile -t photon_id_rows < <(yaml_get_photon_id_sets "$yaml")
   (( ${#photon_id_rows[@]} > 0 )) || { err "YAML must define photon_id_sets for cfg-tag generation: $yaml"; exit 41; }
+
+  if [[ -n "${MERGE_CFG_MATCH:-}" ]]; then
+    local match_lc="${MERGE_CFG_MATCH,,}"
+    local -a filtered_rows=()
+    local row_m pre_m tight_m non_m pre_norm_m tight_norm_m non_norm_m selection_tag_m row_norm_m
+    for row_m in "${photon_id_rows[@]}"; do
+      IFS='|' read -r pre_m tight_m non_m <<< "$row_m"
+      pre_norm_m="$(selection_mode_normalize_for_key "preselection" "$pre_m")"
+      tight_norm_m="$(selection_mode_normalize_for_key "tight" "$tight_m")"
+      non_norm_m="$(selection_mode_normalize_for_key "nonTight" "$non_m")"
+      selection_tag_m="$(selection_mode_tag "preselection" "$pre_norm_m")_$(selection_mode_tag "tight" "$tight_norm_m")_$(selection_mode_tag "nonTight" "$non_norm_m")"
+      row_norm_m="${pre_norm_m}|${tight_norm_m}|${non_norm_m}|${selection_tag_m}"
+      [[ "${row_norm_m,,}" == *"${match_lc}"* ]] && filtered_rows+=( "$row_m" )
+    done
+    (( ${#filtered_rows[@]} > 0 )) || { err "MERGE_CFG_MATCH='${MERGE_CFG_MATCH}' matched no cfg rows in $yaml"; exit 42; }
+    photon_id_rows=( "${filtered_rows[@]}" )
+  fi
 
   if (( ${#jet_pts[@]} == 0 )); then jet_pts=( "5.0" ); fi
   if (( ${#b2bs[@]} == 0 )); then b2bs=( "0.875" ); fi
@@ -1356,6 +1405,27 @@ resolve_dataset() {
   mkdir -p "$DEST_DIR" "$PERRUN_DIR" "$ROUND_DIR" "$LOG_DIR" "$OUT_DIR" "$ERR_DIR" "$TMP_DIR"
 }
 
+finalize_executable_script() {
+  local exe="$1"
+  local fixed="${exe}.fixed.$$"
+  # Condor executes generated helpers directly. Normalize CRLF/BOM/shebang
+  # defensively so mixed-env temp files cannot fail with ENOEXEC.
+  tr -d '\r' < "$exe" > "$fixed"
+  if [[ "$(head -c 3 "$fixed" 2>/dev/null || true)" == $'\357\273\277' ]]; then
+    tail -c +4 "$fixed" > "${fixed}.nobom"
+    mv "${fixed}.nobom" "$fixed"
+  fi
+  if [[ "$(head -c 2 "$fixed" 2>/dev/null || true)" != "#!" ]]; then
+    {
+      printf '%s\n' '#!/usr/bin/env bash'
+      cat "$fixed"
+    } > "${fixed}.shebang"
+    mv "${fixed}.shebang" "$fixed"
+  fi
+  mv "$fixed" "$exe"
+  chmod 0755 "$exe"
+}
+
 emit_hadd_wrapper() {
   local exe="$1"
   cat > "$exe" <<'EOS'
@@ -1550,7 +1620,7 @@ hadd -v 3 -f "$OUT" @"$LIST"
 scale_scaled_trig_after_hadd "$OUT"
 send_recoiljets_merge_notification
 EOS
-  chmod +x "$exe"
+  finalize_executable_script "$exe"
 }
 
 emit_sim_stitch_wrapper() {
@@ -1580,17 +1650,43 @@ cxx_quote() {
 
 mapfile -t rows < "$SPEC"
 (( ${#rows[@]} >= 5 )) || { echo "[ERROR] Stitch spec has too few rows: $SPEC" >&2; exit 3; }
-dataset="${rows[0]}"
-cfg="${rows[1]}"
-out="${rows[2]}"
-topdir="${rows[3]}"
-nslices="${rows[4]}"
+
+spec_v2=0
+mode="full"
+offset=0
+shard_index=0
+shard_count=1
+if [[ "${rows[0]}" == "__RJ_SIM_STITCH_V2__" ]]; then
+  spec_v2=1
+  mode="${rows[1]:-}"
+  [[ "$mode" == "shard" ]] || { echo "[ERROR] Unsupported stitch spec mode: $mode" >&2; exit 3; }
+  (( ${#rows[@]} >= 9 )) || { echo "[ERROR] V2 stitch spec has too few rows: $SPEC" >&2; exit 3; }
+  dataset="${rows[2]}"
+  cfg="${rows[3]}"
+  out="${rows[4]}"
+  topdir="${rows[5]}"
+  shard_index="${rows[6]}"
+  shard_count="${rows[7]}"
+  nslices="${rows[8]}"
+  offset=9
+else
+  dataset="${rows[0]}"
+  cfg="${rows[1]}"
+  out="${rows[2]}"
+  topdir="${rows[3]}"
+  nslices="${rows[4]}"
+  offset=5
+fi
 [[ "$nslices" =~ ^[0-9]+$ ]] || { echo "[ERROR] Invalid nslices in stitch spec: $nslices" >&2; exit 4; }
-(( ${#rows[@]} == 5 + nslices )) || { echo "[ERROR] Stitch spec row count mismatch: rows=${#rows[@]} nslices=${nslices}" >&2; exit 5; }
+[[ "$shard_index" =~ ^[0-9]+$ ]] || { echo "[ERROR] Invalid shard_index in stitch spec: $shard_index" >&2; exit 4; }
+[[ "$shard_count" =~ ^[0-9]+$ ]] || { echo "[ERROR] Invalid shard_count in stitch spec: $shard_count" >&2; exit 4; }
+(( shard_count >= 1 )) || { echo "[ERROR] shard_count must be >=1: $shard_count" >&2; exit 4; }
+(( shard_index < shard_count )) || { echo "[ERROR] shard_index must be < shard_count: index=$shard_index count=$shard_count" >&2; exit 4; }
+(( ${#rows[@]} == offset + nslices )) || { echo "[ERROR] Stitch spec row count mismatch: rows=${#rows[@]} offset=${offset} nslices=${nslices}" >&2; exit 5; }
 
 for ((i=0; i<nslices; ++i)); do
-  IFS='|' read -r label sigma path <<< "${rows[$((5+i))]}"
-  [[ -n "$label" && -n "$sigma" && -n "$path" ]] || { echo "[ERROR] Bad slice row: ${rows[$((5+i))]}" >&2; exit 6; }
+  IFS='|' read -r label sigma path <<< "${rows[$((offset+i))]}"
+  [[ -n "$label" && -n "$sigma" && -n "$path" ]] || { echo "[ERROR] Bad slice row: ${rows[$((offset+i))]}" >&2; exit 6; }
   [[ -s "$path" ]] || { echo "[ERROR] Missing/empty input slice: $path" >&2; exit 7; }
 done
 
@@ -1642,7 +1738,24 @@ double ReadEventCountFromFile(TFile* f, const string& topDirName)
   return cnt->GetBinContent(1);
 }
 
-void AddScaledRecursive(TDirectory* outDir, TDirectory* inDir, double w)
+unsigned StableShardForKey(const string& name, int shardCount)
+{
+  if (shardCount <= 1) return 0;
+  unsigned hash = 2166136261u;
+  for (unsigned char c : name)
+  {
+    hash ^= static_cast<unsigned>(c);
+    hash *= 16777619u;
+  }
+  return hash % static_cast<unsigned>(shardCount);
+}
+
+void AddScaledRecursive(TDirectory* outDir,
+                        TDirectory* inDir,
+                        double w,
+                        int shardIndex,
+                        int shardCount,
+                        int depth = 0)
 {
   if (!outDir || !inDir) return;
 
@@ -1656,6 +1769,11 @@ void AddScaledRecursive(TDirectory* outDir, TDirectory* inDir, double w)
   {
     const std::string name = key->GetName();
     const std::string cls = key->GetClassName();
+    if (depth == 0 && shardCount > 1 &&
+        StableShardForKey(name, shardCount) != static_cast<unsigned>(shardIndex))
+    {
+      continue;
+    }
 
     if (IsDirClass(cls))
     {
@@ -1667,7 +1785,7 @@ void AddScaledRecursive(TDirectory* outDir, TDirectory* inDir, double w)
       if (!subOut) subOut = outDir->mkdir(name.c_str());
       if (!subOut) continue;
 
-      AddScaledRecursive(subOut, subIn, w);
+      AddScaledRecursive(subOut, subIn, w, shardIndex, shardCount, depth + 1);
       continue;
     }
 
@@ -1716,11 +1834,14 @@ bool BuildMergedSIMFile_PhotonSlices(const vector<string>& inFiles,
                                      const vector<double>& sigmas_pb,
                                      const string& outMerged,
                                      const string& topDirName,
-                                     const vector<string>& sliceLabels)
+                                     const vector<string>& sliceLabels,
+                                     int shardIndex,
+                                     int shardCount)
 {
   cout << "\n[MERGE SIM] Building merged SIM file with cross-section weights\n"
        << "  out    = " << outMerged << "\n"
-       << "  topDir = " << topDirName << "\n";
+       << "  topDir = " << topDirName << "\n"
+       << "  shard  = " << shardIndex << "/" << shardCount << "\n";
 
   const size_t n = inFiles.size();
   if (n < 2 || sigmas_pb.size() != n)
@@ -1825,44 +1946,50 @@ bool BuildMergedSIMFile_PhotonSlices(const vector<string>& inFiles,
     return false;
   }
 
-  for (size_t i = 0; i < n; ++i) AddScaledRecursive(outTop, din[i], w[i]);
+  for (size_t i = 0; i < n; ++i) AddScaledRecursive(outTop, din[i], w[i], shardIndex, shardCount);
 
-  TTree* tOutED = nullptr;
-  for (size_t i = 0; i < n; ++i)
+  if (shardIndex == 0)
   {
-    TTree* tInED = dynamic_cast<TTree*>(fin[i] ? fin[i]->Get("EventDisplayTree") : nullptr);
-    if (!tInED && din[i]) tInED = dynamic_cast<TTree*>(din[i]->Get("EventDisplayTree"));
-    if (!tInED) continue;
+    TTree* tOutED = nullptr;
+    for (size_t i = 0; i < n; ++i)
+    {
+      TTree* tInED = dynamic_cast<TTree*>(fin[i] ? fin[i]->Get("EventDisplayTree") : nullptr);
+      if (!tInED && din[i]) tInED = dynamic_cast<TTree*>(din[i]->Get("EventDisplayTree"));
+      if (!tInED) continue;
 
-    if (!tOutED)
+      if (!tOutED)
+      {
+        outTop->cd();
+        tOutED = tInED->CloneTree(0);
+        if (tOutED) tOutED->SetDirectory(outTop);
+      }
+      if (tOutED) tOutED->CopyEntries(tInED);
+    }
+    if (tOutED)
     {
       outTop->cd();
-      tOutED = tInED->CloneTree(0);
-      if (tOutED) tOutED->SetDirectory(outTop);
+      tOutED->Write("EventDisplayTree", TObject::kOverwrite);
     }
-    if (tOutED) tOutED->CopyEntries(tInED);
   }
-  if (tOutED)
+
+  if (shardIndex == 0)
   {
+    std::ostringstream oss;
+    oss << "Merged photonJet slices. Nslices=" << n << " shards=" << shardCount << " ";
+    for (size_t i = 0; i < n; ++i)
+    {
+      const string lab = (!sliceLabels.empty() && sliceLabels.size() == n) ? sliceLabels[i] : std::to_string(i);
+      oss << "[" << lab
+          << " Nraw=" << std::fixed << std::setprecision(0) << Nraw[i]
+          << " sigma_pb=" << std::setprecision(12) << sigmas_pb[i]
+          << " w=" << std::setprecision(12) << w[i]
+          << "] ";
+    }
+
     outTop->cd();
-    tOutED->Write("EventDisplayTree", TObject::kOverwrite);
+    TNamed meta("MERGE_INFO", oss.str().c_str());
+    meta.Write("MERGE_INFO", TObject::kOverwrite);
   }
-
-  std::ostringstream oss;
-  oss << "Merged photonJet slices. Nslices=" << n << " ";
-  for (size_t i = 0; i < n; ++i)
-  {
-    const string lab = (!sliceLabels.empty() && sliceLabels.size() == n) ? sliceLabels[i] : std::to_string(i);
-    oss << "[" << lab
-        << " Nraw=" << std::fixed << std::setprecision(0) << Nraw[i]
-        << " sigma_pb=" << std::setprecision(12) << sigmas_pb[i]
-        << " w=" << std::setprecision(12) << w[i]
-        << "] ";
-  }
-
-  outTop->cd();
-  TNamed meta("MERGE_INFO", oss.str().c_str());
-  meta.Write("MERGE_INFO", TObject::kOverwrite);
 
   fout->Write();
   fout->Close();
@@ -1878,21 +2005,21 @@ ROOTMACRO
   printf 'void %s() {\n' "recoiljets_sim_stitch"
   printf '  std::vector<std::string> inputs = {'
   for ((i=0; i<nslices; ++i)); do
-    IFS='|' read -r label sigma path <<< "${rows[$((5+i))]}"
+    IFS='|' read -r label sigma path <<< "${rows[$((offset+i))]}"
     (( i > 0 )) && printf ', '
     cxx_quote "$path"
   done
   printf '};\n'
   printf '  std::vector<double> sigmas = {'
   for ((i=0; i<nslices; ++i)); do
-    IFS='|' read -r label sigma path <<< "${rows[$((5+i))]}"
+    IFS='|' read -r label sigma path <<< "${rows[$((offset+i))]}"
     (( i > 0 )) && printf ', '
     printf '%s' "$sigma"
   done
   printf '};\n'
   printf '  std::vector<std::string> labels = {'
   for ((i=0; i<nslices; ++i)); do
-    IFS='|' read -r label sigma path <<< "${rows[$((5+i))]}"
+    IFS='|' read -r label sigma path <<< "${rows[$((offset+i))]}"
     (( i > 0 )) && printf ', '
     cxx_quote "$label"
   done
@@ -1903,7 +2030,7 @@ ROOTMACRO
   printf '  const std::string topdir = '
   cxx_quote "$topdir"
   printf ';\n'
-  printf '  const bool ok = RJSimStitch::BuildMergedSIMFile_PhotonSlices(inputs, sigmas, out, topdir, labels);\n'
+  printf '  const bool ok = RJSimStitch::BuildMergedSIMFile_PhotonSlices(inputs, sigmas, out, topdir, labels, %s, %s);\n' "$shard_index" "$shard_count"
   printf '  if (!ok) gSystem->Exit(10);\n'
   printf '}\n'
 } >> "$macro"
@@ -1915,7 +2042,7 @@ rc=$?
 rm -rf "$macro_dir"
 exit "$rc"
 EOS
-  chmod +x "$exe"
+  finalize_executable_script "$exe"
 }
 
 sim_stitch_plan_for_dataset() {
@@ -1966,6 +2093,40 @@ sim_stitch_plan_for_dataset() {
       return 1
       ;;
   esac
+}
+
+emit_sim_stitch_assemble_post() {
+  local exe="$1"
+  local final_out="$2"
+  local partial_list="$3"
+cat > "$exe" <<EOS
+#!/usr/bin/env bash
+set -euo pipefail
+set +u
+export USER="\$(id -un)"; export LOGNAME="\$USER"; export HOME="/sphenix/u/\$USER"
+MYINSTALL="/sphenix/u/\$USER/thesisAnalysis/install"
+source /opt/sphenix/core/bin/sphenix_setup.sh -n
+source /opt/sphenix/core/bin/setup_local.sh "\$MYINSTALL" || true
+set -u
+final_out="$final_out"
+partial_list="$partial_list"
+[[ -s "\$partial_list" ]] || { echo "[ERROR] Missing/empty finalStitch partial list: \$partial_list" >&2; exit 2; }
+missing=0
+while IFS= read -r f; do
+  [[ -n "\$f" ]] || continue
+  if [[ ! -s "\$f" ]]; then
+    echo "[ERROR] Missing/empty finalStitch partial: \$f" >&2
+    missing=1
+  fi
+done < "\$partial_list"
+(( missing == 0 )) || exit 3
+mkdir -p "\$(dirname "\$final_out")"
+rm -f "\$final_out"
+echo "[sim_stitch assemble] partials=\$(wc -l < "\$partial_list") -> \$final_out"
+hadd -v 2 -f "\$final_out" @"\$partial_list"
+[[ -s "\$final_out" ]] || { echo "[ERROR] finalStitch assemble produced missing/empty output: \$final_out" >&2; exit 4; }
+EOS
+  finalize_executable_script "$exe"
 }
 
 # Collect run directories that actually contain at least one *.root file
@@ -2350,10 +2511,15 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|isSimInclusive|issiminclusiv
   )
 
   _CFG_SOURCE="manifest"
-  mapfile -t _YAML_SIM_CFG_TAGS < <(build_cfg_tags_from_manifest "$_discover_base" || true)
-  if (( ${#_YAML_SIM_CFG_TAGS[@]} == 0 )); then
+  if [[ -n "${MERGE_CONFIG_YAML:-}" ]]; then
     _CFG_SOURCE="YAML"
     mapfile -t _YAML_SIM_CFG_TAGS < <(build_cfg_tags_from_yaml "$SIM_DATASET_TOKEN")
+  else
+    mapfile -t _YAML_SIM_CFG_TAGS < <(build_cfg_tags_from_manifest "$_discover_base" || true)
+    if (( ${#_YAML_SIM_CFG_TAGS[@]} == 0 )); then
+      _CFG_SOURCE="YAML"
+      mapfile -t _YAML_SIM_CFG_TAGS < <(build_cfg_tags_from_yaml "$SIM_DATASET_TOKEN")
+    fi
   fi
 
   SIM_CFG_TAGS=()
@@ -2431,17 +2597,21 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|isSimInclusive|issiminclusiv
       STITCH_SUB="${TMP_DIR}/recoil_sim_${cfg_tag}_finalStitch.sub"
       STITCH_ARGS="${TMP_DIR}/recoil_sim_${cfg_tag}_finalStitch.args"
       STITCH_EXPECTED="${TMP_DIR}/recoil_sim_${cfg_tag}_finalStitch.expected"
-      STITCH_SPEC="${TMP_DIR}/recoil_sim_${cfg_tag}_finalStitch.spec"
+      STITCH_PARTIAL_DIR="${TMP_DIR}/recoil_sim_${cfg_tag}_finalStitch_partials"
+      STITCH_PARTIAL_LIST="${TMP_DIR}/recoil_sim_${cfg_tag}_finalStitch.partials"
+      STITCH_POST="${TMP_DIR}/recoil_sim_${cfg_tag}_finalStitch_assemble.sh"
       STITCH_OUT="${DEST_DIR}/${SIM_STITCH_COMBO_DIR}/${SIM_STITCH_OUTPUT_FILE}"
+      STITCH_SHARDS="${RJ_SIM_FINAL_STITCH_SHARDS:-8}"
+      [[ "$STITCH_SHARDS" =~ ^[0-9]+$ ]] || STITCH_SHARDS=8
+      (( STITCH_SHARDS >= 1 )) || STITCH_SHARDS=1
 
-      : > "$STITCH_SPEC"
-      printf '%s\n' "$SIM_DATASET_TOKEN" >> "$STITCH_SPEC"
-      printf '%s\n' "$cfg_tag" >> "$STITCH_SPEC"
-      printf '%s\n' "$STITCH_OUT" >> "$STITCH_SPEC"
-      printf '%s\n' "$SIM_STITCH_TOPDIR" >> "$STITCH_SPEC"
-      printf '%s\n' "${#SIM_STITCH_ROWS[@]}" >> "$STITCH_SPEC"
+      rm -rf "$STITCH_PARTIAL_DIR"
+      mkdir -p "$STITCH_PARTIAL_DIR"
+      : > "$STITCH_ARGS"
+      : > "$STITCH_PARTIAL_LIST"
 
       _stitch_missing=0
+      _slice_rows=()
       for _row in "${SIM_STITCH_ROWS[@]}"; do
         IFS='|' read -r _label _sigma _sample_tag <<< "$_row"
         _sample_final="${FLAT_OUT_DIR}/${FINAL_PREFIX}_${_sample_tag}_ALL_${cfg_tag}.root"
@@ -2449,23 +2619,42 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|isSimInclusive|issiminclusiv
           warn "Missing sample-level secondRound input for finalStitch: ${_sample_final}"
           _stitch_missing=1
         fi
-        printf '%s|%s|%s\n' "$_label" "$_sigma" "$_sample_final" >> "$STITCH_SPEC"
+        _slice_rows+=( "${_label}|${_sigma}|${_sample_final}" )
       done
       (( _stitch_missing == 0 )) || {
         err "Cannot submit finalStitch for cfg=${cfg_tag}; one or more sample-level secondRound files are missing."
         exit 42
       }
 
-      printf '%s\n' "$STITCH_SPEC" > "$STITCH_ARGS"
+      for (( _shard=0; _shard<STITCH_SHARDS; ++_shard )); do
+        _partial="${STITCH_PARTIAL_DIR}/shard_${_shard}_of_${STITCH_SHARDS}.root"
+        _spec="${STITCH_PARTIAL_DIR}/shard_${_shard}_of_${STITCH_SHARDS}.spec"
+        {
+          printf '%s\n' "__RJ_SIM_STITCH_V2__"
+          printf '%s\n' "shard"
+          printf '%s\n' "$SIM_DATASET_TOKEN"
+          printf '%s\n' "$cfg_tag"
+          printf '%s\n' "$_partial"
+          printf '%s\n' "$SIM_STITCH_TOPDIR"
+          printf '%s\n' "$_shard"
+          printf '%s\n' "$STITCH_SHARDS"
+          printf '%s\n' "${#_slice_rows[@]}"
+          printf '%s\n' "${_slice_rows[@]}"
+        } > "$_spec"
+        printf '%s\n' "$_spec" >> "$STITCH_ARGS"
+        printf '%s\n' "$_partial" >> "$STITCH_PARTIAL_LIST"
+      done
+
       printf '%s\n' "$STITCH_OUT" > "$STITCH_EXPECTED"
+      emit_sim_stitch_assemble_post "$STITCH_POST" "$STITCH_OUT" "$STITCH_PARTIAL_LIST"
 
       cat > "$STITCH_SUB" <<EOT
 universe   = vanilla
 executable = $CONDOR_EXEC
-output     = $OUT_DIR/recoil.sim.${cfg_tag}.finalStitch.\$(Cluster).\$(Process).out
-error      = $ERR_DIR/recoil.sim.${cfg_tag}.finalStitch.\$(Cluster).\$(Process).err
-log        = $LOG_DIR/recoil.sim.${cfg_tag}.finalStitch.\$(Cluster).\$(Process).log
-$(condor_auto_memory_retry_block "${RJ_SIM_FINAL_STITCH_REQUEST_MEMORY:-6GB}")
+output     = $OUT_DIR/recoil.sim.${cfg_tag}.finalStitchShard.\$(Cluster).\$(Process).out
+error      = $ERR_DIR/recoil.sim.${cfg_tag}.finalStitchShard.\$(Cluster).\$(Process).err
+log        = $LOG_DIR/recoil.sim.${cfg_tag}.finalStitchShard.\$(Cluster).\$(Process).log
+$(condor_auto_memory_retry_block "${RJ_SIM_FINAL_STITCH_REQUEST_MEMORY:-4GB}")
 priority = $MERGE_CONDOR_PRIORITY
 getenv = True
 should_transfer_files = NO
@@ -2475,13 +2664,14 @@ notification = Never
 queue arguments from ${STITCH_ARGS}
 EOT
 
-      say "SIM finalStitch: cfg=${cfg_tag} samples=${#SIM_STITCH_ROWS[@]} -> ${STITCH_OUT}"
+      say "SIM finalStitch: cfg=${cfg_tag} samples=${#SIM_STITCH_ROWS[@]} shards=${STITCH_SHARDS} -> ${STITCH_OUT}"
       submit_condor_stage_with_ready_email \
         "$STITCH_SUB" \
         "sim_finalStitch_${cfg_tag}" \
         "RecoilJets_SIM_finalStitch_ready" \
         "SIM final weighted stitch validation finished for cfg=${cfg_tag}. If status is READY, canonical combined ROOT output: ${STITCH_OUT}." \
-        "$STITCH_EXPECTED"
+        "$STITCH_EXPECTED" \
+        "$STITCH_POST"
       echo
       continue
     fi

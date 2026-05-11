@@ -507,6 +507,20 @@ public:
                              const std::string& nonTight,
                              const std::string& preselectionPhotonNode = "PHOTONCLUSTER_CEMC",
                              const std::string& tightPhotonNode = "PHOTONCLUSTER_CEMC");
+
+    void setAuAuTightBDTRuntimeConfig(const std::string& modelFile,
+                                      const std::vector<std::string>& features,
+                                      const std::vector<int>& centDepEdges = {},
+                                      const std::vector<std::string>& centDepModelFiles = {},
+                                      const std::vector<double>& ptBinEdges = {},
+                                      const std::vector<std::string>& ptBinModelFiles = {},
+                                      const std::vector<std::string>& ptCentModelFiles = {},
+                                      const std::string& ptFallbackModelFile = "",
+                                      const std::vector<std::string>& ptFallbackCentModelFiles = {},
+                                      double ptFallbackMin = 35.0,
+                                      double ptFallbackMax = 40.0,
+                                      double applyPtMin = std::numeric_limits<double>::quiet_NaN(),
+                                      double applyPtMax = std::numeric_limits<double>::quiet_NaN());
     
     // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
     // When enabled, a compact per-event-per-radius TTree ("EventDisplayTree") is written to the output ROOT file.
@@ -780,6 +794,8 @@ private:
                                     const PhotonClusterv1* pho,
                                     const SSVars& v) const;
     double predictAuAuTightBDTScore(const PhotonClusterv1* pho, const SSVars& v) const;
+    int auauTightBDTCentBinIndex() const;
+    int auauTightBDTPtBinIndex(double pt) const;
     const PhotonClusterv1* findMatchedPhotonByKinematics(const RawClusterContainer* container,
                                                          const PhotonClusterv1* ref) const;
     bool   passesPhotonPreselection(const SSVars& v);
@@ -915,10 +931,12 @@ private:
     std::string histRKeyForJetPt(const std::string& rKey, double ptGeV) const;
     std::string histRKeyForJetPtAndDphi(const std::string& rKey, double ptGeV, double cutRad) const;
     void        configureInternalIsoViewsFromEnv();
-    enum class HistViewScope { Canonical, IsoView };
+    enum class HistViewScope { Canonical, IsoCone, IsoView };
     bool        fillCanonicalThisView() const;
+    bool        fillConeThisView() const;
     std::string histBaseForScope(const std::string& base, HistViewScope scope) const;
     std::string recoilRKeyForScope(const std::string& rKey, double ptGeV, double cutRad, HistViewScope scope) const;
+    std::string withIsoConeSuffix(const std::string& base) const;
     std::string withIsoViewSuffix(const std::string& base) const;
     std::string stripIsoViewSuffix(const std::string& key) const;
     void        configureInternalBackToBackScanFromEnv();
@@ -967,7 +985,8 @@ private:
     TH1F* getOrBookIsoPartHist(const std::string& trig,
                                const std::string& base,
                                const std::string& xAxisTitle,
-                               int ptIdx, int centIdx);
+                               int ptIdx, int centIdx,
+                               HistViewScope scope = HistViewScope::IsoCone);
     TH1F* getOrBookPtGammaHist(const std::string& trig,
                                const std::string& base,
                                int centIdx);
@@ -1320,9 +1339,23 @@ private:
     std::string m_auauTightBDTModelFile;
     std::vector<std::string> m_auauTightBDTFeatures;
     std::vector<std::string> m_auauTightBDTCentDepModelFiles;
+    std::vector<double> m_auauTightBDTPtBinEdges;
+    std::vector<std::string> m_auauTightBDTPtBinModelFiles;
+    std::vector<std::string> m_auauTightBDTPtCentModelFiles;
+    std::string m_auauTightBDTPtFallbackModelFile;
+    std::vector<std::string> m_auauTightBDTPtFallbackCentModelFiles;
+    double m_auauTightBDTPtFallbackMin = 35.0;
+    double m_auauTightBDTPtFallbackMax = 40.0;
+    double m_auauTightBDTApplyPtMin = std::numeric_limits<double>::quiet_NaN();
+    double m_auauTightBDTApplyPtMax = std::numeric_limits<double>::quiet_NaN();
+    bool m_explicitAuAuTightBDTConfig = false;
     mutable bool m_auauTightBDTModelInitAttempted = false;
     mutable std::unique_ptr<TMVA::Experimental::RBDT> m_auauTightBDTModel;
     mutable std::vector<std::unique_ptr<TMVA::Experimental::RBDT>> m_auauTightBDTCentDepModels;
+    mutable std::vector<std::unique_ptr<TMVA::Experimental::RBDT>> m_auauTightBDTPtBinModels;
+    mutable std::vector<std::unique_ptr<TMVA::Experimental::RBDT>> m_auauTightBDTPtCentModels;
+    mutable std::unique_ptr<TMVA::Experimental::RBDT> m_auauTightBDTPtFallbackModel;
+    mutable std::vector<std::unique_ptr<TMVA::Experimental::RBDT>> m_auauTightBDTPtFallbackCentModels;
     double m_tightBDTMinIntercept = 0.8333333333333334;
     double m_tightBDTMinSlope = -0.003333333333333336;
     double m_tightBDTMax = 1.0;

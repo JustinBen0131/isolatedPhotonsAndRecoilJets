@@ -66,9 +66,30 @@
 
 # Slide Integration Rules
 
+- Google Slides Computer Use safety contract:
+  - Do not use Computer Use on the user's browser or desktop for Google Slides
+    unless it is genuinely useful for a visual/layout check or a narrowly
+    targeted edit that cannot be done cleanly through the Google Drive/Slides
+    API alone.
+  - Before every Computer Use session, first tell the user exactly why Computer
+    Use is needed, which Google Slides tab/deck will be touched, and what
+    actions will be performed. Wait for explicit permission each time.
+  - Computer Use is limited to Google Slides tabs for this project unless the
+    user explicitly authorizes another app or tab in that moment.
+  - Prefer read-only visual inspection when possible. If editing is needed,
+    keep actions narrow, reversible, and targeted to the named slide/deck.
+  - Do not switch to unrelated browser tabs, interact with email/calendar/chat,
+    submit forms, present, share, delete, or change permissions through
+    Computer Use unless the user explicitly asks for that specific action.
+  - If the visible browser state is not the expected Google Slides deck/tab,
+    stop and ask before navigating or clicking.
 - Before substantial Google Slides edits, inspect relevant past Drive
   presentations when available. Use them to learn the user's existing slide
   style and organization for the specific topic.
+- Use `agent_context/SLIDE_STYLE_MAP.md` as the durable local guide to the
+  user's preferred slide design language. It records examples from strong past
+  decks, including teaching slides, colored comparison panels, subtle shadows,
+  plot organization, font hierarchy, and BDT/ML translation rules.
 - Match the user's preferred slide language: concise bullets above plots, clear
   hierarchy, bolded lead phrases, organized sub-bullets when helpful, body text
   at least 14 pt when possible, line spacing around 1.2-1.8, and a
@@ -121,6 +142,26 @@
   Do this for smoke tests, sidecar ML jobs, validation DAGs, and full
   production submissions so future chats can resume without reconstructing the
   campaign from terminal scrollback.
+- For multi-dataset SDCC submissions that are meant to run together, especially
+  paired `isSimEmbedded`/`isSimEmbeddedInclusive`, pp/SIM sample pairs, or
+  signal/background validation campaigns, do not hand the user several fragile
+  one-line commands by default. Provide one pasteable driver block or temporary
+  shell script that:
+  - sets `set -euo pipefail`;
+  - prints the submit host, timestamp, config YAML, output roots, memory knobs,
+    and dataset list before submitting;
+  - runs a compact preflight queue/stale-job check;
+  - uses explicit worker and merge memory variables instead of relying on
+    ambiguous defaults;
+  - uses isolated output roots and guarded cleanup flags only when the user has
+    approved a clean resubmit;
+  - submits the datasets sequentially so a first failure stops the second
+    submission;
+  - writes a timestamped local submit log with `tee`;
+  - prints a post-submit `condor_q -nobatch` summary.
+  After the user runs the block, inspect the terminal output, record the new
+  DAG/cluster IDs immediately, and keep watching until the submit state is
+  unambiguous.
 - Keep an `Automation Backlog` of repeated manual checks that could become
   read-only local scripts, dry-run counters, QA summaries, status dashboards,
   or plot-inspection helpers. Ask before implementing new automation.
@@ -244,6 +285,13 @@ Notes:
   `READY`, `CHECK`, `FAILED`, held, rescue, or profiling email signal; then
   summarize the visible terminal state; then ask for exactly one compact SDCC
   diagnostic command only if more live evidence is needed.
+- For active overnight or long-running RecoilJets campaigns recorded in
+  `agent_context/STATUS_DASHBOARD.md`, the next progress/resume turn should be
+  email-first even if the user only says "it finished", "what now", or "check
+  this". Inspect fresh `RecoilJets Pipeline` Gmail messages, mark consumed
+  pipeline emails read, update the dashboard with READY/CHECK/FAILED evidence,
+  and only then request one compact SDCC diagnostic if email does not settle the
+  state.
 - In live-run progress checks, think like the user trying to follow the
   production in real time: look for current cluster/DAG ids, idle/running/held
   counts, most recent worker stdout/err/log hints, DAGMan final/merge stage
@@ -313,11 +361,30 @@ Notes:
   legends must not cover the important distributions unless there is no better
   placement. If a template is reused across many plots, inspect representative
   outputs from each template and rerun after adjustments.
-- Match the analysis label style used in `macros/AnalyzeRecoilJets_RunTriggerAna.cpp`:
-  write the experiment label as `#it{#bf{sPHENIX}} Internal`, not
-  `#bf{sPHENIX Internal}` or plain `sPHENIX Internal`. Use ROOT text font 42
-  for the label block unless the existing macro helper already provides a
-  stricter local style.
+- Plot colors must be presentation-safe on projectors and large screens: avoid
+  pale yellow or low-contrast hues for important lines, bars, annotations, or
+  heatmap cells; use colorblind-aware, high-contrast palettes; and make heatmap
+  annotation text switch between black and white based on the cell brightness.
+  If a plot uses a very light color, verify the label/number remains readable
+  after viewing the PNG at slide size.
+- Plot labels must name the actual comparison in plain physics terms. Do not
+  use shorthand such as `PPG12-like` in figure legends or titles when the plot
+  can instead say what changed, for example `No centrality input`,
+  `Centrality as input`, or `Separate centrality-bin BDTs`.
+- Match the local ROOT style in `macros/sPhenixStyle.C`/`.h` for final or
+  slide-candidate plots: call `SetsPhenixStyle()` or reproduce its essentials
+  (font 42, no ROOT title/stat boxes, white background, borderless legends,
+  readable margins, tick marks on both axes). The canonical experiment label for
+  new plots is `#it{#bf{sPHENIX}} Internal`: the word `sPHENIX` is bold italic,
+  `Internal` is regular upright. Do not use `#bf{sPHENIX Internal}` or plain
+  `sPHENIX Internal`. If editing an existing legacy macro whose nearby plots
+  consistently use `#bf{sPHENIX} #it{Internal}`, preserve that local convention
+  rather than mixing styles within one plot family.
+- For Python/matplotlib diagnostic plots intended for slides, emulate the same
+  label visually: bold italic `sPHENIX` followed by upright `Internal`, with the
+  collision-system/sample line below it. Do not let matplotlib degrade the label
+  to unstyled plain `sPHENIX Internal`; if mathtext cannot reproduce it cleanly,
+  split the label into separately styled text objects.
 - When the user asks Codex to generate or regenerate plots for slides, Codex
   must first show the generated PNGs directly in the conversation and discuss
   any physics or formatting concerns before editing Google Slides. Iterate on
@@ -349,6 +416,10 @@ Notes:
 
 # Slide Style Preferences
 
+- For Google Slides and presentation deck edits, always use Times New Roman
+  for all native slide text: titles, body text, callouts, captions, footers,
+  page numbers, and labels created as editable slide text. Preserve plot-internal
+  fonts unless regenerating the plot itself.
 - For Google Slides and other presentation edits, prefer body text at least
   14 pt when possible. Use line spacing around 1.2-1.8 so text fills the slide
   space cleanly instead of looking cramped or stranded.
@@ -357,6 +428,21 @@ Notes:
   small text, at least about 1.3 line spacing between body lines, and header or
   footer callouts placed in soft gray ovular/rounded boxes when that helps the
   slide read as a polished meeting slide.
+- For gray rounded slide callouts/text boxes, avoid visible black borders.
+  Match the outline color to the gray fill unless the user explicitly asks for
+  a contrasting border.
+- For colored slide callouts, use a two-object structure by default: create the
+  rounded colored shape as a background object with no text, then place a
+  separate transparent Times New Roman text box above it. This is especially
+  important for bottom takeaway bands and RHS explanation boxes because it keeps
+  text alignment, spacing, and later edits clean.
+- For RHS gray explanation boxes, separate conceptual chunks with deliberate
+  paragraph spacing after each short paragraph or heading block. The box should
+  read as grouped thoughts with comfortable air between them, not as one dense
+  paragraph stack.
+- For bottom yellow takeaway bands, center the takeaway text in its own text box
+  over the yellow rounded background. The text should look calm, horizontally
+  centered, vertically balanced, and easy to read at presentation distance.
 - For overview and conclusion slides, it is okay to use larger fonts and
   larger spacing to fill the space nicely, as long as the slide remains clear
   and easy to read.
@@ -423,6 +509,12 @@ Notes:
   output confirms it started, inspect the prompt/terminal for the submit node
   and record the active campaign details in the local tracking files before
   moving on.
+- When a suggested SDCC submission consists of more than one related command,
+  wrap it into a single paste-ready `cat > /tmp/... <<'EOF'` driver script plus
+  `bash /tmp/...` invocation, or an equivalently robust one-block command.
+  Avoid asking the user to manually run/edit multiple long environment-variable
+  commands in sequence. The driver should fail fast, log everything, and print
+  enough queue/report paths for Codex to watch the campaign without guessing.
 - When Codex needs information that can only be obtained from the user's
   private Brookhaven/SDCC SSH terminal and open SSH terminal delegation has not
   been granted for the current task, prepare one paste-ready shell command. If
@@ -562,6 +654,19 @@ say explicitly that no `makeProject` rebuild is needed.
   `condor_sub/auauTightBDT_*` folders, temporary manifests, or fake-list test
   files in the repo after local checks. Prefer timestamped run roots for real
   SDCC artifacts, and remove only generated test clutter you created.
+
+# ROOT Merge Strategy
+
+- For large ROOT merge/stitch workloads, prefer layered Condor merging over one
+  huge `hadd` or one huge recursive ROOT merge. The user's experience is that
+  staged merging is usually fastest and most Condor-friendly: for example,
+  with about `10k` files, first merge groups of roughly `200`, then merge those
+  intermediate outputs in groups of roughly `10`, then do one final small
+  merge. Apply the same principle to RecoilJets SIM stitching and large data
+  merges: split memory-heavy work into many moderate Condor jobs, then assemble
+  deterministic partials into the exact canonical final ROOT output. Avoid
+  raising memory to very large values when a clean layered merge can keep jobs
+  smaller and start faster.
 
 # SDCC Transfer Workflow
 
@@ -769,12 +874,15 @@ scripts/makeThesisSimLists.sh             -> scripts/makeThesisSimLists.sh
 scripts/mergeRecoilJets.sh                -> scripts/mergeRecoilJets.sh
 scripts/recoiljets_cleanup.sh             -> scripts/recoiljets_cleanup.sh
 scripts/root_in_analysis_env.sh           -> scripts/root_in_analysis_env.sh
+scripts/submit_auau_bdt_widthstudy_pt1530_wp080.sh -> scripts/submit_auau_bdt_widthstudy_pt1530_wp080.sh
 scripts/RecoilJets_Condor_AuAu.sh         -> RecoilJets_Condor_AuAu.sh
 scripts/RecoilJets_Condor_submit.sh       -> RecoilJets_Condor_submit.sh
 scripts/RecoilJets_Condor.sh              -> RecoilJets_Condor.sh
 scripts/train_auau_jet_residual_bdt.py    -> scripts/train_auau_jet_residual_bdt.py
 scripts/train_auau_photon_bdt.py          -> scripts/train_auau_photon_bdt.py
+scripts/validate_auau_tight_bdt_on_sim.py -> scripts/validate_auau_tight_bdt_on_sim.py
 macros/analysis_config.yaml               -> macros/analysis_config.yaml
+macros/analysis_config_auau_bdt_widthstudy_pt1530_wp080.yaml -> macros/analysis_config_auau_bdt_widthstudy_pt1530_wp080.yaml
 macros/Fun4All_recoilJets.C               -> macros/Fun4All_recoilJets.C
 macros/Fun4All_recoilJets_AuAu.C          -> macros/Fun4All_recoilJets_AuAu.C
 macros/Fun4All_recoilJets_unified_impl.C  -> macros/Fun4All_recoilJets_unified_impl.C

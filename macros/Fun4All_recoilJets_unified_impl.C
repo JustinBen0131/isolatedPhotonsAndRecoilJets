@@ -591,9 +591,30 @@ namespace yamlcfg
         std::vector<std::string> auau_npb_features;
 
         std::string auau_tight_bdt_model_file = "";
+        std::string auau_tight_bdt_expanded_model_dir = "";
         std::string auau_tight_bdt_centINDcontrol_model_file = "";
         std::string auau_tight_bdt_centAsFeat_model_file = "";
         std::vector<std::string> auau_tight_bdt_centDep_model_files;
+        std::string auau_tight_bdt_noCent_model_file = "";
+        std::string auau_tight_bdt_centInput_model_file = "";
+        std::string auau_tight_bdt_centInput3x3_model_file = "";
+        std::string auau_tight_bdt_centInputBase3x3_model_file = "";
+        std::string auau_tight_bdt_centInputMinOpt_model_file = "";
+        std::vector<std::string> auau_tight_bdt_cent3_model_files;
+        std::vector<std::string> auau_tight_bdt_cent7_model_files;
+        std::vector<std::string> auau_tight_bdt_ptBinCentInput_model_files;
+        std::vector<std::string> auau_tight_bdt_ptCent3_model_files;
+        std::vector<std::string> auau_tight_bdt_ptCent7_model_files;
+        std::string auau_tight_bdt_ptBinCentInput_fallback_model_file = "";
+        std::vector<std::string> auau_tight_bdt_ptCent3_fallback_model_files;
+        std::vector<std::string> auau_tight_bdt_ptCent7_fallback_model_files;
+        std::vector<double> auau_tight_bdt_pt_bin_edges;
+        std::vector<int> auau_tight_bdt_cent3_edges;
+        std::vector<int> auau_tight_bdt_cent7_edges;
+        double auau_tight_bdt_pt_fallback_min = 35.0;
+        double auau_tight_bdt_pt_fallback_max = 40.0;
+        double auau_tight_bdt_apply_pt_min = std::numeric_limits<double>::quiet_NaN();
+        double auau_tight_bdt_apply_pt_max = std::numeric_limits<double>::quiet_NaN();
         double auau_tight_bdt_min_intercept = 0.8333333333333334;
         double auau_tight_bdt_min_slope = -0.003333333333333336;
         double auau_tight_bdt_max = 1.0;
@@ -604,6 +625,8 @@ namespace yamlcfg
         std::vector<std::string> auau_tight_bdt_features;
         std::vector<std::string> auau_tight_bdt_centINDcontrol_features;
         std::vector<std::string> auau_tight_bdt_centAsFeat_features;
+        std::vector<std::string> auau_tight_bdt_centAsFeat3x3_features;
+        std::vector<std::string> auau_tight_bdt_centAsFeatBase3x3_features;
         std::vector<std::string> auau_tight_bdt_centDep_features;
 
         bool auau_bdt_training_tree = false;
@@ -669,6 +692,16 @@ namespace yamlcfg
         if (key == "centindcontrol") return "centINDcontrol";
         if (key == "centasfeat" || key == "centasfeature") return "centAsFeat";
         if (key == "centdepbdts" || key == "centdepbdt") return "centDepBDTs";
+        if (key == "auaunocentbdt") return "auauNoCentBDT";
+        if (key == "auaucentinputbdt") return "auauCentInputBDT";
+        if (key == "auaucentinput3x3bdt") return "auauCentInput3x3BDT";
+        if (key == "auaucentinputbase3x3bdt") return "auauCentInputBase3x3BDT";
+        if (key == "auaucentinputminoptbdt") return "auauCentInputMinOptBDT";
+        if (key == "auaucent3bdt") return "auauCent3BDT";
+        if (key == "auaucent7bdt") return "auauCent7BDT";
+        if (key == "auauptbincentinputbdt") return "auauPtBinCentInputBDT";
+        if (key == "auauptcent3bdt") return "auauPtCent3BDT";
+        if (key == "auauptcent7bdt") return "auauPtCent7BDT";
         return mode;
     }
 
@@ -691,7 +724,12 @@ namespace yamlcfg
     static bool IsTightMode(const std::string& mode)
     {
         return mode == "reference" || mode == "newPPG12" || mode == "auauEmbeddedBDT" ||
-               mode == "centINDcontrol" || mode == "centAsFeat" || mode == "centDepBDTs";
+               mode == "centINDcontrol" || mode == "centAsFeat" || mode == "centDepBDTs" ||
+               mode == "auauNoCentBDT" || mode == "auauCentInputBDT" ||
+               mode == "auauCentInput3x3BDT" || mode == "auauCentInputBase3x3BDT" ||
+               mode == "auauCentInputMinOptBDT" || mode == "auauCent3BDT" ||
+               mode == "auauCent7BDT" || mode == "auauPtBinCentInputBDT" ||
+               mode == "auauPtCent3BDT" || mode == "auauPtCent7BDT";
     }
 
     static bool IsNonTightMode(const std::string& mode)
@@ -704,7 +742,12 @@ namespace yamlcfg
     static bool IsAuAuTightBDTMode(const std::string& mode)
     {
         return mode == "auauEmbeddedBDT" || mode == "centINDcontrol" ||
-               mode == "centAsFeat" || mode == "centDepBDTs";
+               mode == "centAsFeat" || mode == "centDepBDTs" ||
+               mode == "auauNoCentBDT" || mode == "auauCentInputBDT" ||
+               mode == "auauCentInput3x3BDT" || mode == "auauCentInputBase3x3BDT" ||
+               mode == "auauCentInputMinOptBDT" || mode == "auauCent3BDT" ||
+               mode == "auauCent7BDT" || mode == "auauPtBinCentInputBDT" ||
+               mode == "auauPtCent3BDT" || mode == "auauPtCent7BDT";
     }
 
     inline std::string DefaultYAMLPath()
@@ -1095,7 +1138,7 @@ namespace yamlcfg
                 if (IsTightMode(rhs))
                     cfg.tight = rhs;
                 else
-                    warn_parse("tight", rhs, "expected reference|newPPG12|auauEmbeddedBDT|centINDcontrol|centAsFeat|centDepBDTs");
+                    warn_parse("tight", rhs, "expected reference|newPPG12|auauEmbeddedBDT|centINDcontrol|centAsFeat|centDepBDTs or an auau* validation BDT mode");
             }
             else if (StartsWithKey(line, "nonTight"))
             {
@@ -1200,6 +1243,10 @@ namespace yamlcfg
             {
                 cfg.auau_tight_bdt_model_file = detail::trim(AfterColon(line));
             }
+            else if (StartsWithKey(line, "auau_tight_bdt_expanded_model_dir"))
+            {
+                cfg.auau_tight_bdt_expanded_model_dir = detail::trim(AfterColon(line));
+            }
             else if (StartsWithKey(line, "auau_tight_bdt_centINDcontrol_model_file"))
             {
                 cfg.auau_tight_bdt_centINDcontrol_model_file = detail::trim(AfterColon(line));
@@ -1214,6 +1261,104 @@ namespace yamlcfg
                 ParseInlineListStrings(rhs, cfg.auau_tight_bdt_centDep_model_files);
                 if (cfg.auau_tight_bdt_centDep_model_files.empty())
                     warn_parse("auau_tight_bdt_centDep_model_files", rhs, "expected an inline list of model ROOT files");
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_noCent_model_file"))
+            {
+                cfg.auau_tight_bdt_noCent_model_file = detail::trim(AfterColon(line));
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_centInput_model_file"))
+            {
+                cfg.auau_tight_bdt_centInput_model_file = detail::trim(AfterColon(line));
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_centInput3x3_model_file"))
+            {
+                cfg.auau_tight_bdt_centInput3x3_model_file = detail::trim(AfterColon(line));
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_centInputBase3x3_model_file"))
+            {
+                cfg.auau_tight_bdt_centInputBase3x3_model_file = detail::trim(AfterColon(line));
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_centInputMinOpt_model_file"))
+            {
+                cfg.auau_tight_bdt_centInputMinOpt_model_file = detail::trim(AfterColon(line));
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_cent3_model_files"))
+            {
+                const std::string rhs = AfterColon(line);
+                ParseInlineListStrings(rhs, cfg.auau_tight_bdt_cent3_model_files);
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_cent7_model_files"))
+            {
+                const std::string rhs = AfterColon(line);
+                ParseInlineListStrings(rhs, cfg.auau_tight_bdt_cent7_model_files);
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_ptBinCentInput_model_files"))
+            {
+                const std::string rhs = AfterColon(line);
+                ParseInlineListStrings(rhs, cfg.auau_tight_bdt_ptBinCentInput_model_files);
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_ptCent3_model_files"))
+            {
+                const std::string rhs = AfterColon(line);
+                ParseInlineListStrings(rhs, cfg.auau_tight_bdt_ptCent3_model_files);
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_ptCent7_model_files"))
+            {
+                const std::string rhs = AfterColon(line);
+                ParseInlineListStrings(rhs, cfg.auau_tight_bdt_ptCent7_model_files);
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_ptBinCentInput_fallback_model_file"))
+            {
+                cfg.auau_tight_bdt_ptBinCentInput_fallback_model_file = detail::trim(AfterColon(line));
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_ptCent3_fallback_model_files"))
+            {
+                const std::string rhs = AfterColon(line);
+                ParseInlineListStrings(rhs, cfg.auau_tight_bdt_ptCent3_fallback_model_files);
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_ptCent7_fallback_model_files"))
+            {
+                const std::string rhs = AfterColon(line);
+                ParseInlineListStrings(rhs, cfg.auau_tight_bdt_ptCent7_fallback_model_files);
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_pt_bin_edges"))
+            {
+                const std::string rhs = AfterColon(line);
+                ParseInlineListDoubles(rhs, cfg.auau_tight_bdt_pt_bin_edges);
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_cent3_edges"))
+            {
+                const std::string rhs = AfterColon(line);
+                ParseInlineListInts(rhs, cfg.auau_tight_bdt_cent3_edges);
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_cent7_edges"))
+            {
+                const std::string rhs = AfterColon(line);
+                ParseInlineListInts(rhs, cfg.auau_tight_bdt_cent7_edges);
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_pt_fallback_min"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_tight_bdt_pt_fallback_min))
+                    warn_parse("auau_tight_bdt_pt_fallback_min", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_pt_fallback_max"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_tight_bdt_pt_fallback_max))
+                    warn_parse("auau_tight_bdt_pt_fallback_max", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_apply_pt_min"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_tight_bdt_apply_pt_min))
+                    warn_parse("auau_tight_bdt_apply_pt_min", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_apply_pt_max"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_tight_bdt_apply_pt_max))
+                    warn_parse("auau_tight_bdt_apply_pt_max", rhs, "expected a scalar double");
             }
             else if (StartsWithKey(line, "auau_tight_bdt_min_intercept"))
             {
@@ -1277,6 +1422,20 @@ namespace yamlcfg
                 ParseInlineListStrings(rhs, cfg.auau_tight_bdt_centAsFeat_features);
                 if (cfg.auau_tight_bdt_centAsFeat_features.empty())
                     warn_parse("auau_tight_bdt_centAsFeat_features", rhs, "expected an inline list of feature names");
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_centAsFeat3x3_features"))
+            {
+                const std::string rhs = AfterColon(line);
+                ParseInlineListStrings(rhs, cfg.auau_tight_bdt_centAsFeat3x3_features);
+                if (cfg.auau_tight_bdt_centAsFeat3x3_features.empty())
+                    warn_parse("auau_tight_bdt_centAsFeat3x3_features", rhs, "expected an inline list of feature names");
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_centAsFeatBase3x3_features"))
+            {
+                const std::string rhs = AfterColon(line);
+                ParseInlineListStrings(rhs, cfg.auau_tight_bdt_centAsFeatBase3x3_features);
+                if (cfg.auau_tight_bdt_centAsFeatBase3x3_features.empty())
+                    warn_parse("auau_tight_bdt_centAsFeatBase3x3_features", rhs, "expected an inline list of feature names");
             }
             else if (StartsWithKey(line, "auau_tight_bdt_centDep_features"))
             {
@@ -2416,7 +2575,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     }
     if (!yamlcfg::IsTightMode(cfg.tight))
     {
-        detail::bail("tight must be 'reference', 'newPPG12', 'auauEmbeddedBDT', 'centINDcontrol', 'centAsFeat', or 'centDepBDTs'.");
+        detail::bail("tight must be 'reference', 'newPPG12', 'auauEmbeddedBDT', 'centINDcontrol', 'centAsFeat', 'centDepBDTs', or one of the auau* validation BDT modes.");
     }
     if (!yamlcfg::IsNonTightMode(cfg.nonTight))
     {
@@ -4116,83 +4275,262 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         if (!has) features.push_back("centrality");
         return features;
     };
-    std::vector<std::string> auauCentDepScoreNames;
-
-    std::string auauRuntimeTightModelFile;
-    std::vector<std::string> auauRuntimeTightFeatures;
-    std::vector<std::string> auauRuntimeCentDepModelFiles;
-
-    if (cfg.tight == "auauEmbeddedBDT" || cfg.tight == "centINDcontrol" || cfg.tight == "centAsFeat")
+    auto validateModelCount = [](const std::string& label, std::size_t got, std::size_t expected)
     {
-        std::string modelFile = cfg.auau_tight_bdt_model_file;
-        std::vector<std::string> features = cfg.auau_tight_bdt_features;
-        if (cfg.tight == "centINDcontrol")
+        if (got == expected) return;
+        std::ostringstream msg;
+        msg << label << " requires " << expected << " model file(s); got " << got;
+        detail::bail(msg.str());
+    };
+    auto fmtInt3 = [](double x) -> std::string
+    {
+        std::ostringstream os;
+        os << std::setw(3) << std::setfill('0') << static_cast<int>(std::llround(x));
+        return os.str();
+    };
+    auto ptTag = [&](double lo, double hi) -> std::string
+    {
+        return std::string("pt_") + fmtInt3(lo) + "_" + fmtInt3(hi);
+    };
+    auto centTag = [&](int lo, int hi) -> std::string
+    {
+        return std::string("cent_") + fmtInt3(lo) + "_" + fmtInt3(hi);
+    };
+    auto expandedModelPath = [&](const std::string& modelId) -> std::string
+    {
+        if (cfg.auau_tight_bdt_expanded_model_dir.empty()) return std::string{};
+        return cfg.auau_tight_bdt_expanded_model_dir + "/auau_tight_bdt_" + modelId + "_tmva.root";
+    };
+    auto expandedCentModels = [&](const std::string& product,
+                                  const std::string& suffix,
+                                  const std::vector<int>& edges) -> std::vector<std::string>
+    {
+        std::vector<std::string> files;
+        if (cfg.auau_tight_bdt_expanded_model_dir.empty() || edges.size() < 2) return files;
+        for (std::size_t i = 0; i + 1 < edges.size(); ++i)
         {
-            if (!cfg.auau_tight_bdt_centINDcontrol_model_file.empty())
-                modelFile = cfg.auau_tight_bdt_centINDcontrol_model_file;
-            features = featureListOrFallback(cfg.auau_tight_bdt_centINDcontrol_features, cfg.auau_tight_bdt_features);
+            files.push_back(expandedModelPath(product + "_" + suffix + "_" + centTag(edges[i], edges[i + 1])));
         }
-        else if (cfg.tight == "centAsFeat")
+        return files;
+    };
+    auto expandedPtModels = [&](const std::string& product,
+                                const std::vector<double>& ptEdges) -> std::vector<std::string>
+    {
+        std::vector<std::string> files;
+        if (cfg.auau_tight_bdt_expanded_model_dir.empty() || ptEdges.size() < 2) return files;
+        for (std::size_t i = 0; i + 1 < ptEdges.size(); ++i)
         {
-            if (!cfg.auau_tight_bdt_centAsFeat_model_file.empty())
-                modelFile = cfg.auau_tight_bdt_centAsFeat_model_file;
-            features = appendCentralityFeature(featureListOrFallback(cfg.auau_tight_bdt_centAsFeat_features, cfg.auau_tight_bdt_features));
+            files.push_back(expandedModelPath(product + "_" + ptTag(ptEdges[i], ptEdges[i + 1])));
+        }
+        return files;
+    };
+    auto expandedPtCentModels = [&](const std::string& product,
+                                    const std::vector<double>& ptEdges,
+                                    const std::vector<int>& centEdges) -> std::vector<std::string>
+    {
+        std::vector<std::string> files;
+        if (cfg.auau_tight_bdt_expanded_model_dir.empty() || ptEdges.size() < 2 || centEdges.size() < 2) return files;
+        for (std::size_t ip = 0; ip + 1 < ptEdges.size(); ++ip)
+        {
+            for (std::size_t ic = 0; ic + 1 < centEdges.size(); ++ic)
+            {
+                files.push_back(expandedModelPath(product + "_" + ptTag(ptEdges[ip], ptEdges[ip + 1]) + "_" + centTag(centEdges[ic], centEdges[ic + 1])));
+            }
+        }
+        return files;
+    };
+
+    struct AuAuBDTRuntimeConfig
+    {
+        std::string modelFile;
+        std::vector<std::string> features;
+        std::vector<int> centEdges;
+        std::vector<std::string> centModelFiles;
+        std::vector<double> ptEdges;
+        std::vector<std::string> ptModelFiles;
+        std::vector<std::string> ptCentModelFiles;
+        std::string ptFallbackModelFile;
+        std::vector<std::string> ptFallbackCentModelFiles;
+        double ptFallbackMin = 35.0;
+        double ptFallbackMax = 40.0;
+        double applyPtMin = std::numeric_limits<double>::quiet_NaN();
+        double applyPtMax = std::numeric_limits<double>::quiet_NaN();
+        bool usesBuilderScore = false;
+        bool active = false;
+    };
+
+    auto resolveAuAuBDTRuntimeConfig = [&](const std::string& tightMode) -> AuAuBDTRuntimeConfig
+    {
+        AuAuBDTRuntimeConfig out;
+        if (!yamlcfg::IsAuAuTightBDTMode(tightMode)) return out;
+        out.active = true;
+        out.features = cfg.auau_tight_bdt_features;
+        out.applyPtMin = cfg.auau_tight_bdt_apply_pt_min;
+        out.applyPtMax = cfg.auau_tight_bdt_apply_pt_max;
+
+        if (tightMode == "auauEmbeddedBDT")
+        {
+            out.modelFile = cfg.auau_tight_bdt_model_file;
+            out.usesBuilderScore = true;
+        }
+        else if (tightMode == "centINDcontrol")
+        {
+            out.modelFile = cfg.auau_tight_bdt_centINDcontrol_model_file.empty()
+                ? cfg.auau_tight_bdt_model_file
+                : cfg.auau_tight_bdt_centINDcontrol_model_file;
+            out.features = featureListOrFallback(cfg.auau_tight_bdt_centINDcontrol_features, cfg.auau_tight_bdt_features);
+        }
+        else if (tightMode == "centAsFeat")
+        {
+            out.modelFile = cfg.auau_tight_bdt_centAsFeat_model_file.empty()
+                ? cfg.auau_tight_bdt_model_file
+                : cfg.auau_tight_bdt_centAsFeat_model_file;
+            out.features = appendCentralityFeature(featureListOrFallback(cfg.auau_tight_bdt_centAsFeat_features, cfg.auau_tight_bdt_features));
+        }
+        else if (tightMode == "centDepBDTs")
+        {
+            out.features = featureListOrFallback(cfg.auau_tight_bdt_centDep_features, cfg.auau_tight_bdt_features);
+            out.centEdges = cfg.centrality_edges;
+            validateModelCount("tight=centDepBDTs", cfg.auau_tight_bdt_centDep_model_files.size(),
+                               out.centEdges.size() >= 2 ? out.centEdges.size() - 1 : 0);
+            out.centModelFiles = cfg.auau_tight_bdt_centDep_model_files;
+        }
+        else if (tightMode == "auauNoCentBDT")
+        {
+            out.modelFile = cfg.auau_tight_bdt_noCent_model_file.empty()
+                ? expandedModelPath("centINDcontrol_pt5to40")
+                : cfg.auau_tight_bdt_noCent_model_file;
+            out.features = featureListOrFallback(cfg.auau_tight_bdt_centINDcontrol_features, cfg.auau_tight_bdt_features);
+        }
+        else if (tightMode == "auauCentInputBDT")
+        {
+            out.modelFile = cfg.auau_tight_bdt_centInput_model_file.empty()
+                ? expandedModelPath("centAsFeat_pt5to40")
+                : cfg.auau_tight_bdt_centInput_model_file;
+            out.features = appendCentralityFeature(featureListOrFallback(cfg.auau_tight_bdt_centAsFeat_features, cfg.auau_tight_bdt_features));
+        }
+        else if (tightMode == "auauCentInput3x3BDT")
+        {
+            out.modelFile = cfg.auau_tight_bdt_centInput3x3_model_file.empty()
+                ? expandedModelPath("centAsFeat3x3_pt5to40")
+                : cfg.auau_tight_bdt_centInput3x3_model_file;
+            out.features = appendCentralityFeature(featureListOrFallback(cfg.auau_tight_bdt_centAsFeat3x3_features, cfg.auau_tight_bdt_centAsFeat_features));
+        }
+        else if (tightMode == "auauCentInputBase3x3BDT")
+        {
+            out.modelFile = cfg.auau_tight_bdt_centInputBase3x3_model_file.empty()
+                ? expandedModelPath("centAsFeatBase3x3_pt15to30")
+                : cfg.auau_tight_bdt_centInputBase3x3_model_file;
+            out.features = appendCentralityFeature(featureListOrFallback(cfg.auau_tight_bdt_centAsFeatBase3x3_features, cfg.auau_tight_bdt_centAsFeat3x3_features));
+        }
+        else if (tightMode == "auauCentInputMinOptBDT")
+        {
+            out.modelFile = cfg.auau_tight_bdt_centInputMinOpt_model_file.empty()
+                ? expandedModelPath("centAsFeatMinOpt_pt5to40")
+                : cfg.auau_tight_bdt_centInputMinOpt_model_file;
+            out.features = appendCentralityFeature(featureListOrFallback(cfg.auau_tight_bdt_centAsFeat_features, cfg.auau_tight_bdt_features));
+        }
+        else if (tightMode == "auauCent3BDT" || tightMode == "auauCent7BDT")
+        {
+            out.features = featureListOrFallback(cfg.auau_tight_bdt_centDep_features, cfg.auau_tight_bdt_features);
+            out.centEdges = (tightMode == "auauCent3BDT") ? cfg.auau_tight_bdt_cent3_edges : cfg.auau_tight_bdt_cent7_edges;
+            out.centModelFiles = (tightMode == "auauCent3BDT") ? cfg.auau_tight_bdt_cent3_model_files : cfg.auau_tight_bdt_cent7_model_files;
+            if (out.centModelFiles.empty())
+            {
+                out.centModelFiles = expandedCentModels(tightMode == "auauCent3BDT" ? "centDepBDTs" : "centDepFineBDTs",
+                                                        "pt5to40",
+                                                        out.centEdges);
+            }
+            validateModelCount("tight=" + tightMode, out.centModelFiles.size(),
+                               out.centEdges.size() >= 2 ? out.centEdges.size() - 1 : 0);
+        }
+        else if (tightMode == "auauPtBinCentInputBDT")
+        {
+            out.features = appendCentralityFeature(featureListOrFallback(cfg.auau_tight_bdt_centAsFeat_features, cfg.auau_tight_bdt_features));
+            out.ptEdges = cfg.auau_tight_bdt_pt_bin_edges;
+            out.ptModelFiles = cfg.auau_tight_bdt_ptBinCentInput_model_files;
+            if (out.ptModelFiles.empty())
+            {
+                out.ptModelFiles = expandedPtModels("ptBinCentAsFeat", out.ptEdges);
+            }
+            out.ptFallbackModelFile = cfg.auau_tight_bdt_ptBinCentInput_fallback_model_file.empty()
+                ? expandedModelPath("centAsFeat_pt5to40")
+                : cfg.auau_tight_bdt_ptBinCentInput_fallback_model_file;
+            out.ptFallbackMin = cfg.auau_tight_bdt_pt_fallback_min;
+            out.ptFallbackMax = cfg.auau_tight_bdt_pt_fallback_max;
+            validateModelCount("tight=auauPtBinCentInputBDT", out.ptModelFiles.size(),
+                               out.ptEdges.size() >= 2 ? out.ptEdges.size() - 1 : 0);
+        }
+        else if (tightMode == "auauPtCent3BDT" || tightMode == "auauPtCent7BDT")
+        {
+            out.features = featureListOrFallback(cfg.auau_tight_bdt_centDep_features, cfg.auau_tight_bdt_features);
+            out.ptEdges = cfg.auau_tight_bdt_pt_bin_edges;
+            out.centEdges = (tightMode == "auauPtCent3BDT") ? cfg.auau_tight_bdt_cent3_edges : cfg.auau_tight_bdt_cent7_edges;
+            out.ptCentModelFiles = (tightMode == "auauPtCent3BDT") ? cfg.auau_tight_bdt_ptCent3_model_files : cfg.auau_tight_bdt_ptCent7_model_files;
+            out.ptFallbackCentModelFiles = (tightMode == "auauPtCent3BDT") ? cfg.auau_tight_bdt_ptCent3_fallback_model_files : cfg.auau_tight_bdt_ptCent7_fallback_model_files;
+            if (out.ptCentModelFiles.empty())
+            {
+                out.ptCentModelFiles = expandedPtCentModels(tightMode == "auauPtCent3BDT" ? "ptCentDep3" : "ptCentDepFine",
+                                                            out.ptEdges,
+                                                            out.centEdges);
+            }
+            if (out.ptFallbackCentModelFiles.empty())
+            {
+                out.ptFallbackCentModelFiles = expandedCentModels(tightMode == "auauPtCent3BDT" ? "centDepBDTs" : "centDepFineBDTs",
+                                                                  "pt5to40",
+                                                                  out.centEdges);
+            }
+            out.ptFallbackMin = cfg.auau_tight_bdt_pt_fallback_min;
+            out.ptFallbackMax = cfg.auau_tight_bdt_pt_fallback_max;
+            const std::size_t nPt = out.ptEdges.size() >= 2 ? out.ptEdges.size() - 1 : 0;
+            const std::size_t nCent = out.centEdges.size() >= 2 ? out.centEdges.size() - 1 : 0;
+            validateModelCount("tight=" + tightMode, out.ptCentModelFiles.size(), nPt * nCent);
+            validateModelCount("tight=" + tightMode + " fallback", out.ptFallbackCentModelFiles.size(), nCent);
         }
 
-        if (modelFile.empty())
+        if (out.features.empty())
         {
-            detail::bail("AuAu tight BDT mode requires a model file in analysis_config.yaml");
+            detail::bail("AuAu tight BDT mode " + tightMode + " requires a non-empty feature list in analysis_config.yaml");
         }
-        if (features.empty())
+        if (out.modelFile.empty() && out.centModelFiles.empty() && out.ptModelFiles.empty() && out.ptCentModelFiles.empty())
         {
-            detail::bail("AuAu tight BDT mode requires a non-empty feature list in analysis_config.yaml");
+            detail::bail("AuAu tight BDT mode " + tightMode + " requires model file(s) in analysis_config.yaml");
         }
+        if ((tightMode == "auauPtBinCentInputBDT") && out.ptFallbackModelFile.empty())
+        {
+            detail::bail("tight=auauPtBinCentInputBDT requires auau_tight_bdt_ptBinCentInput_fallback_model_file");
+        }
+        return out;
+    };
 
+    std::vector<std::string> auauCentDepScoreNames;
+    const AuAuBDTRuntimeConfig leaderAuAuRuntime = resolveAuAuBDTRuntimeConfig(cfg.tight);
+    std::string auauRuntimeTightModelFile = leaderAuAuRuntime.modelFile;
+    std::vector<std::string> auauRuntimeTightFeatures = leaderAuAuRuntime.features;
+    std::vector<std::string> auauRuntimeCentDepModelFiles = leaderAuAuRuntime.centModelFiles;
+
+    if (leaderAuAuRuntime.active)
+    {
         tightPhotonNode = "PHOTONCLUSTER_CEMC";
-        auauRuntimeTightModelFile = modelFile;
-        auauRuntimeTightFeatures = features;
-        if (cfg.tight == "auauEmbeddedBDT")
+        if (!leaderAuAuRuntime.centEdges.empty())
+        {
+            for (std::size_t i = 0; i + 1 < leaderAuAuRuntime.centEdges.size(); ++i)
+            {
+                std::ostringstream scoreName;
+                scoreName << "auau_tight_bdt_score_cent_"
+                          << leaderAuAuRuntime.centEdges[i] << "_" << leaderAuAuRuntime.centEdges[i + 1];
+                auauCentDepScoreNames.push_back(scoreName.str());
+            }
+        }
+        if (leaderAuAuRuntime.usesBuilderScore)
         {
             photonBuilder->add_named_bdt_score("auau_tight_bdt_score",
-                                               modelFile,
-                                               features,
+                                               leaderAuAuRuntime.modelFile,
+                                               leaderAuAuRuntime.features,
                                                5.0f,
                                                80.0f,
                                                static_cast<float>(cfg.photon_eta_abs_max));
         }
-    }
-    else if (cfg.tight == "centDepBDTs")
-    {
-        const std::vector<std::string> features =
-          featureListOrFallback(cfg.auau_tight_bdt_centDep_features, cfg.auau_tight_bdt_features);
-        if (features.empty())
-        {
-            detail::bail("tight=centDepBDTs requires auau_tight_bdt_centDep_features or auau_tight_bdt_features in analysis_config.yaml");
-        }
-        if (cfg.centrality_edges.size() < 2)
-        {
-            detail::bail("tight=centDepBDTs requires centrality_edges with at least two entries");
-        }
-        const std::size_t nCentBins = cfg.centrality_edges.size() - 1;
-        if (cfg.auau_tight_bdt_centDep_model_files.size() != nCentBins)
-        {
-            std::ostringstream msg;
-            msg << "tight=centDepBDTs requires " << nCentBins
-                << " auau_tight_bdt_centDep_model_files, one for each centrality_edges interval; got "
-                << cfg.auau_tight_bdt_centDep_model_files.size();
-            detail::bail(msg.str());
-        }
-
-        tightPhotonNode = "PHOTONCLUSTER_CEMC";
-        for (std::size_t i = 0; i < nCentBins; ++i)
-        {
-            std::ostringstream scoreName;
-            scoreName << "auau_tight_bdt_score_cent_"
-                      << cfg.centrality_edges[i] << "_" << cfg.centrality_edges[i + 1];
-            auauCentDepScoreNames.push_back(scoreName.str());
-        }
-        auauRuntimeTightFeatures = features;
-        auauRuntimeCentDepModelFiles = cfg.auau_tight_bdt_centDep_model_files;
     }
 
     if (useSamePhotonBDTScores)
@@ -4239,6 +4577,16 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         return os.str();
     };
     auto joinInts = [](const std::vector<int>& vals) -> std::string
+    {
+        std::ostringstream os;
+        for (std::size_t i = 0; i < vals.size(); ++i)
+        {
+            if (i) os << ',';
+            os << vals[i];
+        }
+        return os.str();
+    };
+    auto joinDoubles = [](const std::vector<double>& vals) -> std::string
     {
         std::ostringstream os;
         for (std::size_t i = 0; i < vals.size(); ++i)
@@ -4300,6 +4648,12 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_BDT_MAX",
                                                "RJ_AUAU_TIGHT_BDT_MAX",
                                                fmtDouble(cfg.auau_tight_bdt_max)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_BDT_APPLY_PT_MIN",
+                                               "RJ_AUAU_TIGHT_BDT_APPLY_PT_MIN",
+                                               fmtDouble(cfg.auau_tight_bdt_apply_pt_min)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_BDT_APPLY_PT_MAX",
+                                               "RJ_AUAU_TIGHT_BDT_APPLY_PT_MAX",
+                                               fmtDouble(cfg.auau_tight_bdt_apply_pt_max)));
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_BDT_MODEL_FILE",
                                                "RJ_AUAU_TIGHT_BDT_MODEL_FILE",
                                                auauRuntimeTightModelFile));
@@ -4381,12 +4735,29 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     auto configureRecoilJetsInstance =
     [&](RecoilJets* recoilJets, const idfanout::Entry& idEntry)
     {
-    recoilJets->setPhotonIDVariants(idEntry.preselection,
-                                    idEntry.tight,
-                                    idEntry.nonTight,
-                                    preselectionPhotonNode,
-                                    tightPhotonNode);
-    recoilJets->setPhotonEtaAbsMax(cfg.photon_eta_abs_max);
+	    recoilJets->setPhotonIDVariants(idEntry.preselection,
+	                                    idEntry.tight,
+	                                    idEntry.nonTight,
+	                                    preselectionPhotonNode,
+	                                    tightPhotonNode);
+        const AuAuBDTRuntimeConfig entryAuAuRuntime = resolveAuAuBDTRuntimeConfig(idEntry.tight);
+        if (entryAuAuRuntime.active)
+        {
+            recoilJets->setAuAuTightBDTRuntimeConfig(entryAuAuRuntime.modelFile,
+                                                     entryAuAuRuntime.features,
+                                                     entryAuAuRuntime.centEdges,
+                                                     entryAuAuRuntime.centModelFiles,
+                                                     entryAuAuRuntime.ptEdges,
+                                                     entryAuAuRuntime.ptModelFiles,
+                                                     entryAuAuRuntime.ptCentModelFiles,
+                                                     entryAuAuRuntime.ptFallbackModelFile,
+                                                     entryAuAuRuntime.ptFallbackCentModelFiles,
+                                                     entryAuAuRuntime.ptFallbackMin,
+                                                     entryAuAuRuntime.ptFallbackMax,
+                                                     entryAuAuRuntime.applyPtMin,
+                                                     entryAuAuRuntime.applyPtMax);
+        }
+	    recoilJets->setPhotonEtaAbsMax(cfg.photon_eta_abs_max);
     recoilJets->setMinJetPt(cfg.jet_pt_min);
     recoilJets->setMinBackToBack(cfg.back_to_back_dphi_min_pi_fraction * M_PI);
     
@@ -4610,24 +4981,36 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 
         if (yamlcfg::IsAuAuTightBDTMode(idEntry.tight))
         {
+            const AuAuBDTRuntimeConfig summaryAuAuRuntime = resolveAuAuBDTRuntimeConfig(idEntry.tight);
             std::cout << "[CFG] AuAu tight BDT:"
             << " mode=" << idEntry.tight;
-            if (idEntry.tight == "centINDcontrol")
-                std::cout << " model=" << (cfg.auau_tight_bdt_centINDcontrol_model_file.empty() ? cfg.auau_tight_bdt_model_file : cfg.auau_tight_bdt_centINDcontrol_model_file)
-                          << " features_n=" << (cfg.auau_tight_bdt_centINDcontrol_features.empty() ? cfg.auau_tight_bdt_features.size() : cfg.auau_tight_bdt_centINDcontrol_features.size());
-            else if (idEntry.tight == "centAsFeat")
-                std::cout << " model=" << (cfg.auau_tight_bdt_centAsFeat_model_file.empty() ? cfg.auau_tight_bdt_model_file : cfg.auau_tight_bdt_centAsFeat_model_file)
-                          << " features=PPG12+centrality";
-            else if (idEntry.tight == "centDepBDTs")
-                std::cout << " models=" << cfg.auau_tight_bdt_centDep_model_files.size()
-                          << " cent_edges=[" << joinInts(cfg.centrality_edges) << "]"
-                          << " score_names=[" << joinStrings(auauCentDepScoreNames) << "]";
+            if (!summaryAuAuRuntime.modelFile.empty())
+                std::cout << " model=" << summaryAuAuRuntime.modelFile;
+            if (!summaryAuAuRuntime.centModelFiles.empty())
+                std::cout << " cent_models=" << summaryAuAuRuntime.centModelFiles.size()
+                          << " cent_edges=[" << joinInts(summaryAuAuRuntime.centEdges) << "]";
+            if (!summaryAuAuRuntime.ptModelFiles.empty())
+                std::cout << " pt_models=" << summaryAuAuRuntime.ptModelFiles.size()
+                          << " pt_edges=[" << joinDoubles(summaryAuAuRuntime.ptEdges) << "]"
+                          << " fallback=" << summaryAuAuRuntime.ptFallbackModelFile;
+            if (!summaryAuAuRuntime.ptCentModelFiles.empty())
+                std::cout << " pt_cent_models=" << summaryAuAuRuntime.ptCentModelFiles.size()
+                          << " cent_edges=[" << joinInts(summaryAuAuRuntime.centEdges) << "]"
+                          << " pt_edges=[" << joinDoubles(summaryAuAuRuntime.ptEdges) << "]"
+                          << " fallback_cent_models=" << summaryAuAuRuntime.ptFallbackCentModelFiles.size();
             else
-                std::cout << " model=" << cfg.auau_tight_bdt_model_file
-                          << " features_n=" << cfg.auau_tight_bdt_features.size();
+                std::cout << " features_n=" << summaryAuAuRuntime.features.size();
             std::cout
             << " cut=(score > " << cfg.auau_tight_bdt_min_slope << " * ET + " << cfg.auau_tight_bdt_min_intercept
             << " && score < " << cfg.auau_tight_bdt_max << ")";
+            if (std::isfinite(summaryAuAuRuntime.applyPtMin) || std::isfinite(summaryAuAuRuntime.applyPtMax))
+            {
+                std::cout << " apply_pt=["
+                          << (std::isfinite(summaryAuAuRuntime.applyPtMin) ? fmtDouble(summaryAuAuRuntime.applyPtMin) : "-inf")
+                          << ","
+                          << (std::isfinite(summaryAuAuRuntime.applyPtMax) ? fmtDouble(summaryAuAuRuntime.applyPtMax) : "+inf")
+                          << ")";
+            }
             if (idEntry.nonTight == "auauBDTSideband")
             {
                 std::cout << " nonTight=(" << cfg.auau_nontight_bdt_min_slope << " * ET + " << cfg.auau_nontight_bdt_min_intercept

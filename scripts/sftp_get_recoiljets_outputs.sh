@@ -38,6 +38,9 @@ macros/analysis_config.yaml matrix, prints the local overwrite preview, then
 opens interactive sftp once to fetch those files. No password is stored.
 For SIM datasets it then materializes canonical merged outputs under
 dataOutput/combinedSimOnly or dataOutput/combinedSimOnlyEMBEDDED.
+Set SFTP_GET_REMOTE_DIR_OVERRIDE to pull a timestamped/non-default remote
+output directory, and SFTP_GET_LOCAL_COMBINED_BASE to keep combined SIM pulls
+in a campaign-specific local folder.
 
 trainingLatest pulls the newest SDCC local smoke-test training output directory
 from:
@@ -81,7 +84,11 @@ trim_ws() {
 }
 
 yaml_path() {
-  printf "%s\n" "${LOCAL_BASE}/macros/analysis_config.yaml"
+  local yaml="${SFTP_GET_CONFIG_YAML:-${RJ_CONFIG_YAML:-${LOCAL_BASE}/macros/analysis_config.yaml}}"
+  case "$yaml" in
+    /*) printf "%s\n" "$yaml" ;;
+    *) printf "%s\n" "${LOCAL_BASE}/${yaml}" ;;
+  esac
 }
 
 make_tmp_file() {
@@ -282,15 +289,17 @@ sim_combined_remote_file() {
 
 sim_combined_local_file() {
   local label="$1" cfg="$2"
+  local sim_base="${SFTP_GET_LOCAL_COMBINED_BASE:-${LOCAL_BASE}/dataOutput/combinedSimOnly}"
+  local embed_base="${SFTP_GET_LOCAL_COMBINED_BASE:-${LOCAL_BASE}/dataOutput/combinedSimOnlyEMBEDDED}"
   case "$label" in
     isSim)
-      echo "${LOCAL_BASE}/dataOutput/combinedSimOnly/${cfg}/photonJet5and10and20merged_SIM/RecoilJets_photonjet5plus10plus20_MERGED.root" ;;
+      echo "${sim_base}/${cfg}/photonJet5and10and20merged_SIM/RecoilJets_photonjet5plus10plus20_MERGED.root" ;;
     isSimEmbedded)
-      echo "${LOCAL_BASE}/dataOutput/combinedSimOnlyEMBEDDED/${cfg}/photonJet12and20merged_SIM/RecoilJets_embeddedPhoton12plus20_MERGED.root" ;;
+      echo "${embed_base}/${cfg}/photonJet12and20merged_SIM/RecoilJets_embeddedPhoton12plus20_MERGED.root" ;;
     isSimEmbeddedInclusive)
-      echo "${LOCAL_BASE}/dataOutput/combinedSimOnlyEMBEDDED/${cfg}/embeddedJet12and20merged_SIM/RecoilJets_embeddedJet12plus20_MERGED.root" ;;
+      echo "${embed_base}/${cfg}/embeddedJet12and20merged_SIM/RecoilJets_embeddedJet12plus20_MERGED.root" ;;
     isSimInclusive)
-      echo "${LOCAL_BASE}/dataOutput/combinedSimOnly/${cfg}/inclusiveJet5to40_SIM/RecoilJets_jet5plus8plus12plus20plus30plus40_MERGED.root" ;;
+      echo "${sim_base}/${cfg}/inclusiveJet5to40_SIM/RecoilJets_jet5plus8plus12plus20plus30plus40_MERGED.root" ;;
     *)
       return 1 ;;
   esac
@@ -398,6 +407,15 @@ selection_mode_normalize_for_key() {
     preselection:variantE|preselection:VariantE|preselection:variante|preselection:auauOnlyNPB|preselection:AuAuOnlyNPB|preselection:auauonlynpb) echo "auauOnlyNPB"; return 0 ;;
     tight:variantA|tight:VariantA|tight:varianta|tight:newPPG12|tight:NewPPG12|tight:newppg12) echo "newPPG12"; return 0 ;;
     tight:variantB|tight:VariantB|tight:variantb|tight:auauEmbeddedBDT|tight:AuAuEmbeddedBDT|tight:auauembeddedbdt) echo "auauEmbeddedBDT"; return 0 ;;
+    tight:auauNoCentBDT|tight:AuAuNoCentBDT|tight:auaunocentbdt) echo "auauNoCentBDT"; return 0 ;;
+    tight:auauCentInputBDT|tight:AuAuCentInputBDT|tight:auaucentinputbdt) echo "auauCentInputBDT"; return 0 ;;
+    tight:auauCentInput3x3BDT|tight:AuAuCentInput3x3BDT|tight:auaucentinput3x3bdt) echo "auauCentInput3x3BDT"; return 0 ;;
+    tight:auauCentInputMinOptBDT|tight:AuAuCentInputMinOptBDT|tight:auaucentinputminoptbdt) echo "auauCentInputMinOptBDT"; return 0 ;;
+    tight:auauCent3BDT|tight:AuAuCent3BDT|tight:auaucent3bdt) echo "auauCent3BDT"; return 0 ;;
+    tight:auauCent7BDT|tight:AuAuCent7BDT|tight:auaucent7bdt) echo "auauCent7BDT"; return 0 ;;
+    tight:auauPtBinCentInputBDT|tight:AuAuPtBinCentInputBDT|tight:auauptbincentinputbdt) echo "auauPtBinCentInputBDT"; return 0 ;;
+    tight:auauPtCent3BDT|tight:AuAuPtCent3BDT|tight:auauptcent3bdt) echo "auauPtCent3BDT"; return 0 ;;
+    tight:auauPtCent7BDT|tight:AuAuPtCent7BDT|tight:auauptcent7bdt) echo "auauPtCent7BDT"; return 0 ;;
     nonTight:variantA|nonTight:VariantA|nonTight:varianta|nonTight:bdtSideband|nonTight:BDTSideband|nonTight:bdtsideband|nonTight:newPPG12|nonTight:NewPPG12|nonTight:newppg12) echo "newPPG12"; return 0 ;;
     nonTight:variantB|nonTight:VariantB|nonTight:variantb|nonTight:auauBDTSideband|nonTight:AuAuBDTSideband|nonTight:auaubdtsideband) echo "auauBDTSideband"; return 0 ;;
     nonTight:variantC|nonTight:VariantC|nonTight:variantc|nonTight:auauBDTComplement|nonTight:AuAuBDTComplement|nonTight:auaubdtcomplement) echo "auauBDTComplement"; return 0 ;;
@@ -406,6 +424,15 @@ selection_mode_normalize_for_key() {
     ""|reference|Reference) echo "reference" ;;
     variantA|VariantA|varianta|newPPG12|NewPPG12|newppg12) echo "newPPG12" ;;
     auauEmbeddedBDT|AuAuEmbeddedBDT|auauembeddedbdt) echo "auauEmbeddedBDT" ;;
+    auauNoCentBDT|AuAuNoCentBDT|auaunocentbdt) echo "auauNoCentBDT" ;;
+    auauCentInputBDT|AuAuCentInputBDT|auaucentinputbdt) echo "auauCentInputBDT" ;;
+    auauCentInput3x3BDT|AuAuCentInput3x3BDT|auaucentinput3x3bdt) echo "auauCentInput3x3BDT" ;;
+    auauCentInputMinOptBDT|AuAuCentInputMinOptBDT|auaucentinputminoptbdt) echo "auauCentInputMinOptBDT" ;;
+    auauCent3BDT|AuAuCent3BDT|auaucent3bdt) echo "auauCent3BDT" ;;
+    auauCent7BDT|AuAuCent7BDT|auaucent7bdt) echo "auauCent7BDT" ;;
+    auauPtBinCentInputBDT|AuAuPtBinCentInputBDT|auauptbincentinputbdt) echo "auauPtBinCentInputBDT" ;;
+    auauPtCent3BDT|AuAuPtCent3BDT|auauptcent3bdt) echo "auauPtCent3BDT" ;;
+    auauPtCent7BDT|AuAuPtCent7BDT|auauptcent7bdt) echo "auauPtCent7BDT" ;;
     auauBDTSideband|AuAuBDTSideband|auaubdtsideband) echo "auauBDTSideband" ;;
     auauBDTComplement|AuAuBDTComplement|auaubdtcomplement) echo "auauBDTComplement" ;;
     variantB|VariantB|variantb) echo "variantB" ;;
@@ -425,6 +452,15 @@ selection_mode_tag() {
     refPlusNPB) echo "${key}RefPlusNPB" ;;
     auauOnlyNPB) echo "${key}AuAuOnlyNPB" ;;
     auauEmbeddedBDT) echo "${key}AuAuEmbeddedBDT" ;;
+    auauNoCentBDT) echo "${key}AuAuNoCentBDT" ;;
+    auauCentInputBDT) echo "${key}AuAuCentInputBDT" ;;
+    auauCentInput3x3BDT) echo "${key}AuAuCentInput3x3BDT" ;;
+    auauCentInputMinOptBDT) echo "${key}AuAuCentInputMinOptBDT" ;;
+    auauCent3BDT) echo "${key}AuAuCent3BDT" ;;
+    auauCent7BDT) echo "${key}AuAuCent7BDT" ;;
+    auauPtBinCentInputBDT) echo "${key}AuAuPtBinCentInputBDT" ;;
+    auauPtCent3BDT) echo "${key}AuAuPtCent3BDT" ;;
+    auauPtCent7BDT) echo "${key}AuAuPtCent7BDT" ;;
     auauBDTSideband) echo "${key}AuAuBDTSideband" ;;
     auauBDTComplement) echo "${key}AuAuBDTComplement" ;;
     variantB) echo "${key}VariantB" ;;
@@ -525,6 +561,24 @@ build_cfg_tags_from_yaml() {
   local -a photon_id_rows=()
   while IFS= read -r line; do photon_id_rows+=( "$line" ); done < <(yaml_get_photon_id_sets "$yaml")
   (( ${#photon_id_rows[@]} > 0 )) || { echo "[ERROR] YAML must define photon_id_sets for cfg-tag generation: $yaml" >&2; exit 41; }
+
+  if [[ -n "${SFTP_GET_CFG_MATCH:-}" ]]; then
+    local match_lc
+    match_lc="$(printf "%s" "$SFTP_GET_CFG_MATCH" | tr '[:upper:]' '[:lower:]')"
+    local -a filtered_rows=()
+    local row pre tight nonTight pre_norm tight_norm nonTight_norm selection_tag row_norm
+    for row in "${photon_id_rows[@]}"; do
+      IFS='|' read -r pre tight nonTight <<< "$row"
+      pre_norm="$(selection_mode_normalize_for_key "preselection" "$pre")"
+      tight_norm="$(selection_mode_normalize_for_key "tight" "$tight")"
+      nonTight_norm="$(selection_mode_normalize_for_key "nonTight" "$nonTight")"
+      selection_tag="$(selection_mode_tag "preselection" "$pre_norm")_$(selection_mode_tag "tight" "$tight_norm")_$(selection_mode_tag "nonTight" "$nonTight_norm")"
+      row_norm="${pre_norm}|${tight_norm}|${nonTight_norm}|${selection_tag}"
+      [[ "$(printf "%s" "$row_norm" | tr '[:upper:]' '[:lower:]')" == *"${match_lc}"* ]] && filtered_rows+=( "$row" )
+    done
+    (( ${#filtered_rows[@]} > 0 )) || { echo "[ERROR] SFTP_GET_CFG_MATCH='${SFTP_GET_CFG_MATCH}' matched no cfg rows in $yaml" >&2; exit 42; }
+    photon_id_rows=( "${filtered_rows[@]}" )
+  fi
 
   # Production outputs now internalize jet pT, dphi, vz, and iso/cone views.
   # The analysis-facing final ROOT files are keyed only by photon-ID selection
@@ -1326,7 +1380,7 @@ case "$dataset" in
     ;;
 esac
 
-remote_dir="${REMOTE_BASE}/output/${remote_tag}"
+remote_dir="${SFTP_GET_REMOTE_DIR_OVERRIDE:-${REMOTE_BASE}/output/${remote_tag}}"
 local_dir="${LOCAL_BASE}/${local_subdir}"
 
 if [[ ! -d "$LOCAL_BASE" ]]; then
@@ -1429,7 +1483,9 @@ if (( ${#existing_files[@]} > 0 )); then
       mkdir -p "$previous_dir"
       echo "Moving existing files to: ${previous_dir}"
       for f in "${existing_files[@]}"; do
-        mv "$f" "${previous_dir}/"
+        rel="${f#${local_dir}/}"
+        mkdir -p "${previous_dir}/$(dirname "$rel")"
+        mv "$f" "${previous_dir}/${rel}"
       done
       ;;
     a|A|abort|ABORT|"")

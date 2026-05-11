@@ -1184,6 +1184,17 @@ std::string RecoilJets::withIsoViewSuffix(const std::string& base) const
   return base + m_activeIsoViewSuffix;
 }
 
+std::string RecoilJets::withIsoConeSuffix(const std::string& base) const
+{
+  if (m_activeIsoViewSuffix.empty() || base.empty()) return base;
+  const int cone100 = static_cast<int>(std::lround(100.0 * m_isoConeR));
+  if (cone100 <= 0) return base;
+  std::ostringstream os;
+  os << "_isoR" << std::setw(2) << std::setfill('0') << cone100;
+  const std::string suffix = os.str();
+  return (base.find(suffix) != std::string::npos) ? base : base + suffix;
+}
+
 bool RecoilJets::fillCanonicalThisView() const
 {
   if (m_internalIsoViews.empty()) return true;
@@ -1191,9 +1202,25 @@ bool RecoilJets::fillCanonicalThisView() const
   return m_activeIsoViewSuffix == "_" + m_internalIsoViews.front().label;
 }
 
+bool RecoilJets::fillConeThisView() const
+{
+  if (m_internalIsoViews.empty()) return true;
+  if (m_activeIsoViewSuffix.empty()) return true;
+  const int activeCone100 = static_cast<int>(std::lround(100.0 * m_isoConeR));
+  for (const auto& view : m_internalIsoViews)
+  {
+    const int viewCone100 = static_cast<int>(std::lround(100.0 * view.coneR));
+    if (viewCone100 != activeCone100) continue;
+    return m_activeIsoViewSuffix == "_" + view.label;
+  }
+  return true;
+}
+
 std::string RecoilJets::histBaseForScope(const std::string& base, HistViewScope scope) const
 {
-  return (scope == HistViewScope::IsoView) ? withIsoViewSuffix(base) : base;
+  if (scope == HistViewScope::IsoView) return withIsoViewSuffix(base);
+  if (scope == HistViewScope::IsoCone) return withIsoConeSuffix(base);
+  return base;
 }
 
 std::string RecoilJets::recoilRKeyForScope(const std::string& rKey,
@@ -6007,42 +6034,45 @@ void RecoilJets::fillPureIsolationQA(PHCompositeNode* topNode,
   // Pure isolation threshold decision (signal line only)
   const double thrIso  = (m_isSlidingIso ? (m_isoA + m_isoB * pt_gamma) : m_isoFixed);
   const bool   isoPass = (eiso_tot < thrIso);
+  const bool   doCone  = fillConeThisView();
 
   for (const auto& trigShort : activeTrig)
   {
-    // (A) Existing total isolation histogram (unchanged name/slicing)
-    if (auto* hIso = getOrBookIsoHist(trigShort, ptIdx, effCentIdx))
+    if (doCone)
     {
-      hIso->Fill(eiso_tot);
-      bumpHistFill(trigShort, hIso->GetName());
+      // Raw isolation spectra depend on cone radius only, not fixed/sliding WP.
+      if (auto* hIso = getOrBookIsoHist(trigShort, ptIdx, effCentIdx))
+      {
+        hIso->Fill(eiso_tot);
+        bumpHistFill(trigShort, hIso->GetName());
+      }
+
+      if (auto* hEm = getOrBookIsoPartHist(trigShort, "h_Eiso_emcal",
+                                           "E_{T}^{iso,EMCal} [GeV]",
+                                           ptIdx, effCentIdx))
+      {
+        hEm->Fill(eiso_emcal);
+        bumpHistFill(trigShort, hEm->GetName());
+      }
+
+      if (auto* hHi = getOrBookIsoPartHist(trigShort, "h_Eiso_hcalin",
+                                           "E_{T}^{iso,IHCAL} [GeV]",
+                                           ptIdx, effCentIdx))
+      {
+        hHi->Fill(eiso_hcalin);
+        bumpHistFill(trigShort, hHi->GetName());
+      }
+
+      if (auto* hHo = getOrBookIsoPartHist(trigShort, "h_Eiso_hcalout",
+                                           "E_{T}^{iso,OHCAL} [GeV]",
+                                           ptIdx, effCentIdx))
+      {
+        hHo->Fill(eiso_hcalout);
+        bumpHistFill(trigShort, hHo->GetName());
+      }
     }
 
-    // (B) component isolation histograms (EMCal / IHCal / OHCal)
-    if (auto* hEm = getOrBookIsoPartHist(trigShort, "h_Eiso_emcal",
-                                         "E_{T}^{iso,EMCal} [GeV]",
-                                         ptIdx, effCentIdx))
-    {
-      hEm->Fill(eiso_emcal);
-      bumpHistFill(trigShort, hEm->GetName());
-    }
-
-    if (auto* hHi = getOrBookIsoPartHist(trigShort, "h_Eiso_hcalin",
-                                         "E_{T}^{iso,IHCAL} [GeV]",
-                                         ptIdx, effCentIdx))
-    {
-      hHi->Fill(eiso_hcalin);
-      bumpHistFill(trigShort, hHi->GetName());
-    }
-
-    if (auto* hHo = getOrBookIsoPartHist(trigShort, "h_Eiso_hcalout",
-                                         "E_{T}^{iso,OHCAL} [GeV]",
-                                         ptIdx, effCentIdx))
-    {
-      hHo->Fill(eiso_hcalout);
-      bumpHistFill(trigShort, hHo->GetName());
-    }
-
-    // (C) NEW isolation decision counts (PASS vs FAIL), independent of SS
+    // The threshold decision depends on the full fixed/sliding iso view.
     if (auto* hDec = getOrBookIsoDecisionHist(trigShort, ptIdx, effCentIdx))
     {
       hDec->Fill(isoPass ? 1 : 2);   // bin 1 = PASS, bin 2 = FAIL
@@ -6454,9 +6484,8 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
 
     // reco isolation distribution for TRUTH-ISOLATED signal photons (direct+frag),
     // independent of reco shower-shape classification.
+    if (fillConeThisView())
     {
-      const std::string slice_sig = suffixForBins(ptIdx_sig, effCentIdx_sig);
-
       for (const auto& trigShort : activeTrig)
       {
         if (auto* hIso = getOrBookIsoPartHist(trigShort,
@@ -7877,39 +7906,42 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                         }
                     }
 
-                    for (const auto& trigShort : activeTrig)
+                    if (fillConeThisView())
                     {
-                        if (auto* hIso = getOrBookIsoPartHist(trigShort, base_tot,
-                                                              "E_{T}^{iso} [GeV]",
-                                                              ptIdx, effCentIdx_SS))
-                        {
-                            hIso->Fill(eiso_et);
-                            bumpHistFill(trigShort, std::string(base_tot) + slice_SS);
-                        }
+                      for (const auto& trigShort : activeTrig)
+                      {
+                          if (auto* hIso = getOrBookIsoPartHist(trigShort, base_tot,
+                                                                "E_{T}^{iso} [GeV]",
+                                                                ptIdx, effCentIdx_SS))
+                          {
+                              hIso->Fill(eiso_et);
+                              bumpHistFill(trigShort, hIso->GetName());
+                          }
 
-                        if (auto* hEm = getOrBookIsoPartHist(trigShort, base_em,
-                                                             "E_{T}^{iso,EMCal} [GeV]",
-                                                             ptIdx, effCentIdx_SS))
-                        {
-                            hEm->Fill(eiso_emcal);
-                            bumpHistFill(trigShort, std::string(base_em) + slice_SS);
-                        }
+                          if (auto* hEm = getOrBookIsoPartHist(trigShort, base_em,
+                                                               "E_{T}^{iso,EMCal} [GeV]",
+                                                               ptIdx, effCentIdx_SS))
+                          {
+                              hEm->Fill(eiso_emcal);
+                              bumpHistFill(trigShort, hEm->GetName());
+                          }
 
-                        if (auto* hHi = getOrBookIsoPartHist(trigShort, base_hi,
-                                                             "E_{T}^{iso,IHCAL} [GeV]",
-                                                             ptIdx, effCentIdx_SS))
-                        {
-                            hHi->Fill(eiso_hcalin);
-                            bumpHistFill(trigShort, std::string(base_hi) + slice_SS);
-                        }
+                          if (auto* hHi = getOrBookIsoPartHist(trigShort, base_hi,
+                                                               "E_{T}^{iso,IHCAL} [GeV]",
+                                                               ptIdx, effCentIdx_SS))
+                          {
+                              hHi->Fill(eiso_hcalin);
+                              bumpHistFill(trigShort, hHi->GetName());
+                          }
 
-                        if (auto* hHo = getOrBookIsoPartHist(trigShort, base_ho,
-                                                             "E_{T}^{iso,OHCAL} [GeV]",
-                                                             ptIdx, effCentIdx_SS))
-                        {
-                            hHo->Fill(eiso_hcalout);
-                            bumpHistFill(trigShort, std::string(base_ho) + slice_SS);
-                        }
+                          if (auto* hHo = getOrBookIsoPartHist(trigShort, base_ho,
+                                                               "E_{T}^{iso,OHCAL} [GeV]",
+                                                               ptIdx, effCentIdx_SS))
+                          {
+                              hHo->Fill(eiso_hcalout);
+                              bumpHistFill(trigShort, hHo->GetName());
+                          }
+                      }
                     }
                 }
 
@@ -14085,15 +14117,15 @@ TH3F* RecoilJets::getOrBookJES3Truth_jet1Pt_alphaHist(const std::string& trig,
 
 
 // ============================================================================
-//  Legacy isolation bookers.  Optimized production adds the active iso-view
-//  suffix to the histogram base name; direct scalar mode leaves names unchanged.
+//  Legacy isolation bookers. Raw Eiso spectra get cone-only internal suffixes;
+//  threshold/ABCD/recoil quantities use full iso-view suffixes at their callers.
 // ============================================================================
 
 TH1F* RecoilJets::getOrBookIsoHist(const std::string& trig, int etIdx, int centIdx)
 {
   const std::string base   = "h_Eiso";
   const std::string suffix = suffixForBins(etIdx, centIdx);
-  const std::string name   = withIsoViewSuffix(base) + suffix;
+  const std::string name   = histBaseForScope(base, HistViewScope::IsoCone) + suffix;
 
   if (Verbosity() >= 5)
     LOG(5, CLR_BLUE, "  [getOrBookIsoHist] trig=\"" << trig
@@ -14169,10 +14201,11 @@ TH1F* RecoilJets::getOrBookIsoHist(const std::string& trig, int etIdx, int centI
 TH1F* RecoilJets::getOrBookIsoPartHist(const std::string& trig,
                                        const std::string& base,
                                        const std::string& xAxisTitle,
-                                       int ptIdx, int centIdx)
+                                       int ptIdx, int centIdx,
+                                       HistViewScope scope)
 {
   const std::string suffix = suffixForBins(ptIdx, centIdx);
-  const std::string name   = withIsoViewSuffix(base) + suffix;
+  const std::string name   = histBaseForScope(base, scope) + suffix;
 
   if (Verbosity() >= 5)
     LOG(5, CLR_BLUE, "  [getOrBookIsoPartHist] trig=\"" << trig
@@ -15322,7 +15355,8 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
     // -------------------------------------------------------------------------
     {
       const std::string hBase = std::string("h_Eiso_ABCD_") + std::string(1, region);
-      if (auto* hIsoReg = getOrBookIsoPartHist(trig, hBase, "E_{T}^{iso} [GeV]", ptIdx, effCentIdx))
+      if (auto* hIsoReg = getOrBookIsoPartHist(trig, hBase, "E_{T}^{iso} [GeV]",
+                                               ptIdx, effCentIdx, HistViewScope::IsoView))
       {
         hIsoReg->Fill(eiso_et);
         bumpHistFill(trig, hIsoReg->GetName());

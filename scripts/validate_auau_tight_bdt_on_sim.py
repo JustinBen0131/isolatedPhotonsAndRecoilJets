@@ -29,6 +29,7 @@ BASE_FEATURES = [
     "cluster_et4",
     "e32_over_e35",
 ]
+WIDTH_3X3_FEATURES = ["cluster_weta33_cogx", "cluster_wphi33_cogx"]
 
 PRODUCTS = {
     "centINDcontrol": {
@@ -52,6 +53,10 @@ PRODUCTS = {
 PLOT_LABELS = {
     "centINDcontrol": "Cluster-shape only",
     "centAsFeat": "Cluster-shape + centrality",
+    "centAsFeat3x3_pt5to40": "Centrality input, 3x3 shower widths",
+    "centAsFeat_pt15to30": "Base widths, 15-30 GeV",
+    "centAsFeat3x3_pt15to30": "3x3 widths, 15-30 GeV",
+    "centAsFeatBase3x3_pt15to30": "Base + 3x3 widths, 15-30 GeV",
     "centDepBDTs": "Centrality-specific models",
 }
 
@@ -60,11 +65,18 @@ PLOT_COLORS = {
     "centAsFeat": "#ff7f0e",
     "centDepBDTs": "#2ca02c",
 }
+FALLBACK_COLORS = [
+    "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+    "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+]
 
 PT_BINS = [(6, 10), (10, 15), (15, 20), (20, 25), (25, 35)]
 CENT_BINS = [(0, 20), (20, 50), (50, 80)]
 DIAGNOSTIC_FEATURES = []
 for _name in BASE_FEATURES + ["centrality", "reco_eiso"]:
+    if _name not in DIAGNOSTIC_FEATURES:
+        DIAGNOSTIC_FEATURES.append(_name)
+for _name in WIDTH_3X3_FEATURES:
     if _name not in DIAGNOSTIC_FEATURES:
         DIAGNOSTIC_FEATURES.append(_name)
 EFFICIENCY_TARGETS = [0.50, 0.70, 0.80, 0.90, 0.95]
@@ -83,6 +95,12 @@ def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--source", type=Path, required=True)
     ap.add_argument("--model-dir", type=Path, required=True)
+    ap.add_argument(
+        "--model-registry",
+        type=Path,
+        default=None,
+        help="Optional explicit model_registry*.json. If omitted, uses model-dir/model_registry.json when present.",
+    )
     ap.add_argument("--manifest", type=Path, default=None, help="Optional ROOT-file manifest for sharded validation.")
     ap.add_argument("--outdir", type=Path, default=None)
     ap.add_argument("--tree", default="AuAuPhotonIDTrainingTree")
@@ -139,20 +157,83 @@ def require_imports():
         ) from exc
 
 
-def load_models(model_dir: Path):
+def product_specs_from_registry(model_dir: Path, registry_path: Path | None = None):
+    registry = registry_path if registry_path is not None else model_dir / "model_registry.json"
+    if not registry.is_file():
+        if registry_path is not None:
+            raise SystemExit(f"Requested model registry does not exist: {registry}")
+        return None
+    data = json.loads(registry.read_text())
+    grouped = {}
+    for spec in data.get("models", []):
+        report = spec.get("report")
+        if not report:
+            continue
+        if report.get("status") == "skipped":
+            continue
+        product = spec["product"]
+        grouped.setdefault(product, {"features": spec["features"], "models": []})
+        grouped[product]["models"].append(
+            {
+                "selector": {
+                    "cent_range": spec.get("cent_range"),
+                    "pt_range": spec.get("pt_range"),
+                },
+                "filename": Path(spec["output_tmva"]).name,
+                "model_id": spec["model_id"],
+            }
+        )
+    if not grouped:
+        raise SystemExit(f"Registry exists but has no trained model reports: {registry}")
+    return grouped
+
+
+def active_product_specs(model_dir: Path, registry_path: Path | None = None):
+    return product_specs_from_registry(model_dir, registry_path) or {
+        product: {
+            "features": spec["features"],
+            "models": [
+                {
+                    "selector": {"cent_range": selector if selector != "all" else None, "pt_range": None},
+                    "filename": filename,
+                    "model_id": product if selector == "all" else f"{product}_{range_key(*selector)}",
+                }
+                for selector, filename in spec["models"]
+            ],
+        }
+        for product, spec in PRODUCTS.items()
+    }
+
+
+def product_label(product: str) -> str:
+    return PLOT_LABELS.get(product, product.replace("_", " "))
+
+
+def product_color(product: str) -> str:
+    if product in PLOT_COLORS:
+        return PLOT_COLORS[product]
+    return FALLBACK_COLORS[stable_color_index(product)]
+
+
+def stable_color_index(text: str) -> int:
+    return sum(ord(ch) for ch in text) % len(FALLBACK_COLORS)
+
+
+def load_models(model_dir: Path, product_specs):
     import ROOT
 
     loaded = {}
     missing = []
-    for product, spec in PRODUCTS.items():
+    for product, spec in product_specs.items():
         entries = []
-        for selector, filename in spec["models"]:
+        for model_spec in spec["models"]:
+            filename = model_spec["filename"]
             path = model_dir / filename
             if not path.is_file() or path.stat().st_size <= 0:
                 missing.append(str(path))
                 continue
             try:
-                entries.append((selector, ROOT.TMVA.Experimental.RBDT("myBDT", str(path))))
+                entries.append((model_spec["selector"], ROOT.TMVA.Experimental.RBDT("myBDT", str(path))))
             except Exception as exc:
                 raise SystemExit(f"Failed to load TMVA model {path}: {exc}") from exc
         loaded[product] = entries
@@ -161,25 +242,46 @@ def load_models(model_dir: Path):
     return loaded
 
 
-def cent_selector_mask(cent, selector):
+def selector_mask(frame, selector):
     import numpy as np
 
-    if selector == "all":
-        return np.ones(len(cent), dtype=bool)
-    lo, hi = selector
-    return np.isfinite(cent) & (cent >= lo) & (cent < hi)
+    n = len(frame["is_signal"])
+    mask = np.ones(n, dtype=bool)
+    cent_range = selector.get("cent_range")
+    if cent_range is not None:
+        lo, hi = cent_range
+        cent = frame["centrality"]
+        mask &= np.isfinite(cent) & (cent >= lo) & (cent < hi)
+    pt_range = selector.get("pt_range")
+    if pt_range is not None:
+        lo, hi = pt_range
+        et = frame["cluster_Et"]
+        mask &= np.isfinite(et) & (et >= lo) & (et < hi)
+    return mask
 
 
-def score_rows(frame, models):
+def product_eligible_mask(frame, product_spec):
+    import numpy as np
+
+    models = product_spec.get("models", []) if product_spec else []
+    if not models:
+        return np.ones(len(frame["is_signal"]), dtype=bool)
+    eligible = np.zeros(len(frame["is_signal"]), dtype=bool)
+    for model in models:
+        eligible |= selector_mask(frame, model.get("selector", {}))
+    return eligible
+
+
+def score_rows(frame, models, product_specs):
     import numpy as np
     import ROOT
 
     scores = {}
-    for product, spec in PRODUCTS.items():
+    for product, spec in product_specs.items():
         features = spec["features"]
         out = np.full(len(frame["is_signal"]), np.nan, dtype="float32")
         for selector, model in models[product]:
-            mask = cent_selector_mask(frame["centrality"], selector)
+            mask = selector_mask(frame, selector)
             idx = np.flatnonzero(mask)
             if len(idx) == 0:
                 continue
@@ -201,12 +303,22 @@ def score_rows(frame, models):
     return scores
 
 
-def collect_rows(paths: list[Path], tree_name: str, score_max_rows: int, progress_every: int):
+def collect_rows(
+    paths: list[Path],
+    tree_name: str,
+    score_max_rows: int,
+    progress_every: int,
+    feature_names: list[str] | None = None,
+):
     import numpy as np
     import uproot
 
     required = sorted(
-        set(["is_signal", "cluster_Et", "cluster_Eta", "centrality", "reco_eiso"] + BASE_FEATURES)
+        set(
+            ["is_signal", "cluster_Et", "cluster_Eta", "centrality", "reco_eiso"]
+            + BASE_FEATURES
+            + list(feature_names or [])
+        )
     )
     arrays = {name: [] for name in required}
     total_entries = 0
@@ -286,7 +398,7 @@ def load_score_caches(cache_manifest: Path):
 
     cache_paths = read_manifest(cache_manifest)
     frame_parts = {name: [] for name in ["is_signal"] + DIAGNOSTIC_FEATURES}
-    score_parts = {product: [] for product in PRODUCTS}
+    score_parts = {}
     counts = {
         "files": 0,
         "total_entries": 0,
@@ -308,11 +420,11 @@ def load_score_caches(cache_manifest: Path):
                         f"Missing diagnostic column {name} in score cache: {path}. "
                         "Regenerate validation caches with the updated validator."
                     )
-            for product in PRODUCTS:
-                key = f"score_{product}"
-                if key not in data:
-                    raise SystemExit(f"Missing {key} in score cache: {path}")
-                score_parts[product].append(data[key])
+            for key in data.files:
+                if not key.startswith("score_"):
+                    continue
+                product = key[len("score_"):]
+                score_parts.setdefault(product, []).append(data[key])
             cached_counts = json.loads(str(data["counts_json"].item())) if "counts_json" in data else {}
             counts["files"] += int(cached_counts.get("files", 0))
             counts["total_entries"] += int(cached_counts.get("total_entries", 0))
@@ -619,14 +731,14 @@ def write_curve_exports(outdir: Path, frame, scores, metrics):
     root_path = outdir / "validation_curves.root"
     fout = ROOT.TFile(str(root_path), "RECREATE")
     for product, score in scores.items():
-        label = PLOT_LABELS.get(product, product)
+        label = product_label(product)
         roc = metrics["products"].get(product, {}).get("_roc")
         if roc is not None:
             fpr, tpr, thresholds = roc
             rejection = 1.0 - fpr
             roc_payload["products"][product] = {
                 "label": label,
-                "color": PLOT_COLORS.get(product, "black"),
+                "color": product_color(product),
                 "auc": metrics["products"][product]["auc_inclusive"],
                 "background_fake_rate": np.asarray(fpr, dtype=float).tolist(),
                 "background_rejection": np.asarray(rejection, dtype=float).tolist(),
@@ -648,7 +760,7 @@ def write_curve_exports(outdir: Path, frame, scores, metrics):
             g_rej.Write()
 
         finite = np.isfinite(score)
-        product_hist = {"label": label, "color": PLOT_COLORS.get(product, "black"), "by_centrality": {}}
+        product_hist = {"label": label, "color": product_color(product), "by_centrality": {}}
         for class_name, class_value in (("background", 0), ("signal", 1)):
             values = score[finite & (y == class_value)]
             counts, _ = np.histogram(values, bins=score_bins)
@@ -745,7 +857,7 @@ def write_curve_exports(outdir: Path, frame, scores, metrics):
         if roc_by_cent:
             roc_payload["products"].setdefault(
                 product,
-                {"label": label, "color": PLOT_COLORS.get(product, "black")},
+                {"label": label, "color": product_color(product)},
             )
             roc_payload["products"][product]["by_centrality"] = roc_by_cent
         roc_by_pt = {}
@@ -811,7 +923,7 @@ def write_curve_exports(outdir: Path, frame, scores, metrics):
         if roc_by_pt:
             roc_payload["products"].setdefault(
                 product,
-                {"label": label, "color": PLOT_COLORS.get(product, "black")},
+                {"label": label, "color": product_color(product)},
             )
             roc_payload["products"][product]["by_pt"] = roc_by_pt
         hist_payload["products"][product] = product_hist
@@ -830,21 +942,25 @@ def make_plots(outdir: Path, frame, scores, metrics):
     cent = frame["centrality"].astype("float64")
     eiso = frame["reco_eiso"].astype("float64")
 
-    colors = {
-        "centINDcontrol": "tab:blue",
-        "centAsFeat": "tab:orange",
-        "centDepBDTs": "tab:green",
-    }
+    all_products = list(scores)
+    ranked_products = sorted(
+        all_products,
+        key=lambda p: metrics["products"].get(p, {}).get("auc_inclusive", float("-inf")),
+        reverse=True,
+    )
+    max_detail = int(os.environ.get("RJ_AUAU_TIGHT_BDT_VALIDATE_MAX_DETAIL_PLOTS", "12"))
+    detail_products = ranked_products[:max(1, max_detail)]
 
     fig, ax = plt.subplots(figsize=(7.0, 6.0))
-    for product, score in scores.items():
+    for product in detail_products:
+        score = scores[product]
         auc = metrics["products"][product]["auc_inclusive"]
         roc = metrics["products"][product].get("_roc")
         if roc is None:
             continue
         fpr, tpr, _ = roc
-        label = PLOT_LABELS.get(product, product)
-        ax.plot(fpr, tpr, lw=2, color=colors[product], label=f"{label} AUC={auc:.3f}")
+        label = product_label(product)
+        ax.plot(fpr, tpr, lw=2, color=product_color(product), label=f"{label} AUC={auc:.3f}")
     ax.plot([0, 1], [0, 1], "k--", lw=1)
     ax.set_xlabel("Background fake rate")
     ax.set_ylabel("Signal efficiency")
@@ -855,7 +971,8 @@ def make_plots(outdir: Path, frame, scores, metrics):
     fig.savefig(outdir / "roc_inclusive.png", dpi=170)
     plt.close(fig)
 
-    for product, score in scores.items():
+    for product in detail_products:
+        score = scores[product]
         fig, ax = plt.subplots(figsize=(7.0, 6.0))
         any_curve = False
         for lo, hi in CENT_BINS:
@@ -870,7 +987,7 @@ def make_plots(outdir: Path, frame, scores, metrics):
             ax.plot([0, 1], [0, 1], "k--", lw=1)
             ax.set_xlabel("Background fake rate")
             ax.set_ylabel("Signal efficiency")
-            ax.set_title(f"{PLOT_LABELS.get(product, product)} ROC by centrality")
+            ax.set_title(f"{product_label(product)} ROC by centrality")
             ax.grid(alpha=0.25)
             ax.legend(fontsize=9)
             fig.tight_layout()
@@ -891,7 +1008,7 @@ def make_plots(outdir: Path, frame, scores, metrics):
             ax.plot([0, 1], [0, 1], "k--", lw=1)
             ax.set_xlabel("Background fake rate")
             ax.set_ylabel("Signal efficiency")
-            ax.set_title(f"{PLOT_LABELS.get(product, product)} ROC by photon E$_T$")
+            ax.set_title(f"{product_label(product)} ROC by photon E$_T$")
             ax.grid(alpha=0.25)
             ax.legend(fontsize=8)
             fig.tight_layout()
@@ -906,7 +1023,7 @@ def make_plots(outdir: Path, frame, scores, metrics):
         ax.set_yscale("log")
         ax.set_xlabel("BDT score")
         ax.set_ylabel("Normalized candidates")
-        ax.set_title(f"{PLOT_LABELS.get(product, product)}: signal/background score separation")
+        ax.set_title(f"{product_label(product)}: signal/background score separation")
         ax.grid(alpha=0.25)
         ax.legend()
         fig.tight_layout()
@@ -928,7 +1045,7 @@ def make_plots(outdir: Path, frame, scores, metrics):
             ax.grid(alpha=0.25)
         axes[0].set_ylabel("Normalized candidates")
         axes[-1].legend(fontsize=9)
-        fig.suptitle(f"{PLOT_LABELS.get(product, product)} score separation by centrality", y=1.02)
+        fig.suptitle(f"{product_label(product)} score separation by centrality", y=1.02)
         fig.tight_layout()
         fig.savefig(outdir / f"score_overlay_by_centrality_{product}.png", dpi=170, bbox_inches="tight")
         plt.close(fig)
@@ -943,7 +1060,7 @@ def make_plots(outdir: Path, frame, scores, metrics):
             ax.set_yscale("log")
             ax.set_xlabel("BDT score")
             ax.set_ylabel("Normalized candidates")
-            ax.set_title(f"{PLOT_LABELS.get(product, product)}: {cent_label(lo, hi)} score separation")
+            ax.set_title(f"{product_label(product)}: {cent_label(lo, hi)} score separation")
             ax.grid(alpha=0.25)
             ax.legend()
             fig.tight_layout()
@@ -959,7 +1076,7 @@ def make_plots(outdir: Path, frame, scores, metrics):
             fig.colorbar(h[3], ax=ax, label="candidates")
             ax.set_xlabel(xlabel)
             ax.set_ylabel("BDT score")
-            ax.set_title(f"{PLOT_LABELS.get(product, product)}: BDT score vs {xlabel}")
+            ax.set_title(f"{product_label(product)}: BDT score vs {xlabel}")
             fig.tight_layout()
             fig.savefig(outdir / f"score_vs_{xname}_{product}.png", dpi=170)
             plt.close(fig)
@@ -983,7 +1100,7 @@ def make_plots(outdir: Path, frame, scores, metrics):
             ax.set_yticks(np.arange(len(CENT_BINS)), [cent_label(lo, hi) for lo, hi in CENT_BINS])
             ax.set_xlabel(r"cluster $E_T$ [GeV]")
             ax.set_ylabel("Centrality")
-            ax.set_title(f"{PLOT_LABELS.get(product, product)} AUC by centrality and $E_T$")
+            ax.set_title(f"{product_label(product)} AUC by centrality and $E_T$")
             for ic in range(len(CENT_BINS)):
                 for ip in range(len(PT_BINS)):
                     if np.isfinite(heat[ic, ip]):
@@ -993,12 +1110,12 @@ def make_plots(outdir: Path, frame, scores, metrics):
             fig.savefig(outdir / f"auc_heatmap_cent_pt_{product}.png", dpi=170)
             plt.close(fig)
 
-    products = list(PRODUCTS)
+    products = ranked_products[:25]
     x = np.arange(len(products))
     aucs = [metrics["products"][p]["auc_inclusive"] for p in products]
-    fig, ax = plt.subplots(figsize=(7.0, 4.8))
-    ax.bar(x, aucs, color=[colors[p] for p in products])
-    ax.set_xticks(x, [PLOT_LABELS.get(p, p) for p in products], rotation=20, ha="right")
+    fig, ax = plt.subplots(figsize=(max(7.0, 0.35 * len(products)), 4.8))
+    ax.bar(x, aucs, color=[product_color(p) for p in products])
+    ax.set_xticks(x, [product_label(p) for p in products], rotation=20, ha="right")
     ax.set_ylim(0.45, 1.0)
     ax.set_ylabel("Inclusive AUC")
     ax.set_title("AuAu tight-BDT inclusive AUC")
@@ -1008,7 +1125,7 @@ def make_plots(outdir: Path, frame, scores, metrics):
     plt.close(fig)
 
 
-def build_metrics(frame, scores, args):
+def build_metrics(frame, scores, args, product_specs=None):
     import numpy as np
 
     y = frame["is_signal"].astype("int32")
@@ -1018,7 +1135,9 @@ def build_metrics(frame, scores, args):
     metrics = {"products": {}}
     for product, score in scores.items():
         eligible = np.isin(y, [0, 1])
-        if product == "centDepBDTs":
+        if product_specs is not None and product in product_specs:
+            eligible &= product_eligible_mask(frame, product_specs[product])
+        elif product == "centDepBDTs":
             eligible &= np.isfinite(cent) & (cent >= 0.0) & (cent < 80.0)
         finite = eligible & np.isfinite(score)
         auc, roc = auc_for(y[eligible], score[eligible])
@@ -1032,6 +1151,12 @@ def build_metrics(frame, scores, args):
             mask = eligible & (cent >= lo) & (cent < hi)
             a, _ = auc_for(y[mask], score[mask])
             by_cent[f"{lo:g}_{hi:g}"] = a
+        by_pt_cent = {}
+        for plo, phi in PT_BINS:
+            for clo, chi in CENT_BINS:
+                mask = eligible & (et >= plo) & (et < phi) & (cent >= clo) & (cent < chi)
+                a, _ = auc_for(y[mask], score[mask])
+                by_pt_cent[f"pt_{plo:g}_{phi:g}_cent_{clo:g}_{chi:g}"] = a
         corr_mask = finite & np.isfinite(eiso)
         corr = math.nan
         if corr_mask.sum() >= 3:
@@ -1041,6 +1166,7 @@ def build_metrics(frame, scores, args):
             "_roc": roc,
             "auc_by_pt": by_pt,
             "auc_by_centrality": by_cent,
+            "auc_by_pt_centrality": by_pt_cent,
             "eligible_entries": int(eligible.sum()),
             "finite_scores": int(finite.sum()),
             "finite_score_fraction": float(finite.sum() / max(1, eligible.sum())),
@@ -1051,12 +1177,17 @@ def build_metrics(frame, scores, args):
     return metrics
 
 
-def ensure_product_metrics(metrics):
+def ensure_product_metrics(metrics, products):
     defaults = {
         "auc_inclusive": math.nan,
         "_roc": None,
         "auc_by_pt": {f"{lo:g}_{hi:g}": math.nan for lo, hi in PT_BINS},
         "auc_by_centrality": {f"{lo:g}_{hi:g}": math.nan for lo, hi in CENT_BINS},
+        "auc_by_pt_centrality": {
+            f"pt_{plo:g}_{phi:g}_cent_{clo:g}_{chi:g}": math.nan
+            for plo, phi in PT_BINS
+            for clo, chi in CENT_BINS
+        },
         "eligible_entries": 0,
         "finite_scores": 0,
         "finite_score_fraction": 0.0,
@@ -1065,7 +1196,7 @@ def ensure_product_metrics(metrics):
         "background_score_mean": math.nan,
     }
     metrics.setdefault("products", {})
-    for product in PRODUCTS:
+    for product in products:
         metrics["products"].setdefault(product, dict(defaults))
     return metrics
 
@@ -1094,11 +1225,13 @@ def write_parseable_summary(path: Path, status: str, args, counts, metrics, note
         f.write(f"status={status}\n")
         f.write(f"source={args.source}\n")
         f.write(f"model_dir={args.model_dir}\n")
+        if args.model_registry is not None:
+            f.write(f"model_registry={args.model_registry}\n")
         f.write(f"total_entries={counts['total_entries']}\n")
         f.write(f"signal_entries={counts['signal_entries']}\n")
         f.write(f"background_entries={counts['background_entries']}\n")
         f.write(f"scored_entries={counts['scored_entries']}\n")
-        for product in PRODUCTS:
+        for product in products:
             f.write(f"{product}_auc={products[product]['auc_inclusive']:.6g}\n")
             f.write(f"{product}_finite_score_fraction={products[product]['finite_score_fraction']:.6g}\n")
             f.write(f"{product}_score_eiso_pearson={products[product]['score_eiso_pearson']:.6g}\n")
@@ -1116,6 +1249,44 @@ def write_parseable_summary(path: Path, status: str, args, counts, metrics, note
         f.write("next_action=If status is READY, inspect the PNG/JSON outputs, then run the constrained data+MC BDT-variant validation.\n")
 
 
+def write_model_rankings(outdir: Path, metrics) -> None:
+    import csv
+    import numpy as np
+
+    rows = []
+    for product, product_metrics in metrics.get("products", {}).items():
+        by_pt = [v for v in product_metrics.get("auc_by_pt", {}).values() if isinstance(v, (int, float)) and math.isfinite(v)]
+        by_cent = [v for v in product_metrics.get("auc_by_centrality", {}).values() if isinstance(v, (int, float)) and math.isfinite(v)]
+        by_pt_cent = [v for v in product_metrics.get("auc_by_pt_centrality", {}).values() if isinstance(v, (int, float)) and math.isfinite(v)]
+        rows.append(
+            {
+                "product": product,
+                "label": product_label(product),
+                "auc_inclusive": product_metrics.get("auc_inclusive", math.nan),
+                "auc_pt_mean": float(np.mean(by_pt)) if by_pt else math.nan,
+                "auc_cent_mean": float(np.mean(by_cent)) if by_cent else math.nan,
+                "auc_pt_cent_mean": float(np.mean(by_pt_cent)) if by_pt_cent else math.nan,
+                "finite_score_fraction": product_metrics.get("finite_score_fraction", math.nan),
+                "eligible_entries": product_metrics.get("eligible_entries", 0),
+                "signal_score_mean": product_metrics.get("signal_score_mean", math.nan),
+                "background_score_mean": product_metrics.get("background_score_mean", math.nan),
+            }
+        )
+    rows.sort(
+        key=lambda r: (
+            np.nan_to_num(r["auc_inclusive"], nan=-1.0),
+            np.nan_to_num(r["auc_pt_cent_mean"], nan=-1.0),
+            np.nan_to_num(r["auc_pt_mean"], nan=-1.0),
+        ),
+        reverse=True,
+    )
+    (outdir / "validation_model_rankings.json").write_text(json.dumps(json_ready(rows), indent=2, sort_keys=True) + "\n")
+    with (outdir / "validation_model_rankings.csv").open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=list(rows[0]) if rows else ["product"])
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def main() -> int:
     args = parse_args()
     require_imports()
@@ -1123,14 +1294,24 @@ def main() -> int:
 
     outdir = args.outdir or (args.source / "reports" / f"model_validation_{os.environ.get('RJ_AUAU_TIGHT_BDT_VALIDATE_STAMP') or __import__('datetime').datetime.now().strftime('%Y%m%d_%H%M%S')}")
     outdir.mkdir(parents=True, exist_ok=True)
+    product_specs = active_product_specs(args.model_dir, args.model_registry)
+    product_names = list(product_specs)
+    feature_names = sorted({name for spec in product_specs.values() for name in spec["features"]})
 
     if args.merge_score_caches is not None:
         frame, scores, counts = load_score_caches(args.merge_score_caches)
+        product_names = list(scores)
     else:
         paths = read_manifest(args.manifest) if args.manifest is not None else discover_manifest(args.source)
-        models = load_models(args.model_dir)
-        frame, counts = collect_rows(paths, args.tree, args.score_max_rows, args.progress_every)
-        scores = score_rows(frame, models) if counts["scored_entries"] > 0 else {p: np.array([], dtype="float32") for p in PRODUCTS}
+        models = load_models(args.model_dir, product_specs)
+        frame, counts = collect_rows(
+            paths,
+            args.tree,
+            args.score_max_rows,
+            args.progress_every,
+            feature_names=feature_names,
+        )
+        scores = score_rows(frame, models, product_specs) if counts["scored_entries"] > 0 else {p: np.array([], dtype="float32") for p in product_names}
         if args.write_score_cache is not None:
             write_score_cache(args.write_score_cache, frame, scores, counts)
 
@@ -1144,8 +1325,8 @@ def main() -> int:
     if counts["scored_entries"] <= 0:
         notes.append("no rows available for scoring")
 
-    metrics = build_metrics(frame, scores, args) if counts["scored_entries"] > 0 else {"products": {}}
-    metrics = ensure_product_metrics(metrics)
+    metrics = build_metrics(frame, scores, args, product_specs) if counts["scored_entries"] > 0 else {"products": {}}
+    metrics = ensure_product_metrics(metrics, product_names)
 
     status = "READY"
     if counts["total_entries"] <= 0 or counts["signal_entries"] <= 0 or counts["background_entries"] <= 0:
@@ -1164,7 +1345,7 @@ def main() -> int:
         if math.isfinite(sig_mean) and math.isfinite(bkg_mean) and sig_mean <= bkg_mean:
             status = "CHECK"
             notes.append(f"{product}_signal_mean_not_above_background_mean")
-    if set(metrics["products"]) != set(PRODUCTS):
+    if set(metrics["products"]) != set(product_names):
         status = "CHECK"
         notes.append("not_all_products_scored")
 
@@ -1178,6 +1359,7 @@ def main() -> int:
         write_curve_exports(outdir, frame, scores, metrics)
     metrics_json = json_ready({"counts": counts, **metrics, "status": status, "notes": notes})
     (outdir / "validation_metrics.json").write_text(json.dumps(metrics_json, indent=2, sort_keys=True) + "\n")
+    write_model_rankings(outdir, metrics)
     write_parseable_summary(outdir / "validation_summary.txt", status, args, counts, metrics, notes)
     print((outdir / "validation_summary.txt").read_text(), end="")
     return 0 if status == "READY" else 3

@@ -527,6 +527,8 @@ ${BOLD}AuAu embedded photon-ID BDT training:${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT localTest [Nevents] [NFILES=N]${RST}  ${DIM}# forwards to scripts/auau_tight_bdt_pipeline.sh${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT smokeTest [groupSize N]${RST}         ${DIM}# sidecar extraction DAG${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT trainFromExtraction SOURCE=/path${RST}
+  ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT trainExpandedFromExtraction SOURCE=/path [PLAN_ONLY=1]${RST}
+  ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT trainExpandedFromExtractionCondor SOURCE=/path [groupSize N]${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT applyCheck MODEL_DIR=/path/to/tight/models${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT validateOnSim SOURCE=/path MODEL_DIR=/path${RST}
   ${BOLD}$0 isSimEmbeddedAndInclusive trainTightBDT validateOnSimCondor SOURCE=/path MODEL_DIR=/path [groupSize N]${RST}
@@ -1658,6 +1660,15 @@ selection_mode_normalize_for_key() {
     preselection:variantE|preselection:VariantE|preselection:variante|preselection:auauOnlyNPB|preselection:AuAuOnlyNPB|preselection:auauonlynpb) echo "auauOnlyNPB"; return 0 ;;
     tight:variantA|tight:VariantA|tight:varianta|tight:newPPG12|tight:NewPPG12|tight:newppg12) echo "newPPG12"; return 0 ;;
     tight:variantB|tight:VariantB|tight:variantb|tight:auauEmbeddedBDT|tight:AuAuEmbeddedBDT|tight:auauembeddedbdt) echo "auauEmbeddedBDT"; return 0 ;;
+    tight:auauNoCentBDT|tight:auaunocentbdt) echo "auauNoCentBDT"; return 0 ;;
+    tight:auauCentInputBDT|tight:auaucentinputbdt) echo "auauCentInputBDT"; return 0 ;;
+    tight:auauCentInput3x3BDT|tight:auaucentinput3x3bdt) echo "auauCentInput3x3BDT"; return 0 ;;
+    tight:auauCentInputMinOptBDT|tight:auaucentinputminoptbdt) echo "auauCentInputMinOptBDT"; return 0 ;;
+    tight:auauCent3BDT|tight:auaucent3bdt) echo "auauCent3BDT"; return 0 ;;
+    tight:auauCent7BDT|tight:auaucent7bdt) echo "auauCent7BDT"; return 0 ;;
+    tight:auauPtBinCentInputBDT|tight:auauptbincentinputbdt) echo "auauPtBinCentInputBDT"; return 0 ;;
+    tight:auauPtCent3BDT|tight:auauptcent3bdt) echo "auauPtCent3BDT"; return 0 ;;
+    tight:auauPtCent7BDT|tight:auauptcent7bdt) echo "auauPtCent7BDT"; return 0 ;;
     nonTight:variantA|nonTight:VariantA|nonTight:varianta|nonTight:bdtSideband|nonTight:BDTSideband|nonTight:bdtsideband|nonTight:newPPG12|nonTight:NewPPG12|nonTight:newppg12) echo "newPPG12"; return 0 ;;
     nonTight:variantB|nonTight:VariantB|nonTight:variantb|nonTight:auauBDTSideband|nonTight:AuAuBDTSideband|nonTight:auaubdtsideband) echo "auauBDTSideband"; return 0 ;;
     nonTight:variantC|nonTight:VariantC|nonTight:variantc|nonTight:auauBDTComplement|nonTight:AuAuBDTComplement|nonTight:auaubdtcomplement) echo "auauBDTComplement"; return 0 ;;
@@ -1675,6 +1686,15 @@ selection_mode_normalize_for_key() {
     centINDcontrol|CentINDControl|centindcontrol|centINDControl) echo "centINDcontrol" ;;
     centAsFeat|CentAsFeat|centasfeat|centAsFeature) echo "centAsFeat" ;;
     centDepBDTs|CentDepBDTs|centdepbdts|centDepBDT) echo "centDepBDTs" ;;
+    auauNoCentBDT|auaunocentbdt) echo "auauNoCentBDT" ;;
+    auauCentInputBDT|auaucentinputbdt) echo "auauCentInputBDT" ;;
+    auauCentInput3x3BDT|auaucentinput3x3bdt) echo "auauCentInput3x3BDT" ;;
+    auauCentInputMinOptBDT|auaucentinputminoptbdt) echo "auauCentInputMinOptBDT" ;;
+    auauCent3BDT|auaucent3bdt) echo "auauCent3BDT" ;;
+    auauCent7BDT|auaucent7bdt) echo "auauCent7BDT" ;;
+    auauPtBinCentInputBDT|auauptbincentinputbdt) echo "auauPtBinCentInputBDT" ;;
+    auauPtCent3BDT|auauptcent3bdt) echo "auauPtCent3BDT" ;;
+    auauPtCent7BDT|auauptcent7bdt) echo "auauPtCent7BDT" ;;
     *) echo "$mode" ;;
   esac
 }
@@ -1693,6 +1713,15 @@ selection_mode_tag() {
     auauEmbeddedBDT) echo "${key}AuAuEmbeddedBDT" ;;
     auauBDTSideband) echo "${key}AuAuBDTSideband" ;;
     auauBDTComplement) echo "${key}AuAuBDTComplement" ;;
+    auauNoCentBDT) echo "${key}AuAuNoCentBDT" ;;
+    auauCentInputBDT) echo "${key}AuAuCentInputBDT" ;;
+    auauCentInput3x3BDT) echo "${key}AuAuCentInput3x3BDT" ;;
+    auauCentInputMinOptBDT) echo "${key}AuAuCentInputMinOptBDT" ;;
+    auauCent3BDT) echo "${key}AuAuCent3BDT" ;;
+    auauCent7BDT) echo "${key}AuAuCent7BDT" ;;
+    auauPtBinCentInputBDT) echo "${key}AuAuPtBinCentInputBDT" ;;
+    auauPtCent3BDT) echo "${key}AuAuPtCent3BDT" ;;
+    auauPtCent7BDT) echo "${key}AuAuPtCent7BDT" ;;
     variantB) echo "${key}VariantB" ;;
     variantC) echo "${key}VariantC" ;;
     variantD) echo "${key}VariantD" ;;
@@ -1762,6 +1791,24 @@ build_iso_modes() {
   local -a _id_rows
   mapfile -t _id_rows < <( yaml_get_photon_id_sets "$yaml_file" )
   (( ${#_id_rows[@]} > 0 )) || { err "YAML must define photon_id_sets with rows like [preselection, tight, nonTight]: $yaml_file"; exit 74; }
+
+  if [[ -n "${RJ_PHOTON_ID_ROW_MATCH:-}" ]]; then
+    local _match_lc="${RJ_PHOTON_ID_ROW_MATCH,,}"
+    local -a _filtered_id_rows=()
+    local _filter_row _filter_pre _filter_tight _filter_non _filter_tag _filter_norm
+    for _filter_row in "${_id_rows[@]}"; do
+      IFS='|' read -r _filter_pre _filter_tight _filter_non <<< "$_filter_row"
+      _filter_pre="$(selection_mode_normalize_for_key "preselection" "$_filter_pre")"
+      _filter_tight="$(selection_mode_normalize_for_key "tight" "$_filter_tight")"
+      _filter_non="$(selection_mode_normalize_for_key "nonTight" "$_filter_non")"
+      _filter_tag="$(selection_mode_tag "preselection" "$_filter_pre")_$(selection_mode_tag "tight" "$_filter_tight")_$(selection_mode_tag "nonTight" "$_filter_non")"
+      _filter_norm="${_filter_pre}|${_filter_tight}|${_filter_non}|${_filter_tag}"
+      [[ "${_filter_norm,,}" == *"${_match_lc}"* ]] && _filtered_id_rows+=( "$_filter_row" )
+    done
+    (( ${#_filtered_id_rows[@]} > 0 )) || { err "RJ_PHOTON_ID_ROW_MATCH='${RJ_PHOTON_ID_ROW_MATCH}' matched no photon_id_sets rows in ${yaml_file}"; exit 75; }
+    say "RJ_PHOTON_ID_ROW_MATCH=${RJ_PHOTON_ID_ROW_MATCH} -> ${#_filtered_id_rows[@]}/${#_id_rows[@]} photon-ID row(s)"
+    _id_rows=( "${_filtered_id_rows[@]}" )
+  fi
 
   _both="$(trim_ws "$_both")"
   _slide="$(trim_ws "$_slide")"
@@ -4225,7 +4272,7 @@ for (( idx=0; idx<${#tokens[@]}; idx++ )); do
     scaledTriggerStudy)
       ACTION="$tok"
       ;;
-    local|localTest|condorDoAll|condorDoAllSmoke|condorDoAllDirect|condorDoAllFromScratch|condorHistFromPool|resume|smokeTest|condorExtract|trainFromExtraction|applyCheck|validateOnSim|validateSim|simValidation|validateOnSimCondor|condorValidateOnSim|validateSimCondor|smokeTestFirstPass|smokeTestSecondPass|smokeTestApplyExisting)
+    local|localTest|condorDoAll|condorDoAllSmoke|condorDoAllDirect|condorDoAllFromScratch|condorHistFromPool|resume|smokeTest|condorExtract|trainFromExtraction|trainCentInput3x3FromExtraction|trainExpandedFromExtraction|trainExpandedFromExtractionCondor|applyCheck|validateOnSim|validateSim|simValidation|validateOnSimCondor|condorValidateOnSim|validateSimCondor|smokeTestFirstPass|smokeTestSecondPass|smokeTestApplyExisting)
       if [[ "$ACTION" == trainTightBDT || "$ACTION" == trainNPB || "$ACTION" == trainJetMLResidual || "$ACTION" == trainMLAll || "$ACTION" == scaledTriggerStudy ]]; then
         TRAIN_MODE="$tok"
       elif [[ "$ACTION" == "condor" && "$tok" == "smokeTest" ]]; then
@@ -4398,7 +4445,7 @@ case "$ACTION" in
       sidecar_args=()
       for tok in "${tokens[@]}"; do
         case "$tok" in
-          trainTightBDT|local|localTest|smokeTest|smokeTestFirstPass|condorDoAll|condorExtract|smokeTestSecondPass|trainFromExtraction|smokeTestApplyExisting|applyCheck|validateOnSim|validateSim|simValidation|validateOnSimCondor|condorValidateOnSim|validateSimCondor)
+          trainTightBDT|local|localTest|smokeTest|smokeTestFirstPass|condorDoAll|condorExtract|smokeTestSecondPass|trainFromExtraction|trainCentInput3x3FromExtraction|trainExpandedFromExtraction|trainExpandedFromExtractionCondor|smokeTestApplyExisting|applyCheck|validateOnSim|validateSim|simValidation|validateOnSimCondor|condorValidateOnSim|validateSimCondor)
             ;;
           *) sidecar_args+=( "$tok" ) ;;
         esac
@@ -4420,6 +4467,18 @@ case "$ACTION" in
           say "trainTightBDT model training is now sidecar-managed; forwarding to: ${sidecar} trainFromExtraction"
           exec bash "$sidecar" trainFromExtraction "${sidecar_args[@]}"
           ;;
+        trainCentInput3x3FromExtraction)
+          say "trainTightBDT 3x3-width centrality-input training is sidecar-managed; forwarding to: ${sidecar} trainCentInput3x3FromExtraction"
+          exec bash "$sidecar" trainCentInput3x3FromExtraction "${sidecar_args[@]}"
+          ;;
+        trainExpandedFromExtraction)
+          say "trainTightBDT expanded campaign planning/training is now sidecar-managed; forwarding to: ${sidecar} trainExpandedFromExtraction"
+          exec bash "$sidecar" trainExpandedFromExtraction "${sidecar_args[@]}"
+          ;;
+        trainExpandedFromExtractionCondor)
+          say "trainTightBDT expanded campaign Condor training is now sidecar-managed; forwarding to: ${sidecar} trainExpandedFromExtractionCondor"
+          exec bash "$sidecar" trainExpandedFromExtractionCondor "${sidecar_args[@]}"
+          ;;
         smokeTestApplyExisting|applyCheck)
           say "trainTightBDT model apply check is now sidecar-managed; forwarding to: ${sidecar} applyCheck"
           exec bash "$sidecar" applyCheck "${sidecar_args[@]}"
@@ -4433,7 +4492,7 @@ case "$ACTION" in
           exec bash "$sidecar" validateOnSimCondor "${sidecar_args[@]}"
           ;;
         *)
-          err "trainTightBDT mode must be localTest, smokeTest, condorExtract, trainFromExtraction, applyCheck, validateOnSim, or validateOnSimCondor; got '${TRAIN_MODE:-local}'"
+          err "trainTightBDT mode must be localTest, smokeTest, condorExtract, trainFromExtraction, trainCentInput3x3FromExtraction, trainExpandedFromExtraction, trainExpandedFromExtractionCondor, applyCheck, validateOnSim, or validateOnSimCondor; got '${TRAIN_MODE:-local}'"
           exit 2
           ;;
       esac
@@ -5245,12 +5304,61 @@ SUB
     if [[ "${GROUP_SIZE_EXPLICIT:-0}" -eq 0 ]]; then
       gs_doall="7"
     fi
-    direct_nevents="$(direct_worker_nevents)"
-    direct_request_memory="${RJ_REQUEST_MEMORY:-2000MB}"
-    direct_request_memory_mb="$(memory_request_to_mb "$direct_request_memory")"
-
     master_yaml="$(sim_yaml_master_path)"
     [[ -s "$master_yaml" ]] || { err "Master YAML not found or empty: $master_yaml"; exit 72; }
+    if [[ "$DATASET" == "isSimEmbedded" || "$DATASET" == "isSimEmbeddedInclusive" ]]; then
+      if [[ "$(basename "$master_yaml")" == *"auau_bdt_validation"* || "$master_yaml" == *"auau_bdt_validation"* ]]; then
+        if [[ -z "${RJ_ID_FANOUT_MAX_ROWS:-}" ]]; then
+          # The AuAu BDT validation matrix loads many TMVA readers. The
+          # validated WP0.50 campaign used one photon-ID row per worker; keep
+          # that execution shape as the default for WP scans so memory remains
+          # predictable. Callers may still override for stress tests.
+          export RJ_ID_FANOUT_MAX_ROWS=1
+          say "AuAu BDT validation config detected: defaulting RJ_ID_FANOUT_MAX_ROWS=1 (set explicitly to override)"
+        fi
+      fi
+    fi
+    direct_nevents="$(direct_worker_nevents)"
+    direct_request_memory="${RJ_REQUEST_MEMORY:-2000MB}"
+    direct_memory_floor_mb=0
+    if [[ -z "${RJ_REQUEST_MEMORY:-}" ]]; then
+      case "$DATASET" in
+        isSimEmbedded|isSimEmbeddedInclusive)
+          # Embedded AuAu workers are ROOT/TMVA heavy enough that the generic
+          # SIM default can trigger cgroup aborts before auto-retry has a
+          # chance to help. Keep this as the safe production floor; callers can
+          # still override explicitly with RJ_REQUEST_MEMORY.
+          direct_memory_floor_mb=4000
+          if [[ "$(basename "$master_yaml")" == *"auau_bdt_validation"* || "$master_yaml" == *"auau_bdt_validation"* ]]; then
+            # The expanded AuAu BDT validation matrix fans out many TMVA model
+            # readers in one process. SDCC evidence from WP0.80 validation
+            # showed cgroup holds at 4.6 GB and then again right at the 9 GB
+            # allocation boundary during ROOT/model startup. Use a higher
+            # campaign-only floor with enough headroom for SDCC cgroup rounding.
+            direct_memory_floor_mb=12000
+            export RJ_AUTO_MEMORY_RETRY_CAP_MB="${RJ_AUTO_MEMORY_RETRY_CAP_MB:-16000}"
+          fi
+          direct_request_memory="${direct_memory_floor_mb}MB"
+          ;;
+      esac
+    else
+      case "$DATASET" in
+        isSimEmbedded|isSimEmbeddedInclusive)
+          direct_memory_floor_mb=4000
+          if [[ "$(basename "$master_yaml")" == *"auau_bdt_validation"* || "$master_yaml" == *"auau_bdt_validation"* ]]; then
+            direct_memory_floor_mb=12000
+            export RJ_AUTO_MEMORY_RETRY_CAP_MB="${RJ_AUTO_MEMORY_RETRY_CAP_MB:-16000}"
+          fi
+          ;;
+      esac
+    fi
+    direct_request_memory_mb="$(memory_request_to_mb "$direct_request_memory")"
+    if [[ "$DATASET" == "isSimEmbedded" || "$DATASET" == "isSimEmbeddedInclusive" ]]; then
+      if (( direct_memory_floor_mb > 0 && direct_request_memory_mb > 0 && direct_request_memory_mb < direct_memory_floor_mb )); then
+        warn "${DATASET} condorDoAll worker request_memory=${direct_request_memory} is below the validated floor of ${direct_memory_floor_mb}MB for this config."
+        warn "Set RJ_REQUEST_MEMORY=${direct_memory_floor_mb}MB or higher unless this is an intentional memory stress test."
+      fi
+    fi
 
     mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
     mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
@@ -5304,6 +5412,10 @@ SUB
     SIM_YAML_OVERRIDE_DIR="${SIM_YAML_OVERRIDE_DIR}/${TAG}_condorDoAll_${doall_stamp}"
     mkdir -p "$SIM_YAML_OVERRIDE_DIR"
     say "SIM YAML/fanout artifact dir: ${SIM_YAML_OVERRIDE_DIR}"
+    say "SIM worker memory request: ${direct_request_memory} (${direct_request_memory_mb} MB)"
+    if [[ "$DATASET" == "isSimEmbedded" || "$DATASET" == "isSimEmbeddedInclusive" ]]; then
+      say "SIM merge memory hint   : ${RJ_SIM_FIRSTROUND_REQUEST_MEMORY:-auto/default} (firstRound; independent of worker memory)"
+    fi
     say "SIM production vz selection:"
     say_vz_selection_summary "$master_yaml" "${sim_vzs[@]}"
     # Freeze pipeline for this bulk submission
@@ -5481,18 +5593,18 @@ SUB
           ;;
       esac
       sim_merge_group_size="${RJ_SIM_MERGE_GROUP_SIZE:-${sim_merge_group_size_default}}"
-      first_round_args=( env "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED}" "MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" "${BASE}/scripts/mergeRecoilJets.sh" "$DATASET" firstRound groupSize "${sim_merge_group_size}" )
+      first_round_args=( env "MERGE_CONFIG_YAML=${master_yaml}" "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED}" "MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base}" "MERGE_CFG_MATCH=${RJ_PHOTON_ID_ROW_MATCH:-}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" "${BASE}/scripts/mergeRecoilJets.sh" "$DATASET" firstRound groupSize "${sim_merge_group_size}" )
       if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 1 ]]; then
         first_round_args+=( "SAMPLE=${SIM_SAMPLE}" )
       fi
       add_auto_stage_node "$auto_dag" "SIM_FIRSTROUND" "$runner" "sim_firstRound_${TAG}_all" "${first_round_args[@]}"
-      second_round_args=( env "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED}" "MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" "${BASE}/scripts/mergeRecoilJets.sh" "$DATASET" secondRound condor )
+      second_round_args=( env "MERGE_CONFIG_YAML=${master_yaml}" "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED}" "MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base}" "MERGE_CFG_MATCH=${RJ_PHOTON_ID_ROW_MATCH:-}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" "${BASE}/scripts/mergeRecoilJets.sh" "$DATASET" secondRound condor )
       if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 1 ]]; then
         second_round_args+=( "SAMPLE=${SIM_SAMPLE}" )
       fi
       add_auto_stage_node "$auto_dag" "SIM_SECONDROUND" "$runner" "sim_secondRound_${TAG}_all" "${second_round_args[@]}"
       if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
-        final_stitch_args=( env "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED}" "MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" "${BASE}/scripts/mergeRecoilJets.sh" "$DATASET" finalStitch condor )
+        final_stitch_args=( env "MERGE_CONFIG_YAML=${master_yaml}" "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED}" "MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base}" "MERGE_CFG_MATCH=${RJ_PHOTON_ID_ROW_MATCH:-}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" "${BASE}/scripts/mergeRecoilJets.sh" "$DATASET" finalStitch condor )
         add_auto_stage_node "$auto_dag" "SIM_FINALSTITCH" "$runner" "sim_finalStitch_${TAG}_all" "${final_stitch_args[@]}"
       fi
       if (( ${#RJ_DAG_COLLECTED_NODES[@]} > 0 )); then

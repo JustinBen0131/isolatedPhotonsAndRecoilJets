@@ -338,6 +338,19 @@ namespace
       {
         return "auauEmbeddedBDT";
       }
+      std::string key = tightVariant;
+      std::transform(key.begin(), key.end(), key.begin(),
+                     [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+      if (key == "auaunocentbdt") return "auauNoCentBDT";
+      if (key == "auaucentinputbdt") return "auauCentInputBDT";
+      if (key == "auaucentinput3x3bdt") return "auauCentInput3x3BDT";
+      if (key == "auaucentinputbase3x3bdt") return "auauCentInputBase3x3BDT";
+      if (key == "auaucentinputminoptbdt") return "auauCentInputMinOptBDT";
+      if (key == "auaucent3bdt") return "auauCent3BDT";
+      if (key == "auaucent7bdt") return "auauCent7BDT";
+      if (key == "auauptbincentinputbdt") return "auauPtBinCentInputBDT";
+      if (key == "auauptcent3bdt") return "auauPtCent3BDT";
+      if (key == "auauptcent7bdt") return "auauPtCent7BDT";
       return tightVariant;
     }
 
@@ -391,7 +404,17 @@ namespace
       return tightVariant == "auauEmbeddedBDT" ||
              tightVariant == "centINDcontrol" ||
              tightVariant == "centAsFeat" ||
-             tightVariant == "centDepBDTs";
+             tightVariant == "centDepBDTs" ||
+             tightVariant == "auauNoCentBDT" ||
+             tightVariant == "auauCentInputBDT" ||
+             tightVariant == "auauCentInput3x3BDT" ||
+             tightVariant == "auauCentInputBase3x3BDT" ||
+             tightVariant == "auauCentInputMinOptBDT" ||
+             tightVariant == "auauCent3BDT" ||
+             tightVariant == "auauCent7BDT" ||
+             tightVariant == "auauPtBinCentInputBDT" ||
+             tightVariant == "auauPtCent3BDT" ||
+             tightVariant == "auauPtCent7BDT";
     }
 
     struct DoNotScalePairConfig
@@ -774,6 +797,44 @@ void RecoilJets::setPhotonIDVariants(const std::string& preselection,
   m_explicitPhotonIDVariants = true;
 }
 
+void RecoilJets::setAuAuTightBDTRuntimeConfig(const std::string& modelFile,
+                                              const std::vector<std::string>& features,
+                                              const std::vector<int>& centDepEdges,
+                                              const std::vector<std::string>& centDepModelFiles,
+                                              const std::vector<double>& ptBinEdges,
+                                              const std::vector<std::string>& ptBinModelFiles,
+                                              const std::vector<std::string>& ptCentModelFiles,
+                                              const std::string& ptFallbackModelFile,
+                                              const std::vector<std::string>& ptFallbackCentModelFiles,
+                                              double ptFallbackMin,
+                                              double ptFallbackMax,
+                                              double applyPtMin,
+                                              double applyPtMax)
+{
+  m_auauTightBDTModelFile = modelFile;
+  m_auauTightBDTFeatures = features;
+  m_auauTightBDTCentDepEdges = centDepEdges;
+  m_auauTightBDTCentDepModelFiles = centDepModelFiles;
+  m_auauTightBDTPtBinEdges = ptBinEdges;
+  m_auauTightBDTPtBinModelFiles = ptBinModelFiles;
+  m_auauTightBDTPtCentModelFiles = ptCentModelFiles;
+  m_auauTightBDTPtFallbackModelFile = ptFallbackModelFile;
+  m_auauTightBDTPtFallbackCentModelFiles = ptFallbackCentModelFiles;
+  if (std::isfinite(ptFallbackMin)) m_auauTightBDTPtFallbackMin = ptFallbackMin;
+  if (std::isfinite(ptFallbackMax)) m_auauTightBDTPtFallbackMax = ptFallbackMax;
+  m_auauTightBDTApplyPtMin = applyPtMin;
+  m_auauTightBDTApplyPtMax = applyPtMax;
+  m_explicitAuAuTightBDTConfig = true;
+
+  m_auauTightBDTModelInitAttempted = false;
+  m_auauTightBDTModel.reset();
+  m_auauTightBDTCentDepModels.clear();
+  m_auauTightBDTPtBinModels.clear();
+  m_auauTightBDTPtCentModels.clear();
+  m_auauTightBDTPtFallbackModel.reset();
+  m_auauTightBDTPtFallbackCentModels.clear();
+}
+
 void RecoilJets::setInternalJetPtScan(const std::vector<double>& values)
 {
   m_internalJetPtCuts.clear();
@@ -982,6 +1043,17 @@ std::string RecoilJets::withIsoViewSuffix(const std::string& base) const
   return base + m_activeIsoViewSuffix;
 }
 
+std::string RecoilJets::withIsoConeSuffix(const std::string& base) const
+{
+  if (m_activeIsoViewSuffix.empty() || base.empty()) return base;
+  const int cone100 = static_cast<int>(std::lround(100.0 * m_isoConeR));
+  if (cone100 <= 0) return base;
+  std::ostringstream os;
+  os << "_isoR" << std::setw(2) << std::setfill('0') << cone100;
+  const std::string suffix = os.str();
+  return (base.find(suffix) != std::string::npos) ? base : base + suffix;
+}
+
 bool RecoilJets::fillCanonicalThisView() const
 {
   if (m_internalIsoViews.empty()) return true;
@@ -989,9 +1061,25 @@ bool RecoilJets::fillCanonicalThisView() const
   return m_activeIsoViewSuffix == "_" + m_internalIsoViews.front().label;
 }
 
+bool RecoilJets::fillConeThisView() const
+{
+  if (m_internalIsoViews.empty()) return true;
+  if (m_activeIsoViewSuffix.empty()) return true;
+  const int activeCone100 = static_cast<int>(std::lround(100.0 * m_isoConeR));
+  for (const auto& view : m_internalIsoViews)
+  {
+    const int viewCone100 = static_cast<int>(std::lround(100.0 * view.coneR));
+    if (viewCone100 != activeCone100) continue;
+    return m_activeIsoViewSuffix == "_" + view.label;
+  }
+  return true;
+}
+
 std::string RecoilJets::histBaseForScope(const std::string& base, HistViewScope scope) const
 {
-  return (scope == HistViewScope::IsoView) ? withIsoViewSuffix(base) : base;
+  if (scope == HistViewScope::IsoView) return withIsoViewSuffix(base);
+  if (scope == HistViewScope::IsoCone) return withIsoConeSuffix(base);
+  return base;
 }
 
 std::string RecoilJets::recoilRKeyForScope(const std::string& rKey,
@@ -1480,6 +1568,23 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
 	        }
 	        return outList.empty() ? def : outList;
 	    };
+	    auto envToDoubleList = [&](const char* key, const std::vector<double>& def) -> std::vector<double>
+	    {
+	        const char* raw = std::getenv(key);
+	        if (!raw) return def;
+
+		        std::vector<double> outList;
+		        std::stringstream ss(raw);
+		        std::string tok;
+		        while (std::getline(ss, tok, ','))
+		        {
+		            tok = trim(tok);
+		            if (tok.empty()) continue;
+		            try { outList.push_back(std::stod(tok)); }
+		            catch (...) {}
+		        }
+	        return outList.empty() ? def : outList;
+	    };
 
     if (!m_explicitPhotonIDVariants)
     {
@@ -1501,15 +1606,27 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     m_auauTightBDTMinIntercept  = envToDouble("RJ_AUAU_TIGHT_BDT_MIN_INTERCEPT", kPPG12TightBDTMinIntercept);
     m_auauTightBDTMinSlope      = envToDouble("RJ_AUAU_TIGHT_BDT_MIN_SLOPE", kPPG12TightBDTMinSlope);
     m_auauTightBDTMax           = envToDouble("RJ_AUAU_TIGHT_BDT_MAX", kPPG12TightBDTMax);
-    m_auauTightBDTModelFile     = envOrDefault("RJ_AUAU_TIGHT_BDT_MODEL_FILE", "");
-    m_auauTightBDTFeatures      = envToStringList("RJ_AUAU_TIGHT_BDT_FEATURES", {});
-    m_auauTightBDTCentDepModelFiles = envToStringList("RJ_AUAU_TIGHT_BDT_CENTDEP_MODEL_FILES", {});
+    if (!m_explicitAuAuTightBDTConfig)
+    {
+      m_auauTightBDTModelFile     = envOrDefault("RJ_AUAU_TIGHT_BDT_MODEL_FILE", "");
+      m_auauTightBDTFeatures      = envToStringList("RJ_AUAU_TIGHT_BDT_FEATURES", {});
+      m_auauTightBDTCentDepModelFiles = envToStringList("RJ_AUAU_TIGHT_BDT_CENTDEP_MODEL_FILES", {});
+      m_auauTightBDTCentDepEdges = envToIntList("RJ_AUAU_TIGHT_BDT_CENTDEP_EDGES", {});
+      m_auauTightBDTCentDepScoreNames = envToStringList("RJ_AUAU_TIGHT_BDT_CENTDEP_SCORE_NAMES", {});
+      m_auauTightBDTPtBinEdges = envToDoubleList("RJ_AUAU_TIGHT_BDT_PT_EDGES", {});
+      m_auauTightBDTPtBinModelFiles = envToStringList("RJ_AUAU_TIGHT_BDT_PT_MODEL_FILES", {});
+      m_auauTightBDTPtCentModelFiles = envToStringList("RJ_AUAU_TIGHT_BDT_PT_CENT_MODEL_FILES", {});
+      m_auauTightBDTPtFallbackModelFile = envOrDefault("RJ_AUAU_TIGHT_BDT_PT_FALLBACK_MODEL_FILE", "");
+      m_auauTightBDTPtFallbackCentModelFiles = envToStringList("RJ_AUAU_TIGHT_BDT_PT_FALLBACK_CENT_MODEL_FILES", {});
+      m_auauTightBDTPtFallbackMin = envToDouble("RJ_AUAU_TIGHT_BDT_PT_FALLBACK_MIN", 35.0);
+      m_auauTightBDTPtFallbackMax = envToDouble("RJ_AUAU_TIGHT_BDT_PT_FALLBACK_MAX", 40.0);
+      m_auauTightBDTApplyPtMin = envToDouble("RJ_AUAU_TIGHT_BDT_APPLY_PT_MIN", std::numeric_limits<double>::quiet_NaN());
+      m_auauTightBDTApplyPtMax = envToDouble("RJ_AUAU_TIGHT_BDT_APPLY_PT_MAX", std::numeric_limits<double>::quiet_NaN());
+    }
     m_auauNonTightBDTMinIntercept = envToDouble("RJ_AUAU_NONTIGHT_BDT_MIN_INTERCEPT", kPPG12NonTightBDTMinIntercept);
     m_auauNonTightBDTMinSlope     = envToDouble("RJ_AUAU_NONTIGHT_BDT_MIN_SLOPE", kPPG12NonTightBDTMinSlope);
     m_auauNonTightBDTMaxIntercept = envToDouble("RJ_AUAU_NONTIGHT_BDT_MAX_INTERCEPT", kPPG12NonTightBDTMaxIntercept);
     m_auauNonTightBDTMaxSlope     = envToDouble("RJ_AUAU_NONTIGHT_BDT_MAX_SLOPE", kPPG12NonTightBDTMaxSlope);
-    m_auauTightBDTCentDepEdges = envToIntList("RJ_AUAU_TIGHT_BDT_CENTDEP_EDGES", {});
-    m_auauTightBDTCentDepScoreNames = envToStringList("RJ_AUAU_TIGHT_BDT_CENTDEP_SCORE_NAMES", {});
     m_auauBDTExtractOnly = envToBool("RJ_AUAU_BDT_EXTRACT_ONLY", m_auauBDTExtractOnly);
     m_auauBDTTrainingTreeEnabled = envToBool("RJ_AUAU_BDT_TRAINING_TREE", false);
     if (m_auauBDTExtractOnly) m_auauBDTTrainingTreeEnabled = true;
@@ -2516,7 +2633,13 @@ double RecoilJets::predictJetMLDeltaPt(const std::string& rKey,
 bool RecoilJets::initAuAuTightBDTModelsIfNeeded() const
 {
   if (!auauTightBDTMode(m_tightVariant) || m_tightVariant == "auauEmbeddedBDT") return true;
-  if (m_auauTightBDTModel || !m_auauTightBDTCentDepModels.empty()) return true;
+  if (m_auauTightBDTModel ||
+      !m_auauTightBDTCentDepModels.empty() ||
+      !m_auauTightBDTPtBinModels.empty() ||
+      !m_auauTightBDTPtCentModels.empty())
+  {
+    return true;
+  }
   if (m_auauTightBDTModelInitAttempted) return false;
   m_auauTightBDTModelInitAttempted = true;
 
@@ -2528,20 +2651,80 @@ bool RecoilJets::initAuAuTightBDTModelsIfNeeded() const
 
   try
   {
-    if (m_tightVariant == "centDepBDTs")
+    auto loadModelVector = [](const std::vector<std::string>& files,
+                              std::vector<std::unique_ptr<TMVA::Experimental::RBDT>>& models)
+    {
+      models.reserve(files.size());
+      for (const auto& modelFile : files)
+      {
+        models.push_back(std::make_unique<TMVA::Experimental::RBDT>("myBDT", modelFile));
+      }
+    };
+
+    const bool centDepMode = (m_tightVariant == "centDepBDTs" ||
+                              m_tightVariant == "auauCent3BDT" ||
+                              m_tightVariant == "auauCent7BDT");
+    const bool ptBinMode = (m_tightVariant == "auauPtBinCentInputBDT");
+    const bool ptCentMode = (m_tightVariant == "auauPtCent3BDT" ||
+                             m_tightVariant == "auauPtCent7BDT");
+
+    if (centDepMode)
     {
       if (m_auauTightBDTCentDepModelFiles.empty())
       {
         LOG(1, CLR_YELLOW, "[AuAuTightBDT] no centrality-dependent model files configured");
         return false;
       }
-      m_auauTightBDTCentDepModels.reserve(m_auauTightBDTCentDepModelFiles.size());
-      for (const auto& modelFile : m_auauTightBDTCentDepModelFiles)
-      {
-        m_auauTightBDTCentDepModels.push_back(std::make_unique<TMVA::Experimental::RBDT>("myBDT", modelFile));
-      }
+      loadModelVector(m_auauTightBDTCentDepModelFiles, m_auauTightBDTCentDepModels);
       LOG(1, CLR_GREEN, "[AuAuTightBDT] loaded " << m_auauTightBDTCentDepModels.size()
                          << " centrality-dependent tight models with "
+                         << m_auauTightBDTFeatures.size() << " features");
+    }
+    else if (ptBinMode)
+    {
+      if (m_auauTightBDTPtBinEdges.size() < 2 ||
+          m_auauTightBDTPtBinModelFiles.size() + 1 != m_auauTightBDTPtBinEdges.size())
+      {
+        LOG(1, CLR_YELLOW, "[AuAuTightBDT] pT-bin mode requires N model files for N pT intervals; got "
+                           << m_auauTightBDTPtBinModelFiles.size() << " files and "
+                           << m_auauTightBDTPtBinEdges.size() << " edges");
+        return false;
+      }
+      if (m_auauTightBDTPtFallbackModelFile.empty())
+      {
+        LOG(1, CLR_YELLOW, "[AuAuTightBDT] pT-bin mode needs a 35-40 GeV fallback model file");
+        return false;
+      }
+      loadModelVector(m_auauTightBDTPtBinModelFiles, m_auauTightBDTPtBinModels);
+      m_auauTightBDTPtFallbackModel = std::make_unique<TMVA::Experimental::RBDT>("myBDT", m_auauTightBDTPtFallbackModelFile);
+      LOG(1, CLR_GREEN, "[AuAuTightBDT] loaded " << m_auauTightBDTPtBinModels.size()
+                         << " pT-bin tight models plus 35-40 GeV fallback with "
+                         << m_auauTightBDTFeatures.size() << " features");
+    }
+    else if (ptCentMode)
+    {
+      const std::size_t nPtBins = (m_auauTightBDTPtBinEdges.size() >= 2) ? m_auauTightBDTPtBinEdges.size() - 1 : 0;
+      const std::size_t nCentBins = (m_auauTightBDTCentDepEdges.size() >= 2) ? m_auauTightBDTCentDepEdges.size() - 1 : 0;
+      if (nPtBins == 0 || nCentBins == 0 ||
+          m_auauTightBDTPtCentModelFiles.size() != nPtBins * nCentBins)
+      {
+        LOG(1, CLR_YELLOW, "[AuAuTightBDT] pT x centrality mode requires Npt*Ncent model files; got "
+                           << m_auauTightBDTPtCentModelFiles.size()
+                           << " files, " << nPtBins << " pT bins, " << nCentBins << " centrality bins");
+        return false;
+      }
+      if (m_auauTightBDTPtFallbackCentModelFiles.size() != nCentBins)
+      {
+        LOG(1, CLR_YELLOW, "[AuAuTightBDT] pT x centrality mode needs one 35-40 GeV fallback model per centrality bin; got "
+                           << m_auauTightBDTPtFallbackCentModelFiles.size() << " for " << nCentBins << " bins");
+        return false;
+      }
+      loadModelVector(m_auauTightBDTPtCentModelFiles, m_auauTightBDTPtCentModels);
+      loadModelVector(m_auauTightBDTPtFallbackCentModelFiles, m_auauTightBDTPtFallbackCentModels);
+      LOG(1, CLR_GREEN, "[AuAuTightBDT] loaded " << m_auauTightBDTPtCentModels.size()
+                         << " pT x centrality tight models plus "
+                         << m_auauTightBDTPtFallbackCentModels.size()
+                         << " 35-40 GeV fallback models with "
                          << m_auauTightBDTFeatures.size() << " features");
     }
     else
@@ -2571,6 +2754,32 @@ bool RecoilJets::initAuAuTightBDTModelsIfNeeded() const
   return true;
 }
 
+int RecoilJets::auauTightBDTCentBinIndex() const
+{
+  if (m_auauTightBDTCentDepEdges.size() < 2 || !std::isfinite(m_centPercent)) return -1;
+  for (std::size_t i = 0; i + 1 < m_auauTightBDTCentDepEdges.size(); ++i)
+  {
+    const double lo = static_cast<double>(m_auauTightBDTCentDepEdges[i]);
+    const double hi = static_cast<double>(m_auauTightBDTCentDepEdges[i + 1]);
+    const bool inBin = (m_centPercent >= lo) &&
+                       (m_centPercent < hi || (i + 2 == m_auauTightBDTCentDepEdges.size() && m_centPercent <= hi));
+    if (inBin) return static_cast<int>(i);
+  }
+  return -1;
+}
+
+int RecoilJets::auauTightBDTPtBinIndex(double pt) const
+{
+  if (m_auauTightBDTPtBinEdges.size() < 2 || !std::isfinite(pt)) return -1;
+  for (std::size_t i = 0; i + 1 < m_auauTightBDTPtBinEdges.size(); ++i)
+  {
+    const double lo = m_auauTightBDTPtBinEdges[i];
+    const double hi = m_auauTightBDTPtBinEdges[i + 1];
+    if (pt >= lo && pt < hi) return static_cast<int>(i);
+  }
+  return -1;
+}
+
 double RecoilJets::auauTightBDTFeatureValue(const std::string& feature,
                                             const PhotonClusterv1* pho,
                                             const SSVars& v) const
@@ -2578,6 +2787,10 @@ double RecoilJets::auauTightBDTFeatureValue(const std::string& feature,
   if (feature == "cluster_Et" || feature == "cluster_et" || feature == "ET") return v.pt_gamma;
   if (feature == "cluster_weta_cogx") return v.weta_cogx;
   if (feature == "cluster_wphi_cogx") return v.wphi_cogx;
+  if (feature == "cluster_weta33_cogx") return v.weta33_cogx;
+  if (feature == "cluster_wphi33_cogx") return v.wphi33_cogx;
+  if (feature == "cluster_weta35_cogx") return v.weta35_cogx;
+  if (feature == "cluster_wphi53_cogx") return v.wphi53_cogx;
   if (feature == "vertexz" || feature == "vertex_z" || feature == "zvtx") return m_vz;
   if (feature == "centrality" || feature == "cent") return m_centPercent;
   if (feature == "e11_over_e33") return v.e11_over_e33;
@@ -2596,32 +2809,70 @@ double RecoilJets::auauTightBDTFeatureValue(const std::string& feature,
 
 double RecoilJets::predictAuAuTightBDTScore(const PhotonClusterv1* pho, const SSVars& v) const
 {
+  if ((std::isfinite(m_auauTightBDTApplyPtMin) && (!std::isfinite(v.pt_gamma) || v.pt_gamma < m_auauTightBDTApplyPtMin)) ||
+      (std::isfinite(m_auauTightBDTApplyPtMax) && (!std::isfinite(v.pt_gamma) || v.pt_gamma >= m_auauTightBDTApplyPtMax)))
+  {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
   if (!initAuAuTightBDTModelsIfNeeded()) return std::numeric_limits<double>::quiet_NaN();
 
   const TMVA::Experimental::RBDT* model = m_auauTightBDTModel.get();
-  if (m_tightVariant == "centDepBDTs")
+  const bool centDepMode = (m_tightVariant == "centDepBDTs" ||
+                            m_tightVariant == "auauCent3BDT" ||
+                            m_tightVariant == "auauCent7BDT");
+  const bool ptBinMode = (m_tightVariant == "auauPtBinCentInputBDT");
+  const bool ptCentMode = (m_tightVariant == "auauPtCent3BDT" ||
+                           m_tightVariant == "auauPtCent7BDT");
+
+  if (centDepMode)
   {
-    int modelIdx = -1;
-    if (m_auauTightBDTCentDepEdges.size() >= 2 &&
-        m_auauTightBDTCentDepModels.size() + 1 == m_auauTightBDTCentDepEdges.size() &&
-        std::isfinite(m_centPercent))
-    {
-      for (std::size_t i = 0; i + 1 < m_auauTightBDTCentDepEdges.size(); ++i)
-      {
-        const double lo = static_cast<double>(m_auauTightBDTCentDepEdges[i]);
-        const double hi = static_cast<double>(m_auauTightBDTCentDepEdges[i + 1]);
-        const bool inBin = (m_centPercent >= lo) &&
-                           (m_centPercent < hi || (i + 2 == m_auauTightBDTCentDepEdges.size() && m_centPercent <= hi));
-        if (inBin)
-        {
-          modelIdx = static_cast<int>(i);
-          break;
-        }
-      }
-    }
+    const int modelIdx = auauTightBDTCentBinIndex();
     if (modelIdx < 0 || static_cast<std::size_t>(modelIdx) >= m_auauTightBDTCentDepModels.size())
       return std::numeric_limits<double>::quiet_NaN();
     model = m_auauTightBDTCentDepModels[modelIdx].get();
+  }
+  else if (ptBinMode)
+  {
+    const int ptIdx = auauTightBDTPtBinIndex(v.pt_gamma);
+    if (ptIdx >= 0 && static_cast<std::size_t>(ptIdx) < m_auauTightBDTPtBinModels.size())
+    {
+      model = m_auauTightBDTPtBinModels[ptIdx].get();
+    }
+    else if (std::isfinite(v.pt_gamma) &&
+             v.pt_gamma >= m_auauTightBDTPtFallbackMin &&
+             v.pt_gamma < m_auauTightBDTPtFallbackMax)
+    {
+      model = m_auauTightBDTPtFallbackModel.get();
+    }
+    else
+    {
+      return std::numeric_limits<double>::quiet_NaN();
+    }
+  }
+  else if (ptCentMode)
+  {
+    const int ptIdx = auauTightBDTPtBinIndex(v.pt_gamma);
+    const int centIdx = auauTightBDTCentBinIndex();
+    const std::size_t nCentBins = (m_auauTightBDTCentDepEdges.size() >= 2) ? m_auauTightBDTCentDepEdges.size() - 1 : 0;
+    if (centIdx < 0 || static_cast<std::size_t>(centIdx) >= nCentBins) return std::numeric_limits<double>::quiet_NaN();
+
+    if (ptIdx >= 0)
+    {
+      const std::size_t flatIdx = static_cast<std::size_t>(ptIdx) * nCentBins + static_cast<std::size_t>(centIdx);
+      if (flatIdx >= m_auauTightBDTPtCentModels.size()) return std::numeric_limits<double>::quiet_NaN();
+      model = m_auauTightBDTPtCentModels[flatIdx].get();
+    }
+    else if (std::isfinite(v.pt_gamma) &&
+             v.pt_gamma >= m_auauTightBDTPtFallbackMin &&
+             v.pt_gamma < m_auauTightBDTPtFallbackMax)
+    {
+      if (static_cast<std::size_t>(centIdx) >= m_auauTightBDTPtFallbackCentModels.size()) return std::numeric_limits<double>::quiet_NaN();
+      model = m_auauTightBDTPtFallbackCentModels[centIdx].get();
+    }
+    else
+    {
+      return std::numeric_limits<double>::quiet_NaN();
+    }
   }
   if (!model) return std::numeric_limits<double>::quiet_NaN();
 
@@ -3972,7 +4223,7 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     // phpythia8_10GeV_JS_MDC2.cfg + SetMinJetPt(12) and
     // phpythia8_20GeV_JS_MDC2.cfg + SetMinJetPt(20).
     // ------------------------------------------------------------------
-    if (m_isSimEmbedded && !m_auauBDTExtractOnly)
+    if (m_isSimEmbedded)
     {
         const int embeddedInclusiveJetSample = embeddedInclusiveJetSampleCodeFromContext(Outfile);
         if (embeddedInclusiveJetSample == 12 || embeddedInclusiveJetSample == 20)
@@ -4059,45 +4310,48 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
                 return h;
             };
 
-            if (auto* hAll = bookStitch1F("h_embedInclusiveStitch_filterJetPt_all",
-                                          "h_embedInclusiveStitch_filterJetPt_all;max p_{T}^{jet,truth} [GeV];Events",
-                                          120, 0.0, 60.0))
+            if (!m_auauBDTExtractOnly)
             {
-                if (std::isfinite(stitchJetPt) && stitchJetPt > 0.0) hAll->Fill(stitchJetPt);
-                bumpHistFill("SIM", hAll->GetName());
-            }
-
-            if (passStitch)
-            {
-                if (auto* hKept = bookStitch1F("h_embedInclusiveStitch_filterJetPt_kept",
-                                               "h_embedInclusiveStitch_filterJetPt_kept;max p_{T}^{jet,truth} [GeV];Events",
-                                               120, 0.0, 60.0))
+                if (auto* hAll = bookStitch1F("h_embedInclusiveStitch_filterJetPt_all",
+                                              "h_embedInclusiveStitch_filterJetPt_all;max p_{T}^{jet,truth} [GeV];Events",
+                                              120, 0.0, 60.0))
                 {
-                    if (std::isfinite(stitchJetPt) && stitchJetPt > 0.0) hKept->Fill(stitchJetPt);
-                    bumpHistFill("SIM", hKept->GetName());
+                    if (std::isfinite(stitchJetPt) && stitchJetPt > 0.0) hAll->Fill(stitchJetPt);
+                    bumpHistFill("SIM", hAll->GetName());
                 }
-            }
-            else
-            {
-                if (auto* hRejected = bookStitch1F("h_embedInclusiveStitch_filterJetPt_rejected",
-                                                   "h_embedInclusiveStitch_filterJetPt_rejected;max p_{T}^{jet,truth} [GeV];Events",
+
+                if (passStitch)
+                {
+                    if (auto* hKept = bookStitch1F("h_embedInclusiveStitch_filterJetPt_kept",
+                                                   "h_embedInclusiveStitch_filterJetPt_kept;max p_{T}^{jet,truth} [GeV];Events",
                                                    120, 0.0, 60.0))
-                {
-                    if (std::isfinite(stitchJetPt) && stitchJetPt > 0.0) hRejected->Fill(stitchJetPt);
-                    bumpHistFill("SIM", hRejected->GetName());
+                    {
+                        if (std::isfinite(stitchJetPt) && stitchJetPt > 0.0) hKept->Fill(stitchJetPt);
+                        bumpHistFill("SIM", hKept->GetName());
+                    }
                 }
-            }
+                else
+                {
+                    if (auto* hRejected = bookStitch1F("h_embedInclusiveStitch_filterJetPt_rejected",
+                                                       "h_embedInclusiveStitch_filterJetPt_rejected;max p_{T}^{jet,truth} [GeV];Events",
+                                                       120, 0.0, 60.0))
+                    {
+                        if (std::isfinite(stitchJetPt) && stitchJetPt > 0.0) hRejected->Fill(stitchJetPt);
+                        bumpHistFill("SIM", hRejected->GetName());
+                    }
+                }
 
-            if (auto* hDecision = bookStitch1I("h_embedInclusiveStitch_decision",
-                                               "h_embedInclusiveStitch_decision;decision;Events",
-                                               4, 0.5, 4.5))
-            {
-                hDecision->GetXaxis()->SetBinLabel(1, "kept");
-                hDecision->GetXaxis()->SetBinLabel(2, "rejected");
-                hDecision->GetXaxis()->SetBinLabel(3, "missing truth jet");
-                hDecision->GetXaxis()->SetBinLabel(4, "unknown sample");
-                hDecision->Fill(decisionBin);
-                bumpHistFill("SIM", hDecision->GetName());
+                if (auto* hDecision = bookStitch1I("h_embedInclusiveStitch_decision",
+                                                   "h_embedInclusiveStitch_decision;decision;Events",
+                                                   4, 0.5, 4.5))
+                {
+                    hDecision->GetXaxis()->SetBinLabel(1, "kept");
+                    hDecision->GetXaxis()->SetBinLabel(2, "rejected");
+                    hDecision->GetXaxis()->SetBinLabel(3, "missing truth jet");
+                    hDecision->GetXaxis()->SetBinLabel(4, "unknown sample");
+                    hDecision->Fill(decisionBin);
+                    bumpHistFill("SIM", hDecision->GetName());
+                }
             }
 
             if (!passStitch)
@@ -4213,45 +4467,48 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
             return h;
         };
 
-        if (auto* hAll = bookStitch1F("h_embedStitch_filterPhotonPt_all",
-                                      "h_embedStitch_filterPhotonPt_all;p_{T,filter}^{#gamma} [GeV];Events",
-                                      120, 0.0, 60.0))
+        if (!m_auauBDTExtractOnly)
         {
-            if (std::isfinite(stitchPhotonPt) && stitchPhotonPt > 0.0) hAll->Fill(stitchPhotonPt);
-            bumpHistFill("SIM", hAll->GetName());
-        }
-
-        if (passStitch)
-        {
-            if (auto* hKept = bookStitch1F("h_embedStitch_filterPhotonPt_kept",
-                                           "h_embedStitch_filterPhotonPt_kept;p_{T,filter}^{#gamma} [GeV];Events",
-                                           120, 0.0, 60.0))
+            if (auto* hAll = bookStitch1F("h_embedStitch_filterPhotonPt_all",
+                                          "h_embedStitch_filterPhotonPt_all;p_{T,filter}^{#gamma} [GeV];Events",
+                                          120, 0.0, 60.0))
             {
-                if (std::isfinite(stitchPhotonPt) && stitchPhotonPt > 0.0) hKept->Fill(stitchPhotonPt);
-                bumpHistFill("SIM", hKept->GetName());
+                if (std::isfinite(stitchPhotonPt) && stitchPhotonPt > 0.0) hAll->Fill(stitchPhotonPt);
+                bumpHistFill("SIM", hAll->GetName());
             }
-        }
-        else
-        {
-            if (auto* hRejected = bookStitch1F("h_embedStitch_filterPhotonPt_rejected",
-                                               "h_embedStitch_filterPhotonPt_rejected;p_{T,filter}^{#gamma} [GeV];Events",
+
+            if (passStitch)
+            {
+                if (auto* hKept = bookStitch1F("h_embedStitch_filterPhotonPt_kept",
+                                               "h_embedStitch_filterPhotonPt_kept;p_{T,filter}^{#gamma} [GeV];Events",
                                                120, 0.0, 60.0))
-            {
-                if (std::isfinite(stitchPhotonPt) && stitchPhotonPt > 0.0) hRejected->Fill(stitchPhotonPt);
-                bumpHistFill("SIM", hRejected->GetName());
+                {
+                    if (std::isfinite(stitchPhotonPt) && stitchPhotonPt > 0.0) hKept->Fill(stitchPhotonPt);
+                    bumpHistFill("SIM", hKept->GetName());
+                }
             }
-        }
+            else
+            {
+                if (auto* hRejected = bookStitch1F("h_embedStitch_filterPhotonPt_rejected",
+                                                   "h_embedStitch_filterPhotonPt_rejected;p_{T,filter}^{#gamma} [GeV];Events",
+                                                   120, 0.0, 60.0))
+                {
+                    if (std::isfinite(stitchPhotonPt) && stitchPhotonPt > 0.0) hRejected->Fill(stitchPhotonPt);
+                    bumpHistFill("SIM", hRejected->GetName());
+                }
+            }
 
-        if (auto* hDecision = bookStitch1I("h_embedStitch_decision",
-                                           "h_embedStitch_decision;decision;Events",
-                                           4, 0.5, 4.5))
-        {
-            hDecision->GetXaxis()->SetBinLabel(1, "kept");
-            hDecision->GetXaxis()->SetBinLabel(2, "rejected");
-            hDecision->GetXaxis()->SetBinLabel(3, "missing photon");
-            hDecision->GetXaxis()->SetBinLabel(4, "unknown sample");
-            hDecision->Fill(decisionBin);
-            bumpHistFill("SIM", hDecision->GetName());
+            if (auto* hDecision = bookStitch1I("h_embedStitch_decision",
+                                               "h_embedStitch_decision;decision;Events",
+                                               4, 0.5, 4.5))
+            {
+                hDecision->GetXaxis()->SetBinLabel(1, "kept");
+                hDecision->GetXaxis()->SetBinLabel(2, "rejected");
+                hDecision->GetXaxis()->SetBinLabel(3, "missing photon");
+                hDecision->GetXaxis()->SetBinLabel(4, "unknown sample");
+                hDecision->Fill(decisionBin);
+                bumpHistFill("SIM", hDecision->GetName());
+            }
         }
 
         if (!passStitch)
@@ -7618,41 +7875,45 @@ void RecoilJets::fillPureIsolationQA(PHCompositeNode* topNode,
       recordIsolationAuditInclusive(sample);
   }
 
+  const bool doCone = fillConeThisView();
+
   for (const auto& trigShort : activeTrig)
   {
-    // (A) Existing total isolation histogram (unchanged name/slicing)
-    if (auto* hIso = getOrBookIsoHist(trigShort, ptIdx, effCentIdx))
+    if (doCone)
     {
-      hIso->Fill(eiso_tot);
-      bumpHistFill(trigShort, hIso->GetName());
+      // Raw isolation spectra depend on cone radius only, not fixed/sliding WP.
+      if (auto* hIso = getOrBookIsoHist(trigShort, ptIdx, effCentIdx))
+      {
+        hIso->Fill(eiso_tot);
+        bumpHistFill(trigShort, hIso->GetName());
+      }
+
+      if (auto* hEm = getOrBookIsoPartHist(trigShort, "h_Eiso_emcal",
+                                           "E_{T}^{iso,EMCal} [GeV]",
+                                           ptIdx, effCentIdx))
+      {
+        hEm->Fill(eiso_emcal);
+        bumpHistFill(trigShort, hEm->GetName());
+      }
+
+      if (auto* hHi = getOrBookIsoPartHist(trigShort, "h_Eiso_hcalin",
+                                           "E_{T}^{iso,IHCAL} [GeV]",
+                                           ptIdx, effCentIdx))
+      {
+        hHi->Fill(eiso_hcalin);
+        bumpHistFill(trigShort, hHi->GetName());
+      }
+
+      if (auto* hHo = getOrBookIsoPartHist(trigShort, "h_Eiso_hcalout",
+                                           "E_{T}^{iso,OHCAL} [GeV]",
+                                           ptIdx, effCentIdx))
+      {
+        hHo->Fill(eiso_hcalout);
+        bumpHistFill(trigShort, hHo->GetName());
+      }
     }
 
-    // (B) component isolation histograms (EMCal / IHCal / OHCal)
-    if (auto* hEm = getOrBookIsoPartHist(trigShort, "h_Eiso_emcal",
-                                         "E_{T}^{iso,EMCal} [GeV]",
-                                         ptIdx, effCentIdx))
-    {
-      hEm->Fill(eiso_emcal);
-      bumpHistFill(trigShort, hEm->GetName());
-    }
-
-    if (auto* hHi = getOrBookIsoPartHist(trigShort, "h_Eiso_hcalin",
-                                         "E_{T}^{iso,IHCAL} [GeV]",
-                                         ptIdx, effCentIdx))
-    {
-      hHi->Fill(eiso_hcalin);
-      bumpHistFill(trigShort, hHi->GetName());
-    }
-
-    if (auto* hHo = getOrBookIsoPartHist(trigShort, "h_Eiso_hcalout",
-                                         "E_{T}^{iso,OHCAL} [GeV]",
-                                         ptIdx, effCentIdx))
-    {
-      hHo->Fill(eiso_hcalout);
-      bumpHistFill(trigShort, hHo->GetName());
-    }
-
-    // (C) NEW isolation decision counts (PASS vs FAIL), independent of SS
+    // The threshold decision depends on the full fixed/sliding iso view.
     if (auto* hDec = getOrBookIsoDecisionHist(trigShort, ptIdx, effCentIdx))
     {
       hDec->Fill(isoPass ? 1 : 2);   // bin 1 = PASS, bin 2 = FAIL
@@ -7819,9 +8080,8 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
 
       // reco isolation distribution for TRUTH-ISOLATED signal photons (direct+frag),
       // independent of reco shower-shape classification.
+      if (fillConeThisView())
       {
-        const std::string slice_sig = suffixForBins(ptIdx_sig, effCentIdx_sig);
-
         for (const auto& trigShort : activeTrig)
         {
           if (auto* hIso = getOrBookIsoPartHist(trigShort,
@@ -7841,10 +8101,8 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
 
       // Blair-style reco-tight signal template:
       // truth-signal matched reco photons that also satisfy the reco tight tag.
-      if (tag == TightTag::kTight)
+      if (tag == TightTag::kTight && fillConeThisView())
       {
-        const std::string slice_sig = suffixForBins(ptIdx_sig, effCentIdx_sig);
-
         for (const auto& trigShort : activeTrig)
         {
           if (auto* hIsoT = getOrBookIsoPartHist(trigShort,
@@ -9361,39 +9619,42 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                         }
                     }
 
-                    for (const auto& trigShort : activeTrig)
+                    if (fillConeThisView())
                     {
-                        if (auto* hIso = getOrBookIsoPartHist(trigShort, base_tot,
-                                                              "E_{T}^{iso} [GeV]",
-                                                              ptIdx, effCentIdx_SS))
-                        {
-                            hIso->Fill(eiso_et);
-                            bumpHistFill(trigShort, std::string(base_tot) + slice_SS);
-                        }
+                      for (const auto& trigShort : activeTrig)
+                      {
+                          if (auto* hIso = getOrBookIsoPartHist(trigShort, base_tot,
+                                                                "E_{T}^{iso} [GeV]",
+                                                                ptIdx, effCentIdx_SS))
+                          {
+                              hIso->Fill(eiso_et);
+                              bumpHistFill(trigShort, hIso->GetName());
+                          }
 
-                        if (auto* hEm = getOrBookIsoPartHist(trigShort, base_em,
-                                                             "E_{T}^{iso,EMCal} [GeV]",
-                                                             ptIdx, effCentIdx_SS))
-                        {
-                            hEm->Fill(eiso_emcal);
-                            bumpHistFill(trigShort, std::string(base_em) + slice_SS);
-                        }
+                          if (auto* hEm = getOrBookIsoPartHist(trigShort, base_em,
+                                                               "E_{T}^{iso,EMCal} [GeV]",
+                                                               ptIdx, effCentIdx_SS))
+                          {
+                              hEm->Fill(eiso_emcal);
+                              bumpHistFill(trigShort, hEm->GetName());
+                          }
 
-                        if (auto* hHi = getOrBookIsoPartHist(trigShort, base_hi,
-                                                             "E_{T}^{iso,IHCAL} [GeV]",
-                                                             ptIdx, effCentIdx_SS))
-                        {
-                            hHi->Fill(eiso_hcalin);
-                            bumpHistFill(trigShort, std::string(base_hi) + slice_SS);
-                        }
+                          if (auto* hHi = getOrBookIsoPartHist(trigShort, base_hi,
+                                                               "E_{T}^{iso,IHCAL} [GeV]",
+                                                               ptIdx, effCentIdx_SS))
+                          {
+                              hHi->Fill(eiso_hcalin);
+                              bumpHistFill(trigShort, hHi->GetName());
+                          }
 
-                        if (auto* hHo = getOrBookIsoPartHist(trigShort, base_ho,
-                                                             "E_{T}^{iso,OHCAL} [GeV]",
-                                                             ptIdx, effCentIdx_SS))
-                        {
-                            hHo->Fill(eiso_hcalout);
-                            bumpHistFill(trigShort, std::string(base_ho) + slice_SS);
-                        }
+                          if (auto* hHo = getOrBookIsoPartHist(trigShort, base_ho,
+                                                               "E_{T}^{iso,OHCAL} [GeV]",
+                                                               ptIdx, effCentIdx_SS))
+                          {
+                              hHo->Fill(eiso_hcalout);
+                              bumpHistFill(trigShort, hHo->GetName());
+                          }
+                      }
                     }
                 }
 
@@ -10136,11 +10397,7 @@ void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars&
   {
     v.auau_npb_score = pho->get_shower_shape_parameter("auau_npb_score");
   }
-  if (m_tightVariant == "centDepBDTs")
-  {
-    v.auau_tight_bdt_score = predictAuAuTightBDTScore(pho, v);
-  }
-  else if (m_tightVariant == "centINDcontrol" || m_tightVariant == "centAsFeat")
+  if (auauTightBDTMode(m_tightVariant) && m_tightVariant != "auauEmbeddedBDT")
   {
     v.auau_tight_bdt_score = predictAuAuTightBDTScore(pho, v);
   }
@@ -15583,15 +15840,15 @@ TH3F* RecoilJets::getOrBookJES3Truth_jet1Pt_alphaHist(const std::string& trig,
 
 
 // ============================================================================
-//  Legacy isolation bookers.  Optimized production adds the active iso-view
-//  suffix to the histogram base name; direct scalar mode leaves names unchanged.
+//  Legacy isolation bookers. Raw Eiso spectra get cone-only internal suffixes;
+//  threshold/ABCD/recoil quantities use full iso-view suffixes at their callers.
 // ============================================================================
 
 TH1F* RecoilJets::getOrBookIsoHist(const std::string& trig, int etIdx, int centIdx)
 {
   const std::string base   = "h_Eiso";
   const std::string suffix = suffixForBins(etIdx, centIdx);
-  const std::string name   = withIsoViewSuffix(base) + suffix;
+  const std::string name   = histBaseForScope(base, HistViewScope::IsoCone) + suffix;
 
   if (Verbosity() >= 5)
     LOG(5, CLR_BLUE, "  [getOrBookIsoHist] trig=\"" << trig
@@ -15667,10 +15924,11 @@ TH1F* RecoilJets::getOrBookIsoHist(const std::string& trig, int etIdx, int centI
 TH1F* RecoilJets::getOrBookIsoPartHist(const std::string& trig,
                                        const std::string& base,
                                        const std::string& xAxisTitle,
-                                       int ptIdx, int centIdx)
+                                       int ptIdx, int centIdx,
+                                       HistViewScope scope)
 {
   const std::string suffix = suffixForBins(ptIdx, centIdx);
-  const std::string name   = withIsoViewSuffix(base) + suffix;
+  const std::string name   = histBaseForScope(base, scope) + suffix;
 
   if (Verbosity() >= 5)
     LOG(5, CLR_BLUE, "  [getOrBookIsoPartHist] trig=\"" << trig
@@ -16824,7 +17082,8 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
     // -------------------------------------------------------------------------
     {
       const std::string hBase = std::string("h_Eiso_ABCD_") + std::string(1, region);
-      if (auto* hIsoReg = getOrBookIsoPartHist(trig, hBase, "E_{T}^{iso} [GeV]", ptIdx, effCentIdx))
+      if (auto* hIsoReg = getOrBookIsoPartHist(trig, hBase, "E_{T}^{iso} [GeV]",
+                                               ptIdx, effCentIdx, HistViewScope::IsoView))
       {
         hIsoReg->Fill(eiso_et);
         bumpHistFill(trig, hIsoReg->GetName());

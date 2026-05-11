@@ -1,6 +1,6 @@
 # Task Board
 
-Last updated: 2026-05-08
+Last updated: 2026-05-11
 
 Task tracking is milestone/blocker level. Add tasks when Justin explicitly asks
 to track/add/remember them. If a task only appears casually in conversation,
@@ -9,6 +9,120 @@ Removal` and ask Justin before removing or archiving.
 
 ## Now
 
+- FUTURE FLAGSHIP R&D: next-generation pp+AuAu photon-finder ML program.
+  Justin wants this captured as the long-horizon ambitious goal: after the
+  current BDT validation and JSTG slides are stable, build a unified photon-ID
+  learning program trained and validated across pp and AuAu so it can become
+  the smartest, most physically trustworthy photon finder we can make. Keep it
+  separate from the immediate WP0.80 BDT production validation. Proposed
+  staged scope:
+  1. Establish the current expanded BDT as the transparent baseline with
+     efficiency, fake/leakage, isolation, shower-shape, xJ, and centrality/pT
+     validation.
+  2. Build a pp+AuAu common training table with matched production features,
+     explicit domain labels, truth labels, event/candidate weights, and strict
+     sample ownership.
+  3. Train stronger baselines first: tuned XGBoost/BDT scans, calibrated
+     working points, monotonic/regularized variants where physically useful,
+     and robust class/phase-space balancing.
+  4. Then explore neural-network candidates such as compact MLPs, mixture-of-
+     experts by collision system/centrality/pT, and uncertainty/calibration
+     heads, always compared against the BDT at fixed signal efficiency and
+     fixed background rejection.
+  5. Require interpretability before promotion: feature/permutation studies,
+     score vs isolation/ABCD safety, domain-shift checks, pp closure, AuAu
+     embedded closure, and constrained RecoilJets production validation.
+  6. Promote nothing to production unless it beats the BDT in a way that is
+     stable, explainable, and useful for PPG19 xJgamma physics.
+- ACTIVE ADD-ON: 3x3 shower-width centrality-input AuAu tight-BDT comparison.
+  Justin asked to train one model identical in concept to the centrality-input
+  BDT but replacing `cluster_weta_cogx/cluster_wphi_cogx` with
+  `cluster_weta33_cogx/cluster_wphi33_cogx`, then run it through the same
+  `isSimEmbedded` and `isSimEmbeddedInclusive` RecoilJets MC validation
+  pipeline. Local implementation target: model id
+  `centAsFeat3x3_pt5to40`, output file
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/tight_expanded_20260509_152604/auau_tight_bdt_centAsFeat3x3_pt5to40_tmva.root`,
+  cfg tag `preselectionNewPPG12_tightAuAuCentInput3x3BDT_nonTightAuAuBDTComplement_baseVariant`.
+  Ordered checklist:
+  1. DONE locally 2026-05-10: add trainer spec/features and runtime cfg row.
+  2. DONE on SDCC 2026-05-11: uploaded changes, rebuilt `src_AuAu` with
+     `make clean; makeProject`, and trained only `centAsFeat3x3_pt5to40` from
+     fixed extraction source `auauTightBDT_20260508_233049`.
+     Evidence: `sphnxuser01` terminal and Gmail
+     `[RecoilJets][auauTightBDT_trainCentInput3x3FromExtraction][READY]`;
+     output TMVA:
+     `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/tight_expanded_20260509_152604/auau_tight_bdt_centAsFeat3x3_pt5to40_tmva.root`.
+  3. DONE on SDCC 2026-05-10/11: isolated one-row runtime/full MC
+     validation jobs were submitted from `sphnxuser01` with
+     `RJ_PHOTON_ID_ROW_MATCH=AuAuCentInput3x3BDT`, fanout1, isolated WP0.50
+     and WP0.80 output roots, and all four final auto-workflow emails reached
+     `READY` with `rescue_file_count=0`.
+  4. NEXT: pull/pair the four 3x3 one-row outputs from
+     `output_bdt3x3_20260510_223529_wp050` and
+     `output_bdt3x3_20260510_223529_wp080`, then compare the 3x3-width BDT
+     against the standard centrality-input and pT/centrality-binned BDTs.
+- ACTIVE RUNBOOK: MC-first RecoilJets validation of expanded AuAu tight-BDT
+  families. Goal is to validate the 8 expanded BDT families plus 2 baselines
+  in normal RecoilJets embedded-MC outputs, while leaving the main production
+  YAML untouched. Campaign config:
+  `macros/analysis_config_auau_bdt_validation.yaml`; model source:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/tight_expanded_20260509_152604`;
+  working point: shared AuAu BDT score `> 0.50`; common preselection:
+  `newPPG12`; non-tight: BDT complement. Rebuild evidence: on 2026-05-09 from
+  `sphnxuser07`, `src_AuAu` finished `make clean; makeProject` successfully
+  after the compile fix, installing to
+  `/sphenix/u/patsfan753/thesisAnalysis_auau/install`. Ordered checklist to
+  track:
+  1. DONE 2026-05-09 on `sphnxuser07`: Local signal-side test
+     `RJ_CONFIG_YAML=macros/analysis_config_auau_bdt_validation.yaml
+     ./RecoilJets_Condor_submit.sh isSimEmbedded local 100
+     SAMPLE=run28_embeddedPhoton20 VERBOSE=0` completed all 10 cfg rows,
+     including `tightAuAuPtCent3BDT` and `tightAuAuPtCent7BDT`, with
+     `exit_code=0` and normal MB-scale ROOT outputs.
+  2. SKIPPED BY USER CHOICE 2026-05-09: Local inclusive-background test
+     `isSimEmbeddedInclusive local 100 SAMPLE=run28_embeddedJet20`. Residual
+     risk is accepted for the overnight full run.
+  3. SUPERSEDED BY FULL SUBMISSION: Dry counts:
+     `RJ_CONFIG_YAML=macros/analysis_config_auau_bdt_validation.yaml
+     ./RecoilJets_Condor_submit.sh isSimEmbedded CHECKJOBS groupSize
+     7` and the same for `isSimEmbeddedInclusive`.
+  4. SKIPPED BY USER CHOICE 2026-05-09: Smoke `isSimEmbedded`:
+     `RJ_NOTIFY_EMAILS=just0131@gmail.com
+     RJ_CONFIG_YAML=macros/analysis_config_auau_bdt_validation.yaml
+     ./RecoilJets_Condor_submit.sh isSimEmbedded condorDoAllSmoke
+     groupSize 7`.
+  5. SKIPPED BY USER CHOICE 2026-05-09: Smoke `isSimEmbeddedInclusive` with the same `RJ_CONFIG_YAML` and
+     `condorDoAllSmoke groupSize 7`.
+  6. DONE / RUNNING 2026-05-09: Full `isSimEmbedded condorDoAll groupSize 7`
+     submitted from `sphnxuser07`, cluster `432408`.
+  7. DONE / RUNNING 2026-05-09: Full `isSimEmbeddedInclusive condorDoAll
+     groupSize 7` submitted from `sphnxuser07`, cluster `432413`.
+- OVERNIGHT ACTIVE 2026-05-09: Justin chose to skip smoke after local testing
+  and submitted full MC validation campaigns from `sphnxuser07`.
+  `isSimEmbedded` command used `RJ_NOTIFY_EMAILS=just0131@gmail.com`,
+  `RJ_PROFILE_JOB=1`, `RJ_ID_FANOUT_MAX_ROWS=1`,
+  `RJ_REQUEST_MEMORY=4000MB`, `RJ_SIM_FIRSTROUND_REQUEST_MEMORY=6000MB`,
+  `RJ_CONFIG_YAML=macros/analysis_config_auau_bdt_validation.yaml`,
+  `./RecoilJets_Condor_submit.sh isSimEmbedded condorDoAll groupSize 7`;
+  timestamp `simembedded_20260509_234130`, DAG cluster `432408`, DAG path
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_sub/auto_workflow_simembedded_20260509_234130/RecoilJets_auto_simembedded_20260509_234130.dag`.
+  `isSimEmbeddedInclusive` was submitted with the same knobs and timestamp
+  `simembeddedinclusive_20260509_234610`; terminal evidence showed all 20
+  cfg/sample analysis nodes were added, with Jet12 `9998` rows, Jet20 `10000`
+  rows, and `1429` groups per sample/cfg; final DAG cluster `432413`; DAG path
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_sub/auto_workflow_simembeddedinclusive_20260509_234610/RecoilJets_auto_simembeddedinclusive_20260509_234610.dag`.
+  Gmail check on 2026-05-10: `isSimEmbedded` reached final READY with
+  `rescue_file_count=0`, final output base
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/output/simembedded`, and next
+  action `./scripts/sftp_get_recoiljets_outputs.sh isSimEmbedded`. The
+  inclusive-background campaign has only a current-campaign firstRound STARTED
+  email so far; no current `isSimEmbeddedInclusive` READY/CHECK/FAILED email
+  was found. Next: request one compact SDCC diagnostic for cluster `432413` or
+  the `simembeddedinclusive_20260509_234610` DAG. Once both are READY, pull
+  outputs and make the full comparison suite: reco efficiency, isolation
+  discrimination/ABCD behavior, tight/complement shower-shape distributions,
+  truth leakage/fake rates, and model-family comparisons across centrality and
+  photon `E_T`.
 - PIVOT FOR JSTG NEXT WEDNESDAY: full AuAu data jobs were removed by Justin on
   2026-05-08. Do not spend Condor space on AuAu data until the simulation/BDT
   story is ready. The priority is a clean 15-minute JSTG presentation draft by
@@ -173,8 +287,15 @@ Removal` and ask Justin before removing or archiving.
   Terminal evidence shows production `vz=[10]`, `run28_embeddedJet12` has
   `9998` matched rows, `run28_embeddedJet20` has `10000` matched rows, and
   each visible sample/cfg fanout plans `1429` analysis jobs at `groupSize=7`.
-  Capture the top-level DAGMan cluster ID when the submit output/Gmail exposes
-  it. Wait for `analysis -> SIM_FIRSTROUND -> SIM_SECONDROUND ->
+  Heartbeat check at 2026-05-08 17:31 EDT found visible Condor worker cluster
+  `631694` with `4714` jobs total, `3117` running, `1597` idle, and `0` held.
+  Gmail on 2026-05-08 22:20 EDT reported
+  `[RecoilJets][auto_simembeddedinclusive_final_ready][READY]` from
+  `sphnxuser08` for the `163858` auto DAG, with `rescue_file_count=0`, final
+  output base `/sphenix/u/patsfan753/scratch/thesisAnalysis/output/simembeddedinclusive`,
+  and next action `./scripts/sftp_get_recoiljets_outputs.sh
+  isSimEmbeddedInclusive`; the email was consumed and marked read. The
+  workflow completed `analysis -> SIM_FIRSTROUND -> SIM_SECONDROUND ->
   SIM_FINALSTITCH`; the `finalStitch` Condor stage is where the weighted
   Jet12/Jet20 stitch is applied with `EmbeddedJet12
   sigma_eff_pb=1.21692467e+06` and `EmbeddedJet20 sigma_eff_pb=5.56198698e+04`.
@@ -182,9 +303,10 @@ Removal` and ask Justin before removing or archiving.
   `https://docs.google.com/presentation/d/1-bLijV9dHONak_7WV9aFAC_eZXf7LLytaqs74bo2NKQ/edit?slide=id.g3dfaa525a20_5_2#slide=id.g3dfaa525a20_5_2`
   is waiting on the reference/reference/reference final stitched output:
   `preselectionReference_tightReference_nonTightReference_baseVariant/embeddedJet12and20merged_SIM/RecoilJets_embeddedJet12plus20_MERGED.root`.
-  Once READY, pull or validate that output, regenerate the inclusive stitched
-  truth-filter pT QA plot, show the PNG in chat for approval, then replace the
-  old photon plot on slide 5.
+  Next: pull or validate that output with
+  `./scripts/sftp_get_recoiljets_outputs.sh isSimEmbeddedInclusive`,
+  regenerate the inclusive stitched truth-filter pT QA plot, show the PNG in
+  chat for approval, then replace the old photon plot on slide 5.
 - Validate the fixed SIM automatic merge chain. On 2026-05-08,
   `scripts/RecoilJets_Condor_submit.sh` was updated and uploaded so SIM-family
   auto workflows run `analysis -> SIM_FIRSTROUND -> SIM_SECONDROUND -> final
@@ -255,12 +377,22 @@ Removal` and ask Justin before removing or archiving.
   emails for analysis/firstRound/secondRound/final, then preserve old
   `InputFiles/simEmbedded` before pulling and do the strict old-vs-new ROOT
   comparison before using the outputs as final analysis inputs.
-- Fixed full `isSimEmbeddedInclusive` production from `sphnxuser08`: wait for
-  READY/CHECK/FAILED emails or terminal evidence for the `163858` auto DAG.
-  The old `112828`/`2670772` run is superseded. When the fixed run reaches
-  finalStitch READY, preserve any old local embedded-inclusive files before
-  pulling and perform the stitched Jet12/Jet20 pT spectra validation before
-  using the outputs as final background inputs or replacing the plot on slide 5.
+- Fixed full `isSimEmbeddedInclusive` production from `sphnxuser08`: remote
+  `163858` auto DAG was READY with `rescue_file_count=0`, and the old
+  `112828`/`2670772` run is superseded. On 2026-05-08 Codex pulled 15 final
+  merged files with `./scripts/sftp_get_recoiljets_outputs.sh
+  isSimEmbeddedInclusive`; the reference/reference/reference target exists at
+  `dataOutput/combinedSimOnlyEMBEDDED/preselectionReference_tightReference_nonTightReference_baseVariant/embeddedJet12and20merged_SIM/RecoilJets_embeddedJet12plus20_MERGED.root`.
+  ROOT inspection found `SIM/MERGE_INFO` with Jet12/Jet20 derived constants and
+  `SIM/h_embedInclusiveStitch_filterJetPt_kept`, then generated
+  `embeddedInclusiveJet_finalMergedStitchedTruthJetPtSpectrum.png` next to the
+  ROOT file. Codex then pulled the raw per-sample secondRound files with
+  `SFTP_GET_SIM_RAW=1 ./scripts/sftp_get_recoiljets_outputs.sh
+  isSimEmbeddedInclusive` and generated the slide-style split component plot
+  `embeddedInclusiveJet_stitchedTruthFilterPtSpectrum.png` from the Jet12 and
+  Jet20 raw inputs. The helper's slow automatic all-config local merge was
+  stopped after the raw files and plot existed. Next: approve the split PNG in
+  chat, then replace the plot on slide 5.
 - Fresh SDCC smoke or production evidence for direct-fanout pp and SIM jobs.
 - User decision on when to transfer the ABCD/purity tight-axis fix and rerun
   affected outputs.

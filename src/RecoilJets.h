@@ -675,10 +675,12 @@ private:
   std::string histRKeyForJetPt(const std::string& rKey, double ptGeV) const;
   std::string histRKeyForJetPtAndDphi(const std::string& rKey, double ptGeV, double cutRad) const;
   void        configureInternalIsoViewsFromEnv();
-  enum class HistViewScope { Canonical, IsoView };
+  enum class HistViewScope { Canonical, IsoCone, IsoView };
   bool        fillCanonicalThisView() const;
+  bool        fillConeThisView() const;
   std::string histBaseForScope(const std::string& base, HistViewScope scope) const;
   std::string recoilRKeyForScope(const std::string& rKey, double ptGeV, double cutRad, HistViewScope scope) const;
+  std::string withIsoConeSuffix(const std::string& base) const;
   std::string withIsoViewSuffix(const std::string& base) const;
   std::string stripIsoViewSuffix(const std::string& key) const;
   void        configureInternalBackToBackScanFromEnv();
@@ -727,7 +729,8 @@ private:
   TH1F* getOrBookIsoPartHist(const std::string& trig,
                                      const std::string& base,
                                      const std::string& xAxisTitle,
-                                     int ptIdx, int centIdx);
+                                     int ptIdx, int centIdx,
+                                     HistViewScope scope = HistViewScope::IsoCone);
   TH1F* getOrBookPtGammaHist(const std::string& trig,
                                  const std::string& base,
                                  int centIdx);

@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-SIM_ROOT="${RJ_SIM_ROOT:-${BASE}/simListFiles}"
+RJ_REPO_BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+readonly RJ_REPO_BASE
+SIM_ROOT="${RJ_SIM_ROOT:-${RJ_REPO_BASE}/simListFiles}"
 TRAIN_BASE="${RJ_AUAU_TIGHT_BDT_TRAIN_BASE:-/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining}"
-LOCAL_BASE="${RJ_AUAU_TIGHT_BDT_LOCAL_BASE:-${BASE}/local_bdt_training_outputs}"
-MODEL_BASE="${RJ_AUAU_BDT_MODEL_BASE:-${BASE}/bdt_models}"
-MASTER_YAML="${RJ_AUAU_TIGHT_BDT_CONFIG_SRC:-${BASE}/macros/analysis_config.yaml}"
-TRAIN_MACRO="${RJ_AUAU_TIGHT_BDT_MACRO:-${BASE}/macros/Fun4All_auauTightBDTTraining.C}"
-TRAIN_SCRIPT="${RJ_AUAU_TIGHT_BDT_TRAIN_SCRIPT:-${BASE}/scripts/train_auau_photon_bdt.py}"
-VALIDATE_SCRIPT="${RJ_AUAU_TIGHT_BDT_VALIDATE_SCRIPT:-${BASE}/scripts/validate_auau_tight_bdt_on_sim.py}"
+LOCAL_BASE="${RJ_AUAU_TIGHT_BDT_LOCAL_BASE:-${RJ_REPO_BASE}/local_bdt_training_outputs}"
+MODEL_BASE="${RJ_AUAU_BDT_MODEL_BASE:-${RJ_REPO_BASE}/bdt_models}"
+MASTER_YAML="${RJ_AUAU_TIGHT_BDT_CONFIG_SRC:-${RJ_REPO_BASE}/macros/analysis_config.yaml}"
+TRAIN_MACRO="${RJ_AUAU_TIGHT_BDT_MACRO:-${RJ_REPO_BASE}/macros/Fun4All_auauTightBDTTraining.C}"
+TRAIN_SCRIPT="${RJ_AUAU_TIGHT_BDT_TRAIN_SCRIPT:-${RJ_REPO_BASE}/scripts/train_auau_photon_bdt.py}"
+VALIDATE_SCRIPT="${RJ_AUAU_TIGHT_BDT_VALIDATE_SCRIPT:-${RJ_REPO_BASE}/scripts/validate_auau_tight_bdt_on_sim.py}"
 ML_PYTHON="${RJ_ML_PYTHON:-python3}"
 NOTIFY_EMAILS="${RJ_NOTIFY_EMAILS:-just0131@gmail.com}"
 
@@ -22,6 +23,32 @@ say() { printf '\033[1;36m[auauTightBDT]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[auauTightBDT][WARN]\033[0m %s\n' "$*" >&2; }
 err() { printf '\033[1;31m[auauTightBDT][ERR]\033[0m %s\n' "$*" >&2; }
 die() { err "$*"; exit 2; }
+
+guard_generated_path() {
+  local label="$1"
+  local path="$2"
+  [[ -n "$path" ]] || die "${label} resolved to an empty path"
+  case "$path" in
+    /cvmfs/*|/opt/sphenix/*|/usr/*|/bin/*|/lib/*|/lib64/*|/etc/*)
+      die "${label} resolved to a protected/read-only system path: ${path}. Repo root is ${RJ_REPO_BASE}; check for environment variable collisions before rerunning."
+      ;;
+  esac
+}
+
+log_path_plan() {
+  local label="$1"
+  shift
+  say "${label} path plan:"
+  say "  repo root : ${RJ_REPO_BASE}"
+  say "  cwd       : $(pwd -P)"
+  if [[ -n "${BASE:-}" && "${BASE:-}" != "${RJ_REPO_BASE}" ]]; then
+    warn "environment variable BASE='${BASE}' differs from repo root; using RJ_REPO_BASE='${RJ_REPO_BASE}'"
+  fi
+  local item
+  for item in "$@"; do
+    say "  ${item}"
+  done
+}
 
 setup_sphenix_stack_env() {
   export USER="${USER:-$(id -u -n)}"
@@ -46,6 +73,9 @@ setup_sphenix_stack_env() {
 
 setup_ml_python_env() {
   setup_sphenix_stack_env
+  if [[ -n "${BASE:-}" && "${BASE:-}" != "${RJ_REPO_BASE}" ]]; then
+    warn "sPHENIX setup exported BASE='${BASE}'; sidecar repo root remains RJ_REPO_BASE='${RJ_REPO_BASE}'"
+  fi
   local ml_python_prefix=""
   local ml_python_real=""
   local ml_python_real_prefix=""
@@ -86,6 +116,11 @@ Usage:
   ./scripts/auau_tight_bdt_pipeline.sh smokeTest [groupSize N]
   ./scripts/auau_tight_bdt_pipeline.sh condorExtract [groupSize N]
   ./scripts/auau_tight_bdt_pipeline.sh trainFromExtraction SOURCE=/path
+  ./scripts/auau_tight_bdt_pipeline.sh trainCentInput3x3FromExtraction SOURCE=/path [MODEL_DIR=/path]
+  ./scripts/auau_tight_bdt_pipeline.sh trainWidthStudyPt1530FromExtraction SOURCE=/path [MODEL_DIR=/path]
+  ./scripts/auau_tight_bdt_pipeline.sh trainExpandedFromExtraction SOURCE=/path [PLAN_ONLY=1]
+  ./scripts/auau_tight_bdt_pipeline.sh trainExpandedFromExtractionCondor SOURCE=/path [groupSize N]
+  ./scripts/auau_tight_bdt_pipeline.sh finalizeExpandedTraining SOURCE=/path MODEL_DIR=/path SUB_ROOT=/path
   ./scripts/auau_tight_bdt_pipeline.sh applyCheck MODEL_DIR=/path
   ./scripts/auau_tight_bdt_pipeline.sh validateOnSim SOURCE=/path MODEL_DIR=/path
   ./scripts/auau_tight_bdt_pipeline.sh validateOnSimCondor SOURCE=/path MODEL_DIR=/path [groupSize N]
@@ -97,16 +132,24 @@ Sidecar AuAu tight-BDT workflow:
   final TMVA ROOT models and writes quick ROC/AUC simulation diagnostics.
   validateOnSimCondor shards the ROOT scoring over Condor, then merges the
   score caches into the same final validation report/plots.
+  trainExpandedFromExtraction builds the registry-driven expanded model study
+  matrix for model selection; it does not change the normal three-model path.
+  trainCentInput3x3FromExtraction trains one focused centrality-input model
+  that swaps the standard shower widths for 3x3 tower-window widths.
+  trainWidthStudyPt1530FromExtraction trains the focused 15-30 GeV
+  centrality-input comparison: base widths, 3x3 widths, and base+3x3 widths.
+  finalizeExpandedTraining re-merges an already completed expanded Condor run
+  without retraining, useful after bookkeeping-only fixes.
 EOF
 }
 
 wrapper_path() {
-  if [[ -f "${BASE}/RecoilJets_Condor_AuAu.sh" ]]; then
-    printf '%s\n' "${BASE}/RecoilJets_Condor_AuAu.sh"
-  elif [[ -f "${BASE}/scripts/RecoilJets_Condor_AuAu.sh" ]]; then
-    printf '%s\n' "${BASE}/scripts/RecoilJets_Condor_AuAu.sh"
+  if [[ -f "${RJ_REPO_BASE}/RecoilJets_Condor_AuAu.sh" ]]; then
+    printf '%s\n' "${RJ_REPO_BASE}/RecoilJets_Condor_AuAu.sh"
+  elif [[ -f "${RJ_REPO_BASE}/scripts/RecoilJets_Condor_AuAu.sh" ]]; then
+    printf '%s\n' "${RJ_REPO_BASE}/scripts/RecoilJets_Condor_AuAu.sh"
   else
-    die "Cannot find RecoilJets_Condor_AuAu.sh under ${BASE}"
+    die "Cannot find RecoilJets_Condor_AuAu.sh under ${RJ_REPO_BASE}"
   fi
 }
 
@@ -301,6 +344,12 @@ run_local_test() {
   local extraction_root="${run_root}/extraction"
   local report_dir="${run_root}/reports"
   local yaml="${manifest_dir}/analysis_config_auau_tight_bdt_training.yaml"
+  guard_generated_path "localTest run root" "$run_root"
+  log_path_plan "localTest" \
+    "run root  : ${run_root}" \
+    "manifest  : ${manifest_dir}" \
+    "extraction: ${extraction_root}" \
+    "report    : ${report_dir}"
   mkdir -p "$manifest_dir" "$extraction_root" "$report_dir"
   make_training_yaml "$yaml"
   local wrapper; wrapper="$(wrapper_path)"
@@ -349,11 +398,21 @@ run_condor_extract() {
   done
   local stamp="${RJ_AUAU_TIGHT_BDT_STAMP:-$(ts)}"
   local run_root="${TRAIN_BASE}/auauTightBDT_${stamp}"
-  local sub_root="${BASE}/condor_sub/auauTightBDT_${stamp}"
+  local sub_root="${RJ_REPO_BASE}/condor_sub/auauTightBDT_${stamp}"
   local extraction_root="${run_root}/extraction"
   local manifest_dir="${run_root}/manifests"
   local report_dir="${run_root}/reports"
   local yaml="${manifest_dir}/analysis_config_auau_tight_bdt_training.yaml"
+  guard_generated_path "condorExtract run root" "$run_root"
+  guard_generated_path "condorExtract submit root" "$sub_root"
+  log_path_plan "${mode}" \
+    "run root  : ${run_root}" \
+    "submit    : ${sub_root}" \
+    "manifest  : ${manifest_dir}" \
+    "extraction: ${extraction_root}" \
+    "report    : ${report_dir}" \
+    "groupSize : ${group_size}" \
+    "maxJobs   : ${max_jobs_per_sample}"
   mkdir -p "$sub_root" "$manifest_dir" "$report_dir" "$extraction_root"
   make_training_yaml "$yaml"
   local args_file="${sub_root}/extract_args.txt"
@@ -643,6 +702,773 @@ PY
   [[ "$status" == "READY" ]] || return 3
 }
 
+apply_check_registry() {
+  local model_dir="$1"
+  local registry="${2:-${model_dir}/model_registry.json}"
+  [[ -s "$registry" ]] || die "Missing expanded model registry: $registry"
+  setup_ml_python_env
+  "$ML_PYTHON" - "$registry" <<'PY'
+import json
+import sys
+from pathlib import Path
+try:
+    import ROOT
+except Exception as exc:
+    raise SystemExit(f"PyROOT import failed: {exc}")
+registry = Path(sys.argv[1])
+data = json.loads(registry.read_text())
+bad = []
+checked = 0
+for spec in data.get("models", []):
+    report = spec.get("report")
+    if not report:
+        bad.append(f"{spec.get('model_id')}: missing report")
+        continue
+    if report.get("status") == "skipped":
+        continue
+    path = Path(spec.get("output_tmva", ""))
+    if not path.is_file() or path.stat().st_size <= 0:
+        bad.append(f"{spec.get('model_id')}: missing {path}")
+        continue
+    f = ROOT.TFile.Open(str(path))
+    if not f or f.IsZombie():
+        bad.append(f"{spec.get('model_id')}: unreadable {path}")
+    else:
+        checked += 1
+    if f:
+        f.Close()
+if bad:
+    raise SystemExit("Expanded applyCheck failed:\n  " + "\n  ".join(bad[:80]))
+print(f"[OK] expanded applyCheck opened {checked} TMVA ROOT files from {registry}")
+PY
+}
+
+validation_model_dir_from_yaml() {
+  local yaml="${RJ_AUAU_BDT_VALIDATION_CONFIG:-${RJ_REPO_BASE}/macros/analysis_config_auau_bdt_validation.yaml}"
+  [[ -f "$yaml" ]] || return 0
+  awk -F: '
+    /^[[:space:]]*auau_tight_bdt_expanded_model_dir[[:space:]]*:/ {
+      sub(/^[[:space:]]+/, "", $2)
+      sub(/[[:space:]]+$/, "", $2)
+      print $2
+      exit
+    }
+  ' "$yaml"
+}
+
+train_cent_input_3x3_from_extraction() {
+  local source=""
+  for tok in "$@"; do
+    case "$tok" in
+      SOURCE=*) source="${tok#SOURCE=}" ;;
+      MODEL_DIR=*) export RJ_AUAU_TIGHT_BDT_MODEL_DIR="${tok#MODEL_DIR=}" ;;
+    esac
+  done
+  [[ -n "$source" ]] || die "trainCentInput3x3FromExtraction requires SOURCE=/path"
+  [[ -d "$source" ]] || die "SOURCE is not a directory: $source"
+
+  local manifest="${source}/manifests/training_roots.list"
+  local search_root="$source"
+  [[ -d "${source}/extraction" ]] && search_root="${source}/extraction"
+  local report_dir="${source}/reports"
+  guard_generated_path "3x3 training report dir" "$report_dir"
+  mkdir -p "$report_dir"
+  make_root_manifest "$search_root" "$manifest"
+  validate_training_tree "$manifest" "${report_dir}/training_tree_validation_3x3.json"
+
+  local yaml_model_dir=""
+  yaml_model_dir="$(validation_model_dir_from_yaml || true)"
+  local stamp="${RJ_AUAU_TIGHT_BDT_TRAIN_STAMP:-$(ts)}"
+  local model_dir="${RJ_AUAU_TIGHT_BDT_MODEL_DIR:-${yaml_model_dir:-${MODEL_BASE}/tight_3x3_${stamp}}}"
+  guard_generated_path "3x3 model dir" "$model_dir"
+  log_path_plan "trainCentInput3x3FromExtraction" \
+    "source    : ${source}" \
+    "model dir : ${model_dir}" \
+    "manifest  : ${manifest}" \
+    "report    : ${report_dir}" \
+    "model id  : centAsFeat3x3_pt5to40"
+  mkdir -p "$model_dir"
+  setup_ml_python_env
+  local registry="${model_dir}/model_registry_3x3.json"
+  "$ML_PYTHON" "$TRAIN_SCRIPT" --task tight --campaign expanded-tight \
+    --input "@${manifest}" \
+    --outdir "$model_dir" \
+    --cache-file "${model_dir}/training_matrix_3x3.npz" \
+    --registry-output "$registry" \
+    --campaign-spec-ids centAsFeat3x3_pt5to40 \
+    --parallel-workers 1 \
+    --n-jobs "${RJ_AUAU_BDT_XGB_N_JOBS:-4}" \
+    --majority-cap-ratio "${RJ_AUAU_BDT_MAJORITY_CAP_RATIO:-4.0}"
+  apply_check_registry "$model_dir" "$registry"
+  local summary="${report_dir}/cent_input_3x3_training_summary.txt"
+  {
+    echo "RECOILJETS_AUAU_TIGHT_BDT_CENT_INPUT_3X3_TRAINING_V1"
+    echo "status=READY"
+    echo "source=${source}"
+    echo "model_dir=${model_dir}"
+    echo "model_file=${model_dir}/auau_tight_bdt_centAsFeat3x3_pt5to40_tmva.root"
+    echo "registry=${registry}"
+    echo "next_action=Rebuild src_AuAu if not already rebuilt, then run isSimEmbedded/isSimEmbeddedInclusive with macros/analysis_config_auau_bdt_validation.yaml."
+  } > "$summary"
+  cat "$summary"
+  send_summary_email "[RecoilJets][auauTightBDT_trainCentInput3x3FromExtraction][READY]" "$summary"
+}
+
+train_width_study_pt1530_from_extraction() {
+  local source=""
+  for tok in "$@"; do
+    case "$tok" in
+      SOURCE=*) source="${tok#SOURCE=}" ;;
+      MODEL_DIR=*) export RJ_AUAU_TIGHT_BDT_MODEL_DIR="${tok#MODEL_DIR=}" ;;
+    esac
+  done
+  [[ -n "$source" ]] || die "trainWidthStudyPt1530FromExtraction requires SOURCE=/path"
+  [[ -d "$source" ]] || die "SOURCE is not a directory: $source"
+
+  local manifest="${source}/manifests/training_roots.list"
+  local search_root="$source"
+  [[ -d "${source}/extraction" ]] && search_root="${source}/extraction"
+  local report_dir="${source}/reports"
+  guard_generated_path "width-study training report dir" "$report_dir"
+  mkdir -p "$report_dir"
+  make_root_manifest "$search_root" "$manifest"
+  validate_training_tree "$manifest" "${report_dir}/training_tree_validation_widthstudy_pt1530.json"
+
+  local stamp="${RJ_AUAU_TIGHT_BDT_TRAIN_STAMP:-$(ts)}"
+  local default_model_dir="/gpfs/mnt/gpfs02/sphenix/user/${USER:-patsfan753}/thesisAnalysis/bdt_models/tight_centinput_widthstudy_pt1530_current"
+  local model_dir="${RJ_AUAU_TIGHT_BDT_MODEL_DIR:-$default_model_dir}"
+  local cache_file="${RJ_AUAU_BDT_CACHE_FILE:-${model_dir}/training_matrix_widthstudy_pt1530.npz}"
+  local registry="${model_dir}/model_registry.json"
+  local spec_ids="centAsFeat_pt15to30,centAsFeat3x3_pt15to30,centAsFeatBase3x3_pt15to30"
+  guard_generated_path "width-study model dir" "$model_dir"
+  log_path_plan "trainWidthStudyPt1530FromExtraction" \
+    "source    : ${source}" \
+    "model dir : ${model_dir}" \
+    "manifest  : ${manifest}" \
+    "cache     : ${cache_file}" \
+    "registry  : ${registry}" \
+    "spec ids  : ${spec_ids}" \
+    "pt window : 15 <= cluster_Et < 30 GeV"
+  mkdir -p "$model_dir"
+  setup_ml_python_env
+  "$ML_PYTHON" "$TRAIN_SCRIPT" --task tight --campaign expanded-tight \
+    --input "@${manifest}" \
+    --outdir "$model_dir" \
+    --cache-file "$cache_file" \
+    --registry-output "$registry" \
+    --extra-cent-as-feat-pt-ranges 15:30 \
+    --extra-cent-as-feat-3x3-pt-ranges 15:30 \
+    --extra-cent-as-feat-base3x3-pt-ranges 15:30 \
+    --campaign-spec-ids "$spec_ids" \
+    --parallel-workers "${RJ_AUAU_BDT_TRAIN_PARALLEL:-3}" \
+    --n-jobs "${RJ_AUAU_BDT_XGB_N_JOBS:-1}" \
+    --majority-cap-ratio "${RJ_AUAU_BDT_MAJORITY_CAP_RATIO:-4.0}"
+  apply_check_registry "$model_dir" "$registry"
+  local summary="${report_dir}/widthstudy_pt1530_training_summary.txt"
+  {
+    echo "RECOILJETS_AUAU_TIGHT_BDT_WIDTHSTUDY_PT1530_TRAINING_V1"
+    echo "status=READY"
+    echo "source=${source}"
+    echo "model_dir=${model_dir}"
+    echo "registry=${registry}"
+    echo "pt_window=15:30"
+    echo "model_base_widths=${model_dir}/auau_tight_bdt_centAsFeat_pt15to30_tmva.root"
+    echo "model_3x3_widths=${model_dir}/auau_tight_bdt_centAsFeat3x3_pt15to30_tmva.root"
+    echo "model_base_plus_3x3_widths=${model_dir}/auau_tight_bdt_centAsFeatBase3x3_pt15to30_tmva.root"
+    echo "next_action=Run validateOnSimCondor with this MODEL_DIR, then run the strict 15-30 GeV WP0.80 MC validation YAML."
+  } > "$summary"
+  cat "$summary"
+  send_summary_email "[RecoilJets][auauTightBDT_trainWidthStudyPt1530FromExtraction][READY]" "$summary"
+}
+
+train_expanded_from_extraction() {
+  local source=""
+  local plan_only=0
+  for tok in "$@"; do
+    case "$tok" in
+      SOURCE=*) source="${tok#SOURCE=}" ;;
+      PLAN_ONLY=1|planOnly=1|DRYRUN=1) plan_only=1 ;;
+    esac
+  done
+  [[ -n "$source" ]] || die "trainExpandedFromExtraction requires SOURCE=/path"
+  [[ -d "$source" ]] || die "SOURCE is not a directory: $source"
+  local manifest="${source}/manifests/training_roots.list"
+  local search_root="$source"
+  [[ -d "${source}/extraction" ]] && search_root="${source}/extraction"
+  local report_dir="${source}/reports"
+  guard_generated_path "expanded training report dir" "$report_dir"
+  mkdir -p "$report_dir"
+  make_root_manifest "$search_root" "$manifest"
+  validate_training_tree "$manifest" "${report_dir}/training_tree_validation.json"
+
+  local stamp="${RJ_AUAU_TIGHT_BDT_TRAIN_STAMP:-$(ts)}"
+  local model_dir="${RJ_AUAU_TIGHT_BDT_MODEL_DIR:-${MODEL_BASE}/tight_expanded_${stamp}}"
+  local cache_file="${RJ_AUAU_BDT_CACHE_FILE:-${model_dir}/training_matrix.npz}"
+  local spec_ids="${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS:-}"
+  guard_generated_path "expanded training model dir" "$model_dir"
+  log_path_plan "trainExpandedFromExtraction" \
+    "source    : ${source}" \
+    "model dir : ${model_dir}" \
+    "manifest  : ${manifest}" \
+    "cache     : ${cache_file}" \
+    "spec ids  : ${spec_ids:-<all>}" \
+    "report    : ${report_dir}" \
+    "plan only : ${plan_only}"
+  mkdir -p "$model_dir"
+  setup_ml_python_env
+  local -a args=(
+    "$TRAIN_SCRIPT"
+    --task tight
+    --campaign expanded-tight
+    --input "@${manifest}"
+    --outdir "$model_dir"
+    --cache-file "${cache_file}"
+    --registry-output "${model_dir}/model_registry.json"
+    --parallel-workers "${RJ_AUAU_BDT_TRAIN_PARALLEL:-4}"
+    --n-jobs "${RJ_AUAU_BDT_XGB_N_JOBS:-1}"
+    --majority-cap-ratio "${RJ_AUAU_BDT_MAJORITY_CAP_RATIO:-4.0}"
+    --minopt-majority-cap-ratio "${RJ_AUAU_BDT_MINOPT_MAJORITY_CAP_RATIO:-2.0}"
+  )
+  if [[ -n "$spec_ids" ]]; then
+    args+=( --campaign-spec-ids "$spec_ids" )
+  fi
+  if [[ "$plan_only" == "1" ]]; then
+    args+=( --plan-only --registry-output "${model_dir}/model_registry.planned.json" )
+  fi
+  say "Expanded training model dir: $model_dir"
+  "$ML_PYTHON" "${args[@]}"
+  if [[ "$plan_only" == "1" ]]; then
+    say "Expanded campaign plan only: ${model_dir}/model_registry.planned.json"
+    return 0
+  fi
+  apply_check_registry "$model_dir"
+  local summary="${report_dir}/expanded_training_summary.txt"
+  {
+    echo "RECOILJETS_AUAU_TIGHT_BDT_EXPANDED_TRAINING_V1"
+    echo "status=READY"
+    echo "source=${source}"
+    echo "model_dir=${model_dir}"
+    echo "registry=${model_dir}/model_registry.json"
+    echo "next_action=Run validateOnSimCondor with MODEL_DIR=${model_dir}, then inspect registry-ranked model QA."
+  } > "$summary"
+  cat "$summary"
+  send_summary_email "[RecoilJets][auauTightBDT_trainExpandedFromExtraction][READY]" "$summary"
+}
+
+train_expanded_from_extraction_condor() {
+  local source=""
+  local group_size="${RJ_AUAU_BDT_EXPANDED_GROUP_SIZE:-4}"
+  local reqmem="${RJ_AUAU_BDT_EXPANDED_REQUEST_MEMORY:-6000MB}"
+  for tok in "$@"; do
+    case "$tok" in
+      SOURCE=*) source="${tok#SOURCE=}" ;;
+      groupSize=*) group_size="${tok#groupSize=}" ;;
+    esac
+  done
+  while (($#)); do
+    case "$1" in
+      groupSize) group_size="${2:?missing value after groupSize}"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  [[ -n "$source" ]] || die "trainExpandedFromExtractionCondor requires SOURCE=/path"
+  [[ -d "$source" ]] || die "SOURCE is not a directory: $source"
+  [[ "$group_size" =~ ^[0-9]+$ && "$group_size" -gt 0 ]] || die "groupSize must be a positive integer"
+
+  local manifest="${source}/manifests/training_roots.list"
+  local search_root="$source"
+  [[ -d "${source}/extraction" ]] && search_root="${source}/extraction"
+  local report_dir="${source}/reports"
+  mkdir -p "$report_dir"
+  make_root_manifest "$search_root" "$manifest"
+  validate_training_tree "$manifest" "${report_dir}/training_tree_validation.json"
+
+  local stamp="${RJ_AUAU_TIGHT_BDT_TRAIN_STAMP:-$(ts)}"
+  local model_dir="${RJ_AUAU_TIGHT_BDT_MODEL_DIR:-${MODEL_BASE}/tight_expanded_${stamp}}"
+  local sub_root="${RJ_REPO_BASE}/condor_sub/auauTightBDTExpanded_${stamp}"
+  local shard_dir="${sub_root}/spec_shards"
+  local registry_dir="${sub_root}/registries"
+  local cache_file="${RJ_AUAU_BDT_CACHE_FILE:-${model_dir}/training_matrix.npz}"
+  local spec_ids="${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS:-}"
+  guard_generated_path "expanded training model dir" "$model_dir"
+  guard_generated_path "expanded training submit root" "$sub_root"
+  log_path_plan "trainExpandedFromExtractionCondor" \
+    "source    : ${source}" \
+    "model dir : ${model_dir}" \
+    "submit    : ${sub_root}" \
+    "shards    : ${shard_dir}" \
+    "registries: ${registry_dir}" \
+    "cache     : ${cache_file}" \
+    "spec ids  : ${spec_ids:-<all>}" \
+    "groupSize : ${group_size}" \
+    "requestMem: ${reqmem}"
+  mkdir -p "$model_dir" "$sub_root" "$shard_dir" "$registry_dir"
+
+  setup_ml_python_env
+  local planned="${model_dir}/model_registry.planned.json"
+  local -a plan_args=(
+    "$TRAIN_SCRIPT" --task tight --campaign expanded-tight
+    --input "@${manifest}" --outdir "$model_dir"
+    --plan-only --registry-output "$planned"
+    --majority-cap-ratio "${RJ_AUAU_BDT_MAJORITY_CAP_RATIO:-4.0}"
+    --minopt-majority-cap-ratio "${RJ_AUAU_BDT_MINOPT_MAJORITY_CAP_RATIO:-2.0}"
+  )
+  if [[ -n "$spec_ids" ]]; then
+    plan_args+=( --campaign-spec-ids "$spec_ids" )
+  fi
+  "$ML_PYTHON" "${plan_args[@]}"
+
+  "$ML_PYTHON" - "$planned" "$shard_dir" "$group_size" <<'PY'
+import json
+import sys
+from pathlib import Path
+planned = Path(sys.argv[1])
+shard_dir = Path(sys.argv[2])
+group = int(sys.argv[3])
+shard_dir.mkdir(parents=True, exist_ok=True)
+for old in shard_dir.glob("specs_*.list"):
+    old.unlink()
+models = json.loads(planned.read_text())["models"]
+ids = [m["model_id"] for m in models]
+for i in range(0, len(ids), group):
+    out = shard_dir / f"specs_{i // group:05d}.list"
+    out.write_text("\n".join(ids[i:i + group]) + "\n")
+print(len(ids))
+PY
+  local spec_count expected_spec_count shard_count
+  spec_count="$(find "$shard_dir" -maxdepth 1 -type f -name 'specs_*.list' -exec cat {} + | wc -l | tr -d ' ')"
+  expected_spec_count="$("$ML_PYTHON" - "$planned" <<'PY'
+import json
+import sys
+print(json.load(open(sys.argv[1])).get("expected_model_count", 0))
+PY
+)"
+  shard_count="$(find "$shard_dir" -maxdepth 1 -type f -name 'specs_*.list' | wc -l | tr -d ' ')"
+  [[ "$spec_count" == "$expected_spec_count" ]] || die "Expanded campaign expected ${expected_spec_count} specs, planned ${spec_count}"
+
+  local env_prelude='
+export USER="${USER:-$(id -u -n)}"
+export LOGNAME="${LOGNAME:-$USER}"
+export HOME="/sphenix/u/${LOGNAME}"
+MYINSTALL="/sphenix/u/${USER}/thesisAnalysis/install"
+MYINSTALL_AUAU="/sphenix/u/${USER}/thesisAnalysis_auau/install"
+set +u
+source /opt/sphenix/core/bin/sphenix_setup.sh -n
+if [[ -d "$MYINSTALL" ]]; then source /opt/sphenix/core/bin/setup_local.sh "$MYINSTALL" || true; fi
+if [[ -d "$MYINSTALL_AUAU" ]]; then source /opt/sphenix/core/bin/setup_local.sh "$MYINSTALL_AUAU" || true; fi
+set -u
+ml_python="${ML_PYTHON}"
+ml_python_prefix="$(cd "$(dirname "$ml_python")/.." && pwd -P 2>/dev/null || true)"
+ml_python_real="$(readlink -f "$ml_python" 2>/dev/null || true)"
+ml_python_real_prefix=""
+if [[ -n "$ml_python_real" ]]; then ml_python_real_prefix="$(cd "$(dirname "$ml_python_real")/.." && pwd -P 2>/dev/null || true)"; fi
+ld_joined=""
+for d in "$ml_python_prefix/lib" "$ml_python_prefix/lib64" "$ml_python_real_prefix/lib" "$ml_python_real_prefix/lib64"; do
+  [[ -n "$d" && -d "$d" ]] || continue
+  case ":$ld_joined:" in *":$d:"*) ;; *) ld_joined="${ld_joined:+$ld_joined:}$d" ;; esac
+done
+[[ -n "$ld_joined" ]] && export LD_LIBRARY_PATH="$ld_joined:${LD_LIBRARY_PATH:-}"
+unset PYTHONHOME
+'
+
+  local cache_worker="${sub_root}/expanded_cache.sh"
+cat > "$cache_worker" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+export ML_PYTHON="${ML_PYTHON}"
+export RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS="${spec_ids}"
+${env_prelude}
+extra_args=()
+if [[ -n "\${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS:-}" ]]; then
+  extra_args+=(--campaign-spec-ids "\${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS}")
+fi
+"\$ml_python" "${TRAIN_SCRIPT}" --task tight --campaign expanded-tight \\
+  --input "@${manifest}" --outdir "${model_dir}" \\
+  --cache-file "${cache_file}" --cache-only \\
+  --registry-output "${model_dir}/model_registry.cache.json" \\
+  --n-jobs "${RJ_AUAU_BDT_XGB_N_JOBS:-1}" \\
+  --majority-cap-ratio "${RJ_AUAU_BDT_MAJORITY_CAP_RATIO:-4.0}" \\
+  --minopt-majority-cap-ratio "${RJ_AUAU_BDT_MINOPT_MAJORITY_CAP_RATIO:-2.0}" \\
+  "\${extra_args[@]}"
+EOF
+  chmod +x "$cache_worker"
+
+  local train_worker="${sub_root}/expanded_train_worker.sh"
+  cat > "$train_worker" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+spec_list="\${1:?spec list}"
+registry="\${2:?registry output}"
+export ML_PYTHON="${ML_PYTHON}"
+export RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS="${spec_ids}"
+${env_prelude}
+extra_args=()
+if [[ -n "\${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS:-}" ]]; then
+  extra_args+=(--campaign-spec-ids "\${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS}")
+fi
+"\$ml_python" "${TRAIN_SCRIPT}" --task tight --campaign expanded-tight \\
+  --outdir "${model_dir}" \\
+  --cache-file "${cache_file}" \\
+  --campaign-spec-list "\$spec_list" \\
+  --registry-output "\$registry" \\
+  --parallel-workers "${RJ_AUAU_BDT_TRAIN_PARALLEL_PER_JOB:-1}" \\
+  --n-jobs "${RJ_AUAU_BDT_XGB_N_JOBS:-1}" \\
+  --majority-cap-ratio "${RJ_AUAU_BDT_MAJORITY_CAP_RATIO:-4.0}" \\
+  --minopt-majority-cap-ratio "${RJ_AUAU_BDT_MINOPT_MAJORITY_CAP_RATIO:-2.0}" \\
+  "\${extra_args[@]}"
+EOF
+  chmod +x "$train_worker"
+
+  local merge_worker="${sub_root}/expanded_merge.sh"
+cat > "$merge_worker" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+export ML_PYTHON="${ML_PYTHON}"
+${env_prelude}
+"\$ml_python" - "${planned}" "${registry_dir}" "${model_dir}/model_registry.json" "${source}" "${model_dir}" "${report_dir}/expanded_training_summary.txt" <<'PY'
+import json
+import sys
+from pathlib import Path
+try:
+    import ROOT
+except Exception as exc:
+    ROOT = None
+planned = json.loads(Path(sys.argv[1]).read_text())
+registry_dir = Path(sys.argv[2])
+out_registry = Path(sys.argv[3])
+source = sys.argv[4]
+model_dir = Path(sys.argv[5])
+summary = Path(sys.argv[6])
+reports = {}
+for path in sorted(registry_dir.glob("registry_*.json")):
+    data = json.loads(path.read_text())
+    for spec in data.get("models", []):
+        if spec.get("report"):
+            reports[spec["model_id"]] = spec["report"]
+output_to_spec = {Path(spec["output_tmva"]).name: spec for spec in planned.get("models", [])}
+skip_hints = {}
+for log in sorted(registry_dir.parent.glob("train_*.out")):
+    for line in log.read_text(errors="replace").splitlines():
+        if "Skipping " not in line or "class counts below minimum" not in line:
+            continue
+        try:
+            name = line.split("Skipping ", 1)[1].split(":", 1)[0].strip()
+        except IndexError:
+            continue
+        spec = output_to_spec.get(name)
+        if not spec:
+            continue
+        skip_hints[spec["model_id"]] = {
+            "status": "skipped",
+            "skip_reason": "class counts below minimum",
+            "skip_log": str(log),
+            "output_tmva": spec["output_tmva"],
+            "output_xgb_json": spec.get("output_xgb_json"),
+            "features": spec.get("features", []),
+            "model_id": spec["model_id"],
+            "product": spec.get("product"),
+            "role": spec.get("role"),
+            "pt_range": spec.get("pt_range"),
+            "cent_range": spec.get("cent_range"),
+            "minority_optimized": spec.get("minority_optimized", False),
+            "n_signal": 0,
+            "n_background": 0,
+        }
+missing = []
+skipped = []
+trained = []
+bad = []
+for spec in planned.get("models", []):
+    report = reports.get(spec["model_id"])
+    if not report:
+        report = skip_hints.get(spec["model_id"])
+    spec["report"] = report
+    if not report:
+        missing.append(spec["model_id"])
+        continue
+    report_status = report.get("status", "trained")
+    if report_status == "skipped":
+        skipped.append(spec["model_id"])
+        continue
+    if report_status != "trained":
+        bad.append(f"{spec['model_id']}: unknown report status {report_status}")
+        continue
+    trained.append(spec["model_id"])
+    tmva = Path(spec["output_tmva"])
+    if not tmva.is_file() or tmva.stat().st_size <= 0:
+        bad.append(f"{spec['model_id']}: missing {tmva}")
+        continue
+    if ROOT is not None:
+        f = ROOT.TFile.Open(str(tmva))
+        if not f or f.IsZombie():
+            bad.append(f"{spec['model_id']}: unreadable {tmva}")
+        if f:
+            f.Close()
+status = "READY" if not missing and not bad and not skipped else ("READY_WITH_SKIPS" if not missing and not bad else "CHECK")
+planned["status"] = status
+planned["trained_model_count"] = len(trained)
+planned["skipped_model_count"] = len(skipped)
+planned["missing_model_ids"] = missing
+planned["skipped_model_ids"] = skipped
+planned["bad_model_files"] = bad
+out_registry.write_text(json.dumps(planned, indent=2, sort_keys=True) + "\n")
+summary.write_text(
+    "\n".join([
+        "RECOILJETS_AUAU_TIGHT_BDT_EXPANDED_TRAINING_V1",
+        f"status={status}",
+        f"source={source}",
+        f"model_dir={model_dir}",
+        f"registry={out_registry}",
+        f"expected_model_count={planned.get('expected_model_count', len(planned.get('models', [])))}",
+        f"trained_model_count={len(trained)}",
+        f"skipped_model_count={len(skipped)}",
+        f"missing_model_count={len(missing)}",
+        f"bad_model_count={len(bad)}",
+        "skipped_model_ids=" + ",".join(skipped),
+        "missing_model_ids=" + ",".join(missing),
+        "next_action=Run validateOnSimCondor with this expanded MODEL_DIR and inspect registry-ranked model QA.",
+        "",
+    ])
+)
+print(summary.read_text())
+sys.exit(0 if status in ("READY", "READY_WITH_SKIPS") else 3)
+PY
+if command -v mail >/dev/null 2>&1; then
+  status=\$(awk -F= '/^status=/ {print \$2; exit}' "${report_dir}/expanded_training_summary.txt")
+  mail -s "[RecoilJets][auauTightBDT_trainExpandedFromExtractionCondor][\${status:-CHECK}]" "${NOTIFY_EMAILS}" < "${report_dir}/expanded_training_summary.txt" || true
+fi
+EOF
+  chmod +x "$merge_worker"
+
+  local cache_sub="${sub_root}/expanded_cache.sub"
+  cat > "$cache_sub" <<EOF
+universe = vanilla
+executable = ${cache_worker}
+output = ${sub_root}/cache.out
+error = ${sub_root}/cache.err
+log = ${sub_root}/cache.log
+request_memory = ${RJ_AUAU_BDT_CACHE_REQUEST_MEMORY:-8000MB}
+notification = Never
+queue
+EOF
+
+  local train_nodes="${sub_root}/train_nodes.txt"
+  : > "$train_nodes"
+  local idx=0
+  local spec_list
+  for spec_list in "${shard_dir}"/specs_*.list; do
+    [[ -s "$spec_list" ]] || continue
+    idx=$((idx + 1))
+    local label; label="$(printf '%05d' "$idx")"
+    local reg="${registry_dir}/registry_${label}.json"
+    local sub="${sub_root}/train_${label}.sub"
+    cat > "$sub" <<EOF
+universe = vanilla
+executable = ${train_worker}
+arguments = ${spec_list} ${reg}
+output = ${sub_root}/train_${label}.out
+error = ${sub_root}/train_${label}.err
+log = ${sub_root}/train_${label}.log
+request_memory = ${reqmem}
+notification = Never
+queue
+EOF
+    printf 'TRAIN_%s %s\n' "$label" "$sub" >> "$train_nodes"
+  done
+
+  local merge_sub="${sub_root}/expanded_merge.sub"
+  cat > "$merge_sub" <<EOF
+universe = scheduler
+executable = ${merge_worker}
+output = ${sub_root}/merge.out
+error = ${sub_root}/merge.err
+log = ${sub_root}/merge.log
+notification = Never
+queue
+EOF
+
+  local dag="${sub_root}/auau_tight_bdt_expanded_training.dag"
+  {
+    echo "JOB CACHE ${cache_sub}"
+    while read -r node sub; do
+      [[ -n "${node:-}" ]] || continue
+      echo "JOB ${node} ${sub}"
+      echo "PARENT CACHE CHILD ${node}"
+      echo "RETRY ${node} 1"
+    done < "$train_nodes"
+    echo "FINAL MERGE ${merge_sub}"
+  } > "$dag"
+  say "Expanded training DAG: $dag"
+  say "source: $source"
+  say "model dir: $model_dir"
+  say "specs=${spec_count} shards=${shard_count} groupSize=${group_size} request_memory=${reqmem}"
+  if [[ "${RJ_DAG_DRYRUN:-0}" == "1" ]]; then
+    echo "RECOILJETS_AUAU_TIGHT_BDT_EXPANDED_DRYRUN_V1"
+    echo "source=${source}"
+    echo "model_dir=${model_dir}"
+    echo "planned_registry=${planned}"
+    echo "dag=${dag}"
+    echo "specs=${spec_count}"
+    echo "shards=${shard_count}"
+    return 0
+  fi
+  condor_submit_dag "$dag"
+}
+
+finalize_expanded_training() {
+  local source=""
+  local model_dir=""
+  local sub_root=""
+  local report_dir=""
+  for tok in "$@"; do
+    case "$tok" in
+      SOURCE=*) source="${tok#SOURCE=}" ;;
+      MODEL_DIR=*|MODELDIR=*|modelDir=*|model_dir=*) model_dir="${tok#*=}" ;;
+      SUB_ROOT=*|subRoot=*|sub_root=*) sub_root="${tok#*=}" ;;
+      REPORT_DIR=*|reportDir=*|report_dir=*) report_dir="${tok#*=}" ;;
+    esac
+  done
+  [[ -n "$source" ]] || die "finalizeExpandedTraining requires SOURCE=/path"
+  [[ -n "$model_dir" ]] || die "finalizeExpandedTraining requires MODEL_DIR=/path"
+  [[ -n "$sub_root" ]] || die "finalizeExpandedTraining requires SUB_ROOT=/path"
+  [[ -d "$source" ]] || die "SOURCE is not a directory: $source"
+  [[ -d "$model_dir" ]] || die "MODEL_DIR is not a directory: $model_dir"
+  [[ -d "$sub_root" ]] || die "SUB_ROOT is not a directory: $sub_root"
+  [[ -n "$report_dir" ]] || report_dir="${source}/reports"
+  guard_generated_path "expanded finalization report dir" "$report_dir"
+  guard_generated_path "expanded finalization model dir" "$model_dir"
+  guard_generated_path "expanded finalization submit root" "$sub_root"
+  mkdir -p "$report_dir"
+  local planned="${model_dir}/model_registry.planned.json"
+  local registry_dir="${sub_root}/registries"
+  local out_registry="${model_dir}/model_registry.json"
+  local summary="${report_dir}/expanded_training_summary.txt"
+  [[ -s "$planned" ]] || die "Missing planned registry: $planned"
+  [[ -d "$registry_dir" ]] || die "Missing registry shard directory: $registry_dir"
+  log_path_plan "finalizeExpandedTraining" \
+    "source    : ${source}" \
+    "model dir : ${model_dir}" \
+    "sub root  : ${sub_root}" \
+    "registry  : ${out_registry}" \
+    "summary   : ${summary}"
+  setup_ml_python_env
+  "$ML_PYTHON" - "$planned" "$registry_dir" "$out_registry" "$source" "$model_dir" "$summary" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+try:
+    import ROOT
+except Exception:
+    ROOT = None
+
+planned = json.loads(Path(sys.argv[1]).read_text())
+registry_dir = Path(sys.argv[2])
+out_registry = Path(sys.argv[3])
+source = sys.argv[4]
+model_dir = Path(sys.argv[5])
+summary = Path(sys.argv[6])
+
+reports = {}
+for path in sorted(registry_dir.glob("registry_*.json")):
+    data = json.loads(path.read_text())
+    for spec in data.get("models", []):
+        if spec.get("report"):
+            reports[spec["model_id"]] = spec["report"]
+
+output_to_spec = {Path(spec["output_tmva"]).name: spec for spec in planned.get("models", [])}
+skip_hints = {}
+for log in sorted(registry_dir.parent.glob("train_*.out")):
+    for line in log.read_text(errors="replace").splitlines():
+        if "Skipping " not in line or "class counts below minimum" not in line:
+            continue
+        try:
+            name = line.split("Skipping ", 1)[1].split(":", 1)[0].strip()
+        except IndexError:
+            continue
+        spec = output_to_spec.get(name)
+        if not spec:
+            continue
+        skip_hints[spec["model_id"]] = {
+            "status": "skipped",
+            "skip_reason": "class counts below minimum",
+            "skip_log": str(log),
+            "output_tmva": spec["output_tmva"],
+            "output_xgb_json": spec.get("output_xgb_json"),
+            "features": spec.get("features", []),
+            "model_id": spec["model_id"],
+            "product": spec.get("product"),
+            "role": spec.get("role"),
+            "pt_range": spec.get("pt_range"),
+            "cent_range": spec.get("cent_range"),
+            "minority_optimized": spec.get("minority_optimized", False),
+            "n_signal": 0,
+            "n_background": 0,
+        }
+
+missing = []
+skipped = []
+trained = []
+bad = []
+for spec in planned.get("models", []):
+    report = reports.get(spec["model_id"]) or skip_hints.get(spec["model_id"])
+    spec["report"] = report
+    if not report:
+        missing.append(spec["model_id"])
+        continue
+    report_status = report.get("status", "trained")
+    if report_status == "skipped":
+        skipped.append(spec["model_id"])
+        continue
+    if report_status != "trained":
+        bad.append(f"{spec['model_id']}: unknown report status {report_status}")
+        continue
+    trained.append(spec["model_id"])
+    tmva = Path(spec["output_tmva"])
+    if not tmva.is_file() or tmva.stat().st_size <= 0:
+        bad.append(f"{spec['model_id']}: missing {tmva}")
+        continue
+    if ROOT is not None:
+        f = ROOT.TFile.Open(str(tmva))
+        if not f or f.IsZombie():
+            bad.append(f"{spec['model_id']}: unreadable {tmva}")
+        if f:
+            f.Close()
+
+status = "READY" if not missing and not bad and not skipped else ("READY_WITH_SKIPS" if not missing and not bad else "CHECK")
+planned["status"] = status
+planned["trained_model_count"] = len(trained)
+planned["skipped_model_count"] = len(skipped)
+planned["missing_model_ids"] = missing
+planned["skipped_model_ids"] = skipped
+planned["bad_model_files"] = bad
+out_registry.write_text(json.dumps(planned, indent=2, sort_keys=True) + "\n")
+summary.write_text(
+    "\n".join([
+        "RECOILJETS_AUAU_TIGHT_BDT_EXPANDED_TRAINING_V1",
+        f"status={status}",
+        f"source={source}",
+        f"model_dir={model_dir}",
+        f"registry={out_registry}",
+        f"expected_model_count={planned.get('expected_model_count', len(planned.get('models', [])))}",
+        f"trained_model_count={len(trained)}",
+        f"skipped_model_count={len(skipped)}",
+        f"missing_model_count={len(missing)}",
+        f"bad_model_count={len(bad)}",
+        "skipped_model_ids=" + ",".join(skipped),
+        "missing_model_ids=" + ",".join(missing),
+        "next_action=Run validateOnSimCondor with this expanded MODEL_DIR and inspect registry-ranked model QA.",
+        "",
+    ])
+)
+print(summary.read_text())
+sys.exit(0 if status in ("READY", "READY_WITH_SKIPS") else 3)
+PY
+  local status
+  status=$(awk -F= '/^status=/ {print $2; exit}' "$summary" 2>/dev/null || true)
+  send_summary_email "[RecoilJets][auauTightBDT_finalizeExpandedTraining][${status:-CHECK}]" "$summary"
+}
+
 apply_check() {
   local model_dir=""
   for tok in "$@"; do
@@ -687,11 +1513,13 @@ PY
 validate_on_sim() {
   local source=""
   local model_dir=""
+  local model_registry=""
   local outdir=""
   for tok in "$@"; do
     case "$tok" in
       SOURCE=*) source="${tok#SOURCE=}" ;;
       MODEL_DIR=*|MODELDIR=*|modelDir=*|model_dir=*) model_dir="${tok#*=}" ;;
+      MODEL_REGISTRY=*|REGISTRY=*|modelRegistry=*|model_registry=*) model_registry="${tok#*=}" ;;
       OUTDIR=*|outdir=*) outdir="${tok#*=}" ;;
     esac
   done
@@ -699,11 +1527,15 @@ validate_on_sim() {
   [[ -d "$source" ]] || die "SOURCE is not a directory: $source"
   [[ -n "$model_dir" ]] || die "validateOnSim requires MODEL_DIR=/path/to/tight models"
   [[ -d "$model_dir" ]] || die "MODEL_DIR is not a directory: $model_dir"
+  [[ -z "$model_registry" || -s "$model_registry" ]] || die "MODEL_REGISTRY is not a readable file: $model_registry"
   [[ -s "$VALIDATE_SCRIPT" ]] || die "Missing validation script: $VALIDATE_SCRIPT"
 
   setup_ml_python_env
   local -a args
   args=( "$VALIDATE_SCRIPT" --source "$source" --model-dir "$model_dir" )
+  if [[ -n "$model_registry" ]]; then
+    args+=( --model-registry "$model_registry" )
+  fi
   if [[ -n "$outdir" ]]; then
     args+=( --outdir "$outdir" )
   fi
@@ -711,6 +1543,7 @@ validate_on_sim() {
   say "Validating tight-BDT models on embedded-sim extraction trees"
   say "  source    : $source"
   say "  model dir : $model_dir"
+  [[ -n "$model_registry" ]] && say "  registry  : $model_registry"
   local rc=0
   "$ML_PYTHON" "${args[@]}" || rc=$?
 
@@ -735,6 +1568,7 @@ validate_on_sim() {
 validate_on_sim_condor() {
   local source=""
   local model_dir=""
+  local model_registry=""
   local outdir=""
   local group_size="${RJ_AUAU_TIGHT_BDT_VALIDATE_GROUP_SIZE:-100}"
   local total_score_max="${RJ_AUAU_TIGHT_BDT_VALIDATE_TOTAL_SCORE_MAX_ROWS:-400000}"
@@ -743,6 +1577,7 @@ validate_on_sim_condor() {
     case "$tok" in
       SOURCE=*) source="${tok#SOURCE=}" ;;
       MODEL_DIR=*|MODELDIR=*|modelDir=*|model_dir=*) model_dir="${tok#*=}" ;;
+      MODEL_REGISTRY=*|REGISTRY=*|modelRegistry=*|model_registry=*) model_registry="${tok#*=}" ;;
       OUTDIR=*|outdir=*) outdir="${tok#*=}" ;;
       groupSize=*) group_size="${tok#groupSize=}" ;;
       SCORE_MAX_ROWS=*|scoreMaxRows=*) total_score_max="${tok#*=}" ;;
@@ -759,14 +1594,28 @@ validate_on_sim_condor() {
   [[ -d "$source" ]] || die "SOURCE is not a directory: $source"
   [[ -n "$model_dir" ]] || die "validateOnSimCondor requires MODEL_DIR=/path/to/tight models"
   [[ -d "$model_dir" ]] || die "MODEL_DIR is not a directory: $model_dir"
+  [[ -z "$model_registry" || -s "$model_registry" ]] || die "MODEL_REGISTRY is not a readable file: $model_registry"
   [[ -s "$VALIDATE_SCRIPT" ]] || die "Missing validation script: $VALIDATE_SCRIPT"
   [[ "$group_size" =~ ^[0-9]+$ && "$group_size" -gt 0 ]] || die "groupSize must be a positive integer"
 
   local stamp="${RJ_AUAU_TIGHT_BDT_VALIDATE_STAMP:-$(ts)}"
   local report_root="${outdir:-${source}/reports/model_validation_condor_${stamp}}"
-  local sub_root="${BASE}/condor_sub/auauTightBDTValidate_${stamp}"
+  local sub_root="${RJ_REPO_BASE}/condor_sub/auauTightBDTValidate_${stamp}"
   local shard_dir="${sub_root}/shards"
   local cache_dir="${report_root}/score_caches"
+  guard_generated_path "validation report root" "$report_root"
+  guard_generated_path "validation submit root" "$sub_root"
+  log_path_plan "validateOnSimCondor" \
+    "source    : ${source}" \
+    "model dir : ${model_dir}" \
+    "registry  : ${model_registry:-<default model_registry.json>}" \
+    "report    : ${report_root}" \
+    "submit    : ${sub_root}" \
+    "shards    : ${shard_dir}" \
+    "caches    : ${cache_dir}" \
+    "groupSize : ${group_size}" \
+    "requestMem: ${reqmem}" \
+    "scoreMax  : ${total_score_max}"
   mkdir -p "$report_root" "$sub_root" "$shard_dir" "$cache_dir"
 
   local root_manifest="${source}/manifests/training_roots.list"
@@ -828,6 +1677,7 @@ manifest="\${1:?manifest}"
 outdir="\${2:?outdir}"
 cache="\${3:?cache}"
 score_max="\${4:?score_max}"
+model_registry="${model_registry}"
 ml_python="${ML_PYTHON}"
 ml_python_prefix="\$(cd "\$(dirname "\$ml_python")/.." && pwd -P 2>/dev/null || true)"
 ml_python_real="\$(readlink -f "\$ml_python" 2>/dev/null || true)"
@@ -842,9 +1692,14 @@ for d in "\$ml_python_prefix/lib" "\$ml_python_prefix/lib64" "\$ml_python_real_p
 done
 [[ -n "\$ld_joined" ]] && export LD_LIBRARY_PATH="\$ld_joined:\${LD_LIBRARY_PATH:-}"
 unset PYTHONHOME
+model_registry_arg=()
+if [[ -n "\$model_registry" ]]; then
+  model_registry_arg=(--model-registry "\$model_registry")
+fi
 "\$ml_python" "${VALIDATE_SCRIPT}" \\
   --source "${source}" \\
   --model-dir "${model_dir}" \\
+  "\${model_registry_arg[@]}" \\
   --manifest "\$manifest" \\
   --outdir "\$outdir" \\
   --write-score-cache "\$cache" \\
@@ -904,6 +1759,7 @@ if [[ -d "\$MYINSTALL_AUAU" ]]; then
 fi
 set -u
 echo "[auauTightBDT] merge env setup done" >&2
+model_registry="${model_registry}"
 ml_python="${ML_PYTHON}"
 ml_python_prefix="\$(cd "\$(dirname "\$ml_python")/.." && pwd -P 2>/dev/null || true)"
 ml_python_real="\$(readlink -f "\$ml_python" 2>/dev/null || true)"
@@ -918,6 +1774,10 @@ for d in "\$ml_python_prefix/lib" "\$ml_python_prefix/lib64" "\$ml_python_real_p
 done
 [[ -n "\$ld_joined" ]] && export LD_LIBRARY_PATH="\$ld_joined:\${LD_LIBRARY_PATH:-}"
 unset PYTHONHOME
+model_registry_arg=()
+if [[ -n "\$model_registry" ]]; then
+  model_registry_arg=(--model-registry "\$model_registry")
+fi
 cache_manifest="${report_root}/score_caches.list"
 find "${cache_dir}" -type f -name 'score_cache_*.npz' | sort -V > "\$cache_manifest" || true
 expected=${idx}
@@ -929,6 +1789,7 @@ if [[ "\$found" != "\$expected" || "\$found" == "0" ]]; then
     echo "status=CHECK"
     echo "source=${source}"
     echo "model_dir=${model_dir}"
+    [[ -n "\$model_registry" ]] && echo "model_registry=\$model_registry"
     echo "report_dir=${report_root}"
     echo "expected_score_caches=\$expected"
     echo "found_score_caches=\$found"
@@ -940,6 +1801,7 @@ else
   "\$ml_python" "${VALIDATE_SCRIPT}" \\
     --source "${source}" \\
     --model-dir "${model_dir}" \\
+    "\${model_registry_arg[@]}" \\
     --merge-score-caches "\$cache_manifest" \\
     --outdir "${report_root}" || rc=\$?
 fi
@@ -981,12 +1843,14 @@ EOF
   say "Condor validation DAG: $dag"
   say "source: $source"
   say "model dir: $model_dir"
+  [[ -n "$model_registry" ]] && say "model registry: $model_registry"
   say "report root: $report_root"
   say "root files=${nroots}  shards=${idx}  groupSize=${group_size}  scoreMaxPerShard=${score_max_per_shard}  request_memory=${reqmem}"
   if [[ "${RJ_DAG_DRYRUN:-0}" == "1" ]]; then
     echo "RECOILJETS_AUAU_TIGHT_BDT_VALIDATE_DRYRUN_V1"
     echo "source=${source}"
     echo "model_dir=${model_dir}"
+    [[ -n "$model_registry" ]] && echo "model_registry=${model_registry}"
     echo "report_root=${report_root}"
     echo "dag=${dag}"
     echo "root_files=${nroots}"
@@ -1006,6 +1870,11 @@ main() {
     smokeTest) run_condor_extract "smokeTest" "$@" ;;
     condorExtract|condorDoAll) run_condor_extract "condorExtract" "$@" ;;
     trainFromExtraction) train_from_extraction "$@" ;;
+    trainCentInput3x3FromExtraction) train_cent_input_3x3_from_extraction "$@" ;;
+    trainWidthStudyPt1530FromExtraction) train_width_study_pt1530_from_extraction "$@" ;;
+    trainExpandedFromExtraction) train_expanded_from_extraction "$@" ;;
+    trainExpandedFromExtractionCondor) train_expanded_from_extraction_condor "$@" ;;
+    finalizeExpandedTraining) finalize_expanded_training "$@" ;;
     applyCheck|smokeTestApplyExisting) apply_check "$@" ;;
     validateOnSim|validateSim|simValidation) validate_on_sim "$@" ;;
     validateOnSimCondor|condorValidateOnSim|validateSimCondor) validate_on_sim_condor "$@" ;;

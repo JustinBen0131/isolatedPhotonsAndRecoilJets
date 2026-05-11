@@ -14,9 +14,14 @@ therefore a physics-like score, so the analysis cut remains
 from __future__ import annotations
 
 import argparse
+import copy
+import hashlib
 import json
 import math
+import os
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Iterable
 
@@ -35,12 +40,75 @@ PPG12_TIGHT_FEATURES = [
     "e32_over_e35",
 ]
 
-TIGHT_MODES = ["legacy", "centINDcontrol", "centAsFeat", "centDepBDTs"]
+PPG12_TIGHT_FEATURES_3X3_WIDTHS = [
+    "cluster_Et",
+    "cluster_weta33_cogx",
+    "cluster_wphi33_cogx",
+    "vertexz",
+    "cluster_Eta",
+    "e11_over_e33",
+    "cluster_et1",
+    "cluster_et2",
+    "cluster_et3",
+    "cluster_et4",
+    "e32_over_e35",
+]
+
+PPG12_TIGHT_FEATURES_BASE_AND_3X3_WIDTHS = [
+    "cluster_Et",
+    "cluster_weta_cogx",
+    "cluster_wphi_cogx",
+    "cluster_weta33_cogx",
+    "cluster_wphi33_cogx",
+    "vertexz",
+    "cluster_Eta",
+    "e11_over_e33",
+    "cluster_et1",
+    "cluster_et2",
+    "cluster_et3",
+    "cluster_et4",
+    "e32_over_e35",
+]
+
+WIDTH_RATIO_FEATURES = [
+    "cluster_weta_over_wphi",
+    "cluster_weta33_over_wphi33",
+]
+
+DERIVED_FEATURE_DEPS = {
+    "cluster_weta_over_wphi": ["cluster_weta_cogx", "cluster_wphi_cogx"],
+    "cluster_weta33_over_wphi33": ["cluster_weta33_cogx", "cluster_wphi33_cogx"],
+}
+
+TIGHT_MODES = [
+    "legacy",
+    "centINDcontrol",
+    "centAsFeat",
+    "centAsFeatMinOpt",
+    "centAsFeat3x3",
+    "centAsFeatBase3x3",
+    "centAsFeatWidthRatios",
+    "centDepBDTs",
+]
+TMVA_EXPORT_LOCK = threading.Lock()
 
 
 def tight_mode_features(mode: str, override: list[str] | None) -> list[str]:
-    features = list(override) if override is not None else list(PPG12_TIGHT_FEATURES)
-    if mode == "centAsFeat" and "centrality" not in features and "cent" not in features:
+    if override is not None:
+        features = list(override)
+    elif mode == "centAsFeat3x3":
+        features = list(PPG12_TIGHT_FEATURES_3X3_WIDTHS)
+    elif mode == "centAsFeatBase3x3":
+        features = list(PPG12_TIGHT_FEATURES_BASE_AND_3X3_WIDTHS)
+    elif mode == "centAsFeatWidthRatios":
+        features = list(PPG12_TIGHT_FEATURES) + [
+            "cluster_weta33_cogx",
+            "cluster_wphi33_cogx",
+            *WIDTH_RATIO_FEATURES,
+        ]
+    else:
+        features = list(PPG12_TIGHT_FEATURES)
+    if mode in ("centAsFeat", "centAsFeatMinOpt", "centAsFeat3x3", "centAsFeatBase3x3", "centAsFeatWidthRatios") and "centrality" not in features and "cent" not in features:
         features.append("centrality")
     return features
 
@@ -83,8 +151,106 @@ def parse_cent_bins(text: str) -> list[tuple[float, float]]:
     return bins
 
 
+def parse_range_list(text: str) -> list[tuple[float, float]]:
+    ranges: list[tuple[float, float]] = []
+    if not text:
+        return ranges
+    for item in text.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        if ":" not in item:
+            raise SystemExit(f"Range items must be lo:hi, got {item!r}")
+        lo_s, hi_s = item.split(":", 1)
+        lo = float(lo_s)
+        hi = float(hi_s)
+        if hi <= lo:
+            raise SystemExit(f"Range upper edge must exceed lower edge: {item!r}")
+        ranges.append((lo, hi))
+    return ranges
+
+
+def pt_window_tag(lo: float, hi: float) -> str:
+    return f"pt{int(round(lo)):g}to{int(round(hi)):g}".replace(".", "p")
+
+
 def cent_tag(lo: float, hi: float) -> str:
     return f"cent_{int(round(lo)):03d}_{int(round(hi)):03d}"
+
+
+def parse_float_edges(text: str) -> list[float]:
+    vals = [float(item.strip()) for item in text.split(",") if item.strip()]
+    if len(vals) < 2:
+        raise SystemExit(f"Need at least two bin edges, got: {text}")
+    for lo, hi in zip(vals, vals[1:]):
+        if hi <= lo:
+            raise SystemExit(f"Bin edges must increase strictly: {text}")
+    return vals
+
+
+def bins_from_edges(edges: list[float]) -> list[tuple[float, float]]:
+    return list(zip(edges[:-1], edges[1:]))
+
+
+def pt_tag(lo: float, hi: float) -> str:
+    return f"pt_{int(round(lo)):03d}_{int(round(hi)):03d}"
+
+
+def range_label(rng: tuple[float, float] | None) -> str:
+    if rng is None:
+        return "all"
+    lo, hi = rng
+    return f"{lo:g}_{hi:g}".replace(".", "p")
+
+
+def apply_single_pt_range(frame, text: str):
+    ranges = parse_range_list(text)
+    if not ranges:
+        return frame, None
+    if len(ranges) != 1:
+        raise SystemExit("--pt-range accepts exactly one lo:hi window")
+    lo, hi = ranges[0]
+    if "cluster_Et" not in frame.columns:
+        raise SystemExit("--pt-range requires cluster_Et in the input training tree")
+    before = len(frame)
+    selected = frame[(frame["cluster_Et"] >= lo) & (frame["cluster_Et"] < hi)].copy()
+    report = {"lo": lo, "hi": hi, "rows_before": before, "rows_after": len(selected)}
+    return selected, report
+
+
+def expand_required_columns(columns: Iterable[str]) -> list[str]:
+    expanded: set[str] = set()
+    for col in columns:
+        deps = DERIVED_FEATURE_DEPS.get(col)
+        if deps:
+            expanded.update(deps)
+        else:
+            expanded.add(col)
+    return sorted(expanded)
+
+
+def add_derived_features(frame):
+    import numpy as np
+
+    def safe_ratio(num: str, den: str):
+        n = frame[num].to_numpy(dtype="float64")
+        d = frame[den].to_numpy(dtype="float64")
+        out = np.full(len(frame), np.nan, dtype="float64")
+        good = np.isfinite(n) & np.isfinite(d) & (np.abs(d) > 1.0e-9)
+        out[good] = n[good] / d[good]
+        return out
+
+    if "cluster_weta_over_wphi" not in frame.columns and {"cluster_weta_cogx", "cluster_wphi_cogx"}.issubset(frame.columns):
+        frame["cluster_weta_over_wphi"] = safe_ratio("cluster_weta_cogx", "cluster_wphi_cogx")
+    if "cluster_weta33_over_wphi33" not in frame.columns and {"cluster_weta33_cogx", "cluster_wphi33_cogx"}.issubset(frame.columns):
+        frame["cluster_weta33_over_wphi33"] = safe_ratio("cluster_weta33_cogx", "cluster_wphi33_cogx")
+    return frame
+
+
+def stable_seed(*items: object) -> int:
+    text = "|".join(str(item) for item in items)
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return int(digest[:8], 16)
 
 
 def expand_input_paths(items: list[Path]) -> list[Path]:
@@ -164,11 +330,68 @@ def load_frame(
                 frame[missing_label_branch] = int(missing_label_value)
             frames.append(frame)
 
-    frame = pd.concat(frames, ignore_index=True)
+    frame = add_derived_features(pd.concat(frames, ignore_index=True))
     for col in optional_columns:
         if col not in frame.columns:
             frame[col] = 1.0
     return frame, sorted(seen_optional)
+
+
+def save_frame_cache(frame, path: Path, columns: list[str]) -> None:
+    import numpy as np
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {col: frame[col].to_numpy() for col in columns if col in frame.columns}
+    payload["__columns__"] = np.asarray(sorted(payload), dtype=object)
+    np.savez_compressed(path, **payload)
+
+
+def load_frame_cache(path: Path):
+    import pandas as pd
+    import numpy as np
+
+    if not path.is_file():
+        raise SystemExit(f"Training cache does not exist: {path}")
+    data = np.load(path, allow_pickle=True)
+    columns = [str(x) for x in data["__columns__"].tolist()]
+    return pd.DataFrame({col: data[col] for col in columns})
+
+
+def load_or_build_frame(
+    paths: list[Path],
+    tree_name: str,
+    required_columns: list[str],
+    optional_columns: list[str],
+    label_branch: str,
+    missing_label_value: int | None,
+    cache_file: Path | None,
+    cache_only: bool = False,
+):
+    if cache_file is not None and cache_file.is_file():
+        frame = add_derived_features(load_frame_cache(cache_file))
+        missing = [col for col in required_columns if col not in frame.columns]
+        if missing:
+            raise SystemExit(f"Training cache {cache_file} is missing required columns: {', '.join(missing)}")
+        for col in optional_columns:
+            if col not in frame.columns:
+                frame[col] = 1.0
+        return frame, ["cache"], True
+
+    frame, optional_seen = load_frame(
+        paths,
+        tree_name,
+        expand_required_columns(required_columns),
+        optional_columns,
+        label_branch,
+        missing_label_value,
+    )
+    if cache_file is not None:
+        cache_cols = sorted(set(expand_required_columns(required_columns) + required_columns + optional_columns))
+        save_frame_cache(frame, cache_file, cache_cols)
+        print(f"[OK] wrote training cache: {cache_file}")
+    if cache_only:
+        return frame, optional_seen, False
+    return frame, optional_seen, False
 
 
 def normalize_mean_one(values):
@@ -310,6 +533,106 @@ def ppg12_background_subsample(frame, label_branch: str, args):
     }
 
 
+def adaptive_majority_cap(frame, label_branch: str, args, metadata: dict):
+    import numpy as np
+
+    cap_ratio = float(getattr(args, "majority_cap_ratio", 0.0) or 0.0)
+    if cap_ratio <= 0.0 or len(frame) == 0:
+        return frame, {"enabled": False}
+
+    labels = frame[label_branch].to_numpy(dtype="int32")
+    counts = {cls: int((labels == cls).sum()) for cls in (0, 1)}
+    if counts[0] == 0 or counts[1] == 0:
+        return frame, {"enabled": False, "reason": "missing class", "counts_before": counts}
+
+    minority = 0 if counts[0] <= counts[1] else 1
+    majority = 1 - minority
+    target_majority = int(math.ceil(counts[minority] * cap_ratio))
+    if counts[majority] <= target_majority:
+        return frame, {
+            "enabled": False,
+            "reason": "ratio already within cap",
+            "cap_ratio": cap_ratio,
+            "counts_before": counts,
+        }
+
+    rng = np.random.default_rng(stable_seed(metadata.get("model_id", "model"), args.random_seed, "majority-cap"))
+    minority_idx = np.flatnonzero(labels == minority)
+    majority_idx = np.flatnonzero(labels == majority)
+    et = frame["cluster_Et"].to_numpy(dtype="float64") if "cluster_Et" in frame.columns else np.full(len(frame), np.nan)
+    cent = frame["centrality"].to_numpy(dtype="float64") if "centrality" in frame.columns else np.full(len(frame), np.nan)
+
+    et_bins = max(1, int(getattr(args, "majority_cap_et_bins", 12) or 12))
+    cent_bins = max(1, int(getattr(args, "majority_cap_cent_bins", 8) or 8))
+
+    def bin_index(values, idx, nbins):
+        finite = np.isfinite(values[idx])
+        out = np.zeros(len(idx), dtype="int32")
+        if finite.sum() < nbins:
+            return out
+        lo, hi = np.nanpercentile(values[idx][finite], [1.0, 99.0])
+        if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+            return out
+        edges = np.linspace(lo, hi, nbins + 1)
+        out = np.clip(np.searchsorted(edges, values[idx], side="right") - 1, 0, nbins - 1).astype("int32")
+        out[~np.isfinite(values[idx])] = 0
+        return out
+
+    et_i = bin_index(et, majority_idx, et_bins)
+    cent_i = bin_index(cent, majority_idx, cent_bins)
+    strata = et_i * 1000 + cent_i
+    keep_majority = []
+    remaining = target_majority
+    unique, unique_counts = np.unique(strata, return_counts=True)
+    allocations = {}
+    for s, n in zip(unique, unique_counts):
+        allocations[int(s)] = max(1, int(math.floor(target_majority * int(n) / counts[majority])))
+    allocated = sum(allocations.values())
+    if allocated > target_majority:
+        for s in sorted(allocations, key=lambda x: allocations[x], reverse=True):
+            if allocated <= target_majority:
+                break
+            if allocations[s] > 1:
+                allocations[s] -= 1
+                allocated -= 1
+    elif allocated < target_majority:
+        for s in sorted(allocations, key=lambda x: allocations[x]):
+            if allocated >= target_majority:
+                break
+            allocations[s] += 1
+            allocated += 1
+
+    for s in unique:
+        local = majority_idx[strata == s]
+        n_keep = min(len(local), allocations.get(int(s), 0), remaining)
+        if n_keep <= 0:
+            continue
+        keep_majority.extend(rng.choice(local, size=n_keep, replace=False).tolist())
+        remaining -= n_keep
+
+    if remaining > 0:
+        chosen = set(keep_majority)
+        rest = np.asarray([i for i in majority_idx if int(i) not in chosen], dtype="int64")
+        if len(rest):
+            extra = rng.choice(rest, size=min(remaining, len(rest)), replace=False)
+            keep_majority.extend(extra.tolist())
+
+    keep = np.asarray(sorted(set(minority_idx.tolist() + keep_majority)), dtype="int64")
+    capped = frame.iloc[keep].copy()
+    after_labels = capped[label_branch].to_numpy(dtype="int32")
+    counts_after = {cls: int((after_labels == cls).sum()) for cls in (0, 1)}
+    return capped, {
+        "enabled": True,
+        "cap_ratio": cap_ratio,
+        "minority_class": minority,
+        "majority_class": majority,
+        "counts_before": counts,
+        "counts_after": counts_after,
+        "target_majority": target_majority,
+        "strata_used": int(len(unique)),
+    }
+
+
 def train_one(frame, features: list[str], label_branch: str, output: Path, metadata: dict, args) -> dict | None:
     import numpy as np
     from sklearn.metrics import roc_auc_score
@@ -320,7 +643,9 @@ def train_one(frame, features: list[str], label_branch: str, output: Path, metad
     frame = frame.loc[finite_mask(frame, cols)].copy()
     frame[label_branch] = frame[label_branch].astype(int)
     frame = frame[frame[label_branch].isin([0, 1])].copy()
+    n_rows_after_finite = int(len(frame))
     frame, subsample_report = ppg12_background_subsample(frame, label_branch, args)
+    frame, majority_cap_report = adaptive_majority_cap(frame, label_branch, args, metadata)
 
     n_sig = int((frame[label_branch] == 1).sum())
     n_bkg = int((frame[label_branch] == 0).sum())
@@ -330,9 +655,29 @@ def train_one(frame, features: list[str], label_branch: str, output: Path, metad
             f"Skipping {output.name}: class counts below minimum "
             f"(signal={n_sig}, background={n_bkg}, minimum={args.min_rows_per_class})"
         )
-        if metadata.get("cent_range") == "all":
+        if metadata.get("cent_range") == "all" and not args.campaign:
             raise SystemExit(msg)
         print(f"[WARN] {msg}")
+        skip_report = {
+            **metadata,
+            "status": "skipped",
+            "skip_reason": "class counts below minimum",
+            "output_tmva": str(output),
+            "output_xgb_json": str(output.with_suffix(".xgb.json")),
+            "features": features,
+            "label_branch": label_branch,
+            "n_rows_after_finite": n_rows_after_finite,
+            "n_rows": int(len(frame)),
+            "n_signal": n_sig,
+            "n_background": n_bkg,
+            "min_rows_per_class": int(args.min_rows_per_class),
+            "background_subsampling": subsample_report,
+            "majority_class_optimization": majority_cap_report,
+        }
+        if args.campaign:
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.with_suffix(".metadata.json").write_text(json.dumps(skip_report, indent=2, sort_keys=True) + "\n")
+            return skip_report
         return None
 
     x = frame[features].to_numpy(dtype="float32")
@@ -372,23 +717,24 @@ def train_one(frame, features: list[str], label_branch: str, output: Path, metad
     export_status = "not_attempted"
     export_error = ""
     try:
-        import ROOT
+        with TMVA_EXPORT_LOCK:
+            import ROOT
 
-        booster = model.get_booster()
-        booster.feature_names = [f"f{i}" for i in range(len(features))]
-        # ROOT 6.32's SaveXGBoost cannot parse XGBoost >=3 vector-valued
-        # base_score strings like "[5E-1]". Patch only the Python config view
-        # handed to TMVA; the saved XGBoost JSON remains untouched for audit.
-        original_save_config = booster.save_config
+            booster = model.get_booster()
+            booster.feature_names = [f"f{i}" for i in range(len(features))]
+            # ROOT 6.32's SaveXGBoost cannot parse XGBoost >=3 vector-valued
+            # base_score strings like "[5E-1]". Patch only the Python config view
+            # handed to TMVA; the saved XGBoost JSON remains untouched for audit.
+            original_save_config = booster.save_config
 
-        def tmva_save_config():
-            import re
+            def tmva_save_config():
+                import re
 
-            text = original_save_config()
-            return re.sub(r'"base_score":"\[([0-9eE+\-.]+)\]"', r'"base_score":"\1"', text)
+                text = original_save_config()
+                return re.sub(r'"base_score":"\[([0-9eE+\-.]+)\]"', r'"base_score":"\1"', text)
 
-        booster.save_config = tmva_save_config  # type: ignore[method-assign]
-        ROOT.TMVA.Experimental.SaveXGBoost(model, "myBDT", str(output), num_inputs=len(features))
+            booster.save_config = tmva_save_config  # type: ignore[method-assign]
+            ROOT.TMVA.Experimental.SaveXGBoost(model, "myBDT", str(output), num_inputs=len(features))
         export_status = "ok"
     except Exception as exc:  # noqa: BLE001
         export_status = f"failed: {exc}"
@@ -396,10 +742,12 @@ def train_one(frame, features: list[str], label_branch: str, output: Path, metad
 
     report = {
         **metadata,
+        "status": "trained",
         "output_tmva": str(output),
         "output_xgb_json": str(json_model),
         "features": features,
         "label_branch": label_branch,
+        "n_rows_after_finite": n_rows_after_finite,
         "n_rows": int(len(frame)),
         "n_signal": n_sig,
         "n_background": n_bkg,
@@ -420,6 +768,7 @@ def train_one(frame, features: list[str], label_branch: str, output: Path, metad
             "n_jobs": args.n_jobs,
         },
         "background_subsampling": subsample_report,
+        "majority_class_optimization": majority_cap_report,
     }
     output.with_suffix(".metadata.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     if export_error and not args.allow_tmva_export_failure:
@@ -431,16 +780,349 @@ def train_one(frame, features: list[str], label_branch: str, output: Path, metad
     return report
 
 
+def campaign_specs(args, outdir: Path) -> list[dict]:
+    pt_edges = parse_float_edges(args.pt_bins)
+    pt_bins = bins_from_edges(pt_edges)
+    coarse_cent_bins = parse_cent_bins(args.coarse_cent_bins)
+    fine_cent_bins = parse_cent_bins(args.fine_cent_bins)
+    specs: list[dict] = []
+
+    def add(
+        product: str,
+        model_id: str,
+        features: list[str],
+        pt_range: tuple[float, float] | None = None,
+        cent_range: tuple[float, float] | None = None,
+        minority_optimized: bool = True,
+        role: str = "single",
+        majority_cap_ratio: float | None = None,
+    ) -> None:
+        safe = model_id.replace(".", "p")
+        specs.append(
+            {
+                "model_id": safe,
+                "product": product,
+                "role": role,
+                "features": list(features),
+                "pt_range": list(pt_range) if pt_range is not None else None,
+                "cent_range": list(cent_range) if cent_range is not None else None,
+                "minority_optimized": bool(minority_optimized),
+                "output_tmva": str(outdir / f"auau_tight_bdt_{safe}_tmva.root"),
+                "output_xgb_json": str(outdir / f"auau_tight_bdt_{safe}_tmva.xgb.json"),
+                "metadata": str(outdir / f"auau_tight_bdt_{safe}_tmva.metadata.json"),
+                "majority_cap_ratio": majority_cap_ratio,
+            }
+        )
+
+    base = list(PPG12_TIGHT_FEATURES)
+    cent_feat = list(PPG12_TIGHT_FEATURES) + ["centrality"]
+    cent_feat_3x3 = list(PPG12_TIGHT_FEATURES_3X3_WIDTHS) + ["centrality"]
+    cent_feat_base3x3 = list(PPG12_TIGHT_FEATURES_BASE_AND_3X3_WIDTHS) + ["centrality"]
+    cent_feat_width_ratios = list(PPG12_TIGHT_FEATURES) + [
+        "cluster_weta33_cogx",
+        "cluster_wphi33_cogx",
+        *WIDTH_RATIO_FEATURES,
+        "centrality",
+    ]
+
+    for suffix, pt_range in (("allRange", None), ("pt5to40", (5.0, 40.0))):
+        add(f"centINDcontrol_{suffix}", f"centINDcontrol_{suffix}", base, pt_range, None, True)
+        add(f"centAsFeat_{suffix}", f"centAsFeat_{suffix}", cent_feat, pt_range, None, True)
+        if suffix == "pt5to40":
+            add(
+                "centAsFeat3x3_pt5to40",
+                "centAsFeat3x3_pt5to40",
+                cent_feat_3x3,
+                pt_range,
+                None,
+                True,
+                "single-3x3-width",
+            )
+        add(
+            f"centAsFeatMinOpt_{suffix}",
+            f"centAsFeatMinOpt_{suffix}",
+            cent_feat,
+            pt_range,
+            None,
+            True,
+            majority_cap_ratio=args.minopt_majority_cap_ratio,
+        )
+        for clo, chi in coarse_cent_bins:
+            add(
+                f"centDepBDTs_{suffix}",
+                f"centDepBDTs_{suffix}_{cent_tag(clo, chi)}",
+                base,
+                pt_range,
+                (clo, chi),
+                True,
+                "cent-bin",
+            )
+        for clo, chi in fine_cent_bins:
+            add(
+                f"centDepFineBDTs_{suffix}",
+                f"centDepFineBDTs_{suffix}_{cent_tag(clo, chi)}",
+                base,
+                pt_range,
+                (clo, chi),
+                True,
+                "fine-cent-bin",
+            )
+
+    for lo, hi in parse_range_list(args.extra_cent_as_feat_pt_ranges):
+        suffix = pt_window_tag(lo, hi)
+        add(
+            f"centAsFeat_{suffix}",
+            f"centAsFeat_{suffix}",
+            cent_feat,
+            (lo, hi),
+            None,
+            True,
+            "single-pt-window",
+        )
+    for lo, hi in parse_range_list(args.extra_cent_as_feat_3x3_pt_ranges):
+        suffix = pt_window_tag(lo, hi)
+        add(
+            f"centAsFeat3x3_{suffix}",
+            f"centAsFeat3x3_{suffix}",
+            cent_feat_3x3,
+            (lo, hi),
+            None,
+            True,
+            "single-pt-window-3x3-width",
+        )
+    for lo, hi in parse_range_list(args.extra_cent_as_feat_base3x3_pt_ranges):
+        suffix = pt_window_tag(lo, hi)
+        add(
+            f"centAsFeatBase3x3_{suffix}",
+            f"centAsFeatBase3x3_{suffix}",
+            cent_feat_base3x3,
+            (lo, hi),
+            None,
+            True,
+            "single-pt-window-base-and-3x3-width",
+        )
+    for lo, hi in parse_range_list(args.extra_cent_as_feat_width_ratio_pt_ranges):
+        suffix = pt_window_tag(lo, hi)
+        add(
+            f"centAsFeatWidthRatios_{suffix}",
+            f"centAsFeatWidthRatios_{suffix}",
+            cent_feat_width_ratios,
+            (lo, hi),
+            None,
+            True,
+            "single-pt-window-width-ratios",
+        )
+
+    for plo, phi in pt_bins:
+        add(
+            "ptBinCentAsFeat",
+            f"ptBinCentAsFeat_{pt_tag(plo, phi)}",
+            cent_feat,
+            (plo, phi),
+            None,
+            True,
+            "pt-bin",
+        )
+        for clo, chi in coarse_cent_bins:
+            add(
+                "ptCentDep3",
+                f"ptCentDep3_{pt_tag(plo, phi)}_{cent_tag(clo, chi)}",
+                base,
+                (plo, phi),
+                (clo, chi),
+                True,
+                "pt-cent-bin",
+            )
+        for clo, chi in fine_cent_bins:
+            add(
+                "ptCentDepFine",
+                f"ptCentDepFine_{pt_tag(plo, phi)}_{cent_tag(clo, chi)}",
+                base,
+                (plo, phi),
+                (clo, chi),
+                True,
+                "pt-fine-cent-bin",
+            )
+
+    return specs
+
+
+def registry_payload(specs: list[dict], reports: list[dict], args, status: str = "PLANNED") -> dict:
+    report_by_id = {r.get("model_id"): r for r in reports}
+    products: dict[str, list[str]] = {}
+    for spec in specs:
+        products.setdefault(spec["product"], []).append(spec["model_id"])
+    return {
+        "schema": "AUAU_TIGHT_BDT_EXPANDED_REGISTRY_V1",
+        "status": status,
+        "campaign": args.campaign,
+        "expected_model_count": len(specs),
+        "model_count": len(specs),
+        "products": products,
+        "pt_bins": parse_float_edges(args.pt_bins),
+        "coarse_cent_bins": [[lo, hi] for lo, hi in parse_cent_bins(args.coarse_cent_bins)],
+        "fine_cent_bins": [[lo, hi] for lo, hi in parse_cent_bins(args.fine_cent_bins)],
+        "defaults": {
+            "majority_cap_ratio": float(args.majority_cap_ratio),
+            "minopt_majority_cap_ratio": float(args.minopt_majority_cap_ratio),
+            "parallel_workers": int(args.parallel_workers),
+            "xgboost_n_jobs": int(args.n_jobs),
+            "no_cross_section_weights": True,
+        },
+        "models": [{**spec, "report": report_by_id.get(spec["model_id"])} for spec in specs],
+    }
+
+
+def write_registry(path: Path, specs: list[dict], reports: list[dict], args, status: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(registry_payload(specs, reports, args, status), indent=2, sort_keys=True) + "\n")
+    print(f"[OK] wrote {path}")
+
+
+def filter_specs(specs: list[dict], args) -> list[dict]:
+    ids = None
+    if args.campaign_spec_list is not None:
+        ids = {
+            line.strip()
+            for line in args.campaign_spec_list.read_text().splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        }
+    if args.campaign_spec_ids:
+        ids = set(ids or set())
+        ids.update(item.strip() for item in args.campaign_spec_ids.split(",") if item.strip())
+    if ids is not None:
+        specs = [spec for spec in specs if spec["model_id"] in ids]
+        missing = sorted(ids - {spec["model_id"] for spec in specs})
+        if missing:
+            raise SystemExit("Unknown campaign spec ids:\n  " + "\n  ".join(missing[:40]))
+    max_specs = int(args.campaign_max_specs or os.environ.get("RJ_AUAU_BDT_CAMPAIGN_MAX_SPECS", "0") or "0")
+    if max_specs > 0:
+        specs = specs[:max_specs]
+    return specs
+
+
+def frame_for_spec(frame, spec: dict):
+    mask = None
+    if spec.get("pt_range") is not None:
+        lo, hi = spec["pt_range"]
+        local = (frame["cluster_Et"] >= lo) & (frame["cluster_Et"] < hi)
+        mask = local if mask is None else (mask & local)
+    if spec.get("cent_range") is not None:
+        lo, hi = spec["cent_range"]
+        local = (frame["centrality"] >= lo) & (frame["centrality"] < hi)
+        mask = local if mask is None else (mask & local)
+    if mask is None:
+        return frame
+    return frame.loc[mask].copy()
+
+
+def train_campaign_spec(frame, spec: dict, common_metadata: dict, args) -> dict | None:
+    local = frame_for_spec(frame, spec)
+    local_args = copy.copy(args)
+    if spec.get("majority_cap_ratio") is not None:
+        local_args.majority_cap_ratio = float(spec["majority_cap_ratio"])
+    metadata = {
+        **common_metadata,
+        "model_id": spec["model_id"],
+        "product": spec["product"],
+        "role": spec["role"],
+        "pt_range": spec.get("pt_range"),
+        "cent_range": spec.get("cent_range"),
+        "minority_optimized": spec.get("minority_optimized", False),
+        "majority_cap_ratio": float(local_args.majority_cap_ratio),
+        "campaign": args.campaign,
+    }
+    output = Path(spec["output_tmva"])
+    return train_one(local, spec["features"], common_metadata["label_branch"], output, metadata, local_args)
+
+
+def run_campaign(args) -> int:
+    label_branch = args.label_branch or "is_signal"
+    if args.task != "tight":
+        raise SystemExit("Expanded campaign currently supports --task tight only.")
+
+    all_features = sorted(set(expand_required_columns(PPG12_TIGHT_FEATURES + PPG12_TIGHT_FEATURES_3X3_WIDTHS + PPG12_TIGHT_FEATURES_BASE_AND_3X3_WIDTHS + WIDTH_RATIO_FEATURES + ["centrality", label_branch])))
+    optional_columns = [args.weight_branch]
+    if not args.input and not args.plan_only and not (args.cache_file and args.cache_file.is_file()):
+        raise SystemExit("--input is required for campaign training unless an existing --cache-file is supplied")
+    paths = expand_input_paths(args.input) if args.input else []
+    specs_all = campaign_specs(args, args.outdir)
+    specs = filter_specs(specs_all, args)
+    if args.majority_cap_ratio <= 0.0:
+        args.majority_cap_ratio = 4.0
+
+    planned_path = args.registry_output or (args.outdir / "model_registry.planned.json")
+    if args.plan_only:
+        write_registry(planned_path, specs, [], args, "PLANNED")
+        print(f"[OK] planned campaign specs={len(specs_all)} selected={len(specs)}")
+        return 0
+
+    args.outdir.mkdir(parents=True, exist_ok=True)
+    if args.parallel_workers > 1 and args.n_jobs > 1:
+        args.n_jobs = 1
+
+    frame, optional_seen, from_cache = load_or_build_frame(
+        paths,
+        args.tree,
+        all_features,
+        optional_columns,
+        label_branch,
+        args.missing_label_value,
+        args.cache_file,
+        args.cache_only,
+    )
+    if args.cache_only:
+        write_registry(planned_path, specs, [], args, "CACHE_READY")
+        return 0
+
+    common_metadata = {
+        "task": args.task,
+        "input_files": [str(path) for path in paths],
+        "tree": args.tree,
+        "optional_branches_seen": optional_seen,
+        "loaded_from_cache": from_cache,
+        "cache_file": str(args.cache_file) if args.cache_file else None,
+        "python": sys.version,
+        "label_branch": label_branch,
+    }
+
+    reports: list[dict] = []
+    workers = max(1, int(args.parallel_workers))
+    if workers == 1 or len(specs) <= 1:
+        for spec in specs:
+            report = train_campaign_spec(frame, spec, common_metadata, args)
+            if report is not None:
+                reports.append(report)
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            future_map = {pool.submit(train_campaign_spec, frame, spec, common_metadata, args): spec for spec in specs}
+            for future in as_completed(future_map):
+                spec = future_map[future]
+                try:
+                    report = future.result()
+                except Exception as exc:  # noqa: BLE001
+                    raise SystemExit(f"Campaign spec {spec['model_id']} failed: {exc}") from exc
+                if report is not None:
+                    reports.append(report)
+
+    registry_path = args.registry_output or (args.outdir / "model_registry.json")
+    write_registry(registry_path, specs, reports, args, "READY")
+    summary = args.outdir / "expanded_campaign_summary.json"
+    summary.write_text(json.dumps(reports, indent=2, sort_keys=True) + "\n")
+    print(f"[OK] expanded campaign trained reports={len(reports)} selected_specs={len(specs)} registry={registry_path}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task", choices=["tight", "npb"], required=True)
-    parser.add_argument("--input", nargs="+", type=Path, required=True, help="ROOT files or @manifest.list files")
+    parser.add_argument("--input", nargs="+", type=Path, default=None, help="ROOT files or @manifest.list files")
     parser.add_argument("--tree", default="AuAuPhotonIDTrainingTree")
     parser.add_argument("--outdir", type=Path, required=True)
     parser.add_argument("--prefix", default="")
     parser.add_argument("--cent-bins", default="0:10,10:20,20:40,40:60,60:80,80:100")
     parser.add_argument("--tight-mode", choices=TIGHT_MODES, default="legacy",
-                        help="Tight-BDT training product: centINDcontrol=PPG12-like all-cent model, centAsFeat=all-cent plus centrality feature, centDepBDTs=one model per centrality bin.")
+                        help="Tight-BDT training product. centAsFeat3x3 is the centrality-input model with 3x3 shower-width moments.")
     parser.add_argument("--label-branch", default=None)
     parser.add_argument(
         "--missing-label-value",
@@ -474,6 +1156,26 @@ def main() -> int:
     parser.add_argument("--grow-policy", default="lossguide")
     parser.add_argument("--max-bin", type=int, default=256)
     parser.add_argument("--n-jobs", type=int, default=4)
+    parser.add_argument("--campaign", choices=["expanded-tight"], default=None)
+    parser.add_argument("--plan-only", action="store_true")
+    parser.add_argument("--cache-only", action="store_true")
+    parser.add_argument("--cache-file", type=Path, default=None)
+    parser.add_argument("--registry-output", type=Path, default=None)
+    parser.add_argument("--campaign-spec-list", type=Path, default=None)
+    parser.add_argument("--campaign-spec-ids", default="")
+    parser.add_argument("--campaign-max-specs", type=int, default=0)
+    parser.add_argument("--pt-bins", default="5,8,10,12,14,16,18,20,22,24,26,35")
+    parser.add_argument("--coarse-cent-bins", default="0:20,20:50,50:80")
+    parser.add_argument("--fine-cent-bins", default="0:10,10:20,20:30,30:40,40:50,50:60,60:80")
+    parser.add_argument("--extra-cent-as-feat-pt-ranges", default="")
+    parser.add_argument("--extra-cent-as-feat-3x3-pt-ranges", default="")
+    parser.add_argument("--extra-cent-as-feat-base3x3-pt-ranges", default="")
+    parser.add_argument("--extra-cent-as-feat-width-ratio-pt-ranges", default="")
+    parser.add_argument("--parallel-workers", type=int, default=int(os.environ.get("RJ_AUAU_BDT_TRAIN_PARALLEL", "4")))
+    parser.add_argument("--majority-cap-ratio", type=float, default=0.0)
+    parser.add_argument("--minopt-majority-cap-ratio", type=float, default=float(os.environ.get("RJ_AUAU_BDT_MINOPT_MAJORITY_CAP_RATIO", "2.0")))
+    parser.add_argument("--majority-cap-et-bins", type=int, default=12)
+    parser.add_argument("--majority-cap-cent-bins", type=int, default=8)
     parser.add_argument("--background-subsample-fraction", type=float, default=1.0)
     parser.add_argument("--background-subsample-et-threshold", type=float, default=15.0)
     parser.add_argument("--background-subsample-bins", type=int, default=20)
@@ -482,6 +1184,12 @@ def main() -> int:
     parser.add_argument("--allow-tmva-export-failure", action="store_true",
                         help="Write diagnostics but do not fail if TMVA export fails. Not recommended for production pipeline tests.")
     args = parser.parse_args()
+
+    if args.campaign:
+        return run_campaign(args)
+
+    if not args.input:
+        raise SystemExit("--input is required unless --campaign --plan-only is used")
 
     feature_override = [item.strip() for item in args.features.split(",")] if args.features else None
     features = tight_mode_features(args.tight_mode, feature_override) if args.task == "tight" else (
@@ -520,7 +1228,7 @@ def main() -> int:
         "tight_mode": args.tight_mode if args.task == "tight" else None,
     }
 
-    train_all_cent = args.task != "tight" or args.tight_mode in ("legacy", "centINDcontrol", "centAsFeat")
+    train_all_cent = args.task != "tight" or args.tight_mode in ("legacy", "centINDcontrol", "centAsFeat", "centAsFeatMinOpt", "centAsFeat3x3", "centAsFeatBase3x3", "centAsFeatWidthRatios")
     train_cent_bins = args.task != "tight" or args.tight_mode in ("legacy", "centDepBDTs")
 
     if train_all_cent:
