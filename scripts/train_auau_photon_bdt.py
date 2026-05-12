@@ -947,6 +947,83 @@ def campaign_specs(args, outdir: Path) -> list[dict]:
     return specs
 
 
+def etfine_centstudy_specs(args, outdir: Path) -> list[dict]:
+    pt_edges = parse_float_edges(args.pt_bins)
+    pt_bins = bins_from_edges(pt_edges)
+    coarse_cent_bins = parse_cent_bins(args.coarse_cent_bins)
+    fine_cent_bins = parse_cent_bins(args.fine_cent_bins)
+    specs: list[dict] = []
+
+    def add(
+        product: str,
+        model_id: str,
+        features: list[str],
+        pt_range: tuple[float, float] | None = None,
+        cent_range: tuple[float, float] | None = None,
+        role: str = "single",
+    ) -> None:
+        safe = model_id.replace(".", "p")
+        specs.append(
+            {
+                "model_id": safe,
+                "product": product,
+                "role": role,
+                "features": list(features),
+                "pt_range": list(pt_range) if pt_range is not None else None,
+                "cent_range": list(cent_range) if cent_range is not None else None,
+                "minority_optimized": True,
+                "output_tmva": str(outdir / f"auau_tight_bdt_{safe}_tmva.root"),
+                "output_xgb_json": str(outdir / f"auau_tight_bdt_{safe}_tmva.xgb.json"),
+                "metadata": str(outdir / f"auau_tight_bdt_{safe}_tmva.metadata.json"),
+                "majority_cap_ratio": None,
+            }
+        )
+
+    features_with_cent = list(PPG12_TIGHT_FEATURES_BASE_AND_3X3_WIDTHS) + ["centrality"]
+    features_cent_binned = list(PPG12_TIGHT_FEATURES_BASE_AND_3X3_WIDTHS)
+    if len(pt_edges) < 2:
+        raise SystemExit("etfine-centstudy needs at least two pT edges")
+    full_pt = (pt_edges[0], pt_edges[-1])
+
+    add(
+        "centInput_pt1535",
+        "centInput_pt1535",
+        features_with_cent,
+        full_pt,
+        None,
+        "single-pt-window-base-and-3x3-width",
+    )
+    for plo, phi in pt_bins:
+        add(
+            "ptFine_centInput",
+            f"ptFine_centInput_{pt_tag(plo, phi)}",
+            features_with_cent,
+            (plo, phi),
+            None,
+            "fine-pt-bin-cent-as-feature",
+        )
+        for clo, chi in coarse_cent_bins:
+            add(
+                "ptFine_cent3",
+                f"ptFine_cent3_{pt_tag(plo, phi)}_{cent_tag(clo, chi)}",
+                features_cent_binned,
+                (plo, phi),
+                (clo, chi),
+                "fine-pt-coarse-cent-bin",
+            )
+        for clo, chi in fine_cent_bins:
+            add(
+                "ptFine_cent7",
+                f"ptFine_cent7_{pt_tag(plo, phi)}_{cent_tag(clo, chi)}",
+                features_cent_binned,
+                (plo, phi),
+                (clo, chi),
+                "fine-pt-fine-cent-bin",
+            )
+
+    return specs
+
+
 def registry_payload(specs: list[dict], reports: list[dict], args, status: str = "PLANNED") -> dict:
     report_by_id = {r.get("model_id"): r for r in reports}
     products: dict[str, list[str]] = {}
@@ -1046,7 +1123,7 @@ def run_campaign(args) -> int:
     if not args.input and not args.plan_only and not (args.cache_file and args.cache_file.is_file()):
         raise SystemExit("--input is required for campaign training unless an existing --cache-file is supplied")
     paths = expand_input_paths(args.input) if args.input else []
-    specs_all = campaign_specs(args, args.outdir)
+    specs_all = etfine_centstudy_specs(args, args.outdir) if args.campaign == "etfine-centstudy" else campaign_specs(args, args.outdir)
     specs = filter_specs(specs_all, args)
     if args.majority_cap_ratio <= 0.0:
         args.majority_cap_ratio = 4.0
@@ -1156,7 +1233,7 @@ def main() -> int:
     parser.add_argument("--grow-policy", default="lossguide")
     parser.add_argument("--max-bin", type=int, default=256)
     parser.add_argument("--n-jobs", type=int, default=4)
-    parser.add_argument("--campaign", choices=["expanded-tight"], default=None)
+    parser.add_argument("--campaign", choices=["expanded-tight", "etfine-centstudy"], default=None)
     parser.add_argument("--plan-only", action="store_true")
     parser.add_argument("--cache-only", action="store_true")
     parser.add_argument("--cache-file", type=Path, default=None)

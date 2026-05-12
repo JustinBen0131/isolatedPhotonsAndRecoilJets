@@ -351,6 +351,12 @@ namespace
       if (key == "auauptbincentinputbdt") return "auauPtBinCentInputBDT";
       if (key == "auauptcent3bdt") return "auauPtCent3BDT";
       if (key == "auauptcent7bdt") return "auauPtCent7BDT";
+      if (key == "auauetfinecentinputbdt") return "auauEtFineCentInputBDT";
+      if (key == "auauetfinecent3bdt") return "auauEtFineCent3BDT";
+      if (key == "auauetfinecent7bdt") return "auauEtFineCent7BDT";
+      if (key == "auaucentinputmlp") return "auauCentInputMLP";
+      if (key == "auaunocentbase3x3mlp") return "auauNoCentBase3x3MLP";
+      if (key == "auaucentinputbase3x3mlp") return "auauCentInputBase3x3MLP";
       return tightVariant;
     }
 
@@ -370,6 +376,14 @@ namespace
           nonTightVariant == "auauBDTComplement" || nonTightVariant == "AuAuBDTComplement" || nonTightVariant == "auaubdtcomplement")
       {
         return "auauBDTComplement";
+      }
+      if (nonTightVariant == "auauMLPComplement" || nonTightVariant == "AuAuMLPComplement" || nonTightVariant == "auaumlpcomplement")
+      {
+        return "auauMLPComplement";
+      }
+      if (nonTightVariant == "auauMLPSideband" || nonTightVariant == "AuAuMLPSideband" || nonTightVariant == "auaumlpsideband")
+      {
+        return "auauMLPSideband";
       }
       return nonTightVariant;
     }
@@ -414,7 +428,199 @@ namespace
              tightVariant == "auauCent7BDT" ||
              tightVariant == "auauPtBinCentInputBDT" ||
              tightVariant == "auauPtCent3BDT" ||
-             tightVariant == "auauPtCent7BDT";
+             tightVariant == "auauPtCent7BDT" ||
+             tightVariant == "auauEtFineCentInputBDT" ||
+             tightVariant == "auauEtFineCent3BDT" ||
+             tightVariant == "auauEtFineCent7BDT";
+    }
+
+    inline bool auauTightMLPMode(const std::string& tightVariant)
+    {
+      return tightVariant == "auauCentInputMLP" ||
+             tightVariant == "auauNoCentBase3x3MLP" ||
+             tightVariant == "auauCentInputBase3x3MLP";
+    }
+
+    inline std::size_t jsonSkipWs(const std::string& s, std::size_t pos)
+    {
+      while (pos < s.size() && std::isspace(static_cast<unsigned char>(s[pos]))) ++pos;
+      return pos;
+    }
+
+    inline std::size_t jsonValueEnd(const std::string& s, std::size_t pos)
+    {
+      pos = jsonSkipWs(s, pos);
+      if (pos >= s.size()) return std::string::npos;
+      const char open = s[pos];
+      if (open == '[' || open == '{')
+      {
+        const char close = (open == '[') ? ']' : '}';
+        int depth = 0;
+        bool inString = false;
+        bool escape = false;
+        for (std::size_t i = pos; i < s.size(); ++i)
+        {
+          const char c = s[i];
+          if (inString)
+          {
+            if (escape) escape = false;
+            else if (c == '\\') escape = true;
+            else if (c == '"') inString = false;
+            continue;
+          }
+          if (c == '"') { inString = true; continue; }
+          if (c == open) ++depth;
+          else if (c == close)
+          {
+            --depth;
+            if (depth == 0) return i + 1;
+          }
+        }
+        return std::string::npos;
+      }
+      if (open == '"')
+      {
+        bool escape = false;
+        for (std::size_t i = pos + 1; i < s.size(); ++i)
+        {
+          const char c = s[i];
+          if (escape) escape = false;
+          else if (c == '\\') escape = true;
+          else if (c == '"') return i + 1;
+        }
+        return std::string::npos;
+      }
+      std::size_t end = pos;
+      while (end < s.size() && s[end] != ',' && s[end] != '}' && s[end] != ']') ++end;
+      return end;
+    }
+
+    inline bool jsonExtractKey(const std::string& text, const std::string& key, std::string& out)
+    {
+      const std::string needle = "\"" + key + "\"";
+      std::size_t pos = text.find(needle);
+      if (pos == std::string::npos) return false;
+      pos = text.find(':', pos + needle.size());
+      if (pos == std::string::npos) return false;
+      pos = jsonSkipWs(text, pos + 1);
+      const std::size_t end = jsonValueEnd(text, pos);
+      if (end == std::string::npos || end <= pos) return false;
+      out = text.substr(pos, end - pos);
+      return true;
+    }
+
+    inline std::string jsonParseStringValue(std::string value)
+    {
+      value = std::regex_replace(value, std::regex("^\\s+|\\s+$"), "");
+      if (value.size() < 2 || value.front() != '"' || value.back() != '"') return std::string{};
+      std::string out;
+      bool escape = false;
+      for (std::size_t i = 1; i + 1 < value.size(); ++i)
+      {
+        const char c = value[i];
+        if (escape)
+        {
+          if (c == '"' || c == '\\' || c == '/') out.push_back(c);
+          else if (c == 'n') out.push_back('\n');
+          else if (c == 't') out.push_back('\t');
+          else out.push_back(c);
+          escape = false;
+        }
+        else if (c == '\\') escape = true;
+        else out.push_back(c);
+      }
+      return out;
+    }
+
+    inline bool jsonParseNumberValue(const std::string& value, double& out)
+    {
+      try
+      {
+        std::size_t n = 0;
+        out = std::stod(value, &n);
+        return n > 0;
+      }
+      catch (...)
+      {
+        return false;
+      }
+    }
+
+    inline std::vector<double> jsonParseNumberArray(const std::string& value)
+    {
+      std::vector<double> out;
+      std::size_t pos = jsonSkipWs(value, 0);
+      if (pos >= value.size() || value[pos] != '[') return out;
+      ++pos;
+      while (pos < value.size())
+      {
+        pos = jsonSkipWs(value, pos);
+        if (pos >= value.size() || value[pos] == ']') break;
+        const std::size_t end = jsonValueEnd(value, pos);
+        if (end == std::string::npos || end <= pos) break;
+        double v = std::numeric_limits<double>::quiet_NaN();
+        if (jsonParseNumberValue(value.substr(pos, end - pos), v)) out.push_back(v);
+        pos = jsonSkipWs(value, end);
+        if (pos < value.size() && value[pos] == ',') ++pos;
+      }
+      return out;
+    }
+
+    inline std::vector<std::string> jsonParseStringArray(const std::string& value)
+    {
+      std::vector<std::string> out;
+      std::size_t pos = jsonSkipWs(value, 0);
+      if (pos >= value.size() || value[pos] != '[') return out;
+      ++pos;
+      while (pos < value.size())
+      {
+        pos = jsonSkipWs(value, pos);
+        if (pos >= value.size() || value[pos] == ']') break;
+        const std::size_t end = jsonValueEnd(value, pos);
+        if (end == std::string::npos || end <= pos) break;
+        out.push_back(jsonParseStringValue(value.substr(pos, end - pos)));
+        pos = jsonSkipWs(value, end);
+        if (pos < value.size() && value[pos] == ',') ++pos;
+      }
+      return out;
+    }
+
+    inline std::vector<std::vector<double>> jsonParseNumberMatrix(const std::string& value)
+    {
+      std::vector<std::vector<double>> out;
+      std::size_t pos = jsonSkipWs(value, 0);
+      if (pos >= value.size() || value[pos] != '[') return out;
+      ++pos;
+      while (pos < value.size())
+      {
+        pos = jsonSkipWs(value, pos);
+        if (pos >= value.size() || value[pos] == ']') break;
+        const std::size_t end = jsonValueEnd(value, pos);
+        if (end == std::string::npos || end <= pos) break;
+        out.push_back(jsonParseNumberArray(value.substr(pos, end - pos)));
+        pos = jsonSkipWs(value, end);
+        if (pos < value.size() && value[pos] == ',') ++pos;
+      }
+      return out;
+    }
+
+    inline std::vector<std::string> jsonParseObjectArray(const std::string& value)
+    {
+      std::vector<std::string> out;
+      std::size_t pos = jsonSkipWs(value, 0);
+      if (pos >= value.size() || value[pos] != '[') return out;
+      ++pos;
+      while (pos < value.size())
+      {
+        pos = jsonSkipWs(value, pos);
+        if (pos >= value.size() || value[pos] == ']') break;
+        const std::size_t end = jsonValueEnd(value, pos);
+        if (end == std::string::npos || end <= pos) break;
+        out.push_back(value.substr(pos, end - pos));
+        pos = jsonSkipWs(value, end);
+        if (pos < value.size() && value[pos] == ',') ++pos;
+      }
+      return out;
     }
 
     struct DoNotScalePairConfig
@@ -809,7 +1015,8 @@ void RecoilJets::setAuAuTightBDTRuntimeConfig(const std::string& modelFile,
                                               double ptFallbackMin,
                                               double ptFallbackMax,
                                               double applyPtMin,
-                                              double applyPtMax)
+                                              double applyPtMax,
+                                              const std::vector<std::string>& workingPointEntries)
 {
   m_auauTightBDTModelFile = modelFile;
   m_auauTightBDTFeatures = features;
@@ -824,6 +1031,7 @@ void RecoilJets::setAuAuTightBDTRuntimeConfig(const std::string& modelFile,
   if (std::isfinite(ptFallbackMax)) m_auauTightBDTPtFallbackMax = ptFallbackMax;
   m_auauTightBDTApplyPtMin = applyPtMin;
   m_auauTightBDTApplyPtMax = applyPtMax;
+  parseAuAuTightBDTWorkingPointEntries(workingPointEntries);
   m_explicitAuAuTightBDTConfig = true;
 
   m_auauTightBDTModelInitAttempted = false;
@@ -833,6 +1041,323 @@ void RecoilJets::setAuAuTightBDTRuntimeConfig(const std::string& modelFile,
   m_auauTightBDTPtCentModels.clear();
   m_auauTightBDTPtFallbackModel.reset();
   m_auauTightBDTPtFallbackCentModels.clear();
+}
+
+void RecoilJets::setAuAuTightMLPRuntimeConfig(const std::string& modelFile,
+                                              double minIntercept,
+                                              double minSlope,
+                                              double maxScore,
+                                              double nonTightMinIntercept,
+                                              double nonTightMinSlope,
+                                              double nonTightMaxIntercept,
+                                              double nonTightMaxSlope,
+                                              double applyPtMin,
+                                              double applyPtMax,
+                                              const std::vector<std::string>& workingPointEntries)
+{
+  m_auauTightMLPModelFile = modelFile;
+  m_auauTightMLPMinIntercept = minIntercept;
+  m_auauTightMLPMinSlope = minSlope;
+  m_auauTightMLPMax = maxScore;
+  m_auauNonTightMLPMinIntercept = nonTightMinIntercept;
+  m_auauNonTightMLPMinSlope = nonTightMinSlope;
+  m_auauNonTightMLPMaxIntercept = nonTightMaxIntercept;
+  m_auauNonTightMLPMaxSlope = nonTightMaxSlope;
+  m_auauTightMLPApplyPtMin = applyPtMin;
+  m_auauTightMLPApplyPtMax = applyPtMax;
+  parseAuAuTightMLPWorkingPointEntries(workingPointEntries);
+  m_explicitAuAuTightMLPConfig = true;
+  m_auauTightMLPModelInitAttempted = false;
+  m_auauTightMLPModel = AuAuTightMLPModel{};
+}
+
+void RecoilJets::parseAuAuTightBDTWorkingPointEntries(const std::vector<std::string>& entries)
+{
+  m_auauTightBDTWorkingPoints.clear();
+
+  auto split = [](const std::string& text, char delim)
+  {
+    std::vector<std::string> tokens;
+    std::stringstream ss(text);
+    std::string item;
+    while (std::getline(ss, item, delim)) tokens.push_back(item);
+    return tokens;
+  };
+  auto parseDoubles = [&](const std::string& text)
+  {
+    std::vector<double> values;
+    for (const auto& token : split(text, ';'))
+    {
+      if (token.empty()) continue;
+      try { values.push_back(std::stod(token)); }
+      catch (...) { values.push_back(std::numeric_limits<double>::quiet_NaN()); }
+    }
+    return values;
+  };
+
+  for (const std::string& raw : entries)
+  {
+    if (raw.empty()) continue;
+    const auto cols = split(raw, '|');
+    if (cols.size() < 7)
+    {
+      LOG(1, CLR_YELLOW, "[AuAuTightBDT][WP] ignoring malformed working-point entry: " << raw);
+      continue;
+    }
+    AuAuTightBDTWorkingPoint wp;
+    wp.variant = normalizeTightVariantName(cols[0]);
+    const std::string mode = cols[1];
+    try
+    {
+      if (mode == "linear")
+      {
+        wp.binned = false;
+        wp.grid2d = false;
+        wp.intercept = std::stod(cols[2]);
+        wp.slope = std::stod(cols[3]);
+        wp.ptMin = std::stod(cols[4]);
+        wp.ptMax = std::stod(cols[5]);
+        wp.maxScore = std::stod(cols[6]);
+      }
+      else if (mode == "binned")
+      {
+        wp.binned = true;
+        wp.grid2d = false;
+        wp.edges = parseDoubles(cols[2]);
+        wp.thresholds = parseDoubles(cols[3]);
+        wp.ptMin = std::stod(cols[4]);
+        wp.ptMax = std::stod(cols[5]);
+        wp.maxScore = std::stod(cols[6]);
+        if (wp.edges.size() < 2 || wp.thresholds.size() + 1 != wp.edges.size())
+        {
+          LOG(1, CLR_YELLOW, "[AuAuTightBDT][WP] ignoring binned entry with inconsistent edges/thresholds: " << raw);
+          continue;
+        }
+      }
+      else if (mode == "grid2d")
+      {
+        if (cols.size() < 8)
+        {
+          LOG(1, CLR_YELLOW, "[AuAuTightBDT][WP] ignoring malformed grid2d working-point entry: " << raw);
+          continue;
+        }
+        wp.binned = false;
+        wp.grid2d = true;
+        wp.edges = parseDoubles(cols[2]);
+        wp.centEdges = parseDoubles(cols[3]);
+        wp.thresholds = parseDoubles(cols[4]);
+        wp.ptMin = std::stod(cols[5]);
+        wp.ptMax = std::stod(cols[6]);
+        wp.maxScore = std::stod(cols[7]);
+        const std::size_t nPt = (wp.edges.size() >= 2) ? wp.edges.size() - 1 : 0;
+        const std::size_t nCent = (wp.centEdges.size() >= 2) ? wp.centEdges.size() - 1 : 0;
+        if (nPt == 0 || nCent == 0 || wp.thresholds.size() != nPt * nCent)
+        {
+          LOG(1, CLR_YELLOW, "[AuAuTightBDT][WP] ignoring grid2d entry with inconsistent binning: " << raw);
+          continue;
+        }
+      }
+      else
+      {
+        LOG(1, CLR_YELLOW, "[AuAuTightBDT][WP] ignoring entry with unknown mode '" << mode << "': " << raw);
+        continue;
+      }
+    }
+    catch (...)
+    {
+      LOG(1, CLR_YELLOW, "[AuAuTightBDT][WP] ignoring unparseable working-point entry: " << raw);
+      continue;
+    }
+    if (wp.variant.empty())
+    {
+      LOG(1, CLR_YELLOW, "[AuAuTightBDT][WP] ignoring entry with empty variant: " << raw);
+      continue;
+    }
+    m_auauTightBDTWorkingPoints.push_back(wp);
+  }
+
+  if (!m_auauTightBDTWorkingPoints.empty() && Verbosity() >= 1)
+  {
+    LOG(1, CLR_CYAN, "[AuAuTightBDT][WP] loaded " << m_auauTightBDTWorkingPoints.size()
+                    << " per-variant working-point entries");
+  }
+}
+
+const RecoilJets::AuAuTightBDTWorkingPoint* RecoilJets::activeAuAuTightBDTWorkingPoint() const
+{
+  const std::string active = normalizeTightVariantName(m_tightVariant);
+  for (const auto& wp : m_auauTightBDTWorkingPoints)
+  {
+    if (wp.variant == active) return &wp;
+  }
+  return nullptr;
+}
+
+double RecoilJets::configuredAuAuTightBDTMin(double et) const
+{
+  const AuAuTightBDTWorkingPoint* wp = activeAuAuTightBDTWorkingPoint();
+  if (!wp) return m_auauTightBDTMinIntercept + m_auauTightBDTMinSlope * et;
+  if (!std::isfinite(et) || et < wp->ptMin || et >= wp->ptMax)
+  {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+  if (wp->grid2d)
+  {
+    const double cent = m_centPercent;
+    if (!std::isfinite(cent)) return std::numeric_limits<double>::quiet_NaN();
+    int ptIdx = -1;
+    for (std::size_t i = 0; i + 1 < wp->edges.size(); ++i)
+    {
+      if (et >= wp->edges[i] && et < wp->edges[i + 1])
+      {
+        ptIdx = static_cast<int>(i);
+        break;
+      }
+    }
+    int centIdx = -1;
+    for (std::size_t i = 0; i + 1 < wp->centEdges.size(); ++i)
+    {
+      if (cent >= wp->centEdges[i] && cent < wp->centEdges[i + 1])
+      {
+        centIdx = static_cast<int>(i);
+        break;
+      }
+    }
+    if (ptIdx < 0 || centIdx < 0) return std::numeric_limits<double>::quiet_NaN();
+    const std::size_t nPt = wp->edges.size() - 1;
+    const std::size_t flatIdx = static_cast<std::size_t>(centIdx) * nPt + static_cast<std::size_t>(ptIdx);
+    if (flatIdx >= wp->thresholds.size()) return std::numeric_limits<double>::quiet_NaN();
+    return wp->thresholds[flatIdx];
+  }
+  if (!wp->binned) return wp->intercept + wp->slope * et;
+  for (std::size_t i = 0; i + 1 < wp->edges.size() && i < wp->thresholds.size(); ++i)
+  {
+    if (et >= wp->edges[i] && et < wp->edges[i + 1]) return wp->thresholds[i];
+  }
+  return std::numeric_limits<double>::quiet_NaN();
+}
+
+double RecoilJets::configuredAuAuTightBDTMax(double /*et*/) const
+{
+  const AuAuTightBDTWorkingPoint* wp = activeAuAuTightBDTWorkingPoint();
+  return wp ? wp->maxScore : m_auauTightBDTMax;
+}
+
+void RecoilJets::parseAuAuTightMLPWorkingPointEntries(const std::vector<std::string>& entries)
+{
+  m_auauTightMLPWorkingPoints.clear();
+  auto split = [](const std::string& text, char delim)
+  {
+    std::vector<std::string> tokens;
+    std::stringstream ss(text);
+    std::string item;
+    while (std::getline(ss, item, delim)) tokens.push_back(item);
+    return tokens;
+  };
+  auto parseDoubles = [&](const std::string& text)
+  {
+    std::vector<double> values;
+    for (const auto& token : split(text, ';'))
+    {
+      if (token.empty()) continue;
+      try { values.push_back(std::stod(token)); }
+      catch (...) { values.push_back(std::numeric_limits<double>::quiet_NaN()); }
+    }
+    return values;
+  };
+
+  for (const std::string& raw : entries)
+  {
+    if (raw.empty()) continue;
+    const auto cols = split(raw, '|');
+    if (cols.size() < 7)
+    {
+      LOG(1, CLR_YELLOW, "[AuAuTightMLP][WP] ignoring malformed working-point entry: " << raw);
+      continue;
+    }
+    AuAuTightBDTWorkingPoint wp;
+    wp.variant = normalizeTightVariantName(cols[0]);
+    const std::string mode = cols[1];
+    try
+    {
+      if (mode == "linear")
+      {
+        wp.binned = false;
+        wp.intercept = std::stod(cols[2]);
+        wp.slope = std::stod(cols[3]);
+        wp.ptMin = std::stod(cols[4]);
+        wp.ptMax = std::stod(cols[5]);
+        wp.maxScore = std::stod(cols[6]);
+      }
+      else if (mode == "binned")
+      {
+        wp.binned = true;
+        wp.edges = parseDoubles(cols[2]);
+        wp.thresholds = parseDoubles(cols[3]);
+        wp.ptMin = std::stod(cols[4]);
+        wp.ptMax = std::stod(cols[5]);
+        wp.maxScore = std::stod(cols[6]);
+        if (wp.edges.size() < 2 || wp.thresholds.size() + 1 != wp.edges.size())
+        {
+          LOG(1, CLR_YELLOW, "[AuAuTightMLP][WP] ignoring binned entry with inconsistent edges/thresholds: " << raw);
+          continue;
+        }
+      }
+      else
+      {
+        LOG(1, CLR_YELLOW, "[AuAuTightMLP][WP] ignoring entry with unknown mode '" << mode << "': " << raw);
+        continue;
+      }
+    }
+    catch (...)
+    {
+      LOG(1, CLR_YELLOW, "[AuAuTightMLP][WP] ignoring unparseable working-point entry: " << raw);
+      continue;
+    }
+    if (!auauTightMLPMode(wp.variant))
+    {
+      LOG(1, CLR_YELLOW, "[AuAuTightMLP][WP] ignoring entry with non-MLP variant '" << wp.variant << "': " << raw);
+      continue;
+    }
+    m_auauTightMLPWorkingPoints.push_back(wp);
+  }
+  if (!m_auauTightMLPWorkingPoints.empty() && Verbosity() >= 1)
+  {
+    LOG(1, CLR_CYAN, "[AuAuTightMLP][WP] loaded " << m_auauTightMLPWorkingPoints.size()
+                    << " per-variant working-point entries");
+  }
+}
+
+const RecoilJets::AuAuTightBDTWorkingPoint* RecoilJets::activeAuAuTightMLPWorkingPoint() const
+{
+  const std::string active = normalizeTightVariantName(m_tightVariant);
+  for (const auto& wp : m_auauTightMLPWorkingPoints)
+  {
+    if (wp.variant == active) return &wp;
+  }
+  return nullptr;
+}
+
+double RecoilJets::configuredAuAuTightMLPMin(double et) const
+{
+  const AuAuTightBDTWorkingPoint* wp = activeAuAuTightMLPWorkingPoint();
+  if (!wp) return m_auauTightMLPMinIntercept + m_auauTightMLPMinSlope * et;
+  if (!std::isfinite(et) || et < wp->ptMin || et >= wp->ptMax)
+  {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+  if (!wp->binned) return wp->intercept + wp->slope * et;
+  for (std::size_t i = 0; i + 1 < wp->edges.size() && i < wp->thresholds.size(); ++i)
+  {
+    if (et >= wp->edges[i] && et < wp->edges[i + 1]) return wp->thresholds[i];
+  }
+  return std::numeric_limits<double>::quiet_NaN();
+}
+
+double RecoilJets::configuredAuAuTightMLPMax(double /*et*/) const
+{
+  const AuAuTightBDTWorkingPoint* wp = activeAuAuTightMLPWorkingPoint();
+  return wp ? wp->maxScore : m_auauTightMLPMax;
 }
 
 void RecoilJets::setInternalJetPtScan(const std::vector<double>& values)
@@ -1627,6 +2152,20 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     m_auauNonTightBDTMinSlope     = envToDouble("RJ_AUAU_NONTIGHT_BDT_MIN_SLOPE", kPPG12NonTightBDTMinSlope);
     m_auauNonTightBDTMaxIntercept = envToDouble("RJ_AUAU_NONTIGHT_BDT_MAX_INTERCEPT", kPPG12NonTightBDTMaxIntercept);
     m_auauNonTightBDTMaxSlope     = envToDouble("RJ_AUAU_NONTIGHT_BDT_MAX_SLOPE", kPPG12NonTightBDTMaxSlope);
+    m_auauTightMLPMinIntercept = envToDouble("RJ_AUAU_TIGHT_MLP_MIN_INTERCEPT", m_auauTightMLPMinIntercept);
+    m_auauTightMLPMinSlope = envToDouble("RJ_AUAU_TIGHT_MLP_MIN_SLOPE", m_auauTightMLPMinSlope);
+    m_auauTightMLPMax = envToDouble("RJ_AUAU_TIGHT_MLP_MAX", m_auauTightMLPMax);
+    m_auauNonTightMLPMinIntercept = envToDouble("RJ_AUAU_NONTIGHT_MLP_MIN_INTERCEPT", m_auauNonTightMLPMinIntercept);
+    m_auauNonTightMLPMinSlope = envToDouble("RJ_AUAU_NONTIGHT_MLP_MIN_SLOPE", m_auauNonTightMLPMinSlope);
+    m_auauNonTightMLPMaxIntercept = envToDouble("RJ_AUAU_NONTIGHT_MLP_MAX_INTERCEPT", m_auauNonTightMLPMaxIntercept);
+    m_auauNonTightMLPMaxSlope = envToDouble("RJ_AUAU_NONTIGHT_MLP_MAX_SLOPE", m_auauNonTightMLPMaxSlope);
+    if (!m_explicitAuAuTightMLPConfig)
+    {
+      m_auauTightMLPModelFile = envOrDefault("RJ_AUAU_TIGHT_MLP_MODEL_FILE", "");
+      m_auauTightMLPApplyPtMin = envToDouble("RJ_AUAU_TIGHT_MLP_APPLY_PT_MIN", std::numeric_limits<double>::quiet_NaN());
+      m_auauTightMLPApplyPtMax = envToDouble("RJ_AUAU_TIGHT_MLP_APPLY_PT_MAX", std::numeric_limits<double>::quiet_NaN());
+      parseAuAuTightMLPWorkingPointEntries(envToStringList("RJ_AUAU_TIGHT_MLP_WORKING_POINT_ENTRIES", {}));
+    }
     m_auauBDTExtractOnly = envToBool("RJ_AUAU_BDT_EXTRACT_ONLY", m_auauBDTExtractOnly);
     m_auauBDTTrainingTreeEnabled = envToBool("RJ_AUAU_BDT_TRAINING_TREE", false);
     if (m_auauBDTExtractOnly) m_auauBDTTrainingTreeEnabled = true;
@@ -2234,6 +2773,7 @@ void RecoilJets::initAuAuBDTTrainingTree()
   add("npb_score", &m_bdtTrain_npb_score, "npb_score/F");
   add("auau_npb_score", &m_bdtTrain_auau_npb_score, "auau_npb_score/F");
   add("auau_tight_bdt_score", &m_bdtTrain_auau_tight_bdt_score, "auau_tight_bdt_score/F");
+  add("auau_tight_mlp_score", &m_bdtTrain_auau_tight_mlp_score, "auau_tight_mlp_score/F");
 
   LOG(1, CLR_GREEN, "[AuAuBDTTrainingTree] enabled"
                     << " maxEntries=" << m_auauBDTTrainingTreeMaxEntries);
@@ -2310,6 +2850,7 @@ void RecoilJets::fillAuAuBDTTrainingTree(const SSVars& v,
   m_bdtTrain_npb_score = std::isfinite(v.npb_score) ? static_cast<float>(v.npb_score) : -2.0f;
   m_bdtTrain_auau_npb_score = std::isfinite(v.auau_npb_score) ? static_cast<float>(v.auau_npb_score) : -2.0f;
   m_bdtTrain_auau_tight_bdt_score = std::isfinite(v.auau_tight_bdt_score) ? static_cast<float>(v.auau_tight_bdt_score) : -2.0f;
+  m_bdtTrain_auau_tight_mlp_score = std::isfinite(v.auau_tight_mlp_score) ? static_cast<float>(v.auau_tight_mlp_score) : -2.0f;
 
   m_auauBDTTrainingTree->Fill();
   ++m_auauBDTTrainingTreeEntries;
@@ -2664,9 +3205,15 @@ bool RecoilJets::initAuAuTightBDTModelsIfNeeded() const
     const bool centDepMode = (m_tightVariant == "centDepBDTs" ||
                               m_tightVariant == "auauCent3BDT" ||
                               m_tightVariant == "auauCent7BDT");
-    const bool ptBinMode = (m_tightVariant == "auauPtBinCentInputBDT");
+    const bool ptBinMode = (m_tightVariant == "auauPtBinCentInputBDT" ||
+                            m_tightVariant == "auauEtFineCentInputBDT");
+    const bool needsPtFallback = (m_tightVariant == "auauPtBinCentInputBDT");
     const bool ptCentMode = (m_tightVariant == "auauPtCent3BDT" ||
-                             m_tightVariant == "auauPtCent7BDT");
+                             m_tightVariant == "auauPtCent7BDT" ||
+                             m_tightVariant == "auauEtFineCent3BDT" ||
+                             m_tightVariant == "auauEtFineCent7BDT");
+    const bool needsPtCentFallback = (m_tightVariant == "auauPtCent3BDT" ||
+                                      m_tightVariant == "auauPtCent7BDT");
 
     if (centDepMode)
     {
@@ -2690,15 +3237,20 @@ bool RecoilJets::initAuAuTightBDTModelsIfNeeded() const
                            << m_auauTightBDTPtBinEdges.size() << " edges");
         return false;
       }
-      if (m_auauTightBDTPtFallbackModelFile.empty())
+      if (needsPtFallback && m_auauTightBDTPtFallbackModelFile.empty())
       {
         LOG(1, CLR_YELLOW, "[AuAuTightBDT] pT-bin mode needs a 35-40 GeV fallback model file");
         return false;
       }
       loadModelVector(m_auauTightBDTPtBinModelFiles, m_auauTightBDTPtBinModels);
-      m_auauTightBDTPtFallbackModel = std::make_unique<TMVA::Experimental::RBDT>("myBDT", m_auauTightBDTPtFallbackModelFile);
+      if (!m_auauTightBDTPtFallbackModelFile.empty())
+      {
+        m_auauTightBDTPtFallbackModel = std::make_unique<TMVA::Experimental::RBDT>("myBDT", m_auauTightBDTPtFallbackModelFile);
+      }
       LOG(1, CLR_GREEN, "[AuAuTightBDT] loaded " << m_auauTightBDTPtBinModels.size()
-                         << " pT-bin tight models plus 35-40 GeV fallback with "
+                         << " pT-bin tight models"
+                         << (m_auauTightBDTPtFallbackModel ? " plus fallback" : "")
+                         << " with "
                          << m_auauTightBDTFeatures.size() << " features");
     }
     else if (ptCentMode)
@@ -2713,18 +3265,21 @@ bool RecoilJets::initAuAuTightBDTModelsIfNeeded() const
                            << " files, " << nPtBins << " pT bins, " << nCentBins << " centrality bins");
         return false;
       }
-      if (m_auauTightBDTPtFallbackCentModelFiles.size() != nCentBins)
+      if (needsPtCentFallback && m_auauTightBDTPtFallbackCentModelFiles.size() != nCentBins)
       {
         LOG(1, CLR_YELLOW, "[AuAuTightBDT] pT x centrality mode needs one 35-40 GeV fallback model per centrality bin; got "
                            << m_auauTightBDTPtFallbackCentModelFiles.size() << " for " << nCentBins << " bins");
         return false;
       }
       loadModelVector(m_auauTightBDTPtCentModelFiles, m_auauTightBDTPtCentModels);
-      loadModelVector(m_auauTightBDTPtFallbackCentModelFiles, m_auauTightBDTPtFallbackCentModels);
+      if (!m_auauTightBDTPtFallbackCentModelFiles.empty())
+      {
+        loadModelVector(m_auauTightBDTPtFallbackCentModelFiles, m_auauTightBDTPtFallbackCentModels);
+      }
       LOG(1, CLR_GREEN, "[AuAuTightBDT] loaded " << m_auauTightBDTPtCentModels.size()
-                         << " pT x centrality tight models plus "
-                         << m_auauTightBDTPtFallbackCentModels.size()
-                         << " 35-40 GeV fallback models with "
+                         << " pT x centrality tight models"
+                         << (m_auauTightBDTPtFallbackCentModels.empty() ? "" : " plus fallback models")
+                         << " with "
                          << m_auauTightBDTFeatures.size() << " features");
     }
     else
@@ -2789,6 +3344,18 @@ double RecoilJets::auauTightBDTFeatureValue(const std::string& feature,
   if (feature == "cluster_wphi_cogx") return v.wphi_cogx;
   if (feature == "cluster_weta33_cogx") return v.weta33_cogx;
   if (feature == "cluster_wphi33_cogx") return v.wphi33_cogx;
+  if (feature == "cluster_weta_over_wphi")
+  {
+    return (std::isfinite(v.weta_cogx) && std::isfinite(v.wphi_cogx) && std::fabs(v.wphi_cogx) > 1.0e-12)
+      ? v.weta_cogx / v.wphi_cogx
+      : std::numeric_limits<double>::quiet_NaN();
+  }
+  if (feature == "cluster_weta33_over_wphi33")
+  {
+    return (std::isfinite(v.weta33_cogx) && std::isfinite(v.wphi33_cogx) && std::fabs(v.wphi33_cogx) > 1.0e-12)
+      ? v.weta33_cogx / v.wphi33_cogx
+      : std::numeric_limits<double>::quiet_NaN();
+  }
   if (feature == "cluster_weta35_cogx") return v.weta35_cogx;
   if (feature == "cluster_wphi53_cogx") return v.wphi53_cogx;
   if (feature == "vertexz" || feature == "vertex_z" || feature == "zvtx") return m_vz;
@@ -2820,9 +3387,12 @@ double RecoilJets::predictAuAuTightBDTScore(const PhotonClusterv1* pho, const SS
   const bool centDepMode = (m_tightVariant == "centDepBDTs" ||
                             m_tightVariant == "auauCent3BDT" ||
                             m_tightVariant == "auauCent7BDT");
-  const bool ptBinMode = (m_tightVariant == "auauPtBinCentInputBDT");
+  const bool ptBinMode = (m_tightVariant == "auauPtBinCentInputBDT" ||
+                          m_tightVariant == "auauEtFineCentInputBDT");
   const bool ptCentMode = (m_tightVariant == "auauPtCent3BDT" ||
-                           m_tightVariant == "auauPtCent7BDT");
+                           m_tightVariant == "auauPtCent7BDT" ||
+                           m_tightVariant == "auauEtFineCent3BDT" ||
+                           m_tightVariant == "auauEtFineCent7BDT");
 
   if (centDepMode)
   {
@@ -2887,6 +3457,150 @@ double RecoilJets::predictAuAuTightBDTScore(const PhotonClusterv1* pho, const SS
   const auto y = model->Compute(x);
   if (y.empty() || !std::isfinite(y[0])) return std::numeric_limits<double>::quiet_NaN();
   return static_cast<double>(y[0]);
+}
+
+bool RecoilJets::initAuAuTightMLPModelIfNeeded() const
+{
+  if (!auauTightMLPMode(m_tightVariant)) return true;
+  if (m_auauTightMLPModel.valid) return true;
+  if (m_auauTightMLPModelInitAttempted) return false;
+  m_auauTightMLPModelInitAttempted = true;
+
+  if (m_auauTightMLPModelFile.empty())
+  {
+    LOG(1, CLR_YELLOW, "[AuAuTightMLP] model file is empty for " << m_tightVariant);
+    return false;
+  }
+  std::ifstream in(m_auauTightMLPModelFile);
+  if (!in.is_open())
+  {
+    LOG(1, CLR_YELLOW, "[AuAuTightMLP] could not open model file " << m_auauTightMLPModelFile);
+    return false;
+  }
+  std::ostringstream ss;
+  ss << in.rdbuf();
+  const std::string text = ss.str();
+
+  AuAuTightMLPModel model;
+  std::string value;
+  if (jsonExtractKey(text, "schema", value)) model.schema = jsonParseStringValue(value);
+  if (model.schema != "RJ_AUAU_TIGHT_MLP_V1")
+  {
+    LOG(1, CLR_YELLOW, "[AuAuTightMLP] unsupported model schema '" << model.schema
+                       << "' in " << m_auauTightMLPModelFile);
+    return false;
+  }
+  if (jsonExtractKey(text, "variant", value)) model.variant = normalizeTightVariantName(jsonParseStringValue(value));
+  if (jsonExtractKey(text, "features", value)) model.features = jsonParseStringArray(value);
+  if (jsonExtractKey(text, "activation", value)) model.activation = jsonParseStringValue(value);
+  if (jsonExtractKey(text, "output_temperature", value))
+  {
+    double t = 1.0;
+    if (jsonParseNumberValue(value, t) && std::isfinite(t) && t > 0.0) model.outputTemperature = t;
+  }
+  std::string prep;
+  if (jsonExtractKey(text, "preprocessing", prep))
+  {
+    if (jsonExtractKey(prep, "mean", value)) model.mean = jsonParseNumberArray(value);
+    if (jsonExtractKey(prep, "scale", value)) model.scale = jsonParseNumberArray(value);
+    if (jsonExtractKey(prep, "clip", value))
+    {
+      double c = 8.0;
+      if (jsonParseNumberValue(value, c) && std::isfinite(c)) model.clip = c;
+    }
+  }
+  std::string layersText;
+  if (jsonExtractKey(text, "layers", layersText))
+  {
+    for (const auto& layerText : jsonParseObjectArray(layersText))
+    {
+      AuAuTightMLPLayer layer;
+      if (jsonExtractKey(layerText, "weights", value)) layer.weightsOutByIn = jsonParseNumberMatrix(value);
+      if (jsonExtractKey(layerText, "bias", value)) layer.bias = jsonParseNumberArray(value);
+      model.layers.push_back(layer);
+    }
+  }
+  if (model.features.empty() || model.mean.size() != model.features.size() || model.scale.size() != model.features.size())
+  {
+    LOG(1, CLR_YELLOW, "[AuAuTightMLP] invalid preprocessing/features in " << m_auauTightMLPModelFile);
+    return false;
+  }
+  std::size_t expectedIn = model.features.size();
+  for (std::size_t ilayer = 0; ilayer < model.layers.size(); ++ilayer)
+  {
+    const auto& layer = model.layers[ilayer];
+    if (layer.weightsOutByIn.empty() || layer.bias.size() != layer.weightsOutByIn.size())
+    {
+      LOG(1, CLR_YELLOW, "[AuAuTightMLP] invalid layer " << ilayer << " in " << m_auauTightMLPModelFile);
+      return false;
+    }
+    for (const auto& row : layer.weightsOutByIn)
+    {
+      if (row.size() != expectedIn)
+      {
+        LOG(1, CLR_YELLOW, "[AuAuTightMLP] layer " << ilayer << " has inconsistent input width in "
+                           << m_auauTightMLPModelFile);
+        return false;
+      }
+    }
+    expectedIn = layer.bias.size();
+  }
+  if (model.layers.empty() || model.layers.back().bias.size() != 1)
+  {
+    LOG(1, CLR_YELLOW, "[AuAuTightMLP] final layer must have one output in " << m_auauTightMLPModelFile);
+    return false;
+  }
+  model.valid = true;
+  m_auauTightMLPModel = model;
+  LOG(1, CLR_GREEN, "[AuAuTightMLP] loaded " << m_tightVariant << " model "
+                     << m_auauTightMLPModelFile << " with "
+                     << m_auauTightMLPModel.features.size() << " features and "
+                     << m_auauTightMLPModel.layers.size() << " layers");
+  return true;
+}
+
+double RecoilJets::predictAuAuTightMLPScore(const PhotonClusterv1* pho, const SSVars& v) const
+{
+  if ((std::isfinite(m_auauTightMLPApplyPtMin) && (!std::isfinite(v.pt_gamma) || v.pt_gamma < m_auauTightMLPApplyPtMin)) ||
+      (std::isfinite(m_auauTightMLPApplyPtMax) && (!std::isfinite(v.pt_gamma) || v.pt_gamma >= m_auauTightMLPApplyPtMax)))
+  {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+  if (!initAuAuTightMLPModelIfNeeded()) return std::numeric_limits<double>::quiet_NaN();
+  const auto& model = m_auauTightMLPModel;
+  std::vector<double> a;
+  a.reserve(model.features.size());
+  for (std::size_t i = 0; i < model.features.size(); ++i)
+  {
+    const double raw = auauTightBDTFeatureValue(model.features[i], pho, v);
+    if (!std::isfinite(raw)) return std::numeric_limits<double>::quiet_NaN();
+    const double scale = (i < model.scale.size() && std::fabs(model.scale[i]) > 1.0e-12) ? model.scale[i] : 1.0;
+    double z = (raw - model.mean[i]) / scale;
+    if (model.clip > 0.0) z = std::max(-model.clip, std::min(model.clip, z));
+    a.push_back(z);
+  }
+  for (std::size_t ilayer = 0; ilayer < model.layers.size(); ++ilayer)
+  {
+    const auto& layer = model.layers[ilayer];
+    std::vector<double> next(layer.bias.size(), 0.0);
+    for (std::size_t j = 0; j < layer.bias.size(); ++j)
+    {
+      double z = layer.bias[j];
+      for (std::size_t k = 0; k < a.size(); ++k) z += layer.weightsOutByIn[j][k] * a[k];
+      next[j] = (ilayer + 1 == model.layers.size()) ? z : std::tanh(z);
+    }
+    a.swap(next);
+  }
+  if (a.empty() || !std::isfinite(a[0])) return std::numeric_limits<double>::quiet_NaN();
+  const double temp = (std::isfinite(model.outputTemperature) && model.outputTemperature > 0.0) ? model.outputTemperature : 1.0;
+  const double z = a[0] / temp;
+  if (z >= 0.0)
+  {
+    const double e = std::exp(-z);
+    return 1.0 / (1.0 + e);
+  }
+  const double e = std::exp(z);
+  return e / (1.0 + e);
 }
 
 
@@ -9358,10 +10072,8 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 else if (auauTightBDTMode(m_tightVariant))
                 {
                     const double score = v.auau_tight_bdt_score;
-                    const double intercept = m_auauTightBDTMinIntercept;
-                    const double slope = m_auauTightBDTMinSlope;
-                    const double maxScore = m_auauTightBDTMax;
-                    const double minScore = intercept + slope * v.pt_gamma;
+                    const double maxScore = configuredAuAuTightBDTMax(v.pt_gamma);
+                    const double minScore = configuredAuAuTightBDTMin(v.pt_gamma);
                     const double nonTightMin = m_auauNonTightBDTMinIntercept + m_auauNonTightBDTMinSlope * v.pt_gamma;
                     const double nonTightMax = m_auauNonTightBDTMaxIntercept + m_auauNonTightBDTMaxSlope * v.pt_gamma;
                     const bool pass_tight_bdt = std::isfinite(score) &&
@@ -9410,6 +10122,65 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                             << " | tight=(" << minScore << "," << maxScore << ") pass=" << pass_tight_bdt
                             << " | nonTight=" << (m_nonTightVariant == "auauBDTSideband" ? "sideband" : "complement")
                             << " | nonTightSideband=(" << nonTightMin << "," << nonTightMax << ") pass=" << pass_non_tight_bdt
+                            << " | nonTightVariant=" << m_nonTightVariant
+                            << " | tag=" << tightTagName(tightTag);
+                        LOG(4, (tightTag == TightTag::kTight ? CLR_RED :
+                                (tightTag == TightTag::kNonTight ? CLR_GREEN : CLR_YELLOW)), msg.str());
+                    }
+                }
+                else if (auauTightMLPMode(m_tightVariant))
+                {
+                    const double score = v.auau_tight_mlp_score;
+                    const double maxScore = configuredAuAuTightMLPMax(v.pt_gamma);
+                    const double minScore = configuredAuAuTightMLPMin(v.pt_gamma);
+                    const double nonTightMin = m_auauNonTightMLPMinIntercept + m_auauNonTightMLPMinSlope * v.pt_gamma;
+                    const double nonTightMax = m_auauNonTightMLPMaxIntercept + m_auauNonTightMLPMaxSlope * v.pt_gamma;
+                    const bool pass_tight_mlp = std::isfinite(score) &&
+                                                std::isfinite(minScore) &&
+                                                std::isfinite(maxScore) &&
+                                                score > minScore &&
+                                                score < maxScore;
+                    const bool pass_non_tight_mlp = std::isfinite(score) &&
+                                                    std::isfinite(nonTightMin) &&
+                                                    std::isfinite(nonTightMax) &&
+                                                    score > nonTightMin &&
+                                                    score < nonTightMax;
+
+                    if (pass_tight_mlp) tightTag = TightTag::kTight;
+                    else if (!std::isfinite(score)) tightTag = TightTag::kNeither;
+                    else if (m_nonTightVariant == "auauMLPSideband") tightTag = (pass_non_tight_mlp ? TightTag::kNonTight : TightTag::kNeither);
+                    else tightTag = TightTag::kNonTight;
+                    if (doCanonical)
+                    {
+                        if (tightTag == TightTag::kTight) ++m_bk.tight_tight;
+                        else if (tightTag == TightTag::kNonTight) ++m_bk.tight_nonTight;
+                        else ++m_bk.tight_neither;
+                    }
+
+                    if (doCanonical)
+                    {
+                        for (const auto& trigShort : activeTrig)
+                        {
+                            if (!pass_tight_mlp)
+                            {
+                                if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_mlp", ptIdx, effCentIdx_SS, HistViewScope::Canonical))
+                                {
+                                    h->Fill(1);
+                                    bumpHistFill(trigShort, std::string("h_tightFail_mlp") + slice_SS);
+                                }
+                            }
+                        }
+                    }
+
+                    if (Verbosity() >= 4)
+                    {
+                        std::ostringstream msg;
+                        msg << "      [pho#" << iPho << "] tight classification"
+                            << " | variant=" << m_tightVariant << "(AuAu MLP)"
+                            << " | score=" << std::fixed << std::setprecision(4) << score
+                            << " | tight=(" << minScore << "," << maxScore << ") pass=" << pass_tight_mlp
+                            << " | nonTight=" << (m_nonTightVariant == "auauMLPSideband" ? "sideband" : "complement")
+                            << " | nonTightSideband=(" << nonTightMin << "," << nonTightMax << ") pass=" << pass_non_tight_mlp
                             << " | nonTightVariant=" << m_nonTightVariant
                             << " | tag=" << tightTagName(tightTag);
                         LOG(4, (tightTag == TightTag::kTight ? CLR_RED :
@@ -10362,6 +11133,7 @@ void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars&
   v.tight_bdt_score = std::numeric_limits<double>::quiet_NaN();
   v.auau_npb_score = std::numeric_limits<double>::quiet_NaN();
   v.auau_tight_bdt_score = std::numeric_limits<double>::quiet_NaN();
+  v.auau_tight_mlp_score = std::numeric_limits<double>::quiet_NaN();
 
   if (!pho) return;
 
@@ -10400,6 +11172,10 @@ void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars&
   if (auauTightBDTMode(m_tightVariant) && m_tightVariant != "auauEmbeddedBDT")
   {
     v.auau_tight_bdt_score = predictAuAuTightBDTScore(pho, v);
+  }
+  if (auauTightMLPMode(m_tightVariant))
+  {
+    v.auau_tight_mlp_score = predictAuAuTightMLPScore(pho, v);
   }
   else if (m_tightVariant == "auauEmbeddedBDT")
   {
@@ -10700,10 +11476,8 @@ RecoilJets::TightTag RecoilJets::classifyPhotonTightness(const SSVars& v)
   if (auauTightBDTMode(m_tightVariant))
   {
     const double score = v.auau_tight_bdt_score;
-    const double intercept = m_auauTightBDTMinIntercept;
-    const double slope = m_auauTightBDTMinSlope;
-    const double maxScore = m_auauTightBDTMax;
-    const double minScore = intercept + slope * v.pt_gamma;
+    const double maxScore = configuredAuAuTightBDTMax(v.pt_gamma);
+    const double minScore = configuredAuAuTightBDTMin(v.pt_gamma);
     const double nonTightMin = m_auauNonTightBDTMinIntercept + m_auauNonTightBDTMinSlope * v.pt_gamma;
     const double nonTightMax = m_auauNonTightBDTMaxIntercept + m_auauNonTightBDTMaxSlope * v.pt_gamma;
     const bool pass = std::isfinite(score) &&
@@ -10732,6 +11506,44 @@ RecoilJets::TightTag RecoilJets::classifyPhotonTightness(const SSVars& v)
     if (pass) return TightTag::kTight;
     if (!std::isfinite(score)) return TightTag::kNeither;
     if (m_nonTightVariant == "auauBDTSideband")
+    {
+      return passNonTightSideband ? TightTag::kNonTight : TightTag::kNeither;
+    }
+    return TightTag::kNonTight;
+  }
+
+  if (auauTightMLPMode(m_tightVariant))
+  {
+    const double score = v.auau_tight_mlp_score;
+    const double maxScore = configuredAuAuTightMLPMax(v.pt_gamma);
+    const double minScore = configuredAuAuTightMLPMin(v.pt_gamma);
+    const double nonTightMin = m_auauNonTightMLPMinIntercept + m_auauNonTightMLPMinSlope * v.pt_gamma;
+    const double nonTightMax = m_auauNonTightMLPMaxIntercept + m_auauNonTightMLPMaxSlope * v.pt_gamma;
+    const bool pass = std::isfinite(score) &&
+                      std::isfinite(minScore) &&
+                      std::isfinite(maxScore) &&
+                      score > minScore &&
+                      score < maxScore;
+    const bool passNonTightSideband = std::isfinite(score) &&
+                                      std::isfinite(nonTightMin) &&
+                                      std::isfinite(nonTightMax) &&
+                                      score > nonTightMin &&
+                                      score < nonTightMax;
+    if (Verbosity() >= 5)
+    {
+      LOG(5, CLR_BLUE,
+          "  [classifyPhotonTightness] AuAu tight MLP"
+          << " mode=" << m_tightVariant
+          << " | score=" << score
+          << " | tight=(" << minScore << "," << maxScore << ") -> " << pass
+          << " | nonTight=" << (m_nonTightVariant == "auauMLPSideband" ? "sideband" : "complement")
+          << " | nonTightSideband=(" << nonTightMin << "," << nonTightMax << ") -> " << passNonTightSideband
+          << " | nonTightVariant=" << m_nonTightVariant);
+    }
+
+    if (pass) return TightTag::kTight;
+    if (!std::isfinite(score)) return TightTag::kNeither;
+    if (m_nonTightVariant == "auauMLPSideband")
     {
       return passNonTightSideband ? TightTag::kNonTight : TightTag::kNeither;
     }

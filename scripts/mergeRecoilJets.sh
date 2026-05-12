@@ -1025,15 +1025,21 @@ selection_mode_normalize_for_key() {
     tight:auauNoCentBDT|tight:AuAuNoCentBDT|tight:auaunocentbdt) echo "auauNoCentBDT"; return 0 ;;
     tight:auauCentInputBDT|tight:AuAuCentInputBDT|tight:auaucentinputbdt) echo "auauCentInputBDT"; return 0 ;;
     tight:auauCentInput3x3BDT|tight:AuAuCentInput3x3BDT|tight:auaucentinput3x3bdt) echo "auauCentInput3x3BDT"; return 0 ;;
+    tight:auauCentInputBase3x3BDT|tight:AuAuCentInputBase3x3BDT|tight:auaucentinputbase3x3bdt) echo "auauCentInputBase3x3BDT"; return 0 ;;
     tight:auauCentInputMinOptBDT|tight:AuAuCentInputMinOptBDT|tight:auaucentinputminoptbdt) echo "auauCentInputMinOptBDT"; return 0 ;;
     tight:auauCent3BDT|tight:AuAuCent3BDT|tight:auaucent3bdt) echo "auauCent3BDT"; return 0 ;;
     tight:auauCent7BDT|tight:AuAuCent7BDT|tight:auaucent7bdt) echo "auauCent7BDT"; return 0 ;;
     tight:auauPtBinCentInputBDT|tight:AuAuPtBinCentInputBDT|tight:auauptbincentinputbdt) echo "auauPtBinCentInputBDT"; return 0 ;;
     tight:auauPtCent3BDT|tight:AuAuPtCent3BDT|tight:auauptcent3bdt) echo "auauPtCent3BDT"; return 0 ;;
     tight:auauPtCent7BDT|tight:AuAuPtCent7BDT|tight:auauptcent7bdt) echo "auauPtCent7BDT"; return 0 ;;
+    tight:auauCentInputMLP|tight:AuAuCentInputMLP|tight:auaucentinputmlp) echo "auauCentInputMLP"; return 0 ;;
+    tight:auauNoCentBase3x3MLP|tight:AuAuNoCentBase3x3MLP|tight:auaunocentbase3x3mlp) echo "auauNoCentBase3x3MLP"; return 0 ;;
+    tight:auauCentInputBase3x3MLP|tight:AuAuCentInputBase3x3MLP|tight:auaucentinputbase3x3mlp) echo "auauCentInputBase3x3MLP"; return 0 ;;
     nonTight:variantA|nonTight:VariantA|nonTight:varianta|nonTight:bdtSideband|nonTight:BDTSideband|nonTight:bdtsideband|nonTight:newPPG12|nonTight:NewPPG12|nonTight:newppg12) echo "newPPG12"; return 0 ;;
     nonTight:variantB|nonTight:VariantB|nonTight:variantb|nonTight:auauBDTSideband|nonTight:AuAuBDTSideband|nonTight:auaubdtsideband) echo "auauBDTSideband"; return 0 ;;
     nonTight:variantC|nonTight:VariantC|nonTight:variantc|nonTight:auauBDTComplement|nonTight:AuAuBDTComplement|nonTight:auaubdtcomplement) echo "auauBDTComplement"; return 0 ;;
+    nonTight:auauMLPSideband|nonTight:AuAuMLPSideband|nonTight:auaumlpsideband) echo "auauMLPSideband"; return 0 ;;
+    nonTight:auauMLPComplement|nonTight:AuAuMLPComplement|nonTight:auaumlpcomplement) echo "auauMLPComplement"; return 0 ;;
   esac
   case "$mode" in
     ""|reference|Reference) echo "reference" ;;
@@ -1042,6 +1048,7 @@ selection_mode_normalize_for_key() {
     auauNoCentBDT|AuAuNoCentBDT|auaunocentbdt) echo "auauNoCentBDT" ;;
     auauCentInputBDT|AuAuCentInputBDT|auaucentinputbdt) echo "auauCentInputBDT" ;;
     auauCentInput3x3BDT|AuAuCentInput3x3BDT|auaucentinput3x3bdt) echo "auauCentInput3x3BDT" ;;
+    auauCentInputBase3x3BDT|AuAuCentInputBase3x3BDT|auaucentinputbase3x3bdt) echo "auauCentInputBase3x3BDT" ;;
     auauCentInputMinOptBDT|AuAuCentInputMinOptBDT|auaucentinputminoptbdt) echo "auauCentInputMinOptBDT" ;;
     auauCent3BDT|AuAuCent3BDT|auaucent3bdt) echo "auauCent3BDT" ;;
     auauCent7BDT|AuAuCent7BDT|auaucent7bdt) echo "auauCent7BDT" ;;
@@ -1050,6 +1057,11 @@ selection_mode_normalize_for_key() {
     auauPtCent7BDT|AuAuPtCent7BDT|auauptcent7bdt) echo "auauPtCent7BDT" ;;
     auauBDTSideband|AuAuBDTSideband|auaubdtsideband) echo "auauBDTSideband" ;;
     auauBDTComplement|AuAuBDTComplement|auaubdtcomplement) echo "auauBDTComplement" ;;
+    auauMLPSideband|AuAuMLPSideband|auaumlpsideband) echo "auauMLPSideband" ;;
+    auauMLPComplement|AuAuMLPComplement|auaumlpcomplement) echo "auauMLPComplement" ;;
+    auauCentInputMLP|AuAuCentInputMLP|auaucentinputmlp) echo "auauCentInputMLP" ;;
+    auauNoCentBase3x3MLP|AuAuNoCentBase3x3MLP|auaunocentbase3x3mlp) echo "auauNoCentBase3x3MLP" ;;
+    auauCentInputBase3x3MLP|AuAuCentInputBase3x3MLP|auaucentinputbase3x3mlp) echo "auauCentInputBase3x3MLP" ;;
     variantB|VariantB|variantb) echo "variantB" ;;
     variantC|VariantC|variantc) echo "variantC" ;;
     variantD|VariantD|variantd) echo "variantD" ;;
@@ -1073,6 +1085,7 @@ selection_mode_tag() {
     auauNoCentBDT) echo "${key}AuAuNoCentBDT" ;;
     auauCentInputBDT) echo "${key}AuAuCentInputBDT" ;;
     auauCentInput3x3BDT) echo "${key}AuAuCentInput3x3BDT" ;;
+    auauCentInputBase3x3BDT) echo "${key}AuAuCentInputBase3x3BDT" ;;
     auauCentInputMinOptBDT) echo "${key}AuAuCentInputMinOptBDT" ;;
     auauCent3BDT) echo "${key}AuAuCent3BDT" ;;
     auauCent7BDT) echo "${key}AuAuCent7BDT" ;;
@@ -1081,6 +1094,11 @@ selection_mode_tag() {
     auauPtCent7BDT) echo "${key}AuAuPtCent7BDT" ;;
     auauBDTSideband) echo "${key}AuAuBDTSideband" ;;
     auauBDTComplement) echo "${key}AuAuBDTComplement" ;;
+    auauMLPSideband) echo "${key}AuAuMLPSideband" ;;
+    auauMLPComplement) echo "${key}AuAuMLPComplement" ;;
+    auauCentInputMLP) echo "${key}AuAuCentInputMLP" ;;
+    auauNoCentBase3x3MLP) echo "${key}AuAuNoCentBase3x3MLP" ;;
+    auauCentInputBase3x3MLP) echo "${key}AuAuCentInputBase3x3MLP" ;;
     variantB) echo "${key}VariantB" ;;
     variantC) echo "${key}VariantC" ;;
     variantD) echo "${key}VariantD" ;;
@@ -2506,9 +2524,17 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|isSimInclusive|issiminclusiv
     exit 2
   fi
 
-  mapfile -t _ALL_SIM_CFG_TAGS < <(
-    find "$_discover_base" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V
-  )
+  if [[ "$SIM_ACTION" == "finalStitch" ]]; then
+    mapfile -t _ALL_SIM_CFG_TAGS < <(
+      find "$FLAT_OUT_DIR" -maxdepth 1 -type f -name "${FINAL_PREFIX}_*_ALL_*.root" -printf '%f\n' \
+        | sed -E "s/^${FINAL_PREFIX}_[^_]+_ALL_//; s/[.]root$//" \
+        | sort -Vu
+    )
+  else
+    mapfile -t _ALL_SIM_CFG_TAGS < <(
+      find "$_discover_base" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V
+    )
+  fi
 
   _CFG_SOURCE="manifest"
   if [[ -n "${MERGE_CONFIG_YAML:-}" ]]; then
@@ -2536,13 +2562,26 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|isSimInclusive|issiminclusiv
     done
     (( _keep_cfg )) || continue
 
-    # Then require that this cfg_tag actually contains one of the requested samples
+    # Then require that this cfg_tag contains inputs for the requested stage.
+    # firstRound consumes raw worker trees under cfg/sample directories.
+    # secondRound consumes firstRound partials under output/<simTag>/cfg.
+    # finalStitch consumes secondRound sample-level ROOTs under output/<simTag>.
     _keep_cfg=0
     for _samp in "${samples[@]}"; do
-      if [[ -d "${_discover_base}/${_cfg}/${_samp}" ]]; then
-        _keep_cfg=1
-        break
-      fi
+      _sample_tag="${_samp##*_}"
+      case "$SIM_ACTION" in
+        firstRound)
+          [[ -d "${_discover_base}/${_cfg}/${_samp}" ]] || continue
+          ;;
+        secondRound)
+          compgen -G "${FLAT_OUT_DIR}/${_cfg}/chunkMerge_${_sample_tag}_grp*.root" >/dev/null || continue
+          ;;
+        finalStitch)
+          [[ -s "${FLAT_OUT_DIR}/${FINAL_PREFIX}_${_sample_tag}_ALL_${_cfg}.root" ]] || continue
+          ;;
+      esac
+      _keep_cfg=1
+      break
     done
     (( _keep_cfg )) && SIM_CFG_TAGS+=( "$_cfg" )
   done

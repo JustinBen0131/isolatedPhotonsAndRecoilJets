@@ -162,6 +162,28 @@
   After the user runs the block, inspect the terminal output, record the new
   DAG/cluster IDs immediately, and keep watching until the submit state is
   unambiguous.
+- For large matrix-style RecoilJets submissions, such as many BDT/ML variants,
+  many generated YAML configs, or paired signal/background MC campaigns, do not
+  submit the whole matrix into Condor at once. Use a queue-gated driver by
+  default:
+  - compute the expected job count before submission and warn if the full matrix
+    would exceed about `40000` queued jobs;
+  - submit one bounded chunk at a time, usually one YAML config or one dataset
+    pair, then wait before submitting the next chunk;
+  - gate on the matching campaign tag, not the whole user queue, unless the user
+    explicitly asks for a global user-queue gate;
+  - count only active jobs when gating: ignore Condor removed/completed records
+    such as `X`/removed and completed states, and stop immediately if any held
+    jobs appear;
+  - prefer explicit knobs like `RJ_TARGETWP_QUEUE_GATE=1`,
+    `RJ_TARGETWP_QUEUE_SCOPE=matching`, `RJ_TARGETWP_MAX_QUEUED=40000`,
+    `RJ_TARGETWP_RESUME_BELOW=0`, and `RJ_TARGETWP_POLL_SECONDS=300`;
+  - use a fresh campaign tag after any canceled or partially submitted attempt
+    so partial raw outputs cannot be confused with the clean gated campaign.
+  Before telling the user to rerun a gated campaign, verify with an SSH-auth
+  `condor_q` check when possible that the old matching campaign has `0` idle,
+  `0` running, and `0` held jobs. If Condor still shows removed `X` rows, treat
+  them as dead records, not active queue pressure.
 - Keep an `Automation Backlog` of repeated manual checks that could become
   read-only local scripts, dry-run counters, QA summaries, status dashboards,
   or plot-inspection helpers. Ask before implementing new automation.
@@ -409,6 +431,10 @@ Notes:
   callout boxes, footers, or other slide layout material into the PNG. Those
   elements must be native editable Google Slides text/shapes so the user can
   revise them directly.
+- Plot titles inside PNGs must describe the plotted observable or comparison
+  directly, not the slide's narrative takeaway. Use publication-style figure
+  titles such as `XGBoost split-gain fraction from shower-width inputs`, while
+  keeping interpretive messages like "why this matters" in native slide text.
 - If a generated plot looks physically surprising or inconsistent with the
   user's expectation, pause the slide-update step and debug the plotted inputs,
   histogram normalization/scaling, numerator/denominator definitions, and
@@ -487,6 +513,38 @@ Notes:
   status/report inspection commands. Prefer commands that print compact
   summaries over huge raw dumps. If a large output is unavoidable, write it to a
   clear temporary path and print only the key summary plus that path.
+- Codex may also perform read-only SDCC diagnostics from the local Mac shell
+  using the user's SSH agent when live campaign status is needed. The preferred
+  order is:
+  1. inspect the already-visible SSH terminal if it is on the relevant SDCC
+     node;
+  2. if the user has asked Codex to check directly, run one compact read-only
+     SSH diagnostic from the local Mac shell;
+  3. if direct SSH/auth/host-key/proxy setup fails, stop retrying and fall back
+     to the visible terminal or one paste-ready command for the user.
+- For direct read-only SSH diagnostics, keep the command boring and robust.
+  Start with the user's launchd SSH agent:
+  `SSH_AUTH_SOCK="$(launchctl getenv SSH_AUTH_SOCK)"`. Prefer the established
+  nested-login pattern over fragile `ProxyJump` if stdio forwarding is blocked:
+  `ssh -o BatchMode=yes patsfan753@ssh.sdcc.bnl.gov "ssh sphnxuserNN.sdcc.bnl.gov '...read-only command...'"`.
+  Before a complex check, run a tiny probe such as `hostname; pwd` on the target
+  node. If that probe fails, do not keep improvising quote-heavy SSH commands.
+- Keep direct SSH checks strictly read-only: queue/status inspection, tmux/log
+  tails, `find`/`ls`/`grep`/`condor_q`/`condor_history`, and compact report
+  summaries. Do not submit Condor jobs, run merge/production scripts,
+  remove/hold/release jobs, transfer files, edit remote files, change
+  permissions, or otherwise mutate SDCC through SSH unless the user explicitly
+  asks for that specific action in the current task.
+- For multi-line or quote-heavy SDCC diagnostics, avoid nested one-liner
+  gymnastics. Either ask to drive the visible SSH terminal for that diagnostic,
+  or give the user one paste-ready `bash` block to run on the target node. The
+  command should print compact summaries and write any large raw output to an
+  obvious temporary path.
+- When checking a campaign by SSH, always keep lanes separated: identify the
+  submit host, campaign tag, YAML/config, dataset, output root, and cluster ids
+  before drawing conclusions. Do not treat errors visible in one terminal/node
+  as belonging to another active campaign without matching the campaign tag,
+  output root, or cluster id.
 - Even under open SSH terminal delegation, Codex must still ask for explicit
   approval before running commands that submit jobs, remove or overwrite files,
   edit remote files, transfer files, change permissions, kill/hold/release

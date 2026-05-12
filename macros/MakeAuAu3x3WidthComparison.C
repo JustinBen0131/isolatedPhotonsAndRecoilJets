@@ -225,10 +225,10 @@ void DrawComparison(const std::string& reportDir,
   c.SetFillColor(0);
   c.SetBorderMode(0);
 
-  TPad p1("p1", "", 0.055, 0.525, 0.495, 0.865);
-  TPad p2("p2", "", 0.555, 0.525, 0.995, 0.865);
-  TPad p3("p3", "", 0.055, 0.105, 0.495, 0.445);
-  TPad p4("p4", "", 0.555, 0.105, 0.995, 0.445);
+  TPad p1("p1", "", 0.055, 0.500, 0.495, 0.825);
+  TPad p2("p2", "", 0.555, 0.500, 0.995, 0.825);
+  TPad p3("p3", "", 0.055, 0.080, 0.495, 0.405);
+  TPad p4("p4", "", 0.555, 0.080, 0.995, 0.405);
   p1.Draw();
   p2.Draw();
   p3.Draw();
@@ -254,16 +254,17 @@ void DrawComparison(const std::string& reportDir,
   c.cd();
   TLatex title;
   title.SetNDC();
-  title.SetTextFont(42);
+  title.SetTextFont(62);
   title.SetTextAlign(23);
-  title.SetTextSize(0.029);
-  title.DrawLatex(0.50, 0.977, stageLabel.c_str());
-  title.SetTextSize(0.016);
-  double ySubtitle = 0.946;
+  title.SetTextSize(0.033);
+  title.DrawLatex(0.50, 0.982, stageLabel.c_str());
+  title.SetTextFont(42);
+  title.SetTextSize(0.023);
+  double ySubtitle = 0.940;
   for (const auto& line : subtitleLines)
   {
     title.DrawLatex(0.50, ySubtitle, line.c_str());
-    ySubtitle -= 0.023;
+    ySubtitle -= 0.032;
   }
 
   gSystem->mkdir(outDir.c_str(), true);

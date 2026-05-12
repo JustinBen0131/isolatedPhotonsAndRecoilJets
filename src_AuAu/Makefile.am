@@ -1,4 +1,5 @@
 AUTOMAKE_OPTIONS = foreign
+ACLOCAL_AMFLAGS = -I m4
 
 # --------------------------------------------------------------------
 # Compiler / linker flags (prefix-resolved by ./configure)
@@ -73,5 +74,4 @@ testexternals.C:
 # Clean extras
 clean-local:
 	rm -f testexternals.C
-
 

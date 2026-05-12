@@ -1,5 +1,6 @@
 AC_INIT(caloana,[1.00])
 AC_CONFIG_SRCDIR([configure.ac])
+AC_CONFIG_MACRO_DIRS([m4])
 
 AM_INIT_AUTOMAKE
 AC_PROG_CXX(CC g++)
@@ -11,4 +12,3 @@ fi
 
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT
-

@@ -220,6 +220,7 @@ public:
         double tight_bdt_score = std::numeric_limits<double>::quiet_NaN();
         double auau_npb_score = std::numeric_limits<double>::quiet_NaN();
         double auau_tight_bdt_score = std::numeric_limits<double>::quiet_NaN();
+        double auau_tight_mlp_score = std::numeric_limits<double>::quiet_NaN();
     };
     
     // Per-(trigger,slice) category counters printed in End()
@@ -520,7 +521,20 @@ public:
                                       double ptFallbackMin = 35.0,
                                       double ptFallbackMax = 40.0,
                                       double applyPtMin = std::numeric_limits<double>::quiet_NaN(),
-                                      double applyPtMax = std::numeric_limits<double>::quiet_NaN());
+                                      double applyPtMax = std::numeric_limits<double>::quiet_NaN(),
+                                      const std::vector<std::string>& workingPointEntries = {});
+
+    void setAuAuTightMLPRuntimeConfig(const std::string& modelFile,
+                                      double minIntercept = 0.80,
+                                      double minSlope = 0.0,
+                                      double maxScore = 1.0,
+                                      double nonTightMinIntercept = 0.20,
+                                      double nonTightMinSlope = 0.0,
+                                      double nonTightMaxIntercept = 0.80,
+                                      double nonTightMaxSlope = 0.0,
+                                      double applyPtMin = std::numeric_limits<double>::quiet_NaN(),
+                                      double applyPtMax = std::numeric_limits<double>::quiet_NaN(),
+                                      const std::vector<std::string>& workingPointEntries = {});
     
     // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
     // When enabled, a compact per-event-per-radius TTree ("EventDisplayTree") is written to the output ROOT file.
@@ -790,12 +804,36 @@ private:
     SSVars makeSSFromPhoton(const PhotonClusterv1* pho, double pt_gamma) const;
     void attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars& v) const;
     bool initAuAuTightBDTModelsIfNeeded() const;
+    bool initAuAuTightMLPModelIfNeeded() const;
     double auauTightBDTFeatureValue(const std::string& feature,
                                     const PhotonClusterv1* pho,
                                     const SSVars& v) const;
     double predictAuAuTightBDTScore(const PhotonClusterv1* pho, const SSVars& v) const;
+    double predictAuAuTightMLPScore(const PhotonClusterv1* pho, const SSVars& v) const;
     int auauTightBDTCentBinIndex() const;
     int auauTightBDTPtBinIndex(double pt) const;
+    struct AuAuTightBDTWorkingPoint
+    {
+        std::string variant;
+        bool binned = false;
+        bool grid2d = false;
+        double intercept = std::numeric_limits<double>::quiet_NaN();
+        double slope = 0.0;
+        double ptMin = std::numeric_limits<double>::quiet_NaN();
+        double ptMax = std::numeric_limits<double>::quiet_NaN();
+        double maxScore = 1.0;
+        std::vector<double> edges;
+        std::vector<double> centEdges;
+        std::vector<double> thresholds;
+    };
+    void parseAuAuTightBDTWorkingPointEntries(const std::vector<std::string>& entries);
+    const AuAuTightBDTWorkingPoint* activeAuAuTightBDTWorkingPoint() const;
+    double configuredAuAuTightBDTMin(double et) const;
+    double configuredAuAuTightBDTMax(double et) const;
+    void parseAuAuTightMLPWorkingPointEntries(const std::vector<std::string>& entries);
+    const AuAuTightBDTWorkingPoint* activeAuAuTightMLPWorkingPoint() const;
+    double configuredAuAuTightMLPMin(double et) const;
+    double configuredAuAuTightMLPMax(double et) const;
     const PhotonClusterv1* findMatchedPhotonByKinematics(const RawClusterContainer* container,
                                                          const PhotonClusterv1* ref) const;
     bool   passesPhotonPreselection(const SSVars& v);
@@ -1348,6 +1386,7 @@ private:
     double m_auauTightBDTPtFallbackMax = 40.0;
     double m_auauTightBDTApplyPtMin = std::numeric_limits<double>::quiet_NaN();
     double m_auauTightBDTApplyPtMax = std::numeric_limits<double>::quiet_NaN();
+    std::vector<AuAuTightBDTWorkingPoint> m_auauTightBDTWorkingPoints;
     bool m_explicitAuAuTightBDTConfig = false;
     mutable bool m_auauTightBDTModelInitAttempted = false;
     mutable std::unique_ptr<TMVA::Experimental::RBDT> m_auauTightBDTModel;
@@ -1356,6 +1395,38 @@ private:
     mutable std::vector<std::unique_ptr<TMVA::Experimental::RBDT>> m_auauTightBDTPtCentModels;
     mutable std::unique_ptr<TMVA::Experimental::RBDT> m_auauTightBDTPtFallbackModel;
     mutable std::vector<std::unique_ptr<TMVA::Experimental::RBDT>> m_auauTightBDTPtFallbackCentModels;
+    struct AuAuTightMLPLayer
+    {
+        std::vector<std::vector<double>> weightsOutByIn;
+        std::vector<double> bias;
+    };
+    struct AuAuTightMLPModel
+    {
+        std::string schema;
+        std::string variant;
+        std::vector<std::string> features;
+        std::vector<double> mean;
+        std::vector<double> scale;
+        double clip = 8.0;
+        double outputTemperature = 1.0;
+        std::string activation = "tanh";
+        std::vector<AuAuTightMLPLayer> layers;
+        bool valid = false;
+    };
+    std::string m_auauTightMLPModelFile;
+    double m_auauTightMLPMinIntercept = 0.80;
+    double m_auauTightMLPMinSlope = 0.0;
+    double m_auauTightMLPMax = 1.0;
+    double m_auauNonTightMLPMinIntercept = 0.20;
+    double m_auauNonTightMLPMinSlope = 0.0;
+    double m_auauNonTightMLPMaxIntercept = 0.80;
+    double m_auauNonTightMLPMaxSlope = 0.0;
+    double m_auauTightMLPApplyPtMin = std::numeric_limits<double>::quiet_NaN();
+    double m_auauTightMLPApplyPtMax = std::numeric_limits<double>::quiet_NaN();
+    std::vector<AuAuTightBDTWorkingPoint> m_auauTightMLPWorkingPoints;
+    bool m_explicitAuAuTightMLPConfig = false;
+    mutable bool m_auauTightMLPModelInitAttempted = false;
+    mutable AuAuTightMLPModel m_auauTightMLPModel;
     double m_tightBDTMinIntercept = 0.8333333333333334;
     double m_tightBDTMinSlope = -0.003333333333333336;
     double m_tightBDTMax = 1.0;
@@ -1614,6 +1685,7 @@ private:
     float m_bdtTrain_npb_score = -2.0f;
     float m_bdtTrain_auau_npb_score = -2.0f;
     float m_bdtTrain_auau_tight_bdt_score = -2.0f;
+    float m_bdtTrain_auau_tight_mlp_score = -2.0f;
 
     bool m_jetMLTrainingTreeEnabled = false;
     long long m_jetMLTrainingTreeMaxEntries = 0;

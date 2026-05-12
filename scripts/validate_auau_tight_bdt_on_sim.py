@@ -57,6 +57,10 @@ PLOT_LABELS = {
     "centAsFeat_pt15to30": "Base widths, 15-30 GeV",
     "centAsFeat3x3_pt15to30": "3x3 widths, 15-30 GeV",
     "centAsFeatBase3x3_pt15to30": "Base + 3x3 widths, 15-30 GeV",
+    "centInput_pt1535": "Centrality input, base + 3x3 widths",
+    "ptFine_centInput": "Fine E_T bins, centrality input",
+    "ptFine_cent3": "Fine E_T x 3 centrality bins",
+    "ptFine_cent7": "Fine E_T x 7 centrality bins",
     "centDepBDTs": "Centrality-specific models",
 }
 
@@ -64,6 +68,10 @@ PLOT_COLORS = {
     "centINDcontrol": "#1f77b4",
     "centAsFeat": "#ff7f0e",
     "centDepBDTs": "#2ca02c",
+    "centInput_pt1535": "#0072B2",
+    "ptFine_centInput": "#D55E00",
+    "ptFine_cent3": "#009E73",
+    "ptFine_cent7": "#CC79A7",
 }
 FALLBACK_COLORS = [
     "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
@@ -93,8 +101,8 @@ def cent_label(lo, hi) -> str:
 
 def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--source", type=Path, required=True)
-    ap.add_argument("--model-dir", type=Path, required=True)
+    ap.add_argument("--source", type=Path, default=None)
+    ap.add_argument("--model-dir", type=Path, default=None)
     ap.add_argument(
         "--model-registry",
         type=Path,
@@ -111,7 +119,47 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--progress-every", type=int, default=int(os.environ.get("RJ_AUAU_TIGHT_BDT_VALIDATE_PROGRESS_EVERY", "500")))
     ap.add_argument("--min-finite-fraction", type=float, default=float(os.environ.get("RJ_AUAU_TIGHT_BDT_VALIDATE_MIN_FINITE_FRACTION", "0.95")))
     ap.add_argument("--min-auc", type=float, default=float(os.environ.get("RJ_AUAU_TIGHT_BDT_VALIDATE_MIN_AUC", "0.55")))
+    ap.add_argument("--target-signal-efficiency", type=float, default=float(os.environ.get("RJ_AUAU_BDT_TARGET_SIGNAL_EFF", "0.80")))
+    ap.add_argument(
+        "--working-point-mode",
+        choices=["pt", "centpt"],
+        default=os.environ.get("RJ_AUAU_BDT_WP_MODE", "centpt"),
+        help="Threshold shape to derive: pt is old E_T-only; centpt is E_T x centrality local target-efficiency bins.",
+    )
+    ap.add_argument(
+        "--working-point-pt-bins",
+        default=os.environ.get("RJ_AUAU_BDT_WP_PT_BINS", ""),
+        help="Comma-separated E_T edges for target-efficiency working points, e.g. 15,17,19,21,23,25,27,30,35.",
+    )
+    ap.add_argument(
+        "--working-point-cent-bins",
+        default=os.environ.get("RJ_AUAU_BDT_WP_CENT_BINS", "0,20,50,80"),
+        help="Comma-separated centrality edges for target-efficiency working points, e.g. 0,20,50,80.",
+    )
+    ap.add_argument(
+        "--derive-working-points-from-report",
+        type=Path,
+        default=None,
+        help="Regenerate target-efficiency BDT working-point files from an existing validation report.",
+    )
     return ap.parse_args()
+
+
+def parse_edge_list(text: str, fallback):
+    if not text:
+        return list(fallback)
+    edges = []
+    for token in text.replace(":", ",").split(","):
+        token = token.strip()
+        if not token:
+            continue
+        edges.append(float(token))
+    if len(edges) < 2:
+        raise SystemExit(f"Need at least two bin edges, got: {text}")
+    for a, b in zip(edges[:-1], edges[1:]):
+        if not b > a:
+            raise SystemExit(f"Bin edges must be strictly increasing, got: {text}")
+    return edges
 
 
 def discover_manifest(source: Path) -> list[Path]:
@@ -317,6 +365,7 @@ def collect_rows(
         set(
             ["is_signal", "cluster_Et", "cluster_Eta", "centrality", "reco_eiso"]
             + BASE_FEATURES
+            + DIAGNOSTIC_FEATURES
             + list(feature_names or [])
         )
     )
@@ -561,6 +610,571 @@ def threshold_report(y, score):
             }
         )
     return {"by_signal_efficiency": by_eff, "by_background_fake_rate": by_fake}
+
+
+def threshold_for_signal_efficiency(y, score, target):
+    import numpy as np
+
+    y = np.asarray(y)
+    score = np.asarray(score)
+    mask = np.isin(y, [0, 1]) & np.isfinite(score)
+    sig = score[mask & (y == 1)]
+    bkg = score[mask & (y == 0)]
+    if sig.size <= 0 or bkg.size <= 0:
+        return None
+    # Tight is score > threshold. The lower (1-target) signal quantile gives
+    # the requested retained signal fraction without assuming score calibration.
+    threshold = float(np.quantile(sig, max(0.0, min(1.0, 1.0 - target))))
+    sig_eff = float(np.mean(sig > threshold))
+    bkg_fake = float(np.mean(bkg > threshold))
+    return {
+        "threshold": threshold,
+        "signal_efficiency": sig_eff,
+        "background_fake_rate": bkg_fake,
+        "signal_entries": int(sig.size),
+        "background_entries": int(bkg.size),
+    }
+
+
+def product_pt_edges(product_spec, fallback_edges=None):
+    edges = set()
+    for model in product_spec.get("models", []) if product_spec else []:
+        pt_range = model.get("selector", {}).get("pt_range")
+        if pt_range is not None and len(pt_range) == 2:
+            edges.add(float(pt_range[0]))
+            edges.add(float(pt_range[1]))
+    if len(edges) >= 2:
+        return sorted(edges)
+    if fallback_edges:
+        return list(fallback_edges)
+    return [lo for lo, _ in PT_BINS] + [PT_BINS[-1][1]]
+
+
+def derive_working_points(frame, scores, product_specs, target=0.80):
+    import numpy as np
+
+    y = frame["is_signal"].astype("int32")
+    et = frame["cluster_Et"].astype("float64")
+    products = {}
+    for product, score in scores.items():
+        spec = product_specs.get(product, {}) if product_specs else {}
+        eligible = np.isin(y, [0, 1]) & np.isfinite(score)
+        if spec:
+            eligible &= product_eligible_mask(frame, spec)
+        inclusive = threshold_for_signal_efficiency(y[eligible], score[eligible], target)
+        if inclusive is None:
+            products[product] = {
+                "status": "skipped",
+                "reason": "insufficient signal/background scores for target working point",
+            }
+            continue
+
+        edges = product_pt_edges(spec)
+        bins = []
+        for lo, hi in zip(edges[:-1], edges[1:]):
+            mask = eligible & np.isfinite(et) & (et >= lo) & (et < hi)
+            item = threshold_for_signal_efficiency(y[mask], score[mask], target)
+            if item is None:
+                continue
+            item.update({"pt_min": float(lo), "pt_max": float(hi), "pt_center": float(0.5 * (lo + hi))})
+            bins.append(item)
+
+        mode = "linear"
+        intercept = float(inclusive["threshold"])
+        slope = 0.0
+        fit_quality = {
+            "max_abs_efficiency_error": math.nan,
+            "max_abs_threshold_residual": math.nan,
+            "n_fit_bins": len(bins),
+        }
+        if len(bins) >= 2:
+            x = np.array([b["pt_center"] for b in bins], dtype="float64")
+            t = np.array([b["threshold"] for b in bins], dtype="float64")
+            w = np.sqrt(np.array([max(1, b["signal_entries"]) for b in bins], dtype="float64"))
+            coeff = np.polyfit(x, t, deg=1, w=w)
+            slope = float(coeff[0])
+            intercept = float(coeff[1])
+            residual = t - (intercept + slope * x)
+            eff_errors = []
+            for b in bins:
+                mask = eligible & np.isfinite(et) & (et >= b["pt_min"]) & (et < b["pt_max"])
+                sig_scores = score[mask & (y == 1)]
+                if sig_scores.size:
+                    eff_errors.append(float(np.mean(sig_scores > (intercept + slope * b["pt_center"])) - target))
+            fit_quality = {
+                "max_abs_efficiency_error": float(max((abs(v) for v in eff_errors), default=math.nan)),
+                "max_abs_threshold_residual": float(np.max(np.abs(residual))) if residual.size else math.nan,
+                "n_fit_bins": len(bins),
+            }
+            if (
+                math.isfinite(fit_quality["max_abs_efficiency_error"])
+                and fit_quality["max_abs_efficiency_error"] > 0.08
+            ):
+                mode = "binned"
+
+        pt_min = float(edges[0]) if edges else math.nan
+        pt_max = float(edges[-1]) if edges else math.nan
+        if not math.isfinite(pt_min) or not math.isfinite(pt_max):
+            finite_et = et[eligible & np.isfinite(et)]
+            pt_min = float(np.nanmin(finite_et)) if finite_et.size else math.nan
+            pt_max = float(np.nanmax(finite_et)) if finite_et.size else math.nan
+
+        entry = {
+            "status": "ready",
+            "target_signal_efficiency": float(target),
+            "mode": mode,
+            "intercept": float(intercept),
+            "slope": float(slope),
+            "pt_min": pt_min,
+            "pt_max": pt_max,
+            "max_score": 1.0,
+            "inclusive": inclusive,
+            "bins": bins,
+            "fit_quality": fit_quality,
+        }
+        if mode == "binned":
+            entry["binned_edges"] = [float(bins[0]["pt_min"])] + [float(b["pt_max"]) for b in bins] if bins else [pt_min, pt_max]
+            entry["binned_thresholds"] = [float(b["threshold"]) for b in bins] if bins else [float(inclusive["threshold"])]
+        products[product] = entry
+    return {
+        "schema": "RECOILJETS_AUAU_BDT_WORKING_POINTS_V1",
+        "target_signal_efficiency": float(target),
+        "products": products,
+    }
+
+
+def runtime_entry(name, wp):
+    if wp.get("status") != "ready":
+        return None
+    if wp.get("mode") == "grid2d":
+        pt_edges = ";".join(f"{x:.8g}" for x in wp.get("pt_edges", []))
+        cent_edges = ";".join(f"{x:.8g}" for x in wp.get("cent_edges", []))
+        thresholds = []
+        for row in wp.get("grid_thresholds", []):
+            thresholds.extend(row)
+        vals = ";".join(f"{float(x):.8g}" for x in thresholds)
+        return (
+            f"{name}|grid2d|{pt_edges}|{cent_edges}|{vals}|"
+            f"{wp['pt_min']:.8g}|{wp['pt_max']:.8g}|{wp.get('max_score', 1.0):.8g}"
+        )
+    if wp.get("mode") == "binned":
+        edges = ";".join(f"{x:.8g}" for x in wp.get("binned_edges", []))
+        vals = ";".join(f"{x:.8g}" for x in wp.get("binned_thresholds", []))
+        return f"{name}|binned|{edges}|{vals}|{wp['pt_min']:.8g}|{wp['pt_max']:.8g}|{wp.get('max_score', 1.0):.8g}"
+    return (
+        f"{name}|linear|{wp['intercept']:.8g}|{wp.get('slope', 0.0):.8g}|"
+        f"{wp['pt_min']:.8g}|{wp['pt_max']:.8g}|{wp.get('max_score', 1.0):.8g}"
+    )
+
+
+def write_working_point_outputs(outdir: Path, manifest, target_label=None):
+    import csv
+
+    target = manifest.get("target_signal_efficiency", 0.80)
+    label = target_label or f"target{int(round(100 * target)):02d}"
+    json_path = outdir / f"bdt_working_points_{label}.json"
+    yaml_path = outdir / f"bdt_working_points_{label}.yaml"
+    fragment_path = outdir / f"bdt_working_points_{label}_runtime_fragment.yaml"
+    csv_path = outdir / f"bdt_working_points_{label}.csv"
+    json_path.write_text(json.dumps(json_ready(manifest), indent=2, sort_keys=True) + "\n")
+
+    lines = [
+        "schema: RECOILJETS_AUAU_BDT_WORKING_POINTS_V1",
+        f"target_signal_efficiency: {target:.6g}",
+        "products:",
+    ]
+    for product, wp in manifest.get("products", {}).items():
+        lines.append(f"  {product}:")
+        lines.append(f"    status: {wp.get('status', 'unknown')}")
+        if wp.get("status") == "ready":
+            lines.append(f"    mode: {wp.get('mode', 'linear')}")
+            lines.append(f"    intercept: {wp.get('intercept', math.nan):.10g}")
+            lines.append(f"    slope: {wp.get('slope', 0.0):.10g}")
+            lines.append(f"    pt_min: {wp.get('pt_min', math.nan):.10g}")
+            lines.append(f"    pt_max: {wp.get('pt_max', math.nan):.10g}")
+            lines.append(f"    signal_efficiency: {wp.get('inclusive', {}).get('signal_efficiency', math.nan):.10g}")
+            lines.append(f"    background_fake_rate: {wp.get('inclusive', {}).get('background_fake_rate', math.nan):.10g}")
+            if wp.get("mode") == "grid2d":
+                lines.append("    pt_edges: [" + ", ".join(f"{x:.10g}" for x in wp.get("pt_edges", [])) + "]")
+                lines.append("    cent_edges: [" + ", ".join(f"{x:.10g}" for x in wp.get("cent_edges", [])) + "]")
+                fq = wp.get("fit_quality", {})
+                lines.append(f"    max_abs_cell_efficiency_error: {fq.get('max_abs_cell_efficiency_error', math.nan):.10g}")
+        else:
+            lines.append(f"    reason: {wp.get('reason', 'unknown')}")
+    yaml_path.write_text("\n".join(lines) + "\n")
+
+    entries = [runtime_entry(product, wp) for product, wp in manifest.get("products", {}).items()]
+    entries = [x for x in entries if x]
+    quoted = ", ".join(json.dumps(x) for x in entries)
+    fragment_path.write_text(
+        "# Product-keyed entries. Use auau_tight_bdt_wp_product_map or the pipeline\n"
+        "# config generator to map products onto RecoilJets tight-mode names.\n"
+        f"auau_tight_bdt_product_working_point_entries: [{quoted}]\n"
+    )
+
+    with csv_path.open("w", newline="") as f:
+        fields = [
+            "product", "status", "mode", "intercept", "slope", "pt_min", "pt_max",
+            "signal_efficiency", "background_fake_rate",
+            "max_abs_cell_efficiency_error", "min_cell_signal_entries", "min_cell_background_entries",
+        ]
+        writer = csv.DictWriter(f, fieldnames=fields)
+        writer.writeheader()
+        for product, wp in manifest.get("products", {}).items():
+            inc = wp.get("inclusive", {})
+            writer.writerow({
+                "product": product,
+                "status": wp.get("status", "unknown"),
+                "mode": wp.get("mode", ""),
+                "intercept": wp.get("intercept", ""),
+                "slope": wp.get("slope", ""),
+                "pt_min": wp.get("pt_min", ""),
+                "pt_max": wp.get("pt_max", ""),
+                "signal_efficiency": inc.get("signal_efficiency", ""),
+                "background_fake_rate": inc.get("background_fake_rate", ""),
+                "max_abs_cell_efficiency_error": wp.get("fit_quality", {}).get("max_abs_cell_efficiency_error", ""),
+                "min_cell_signal_entries": wp.get("fit_quality", {}).get("min_cell_signal_entries", ""),
+                "min_cell_background_entries": wp.get("fit_quality", {}).get("min_cell_background_entries", ""),
+            })
+    return {"json": json_path, "yaml": yaml_path, "runtime_fragment": fragment_path, "csv": csv_path}
+
+
+def make_working_point_diagnostic(outdir: Path, manifest, target_label=None):
+    try:
+        import matplotlib.pyplot as plt
+        import numpy as np
+    except Exception:
+        return None
+
+    target = manifest.get("target_signal_efficiency", 0.80)
+    label = target_label or f"target{int(round(100 * target)):02d}"
+    ready = [(p, wp) for p, wp in manifest.get("products", {}).items() if wp.get("status") == "ready"]
+    if not ready:
+        return None
+    if any(wp.get("mode") == "grid2d" for _, wp in ready):
+        n = min(len(ready), 8)
+        fig, axes = plt.subplots(n, 2, figsize=(10.5, max(2.4 * n, 3.2)), dpi=160, squeeze=False)
+        for row, (product, wp) in enumerate(ready[:n]):
+            thresholds = np.array(wp.get("grid_thresholds", []), dtype=float)
+            eff = np.array(wp.get("grid_signal_efficiency", []), dtype=float)
+            pt_edges = np.array(wp.get("pt_edges", []), dtype=float)
+            cent_edges = np.array(wp.get("cent_edges", []), dtype=float)
+            if thresholds.size == 0 or pt_edges.size < 2 or cent_edges.size < 2:
+                continue
+            extent = [pt_edges[0], pt_edges[-1], cent_edges[-1], cent_edges[0]]
+            ax = axes[row][0]
+            im = ax.imshow(thresholds, aspect="auto", interpolation="nearest", extent=extent, vmin=np.nanmin(thresholds), vmax=np.nanmax(thresholds), cmap="viridis")
+            ax.set_title(product_label(product), fontsize=10)
+            ax.set_ylabel("Centrality [%]")
+            if row == n - 1:
+                ax.set_xlabel(r"Cluster $E_T$ [GeV]")
+            cb = fig.colorbar(im, ax=ax, fraction=0.035, pad=0.015)
+            cb.set_label("BDT cut", fontsize=8)
+
+            ax = axes[row][1]
+            delta = eff - float(target)
+            vmax = max(0.02, float(np.nanmax(np.abs(delta))) if np.isfinite(delta).any() else 0.02)
+            im = ax.imshow(delta, aspect="auto", interpolation="nearest", extent=extent, vmin=-vmax, vmax=vmax, cmap="coolwarm")
+            ax.set_title("Achieved signal efficiency minus target", fontsize=10)
+            if row == n - 1:
+                ax.set_xlabel(r"Cluster $E_T$ [GeV]")
+            ax.set_yticklabels([])
+            cb = fig.colorbar(im, ax=ax, fraction=0.035, pad=0.015)
+            cb.set_label(r"$\Delta\epsilon_{sig}$", fontsize=8)
+        fig.suptitle(f"Validation-derived local BDT cuts for {100*target:.0f}% signal efficiency", y=0.995)
+        fig.tight_layout(rect=[0, 0, 1, 0.985])
+        path = outdir / f"bdt_working_point_{label}_diagnostics.png"
+        fig.savefig(path)
+        plt.close(fig)
+        return path
+    # Keep this diagnostic compact. It is a provenance plot, not a slide plot.
+    ready = ready[:18]
+    fig, ax = plt.subplots(figsize=(9.0, 5.5), dpi=160)
+    for product, wp in ready:
+        bins = wp.get("bins", [])
+        if bins:
+            x = np.array([b["pt_center"] for b in bins], dtype=float)
+            y = np.array([b["threshold"] for b in bins], dtype=float)
+            ax.plot(x, y, marker="o", linewidth=1.3, markersize=3.5, label=product_label(product))
+        if wp.get("mode") == "linear" and math.isfinite(wp.get("pt_min", math.nan)) and math.isfinite(wp.get("pt_max", math.nan)):
+            xs = np.linspace(wp["pt_min"], wp["pt_max"], 50)
+            ax.plot(xs, wp["intercept"] + wp.get("slope", 0.0) * xs, linewidth=1.0, alpha=0.7)
+    ax.set_xlabel(r"Cluster $E_T$ [GeV]")
+    ax.set_ylabel(f"BDT score threshold for {100*target:.0f}% signal efficiency")
+    ax.set_title("Validation-derived BDT working points")
+    ax.grid(True, alpha=0.25)
+    ax.legend(frameon=False, fontsize=7, ncol=2)
+    fig.tight_layout()
+    path = outdir / f"bdt_working_point_{label}_diagnostics.png"
+    fig.savefig(path)
+    plt.close(fig)
+    return path
+
+
+def _target_row(thresholds, target):
+    rows = thresholds.get("by_signal_efficiency", []) if isinstance(thresholds, dict) else []
+    if not rows:
+        return None
+    return min(rows, key=lambda r: abs(float(r.get("target_signal_efficiency", -999.0)) - target))
+
+
+def _local_score_cache_manifest(report_dir: Path) -> Path | None:
+    local_dir = report_dir / "score_caches"
+    if local_dir.is_dir():
+        paths = sorted(local_dir.glob("score_cache_*.npz"))
+        if paths:
+            manifest = report_dir / "score_caches.local.list"
+            manifest.write_text("\n".join(str(p) for p in paths) + "\n")
+            return manifest
+    manifest = report_dir / "score_caches.list"
+    if manifest.is_file():
+        return manifest
+    return None
+
+
+def derive_centpt_working_points_from_caches(report_dir: Path, target=0.80, pt_edges=None, cent_edges=None):
+    import numpy as np
+
+    manifest_path = _local_score_cache_manifest(report_dir)
+    if manifest_path is None:
+        raise SystemExit(f"Cannot derive centrality x E_T working points; missing score caches under {report_dir}")
+    frame, scores, _counts = load_score_caches(manifest_path)
+    y = frame["is_signal"].astype("int32")
+    et = frame["cluster_Et"].astype("float64")
+    cent = frame["centrality"].astype("float64")
+    pt_edges = list(pt_edges or ([lo for lo, _ in PT_BINS] + [PT_BINS[-1][1]]))
+    cent_edges = list(cent_edges or ([lo for lo, _ in CENT_BINS] + [CENT_BINS[-1][1]]))
+    products = {}
+
+    for product, score in scores.items():
+        eligible_base = np.isin(y, [0, 1]) & np.isfinite(score) & np.isfinite(et) & np.isfinite(cent)
+        eligible_base &= (cent >= cent_edges[0]) & (cent < cent_edges[-1])
+        valid_pt_indices = []
+        for ip, (plo, phi) in enumerate(zip(pt_edges[:-1], pt_edges[1:])):
+            pmask = eligible_base & (et >= plo) & (et < phi)
+            if np.any(pmask & (y == 1)) and np.any(pmask & (y == 0)):
+                valid_pt_indices.append(ip)
+        if not valid_pt_indices:
+            products[product] = {
+                "status": "skipped",
+                "reason": "no E_T bins with both signal and background scores for target working point",
+            }
+            continue
+        first_pt = min(valid_pt_indices)
+        last_pt = max(valid_pt_indices)
+        product_pt_edges = list(pt_edges[first_pt:last_pt + 2])
+        eligible = eligible_base & (et >= product_pt_edges[0]) & (et < product_pt_edges[-1])
+        inclusive = threshold_for_signal_efficiency(y[eligible], score[eligible], target)
+        if inclusive is None:
+            products[product] = {
+                "status": "skipped",
+                "reason": "insufficient signal/background scores for centrality x E_T target working point",
+            }
+            continue
+
+        pt_only = {}
+        for ip, (plo, phi) in enumerate(zip(product_pt_edges[:-1], product_pt_edges[1:])):
+            mask = eligible & (et >= plo) & (et < phi)
+            pt_only[ip] = threshold_for_signal_efficiency(y[mask], score[mask], target)
+        cent_only = {}
+        for ic, (clo, chi) in enumerate(zip(cent_edges[:-1], cent_edges[1:])):
+            mask = eligible & (cent >= clo) & (cent < chi)
+            cent_only[ic] = threshold_for_signal_efficiency(y[mask], score[mask], target)
+
+        thresholds = []
+        eff_grid = []
+        fake_grid = []
+        cells = []
+        min_sig = None
+        min_bkg = None
+        for ic, (clo, chi) in enumerate(zip(cent_edges[:-1], cent_edges[1:])):
+            thr_row = []
+            eff_row = []
+            fake_row = []
+            for ip, (plo, phi) in enumerate(zip(product_pt_edges[:-1], product_pt_edges[1:])):
+                mask = eligible & (cent >= clo) & (cent < chi) & (et >= plo) & (et < phi)
+                item = threshold_for_signal_efficiency(y[mask], score[mask], target)
+                source = "cell"
+                if item is None:
+                    item = cent_only.get(ic)
+                    source = "centrality_fallback"
+                if item is None:
+                    item = pt_only.get(ip)
+                    source = "pt_fallback"
+                if item is None:
+                    item = inclusive
+                    source = "inclusive_fallback"
+                threshold = float(item["threshold"])
+                sig_mask = mask & (y == 1)
+                bkg_mask = mask & (y == 0)
+                sig_scores = score[sig_mask]
+                bkg_scores = score[bkg_mask]
+                sig_eff = float(np.mean(sig_scores > threshold)) if sig_scores.size else math.nan
+                bkg_fake = float(np.mean(bkg_scores > threshold)) if bkg_scores.size else math.nan
+                sig_n = int(sig_scores.size)
+                bkg_n = int(bkg_scores.size)
+                min_sig = sig_n if min_sig is None else min(min_sig, sig_n)
+                min_bkg = bkg_n if min_bkg is None else min(min_bkg, bkg_n)
+                thr_row.append(threshold)
+                eff_row.append(sig_eff)
+                fake_row.append(bkg_fake)
+                cells.append({
+                    "centrality_min": float(clo),
+                    "centrality_max": float(chi),
+                    "pt_min": float(plo),
+                    "pt_max": float(phi),
+                    "threshold": threshold,
+                    "signal_efficiency": sig_eff,
+                    "background_fake_rate": bkg_fake,
+                    "signal_entries": sig_n,
+                    "background_entries": bkg_n,
+                    "source": source,
+                })
+            thresholds.append(thr_row)
+            eff_grid.append(eff_row)
+            fake_grid.append(fake_row)
+
+        cell_eff = np.array([c["signal_efficiency"] for c in cells], dtype=float)
+        finite_cell_eff = cell_eff[np.isfinite(cell_eff)]
+        # A plane fit is recorded as a smoothness diagnostic. The runtime uses
+        # the local grid thresholds so the requested efficiency is preserved
+        # cell-by-cell instead of being washed out by a global fit.
+        fit_points = []
+        fit_values = []
+        fit_weights = []
+        for c in cells:
+            if not math.isfinite(c["threshold"]) or c["signal_entries"] <= 0:
+                continue
+            fit_points.append([1.0, 0.5 * (c["pt_min"] + c["pt_max"]), 0.5 * (c["centrality_min"] + c["centrality_max"])])
+            fit_values.append(c["threshold"])
+            fit_weights.append(math.sqrt(max(1, c["signal_entries"])))
+        plane = {"intercept": math.nan, "pt_slope": math.nan, "centrality_slope": math.nan, "max_abs_residual": math.nan}
+        if len(fit_points) >= 3:
+            x = np.array(fit_points, dtype=float)
+            t = np.array(fit_values, dtype=float)
+            w = np.array(fit_weights, dtype=float)
+            coeff, *_ = np.linalg.lstsq(x * w[:, None], t * w, rcond=None)
+            pred = x @ coeff
+            plane = {
+                "intercept": float(coeff[0]),
+                "pt_slope": float(coeff[1]),
+                "centrality_slope": float(coeff[2]),
+                "max_abs_residual": float(np.max(np.abs(t - pred))) if t.size else math.nan,
+            }
+
+        products[product] = {
+            "status": "ready",
+            "target_signal_efficiency": float(target),
+            "mode": "grid2d",
+            "pt_min": float(product_pt_edges[0]),
+            "pt_max": float(product_pt_edges[-1]),
+            "max_score": 1.0,
+            "pt_edges": [float(x) for x in product_pt_edges],
+            "cent_edges": [float(x) for x in cent_edges],
+            "grid_thresholds": thresholds,
+            "grid_signal_efficiency": eff_grid,
+            "grid_background_fake_rate": fake_grid,
+            "cells": cells,
+            "inclusive": inclusive,
+            "fit_quality": {
+                "max_abs_cell_efficiency_error": float(np.max(np.abs(finite_cell_eff - target))) if finite_cell_eff.size else math.nan,
+                "mean_abs_cell_efficiency_error": float(np.mean(np.abs(finite_cell_eff - target))) if finite_cell_eff.size else math.nan,
+                "min_cell_signal_entries": int(min_sig or 0),
+                "min_cell_background_entries": int(min_bkg or 0),
+                "plane_fit": plane,
+            },
+        }
+    return {
+        "schema": "RECOILJETS_AUAU_BDT_WORKING_POINTS_V2",
+        "target_signal_efficiency": float(target),
+        "working_point_mode": "centpt",
+        "source": str(report_dir),
+        "products": products,
+    }
+
+
+def derive_working_points_from_report(report_dir: Path, target=0.80, wp_mode="centpt", pt_edges=None, cent_edges=None):
+    import numpy as np
+
+    existing = report_dir / f"bdt_working_points_target{int(round(100 * target)):02d}.json"
+    if wp_mode == "centpt":
+        manifest = derive_centpt_working_points_from_caches(report_dir, target, pt_edges=pt_edges, cent_edges=cent_edges)
+        paths = write_working_point_outputs(report_dir, manifest)
+        make_working_point_diagnostic(report_dir, manifest)
+        return paths
+    if existing.is_file():
+        manifest = json.loads(existing.read_text())
+        paths = write_working_point_outputs(report_dir, manifest)
+        make_working_point_diagnostic(report_dir, manifest)
+        return paths
+
+    diag_path = report_dir / "validation_deep_diagnostics.json"
+    if not diag_path.is_file():
+        raise SystemExit(f"Cannot derive working points; missing {diag_path}")
+    diagnostics = json.loads(diag_path.read_text())
+    manifest = {
+        "schema": "RECOILJETS_AUAU_BDT_WORKING_POINTS_V1",
+        "target_signal_efficiency": float(target),
+        "source": str(report_dir),
+        "products": {},
+    }
+    pt_bins = diagnostics.get("pt_bins", [])
+    for product, product_diag in diagnostics.get("products", {}).items():
+        inclusive = _target_row(product_diag.get("thresholds_inclusive", {}), target)
+        if not inclusive:
+            manifest["products"][product] = {"status": "skipped", "reason": "missing inclusive threshold"}
+            continue
+        bins = []
+        for b in pt_bins:
+            key = b.get("key")
+            row = _target_row(product_diag.get("auc_by_pt", {}).get(key, {}).get("thresholds", {}), target)
+            if not row:
+                continue
+            bins.append({
+                "pt_min": float(b["low"]),
+                "pt_max": float(b["high"]),
+                "pt_center": 0.5 * (float(b["low"]) + float(b["high"])),
+                "threshold": float(row["threshold"]),
+                "signal_efficiency": float(row.get("signal_efficiency", math.nan)),
+                "background_fake_rate": float(row.get("background_fake_rate", math.nan)),
+                "signal_entries": int(product_diag.get("auc_by_pt", {}).get(key, {}).get("signal_entries", 0)),
+                "background_entries": int(product_diag.get("auc_by_pt", {}).get(key, {}).get("background_entries", 0)),
+            })
+        mode = "linear"
+        intercept = float(inclusive["threshold"])
+        slope = 0.0
+        if len(bins) >= 2:
+            x = np.array([b["pt_center"] for b in bins], dtype=float)
+            t = np.array([b["threshold"] for b in bins], dtype=float)
+            w = np.sqrt(np.array([max(1, b["signal_entries"]) for b in bins], dtype=float))
+            coeff = np.polyfit(x, t, 1, w=w)
+            slope = float(coeff[0])
+            intercept = float(coeff[1])
+            residual = t - (intercept + slope * x)
+            max_resid = float(np.max(np.abs(residual))) if residual.size else math.nan
+            if math.isfinite(max_resid) and max_resid > 0.12:
+                mode = "binned"
+        pt_min = float(bins[0]["pt_min"]) if bins else math.nan
+        pt_max = float(bins[-1]["pt_max"]) if bins else math.nan
+        wp = {
+            "status": "ready",
+            "target_signal_efficiency": float(target),
+            "mode": mode,
+            "intercept": intercept,
+            "slope": slope,
+            "pt_min": pt_min,
+            "pt_max": pt_max,
+            "max_score": 1.0,
+            "inclusive": inclusive,
+            "bins": bins,
+        }
+        if mode == "binned":
+            wp["binned_edges"] = [float(bins[0]["pt_min"])] + [float(b["pt_max"]) for b in bins]
+            wp["binned_thresholds"] = [float(b["threshold"]) for b in bins]
+        manifest["products"][product] = wp
+    paths = write_working_point_outputs(report_dir, manifest)
+    make_working_point_diagnostic(report_dir, manifest)
+    return paths
 
 
 def build_deep_diagnostics(frame, scores):
@@ -1289,6 +1903,26 @@ def write_model_rankings(outdir: Path, metrics) -> None:
 
 def main() -> int:
     args = parse_args()
+
+    if args.derive_working_points_from_report is not None:
+        pt_fallback = [lo for lo, _ in PT_BINS] + [PT_BINS[-1][1]]
+        cent_fallback = [lo for lo, _ in CENT_BINS] + [CENT_BINS[-1][1]]
+        pt_edges = parse_edge_list(args.working_point_pt_bins, pt_fallback)
+        cent_edges = parse_edge_list(args.working_point_cent_bins, cent_fallback)
+        paths = derive_working_points_from_report(
+            args.derive_working_points_from_report,
+            args.target_signal_efficiency,
+            wp_mode=args.working_point_mode,
+            pt_edges=pt_edges,
+            cent_edges=cent_edges,
+        )
+        for name, path in paths.items():
+            print(f"{name}={path}")
+        return 0
+
+    if args.source is None or args.model_dir is None:
+        raise SystemExit("--source and --model-dir are required unless --derive-working-points-from-report is used")
+
     require_imports()
     import numpy as np
 
@@ -1355,6 +1989,9 @@ def main() -> int:
             json.dumps(json_ready(diagnostics), indent=2, sort_keys=True) + "\n"
         )
         write_diagnostic_tables(outdir, diagnostics)
+        working_points = derive_working_points(frame, scores, product_specs, args.target_signal_efficiency)
+        write_working_point_outputs(outdir, working_points)
+        make_working_point_diagnostic(outdir, working_points)
         make_plots(outdir, frame, scores, metrics)
         write_curve_exports(outdir, frame, scores, metrics)
     metrics_json = json_ready({"counts": counts, **metrics, "status": status, "notes": notes})

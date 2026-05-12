@@ -9,6 +9,236 @@ Removal` and ask Justin before removing or archiving.
 
 ## Now
 
+- ACTIVE SLIDE TARGET UNTIL FRIDAY PPG MEETING: working-point Slides deck is
+  `AuAuWP_5_12_2026`, presentation id
+  `1n4N74TMiB-HiWvZvW0LYW0Emg9AL25yuUSJAAfJzaWg`, URL
+  `https://docs.google.com/presentation/d/1n4N74TMiB-HiWvZvW0LYW0Emg9AL25yuUSJAAfJzaWg/edit`.
+  Justin explicitly set this as the working point slides deck "from now on"
+  until the PPG meeting Friday. Before future slide edits, re-confirm this deck
+  through the Google Drive/Slides connector and use live slide object IDs.
+- FIXED / RERUN PREP NEEDED: all-available target80 BDT config staging.
+  The expanded 5-40 validation rerun `model_validation_condor_20260511_221510`
+  is READY and wrote target80 WP files. The first `sphnxuser03` prep attempt
+  with tag `bdt_target80_all_available_20260511_224158` stopped only because
+  its expanded product map requested optional product `centAsFeat3x3_pt5to40`,
+  which is not in that expanded validation report. Codex patched/uploaded
+  `scripts/prepare_auau_bdt_target80_available_campaigns.sh` so each product
+  map is filtered against the actual WP JSON products; missing optional entries
+  now print `[WARN]` and are skipped. The rerun on `sphnxuser03` completed and
+  staged configs under
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/bdt_target80_all_available_20260511_224158`.
+  No MC jobs were submitted because `RJ_TARGET80_DO_SUBMIT=0`. Next: inspect or
+  pull target80 diagnostics, run the config-directory local smoke/preflight,
+  then submit paired MC only if that check is clean.
+- READY TOOLING: target80 config-directory submit helper. Codex added and
+  uploaded `scripts/submit_auau_bdt_target80_config_dir.sh` on 2026-05-11. It
+  is the one-command driver for the final target80 MC matrix once the missing
+  expanded `5-40` target80 YAML exists: pass
+  `RJ_TARGET80_CONFIG_DIR=<dir>`, leave `RJ_TARGET80_DO_SUBMIT=0` for a dry
+  smoke, then rerun with `RJ_TARGET80_DO_SUBMIT=1` to submit every
+  `analysis_config_*_target80.yaml` sequentially through
+  `submit_auau_bdt_targetwp_pair.sh`.
+- READY TO RESUBMIT SMARTER: all-available target80 BDT paired MC submission on
+  `sphnxuser03`. Justin launched the first all-at-once attempt with
+  `RJ_TARGET80_RUN_LOCAL_SMOKE=0 RJ_TARGET80_DO_SUBMIT=1 bash
+  ./scripts/submit_auau_bdt_target80_config_dir.sh` for config dir
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/bdt_target80_all_available_20260511_224158`.
+  First config `analysis_config_etfine_15to35_target80.yaml` is queued for both
+  embedded signal and inclusive-background samples with `34296` raw worker jobs
+  and `0` held in the visible queue. The second config
+  `analysis_config_expanded_5to40_target80.yaml` has started; observed expanded
+  clusters so far are `3032999`-`3033004`, and the latest visible row was
+  submitting `AuAuCentInputBDT` for embedded Photon12. The job count was too
+  high for one queue, so Justin interrupted it and chose to remove the target80
+  jobs. Codex patched/uploaded the submit drivers so the redo submits one
+  dataset/config chunk at a time and waits for the matching campaign queue to
+  drain before continuing. Next: run the gated driver with a fresh campaign tag
+  and leave it alive, preferably in `tmux` or `nohup`, so it can advance
+  automatically.
+- RUNNING IN TMUX: clean queue-gated target80 BDT campaign. New campaign tag
+  `bdt_target80_gated_20260512_001012` is running on `sphnxuser05` in tmux
+  session `target80_bdt_target80_gated_20260512_001012`. SSH-auth check showed
+  `4287` active matching jobs, clusters `5340030`, `5340031`, `5340032`,
+  `0` held. This is the intended bounded behavior. Next status check should
+  inspect tmux/logs and Gmail before any new submission. Follow-up terminal
+  evidence showed the gate paused correctly after the `isSimEmbedded` half of
+  the first YAML: `queued=17148 held=0` before `isSimEmbeddedInclusive`. To
+  watch without entering tmux, use
+  `tail -f /sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/bdt_target80_gated_20260512_001012/tmux_bdt_target80_gated_20260512_001012.log`;
+  `Ctrl-C` from that tail is safe and does not stop the tmux submitter.
+- READY FOR MANUAL MERGE / NO FINAL ROOT PULL YET: fixed width-window WP0.50
+  RecoilJets MC analysis workers on `sphnxuser04`. On 2026-05-11 at 21:51 EDT,
+  terminal queue evidence showed campaign
+  `widthstudy_windows_wp050_fixed_20260511_180500` drained completely:
+  `0` user jobs, `0` idle, `0` running, `0` held, `0` removed. This campaign
+  used worker clusters `1140092`-`1140103` and was intentionally submitted with
+  `RJ_WIDTHSTUDY_AUTO_MERGE=0`, so the finished state means the raw analysis
+  worker outputs are ready for manual merging, not that final stitched SIM
+  ROOTs are ready to pull. The local validation report for the same 9-model
+  width-window family is already present at
+  `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auauTightBDTValidation/model_validation_condor_20260511_171943`
+  with `validation_summary.txt`, `validation_model_rankings.csv`, score
+  caches, and validation PNGs. Late 22:19 EDT terminal evidence: Justin ran
+  `condor_rm patsfan753` on `sphnxuser04` after a bad chained manual merge;
+  queue then showed `0` user jobs. This removed active merge jobs only, not the
+  finished raw worker ROOT outputs. Follow-up nested-SSH inventory on
+  2026-05-12 showed every pT window (`pt5to35`, `pt10to35`, `pt15to35`) and
+  both datasets (`simembedded`, `simembeddedinclusive`) has `6` flat
+  secondRound sample-level ROOT files, but `0` final stitched merged ROOTs.
+  Local recovery patches to `mergeRecoilJets.sh` and
+  `merge_auau_bdt_widthstudy_windows_wp050_staged.sh` were uploaded and remote
+  grep markers confirmed the finalStitch flat-file discovery and correct
+  staged input-base routing are present. Codex submitted guarded `finalStitch`
+  at 2026-05-12 16:33 EDT after verifying the secondRound file counts and an
+  empty user queue; clusters span `1140257`-`1140292`. At 16:39 EDT the queue
+  was `144` idle, `0` running, `0` held, final merged count `0/18`. Active
+  heartbeat is watching and will pull offline after `18/18` final merged files
+  appear and the queue drains.
+- MLP FULL-FILE VALIDATION READY / SEPARATE LANE: Gmail reported
+  `[RecoilJets][auauTightMLP_validateOnSimCondor][READY]` from
+  `sphnxuser06` at 2026-05-11 21:59 for the environment-fixed full-file MLP
+  validation (`primary_full_envfix_20260511_215801`); Codex consumed and marked
+  the email read. This does not unblock the expanded BDT target80 YAML; it is
+  a separate neural-network diagnostic lane. Next: pull and inspect MLP
+  validation outputs only when we intentionally return to that lane.
+- WAITING ON READY EMAIL / DO NOT SUBMIT MC YET: expanded 5-40 AuAu tight-BDT
+  validation rerun for target-80 working points. On 2026-05-11 at 21:53 EDT,
+  Justin submitted from `sphnxuser06` after target-80 prep failed on old
+  expanded report `model_validation_condor_20260509_192942` because its score
+  caches lacked the updated diagnostic column `cluster_weta33_cogx`. Active
+  rerun command used
+  `RJ_NOTIFY_EMAILS=just0131@gmail.com`,
+  `RJ_ML_PYTHON=/sphenix/u/patsfan753/.venvs/thesis-ml/bin/python`,
+  `./scripts/auau_tight_bdt_pipeline.sh validateOnSimCondor`,
+  source
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049`,
+  model dir
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/tight_expanded_20260509_152604`,
+  registry
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/tight_expanded_20260509_152604/model_registry.json`,
+  and `groupSize 100`. Terminal evidence: report
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049/reports/model_validation_condor_20260511_215329`,
+  submit dir
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTValidate_20260511_215329`,
+  DAG
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTValidate_20260511_215329/auau_tight_bdt_validateOnSimCondor.dag`,
+  score-cache dir
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049/reports/model_validation_condor_20260511_215329/score_caches`,
+  `8000` ROOT files, `80` shards, request memory `2500MB`, and DAGMan cluster
+  `1274333`. Next: when this report is READY, derive target-80 working points
+  from `20260511_215329`, regenerate the missing expanded frozen YAML
+  `analysis_config_expanded_5to40_target80.yaml`, inspect the target-80 fit
+  plots in chat, then submit the paired MC matrix only after the expanded YAML
+  joins the five already staged target80 configs. Update at 22:03 EDT:
+  `condor_q` on `sphnxuser06` drained to zero, but
+  `cat "$expval/validation_summary.txt"` returned `No such file or directory`;
+  this means the expanded rerun is not confirmed READY. Diagnose the DAG/report
+  before trying to derive target80 cuts or submit MC from the expanded family.
+- VALIDATION READY / HOLD BEFORE MC: fine-`E_T` AuAu BDT target-80 staging.
+  On 2026-05-11, `sphnxuser06` training finished READY for
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/tight_etfine_centstudy_current`
+  with products `centInput_pt1535`, `ptFine_centInput`, `ptFine_cent3`, and
+  `ptFine_cent7`. Evidence: training-tree validation passed with
+  `entries=12000316`, `signal=8526032`, `background=3474284`, `files=8000`;
+  cache `training_matrix_etfine_centstudy.npz` and registry
+  `model_registry.json` were written; `expanded campaign trained reports=89
+  selected_specs=89`; `expanded applyCheck opened 89 TMVA ROOT files`; final
+  summary printed `RECOILJETS_AUAU_TIGHT_BDT_ETFINE_CENTSTUDY_TRAINING_V1
+  status=READY`. Justin then submitted `validateOnSimCondor` from `sphnxuser06`
+  with DAG cluster `1273669` and report
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049/reports/model_validation_condor_20260511_194832`.
+  Gmail at 2026-05-11 19:51 reported validation `status=READY`, finite score
+  fraction `1`, `scored_entries=400000`, and AUCs: `centInput_pt1535=0.773122`,
+  `ptFine_centInput=0.776523`, `ptFine_cent3=0.78874`, `ptFine_cent7=0.808249`;
+  Codex consumed and marked the READY email read. Justin then ran
+  `deriveWorkingPointsFromValidation` with `TARGET=0.80`, which wrote
+  `bdt_working_points_target80.{json,yaml,csv}`,
+  `bdt_working_points_target80_runtime_fragment.yaml`, and
+  `bdt_working_point_target80_diagnostics.png`. Codex pulled the full report
+  locally to
+  `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auauTightBDTValidation/model_validation_condor_20260511_194832`.
+  Hard stop now: inspect the threshold/fit plots in chat before any
+  `isSimEmbedded`/`isSimEmbeddedInclusive` full submission.
+- WATCH / MERGE LATER: fixed width-window WP0.50 paired RecoilJets MC campaign.
+  Justin clean-resubmitted from `sphnxuser04` on 2026-05-11 after removing old
+  jobs on that submit host. Campaign tag:
+  `widthstudy_windows_wp050_fixed_20260511_180500`; submit log:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/submit_widthstudy_windows_wp050_fixed_20260511_180500.log`.
+  This is the fixed analysis-only run: `RJ_WIDTHSTUDY_AUTO_MERGE=0`,
+  `RJ_HOLD_FAILED_WORKERS=1`, `RJ_REQUEST_MEMORY=10000MB`,
+  `RJ_AUTO_MEMORY_RETRY_CAP_MB=16000`, `RJ_SIM_FIRSTROUND_REQUEST_MEMORY=8000MB`.
+  It submitted all three pT windows (`pt5to35`, `pt10to35`, `pt15to35`) for
+  both signal `isSimEmbedded` and inclusive-background `isSimEmbeddedInclusive`.
+  Worker clusters span `1140092`-`1140103`, with `1429` jobs each; submit order
+  per window is Photon12, Photon20, Jet12, Jet20. Bulk roots are under
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAna/simembedded_widthstudy_windows_wp050_fixed_20260511_180500_pt*to35`
+  and
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAna/simembeddedinclusive_widthstudy_windows_wp050_fixed_20260511_180500_pt*to35`.
+  Merge/output roots are
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/output_widthstudy_windows_wp050_fixed_20260511_180500_pt5to35`,
+  `_pt10to35`, and `_pt15to35`. Final submission snapshot showed `11674`
+  idle, `5474` running, and `0` held for the user query; `7210 removed` were
+  the deliberate preflight cleanup of stale jobs. Gmail check right after
+  submission found two fresh unread
+  `[RecoilJets][auto_simembeddedinclusive_final_ready][FAILED]` messages from
+  the removed pre-fix auto workflow; Codex marked them read after confirming
+  they do not belong to the new analysis-only cluster run. Next: watch
+  Gmail/queue until clusters `1140092`-`1140103` drain; if clean, run the
+  wrapper-printed manual `mergeRecoilJets.sh firstRound/secondRound/finalStitch`
+  commands window by window. If any held jobs appear, inspect the hold reason
+  before removing or releasing.
+- VALIDATION READY / READY FOR MC SUBMISSION: 9-model width-window AuAu
+  tight-BDT campaign.
+  Justin trained on `sphnxuser04` from the fixed extraction
+  source `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049`
+  into model dir
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/tight_centinput_widthstudy_windows_current`.
+  Initial command observed in terminal:
+  `RJ_NOTIFY_EMAILS=just0131@gmail.com RJ_ML_PYTHON=/sphenix/u/patsfan753/.venvs/thesis-ml/bin/python RJ_AUAU_BDT_TRAIN_PARALLEL=3 ./scripts/auau_tight_bdt_pipeline.sh trainWidthStudyWindowsFromExtraction SOURCE=/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049 MODEL_DIR=/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/tight_centinput_widthstudy_windows_current PT_WINDOWS=5:35,10:35,15:35`.
+  That first attempt reached `8000/8000` and passed with
+  `entries=12000316`, `signal=8526032`, `background=3474284`, `files=8000`; the
+  shared cache `training_matrix_widthstudy_windows.npz` was written, then the
+  Python training process was killed by the system on line 887. Treat as a
+  recoverable memory-pressure failure. Current follow-up evidence on
+  2026-05-11: Justin reran serially with
+  `RJ_AUAU_BDT_TRAIN_PARALLEL=1 RJ_AUAU_BDT_XGB_N_JOBS=1` in the same
+  `MODEL_DIR`; a `ps` check from another `sphnxuser04` terminal showed wrapper
+  PID `3591301` and active Python trainer PID `3593547` using about `5.4 GB`
+  RSS and `99.8%` CPU with `--parallel-workers 1 --n-jobs 1`. Expected model
+  matrix is three centrality-input
+  width variants (`base widths`, `3x3 widths`, `base+3x3 widths`) for three
+  training/applicability windows (`5-35`, `10-35`, `15-35` GeV). Final
+  terminal evidence on 2026-05-11: `model_registry.json` was written,
+  `expanded campaign trained reports=9 selected_specs=9`, `expanded applyCheck
+  opened 9 TMVA ROOT files`, and
+  `RECOILJETS_AUAU_TIGHT_BDT_WIDTHSTUDY_WINDOWS_TRAINING_V1 status=READY`.
+  Validation submission evidence on 2026-05-11 from `sphnxuser04`:
+  Justin submitted `validateOnSimCondor` for this registry, report
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049/reports/model_validation_condor_20260511_171943`,
+  submit dir
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTValidate_20260511_171943`,
+  and DAGMan cluster `1139989`. Queue evidence later drained to zero. Gmail
+  on 2026-05-11 reported
+  `[RecoilJets][auauTightBDT_validateOnSimCondor][READY]` from `sphnxuser04`
+  for this report; Codex consumed the email and marked it read. Next steps:
+  pull and inspect the validation report, then submit paired `isSimEmbedded` and
+  `isSimEmbeddedInclusive` campaigns using
+  `scripts/submit_auau_bdt_widthstudy_windows_wp050.sh` so production uses BDT
+  score `> 0.50`.
+- JSTG POSTPONED ONE WEEK / BDT DEVELOPMENT SPRINT:
+  On 2026-05-11 Justin reported JSTG was postponed by one week. Treat this as
+  valuable runway to push the AuAu tight-BDT program from promising validation
+  into a working production-style candidate by next week, not as permission to
+  rush uninspected MC. Priority lanes for the extra week: finish validation-only
+  passes for fine-`E_T`, width-window, and available expanded registries; derive
+  target-80 working points and inspect threshold/fit diagnostics in chat before
+  any full MC submissions; run approved `isSimEmbedded` and
+  `isSimEmbeddedInclusive` campaigns for the best variants; pull outputs and
+  build the comparison suite covering ID/reco efficiency, background tight
+  rate/fake leakage, tight/complement shower shapes, isolation/ABCD behavior,
+  centrality/`E_T` stability, and `x_{J#gamma}` stability. Use the slide time
+  to distill a coherent next-week JSTG story, with deeper backup detail saved
+  for the following PPG19/PPG-style discussion.
 - FUTURE FLAGSHIP R&D: next-generation pp+AuAu photon-finder ML program.
   Justin wants this captured as the long-horizon ambitious goal: after the
   current BDT validation and JSTG slides are stable, build a unified photon-ID
@@ -57,10 +287,19 @@ Removal` and ask Justin before removing or archiving.
      `RJ_PHOTON_ID_ROW_MATCH=AuAuCentInput3x3BDT`, fanout1, isolated WP0.50
      and WP0.80 output roots, and all four final auto-workflow emails reached
      `READY` with `rescue_file_count=0`.
-  4. NEXT: pull/pair the four 3x3 one-row outputs from
-     `output_bdt3x3_20260510_223529_wp050` and
-     `output_bdt3x3_20260510_223529_wp080`, then compare the 3x3-width BDT
-     against the standard centrality-input and pT/centrality-binned BDTs.
+  4. DONE locally 2026-05-11: pulled/pair-checked the four 3x3 one-row
+     outputs from `output_bdt3x3_20260510_223529_wp050` and
+     `output_bdt3x3_20260510_223529_wp080` into
+     `dataOutput/auau_bdt3x3_mc_validation/{wp050,wp080}`. Added
+     `macros/CompareAuAu3x3IDEfficiency.C` and ran a ROOT batch-mode
+     ID-efficiency check against the standard full-cluster centrality-input
+     WP0.50 BDT. Outputs:
+     `dataOutput/auau_bdt3x3_mc_validation/id_efficiency_compare/bdt3x3_vs_fullcluster_id_efficiency.csv`,
+     `bdt3x3_vs_fullcluster_signal_tight_fraction.png`, and
+     `bdt3x3_vs_fullcluster_background_tight_fraction.png`.
+  5. NEXT: compare the 3x3-width BDT against the standard centrality-input and
+     pT/centrality-binned BDTs in reco efficiency, isolation, ABCD behavior,
+     shower-shape templates, leakage/fake rates, and xJ-sensitive inputs.
 - ACTIVE RUNBOOK: MC-first RecoilJets validation of expanded AuAu tight-BDT
   families. Goal is to validate the 8 expanded BDT families plus 2 baselines
   in normal RecoilJets embedded-MC outputs, while leaving the main production
@@ -361,9 +600,30 @@ Removal` and ask Justin before removing or archiving.
   and decide which should be stored/used as BDT features.
 - Ensure future ML/tree products store cheap scalar cluster information needed
   for photon-ID, BDT/NPB, timing, HCAL leakage, and shower-shape studies.
+- Build a future BDT-vs-MLP matched tight-photon validation pipeline. After
+  the full-stat MLP and selected BDT working points are available in matching
+  `isSimEmbedded` / `isSimEmbeddedInclusive` outputs, compare candidate-level
+  overlap and disagreement: tight in both, BDT-only tight, MLP-only tight, and
+  rejected by both. Summarize truth matching, photon `E_T`, centrality,
+  isolation, shower-shape distributions, WP80 fake rate, and RecoilJets-level
+  recovery/leakage for each category so the MLP/BDT score difference becomes a
+  physics diagnostic.
 
 ## Waiting
 
+- Width-window WP0.50 RecoilJets MC validation:
+  - Current failed auto-DAG evidence says sampled workers exited cleanly and
+    were removed only because DAGMan hit its max-held-job abort limit.
+  - Local fix staged 2026-05-11: `RecoilJets_Condor_submit.sh` adds
+    `on_exit_hold` for nonzero/signal worker exits; width-window WP0.50 submit
+    wrapper defaults to `RJ_WIDTHSTUDY_AUTO_MERGE=0` and prints explicit
+    post-worker merge commands.
+  - Uploaded fix to SDCC on 2026-05-11:
+    `./scripts/sftp_push_recoiljets.sh RecoilJets_Condor_submit.sh
+    submit_auau_bdt_widthstudy_windows_wp050.sh`. No rebuild needed.
+  - Next: cleanly remove stale/superseded failed campaign jobs with Justin's
+    approval, then resubmit the width-window WP0.50 campaign from the chosen
+    submit host.
 - Full `isAuAu` production from `sphnxuser04`: monitor DAGMan cluster `1134652`,
   the downstream analysis worker cluster once it appears, READY/CHECK/FAILED
   emails, and held-job state. The older `sphnxuser01` 3500MB campaign and

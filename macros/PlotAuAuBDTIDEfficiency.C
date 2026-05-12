@@ -192,6 +192,14 @@ void PlotAuAuBDTIDEfficiency()
       {"preselectionNewPPG12_tightAuAuPtCent7BDT_nonTightAuAuBDTComplement_baseVariant",
        "E_{T} #times 7 centrality-bin BDTs", kViolet + 2, 20, 0.20}};
 
+  const std::vector<CurveSpec> simpleCurves = {
+      {"preselectionNewPPG12_tightReference_nonTightReference_baseVariant",
+       "Box-cuts", kBlack, 20, -0.12},
+      {"preselectionNewPPG12_tightAuAuCentInputBDT_nonTightAuAuBDTComplement_baseVariant",
+       "Centrality as input BDT", kAzure + 2, 20, 0.00},
+      {"preselectionNewPPG12_tightAuAuPtCent7BDT_nonTightAuAuBDTComplement_baseVariant",
+       "E_{T} #times 7 centrality-bin BDTs", kViolet + 2, 20, 0.12}};
+
   std::ofstream csv(kOutDir + "/id_efficiency_summary_5to35.csv");
   csv << "config_key,label,cent,pt_lo,pt_hi,tight_sum,nontight_sum,id_eff,id_eff_err\n";
 
@@ -285,4 +293,98 @@ void PlotAuAuBDTIDEfficiency()
   c.SaveAs(out.c_str());
   std::cout << "[DONE] wrote " << out << "\n";
   std::cout << "[DONE] wrote " << kOutDir << "/id_efficiency_summary_5to35.csv\n";
+
+  std::ofstream simpleCsv(kOutDir + "/id_efficiency_box_vs_centinput_summary_5to35.csv");
+  simpleCsv << "config_key,label,cent,pt_lo,pt_hi,tight_sum,nontight_sum,id_eff,id_eff_err\n";
+
+  TCanvas cSimple("c_auau_bdt_id_efficiency_box_vs_centinput_1x3",
+                  "c_auau_bdt_id_efficiency_box_vs_centinput_1x3", 2200, 760);
+  cSimple.Divide(3, 1, 0.006, 0.0);
+
+  std::vector<std::unique_ptr<TFile>> simpleFiles;
+  std::vector<std::vector<std::unique_ptr<TGraphErrors>>> simpleGraphs(cents.size());
+  std::vector<std::unique_ptr<TGraphErrors>> simpleLegendKeepAlive;
+  std::vector<std::unique_ptr<TLegend>> simpleLegends;
+  std::vector<std::unique_ptr<TH1F>> simpleFrames;
+
+  for (size_t ic = 0; ic < cents.size(); ++ic)
+  {
+    cSimple.cd(ic + 1);
+    gPad->SetTicks(1, 1);
+    gPad->SetGrid(0, 0);
+    gPad->SetLeftMargin(ic == 0 ? 0.115 : 0.055);
+    gPad->SetRightMargin(ic == cents.size() - 1 ? 0.035 : 0.015);
+    gPad->SetTopMargin(0.305);
+    gPad->SetBottomMargin(0.14);
+
+    std::unique_ptr<TH1F> frame(new TH1F(("hframe_id_eff_simple_" + cents[ic].suffix).c_str(), "", 100, 4.7, 35.3));
+    frame->SetDirectory(nullptr);
+    frame->SetStats(false);
+    frame->SetMinimum(0.0);
+    frame->SetMaximum(1.04);
+    frame->GetXaxis()->SetTitle("Photon candidate E_{T} [GeV]");
+    frame->GetYaxis()->SetTitle(ic == 0 ? "Tight-ID efficiency" : "");
+    frame->GetXaxis()->SetTitleSize(0.044);
+    frame->GetYaxis()->SetTitleSize(0.044);
+    frame->GetXaxis()->SetLabelSize(0.037);
+    frame->GetYaxis()->SetLabelSize(0.037);
+    frame->GetYaxis()->SetTitleOffset(ic == 0 ? 1.16 : 1.02);
+    frame->Draw();
+    simpleFrames.push_back(std::move(frame));
+    drawPanelLabel(cents[ic].title.c_str());
+    if (ic == 0) drawHeader();
+
+    for (const auto& curve : simpleCurves)
+    {
+      const std::string path = mergedPath(curve);
+      std::unique_ptr<TFile> f(TFile::Open(path.c_str(), "READ"));
+      if (!f || f->IsZombie())
+      {
+        std::cerr << "[WARN] missing file: " << path << "\n";
+        continue;
+      }
+      TDirectory* d = dynamic_cast<TDirectory*>(f->Get("SIM"));
+      if (!d)
+      {
+        std::cerr << "[WARN] missing SIM directory in " << path << "\n";
+        continue;
+      }
+      auto g = buildGraph(d, curve, cents[ic], bins, simpleCsv);
+      if (g && g->GetN() > 0)
+      {
+        g->Draw("P SAME");
+        simpleGraphs[ic].push_back(std::move(g));
+      }
+      simpleFiles.push_back(std::move(f));
+    }
+
+    if (ic == 2)
+    {
+      std::unique_ptr<TLegend> leg(new TLegend(0.38, 0.17, 0.91, 0.43));
+      leg->SetBorderSize(0);
+      leg->SetFillStyle(1001);
+      leg->SetFillColorAlpha(kWhite, 0.86);
+      leg->SetTextFont(42);
+      leg->SetTextSize(0.034);
+      for (const auto& curve : simpleCurves)
+      {
+        std::unique_ptr<TGraphErrors> g(new TGraphErrors(1));
+        g->SetMarkerStyle(curve.marker);
+        g->SetMarkerSize(1.15);
+        g->SetMarkerColor(curve.color);
+        g->SetLineColor(curve.color);
+        leg->AddEntry(g.get(), curve.label.c_str(), "pe");
+        simpleLegendKeepAlive.push_back(std::move(g));
+      }
+      leg->Draw();
+      simpleLegends.push_back(std::move(leg));
+    }
+  }
+
+  cSimple.cd();
+  const std::string simpleOut =
+      kOutDir + "/id_efficiency_1x3_box_vs_centinput_isoR30_isSliding_5to35.png";
+  cSimple.SaveAs(simpleOut.c_str());
+  std::cout << "[DONE] wrote " << simpleOut << "\n";
+  std::cout << "[DONE] wrote " << kOutDir << "/id_efficiency_box_vs_centinput_summary_5to35.csv\n";
 }

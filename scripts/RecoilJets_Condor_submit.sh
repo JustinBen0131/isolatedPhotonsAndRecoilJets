@@ -675,6 +675,15 @@ periodic_release = (JobStatus == 5) && (NumJobStarts <= ${retries}) && (RequestM
 EOT
 }
 
+condor_worker_failure_hold_block() {
+  [[ "${RJ_HOLD_FAILED_WORKERS:-1}" == "0" ]] && return 0
+  cat <<'EOT'
+# Keep failed workers visible for diagnosis instead of letting them silently finish.
+on_exit_hold = (ExitBySignal == True) || (ExitCode =!= 0)
+on_exit_hold_reason = "RecoilJets worker exited nonzero or by signal; inspect stdout/err before release/remove"
+EOT
+}
+
 sim_yaml_master_path() {
   if [[ -n "${RJ_CONFIG_YAML:-}" ]]; then
     local p; p="$(trim_ws "${RJ_CONFIG_YAML}")"
@@ -1663,15 +1672,24 @@ selection_mode_normalize_for_key() {
     tight:auauNoCentBDT|tight:auaunocentbdt) echo "auauNoCentBDT"; return 0 ;;
     tight:auauCentInputBDT|tight:auaucentinputbdt) echo "auauCentInputBDT"; return 0 ;;
     tight:auauCentInput3x3BDT|tight:auaucentinput3x3bdt) echo "auauCentInput3x3BDT"; return 0 ;;
+    tight:auauCentInputBase3x3BDT|tight:auaucentinputbase3x3bdt) echo "auauCentInputBase3x3BDT"; return 0 ;;
     tight:auauCentInputMinOptBDT|tight:auaucentinputminoptbdt) echo "auauCentInputMinOptBDT"; return 0 ;;
     tight:auauCent3BDT|tight:auaucent3bdt) echo "auauCent3BDT"; return 0 ;;
     tight:auauCent7BDT|tight:auaucent7bdt) echo "auauCent7BDT"; return 0 ;;
     tight:auauPtBinCentInputBDT|tight:auauptbincentinputbdt) echo "auauPtBinCentInputBDT"; return 0 ;;
     tight:auauPtCent3BDT|tight:auauptcent3bdt) echo "auauPtCent3BDT"; return 0 ;;
     tight:auauPtCent7BDT|tight:auauptcent7bdt) echo "auauPtCent7BDT"; return 0 ;;
+    tight:auauEtFineCentInputBDT|tight:auauetfinecentinputbdt) echo "auauEtFineCentInputBDT"; return 0 ;;
+    tight:auauEtFineCent3BDT|tight:auauetfinecent3bdt) echo "auauEtFineCent3BDT"; return 0 ;;
+    tight:auauEtFineCent7BDT|tight:auauetfinecent7bdt) echo "auauEtFineCent7BDT"; return 0 ;;
+    tight:auauCentInputMLP|tight:auaucentinputmlp) echo "auauCentInputMLP"; return 0 ;;
+    tight:auauNoCentBase3x3MLP|tight:auaunocentbase3x3mlp) echo "auauNoCentBase3x3MLP"; return 0 ;;
+    tight:auauCentInputBase3x3MLP|tight:auaucentinputbase3x3mlp) echo "auauCentInputBase3x3MLP"; return 0 ;;
     nonTight:variantA|nonTight:VariantA|nonTight:varianta|nonTight:bdtSideband|nonTight:BDTSideband|nonTight:bdtsideband|nonTight:newPPG12|nonTight:NewPPG12|nonTight:newppg12) echo "newPPG12"; return 0 ;;
     nonTight:variantB|nonTight:VariantB|nonTight:variantb|nonTight:auauBDTSideband|nonTight:AuAuBDTSideband|nonTight:auaubdtsideband) echo "auauBDTSideband"; return 0 ;;
     nonTight:variantC|nonTight:VariantC|nonTight:variantc|nonTight:auauBDTComplement|nonTight:AuAuBDTComplement|nonTight:auaubdtcomplement) echo "auauBDTComplement"; return 0 ;;
+    nonTight:auauMLPSideband|nonTight:auaumlpsideband) echo "auauMLPSideband"; return 0 ;;
+    nonTight:auauMLPComplement|nonTight:auaumlpcomplement) echo "auauMLPComplement"; return 0 ;;
   esac
   case "$mode" in
     ""|reference|Reference) echo "reference" ;;
@@ -1689,12 +1707,21 @@ selection_mode_normalize_for_key() {
     auauNoCentBDT|auaunocentbdt) echo "auauNoCentBDT" ;;
     auauCentInputBDT|auaucentinputbdt) echo "auauCentInputBDT" ;;
     auauCentInput3x3BDT|auaucentinput3x3bdt) echo "auauCentInput3x3BDT" ;;
+    auauCentInputBase3x3BDT|auaucentinputbase3x3bdt) echo "auauCentInputBase3x3BDT" ;;
     auauCentInputMinOptBDT|auaucentinputminoptbdt) echo "auauCentInputMinOptBDT" ;;
     auauCent3BDT|auaucent3bdt) echo "auauCent3BDT" ;;
     auauCent7BDT|auaucent7bdt) echo "auauCent7BDT" ;;
     auauPtBinCentInputBDT|auauptbincentinputbdt) echo "auauPtBinCentInputBDT" ;;
     auauPtCent3BDT|auauptcent3bdt) echo "auauPtCent3BDT" ;;
     auauPtCent7BDT|auauptcent7bdt) echo "auauPtCent7BDT" ;;
+    auauEtFineCentInputBDT|auauetfinecentinputbdt) echo "auauEtFineCentInputBDT" ;;
+    auauEtFineCent3BDT|auauetfinecent3bdt) echo "auauEtFineCent3BDT" ;;
+    auauEtFineCent7BDT|auauetfinecent7bdt) echo "auauEtFineCent7BDT" ;;
+    auauCentInputMLP|auaucentinputmlp) echo "auauCentInputMLP" ;;
+    auauNoCentBase3x3MLP|auaunocentbase3x3mlp) echo "auauNoCentBase3x3MLP" ;;
+    auauCentInputBase3x3MLP|auaucentinputbase3x3mlp) echo "auauCentInputBase3x3MLP" ;;
+    auauMLPSideband|auaumlpsideband) echo "auauMLPSideband" ;;
+    auauMLPComplement|auaumlpcomplement) echo "auauMLPComplement" ;;
     *) echo "$mode" ;;
   esac
 }
@@ -1716,12 +1743,21 @@ selection_mode_tag() {
     auauNoCentBDT) echo "${key}AuAuNoCentBDT" ;;
     auauCentInputBDT) echo "${key}AuAuCentInputBDT" ;;
     auauCentInput3x3BDT) echo "${key}AuAuCentInput3x3BDT" ;;
+    auauCentInputBase3x3BDT) echo "${key}AuAuCentInputBase3x3BDT" ;;
     auauCentInputMinOptBDT) echo "${key}AuAuCentInputMinOptBDT" ;;
     auauCent3BDT) echo "${key}AuAuCent3BDT" ;;
     auauCent7BDT) echo "${key}AuAuCent7BDT" ;;
     auauPtBinCentInputBDT) echo "${key}AuAuPtBinCentInputBDT" ;;
     auauPtCent3BDT) echo "${key}AuAuPtCent3BDT" ;;
     auauPtCent7BDT) echo "${key}AuAuPtCent7BDT" ;;
+    auauEtFineCentInputBDT) echo "${key}AuAuEtFineCentInputBDT" ;;
+    auauEtFineCent3BDT) echo "${key}AuAuEtFineCent3BDT" ;;
+    auauEtFineCent7BDT) echo "${key}AuAuEtFineCent7BDT" ;;
+    auauCentInputMLP) echo "${key}AuAuCentInputMLP" ;;
+    auauNoCentBase3x3MLP) echo "${key}AuAuNoCentBase3x3MLP" ;;
+    auauCentInputBase3x3MLP) echo "${key}AuAuCentInputBase3x3MLP" ;;
+    auauMLPSideband) echo "${key}AuAuMLPSideband" ;;
+    auauMLPComplement) echo "${key}AuAuMLPComplement" ;;
     variantB) echo "${key}VariantB" ;;
     variantC) echo "${key}VariantC" ;;
     variantD) echo "${key}VariantD" ;;
@@ -2926,6 +2962,7 @@ log           = ${LOG_DIR}/job.\$(Cluster).\$(Process).log
 output        = ${OUT_DIR}/job.\$(Cluster).\$(Process).out
 error         = ${ERR_DIR}/job.\$(Cluster).\$(Process).err
 $(condor_auto_memory_retry_block "$request_memory_mb")
+$(condor_worker_failure_hold_block)
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
@@ -5186,6 +5223,7 @@ log           = ${LOG_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).log
 output        = ${OUT_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).out
 error         = ${ERR_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).err
 $(condor_auto_memory_retry_block "2000")
+$(condor_worker_failure_hold_block)
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
@@ -5307,7 +5345,7 @@ SUB
     master_yaml="$(sim_yaml_master_path)"
     [[ -s "$master_yaml" ]] || { err "Master YAML not found or empty: $master_yaml"; exit 72; }
     if [[ "$DATASET" == "isSimEmbedded" || "$DATASET" == "isSimEmbeddedInclusive" ]]; then
-      if [[ "$(basename "$master_yaml")" == *"auau_bdt_validation"* || "$master_yaml" == *"auau_bdt_validation"* ]]; then
+      if [[ "$(basename "$master_yaml")" == *"auau_bdt_validation"* || "$master_yaml" == *"auau_bdt_validation"* || "$(basename "$master_yaml")" == *"auau_bdt_etfine"* || "$master_yaml" == *"auau_bdt_etfine"* ]]; then
         if [[ -z "${RJ_ID_FANOUT_MAX_ROWS:-}" ]]; then
           # The AuAu BDT validation matrix loads many TMVA readers. The
           # validated WP0.50 campaign used one photon-ID row per worker; keep
@@ -5329,7 +5367,7 @@ SUB
           # chance to help. Keep this as the safe production floor; callers can
           # still override explicitly with RJ_REQUEST_MEMORY.
           direct_memory_floor_mb=4000
-          if [[ "$(basename "$master_yaml")" == *"auau_bdt_validation"* || "$master_yaml" == *"auau_bdt_validation"* ]]; then
+          if [[ "$(basename "$master_yaml")" == *"auau_bdt_validation"* || "$master_yaml" == *"auau_bdt_validation"* || "$(basename "$master_yaml")" == *"auau_bdt_etfine"* || "$master_yaml" == *"auau_bdt_etfine"* ]]; then
             # The expanded AuAu BDT validation matrix fans out many TMVA model
             # readers in one process. SDCC evidence from WP0.80 validation
             # showed cgroup holds at 4.6 GB and then again right at the 9 GB
@@ -5345,7 +5383,7 @@ SUB
       case "$DATASET" in
         isSimEmbedded|isSimEmbeddedInclusive)
           direct_memory_floor_mb=4000
-          if [[ "$(basename "$master_yaml")" == *"auau_bdt_validation"* || "$master_yaml" == *"auau_bdt_validation"* ]]; then
+          if [[ "$(basename "$master_yaml")" == *"auau_bdt_validation"* || "$master_yaml" == *"auau_bdt_validation"* || "$(basename "$master_yaml")" == *"auau_bdt_etfine"* || "$master_yaml" == *"auau_bdt_etfine"* ]]; then
             direct_memory_floor_mb=12000
             export RJ_AUTO_MEMORY_RETRY_CAP_MB="${RJ_AUTO_MEMORY_RETRY_CAP_MB:-16000}"
           fi
@@ -5543,6 +5581,7 @@ log           = ${LOG_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).log
 output        = ${OUT_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).out
 error         = ${ERR_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).err
 $(condor_auto_memory_retry_block "$direct_request_memory_mb")
+$(condor_worker_failure_hold_block)
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
@@ -5736,6 +5775,7 @@ log           = ${LOG_DIR}/job.\$(Cluster).\$(Process).log
 output        = ${OUT_DIR}/job.\$(Cluster).\$(Process).out
 error         = ${ERR_DIR}/job.\$(Cluster).\$(Process).err
 $(condor_auto_memory_retry_block "2000")
+$(condor_worker_failure_hold_block)
 should_transfer_files = NO
 stream_output = True
 stream_error  = True

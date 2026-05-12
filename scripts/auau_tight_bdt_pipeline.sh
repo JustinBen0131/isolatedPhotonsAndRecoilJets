@@ -118,18 +118,26 @@ Usage:
   ./scripts/auau_tight_bdt_pipeline.sh trainFromExtraction SOURCE=/path
   ./scripts/auau_tight_bdt_pipeline.sh trainCentInput3x3FromExtraction SOURCE=/path [MODEL_DIR=/path]
   ./scripts/auau_tight_bdt_pipeline.sh trainWidthStudyPt1530FromExtraction SOURCE=/path [MODEL_DIR=/path]
+  ./scripts/auau_tight_bdt_pipeline.sh trainWidthStudyWindowsFromExtraction SOURCE=/path [MODEL_DIR=/path] [PT_WINDOWS=5:35,10:35,15:35]
+  ./scripts/auau_tight_bdt_pipeline.sh trainEtFineCentStudyFromExtraction SOURCE=/path [MODEL_DIR=/path]
   ./scripts/auau_tight_bdt_pipeline.sh trainExpandedFromExtraction SOURCE=/path [PLAN_ONLY=1]
   ./scripts/auau_tight_bdt_pipeline.sh trainExpandedFromExtractionCondor SOURCE=/path [groupSize N]
   ./scripts/auau_tight_bdt_pipeline.sh finalizeExpandedTraining SOURCE=/path MODEL_DIR=/path SUB_ROOT=/path
   ./scripts/auau_tight_bdt_pipeline.sh applyCheck MODEL_DIR=/path
   ./scripts/auau_tight_bdt_pipeline.sh validateOnSim SOURCE=/path MODEL_DIR=/path
   ./scripts/auau_tight_bdt_pipeline.sh validateOnSimCondor SOURCE=/path MODEL_DIR=/path [groupSize N]
+  ./scripts/auau_tight_bdt_pipeline.sh deriveWorkingPointsFromValidation VALIDATION=/path [TARGET=0.80]
+  ./scripts/auau_tight_bdt_pipeline.sh generateWorkingPointConfig TEMPLATE=/path WORKING_POINTS=/path PRODUCT_MAP=a=b,c=d OUT=/path [MODEL_DIR=/path]
 
 Sidecar AuAu tight-BDT workflow:
   extraction reads only embeddedPhoton12/20 and embeddedJet12/20 samples,
   writes AuAuPhotonIDTrainingTree ROOT files, and avoids normal cfg-tag
   histogram production. validateOnSim scores those same trees with the
   final TMVA ROOT models and writes quick ROC/AUC simulation diagnostics.
+  deriveWorkingPointsFromValidation converts a completed validation report into
+  target-signal-efficiency BDT threshold manifests for downstream MC campaigns.
+  generateWorkingPointConfig injects product-mapped working points into a frozen
+  RecoilJets YAML without touching the template.
   validateOnSimCondor shards the ROOT scoring over Condor, then merges the
   score caches into the same final validation report/plots.
   trainExpandedFromExtraction builds the registry-driven expanded model study
@@ -138,6 +146,11 @@ Sidecar AuAu tight-BDT workflow:
   that swaps the standard shower widths for 3x3 tower-window widths.
   trainWidthStudyPt1530FromExtraction trains the focused 15-30 GeV
   centrality-input comparison: base widths, 3x3 widths, and base+3x3 widths.
+  trainWidthStudyWindowsFromExtraction trains the same centrality-input
+  width comparison for explicit pT windows, default 5-35, 10-35, and 15-35 GeV.
+  trainEtFineCentStudyFromExtraction trains the 15-35 GeV fine-E_T
+  centrality study: one centrality-input model, fine-E_T centrality-input
+  models, and fine-E_T x centrality-binned models using base+3x3 widths.
   finalizeExpandedTraining re-merges an already completed expanded Condor run
   without retraining, useful after bookkeeping-only fixes.
 EOF
@@ -879,6 +892,163 @@ train_width_study_pt1530_from_extraction() {
   } > "$summary"
   cat "$summary"
   send_summary_email "[RecoilJets][auauTightBDT_trainWidthStudyPt1530FromExtraction][READY]" "$summary"
+}
+
+train_width_study_windows_from_extraction() {
+  local source=""
+  local pt_windows="${RJ_AUAU_BDT_WIDTH_WINDOWS:-5:35,10:35,15:35}"
+  for tok in "$@"; do
+    case "$tok" in
+      SOURCE=*) source="${tok#SOURCE=}" ;;
+      MODEL_DIR=*) export RJ_AUAU_TIGHT_BDT_MODEL_DIR="${tok#MODEL_DIR=}" ;;
+      PT_WINDOWS=*) pt_windows="${tok#PT_WINDOWS=}" ;;
+    esac
+  done
+  [[ -n "$source" ]] || die "trainWidthStudyWindowsFromExtraction requires SOURCE=/path"
+  [[ -d "$source" ]] || die "SOURCE is not a directory: $source"
+
+  local manifest="${source}/manifests/training_roots.list"
+  local search_root="$source"
+  [[ -d "${source}/extraction" ]] && search_root="${source}/extraction"
+  local report_dir="${source}/reports"
+  guard_generated_path "width-window training report dir" "$report_dir"
+  mkdir -p "$report_dir"
+  make_root_manifest "$search_root" "$manifest"
+  validate_training_tree "$manifest" "${report_dir}/training_tree_validation_widthstudy_windows.json"
+
+  local default_model_dir="/gpfs/mnt/gpfs02/sphenix/user/${USER:-patsfan753}/thesisAnalysis/bdt_models/tight_centinput_widthstudy_windows_current"
+  local model_dir="${RJ_AUAU_TIGHT_BDT_MODEL_DIR:-$default_model_dir}"
+  local cache_file="${RJ_AUAU_BDT_CACHE_FILE:-${model_dir}/training_matrix_widthstudy_windows.npz}"
+  local registry="${model_dir}/model_registry.json"
+  guard_generated_path "width-window model dir" "$model_dir"
+
+  local extra_ranges=""
+  local spec_ids=""
+  local summary_models=()
+  IFS=',' read -r -a window_items <<< "$pt_windows"
+  for raw in "${window_items[@]}"; do
+    local item="${raw//[[:space:]]/}"
+    [[ -n "$item" ]] || continue
+    [[ "$item" == *:* ]] || die "PT_WINDOWS item must be lo:hi, got: $item"
+    local lo="${item%%:*}"
+    local hi="${item##*:}"
+    local lo_tag="${lo%.*}"
+    local hi_tag="${hi%.*}"
+    [[ -n "$lo_tag" && -n "$hi_tag" ]] || die "Bad PT_WINDOWS item: $item"
+    local tag="pt${lo_tag}to${hi_tag}"
+    extra_ranges+="${extra_ranges:+,}${lo}:${hi}"
+    spec_ids+="${spec_ids:+,}centAsFeat_${tag},centAsFeat3x3_${tag},centAsFeatBase3x3_${tag}"
+    summary_models+=("${tag}: ${model_dir}/auau_tight_bdt_centAsFeat_${tag}_tmva.root")
+    summary_models+=("${tag}: ${model_dir}/auau_tight_bdt_centAsFeat3x3_${tag}_tmva.root")
+    summary_models+=("${tag}: ${model_dir}/auau_tight_bdt_centAsFeatBase3x3_${tag}_tmva.root")
+  done
+  [[ -n "$extra_ranges" ]] || die "No PT_WINDOWS were provided"
+
+  log_path_plan "trainWidthStudyWindowsFromExtraction" \
+    "source     : ${source}" \
+    "model dir  : ${model_dir}" \
+    "manifest   : ${manifest}" \
+    "cache      : ${cache_file}" \
+    "registry   : ${registry}" \
+    "pt windows : ${extra_ranges}" \
+    "spec ids   : ${spec_ids}"
+  mkdir -p "$model_dir"
+  setup_ml_python_env
+  "$ML_PYTHON" "$TRAIN_SCRIPT" --task tight --campaign expanded-tight \
+    --input "@${manifest}" \
+    --outdir "$model_dir" \
+    --cache-file "$cache_file" \
+    --registry-output "$registry" \
+    --extra-cent-as-feat-pt-ranges "$extra_ranges" \
+    --extra-cent-as-feat-3x3-pt-ranges "$extra_ranges" \
+    --extra-cent-as-feat-base3x3-pt-ranges "$extra_ranges" \
+    --campaign-spec-ids "$spec_ids" \
+    --parallel-workers "${RJ_AUAU_BDT_TRAIN_PARALLEL:-3}" \
+    --n-jobs "${RJ_AUAU_BDT_XGB_N_JOBS:-1}" \
+    --majority-cap-ratio "${RJ_AUAU_BDT_MAJORITY_CAP_RATIO:-4.0}"
+  apply_check_registry "$model_dir" "$registry"
+  local summary="${report_dir}/widthstudy_windows_training_summary.txt"
+  {
+    echo "RECOILJETS_AUAU_TIGHT_BDT_WIDTHSTUDY_WINDOWS_TRAINING_V1"
+    echo "status=READY"
+    echo "source=${source}"
+    echo "model_dir=${model_dir}"
+    echo "registry=${registry}"
+    echo "pt_windows=${extra_ranges}"
+    echo "trained_specs=${spec_ids}"
+    for model_line in "${summary_models[@]}"; do
+      echo "model=${model_line}"
+    done
+    echo "next_action=Run validateOnSimCondor with this MODEL_DIR, then run scripts/submit_auau_bdt_widthstudy_windows_wp050.sh for paired MC validation."
+  } > "$summary"
+  cat "$summary"
+  send_summary_email "[RecoilJets][auauTightBDT_trainWidthStudyWindowsFromExtraction][READY]" "$summary"
+}
+
+train_etfine_centstudy_from_extraction() {
+  local source=""
+  local pt_bins="${RJ_AUAU_BDT_ETFINE_PT_BINS:-15,17,19,21,23,25,27,30,35}"
+  for tok in "$@"; do
+    case "$tok" in
+      SOURCE=*) source="${tok#SOURCE=}" ;;
+      MODEL_DIR=*) export RJ_AUAU_TIGHT_BDT_MODEL_DIR="${tok#MODEL_DIR=}" ;;
+      PT_BINS=*) pt_bins="${tok#PT_BINS=}" ;;
+    esac
+  done
+  [[ -n "$source" ]] || die "trainEtFineCentStudyFromExtraction requires SOURCE=/path"
+  [[ -d "$source" ]] || die "SOURCE is not a directory: $source"
+
+  local manifest="${source}/manifests/training_roots.list"
+  local search_root="$source"
+  [[ -d "${source}/extraction" ]] && search_root="${source}/extraction"
+  local report_dir="${source}/reports"
+  guard_generated_path "fine-E_T training report dir" "$report_dir"
+  mkdir -p "$report_dir"
+  make_root_manifest "$search_root" "$manifest"
+  validate_training_tree "$manifest" "${report_dir}/training_tree_validation_etfine_centstudy.json"
+
+  local default_model_dir="/gpfs/mnt/gpfs02/sphenix/user/${USER:-patsfan753}/thesisAnalysis/bdt_models/tight_etfine_centstudy_current"
+  local model_dir="${RJ_AUAU_TIGHT_BDT_MODEL_DIR:-$default_model_dir}"
+  local cache_file="${RJ_AUAU_BDT_CACHE_FILE:-${model_dir}/training_matrix_etfine_centstudy.npz}"
+  local registry="${model_dir}/model_registry.json"
+  guard_generated_path "fine-E_T model dir" "$model_dir"
+
+  log_path_plan "trainEtFineCentStudyFromExtraction" \
+    "source     : ${source}" \
+    "model dir  : ${model_dir}" \
+    "manifest   : ${manifest}" \
+    "cache      : ${cache_file}" \
+    "registry   : ${registry}" \
+    "pt bins    : ${pt_bins}" \
+    "products   : centInput_pt1535, ptFine_centInput, ptFine_cent3, ptFine_cent7"
+  mkdir -p "$model_dir"
+  setup_ml_python_env
+  "$ML_PYTHON" "$TRAIN_SCRIPT" --task tight --campaign etfine-centstudy \
+    --input "@${manifest}" \
+    --outdir "$model_dir" \
+    --cache-file "$cache_file" \
+    --registry-output "$registry" \
+    --pt-bins "$pt_bins" \
+    --coarse-cent-bins "${RJ_AUAU_BDT_ETFINE_COARSE_CENT_BINS:-0:20,20:50,50:80}" \
+    --fine-cent-bins "${RJ_AUAU_BDT_ETFINE_FINE_CENT_BINS:-0:10,10:20,20:30,30:40,40:50,50:60,60:80}" \
+    --parallel-workers "${RJ_AUAU_BDT_TRAIN_PARALLEL:-1}" \
+    --n-jobs "${RJ_AUAU_BDT_XGB_N_JOBS:-1}" \
+    --majority-cap-ratio "${RJ_AUAU_BDT_MAJORITY_CAP_RATIO:-4.0}"
+  apply_check_registry "$model_dir" "$registry"
+  local summary="${report_dir}/etfine_centstudy_training_summary.txt"
+  {
+    echo "RECOILJETS_AUAU_TIGHT_BDT_ETFINE_CENTSTUDY_TRAINING_V1"
+    echo "status=READY"
+    echo "source=${source}"
+    echo "model_dir=${model_dir}"
+    echo "registry=${registry}"
+    echo "pt_bins=${pt_bins}"
+    echo "expected_models=89"
+    echo "model_centInput_pt1535=${model_dir}/auau_tight_bdt_centInput_pt1535_tmva.root"
+    echo "next_action=Run validateOnSimCondor with this MODEL_DIR, then run the strict 15-35 GeV WP0.50 MC validation YAML."
+  } > "$summary"
+  cat "$summary"
+  send_summary_email "[RecoilJets][auauTightBDT_trainEtFineCentStudyFromExtraction][READY]" "$summary"
 }
 
 train_expanded_from_extraction() {
@@ -1860,6 +2030,70 @@ EOF
   condor_submit_dag "$dag"
 }
 
+derive_working_points_from_validation() {
+  local validation=""
+  local target="0.80"
+  local wp_mode="${RJ_AUAU_BDT_WP_MODE:-centpt}"
+  local pt_bins="${RJ_AUAU_BDT_WP_PT_BINS:-}"
+  local cent_bins="${RJ_AUAU_BDT_WP_CENT_BINS:-0,20,50,80}"
+  local tok
+  for tok in "$@"; do
+    case "$tok" in
+      VALIDATION=*) validation="${tok#VALIDATION=}" ;;
+      TARGET=*) target="${tok#TARGET=}" ;;
+      MODE=*) wp_mode="${tok#MODE=}" ;;
+      PT_BINS=*) pt_bins="${tok#PT_BINS=}" ;;
+      CENT_BINS=*) cent_bins="${tok#CENT_BINS=}" ;;
+      *) ;;
+    esac
+  done
+  [[ -n "$validation" ]] || die "deriveWorkingPointsFromValidation requires VALIDATION=/path/to/model_validation_report"
+  [[ -d "$validation" ]] || die "Validation report directory does not exist: $validation"
+  setup_ml_python_env
+  say "Deriving BDT working points from validation report"
+  say "  validation : $validation"
+  say "  target     : $target"
+  say "  mode       : $wp_mode"
+  say "  pt bins    : ${pt_bins:-validator default}"
+  say "  cent bins  : $cent_bins"
+  "$ML_PYTHON" "$VALIDATE_SCRIPT" \
+    --derive-working-points-from-report "$validation" \
+    --target-signal-efficiency "$target" \
+    --working-point-mode "$wp_mode" \
+    --working-point-pt-bins "$pt_bins" \
+    --working-point-cent-bins "$cent_bins"
+}
+
+generate_working_point_config() {
+  local template=""
+  local wp=""
+  local product_map=""
+  local out=""
+  local model_dir=""
+  local tok
+  for tok in "$@"; do
+    case "$tok" in
+      TEMPLATE=*) template="${tok#TEMPLATE=}" ;;
+      WORKING_POINTS=*) wp="${tok#WORKING_POINTS=}" ;;
+      PRODUCT_MAP=*) product_map="${tok#PRODUCT_MAP=}" ;;
+      OUT=*) out="${tok#OUT=}" ;;
+      MODEL_DIR=*) model_dir="${tok#MODEL_DIR=}" ;;
+      *) ;;
+    esac
+  done
+  [[ -n "$template" ]] || die "generateWorkingPointConfig requires TEMPLATE=/path/to/template.yaml"
+  [[ -n "$wp" ]] || die "generateWorkingPointConfig requires WORKING_POINTS=/path/to/bdt_working_points_target80.json"
+  [[ -n "$product_map" ]] || die "generateWorkingPointConfig requires PRODUCT_MAP=variant=product[,variant=product]"
+  [[ -n "$out" ]] || die "generateWorkingPointConfig requires OUT=/path/to/generated.yaml"
+  local helper="${RJ_REPO_BASE}/scripts/make_auau_bdt_target_wp_config.py"
+  local cmd=(python3 "$helper" --template "$template" --working-points "$wp" --out "$out" --product-map "$product_map")
+  if [[ -n "$model_dir" ]]; then
+    cmd+=(--model-dir "$model_dir")
+  fi
+  say "Generating RecoilJets YAML with validation-derived BDT working points"
+  "${cmd[@]}"
+}
+
 main() {
   local mode="${1:-}"
   [[ -n "$mode" ]] || { usage; exit 2; }
@@ -1872,12 +2106,16 @@ main() {
     trainFromExtraction) train_from_extraction "$@" ;;
     trainCentInput3x3FromExtraction) train_cent_input_3x3_from_extraction "$@" ;;
     trainWidthStudyPt1530FromExtraction) train_width_study_pt1530_from_extraction "$@" ;;
+    trainWidthStudyWindowsFromExtraction) train_width_study_windows_from_extraction "$@" ;;
+    trainEtFineCentStudyFromExtraction) train_etfine_centstudy_from_extraction "$@" ;;
     trainExpandedFromExtraction) train_expanded_from_extraction "$@" ;;
     trainExpandedFromExtractionCondor) train_expanded_from_extraction_condor "$@" ;;
     finalizeExpandedTraining) finalize_expanded_training "$@" ;;
     applyCheck|smokeTestApplyExisting) apply_check "$@" ;;
     validateOnSim|validateSim|simValidation) validate_on_sim "$@" ;;
-    validateOnSimCondor|condorValidateOnSim|validateSimCondor) validate_on_sim_condor "$@" ;;
+    validateOnSimCondor|condorValidateOnSim|validateSimCondor|validateEtFineCentStudyOnSimCondor) validate_on_sim_condor "$@" ;;
+    deriveWorkingPointsFromValidation|deriveWPFromValidation) derive_working_points_from_validation "$@" ;;
+    generateWorkingPointConfig|generateTargetWPConfig) generate_working_point_config "$@" ;;
     *) usage; die "Unknown mode: $mode" ;;
   esac
 }
