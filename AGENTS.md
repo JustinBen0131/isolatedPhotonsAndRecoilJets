@@ -1,3 +1,23 @@
+# Codex SDCC SSH Rule
+
+- For Codex-run SDCC shell checks/submissions from the local Mac, do **not**
+  rely on `ProxyJump` to `sphnxuserXX`: this environment can fail with
+  `channel 0: open failed: administratively prohibited: open failed` /
+  `stdio forwarding failed`.
+- Preferred Codex SSH pattern is nested SSH through the login node, always with
+  the macOS launchctl SSH agent:
+
+```bash
+SSH_AUTH_SOCK="$(launchctl getenv SSH_AUTH_SOCK)" \
+ssh patsfan753@ssh.sdcc.bnl.gov \
+  "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null sphnxuser05.sdcc.bnl.gov 'cd /sphenix/u/patsfan753/scratch/thesisAnalysis && <command>'"
+```
+
+- Use this for read-only diagnostics by default. For submissions/merge reruns,
+  only run it when the user explicitly authorizes the specific campaign action.
+- File transfer still prefers the project SFTP helpers with the same
+  `SSH_AUTH_SOCK="$(launchctl getenv SSH_AUTH_SOCK)"` prefix.
+
 # Scientific Mission
 
 - The ultimate analysis target is PPG19 Au+Au gamma-jet / `x_{J#gamma}`. The

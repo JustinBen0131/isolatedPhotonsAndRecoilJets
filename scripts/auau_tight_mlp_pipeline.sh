@@ -76,10 +76,15 @@ usage() {
 Usage:
   ./scripts/auau_tight_mlp_pipeline.sh trainFromExtraction SOURCE=/path [MODEL_DIR=/path] [PRODUCTS=primary|all]
   ./scripts/auau_tight_mlp_pipeline.sh trainPrimaryDeepFromExtraction SOURCE=/path [MODEL_DIR=/path]
+  ./scripts/auau_tight_mlp_pipeline.sh trainHighPtBalancedFromExtraction SOURCE=/path [MODEL_DIR=/path]
+  ./scripts/auau_tight_mlp_pipeline.sh trainKitchenSinkFromExtraction SOURCE=/path [MODEL_DIR=/path]
+  ./scripts/auau_tight_mlp_pipeline.sh trainIsoKitchenSinkFromExtraction SOURCE=/path [MODEL_DIR=/path]
+  ./scripts/auau_tight_mlp_pipeline.sh trainHighPtDistilledKitchenV2FromExtraction SOURCE=/path [MODEL_DIR=/path]
   ./scripts/auau_tight_mlp_pipeline.sh smokeTrainFromExtraction SOURCE=/path [MODEL_DIR=/path]
   ./scripts/auau_tight_mlp_pipeline.sh applyCheck MODEL_DIR=/path
   ./scripts/auau_tight_mlp_pipeline.sh validateOnSim SOURCE=/path MODEL_DIR=/path [OUTDIR=/path]
   ./scripts/auau_tight_mlp_pipeline.sh validateOnSimCondor SOURCE=/path MODEL_DIR=/path [groupSize N]
+  ./scripts/auau_tight_mlp_pipeline.sh rescoreValidationCache CACHE=/path/score_caches.list OUTDIR=/path [MODEL_DIR=/path|SWEEP_MANIFEST=/path]
   ./scripts/auau_tight_mlp_pipeline.sh deriveWorkingPointsFromValidation VALIDATION=/path [TARGET=0.80]
   ./scripts/auau_tight_mlp_pipeline.sh generateWorkingPointConfig TEMPLATE=/path WORKING_POINTS=/path OUT=/path [MODEL_DIR=/path]
 
@@ -91,9 +96,24 @@ EOF
 
 train_from_extraction() {
   local source="" model_dir="" products="${RJ_AUAU_TIGHT_MLP_PRODUCTS:-all}" pt_range="${RJ_AUAU_TIGHT_MLP_PT_RANGE:-15:35}"
+  local centrality_range="${RJ_AUAU_MLP_TRAIN_CENTRALITY_RANGE:-}"
+  local train_pt_bins="${RJ_AUAU_MLP_TRAIN_PT_BINS:-}"
   local max_rows="${RJ_AUAU_MLP_TRAIN_MAX_ROWS:-0}"
   local max_rows_per_class="${RJ_AUAU_MLP_TRAIN_MAX_ROWS_PER_CLASS:-0}"
+  local max_rows_per_pt_bin_class="${RJ_AUAU_MLP_TRAIN_MAX_ROWS_PER_PT_BIN_CLASS:-0}"
   local max_files_per_sample="${RJ_AUAU_MLP_TRAIN_MAX_FILES_PER_SAMPLE:-0}"
+  local pt_bin_weight_mode="${RJ_AUAU_MLP_TRAIN_PT_BIN_WEIGHT_MODE:-none}"
+  local pt_bin_weight_spec="${RJ_AUAU_MLP_TRAIN_PT_BIN_WEIGHT_SPEC:-}"
+  local highpt_selection_weights="${RJ_AUAU_MLP_TRAIN_HIGHPT_SELECTION_WEIGHTS:-}"
+  local hard_example_branch="${RJ_AUAU_MLP_TRAIN_HARD_EXAMPLE_BRANCH:-}"
+  local hard_background_factor="${RJ_AUAU_MLP_TRAIN_HARD_BACKGROUND_FACTOR:-0}"
+  local hard_signal_factor="${RJ_AUAU_MLP_TRAIN_HARD_SIGNAL_FACTOR:-0}"
+  local hard_example_power="${RJ_AUAU_MLP_TRAIN_HARD_EXAMPLE_POWER:-2.0}"
+  local distillation_branch="${RJ_AUAU_MLP_TRAIN_DISTILLATION_BRANCH:-}"
+  local distillation_strength="${RJ_AUAU_MLP_TRAIN_DISTILLATION_STRENGTH:-0.0}"
+  local distillation_temperature="${RJ_AUAU_MLP_TRAIN_DISTILLATION_TEMPERATURE:-1.0}"
+  local distillation_min_finite_fraction="${RJ_AUAU_MLP_TRAIN_DISTILLATION_MIN_FINITE_FRACTION:-0.95}"
+  local require_distillation="${RJ_AUAU_MLP_TRAIN_REQUIRE_DISTILLATION:-0}"
   local epochs="${RJ_AUAU_MLP_TRAIN_EPOCHS:-80}"
   local patience="${RJ_AUAU_MLP_TRAIN_PATIENCE:-12}"
   local progress_every="${RJ_AUAU_MLP_TRAIN_PROGRESS_EVERY:-5}"
@@ -115,9 +135,24 @@ train_from_extraction() {
       MODEL_DIR=*|MODELDIR=*|model_dir=*) model_dir="${tok#*=}" ;;
       PRODUCTS=*|products=*) products="${tok#*=}" ;;
       PT_RANGE=*|ptRange=*|pt_range=*) pt_range="${tok#*=}" ;;
+      CENTRALITY_RANGE=*|centralityRange=*|centrality_range=*) centrality_range="${tok#*=}" ;;
+      TRAIN_PT_BINS=*|trainPtBins=*|train_pt_bins=*) train_pt_bins="${tok#*=}" ;;
       MAX_ROWS=*|maxRows=*) max_rows="${tok#*=}" ;;
       MAX_ROWS_PER_CLASS=*|maxRowsPerClass=*) max_rows_per_class="${tok#*=}" ;;
+      MAX_ROWS_PER_PT_BIN_CLASS=*|maxRowsPerPtBinClass=*) max_rows_per_pt_bin_class="${tok#*=}" ;;
       MAX_FILES_PER_SAMPLE=*|maxFilesPerSample=*) max_files_per_sample="${tok#*=}" ;;
+      PT_BIN_WEIGHT_MODE=*|ptBinWeightMode=*) pt_bin_weight_mode="${tok#*=}" ;;
+      PT_BIN_WEIGHT_SPEC=*|ptBinWeightSpec=*) pt_bin_weight_spec="${tok#*=}" ;;
+      HIGHPT_SELECTION_WEIGHTS=*|highptSelectionWeights=*) highpt_selection_weights="${tok#*=}" ;;
+      HARD_EXAMPLE_BRANCH=*|hardExampleBranch=*) hard_example_branch="${tok#*=}" ;;
+      HARD_BACKGROUND_FACTOR=*|hardBackgroundFactor=*) hard_background_factor="${tok#*=}" ;;
+      HARD_SIGNAL_FACTOR=*|hardSignalFactor=*) hard_signal_factor="${tok#*=}" ;;
+      HARD_EXAMPLE_POWER=*|hardExamplePower=*) hard_example_power="${tok#*=}" ;;
+      DISTILLATION_BRANCH=*|distillationBranch=*) distillation_branch="${tok#*=}" ;;
+      DISTILLATION_STRENGTH=*|distillationStrength=*) distillation_strength="${tok#*=}" ;;
+      DISTILLATION_TEMPERATURE=*|distillationTemperature=*) distillation_temperature="${tok#*=}" ;;
+      DISTILLATION_MIN_FINITE_FRACTION=*|distillationMinFiniteFraction=*) distillation_min_finite_fraction="${tok#*=}" ;;
+      REQUIRE_DISTILLATION=*|requireDistillation=*) require_distillation="${tok#*=}" ;;
       EPOCHS=*|epochs=*) epochs="${tok#*=}" ;;
       PATIENCE=*|patience=*) patience="${tok#*=}" ;;
       PROGRESS_EVERY=*|progressEvery=*) progress_every="${tok#*=}" ;;
@@ -146,8 +181,14 @@ train_from_extraction() {
   say "  model dir: $model_dir"
   say "  products : $products"
   say "  pt range : $pt_range"
+  [[ -n "$centrality_range" ]] && say "  centrality range: $centrality_range"
+  [[ -n "$train_pt_bins" ]] && say "  train pT bins: $train_pt_bins"
   say "  max files/sample: $max_files_per_sample"
-  say "  max rows: $max_rows  max rows/class: $max_rows_per_class"
+  say "  max rows: $max_rows  max rows/class: $max_rows_per_class  max rows/pT-bin/class: $max_rows_per_pt_bin_class"
+  say "  pT-bin weighting: $pt_bin_weight_mode ${pt_bin_weight_spec:+($pt_bin_weight_spec)}"
+  say "  high-pT selection weights: ${highpt_selection_weights:-none}"
+  [[ -n "$hard_example_branch" ]] && say "  hard-example weighting: branch=$hard_example_branch bkg=$hard_background_factor sig=$hard_signal_factor power=$hard_example_power"
+  [[ -n "$distillation_branch" ]] && say "  distillation: branch=$distillation_branch strength=$distillation_strength temp=$distillation_temperature required=$require_distillation minFinite=$distillation_min_finite_fraction"
   say "  epochs/patience: $epochs/$patience"
   say "  hidden layers: $hidden_layers"
   say "  restarts: $restarts  selection: $selection_metric @ signal eff $selection_target"
@@ -174,6 +215,15 @@ train_from_extraction() {
     --conditional-jitter "$conditional_jitter" \
     --input-clip "$input_clip"
   )
+  [[ -n "$centrality_range" ]] && train_args+=( --centrality-range "$centrality_range" )
+  [[ -n "$train_pt_bins" ]] && train_args+=( --train-pt-bins "$train_pt_bins" )
+  [[ "$max_rows_per_pt_bin_class" =~ ^[0-9]+$ && "$max_rows_per_pt_bin_class" -gt 0 ]] && train_args+=( --max-rows-per-pt-bin-class "$max_rows_per_pt_bin_class" )
+  [[ "$pt_bin_weight_mode" != "none" ]] && train_args+=( --pt-bin-weight-mode "$pt_bin_weight_mode" )
+  [[ -n "$pt_bin_weight_spec" ]] && train_args+=( --pt-bin-weight-spec "$pt_bin_weight_spec" )
+  [[ -n "$highpt_selection_weights" ]] && train_args+=( --highpt-selection-weights "$highpt_selection_weights" )
+  [[ -n "$hard_example_branch" ]] && train_args+=( --hard-example-branch "$hard_example_branch" --hard-background-factor "$hard_background_factor" --hard-signal-factor "$hard_signal_factor" --hard-example-power "$hard_example_power" )
+  [[ -n "$distillation_branch" ]] && train_args+=( --distillation-branch "$distillation_branch" --distillation-strength "$distillation_strength" --distillation-temperature "$distillation_temperature" --distillation-min-finite-fraction "$distillation_min_finite_fraction" )
+  [[ "$require_distillation" == "1" || "$require_distillation" == "true" || "$require_distillation" == "TRUE" || "$require_distillation" == "yes" ]] && train_args+=( --require-distillation )
   [[ -n "$hidden_grid" ]] && train_args+=( --hidden-layer-grid "$hidden_grid" )
   [[ "$max_rows" =~ ^[0-9]+$ && "$max_rows" -gt 0 ]] && train_args+=( --max-rows "$max_rows" )
   [[ "$max_rows_per_class" =~ ^[0-9]+$ && "$max_rows_per_class" -gt 0 ]] && train_args+=( --max-rows-per-class "$max_rows_per_class" )
@@ -201,6 +251,133 @@ train_primary_deep_from_extraction() {
   export RJ_AUAU_MLP_TRAIN_MIN_DELTA="${RJ_AUAU_MLP_TRAIN_MIN_DELTA:-2.0e-6}"
   export RJ_AUAU_MLP_TRAIN_CONDITIONAL_JITTER="${RJ_AUAU_MLP_TRAIN_CONDITIONAL_JITTER:-0.015}"
   export RJ_AUAU_MLP_TRAIN_INPUT_CLIP="${RJ_AUAU_MLP_TRAIN_INPUT_CLIP:-7.0}"
+  train_from_extraction "$@"
+}
+
+train_highpt_balanced_from_extraction() {
+  export RJ_AUAU_TIGHT_MLP_PRODUCTS="${RJ_AUAU_TIGHT_MLP_PRODUCTS:-primary-ratios}"
+  export RJ_AUAU_MLP_TRAIN_MAX_FILES_PER_SAMPLE="${RJ_AUAU_MLP_TRAIN_MAX_FILES_PER_SAMPLE:-0}"
+  export RJ_AUAU_MLP_TRAIN_MAX_ROWS="${RJ_AUAU_MLP_TRAIN_MAX_ROWS:-0}"
+  export RJ_AUAU_MLP_TRAIN_MAX_ROWS_PER_CLASS="${RJ_AUAU_MLP_TRAIN_MAX_ROWS_PER_CLASS:-0}"
+  export RJ_AUAU_MLP_TRAIN_MAX_ROWS_PER_PT_BIN_CLASS="${RJ_AUAU_MLP_TRAIN_MAX_ROWS_PER_PT_BIN_CLASS:-120000}"
+  export RJ_AUAU_MLP_TRAIN_PT_BIN_WEIGHT_MODE="${RJ_AUAU_MLP_TRAIN_PT_BIN_WEIGHT_MODE:-highpt}"
+  export RJ_AUAU_MLP_TRAIN_SELECTION_METRIC="${RJ_AUAU_MLP_TRAIN_SELECTION_METRIC:-highpt_wp80}"
+  export RJ_AUAU_MLP_TRAIN_SELECTION_TARGET_SIGNAL_EFF="${RJ_AUAU_MLP_TRAIN_SELECTION_TARGET_SIGNAL_EFF:-0.80}"
+  export RJ_AUAU_MLP_TRAIN_EPOCHS="${RJ_AUAU_MLP_TRAIN_EPOCHS:-220}"
+  export RJ_AUAU_MLP_TRAIN_PATIENCE="${RJ_AUAU_MLP_TRAIN_PATIENCE:-45}"
+  export RJ_AUAU_MLP_TRAIN_PROGRESS_EVERY="${RJ_AUAU_MLP_TRAIN_PROGRESS_EVERY:-2}"
+  export RJ_AUAU_MLP_TRAIN_RESTARTS="${RJ_AUAU_MLP_TRAIN_RESTARTS:-1}"
+  export RJ_AUAU_MLP_TRAIN_HIDDEN_LAYERS="${RJ_AUAU_MLP_TRAIN_HIDDEN_LAYERS:-128,64,32}"
+  export RJ_AUAU_MLP_TRAIN_HIDDEN_LAYER_GRID="${RJ_AUAU_MLP_TRAIN_HIDDEN_LAYER_GRID:-160,80,40}"
+  export RJ_AUAU_MLP_TRAIN_BATCH_SIZE="${RJ_AUAU_MLP_TRAIN_BATCH_SIZE:-4096}"
+  export RJ_AUAU_MLP_TRAIN_LEARNING_RATE="${RJ_AUAU_MLP_TRAIN_LEARNING_RATE:-7.0e-4}"
+  export RJ_AUAU_MLP_TRAIN_L2="${RJ_AUAU_MLP_TRAIN_L2:-5.0e-5}"
+  export RJ_AUAU_MLP_TRAIN_MIN_DELTA="${RJ_AUAU_MLP_TRAIN_MIN_DELTA:-2.0e-6}"
+  export RJ_AUAU_MLP_TRAIN_CONDITIONAL_JITTER="${RJ_AUAU_MLP_TRAIN_CONDITIONAL_JITTER:-0.015}"
+  export RJ_AUAU_MLP_TRAIN_INPUT_CLIP="${RJ_AUAU_MLP_TRAIN_INPUT_CLIP:-7.0}"
+  train_from_extraction "$@"
+}
+
+train_kitchen_sink_from_extraction() {
+  export RJ_AUAU_TIGHT_MLP_PRODUCTS="${RJ_AUAU_TIGHT_MLP_PRODUCTS:-kitchen-sink}"
+  export RJ_AUAU_TIGHT_MLP_PT_RANGE="${RJ_AUAU_TIGHT_MLP_PT_RANGE:-5:35}"
+  export RJ_AUAU_MLP_TRAIN_PT_BINS="${RJ_AUAU_MLP_TRAIN_PT_BINS:-5,10,15,20,25,35}"
+  export RJ_AUAU_MLP_TRAIN_MAX_FILES_PER_SAMPLE="${RJ_AUAU_MLP_TRAIN_MAX_FILES_PER_SAMPLE:-0}"
+  export RJ_AUAU_MLP_TRAIN_MAX_ROWS="${RJ_AUAU_MLP_TRAIN_MAX_ROWS:-0}"
+  export RJ_AUAU_MLP_TRAIN_MAX_ROWS_PER_CLASS="${RJ_AUAU_MLP_TRAIN_MAX_ROWS_PER_CLASS:-0}"
+  export RJ_AUAU_MLP_TRAIN_MAX_ROWS_PER_PT_BIN_CLASS="${RJ_AUAU_MLP_TRAIN_MAX_ROWS_PER_PT_BIN_CLASS:-80000}"
+  export RJ_AUAU_MLP_TRAIN_PT_BIN_WEIGHT_MODE="${RJ_AUAU_MLP_TRAIN_PT_BIN_WEIGHT_MODE:-highpt}"
+  export RJ_AUAU_MLP_TRAIN_PT_BIN_WEIGHT_SPEC="${RJ_AUAU_MLP_TRAIN_PT_BIN_WEIGHT_SPEC:-5:10:0.05,10:15:0.10,15:20:0.20,20:25:0.30,25:35:0.35}"
+  export RJ_AUAU_MLP_TRAIN_HIGHPT_SELECTION_WEIGHTS="${RJ_AUAU_MLP_TRAIN_HIGHPT_SELECTION_WEIGHTS:-5:10:0.05,10:15:0.10,15:20:0.20,20:25:0.30,25:35:0.35}"
+  export RJ_AUAU_MLP_TRAIN_SELECTION_METRIC="${RJ_AUAU_MLP_TRAIN_SELECTION_METRIC:-highpt_wp80}"
+  export RJ_AUAU_MLP_TRAIN_SELECTION_TARGET_SIGNAL_EFF="${RJ_AUAU_MLP_TRAIN_SELECTION_TARGET_SIGNAL_EFF:-0.80}"
+  export RJ_AUAU_MLP_TRAIN_HARD_EXAMPLE_BRANCH="${RJ_AUAU_MLP_TRAIN_HARD_EXAMPLE_BRANCH:-auau_tight_bdt_score}"
+  export RJ_AUAU_MLP_TRAIN_HARD_BACKGROUND_FACTOR="${RJ_AUAU_MLP_TRAIN_HARD_BACKGROUND_FACTOR:-3.0}"
+  export RJ_AUAU_MLP_TRAIN_HARD_SIGNAL_FACTOR="${RJ_AUAU_MLP_TRAIN_HARD_SIGNAL_FACTOR:-1.0}"
+  export RJ_AUAU_MLP_TRAIN_HARD_EXAMPLE_POWER="${RJ_AUAU_MLP_TRAIN_HARD_EXAMPLE_POWER:-2.0}"
+  export RJ_AUAU_MLP_TRAIN_EPOCHS="${RJ_AUAU_MLP_TRAIN_EPOCHS:-260}"
+  export RJ_AUAU_MLP_TRAIN_PATIENCE="${RJ_AUAU_MLP_TRAIN_PATIENCE:-55}"
+  export RJ_AUAU_MLP_TRAIN_PROGRESS_EVERY="${RJ_AUAU_MLP_TRAIN_PROGRESS_EVERY:-2}"
+  export RJ_AUAU_MLP_TRAIN_RESTARTS="${RJ_AUAU_MLP_TRAIN_RESTARTS:-1}"
+  export RJ_AUAU_MLP_TRAIN_HIDDEN_LAYERS="${RJ_AUAU_MLP_TRAIN_HIDDEN_LAYERS:-192,96,48}"
+  export RJ_AUAU_MLP_TRAIN_HIDDEN_LAYER_GRID="${RJ_AUAU_MLP_TRAIN_HIDDEN_LAYER_GRID:-256,128,64}"
+  export RJ_AUAU_MLP_TRAIN_BATCH_SIZE="${RJ_AUAU_MLP_TRAIN_BATCH_SIZE:-4096}"
+  export RJ_AUAU_MLP_TRAIN_LEARNING_RATE="${RJ_AUAU_MLP_TRAIN_LEARNING_RATE:-5.0e-4}"
+  export RJ_AUAU_MLP_TRAIN_L2="${RJ_AUAU_MLP_TRAIN_L2:-7.0e-5}"
+  export RJ_AUAU_MLP_TRAIN_MIN_DELTA="${RJ_AUAU_MLP_TRAIN_MIN_DELTA:-2.0e-6}"
+  export RJ_AUAU_MLP_TRAIN_CONDITIONAL_JITTER="${RJ_AUAU_MLP_TRAIN_CONDITIONAL_JITTER:-0.012}"
+  export RJ_AUAU_MLP_TRAIN_INPUT_CLIP="${RJ_AUAU_MLP_TRAIN_INPUT_CLIP:-7.0}"
+  train_from_extraction "$@"
+}
+
+train_iso_kitchen_sink_from_extraction() {
+  export RJ_AUAU_TIGHT_MLP_PRODUCTS="${RJ_AUAU_TIGHT_MLP_PRODUCTS:-iso-kitchen-sink}"
+  export RJ_AUAU_TIGHT_MLP_PT_RANGE="${RJ_AUAU_TIGHT_MLP_PT_RANGE:-5:35}"
+  export RJ_AUAU_MLP_TRAIN_PT_BINS="${RJ_AUAU_MLP_TRAIN_PT_BINS:-5,10,15,20,25,35}"
+  export RJ_AUAU_MLP_TRAIN_MAX_FILES_PER_SAMPLE="${RJ_AUAU_MLP_TRAIN_MAX_FILES_PER_SAMPLE:-0}"
+  export RJ_AUAU_MLP_TRAIN_MAX_ROWS="${RJ_AUAU_MLP_TRAIN_MAX_ROWS:-0}"
+  export RJ_AUAU_MLP_TRAIN_MAX_ROWS_PER_CLASS="${RJ_AUAU_MLP_TRAIN_MAX_ROWS_PER_CLASS:-0}"
+  export RJ_AUAU_MLP_TRAIN_MAX_ROWS_PER_PT_BIN_CLASS="${RJ_AUAU_MLP_TRAIN_MAX_ROWS_PER_PT_BIN_CLASS:-80000}"
+  export RJ_AUAU_MLP_TRAIN_PT_BIN_WEIGHT_MODE="${RJ_AUAU_MLP_TRAIN_PT_BIN_WEIGHT_MODE:-highpt}"
+  export RJ_AUAU_MLP_TRAIN_PT_BIN_WEIGHT_SPEC="${RJ_AUAU_MLP_TRAIN_PT_BIN_WEIGHT_SPEC:-5:10:0.05,10:15:0.10,15:20:0.20,20:25:0.30,25:35:0.35}"
+  export RJ_AUAU_MLP_TRAIN_HIGHPT_SELECTION_WEIGHTS="${RJ_AUAU_MLP_TRAIN_HIGHPT_SELECTION_WEIGHTS:-5:10:0.05,10:15:0.10,15:20:0.20,20:25:0.30,25:35:0.35}"
+  export RJ_AUAU_MLP_TRAIN_SELECTION_METRIC="${RJ_AUAU_MLP_TRAIN_SELECTION_METRIC:-highpt_wp80}"
+  export RJ_AUAU_MLP_TRAIN_SELECTION_TARGET_SIGNAL_EFF="${RJ_AUAU_MLP_TRAIN_SELECTION_TARGET_SIGNAL_EFF:-0.80}"
+  export RJ_AUAU_MLP_TRAIN_HARD_EXAMPLE_BRANCH="${RJ_AUAU_MLP_TRAIN_HARD_EXAMPLE_BRANCH:-auau_tight_bdt_score}"
+  export RJ_AUAU_MLP_TRAIN_HARD_BACKGROUND_FACTOR="${RJ_AUAU_MLP_TRAIN_HARD_BACKGROUND_FACTOR:-3.0}"
+  export RJ_AUAU_MLP_TRAIN_HARD_SIGNAL_FACTOR="${RJ_AUAU_MLP_TRAIN_HARD_SIGNAL_FACTOR:-1.0}"
+  export RJ_AUAU_MLP_TRAIN_HARD_EXAMPLE_POWER="${RJ_AUAU_MLP_TRAIN_HARD_EXAMPLE_POWER:-2.0}"
+  export RJ_AUAU_MLP_TRAIN_EPOCHS="${RJ_AUAU_MLP_TRAIN_EPOCHS:-260}"
+  export RJ_AUAU_MLP_TRAIN_PATIENCE="${RJ_AUAU_MLP_TRAIN_PATIENCE:-55}"
+  export RJ_AUAU_MLP_TRAIN_PROGRESS_EVERY="${RJ_AUAU_MLP_TRAIN_PROGRESS_EVERY:-2}"
+  export RJ_AUAU_MLP_TRAIN_RESTARTS="${RJ_AUAU_MLP_TRAIN_RESTARTS:-1}"
+  export RJ_AUAU_MLP_TRAIN_HIDDEN_LAYERS="${RJ_AUAU_MLP_TRAIN_HIDDEN_LAYERS:-192,96,48}"
+  export RJ_AUAU_MLP_TRAIN_HIDDEN_LAYER_GRID="${RJ_AUAU_MLP_TRAIN_HIDDEN_LAYER_GRID:-256,128,64}"
+  export RJ_AUAU_MLP_TRAIN_BATCH_SIZE="${RJ_AUAU_MLP_TRAIN_BATCH_SIZE:-4096}"
+  export RJ_AUAU_MLP_TRAIN_LEARNING_RATE="${RJ_AUAU_MLP_TRAIN_LEARNING_RATE:-5.0e-4}"
+  export RJ_AUAU_MLP_TRAIN_L2="${RJ_AUAU_MLP_TRAIN_L2:-7.0e-5}"
+  export RJ_AUAU_MLP_TRAIN_MIN_DELTA="${RJ_AUAU_MLP_TRAIN_MIN_DELTA:-2.0e-6}"
+  export RJ_AUAU_MLP_TRAIN_CONDITIONAL_JITTER="${RJ_AUAU_MLP_TRAIN_CONDITIONAL_JITTER:-0.012}"
+  export RJ_AUAU_MLP_TRAIN_INPUT_CLIP="${RJ_AUAU_MLP_TRAIN_INPUT_CLIP:-7.0}"
+  say "NOTE: iso-aware kitchen-sink MLP is diagnostic-only; it uses reco isolation-derived inputs and is not ABCD-purity safe."
+  train_from_extraction "$@"
+}
+
+train_highpt_distilled_kitchen_v2_from_extraction() {
+  export RJ_AUAU_TIGHT_MLP_PRODUCTS="${RJ_AUAU_TIGHT_MLP_PRODUCTS:-highpt-distilled-kitchen-v2}"
+  export RJ_AUAU_TIGHT_MLP_PT_RANGE="${RJ_AUAU_TIGHT_MLP_PT_RANGE:-15:35}"
+  export RJ_AUAU_MLP_TRAIN_PT_BINS="${RJ_AUAU_MLP_TRAIN_PT_BINS:-15,20,25,35}"
+  export RJ_AUAU_MLP_TRAIN_MAX_FILES_PER_SAMPLE="${RJ_AUAU_MLP_TRAIN_MAX_FILES_PER_SAMPLE:-0}"
+  export RJ_AUAU_MLP_TRAIN_MAX_ROWS="${RJ_AUAU_MLP_TRAIN_MAX_ROWS:-0}"
+  export RJ_AUAU_MLP_TRAIN_MAX_ROWS_PER_CLASS="${RJ_AUAU_MLP_TRAIN_MAX_ROWS_PER_CLASS:-0}"
+  export RJ_AUAU_MLP_TRAIN_MAX_ROWS_PER_PT_BIN_CLASS="${RJ_AUAU_MLP_TRAIN_MAX_ROWS_PER_PT_BIN_CLASS:-120000}"
+  export RJ_AUAU_MLP_TRAIN_PT_BIN_WEIGHT_MODE="${RJ_AUAU_MLP_TRAIN_PT_BIN_WEIGHT_MODE:-highpt}"
+  export RJ_AUAU_MLP_TRAIN_PT_BIN_WEIGHT_SPEC="${RJ_AUAU_MLP_TRAIN_PT_BIN_WEIGHT_SPEC:-15:20:0.15,20:25:0.35,25:35:0.50}"
+  export RJ_AUAU_MLP_TRAIN_HIGHPT_SELECTION_WEIGHTS="${RJ_AUAU_MLP_TRAIN_HIGHPT_SELECTION_WEIGHTS:-15:20:0.15,20:25:0.35,25:35:0.50}"
+  export RJ_AUAU_MLP_TRAIN_SELECTION_METRIC="${RJ_AUAU_MLP_TRAIN_SELECTION_METRIC:-highpt_wp80}"
+  export RJ_AUAU_MLP_TRAIN_SELECTION_TARGET_SIGNAL_EFF="${RJ_AUAU_MLP_TRAIN_SELECTION_TARGET_SIGNAL_EFF:-0.80}"
+  export RJ_AUAU_MLP_TRAIN_HARD_EXAMPLE_BRANCH="${RJ_AUAU_MLP_TRAIN_HARD_EXAMPLE_BRANCH:-auau_tight_bdt_score}"
+  export RJ_AUAU_MLP_TRAIN_HARD_BACKGROUND_FACTOR="${RJ_AUAU_MLP_TRAIN_HARD_BACKGROUND_FACTOR:-2.0}"
+  export RJ_AUAU_MLP_TRAIN_HARD_SIGNAL_FACTOR="${RJ_AUAU_MLP_TRAIN_HARD_SIGNAL_FACTOR:-0.8}"
+  export RJ_AUAU_MLP_TRAIN_HARD_EXAMPLE_POWER="${RJ_AUAU_MLP_TRAIN_HARD_EXAMPLE_POWER:-2.0}"
+  export RJ_AUAU_MLP_TRAIN_DISTILLATION_BRANCH="${RJ_AUAU_MLP_TRAIN_DISTILLATION_BRANCH:-auau_tight_bdt_score}"
+  export RJ_AUAU_MLP_TRAIN_DISTILLATION_STRENGTH="${RJ_AUAU_MLP_TRAIN_DISTILLATION_STRENGTH:-0.15}"
+  export RJ_AUAU_MLP_TRAIN_DISTILLATION_TEMPERATURE="${RJ_AUAU_MLP_TRAIN_DISTILLATION_TEMPERATURE:-1.0}"
+  export RJ_AUAU_MLP_TRAIN_DISTILLATION_MIN_FINITE_FRACTION="${RJ_AUAU_MLP_TRAIN_DISTILLATION_MIN_FINITE_FRACTION:-0.95}"
+  export RJ_AUAU_MLP_TRAIN_REQUIRE_DISTILLATION="${RJ_AUAU_MLP_TRAIN_REQUIRE_DISTILLATION:-1}"
+  export RJ_AUAU_MLP_TRAIN_EPOCHS="${RJ_AUAU_MLP_TRAIN_EPOCHS:-280}"
+  export RJ_AUAU_MLP_TRAIN_PATIENCE="${RJ_AUAU_MLP_TRAIN_PATIENCE:-60}"
+  export RJ_AUAU_MLP_TRAIN_PROGRESS_EVERY="${RJ_AUAU_MLP_TRAIN_PROGRESS_EVERY:-2}"
+  export RJ_AUAU_MLP_TRAIN_RESTARTS="${RJ_AUAU_MLP_TRAIN_RESTARTS:-2}"
+  export RJ_AUAU_MLP_TRAIN_HIDDEN_LAYERS="${RJ_AUAU_MLP_TRAIN_HIDDEN_LAYERS:-192,96,48}"
+  export RJ_AUAU_MLP_TRAIN_HIDDEN_LAYER_GRID="${RJ_AUAU_MLP_TRAIN_HIDDEN_LAYER_GRID:-160,80,40}"
+  export RJ_AUAU_MLP_TRAIN_BATCH_SIZE="${RJ_AUAU_MLP_TRAIN_BATCH_SIZE:-4096}"
+  export RJ_AUAU_MLP_TRAIN_LEARNING_RATE="${RJ_AUAU_MLP_TRAIN_LEARNING_RATE:-4.0e-4}"
+  export RJ_AUAU_MLP_TRAIN_L2="${RJ_AUAU_MLP_TRAIN_L2:-8.0e-5}"
+  export RJ_AUAU_MLP_TRAIN_MIN_DELTA="${RJ_AUAU_MLP_TRAIN_MIN_DELTA:-2.0e-6}"
+  export RJ_AUAU_MLP_TRAIN_CONDITIONAL_JITTER="${RJ_AUAU_MLP_TRAIN_CONDITIONAL_JITTER:-0.012}"
+  export RJ_AUAU_MLP_TRAIN_INPUT_CLIP="${RJ_AUAU_MLP_TRAIN_INPUT_CLIP:-7.0}"
+  say "NOTE: v2 uses the BDT score only as a training teacher/hard-example guide; the exported artifact has no BDT-score runtime input."
   train_from_extraction "$@"
 }
 
@@ -255,6 +432,8 @@ validate_on_sim() {
   local source="" model_dir="" model_registry="" outdir=""
   local score_max="${RJ_AUAU_TIGHT_MLP_VALIDATE_SCORE_MAX_ROWS:-300000}"
   local max_files_per_sample="${RJ_AUAU_TIGHT_MLP_VALIDATE_MAX_FILES_PER_SAMPLE:-0}"
+  local pt_bins="${RJ_AUAU_TIGHT_MLP_VALIDATE_PT_BINS:-}"
+  local centrality_bins="${RJ_AUAU_TIGHT_MLP_VALIDATE_CENTRALITY_BINS:-}"
   local tok
   for tok in "$@"; do
     case "$tok" in
@@ -264,6 +443,8 @@ validate_on_sim() {
       OUTDIR=*|outdir=*) outdir="${tok#*=}" ;;
       SCORE_MAX_ROWS=*|scoreMaxRows=*) score_max="${tok#*=}" ;;
       MAX_FILES_PER_SAMPLE=*|maxFilesPerSample=*) max_files_per_sample="${tok#*=}" ;;
+      PT_BINS=*|ptBins=*) pt_bins="${tok#*=}" ;;
+      CENTRALITY_BINS=*|centralityBins=*) centrality_bins="${tok#*=}" ;;
     esac
   done
   [[ -n "$source" && -d "$source" ]] || die "validateOnSim requires SOURCE=/path"
@@ -272,6 +453,8 @@ validate_on_sim() {
   local -a args=( "$VALIDATE_SCRIPT" --source "$source" --model-dir "$model_dir" )
   [[ -n "$model_registry" ]] && args+=( --model-registry "$model_registry" )
   [[ -n "$outdir" ]] && args+=( --outdir "$outdir" )
+  [[ -n "$pt_bins" ]] && args+=( --pt-bins "$pt_bins" )
+  [[ -n "$centrality_bins" ]] && args+=( --centrality-bins "$centrality_bins" )
   [[ "$score_max" =~ ^[0-9]+$ && "$score_max" -gt 0 ]] && args+=( --score-max-rows "$score_max" )
   [[ "$max_files_per_sample" =~ ^[0-9]+$ && "$max_files_per_sample" -gt 0 ]] && args+=( --max-files-per-sample "$max_files_per_sample" )
   say "Validation score rows: $score_max  max files/sample: $max_files_per_sample"
@@ -503,6 +686,42 @@ EOF
   condor_submit_dag "$dag"
 }
 
+rescore_validation_cache() {
+  local cache_manifest="" model_dir="" model_registry="" sweep_manifest="" outdir=""
+  local pt_bins="${RJ_AUAU_TIGHT_MLP_VALIDATE_PT_BINS:-}"
+  local centrality_bins="${RJ_AUAU_TIGHT_MLP_VALIDATE_CENTRALITY_BINS:-}"
+  local tok
+  for tok in "$@"; do
+    case "$tok" in
+      CACHE=*|CACHE_MANIFEST=*|cache=*) cache_manifest="${tok#*=}" ;;
+      MODEL_DIR=*|MODELDIR=*|model_dir=*) model_dir="${tok#*=}" ;;
+      MODEL_REGISTRY=*|REGISTRY=*|model_registry=*) model_registry="${tok#*=}" ;;
+      SWEEP_MANIFEST=*|sweepManifest=*) sweep_manifest="${tok#*=}" ;;
+      OUTDIR=*|outdir=*) outdir="${tok#*=}" ;;
+      PT_BINS=*|ptBins=*) pt_bins="${tok#*=}" ;;
+      CENTRALITY_BINS=*|centralityBins=*) centrality_bins="${tok#*=}" ;;
+    esac
+  done
+  [[ -n "$cache_manifest" && -s "$cache_manifest" ]] || die "rescoreValidationCache requires CACHE=/path/to/score_caches.list"
+  [[ -n "$outdir" ]] || die "rescoreValidationCache requires OUTDIR=/path"
+  if [[ -z "$sweep_manifest" ]]; then
+    [[ -n "$model_dir" && -d "$model_dir" ]] || die "rescoreValidationCache requires MODEL_DIR=/path or SWEEP_MANIFEST=/path"
+  fi
+  setup_ml_python_env
+  local -a args=( "$VALIDATE_SCRIPT" --rescore-score-caches "$cache_manifest" --outdir "$outdir" )
+  [[ -n "$model_dir" ]] && args+=( --model-dir "$model_dir" )
+  [[ -n "$model_registry" ]] && args+=( --model-registry "$model_registry" )
+  [[ -n "$sweep_manifest" ]] && args+=( --sweep-manifest "$sweep_manifest" )
+  [[ -n "$pt_bins" ]] && args+=( --pt-bins "$pt_bins" )
+  [[ -n "$centrality_bins" ]] && args+=( --centrality-bins "$centrality_bins" )
+  say "Rescoring validation cache"
+  say "  cache : $cache_manifest"
+  [[ -n "$model_dir" ]] && say "  model : $model_dir"
+  [[ -n "$sweep_manifest" ]] && say "  sweep : $sweep_manifest"
+  say "  outdir: $outdir"
+  "$ML_PYTHON" "${args[@]}"
+}
+
 derive_working_points_from_validation() {
   local validation="" target="0.80" tok
   for tok in "$@"; do
@@ -539,10 +758,15 @@ main() {
     -h|--help|help) usage ;;
     trainFromExtraction) train_from_extraction "$@" ;;
     trainPrimaryDeepFromExtraction|trainPrimaryDeep|trainPrimaryRatiosDeepFromExtraction|trainPrimaryRatiosDeep) train_primary_deep_from_extraction "$@" ;;
+    trainHighPtBalancedFromExtraction|trainHighPtBalanced|trainHighPt) train_highpt_balanced_from_extraction "$@" ;;
+    trainKitchenSinkFromExtraction|trainKitchenSink|kitchenSink) train_kitchen_sink_from_extraction "$@" ;;
+    trainIsoKitchenSinkFromExtraction|trainIsoKitchenSink|isoKitchenSink|isoDiagnostic) train_iso_kitchen_sink_from_extraction "$@" ;;
+    trainHighPtDistilledKitchenV2FromExtraction|trainHighPtDistilledKitchenV2|trainDistilledKitchenV2|trainBDTBeatingV2) train_highpt_distilled_kitchen_v2_from_extraction "$@" ;;
     smokeTrainFromExtraction|smokeTrain) smoke_train_from_extraction "$@" ;;
     applyCheck|smokeTestApplyExisting) apply_check "$@" ;;
     validateOnSim|validateSim|simValidation) validate_on_sim "$@" ;;
     validateOnSimCondor|condorValidateOnSim|validateSimCondor) validate_on_sim_condor "$@" ;;
+    rescoreValidationCache|rescoreCache|validateFromCache) rescore_validation_cache "$@" ;;
     deriveWorkingPointsFromValidation|deriveWPFromValidation) derive_working_points_from_validation "$@" ;;
     generateWorkingPointConfig|generateTargetWPConfig) generate_working_point_config "$@" ;;
     *) usage; die "Unknown mode: $mode" ;;

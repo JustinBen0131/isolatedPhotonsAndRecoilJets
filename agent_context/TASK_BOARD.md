@@ -1,6 +1,6 @@
 # Task Board
 
-Last updated: 2026-05-11
+Last updated: 2026-05-12
 
 Task tracking is milestone/blocker level. Add tasks when Justin explicitly asks
 to track/add/remember them. If a task only appears casually in conversation,
@@ -9,6 +9,120 @@ Removal` and ask Justin before removing or archiving.
 
 ## Now
 
+- RUNNING IN TMUX / MERGE REPAIR: target80 BDT all-available campaign
+  `bdt_target80_gated_20260512_001012` on `sphnxuser05`. Codex dry-scanned the
+  generated config directory
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/bdt_target80_all_available_20260511_224158`
+  at 2026-05-12 21:53 EDT: `analysis_config_etfine_15to35_target80` was
+  already final-stitched (`finals=6`), while `expanded_5to40`,
+  `widthstudy_pt10to35`, `widthstudy_pt1530`, `widthstudy_pt15to35`, and
+  `widthstudy_pt5to35` were ready with raw signal/background outputs and
+  `0` held jobs. Codex launched tmux session
+  `target80_merge_repair_20260512_2153` with guarded looped stitching; first
+  live stage submitted `analysis_config_expanded_5to40_target80` firstRound
+  signal merge DAGMan cluster `5340331` / worker cluster `5340332.*`, with
+  `20` idle and `0` held immediately after submission. Next checkpoint: watch
+  until finalStitch products exist, then pull final merged ROOT files only.
+- READY FOR FIRST TARGET80 PLOTS: first completed target80 BDT
+  signal/background MC pair is offline locally. Folder:
+  `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/target80_first_offline/bdt_target80_gated_20260512_001012/analysis_config_etfine_15to35_target80`.
+  It contains 6 nonzero finalStitch ROOT files for config
+  `analysis_config_etfine_15to35_target80`: signal `isSimEmbedded` and
+  inclusive-background `isSimEmbeddedInclusive` for `reference`, `newPPG12`,
+  and `auauCentInputBase3x3BDT`. Next plotting priority: target80 ID efficiency
+  and reco efficiency for this first available pair.
+- OFFLINE / READY FOR WP80 BDT-vs-MLP QA: MLP WP80 production campaign
+  `mlp_deep_primary_ratios_wp080_20260512_152538` finished cleanly on
+  `sphnxuser06` after strict recovery of the three BDT-comparator Jet12 groups.
+  Clean watcher
+  `mlp_wp80_release_merge_watch_clean_20260512_195445` ended with `0` Justin
+  held jobs, `320` chunkMerge ROOT files, `16` ALL ROOT files, and `8` final
+  MERGED ROOT files. Codex pulled all 8 merged files locally to
+  `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/combinedSimOnlyEMBEDDED/mlp_wp80_release_20260512_152538`
+  and verified each ROOT file opens with one top-level key. This folder now has
+  paired `isSimEmbedded` photon12+20 and `isSimEmbeddedInclusive` jet12+20
+  outputs for `reference`, `newPPG12`, `auauCentInputBase3x3BDT`, and
+  `auauCentInputBase3x3MLP`. Next plotting priority: BDT-vs-MLP WP80
+  signal/background comparison, then the matched tight-photon diagnostic
+  pipeline Justin asked to track.
+- RUNNING IN TMUX / DIAGNOSTIC ONLY: iso-aware kitchen-sink AuAu tight-MLP
+  side test on `sphnxuser02`. Started 2026-05-12 19:03 EDT in tmux session
+  `mlp_iso_kitchensink_tmux_20260512_190357`, model dir
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/tight_mlp_iso_kitchensink_tmux_20260512_190357`,
+  and live log
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/train_iso_kitchensink_tmux_20260512_190357.log`.
+  This is the deliberately non-ABCD-safe "how good can we do if isolation is
+  visible?" model: kitchen-sink shower/ratio features plus
+  `reco_eiso_clip30`, `reco_eiso_over_cluster_Et`, and
+  `reco_eiso_signed_log1p`. Evidence at 20:04 EDT: still training, near epoch
+  `20`, with validation AUC about `0.846`; no registry yet. Next checkpoint:
+  watch for artifact writeout and let the validation watchdog submit the
+  diagnostic validation once `applyCheck` passes.
+- RUNNING IN TMUX / AUTO-VALIDATION WATCHDOG: SDCC validation handoff for
+  standalone kitchen-sink MLPs on `sphnxuser02`. Session
+  `mlp_validation_watchdog_20260512_190453`, log
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/mlp_validation_watchdog_20260512_190453.log`,
+  script `/tmp/mlp_validation_watchdog_20260512_190453.sh`. It checks the
+  non-iso and iso standalone model dirs every 15 minutes; once a registry
+  exists and `applyCheck` passes, it submits `validateOnSimCondor` once with
+  `groupSize=100`, `SCORE_MAX_ROWS=600000`, and `4000MB` validation workers.
+  Codex heartbeat automation `auau-mlp-watchdog` checks the active MLP runs
+  every 30 minutes and is authorized to restart the validation handoff if the
+  SDCC watchdog dies before validation submission. Evidence at 20:04 EDT: the
+  session is alive and correctly waiting because neither standalone registry is
+  ready yet.
+- RUNNING IN TMUX: standalone kitchen-sink AuAu tight-MLP side test on
+  `sphnxuser02`. The previous 48 GB Condor worker `2066012` was removed at
+  Justin's request; a follow-up query showed `0` jobs in that cluster. Active
+  tmux session is `mlp_kitchensink_tmux_20260512_185247`, model dir
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/tight_mlp_kitchensink_tmux_20260512_185247`,
+  and live log
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/train_kitchensink_tmux_20260512_185247.log`.
+  This side test uses extended shower-shape / energy-ratio features, high-pT
+  WP80 selection, pT-balanced caps/weights, and BDT-guided hard-example
+  weighting during training only. Evidence at launch: tmux process tree reached
+  `/sphenix/u/patsfan753/.venvs/thesis-ml/bin/python ... train_auau_photon_mlp.py`,
+  and the log saw `paths=8000` with balanced signal/background manifest groups.
+  Evidence at 20:04 EDT: still training near epoch `108`, with validation AUC
+  about `0.746`; no registry yet. Next checkpoint: tail the tmux log for
+  artifact writeout; after training finishes, run full embedded validation
+  because the existing primary-ratios validation cache lacks the new extended
+  input features.
+- READY TO MERGE WITH GUARDS: target80 BDT raw outputs on `sphnxuser05`.
+  Codex added/uploaded `scripts/merge_auau_bdt_target80_ready.sh` and verified
+  it in dry-run mode. It currently finds five ready target80 config sets
+  (`etfine_15to35`, `expanded_5to40`, `widthstudy_pt10to35`,
+  `widthstudy_pt1530`, `widthstudy_pt15to35`) and one not-yet-ready set
+  (`widthstudy_pt5to35`, signal raw exists but inclusive raw is still missing).
+  The live tmux submitter
+  `target80_bdt_target80_gated_20260512_001012` is still alive and waiting at
+  the queue gate before the missing inclusive half. Exact guarded merge command
+  after approval:
+  `RJ_TARGET80_MERGE_DO_RUN=1 RJ_TARGET80_MERGE_LOOP=1 RJ_TARGET80_MERGE_MAX_CONFIGS=1 bash ./scripts/merge_auau_bdt_target80_ready.sh`.
+  This should be run from
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis` on `sphnxuser05`, ideally in
+  its own tmux, and only after confirming no held jobs in the target80 lane.
+- FAILED / FIX BEFORE RESUBMIT: high-pT AuAu tight-MLP Condor sweep on
+  `sphnxuser02`. Submitted
+  2026-05-12 18:23 EDT with DAGMan cluster `2066007`, submit dir
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightMLPHighPtSweep_20260512_182344`,
+  and model root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/tight_mlp_highpt_sweep_20260512_182344`.
+  It trains `global15_highPtBalanced`, `global5_broadReach`, routed
+  `pt3_15to35`, and routed `cent3_15to35` with `MAXJOBS=4` and `24000MB`
+  requested per worker, then should finalize a sweep manifest and rescored
+  validation report from the existing 80-shard MLP validation cache. Evidence
+  at 20:04 EDT: no active `patsfan753` Condor jobs; DAG `2066007` aborted with
+  `DAG_STATUS_NODE_FAILED`; failed nodes were `GLOBAL5` and `PT3_015_020`; no
+  `sweep_manifest.json` and no `validation_rank_table.csv`. `GLOBAL5` failed
+  from a finite-positive bin-weight validation error for the broad `5-35`
+  model. `PT3_015_020` trained a promising artifact anyway
+  (`val_auc=0.78278`, `test_auc=0.78421`, selection fake rate `0.3589`) but
+  the wrapper exited nonzero with `unexpected EOF while looking for matching
+  '"'`. This does not look memory-related; worker memory use was only a few GB
+  against `24000MB`. Next: fix the broad-model pT-bin weighting config/parser
+  and the generated worker quoting bug, then resubmit only a corrected sweep
+  or salvage/rescore completed artifacts intentionally.
 - ACTIVE SLIDE TARGET UNTIL FRIDAY PPG MEETING: working-point Slides deck is
   `AuAuWP_5_12_2026`, presentation id
   `1n4N74TMiB-HiWvZvW0LYW0Emg9AL25yuUSJAAfJzaWg`, URL
@@ -66,34 +180,6 @@ Removal` and ask Justin before removing or archiving.
   watch without entering tmux, use
   `tail -f /sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/bdt_target80_gated_20260512_001012/tmux_bdt_target80_gated_20260512_001012.log`;
   `Ctrl-C` from that tail is safe and does not stop the tmux submitter.
-- READY FOR MANUAL MERGE / NO FINAL ROOT PULL YET: fixed width-window WP0.50
-  RecoilJets MC analysis workers on `sphnxuser04`. On 2026-05-11 at 21:51 EDT,
-  terminal queue evidence showed campaign
-  `widthstudy_windows_wp050_fixed_20260511_180500` drained completely:
-  `0` user jobs, `0` idle, `0` running, `0` held, `0` removed. This campaign
-  used worker clusters `1140092`-`1140103` and was intentionally submitted with
-  `RJ_WIDTHSTUDY_AUTO_MERGE=0`, so the finished state means the raw analysis
-  worker outputs are ready for manual merging, not that final stitched SIM
-  ROOTs are ready to pull. The local validation report for the same 9-model
-  width-window family is already present at
-  `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auauTightBDTValidation/model_validation_condor_20260511_171943`
-  with `validation_summary.txt`, `validation_model_rankings.csv`, score
-  caches, and validation PNGs. Late 22:19 EDT terminal evidence: Justin ran
-  `condor_rm patsfan753` on `sphnxuser04` after a bad chained manual merge;
-  queue then showed `0` user jobs. This removed active merge jobs only, not the
-  finished raw worker ROOT outputs. Follow-up nested-SSH inventory on
-  2026-05-12 showed every pT window (`pt5to35`, `pt10to35`, `pt15to35`) and
-  both datasets (`simembedded`, `simembeddedinclusive`) has `6` flat
-  secondRound sample-level ROOT files, but `0` final stitched merged ROOTs.
-  Local recovery patches to `mergeRecoilJets.sh` and
-  `merge_auau_bdt_widthstudy_windows_wp050_staged.sh` were uploaded and remote
-  grep markers confirmed the finalStitch flat-file discovery and correct
-  staged input-base routing are present. Codex submitted guarded `finalStitch`
-  at 2026-05-12 16:33 EDT after verifying the secondRound file counts and an
-  empty user queue; clusters span `1140257`-`1140292`. At 16:39 EDT the queue
-  was `144` idle, `0` running, `0` held, final merged count `0/18`. Active
-  heartbeat is watching and will pull offline after `18/18` final merged files
-  appear and the queue drains.
 - MLP FULL-FILE VALIDATION READY / SEPARATE LANE: Gmail reported
   `[RecoilJets][auauTightMLP_validateOnSimCondor][READY]` from
   `sphnxuser06` at 2026-05-11 21:59 for the environment-fixed full-file MLP
@@ -608,6 +694,58 @@ Removal` and ask Justin before removing or archiving.
   isolation, shower-shape distributions, WP80 fake rate, and RecoilJets-level
   recovery/leakage for each category so the MLP/BDT score difference becomes a
   physics diagnostic.
+- Run the BDT-beating AuAu tight-MLP v2 decision lane. Local code now has a
+  guarded SDCC driver at `scripts/auau_mlp_bdt_beating_driver.sh`; mutating
+  modes require `RJ_DO_RUN=1`, Condor validation additionally requires
+  `RJ_ALLOW_CONDOR=1`. Next operational sequence: recover `global5_broadReach`
+  if still missing, write/rescore the high-pT manifest, train
+  `auauHighPtDistilledKitchenMLP_v2`, validate it against current MLP /
+  high-pT sweep / best BDT references, then only promote to production if the
+  `20-35 GeV` WP80 behavior improves cleanly.
+- DONE / USE AS CEILING DIAGNOSTIC: stacked BDT+MLP calibrator sidecar.
+  Codex added `scripts/train_auau_stacked_bdt_mlp_calibrator.py` and
+  `scripts/submit_auau_stacked_bdt_mlp_calibrator.sh`, verified local
+  synthetic-cache tests and SDCC two-shard smoke, then ran the full stacker on
+  `sphnxuser02` in tmux session
+  `mlp_stacked_bdt_mlp_calib_20260512_225152`. Output dir:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/stacked_bdt_mlp_calibrator_20260512_225152`.
+  Best test model was `stack_interactions_tiny_gbm` with AUC `0.97004` and
+  WP80 fake `0.0405`; strongest pT-bin test AUCs were around `0.75-0.81` in
+  `20-35 GeV`. This is not an ABCD-safe production ID because the BDT score is
+  an input, but it strongly supports using the BDT as a teacher/ensemble
+  diagnostic for the next clean MLP distillation step.
+- TRAINED / VALIDATION FALLBACK NEEDED: fine-pT distilled kitchen MLP recovery
+  sweep. The first `sphnxuser02` DAGMan cluster `2066023` failed fast because
+  route-local experts inherited global high-pT selection weights
+  (`15:20,20:25,25:35`) that did not match single-route bins such as `15:18`.
+  The first recovery DAG `2066036` still failed because the remote v2 pipeline
+  defaults overrode the route-local CLI argument. Codex hardened
+  `scripts/submit_auau_mlp_finept_distilled_sweep.sh` so generated workers
+  export route-local pT/ranking env vars before invoking the pipeline, and
+  updated `scripts/auau_tight_mlp_pipeline.sh` to print effective high-pT
+  selection weights in the training banner. Local and remote checks passed:
+  `bash -n`, Python compile, route-weight parser smoke, local DAG dry-run,
+  generated-worker syntax, and remote `/tmp` DAG dry-run from the uploaded SDCC
+  copy. SDCC upload/status returned `MATCH` for both files. Fresh recovery was
+  submitted from `sphnxuser02` with stamp `20260512_215558`: DAGMan cluster
+  `2066049`, sweep dir
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/tight_mlp_finept_distilled_kitchen_v2_recover2_20260512_215558`,
+  submit root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightMLPFinePtDistilled_recover2_20260512_215558`.
+  Early queue check showed first route workers `2066050` and `2066051`
+  running with `0` held; their `.out` files printed
+  `route_highpt_selection_weights=15:18:1.0` / `18:20:1.0`, the pipeline
+  banner printed matching `high-pT selection weights`, `.err` files were empty,
+  and both workers were reading ROOT files. This resolves the repeated
+  `Weight bin 15:20 is not present` failure for the first routes. 22:55 EDT
+  update: all six route experts trained, all six `model_registry.json` files
+  exist, and `finept_distilled_kitchen_v2_sweep_manifest.json` exists. The
+  automatic validation-cache rescore failed because the old primary-MLP cache
+  does not contain kitchen-sink feature columns needed by these artifacts
+  (`cluster_weta35_cogx`, `cluster_wphi53_cogx`, `cluster_w32`, and related
+  ratios). Next: run a fresh ROOT-backed routed validation using the sweep
+  manifest, or generate a kitchen-feature score cache; do not use training AUC
+  as the promotion evidence.
 
 ## Waiting
 
@@ -658,9 +796,28 @@ Removal` and ask Justin before removing or archiving.
   affected outputs.
 - User decision on final `isSimInclusive` pp inclusive-jet stitching
   prescription.
+- BDT-beating AuAu tight-MLP automation lane: the new driver and v2
+  runtime/trainer support were uploaded to SDCC on 2026-05-12 and verified
+  `MATCH`. Use read-only `status` first, then gated `recoverGlobal5Tmux`,
+  `writeHighPtManifest`, `rescoreHighPt`, and `trainV2Tmux` as evidence
+  becomes available. The `auau-mlp-watchdog` heartbeat is active and read-only;
+  it must not submit jobs, remove jobs, transfer files, or edit SDCC without
+  Justin explicitly asking in the live thread.
 
 ## Done Pending Removal
 
+- Fixed width-window WP0.50 RecoilJets MC campaign
+  `widthstudy_windows_wp050_fixed_20260511_180500` completed finalStitch and
+  was pulled offline on 2026-05-12. Local folder:
+  `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auau_widthstudy_windows_wp050_fixed_20260511_180500_complete`.
+  Verification: `18` nonzero ROOT files, `3.9G` total. Contents cover three
+  pT training/applicability windows (`pt5to35`, `pt10to35`, `pt15to35`), both
+  embedded MC datasets (`photonJet12and20merged_SIM`,
+  `embeddedJet12and20merged_SIM`), and three rows: reference box-cuts,
+  centrality-input BDT with base widths, and centrality-input BDT with 3x3
+  widths. The base+3x3 row was not produced by this remote WP0.5 campaign.
+  Next analysis task is offline plot comparison; ask Justin before archiving
+  this completed operational task.
 - Scaled-trigger efficiency plot generation for the current presentation pass
   was reported complete; remaining value is slide explanation/polish and any
   future follow-up plots. Ask Justin before archiving.

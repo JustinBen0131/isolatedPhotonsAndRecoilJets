@@ -56,9 +56,37 @@ WIDTH_RATIO_FEATURES = [
     "cluster_weta33_over_wphi33",
 ]
 
+EXTENDED_SHOWER_FEATURES = [
+    "cluster_weta35_cogx",
+    "cluster_wphi53_cogx",
+    "cluster_w32",
+    "cluster_w52",
+    "cluster_w72",
+    "e11_over_e22",
+    "e11_over_e13",
+    "e11_over_e15",
+    "e11_over_e17",
+    "e11_over_e31",
+    "e11_over_e51",
+    "e11_over_e71",
+    "e22_over_e33",
+    "e22_over_e35",
+    "e22_over_e37",
+    "e22_over_e53",
+]
+
+ISOLATION_DIAGNOSTIC_FEATURES = [
+    "reco_eiso_clip30",
+    "reco_eiso_over_cluster_Et",
+    "reco_eiso_signed_log1p",
+]
+
 DERIVED_FEATURE_DEPS = {
     "cluster_weta_over_wphi": ["cluster_weta_cogx", "cluster_wphi_cogx"],
     "cluster_weta33_over_wphi33": ["cluster_weta33_cogx", "cluster_wphi33_cogx"],
+    "reco_eiso_clip30": ["reco_eiso"],
+    "reco_eiso_over_cluster_Et": ["reco_eiso", "cluster_Et"],
+    "reco_eiso_signed_log1p": ["reco_eiso"],
 }
 
 MODEL_SPECS = {
@@ -73,6 +101,32 @@ MODEL_SPECS = {
         "label": "Centrality input, base + 3x3 widths + width ratios MLP",
         "features": BASE_AND_3X3_FEATURES + WIDTH_RATIO_FEATURES + ["centrality"],
         "filename": "auau_tight_mlp_centInputBase3x3_pt1535.json",
+    },
+    "centInputKitchenSinkMLP": {
+        "variant": "auauCentInputKitchenSinkMLP",
+        "label": "Centrality input, extended shower-shape and energy-ratio kitchen-sink MLP",
+        "features": BASE_AND_3X3_FEATURES + EXTENDED_SHOWER_FEATURES + WIDTH_RATIO_FEATURES + ["centrality"],
+        "filename": "auau_tight_mlp_centInputKitchenSink.json",
+    },
+    "highPtDistilledKitchenMLP_v2": {
+        "variant": "auauHighPtDistilledKitchenMLP",
+        "label": "ABCD-safe high-pT distilled kitchen-sink MLP v2",
+        "features": BASE_AND_3X3_FEATURES + EXTENDED_SHOWER_FEATURES + WIDTH_RATIO_FEATURES + ["centrality"],
+        "filename": "auau_tight_mlp_highPtDistilledKitchen_v2.json",
+        "abcd_safe": True,
+        "training_only_teacher": "auau_tight_bdt_score",
+    },
+    "centInputKitchenSinkIsoMLP": {
+        "variant": "auauCentInputKitchenSinkIsoDiagnosticMLP",
+        "label": "Diagnostic only: kitchen-sink MLP with reconstructed isolation inputs",
+        "features": BASE_AND_3X3_FEATURES
+        + EXTENDED_SHOWER_FEATURES
+        + WIDTH_RATIO_FEATURES
+        + ISOLATION_DIAGNOSTIC_FEATURES
+        + ["centrality"],
+        "filename": "auau_tight_mlp_centInputKitchenSinkIsoDiagnostic.json",
+        "diagnostic_only": True,
+        "abcd_warning": "Uses reconstructed isolation-derived inputs; do not promote into ABCD purity production without redesigning the purity method.",
     },
     "centInputMLP_pt1535": {
         "variant": "auauCentInputMLP",
@@ -135,6 +189,78 @@ def parse_range(text: str) -> tuple[float, float]:
     return lo, hi
 
 
+def parse_bin_spec(text: str | None) -> list[tuple[float, float]]:
+    """Parse ``15,20,25`` edges or ``15:20,20:25`` bin specs."""
+    if text is None or not str(text).strip():
+        return []
+    cleaned = str(text).replace(";", ",")
+    parts = [item.strip() for item in cleaned.split(",") if item.strip()]
+    if not parts:
+        return []
+    bins: list[tuple[float, float]] = []
+    if all(":" in item for item in parts):
+        for item in parts:
+            bins.append(parse_range(item))
+    else:
+        edges = [float(item) for item in parts]
+        if len(edges) < 2:
+            raise SystemExit(f"Bin spec needs at least two edges: {text!r}")
+        for lo, hi in zip(edges[:-1], edges[1:]):
+            if hi <= lo:
+                raise SystemExit(f"Bin edges must be strictly increasing: {text!r}")
+            bins.append((float(lo), float(hi)))
+    return bins
+
+
+def bin_label(lo: float, hi: float) -> str:
+    return f"{lo:g}-{hi:g}"
+
+
+def train_pt_bins(args) -> list[tuple[float, float]]:
+    bins = parse_bin_spec(getattr(args, "train_pt_bins", ""))
+    if bins:
+        return bins
+    if getattr(args, "pt_range", ""):
+        return [parse_range(args.pt_range)]
+    return []
+
+
+def parse_bin_weights(text: str | None, bins: list[tuple[float, float]], mode: str = "equal") -> list[float]:
+    if not bins:
+        return []
+    if text and str(text).strip():
+        parts = [item.strip() for item in str(text).replace(";", ",").split(",") if item.strip()]
+        weights = [math.nan] * len(bins)
+        if all(":" not in item for item in parts):
+            raw = [float(item) for item in parts]
+            if len(raw) != len(bins):
+                raise SystemExit(f"Expected {len(bins)} bin weights, got {len(raw)} from {text!r}")
+            weights = raw
+        else:
+            for item in parts:
+                pieces = item.split(":")
+                if len(pieces) != 3:
+                    raise SystemExit(f"Bin weights must be lo:hi:weight, got {item!r}")
+                lo, hi, weight = float(pieces[0]), float(pieces[1]), float(pieces[2])
+                matched = False
+                for idx, (blo, bhi) in enumerate(bins):
+                    if abs(lo - blo) < 1.0e-6 and abs(hi - bhi) < 1.0e-6:
+                        weights[idx] = weight
+                        matched = True
+                        break
+                if not matched:
+                    raise SystemExit(f"Weight bin {lo:g}:{hi:g} is not present in bin spec {bins}")
+        if any(not math.isfinite(float(w)) or float(w) <= 0.0 for w in weights):
+            raise SystemExit(f"Bin weights must be finite and positive: {text!r}")
+        return [float(w) for w in weights]
+    if mode == "highpt":
+        centers = [0.5 * (lo + hi) for lo, hi in bins]
+        lo_c = min(centers)
+        span = max(max(centers) - lo_c, 1.0e-9)
+        return [0.25 + 0.75 * ((c - lo_c) / span) ** 1.5 for c in centers]
+    return [1.0 for _ in bins]
+
+
 def parse_products(text: str) -> list[str]:
     if text.strip().lower() in ("all", "default"):
         return list(DEFAULT_PRODUCTS)
@@ -142,6 +268,25 @@ def parse_products(text: str) -> list[str]:
         return ["centInputBase3x3MLP_pt1535"]
     if text.strip().lower() in ("primary-ratios", "primary-width-ratios", "ratios", "width-ratios"):
         return ["centInputBase3x3WidthRatiosMLP_pt1535"]
+    if text.strip().lower() in ("kitchen-sink", "kitchensink", "extended", "extended-shower"):
+        return ["centInputKitchenSinkMLP"]
+    if text.strip().lower() in (
+        "highpt-distilled-kitchen-v2",
+        "highpt-distilled-kitchen",
+        "distilled-kitchen-v2",
+        "bdt-distilled-kitchen",
+        "v2",
+    ):
+        return ["highPtDistilledKitchenMLP_v2"]
+    if text.strip().lower() in (
+        "iso-kitchen-sink",
+        "kitchen-sink-iso",
+        "kitchensink-iso",
+        "iso-aware",
+        "iso-diagnostic",
+        "oracle-iso",
+    ):
+        return ["centInputKitchenSinkIsoMLP"]
     products = [item.strip() for item in text.split(",") if item.strip()]
     unknown = [item for item in products if item not in MODEL_SPECS]
     if unknown:
@@ -190,6 +335,36 @@ def add_derived_features(frame):
     if "cluster_weta33_over_wphi33" not in cols and {"cluster_weta33_cogx", "cluster_wphi33_cogx"}.issubset(cols):
         frame["cluster_weta33_over_wphi33"] = safe_ratio("cluster_weta33_cogx", "cluster_wphi33_cogx")
         cols.add("cluster_weta33_over_wphi33")
+    if "reco_eiso_clip30" not in cols and "reco_eiso" in cols:
+        reco_eiso = np.asarray(frame["reco_eiso"], dtype="float64")
+        frame["reco_eiso_clip30"] = np.where(
+            np.isfinite(reco_eiso) & (np.abs(reco_eiso) < 1.0e8),
+            np.clip(reco_eiso, -20.0, 30.0),
+            np.nan,
+        )
+        cols.add("reco_eiso_clip30")
+    if "reco_eiso_over_cluster_Et" not in cols and {"reco_eiso", "cluster_Et"}.issubset(cols):
+        reco_eiso = np.asarray(frame["reco_eiso"], dtype="float64")
+        cluster_et = np.asarray(frame["cluster_Et"], dtype="float64")
+        out = np.full(len(reco_eiso), np.nan, dtype="float64")
+        mask = (
+            np.isfinite(reco_eiso)
+            & np.isfinite(cluster_et)
+            & (np.abs(reco_eiso) < 1.0e8)
+            & (cluster_et > 1.0e-6)
+        )
+        out[mask] = np.clip(reco_eiso[mask] / cluster_et[mask], -2.0, 3.0)
+        frame["reco_eiso_over_cluster_Et"] = out
+        cols.add("reco_eiso_over_cluster_Et")
+    if "reco_eiso_signed_log1p" not in cols and "reco_eiso" in cols:
+        reco_eiso = np.asarray(frame["reco_eiso"], dtype="float64")
+        clipped = np.where(
+            np.isfinite(reco_eiso) & (np.abs(reco_eiso) < 1.0e8),
+            np.clip(reco_eiso, -20.0, 60.0),
+            np.nan,
+        )
+        frame["reco_eiso_signed_log1p"] = np.sign(clipped) * np.log1p(np.abs(clipped))
+        cols.add("reco_eiso_signed_log1p")
     return frame
 
 
@@ -375,6 +550,55 @@ def balanced_row_cap(frame, label_branch: str, max_rows: int, max_rows_per_class
     return frame.iloc[keep].copy()
 
 
+def balanced_pt_bin_row_cap(
+    frame,
+    label_branch: str,
+    bins: list[tuple[float, float]],
+    max_rows_per_pt_bin_class: int,
+    max_rows: int,
+    random_seed: int,
+):
+    import numpy as np
+
+    if len(frame) == 0 or max_rows_per_pt_bin_class <= 0 or not bins:
+        return frame
+    labels = frame[label_branch].to_numpy(dtype="int32")
+    et = frame["cluster_Et"].to_numpy(dtype="float64")
+    rng = np.random.default_rng(random_seed)
+    keep: list[int] = []
+    bin_reports = []
+    for lo, hi in bins:
+        for cls in (0, 1):
+            idx = np.flatnonzero(np.isfinite(et) & (et >= lo) & (et < hi) & (labels == cls))
+            before = int(len(idx))
+            if before > max_rows_per_pt_bin_class:
+                idx = rng.choice(idx, size=max_rows_per_pt_bin_class, replace=False)
+            keep.extend(int(i) for i in idx)
+            bin_reports.append(
+                {
+                    "pt_bin": bin_label(lo, hi),
+                    "class": int(cls),
+                    "before": before,
+                    "after": int(len(idx)),
+                }
+            )
+    keep = sorted(set(keep))
+    if max_rows > 0 and len(keep) > max_rows:
+        keep = [int(i) for i in rng.choice(np.asarray(keep, dtype="int64"), size=max_rows, replace=False)]
+        keep = sorted(set(keep))
+    if len(keep) == len(frame):
+        return frame
+    capped = frame.iloc[keep].copy()
+    print(
+        "[trainAuAuPhotonMLP] pT-bin row cap "
+        f"bins={[bin_label(lo, hi) for lo, hi in bins]} "
+        f"max_rows_per_pt_bin_class={max_rows_per_pt_bin_class} "
+        f"before={len(frame)} after={len(capped)} reports={bin_reports}",
+        flush=True,
+    )
+    return capped
+
+
 def write_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(json_ready(payload), indent=2, sort_keys=True) + "\n")
@@ -483,6 +707,190 @@ def inverse_pdf_factors(values, labels, nbins: int, max_factor: float):
     return factors
 
 
+def pt_bin_weight_factors(weights, et, labels, bins: list[tuple[float, float]], args):
+    import numpy as np
+
+    mode = getattr(args, "pt_bin_weight_mode", "none")
+    if mode == "none" or not bins:
+        return np.ones(len(labels), dtype="float64"), {"mode": mode, "bins": []}
+    weights = np.asarray(weights, dtype="float64")
+    et = np.asarray(et, dtype="float64")
+    labels = np.asarray(labels, dtype="int32")
+    targets = parse_bin_weights(getattr(args, "pt_bin_weight_spec", ""), bins, mode)
+    factors = np.ones(len(labels), dtype="float64")
+    reports = []
+    for cls in (0, 1):
+        present = []
+        for idx, (lo, hi) in enumerate(bins):
+            mask = (labels == cls) & np.isfinite(et) & (et >= lo) & (et < hi)
+            current = float(weights[mask].sum())
+            if current > 0.0:
+                present.append((idx, mask, current))
+        if not present:
+            continue
+        total = sum(current for _, _, current in present)
+        target_norm = sum(targets[idx] for idx, _, _ in present)
+        if total <= 0.0 or target_norm <= 0.0:
+            continue
+        for idx, mask, current in present:
+            desired = total * targets[idx] / target_norm
+            factor = desired / current if current > 0.0 else 1.0
+            factor = float(np.clip(factor, 1.0 / args.max_flatten_factor, args.max_flatten_factor))
+            factors[mask] *= factor
+            reports.append(
+                {
+                    "pt_bin": bin_label(*bins[idx]),
+                    "class": int(cls),
+                    "entries": int(mask.sum()),
+                    "current_weight": current,
+                    "target_fraction": float(targets[idx] / target_norm),
+                    "factor": factor,
+                }
+            )
+    return factors, {"mode": mode, "target_weights": targets, "bins": reports}
+
+
+def hard_example_weight_factors(frame, labels, args):
+    import numpy as np
+
+    branch = getattr(args, "hard_example_branch", "")
+    if not branch:
+        return np.ones(len(labels), dtype="float64"), {"enabled": False}
+    if branch not in frame.columns:
+        return np.ones(len(labels), dtype="float64"), {"enabled": False, "missing_branch": branch}
+    raw = frame[branch].to_numpy(dtype="float64")
+    finite = np.isfinite(raw)
+    if finite.sum() < 10:
+        return np.ones(len(labels), dtype="float64"), {"enabled": False, "branch": branch, "reason": "too_few_finite_scores"}
+    lo, hi = np.nanpercentile(raw[finite], [1.0, 99.0])
+    if not math.isfinite(float(lo)) or not math.isfinite(float(hi)) or hi <= lo:
+        norm = np.clip(raw, 0.0, 1.0)
+    elif lo < -0.05 or hi > 1.05:
+        norm = np.clip((raw - lo) / (hi - lo), 0.0, 1.0)
+    else:
+        norm = np.clip(raw, 0.0, 1.0)
+    labels = np.asarray(labels, dtype="int32")
+    power = max(float(args.hard_example_power), 0.25)
+    bkg_factor = max(float(args.hard_background_factor), 0.0)
+    sig_factor = max(float(args.hard_signal_factor), 0.0)
+    factors = np.ones(len(labels), dtype="float64")
+    bkg = finite & (labels == 0)
+    sig = finite & (labels == 1)
+    if bkg.any() and bkg_factor > 0.0:
+        factors[bkg] *= 1.0 + bkg_factor * (norm[bkg] ** power)
+    if sig.any() and sig_factor > 0.0:
+        factors[sig] *= 1.0 + sig_factor * ((1.0 - norm[sig]) ** power)
+    for cls in (0, 1):
+        cls_mask = labels == cls
+        mean = float(np.mean(factors[cls_mask])) if cls_mask.any() else 1.0
+        if math.isfinite(mean) and mean > 0.0:
+            factors[cls_mask] /= mean
+    return factors, {
+        "enabled": True,
+        "branch": branch,
+        "score_p01": float(lo),
+        "score_p99": float(hi),
+        "hard_background_factor": float(bkg_factor),
+        "hard_signal_factor": float(sig_factor),
+        "power": float(power),
+        "finite_fraction": float(finite.mean()) if len(finite) else math.nan,
+        "mean_factor_signal": float(np.mean(factors[labels == 1])) if (labels == 1).any() else math.nan,
+        "mean_factor_background": float(np.mean(factors[labels == 0])) if (labels == 0).any() else math.nan,
+        "max_factor": float(np.max(factors)) if len(factors) else math.nan,
+    }
+
+
+def normalized_teacher_targets(frame, labels, args):
+    import numpy as np
+
+    branch = getattr(args, "distillation_branch", "")
+    strength = float(getattr(args, "distillation_strength", 0.0))
+    if not branch or strength <= 0.0:
+        return None, {"enabled": False}
+    if branch not in frame.columns:
+        if getattr(args, "require_distillation", False):
+            raise SystemExit(f"Distillation branch is required but missing from selected frame: {branch}")
+        return None, {"enabled": False, "missing_branch": branch}
+
+    raw = frame[branch].to_numpy(dtype="float64")
+    finite = np.isfinite(raw)
+    if finite.sum() < 10:
+        if getattr(args, "require_distillation", False):
+            raise SystemExit(f"Distillation branch {branch} has too few finite values: {int(finite.sum())}")
+        return None, {"enabled": False, "branch": branch, "reason": "too_few_finite_scores"}
+
+    lo, hi = np.nanpercentile(raw[finite], [1.0, 99.0])
+    if not math.isfinite(float(lo)) or not math.isfinite(float(hi)) or hi <= lo:
+        target = np.clip(raw, 0.0, 1.0)
+        score_p01, score_p99 = math.nan, math.nan
+        normalization = "clip_0_1"
+    elif lo < -0.05 or hi > 1.05:
+        target = np.clip((raw - lo) / (hi - lo), 0.0, 1.0)
+        score_p01, score_p99 = float(lo), float(hi)
+        normalization = "percentile_linear_1_99"
+    else:
+        target = np.clip(raw, 0.0, 1.0)
+        score_p01, score_p99 = float(lo), float(hi)
+        normalization = "native_0_1"
+
+    temp = float(getattr(args, "distillation_temperature", 1.0))
+    if not math.isfinite(temp) or temp <= 0.0:
+        raise SystemExit("--distillation-temperature must be finite and positive")
+    if abs(temp - 1.0) > 1.0e-12:
+        clipped = np.clip(target, 1.0e-6, 1.0 - 1.0e-6)
+        logits = np.log(clipped / (1.0 - clipped))
+        target = sigmoid(logits / temp)
+
+    valid = finite & np.isfinite(target)
+    if getattr(args, "require_distillation", False) and float(valid.mean()) < float(args.distillation_min_finite_fraction):
+        raise SystemExit(
+            f"Distillation branch {branch} finite target fraction "
+            f"{float(valid.mean()):.6g} is below required {args.distillation_min_finite_fraction:.6g}"
+        )
+
+    labels = np.asarray(labels, dtype="int32")
+    report = {
+        "enabled": True,
+        "branch": branch,
+        "strength": float(strength),
+        "temperature": float(temp),
+        "normalization": normalization,
+        "score_p01": score_p01,
+        "score_p99": score_p99,
+        "finite_fraction": float(valid.mean()) if len(valid) else math.nan,
+        "target_mean_signal": float(np.nanmean(target[valid & (labels == 1)])) if (valid & (labels == 1)).any() else math.nan,
+        "target_mean_background": float(np.nanmean(target[valid & (labels == 0)])) if (valid & (labels == 0)).any() else math.nan,
+    }
+    out = np.full(len(raw), np.nan, dtype="float64")
+    out[valid] = target[valid]
+    return out, report
+
+
+def blended_targets(y, teacher, args):
+    import numpy as np
+
+    y = np.asarray(y, dtype="float64")
+    strength = float(getattr(args, "distillation_strength", 0.0))
+    if teacher is None or strength <= 0.0:
+        return y
+    strength = max(0.0, min(strength, 0.90))
+    teacher = np.asarray(teacher, dtype="float64")
+    valid = np.isfinite(teacher)
+    target = np.array(y, copy=True, dtype="float64")
+    target[valid] = (1.0 - strength) * y[valid] + strength * np.clip(teacher[valid], 0.0, 1.0)
+    return target
+
+
+def blended_bce_from_logits(logits, y, weights, teacher, args, params=None):
+    return weighted_bce_from_logits(
+        logits,
+        blended_targets(y, teacher, args),
+        weights,
+        params,
+        args.l2,
+    )
+
+
 def compute_weights(frame, label_branch: str, args):
     import numpy as np
 
@@ -511,6 +919,11 @@ def compute_weights(frame, label_branch: str, args):
     if args.eta_reweight and "cluster_Eta" in frame.columns:
         weights *= inverse_pdf_factors(frame["cluster_Eta"].to_numpy(), labels, args.flatten_bins, args.max_flatten_factor)
 
+    pt_factors, pt_report = pt_bin_weight_factors(weights, frame["cluster_Et"].to_numpy(), labels, train_pt_bins(args), args)
+    weights *= pt_factors
+    hard_factors, hard_report = hard_example_weight_factors(frame, labels, args)
+    weights *= hard_factors
+
     finite_positive = np.isfinite(weights) & (weights > 0.0)
     if finite_positive.any():
         median = float(np.median(weights[finite_positive]))
@@ -526,6 +939,8 @@ def compute_weights(frame, label_branch: str, args):
             "min_weight": float(np.min(weights)) if len(weights) else math.nan,
             "max_weight": float(np.max(weights)) if len(weights) else math.nan,
             "mean_weight": float(np.mean(weights)) if len(weights) else math.nan,
+            "pt_bin_weighting": pt_report,
+            "hard_example_weighting": hard_report,
         }
     )
     return weights, diagnostics
@@ -543,15 +958,24 @@ def select_training_rows(frame, features: list[str], args):
         lo, hi = parse_range(args.pt_range)
         et = frame["cluster_Et"].to_numpy(dtype="float64")
         mask &= np.isfinite(et) & (et >= lo) & (et < hi)
+    if args.centrality_range:
+        lo, hi = parse_range(args.centrality_range)
+        cent = frame["centrality"].to_numpy(dtype="float64")
+        mask &= np.isfinite(cent) & (cent >= lo) & (cent < hi)
     out = frame.loc[mask].copy()
     before_cap = class_counts(out, label)
-    out = balanced_row_cap(out, label, args.max_rows, args.max_rows_per_class, args.random_seed)
+    pt_bins = train_pt_bins(args)
+    if args.max_rows_per_pt_bin_class > 0 and pt_bins:
+        out = balanced_pt_bin_row_cap(out, label, pt_bins, args.max_rows_per_pt_bin_class, args.max_rows, args.random_seed)
+    else:
+        out = balanced_row_cap(out, label, args.max_rows, args.max_rows_per_class, args.random_seed)
     after_cap = class_counts(out, label)
     if before_cap != after_cap:
         print(
             "[trainAuAuPhotonMLP] row cap "
             f"before={before_cap} after={after_cap} "
-            f"max_rows={args.max_rows} max_rows_per_class={args.max_rows_per_class}",
+            f"max_rows={args.max_rows} max_rows_per_class={args.max_rows_per_class} "
+            f"max_rows_per_pt_bin_class={args.max_rows_per_pt_bin_class}",
             flush=True,
         )
     return out
@@ -662,7 +1086,21 @@ def forward(x, params):
     return activations[-1].reshape(-1), {"activations": activations, "preacts": preacts}
 
 
-def train_numpy_mlp(x_train, y_train, w_train, x_val, y_val, w_val, feature_names, args, seed: int, hidden: list[int], candidate_label: str):
+def train_numpy_mlp(
+    x_train,
+    y_train,
+    w_train,
+    x_val,
+    y_val,
+    w_val,
+    feature_names,
+    args,
+    seed: int,
+    hidden: list[int],
+    candidate_label: str,
+    teacher_train=None,
+    teacher_val=None,
+):
     import numpy as np
 
     params = init_params(x_train.shape[1], hidden, seed)
@@ -688,9 +1126,11 @@ def train_numpy_mlp(x_train, y_train, w_train, x_val, y_val, w_val, feature_name
             yb = y_train[idx].astype("float64")
             wb = w_train[idx].astype("float64")
             wb_norm = wb / max(float(wb.sum()), 1.0e-12)
+            tb = teacher_train[idx] if teacher_train is not None else None
+            target_b = blended_targets(yb, tb, args)
 
             logits, cache = forward(xb, params)
-            dz = ((sigmoid(logits) - yb) * wb_norm).reshape(-1, 1)
+            dz = ((sigmoid(logits) - target_b) * wb_norm).reshape(-1, 1)
             grads = [None] * len(params)
             for layer_idx in reversed(range(len(params))):
                 a_prev = cache["activations"][layer_idx]
@@ -717,12 +1157,16 @@ def train_numpy_mlp(x_train, y_train, w_train, x_val, y_val, w_val, feature_name
 
         train_logits, _ = forward(x_train, params)
         val_logits, _ = forward(x_val, params)
-        train_loss = weighted_bce_from_logits(train_logits, y_train, w_train, params, args.l2)
-        val_loss = weighted_bce_from_logits(val_logits, y_val, w_val, params, args.l2)
+        train_loss = blended_bce_from_logits(train_logits, y_train, w_train, teacher_train, args, params)
+        val_loss = blended_bce_from_logits(val_logits, y_val, w_val, teacher_val, args, params)
+        train_truth_loss = weighted_bce_from_logits(train_logits, y_train, w_train, params, args.l2)
+        val_truth_loss = weighted_bce_from_logits(val_logits, y_val, w_val, params, args.l2)
         row = {
             "epoch": epoch,
             "train_loss": train_loss,
             "validation_loss": val_loss,
+            "train_truth_loss": train_truth_loss,
+            "validation_truth_loss": val_truth_loss,
             "validation_auc": auc_score(y_val, sigmoid(val_logits), w_val),
         }
         history.append(row)
@@ -730,7 +1174,8 @@ def train_numpy_mlp(x_train, y_train, w_train, x_val, y_val, w_val, feature_name
             print(
                 "[trainAuAuPhotonMLP] "
                 f"candidate={candidate_label} epoch={epoch} train_loss={train_loss:.6g} "
-                f"val_loss={val_loss:.6g} val_auc={row['validation_auc']:.5f}",
+                f"val_loss={val_loss:.6g} truth_val_loss={val_truth_loss:.6g} "
+                f"val_auc={row['validation_auc']:.5f}",
                 flush=True,
             )
         if val_loss + args.min_delta < best_loss:
@@ -904,6 +1349,21 @@ def artifact_from_params(product: str, spec: dict, features: list[str], mean, sc
             "selection_metric": args.selection_metric,
             "selection_target_signal_efficiency": float(args.selection_target_signal_efficiency),
             "random_seed": int(args.random_seed),
+            "centrality_range": args.centrality_range,
+            "train_pt_bins": args.train_pt_bins,
+            "max_rows_per_pt_bin_class": int(args.max_rows_per_pt_bin_class),
+            "pt_bin_weight_mode": args.pt_bin_weight_mode,
+            "pt_bin_weight_spec": args.pt_bin_weight_spec,
+            "highpt_selection_weights": args.highpt_selection_weights,
+            "hard_example_branch": args.hard_example_branch,
+            "hard_background_factor": float(args.hard_background_factor),
+            "hard_signal_factor": float(args.hard_signal_factor),
+            "hard_example_power": float(args.hard_example_power),
+            "distillation_branch": args.distillation_branch,
+            "distillation_strength": float(args.distillation_strength),
+            "distillation_temperature": float(args.distillation_temperature),
+            "distillation_min_finite_fraction": float(args.distillation_min_finite_fraction),
+            "require_distillation": bool(args.require_distillation),
         },
         "report": report,
     }
@@ -952,6 +1412,62 @@ def make_report(y, prob, weights):
     }
 
 
+def binned_score_metrics(et, y, prob, weights, bins: list[tuple[float, float]], target_eff: float):
+    import numpy as np
+
+    et = np.asarray(et, dtype="float64")
+    rows = []
+    for lo, hi in bins:
+        mask = np.isfinite(et) & (et >= lo) & (et < hi)
+        y_bin = y[mask]
+        prob_bin = prob[mask]
+        weights_bin = weights[mask]
+        wp = threshold_for_signal_efficiency(y_bin, prob_bin, target_eff)
+        rows.append(
+            {
+                "lo": float(lo),
+                "hi": float(hi),
+                "entries": int(mask.sum()),
+                "signal_entries": int((y_bin == 1).sum()),
+                "background_entries": int((y_bin == 0).sum()),
+                "auc": auc_score(y_bin, prob_bin, weights_bin),
+                f"wp{int(round(target_eff * 100)):03d}": wp,
+            }
+        )
+    return rows
+
+
+def highpt_selection_summary(bin_rows: list[dict], bins: list[tuple[float, float]], target_eff: float, args):
+    weights = parse_bin_weights(getattr(args, "highpt_selection_weights", ""), bins, "highpt")
+    weighted_fake = 0.0
+    weighted_auc = 0.0
+    weight_sum_fake = 0.0
+    weight_sum_auc = 0.0
+    worst_fake = -math.inf
+    worst_bin = None
+    wp_key = f"wp{int(round(target_eff * 100)):03d}"
+    for row, weight in zip(bin_rows, weights):
+        fake = (row.get(wp_key) or {}).get("background_fake_rate")
+        auc = row.get("auc")
+        if isinstance(fake, (int, float)) and math.isfinite(float(fake)):
+            weighted_fake += float(weight) * float(fake)
+            weight_sum_fake += float(weight)
+            if float(fake) > worst_fake:
+                worst_fake = float(fake)
+                worst_bin = bin_label(row["lo"], row["hi"])
+        if isinstance(auc, (int, float)) and math.isfinite(float(auc)):
+            weighted_auc += float(weight) * float(auc)
+            weight_sum_auc += float(weight)
+    return {
+        "target_signal_efficiency": float(target_eff),
+        "bin_weights": weights,
+        "weighted_fake_rate": float(weighted_fake / weight_sum_fake) if weight_sum_fake > 0 else math.inf,
+        "worst_fake_rate": float(worst_fake) if math.isfinite(worst_fake) else math.inf,
+        "worst_fake_bin": worst_bin,
+        "weighted_auc": float(weighted_auc / weight_sum_auc) if weight_sum_auc > 0 else -math.inf,
+    }
+
+
 def train_product(product: str, frame, args, outdir: Path):
     import numpy as np
 
@@ -963,6 +1479,7 @@ def train_product(product: str, frame, args, outdir: Path):
     if min(counts.values()) < args.min_rows_per_class:
         raise SystemExit(f"{product}: not enough rows per class after cuts: {counts}")
     weights, weight_report = compute_weights(selected, args.label_branch, args)
+    teacher_targets, teacher_report = normalized_teacher_targets(selected, labels, args)
     train_mask, val_mask, test_mask = split_masks(selected, args.label_branch, args)
     if args.verbose_diagnostics:
         split_counts = {
@@ -979,6 +1496,14 @@ def train_product(product: str, frame, args, outdir: Path):
             f"class_counts={counts} splits={split_counts}",
             flush=True,
         )
+        if teacher_report.get("enabled"):
+            print(
+                "[trainAuAuPhotonMLP] "
+                f"product={product} distillation=branch:{teacher_report.get('branch')} "
+                f"strength:{teacher_report.get('strength')} temp:{teacher_report.get('temperature')} "
+                f"finite:{teacher_report.get('finite_fraction')}",
+                flush=True,
+            )
         print(
             "[trainAuAuPhotonMLP] "
             f"product={product} weights=sum0:{weight_report['sum_weight_class0']:.6g} "
@@ -996,6 +1521,8 @@ def train_product(product: str, frame, args, outdir: Path):
     x, mean, scale = standardize_from_train(x_raw, train_mask, args.input_clip)
     hidden_grid = parse_hidden_layer_grid(args.hidden_layers, args.hidden_layer_grid)
     target_eff = float(args.selection_target_signal_efficiency)
+    metric_pt_bins = train_pt_bins(args)
+    et_values = selected["cluster_Et"].to_numpy(dtype="float64")
     candidate_entries = []
     candidate_reports = []
     history_stem = outdir / Path(spec["filename"]).with_suffix("")
@@ -1015,12 +1542,23 @@ def train_product(product: str, frame, args, outdir: Path):
                 seed,
                 hidden,
                 candidate_label,
+                teacher_targets[train_mask] if teacher_targets is not None else None,
+                teacher_targets[val_mask] if teacher_targets is not None else None,
             )
             val_logits_i, _ = forward(x[val_mask], params_i)
             temperature_i, temp_loss_i = fit_temperature(val_logits_i, labels[val_mask], weights[val_mask])
             val_prob_i = sigmoid(val_logits_i / temperature_i)
             val_report_i = make_report(labels[val_mask], val_prob_i, weights[val_mask])
             selection_wp = threshold_for_signal_efficiency(labels[val_mask], val_prob_i, target_eff) or {}
+            pt_bin_report_i = binned_score_metrics(
+                et_values[val_mask],
+                labels[val_mask],
+                val_prob_i,
+                weights[val_mask],
+                metric_pt_bins,
+                target_eff,
+            )
+            highpt_summary_i = highpt_selection_summary(pt_bin_report_i, metric_pt_bins, target_eff, args)
             candidate_report = {
                 "candidate": candidate_label,
                 "architecture_index": int(arch_idx),
@@ -1038,6 +1576,8 @@ def train_product(product: str, frame, args, outdir: Path):
                 "selection_target_signal_efficiency": float(target_eff),
                 "selection_threshold": selection_wp.get("threshold"),
                 "selection_fake_rate": selection_wp.get("background_fake_rate"),
+                "pt_bin_validation": pt_bin_report_i,
+                "highpt_selection": highpt_summary_i,
             }
             write_history(
                 history_stem.with_name(f"{history_stem.name}.candidate_a{arch_idx}_r{restart_idx + 1}.history.csv"),
@@ -1059,6 +1599,8 @@ def train_product(product: str, frame, args, outdir: Path):
                 f"candidate={candidate_label} hidden={hidden} "
                 f"val_auc={candidate_report['validation_auc']:.5f} "
                 f"wp{int(round(target_eff * 100)):03d}_fake={candidate_report['selection_fake_rate']} "
+                f"highpt_fake={highpt_summary_i['weighted_fake_rate']} "
+                f"worst_pt_fake={highpt_summary_i['worst_fake_rate']} "
                 f"temp={temperature_i:.5g}",
                 flush=True,
             )
@@ -1073,6 +1615,19 @@ def train_product(product: str, frame, args, outdir: Path):
         auc_key = auc if isinstance(auc, (int, float)) and math.isfinite(float(auc)) else -math.inf
         loss_key = loss if isinstance(loss, (int, float)) and math.isfinite(float(loss)) else math.inf
         ece_key = ece if isinstance(ece, (int, float)) and math.isfinite(float(ece)) else math.inf
+        highpt = report_i.get("highpt_selection") or {}
+        highpt_fake = highpt.get("weighted_fake_rate")
+        highpt_worst = highpt.get("worst_fake_rate")
+        highpt_auc = highpt.get("weighted_auc")
+        highpt_fake_key = highpt_fake if isinstance(highpt_fake, (int, float)) and math.isfinite(float(highpt_fake)) else math.inf
+        highpt_worst_key = highpt_worst if isinstance(highpt_worst, (int, float)) and math.isfinite(float(highpt_worst)) else math.inf
+        highpt_auc_key = highpt_auc if isinstance(highpt_auc, (int, float)) and math.isfinite(float(highpt_auc)) else -math.inf
+        if args.selection_metric == "highpt_wp80":
+            return (highpt_fake_key, highpt_worst_key, -highpt_auc_key, fake_key, loss_key, ece_key)
+        if args.selection_metric == "worst_pt_wp80":
+            return (highpt_worst_key, highpt_fake_key, -highpt_auc_key, fake_key, loss_key, ece_key)
+        if args.selection_metric == "highpt_auc":
+            return (-highpt_auc_key, highpt_fake_key, highpt_worst_key, fake_key, loss_key, ece_key)
         if args.selection_metric == "validation_auc":
             return (-auc_key, fake_key, loss_key, ece_key)
         if args.selection_metric == "validation_loss":
@@ -1100,6 +1655,8 @@ def train_product(product: str, frame, args, outdir: Path):
     train_prob = sigmoid(train_logits / temperature)
     val_prob = sigmoid(val_logits / temperature)
     test_prob = sigmoid(test_logits / temperature)
+    val_pt_bins = binned_score_metrics(et_values[val_mask], labels[val_mask], val_prob, weights[val_mask], metric_pt_bins, target_eff)
+    test_pt_bins = binned_score_metrics(et_values[test_mask], labels[test_mask], test_prob, weights[test_mask], metric_pt_bins, target_eff)
     report = {
         "status": "trained",
         "product": product,
@@ -1113,6 +1670,7 @@ def train_product(product: str, frame, args, outdir: Path):
             "class_counts": counts,
         },
         "weights": weight_report,
+        "distillation": teacher_report,
         "temperature": {"value": float(temperature), "validation_loss": float(temp_loss)},
         "model_selection": {
             "metric": args.selection_metric,
@@ -1121,10 +1679,13 @@ def train_product(product: str, frame, args, outdir: Path):
             "restarts": int(args.restarts),
             "selected_candidate": selected_candidate,
             "candidates": candidate_reports,
+            "pt_bins": [{"lo": float(lo), "hi": float(hi)} for lo, hi in metric_pt_bins],
         },
         "train": make_report(labels[train_mask], train_prob, weights[train_mask]),
         "validation": make_report(labels[val_mask], val_prob, weights[val_mask]),
         "test": make_report(labels[test_mask], test_prob, weights[test_mask]),
+        "validation_pt_bins": val_pt_bins,
+        "test_pt_bins": test_pt_bins,
     }
     artifact = artifact_from_params(product, spec, features, mean, scale, params, temperature, args, report, hidden_layers)
     out_json = outdir / spec["filename"]
@@ -1168,6 +1729,12 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--outdir", type=Path, required=True)
     ap.add_argument("--products", default="all", help="Comma list, 'primary', or 'all'.")
     ap.add_argument("--pt-range", default="15:35")
+    ap.add_argument("--centrality-range", default=os.environ.get("RJ_AUAU_MLP_TRAIN_CENTRALITY_RANGE", ""))
+    ap.add_argument(
+        "--train-pt-bins",
+        default=os.environ.get("RJ_AUAU_MLP_TRAIN_PT_BINS", ""),
+        help="Optional pT edges or lo:hi bins for pT-aware caps/weights/selection diagnostics.",
+    )
     ap.add_argument("--label-branch", default="is_signal")
     ap.add_argument("--weight-branch", default="event_weight")
     ap.add_argument("--use-event-weight", dest="use_event_weight", action="store_true", default=True)
@@ -1183,14 +1750,36 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--max-files-per-sample", type=int, default=int(os.environ.get("RJ_AUAU_MLP_TRAIN_MAX_FILES_PER_SAMPLE", "0")))
     ap.add_argument("--max-rows", type=int, default=int(os.environ.get("RJ_AUAU_MLP_TRAIN_MAX_ROWS", "0")))
     ap.add_argument("--max-rows-per-class", type=int, default=int(os.environ.get("RJ_AUAU_MLP_TRAIN_MAX_ROWS_PER_CLASS", "0")))
+    ap.add_argument("--max-rows-per-pt-bin-class", type=int, default=int(os.environ.get("RJ_AUAU_MLP_TRAIN_MAX_ROWS_PER_PT_BIN_CLASS", "0")))
+    ap.add_argument("--pt-bin-weight-mode", choices=["none", "equal", "highpt"], default=os.environ.get("RJ_AUAU_MLP_TRAIN_PT_BIN_WEIGHT_MODE", "none"))
+    ap.add_argument("--pt-bin-weight-spec", default=os.environ.get("RJ_AUAU_MLP_TRAIN_PT_BIN_WEIGHT_SPEC", ""))
+    ap.add_argument("--hard-example-branch", default=os.environ.get("RJ_AUAU_MLP_TRAIN_HARD_EXAMPLE_BRANCH", ""))
+    ap.add_argument("--hard-background-factor", type=float, default=float(os.environ.get("RJ_AUAU_MLP_TRAIN_HARD_BACKGROUND_FACTOR", "0.0")))
+    ap.add_argument("--hard-signal-factor", type=float, default=float(os.environ.get("RJ_AUAU_MLP_TRAIN_HARD_SIGNAL_FACTOR", "0.0")))
+    ap.add_argument("--hard-example-power", type=float, default=float(os.environ.get("RJ_AUAU_MLP_TRAIN_HARD_EXAMPLE_POWER", "2.0")))
+    ap.add_argument("--distillation-branch", default=os.environ.get("RJ_AUAU_MLP_TRAIN_DISTILLATION_BRANCH", ""))
+    ap.add_argument("--distillation-strength", type=float, default=float(os.environ.get("RJ_AUAU_MLP_TRAIN_DISTILLATION_STRENGTH", "0.0")))
+    ap.add_argument("--distillation-temperature", type=float, default=float(os.environ.get("RJ_AUAU_MLP_TRAIN_DISTILLATION_TEMPERATURE", "1.0")))
+    ap.add_argument("--distillation-min-finite-fraction", type=float, default=float(os.environ.get("RJ_AUAU_MLP_TRAIN_DISTILLATION_MIN_FINITE_FRACTION", "0.95")))
+    ap.add_argument(
+        "--require-distillation",
+        action="store_true",
+        default=os.environ.get("RJ_AUAU_MLP_TRAIN_REQUIRE_DISTILLATION", "0") == "1",
+        help="Fail if the requested distillation branch is missing or too sparse.",
+    )
     ap.add_argument("--validation-fraction", type=float, default=0.20)
     ap.add_argument("--test-fraction", type=float, default=0.10)
     ap.add_argument("--random-seed", type=int, default=137)
     ap.add_argument("--hidden-layers", default="48,24")
     ap.add_argument("--hidden-layer-grid", default=os.environ.get("RJ_AUAU_MLP_TRAIN_HIDDEN_LAYER_GRID", ""))
     ap.add_argument("--restarts", type=int, default=int(os.environ.get("RJ_AUAU_MLP_TRAIN_RESTARTS", "1")))
-    ap.add_argument("--selection-metric", choices=["wp_fake_rate", "validation_auc", "validation_loss"], default=os.environ.get("RJ_AUAU_MLP_TRAIN_SELECTION_METRIC", "wp_fake_rate"))
+    ap.add_argument(
+        "--selection-metric",
+        choices=["wp_fake_rate", "validation_auc", "validation_loss", "highpt_wp80", "worst_pt_wp80", "highpt_auc"],
+        default=os.environ.get("RJ_AUAU_MLP_TRAIN_SELECTION_METRIC", "wp_fake_rate"),
+    )
     ap.add_argument("--selection-target-signal-efficiency", type=float, default=float(os.environ.get("RJ_AUAU_MLP_TRAIN_SELECTION_TARGET_SIGNAL_EFF", "0.80")))
+    ap.add_argument("--highpt-selection-weights", default=os.environ.get("RJ_AUAU_MLP_TRAIN_HIGHPT_SELECTION_WEIGHTS", ""))
     ap.add_argument("--epochs", type=int, default=80)
     ap.add_argument("--batch-size", type=int, default=4096)
     ap.add_argument("--learning-rate", type=float, default=1.0e-3)
@@ -1212,9 +1801,30 @@ def main() -> int:
         raise SystemExit("--restarts must be positive")
     if not (0.0 < args.selection_target_signal_efficiency < 1.0):
         raise SystemExit("--selection-target-signal-efficiency must be between 0 and 1")
+    if args.max_rows_per_pt_bin_class < 0:
+        raise SystemExit("--max-rows-per-pt-bin-class must be non-negative")
+    if not (0.0 <= float(args.distillation_strength) <= 0.90):
+        raise SystemExit("--distillation-strength must be in [0, 0.90]")
+    if not (math.isfinite(float(args.distillation_temperature)) and float(args.distillation_temperature) > 0.0):
+        raise SystemExit("--distillation-temperature must be finite and positive")
+    if not (0.0 <= float(args.distillation_min_finite_fraction) <= 1.0):
+        raise SystemExit("--distillation-min-finite-fraction must be in [0, 1]")
+    pt_bins = train_pt_bins(args)
+    if args.centrality_range:
+        parse_range(args.centrality_range)
+    if args.pt_bin_weight_mode != "none" and not pt_bins:
+        raise SystemExit("--pt-bin-weight-mode requires --train-pt-bins or --pt-range")
+    if args.pt_bin_weight_mode != "none":
+        parse_bin_weights(args.pt_bin_weight_spec, pt_bins, args.pt_bin_weight_mode)
+    if args.selection_metric in ("highpt_wp80", "worst_pt_wp80", "highpt_auc"):
+        parse_bin_weights(args.highpt_selection_weights, pt_bins, "highpt")
     products = parse_products(args.products)
     required_columns = set([args.label_branch, "cluster_Et", "cluster_Eta", "centrality", "vertexz"])
     required_columns.update(["run", "evt"])
+    if args.hard_example_branch:
+        required_columns.add(args.hard_example_branch)
+    if args.distillation_branch:
+        required_columns.add(args.distillation_branch)
     for product in products:
         required_columns.update(expand_required_columns(MODEL_SPECS[product]["features"]))
     optional_columns = [args.weight_branch]
@@ -1227,7 +1837,15 @@ def main() -> int:
             "source": str(args.source) if args.source else None,
             "tree": args.tree,
             "products": products,
+            "product_specs": {product: MODEL_SPECS[product] for product in products},
             "pt_range": args.pt_range,
+            "centrality_range": args.centrality_range,
+            "train_pt_bins": [{"lo": lo, "hi": hi} for lo, hi in train_pt_bins(args)],
+            "pt_bin_weight_mode": args.pt_bin_weight_mode,
+            "distillation_branch": args.distillation_branch,
+            "distillation_strength": float(args.distillation_strength),
+            "distillation_temperature": float(args.distillation_temperature),
+            "require_distillation": bool(args.require_distillation),
             "random_seed": int(args.random_seed),
         }
     )

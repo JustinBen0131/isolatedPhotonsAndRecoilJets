@@ -1,5 +1,6 @@
-# Campaign-specific embedded-MC validation config for the AuAu tight-MLP
-# sidecar. The BDT validation configs are intentionally untouched.
+# Campaign-specific embedded-MC validation config for the ABCD-safe
+# high-pT distilled AuAu tight-MLP v2 lane. This intentionally stays separate
+# from the current primary-MLP and BDT production YAMLs.
 
 photon_eta_abs_max: 0.7
 jet_pt_min: [5.0, 7.0, 10.0, 12.0]
@@ -32,7 +33,7 @@ photon_id_sets:
   - [newPPG12, reference, reference]
   - [newPPG12, newPPG12, reference]
   - [newPPG12, auauCentInputBase3x3BDT, auauBDTComplement]
-  - [newPPG12, auauCentInputBase3x3MLP, auauMLPComplement]
+  - [newPPG12, auauHighPtDistilledKitchenMLP, auauMLPComplement]
 
 notify_emails: [just0131@gmail.com]
 
@@ -63,7 +64,7 @@ auau_tight_bdt_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vert
 auau_tight_bdt_centAsFeatBase3x3_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, cluster_weta33_cogx, cluster_wphi33_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35, centrality]
 auau_tight_bdt_centInputBase3x3_model_file: /gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/tight_centinput_widthstudy_pt1530_current/auau_tight_bdt_centAsFeatBase3x3_pt15to30_tmva.root
 
-auau_tight_mlp_model_dir: /gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/tight_mlp_current
+auau_tight_mlp_model_dir: /gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/tight_mlp_highpt_distilled_kitchen_v2_CURRENT
 auau_tight_mlp_apply_pt_min: 15.0
 auau_tight_mlp_apply_pt_max: 35.0
 auau_tight_mlp_min_intercept: 0.80

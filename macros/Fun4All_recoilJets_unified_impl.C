@@ -728,6 +728,7 @@ namespace yamlcfg
         if (key == "auaucentinputmlp") return "auauCentInputMLP";
         if (key == "auaunocentbase3x3mlp") return "auauNoCentBase3x3MLP";
         if (key == "auaucentinputbase3x3mlp") return "auauCentInputBase3x3MLP";
+        if (key == "auauhighptdistilledkitchenmlp") return "auauHighPtDistilledKitchenMLP";
         return mode;
     }
 
@@ -760,7 +761,8 @@ namespace yamlcfg
                mode == "auauPtCent3BDT" || mode == "auauPtCent7BDT" ||
                mode == "auauEtFineCentInputBDT" || mode == "auauEtFineCent3BDT" ||
                mode == "auauEtFineCent7BDT" || mode == "auauCentInputMLP" ||
-               mode == "auauNoCentBase3x3MLP" || mode == "auauCentInputBase3x3MLP";
+               mode == "auauNoCentBase3x3MLP" || mode == "auauCentInputBase3x3MLP" ||
+               mode == "auauHighPtDistilledKitchenMLP";
     }
 
     static bool IsNonTightMode(const std::string& mode)
@@ -788,7 +790,8 @@ namespace yamlcfg
     {
         return mode == "auauCentInputMLP" ||
                mode == "auauNoCentBase3x3MLP" ||
-               mode == "auauCentInputBase3x3MLP";
+               mode == "auauCentInputBase3x3MLP" ||
+               mode == "auauHighPtDistilledKitchenMLP";
     }
 
     inline std::string DefaultYAMLPath()
@@ -4731,6 +4734,12 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             out.modelFile = cfg.auau_tight_mlp_centInputBase3x3_model_file.empty()
                 ? mlpModelPath("auau_tight_mlp_centInputBase3x3_pt1535.json")
                 : cfg.auau_tight_mlp_centInputBase3x3_model_file;
+        }
+        else if (tightMode == "auauHighPtDistilledKitchenMLP")
+        {
+            out.modelFile = cfg.auau_tight_mlp_model_file.empty()
+                ? mlpModelPath("auau_tight_mlp_highPtDistilledKitchen_v2.json")
+                : cfg.auau_tight_mlp_model_file;
         }
         if (out.modelFile.empty() && !cfg.auau_tight_mlp_model_file.empty())
         {

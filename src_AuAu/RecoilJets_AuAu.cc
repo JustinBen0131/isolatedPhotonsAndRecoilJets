@@ -357,6 +357,7 @@ namespace
       if (key == "auaucentinputmlp") return "auauCentInputMLP";
       if (key == "auaunocentbase3x3mlp") return "auauNoCentBase3x3MLP";
       if (key == "auaucentinputbase3x3mlp") return "auauCentInputBase3x3MLP";
+      if (key == "auauhighptdistilledkitchenmlp") return "auauHighPtDistilledKitchenMLP";
       return tightVariant;
     }
 
@@ -438,7 +439,8 @@ namespace
     {
       return tightVariant == "auauCentInputMLP" ||
              tightVariant == "auauNoCentBase3x3MLP" ||
-             tightVariant == "auauCentInputBase3x3MLP";
+             tightVariant == "auauCentInputBase3x3MLP" ||
+             tightVariant == "auauHighPtDistilledKitchenMLP";
     }
 
     inline std::size_t jsonSkipWs(const std::string& s, std::size_t pos)
@@ -3361,7 +3363,21 @@ double RecoilJets::auauTightBDTFeatureValue(const std::string& feature,
   if (feature == "vertexz" || feature == "vertex_z" || feature == "zvtx") return m_vz;
   if (feature == "centrality" || feature == "cent") return m_centPercent;
   if (feature == "e11_over_e33") return v.e11_over_e33;
+  if (feature == "e11_over_e22") return v.e11_over_e22;
+  if (feature == "e11_over_e13") return v.e11_over_e13;
+  if (feature == "e11_over_e15") return v.e11_over_e15;
+  if (feature == "e11_over_e17") return v.e11_over_e17;
+  if (feature == "e11_over_e31") return v.e11_over_e31;
+  if (feature == "e11_over_e51") return v.e11_over_e51;
+  if (feature == "e11_over_e71") return v.e11_over_e71;
+  if (feature == "e22_over_e33") return v.e22_over_e33;
+  if (feature == "e22_over_e35") return v.e22_over_e35;
+  if (feature == "e22_over_e37") return v.e22_over_e37;
+  if (feature == "e22_over_e53") return v.e22_over_e53;
   if (feature == "e32_over_e35") return v.e32_over_e35;
+  if (feature == "cluster_w32") return v.w32;
+  if (feature == "cluster_w52") return v.w52;
+  if (feature == "cluster_w72") return v.w72;
   if (feature == "cluster_et1") return v.et1;
   if (feature == "cluster_et2") return v.et2;
   if (feature == "cluster_et3") return v.et3;
