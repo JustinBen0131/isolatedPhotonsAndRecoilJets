@@ -1,6 +1,6 @@
 # Task Board
 
-Last updated: 2026-05-12
+Last updated: 2026-05-13
 
 Task tracking is milestone/blocker level. Add tasks when Justin explicitly asks
 to track/add/remember them. If a task only appears casually in conversation,
@@ -9,20 +9,71 @@ Removal` and ask Justin before removing or archiving.
 
 ## Now
 
-- RUNNING IN TMUX / MERGE REPAIR: target80 BDT all-available campaign
-  `bdt_target80_gated_20260512_001012` on `sphnxuser05`. Codex dry-scanned the
-  generated config directory
-  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/bdt_target80_all_available_20260511_224158`
-  at 2026-05-12 21:53 EDT: `analysis_config_etfine_15to35_target80` was
-  already final-stitched (`finals=6`), while `expanded_5to40`,
-  `widthstudy_pt10to35`, `widthstudy_pt1530`, `widthstudy_pt15to35`, and
-  `widthstudy_pt5to35` were ready with raw signal/background outputs and
-  `0` held jobs. Codex launched tmux session
-  `target80_merge_repair_20260512_2153` with guarded looped stitching; first
-  live stage submitted `analysis_config_expanded_5to40_target80` firstRound
-  signal merge DAGMan cluster `5340331` / worker cluster `5340332.*`, with
-  `20` idle and `0` held immediately after submission. Next checkpoint: watch
-  until finalStitch products exist, then pull final merged ROOT files only.
+- TOP PRIORITY / FINISH TODAY: validate truth signal/background tagging behind
+  the BDT/MLP score-separation plots. Blair explicitly asked whether the signal
+  not peaking at 1 could indicate truth-tagging issues. Check event-level
+  signal-tag multiplicity in signal embedded MC and verify the inclusive
+  embedded sample has only a rare truth-signal tag rate, roughly at the
+  accidental/prompt level rather than order-one per event. Required outputs:
+  per-event tagged-photon multiplicity histograms/tables for signal and
+  inclusive samples, duplicate matched-truth checks for any signal event with
+  more than one signal-tagged reco photon, and a short conclusion on whether
+  the original BDT score-separation plot is stable after this sanity check.
+- DONE PENDING REMOVAL / OFFLINE: target80 BDT all-available campaign
+  `bdt_target80_gated_20260512_001012` on `sphnxuser05`. Codex fixed the
+  remaining EtFine merge issue: `scripts/mergeRecoilJets.sh` now recognizes
+  `auauEtFineCentInputBDT`, `auauEtFineCent3BDT`, and
+  `auauEtFineCent7BDT`, and
+  `scripts/merge_auau_bdt_target80_ready.sh` passes `MERGE_CFG_MATCH` through
+  to the merge script. Local `bash -n` and `git diff --check` passed; both
+  scripts were uploaded to SDCC. Remote dry scan with `MERGE_CFG_MATCH=EtFine`
+  reports `analysis_config_etfine_15to35_target80` as `READY` with
+  `finals=6/12`, while all other target80 configs are already complete
+  (`expanded_5to40=22/22`, `widthstudy_pt10to35=8/8`,
+  `widthstudy_pt1530=8/8`, `widthstudy_pt15to35=8/8`,
+  `widthstudy_pt5to35=8/8`). Active repair tmux is
+  `target80_merge_repair_etfine_20260513_1233` with
+  `MERGE_CFG_MATCH=EtFine`, `RJ_TARGET80_MERGE_DO_RUN=1`,
+  `RJ_TARGET80_MERGE_LOOP=0`, and `RJ_TARGET80_MERGE_MAX_CONFIGS=1`. Launch
+  evidence: EtFine cfg tags were found, first-round merge submitted worker
+  cluster `5348890.*` and DAGMan cluster `5348891`, with `80` active/idle jobs
+  and `0` held. 2026-05-13 12:55 EDT update: the local SFTP pull script was
+  also patched to normalize `auauCentInputBase3x3BDT`, EtFine BDT modes, and
+  current MLP/stack mode names consistently with the merge script. All
+  already-complete non-EtFine target80 finals were pulled offline to
+  `dataOutput/target80_all_available/bdt_target80_gated_20260512_001012/`;
+  local counts are now EtFine `6/12`, expanded `22/22`, and all four
+  width-study configs `8/8` for a total of `60` nonzero final ROOT files
+  (`~11 GB`). Latest remote check showed EtFine `isSimEmbedded firstRound`
+  still running with `114` merge jobs and `0` held. 13:36 EDT update: EtFine
+  advanced to `9/12` remote final stitched files and is now in
+  `isSimEmbeddedInclusive firstRound` with `57` running merge jobs and `0`
+  held; Gmail had no unread pipeline messages. Next checkpoint: wait for
+  EtFine `12/12` final stitched files, then pull the remaining EtFine finals
+  offline.
+  13:40 EDT gym-mode automation update: heartbeat
+  `watch-gated-target80-campaign` now checks every 15 minutes while Justin is
+  away. It is authorized to do targeted helper/script fixes, upload those
+  fixes, continue/restart only the already-authorized EtFine merge repair if a
+  targeted fix requires it, and pull final ROOT outputs offline. It is not
+  authorized to remove jobs, delete remote outputs, or submit unrelated new
+  production campaigns. Completion means all remote final counts are present
+  (`EtFine=12/12`, expanded `22/22`, all width-study configs `8/8`), local
+  nonzero final ROOT files are pulled under
+  `dataOutput/target80_all_available/bdt_target80_gated_20260512_001012/`, and
+  an inventory table is written/reported with config, expected count, remote
+  count, local count, and local path.
+  17:14 EDT final check: SDCC `sphnxuser05` has `0` Justin jobs and `0` held
+  jobs for this lane. Remote final counts are complete:
+  `EtFine=12/12`, `expanded_5to40=22/22`, `widthstudy_pt10to35=8/8`,
+  `widthstudy_pt1530=8/8`, `widthstudy_pt15to35=8/8`, and
+  `widthstudy_pt5to35=8/8`. Local target80 folder contains all `66` expected
+  nonzero final ROOT files (`~12 GB`) under
+  `dataOutput/target80_all_available/bdt_target80_gated_20260512_001012/`.
+  Heartbeat `watch-gated-target80-campaign` was deleted because the watch task
+  is complete. Next: generate target80 ID efficiency, reco efficiency,
+  background tight-rate/fake-rate, shower-shape, isolation/ABCD, and xJ
+  comparison plots from this local matrix.
 - READY FOR FIRST TARGET80 PLOTS: first completed target80 BDT
   signal/background MC pair is offline locally. Folder:
   `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/target80_first_offline/bdt_target80_gated_20260512_001012/analysis_config_etfine_15to35_target80`.
@@ -88,20 +139,10 @@ Removal` and ask Justin before removing or archiving.
   artifact writeout; after training finishes, run full embedded validation
   because the existing primary-ratios validation cache lacks the new extended
   input features.
-- READY TO MERGE WITH GUARDS: target80 BDT raw outputs on `sphnxuser05`.
-  Codex added/uploaded `scripts/merge_auau_bdt_target80_ready.sh` and verified
-  it in dry-run mode. It currently finds five ready target80 config sets
-  (`etfine_15to35`, `expanded_5to40`, `widthstudy_pt10to35`,
-  `widthstudy_pt1530`, `widthstudy_pt15to35`) and one not-yet-ready set
-  (`widthstudy_pt5to35`, signal raw exists but inclusive raw is still missing).
-  The live tmux submitter
-  `target80_bdt_target80_gated_20260512_001012` is still alive and waiting at
-  the queue gate before the missing inclusive half. Exact guarded merge command
-  after approval:
-  `RJ_TARGET80_MERGE_DO_RUN=1 RJ_TARGET80_MERGE_LOOP=1 RJ_TARGET80_MERGE_MAX_CONFIGS=1 bash ./scripts/merge_auau_bdt_target80_ready.sh`.
-  This should be run from
-  `/sphenix/u/patsfan753/scratch/thesisAnalysis` on `sphnxuser05`, ideally in
-  its own tmux, and only after confirming no held jobs in the target80 lane.
+- SUPERSEDED BY ETFINE-ONLY REPAIR: earlier target80 guarded-merge note.
+  The raw-output guard worked, but the remaining issue was cfg-tag
+  normalization for EtFine BDT modes. Use active tmux
+  `target80_merge_repair_etfine_20260513_1233` as the live source of truth.
 - FAILED / FIX BEFORE RESUBMIT: high-pT AuAu tight-MLP Condor sweep on
   `sphnxuser02`. Submitted
   2026-05-12 18:23 EDT with DAGMan cluster `2066007`, submit dir
@@ -667,6 +708,14 @@ Removal` and ask Justin before removing or archiving.
 
 ## Next
 
+- LATER PRIORITY / PPG12 CLUSTERING SETTINGS: understand and play with the
+  PPG12 splitting and topo-clustering configurations before making any
+  long-term photon-ID clustering choices. Reference `ppg12codeGit/` and
+  distinguish the two axes cleanly: split vs no-split EMCal photon-cluster
+  containers (`CLUSTERINFO_CEMC` vs `CLUSTERINFO_CEMC_NO_SPLIT`) and
+  topo-cluster isolation choices (`use_topo_iso`). Goal for later: decide
+  whether Au+Au should add a controlled split/no-split BDT comparison and/or a
+  separate topo-isolation ABCD/systematics comparison.
 - Regenerate final local analysis inputs under `InputFiles/auau25`,
   `InputFiles/pp24`, `InputFiles/simPhotonJet`, `InputFiles/simEmbedded`,
   `InputFiles/InclusiveJetSIM`, and `InputFiles/InclusiveJetSIM_EMBEDDED`.

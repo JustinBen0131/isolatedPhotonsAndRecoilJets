@@ -13,6 +13,7 @@ poll_seconds="${RJ_TARGET80_MERGE_POLL_SECONDS:-300}"
 do_run="${RJ_TARGET80_MERGE_DO_RUN:-0}"
 loop="${RJ_TARGET80_MERGE_LOOP:-0}"
 max_configs="${RJ_TARGET80_MERGE_MAX_CONFIGS:-999}"
+merge_cfg_match="${MERGE_CFG_MATCH:-}"
 
 log_dir="${RJ_TARGET80_MERGE_LOG_DIR:-${repo_root}/condor_generated_configs/${group}}"
 mkdir -p "$log_dir"
@@ -31,6 +32,7 @@ echo "do_run=${do_run}"
 echo "loop=${loop}"
 echo "max_configs=${max_configs}"
 echo "poll_seconds=${poll_seconds}"
+echo "merge_cfg_match=${merge_cfg_match}"
 echo "log=${log}"
 echo
 
@@ -64,6 +66,21 @@ count_finals() {
     -path "*/photonJet12and20merged_SIM/RecoilJets_embeddedPhoton12plus20_MERGED.root" -o \
     -path "*/embeddedJet12and20merged_SIM/RecoilJets_embeddedJet12plus20_MERGED.root" \
   \) 2>/dev/null | wc -l | awk '{print $1+0}'
+}
+
+count_cfg_rows_from_yaml() {
+  local yaml="$1"
+  awk '
+    /^[[:space:]]*photon_id_sets:[[:space:]]*$/ { in_sets=1; next }
+    in_sets && /^[^[:space:]-]/ { in_sets=0 }
+    in_sets && /^[[:space:]]*-[[:space:]]*\[/ { n++ }
+    END { print n+0 }
+  ' "$yaml"
+}
+
+count_cfg_dirs() {
+  local dir="$1"
+  find "$dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | awk '{print $1+0}'
 }
 
 wait_for_pattern_clear() {
@@ -111,6 +128,7 @@ run_merge_stage() {
 
   env \
     MERGE_CONFIG_YAML="${yaml}" \
+    MERGE_CFG_MATCH="${MERGE_CFG_MATCH:-}" \
     MERGE_SIM_INPUT_BASE_OVERRIDE="${input_base}" \
     MERGE_OUT_BASE_OVERRIDE="${merge_base}" \
     RJ_SIM_FIRSTROUND_REQUEST_MEMORY="${merge_memory}" \
@@ -123,19 +141,25 @@ run_merge_stage() {
 process_ready_config() {
   local yaml="$1"
   local name tag signal_bulk background_bulk merge_base active held sigraw bkgraw finals
+  local cfg_rows expected_finals sigcfgs bkgcfgs
   name="$(basename "$yaml" .yaml)"
   tag="${group}_${name}"
   signal_bulk="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simembedded_${tag}"
   background_bulk="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simembeddedinclusive_${tag}"
   merge_base="/sphenix/u/patsfan753/scratch/thesisAnalysis/output_${tag}"
 
+  cfg_rows="$(count_cfg_rows_from_yaml "$yaml")"
+  expected_finals=$((2 * cfg_rows))
   active="$(count_active_matching "$tag")"
   held="$(count_held_matching "$tag")"
   sigraw="$(count_roots "$signal_bulk")"
   bkgraw="$(count_roots "$background_bulk")"
+  sigcfgs="$(count_cfg_dirs "$signal_bulk")"
+  bkgcfgs="$(count_cfg_dirs "$background_bulk")"
   finals="$(count_finals "$merge_base")"
 
-  printf "%-48s active=%6s held=%3s sigraw=%7s bkgraw=%7s finals=%4s" "$name" "$active" "$held" "$sigraw" "$bkgraw" "$finals"
+  printf "%-48s active=%6s held=%3s sigcfg=%3s/%-3s bkgcfg=%3s/%-3s sigraw=%7s bkgraw=%7s finals=%4s/%-4s" \
+    "$name" "$active" "$held" "$sigcfgs" "$cfg_rows" "$bkgcfgs" "$cfg_rows" "$sigraw" "$bkgraw" "$finals" "$expected_finals"
 
   if (( held > 0 )); then
     echo "  -> HELD: inspect, do not merge"
@@ -145,16 +169,24 @@ process_ready_config() {
     echo "  -> WAIT: matching jobs still active"
     return 1
   fi
-  if (( finals > 0 )); then
-    echo "  -> DONE/SKIP: merged outputs already exist"
+  if (( cfg_rows == 0 )); then
+    echo "  -> BLOCKED: no photon_id_sets rows parsed from YAML"
+    return 2
+  fi
+  if (( finals >= expected_finals )); then
+    echo "  -> DONE/SKIP: all expected merged outputs exist"
     return 1
   fi
-  if (( sigraw == 0 || bkgraw == 0 )); then
-    echo "  -> WAIT: both raw datasets are not present yet"
+  if (( sigcfgs < cfg_rows || bkgcfgs < cfg_rows || sigraw == 0 || bkgraw == 0 )); then
+    echo "  -> WAIT: both raw datasets are not complete yet"
     return 1
   fi
 
-  echo "  -> READY"
+  if (( finals > 0 )); then
+    echo "  -> READY: partial final outputs exist; rerunning merge stages to fill missing finals"
+  else
+    echo "  -> READY"
+  fi
   if [[ "$do_run" != "1" ]]; then
     return 0
   fi

@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from train_auau_photon_mlp import (  # noqa: E402
     BASE_AND_3X3_FEATURES,
     BASE_FEATURES,
+    EXTENDED_SHOWER_FEATURES,
     MODEL_SPECS,
     WIDTH_RATIO_FEATURES,
     add_derived_features,
@@ -32,9 +33,10 @@ from train_auau_photon_mlp import (  # noqa: E402
 
 
 DIAGNOSTIC_FEATURES = []
-for _name in BASE_AND_3X3_FEATURES + WIDTH_RATIO_FEATURES + ["centrality", "reco_eiso"]:
+for _name in BASE_AND_3X3_FEATURES + EXTENDED_SHOWER_FEATURES + WIDTH_RATIO_FEATURES + ["centrality", "reco_eiso"]:
     if _name not in DIAGNOSTIC_FEATURES:
         DIAGNOSTIC_FEATURES.append(_name)
+MANDATORY_CACHE_COLUMNS = ["is_signal", "cluster_Et", "cluster_Eta", "centrality", "reco_eiso"]
 
 EFFICIENCY_TARGETS = [0.50, 0.70, 0.80, 0.90, 0.95]
 DEFAULT_PT_BINS = [(15.0, 20.0), (20.0, 25.0), (25.0, 35.0)]
@@ -374,10 +376,10 @@ def load_score_caches(cache_manifest: Path):
     for idx, path in enumerate(cache_paths, 1):
         print(f"[validateAuAuTightMLP] merging score cache {idx}/{len(cache_paths)}: {path}", flush=True)
         with np.load(path, allow_pickle=True) as data:
-            for name in frame_parts:
+            for name in ["is_signal"] + DIAGNOSTIC_FEATURES:
                 if name in data:
                     frame_parts[name].append(data[name])
-                else:
+                elif name in MANDATORY_CACHE_COLUMNS:
                     raise SystemExit(f"Missing diagnostic column {name} in score cache: {path}")
             for key in data.files:
                 if key.startswith("score_"):
@@ -387,7 +389,10 @@ def load_score_caches(cache_manifest: Path):
                 counts[key] += int(cached_counts.get(key, 0))
             counts["missing_tree_files"].extend(cached_counts.get("missing_tree_files", []))
             counts["missing_branches"].update(cached_counts.get("missing_branches", {}))
-    frame = {name: np.concatenate(parts) if parts else np.array([], dtype="float32") for name, parts in frame_parts.items()}
+    frame = {}
+    for name, parts in frame_parts.items():
+        if name in MANDATORY_CACHE_COLUMNS or len(parts) == len(cache_paths):
+            frame[name] = np.concatenate(parts) if parts else np.array([], dtype="float32")
     scores = {product: np.concatenate(parts) if parts else np.array([], dtype="float32") for product, parts in score_parts.items()}
     counts["scored_entries"] = int(len(frame["is_signal"]))
     return frame, scores, counts

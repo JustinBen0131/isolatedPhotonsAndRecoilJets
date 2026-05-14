@@ -1,12 +1,555 @@
 # Status Dashboard
 
-Last updated: 2026-05-12
+Last updated: 2026-05-14
 
 Use traffic-light status for datasets/jobs/outputs. Keep rows evidence-based:
 email, terminal output, job ID, pulled file timestamp, ROOT inspection, or clear
 user statement.
 
 Latest active update:
+
+- 2026-05-14 00:19-00:30 EDT / ACTIVE OVERNIGHT REGISTRY PUSH:
+  Codex launched bounded Condor training lanes on `sphnxuser02` to fill the
+  AuAu photon-ID model registry, especially the `15-35 GeV` missing cells.
+  Static checks passed locally and remotely before submission:
+  `bash -n` for `scripts/submit_auau_mlp_highpt_sweep.sh` and
+  `scripts/submit_auau_stacked_bdt_mlp_sweep.sh`, plus Python compile for
+  `scripts/train_auau_photon_mlp.py`,
+  `scripts/validate_auau_tight_mlp_on_sim.py`, and
+  `scripts/train_auau_stacked_bdt_mlp_sweep.py`. Uploaded files to SDCC
+  before submission: the two submit scripts, the MLP trainer/validator, the
+  stack trainer, and `scripts/auau_tight_mlp_pipeline.sh`.
+  MLP direct-routing sweep: DAGMan cluster `2066708`; first worker clusters
+  observed `2066709`-`2066712`; submit root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightMLPRegistryPush_20260514_001944`;
+  sweep dir
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/tight_mlp_registry_push_20260514_001944`;
+  validation cache
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049/reports/mlp_model_validation_condor_deep_primary_ratios_nostat_fullval_20260512_145449/score_caches.list`;
+  settings `MAXJOBS=4`, `REQUEST_MEMORY=24000MB`, `EPOCHS=190`,
+  `PATIENCE=36`, `HIDDEN_LAYER_GRID=160,80,40`. This fills/compares the
+  high-value MLP direct-routing cells: global `15-35`, broad `5-35`, three
+  `E_T` routes, and three centrality routes, with automatic cache rescore after
+  training if all artifacts appear. Stack compact registry sweep: Condor
+  cluster `2066713`; submit root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauStackedBDTMLPRegistryPush_20260514_001944`;
+  output dir
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/stacked_bdt_mlp_registry_push_20260514_001944`;
+  full-feature MLP/BDT cache preflight read all 80 shards cleanly and wrote
+  `stacked_sweep_preflight.json`; variants submitted:
+  `global15to35_EtCent_full`, `global15to35_EtOnly_full`,
+  `global15to35_CentOnly_full`, `ptFine15to35_centInput_full`,
+  `ptFine15to35_cent3_full`, `ptCoarse15to35_cent3_full`, and
+  `ptCoarse15to35_cent7_full`, with algorithms `logistic,gbm,nn`. Submit-time
+  queue summary: existing 5-35 stack worker `2066615.0` still running; MLP
+  DAGMan `2066708.0` running; new stack `2066713.0` idle; `0` held jobs.
+  Submit log on SDCC: `/tmp/auau_registry_overnight_submit_20260514_001944.log`.
+  Follow-up stack coverage fix: Codex patched
+  `scripts/train_auau_stacked_bdt_mlp_sweep.py` so self-tests honor explicit
+  `--variants` instead of forcing the compact preset, uploaded it to SDCC, and
+  self-tested the missing centrality-routed stack variants before submission.
+  Additional stack worker `2066714` was submitted for
+  `cent315to35_EtInput_full` and `cent715to35_EtInput_full`; output dir
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/stacked_bdt_mlp_registry_centroute_20260514_002731`;
+  submit root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauStackedBDTMLPRegistryCentRoute_20260514_002731`.
+  Final stack gap-fill worker `2066715` was submitted for
+  `ptCoarse15to35_centInput_full`, `ptFine15to35_cent7_full`, and controls
+  `control15to35_scoreOnly`, `control15to35_bdtOnly`,
+  `control15to35_mlpOnly`; output dir
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/stacked_bdt_mlp_registry_remaining15_20260514_002902`;
+  submit root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauStackedBDTMLPRegistryRemaining15_20260514_002902`.
+  Queue after the final submission had `8` Justin jobs on `sphnxuser02`,
+  `7` running, `1` idle, and `0` held; active relevant clusters were old
+  `5-35` stack worker `2066615`, MLP registry DAG/children `2066708`-`2066712`,
+  and stack registry workers `2066713`, `2066714`, `2066715`.
+  Next checkpoint: check whether MLP DAG writes `sweep_manifest.json` and
+  `validation_rescore/validation_rank_table.csv`; check whether stack writes
+  `stacked_sweep_rank_table.csv`, `stacked_sweep_top4.json`, and
+  `stacked_sweep_metrics.json`; stop before any production submission.
+  Continuation authorization from Justin at 00:xx EDT: if these `15-35` registry
+  jobs finish quickly and cleanly, Codex should automatically continue through
+  validation/ranking/finalization, then submit the next controlled `5-40 GeV`
+  ML training/validation chunks to keep the comparison table filling.  This is
+  authorized only for ML model training, validation, ranking, and local evidence
+  pulls; do not submit `isSimEmbedded`/`isSimEmbeddedInclusive` RecoilJets
+  production or remove/kill/clean jobs without fresh approval.  Use bounded
+  chunks with preflight/self-test first, fresh timestamped output roots, queue
+  checks, and immediate dashboard recording of cluster IDs and validation/rank
+  outputs.
+
+- 2026-05-13 21:55 EDT Gmail `RecoilJets Pipeline` label was quiet
+  (`0` unread). Codex checked the full-stat BDT+MLP stack lane on
+  `sphnxuser02`. Tmux session `stack_fullstat_targeted_20260513_123934` is
+  alive. Condor shows stack worker `2066615.0` still running with no held
+  jobs in the filtered queue; Condor history shows `2066616.0` completed with
+  exit `0`. The `15-35` targeted full-stat stack output has
+  `stacked_sweep_rank_table.csv`, `stacked_sweep_metrics.json`, and training
+  histories under
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/stacked_bdt_mlp_targeted_fullstat_ptFine15to35_cent7_full_20260513_123934`.
+  The NN stacker held-out/test row is the honest headline for now:
+  AUC `0.79975`, WP80 fake `0.34829`, high-pT `20-35` AUC `0.77702`;
+  the all-split row is higher, AUC `0.81728`, WP80 fake `0.32132`,
+  high-pT AUC `0.80196`, but should not be over-interpreted before the
+  production-gate review. The `5-35` output has training history but no final
+  rank table yet. Heartbeat `auau-stack-model-readiness-watchdog` was updated
+  to explicitly retain both stack lanes plus the active logreg lane.
+
+- 2026-05-13 21:45 EDT Codex rechecked the active logistic-regression lane on
+  `sphnxuser02` through one persistent nested SSH session. Evidence: tmux
+  session `logreg_full_chain_20260513_213044` is alive; the logreg chain
+  passed static checks, the `makee clean`/`makeProject` runtime rebuild,
+  capped smoke training, and applyCheck. Full-stat training read all `8000`
+  extraction ROOT files, applied the pT-bin row cap
+  `max_rows_per_pt_bin_class=160000` while preserving rare high-pT background
+  rows, and is actively training `centEtFullLogReg_pt1535`. Latest observed
+  training line: epoch `30`, train loss `0.613663`, validation loss
+  `0.615856`, validation AUC `0.71760`. No full `model_registry.json` or
+  validation report exists yet because full training is still in progress.
+  Heartbeat automation `auau-stack-model-readiness-watchdog` was updated to
+  watch this lane through validation/ranking/WP80 prep and stop before
+  production submission.
+
+- 2026-05-13 21:30 EDT Codex implemented and uploaded the new ABCD-safe
+  AuAu tight logistic-regression photon-ID lane, then started the gated SDCC
+  orchestrator on `sphnxuser02`. Uploaded/status-verified files matched for:
+  `scripts/auau_tight_logreg_pipeline.sh`,
+  `scripts/submit_auau_logreg_full_chain.sh`,
+  `scripts/submit_auau_logreg_targetwp_pair.sh`,
+  `scripts/train_auau_photon_logreg.py`,
+  `scripts/validate_auau_tight_logreg_on_sim.py`,
+  `scripts/make_auau_logreg_target_wp_config.py`,
+  `src_AuAu/RecoilJets_AuAu.cc`, `src_AuAu/RecoilJets_AuAu.h`, and
+  `macros/Fun4All_recoilJets_unified_impl.C`. Static local checks passed:
+  `bash -n`, Python compile using bundled Python, trainer synthetic
+  round-trip/self-test AUC `0.83096`, and `git diff --check`. Remote
+  `src_AuAu` rebuild succeeded once with `makeProject` after the runtime
+  changes, with only a nonfatal shadow warning. The active restarted tmux is
+  `logreg_full_chain_20260513_213044`; log:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_sub/auauTightLogRegFullChain_20260513_213044/logreg_full_chain_20260513_213044.log`;
+  model dir:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/logreg_models/tight_logreg_full_chain_20260513_213044`;
+  validation report:
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049/reports/logreg_model_validation_condor_20260513_213044`.
+  The chain is intended to rebuild, smoke-train, full-train the global
+  cent+Et and routed Et×cent7/Et×cent3 logistic products, submit full-stat
+  validation, derive WP80, generate a YAML, and write a paste-ready production
+  block. Hard stop: do not submit `isSimEmbedded` or
+  `isSimEmbeddedInclusive` until Justin approves the validation/WP80
+  diagnostics.
+
+- 2026-05-13 13:36 EDT Justin approved a bounded three-hour AuAu full-stat
+  stack watchdog in **validate+prep only** mode. Codex updated heartbeat
+  automation `auau-mlp-full-stat-stack-watchdog` to run every 20 minutes.
+  Authority while Justin is away: check Gmail first, monitor `sphnxuser02`
+  stack lane `stack_fullstat_targeted_20260513_123934`, and if the two
+  targeted stack workers finish cleanly, inspect/rank outputs, select the best
+  full-stat stacker by held-out WP80/high-pT behavior, derive/show WP80
+  diagnostics, and prepare config/parity/smoke plus a paste-ready production
+  command block. Hard stop: do not submit `isSimEmbedded` or
+  `isSimEmbeddedInclusive`, remove jobs, kill jobs, or destructively clean
+  anything without fresh explicit approval. Immediate evidence at 13:34 EDT:
+  Gmail quiet; Condor workers `2066615.0` and `2066616.0` still running with
+  `0` idle and `0` held; no stack rank tables yet. Truth-tag audit remains a
+  green sanity check: `8000/8000` files, signal single-tag fraction `99.805%`,
+  inclusive candidate-event signal-tag rate `1.536%`.
+
+- 2026-05-13 13:10 EDT Gmail RecoilJets Pipeline check found two fresh
+  unread READY messages from `sphnxuser02`; both were consumed and marked read.
+  The uncapped/full-stat MLP validation-cache report is READY at
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049/reports/mlp_model_validation_condor_stack_full_features_uncapped_20260513_123934`
+  with `scored_entries=12000316`, `signal_entries=8526032`,
+  `background_entries=3474284`, product
+  `centInputBase3x3WidthRatiosMLP_pt1535` AUC `0.8568939867526256`, WP80 fake
+  `0.2073860479683489`, finite fraction `0.9999123356418281`, and eiso
+  correlation `-0.4259167484139341`. The uncapped/full-stat BDT validation-cache
+  report is READY at
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049/reports/model_validation_condor_stack_full_features_uncapped_20260513_123934`
+  with `scored_entries=12000316`, finite score fraction `1`, and AUCs:
+  `centInput_pt1535=0.716513`, `ptFine_centInput=0.723502`,
+  `ptFine_cent3=0.741749`, `ptFine_cent7=0.768214`; notes `none`. Follow-up
+  SDCC check showed the two targeted stacker jobs `2066615.0` and `2066616.0`
+  still running with `0` held, no rank tables yet. Truth-tag audit was still
+  running in tmux and had reached `6200/8000` files, no summary JSON yet.
+
+- 2026-05-13 13:06 EDT Codex started the high-priority truth
+  signal/background tagging audit on `sphnxuser02` after uploading
+  `scripts/audit_auau_truth_tags.py` and verifying remote `MATCH`. The
+  4-file smoke over one Photon12, Photon20, Jet12, and Jet20 extraction ROOT
+  passed: `status=PASS`, signal-source single-tag fraction among tagged events
+  `0.996278`, inclusive-source candidate-bearing event signal-tag rate
+  `0.0173824`, and `0` multi-signal inclusive events. Full audit is running in
+  tmux session `truth_tag_full_20260513_130600`, log
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/truth_tag_full_20260513_130600.log`,
+  output dir
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/audits/truth_tag_full_20260513_130600`.
+  The log had reached `300/8000` files with no error when checked. Expected
+  outputs: `truth_tag_audit_summary.json`, event multiplicity CSV, duplicate
+  events CSV, pT/centrality/file summary CSVs, and PNG diagnostics. Next
+  checkpoint: tail the log until completion, then inspect the summary status
+  and pull/show the PNGs before final BDT/MLP/stack promotion decisions.
+- 2026-05-13 13:07 EDT follow-up SDCC check on `sphnxuser02`: the truth-tag
+  full audit log had advanced to `2300/8000` files with no error. The
+  full-stat targeted stack lane has also advanced past cache generation into
+  stacker training: Condor workers `2066615.0` and `2066616.0` are running
+  `run_stacked_bdt_mlp_full_feature_sweep.sh`, with `0` idle and `0` held.
+  The stack driver log reports it is waiting on the two targeted stack output
+  dirs for `ptFine5to35_cent7_full` and `ptFine15to35_cent7_full`.
+
+- 2026-05-13 12:40 EDT Codex submitted the uncapped/full-stat enriched
+  BDT+MLP stack validation-cache lane from a persistent SSH session on
+  `sphnxuser02`. The old full-feature stack caches were verified capped at
+  `400000` rows (`80` caches x `5000` rows), so a new uncapped lane was
+  launched with `scoreMaxRows=0`. Tmux watcher:
+  `stack_fullstat_targeted_20260513_123934`; log:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/stack_fullstat_targeted_20260513_123934.log`;
+  driver: `/tmp/auau_stack_fullstat_targeted_20260513_123934.sh`. MLP cache
+  report:
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049/reports/mlp_model_validation_condor_stack_full_features_uncapped_20260513_123934`;
+  MLP DAG:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightMLPValidate_mlp_stack_full_features_uncapped_20260513_123934/auau_tight_mlp_validateOnSimCondor.dag`;
+  MLP DAGMan cluster `2066451`. BDT cache report:
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049/reports/model_validation_condor_stack_full_features_uncapped_20260513_123934`;
+  BDT DAG:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTValidate_bdt_stack_full_features_uncapped_20260513_123934/auau_tight_bdt_validateOnSimCondor.dag`;
+  BDT DAGMan cluster `2066532`. Initial queue evidence: `160` validation
+  workers idle, `0` held. After both reports are `READY`, the watcher will
+  submit two targeted full-stat stacker Condor jobs for
+  `ptFine5to35_cent7_full` and `ptFine15to35_cent7_full`, each with
+  `ALGORITHMS=logistic,gbm,nn`, `REQUEST_MEMORY=48000MB`, and training-history
+  outputs/plots. Expected stack output roots:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/stacked_bdt_mlp_targeted_fullstat_ptFine5to35_cent7_full_20260513_123934`
+  and
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/stacked_bdt_mlp_targeted_fullstat_ptFine15to35_cent7_full_20260513_123934`.
+  Next checkpoint: check Gmail/queue/log for cache READY or held jobs, confirm
+  uncapped cache row counts exceed `400000`, then inspect/rank stack
+  `stacked_sweep_rank_table.csv`, `stacked_sweep_training_history.csv`, and
+  `training_curve_plots/` before any production config/parity/smoke step.
+
+- 2026-05-13 11:37 EDT slide-30 ROC overlay was corrected on `sphnxuser02`
+  using the exact exported `ptFine5to35_cent7_full_gbm` stack artifact and the
+  aligned enriched validation cache manifests, not the older local logistic
+  side diagnostic. Remote output:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/roc_overlay_bdt_mlp_exact_stack_by_centrality_20260513_slide30_exact_stack`;
+  local pull:
+  `dataOutput/auauMLPDiagnosticPlots/roc_overlay_bdt_mlp_exact_stack_by_centrality_20260513_slide30/`.
+  Plot:
+  `roc_overlay_bdt_mlp_exact_stack_by_centrality_pt15to35_test.png`.
+  Provenance: MLP cache
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049/reports/mlp_model_validation_condor_stack_full_features_20260512_2338/score_caches.list`,
+  BDT cache
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049/reports/model_validation_condor_stack_full_features_20260512_2338/score_caches.list`,
+  MLP score `score_centInputBase3x3WidthRatiosMLP_pt1535`, BDT score
+  `score_ptFine_cent7`, split `held-out test`, selection `15 < E_T < 35 GeV`.
+  Corrected AUCs by centrality: `0-20%` BDT `0.7825`, MLP `0.7522`, stack
+  `0.8063`; `20-50%` BDT `0.8162`, MLP `0.7842`, stack `0.8363`; `50-80%`
+  BDT `0.8181`, MLP `0.7902`, stack `0.8299`. Interpretation: the stack
+  improvement is real but smaller than the stale side plot implied; do not use
+  the older
+  `roc_overlay_bdt_mlp_stack_by_centrality_20260513_side/roc_overlay_bdt_mlp_local_stack_by_centrality_pt15to35.png`
+  for slide 30.
+
+- 2026-05-13 11:56 EDT the slide-30 companion score-separation panel and MLP
+  training-loss plot were regenerated on `sphnxuser02` so their provenance
+  matches the corrected ROC overlay. Remote output:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/aligned_stack_score_and_training_20260513_aligned_stack_score_training_curves`;
+  local pull:
+  `dataOutput/auauMLPDiagnosticPlots/aligned_stack_score_and_training_20260513/`.
+  The 3x3 score-separation panel now uses the exact promoted
+  `ptFine5to35_cent7_full_gbm` artifact, the aligned enriched cache manifests,
+  held-out `test` split, `15 < E_T < 35 GeV`, and centrality bins
+  `0-20/20-50/50-80`; its AUCs match the ROC overlay exactly: BDT
+  `0.7825/0.8162/0.8181`, MLP stack-input `0.7522/0.7842/0.7902`, stack
+  `0.8063/0.8363/0.8299`. The loss plot uses real `.history.csv` files for
+  `tight_mlp_deep_primary_ratios_nostat_20260512_005242` and
+  `tight_mlp_highpt_sweep_20260512_182344/global15_highPtBalanced`. Best
+  validation epochs: stack-input MLP `101` with validation loss `0.60090`;
+  high-pT balanced clean MLP `144` with validation loss `0.60960`.
+
+- 2026-05-13 11:13 EDT BDT+MLP stack production-promotion diagnostic WP
+  derivation was started by Codex on `sphnxuser02` after targeted SFTP
+  upload/status showed
+  `MATCH` for 9 files: `src_AuAu/RecoilJets_AuAu.{cc,h}`,
+  `macros/Fun4All_recoilJets_unified_impl.C`,
+  `RecoilJets_Condor_submit.sh`, `scripts/mergeRecoilJets.sh`,
+  `scripts/auau_bdt_mlp_stack_production_driver.sh`,
+  `scripts/promote_auau_stacked_bdt_mlp.py`,
+  `scripts/train_auau_stacked_bdt_mlp_sweep.py`, and
+  `macros/analysis_config_auau_bdt_mlp_stack_template.yaml`. Remote
+  `preflight` passed with
+  `RJ_ML_PYTHON=/sphenix/u/patsfan753/.venvs/thesis-ml/bin/python`; enriched
+  cache manifests are `80/80` shards. A one-shard routed smoke reached real
+  cache reading but failed WP derivation because that shard was too sparse
+  (`insufficient train rows/classes`), not because of feature/schema failure.
+  A full-cache cell-count audit found `400000` rows and every production
+  `15-35 GeV x cent7` WP cell has both classes (`min_bkg=8`,
+  `min_sig=233`). Full promotion then ran in tmux session
+  `bdt_mlp_stack_promo_20260513_111330` and exited cleanly; run root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/bdt_mlp_stack_production_20260513_111330`;
+  log:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauBDTMLPStackPromotion_20260513_111330/train_wp.log`.
+  The driver reported `READY` and produced
+  `artifacts/ptFine5to35_cent7_full_gbm.json`,
+  `stack_working_points_target80.{json,yaml}`,
+  `stack_working_points_target80_cells.csv`, and four WP80 diagnostic PNGs.
+  Codex staged and pulled the diagnostic bundle locally to
+  `dataOutput/auauBDTMLPStackPromotion/bdt_mlp_stack_production_20260513_111330/`.
+  Evidence: 400k capped enriched-cache rows, finite evaluation fraction
+  `0.852355` over all 5-35/c0-80 route coverage, all-eval AUC `0.92683`,
+  WP-split AUC `0.91751`, achieved per-cell signal efficiency roughly
+  `0.786-0.801`, and mean absolute cell-efficiency error `0.00237`.
+  Important caveat: this is a strong diagnostic WP80 derivation, not the final
+  production-approved WP grid, because the enriched cache chain was still
+  capped at `400000` rows and the highest-pT background cells are visibly
+  sparse/noisy. Do not run `makeConfig`, parity/smoke, or production submit
+  until Justin approves the WP80 plots/fits and an uncapped/full-stat cache
+  rerun is either completed or explicitly waived.
+
+- 2026-05-13 09:10 EDT all trained AuAu tight-MLP artifacts are being
+  rescored/ranked on `sphnxuser02` in isolated tmux session
+  `mlp_all_variant_rank_20260513_090958`. Run root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/all_mlp_variant_validation_20260513_090958`;
+  manifest:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/all_mlp_variant_validation_20260513_090958/all_mlp_variants_manifest.json`;
+  inventory:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/all_mlp_variant_validation_20260513_090958/variant_inventory.json`;
+  output dir:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/all_mlp_variant_validation_20260513_090958/clean_mlp_full_feature_rescore`;
+  log:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/all_mlp_variant_validation_20260513_090958/all_mlp_variant_rescore.log`.
+  The shared cache is the enriched full-feature validation cache
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049/reports/mlp_model_validation_condor_stack_full_features_20260512_2338/score_caches.list`.
+  Preflight passed with `7` included variants: primary smoke, primary
+  competition smoke, current deep ratios primary, high-pT global15, high-pT
+  pt3 routed, high-pT cent3 routed, and fine-pT distilled kitchen v2 routed.
+  Inventory intentionally excludes iso-kitchen from this clean cache rescore
+  because it is already ROOT-validated as diagnostic-only/not ABCD-safe, and
+  records `global5_broadReach` plus both non-iso kitchen attempts as missing
+  completed registries/artifacts. The tmux run completed and exited; it merged
+  all `80/80` enriched score caches, wrote
+  `clean_mlp_full_feature_rescore/score_caches/score_cache_full.npz`,
+  `validation_metrics.json`, `validation_rank_table.csv`,
+  `validation_summary.txt`, `mlp_working_points_target80.json`, and
+  `mlp_working_points_target80.yaml`. Because routed 15-35 models intentionally
+  do not score 5-15 GeV rows in the shared cache, the summary is `status=CHECK`
+  with finite-fraction notes for `highpt_pt3_15to35`,
+  `highpt_cent3_15to35`, and `finept_distilled_kitchen_v2`; treat this as a
+  coverage/routing caveat, not a rescore failure. Codex then wrote combined
+  ranking tables:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/all_mlp_variant_validation_20260513_090958/combined_mlp_and_diagnostic_rank_table.csv`
+  and `.md`. Result summary: among clean ABCD-safe MLP candidates, the best
+  high-pT WP80 fake average is the fine-pT distilled kitchen v2 routed model
+  (`high-pT AUC avg ~0.718`, `high-pT WP80 fake avg ~0.469`), followed closely
+  by the current/deep and high-pT-balanced global MLPs (`high-pT WP80 fake avg
+  ~0.487-0.488`). The iso-kitchen diagnostic is much stronger (`AUC 0.8936`,
+  `WP80 fake 0.1688`, `high-pT WP80 fake avg ~0.286`) but is not ABCD-safe.
+  Full-feature BDT+MLP stack diagnostics are strongest overall: top row
+  `ptFine5to35_cent7_full_gbm` has `AUC 0.9302`, `WP80 fake 0.1013`,
+  `high-pT AUC avg ~0.887`, and `high-pT WP80 fake avg ~0.175`, but it is
+  diagnostic-only because BDT score is a runtime input. Next decision: do not
+  promote clean MLP variants to production yet based on this ranking; use the
+  stack/iso evidence to train the next clean ABCD-safe distillation or prepare
+  a diagnostic stacker production only if explicitly approved for MC studies.
+  09:22 EDT follow-up diagnostic plots were generated on `sphnxuser02` from
+  the enriched MLP/BDT score caches and the actual
+  `ptFine5to35_cent7_full_gbm` stacker artifact, then pulled locally to
+  `dataOutput/auauMLPDiagnosticPlots/diagnostic_plots_mlp_bdt_stack_fast_20260513_092151/`.
+  Files: `auc_heatmaps_bdt_mlp_stack.png`,
+  `auc_gain_heatmaps_stack_minus_baselines.png`,
+  `score_separation_by_centrality_15to35.png`, and
+  `auc_grid_summary.csv`. The heatmaps show the diagnostic BDT+MLP stacker
+  strongly improves over the ABCD-safe MLP in high-pT cells and usually
+  improves over the BDT, with caveats where BDT coverage is absent at low pT
+  and a couple high-pT centrality cells where the BDT remains comparable or
+  slightly stronger.
+
+- 2026-05-13 12:34 EDT target80 BDT EtFine merge-repair lane is active again
+  with the missing cfg-tag normalization fixed. Codex patched
+  `scripts/mergeRecoilJets.sh` so the merge tag parser recognizes
+  `auauEtFineCentInputBDT`, `auauEtFineCent3BDT`, and
+  `auauEtFineCent7BDT`, and patched
+  `scripts/merge_auau_bdt_target80_ready.sh` to pass `MERGE_CFG_MATCH` through
+  to `mergeRecoilJets.sh`. Local static checks passed:
+  `bash -n scripts/mergeRecoilJets.sh scripts/merge_auau_bdt_target80_ready.sh`
+  and `git diff --check -- scripts/mergeRecoilJets.sh scripts/merge_auau_bdt_target80_ready.sh`.
+  Both scripts were uploaded to SDCC with `scripts/sftp_push_recoiljets.sh`.
+  Remote dry scan on `sphnxuser05` with `MERGE_CFG_MATCH=EtFine` now reports
+  `analysis_config_etfine_15to35_target80` as `READY` at `finals=6/12`,
+  proving the EtFine rows are no longer skipped. Codex killed the stale repair
+  tmux `target80_merge_repair_20260512_2153` and started EtFine-only repair
+  tmux `target80_merge_repair_etfine_20260513_1233` with
+  `MERGE_CFG_MATCH=EtFine`, `RJ_TARGET80_MERGE_DO_RUN=1`,
+  `RJ_TARGET80_MERGE_LOOP=0`, and `RJ_TARGET80_MERGE_MAX_CONFIGS=1`. Live
+  queue evidence at launch showed EtFine cfg tags being discovered and merged;
+  submitted first-round merge clusters include worker cluster `5348890.*` and
+  DAGMan cluster `5348891`, with `80` active/idle merge jobs and `0` held.
+  Next checkpoint: watch this tmux until EtFine reaches `12/12` final stitched
+  files, then pull the remaining target80 outputs offline.
+
+- 2026-05-13 12:55 EDT local target80 pull tooling was corrected and the
+  already-complete width-study target80 finals were pulled offline. The first
+  width-study SFTP pull exposed a local tag-generation mismatch:
+  `scripts/sftp_get_recoiljets_outputs.sh` produced
+  `tightAuauCentInputBase3x3BDT` for one row, while the remote finalStitch
+  folders use the normalized `tightAuAuCentInputBase3x3BDT`. Codex patched
+  the local SFTP getter to mirror the merge-script normalization for
+  `auauCentInputBase3x3BDT`, the three EtFine BDT modes, and current MLP/stack
+  tight/non-tight names; `bash -n` and `git diff --check` passed. Completed
+  target80 width-study configs were then pulled into
+  `dataOutput/target80_all_available/bdt_target80_gated_20260512_001012/` for
+  both `isSimEmbedded` and `isSimEmbeddedInclusive`: `widthstudy_pt10to35`,
+  `widthstudy_pt1530`, `widthstudy_pt15to35`, and `widthstudy_pt5to35`, each
+  with `8/8` nonzero final ROOT files. Local target80 final count is now
+  `60` nonzero `*MERGED.root` files totaling about `11 GB`: EtFine `6/12`,
+  expanded `22/22`, and all four width-study configs `8/8`. Remote EtFine
+  repair remains active with `0` held jobs; latest read-only queue check showed
+  `114` running merge jobs in the EtFine `isSimEmbedded firstRound` stage and
+  final counts still `etfine=6/12`, all other configs complete.
+
+- 2026-05-13 13:36 EDT target80 EtFine repair is still rolling cleanly and has
+  advanced. Gmail `RecoilJets Pipeline` had `0` unread messages. Read-only
+  SSH check on `sphnxuser05` showed active tmux
+  `target80_merge_repair_etfine_20260513_1233`, `0` held jobs, and
+  `57` running merge jobs in the EtFine `isSimEmbeddedInclusive firstRound`
+  stage. Remote final counts are now `etfine=9/12`, `expanded_5to40=22/22`,
+  `widthstudy_pt10to35=8/8`, `widthstudy_pt1530=8/8`,
+  `widthstudy_pt15to35=8/8`, and `widthstudy_pt5to35=8/8`. Next expected
+  action remains: when EtFine reaches `12/12` and queue drains with `0` held,
+  pull the remaining EtFine finals offline into
+  `dataOutput/target80_all_available/bdt_target80_gated_20260512_001012/`.
+
+- 2026-05-13 13:40 EDT Justin went to the gym and explicitly authorized
+  automated completion handling for the target80 BDT campaign. Heartbeat
+  `watch-gated-target80-campaign` was updated to check every 15 minutes. It may
+  patch/upload targeted helper-script fixes, continue/restart only the already
+  authorized EtFine merge repair if needed, and pull final files offline. It
+  must not remove jobs, delete remote outputs, or submit unrelated production
+  campaigns. Done condition: remote final counts
+  `etfine=12/12`, `expanded_5to40=22/22`, and each width-study config `8/8`;
+  local nonzero final ROOT files pulled under
+  `dataOutput/target80_all_available/bdt_target80_gated_20260512_001012/`; and
+  a concise inventory table reported/recorded.
+
+- 2026-05-13 17:14 EDT target80 BDT all-available MC sample matrix is fully
+  offline and ready for analysis. Gmail connector token was expired during the
+  final heartbeat check, so final evidence is from SDCC SSH plus local file
+  inspection. SDCC `sphnxuser05` evidence: `0` Justin jobs, `0` held jobs, and
+  remote final counts complete: `analysis_config_etfine_15to35_target80=12`,
+  `analysis_config_expanded_5to40_target80=22`,
+  `analysis_config_widthstudy_pt10to35_target80=8`,
+  `analysis_config_widthstudy_pt1530_target80=8`,
+  `analysis_config_widthstudy_pt15to35_target80=8`, and
+  `analysis_config_widthstudy_pt5to35_target80=8`. Local output root:
+  `dataOutput/target80_all_available/bdt_target80_gated_20260512_001012/`.
+  Local verification found all `66` expected nonzero `*MERGED.root` files,
+  totaling about `12 GB`: EtFine `12` (`1.9G`), expanded `22` (`4.6G`),
+  widthstudy pt10to35 `8` (`1.4G`), pt1530 `8` (`1.2G`), pt15to35 `8`
+  (`1.3G`), and pt5to35 `8` (`1.4G`). Heartbeat
+  `watch-gated-target80-campaign` was deleted because the campaign watch is
+  complete. Next analysis target: target80 BDT ID/reco efficiency, fake-rate,
+  shower-shape, isolation/ABCD, and xJ comparisons.
+
+- 2026-05-13 09:10 EDT target80 BDT merge-repair lane was debugged and
+  corrected on `sphnxuser05`. Gmail had no fresh unread RecoilJets Pipeline
+  messages; SDCC queue had `0` held jobs. Read-only inspection showed raw bulk
+  outputs exist for every intended cfg row, but
+  `scripts/merge_auau_bdt_target80_ready.sh` was incorrectly marking a config
+  DONE as soon as any final merged files existed. Codex patched and uploaded
+  the helper so it parses `photon_id_sets` from each YAML, requires both raw
+  signal/background cfg-row directories to be present, and only skips when
+  final merged count reaches `2 x N_cfg_rows`. Dry scan after upload found
+  exactly two incomplete configs ready for repair:
+  `analysis_config_etfine_15to35_target80` with `finals=6/12`, and
+  `analysis_config_widthstudy_pt10to35_target80` with `finals=4/8`; the other
+  four configs were complete (`expanded_5to40=22/22`, `widthstudy_pt1530=8/8`,
+  `widthstudy_pt15to35=8/8`, `widthstudy_pt5to35=8/8`). Codex started fixed
+  tmux session `target80_merge_repair_fixed_20260513_0908` with
+  `RJ_TARGET80_MERGE_DO_RUN=1`, `RJ_TARGET80_MERGE_MAX_CONFIGS=2`, and
+  `RJ_TARGET80_MERGE_POLL_SECONDS=120`. First active stage is
+  `analysis_config_etfine_15to35_target80` `isSimEmbedded firstRound`; queue
+  evidence immediately after launch showed `20` active/idle merge jobs,
+  `0` held, worker cluster beginning `5348708.*`, and DAGMan clusters
+  `5348709`-`5348712` for firstRound sample DAGs. Next checkpoint: watch
+  fixed tmux/queue until it completes etfine and pt10to35 repair, verify final
+  counts become `12/12` and `8/8`, then pull remaining final-only ROOT outputs
+  offline.
+
+- 2026-05-12 23:50 EDT full-feature stacked BDT+MLP sweep is retry-submitted
+  on `sphnxuser02` after two automation fixes. Gmail READY emails plus SDCC
+  report inspection showed both enriched cache reports are `status=READY` with
+  `80/80` score caches: MLP report
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049/reports/mlp_model_validation_condor_stack_full_features_20260512_2338`
+  and BDT report
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049/reports/model_validation_condor_stack_full_features_20260512_2338`.
+  The first chain watcher was stale because it checked `summary.txt`, while
+  validators write `validation_summary.txt`; Codex patched
+  `scripts/submit_auau_stacked_bdt_mlp_full_feature_chain.sh` to accept both,
+  uploaded it, and verified SDCC `MATCH`. Resume watcher
+  `stack_full_feature_chain_20260512_2338_20260512_2358_fixready` killed the
+  stale watcher, recognized both reports READY, and passed strict preflight.
+  First stack worker cluster `2066439` failed immediately on execute node
+  `sphnx1068` because the worker did not bootstrap the ML venv
+  `LD_LIBRARY_PATH` (`libpython3.13.so.1.0` missing). Codex patched
+  `scripts/submit_auau_stacked_bdt_mlp_sweep.sh` to create the log directory
+  correctly and use the same sPHENIX + ML-Python library bootstrap as the
+  working MLP/BDT Condor workers; `bash -n` passed locally and remotely, and
+  SDCC status returned `MATCH`. Retry cluster `2066440` then reached an
+  execute node but failed because Condor did not define `$USER` under
+  `set -u`; retry cluster `2066441` reached an execute node but failed because
+  `sphenix_setup.sh` assumes unset variables are allowed and tripped on
+  `PGHOST` under `set -u`. Codex patched the wrapper again to use
+  `${USER:-patsfan753}` and temporarily disable nounset while sourcing
+  sPHENIX setup; upload/status returned `MATCH`. Active retry cluster
+  `2066442` was submitted from fresh submit root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauStackedBDTMLPFullFeature_20260512_2338_retry3_20260512_2355`
+  with output dir
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/stacked_bdt_mlp_full_feature_sweep_20260512_2338`.
+  Historical retry `2066440` used submit root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauStackedBDTMLPFullFeature_20260512_2338_retry1_20260512_2350`;
+  historical retry `2066441` used submit root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauStackedBDTMLPFullFeature_20260512_2338_retry2_20260512_2353`.
+  The active retry uses MLP score `score_centInputBase3x3WidthRatiosMLP_pt1535`,
+  BDT score `score_ptFine_cent7`, `ALGORITHMS=logistic,gbm`, `SWEEP=full`, and
+  `TOP_N=4`. First post-submit checks showed `2066442.0` idle, no held jobs,
+  empty `.out/.err`, and no rank table yet. Next checkpoint: watch cluster
+  `2066442`; when it leaves the queue, inspect
+  `stacked_sweep_rank_table.csv`, `stacked_sweep_top4.json`, worker `.err`,
+  and compare top stackers against primary MLP, iso-kitchen diagnostic, and
+  best BDT anchors before any production/parity decision.
+
+- 2026-05-12 23:34 EDT full-feature stacked BDT+MLP chain started on
+  `sphnxuser02` in tmux session `stack_full_feature_chain_20260512_2338`.
+  Codex added and uploaded `scripts/train_auau_stacked_bdt_mlp_sweep.py`,
+  `scripts/submit_auau_stacked_bdt_mlp_sweep.sh`, and
+  `scripts/submit_auau_stacked_bdt_mlp_full_feature_chain.sh`; SDCC status
+  returned `MATCH` for those plus the updated BDT/MLP validators. Local
+  checks passed (`bash -n`, Python compile, synthetic-cache self-test,
+  synthetic preflight), and the SDCC self-test exercised both logistic and
+  tiny-GBM stackers successfully. The old real score caches failed strict
+  full-feature preflight because they lacked kitchen columns such as
+  `cluster_weta35_cogx`, `cluster_wphi53_cogx`, `cluster_w32`, and extended
+  energy-ratio features, so Codex did not run a limited-cache shortcut.
+  Instead the chain submitted fresh full-feature validation-cache DAGs:
+  MLP DAGMan cluster `2066190` with report
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049/reports/mlp_model_validation_condor_stack_full_features_20260512_2338`,
+  submit root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightMLPValidate_mlp_stack_full_features_20260512_2338`;
+  BDT DAGMan cluster `2066199` with report
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049/reports/model_validation_condor_stack_full_features_20260512_2338`,
+  submit root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTValidate_bdt_stack_full_features_20260512_2338`.
+  Both use `8000` ROOT files, `80` shards, `groupSize=100`,
+  `scoreMaxPerShard=5000`, and `request_memory=3000MB`. Initial queue showed
+  `160` validation workers idle, `0` running, `0` held. The chain log is
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauStackedBDTMLPFullFeatureChain_20260512_2338/stack_full_feature_chain_20260512_2338.log`;
+  once both reports are READY, it will strict-preflight the enriched caches and
+  submit the stack sweep to
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/stacked_bdt_mlp_full_feature_sweep_20260512_2338`
+  with submit root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauStackedBDTMLPFullFeature_20260512_2338`.
+  Next checkpoint: watch the two validation DAGs for READY or held jobs, then
+  confirm `stacked_sweep_rank_table.csv` and `stacked_sweep_top4.json` appear.
 
 - 2026-05-12 22:52 EDT diagnostic stacked BDT+MLP calibrator completed on
   `sphnxuser02` in tmux session `mlp_stacked_bdt_mlp_calib_20260512_225152`

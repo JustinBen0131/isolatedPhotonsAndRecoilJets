@@ -1685,11 +1685,14 @@ selection_mode_normalize_for_key() {
     tight:auauCentInputMLP|tight:auaucentinputmlp) echo "auauCentInputMLP"; return 0 ;;
     tight:auauNoCentBase3x3MLP|tight:auaunocentbase3x3mlp) echo "auauNoCentBase3x3MLP"; return 0 ;;
     tight:auauCentInputBase3x3MLP|tight:auaucentinputbase3x3mlp) echo "auauCentInputBase3x3MLP"; return 0 ;;
+    tight:auauBDTMLPStack|tight:auaubdtmlpstack|tight:bdtmlpstack) echo "auauBDTMLPStack"; return 0 ;;
     nonTight:variantA|nonTight:VariantA|nonTight:varianta|nonTight:bdtSideband|nonTight:BDTSideband|nonTight:bdtsideband|nonTight:newPPG12|nonTight:NewPPG12|nonTight:newppg12) echo "newPPG12"; return 0 ;;
     nonTight:variantB|nonTight:VariantB|nonTight:variantb|nonTight:auauBDTSideband|nonTight:AuAuBDTSideband|nonTight:auaubdtsideband) echo "auauBDTSideband"; return 0 ;;
     nonTight:variantC|nonTight:VariantC|nonTight:variantc|nonTight:auauBDTComplement|nonTight:AuAuBDTComplement|nonTight:auaubdtcomplement) echo "auauBDTComplement"; return 0 ;;
     nonTight:auauMLPSideband|nonTight:auaumlpsideband) echo "auauMLPSideband"; return 0 ;;
     nonTight:auauMLPComplement|nonTight:auaumlpcomplement) echo "auauMLPComplement"; return 0 ;;
+    nonTight:auauBDTMLPStackSideband|nonTight:auaubdtmlpstacksideband) echo "auauBDTMLPStackSideband"; return 0 ;;
+    nonTight:auauBDTMLPStackComplement|nonTight:auaubdtmlpstackcomplement) echo "auauBDTMLPStackComplement"; return 0 ;;
   esac
   case "$mode" in
     ""|reference|Reference) echo "reference" ;;
@@ -1720,8 +1723,11 @@ selection_mode_normalize_for_key() {
     auauCentInputMLP|auaucentinputmlp) echo "auauCentInputMLP" ;;
     auauNoCentBase3x3MLP|auaunocentbase3x3mlp) echo "auauNoCentBase3x3MLP" ;;
     auauCentInputBase3x3MLP|auaucentinputbase3x3mlp) echo "auauCentInputBase3x3MLP" ;;
+    auauBDTMLPStack|auaubdtmlpstack|bdtmlpstack) echo "auauBDTMLPStack" ;;
     auauMLPSideband|auaumlpsideband) echo "auauMLPSideband" ;;
     auauMLPComplement|auaumlpcomplement) echo "auauMLPComplement" ;;
+    auauBDTMLPStackSideband|auaubdtmlpstacksideband) echo "auauBDTMLPStackSideband" ;;
+    auauBDTMLPStackComplement|auaubdtmlpstackcomplement) echo "auauBDTMLPStackComplement" ;;
     *) echo "$mode" ;;
   esac
 }
@@ -1756,8 +1762,11 @@ selection_mode_tag() {
     auauCentInputMLP) echo "${key}AuAuCentInputMLP" ;;
     auauNoCentBase3x3MLP) echo "${key}AuAuNoCentBase3x3MLP" ;;
     auauCentInputBase3x3MLP) echo "${key}AuAuCentInputBase3x3MLP" ;;
+    auauBDTMLPStack) echo "${key}AuAuBDTMLPStack" ;;
     auauMLPSideband) echo "${key}AuAuMLPSideband" ;;
     auauMLPComplement) echo "${key}AuAuMLPComplement" ;;
+    auauBDTMLPStackSideband) echo "${key}AuAuBDTMLPStackSideband" ;;
+    auauBDTMLPStackComplement) echo "${key}AuAuBDTMLPStackComplement" ;;
     variantB) echo "${key}VariantB" ;;
     variantC) echo "${key}VariantC" ;;
     variantD) echo "${key}VariantD" ;;

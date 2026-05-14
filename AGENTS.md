@@ -15,6 +15,11 @@ ssh patsfan753@ssh.sdcc.bnl.gov \
 
 - Use this for read-only diagnostics by default. For submissions/merge reruns,
   only run it when the user explicitly authorizes the specific campaign action.
+- For sustained SDCC work in one turn, do **not** repeatedly open fresh SSH
+  logins for every small check. Open one persistent SSH session and reuse it,
+  or use the already-visible SSH terminal when the user explicitly delegates
+  that terminal for the current task. Repeated one-shot SSH commands are only
+  acceptable for isolated, quick checks.
 - File transfer still prefers the project SFTP helpers with the same
   `SSH_AUTH_SOCK="$(launchctl getenv SSH_AUTH_SOCK)"` prefix.
 
@@ -106,6 +111,17 @@ ssh patsfan753@ssh.sdcc.bnl.gov \
 - Before substantial Google Slides edits, inspect relevant past Drive
   presentations when available. Use them to learn the user's existing slide
   style and organization for the specific topic.
+- Gemini / Beautify Slides may be used as an optional design-critique and
+  layout-ideation assistant for difficult slides, but do not let it become the
+  source of truth for physics content or final layout. Use it to generate
+  cleaner wording, grouping, hierarchy, and color ideas; then implement the
+  accepted design with controlled Google Slides edits and verify with
+  thumbnails. Never let it delete, overwrite, or reuse the Backup slide.
+- Never remove, overwrite, or repurpose the deck's Backup slide. Backup is the
+  divider for backup plots/material that go after it. Add new presentation
+  slides before the Backup slide, and add backup material after it. Do not
+  delete the Backup slide to insert, move, or replace any slide under any
+  circumstance.
 - Use `agent_context/SLIDE_STYLE_MAP.md` as the durable local guide to the
   user's preferred slide design language. It records examples from strong past
   decks, including teaching slides, colored comparison panels, subtle shadows,
@@ -538,10 +554,21 @@ Notes:
   order is:
   1. inspect the already-visible SSH terminal if it is on the relevant SDCC
      node;
-  2. if the user has asked Codex to check directly, run one compact read-only
-     SSH diagnostic from the local Mac shell;
-  3. if direct SSH/auth/host-key/proxy setup fails, stop retrying and fall back
+  2. if the user has asked Codex to check directly and the task will involve
+     multiple SDCC checks, open one persistent SSH session and reuse it for the
+     burst of work;
+  3. for a genuinely isolated quick check, run one compact read-only SSH
+     diagnostic from the local Mac shell;
+  4. if direct SSH/auth/host-key/proxy setup fails, stop retrying and fall back
      to the visible terminal or one paste-ready command for the user.
+- Persistent SSH session rule:
+  During an active SDCC workflow, Codex should avoid a pattern of many
+  short-lived logins that each run one tiny command. Prefer a single SSH shell
+  session for repeated `condor_q`, `tmux`, `tail`, `find`, `python3`, or report
+  inspection commands. Keep the session scoped to the current task, exit it
+  cleanly when the workflow is done, and do not leave unnecessary remote shells
+  running. One-off SSH remains fine for small status probes, but it should not
+  be the default for a sustained diagnostic or production-followup burst.
 - For direct read-only SSH diagnostics, keep the command boring and robust.
   Start with the user's launchd SSH agent:
   `SSH_AUTH_SOCK="$(launchctl getenv SSH_AUTH_SOCK)"`. Prefer the established

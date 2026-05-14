@@ -30,6 +30,29 @@ BASE_FEATURES = [
     "e32_over_e35",
 ]
 WIDTH_3X3_FEATURES = ["cluster_weta33_cogx", "cluster_wphi33_cogx"]
+WIDTH_RATIO_FEATURES = ["cluster_weta_over_wphi", "cluster_weta33_over_wphi33"]
+EXTENDED_SHOWER_FEATURES = [
+    "cluster_weta35_cogx",
+    "cluster_wphi53_cogx",
+    "cluster_w32",
+    "cluster_w52",
+    "cluster_w72",
+    "e11_over_e22",
+    "e11_over_e13",
+    "e11_over_e15",
+    "e11_over_e17",
+    "e11_over_e31",
+    "e11_over_e51",
+    "e11_over_e71",
+    "e22_over_e33",
+    "e22_over_e35",
+    "e22_over_e37",
+    "e22_over_e53",
+]
+DERIVED_FEATURE_DEPS = {
+    "cluster_weta_over_wphi": ["cluster_weta_cogx", "cluster_wphi_cogx"],
+    "cluster_weta33_over_wphi33": ["cluster_weta33_cogx", "cluster_wphi33_cogx"],
+}
 
 PRODUCTS = {
     "centINDcontrol": {
@@ -81,14 +104,40 @@ FALLBACK_COLORS = [
 PT_BINS = [(6, 10), (10, 15), (15, 20), (20, 25), (25, 35)]
 CENT_BINS = [(0, 20), (20, 50), (50, 80)]
 DIAGNOSTIC_FEATURES = []
-for _name in BASE_FEATURES + ["centrality", "reco_eiso"]:
+for _name in BASE_FEATURES + WIDTH_3X3_FEATURES + EXTENDED_SHOWER_FEATURES + WIDTH_RATIO_FEATURES + ["centrality", "reco_eiso"]:
     if _name not in DIAGNOSTIC_FEATURES:
         DIAGNOSTIC_FEATURES.append(_name)
-for _name in WIDTH_3X3_FEATURES:
-    if _name not in DIAGNOSTIC_FEATURES:
-        DIAGNOSTIC_FEATURES.append(_name)
+MANDATORY_CACHE_COLUMNS = ["is_signal", "cluster_Et", "cluster_Eta", "centrality", "reco_eiso"]
 EFFICIENCY_TARGETS = [0.50, 0.70, 0.80, 0.90, 0.95]
 FAKE_RATE_TARGETS = [0.01, 0.02, 0.05, 0.10, 0.20]
+
+
+def expand_required_columns(features: list[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for feature in features:
+        for dep in DERIVED_FEATURE_DEPS.get(feature, [feature]):
+            if dep not in seen:
+                out.append(dep)
+                seen.add(dep)
+    return out
+
+
+def add_derived_features(frame):
+    import numpy as np
+
+    def safe_ratio(num: str, den: str):
+        a = np.asarray(frame[num], dtype="float64")
+        b = np.asarray(frame[den], dtype="float64")
+        out = np.full(len(a), np.nan, dtype="float32")
+        mask = np.isfinite(a) & np.isfinite(b) & (np.abs(b) > 1.0e-12)
+        out[mask] = (a[mask] / b[mask]).astype("float32")
+        return out
+
+    if "cluster_weta_over_wphi" not in frame and {"cluster_weta_cogx", "cluster_wphi_cogx"}.issubset(frame):
+        frame["cluster_weta_over_wphi"] = safe_ratio("cluster_weta_cogx", "cluster_wphi_cogx")
+    if "cluster_weta33_over_wphi33" not in frame and {"cluster_weta33_cogx", "cluster_wphi33_cogx"}.issubset(frame):
+        frame["cluster_weta33_over_wphi33"] = safe_ratio("cluster_weta33_cogx", "cluster_wphi33_cogx")
 
 
 def range_key(lo, hi) -> str:
@@ -365,8 +414,8 @@ def collect_rows(
         set(
             ["is_signal", "cluster_Et", "cluster_Eta", "centrality", "reco_eiso"]
             + BASE_FEATURES
-            + DIAGNOSTIC_FEATURES
-            + list(feature_names or [])
+            + expand_required_columns(DIAGNOSTIC_FEATURES)
+            + expand_required_columns(list(feature_names or []))
         )
     )
     arrays = {name: [] for name in required}
@@ -414,6 +463,7 @@ def collect_rows(
     frame = {}
     for name, parts in arrays.items():
         frame[name] = np.concatenate(parts) if parts else np.array([], dtype="float32")
+    add_derived_features(frame)
     return frame, {
         "files": len(paths),
         "total_entries": total_entries,
@@ -461,10 +511,10 @@ def load_score_caches(cache_manifest: Path):
     for idx, path in enumerate(cache_paths, 1):
         print(f"[validateAuAuTightBDT] merging score cache {idx}/{len(cache_paths)}: {path}", flush=True)
         with np.load(path, allow_pickle=True) as data:
-            for name in frame_parts:
+            for name in ["is_signal"] + DIAGNOSTIC_FEATURES:
                 if name in data:
                     frame_parts[name].append(data[name])
-                else:
+                elif name in MANDATORY_CACHE_COLUMNS:
                     raise SystemExit(
                         f"Missing diagnostic column {name} in score cache: {path}. "
                         "Regenerate validation caches with the updated validator."
@@ -483,10 +533,11 @@ def load_score_caches(cache_manifest: Path):
             counts["missing_tree_files"].extend(cached_counts.get("missing_tree_files", []))
             counts["missing_branches"].update(cached_counts.get("missing_branches", {}))
 
-    frame = {
-        name: np.concatenate(parts) if parts else np.array([], dtype="float32")
-        for name, parts in frame_parts.items()
-    }
+    frame = {}
+    for name, parts in frame_parts.items():
+        if name in MANDATORY_CACHE_COLUMNS or len(parts) == len(cache_paths):
+            frame[name] = np.concatenate(parts) if parts else np.array([], dtype="float32")
+    add_derived_features(frame)
     scores = {
         product: np.concatenate(parts) if parts else np.array([], dtype="float32")
         for product, parts in score_parts.items()

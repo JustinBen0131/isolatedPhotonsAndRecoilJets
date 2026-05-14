@@ -648,6 +648,30 @@ namespace yamlcfg
         double auau_nontight_mlp_max_intercept = 0.80;
         double auau_nontight_mlp_max_slope = 0.0;
         std::vector<std::string> auau_tight_mlp_working_point_entries;
+        std::string auau_tight_bdt_mlp_stack_model_file = "";
+        std::string auau_tight_bdt_mlp_stack_bdt_mode = "auauEtFineCent7BDT";
+        std::string auau_tight_bdt_mlp_stack_mlp_mode = "auauCentInputBase3x3MLP";
+        double auau_tight_bdt_mlp_stack_min_intercept = 0.80;
+        double auau_tight_bdt_mlp_stack_min_slope = 0.0;
+        double auau_tight_bdt_mlp_stack_max = 1.0;
+        double auau_tight_bdt_mlp_stack_apply_pt_min = std::numeric_limits<double>::quiet_NaN();
+        double auau_tight_bdt_mlp_stack_apply_pt_max = std::numeric_limits<double>::quiet_NaN();
+        double auau_nontight_bdt_mlp_stack_min_intercept = 0.20;
+        double auau_nontight_bdt_mlp_stack_min_slope = 0.0;
+        double auau_nontight_bdt_mlp_stack_max_intercept = 0.80;
+        double auau_nontight_bdt_mlp_stack_max_slope = 0.0;
+        std::vector<std::string> auau_tight_bdt_mlp_stack_working_point_entries;
+        std::string auau_tight_logreg_model_file = "";
+        double auau_tight_logreg_min_intercept = 0.80;
+        double auau_tight_logreg_min_slope = 0.0;
+        double auau_tight_logreg_max = 1.0;
+        double auau_tight_logreg_apply_pt_min = std::numeric_limits<double>::quiet_NaN();
+        double auau_tight_logreg_apply_pt_max = std::numeric_limits<double>::quiet_NaN();
+        double auau_nontight_logreg_min_intercept = 0.20;
+        double auau_nontight_logreg_min_slope = 0.0;
+        double auau_nontight_logreg_max_intercept = 0.80;
+        double auau_nontight_logreg_max_slope = 0.0;
+        std::vector<std::string> auau_tight_logreg_working_point_entries;
 
         bool auau_bdt_training_tree = false;
         long long auau_bdt_training_tree_max_entries = 0;
@@ -729,6 +753,8 @@ namespace yamlcfg
         if (key == "auaunocentbase3x3mlp") return "auauNoCentBase3x3MLP";
         if (key == "auaucentinputbase3x3mlp") return "auauCentInputBase3x3MLP";
         if (key == "auauhighptdistilledkitchenmlp") return "auauHighPtDistilledKitchenMLP";
+        if (key == "auaubdtmlpstack" || key == "auaustackbdtmlp" || key == "bdtmlpstack") return "auauBDTMLPStack";
+        if (key == "auautightlogreg" || key == "auaulogreg" || key == "logreg") return "auauTightLogReg";
         return mode;
     }
 
@@ -744,6 +770,10 @@ namespace yamlcfg
         if (key == "variantc" || key == "auaubdtcomplement") return "auauBDTComplement";
         if (key == "auaumlpsideband") return "auauMLPSideband";
         if (key == "auaumlpcomplement") return "auauMLPComplement";
+        if (key == "auaubdtmlpstacksideband") return "auauBDTMLPStackSideband";
+        if (key == "auaubdtmlpstackcomplement") return "auauBDTMLPStackComplement";
+        if (key == "auaulogregsideband") return "auauLogRegSideband";
+        if (key == "auaulogregcomplement") return "auauLogRegComplement";
         if (key == "centindcontrol") return "centINDcontrol";
         if (key == "centasfeat" || key == "centasfeature") return "centAsFeat";
         if (key == "centdepbdts" || key == "centdepbdt") return "centDepBDTs";
@@ -762,15 +792,18 @@ namespace yamlcfg
                mode == "auauEtFineCentInputBDT" || mode == "auauEtFineCent3BDT" ||
                mode == "auauEtFineCent7BDT" || mode == "auauCentInputMLP" ||
                mode == "auauNoCentBase3x3MLP" || mode == "auauCentInputBase3x3MLP" ||
-               mode == "auauHighPtDistilledKitchenMLP";
+               mode == "auauHighPtDistilledKitchenMLP" || mode == "auauBDTMLPStack" ||
+               mode == "auauTightLogReg";
     }
 
     static bool IsNonTightMode(const std::string& mode)
     {
         return mode == "reference" || mode == "newPPG12" || mode == "auauBDTSideband" ||
                mode == "auauBDTComplement" || mode == "auauMLPSideband" ||
-               mode == "auauMLPComplement" || mode == "centINDcontrol" || mode == "centAsFeat" ||
-               mode == "centDepBDTs";
+               mode == "auauMLPComplement" || mode == "auauBDTMLPStackSideband" ||
+               mode == "auauBDTMLPStackComplement" || mode == "auauLogRegSideband" ||
+               mode == "auauLogRegComplement" || mode == "centINDcontrol" ||
+               mode == "centAsFeat" || mode == "centDepBDTs";
     }
 
     static bool IsAuAuTightBDTMode(const std::string& mode)
@@ -792,6 +825,16 @@ namespace yamlcfg
                mode == "auauNoCentBase3x3MLP" ||
                mode == "auauCentInputBase3x3MLP" ||
                mode == "auauHighPtDistilledKitchenMLP";
+    }
+
+    static bool IsAuAuTightBDTMLPStackMode(const std::string& mode)
+    {
+        return mode == "auauBDTMLPStack";
+    }
+
+    static bool IsAuAuTightLogRegMode(const std::string& mode)
+    {
+        return mode == "auauTightLogReg";
     }
 
     inline std::string DefaultYAMLPath()
@@ -1591,6 +1634,140 @@ namespace yamlcfg
             {
                 const std::string rhs = AfterColon(line);
                 ParseInlineListStrings(rhs, cfg.auau_tight_mlp_working_point_entries);
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_mlp_stack_model_file"))
+            {
+                cfg.auau_tight_bdt_mlp_stack_model_file = detail::trim(AfterColon(line));
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_mlp_stack_bdt_mode"))
+            {
+                cfg.auau_tight_bdt_mlp_stack_bdt_mode = NormalizeTightMode(AfterColon(line));
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_mlp_stack_mlp_mode"))
+            {
+                cfg.auau_tight_bdt_mlp_stack_mlp_mode = NormalizeTightMode(AfterColon(line));
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_mlp_stack_min_intercept"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_tight_bdt_mlp_stack_min_intercept))
+                    warn_parse("auau_tight_bdt_mlp_stack_min_intercept", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_mlp_stack_min_slope"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_tight_bdt_mlp_stack_min_slope))
+                    warn_parse("auau_tight_bdt_mlp_stack_min_slope", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_mlp_stack_max"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_tight_bdt_mlp_stack_max))
+                    warn_parse("auau_tight_bdt_mlp_stack_max", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_mlp_stack_apply_pt_min"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_tight_bdt_mlp_stack_apply_pt_min))
+                    warn_parse("auau_tight_bdt_mlp_stack_apply_pt_min", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_mlp_stack_apply_pt_max"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_tight_bdt_mlp_stack_apply_pt_max))
+                    warn_parse("auau_tight_bdt_mlp_stack_apply_pt_max", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_nontight_bdt_mlp_stack_min_intercept"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_nontight_bdt_mlp_stack_min_intercept))
+                    warn_parse("auau_nontight_bdt_mlp_stack_min_intercept", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_nontight_bdt_mlp_stack_min_slope"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_nontight_bdt_mlp_stack_min_slope))
+                    warn_parse("auau_nontight_bdt_mlp_stack_min_slope", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_nontight_bdt_mlp_stack_max_intercept"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_nontight_bdt_mlp_stack_max_intercept))
+                    warn_parse("auau_nontight_bdt_mlp_stack_max_intercept", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_nontight_bdt_mlp_stack_max_slope"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_nontight_bdt_mlp_stack_max_slope))
+                    warn_parse("auau_nontight_bdt_mlp_stack_max_slope", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_mlp_stack_working_point_entries"))
+            {
+                const std::string rhs = AfterColon(line);
+                ParseInlineListStrings(rhs, cfg.auau_tight_bdt_mlp_stack_working_point_entries);
+            }
+            else if (StartsWithKey(line, "auau_tight_logreg_model_file"))
+            {
+                cfg.auau_tight_logreg_model_file = detail::trim(AfterColon(line));
+            }
+            else if (StartsWithKey(line, "auau_tight_logreg_min_intercept"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_tight_logreg_min_intercept))
+                    warn_parse("auau_tight_logreg_min_intercept", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_tight_logreg_min_slope"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_tight_logreg_min_slope))
+                    warn_parse("auau_tight_logreg_min_slope", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_tight_logreg_max"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_tight_logreg_max))
+                    warn_parse("auau_tight_logreg_max", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_tight_logreg_apply_pt_min"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_tight_logreg_apply_pt_min))
+                    warn_parse("auau_tight_logreg_apply_pt_min", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_tight_logreg_apply_pt_max"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_tight_logreg_apply_pt_max))
+                    warn_parse("auau_tight_logreg_apply_pt_max", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_nontight_logreg_min_intercept"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_nontight_logreg_min_intercept))
+                    warn_parse("auau_nontight_logreg_min_intercept", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_nontight_logreg_min_slope"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_nontight_logreg_min_slope))
+                    warn_parse("auau_nontight_logreg_min_slope", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_nontight_logreg_max_intercept"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_nontight_logreg_max_intercept))
+                    warn_parse("auau_nontight_logreg_max_intercept", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_nontight_logreg_max_slope"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_nontight_logreg_max_slope))
+                    warn_parse("auau_nontight_logreg_max_slope", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_tight_logreg_working_point_entries"))
+            {
+                const std::string rhs = AfterColon(line);
+                ParseInlineListStrings(rhs, cfg.auau_tight_logreg_working_point_entries);
             }
             else if (StartsWithKey(line, "auau_bdt_training_tree"))
             {
@@ -4752,9 +4929,101 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         return out;
     };
 
+    struct AuAuBDTMLPStackRuntimeConfig
+    {
+        std::string modelFile;
+        double minIntercept = 0.80;
+        double minSlope = 0.0;
+        double maxScore = 1.0;
+        double nonTightMinIntercept = 0.20;
+        double nonTightMinSlope = 0.0;
+        double nonTightMaxIntercept = 0.80;
+        double nonTightMaxSlope = 0.0;
+        double applyPtMin = std::numeric_limits<double>::quiet_NaN();
+        double applyPtMax = std::numeric_limits<double>::quiet_NaN();
+        std::vector<std::string> workingPointEntries;
+        std::string bdtMode;
+        std::string mlpMode;
+        bool active = false;
+    };
+
+    auto resolveAuAuBDTMLPStackRuntimeConfig = [&](const std::string& tightMode) -> AuAuBDTMLPStackRuntimeConfig
+    {
+        AuAuBDTMLPStackRuntimeConfig out;
+        if (!yamlcfg::IsAuAuTightBDTMLPStackMode(tightMode)) return out;
+        out.active = true;
+        out.modelFile = cfg.auau_tight_bdt_mlp_stack_model_file;
+        out.minIntercept = cfg.auau_tight_bdt_mlp_stack_min_intercept;
+        out.minSlope = cfg.auau_tight_bdt_mlp_stack_min_slope;
+        out.maxScore = cfg.auau_tight_bdt_mlp_stack_max;
+        out.nonTightMinIntercept = cfg.auau_nontight_bdt_mlp_stack_min_intercept;
+        out.nonTightMinSlope = cfg.auau_nontight_bdt_mlp_stack_min_slope;
+        out.nonTightMaxIntercept = cfg.auau_nontight_bdt_mlp_stack_max_intercept;
+        out.nonTightMaxSlope = cfg.auau_nontight_bdt_mlp_stack_max_slope;
+        out.applyPtMin = cfg.auau_tight_bdt_mlp_stack_apply_pt_min;
+        out.applyPtMax = cfg.auau_tight_bdt_mlp_stack_apply_pt_max;
+        out.workingPointEntries = cfg.auau_tight_bdt_mlp_stack_working_point_entries;
+        out.bdtMode = cfg.auau_tight_bdt_mlp_stack_bdt_mode.empty() ? "auauEtFineCent7BDT" : cfg.auau_tight_bdt_mlp_stack_bdt_mode;
+        out.mlpMode = cfg.auau_tight_bdt_mlp_stack_mlp_mode.empty() ? "auauCentInputBase3x3MLP" : cfg.auau_tight_bdt_mlp_stack_mlp_mode;
+        if (out.modelFile.empty())
+        {
+            detail::bail("AuAu BDT+MLP stack mode requires auau_tight_bdt_mlp_stack_model_file");
+        }
+        if (!yamlcfg::IsAuAuTightBDTMode(out.bdtMode))
+        {
+            detail::bail("AuAu BDT+MLP stack bdt_mode must be an AuAu tight BDT mode");
+        }
+        if (!yamlcfg::IsAuAuTightMLPMode(out.mlpMode))
+        {
+            detail::bail("AuAu BDT+MLP stack mlp_mode must be an AuAu tight MLP mode");
+        }
+        return out;
+    };
+
+    struct AuAuLogRegRuntimeConfig
+    {
+        std::string modelFile;
+        double minIntercept = 0.80;
+        double minSlope = 0.0;
+        double maxScore = 1.0;
+        double nonTightMinIntercept = 0.20;
+        double nonTightMinSlope = 0.0;
+        double nonTightMaxIntercept = 0.80;
+        double nonTightMaxSlope = 0.0;
+        double applyPtMin = std::numeric_limits<double>::quiet_NaN();
+        double applyPtMax = std::numeric_limits<double>::quiet_NaN();
+        std::vector<std::string> workingPointEntries;
+        bool active = false;
+    };
+
+    auto resolveAuAuLogRegRuntimeConfig = [&](const std::string& tightMode) -> AuAuLogRegRuntimeConfig
+    {
+        AuAuLogRegRuntimeConfig out;
+        if (!yamlcfg::IsAuAuTightLogRegMode(tightMode)) return out;
+        out.active = true;
+        out.modelFile = cfg.auau_tight_logreg_model_file;
+        out.minIntercept = cfg.auau_tight_logreg_min_intercept;
+        out.minSlope = cfg.auau_tight_logreg_min_slope;
+        out.maxScore = cfg.auau_tight_logreg_max;
+        out.nonTightMinIntercept = cfg.auau_nontight_logreg_min_intercept;
+        out.nonTightMinSlope = cfg.auau_nontight_logreg_min_slope;
+        out.nonTightMaxIntercept = cfg.auau_nontight_logreg_max_intercept;
+        out.nonTightMaxSlope = cfg.auau_nontight_logreg_max_slope;
+        out.applyPtMin = cfg.auau_tight_logreg_apply_pt_min;
+        out.applyPtMax = cfg.auau_tight_logreg_apply_pt_max;
+        out.workingPointEntries = cfg.auau_tight_logreg_working_point_entries;
+        if (out.modelFile.empty())
+        {
+            detail::bail("AuAu tight logistic-regression mode requires auau_tight_logreg_model_file");
+        }
+        return out;
+    };
+
     std::vector<std::string> auauCentDepScoreNames;
-    const AuAuBDTRuntimeConfig leaderAuAuRuntime = resolveAuAuBDTRuntimeConfig(cfg.tight);
-    const AuAuMLPRuntimeConfig leaderAuAuMLPRuntime = resolveAuAuMLPRuntimeConfig(cfg.tight);
+    const AuAuBDTMLPStackRuntimeConfig leaderAuAuStackRuntime = resolveAuAuBDTMLPStackRuntimeConfig(cfg.tight);
+    const AuAuLogRegRuntimeConfig leaderAuAuLogRegRuntime = resolveAuAuLogRegRuntimeConfig(cfg.tight);
+    const AuAuBDTRuntimeConfig leaderAuAuRuntime = resolveAuAuBDTRuntimeConfig(leaderAuAuStackRuntime.active ? leaderAuAuStackRuntime.bdtMode : cfg.tight);
+    const AuAuMLPRuntimeConfig leaderAuAuMLPRuntime = resolveAuAuMLPRuntimeConfig(leaderAuAuStackRuntime.active ? leaderAuAuStackRuntime.mlpMode : cfg.tight);
     std::string auauRuntimeTightModelFile = leaderAuAuRuntime.modelFile;
     std::vector<std::string> auauRuntimeTightFeatures = leaderAuAuRuntime.features;
     std::vector<std::string> auauRuntimeCentDepModelFiles = leaderAuAuRuntime.centModelFiles;
@@ -4783,6 +5052,10 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         }
     }
     if (leaderAuAuMLPRuntime.active)
+    {
+        tightPhotonNode = "PHOTONCLUSTER_CEMC";
+    }
+    if (leaderAuAuStackRuntime.active)
     {
         tightPhotonNode = "PHOTONCLUSTER_CEMC";
     }
@@ -4911,6 +5184,9 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_BDT_MODEL_FILE",
                                                "RJ_AUAU_TIGHT_BDT_MODEL_FILE",
                                                auauRuntimeTightModelFile));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_BDT_SCORING_MODE",
+                                               "RJ_AUAU_TIGHT_BDT_SCORING_MODE",
+                                               leaderAuAuStackRuntime.active ? leaderAuAuStackRuntime.bdtMode : cfg.tight));
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_BDT_FEATURES",
                                                "RJ_AUAU_TIGHT_BDT_FEATURES",
                                                joinStrings(auauRuntimeTightFeatures)));
@@ -4926,6 +5202,9 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_MLP_MODEL_FILE",
                                                "RJ_AUAU_TIGHT_MLP_MODEL_FILE",
                                                leaderAuAuMLPRuntime.modelFile));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_MLP_SCORING_MODE",
+                                               "RJ_AUAU_TIGHT_MLP_SCORING_MODE",
+                                               leaderAuAuStackRuntime.active ? leaderAuAuStackRuntime.mlpMode : cfg.tight));
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_MLP_MIN_INTERCEPT",
                                                "RJ_AUAU_TIGHT_MLP_MIN_INTERCEPT",
                                                fmtDouble(cfg.auau_tight_mlp_min_intercept)));
@@ -4956,6 +5235,72 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NONTIGHT_MLP_MAX_SLOPE",
                                                "RJ_AUAU_NONTIGHT_MLP_MAX_SLOPE",
                                                fmtDouble(cfg.auau_nontight_mlp_max_slope)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_BDT_MLP_STACK_MODEL_FILE",
+                                               "RJ_AUAU_TIGHT_BDT_MLP_STACK_MODEL_FILE",
+                                               leaderAuAuStackRuntime.modelFile));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_BDT_MLP_STACK_MIN_INTERCEPT",
+                                               "RJ_AUAU_TIGHT_BDT_MLP_STACK_MIN_INTERCEPT",
+                                               fmtDouble(leaderAuAuStackRuntime.minIntercept)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_BDT_MLP_STACK_MIN_SLOPE",
+                                               "RJ_AUAU_TIGHT_BDT_MLP_STACK_MIN_SLOPE",
+                                               fmtDouble(leaderAuAuStackRuntime.minSlope)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_BDT_MLP_STACK_MAX",
+                                               "RJ_AUAU_TIGHT_BDT_MLP_STACK_MAX",
+                                               fmtDouble(leaderAuAuStackRuntime.maxScore)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_BDT_MLP_STACK_APPLY_PT_MIN",
+                                               "RJ_AUAU_TIGHT_BDT_MLP_STACK_APPLY_PT_MIN",
+                                               fmtDouble(leaderAuAuStackRuntime.applyPtMin)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_BDT_MLP_STACK_APPLY_PT_MAX",
+                                               "RJ_AUAU_TIGHT_BDT_MLP_STACK_APPLY_PT_MAX",
+                                               fmtDouble(leaderAuAuStackRuntime.applyPtMax)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_BDT_MLP_STACK_WORKING_POINT_ENTRIES",
+                                               "RJ_AUAU_TIGHT_BDT_MLP_STACK_WORKING_POINT_ENTRIES",
+                                               joinStrings(leaderAuAuStackRuntime.workingPointEntries)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NONTIGHT_BDT_MLP_STACK_MIN_INTERCEPT",
+                                               "RJ_AUAU_NONTIGHT_BDT_MLP_STACK_MIN_INTERCEPT",
+                                               fmtDouble(leaderAuAuStackRuntime.nonTightMinIntercept)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NONTIGHT_BDT_MLP_STACK_MIN_SLOPE",
+                                               "RJ_AUAU_NONTIGHT_BDT_MLP_STACK_MIN_SLOPE",
+                                               fmtDouble(leaderAuAuStackRuntime.nonTightMinSlope)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NONTIGHT_BDT_MLP_STACK_MAX_INTERCEPT",
+                                               "RJ_AUAU_NONTIGHT_BDT_MLP_STACK_MAX_INTERCEPT",
+                                               fmtDouble(leaderAuAuStackRuntime.nonTightMaxIntercept)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NONTIGHT_BDT_MLP_STACK_MAX_SLOPE",
+                                               "RJ_AUAU_NONTIGHT_BDT_MLP_STACK_MAX_SLOPE",
+                                               fmtDouble(leaderAuAuStackRuntime.nonTightMaxSlope)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_LOGREG_MODEL_FILE",
+                                               "RJ_AUAU_TIGHT_LOGREG_MODEL_FILE",
+                                               leaderAuAuLogRegRuntime.modelFile));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_LOGREG_MIN_INTERCEPT",
+                                               "RJ_AUAU_TIGHT_LOGREG_MIN_INTERCEPT",
+                                               fmtDouble(leaderAuAuLogRegRuntime.minIntercept)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_LOGREG_MIN_SLOPE",
+                                               "RJ_AUAU_TIGHT_LOGREG_MIN_SLOPE",
+                                               fmtDouble(leaderAuAuLogRegRuntime.minSlope)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_LOGREG_MAX",
+                                               "RJ_AUAU_TIGHT_LOGREG_MAX",
+                                               fmtDouble(leaderAuAuLogRegRuntime.maxScore)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_LOGREG_APPLY_PT_MIN",
+                                               "RJ_AUAU_TIGHT_LOGREG_APPLY_PT_MIN",
+                                               fmtDouble(leaderAuAuLogRegRuntime.applyPtMin)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_LOGREG_APPLY_PT_MAX",
+                                               "RJ_AUAU_TIGHT_LOGREG_APPLY_PT_MAX",
+                                               fmtDouble(leaderAuAuLogRegRuntime.applyPtMax)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_TIGHT_LOGREG_WORKING_POINT_ENTRIES",
+                                               "RJ_AUAU_TIGHT_LOGREG_WORKING_POINT_ENTRIES",
+                                               joinStrings(leaderAuAuLogRegRuntime.workingPointEntries)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NONTIGHT_LOGREG_MIN_INTERCEPT",
+                                               "RJ_AUAU_NONTIGHT_LOGREG_MIN_INTERCEPT",
+                                               fmtDouble(leaderAuAuLogRegRuntime.nonTightMinIntercept)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NONTIGHT_LOGREG_MIN_SLOPE",
+                                               "RJ_AUAU_NONTIGHT_LOGREG_MIN_SLOPE",
+                                               fmtDouble(leaderAuAuLogRegRuntime.nonTightMinSlope)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NONTIGHT_LOGREG_MAX_INTERCEPT",
+                                               "RJ_AUAU_NONTIGHT_LOGREG_MAX_INTERCEPT",
+                                               fmtDouble(leaderAuAuLogRegRuntime.nonTightMaxIntercept)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NONTIGHT_LOGREG_MAX_SLOPE",
+                                               "RJ_AUAU_NONTIGHT_LOGREG_MAX_SLOPE",
+                                               fmtDouble(leaderAuAuLogRegRuntime.nonTightMaxSlope)));
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NONTIGHT_BDT_MIN_INTERCEPT",
                                                "RJ_AUAU_NONTIGHT_BDT_MIN_INTERCEPT",
                                                fmtDouble(cfg.auau_nontight_bdt_min_intercept)));
@@ -5027,7 +5372,8 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 	                                    idEntry.nonTight,
 	                                    preselectionPhotonNode,
 	                                    tightPhotonNode);
-        const AuAuBDTRuntimeConfig entryAuAuRuntime = resolveAuAuBDTRuntimeConfig(idEntry.tight);
+        const AuAuBDTMLPStackRuntimeConfig entryAuAuStackRuntime = resolveAuAuBDTMLPStackRuntimeConfig(idEntry.tight);
+        const AuAuBDTRuntimeConfig entryAuAuRuntime = resolveAuAuBDTRuntimeConfig(entryAuAuStackRuntime.active ? entryAuAuStackRuntime.bdtMode : idEntry.tight);
         if (entryAuAuRuntime.active)
         {
             recoilJets->setAuAuTightBDTRuntimeConfig(entryAuAuRuntime.modelFile,
@@ -5043,9 +5389,10 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                                                      entryAuAuRuntime.ptFallbackMax,
                                                      entryAuAuRuntime.applyPtMin,
                                                      entryAuAuRuntime.applyPtMax,
-                                                     entryAuAuRuntime.workingPointEntries);
+                                                     entryAuAuRuntime.workingPointEntries,
+                                                     entryAuAuStackRuntime.active ? entryAuAuStackRuntime.bdtMode : idEntry.tight);
         }
-        const AuAuMLPRuntimeConfig entryAuAuMLPRuntime = resolveAuAuMLPRuntimeConfig(idEntry.tight);
+        const AuAuMLPRuntimeConfig entryAuAuMLPRuntime = resolveAuAuMLPRuntimeConfig(entryAuAuStackRuntime.active ? entryAuAuStackRuntime.mlpMode : idEntry.tight);
         if (entryAuAuMLPRuntime.active)
         {
             recoilJets->setAuAuTightMLPRuntimeConfig(entryAuAuMLPRuntime.modelFile,
@@ -5058,7 +5405,37 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                                                      entryAuAuMLPRuntime.nonTightMaxSlope,
                                                      entryAuAuMLPRuntime.applyPtMin,
                                                      entryAuAuMLPRuntime.applyPtMax,
-                                                     entryAuAuMLPRuntime.workingPointEntries);
+                                                     entryAuAuMLPRuntime.workingPointEntries,
+                                                     entryAuAuStackRuntime.active ? entryAuAuStackRuntime.mlpMode : idEntry.tight);
+        }
+        if (entryAuAuStackRuntime.active)
+        {
+            recoilJets->setAuAuTightBDTMLPStackRuntimeConfig(entryAuAuStackRuntime.modelFile,
+                                                            entryAuAuStackRuntime.minIntercept,
+                                                            entryAuAuStackRuntime.minSlope,
+                                                            entryAuAuStackRuntime.maxScore,
+                                                            entryAuAuStackRuntime.nonTightMinIntercept,
+                                                            entryAuAuStackRuntime.nonTightMinSlope,
+                                                            entryAuAuStackRuntime.nonTightMaxIntercept,
+                                                            entryAuAuStackRuntime.nonTightMaxSlope,
+                                                            entryAuAuStackRuntime.applyPtMin,
+                                                            entryAuAuStackRuntime.applyPtMax,
+                                                            entryAuAuStackRuntime.workingPointEntries);
+        }
+        const AuAuLogRegRuntimeConfig entryAuAuLogRegRuntime = resolveAuAuLogRegRuntimeConfig(idEntry.tight);
+        if (entryAuAuLogRegRuntime.active)
+        {
+            recoilJets->setAuAuTightLogRegRuntimeConfig(entryAuAuLogRegRuntime.modelFile,
+                                                        entryAuAuLogRegRuntime.minIntercept,
+                                                        entryAuAuLogRegRuntime.minSlope,
+                                                        entryAuAuLogRegRuntime.maxScore,
+                                                        entryAuAuLogRegRuntime.nonTightMinIntercept,
+                                                        entryAuAuLogRegRuntime.nonTightMinSlope,
+                                                        entryAuAuLogRegRuntime.nonTightMaxIntercept,
+                                                        entryAuAuLogRegRuntime.nonTightMaxSlope,
+                                                        entryAuAuLogRegRuntime.applyPtMin,
+                                                        entryAuAuLogRegRuntime.applyPtMax,
+                                                        entryAuAuLogRegRuntime.workingPointEntries);
         }
 	    recoilJets->setPhotonEtaAbsMax(cfg.photon_eta_abs_max);
     recoilJets->setMinJetPt(cfg.jet_pt_min);

@@ -410,15 +410,27 @@ selection_mode_normalize_for_key() {
     tight:auauNoCentBDT|tight:AuAuNoCentBDT|tight:auaunocentbdt) echo "auauNoCentBDT"; return 0 ;;
     tight:auauCentInputBDT|tight:AuAuCentInputBDT|tight:auaucentinputbdt) echo "auauCentInputBDT"; return 0 ;;
     tight:auauCentInput3x3BDT|tight:AuAuCentInput3x3BDT|tight:auaucentinput3x3bdt) echo "auauCentInput3x3BDT"; return 0 ;;
+    tight:auauCentInputBase3x3BDT|tight:AuAuCentInputBase3x3BDT|tight:auaucentinputbase3x3bdt) echo "auauCentInputBase3x3BDT"; return 0 ;;
     tight:auauCentInputMinOptBDT|tight:AuAuCentInputMinOptBDT|tight:auaucentinputminoptbdt) echo "auauCentInputMinOptBDT"; return 0 ;;
     tight:auauCent3BDT|tight:AuAuCent3BDT|tight:auaucent3bdt) echo "auauCent3BDT"; return 0 ;;
     tight:auauCent7BDT|tight:AuAuCent7BDT|tight:auaucent7bdt) echo "auauCent7BDT"; return 0 ;;
     tight:auauPtBinCentInputBDT|tight:AuAuPtBinCentInputBDT|tight:auauptbincentinputbdt) echo "auauPtBinCentInputBDT"; return 0 ;;
     tight:auauPtCent3BDT|tight:AuAuPtCent3BDT|tight:auauptcent3bdt) echo "auauPtCent3BDT"; return 0 ;;
     tight:auauPtCent7BDT|tight:AuAuPtCent7BDT|tight:auauptcent7bdt) echo "auauPtCent7BDT"; return 0 ;;
+    tight:auauEtFineCentInputBDT|tight:AuAuEtFineCentInputBDT|tight:auauetfinecentinputbdt) echo "auauEtFineCentInputBDT"; return 0 ;;
+    tight:auauEtFineCent3BDT|tight:AuAuEtFineCent3BDT|tight:auauetfinecent3bdt) echo "auauEtFineCent3BDT"; return 0 ;;
+    tight:auauEtFineCent7BDT|tight:AuAuEtFineCent7BDT|tight:auauetfinecent7bdt) echo "auauEtFineCent7BDT"; return 0 ;;
+    tight:auauCentInputMLP|tight:AuAuCentInputMLP|tight:auaucentinputmlp) echo "auauCentInputMLP"; return 0 ;;
+    tight:auauNoCentBase3x3MLP|tight:AuAuNoCentBase3x3MLP|tight:auaunocentbase3x3mlp) echo "auauNoCentBase3x3MLP"; return 0 ;;
+    tight:auauCentInputBase3x3MLP|tight:AuAuCentInputBase3x3MLP|tight:auaucentinputbase3x3mlp) echo "auauCentInputBase3x3MLP"; return 0 ;;
+    tight:auauBDTMLPStack|tight:AuAuBDTMLPStack|tight:auaubdtmlpstack|tight:bdtmlpstack) echo "auauBDTMLPStack"; return 0 ;;
     nonTight:variantA|nonTight:VariantA|nonTight:varianta|nonTight:bdtSideband|nonTight:BDTSideband|nonTight:bdtsideband|nonTight:newPPG12|nonTight:NewPPG12|nonTight:newppg12) echo "newPPG12"; return 0 ;;
     nonTight:variantB|nonTight:VariantB|nonTight:variantb|nonTight:auauBDTSideband|nonTight:AuAuBDTSideband|nonTight:auaubdtsideband) echo "auauBDTSideband"; return 0 ;;
     nonTight:variantC|nonTight:VariantC|nonTight:variantc|nonTight:auauBDTComplement|nonTight:AuAuBDTComplement|nonTight:auaubdtcomplement) echo "auauBDTComplement"; return 0 ;;
+    nonTight:auauMLPSideband|nonTight:AuAuMLPSideband|nonTight:auaumlpsideband) echo "auauMLPSideband"; return 0 ;;
+    nonTight:auauMLPComplement|nonTight:AuAuMLPComplement|nonTight:auaumlpcomplement) echo "auauMLPComplement"; return 0 ;;
+    nonTight:auauBDTMLPStackSideband|nonTight:AuAuBDTMLPStackSideband|nonTight:auaubdtmlpstacksideband) echo "auauBDTMLPStackSideband"; return 0 ;;
+    nonTight:auauBDTMLPStackComplement|nonTight:AuAuBDTMLPStackComplement|nonTight:auaubdtmlpstackcomplement) echo "auauBDTMLPStackComplement"; return 0 ;;
   esac
   case "$mode" in
     ""|reference|Reference) echo "reference" ;;
@@ -427,14 +439,26 @@ selection_mode_normalize_for_key() {
     auauNoCentBDT|AuAuNoCentBDT|auaunocentbdt) echo "auauNoCentBDT" ;;
     auauCentInputBDT|AuAuCentInputBDT|auaucentinputbdt) echo "auauCentInputBDT" ;;
     auauCentInput3x3BDT|AuAuCentInput3x3BDT|auaucentinput3x3bdt) echo "auauCentInput3x3BDT" ;;
+    auauCentInputBase3x3BDT|AuAuCentInputBase3x3BDT|auaucentinputbase3x3bdt) echo "auauCentInputBase3x3BDT" ;;
     auauCentInputMinOptBDT|AuAuCentInputMinOptBDT|auaucentinputminoptbdt) echo "auauCentInputMinOptBDT" ;;
     auauCent3BDT|AuAuCent3BDT|auaucent3bdt) echo "auauCent3BDT" ;;
     auauCent7BDT|AuAuCent7BDT|auaucent7bdt) echo "auauCent7BDT" ;;
     auauPtBinCentInputBDT|AuAuPtBinCentInputBDT|auauptbincentinputbdt) echo "auauPtBinCentInputBDT" ;;
     auauPtCent3BDT|AuAuPtCent3BDT|auauptcent3bdt) echo "auauPtCent3BDT" ;;
     auauPtCent7BDT|AuAuPtCent7BDT|auauptcent7bdt) echo "auauPtCent7BDT" ;;
+    auauEtFineCentInputBDT|AuAuEtFineCentInputBDT|auauetfinecentinputbdt) echo "auauEtFineCentInputBDT" ;;
+    auauEtFineCent3BDT|AuAuEtFineCent3BDT|auauetfinecent3bdt) echo "auauEtFineCent3BDT" ;;
+    auauEtFineCent7BDT|AuAuEtFineCent7BDT|auauetfinecent7bdt) echo "auauEtFineCent7BDT" ;;
+    auauBDTMLPStack|AuAuBDTMLPStack|auaubdtmlpstack|bdtmlpstack) echo "auauBDTMLPStack" ;;
     auauBDTSideband|AuAuBDTSideband|auaubdtsideband) echo "auauBDTSideband" ;;
     auauBDTComplement|AuAuBDTComplement|auaubdtcomplement) echo "auauBDTComplement" ;;
+    auauMLPSideband|AuAuMLPSideband|auaumlpsideband) echo "auauMLPSideband" ;;
+    auauMLPComplement|AuAuMLPComplement|auaumlpcomplement) echo "auauMLPComplement" ;;
+    auauBDTMLPStackSideband|AuAuBDTMLPStackSideband|auaubdtmlpstacksideband) echo "auauBDTMLPStackSideband" ;;
+    auauBDTMLPStackComplement|AuAuBDTMLPStackComplement|auaubdtmlpstackcomplement) echo "auauBDTMLPStackComplement" ;;
+    auauCentInputMLP|AuAuCentInputMLP|auaucentinputmlp) echo "auauCentInputMLP" ;;
+    auauNoCentBase3x3MLP|AuAuNoCentBase3x3MLP|auaunocentbase3x3mlp) echo "auauNoCentBase3x3MLP" ;;
+    auauCentInputBase3x3MLP|AuAuCentInputBase3x3MLP|auaucentinputbase3x3mlp) echo "auauCentInputBase3x3MLP" ;;
     variantB|VariantB|variantb) echo "variantB" ;;
     *) echo "$mode" ;;
   esac
@@ -455,14 +479,26 @@ selection_mode_tag() {
     auauNoCentBDT) echo "${key}AuAuNoCentBDT" ;;
     auauCentInputBDT) echo "${key}AuAuCentInputBDT" ;;
     auauCentInput3x3BDT) echo "${key}AuAuCentInput3x3BDT" ;;
+    auauCentInputBase3x3BDT) echo "${key}AuAuCentInputBase3x3BDT" ;;
     auauCentInputMinOptBDT) echo "${key}AuAuCentInputMinOptBDT" ;;
     auauCent3BDT) echo "${key}AuAuCent3BDT" ;;
     auauCent7BDT) echo "${key}AuAuCent7BDT" ;;
     auauPtBinCentInputBDT) echo "${key}AuAuPtBinCentInputBDT" ;;
     auauPtCent3BDT) echo "${key}AuAuPtCent3BDT" ;;
     auauPtCent7BDT) echo "${key}AuAuPtCent7BDT" ;;
+    auauEtFineCentInputBDT) echo "${key}AuAuEtFineCentInputBDT" ;;
+    auauEtFineCent3BDT) echo "${key}AuAuEtFineCent3BDT" ;;
+    auauEtFineCent7BDT) echo "${key}AuAuEtFineCent7BDT" ;;
+    auauBDTMLPStack) echo "${key}AuAuBDTMLPStack" ;;
     auauBDTSideband) echo "${key}AuAuBDTSideband" ;;
     auauBDTComplement) echo "${key}AuAuBDTComplement" ;;
+    auauMLPSideband) echo "${key}AuAuMLPSideband" ;;
+    auauMLPComplement) echo "${key}AuAuMLPComplement" ;;
+    auauBDTMLPStackSideband) echo "${key}AuAuBDTMLPStackSideband" ;;
+    auauBDTMLPStackComplement) echo "${key}AuAuBDTMLPStackComplement" ;;
+    auauCentInputMLP) echo "${key}AuAuCentInputMLP" ;;
+    auauNoCentBase3x3MLP) echo "${key}AuAuNoCentBase3x3MLP" ;;
+    auauCentInputBase3x3MLP) echo "${key}AuAuCentInputBase3x3MLP" ;;
     variantB) echo "${key}VariantB" ;;
     *)
       awk -v key="$key" -v mode="$mode" '

@@ -221,6 +221,8 @@ public:
         double auau_npb_score = std::numeric_limits<double>::quiet_NaN();
         double auau_tight_bdt_score = std::numeric_limits<double>::quiet_NaN();
         double auau_tight_mlp_score = std::numeric_limits<double>::quiet_NaN();
+        double auau_tight_bdt_mlp_score = std::numeric_limits<double>::quiet_NaN();
+        double auau_tight_logreg_score = std::numeric_limits<double>::quiet_NaN();
     };
     
     // Per-(trigger,slice) category counters printed in End()
@@ -522,7 +524,8 @@ public:
                                       double ptFallbackMax = 40.0,
                                       double applyPtMin = std::numeric_limits<double>::quiet_NaN(),
                                       double applyPtMax = std::numeric_limits<double>::quiet_NaN(),
-                                      const std::vector<std::string>& workingPointEntries = {});
+                                      const std::vector<std::string>& workingPointEntries = {},
+                                      const std::string& scoringMode = "");
 
     void setAuAuTightMLPRuntimeConfig(const std::string& modelFile,
                                       double minIntercept = 0.80,
@@ -534,7 +537,32 @@ public:
                                       double nonTightMaxSlope = 0.0,
                                       double applyPtMin = std::numeric_limits<double>::quiet_NaN(),
                                       double applyPtMax = std::numeric_limits<double>::quiet_NaN(),
-                                      const std::vector<std::string>& workingPointEntries = {});
+                                      const std::vector<std::string>& workingPointEntries = {},
+                                      const std::string& scoringMode = "");
+
+    void setAuAuTightBDTMLPStackRuntimeConfig(const std::string& modelFile,
+                                              double minIntercept = 0.80,
+                                              double minSlope = 0.0,
+                                              double maxScore = 1.0,
+                                              double nonTightMinIntercept = 0.20,
+                                              double nonTightMinSlope = 0.0,
+                                              double nonTightMaxIntercept = 0.80,
+                                              double nonTightMaxSlope = 0.0,
+                                              double applyPtMin = std::numeric_limits<double>::quiet_NaN(),
+                                              double applyPtMax = std::numeric_limits<double>::quiet_NaN(),
+                                              const std::vector<std::string>& workingPointEntries = {});
+
+    void setAuAuTightLogRegRuntimeConfig(const std::string& modelFile,
+                                         double minIntercept = 0.80,
+                                         double minSlope = 0.0,
+                                         double maxScore = 1.0,
+                                         double nonTightMinIntercept = 0.20,
+                                         double nonTightMinSlope = 0.0,
+                                         double nonTightMaxIntercept = 0.80,
+                                         double nonTightMaxSlope = 0.0,
+                                         double applyPtMin = std::numeric_limits<double>::quiet_NaN(),
+                                         double applyPtMax = std::numeric_limits<double>::quiet_NaN(),
+                                         const std::vector<std::string>& workingPointEntries = {});
     
     // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
     // When enabled, a compact per-event-per-radius TTree ("EventDisplayTree") is written to the output ROOT file.
@@ -805,11 +833,15 @@ private:
     void attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars& v) const;
     bool initAuAuTightBDTModelsIfNeeded() const;
     bool initAuAuTightMLPModelIfNeeded() const;
+    bool initAuAuTightBDTMLPStackModelIfNeeded() const;
+    bool initAuAuTightLogRegModelIfNeeded() const;
     double auauTightBDTFeatureValue(const std::string& feature,
                                     const PhotonClusterv1* pho,
                                     const SSVars& v) const;
     double predictAuAuTightBDTScore(const PhotonClusterv1* pho, const SSVars& v) const;
     double predictAuAuTightMLPScore(const PhotonClusterv1* pho, const SSVars& v) const;
+    double predictAuAuTightBDTMLPStackScore(const PhotonClusterv1* pho, const SSVars& v) const;
+    double predictAuAuTightLogRegScore(const PhotonClusterv1* pho, const SSVars& v) const;
     int auauTightBDTCentBinIndex() const;
     int auauTightBDTPtBinIndex(double pt) const;
     struct AuAuTightBDTWorkingPoint
@@ -834,6 +866,14 @@ private:
     const AuAuTightBDTWorkingPoint* activeAuAuTightMLPWorkingPoint() const;
     double configuredAuAuTightMLPMin(double et) const;
     double configuredAuAuTightMLPMax(double et) const;
+    void parseAuAuTightBDTMLPStackWorkingPointEntries(const std::vector<std::string>& entries);
+    const AuAuTightBDTWorkingPoint* activeAuAuTightBDTMLPStackWorkingPoint() const;
+    double configuredAuAuTightBDTMLPStackMin(double et) const;
+    double configuredAuAuTightBDTMLPStackMax(double et) const;
+    void parseAuAuTightLogRegWorkingPointEntries(const std::vector<std::string>& entries);
+    const AuAuTightBDTWorkingPoint* activeAuAuTightLogRegWorkingPoint() const;
+    double configuredAuAuTightLogRegMin(double et) const;
+    double configuredAuAuTightLogRegMax(double et) const;
     const PhotonClusterv1* findMatchedPhotonByKinematics(const RawClusterContainer* container,
                                                          const PhotonClusterv1* ref) const;
     bool   passesPhotonPreselection(const SSVars& v);
@@ -1375,6 +1415,7 @@ private:
     std::vector<int> m_auauTightBDTCentDepEdges;
     std::vector<std::string> m_auauTightBDTCentDepScoreNames;
     std::string m_auauTightBDTModelFile;
+    std::string m_auauTightBDTScoringMode;
     std::vector<std::string> m_auauTightBDTFeatures;
     std::vector<std::string> m_auauTightBDTCentDepModelFiles;
     std::vector<double> m_auauTightBDTPtBinEdges;
@@ -1414,6 +1455,7 @@ private:
         bool valid = false;
     };
     std::string m_auauTightMLPModelFile;
+    std::string m_auauTightMLPScoringMode;
     double m_auauTightMLPMinIntercept = 0.80;
     double m_auauTightMLPMinSlope = 0.0;
     double m_auauTightMLPMax = 1.0;
@@ -1427,6 +1469,77 @@ private:
     bool m_explicitAuAuTightMLPConfig = false;
     mutable bool m_auauTightMLPModelInitAttempted = false;
     mutable AuAuTightMLPModel m_auauTightMLPModel;
+
+    struct AuAuStackTree
+    {
+        std::vector<int> childrenLeft;
+        std::vector<int> childrenRight;
+        std::vector<int> feature;
+        std::vector<double> threshold;
+        std::vector<double> value;
+    };
+    struct AuAuStackSubModel
+    {
+        std::string kind;
+        std::vector<std::string> featureNames;
+        std::vector<double> impute;
+        std::vector<double> mean;
+        std::vector<double> scale;
+        std::vector<double> coef;
+        double intercept = 0.0;
+        double initialRawScore = 0.0;
+        double learningRate = 1.0;
+        std::vector<AuAuStackTree> trees;
+        bool valid = false;
+    };
+    struct AuAuStackRoute
+    {
+        std::string label;
+        double ptLo = std::numeric_limits<double>::quiet_NaN();
+        double ptHi = std::numeric_limits<double>::quiet_NaN();
+        double centLo = std::numeric_limits<double>::quiet_NaN();
+        double centHi = std::numeric_limits<double>::quiet_NaN();
+        bool hasCent = false;
+        AuAuStackSubModel model;
+    };
+    struct AuAuTightBDTMLPStackModel
+    {
+        std::string schema;
+        std::string name;
+        AuAuStackSubModel globalModel;
+        std::vector<AuAuStackRoute> routes;
+        bool valid = false;
+    };
+    std::string m_auauTightBDTMLPStackModelFile;
+    double m_auauTightBDTMLPStackMinIntercept = 0.80;
+    double m_auauTightBDTMLPStackMinSlope = 0.0;
+    double m_auauTightBDTMLPStackMax = 1.0;
+    double m_auauNonTightBDTMLPStackMinIntercept = 0.20;
+    double m_auauNonTightBDTMLPStackMinSlope = 0.0;
+    double m_auauNonTightBDTMLPStackMaxIntercept = 0.80;
+    double m_auauNonTightBDTMLPStackMaxSlope = 0.0;
+    double m_auauTightBDTMLPStackApplyPtMin = std::numeric_limits<double>::quiet_NaN();
+    double m_auauTightBDTMLPStackApplyPtMax = std::numeric_limits<double>::quiet_NaN();
+    std::vector<AuAuTightBDTWorkingPoint> m_auauTightBDTMLPStackWorkingPoints;
+    bool m_explicitAuAuTightBDTMLPStackConfig = false;
+    mutable bool m_auauTightBDTMLPStackModelInitAttempted = false;
+    mutable AuAuTightBDTMLPStackModel m_auauTightBDTMLPStackModel;
+
+    std::string m_auauTightLogRegModelFile;
+    double m_auauTightLogRegMinIntercept = 0.80;
+    double m_auauTightLogRegMinSlope = 0.0;
+    double m_auauTightLogRegMax = 1.0;
+    double m_auauNonTightLogRegMinIntercept = 0.20;
+    double m_auauNonTightLogRegMinSlope = 0.0;
+    double m_auauNonTightLogRegMaxIntercept = 0.80;
+    double m_auauNonTightLogRegMaxSlope = 0.0;
+    double m_auauTightLogRegApplyPtMin = std::numeric_limits<double>::quiet_NaN();
+    double m_auauTightLogRegApplyPtMax = std::numeric_limits<double>::quiet_NaN();
+    std::vector<AuAuTightBDTWorkingPoint> m_auauTightLogRegWorkingPoints;
+    bool m_explicitAuAuTightLogRegConfig = false;
+    mutable bool m_auauTightLogRegModelInitAttempted = false;
+    mutable AuAuTightBDTMLPStackModel m_auauTightLogRegModel;
+
     double m_tightBDTMinIntercept = 0.8333333333333334;
     double m_tightBDTMinSlope = -0.003333333333333336;
     double m_tightBDTMax = 1.0;
@@ -1686,6 +1799,8 @@ private:
     float m_bdtTrain_auau_npb_score = -2.0f;
     float m_bdtTrain_auau_tight_bdt_score = -2.0f;
     float m_bdtTrain_auau_tight_mlp_score = -2.0f;
+    float m_bdtTrain_auau_tight_bdt_mlp_score = -2.0f;
+    float m_bdtTrain_auau_tight_logreg_score = -2.0f;
 
     bool m_jetMLTrainingTreeEnabled = false;
     long long m_jetMLTrainingTreeMaxEntries = 0;

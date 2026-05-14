@@ -358,6 +358,8 @@ namespace
       if (key == "auaunocentbase3x3mlp") return "auauNoCentBase3x3MLP";
       if (key == "auaucentinputbase3x3mlp") return "auauCentInputBase3x3MLP";
       if (key == "auauhighptdistilledkitchenmlp") return "auauHighPtDistilledKitchenMLP";
+      if (key == "auaubdtmlpstack" || key == "auaustackbdtmlp" || key == "bdtmlpstack") return "auauBDTMLPStack";
+      if (key == "auautightlogreg" || key == "auaulogreg" || key == "logreg") return "auauTightLogReg";
       return tightVariant;
     }
 
@@ -385,6 +387,22 @@ namespace
       if (nonTightVariant == "auauMLPSideband" || nonTightVariant == "AuAuMLPSideband" || nonTightVariant == "auaumlpsideband")
       {
         return "auauMLPSideband";
+      }
+      if (nonTightVariant == "auauBDTMLPStackComplement" || nonTightVariant == "AuAuBDTMLPStackComplement" || nonTightVariant == "auaubdtmlpstackcomplement")
+      {
+        return "auauBDTMLPStackComplement";
+      }
+      if (nonTightVariant == "auauBDTMLPStackSideband" || nonTightVariant == "AuAuBDTMLPStackSideband" || nonTightVariant == "auaubdtmlpstacksideband")
+      {
+        return "auauBDTMLPStackSideband";
+      }
+      if (nonTightVariant == "auauLogRegComplement" || nonTightVariant == "AuAuLogRegComplement" || nonTightVariant == "auaulogregcomplement")
+      {
+        return "auauLogRegComplement";
+      }
+      if (nonTightVariant == "auauLogRegSideband" || nonTightVariant == "AuAuLogRegSideband" || nonTightVariant == "auaulogregsideband")
+      {
+        return "auauLogRegSideband";
       }
       return nonTightVariant;
     }
@@ -441,6 +459,16 @@ namespace
              tightVariant == "auauNoCentBase3x3MLP" ||
              tightVariant == "auauCentInputBase3x3MLP" ||
              tightVariant == "auauHighPtDistilledKitchenMLP";
+    }
+
+    inline bool auauTightBDTMLPStackMode(const std::string& tightVariant)
+    {
+      return tightVariant == "auauBDTMLPStack";
+    }
+
+    inline bool auauTightLogRegMode(const std::string& tightVariant)
+    {
+      return tightVariant == "auauTightLogReg";
     }
 
     inline std::size_t jsonSkipWs(const std::string& s, std::size_t pos)
@@ -1018,9 +1046,11 @@ void RecoilJets::setAuAuTightBDTRuntimeConfig(const std::string& modelFile,
                                               double ptFallbackMax,
                                               double applyPtMin,
                                               double applyPtMax,
-                                              const std::vector<std::string>& workingPointEntries)
+                                              const std::vector<std::string>& workingPointEntries,
+                                              const std::string& scoringMode)
 {
   m_auauTightBDTModelFile = modelFile;
+  m_auauTightBDTScoringMode = scoringMode.empty() ? normalizeTightVariantName(m_tightVariant) : normalizeTightVariantName(scoringMode);
   m_auauTightBDTFeatures = features;
   m_auauTightBDTCentDepEdges = centDepEdges;
   m_auauTightBDTCentDepModelFiles = centDepModelFiles;
@@ -1055,9 +1085,11 @@ void RecoilJets::setAuAuTightMLPRuntimeConfig(const std::string& modelFile,
                                               double nonTightMaxSlope,
                                               double applyPtMin,
                                               double applyPtMax,
-                                              const std::vector<std::string>& workingPointEntries)
+                                              const std::vector<std::string>& workingPointEntries,
+                                              const std::string& scoringMode)
 {
   m_auauTightMLPModelFile = modelFile;
+  m_auauTightMLPScoringMode = scoringMode.empty() ? normalizeTightVariantName(m_tightVariant) : normalizeTightVariantName(scoringMode);
   m_auauTightMLPMinIntercept = minIntercept;
   m_auauTightMLPMinSlope = minSlope;
   m_auauTightMLPMax = maxScore;
@@ -1071,6 +1103,62 @@ void RecoilJets::setAuAuTightMLPRuntimeConfig(const std::string& modelFile,
   m_explicitAuAuTightMLPConfig = true;
   m_auauTightMLPModelInitAttempted = false;
   m_auauTightMLPModel = AuAuTightMLPModel{};
+}
+
+void RecoilJets::setAuAuTightBDTMLPStackRuntimeConfig(const std::string& modelFile,
+                                                      double minIntercept,
+                                                      double minSlope,
+                                                      double maxScore,
+                                                      double nonTightMinIntercept,
+                                                      double nonTightMinSlope,
+                                                      double nonTightMaxIntercept,
+                                                      double nonTightMaxSlope,
+                                                      double applyPtMin,
+                                                      double applyPtMax,
+                                                      const std::vector<std::string>& workingPointEntries)
+{
+  m_auauTightBDTMLPStackModelFile = modelFile;
+  m_auauTightBDTMLPStackMinIntercept = minIntercept;
+  m_auauTightBDTMLPStackMinSlope = minSlope;
+  m_auauTightBDTMLPStackMax = maxScore;
+  m_auauNonTightBDTMLPStackMinIntercept = nonTightMinIntercept;
+  m_auauNonTightBDTMLPStackMinSlope = nonTightMinSlope;
+  m_auauNonTightBDTMLPStackMaxIntercept = nonTightMaxIntercept;
+  m_auauNonTightBDTMLPStackMaxSlope = nonTightMaxSlope;
+  m_auauTightBDTMLPStackApplyPtMin = applyPtMin;
+  m_auauTightBDTMLPStackApplyPtMax = applyPtMax;
+  parseAuAuTightBDTMLPStackWorkingPointEntries(workingPointEntries);
+  m_explicitAuAuTightBDTMLPStackConfig = true;
+  m_auauTightBDTMLPStackModelInitAttempted = false;
+  m_auauTightBDTMLPStackModel = AuAuTightBDTMLPStackModel{};
+}
+
+void RecoilJets::setAuAuTightLogRegRuntimeConfig(const std::string& modelFile,
+                                                 double minIntercept,
+                                                 double minSlope,
+                                                 double maxScore,
+                                                 double nonTightMinIntercept,
+                                                 double nonTightMinSlope,
+                                                 double nonTightMaxIntercept,
+                                                 double nonTightMaxSlope,
+                                                 double applyPtMin,
+                                                 double applyPtMax,
+                                                 const std::vector<std::string>& workingPointEntries)
+{
+  m_auauTightLogRegModelFile = modelFile;
+  m_auauTightLogRegMinIntercept = minIntercept;
+  m_auauTightLogRegMinSlope = minSlope;
+  m_auauTightLogRegMax = maxScore;
+  m_auauNonTightLogRegMinIntercept = nonTightMinIntercept;
+  m_auauNonTightLogRegMinSlope = nonTightMinSlope;
+  m_auauNonTightLogRegMaxIntercept = nonTightMaxIntercept;
+  m_auauNonTightLogRegMaxSlope = nonTightMaxSlope;
+  m_auauTightLogRegApplyPtMin = applyPtMin;
+  m_auauTightLogRegApplyPtMax = applyPtMax;
+  parseAuAuTightLogRegWorkingPointEntries(workingPointEntries);
+  m_explicitAuAuTightLogRegConfig = true;
+  m_auauTightLogRegModelInitAttempted = false;
+  m_auauTightLogRegModel = AuAuTightBDTMLPStackModel{};
 }
 
 void RecoilJets::parseAuAuTightBDTWorkingPointEntries(const std::vector<std::string>& entries)
@@ -1360,6 +1448,335 @@ double RecoilJets::configuredAuAuTightMLPMax(double /*et*/) const
 {
   const AuAuTightBDTWorkingPoint* wp = activeAuAuTightMLPWorkingPoint();
   return wp ? wp->maxScore : m_auauTightMLPMax;
+}
+
+void RecoilJets::parseAuAuTightBDTMLPStackWorkingPointEntries(const std::vector<std::string>& entries)
+{
+  m_auauTightBDTMLPStackWorkingPoints.clear();
+  auto split = [](const std::string& text, char delim)
+  {
+    std::vector<std::string> tokens;
+    std::stringstream ss(text);
+    std::string item;
+    while (std::getline(ss, item, delim)) tokens.push_back(item);
+    return tokens;
+  };
+  auto parseDoubles = [&](const std::string& text)
+  {
+    std::vector<double> values;
+    for (const auto& token : split(text, ';'))
+    {
+      if (token.empty()) continue;
+      try { values.push_back(std::stod(token)); }
+      catch (...) { values.push_back(std::numeric_limits<double>::quiet_NaN()); }
+    }
+    return values;
+  };
+
+  for (const std::string& raw : entries)
+  {
+    if (raw.empty()) continue;
+    const auto cols = split(raw, '|');
+    if (cols.size() < 7)
+    {
+      LOG(1, CLR_YELLOW, "[AuAuBDTMLPStack][WP] ignoring malformed working-point entry: " << raw);
+      continue;
+    }
+    AuAuTightBDTWorkingPoint wp;
+    wp.variant = normalizeTightVariantName(cols[0]);
+    const std::string mode = cols[1];
+    try
+    {
+      if (mode == "linear")
+      {
+        wp.binned = false;
+        wp.grid2d = false;
+        wp.intercept = std::stod(cols[2]);
+        wp.slope = std::stod(cols[3]);
+        wp.ptMin = std::stod(cols[4]);
+        wp.ptMax = std::stod(cols[5]);
+        wp.maxScore = std::stod(cols[6]);
+      }
+      else if (mode == "binned")
+      {
+        wp.binned = true;
+        wp.grid2d = false;
+        wp.edges = parseDoubles(cols[2]);
+        wp.thresholds = parseDoubles(cols[3]);
+        wp.ptMin = std::stod(cols[4]);
+        wp.ptMax = std::stod(cols[5]);
+        wp.maxScore = std::stod(cols[6]);
+        if (wp.edges.size() < 2 || wp.thresholds.size() + 1 != wp.edges.size())
+        {
+          LOG(1, CLR_YELLOW, "[AuAuBDTMLPStack][WP] ignoring binned entry with inconsistent edges/thresholds: " << raw);
+          continue;
+        }
+      }
+      else if (mode == "grid2d")
+      {
+        if (cols.size() < 8)
+        {
+          LOG(1, CLR_YELLOW, "[AuAuBDTMLPStack][WP] ignoring malformed grid2d working-point entry: " << raw);
+          continue;
+        }
+        wp.binned = false;
+        wp.grid2d = true;
+        wp.edges = parseDoubles(cols[2]);
+        wp.centEdges = parseDoubles(cols[3]);
+        wp.thresholds = parseDoubles(cols[4]);
+        wp.ptMin = std::stod(cols[5]);
+        wp.ptMax = std::stod(cols[6]);
+        wp.maxScore = std::stod(cols[7]);
+        const std::size_t nPt = (wp.edges.size() >= 2) ? wp.edges.size() - 1 : 0;
+        const std::size_t nCent = (wp.centEdges.size() >= 2) ? wp.centEdges.size() - 1 : 0;
+        if (nPt == 0 || nCent == 0 || wp.thresholds.size() != nPt * nCent)
+        {
+          LOG(1, CLR_YELLOW, "[AuAuBDTMLPStack][WP] ignoring grid2d entry with inconsistent binning: " << raw);
+          continue;
+        }
+      }
+      else
+      {
+        LOG(1, CLR_YELLOW, "[AuAuBDTMLPStack][WP] ignoring entry with unknown mode '" << mode << "': " << raw);
+        continue;
+      }
+    }
+    catch (...)
+    {
+      LOG(1, CLR_YELLOW, "[AuAuBDTMLPStack][WP] ignoring unparseable working-point entry: " << raw);
+      continue;
+    }
+    if (!auauTightBDTMLPStackMode(wp.variant))
+    {
+      LOG(1, CLR_YELLOW, "[AuAuBDTMLPStack][WP] ignoring entry with non-stack variant '" << wp.variant << "': " << raw);
+      continue;
+    }
+    m_auauTightBDTMLPStackWorkingPoints.push_back(wp);
+  }
+  if (!m_auauTightBDTMLPStackWorkingPoints.empty() && Verbosity() >= 1)
+  {
+    LOG(1, CLR_CYAN, "[AuAuBDTMLPStack][WP] loaded " << m_auauTightBDTMLPStackWorkingPoints.size()
+                    << " per-variant working-point entries");
+  }
+}
+
+const RecoilJets::AuAuTightBDTWorkingPoint* RecoilJets::activeAuAuTightBDTMLPStackWorkingPoint() const
+{
+  const std::string active = normalizeTightVariantName(m_tightVariant);
+  for (const auto& wp : m_auauTightBDTMLPStackWorkingPoints)
+  {
+    if (wp.variant == active) return &wp;
+  }
+  return nullptr;
+}
+
+double RecoilJets::configuredAuAuTightBDTMLPStackMin(double et) const
+{
+  const AuAuTightBDTWorkingPoint* wp = activeAuAuTightBDTMLPStackWorkingPoint();
+  if (!wp) return m_auauTightBDTMLPStackMinIntercept + m_auauTightBDTMLPStackMinSlope * et;
+  if (!std::isfinite(et) || et < wp->ptMin || et >= wp->ptMax)
+  {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+  if (wp->grid2d)
+  {
+    const double cent = m_centPercent;
+    if (!std::isfinite(cent)) return std::numeric_limits<double>::quiet_NaN();
+    int ptIdx = -1;
+    for (std::size_t i = 0; i + 1 < wp->edges.size(); ++i)
+    {
+      if (et >= wp->edges[i] && et < wp->edges[i + 1])
+      {
+        ptIdx = static_cast<int>(i);
+        break;
+      }
+    }
+    int centIdx = -1;
+    for (std::size_t i = 0; i + 1 < wp->centEdges.size(); ++i)
+    {
+      if (cent >= wp->centEdges[i] && cent < wp->centEdges[i + 1])
+      {
+        centIdx = static_cast<int>(i);
+        break;
+      }
+    }
+    if (ptIdx < 0 || centIdx < 0) return std::numeric_limits<double>::quiet_NaN();
+    const std::size_t nPt = wp->edges.size() - 1;
+    const std::size_t flatIdx = static_cast<std::size_t>(centIdx) * nPt + static_cast<std::size_t>(ptIdx);
+    if (flatIdx >= wp->thresholds.size()) return std::numeric_limits<double>::quiet_NaN();
+    return wp->thresholds[flatIdx];
+  }
+  if (!wp->binned) return wp->intercept + wp->slope * et;
+  for (std::size_t i = 0; i + 1 < wp->edges.size() && i < wp->thresholds.size(); ++i)
+  {
+    if (et >= wp->edges[i] && et < wp->edges[i + 1]) return wp->thresholds[i];
+  }
+  return std::numeric_limits<double>::quiet_NaN();
+}
+
+double RecoilJets::configuredAuAuTightBDTMLPStackMax(double /*et*/) const
+{
+  const AuAuTightBDTWorkingPoint* wp = activeAuAuTightBDTMLPStackWorkingPoint();
+  return wp ? wp->maxScore : m_auauTightBDTMLPStackMax;
+}
+
+void RecoilJets::parseAuAuTightLogRegWorkingPointEntries(const std::vector<std::string>& entries)
+{
+  m_auauTightLogRegWorkingPoints.clear();
+  auto split = [](const std::string& text, char delim)
+  {
+    std::vector<std::string> tokens;
+    std::stringstream ss(text);
+    std::string item;
+    while (std::getline(ss, item, delim)) tokens.push_back(item);
+    return tokens;
+  };
+  auto parseDoubles = [&](const std::string& text)
+  {
+    std::vector<double> values;
+    for (const auto& token : split(text, ';'))
+    {
+      if (token.empty()) continue;
+      try { values.push_back(std::stod(token)); }
+      catch (...) { values.push_back(std::numeric_limits<double>::quiet_NaN()); }
+    }
+    return values;
+  };
+
+  for (const std::string& raw : entries)
+  {
+    if (raw.empty()) continue;
+    const auto cols = split(raw, '|');
+    if (cols.size() < 7)
+    {
+      LOG(1, CLR_YELLOW, "[AuAuLogReg][WP] ignoring malformed working-point entry: " << raw);
+      continue;
+    }
+    AuAuTightBDTWorkingPoint wp;
+    wp.variant = normalizeTightVariantName(cols[0]);
+    const std::string mode = cols[1];
+    try
+    {
+      if (mode == "linear")
+      {
+        wp.binned = false;
+        wp.grid2d = false;
+        wp.intercept = std::stod(cols[2]);
+        wp.slope = std::stod(cols[3]);
+        wp.ptMin = std::stod(cols[4]);
+        wp.ptMax = std::stod(cols[5]);
+        wp.maxScore = std::stod(cols[6]);
+      }
+      else if (mode == "binned")
+      {
+        wp.binned = true;
+        wp.grid2d = false;
+        wp.edges = parseDoubles(cols[2]);
+        wp.thresholds = parseDoubles(cols[3]);
+        wp.ptMin = std::stod(cols[4]);
+        wp.ptMax = std::stod(cols[5]);
+        wp.maxScore = std::stod(cols[6]);
+        if (wp.edges.size() < 2 || wp.thresholds.size() + 1 != wp.edges.size())
+        {
+          LOG(1, CLR_YELLOW, "[AuAuLogReg][WP] ignoring binned entry with inconsistent edges/thresholds: " << raw);
+          continue;
+        }
+      }
+      else if (mode == "grid2d")
+      {
+        if (cols.size() < 8)
+        {
+          LOG(1, CLR_YELLOW, "[AuAuLogReg][WP] ignoring malformed grid2d working-point entry: " << raw);
+          continue;
+        }
+        wp.binned = false;
+        wp.grid2d = true;
+        wp.edges = parseDoubles(cols[2]);
+        wp.centEdges = parseDoubles(cols[3]);
+        wp.thresholds = parseDoubles(cols[4]);
+        wp.ptMin = std::stod(cols[5]);
+        wp.ptMax = std::stod(cols[6]);
+        wp.maxScore = std::stod(cols[7]);
+        const std::size_t nPt = (wp.edges.size() >= 2) ? wp.edges.size() - 1 : 0;
+        const std::size_t nCent = (wp.centEdges.size() >= 2) ? wp.centEdges.size() - 1 : 0;
+        if (nPt == 0 || nCent == 0 || wp.thresholds.size() != nPt * nCent)
+        {
+          LOG(1, CLR_YELLOW, "[AuAuLogReg][WP] ignoring grid2d entry with inconsistent binning: " << raw);
+          continue;
+        }
+      }
+      else
+      {
+        LOG(1, CLR_YELLOW, "[AuAuLogReg][WP] ignoring entry with unknown mode '" << mode << "': " << raw);
+        continue;
+      }
+    }
+    catch (...)
+    {
+      LOG(1, CLR_YELLOW, "[AuAuLogReg][WP] ignoring unparseable working-point entry: " << raw);
+      continue;
+    }
+    if (!auauTightLogRegMode(wp.variant))
+    {
+      LOG(1, CLR_YELLOW, "[AuAuLogReg][WP] ignoring entry with non-logreg variant '" << wp.variant << "': " << raw);
+      continue;
+    }
+    m_auauTightLogRegWorkingPoints.push_back(wp);
+  }
+  if (!m_auauTightLogRegWorkingPoints.empty() && Verbosity() >= 1)
+  {
+    LOG(1, CLR_CYAN, "[AuAuLogReg][WP] loaded " << m_auauTightLogRegWorkingPoints.size()
+                    << " per-variant working-point entries");
+  }
+}
+
+const RecoilJets::AuAuTightBDTWorkingPoint* RecoilJets::activeAuAuTightLogRegWorkingPoint() const
+{
+  const std::string active = normalizeTightVariantName(m_tightVariant);
+  for (const auto& wp : m_auauTightLogRegWorkingPoints)
+  {
+    if (wp.variant == active) return &wp;
+  }
+  return nullptr;
+}
+
+double RecoilJets::configuredAuAuTightLogRegMin(double et) const
+{
+  const AuAuTightBDTWorkingPoint* wp = activeAuAuTightLogRegWorkingPoint();
+  if (!wp) return m_auauTightLogRegMinIntercept + m_auauTightLogRegMinSlope * et;
+  if (!std::isfinite(et) || et < wp->ptMin || et >= wp->ptMax) return std::numeric_limits<double>::quiet_NaN();
+  if (wp->grid2d)
+  {
+    const double cent = m_centPercent;
+    if (!std::isfinite(cent)) return std::numeric_limits<double>::quiet_NaN();
+    int ptIdx = -1;
+    for (std::size_t i = 0; i + 1 < wp->edges.size(); ++i)
+    {
+      if (et >= wp->edges[i] && et < wp->edges[i + 1]) { ptIdx = static_cast<int>(i); break; }
+    }
+    int centIdx = -1;
+    for (std::size_t i = 0; i + 1 < wp->centEdges.size(); ++i)
+    {
+      if (cent >= wp->centEdges[i] && cent < wp->centEdges[i + 1]) { centIdx = static_cast<int>(i); break; }
+    }
+    if (ptIdx < 0 || centIdx < 0) return std::numeric_limits<double>::quiet_NaN();
+    const std::size_t nPt = wp->edges.size() - 1;
+    const std::size_t flatIdx = static_cast<std::size_t>(centIdx) * nPt + static_cast<std::size_t>(ptIdx);
+    if (flatIdx >= wp->thresholds.size()) return std::numeric_limits<double>::quiet_NaN();
+    return wp->thresholds[flatIdx];
+  }
+  if (!wp->binned) return wp->intercept + wp->slope * et;
+  for (std::size_t i = 0; i + 1 < wp->edges.size() && i < wp->thresholds.size(); ++i)
+  {
+    if (et >= wp->edges[i] && et < wp->edges[i + 1]) return wp->thresholds[i];
+  }
+  return std::numeric_limits<double>::quiet_NaN();
+}
+
+double RecoilJets::configuredAuAuTightLogRegMax(double /*et*/) const
+{
+  const AuAuTightBDTWorkingPoint* wp = activeAuAuTightLogRegWorkingPoint();
+  return wp ? wp->maxScore : m_auauTightLogRegMax;
 }
 
 void RecoilJets::setInternalJetPtScan(const std::vector<double>& values)
@@ -2136,6 +2553,7 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     if (!m_explicitAuAuTightBDTConfig)
     {
       m_auauTightBDTModelFile     = envOrDefault("RJ_AUAU_TIGHT_BDT_MODEL_FILE", "");
+      m_auauTightBDTScoringMode   = normalizeTightVariantName(envOrDefault("RJ_AUAU_TIGHT_BDT_SCORING_MODE", m_tightVariant));
       m_auauTightBDTFeatures      = envToStringList("RJ_AUAU_TIGHT_BDT_FEATURES", {});
       m_auauTightBDTCentDepModelFiles = envToStringList("RJ_AUAU_TIGHT_BDT_CENTDEP_MODEL_FILES", {});
       m_auauTightBDTCentDepEdges = envToIntList("RJ_AUAU_TIGHT_BDT_CENTDEP_EDGES", {});
@@ -2164,9 +2582,38 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     if (!m_explicitAuAuTightMLPConfig)
     {
       m_auauTightMLPModelFile = envOrDefault("RJ_AUAU_TIGHT_MLP_MODEL_FILE", "");
+      m_auauTightMLPScoringMode = normalizeTightVariantName(envOrDefault("RJ_AUAU_TIGHT_MLP_SCORING_MODE", m_tightVariant));
       m_auauTightMLPApplyPtMin = envToDouble("RJ_AUAU_TIGHT_MLP_APPLY_PT_MIN", std::numeric_limits<double>::quiet_NaN());
       m_auauTightMLPApplyPtMax = envToDouble("RJ_AUAU_TIGHT_MLP_APPLY_PT_MAX", std::numeric_limits<double>::quiet_NaN());
       parseAuAuTightMLPWorkingPointEntries(envToStringList("RJ_AUAU_TIGHT_MLP_WORKING_POINT_ENTRIES", {}));
+    }
+    if (!m_explicitAuAuTightBDTMLPStackConfig)
+    {
+      m_auauTightBDTMLPStackModelFile = envOrDefault("RJ_AUAU_TIGHT_BDT_MLP_STACK_MODEL_FILE", "");
+      m_auauTightBDTMLPStackMinIntercept = envToDouble("RJ_AUAU_TIGHT_BDT_MLP_STACK_MIN_INTERCEPT", m_auauTightBDTMLPStackMinIntercept);
+      m_auauTightBDTMLPStackMinSlope = envToDouble("RJ_AUAU_TIGHT_BDT_MLP_STACK_MIN_SLOPE", m_auauTightBDTMLPStackMinSlope);
+      m_auauTightBDTMLPStackMax = envToDouble("RJ_AUAU_TIGHT_BDT_MLP_STACK_MAX", m_auauTightBDTMLPStackMax);
+      m_auauNonTightBDTMLPStackMinIntercept = envToDouble("RJ_AUAU_NONTIGHT_BDT_MLP_STACK_MIN_INTERCEPT", m_auauNonTightBDTMLPStackMinIntercept);
+      m_auauNonTightBDTMLPStackMinSlope = envToDouble("RJ_AUAU_NONTIGHT_BDT_MLP_STACK_MIN_SLOPE", m_auauNonTightBDTMLPStackMinSlope);
+      m_auauNonTightBDTMLPStackMaxIntercept = envToDouble("RJ_AUAU_NONTIGHT_BDT_MLP_STACK_MAX_INTERCEPT", m_auauNonTightBDTMLPStackMaxIntercept);
+      m_auauNonTightBDTMLPStackMaxSlope = envToDouble("RJ_AUAU_NONTIGHT_BDT_MLP_STACK_MAX_SLOPE", m_auauNonTightBDTMLPStackMaxSlope);
+      m_auauTightBDTMLPStackApplyPtMin = envToDouble("RJ_AUAU_TIGHT_BDT_MLP_STACK_APPLY_PT_MIN", std::numeric_limits<double>::quiet_NaN());
+      m_auauTightBDTMLPStackApplyPtMax = envToDouble("RJ_AUAU_TIGHT_BDT_MLP_STACK_APPLY_PT_MAX", std::numeric_limits<double>::quiet_NaN());
+      parseAuAuTightBDTMLPStackWorkingPointEntries(envToStringList("RJ_AUAU_TIGHT_BDT_MLP_STACK_WORKING_POINT_ENTRIES", {}));
+    }
+    if (!m_explicitAuAuTightLogRegConfig)
+    {
+      m_auauTightLogRegModelFile = envOrDefault("RJ_AUAU_TIGHT_LOGREG_MODEL_FILE", "");
+      m_auauTightLogRegMinIntercept = envToDouble("RJ_AUAU_TIGHT_LOGREG_MIN_INTERCEPT", m_auauTightLogRegMinIntercept);
+      m_auauTightLogRegMinSlope = envToDouble("RJ_AUAU_TIGHT_LOGREG_MIN_SLOPE", m_auauTightLogRegMinSlope);
+      m_auauTightLogRegMax = envToDouble("RJ_AUAU_TIGHT_LOGREG_MAX", m_auauTightLogRegMax);
+      m_auauNonTightLogRegMinIntercept = envToDouble("RJ_AUAU_NONTIGHT_LOGREG_MIN_INTERCEPT", m_auauNonTightLogRegMinIntercept);
+      m_auauNonTightLogRegMinSlope = envToDouble("RJ_AUAU_NONTIGHT_LOGREG_MIN_SLOPE", m_auauNonTightLogRegMinSlope);
+      m_auauNonTightLogRegMaxIntercept = envToDouble("RJ_AUAU_NONTIGHT_LOGREG_MAX_INTERCEPT", m_auauNonTightLogRegMaxIntercept);
+      m_auauNonTightLogRegMaxSlope = envToDouble("RJ_AUAU_NONTIGHT_LOGREG_MAX_SLOPE", m_auauNonTightLogRegMaxSlope);
+      m_auauTightLogRegApplyPtMin = envToDouble("RJ_AUAU_TIGHT_LOGREG_APPLY_PT_MIN", std::numeric_limits<double>::quiet_NaN());
+      m_auauTightLogRegApplyPtMax = envToDouble("RJ_AUAU_TIGHT_LOGREG_APPLY_PT_MAX", std::numeric_limits<double>::quiet_NaN());
+      parseAuAuTightLogRegWorkingPointEntries(envToStringList("RJ_AUAU_TIGHT_LOGREG_WORKING_POINT_ENTRIES", {}));
     }
     m_auauBDTExtractOnly = envToBool("RJ_AUAU_BDT_EXTRACT_ONLY", m_auauBDTExtractOnly);
     m_auauBDTTrainingTreeEnabled = envToBool("RJ_AUAU_BDT_TRAINING_TREE", false);
@@ -2776,6 +3223,8 @@ void RecoilJets::initAuAuBDTTrainingTree()
   add("auau_npb_score", &m_bdtTrain_auau_npb_score, "auau_npb_score/F");
   add("auau_tight_bdt_score", &m_bdtTrain_auau_tight_bdt_score, "auau_tight_bdt_score/F");
   add("auau_tight_mlp_score", &m_bdtTrain_auau_tight_mlp_score, "auau_tight_mlp_score/F");
+  add("auau_tight_bdt_mlp_score", &m_bdtTrain_auau_tight_bdt_mlp_score, "auau_tight_bdt_mlp_score/F");
+  add("auau_tight_logreg_score", &m_bdtTrain_auau_tight_logreg_score, "auau_tight_logreg_score/F");
 
   LOG(1, CLR_GREEN, "[AuAuBDTTrainingTree] enabled"
                     << " maxEntries=" << m_auauBDTTrainingTreeMaxEntries);
@@ -2853,6 +3302,8 @@ void RecoilJets::fillAuAuBDTTrainingTree(const SSVars& v,
   m_bdtTrain_auau_npb_score = std::isfinite(v.auau_npb_score) ? static_cast<float>(v.auau_npb_score) : -2.0f;
   m_bdtTrain_auau_tight_bdt_score = std::isfinite(v.auau_tight_bdt_score) ? static_cast<float>(v.auau_tight_bdt_score) : -2.0f;
   m_bdtTrain_auau_tight_mlp_score = std::isfinite(v.auau_tight_mlp_score) ? static_cast<float>(v.auau_tight_mlp_score) : -2.0f;
+  m_bdtTrain_auau_tight_bdt_mlp_score = std::isfinite(v.auau_tight_bdt_mlp_score) ? static_cast<float>(v.auau_tight_bdt_mlp_score) : -2.0f;
+  m_bdtTrain_auau_tight_logreg_score = std::isfinite(v.auau_tight_logreg_score) ? static_cast<float>(v.auau_tight_logreg_score) : -2.0f;
 
   m_auauBDTTrainingTree->Fill();
   ++m_auauBDTTrainingTreeEntries;
@@ -3175,7 +3626,8 @@ double RecoilJets::predictJetMLDeltaPt(const std::string& rKey,
 
 bool RecoilJets::initAuAuTightBDTModelsIfNeeded() const
 {
-  if (!auauTightBDTMode(m_tightVariant) || m_tightVariant == "auauEmbeddedBDT") return true;
+  const std::string scoreMode = m_auauTightBDTScoringMode.empty() ? m_tightVariant : m_auauTightBDTScoringMode;
+  if (!auauTightBDTMode(scoreMode) || scoreMode == "auauEmbeddedBDT") return true;
   if (m_auauTightBDTModel ||
       !m_auauTightBDTCentDepModels.empty() ||
       !m_auauTightBDTPtBinModels.empty() ||
@@ -3204,18 +3656,18 @@ bool RecoilJets::initAuAuTightBDTModelsIfNeeded() const
       }
     };
 
-    const bool centDepMode = (m_tightVariant == "centDepBDTs" ||
-                              m_tightVariant == "auauCent3BDT" ||
-                              m_tightVariant == "auauCent7BDT");
-    const bool ptBinMode = (m_tightVariant == "auauPtBinCentInputBDT" ||
-                            m_tightVariant == "auauEtFineCentInputBDT");
-    const bool needsPtFallback = (m_tightVariant == "auauPtBinCentInputBDT");
-    const bool ptCentMode = (m_tightVariant == "auauPtCent3BDT" ||
-                             m_tightVariant == "auauPtCent7BDT" ||
-                             m_tightVariant == "auauEtFineCent3BDT" ||
-                             m_tightVariant == "auauEtFineCent7BDT");
-    const bool needsPtCentFallback = (m_tightVariant == "auauPtCent3BDT" ||
-                                      m_tightVariant == "auauPtCent7BDT");
+    const bool centDepMode = (scoreMode == "centDepBDTs" ||
+                              scoreMode == "auauCent3BDT" ||
+                              scoreMode == "auauCent7BDT");
+    const bool ptBinMode = (scoreMode == "auauPtBinCentInputBDT" ||
+                            scoreMode == "auauEtFineCentInputBDT");
+    const bool needsPtFallback = (scoreMode == "auauPtBinCentInputBDT");
+    const bool ptCentMode = (scoreMode == "auauPtCent3BDT" ||
+                             scoreMode == "auauPtCent7BDT" ||
+                             scoreMode == "auauEtFineCent3BDT" ||
+                             scoreMode == "auauEtFineCent7BDT");
+    const bool needsPtCentFallback = (scoreMode == "auauPtCent3BDT" ||
+                                      scoreMode == "auauPtCent7BDT");
 
     if (centDepMode)
     {
@@ -3288,11 +3740,11 @@ bool RecoilJets::initAuAuTightBDTModelsIfNeeded() const
     {
       if (m_auauTightBDTModelFile.empty())
       {
-        LOG(1, CLR_YELLOW, "[AuAuTightBDT] model file is empty for " << m_tightVariant);
+        LOG(1, CLR_YELLOW, "[AuAuTightBDT] model file is empty for " << scoreMode);
         return false;
       }
       m_auauTightBDTModel = std::make_unique<TMVA::Experimental::RBDT>("myBDT", m_auauTightBDTModelFile);
-      LOG(1, CLR_GREEN, "[AuAuTightBDT] loaded " << m_tightVariant << " model "
+      LOG(1, CLR_GREEN, "[AuAuTightBDT] loaded " << scoreMode << " model "
                          << m_auauTightBDTModelFile << " with "
                          << m_auauTightBDTFeatures.size() << " features");
     }
@@ -3398,17 +3850,18 @@ double RecoilJets::predictAuAuTightBDTScore(const PhotonClusterv1* pho, const SS
     return std::numeric_limits<double>::quiet_NaN();
   }
   if (!initAuAuTightBDTModelsIfNeeded()) return std::numeric_limits<double>::quiet_NaN();
+  const std::string scoreMode = m_auauTightBDTScoringMode.empty() ? m_tightVariant : m_auauTightBDTScoringMode;
 
   const TMVA::Experimental::RBDT* model = m_auauTightBDTModel.get();
-  const bool centDepMode = (m_tightVariant == "centDepBDTs" ||
-                            m_tightVariant == "auauCent3BDT" ||
-                            m_tightVariant == "auauCent7BDT");
-  const bool ptBinMode = (m_tightVariant == "auauPtBinCentInputBDT" ||
-                          m_tightVariant == "auauEtFineCentInputBDT");
-  const bool ptCentMode = (m_tightVariant == "auauPtCent3BDT" ||
-                           m_tightVariant == "auauPtCent7BDT" ||
-                           m_tightVariant == "auauEtFineCent3BDT" ||
-                           m_tightVariant == "auauEtFineCent7BDT");
+  const bool centDepMode = (scoreMode == "centDepBDTs" ||
+                            scoreMode == "auauCent3BDT" ||
+                            scoreMode == "auauCent7BDT");
+  const bool ptBinMode = (scoreMode == "auauPtBinCentInputBDT" ||
+                          scoreMode == "auauEtFineCentInputBDT");
+  const bool ptCentMode = (scoreMode == "auauPtCent3BDT" ||
+                           scoreMode == "auauPtCent7BDT" ||
+                           scoreMode == "auauEtFineCent3BDT" ||
+                           scoreMode == "auauEtFineCent7BDT");
 
   if (centDepMode)
   {
@@ -3477,14 +3930,15 @@ double RecoilJets::predictAuAuTightBDTScore(const PhotonClusterv1* pho, const SS
 
 bool RecoilJets::initAuAuTightMLPModelIfNeeded() const
 {
-  if (!auauTightMLPMode(m_tightVariant)) return true;
+  const std::string scoreMode = m_auauTightMLPScoringMode.empty() ? m_tightVariant : m_auauTightMLPScoringMode;
+  if (!auauTightMLPMode(scoreMode)) return true;
   if (m_auauTightMLPModel.valid) return true;
   if (m_auauTightMLPModelInitAttempted) return false;
   m_auauTightMLPModelInitAttempted = true;
 
   if (m_auauTightMLPModelFile.empty())
   {
-    LOG(1, CLR_YELLOW, "[AuAuTightMLP] model file is empty for " << m_tightVariant);
+    LOG(1, CLR_YELLOW, "[AuAuTightMLP] model file is empty for " << scoreMode);
     return false;
   }
   std::ifstream in(m_auauTightMLPModelFile);
@@ -3568,7 +4022,7 @@ bool RecoilJets::initAuAuTightMLPModelIfNeeded() const
   }
   model.valid = true;
   m_auauTightMLPModel = model;
-  LOG(1, CLR_GREEN, "[AuAuTightMLP] loaded " << m_tightVariant << " model "
+  LOG(1, CLR_GREEN, "[AuAuTightMLP] loaded " << scoreMode << " model "
                      << m_auauTightMLPModelFile << " with "
                      << m_auauTightMLPModel.features.size() << " features and "
                      << m_auauTightMLPModel.layers.size() << " layers");
@@ -3617,6 +4071,492 @@ double RecoilJets::predictAuAuTightMLPScore(const PhotonClusterv1* pho, const SS
   }
   const double e = std::exp(z);
   return e / (1.0 + e);
+}
+
+bool RecoilJets::initAuAuTightBDTMLPStackModelIfNeeded() const
+{
+  if (!auauTightBDTMLPStackMode(m_tightVariant)) return true;
+  if (m_auauTightBDTMLPStackModel.valid) return true;
+  if (m_auauTightBDTMLPStackModelInitAttempted) return false;
+  m_auauTightBDTMLPStackModelInitAttempted = true;
+
+  if (m_auauTightBDTMLPStackModelFile.empty())
+  {
+    LOG(1, CLR_YELLOW, "[AuAuBDTMLPStack] model file is empty for " << m_tightVariant);
+    return false;
+  }
+  std::ifstream in(m_auauTightBDTMLPStackModelFile);
+  if (!in.is_open())
+  {
+    LOG(1, CLR_YELLOW, "[AuAuBDTMLPStack] could not open model file " << m_auauTightBDTMLPStackModelFile);
+    return false;
+  }
+  std::ostringstream ss;
+  ss << in.rdbuf();
+  const std::string text = ss.str();
+
+  auto trimJsonScalar = [](std::string value)
+  {
+    value = std::regex_replace(value, std::regex("^\\s+|\\s+$"), "");
+    return value;
+  };
+  auto parseIntArray = [](const std::string& raw)
+  {
+    std::vector<int> out;
+    for (double x : jsonParseNumberArray(raw))
+    {
+      out.push_back(static_cast<int>(std::llround(x)));
+    }
+    return out;
+  };
+  auto parseSubModel = [&](const std::string& raw) -> AuAuStackSubModel
+  {
+    AuAuStackSubModel model;
+    std::string value;
+    if (jsonExtractKey(raw, "kind", value)) model.kind = jsonParseStringValue(value);
+    if (jsonExtractKey(raw, "feature_names", value)) model.featureNames = jsonParseStringArray(value);
+    if (jsonExtractKey(raw, "impute", value)) model.impute = jsonParseNumberArray(value);
+
+    if (model.kind == "logistic")
+    {
+      if (jsonExtractKey(raw, "mean", value)) model.mean = jsonParseNumberArray(value);
+      if (jsonExtractKey(raw, "scale", value)) model.scale = jsonParseNumberArray(value);
+      if (jsonExtractKey(raw, "coef", value)) model.coef = jsonParseNumberArray(value);
+      if (jsonExtractKey(raw, "intercept", value)) jsonParseNumberValue(value, model.intercept);
+      model.valid = !model.featureNames.empty() &&
+                    model.impute.size() == model.featureNames.size() &&
+                    model.mean.size() == model.featureNames.size() &&
+                    model.scale.size() == model.featureNames.size() &&
+                    model.coef.size() == model.featureNames.size();
+      return model;
+    }
+
+    if (model.kind == "gradient_boosting_classifier")
+    {
+      if (jsonExtractKey(raw, "initial_raw_score", value)) jsonParseNumberValue(value, model.initialRawScore);
+      if (jsonExtractKey(raw, "learning_rate", value)) jsonParseNumberValue(value, model.learningRate);
+      std::string treesText;
+      if (jsonExtractKey(raw, "trees", treesText))
+      {
+        for (const auto& treeText : jsonParseObjectArray(treesText))
+        {
+          AuAuStackTree tree;
+          if (jsonExtractKey(treeText, "children_left", value)) tree.childrenLeft = parseIntArray(value);
+          if (jsonExtractKey(treeText, "children_right", value)) tree.childrenRight = parseIntArray(value);
+          if (jsonExtractKey(treeText, "feature", value)) tree.feature = parseIntArray(value);
+          if (jsonExtractKey(treeText, "threshold", value)) tree.threshold = jsonParseNumberArray(value);
+          if (jsonExtractKey(treeText, "value", value)) tree.value = jsonParseNumberArray(value);
+          const std::size_t n = tree.value.size();
+          if (n > 0 &&
+              tree.childrenLeft.size() == n &&
+              tree.childrenRight.size() == n &&
+              tree.feature.size() == n &&
+              tree.threshold.size() == n)
+          {
+            model.trees.push_back(tree);
+          }
+        }
+      }
+      model.valid = !model.featureNames.empty() &&
+                    model.impute.size() == model.featureNames.size() &&
+                    !model.trees.empty() &&
+                    std::isfinite(model.initialRawScore) &&
+                    std::isfinite(model.learningRate);
+      return model;
+    }
+
+    LOG(1, CLR_YELLOW, "[AuAuBDTMLPStack] unsupported submodel kind '" << model.kind << "'");
+    return model;
+  };
+
+  AuAuTightBDTMLPStackModel model;
+  std::string value;
+  if (jsonExtractKey(text, "schema", value)) model.schema = jsonParseStringValue(value);
+  if (model.schema != "RJ_AUAU_STACKED_BDT_MLP_ARTIFACT_V1")
+  {
+    LOG(1, CLR_YELLOW, "[AuAuBDTMLPStack] unsupported model schema '" << model.schema
+                       << "' in " << m_auauTightBDTMLPStackModelFile);
+    return false;
+  }
+  if (jsonExtractKey(text, "name", value)) model.name = jsonParseStringValue(value);
+
+  std::string modelText;
+  if (jsonExtractKey(text, "model", modelText))
+  {
+    model.globalModel = parseSubModel(modelText);
+  }
+
+  std::string routesText;
+  if (jsonExtractKey(text, "routes", routesText))
+  {
+    for (const auto& routeText : jsonParseObjectArray(routesText))
+    {
+      AuAuStackRoute route;
+      if (jsonExtractKey(routeText, "label", value)) route.label = jsonParseStringValue(value);
+      if (jsonExtractKey(routeText, "pt_lo", value)) jsonParseNumberValue(value, route.ptLo);
+      if (jsonExtractKey(routeText, "pt_hi", value)) jsonParseNumberValue(value, route.ptHi);
+      if (jsonExtractKey(routeText, "cent_lo", value))
+      {
+        const std::string scalar = trimJsonScalar(value);
+        route.hasCent = (scalar != "null" && jsonParseNumberValue(value, route.centLo));
+      }
+      if (jsonExtractKey(routeText, "cent_hi", value))
+      {
+        const std::string scalar = trimJsonScalar(value);
+        double parsed = std::numeric_limits<double>::quiet_NaN();
+        if (scalar != "null" && jsonParseNumberValue(value, parsed))
+        {
+          route.centHi = parsed;
+          route.hasCent = route.hasCent && std::isfinite(route.centLo);
+        }
+      }
+      if (jsonExtractKey(routeText, "model", modelText)) route.model = parseSubModel(modelText);
+      if (std::isfinite(route.ptLo) && std::isfinite(route.ptHi) && route.model.valid)
+      {
+        model.routes.push_back(route);
+      }
+    }
+  }
+
+  model.valid = model.globalModel.valid || !model.routes.empty();
+  if (!model.valid)
+  {
+    LOG(1, CLR_YELLOW, "[AuAuBDTMLPStack] no valid global model or routed model found in "
+                       << m_auauTightBDTMLPStackModelFile);
+    return false;
+  }
+  m_auauTightBDTMLPStackModel = model;
+  LOG(1, CLR_GREEN, "[AuAuBDTMLPStack] loaded " << (model.name.empty() ? m_tightVariant : model.name)
+                     << " from " << m_auauTightBDTMLPStackModelFile
+                     << " routes=" << model.routes.size()
+                     << " global=" << (model.globalModel.valid ? "yes" : "no"));
+  return true;
+}
+
+double RecoilJets::predictAuAuTightBDTMLPStackScore(const PhotonClusterv1* pho, const SSVars& v) const
+{
+  if ((std::isfinite(m_auauTightBDTMLPStackApplyPtMin) && (!std::isfinite(v.pt_gamma) || v.pt_gamma < m_auauTightBDTMLPStackApplyPtMin)) ||
+      (std::isfinite(m_auauTightBDTMLPStackApplyPtMax) && (!std::isfinite(v.pt_gamma) || v.pt_gamma >= m_auauTightBDTMLPStackApplyPtMax)))
+  {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+  if (!initAuAuTightBDTMLPStackModelIfNeeded()) return std::numeric_limits<double>::quiet_NaN();
+
+  const AuAuStackSubModel* sub = nullptr;
+  const auto& model = m_auauTightBDTMLPStackModel;
+  if (!model.routes.empty())
+  {
+    for (const auto& route : model.routes)
+    {
+      if (!std::isfinite(v.pt_gamma) || v.pt_gamma < route.ptLo || v.pt_gamma >= route.ptHi) continue;
+      if (route.hasCent)
+      {
+        if (!std::isfinite(m_centPercent) || m_centPercent < route.centLo || m_centPercent >= route.centHi) continue;
+      }
+      sub = &route.model;
+      break;
+    }
+  }
+  else if (model.globalModel.valid)
+  {
+    sub = &model.globalModel;
+  }
+  if (!sub || !sub->valid) return std::numeric_limits<double>::quiet_NaN();
+
+  auto sigmoid = [](double z)
+  {
+    if (z >= 0.0)
+    {
+      const double e = std::exp(-z);
+      return 1.0 / (1.0 + e);
+    }
+    const double e = std::exp(z);
+    return e / (1.0 + e);
+  };
+  auto logit = [&](double p)
+  {
+    if (!std::isfinite(p)) return std::numeric_limits<double>::quiet_NaN();
+    const double q = std::max(1.0e-6, std::min(1.0 - 1.0e-6, p));
+    return std::log(q / (1.0 - q));
+  };
+  auto rawFeature = [&](const std::string& feature)
+  {
+    if (feature == "bdt_score") return v.auau_tight_bdt_score;
+    if (feature == "mlp_score") return v.auau_tight_mlp_score;
+    if (feature == "mlp_logit") return logit(v.auau_tight_mlp_score);
+    if (feature == "bdt_is_finite") return std::isfinite(v.auau_tight_bdt_score) ? 1.0 : 0.0;
+    if (feature == "mlp_is_finite") return std::isfinite(v.auau_tight_mlp_score) ? 1.0 : 0.0;
+    if (feature == "log_cluster_Et")
+    {
+      return std::isfinite(v.pt_gamma) ? std::log(std::max(1.0e-3, v.pt_gamma)) : std::numeric_limits<double>::quiet_NaN();
+    }
+    if (feature == "centrality_scaled")
+    {
+      return std::isfinite(m_centPercent) ? std::max(0.0, std::min(100.0, m_centPercent)) / 100.0 : std::numeric_limits<double>::quiet_NaN();
+    }
+    if (feature == "bdt_x_mlp_logit") return v.auau_tight_bdt_score * logit(v.auau_tight_mlp_score);
+    if (feature == "bdt_x_logEt")
+    {
+      const double le = std::isfinite(v.pt_gamma) ? std::log(std::max(1.0e-3, v.pt_gamma)) : std::numeric_limits<double>::quiet_NaN();
+      return v.auau_tight_bdt_score * le;
+    }
+    if (feature == "mlp_logit_x_logEt")
+    {
+      const double le = std::isfinite(v.pt_gamma) ? std::log(std::max(1.0e-3, v.pt_gamma)) : std::numeric_limits<double>::quiet_NaN();
+      return logit(v.auau_tight_mlp_score) * le;
+    }
+    if (feature == "bdt_x_cent")
+    {
+      const double cs = std::isfinite(m_centPercent) ? std::max(0.0, std::min(100.0, m_centPercent)) / 100.0 : std::numeric_limits<double>::quiet_NaN();
+      return v.auau_tight_bdt_score * cs;
+    }
+    if (feature == "mlp_logit_x_cent")
+    {
+      const double cs = std::isfinite(m_centPercent) ? std::max(0.0, std::min(100.0, m_centPercent)) / 100.0 : std::numeric_limits<double>::quiet_NaN();
+      return logit(v.auau_tight_mlp_score) * cs;
+    }
+    if (feature == "logEt_x_cent")
+    {
+      const double le = std::isfinite(v.pt_gamma) ? std::log(std::max(1.0e-3, v.pt_gamma)) : std::numeric_limits<double>::quiet_NaN();
+      const double cs = std::isfinite(m_centPercent) ? std::max(0.0, std::min(100.0, m_centPercent)) / 100.0 : std::numeric_limits<double>::quiet_NaN();
+      return le * cs;
+    }
+    return auauTightBDTFeatureValue(feature, pho, v);
+  };
+
+  std::vector<double> x;
+  x.reserve(sub->featureNames.size());
+  for (std::size_t i = 0; i < sub->featureNames.size(); ++i)
+  {
+    double value = rawFeature(sub->featureNames[i]);
+    if (!std::isfinite(value))
+    {
+      value = (i < sub->impute.size() && std::isfinite(sub->impute[i])) ? sub->impute[i] : 0.0;
+    }
+    x.push_back(value);
+  }
+
+  if (sub->kind == "logistic")
+  {
+    if (sub->coef.size() != x.size()) return std::numeric_limits<double>::quiet_NaN();
+    double z = sub->intercept;
+    for (std::size_t i = 0; i < x.size(); ++i)
+    {
+      const double scale = (i < sub->scale.size() && std::fabs(sub->scale[i]) > 1.0e-12) ? sub->scale[i] : 1.0;
+      const double mean = (i < sub->mean.size() && std::isfinite(sub->mean[i])) ? sub->mean[i] : 0.0;
+      z += sub->coef[i] * ((x[i] - mean) / scale);
+    }
+    return std::isfinite(z) ? sigmoid(z) : std::numeric_limits<double>::quiet_NaN();
+  }
+
+  if (sub->kind == "gradient_boosting_classifier")
+  {
+    double raw = sub->initialRawScore;
+    for (const auto& tree : sub->trees)
+    {
+      int node = 0;
+      int guard = 0;
+      while (node >= 0 && static_cast<std::size_t>(node) < tree.value.size() && guard++ < 100000)
+      {
+        const int left = tree.childrenLeft[node];
+        const int right = tree.childrenRight[node];
+        if (left < 0 && right < 0) break;
+        const int fidx = tree.feature[node];
+        const double xv = (fidx >= 0 && static_cast<std::size_t>(fidx) < x.size()) ? x[fidx] : 0.0;
+        node = (xv <= tree.threshold[node]) ? left : right;
+      }
+      if (node >= 0 && static_cast<std::size_t>(node) < tree.value.size())
+      {
+        raw += sub->learningRate * tree.value[node];
+      }
+    }
+    return std::isfinite(raw) ? sigmoid(raw) : std::numeric_limits<double>::quiet_NaN();
+  }
+
+  return std::numeric_limits<double>::quiet_NaN();
+}
+
+bool RecoilJets::initAuAuTightLogRegModelIfNeeded() const
+{
+  if (!auauTightLogRegMode(m_tightVariant)) return true;
+  if (m_auauTightLogRegModel.valid) return true;
+  if (m_auauTightLogRegModelInitAttempted) return false;
+  m_auauTightLogRegModelInitAttempted = true;
+
+  if (m_auauTightLogRegModelFile.empty())
+  {
+    LOG(1, CLR_YELLOW, "[AuAuLogReg] model file is empty for " << m_tightVariant);
+    return false;
+  }
+  std::ifstream in(m_auauTightLogRegModelFile);
+  if (!in.is_open())
+  {
+    LOG(1, CLR_YELLOW, "[AuAuLogReg] could not open model file " << m_auauTightLogRegModelFile);
+    return false;
+  }
+  std::ostringstream ss;
+  ss << in.rdbuf();
+  const std::string text = ss.str();
+
+  auto trimJsonScalar = [](std::string value)
+  {
+    value = std::regex_replace(value, std::regex("^\\s+|\\s+$"), "");
+    return value;
+  };
+  auto parseSubModel = [&](const std::string& raw) -> AuAuStackSubModel
+  {
+    AuAuStackSubModel model;
+    std::string value;
+    if (jsonExtractKey(raw, "kind", value)) model.kind = jsonParseStringValue(value);
+    if (jsonExtractKey(raw, "feature_names", value)) model.featureNames = jsonParseStringArray(value);
+    if (jsonExtractKey(raw, "impute", value)) model.impute = jsonParseNumberArray(value);
+    if (jsonExtractKey(raw, "mean", value)) model.mean = jsonParseNumberArray(value);
+    if (jsonExtractKey(raw, "scale", value)) model.scale = jsonParseNumberArray(value);
+    if (jsonExtractKey(raw, "coef", value)) model.coef = jsonParseNumberArray(value);
+    if (jsonExtractKey(raw, "intercept", value)) jsonParseNumberValue(value, model.intercept);
+    model.valid = model.kind == "logistic" &&
+                  !model.featureNames.empty() &&
+                  model.impute.size() == model.featureNames.size() &&
+                  model.mean.size() == model.featureNames.size() &&
+                  model.scale.size() == model.featureNames.size() &&
+                  model.coef.size() == model.featureNames.size();
+    if (!model.valid)
+    {
+      LOG(1, CLR_YELLOW, "[AuAuLogReg] invalid logistic submodel in " << m_auauTightLogRegModelFile);
+    }
+    return model;
+  };
+
+  AuAuTightBDTMLPStackModel model;
+  std::string value;
+  if (jsonExtractKey(text, "schema", value)) model.schema = jsonParseStringValue(value);
+  if (model.schema != "RJ_AUAU_TIGHT_LOGREG_V1")
+  {
+    LOG(1, CLR_YELLOW, "[AuAuLogReg] unsupported model schema '" << model.schema
+                       << "' in " << m_auauTightLogRegModelFile);
+    return false;
+  }
+  if (jsonExtractKey(text, "name", value)) model.name = jsonParseStringValue(value);
+
+  std::string modelText;
+  if (jsonExtractKey(text, "model", modelText))
+  {
+    model.globalModel = parseSubModel(modelText);
+  }
+
+  std::string routesText;
+  if (jsonExtractKey(text, "routes", routesText))
+  {
+    for (const auto& routeText : jsonParseObjectArray(routesText))
+    {
+      AuAuStackRoute route;
+      if (jsonExtractKey(routeText, "label", value)) route.label = jsonParseStringValue(value);
+      if (jsonExtractKey(routeText, "pt_lo", value)) jsonParseNumberValue(value, route.ptLo);
+      if (jsonExtractKey(routeText, "pt_hi", value)) jsonParseNumberValue(value, route.ptHi);
+      if (jsonExtractKey(routeText, "cent_lo", value))
+      {
+        const std::string scalar = trimJsonScalar(value);
+        route.hasCent = (scalar != "null" && jsonParseNumberValue(value, route.centLo));
+      }
+      if (jsonExtractKey(routeText, "cent_hi", value))
+      {
+        const std::string scalar = trimJsonScalar(value);
+        double parsed = std::numeric_limits<double>::quiet_NaN();
+        if (scalar != "null" && jsonParseNumberValue(value, parsed))
+        {
+          route.centHi = parsed;
+          route.hasCent = route.hasCent && std::isfinite(route.centLo);
+        }
+      }
+      if (jsonExtractKey(routeText, "model", modelText)) route.model = parseSubModel(modelText);
+      if (std::isfinite(route.ptLo) && std::isfinite(route.ptHi) && route.model.valid)
+      {
+        model.routes.push_back(route);
+      }
+    }
+  }
+
+  model.valid = model.globalModel.valid || !model.routes.empty();
+  if (!model.valid)
+  {
+    LOG(1, CLR_YELLOW, "[AuAuLogReg] no valid global model or routed model found in "
+                       << m_auauTightLogRegModelFile);
+    return false;
+  }
+  m_auauTightLogRegModel = model;
+  LOG(1, CLR_GREEN, "[AuAuLogReg] loaded " << (model.name.empty() ? m_tightVariant : model.name)
+                     << " from " << m_auauTightLogRegModelFile
+                     << " routes=" << model.routes.size()
+                     << " global=" << (model.globalModel.valid ? "yes" : "no"));
+  return true;
+}
+
+double RecoilJets::predictAuAuTightLogRegScore(const PhotonClusterv1* pho, const SSVars& v) const
+{
+  if ((std::isfinite(m_auauTightLogRegApplyPtMin) && (!std::isfinite(v.pt_gamma) || v.pt_gamma < m_auauTightLogRegApplyPtMin)) ||
+      (std::isfinite(m_auauTightLogRegApplyPtMax) && (!std::isfinite(v.pt_gamma) || v.pt_gamma >= m_auauTightLogRegApplyPtMax)))
+  {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+  if (!initAuAuTightLogRegModelIfNeeded()) return std::numeric_limits<double>::quiet_NaN();
+
+  const AuAuStackSubModel* sub = nullptr;
+  const auto& model = m_auauTightLogRegModel;
+  if (!model.routes.empty())
+  {
+    for (const auto& route : model.routes)
+    {
+      if (!std::isfinite(v.pt_gamma) || v.pt_gamma < route.ptLo || v.pt_gamma >= route.ptHi) continue;
+      if (route.hasCent)
+      {
+        if (!std::isfinite(m_centPercent) || m_centPercent < route.centLo || m_centPercent >= route.centHi) continue;
+      }
+      sub = &route.model;
+      break;
+    }
+  }
+  else if (model.globalModel.valid)
+  {
+    sub = &model.globalModel;
+  }
+  if (!sub || !sub->valid || sub->coef.size() != sub->featureNames.size()) return std::numeric_limits<double>::quiet_NaN();
+
+  auto sigmoid = [](double z)
+  {
+    if (z >= 0.0)
+    {
+      const double e = std::exp(-z);
+      return 1.0 / (1.0 + e);
+    }
+    const double e = std::exp(z);
+    return e / (1.0 + e);
+  };
+  auto rawFeature = [&](const std::string& feature)
+  {
+    if (feature == "log_cluster_Et")
+    {
+      return std::isfinite(v.pt_gamma) ? std::log(std::max(1.0e-3, v.pt_gamma)) : std::numeric_limits<double>::quiet_NaN();
+    }
+    if (feature == "centrality_scaled")
+    {
+      return std::isfinite(m_centPercent) ? std::max(0.0, std::min(100.0, m_centPercent)) / 100.0 : std::numeric_limits<double>::quiet_NaN();
+    }
+    return auauTightBDTFeatureValue(feature, pho, v);
+  };
+
+  double z = sub->intercept;
+  for (std::size_t i = 0; i < sub->featureNames.size(); ++i)
+  {
+    double value = rawFeature(sub->featureNames[i]);
+    if (!std::isfinite(value))
+    {
+      value = (i < sub->impute.size() && std::isfinite(sub->impute[i])) ? sub->impute[i] : 0.0;
+    }
+    const double mean = (i < sub->mean.size() && std::isfinite(sub->mean[i])) ? sub->mean[i] : 0.0;
+    const double scale = (i < sub->scale.size() && std::fabs(sub->scale[i]) > 1.0e-12) ? sub->scale[i] : 1.0;
+    z += sub->coef[i] * ((value - mean) / scale);
+  }
+  return std::isfinite(z) ? sigmoid(z) : std::numeric_limits<double>::quiet_NaN();
 }
 
 
@@ -10085,6 +11025,126 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                                 (tightTag == TightTag::kNonTight ? CLR_GREEN : CLR_YELLOW)), msg.str());
                     }
                 }
+                else if (auauTightBDTMLPStackMode(m_tightVariant))
+                {
+                    const double score = v.auau_tight_bdt_mlp_score;
+                    const double maxScore = configuredAuAuTightBDTMLPStackMax(v.pt_gamma);
+                    const double minScore = configuredAuAuTightBDTMLPStackMin(v.pt_gamma);
+                    const double nonTightMin = m_auauNonTightBDTMLPStackMinIntercept + m_auauNonTightBDTMLPStackMinSlope * v.pt_gamma;
+                    const double nonTightMax = m_auauNonTightBDTMLPStackMaxIntercept + m_auauNonTightBDTMLPStackMaxSlope * v.pt_gamma;
+                    const bool pass_tight_stack = std::isfinite(score) &&
+                                                  std::isfinite(minScore) &&
+                                                  std::isfinite(maxScore) &&
+                                                  score > minScore &&
+                                                  score < maxScore;
+                    const bool pass_non_tight_stack = std::isfinite(score) &&
+                                                      std::isfinite(nonTightMin) &&
+                                                      std::isfinite(nonTightMax) &&
+                                                      score > nonTightMin &&
+                                                      score < nonTightMax;
+
+                    if (pass_tight_stack) tightTag = TightTag::kTight;
+                    else if (!std::isfinite(score)) tightTag = TightTag::kNeither;
+                    else if (m_nonTightVariant == "auauBDTMLPStackSideband") tightTag = (pass_non_tight_stack ? TightTag::kNonTight : TightTag::kNeither);
+                    else tightTag = TightTag::kNonTight;
+                    if (doCanonical)
+                    {
+                        if (tightTag == TightTag::kTight) ++m_bk.tight_tight;
+                        else if (tightTag == TightTag::kNonTight) ++m_bk.tight_nonTight;
+                        else ++m_bk.tight_neither;
+                    }
+
+                    if (doCanonical)
+                    {
+                        for (const auto& trigShort : activeTrig)
+                        {
+                            if (!pass_tight_stack)
+                            {
+                                if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_bdt_mlp_stack", ptIdx, effCentIdx_SS, HistViewScope::Canonical))
+                                {
+                                    h->Fill(1);
+                                    bumpHistFill(trigShort, std::string("h_tightFail_bdt_mlp_stack") + slice_SS);
+                                }
+                            }
+                        }
+                    }
+
+                    if (Verbosity() >= 4)
+                    {
+                        std::ostringstream msg;
+                        msg << "      [pho#" << iPho << "] tight classification"
+                            << " | variant=" << m_tightVariant << "(AuAu BDT+MLP stack)"
+                            << " | stack_score=" << std::fixed << std::setprecision(4) << score
+                            << " | bdt_score=" << v.auau_tight_bdt_score
+                            << " | mlp_score=" << v.auau_tight_mlp_score
+                            << " | tight=(" << minScore << "," << maxScore << ") pass=" << pass_tight_stack
+                            << " | nonTight=" << (m_nonTightVariant == "auauBDTMLPStackSideband" ? "sideband" : "complement")
+                            << " | nonTightSideband=(" << nonTightMin << "," << nonTightMax << ") pass=" << pass_non_tight_stack
+                            << " | nonTightVariant=" << m_nonTightVariant
+                            << " | tag=" << tightTagName(tightTag);
+                        LOG(4, (tightTag == TightTag::kTight ? CLR_RED :
+                                (tightTag == TightTag::kNonTight ? CLR_GREEN : CLR_YELLOW)), msg.str());
+                    }
+                }
+                else if (auauTightLogRegMode(m_tightVariant))
+                {
+                    const double score = v.auau_tight_logreg_score;
+                    const double maxScore = configuredAuAuTightLogRegMax(v.pt_gamma);
+                    const double minScore = configuredAuAuTightLogRegMin(v.pt_gamma);
+                    const double nonTightMin = m_auauNonTightLogRegMinIntercept + m_auauNonTightLogRegMinSlope * v.pt_gamma;
+                    const double nonTightMax = m_auauNonTightLogRegMaxIntercept + m_auauNonTightLogRegMaxSlope * v.pt_gamma;
+                    const bool pass_tight_logreg = std::isfinite(score) &&
+                                                   std::isfinite(minScore) &&
+                                                   std::isfinite(maxScore) &&
+                                                   score > minScore &&
+                                                   score < maxScore;
+                    const bool pass_non_tight_logreg = std::isfinite(score) &&
+                                                       std::isfinite(nonTightMin) &&
+                                                       std::isfinite(nonTightMax) &&
+                                                       score > nonTightMin &&
+                                                       score < nonTightMax;
+
+                    if (pass_tight_logreg) tightTag = TightTag::kTight;
+                    else if (!std::isfinite(score)) tightTag = TightTag::kNeither;
+                    else if (m_nonTightVariant == "auauLogRegSideband") tightTag = (pass_non_tight_logreg ? TightTag::kNonTight : TightTag::kNeither);
+                    else tightTag = TightTag::kNonTight;
+                    if (doCanonical)
+                    {
+                        if (tightTag == TightTag::kTight) ++m_bk.tight_tight;
+                        else if (tightTag == TightTag::kNonTight) ++m_bk.tight_nonTight;
+                        else ++m_bk.tight_neither;
+                    }
+
+                    if (doCanonical)
+                    {
+                        for (const auto& trigShort : activeTrig)
+                        {
+                            if (!pass_tight_logreg)
+                            {
+                                if (auto* h = getOrBookCountHist(trigShort, "h_tightFail_logreg", ptIdx, effCentIdx_SS, HistViewScope::Canonical))
+                                {
+                                    h->Fill(1);
+                                    bumpHistFill(trigShort, std::string("h_tightFail_logreg") + slice_SS);
+                                }
+                            }
+                        }
+                    }
+
+                    if (Verbosity() >= 4)
+                    {
+                        std::ostringstream msg;
+                        msg << "      [pho#" << iPho << "] tight classification"
+                            << " | variant=" << m_tightVariant << "(AuAu logistic regression)"
+                            << " | logreg_score=" << std::fixed << std::setprecision(4) << score
+                            << " | tight=(" << minScore << "," << maxScore << ") pass=" << pass_tight_logreg
+                            << " | nonTight=" << (m_nonTightVariant == "auauLogRegSideband" ? "sideband" : "complement")
+                            << " | nonTightSideband=(" << nonTightMin << "," << nonTightMax << ") pass=" << pass_non_tight_logreg
+                            << " | nonTightVariant=" << m_nonTightVariant
+                            << " | tag=" << tightTagName(tightTag);
+                        LOG(4, (tightTag == TightTag::kTight ? CLR_RED :
+                                (tightTag == TightTag::kNonTight ? CLR_GREEN : CLR_YELLOW)), msg.str());
+                    }
+                }
                 else if (auauTightBDTMode(m_tightVariant))
                 {
                     const double score = v.auau_tight_bdt_score;
@@ -11150,6 +12210,8 @@ void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars&
   v.auau_npb_score = std::numeric_limits<double>::quiet_NaN();
   v.auau_tight_bdt_score = std::numeric_limits<double>::quiet_NaN();
   v.auau_tight_mlp_score = std::numeric_limits<double>::quiet_NaN();
+  v.auau_tight_bdt_mlp_score = std::numeric_limits<double>::quiet_NaN();
+  v.auau_tight_logreg_score = std::numeric_limits<double>::quiet_NaN();
 
   if (!pho) return;
 
@@ -11185,13 +12247,21 @@ void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars&
   {
     v.auau_npb_score = pho->get_shower_shape_parameter("auau_npb_score");
   }
-  if (auauTightBDTMode(m_tightVariant) && m_tightVariant != "auauEmbeddedBDT")
+  if ((auauTightBDTMode(m_tightVariant) || auauTightBDTMLPStackMode(m_tightVariant)) && m_tightVariant != "auauEmbeddedBDT")
   {
     v.auau_tight_bdt_score = predictAuAuTightBDTScore(pho, v);
   }
-  if (auauTightMLPMode(m_tightVariant))
+  if (auauTightMLPMode(m_tightVariant) || auauTightBDTMLPStackMode(m_tightVariant))
   {
     v.auau_tight_mlp_score = predictAuAuTightMLPScore(pho, v);
+  }
+  if (auauTightBDTMLPStackMode(m_tightVariant))
+  {
+    v.auau_tight_bdt_mlp_score = predictAuAuTightBDTMLPStackScore(pho, v);
+  }
+  if (auauTightLogRegMode(m_tightVariant))
+  {
+    v.auau_tight_logreg_score = predictAuAuTightLogRegScore(pho, v);
   }
   else if (m_tightVariant == "auauEmbeddedBDT")
   {
@@ -11487,6 +12557,84 @@ RecoilJets::TightTag RecoilJets::classifyPhotonTightness(const SSVars& v)
     }
 
     return tag;
+  }
+
+  if (auauTightBDTMLPStackMode(m_tightVariant))
+  {
+    const double score = v.auau_tight_bdt_mlp_score;
+    const double maxScore = configuredAuAuTightBDTMLPStackMax(v.pt_gamma);
+    const double minScore = configuredAuAuTightBDTMLPStackMin(v.pt_gamma);
+    const double nonTightMin = m_auauNonTightBDTMLPStackMinIntercept + m_auauNonTightBDTMLPStackMinSlope * v.pt_gamma;
+    const double nonTightMax = m_auauNonTightBDTMLPStackMaxIntercept + m_auauNonTightBDTMLPStackMaxSlope * v.pt_gamma;
+    const bool pass = std::isfinite(score) &&
+                      std::isfinite(minScore) &&
+                      std::isfinite(maxScore) &&
+                      score > minScore &&
+                      score < maxScore;
+    const bool passNonTightSideband = std::isfinite(score) &&
+                                      std::isfinite(nonTightMin) &&
+                                      std::isfinite(nonTightMax) &&
+                                      score > nonTightMin &&
+                                      score < nonTightMax;
+    if (Verbosity() >= 5)
+    {
+      LOG(5, CLR_BLUE,
+          "  [classifyPhotonTightness] AuAu BDT+MLP stack"
+          << " mode=" << m_tightVariant
+          << " | stack_score=" << score
+          << " | bdt_score=" << v.auau_tight_bdt_score
+          << " | mlp_score=" << v.auau_tight_mlp_score
+          << " | tight=(" << minScore << "," << maxScore << ") -> " << pass
+          << " | nonTight=" << (m_nonTightVariant == "auauBDTMLPStackSideband" ? "sideband" : "complement")
+          << " | nonTightSideband=(" << nonTightMin << "," << nonTightMax << ") -> " << passNonTightSideband
+          << " | nonTightVariant=" << m_nonTightVariant);
+    }
+
+    if (pass) return TightTag::kTight;
+    if (!std::isfinite(score)) return TightTag::kNeither;
+    if (m_nonTightVariant == "auauBDTMLPStackSideband")
+    {
+      return passNonTightSideband ? TightTag::kNonTight : TightTag::kNeither;
+    }
+    return TightTag::kNonTight;
+  }
+
+  if (auauTightLogRegMode(m_tightVariant))
+  {
+    const double score = v.auau_tight_logreg_score;
+    const double maxScore = configuredAuAuTightLogRegMax(v.pt_gamma);
+    const double minScore = configuredAuAuTightLogRegMin(v.pt_gamma);
+    const double nonTightMin = m_auauNonTightLogRegMinIntercept + m_auauNonTightLogRegMinSlope * v.pt_gamma;
+    const double nonTightMax = m_auauNonTightLogRegMaxIntercept + m_auauNonTightLogRegMaxSlope * v.pt_gamma;
+    const bool pass = std::isfinite(score) &&
+                      std::isfinite(minScore) &&
+                      std::isfinite(maxScore) &&
+                      score > minScore &&
+                      score < maxScore;
+    const bool passNonTightSideband = std::isfinite(score) &&
+                                      std::isfinite(nonTightMin) &&
+                                      std::isfinite(nonTightMax) &&
+                                      score > nonTightMin &&
+                                      score < nonTightMax;
+    if (Verbosity() >= 5)
+    {
+      LOG(5, CLR_BLUE,
+          "  [classifyPhotonTightness] AuAu tight logistic regression"
+          << " mode=" << m_tightVariant
+          << " | logreg_score=" << score
+          << " | tight=(" << minScore << "," << maxScore << ") -> " << pass
+          << " | nonTight=" << (m_nonTightVariant == "auauLogRegSideband" ? "sideband" : "complement")
+          << " | nonTightSideband=(" << nonTightMin << "," << nonTightMax << ") -> " << passNonTightSideband
+          << " | nonTightVariant=" << m_nonTightVariant);
+    }
+
+    if (pass) return TightTag::kTight;
+    if (!std::isfinite(score)) return TightTag::kNeither;
+    if (m_nonTightVariant == "auauLogRegSideband")
+    {
+      return passNonTightSideband ? TightTag::kNonTight : TightTag::kNeither;
+    }
+    return TightTag::kNonTight;
   }
 
   if (auauTightBDTMode(m_tightVariant))
