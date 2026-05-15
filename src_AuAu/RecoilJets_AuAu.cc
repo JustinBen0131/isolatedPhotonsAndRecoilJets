@@ -4102,12 +4102,29 @@ bool RecoilJets::initAuAuTightBDTMLPStackModelIfNeeded() const
   };
   auto parseIntArray = [](const std::string& raw)
   {
-    std::vector<int> out;
+    std::vector<int> values;
     for (double x : jsonParseNumberArray(raw))
     {
-      out.push_back(static_cast<int>(std::llround(x)));
+      values.push_back(static_cast<int>(std::llround(x)));
     }
-    return out;
+    return values;
+  };
+  auto transposeInputByOutputWeights = [](const std::vector<std::vector<double>>& weightsInByOut)
+  {
+    std::vector<std::vector<double>> weightsOutByIn;
+    if (weightsInByOut.empty() || weightsInByOut.front().empty()) return weightsOutByIn;
+    const std::size_t nIn = weightsInByOut.size();
+    const std::size_t nOut = weightsInByOut.front().size();
+    weightsOutByIn.assign(nOut, std::vector<double>(nIn, 0.0));
+    for (std::size_t i = 0; i < nIn; ++i)
+    {
+      if (weightsInByOut[i].size() != nOut) return std::vector<std::vector<double>>{};
+      for (std::size_t j = 0; j < nOut; ++j)
+      {
+        weightsOutByIn[j][i] = weightsInByOut[i][j];
+      }
+    }
+    return weightsOutByIn;
   };
   auto parseSubModel = [&](const std::string& raw) -> AuAuStackSubModel
   {
@@ -4162,6 +4179,50 @@ bool RecoilJets::initAuAuTightBDTMLPStackModelIfNeeded() const
                     !model.trees.empty() &&
                     std::isfinite(model.initialRawScore) &&
                     std::isfinite(model.learningRate);
+      return model;
+    }
+
+    if (model.kind == "mlp")
+    {
+      if (jsonExtractKey(raw, "mean", value)) model.mean = jsonParseNumberArray(value);
+      if (jsonExtractKey(raw, "scale", value)) model.scale = jsonParseNumberArray(value);
+      if (jsonExtractKey(raw, "activation", value)) model.activation = jsonParseStringValue(value);
+      if (jsonExtractKey(raw, "output", value)) model.output = jsonParseStringValue(value);
+      std::string layersText;
+      if (jsonExtractKey(raw, "layers", layersText))
+      {
+        for (const auto& layerText : jsonParseObjectArray(layersText))
+        {
+          AuAuTightMLPLayer layer;
+          if (jsonExtractKey(layerText, "weight", value))
+          {
+            layer.weightsOutByIn = transposeInputByOutputWeights(jsonParseNumberMatrix(value));
+          }
+          if (jsonExtractKey(layerText, "weights", value) && layer.weightsOutByIn.empty())
+          {
+            layer.weightsOutByIn = jsonParseNumberMatrix(value);
+          }
+          if (jsonExtractKey(layerText, "bias", value)) layer.bias = jsonParseNumberArray(value);
+          model.layers.push_back(layer);
+        }
+      }
+      bool layersOk = !model.layers.empty();
+      std::size_t expectedIn = model.featureNames.size();
+      for (const auto& layer : model.layers)
+      {
+        layersOk = layersOk && !layer.weightsOutByIn.empty() && layer.bias.size() == layer.weightsOutByIn.size();
+        for (const auto& row : layer.weightsOutByIn)
+        {
+          layersOk = layersOk && row.size() == expectedIn;
+        }
+        expectedIn = layer.bias.size();
+      }
+      model.valid = !model.featureNames.empty() &&
+                    model.impute.size() == model.featureNames.size() &&
+                    model.mean.size() == model.featureNames.size() &&
+                    model.scale.size() == model.featureNames.size() &&
+                    layersOk &&
+                    model.layers.back().bias.size() == 1;
       return model;
     }
 
@@ -4371,6 +4432,47 @@ double RecoilJets::predictAuAuTightBDTMLPStackScore(const PhotonClusterv1* pho, 
       }
     }
     return std::isfinite(raw) ? sigmoid(raw) : std::numeric_limits<double>::quiet_NaN();
+  }
+
+  if (sub->kind == "mlp")
+  {
+    if (sub->mean.size() != x.size() || sub->scale.size() != x.size()) return std::numeric_limits<double>::quiet_NaN();
+    std::vector<double> a;
+    a.reserve(x.size());
+    for (std::size_t i = 0; i < x.size(); ++i)
+    {
+      const double scale = (i < sub->scale.size() && std::fabs(sub->scale[i]) > 1.0e-12) ? sub->scale[i] : 1.0;
+      const double mean = (i < sub->mean.size() && std::isfinite(sub->mean[i])) ? sub->mean[i] : 0.0;
+      a.push_back((x[i] - mean) / scale);
+    }
+    for (std::size_t ilayer = 0; ilayer < sub->layers.size(); ++ilayer)
+    {
+      const auto& layer = sub->layers[ilayer];
+      if (layer.weightsOutByIn.empty() || layer.bias.size() != layer.weightsOutByIn.size()) return std::numeric_limits<double>::quiet_NaN();
+      std::vector<double> next(layer.bias.size(), 0.0);
+      for (std::size_t j = 0; j < layer.bias.size(); ++j)
+      {
+        if (layer.weightsOutByIn[j].size() != a.size()) return std::numeric_limits<double>::quiet_NaN();
+        double z = layer.bias[j];
+        for (std::size_t k = 0; k < a.size(); ++k) z += layer.weightsOutByIn[j][k] * a[k];
+        if (ilayer + 1 == sub->layers.size())
+        {
+          next[j] = z;
+        }
+        else if (sub->activation == "tanh")
+        {
+          next[j] = std::tanh(z);
+        }
+        else
+        {
+          next[j] = std::max(0.0, z);
+        }
+      }
+      a.swap(next);
+    }
+    if (a.empty() || !std::isfinite(a[0])) return std::numeric_limits<double>::quiet_NaN();
+    if (sub->output == "identity" || sub->output == "raw") return a[0];
+    return sigmoid(a[0]);
   }
 
   return std::numeric_limits<double>::quiet_NaN();

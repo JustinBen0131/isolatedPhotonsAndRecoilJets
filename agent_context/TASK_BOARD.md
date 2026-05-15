@@ -1,6 +1,6 @@
 # Task Board
 
-Last updated: 2026-05-13
+Last updated: 2026-05-15
 
 Task tracking is milestone/blocker level. Add tasks when Justin explicitly asks
 to track/add/remember them. If a task only appears casually in conversation,
@@ -9,6 +9,14 @@ Removal` and ask Justin before removing or archiving.
 
 ## Now
 
+- TOP PRIORITY / PP CROSS-CHECK: run the no-centrality-as-feature BDT
+  validation in pp, using the combined SIM photon-jet `5+10+20` signal sample
+  and the corresponding inclusive-jet background counterpart. Goal: check the
+  same BDT variant logic outside AuAu/centrality so the pp baseline can anchor
+  the AuAu no-centrality comparison cleanly. Required outputs: validation AUC /
+  ROC, WP80-style fake-rate and threshold diagnostics, score-separation plots,
+  and a concise comparison against the normal pp BDT/reference photon-ID
+  baseline.
 - TOP PRIORITY / FINISH TODAY: validate truth signal/background tagging behind
   the BDT/MLP score-separation plots. Blair explicitly asked whether the signal
   not peaking at 1 could indicate truth-tagging issues. Check event-level

@@ -13,6 +13,7 @@ Usage:
   ./scripts/sftp_get_recoiljets_outputs.sh tightBDTSmokeLatest
   ./scripts/sftp_get_recoiljets_outputs.sh tightBDTSmoke <remote-path-or-dir-name>
   ./scripts/sftp_get_recoiljets_outputs.sh auauTightBDTValidation <remote-report-dir>
+  ./scripts/sftp_get_recoiljets_outputs.sh auauBDTMLPStackPromotion <remote-run-dir>
   ./scripts/sftp_get_recoiljets_outputs.sh mlIntegrationLatest
   ./scripts/sftp_get_recoiljets_outputs.sh mlIntegration <remote-path-or-dir-name>
   ./scripts/sftp_get_recoiljets_outputs.sh smokeTestLatest <dataset> [--roots]
@@ -55,6 +56,10 @@ local/smoke workflow. They download into:
 auauTightBDTValidation pulls a single finished simulation-validation report
 directory into:
   dataOutput/auauTightBDTValidation
+
+auauBDTMLPStackPromotion pulls a single stack-promotion / WP-diagnostic run
+directory into:
+  dataOutput/auauBDTMLPStackPromotion
 
 mlIntegrationLatest pulls the newest full local ML integration test directory
 from:
@@ -1287,6 +1292,70 @@ download_scaled_trigger_study() {
   fi
 }
 
+download_auau_bdt_mlp_stack_promotion() {
+  local remote_dir="${1:-}"
+  local run_name local_dir batch
+  if [[ -z "$remote_dir" ]]; then
+    echo "[ERROR] auauBDTMLPStackPromotion requires the remote stack-promotion run directory." >&2
+    echo "[ERROR] Example:" >&2
+    echo "  ./scripts/sftp_get_recoiljets_outputs.sh auauBDTMLPStackPromotion /gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/bdt_mlp_stack_nn_wp80_diagnostic_YYYYMMDD_HHMMSS" >&2
+    exit 2
+  fi
+  remote_dir="${remote_dir%/}"
+  run_name="${remote_dir##*/}"
+
+  case "$remote_dir" in
+    /gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/bdt_mlp_stack_*|\
+    /gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/stacked_bdt_mlp_*|\
+    /sphenix/u/patsfan753/scratch/thesisAnalysis/stack_promotion_pulls/bdt_mlp_stack_*|\
+    /sphenix/u/patsfan753/scratch/thesisAnalysis/stack_promotion_pulls/stacked_bdt_mlp_*) ;;
+    *)
+      echo "[ERROR] Refusing to pull non-stack-promotion path:" >&2
+      echo "  ${remote_dir}" >&2
+      echo "[ERROR] Expected a stack run under /gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/" >&2
+      echo "[ERROR] or a staged stack run under /sphenix/u/patsfan753/scratch/thesisAnalysis/stack_promotion_pulls/" >&2
+      exit 2
+      ;;
+  esac
+
+  local_dir="${LOCAL_BASE}/dataOutput/auauBDTMLPStackPromotion"
+  mkdir -p "$local_dir"
+  batch="$(make_tmp_file "sftp_get_recoiljets_stack_promotion")"
+  cleanup_stack_promotion() { rm -f "$batch"; }
+  trap cleanup_stack_promotion EXIT
+
+  {
+    printf 'lcd %s\n' "$local_dir"
+    printf 'get -r %s %s\n' "$remote_dir" "$run_name"
+  } > "$batch"
+
+  echo
+  echo "Remote host      : ${REMOTE_HOST}"
+  echo "Stack run remote : ${remote_dir}"
+  echo "Local dir        : ${local_dir}/${run_name}"
+  echo
+  echo "sftp batch commands:"
+  sed 's/^/  /' "$batch"
+  echo
+  echo "Opening interactive sftp to download the AuAu BDT+MLP stack promotion run."
+  if sftp \
+      -oBatchMode=no \
+      -oPreferredAuthentications=publickey,password,keyboard-interactive \
+      -b "$batch" \
+      "$REMOTE_HOST"; then
+    echo
+    echo "[OK] AuAu BDT+MLP stack promotion download complete."
+    echo "Downloaded into: ${local_dir}/${run_name}"
+    trap - EXIT
+    rm -f "$batch"
+  else
+    status=$?
+    echo
+    echo "[ERROR] sftp download failed with exit code ${status}." >&2
+    exit "$status"
+  fi
+}
+
 dataset="${1:-}"
 case "$dataset" in
   -h|--help|help|"")
@@ -1318,6 +1387,11 @@ fi
 
 if [[ "$dataset" == "auauTightBDTValidation" ]]; then
   download_auau_tight_bdt_validation "${2:-}"
+  exit 0
+fi
+
+if [[ "$dataset" == "auauBDTMLPStackPromotion" ]]; then
+  download_auau_bdt_mlp_stack_promotion "${2:-}"
   exit 0
 fi
 

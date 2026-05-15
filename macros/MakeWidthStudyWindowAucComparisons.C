@@ -316,9 +316,22 @@ void MakeWidthStudyWindowAucComparisons()
     c.SetTopMargin(0.24);
     c.SetBottomMargin(0.17);
 
+    const double centGap = 0.45;
+    const double groupWidth = 5.0;
+    const Double_t xEdges[] = {
+      0.0, 1.0, 2.0, 3.0, 4.0, 5.0,
+      5.0 + centGap,
+      6.0 + centGap, 7.0 + centGap, 8.0 + centGap, 9.0 + centGap, 10.0 + centGap,
+      10.0 + 2.0 * centGap,
+      11.0 + 2.0 * centGap, 12.0 + 2.0 * centGap, 13.0 + 2.0 * centGap,
+      14.0 + 2.0 * centGap, 15.0 + 2.0 * centGap};
+    auto groupStart = [centGap, groupWidth](const int ic) { return ic * (groupWidth + centGap); };
+    auto xBinFor = [](const int ic, const int ip) { return 1 + ic * 6 + ip; };
+    auto xCenterFor = [groupStart](const int ic, const int ip) { return groupStart(ic) + ip + 0.5; };
+
     auto* h = new TH2D("h_base3x3_gain",
                        ";Photon candidate E_{T} validation bin within each centrality group [GeV];Training p_{T} window",
-                       15, 0, 15, 3, 0, 3);
+                       17, xEdges, 3, 0, 3);
     h->SetDirectory(nullptr);
     h->SetStats(false);
     h->SetMinimum(-0.5);
@@ -352,13 +365,14 @@ void MakeWidthStudyWindowAucComparisons()
         for (int ip = 0; ip < 5; ++ip)
         {
           const int col = ic * 5 + ip;
-          h->GetXaxis()->SetBinLabel(col + 1, ptLabels[ip].c_str());
+          const int xbin = xBinFor(ic, ip);
+          h->GetXaxis()->SetBinLabel(xbin, ptLabels[ip].c_str());
           const auto& base = GetAuc(aucRows, "centAsFeat_" + windows[iw], cents[ic], pts[ip]);
           const auto& both = GetAuc(aucRows, "centAsFeatBase3x3_" + windows[iw], cents[ic], pts[ip]);
           const double gain = GainPercent(both.auc, base.auc);
           if (std::isfinite(gain))
           {
-            h->SetBinContent(col + 1, 3 - iw, gain);
+            h->SetBinContent(xbin, 3 - iw, gain);
             cellGain[iw][col] = gain;
             std::ostringstream ss;
             ss << std::showpos << std::fixed << std::setprecision(1) << gain << "%";
@@ -366,7 +380,7 @@ void MakeWidthStudyWindowAucComparisons()
           }
           else
           {
-            h->SetBinContent(col + 1, 3 - iw, -999);
+            h->SetBinContent(xbin, 3 - iw, -999);
             cellText[iw][col] = "";
           }
         }
@@ -375,6 +389,21 @@ void MakeWidthStudyWindowAucComparisons()
 
     h->SetContour(255);
     h->Draw("COLZ");
+
+    TBox gapBox;
+    gapBox.SetFillColor(kWhite);
+    gapBox.SetLineColor(kWhite);
+    gapBox.DrawBox(groupStart(1) - centGap, 0.0, groupStart(1), 3.0);
+    gapBox.DrawBox(groupStart(2) - centGap, 0.0, groupStart(2), 3.0);
+
+    for (const double xmid : {groupStart(1) - 0.5 * centGap, groupStart(2) - 0.5 * centGap})
+    {
+      TLine guide(xmid, 0.0, xmid, 3.0);
+      guide.SetLineWidth(2);
+      guide.SetLineColor(kGray + 1);
+      guide.SetLineStyle(2);
+      guide.Draw();
+    }
 
     TLatex text;
     text.SetTextFont(42);
@@ -386,36 +415,34 @@ void MakeWidthStudyWindowAucComparisons()
       {
         if (!std::isfinite(cellGain[iw][col])) continue;
         text.SetTextColor(TextColorForGain(cellGain[iw][col]));
-        text.DrawLatex(col + 0.5, 2.5 - iw, cellText[iw][col].c_str());
+        const int ic = col / 5;
+        const int ip = col % 5;
+        text.DrawLatex(xCenterFor(ic, ip), 2.5 - iw, cellText[iw][col].c_str());
       }
     }
     text.SetTextColor(kBlack);
 
-    for (double x : {5.0, 10.0})
-    {
-      TLine divider(x, 0.0, x, 3.0);
-      divider.SetLineWidth(3);
-      divider.SetLineColor(kWhite);
-      divider.Draw();
-      TLine guide(x, 0.0, x, 3.0);
-      guide.SetLineWidth(2);
-      guide.SetLineColor(kGray + 1);
-      guide.SetLineStyle(2);
-      guide.Draw();
-    }
     for (int y = 0; y <= 3; ++y)
     {
-      TLine line(0, y, 15, y);
-      line.SetLineWidth(y == 0 || y == 3 ? 2 : 1);
-      line.SetLineColor(kGray + 2);
-      line.Draw();
+      for (int ic = 0; ic < 3; ++ic)
+      {
+        const double x0 = groupStart(ic);
+        TLine line(x0, y, x0 + groupWidth, y);
+        line.SetLineWidth(y == 0 || y == 3 ? 2 : 1);
+        line.SetLineColor(kGray + 2);
+        line.Draw();
+      }
     }
-    for (int x = 0; x <= 15; ++x)
+    for (int ic = 0; ic < 3; ++ic)
     {
-      TLine line(x, 0, x, 3);
-      line.SetLineWidth(x == 0 || x == 15 ? 2 : 1);
-      line.SetLineColor(kGray + 2);
-      line.Draw();
+      const double x0 = groupStart(ic);
+      for (int ip = 0; ip <= 5; ++ip)
+      {
+        TLine line(x0 + ip, 0, x0 + ip, 3);
+        line.SetLineWidth(ip == 0 || ip == 5 ? 2 : 1);
+        line.SetLineColor(kGray + 2);
+        line.Draw();
+      }
     }
 
     TLatex header;
@@ -424,8 +451,8 @@ void MakeWidthStudyWindowAucComparisons()
     header.SetTextSize(0.034);
     for (int ic = 0; ic < 3; ++ic)
     {
-      const double x0 = ic * 5.0;
-      const double x1 = x0 + 5.0;
+      const double x0 = groupStart(ic);
+      const double x1 = x0 + groupWidth;
       header.DrawLatex(0.5 * (x0 + x1), 3.24, centLabels[ic].c_str());
     }
 

@@ -981,10 +981,19 @@ def etfine_centstudy_specs(args, outdir: Path) -> list[dict]:
 
     features_with_cent = list(PPG12_TIGHT_FEATURES_BASE_AND_3X3_WIDTHS) + ["centrality"]
     features_cent_binned = list(PPG12_TIGHT_FEATURES_BASE_AND_3X3_WIDTHS)
+    features_no_cent = list(PPG12_TIGHT_FEATURES_BASE_AND_3X3_WIDTHS)
     if len(pt_edges) < 2:
         raise SystemExit("etfine-centstudy needs at least two pT edges")
     full_pt = (pt_edges[0], pt_edges[-1])
 
+    add(
+        "noCent_pt1535",
+        "noCent_pt1535",
+        features_no_cent,
+        full_pt,
+        None,
+        "single-pt-window-base-and-3x3-width-no-cent",
+    )
     add(
         "centInput_pt1535",
         "centInput_pt1535",
@@ -994,6 +1003,14 @@ def etfine_centstudy_specs(args, outdir: Path) -> list[dict]:
         "single-pt-window-base-and-3x3-width",
     )
     for plo, phi in pt_bins:
+        add(
+            "ptFine_noCent",
+            f"ptFine_noCent_{pt_tag(plo, phi)}",
+            features_no_cent,
+            (plo, phi),
+            None,
+            "fine-pt-bin-no-cent",
+        )
         add(
             "ptFine_centInput",
             f"ptFine_centInput_{pt_tag(plo, phi)}",

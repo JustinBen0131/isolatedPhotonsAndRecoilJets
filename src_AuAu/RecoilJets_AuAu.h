@@ -1490,6 +1490,9 @@ private:
         double initialRawScore = 0.0;
         double learningRate = 1.0;
         std::vector<AuAuStackTree> trees;
+        std::string activation = "relu";
+        std::string output = "sigmoid";
+        std::vector<AuAuTightMLPLayer> layers;
         bool valid = false;
     };
     struct AuAuStackRoute

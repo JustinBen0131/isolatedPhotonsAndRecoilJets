@@ -471,6 +471,10 @@ Notes:
   directly, not the slide's narrative takeaway. Use publication-style figure
   titles such as `XGBoost split-gain fraction from shower-width inputs`, while
   keeping interpretive messages like "why this matters" in native slide text.
+- For every new or regenerated plot label, `sPHENIX` must be styled as bold
+  italic, matching `macros/sPhenixStyle.C`: `#it{#bf{sPHENIX}} Internal` in
+  ROOT/TLatex, or separate matplotlib text objects with `sPHENIX` bold italic
+  and `Internal` upright. Never render plain upright `sPHENIX Internal`.
 - If a generated plot looks physically surprising or inconsistent with the
   user's expectation, pause the slide-update step and debug the plotted inputs,
   histogram normalization/scaling, numerator/denominator definitions, and

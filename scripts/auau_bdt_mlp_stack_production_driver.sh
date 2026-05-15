@@ -82,7 +82,6 @@ require_wp_outputs() {
     "${RUN_ROOT}/promotion_summary.json" \
     "${RUN_ROOT}/stack_working_points_target80.json" \
     "${RUN_ROOT}/stack_working_points_target80_cells.csv" \
-    "${RUN_ROOT}/stack_training_history.csv" \
     "${RUN_ROOT}/diagnostics/stack_wp80_threshold_grid.png" \
     "${RUN_ROOT}/diagnostics/stack_wp80_signal_efficiency_grid.png" \
     "${RUN_ROOT}/diagnostics/stack_wp80_fake_rate_grid.png" \

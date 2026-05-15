@@ -306,6 +306,7 @@ def train_and_wp(args: argparse.Namespace) -> None:
         nn_batch_size=args.nn_batch_size,
         nn_learning_rate=args.nn_learning_rate,
         nn_l2=args.nn_l2,
+        random_seed=args.random_seed,
     )
     frame, cache_info = stack.load_aligned_caches(sweep_args)
     preflight = stack.preflight(frame, cache_info, sweep_args)
@@ -445,6 +446,114 @@ def train_and_wp(args: argparse.Namespace) -> None:
     print(f"[stackPromote] diagnostics={args.outdir / 'diagnostics'}")
 
 
+def derive_wp_from_artifact(args: argparse.Namespace) -> None:
+    args.outdir.mkdir(parents=True, exist_ok=True)
+    artifact = json.loads(args.artifact.read_text())
+    model_name = artifact.get("name", args.artifact.stem)
+    sweep_args = SimpleNamespace(
+        mlp_cache=args.mlp_cache,
+        bdt_cache=args.bdt_cache,
+        mlp_score=args.mlp_score,
+        bdt_score=args.bdt_score,
+        max_rows=args.max_rows,
+        max_shards=args.max_shards,
+        allow_missing_full_features=args.allow_missing_full_features,
+        outdir=args.outdir,
+        l2=args.l2,
+        linear_backend=args.linear_backend,
+        max_linear_steps=args.max_linear_steps,
+        gbm_estimators=args.gbm_estimators,
+        gbm_learning_rate=args.gbm_learning_rate,
+        gbm_max_depth=args.gbm_max_depth,
+        gbm_max_leaf_nodes=args.gbm_max_leaf_nodes,
+        nn_hidden=args.nn_hidden,
+        nn_epochs=args.nn_epochs,
+        nn_patience=args.nn_patience,
+        nn_batch_size=args.nn_batch_size,
+        nn_learning_rate=args.nn_learning_rate,
+        nn_l2=args.nn_l2,
+        random_seed=args.random_seed,
+    )
+    frame, cache_info = stack.load_aligned_caches(sweep_args)
+    preflight = stack.preflight(frame, cache_info, sweep_args)
+    y = np.asarray(frame["is_signal"], dtype="int32")
+    masks = split_masks(y, args.random_seed, args.train_fraction, args.val_fraction)
+
+    import make_auau_bdt_mlp_stack_roc_overlay as rocutil  # local helper supports logistic, GBM, and MLP stack submodels
+
+    score = rocutil.route_score(artifact, frame)
+    pt_edges = parse_edges(args.wp_pt_edges)
+    cent_edges = parse_edges(args.wp_cent_edges)
+    wp_mask = masks[args.wp_split]
+    wp = derive_grid(frame, score, wp_mask, args.target_signal_efficiency, pt_edges, cent_edges)
+
+    copied_artifact = args.outdir / "artifacts" / args.artifact.name
+    copied_artifact.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(args.artifact, copied_artifact)
+    manifest = {
+        "schema": "RECOILJETS_AUAU_BDT_MLP_STACK_WORKING_POINTS_V1",
+        "target_signal_efficiency": args.target_signal_efficiency,
+        "working_point_mode": "centpt",
+        "model_name": model_name,
+        "artifact": str(copied_artifact),
+        "source_artifact": str(args.artifact),
+        "source_caches": {"mlp_cache": str(args.mlp_cache), "bdt_cache": str(args.bdt_cache)},
+        "preflight": preflight,
+        "fit_split": "pretrained_artifact",
+        "wp_split": args.wp_split,
+        "runtime_entries": [runtime_entry("auauBDTMLPStack", wp)],
+        "products": {"auauBDTMLPStack": wp},
+    }
+    wp_path = args.outdir / "stack_working_points_target80.json"
+    write_json(wp_path, manifest)
+    (args.outdir / "stack_working_points_target80.yaml").write_text(
+        "auau_tight_bdt_mlp_stack_working_point_entries: ["
+        + ", ".join(json.dumps(x) for x in manifest["runtime_entries"])
+        + "]\n"
+    )
+    write_cell_csv(args.outdir / "stack_working_points_target80_cells.csv", wp["cells"])
+    make_diagnostics(args.outdir / "diagnostics", wp, args.target_signal_efficiency, model_name)
+
+    variant_payload = artifact.get("variant", {})
+    pt_lo = float(variant_payload.get("pt_lo", pt_edges[0]))
+    pt_hi = float(variant_payload.get("pt_hi", pt_edges[-1]))
+    et = np.asarray(frame["cluster_Et"], dtype="float64")
+    eval_mask = (et >= pt_lo) & (et < pt_hi)
+    eval_finite = eval_mask & np.isfinite(score) & np.isin(y, [0, 1])
+    wp_finite = wp_mask & eval_finite
+    np.savez_compressed(
+        args.outdir / "stack_scores.npz",
+        score=score.astype("float32"),
+        is_signal=y.astype("int8"),
+        cluster_Et=np.asarray(frame["cluster_Et"], dtype="float32"),
+        centrality=np.asarray(frame["centrality"], dtype="float32"),
+        reco_eiso=np.asarray(frame.get("reco_eiso", np.full(len(y), np.nan)), dtype="float32"),
+        split_train=masks["train"],
+        split_val=masks["val"],
+        split_test=masks["test"],
+    )
+    summary = {
+        "status": "READY",
+        "mode": "derive-wp-from-artifact",
+        "model": model_name,
+        "artifact": str(copied_artifact),
+        "source_artifact": str(args.artifact),
+        "working_points": str(wp_path),
+        "rows": int(len(y)),
+        "eval_rows": int(eval_mask.sum()),
+        "finite_eval_fraction": float(np.mean(np.isfinite(score[eval_mask]))) if eval_mask.any() else math.nan,
+        "auc_eval_all": auc_score(y[eval_finite], score[eval_finite]),
+        "auc_wp_split": auc_score(y[wp_finite], score[wp_finite]),
+        "fit_quality": wp["fit_quality"],
+        "diagnostics_dir": str(args.outdir / "diagnostics"),
+    }
+    write_json(args.outdir / "promotion_summary.json", summary)
+    print("[stackPromote] READY_FROM_ARTIFACT")
+    print(f"[stackPromote] artifact={copied_artifact}")
+    print(f"[stackPromote] working_points={wp_path}")
+    print(f"[stackPromote] diagnostics={args.outdir / 'diagnostics'}")
+
+
 def replace_top_level_block(lines: list[str], key: str, replacement: list[str]) -> list[str]:
     start = None
     for i, line in enumerate(lines):
@@ -542,6 +651,8 @@ def parse_args() -> argparse.Namespace:
     common.add_argument("--nn-learning-rate", type=float, default=1.5e-3)
     common.add_argument("--nn-l2", type=float, default=1.0e-3)
     sub.add_parser("train-wp", parents=[common])
+    artifact_wp = sub.add_parser("derive-wp-from-artifact", parents=[common])
+    artifact_wp.add_argument("--artifact", type=Path, required=True)
     sub.add_parser("self-test", parents=[common])
     cfg = sub.add_parser("make-config")
     cfg.add_argument("--template", type=Path, required=True)
@@ -561,6 +672,10 @@ def main() -> None:
         if not args.mlp_cache or not args.bdt_cache:
             raise SystemExit("train-wp requires --mlp-cache and --bdt-cache")
         train_and_wp(args)
+    elif args.mode == "derive-wp-from-artifact":
+        if not args.mlp_cache or not args.bdt_cache:
+            raise SystemExit("derive-wp-from-artifact requires --mlp-cache and --bdt-cache")
+        derive_wp_from_artifact(args)
     elif args.mode == "make-config":
         make_config(args)
     else:
