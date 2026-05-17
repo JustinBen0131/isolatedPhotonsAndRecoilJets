@@ -167,6 +167,18 @@ SCALED_TRIG_VERBOSE="${SCALED_TRIG_VERBOSE:-1}"
 SCALED_TRIG_HEARTBEAT_SECONDS="${SCALED_TRIG_HEARTBEAT_SECONDS:-30}"
 SCALED_TRIG_ADDCHUNKS_APPLY="${SCALED_TRIG_ADDCHUNKS_APPLY:-0}"
 
+use_embedded_inclusive3_stitch() {
+  [[ "${RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES:-0}" == "1" || "${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30:-0}" == "1" ]]
+}
+
+simembeddedinclusive_sample_list() {
+  if use_embedded_inclusive3_stitch; then
+    printf "%s\n" "run28_embeddedJet12" "run28_embeddedJet20" "run28_embeddedJet30"
+  else
+    printf "%s\n" "run28_embeddedJet12" "run28_embeddedJet20"
+  fi
+}
+
 # ---------- Pretty printing ----------
 BOLD=$'\e[1m'; RED=$'\e[31m'; YEL=$'\e[33m'; GRN=$'\e[32m'; BLU=$'\e[34m'; RST=$'\e[0m'
 say()  { printf "${BLU}➜${RST} %s\n" "$*"; }
@@ -2117,13 +2129,26 @@ sim_stitch_plan_for_dataset() {
       )
       ;;
     isSimEmbeddedInclusive|issimembeddedinclusive|simembeddedinclusive|SIMEMBEDDEDINCLUSIVE)
-      SIM_STITCH_COMBO_DIR="embeddedJet12and20merged_SIM"
-      SIM_STITCH_OUTPUT_FILE="RecoilJets_embeddedJet12plus20_MERGED.root"
+      if use_embedded_inclusive3_stitch; then
+        SIM_STITCH_COMBO_DIR="embeddedJet12and20and30merged_SIM"
+        SIM_STITCH_OUTPUT_FILE="RecoilJets_embeddedJet12plus20plus30_MERGED.root"
+      else
+        SIM_STITCH_COMBO_DIR="embeddedJet12and20merged_SIM"
+        SIM_STITCH_OUTPUT_FILE="RecoilJets_embeddedJet12plus20_MERGED.root"
+      fi
       SIM_STITCH_TOPDIR="SIM"
-      SIM_STITCH_ROWS=(
-        "embeddedJet12|1.21692467e6|embeddedJet12"
-        "embeddedJet20|5.56198698e4|embeddedJet20"
-      )
+      if use_embedded_inclusive3_stitch; then
+        SIM_STITCH_ROWS=(
+          "embeddedJet12|1.21692467e6|embeddedJet12"
+          "embeddedJet20|5.44464934e4|embeddedJet20"
+          "embeddedJet30|2.40291630e3|embeddedJet30"
+        )
+      else
+        SIM_STITCH_ROWS=(
+          "embeddedJet12|1.21692467e6|embeddedJet12"
+          "embeddedJet20|5.56198698e4|embeddedJet20"
+        )
+      fi
       ;;
     *)
       return 1
@@ -2513,7 +2538,7 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|isSimInclusive|issiminclusiv
         ;;
       isSimMB|simmb|SIMMB)       samples=( "run28_detroit" ) ;;
       isSimEmbedded|issimembedded|simembedded|SIMEMBEDDED) samples=( "run28_embeddedPhoton12" "run28_embeddedPhoton20" ) ;;
-      isSimEmbeddedInclusive|issimembeddedinclusive|simembeddedinclusive|SIMEMBEDDEDINCLUSIVE) samples=( "run28_embeddedJet12" "run28_embeddedJet20" ) ;;
+      isSimEmbeddedInclusive|issimembeddedinclusive|simembeddedinclusive|SIMEMBEDDEDINCLUSIVE) mapfile -t samples < <(simembeddedinclusive_sample_list) ;;
       *)                         samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
     esac
   else

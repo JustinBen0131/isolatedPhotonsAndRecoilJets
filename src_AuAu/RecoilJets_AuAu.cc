@@ -3814,6 +3814,27 @@ double RecoilJets::auauTightBDTFeatureValue(const std::string& feature,
   if (feature == "cluster_wphi53_cogx") return v.wphi53_cogx;
   if (feature == "vertexz" || feature == "vertex_z" || feature == "zvtx") return m_vz;
   if (feature == "centrality" || feature == "cent") return m_centPercent;
+  if (feature == "reco_eiso" || feature == "reco_eiso_clip30" ||
+      feature == "reco_eiso_over_cluster_Et" || feature == "reco_eiso_signed_log1p")
+  {
+    const double reco_eiso = pho ? eiso(pho, nullptr) : std::numeric_limits<double>::quiet_NaN();
+    if (!std::isfinite(reco_eiso) || std::fabs(reco_eiso) >= 1.0e8)
+    {
+      return std::numeric_limits<double>::quiet_NaN();
+    }
+    if (feature == "reco_eiso") return reco_eiso;
+    if (feature == "reco_eiso_clip30") return std::max(-20.0, std::min(30.0, reco_eiso));
+    if (feature == "reco_eiso_over_cluster_Et")
+    {
+      if (!std::isfinite(v.pt_gamma) || std::fabs(v.pt_gamma) <= 1.0e-12)
+      {
+        return std::numeric_limits<double>::quiet_NaN();
+      }
+      return std::max(-2.0, std::min(3.0, reco_eiso / v.pt_gamma));
+    }
+    const double clipped = std::max(-20.0, std::min(60.0, reco_eiso));
+    return (clipped < 0.0 ? -1.0 : 1.0) * std::log1p(std::fabs(clipped));
+  }
   if (feature == "e11_over_e33") return v.e11_over_e33;
   if (feature == "e11_over_e22") return v.e11_over_e22;
   if (feature == "e11_over_e13") return v.e11_over_e13;

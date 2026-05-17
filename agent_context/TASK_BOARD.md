@@ -27,6 +27,14 @@ Removal` and ask Justin before removing or archiving.
   inclusive samples, duplicate matched-truth checks for any signal event with
   more than one signal-tagged reco photon, and a short conclusion on whether
   the original BDT score-separation plot is stable after this sanity check.
+- TODO / BDT CLOSURE QA: show signal/background BDT-score separation on the
+  training sample for the current best BDT variants, then compare it directly
+  with the independent embedded-validation score separation. Goal: closure-test
+  whether the BDT learned a stable photon/background ordering or whether the
+  training sample looks artificially sharper than validation. Required outputs:
+  training-sample score overlays, validation-sample score overlays using the
+  same binning/style, AUC or separation summary table, and a short overtraining
+  conclusion.
 - DONE PENDING REMOVAL / OFFLINE: target80 BDT all-available campaign
   `bdt_target80_gated_20260512_001012` on `sphnxuser05`. Codex fixed the
   remaining EtFine merge issue: `scripts/mergeRecoilJets.sh` now recognizes
@@ -848,6 +856,13 @@ Removal` and ask Justin before removing or archiving.
   Jet20 raw inputs. The helper's slow automatic all-config local merge was
   stopped after the raw files and plot existed. Next: approve the split PNG in
   chat, then replace the plot on slide 5.
+- Three-slice `isSimEmbeddedInclusive` inclusive3 stitching QA from
+  `sphnxuser02`: DAG `2116548` completed, the final merged ROOT was opened, and
+  the slide-10-equivalent PNG was regenerated/pulled at
+  `dataOutput/embeddedXsec/inclusive3_20260515_172346/embeddedInclusiveJet_finalMergedStitchedTruthJetPtSpectrum.png`.
+  The visible sample colors are now Jet12 blue, Jet20-to-30 orange, and Jet30
+  pink; the plot was visually inspected in chat on 2026-05-16. Next: use this
+  PNG for the three-sample stitching slide or ask before archiving the task.
 - Fresh SDCC smoke or production evidence for direct-fanout pp and SIM jobs.
 - User decision on when to transfer the ABCD/purity tight-axis fix and rerun
   affected outputs.

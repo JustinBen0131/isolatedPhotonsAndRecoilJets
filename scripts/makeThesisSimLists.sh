@@ -17,7 +17,7 @@
 #     • Run-28 embedded photon+jet samples:
 #         embeddedPhoton12, embeddedPhoton20
 #     • Run-28 embedded inclusive jet samples:
-#         embeddedJet12, embeddedJet20
+#         embeddedJet12, embeddedJet20, embeddedJet30
 #
 #   Standard Run-28 pp packs are built from:
 #     /sphenix/lustre01/sphnxpro/mdc2/js_pp200_signal
@@ -50,7 +50,8 @@
 #     ├─ run28_embeddedPhoton12/
 #     ├─ run28_embeddedPhoton20/
 #     ├─ run28_embeddedJet12/
-#     └─ run28_embeddedJet20/
+#     ├─ run28_embeddedJet20/
+#     └─ run28_embeddedJet30/
 #
 #   Each pack contains:
 #     • raw single-column lists
@@ -114,7 +115,7 @@ JET_SAMPLES=( "jet5" "jet8" "jet12" "jet20" "jet30" "jet40" )
 MB_SAMPLES=( "detroit" )
 EMBEDDED_PHOTONJET_SAMPLES=( "embeddedPhoton12" "embeddedPhoton20" )
 # Current embedded inclusive background production uses jet12/jet20.
-# embeddedJet10 remains supported as an explicit legacy sample name below.
+# embeddedJet10 and embeddedJet30 remain supported as explicit sample names.
 EMBEDDED_INCLUSIVE_SAMPLES=( "embeddedJet12" "embeddedJet20" )
 REQUESTED_SAMPLES=()
 CLEAN_STALE_EMBEDDED_PHOTON10="false"
@@ -163,7 +164,7 @@ while [[ $# -gt 0 ]]; do
     isInclusiveEmbedded|isSimEmbeddedInclusive)
       REQUESTED_SAMPLES+=( "embeddedJet12" "embeddedJet20" ); shift 1
       ;;
-    photonjet5|photonjet10|photonjet20|jet5|jet8|jet12|jet20|jet30|jet40|detroit|embeddedPhoton12|embeddedPhoton20|embeddedJet10|embeddedJet12|embeddedJet20)
+    photonjet5|photonjet10|photonjet20|jet5|jet8|jet12|jet20|jet30|jet40|detroit|embeddedPhoton12|embeddedPhoton20|embeddedJet10|embeddedJet12|embeddedJet20|embeddedJet30)
       REQUESTED_SAMPLES+=( "$1" ); shift 1
       ;;
     *) echo "[WARN $(date '+%H:%M:%S')] Unknown arg: $1"; shift 1 ;;
@@ -932,6 +933,7 @@ embedded_sample_dir() {
     embeddedJet10)    printf '%s\n' "${EMBED_BASE}/jet10" ;;
     embeddedJet12)    printf '%s\n' "${EMBED_BASE}/jet12" ;;
     embeddedJet20)    printf '%s\n' "${EMBED_BASE}/jet20" ;;
+    embeddedJet30)    printf '%s\n' "${EMBED_BASE}/jet30" ;;
     *) return 1 ;;
   esac
 }
@@ -1242,6 +1244,32 @@ build_pack() {
 
     MBD_OK="false"
     embed_mode_note="embedded jet20 (OutDir scan)"
+
+  elif [[ "$sample" == "embeddedJet30" ]]; then
+    EMBED_MODE="true"
+
+    embeddir="${EMBED_BASE}/jet30"
+
+    g4dir="$embeddir"
+    calodir="$embeddir"
+    gldir="$embeddir"
+    jetsdir="$embeddir"
+    mbddir=""
+    trkdir="$embeddir"
+
+    calo_pattern="DST_CALO_*.root"
+    g4_pattern="DST_TRUTH_G4HIT_*.root"
+    jets_pattern="DST_TRUTH_JET_*.root"
+    global_pattern="DST_GLOBAL_*.root"
+    mbd_pattern=""
+
+    calo_label="DST_CALO_CLUSTER (mapped from embedded DST_CALO) [ANCHOR]"
+    jets_label="DST_JETS (mapped from embedded DST_TRUTH_JET)"
+    global_label="DST_GLOBAL (embedded)"
+    mbd_label="DST_MBD_EPD (placeholder NONE; no standalone embedded MBD file found)"
+
+    MBD_OK="false"
+    embed_mode_note="embedded jet30 (OutDir scan)"
   fi
 
   rule

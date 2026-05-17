@@ -17,6 +17,8 @@ REQUEST_MEMORY="${REQUEST_MEMORY:-24000MB}"
 REQUEST_CPUS="${REQUEST_CPUS:-1}"
 MAX_ROWS="${MAX_ROWS:-0}"
 MAX_SHARDS="${MAX_SHARDS:-0}"
+REQUIRE_FULL_STAT="${REQUIRE_FULL_STAT:-1}"
+EXPECTED_SHARDS="${EXPECTED_SHARDS:-80}"
 FOLDS="${FOLDS:-5}"
 EPOCHS="${EPOCHS:-180}"
 PATIENCE="${PATIENCE:-28}"
@@ -24,6 +26,13 @@ BATCH_SIZE="${BATCH_SIZE:-32768}"
 HIDDEN="${HIDDEN:-16}"
 LOWER_ALGORITHMS="${LOWER_ALGORITHMS:-logistic,gbm,nn}"
 BASE_SCORE="${BASE_SCORE:-nn}"
+LOWER_FEATURE_MODE="${LOWER_FEATURE_MODE:-score_context}"
+SUPER_FEATURE_MODE="${SUPER_FEATURE_MODE:-scores_context}"
+FINAL_MODE="${FINAL_MODE:-residual}"
+MODEL_NAME="${MODEL_NAME:-}"
+TRAIN_FRACTION="${TRAIN_FRACTION:-0.80}"
+VAL_FRACTION="${VAL_FRACTION:-0.10}"
+INCLUDE_ISOLATION_CONTEXT="${INCLUDE_ISOLATION_CONTEXT:-0}"
 
 say() { printf '\033[1;36m[auauSuperStack]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[auauSuperStack][WARN]\033[0m %s\n' "$*" >&2; }
@@ -38,6 +47,8 @@ Usage:
 
 Runs the out-of-fold residual NN super-stacker diagnostic.  This is a ceiling
 test using BDT/MLP score inputs.  Production is not submitted by this driver.
+For the stricter heavy superlearner use:
+  FINAL_MODE=direct LOWER_FEATURE_MODE=full_features SUPER_FEATURE_MODE=scores_plus_full_features HIDDEN=256,128,64
 EOF
 }
 
@@ -56,6 +67,8 @@ for tok in "$@"; do
     REQUEST_CPUS=*) REQUEST_CPUS="${tok#REQUEST_CPUS=}" ;;
     MAX_ROWS=*) MAX_ROWS="${tok#MAX_ROWS=}" ;;
     MAX_SHARDS=*) MAX_SHARDS="${tok#MAX_SHARDS=}" ;;
+    REQUIRE_FULL_STAT=*) REQUIRE_FULL_STAT="${tok#REQUIRE_FULL_STAT=}" ;;
+    EXPECTED_SHARDS=*) EXPECTED_SHARDS="${tok#EXPECTED_SHARDS=}" ;;
     FOLDS=*) FOLDS="${tok#FOLDS=}" ;;
     EPOCHS=*) EPOCHS="${tok#EPOCHS=}" ;;
     PATIENCE=*) PATIENCE="${tok#PATIENCE=}" ;;
@@ -63,6 +76,13 @@ for tok in "$@"; do
     HIDDEN=*) HIDDEN="${tok#HIDDEN=}" ;;
     LOWER_ALGORITHMS=*) LOWER_ALGORITHMS="${tok#LOWER_ALGORITHMS=}" ;;
     BASE_SCORE=*) BASE_SCORE="${tok#BASE_SCORE=}" ;;
+    LOWER_FEATURE_MODE=*) LOWER_FEATURE_MODE="${tok#LOWER_FEATURE_MODE=}" ;;
+    SUPER_FEATURE_MODE=*) SUPER_FEATURE_MODE="${tok#SUPER_FEATURE_MODE=}" ;;
+    FINAL_MODE=*) FINAL_MODE="${tok#FINAL_MODE=}" ;;
+    MODEL_NAME=*) MODEL_NAME="${tok#MODEL_NAME=}" ;;
+    TRAIN_FRACTION=*) TRAIN_FRACTION="${tok#TRAIN_FRACTION=}" ;;
+    VAL_FRACTION=*) VAL_FRACTION="${tok#VAL_FRACTION=}" ;;
+    INCLUDE_ISOLATION_CONTEXT=*) INCLUDE_ISOLATION_CONTEXT="${tok#INCLUDE_ISOLATION_CONTEXT=}" ;;
     -h|--help|help) usage; exit 0 ;;
     *) die "Unknown argument: $tok" ;;
   esac
@@ -80,8 +100,10 @@ print_plan() {
   say "bdt_cache=$BDT_CACHE"
   say "mlp_score=$MLP_SCORE bdt_score=$BDT_SCORE"
   say "request_memory=$REQUEST_MEMORY request_cpus=$REQUEST_CPUS"
-  say "max_rows=$MAX_ROWS max_shards=$MAX_SHARDS folds=$FOLDS lower_algorithms=$LOWER_ALGORITHMS base_score=$BASE_SCORE"
+  say "max_rows=$MAX_ROWS max_shards=$MAX_SHARDS require_full_stat=$REQUIRE_FULL_STAT expected_shards=$EXPECTED_SHARDS folds=$FOLDS lower_algorithms=$LOWER_ALGORITHMS base_score=$BASE_SCORE"
+  say "lower_feature_mode=$LOWER_FEATURE_MODE super_feature_mode=$SUPER_FEATURE_MODE final_mode=$FINAL_MODE model_name=${MODEL_NAME:-<auto>}"
   say "hidden=$HIDDEN epochs=$EPOCHS patience=$PATIENCE batch_size=$BATCH_SIZE"
+  say "train_fraction=$TRAIN_FRACTION val_fraction=$VAL_FRACTION include_isolation_context=$INCLUDE_ISOLATION_CONTEXT"
 }
 
 python_run="$ML_PYTHON"
@@ -101,7 +123,14 @@ case "$mode" in
       --patience 4 \
       --hidden "$HIDDEN" \
       --lower-algorithms "$LOWER_ALGORITHMS" \
-      --base-score "$BASE_SCORE"
+      --base-score "$BASE_SCORE" \
+      --lower-feature-mode "$LOWER_FEATURE_MODE" \
+      --super-feature-mode "$SUPER_FEATURE_MODE" \
+      --final-mode "$FINAL_MODE" \
+      --model-name "$MODEL_NAME" \
+      --train-fraction "$TRAIN_FRACTION" \
+      --val-fraction "$VAL_FRACTION" \
+      $(if [[ "$INCLUDE_ISOLATION_CONTEXT" == "1" ]]; then printf '%s' "--include-isolation-context"; fi)
     ;;
   train)
     print_plan
@@ -128,6 +157,14 @@ ml_prefix="\$(cd "\$(dirname "\$ml_python")/.." && pwd -P 2>/dev/null || true)"
 echo "RECOILJETS_AUAU_OOF_RESIDUAL_SUPERSTACKER_WORKER_V1"
 echo "host=\$(hostname -f 2>/dev/null || hostname)"
 echo "start=\$(date)"
+full_stat_args=()
+if [[ "$REQUIRE_FULL_STAT" == "1" ]]; then
+  full_stat_args+=(--require-full-stat --expected-shards "$EXPECTED_SHARDS")
+fi
+isolation_args=()
+if [[ "$INCLUDE_ISOLATION_CONTEXT" == "1" ]]; then
+  isolation_args+=(--include-isolation-context)
+fi
 "\$ml_python" scripts/train_auau_oof_residual_superstacker.py \\
   --mlp-cache "$MLP_CACHE" \\
   --bdt-cache "$BDT_CACHE" \\
@@ -136,9 +173,17 @@ echo "start=\$(date)"
   --bdt-score "$BDT_SCORE" \\
   --max-rows "$MAX_ROWS" \\
   --max-shards "$MAX_SHARDS" \\
+  "\${full_stat_args[@]}" \\
+  "\${isolation_args[@]}" \\
+  --train-fraction "$TRAIN_FRACTION" \\
+  --val-fraction "$VAL_FRACTION" \\
   --folds "$FOLDS" \\
   --lower-algorithms "$LOWER_ALGORITHMS" \\
   --base-score "$BASE_SCORE" \\
+  --lower-feature-mode "$LOWER_FEATURE_MODE" \\
+  --super-feature-mode "$SUPER_FEATURE_MODE" \\
+  --final-mode "$FINAL_MODE" \\
+  --model-name "$MODEL_NAME" \\
   --hidden "$HIDDEN" \\
   --epochs "$EPOCHS" \\
   --patience "$PATIENCE" \\
@@ -174,8 +219,11 @@ EOF
     print_plan
     for path in \
       "$OUTDIR/oof_residual_supernn_rank_table.csv" \
+      "$OUTDIR/oof_direct_supernn_rank_table.csv" \
       "$OUTDIR/oof_residual_supernn_metrics.json" \
+      "$OUTDIR/oof_direct_supernn_metrics.json" \
       "$OUTDIR/oof_residual_supernn_training_history.csv" \
+      "$OUTDIR/oof_direct_supernn_training_history.csv" \
       "$OUTDIR/oof_residual_supernn_manifest.json"; do
       if [[ -s "$path" ]]; then
         say "exists: $path"

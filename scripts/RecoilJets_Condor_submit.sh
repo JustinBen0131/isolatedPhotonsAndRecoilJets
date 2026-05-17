@@ -376,6 +376,17 @@ AUAU_BDT_MODEL_BASE="${RJ_AUAU_BDT_MODEL_BASE:-${BASE}/bdt_models}"
 AUAU_BDT_SIGNAL_SAMPLES_DEFAULT="run28_embeddedPhoton12 run28_embeddedPhoton20"
 AUAU_BDT_BACKGROUND_SAMPLES_DEFAULT="run28_embeddedJet12 run28_embeddedJet20"
 
+# Keep the long-standing embedded-inclusive default as Jet12+Jet20. Set
+# RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=1 for the Jet12+Jet20+Jet30 stitching
+# study, where Jet20 is treated as the exclusive 20-30 GeV slice downstream.
+simembeddedinclusive_sample_list() {
+  if [[ "${RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES:-0}" == "1" || "${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30:-0}" == "1" ]]; then
+    printf "%s\n" "run28_embeddedJet12" "run28_embeddedJet20" "run28_embeddedJet30"
+  else
+    printf "%s\n" "run28_embeddedJet12" "run28_embeddedJet20"
+  fi
+}
+
 # Flag: set to 1 for any isSim variant (isSim, isSimJet5, isSimMB, isSimEmbedded)
 IS_SIM=0
 
@@ -2369,7 +2380,7 @@ check_jobs_sim() {
   if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
     case "$DATASET" in
       isSimEmbedded)          samples=( "run28_embeddedPhoton12" "run28_embeddedPhoton20" ) ;;
-      isSimEmbeddedInclusive) samples=( "run28_embeddedJet12" "run28_embeddedJet20" ) ;;
+      isSimEmbeddedInclusive) mapfile -t samples < <(simembeddedinclusive_sample_list) ;;
       isSimInclusive|isSimJet5) samples=( "run28_jet5" "run28_jet8" "run28_jet12" "run28_jet20" "run28_jet30" "run28_jet40" ) ;;
       isSimMB)                samples=( "run28_detroit" ) ;;
       *)                      samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
@@ -4809,7 +4820,7 @@ case "$ACTION" in
       if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
         case "$DATASET" in
           isSimEmbedded)          samples=( "run28_embeddedPhoton12" "run28_embeddedPhoton20" ) ;;
-          isSimEmbeddedInclusive) samples=( "run28_embeddedJet12" "run28_embeddedJet20" ) ;;
+          isSimEmbeddedInclusive) mapfile -t samples < <(simembeddedinclusive_sample_list) ;;
           isSimInclusive|isSimJet5) samples=( "run28_jet5" "run28_jet8" "run28_jet12" "run28_jet20" "run28_jet30" "run28_jet40" ) ;;
           isSimMB)                samples=( "run28_detroit" ) ;;
           *)                      samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
@@ -5431,7 +5442,7 @@ SUB
     if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
       case "$DATASET" in
         isSimEmbedded)          samples=( "run28_embeddedPhoton12" "run28_embeddedPhoton20" ) ;;
-        isSimEmbeddedInclusive) samples=( "run28_embeddedJet12" "run28_embeddedJet20" ) ;;
+        isSimEmbeddedInclusive) mapfile -t samples < <(simembeddedinclusive_sample_list) ;;
         isSimInclusive|isSimJet5) samples=( "run28_jet5" "run28_jet8" "run28_jet12" "run28_jet20" "run28_jet30" "run28_jet40" ) ;;
         isSimMB)                samples=( "run28_detroit" ) ;;
         *)                      samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
@@ -5641,18 +5652,18 @@ SUB
           ;;
       esac
       sim_merge_group_size="${RJ_SIM_MERGE_GROUP_SIZE:-${sim_merge_group_size_default}}"
-      first_round_args=( env "MERGE_CONFIG_YAML=${master_yaml}" "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED}" "MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base}" "MERGE_CFG_MATCH=${RJ_PHOTON_ID_ROW_MATCH:-}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" "${BASE}/scripts/mergeRecoilJets.sh" "$DATASET" firstRound groupSize "${sim_merge_group_size}" )
+      first_round_args=( env "MERGE_CONFIG_YAML=${master_yaml}" "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED}" "MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base}" "MERGE_CFG_MATCH=${RJ_PHOTON_ID_ROW_MATCH:-}" "RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES:-0}" "RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30:-0}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" "${BASE}/scripts/mergeRecoilJets.sh" "$DATASET" firstRound groupSize "${sim_merge_group_size}" )
       if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 1 ]]; then
         first_round_args+=( "SAMPLE=${SIM_SAMPLE}" )
       fi
       add_auto_stage_node "$auto_dag" "SIM_FIRSTROUND" "$runner" "sim_firstRound_${TAG}_all" "${first_round_args[@]}"
-      second_round_args=( env "MERGE_CONFIG_YAML=${master_yaml}" "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED}" "MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base}" "MERGE_CFG_MATCH=${RJ_PHOTON_ID_ROW_MATCH:-}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" "${BASE}/scripts/mergeRecoilJets.sh" "$DATASET" secondRound condor )
+      second_round_args=( env "MERGE_CONFIG_YAML=${master_yaml}" "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED}" "MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base}" "MERGE_CFG_MATCH=${RJ_PHOTON_ID_ROW_MATCH:-}" "RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES:-0}" "RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30:-0}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" "${BASE}/scripts/mergeRecoilJets.sh" "$DATASET" secondRound condor )
       if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 1 ]]; then
         second_round_args+=( "SAMPLE=${SIM_SAMPLE}" )
       fi
       add_auto_stage_node "$auto_dag" "SIM_SECONDROUND" "$runner" "sim_secondRound_${TAG}_all" "${second_round_args[@]}"
       if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
-        final_stitch_args=( env "MERGE_CONFIG_YAML=${master_yaml}" "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED}" "MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base}" "MERGE_CFG_MATCH=${RJ_PHOTON_ID_ROW_MATCH:-}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" "${BASE}/scripts/mergeRecoilJets.sh" "$DATASET" finalStitch condor )
+        final_stitch_args=( env "MERGE_CONFIG_YAML=${master_yaml}" "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED}" "MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base}" "MERGE_CFG_MATCH=${RJ_PHOTON_ID_ROW_MATCH:-}" "RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES:-0}" "RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30:-0}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" "${BASE}/scripts/mergeRecoilJets.sh" "$DATASET" finalStitch condor )
         add_auto_stage_node "$auto_dag" "SIM_FINALSTITCH" "$runner" "sim_finalStitch_${TAG}_all" "${final_stitch_args[@]}"
       fi
       if (( ${#RJ_DAG_COLLECTED_NODES[@]} > 0 )); then

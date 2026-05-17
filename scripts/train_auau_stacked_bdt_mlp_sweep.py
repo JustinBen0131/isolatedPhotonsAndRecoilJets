@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Train a full-feature diagnostic AuAu BDT+MLP stacker sweep.
 
-The stackers use the runtime BDT score and MLP score as inputs.  They are
+The stackers use the runtime BDT score and MLP score as inputs, with optional
+logistic-regression score context for tri-score superstacker tests.  They are
 therefore diagnostic MC ceiling tests unless promoted through an explicit
 physics review.  The serious variants keep the full photon-ID feature family:
 BDT base inputs, standard/3x3 width moments, width ratios, and extended
@@ -11,6 +12,7 @@ runtime-safe shower/energy-ratio features when present in the score caches.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import json
 import math
@@ -33,6 +35,7 @@ from train_auau_photon_mlp import (  # noqa: E402
 
 DEFAULT_MLP_SCORE = "score_centInputBase3x3WidthRatiosMLP_pt1535"
 DEFAULT_BDT_SCORE = "score_ptFine_cent7"
+DEFAULT_LOGREG_SCORE = "score_centEtFullLogReg_pt1535"
 DEFAULT_REPORT_PT_BINS = "5,10,15,18,20,22.5,25,30,35"
 DEFAULT_REPORT_CENT_BINS = "0,10,20,30,40,50,60,80"
 ALIGNMENT_KEYS = ("is_signal", "cluster_Et", "centrality", "reco_eiso")
@@ -76,6 +79,12 @@ for _feature in BDT_BASE_FEATURES + WIDTH_3X3_FEATURES + WIDTH_RATIO_FEATURES + 
     if _feature not in FULL_FEATURES:
         FULL_FEATURES.append(_feature)
 
+ISOLATION_CONTEXT_FEATURES = [
+    "reco_eiso_clip30",
+    "reco_eiso_over_cluster_Et",
+    "reco_eiso_signed_log1p",
+]
+
 
 @dataclass(frozen=True)
 class RouteSpec:
@@ -94,6 +103,8 @@ class VariantSpec:
     context: str
     include_centrality: bool
     routes: tuple[RouteSpec, ...] = ()
+    input_cohort: str = "legacy"
+    routing: str = "unknown"
 
 
 @dataclass
@@ -131,13 +142,55 @@ def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--mlp-cache", type=Path, default=None)
     ap.add_argument("--bdt-cache", type=Path, default=None)
+    ap.add_argument("--logreg-cache", type=Path, default=None)
     ap.add_argument("--outdir", type=Path, required=True)
     ap.add_argument("--mlp-score", default=DEFAULT_MLP_SCORE)
     ap.add_argument("--bdt-score", default=DEFAULT_BDT_SCORE)
+    ap.add_argument("--logreg-score", default=DEFAULT_LOGREG_SCORE)
     ap.add_argument("--algorithms", default="logistic,gbm")
     ap.add_argument("--variants", default="", help="Comma-separated variant-name filter. Empty means use the selected sweep preset.")
     ap.add_argument("--sweep", choices=["full", "compact"], default="full")
+    ap.add_argument(
+        "--matrix-cohort",
+        default="",
+        choices=[
+            "",
+            "stack_pair_score_only",
+            "stack_tri_score_only",
+            "stack_pair_context",
+            "stack_tri_context",
+            "stack_pair_full_no_iso",
+            "stack_tri_full_no_iso",
+            "stack_bdt_score_full_no_iso",
+            "stack_mlp_score_full_no_iso",
+        ],
+        help="Explicit registry input cohort for matrix-fill waves. Enables strict feature-policy preflight.",
+    )
+    ap.add_argument("--matrix-wave-name", default="", help="Human-readable wave tag recorded into outputs.")
+    ap.add_argument("--training-range", default="", choices=["", "15-35", "5-35"], help="Restrict matrix variants to one pT range.")
+    ap.add_argument(
+        "--matrix-routings",
+        default="all",
+        help="Comma-separated routing keys or 'all' for the canonical routing matrix.",
+    )
+    ap.add_argument(
+        "--require-full-stat",
+        action="store_true",
+        help="Fail if max rows/shards are capped or fewer than --expected-shards are loaded.",
+    )
+    ap.add_argument("--expected-shards", type=int, default=80)
+    ap.add_argument(
+        "--stack-training-safety",
+        default="disjoint_base_scores_heldout_test",
+        choices=["diagnostic_non_oof", "disjoint_base_scores_heldout_test", "oof_base_scores_heldout_test"],
+        help="Safety provenance for stacker training. Only disjoint/OOF modes can be final-comparable.",
+    )
     ap.add_argument("--include-controls", action="store_true")
+    ap.add_argument(
+        "--include-isolation-context",
+        action="store_true",
+        help="Add reconstructed-isolation derived columns as stacker inputs. Diagnostic ceiling test only; not ABCD-safe.",
+    )
     ap.add_argument("--allow-missing-full-features", action="store_true")
     ap.add_argument("--preflight-only", action="store_true")
     ap.add_argument("--self-test", action="store_true")
@@ -219,61 +272,96 @@ def auto_score_key(cache, requested: str, label: str) -> str:
     raise SystemExit(f"{label}: missing requested score key {requested}; available scores: {', '.join(score_keys)}")
 
 
-def compare_alignment(mlp_cache, bdt_cache, shard_label: str) -> None:
+def compare_alignment(reference_cache, other_cache, reference_label: str, other_label: str, shard_label: str) -> None:
     for key in ALIGNMENT_KEYS:
-        if key not in mlp_cache.files or key not in bdt_cache.files:
-            raise SystemExit(f"{shard_label}: missing alignment key {key}")
-        a = np.asarray(mlp_cache[key])
-        b = np.asarray(bdt_cache[key])
+        if key not in reference_cache.files or key not in other_cache.files:
+            raise SystemExit(f"{shard_label}: missing alignment key {key} in {reference_label} or {other_label}")
+        a = np.asarray(reference_cache[key])
+        b = np.asarray(other_cache[key])
         if len(a) != len(b):
-            raise SystemExit(f"{shard_label}: row count mismatch for {key}: {len(a)} vs {len(b)}")
+            raise SystemExit(f"{shard_label}: {reference_label}/{other_label} row count mismatch for {key}: {len(a)} vs {len(b)}")
         if np.issubdtype(a.dtype, np.number):
             if not np.allclose(a.astype("float64"), b.astype("float64"), rtol=0.0, atol=1.0e-6, equal_nan=True):
                 diff = float(np.nanmax(np.abs(a.astype("float64") - b.astype("float64"))))
-                raise SystemExit(f"{shard_label}: row alignment mismatch for {key}; max abs diff {diff}")
+                raise SystemExit(
+                    f"{shard_label}: {reference_label}/{other_label} row alignment mismatch for {key}; max abs diff {diff}"
+                )
         elif not np.array_equal(a, b):
-            raise SystemExit(f"{shard_label}: row alignment mismatch for {key}")
+            raise SystemExit(f"{shard_label}: {reference_label}/{other_label} row alignment mismatch for {key}")
 
 
 def load_aligned_caches(args: argparse.Namespace):
     mlp_paths = read_manifest(args.mlp_cache)
     bdt_paths = read_manifest(args.bdt_cache)
+    logreg_paths = read_manifest(args.logreg_cache) if args.logreg_cache else None
     if len(mlp_paths) != len(bdt_paths):
         raise SystemExit(f"Cache manifest length mismatch: MLP {len(mlp_paths)} vs BDT {len(bdt_paths)}")
+    if logreg_paths is not None and len(logreg_paths) != len(mlp_paths):
+        raise SystemExit(f"Cache manifest length mismatch: MLP {len(mlp_paths)} vs LogReg {len(logreg_paths)}")
     if args.max_shards > 0:
         mlp_paths = mlp_paths[: args.max_shards]
         bdt_paths = bdt_paths[: args.max_shards]
+        if logreg_paths is not None:
+            logreg_paths = logreg_paths[: args.max_shards]
+    if args.require_full_stat:
+        if args.max_shards > 0 or args.max_rows > 0:
+            raise SystemExit("--require-full-stat forbids --max-shards/--max-rows caps")
+        if len(mlp_paths) < int(args.expected_shards):
+            raise SystemExit(
+                f"--require-full-stat expected at least {args.expected_shards} shards, found {len(mlp_paths)} in {args.mlp_cache}"
+            )
 
     pieces: dict[str, list[np.ndarray]] = {"mlp_score": [], "bdt_score": []}
+    if logreg_paths is not None:
+        pieces["logreg_score"] = []
     mlp_key = args.mlp_score
     bdt_key = args.bdt_score
+    logreg_key = args.logreg_score
     copied_columns: list[str] = []
     for idx, (mlp_path, bdt_path) in enumerate(zip(mlp_paths, bdt_paths, strict=True), 1):
         if idx == 1 or idx % 20 == 0 or idx == len(mlp_paths):
             print(f"[stackSweep] reading shard {idx}/{len(mlp_paths)}", flush=True)
-        with np.load(mlp_path, allow_pickle=True) as mlp_cache, np.load(bdt_path, allow_pickle=True) as bdt_cache:
+        with contextlib.ExitStack() as stack:
+            mlp_cache = stack.enter_context(np.load(mlp_path, allow_pickle=True))
+            bdt_cache = stack.enter_context(np.load(bdt_path, allow_pickle=True))
+            logreg_cache = None
+            if logreg_paths is not None:
+                logreg_cache = stack.enter_context(np.load(logreg_paths[idx - 1], allow_pickle=True))
             if idx == 1:
                 mlp_key = auto_score_key(mlp_cache, args.mlp_score, "MLP cache")
                 bdt_key = auto_score_key(bdt_cache, args.bdt_score, "BDT cache")
+                if logreg_cache is not None:
+                    logreg_key = auto_score_key(logreg_cache, args.logreg_score, "LogReg cache")
+                source_file_sets = [set(mlp_cache.files), set(bdt_cache.files)]
+                if logreg_cache is not None:
+                    source_file_sets.append(set(logreg_cache.files))
                 copied_columns = sorted(
                     key
-                    for key in set(mlp_cache.files) | set(bdt_cache.files)
+                    for key in set().union(*source_file_sets)
                     if not key.startswith("score_") and key != "counts_json"
                 )
                 for key in copied_columns:
                     pieces.setdefault(key, [])
                 print(f"[stackSweep] mlp_score_key={mlp_key}", flush=True)
                 print(f"[stackSweep] bdt_score_key={bdt_key}", flush=True)
-            compare_alignment(mlp_cache, bdt_cache, f"shard {idx}")
+                if logreg_cache is not None:
+                    print(f"[stackSweep] logreg_score_key={logreg_key}", flush=True)
+            compare_alignment(mlp_cache, bdt_cache, "MLP", "BDT", f"shard {idx}")
+            if logreg_cache is not None:
+                compare_alignment(mlp_cache, logreg_cache, "MLP", "LogReg", f"shard {idx}")
             for key in copied_columns:
                 if key in mlp_cache.files:
                     pieces[key].append(np.asarray(mlp_cache[key]))
                 elif key in bdt_cache.files:
                     pieces[key].append(np.asarray(bdt_cache[key]))
+                elif logreg_cache is not None and key in logreg_cache.files:
+                    pieces[key].append(np.asarray(logreg_cache[key]))
                 elif key in ALIGNMENT_KEYS:
                     raise SystemExit(f"shard {idx}: missing required column {key}")
             pieces["mlp_score"].append(np.asarray(mlp_cache[mlp_key], dtype="float64"))
             pieces["bdt_score"].append(np.asarray(bdt_cache[bdt_key], dtype="float64"))
+            if logreg_cache is not None:
+                pieces["logreg_score"].append(np.asarray(logreg_cache[logreg_key], dtype="float64"))
 
     frame = {key: np.concatenate(parts) for key, parts in pieces.items() if parts}
     if args.max_rows > 0 and len(frame["is_signal"]) > args.max_rows:
@@ -286,9 +374,16 @@ def load_aligned_caches(args: argparse.Namespace):
     return frame, {
         "mlp_cache": str(args.mlp_cache),
         "bdt_cache": str(args.bdt_cache),
+        "logreg_cache": str(args.logreg_cache) if args.logreg_cache else "",
         "mlp_score_key": mlp_key,
         "bdt_score_key": bdt_key,
+        "logreg_score_key": logreg_key if logreg_paths is not None else "",
+        "uses_logreg_score": bool(logreg_paths is not None),
         "shards": len(mlp_paths),
+        "expected_shards": int(args.expected_shards),
+        "full_stat_required": bool(args.require_full_stat),
+        "max_rows": int(args.max_rows),
+        "max_shards": int(args.max_shards),
         "rows": int(len(frame["is_signal"])),
         "columns": sorted(frame.keys()),
     }
@@ -309,14 +404,55 @@ def add_derived_features(frame) -> None:
         frame["cluster_weta33_over_wphi33"] = ratio("cluster_weta33_cogx", "cluster_wphi33_cogx")
     if "mlp_logit" not in frame and "mlp_score" in frame:
         frame["mlp_logit"] = logit_prob(frame["mlp_score"])
+    if "logreg_logit" not in frame and "logreg_score" in frame:
+        frame["logreg_logit"] = logit_prob(frame["logreg_score"])
     if "bdt_is_finite" not in frame and "bdt_score" in frame:
         frame["bdt_is_finite"] = np.isfinite(frame["bdt_score"]).astype("float64")
     if "mlp_is_finite" not in frame and "mlp_score" in frame:
         frame["mlp_is_finite"] = np.isfinite(frame["mlp_score"]).astype("float64")
+    if "logreg_is_finite" not in frame and "logreg_score" in frame:
+        frame["logreg_is_finite"] = np.isfinite(frame["logreg_score"]).astype("float64")
+    if "tri_score_mean" not in frame and {"bdt_score", "mlp_score", "logreg_score"}.issubset(frame):
+        scores = np.column_stack(
+            [
+                np.asarray(frame["bdt_score"], dtype="float64"),
+                np.asarray(frame["mlp_score"], dtype="float64"),
+                np.asarray(frame["logreg_score"], dtype="float64"),
+            ]
+        )
+        frame["tri_score_mean"] = np.nanmean(np.where(np.isfinite(scores), scores, np.nan), axis=1)
+        frame["tri_score_spread"] = np.nanstd(np.where(np.isfinite(scores), scores, np.nan), axis=1)
     if "log_cluster_Et" not in frame and "cluster_Et" in frame:
         frame["log_cluster_Et"] = np.log(np.clip(np.asarray(frame["cluster_Et"], dtype="float64"), 1.0e-3, None))
     if "centrality_scaled" not in frame and "centrality" in frame:
         frame["centrality_scaled"] = np.clip(np.asarray(frame["centrality"], dtype="float64"), 0.0, 100.0) / 100.0
+    if "reco_eiso_clip30" not in frame and "reco_eiso" in frame:
+        reco_eiso = np.asarray(frame["reco_eiso"], dtype="float64")
+        frame["reco_eiso_clip30"] = np.where(
+            np.isfinite(reco_eiso) & (np.abs(reco_eiso) < 1.0e8),
+            np.clip(reco_eiso, -20.0, 30.0),
+            np.nan,
+        )
+    if "reco_eiso_over_cluster_Et" not in frame and {"reco_eiso", "cluster_Et"}.issubset(frame):
+        reco_eiso = np.asarray(frame["reco_eiso"], dtype="float64")
+        cluster_et = np.asarray(frame["cluster_Et"], dtype="float64")
+        out = np.full(len(reco_eiso), np.nan, dtype="float64")
+        mask = (
+            np.isfinite(reco_eiso)
+            & np.isfinite(cluster_et)
+            & (np.abs(reco_eiso) < 1.0e8)
+            & (cluster_et > 1.0e-6)
+        )
+        out[mask] = np.clip(reco_eiso[mask] / cluster_et[mask], -2.0, 3.0)
+        frame["reco_eiso_over_cluster_Et"] = out
+    if "reco_eiso_signed_log1p" not in frame and "reco_eiso" in frame:
+        reco_eiso = np.asarray(frame["reco_eiso"], dtype="float64")
+        clipped = np.where(
+            np.isfinite(reco_eiso) & (np.abs(reco_eiso) < 1.0e8),
+            np.clip(reco_eiso, -20.0, 60.0),
+            np.nan,
+        )
+        frame["reco_eiso_signed_log1p"] = np.sign(clipped) * np.log1p(np.abs(clipped))
 
 
 def add_interactions(frame) -> None:
@@ -327,7 +463,15 @@ def add_interactions(frame) -> None:
         "mlp_logit_x_logEt": ("mlp_logit", "log_cluster_Et"),
         "bdt_x_cent": ("bdt_score", "centrality_scaled"),
         "mlp_logit_x_cent": ("mlp_logit", "centrality_scaled"),
+        "bdt_x_logreg_logit": ("bdt_score", "logreg_logit"),
+        "mlp_logit_x_logreg_logit": ("mlp_logit", "logreg_logit"),
+        "logreg_logit_x_logEt": ("logreg_logit", "log_cluster_Et"),
+        "logreg_logit_x_cent": ("logreg_logit", "centrality_scaled"),
         "logEt_x_cent": ("log_cluster_Et", "centrality_scaled"),
+        "bdt_x_eiso": ("bdt_score", "reco_eiso_over_cluster_Et"),
+        "mlp_logit_x_eiso": ("mlp_logit", "reco_eiso_over_cluster_Et"),
+        "logreg_logit_x_eiso": ("logreg_logit", "reco_eiso_over_cluster_Et"),
+        "logEt_x_eiso": ("log_cluster_Et", "reco_eiso_over_cluster_Et"),
     }
     for out, (a, b) in pairs.items():
         if out not in frame and a in frame and b in frame:
@@ -819,6 +963,93 @@ def route_specs_from_cent_bins(pt_lo: float, pt_hi: float, cent_bins) -> tuple[R
     return tuple(routes)
 
 
+CANONICAL_ROUTINGS = (
+    "global_centEtInput",
+    "global_etInput_noCent",
+    "global_centInput_noEt",
+    "etCoarse_centInput",
+    "etFine_centInput",
+    "cent3_etInput",
+    "cent7_etInput",
+    "etCoarse_cent3_routed",
+    "etFine_cent3_routed",
+    "etCoarse_cent7_routed",
+    "etFine_cent7_routed",
+)
+
+
+def routing_routes(routing: str, lo: float, hi: float) -> tuple[RouteSpec, ...]:
+    cent3 = [(0.0, 20.0), (20.0, 50.0), (50.0, 80.0)]
+    cent7 = [(0.0, 10.0), (10.0, 20.0), (20.0, 30.0), (30.0, 40.0), (40.0, 50.0), (50.0, 60.0), (60.0, 80.0)]
+    coarse_edges = [5.0, 15.0, 25.0, 35.0] if lo < 10.0 else [15.0, 20.0, 25.0, 35.0]
+    fine_edges = [5.0, 10.0, 15.0, 18.0, 20.0, 22.5, 25.0, 30.0, 35.0] if lo < 10.0 else [15.0, 18.0, 20.0, 22.5, 25.0, 30.0, 35.0]
+    coarse = bins_from_edges(coarse_edges)
+    fine = bins_from_edges(fine_edges)
+    if routing in ("global_centEtInput", "global_etInput_noCent", "global_centInput_noEt"):
+        return ()
+    if routing == "etCoarse_centInput":
+        return route_specs_from_bins(coarse)
+    if routing == "etFine_centInput":
+        return route_specs_from_bins(fine)
+    if routing == "cent3_etInput":
+        return route_specs_from_cent_bins(lo, hi, cent3)
+    if routing == "cent7_etInput":
+        return route_specs_from_cent_bins(lo, hi, cent7)
+    if routing == "etCoarse_cent3_routed":
+        return route_specs_from_bins(coarse, cent3)
+    if routing == "etFine_cent3_routed":
+        return route_specs_from_bins(fine, cent3)
+    if routing == "etCoarse_cent7_routed":
+        return route_specs_from_bins(coarse, cent7)
+    if routing == "etFine_cent7_routed":
+        return route_specs_from_bins(fine, cent7)
+    raise SystemExit(f"Unknown matrix routing: {routing}")
+
+
+def routing_uses_et_input(routing: str) -> bool:
+    return routing in ("global_centEtInput", "global_etInput_noCent", "cent3_etInput", "cent7_etInput")
+
+
+def routing_uses_cent_input(routing: str) -> bool:
+    return routing in ("global_centEtInput", "global_centInput_noEt", "etCoarse_centInput", "etFine_centInput")
+
+
+def build_matrix_variants(args) -> list[VariantSpec]:
+    if not args.matrix_cohort:
+        return []
+    if args.matrix_cohort.startswith("stack_tri") and not getattr(args, "logreg_cache", None):
+        raise SystemExit(f"{args.matrix_cohort} requires --logreg-cache")
+    ranges = [(15.0, 35.0), (5.0, 35.0)]
+    if args.training_range:
+        lo_s, hi_s = args.training_range.split("-", 1)
+        ranges = [(float(lo_s), float(hi_s))]
+    if args.matrix_routings.strip().lower() == "all":
+        routings = list(CANONICAL_ROUTINGS)
+    else:
+        routings = [item.strip() for item in args.matrix_routings.split(",") if item.strip()]
+    unknown = sorted(set(routings) - set(CANONICAL_ROUTINGS))
+    if unknown:
+        raise SystemExit(f"Unknown --matrix-routings entries: {unknown}")
+    variants: list[VariantSpec] = []
+    for lo, hi in ranges:
+        tag = range_label(lo, hi)
+        for routing in routings:
+            context = args.matrix_cohort
+            variants.append(
+                VariantSpec(
+                    name=f"{args.matrix_cohort}_{routing}_{tag}",
+                    pt_lo=lo,
+                    pt_hi=hi,
+                    context=context,
+                    include_centrality=routing_uses_cent_input(routing),
+                    routes=routing_routes(routing, lo, hi),
+                    input_cohort=args.matrix_cohort,
+                    routing=routing,
+                )
+            )
+    return variants
+
+
 def route_payload(route: RouteSpec) -> dict:
     return {
         "label": route.label,
@@ -836,11 +1067,25 @@ def variant_payload(variant: VariantSpec) -> dict:
         "pt_hi": variant.pt_hi,
         "context": variant.context,
         "include_centrality": variant.include_centrality,
+        "input_cohort": variant.input_cohort,
+        "routing": variant.routing,
         "routes": [route_payload(route) for route in variant.routes],
     }
 
 
 def build_variants(args) -> list[VariantSpec]:
+    matrix_variants = build_matrix_variants(args)
+    if matrix_variants:
+        requested = [item.strip() for item in getattr(args, "variants", "").split(",") if item.strip()]
+        if requested:
+            known = {variant.name for variant in matrix_variants}
+            missing = [name for name in requested if name not in known]
+            if missing:
+                raise SystemExit(f"Unknown --variants entry/entries: {missing}. Known matrix variants include: {', '.join(sorted(known))}")
+            keep = set(requested)
+            matrix_variants = [variant for variant in matrix_variants if variant.name in keep]
+        return matrix_variants
+
     ranges = [(5.0, 35.0), (15.0, 35.0)]
     cent3 = [(0.0, 20.0), (20.0, 50.0), (50.0, 80.0)]
     cent7 = [(0.0, 10.0), (10.0, 20.0), (20.0, 30.0), (30.0, 40.0), (40.0, 50.0), (50.0, 60.0), (60.0, 80.0)]
@@ -875,8 +1120,17 @@ def build_variants(args) -> list[VariantSpec]:
                 VariantSpec("control15to35_scoreOnly", 15.0, 35.0, "score_only", False),
                 VariantSpec("control15to35_bdtOnly", 15.0, 35.0, "bdt_only", False),
                 VariantSpec("control15to35_mlpOnly", 15.0, 35.0, "mlp_only", False),
+                VariantSpec("meta15to35_bdtMlp_full", 15.0, 35.0, "bdt_mlp_full", True),
+                VariantSpec("meta15to35_mlpScore_full", 15.0, 35.0, "mlp_score_full", True),
             ]
         )
+        if getattr(args, "logreg_cache", None):
+            variants.extend(
+                [
+                    VariantSpec("control15to35_logregOnly", 15.0, 35.0, "logreg_only", False),
+                    VariantSpec("meta15to35_bdtMlpLogReg_full", 15.0, 35.0, "tri_score_full", True),
+                ]
+            )
     requested = [item.strip() for item in getattr(args, "variants", "").split(",") if item.strip()]
     if requested:
         known = {variant.name for variant in variants}
@@ -888,13 +1142,174 @@ def build_variants(args) -> list[VariantSpec]:
     return variants
 
 
+SCORE_PAIR_FEATURES = ("bdt_score", "bdt_is_finite", "mlp_score", "mlp_logit", "mlp_is_finite")
+SCORE_TRI_FEATURES = SCORE_PAIR_FEATURES + (
+    "logreg_score",
+    "logreg_logit",
+    "logreg_is_finite",
+    "tri_score_mean",
+    "tri_score_spread",
+)
+CONTEXT_FEATURES = ("cluster_Et", "log_cluster_Et", "centrality", "centrality_scaled")
+SCORE_DERIVED_PREFIXES = ("bdt_", "mlp_", "logreg_", "tri_score_")
+RAW_FEATURE_PREFIXES = ("cluster_", "e11_", "e22_", "e32_", "reco_eiso", "vertexz", "centrality")
+
+
+def matrix_feature_names_for_variant(frame, variant: VariantSpec, args) -> tuple[list[str], list[str]]:
+    add_derived_features(frame)
+    cohort = variant.input_cohort
+    if cohort in ("stack_pair_score_only", "stack_pair_context", "stack_pair_full_no_iso", "stack_bdt_score_full_no_iso", "stack_mlp_score_full_no_iso"):
+        base_scores = list(SCORE_PAIR_FEATURES)
+    elif cohort in ("stack_tri_score_only", "stack_tri_context", "stack_tri_full_no_iso"):
+        if "logreg_score" not in frame:
+            raise SystemExit(f"{variant.name} requires --logreg-cache/score for tri-score features")
+        base_scores = list(SCORE_TRI_FEATURES)
+    else:
+        raise SystemExit(f"Unknown matrix input cohort for feature policy: {cohort}")
+
+    if cohort == "stack_bdt_score_full_no_iso":
+        names = ["bdt_score", "bdt_is_finite"]
+    elif cohort == "stack_mlp_score_full_no_iso":
+        names = ["mlp_score", "mlp_logit", "mlp_is_finite"]
+    else:
+        names = base_scores
+
+    if cohort in ("stack_pair_context", "stack_tri_context"):
+        if routing_uses_et_input(variant.routing):
+            names += ["cluster_Et", "log_cluster_Et"]
+        if routing_uses_cent_input(variant.routing):
+            names += ["centrality", "centrality_scaled"]
+    elif cohort in ("stack_pair_full_no_iso", "stack_tri_full_no_iso", "stack_bdt_score_full_no_iso", "stack_mlp_score_full_no_iso"):
+        for feature in FULL_FEATURES:
+            if feature == "cluster_Et" and not routing_uses_et_input(variant.routing):
+                continue
+            if feature not in names:
+                names.append(feature)
+        if routing_uses_et_input(variant.routing):
+            names.append("log_cluster_Et")
+        if routing_uses_cent_input(variant.routing):
+            names += ["centrality", "centrality_scaled"]
+
+    deduped: list[str] = []
+    for name in names:
+        if name not in deduped:
+            deduped.append(name)
+    missing = [name for name in deduped if name not in frame]
+    present = [name for name in deduped if name in frame]
+    enforce_matrix_feature_policy(variant, present)
+    if missing and not args.allow_missing_full_features:
+        raise SystemExit(
+            f"Variant {variant.name} needs missing matrix feature column(s): {missing}. "
+            "Regenerate aligned score caches or pass --allow-missing-full-features for a limited diagnostic."
+        )
+    return present, missing
+
+
+def enforce_matrix_feature_policy(variant: VariantSpec, feature_names: list[str]) -> None:
+    cohort = variant.input_cohort
+    features = set(feature_names)
+    score_allowed = set(SCORE_TRI_FEATURES)
+    context_allowed = score_allowed | set(CONTEXT_FEATURES)
+    if cohort in ("stack_pair_score_only", "stack_tri_score_only"):
+        bad = sorted(
+            name
+            for name in features
+            if name not in score_allowed
+            or name.startswith(RAW_FEATURE_PREFIXES)
+            or name in CONTEXT_FEATURES
+        )
+        if bad:
+            raise SystemExit(f"{variant.name}: score-only cohort illegally includes non-score feature(s): {bad}")
+    if cohort in ("stack_pair_context", "stack_tri_context"):
+        bad = sorted(
+            name
+            for name in features
+            if name not in context_allowed
+            or (name.startswith(RAW_FEATURE_PREFIXES) and name not in CONTEXT_FEATURES)
+            or name.startswith("e")
+            or name == "vertexz"
+        )
+        if bad:
+            raise SystemExit(f"{variant.name}: context cohort illegally includes full-feature column(s): {bad}")
+    if cohort.endswith("_no_iso") or cohort in ("stack_pair_score_only", "stack_tri_score_only", "stack_pair_context", "stack_tri_context"):
+        bad_iso = sorted(name for name in features if "eiso" in name.lower() or "isolation" in name.lower())
+        if bad_iso:
+            raise SystemExit(f"{variant.name}: no-isolation cohort illegally includes isolation feature(s): {bad_iso}")
+
+
 def feature_names_for_variant(frame, variant: VariantSpec, args) -> tuple[list[str], list[str]]:
+    if variant.input_cohort != "legacy":
+        return matrix_feature_names_for_variant(frame, variant, args)
+
     add_interactions(frame)
     names = ["bdt_score", "bdt_is_finite", "mlp_score", "mlp_logit", "mlp_is_finite"]
+    tri_score_features = []
+    if "logreg_score" in frame:
+        tri_score_features = [
+            "logreg_score",
+            "logreg_logit",
+            "logreg_is_finite",
+            "tri_score_mean",
+            "tri_score_spread",
+        ]
+        names += tri_score_features
     if variant.context == "bdt_only":
         names = ["bdt_score", "bdt_is_finite"]
     elif variant.context == "mlp_only":
         names = ["mlp_score", "mlp_logit", "mlp_is_finite"]
+    elif variant.context == "logreg_only":
+        names = ["logreg_score", "logreg_logit", "logreg_is_finite"]
+    elif variant.context == "bdt_mlp_full":
+        names = ["bdt_score", "bdt_is_finite", "mlp_score", "mlp_logit", "mlp_is_finite"]
+        for feature in FULL_FEATURES:
+            if feature not in names:
+                names.append(feature)
+        for feature in ("centrality", "centrality_scaled", "log_cluster_Et"):
+            if feature in frame and feature not in names:
+                names.append(feature)
+        names += ["bdt_x_mlp_logit", "bdt_x_logEt", "mlp_logit_x_logEt", "bdt_x_cent", "mlp_logit_x_cent", "logEt_x_cent"]
+    elif variant.context == "mlp_score_full":
+        names = ["mlp_score", "mlp_logit", "mlp_is_finite"]
+        for feature in FULL_FEATURES:
+            if feature not in names:
+                names.append(feature)
+        for feature in ("centrality", "centrality_scaled", "log_cluster_Et"):
+            if feature in frame and feature not in names:
+                names.append(feature)
+        names += ["mlp_logit_x_logEt", "mlp_logit_x_cent", "logEt_x_cent"]
+    elif variant.context == "tri_score_full":
+        if "logreg_score" not in frame:
+            raise SystemExit("Variant meta15to35_bdtMlpLogReg_full requires --logreg-cache")
+        names = [
+            "bdt_score",
+            "bdt_is_finite",
+            "mlp_score",
+            "mlp_logit",
+            "mlp_is_finite",
+            "logreg_score",
+            "logreg_logit",
+            "logreg_is_finite",
+            "tri_score_mean",
+            "tri_score_spread",
+        ]
+        for feature in FULL_FEATURES:
+            if feature not in names:
+                names.append(feature)
+        for feature in ("centrality", "centrality_scaled", "log_cluster_Et"):
+            if feature in frame and feature not in names:
+                names.append(feature)
+        names += [
+            "bdt_x_mlp_logit",
+            "bdt_x_logEt",
+            "mlp_logit_x_logEt",
+            "bdt_x_cent",
+            "mlp_logit_x_cent",
+            "logEt_x_cent",
+            "bdt_x_logreg_logit",
+            "mlp_logit_x_logreg_logit",
+            "logreg_logit_x_logEt",
+            "logreg_logit_x_cent",
+        ]
     else:
         for feature in FULL_FEATURES:
             if feature == "centrality":
@@ -909,10 +1324,30 @@ def feature_names_for_variant(frame, variant: VariantSpec, args) -> tuple[list[s
             names.append("centrality_scaled")
         if variant.context == "et_cent":
             names += ["bdt_x_mlp_logit", "bdt_x_logEt", "mlp_logit_x_logEt", "bdt_x_cent", "mlp_logit_x_cent", "logEt_x_cent"]
+            if tri_score_features:
+                names += [
+                    "bdt_x_logreg_logit",
+                    "mlp_logit_x_logreg_logit",
+                    "logreg_logit_x_logEt",
+                    "logreg_logit_x_cent",
+                ]
         elif variant.context == "et_only":
             names += ["bdt_x_mlp_logit", "bdt_x_logEt", "mlp_logit_x_logEt"]
+            if tri_score_features:
+                names += ["bdt_x_logreg_logit", "mlp_logit_x_logreg_logit", "logreg_logit_x_logEt"]
         elif variant.context == "cent_only":
             names += ["bdt_x_mlp_logit", "bdt_x_cent", "mlp_logit_x_cent"]
+            if tri_score_features:
+                names += ["bdt_x_logreg_logit", "mlp_logit_x_logreg_logit", "logreg_logit_x_cent"]
+    if args.include_isolation_context:
+        for feature in ISOLATION_CONTEXT_FEATURES:
+            if feature not in names:
+                names.append(feature)
+        for feature in ("bdt_x_eiso", "mlp_logit_x_eiso", "logEt_x_eiso"):
+            if feature not in names:
+                names.append(feature)
+        if tri_score_features and "logreg_logit_x_eiso" not in names:
+            names.append("logreg_logit_x_eiso")
     deduped = []
     for name in names:
         if name not in deduped:
@@ -1011,6 +1446,10 @@ def score_variant(frame, variant: VariantSpec, algorithm: str, masks, args, seed
             "variant": variant_payload(variant),
             "diagnostic_only": True,
             "uses_runtime_bdt_score": True,
+            "input_cohort": variant.input_cohort,
+            "routing": variant.routing,
+            "stack_training_safety": args.stack_training_safety,
+            "full_stat_required": bool(args.require_full_stat),
             "algorithm": algorithm,
             "feature_names": feature_names,
             "missing_feature_columns": missing_features,
@@ -1029,6 +1468,10 @@ def score_variant(frame, variant: VariantSpec, algorithm: str, masks, args, seed
             "variant": variant_payload(variant),
             "diagnostic_only": True,
             "uses_runtime_bdt_score": True,
+            "input_cohort": variant.input_cohort,
+            "routing": variant.routing,
+            "stack_training_safety": args.stack_training_safety,
+            "full_stat_required": bool(args.require_full_stat),
             "algorithm": algorithm,
             "feature_names": feature_names,
             "missing_feature_columns": missing_features,
@@ -1098,6 +1541,10 @@ def split_metrics(frame, score, mask, target_eff, pt_bins, cent_bins):
 
 
 def flatten_row(model_name, variant: VariantSpec, algorithm, split_name, feature_names, metrics, highpt, anchors):
+    safety = "diagnostic_non_oof"
+    readiness = "diagnostic_non_oof"
+    # The caller fills stack_training_safety/readiness below when args are
+    # available; these defaults preserve legacy behavior for old invocations.
     row = {
         "model": model_name,
         "variant": variant.name,
@@ -1105,6 +1552,10 @@ def flatten_row(model_name, variant: VariantSpec, algorithm, split_name, feature
         "split": split_name,
         "pt_range": f"{variant.pt_lo:g}:{variant.pt_hi:g}",
         "context": variant.context,
+        "input_cohort": variant.input_cohort,
+        "routing": variant.routing,
+        "stack_training_safety": safety,
+        "readiness": readiness,
         "routes": len(variant.routes),
         "features": "+".join(feature_names),
         "entries": metrics["entries"],
@@ -1157,7 +1608,7 @@ def rank_key(row: dict):
     return (fake, -high_auc, -auc, ece)
 
 
-def make_synthetic_cache(outdir: Path, n: int, seed: int) -> tuple[Path, Path]:
+def make_synthetic_cache(outdir: Path, n: int, seed: int) -> tuple[Path, Path, Path]:
     rng = np.random.default_rng(seed)
     y = rng.integers(0, 2, size=n).astype("int32")
     et = rng.uniform(5.0, 35.0, size=n)
@@ -1179,35 +1630,64 @@ def make_synthetic_cache(outdir: Path, n: int, seed: int) -> tuple[Path, Path]:
     linear = 1.3 * y + 0.5 * (20.0 - et) / 15.0 - 0.15 * cent / 80.0 + rng.normal(0.0, 0.9, size=n)
     mlp_score = sigmoid(linear - 0.6)
     bdt_score = sigmoid(0.9 * y - 0.45 * (et - 20.0) / 15.0 + 0.25 * frame["cluster_weta_cogx"] + rng.normal(0.0, 0.8, size=n))
+    logreg_score = sigmoid(0.55 * y - 0.25 * (et - 20.0) / 15.0 + 0.18 * frame["cluster_weta_cogx"] + rng.normal(0.0, 0.9, size=n))
     outdir.mkdir(parents=True, exist_ok=True)
     mlp_npz = outdir / "synthetic_mlp_cache_000.npz"
     bdt_npz = outdir / "synthetic_bdt_cache_000.npz"
+    logreg_npz = outdir / "synthetic_logreg_cache_000.npz"
     common = {k: np.asarray(v) for k, v in frame.items()}
     np.savez_compressed(mlp_npz, **common, **{DEFAULT_MLP_SCORE: mlp_score.astype("float32")})
     np.savez_compressed(bdt_npz, **common, **{DEFAULT_BDT_SCORE: bdt_score.astype("float32")})
+    np.savez_compressed(logreg_npz, **common, **{DEFAULT_LOGREG_SCORE: logreg_score.astype("float32")})
     mlp_manifest = outdir / "synthetic_mlp_score_caches.list"
     bdt_manifest = outdir / "synthetic_bdt_score_caches.list"
+    logreg_manifest = outdir / "synthetic_logreg_score_caches.list"
     mlp_manifest.write_text(str(mlp_npz) + "\n")
     bdt_manifest.write_text(str(bdt_npz) + "\n")
-    return mlp_manifest, bdt_manifest
+    logreg_manifest.write_text(str(logreg_npz) + "\n")
+    return mlp_manifest, bdt_manifest, logreg_manifest
 
 
 def preflight(frame, cache_info, args) -> dict:
     missing_full = [feature for feature in FULL_FEATURES if feature not in frame]
+    missing_isolation = [feature for feature in ISOLATION_CONTEXT_FEATURES if args.include_isolation_context and feature not in frame]
+    cohort_needs_full = (not args.matrix_cohort) or args.matrix_cohort in (
+        "stack_pair_full_no_iso",
+        "stack_tri_full_no_iso",
+        "stack_bdt_score_full_no_iso",
+        "stack_mlp_score_full_no_iso",
+    )
+    missing_required = (missing_full if cohort_needs_full else []) + missing_isolation
     payload = {
         "schema": "RJ_AUAU_STACKED_BDT_MLP_PREFLIGHT_V1",
         "cache_info": cache_info,
         "rows": int(len(frame["is_signal"])),
         "available_full_features": [feature for feature in FULL_FEATURES if feature in frame],
         "missing_full_features": missing_full,
+        "include_isolation_context": bool(args.include_isolation_context),
+        "available_isolation_context_features": [feature for feature in ISOLATION_CONTEXT_FEATURES if feature in frame],
+        "missing_isolation_context_features": missing_isolation,
+        "diagnostic_only": bool(args.include_isolation_context),
+        "abcd_warning": (
+            "Uses reconstructed isolation-derived stacker inputs; diagnostic ceiling test only, not ABCD-safe."
+            if args.include_isolation_context else ""
+        ),
         "allow_missing_full_features": bool(args.allow_missing_full_features),
-        "status": "OK" if (not missing_full or args.allow_missing_full_features) else "MISSING_FULL_FEATURES",
+        "matrix_cohort": str(args.matrix_cohort or ""),
+        "matrix_wave_name": str(args.matrix_wave_name or ""),
+        "training_range": str(args.training_range or ""),
+        "matrix_routings": str(args.matrix_routings or ""),
+        "require_full_stat": bool(args.require_full_stat),
+        "expected_shards": int(args.expected_shards),
+        "stack_training_safety": str(args.stack_training_safety),
+        "final_comparable_stack_training": bool(args.stack_training_safety in ("disjoint_base_scores_heldout_test", "oof_base_scores_heldout_test") and args.require_full_stat),
+        "status": "OK" if (not missing_required or args.allow_missing_full_features) else "MISSING_FULL_FEATURES",
     }
     write_json(args.outdir / "stacked_sweep_preflight.json", payload)
-    if missing_full and not args.allow_missing_full_features:
+    if missing_required and not args.allow_missing_full_features:
         raise SystemExit(
             "Full-feature stacker preflight failed; missing columns: "
-            + ", ".join(missing_full)
+            + ", ".join(missing_required)
             + ". Regenerate BDT/MLP score caches with the updated validators or use --allow-missing-full-features for a limited diagnostic."
         )
     return payload
@@ -1220,7 +1700,7 @@ def main():
         synthetic_dir = args.outdir / "synthetic_inputs"
         if synthetic_dir.exists():
             shutil.rmtree(synthetic_dir)
-        args.mlp_cache, args.bdt_cache = make_synthetic_cache(synthetic_dir, 6000, args.random_seed)
+        args.mlp_cache, args.bdt_cache, args.logreg_cache = make_synthetic_cache(synthetic_dir, 6000, args.random_seed)
         args.max_rows = 0
         args.allow_missing_full_features = False
         if not args.variants:
@@ -1256,8 +1736,21 @@ def main():
     metrics_payload = {
         "schema": "RJ_AUAU_STACKED_BDT_MLP_FULL_FEATURE_SWEEP_V1",
         "note": args.note,
-        "diagnostic_only": True,
+        "diagnostic_only": bool(args.stack_training_safety == "diagnostic_non_oof"),
         "uses_runtime_bdt_score": True,
+        "matrix_wave_name": str(args.matrix_wave_name or ""),
+        "matrix_cohort": str(args.matrix_cohort or ""),
+        "training_range": str(args.training_range or ""),
+        "matrix_routings": str(args.matrix_routings or ""),
+        "stack_training_safety": str(args.stack_training_safety),
+        "final_comparable_stack_training": bool(args.stack_training_safety in ("disjoint_base_scores_heldout_test", "oof_base_scores_heldout_test") and args.require_full_stat),
+        "full_stat_required": bool(args.require_full_stat),
+        "include_isolation_context": bool(args.include_isolation_context),
+        "abcd_warning": (
+            "Uses reconstructed isolation-derived stacker inputs; diagnostic ceiling test only, not ABCD-safe."
+            if args.include_isolation_context
+            else "Uses first-round classifier scores as stacker inputs; closure pending unless stack-training safety and validation gates pass."
+        ),
         "preflight": preflight_payload,
         "anchors": anchors,
         "splits": {key: int(mask.sum()) for key, mask in masks.items()},
@@ -1304,7 +1797,18 @@ def main():
                 metrics = split_metrics(frame, result["score"], split_mask, args.target_signal_efficiency, pt_bins, cent_bins)
                 highpt = split_metrics(frame, result["score"], highpt_mask, args.target_signal_efficiency, [(20.0, 25.0), (25.0, 35.0)], cent_bins)
                 metrics_payload["models"][model_name]["metrics"][split_name] = {"inclusive": metrics, "highpt_20_35": highpt}
-                rows.append(flatten_row(model_name, variant, algorithm, split_name, result["feature_names"], metrics, highpt, anchors))
+                out_row = flatten_row(model_name, variant, algorithm, split_name, result["feature_names"], metrics, highpt, anchors)
+                out_row["matrix_wave_name"] = args.matrix_wave_name
+                out_row["stack_training_safety"] = args.stack_training_safety
+                out_row["full_stat_required"] = str(bool(args.require_full_stat))
+                out_row["full_stat_shards"] = cache_info.get("shards", "")
+                if args.require_full_stat and args.stack_training_safety in ("disjoint_base_scores_heldout_test", "oof_base_scores_heldout_test"):
+                    out_row["readiness"] = "validated_full_oof_safe"
+                elif args.require_full_stat:
+                    out_row["readiness"] = "diagnostic_non_oof"
+                else:
+                    out_row["readiness"] = "smoke_passed" if args.max_rows > 0 or args.max_shards > 0 else "trained_full"
+                rows.append(out_row)
             test = metrics_payload["models"][model_name]["metrics"]["test"]["inclusive"]
             high = metrics_payload["models"][model_name]["metrics"]["test"]["highpt_20_35"]
             print(
@@ -1317,6 +1821,23 @@ def main():
     write_csv(rank_path, rows)
     write_csv(args.outdir / "stacked_sweep_training_history.csv", all_history_rows)
     write_json(args.outdir / "stacked_sweep_metrics.json", metrics_payload)
+    manifest_payload = {
+        "schema": "RJ_AUAU_STACK_MATRIX_WAVE_MANIFEST_V1",
+        "matrix_wave_name": args.matrix_wave_name,
+        "matrix_cohort": args.matrix_cohort,
+        "training_range": args.training_range,
+        "matrix_routings": args.matrix_routings,
+        "algorithms": algorithms,
+        "stack_training_safety": args.stack_training_safety,
+        "require_full_stat": bool(args.require_full_stat),
+        "cache_info": cache_info,
+        "rank_table": str(rank_path),
+        "metrics_json": str(args.outdir / "stacked_sweep_metrics.json"),
+        "top4_json": str(args.outdir / "stacked_sweep_top4.json"),
+        "training_history_csv": str(args.outdir / "stacked_sweep_training_history.csv"),
+        "output_dir": str(args.outdir),
+    }
+    write_json(args.outdir / "matrix_wave_manifest.json", manifest_payload)
     test_rows = [row for row in rows if row["split"] == "test"]
     test_rows.sort(key=rank_key)
     top = test_rows[: max(1, args.top_n)]

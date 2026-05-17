@@ -1,12 +1,492 @@
 # Status Dashboard
 
-Last updated: 2026-05-14
+Last updated: 2026-05-16
 
 Use traffic-light status for datasets/jobs/outputs. Keep rows evidence-based:
 email, terminal output, job ID, pulled file timestamp, ROOT inspection, or clear
 user statement.
 
 Latest active update:
+
+- 2026-05-16 19:26 EDT / SIXPACK MLP RESUBMITTED AFTER 48GB HOLD:
+  Justin asked Codex to fix and resubmit the blocked sixpack MLP lane. Codex
+  identified the main avoidable memory spike in `scripts/train_auau_photon_mlp.py`:
+  full training-set forward passes were being used for per-epoch diagnostics,
+  which is expensive for the `384,192,96,48` candidate. Codex patched the MLP
+  path to keep ROOT-derived frames compact (`float32`/small integer storage),
+  standardize feature arrays to `float32`, evaluate validation/test logits in
+  batches, and use a fixed `500k` training-row diagnostic subset while keeping
+  validation/test full-stat. Codex also patched
+  `scripts/submit_auau_global_sixpack_oof_stack.sh` so direct MLP jobs request
+  `64GB`, use `--eval-batch-size 131072`, and use
+  `--train-eval-max-rows 500000`. Local checks passed:
+  `/Users/patsfan753/Desktop/analysis/env/bin/python -m py_compile
+  scripts/train_auau_photon_mlp.py` and
+  `bash -n scripts/submit_auau_global_sixpack_oof_stack.sh`. Both files were
+  uploaded to SDCC and remote compile/shell checks passed on
+  `sphnxuser02.sdcc.bnl.gov`. Codex removed only the held replacement MLP
+  cluster `2122602` after it exceeded the `48GB` cgroup limit
+  (`last measured usage=47897 MB`) and relaunched the resume tmux
+  `auau_sixpack_resume_20260516_135439`. New active Condor job:
+  `2122700`, `train_mlp_noiso`, `request_memory=64000MB`,
+  JobBatchName `auau_global_sixpack_20260516_135439_train_mlp_noiso`.
+  Continue watching for no-iso MLP completion, automatic iso MLP submission,
+  validation, and sequential stack jobs.
+
+- 2026-05-16 18:08 EDT / READY BDT-ONLY FULL VALIDATION FOR FINISHED SIXPACK MODELS:
+  Justin asked to full-validate only the finished three-background-sample
+  models while leaving the still-running MLP/stack jobs untouched. Codex found
+  the staged sixpack source uses symlinked ROOT files, so validation manifest
+  generation needed to follow symlinks. Codex updated and uploaded only
+  `scripts/auau_tight_bdt_pipeline.sh` and
+  `scripts/auau_tight_mlp_pipeline.sh` to use `find -L` when building ROOT
+  manifests; this does not affect the already-running MLP training job, but it
+  fixes BDT validation now and future MLP validation on the same staged source.
+  BDT-only validation submit host: `sphnxuser02.sdcc.bnl.gov`; DAGMan cluster
+  `2122603`; worker clusters start at `2122604`; source:
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/globalEtCentInclusive3Sixpack_20260516_135439`;
+  model dir:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_models`;
+  output/report root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/validation/bdt_finished_only_20260516_180817`;
+  submit root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTValidate_bdt_finished_only_20260516_180817`.
+  Validation covered all `9429` staged ROOT files, `95` shards at
+  `groupSize=100`, `scoreMax=0`, request memory `4000MB`, and finished
+  READY with `0` held jobs. Output summary reports `15,524,917` scored
+  entries, `8,554,378` signal entries, and `6,970,539` background entries.
+  Full-stat AUCs: `globalEtCent1535_bdt_noIso = 0.840908` and
+  `globalEtCent1535_bdt_iso = 0.920167`; finite score fraction `0.999994`.
+  Small CSV/JSON/PNG artifacts were pulled locally under
+  `dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/validation/bdt_finished_only_20260516_180817`.
+  The slide-ready no-iso Jet12+20 vs Jet12+20+30 AUC-gain plot is under
+  `dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/slideReady`.
+  The main sixpack MLP no-iso cluster `2122602` was later held at the `48GB`
+  memory limit, removed after Justin asked Codex to fix/resubmit, and replaced
+  by cluster `2122700` with the memory-safe MLP patch described above.
+  Quick-comparison index for validated sixpack products: only the two direct
+  BDTs are currently validated. `globalEtCent1535_bdt_noIso` has AUC
+  `0.840908`, finite score fraction `0.999994`, signal mean score `0.670902`,
+  and background mean score `0.302054`. `globalEtCent1535_bdt_iso` has AUC
+  `0.920167`, finite score fraction `0.999994`, signal mean score `0.763859`,
+  and background mean score `0.210994`. The fine `8 x 7` iso-vs-no-iso
+  comparison is tabulated in
+  `dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/slideReady/best_bdt_iso_or_noiso_fine7x8_auc_counts.csv`;
+  the isolation-input BDT wins all `56/56` bins, with best-bin AUC range
+  `0.812227-0.966760`, mean best-bin AUC `0.892289`, and iso-minus-no-iso AUC
+  gain range `0.023006-0.116550` (mean `0.070310`). The same table records
+  fine-bin scored validation counts summing to `4,728,025` signal and
+  `813,045` background candidates in `15 < E_T < 35 GeV`. Slide-ready plots:
+  `best_bdt_iso_or_noiso_fine7x8_auc_heatmap.png`,
+  `best_bdt_iso_or_noiso_fine7x8_counts_heatmap.png`, and the cleaned
+  `global_bdt_score_separation_jet12plus20_vs_jet12plus20plus30_by_centrality.png`.
+  Do not report `globalEtCent1535_mlp_noIso`, `globalEtCent1535_mlp_iso`, or
+  either OOF super-NN as validated until their READY validation artifacts exist.
+
+- 2026-05-16 17:20 EDT / SIXPACK RESUME ACTIVE AFTER MEMORY FIX:
+  Justin authorized cleaning the sixpack queue as needed to preserve the
+  original six-model plan. Codex uploaded updated
+  `scripts/train_auau_photon_mlp.py` and
+  `scripts/submit_auau_global_sixpack_oof_stack.sh` to SDCC and verified
+  remote Python compile plus `bash -n` on `sphnxuser02`. The MLP loader now
+  applies the `15 < E_T < 35 GeV` read filter while reading ROOT chunks, so
+  rows outside the training region are not held in memory before selection.
+  The sixpack submitter now splits direct MLP into separate no-iso and iso
+  Condor jobs, requests `48GB` for those MLP jobs, runs the OOF no-iso and iso
+  stack jobs sequentially, lowers the OOF request to `64GB`, and lowers the
+  OOF NN batch size to `16384` while keeping hidden layers `384,192,96,48`.
+  This preserves the six target models, 10% final-test split, and OOF-safe
+  stack design while reducing avoidable memory pressure. Codex removed only
+  the obsolete held sixpack MLP cluster `2122601` and killed the stale
+  `auau_sixpack_20260516_135439` tmux session. The valid Jet30 extraction,
+  staged source, and direct BDT outputs were kept. A resume tmux is now active:
+  `auau_sixpack_resume_20260516_135439`; log:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/global_sixpack_20260516_135439.log`.
+  This `48GB` resume attempt later held as cluster `2122602`; see the
+  2026-05-16 19:26 EDT update for the patched `64GB` resubmit.
+  Continue watching for no-iso MLP completion, automatic iso MLP submission,
+  BDT/MLP validation, sequential OOF stack submissions, and final sixpack
+  validation artifacts.
+
+- 2026-05-16 13:54 EDT / ACTIVE GLOBAL SIXPACK GATED TRAINING CAMPAIGN:
+  Justin authorized the six-model global `15 < E_T < 35 GeV` BDT/MLP/OOF-stack
+  campaign using Photon12+20 signal and Jet12+20+30 inclusive background.
+  Codex removed obsolete held OOF cluster `2116544`, fixed the normal embedded
+  `Process_Calo_Calib` / `macros/Calo_Calib.C` path for Jet30 so it matches
+  Jet12/Jet20 handling, and smoke-tested that both `run28_embeddedJet12` and
+  `run28_embeddedJet30` now finish with `AuAuPhotonIDTrainingTree` output using
+  the same shortcut path. The embedded SIM path now skips data-only
+  CaloStatus/ZDC/TowerStatus setup while keeping the standard tower calibration
+  and cluster building. User clarified ZDC/minimum-bias classification is
+  data-only, so this is the intended SIM behavior. Codex uploaded the fixed
+  `macros/Calo_Calib.C` and the corrected sixpack orchestration script, then
+  launched the queue-gated sixpack orchestrator from
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis` on `sphnxuser02`.
+  Sixpack stamp: `20260516_135439`; launcher tmux:
+  `auau_sixpack_20260516_135439`; log:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/global_sixpack_20260516_135439.log`;
+  final model output root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439`;
+  staging source:
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/globalEtCentInclusive3Sixpack_20260516_135439`.
+  The first gate is Jet30-only `AuAuPhotonIDTrainingTree` extraction, because
+  the prior Jet30 extraction was not READY. Current strict Jet30-only run root:
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260516_135439_jet30`;
+  submit root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDT_20260516_135439_jet30`;
+  DAG:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDT_20260516_135439_jet30/auau_tight_bdt_condorExtract.dag`;
+  DAGMan cluster `2122597`; worker cluster `2122598`; sample is only
+  `run28_embeddedJet30`, `1429` jobs at `groupSize=7`, request memory
+  `4000MB`. This gate finished READY at 2026-05-16 14:25 EDT:
+  `root_count=1429`, `expected_root_count=1429`, `tree_entries=3,524,601`,
+  `signal_entries=28,346`, `background_entries=3,496,255`, and
+  `MISSING_TREE_FILES=0`. Tolerant nonzero-exit handling was unset for this
+  corrected gate. The sixpack tmux detected Jet30 READY and staged the combined
+  source with `root_count=9429`:
+  Photon12+20 signal and Jet12+20+30 background. Source provenance is recorded
+  in
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/globalEtCentInclusive3Sixpack_20260516_135439/reports/source_provenance.json`.
+  Direct BDT training for `globalEtCent1535_bdt_noIso` and
+  `globalEtCent1535_bdt_iso` completed normally as Condor cluster `2122600`,
+  producing TMVA ROOT, XGBoost JSON, metadata JSON, and `model_registry.json`
+  under the sixpack `bdt_models` directory. Direct MLP training cluster
+  `2122601` reached the full staged input read (`9429/9429` files,
+  `15,524,917` rows) and began `globalEtCent1535_mlp_noIso`; that product
+  selected `6,477,081` rows with split counts `train=5,203,298`,
+  `validation=639,527`, and `test=634,256`. At 2026-05-16 15:29 EDT,
+  `2122601` was held for exceeding the `32GB` cgroup memory limit:
+  last measured usage `31,914 MB`. Do not mark the MLP/stack lane validated
+  from this partial run.
+  Remaining sixpack steps are MLP completion, OOF stack no-iso, OOF stack iso,
+  validation, local artifact pull, inventory refresh, and Blair plot
+  regeneration. The orchestrator trains:
+  `globalEtCent1535_bdt_noIso`, `globalEtCent1535_mlp_noIso`,
+  `globalEtCent1535_oofSuperNN_noIso`, `globalEtCent1535_bdt_iso`,
+  `globalEtCent1535_mlp_iso`, and `globalEtCent1535_oofSuperNN_iso`. Direct
+  BDT/MLP memory target is `32GB`; OOF super-NN memory target is `80GB`; OOF
+  super-NN hidden layers are `384,192,96,48`.
+  | Blocked on held MLP cluster `2122601`. Next action is a clean higher-memory
+  MLP resubmit/resume plan, preserving the already valid Jet30 gate and direct
+  BDT outputs. The campaign is not fully validated until all six model
+  validation outputs exist. When sixpack is complete, pull only small validation
+  artifacts locally under
+  `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439`
+  after full validation, then refresh inventory/dashboard. |
+
+- 2026-05-16 13:24 EDT / SUPERSEDED SIXPACK GATE ATTEMPT:
+  Sixpack stamp `20260516_132415` and Jet30 gate clusters `2122588`/`2122589`
+  were superseded by the fixed `20260516_135439` launch after Codex confirmed
+  the generic embedded `Calo_Calib.C` shortcut needed the data-only
+  CaloStatus/ZDC/TowerStatus pieces skipped for embedded SIM. Do not watch or
+  use the `132415` Jet30 output for training/plots unless explicitly reviewing
+  failure provenance.
+
+- 2026-05-16 12:47 EDT / SUPERSEDED FAILED JET30 PHOTON-ID EXTRACTION:
+  User authorized the Jet12+Jet20+Jet30 remake of the Blair background
+  validation plots. Codex submitted a focused Jet30-only AuAu photon-ID
+  extraction from `/sphenix/u/patsfan753/scratch/thesisAnalysis`; Condor
+  evidence shows submit schedd `sphnxuser02.sdcc.bnl.gov`, DAGMan cluster
+  `2122579`, DAG
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDT_20260516_124649/auau_tight_bdt_condorExtract.dag`,
+  run root
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260516_124649`,
+  extraction root
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260516_124649/extraction`,
+  sample `run28_embeddedJet30`, `1429` planned jobs at `groupSize=7`,
+  `nevents=0`, request memory `3000MB`. Command intent:
+  `RJ_AUAU_TIGHT_BDT_SIGNAL_SAMPLES=" " RJ_AUAU_TIGHT_BDT_BACKGROUND_SAMPLES="run28_embeddedJet30" RJ_AUAU_TIGHT_BDT_REQUEST_MEMORY=3000MB ./scripts/auau_tight_bdt_pipeline.sh condorExtract groupSize 7`.
+  Purpose is not training: it is only to produce missing
+  `AuAuPhotonIDTrainingTree` rows so local plots can be remade with
+  background Jet12+Jet20+Jet30 using inclusive3 stitch weights
+  Jet12 `1.21692467e6 pb`, Jet20-to-30 `5.44464934e4 pb`, Jet30
+  `2.40291630e3 pb`. Immediate post-submit queue showed DAGMan `2122579.0`
+  running; one unrelated older job `2116544.0` was held. Follow-up evidence
+  showed this extraction failed with `DAG_STATUS_NODE_FAILED`, only `85` ROOT
+  files, and worker stderr examples `corrupted size vs. prev_size` /
+  `free(): invalid pointer`; do not use this partial output for plots or
+  training. It has been superseded by the gated Jet30-only extraction
+  `auauTightBDT_20260516_132415_jet30`.
+  | No action on this failed stamp except provenance/cleanup after confirming
+  the replacement extraction is READY. |
+
+- 2026-05-16 12:45 EDT / INCLUSIVE3 STITCHING PLOT READY:
+  The three-slice `isSimEmbeddedInclusive` reference SIM recoil pass from
+  `sphnxuser02` completed, and Codex ROOT-opened the final merged output:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/output_inclusive3_20260515_172346/simembeddedinclusive/preselectionReference_tightReference_nonTightReference_baseVariant/embeddedJet12and20and30merged_SIM/RecoilJets_embeddedJet12plus20plus30_MERGED.root`.
+  The slide-10-equivalent stitching plot was regenerated with
+  `macros/MakeEmbeddedInclusiveMergedStitchSpectrum.C`, pulled locally, and
+  visually inspected. Local PNG:
+  `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/embeddedXsec/inclusive3_20260515_172346/embeddedInclusiveJet_finalMergedStitchedTruthJetPtSpectrum.png`.
+  Final visible sample colors match the slide convention: Jet12 blue,
+  Jet20-to-30 orange, and Jet30 pink. The final merged spectrum is unchanged;
+  the color split is assigned by the non-overlapping generator-filter ranges
+  `12-20`, `20-30`, and `>=30 GeV`.
+
+- 2026-05-15 17:10 EDT / INCLUSIVE3 XSEC READY + ISO-VISIBLE BDT READY:
+  Codex ran the small aggregation for embedded-inclusive three-slice xsec
+  cluster `2116545` after all `150` shard CSVs appeared. Second pass found
+  `Expected=150` and `Found=150`. Results:
+  `EmbeddedJet12 n_ok=49,999,989 n_pass=482,371 eff_weight=9.64742212e-03
+  sigma_eff_pb=1.21692467e+06 rel_stat=0.001440`;
+  `EmbeddedJet20to30 n_ok=49,999,983 n_pass=521,129
+  eff_weight=1.04225835e-02 sigma_eff_pb=5.44464934e+04
+  rel_stat=0.001385`; `EmbeddedJet30 n_ok=49,999,985 n_pass=272,269
+  eff_weight=5.44538163e-03 sigma_eff_pb=2.40291630e+03
+  rel_stat=0.001916`. Local small artifacts are under
+  `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/embeddedXsec/inclusive3_20260515_163732`,
+  including `embedded_inclusive3_xsec_stitching_summary.png`,
+  `inclusive3_stitching_summary.csv`, and `combined_summary_clean.txt`.
+  This is stitching QA only; no Jet30 extraction/training/production has been
+  submitted. Isolation-visible diagnostic status: BDT validation is READY at
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049/reports/bdt_iso_visible_validation_20260514_223150`.
+  Validated isolation-input BDT AUCs: global `isoBDT_global15to35_EtCent_full`
+  AUC `0.870157`, WP80 fake `0.220932`, finite fraction `0.999988`;
+  routed `isoBDT_ptFine15to35_cent7_full` AUC `0.882173`, WP80 fake
+  `0.205767`, finite fraction `0.999986`. Validation counts:
+  `total_entries=12,000,316`, `signal_entries=8,526,032`,
+  `background_entries=3,474,284`, `scored_entries=600,000`. The same
+  isolation-visible orchestrator did not complete the MLP/stack validation:
+  `auau_tight_mlp_pipeline.sh` was killed during `centInputKitchenSinkIsoMLP`
+  training after a partial split of `train rows=539,595 (S=338,778,
+  B=200,817)`, `validation rows=150,037 (S=94,208, B=55,829)`, and
+  `test rows=74,905 (S=47,014, B=27,891)`. Best partial training candidate
+  seen before the kill had `val_auc=0.83334`, `wp080_fake=0.2753`, but this
+  is not a completed validation product.
+
+- 2026-05-15 16:37 EDT / ACTIVE INCLUSIVE3 EMBEDDED-JET XSEC ESTIMATE:
+  Justin asked to run the full three-slice embedded-inclusive cross-section
+  estimate for Jet12+Jet20+Jet30 so a slide-10-style stitching plot can be made
+  before any Jet30 extraction/training is attempted. Submit host `sphnxuser02`;
+  command:
+  `./scripts/estimateEmbeddedPhotonXsec.sh firstPass --family inclusive3 --xsec-shards 50 --xsec-events 1000000 --mode interpreted`.
+  Condor cluster `2116545`; manifest
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/pythia_xsec_firstPass_20260515_163732.txt`;
+  snapshot/output dir
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_snapshots/pythia_xsec_20260515_163732`.
+  It submitted `150` generator workers: `50` shards each for `EmbeddedJet12`
+  (`12 <= pT_filter^jet < 20`), `EmbeddedJet20to30`
+  (`20 <= pT_filter^jet < 30`), and `EmbeddedJet30`
+  (`pT_filter^jet >= 30`). Status at 2026-05-15 16:42 EDT: `150` running,
+  `0` idle, `0` held. Heartbeat `watch-iso-visible-diagnostic-chain` now
+  watches this cluster; when all shards finish cleanly it may run only the
+  small aggregation step
+  `./scripts/estimateEmbeddedPhotonXsec.sh secondPass --manifest /sphenix/u/patsfan753/scratch/thesisAnalysis/pythia_xsec_firstPass_20260515_163732.txt`
+  and pull small summary artifacts locally. Do not run Jet30
+  extraction/training/production until the stitching estimate is reviewed.
+
+- 2026-05-15 09:17 EDT / META-BDT SCORE-STACKER READY + PULLED:
+  Heartbeat check found meta-BDT score stacker cluster `2116532` complete with
+  expected small outputs under
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/meta_bdt_score_stackers_pt1535_20260515_000901_meta_bdt_score_stackers`.
+  Codex pulled `stacked_sweep_rank_table.csv`, `stacked_sweep_top4.json`,
+  `stacked_sweep_metrics.json`, `stacked_sweep_training_history.csv`, and
+  `stacked_sweep_preflight.json` locally to
+  `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auauMLDiagnosticRuns/meta_bdt_score_stackers_pt1535_20260515_000901_meta_bdt_score_stackers`.
+  Best held-out/test row is `meta15to35_bdtMlpLogReg_full_gbm`: AUC
+  `0.805855`, WP80 fake `0.343217`, high-pT `20-35` AUC `0.753629`,
+  high-pT WP80 fake `0.436394`, finite fraction `1.0`, ECE `0.317692`,
+  and score-vs-eiso correlation `-0.102869`. The BDT+MLP full GBM row is very
+  close: test AUC `0.804295`, WP80 fake `0.346624`, high-pT AUC `0.752044`.
+  These are validation/ranking diagnostics only; no production submission is
+  implied.
+
+- 2026-05-15 02:27 EDT / REMOVED OBSOLETE OOF TRI-SCORE HEAVY SUPERLEARNER FIX2:
+  Heartbeat check found correlation-enabled OOF worker `2116531` left the
+  queue with `exit_code=1` after a normal Condor claim-deactivation rerun. The
+  failure was not memory: the rerun hit a small interface drift where
+  `train_auau_oof_residual_superstacker.py` called the shared aligned-cache
+  loader without the new `require_full_stat` / `expected_shards` fields. Codex
+  patched `scripts/train_auau_oof_residual_superstacker.py` and
+  `scripts/submit_auau_oof_residual_superstacker.sh`, added explicit
+  `REQUIRE_FULL_STAT=1 EXPECTED_SHARDS=80` propagation, uploaded both files to
+  SDCC, and verified remote `bash -n`, Python compile, and a
+  `logistic,gbm,nn` direct-mode SDCC self-test. Clean fixed replacement was
+  submitted on `sphnxuser02` as Condor cluster `2116544` from submit root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauOOFTriScoreHeavySuperLearner_20260515_022730_oof_triscore_heavy_corr_fix2`;
+  output dir
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/oof_triscore_heavy_superlearner_pt1535_20260515_022730_oof_triscore_heavy_corr_fix2`.
+  Settings: `FINAL_MODE=direct`, `LOWER_FEATURE_MODE=full_features`,
+  `SUPER_FEATURE_MODE=scores_plus_full_features`, `HIDDEN=256,128,64`,
+  `EPOCHS=220`, `PATIENCE=40`, `REQUEST_MEMORY=32000MB`,
+  `REQUIRE_FULL_STAT=1`, `EXPECTED_SHARDS=80`. Later evidence showed
+  `2116544` held after exceeding the `32GB` cgroup memory limit. Justin asked
+  to remove it before the six-model campaign; Codex removed `2116544` on
+  2026-05-16. It should not be rechecked except as provenance for the
+  higher-memory OOF design. Historical clusters `2116405`, `2116529`,
+  `2116530`, and `2116531` are provenance only.
+
+- 2026-05-15 00:48 EDT / ACTIVE STACK MATRIX AUTO15 WAVE:
+  Codex implemented and launched the autonomous full-stat stack-matrix wave
+  driver for `15-35` score-combiner cohorts. Local checks passed:
+  `bash -n`, Python compile with a writable pycache prefix, `git diff --check`,
+  and synthetic smoke tests for pair score-only, tri-score-only, context, and
+  full-feature cohorts. Uploaded SDCC files matched for
+  `scripts/train_auau_stacked_bdt_mlp_sweep.py` and
+  `scripts/submit_auau_stack_matrix_wave.sh`; remote `sphnxuser02` checks
+  passed `bash -n`, Python compile with
+  `RJ_ML_PYTHON=/sphenix/u/patsfan753/.venvs/thesis-ml/bin/python`, and a
+  tri-score synthetic smoke. Submit host `sphnxuser02`; tmux orchestrator
+  `stack_matrix_auto15_20260515_004838` launched the queue-gated Condor DAG
+  and exited after submission. DAGMan cluster `2116535`; first workers
+  `2116536-2116539`; submit root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauStackMatrixWave_auto15_20260515_004838`;
+  output dir
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/stack_matrix_wave_auto15_20260515_004838`.
+  The wave trains `stack_pair_score_only`, `stack_tri_score_only`,
+  `stack_pair_context`, `stack_tri_context`, `stack_pair_full_no_iso`,
+  `stack_tri_full_no_iso`, `stack_bdt_score_full_no_iso`, and
+  `stack_mlp_score_full_no_iso` over the full-stat aligned BDT/MLP/LogReg
+  score caches, with `logistic,gbm,nn`, all canonical routings, max `4` active
+  workers, and `stack_training_safety=disjoint_base_scores_heldout_test`.
+  Submit-time queue had `0` held; existing active jobs `2116531` OOF
+  superlearner and `2116532` meta-BDT stacker were still running. The heartbeat
+  `watch-iso-visible-diagnostic-chain` was updated to pull small auto15
+  artifacts when ready, regenerate local inventory, and automatically submit
+  `auto35` only if auto15 is clean. Production remains gated.
+
+- 2026-05-15 00:30 EDT / MODEL MATRIX ORGANIZATION UPGRADE:
+  Codex formalized the active AuAu photon-ID comparison matrix around
+  `15-35` and `5-35` only. The matrix now treats the model input cohort as a
+  first-class axis, so direct classifiers, score-only stackers, score+context
+  stackers, full-feature stackers, tri-score stackers, one-score rescue
+  controls, OOF heavy superlearners, and isolation-visible diagnostics no
+  longer collapse into the same bucket. New/updated local vocabulary:
+  `agent_context/auau_model_registry/comparison_cohorts.yaml`,
+  `routing_schemes.yaml`, `algorithm_lanes.yaml`, `feature_families.yaml`, and
+  `README.md`. Inventory builder
+  `scripts/build_auau_model_inventory.py` now writes cohort-aware outputs under
+  `dataOutput/auauModelInventory/`: `model_inventory.csv`,
+  `canonical_model_index.csv`, `desired_model_matrix.csv`,
+  `missing_model_matrix.csv`, `cohort_coverage_summary.csv`,
+  `model_inventory.md`, `canonical_coverage_matrix.md`, and
+  `training_backlog.md`. Latest regeneration saw `211` local rows and `532`
+  missing cohort/routing/algorithm cells across active `15-35` and `5-35`.
+  Important interpretation: current historical stack rows labeled
+  `scoreOnly` often include full shower-shape features; the new inventory
+  classifies them as `stack_pair_full_no_iso` when the rank-table feature list
+  proves full features were used. Future true score-only stackers should land
+  in `stack_pair_score_only` or `stack_tri_score_only`.
+
+- 2026-05-15 00:10 EDT / ACTIVE META-BDT SCORE-STACKER VALIDATION:
+  Justin asked to train second-stage BDT/GBM stackers on combinations of the
+  existing first-round model scores plus the full photon-ID feature family. Codex
+  extended the existing stack-sweep machinery instead of making a one-off:
+  `scripts/train_auau_stacked_bdt_mlp_sweep.py` now supports aligned LogReg
+  score caches and three explicit meta-BDT contexts:
+  `meta15to35_bdtMlp_full`, `meta15to35_bdtMlpLogReg_full`, and
+  `meta15to35_mlpScore_full`; `scripts/submit_auau_stacked_bdt_mlp_sweep.sh`
+  now accepts `LOGREG_CACHE`/`LOGREG_SCORE`. Local checks passed: `bash -n`,
+  Python compile, `git diff --check`, and a synthetic end-to-end self-test for
+  all three variants. Uploaded files matched on SDCC. Remote `sphnxuser02`
+  checks passed: `bash -n`, Python compile with
+  `RJ_ML_PYTHON=/sphenix/u/patsfan753/.venvs/thesis-ml/bin/python`, and a GBM
+  synthetic self-test. Real-cache preflight read all 80 uncapped shards and
+  verified row alignment for BDT, MLP, and LogReg caches before submission.
+  Condor cluster `2116532` was submitted from
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauMetaBDTScoreStackers_20260515_000901_meta_bdt_score_stackers`;
+  output dir
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/meta_bdt_score_stackers_pt1535_20260515_000901_meta_bdt_score_stackers`.
+  Inputs are the uncapped full-feature BDT/MLP score caches plus the validated
+  LogReg cache:
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049/reports/mlp_model_validation_condor_stack_full_features_uncapped_20260513_123934/score_caches.list`,
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049/reports/model_validation_condor_stack_full_features_uncapped_20260513_123934/score_caches.list`,
+  and
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049/reports/logreg_model_validation_condor_20260513_213044/score_caches.list`.
+  Submit-time queue showed `2116531.0` running, `2116532.0` idle, and `0`
+  held. Expected small outputs to pull when ready:
+  `stacked_sweep_rank_table.csv`, `stacked_sweep_top4.json`,
+  `stacked_sweep_metrics.json`, `stacked_sweep_training_history.csv`, and
+  `stacked_sweep_preflight.json`. This lane is validation/ranking only; do not
+  submit production from it without a fresh explicit approval.
+
+- 2026-05-14 23:30 EDT / ACTIVE OOF TRI-SCORE HEAVY SUPERLEARNER:
+  Codex upgraded the out-of-fold superstacker to support a stricter direct
+  heavy-NN superlearner: fold-trained `logistic`, `gbm`/BDT-like, and `nn`/MLP-like
+  base learners on the full photon-ID feature family, then a final MLP trained
+  on their out-of-fold scores plus full features. Local checks passed:
+  `bash -n`, Python compile, direct-mode synthetic self-test with
+  `logistic,nn`, and backward-compatible stacker self-test. Uploaded files
+  matched on SDCC:
+  `scripts/train_auau_oof_residual_superstacker.py`,
+  `scripts/submit_auau_oof_residual_superstacker.sh`, and
+  `scripts/train_auau_stacked_bdt_mlp_sweep.py`. Remote checks on
+  `sphnxuser02` passed: `bash -n`, Python compile with
+  `RJ_ML_PYTHON=/sphenix/u/patsfan753/.venvs/thesis-ml/bin/python`, and
+  full `logistic,gbm,nn` direct-mode synthetic self-test. Full training worker
+  submitted as Condor cluster `2116529` from submit root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauOOFTriScoreHeavySuperLearner_20260514_232925_oof_triscore_heavy`;
+  output dir
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/oof_triscore_heavy_superlearner_pt1535_20260514_232925_oof_triscore_heavy`;
+  log
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/oof_triscore_heavy_superlearner_pt1535_20260514_232925_oof_triscore_heavy/oof_triscore_heavy_superlearner_20260514_232925_oof_triscore_heavy.log`.
+  Settings: `FINAL_MODE=direct`, `LOWER_FEATURE_MODE=full_features`,
+  `SUPER_FEATURE_MODE=scores_plus_full_features`,
+  `MODEL_NAME=oofTriScoreHeavyNN_fullFeatures_pt1535`,
+  `LOWER_ALGORITHMS=logistic,gbm,nn`, `HIDDEN=256,128,64`,
+  `EPOCHS=160`, `PATIENCE=28`, `REQUEST_MEMORY=32000MB`. Submit-time queue:
+  `2116405.0` running, `2116529.0` idle, `0` held. Expected validation/rank
+  outputs:
+  `oof_direct_supernn_rank_table.csv`, `oof_direct_supernn_metrics.json`,
+  `oof_direct_supernn_fold_table.csv`, `oof_direct_supernn_training_history.csv`,
+  and stable aliases `oof_residual_supernn_*`. Next checkpoint: when `2116529`
+  leaves the queue or the rank table appears, inspect held-out test AUC,
+  WP80 fake, high-pT `20-35` AUC/fake, finite fraction, ECE, isolation
+  correlation, and overfit flags. No production promotion from this lane
+  without fresh approval.
+
+- 2026-05-14 23:36 EDT / ACTIVE OOF TRI-SCORE HEAVY SUPERLEARNER FIXED
+  REPLACEMENT:
+  The first tri-score heavy worker `2116529` failed immediately from a small
+  wrapper-compatibility bug: `train_auau_oof_residual_superstacker.py` called
+  the updated stack cache loader without `logreg_cache=None`. Codex patched
+  the OOF loader, local-tested Python compile, `bash -n`, and a direct-mode
+  synthetic self-test, then uploaded
+  `scripts/train_auau_oof_residual_superstacker.py`; remote status reported
+  `MATCH`. Remote SDCC compile and full `logistic,gbm,nn` direct-mode synthetic
+  self-test passed. Clean replacement full training worker submitted as Condor
+  cluster `2116530` from submit root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauOOFTriScoreHeavySuperLearner_20260514_233510_oof_triscore_heavy_fix`;
+  output dir
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/oof_triscore_heavy_superlearner_pt1535_20260514_233510_oof_triscore_heavy_fix`;
+  log
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/oof_triscore_heavy_superlearner_pt1535_20260514_233510_oof_triscore_heavy_fix/oof_triscore_heavy_superlearner_20260514_233510_oof_triscore_heavy_fix.log`.
+  Submit-time queue on `sphnxuser02`: older OOF residual `2116405.0` running,
+  replacement tri-score `2116530.0` idle, `0` held. Heartbeat
+  `watch-iso-visible-diagnostic-chain` is updated to auto-pull small validation
+  artifacts to
+  `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auauMLDiagnosticRuns/`
+  when ready. It must not submit production, remove jobs, edit remote files, or
+  pull huge ROOT/cache payloads without explicit approval.
+
+- 2026-05-14 23:57 EDT / ACTIVE OOF TRI-SCORE HEAVY SUPERLEARNER
+  CORRELATION-ENABLED RERUN:
+  Justin asked to stop and resubmit so the super-NN stacker will produce
+  explicit correlation diagnostics for all entering model scores and variables.
+  Codex patched `scripts/train_auau_oof_residual_superstacker.py` to write
+  `oof_direct_supernn_input_correlation_matrix.csv`,
+  `oof_direct_supernn_input_target_correlations.csv`,
+  `oof_direct_supernn_input_pairwise_top_correlations.csv`,
+  `oof_direct_supernn_correlation_diagnostics.json`, and a heatmap PNG when
+  matplotlib is available. Local Python compile and direct-mode synthetic
+  self-test passed; remote upload/status was `MATCH`. The stale no-correlation
+  cluster `2116530` was stopped with `condor_rm` after 17 minutes running.
+  Remote SDCC compile and full `logistic,gbm,nn` direct-mode synthetic self-test
+  passed, including the correlation-diagnostics write step. Clean replacement
+  submitted as Condor cluster `2116531` from submit root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauOOFTriScoreHeavySuperLearner_20260514_235445_oof_triscore_heavy_corr`;
+  output dir
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/oof_triscore_heavy_superlearner_pt1535_20260514_235445_oof_triscore_heavy_corr`.
+  Submit-time queue on `sphnxuser02`: older OOF residual `2116405.0` running,
+  correlation-enabled tri-score `2116531.0` idle, `0` held. Heartbeat
+  `watch-iso-visible-diagnostic-chain` now points at `2116531` and is allowed
+  to auto-pull small correlation CSV/JSON/PNG artifacts with the other
+  validation outputs when ready.
+  Follow-up 2026-05-15 00:02 EDT: Justin asked to remove the older residual
+  audit. Codex ran `condor_rm 2116405`; Condor confirmed the job was marked for
+  removal. Post-removal queue showed only `2116531.0` running and `0` held.
+  Heartbeat instructions were updated to ignore historical clusters
+  `2116405`, `2116529`, and `2116530` except as provenance.
 
 - 2026-05-14 19:36 EDT / ACTIVE OOF RESIDUAL SUPER-STACKER:
   Codex added and submitted a diagnostic `15-35 GeV` out-of-fold residual-NN
@@ -1905,6 +2385,14 @@ Latest active update:
 | 🟢 Pulled / Inventory Updated | 15-35 BDT no-centrality QA completion on `sphnxuser02` | 2026-05-14 11:46 EDT Codex added validation-only no-centrality controls to the existing fine-`E_T` BDT family and uploaded matching scripts to SDCC (`scripts/train_auau_photon_bdt.py`, `scripts/validate_auau_tight_bdt_on_sim.py`, remote status `MATCH`). Local spec smoke planned `98` models: `noCent_pt1535=1`, `centInput_pt1535=1`, `ptFine_noCent=8`, `ptFine_centInput=8`, `ptFine_cent3=24`, `ptFine_cent7=56`. Tmux chain `bdt_nocent15_qa_20260514_114640` ran on `sphnxuser02` with model dir `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/tight_etfine_nocent15_qa_20260514_114640` and validation report `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049/reports/model_validation_condor_etfine_nocent15_qa_20260514_114640`. Gmail RecoilJets Pipeline at 2026-05-14 reported `[RecoilJets][auauTightBDT_trainEtFineCentStudyFromExtraction][READY]` at 11:58:58 EDT and `[RecoilJets][auauTightBDT_validateOnSimCondor][READY]` at 12:01:04 EDT; Codex consumed and marked both read. On 2026-05-14 Codex pulled the full report with `SSH_AUTH_SOCK="$(launchctl getenv SSH_AUTH_SOCK)" ./scripts/sftp_get_recoiljets_outputs.sh auauTightBDTValidation /sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049/reports/model_validation_condor_etfine_nocent15_qa_20260514_114640`. Local report: `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auauTightBDTValidation/model_validation_condor_etfine_nocent15_qa_20260514_114640`; size about `96M`. Inventory rebuild wrote `rows=211` and `missing_cells=61` across active `15-35`/`5-35`. Validation ranking summary: `ptFine_cent7` AUC `0.808249`, `ptFine_cent3` AUC `0.788740`, `ptFine_centInput` AUC `0.776523`, `centInput_pt1535` AUC `0.773122`, `ptFine_noCent` AUC `0.771749`, `noCent_pt1535` AUC `0.770304`, all finite fraction `1.0`. | This is the fair control needed for the slide-13-style AUC-gain plot: same 15-35 training/validation family, same fine `E_T` bins, centrality absent only in the controlled products. No production submission is implied. The inventory moved only one canonical cell because this was a targeted no-centrality BDT control, not the full missing-cell matrix. | Generate 3-bin and 7-bin centrality AUC-gain PNGs for `noCent_pt1535 -> centInput_pt1535` and `ptFine_noCent -> ptFine_centInput`, then decide whether to add them to the model-comparison slide set. |
 | 🟡 WP80 Diagnostics Ready / Production Gated | 15-35 BDT+MLP NN-stack WP80 promotion prep | 2026-05-14 Codex derived WP80 thresholds from the full-stat uncapped aligned BDT/MLP validation caches using the exact exported `ptFine15to35_cent7_full_nn` stack artifact. Remote run root: `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/bdt_mlp_stack_nn_wp80_uncapped_diagnostic_20260514_1915_nnstack_wp80_uncapped`; log: `/sphenix/u/patsfan753/scratch/thesisAnalysis/stack_nn_wp80_uncapped_20260514_1915_nnstack_wp80_uncapped.log`; exit status `0`; max RSS about `4.5 GB`; full cache rows `12000316`, eval rows `5867469`, finite eval fraction `0.85584`, held-out/test AUC `0.79975`. Local pull: `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auauBDTMLPStackPromotion/bdt_mlp_stack_nn_wp80_uncapped_diagnostic_20260514_1915_nnstack_wp80_uncapped`. Outputs include `stack_working_points_target80.{json,yaml}`, `stack_working_points_target80_cells.csv`, threshold/signal-efficiency/fake-rate heatmaps, and `diagnostics/stack_wp80_quadratic_fit_by_fine_centrality.png`. WP80 grid is excellent cell-by-cell: max signal-efficiency error `0.000239`, mean error `0.000039`, min signal/background cell entries `2783/97`. A simple global plane fit is not production-worthy (`max_abs_residual=0.152`), while per-fine-centrality quadratic-in-`E_T` diagnostic fits have RMS about `0.005-0.024`. | Do not submit production yet. The safest runtime WP is the local `centrality x E_T` grid; the smooth quadratic curves are diagnostic only unless explicitly approved. Also, the C++ stack runtime currently supports logistic/GBM stack submodels but still needs NN/MLP submodel support plus Python-vs-C++ parity before this NN artifact can be used in RecoilJets production. | Show the pulled plots to Justin. If approved, implement NN-stack runtime support in `src_AuAu`, upload/rebuild on SDCC with `makee clean` and `makeProject`, run parity and a small smoke verifying `auau_tight_bdt_mlp_score`, then prepare the paired `isSimEmbedded` / `isSimEmbeddedInclusive` command block. |
 | 🟡 Submitted / Running | 15-35 BDT+MLP NN-stack WP80 paired production | 2026-05-14 live approval from Justin to proceed after WP80 plots. Codex added NN-stack C++ runtime support for `kind=mlp` stack submodels in `src_AuAu/RecoilJets_AuAu.{cc,h}`, uploaded with `scripts/auau_bdt_mlp_stack_production_driver.sh`, verified SFTP `MATCH`, rebuilt on `sphnxuser02` with `make clean`/`makeProject`, and produced a clean build. Generated production YAML: `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_generated_configs/bdt_mlp_nnstack_wp080_20260514_1915/analysis_config_bdt_mlp_nnstack_ptfine15to35_cent7_wp080.yaml`. Runtime smoke evidence on `sphnxuser02`: `isSimEmbedded` local one-file run wrote `/sphenix/u/patsfan753/scratch/thesisAnalysis/local_sim_outputs/nnstack_wp080_runtime_smoke_20260514_195920/.../RecoilJets_isSimEmbedded_...root` with `exit_code=0` and stack tight classification active; `isSimEmbeddedInclusive` local one-file run wrote `/sphenix/u/patsfan753/scratch/thesisAnalysis/local_sim_outputs/nnstack_wp080_runtime_smoke_inclusive_20260514_200126/.../RecoilJets_isSimEmbeddedInclusive_...root` with `exit_code=0`. Full paired submission from `sphnxuser02`: stamp `nnstack_wp080_prod_20260514_200206`, config above, merge output base `/sphenix/u/patsfan753/scratch/thesisAnalysis/output_bdt_mlp_nnstack_wp080_nnstack_wp080_prod_20260514_200206`, bulk dest base `/sphenix/tg/tg01/bulk/jbennett/thesisAna/bdt_mlp_nnstack_wp080_nnstack_wp080_prod_20260514_200206`. `isSimEmbedded` DAG `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_sub/auto_workflow_simembedded_20260514_200206/RecoilJets_auto_simembedded_20260514_200206.dag`, top DAGMan cluster `2116406`, worker clusters observed for photon samples, `1429` jobs per sample. `isSimEmbeddedInclusive` DAG `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_sub/auto_workflow_simembeddedinclusive_20260514_200346/RecoilJets_auto_simembeddedinclusive_20260514_200346.dag`, top DAGMan cluster `2116409`, worker clusters observed for jet samples, `1429` jobs per sample. Post-submit queue after both lanes: `5718 jobs`, `704 running`, `5014 idle`, `0 held`. | Active production. Watch Gmail RecoilJets Pipeline and Condor for held/failed workers and merge-stage READY/CHECK/FAILED messages. Outputs are isolated from prior BDT/MLP products. | Next checkpoint: check top DAGMan clusters `2116406`/`2116409` plus matching worker clusters for held jobs; when READY, pull with `scripts/sftp_get_recoiljets_outputs.sh` using the stack cfg tag and ROOT-open QA the final merged outputs. |
+
+| 🟢 Pulled / ROOT QA Passed | 15-35 BDT+MLP NN-stack WP80 paired production final outputs | 2026-05-14 Codex pulled the completed `nnstack_wp080_prod_20260514_200206` merged products locally with `scripts/sftp_get_recoiljets_outputs.sh` using cfg tag `auauBDTMLPStack`. Local folder: `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/combinedSimOnlyEMBEDDED/bdt_mlp_nnstack_wp080_nnstack_wp080_prod_20260514_200206`. ROOT-open QA passed for `preselectionReference_tightAuAuBDTMLPStack_nonTightAuAuBDTMLPStackComplement_baseVariant/photonJet12and20merged_SIM/RecoilJets_embeddedPhoton12plus20_MERGED.root` and `.../embeddedJet12and20merged_SIM/RecoilJets_embeddedJet12plus20_MERGED.root`. Codex generated slide-ready recovery overlays in `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auauBDTMLPStackProductionPlots/nnstack_wp080_prod_20260514_200206` and updated slide 23 of `PPG_5_14_26` with `nnstack_wp80_truth_photon_recovery_box_bdt_stack_1x3.png`; thumbnail QA passed. | Signal recovery improves over the 15-35 BDT WP80 in all three broad centrality bins, but the inclusive-jet tight fraction companion plot is high, so this remains a strong recovery result requiring purity/ABCD interpretation before physics use. | Use these pulled files for recovery/purity/ABCD follow-up and matched tight-photon comparisons; no need to keep the production watchdog active for this completed pull. |
+
+| 🟢 Plot Ready / QA Passed | Three-slice `isSimEmbeddedInclusive` reference SIM recoil pass on `sphnxuser02` | 2026-05-15 17:23 EDT Codex added an opt-in three-sample switch for embedded-inclusive SIM without changing the default Jet12+Jet20 behavior. The switch is `RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=1`; sample list becomes `run28_embeddedJet12`, `run28_embeddedJet20`, `run28_embeddedJet30`. The merge plan writes `embeddedJet12and20and30merged_SIM/RecoilJets_embeddedJet12plus20plus30_MERGED.root` with xsec weights from the inclusive3 estimator: Jet12 `1.21692467e6 pb`, Jet20-to-30 `5.44464934e4 pb`, Jet30 `2.40291630e3 pb`. Submitted from `/sphenix/u/patsfan753/scratch/thesisAnalysis` on `sphnxuser02`: top DAGMan cluster `2116548`, analysis worker clusters observed as `2116549` Jet12, `2116550` Jet20, and `2116551` Jet30, each `1429` jobs. Final merged ROOT was ROOT-opened at `/sphenix/u/patsfan753/scratch/thesisAnalysis/output_inclusive3_20260515_172346/simembeddedinclusive/preselectionReference_tightReference_nonTightReference_baseVariant/embeddedJet12and20and30merged_SIM/RecoilJets_embeddedJet12plus20plus30_MERGED.root`. Codex regenerated and visually inspected the slide-10-equivalent plot, then repulled the PNG locally after recoloring samples to match the deck convention: Jet12 blue, Jet20-to-30 orange, Jet30 pink. Local PNG: `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/embeddedXsec/inclusive3_20260515_172346/embeddedInclusiveJet_finalMergedStitchedTruthJetPtSpectrum.png`. | This is background-only three-slice embedded-inclusive QA and does not imply Jet30 BDT extraction/training. The colored component display is derived from non-overlapping generator-filter ranges in the final merged histogram, not from three separately stored component histograms in the merged ROOT. | Use this PNG for the slide-10-style three-sample stitching comparison. No further inclusive3 queue watching is needed unless a slide edit or follow-up count audit is requested. |
+
+| 🔴 Failed / Diagnose | Jet30-only AuAuPhotonIDTrainingTree extraction for Blair background-count validation on `sphnxuser02` | 2026-05-16 Codex attempted to extend the Blair background validation spectra from embeddedJet12+20 to embeddedJet12+20+30 by extracting Jet30 photon-ID training labels. First submission from `/sphenix/u/patsfan753/scratch/thesisAnalysis`: `RJ_NOTIFY_EMAILS=just0131@gmail.com RJ_ML_PYTHON=/sphenix/u/patsfan753/.venvs/thesis-ml/bin/python RJ_AUAU_TIGHT_BDT_SIGNAL_SAMPLES=" " RJ_AUAU_TIGHT_BDT_BACKGROUND_SAMPLES="run28_embeddedJet30" RJ_AUAU_TIGHT_BDT_REQUEST_MEMORY=3000MB ./scripts/auau_tight_bdt_pipeline.sh condorExtract groupSize 7`; generated run root `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260516_124649`, DAG `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDT_20260516_124649/auau_tight_bdt_condorExtract.dag`, DAGMan cluster `2122579`, worker cluster `2122580`, planned `1429` jobs. It failed quickly with `DAG_STATUS_NODE_FAILED`, rescue file `.rescue001`, only `85` ROOTs, and worker stderr examples `corrupted size vs. prev_size` / exit code `6`. Second focused smoke used `RJ_AUAU_TIGHT_BDT_STAMP=jet30_counts_g1_smoke_20260516_125250`, `smokeTest groupSize 1 maxJobs 20`, DAGMan cluster `2122582`, worker cluster `2122583`; it also failed with `DAG_STATUS_NODE_FAILED`, only `8` ROOTs, and failed workers exiting `rc=6` or `rc=11` after running `Fun4All_auauTightBDTTraining.C(1000, ..., false)`, sometimes leaving tiny `656` byte ROOT files. | Do not use either partial Jet30 extraction for plots or training. The already-pulled inclusive3 RecoilJets merged output is valid for stitched truth-jet spectrum QA, but it does not contain `AuAuPhotonIDTrainingTree`, so it is not sufficient by itself for the existing training-label count plots. | Diagnose the Jet30 extraction crash before remaking the label-count validation plots with Jet30. Likely next checks: reproduce one failed Jet30 input with crash backtrace enabled, inspect whether the failure is in DST reading, extraction-tree writing/finalization, or early-stop behavior, then rerun a small clean pilot before any full Jet30 label extraction. |
+
+| 🟡 Running / Diagnostic-Only | Isolation-visible BDT/MLP/NN-stack validation chain on `sphnxuser02` | 2026-05-14 22:31 EDT Codex implemented and uploaded the diagnostic-only isolation-visible lane. Uploaded/verified `MATCH`: `scripts/train_auau_photon_bdt.py`, `scripts/validate_auau_tight_bdt_on_sim.py`, `scripts/train_auau_stacked_bdt_mlp_sweep.py`, `scripts/submit_auau_stacked_bdt_mlp_sweep.sh`, `scripts/submit_auau_iso_visible_diagnostic_chain.sh`, and `scripts/make_auau_iso_visible_diagnostic_summary.py`. Local and SDCC self-tests passed: Python compile, shell syntax, isolation-derived feature consistency, synthetic NN-stack `--include-isolation-context`, and BDT `iso-diagnostic` plan with `43` specs. Tmux session started on `sphnxuser02`: `iso_visible_diag_20260514_223150`. Chain root `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/isolation_visible_diagnostic_20260514_223150`; BDT model dir `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/tight_iso_visible_diagnostic_20260514_223150`; MLP model dir `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/tight_mlp_iso_visible_diagnostic_20260514_223150`; BDT report `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049/reports/bdt_iso_visible_validation_20260514_223150`; MLP report `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049/reports/mlp_iso_visible_validation_20260514_223150`; stack dirs `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/nnstack_iso_scores_iso_context_20260514_223150` and `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/nnstack_clean_scores_iso_context_20260514_223150`. The tmux log showed `training_roots.list entries=8000` and entered `Training isolation-input BDT diagnostics`. Heartbeat `watch-iso-visible-diagnostic-chain` was created at 30-minute cadence. | This lane intentionally uses `reco_eiso`-derived inputs (`clip30`, `eiso/E_T`, signed log1p). It is a diagnostic ceiling test only and not ABCD-safe photon ID. It must stop after validation/ranking/WP80 diagnostics; no `isSimEmbedded` or `isSimEmbeddedInclusive` production submission is allowed from this lane without a separate physics/purity redesign. | Watch tmux `iso_visible_diag_20260514_223150`. Next expected checkpoints: BDT `model_registry.json` and applyCheck, BDT validation READY, MLP iso training/validation READY, stack rank tables, then `summary/iso_visible_diagnostic_summary.txt` and `summary/iso_visible_auc_by_centrality.png`. Pull/show plots only after summary is READY. |
 
 ## Status Legend
 

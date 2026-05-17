@@ -31,6 +31,11 @@ BASE_FEATURES = [
 ]
 WIDTH_3X3_FEATURES = ["cluster_weta33_cogx", "cluster_wphi33_cogx"]
 WIDTH_RATIO_FEATURES = ["cluster_weta_over_wphi", "cluster_weta33_over_wphi33"]
+ISOLATION_DIAGNOSTIC_FEATURES = [
+    "reco_eiso_clip30",
+    "reco_eiso_over_cluster_Et",
+    "reco_eiso_signed_log1p",
+]
 EXTENDED_SHOWER_FEATURES = [
     "cluster_weta35_cogx",
     "cluster_wphi53_cogx",
@@ -52,6 +57,9 @@ EXTENDED_SHOWER_FEATURES = [
 DERIVED_FEATURE_DEPS = {
     "cluster_weta_over_wphi": ["cluster_weta_cogx", "cluster_wphi_cogx"],
     "cluster_weta33_over_wphi33": ["cluster_weta33_cogx", "cluster_wphi33_cogx"],
+    "reco_eiso_clip30": ["reco_eiso"],
+    "reco_eiso_over_cluster_Et": ["reco_eiso", "cluster_Et"],
+    "reco_eiso_signed_log1p": ["reco_eiso"],
 }
 
 PRODUCTS = {
@@ -87,6 +95,8 @@ PLOT_LABELS = {
     "ptFine_cent3": "Fine E_T x 3 centrality bins",
     "ptFine_cent7": "Fine E_T x 7 centrality bins",
     "centDepBDTs": "Centrality-specific models",
+    "isoBDT_global15to35_EtCent_full": "Isolation-input BDT, global 15-35 GeV",
+    "isoBDT_ptFine15to35_cent7_full": "Isolation-input BDT, fine E_T x 7 centrality bins",
 }
 
 PLOT_COLORS = {
@@ -99,6 +109,8 @@ PLOT_COLORS = {
     "ptFine_centInput": "#D55E00",
     "ptFine_cent3": "#009E73",
     "ptFine_cent7": "#CC79A7",
+    "isoBDT_global15to35_EtCent_full": "#7E57C2",
+    "isoBDT_ptFine15to35_cent7_full": "#C2185B",
 }
 FALLBACK_COLORS = [
     "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
@@ -108,7 +120,7 @@ FALLBACK_COLORS = [
 PT_BINS = [(6, 10), (10, 15), (15, 20), (20, 25), (25, 35)]
 CENT_BINS = [(0, 20), (20, 50), (50, 80)]
 DIAGNOSTIC_FEATURES = []
-for _name in BASE_FEATURES + WIDTH_3X3_FEATURES + EXTENDED_SHOWER_FEATURES + WIDTH_RATIO_FEATURES + ["centrality", "reco_eiso"]:
+for _name in BASE_FEATURES + WIDTH_3X3_FEATURES + EXTENDED_SHOWER_FEATURES + WIDTH_RATIO_FEATURES + ISOLATION_DIAGNOSTIC_FEATURES + ["centrality", "reco_eiso"]:
     if _name not in DIAGNOSTIC_FEATURES:
         DIAGNOSTIC_FEATURES.append(_name)
 MANDATORY_CACHE_COLUMNS = ["is_signal", "cluster_Et", "cluster_Eta", "centrality", "reco_eiso"]
@@ -142,6 +154,36 @@ def add_derived_features(frame):
         frame["cluster_weta_over_wphi"] = safe_ratio("cluster_weta_cogx", "cluster_wphi_cogx")
     if "cluster_weta33_over_wphi33" not in frame and {"cluster_weta33_cogx", "cluster_wphi33_cogx"}.issubset(frame):
         frame["cluster_weta33_over_wphi33"] = safe_ratio("cluster_weta33_cogx", "cluster_wphi33_cogx")
+    cols = set(frame)
+    if "reco_eiso_clip30" not in cols and "reco_eiso" in cols:
+        reco_eiso = np.asarray(frame["reco_eiso"], dtype="float64")
+        frame["reco_eiso_clip30"] = np.where(
+            np.isfinite(reco_eiso) & (np.abs(reco_eiso) < 1.0e8),
+            np.clip(reco_eiso, -20.0, 30.0),
+            np.nan,
+        ).astype("float32")
+        cols.add("reco_eiso_clip30")
+    if "reco_eiso_over_cluster_Et" not in cols and {"reco_eiso", "cluster_Et"}.issubset(cols):
+        reco_eiso = np.asarray(frame["reco_eiso"], dtype="float64")
+        cluster_et = np.asarray(frame["cluster_Et"], dtype="float64")
+        out = np.full(len(reco_eiso), np.nan, dtype="float64")
+        mask = (
+            np.isfinite(reco_eiso)
+            & np.isfinite(cluster_et)
+            & (np.abs(reco_eiso) < 1.0e8)
+            & (cluster_et > 1.0e-6)
+        )
+        out[mask] = np.clip(reco_eiso[mask] / cluster_et[mask], -2.0, 3.0)
+        frame["reco_eiso_over_cluster_Et"] = out.astype("float32")
+        cols.add("reco_eiso_over_cluster_Et")
+    if "reco_eiso_signed_log1p" not in cols and "reco_eiso" in cols:
+        reco_eiso = np.asarray(frame["reco_eiso"], dtype="float64")
+        clipped = np.where(
+            np.isfinite(reco_eiso) & (np.abs(reco_eiso) < 1.0e8),
+            np.clip(reco_eiso, -20.0, 60.0),
+            np.nan,
+        )
+        frame["reco_eiso_signed_log1p"] = (np.sign(clipped) * np.log1p(np.abs(clipped))).astype("float32")
 
 
 def range_key(lo, hi) -> str:

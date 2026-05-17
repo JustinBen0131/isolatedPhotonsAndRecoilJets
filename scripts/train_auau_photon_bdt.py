@@ -75,9 +75,37 @@ WIDTH_RATIO_FEATURES = [
     "cluster_weta33_over_wphi33",
 ]
 
+EXTENDED_SHOWER_FEATURES = [
+    "cluster_weta35_cogx",
+    "cluster_wphi53_cogx",
+    "cluster_w32",
+    "cluster_w52",
+    "cluster_w72",
+    "e11_over_e22",
+    "e11_over_e13",
+    "e11_over_e15",
+    "e11_over_e17",
+    "e11_over_e31",
+    "e11_over_e51",
+    "e11_over_e71",
+    "e22_over_e33",
+    "e22_over_e35",
+    "e22_over_e37",
+    "e22_over_e53",
+]
+
+ISOLATION_DIAGNOSTIC_FEATURES = [
+    "reco_eiso_clip30",
+    "reco_eiso_over_cluster_Et",
+    "reco_eiso_signed_log1p",
+]
+
 DERIVED_FEATURE_DEPS = {
     "cluster_weta_over_wphi": ["cluster_weta_cogx", "cluster_wphi_cogx"],
     "cluster_weta33_over_wphi33": ["cluster_weta33_cogx", "cluster_wphi33_cogx"],
+    "reco_eiso_clip30": ["reco_eiso"],
+    "reco_eiso_over_cluster_Et": ["reco_eiso", "cluster_Et"],
+    "reco_eiso_signed_log1p": ["reco_eiso"],
 }
 
 TIGHT_MODES = [
@@ -88,9 +116,31 @@ TIGHT_MODES = [
     "centAsFeat3x3",
     "centAsFeatBase3x3",
     "centAsFeatWidthRatios",
+    "isoDiagnosticFull",
     "centDepBDTs",
 ]
 TMVA_EXPORT_LOCK = threading.Lock()
+
+
+def global_sixpack_noiso_features() -> list[str]:
+    features: list[str] = []
+    for feature in (
+        PPG12_TIGHT_FEATURES_BASE_AND_3X3_WIDTHS
+        + EXTENDED_SHOWER_FEATURES
+        + WIDTH_RATIO_FEATURES
+        + ["centrality"]
+    ):
+        if feature not in features:
+            features.append(feature)
+    return features
+
+
+def global_sixpack_iso_features() -> list[str]:
+    features = global_sixpack_noiso_features()
+    for feature in ISOLATION_DIAGNOSTIC_FEATURES:
+        if feature not in features:
+            features.append(feature)
+    return features
 
 
 def tight_mode_features(mode: str, override: list[str] | None) -> list[str]:
@@ -106,10 +156,26 @@ def tight_mode_features(mode: str, override: list[str] | None) -> list[str]:
             "cluster_wphi33_cogx",
             *WIDTH_RATIO_FEATURES,
         ]
+    elif mode == "isoDiagnosticFull":
+        features = diagnostic_isolation_feature_family(include_centrality=True)
     else:
         features = list(PPG12_TIGHT_FEATURES)
-    if mode in ("centAsFeat", "centAsFeatMinOpt", "centAsFeat3x3", "centAsFeatBase3x3", "centAsFeatWidthRatios") and "centrality" not in features and "cent" not in features:
+    if mode in ("centAsFeat", "centAsFeatMinOpt", "centAsFeat3x3", "centAsFeatBase3x3", "centAsFeatWidthRatios", "isoDiagnosticFull") and "centrality" not in features and "cent" not in features:
         features.append("centrality")
+    return features
+
+
+def diagnostic_isolation_feature_family(include_centrality: bool = True) -> list[str]:
+    features: list[str] = []
+    for feature in (
+        PPG12_TIGHT_FEATURES_BASE_AND_3X3_WIDTHS
+        + EXTENDED_SHOWER_FEATURES
+        + WIDTH_RATIO_FEATURES
+        + ISOLATION_DIAGNOSTIC_FEATURES
+        + (["centrality"] if include_centrality else [])
+    ):
+        if feature not in features:
+            features.append(feature)
     return features
 
 PPG12_NPB_FEATURES = [
@@ -244,6 +310,36 @@ def add_derived_features(frame):
         frame["cluster_weta_over_wphi"] = safe_ratio("cluster_weta_cogx", "cluster_wphi_cogx")
     if "cluster_weta33_over_wphi33" not in frame.columns and {"cluster_weta33_cogx", "cluster_wphi33_cogx"}.issubset(frame.columns):
         frame["cluster_weta33_over_wphi33"] = safe_ratio("cluster_weta33_cogx", "cluster_wphi33_cogx")
+    cols = set(frame.columns)
+    if "reco_eiso_clip30" not in cols and "reco_eiso" in cols:
+        reco_eiso = frame["reco_eiso"].to_numpy(dtype="float64")
+        frame["reco_eiso_clip30"] = np.where(
+            np.isfinite(reco_eiso) & (np.abs(reco_eiso) < 1.0e8),
+            np.clip(reco_eiso, -20.0, 30.0),
+            np.nan,
+        )
+        cols.add("reco_eiso_clip30")
+    if "reco_eiso_over_cluster_Et" not in cols and {"reco_eiso", "cluster_Et"}.issubset(cols):
+        reco_eiso = frame["reco_eiso"].to_numpy(dtype="float64")
+        cluster_et = frame["cluster_Et"].to_numpy(dtype="float64")
+        out = np.full(len(reco_eiso), np.nan, dtype="float64")
+        mask = (
+            np.isfinite(reco_eiso)
+            & np.isfinite(cluster_et)
+            & (np.abs(reco_eiso) < 1.0e8)
+            & (cluster_et > 1.0e-6)
+        )
+        out[mask] = np.clip(reco_eiso[mask] / cluster_et[mask], -2.0, 3.0)
+        frame["reco_eiso_over_cluster_Et"] = out
+        cols.add("reco_eiso_over_cluster_Et")
+    if "reco_eiso_signed_log1p" not in cols and "reco_eiso" in cols:
+        reco_eiso = frame["reco_eiso"].to_numpy(dtype="float64")
+        clipped = np.where(
+            np.isfinite(reco_eiso) & (np.abs(reco_eiso) < 1.0e8),
+            np.clip(reco_eiso, -20.0, 60.0),
+            np.nan,
+        )
+        frame["reco_eiso_signed_log1p"] = np.sign(clipped) * np.log1p(np.abs(clipped))
     return frame
 
 
@@ -1041,6 +1137,98 @@ def etfine_centstudy_specs(args, outdir: Path) -> list[dict]:
     return specs
 
 
+def isolation_diagnostic_specs(args, outdir: Path) -> list[dict]:
+    pt_edges = parse_float_edges(args.pt_bins)
+    pt_bins = bins_from_edges(pt_edges)
+    fine_cent_bins = parse_cent_bins(args.fine_cent_bins)
+    specs: list[dict] = []
+    features_full = diagnostic_isolation_feature_family(include_centrality=True)
+    warning = (
+        "Uses reconstructed isolation-derived inputs. Diagnostic ceiling test only; "
+        "not ABCD-safe photon ID and not for purity production without redesign."
+    )
+
+    def add(
+        product: str,
+        model_id: str,
+        pt_range: tuple[float, float] | None,
+        cent_range: tuple[float, float] | None,
+        role: str,
+    ) -> None:
+        safe = model_id.replace(".", "p")
+        specs.append(
+            {
+                "model_id": safe,
+                "product": product,
+                "role": role,
+                "features": list(features_full),
+                "pt_range": list(pt_range) if pt_range is not None else None,
+                "cent_range": list(cent_range) if cent_range is not None else None,
+                "minority_optimized": True,
+                "output_tmva": str(outdir / f"auau_tight_bdt_{safe}_tmva.root"),
+                "output_xgb_json": str(outdir / f"auau_tight_bdt_{safe}_tmva.xgb.json"),
+                "metadata": str(outdir / f"auau_tight_bdt_{safe}_tmva.metadata.json"),
+                "majority_cap_ratio": None,
+                "diagnostic_only": True,
+                "abcd_warning": warning,
+            }
+        )
+
+    if len(pt_edges) < 2:
+        raise SystemExit("iso-diagnostic needs at least two pT edges")
+    full_pt = (pt_edges[0], pt_edges[-1])
+    add(
+        "isoBDT_global15to35_EtCent_full",
+        "isoBDT_global15to35_EtCent_full",
+        full_pt,
+        None,
+        "diagnostic-global-pt-window-et-cent-isolation-inputs",
+    )
+    for plo, phi in pt_bins:
+        for clo, chi in fine_cent_bins:
+            add(
+                "isoBDT_ptFine15to35_cent7_full",
+                f"isoBDT_ptFine15to35_cent7_full_{pt_tag(plo, phi)}_{cent_tag(clo, chi)}",
+                (plo, phi),
+                (clo, chi),
+                "diagnostic-fine-pt-fine-cent-bin-isolation-inputs",
+            )
+    return specs
+
+
+def global_sixpack_specs(args, outdir: Path) -> list[dict]:
+    specs: list[dict] = []
+    full_pt = (15.0, 35.0)
+
+    def add(model_id: str, features: list[str], role: str, diagnostic_only: bool = False) -> None:
+        specs.append(
+            {
+                "model_id": model_id,
+                "product": model_id,
+                "role": role,
+                "features": list(features),
+                "pt_range": list(full_pt),
+                "cent_range": None,
+                "minority_optimized": False,
+                "output_tmva": str(outdir / f"auau_tight_bdt_{model_id}_tmva.root"),
+                "output_xgb_json": str(outdir / f"auau_tight_bdt_{model_id}_tmva.xgb.json"),
+                "metadata": str(outdir / f"auau_tight_bdt_{model_id}_tmva.metadata.json"),
+                "majority_cap_ratio": None,
+                "diagnostic_only": diagnostic_only,
+                "abcd_warning": "Uses reconstructed isolation-derived inputs; diagnostic only." if diagnostic_only else None,
+            }
+        )
+
+    add("globalEtCent1535_bdt_noIso", global_sixpack_noiso_features(), "global-15-35-et-cent-full-shower-no-iso")
+    add(
+        "globalEtCent1535_bdt_iso",
+        global_sixpack_iso_features(),
+        "global-15-35-et-cent-full-shower-isolation-inputs",
+        diagnostic_only=True,
+    )
+    return specs
+
+
 def registry_payload(specs: list[dict], reports: list[dict], args, status: str = "PLANNED") -> dict:
     report_by_id = {r.get("model_id"): r for r in reports}
     products: dict[str, list[str]] = {}
@@ -1125,6 +1313,8 @@ def train_campaign_spec(frame, spec: dict, common_metadata: dict, args) -> dict 
         "minority_optimized": spec.get("minority_optimized", False),
         "majority_cap_ratio": float(local_args.majority_cap_ratio),
         "campaign": args.campaign,
+        "diagnostic_only": bool(spec.get("diagnostic_only", False)),
+        "abcd_warning": spec.get("abcd_warning"),
     }
     output = Path(spec["output_tmva"])
     return train_one(local, spec["features"], common_metadata["label_branch"], output, metadata, local_args)
@@ -1135,13 +1325,20 @@ def run_campaign(args) -> int:
     if args.task != "tight":
         raise SystemExit("Expanded campaign currently supports --task tight only.")
 
-    all_features = sorted(set(expand_required_columns(PPG12_TIGHT_FEATURES + PPG12_TIGHT_FEATURES_3X3_WIDTHS + PPG12_TIGHT_FEATURES_BASE_AND_3X3_WIDTHS + WIDTH_RATIO_FEATURES + ["centrality", label_branch])))
     optional_columns = [args.weight_branch]
     if not args.input and not args.plan_only and not (args.cache_file and args.cache_file.is_file()):
         raise SystemExit("--input is required for campaign training unless an existing --cache-file is supplied")
     paths = expand_input_paths(args.input) if args.input else []
-    specs_all = etfine_centstudy_specs(args, args.outdir) if args.campaign == "etfine-centstudy" else campaign_specs(args, args.outdir)
+    if args.campaign == "etfine-centstudy":
+        specs_all = etfine_centstudy_specs(args, args.outdir)
+    elif args.campaign == "iso-diagnostic":
+        specs_all = isolation_diagnostic_specs(args, args.outdir)
+    elif args.campaign == "global-sixpack":
+        specs_all = global_sixpack_specs(args, args.outdir)
+    else:
+        specs_all = campaign_specs(args, args.outdir)
     specs = filter_specs(specs_all, args)
+    all_features = sorted(set(expand_required_columns([feature for spec in specs for feature in spec["features"]] + ["centrality", label_branch])))
     if args.majority_cap_ratio <= 0.0:
         args.majority_cap_ratio = 4.0
 
@@ -1237,7 +1434,7 @@ def main() -> int:
     parser.add_argument("--max-flatten-factor", type=float, default=8.0)
     parser.add_argument("--max-total-weight-factor", type=float, default=50.0)
     parser.add_argument("--min-rows-per-class", type=int, default=10)
-    parser.add_argument("--test-size", type=float, default=0.25)
+    parser.add_argument("--test-size", type=float, default=0.10)
     parser.add_argument("--random-seed", type=int, default=13)
     parser.add_argument("--n-estimators", type=int, default=450)
     parser.add_argument("--max-depth", type=int, default=4)
@@ -1250,7 +1447,7 @@ def main() -> int:
     parser.add_argument("--grow-policy", default="lossguide")
     parser.add_argument("--max-bin", type=int, default=256)
     parser.add_argument("--n-jobs", type=int, default=4)
-    parser.add_argument("--campaign", choices=["expanded-tight", "etfine-centstudy"], default=None)
+    parser.add_argument("--campaign", choices=["expanded-tight", "etfine-centstudy", "iso-diagnostic", "global-sixpack"], default=None)
     parser.add_argument("--plan-only", action="store_true")
     parser.add_argument("--cache-only", action="store_true")
     parser.add_argument("--cache-file", type=Path, default=None)

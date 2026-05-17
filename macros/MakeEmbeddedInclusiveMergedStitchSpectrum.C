@@ -41,12 +41,12 @@ std::string Sci(double value, int precision = 3)
   return os.str();
 }
 
-bool ExtractJet20RefScalePbPerEvent(const std::string& mergeInfo, double& scale)
+bool ExtractRefScalePbPerEvent(const std::string& mergeInfo, const std::string& label, double& scale)
 {
   scale = 0.0;
-  const std::regex jet20Pattern(R"(\[embeddedJet20 Nraw=([0-9.eE+\-]+) sigma_pb=([0-9.eE+\-]+) w=([0-9.eE+\-]+)\])");
+  const std::regex pattern("\\[" + label + R"( Nraw=([0-9.eE+\-]+) sigma_pb=([0-9.eE+\-]+) w=([0-9.eE+\-]+)\])");
   std::smatch match;
-  if (!std::regex_search(mergeInfo, match, jet20Pattern) || match.size() < 4) return false;
+  if (!std::regex_search(mergeInfo, match, pattern) || match.size() < 4) return false;
 
   const double nRaw = std::stod(match[1].str());
   const double sigmaPb = std::stod(match[2].str());
@@ -74,6 +74,32 @@ std::unique_ptr<TH1> RatioToSmooth(const TH1* h, const TH1* smooth)
     ratio->SetBinError(ib, h->GetBinError(ib) / den);
   }
   return ratio;
+}
+
+std::unique_ptr<TH1> CloneRangeHist(const TH1* src, const char* name, double xLo, double xHi,
+                                    int color, int markerStyle = 20)
+{
+  if (!src) return nullptr;
+  std::unique_ptr<TH1> h(dynamic_cast<TH1*>(src->Clone(name)));
+  if (!h) return nullptr;
+  h->SetDirectory(nullptr);
+  h->SetStats(false);
+  for (int ib = 1; ib <= h->GetNbinsX(); ++ib)
+  {
+    const double x = h->GetBinCenter(ib);
+    const bool keep = (x >= xLo) && (x < xHi);
+    if (!keep)
+    {
+      h->SetBinContent(ib, 0.0);
+      h->SetBinError(ib, 0.0);
+    }
+  }
+  h->SetLineColor(color);
+  h->SetMarkerColor(color);
+  h->SetMarkerStyle(markerStyle);
+  h->SetMarkerSize(0.90);
+  h->SetLineWidth(2);
+  return h;
 }
 }
 
@@ -107,11 +133,14 @@ void MakeEmbeddedInclusiveMergedStitchSpectrum(const char* inputPath = kDefaultI
 
   TNamed* mergeInfoObj = dynamic_cast<TNamed*>(d->Get("MERGE_INFO"));
   const std::string mergeInfo = mergeInfoObj ? mergeInfoObj->GetTitle() : "";
+  const bool isThreeSlice = mergeInfo.find("embeddedJet30") != std::string::npos ||
+                            inPath.find("embeddedJet12plus20plus30") != std::string::npos;
+  const std::string refLabel = isThreeSlice ? "embeddedJet30" : "embeddedJet20";
   double refScalePbPerEvent = 1.0;
-  const bool haveAbsScale = ExtractJet20RefScalePbPerEvent(mergeInfo, refScalePbPerEvent);
+  const bool haveAbsScale = ExtractRefScalePbPerEvent(mergeInfo, refLabel, refScalePbPerEvent);
   if (!haveAbsScale)
   {
-    std::cerr << "[WARN] Could not parse embeddedJet20 scale from MERGE_INFO; plotting relative merged entries." << std::endl;
+    std::cerr << "[WARN] Could not parse " << refLabel << " scale from MERGE_INFO; plotting relative merged entries." << std::endl;
   }
 
   std::unique_ptr<TH1> h(dynamic_cast<TH1*>(hIn->Clone("h_embeddedInclusiveJetFinalStitch_pb")));
@@ -143,6 +172,25 @@ void MakeEmbeddedInclusiveMergedStitchSpectrum(const char* inputPath = kDefaultI
   ratio->SetMarkerStyle(20);
   ratio->SetMarkerSize(0.85);
   ratio->SetLineWidth(2);
+
+  constexpr int kJet12Color = kBlue + 1;
+  constexpr int kJet20Color = kOrange + 7;
+  constexpr int kJet30Color = kPink + 6;
+  std::unique_ptr<TH1> hJet12;
+  std::unique_ptr<TH1> hJet20;
+  std::unique_ptr<TH1> hJet30;
+  std::unique_ptr<TH1> rJet12;
+  std::unique_ptr<TH1> rJet20;
+  std::unique_ptr<TH1> rJet30;
+  if (isThreeSlice)
+  {
+    hJet12 = CloneRangeHist(h.get(), "h_embeddedInclusiveJetFinalStitch_jet12", 12.0, 20.0, kJet12Color);
+    hJet20 = CloneRangeHist(h.get(), "h_embeddedInclusiveJetFinalStitch_jet20to30", 20.0, 30.0, kJet20Color);
+    hJet30 = CloneRangeHist(h.get(), "h_embeddedInclusiveJetFinalStitch_jet30", 30.0, 1.0e9, kJet30Color);
+    rJet12 = CloneRangeHist(ratio.get(), "h_embeddedInclusiveJetFinalStitch_ratio_jet12", 12.0, 20.0, kJet12Color);
+    rJet20 = CloneRangeHist(ratio.get(), "h_embeddedInclusiveJetFinalStitch_ratio_jet20to30", 20.0, 30.0, kJet20Color);
+    rJet30 = CloneRangeHist(ratio.get(), "h_embeddedInclusiveJetFinalStitch_ratio_jet30", 30.0, 1.0e9, kJet30Color);
+  }
 
   const double xMin = 10.0;
   const double xMax = 45.0;
@@ -184,13 +232,32 @@ void MakeEmbeddedInclusiveMergedStitchSpectrum(const char* inputPath = kDefaultI
   h->GetXaxis()->SetTitleSize(0.0);
   h->Draw("E1");
   smooth->Draw("HIST SAME");
+  if (isThreeSlice)
+  {
+    hJet12->Draw("E1 SAME");
+    hJet20->Draw("E1 SAME");
+    hJet30->Draw("E1 SAME");
+  }
+  else
+  {
+    h->Draw("E1 SAME");
+  }
 
-  TLegend leg(0.15, 0.17, 0.52, 0.32);
+  TLegend leg(0.15, 0.14, 0.52, isThreeSlice ? 0.36 : 0.32);
   leg.SetBorderSize(0);
   leg.SetFillStyle(0);
   leg.SetTextFont(42);
-  leg.SetTextSize(0.038);
-  leg.AddEntry(h.get(), "Jet12+20 stitched", "lep");
+  leg.SetTextSize(isThreeSlice ? 0.032 : 0.038);
+  if (isThreeSlice)
+  {
+    leg.AddEntry(hJet12.get(), "Jet12: 12-20 GeV", "lep");
+    leg.AddEntry(hJet20.get(), "Jet20-to-30: 20-30 GeV", "lep");
+    leg.AddEntry(hJet30.get(), "Jet30: #geq 30 GeV", "lep");
+  }
+  else
+  {
+    leg.AddEntry(h.get(), "Jet12+20 stitched", "lep");
+  }
   leg.AddEntry(smooth.get(), "Smoothed reference", "l");
   leg.Draw();
 
@@ -200,11 +267,20 @@ void MakeEmbeddedInclusiveMergedStitchSpectrum(const char* inputPath = kDefaultI
   lat.SetTextSize(0.040);
   lat.DrawLatex(0.15, 0.86, "Embedded inclusive-jet generator stitching spectrum");
   lat.SetTextSize(0.031);
-  lat.DrawLatex(0.15, 0.80, "Final pulled RecoilJets_embeddedJet12plus20_MERGED.root");
-  lat.DrawLatex(0.15, 0.75, "Jet12: 12 #leq max p_{T}^{jet,truth} < 20 GeV; Jet20: max p_{T}^{jet,truth} #geq 20 GeV");
+  lat.DrawLatex(0.15, 0.80, isThreeSlice ? "Final RecoilJets_embeddedJet12plus20plus30_MERGED.root"
+                                          : "Final RecoilJets_embeddedJet12plus20_MERGED.root");
+  if (isThreeSlice)
+  {
+    lat.DrawLatex(0.15, 0.75, "Jet12: 12 #leq max p_{T}^{jet,truth} < 20 GeV; Jet20: 20-30 GeV; Jet30: #geq 30 GeV");
+  }
+  else
+  {
+    lat.DrawLatex(0.15, 0.75, "Jet12: 12 #leq max p_{T}^{jet,truth} < 20 GeV; Jet20: max p_{T}^{jet,truth} #geq 20 GeV");
+  }
   if (haveAbsScale)
   {
-    lat.DrawLatex(0.15, 0.70, ("Final stitch scale = " + Sci(refScalePbPerEvent) + " pb per Jet20-weighted event").c_str());
+    lat.DrawLatex(0.15, 0.70, ("Final stitch scale = " + Sci(refScalePbPerEvent) + " pb per " +
+                               (isThreeSlice ? "Jet30" : "Jet20") + "-weighted event").c_str());
   }
   else
   {
@@ -222,6 +298,12 @@ void MakeEmbeddedInclusiveMergedStitchSpectrum(const char* inputPath = kDefaultI
 
   bot.cd();
   ratio->Draw("E1");
+  if (isThreeSlice)
+  {
+    rJet12->Draw("E1 SAME");
+    rJet20->Draw("E1 SAME");
+    rJet30->Draw("E1 SAME");
+  }
   TLine one(xMin, 1.0, xMax, 1.0);
   one.SetLineColor(kGray + 1);
   one.SetLineStyle(2);

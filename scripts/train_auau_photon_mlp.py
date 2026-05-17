@@ -90,6 +90,24 @@ DERIVED_FEATURE_DEPS = {
 }
 
 MODEL_SPECS = {
+    "globalEtCent1535_mlp_noIso": {
+        "variant": "auauGlobalEtCent1535MLP",
+        "label": "Global 15-35 GeV MLP with E_T, centrality, full shower-shape inputs",
+        "features": BASE_AND_3X3_FEATURES + EXTENDED_SHOWER_FEATURES + WIDTH_RATIO_FEATURES + ["centrality"],
+        "filename": "auau_globalEtCent1535_mlp_noIso.json",
+    },
+    "globalEtCent1535_mlp_iso": {
+        "variant": "auauGlobalEtCent1535IsoDiagnosticMLP",
+        "label": "Global 15-35 GeV MLP with E_T, centrality, full shower-shape and isolation inputs",
+        "features": BASE_AND_3X3_FEATURES
+        + EXTENDED_SHOWER_FEATURES
+        + WIDTH_RATIO_FEATURES
+        + ISOLATION_DIAGNOSTIC_FEATURES
+        + ["centrality"],
+        "filename": "auau_globalEtCent1535_mlp_iso.json",
+        "diagnostic_only": True,
+        "abcd_warning": "Uses reconstructed isolation-derived inputs; diagnostic only.",
+    },
     "centInputBase3x3MLP_pt1535": {
         "variant": "auauCentInputBase3x3MLP",
         "label": "Centrality input, base + 3x3 widths MLP",
@@ -266,6 +284,8 @@ def parse_products(text: str) -> list[str]:
         return list(DEFAULT_PRODUCTS)
     if text.strip().lower() in ("primary", "primary-only"):
         return ["centInputBase3x3MLP_pt1535"]
+    if text.strip().lower() in ("global-sixpack", "global-etcent-sixpack"):
+        return ["globalEtCent1535_mlp_noIso", "globalEtCent1535_mlp_iso"]
     if text.strip().lower() in ("primary-ratios", "primary-width-ratios", "ratios", "width-ratios"):
         return ["centInputBase3x3WidthRatiosMLP_pt1535"]
     if text.strip().lower() in ("kitchen-sink", "kitchensink", "extended", "extended-shower"):
@@ -330,10 +350,10 @@ def add_derived_features(frame):
         return out
 
     if "cluster_weta_over_wphi" not in cols and {"cluster_weta_cogx", "cluster_wphi_cogx"}.issubset(cols):
-        frame["cluster_weta_over_wphi"] = safe_ratio("cluster_weta_cogx", "cluster_wphi_cogx")
+        frame["cluster_weta_over_wphi"] = safe_ratio("cluster_weta_cogx", "cluster_wphi_cogx").astype("float32")
         cols.add("cluster_weta_over_wphi")
     if "cluster_weta33_over_wphi33" not in cols and {"cluster_weta33_cogx", "cluster_wphi33_cogx"}.issubset(cols):
-        frame["cluster_weta33_over_wphi33"] = safe_ratio("cluster_weta33_cogx", "cluster_wphi33_cogx")
+        frame["cluster_weta33_over_wphi33"] = safe_ratio("cluster_weta33_cogx", "cluster_wphi33_cogx").astype("float32")
         cols.add("cluster_weta33_over_wphi33")
     if "reco_eiso_clip30" not in cols and "reco_eiso" in cols:
         reco_eiso = np.asarray(frame["reco_eiso"], dtype="float64")
@@ -341,7 +361,7 @@ def add_derived_features(frame):
             np.isfinite(reco_eiso) & (np.abs(reco_eiso) < 1.0e8),
             np.clip(reco_eiso, -20.0, 30.0),
             np.nan,
-        )
+        ).astype("float32")
         cols.add("reco_eiso_clip30")
     if "reco_eiso_over_cluster_Et" not in cols and {"reco_eiso", "cluster_Et"}.issubset(cols):
         reco_eiso = np.asarray(frame["reco_eiso"], dtype="float64")
@@ -354,7 +374,7 @@ def add_derived_features(frame):
             & (cluster_et > 1.0e-6)
         )
         out[mask] = np.clip(reco_eiso[mask] / cluster_et[mask], -2.0, 3.0)
-        frame["reco_eiso_over_cluster_Et"] = out
+        frame["reco_eiso_over_cluster_Et"] = out.astype("float32")
         cols.add("reco_eiso_over_cluster_Et")
     if "reco_eiso_signed_log1p" not in cols and "reco_eiso" in cols:
         reco_eiso = np.asarray(frame["reco_eiso"], dtype="float64")
@@ -363,8 +383,36 @@ def add_derived_features(frame):
             np.clip(reco_eiso, -20.0, 60.0),
             np.nan,
         )
-        frame["reco_eiso_signed_log1p"] = np.sign(clipped) * np.log1p(np.abs(clipped))
+        frame["reco_eiso_signed_log1p"] = (np.sign(clipped) * np.log1p(np.abs(clipped))).astype("float32")
         cols.add("reco_eiso_signed_log1p")
+    return frame
+
+
+def compact_numeric_frame(frame, label_branch: str = "is_signal"):
+    """Keep ROOT-derived training frames compact after filtering.
+
+    The full sixpack sample has O(10M) rows, so pandas' default float64
+    columns are expensive. The training math promotes batch operations as
+    needed, but storing the selected frame as float32/int32 avoids wasting
+    memory before minibatch training starts.
+    """
+    try:
+        import pandas as pd
+    except Exception:
+        pd = None
+    for col in list(frame.columns):
+        if col == label_branch:
+            frame[col] = frame[col].astype("int8", copy=False)
+        elif col in {"run", "evt"}:
+            if pd is not None:
+                frame[col] = pd.to_numeric(frame[col], downcast="integer")
+            else:
+                frame[col] = frame[col].astype("int64", copy=False)
+        else:
+            if pd is not None:
+                frame[col] = pd.to_numeric(frame[col], downcast="float")
+            else:
+                frame[col] = frame[col].astype("float32", copy=False)
     return frame
 
 
@@ -604,7 +652,7 @@ def write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(json_ready(payload), indent=2, sort_keys=True) + "\n")
 
 
-def load_frame(paths: list[Path], tree_name: str, required_columns: list[str], optional_columns: list[str] | None = None):
+def load_frame(paths: list[Path], tree_name: str, required_columns: list[str], optional_columns: list[str] | None = None, args=None):
     try:
         import pandas as pd
         import uproot
@@ -621,8 +669,16 @@ def load_frame(paths: list[Path], tree_name: str, required_columns: list[str], o
     read_report = {
         "files_read": 0,
         "rows_read": 0,
+        "rows_after_read_filter": 0,
+        "read_filter": {
+            "pt_range": getattr(args, "pt_range", "") if args is not None else "",
+            "centrality_range": getattr(args, "centrality_range", "") if args is not None else "",
+            "enabled": bool(args is not None and (getattr(args, "pt_range", "") or getattr(args, "centrality_range", ""))),
+        },
         "groups": {},
     }
+    pt_range = parse_range(args.pt_range) if args is not None and getattr(args, "pt_range", "") else None
+    cent_range = parse_range(args.centrality_range) if args is not None and getattr(args, "centrality_range", "") else None
     for idx, path in enumerate(paths, 1):
         if idx == 1 or idx == len(paths) or idx % 100 == 0:
             print(f"[trainAuAuPhotonMLP] reading {idx}/{len(paths)}: {path}", flush=True)
@@ -638,17 +694,33 @@ def load_frame(paths: list[Path], tree_name: str, required_columns: list[str], o
             present_optional = [col for col in optional_columns if col in keys]
             seen_optional.update(present_optional)
             chunk = tree.arrays(required + present_optional, library="pd")
+            rows_before_filter = int(len(chunk))
+            if pt_range is not None and "cluster_Et" in chunk.columns:
+                lo, hi = pt_range
+                et = chunk["cluster_Et"]
+                chunk = chunk[et.notna() & (et >= lo) & (et < hi)]
+            if cent_range is not None and "centrality" in chunk.columns:
+                lo, hi = cent_range
+                cent = chunk["centrality"]
+                chunk = chunk[cent.notna() & (cent >= lo) & (cent < hi)]
+            if len(chunk) != rows_before_filter:
+                chunk = chunk.copy()
+            chunk = compact_numeric_frame(chunk, getattr(args, "label_branch", "is_signal") if args is not None else "is_signal")
             frames.append(chunk)
             group = path_group_key(path)
             group_report = read_report["groups"].setdefault(group, {"files": 0, "rows": 0})
+            group_report.setdefault("rows_after_read_filter", 0)
             group_report["files"] += 1
-            group_report["rows"] += int(len(chunk))
+            group_report["rows"] += rows_before_filter
+            group_report["rows_after_read_filter"] += int(len(chunk))
             read_report["files_read"] += 1
-            read_report["rows_read"] += int(len(chunk))
-    frame = pd.concat(frames, ignore_index=True)
+            read_report["rows_read"] += rows_before_filter
+            read_report["rows_after_read_filter"] += int(len(chunk))
+    frame = pd.concat(frames, ignore_index=True, copy=False)
     for col in optional_columns:
         if col not in frame.columns:
             frame[col] = 1.0
+    frame = compact_numeric_frame(frame, getattr(args, "label_branch", "is_signal") if args is not None else "is_signal")
     read_report["groups"] = dict(sorted(read_report["groups"].items()))
     return frame, sorted(seen_optional), read_report
 
@@ -1023,7 +1095,7 @@ def standardize_from_train(x, train_mask, clip: float):
     z = (x - mean) / scale
     if clip > 0:
         z = np.clip(z, -clip, clip)
-    return z.astype("float64"), mean.astype("float64"), scale.astype("float64")
+    return z.astype("float32"), mean.astype("float64"), scale.astype("float64")
 
 
 def sigmoid(x):
@@ -1086,6 +1158,31 @@ def forward(x, params):
     return activations[-1].reshape(-1), {"activations": activations, "preacts": preacts}
 
 
+def forward_logits_batched(x, params, batch_size: int = 0):
+    """Forward pass for evaluation without retaining full activation caches."""
+    import numpy as np
+
+    n = len(x)
+    if batch_size <= 0 or n <= batch_size:
+        logits, _ = forward(x, params)
+        return logits
+    out = np.empty(n, dtype="float64")
+    for start in range(0, n, batch_size):
+        stop = min(start + batch_size, n)
+        logits, _ = forward(x[start:stop], params)
+        out[start:stop] = logits
+    return out
+
+
+def fixed_eval_indices(n_rows: int, max_rows: int, seed: int):
+    import numpy as np
+
+    if max_rows <= 0 or n_rows <= max_rows:
+        return np.arange(n_rows, dtype="int64")
+    rng = np.random.default_rng(seed)
+    return np.sort(rng.choice(n_rows, size=max_rows, replace=False).astype("int64"))
+
+
 def train_numpy_mlp(
     x_train,
     y_train,
@@ -1107,6 +1204,11 @@ def train_numpy_mlp(
     moments = [{"mW": np.zeros_like(p["W"]), "vW": np.zeros_like(p["W"]), "mb": np.zeros_like(p["b"]), "vb": np.zeros_like(p["b"])} for p in params]
     rng = np.random.default_rng(seed + 17)
     jitter_features = [feature_names.index(f) for f in ("cluster_Et", "centrality") if f in feature_names]
+    train_eval_idx = fixed_eval_indices(len(x_train), int(args.train_eval_max_rows), seed + 23)
+    x_train_eval = x_train[train_eval_idx]
+    y_train_eval = y_train[train_eval_idx]
+    w_train_eval = w_train[train_eval_idx]
+    teacher_train_eval = teacher_train[train_eval_idx] if teacher_train is not None else None
     best = copy.deepcopy(params)
     best_loss = math.inf
     best_epoch = 0
@@ -1155,11 +1257,11 @@ def train_numpy_mlp(
                 p["W"] -= args.learning_rate * mW_hat / (np.sqrt(vW_hat) + eps)
                 p["b"] -= args.learning_rate * mb_hat / (np.sqrt(vb_hat) + eps)
 
-        train_logits, _ = forward(x_train, params)
-        val_logits, _ = forward(x_val, params)
-        train_loss = blended_bce_from_logits(train_logits, y_train, w_train, teacher_train, args, params)
+        train_logits = forward_logits_batched(x_train_eval, params, int(args.eval_batch_size))
+        val_logits = forward_logits_batched(x_val, params, int(args.eval_batch_size))
+        train_loss = blended_bce_from_logits(train_logits, y_train_eval, w_train_eval, teacher_train_eval, args, params)
         val_loss = blended_bce_from_logits(val_logits, y_val, w_val, teacher_val, args, params)
-        train_truth_loss = weighted_bce_from_logits(train_logits, y_train, w_train, params, args.l2)
+        train_truth_loss = weighted_bce_from_logits(train_logits, y_train_eval, w_train_eval, params, args.l2)
         val_truth_loss = weighted_bce_from_logits(val_logits, y_val, w_val, params, args.l2)
         row = {
             "epoch": epoch,
@@ -1168,6 +1270,8 @@ def train_numpy_mlp(
             "train_truth_loss": train_truth_loss,
             "validation_truth_loss": val_truth_loss,
             "validation_auc": auc_score(y_val, sigmoid(val_logits), w_val),
+            "train_eval_rows": int(len(train_eval_idx)),
+            "validation_eval_rows": int(len(x_val)),
         }
         history.append(row)
         if epoch == 1 or epoch % max(1, args.progress_every) == 0:
@@ -1339,6 +1443,8 @@ def artifact_from_params(product: str, spec: dict, features: list[str], mean, sc
             "pt_range": args.pt_range,
             "hidden_layers": [int(x) for x in hidden_layers],
             "epochs": int(args.epochs),
+            "eval_batch_size": int(args.eval_batch_size),
+            "train_eval_max_rows": int(args.train_eval_max_rows),
             "learning_rate": float(args.learning_rate),
             "l2": float(args.l2),
             "conditional_jitter": float(args.conditional_jitter),
@@ -1517,8 +1623,9 @@ def train_product(product: str, frame, args, outdir: Path):
         if len(np.unique(y)) < 2:
             raise SystemExit(f"{product}: {name} split is missing a class")
 
-    x_raw = np.column_stack([selected[f].to_numpy(dtype="float64") for f in features])
+    x_raw = np.column_stack([selected[f].to_numpy(dtype="float32") for f in features])
     x, mean, scale = standardize_from_train(x_raw, train_mask, args.input_clip)
+    del x_raw
     hidden_grid = parse_hidden_layer_grid(args.hidden_layers, args.hidden_layer_grid)
     target_eff = float(args.selection_target_signal_efficiency)
     metric_pt_bins = train_pt_bins(args)
@@ -1545,7 +1652,7 @@ def train_product(product: str, frame, args, outdir: Path):
                 teacher_targets[train_mask] if teacher_targets is not None else None,
                 teacher_targets[val_mask] if teacher_targets is not None else None,
             )
-            val_logits_i, _ = forward(x[val_mask], params_i)
+            val_logits_i = forward_logits_batched(x[val_mask], params_i, int(args.eval_batch_size))
             temperature_i, temp_loss_i = fit_temperature(val_logits_i, labels[val_mask], weights[val_mask])
             val_prob_i = sigmoid(val_logits_i / temperature_i)
             val_report_i = make_report(labels[val_mask], val_prob_i, weights[val_mask])
@@ -1649,9 +1756,12 @@ def train_product(product: str, frame, args, outdir: Path):
         f"selection_fake_rate={best_entry['report']['selection_fake_rate']}",
         flush=True,
     )
-    train_logits, _ = forward(x[train_mask], params)
-    val_logits, _ = forward(x[val_mask], params)
-    test_logits, _ = forward(x[test_mask], params)
+    train_idx = np.flatnonzero(train_mask)
+    train_eval_local = fixed_eval_indices(len(train_idx), int(args.train_eval_max_rows), stable_seed(args.random_seed, product, "final_train_report"))
+    train_eval_idx = train_idx[train_eval_local]
+    train_logits = forward_logits_batched(x[train_eval_idx], params, int(args.eval_batch_size))
+    val_logits = forward_logits_batched(x[val_mask], params, int(args.eval_batch_size))
+    test_logits = forward_logits_batched(x[test_mask], params, int(args.eval_batch_size))
     train_prob = sigmoid(train_logits / temperature)
     val_prob = sigmoid(val_logits / temperature)
     test_prob = sigmoid(test_logits / temperature)
@@ -1681,11 +1791,16 @@ def train_product(product: str, frame, args, outdir: Path):
             "candidates": candidate_reports,
             "pt_bins": [{"lo": float(lo), "hi": float(hi)} for lo, hi in metric_pt_bins],
         },
-        "train": make_report(labels[train_mask], train_prob, weights[train_mask]),
+        "train": make_report(labels[train_eval_idx], train_prob, weights[train_eval_idx]),
         "validation": make_report(labels[val_mask], val_prob, weights[val_mask]),
         "test": make_report(labels[test_mask], test_prob, weights[test_mask]),
         "validation_pt_bins": val_pt_bins,
         "test_pt_bins": test_pt_bins,
+        "train_report_rows": {
+            "evaluated": int(len(train_eval_idx)),
+            "total_train_rows": int(train_mask.sum()),
+            "mode": "fixed_subsample" if len(train_eval_idx) != int(train_mask.sum()) else "full_train",
+        },
     }
     artifact = artifact_from_params(product, spec, features, mean, scale, params, temperature, args, report, hidden_layers)
     out_json = outdir / spec["filename"]
@@ -1782,6 +1897,8 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--highpt-selection-weights", default=os.environ.get("RJ_AUAU_MLP_TRAIN_HIGHPT_SELECTION_WEIGHTS", ""))
     ap.add_argument("--epochs", type=int, default=80)
     ap.add_argument("--batch-size", type=int, default=4096)
+    ap.add_argument("--eval-batch-size", type=int, default=int(os.environ.get("RJ_AUAU_MLP_EVAL_BATCH_SIZE", "131072")))
+    ap.add_argument("--train-eval-max-rows", type=int, default=int(os.environ.get("RJ_AUAU_MLP_TRAIN_EVAL_MAX_ROWS", "0")))
     ap.add_argument("--learning-rate", type=float, default=1.0e-3)
     ap.add_argument("--l2", type=float, default=1.0e-4)
     ap.add_argument("--patience", type=int, default=12)
@@ -1799,6 +1916,10 @@ def main() -> int:
     args = parse_args()
     if args.restarts <= 0:
         raise SystemExit("--restarts must be positive")
+    if args.eval_batch_size < 0:
+        raise SystemExit("--eval-batch-size must be non-negative")
+    if args.train_eval_max_rows < 0:
+        raise SystemExit("--train-eval-max-rows must be non-negative")
     if not (0.0 < args.selection_target_signal_efficiency < 1.0):
         raise SystemExit("--selection-target-signal-efficiency must be between 0 and 1")
     if args.max_rows_per_pt_bin_class < 0:
@@ -1858,8 +1979,9 @@ def main() -> int:
         f"summary={args.outdir / 'training_manifest_summary.json'}",
         flush=True,
     )
-    frame, optional_seen, read_report = load_frame(paths, args.tree, sorted(required_columns), optional_columns)
+    frame, optional_seen, read_report = load_frame(paths, args.tree, sorted(required_columns), optional_columns, args=args)
     frame = add_derived_features(frame)
+    frame = compact_numeric_frame(frame, args.label_branch)
     write_json(args.outdir / "training_read_summary.json", {
         "schema": "RJ_AUAU_TIGHT_MLP_TRAINING_READ_SUMMARY_V1",
         "read": read_report,
@@ -1868,6 +1990,7 @@ def main() -> int:
     print(
         "[trainAuAuPhotonMLP] loaded "
         f"files={read_report['files_read']} rows={read_report['rows_read']} "
+        f"rows_after_read_filter={read_report['rows_after_read_filter']} "
         f"optional={optional_seen}",
         flush=True,
     )

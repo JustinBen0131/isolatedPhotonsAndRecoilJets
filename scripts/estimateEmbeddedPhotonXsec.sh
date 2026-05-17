@@ -12,6 +12,9 @@
 #
 #     EmbeddedJet12: phpythia8_10GeV_JS_MDC2.cfg + 12 <= pT_filter^jet < 20
 #     EmbeddedJet20: phpythia8_20GeV_JS_MDC2.cfg + pT_filter^jet >= 20
+#     Optional 3-slice diagnostic:
+#       EmbeddedJet20to30: phpythia8_20GeV_JS_MDC2.cfg + 20 <= pT_filter^jet < 30
+#       EmbeddedJet30: phpythia8_30GeV_JS_MDC2.cfg + pT_filter^jet >= 30
 #
 #   This is generator-only. It does not run detector simulation, embedding,
 #   clustering, or RecoilJets. For photon samples it reproduces the producer-side
@@ -29,6 +32,8 @@
 #
 #     EmbeddedJet12: 12 <= pT_filter^jet < 20
 #     EmbeddedJet20: pT_filter^jet >= 20
+#     EmbeddedJet20to30: 20 <= pT_filter^jet < 30
+#     EmbeddedJet30: pT_filter^jet >= 30
 #
 # OUTPUT
 #   By default, overwrites a compact output directory:
@@ -62,8 +67,8 @@
 #
 #     --seed N
 #     --outdir DIR
-#     --family photon|inclusive|all
-#     --sample all|PhotonJet12|PhotonJet20|EmbeddedJet12|EmbeddedJet20
+#     --family photon|inclusive|inclusive3|all
+#     --sample all|PhotonJet12|PhotonJet20|EmbeddedJet12|EmbeddedJet20|EmbeddedJet20to30|EmbeddedJet30
 #     --mode compiled      # default; faster event loop, first run compiles
 #     --mode interpreted   # useful for tiny smoke tests; avoids ACLiC compile
 #     --xsec-shards N      # firstPass default: 50 per sample
@@ -76,10 +81,11 @@
 #   generator weight sum). Pythia reports sigma_gen in mb; this script also
 #   prints pb. The lower-threshold sample value is exclusive to avoid overlap
 #   with adjacent samples in stitched merged products. For the embedded
-#   inclusive Jet12 and Jet20 samples, the config and trigger thresholds follow
+#   inclusive Jet12, Jet20, and Jet30 samples, the config and trigger thresholds follow
 #   Brian Seidlitz's embed_2025 production macros:
 #     Jet12 -> phpythia8_10GeV_JS_MDC2.cfg + PHPy8JetTrigger::SetMinJetPt(12)
 #     Jet20 -> phpythia8_20GeV_JS_MDC2.cfg + PHPy8JetTrigger::SetMinJetPt(20)
+#     Jet30 -> phpythia8_30GeV_JS_MDC2.cfg + PHPy8JetTrigger::SetMinJetPt(30)
 # ==============================================================================
 
 set -Eeuo pipefail
@@ -229,17 +235,17 @@ if [[ "${RUN_MODE}" != "compiled" && "${RUN_MODE}" != "interpreted" ]]; then
 fi
 
 case "${SAMPLE_FAMILY}" in
-  photon|inclusive|all) ;;
+  photon|inclusive|inclusive3|all) ;;
   *)
-    echo "[ERROR] --family must be 'photon', 'inclusive', or 'all'; got '${SAMPLE_FAMILY}'" >&2
+    echo "[ERROR] --family must be 'photon', 'inclusive', 'inclusive3', or 'all'; got '${SAMPLE_FAMILY}'" >&2
     exit 2
     ;;
 esac
 
 case "${SAMPLE_FILTER}" in
-  all|PhotonJet12|PhotonJet20|EmbeddedJet12|EmbeddedJet20) ;;
+  all|PhotonJet12|PhotonJet20|EmbeddedJet12|EmbeddedJet20|EmbeddedJet20to30|EmbeddedJet30) ;;
   *)
-  echo "[ERROR] --sample must be one of: all, PhotonJet12, PhotonJet20, EmbeddedJet12, EmbeddedJet20; got '${SAMPLE_FILTER}'" >&2
+  echo "[ERROR] --sample must be one of: all, PhotonJet12, PhotonJet20, EmbeddedJet12, EmbeddedJet20, EmbeddedJet20to30, EmbeddedJet30; got '${SAMPLE_FILTER}'" >&2
   exit 2
   ;;
 esac
@@ -291,7 +297,7 @@ xsec_worker() {
   local mode="$6"
 
   case "${sample}" in
-    PhotonJet12|PhotonJet20|EmbeddedJet12|EmbeddedJet20) ;;
+    PhotonJet12|PhotonJet20|EmbeddedJet12|EmbeddedJet20|EmbeddedJet20to30|EmbeddedJet30) ;;
     *)
     echo "[ERROR] Invalid worker sample: ${sample}" >&2
     exit 2
@@ -305,6 +311,10 @@ xsec_worker() {
   local tmp_out="${workdir}/tmp/${sample}_shard${shard_tag}"
   local result_dir="${workdir}/results"
   local log_dir="${workdir}/worker_logs"
+  local sample_family="photon"
+  case "${sample}" in
+    EmbeddedJet*) sample_family="inclusive" ;;
+  esac
   mkdir -p "${tmp_out}" "${result_dir}" "${log_dir}"
 
   echo "====================================================================="
@@ -322,6 +332,7 @@ xsec_worker() {
 
   "${BASH:-bash}" "${SCRIPT_DIR}/estimateEmbeddedPhotonXsec.sh" run \
     --sample "${sample}" \
+    --family "${sample_family}" \
     --events "${raw_events}" \
     --seed "${seed}" \
     --outdir "${tmp_out}" \
@@ -349,8 +360,9 @@ xsec_first_pass() {
     xsec_samples=( "${SAMPLE_FILTER}" )
   else
     case "${SAMPLE_FAMILY}" in
-      photon)    xsec_samples=( "PhotonJet12" "PhotonJet20" ) ;;
-      inclusive) xsec_samples=( "EmbeddedJet12" "EmbeddedJet20" ) ;;
+      photon)     xsec_samples=( "PhotonJet12" "PhotonJet20" ) ;;
+      inclusive)  xsec_samples=( "EmbeddedJet12" "EmbeddedJet20" ) ;;
+      inclusive3) xsec_samples=( "EmbeddedJet12" "EmbeddedJet20to30" "EmbeddedJet30" ) ;;
       all)       xsec_samples=( "PhotonJet12" "PhotonJet20" "EmbeddedJet12" "EmbeddedJet20" ) ;;
     esac
   fi
@@ -558,6 +570,7 @@ fi
 
 CFG12="${CALIBRATIONROOT}/Generators/JetStructure_TG/phpythia8_10GeV_JS_MDC2.cfg"
 CFG20="${CALIBRATIONROOT}/Generators/JetStructure_TG/phpythia8_20GeV_JS_MDC2.cfg"
+CFG30="${CALIBRATIONROOT}/Generators/JetStructure_TG/phpythia8_30GeV_JS_MDC2.cfg"
 
 needs_photon_configs=0
 case "${SAMPLE_FILTER}:${SAMPLE_FAMILY}" in
@@ -570,6 +583,15 @@ if [[ "${needs_photon_configs}" -eq 1 ]]; then
       exit 1
     fi
   done
+fi
+
+needs_jet30_config=0
+case "${SAMPLE_FILTER}:${SAMPLE_FAMILY}" in
+  EmbeddedJet30:*|all:inclusive3) needs_jet30_config=1 ;;
+esac
+if [[ "${needs_jet30_config}" -eq 1 && ! -r "${CFG30}" ]]; then
+  echo "[ERROR] Cannot read Pythia Jet30 config: ${CFG30}" >&2
+  exit 1
 fi
 
 mkdir -p "${OUTDIR}"
@@ -904,6 +926,18 @@ void EstimateEmbeddedPhotonXsec(long long nEvents = 1000000,
        "jet",
        20.0,
        -1.0},
+      {"EmbeddedJet20to30",
+       ConfigCandidates("RJ_XSEC_EMBEDDED_JET20_CFG", calib,
+                        {"Generators/JetStructure_TG/phpythia8_20GeV_JS_MDC2.cfg"}),
+       "jet",
+       20.0,
+       30.0},
+      {"EmbeddedJet30",
+       ConfigCandidates("RJ_XSEC_EMBEDDED_JET30_CFG", calib,
+                        {"Generators/JetStructure_TG/phpythia8_30GeV_JS_MDC2.cfg"}),
+       "jet",
+       30.0,
+       -1.0},
   };
   const std::string sampleFilter = sampleFilterC ? sampleFilterC : "all";
   const std::string sampleFamily = sampleFamilyC ? sampleFamilyC : "photon";
@@ -1176,10 +1210,13 @@ echo "Family   : ${SAMPLE_FAMILY}"
 echo "Sample   : ${SAMPLE_FILTER}"
 echo "Config12 : ${CFG12}"
 echo "Config20 : ${CFG20}"
+echo "Config30 : ${CFG30}"
 echo "Jet cfgs : embedded-inclusive production mapping from Brian's embed_2025 macros:"
 echo "           Jet12 -> phpythia8_10GeV_JS_MDC2.cfg + PHPy8JetTrigger min pT 12"
 echo "           Jet20 -> phpythia8_20GeV_JS_MDC2.cfg + PHPy8JetTrigger min pT 20"
-echo "           Override only with RJ_XSEC_EMBEDDED_JET12_CFG / RJ_XSEC_EMBEDDED_JET20_CFG."
+echo "           Jet30 -> phpythia8_30GeV_JS_MDC2.cfg + PHPy8JetTrigger min pT 30"
+echo "           Three-slice stitching uses EmbeddedJet20to30 for 20 <= pT < 30."
+echo "           Override only with RJ_XSEC_EMBEDDED_JET12_CFG / RJ_XSEC_EMBEDDED_JET20_CFG / RJ_XSEC_EMBEDDED_JET30_CFG."
 echo "Macro    : ${MACRO}"
 echo "Log      : ${LOG}"
 echo "====================================================================="
@@ -1269,6 +1306,8 @@ fi
   echo "  PhotonJet20 -> ${CFG20} + photon filter pT >= 20 GeV, |eta| < 1.5"
   echo "  EmbeddedJet12 -> ${CALIBRATIONROOT}/Generators/JetStructure_TG/phpythia8_10GeV_JS_MDC2.cfg + anti-kT generator-jet filter 12 <= pT < 20 GeV"
   echo "  EmbeddedJet20 -> ${CALIBRATIONROOT}/Generators/JetStructure_TG/phpythia8_20GeV_JS_MDC2.cfg + anti-kT generator-jet filter pT >= 20 GeV"
+  echo "  EmbeddedJet20to30 -> ${CALIBRATIONROOT}/Generators/JetStructure_TG/phpythia8_20GeV_JS_MDC2.cfg + anti-kT generator-jet filter 20 <= pT < 30 GeV"
+  echo "  EmbeddedJet30 -> ${CALIBRATIONROOT}/Generators/JetStructure_TG/phpythia8_30GeV_JS_MDC2.cfg + anti-kT generator-jet filter pT >= 30 GeV"
   echo
   echo "Results CSV:"
   cat "${RESULTS}"

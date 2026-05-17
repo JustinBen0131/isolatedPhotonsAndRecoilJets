@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""Train an out-of-fold residual NN super-stacker for AuAu photon ID.
+"""Train an out-of-fold NN super-stacker for AuAu photon ID.
 
-This is a diagnostic ceiling test.  It uses BDT/MLP score inputs and lower
-stacker outputs, so it is not a clean standalone photon-ID candidate.  The
-important guardrail is that the residual NN is trained on out-of-fold lower
-stacker predictions and evaluated on a locked test split.
+This is a diagnostic ceiling test.  It can either train the historical residual
+NN on BDT/MLP score inputs, or a stricter tri-score superlearner: fold-train
+logistic/GBM/NN base learners on the full photon feature family, evaluate each
+base learner on held-out folds, then train a heavier final MLP on those honest
+out-of-fold scores.  The locked test split is evaluated with base learners
+trained only on the train+validation split.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import math
 import sys
@@ -56,6 +59,11 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--folds", type=int, default=5)
     ap.add_argument("--lower-algorithms", default="logistic,gbm,nn")
     ap.add_argument("--base-score", default="nn", help="Lower stacker used as residual base, e.g. nn or lower_nn.")
+    ap.add_argument("--lower-feature-mode", choices=["score_context", "full_features", "full_features_plus_scores"], default="score_context")
+    ap.add_argument("--super-feature-mode", choices=["scores_context", "scores_plus_full_features", "scores_only"], default="scores_context")
+    ap.add_argument("--final-mode", choices=["residual", "direct"], default="residual")
+    ap.add_argument("--include-isolation-context", action="store_true")
+    ap.add_argument("--model-name", default="")
     ap.add_argument("--hidden", default="16")
     ap.add_argument("--epochs", type=int, default=180)
     ap.add_argument("--patience", type=int, default=28)
@@ -66,12 +74,17 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--correction-scale", type=float, default=0.55)
     ap.add_argument("--max-shards", type=int, default=0)
     ap.add_argument("--max-rows", type=int, default=0)
+    ap.add_argument("--require-full-stat", action="store_true")
+    ap.add_argument("--expected-shards", type=int, default=80)
     ap.add_argument("--train-fraction", type=float, default=0.60)
     ap.add_argument("--val-fraction", type=float, default=0.20)
     ap.add_argument("--random-seed", type=int, default=24681357)
     ap.add_argument("--target-signal-efficiency", type=float, default=0.80)
     ap.add_argument("--report-pt-bins", default=DEFAULT_PT_BINS)
     ap.add_argument("--report-cent-bins", default=DEFAULT_CENT_BINS)
+    ap.add_argument("--correlation-max-rows", type=int, default=600000)
+    ap.add_argument("--correlation-top-n", type=int, default=80)
+    ap.add_argument("--skip-correlation-diagnostics", action="store_true")
     ap.add_argument("--self-test", action="store_true")
     return ap.parse_args()
 
@@ -158,10 +171,14 @@ def load_frame(args):
     load_args = argparse.Namespace(
         mlp_cache=args.mlp_cache,
         bdt_cache=args.bdt_cache,
+        logreg_cache=None,
         mlp_score=args.mlp_score,
         bdt_score=args.bdt_score,
+        logreg_score=stack.DEFAULT_LOGREG_SCORE,
         max_shards=args.max_shards,
         max_rows=args.max_rows,
+        require_full_stat=args.require_full_stat,
+        expected_shards=args.expected_shards,
         random_seed=args.random_seed,
     )
     return stack.load_aligned_caches(load_args)
@@ -173,8 +190,66 @@ def selected_mask(frame, args):
     return np.isfinite(et) & np.isfinite(cent) & (et >= args.pt_min) & (et < args.pt_max) & (cent >= 0.0) & (cent < 80.0)
 
 
-def stack_feature_names(frame) -> list[str]:
+def dedup_existing(frame, names: list[str]) -> list[str]:
+    out = []
+    for name in names:
+        if name in frame and name not in out:
+            out.append(name)
+    return out
+
+
+def score_context_names(frame) -> list[str]:
     stack.add_interactions(frame)
+    return dedup_existing(
+        frame,
+        [
+            "bdt_score",
+            "mlp_score",
+            "mlp_logit",
+            "log_cluster_Et",
+            "centrality_scaled",
+            "bdt_x_mlp_logit",
+            "bdt_x_logEt",
+            "mlp_logit_x_logEt",
+            "bdt_x_cent",
+            "mlp_logit_x_cent",
+            "logEt_x_cent",
+        ],
+    )
+
+
+def full_feature_names(frame) -> list[str]:
+    stack.add_interactions(frame)
+    names = []
+    for feature in stack.FULL_FEATURES:
+        if feature in frame and feature not in names:
+            names.append(feature)
+    for feature in ("log_cluster_Et", "centrality", "centrality_scaled"):
+        if feature in frame and feature not in names:
+            names.append(feature)
+    return names
+
+
+def full_feature_names_for_args(frame, args=None) -> list[str]:
+    names = full_feature_names(frame)
+    if args is not None and getattr(args, "include_isolation_context", False):
+        for feature in stack.ISOLATION_CONTEXT_FEATURES:
+            if feature in frame and feature not in names:
+                names.append(feature)
+    return names
+
+
+def lower_feature_names(frame, mode: str, args=None) -> list[str]:
+    if mode == "score_context":
+        return score_context_names(frame)
+    if mode == "full_features":
+        return full_feature_names_for_args(frame, args)
+    if mode == "full_features_plus_scores":
+        return dedup_existing(frame, score_context_names(frame) + full_feature_names_for_args(frame, args))
+    raise ValueError(f"Unknown lower feature mode: {mode}")
+
+
+def historical_stack_feature_names(frame) -> list[str]:
     names = [
         "bdt_score",
         "mlp_score",
@@ -188,16 +263,53 @@ def stack_feature_names(frame) -> list[str]:
         "mlp_logit_x_cent",
         "logEt_x_cent",
     ]
-    return [name for name in names if name in frame]
+    return dedup_existing(frame, names)
 
 
 def matrix_from_frame(frame, names: list[str]) -> np.ndarray:
     return np.column_stack([np.asarray(frame[name], dtype="float64") for name in names]).astype("float64")
 
 
-def make_folds(y, mask, n_folds: int, seed: int) -> list[np.ndarray]:
+def stable_unit_interval(seed: int, *parts) -> float:
+    h = hashlib.blake2b(digest_size=8)
+    h.update(str(seed).encode())
+    for part in parts:
+        h.update(b"|")
+        h.update(str(part).encode())
+    return int.from_bytes(h.digest(), "big") / float(1 << 64)
+
+
+def stable_split(frame, y, seed: int, train_fraction: float, val_fraction: float):
+    if train_fraction + val_fraction >= 1.0:
+        raise SystemExit("train-fraction + val-fraction must leave a positive test split")
+    if "run" in frame and "evt" in frame:
+        run = np.asarray(frame["run"])
+        evt = np.asarray(frame["evt"])
+        u = np.asarray([stable_unit_interval(seed, int(r), int(e)) for r, e in zip(run, evt, strict=False)])
+        test_fraction = 1.0 - train_fraction - val_fraction
+        test = u < test_fraction
+        val = (u >= test_fraction) & (u < test_fraction + val_fraction)
+        train = ~(test | val)
+        return {"train": train, "val": val, "test": test, "all": np.ones(len(y), dtype=bool), "mode": "event_hash_run_evt"}
+    split = stack.stratified_split(y, seed, train_fraction, val_fraction)
+    split["mode"] = "row_stratified"
+    return split
+
+
+def make_folds(frame, y, mask, n_folds: int, seed: int) -> list[np.ndarray]:
     if n_folds < 2:
         raise SystemExit("--folds must be >= 2")
+    if "run" in frame and "evt" in frame:
+        run = np.asarray(frame["run"])
+        evt = np.asarray(frame["evt"])
+        fold_id = np.full(len(y), -1, dtype="int32")
+        idx = np.flatnonzero(mask)
+        for row in idx:
+            fold_id[row] = int(stable_unit_interval(seed, int(run[row]), int(evt[row])) * n_folds) % n_folds
+        folds = [(fold_id == fold) for fold in range(n_folds)]
+        if any(fold.sum() == 0 for fold in folds):
+            raise SystemExit("At least one event-hash fold is empty")
+        return folds
     rng = np.random.default_rng(seed)
     fold_id = np.full(len(y), -1, dtype="int32")
     for cls in (0, 1):
@@ -230,12 +342,14 @@ def lower_args(args) -> argparse.Namespace:
 
 
 def train_lower_models_oof(frame, y, trainval_mask, test_mask, args):
-    names = stack_feature_names(frame)
+    names = lower_feature_names(frame, args.lower_feature_mode, args)
+    if not names:
+        raise SystemExit(f"No lower-model features available for mode {args.lower_feature_mode}")
     x = matrix_from_frame(frame, names)
     algorithms = [tok.strip() for tok in args.lower_algorithms.split(",") if tok.strip()]
     if not algorithms:
         raise SystemExit("--lower-algorithms is empty")
-    folds = make_folds(y, trainval_mask, args.folds, args.random_seed + 1001)
+    folds = make_folds(frame, y, trainval_mask, args.folds, args.random_seed + 1001)
     largs = lower_args(args)
     oof_scores = {alg: np.full(len(y), np.nan, dtype="float64") for alg in algorithms}
     final_scores = {alg: np.full(len(y), np.nan, dtype="float64") for alg in algorithms}
@@ -288,13 +402,9 @@ def train_lower_models_oof(frame, y, trainval_mask, test_mask, args):
     return names, oof_scores, final_scores, final_artifacts, fold_rows
 
 
-def make_super_features(frame, lower_scores: dict[str, np.ndarray], algorithms: list[str]) -> tuple[list[str], np.ndarray]:
+def make_super_features(frame, lower_scores: dict[str, np.ndarray], algorithms: list[str], mode: str, args=None) -> tuple[list[str], np.ndarray]:
     cols = []
     names = []
-    for name in ["bdt_score", "mlp_score", "mlp_logit", "log_cluster_Et", "centrality_scaled"]:
-        if name in frame:
-            names.append(name)
-            cols.append(np.asarray(frame[name], dtype="float64"))
     for alg in algorithms:
         score_name = f"lower_{alg}"
         score = np.asarray(lower_scores[alg], dtype="float64")
@@ -302,6 +412,12 @@ def make_super_features(frame, lower_scores: dict[str, np.ndarray], algorithms: 
         cols.append(score)
         names.append(f"{score_name}_logit")
         cols.append(logit_prob(score))
+    if len(algorithms) >= 2:
+        score_stack = np.column_stack([np.asarray(lower_scores[alg], dtype="float64") for alg in algorithms])
+        names.append("lower_score_mean")
+        cols.append(np.nanmean(np.where(np.isfinite(score_stack), score_stack, np.nan), axis=1))
+        names.append("lower_score_spread")
+        cols.append(np.nanstd(np.where(np.isfinite(score_stack), score_stack, np.nan), axis=1))
     if "log_cluster_Et" in frame:
         log_et = np.asarray(frame["log_cluster_Et"], dtype="float64")
         for alg in algorithms:
@@ -312,6 +428,20 @@ def make_super_features(frame, lower_scores: dict[str, np.ndarray], algorithms: 
         for alg in algorithms:
             names.append(f"lower_{alg}_x_cent")
             cols.append(np.asarray(lower_scores[alg], dtype="float64") * cent)
+    if mode == "scores_context":
+        extra = score_context_names(frame)
+    elif mode == "scores_plus_full_features":
+        extra = full_feature_names_for_args(frame, args)
+    elif mode == "scores_only":
+        extra = []
+    else:
+        raise ValueError(f"Unknown super feature mode: {mode}")
+    for name in extra:
+        if name not in names:
+            names.append(name)
+            cols.append(np.asarray(frame[name], dtype="float64"))
+    if not cols:
+        raise SystemExit(f"No final-superlearner features available for mode {mode}")
     return names, np.column_stack(cols).astype("float64")
 
 
@@ -457,6 +587,24 @@ def predict_residual_nn(model: ResidualNN, x, base_score):
     return residual_score(base_score, raw, model.correction_scale), raw
 
 
+def final_nn_args(args) -> argparse.Namespace:
+    return argparse.Namespace(
+        nn_hidden=args.hidden,
+        nn_epochs=args.epochs,
+        nn_patience=args.patience,
+        nn_batch_size=args.batch_size,
+        nn_learning_rate=args.learning_rate,
+        nn_l2=args.l2,
+        linear_backend="numpy",
+        max_linear_steps=1200,
+        l2=args.l2,
+        gbm_estimators=80,
+        gbm_learning_rate=0.045,
+        gbm_max_depth=3,
+        gbm_max_leaf_nodes=8,
+    )
+
+
 def split_metrics(frame, y, score, mask, args) -> dict:
     score = np.asarray(score, dtype="float64")
     yy = y[mask]
@@ -504,6 +652,179 @@ def write_rank_table(path: Path, rows: list[dict]) -> None:
         writer.writerows(rows)
 
 
+def write_rows(path: Path, rows: list[dict]) -> None:
+    if not rows:
+        return
+    fields = []
+    for row in rows:
+        for key in row:
+            if key not in fields:
+                fields.append(key)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def sample_mask_for_correlations(mask: np.ndarray, max_rows: int, seed: int) -> np.ndarray:
+    idx = np.flatnonzero(mask)
+    if max_rows > 0 and idx.size > max_rows:
+        rng = np.random.default_rng(seed)
+        idx = rng.choice(idx, size=max_rows, replace=False)
+        idx.sort()
+    out = np.zeros(len(mask), dtype=bool)
+    out[idx] = True
+    return out
+
+
+def clean_matrix_for_correlation(x: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    clean = np.asarray(x, dtype="float64").copy()
+    clean[~np.isfinite(clean)] = np.nan
+    impute = np.nanmedian(clean, axis=0)
+    impute = np.where(np.isfinite(impute), impute, 0.0)
+    inds = np.where(~np.isfinite(clean))
+    if inds[0].size:
+        clean[inds] = impute[inds[1]]
+    mean = np.mean(clean, axis=0)
+    scale = np.std(clean, axis=0)
+    scale = np.where(np.isfinite(scale) & (scale > 1.0e-12), scale, 1.0)
+    z = (clean - mean) / scale
+    z = np.nan_to_num(z, nan=0.0, posinf=0.0, neginf=0.0)
+    return z, mean, scale
+
+
+def correlation_vector(a, b) -> float:
+    a = np.asarray(a, dtype="float64")
+    b = np.asarray(b, dtype="float64")
+    mask = np.isfinite(a) & np.isfinite(b)
+    if mask.sum() < 3:
+        return math.nan
+    aa = a[mask]
+    bb = b[mask]
+    if np.std(aa) <= 1.0e-12 or np.std(bb) <= 1.0e-12:
+        return math.nan
+    return float(np.corrcoef(aa, bb)[0, 1])
+
+
+def write_correlation_heatmap(path: Path, names: list[str], corr: np.ndarray) -> bool:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception as exc:
+        print(f"[superStack][WARN] matplotlib unavailable; skipping correlation heatmap: {exc}", flush=True)
+        return False
+    n = len(names)
+    fig_w = max(9.0, min(22.0, 0.32 * n + 4.0))
+    fig_h = max(7.5, min(22.0, 0.32 * n + 3.0))
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h), dpi=170)
+    im = ax.imshow(corr, vmin=-1.0, vmax=1.0, cmap="coolwarm", interpolation="nearest")
+    ax.set_xticks(range(n))
+    ax.set_yticks(range(n))
+    ax.set_xticklabels(names, rotation=90, fontsize=6)
+    ax.set_yticklabels(names, fontsize=6)
+    ax.set_title("OOF superstacker input correlations", fontsize=12)
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="Pearson r")
+    fig.tight_layout()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path)
+    plt.close(fig)
+    return True
+
+
+def write_correlation_diagnostics(
+    outdir: Path,
+    prefix: str,
+    frame,
+    y: np.ndarray,
+    super_names: list[str],
+    super_x: np.ndarray,
+    score_map: dict[str, np.ndarray],
+    final_name: str,
+    selected_mask_values: np.ndarray,
+    args,
+) -> dict:
+    sample_mask = sample_mask_for_correlations(selected_mask_values, args.correlation_max_rows, args.random_seed + 424242)
+    idx = np.flatnonzero(sample_mask)
+    if idx.size < 10:
+        return {"status": "SKIPPED", "reason": "too_few_rows", "rows": int(idx.size)}
+
+    target_columns = {
+        "truth_is_signal": np.asarray(y, dtype="float64"),
+        "cluster_Et": np.asarray(frame["cluster_Et"], dtype="float64") if "cluster_Et" in frame else None,
+        "centrality": np.asarray(frame["centrality"], dtype="float64") if "centrality" in frame else None,
+        "reco_eiso": np.asarray(frame["reco_eiso"], dtype="float64") if "reco_eiso" in frame else None,
+    }
+    for name, score in score_map.items():
+        target_columns[f"score_{name}"] = np.asarray(score, dtype="float64")
+    target_columns = {name: col for name, col in target_columns.items() if col is not None}
+
+    matrix_names = list(super_names)
+    matrix_values = [np.asarray(super_x[:, i], dtype="float64") for i in range(super_x.shape[1])]
+    for name, col in target_columns.items():
+        if name not in matrix_names:
+            matrix_names.append(name)
+            matrix_values.append(col)
+
+    matrix = np.column_stack([col[idx] for col in matrix_values])
+    z, _, _ = clean_matrix_for_correlation(matrix)
+    corr = (z.T @ z) / max(1, z.shape[0] - 1)
+    corr = np.clip(corr, -1.0, 1.0)
+
+    matrix_path = outdir / f"{prefix}_input_correlation_matrix.csv"
+    matrix_path.parent.mkdir(parents=True, exist_ok=True)
+    with matrix_path.open("w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["feature"] + matrix_names)
+        for name, row in zip(matrix_names, corr, strict=True):
+            writer.writerow([name] + [f"{value:.8g}" for value in row])
+
+    target_rows = []
+    for i, feature in enumerate(super_names):
+        values = np.asarray(super_x[:, i], dtype="float64")[idx]
+        row = {"feature": feature}
+        for target_name, target_values in target_columns.items():
+            row[f"pearson_{target_name}"] = correlation_vector(values, np.asarray(target_values, dtype="float64")[idx])
+        target_rows.append(row)
+    target_path = outdir / f"{prefix}_input_target_correlations.csv"
+    write_rows(target_path, target_rows)
+
+    pair_rows = []
+    n_features = len(super_names)
+    for i in range(n_features):
+        for j in range(i + 1, n_features):
+            pair_rows.append(
+                {
+                    "feature_a": super_names[i],
+                    "feature_b": super_names[j],
+                    "pearson": float(corr[i, j]),
+                    "abs_pearson": abs(float(corr[i, j])),
+                }
+            )
+    pair_rows.sort(key=lambda row: row["abs_pearson"], reverse=True)
+    top_path = outdir / f"{prefix}_input_pairwise_top_correlations.csv"
+    write_rows(top_path, pair_rows[: max(1, int(args.correlation_top_n))])
+
+    heatmap_path = outdir / f"{prefix}_input_correlation_heatmap.png"
+    heatmap_written = write_correlation_heatmap(heatmap_path, matrix_names, corr)
+    payload = {
+        "schema": "RJ_AUAU_OOF_SUPERSTACKER_CORRELATION_DIAGNOSTICS_V1",
+        "rows_available": int(selected_mask_values.sum()),
+        "rows_sampled": int(idx.size),
+        "super_feature_count": int(len(super_names)),
+        "matrix_column_count": int(len(matrix_names)),
+        "final_model": final_name,
+        "matrix_csv": str(matrix_path),
+        "target_correlations_csv": str(target_path),
+        "top_pairwise_correlations_csv": str(top_path),
+        "heatmap_png": str(heatmap_path) if heatmap_written else "",
+    }
+    write_json(outdir / f"{prefix}_correlation_diagnostics.json", payload)
+    return payload
+
+
 def export_residual_artifact(model: ResidualNN, lower_artifacts: dict, metadata: dict) -> dict:
     return {
         "schema": "RJ_AUAU_STACKED_BDT_MLP_RESIDUAL_SUPERSTACKER_V1",
@@ -527,10 +848,26 @@ def export_residual_artifact(model: ResidualNN, lower_artifacts: dict, metadata:
     }
 
 
-def overfit_report(metrics: dict, fold_rows: list[dict]) -> dict:
-    test = metrics["residual_supernn"]["test"]
-    train = metrics["residual_supernn"]["train_oof"]
-    val = metrics["residual_supernn"]["val_oof"]
+def export_direct_artifact(model, lower_artifacts: dict, metadata: dict, name: str) -> dict:
+    return {
+        "schema": "RJ_AUAU_OOF_TRISCORE_HEAVYNN_SUPERLEARNER_V1",
+        "name": name,
+        "diagnostic_only": True,
+        "uses_out_of_fold_lower_scores": True,
+        "final_model": model.artifact,
+        "lower_models": lower_artifacts,
+        "training": {
+            "kind": "out_of_fold_direct_heavy_nn",
+            "history": model.history,
+        },
+        "metadata": metadata,
+    }
+
+
+def overfit_report(metrics: dict, fold_rows: list[dict], final_name: str) -> dict:
+    test = metrics[final_name]["test"]
+    train = metrics[final_name]["train_oof"]
+    val = metrics[final_name]["val_oof"]
     fold_aucs = [row["oof_auc"] for row in fold_rows if math.isfinite(row["oof_auc"])]
     train_test_gap = train["auc"] - test["auc"] if math.isfinite(train["auc"]) and math.isfinite(test["auc"]) else math.nan
     val_test_gap = val["auc"] - test["auc"] if math.isfinite(val["auc"]) and math.isfinite(test["auc"]) else math.nan
@@ -559,7 +896,7 @@ def main() -> None:
     stack.add_interactions(frame)
     y = np.asarray(frame["is_signal"], dtype="int32")
     select = selected_mask(frame, args)
-    split = stack.stratified_split(y, args.random_seed, args.train_fraction, args.val_fraction)
+    split = stable_split(frame, y, args.random_seed, args.train_fraction, args.val_fraction)
     train_mask = select & split["train"]
     val_mask = select & split["val"]
     test_mask = select & split["test"]
@@ -575,9 +912,31 @@ def main() -> None:
         args.base_score = args.base_score[len("lower_") :]
     if args.base_score not in lower_scores:
         raise SystemExit(f"--base-score must be one of {sorted(lower_scores)}")
-    super_names, super_x = make_super_features(frame, lower_scores, algorithms)
-    residual_model = train_residual_nn(super_x, y, lower_scores[args.base_score], train_mask, val_mask, args, super_names)
-    residual_score_all, delta_raw = predict_residual_nn(residual_model, super_x, lower_scores[args.base_score])
+    super_names, super_x = make_super_features(frame, lower_scores, algorithms, args.super_feature_mode, args)
+    model_stem = args.model_name or ("oofTriScoreHeavyNN_pt1535" if args.final_mode == "direct" else "oofResidualSuperNN_pt1535")
+    final_name = "direct_supernn" if args.final_mode == "direct" else "residual_supernn"
+    final_history = []
+    final_artifact = None
+    if args.final_mode == "direct":
+        fitted_final = stack.fit_one(
+            model_stem,
+            "nn",
+            super_names,
+            super_x,
+            y,
+            train_mask,
+            final_nn_args(args),
+            args.random_seed + 9001,
+            val_mask=val_mask,
+        )
+        if fitted_final is None:
+            raise SystemExit("Failed final direct heavy NN superlearner")
+        final_score_all = fitted_final.predict(super_x)
+        final_history = fitted_final.history
+    else:
+        residual_model = train_residual_nn(super_x, y, lower_scores[args.base_score], train_mask, val_mask, args, super_names)
+        final_score_all, delta_raw = predict_residual_nn(residual_model, super_x, lower_scores[args.base_score])
+        final_history = residual_model.history
 
     score_map = {
         "bdt_input": np.asarray(frame["bdt_score"], dtype="float64"),
@@ -585,7 +944,7 @@ def main() -> None:
     }
     for alg in algorithms:
         score_map[f"lower_{alg}"] = lower_scores[alg]
-    score_map["residual_supernn"] = residual_score_all
+    score_map[final_name] = final_score_all
 
     masks = {
         "train_oof": train_mask,
@@ -618,39 +977,101 @@ def main() -> None:
                 }
             )
 
-    overfit = overfit_report(metrics, fold_rows)
-    artifact = export_residual_artifact(
-        residual_model,
-        lower_artifacts,
+    metadata = {
+        "cache_info": cache_info,
+        "selection": f"{args.pt_min:g} <= cluster_Et < {args.pt_max:g}, 0 <= centrality < 80",
+        "folds": args.folds,
+        "lower_feature_mode": args.lower_feature_mode,
+        "super_feature_mode": args.super_feature_mode,
+        "final_mode": args.final_mode,
+        "lower_feature_names": lower_names,
+        "super_feature_names": super_names,
+        "lower_algorithms": algorithms,
+        "locked_test_split": {"train_fraction": args.train_fraction, "val_fraction": args.val_fraction, "random_seed": args.random_seed},
+        "split_mode": split.get("mode", "unknown"),
+        "include_isolation_context": bool(args.include_isolation_context),
+    }
+    overfit = overfit_report(metrics, fold_rows, final_name)
+    if args.final_mode == "direct":
+        artifact = export_direct_artifact(fitted_final, lower_artifacts, metadata, model_stem)
+        out_prefix = "oof_direct_supernn"
+    else:
+        artifact = export_residual_artifact(residual_model, lower_artifacts, metadata)
+        out_prefix = "oof_residual_supernn"
+    correlation_payload = {"status": "DISABLED"}
+    if not args.skip_correlation_diagnostics:
+        print(f"[superStack] writing correlation diagnostics max_rows={args.correlation_max_rows}", flush=True)
+        correlation_payload = write_correlation_diagnostics(
+            args.outdir,
+            out_prefix,
+            frame,
+            y,
+            super_names,
+            super_x,
+            score_map,
+            final_name,
+            select,
+            args,
+        )
+        metadata["correlation_diagnostics"] = correlation_payload
+    artifact_path = args.outdir / f"{out_prefix}_artifact.json"
+    write_json(artifact_path, artifact)
+    write_json(
+        args.outdir / f"{out_prefix}_metrics.json",
+        {"metrics": metrics, "overfit_report": overfit, "fold_rows": fold_rows, "metadata": metadata, "correlation_diagnostics": correlation_payload},
+    )
+    write_rank_table(args.outdir / f"{out_prefix}_rank_table.csv", rank_rows)
+    write_rank_table(args.outdir / f"{out_prefix}_fold_table.csv", fold_rows)
+    with (args.outdir / f"{out_prefix}_training_history.csv").open("w", newline="") as handle:
+        fields = list(final_history[0]) if final_history else ["epoch"]
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(final_history)
+    write_json(
+        args.outdir / f"{out_prefix}_manifest.json",
         {
-            "cache_info": cache_info,
-            "selection": f"{args.pt_min:g} <= cluster_Et < {args.pt_max:g}, 0 <= centrality < 80",
-            "folds": args.folds,
-            "lower_feature_names": lower_names,
-            "lower_algorithms": algorithms,
-            "locked_test_split": {"train_fraction": args.train_fraction, "val_fraction": args.val_fraction, "random_seed": args.random_seed},
+            "artifact": str(artifact_path),
+            "rank_table": str(args.outdir / f"{out_prefix}_rank_table.csv"),
+            "metrics": str(args.outdir / f"{out_prefix}_metrics.json"),
+            "final_model": final_name,
         },
     )
-    artifact_path = args.outdir / "oof_residual_supernn_artifact.json"
-    write_json(artifact_path, artifact)
-    write_json(args.outdir / "oof_residual_supernn_metrics.json", {"metrics": metrics, "overfit_report": overfit, "fold_rows": fold_rows})
-    write_rank_table(args.outdir / "oof_residual_supernn_rank_table.csv", rank_rows)
-    write_rank_table(args.outdir / "oof_residual_supernn_fold_table.csv", fold_rows)
-    with (args.outdir / "oof_residual_supernn_training_history.csv").open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(residual_model.history[0]))
-        writer.writeheader()
-        writer.writerows(residual_model.history)
-    write_json(args.outdir / "oof_residual_supernn_manifest.json", {"artifact": str(artifact_path), "rank_table": str(args.outdir / "oof_residual_supernn_rank_table.csv"), "metrics": str(args.outdir / "oof_residual_supernn_metrics.json")})
-    test = metrics["residual_supernn"]["test"]
+    # Also write stable aliases so older status scripts keep working.
+    if out_prefix != "oof_residual_supernn":
+        write_json(
+            args.outdir / "oof_residual_supernn_metrics.json",
+            {"metrics": metrics, "overfit_report": overfit, "fold_rows": fold_rows, "metadata": metadata, "correlation_diagnostics": correlation_payload},
+        )
+        write_rank_table(args.outdir / "oof_residual_supernn_rank_table.csv", rank_rows)
+        write_rank_table(args.outdir / "oof_residual_supernn_fold_table.csv", fold_rows)
+        with (args.outdir / "oof_residual_supernn_training_history.csv").open("w", newline="") as handle:
+            fields = list(final_history[0]) if final_history else ["epoch"]
+            writer = csv.DictWriter(handle, fieldnames=fields)
+            writer.writeheader()
+            writer.writerows(final_history)
+        write_json(
+            args.outdir / "oof_residual_supernn_manifest.json",
+            {
+                "artifact": str(artifact_path),
+                "rank_table": str(args.outdir / f"{out_prefix}_rank_table.csv"),
+                "metrics": str(args.outdir / f"{out_prefix}_metrics.json"),
+                "final_model": final_name,
+            },
+        )
+    test = metrics[final_name]["test"]
+    final_test_hp = next(
+        (row for row in rank_rows if row["model"] == final_name and row["split"] == "test"),
+        {},
+    )
     print(
         "[superStack] DONE "
         f"test_auc={test['auc']:.6f} test_wp80_fake={test['wp80_fake']} "
-        f"highpt_auc={rank_rows[-2]['highpt_auc_20_35'] if rank_rows else math.nan} "
+        f"highpt_auc={final_test_hp.get('highpt_auc_20_35', math.nan)} "
         f"overfit_flags={overfit['flags']}",
         flush=True,
     )
     print(f"[superStack] DONE_SUPERSTACK_OUTDIR={args.outdir}", flush=True)
-    print(f"[superStack] DONE_SUPERSTACK_RANK_TABLE={args.outdir / 'oof_residual_supernn_rank_table.csv'}", flush=True)
+    print(f"[superStack] DONE_SUPERSTACK_RANK_TABLE={args.outdir / f'{out_prefix}_rank_table.csv'}", flush=True)
 
 
 if __name__ == "__main__":

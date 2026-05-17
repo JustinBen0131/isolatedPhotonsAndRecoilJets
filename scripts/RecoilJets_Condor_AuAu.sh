@@ -317,6 +317,13 @@ echo "---------------------------------------------------------------------"
 emit_profile_summary "$rc"
 rm -f "$profile_file"
 if (( rc != 0 )); then
+  if [[ "${RJ_ALLOW_NONZERO_WITH_ROOT_OUTPUT:-0}" == "1" && -s "$out_root" ]]; then
+    echo "[WARN] Fun4All macro returned rc=$rc, but RJ_ALLOW_NONZERO_WITH_ROOT_OUTPUT=1 and primary ROOT output exists."
+    echo "[WARN] Treating this worker as successful; downstream validation must still open and verify the ROOT file."
+    rc=0
+  fi
+fi
+if (( rc != 0 )); then
   echo "[ERROR] Fun4All macro failed (rc=$rc)"
   exit $rc
 fi

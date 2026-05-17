@@ -67,27 +67,15 @@ void Process_Calo_Calib()
 
   ///////////////////////////////////////////////
   // Remove incomplete events from event combiner
-  if (!isSim)
+  if (!isSim && !isSimEmbedded)
   {
     CaloStatusSkimmer *css = new CaloStatusSkimmer("CaloStatusSkimmer");
-
-    // ----------------------------------------------------------------
-    // UPDATE (embedded-only, minimal fix):
-    // Embedded DST_CALO jobs currently do NOT provide a TOWERS_SEPD node,
-    // and the default CaloStatusSkimmer configuration aborts the event if
-    // TOWERS_SEPD is missing because m_sEPD_skim_threshold defaults to 1.
-    //
-    // We only disable the sEPD skim for isSimEmbedded so the rest of
-    // Process_Calo_Calib() remains unchanged for every other pipeline.
-    // ----------------------------------------------------------------
-    if (isSimEmbedded)
-    {
-      std::cout << "[Process_Calo_Calib][isSimEmbedded] disabling CaloStatusSkimmer sEPD skim "
-                   "(embedded DST_CALO has no TOWERS_SEPD node)" << std::endl;
-      css->do_skim_sEPD(0);
-    }
-
     se->registerSubsystem(css);
+  }
+  else if (isSimEmbedded)
+  {
+    std::cout << "[Process_Calo_Calib][isSimEmbedded] skipping CaloStatusSkimmer "
+                 "(data event-combiner completeness guard is not used for embedded SIM)" << std::endl;
   }
 
   //////////////////////
@@ -101,51 +89,67 @@ void Process_Calo_Calib()
   CaloTowerDefs::BuilderType buildertype = CaloTowerDefs::kPRDFTowerv4;
 
   // build ZDC towers
-  CaloTowerBuilder *caZDC = new CaloTowerBuilder("ZDCBUILDER");
-  caZDC->set_detector_type(CaloTowerDefs::ZDC);
-  caZDC->set_builder_type(buildertype);
-  if ((runnumber > RunnumberRange::RUN2PP_FIRST && runnumber < RunnumberRange::RUN2PP_LAST) || (runnumber > RunnumberRange::RUN3PP_FIRST && runnumber < RunnumberRange::RUN3PP_LAST))
+  if (isSimEmbedded)
   {
-    caZDC->set_processing_type(CaloWaveformProcessing::FAST);
+    std::cout << "[Process_Calo_Calib][isSimEmbedded] skipping ZDCBUILDER "
+                 "(ZDC/minimum-bias calibration is data-only for this embedded SIM path)" << std::endl;
   }
   else
   {
-    caZDC->set_processing_type(CaloWaveformProcessing::FUNCFIT);
-    caZDC->set_funcfit_type(2);
+    CaloTowerBuilder *caZDC = new CaloTowerBuilder("ZDCBUILDER");
+    caZDC->set_detector_type(CaloTowerDefs::ZDC);
+    caZDC->set_builder_type(buildertype);
+    if ((runnumber > RunnumberRange::RUN2PP_FIRST && runnumber < RunnumberRange::RUN2PP_LAST) || (runnumber > RunnumberRange::RUN3PP_FIRST && runnumber < RunnumberRange::RUN3PP_LAST))
+    {
+      caZDC->set_processing_type(CaloWaveformProcessing::FAST);
+    }
+    else
+    {
+      caZDC->set_processing_type(CaloWaveformProcessing::FUNCFIT);
+      caZDC->set_funcfit_type(2);
+    }
+    caZDC->set_nsamples(16);
+    caZDC->set_offlineflag();
+    se->registerSubsystem(caZDC);
   }
-  caZDC->set_nsamples(16);
-  caZDC->set_offlineflag();
-  se->registerSubsystem(caZDC);
 
   //////////////////////////////
   // set statuses on raw towers
-  std::cout << "status setters" << std::endl;
-  CaloTowerStatus *statusEMC = new CaloTowerStatus("CEMCSTATUS");
-  statusEMC->set_detector_type(CaloTowerDefs::CEMC);
-  // MC Towers Status
-  if (isSim)
+  if (isSimEmbedded)
   {
-    // Uses threshold of 50% for towers be considered frequently bad.
-    std::string calibName_hotMap = "CEMC_hotTowers_status";
-    /* Systematic options (to be used as needed). */
-    /* Uses threshold of 40% for towers be considered frequently bad. */
-    // std::string calibName_hotMap = "CEMC_hotTowers_status_40";
-
-    /* Uses threshold of 60% for towers be considered frequently bad. */
-    // std::string calibName_hotMap = "CEMC_hotTowers_status_60";
-
-    std::string calibdir = CDBInterface::instance()->getUrl(calibName_hotMap);
-    statusEMC->set_directURL_hotMap(calibdir);
+    std::cout << "[Process_Calo_Calib][isSimEmbedded] skipping CaloTowerStatus setters "
+                 "(embedded SIM path uses producer tower-quality state)" << std::endl;
   }
-  se->registerSubsystem(statusEMC);
+  else
+  {
+    std::cout << "status setters" << std::endl;
+    CaloTowerStatus *statusEMC = new CaloTowerStatus("CEMCSTATUS");
+    statusEMC->set_detector_type(CaloTowerDefs::CEMC);
+    // MC Towers Status
+    if (isSim)
+    {
+      // Uses threshold of 50% for towers be considered frequently bad.
+      std::string calibName_hotMap = "CEMC_hotTowers_status";
+      /* Systematic options (to be used as needed). */
+      /* Uses threshold of 40% for towers be considered frequently bad. */
+      // std::string calibName_hotMap = "CEMC_hotTowers_status_40";
 
-  CaloTowerStatus *statusHCalIn = new CaloTowerStatus("HCALINSTATUS");
-  statusHCalIn->set_detector_type(CaloTowerDefs::HCALIN);
-  se->registerSubsystem(statusHCalIn);
+      /* Uses threshold of 60% for towers be considered frequently bad. */
+      // std::string calibName_hotMap = "CEMC_hotTowers_status_60";
 
-  CaloTowerStatus *statusHCALOUT = new CaloTowerStatus("HCALOUTSTATUS");
-  statusHCALOUT->set_detector_type(CaloTowerDefs::HCALOUT);
-  se->registerSubsystem(statusHCALOUT);
+      std::string calibdir = CDBInterface::instance()->getUrl(calibName_hotMap);
+      statusEMC->set_directURL_hotMap(calibdir);
+    }
+    se->registerSubsystem(statusEMC);
+
+    CaloTowerStatus *statusHCalIn = new CaloTowerStatus("HCALINSTATUS");
+    statusHCalIn->set_detector_type(CaloTowerDefs::HCALIN);
+    se->registerSubsystem(statusHCalIn);
+
+    CaloTowerStatus *statusHCALOUT = new CaloTowerStatus("HCALOUTSTATUS");
+    statusHCALOUT->set_detector_type(CaloTowerDefs::HCALOUT);
+    se->registerSubsystem(statusHCALOUT);
+  }
 
   ////////////////////
   // Calibrate towers

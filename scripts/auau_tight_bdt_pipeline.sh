@@ -16,6 +16,12 @@ NOTIFY_EMAILS="${RJ_NOTIFY_EMAILS:-just0131@gmail.com}"
 
 SIGNAL_SAMPLES=(run28_embeddedPhoton12 run28_embeddedPhoton20)
 BACKGROUND_SAMPLES=(run28_embeddedJet12 run28_embeddedJet20)
+if [[ -n "${RJ_AUAU_TIGHT_BDT_SIGNAL_SAMPLES+x}" ]]; then
+  read -r -a SIGNAL_SAMPLES <<< "${RJ_AUAU_TIGHT_BDT_SIGNAL_SAMPLES}"
+fi
+if [[ -n "${RJ_AUAU_TIGHT_BDT_BACKGROUND_SAMPLES+x}" ]]; then
+  read -r -a BACKGROUND_SAMPLES <<< "${RJ_AUAU_TIGHT_BDT_BACKGROUND_SAMPLES}"
+fi
 ALL_SAMPLES=("${SIGNAL_SAMPLES[@]}" "${BACKGROUND_SAMPLES[@]}")
 
 ts() { date +%Y%m%d_%H%M%S; }
@@ -130,7 +136,8 @@ Usage:
   ./scripts/auau_tight_bdt_pipeline.sh generateWorkingPointConfig TEMPLATE=/path WORKING_POINTS=/path PRODUCT_MAP=a=b,c=d OUT=/path [MODEL_DIR=/path]
 
 Sidecar AuAu tight-BDT workflow:
-  extraction reads only embeddedPhoton12/20 and embeddedJet12/20 samples,
+  extraction reads embeddedPhoton12/20 and embeddedJet12/20 samples by default,
+  with optional explicit sample overrides such as run28_embeddedJet30,
   writes AuAuPhotonIDTrainingTree ROOT files, and avoids normal cfg-tag
   histogram production. validateOnSim scores those same trees with the
   final TMVA ROOT models and writes quick ROC/AUC simulation diagnostics.
@@ -169,7 +176,7 @@ wrapper_path() {
 sample_dataset() {
   case "$1" in
     run28_embeddedPhoton12|run28_embeddedPhoton20) printf '%s\n' "isSimEmbedded" ;;
-    run28_embeddedJet12|run28_embeddedJet20)       printf '%s\n' "isSimEmbeddedInclusive" ;;
+    run28_embeddedJet12|run28_embeddedJet20|run28_embeddedJet30) printf '%s\n' "isSimEmbeddedInclusive" ;;
     *) die "Unknown AuAu BDT training sample: $1" ;;
   esac
 }
@@ -177,7 +184,7 @@ sample_dataset() {
 sample_class() {
   case "$1" in
     run28_embeddedPhoton12|run28_embeddedPhoton20) printf '%s\n' "signal" ;;
-    run28_embeddedJet12|run28_embeddedJet20)       printf '%s\n' "background" ;;
+    run28_embeddedJet12|run28_embeddedJet20|run28_embeddedJet30) printf '%s\n' "background" ;;
     *) die "Unknown AuAu BDT training sample: $1" ;;
   esac
 }
@@ -237,7 +244,7 @@ make_root_manifest() {
   local root="$1"
   local out="$2"
   mkdir -p "$(dirname "$out")"
-  find "$root" -type f -name '*.root' | sort -V > "$out" || true
+  find -L "$root" -type f -name '*.root' | sort -V > "$out" || true
   [[ -s "$out" ]] || die "No ROOT files found under $root"
 }
 
@@ -463,6 +470,10 @@ run_condor_extract() {
 
   local sub="${sub_root}/auau_tight_bdt_extract.sub"
   local reqmem="${RJ_AUAU_TIGHT_BDT_REQUEST_MEMORY:-3000MB}"
+  local allow_nonzero_with_output=0
+  if [[ "${RJ_AUAU_TIGHT_BDT_TOLERATE_ROOT_ABORT_WITH_OUTPUT:-0}" == "1" ]]; then
+    allow_nonzero_with_output=1
+  fi
   cat > "$sub" <<EOF
 universe = vanilla
 executable = /usr/bin/bash
@@ -472,7 +483,7 @@ error = ${sub_root}/extract_\$(Cluster)_\$(Process).err
 log = ${sub_root}/extract_\$(Cluster).log
 request_memory = ${reqmem}
 notification = Never
-environment = "RJ_CONFIG_YAML=${yaml} RJ_MACRO_PATH=${TRAIN_MACRO} RJ_AUAU_BDT_EXTRACT_ONLY=1 RJ_AUAU_BDT_TRAINING_TREE=1 RJ_DISABLE_ID_FANOUT=1 RJ_DISABLE_ISO_CONE_INTERNALIZATION=1 RJ_DISABLE_JET_PT_INTERNALIZATION=1 RJ_DISABLE_DPHI_INTERNALIZATION=1 RJ_PROFILE_JOB=1"
+environment = "RJ_CONFIG_YAML=${yaml} RJ_MACRO_PATH=${TRAIN_MACRO} RJ_AUAU_BDT_EXTRACT_ONLY=1 RJ_AUAU_BDT_TRAINING_TREE=1 RJ_DISABLE_ID_FANOUT=1 RJ_DISABLE_ISO_CONE_INTERNALIZATION=1 RJ_DISABLE_JET_PT_INTERNALIZATION=1 RJ_DISABLE_DPHI_INTERNALIZATION=1 RJ_PROFILE_JOB=1 RJ_ALLOW_NONZERO_WITH_ROOT_OUTPUT=${allow_nonzero_with_output}"
 queue sample,chunk,dataset,nevents,chunkidx,dest from ${args_file}
 EOF
 
@@ -514,7 +525,8 @@ done
 [[ -n "\$ld_joined" ]] && export LD_LIBRARY_PATH="\$ld_joined:\${LD_LIBRARY_PATH:-}"
 unset PYTHONHOME
 root_manifest="${manifest_dir}/training_roots.list"
-find "${extraction_root}" -type f -name '*.root' | sort -V > "\$root_manifest" || true
+expected_roots="$(wc -l < "${args_file}" | tr -d ' ')"
+find -L "${extraction_root}" -type f -name '*.root' | sort -V > "\$root_manifest" || true
 nroots=\$(wc -l < "\$root_manifest" | tr -d ' ')
 tree_entries=0
 validation_note=""
@@ -565,7 +577,11 @@ PY
   background_entries="\${background_entries:-0}"
 fi
 status=READY
-if [[ "\$nroots" == "0" || "\$tree_entries" == "0" || "\${signal_entries:-0}" == "0" || "\${background_entries:-0}" == "0" ]]; then status=CHECK; fi
+expected_signal_samples=${#SIGNAL_SAMPLES[@]}
+expected_background_samples=${#BACKGROUND_SAMPLES[@]}
+if [[ "\$nroots" == "0" || "\$tree_entries" == "0" || "\$nroots" != "\$expected_roots" ]]; then status=CHECK; fi
+if [[ "\$expected_signal_samples" != "0" && "\${signal_entries:-0}" == "0" ]]; then status=CHECK; fi
+if [[ "\$expected_background_samples" != "0" && "\${background_entries:-0}" == "0" ]]; then status=CHECK; fi
 summary="${report_dir}/final_summary.txt"
 {
   echo "RECOILJETS_STAGE_EMAIL_V1"
@@ -575,9 +591,12 @@ summary="${report_dir}/final_summary.txt"
   echo "training_root=${run_root}"
   echo "root_manifest=\${root_manifest}"
   echo "root_count=\${nroots}"
+  echo "expected_root_count=\${expected_roots}"
   echo "tree_entries=\${tree_entries}"
   echo "signal_entries=\${signal_entries:-0}"
   echo "background_entries=\${background_entries:-0}"
+  echo "expected_signal_samples=\${expected_signal_samples}"
+  echo "expected_background_samples=\${expected_background_samples}"
   if [[ -n "\${validation_note:-}" ]]; then
     echo "validation_note=\${validation_note}"
   fi

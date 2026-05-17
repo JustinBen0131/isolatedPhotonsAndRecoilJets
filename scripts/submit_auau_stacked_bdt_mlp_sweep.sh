@@ -15,8 +15,10 @@ LOG_EXPLICIT=0
 [[ -n "${RJ_AUAU_STACK_SWEEP_LOG+x}" ]] && LOG_EXPLICIT=1
 MLP_CACHE="${RJ_AUAU_STACK_MLP_CACHE:-${SOURCE}/reports/mlp_model_validation_condor_deep_primary_ratios_nostat_fullval_20260512_145449/score_caches.list}"
 BDT_CACHE="${RJ_AUAU_STACK_BDT_CACHE:-${SOURCE}/reports/model_validation_condor_20260511_203441/score_caches.list}"
+LOGREG_CACHE="${RJ_AUAU_STACK_LOGREG_CACHE:-}"
 MLP_SCORE="${RJ_AUAU_STACK_MLP_SCORE:-score_centInputBase3x3WidthRatiosMLP_pt1535}"
 BDT_SCORE="${RJ_AUAU_STACK_BDT_SCORE:-score_ptFine_cent7}"
+LOGREG_SCORE="${RJ_AUAU_STACK_LOGREG_SCORE:-score_centEtFullLogReg_pt1535}"
 REQUEST_MEMORY="${RJ_AUAU_STACK_SWEEP_REQUEST_MEMORY:-12000MB}"
 REQUEST_CPUS="${RJ_AUAU_STACK_SWEEP_REQUEST_CPUS:-1}"
 MAX_ROWS="${RJ_AUAU_STACK_SWEEP_MAX_ROWS:-0}"
@@ -24,6 +26,7 @@ MAX_SHARDS="${RJ_AUAU_STACK_SWEEP_MAX_SHARDS:-0}"
 ALGORITHMS="${RJ_AUAU_STACK_SWEEP_ALGORITHMS:-logistic,gbm}"
 VARIANTS="${RJ_AUAU_STACK_SWEEP_VARIANTS:-}"
 SWEEP="${RJ_AUAU_STACK_SWEEP_PRESET:-full}"
+INCLUDE_ISOLATION_CONTEXT="${RJ_AUAU_STACK_INCLUDE_ISOLATION_CONTEXT:-0}"
 TOP_N="${RJ_AUAU_STACK_SWEEP_TOP_N:-4}"
 ALLOW_MISSING_FULL_FEATURES="${RJ_AUAU_STACK_ALLOW_MISSING_FULL_FEATURES:-0}"
 LINEAR_BACKEND="${RJ_AUAU_STACK_LINEAR_BACKEND:-numpy}"
@@ -56,6 +59,7 @@ Useful knobs:
   OUTDIR=/gpfs/.../stacked_bdt_mlp_full_feature_sweep_<stamp>
   MLP_CACHE=/path/score_caches.list
   BDT_CACHE=/path/score_caches.list
+  LOGREG_CACHE=/path/score_caches.list
   MAX_ROWS=0 MAX_SHARDS=0
   ALGORITHMS=logistic,gbm
   VARIANTS=ptFine5to35_cent7_full,ptFine15to35_cent7_full
@@ -64,6 +68,7 @@ Useful knobs:
   NN_HIDDEN=64,32 NN_EPOCHS=180 NN_PATIENCE=24
   SWEEP=full|compact
   ALLOW_MISSING_FULL_FEATURES=1
+  INCLUDE_ISOLATION_CONTEXT=1
   RJ_DAG_DRYRUN=1
 EOF
 }
@@ -79,8 +84,10 @@ for tok in "$@"; do
     LOG=*) LOG="${tok#LOG=}"; LOG_EXPLICIT=1 ;;
     MLP_CACHE=*) MLP_CACHE="${tok#MLP_CACHE=}" ;;
     BDT_CACHE=*) BDT_CACHE="${tok#BDT_CACHE=}" ;;
+    LOGREG_CACHE=*) LOGREG_CACHE="${tok#LOGREG_CACHE=}" ;;
     MLP_SCORE=*) MLP_SCORE="${tok#MLP_SCORE=}" ;;
     BDT_SCORE=*) BDT_SCORE="${tok#BDT_SCORE=}" ;;
+    LOGREG_SCORE=*) LOGREG_SCORE="${tok#LOGREG_SCORE=}" ;;
     REQUEST_MEMORY=*) REQUEST_MEMORY="${tok#REQUEST_MEMORY=}" ;;
     REQUEST_CPUS=*) REQUEST_CPUS="${tok#REQUEST_CPUS=}" ;;
     MAX_ROWS=*) MAX_ROWS="${tok#MAX_ROWS=}" ;;
@@ -88,6 +95,7 @@ for tok in "$@"; do
     ALGORITHMS=*) ALGORITHMS="${tok#ALGORITHMS=}" ;;
     VARIANTS=*) VARIANTS="${tok#VARIANTS=}" ;;
     SWEEP=*) SWEEP="${tok#SWEEP=}" ;;
+    INCLUDE_ISOLATION_CONTEXT=*) INCLUDE_ISOLATION_CONTEXT="${tok#INCLUDE_ISOLATION_CONTEXT=}" ;;
     TOP_N=*) TOP_N="${tok#TOP_N=}" ;;
     LINEAR_BACKEND=*) LINEAR_BACKEND="${tok#LINEAR_BACKEND=}" ;;
     NN_HIDDEN=*) NN_HIDDEN="${tok#NN_HIDDEN=}" ;;
@@ -128,8 +136,14 @@ common_args=(
   --include-controls
   --note "Diagnostic full-feature BDT+MLP stacker sweep; runtime BDT score is an input."
 )
+if [[ -n "$LOGREG_CACHE" ]]; then
+  common_args+=( --logreg-cache "$LOGREG_CACHE" --logreg-score "$LOGREG_SCORE" )
+fi
 if [[ "$ALLOW_MISSING_FULL_FEATURES" == "1" ]]; then
   common_args+=( --allow-missing-full-features )
+fi
+if [[ "$INCLUDE_ISOLATION_CONTEXT" == "1" ]]; then
+  common_args+=( --include-isolation-context )
 fi
 PYTHON_RUN="$ML_PYTHON"
 if [[ ! -x "$PYTHON_RUN" ]]; then
@@ -147,9 +161,11 @@ print_plan() {
   say "log=$LOG"
   say "mlp_cache=$MLP_CACHE"
   say "bdt_cache=$BDT_CACHE"
-  say "mlp_score=$MLP_SCORE bdt_score=$BDT_SCORE"
+  say "logreg_cache=${LOGREG_CACHE:-<none>}"
+  say "mlp_score=$MLP_SCORE bdt_score=$BDT_SCORE logreg_score=$LOGREG_SCORE"
   say "request_memory=$REQUEST_MEMORY request_cpus=$REQUEST_CPUS"
   say "max_rows=$MAX_ROWS max_shards=$MAX_SHARDS algorithms=$ALGORITHMS variants=${VARIANTS:-<sweep-default>} sweep=$SWEEP top_n=$TOP_N"
+  say "include_isolation_context=$INCLUDE_ISOLATION_CONTEXT"
   say "linear_backend=$LINEAR_BACKEND nn_hidden=$NN_HIDDEN nn_epochs=$NN_EPOCHS nn_patience=$NN_PATIENCE nn_batch_size=$NN_BATCH_SIZE nn_lr=$NN_LEARNING_RATE nn_l2=$NN_L2"
   say "allow_missing_full_features=$ALLOW_MISSING_FULL_FEATURES"
 }
@@ -162,6 +178,8 @@ case "$mode" in
       --outdir "$OUTDIR/self_test" \
       --self-test \
       --algorithms "$ALGORITHMS" \
+      --variants "$VARIANTS" \
+      --sweep "$SWEEP" \
       --linear-backend "$LINEAR_BACKEND" \
       --nn-hidden "$NN_HIDDEN" \
       --nn-epochs "$NN_EPOCHS" \
@@ -169,12 +187,14 @@ case "$mode" in
       --nn-batch-size "$NN_BATCH_SIZE" \
       --nn-learning-rate "$NN_LEARNING_RATE" \
       --nn-l2 "$NN_L2" \
-      --top-n "$TOP_N"
+      --top-n "$TOP_N" \
+      $([[ "$INCLUDE_ISOLATION_CONTEXT" == "1" ]] && printf '%s' "--include-isolation-context")
     ;;
   preflight)
     print_plan
     [[ -s "$MLP_CACHE" ]] || die "Missing MLP_CACHE=$MLP_CACHE"
     [[ -s "$BDT_CACHE" ]] || die "Missing BDT_CACHE=$BDT_CACHE"
+    [[ -z "$LOGREG_CACHE" || -s "$LOGREG_CACHE" ]] || die "Missing LOGREG_CACHE=$LOGREG_CACHE"
     mkdir -p "$OUTDIR"
     "$PYTHON_RUN" "${RJ_REPO_BASE}/scripts/train_auau_stacked_bdt_mlp_sweep.py" \
       "${common_args[@]}" \
@@ -184,6 +204,7 @@ case "$mode" in
     print_plan
     [[ -s "$MLP_CACHE" ]] || die "Missing MLP_CACHE=$MLP_CACHE"
     [[ -s "$BDT_CACHE" ]] || die "Missing BDT_CACHE=$BDT_CACHE"
+    [[ -z "$LOGREG_CACHE" || -s "$LOGREG_CACHE" ]] || die "Missing LOGREG_CACHE=$LOGREG_CACHE"
     mkdir -p "$OUTDIR" "$SUB_ROOT" "$(dirname "$LOG")"
     worker="${SUB_ROOT}/run_stacked_bdt_mlp_full_feature_sweep.sh"
 cat > "$worker" <<EOF
@@ -226,6 +247,12 @@ fi
 extra_args=()
 if [[ "$ALLOW_MISSING_FULL_FEATURES" == "1" ]]; then
   extra_args+=(--allow-missing-full-features)
+fi
+if [[ "$INCLUDE_ISOLATION_CONTEXT" == "1" ]]; then
+  extra_args+=(--include-isolation-context)
+fi
+if [[ -n "$LOGREG_CACHE" ]]; then
+  extra_args+=(--logreg-cache "$LOGREG_CACHE" --logreg-score "$LOGREG_SCORE")
 fi
 echo "RECOILJETS_AUAU_STACKED_BDT_MLP_FULL_FEATURE_SWEEP_WORKER_V1"
 echo "host=\$(hostname -f 2>/dev/null || hostname)"

@@ -68,7 +68,7 @@ guard_generated_path() {
 make_root_manifest() {
   local search_root="$1" out="$2"
   mkdir -p "$(dirname "$out")"
-  find "$search_root" -type f -name '*.root' | sort -V > "$out"
+  find -L "$search_root" -type f -name '*.root' | sort -V > "$out"
 }
 
 usage() {
