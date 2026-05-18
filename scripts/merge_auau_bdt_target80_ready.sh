@@ -64,7 +64,8 @@ count_finals() {
   local dir="$1"
   find "$dir" -type f \( \
     -path "*/photonJet12and20merged_SIM/RecoilJets_embeddedPhoton12plus20_MERGED.root" -o \
-    -path "*/embeddedJet12and20merged_SIM/RecoilJets_embeddedJet12plus20_MERGED.root" \
+    -path "*/embeddedJet12and20merged_SIM/RecoilJets_embeddedJet12plus20_MERGED.root" -o \
+    -path "*/embeddedJet12and20and30merged_SIM/RecoilJets_embeddedJet12plus20plus30_MERGED.root" \
   \) 2>/dev/null | wc -l | awk '{print $1+0}'
 }
 
@@ -127,6 +128,8 @@ run_merge_stage() {
   [[ -d "$input_base" ]] || { echo "[ERROR] Missing input base: ${input_base}" >&2; exit 21; }
 
   env \
+    RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES="${RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES:-0}" \
+    RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30="${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30:-0}" \
     MERGE_CONFIG_YAML="${yaml}" \
     MERGE_CFG_MATCH="${MERGE_CFG_MATCH:-}" \
     MERGE_SIM_INPUT_BASE_OVERRIDE="${input_base}" \

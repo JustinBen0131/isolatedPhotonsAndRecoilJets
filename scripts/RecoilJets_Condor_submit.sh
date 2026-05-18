@@ -1995,6 +1995,45 @@ pin_photon_id_scalars_in_yaml() {
   yaml_set_scalar_in_place "$file" "nonTight" "$nonTight"
 }
 
+truthy_to_yaml_bool() {
+  local value="${1:-0}"
+  case "$value" in
+    1|true|TRUE|yes|YES|on|ON) printf '%s\n' "true" ;;
+    *)                         printf '%s\n' "false" ;;
+  esac
+}
+
+propagate_pp_photonid_controls_to_yaml() {
+  local file="$1"
+
+  # RecoilJets reads the pp photon-ID extraction controls from env vars, but
+  # the Fun4All steering macro also installs ProcessEnvSetter modules from the
+  # generated YAML.  If these keys are absent from the per-worker YAML, those
+  # setters reset the controls to their default false values inside Condor.
+  # Stamp the requested controls into the YAML snapshot so local and Condor
+  # extraction follow the same contract.
+  if [[ -n "${RJ_PP_PHOTONID_EXTRACT_ONLY:-}" ]]; then
+    yaml_set_scalar_in_place "$file" "pp_photonid_extract_only" \
+      "$(truthy_to_yaml_bool "$RJ_PP_PHOTONID_EXTRACT_ONLY")"
+  fi
+  if [[ -n "${RJ_PP_PHOTONID_TRAINING_TREE:-}" ]]; then
+    yaml_set_scalar_in_place "$file" "pp_photonid_training_tree" \
+      "$(truthy_to_yaml_bool "$RJ_PP_PHOTONID_TRAINING_TREE")"
+  fi
+  if [[ -n "${RJ_PP_PHOTONID_PPG12_FILTER:-}" ]]; then
+    yaml_set_scalar_in_place "$file" "pp_photonid_ppg12_filter" \
+      "$(truthy_to_yaml_bool "$RJ_PP_PHOTONID_PPG12_FILTER")"
+  fi
+  if [[ -n "${RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES:-}" ]]; then
+    yaml_set_scalar_in_place "$file" "pp_photonid_training_tree_max_entries" \
+      "${RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES}"
+  fi
+  if [[ -n "${RJ_PP_PHOTONID_SOURCE_ROLE:-}" ]]; then
+    yaml_set_scalar_in_place "$file" "pp_photonid_source_role" \
+      "${RJ_PP_PHOTONID_SOURCE_ROLE}"
+  fi
+}
+
 sim_make_yaml_override() {
   local master="$1" pt="$2" frac="$3" vz="$4" cone="$5" sliding="$6" fixed="$7" uepipe="$8" preselection="$9" tight="${10}" nonTight="${11}" tag="${12}" stamp="${13:-}" force_sliding_and_fixed="${14:-}"
   mkdir -p "$SIM_YAML_OVERRIDE_DIR"
@@ -2022,6 +2061,7 @@ sim_make_yaml_override() {
 
   sed -E "${sed_args[@]}" "$master" > "$out"
   pin_photon_id_scalars_in_yaml "$out" "$preselection" "$tight" "$nonTight"
+  propagate_pp_photonid_controls_to_yaml "$out"
   echo "$out"
 }
 

@@ -1916,6 +1916,21 @@ void RecoilJets::setInternalIsoViews(const std::vector<IsoView>& views)
   }
 }
 
+void RecoilJets::setCentIsoWPsForCone(double coneR, const std::vector<CentIsoWP>& wps)
+{
+  if (!std::isfinite(coneR)) return;
+  if (std::fabs(coneR - 0.30) < 0.015)
+  {
+    m_centIsoWPsR30 = wps;
+    return;
+  }
+  if (std::fabs(coneR - 0.40) < 0.015)
+  {
+    m_centIsoWPsR40 = wps;
+    return;
+  }
+}
+
 void RecoilJets::configureInternalIsoViewsFromEnv()
 {
   const char* disableRaw = std::getenv("RJ_DISABLE_ISO_CONE_INTERNALIZATION");
@@ -13516,19 +13531,32 @@ int RecoilJets::findCentBin(int cent) const
 
 void RecoilJets::getIsoParams(int centIdx, double& outA, double& outB, double& outGap) const
 {
-    if (m_isAuAu && m_centIsoWPs.size() == 1 && centIdx >= 0)
+    const std::vector<CentIsoWP>* wps = &m_centIsoWPs;
+    if (m_isAuAu && m_isSlidingIso)
+    {
+      if (std::fabs(m_isoConeR - 0.30) < 0.015 && !m_centIsoWPsR30.empty())
+      {
+        wps = &m_centIsoWPsR30;
+      }
+      else if (std::fabs(m_isoConeR - 0.40) < 0.015 && !m_centIsoWPsR40.empty())
+      {
+        wps = &m_centIsoWPsR40;
+      }
+    }
+
+    if (m_isAuAu && wps->size() == 1 && centIdx >= 0)
     {
       const double cent = static_cast<double>(m_centBin);
-      outA   = m_centIsoWPs.front().aGeV + m_centIsoWPs.front().bPerGeV * cent;
+      outA   = wps->front().aGeV + wps->front().bPerGeV * cent;
       outB   = 0.0;
-      outGap = m_centIsoWPs.front().sideGapGeV;
+      outGap = wps->front().sideGapGeV;
     }
-    else if (!m_centIsoWPs.empty() && centIdx >= 0
-             && centIdx < static_cast<int>(m_centIsoWPs.size()))
+    else if (!wps->empty() && centIdx >= 0
+             && centIdx < static_cast<int>(wps->size()))
     {
-      outA   = m_centIsoWPs[centIdx].aGeV;
-      outB   = m_centIsoWPs[centIdx].bPerGeV;
-      outGap = m_centIsoWPs[centIdx].sideGapGeV;
+      outA   = (*wps)[centIdx].aGeV;
+      outB   = (*wps)[centIdx].bPerGeV;
+      outGap = (*wps)[centIdx].sideGapGeV;
     }
     else
     {

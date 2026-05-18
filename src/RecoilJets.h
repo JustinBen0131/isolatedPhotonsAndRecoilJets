@@ -189,9 +189,30 @@ public:
       double pt_gamma       = 0.0;
       double weta_cogx      = 0.0;
       double wphi_cogx      = 0.0;
+      double weta33_cogx    = std::numeric_limits<double>::quiet_NaN();
+      double wphi33_cogx    = std::numeric_limits<double>::quiet_NaN();
+      double weta35_cogx    = std::numeric_limits<double>::quiet_NaN();
+      double wphi53_cogx    = std::numeric_limits<double>::quiet_NaN();
       double et1            = 0.0;
+      double et2            = std::numeric_limits<double>::quiet_NaN();
+      double et3            = std::numeric_limits<double>::quiet_NaN();
+      double et4            = std::numeric_limits<double>::quiet_NaN();
       double e11_over_e33   = 0.0;
       double e32_over_e35   = 0.0;
+      double e11_over_e22   = std::numeric_limits<double>::quiet_NaN();
+      double e11_over_e13   = std::numeric_limits<double>::quiet_NaN();
+      double e11_over_e15   = std::numeric_limits<double>::quiet_NaN();
+      double e11_over_e17   = std::numeric_limits<double>::quiet_NaN();
+      double e11_over_e31   = std::numeric_limits<double>::quiet_NaN();
+      double e11_over_e51   = std::numeric_limits<double>::quiet_NaN();
+      double e11_over_e71   = std::numeric_limits<double>::quiet_NaN();
+      double e22_over_e33   = std::numeric_limits<double>::quiet_NaN();
+      double e22_over_e35   = std::numeric_limits<double>::quiet_NaN();
+      double e22_over_e37   = std::numeric_limits<double>::quiet_NaN();
+      double e22_over_e53   = std::numeric_limits<double>::quiet_NaN();
+      double w32            = std::numeric_limits<double>::quiet_NaN();
+      double w52            = std::numeric_limits<double>::quiet_NaN();
+      double w72            = std::numeric_limits<double>::quiet_NaN();
       double npb_score      = std::numeric_limits<double>::quiet_NaN();
       double tight_bdt_score = std::numeric_limits<double>::quiet_NaN();
     };
@@ -392,8 +413,9 @@ public:
 
   // Isolation WP (implemented in .cc)
   void setIsolationWP(double aGeV, double bPerGeV,
-                                  double sideGapGeV, double coneR, double towerMin,
-                                  double fixedGeV = 2.0);
+	                                  double sideGapGeV, double coneR, double towerMin,
+	                                  double fixedGeV = 2.0);
+  void setPPIsoWPForCone(double coneR, double aGeV, double bPerGeV, double sideGapGeV);
   void setIsSlidingIso(bool on) { m_isSlidingIso = on; }
   struct IsoView
   {
@@ -455,6 +477,59 @@ public:
                            const std::string& nonTight,
                            const std::string& preselectionPhotonNode = "PHOTONCLUSTER_CEMC",
                            const std::string& tightPhotonNode = "PHOTONCLUSTER_CEMC");
+
+  void setAuAuTightBDTRuntimeConfig(const std::string&,
+                                    const std::vector<std::string>&,
+                                    const std::vector<int>& = {},
+                                    const std::vector<std::string>& = {},
+                                    const std::vector<double>& = {},
+                                    const std::vector<std::string>& = {},
+                                    const std::vector<std::string>& = {},
+                                    const std::string& = "",
+                                    const std::vector<std::string>& = {},
+                                    double = 35.0,
+                                    double = 40.0,
+                                    double = std::numeric_limits<double>::quiet_NaN(),
+                                    double = std::numeric_limits<double>::quiet_NaN(),
+                                    const std::vector<std::string>& = {},
+                                    const std::string& = "") {}
+
+  void setAuAuTightMLPRuntimeConfig(const std::string&,
+                                    double = 0.80,
+                                    double = 0.0,
+                                    double = 1.0,
+                                    double = 0.20,
+                                    double = 0.0,
+                                    double = 0.80,
+                                    double = 0.0,
+                                    double = std::numeric_limits<double>::quiet_NaN(),
+                                    double = std::numeric_limits<double>::quiet_NaN(),
+                                    const std::vector<std::string>& = {},
+                                    const std::string& = "") {}
+
+  void setAuAuTightBDTMLPStackRuntimeConfig(const std::string&,
+                                            double = 0.80,
+                                            double = 0.0,
+                                            double = 1.0,
+                                            double = 0.20,
+                                            double = 0.0,
+                                            double = 0.80,
+                                            double = 0.0,
+                                            double = std::numeric_limits<double>::quiet_NaN(),
+                                            double = std::numeric_limits<double>::quiet_NaN(),
+                                            const std::vector<std::string>& = {}) {}
+
+  void setAuAuTightLogRegRuntimeConfig(const std::string&,
+                                       double = 0.80,
+                                       double = 0.0,
+                                       double = 1.0,
+                                       double = 0.20,
+                                       double = 0.0,
+                                       double = 0.80,
+                                       double = 0.0,
+                                       double = std::numeric_limits<double>::quiet_NaN(),
+                                       double = std::numeric_limits<double>::quiet_NaN(),
+                                       const std::vector<std::string>& = {}) {}
 
     // EventDisplay diagnostics payload (offline rendering; independent of Verbosity()).
     // When enabled, a compact per-event-per-radius TTree ("EventDisplayTree") is written to the output ROOT file.
@@ -563,6 +638,16 @@ private:
                                            const int centIdx);
 
   void processCandidates(PHCompositeNode* topNode, const std::vector<std::string>& activeTrig);
+  void initPPPhotonIDTrainingTree();
+  void fillPPPhotonIDTrainingTree(const SSVars& v,
+                                  double eta,
+                                  double phi,
+                                  double eiso,
+                                  int ptIdx,
+                                  bool isSignal,
+                                  int truthTrackId,
+                                  int truthBarcode,
+                                  float truthEnergyContribution);
   void fillPi0MassVsPtHistograms(const std::string& trig, RawClusterContainer* clusterContainer, bool useCorr);
 
   bool getCentralitySlice(int& lo, int& hi, std::string& tag) const;
@@ -675,6 +760,10 @@ private:
   std::string histRKeyForJetPt(const std::string& rKey, double ptGeV) const;
   std::string histRKeyForJetPtAndDphi(const std::string& rKey, double ptGeV, double cutRad) const;
   void        configureInternalIsoViewsFromEnv();
+  bool        getPPIsoParamsForCone(double coneR, double& aGeV, double& bPerGeV, double& sideGapGeV) const;
+  void        getActiveIsoParams(double& aGeV, double& bPerGeV, double& sideGapGeV) const;
+  double      recoIsoThreshold(double ptGamma) const;
+  double      recoNonIsoThreshold(double ptGamma) const;
   enum class HistViewScope { Canonical, IsoCone, IsoView };
   bool        fillCanonicalThisView() const;
   bool        fillConeThisView() const;
@@ -1134,6 +1223,15 @@ private:
   double m_isoConeR  = 0.3;
   double m_isoTowMin = 0.0;
   bool   m_isSlidingIso = true;
+  struct PPIsoWP
+  {
+      double aGeV = 0.0;
+      double bPerGeV = 0.0;
+      double sideGapGeV = 1.0;
+      bool enabled = false;
+  };
+  PPIsoWP m_ppIsoWPR30;
+  PPIsoWP m_ppIsoWPR40;
   std::vector<IsoView> m_internalIsoViews;
   std::string m_activeIsoViewSuffix;
 
@@ -1263,6 +1361,60 @@ private:
   std::vector<float> m_evtDiag_best_phiTower;
   std::vector<float> m_evtDiag_best_etTower;
   std::vector<float> m_evtDiag_best_eTower;
+
+  // Compatibility photon-ID training tree for pp ML studies.
+  // The tree name intentionally matches the Au+Au trainer contract.
+  bool m_ppPhotonIDTrainingTreeEnabled = false;
+  bool m_ppPhotonIDExtractOnly = false;
+  bool m_ppPhotonIDPPG12Filter = true;
+  long long m_ppPhotonIDTrainingTreeMaxEntries = 0;
+  long long m_ppPhotonIDTrainingTreeEntries = 0;
+  TTree* m_ppPhotonIDTrainingTree = nullptr;
+  std::string m_ppPhotonIDSourceRole = "auto";  // auto, signal, background, all
+
+  int m_bdtTrain_run = 0;
+  long long m_bdtTrain_evt = 0;
+  int m_bdtTrain_is_signal = 0;
+  int m_bdtTrain_pt_bin = -1;
+  int m_bdtTrain_cent_bin = -1;
+  float m_bdtTrain_pt = 0.0f;
+  float m_bdtTrain_eta = 0.0f;
+  float m_bdtTrain_phi = 0.0f;
+  float m_bdtTrain_cent = -1.0f;
+  float m_bdtTrain_vz = 0.0f;
+  float m_bdtTrain_weight = 1.0f;
+  float m_bdtTrain_eiso = 0.0f;
+  int m_bdtTrain_truth_track_id = -1;
+  int m_bdtTrain_truth_barcode = -1;
+  float m_bdtTrain_truth_energy_contribution = -999.0f;
+  float m_bdtTrain_weta = 0.0f;
+  float m_bdtTrain_wphi = 0.0f;
+  float m_bdtTrain_weta33 = 0.0f;
+  float m_bdtTrain_wphi33 = 0.0f;
+  float m_bdtTrain_weta35 = 0.0f;
+  float m_bdtTrain_wphi53 = 0.0f;
+  float m_bdtTrain_et1 = 0.0f;
+  float m_bdtTrain_et2 = 0.0f;
+  float m_bdtTrain_et3 = 0.0f;
+  float m_bdtTrain_et4 = 0.0f;
+  float m_bdtTrain_e11e33 = 0.0f;
+  float m_bdtTrain_e32e35 = 0.0f;
+  float m_bdtTrain_e11e22 = 0.0f;
+  float m_bdtTrain_e11e13 = 0.0f;
+  float m_bdtTrain_e11e15 = 0.0f;
+  float m_bdtTrain_e11e17 = 0.0f;
+  float m_bdtTrain_e11e31 = 0.0f;
+  float m_bdtTrain_e11e51 = 0.0f;
+  float m_bdtTrain_e11e71 = 0.0f;
+  float m_bdtTrain_e22e33 = 0.0f;
+  float m_bdtTrain_e22e35 = 0.0f;
+  float m_bdtTrain_e22e37 = 0.0f;
+  float m_bdtTrain_e22e53 = 0.0f;
+  float m_bdtTrain_w32 = 0.0f;
+  float m_bdtTrain_w52 = 0.0f;
+  float m_bdtTrain_w72 = 0.0f;
+  float m_bdtTrain_npb_score = -2.0f;
+  float m_bdtTrain_tight_bdt_score = -2.0f;
 
   // -------------------------------------------------------------------------
   // Diagnostics / accounting

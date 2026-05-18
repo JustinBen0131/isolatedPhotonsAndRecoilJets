@@ -409,6 +409,7 @@ namespace yamlcfg
   inline bool ReadWholeFile(const std::string& path, std::string& out);
   inline bool StartsWithKey(const std::string& line, const std::string& key);
   inline std::string AfterColon(const std::string& line);
+  inline std::string StripQuotes(const std::string& value);
   inline void ParseInlineListDoubles(std::string s, std::vector<double>& out);
 
   inline std::vector<std::string> LoadJetRKeys(int vlevel)
@@ -527,7 +528,18 @@ namespace yamlcfg
         
         // Per-centrality AuAu sliding WPs: each entry = {aGeV, bPerGeV, sideGapGeV}
         struct CentIsoWP { double aGeV; double bPerGeV; double sideGapGeV; };
+        struct PPIsoWP
+        {
+            double aGeV = 0.0;
+            double bPerGeV = 0.0;
+            double sideGapGeV = 1.0;
+            bool configured = false;
+        };
+        PPIsoWP ppIsoWPR30;
+        PPIsoWP ppIsoWPR40;
         std::vector<CentIsoWP> auauCentIsoWP;
+        std::vector<CentIsoWP> auauCentIsoWPR30;
+        std::vector<CentIsoWP> auauCentIsoWPR40;
         
         // Photon ID cuts (PPG12 Table 4) baseline
         double pre_e11e33_max = 0.98;
@@ -682,6 +694,12 @@ namespace yamlcfg
         double auau_npb_tag_away_jet_dphi_min = 1.5707963267948966;
         double auau_npb_tag_time_sample_ns = 17.6;
         double auau_npb_mbd_t0_offset = 0.0;
+
+        bool pp_photonid_extract_only = false;
+        bool pp_photonid_training_tree = false;
+        bool pp_photonid_ppg12_filter = true;
+        long long pp_photonid_training_tree_max_entries = 0;
+        std::string pp_photonid_source_role = "auto";
 
         bool jet_ml_training_tree = false;
         long long jet_ml_training_tree_max_entries = 0;
@@ -878,6 +896,21 @@ namespace yamlcfg
         if (c == std::string::npos) return std::string{};
         return detail::trim(line.substr(c + 1));
     }
+
+    inline std::string StripQuotes(const std::string& value)
+    {
+        std::string out = detail::trim(value);
+        if (out.size() >= 2)
+        {
+            const char first = out.front();
+            const char last = out.back();
+            if ((first == '"' && last == '"') || (first == '\'' && last == '\''))
+            {
+                out = out.substr(1, out.size() - 2);
+            }
+        }
+        return out;
+    }
     
     inline bool ParseBool(std::string s, bool& out)
     {
@@ -1034,8 +1067,50 @@ namespace yamlcfg
         
         std::string yamlSection;
         std::istringstream iss(cfg.yamlText);
-        for (std::string rawLine; std::getline(iss, rawLine); )
+        std::string pendingLine;
+        bool hasPendingLine = false;
+
+        auto parse_cent_iso_wp_list = [&](const std::string& key, std::vector<Config::CentIsoWP>& out)
         {
+            out.clear();
+            std::string line;
+            while (std::getline(iss, line))
+            {
+                line = detail::trim(line);
+                if (line.empty()) continue;
+                if (line[0] == '#') continue;
+                if (line[0] != '-')
+                {
+                    pendingLine = line;
+                    hasPendingLine = true;
+                    break;
+                }
+                std::map<std::string, double> m;
+                ParseInlineMapDoubles(line.substr(1), m);
+                Config::CentIsoWP wp{};
+                wp.aGeV       = m.count("aGeV")       ? m["aGeV"]       : cfg.isoA;
+                wp.bPerGeV    = m.count("bPerGeV")     ? m["bPerGeV"]    : cfg.isoB;
+                wp.sideGapGeV = m.count("sideGapGeV")  ? m["sideGapGeV"] : cfg.isoGap;
+                out.push_back(wp);
+            }
+            if (yamlV > 0)
+            {
+                std::cout << "[CFG] " << key << ": parsed " << out.size() << " entries\n";
+            }
+        };
+
+        for (std::string rawLine; ; )
+        {
+            if (hasPendingLine)
+            {
+                rawLine = pendingLine;
+                pendingLine.clear();
+                hasPendingLine = false;
+            }
+            else if (!std::getline(iss, rawLine))
+            {
+                break;
+            }
             std::string line = detail::trim(rawLine);
             if (line.empty()) continue;
             if (!line.empty() && line[0] == '#') continue;
@@ -1788,6 +1863,35 @@ namespace yamlcfg
                 if (!ParseBool(rhs, cfg.auau_bdt_npb_data_tagging))
                     warn_parse("auau_bdt_npb_data_tagging", rhs, "expected true/false");
             }
+            else if (StartsWithKey(line, "pp_photonid_extract_only"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseBool(rhs, cfg.pp_photonid_extract_only))
+                    warn_parse("pp_photonid_extract_only", rhs, "expected true/false");
+            }
+            else if (StartsWithKey(line, "pp_photonid_training_tree"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseBool(rhs, cfg.pp_photonid_training_tree))
+                    warn_parse("pp_photonid_training_tree", rhs, "expected true/false");
+            }
+            else if (StartsWithKey(line, "pp_photonid_ppg12_filter"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseBool(rhs, cfg.pp_photonid_ppg12_filter))
+                    warn_parse("pp_photonid_ppg12_filter", rhs, "expected true/false");
+            }
+            else if (StartsWithKey(line, "pp_photonid_training_tree_max_entries"))
+            {
+                const std::string rhs = AfterColon(line);
+                double val = 0.0;
+                if (ParseDouble(rhs, val)) cfg.pp_photonid_training_tree_max_entries = static_cast<long long>(val);
+                else warn_parse("pp_photonid_training_tree_max_entries", rhs, "expected an integer");
+            }
+            else if (StartsWithKey(line, "pp_photonid_source_role"))
+            {
+                cfg.pp_photonid_source_role = StripQuotes(AfterColon(line));
+            }
             else if (StartsWithKey(line, "auau_npb_tag_delta_t_cut"))
             {
                 const std::string rhs = AfterColon(line);
@@ -1932,28 +2036,49 @@ namespace yamlcfg
                     }
                 }
             }
+            else if (StartsWithKey(line, "pp_iso_wp_r30"))
+            {
+                std::map<std::string, double> m;
+                ParseInlineMapDoubles(AfterColon(line), m);
+                if (m.count("aGeV") && m.count("bPerGeV"))
+                {
+                    cfg.ppIsoWPR30.aGeV = m["aGeV"];
+                    cfg.ppIsoWPR30.bPerGeV = m["bPerGeV"];
+                    cfg.ppIsoWPR30.sideGapGeV = (m.count("sideGapGeV") ? m["sideGapGeV"] : cfg.isoGap);
+                    cfg.ppIsoWPR30.configured = true;
+                }
+                else
+                {
+                    warn_parse("pp_iso_wp_r30", AfterColon(line), "expected inline map with aGeV and bPerGeV");
+                }
+            }
+            else if (StartsWithKey(line, "pp_iso_wp_r40"))
+            {
+                std::map<std::string, double> m;
+                ParseInlineMapDoubles(AfterColon(line), m);
+                if (m.count("aGeV") && m.count("bPerGeV"))
+                {
+                    cfg.ppIsoWPR40.aGeV = m["aGeV"];
+                    cfg.ppIsoWPR40.bPerGeV = m["bPerGeV"];
+                    cfg.ppIsoWPR40.sideGapGeV = (m.count("sideGapGeV") ? m["sideGapGeV"] : cfg.isoGap);
+                    cfg.ppIsoWPR40.configured = true;
+                }
+                else
+                {
+                    warn_parse("pp_iso_wp_r40", AfterColon(line), "expected inline map with aGeV and bPerGeV");
+                }
+            }
+            else if (StartsWithKey(line, "auau_cent_iso_wp_r30"))
+            {
+                parse_cent_iso_wp_list("auau_cent_iso_wp_r30", cfg.auauCentIsoWPR30);
+            }
+            else if (StartsWithKey(line, "auau_cent_iso_wp_r40"))
+            {
+                parse_cent_iso_wp_list("auau_cent_iso_wp_r40", cfg.auauCentIsoWPR40);
+            }
             else if (StartsWithKey(line, "auau_cent_iso_wp"))
             {
-                // Multi-line list: read subsequent "  - {aGeV: ..., bPerGeV: ..., sideGapGeV: ...}" lines
-                cfg.auauCentIsoWP.clear();
-                while (std::getline(iss, line))
-                {
-                    line = detail::trim(line);
-                    if (line.empty()) continue;
-                    if (line[0] == '#') continue;
-                    if (line[0] != '-') break;  // end of list
-                    std::map<std::string, double> m;
-                    ParseInlineMapDoubles(line.substr(1), m);
-                    Config::CentIsoWP wp{};
-                    wp.aGeV       = m.count("aGeV")       ? m["aGeV"]       : cfg.isoA;
-                    wp.bPerGeV    = m.count("bPerGeV")     ? m["bPerGeV"]    : cfg.isoB;
-                    wp.sideGapGeV = m.count("sideGapGeV")  ? m["sideGapGeV"] : cfg.isoGap;
-                    cfg.auauCentIsoWP.push_back(wp);
-                }
-                if (yamlV > 0)
-                {
-                    std::cout << "[CFG] auau_cent_iso_wp: parsed " << cfg.auauCentIsoWP.size() << " entries\n";
-                }
+                parse_cent_iso_wp_list("auau_cent_iso_wp", cfg.auauCentIsoWP);
             }
             else if (StartsWithKey(line, "photon_id_pre"))
             {
@@ -2239,6 +2364,12 @@ class ProcessEnvSetter final : public SubsysReco
     , m_key(key)
     , m_value(value)
   {}
+
+  int Init(PHCompositeNode* /*topNode*/) override
+  {
+    setenv(m_key.c_str(), m_value.c_str(), 1);
+    return Fun4AllReturnCodes::EVENT_OK;
+  }
 
   int InitRun(PHCompositeNode* /*topNode*/) override
   {
@@ -2961,8 +3092,23 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         << ", isSlidingIso=" << (cfg.isSlidingIso ? "true" : "false") << "}\n"
         << "  isSlidingAndFixed: " << (cfg.isSlidingAndFixed ? "true" : "false") << "\n"
         << "  fixedGeV: " << cfg.isoFixed << "\n"
-        << "  auau_cent_iso_wp: " << cfg.auauCentIsoWP.size() << " entries\n"
-        << "  jes3_photon_pt_bins: [";
+        << "  auau_cent_iso_wp: " << cfg.auauCentIsoWP.size() << " entries\n";
+        std::cout << "  pp_iso_wp_r30: " << (cfg.ppIsoWPR30.configured ? "configured" : "legacy fallback");
+        if (cfg.ppIsoWPR30.configured)
+        {
+            std::cout << " {aGeV=" << cfg.ppIsoWPR30.aGeV
+                      << ", bPerGeV=" << cfg.ppIsoWPR30.bPerGeV
+                      << ", sideGapGeV=" << cfg.ppIsoWPR30.sideGapGeV << "}";
+        }
+        std::cout << "\n  pp_iso_wp_r40: " << (cfg.ppIsoWPR40.configured ? "configured" : "legacy fallback");
+        if (cfg.ppIsoWPR40.configured)
+        {
+            std::cout << " {aGeV=" << cfg.ppIsoWPR40.aGeV
+                      << ", bPerGeV=" << cfg.ppIsoWPR40.bPerGeV
+                      << ", sideGapGeV=" << cfg.ppIsoWPR40.sideGapGeV << "}";
+        }
+        std::cout << "\n";
+        std::cout << "  jes3_photon_pt_bins: [";
         for (std::size_t i = 0; i < cfg.jes3_photon_pt_bins.size(); ++i)
         {
             std::cout << cfg.jes3_photon_pt_bins[i] << (i + 1 < cfg.jes3_photon_pt_bins.size() ? ", " : "");
@@ -5123,6 +5269,11 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         }
         return os.str();
     };
+    auto envOrDefault = [](const char* key, const std::string& fallback) -> std::string
+    {
+        const char* raw = std::getenv(key);
+        return raw ? std::string(raw) : fallback;
+    };
     
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PRESELECTION_VARIANT",
                                                "RJ_PRESELECTION_VARIANT",
@@ -5322,6 +5473,26 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_BDT_NPB_DATA_TAGGING",
                                                "RJ_AUAU_BDT_NPB_DATA_TAGGING",
                                                cfg.auau_bdt_npb_data_tagging ? "true" : "false"));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PP_PHOTONID_EXTRACT_ONLY",
+                                               "RJ_PP_PHOTONID_EXTRACT_ONLY",
+                                               envOrDefault("RJ_PP_PHOTONID_EXTRACT_ONLY",
+                                                            cfg.pp_photonid_extract_only ? "true" : "false")));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PP_PHOTONID_TRAINING_TREE",
+                                               "RJ_PP_PHOTONID_TRAINING_TREE",
+                                               envOrDefault("RJ_PP_PHOTONID_TRAINING_TREE",
+                                                            cfg.pp_photonid_training_tree ? "true" : "false")));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES",
+                                               "RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES",
+                                               envOrDefault("RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES",
+                                                            std::to_string(cfg.pp_photonid_training_tree_max_entries))));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PP_PHOTONID_SOURCE_ROLE",
+                                               "RJ_PP_PHOTONID_SOURCE_ROLE",
+                                               envOrDefault("RJ_PP_PHOTONID_SOURCE_ROLE",
+                                                            cfg.pp_photonid_source_role)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PP_PHOTONID_PPG12_FILTER",
+                                               "RJ_PP_PHOTONID_PPG12_FILTER",
+                                               envOrDefault("RJ_PP_PHOTONID_PPG12_FILTER",
+                                                            cfg.pp_photonid_ppg12_filter ? "true" : "false")));
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NPB_TAG_DELTA_T_CUT",
                                                "RJ_AUAU_NPB_TAG_DELTA_T_CUT",
                                                fmtDouble(cfg.auau_npb_tag_delta_t_cut)));
@@ -5472,6 +5643,27 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             wps.push_back({e.aGeV, e.bPerGeV, e.sideGapGeV});
         recoilJets->setCentIsoWPs(wps);
     }
+    if (!cfg.auauCentIsoWPR30.empty())
+    {
+        std::vector<RecoilJets::CentIsoWP> wps;
+        wps.reserve(cfg.auauCentIsoWPR30.size());
+        for (const auto& e : cfg.auauCentIsoWPR30)
+            wps.push_back({e.aGeV, e.bPerGeV, e.sideGapGeV});
+        recoilJets->setCentIsoWPsForCone(0.30, wps);
+    }
+    if (!cfg.auauCentIsoWPR40.empty())
+    {
+        std::vector<RecoilJets::CentIsoWP> wps;
+        wps.reserve(cfg.auauCentIsoWPR40.size());
+        for (const auto& e : cfg.auauCentIsoWPR40)
+            wps.push_back({e.aGeV, e.bPerGeV, e.sideGapGeV});
+        recoilJets->setCentIsoWPsForCone(0.40, wps);
+    }
+#else
+    if (cfg.ppIsoWPR30.configured)
+        recoilJets->setPPIsoWPForCone(0.30, cfg.ppIsoWPR30.aGeV, cfg.ppIsoWPR30.bPerGeV, cfg.ppIsoWPR30.sideGapGeV);
+    if (cfg.ppIsoWPR40.configured)
+        recoilJets->setPPIsoWPForCone(0.40, cfg.ppIsoWPR40.aGeV, cfg.ppIsoWPR40.bPerGeV, cfg.ppIsoWPR40.sideGapGeV);
 #endif
     
     recoilJets->setPhotonIDCuts(cfg.pre_e11e33_max,
@@ -5739,23 +5931,44 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         else
         {
 #if defined(RJ_UNIFIED_ANALYSIS_AUAU)
-            if (cfg.auauCentIsoWP.size() == 1)
+            const auto& coneWps = (std::fabs(entryConeR - 0.30) < 0.015 && !cfg.auauCentIsoWPR30.empty())
+                ? cfg.auauCentIsoWPR30
+                : ((std::fabs(entryConeR - 0.40) < 0.015 && !cfg.auauCentIsoWPR40.empty())
+                   ? cfg.auauCentIsoWPR40
+                   : cfg.auauCentIsoWP);
+            if (coneWps.size() == 1)
             {
                 std::cout << " sliding -> AuAu/embedded centrality-fit"
-                << " (thrReco(cent)=" << cfg.auauCentIsoWP.front().aGeV
-                << " + " << cfg.auauCentIsoWP.front().bPerGeV << " * cent)";
+                << " (thrReco(cent)=" << coneWps.front().aGeV
+                << " + " << coneWps.front().bPerGeV << " * cent)";
             }
-            else if (!cfg.auauCentIsoWP.empty())
+            else if (!coneWps.empty())
             {
                 std::cout << " sliding -> per-centrality-bin WP list"
-                << " (nCentWP=" << cfg.auauCentIsoWP.size() << ")";
+                << " (nCentWP=" << coneWps.size() << ", coneR=" << entryConeR << ")";
             }
             else
 #endif
             {
-                std::cout << " sliding -> pT-dependent"
-                << " (thrReco(pT)=" << cfg.isoA
-                << " + " << cfg.isoB << " * pTgamma)";
+                const auto* ppConeWP = (std::fabs(entryConeR - 0.30) < 0.015 && cfg.ppIsoWPR30.configured)
+                    ? &cfg.ppIsoWPR30
+                    : ((std::fabs(entryConeR - 0.40) < 0.015 && cfg.ppIsoWPR40.configured)
+                       ? &cfg.ppIsoWPR40
+                       : nullptr);
+                if (ppConeWP)
+                {
+                    std::cout << " sliding -> pp cone-fit"
+                    << " (coneR=" << entryConeR
+                    << ", thrReco(pT)=" << ppConeWP->aGeV
+                    << " + " << ppConeWP->bPerGeV << " * pTgamma"
+                    << ", sideGap=" << ppConeWP->sideGapGeV << ")";
+                }
+                else
+                {
+                    std::cout << " sliding -> legacy global fallback"
+                    << " (thrReco(pT)=" << cfg.isoA
+                    << " + " << cfg.isoB << " * pTgamma)";
+                }
             }
         }
         std::cout << " sideGap=" << cfg.isoGap << "\n";

@@ -1174,6 +1174,23 @@ void RecoilJets::configureInternalIsoViewsFromEnv()
                 << ",fixed=" << std::setprecision(1) << v.fixedGeV << ")";
     }
     std::cout << CLR_RESET << std::endl;
+    for (const auto& v : m_internalIsoViews)
+    {
+      if (!v.isSliding) continue;
+      double aGeV = m_isoA;
+      double bPerGeV = m_isoB;
+      double sideGapGeV = m_isoGap;
+      const bool hasConeWP = getPPIsoParamsForCone(v.coneR, aGeV, bPerGeV, sideGapGeV);
+      std::cout << CLR_CYAN << "[IsoView] " << v.label
+                << " sliding threshold source="
+                << (hasConeWP ? "pp cone-specific fit" : "legacy global fallback")
+                << " R=" << std::fixed << std::setprecision(2) << v.coneR
+                << " thrReco(pT)= " << std::setprecision(6) << aGeV
+                << " + " << bPerGeV << " * pT"
+                << " sideGap=" << sideGapGeV
+                << " thrReco(20 GeV)=" << (aGeV + bPerGeV * 20.0)
+                << CLR_RESET << std::endl;
+    }
   }
 }
 
@@ -2071,13 +2088,55 @@ int RecoilJets::Init(PHCompositeNode* topNode)
   configureInternalBackToBackScanFromEnv();
   configureInternalIsoViewsFromEnv();
 
+  auto envFlag = [](const char* key, bool def) -> bool
+  {
+    const char* raw = std::getenv(key);
+    if (!raw) return def;
+    std::string s = raw;
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c){ return std::tolower(c); });
+    return (s == "1" || s == "true" || s == "yes" || s == "on");
+  };
+  auto envLongLong = [](const char* key, long long def) -> long long
+  {
+    const char* raw = std::getenv(key);
+    if (!raw) return def;
+    try { return std::stoll(std::string(raw)); }
+    catch (...) { return def; }
+  };
+  auto envString = [](const char* key, const std::string& def) -> std::string
+  {
+    const char* raw = std::getenv(key);
+    return raw ? std::string(raw) : def;
+  };
+
+  m_ppPhotonIDTrainingTreeEnabled = envFlag("RJ_PP_PHOTONID_TRAINING_TREE", false);
+  m_ppPhotonIDExtractOnly = envFlag("RJ_PP_PHOTONID_EXTRACT_ONLY", false);
+  m_ppPhotonIDPPG12Filter = envFlag("RJ_PP_PHOTONID_PPG12_FILTER", true);
+  m_ppPhotonIDTrainingTreeMaxEntries = envLongLong("RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES", 0);
+  m_ppPhotonIDSourceRole = envString("RJ_PP_PHOTONID_SOURCE_ROLE", "auto");
+  std::transform(m_ppPhotonIDSourceRole.begin(), m_ppPhotonIDSourceRole.end(),
+                 m_ppPhotonIDSourceRole.begin(), [](unsigned char c){ return std::tolower(c); });
+  if (m_ppPhotonIDExtractOnly) m_ppPhotonIDTrainingTreeEnabled = true;
+
   /* 0.  book-keeping & QA histograms --------------------------------- */
   out = new TFile(Outfile.c_str(), "RECREATE");
   LOG(1, CLR_GREEN, "[Init] opened output file: " << Outfile);
 
   trigAna = new TriggerAnalyzer();
-  LOG(1, CLR_GREEN, "[Init] booking scalar QA histograms …");
-  createHistos_Data();
+  if (!m_ppPhotonIDExtractOnly)
+  {
+    LOG(1, CLR_GREEN, "[Init] booking scalar QA histograms …");
+    createHistos_Data();
+  }
+  else
+  {
+    LOG(1, CLR_GREEN, "[Init] pp photon-ID extract-only mode: skipping scalar QA prebooking");
+  }
+
+  if (m_ppPhotonIDTrainingTreeEnabled && !m_isAuAu)
+  {
+    initPPPhotonIDTrainingTree();
+  }
 
   /* 1.  optional DST node-tree dump ---------------------------------- */
   if (Verbosity() >= 2)           // ← adjust threshold as desired
@@ -2142,6 +2201,158 @@ int RecoilJets::Init(PHCompositeNode* topNode)
 
   LOG(1, CLR_BLUE, "[Init] RecoilJets – done");
   return Fun4AllReturnCodes::EVENT_OK;
+}
+
+void RecoilJets::initPPPhotonIDTrainingTree()
+{
+  if (m_ppPhotonIDTrainingTree) return;
+
+  if (!out || !out->IsOpen())
+  {
+    LOG(1, CLR_YELLOW, "[PPPhotonIDTrainingTree] output file is not open; disabling training tree");
+    m_ppPhotonIDTrainingTreeEnabled = false;
+    return;
+  }
+
+  out->cd();
+  m_ppPhotonIDTrainingTree = new TTree("AuAuPhotonIDTrainingTree",
+                                       "pp photon-ID ML training candidates; AuAu-compatible schema");
+  if (!m_ppPhotonIDTrainingTree)
+  {
+    LOG(1, CLR_YELLOW, "[PPPhotonIDTrainingTree] failed to allocate tree; disabling");
+    m_ppPhotonIDTrainingTreeEnabled = false;
+    return;
+  }
+  m_ppPhotonIDTrainingTree->SetDirectory(out);
+
+  auto add = [&](const char* name, void* addr, const char* leaf)
+  {
+    if (!m_ppPhotonIDTrainingTree->Branch(name, addr, leaf))
+    {
+      LOG(1, CLR_YELLOW, "[PPPhotonIDTrainingTree] failed to book branch " << name);
+      m_ppPhotonIDTrainingTreeEnabled = false;
+    }
+  };
+
+  add("run", &m_bdtTrain_run, "run/I");
+  add("evt", &m_bdtTrain_evt, "evt/L");
+  add("is_signal", &m_bdtTrain_is_signal, "is_signal/I");
+  add("pt_bin", &m_bdtTrain_pt_bin, "pt_bin/I");
+  add("cent_bin", &m_bdtTrain_cent_bin, "cent_bin/I");
+  add("cluster_Et", &m_bdtTrain_pt, "cluster_Et/F");
+  add("cluster_Eta", &m_bdtTrain_eta, "cluster_Eta/F");
+  add("cluster_Phi", &m_bdtTrain_phi, "cluster_Phi/F");
+  add("centrality", &m_bdtTrain_cent, "centrality/F");
+  add("vertexz", &m_bdtTrain_vz, "vertexz/F");
+  add("event_weight", &m_bdtTrain_weight, "event_weight/F");
+  add("reco_eiso", &m_bdtTrain_eiso, "reco_eiso/F");
+  add("truth_track_id", &m_bdtTrain_truth_track_id, "truth_track_id/I");
+  add("truth_barcode", &m_bdtTrain_truth_barcode, "truth_barcode/I");
+  add("truth_energy_contribution", &m_bdtTrain_truth_energy_contribution, "truth_energy_contribution/F");
+  add("cluster_weta_cogx", &m_bdtTrain_weta, "cluster_weta_cogx/F");
+  add("cluster_wphi_cogx", &m_bdtTrain_wphi, "cluster_wphi_cogx/F");
+  add("cluster_weta33_cogx", &m_bdtTrain_weta33, "cluster_weta33_cogx/F");
+  add("cluster_wphi33_cogx", &m_bdtTrain_wphi33, "cluster_wphi33_cogx/F");
+  add("cluster_weta35_cogx", &m_bdtTrain_weta35, "cluster_weta35_cogx/F");
+  add("cluster_wphi53_cogx", &m_bdtTrain_wphi53, "cluster_wphi53_cogx/F");
+  add("cluster_et1", &m_bdtTrain_et1, "cluster_et1/F");
+  add("cluster_et2", &m_bdtTrain_et2, "cluster_et2/F");
+  add("cluster_et3", &m_bdtTrain_et3, "cluster_et3/F");
+  add("cluster_et4", &m_bdtTrain_et4, "cluster_et4/F");
+  add("e11_over_e33", &m_bdtTrain_e11e33, "e11_over_e33/F");
+  add("e32_over_e35", &m_bdtTrain_e32e35, "e32_over_e35/F");
+  add("e11_over_e22", &m_bdtTrain_e11e22, "e11_over_e22/F");
+  add("e11_over_e13", &m_bdtTrain_e11e13, "e11_over_e13/F");
+  add("e11_over_e15", &m_bdtTrain_e11e15, "e11_over_e15/F");
+  add("e11_over_e17", &m_bdtTrain_e11e17, "e11_over_e17/F");
+  add("e11_over_e31", &m_bdtTrain_e11e31, "e11_over_e31/F");
+  add("e11_over_e51", &m_bdtTrain_e11e51, "e11_over_e51/F");
+  add("e11_over_e71", &m_bdtTrain_e11e71, "e11_over_e71/F");
+  add("e22_over_e33", &m_bdtTrain_e22e33, "e22_over_e33/F");
+  add("e22_over_e35", &m_bdtTrain_e22e35, "e22_over_e35/F");
+  add("e22_over_e37", &m_bdtTrain_e22e37, "e22_over_e37/F");
+  add("e22_over_e53", &m_bdtTrain_e22e53, "e22_over_e53/F");
+  add("cluster_w32", &m_bdtTrain_w32, "cluster_w32/F");
+  add("cluster_w52", &m_bdtTrain_w52, "cluster_w52/F");
+  add("cluster_w72", &m_bdtTrain_w72, "cluster_w72/F");
+  add("npb_score", &m_bdtTrain_npb_score, "npb_score/F");
+  add("tight_bdt_score", &m_bdtTrain_tight_bdt_score, "tight_bdt_score/F");
+
+  LOG(1, CLR_GREEN, "[PPPhotonIDTrainingTree] enabled"
+                    << " maxEntries=" << m_ppPhotonIDTrainingTreeMaxEntries
+                    << " sourceRole=" << m_ppPhotonIDSourceRole
+                    << " ppg12Filter=" << (m_ppPhotonIDPPG12Filter ? "true" : "false"));
+}
+
+void RecoilJets::fillPPPhotonIDTrainingTree(const SSVars& v,
+                                            double eta,
+                                            double phi,
+                                            double eiso,
+                                            int ptIdx,
+                                            bool isSignal,
+                                            int truthTrackId,
+                                            int truthBarcode,
+                                            float truthEnergyContribution)
+{
+  if (!m_ppPhotonIDTrainingTreeEnabled || m_isAuAu) return;
+  if (!m_ppPhotonIDTrainingTree) initPPPhotonIDTrainingTree();
+  if (!m_ppPhotonIDTrainingTreeEnabled || !m_ppPhotonIDTrainingTree) return;
+  if (m_ppPhotonIDTrainingTreeMaxEntries > 0 &&
+      m_ppPhotonIDTrainingTreeEntries >= m_ppPhotonIDTrainingTreeMaxEntries) return;
+
+  auto featureValue = [](double x) -> float
+  {
+    return std::isfinite(x) ? static_cast<float>(x) : 0.0f;
+  };
+
+  m_bdtTrain_run = (m_evtHeader ? m_evtHeader->get_RunNumber() : 0);
+  m_bdtTrain_evt = event_count;
+  m_bdtTrain_is_signal = isSignal ? 1 : 0;
+  m_bdtTrain_pt_bin = ptIdx;
+  m_bdtTrain_cent_bin = -1;
+  m_bdtTrain_pt = featureValue(v.pt_gamma);
+  m_bdtTrain_eta = featureValue(eta);
+  m_bdtTrain_phi = featureValue(phi);
+  m_bdtTrain_cent = -1.0f;
+  m_bdtTrain_vz = featureValue(m_vz);
+  m_bdtTrain_weight = featureValue(m_mcEventWeight);
+  m_bdtTrain_eiso = featureValue(eiso);
+  m_bdtTrain_truth_track_id = truthTrackId;
+  m_bdtTrain_truth_barcode = truthBarcode;
+  m_bdtTrain_truth_energy_contribution =
+      std::isfinite(truthEnergyContribution) ? truthEnergyContribution : -999.0f;
+
+  m_bdtTrain_weta = featureValue(v.weta_cogx);
+  m_bdtTrain_wphi = featureValue(v.wphi_cogx);
+  m_bdtTrain_weta33 = featureValue(v.weta33_cogx);
+  m_bdtTrain_wphi33 = featureValue(v.wphi33_cogx);
+  m_bdtTrain_weta35 = featureValue(v.weta35_cogx);
+  m_bdtTrain_wphi53 = featureValue(v.wphi53_cogx);
+  m_bdtTrain_et1 = featureValue(v.et1);
+  m_bdtTrain_et2 = featureValue(v.et2);
+  m_bdtTrain_et3 = featureValue(v.et3);
+  m_bdtTrain_et4 = featureValue(v.et4);
+  m_bdtTrain_e11e33 = featureValue(v.e11_over_e33);
+  m_bdtTrain_e32e35 = featureValue(v.e32_over_e35);
+  m_bdtTrain_e11e22 = featureValue(v.e11_over_e22);
+  m_bdtTrain_e11e13 = featureValue(v.e11_over_e13);
+  m_bdtTrain_e11e15 = featureValue(v.e11_over_e15);
+  m_bdtTrain_e11e17 = featureValue(v.e11_over_e17);
+  m_bdtTrain_e11e31 = featureValue(v.e11_over_e31);
+  m_bdtTrain_e11e51 = featureValue(v.e11_over_e51);
+  m_bdtTrain_e11e71 = featureValue(v.e11_over_e71);
+  m_bdtTrain_e22e33 = featureValue(v.e22_over_e33);
+  m_bdtTrain_e22e35 = featureValue(v.e22_over_e35);
+  m_bdtTrain_e22e37 = featureValue(v.e22_over_e37);
+  m_bdtTrain_e22e53 = featureValue(v.e22_over_e53);
+  m_bdtTrain_w32 = featureValue(v.w32);
+  m_bdtTrain_w52 = featureValue(v.w52);
+  m_bdtTrain_w72 = featureValue(v.w72);
+  m_bdtTrain_npb_score = std::isfinite(v.npb_score) ? static_cast<float>(v.npb_score) : -2.0f;
+  m_bdtTrain_tight_bdt_score = std::isfinite(v.tight_bdt_score) ? static_cast<float>(v.tight_bdt_score) : -2.0f;
+
+  m_ppPhotonIDTrainingTree->Fill();
+  ++m_ppPhotonIDTrainingTreeEntries;
 }
 
 
@@ -4222,6 +4433,14 @@ int RecoilJets::End(PHCompositeNode*)
         m_evtDiagTree->Write("", TObject::kOverwrite);
       }
 
+      if (m_ppPhotonIDTrainingTree)
+      {
+        out->cd();
+        m_ppPhotonIDTrainingTree->Write("", TObject::kOverwrite);
+        info(1, "pp photon-ID training tree entries=" +
+                 std::to_string(m_ppPhotonIDTrainingTreeEntries));
+      }
+
       if (!m_analysisConfigYAMLText.empty())
       {
         out->cd();
@@ -4264,25 +4483,71 @@ RecoilJets::SSVars RecoilJets::makeSSFromPhoton(const PhotonClusterv1* pho, doub
   // Raw stored shower-shape parameters (PhotonClusterBuilder names)
   const double weta_cogx = pho->get_shower_shape_parameter("weta_cogx");
   const double wphi_cogx = pho->get_shower_shape_parameter("wphi_cogx");
+  const double weta33_cogx = pho->get_shower_shape_parameter("weta33_cogx");
+  const double wphi33_cogx = pho->get_shower_shape_parameter("wphi33_cogx");
+  const double weta35_cogx = pho->get_shower_shape_parameter("weta35_cogx");
+  const double wphi53_cogx = pho->get_shower_shape_parameter("wphi53_cogx");
   const double et1       = pho->get_shower_shape_parameter("et1");
+  const double et2       = pho->get_shower_shape_parameter("et2");
+  const double et3       = pho->get_shower_shape_parameter("et3");
+  const double et4       = pho->get_shower_shape_parameter("et4");
 
   const double e11 = pho->get_shower_shape_parameter("e11");
+  const double e13 = pho->get_shower_shape_parameter("e13");
+  const double e15 = pho->get_shower_shape_parameter("e15");
+  const double e17 = pho->get_shower_shape_parameter("e17");
+  const double e22 = pho->get_shower_shape_parameter("e22");
+  const double e31 = pho->get_shower_shape_parameter("e31");
   const double e33 = pho->get_shower_shape_parameter("e33");
   const double e32 = pho->get_shower_shape_parameter("e32");
   const double e35 = pho->get_shower_shape_parameter("e35");
+  const double e37 = pho->get_shower_shape_parameter("e37");
+  const double e51 = pho->get_shower_shape_parameter("e51");
+  const double e53 = pho->get_shower_shape_parameter("e53");
+  const double e71 = pho->get_shower_shape_parameter("e71");
+  const double w32 = pho->get_shower_shape_parameter("w32");
+  const double w52 = pho->get_shower_shape_parameter("w52");
+  const double w72 = pho->get_shower_shape_parameter("w72");
 
   // Derived ratios (protect denominators)
-  const double e11_over_e33_raw = (e33 > 0.0) ? (e11 / e33) : std::numeric_limits<double>::quiet_NaN();
-  const double e32_over_e35_raw = (e35 > 0.0) ? (e32 / e35) : std::numeric_limits<double>::quiet_NaN();
+  auto ratio = [](double num, double den) -> double
+  {
+    return (std::isfinite(num) && std::isfinite(den) && den > 0.0)
+        ? (num / den)
+        : std::numeric_limits<double>::quiet_NaN();
+  };
+  const double e11_over_e33_raw = ratio(e11, e33);
+  const double e32_over_e35_raw = ratio(e32, e35);
 
   v.weta_cogx    = weta_cogx;
   v.wphi_cogx    = wphi_cogx;
+  v.weta33_cogx  = weta33_cogx;
+  v.wphi33_cogx  = wphi33_cogx;
+  v.weta35_cogx  = weta35_cogx;
+  v.wphi53_cogx  = wphi53_cogx;
   v.et1          = et1;
+  v.et2          = et2;
+  v.et3          = et3;
+  v.et4          = et4;
 
   // Preserve NaN for invalid denominators/inputs.
   // This ensures preselection/tight cuts fail cleanly for invalid SS inputs.
   v.e11_over_e33 = e11_over_e33_raw;
   v.e32_over_e35 = e32_over_e35_raw;
+  v.e11_over_e22 = ratio(e11, e22);
+  v.e11_over_e13 = ratio(e11, e13);
+  v.e11_over_e15 = ratio(e11, e15);
+  v.e11_over_e17 = ratio(e11, e17);
+  v.e11_over_e31 = ratio(e11, e31);
+  v.e11_over_e51 = ratio(e11, e51);
+  v.e11_over_e71 = ratio(e11, e71);
+  v.e22_over_e33 = ratio(e22, e33);
+  v.e22_over_e35 = ratio(e22, e35);
+  v.e22_over_e37 = ratio(e22, e37);
+  v.e22_over_e53 = ratio(e22, e53);
+  v.w32 = w32;
+  v.w52 = w52;
+  v.w72 = w72;
 
   attachVariantScoresToSSVars(pho, v);
 
@@ -6032,7 +6297,7 @@ void RecoilJets::fillPureIsolationQA(PHCompositeNode* topNode,
   }
 
   // Pure isolation threshold decision (signal line only)
-  const double thrIso  = (m_isSlidingIso ? (m_isoA + m_isoB * pt_gamma) : m_isoFixed);
+  const double thrIso  = recoIsoThreshold(pt_gamma);
   const bool   isoPass = (eiso_tot < thrIso);
   const bool   doCone  = fillConeThisView();
 
@@ -6553,8 +6818,8 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
       continue;
     }
 
-    const double thrIso    = (m_isSlidingIso ? (m_isoA + m_isoB * rPt) : m_isoFixed);
-    const double thrNonIso = thrIso + m_isoGap;
+    const double thrIso    = recoIsoThreshold(rPt);
+    const double thrNonIso = recoNonIsoThreshold(rPt);
 
     const bool iso    = (eiso_et < thrIso);
     const bool nonIso = (eiso_et > thrNonIso);
@@ -7357,11 +7622,74 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
 
                 if (std::isfinite(eiso_et) && eiso_et < 1e8)
                 {
-                    const double thrIsoSS    = (m_isSlidingIso ? (m_isoA + m_isoB * pt_gamma) : m_isoFixed);
-                    const double thrNonIsoSS = thrIsoSS + m_isoGap;
+                    const double thrIsoSS    = recoIsoThreshold(pt_gamma);
+                    const double thrNonIsoSS = recoNonIsoThreshold(pt_gamma);
 
                     ssIso    = (eiso_et < thrIsoSS);
                     ssNonIso = (eiso_et > thrNonIsoSS);
+                }
+
+                if (m_ppPhotonIDTrainingTreeEnabled && m_isSim && !m_isAuAu)
+                {
+                    bool isPPG12Signal = false;
+                    int truthTrackId = -1;
+                    int truthBarcode = -1;
+                    float truthEContrib = std::numeric_limits<float>::lowest();
+
+                    if (haveCaloEval_SS && clustereval_SS)
+                    {
+                        TruthSignalPhotonInfo matchedTruth;
+                        isPPG12Signal =
+                            classifyRecoPhotonWithPPG12TruthTrack(rc,
+                                                                  *clustereval_SS,
+                                                                  truthSignalByTrackId_SS,
+                                                                  matchedTruth,
+                                                                  truthTrackId,
+                                                                  truthEContrib);
+                        if (isPPG12Signal) truthBarcode = matchedTruth.barcode;
+                    }
+
+                    std::string role = m_ppPhotonIDSourceRole;
+                    if (role == "auto")
+                    {
+                        std::string outLower = Outfile;
+                        std::transform(outLower.begin(), outLower.end(), outLower.begin(),
+                                       [](unsigned char c){ return std::tolower(c); });
+                        if (outLower.find("photonjet") != std::string::npos ||
+                            outLower.find("photon") != std::string::npos)
+                        {
+                            role = "signal";
+                        }
+                        else if (outLower.find("jet") != std::string::npos ||
+                                 ppInclusiveJetContext)
+                        {
+                            role = "background";
+                        }
+                        else
+                        {
+                            role = "all";
+                        }
+                    }
+
+                    bool keepTrainingRow = true;
+                    if (m_ppPhotonIDPPG12Filter)
+                    {
+                        if (role == "signal") keepTrainingRow = isPPG12Signal;
+                        else if (role == "background" || role == "bkg") keepTrainingRow = !isPPG12Signal;
+                    }
+
+                    if (keepTrainingRow)
+                    {
+                        fillPPPhotonIDTrainingTree(v,
+                                                   eta,
+                                                   phi,
+                                                   eiso_et,
+                                                   ptIdx,
+                                                   isPPG12Signal,
+                                                   truthTrackId,
+                                                   truthBarcode,
+                                                   truthEContrib);
+                    }
                 }
 
                 auto fillSSSpectra = [&](const std::string& trigShort, const std::string& tagKey, HistViewScope scope)
@@ -7652,8 +7980,8 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 // Use the same strict ISO / NONISO / GAP definition as
                 // fillIsoSSTagCounters so xJ-purity leading-region counters are
                 // matched to the ABCD sideband definitions.
-                const double thrIsoForABCD    = (m_isSlidingIso ? (m_isoA + m_isoB * pt_gamma) : m_isoFixed);
-                const double thrNonIsoForABCD = thrIsoForABCD + m_isoGap;
+                const double thrIsoForABCD    = recoIsoThreshold(pt_gamma);
+                const double thrNonIsoForABCD = recoNonIsoThreshold(pt_gamma);
                 const bool validIsoForABCD = (std::isfinite(eiso_et) && eiso_et < 1e8);
                 const bool iso    = validIsoForABCD && (eiso_et < thrIsoForABCD);
                 const bool nonIso = validIsoForABCD && (eiso_et > thrNonIsoForABCD);
@@ -9200,6 +9528,102 @@ void RecoilJets::setIsolationWP(double aGeV, double bPerGeV,
   }
 }
 
+void RecoilJets::setPPIsoWPForCone(double coneR, double aGeV, double bPerGeV, double sideGapGeV)
+{
+  if (!std::isfinite(coneR) || !std::isfinite(aGeV) ||
+      !std::isfinite(bPerGeV) || !std::isfinite(sideGapGeV))
+  {
+    LOG(2, CLR_YELLOW,
+        "  [setPPIsoWPForCone] Non-finite input(s): coneR=" << coneR
+        << " A=" << aGeV << " B=" << bPerGeV << " gap=" << sideGapGeV
+        << " -> ignoring cone-specific pp isolation WP");
+    return;
+  }
+
+  int cone10 = static_cast<int>(std::lround(10.0 * coneR));
+  if (!(cone10 == 3 || cone10 == 4))
+  {
+    const int cone100 = static_cast<int>(std::lround(100.0 * coneR));
+    if (cone100 == 3 || cone100 == 4) cone10 = cone100;
+  }
+
+  PPIsoWP* wp = nullptr;
+  if (cone10 == 3) wp = &m_ppIsoWPR30;
+  else if (cone10 == 4) wp = &m_ppIsoWPR40;
+
+  if (!wp)
+  {
+    LOG(2, CLR_YELLOW,
+        "  [setPPIsoWPForCone] Requested coneR=" << coneR
+        << " is not supported for pp cone-specific isolation WP; expected R=0.3 or R=0.4");
+    return;
+  }
+
+  wp->aGeV = aGeV;
+  wp->bPerGeV = bPerGeV;
+  wp->sideGapGeV = std::max(0.0, sideGapGeV);
+  wp->enabled = true;
+
+  std::cout << CLR_BLUE
+            << "  [setPPIsoWPForCone] pp cone-specific isolation WP:"
+            << " coneR=0." << cone10
+            << " A=" << wp->aGeV
+            << " B=" << wp->bPerGeV
+            << " gap=" << wp->sideGapGeV
+            << " thrReco(pT)=A+B*pT"
+            << CLR_RESET << std::endl;
+}
+
+bool RecoilJets::getPPIsoParamsForCone(double coneR, double& aGeV, double& bPerGeV, double& sideGapGeV) const
+{
+  int cone10 = static_cast<int>(std::lround(10.0 * coneR));
+  if (!(cone10 == 3 || cone10 == 4))
+  {
+    const int cone100 = static_cast<int>(std::lround(100.0 * coneR));
+    if (cone100 == 3 || cone100 == 4) cone10 = cone100;
+  }
+
+  const PPIsoWP* wp = nullptr;
+  if (cone10 == 3) wp = &m_ppIsoWPR30;
+  else if (cone10 == 4) wp = &m_ppIsoWPR40;
+
+  if (wp && wp->enabled)
+  {
+    aGeV = wp->aGeV;
+    bPerGeV = wp->bPerGeV;
+    sideGapGeV = wp->sideGapGeV;
+    return true;
+  }
+
+  aGeV = m_isoA;
+  bPerGeV = m_isoB;
+  sideGapGeV = m_isoGap;
+  return false;
+}
+
+void RecoilJets::getActiveIsoParams(double& aGeV, double& bPerGeV, double& sideGapGeV) const
+{
+  getPPIsoParamsForCone(m_isoConeR, aGeV, bPerGeV, sideGapGeV);
+}
+
+double RecoilJets::recoIsoThreshold(double ptGamma) const
+{
+  double aGeV = m_isoA;
+  double bPerGeV = m_isoB;
+  double sideGapGeV = m_isoGap;
+  getActiveIsoParams(aGeV, bPerGeV, sideGapGeV);
+  return m_isSlidingIso ? (aGeV + bPerGeV * ptGamma) : m_isoFixed;
+}
+
+double RecoilJets::recoNonIsoThreshold(double ptGamma) const
+{
+  double aGeV = m_isoA;
+  double bPerGeV = m_isoB;
+  double sideGapGeV = m_isoGap;
+  getActiveIsoParams(aGeV, bPerGeV, sideGapGeV);
+  return recoIsoThreshold(ptGamma) + sideGapGeV;
+}
+
 
 double RecoilJets::eiso(const RawCluster* clus, PHCompositeNode* /*topNode*/) const
 {
@@ -9289,7 +9713,7 @@ bool RecoilJets::isIsolated(const RawCluster* clus, double et_gamma, PHComposite
     return false;
   }
 
-    const double thr  = (m_isSlidingIso ? (m_isoA + m_isoB * et_gamma) : m_isoFixed);
+    const double thr  = recoIsoThreshold(et_gamma);
     const double eiso_val = this->eiso(clus, topNode);
     const bool passIso = (eiso_val < thr);
 
@@ -9311,7 +9735,7 @@ bool RecoilJets::isNonIsolated(const RawCluster* clus, double et_gamma, PHCompos
     return false;
   }
 
-  const double thr  = (m_isSlidingIso ? (m_isoA + m_isoB * et_gamma) : m_isoFixed) + m_isoGap;
+  const double thr  = recoNonIsoThreshold(et_gamma);
   const double eiso_val = this->eiso(clus, topNode);
 
   if (Verbosity() >= 5)
@@ -15195,8 +15619,8 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
     return;
   }
 
-  const double thrIso    = (m_isSlidingIso ? (m_isoA + m_isoB * pt_gamma) : m_isoFixed);
-  const double thrNonIso = thrIso + m_isoGap;
+  const double thrIso    = recoIsoThreshold(pt_gamma);
+  const double thrNonIso = recoNonIsoThreshold(pt_gamma);
 
   const bool iso    = (eiso_et < thrIso);
   const bool nonIso = (eiso_et > thrNonIso);

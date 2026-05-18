@@ -40,6 +40,18 @@ PPG12_TIGHT_FEATURES = [
     "e32_over_e35",
 ]
 
+PPG12_BASE_V1E_FEATURES = [
+    "cluster_Et",
+    "cluster_weta_cogx",
+    "vertexz",
+    "cluster_Eta",
+    "e11_over_e33",
+    "cluster_et1",
+    "cluster_et2",
+    "cluster_et3",
+    "cluster_et4",
+]
+
 PPG12_TIGHT_FEATURES_3X3_WIDTHS = [
     "cluster_Et",
     "cluster_weta33_cogx",
@@ -110,6 +122,7 @@ DERIVED_FEATURE_DEPS = {
 
 TIGHT_MODES = [
     "legacy",
+    "ppg12BaseV1E",
     "centINDcontrol",
     "centAsFeat",
     "centAsFeatMinOpt",
@@ -146,6 +159,8 @@ def global_sixpack_iso_features() -> list[str]:
 def tight_mode_features(mode: str, override: list[str] | None) -> list[str]:
     if override is not None:
         features = list(override)
+    elif mode == "ppg12BaseV1E":
+        features = list(PPG12_BASE_V1E_FEATURES)
     elif mode == "centAsFeat3x3":
         features = list(PPG12_TIGHT_FEATURES_3X3_WIDTHS)
     elif mode == "centAsFeatBase3x3":
@@ -389,6 +404,11 @@ def load_frame(
     optional_columns: list[str],
     missing_label_branch: str | None,
     missing_label_value: int | None,
+    skip_missing_tree: bool = False,
+    label_branch: str | None = None,
+    max_load_rows_per_class: int = 0,
+    max_load_rows: int = 0,
+    load_sample_seed: int = 42,
 ):
     try:
         import pandas as pd
@@ -399,13 +419,33 @@ def load_frame(
             "scikit-learn, xgboost, and PyROOT for TMVA export."
         ) from exc
 
+    import numpy as np
+
     frames = []
     seen_optional: set[str] = set()
-    for path in paths:
+    skipped_missing_tree: list[str] = []
+    load_class_counts = {0: 0, 1: 0}
+    total_loaded_rows = 0
+    load_cap_enabled = max_load_rows_per_class > 0 or max_load_rows > 0
+    iter_paths = list(paths)
+    rng = np.random.default_rng(load_sample_seed)
+    if load_cap_enabled:
+        rng.shuffle(iter_paths)
+        print(
+            "[INFO] load-time row cap enabled: "
+            f"max_load_rows_per_class={max_load_rows_per_class} "
+            f"max_load_rows={max_load_rows} seed={load_sample_seed}",
+            flush=True,
+        )
+    for path in iter_paths:
         with uproot.open(path) as root_file:
             try:
                 tree = root_file[tree_name]
             except Exception as exc:
+                if skip_missing_tree:
+                    skipped_missing_tree.append(str(path))
+                    print(f"[WARN] skipping {path}: missing tree {tree_name}", flush=True)
+                    continue
                 raise SystemExit(f"{path} does not contain tree {tree_name}") from exc
             keys = set(tree.keys())
             missing = [col for col in required_columns if col not in keys]
@@ -424,9 +464,60 @@ def load_frame(
             frame = tree.arrays(read_columns, library="pd")
             if allow_missing_label:
                 frame[missing_label_branch] = int(missing_label_value)
+            if load_cap_enabled and label_branch and label_branch in frame.columns:
+                keep_parts = []
+                for cls in (0, 1):
+                    idx = np.flatnonzero(frame[label_branch].to_numpy(dtype="int32", copy=False) == cls)
+                    if len(idx) == 0:
+                        continue
+                    remaining_class = len(idx)
+                    if max_load_rows_per_class > 0:
+                        remaining_class = min(remaining_class, max_load_rows_per_class - load_class_counts[cls])
+                    remaining_total = len(idx)
+                    if max_load_rows > 0:
+                        remaining_total = min(remaining_total, max_load_rows - total_loaded_rows)
+                    n_take = min(len(idx), remaining_class, remaining_total)
+                    if n_take <= 0:
+                        continue
+                    if n_take < len(idx):
+                        idx = rng.choice(idx, size=n_take, replace=False)
+                    keep_parts.append(frame.iloc[np.sort(idx)])
+                    load_class_counts[cls] += int(n_take)
+                    total_loaded_rows += int(n_take)
+                if keep_parts:
+                    frame = pd.concat(keep_parts, ignore_index=True, copy=False)
+                else:
+                    continue
             frames.append(frame)
+        if load_cap_enabled:
+            class_cap_done = (
+                max_load_rows_per_class > 0
+                and all(load_class_counts[cls] >= max_load_rows_per_class for cls in (0, 1))
+            )
+            total_cap_done = max_load_rows > 0 and total_loaded_rows >= max_load_rows
+            if class_cap_done or total_cap_done:
+                print(
+                    "[INFO] stopping input read after load-time caps: "
+                    f"counts={load_class_counts} total={total_loaded_rows}",
+                    flush=True,
+                )
+                break
 
+    if not frames:
+        raise SystemExit(f"No input files contained tree {tree_name}")
+    if skipped_missing_tree:
+        print(
+            f"[WARN] skipped {len(skipped_missing_tree)} input files with no {tree_name}; "
+            f"first={skipped_missing_tree[0]}",
+            flush=True,
+        )
     frame = add_derived_features(pd.concat(frames, ignore_index=True))
+    if load_cap_enabled:
+        print(
+            "[INFO] loaded capped frame: "
+            f"rows={len(frame)} class_counts={load_class_counts} total_selected={total_loaded_rows}",
+            flush=True,
+        )
     for col in optional_columns:
         if col not in frame.columns:
             frame[col] = 1.0
@@ -462,6 +553,10 @@ def load_or_build_frame(
     missing_label_value: int | None,
     cache_file: Path | None,
     cache_only: bool = False,
+    skip_missing_tree: bool = False,
+    max_load_rows_per_class: int = 0,
+    max_load_rows: int = 0,
+    load_sample_seed: int = 42,
 ):
     if cache_file is not None and cache_file.is_file():
         frame = add_derived_features(load_frame_cache(cache_file))
@@ -480,6 +575,11 @@ def load_or_build_frame(
         optional_columns,
         label_branch,
         missing_label_value,
+        skip_missing_tree=skip_missing_tree,
+        label_branch=label_branch,
+        max_load_rows_per_class=max_load_rows_per_class,
+        max_load_rows=max_load_rows,
+        load_sample_seed=load_sample_seed,
     )
     if cache_file is not None:
         cache_cols = sorted(set(expand_required_columns(required_columns) + required_columns + optional_columns))
@@ -1229,6 +1329,133 @@ def global_sixpack_specs(args, outdir: Path) -> list[dict]:
     return specs
 
 
+def etcent_binned_sixpack_specs(args, outdir: Path) -> list[dict]:
+    pt_edges = parse_float_edges(args.pt_bins)
+    pt_bins = bins_from_edges(pt_edges)
+    coarse_cent_bins = parse_cent_bins(args.coarse_cent_bins)
+    fine_cent_bins = parse_cent_bins(args.fine_cent_bins)
+    specs: list[dict] = []
+    noiso_features = global_sixpack_noiso_features()
+    iso_features = global_sixpack_iso_features()
+
+    def add(
+        product: str,
+        model_id: str,
+        features: list[str],
+        pt_range: tuple[float, float],
+        cent_range: tuple[float, float],
+        role: str,
+        diagnostic_only: bool,
+    ) -> None:
+        safe = model_id.replace(".", "p")
+        specs.append(
+            {
+                "model_id": safe,
+                "product": product,
+                "role": role,
+                "features": list(features),
+                "pt_range": list(pt_range),
+                "cent_range": list(cent_range),
+                "minority_optimized": False,
+                "output_tmva": str(outdir / f"auau_tight_bdt_{safe}_tmva.root"),
+                "output_xgb_json": str(outdir / f"auau_tight_bdt_{safe}_tmva.xgb.json"),
+                "metadata": str(outdir / f"auau_tight_bdt_{safe}_tmva.metadata.json"),
+                "majority_cap_ratio": None,
+                "diagnostic_only": diagnostic_only,
+                "abcd_warning": "Uses reconstructed isolation-derived inputs; diagnostic only." if diagnostic_only else None,
+            }
+        )
+
+    if len(pt_edges) < 2:
+        raise SystemExit("etcent-binned-sixpack needs at least two pT edges")
+
+    groups = (
+        (
+            "globalEtCent1535_bdt_noIso_ptCent3",
+            "globalEtCent1535_bdt_noIso_ptCent3",
+            noiso_features,
+            coarse_cent_bins,
+            "fine-et-coarse-cent-bin-global-sixpack-no-iso-features",
+            False,
+        ),
+        (
+            "globalEtCent1535_bdt_noIso_ptCent7",
+            "globalEtCent1535_bdt_noIso_ptCent7",
+            noiso_features,
+            fine_cent_bins,
+            "fine-et-fine-cent-bin-global-sixpack-no-iso-features",
+            False,
+        ),
+        (
+            "globalEtCent1535_bdt_iso_ptCent3",
+            "globalEtCent1535_bdt_iso_ptCent3",
+            iso_features,
+            coarse_cent_bins,
+            "fine-et-coarse-cent-bin-global-sixpack-isolation-input-features",
+            True,
+        ),
+        (
+            "globalEtCent1535_bdt_iso_ptCent7",
+            "globalEtCent1535_bdt_iso_ptCent7",
+            iso_features,
+            fine_cent_bins,
+            "fine-et-fine-cent-bin-global-sixpack-isolation-input-features",
+            True,
+        ),
+    )
+    for product, prefix, features, cent_bins, role, diagnostic_only in groups:
+        for plo, phi in pt_bins:
+            for clo, chi in cent_bins:
+                add(
+                    product,
+                    f"{prefix}_{pt_tag(plo, phi)}_{cent_tag(clo, chi)}",
+                    features,
+                    (plo, phi),
+                    (clo, chi),
+                    role,
+                    diagnostic_only,
+                )
+    return specs
+
+
+def ppg12_pp_sixpack_specs(args, outdir: Path) -> list[dict]:
+    specs: list[dict] = []
+    full_pt = (6.0, 35.0)
+    pp_cent = (-1.0, 0.0)
+
+    def add(model_id: str, features: list[str], role: str, diagnostic_only: bool = False) -> None:
+        specs.append(
+            {
+                "model_id": model_id,
+                "product": model_id,
+                "role": role,
+                "features": list(features),
+                "pt_range": list(full_pt),
+                "cent_range": list(pp_cent),
+                "minority_optimized": False,
+                "output_tmva": str(outdir / f"pp_tight_bdt_{model_id}_tmva.root"),
+                "output_xgb_json": str(outdir / f"pp_tight_bdt_{model_id}_tmva.xgb.json"),
+                "metadata": str(outdir / f"pp_tight_bdt_{model_id}_tmva.metadata.json"),
+                "majority_cap_ratio": None,
+                "diagnostic_only": diagnostic_only,
+                "abcd_warning": "Uses reconstructed isolation-derived inputs; diagnostic only." if diagnostic_only else None,
+            }
+        )
+
+    add(
+        "ppg12_base_v1E_bdt_noIso",
+        PPG12_BASE_V1E_FEATURES,
+        "pp-ppg12-base-v1E-no-centrality-no-isolation",
+    )
+    add(
+        "ppg12_base_v1E_bdt_iso",
+        PPG12_BASE_V1E_FEATURES + ISOLATION_DIAGNOSTIC_FEATURES,
+        "pp-ppg12-base-v1E-no-centrality-with-isolation-diagnostics",
+        diagnostic_only=True,
+    )
+    return specs
+
+
 def registry_payload(specs: list[dict], reports: list[dict], args, status: str = "PLANNED") -> dict:
     report_by_id = {r.get("model_id"): r for r in reports}
     products: dict[str, list[str]] = {}
@@ -1335,11 +1562,15 @@ def run_campaign(args) -> int:
         specs_all = isolation_diagnostic_specs(args, args.outdir)
     elif args.campaign == "global-sixpack":
         specs_all = global_sixpack_specs(args, args.outdir)
+    elif args.campaign == "etcent-binned-sixpack":
+        specs_all = etcent_binned_sixpack_specs(args, args.outdir)
+    elif args.campaign == "ppg12-sixpack":
+        specs_all = ppg12_pp_sixpack_specs(args, args.outdir)
     else:
         specs_all = campaign_specs(args, args.outdir)
     specs = filter_specs(specs_all, args)
     all_features = sorted(set(expand_required_columns([feature for spec in specs for feature in spec["features"]] + ["centrality", label_branch])))
-    if args.majority_cap_ratio <= 0.0:
+    if args.majority_cap_ratio <= 0.0 and args.campaign != "ppg12-sixpack":
         args.majority_cap_ratio = 4.0
 
     planned_path = args.registry_output or (args.outdir / "model_registry.planned.json")
@@ -1361,6 +1592,10 @@ def run_campaign(args) -> int:
         args.missing_label_value,
         args.cache_file,
         args.cache_only,
+        skip_missing_tree=args.skip_missing_tree,
+        max_load_rows_per_class=int(args.max_load_rows_per_class or 0),
+        max_load_rows=int(args.max_load_rows or 0),
+        load_sample_seed=int(args.load_sample_seed or args.random_seed or 42),
     )
     if args.cache_only:
         write_registry(planned_path, specs, [], args, "CACHE_READY")
@@ -1422,6 +1657,11 @@ def main() -> int:
         default=None,
         help="For files missing only the label branch, fill that label with this value. For PPG12-style NPB, use 1 for embedded physics-side sim.",
     )
+    parser.add_argument(
+        "--skip-missing-tree",
+        action="store_true",
+        help="Skip input ROOT files that do not contain the requested training tree instead of failing immediately.",
+    )
     parser.add_argument("--features", default=None, help="Comma-separated override feature order")
     parser.add_argument("--weight-branch", default="event_weight")
     parser.add_argument("--use-event-weight", dest="use_event_weight", action="store_true", default=True)
@@ -1447,7 +1687,7 @@ def main() -> int:
     parser.add_argument("--grow-policy", default="lossguide")
     parser.add_argument("--max-bin", type=int, default=256)
     parser.add_argument("--n-jobs", type=int, default=4)
-    parser.add_argument("--campaign", choices=["expanded-tight", "etfine-centstudy", "iso-diagnostic", "global-sixpack"], default=None)
+    parser.add_argument("--campaign", choices=["expanded-tight", "etfine-centstudy", "iso-diagnostic", "global-sixpack", "etcent-binned-sixpack", "ppg12-sixpack"], default=None)
     parser.add_argument("--plan-only", action="store_true")
     parser.add_argument("--cache-only", action="store_true")
     parser.add_argument("--cache-file", type=Path, default=None)
@@ -1472,6 +1712,12 @@ def main() -> int:
     parser.add_argument("--background-subsample-bins", type=int, default=20)
     parser.add_argument("--background-subsample-seed", type=int, default=42)
     parser.add_argument("--background-subsample-flatten", action="store_true")
+    parser.add_argument("--max-load-rows", type=int, default=int(os.environ.get("RJ_AUAU_BDT_MAX_LOAD_ROWS", "0")),
+                        help="Deterministically sample at most this many rows while reading ROOT files, before concatenating into memory.")
+    parser.add_argument("--max-load-rows-per-class", type=int, default=int(os.environ.get("RJ_AUAU_BDT_MAX_LOAD_ROWS_PER_CLASS", "0")),
+                        help="Deterministically sample at most this many rows for each binary label while reading ROOT files.")
+    parser.add_argument("--load-sample-seed", type=int, default=int(os.environ.get("RJ_AUAU_BDT_LOAD_SAMPLE_SEED", "42")),
+                        help="Seed used for load-time file shuffling and row sampling when max-load caps are enabled.")
     parser.add_argument("--allow-tmva-export-failure", action="store_true",
                         help="Write diagnostics but do not fail if TMVA export fails. Not recommended for production pipeline tests.")
     args = parser.parse_args()
@@ -1505,6 +1751,11 @@ def main() -> int:
         optional_columns,
         label_branch,
         args.missing_label_value,
+        skip_missing_tree=args.skip_missing_tree,
+        label_branch=label_branch,
+        max_load_rows_per_class=int(args.max_load_rows_per_class or 0),
+        max_load_rows=int(args.max_load_rows or 0),
+        load_sample_seed=int(args.load_sample_seed or args.random_seed),
     )
 
     args.outdir.mkdir(parents=True, exist_ok=True)
@@ -1519,7 +1770,7 @@ def main() -> int:
         "tight_mode": args.tight_mode if args.task == "tight" else None,
     }
 
-    train_all_cent = args.task != "tight" or args.tight_mode in ("legacy", "centINDcontrol", "centAsFeat", "centAsFeatMinOpt", "centAsFeat3x3", "centAsFeatBase3x3", "centAsFeatWidthRatios")
+    train_all_cent = args.task != "tight" or args.tight_mode in ("legacy", "ppg12BaseV1E", "centINDcontrol", "centAsFeat", "centAsFeatMinOpt", "centAsFeat3x3", "centAsFeatBase3x3", "centAsFeatWidthRatios")
     train_cent_bins = args.task != "tight" or args.tight_mode in ("legacy", "centDepBDTs")
 
     if train_all_cent:

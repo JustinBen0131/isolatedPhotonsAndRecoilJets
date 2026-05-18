@@ -9,7 +9,7 @@ back_to_back_dphi_min_pi_fraction: [0.5, 0.875]
 use_vz_cut: true
 vz_cut_cm: [10, 30, 60]
 setMinBiasClassifer: true
-centrality_edges: [0, 20, 50, 80]
+centrality_edges: [0, 10, 20, 30, 40, 50, 60, 80]
 clusterUEpipeline: [baseVariant]
 
 isSlidingIso: false
@@ -18,7 +18,29 @@ fixedGeV: [2.0, 4.0]
 coneR: [0.30, 0.40]
 isolation_wp: {aGeV: 0.081, bPerGeV: 0.019, sideGapGeV: 0.8, truthIsoGeV: 4.0, towerMin: 0.0}
 auau_cent_iso_wp:
-  - {aGeV: 7.57, bPerGeV: -0.0658, sideGapGeV: 0.0}
+  - {aGeV: 5.7165, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 5.2095, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 4.7025, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 4.1955, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 3.6885, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 3.1815, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 2.4210, bPerGeV: 0.0, sideGapGeV: 0.0}
+auau_cent_iso_wp_r30:
+  - {aGeV: 5.7165, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 5.2095, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 4.7025, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 4.1955, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 3.6885, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 3.1815, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 2.4210, bPerGeV: 0.0, sideGapGeV: 0.0}
+auau_cent_iso_wp_r40:
+  - {aGeV: 7.2410, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 6.5830, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 5.9250, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 5.2670, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 4.6090, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 3.9510, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 2.9640, bPerGeV: 0.0, sideGapGeV: 0.0}
 
 photon_id_pre:   {e11e33_max: 0.98, et1_min: 0.60, et1_max: 1.00, e32e35_min: 0.80, e32e35_max: 1.00, weta_max: 0.60}
 photon_id_tight: {w_lo: 0.0, w_hi_intercept: 0.15, w_hi_slope: 0.006, e11e33_min: 0.40, e11e33_max: 0.98, et1_min: 0.90, et1_max: 1.00, e32e35_min: 0.92, e32e35_max: 1.00}

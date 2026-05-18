@@ -1,12 +1,583 @@
 # Status Dashboard
 
-Last updated: 2026-05-16
+Last updated: 2026-05-18
 
 Use traffic-light status for datasets/jobs/outputs. Keep rows evidence-based:
 email, terminal output, job ID, pulled file timestamp, ROOT inspection, or clear
 user statement.
 
 Latest active update:
+
+- 2026-05-18 09:25 EDT / AUAU SIXPACK VALIDATION ENV-FIX COMPLETE + BASELINE COMPARISON PLOTS PULLED:
+  Justin asked Codex to push anything possible through validation and fix
+  issues. Gmail RecoilJets Pipeline first showed three fresh READY messages
+  and Codex marked the consumed emails read: official BDT validation, official
+  MLP validation, and the small baseline MLP replay validation. The earlier
+  CHECK state was an environment problem, not a model problem: BDT validation
+  had used a Python lacking `matplotlib`, and MLP validation had used a Python
+  lacking `uproot`. Codex resubmitted with
+  `RJ_ML_PYTHON=/sphenix/u/patsfan753/.venvs/thesis-ml/bin/python`.
+  Official BDT validation used DAGMan cluster `2123628` and report root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/validation/bdt`;
+  READY metrics include baseline BDT AUC `0.840908`, finite score fraction
+  `0.999994`, signal mean score `0.670902`, background mean score `0.302054`,
+  and iso-input backup BDT AUC `0.920167`. Official MLP validation used DAGMan
+  cluster `2123629` and report root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/validation/mlp`;
+  READY metrics include baseline MLP AUC `0.9164938747`, WP80 threshold
+  `0.6021002769`, fake rate `0.1252784429`, and iso-input backup MLP AUC
+  `0.9690345525`. Small replay validation used DAGMan cluster `2123678` and
+  report root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/validation/mlp_noIso_small_replay_256_128_64`;
+  READY metrics include AUC `0.9251369393`, WP80 threshold `0.5875791311`,
+  and fake rate `0.1144994053`.
+
+  Codex also validated the baseline-only binned BDT sidecars from the current
+  Jet12+20+30 sixpack staging using lightweight registries instead of the full
+  `312M` all-variant registry. The `8x3` validation used DAGMan cluster
+  `2123919`, registry
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_binned_sidecars/etcent_binned_sixpack_features_20260517_174151/bdt_models/model_registry_noIso_cent3.json`,
+  and report root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/validation/bdt_binned_noIso_cent3`.
+  The `8x7` validation used DAGMan cluster `2123938`, registry
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_binned_sidecars/etcent_binned_sixpack_features_20260517_174151/bdt_models/model_registry_noIso_cent7.json`,
+  and report root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/validation/bdt_binned_noIso_cent7`.
+  Both are READY with score caches and AUC tables. Coarse-centrality AUCs:
+  global BDT `0.811/0.838/0.854`; binned `8x3`
+  `0.826/0.846/0.863`; binned `8x7` `0.838/0.860/0.871`.
+
+  New/updated helpers:
+  `scripts/make_auau_bdt_mlp_noiso_score_comparison.py` and
+  `scripts/make_auau_bdt_binned_noiso_score_comparison.py`. Both now fall back
+  to `score_caches.list` when convenience histogram CSVs are absent. Remote
+  syntax checks passed. Four compact PNG/CSV comparison products were generated
+  on SDCC, pulled locally, and visually inspected:
+  `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/slideReady/mlp_comparison/official_large/global_noiso_bdt_vs_mlp_score_separation_by_centrality.png`,
+  `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/slideReady/mlp_comparison/small_replay/global_noiso_bdt_vs_mlp_score_separation_by_centrality.png`,
+  `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/slideReady/binned_bdt_comparison/cent3/global_noiso_bdt_vs_binned_noiso_bdt_ptCent3_score_separation_by_centrality.png`,
+  and
+  `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/slideReady/binned_bdt_comparison/cent7/global_noiso_bdt_vs_binned_noiso_bdt_ptCent7_score_separation_by_centrality.png`.
+  Final queue sweep on `sphnxuser02` showed `0` held jobs and no active watched
+  validation/production clusters. The corrected baseline BDT iso-fix RecoilJets
+  production tag
+  `global_etcent_inclusive3_bdt_noIso_cent3grid_isoFix_20260517_2030` has both
+  final stitched MERGED ROOTs present: Photon12+20 signal and Jet12+20+30
+  inclusive background. Next: use the completed final stitched pair for
+  production-style QA/purity/ABCD plots, and decide which comparison plot goes
+  into the JSTG deck after Justin reviews the PNGs.
+
+- 2026-05-18 01:10 EDT / PP FIX4 EXTRACTION COMPLETE AND PP ML RUNALL STARTED:
+  Heartbeat found no unread Gmail messages under the RecoilJets Pipeline label.
+  Read-only SDCC check on `sphnxuser05` found all watched fix4 DAG/worker
+  clusters inactive and no held jobs. The last DAG
+  `condor_sub/auto_workflow_siminclusive_20260517_204450/RecoilJets_auto_siminclusive_20260517_204450.dag.dagman.out`
+  completed `SIM_SECONDROUND`, ran `FINAL_NOTIFY`, reported `All jobs
+  Completed!`, `DAG_STATUS_OK`, `0` held jobs, and exited with status `0` at
+  `2026-05-18 00:01:31 EDT`. The fix4 TG root still contains the expected
+  `8000` worker ROOT files, `1000` each for `run28_photonjet5`,
+  `run28_photonjet10`, `run28_photonjet20`, `run28_jet5`, `run28_jet12`,
+  `run28_jet20`, `run28_jet30`, and `run28_jet40`.
+  Because extraction/merge was complete, Codex launched the next pp ML stage on
+  `sphnxuser05` in tmux session
+  `ppg12_ml_ppg12_sixpack_fix4_rdepiso_20260517_2045` with:
+  `RJ_PP_PHOTON_ML_STAMP=ppg12_sixpack_fix4_rdepiso_20260517_2045`,
+  `ROOT_DIR=/sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/ppg12_sixpack_fix4_rdepiso_20260517_2045`,
+  `RJ_ML_PYTHON=/sphenix/u/patsfan753/.venvs/thesis-ml/bin/python`, and
+  command `./scripts/pp_photon_ml_pipeline.sh runAll`. Launch log:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_sixpack_fix4_rdepiso_20260517_2045/runAll_ppg12_sixpack_fix4_rdepiso_20260517_2045_20260518_015934.log`.
+  The pipeline built the manifest under
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_sixpack_fix4_rdepiso_20260517_2045/`:
+  `training_roots.list` found `8000` candidate ROOT files, all `8000` with
+  tree `AuAuPhotonIDTrainingTree`, `0` unreadable files, `0` missing trees,
+  `16,550,662` signal entries, `66,693,170` background entries, and
+  `83,243,832` total tree entries. Active process at last check:
+  `/sphenix/u/patsfan753/.venvs/thesis-ml/bin/python scripts/train_auau_photon_bdt.py`
+  training the PPG12-like BDT with `750` trees, depth `5`, `70/10/20`-style
+  pp settings (`test-size=0.20`, seed `42`), `E_T` bins
+  `6,10,15,20,25,35`, no event weights, `E_T` and eta reweighting, and output
+  registry
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_sixpack_fix4_rdepiso_20260517_2045/models/bdt_ppg12_sixpack/model_registry.json`.
+  Next checkpoint: monitor the tmux/log for BDT completion, manifest QA
+  failures, Python import errors, zero-row issues, or transition into MLP,
+  validation, score-cache, and stack stages.
+
+- 2026-05-18 00:00 EDT / PP FIX4 R-DEPENDENT ISOLATION PIPELINE STILL IN FINAL MERGE DAG:
+  Heartbeat consumed 2 fresh Gmail RecoilJets Pipeline messages and marked them
+  read. Emails reported `auto_workflow_siminclusive_20260517_204450`
+  `sim_firstRound_siminclusive_all` `READY` at 23:58:56 EDT with cluster
+  `5356951`, followed by `sim_secondRound_siminclusive_all` `STARTED` at
+  23:59:11 EDT. Read-only SDCC check on `sphnxuser05` at 00:00 EDT found
+  cluster `5356921` still active with `JobStatus=2` and no held fix4 jobs.
+  The fix4 TG root still contains the expected `8000` worker ROOT files,
+  `1000` each for all eight samples: `run28_photonjet5`, `run28_photonjet10`,
+  `run28_photonjet20`, `run28_jet5`, `run28_jet12`, `run28_jet20`,
+  `run28_jet30`, and `run28_jet40`. DAGMan log
+  `condor_sub/auto_workflow_siminclusive_20260517_204450/RecoilJets_auto_siminclusive_20260517_204450.dag.dagman.out`
+  shows `SIM_FIRSTROUND` post script completed successfully at 23:59:01,
+  `SIM_SECONDROUND` submitted at 23:59:06, its job completed at 23:59:11, and
+  the `SIM_SECONDROUND` post script is running with `DAG_STATUS_OK` and `0`
+  held jobs. Action: keep watching; do not launch pp ML `runAll` until the
+  final READY notification or DAG completion confirms merged/final outputs are
+  settled.
+
+- 2026-05-17 23:31 EDT / PP FIX4 R-DEPENDENT ISOLATION PIPELINE MOSTLY COMPLETE, LAST DAG STILL POSTRUN:
+  Heartbeat found no unread Gmail messages under the RecoilJets Pipeline label.
+  Read-only SDCC check on `sphnxuser05` found no held jobs matching
+  `ppg12_sixpack_fix4_rdepiso_20260517_2045`. The fix4 TG root contains the
+  expected `8000` worker ROOT files, `1000` each for `run28_photonjet5`,
+  `run28_photonjet10`, `run28_photonjet20`, `run28_jet5`, `run28_jet12`,
+  `run28_jet20`, `run28_jet30`, and `run28_jet40`. DAGMan clusters
+  `5356907`, `5356909`, `5356911`, `5356912`, `5356914`, `5356917`, and
+  `5356919` show `All jobs Completed`, `DAG_STATUS_OK`, and exit status `0`.
+  Cluster `5356921` remains active with `JobStatus=2`; its DAGMan log
+  `condor_sub/auto_workflow_siminclusive_20260517_204450/RecoilJets_auto_siminclusive_20260517_204450.dag.dagman.out`
+  shows `SIM_FIRSTROUND` in `STATUS_POSTRUN` at 23:28 EDT with
+  `DAG_STATUS_OK` and `0` held jobs. Action: do not run pp ML `runAll` yet;
+  wait for cluster `5356921` / auto workflow `siminclusive_20260517_204450`
+  to finish or report READY/CHECK/FAILED.
+
+- 2026-05-17 23:25 EDT / SDCC TOP-LEVEL ORGANIZATION PASS 2:
+  Codex performed a second non-destructive organization pass on `sphnxuser02`
+  focused only on files previously classified as `KEEP_SMALL_EVIDENCE_CANDIDATE`.
+  For each candidate, the script checked owner `patsfan753` and active Condor
+  argument references before moving. No files were deleted. `42` top-level
+  small evidence files were moved into
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/cleanup_preserved_summaries/top_level_small_evidence_20260517/`
+  with subfolders `archives/`, `logs/`, `text_notes/`, and `xsec_firstPass/`.
+  Manifest:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/cleanup_manifests/top_level_small_evidence_organize_20260517_2315.tsv`.
+  Refreshed top-level classification:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/cleanup_manifests/top_level_classification_20260517_2325.tsv`.
+  Top-level item count dropped from `114` to `72`; no top-level `.log`, `.tgz`,
+  `.tar.gz`, or `pythia_xsec_firstPass_*.txt` files remained after the pass.
+  The refreshed categories are: `17` source/steering, `11` active
+  infrastructure, `6` protected current outputs, `17` stale-output review
+  candidates, `6` scratch/smoke review items, `5` model-output review items,
+  `4` organized evidence/index dirs, `1` managed hidden tmp root, `1` generic
+  output root, and `4` unknown/review-needed. Active `condor_*`, `output_*`,
+  model dirs, `stdout/error/log`, current pp fix4, and current AuAu sixpack
+  paths were not moved or deleted. Temporary helper scripts were removed from
+  SDCC `tmp/` after use.
+
+- 2026-05-17 23:08 EDT / SDCC TOP-LEVEL ORGANIZATION PASS 1:
+  Justin asked to make the SDCC checkout more traversable without obvious
+  assistant-branded artifacts and without affecting active jobs. Codex performed
+  a non-destructive declutter pass on `sphnxuser02` only after checking active
+  Condor arguments. `transfer/` (`15M`) and `transfer_lite/` (`1.3M`) had
+  owner `patsfan753`, no active Condor references, and were compact historical
+  plot/metric staging folders. They were moved, not deleted, into
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/cleanup_preserved_summaries/legacy_transfer_artifacts_20260517/`.
+  Manifest:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/cleanup_manifests/top_level_declutter_20260517_2305.tsv`.
+  A neutral top-level classification manifest was generated at
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/cleanup_manifests/top_level_classification_20260517_2308.tsv`
+  with `114` rows: `17` source/steering, `11` active infrastructure, `6`
+  protected current outputs, `42` small evidence candidates, `17` stale-output
+  review candidates, `6` scratch/smoke review items, `5` model-output review
+  items, and `5` unknowns. No active `condor_*`, `output_*`, model roots,
+  `stdout/error/log`, current pp fix4, or current AuAu sixpack paths were moved
+  or deleted. Temporary helper scripts were removed from SDCC `tmp/` after use.
+
+- 2026-05-17 23:00 EDT / PP FIX4 R-DEPENDENT ISOLATION PIPELINE STILL RUNNING:
+  Heartbeat consumed 9 fresh Gmail RecoilJets Pipeline messages and marked them
+  read. Relevant signals: `isSimInclusive` auto workflow
+  `auto_workflow_siminclusive_20260517_204406` reached final `READY` with
+  next action `./scripts/sftp_get_recoiljets_outputs.sh isSimInclusive`, while
+  newer fix4 `isSim` / `isSimInclusive` workflows also emitted fresh
+  first-round `STARTED` messages at 22:53-22:58 EDT, so the full fix4 campaign
+  is not globally complete yet. Read-only SDCC check on `sphnxuser05` at
+  23:00 EDT found original DAGMan clusters `5356909`, `5356911`, `5356917`,
+  `5356919`, and `5356921` still active with `JobStatus=2`, and no held
+  matching fix4 jobs. One matching worker was still active:
+  `5356920.121` for `run28_jet30`, writing under
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/ppg12_sixpack_fix4_rdepiso_20260517_2045/isSimInclusive/preselectionReference_tightReference_nonTightReference`.
+  Output scan still found `8000` ROOT files under the fix4 TG root. Action:
+  keep watching; do not run `pp_photon_ml_pipeline.sh runAll` until all fix4
+  DAGs/merge stages are READY and the merged outputs are settled.
+
+- 2026-05-17 22:16 EDT / BINNED BDT VALIDATION READY + GLOBAL-VS-BINNED PLOTS MADE:
+  Gmail RecoilJets Pipeline reported `[RecoilJets][auauTightBDT_validateOnSimCondor][READY]`
+  for the binned-BDT sidecar validation, and Codex marked the consumed email
+  read. Full-stat validation used source
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/globalEtCentInclusive3Sixpack_20260516_135439`,
+  slim registry
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_binned_sidecars/etcent_binned_sixpack_features_20260517_174151/bdt_models/model_registry.slim_for_validation.json`,
+  and scored `15,524,917` entries (`8,554,378` signal and `6,970,539`
+  background). Metrics: noIso `8x3` AUC `0.848258`; noIso `8x7` AUC
+  `0.859283`; iso `8x3` AUC `0.920735`; iso `8x7` AUC `0.926575`; finite
+  score fraction `0.999995`. Codex pulled only compact CSV/JSON/TXT artifacts
+  into
+  `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/validation/bdt_binned_sidecars_fullstat_20260517_2152`
+  and generated lightweight coarse-centrality score histograms from remote
+  score caches without transferring the NPZ shards. New plot helper:
+  `scripts/make_auau_bdt_binned_noiso_score_comparison.py`. Slide-ready plots:
+  `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/slideReady/bdt_binned_comparison/global_noiso_bdt_vs_binned_noiso_bdt_ptCent7_score_separation_by_centrality.png`
+  and backup
+  `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/slideReady/bdt_binned_comparison/global_noiso_bdt_vs_binned_noiso_bdt_ptCent3_score_separation_by_centrality.png`.
+  Visual QA passed for the `8x7` comparison image; use it as the main binned
+  noIso comparison because it has the stronger noIso binned AUC.
+
+- 2026-05-17 21:52 EDT / ETCENT-BINNED BDT FULL-STAT VALIDATION SUBMITTED:
+  Justin asked to validate the finalized binned BDT sidecar and then make the
+  same `2x3` score-separation comparison as the BDT-vs-MLP plot, replacing the
+  MLP row with a binned-BDT row. Codex first created a slim validation registry
+  at
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_binned_sidecars/etcent_binned_sixpack_features_20260517_174151/bdt_models/model_registry.slim_for_validation.json`
+  (`236K`) so workers do not repeatedly reread the `312M` full provenance
+  registry. One-file smoke validation passed against the slim registry and
+  scored all four products. Codex then submitted full-stat validation with the
+  score cap explicitly disabled: `RJ_AUAU_TIGHT_BDT_VALIDATE_TOTAL_SCORE_MAX_ROWS=0`.
+  Submit host `sphnxuser02`; DAGMan cluster `2123107`; source
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/globalEtCentInclusive3Sixpack_20260516_135439`;
+  report root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/validation/bdt_binned_sidecars_fullstat_20260517_2152`;
+  submit dir
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTValidate_bdt_binned_sidecars_fullstat_20260517_2152`.
+  Validation plan: `9429` ROOT files, `95` shards, `groupSize=100`,
+  `scoreMaxPerShard=0`, `request_memory=12000MB`. Initial queue check showed
+  the DAG and validation workers running and `0` held jobs. Codex removed the
+  aborted pre-submit capped-at-400k attempt directories so only the clean
+  `_2152` full-stat validation remains. Next checkpoint:
+  when validation is READY, pull only compact CSV/JSON/histogram artifacts and
+  generate the Global noIso BDT vs binned noIso BDT score overlay in the same
+  `2x3` coarse-centrality style as the MLP comparison.
+
+- 2026-05-17 21:38 EDT / ETCENT-BINNED BDT SIDECAR READY AFTER FINALIZE-ONLY RECOVERY:
+  Justin confirmed the ET-centrality binned BDT sidecar should remain on the
+  active checking list. Read-only SDCC check on `sphnxuser02` found no active
+  Condor jobs for known sidecar clusters `2122802`/`2122803` and `0` held jobs.
+  The output root exists and is about `2.5G`:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_binned_sidecars/etcent_binned_sixpack_features_20260517_174151`.
+  Training nodes completed and produced the expected `160` models for noIso/iso
+  `8 E_T x 3 cent` and `8 E_T x 7 cent`; all models preserve the base sixpack
+  feature families including `cluster_Et` and `centrality`. The original DAG
+  `FINALIZE` node failed with status `127` because the Condor worker could not
+  load `libpython3.13.so.1.0` from the ML venv, and the generated inline
+  finalizer also had two latent bad f-string quotes. Codex did not retrain.
+  Instead, it ran a finalize-only recovery that merged the four registries into
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_binned_sidecars/etcent_binned_sixpack_features_20260517_174151/bdt_models/model_registry.json`
+  and wrote
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_binned_sidecars/etcent_binned_sixpack_features_20260517_174151/etcent_binned_training_summary.txt`.
+  Recovery summary reports `status=READY`, `total_models=160`,
+  `xgb_json_count=160`, `metadata_json_count=160`, `tmva_root_count=160`,
+  `status_by_model={'trained': 160}`, and `missing_paths=0`. Recovery manifest:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_sub/auauEtCentBinnedSixpack_etcent_binned_sixpack_features_20260517_174151/finalize_recovery_manifest_20260517_2135.json`.
+  Cleanup preserved compact sidecar evidence under
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/cleanup_preserved_summaries/etcent_binned_sixpack_features_20260517_174151`,
+  including `compact_registry_summary.json`, without duplicating the `312M`
+  official merged registry. Codex patched the generated `finalize.sh` in-place
+  and saved the original as `finalize.sh.failed_20260517_1812.bak`; rerunning
+  it returned `verify_exit=0`. Removed only empty Condor log/error files from
+  the sidecar submit directory. Post-cleanup queue check: binned sidecar
+  clusters `2122802`/`2122803` have `0` active jobs; current protected jobs
+  still have `0` held jobs, with `2122907`, `2122908`, `2123009`, and `2123010`
+  still active/running.
+  Next checkpoint: pull compact registries/summaries when needed, then validate
+  or rank these binned models only if Justin wants them as backup to the main
+  global noIso BDT JSTG story.
+
+- 2026-05-17 21:22 EDT / NOISO MLP LARGE VALIDATION PULLED + BDT-VS-MLP PLOT MADE:
+  Justin asked to pull the validated noIso MLP offline and show the
+  signal/background score separation against the corresponding noIso BDT in a
+  slide-15-style `2x3` coarse-centrality table. Codex pulled compact validation
+  artifacts, not ROOT payloads or full score-cache shards, into
+  `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/validation/mlp_noIso_large_official_fullstat_20260517`.
+  Remote MLP score-cache shards were used only to derive a lightweight
+  coarse-centrality histogram CSV:
+  `coarse_centrality_score_histograms_globalEtCent1535_mlp_noIso.csv`. New
+  reusable plotting helper:
+  `scripts/make_auau_bdt_mlp_noiso_score_comparison.py`. Slide-ready output:
+  `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/slideReady/mlp_noiso_comparison/global_noiso_bdt_vs_mlp_score_separation_by_centrality.png`.
+  Summary CSV:
+  `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/slideReady/mlp_noiso_comparison/global_noiso_bdt_vs_mlp_score_separation_by_centrality.csv`.
+  Visual QA passed after layout fixes for the header and row labels.
+
+- 2026-05-17 21:05 EDT / NOISO BDT CENT3-GRID WP80 BACKGROUND FANOUT SUBMITTED:
+  Heartbeat check consumed four unrelated pp `isSim` READY/STARTED pipeline
+  emails from `sphnxuser05` and marked them read. Read-only nested SSH check on
+  `sphnxuser02` showed the AuAu noIso BDT cent3-grid signal stage had cleared
+  enough for the queue-gated driver to submit `isSimEmbeddedInclusive`
+  Jet12+20+30 background. New inclusive clusters:
+  `2123008` for `run28_embeddedJet12`, `2123009` for `run28_embeddedJet20`,
+  and `2123010` for `run28_embeddedJet30`, each `1429` jobs at `groupSize=7`.
+  Driver log:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/global_etcent_inclusive3_bdt_wp80_20260517/submit_global_etcent_inclusive3_bdt_noIso_cent3grid_isoFix_20260517_2030.tmux.log`.
+  Matching queue gate reported `queued=4287`, `held=0`, `max_queued=40000`.
+  Sidecar MLP jobs `2122907` and `2122908` were still running with `0` held.
+  Next checkpoint: watch clusters `2123008-2123010` for held/failed state and,
+  after they clear, confirm guarded merge/finalStitch for the corrected noIso
+  BDT JSTG production.
+
+- 2026-05-17 21:01 EDT / SUPERSEDED AUTO15 STACK-MATRIX CLEANED UP:
+  Justin approved removing the old auto15 stack-matrix lane because it used the
+  older exploratory setup and no longer matches the current Jet12+20+30
+  sixpack/JSTG path. Codex preserved small summary artifacts under
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/cleanup_preserved_summaries/stack_matrix_wave_auto15_20260515_004838`
+  and wrote manifest/verification files:
+  `cleanup_manifest_20260517_210014.txt` and
+  `cleanup_verify_20260517_210124.txt`. Preserved `475` small files, about
+  `498M`. Removed Condor clusters `2116535`, `2122442`, `2122443`, `2122444`,
+  and `2122445`; verification shows all have `active_jobs=0`. Deleted bulky
+  paths
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/stack_matrix_wave_auto15_20260515_004838`
+  (`670M`),
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauStackMatrixWave_auto15_20260515_004838`
+  (`73M`), and
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/stack_matrix_auto15_20260515_004838.log`
+  (`256K`). Protected current clusters were not removed: `2123006` now has
+  `0` active jobs, while `2123007`, `2122907`, and `2122908` each have `1`
+  active job; no held jobs were reported. Next checkpoint: keep watching only
+  the linear active path: noIso BDT cent3-grid rerun, iso MLP, and noIso small
+  replay; rebuild stackers only on the current Jet12+20+30 sixpack if
+  explicitly requested.
+
+- 2026-05-17 20:45 EDT / PP R-DEPENDENT ISOLATION FIX4 SUBMITTED:
+  Justin asked Codex to stop the bad/shared-isolation pp campaign, derive
+  independent pp R=0.3/R=0.4 sliding-isolation fits, patch pp `RecoilJets`,
+  rebuild, smoke test, and rerun the pp Photon-ID ML/SIM extraction. Codex
+  removed only active Condor jobs matching bad tag
+  `ppg12_sixpack_fix3_20260517_1748`; audit/removal evidence is in
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/pp_rdepiso_fix4_preflight/fix3_condor_remove_retry_20260517_202205.txt`.
+  Existing fix3 outputs were marked stale in
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/pp_rdepiso_fix4_preflight/ppg12_sixpack_fix3_20260517_1748_STALE_SHARED_ISO_MANIFEST.txt`.
+  After Justin confirmed the `53G` stale output root was unnecessary, Codex
+  guard-deleted only
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/ppg12_sixpack_fix3_20260517_1748`
+  after checking there were no active fix3 jobs and all files were owned by
+  `patsfan753`; bulk quota afterward was `3.553T / 5T`.
+  pp PhotonJet5+10+20 SIM fits were derived locally under
+  `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppSlidingIsoFits/pp_photonjet5_10_20_rdepiso_20260517`.
+  Production 90% coefficients now in `macros/analysis_config.yaml` are
+  R30 `thrReco = 0.904000 + 0.0345788*pT`, side gap `1.0`, and R40
+  `thrReco = 1.44949 + 0.0312783*pT`, side gap `1.0`. Patched files:
+  `src/RecoilJets.h`, `src/RecoilJets.cc`,
+  `macros/Fun4All_recoilJets_unified_impl.C`, `macros/analysis_config.yaml`;
+  local diagnostic macro: `macros/MakePPSlidingIsoRDepFits.C`. SDCC rebuild
+  succeeded on `sphnxuser05`; installed
+  `/sphenix/u/patsfan753/thesisAnalysis/install/lib/libRecoilJets.so.0.0.0`
+  timestamp `2026-05-17 20:42:19 -0400`. One-event pp SIM smoke log
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/pp_rdepiso_fix4_smoke_20260517/one_event_pp_rdepiso_smoke_abslist_absout.log`
+  shows separate thresholds: R30 `thrReco(20 GeV)=1.595576`, R40
+  `thrReco(20 GeV)=2.075056`, and output ROOT wrote successfully.
+  Clean fix4 campaign tag:
+  `ppg12_sixpack_fix4_rdepiso_20260517_2045`; submit host
+  `sphnxuser05.sdcc.bnl.gov`; submit tmux `pp_rdepiso_fix4_2045`;
+  submit log
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/pp_rdepiso_fix4_submit/submit_ppg12_sixpack_fix4_rdepiso_20260517_2045.log`;
+  output root
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/ppg12_sixpack_fix4_rdepiso_20260517_2045`.
+  DAGMan clusters submitted: `5356907` photonjet5, `5356909`
+  photonjet10, `5356911` photonjet20, `5356912` jet5, `5356914` jet12,
+  `5356917` jet20, `5356919` jet30, `5356921` jet40. Queue check after
+  submission showed `8000` matching worker jobs (`2229` running, `5771`
+  idle) and `0` held. Next checkpoint: monitor these eight DAGs for held or
+  failed workers, then build the pp manifest from
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/ppg12_sixpack_fix4_rdepiso_20260517_2045`
+  and continue pp BDT/MLP/stack validation when merged outputs are READY.
+  Heartbeat check at `2026-05-17 21:18 EDT`: Gmail RecoilJets Pipeline had no
+  unread READY/CHECK/FAILED/held/rescue/merge-state pp messages; SDCC
+  `sphnxuser05` showed all `8000` matching fix4 jobs running and `0` held,
+  with all eight DAGMan clusters still active.
+  Heartbeat check at `2026-05-17 21:46 EDT`: Gmail still had no unread
+  READY/CHECK/FAILED/held/rescue/merge-state pp messages. SDCC `sphnxuser05`
+  showed `6926` matching fix4 jobs still running and `0` held; all eight
+  DAGMan clusters were active. Quick output scan under the fix4 TG root found
+  `8000` ROOT files at max depth 4, with both `isSim` and `isSimInclusive`
+  `preselectionReference_tightReference_nonTightReference` directories present.
+  DAG tails sampled from photonjet5 and jet40 showed `DAG_STATUS_OK` and
+  `0 job proc(s) currently held`.
+  Heartbeat check at `2026-05-17 22:20 EDT`: Gmail still had no unread
+  READY/CHECK/FAILED/held/rescue/merge-state pp messages. SDCC `sphnxuser05`
+  showed `1530` matching fix4 jobs still running and `0` held; all eight
+  DAGMan clusters were still active. The fix4 TG root still had the expected
+  `8000` per-worker ROOT files: `1000` each for photonjet5/10/20 and
+  jet5/12/20/30/40 under
+  `preselectionReference_tightReference_nonTightReference`. DAG status markers
+  across all eight sampled DAGMan logs remained `DAG_STATUS_OK` with `0 job
+  proc(s) currently held`.
+
+- 2026-05-17 20:30 EDT / NOISO BDT CENT3-GRID WP80 + ISOLATION-FIX RERUN ACTIVE:
+  Justin asked to rerun the AuAu `isSimEmbedded` / `isSimEmbeddedInclusive`
+  production with the corrected cone-specific sliding-isolation handling and
+  the no-isolation global BDT as the tight-ID model. Codex generated and
+  uploaded a fresh config
+  `condor_generated_configs/global_etcent_inclusive3_bdt_wp80_20260517/analysis_config_global_etcent1535_bdt_noIso_inclusive3_target80_cent3grid_isoFix.yaml`
+  that preserves separate `auau_cent_iso_wp_r30` and `auau_cent_iso_wp_r40`
+  lines and replaces the old flat `0.5619` BDT WP with a `grid2d`
+  `8 E_T x 3 centrality` target-80 runtime entry derived from the validated
+  score caches. Fresh campaign tag:
+  `global_etcent_inclusive3_bdt_noIso_cent3grid_isoFix_20260517_2030`.
+  Submit host: `sphnxuser02.sdcc.bnl.gov`; tmux:
+  `target80_noiso_cent3grid_isoFix_20260517_2030`; submit log:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/global_etcent_inclusive3_bdt_wp80_20260517/submit_global_etcent_inclusive3_bdt_noIso_cent3grid_isoFix_20260517_2030.tmux.log`.
+  Signal bulk root:
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAna/simembedded_global_etcent_inclusive3_bdt_noIso_cent3grid_isoFix_20260517_2030`;
+  final merge/output root:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/output_global_etcent_inclusive3_bdt_noIso_cent3grid_isoFix_20260517_2030`.
+  Signal clusters submitted: `2123006` for `run28_embeddedPhoton12` and
+  `2123007` for `run28_embeddedPhoton20`, each `1429` jobs at
+  `groupSize=7`, request memory `12000MB`, retry cap `16000MB`. The driver is
+  queue-gated before `isSimEmbeddedInclusive`; latest evidence at submission
+  showed `queued=2858`, `held=0`. Next checkpoint: when signal clears, confirm
+  automatic submission of inclusive Jet12+20+30 background, then run guarded
+  merge/finalStitch after all matching workers leave the queue cleanly.
+
+- 2026-05-17 20:15 EDT / NOISO MLP LARGE VALIDATION + SMALL REPLAY ACTIVE:
+  Justin asked to fully validate and pull offline both no-isolation MLP
+  network sizes, then compare noIso BDT vs noIso MLP score separation in a
+  2x3 centrality table. Evidence from `sphnxuser02`: the official
+  `train_mlp_noiso` cluster `2122700` completed successfully and selected the
+  large `384,192,96,48` candidate (`validation_auc=0.8477549431`) over the
+  small `256,128,64` candidate (`validation_auc=0.8468255041`). The small
+  candidate had only history/selection records, so Codex submitted the
+  deterministic small-only replay helper as Condor cluster `2122908`, writing
+  only to
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/mlp_models_offline/noIso_small_replay_256_128_64`.
+  Codex also submitted the official large noIso MLP full-stat validation DAG
+  as DAGMan cluster `2122909`, with worker clusters beginning at `2122910`,
+  over all `9429` staged ROOT files from
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/globalEtCentInclusive3Sixpack_20260516_135439`.
+  Validation report root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/validation/mlp_noIso_large_official_fullstat_20260517`.
+  The iso-aware MLP remains active as cluster `2122907` with `64GB` request.
+  Queue check at 20:15 EDT showed these jobs running/active and `0` held jobs.
+  Next checkpoint: when large validation is READY, pull small CSV/JSON/PNG/NPZ
+  manifest artifacts; when small replay finishes, submit the same full-stat
+  validation against its offline registry, then generate the BDT-vs-MLP noIso
+  score separation plot.
+
+- 2026-05-17 17:41 EDT / ETCENT-BINNED SIXPACK-FEATURE BDT SIDECAR SUBMITTED:
+  Justin asked for four independent binned-BDT model groups trained from the
+  same Photon12+20 signal and Jet12+20+30 inclusive-background sixpack staging
+  sample: no-isolation `8 E_T x 3 centrality`, no-isolation `8 E_T x 7
+  centrality`, isolation-input `8 E_T x 3 centrality`, and isolation-input
+  `8 E_T x 7 centrality`. Codex patched and uploaded
+  `scripts/train_auau_photon_bdt.py` with a new `etcent-binned-sixpack`
+  campaign mode. Plan evidence: `160` total model specs, split `24/56/24/56`;
+  no-iso specs use the same `32`-feature global-sixpack noIso family, iso specs
+  use the same `35`-feature iso family, and every binned model keeps both
+  `cluster_Et` and `centrality` in the feature list despite being trained in a
+  local bin. Submitted from `sphnxuser02` as DAGMan cluster `2122802`; cache
+  child observed as cluster `2122803`. Output root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_binned_sidecars/etcent_binned_sixpack_features_20260517_174151`.
+  Model dir:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_binned_sidecars/etcent_binned_sixpack_features_20260517_174151/bdt_models`.
+  DAG:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_sub/auauEtCentBinnedSixpack_etcent_binned_sixpack_features_20260517_174151/etcent_binned_sixpack.dag`.
+  Queue check at 17:42 EDT showed DAGMan running, cache job idle, and `0`
+  held jobs. This is a backup/model-comparison sidecar; it should not replace
+  the main JSTG noIso global-BDT story unless later validation clearly warrants
+  it. Next checkpoint: cache job completes, then four parallel training jobs
+  run, then final merged registry appears at `bdt_models/model_registry.json`.
+
+- 2026-05-17 17:14 EDT / JSTG SINGLE-BDT STORY + WP80 MERGE COMPLETE:
+  Justin confirmed the JSTG target should be a clean single-model proof, not a
+  tour through every variant. The main model is
+  `globalEtCent1535_bdt_noIso`: no isolation input, trained on Photon12+20
+  signal and Jet12+20+30 inclusive background over `15 < E_T < 35 GeV`, with
+  cluster `E_T`, centrality, shower-shape, energy-sharing, and base+3x3 width
+  inputs. Isolation-input BDT, MLP, stackers, routed/fine-bin BDTs, and EtFine
+  studies are optional end/backup context only. Existing validated evidence:
+  noIso AUC `0.840908`, finite score fraction `0.999994`, signal mean score
+  `0.670902`, background mean score `0.302054`, and WP80 threshold
+  `0.5619116425514221`. Local slide-ready artifacts are under
+  `dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/slideReady`.
+  Gmail RecoilJets Pipeline had `0` unread messages in the latest heartbeat
+  checks; recent generic `isSim`/`isSimInclusive` READY messages from
+  `sphnxuser05` were read for context but are not the main AuAu embedded WP80
+  noIso story. SDCC evidence from `sphnxuser02`: no held jobs were reported,
+  the WP80 merge tmux finished, and both final WP80 BDT tags have final MERGED
+  ROOT pairs under `/sphenix/u/patsfan753/scratch/thesisAnalysis/output_<tag>`:
+  noIso `global_etcent_inclusive3_bdt_wp80_20260516_2353` and optional iso
+  `global_etcent_inclusive3_bdt_iso_wp80_20260517_001911`, each with
+  Photon12+20 signal and Jet12+20+30 inclusive-background outputs. Next:
+  generate/pull only small CSV/JSON/PNG/TXT artifacts needed for the JSTG
+  proof from the noIso final merged pair, then assemble the talk flow:
+  motivation, model definition, Jet30/sample sanity, AUC/score separation,
+  WP80 operating behavior, production-style RecoilJets/ABCD-facing check, and
+  a compact variants/backups slide.
+
+- 2026-05-17 / WP80 POLICY CORRECTION FOR AUAU BDT PRODUCTION:
+  Justin clarified that AuAu BDT target-80 operation should by default use
+  `E_T`-dependent score cuts within centrality bins, not a single inclusive
+  flat threshold. Treat this as the default moving forward unless he explicitly
+  asks for a global-threshold cross-check. The completed noIso WP80 production
+  `global_etcent_inclusive3_bdt_wp80_20260516_2353` used a flat runtime entry
+  `auauCentInputBase3x3BDT|linear|0.56191164|0|15|35|1`, so it is valid only
+  as a global-threshold cross-check, not as the preferred per-bin WP80 result.
+  The trained noIso BDT itself remains valid; no retraining is required.
+  Next action: derive and compare 3-centrality-bin and 7-centrality-bin
+  `grid2d` WP80 threshold maps from the existing validation score caches, show
+  the two PNGs to Justin, then rerun the noIso RecoilJets production with the
+  chosen `grid2d` runtime entries.
+
+- 2026-05-17 08:09 EDT / WP80 MERGE-ONLY DRIVER STARTED:
+  The raw WP80 RecoilJets fanout for the two validated sixpack BDTs finished
+  without held jobs, but no final merged outputs were present because
+  `scripts/submit_auau_bdt_targetwp_pair.sh` had `auto_merge=0` by design.
+  Codex confirmed raw ROOT counts on `sphnxuser02`: each tag has `2858`
+  `isSimEmbedded` signal ROOTs (`Photon12+20`) and `4287`
+  `isSimEmbeddedInclusive` background ROOTs (`Jet12+20+30`). Codex started a
+  merge-only tmux session, not a new physics fanout:
+  `wp80_merge_global_etcent_20260517_0812`. Driver script:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_generated_configs/global_etcent_inclusive3_bdt_wp80_20260517/run_wp80_merge_global_etcent_20260517_0812.sh`.
+  Log:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_generated_configs/global_etcent_inclusive3_bdt_wp80_20260517/wp80_merge_global_etcent_20260517_0812.log`.
+  It is processing tags sequentially:
+  `global_etcent_inclusive3_bdt_wp80_20260516_2353` and
+  `global_etcent_inclusive3_bdt_iso_wp80_20260517_001911`, with output roots
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/output_<tag>`. First observed
+  merge submissions for the no-iso signal firstRound were DAG clusters
+  `2122715`/workers `2122716` for embeddedPhoton12 and
+  `2122717`/workers `2122718` for embeddedPhoton20. The driver waits for each
+  merge stage to clear before continuing through signal secondRound,
+  signal finalStitch, inclusive firstRound, inclusive secondRound, and
+  inclusive finalStitch. Next action: watch the merge tmux/queue for held
+  merge jobs; when final stitched ROOTs exist for both tags, pull only small
+  fit/QA artifacts and generate the requested slide-42-style no-iso vs iso fit
+  plots.
+
+- 2026-05-17 00:19 EDT / ACTIVE WP80 RECOILJETS RUNS FOR TWO VALIDATED SIXPACK BDTS:
+  Justin asked Codex to run both validated global sixpack BDTs over
+  `isSimEmbedded` Photon12+20 and `isSimEmbeddedInclusive` Jet12+20+30 at their
+  respective 80% signal-efficiency working points, then make the slide-42-like
+  fit plots. The two validated BDT thresholds from
+  `dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/validation/bdt_finished_only_20260516_180817/bdt_working_points_target80.json`
+  are `globalEtCent1535_bdt_noIso = 0.5619116425514221` and
+  `globalEtCent1535_bdt_iso = 0.6291391849517822`.
+  No-iso campaign was already active as
+  `global_etcent_inclusive3_bdt_wp80_20260516_2353`, using config
+  `condor_generated_configs/global_etcent_inclusive3_bdt_wp80_20260517/analysis_config_global_etcent1535_bdt_noIso_inclusive3_target80.yaml`.
+  Its signal-side clusters are `2122704` for `run28_embeddedPhoton12` and
+  `2122705` for `run28_embeddedPhoton20`, with queue gating before the
+  inclusive background pass. For the iso campaign, Codex added support for the
+  three iso-derived BDT features in `src_AuAu/RecoilJets_AuAu.cc`
+  (`reco_eiso_clip30`, `reco_eiso_over_cluster_Et`,
+  `reco_eiso_signed_log1p`), uploaded the change to SDCC, rebuilt the AuAu
+  install on `sphnxuser02`, and ran a 1000-event local smoke on
+  `run28_embeddedPhoton20`. The smoke loaded the iso TMVA BDT with `35`
+  features and finished successfully with output ROOT written. Iso full
+  campaign tag:
+  `global_etcent_inclusive3_bdt_iso_wp80_20260517_001911`; submit host:
+  `sphnxuser02.sdcc.bnl.gov`; tmux: `target80_iso_20260517_001911`; submit log:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/global_etcent_inclusive3_bdt_iso_wp80_20260517_001911/submit_global_etcent_inclusive3_bdt_iso_wp80_20260517_001911.log`;
+  config:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/global_etcent_inclusive3_bdt_wp80_20260517/analysis_config_global_etcent1535_bdt_iso_inclusive3_target80.yaml`;
+  signal bulk root:
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAna/simembedded_global_etcent_inclusive3_bdt_iso_wp80_20260517_001911`;
+  merge/output root:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/output_global_etcent_inclusive3_bdt_iso_wp80_20260517_001911`.
+  Iso signal clusters submitted: `2122707` for `run28_embeddedPhoton12` and
+  `2122708` for `run28_embeddedPhoton20`, `1429` jobs each at `groupSize=7`,
+  request memory `12000MB`, auto memory retry cap `16000MB`, with
+  `RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=1` set for the later Jet12+20+30
+  background pass. The iso driver is currently queue-gated at
+  `before isSimEmbeddedInclusive` with `queued=2858`, `held=0`, and will submit
+  the inclusive background once the matching signal jobs clear. Next action:
+  watch both WP80 campaigns for held/failed/READY evidence, then run the
+  merge/final-stitch for signal and Jet12+20+30 background, pull only small
+  artifacts or final plots as needed, and generate the requested fit plots.
 
 - 2026-05-16 19:26 EDT / SIXPACK MLP RESUBMITTED AFTER 48GB HOLD:
   Justin asked Codex to fix and resubmit the blocked sixpack MLP lane. Codex
@@ -2393,6 +2964,378 @@ Latest active update:
 | 🔴 Failed / Diagnose | Jet30-only AuAuPhotonIDTrainingTree extraction for Blair background-count validation on `sphnxuser02` | 2026-05-16 Codex attempted to extend the Blair background validation spectra from embeddedJet12+20 to embeddedJet12+20+30 by extracting Jet30 photon-ID training labels. First submission from `/sphenix/u/patsfan753/scratch/thesisAnalysis`: `RJ_NOTIFY_EMAILS=just0131@gmail.com RJ_ML_PYTHON=/sphenix/u/patsfan753/.venvs/thesis-ml/bin/python RJ_AUAU_TIGHT_BDT_SIGNAL_SAMPLES=" " RJ_AUAU_TIGHT_BDT_BACKGROUND_SAMPLES="run28_embeddedJet30" RJ_AUAU_TIGHT_BDT_REQUEST_MEMORY=3000MB ./scripts/auau_tight_bdt_pipeline.sh condorExtract groupSize 7`; generated run root `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260516_124649`, DAG `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDT_20260516_124649/auau_tight_bdt_condorExtract.dag`, DAGMan cluster `2122579`, worker cluster `2122580`, planned `1429` jobs. It failed quickly with `DAG_STATUS_NODE_FAILED`, rescue file `.rescue001`, only `85` ROOTs, and worker stderr examples `corrupted size vs. prev_size` / exit code `6`. Second focused smoke used `RJ_AUAU_TIGHT_BDT_STAMP=jet30_counts_g1_smoke_20260516_125250`, `smokeTest groupSize 1 maxJobs 20`, DAGMan cluster `2122582`, worker cluster `2122583`; it also failed with `DAG_STATUS_NODE_FAILED`, only `8` ROOTs, and failed workers exiting `rc=6` or `rc=11` after running `Fun4All_auauTightBDTTraining.C(1000, ..., false)`, sometimes leaving tiny `656` byte ROOT files. | Do not use either partial Jet30 extraction for plots or training. The already-pulled inclusive3 RecoilJets merged output is valid for stitched truth-jet spectrum QA, but it does not contain `AuAuPhotonIDTrainingTree`, so it is not sufficient by itself for the existing training-label count plots. | Diagnose the Jet30 extraction crash before remaking the label-count validation plots with Jet30. Likely next checks: reproduce one failed Jet30 input with crash backtrace enabled, inspect whether the failure is in DST reading, extraction-tree writing/finalization, or early-stop behavior, then rerun a small clean pilot before any full Jet30 label extraction. |
 
 | 🟡 Running / Diagnostic-Only | Isolation-visible BDT/MLP/NN-stack validation chain on `sphnxuser02` | 2026-05-14 22:31 EDT Codex implemented and uploaded the diagnostic-only isolation-visible lane. Uploaded/verified `MATCH`: `scripts/train_auau_photon_bdt.py`, `scripts/validate_auau_tight_bdt_on_sim.py`, `scripts/train_auau_stacked_bdt_mlp_sweep.py`, `scripts/submit_auau_stacked_bdt_mlp_sweep.sh`, `scripts/submit_auau_iso_visible_diagnostic_chain.sh`, and `scripts/make_auau_iso_visible_diagnostic_summary.py`. Local and SDCC self-tests passed: Python compile, shell syntax, isolation-derived feature consistency, synthetic NN-stack `--include-isolation-context`, and BDT `iso-diagnostic` plan with `43` specs. Tmux session started on `sphnxuser02`: `iso_visible_diag_20260514_223150`. Chain root `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/isolation_visible_diagnostic_20260514_223150`; BDT model dir `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/tight_iso_visible_diagnostic_20260514_223150`; MLP model dir `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/tight_mlp_iso_visible_diagnostic_20260514_223150`; BDT report `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049/reports/bdt_iso_visible_validation_20260514_223150`; MLP report `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260508_233049/reports/mlp_iso_visible_validation_20260514_223150`; stack dirs `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/nnstack_iso_scores_iso_context_20260514_223150` and `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/nnstack_clean_scores_iso_context_20260514_223150`. The tmux log showed `training_roots.list entries=8000` and entered `Training isolation-input BDT diagnostics`. Heartbeat `watch-iso-visible-diagnostic-chain` was created at 30-minute cadence. | This lane intentionally uses `reco_eiso`-derived inputs (`clip30`, `eiso/E_T`, signed log1p). It is a diagnostic ceiling test only and not ABCD-safe photon ID. It must stop after validation/ranking/WP80 diagnostics; no `isSimEmbedded` or `isSimEmbeddedInclusive` production submission is allowed from this lane without a separate physics/purity redesign. | Watch tmux `iso_visible_diag_20260514_223150`. Next expected checkpoints: BDT `model_registry.json` and applyCheck, BDT validation READY, MLP iso training/validation READY, stack rank tables, then `summary/iso_visible_diagnostic_summary.txt` and `summary/iso_visible_auc_by_centrality.png`. Pull/show plots only after summary is READY. |
+| 🟡 Submitted / Running | pp PPG12-matched photon-ID ML extraction and six-pack training pipeline | 2026-05-17 Codex implemented the pp compatibility extraction/training lane for BDT no-iso, BDT iso diagnostic, MLP no-iso, MLP iso diagnostic, and BDT+MLP NN stacks. Local/remote checks passed: shell syntax, Python compile, SDCC upload `MATCH`, and remote `src` rebuild. A first Condor attempt `ppg12_sixpack_20260517_0045` was removed after workers hit ROOT macro compile errors (`StripQuotes` missing and AuAu runtime setter methods absent in pp `RecoilJets`); Codex fixed this by adding `StripQuotes` in `macros/Fun4All_recoilJets_unified_impl.C` and pp no-op setter stubs in `src/RecoilJets.h`, uploaded, and rebuilt. Signal smoke on `run28_photonjet5` wrote nonzero `AuAuPhotonIDTrainingTree` rows; background smoke on `run28_jet30` with 200 events filled the pp photon-ID training tree to the 200-row cap. Clean full extraction submitted from `sphnxuser05.sdcc.bnl.gov` with stamp `ppg12_sixpack_20260517_0110`, `RJ_PHOTON_ID_ROW_MATCH=preselectionReference_tightReference`, `GROUP_SIZE=10`, destination `/sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/ppg12_sixpack_20260517_0110`, run root `/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_sixpack_20260517_0110`, and submit log `/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_sixpack_20260517_0110/submit_extract_ppg12_sixpack_20260517_0110.log`. DAG clusters: `5356739` photon5, `5356741` photon10, `5356743` photon20, `5356745` jet5, `5356747` jet12, `5356749` jet20, `5356751` jet30, `5356753` jet40. Worker clusters observed: `5356740`, `5356742`, `5356744`, `5356746`, `5356748`, `5356750`, `5356752`, `5356754`, each with `1000` jobs. Immediate post-submit follow-up at 01:02 EDT showed all `8000` extraction jobs visible: `5310` idle, `2690` running, and `0` held. Heartbeat check at 01:33 EDT consumed three stale unread Gmail failure emails from the removed first attempt (`auto_workflow_sim_20260517_004704`, `_004715`, `_004725`) and marked them read; clean-campaign SDCC check on `sphnxuser05` showed all `8000` jobs running, `0` idle, `0` held, and all DAG/worker clusters in status `2` running. Heartbeat check at 02:02 EDT found no unread RecoilJets Pipeline Gmail messages; SDCC still showed all `8000` jobs running, `0` idle, `0` held, and `8000` ROOT files already present under the campaign destination. Heartbeat check at 02:32 EDT found no unread pipeline emails; SDCC showed `2167` jobs still running, `0` idle, `0` held, `8000` ROOT files present, and DAG logs showing successful worker completions with no failed jobs in sampled summaries. | Active extraction. Do not train from this source until DAGs/merge stages complete and the manifest QA confirms nonzero signal/background rows in the PPG12 `E_T` bins. Output is intentionally limited to the reference photon-ID row to avoid duplicating training rows across all 15 RecoilJets photon-ID variants. | Email-first next checkpoint: inspect fresh `RecoilJets Pipeline` Gmail messages, then query clusters `5356739`-`5356754` on `sphnxuser05` for held/failed/jobs-finished state. When extraction is READY, run `RJ_PP_PHOTON_ML_STAMP=ppg12_sixpack_20260517_0110 ROOT_DIR=/sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/ppg12_sixpack_20260517_0110 ./scripts/pp_photon_ml_pipeline.sh runAll`; this builds the manifest, trains BDT/MLP no-iso and iso products, validates tables, writes score caches, and trains the no-iso/iso BDT+MLP NN stacks. |
+
+- 2026-05-17 03:03 EDT heartbeat update for `ppg12_sixpack_20260517_0110`:
+  consumed and marked read ten RecoilJets Pipeline emails. Two
+  `isSimInclusive` sample-explicit workflows reached final READY
+  (`auto_workflow_siminclusive_20260517_010021` and `_010032`, rescue count
+  zero), and the latest `isSim` workflow had just started
+  `sim_firstRound_sim_all`. SDCC on `sphnxuser05` showed only `35` jobs still
+  running, `0` idle, `0` held. Remaining active jobs were a few tail
+  `isSimInclusive` workers, DAGMan parents, and a new `isSim` photon5 merge DAG
+  (`5356767`) with merge workers (`5356768`). The campaign destination still
+  contained `8000` extraction ROOT files. Not ready for ML training yet because
+  the `isSim` merge/final-ready stage had not completed.
+- 2026-05-17 03:33 EDT heartbeat update for `ppg12_sixpack_20260517_0110`:
+  consumed and marked read twenty-one RecoilJets Pipeline emails. Several
+  sample-explicit workflows are now READY, including `isSim` final READY emails
+  for earlier photon samples and `isSimInclusive` final READY emails for
+  earlier jet samples. SDCC still shows `4` active jobs on `sphnxuser05`, `0`
+  held: top DAGMan parents `5356743` and `5356753`, one tail `jet40` worker
+  `5356754.618`, and an active photon20 merge DAG/worker set
+  `5356779`/`5356780`. Raw destination still has `8000` extraction ROOTs.
+  Final merged outputs exist for photon5/photon10 chunks and for jet5/12/20/30
+  ALL files, but the campaign is not ready for ML training until the remaining
+  photon20/jet40 jobs and parent DAGs finish and fresh READY/CHECK/FAILED
+  evidence settles.
+- 2026-05-17 04:03-04:14 EDT heartbeat update for
+  `ppg12_sixpack_20260517_0110`: consumed and marked read nine fresh
+  RecoilJets Pipeline emails. Final READY emails arrived for the remaining
+  `isSim` and `isSimInclusive` sample-explicit workflows, with rescue count
+  zero. SDCC on `sphnxuser05` showed `0` user jobs and `0` held jobs. The raw
+  extraction destination still had `8000` ROOT files, and the expected eight
+  merged ALL files were present for photon5/10/20 and jet5/12/20/30/40. Manifest
+  build succeeded with `training_roots.list files=8000`. Codex then launched
+  `./scripts/pp_photon_ml_pipeline.sh runAll` in tmux session
+  `ppg12_ml_ppg12_sixpack_20260517_0110`; the stage stopped immediately during
+  BDT table reading because at least one file in the manifest does not contain
+  `AuAuPhotonIDTrainingTree`:
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/ppg12_sixpack_20260517_0110/isSimInclusive/preselectionReference_tightReference_nonTightReference/run28_jet12/RecoilJets_isSimInclusive_preselectionReference_tightReference_nonTightReference_sim_run28_jet12_preselectionReference_tightReference_nonTightReference_grp001.root`.
+  The runAll log is
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_sixpack_20260517_0110/runAll_ppg12_sixpack_20260517_0110_20260517_040514.log`.
+  Treat the extraction as complete but the ML training stage as blocked until
+  the manifest builder or trainers are made robust to empty/no-tree worker files
+  or the affected ROOTs are audited and regenerated.
+- 2026-05-17 08:09 EDT fix/relaunch for `ppg12_sixpack_20260517_0110`:
+  Gmail `RecoilJets Pipeline` had `0` unread messages, and SDCC showed `0`
+  queued/running/held Condor jobs, so the jobs themselves were not failed or
+  held. Codex patched `scripts/train_auau_photon_bdt.py`,
+  `scripts/train_auau_photon_mlp.py`,
+  `scripts/validate_pp_photon_ml_tables.py`, and
+  `scripts/pp_photon_ml_pipeline.sh` so the pp pipeline runs with explicit
+  `--skip-missing-tree` handling for ROOT shards that have no
+  `AuAuPhotonIDTrainingTree`. Local syntax checks passed with
+  `PYTHONPYCACHEPREFIX=/tmp/codex_pycache python3 -m py_compile ...` and
+  `bash -n scripts/pp_photon_ml_pipeline.sh`; the four scripts were uploaded
+  to SDCC. Relaunched `runAll` on `sphnxuser05` in tmux session
+  `ppg12_ml_ppg12_sixpack_20260517_0110_fix1`, log
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_sixpack_20260517_0110/runAll_ppg12_sixpack_20260517_0110_fix1_20260517_080926.log`.
+  The fixed run is still active and is now skipping many no-tree Jet12 shards
+  rather than crashing. Before using the pp parity result, inspect the final
+  skipped-file count and per-sample row composition; if Jet12 contributes too
+  few usable rows, the extraction/tree-booking or row-selection policy needs a
+  deeper fix rather than treating this as a final PPG12-parity training sample.
+- 2026-05-17 08:43 EDT heartbeat failure for
+  `ppg12_sixpack_20260517_0110`: Gmail `RecoilJets Pipeline` still had `0`
+  unread messages. SDCC `sphnxuser05` showed tmux session
+  `ppg12_ml_ppg12_sixpack_20260517_0110_fix1` was no longer active. The fix1
+  log was `3.0M` and fatal scans found `Traceback=0`, `ERROR=0`,
+  `no rows selected=0`, `missing required branches=0`, but
+  `No input files contained=1` and `missing tree AuAuPhotonIDTrainingTree=8000`.
+  The tail shows the run skipped through the photon5 manifest shards and ended
+  with `No input files contained tree AuAuPhotonIDTrainingTree`. This means the
+  skip-missing-tree patch worked mechanically, but the extraction products in
+  the manifest are unusable for ML training because none of the 8000 ROOT files
+  contains the expected training tree. The next fix is not another training
+  relaunch; audit why the pp extraction/merge products lost or never wrote
+  `AuAuPhotonIDTrainingTree`, starting with raw ROOT contents versus merged ALL
+  products and the pp extraction macro/tree-booking controls.
+- 2026-05-17 12:03 EDT pp PPG12 extraction fix2 diagnosis and smoke:
+  root cause identified as a YAML/env propagation mismatch. The pp pipeline set
+  `RJ_PP_PHOTONID_TRAINING_TREE=1`, but `RecoilJets_Condor_submit.sh` generated
+  per-worker YAML files without `pp_photonid_*` keys, and
+  `Fun4All_recoilJets_unified_impl.C` then installed `ProcessEnvSetter` modules
+  from YAML defaults, resetting pp photon-ID extraction controls to false inside
+  the worker. That explains why all `8000` full-campaign jobs succeeded as
+  histogram ROOTs but none contained `AuAuPhotonIDTrainingTree`. Codex patched
+  `scripts/RecoilJets_Condor_submit.sh` to stamp the `RJ_PP_PHOTONID_*`
+  controls into each generated YAML override, patched
+  `scripts/pp_photon_ml_pipeline.sh` so `buildManifest` filters/QA-checks only
+  ROOT files containing `AuAuPhotonIDTrainingTree`, and made the pp pipeline
+  default to `RJ_PHOTON_ID_ROW_MATCH=preselectionReference_tightReference`.
+  Local syntax/Python checks passed and both scripts were uploaded to SDCC.
+  Remote `workflowCheck` proved the generated YAML now includes
+  `pp_photonid_extract_only: true`, `pp_photonid_training_tree: true`,
+  `pp_photonid_ppg12_filter: true`, and `pp_photonid_source_role: signal`.
+  A clean SDCC local smoke with `LOCAL_EVENTS=80`,
+  `RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES=20`, photon5 signal, and jet5
+  background produced two ROOT files, both with `AuAuPhotonIDTrainingTree`;
+  tree-aware manifest QA reported `candidate_root_files=2`,
+  `files_with_tree=2`, `files_missing_tree=0`, `tree_entries_total=24`,
+  `signal_entries=20`, and `background_entries=4`.
+- 2026-05-17 12:14 EDT clean fix2 full extraction submitted from
+  `sphnxuser05.sdcc.bnl.gov` with stamp
+  `ppg12_sixpack_fix2_20260517_121157`. Run root:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_sixpack_fix2_20260517_121157`;
+  destination:
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/ppg12_sixpack_fix2_20260517_121157`;
+  submit log:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_sixpack_fix2_20260517_121157/submit_extract_ppg12_sixpack_fix2_20260517_121157.log`.
+  Submission settings: `GROUP_SIZE=10`,
+  `RJ_PHOTON_ID_ROW_MATCH=preselectionReference_tightReference`,
+  `RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES=0`, signal samples
+  `run28_photonjet5/10/20`, background samples
+  `run28_jet5/12/20/30/40`. DAG clusters:
+  `5356804` photon5, `5356806` photon10, `5356808` photon20,
+  `5356810` jet5, `5356812` jet12, `5356814` jet20, `5356816` jet30,
+  `5356818` jet40. Worker clusters observed: `5356805`, `5356807`,
+  `5356809`, `5356811`, `5356813`, `5356815`, `5356817`, `5356819`,
+  each with `1000` workers. Immediate queue check showed `8000` active jobs:
+  `5436` idle, `2564` running, `0` held; `640` ROOT files already present.
+  YAML spot checks confirmed the fix2 controls are stamped into worker YAML:
+  photon YAML has `pp_photonid_extract_only: true`,
+  `pp_photonid_training_tree: true`, `pp_photonid_ppg12_filter: true`,
+  `pp_photonid_training_tree_max_entries: 0`,
+  `pp_photonid_source_role: signal`; jet40 YAML has the same controls with
+  `pp_photonid_source_role: background`. Next checkpoint: email-first monitor
+  RecoilJets Pipeline messages plus Condor held/running state for clusters
+  `5356804`-`5356819`; when all sample-explicit workflows are READY, run
+  `RJ_PP_PHOTON_ML_STAMP=ppg12_sixpack_fix2_20260517_121157 ROOT_DIR=/sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/ppg12_sixpack_fix2_20260517_121157 ./scripts/pp_photon_ml_pipeline.sh runAll`
+  and require `manifest_tree_qa.json` to show nonzero signal/background rows
+  before trusting the training.
+- 2026-05-17 13:00 EDT submitted inclusive3 fine-`E_T` x centrality BDT
+  training on `sphnxuser02` as Condor cluster `2122760`. This is the 15-35 GeV
+  `etfine-centstudy` family, including the requested 8 `E_T` bins x 3 broad
+  centrality bins (`ptFine_cent3`) and 8 `E_T` bins x 7 fine centrality bins
+  (`ptFine_cent7`), using the staged full source
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/globalEtCentInclusive3Sixpack_20260516_135439`.
+  Source provenance confirms signal samples `run28_embeddedPhoton12` and
+  `run28_embeddedPhoton20`, background samples `run28_embeddedJet12`,
+  `run28_embeddedJet20`, and READY Jet30 source
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_20260516_135439_jet30`,
+  with `9429` staged ROOT files. The clean Jet30 summary reported
+  `root_count=1429`, `tree_entries=3524601`, `background_entries=3496255`,
+  `MISSING_TREE_FILES 0`; older Jet30 attempts `20260516_124649` and
+  `20260516_132415_jet30` remain CHECK/stale and must not be used. Training
+  model dir:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/tight_etfine_inclusive3_centstudy_20260517_125941`;
+  submit dir:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_sub/auauEtFineInclusive3_etfine_inclusive3_centstudy_20260517_125941`;
+  wrapper:
+  `train_etfine_inclusive3.sh`; request: `64000MB`, `2` CPUs,
+  `RJ_AUAU_BDT_TRAIN_PARALLEL=2`, `RJ_AUAU_BDT_XGB_N_JOBS=1`,
+  `RJ_AUAU_BDT_ETFINE_PT_BINS=15,17,19,21,23,25,27,30,35`. Immediate Condor
+  check showed cluster `2122760.0` running (`JobStatus=2`), not held. Next
+  checkpoint: watch `train_etfine_inclusive3.{out,err,log}` and the model
+  registry; the ready condition is
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/globalEtCentInclusive3Sixpack_20260516_135439/reports/etfine_centstudy_training_summary.txt`
+  with `status=READY` and a loadable `model_registry.json`.
+- 2026-05-17 13:37 EDT heartbeat check for active ML campaigns:
+  Gmail `RecoilJets Pipeline` had `0` unread messages. One recent consumed
+  read message reported `[RecoilJets][auauTightBDT_trainEtFineCentStudyFromExtraction][READY]`
+  at 13:20 EDT for the inclusive3 fine-`E_T` x centrality BDT training. Remote
+  summary
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/globalEtCentInclusive3Sixpack_20260516_135439/reports/etfine_centstudy_training_summary.txt`
+  says `status=READY`, `expected_models=89`, source
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/globalEtCentInclusive3Sixpack_20260516_135439`,
+  and model dir
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/tight_etfine_inclusive3_centstudy_20260517_125941`.
+  Registry inspection found `98` total models: `ptFine_cent3=24`,
+  `ptFine_cent7=56`, `ptFine_centInput=8`, `ptFine_noCent=8`,
+  `centInput_pt1535=1`, and `noCent_pt1535=1`; there are also `98` TMVA ROOT
+  files in the model directory. This satisfies the requested 3x8 and 7x8 BDT
+  training. pp fix2 extraction remains active on `sphnxuser05`: clusters
+  `5356804`-`5356819` still had `3652` active jobs, all running, `0` held;
+  destination root count under
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/ppg12_sixpack_fix2_20260517_121157`
+  was `8000`, with no merged/ALL files yet under the campaign destination. Do
+  not run pp `runAll` until the DAG/merge READY evidence settles.
+- 2026-05-17 14:12 EDT heartbeat check for pp fix2:
+  consumed and marked read one fresh Gmail `RecoilJets Pipeline` email:
+  `[RecoilJets][sim_firstRound_sim_all][STARTED]` at 14:01 EDT. It reports the
+  `isSim` upstream DAG reached the `sim_firstRound_sim_all` merge/check stage
+  and launched it, with next expected stage `SIM_SECONDROUND` if READY. SDCC
+  `sphnxuser05` still shows active clean-campaign jobs in clusters
+  `5356804`-`5356819`: `628` active total, all running, `0` held. The
+  destination
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/ppg12_sixpack_fix2_20260517_121157`
+  still has `8000` ROOT files and no `ALL`/`MERGED` ROOT files yet under the
+  campaign destination. DAG tail for `auto_workflow_sim_20260517_121158` shows
+  `SIM_FIRSTROUND` completed the HTCondor job and is in POSTRUN at 14:11;
+  DAG tail for `auto_workflow_siminclusive_20260517_121314` still shows
+  successful tail `run28_jet40` worker completions around 14:12. No pp `runAll`
+  launched yet; wait for READY/merge evidence.
+- 2026-05-17 14:45 EDT heartbeat check for pp fix2:
+  consumed and marked read fresh Gmail `RecoilJets Pipeline` messages from
+  14:13-14:41 EDT. These include READY evidence for several sample-specific
+  merge stages, including `auto_sim_final_ready` for
+  `auto_workflow_sim_20260517_121158` and `_121209`, plus
+  `auto_siminclusive_final_ready` for
+  `auto_workflow_siminclusive_20260517_121228` and `_121243`. Newer messages
+  also show active merge work still in progress, including
+  `[RecoilJets][sim_firstRound_siminclusive_all][STARTED]` at 14:41 EDT for
+  `auto_workflow_siminclusive_20260517_121304`. SDCC `sphnxuser05` check
+  showed `11` total active jobs, all running, `0` idle, `0` held. Remaining
+  clean-campaign extraction/DAG jobs are `5356808.0`, `5356816.0`,
+  `5356818.0`, and four `run28_jet40` workers in `5356819`; active merge jobs
+  include `5356842/5356843` for `photonjet20` and `5356852/5356853` for
+  `jet30`. No pp `runAll` launched yet because the extraction/merge state is
+  not fully settled.
+- 2026-05-17 15:14 EDT heartbeat check for pp fix2:
+  consumed and marked read fresh Gmail `RecoilJets Pipeline` messages from
+  14:42-15:08 EDT. Final READY emails are now present for all remaining
+  sample-explicit workflows, including `auto_sim_final_ready` for
+  `auto_workflow_sim_20260517_121218` and `auto_siminclusive_final_ready` for
+  `auto_workflow_siminclusive_20260517_121253`, `_121304`, and `_121314`.
+  `rescue_file_count=0` in the final READY emails. SDCC `sphnxuser05` showed
+  `0` active Condor jobs for the clean-campaign DAG/worker clusters and `0`
+  active user jobs overall at 15:12 EDT. The campaign destination
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/ppg12_sixpack_fix2_20260517_121157`
+  contains `8000` raw ROOT files. Per the watchdog instructions, launched the
+  pp ML stage in tmux session
+  `ppg12_ml_ppg12_sixpack_fix2_20260517_121157_runAll` from
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis` with
+  `RJ_PP_PHOTON_ML_STAMP=ppg12_sixpack_fix2_20260517_121157`,
+  `ROOT_DIR=/sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/ppg12_sixpack_fix2_20260517_121157`,
+  and `RJ_ML_PYTHON=/sphenix/u/patsfan753/.venvs/thesis-ml/bin/python`.
+  Run log:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_sixpack_fix2_20260517_121157/runAll_ppg12_sixpack_fix2_20260517_121157_20260517_151318.log`.
+  Immediate process check showed `./scripts/pp_photon_ml_pipeline.sh runAll`
+  active and currently executing the manifest tree QA Python step against
+  `all_candidate_roots.list`; the log was still empty at the first check, so
+  the next heartbeat should verify `manifest_tree_qa.json`,
+  `training_roots.list`, and early log output before assuming training is past
+  preflight.
+- 2026-05-17 15:42 EDT heartbeat check for pp fix2:
+  no fresh unread Gmail `RecoilJets Pipeline` messages. SDCC `sphnxuser05`
+  showed `0` active jobs for the original fix2 DAG/worker clusters and `0`
+  active user Condor jobs. The pp `runAll` tmux session had exited
+  (`no server running on /tmp/tmux-101419/default`), and no runAll process
+  remained. The manifest preflight failed before training:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_sixpack_fix2_20260517_121157/manifest_tree_qa.json`
+  reports `candidate_root_files=8000`, `files_with_tree=0`,
+  `files_missing_tree=8000`, `signal_entries=0`, `background_entries=0`, and
+  `tree_name=AuAuPhotonIDTrainingTree`; `training_roots.list` is empty. The
+  run log
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_sixpack_fix2_20260517_121157/runAll_ppg12_sixpack_fix2_20260517_121157_20260517_151318.log`
+  ends with `no ROOT files contained tree AuAuPhotonIDTrainingTree`. Spot
+  inspection of a photonjet5 output ROOT file found normal `SIM/...`
+  histogram keys but no ML training tree. This is a hard failed preflight:
+  do not train from `ppg12_sixpack_fix2_20260517_121157`. Next work should
+  debug why the pp extraction wrote standard RecoilJets histograms but did not
+  persist `AuAuPhotonIDTrainingTree`, likely in the pp extraction flag
+  propagation / tree booking-fill-write path rather than in the ML trainer.
+- 2026-05-17 17:49 EDT pp fix3 recovery:
+  root cause identified and patched in
+  `macros/Fun4All_recoilJets_unified_impl.C`: `ProcessEnvSetter` now applies
+  YAML-derived environment settings in `Init()` as well as `InitRun()` and
+  `process_event()`, so `RecoilJets::Init()` sees the pp ML extraction flags.
+  The pp photon-ID setters also preserve explicit `RJ_PP_PHOTONID_*`
+  environment values, avoiding YAML-default false values clobbering direct
+  smoke tests. `AGENTS.md` was updated so watchdog failures are treated as live
+  recovery states, not a reason to delete/stop the automation. Bad fix2 run
+  root was marked with
+  `dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_sixpack_fix2_20260517_121157/FAILED_DO_NOT_USE_missing_AuAuPhotonIDTrainingTree.txt`.
+  SDCC direct smoke tests after the patch passed:
+  signal `run28_photonjet5` wrote `pp photon-ID training tree entries=7`, and
+  background `run28_jet40` wrote `entries=24`, both to
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/ppg12_fix3_direct_smoke2`.
+  Clean full extraction resubmitted on `sphnxuser05` with stamp
+  `ppg12_sixpack_fix3_20260517_1748`, destination
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/ppg12_sixpack_fix3_20260517_1748`,
+  run root
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_sixpack_fix3_20260517_1748`,
+  and submit log
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_sixpack_fix3_20260517_1748/submit_extract_ppg12_sixpack_fix3_20260517_1748.log`.
+  DAG clusters: `5356870` photon5, `5356872` photon10, `5356874` photon20,
+  `5356876` jet5, `5356878` jet12, `5356880` jet20, `5356882` jet30,
+  `5356884` jet40. Worker clusters observed through queue are expected paired
+  clusters `5356871`, `5356873`, `5356875`, `5356877`, `5356879`, `5356881`,
+  `5356883`, `5356885`, each with `1000` jobs. Immediate queue check showed
+  `8000` fix3 jobs idle, `0` held, while other user jobs were running. Next
+  checkpoint: email-first status; then inspect fix3 clusters and when READY,
+  build manifest and run full BDT/MLP/stack validation. Do not use fix2.
+- 2026-05-17 17:51 EDT quick sanity check after user asked if SDCC is clean:
+  no unread `RecoilJets Pipeline` Gmail messages. Fix3 queue summary from
+  `sphnxuser05` shows `8000` fix3 jobs total, `7346` idle, `654` running,
+  `0` held; all-user queue summary shows `10506` jobs total, `3160` running,
+  `0` held. Fix3 destination has `0` ROOT files so far, expected shortly after
+  workers begin finishing. Known cleanup/quarantine items: failed fix2 marked
+  with `FAILED_DO_NOT_USE_missing_AuAuPhotonIDTrainingTree.txt`; smoke roots
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/ppg12_fix3_direct_smoke`
+  and `.../ppg12_fix3_direct_smoke2` are small and can be removed after fix3
+  is validated. No evidence of held jobs or runaway submissions.
+- 2026-05-17 18:24 EDT owner-safe TG quota cleanup Wave 1 completed:
+  pre-cleanup Lustre user quota for `patsfan753` on
+  `/direct/sphenix+tg+tg01` was `6.229T / 5T`; post-cleanup quota is
+  `3.446T / 5T`. Cleanup manifest and compact-evidence archive root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/cleanup_manifests/bulk_cleanup_20260517_182104`.
+  Deleted only top-level paths owned by `patsfan753:sphenix`, after checking
+  each candidate against the protected list and confirming no non-`patsfan753`
+  descendants. Deleted obsolete raw outputs:
+  `simembedded_widthstudy_windows_wp050_fixed_20260511_180500_pt5to35`,
+  `simembeddedinclusive_widthstudy_windows_wp050_fixed_20260511_180500_pt5to35`,
+  `simembedded_widthstudy_windows_wp050_fixed_20260511_180500_pt10to35`,
+  `simembeddedinclusive_widthstudy_windows_wp050_fixed_20260511_180500_pt10to35`,
+  `simembedded_widthstudy_windows_wp050_fixed_20260511_180500_pt15to35`,
+  `simembeddedinclusive_widthstudy_windows_wp050_fixed_20260511_180500_pt15to35`,
+  `simembedded_bdt_target80_gated_20260512_001012_analysis_config_expanded_5to40_target80`,
+  `simembeddedinclusive_bdt_target80_gated_20260512_001012_analysis_config_expanded_5to40_target80`,
+  `simembedded_bdtwp080_no3x3_fanout1_clean`,
+  `simembedded_bdt_target80_gated_20260512_001012_analysis_config_etfine_15to35_target80`,
+  and
+  `simembeddedinclusive_bdt_target80_gated_20260512_001012_analysis_config_etfine_15to35_target80`.
+  Protected roots were rechecked and still exist, including current sixpack
+  training/model roots, binned sidecar root, current WP80 tags, and pp fix3.
+  Old `/sphenix/tg/tg01/bulk/jbennett/thesisAna/auau` data-output variants
+  were not deleted yet; if more headroom is needed, first make a child-level
+  size/owner manifest for `auau/preselection*_baseVariant`.
+- 2026-05-17 18:25 EDT pp fix3 watchdog heartbeat:
+  Gmail `RecoilJets Pipeline` label has `0` unread messages, and searching
+  recent pipeline mail found no `READY`/`CHECK`/`FAILED`/held/rescue/Condor
+  signal. SDCC `sphnxuser05` check for fix3 DAG/worker clusters
+  `5356870-5356885` shows `8000` jobs total, `8000` running, `0` idle,
+  `0` held. Destination
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/ppg12_sixpack_fix3_20260517_1748`
+  currently contains `8000` ROOT files; the extraction/DAG is still active, so
+  do not run `./scripts/pp_photon_ml_pipeline.sh runAll` until a READY/complete
+  state is observed. Run root has
+  `dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_sixpack_fix3_20260517_1748/pp_photon_ml_manifest.json`
+  and the submit log. No failure or held state observed.
+- 2026-05-17 19:43 EDT SDCC scratch-base hygiene:
+  implemented and uploaded `scripts/mergeRecoilJets.sh` and
+  `scripts/recoiljets_cleanup.sh` changes so future merge scratch goes under
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/.recoiljets_tmp/merge/tmp_recoil_merge_*`
+  instead of polluting the repository base. Added remote
+  `.recoiljets_tmp/README.txt` plus `merge/` and `local/` directories. Ran
+  `RJ_CLEAN_TMP_MIN_AGE_HOURS=0 ./scripts/recoiljets_cleanup.sh dryrun local`
+  and then `apply local` on `sphnxuser02`; dry-run listed `195` legacy
+  top-level `tmp_recoil_merge_*` dirs and apply deleted `195` with owner and
+  active-Condor guards. Final verification: top-level
+  `find . -maxdepth 1 -type d -name 'tmp_recoil_merge_*' | wc -l` returned
+  `0`; `.recoiljets_tmp` contains only `README.txt`, `local`, and `merge`.
+  Cleanup logs are under
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/scratch_cleanup_20260517_193930`.
+  A `du` over `stdout/error/log` timed out, so those log trees were not broadly
+  cleaned in this pass.
+- 2026-05-18 09:07 EDT pp fix4 ML recovery:
+  Gmail `RecoilJets Pipeline` label had `0` unread messages. The fixed
+  R-dependent pp extraction campaign
+  `ppg12_sixpack_fix4_rdepiso_20260517_2045` is complete: previous evidence
+  showed all watched DAGs `5356907`, `5356909`, `5356911`, `5356912`,
+  `5356914`, `5356917`, `5356919`, and `5356921` finished with `0` active
+  Condor jobs, and the TG output root contains the expected extracted ROOT
+  tables. The first pp ML `runAll` attempt failed during BDT training because
+  the trainer tried to load the full pp table (`83.24M` rows: `16.55M` signal
+  and `66.69M` background) into memory and was OS-killed. Recovery patch
+  uploaded to SDCC adds deterministic load-time row caps to BDT/MLP training
+  and pp table validation: BDT `2.0M` rows/class, MLP `1.5M` rows/class,
+  validation/stack-cache `1.0M` rows/class, seed `42`, and BDT `n_jobs=2`.
+  Remote syntax checks passed for `scripts/pp_photon_ml_pipeline.sh`,
+  `scripts/train_auau_photon_bdt.py`, `scripts/train_auau_photon_mlp.py`, and
+  `scripts/validate_pp_photon_ml_tables.py`. A bounded BDT smoke test on
+  `sphnxuser05` passed, explicitly stopping at `{0: 5000, 1: 5000}` rows and
+  writing registry
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_sixpack_fix4_rdepiso_20260517_2045/smoke_bdt_loadcap_20260518_090559/model_registry.json`.
+  Full pp ML recovery was relaunched in tmux session
+  `ppg12_ml_ppg12_sixpack_fix4_rdepiso_20260517_2045_loadcap1` on
+  `sphnxuser05` with log
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_sixpack_fix4_rdepiso_20260517_2045/runAll_ppg12_sixpack_fix4_rdepiso_20260517_2045_loadcap1_20260518_090646.log`.
+  At `09:07 EDT` the tmux session was live and the script was in the early
+  manifest/build stage; no active Condor jobs were involved. Next check should
+  tail that log and watch for BDT capped-load messages, then MLP, validation,
+  and stack completion or any new traceback/kill.
 
 ## Status Legend
 

@@ -35,6 +35,18 @@ BASE_FEATURES = [
     "e32_over_e35",
 ]
 
+PPG12_BASE_V1E_FEATURES = [
+    "cluster_Et",
+    "cluster_weta_cogx",
+    "vertexz",
+    "cluster_Eta",
+    "e11_over_e33",
+    "cluster_et1",
+    "cluster_et2",
+    "cluster_et3",
+    "cluster_et4",
+]
+
 BASE_AND_3X3_FEATURES = [
     "cluster_Et",
     "cluster_weta_cogx",
@@ -90,6 +102,26 @@ DERIVED_FEATURE_DEPS = {
 }
 
 MODEL_SPECS = {
+    "ppg12_base_v1E_mlp": {
+        "variant": "ppg12BaseV1EMLP",
+        "label": "pp PPG12-matched base-v1E MLP with no centrality or isolation inputs",
+        "features": PPG12_BASE_V1E_FEATURES,
+        "filename": "ppg12_base_v1E_mlp.json",
+    },
+    "ppg12_base_v1E_mlp_noIso": {
+        "variant": "ppg12BaseV1EMLPNoIso",
+        "label": "pp PPG12-matched base-v1E MLP with no centrality or isolation inputs",
+        "features": PPG12_BASE_V1E_FEATURES,
+        "filename": "ppg12_base_v1E_mlp_noIso.json",
+    },
+    "ppg12_base_v1E_mlp_iso": {
+        "variant": "ppg12BaseV1EMLPIsoDiagnostic",
+        "label": "pp PPG12-matched base-v1E MLP with isolation diagnostic inputs",
+        "features": PPG12_BASE_V1E_FEATURES + ISOLATION_DIAGNOSTIC_FEATURES,
+        "filename": "ppg12_base_v1E_mlp_iso.json",
+        "diagnostic_only": True,
+        "abcd_warning": "Uses reconstructed isolation-derived inputs; diagnostic only.",
+    },
     "globalEtCent1535_mlp_noIso": {
         "variant": "auauGlobalEtCent1535MLP",
         "label": "Global 15-35 GeV MLP with E_T, centrality, full shower-shape inputs",
@@ -286,6 +318,8 @@ def parse_products(text: str) -> list[str]:
         return ["centInputBase3x3MLP_pt1535"]
     if text.strip().lower() in ("global-sixpack", "global-etcent-sixpack"):
         return ["globalEtCent1535_mlp_noIso", "globalEtCent1535_mlp_iso"]
+    if text.strip().lower() in ("ppg12-sixpack", "ppg12-pp-sixpack", "pp-sixpack"):
+        return ["ppg12_base_v1E_mlp_noIso", "ppg12_base_v1E_mlp_iso"]
     if text.strip().lower() in ("primary-ratios", "primary-width-ratios", "ratios", "width-ratios"):
         return ["centInputBase3x3WidthRatiosMLP_pt1535"]
     if text.strip().lower() in ("kitchen-sink", "kitchensink", "extended", "extended-shower"):
@@ -662,12 +696,16 @@ def load_frame(paths: list[Path], tree_name: str, required_columns: list[str], o
             "RJ_ML_PYTHON=/sphenix/u/patsfan753/.venvs/thesis-ml/bin/python."
         ) from exc
 
+    import numpy as np
+
     frames = []
     required = sorted(set(required_columns))
     optional_columns = sorted(set(optional_columns or []))
     seen_optional: set[str] = set()
     read_report = {
         "files_read": 0,
+        "files_skipped_missing_tree": 0,
+        "skipped_missing_tree_examples": [],
         "rows_read": 0,
         "rows_after_read_filter": 0,
         "read_filter": {
@@ -679,13 +717,36 @@ def load_frame(paths: list[Path], tree_name: str, required_columns: list[str], o
     }
     pt_range = parse_range(args.pt_range) if args is not None and getattr(args, "pt_range", "") else None
     cent_range = parse_range(args.centrality_range) if args is not None and getattr(args, "centrality_range", "") else None
-    for idx, path in enumerate(paths, 1):
-        if idx == 1 or idx == len(paths) or idx % 100 == 0:
-            print(f"[trainAuAuPhotonMLP] reading {idx}/{len(paths)}: {path}", flush=True)
+    skip_missing_tree = bool(args is not None and getattr(args, "skip_missing_tree", False))
+    max_load_rows_per_class = int(getattr(args, "max_load_rows_per_class", 0) or 0) if args is not None else 0
+    max_load_rows = int(getattr(args, "max_load_rows", 0) or 0) if args is not None else 0
+    load_sample_seed = int(getattr(args, "load_sample_seed", getattr(args, "random_seed", 42)) or 42) if args is not None else 42
+    load_cap_enabled = max_load_rows_per_class > 0 or max_load_rows > 0
+    load_class_counts = {0: 0, 1: 0}
+    total_loaded_rows = 0
+    iter_paths = list(paths)
+    rng = np.random.default_rng(load_sample_seed)
+    if load_cap_enabled:
+        rng.shuffle(iter_paths)
+        print(
+            "[trainAuAuPhotonMLP] load-time row cap enabled: "
+            f"max_load_rows_per_class={max_load_rows_per_class} "
+            f"max_load_rows={max_load_rows} seed={load_sample_seed}",
+            flush=True,
+        )
+    for idx, path in enumerate(iter_paths, 1):
+        if idx == 1 or idx == len(iter_paths) or idx % 100 == 0:
+            print(f"[trainAuAuPhotonMLP] reading {idx}/{len(iter_paths)}: {path}", flush=True)
         with uproot.open(path) as root_file:
             try:
                 tree = root_file[tree_name]
             except Exception as exc:
+                if skip_missing_tree:
+                    read_report["files_skipped_missing_tree"] += 1
+                    if len(read_report["skipped_missing_tree_examples"]) < 10:
+                        read_report["skipped_missing_tree_examples"].append(str(path))
+                    print(f"[WARN] skipping {path}: missing tree {tree_name}", flush=True)
+                    continue
                 raise SystemExit(f"{path} does not contain tree {tree_name}") from exc
             keys = set(tree.keys())
             missing = [col for col in required if col not in keys]
@@ -705,6 +766,32 @@ def load_frame(paths: list[Path], tree_name: str, required_columns: list[str], o
                 chunk = chunk[cent.notna() & (cent >= lo) & (cent < hi)]
             if len(chunk) != rows_before_filter:
                 chunk = chunk.copy()
+            label_branch = getattr(args, "label_branch", "is_signal") if args is not None else "is_signal"
+            if load_cap_enabled and label_branch in chunk.columns:
+                keep_parts = []
+                labels = chunk[label_branch].to_numpy(dtype="int32", copy=False)
+                for cls in (0, 1):
+                    cls_idx = np.flatnonzero(labels == cls)
+                    if len(cls_idx) == 0:
+                        continue
+                    remaining_class = len(cls_idx)
+                    if max_load_rows_per_class > 0:
+                        remaining_class = min(remaining_class, max_load_rows_per_class - load_class_counts[cls])
+                    remaining_total = len(cls_idx)
+                    if max_load_rows > 0:
+                        remaining_total = min(remaining_total, max_load_rows - total_loaded_rows)
+                    n_take = min(len(cls_idx), remaining_class, remaining_total)
+                    if n_take <= 0:
+                        continue
+                    if n_take < len(cls_idx):
+                        cls_idx = rng.choice(cls_idx, size=n_take, replace=False)
+                    keep_parts.append(chunk.iloc[np.sort(cls_idx)])
+                    load_class_counts[cls] += int(n_take)
+                    total_loaded_rows += int(n_take)
+                if keep_parts:
+                    chunk = pd.concat(keep_parts, ignore_index=True, copy=False)
+                else:
+                    continue
             chunk = compact_numeric_frame(chunk, getattr(args, "label_branch", "is_signal") if args is not None else "is_signal")
             frames.append(chunk)
             group = path_group_key(path)
@@ -716,12 +803,36 @@ def load_frame(paths: list[Path], tree_name: str, required_columns: list[str], o
             read_report["files_read"] += 1
             read_report["rows_read"] += rows_before_filter
             read_report["rows_after_read_filter"] += int(len(chunk))
+        if load_cap_enabled:
+            class_cap_done = (
+                max_load_rows_per_class > 0
+                and all(load_class_counts[cls] >= max_load_rows_per_class for cls in (0, 1))
+            )
+            total_cap_done = max_load_rows > 0 and total_loaded_rows >= max_load_rows
+            if class_cap_done or total_cap_done:
+                print(
+                    "[trainAuAuPhotonMLP] stopping input read after load-time caps: "
+                    f"counts={load_class_counts} total={total_loaded_rows}",
+                    flush=True,
+                )
+                break
+    if not frames:
+        raise SystemExit(f"No input files contained tree {tree_name}")
     frame = pd.concat(frames, ignore_index=True, copy=False)
     for col in optional_columns:
         if col not in frame.columns:
             frame[col] = 1.0
     frame = compact_numeric_frame(frame, getattr(args, "label_branch", "is_signal") if args is not None else "is_signal")
     read_report["groups"] = dict(sorted(read_report["groups"].items()))
+    if load_cap_enabled:
+        read_report["load_time_row_cap"] = {
+            "enabled": True,
+            "max_load_rows_per_class": max_load_rows_per_class,
+            "max_load_rows": max_load_rows,
+            "seed": load_sample_seed,
+            "selected_class_counts": dict(load_class_counts),
+            "selected_total": int(total_loaded_rows),
+        }
     return frame, sorted(seen_optional), read_report
 
 
@@ -1686,8 +1797,48 @@ def train_product(product: str, frame, args, outdir: Path):
                 "pt_bin_validation": pt_bin_report_i,
                 "highpt_selection": highpt_summary_i,
             }
+            candidate_stem = history_stem.with_name(f"{history_stem.name}.candidate_a{arch_idx}_r{restart_idx + 1}")
+            candidate_metadata = {
+                "status": "candidate_trained",
+                "product": product,
+                "variant": spec["variant"],
+                "features": features,
+                "rows": {
+                    "total": int(len(selected)),
+                    "train": int(train_mask.sum()),
+                    "validation": int(val_mask.sum()),
+                    "test": int(test_mask.sum()),
+                    "class_counts": counts,
+                },
+                "weights": weight_report,
+                "distillation": teacher_report,
+                "temperature": {"value": float(temperature_i), "validation_loss": float(temp_loss_i)},
+                "candidate": candidate_report,
+                "model_selection_note": (
+                    "Offline candidate artifact saved before final selection; "
+                    "official product artifact is still chosen by selection_metric."
+                ),
+            }
+            candidate_json = candidate_stem.with_suffix(".json")
+            candidate_artifact = artifact_from_params(
+                product,
+                spec,
+                features,
+                mean,
+                scale,
+                params_i,
+                temperature_i,
+                args,
+                candidate_metadata,
+                hidden,
+            )
+            candidate_json.write_text(json.dumps(json_ready(candidate_artifact), indent=2, sort_keys=True) + "\n")
+            candidate_meta = candidate_stem.with_suffix(".metadata.json")
+            candidate_meta.write_text(json.dumps(json_ready(candidate_metadata), indent=2, sort_keys=True) + "\n")
+            candidate_report["output_json"] = str(candidate_json)
+            candidate_report["metadata"] = str(candidate_meta)
             write_history(
-                history_stem.with_name(f"{history_stem.name}.candidate_a{arch_idx}_r{restart_idx + 1}.history.csv"),
+                candidate_stem.with_suffix(".history.csv"),
                 history_i,
             )
             candidate_entries.append(
@@ -1840,6 +1991,11 @@ def parse_args() -> argparse.Namespace:
             "missing file."
         ),
     )
+    ap.add_argument(
+        "--skip-missing-tree",
+        action="store_true",
+        help="Skip input ROOT files that do not contain the requested training tree instead of failing immediately.",
+    )
     ap.add_argument("--tree", default="AuAuPhotonIDTrainingTree")
     ap.add_argument("--outdir", type=Path, required=True)
     ap.add_argument("--products", default="all", help="Comma list, 'primary', or 'all'.")
@@ -1866,6 +2022,12 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--max-rows", type=int, default=int(os.environ.get("RJ_AUAU_MLP_TRAIN_MAX_ROWS", "0")))
     ap.add_argument("--max-rows-per-class", type=int, default=int(os.environ.get("RJ_AUAU_MLP_TRAIN_MAX_ROWS_PER_CLASS", "0")))
     ap.add_argument("--max-rows-per-pt-bin-class", type=int, default=int(os.environ.get("RJ_AUAU_MLP_TRAIN_MAX_ROWS_PER_PT_BIN_CLASS", "0")))
+    ap.add_argument("--max-load-rows", type=int, default=int(os.environ.get("RJ_AUAU_MLP_MAX_LOAD_ROWS", "0")),
+                    help="Deterministically sample at most this many rows while reading ROOT files, before concatenating into memory.")
+    ap.add_argument("--max-load-rows-per-class", type=int, default=int(os.environ.get("RJ_AUAU_MLP_MAX_LOAD_ROWS_PER_CLASS", "0")),
+                    help="Deterministically sample at most this many rows for each binary label while reading ROOT files.")
+    ap.add_argument("--load-sample-seed", type=int, default=int(os.environ.get("RJ_AUAU_MLP_LOAD_SAMPLE_SEED", "137")),
+                    help="Seed used for load-time file shuffling and row sampling when max-load caps are enabled.")
     ap.add_argument("--pt-bin-weight-mode", choices=["none", "equal", "highpt"], default=os.environ.get("RJ_AUAU_MLP_TRAIN_PT_BIN_WEIGHT_MODE", "none"))
     ap.add_argument("--pt-bin-weight-spec", default=os.environ.get("RJ_AUAU_MLP_TRAIN_PT_BIN_WEIGHT_SPEC", ""))
     ap.add_argument("--hard-example-branch", default=os.environ.get("RJ_AUAU_MLP_TRAIN_HARD_EXAMPLE_BRANCH", ""))

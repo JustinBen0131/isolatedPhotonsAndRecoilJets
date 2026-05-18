@@ -7,6 +7,8 @@ THESIS_ANA="${BULK_BASE}/thesisAna"
 THESIS_SMOKE="${BULK_BASE}/thesisAnaSmoke"
 THESIS_POOLS="${BULK_BASE}/thesisAnaPools"
 THESIS_POOLS_SMOKE="${BULK_BASE}/thesisAnaPoolsSmoke"
+TMP_MIN_AGE_HOURS="${RJ_CLEAN_TMP_MIN_AGE_HOURS:-24}"
+CONDOR_AD_CACHE=""
 
 usage() {
   cat <<'EOF'
@@ -115,16 +117,78 @@ remove_file_local() {
 
 remove_dir_local() {
   local p="$1"
+  local reason="${2:-local_cleanup}"
   [[ -d "$p" ]] || return 0
   case "$p" in
-    "${BASE}/tmp_recoil_merge_"*|"${BASE}/.recoiljets_tmp"*|"${BASE}/condor_sub/"*smoke*|"${BASE}/condor_sub/pool_workflow_"*) ;;
+    "${BASE}/tmp_recoil_merge_"*|"${BASE}/.recoiljets_tmp/merge/tmp_recoil_merge_"*|"${BASE}/.recoiljets_tmp/local/"*|"${BASE}/condor_sub/"*smoke*|"${BASE}/condor_sub/pool_workflow_"*) ;;
     *) err "Refusing local directory outside approved patterns: $p"; exit 62 ;;
   esac
+  local owner="unknown" human="unknown" mtime="unknown"
+  owner="$(stat -c %U "$p" 2>/dev/null || echo unknown)"
+  human="$(du -sh "$p" 2>/dev/null | cut -f1 || echo unknown)"
+  mtime="$(stat -c %y "$p" 2>/dev/null | cut -d. -f1 || echo unknown)"
   dryrun_prefix
-  printf '%s\n' "$p"
+  printf '%s\towner=%s\tsize=%s\tmtime=%s\treason=%s\n' "$p" "$owner" "$human" "$mtime" "$reason"
   if is_apply; then
     rm -rf -- "$p"
   fi
+}
+
+condor_references_path() {
+  local p="$1"
+  command -v condor_q >/dev/null 2>&1 || return 1
+  if [[ -z "${CONDOR_AD_CACHE:-}" ]]; then
+    CONDOR_AD_CACHE="$(mktemp "${TMPDIR:-/tmp}/recoiljets_cleanup_condor_ads.XXXXXX")"
+    condor_q "${USER:-$(id -un)}" -long \
+      -attributes Cmd,Command,Args,Arguments,Out,Err,UserLog,DagmanWorkflowLog 2>/dev/null > "$CONDOR_AD_CACHE" || true
+  fi
+  grep -F -- "$p" "$CONDOR_AD_CACHE" >/dev/null 2>&1
+}
+
+remove_legacy_tmp_dir_local() {
+  local p="$1"
+  [[ -d "$p" ]] || return 0
+  case "$p" in
+    "${BASE}/tmp_recoil_merge_"*) ;;
+    *) err "Refusing legacy tmp path outside approved pattern: $p"; exit 66 ;;
+  esac
+
+  local owner
+  owner="$(stat -c %U "$p" 2>/dev/null || echo unknown)"
+  if [[ "$owner" != "patsfan753" ]]; then
+    warn "Skipping legacy tmp dir not owned by patsfan753: owner=${owner} path=${p}"
+    return 0
+  fi
+
+  local nonowned
+  nonowned="$(find "$p" ! -user patsfan753 -print -quit 2>/dev/null || true)"
+  if [[ -n "$nonowned" ]]; then
+    warn "Skipping legacy tmp dir with non-patsfan753 descendant: ${nonowned}"
+    return 0
+  fi
+
+  if condor_references_path "$p"; then
+    warn "Skipping legacy tmp dir referenced by active Condor job ad: ${p}"
+    return 0
+  fi
+
+  remove_dir_local "$p" "legacy_top_level_merge_tmp"
+}
+
+remove_managed_tmp_dir_local() {
+  local p="$1"
+  [[ -d "$p" ]] || return 0
+  case "$p" in
+    "${BASE}/.recoiljets_tmp/merge/tmp_recoil_merge_"*) ;;
+    *) err "Refusing managed tmp path outside approved pattern: $p"; exit 67 ;;
+  esac
+
+  if condor_references_path "$p"; then
+    warn "Skipping managed tmp dir referenced by active Condor job ad: ${p}"
+    return 0
+  fi
+
+  remove_dir_local "$p" "managed_merge_tmp"
 }
 
 require_no_condor_jobs_for_bulk_apply() {
@@ -162,10 +226,22 @@ clean_local_artifacts() {
   say "Scanning disposable local test/staging artifacts under ${BASE}"
   [[ -d "$BASE" ]] || { err "BASE does not exist: $BASE"; exit 65; }
 
-  # Merge-stage temp directories may belong to active DAGMan/hadd workflows on
-  # another submit host. Local smoke cleanup must not remove them.
-  while IFS= read -r d; do remove_dir_local "$d"; done < <(
-    find "$BASE" -maxdepth 1 -type d -name '.recoiljets_tmp*' 2>/dev/null | sort
+  say "Scanning legacy top-level merge tmp dirs under ${BASE}"
+  local tmp_find=(find "$BASE" -maxdepth 1 -type d -name 'tmp_recoil_merge_*')
+  if [[ "$TMP_MIN_AGE_HOURS" =~ ^[0-9]+$ && "$TMP_MIN_AGE_HOURS" -gt 0 ]]; then
+    tmp_find+=( -mmin "+$((TMP_MIN_AGE_HOURS * 60))" )
+  fi
+  while IFS= read -r d; do remove_legacy_tmp_dir_local "$d"; done < <(
+    "${tmp_find[@]}" 2>/dev/null | sort
+  )
+
+  mkdir -p "${BASE}/.recoiljets_tmp/merge" "${BASE}/.recoiljets_tmp/local"
+
+  while IFS= read -r d; do remove_managed_tmp_dir_local "$d"; done < <(
+    find "${BASE}/.recoiljets_tmp/merge" -mindepth 1 -maxdepth 1 -type d -name 'tmp_recoil_merge_*' 2>/dev/null | sort
+  )
+  while IFS= read -r d; do remove_dir_local "$d" "managed_local_tmp"; done < <(
+    find "${BASE}/.recoiljets_tmp/local" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort
   )
   while IFS= read -r d; do remove_dir_local "$d"; done < <(
     find "${BASE}/condor_sub" -maxdepth 1 -type d \( -name '*smoke*' -o -name 'pool_workflow_*' \) 2>/dev/null | sort

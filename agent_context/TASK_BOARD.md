@@ -1,6 +1,6 @@
 # Task Board
 
-Last updated: 2026-05-15
+Last updated: 2026-05-18
 
 Task tracking is milestone/blocker level. Add tasks when Justin explicitly asks
 to track/add/remember them. If a task only appears casually in conversation,
@@ -9,6 +9,74 @@ Removal` and ask Justin before removing or archiving.
 
 ## Now
 
+- TOP PRIORITY / JSTG SLIDES BY MONDAY EOD: build the 15-minute Jet Structure
+  Topical Group story around one simple, defensible model:
+  `globalEtCent1535_bdt_noIso`, the no-isolation global BDT trained on
+  Photon12+20 signal and Jet12+20+30 inclusive background over
+  `15 < E_T < 35 GeV`. Main message: the BDT uses shower-shape /
+  energy-sharing evidence plus cluster `E_T` and centrality context; isolation
+  stays out of the tight-ID model so the ABCD purity logic remains defensible.
+  Required main-flow slides: motivation for AuAu-trained photon ID, model
+  definition, sample/label sanity with Jet30 background necessity, score
+  separation/AUC, WP80 operating point / fake-rate and purity behavior, and a
+  production-style RecoilJets check from the completed noIso WP80 merged signal
+  and background outputs. Variants such as isolation-input BDT, MLP, stackers,
+  routed/fine-bin BDTs, and EtFine studies should appear only as one compact
+  end/backup slide unless Justin explicitly pivots the story.
+  Evidence already in hand: BDT validation is READY for stamp
+  `20260516_135439`; noIso AUC `0.840908`, finite score fraction `0.999994`,
+  signal mean score `0.670902`, background mean score `0.302054`, and WP80
+  threshold `0.5619116425514221` for the original flat-threshold cross-check.
+  Corrected production output now exists for the preferred `8 E_T x 3
+  centrality` grid2d WP80 cuts plus cone-specific sliding-isolation fix: tag
+  `global_etcent_inclusive3_bdt_noIso_cent3grid_isoFix_20260517_2030` on
+  `sphnxuser02` has final MERGED ROOTs for signal Photon12+20 and
+  inclusive-background Jet12+20+30. Optional backup tag
+  `global_etcent_inclusive3_bdt_iso_wp80_20260517_001911` is also merged, but
+  should not headline the JSTG talk.
+- TOP PRIORITY / CORRECT WP80 RUNTIME CUTS: derive the no-isolation BDT WP80
+  thresholds as `E_T`-dependent cuts within centrality bins from the existing
+  validation score caches. Show Justin two PNGs before rerunning production:
+  one with `3` centrality bins (`0-20`, `20-50`, `50-80`) and one with `7`
+  centrality bins (`0-10`, `10-20`, `20-30`, `30-40`, `40-50`, `50-60`,
+  `60-80`). Moving forward, default AuAu BDT production should use these
+  centrality-binned `grid2d` WP80 cuts, not the prior single flat threshold
+  `0.5619116425514221`, unless Justin explicitly asks for a flat-threshold
+  cross-check.
+- ACTIVE SIDECAR / ETCENT-BINNED SIXPACK-FEATURE BDT COMPARISON: this
+  user-requested backup/model comparison lane is READY after a finalize-only
+  recovery. Four groups were trained from the current sixpack Photon12+20 plus
+  Jet12+20+30 staging sample: noIso `8x3`, noIso `8x7`, iso `8x3`, and iso
+  `8x7`. Output root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_binned_sidecars/etcent_binned_sixpack_features_20260517_174151`.
+  Important invariant: the only intended difference from the global BDTs is
+  the independent `E_T x centrality` binning; every binned model still keeps
+  `cluster_Et` and `centrality` as input features and uses the same noIso/iso
+  feature families as the validated global sixpack BDTs. Evidence from
+  `sphnxuser02`: original DAG cluster `2122802` and cache child `2122803` left
+  the queue with `0` held jobs; all `160` models were present. The DAG
+  `FINALIZE` node failed with status `127` from a missing ML-venv
+  `libpython3.13.so.1.0`, so Codex did not retrain and instead merged the
+  registries directly. Final summary now reports `status=READY`,
+  `xgb_json_count=160`, `metadata_json_count=160`, `tmva_root_count=160`,
+  `status_by_model={'trained': 160}`, and `missing_paths=0`; merged registry is
+  `bdt_models/model_registry.json`. Compact cleanup evidence was preserved at
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/cleanup_preserved_summaries/etcent_binned_sixpack_features_20260517_174151`;
+  the official `312M` merged registry was not duplicated. Justin then asked to
+  validate the sidecar and compare it to the global BDT. Current baseline-only
+  validation is READY from `sphnxuser02`: `8x3` DAGMan cluster `2123919` wrote
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/validation/bdt_binned_noIso_cent3`,
+  and `8x7` DAGMan cluster `2123938` wrote
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/validation/bdt_binned_noIso_cent7`.
+  Coarse-centrality AUCs are global BDT `0.811/0.838/0.854`, binned `8x3`
+  `0.826/0.846/0.863`, and binned `8x7` `0.838/0.860/0.871`.
+  Compact PNG/CSV artifacts were pulled locally and visually checked:
+  `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/slideReady/binned_bdt_comparison/cent7/global_noiso_bdt_vs_binned_noiso_bdt_ptCent7_score_separation_by_centrality.png`
+  and backup
+  `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/slideReady/binned_bdt_comparison/cent3/global_noiso_bdt_vs_binned_noiso_bdt_ptCent3_score_separation_by_centrality.png`.
+  Next checkpoint: decide whether the binned-BDT comparison belongs in backup
+  slides or should remain an internal model-selection note. Do not delete it as
+  obsolete.
 - TOP PRIORITY / PP CROSS-CHECK: run the no-centrality-as-feature BDT
   validation in pp, using the combined SIM photon-jet `5+10+20` signal sample
   and the corresponding inclusive-jet background counterpart. Goal: check the

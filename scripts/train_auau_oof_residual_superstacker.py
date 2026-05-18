@@ -56,6 +56,8 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--bdt-score", default=stack.DEFAULT_BDT_SCORE)
     ap.add_argument("--pt-min", type=float, default=15.0)
     ap.add_argument("--pt-max", type=float, default=35.0)
+    ap.add_argument("--cent-min", type=float, default=0.0)
+    ap.add_argument("--cent-max", type=float, default=80.0)
     ap.add_argument("--folds", type=int, default=5)
     ap.add_argument("--lower-algorithms", default="logistic,gbm,nn")
     ap.add_argument("--base-score", default="nn", help="Lower stacker used as residual base, e.g. nn or lower_nn.")
@@ -187,7 +189,14 @@ def load_frame(args):
 def selected_mask(frame, args):
     et = np.asarray(frame["cluster_Et"], dtype="float64")
     cent = np.asarray(frame["centrality"], dtype="float64")
-    return np.isfinite(et) & np.isfinite(cent) & (et >= args.pt_min) & (et < args.pt_max) & (cent >= 0.0) & (cent < 80.0)
+    return (
+        np.isfinite(et)
+        & np.isfinite(cent)
+        & (et >= args.pt_min)
+        & (et < args.pt_max)
+        & (cent >= args.cent_min)
+        & (cent < args.cent_max)
+    )
 
 
 def dedup_existing(frame, names: list[str]) -> list[str]:
@@ -979,7 +988,10 @@ def main() -> None:
 
     metadata = {
         "cache_info": cache_info,
-        "selection": f"{args.pt_min:g} <= cluster_Et < {args.pt_max:g}, 0 <= centrality < 80",
+        "selection": (
+            f"{args.pt_min:g} <= cluster_Et < {args.pt_max:g}, "
+            f"{args.cent_min:g} <= centrality < {args.cent_max:g}"
+        ),
         "folds": args.folds,
         "lower_feature_mode": args.lower_feature_mode,
         "super_feature_mode": args.super_feature_mode,

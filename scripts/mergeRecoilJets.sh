@@ -247,7 +247,10 @@ ERR_DIR="${BASE}/error"
 
 # NOTE: TMP_DIR must be invocation-specific so one SIM firstRound submission
 # cannot delete another submission's queued listfiles/wrapper before Condor runs.
-TMP_DIR="${BASE}/tmp_recoil_merge_${HOSTTAG}_$$"
+# Keep merge scratch out of the repository base; legacy top-level
+# tmp_recoil_merge_* dirs are cleaned by scripts/recoiljets_cleanup.sh.
+MERGE_TMP_BASE="${RJ_MERGE_TMP_BASE:-${BASE}/.recoiljets_tmp/merge}"
+TMP_DIR="${MERGE_TMP_BASE}/tmp_recoil_merge_${HOSTTAG}_$$"
 
 # Where splitGoldenRunList round files live:
 #   ${ROUND_BASE}/<pp|auau>/goldenRuns_<pp|auau>_segmentK.txt
@@ -292,7 +295,7 @@ cleanup_current_tmp_dir_after_local_final() {
   [[ -n "${TMP_DIR:-}" ]] || return 0
 
   case "$TMP_DIR" in
-    "${BASE}"/tmp_recoil_merge*)
+    "${MERGE_TMP_BASE}"/tmp_recoil_merge*)
       if [[ -d "$TMP_DIR" ]]; then
         say "Cleaning current merge tmp dir: ${TMP_DIR}"
         rm -rf -- "$TMP_DIR"

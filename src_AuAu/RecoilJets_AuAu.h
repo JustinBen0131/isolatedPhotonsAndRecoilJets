@@ -458,6 +458,7 @@ public:
     // If multiple entries are provided, the entry indexed by findCentBin() is used.
     struct CentIsoWP { double aGeV; double bPerGeV; double sideGapGeV; };
     void setCentIsoWPs(const std::vector<CentIsoWP>& wps) { m_centIsoWPs = wps; }
+    void setCentIsoWPsForCone(double coneR, const std::vector<CentIsoWP>& wps);
     
     // Truth isolation max (independent of sliding/fixed reco mode)
     void setTruthIsoMaxGeV(double isoGeV)
@@ -1595,6 +1596,8 @@ private:
     
     // Per-centrality sliding WPs (indexed by findCentBin result; falls back to global if empty)
     std::vector<CentIsoWP> m_centIsoWPs;
+    std::vector<CentIsoWP> m_centIsoWPsR30;
+    std::vector<CentIsoWP> m_centIsoWPsR40;
     void getIsoParams(int centIdx, double& outA, double& outB, double& outGap) const;
 
     // Blair-style SIM event reweighting

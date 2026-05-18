@@ -93,7 +93,7 @@ setMinBiasClassifer: true
 # -----------------------------------------------------------------------------
 # Centrality binning (AuAu only; ignored for pp/SIM)
 # -----------------------------------------------------------------------------
-centrality_edges: [0, 20, 50, 80]
+centrality_edges: [0, 10, 20, 30, 40, 50, 60, 80]
 #for sliding isolation centraltiy centrality_edges: [0, 10, 20, 30, 40, 50, 60, 80]
 #[0, 20, 50, 80]
 
@@ -500,30 +500,57 @@ fixedGeV: [2.0, 4.0]
 coneR: [0.30, 0.40]
 
 # Global sliding WP parameters.
-# Used directly for pp / non-AuAu SIM when isSlidingIso is true:
-#   thrReco = aGeV + bPerGeV × pT(γ)
-# Also used as the fallback when no AuAu-specific entry is available.
+# Used as the legacy fallback when no cone-specific pp or AuAu entry is available.
 # sideGapGeV: offset for non-isolated sideband
 # truthIsoGeV: generator-level isolation cut (SIM only)
 # towerMin: minimum tower energy for isolation sum (0 = no floor)
 isolation_wp: {aGeV: 0.081, bPerGeV: 0.019, sideGapGeV: 0.8, truthIsoGeV: 4.0, towerMin: 0.0}
 
+# Cone-specific pp/non-embedded sliding isolation WPs.
+# Derived from canonical pp PhotonJet5+10+20 SIM truth-signal-matched Eiso
+# distributions, separately for R=0.3 and R=0.4. Production default uses the
+# 90% signal-retention fit:
+#   thrReco(pT) = aGeV + bPerGeV * pT(gamma)
+pp_iso_wp_r30: {aGeV: 0.904000, bPerGeV: 0.0345788, sideGapGeV: 1.0}
+pp_iso_wp_r40: {aGeV: 1.44949, bPerGeV: 0.0312783, sideGapGeV: 1.0}
+
 # Exact Au+Au centrality-fit isolation working point.
 # With a SINGLE entry, RecoilJets_AuAu evaluates:
 #   thrReco(cent) = aGeV + bPerGeV × centrality
 # at the event centrality itself, then applies that as the event's fixed cut.
+# Prefer the cone-specific lists below for optimized internal-view production:
+# R=0.3 and R=0.4 use different embedded-photon isolation fits.
 #
 # Centrality-fit options from ppg12Style_isoCutEfficiencyFits_vsCentrality_noPP:
-#   90% efficiency: thrReco(cent) = 5.99 - 0.0511 × centrality
-#                   -> {aGeV: 5.99, bPerGeV: -0.0511, sideGapGeV: 0.0}
-#   80% efficiency: thrReco(cent) = 3.84 - 0.0298 × centrality
-#                   -> {aGeV: 3.84, bPerGeV: -0.0298, sideGapGeV: 0.0}
-#   70% efficiency: thrReco(cent) = 2.45 - 0.0155 × centrality
-#                   -> {aGeV: 2.45, bPerGeV: -0.0155, sideGapGeV: 0.0}
+#   R=0.3 90% efficiency: thrReco(cent) = 5.97 - 0.0507 × centrality
+#   R=0.4 90% efficiency: thrReco(cent) = 7.57 - 0.0658 × centrality
 #
-# Example below is the 90% working point.
+# The lists use fine centrality-bin constants evaluated at bin centers:
+# [0-10, 10-20, 20-30, 30-40, 40-50, 50-60, 60-80]%.
 auau_cent_iso_wp:
-  - {aGeV: 7.57, bPerGeV: -0.0658, sideGapGeV: 0.0}
+  - {aGeV: 5.7165, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 5.2095, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 4.7025, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 4.1955, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 3.6885, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 3.1815, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 2.4210, bPerGeV: 0.0, sideGapGeV: 0.0}
+auau_cent_iso_wp_r30:
+  - {aGeV: 5.7165, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 5.2095, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 4.7025, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 4.1955, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 3.6885, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 3.1815, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 2.4210, bPerGeV: 0.0, sideGapGeV: 0.0}
+auau_cent_iso_wp_r40:
+  - {aGeV: 7.2410, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 6.5830, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 5.9250, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 5.2670, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 4.6090, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 3.9510, bPerGeV: 0.0, sideGapGeV: 0.0}
+  - {aGeV: 2.9640, bPerGeV: 0.0, sideGapGeV: 0.0}
 
 # -----------------------------------------------------------------------------
 # Photon shower-shape ID cuts (PPG12 Table 4)

@@ -236,10 +236,20 @@ ssh patsfan753@ssh.sdcc.bnl.gov \
 - Before activating, record the campaign in `agent_context/STATUS_DASHBOARD.md`
   or `agent_context/TASK_BOARD.md` with dataset, command/cluster ID if known,
   evidence source, and what condition should turn the watchdog off.
-- Turn the watchdog off when the campaign is done: outputs were pulled and
-  validated, failure/held state was diagnosed and no longer needs monitoring,
-  the user says to stop watching, or there has been no actionable campaign
-  state left to track.
+- Do not turn the watchdog off merely because a production, merge, extraction,
+  training, validation, or manifest preflight failed. A failure is usually a
+  live campaign state, not completion. Keep ownership of the user's intended
+  end-to-end result: diagnose the concrete failure, inspect logs/outputs, patch
+  the relevant local/remote code or configuration, clean or quarantine failed
+  artifacts so they cannot be mistaken for valid outputs, run a bounded smoke
+  test, and then relaunch or provide the exact next relaunch command. Only stop
+  after the user explicitly says to stop, the intended task is completed and
+  validated, or the failure has been diagnosed and there is no safe next action
+  without user approval.
+- Turn the watchdog off when the campaign is genuinely done: outputs were
+  pulled and validated, the user says to stop watching, or there has been no
+  actionable campaign state left to track after the recovery path above has
+  been handled.
 - Watchdog output must remain action-oriented: failures, held/stale jobs, ready
   outputs, or exact next commands. It must not submit jobs, transfer files,
   mutate SDCC, type passwords, or mark a pipeline stage resolved.
@@ -716,6 +726,84 @@ say explicitly that no `makeProject` rebuild is needed.
 
 # SDCC Output Storage Policy
 
+- During any active automation, Condor watch, training campaign, validation
+  campaign, or repeated SDCC heartbeat, quota and cleanup hygiene are a top
+  priority, not an afterthought. Alongside job state, Codex should periodically
+  check and summarize storage pressure in the places that matter for the
+  current run:
+  - local Mac workspace/output areas under
+    `/Users/patsfan753/Desktop/ThesisAnalysis`, especially `dataOutput/`,
+    `InputFiles/`, and large generated plot/model folders;
+  - the SDCC user analysis area under
+    `/sphenix/u/patsfan753/scratch/thesisAnalysis` and related GPFS model
+    roots;
+  - the high-volume bulk area under `/sphenix/tg/tg01/bulk/...`, especially
+    training-tree staging, RecoilJets fanout roots, merge trees, and superseded
+    production attempts.
+- When storage pressure, long-running training, or many stale timestamped runs
+  are present, Codex should list obsolete or likely-obsolete artifacts for the
+  user before cleanup. The list should separate: live/protected runs, completed
+  but still scientifically useful outputs, superseded models, failed smoke
+  tests, failed partial productions, old logs, and safe local-only cache/plot
+  artifacts. Do not silently delete scientific outputs or trained models.
+- If an obsolete model/run root does not need to stay online, Codex should
+  explicitly ask whether the user wants it transferred/offlined, compressed,
+  or removed. Prefer keeping small JSON/CSV/TXT/PNG manifests locally and only
+  removing ROOT-heavy or cache-heavy payloads after the user agrees they are
+  superseded.
+- For SDCC checkout log hygiene, Codex should routinely remind or run the
+  guarded log cleanup from the remote `ThesisAnalysis` base when appropriate:
+
+```bash
+find stdout error log -type f -delete
+```
+
+  Treat this command as cleanup for Condor stdout/error/log scratch files only.
+  It must be run from the intended SDCC `ThesisAnalysis` checkout, never from a
+  broad filesystem root or output directory. Before deleting logs tied to an
+  active or recently failed campaign, first consume the useful error/hold
+  evidence and confirm the live jobs no longer need those files for debugging.
+- After major submissions, failed attempts, resubmits, plot batches, pulls, and
+  model validations, Codex should clean up its own tracks: remove temporary
+  manifests and dry-run clutter it created, record which timestamped artifacts
+  are still protected, and remind the user which stale artifacts are ready for
+  review/removal.
+- Automation should continuously improve the analysis pipelines by reducing
+  clutter and preventing quota abuse. When Codex notices large or proliferating
+  artifacts in the SDCC checkout, it should proactively categorize them for the
+  user instead of letting them accumulate. Common cleanup candidates include:
+  - `stdout/`, `error/`, and `log/` after the relevant failure evidence has
+    been consumed;
+  - `tmp_recoil_merge_*`, temporary merge notes, dry-run manifests, and other
+    one-off scratch files after the merge/stitch state is settled;
+  - failed or superseded `output_*` production attempts once the valid merged
+    products and small manifests have been preserved;
+  - old `condor_sub/`, `condor_snapshots/`, `condor_recovery/`,
+    `condor_segments/`, `condor_generated_configs/`, and `condor_yaml_overrides/`
+    entries once no live DAG/job references them and the useful submit/log
+    evidence has been recorded;
+  - superseded `bdt_models/`, `mlp_models/`, `logreg_models/`,
+    `local_bdt_training_outputs/`, `local_ml_pipeline_tests/`, and tarballs
+    such as old expert-validation packs only after a newer validated model or
+    plot pack clearly replaces them;
+  - large local/remote `dataOutput/`, `OutDir/`, `output/`, `outputSmoke/`,
+    `transfer/`, and `transfer_lite/` products when they are duplicate pulls,
+    temporary QA, or obsolete staging rather than current analysis inputs.
+- Codex should not treat all timestamped artifacts as equal. The cleanup
+  report should identify: `KEEP_PROTECTED` for current analysis paths,
+  `KEEP_SMALL_MANIFESTS` for CSV/JSON/TXT/PNG evidence worth preserving,
+  `OFFLINE_OR_COMPRESS` for bulky but potentially useful model/output packs,
+  and `SAFE_TO_REMOVE_AFTER_APPROVAL` for stale logs, scratch, failed smokes,
+  and superseded partial outputs. This classification should be shown to the
+  user before deleting or offlining anything.
+- The `/sphenix/tg/tg01` bulk area requires extra care and extra discipline:
+  it should be checked during active training and production automations
+  because it can silently accumulate high-volume ROOT fanout, training trees,
+  staged caches, and merge intermediates. Codex should repeatedly ask what can
+  be removed there once row counts, validation metrics, merged outputs, and
+  slide/manifest artifacts have been preserved. The default goal is to keep
+  `/sphenix/tg/tg01` as clean as possible without compromising reproducibility
+  or deleting evidence needed to debug live or recent jobs.
 - Large intermediate pipeline products belong on the SDCC bulk `/sphenix/tg/tg01/bulk/...`
   filesystem, matching the original production pipeline. This includes per-run
   folders, per-segment/per-chunk ROOT outputs, Condor production trees, and
