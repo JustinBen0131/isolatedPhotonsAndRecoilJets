@@ -87,6 +87,31 @@ WIDTH_RATIO_FEATURES = [
     "cluster_weta33_over_wphi33",
 ]
 
+SHAPE_RESIDUAL_FEATURES = [
+    "shape_tail_e37_e53_logratio",
+    "shape_long_tail_e17_e71_logratio",
+    "shape_width_core_full_logratio",
+    "shape_core_tail_tension",
+    "shape_compactness_gradient",
+]
+SHAPE_TEMPLATE_FEATURES = [
+    "shape_template_diag_chi2",
+    "shape_template_max_abs_z",
+]
+SHAPE_TEMPLATE_BASIS = [
+    "cluster_weta_cogx",
+    "cluster_wphi_cogx",
+    "cluster_weta33_cogx",
+    "cluster_wphi33_cogx",
+    "e11_over_e33",
+    "e32_over_e35",
+    "shape_tail_e37_e53_logratio",
+    "shape_width_core_full_logratio",
+    "shape_core_tail_tension",
+]
+SHAPE_TEMPLATE_PT_EDGES = [15.0, 17.0, 19.0, 21.0, 23.0, 25.0, 27.0, 30.0, 35.0]
+SHAPE_TEMPLATE_CENT_EDGES = [0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 80.0]
+
 EXTENDED_SHOWER_FEATURES = [
     "cluster_weta35_cogx",
     "cluster_wphi53_cogx",
@@ -111,13 +136,65 @@ ISOLATION_DIAGNOSTIC_FEATURES = [
     "reco_eiso_over_cluster_Et",
     "reco_eiso_signed_log1p",
 ]
+ISOLATION_R30_DIAGNOSTIC_FEATURES = [
+    "reco_eiso_r30_clip30",
+    "reco_eiso_r30_over_cluster_Et",
+    "reco_eiso_r30_signed_log1p",
+]
+ISOLATION_R40_DIAGNOSTIC_FEATURES = [
+    "reco_eiso_r40_clip30",
+    "reco_eiso_r40_over_cluster_Et",
+    "reco_eiso_r40_signed_log1p",
+]
 
 DERIVED_FEATURE_DEPS = {
     "cluster_weta_over_wphi": ["cluster_weta_cogx", "cluster_wphi_cogx"],
     "cluster_weta33_over_wphi33": ["cluster_weta33_cogx", "cluster_wphi33_cogx"],
+    "shape_tail_e37_e53_logratio": ["e22_over_e37", "e22_over_e53"],
+    "shape_long_tail_e17_e71_logratio": ["e11_over_e17", "e11_over_e71"],
+    "shape_width_core_full_logratio": [
+        "cluster_weta_cogx",
+        "cluster_wphi_cogx",
+        "cluster_weta33_cogx",
+        "cluster_wphi33_cogx",
+    ],
+    "shape_core_tail_tension": ["e11_over_e33", "e22_over_e37", "e22_over_e53"],
+    "shape_compactness_gradient": ["e11_over_e33", "e32_over_e35"],
+    "shape_template_diag_chi2": [
+        "is_signal",
+        "cluster_Et",
+        "centrality",
+        "cluster_weta_cogx",
+        "cluster_wphi_cogx",
+        "cluster_weta33_cogx",
+        "cluster_wphi33_cogx",
+        "e11_over_e33",
+        "e32_over_e35",
+        "e22_over_e37",
+        "e22_over_e53",
+    ],
+    "shape_template_max_abs_z": [
+        "is_signal",
+        "cluster_Et",
+        "centrality",
+        "cluster_weta_cogx",
+        "cluster_wphi_cogx",
+        "cluster_weta33_cogx",
+        "cluster_wphi33_cogx",
+        "e11_over_e33",
+        "e32_over_e35",
+        "e22_over_e37",
+        "e22_over_e53",
+    ],
     "reco_eiso_clip30": ["reco_eiso"],
     "reco_eiso_over_cluster_Et": ["reco_eiso", "cluster_Et"],
     "reco_eiso_signed_log1p": ["reco_eiso"],
+    "reco_eiso_r30_clip30": ["reco_eiso_r30"],
+    "reco_eiso_r30_over_cluster_Et": ["reco_eiso_r30", "cluster_Et"],
+    "reco_eiso_r30_signed_log1p": ["reco_eiso_r30"],
+    "reco_eiso_r40_clip30": ["reco_eiso_r40"],
+    "reco_eiso_r40_over_cluster_Et": ["reco_eiso_r40", "cluster_Et"],
+    "reco_eiso_r40_signed_log1p": ["reco_eiso_r40"],
 }
 
 TIGHT_MODES = [
@@ -151,6 +228,21 @@ def global_sixpack_noiso_features() -> list[str]:
 def global_sixpack_iso_features() -> list[str]:
     features = global_sixpack_noiso_features()
     for feature in ISOLATION_DIAGNOSTIC_FEATURES:
+        if feature not in features:
+            features.append(feature)
+    return features
+
+
+def global_sixpack_eiso_r30_features() -> list[str]:
+    features = global_sixpack_noiso_features()
+    if "reco_eiso_r30" not in features:
+        features.append("reco_eiso_r30")
+    return features
+
+
+def global_sixpack_eiso_r30r40_features() -> list[str]:
+    features = global_sixpack_noiso_features()
+    for feature in ("reco_eiso_r30", "reco_eiso_r40"):
         if feature not in features:
             features.append(feature)
     return features
@@ -313,6 +405,8 @@ def expand_required_columns(columns: Iterable[str]) -> list[str]:
 def add_derived_features(frame):
     import numpy as np
 
+    eps = 1.0e-6
+
     def safe_ratio(num: str, den: str):
         n = frame[num].to_numpy(dtype="float64")
         d = frame[den].to_numpy(dtype="float64")
@@ -321,10 +415,94 @@ def add_derived_features(frame):
         out[good] = n[good] / d[good]
         return out
 
+    def safe_log_ratio(num: str, den: str):
+        n = frame[num].to_numpy(dtype="float64")
+        d = frame[den].to_numpy(dtype="float64")
+        out = np.full(len(frame), np.nan, dtype="float64")
+        good = np.isfinite(n) & np.isfinite(d) & (n > eps) & (d > eps)
+        out[good] = np.log(n[good] / d[good])
+        return out
+
+    def safe_logit(name: str):
+        x = frame[name].to_numpy(dtype="float64")
+        out = np.full(len(frame), np.nan, dtype="float64")
+        good = np.isfinite(x)
+        clipped = np.clip(x[good], eps, 1.0 - eps)
+        out[good] = np.log(clipped / (1.0 - clipped))
+        return out
+
     if "cluster_weta_over_wphi" not in frame.columns and {"cluster_weta_cogx", "cluster_wphi_cogx"}.issubset(frame.columns):
         frame["cluster_weta_over_wphi"] = safe_ratio("cluster_weta_cogx", "cluster_wphi_cogx")
     if "cluster_weta33_over_wphi33" not in frame.columns and {"cluster_weta33_cogx", "cluster_wphi33_cogx"}.issubset(frame.columns):
         frame["cluster_weta33_over_wphi33"] = safe_ratio("cluster_weta33_cogx", "cluster_wphi33_cogx")
+    if "shape_tail_e37_e53_logratio" not in frame.columns and {"e22_over_e37", "e22_over_e53"}.issubset(frame.columns):
+        frame["shape_tail_e37_e53_logratio"] = safe_log_ratio("e22_over_e37", "e22_over_e53")
+    if "shape_long_tail_e17_e71_logratio" not in frame.columns and {"e11_over_e17", "e11_over_e71"}.issubset(frame.columns):
+        frame["shape_long_tail_e17_e71_logratio"] = safe_log_ratio("e11_over_e17", "e11_over_e71")
+    if (
+        "shape_width_core_full_logratio" not in frame.columns
+        and {"cluster_weta_cogx", "cluster_wphi_cogx", "cluster_weta33_cogx", "cluster_wphi33_cogx"}.issubset(frame.columns)
+    ):
+        core = safe_ratio("cluster_weta33_cogx", "cluster_wphi33_cogx")
+        full = safe_ratio("cluster_weta_cogx", "cluster_wphi_cogx")
+        out = np.full(len(frame), np.nan, dtype="float64")
+        good = np.isfinite(core) & np.isfinite(full) & (core > eps) & (full > eps)
+        out[good] = np.log(core[good] / full[good])
+        frame["shape_width_core_full_logratio"] = out
+    if "shape_core_tail_tension" not in frame.columns and {"e11_over_e33", "e22_over_e37", "e22_over_e53"}.issubset(frame.columns):
+        frame["shape_core_tail_tension"] = safe_logit("e11_over_e33") - 0.5 * (
+            safe_logit("e22_over_e37") + safe_logit("e22_over_e53")
+        )
+    if "shape_compactness_gradient" not in frame.columns and {"e11_over_e33", "e32_over_e35"}.issubset(frame.columns):
+        frame["shape_compactness_gradient"] = safe_logit("e11_over_e33") - safe_logit("e32_over_e35")
+
+    if (
+        {"shape_template_diag_chi2", "shape_template_max_abs_z"}.difference(frame.columns)
+        and {"is_signal", "cluster_Et", "centrality", *SHAPE_TEMPLATE_BASIS}.issubset(frame.columns)
+    ):
+        basis = SHAPE_TEMPLATE_BASIS
+        values = frame[basis].to_numpy(dtype="float64")
+        is_signal = frame["is_signal"].to_numpy(dtype="int32") == 1
+        et = frame["cluster_Et"].to_numpy(dtype="float64")
+        cent = frame["centrality"].to_numpy(dtype="float64")
+        finite = np.isfinite(values).all(axis=1) & np.isfinite(et) & np.isfinite(cent)
+        global_mask = is_signal & finite
+        if global_mask.sum() >= 50:
+            global_mu = np.nanmedian(values[global_mask], axis=0)
+            global_mad = np.nanmedian(np.abs(values[global_mask] - global_mu), axis=0)
+            global_sigma = np.maximum(1.4826 * global_mad, 1.0e-4)
+        else:
+            global_mu = np.nanmedian(values[finite], axis=0) if finite.any() else np.zeros(len(basis))
+            global_sigma = np.nanstd(values[finite], axis=0) if finite.any() else np.ones(len(basis))
+            global_sigma = np.maximum(global_sigma, 1.0e-4)
+
+        chi2 = np.full(len(frame), np.nan, dtype="float64")
+        max_abs = np.full(len(frame), np.nan, dtype="float64")
+        for pt_lo, pt_hi in zip(SHAPE_TEMPLATE_PT_EDGES[:-1], SHAPE_TEMPLATE_PT_EDGES[1:]):
+            pt_mask = (et >= pt_lo) & (et < pt_hi)
+            for cent_lo, cent_hi in zip(SHAPE_TEMPLATE_CENT_EDGES[:-1], SHAPE_TEMPLATE_CENT_EDGES[1:]):
+                row_mask = pt_mask & (cent >= cent_lo) & (cent < cent_hi) & finite
+                if not row_mask.any():
+                    continue
+                sig_mask = row_mask & is_signal
+                if sig_mask.sum() >= 50:
+                    mu = np.nanmedian(values[sig_mask], axis=0)
+                    mad = np.nanmedian(np.abs(values[sig_mask] - mu), axis=0)
+                    sigma = np.maximum(1.4826 * mad, 1.0e-4)
+                else:
+                    mu = global_mu
+                    sigma = global_sigma
+                z = np.clip((values[row_mask] - mu) / sigma, -8.0, 8.0)
+                chi2[row_mask] = np.mean(z * z, axis=1)
+                max_abs[row_mask] = np.max(np.abs(z), axis=1)
+        fallback = finite & ~np.isfinite(chi2)
+        if fallback.any():
+            z = np.clip((values[fallback] - global_mu) / global_sigma, -8.0, 8.0)
+            chi2[fallback] = np.mean(z * z, axis=1)
+            max_abs[fallback] = np.max(np.abs(z), axis=1)
+        frame["shape_template_diag_chi2"] = chi2
+        frame["shape_template_max_abs_z"] = max_abs
+
     cols = set(frame.columns)
     if "reco_eiso_clip30" not in cols and "reco_eiso" in cols:
         reco_eiso = frame["reco_eiso"].to_numpy(dtype="float64")
@@ -380,11 +558,12 @@ def expand_input_paths(items: list[Path]) -> list[Path]:
             paths.append(item)
     if not paths:
         raise SystemExit("No input ROOT files supplied")
-    missing = [str(path) for path in paths if not path.is_file()]
-    if missing:
-        preview = "\n  ".join(missing[:20])
-        extra = "" if len(missing) <= 20 else f"\n  ... {len(missing) - 20} more"
-        raise SystemExit(f"Input ROOT files are missing:\n  {preview}{extra}")
+    if os.environ.get("RJ_AUAU_BDT_SKIP_INPUT_EXISTENCE_CHECK", "0") != "1":
+        missing = [str(path) for path in paths if not path.is_file()]
+        if missing:
+            preview = "\n  ".join(missing[:20])
+            extra = "" if len(missing) <= 20 else f"\n  ... {len(missing) - 20} more"
+            raise SystemExit(f"Input ROOT files are missing:\n  {preview}{extra}")
     return paths
 
 
@@ -912,29 +1091,32 @@ def train_one(frame, features: list[str], label_branch: str, output: Path, metad
 
     export_status = "not_attempted"
     export_error = ""
-    try:
-        with TMVA_EXPORT_LOCK:
-            import ROOT
+    if args.skip_tmva_export:
+        export_status = "skipped_by_request"
+    else:
+        try:
+            with TMVA_EXPORT_LOCK:
+                import ROOT
 
-            booster = model.get_booster()
-            booster.feature_names = [f"f{i}" for i in range(len(features))]
-            # ROOT 6.32's SaveXGBoost cannot parse XGBoost >=3 vector-valued
-            # base_score strings like "[5E-1]". Patch only the Python config view
-            # handed to TMVA; the saved XGBoost JSON remains untouched for audit.
-            original_save_config = booster.save_config
+                booster = model.get_booster()
+                booster.feature_names = [f"f{i}" for i in range(len(features))]
+                # ROOT 6.32's SaveXGBoost cannot parse XGBoost >=3 vector-valued
+                # base_score strings like "[5E-1]". Patch only the Python config view
+                # handed to TMVA; the saved XGBoost JSON remains untouched for audit.
+                original_save_config = booster.save_config
 
-            def tmva_save_config():
-                import re
+                def tmva_save_config():
+                    import re
 
-                text = original_save_config()
-                return re.sub(r'"base_score":"\[([0-9eE+\-.]+)\]"', r'"base_score":"\1"', text)
+                    text = original_save_config()
+                    return re.sub(r'"base_score":"\[([0-9eE+\-.]+)\]"', r'"base_score":"\1"', text)
 
-            booster.save_config = tmva_save_config  # type: ignore[method-assign]
-            ROOT.TMVA.Experimental.SaveXGBoost(model, "myBDT", str(output), num_inputs=len(features))
-        export_status = "ok"
-    except Exception as exc:  # noqa: BLE001
-        export_status = f"failed: {exc}"
-        export_error = str(exc)
+                booster.save_config = tmva_save_config  # type: ignore[method-assign]
+                ROOT.TMVA.Experimental.SaveXGBoost(model, "myBDT", str(output), num_inputs=len(features))
+            export_status = "ok"
+        except Exception as exc:  # noqa: BLE001
+            export_status = f"failed: {exc}"
+            export_error = str(exc)
 
     report = {
         **metadata,
@@ -1329,6 +1511,54 @@ def global_sixpack_specs(args, outdir: Path) -> list[dict]:
     return specs
 
 
+def basev3e_e22_ablation_specs(args, outdir: Path) -> list[dict]:
+    specs: list[dict] = []
+    full_pt = (15.0, 35.0)
+    base = list(PPG12_TIGHT_FEATURES_BASE_AND_3X3_WIDTHS)
+    if "centrality" not in base:
+        base.append("centrality")
+
+    def add(model_id: str, extra_features: list[str], role: str) -> None:
+        features = list(base)
+        for feature in extra_features:
+            if feature not in features:
+                features.append(feature)
+        specs.append(
+            {
+                "model_id": model_id,
+                "product": model_id,
+                "role": role,
+                "features": features,
+                "pt_range": list(full_pt),
+                "cent_range": None,
+                "minority_optimized": False,
+                "output_tmva": str(outdir / f"auau_tight_bdt_{model_id}_tmva.root"),
+                "output_xgb_json": str(outdir / f"auau_tight_bdt_{model_id}_tmva.xgb.json"),
+                "metadata": str(outdir / f"auau_tight_bdt_{model_id}_tmva.metadata.json"),
+                "majority_cap_ratio": None,
+                "diagnostic_only": False,
+                "abcd_warning": None,
+            }
+        )
+
+    add(
+        "baseBDT_v3E_withCentrality_w33_E22E37",
+        ["e22_over_e37"],
+        "base-v3e-centrality-3x3-widths-plus-e22-over-e37",
+    )
+    add(
+        "baseBDT_v3E_withCentrality_w33_E22E53",
+        ["e22_over_e53"],
+        "base-v3e-centrality-3x3-widths-plus-e22-over-e53",
+    )
+    add(
+        "baseBDT_v3E_withCentrality_w33_E22E37_E22E53",
+        ["e22_over_e37", "e22_over_e53"],
+        "base-v3e-centrality-3x3-widths-plus-e22-over-e37-and-e22-over-e53",
+    )
+    return specs
+
+
 def etcent_binned_sixpack_specs(args, outdir: Path) -> list[dict]:
     pt_edges = parse_float_edges(args.pt_bins)
     pt_bins = bins_from_edges(pt_edges)
@@ -1414,6 +1644,175 @@ def etcent_binned_sixpack_specs(args, outdir: Path) -> list[dict]:
                     (clo, chi),
                     role,
                     diagnostic_only,
+                )
+    return specs
+
+
+def etcent_binned_eiso_cone_ablation_specs(args, outdir: Path) -> list[dict]:
+    pt_edges = parse_float_edges(args.pt_bins)
+    pt_bins = bins_from_edges(pt_edges)
+    coarse_cent_bins = parse_cent_bins(args.coarse_cent_bins)
+    fine_cent_bins = parse_cent_bins(args.fine_cent_bins)
+    specs: list[dict] = []
+    eiso_r30_features = global_sixpack_eiso_r30_features()
+    eiso_r30r40_features = global_sixpack_eiso_r30r40_features()
+
+    def add(
+        product: str,
+        model_id: str,
+        features: list[str],
+        pt_range: tuple[float, float],
+        cent_range: tuple[float, float],
+        role: str,
+    ) -> None:
+        safe = model_id.replace(".", "p")
+        specs.append(
+            {
+                "model_id": safe,
+                "product": product,
+                "role": role,
+                "features": list(features),
+                "pt_range": list(pt_range),
+                "cent_range": list(cent_range),
+                "minority_optimized": False,
+                "output_tmva": str(outdir / f"auau_tight_bdt_{safe}_tmva.root"),
+                "output_xgb_json": str(outdir / f"auau_tight_bdt_{safe}_tmva.xgb.json"),
+                "metadata": str(outdir / f"auau_tight_bdt_{safe}_tmva.metadata.json"),
+                "majority_cap_ratio": None,
+                "diagnostic_only": True,
+                "abcd_warning": (
+                    "Uses raw reconstructed isolation ET as an input; diagnostic only. "
+                    "Not ABCD-safe photon ID without a separate purity redesign."
+                ),
+            }
+        )
+
+    if len(pt_edges) < 2:
+        raise SystemExit("etcent-binned-eiso-cone-ablation needs at least two pT edges")
+
+    groups = (
+        (
+            "globalEtCent1535_bdt_eisoR30_ptCent3",
+            "globalEtCent1535_bdt_eisoR30_ptCent3",
+            eiso_r30_features,
+            coarse_cent_bins,
+            "fine-et-coarse-cent-bin-global-sixpack-plus-raw-r30-reco-eiso",
+        ),
+        (
+            "globalEtCent1535_bdt_eisoR30_ptCent7",
+            "globalEtCent1535_bdt_eisoR30_ptCent7",
+            eiso_r30_features,
+            fine_cent_bins,
+            "fine-et-fine-cent-bin-global-sixpack-plus-raw-r30-reco-eiso",
+        ),
+        (
+            "globalEtCent1535_bdt_eisoR30R40_ptCent3",
+            "globalEtCent1535_bdt_eisoR30R40_ptCent3",
+            eiso_r30r40_features,
+            coarse_cent_bins,
+            "fine-et-coarse-cent-bin-global-sixpack-plus-raw-r30-and-r40-reco-eiso",
+        ),
+        (
+            "globalEtCent1535_bdt_eisoR30R40_ptCent7",
+            "globalEtCent1535_bdt_eisoR30R40_ptCent7",
+            eiso_r30r40_features,
+            fine_cent_bins,
+            "fine-et-fine-cent-bin-global-sixpack-plus-raw-r30-and-r40-reco-eiso",
+        ),
+    )
+    for product, prefix, features, cent_bins, role in groups:
+        for plo, phi in pt_bins:
+            for clo, chi in cent_bins:
+                add(
+                    product,
+                    f"{prefix}_{pt_tag(plo, phi)}_{cent_tag(clo, chi)}",
+                    features,
+                    (plo, phi),
+                    (clo, chi),
+                    role,
+                )
+    return specs
+
+
+def shape_residual_ptcent7_specs(args, outdir: Path) -> list[dict]:
+    pt_edges = list(SHAPE_TEMPLATE_PT_EDGES)
+    pt_bins = bins_from_edges(pt_edges)
+    fine_cent_bins = parse_cent_bins(args.fine_cent_bins)
+    specs: list[dict] = []
+    full_features = global_sixpack_noiso_features()
+    compact_features = list(PPG12_TIGHT_FEATURES_BASE_AND_3X3_WIDTHS)
+    if "centrality" not in compact_features:
+        compact_features.append("centrality")
+    residual_features = list(SHAPE_RESIDUAL_FEATURES)
+    template_features = list(SHAPE_TEMPLATE_FEATURES)
+
+    variants = [
+        (
+            "globalEtCent1535_bdt_noIso_ptCent7_shapeResiduals",
+            "globalEtCent1535_bdt_noIso_ptCent7_shapeResiduals",
+            full_features + residual_features,
+            "current-56-bdt-full-features-plus-tail-orientation-core-tension-residuals",
+        ),
+        (
+            "globalEtCent1535_bdt_noIso_ptCent7_shapeTemplateDiag",
+            "globalEtCent1535_bdt_noIso_ptCent7_shapeTemplateDiag",
+            full_features + template_features,
+            "current-56-bdt-full-features-plus-diagonal-photon-template-residual",
+        ),
+        (
+            "globalEtCent1535_bdt_noIso_ptCent7_shapeTemplateAll",
+            "globalEtCent1535_bdt_noIso_ptCent7_shapeTemplateAll",
+            full_features + residual_features + template_features,
+            "current-56-bdt-full-features-plus-all-abcd-safe-shower-residuals",
+        ),
+        (
+            "baseV3E_w33_cent_ptCent7_shapeTemplateDiag",
+            "baseV3E_w33_cent_ptCent7_shapeTemplateDiag",
+            compact_features + template_features,
+            "compact-base-v3e-plus-3x3-centrality-and-template-residual",
+        ),
+        (
+            "baseV3E_w33_cent_ptCent7_shapeTemplateAll",
+            "baseV3E_w33_cent_ptCent7_shapeTemplateAll",
+            compact_features + residual_features + template_features,
+            "compact-base-v3e-plus-3x3-centrality-and-all-shower-residuals",
+        ),
+    ]
+
+    def unique_features(features: list[str]) -> list[str]:
+        out: list[str] = []
+        for feature in features:
+            if feature not in out:
+                out.append(feature)
+        return out
+
+    if len(pt_edges) < 2:
+        raise SystemExit("shape-residual-ptcent7 needs at least two pT edges")
+    for product, prefix, features, role in variants:
+        deduped = unique_features(features)
+        for plo, phi in pt_bins:
+            for clo, chi in fine_cent_bins:
+                model_id = f"{prefix}_{pt_tag(plo, phi)}_{cent_tag(clo, chi)}"
+                specs.append(
+                    {
+                        "model_id": model_id.replace(".", "p"),
+                        "product": product,
+                        "role": role,
+                        "features": list(deduped),
+                        "pt_range": [plo, phi],
+                        "cent_range": [clo, chi],
+                        "minority_optimized": False,
+                        "output_tmva": str(outdir / f"auau_tight_bdt_{model_id.replace('.', 'p')}_tmva.root"),
+                        "output_xgb_json": str(outdir / f"auau_tight_bdt_{model_id.replace('.', 'p')}_tmva.xgb.json"),
+                        "metadata": str(outdir / f"auau_tight_bdt_{model_id.replace('.', 'p')}_tmva.metadata.json"),
+                        "majority_cap_ratio": None,
+                        "diagnostic_only": True,
+                        "abcd_warning": (
+                            "ABCD-safe shower-shape-only sidecar. Template residuals are "
+                            "computed from signal-template statistics in the Python validation path; "
+                            "freeze constants and wire C++ runtime before production promotion."
+                        ),
+                    }
                 )
     return specs
 
@@ -1562,8 +1961,14 @@ def run_campaign(args) -> int:
         specs_all = isolation_diagnostic_specs(args, args.outdir)
     elif args.campaign == "global-sixpack":
         specs_all = global_sixpack_specs(args, args.outdir)
+    elif args.campaign == "basev3e-e22-ablation":
+        specs_all = basev3e_e22_ablation_specs(args, args.outdir)
     elif args.campaign == "etcent-binned-sixpack":
         specs_all = etcent_binned_sixpack_specs(args, args.outdir)
+    elif args.campaign == "etcent-binned-eiso-cone-ablation":
+        specs_all = etcent_binned_eiso_cone_ablation_specs(args, args.outdir)
+    elif args.campaign == "shape-residual-ptcent7":
+        specs_all = shape_residual_ptcent7_specs(args, args.outdir)
     elif args.campaign == "ppg12-sixpack":
         specs_all = ppg12_pp_sixpack_specs(args, args.outdir)
     else:
@@ -1687,7 +2092,7 @@ def main() -> int:
     parser.add_argument("--grow-policy", default="lossguide")
     parser.add_argument("--max-bin", type=int, default=256)
     parser.add_argument("--n-jobs", type=int, default=4)
-    parser.add_argument("--campaign", choices=["expanded-tight", "etfine-centstudy", "iso-diagnostic", "global-sixpack", "etcent-binned-sixpack", "ppg12-sixpack"], default=None)
+    parser.add_argument("--campaign", choices=["expanded-tight", "etfine-centstudy", "iso-diagnostic", "global-sixpack", "basev3e-e22-ablation", "etcent-binned-sixpack", "etcent-binned-eiso-cone-ablation", "shape-residual-ptcent7", "ppg12-sixpack"], default=None)
     parser.add_argument("--plan-only", action="store_true")
     parser.add_argument("--cache-only", action="store_true")
     parser.add_argument("--cache-file", type=Path, default=None)
@@ -1720,6 +2125,8 @@ def main() -> int:
                         help="Seed used for load-time file shuffling and row sampling when max-load caps are enabled.")
     parser.add_argument("--allow-tmva-export-failure", action="store_true",
                         help="Write diagnostics but do not fail if TMVA export fails. Not recommended for production pipeline tests.")
+    parser.add_argument("--skip-tmva-export", action="store_true",
+                        help="Write XGBoost JSON/metadata only and do not import ROOT/TMVA. Intended for validation-only campaigns.")
     args = parser.parse_args()
 
     if args.campaign:

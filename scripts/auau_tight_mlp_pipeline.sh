@@ -723,13 +723,23 @@ rescore_validation_cache() {
 }
 
 derive_working_points_from_validation() {
-  local validation="" target="0.80" tok
+  local validation="" target="0.80" pt_bins="" centrality_bins="" wp_mode="" tok
   for tok in "$@"; do
-    case "$tok" in VALIDATION=*) validation="${tok#VALIDATION=}" ;; TARGET=*) target="${tok#TARGET=}" ;; esac
+    case "$tok" in
+      VALIDATION=*) validation="${tok#VALIDATION=}" ;;
+      TARGET=*) target="${tok#TARGET=}" ;;
+      PT_BINS=*|ptBins=*) pt_bins="${tok#*=}" ;;
+      CENTRALITY_BINS=*|centralityBins=*|CENT_BINS=*|centBins=*) centrality_bins="${tok#*=}" ;;
+      MODE=*|mode=*|WP_MODE=*|wpMode=*) wp_mode="${tok#*=}" ;;
+    esac
   done
   [[ -n "$validation" && -d "$validation" ]] || die "deriveWorkingPointsFromValidation requires VALIDATION=/path"
   setup_ml_python_env
-  "$ML_PYTHON" "$VALIDATE_SCRIPT" --derive-working-points-from-report "$validation" --target-signal-efficiency "$target"
+  local args=( "$VALIDATE_SCRIPT" --derive-working-points-from-report "$validation" --target-signal-efficiency "$target" )
+  [[ -n "$pt_bins" ]] && args+=( --pt-bins "$pt_bins" )
+  [[ -n "$centrality_bins" ]] && args+=( --centrality-bins "$centrality_bins" )
+  [[ -n "$wp_mode" ]] && args+=( --working-point-mode "$wp_mode" )
+  "$ML_PYTHON" "${args[@]}"
 }
 
 generate_working_point_config() {

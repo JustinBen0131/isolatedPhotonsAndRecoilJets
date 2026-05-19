@@ -31,10 +31,38 @@ BASE_FEATURES = [
 ]
 WIDTH_3X3_FEATURES = ["cluster_weta33_cogx", "cluster_wphi33_cogx"]
 WIDTH_RATIO_FEATURES = ["cluster_weta_over_wphi", "cluster_weta33_over_wphi33"]
+SHAPE_RESIDUAL_FEATURES = [
+    "shape_tail_e37_e53_logratio",
+    "shape_long_tail_e17_e71_logratio",
+    "shape_width_core_full_logratio",
+    "shape_core_tail_tension",
+    "shape_compactness_gradient",
+]
+SHAPE_TEMPLATE_FEATURES = [
+    "shape_template_diag_chi2",
+    "shape_template_max_abs_z",
+]
+SHAPE_TEMPLATE_BASIS = [
+    "cluster_weta_cogx",
+    "cluster_wphi_cogx",
+    "cluster_weta33_cogx",
+    "cluster_wphi33_cogx",
+    "e11_over_e33",
+    "e32_over_e35",
+    "shape_tail_e37_e53_logratio",
+    "shape_width_core_full_logratio",
+    "shape_core_tail_tension",
+]
+SHAPE_TEMPLATE_PT_EDGES = [15.0, 17.0, 19.0, 21.0, 23.0, 25.0, 27.0, 30.0, 35.0]
+SHAPE_TEMPLATE_CENT_EDGES = [0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 80.0]
 ISOLATION_DIAGNOSTIC_FEATURES = [
     "reco_eiso_clip30",
     "reco_eiso_over_cluster_Et",
     "reco_eiso_signed_log1p",
+]
+ISOLATION_CONE_RAW_FEATURES = [
+    "reco_eiso_r30",
+    "reco_eiso_r40",
 ]
 EXTENDED_SHOWER_FEATURES = [
     "cluster_weta35_cogx",
@@ -57,6 +85,42 @@ EXTENDED_SHOWER_FEATURES = [
 DERIVED_FEATURE_DEPS = {
     "cluster_weta_over_wphi": ["cluster_weta_cogx", "cluster_wphi_cogx"],
     "cluster_weta33_over_wphi33": ["cluster_weta33_cogx", "cluster_wphi33_cogx"],
+    "shape_tail_e37_e53_logratio": ["e22_over_e37", "e22_over_e53"],
+    "shape_long_tail_e17_e71_logratio": ["e11_over_e17", "e11_over_e71"],
+    "shape_width_core_full_logratio": [
+        "cluster_weta_cogx",
+        "cluster_wphi_cogx",
+        "cluster_weta33_cogx",
+        "cluster_wphi33_cogx",
+    ],
+    "shape_core_tail_tension": ["e11_over_e33", "e22_over_e37", "e22_over_e53"],
+    "shape_compactness_gradient": ["e11_over_e33", "e32_over_e35"],
+    "shape_template_diag_chi2": [
+        "is_signal",
+        "cluster_Et",
+        "centrality",
+        "cluster_weta_cogx",
+        "cluster_wphi_cogx",
+        "cluster_weta33_cogx",
+        "cluster_wphi33_cogx",
+        "e11_over_e33",
+        "e32_over_e35",
+        "e22_over_e37",
+        "e22_over_e53",
+    ],
+    "shape_template_max_abs_z": [
+        "is_signal",
+        "cluster_Et",
+        "centrality",
+        "cluster_weta_cogx",
+        "cluster_wphi_cogx",
+        "cluster_weta33_cogx",
+        "cluster_wphi33_cogx",
+        "e11_over_e33",
+        "e32_over_e35",
+        "e22_over_e37",
+        "e22_over_e53",
+    ],
     "reco_eiso_clip30": ["reco_eiso"],
     "reco_eiso_over_cluster_Et": ["reco_eiso", "cluster_Et"],
     "reco_eiso_signed_log1p": ["reco_eiso"],
@@ -97,6 +161,13 @@ PLOT_LABELS = {
     "centDepBDTs": "Centrality-specific models",
     "isoBDT_global15to35_EtCent_full": "Isolation-input BDT, global 15-35 GeV",
     "isoBDT_ptFine15to35_cent7_full": "Isolation-input BDT, fine E_T x 7 centrality bins",
+    "baseBDT_v3E_withCentrality_w33_E22E37": "Base v3E + centrality + 3x3 widths + E22/E37",
+    "baseBDT_v3E_withCentrality_w33_E22E53": "Base v3E + centrality + 3x3 widths + E22/E53",
+    "baseBDT_v3E_withCentrality_w33_E22E37_E22E53": "Base v3E + centrality + 3x3 widths + E22/E37 + E22/E53",
+    "globalEtCent1535_bdt_eisoR30_ptCent3": "Fine E_T x 3 centrality bins + raw R=0.3 isolation ET",
+    "globalEtCent1535_bdt_eisoR30_ptCent7": "Fine E_T x 7 centrality bins + raw R=0.3 isolation ET",
+    "globalEtCent1535_bdt_eisoR30R40_ptCent3": "Fine E_T x 3 centrality bins + raw R=0.3 and R=0.4 isolation ET",
+    "globalEtCent1535_bdt_eisoR30R40_ptCent7": "Fine E_T x 7 centrality bins + raw R=0.3 and R=0.4 isolation ET",
 }
 
 PLOT_COLORS = {
@@ -111,6 +182,10 @@ PLOT_COLORS = {
     "ptFine_cent7": "#CC79A7",
     "isoBDT_global15to35_EtCent_full": "#7E57C2",
     "isoBDT_ptFine15to35_cent7_full": "#C2185B",
+    "globalEtCent1535_bdt_eisoR30_ptCent3": "#009E73",
+    "globalEtCent1535_bdt_eisoR30_ptCent7": "#0072B2",
+    "globalEtCent1535_bdt_eisoR30R40_ptCent3": "#D55E00",
+    "globalEtCent1535_bdt_eisoR30R40_ptCent7": "#CC79A7",
 }
 FALLBACK_COLORS = [
     "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
@@ -120,7 +195,7 @@ FALLBACK_COLORS = [
 PT_BINS = [(6, 10), (10, 15), (15, 20), (20, 25), (25, 35)]
 CENT_BINS = [(0, 20), (20, 50), (50, 80)]
 DIAGNOSTIC_FEATURES = []
-for _name in BASE_FEATURES + WIDTH_3X3_FEATURES + EXTENDED_SHOWER_FEATURES + WIDTH_RATIO_FEATURES + ISOLATION_DIAGNOSTIC_FEATURES + ["centrality", "reco_eiso"]:
+for _name in BASE_FEATURES + WIDTH_3X3_FEATURES + EXTENDED_SHOWER_FEATURES + WIDTH_RATIO_FEATURES + SHAPE_RESIDUAL_FEATURES + SHAPE_TEMPLATE_FEATURES + ISOLATION_DIAGNOSTIC_FEATURES + ISOLATION_CONE_RAW_FEATURES + ["centrality", "reco_eiso"]:
     if _name not in DIAGNOSTIC_FEATURES:
         DIAGNOSTIC_FEATURES.append(_name)
 MANDATORY_CACHE_COLUMNS = ["is_signal", "cluster_Et", "cluster_Eta", "centrality", "reco_eiso"]
@@ -142,6 +217,8 @@ def expand_required_columns(features: list[str]) -> list[str]:
 def add_derived_features(frame):
     import numpy as np
 
+    eps = 1.0e-6
+
     def safe_ratio(num: str, den: str):
         a = np.asarray(frame[num], dtype="float64")
         b = np.asarray(frame[den], dtype="float64")
@@ -150,10 +227,95 @@ def add_derived_features(frame):
         out[mask] = (a[mask] / b[mask]).astype("float32")
         return out
 
+    def safe_log_ratio(num: str, den: str):
+        a = np.asarray(frame[num], dtype="float64")
+        b = np.asarray(frame[den], dtype="float64")
+        out = np.full(len(a), np.nan, dtype="float32")
+        mask = np.isfinite(a) & np.isfinite(b) & (a > eps) & (b > eps)
+        out[mask] = np.log(a[mask] / b[mask]).astype("float32")
+        return out
+
+    def safe_logit(name: str):
+        x = np.asarray(frame[name], dtype="float64")
+        out = np.full(len(x), np.nan, dtype="float32")
+        mask = np.isfinite(x)
+        clipped = np.clip(x[mask], eps, 1.0 - eps)
+        out[mask] = np.log(clipped / (1.0 - clipped)).astype("float32")
+        return out
+
     if "cluster_weta_over_wphi" not in frame and {"cluster_weta_cogx", "cluster_wphi_cogx"}.issubset(frame):
         frame["cluster_weta_over_wphi"] = safe_ratio("cluster_weta_cogx", "cluster_wphi_cogx")
     if "cluster_weta33_over_wphi33" not in frame and {"cluster_weta33_cogx", "cluster_wphi33_cogx"}.issubset(frame):
         frame["cluster_weta33_over_wphi33"] = safe_ratio("cluster_weta33_cogx", "cluster_wphi33_cogx")
+    if "shape_tail_e37_e53_logratio" not in frame and {"e22_over_e37", "e22_over_e53"}.issubset(frame):
+        frame["shape_tail_e37_e53_logratio"] = safe_log_ratio("e22_over_e37", "e22_over_e53")
+    if "shape_long_tail_e17_e71_logratio" not in frame and {"e11_over_e17", "e11_over_e71"}.issubset(frame):
+        frame["shape_long_tail_e17_e71_logratio"] = safe_log_ratio("e11_over_e17", "e11_over_e71")
+    if (
+        "shape_width_core_full_logratio" not in frame
+        and {"cluster_weta_cogx", "cluster_wphi_cogx", "cluster_weta33_cogx", "cluster_wphi33_cogx"}.issubset(frame)
+    ):
+        core = safe_ratio("cluster_weta33_cogx", "cluster_wphi33_cogx").astype("float64")
+        full = safe_ratio("cluster_weta_cogx", "cluster_wphi_cogx").astype("float64")
+        out = np.full(len(core), np.nan, dtype="float32")
+        mask = np.isfinite(core) & np.isfinite(full) & (core > eps) & (full > eps)
+        out[mask] = np.log(core[mask] / full[mask]).astype("float32")
+        frame["shape_width_core_full_logratio"] = out
+    if "shape_core_tail_tension" not in frame and {"e11_over_e33", "e22_over_e37", "e22_over_e53"}.issubset(frame):
+        frame["shape_core_tail_tension"] = (
+            safe_logit("e11_over_e33")
+            - 0.5 * (safe_logit("e22_over_e37") + safe_logit("e22_over_e53"))
+        ).astype("float32")
+    if "shape_compactness_gradient" not in frame and {"e11_over_e33", "e32_over_e35"}.issubset(frame):
+        frame["shape_compactness_gradient"] = (safe_logit("e11_over_e33") - safe_logit("e32_over_e35")).astype("float32")
+
+    if (
+        {"shape_template_diag_chi2", "shape_template_max_abs_z"}.difference(frame)
+        and {"is_signal", "cluster_Et", "centrality", *SHAPE_TEMPLATE_BASIS}.issubset(frame)
+    ):
+        basis = SHAPE_TEMPLATE_BASIS
+        values = np.column_stack([np.asarray(frame[name], dtype="float64") for name in basis])
+        is_signal = np.asarray(frame["is_signal"], dtype="int32") == 1
+        et = np.asarray(frame["cluster_Et"], dtype="float64")
+        cent = np.asarray(frame["centrality"], dtype="float64")
+        finite = np.isfinite(values).all(axis=1) & np.isfinite(et) & np.isfinite(cent)
+        global_mask = is_signal & finite
+        if global_mask.sum() >= 50:
+            global_mu = np.nanmedian(values[global_mask], axis=0)
+            global_mad = np.nanmedian(np.abs(values[global_mask] - global_mu), axis=0)
+            global_sigma = np.maximum(1.4826 * global_mad, 1.0e-4)
+        else:
+            global_mu = np.nanmedian(values[finite], axis=0) if finite.any() else np.zeros(len(basis))
+            global_sigma = np.nanstd(values[finite], axis=0) if finite.any() else np.ones(len(basis))
+            global_sigma = np.maximum(global_sigma, 1.0e-4)
+
+        chi2 = np.full(len(et), np.nan, dtype="float64")
+        max_abs = np.full(len(et), np.nan, dtype="float64")
+        for pt_lo, pt_hi in zip(SHAPE_TEMPLATE_PT_EDGES[:-1], SHAPE_TEMPLATE_PT_EDGES[1:]):
+            pt_mask = (et >= pt_lo) & (et < pt_hi)
+            for cent_lo, cent_hi in zip(SHAPE_TEMPLATE_CENT_EDGES[:-1], SHAPE_TEMPLATE_CENT_EDGES[1:]):
+                row_mask = pt_mask & (cent >= cent_lo) & (cent < cent_hi) & finite
+                if not row_mask.any():
+                    continue
+                sig_mask = row_mask & is_signal
+                if sig_mask.sum() >= 50:
+                    mu = np.nanmedian(values[sig_mask], axis=0)
+                    mad = np.nanmedian(np.abs(values[sig_mask] - mu), axis=0)
+                    sigma = np.maximum(1.4826 * mad, 1.0e-4)
+                else:
+                    mu = global_mu
+                    sigma = global_sigma
+                z = np.clip((values[row_mask] - mu) / sigma, -8.0, 8.0)
+                chi2[row_mask] = np.mean(z * z, axis=1)
+                max_abs[row_mask] = np.max(np.abs(z), axis=1)
+        fallback = finite & ~np.isfinite(chi2)
+        if fallback.any():
+            z = np.clip((values[fallback] - global_mu) / global_sigma, -8.0, 8.0)
+            chi2[fallback] = np.mean(z * z, axis=1)
+            max_abs[fallback] = np.max(np.abs(z), axis=1)
+        frame["shape_template_diag_chi2"] = chi2.astype("float32")
+        frame["shape_template_max_abs_z"] = max_abs.astype("float32")
+
     cols = set(frame)
     if "reco_eiso_clip30" not in cols and "reco_eiso" in cols:
         reco_eiso = np.asarray(frame["reco_eiso"], dtype="float64")
@@ -456,11 +618,14 @@ def collect_rows(
     import numpy as np
     import uproot
 
+    # Only scoring inputs and mandatory QA columns may veto a ROOT file. The
+    # broader DIAGNOSTIC_FEATURES list includes optional sidecar-only branches
+    # such as cone-specific isolation, which are not present in every training
+    # extraction and should not force otherwise valid files to be skipped.
     required = sorted(
         set(
             ["is_signal", "cluster_Et", "cluster_Eta", "centrality", "reco_eiso"]
             + BASE_FEATURES
-            + expand_required_columns(DIAGNOSTIC_FEATURES)
             + expand_required_columns(list(feature_names or []))
         )
     )

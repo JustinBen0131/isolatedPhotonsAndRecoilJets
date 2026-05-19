@@ -1382,6 +1382,7 @@ void RecoilJets::parseAuAuTightMLPWorkingPointEntries(const std::vector<std::str
       else if (mode == "binned")
       {
         wp.binned = true;
+        wp.grid2d = false;
         wp.edges = parseDoubles(cols[2]);
         wp.thresholds = parseDoubles(cols[3]);
         wp.ptMin = std::stod(cols[4]);
@@ -1390,6 +1391,29 @@ void RecoilJets::parseAuAuTightMLPWorkingPointEntries(const std::vector<std::str
         if (wp.edges.size() < 2 || wp.thresholds.size() + 1 != wp.edges.size())
         {
           LOG(1, CLR_YELLOW, "[AuAuTightMLP][WP] ignoring binned entry with inconsistent edges/thresholds: " << raw);
+          continue;
+        }
+      }
+      else if (mode == "grid2d")
+      {
+        if (cols.size() < 8)
+        {
+          LOG(1, CLR_YELLOW, "[AuAuTightMLP][WP] ignoring malformed grid2d working-point entry: " << raw);
+          continue;
+        }
+        wp.binned = false;
+        wp.grid2d = true;
+        wp.edges = parseDoubles(cols[2]);
+        wp.centEdges = parseDoubles(cols[3]);
+        wp.thresholds = parseDoubles(cols[4]);
+        wp.ptMin = std::stod(cols[5]);
+        wp.ptMax = std::stod(cols[6]);
+        wp.maxScore = std::stod(cols[7]);
+        const std::size_t nPt = (wp.edges.size() >= 2) ? wp.edges.size() - 1 : 0;
+        const std::size_t nCent = (wp.centEdges.size() >= 2) ? wp.centEdges.size() - 1 : 0;
+        if (nPt == 0 || nCent == 0 || wp.thresholds.size() != nPt * nCent)
+        {
+          LOG(1, CLR_YELLOW, "[AuAuTightMLP][WP] ignoring grid2d entry with inconsistent binning: " << raw);
           continue;
         }
       }
@@ -1435,6 +1459,34 @@ double RecoilJets::configuredAuAuTightMLPMin(double et) const
   if (!std::isfinite(et) || et < wp->ptMin || et >= wp->ptMax)
   {
     return std::numeric_limits<double>::quiet_NaN();
+  }
+  if (wp->grid2d)
+  {
+    const double cent = m_centPercent;
+    if (!std::isfinite(cent)) return std::numeric_limits<double>::quiet_NaN();
+    int ptIdx = -1;
+    for (std::size_t i = 0; i + 1 < wp->edges.size(); ++i)
+    {
+      if (et >= wp->edges[i] && et < wp->edges[i + 1])
+      {
+        ptIdx = static_cast<int>(i);
+        break;
+      }
+    }
+    int centIdx = -1;
+    for (std::size_t i = 0; i + 1 < wp->centEdges.size(); ++i)
+    {
+      if (cent >= wp->centEdges[i] && cent < wp->centEdges[i + 1])
+      {
+        centIdx = static_cast<int>(i);
+        break;
+      }
+    }
+    if (ptIdx < 0 || centIdx < 0) return std::numeric_limits<double>::quiet_NaN();
+    const std::size_t nPt = wp->edges.size() - 1;
+    const std::size_t flatIdx = static_cast<std::size_t>(centIdx) * nPt + static_cast<std::size_t>(ptIdx);
+    if (flatIdx >= wp->thresholds.size()) return std::numeric_limits<double>::quiet_NaN();
+    return wp->thresholds[flatIdx];
   }
   if (!wp->binned) return wp->intercept + wp->slope * et;
   for (std::size_t i = 0; i + 1 < wp->edges.size() && i < wp->thresholds.size(); ++i)
@@ -3202,6 +3254,8 @@ void RecoilJets::initAuAuBDTTrainingTree()
   add("vertexz", &m_bdtTrain_vz, "vertexz/F");
   add("event_weight", &m_bdtTrain_weight, "event_weight/F");
   add("reco_eiso", &m_bdtTrain_eiso, "reco_eiso/F");
+  add("reco_eiso_r30", &m_bdtTrain_eiso_r30, "reco_eiso_r30/F");
+  add("reco_eiso_r40", &m_bdtTrain_eiso_r40, "reco_eiso_r40/F");
   add("npb_label", &m_bdtTrain_npb_label, "npb_label/I");
   add("is_npb", &m_bdtTrain_is_npb, "is_npb/I");
   add("cluster_mean_time", &m_bdtTrain_cluster_mean_time, "cluster_mean_time/F");
@@ -3256,7 +3310,9 @@ void RecoilJets::fillAuAuBDTTrainingTree(const SSVars& v,
                                  int isNPB,
                                  double clusterMbdDeltaT,
                                  double mbdTime,
-                                 bool hasAwayJet)
+                                 bool hasAwayJet,
+                                 double eisoR30,
+                                 double eisoR40)
 {
   if (!m_auauBDTTrainingTreeEnabled) return;
   if (!m_auauBDTTrainingTree) initAuAuBDTTrainingTree();
@@ -3281,6 +3337,8 @@ void RecoilJets::fillAuAuBDTTrainingTree(const SSVars& v,
   m_bdtTrain_vz = bdtFeatureValue(m_vz);
   m_bdtTrain_weight = bdtFeatureValue(m_mcEventWeight);
   m_bdtTrain_eiso = bdtFeatureValue(eiso);
+  m_bdtTrain_eiso_r30 = bdtFeatureValue(eisoR30);
+  m_bdtTrain_eiso_r40 = bdtFeatureValue(eisoR40);
   m_bdtTrain_npb_label = npbLabel;
   m_bdtTrain_is_npb = isNPB;
   m_bdtTrain_cluster_mean_time = std::isfinite(v.mean_time) ? static_cast<float>(v.mean_time) : -999.0f;
@@ -3840,6 +3898,33 @@ double RecoilJets::auauTightBDTFeatureValue(const std::string& feature,
     if (feature == "reco_eiso") return reco_eiso;
     if (feature == "reco_eiso_clip30") return std::max(-20.0, std::min(30.0, reco_eiso));
     if (feature == "reco_eiso_over_cluster_Et")
+    {
+      if (!std::isfinite(v.pt_gamma) || std::fabs(v.pt_gamma) <= 1.0e-12)
+      {
+        return std::numeric_limits<double>::quiet_NaN();
+      }
+      return std::max(-2.0, std::min(3.0, reco_eiso / v.pt_gamma));
+    }
+    const double clipped = std::max(-20.0, std::min(60.0, reco_eiso));
+    return (clipped < 0.0 ? -1.0 : 1.0) * std::log1p(std::fabs(clipped));
+  }
+  if (feature == "reco_eiso_r30" || feature == "reco_eiso_r30_clip30" ||
+      feature == "reco_eiso_r30_over_cluster_Et" || feature == "reco_eiso_r30_signed_log1p" ||
+      feature == "reco_eiso_r40" || feature == "reco_eiso_r40_clip30" ||
+      feature == "reco_eiso_r40_over_cluster_Et" || feature == "reco_eiso_r40_signed_log1p")
+  {
+    const double coneR = (feature.find("_r30") != std::string::npos) ? 0.3 : 0.4;
+    const double reco_eiso = pho ? eisoForCone(pho, coneR) : std::numeric_limits<double>::quiet_NaN();
+    if (!std::isfinite(reco_eiso) || std::fabs(reco_eiso) >= 1.0e8)
+    {
+      return std::numeric_limits<double>::quiet_NaN();
+    }
+    if (feature == "reco_eiso_r30" || feature == "reco_eiso_r40") return reco_eiso;
+    if (feature == "reco_eiso_r30_clip30" || feature == "reco_eiso_r40_clip30")
+    {
+      return std::max(-20.0, std::min(30.0, reco_eiso));
+    }
+    if (feature == "reco_eiso_r30_over_cluster_Et" || feature == "reco_eiso_r40_over_cluster_Et")
     {
       if (!std::isfinite(v.pt_gamma) || std::fabs(v.pt_gamma) <= 1.0e-12)
       {
@@ -10630,6 +10715,12 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 const std::string slice_SS = suffixForBins(ptIdx, effCentIdx_SS);
 
                 const double eiso_et = eiso(rc, topNode);
+                const double eiso_et_r30 = m_auauBDTTrainingTreeEnabled
+                    ? eisoForCone(rc, 0.3)
+                    : std::numeric_limits<double>::quiet_NaN();
+                const double eiso_et_r40 = m_auauBDTTrainingTreeEnabled
+                    ? eisoForCone(rc, 0.4)
+                    : std::numeric_limits<double>::quiet_NaN();
 
                 RecoilJets::IsoAuditSample auditSample;
                 bool haveAuditSample = false;
@@ -10803,7 +10894,9 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                                             1, 0,
                                             std::numeric_limits<double>::quiet_NaN(),
                                             std::numeric_limits<double>::quiet_NaN(),
-                                            false);
+                                            false,
+                                            eiso_et_r30,
+                                            eiso_et_r40);
                 }
                 else if (doCanonical && !m_isSim && m_auauBDTNPBDataTaggingEnabled && bdtTrainPassCommonGate)
                 {
@@ -10819,7 +10912,9 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                                                 0, 1,
                                                 npbDeltaT,
                                                 npbMbdTime,
-                                                npbHasAwayJet);
+                                                npbHasAwayJet,
+                                                eiso_et_r30,
+                                                eiso_et_r40);
                     }
                 }
 
@@ -12967,7 +13062,7 @@ void RecoilJets::setIsolationWP(double aGeV, double bPerGeV,
 }
 
 
-double RecoilJets::eiso(const RawCluster* clus, PHCompositeNode* /*topNode*/) const
+double RecoilJets::eisoForCone(const RawCluster* clus, double coneR) const
 {
   if (!clus)
   {
@@ -12988,7 +13083,7 @@ double RecoilJets::eiso(const RawCluster* clus, PHCompositeNode* /*topNode*/) co
   // PhotonClusterBuilder provides full (EMCal + HCALIN + HCALOUT) isolation for R=0.3 and R=0.4:
   //   iso_03_emcal (already subtracts ET^gamma), iso_03_hcalin, iso_03_hcalout
   //   iso_04_emcal (already subtracts ET^gamma), iso_04_hcalin, iso_04_hcalout
-  const int cone10 = static_cast<int>(std::lround(10.0 * m_isoConeR));
+  const int cone10 = static_cast<int>(std::lround(10.0 * coneR));
 
   const char* k_em = nullptr;
   const char* k_hi = nullptr;
@@ -13010,7 +13105,7 @@ double RecoilJets::eiso(const RawCluster* clus, PHCompositeNode* /*topNode*/) co
   {
     if (Verbosity() >= 2)
       LOG(2, CLR_YELLOW,
-          "  [eiso] m_isoConeR=" << m_isoConeR << " (cone10=" << cone10
+          "  [eiso] requested coneR=" << coneR << " (cone10=" << cone10
           << ") not supported by PhotonClusterBuilder full calo iso → return +inf (fail-safe)");
     return 1e9;
   }
@@ -13044,6 +13139,11 @@ double RecoilJets::eiso(const RawCluster* clus, PHCompositeNode* /*topNode*/) co
   }
 
   return iso;
+}
+
+double RecoilJets::eiso(const RawCluster* clus, PHCompositeNode* /*topNode*/) const
+{
+  return eisoForCone(clus, m_isoConeR);
 }
 
 bool RecoilJets::isIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const

@@ -897,7 +897,9 @@ private:
                                  int isNPB = -1,
                                  double clusterMbdDeltaT = std::numeric_limits<double>::quiet_NaN(),
                                  double mbdTime = std::numeric_limits<double>::quiet_NaN(),
-                                 bool hasAwayJet = false);
+                                 bool hasAwayJet = false,
+                                 double eisoR30 = std::numeric_limits<double>::quiet_NaN(),
+                                 double eisoR40 = std::numeric_limits<double>::quiet_NaN());
     bool isPPG12DataNPBTaggedCluster(const SSVars& v,
                                      double phi,
                                      double& clusterMbdDeltaT,
@@ -932,6 +934,7 @@ private:
     
     // Isolation helpers
     double eiso(const RawCluster* clus, PHCompositeNode* topNode) const;
+    double eisoForCone(const RawCluster* clus, double coneR) const;
     bool   isIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const;
     bool   isNonIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const;
     
@@ -1769,6 +1772,8 @@ private:
     float m_bdtTrain_vz = 0.0f;
     float m_bdtTrain_weight = 1.0f;
     float m_bdtTrain_eiso = 0.0f;
+    float m_bdtTrain_eiso_r30 = 0.0f;
+    float m_bdtTrain_eiso_r40 = 0.0f;
     int m_bdtTrain_npb_label = -1;
     int m_bdtTrain_is_npb = -1;
     float m_bdtTrain_cluster_mean_time = -999.0f;

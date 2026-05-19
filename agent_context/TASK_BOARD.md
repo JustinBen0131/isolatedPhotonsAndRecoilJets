@@ -10,12 +10,13 @@ Removal` and ask Justin before removing or archiving.
 ## Now
 
 - TOP PRIORITY / JSTG SLIDES BY MONDAY EOD: build the 15-minute Jet Structure
-  Topical Group story around one simple, defensible model:
-  `globalEtCent1535_bdt_noIso`, the no-isolation global BDT trained on
-  Photon12+20 signal and Jet12+20+30 inclusive background over
-  `15 < E_T < 35 GeV`. Main message: the BDT uses shower-shape /
-  energy-sharing evidence plus cluster `E_T` and centrality context; isolation
-  stays out of the tight-ID model so the ABCD purity logic remains defensible.
+  Topical Group story around one simple, defensible model. Going forward,
+  Justin wants the default baseline BDT to be the PPG12 photon-ID 25-feature
+  family plus `centrality` (`globalEtCent1535_bdt_ppg12PlusCent`, validation
+  AUC `0.841561` on the current Photon12+20 vs Jet12+20+30 sixpack sample).
+  Main message: the BDT stays very close to the validated PPG12 photon-ID
+  feature definition, adds only AuAu centrality context, and keeps isolation
+  out of the tight-ID model so the ABCD purity logic remains defensible.
   Required main-flow slides: motivation for AuAu-trained photon ID, model
   definition, sample/label sanity with Jet30 background necessity, score
   separation/AUC, WP80 operating point / fake-rate and purity behavior, and a
@@ -24,9 +25,10 @@ Removal` and ask Justin before removing or archiving.
   routed/fine-bin BDTs, and EtFine studies should appear only as one compact
   end/backup slide unless Justin explicitly pivots the story.
   Evidence already in hand: BDT validation is READY for stamp
-  `20260516_135439`; noIso AUC `0.840908`, finite score fraction `0.999994`,
-  signal mean score `0.670902`, background mean score `0.302054`, and WP80
-  threshold `0.5619116425514221` for the original flat-threshold cross-check.
+  `20260516_135439`; original 32-feature baseline AUC `0.840908`; new
+  PPG12+centrality ablation AUC `0.841561`; finite score fractions are clean.
+  Use the original flat WP80 threshold `0.5619116425514221` only as a stale
+  flat-threshold cross-check, not as the preferred runtime rule.
   Corrected production output now exists for the preferred `8 E_T x 3
   centrality` grid2d WP80 cuts plus cone-specific sliding-isolation fix: tag
   `global_etcent_inclusive3_bdt_noIso_cent3grid_isoFix_20260517_2030` on
@@ -34,6 +36,65 @@ Removal` and ask Justin before removing or archiving.
   inclusive-background Jet12+20+30. Optional backup tag
   `global_etcent_inclusive3_bdt_iso_wp80_20260517_001911` is also merged, but
   should not headline the JSTG talk.
+- ACTIVE SIDECAR / RAW `E_T^iso` CONE-ABLATION BINNED BDTs: Justin asked to
+  rerun the isolation-input binned BDT variants with pure raw isolation energy
+  only, separately testing R=0.3 and R=0.3+R=0.4. This requires fresh training
+  extraction because the existing sixpack extraction only contains one generic
+  `reco_eiso` branch. Codex patched RecoilJets_AuAu to write
+  `reco_eiso_r30` and `reco_eiso_r40`, patched the BDT trainer with campaign
+  `etcent-binned-eiso-cone-ablation`, and patched the target-WP YAML generator
+  to carry explicit routed model lists and true feature lists for binned BDT
+  production configs. Remote build/syntax checks passed on `sphnxuser02`.
+  The new campaign is guarded by tmux `eiso_cone_raw_20260518_2220`; driver:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/run_auau_eiso_cone_raw_ablation_20260518_2220.sh`;
+  log:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/eiso_cone_raw_20260518_2220.log`;
+  protected output root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_binned_sidecars/eiso_cone_raw_20260518_2220`.
+  Planned outputs: `160` models total, raw R=0.3 `8 E_T x 3 cent`, raw R=0.3
+  `8 E_T x 7 cent`, raw R=0.3+R=0.4 `8 E_T x 3 cent`, and raw R=0.3+R=0.4
+  `8 E_T x 7 cent`. The guarded driver was updated to wait for the full active
+  `ptCent7BDT` production chain, not just signal: `2124439`, `2124440`,
+  `2124516`, `2124517`, and `2124518`. Current resumed tmux:
+  `eiso_cone_raw_resume_20260518_2318`. Evidence at 23:15 EDT showed
+  background clusters `2124516/2124517/2124518` all running cleanly with
+  `0` held and the driver log waiting for `4287` active guarded jobs to clear.
+  Next checkpoint: when the driver submits extraction, record the extraction
+  DAG/cluster IDs and verify the first extracted ROOT contains both
+  cone-specific branches.
+- ACTIVE SIDECAR / BASE v3E + 3x3 WIDTHS + E22 RATIO ABLATION: Justin asked
+  for three compact global BDT controls to isolate whether `E22/E37` and/or
+  `E22/E53` explain the expanded 32-feature split-gain behavior. Remote tmux:
+  `bdt_basev3e_e22_20260518_192630` on `sphnxuser02`; driver/log:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/run_global_bdt_basev3e_e22_sidecars_20260518_192630.sh`
+  and
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/bdt_basev3e_e22_sidecars_20260518_192630.log`.
+  Output root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_ablation_sidecars/basev3e_w33_e22ratio_20260518_192630`.
+  Products: `baseBDT_v3E_withCentrality_w33_E22E37`,
+  `baseBDT_v3E_withCentrality_w33_E22E53`, and
+  `baseBDT_v3E_withCentrality_w33_E22E37_E22E53`. All use the current
+  Photon12+20 vs Jet12+20+30 sixpack source, `15 < cluster_Et < 35 GeV`, same
+  90/10 split seed and global-sixpack XGBoost defaults. Training completed for
+  all three products. The first wrapper stopped at validation handoff because it
+  looked for the default `centINDcontrol` registry instead of this custom
+  ablation registry; Codex then submitted full-stat validation explicitly with
+  the correct `model_registry.json`. Validation submit root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTValidate_basev3e_e22ratio_20260518_2000`.
+  Report root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_ablation_sidecars/basev3e_w33_e22ratio_20260518_192630/validation`.
+  DAGMan cluster `2124387`; validator found `9429` ROOT files and `48` shards.
+  Validation is now READY. It scored `15524917` entries with finite score
+  fraction `1`. Inclusive AUCs are `0.833319` for `E22/E37` only, `0.829992`
+  for `E22/E53` only, and `0.837602` for both. Compact artifacts were pulled
+  locally under
+  `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/validation/basev3e_w33_e22ratio_20260518_192630`;
+  the remote `1.9G` score-cache directory was not pulled. Slide-ready plots for
+  the `E22/E37`-only model were generated under
+  `slideReady/basev3e_w33_e22ratio_diagnostics/`. Next checkpoint: Justin
+  reviews whether the large `E22/E37` split gain is physically useful or a
+  sign this ratio is too close to a shortcut/correlation for the main JSTG
+  model story.
 - TOP PRIORITY / CORRECT WP80 RUNTIME CUTS: derive the no-isolation BDT WP80
   thresholds as `E_T`-dependent cuts within centrality bins from the existing
   validation score caches. Show Justin two PNGs before rerunning production:
@@ -76,7 +137,128 @@ Removal` and ask Justin before removing or archiving.
   `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/slideReady/binned_bdt_comparison/cent3/global_noiso_bdt_vs_binned_noiso_bdt_ptCent3_score_separation_by_centrality.png`.
   Next checkpoint: decide whether the binned-BDT comparison belongs in backup
   slides or should remain an internal model-selection note. Do not delete it as
-  obsolete.
+  long as JSTG model-selection plots reference it.
+- ACTIVE SIDECAR / PPG12+CENT ROUTE-ONLY BDT COMPARISON: Justin asked for the
+  current default full feature list (`PPG12_TIGHT_FEATURES + centrality`) to be
+  trained in route-only forms: `3` centrality-bin BDTs, `7` centrality-bin
+  BDTs, and `8` `E_T`-bin BDTs. Important invariant: `cluster_Et` and
+  `centrality` remain in the feature list for every routed model; only the
+  training slice/routing changes. Remote tmux on `sphnxuser02`:
+  `bdt_route_ppg12pluscent_20260518_1210`. Remote driver/log:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/run_global_bdt_route_only_ppg12pluscent_20260518.sh`
+  and
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/bdt_route_ppg12pluscent_20260518_1210.log`.
+  Output root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_route_sidecars/ppg12pluscent_route_only_20260518_1210`.
+  The first wrapper stopped after training because it guessed shortened
+  artifact names, but the registry reported `READY`; Codex verified all `18`
+  registry artifact paths and launched validation manually. Validation DAGMan
+  cluster is `2124225`, first shard workers `2124226-2124273`, with
+  `scoreMax=0`, `groupSize=200`, and `request_memory=5000MB`. Next checkpoint:
+  validation READY, then compare centrality-dependent performance against
+  global PPG12+centrality, original 32-feature global BDT, ETxcent binned BDTs,
+  width ablations, and base-v3E controls.
+- DONE PENDING SLIDE DECISION / SMALL MLP 8x7 ROUTED COMPARISON: Justin asked
+  to train the small baseline MLP in `8 p_{T} x 7 centrality` bins, without changing the full
+  baseline MLP input list. Codex submitted a throttled DAG on `sphnxuser02`:
+  DAGMan cluster `2124222`, first workers `2124223` and `2124224`, with
+  `MAXJOBS train 2` so only two centrality-bin trainers run at once. The sidecar
+  trains `56` models using the exact
+  `MODEL_SPECS["globalEtCent1535_mlp_noIso"].features` list and small
+  `256,128,64` architecture. Output root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/mlp_binned_sidecars/small_ptcent7x8_20260518_1245`.
+  Submit/log roots:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/mlp_small_ptcent7x8_20260518_1245`
+  and
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/log/mlp_small_ptcent7x8_20260518_1245`.
+  14:15 EDT auto-fix update: the original DAG failed because Condor workers did
+  not inherit the ML venv `libpython3.13.so.1.0` library path. Codex cloned the
+  DAG to fresh env-fix root `mlp_small_ptcent7x8_20260518_1415_envfix`, added
+  the CVMFS core lib path to `train_one_cent.sh`, and submitted fixed DAGMan
+  cluster `2124285`; first workers are `2124286` and `2124287`. Fixed output
+  root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/mlp_binned_sidecars/small_ptcent7x8_20260518_1415_envfix`;
+  submit/log roots:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/mlp_small_ptcent7x8_20260518_1415_envfix` and
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/log/mlp_small_ptcent7x8_20260518_1415_envfix`.
+  Immediate post-submit check showed the fixed DAG active, workers executing,
+  `0` held jobs, and no repeated libpython stderr.
+  21:22 EDT validation update: full-stat validation is now `READY` after
+  fixing the merge to evaluate the intended routed score instead of 56
+  standalone global score columns. Report root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/validation/mlp_small_ptcent7x8_fullstat_20260518_1830`.
+  Routed product metrics: AUC `0.849832`, WP80 background fake rate
+  `0.244855`, centrality AUCs `0.824906/0.848032/0.865760`. The single small
+  global MLP remains better on this validation (`0.884875/0.918017/0.941580`
+  centrality AUCs). Local compact artifacts and comparison CSV/PNG:
+  `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/slideReady/mlp56_validation`.
+- ACTIVE SIDECAR / GLOBAL BDT WIDTH-ABLATION CONTROLS: Justin asked to rerun
+  the global baseline BDT on the current Photon12+20 vs Jet12+20+30 sixpack
+  sample with targeted feature removals. Remote tmux:
+  `bdt_width_ablation_20260518_1005` on `sphnxuser02`; log
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/bdt_width_ablation_20260518_1005.log`;
+  output root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_ablation_sidecars/width_ablation_20260518_1005`.
+  It trains two global `15 < cluster_Et < 35 GeV` BDT controls: one removing
+  elongated 3x5/5x3 widths plus width-ratio features while keeping 3x3 widths,
+  and one using the PPG12 25-feature family plus `centrality`. After training,
+  the driver launches standard full-stat validation. Next checkpoint: wait for
+  validation READY email/log, pull compact CSV/JSON/PNG artifacts, and compare
+  AUC/score separation against the current global baseline.
+- ACTIVE SIDECAR / PPG12 BASE_V3E CONTROL GRID: Justin asked for four global
+  BDT controls using the PPG12 `base_v3E` 11-feature photon-ID variant over
+  the current Photon12+20 vs Jet12+20+30 sixpack source with the same 90/10
+  split. Remote tmux: `bdt_basev3e_controls_20260518_1110` on `sphnxuser02`;
+  log
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/bdt_basev3e_controls_20260518_1110.log`;
+  output root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_ablation_sidecars/basev3e_controls_20260518_1110`.
+  Products: `baseBDT_v3E_withCentrality_w33`,
+  `baseBDT_v3E_withOutCentraltiy_w33`, `baseBDT_v3E_withCentrality`, and
+  `baseBDT_v3E_withOutCentraltiy`. Next checkpoint: wait for validation READY,
+  then compare whether centrality and/or w33 widths matter relative to the pure
+  11-feature PPG12 base v3E control.
+- ACTIVE SIDECAR / CURRENT BEST BDT+MLP NN STACK: the old stack artifacts are
+  not part of the clean current Jet12+20+30 story, so Justin asked Codex to
+  rebuild the stack from the best current baseline ingredients. Codex
+  preflighted and submitted a single isolated training-only stack job on
+  `sphnxuser02`: Condor cluster `2124219`, `64GB`, `4` CPUs. It combines the
+  `8 E_T x 7 centrality` routed BDT score
+  `score_globalEtCent1535_bdt_noIso_ptCent7` with the small baseline MLP replay
+  score `score_globalEtCent1535_mlp_noIso`. Preflight read all `95` shards and
+  found no missing full-feature columns. Output root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/stack_current_best_bdt_mlp_20260518_1030`.
+  Log root:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/log/current_best_bdt_mlp_stack_20260518_1030`.
+  12:00 EDT heartbeat found that `2124219` exited immediately because Condor
+  did not inherit the SDCC `LD_LIBRARY_PATH` needed by the ML venv Python
+  (`libpython3.13.so.1.0` missing). Codex resubmitted the same stack with
+  `getenv = True` as cluster `2124220`. Env-fixed output root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/stack_current_best_bdt_mlp_20260518_1202_envfix`;
+  log root:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/log/current_best_bdt_mlp_stack_20260518_1202_envfix`.
+  The env-fixed job then exposed a separate CLI typo: shorthand
+  `--stack-training-safety disjoint` is not accepted by the trainer. Codex
+  cloned a clean safety-fix attempt using
+  `--stack-training-safety disjoint_base_scores_heldout_test` and submitted
+  cluster `2124221`. Safety-fix output root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/stack_current_best_bdt_mlp_20260518_1235_safetyfix`;
+  log root:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/log/current_best_bdt_mlp_stack_20260518_1235_safetyfix`.
+  Immediate post-submit check showed `2124221.0` idle with no hold reason.
+  14:15 EDT auto-fix update: `2124221` failed with unknown stack variant
+  `meta15to35_bdtMlp_full`. Codex cloned the sidecar to fresh root
+  `current_best_bdt_mlp_stack_20260518_1415_variantfix`, changed the variant to
+  `ptFine15to35_cent7_full`, added the CVMFS core lib path for the ML venv
+  Python, and submitted fixed cluster `2124284`. Fixed output root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/stack_current_best_bdt_mlp_20260518_1415_variantfix`;
+  log root:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/log/current_best_bdt_mlp_stack_20260518_1415_variantfix`.
+  Post-submit check showed `2124284` active with `0` held and empty stderr.
+  Next checkpoint: watch cluster `2124284` for start/hold/READY, then compare
+  stack AUC and centrality-dependent behavior to the routed BDT and small MLP.
+  Do not promote to WP80/RecoilJets production until Justin reviews the stack
+  validation plots.
 - TOP PRIORITY / PP CROSS-CHECK: run the no-centrality-as-feature BDT
   validation in pp, using the combined SIM photon-jet `5+10+20` signal sample
   and the corresponding inclusive-jet background counterpart. Goal: check the

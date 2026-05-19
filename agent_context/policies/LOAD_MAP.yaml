@@ -1,0 +1,171 @@
+version: 2026-05-18
+purpose: >
+  Fast routing map for Codex in ThesisAnalysis. Use this after reading
+  AGENTS.md to decide which long-term policy files to load.
+
+always_hot_state:
+  - agent_context/TASK_BOARD.md
+  - agent_context/STATUS_DASHBOARD.md
+
+conditional_hot_state:
+  memory_design:
+    - agent_context/policies/AGENT_MEMORY_DESIGN_NOTES.md
+    - agent_context/policies/LEGACY_AGENTS_COVERAGE.md
+  dataset_validity:
+    - codex_notes/PROJECT_BOARD.md
+    - codex_notes/DATASET_STATUS.md
+    - codex_notes/KNOWN_ISSUES.md
+    - codex_notes/RUN_LOG.md
+  slide_style:
+    - agent_context/SLIDE_STYLE_MAP.md
+  science_references:
+    - agent_context/REFERENCE_MAP.md
+
+routes:
+  duplicate_sensitive_run:
+    triggers:
+      - train
+      - training
+      - production
+      - RecoilJets
+      - validation
+      - merge
+      - rerun
+      - submit
+      - generate a new analysis
+    load:
+      - agent_context/policies/HARD_STOPS_AND_SAFETY.md
+      - agent_context/policies/DUPLICATE_RUN_GUARD.md
+      - agent_context/policies/SDCC_OPERATIONS.md
+      - agent_context/policies/MEMORY_AND_STATUS.md
+      - agent_context/policies/STORAGE_AND_CLEANUP.md
+    first_actions:
+      - Build a run fingerprint from requested dataset, model, features, cuts,
+        tag, config YAML, source paths, output roots, and objective.
+      - Search hot state, dataOutput, InputFiles, and relevant SDCC/Gmail
+        evidence for materially equivalent runs.
+      - Stop and report immediately if a match exists.
+
+  sdcc_status:
+    triggers:
+      - status
+      - stuck
+      - held
+      - finished
+      - what is going on
+      - watchdog
+      - heartbeat
+    load:
+      - agent_context/policies/EMAIL_AND_WATCHDOGS.md
+      - agent_context/policies/SDCC_OPERATIONS.md
+      - agent_context/policies/MEMORY_AND_STATUS.md
+    first_actions:
+      - Check RecoilJets Pipeline Gmail first for active campaigns.
+      - Then inspect visible terminal or one compact nested SSH diagnostic.
+
+  plotting:
+    triggers:
+      - plot
+      - PNG
+      - figure
+      - slide-ready
+      - visualize
+    load:
+      - agent_context/policies/PLOTTING.md
+      - agent_context/policies/INPUTS_AND_ENVIRONMENT.md
+      - agent_context/policies/SCIENCE_REFERENCE_HIERARCHY.md
+    first_actions:
+      - Identify source data and provenance.
+      - Reuse existing plotting infrastructure.
+      - View generated PNGs before calling them ready.
+
+  slides:
+    triggers:
+      - Google Slides
+      - deck
+      - slide
+      - presentation
+      - JSTG
+    load:
+      - agent_context/policies/SLIDES_WORKFLOW.md
+      - agent_context/policies/PLOTTING.md
+    first_actions:
+      - Resolve deck ID and slide object ID.
+      - Prefer connector reads and thumbnails.
+      - Do not use Computer Use without explicit per-session permission.
+
+  transfer:
+    triggers:
+      - upload
+      - sftp
+      - push to SDCC
+      - pull outputs
+      - get outputs
+      - in sync
+    load:
+      - agent_context/policies/TRANSFER_AND_PIPELINE_FILES.md
+      - agent_context/policies/SDCC_OPERATIONS.md
+    first_actions:
+      - Classify as status, diff, upload, download, local-only merge, or
+        commit-push after upload.
+      - Use the smallest helper command that covers the intended files.
+
+  tools_dependencies:
+    triggers:
+      - missing tool
+      - dependency
+      - plugin
+      - browser
+      - gmail
+      - drive
+      - slides connector
+    load:
+      - agent_context/policies/TOOLS_AND_DEPENDENCIES.md
+    first_actions:
+      - Prefer existing project wrappers, scripts, skills, and connector tools.
+      - Ask before installing software or changing global environment state.
+
+  collaboration_handoffs:
+    triggers:
+      - handoff
+      - delegate
+      - subagent
+      - Claude
+      - parallel lanes
+    load:
+      - agent_context/policies/COLLABORATION_AND_HANDOFFS.md
+    first_actions:
+      - Keep lanes disjoint and handoffs compact.
+      - Preserve Codex ownership of orchestration and final integration.
+
+  cleanup:
+    triggers:
+      - cleanup
+      - quota
+      - stale
+      - remove outputs
+      - storage
+      - delete
+    load:
+      - agent_context/policies/STORAGE_AND_CLEANUP.md
+      - agent_context/policies/MEMORY_AND_STATUS.md
+      - agent_context/policies/SDCC_OPERATIONS.md
+    first_actions:
+      - Separate live/protected, useful small evidence, offline/compress, and
+        safe-to-remove-after-approval.
+
+  dataset_validity:
+    triggers:
+      - stale
+      - valid
+      - ABCD
+      - purity
+      - tight-axis
+      - dataset
+    load:
+      - agent_context/policies/CURRENT_PROJECT_STATE.md
+      - agent_context/policies/SCIENCE_REFERENCE_HIERARCHY.md
+      - agent_context/policies/MEMORY_AND_STATUS.md
+    first_actions:
+      - Check whether requested plots/outputs consume affected histogram
+        families before warning broadly.

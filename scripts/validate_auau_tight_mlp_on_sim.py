@@ -7,6 +7,7 @@ import argparse
 import json
 import math
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -41,6 +42,9 @@ MANDATORY_CACHE_COLUMNS = ["is_signal", "cluster_Et", "cluster_Eta", "centrality
 EFFICIENCY_TARGETS = [0.50, 0.70, 0.80, 0.90, 0.95]
 DEFAULT_PT_BINS = [(15.0, 20.0), (20.0, 25.0), (25.0, 35.0)]
 DEFAULT_CENT_BINS = [(0.0, 20.0), (20.0, 50.0), (50.0, 80.0)]
+ROUTED_PRODUCT_RE = re.compile(
+    r"^(?P<prefix>.+)_pt(?P<ptlo>[0-9p]+)to(?P<pthi>[0-9p]+)_cent(?P<centlo>[0-9p]+)to(?P<centhi>[0-9p]+)$"
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -60,6 +64,12 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--no-plots", action="store_true")
     ap.add_argument("--pt-bins", default=os.environ.get("RJ_AUAU_TIGHT_MLP_VALIDATE_PT_BINS", ""))
     ap.add_argument("--centrality-bins", default=os.environ.get("RJ_AUAU_TIGHT_MLP_VALIDATE_CENTRALITY_BINS", ""))
+    ap.add_argument(
+        "--working-point-mode",
+        choices=("pt", "centpt"),
+        default=os.environ.get("RJ_AUAU_TIGHT_MLP_WP_MODE", "pt"),
+        help="Derive target-efficiency working points in pT only or in a pT x centrality grid.",
+    )
     ap.add_argument("--score-max-rows", type=int, default=int(os.environ.get("RJ_AUAU_TIGHT_MLP_VALIDATE_SCORE_MAX_ROWS", "300000")))
     ap.add_argument("--max-files-per-sample", type=int, default=int(os.environ.get("RJ_AUAU_TIGHT_MLP_VALIDATE_MAX_FILES_PER_SAMPLE", "0")))
     ap.add_argument("--random-seed", type=int, default=int(os.environ.get("RJ_AUAU_TIGHT_MLP_VALIDATE_RANDOM_SEED", "137")))
@@ -155,6 +165,65 @@ def product_specs_from_registry(model_dir: Path, registry_path: Path | None = No
     if not specs:
         raise SystemExit(f"Registry exists but has no trained MLP reports: {registry}")
     return specs
+
+
+def _name_number(value: str) -> float:
+    return float(value.replace("p", "."))
+
+
+def routed_cache_config_from_registry(registry_path: Path | None):
+    if registry_path is None or not registry_path.is_file():
+        return None
+    data = json.loads(registry_path.read_text())
+    routing = data.get("routing") or {}
+    if not routing or "pt_bins" not in routing or "centrality_bins" not in routing:
+        return None
+    routes = []
+    prefixes = []
+    features = []
+    label = None
+    for model in data.get("models", []):
+        if model.get("report", {}).get("status") == "skipped":
+            continue
+        product = model.get("product", "")
+        match = ROUTED_PRODUCT_RE.match(product)
+        if not match:
+            continue
+        prefix = match.group("prefix")
+        prefixes.append(prefix)
+        features.extend(model.get("features", []))
+        if label is None:
+            label = model.get("label")
+        routes.append(
+            {
+                "product": product,
+                "pt_lo": _name_number(match.group("ptlo")),
+                "pt_hi": _name_number(match.group("pthi")),
+                "cent_lo": _name_number(match.group("centlo")),
+                "cent_hi": _name_number(match.group("centhi")),
+            }
+        )
+    expected = len(routing.get("pt_bins", [])) * len(routing.get("centrality_bins", []))
+    if not routes or (expected and len(routes) != expected):
+        return None
+    prefix = prefixes[0]
+    if any(p != prefix for p in prefixes):
+        return None
+    feature_list = []
+    for feature in features:
+        if feature not in feature_list:
+            feature_list.append(feature)
+    route_label = (
+        f"Small 256,128,64 MLP routed in 8 p_{{T}} x 7 centrality bins; "
+        f"{len(routes)} MLPs; {len(feature_list)} features"
+    )
+    return {
+        "product": prefix,
+        "variant": route_label if routing.get("type") == "ptCent7x8" else (label or f"{prefix} routed score"),
+        "routes": routes,
+        "features": feature_list,
+        "routing": routing,
+    }
 
 
 def load_models(model_dir: Path, product_specs):
@@ -355,11 +424,17 @@ def write_score_cache(path: Path, frame, scores, counts):
     print(f"[validateAuAuTightMLP] wrote score cache: {path}", flush=True)
 
 
-def load_score_caches(cache_manifest: Path):
+def load_score_caches(cache_manifest: Path, routed_score_config=None):
     import numpy as np
 
     cache_paths = read_manifest(cache_manifest)
-    frame_parts = {name: [] for name in ["is_signal"] + DIAGNOSTIC_FEATURES}
+    # Full-stat validation caches can contain O(10M) rows.  The merge step only
+    # needs the mandatory columns below for AUC, pT/centrality binning, and
+    # score-vs-isolation correlation, so avoid concatenating every diagnostic
+    # feature unless explicitly requested for a one-off study.
+    load_full_diagnostics = os.environ.get("RJ_AUAU_TIGHT_MLP_MERGE_FULL_DIAGNOSTICS", "0") == "1"
+    cache_columns = ["is_signal"] + (DIAGNOSTIC_FEATURES if load_full_diagnostics else [c for c in MANDATORY_CACHE_COLUMNS if c != "is_signal"])
+    frame_parts = {name: [] for name in cache_columns}
     score_parts = {}
     counts = {
         "files": 0,
@@ -376,14 +451,42 @@ def load_score_caches(cache_manifest: Path):
     for idx, path in enumerate(cache_paths, 1):
         print(f"[validateAuAuTightMLP] merging score cache {idx}/{len(cache_paths)}: {path}", flush=True)
         with np.load(path, allow_pickle=True) as data:
-            for name in ["is_signal"] + DIAGNOSTIC_FEATURES:
+            for name in cache_columns:
                 if name in data:
                     frame_parts[name].append(data[name])
                 elif name in MANDATORY_CACHE_COLUMNS:
                     raise SystemExit(f"Missing diagnostic column {name} in score cache: {path}")
-            for key in data.files:
-                if key.startswith("score_"):
-                    score_parts.setdefault(key[len("score_"):], []).append(data[key])
+            if routed_score_config is not None:
+                et = data["cluster_Et"].astype("float64")
+                cent = data["centrality"].astype("float64")
+                routed = np.full(len(et), np.nan, dtype="float32")
+                filled = np.zeros(len(et), dtype=bool)
+                for route in routed_score_config["routes"]:
+                    key = f"score_{route['product']}"
+                    if key not in data:
+                        raise SystemExit(f"Missing routed score column {key} in score cache: {path}")
+                    mask = (
+                        np.isfinite(et)
+                        & np.isfinite(cent)
+                        & (et >= route["pt_lo"])
+                        & (et < route["pt_hi"])
+                        & (cent >= route["cent_lo"])
+                        & (cent < route["cent_hi"])
+                    )
+                    if mask.any():
+                        routed[mask] = data[key][mask].astype("float32")
+                        filled[mask] = True
+                score_parts.setdefault(routed_score_config["product"], []).append(routed)
+                counts.setdefault("routed_score_filled_entries", 0)
+                counts["routed_score_filled_entries"] += int(filled.sum())
+                if os.environ.get("RJ_AUAU_TIGHT_MLP_KEEP_ROUTE_COMPONENT_METRICS", "0") == "1":
+                    for key in data.files:
+                        if key.startswith("score_"):
+                            score_parts.setdefault(key[len("score_"):], []).append(data[key])
+            else:
+                for key in data.files:
+                    if key.startswith("score_"):
+                        score_parts.setdefault(key[len("score_"):], []).append(data[key])
             cached_counts = json.loads(str(data["counts_json"].item())) if "counts_json" in data else {}
             for key in ("files", "total_entries", "signal_entries", "background_entries", "scored_entries", "scored_signal_entries", "scored_background_entries"):
                 counts[key] += int(cached_counts.get(key, 0))
@@ -395,6 +498,20 @@ def load_score_caches(cache_manifest: Path):
             frame[name] = np.concatenate(parts) if parts else np.array([], dtype="float32")
     scores = {product: np.concatenate(parts) if parts else np.array([], dtype="float32") for product, parts in score_parts.items()}
     counts["scored_entries"] = int(len(frame["is_signal"]))
+    if routed_score_config is not None:
+        product = routed_score_config["product"]
+        domain = np.isfinite(scores[product])
+        counts["routed_score_product"] = product
+        counts["routed_score_routes"] = len(routed_score_config["routes"])
+        counts["routed_score_entries_before_domain_filter"] = int(len(domain))
+        counts["routed_score_domain_entries"] = int(domain.sum())
+        if os.environ.get("RJ_AUAU_TIGHT_MLP_KEEP_ROUTE_OUT_OF_DOMAIN_ROWS", "0") != "1":
+            frame = {name: values[domain] for name, values in frame.items()}
+            scores = {name: values[domain] for name, values in scores.items()}
+            labels = frame["is_signal"].astype("int32")
+            counts["scored_entries"] = int(len(labels))
+            counts["scored_signal_entries"] = int((labels == 1).sum())
+            counts["scored_background_entries"] = int((labels == 0).sum())
     return frame, scores, counts
 
 
@@ -467,20 +584,111 @@ def build_metrics(frame, scores, product_specs, args):
     return metrics
 
 
-def derive_working_points(frame, scores, product_specs, target: float, pt_bins: list[tuple[float, float]] | None = None):
+def derive_working_points(
+    frame,
+    scores,
+    product_specs,
+    target: float,
+    pt_bins: list[tuple[float, float]] | None = None,
+    cent_bins: list[tuple[float, float]] | None = None,
+    mode: str = "pt",
+):
     import numpy as np
 
     y = np.asarray(frame["is_signal"], dtype="int32")
     et = np.asarray(frame["cluster_Et"], dtype="float64")
+    cent = np.asarray(frame["centrality"], dtype="float64")
     pt_bins = pt_bins or list(DEFAULT_PT_BINS)
+    cent_bins = cent_bins or list(DEFAULT_CENT_BINS)
     manifest = {
         "schema": "RJ_AUAU_TIGHT_MLP_WORKING_POINTS_V1",
         "target_signal_efficiency": float(target),
+        "working_point_mode": mode,
         "entries": [],
         "runtime_entries": [],
     }
     for product, score in scores.items():
         variant = product_specs.get(product, {}).get("variant", product)
+        if mode == "centpt":
+            global_report = threshold_for_signal_efficiency(y, score, target)
+            if global_report is None:
+                continue
+            pt_edges = [pt_bins[0][0]] + [hi for _, hi in pt_bins]
+            cent_edges = [cent_bins[0][0]] + [hi for _, hi in cent_bins]
+            thresholds = []
+            eff_grid = []
+            fake_grid = []
+            cells = []
+            for clo, chi in cent_bins:
+                eff_row = []
+                fake_row = []
+                for plo, phi in pt_bins:
+                    mask = (
+                        np.isfinite(et)
+                        & np.isfinite(cent)
+                        & (et >= plo)
+                        & (et < phi)
+                        & (cent >= clo)
+                        & (cent < chi)
+                    )
+                    report = threshold_for_signal_efficiency(y[mask], score[mask], target)
+                    source = "cell"
+                    if report is None:
+                        report = global_report
+                        source = "global_fallback"
+                    thr = float(report["threshold"])
+                    thresholds.append(thr)
+                    sig_mask = mask & (y == 1) & np.isfinite(score)
+                    bkg_mask = mask & (y == 0) & np.isfinite(score)
+                    sig_eff = float(np.mean(score[sig_mask] >= thr)) if sig_mask.any() else math.nan
+                    bkg_fake = float(np.mean(score[bkg_mask] >= thr)) if bkg_mask.any() else math.nan
+                    eff_row.append(sig_eff)
+                    fake_row.append(bkg_fake)
+                    cells.append(
+                        {
+                            "centrality_min": float(clo),
+                            "centrality_max": float(chi),
+                            "pt_min": float(plo),
+                            "pt_max": float(phi),
+                            "threshold": thr,
+                            "signal_efficiency": sig_eff,
+                            "background_fake_rate": bkg_fake,
+                            "signal_entries": int(np.sum(sig_mask)),
+                            "background_entries": int(np.sum(bkg_mask)),
+                            "source": source,
+                        }
+                    )
+                eff_grid.append(eff_row)
+                fake_grid.append(fake_row)
+            edge_s = ";".join(f"{x:.10g}" for x in pt_edges)
+            cent_s = ";".join(f"{x:.10g}" for x in cent_edges)
+            thr_s = ";".join(f"{x:.10g}" for x in thresholds)
+            runtime = f"{variant}|grid2d|{edge_s}|{cent_s}|{thr_s}|{pt_edges[0]:.10g}|{pt_edges[-1]:.10g}|1"
+            manifest["runtime_entries"].append(runtime)
+            finite_eff = [c["signal_efficiency"] for c in cells if math.isfinite(c["signal_efficiency"])]
+            manifest["entries"].append(
+                {
+                    "product": product,
+                    "variant": variant,
+                    "mode": "grid2d",
+                    "pt_edges": [float(x) for x in pt_edges],
+                    "cent_edges": [float(x) for x in cent_edges],
+                    "grid_thresholds": [thresholds[i : i + len(pt_bins)] for i in range(0, len(thresholds), len(pt_bins))],
+                    "grid_signal_efficiency": eff_grid,
+                    "grid_background_fake_rate": fake_grid,
+                    "cells": cells,
+                    "fit_quality": {
+                        "max_abs_cell_efficiency_error": float(np.max(np.abs(np.asarray(finite_eff) - target))) if finite_eff else math.nan,
+                        "mean_abs_cell_efficiency_error": float(np.mean(np.abs(np.asarray(finite_eff) - target))) if finite_eff else math.nan,
+                        "min_cell_signal_entries": int(min((c["signal_entries"] for c in cells), default=0)),
+                        "min_cell_background_entries": int(min((c["background_entries"] for c in cells), default=0)),
+                        "fallback_cells": int(sum(1 for c in cells if c["source"] != "cell")),
+                    },
+                    "runtime_entry": runtime,
+                }
+            )
+            continue
+
         thresholds = []
         edges = [pt_bins[0][0]]
         bin_reports = []
@@ -679,7 +887,15 @@ def main() -> int:
             raise SystemExit(f"Missing score cache manifest for WP derivation: {scores_manifest}")
         frame, scores, counts = load_score_caches(scores_manifest)
         product_specs = {p: {"variant": (json.loads(metrics_path.read_text()).get("products", {}).get(p, {}).get("variant", p))} for p in scores}
-        manifest = derive_working_points(frame, scores, product_specs, args.target_signal_efficiency, validation_pt_bins(args))
+        manifest = derive_working_points(
+            frame,
+            scores,
+            product_specs,
+            args.target_signal_efficiency,
+            validation_pt_bins(args),
+            validation_centrality_bins(args),
+            args.working_point_mode,
+        )
         json_path, frag_path = write_working_point_outputs(report_dir, manifest)
         print(f"[validateAuAuTightMLP] wrote {json_path}")
         print(f"[validateAuAuTightMLP] wrote {frag_path}")
@@ -710,8 +926,20 @@ def main() -> int:
                 product_specs[key] = {"variant": MODEL_SPECS.get(product, {}).get("variant", product)}
         (outdir / "score_caches_source.list").write_text(args.rescore_score_caches.read_text())
     elif args.merge_score_caches is not None:
-        frame, scores, counts = load_score_caches(args.merge_score_caches)
-        product_specs = {product: {"variant": MODEL_SPECS.get(product, {}).get("variant", product)} for product in scores}
+        routed_score_config = routed_cache_config_from_registry(args.model_registry)
+        frame, scores, counts = load_score_caches(args.merge_score_caches, routed_score_config)
+        if routed_score_config is not None:
+            product_specs = {
+                routed_score_config["product"]: {
+                    "variant": routed_score_config["variant"],
+                    "features": routed_score_config["features"],
+                    "filename": "",
+                }
+            }
+            for product in scores:
+                product_specs.setdefault(product, {"variant": MODEL_SPECS.get(product, {}).get("variant", product)})
+        else:
+            product_specs = {product: {"variant": MODEL_SPECS.get(product, {}).get("variant", product)} for product in scores}
     else:
         if args.sweep_manifest is not None:
             models, product_specs = load_sweep_models(args.sweep_manifest)
@@ -764,7 +992,15 @@ def main() -> int:
         (outdir / "score_caches.list").write_text(str(full_cache) + "\n")
 
     metrics = build_metrics(frame, scores, product_specs, args)
-    wp_manifest = derive_working_points(frame, scores, product_specs, args.target_signal_efficiency, validation_pt_bins(args))
+    wp_manifest = derive_working_points(
+        frame,
+        scores,
+        product_specs,
+        args.target_signal_efficiency,
+        validation_pt_bins(args),
+        validation_centrality_bins(args),
+        args.working_point_mode,
+    )
     wp_json, wp_frag = write_working_point_outputs(outdir, wp_manifest)
     write_curve_exports(outdir, frame, scores, metrics)
     rank_csv, rank_md = write_ranking_table(outdir, metrics)

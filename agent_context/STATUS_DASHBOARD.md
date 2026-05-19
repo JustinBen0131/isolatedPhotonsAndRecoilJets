@@ -8,6 +8,493 @@ user statement.
 
 Latest active update:
 
+- 2026-05-18 23:15 EDT / RAW `E_T^iso` WATCHDOG RESUMED BEHIND CLEAN BACKGROUND FANOUT:
+  Gmail `RecoilJets Pipeline` had `0` unread messages. Compact status on
+  `sphnxuser02` showed the corrected `ptCent7BDT` background fanout clusters
+  all running with `0` held after the live background YAML patch:
+  `2124516`, `2124517`, and `2124518` each had `1429` running jobs with
+  `RequestMemory=16000`. The live override YAML now contains explicit
+  `auau_tight_bdt_pt_bin_edges`, `auau_tight_bdt_cent7_edges`,
+  `auau_tight_bdt_ptCent7_model_files`,
+  `auau_tight_bdt_ptCent7_fallback_model_files`,
+  `auau_tight_bdt_centDep_features`, and `auau_tight_bdt_working_point_entries`.
+  The raw cone-ablation tmux session was not active, so Codex relaunched the
+  guarded driver as `eiso_cone_raw_resume_20260518_2318`. Log evidence:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/eiso_cone_raw_20260518_2220.log`
+  now reports `waiting for guarded clusters to clear: active=4287`. The driver
+  is intentionally waiting on `2124439`, `2124440`, `2124516`, `2124517`, and
+  `2124518` before submitting fresh raw `reco_eiso_r30`/`reco_eiso_r40`
+  extraction, training, applyCheck, and validation.
+
+- 2026-05-18 22:30 EDT / ABCD-SAFE SHOWER-RESIDUAL BDT SIDECAR SUBMITTED:
+  Justin asked for a more aggressive but still isolation-independent shower-shape
+  ablation on the best BDT routing. Codex patched
+  `scripts/train_auau_photon_bdt.py` and
+  `scripts/validate_auau_tight_bdt_on_sim.py` with campaign
+  `shape-residual-ptcent7`, adding five derived shape/template features:
+  `shape_tail_e37_e53_logratio`, `shape_long_tail_e17_e71_logratio`,
+  `shape_width_core_full_logratio`, `shape_core_tail_tension`, and
+  `shape_compactness_gradient`, plus template-distance diagnostics
+  `shape_template_diag_chi2` and `shape_template_max_abs_z`. The clean
+  training grid is `280` models: five variants x `8 p_{T}` bins x `7`
+  centrality bins over `15-35 GeV`. Variants are full 32-feature routed BDT +
+  residuals, full 32-feature routed BDT + template distance, full 32-feature
+  routed BDT + all residual/template features, compact Base v3E+w33+centrality
+  + template distance, and compact Base v3E+w33+centrality + all
+  residual/template features. Codex also patched
+  `scripts/auau_tight_bdt_pipeline.sh` so trusted registry-derived manifests
+  can bypass slow recursive bulk `find` / redundant tree checks, and patched
+  `scripts/train_auau_photon_bdt.py` with
+  `RJ_AUAU_BDT_SKIP_INPUT_EXISTENCE_CHECK=1` support for plan-only registry
+  manifests. False-start DAG `2124441` was removed because it used the generic
+  lower-`p_{T}` default and planned `385` models. Clean active DAGMan cluster:
+  `2124444`; first cache worker: `2124445`; submit root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTExpanded_20260518_222930`;
+  model root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_ablation_sidecars/shape_residual_ptcent7_20260518_222929/bdt_models`;
+  log:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/bdt_shape_residual_ptcent7_20260518_222929.log`.
+  Manifest came from the prior READY binned-BDT registry and contains `9429`
+  training ROOTs from Photon12+20 signal and Jet12+20+30 inclusive background.
+  Immediate compact check showed DAGMan and cache worker running, with `0` held
+  jobs for `patsfan753`. Next checkpoint: wait for cache completion, then
+  `70` training shards, final registry merge, and full-stat validation against
+  the current non-isolation-input BDT set.
+
+- 2026-05-18 22:14 EDT / RAW `E_T^iso` R=0.3/R=0.4 BINNED-BDT ABLATION QUEUED BEHIND ACTIVE PRODUCTION:
+  Justin asked to rerun the isolation-input binned BDT variants using pure raw
+  `E_T^iso` inputs only, not log or ratio engineered isolation variables. Codex
+  patched `src_AuAu/RecoilJets_AuAu.{h,cc}` so new AuAu training trees and
+  runtime scoring can expose cone-specific `reco_eiso_r30` and
+  `reco_eiso_r40`, and patched `scripts/train_auau_photon_bdt.py` with campaign
+  `etcent-binned-eiso-cone-ablation`. The planned grid is `160` models:
+  raw R=0.3 only in `8 E_T x 3 cent` and `8 E_T x 7 cent`, plus raw
+  R=0.3+R=0.4 in the same two routing schemes. Remote syntax check and
+  `src_AuAu` rebuild succeeded on `sphnxuser02`.
+  During prelaunch, current `ptCent7BDT` target-80 production clusters
+  `2124439`/`2124440` exposed a generated-YAML bug: the config had the 2D WP80
+  thresholds but lacked the explicit routed model-file lists and inherited an
+  old 11-feature template list for 32-feature binned models. Codex patched
+  `scripts/make_auau_bdt_target_wp_config.py` to emit `pt_bin_edges`,
+  centrality edges, explicit `ptCent3/ptCent7` model files, fallback model
+  files when required by the runtime mode, and the true feature list read from
+  model metadata. The live `2124439/2124440` override YAML was regenerated and
+  held jobs were released; compact check at 22:14 EDT showed `2124439` and
+  `2124440` both running with `0` held. New guarded tmux driver:
+  `eiso_cone_raw_20260518_2220`; script:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/run_auau_eiso_cone_raw_ablation_20260518_2220.sh`;
+  log:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/eiso_cone_raw_20260518_2220.log`.
+  The driver is intentionally waiting for `2124439/2124440` to clear before it
+  submits fresh extraction. After that it will run extraction with
+  Photon12+20 signal and Jet12+20+30 background, verify the raw R=0.3/R=0.4
+  branches exist, train the 160-model cone-ablation campaign, run `applyCheck`,
+  and submit full validation. Protected output root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_binned_sidecars/eiso_cone_raw_20260518_2220`.
+
+- 2026-05-18 20:15 EDT / E22 RATIO ABLATION VALIDATION READY + COMPACT PLOTS PULLED:
+  Full-stat validation for the three compact E22-ratio BDT controls reached
+  `status=READY` on `sphnxuser02`. Parseable summary:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_ablation_sidecars/basev3e_w33_e22ratio_20260518_192630/validation/validation_summary.txt`.
+  It scored `15524917` entries (`8554378` signal, `6970539` background), with
+  finite score fraction `1` for all products. Inclusive AUCs:
+  `baseBDT_v3E_withCentrality_w33_E22E37 = 0.833319`,
+  `baseBDT_v3E_withCentrality_w33_E22E53 = 0.829992`,
+  `baseBDT_v3E_withCentrality_w33_E22E37_E22E53 = 0.837602`. Codex pulled only
+  compact artifacts locally under
+  `/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/validation/basev3e_w33_e22ratio_20260518_192630`
+  and did not pull the `1.9G` remote score-cache directory. For the
+  `E22/E37`-only model, Codex generated slide-ready diagnostics under
+  `slideReady/basev3e_w33_e22ratio_diagnostics/`:
+  `basev3e_w33_E22E37_split_gain_usage.png` and
+  `basev3e_w33_E22E37_energy_ratio_overlays_by_cent.png`. The split-gain plot
+  shows `E22/E37` dominating the tree usage at `47.4%` of total split gain,
+  followed by base width/context inputs. The overlay table uses full-stat
+  remote score caches to histogram the energy-ratio inputs in split-gain order
+  (`E22/E37`, `E32/E35`, `E11/E33`) across the `0-20`, `20-50`, and `50-80%`
+  centrality bins. Justin then asked for the two-ratio model as well; Codex
+  generated `energy_ratio_histograms_E22E37_E22E53_fullstat.csv` remotely from
+  the same score caches, pulled only that compact CSV, and produced
+  `basev3e_w33_E22E37_E22E53_split_gain_usage.png` plus
+  `basev3e_w33_E22E37_E22E53_energy_ratio_overlays_by_cent.png`. In the
+  two-ratio model, split gain is `38.2%` from `E22/E37` and `18.7%` from
+  `E22/E53`, so both are heavily used, with `E22/E37` still dominant.
+
+- 2026-05-18 20:00 EDT / BASE v3E + 3x3 WIDTHS + E22 RATIO ABLATION VALIDATION SUBMITTED:
+  The three requested compact BDT controls trained successfully under
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_ablation_sidecars/basev3e_w33_e22ratio_20260518_192630`.
+  Products present: `baseBDT_v3E_withCentrality_w33_E22E37`,
+  `baseBDT_v3E_withCentrality_w33_E22E53`, and
+  `baseBDT_v3E_withCentrality_w33_E22E37_E22E53`. The first wrapper reached
+  training but failed at validation handoff because `applyCheck`/validation
+  looked for the default registry (`centINDcontrol`) instead of the custom
+  ablation registry; this was a wrapper/registry bug, not a model-training
+  failure. Codex resubmitted full-stat BDT validation directly with explicit
+  `MODEL_REGISTRY=/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_ablation_sidecars/basev3e_w33_e22ratio_20260518_192630/bdt_models/model_registry.json`.
+  Validation report root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_ablation_sidecars/basev3e_w33_e22ratio_20260518_192630/validation`.
+  Submit root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTValidate_basev3e_e22ratio_20260518_2000`.
+  The validator found `9429` ROOT files and `48` shards with `groupSize=200`,
+  `scoreMax=0`, and `request_memory=5000MB`. DAGMan cluster: `2124387`.
+  Immediate post-submit queue check on `sphnxuser02` showed `2124387.0`
+  running and `0` held. Next checkpoint: watch for worker clusters, then
+  `validation_summary.txt` / `validation_metrics.json` READY/CHECK/FAILED.
+  When READY, pull compact CSV/JSON/PNG artifacts locally and compare AUC/score
+  separation against `baseBDT_v3E_withCentrality_w33`.
+
+- 2026-05-18 19:30 EDT / BASE v3E + 3x3 WIDTHS + E22 RATIO ABLATION STARTED:
+  Justin asked for three new compact BDT controls to test whether the dominant
+  32-feature split-gain variables explain the performance gain. Codex patched
+  and uploaded `scripts/train_auau_photon_bdt.py` with campaign
+  `basev3e-e22-ablation`, plus readable validator labels in
+  `scripts/validate_auau_tight_bdt_on_sim.py`. Local and remote plan checks
+  produced exactly three specs. Remote tmux on `sphnxuser02`:
+  `bdt_basev3e_e22_20260518_192630`; driver
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/run_global_bdt_basev3e_e22_sidecars_20260518_192630.sh`;
+  log
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/bdt_basev3e_e22_sidecars_20260518_192630.log`.
+  Output root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_ablation_sidecars/basev3e_w33_e22ratio_20260518_192630`.
+  Products: `baseBDT_v3E_withCentrality_w33_E22E37`
+  (`baseV3E + centrality + weta33/wphi33 + E22/E37`),
+  `baseBDT_v3E_withCentrality_w33_E22E53`
+  (`baseV3E + centrality + weta33/wphi33 + E22/E53`), and
+  `baseBDT_v3E_withCentrality_w33_E22E37_E22E53` (both ratios). The driver
+  trains with the same default global-sixpack XGBoost settings
+  (`450` trees, depth `4`, learning rate `0.035`, 90/10 split, seed `13`),
+  verifies with `applyCheck`, submits full-stat `validateOnSimCondor`
+  (`groupSize=200`, `scoreMax=0`, `request_memory=5000MB`), then polls for
+  `validation_summary.txt`. A first launch was immediately stopped and
+  corrected because the run root was missing the `20260516_135439` stamp; the
+  relaunched driver now points at the correct protected sixpack root. Next
+  checkpoint: wait for training artifacts, validation DAG cluster ID, and final
+  READY/CHECK summary.
+
+- 2026-05-18 18:33 EDT / MLP56 FULL-STAT VALIDATION SUBMITTED:
+  Justin requested full validation of the finalized `8 p_T x 7 centrality`
+  small-MLP registry and comparison to the single global MLP. Gmail
+  `RecoilJets Pipeline` had `0` unread messages. Preflight on `sphnxuser02`
+  confirmed registry status `READY`, `56` models/products, routing
+  `ptCent7x8`. Submitted full-stat `validateOnSimCondor` with
+  `totalScoreMaxRows 0`, `groupSize 200`, and `request_memory=7000MB` using
+  source
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/globalEtCentInclusive3Sixpack_20260516_135439`,
+  model registry
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/mlp_binned_sidecars/small_ptcent7x8_20260518_1415_envfix/mlp_models/model_registry.json`,
+  and report root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/validation/mlp_small_ptcent7x8_fullstat_20260518_1830`.
+  The validator found `9429` ROOT files and `48` shards. DAGMan cluster:
+  `2124326`; first worker clusters include `2124327-2124374`. Immediate
+  post-submit check showed `66` active/running, `46` idle, and `0` held
+  relevant jobs. Comparison target for the single global MLP is the existing
+  full-stat report
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/validation/mlp_noIso_small_replay_256_128_64`
+  unless Justin asks to compare against the large official MLP instead.
+  Next checkpoint: when `validation_summary.txt` and `validation_metrics.json`
+  appear for `mlp_small_ptcent7x8_fullstat_20260518_1830`, generate the
+  side-by-side AUC/centrality and score-separation comparison against the
+  single global MLP, pulling only CSV/JSON/PNG/TXT artifacts locally.
+
+- 2026-05-18 18:25 EDT / LIVE PROGRESS CHECK AND MLP56 FINALIZE FIX:
+  Gmail `RecoilJets Pipeline` had `0` unread messages. Read-only SDCC check on
+  `sphnxuser02` found `0` held jobs for `patsfan753`. The corrected Base v3E
+  target-80 raw fanout is drained: signal clusters `2124299/2124300` and
+  inclusive clusters `2124307/2124308/2124310` are no longer active. No final
+  stitched ROOTs were present yet under
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/output_basev3e_centinput_target80_pt8cent3_isoFix_20260518_154740`,
+  so Codex launched the first-round SIM merge with the correct
+  `MERGE_SIM_INPUT_BASE_OVERRIDE` and `MERGE_OUT_BASE_OVERRIDE` paths. Merge
+  firstRound used `groupSize 75`, `RJ_SIM_FIRSTROUND_REQUEST_MEMORY=8GB`, and
+  `RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=1` for the inclusive Jet12+20+30
+  merge. Submitted firstRound merge jobs total `100` active/idle at the
+  post-submit check, `0` held: `40` signal partial merges for Photon12+20 and
+  `60` inclusive partial merges for Jet12+20+30, under output root
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/output_basev3e_centinput_target80_pt8cent3_isoFix_20260518_154740`.
+  Next checkpoint: when firstRound drains, run `secondRound` for
+  `isSimEmbedded` and `isSimEmbeddedInclusive`, then `finalStitch`, then pull
+  only small QA/CSV/PNG/TXT artifacts for the measured efficiency-vs-`p_T`
+  plot.
+  The small `8 p_T x 7 centrality` MLP sidecar had completed all `7`
+  centrality training nodes but failed only at `FINALIZE` because
+  `finalize_registry.sh` used bare `python3` without the Condor libpython path:
+  `libpython3.13.so.1.0: cannot open shared object file`. Codex patched the
+  remote finalizer to export the same CVMFS core lib path used by training
+  workers, backed it up as `finalize_registry.sh.bak_libpython_20260518_1825`,
+  and reran the finalizer directly. Final summary now reports `status=READY`,
+  `model_count=56`, with merged registry
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/mlp_binned_sidecars/small_ptcent7x8_20260518_1415_envfix/mlp_models/model_registry.json`.
+  This is trained/finalized, not yet full-stat validated.
+  The current-best BDT+MLP stack cluster is inactive and has training artifacts
+  under
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/stack_current_best_bdt_mlp_20260518_1415_variantfix`;
+  metrics still need to be reviewed before any promotion.
+
+- 2026-05-18 15:49 EDT / BASE v3E TARGET-80 PRODUCTION RERUN STARTED:
+  Justin approved a production-style rerun using the `baseBDT_v3E_withCentrality`
+  12-feature BDT. Codex derived fresh local target-80 score cuts from the full
+  validation `.npz` score caches, not from plotted histograms, with
+  `p_T` edges `[15,17,19,21,23,25,27,30,35]` and centrality edges
+  `[0,20,50,80]`. Preflight on `sphnxuser02` found `24/24` direct cell
+  thresholds, `0` fallback cells, minimum cell signal/background entries
+  `35181/4504`, max absolute cell efficiency error `2.27e-5`, and mean
+  absolute cell efficiency error `3.22e-6`. Working-point source:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_ablation_sidecars/basev3e_controls_20260518_1110/validation/bdt_working_points_target80.json`.
+  A first launch under tag
+  `basev3e_target80_pt8cent3_isoFix_20260518_154409` was immediately stopped
+  because the template still selected runtime mode `auauCentInputBase3x3BDT`
+  while the requested model is the 12-feature `auauCentInputBDT` path.
+  Wrong-start clusters `2124297` and `2124298` were removed, and a follow-up
+  check showed no active jobs left for that bad tag. Corrected YAML:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/basev3e_target80_pt8cent3_modefix_20260518_154740/analysis_config_basev3e_target80_pt8cent3_centInput_isoFix.yaml`.
+  It uses photon-ID set `[newPPG12, auauCentInputBDT, auauBDTComplement]`,
+  model file
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_ablation_sidecars/basev3e_controls_20260518_1110/bdt_models/auau_tight_bdt_baseBDT_v3E_withCentrality_tmva.root`,
+  feature list `auau_tight_bdt_centAsFeat_features` (12 inputs), and the
+  `auauCentInputBDT|grid2d|15;17;19;21;23;25;27;30;35|0;20;50;80|...`
+  working-point entry. Corrected campaign tag:
+  `basev3e_centinput_target80_pt8cent3_isoFix_20260518_154740`; tmux:
+  `basev3e_centinput_target80_pt8cent3_20260518_154740`; log:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/basev3e_target80_pt8cent3_modefix_20260518_154740/submit_basev3e_centinput_target80_pt8cent3_isoFix_20260518_154740.tmux.log`.
+  Signal clusters are `2124299` Photon12 and `2124300` Photon20, `1429` jobs
+  each. Immediate check showed `2858` matching jobs active, `0` held, and output
+  variant `preselectionNewPPG12_tightAuAuCentInputBDT_nonTightAuAuBDTComplement_baseVariant`.
+  Queue-gated driver is waiting for signal to clear before submitting
+  `isSimEmbeddedInclusive` Jet12+20+30. Next checkpoint: check Gmail pipeline
+  first, then confirm `0` held and whether the queue gate has advanced to
+  inclusive background. After signal/background finish, run the printed guarded
+  merge/finalStitch commands and produce the measured efficiency-vs-`p_T` PNG
+  and CSV under `slideReady/basev3e_efficiency_overlay/`.
+  16:51 EDT heartbeat update: Gmail had `0` unread RecoilJets Pipeline
+  messages. The signal queue drained and the queue-gated driver submitted
+  `isSimEmbeddedInclusive` Jet12+20+30: Jet12 cluster `2124307`, Jet20 cluster
+  `2124308`, `1429` jobs each. Compact queue check showed only `29` active
+  matching inclusive jobs remaining, all running, with `0` held. Bulk roots
+  exist at
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAna/simembedded_basev3e_centinput_target80_pt8cent3_isoFix_20260518_154740`
+  and
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAna/simembeddedinclusive_basev3e_centinput_target80_pt8cent3_isoFix_20260518_154740`.
+  Next checkpoint is inclusive queue drain, then guarded merge/finalStitch.
+  17:25 EDT heartbeat update: Gmail still had `0` unread RecoilJets Pipeline
+  messages. The Jet12+20 inclusive queue drained cleanly with `0` held, but
+  pre-merge sanity found the helper had used the default embedded-inclusive
+  sample list (Jet12+20) instead of the intended Jet12+20+30 background. Codex
+  attempted merge once, saw `mergeRecoilJets.sh` was looking in the default
+  input tree, and stopped before producing stitched outputs. The actual merge
+  override knob is `MERGE_SIM_INPUT_BASE_OVERRIDE`, not the older printed
+  `MERGE_RUN_BASE_OVERRIDE`. Codex then submitted the missing Jet30 fanout into
+  the same corrected tag with explicit `SAMPLE=run28_embeddedJet30` and
+  `RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=1`. New Jet30 cluster: `2124310`,
+  `1429` jobs, `0` held at submit; log:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/basev3e_target80_pt8cent3_modefix_20260518_154740/submit_jet30_basev3e_centinput_target80_pt8cent3_isoFix_20260518_154740.tmux.log`.
+  Next checkpoint: wait for Jet30 cluster `2124310` to clear, then run merge
+  with `MERGE_SIM_INPUT_BASE_OVERRIDE` for both signal and inclusive, and set
+  `RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=1` for the inclusive finalStitch.
+
+- 2026-05-18 14:15 EDT / STACK AND SMALL BINNED-MLP SIDECARS AUTO-FIXED:
+  Heartbeat found two non-held sidecar failures while Gmail had `0` unread
+  RecoilJets Pipeline messages and SDCC had `0` held jobs. The current-best
+  BDT+MLP stack cluster `2124221` failed because the wrapper still requested
+  unknown variant `meta15to35_bdtMlp_full`; known stack variants include
+  `ptFine15to35_cent7_full`. Codex cloned the sidecar to a fresh variant-fix
+  root, changed the stack variant to `ptFine15to35_cent7_full`, added the
+  CVMFS core lib path needed for `libpython3.13.so.1.0`, and submitted fixed
+  stack cluster `2124284`. Fixed stack submit root:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/current_best_bdt_mlp_stack_20260518_1415_variantfix`;
+  output root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/stack_current_best_bdt_mlp_20260518_1415_variantfix`;
+  log root:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/log/current_best_bdt_mlp_stack_20260518_1415_variantfix`.
+  The small binned-MLP DAG `2124222` failed because worker jobs did not inherit
+  the ML venv `libpython3.13.so.1.0` path. Codex cloned the DAG to a fresh
+  env-fix root, added the CVMFS core lib path to `train_one_cent.sh`, and
+  submitted fixed DAGMan cluster `2124285`; first worker clusters are
+  `2124286` and `2124287`. Fixed small-MLP submit root:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/mlp_small_ptcent7x8_20260518_1415_envfix`;
+  output root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/mlp_binned_sidecars/small_ptcent7x8_20260518_1415_envfix`;
+  log root:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/log/mlp_small_ptcent7x8_20260518_1415_envfix`.
+  Immediate post-submit check at `14:16 EDT` showed clusters `2124284` and
+  `2124285` running/active with `0` held jobs, empty fixed stack stderr, and
+  the fixed binned-MLP DAG already executing workers without the libpython
+  error. Going forward for this active lane, Codex should automatically apply
+  equivalent wrapper/env fixes and relaunch into fresh timestamped roots when a
+  sidecar fails for an obvious operational wrapper issue, while still reporting
+  physics/model blockers or held jobs.
+
+- 2026-05-18 12:37 EDT / SMALL MLP 8x7 ROUTED SIDECAR STARTED:
+  Justin asked to train the small MLP in `8 E_T x 7 centrality` bins while
+  preserving the same full baseline feature list used by
+  `globalEtCent1535_mlp_noIso`. Codex created local/remote reproducibility
+  driver
+  `condor_generated_configs/submit_mlp_small_ptcent7x8_sidecar_20260518.sh`
+  and submitted a throttled DAG on `sphnxuser02`. DAGMan cluster is `2124222`;
+  first train workers are `2124223` for `0-10%` and `2124224` for `10-20%`.
+  The DAG contains `7` centrality-bin training nodes plus a final registry
+  merge node, with `MAXJOBS train 2` so only two 64 GB MLP readers/trainers run
+  at a time. Output root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/mlp_binned_sidecars/small_ptcent7x8_20260518_1245`.
+  Submit root:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/mlp_small_ptcent7x8_20260518_1245`.
+  Log root:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/log/mlp_small_ptcent7x8_20260518_1245`.
+  The sidecar should produce `56` JSON MLP models using hidden layers
+  `256,128,64`, `selection_metric=validation_auc`, and the exact
+  `MODEL_SPECS["globalEtCent1535_mlp_noIso"].features` feature list. It is
+  training/registry-finalization only; after `final_summary.json` reports
+  `READY`, run full `validateOnSimCondor` as a separate controlled step.
+
+- 2026-05-18 12:28 EDT / PPG12+CENT ROUTE-ONLY BDT SIDECAR STARTED:
+  Justin asked for the current winning full feature list, not the base-v3E
+  controls, trained with routing by centrality only and by `E_T` only while
+  keeping both `cluster_Et` and `centrality` as model inputs. Codex created
+  and launched remote driver
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/run_global_bdt_route_only_ppg12pluscent_20260518.sh`
+  in tmux `bdt_route_ppg12pluscent_20260518_1210` on `sphnxuser02`; log:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/bdt_route_ppg12pluscent_20260518_1210.log`.
+  Output root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_route_sidecars/ppg12pluscent_route_only_20260518_1210`.
+  Source:
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/globalEtCentInclusive3Sixpack_20260516_135439`.
+  The driver trains and then validates `18` BDTs using
+  `trainer.PPG12_TIGHT_FEATURES + ["centrality"]`: `3` centrality-only
+  models (`0-20`, `20-50`, `50-80`), `7` centrality-only models
+  (`0-10`, `10-20`, `20-30`, `30-40`, `40-50`, `50-60`, `60-80`), and `8`
+  `E_T`-only models (`15-17`, `17-19`, `19-21`, `21-23`, `23-25`,
+  `25-27`, `27-30`, `30-35`). Validation is configured with
+  `RJ_ML_PYTHON=/sphenix/u/patsfan753/.venvs/thesis-ml/bin/python`,
+  `scoreMax=0`, `groupSize=200`, and `request_memory=5000MB`. Next
+  checkpoint: all `18` TMVA/metadata/XGBoost artifacts present, then
+  `validateOnSimCondor` submission/READY.
+  13:05 EDT fix update: heartbeat found the tmux driver had stopped after
+  writing a `READY` registry because the wrapper's hard-coded artifact-name
+  check expected names like `cent0to20`, while the trainer's real `cent_tag`
+  names are `cent_000_020`, etc. This was a wrapper check bug, not a training
+  failure. Codex patched the local reproducibility script
+  `condor_generated_configs/run_global_bdt_route_only_ppg12pluscent_20260518.sh`
+  to verify artifacts using `model_registry.json` paths instead of guessed
+  filenames. Remote registry-path verification passed for all `18` models.
+  Codex then launched full-stat `validateOnSimCondor` from the trained registry
+  with `scoreMax=0`, `groupSize=200`, and `request_memory=5000MB`. Validation
+  DAGMan cluster is `2124225`; first shard workers are `2124226-2124273`.
+  Immediate queue check showed no held jobs. Report root remains
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_route_sidecars/ppg12pluscent_route_only_20260518_1210/validation`.
+
+- 2026-05-18 11:58 EDT / CURRENT BEST BDT+MLP NN STACK SIDECAR SUBMITTED:
+  Justin asked whether the BDT+MLP stack was still running and whether Codex
+  could rebuild it from the best current Jet12+20+30-trained BDT and MLP. Gmail
+  had `0` unread RecoilJets Pipeline messages. Read-only SDCC check on
+  `sphnxuser02` found no current clean stack output under the current sixpack
+  root and no active stack job; older stack artifacts are pre-current/older
+  background-material and should not be used as the clean Jet12+20+30 stack.
+  Codex preflighted the current best baseline pair successfully: MLP cache
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/validation/mlp_noIso_small_replay_256_128_64/score_caches.list`
+  with score `score_globalEtCent1535_mlp_noIso`, and routed BDT cache
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/validation/bdt_binned_noIso_cent7/score_caches.list`
+  with score `score_globalEtCent1535_bdt_noIso_ptCent7`. Preflight read all
+  `95` shards, `15,524,917` rows, found no missing full-feature columns, and
+  wrote
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/stack_current_best_bdt_mlp_20260518_1030_preflight/stacked_sweep_preflight.json`.
+  Codex then submitted one isolated training-only Condor sidecar: cluster
+  `2124219`, `64GB`, `4` CPUs, submit file
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/current_best_bdt_mlp_stack_20260518_1030/stack_current_best_bdt_mlp_20260518_1030.sub`.
+  Output root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/stack_current_best_bdt_mlp_20260518_1030`.
+  Log root:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/log/current_best_bdt_mlp_stack_20260518_1030`.
+  Immediate queue check showed `2124219.0` idle, `0` held. This sidecar does
+  not submit RecoilJets production and does not overwrite existing BDT/MLP
+  products. Next checkpoint: watch for start/hold/READY, then compare the
+  stack AUC/centrality behavior to routed BDT and small MLP before any WP80 or
+  RecoilJets promotion.
+  12:00 EDT heartbeat update: Gmail still had no unread RecoilJets Pipeline
+  messages. Cluster `2124219` had already exited and left no queue entry; stderr
+  showed `/sphenix/u/patsfan753/.venvs/thesis-ml/bin/python: error while
+  loading shared libraries: libpython3.13.so.1.0`, meaning the Condor job did
+  not inherit the interactive SDCC `LD_LIBRARY_PATH`. This was an environment
+  wrapper failure, not a model/cache failure. Codex created an env-fixed
+  resubmission with `getenv = True`:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/current_best_bdt_mlp_stack_20260518_1202_envfix/stack_current_best_bdt_mlp_20260518_1202_envfix.sub`.
+  New cluster is `2124220`, `64GB`, `4` CPUs, output root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/stack_current_best_bdt_mlp_20260518_1202_envfix`,
+  log root
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/log/current_best_bdt_mlp_stack_20260518_1202_envfix`.
+  Immediate post-submit check showed `2124220.0` idle, `0` held.
+  12:35 EDT fix update: `2124220` left the queue immediately because the stack
+  trainer rejected shorthand `--stack-training-safety disjoint`; accepted
+  values include `disjoint_base_scores_heldout_test`. Codex cloned the sidecar
+  to a clean safety-fix attempt with that explicit option:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/current_best_bdt_mlp_stack_20260518_1235_safetyfix/stack_current_best_bdt_mlp_20260518_1235_safetyfix.sub`.
+  New cluster is `2124221`, `64GB`, `4` CPUs, output root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/stack_current_best_bdt_mlp_20260518_1235_safetyfix`,
+  log root
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/log/current_best_bdt_mlp_stack_20260518_1235_safetyfix`.
+  Immediate post-submit check showed `2124221.0` idle, no hold reason, and no
+  new stdout/stderr yet.
+
+- 2026-05-18 11:08 EDT / BASE_V3E FOUR-MODEL BDT CONTROL STARTED:
+  Justin clarified that PPG12 also has an `11`-feature photon-ID `base_v3E`
+  variant and asked for four full global 90/10-split controls on the current
+  Photon12+20 vs Jet12+20+30 sixpack sample. Codex created and uploaded
+  `condor_generated_configs/run_global_bdt_basev3e_sidecars_20260518.sh`,
+  then launched tmux `bdt_basev3e_controls_20260518_1110` on `sphnxuser02`.
+  Remote log:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/bdt_basev3e_controls_20260518_1110.log`.
+  Output root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_ablation_sidecars/basev3e_controls_20260518_1110`.
+  Source:
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/globalEtCentInclusive3Sixpack_20260516_135439`.
+  The four requested products are:
+  `baseBDT_v3E_withCentrality_w33` = base v3E 11 + `cluster_weta33_cogx`,
+  `cluster_wphi33_cogx`, + `centrality`;
+  `baseBDT_v3E_withOutCentraltiy_w33` = base v3E 11 + the two w33 widths;
+  `baseBDT_v3E_withCentrality` = base v3E 11 + `centrality`; and
+  `baseBDT_v3E_withOutCentraltiy` = base v3E 11 exactly. The driver verifies
+  all four TMVA ROOT/metadata/XGBoost artifacts before launching full-stat
+  `validateOnSimCondor` with `RJ_ML_PYTHON=/sphenix/u/patsfan753/.venvs/thesis-ml/bin/python`,
+  `groupSize=200`, `request_memory=5000MB`, and `scoreMax=0`.
+
+- 2026-05-18 10:20 EDT / GLOBAL BDT WIDTH-ABLATION SIDECARS STARTED:
+  Justin asked to rerun the current global baseline BDT with targeted feature
+  removals to test whether the extra AuAu width information is really needed.
+  Codex created local reproducibility driver
+  `condor_generated_configs/run_global_bdt_width_ablation_sidecars_20260518.sh`,
+  uploaded it to `sphnxuser02`, and launched tmux session
+  `bdt_width_ablation_20260518_1005`. Remote log:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/bdt_width_ablation_20260518_1005.log`.
+  Output root:
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_ablation_sidecars/width_ablation_20260518_1005`.
+  Source is the current Jet12+20+30 sixpack staging:
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/globalEtCentInclusive3Sixpack_20260516_135439`.
+  The driver trains two global `15 < cluster_Et < 35 GeV` sidecars with the
+  same XGBoost settings as the baseline BDT and then launches standard Condor
+  validation using `RJ_ML_PYTHON=/sphenix/u/patsfan753/.venvs/thesis-ml/bin/python`.
+  Variant A is `globalEtCent1535_bdt_dropElongatedRatios`: baseline features
+  minus `cluster_weta35_cogx`, `cluster_wphi53_cogx`,
+  `cluster_weta_over_wphi`, and `cluster_weta33_over_wphi33`, while keeping
+  the 3x3 widths. Variant B is `globalEtCent1535_bdt_ppg12PlusCent`: the PPG12
+  25-feature family plus `centrality`, removing the elongated widths, width
+  ratios, and 3x3 widths. Startup log confirmed the intended source, output
+  root, validation group size `200`, and full-stat validation
+  `RJ_AUAU_TIGHT_BDT_VALIDATE_TOTAL_SCORE_MAX_ROWS=0`.
+  10:30 EDT heartbeat update: Gmail had no unread RecoilJets Pipeline
+  messages. Read-only SDCC check found no held jobs. The ablation training
+  wrote both TMVA ROOT models and `model_registry.json`, but the original tmux
+  exited with a post-training segmentation violation before it could launch
+  validation. Codex resumed only the planned validation step in tmux
+  `bdt_width_ablation_validate_20260518_1030`; validation DAGMan cluster
+  `2124113` was submitted with `48` shards over `9429` ROOT files,
+  `groupSize=200`, `request_memory=5000MB`, and full-stat scoring
+  `scoreMax=0`. Report root remains
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_ablation_sidecars/width_ablation_20260518_1005/validation`.
+  10:35 EDT READY email reported both ablation variants validated on
+  `15,524,917` entries with finite score fraction `1`. AUCs:
+  `globalEtCent1535_bdt_dropElongatedRatios = 0.841015` and
+  `globalEtCent1535_bdt_ppg12PlusCent = 0.841561`. Justin then set
+  PPG12 25-feature family + `centrality` as the default baseline for future
+  AuAu BDT story/plotting unless explicitly changed.
+
 - 2026-05-18 09:25 EDT / AUAU SIXPACK VALIDATION ENV-FIX COMPLETE + BASELINE COMPARISON PLOTS PULLED:
   Justin asked Codex to push anything possible through validation and fix
   issues. Gmail RecoilJets Pipeline first showed three fresh READY messages
@@ -3336,6 +3823,372 @@ Latest active update:
   manifest/build stage; no active Condor jobs were involved. Next check should
   tail that log and watch for BDT capped-load messages, then MLP, validation,
   and stack completion or any new traceback/kill.
+- 2026-05-18 10:35 EDT pp fix4 ML recovery continued:
+  Gmail `RecoilJets Pipeline` label had `0` unread messages. The `loadcap1`
+  pp ML run stopped with `PIPELINE_EXIT=139` after the BDT stage segfaulted in
+  ROOT/PyROOT cleanup following `TMVA.Experimental.SaveXGBoost`; the BDT
+  directory did contain `model_registry.json`, indicating training reached
+  artifact-writing before the ROOT cleanup crash. This is distinct from the
+  earlier memory kill and does not affect extraction. Recovery patch uploaded
+  to SDCC adds `--skip-tmva-export` to `scripts/train_auau_photon_bdt.py` and
+  makes `scripts/pp_photon_ml_pipeline.sh` default to
+  `PP_SKIP_TMVA_EXPORT=1` for this pp validation pipeline. Remote syntax checks
+  passed, and smoke test
+  `smoke_bdt_skip_tmva_20260518_103415` succeeded with capped rows
+  `{0: 3000, 1: 3000}` and no ROOT segfault. The failed BDT directory was
+  quarantined as
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_sixpack_fix4_rdepiso_20260517_2045/models/bdt_ppg12_sixpack.failed_tmva_exit139_20260518_1035`.
+  Full pp ML recovery relaunched on `sphnxuser05` as tmux session
+  `ppg12_ml_ppg12_sixpack_fix4_rdepiso_20260517_2045_loadcap2` with log
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_sixpack_fix4_rdepiso_20260517_2045/runAll_ppg12_sixpack_fix4_rdepiso_20260517_2045_loadcap2_20260518_103506.log`.
+  At `10:35 EDT`, the tmux session was live in early manifest/build stage;
+  no active/held Condor jobs for clusters `5356907`, `5356909`, `5356911`,
+  `5356912`, `5356914`, `5356917`, `5356919`, or `5356921`.
+- 2026-05-18 12:07 EDT pp fix4 ML recovery continued:
+  Gmail `RecoilJets Pipeline` label had `0` unread messages. `loadcap2`
+  completed the BDT stage successfully with capped load counts
+  `{0: 2000000, 1: 2000000}`, wrote
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_sixpack_fix4_rdepiso_20260517_2045/models/bdt_ppg12_sixpack/model_registry.json`,
+  and then stopped at MLP argument parsing because
+  `--centrality-range -1:0` was interpreted as an option. Patched
+  `scripts/pp_photon_ml_pipeline.sh` locally and on SDCC to use
+  `--centrality-range=-1:0` for MLP and both pp table validation calls.
+  Continued from the completed BDT stage, not from scratch, in tmux session
+  `ppg12_ml_ppg12_sixpack_fix4_rdepiso_20260517_2045_continue_mlp1` on
+  `sphnxuser05`; command sequence is `trainMLPFromExtraction &&
+  validateTables && trainStackFromExtraction` with the same capped-load
+  settings. At `12:07 EDT`, MLP was actively reading the 8000-file manifest
+  with `max_load_rows_per_class=1500000`; process PID `2327333` was live.
+  Compact failure evidence is kept in log files, and bulky superseded recovery
+  artifacts were removed per cleanup policy: deleted failed BDT directory
+  `models/bdt_ppg12_sixpack.failed_tmva_exit139_20260518_1035` plus smoke
+  model dirs `smoke_bdt_loadcap_20260518_090236`,
+  `smoke_bdt_loadcap_20260518_090559`,
+  `smoke_bdt_skip_tmva_20260518_103345`, and
+  `smoke_bdt_skip_tmva_20260518_103415`, recovering about `41M`. Smoke log
+  files remain as compact evidence. No active/held Condor jobs for the fix4
+  extraction clusters.
+- 2026-05-18 12:11 EDT status/quota check:
+  Gmail `RecoilJets Pipeline` label had `0` unread messages. On `sphnxuser05`,
+  pp fix4 continuation tmux
+  `ppg12_ml_ppg12_sixpack_fix4_rdepiso_20260517_2045_continue_mlp1` was live;
+  MLP process PID `2327333` had been running for about `3.5` minutes and was
+  reading the 8000-file manifest with `--max-load-rows-per-class 1500000`.
+  BDT artifacts remain valid in
+  `.../models/bdt_ppg12_sixpack/model_registry.json`; MLP had written
+  `training_manifest_summary.json` and `training_read_summary.json` but not yet
+  final `model_registry.json`. Condor status: `sphnxuser05` showed `0` user
+  jobs and `0` held jobs; `sphnxuser02` showed `0` user jobs and known clusters
+  `2122700`, `2122802`, `2122803`, `2116535`, and `2122442-2122445` were not
+  active there. TG quota for `patsfan753` on `/direct/sphenix+tg+tg01` was
+  `3.591T / 5T` with `5,213,269 / 10,240,000` files. Home quota on
+  `/sphenix_u` was `2663M / 3072M`, still high at about `87%` used. A broad
+  `du -sh /sphenix/u/patsfan753` was stopped because it was slow; no cleanup
+  action was taken from that check.
+- 2026-05-18 13:35 EDT pp fix4 ML recovery heartbeat:
+  Gmail `RecoilJets Pipeline` label had `0` unread messages. On `sphnxuser05`,
+  the original fix4 extraction DAG clusters `5356907`, `5356909`, `5356911`,
+  `5356912`, `5356914`, `5356917`, `5356919`, and `5356921` had `0` active
+  jobs and `0` held jobs. The continuation tmux session
+  `ppg12_ml_ppg12_sixpack_fix4_rdepiso_20260517_2045_continue_mlp1` was still
+  live. The MLP training process PID `2327333` was active and had progressed to
+  candidate `ppg12_base_v1E_mlp_noIso:a2r1`; the previous `a1r1` candidate
+  completed 280 epochs with validation AUC around `0.9473`. BDT artifact
+  `.../models/bdt_ppg12_sixpack/model_registry.json` exists; MLP
+  `model_registry.json` and stack artifacts are not yet final, so the campaign
+  remains in-progress rather than failed.
+- 2026-05-18 15:05 EDT pp fix4 ML recovery heartbeat:
+  Gmail `RecoilJets Pipeline` label had `0` unread messages. On `sphnxuser05`,
+  the fix4 extraction DAG cluster query again showed `0` active jobs and
+  `0` held jobs; all-user queue on that schedd also showed `0` jobs. Tmux
+  session `ppg12_ml_ppg12_sixpack_fix4_rdepiso_20260517_2045_continue_mlp1`
+  remains live with MLP PID `2327333`. Training is still progressing: candidate
+  `ppg12_base_v1E_mlp_noIso:a2r1` reached epoch `55` with validation AUC
+  about `0.9475`. The no-iso MLP candidate files now exist
+  (`ppg12_base_v1E_mlp_noIso.json`, metadata, and history CSV updated at
+  `13:18`), but final MLP `model_registry.json` and stack output are still not
+  present. State is healthy/in-progress, not failed.
+- 2026-05-18 16:35 EDT pp fix4 ML recovery heartbeat:
+  Gmail `RecoilJets Pipeline` label had `0` unread messages. On `sphnxuser05`,
+  the fix4 extraction DAG cluster query again showed `0` active jobs and
+  `0` held jobs. Tmux session
+  `ppg12_ml_ppg12_sixpack_fix4_rdepiso_20260517_2045_continue_mlp1` remains
+  live with MLP PID `2327333`. MLP training is still making progress on
+  candidate `ppg12_base_v1E_mlp_noIso:a2r1`, now at epoch `105` with
+  validation AUC about `0.9493`. BDT registry remains present and final; MLP
+  `model_registry.json` and stack directory are not yet present. State is
+  healthy/in-progress.
+- 2026-05-18 18:05 EDT pp fix4 ML recovery heartbeat:
+  Gmail `RecoilJets Pipeline` label had `0` unread messages. On `sphnxuser05`,
+  the fix4 extraction DAG cluster query showed `0` active jobs and `0` held
+  jobs. Tmux session
+  `ppg12_ml_ppg12_sixpack_fix4_rdepiso_20260517_2045_continue_mlp1` remains
+  live with MLP PID `2327333`. MLP candidate
+  `ppg12_base_v1E_mlp_noIso:a2r1` early-stopped at epoch `144` with
+  `best_epoch=89` and validation AUC about `0.9492`; training has advanced to
+  candidate `a3r1` and reached epoch `10`. The no-iso MLP artifact files were
+  refreshed at `17:39`, but final MLP `model_registry.json` and stack output
+  are still not present. State is healthy/in-progress.
+- 2026-05-18 18:46 EDT pp Fig. 19-style full-inclusive validation extraction:
+  Submitted a separate companion `isSimInclusive` extraction on `sphnxuser05`
+  to make the PPG12 Fig. 19-equivalent BDT distribution correctly from full
+  inclusive-jet candidate simulation rather than `is_signal == 0` training
+  rows. Destination root:
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/ppg12_fig19_fullincl_fix4_20260518_1842/isSimInclusive`.
+  Controls were `RJ_PP_PHOTONID_EXTRACT_ONLY=1`,
+  `RJ_PP_PHOTONID_TRAINING_TREE=1`, `RJ_PP_PHOTONID_PPG12_FILTER=0`,
+  `RJ_PHOTON_ID_ROW_MATCH=preselectionReference_tightReference`, groupSize
+  `20`, one photon-ID cfg row only. Samples and clusters:
+  `run28_jet5` DAG `5364903` / worker `5364904`,
+  `run28_jet8` DAG `5364905` / worker `5364906`,
+  `run28_jet12` DAG `5364907` / worker `5364908`,
+  `run28_jet20` DAG `5364909` / worker `5364910`,
+  `run28_jet30` DAG `5364911` / worker `5364912`,
+  `run28_jet40` DAG `5364913` / expected worker `5364914`. Submission tail
+  showed `2500` active jobs and `0` held after jet40 DAG submission, with
+  earlier shell-loop attempts failing before queueing because the sample
+  variable expanded empty.
+- 2026-05-18 19:10 EDT pp Fig. 19-style full-inclusive validation extraction:
+  Gmail `RecoilJets Pipeline` had `0` fresh unread messages. On `sphnxuser05`,
+  matching clusters `5364903` through `5364914` were all active with queue
+  summary `3000 jobs; 0 completed, 0 removed, 0 idle, 3000 running, 0 held`.
+  The companion extraction is therefore still writing; do not score or validate
+  partially open 999-byte ROOT shells from this root until the jobs close and
+  `AuAuPhotonIDTrainingTree` is confirmed in closed outputs.
+- 2026-05-18 19:13 EDT pp Fig. 19-style full-inclusive validation extraction:
+  Recheck after a short wait again showed the same healthy active state:
+  `3000 jobs; 0 completed, 0 removed, 0 idle, 3000 running, 0 held` for the
+  companion Fig. 19 clusters on `sphnxuser05`. No fresh unread pipeline email
+  was present. Continue waiting; the next useful transition is worker/DAG
+  completion, then closed-ROOT tree validation and the full `make_ppg12_fig19`
+  scoring pass.
+- 2026-05-18 19:36 EDT pp fix4 / Fig. 19 recovery heartbeat:
+  Gmail `RecoilJets Pipeline` had `0` fresh unread messages. On `sphnxuser05`,
+  the Fig. 19 companion extraction remained healthy with `3000 jobs; 0
+  completed, 0 removed, 0 idle, 3000 running, 0 held`; sample ROOT paths under
+  `ppg12_fig19_fullincl_fix4_20260518_1842/isSimInclusive/...` exist but jobs
+  are still running, so they should not yet be scored or treated as closed
+  outputs. The main fix4 ML tmux session
+  `ppg12_ml_ppg12_sixpack_fix4_rdepiso_20260517_2045_continue_mlp1` is still
+  present. No user action required until either jobs finish, a held state
+  appears, or a READY/CHECK/FAILED email arrives.
+- 2026-05-18 20:05 EDT pp fix4 / Fig. 19 recovery heartbeat:
+  Gmail `RecoilJets Pipeline` again had `0` fresh unread messages. On
+  `sphnxuser05`, the Fig. 19 companion extraction remained active and healthy:
+  matching queue showed `3000 jobs; 0 completed, 0 removed, 0 idle, 3000
+  running, 0 held`, with worker runtimes around `1:06`. Main fix4 DAG clusters
+  had `0` active jobs, and the main ML tmux session
+  `ppg12_ml_ppg12_sixpack_fix4_rdepiso_20260517_2045_continue_mlp1` remains
+  present. Continue waiting for Fig. 19 worker/DAG completion before closed-ROOT
+  validation and scoring.
+- 2026-05-18 20:35 EDT pp fix4 / Fig. 19 recovery heartbeat:
+  Consumed one fresh Gmail pipeline email for unrelated AuAu BDT ablation
+  validation `auauTightBDT_validateOnSimCondor` with `status=READY`; removed
+  `UNREAD`. It reports source
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/globalEtCentInclusive3Sixpack_20260516_135439`,
+  model registry
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_ablation_sidecars/basev3e_w33_e22ratio_20260518_192630/bdt_models/model_registry.json`,
+  and validation metrics including AUCs `0.833319`, `0.829992`, and
+  `0.837602` for the three w33/E22 ratio variants. For pp, `sphnxuser05`
+  still shows the Fig. 19 companion extraction active with `3004` matching
+  queue lines and `0` held; last worker rows have runtimes around `1:37`.
+  Main fix4 DAG clusters have `0` active lines, the ML tmux session
+  `ppg12_ml_ppg12_sixpack_fix4_rdepiso_20260517_2045_continue_mlp1` is still
+  present, and no MLP `model_registry.json` is present yet.
+- 2026-05-18 21:05 EDT pp fix4 / Fig. 19 recovery heartbeat:
+  Gmail `RecoilJets Pipeline` had no fresh unread messages. On `sphnxuser05`,
+  Fig. 19 companion extraction has started draining normally: matching queue
+  shows `2440 jobs; 0 completed, 0 removed, 0 idle, 2440 running, 0 held`
+  (active-line count `2446`, including query/header artifacts). Last displayed
+  workers are still running around `2:06`. Main fix4 DAG clusters remain at
+  `0` active lines. Tmux session
+  `ppg12_ml_ppg12_sixpack_fix4_rdepiso_20260517_2045_continue_mlp1` remains
+  present, but MLP `model_registry.json` is still absent. Continue waiting for
+  Fig. 19 completion, then inspect closed ROOT keys before scoring.
+- 2026-05-18 21:22 EDT AuAu small binned-MLP validation fix:
+  The 8 `p_{T}` x 7 centrality small-MLP sidecar is now full-stat validated as
+  the intended routed product, not as 56 standalone global products. The
+  original Condor merge had all 48 score-cache shards but failed with exit
+  `137` after loading every diagnostic column and trying to evaluate all 56
+  score columns. Codex patched
+  `scripts/validate_auau_tight_mlp_on_sim.py` so cache merging loads only
+  mandatory columns by default and collapses registry-described routed products
+  into one score selected by `cluster_Et`/centrality. Manual rerun of
+  `validate_merge.sh` on `sphnxuser02` completed `READY` for
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/validation/mlp_small_ptcent7x8_fullstat_20260518_1830`.
+  Routed product metrics: AUC `0.849832`, WP80 background fake rate
+  `0.244855`, finite fraction `1.0` after restricting to the routed
+  `15 < p_{T} < 35`, `0-80%` domain. Centrality AUCs are `0.824906`,
+  `0.848032`, `0.865760` for `0-20%`, `20-50%`, `50-80%`. Compact local
+  artifacts live under
+  `dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/slideReady/mlp56_validation/`.
+- 2026-05-18 21:35 EDT pp fix4 / Fig. 19 recovery heartbeat:
+  Consumed the corresponding fresh Gmail READY email for
+  `auauTightMLP_validateOnSimCondor` and removed `UNREAD`. For pp, Gmail had
+  no fresh pp/Fig. 19 failure signal. On `sphnxuser05`, the Fig. 19 companion
+  extraction continues draining cleanly: matching queue shows `1684 jobs; 0
+  completed, 0 removed, 0 idle, 1684 running, 0 held`; active-line count
+  `1690`. Main fix4 DAG clusters remain at `0` active lines. Tmux session
+  `ppg12_ml_ppg12_sixpack_fix4_rdepiso_20260517_2045_continue_mlp1` is still
+  present, and pp MLP `model_registry.json` is still absent.
+- 2026-05-18 21:44 EDT AuAu best non-isolation target-80 production matrix:
+  Codex implemented the first production-style run from Justin's requested
+  comparison plan. Gmail `RecoilJets Pipeline` had no fresh unread messages
+  before submission. Local patches uploaded to SDCC and rebuilt cleanly on
+  `sphnxuser02`: `src_AuAu/RecoilJets_AuAu.cc` now accepts `grid2d` MLP
+  working-point entries, and `scripts/validate_auau_tight_mlp_on_sim.py` /
+  `scripts/auau_tight_mlp_pipeline.sh` can derive MLP target-80 cuts in
+  `p_{T} x centrality` cells. `src_AuAu makeProject` installed
+  `libRecoilJetsAuAu.so` into
+  `/sphenix/u/patsfan753/thesisAnalysis_auau/install` successfully. BDT
+  campaign stamp `20260518_214344`; config root
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/best_noniso_target80_20260518_214344`.
+  BDT model `globalEtCent1535_bdt_noIso_ptCent7` uses
+  `8 p_{T} x 7 centrality = 56` routed BDTs and target-80 WP cells
+  `15,17,19,21,23,25,27,30,35` by `0,10,20,30,40,50,60,80`.
+  WP preflight: `56` cells, min signal entries `14527`, min background entries
+  `1936`, `0` fallback cells. Frozen BDT YAML:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/best_noniso_target80_20260518_214344/analysis_config_ptcent7bdt_target80_pt8cent7_isoFix_20260518_214344.yaml`.
+  Queue-gated BDT submit tmux:
+  `best_noniso_ptcent7bdt_20260518_214344`; campaign tag
+  `ptcent7bdt_target80_pt8cent7_isoFix_20260518_214344`; submit log
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/best_noniso_target80_20260518_214344/submit_ptcent7bdt_target80_pt8cent7_isoFix_20260518_214344.log`.
+  Signal fanout submitted cleanly: Photon12 cluster `2124437`, Photon20
+  cluster `2124438`, `1429` jobs each, immediate queue `2858 idle/running`,
+  `0 held`. The BDT driver will submit `isSimEmbeddedInclusive`
+  Jet12+20+30 only after matching BDT signal jobs drain because
+  `RJ_TARGETWP_QUEUE_GATE=1`, `RJ_TARGETWP_QUEUE_SCOPE=matching`,
+  `RJ_TARGETWP_RESUME_BELOW=0`, and `RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=1`
+  are set. Small global MLP preparation is also complete but deliberately
+  waiting behind the BDT lane: model dir
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/mlp_models_offline/noIso_small_replay_256_128_64`;
+  MLP target-80 WP grid has `24` cells over `8 p_{T} x 3 centrality`, min
+  signal entries `35181`, min background entries `4504`, `0` fallback cells.
+  Frozen MLP YAML:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/best_noniso_target80_20260518_214344/analysis_config_smallmlp_target80_pt8cent3_isoFix_20260518_214344.yaml`.
+  MLP waiter tmux `best_noniso_smallmlp_after_bdt_20260518_214344` will submit
+  campaign `smallmlp_target80_pt8cent3_isoFix_20260518_214344` only after the
+  BDT campaign has `0` active and `0` held matching jobs. Stack production is
+  not submitted yet; it still needs a compact promotion/WP/parity preflight
+  against the current `ptFine15to35_cent7_full_nn` artifact before it should
+  enter the same queue-gated sequence. Off-condition for active monitoring:
+  BDT and MLP paired signal/background campaigns are merged/final-stitched,
+  compact QA pulled, and reco-efficiency/purity/tight-candidate-fraction plots
+  generated, or a held/failed state is diagnosed and no longer needs watching.
+- 2026-05-18 22:05 EDT pp fix4 / Fig. 19 recovery heartbeat:
+  Gmail `RecoilJets Pipeline` had no fresh unread messages. On `sphnxuser05`,
+  the Fig. 19 companion extraction continues draining normally: matching queue
+  now shows `769 jobs; 0 completed, 0 removed, 0 idle, 769 running, 0 held`
+  (active-line count `775`). Last displayed workers are still running at about
+  `3:06`. Main fix4 DAG clusters remain at `0` active lines. Tmux session
+  `ppg12_ml_ppg12_sixpack_fix4_rdepiso_20260517_2045_continue_mlp1` remains
+  present; pp MLP `model_registry.json` is still absent. Next useful action is
+  closed-ROOT inspection after the Fig. 19 queue reaches zero.
+- 2026-05-18 22:10 EDT AuAu best non-isolation target-80 production fix:
+  The first BDT production tag `ptcent7bdt_target80_pt8cent7_isoFix_20260518_214344`
+  held because the generated YAML omitted `auau_tight_bdt_expanded_model_dir`,
+  leaving `auauPtCent7BDT` with no discoverable 56-model file list. Codex
+  patched `scripts/make_auau_bdt_target_wp_config.py` so `MODEL_DIR` is
+  appended when the template lacks that key, uploaded it to SDCC, removed only
+  the bad held clusters `2124437` and `2124438`, and relaunched with fresh stamp
+  `20260518_2210`. New BDT YAML:
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/best_noniso_target80_20260518_2210/analysis_config_ptcent7bdt_target80_pt8cent7_isoFix_20260518_2210.yaml`;
+  submit tmux `best_noniso_ptcent7bdt_20260518_2210`; campaign tag
+  `ptcent7bdt_target80_pt8cent7_isoFix_20260518_2210`; submit log
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/best_noniso_target80_20260518_2210/submit_ptcent7bdt_target80_pt8cent7_isoFix_20260518_2210.log`.
+  Corrected YAML preflight shows `auau_tight_bdt_expanded_model_dir` present,
+  `56` target-80 cells, min signal entries `14527`, min background entries
+  `1936`, and `0` fallback cells. New signal clusters: Photon12 `2124439`,
+  Photon20 `2124440`, `1429` jobs each. Compact check immediately after
+  submission showed `2124439`: `453` idle and `976` running; `2124440`: `1429`
+  idle; `0` held. Small-MLP config was regenerated for the same stamp at
+  `/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/best_noniso_target80_20260518_2210/analysis_config_smallmlp_target80_pt8cent3_isoFix_20260518_2210.yaml`
+  with `24` target-80 cells, min signal entries `35181`, min background entries
+  `4504`, and `0` fallback cells. Waiter tmux
+  `best_noniso_smallmlp_after_bdt_20260518_2210` is now watching
+  `ptcent7bdt_target80_pt8cent7_isoFix_20260518_2210` and will submit
+  `smallmlp_target80_pt8cent3_isoFix_20260518_2210` only after the BDT campaign
+  drains with `0` active and `0` held matching jobs.
+- 2026-05-18 22:32 EDT pp fix4 / Fig. 19 recovery heartbeat:
+  Gmail `RecoilJets Pipeline` had no fresh unread messages. On `sphnxuser05`,
+  the Fig. 19 companion extraction is nearly drained: matching queue shows
+  `338 jobs; 0 completed, 0 removed, 0 idle, 338 running, 0 held` (active-line
+  count `342`). Last displayed workers are still running at about `3:34`.
+  Main fix4 DAG clusters remain at `0` active lines. Tmux session
+  `ppg12_ml_ppg12_sixpack_fix4_rdepiso_20260517_2045_continue_mlp1` remains
+  present; pp MLP `model_registry.json` is still absent. Next heartbeat should
+  likely see completion and then must inspect closed ROOT keys before scoring.
+- 2026-05-18 23:03 EDT pp fix4 / Fig. 19 recovery heartbeat:
+  Consumed nine fresh `isSimInclusive` pipeline emails from `sphnxuser05`.
+  Evidence: two earlier auto workflows (`184438`, `184504`) reached
+  `auto_siminclusive_final_ready=READY`; the latest relevant workflow
+  `auto_workflow_siminclusive_20260518_184526` had just entered
+  `sim_firstRound_siminclusive_all=STARTED`, so the final Fig. 19 companion
+  validation was not ready yet. Queue check showed a merge-stage memory hold:
+  job `5364935.0` exceeded the `2048 MB` cgroup limit while merging
+  `jet20_grp001`. Applied recovery in place by raising `RequestMemory` to
+  `4096` for cluster `5364935`; by the follow-up check both `5364935.0` and
+  `5364935.1` were running with `RequestMemory=4096`, and `condor_q -hold`
+  reported `0` held jobs. Main fix4 DAG clusters remain at `0` active lines;
+  tmux session `ppg12_ml_ppg12_sixpack_fix4_rdepiso_20260517_2045_continue_mlp1`
+  remains present; pp MLP `model_registry.json` is still absent. Continue
+  watching until latest Fig. 19 auto workflow reaches READY, then inspect
+  closed ROOT keys before running the overlay.
+- 2026-05-18 23:12 EDT AuAu target-80 BDT repair:
+  Gmail `RecoilJets Pipeline` had `0` unread RecoilJets messages. The BDT
+  signal fanout drained and the queue-gated driver submitted inclusive
+  Jet12+20+30 clusters `2124516`, `2124517`, and `2124518` for
+  `ptcent7bdt_target80_pt8cent7_isoFix_20260518_2210`, but all held
+  immediately because the active fanout override YAML did not contain explicit
+  `auau_tight_bdt_ptCent7_model_files`; runtime `auauPtCent7BDT` falls back to
+  legacy `ptCentDepFine` filenames if explicit files are absent. Patched the
+  active generated YAML, the active inclusive override YAML, and the matching
+  signal override YAML in place with `56` exact ROOT model paths, `7` fallback
+  centrality models, and the `32` feature list from metadata. Backups were
+  written with suffix `.bak_model_files_1779160190`. Uploaded the fixed local
+  `scripts/make_auau_bdt_target_wp_config.py` to SDCC so future routed BDT
+  configs generate explicit model lists. Released the held inclusive jobs; the
+  follow-up check showed `0` held and BDT clusters active as `2124516`:
+  `1429` running, `2124517`: `1429` running, `2124518`: `1008` idle and
+  `421` running. Separately, shape-residual BDT training workers hit the
+  `7000 MB` cap; raised only those held workers to `12000 MB` and released
+  them. The sidecar then finalized
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_ablation_sidecars/shape_residual_ptcent7_20260518_222929/bdt_models/model_registry.json`
+  with `280` trained model specs. Next check: watch BDT inclusive fanout drain
+  to merge/finalStitch and separately run validation for the shape-residual
+  registry when the main production lane is not being disturbed.
+- 2026-05-18 23:18 EDT Shape-residual BDT validation submitted:
+  Justin requested full validation plus a slide-31-style comparison for the
+  finalized shape-residual routed BDT registry. Submitted full-stat
+  `validateOnSimCondor` from `sphnxuser02` using source
+  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/globalEtCentInclusive3Sixpack_20260516_135439`,
+  model dir
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_ablation_sidecars/shape_residual_ptcent7_20260518_222929/bdt_models`,
+  explicit registry
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_ablation_sidecars/shape_residual_ptcent7_20260518_222929/bdt_models/model_registry.json`,
+  and report root
+  `/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/global_etcent_inclusive3_sixpack_20260516_135439/bdt_ablation_sidecars/shape_residual_ptcent7_20260518_222929/validation`.
+  Validation stamp: `shape_residual_ptcent7_fullstat_20260518_2318`.
+  DAGMan cluster: `2124520`; worker clusters began at `2124521`. Settings:
+  `9429` ROOT files, `95` shards, `groupSize=100`, `scoreMaxRows=0`, and
+  `request_memory=12000MB`. Immediate check showed validation workers running
+  and `0` held jobs. Next checkpoint: wait for
+  `validation_summary.txt`/`validation_metrics.json`; if READY, pull compact
+  CSV/JSON/TXT locally and generate a slide-31-style summary comparing the five
+  shape-residual variants against the current 56-BDT baseline routed model.
+- 2026-05-18 23:32 EDT pp fix4 / Fig. 19 recovery heartbeat:
+  Consumed five fresh `isSimInclusive` pipeline emails from `sphnxuser05`.
+  Evidence: workflow `auto_workflow_siminclusive_20260518_184526` reached
+  `auto_siminclusive_final_ready=READY` at `23:24`; a later workflow
+  `auto_workflow_siminclusive_20260518_184551` entered
+  `sim_firstRound_siminclusive_all=STARTED` at `23:30`. Queue check for all
+  Fig. 19 companion clusters and merge clusters showed only `6` active relevant
+  jobs, all running, `0` held. Active jobs are two DAGMan nodes (`5364911`,
+  `5364913`) and four `run28_jet40` workers from cluster `5364914`. Main fix4
+  DAG clusters remain at `0` active lines. Tmux session
+  `ppg12_ml_ppg12_sixpack_fix4_rdepiso_20260517_2045_continue_mlp1` remains
+  present; pp MLP `model_registry.json` is still absent. Wait for the last
+  Fig. 19 workers/DAGs to finish; then inspect closed ROOT keys before scoring.
 
 ## Status Legend
 

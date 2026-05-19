@@ -17,6 +17,11 @@ retry_cap="${RJ_AUTO_MEMORY_RETRY_CAP_MB:-16000}"
 merge_memory="${RJ_SIM_FIRSTROUND_REQUEST_MEMORY:-8000MB}"
 merge_group="${RJ_SIM_MERGE_GROUP_SIZE:-75}"
 auto_merge="${RJ_MLP_TARGETWP_AUTO_MERGE:-0}"
+queue_gate="${RJ_MLP_TARGETWP_QUEUE_GATE:-${RJ_TARGETWP_QUEUE_GATE:-1}}"
+queue_scope="${RJ_MLP_TARGETWP_QUEUE_SCOPE:-${RJ_TARGETWP_QUEUE_SCOPE:-matching}}"
+max_queued="${RJ_MLP_TARGETWP_MAX_QUEUED:-${RJ_TARGETWP_MAX_QUEUED:-40000}}"
+resume_below="${RJ_MLP_TARGETWP_RESUME_BELOW:-${RJ_TARGETWP_RESUME_BELOW:-0}}"
+poll_seconds="${RJ_MLP_TARGETWP_POLL_SECONDS:-${RJ_TARGETWP_POLL_SECONDS:-300}}"
 
 log_dir="${RJ_MLP_TARGETWP_LOG_DIR:-${repo_root}/condor_generated_configs/${campaign_tag}}"
 mkdir -p "$log_dir"
@@ -34,6 +39,11 @@ echo "retry_cap=${retry_cap}"
 echo "merge_memory=${merge_memory}"
 echo "merge_group_size=${merge_group}"
 echo "auto_merge=${auto_merge}"
+echo "queue_gate=${queue_gate}"
+echo "queue_scope=${queue_scope}"
+echo "max_queued=${max_queued}"
+echo "resume_below=${resume_below}"
+echo "poll_seconds=${poll_seconds}"
 echo "notify=${notify}"
 if [[ "$auto_merge" != "1" ]]; then
   echo "analysis_only=1"
@@ -53,6 +63,55 @@ if ! grep -q "auauCentInputBase3x3MLP" "$yaml"; then
   echo "[ERROR] YAML does not appear to include the primary MLP photon-ID row." >&2
   exit 4
 fi
+
+count_jobs() {
+  local scope="$1"
+  local pattern="$2"
+  if [[ "$scope" == "user" ]]; then
+    condor_q "${USER:-patsfan753}" -af JobStatus 2>/dev/null \
+      | awk '$1 != 3 && $1 != 4 {n++} END {print n+0}'
+  else
+    condor_q "${USER:-patsfan753}" -af JobStatus Args 2>/dev/null \
+      | awk -v pat="$pattern" '$1 != 3 && $1 != 4 && index($0, pat) {n++} END {print n+0}'
+  fi
+}
+
+count_held_jobs() {
+  local scope="$1"
+  local pattern="$2"
+  if [[ "$scope" == "user" ]]; then
+    condor_q "${USER:-patsfan753}" -af JobStatus 2>/dev/null \
+      | awk '$1 == 5 {n++} END {print n+0}'
+  else
+    condor_q "${USER:-patsfan753}" -af JobStatus Args 2>/dev/null \
+      | awk -v pat="$pattern" '$1 == 5 && index($0, pat) {n++} END {print n+0}'
+  fi
+}
+
+wait_for_queue_gate() {
+  local label="$1"
+  local pattern="$2"
+  [[ "$queue_gate" == "1" ]] || return 0
+
+  while true; do
+    local queued held
+    queued="$(count_jobs "$queue_scope" "$pattern")"
+    held="$(count_held_jobs "$queue_scope" "$pattern")"
+    echo "[queue_gate] ${label}: scope=${queue_scope} pattern=${pattern} queued=${queued} held=${held} resume_below=${resume_below} max_queued=${max_queued}"
+    if (( held > 0 )); then
+      echo "[ERROR] Queue gate sees held jobs for ${label}; stopping before submitting more." >&2
+      condor_q -nobatch "${USER:-patsfan753}" 2>/dev/null | tail -80 || true
+      exit 11
+    fi
+    if (( queued <= resume_below )); then
+      break
+    fi
+    if (( queued > max_queued )); then
+      echo "[WARN] ${label}: queued=${queued} is above max_queued=${max_queued}; waiting and not submitting more."
+    fi
+    sleep "$poll_seconds"
+  done
+}
 
 submit_one() {
   local dataset="$1"
@@ -90,8 +149,11 @@ merge_base="/sphenix/u/patsfan753/scratch/thesisAnalysis/output_${campaign_tag}"
 signal_bulk="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simembedded_${campaign_tag}"
 background_bulk="/sphenix/tg/tg01/bulk/jbennett/thesisAna/simembeddedinclusive_${campaign_tag}"
 
+wait_for_queue_gate "before isSimEmbedded" "$campaign_tag"
 submit_one isSimEmbedded RJ_SIMEMBED_DEST_BASE "$signal_bulk" "$merge_base"
+wait_for_queue_gate "before isSimEmbeddedInclusive" "$campaign_tag"
 submit_one isSimEmbeddedInclusive RJ_SIMEMBEDINCLUSIVE_DEST_BASE "$background_bulk" "$merge_base"
+wait_for_queue_gate "after isSimEmbeddedInclusive" "$campaign_tag"
 
 if [[ "$auto_merge" != "1" ]]; then
   cat <<EOF

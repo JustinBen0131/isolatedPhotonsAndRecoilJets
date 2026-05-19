@@ -30,6 +30,7 @@ PP_MLP_MAX_LOAD_ROWS_PER_CLASS="${PP_MLP_MAX_LOAD_ROWS_PER_CLASS:-1500000}"
 PP_VALIDATION_MAX_LOAD_ROWS_PER_CLASS="${PP_VALIDATION_MAX_LOAD_ROWS_PER_CLASS:-1000000}"
 PP_LOAD_SAMPLE_SEED="${PP_LOAD_SAMPLE_SEED:-42}"
 PP_BDT_N_JOBS="${PP_BDT_N_JOBS:-2}"
+PP_SKIP_TMVA_EXPORT="${PP_SKIP_TMVA_EXPORT:-1}"
 
 PHOTON_SAMPLES=(run28_photonjet5 run28_photonjet10 run28_photonjet20)
 JET_SAMPLES=(run28_jet5 run28_jet12 run28_jet20 run28_jet30 run28_jet40)
@@ -81,6 +82,7 @@ write_metadata() {
   "mlp_max_load_rows_per_class": ${PP_MLP_MAX_LOAD_ROWS_PER_CLASS},
   "validation_max_load_rows_per_class": ${PP_VALIDATION_MAX_LOAD_ROWS_PER_CLASS},
   "load_sample_seed": ${PP_LOAD_SAMPLE_SEED},
+  "skip_tmva_export": ${PP_SKIP_TMVA_EXPORT},
   "notes": [
     "Compatibility tree is named AuAuPhotonIDTrainingTree so existing trainers can be reused.",
     "pp centrality branch is filled with -1 and is not included in pp feature presets.",
@@ -225,6 +227,10 @@ PY
 train_bdt() {
   mkdir_run
   need_file "$MANIFEST"
+  local tmva_args=()
+  if [[ "$PP_SKIP_TMVA_EXPORT" == "1" ]]; then
+    tmva_args+=(--skip-tmva-export)
+  fi
   "$ML_PYTHON" "${REPO_BASE}/scripts/train_auau_photon_bdt.py" \
     --task tight \
     --input "@${MANIFEST}" \
@@ -253,6 +259,7 @@ train_bdt() {
     --load-sample-seed "$PP_LOAD_SAMPLE_SEED" \
     --majority-cap-ratio 0 \
     --skip-missing-tree \
+    "${tmva_args[@]}" \
     --registry-output "${BDT_OUTDIR}/model_registry.json"
   log "BDT done: ${BDT_OUTDIR}"
 }
@@ -266,7 +273,7 @@ train_mlp() {
     --outdir "$MLP_OUTDIR" \
     --products ppg12-sixpack \
     --pt-range 6:35 \
-    --centrality-range -1:0 \
+    --centrality-range=-1:0 \
     --train-pt-bins "$PPG12_PT_BINS" \
     --validation-fraction 0.10 \
     --test-fraction 0.10 \
@@ -300,7 +307,7 @@ validate_tables() {
     --kind bdt \
     --bdt-registry "${BDT_OUTDIR}/model_registry.json" \
     --pt-range 6:35 \
-    --centrality-range -1:0 \
+    --centrality-range=-1:0 \
     --pt-bins "$PPG12_PT_BINS" \
     --max-load-rows-per-class "$PP_VALIDATION_MAX_LOAD_ROWS_PER_CLASS" \
     --random-seed "$PP_LOAD_SAMPLE_SEED" \
@@ -312,7 +319,7 @@ validate_tables() {
     --kind mlp \
     --mlp-registry "${MLP_OUTDIR}/model_registry.json" \
     --pt-range 6:35 \
-    --centrality-range -1:0 \
+    --centrality-range=-1:0 \
     --pt-bins "$PPG12_PT_BINS" \
     --max-load-rows-per-class "$PP_VALIDATION_MAX_LOAD_ROWS_PER_CLASS" \
     --random-seed "$PP_LOAD_SAMPLE_SEED" \
@@ -383,6 +390,7 @@ PP_MLP_MAX_LOAD_ROWS_PER_CLASS=$PP_MLP_MAX_LOAD_ROWS_PER_CLASS
 PP_VALIDATION_MAX_LOAD_ROWS_PER_CLASS=$PP_VALIDATION_MAX_LOAD_ROWS_PER_CLASS
 PP_LOAD_SAMPLE_SEED=$PP_LOAD_SAMPLE_SEED
 PP_BDT_N_JOBS=$PP_BDT_N_JOBS
+PP_SKIP_TMVA_EXPORT=$PP_SKIP_TMVA_EXPORT
 EOF
 }
 

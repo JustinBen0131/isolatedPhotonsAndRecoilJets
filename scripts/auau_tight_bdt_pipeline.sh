@@ -244,6 +244,15 @@ make_root_manifest() {
   local root="$1"
   local out="$2"
   mkdir -p "$(dirname "$out")"
+  if [[ -n "${RJ_AUAU_BDT_ROOT_MANIFEST:-}" ]]; then
+    [[ -s "$RJ_AUAU_BDT_ROOT_MANIFEST" ]] || die "RJ_AUAU_BDT_ROOT_MANIFEST is set but missing/empty: $RJ_AUAU_BDT_ROOT_MANIFEST"
+    cp -f "$RJ_AUAU_BDT_ROOT_MANIFEST" "$out"
+    [[ -s "$out" ]] || die "Copied empty ROOT manifest from $RJ_AUAU_BDT_ROOT_MANIFEST"
+    return 0
+  fi
+  if [[ "${RJ_AUAU_BDT_REUSE_EXISTING_MANIFEST:-0}" == "1" && -s "$out" ]]; then
+    return 0
+  fi
   find -L "$root" -type f -name '*.root' | sort -V > "$out" || true
   [[ -s "$out" ]] || die "No ROOT files found under $root"
 }
@@ -251,6 +260,25 @@ make_root_manifest() {
 validate_training_tree() {
   local manifest="$1"
   local report="$2"
+  if [[ "${RJ_AUAU_BDT_SKIP_TRAINING_TREE_VALIDATE:-0}" == "1" ]]; then
+    mkdir -p "$(dirname "$report")"
+    "$ML_PYTHON" - "$manifest" "$report" <<'PY'
+import json
+import sys
+from pathlib import Path
+manifest = Path(sys.argv[1])
+report = Path(sys.argv[2])
+paths = [line.strip() for line in manifest.read_text().splitlines() if line.strip()]
+report.write_text(json.dumps({
+    "status": "SKIPPED_BY_OPERATOR",
+    "reason": "RJ_AUAU_BDT_SKIP_TRAINING_TREE_VALIDATE=1; manifest came from a prior READY registry.",
+    "file_count": len(paths),
+    "manifest": str(manifest),
+}, indent=2, sort_keys=True) + "\n")
+print(f"[OK] training tree validation skipped by env; manifest files={len(paths)}")
+PY
+    return 0
+  fi
   setup_ml_python_env
   "$ML_PYTHON" - "$manifest" "$report" <<'PY'
 import json
@@ -1094,12 +1122,14 @@ train_expanded_from_extraction() {
   local model_dir="${RJ_AUAU_TIGHT_BDT_MODEL_DIR:-${MODEL_BASE}/tight_expanded_${stamp}}"
   local cache_file="${RJ_AUAU_BDT_CACHE_FILE:-${model_dir}/training_matrix.npz}"
   local spec_ids="${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS:-}"
+  local campaign="${RJ_AUAU_BDT_CAMPAIGN:-expanded-tight}"
   guard_generated_path "expanded training model dir" "$model_dir"
   log_path_plan "trainExpandedFromExtraction" \
     "source    : ${source}" \
     "model dir : ${model_dir}" \
     "manifest  : ${manifest}" \
     "cache     : ${cache_file}" \
+    "campaign  : ${campaign}" \
     "spec ids  : ${spec_ids:-<all>}" \
     "report    : ${report_dir}" \
     "plan only : ${plan_only}"
@@ -1108,7 +1138,7 @@ train_expanded_from_extraction() {
   local -a args=(
     "$TRAIN_SCRIPT"
     --task tight
-    --campaign expanded-tight
+    --campaign "$campaign"
     --input "@${manifest}"
     --outdir "$model_dir"
     --cache-file "${cache_file}"
@@ -1179,6 +1209,7 @@ train_expanded_from_extraction_condor() {
   local registry_dir="${sub_root}/registries"
   local cache_file="${RJ_AUAU_BDT_CACHE_FILE:-${model_dir}/training_matrix.npz}"
   local spec_ids="${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS:-}"
+  local campaign="${RJ_AUAU_BDT_CAMPAIGN:-expanded-tight}"
   guard_generated_path "expanded training model dir" "$model_dir"
   guard_generated_path "expanded training submit root" "$sub_root"
   log_path_plan "trainExpandedFromExtractionCondor" \
@@ -1188,6 +1219,7 @@ train_expanded_from_extraction_condor() {
     "shards    : ${shard_dir}" \
     "registries: ${registry_dir}" \
     "cache     : ${cache_file}" \
+    "campaign  : ${campaign}" \
     "spec ids  : ${spec_ids:-<all>}" \
     "groupSize : ${group_size}" \
     "requestMem: ${reqmem}"
@@ -1196,7 +1228,7 @@ train_expanded_from_extraction_condor() {
   setup_ml_python_env
   local planned="${model_dir}/model_registry.planned.json"
   local -a plan_args=(
-    "$TRAIN_SCRIPT" --task tight --campaign expanded-tight
+    "$TRAIN_SCRIPT" --task tight --campaign "$campaign"
     --input "@${manifest}" --outdir "$model_dir"
     --plan-only --registry-output "$planned"
     --majority-cap-ratio "${RJ_AUAU_BDT_MAJORITY_CAP_RATIO:-4.0}"
@@ -1266,12 +1298,13 @@ cat > "$cache_worker" <<EOF
 set -euo pipefail
 export ML_PYTHON="${ML_PYTHON}"
 export RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS="${spec_ids}"
+export RJ_AUAU_BDT_CAMPAIGN="${campaign}"
 ${env_prelude}
 extra_args=()
 if [[ -n "\${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS:-}" ]]; then
   extra_args+=(--campaign-spec-ids "\${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS}")
 fi
-"\$ml_python" "${TRAIN_SCRIPT}" --task tight --campaign expanded-tight \\
+"\$ml_python" "${TRAIN_SCRIPT}" --task tight --campaign "\${RJ_AUAU_BDT_CAMPAIGN}" \\
   --input "@${manifest}" --outdir "${model_dir}" \\
   --cache-file "${cache_file}" --cache-only \\
   --registry-output "${model_dir}/model_registry.cache.json" \\
@@ -1290,12 +1323,13 @@ spec_list="\${1:?spec list}"
 registry="\${2:?registry output}"
 export ML_PYTHON="${ML_PYTHON}"
 export RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS="${spec_ids}"
+export RJ_AUAU_BDT_CAMPAIGN="${campaign}"
 ${env_prelude}
 extra_args=()
 if [[ -n "\${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS:-}" ]]; then
   extra_args+=(--campaign-spec-ids "\${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS}")
 fi
-"\$ml_python" "${TRAIN_SCRIPT}" --task tight --campaign expanded-tight \\
+"\$ml_python" "${TRAIN_SCRIPT}" --task tight --campaign "\${RJ_AUAU_BDT_CAMPAIGN}" \\
   --outdir "${model_dir}" \\
   --cache-file "${cache_file}" \\
   --campaign-spec-list "\$spec_list" \\

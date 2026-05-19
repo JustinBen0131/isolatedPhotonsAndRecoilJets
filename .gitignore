@@ -16,6 +16,8 @@
 !/agent_context/REFERENCE_MAP.md
 !/agent_context/TASK_BOARD.md
 !/agent_context/STATUS_DASHBOARD.md
+!/agent_context/policies/
+!/agent_context/policies/**
 
 !/codex_notes/
 !/codex_notes/KNOWN_ISSUES.md
