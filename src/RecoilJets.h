@@ -1367,6 +1367,7 @@ private:
   bool m_ppPhotonIDTrainingTreeEnabled = false;
   bool m_ppPhotonIDExtractOnly = false;
   bool m_ppPhotonIDPPG12Filter = true;
+  bool m_ppPhotonIDRequirePreselection = false;
   long long m_ppPhotonIDTrainingTreeMaxEntries = 0;
   long long m_ppPhotonIDTrainingTreeEntries = 0;
   TTree* m_ppPhotonIDTrainingTree = nullptr;

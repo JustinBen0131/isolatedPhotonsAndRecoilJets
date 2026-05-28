@@ -26,6 +26,22 @@ Build this fingerprint before acting:
 - timestamped campaign tag, cluster/DAG IDs, Gmail subjects;
 - expected small products: CSV/JSON/PNG/TXT/ROOT final names.
 
+Executable helper:
+
+```bash
+python3 scripts/codex_os_guard.py fingerprint \
+  --field purpose=<purpose> \
+  --field dataset=<dataset> \
+  --field tag=<tag> \
+  --field config=<config> \
+  --field output=<output>
+```
+
+For duplicate-sensitive risky work, pass the same fields to
+`scripts/codex_os_guard.py preflight`. The guard blocks exact repeats already
+recorded in the private OS event ledger unless Justin explicitly approves a
+deliberate rerun with a new reason.
+
 ## Search Order
 
 1. `agent_context/STATUS_DASHBOARD.md`

@@ -47,8 +47,10 @@ SAMPLE_ORDER = [
     "embeddedJet12",
     "embeddedJet20",
     "embeddedJet30",
+    "embeddedJet40",
     "embeddedJet12plus20",
     "embeddedJet12plus20plus30",
+    "embeddedJet12plus20plus30plus40",
 ]
 
 
@@ -92,6 +94,8 @@ def sample_from_path(path: str) -> tuple[str, str]:
         return "embeddedJet20", "background"
     if "embeddedjet30" in lower:
         return "embeddedJet30", "background"
+    if "embeddedjet40" in lower:
+        return "embeddedJet40", "background"
     return "unknown", "unknown"
 
 

@@ -31,6 +31,18 @@ Ask for explicit current-task approval before:
 Read-only diagnostics are allowed when the task needs them and the relevant
 SDCC policy is followed.
 
+Before performing any approved risky mutation, run the OS safety kernel:
+
+```bash
+python3 scripts/codex_os_snapshot.py create --label "<scope>"
+python3 scripts/codex_os_guard.py preflight ...
+```
+
+The preflight must name the workstream, exact scope, approval evidence,
+snapshot ID or explicit no-snapshot reason, and duplicate fingerprint for
+duplicate-sensitive work. A passing preflight does not replace the actual user
+approval; it records that the approval and scope were checked.
+
 ## Secrets
 
 Never ask for, read, store, repeat, or type SDCC passwords, tokens, private

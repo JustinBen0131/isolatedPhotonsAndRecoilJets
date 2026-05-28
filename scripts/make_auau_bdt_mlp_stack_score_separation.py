@@ -40,6 +40,13 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--max-shards", type=int, default=0)
     ap.add_argument("--max-rows", type=int, default=0)
     ap.add_argument("--bins", type=int, default=34)
+    ap.add_argument("--bdt-row-label", default="Input BDT\n8 $E_{T}$ x 7 cent")
+    ap.add_argument("--mlp-row-label", default="Input MLP\nsingle small NN")
+    ap.add_argument("--stack-row-label", default="BDT+MLP stack\nNN combiner")
+    ap.add_argument("--bdt-model-label", default="Input BDT, 8 E_T x 7 centrality")
+    ap.add_argument("--mlp-model-label", default="Input MLP, single small NN")
+    ap.add_argument("--stack-model-label", default="BDT+MLP stack, NN combiner")
+    ap.add_argument("--subtitle-note", default="same exact stack artifact/cache inputs as ROC overlay")
     return ap.parse_args()
 
 
@@ -79,9 +86,9 @@ def main() -> None:
     cent_edges = rocutil.parse_edges(args.cent_bins)
     base = split_mask & np.isfinite(et) & np.isfinite(cent) & (et >= args.pt_min) & (et < args.pt_max)
     rows = [
-        ("Input BDT\n8 $E_{T}$ x 7 cent", "Input BDT, 8 E_T x 7 centrality", np.asarray(frame["bdt_score"], dtype="float64")),
-        ("Input MLP\nsingle small NN", "Input MLP, single small NN", np.asarray(frame["mlp_score"], dtype="float64")),
-        ("BDT+MLP stack\nNN combiner", "BDT+MLP stack, NN combiner", stack_score),
+        (args.bdt_row_label, args.bdt_model_label, np.asarray(frame["bdt_score"], dtype="float64")),
+        (args.mlp_row_label, args.mlp_model_label, np.asarray(frame["mlp_score"], dtype="float64")),
+        (args.stack_row_label, args.stack_model_label, stack_score),
     ]
 
     import matplotlib
@@ -188,7 +195,7 @@ def main() -> None:
     fig.text(0.035, 0.944, "Au+Au embedded validation", ha="left", va="top", fontsize=10.5)
     fig.text(0.50, 0.975, r"Signal/background score separation, $15 < E_{T} < 35$ GeV", ha="center", va="top", fontsize=17, fontweight="bold")
     split_label = {"val": "held-out validation split", "test": "held-out test split", "all": "all scored rows"}[args.split]
-    fig.text(0.50, 0.944, f"{split_label}; same exact stack artifact/cache inputs as ROC overlay", ha="center", va="top", fontsize=10.3, color="0.35")
+    fig.text(0.50, 0.944, f"{split_label}; {args.subtitle_note}", ha="center", va="top", fontsize=10.3, color="0.35")
     fig.text(0.50, 0.017, "BDT+MLP stack uses the exported JSON artifact evaluated on aligned enriched validation caches.", ha="center", va="bottom", fontsize=8.6, color="0.35")
     fig.tight_layout(rect=[0.045, 0.055, 0.995, 0.91], h_pad=1.0, w_pad=1.8)
 

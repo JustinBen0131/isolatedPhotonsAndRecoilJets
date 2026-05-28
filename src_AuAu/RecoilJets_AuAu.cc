@@ -895,7 +895,98 @@ if (s.find("embeddedjet20") != std::string::npos ||
   return 20;
 }
 
+if (s.find("embeddedjet30") != std::string::npos ||
+    s.find("run28_embeddedjet30") != std::string::npos)
+{
+  return 30;
+}
+
+if (s.find("embeddedjet40") != std::string::npos ||
+    s.find("run28_embeddedjet40") != std::string::npos)
+{
+  return 40;
+}
+
 return 0;
+}
+
+static bool embeddedInclusiveFourSampleMode()
+{
+const char* four = std::getenv("RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES");
+const char* jet40 = std::getenv("RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40");
+return (four && std::string(four) == "1") ||
+       (jet40 && std::string(jet40) == "1");
+}
+
+static bool embeddedInclusiveThreeSampleMode()
+{
+const char* three = std::getenv("RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES");
+const char* jet30 = std::getenv("RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30");
+return embeddedInclusiveFourSampleMode() ||
+       (three && std::string(three) == "1") ||
+       (jet30 && std::string(jet30) == "1");
+}
+
+static double recoilJetsEnvDouble(const char* name, double fallback)
+{
+const char* raw = std::getenv(name);
+if (!raw || !*raw) return fallback;
+char* end = nullptr;
+const double value = std::strtod(raw, &end);
+if (end == raw || !std::isfinite(value)) return fallback;
+return value;
+}
+
+static bool recoilJetsEnvFlag(const char* name, bool fallback = false)
+{
+const char* raw = std::getenv(name);
+if (!raw || !*raw) return fallback;
+std::string value(raw);
+std::transform(value.begin(), value.end(), value.begin(),
+               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+return !(value == "0" || value == "false" || value == "no" || value == "off");
+}
+
+struct EmbeddedInclusiveStitchBounds
+{
+  double jet12Lo = 12.0;
+  double jet12Hi = 20.0;
+  double jet20Lo = 20.0;
+  double jet20Hi = 30.0;
+  double jet30Lo = 30.0;
+  double jet30Hi = -1.0;
+  double jet40Lo = 40.0;
+};
+
+static EmbeddedInclusiveStitchBounds embeddedInclusiveStitchBoundsFromEnv()
+{
+EmbeddedInclusiveStitchBounds b;
+b.jet12Lo = recoilJetsEnvDouble("RJ_SIMEMBEDDEDINCLUSIVE_JET12_LO", b.jet12Lo);
+b.jet12Hi = recoilJetsEnvDouble("RJ_SIMEMBEDDEDINCLUSIVE_JET12_HI", b.jet12Hi);
+b.jet20Lo = recoilJetsEnvDouble("RJ_SIMEMBEDDEDINCLUSIVE_JET20_LO", b.jet20Lo);
+b.jet20Hi = recoilJetsEnvDouble("RJ_SIMEMBEDDEDINCLUSIVE_JET20_HI", b.jet20Hi);
+b.jet30Lo = recoilJetsEnvDouble("RJ_SIMEMBEDDEDINCLUSIVE_JET30_LO", b.jet30Lo);
+b.jet30Hi = recoilJetsEnvDouble("RJ_SIMEMBEDDEDINCLUSIVE_JET30_HI", b.jet30Hi);
+b.jet40Lo = recoilJetsEnvDouble("RJ_SIMEMBEDDEDINCLUSIVE_JET40_LO", b.jet40Lo);
+return b;
+}
+
+struct EmbeddedPhotonStitchBounds
+{
+  double photon12Lo = 12.0;
+  double photon12Hi = 20.0;
+  double photon20Lo = 20.0;
+  double photon20Hi = -1.0;
+};
+
+static EmbeddedPhotonStitchBounds embeddedPhotonStitchBoundsFromEnv()
+{
+EmbeddedPhotonStitchBounds b;
+b.photon12Lo = recoilJetsEnvDouble("RJ_SIMEMBEDDED_PHOTON12_LO", b.photon12Lo);
+b.photon12Hi = recoilJetsEnvDouble("RJ_SIMEMBEDDED_PHOTON12_HI", b.photon12Hi);
+b.photon20Lo = recoilJetsEnvDouble("RJ_SIMEMBEDDED_PHOTON20_LO", b.photon20Lo);
+b.photon20Hi = recoilJetsEnvDouble("RJ_SIMEMBEDDED_PHOTON20_HI", b.photon20Hi);
+return b;
 }
 
 static int embeddedInclusiveJetSampleCodeFromContext(const std::string& outFile)
@@ -903,13 +994,13 @@ static int embeddedInclusiveJetSampleCodeFromContext(const std::string& outFile)
 if (const char* env = std::getenv("RJ_SIM_SAMPLE"))
 {
   const int fromEnv = embeddedInclusiveJetSampleCodeFromText(env);
-  if (fromEnv == 12 || fromEnv == 20) return fromEnv;
+  if (fromEnv == 12 || fromEnv == 20 || fromEnv == 30 || fromEnv == 40) return fromEnv;
 }
 
 if (const char* env = std::getenv("RJ_EMBEDDED_INCLUSIVE_JET_SAMPLE"))
 {
   const int fromEnv = embeddedInclusiveJetSampleCodeFromText(env);
-  if (fromEnv == 12 || fromEnv == 20) return fromEnv;
+  if (fromEnv == 12 || fromEnv == 20 || fromEnv == 30 || fromEnv == 40) return fromEnv;
 }
 
 return embeddedInclusiveJetSampleCodeFromText(outFile);
@@ -972,7 +1063,7 @@ return maxPt;
 static double findEmbeddedInclusiveStitchTruthJetPt(PHCompositeNode* topNode)
 {
 // Brian's embed_2025 inclusive-jet production applies PHPy8JetTrigger to
-// anti-kT R=0.4 generator jets with thresholds Jet12 >= 12 and Jet20 >= 20.
+// anti-kT R=0.4 generator jets with Jet12/20/30/40 threshold samples.
 // Prefer the r04 truth jet container, then fall back to other available truth
 // jet radii only for diagnostics/robustness if r04 is absent.
 const std::vector<std::string> candidates = {
@@ -6119,9 +6210,15 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     if (m_isSimEmbedded)
     {
         const int embeddedInclusiveJetSample = embeddedInclusiveJetSampleCodeFromContext(Outfile);
-        if (embeddedInclusiveJetSample == 12 || embeddedInclusiveJetSample == 20)
+        if (embeddedInclusiveJetSample == 12 ||
+            embeddedInclusiveJetSample == 20 ||
+            embeddedInclusiveJetSample == 30 ||
+            embeddedInclusiveJetSample == 40)
         {
             const double stitchJetPt = findEmbeddedInclusiveStitchTruthJetPt(topNode);
+            const bool threeSlice = embeddedInclusiveThreeSampleMode();
+            const bool fourSlice = embeddedInclusiveFourSampleMode();
+            const EmbeddedInclusiveStitchBounds stitchBounds = embeddedInclusiveStitchBoundsFromEnv();
 
             bool passStitch = true;
             int decisionBin = 4;
@@ -6129,15 +6226,51 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
 
             if (embeddedInclusiveJetSample == 12)
             {
-                passStitch = (std::isfinite(stitchJetPt) && stitchJetPt >= 12.0 && stitchJetPt < 20.0);
+                passStitch = (std::isfinite(stitchJetPt) &&
+                              stitchJetPt >= stitchBounds.jet12Lo &&
+                              (stitchBounds.jet12Hi < 0.0 ||
+                               stitchJetPt < stitchBounds.jet12Hi));
                 decisionBin = passStitch ? 1 : 2;
-                decisionText = "EmbeddedJet12 keep 12<=pT<20";
+                std::ostringstream os;
+                os << "EmbeddedJet12 keep " << stitchBounds.jet12Lo
+                   << "<=pT";
+                if (stitchBounds.jet12Hi >= 0.0) os << "<" << stitchBounds.jet12Hi;
+                decisionText = os.str();
             }
             else if (embeddedInclusiveJetSample == 20)
             {
-                passStitch = (std::isfinite(stitchJetPt) && stitchJetPt >= 20.0);
+                passStitch = (std::isfinite(stitchJetPt) &&
+                              stitchJetPt >= stitchBounds.jet20Lo &&
+                              (!threeSlice ||
+                               stitchBounds.jet20Hi < 0.0 ||
+                               stitchJetPt < stitchBounds.jet20Hi));
                 decisionBin = passStitch ? 1 : 2;
-                decisionText = "EmbeddedJet20 keep pT>=20";
+                std::ostringstream os;
+                os << "EmbeddedJet20 keep pT>=" << stitchBounds.jet20Lo;
+                if (threeSlice && stitchBounds.jet20Hi >= 0.0) os << " and pT<" << stitchBounds.jet20Hi;
+                decisionText = os.str();
+            }
+            else if (embeddedInclusiveJetSample == 30)
+            {
+                passStitch = (std::isfinite(stitchJetPt) &&
+                              stitchJetPt >= stitchBounds.jet30Lo &&
+                              (!fourSlice ||
+                               stitchBounds.jet30Hi < 0.0 ||
+                               stitchJetPt < stitchBounds.jet30Hi));
+                decisionBin = passStitch ? 1 : 2;
+                std::ostringstream os;
+                os << "EmbeddedJet30 keep pT>=" << stitchBounds.jet30Lo;
+                if (fourSlice && stitchBounds.jet30Hi >= 0.0) os << " and pT<" << stitchBounds.jet30Hi;
+                decisionText = os.str();
+            }
+            else if (embeddedInclusiveJetSample == 40)
+            {
+                passStitch = (std::isfinite(stitchJetPt) &&
+                              stitchJetPt >= stitchBounds.jet40Lo);
+                decisionBin = passStitch ? 1 : 2;
+                std::ostringstream os;
+                os << "EmbeddedJet40 keep pT>=" << stitchBounds.jet40Lo;
+                decisionText = os.str();
             }
 
             if (!std::isfinite(stitchJetPt) || stitchJetPt <= 0.0)
@@ -6267,6 +6400,7 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         {
         const int embeddedPhotonSample = embeddedPhotonSampleCodeFromContext(Outfile);
         const double stitchPhotonPt = findEmbeddedProducerFilterPhotonPt(topNode);
+        const EmbeddedPhotonStitchBounds photonStitchBounds = embeddedPhotonStitchBoundsFromEnv();
 
         bool passStitch = true;
         int decisionBin = 4;
@@ -6274,15 +6408,28 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
 
         if (embeddedPhotonSample == 12)
         {
-            passStitch = (std::isfinite(stitchPhotonPt) && stitchPhotonPt >= 12.0 && stitchPhotonPt < 20.0);
+            passStitch = (std::isfinite(stitchPhotonPt) &&
+                          stitchPhotonPt >= photonStitchBounds.photon12Lo &&
+                          (photonStitchBounds.photon12Hi < 0.0 ||
+                           stitchPhotonPt < photonStitchBounds.photon12Hi));
             decisionBin = passStitch ? 1 : 2;
-            decisionText = "PhotonJet12 keep 12<=pT<20";
+            std::ostringstream os;
+            os << "PhotonJet12 keep " << photonStitchBounds.photon12Lo
+               << "<=pT";
+            if (photonStitchBounds.photon12Hi >= 0.0) os << "<" << photonStitchBounds.photon12Hi;
+            decisionText = os.str();
         }
         else if (embeddedPhotonSample == 20)
         {
-            passStitch = (std::isfinite(stitchPhotonPt) && stitchPhotonPt >= 20.0);
+            passStitch = (std::isfinite(stitchPhotonPt) &&
+                          stitchPhotonPt >= photonStitchBounds.photon20Lo &&
+                          (photonStitchBounds.photon20Hi < 0.0 ||
+                           stitchPhotonPt < photonStitchBounds.photon20Hi));
             decisionBin = passStitch ? 1 : 2;
-            decisionText = "PhotonJet20 keep pT>=20";
+            std::ostringstream os;
+            os << "PhotonJet20 keep pT>=" << photonStitchBounds.photon20Lo;
+            if (photonStitchBounds.photon20Hi >= 0.0) os << " and pT<" << photonStitchBounds.photon20Hi;
+            decisionText = os.str();
         }
         else
         {
@@ -18256,6 +18403,50 @@ TH1F* RecoilJets::getOrBookPtGammaHist(const std::string& trig,
     return h;
 }
 
+TH1F* RecoilJets::getOrBookRecoClusterEtFineDiagHist(const std::string& trig,
+                                                     const std::string& base,
+                                                     int centIdx)
+{
+    const std::string suffix = suffixForBins(-1, centIdx);
+    const std::string name   = withIsoViewSuffix(base) + suffix;
+
+    if (trig.empty() || base.empty()) return nullptr;
+
+    auto& H = qaHistogramsByTrigger[trig];
+    if (auto it = H.find(name); it != H.end())
+    {
+      if (auto* h = dynamic_cast<TH1F*>(it->second)) return h;
+      H.erase(it);
+    }
+
+    if (!out || !out->IsOpen()) return nullptr;
+
+    TDirectory* const prevDir = gDirectory;
+    TDirectory* dir = out->GetDirectory(trig.c_str());
+    if (!dir) dir = out->mkdir(trig.c_str());
+    if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+    dir->cd();
+
+    const double fineMaxRaw = recoilJetsEnvDouble("RJ_RECO_CLUSTER_ET_FINE_MAX", 40.0);
+    const double fineMax = (std::isfinite(fineMaxRaw) && fineMaxRaw > 13.0) ? fineMaxRaw : 40.0;
+    const int nb = static_cast<int>(std::floor(fineMax - 12.0 + 0.5));
+    std::vector<double> fineRecoClusterEtEdges;
+    fineRecoClusterEtEdges.reserve(static_cast<std::size_t>(nb) + 1U);
+    for (int i = 0; i <= nb; ++i)
+    {
+      fineRecoClusterEtEdges.push_back(12.0 + static_cast<double>(i));
+    }
+    const std::string title = name + ";reco photon-cluster E_{T} [GeV];Entries";
+
+    auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(),
+                                       nb, fineRecoClusterEtEdges.data());
+    h->Sumw2();
+
+    H[name] = h;
+    if (prevDir) prevDir->cd();
+    return h;
+}
+
 
 // ------------------------------------------------------------------
 //  isolation PASS/FAIL counter histogram (2 bins), same slicing rules.
@@ -19327,7 +19518,28 @@ void RecoilJets::fillIsoSSTagCounters(const std::string& trig,
         hPtReg->Fill(pt_gamma);
         bumpHistFill(trig, hPtReg->GetName());
       }
-  }
+    }
+
+    // -------------------------------------------------------------------------
+    // Optional fine-binned reco-cluster ET diagnostic for stitching checks.
+    // Disabled by default; enabled with RJ_RECO_CLUSTER_ET_FINE_DIAG=1.
+    // -------------------------------------------------------------------------
+    static const bool enableFineRecoClusterEtDiag =
+        recoilJetsEnvFlag("RJ_RECO_CLUSTER_ET_FINE_DIAG", false);
+    if (enableFineRecoClusterEtDiag)
+    {
+      const double fineMaxRaw = recoilJetsEnvDouble("RJ_RECO_CLUSTER_ET_FINE_MAX", 40.0);
+      const int fineMaxForName = static_cast<int>(std::lround(
+          (std::isfinite(fineMaxRaw) && fineMaxRaw > 13.0) ? fineMaxRaw : 40.0));
+      const std::string hBase = std::string("h_recoClusterEt_ABCD_") +
+                                std::string(1, region) +
+                                "_fine1GeV_12to" + std::to_string(fineMaxForName);
+      if (auto* hFineReg = getOrBookRecoClusterEtFineDiagHist(trig, hBase, effCentIdx))
+      {
+        hFineReg->Fill(pt_gamma);
+        bumpHistFill(trig, hFineReg->GetName());
+      }
+    }
 
   // -------------------------------------------------------------------------
   // Verbose diagnostics (optional)

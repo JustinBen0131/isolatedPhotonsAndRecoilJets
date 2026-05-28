@@ -13,15 +13,20 @@
 !checkCondorQ
 
 !/agent_context/
+!/agent_context/CODEX_WORK_REGISTER.yaml
+!/agent_context/ARTIFACT_REGISTRY.yaml
 !/agent_context/REFERENCE_MAP.md
-!/agent_context/TASK_BOARD.md
-!/agent_context/STATUS_DASHBOARD.md
+!/agent_context/THESIS_NARRATIVE_MAP.md
 !/agent_context/policies/
 !/agent_context/policies/**
+!/agent_context/templates/
+!/agent_context/templates/**
+
+# Private local OS state: event logs, snapshots, SDCC details, and local-only
+# recovery ledgers must stay off GitHub.
+agent_context/local/
 
 !/codex_notes/
-!/codex_notes/KNOWN_ISSUES.md
-!/codex_notes/DATASET_STATUS.md
 
 !/src/
 !/src/**

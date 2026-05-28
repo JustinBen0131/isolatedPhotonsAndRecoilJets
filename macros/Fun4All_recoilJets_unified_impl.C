@@ -66,6 +66,7 @@
 #include <caloreco/CaloTowerCalib.h>
 
 #include <centrality/CentralityReco.h>
+#include <centrality/CentralityInfo.h>
 #include <mbd/MbdEvent.h>
 #include <mbd/MbdReco.h>
 #include <zdcinfo/ZdcReco.h>
@@ -207,6 +208,20 @@ class ScaledTriggerStudyReco : public SubsysReco
       const std::string s = detail::trim(std::string(env));
       if (!s.empty()) m_runListPath = s;
     }
+    if (const char* env = std::getenv("RJ_SCALED_TRIGGER_CENT_STUDY"))
+    {
+      const std::string s = lower(detail::trim(std::string(env)));
+      m_enableCentrality = (s == "1" || s == "true" || s == "yes" || s == "on");
+    }
+    if (const char* env = std::getenv("RJ_SCALED_TRIGGER_CENT_EDGES"))
+    {
+      std::vector<int> parsed = parseCentEdges(env);
+      if (parsed.size() >= 2)
+      {
+        m_centEdges = parsed;
+        m_enableCentrality = true;
+      }
+    }
   }
 
   int Init(PHCompositeNode*) override
@@ -240,6 +255,31 @@ class ScaledTriggerStudyReco : public SubsysReco
       return Fun4AllReturnCodes::ABORTRUN;
     }
 
+    if (m_enableCentrality)
+    {
+      const size_t nCent = m_centEdges.size() - 1;
+      m_hBaseCent.resize(nCent, nullptr);
+      m_hPho10Cent.resize(nCent, nullptr);
+      m_hPho12Cent.resize(nCent, nullptr);
+
+      for (size_t i = 0; i < nCent; ++i)
+      {
+        const std::string suffix = centSuffix(i);
+        m_hBaseCent[i] = bookHist("MBD_NS_geq_2_vtx_lt_150",
+                                  "h_maxEnergyClus_NewTriggerFilling_perRunCorrected_MBD_NS_geq_2_vtx_lt_150" + suffix);
+        m_hPho10Cent[i] = bookHist("Photon_10",
+                                   "h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_10" + suffix);
+        m_hPho12Cent[i] = bookHist("Photon_12",
+                                   "h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_12" + suffix);
+        if (!m_hBaseCent[i] || !m_hPho10Cent[i] || !m_hPho12Cent[i])
+        {
+          std::cerr << "[ScaledTriggerStudyReco] failed to book centrality histograms for "
+                    << centLabel(i) << std::endl;
+          return Fun4AllReturnCodes::ABORTRUN;
+        }
+      }
+    }
+
     return Fun4AllReturnCodes::EVENT_OK;
   }
 
@@ -263,9 +303,24 @@ class ScaledTriggerStudyReco : public SubsysReco
     const uint64_t scaledVector = gl1->lValue(0, "ScaledVector");
     const float maxEnergy = maxClusterEnergy(topNode);
 
-    if (bitIsSet(scaledVector, 14)) m_hBase->Fill(maxEnergy);
-    if (bitIsSet(scaledVector, 22)) m_hPho10->Fill(maxEnergy);
-    if (bitIsSet(scaledVector, 23)) m_hPho12->Fill(maxEnergy);
+    const bool passBase = bitIsSet(scaledVector, 14);
+    const bool passPho10 = bitIsSet(scaledVector, 22);
+    const bool passPho12 = bitIsSet(scaledVector, 23);
+
+    if (passBase) m_hBase->Fill(maxEnergy);
+    if (passPho10) m_hPho10->Fill(maxEnergy);
+    if (passPho12) m_hPho12->Fill(maxEnergy);
+
+    if (m_enableCentrality)
+    {
+      const int centIdx = centralityIndex(topNode);
+      if (centIdx >= 0)
+      {
+        if (passBase) m_hBaseCent[centIdx]->Fill(maxEnergy);
+        if (passPho10) m_hPho10Cent[centIdx]->Fill(maxEnergy);
+        if (passPho12) m_hPho12Cent[centIdx]->Fill(maxEnergy);
+      }
+    }
 
     ++m_eventsAccepted;
     return Fun4AllReturnCodes::EVENT_OK;
@@ -279,13 +334,36 @@ class ScaledTriggerStudyReco : public SubsysReco
     writeHist("Photon_10", m_hPho10);
     writeHist("Photon_12", m_hPho12);
 
+    if (m_enableCentrality)
+    {
+      for (size_t i = 0; i < m_hBaseCent.size(); ++i)
+      {
+        writeHist("MBD_NS_geq_2_vtx_lt_150", m_hBaseCent[i]);
+        writeHist("Photon_10", m_hPho10Cent[i]);
+        writeHist("Photon_12", m_hPho12Cent[i]);
+      }
+    }
+
     m_out->cd();
     TNamed mode("scaledTriggerStudyOnly", "1");
     mode.Write("scaledTriggerStudyOnly", TObject::kOverwrite);
+    TNamed centMode("scaledTriggerCentStudy", m_enableCentrality ? "1" : "0");
+    centMode.Write("scaledTriggerCentStudy", TObject::kOverwrite);
     TNamed runList("scaledTriggerStudyRunList", m_runListPath.c_str());
     runList.Write("scaledTriggerStudyRunList", TObject::kOverwrite);
     TNamed vzCut("scaledTriggerStudyVzMaxCm", std::to_string(m_vzMaxCm).c_str());
     vzCut.Write("scaledTriggerStudyVzMaxCm", TObject::kOverwrite);
+    TNamed centEdges("scaledTriggerStudyCentEdges", joinInts(m_centEdges).c_str());
+    centEdges.Write("scaledTriggerStudyCentEdges", TObject::kOverwrite);
+    TNamed centMissing("scaledTriggerStudyCentralityMissing",
+                       std::to_string(m_centralityMissing).c_str());
+    centMissing.Write("scaledTriggerStudyCentralityMissing", TObject::kOverwrite);
+    TNamed centInvalid("scaledTriggerStudyCentralityInvalid",
+                       std::to_string(m_centralityInvalid).c_str());
+    centInvalid.Write("scaledTriggerStudyCentralityInvalid", TObject::kOverwrite);
+    TNamed centOut("scaledTriggerStudyCentralityOutOfRange",
+                   std::to_string(m_centralityOutOfRange).c_str());
+    centOut.Write("scaledTriggerStudyCentralityOutOfRange", TObject::kOverwrite);
     TNamed accepted("scaledTriggerStudyEventsAccepted", std::to_string(m_eventsAccepted).c_str());
     accepted.Write("scaledTriggerStudyEventsAccepted", TObject::kOverwrite);
 
@@ -300,6 +378,40 @@ class ScaledTriggerStudyReco : public SubsysReco
   static bool bitIsSet(uint64_t vec, int bit)
   {
     return bit >= 0 && bit < 64 && (vec & (1ULL << bit));
+  }
+
+  static std::string lower(std::string s)
+  {
+    std::transform(s.begin(), s.end(), s.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return s;
+  }
+
+  static std::vector<int> parseCentEdges(std::string s)
+  {
+    for (char& c : s)
+    {
+      if (c == ',' || c == ';' || c == ':') c = ' ';
+    }
+    std::istringstream iss(s);
+    std::vector<int> edges;
+    int edge = 0;
+    while (iss >> edge) edges.push_back(edge);
+    if (edges.size() < 2) return {};
+    if (!std::is_sorted(edges.begin(), edges.end())) return {};
+    edges.erase(std::unique(edges.begin(), edges.end()), edges.end());
+    return edges.size() >= 2 ? edges : std::vector<int>{};
+  }
+
+  static std::string joinInts(const std::vector<int>& values)
+  {
+    std::ostringstream os;
+    for (size_t i = 0; i < values.size(); ++i)
+    {
+      if (i) os << ",";
+      os << values[i];
+    }
+    return os.str();
   }
 
   void loadRunList()
@@ -326,6 +438,49 @@ class ScaledTriggerStudyReco : public SubsysReco
     h->SetDirectory(dir);
     m_out->cd();
     return h;
+  }
+
+  std::string centLabel(size_t i) const
+  {
+    std::ostringstream os;
+    os << m_centEdges[i] << "-" << m_centEdges[i + 1] << "%";
+    return os.str();
+  }
+
+  std::string centSuffix(size_t i) const
+  {
+    std::ostringstream os;
+    os << "_cent" << m_centEdges[i] << "_" << m_centEdges[i + 1];
+    return os.str();
+  }
+
+  int centralityIndex(PHCompositeNode* topNode)
+  {
+    CentralityInfo* central = findNode::getClass<CentralityInfo>(topNode, "CentralityInfo");
+    if (!central)
+    {
+      ++m_centralityMissing;
+      return -1;
+    }
+
+    const float centile = central->get_centrality_bin(CentralityInfo::PROP::mbd_NS);
+    if (!std::isfinite(centile) || centile < 0.0f)
+    {
+      ++m_centralityInvalid;
+      return -1;
+    }
+
+    for (size_t i = 0; i + 1 < m_centEdges.size(); ++i)
+    {
+      if (centile >= static_cast<float>(m_centEdges[i]) &&
+          centile < static_cast<float>(m_centEdges[i + 1]))
+      {
+        return static_cast<int>(i);
+      }
+    }
+
+    ++m_centralityOutOfRange;
+    return -1;
   }
 
   void writeHist(const std::string& dirName, TH1* h)
@@ -394,11 +549,19 @@ class ScaledTriggerStudyReco : public SubsysReco
     "scaledEffRuns_MBD_NS_geq_2_vtx_lt_150__Pho10_12.list";
   std::vector<uint64_t> m_selectedRuns;
   double m_vzMaxCm = 30.0;
+  bool m_enableCentrality = false;
+  std::vector<int> m_centEdges = {0, 20, 50, 80};
+  uint64_t m_centralityMissing = 0;
+  uint64_t m_centralityInvalid = 0;
+  uint64_t m_centralityOutOfRange = 0;
   uint64_t m_eventsAccepted = 0;
   TFile* m_out = nullptr;
   TH1F* m_hBase = nullptr;
   TH1F* m_hPho10 = nullptr;
   TH1F* m_hPho12 = nullptr;
+  std::vector<TH1F*> m_hBaseCent;
+  std::vector<TH1F*> m_hPho10Cent;
+  std::vector<TH1F*> m_hPho12Cent;
 };
 #endif
 
@@ -698,6 +861,7 @@ namespace yamlcfg
         bool pp_photonid_extract_only = false;
         bool pp_photonid_training_tree = false;
         bool pp_photonid_ppg12_filter = true;
+        bool pp_photonid_require_preselection = false;
         long long pp_photonid_training_tree_max_entries = 0;
         std::string pp_photonid_source_role = "auto";
 
@@ -1881,6 +2045,12 @@ namespace yamlcfg
                 if (!ParseBool(rhs, cfg.pp_photonid_ppg12_filter))
                     warn_parse("pp_photonid_ppg12_filter", rhs, "expected true/false");
             }
+            else if (StartsWithKey(line, "pp_photonid_require_preselection"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseBool(rhs, cfg.pp_photonid_require_preselection))
+                    warn_parse("pp_photonid_require_preselection", rhs, "expected true/false");
+            }
             else if (StartsWithKey(line, "pp_photonid_training_tree_max_entries"))
             {
                 const std::string rhs = AfterColon(line);
@@ -2877,7 +3047,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     int seg = runSegPair.second;
     
     // MINIMAL / SCOPED FIX:
-    // Fun4AllUtils::GetRunSegment can mis-read embedded Jet20 filenames like
+    // Fun4AllUtils::GetRunSegment can mis-read embedded JetXX filenames like
     //   DST_CALO_Jet20-...-data-00054404-00001-00056.root
     // and return the embedded segment token as the "run".
     // For embedded/data calibration we need the real data run (>1000), so
@@ -2885,12 +3055,12 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     const std::size_t slashPos = firstFile.find_last_of("/\\");
     const std::string baseName = (slashPos == std::string::npos) ? firstFile : firstFile.substr(slashPos + 1);
     
-    const bool useEmbeddedInclusiveJet20RunParse =
+    const bool useEmbeddedInclusiveJetRunParse =
     isSimEmbedded &&
-    baseName.compare(0, std::string("DST_CALO_Jet20-").size(), "DST_CALO_Jet20-") == 0 &&
+    baseName.compare(0, std::string("DST_CALO_Jet").size(), "DST_CALO_Jet") == 0 &&
     baseName.find("-data-") != std::string::npos;
     
-    if (useEmbeddedInclusiveJet20RunParse && run <= 1000)
+    if (useEmbeddedInclusiveJetRunParse && run <= 1000)
     {
         const std::string dataTag = "-data-";
         const std::size_t dataPos = baseName.find(dataTag);
@@ -3059,6 +3229,12 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         fanoutUsesAuAuNPB = fanoutUsesAuAuNPB || yamlcfg::PreselectionUsesAuAuNPB(e.preselection);
         fanoutUsesNewPPG12Tight = fanoutUsesNewPPG12Tight || (e.tight == "newPPG12");
     }
+    const bool ppPhotonIDTrainingWantsNPBAudit =
+        isSim && !isSimEmbedded &&
+        (cfg.pp_photonid_extract_only || cfg.pp_photonid_training_tree) &&
+        !cfg.npb_model_file.empty() &&
+        !cfg.npb_features.empty();
+    const bool attachPPNPBScore = fanoutUsesNPB || ppPhotonIDTrainingWantsNPBAudit;
 
     cfg.preselection = idFanoutEntries.front().preselection;
     cfg.tight = idFanoutEntries.front().tight;
@@ -3406,12 +3582,17 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 
 #if defined(RJ_UNIFIED_ANALYSIS_AUAU)
     const std::string scaledTriggerOnlyEnv = env_lower("RJ_SCALED_TRIGGER_STUDY_ONLY");
+    const std::string scaledTriggerCentEnv = env_lower("RJ_SCALED_TRIGGER_CENT_STUDY");
+    const bool scaledTriggerCentStudy =
+        (scaledTriggerCentEnv == "1" || scaledTriggerCentEnv == "true" ||
+         scaledTriggerCentEnv == "yes" || scaledTriggerCentEnv == "on");
     const bool scaledTriggerStudyOnly =
         (scaledTriggerOnlyEnv == "1" || scaledTriggerOnlyEnv == "true" ||
-         scaledTriggerOnlyEnv == "yes" || scaledTriggerOnlyEnv == "on");
+         scaledTriggerOnlyEnv == "yes" || scaledTriggerOnlyEnv == "on" ||
+         scaledTriggerCentStudy);
     if (scaledTriggerStudyOnly && (!isAuAuRequested || isSim))
     {
-        detail::bail("RJ_SCALED_TRIGGER_STUDY_ONLY=1 is valid only for AuAu data.");
+        detail::bail("RJ_SCALED_TRIGGER_STUDY_ONLY/RJ_SCALED_TRIGGER_CENT_STUDY is valid only for AuAu data.");
     }
 #endif
     
@@ -3603,7 +3784,24 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         {
             std::cout << "[FLOW] scaled-trigger study only: registering lightweight max-cluster module\n"
                       << "       keeps geometry, calo calibration/clustering, MBD reco, and global vertex reco\n"
-                      << "       skips centrality, photon selection, UE subtraction, jet reco, recoil analysis, and trees\n";
+                      << "       " << (scaledTriggerCentStudy ? "builds MinimumBiasClassifier/CentralityReco for centrality-sliced trigger QA"
+                                                           : "skips centrality")
+                      << ", photon selection, UE subtraction, jet reco, recoil analysis, and trees\n";
+        }
+
+        if (scaledTriggerCentStudy)
+        {
+            if (vlevel > 0)
+            {
+                std::cout << "[FLOW] scaled-trigger centrality study: registering MinimumBiasClassifier and CentralityReco\n";
+            }
+            auto* mb = new MinimumBiasClassifier();
+            mb->Verbosity(0);
+            se->registerSubsystem(mb);
+
+            auto* cent = new CentralityReco();
+            cent->Verbosity(0);
+            se->registerSubsystem(cent);
         }
 
         se->registerSubsystem(new ScaledTriggerStudyReco(outRoot));
@@ -4648,7 +4846,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         se->registerSubsystem(photonBuilder);
     }
     
-    if (fanoutUsesNPB)
+    if (attachPPNPBScore)
     {
         if (cfg.npb_model_file.empty())
         {
@@ -4661,13 +4859,26 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 
         if (useSamePhotonBDTScores)
         {
+            float ppNPBScoreMinEt = 6.0f;
+            if (const char* env = std::getenv("RJ_PP_NPB_SCORE_MIN_ET"))
+            {
+                char* end = nullptr;
+                const float parsed = std::strtof(env, &end);
+                if (end != env && std::isfinite(parsed)) ppNPBScoreMinEt = parsed;
+            }
             preselectionPhotonNode = "PHOTONCLUSTER_CEMC";
             photonBuilder->add_named_bdt_score("npb_score",
                                                cfg.npb_model_file,
                                                cfg.npb_features,
-                                               6.0f,
+                                               ppNPBScoreMinEt,
                                                40.0f,
                                                0.7f);
+            if (ppPhotonIDTrainingWantsNPBAudit && !fanoutUsesNPB)
+            {
+                std::cout << "[PPPhotonIDTrainingTree] attaching pp NPB audit score on PHOTONCLUSTER_CEMC"
+                          << " while keeping preselection=" << cfg.preselection
+                          << " (score stored for downstream nbkg_cut validation, not used as the preselection gate)\n";
+            }
         }
         else
         {
@@ -5493,6 +5704,10 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                                                "RJ_PP_PHOTONID_PPG12_FILTER",
                                                envOrDefault("RJ_PP_PHOTONID_PPG12_FILTER",
                                                             cfg.pp_photonid_ppg12_filter ? "true" : "false")));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PP_PHOTONID_REQUIRE_PRESELECTION",
+                                               "RJ_PP_PHOTONID_REQUIRE_PRESELECTION",
+                                               envOrDefault("RJ_PP_PHOTONID_REQUIRE_PRESELECTION",
+                                                            cfg.pp_photonid_require_preselection ? "true" : "false")));
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NPB_TAG_DELTA_T_CUT",
                                                "RJ_AUAU_NPB_TAG_DELTA_T_CUT",
                                                fmtDouble(cfg.auau_npb_tag_delta_t_cut)));

@@ -12,8 +12,14 @@
 ## Local References
 
 - PPG12 implementation reference: `ppg12codeGit/`
-- PPG12 box-cut note: `usefulDocs/PPG12_analysis_note.pdf`
-- PPG12 BDT/NPB note: `usefulDocs/PPG12_analysis_note_withBDT.pdf`
+- PPG12 current IAN:
+  `usefulDocs/PPG12_analysis_note_2026-05-21_v4_current_IAN.pdf`
+- PPG12 current paper draft:
+  `usefulDocs/sPHENIX_PPG12_Paper_2026-05-21_current_draft.pdf`
+- PPG12 legacy box-cut note:
+  `usefulDocs/PPG12_analysis_note_2026-01-07_legacy_boxcut.pdf`
+- PPG12 legacy BDT/NPB note:
+  `usefulDocs/PPG12_analysis_note_2026-05-03_legacy_withBDT.pdf`
 - ATLAS gamma-jet target: `usefulDocs/Gamma_Jet_Analysis_Note (1).pdf`
 - Au+Au xJ/dijet correction/style: `usefulDocs/PPG_08_dijet_xJ_in_Au_Au___draft_Conference_note (7).pdf`
 - Trigger semantics: `usefulDocs/Gl1-gtm_user_manual_v53.pdf`
@@ -23,6 +29,11 @@
 
 - Do not invent photon-ID, purity, unfolding, xJ, BDT/NPB, stitching, or
   systematic conventions when a PPG12/PPG18/ATLAS/PPG08 precedent exists.
+- For PPG12 photon-ID, BDT/NPB, purity, isolation, pp baseline, and paper
+  wording, prefer
+  `PPG12_analysis_note_2026-05-21_v4_current_IAN.pdf` and
+  `sPHENIX_PPG12_Paper_2026-05-21_current_draft.pdf` over older local PPG12
+  PDFs unless the task is explicitly about historical comparisons.
 - Reasoning order for physics changes:
   1. validate pp baseline behavior;
   2. extend to AuAu/embedded context;

@@ -104,6 +104,9 @@ train_from_extraction() {
   local max_files_per_sample="${RJ_AUAU_MLP_TRAIN_MAX_FILES_PER_SAMPLE:-0}"
   local pt_bin_weight_mode="${RJ_AUAU_MLP_TRAIN_PT_BIN_WEIGHT_MODE:-none}"
   local pt_bin_weight_spec="${RJ_AUAU_MLP_TRAIN_PT_BIN_WEIGHT_SPEC:-}"
+  local weight_mode="${RJ_AUAU_MLP_WEIGHT_MODE:-legacy}"
+  local ppg12_expected_samples="${RJ_AUAU_MLP_PPG12_EXACT_EXPECTED_SAMPLES:-run28_embeddedPhoton12,run28_embeddedPhoton20,run28_embeddedJet12,run28_embeddedJet20,run28_embeddedJet30}"
+  local ppg12_closure_dir="${RJ_AUAU_MLP_PPG12_EXACT_CLOSURE_DIR:-}"
   local highpt_selection_weights="${RJ_AUAU_MLP_TRAIN_HIGHPT_SELECTION_WEIGHTS:-}"
   local hard_example_branch="${RJ_AUAU_MLP_TRAIN_HARD_EXAMPLE_BRANCH:-}"
   local hard_background_factor="${RJ_AUAU_MLP_TRAIN_HARD_BACKGROUND_FACTOR:-0}"
@@ -143,6 +146,9 @@ train_from_extraction() {
       MAX_FILES_PER_SAMPLE=*|maxFilesPerSample=*) max_files_per_sample="${tok#*=}" ;;
       PT_BIN_WEIGHT_MODE=*|ptBinWeightMode=*) pt_bin_weight_mode="${tok#*=}" ;;
       PT_BIN_WEIGHT_SPEC=*|ptBinWeightSpec=*) pt_bin_weight_spec="${tok#*=}" ;;
+      WEIGHT_MODE=*|weightMode=*) weight_mode="${tok#*=}" ;;
+      PPG12_EXACT_EXPECTED_SAMPLES=*|ppg12ExactExpectedSamples=*) ppg12_expected_samples="${tok#*=}" ;;
+      PPG12_EXACT_CLOSURE_DIR=*|ppg12ExactClosureDir=*) ppg12_closure_dir="${tok#*=}" ;;
       HIGHPT_SELECTION_WEIGHTS=*|highptSelectionWeights=*) highpt_selection_weights="${tok#*=}" ;;
       HARD_EXAMPLE_BRANCH=*|hardExampleBranch=*) hard_example_branch="${tok#*=}" ;;
       HARD_BACKGROUND_FACTOR=*|hardBackgroundFactor=*) hard_background_factor="${tok#*=}" ;;
@@ -185,6 +191,7 @@ train_from_extraction() {
   [[ -n "$train_pt_bins" ]] && say "  train pT bins: $train_pt_bins"
   say "  max files/sample: $max_files_per_sample"
   say "  max rows: $max_rows  max rows/class: $max_rows_per_class  max rows/pT-bin/class: $max_rows_per_pt_bin_class"
+  say "  weight mode: $weight_mode"
   say "  pT-bin weighting: $pt_bin_weight_mode ${pt_bin_weight_spec:+($pt_bin_weight_spec)}"
   say "  high-pT selection weights: ${highpt_selection_weights:-none}"
   [[ -n "$hard_example_branch" ]] && say "  hard-example weighting: branch=$hard_example_branch bkg=$hard_background_factor sig=$hard_signal_factor power=$hard_example_power"
@@ -201,6 +208,7 @@ train_from_extraction() {
     --outdir "$model_dir" \
     --products "$products" \
     --pt-range "$pt_range" \
+    --weight-mode "$weight_mode" \
     --epochs "$epochs" \
     --patience "$patience" \
     --progress-every "$progress_every" \
@@ -216,6 +224,10 @@ train_from_extraction() {
     --input-clip "$input_clip"
   )
   [[ -n "$centrality_range" ]] && train_args+=( --centrality-range "$centrality_range" )
+  if [[ "$weight_mode" == "ppg12-exact" ]]; then
+    train_args+=( --no-event-weight --no-et-reweight --no-eta-reweight --ppg12-exact-expected-samples "$ppg12_expected_samples" )
+    [[ -n "$ppg12_closure_dir" ]] && train_args+=( --ppg12-exact-closure-dir "$ppg12_closure_dir" )
+  fi
   [[ -n "$train_pt_bins" ]] && train_args+=( --train-pt-bins "$train_pt_bins" )
   [[ "$max_rows_per_pt_bin_class" =~ ^[0-9]+$ && "$max_rows_per_pt_bin_class" -gt 0 ]] && train_args+=( --max-rows-per-pt-bin-class "$max_rows_per_pt_bin_class" )
   [[ "$pt_bin_weight_mode" != "none" ]] && train_args+=( --pt-bin-weight-mode "$pt_bin_weight_mode" )

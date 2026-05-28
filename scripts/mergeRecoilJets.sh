@@ -167,12 +167,30 @@ SCALED_TRIG_VERBOSE="${SCALED_TRIG_VERBOSE:-1}"
 SCALED_TRIG_HEARTBEAT_SECONDS="${SCALED_TRIG_HEARTBEAT_SECONDS:-30}"
 SCALED_TRIG_ADDCHUNKS_APPLY="${SCALED_TRIG_ADDCHUNKS_APPLY:-0}"
 
+use_embedded_inclusive4_stitch() {
+  [[ "${RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES:-0}" == "1" || "${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40:-0}" == "1" ]]
+}
+
 use_embedded_inclusive3_stitch() {
+  use_embedded_inclusive4_stitch ||
   [[ "${RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES:-0}" == "1" || "${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30:-0}" == "1" ]]
 }
 
+env_or_default() {
+  local name="$1"
+  local fallback="$2"
+  local value="${!name:-}"
+  if [[ -n "$value" ]]; then
+    printf '%s\n' "$value"
+  else
+    printf '%s\n' "$fallback"
+  fi
+}
+
 simembeddedinclusive_sample_list() {
-  if use_embedded_inclusive3_stitch; then
+  if use_embedded_inclusive4_stitch; then
+    printf "%s\n" "run28_embeddedJet12" "run28_embeddedJet20" "run28_embeddedJet30" "run28_embeddedJet40"
+  elif use_embedded_inclusive3_stitch; then
     printf "%s\n" "run28_embeddedJet12" "run28_embeddedJet20" "run28_embeddedJet30"
   else
     printf "%s\n" "run28_embeddedJet12" "run28_embeddedJet20"
@@ -366,7 +384,11 @@ scale_per_run_corrected_histograms_in_file() {
 #include <TH1.h>
 #include <TNamed.h>
 #include <TObject.h>
+#include <TKey.h>
+#include <TIterator.h>
 #include <iostream>
+#include <set>
+#include <string>
 
 {
   TFile f("${rootfile}", "UPDATE");
@@ -379,17 +401,12 @@ scale_per_run_corrected_histograms_in_file() {
   }
   else if (!f.Get("scaledTrigQA_perRunCorrected_applied"))
   {
-    const char* objPaths[3] = {
-      "MBD_NS_geq_2_vtx_lt_150/h_maxEnergyClus_NewTriggerFilling_perRunCorrected_MBD_NS_geq_2_vtx_lt_150",
-      "Photon_10/h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_10",
-      "Photon_12/h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_12"
-    };
     const char* dirNames[3] = {
       "MBD_NS_geq_2_vtx_lt_150",
       "Photon_10",
       "Photon_12"
     };
-    const char* histNames[3] = {
+    const char* histPrefixes[3] = {
       "h_maxEnergyClus_NewTriggerFilling_perRunCorrected_MBD_NS_geq_2_vtx_lt_150",
       "h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_10",
       "h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_12"
@@ -400,19 +417,42 @@ scale_per_run_corrected_histograms_in_file() {
       ${pho12Scale}
     };
 
+    auto matchingHistNames = [&](const char* dirName, const char* prefix) {
+      std::set<std::string> names;
+      TDirectory* dir = f.GetDirectory(dirName);
+      if (!dir) return names;
+      TIter next(dir->GetListOfKeys());
+      TKey* key = nullptr;
+      const std::string p(prefix);
+      while ((key = dynamic_cast<TKey*>(next())))
+      {
+        const std::string name = key->GetName();
+        if (name.rfind(p, 0) != 0) continue;
+        TObject* obj = dir->Get(name.c_str());
+        if (dynamic_cast<TH1*>(obj)) names.insert(name);
+      }
+      return names;
+    };
+
     int foundTargets = 0;
     for (int i = 0; i < 3; ++i)
     {
       if (factors[i] <= 0.0) continue;
-      TH1* h = dynamic_cast<TH1*>(f.Get(objPaths[i]));
-      if (h)
+      const auto names = matchingHistNames(dirNames[i], histPrefixes[i]);
+      if (!names.empty())
       {
-        ++foundTargets;
-        std::cout << "[scaledTrigQA] target found: " << objPaths[i] << " factor=" << factors[i] << "\\n";
+        foundTargets += static_cast<int>(names.size());
+        for (const auto& name : names)
+        {
+          std::cout << "[scaledTrigQA] target found: "
+                    << dirNames[i] << "/" << name
+                    << " factor=" << factors[i] << "\\n";
+        }
       }
       else
       {
-        std::cout << "[scaledTrigQA] target missing: " << objPaths[i] << "\\n";
+        std::cout << "[scaledTrigQA] target missing with prefix: "
+                  << dirNames[i] << "/" << histPrefixes[i] << "\\n";
       }
     }
 
@@ -427,17 +467,22 @@ scale_per_run_corrected_histograms_in_file() {
       for (int i = 0; i < 3; ++i)
       {
         if (factors[i] <= 0.0) continue;
-        TH1* h = dynamic_cast<TH1*>(f.Get(objPaths[i]));
-        if (!h) continue;
         TDirectory* dir = f.GetDirectory(dirNames[i]);
         if (!dir) continue;
-
-        h->Scale(factors[i]);
-        dir->cd();
-        h->Write(histNames[i], TObject::kOverwrite);
-        f.cd();
-        std::cout << "[scaledTrigQA] scaled: " << objPaths[i] << " factor=" << factors[i] << "\\n";
-        ++scaledTargets;
+        const auto names = matchingHistNames(dirNames[i], histPrefixes[i]);
+        for (const auto& name : names)
+        {
+          TH1* h = dynamic_cast<TH1*>(dir->Get(name.c_str()));
+          if (!h) continue;
+          h->Scale(factors[i]);
+          dir->cd();
+          h->Write(name.c_str(), TObject::kOverwrite);
+          f.cd();
+          std::cout << "[scaledTrigQA] scaled: "
+                    << dirNames[i] << "/" << name
+                    << " factor=" << factors[i] << "\\n";
+          ++scaledTargets;
+        }
       }
 
       if (scaledTargets > 0)
@@ -946,10 +991,57 @@ if [[ "$validation_file" != "__none__" && -s "$validation_file" ]]; then
   fi
 fi
 
+resolve_codex_thread_id() {
+  printf '%s\n' "${RJ_CODEX_THREAD_ID:-${CODEX_THREAD_ID:-}}"
+}
+
+resolve_codex_chat_name() {
+  if [[ -n "${RJ_CODEX_CHAT_NAME:-}" ]]; then
+    printf '%s\n' "$RJ_CODEX_CHAT_NAME"
+    return 0
+  fi
+  if [[ -n "${CODEX_CHAT_NAME:-}" ]]; then
+    printf '%s\n' "$CODEX_CHAT_NAME"
+    return 0
+  fi
+  if [[ -n "${CODEX_THREAD_NAME:-}" ]]; then
+    printf '%s\n' "$CODEX_THREAD_NAME"
+    return 0
+  fi
+  if [[ -n "${CODEX_THREAD_TITLE:-}" ]]; then
+    printf '%s\n' "$CODEX_THREAD_TITLE"
+    return 0
+  fi
+
+  local thread_id
+  thread_id="$(resolve_codex_thread_id)"
+  if [[ -n "$thread_id" && -r "${CODEX_SESSION_INDEX:-${HOME}/.codex/session_index.jsonl}" ]]; then
+    awk -v id="$thread_id" '
+      index($0, "\"id\":\"" id "\"") {
+        line = $0
+        sub(/^.*"thread_name":"?/, "", line)
+        sub(/".*$/, "", line)
+        if (length(line) > 0) name = line
+      }
+      END { if (length(name) > 0) print name }
+    ' "${CODEX_SESSION_INDEX:-${HOME}/.codex/session_index.jsonl}"
+    return 0
+  fi
+
+  printf '%s\n' "unknown"
+}
+
 subject="[RecoilJets][${stage_key}][${status}]"
 message_file="$(mktemp "${TMPDIR:-/tmp}/recoiljets_stage_notify.XXXXXX")"
+codex_chat_name="$(resolve_codex_chat_name)"
+codex_thread_id="$(resolve_codex_thread_id)"
 {
   echo "RECOILJETS_STAGE_EMAIL_V1"
+  echo "==================== CODEX SUBMISSION ===================="
+  echo "codex_chat_name=${codex_chat_name}"
+  echo "codex_thread_id=${codex_thread_id}"
+  echo "submitted_from=$(pwd)"
+  echo "=========================================================="
   echo "status=${status}"
   echo "status_note=${status_note}"
   echo "stage=${stage_key}"
@@ -1563,7 +1655,11 @@ scale_scaled_trig_after_hadd() {
 #include <TH1.h>
 #include <TNamed.h>
 #include <TObject.h>
+#include <TKey.h>
+#include <TIterator.h>
 #include <iostream>
+#include <set>
+#include <string>
 
 {
   TFile f("${rootfile}", "UPDATE");
@@ -1579,17 +1675,12 @@ scale_scaled_trig_after_hadd() {
   }
   else
   {
-    const char* objPaths[3] = {
-      "MBD_NS_geq_2_vtx_lt_150/h_maxEnergyClus_NewTriggerFilling_perRunCorrected_MBD_NS_geq_2_vtx_lt_150",
-      "Photon_10/h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_10",
-      "Photon_12/h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_12"
-    };
     const char* dirNames[3] = {
       "MBD_NS_geq_2_vtx_lt_150",
       "Photon_10",
       "Photon_12"
     };
-    const char* histNames[3] = {
+    const char* histPrefixes[3] = {
       "h_maxEnergyClus_NewTriggerFilling_perRunCorrected_MBD_NS_geq_2_vtx_lt_150",
       "h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_10",
       "h_maxEnergyClus_NewTriggerFilling_perRunCorrected_Photon_12"
@@ -1600,30 +1691,55 @@ scale_scaled_trig_after_hadd() {
       ${pho12Scale}
     };
 
+    auto matchingHistNames = [&](const char* dirName, const char* prefix) {
+      std::set<std::string> names;
+      TDirectory* dir = f.GetDirectory(dirName);
+      if (!dir) return names;
+      TIter next(dir->GetListOfKeys());
+      TKey* key = nullptr;
+      const std::string p(prefix);
+      while ((key = dynamic_cast<TKey*>(next())))
+      {
+        const std::string name = key->GetName();
+        if (name.rfind(p, 0) != 0) continue;
+        TObject* obj = dir->Get(name.c_str());
+        if (dynamic_cast<TH1*>(obj)) names.insert(name);
+      }
+      return names;
+    };
+
     int scaledTargets = 0;
     int foundTargets = 0;
     for (int i = 0; i < 3; ++i)
     {
       if (factors[i] <= 0.0) continue;
-      TH1* h = dynamic_cast<TH1*>(f.Get(objPaths[i]));
-      if (!h)
+      const auto names = matchingHistNames(dirNames[i], histPrefixes[i]);
+      if (names.empty())
       {
-        std::cout << "[scaledTrigQA stage1] target missing: " << objPaths[i] << "\\n";
+        std::cout << "[scaledTrigQA stage1] target missing with prefix: "
+                  << dirNames[i] << "/" << histPrefixes[i] << "\\n";
         continue;
       }
-      ++foundTargets;
       TDirectory* dir = f.GetDirectory(dirNames[i]);
       if (!dir)
       {
         std::cout << "[scaledTrigQA stage1] directory missing for target: " << dirNames[i] << "\\n";
         continue;
       }
-      h->Scale(factors[i]);
-      dir->cd();
-      h->Write(histNames[i], TObject::kOverwrite);
-      f.cd();
-      ++scaledTargets;
-      std::cout << "[scaledTrigQA stage1] scaled: " << objPaths[i] << " factor=" << factors[i] << "\\n";
+      foundTargets += static_cast<int>(names.size());
+      for (const auto& name : names)
+      {
+        TH1* h = dynamic_cast<TH1*>(dir->Get(name.c_str()));
+        if (!h) continue;
+        h->Scale(factors[i]);
+        dir->cd();
+        h->Write(name.c_str(), TObject::kOverwrite);
+        f.cd();
+        ++scaledTargets;
+        std::cout << "[scaledTrigQA stage1] scaled: "
+                  << dirNames[i] << "/" << name
+                  << " factor=" << factors[i] << "\\n";
+      }
     }
 
     if (scaledTargets > 0)
@@ -1785,8 +1901,29 @@ double ReadEventCountFromFile(TFile* f, const string& topDirName)
   TDirectory* d = f->GetDirectory(topDirName.c_str());
   if (!d) return 0.0;
   TH1* cnt = dynamic_cast<TH1*>(d->Get(("cnt_" + topDirName).c_str()));
-  if (!cnt) return 0.0;
-  return cnt->GetBinContent(1);
+  if (cnt)
+  {
+    const double n = cnt->GetBinContent(1);
+    if (n > 0.0) return n;
+  }
+
+  // Newer pp in-situ stitch outputs persist the PPG12 denominator in
+  // metadata rather than the legacy cnt_SIM histogram.
+  TH1* stitchMeta = dynamic_cast<TH1*>(d->Get("h_ppPhotonStitch_ppg12TruthSpectrum_metadata"));
+  if (stitchMeta)
+  {
+    for (int i = 1; i <= stitchMeta->GetNbinsX(); ++i)
+    {
+      const TString label = stitchMeta->GetXaxis()->GetBinLabel(i);
+      if (label == "events_processed")
+      {
+        const double n = stitchMeta->GetBinContent(i);
+        if (n > 0.0) return n;
+      }
+    }
+  }
+
+  return 0.0;
 }
 
 unsigned StableShardForKey(const string& name, int shardCount)
@@ -2115,7 +2252,7 @@ sim_stitch_plan_for_dataset() {
       SIM_STITCH_TOPDIR="SIM"
       SIM_STITCH_ROWS=(
         "jet5|1.3878e8|jet5"
-        "jet8|1.15e7|jet8"
+        "jet8|1.3013e7|jet8"
         "jet12|1.4903e6|jet12"
         "jet20|6.2623e4|jet20"
         "jet30|2.5298e3|jet30"
@@ -2127,12 +2264,15 @@ sim_stitch_plan_for_dataset() {
       SIM_STITCH_OUTPUT_FILE="RecoilJets_embeddedPhoton12plus20_MERGED.root"
       SIM_STITCH_TOPDIR="SIM"
       SIM_STITCH_ROWS=(
-        "embeddedPhoton12|2598.12425|embeddedPhoton12"
-        "embeddedPhoton20|133.317866|embeddedPhoton20"
+        "embeddedPhoton12|$(env_or_default RJ_SIMEMBEDDED_SIGMA_PHOTON12_PB 2598.12425)|embeddedPhoton12"
+        "embeddedPhoton20|$(env_or_default RJ_SIMEMBEDDED_SIGMA_PHOTON20_PB 133.317866)|embeddedPhoton20"
       )
       ;;
     isSimEmbeddedInclusive|issimembeddedinclusive|simembeddedinclusive|SIMEMBEDDEDINCLUSIVE)
-      if use_embedded_inclusive3_stitch; then
+      if use_embedded_inclusive4_stitch; then
+        SIM_STITCH_COMBO_DIR="embeddedJet12and20and30and40merged_SIM"
+        SIM_STITCH_OUTPUT_FILE="RecoilJets_embeddedJet12plus20plus30plus40_MERGED.root"
+      elif use_embedded_inclusive3_stitch; then
         SIM_STITCH_COMBO_DIR="embeddedJet12and20and30merged_SIM"
         SIM_STITCH_OUTPUT_FILE="RecoilJets_embeddedJet12plus20plus30_MERGED.root"
       else
@@ -2140,16 +2280,23 @@ sim_stitch_plan_for_dataset() {
         SIM_STITCH_OUTPUT_FILE="RecoilJets_embeddedJet12plus20_MERGED.root"
       fi
       SIM_STITCH_TOPDIR="SIM"
-      if use_embedded_inclusive3_stitch; then
+      if use_embedded_inclusive4_stitch; then
         SIM_STITCH_ROWS=(
-          "embeddedJet12|1.21692467e6|embeddedJet12"
-          "embeddedJet20|5.44464934e4|embeddedJet20"
-          "embeddedJet30|2.40291630e3|embeddedJet30"
+          "embeddedJet12|$(env_or_default RJ_SIMEMBEDDEDINCLUSIVE_SIGMA_JET12_PB 1.22772477e6)|embeddedJet12"
+          "embeddedJet20|$(env_or_default RJ_SIMEMBEDDEDINCLUSIVE_SIGMA_JET20_PB 3.88117850e4)|embeddedJet20"
+          "embeddedJet30|$(env_or_default RJ_SIMEMBEDDEDINCLUSIVE_SIGMA_JET30_PB 1.73665908e3)|embeddedJet30"
+          "embeddedJet40|$(env_or_default RJ_SIMEMBEDDEDINCLUSIVE_SIGMA_JET40_PB 1.00642312e2)|embeddedJet40"
+        )
+      elif use_embedded_inclusive3_stitch; then
+        SIM_STITCH_ROWS=(
+          "embeddedJet12|$(env_or_default RJ_SIMEMBEDDEDINCLUSIVE_SIGMA_JET12_PB 1.21692467e6)|embeddedJet12"
+          "embeddedJet20|$(env_or_default RJ_SIMEMBEDDEDINCLUSIVE_SIGMA_JET20_PB 5.44464934e4)|embeddedJet20"
+          "embeddedJet30|$(env_or_default RJ_SIMEMBEDDEDINCLUSIVE_SIGMA_JET30_PB 2.40291630e3)|embeddedJet30"
         )
       else
         SIM_STITCH_ROWS=(
-          "embeddedJet12|1.21692467e6|embeddedJet12"
-          "embeddedJet20|5.56198698e4|embeddedJet20"
+          "embeddedJet12|$(env_or_default RJ_SIMEMBEDDEDINCLUSIVE_SIGMA_JET12_PB 1.21692467e6)|embeddedJet12"
+          "embeddedJet20|$(env_or_default RJ_SIMEMBEDDEDINCLUSIVE_SIGMA_JET20_PB 5.56198698e4)|embeddedJet20"
         )
       fi
       ;;
@@ -2656,7 +2803,7 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|isSimInclusive|issiminclusiv
   fi
 
   final_paths=()
-  sim_cleanup_partial_dirs=()
+  sim_cleanup_partial_prefixes=()
 
   for cfg_tag in "${SIM_CFG_TAGS[@]}"; do
 
@@ -3032,7 +3179,7 @@ EOT
           if final_root_is_good "$SIM_FINAL"; then
             say "Created ${SIM_FINAL}"
             final_paths+=( "$SIM_FINAL" )
-            sim_cleanup_partial_dirs+=( "$DEST_DIR" )
+            sim_cleanup_partial_prefixes+=( "${DEST_DIR}/${SIM_PARTIAL_PREFIX}" )
           else
             err "Local secondRound did not produce a non-empty final ROOT file: ${SIM_FINAL}"
             exit 31
@@ -3078,22 +3225,22 @@ EOT
     say "====================================================================="
   fi
 
-  # Clean up firstRound partial directories only after LOCAL secondRound success.
+  # Clean up firstRound partial files only after LOCAL secondRound success.
+  # Keep this sample-scoped. A cfg directory can simultaneously hold other
+  # samples whose firstRound DAGs are still running.
   # Do not clean after Condor final submission; those final jobs may still be pending.
-  if [[ "$SIM_ACTION" == "secondRound" ]] && (( ${#sim_cleanup_partial_dirs[@]} > 0 )); then
-    say "Cleaning firstRound partial directories from ${FLAT_OUT_DIR} after verified local final merge…"
+  if [[ "$SIM_ACTION" == "secondRound" ]] && (( ${#sim_cleanup_partial_prefixes[@]} > 0 )); then
+    say "Cleaning firstRound partial files from ${FLAT_OUT_DIR} after verified local final merge…"
 
-    mapfile -t _sim_cleanup_dirs_unique < <(printf "%s\n" "${sim_cleanup_partial_dirs[@]}" | sort -u)
-    for _partials_dir in "${_sim_cleanup_dirs_unique[@]}"; do
-      case "$_partials_dir" in
-        "${FLAT_OUT_DIR}"/*)
-          if [[ -d "$_partials_dir" ]]; then
-            rm -rf -- "$_partials_dir"
-            say "  removed: ${_partials_dir}"
-          fi
+    mapfile -t _sim_cleanup_prefixes_unique < <(printf "%s\n" "${sim_cleanup_partial_prefixes[@]}" | sort -u)
+    for _partial_prefix in "${_sim_cleanup_prefixes_unique[@]}"; do
+      case "$_partial_prefix" in
+        "${FLAT_OUT_DIR}"/*/chunkMerge_*_grp)
+          rm -f -- "${_partial_prefix}"*.root
+          say "  removed sample partials: ${_partial_prefix}*.root"
           ;;
         *)
-          warn "Refusing to clean suspicious SIM partial dir: ${_partials_dir}"
+          warn "Refusing to clean suspicious SIM partial prefix: ${_partial_prefix}"
           ;;
       esac
     done

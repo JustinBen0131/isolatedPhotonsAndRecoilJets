@@ -13,7 +13,11 @@ Usage:
   ./scripts/sftp_get_recoiljets_outputs.sh tightBDTSmokeLatest
   ./scripts/sftp_get_recoiljets_outputs.sh tightBDTSmoke <remote-path-or-dir-name>
   ./scripts/sftp_get_recoiljets_outputs.sh auauTightBDTValidation <remote-report-dir>
+  ./scripts/sftp_get_recoiljets_outputs.sh auauMLDiagnosticCompact <remote-dir> <local-dir> <file...>
+  ./scripts/sftp_get_recoiljets_outputs.sh stitchDiagnosticsCompact <remote-dir> <local-dir> <file...>
   ./scripts/sftp_get_recoiljets_outputs.sh auauBDTMLPStackPromotion <remote-run-dir>
+  ./scripts/sftp_get_recoiljets_outputs.sh ppPhotonMLCompact <remote-dir> <local-dir> <file...>
+  ./scripts/sftp_get_recoiljets_outputs.sh ppPhotonMLValidation <remote-validation-dir> [local-dir] [file ...]
   ./scripts/sftp_get_recoiljets_outputs.sh mlIntegrationLatest
   ./scripts/sftp_get_recoiljets_outputs.sh mlIntegration <remote-path-or-dir-name>
   ./scripts/sftp_get_recoiljets_outputs.sh smokeTestLatest <dataset> [--roots]
@@ -21,6 +25,8 @@ Usage:
   ./scripts/sftp_get_recoiljets_outputs.sh smokeFinalLatest <dataset>
   ./scripts/sftp_get_recoiljets_outputs.sh smokeFinal <dataset> <remote-path-or-dir-name>
   ./scripts/sftp_get_recoiljets_outputs.sh scaledTriggerStudy
+  ./scripts/sftp_get_recoiljets_outputs.sh scaledTriggerCentStudy
+  ./scripts/sftp_get_recoiljets_outputs.sh scaledTriggerRunByRunQA <remote-dir> [local-dir]
 
 Datasets:
   isAuAu                    -> InputFiles/auau25
@@ -57,9 +63,23 @@ auauTightBDTValidation pulls a single finished simulation-validation report
 directory into:
   dataOutput/auauTightBDTValidation
 
+auauMLDiagnosticCompact pulls selected compact PNG/JSON/CSV/TXT artifacts from
+an explicit SDCC dataOutput/auauMLDiagnosticRuns directory.
+
+stitchDiagnosticsCompact pulls selected compact PNG/JSON/CSV/TXT artifacts from
+an explicit SDCC dataOutput/stitchDiagnostics directory.
+
 auauBDTMLPStackPromotion pulls a single stack-promotion / WP-diagnostic run
 directory into:
   dataOutput/auauBDTMLPStackPromotion
+
+ppPhotonMLValidation pulls selected compact validation artifacts from an
+explicit ppPhotonMLPipeline validation directory. If file names are not passed,
+it defaults to the corrected Fig. 19 NPB overlay PNG/JSON/LOG set.
+
+ppPhotonMLCompact pulls selected compact PNG/JSON/CSV/TXT/LOG artifacts from
+an explicit ppPhotonMLPipeline directory such as validation/insitu_stitching or
+slide_assets.
 
 mlIntegrationLatest pulls the newest full local ML integration test directory
 from:
@@ -78,6 +98,14 @@ quick post-DAG output validation.
 
 scaledTriggerStudy pulls the one-off AuAu scaled-trigger final ROOT file into:
   InputFiles/auau25
+
+scaledTriggerCentStudy pulls the centrality-sliced AuAu scaled-trigger final
+ROOT file into:
+  InputFiles/auau25
+
+scaledTriggerRunByRunQA pulls a curated scaled-trigger run-by-run QA artifact
+directory produced on SDCC. It downloads summary CSV/Markdown files plus the
+selected near-unity and problematic PNG subsets, not the full 620-image set.
 EOF
 }
 
@@ -965,6 +993,263 @@ download_auau_tight_bdt_validation() {
   fi
 }
 
+download_auau_ml_diagnostic_compact() {
+  local remote_dir="${1:-}"
+  local local_dir="${2:-}"
+  shift 2 || true
+  local files=("$@")
+  local batch
+
+  if [[ -z "$remote_dir" || -z "$local_dir" || ${#files[@]} -eq 0 ]]; then
+    echo "[ERROR] auauMLDiagnosticCompact requires remote-dir local-dir file..." >&2
+    exit 2
+  fi
+
+  remote_dir="${remote_dir%/}"
+  case "$remote_dir" in
+    dataOutput/auauMLDiagnosticRuns/*)
+      remote_dir="${REMOTE_BASE}/${remote_dir}"
+      ;;
+    "${REMOTE_BASE}"/dataOutput/auauMLDiagnosticRuns/*)
+      ;;
+    /sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_eiso_cone_raw_*/reports/model_validation_condor_*)
+      ;;
+    /sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/THE8_branchA_ladder_jet12_20*_20260527/reports/model_validation_condor_THE8_branchA_jet12_20*_scorecache_fullstat_20260527)
+      ;;
+    *)
+      echo "[ERROR] Refusing non-compact AuAu ML diagnostic path:" >&2
+      echo "  ${remote_dir}" >&2
+      echo "[ERROR] Expected dataOutput/auauMLDiagnosticRuns/*, an auauTightBDT_eiso_cone_raw_* model_validation_condor_* report, or a THE8_branchA_ladder compact validation report." >&2
+      exit 2
+      ;;
+  esac
+
+  if [[ "$local_dir" != /* ]]; then
+    local_dir="${LOCAL_BASE}/${local_dir}"
+  fi
+
+  local f
+  for f in "${files[@]}"; do
+    case "$f" in
+      */*|*.root|*.ROOT|*.npz|*.tgz|*.tar|*.gz)
+        echo "[ERROR] Refusing non-compact or path-like file argument: ${f}" >&2
+        exit 2
+        ;;
+      *.png|*.json|*.log|*.txt|*.csv) ;;
+      *)
+        echo "[ERROR] Refusing unsupported compact artifact extension: ${f}" >&2
+        exit 2
+        ;;
+    esac
+  done
+
+  mkdir -p "$local_dir"
+  batch="$(make_tmp_file "sftp_get_recoiljets_auau_ml_diagnostic_compact")"
+  cleanup_auau_ml_diag() { rm -f "$batch"; }
+  trap cleanup_auau_ml_diag EXIT
+
+  {
+    printf 'lcd %s\n' "$local_dir"
+    for f in "${files[@]}"; do
+      printf 'get %s/%s\n' "$remote_dir" "$f"
+    done
+  } > "$batch"
+
+  echo
+  echo "Remote host          : ${REMOTE_HOST}"
+  echo "Diagnostic remote dir: ${remote_dir}"
+  echo "Local dir            : ${local_dir}"
+  echo
+  echo "This downloads only compact PNG/JSON/CSV/TXT artifacts."
+  echo
+  echo "sftp batch commands:"
+  sed 's/^/  /' "$batch"
+  echo
+  if sftp \
+      -oBatchMode=no \
+      -oPreferredAuthentications=publickey,password,keyboard-interactive \
+      -b "$batch" \
+      "$REMOTE_HOST"; then
+    echo
+    echo "[OK] AuAu ML diagnostic compact download complete."
+    trap - EXIT
+    rm -f "$batch"
+  else
+    status=$?
+    echo
+    echo "[ERROR] sftp download failed with exit code ${status}." >&2
+    exit "$status"
+  fi
+}
+
+download_stitch_diagnostics_compact() {
+  local remote_dir="${1:-}"
+  local local_dir="${2:-}"
+  shift 2 || true
+  local files=("$@")
+  local batch
+
+  if [[ -z "$remote_dir" || -z "$local_dir" || ${#files[@]} -eq 0 ]]; then
+    echo "[ERROR] stitchDiagnosticsCompact requires remote-dir local-dir file..." >&2
+    exit 2
+  fi
+
+  remote_dir="${remote_dir%/}"
+  case "$remote_dir" in
+    dataOutput/stitchDiagnostics/*)
+      remote_dir="${REMOTE_BASE}/${remote_dir}"
+      ;;
+    "${REMOTE_BASE}"/dataOutput/stitchDiagnostics/*)
+      ;;
+    *)
+      echo "[ERROR] Refusing non-stitchDiagnostics path:" >&2
+      echo "  ${remote_dir}" >&2
+      exit 2
+      ;;
+  esac
+
+  if [[ "$local_dir" != /* ]]; then
+    local_dir="${LOCAL_BASE}/${local_dir}"
+  fi
+
+  local f
+  for f in "${files[@]}"; do
+    case "$f" in
+      */*|*.root|*.ROOT|*.npz|*.tgz|*.tar|*.gz)
+        echo "[ERROR] Refusing non-compact or path-like file argument: ${f}" >&2
+        exit 2
+        ;;
+      *.png|*.json|*.log|*.txt|*.csv) ;;
+      *)
+        echo "[ERROR] Refusing unsupported compact artifact extension: ${f}" >&2
+        exit 2
+        ;;
+    esac
+  done
+
+  mkdir -p "$local_dir"
+  batch="$(make_tmp_file "sftp_get_recoiljets_stitch_diag_compact")"
+  cleanup_stitch_diag() { rm -f "$batch"; }
+  trap cleanup_stitch_diag EXIT
+
+  {
+    printf 'lcd %s\n' "$local_dir"
+    for f in "${files[@]}"; do
+      printf 'get %s/%s\n' "$remote_dir" "$f"
+    done
+  } > "$batch"
+
+  echo
+  echo "Remote host          : ${REMOTE_HOST}"
+  echo "Stitch diagnostic dir: ${remote_dir}"
+  echo "Local dir            : ${local_dir}"
+  echo
+  echo "This downloads only compact PNG/JSON/CSV/TXT artifacts."
+  echo
+  echo "sftp batch commands:"
+  sed 's/^/  /' "$batch"
+  echo
+  if sftp \
+      -oBatchMode=no \
+      -oPreferredAuthentications=publickey,password,keyboard-interactive \
+      -b "$batch" \
+      "$REMOTE_HOST"; then
+    echo
+    echo "[OK] stitch diagnostics compact download complete."
+    trap - EXIT
+    rm -f "$batch"
+  else
+    status=$?
+    echo
+    echo "[ERROR] sftp download failed with exit code ${status}." >&2
+    exit "$status"
+  fi
+}
+
+download_pp_photon_ml_compact() {
+  local remote_dir="${1:-}"
+  local local_dir="${2:-}"
+  shift 2 || true
+  local files=("$@")
+  local batch
+
+  if [[ -z "$remote_dir" || -z "$local_dir" || ${#files[@]} -eq 0 ]]; then
+    echo "[ERROR] ppPhotonMLCompact requires remote-dir local-dir file..." >&2
+    exit 2
+  fi
+
+  remote_dir="${remote_dir%/}"
+  case "$remote_dir" in
+    dataOutput/ppPhotonMLPipeline/*)
+      remote_dir="${REMOTE_BASE}/${remote_dir}"
+      ;;
+    "${REMOTE_BASE}"/dataOutput/ppPhotonMLPipeline/*)
+      ;;
+    *)
+      echo "[ERROR] Refusing non-ppPhotonMLPipeline path:" >&2
+      echo "  ${remote_dir}" >&2
+      exit 2
+      ;;
+  esac
+
+  if [[ "$local_dir" != /* ]]; then
+    local_dir="${LOCAL_BASE}/${local_dir}"
+  fi
+
+  local f
+  for f in "${files[@]}"; do
+    case "$f" in
+      */*|*.root|*.ROOT|*.npz|*.tgz|*.tar|*.gz)
+        echo "[ERROR] Refusing non-compact or path-like file argument: ${f}" >&2
+        exit 2
+        ;;
+      *.png|*.json|*.log|*.txt|*.csv) ;;
+      *)
+        echo "[ERROR] Refusing unsupported compact artifact extension: ${f}" >&2
+        exit 2
+        ;;
+    esac
+  done
+
+  mkdir -p "$local_dir"
+  batch="$(make_tmp_file "sftp_get_recoiljets_pp_photon_ml_compact")"
+  cleanup_pp_ml_compact() { rm -f "$batch"; }
+  trap cleanup_pp_ml_compact EXIT
+
+  {
+    printf 'lcd %s\n' "$local_dir"
+    for f in "${files[@]}"; do
+      printf 'get %s/%s\n' "$remote_dir" "$f"
+    done
+  } > "$batch"
+
+  echo
+  echo "Remote host          : ${REMOTE_HOST}"
+  echo "ppPhotonML remote dir: ${remote_dir}"
+  echo "Local dir            : ${local_dir}"
+  echo
+  echo "This downloads only compact PNG/JSON/CSV/TXT/LOG artifacts."
+  echo
+  echo "sftp batch commands:"
+  sed 's/^/  /' "$batch"
+  echo
+  if sftp \
+      -oBatchMode=no \
+      -oPreferredAuthentications=publickey,password,keyboard-interactive \
+      -b "$batch" \
+      "$REMOTE_HOST"; then
+    echo
+    echo "[OK] pp photon-ML compact download complete."
+    trap - EXIT
+    rm -f "$batch"
+  else
+    status=$?
+    echo
+    echo "[ERROR] sftp download failed with exit code ${status}." >&2
+    exit "$status"
+  fi
+}
+
 download_ml_integration_latest() {
   local requested="${1:-}"
   local parent prefix latest remote_dir local_dir batch
@@ -1021,6 +1306,112 @@ download_ml_integration_latest() {
       "$REMOTE_HOST"; then
     echo
     echo "[OK] ML integration download complete."
+    echo "Downloaded into: ${local_dir}"
+    trap - EXIT
+    rm -f "$batch"
+  else
+    status=$?
+    echo
+    echo "[ERROR] sftp download failed with exit code ${status}." >&2
+    exit "$status"
+  fi
+}
+
+download_pp_photon_ml_validation() {
+  local remote_dir="${1:-}"
+  local local_dir="${2:-}"
+  shift 2 || true
+  local files=("$@")
+  local batch
+
+  if [[ -z "$remote_dir" ]]; then
+    echo "[ERROR] ppPhotonMLValidation requires the remote validation directory." >&2
+    echo "[ERROR] Example:" >&2
+    echo "  ./scripts/sftp_get_recoiljets_outputs.sh ppPhotonMLValidation ${REMOTE_BASE}/dataOutput/ppPhotonMLPipeline/<run>/validation/<report> dataOutput/ppPhotonMLPipeline/<local-report>" >&2
+    exit 2
+  fi
+
+  remote_dir="${remote_dir%/}"
+  case "$remote_dir" in
+    dataOutput/ppPhotonMLPipeline/*/validation/*)
+      remote_dir="${REMOTE_BASE}/${remote_dir}"
+      ;;
+    "${REMOTE_BASE}"/dataOutput/ppPhotonMLPipeline/*/validation/*)
+      ;;
+    *)
+      echo "[ERROR] Refusing to pull non-ppPhotonML validation path:" >&2
+      echo "  ${remote_dir}" >&2
+      echo "[ERROR] Expected ${REMOTE_BASE}/dataOutput/ppPhotonMLPipeline/*/validation/*" >&2
+      exit 2
+      ;;
+  esac
+
+  if [[ -z "$local_dir" ]]; then
+    local_dir="${LOCAL_BASE}/dataOutput/ppPhotonMLPipeline/${remote_dir##*/}"
+  elif [[ "$local_dir" != /* ]]; then
+    local_dir="${LOCAL_BASE}/${local_dir}"
+  fi
+
+  if (( ${#files[@]} == 0 )); then
+    files=(
+      ppg12_fig19_equiv_pp_noCent_bdt_18_22_fullInclusive_unitnorm.png
+      ppg12_fig19_equiv_pp_noCent_bdt_18_22_summary.json
+      fig19_npbaudit_fix5_20260521_0920.log
+    )
+  fi
+
+  local f
+  for f in "${files[@]}"; do
+    case "$f" in
+      */*|*.root|*.ROOT)
+        echo "[ERROR] Refusing non-compact or path-like file argument: ${f}" >&2
+        exit 2
+        ;;
+      *.png|*.json|*.log|*.txt|*.csv) ;;
+      *)
+        echo "[ERROR] Refusing unsupported compact artifact extension: ${f}" >&2
+        exit 2
+        ;;
+    esac
+  done
+
+  mkdir -p "$local_dir"
+  batch="$(make_tmp_file "sftp_get_recoiljets_pp_photon_ml_validation")"
+  cleanup_pp_photon_ml_validation() { rm -f "$batch"; }
+  trap cleanup_pp_photon_ml_validation EXIT
+
+  {
+    printf 'lcd %s\n' "$local_dir"
+    for f in "${files[@]}"; do
+      printf 'get %s/%s\n' "$remote_dir" "$f"
+    done
+  } > "$batch"
+
+  echo
+  echo "Remote host          : ${REMOTE_HOST}"
+  echo "Validation remote dir: ${remote_dir}"
+  echo "Local dir            : ${local_dir}"
+  echo
+  echo "This downloads only compact PNG/JSON/LOG validation artifacts."
+  echo "This will overwrite matching local files."
+  read -r -p "Continue? [y/N]: " confirm
+  case "$confirm" in
+    y|Y|yes|YES|Yes) ;;
+    *) echo "Aborted."; exit 0 ;;
+  esac
+
+  echo
+  echo "sftp batch commands:"
+  sed 's/^/  /' "$batch"
+  echo
+  echo "Opening interactive sftp to download compact pp photon-ML validation outputs."
+  if sftp \
+      -oBatchMode=no \
+      -oPreferredAuthentications=publickey,password,keyboard-interactive \
+      -b "$batch" \
+      "$REMOTE_HOST"; then
+    echo
+    echo "[OK] pp photon-ML validation download complete."
     echo "Downloaded into: ${local_dir}"
     trap - EXIT
     rm -f "$batch"
@@ -1213,8 +1604,22 @@ download_smoke_final_outputs() {
 }
 
 download_scaled_trigger_study() {
-  local cfg file remote_dir local_dir batch
-  cfg="jetMinPt5_7pi_8_vz60_isoR40_isSliding_baseVariant_preselectionReference_tightReference_nonTightReference_scaledTriggerStudy"
+  local study="${1:-scaledTriggerStudy}"
+  local cfg file remote_dir local_dir batch previous_label
+  case "$study" in
+    scaledTriggerStudy)
+      cfg="jetMinPt5_7pi_8_vz60_isoR40_isSliding_baseVariant_preselectionReference_tightReference_nonTightReference_scaledTriggerStudy"
+      previous_label="scaledTriggerStudy"
+      ;;
+    scaledTriggerCentStudy)
+      cfg="jetMinPt5_7pi_8_vz60_isoR40_isSliding_baseVariant_preselectionReference_tightReference_nonTightReference_scaledTriggerCentStudy_cent0_20_50_80"
+      previous_label="scaledTriggerCentStudy"
+      ;;
+    *)
+      echo "[ERROR] Unknown scaled-trigger study: ${study}" >&2
+      exit 2
+      ;;
+  esac
   file="RecoilJets_auau_ALL_${cfg}.root"
   remote_dir="${REMOTE_BASE}/output/auau"
   local_dir="${LOCAL_BASE}/InputFiles/auau25"
@@ -1228,7 +1633,7 @@ download_scaled_trigger_study() {
   echo "Remote host : ${REMOTE_HOST}"
   echo "Remote file : ${remote_dir}/${file}"
   echo "Local file  : ${local_dir}/${file}"
-  echo "Study       : scaledTriggerStudy"
+  echo "Study       : ${study}"
   echo
 
   if [[ -e "${local_dir}/${file}" ]]; then
@@ -1245,7 +1650,7 @@ download_scaled_trigger_study() {
         echo "Proceeding with overwrite in place."
         ;;
       p|P|previous|PREVIOUS)
-        previous_dir="${local_dir}/previous/$(date +%Y%m%d_%H%M%S)_scaledTriggerStudy"
+        previous_dir="${local_dir}/previous/$(date +%Y%m%d_%H%M%S)_${previous_label}"
         mkdir -p "$previous_dir"
         echo "Moving existing file to: ${previous_dir}"
         mv "${local_dir}/${file}" "${previous_dir}/"
@@ -1273,14 +1678,14 @@ download_scaled_trigger_study() {
   echo "sftp batch commands:"
   sed 's/^/  /' "$batch"
   echo
-  echo "Opening interactive sftp to download the scaled-trigger study ROOT file."
+  echo "Opening interactive sftp to download the ${study} ROOT file."
   if sftp \
       -oBatchMode=no \
       -oPreferredAuthentications=publickey,password,keyboard-interactive \
       -b "$batch" \
       "$REMOTE_HOST"; then
     echo
-    echo "[OK] scaledTriggerStudy download complete."
+    echo "[OK] ${study} download complete."
     echo "Downloaded into: ${local_dir}/${file}"
     trap - EXIT
     rm -f "$batch"
@@ -1288,6 +1693,93 @@ download_scaled_trigger_study() {
     status=$?
     echo
     echo "[ERROR] sftp download failed with exit code ${status}." >&2
+    exit "$status"
+  fi
+}
+
+download_scaled_trigger_run_by_run_qa() {
+  local remote_dir="${1:-}"
+  local local_dir="${2:-}"
+  local batch
+
+  if [[ -z "$remote_dir" ]]; then
+    echo "[ERROR] scaledTriggerRunByRunQA requires a remote artifact directory." >&2
+    echo "Usage: $0 scaledTriggerRunByRunQA <remote-dir> [local-dir]" >&2
+    exit 2
+  fi
+
+  if [[ -z "$local_dir" ]]; then
+    local_dir="${LOCAL_BASE}/dataOutput/auau/scaledTriggerRunByRunQA/$(basename "$remote_dir")"
+  fi
+
+  mkdir -p "$local_dir/png_good_near_unity" "$local_dir/png_problematic" "$local_dir/png_tail_only_rejected"
+  if [[ -n "${SCALED_TRIGGER_GET_ALL_PNGS:-}" ]]; then
+    mkdir -p "$local_dir/png_all"
+  fi
+  batch="$(make_tmp_file "sftp_get_scaled_trigger_run_by_run_qa")"
+  cleanup_scaled_trigger_run_by_run_qa() { rm -f "$batch"; }
+  trap cleanup_scaled_trigger_run_by_run_qa EXIT
+
+  echo
+  echo "Remote host : ${REMOTE_HOST}"
+  echo "Remote dir  : ${remote_dir}"
+  echo "Local dir   : ${local_dir}"
+  echo "Study       : scaledTriggerRunByRunQA"
+  echo "Scope       : summaries + curated near-unity/problematic PNG subsets"
+  if [[ -n "${SCALED_TRIGGER_EXTRA_PNGS:-}" ]]; then
+    echo "Extra PNGs  : ${SCALED_TRIGGER_EXTRA_PNGS}"
+  fi
+  if [[ -n "${SCALED_TRIGGER_GET_ALL_PNGS:-}" ]]; then
+    echo "All PNGs    : enabled"
+  fi
+  echo
+
+  {
+    printf 'lcd %s\n' "$local_dir"
+    printf 'cd %s\n' "$remote_dir"
+    printf 'get run_metrics.csv run_metrics.csv\n'
+    printf 'get classification_summary.txt classification_summary.txt\n'
+    printf 'get near_unity_plot_table.md near_unity_plot_table.md\n'
+    printf 'get problematic_plot_table.md problematic_plot_table.md\n'
+    printf 'lcd %s/png_good_near_unity\n' "$local_dir"
+    printf 'cd %s/png_good_near_unity\n' "$remote_dir"
+    printf 'mget *.png\n'
+    printf 'lcd %s/png_problematic\n' "$local_dir"
+    printf 'cd %s/png_problematic\n' "$remote_dir"
+    printf 'mget *.png\n'
+    if [[ -n "${SCALED_TRIGGER_GET_ALL_PNGS:-}" ]]; then
+      printf 'lcd %s/png_all\n' "$local_dir"
+      printf 'cd %s/png_all\n' "$remote_dir"
+      printf 'mget *.png\n'
+    fi
+    if [[ -n "${SCALED_TRIGGER_EXTRA_PNGS:-}" ]]; then
+      printf 'lcd %s/png_tail_only_rejected\n' "$local_dir"
+      printf 'cd %s/png_all\n' "$remote_dir"
+      for png in ${SCALED_TRIGGER_EXTRA_PNGS}; do
+        printf 'get %s %s\n' "$png" "$png"
+      done
+    fi
+  } > "$batch"
+
+  echo "sftp batch commands:"
+  sed 's/^/  /' "$batch"
+  echo
+  echo "Opening interactive sftp to download curated scaled-trigger run-by-run QA artifacts."
+  if sftp \
+      -oBatchMode=no \
+      -oPreferredAuthentications=publickey,password,keyboard-interactive \
+      -b "$batch" \
+      "$REMOTE_HOST"; then
+    echo
+    echo "[OK] scaledTriggerRunByRunQA download complete."
+    echo "Downloaded into: ${local_dir}"
+    trap - EXIT
+    rm -f "$batch"
+  else
+    status=$?
+    echo
+    echo "[ERROR] scaledTriggerRunByRunQA download failed with status ${status}." >&2
+    echo "Batch file was: ${batch}" >&2
     exit "$status"
   fi
 }
@@ -1390,8 +1882,28 @@ if [[ "$dataset" == "auauTightBDTValidation" ]]; then
   exit 0
 fi
 
+if [[ "$dataset" == "auauMLDiagnosticCompact" ]]; then
+  download_auau_ml_diagnostic_compact "${2:-}" "${3:-}" "${@:4}"
+  exit 0
+fi
+
+if [[ "$dataset" == "stitchDiagnosticsCompact" ]]; then
+  download_stitch_diagnostics_compact "${2:-}" "${3:-}" "${@:4}"
+  exit 0
+fi
+
 if [[ "$dataset" == "auauBDTMLPStackPromotion" ]]; then
   download_auau_bdt_mlp_stack_promotion "${2:-}"
+  exit 0
+fi
+
+if [[ "$dataset" == "ppPhotonMLCompact" ]]; then
+  download_pp_photon_ml_compact "${2:-}" "${3:-}" "${@:4}"
+  exit 0
+fi
+
+if [[ "$dataset" == "ppPhotonMLValidation" ]]; then
+  download_pp_photon_ml_validation "${2:-}" "${3:-}" "${@:4}"
   exit 0
 fi
 
@@ -1430,7 +1942,17 @@ if [[ "$dataset" == "smokeFinal" ]]; then
 fi
 
 if [[ "$dataset" == "scaledTriggerStudy" ]]; then
-  download_scaled_trigger_study
+  download_scaled_trigger_study "scaledTriggerStudy"
+  exit 0
+fi
+
+if [[ "$dataset" == "scaledTriggerCentStudy" ]]; then
+  download_scaled_trigger_study "scaledTriggerCentStudy"
+  exit 0
+fi
+
+if [[ "$dataset" == "scaledTriggerRunByRunQA" ]]; then
+  download_scaled_trigger_run_by_run_qa "${2:-}" "${3:-}"
   exit 0
 fi
 

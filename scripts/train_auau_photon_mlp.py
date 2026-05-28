@@ -20,6 +20,16 @@ import sys
 from pathlib import Path
 from typing import Iterable
 
+from train_auau_photon_bdt import (
+    PPG12_EXACT_EXPECTED_SAMPLES,
+    PPG12_EXACT_WEIGHT_COLUMN,
+    compute_ppg12_exact_global_weights,
+    infer_source_sample,
+    parse_expected_samples,
+    prepare_ppg12_exact_global_weights,
+    validate_ppg12_exact_samples,
+)
+
 
 BASE_FEATURES = [
     "cluster_Et",
@@ -437,6 +447,8 @@ def compact_numeric_frame(frame, label_branch: str = "is_signal"):
     for col in list(frame.columns):
         if col == label_branch:
             frame[col] = frame[col].astype("int8", copy=False)
+        elif col == "source_sample":
+            continue
         elif col in {"run", "evt"}:
             if pd is not None:
                 frame[col] = pd.to_numeric(frame[col], downcast="integer")
@@ -755,6 +767,8 @@ def load_frame(paths: list[Path], tree_name: str, required_columns: list[str], o
             present_optional = [col for col in optional_columns if col in keys]
             seen_optional.update(present_optional)
             chunk = tree.arrays(required + present_optional, library="pd")
+            if "source_sample" not in chunk.columns:
+                chunk["source_sample"] = infer_source_sample(path)
             rows_before_filter = int(len(chunk))
             if pt_range is not None and "cluster_Et" in chunk.columns:
                 lo, hi = pt_range
@@ -1076,6 +1090,30 @@ def blended_bce_from_logits(logits, y, weights, teacher, args, params=None):
 
 def compute_weights(frame, label_branch: str, args):
     import numpy as np
+
+    if getattr(args, "weight_mode", "legacy") == "ppg12-exact":
+        if PPG12_EXACT_WEIGHT_COLUMN in frame.columns:
+            labels = frame[label_branch].to_numpy(dtype="int32")
+            weights = frame[PPG12_EXACT_WEIGHT_COLUMN].to_numpy(dtype="float64")
+            finite_positive = np.isfinite(weights) & (weights > 0.0)
+            if not finite_positive.all():
+                raise SystemExit(f"PPG12-exact precomputed weights contain {(~finite_positive).sum()} invalid rows")
+            return weights, {
+                "weight_mode": "ppg12-exact",
+                "event_weight_used": False,
+                "vertex_reweight": False,
+                "centrality_event_weight": False,
+                "cross_section_weight_used_for_training": False,
+                "weights_computed_before_binning": True,
+                "source": PPG12_EXACT_WEIGHT_COLUMN,
+                "sum_weight_class0": float(weights[labels == 0].sum()),
+                "sum_weight_class1": float(weights[labels == 1].sum()),
+                "min_weight": float(np.min(weights)) if len(weights) else math.nan,
+                "max_weight": float(np.max(weights)) if len(weights) else math.nan,
+                "mean_weight": float(np.mean(weights)) if len(weights) else math.nan,
+            }
+        weights, diagnostics = compute_ppg12_exact_global_weights(frame, label_branch)
+        return weights, diagnostics
 
     labels = frame[label_branch].to_numpy(dtype="int32")
     weights = np.ones(len(frame), dtype="float64")
@@ -2008,6 +2046,13 @@ def parse_args() -> argparse.Namespace:
     )
     ap.add_argument("--label-branch", default="is_signal")
     ap.add_argument("--weight-branch", default="event_weight")
+    ap.add_argument("--weight-mode", choices=["legacy", "ppg12-exact"], default=os.environ.get("RJ_AUAU_MLP_WEIGHT_MODE", "legacy"))
+    ap.add_argument(
+        "--ppg12-exact-expected-samples",
+        default=os.environ.get("RJ_AUAU_MLP_PPG12_EXACT_EXPECTED_SAMPLES", ",".join(PPG12_EXACT_EXPECTED_SAMPLES)),
+        help="Comma-separated required source_sample names for --weight-mode ppg12-exact.",
+    )
+    ap.add_argument("--ppg12-exact-closure-dir", type=Path, default=None)
     ap.add_argument("--use-event-weight", dest="use_event_weight", action="store_true", default=True)
     ap.add_argument("--no-event-weight", dest="use_event_weight", action="store_false")
     ap.add_argument("--et-reweight", dest="et_reweight", action="store_true", default=True)
@@ -2144,10 +2189,20 @@ def main() -> int:
     frame, optional_seen, read_report = load_frame(paths, args.tree, sorted(required_columns), optional_columns, args=args)
     frame = add_derived_features(frame)
     frame = compact_numeric_frame(frame, args.label_branch)
+    ppg12_exact_closure = None
+    if args.weight_mode == "ppg12-exact":
+        expected_samples = parse_expected_samples(args.ppg12_exact_expected_samples)
+        validate_ppg12_exact_samples(frame, args.label_branch, expected_samples)
+        frame, ppg12_exact_closure = prepare_ppg12_exact_global_weights(frame, args.label_branch, args)
+        args.use_event_weight = False
+        args.et_reweight = False
+        args.eta_reweight = False
     write_json(args.outdir / "training_read_summary.json", {
         "schema": "RJ_AUAU_TIGHT_MLP_TRAINING_READ_SUMMARY_V1",
         "read": read_report,
         "optional_branches_seen": optional_seen,
+        "weight_mode": args.weight_mode,
+        "ppg12_exact_closure": ppg12_exact_closure,
     })
     print(
         "[trainAuAuPhotonMLP] loaded "
@@ -2169,6 +2224,8 @@ def main() -> int:
         "products": products,
         "models": reports,
         "optional_branches_seen": optional_seen,
+        "weight_mode": args.weight_mode,
+        "ppg12_exact_closure": ppg12_exact_closure,
         "python": sys.version,
     }
     registry_path = args.registry_output or (args.outdir / "model_registry.json")

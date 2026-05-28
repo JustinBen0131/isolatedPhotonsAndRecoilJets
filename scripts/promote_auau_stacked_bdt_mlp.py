@@ -287,11 +287,21 @@ def train_and_wp(args: argparse.Namespace) -> None:
     sweep_args = SimpleNamespace(
         mlp_cache=args.mlp_cache,
         bdt_cache=args.bdt_cache,
+        logreg_cache=None,
         mlp_score=args.mlp_score,
         bdt_score=args.bdt_score,
+        logreg_score="",
         max_rows=args.max_rows,
         max_shards=args.max_shards,
+        require_full_stat=False,
+        expected_shards=0,
         allow_missing_full_features=args.allow_missing_full_features,
+        include_isolation_context=False,
+        matrix_cohort="",
+        matrix_wave_name="",
+        training_range="",
+        matrix_routings="",
+        stack_training_safety="disjoint_base_scores_heldout_test",
         outdir=args.outdir,
         l2=args.l2,
         linear_backend=args.linear_backend,
@@ -453,11 +463,21 @@ def derive_wp_from_artifact(args: argparse.Namespace) -> None:
     sweep_args = SimpleNamespace(
         mlp_cache=args.mlp_cache,
         bdt_cache=args.bdt_cache,
+        logreg_cache=None,
         mlp_score=args.mlp_score,
         bdt_score=args.bdt_score,
+        logreg_score="",
         max_rows=args.max_rows,
         max_shards=args.max_shards,
+        require_full_stat=False,
+        expected_shards=0,
         allow_missing_full_features=args.allow_missing_full_features,
+        include_isolation_context=False,
+        matrix_cohort="",
+        matrix_wave_name="",
+        training_range="",
+        matrix_routings="",
+        stack_training_safety="disjoint_base_scores_heldout_test",
         outdir=args.outdir,
         l2=args.l2,
         linear_backend=args.linear_backend,
@@ -489,7 +509,8 @@ def derive_wp_from_artifact(args: argparse.Namespace) -> None:
 
     copied_artifact = args.outdir / "artifacts" / args.artifact.name
     copied_artifact.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(args.artifact, copied_artifact)
+    if args.artifact.resolve() != copied_artifact.resolve():
+        shutil.copy2(args.artifact, copied_artifact)
     manifest = {
         "schema": "RECOILJETS_AUAU_BDT_MLP_STACK_WORKING_POINTS_V1",
         "target_signal_efficiency": args.target_signal_efficiency,

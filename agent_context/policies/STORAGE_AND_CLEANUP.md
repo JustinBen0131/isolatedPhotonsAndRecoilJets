@@ -14,10 +14,9 @@ are ready for review/removal.
 
 - Local Mac: `/Users/patsfan753/Desktop/ThesisAnalysis`, especially
   `dataOutput/`, `InputFiles/`, large generated plot/model folders.
-- SDCC checkout: `/sphenix/u/patsfan753/scratch/thesisAnalysis` and related
-  GPFS model roots.
-- Bulk area: `/sphenix/tg/tg01/bulk/...`, especially training-tree staging,
-  RecoilJets fanout roots, merge trees, and superseded production attempts.
+- SDCC checkout and bulk areas: use the local-only paths recorded in
+  `agent_context/local/SDCC_LOCAL_RULES.md` or current campaign status files.
+  Do not commit site-specific remote paths or queue snapshots.
 
 ## Failure Recovery
 
@@ -45,6 +44,18 @@ Before deleting/offlining anything, classify:
   superseded partial outputs.
 
 Ask Justin before deleting scientific outputs or trained models.
+
+## Anomalous Path Artifacts
+
+Treat blank-looking, quote-looking, or leading-space paths in the SDCC checkout
+as suspicious artifacts, not normal project state. Examples include a path whose
+printed name is only whitespace, or a zero-byte file such as ` 2`.
+
+Before cleanup, inspect the exact path with escaped names, type, size, mtime,
+and contents if it is a directory. If it is empty or clearly accidental, ask
+Justin to remove it or remove it when the current request explicitly authorizes
+cleanup. Never use wildcards for these paths; delete only the exact verified
+path and run a post-cleanup check.
 
 ## Common Cleanup Candidates
 
@@ -84,7 +95,8 @@ Run it only from the intended SDCC `ThesisAnalysis` checkout.
 
 ## Bulk Vs Final Areas
 
-Large intermediate pipeline products belong on `/sphenix/tg/tg01/bulk/...`.
+Large intermediate pipeline products belong in the SDCC bulk area named by the
+local-only SDCC rules or current campaign status.
 Final merged outputs, local analysis-ready ROOT files, pulled products, plots,
 and slide inputs belong in `InputFiles/...`, `dataOutput/...`, or explicit
 Drive destinations.
@@ -96,10 +108,9 @@ user's home/basis directories unless Justin explicitly asks.
 
 ## AuAu Tight-BDT Sidecar Lifecycle
 
-- Extraction smoke/full roots under
-  `/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_<timestamp>/`
-  are disposable once row counts, model training, and needed diagnostics have
-  been consumed.
+- Extraction smoke/full roots in the timestamped SDCC bulk training area are
+  disposable once row counts, model training, and needed diagnostics have been
+  consumed.
 - Matching SDCC DAG/submit roots under `condor_sub/auauTightBDT_<timestamp>/`
   are disposable after the DAG has finished and its logs are no longer needed.
 - Local SDCC checkout test products under `local_bdt_training_outputs/` are

@@ -25,6 +25,34 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Iterable
 
+PPG12_EXACT_WEIGHT_COLUMN = "__ppg12_exact_training_weight"
+PPG12_EXACT_ETA_RANGE = (-0.7, 0.7)
+PPG12_EXACT_N_BINS = 20
+PPG12_EXACT_ET_WEIGHT_CAP = 800.0
+PPG12_EXACT_EXPECTED_SAMPLES = (
+    "run28_embeddedPhoton12",
+    "run28_embeddedPhoton20",
+    "run28_embeddedJet12",
+    "run28_embeddedJet20",
+    "run28_embeddedJet30",
+)
+PPG12_EXACT_SAMPLE_ALIASES = (
+    ("run28_embeddedPhoton12", ("run28_embeddedPhoton12", "embeddedPhoton12", "Photon12")),
+    ("run28_embeddedPhoton20", ("run28_embeddedPhoton20", "embeddedPhoton20", "Photon20")),
+    ("run28_embeddedJet12", ("run28_embeddedJet12", "embeddedJet12", "Jet12")),
+    ("run28_embeddedJet20", ("run28_embeddedJet20", "embeddedJet20", "Jet20")),
+    ("run28_embeddedJet30", ("run28_embeddedJet30", "embeddedJet30", "Jet30")),
+    ("run28_embeddedJet40", ("run28_embeddedJet40", "embeddedJet40", "Jet40")),
+    ("run28_photonjet5", ("run28_photonjet5", "photonjet5", "PhotonJet5")),
+    ("run28_photonjet10", ("run28_photonjet10", "photonjet10", "PhotonJet10")),
+    ("run28_photonjet20", ("run28_photonjet20", "photonjet20", "PhotonJet20")),
+    ("run28_jet8", ("run28_jet8",)),
+    ("run28_jet12", ("run28_jet12",)),
+    ("run28_jet20", ("run28_jet20",)),
+    ("run28_jet30", ("run28_jet30",)),
+    ("run28_jet40", ("run28_jet40",)),
+)
+
 
 PPG12_TIGHT_FEATURES = [
     "cluster_Et",
@@ -240,6 +268,13 @@ def global_sixpack_eiso_r30_features() -> list[str]:
     return features
 
 
+def global_sixpack_eiso_r40_features() -> list[str]:
+    features = global_sixpack_noiso_features()
+    if "reco_eiso_r40" not in features:
+        features.append("reco_eiso_r40")
+    return features
+
+
 def global_sixpack_eiso_r30r40_features() -> list[str]:
     features = global_sixpack_noiso_features()
     for feature in ("reco_eiso_r30", "reco_eiso_r40"):
@@ -312,6 +347,26 @@ PPG12_NPB_FEATURES = [
     "cluster_w52",
     "cluster_w72",
 ]
+
+EISO_CONE_ABLATION_PT_EDGES = [15.0, 17.0, 19.0, 21.0, 23.0, 25.0, 27.0, 30.0, 35.0]
+EISO_CONE_ABLATION_COARSE_CENT_BINS = [(0.0, 20.0), (20.0, 50.0), (50.0, 80.0)]
+EISO_CONE_ABLATION_FINE_CENT_BINS = [
+    (0.0, 10.0),
+    (10.0, 20.0),
+    (20.0, 30.0),
+    (30.0, 40.0),
+    (40.0, 50.0),
+    (50.0, 60.0),
+    (60.0, 80.0),
+]
+EISO_CONE_ABLATION_EXPECTED_COUNTS = {
+    "globalEtCent1535_bdt_eisoR30_ptCent3": 24,
+    "globalEtCent1535_bdt_eisoR30_ptCent7": 56,
+    "globalEtCent1535_bdt_eisoR40_ptCent3": 24,
+    "globalEtCent1535_bdt_eisoR40_ptCent7": 56,
+    "globalEtCent1535_bdt_eisoR30R40_ptCent3": 24,
+    "globalEtCent1535_bdt_eisoR30R40_ptCent7": 56,
+}
 
 
 def parse_cent_bins(text: str) -> list[tuple[float, float]]:
@@ -542,6 +597,14 @@ def stable_seed(*items: object) -> int:
     return int(digest[:8], 16)
 
 
+def infer_source_sample(path: Path) -> str:
+    text = str(path)
+    for sample, aliases in PPG12_EXACT_SAMPLE_ALIASES:
+        if any(alias in text for alias in aliases):
+            return sample
+    return "unknown"
+
+
 def expand_input_paths(items: list[Path]) -> list[Path]:
     paths: list[Path] = []
     for item in items:
@@ -643,6 +706,8 @@ def load_frame(
             frame = tree.arrays(read_columns, library="pd")
             if allow_missing_label:
                 frame[missing_label_branch] = int(missing_label_value)
+            if "source_sample" not in frame.columns:
+                frame["source_sample"] = infer_source_sample(path)
             if load_cap_enabled and label_branch and label_branch in frame.columns:
                 keep_parts = []
                 for cls in (0, 1):
@@ -761,7 +826,7 @@ def load_or_build_frame(
         load_sample_seed=load_sample_seed,
     )
     if cache_file is not None:
-        cache_cols = sorted(set(expand_required_columns(required_columns) + required_columns + optional_columns))
+        cache_cols = sorted(set(expand_required_columns(required_columns) + required_columns + optional_columns + ["source_sample"]))
         save_frame_cache(frame, cache_file, cache_cols)
         print(f"[OK] wrote training cache: {cache_file}")
     if cache_only:
@@ -818,12 +883,546 @@ def inverse_pdf_factors(values, labels, nbins: int, max_factor: float):
     return factors
 
 
-def compute_weights(frame, label_branch: str, args) -> tuple[object, dict]:
+def ppg12_exact_inverse_pdf_weights(values, *, n_bins: int, fixed_range=None, weight_cap: float | None = None):
+    import numpy as np
+    from scipy.interpolate import UnivariateSpline
+
+    values = np.asarray(values, dtype="float64")
+    weights = np.ones(len(values), dtype="float64")
+    finite = np.isfinite(values)
+    report = {
+        "n_entries": int(len(values)),
+        "n_finite": int(finite.sum()),
+        "n_bins": int(n_bins),
+        "fixed_range": list(fixed_range) if fixed_range is not None else None,
+        "weight_cap": float(weight_cap) if weight_cap is not None else None,
+        "status": "ok",
+    }
+    if finite.sum() < max(10, n_bins):
+        report["status"] = "insufficient_finite_values"
+        return weights, report
+
+    vals = values[finite]
+    if fixed_range is None:
+        lo, hi = float(np.min(vals)), float(np.max(vals))
+    else:
+        lo, hi = float(fixed_range[0]), float(fixed_range[1])
+    report["range"] = [lo, hi]
+    if not math.isfinite(lo) or not math.isfinite(hi) or hi <= lo:
+        report["status"] = "invalid_range"
+        return weights, report
+
+    edges = np.linspace(lo, hi, n_bins + 1)
+    try:
+        hist, bin_edges = np.histogram(vals, bins=edges, density=True)
+    except Exception as exc:  # noqa: BLE001
+        report["status"] = f"histogram_failed: {exc}"
+        return weights, report
+    hist = hist.astype("float64") * float(n_bins)
+    centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+    good_hist = np.isfinite(hist)
+    if good_hist.sum() < 4:
+        report["status"] = "insufficient_histogram_support"
+        return weights, report
+    try:
+        spline = UnivariateSpline(centers[good_hist], hist[good_hist], s=0.0)
+        pdf = spline(vals)
+    except Exception as exc:  # noqa: BLE001
+        report["status"] = f"spline_failed: {exc}"
+        return weights, report
+
+    report["pdf_min_before_clip"] = float(np.nanmin(pdf)) if len(pdf) else math.nan
+    report["pdf_max_before_clip"] = float(np.nanmax(pdf)) if len(pdf) else math.nan
+    report["pdf_negative_fraction_before_clip"] = float(np.mean(pdf < 0.0)) if len(pdf) else math.nan
+    pdf = np.clip(pdf, a_min=1.0e-3, a_max=None)
+    local = 1.0 / pdf
+    if weight_cap is not None:
+        local = np.clip(local, a_min=None, a_max=float(weight_cap))
+    local = normalize_mean_one(local)
+    weights[finite] = local
+    report["min_weight"] = float(np.min(local)) if len(local) else math.nan
+    report["max_weight"] = float(np.max(local)) if len(local) else math.nan
+    report["mean_weight"] = float(np.mean(local)) if len(local) else math.nan
+    return weights, report
+
+
+def compute_ppg12_exact_global_weights(frame, label_branch: str):
     import numpy as np
 
     labels = frame[label_branch].to_numpy(dtype="int32")
     weights = np.ones(len(frame), dtype="float64")
+    report: dict[str, object] = {
+        "weight_mode": "ppg12-exact",
+        "event_weight_used": False,
+        "vertex_reweight": False,
+        "centrality_event_weight": False,
+        "cross_section_weight_used_for_training": False,
+        "weights_computed_before_binning": True,
+        "eta_range": list(PPG12_EXACT_ETA_RANGE),
+        "eta_bins": PPG12_EXACT_N_BINS,
+        "et_bins": PPG12_EXACT_N_BINS,
+        "et_weight_cap": PPG12_EXACT_ET_WEIGHT_CAP,
+    }
+
+    class_counts: dict[str, int] = {}
+    class_weight_factors: dict[str, float] = {}
+    n_total = 0
+    for cls in (0, 1):
+        n_cls = int((labels == cls).sum())
+        class_counts[str(cls)] = n_cls
+        n_total += n_cls
+    if class_counts["0"] <= 0 or class_counts["1"] <= 0:
+        raise SystemExit(f"PPG12-exact weights need both classes; observed counts={class_counts}")
+    for cls in (0, 1):
+        factor = float(n_total) / (2.0 * float(class_counts[str(cls)]))
+        class_weight_factors[str(cls)] = factor
+        weights[labels == cls] *= factor
+
+    eta_reports = {}
+    et_reports = {}
+    for cls in (0, 1):
+        mask = labels == cls
+        eta_w, eta_report = ppg12_exact_inverse_pdf_weights(
+            frame.loc[mask, "cluster_Eta"].to_numpy(dtype="float64"),
+            n_bins=PPG12_EXACT_N_BINS,
+            fixed_range=PPG12_EXACT_ETA_RANGE,
+            weight_cap=None,
+        )
+        weights[mask] *= eta_w
+        eta_reports[str(cls)] = eta_report
+
+        et_w, et_report = ppg12_exact_inverse_pdf_weights(
+            frame.loc[mask, "cluster_Et"].to_numpy(dtype="float64"),
+            n_bins=PPG12_EXACT_N_BINS,
+            fixed_range=None,
+            weight_cap=PPG12_EXACT_ET_WEIGHT_CAP,
+        )
+        weights[mask] *= et_w
+        et_reports[str(cls)] = et_report
+
+    finite_positive = np.isfinite(weights) & (weights > 0.0)
+    if not finite_positive.all():
+        bad = int((~finite_positive).sum())
+        raise SystemExit(f"PPG12-exact weights produced {bad} non-finite/non-positive rows")
+
+    report["class_counts"] = class_counts
+    report["class_weight_factors"] = class_weight_factors
+    report["eta_reweight"] = eta_reports
+    report["et_reweight"] = et_reports
+    report["sum_weight_class0"] = float(weights[labels == 0].sum())
+    report["sum_weight_class1"] = float(weights[labels == 1].sum())
+    report["min_weight"] = float(np.min(weights)) if len(weights) else math.nan
+    report["max_weight"] = float(np.max(weights)) if len(weights) else math.nan
+    report["mean_weight"] = float(np.mean(weights)) if len(weights) else math.nan
+    return weights, report
+
+
+def parse_expected_samples(text: str) -> tuple[str, ...]:
+    samples = tuple(item.strip() for item in text.split(",") if item.strip())
+    return samples or PPG12_EXACT_EXPECTED_SAMPLES
+
+
+def validate_ppg12_exact_samples(frame, label_branch: str, expected_samples: tuple[str, ...]) -> dict:
+    import numpy as np
+
+    if "source_sample" not in frame.columns:
+        raise SystemExit("PPG12-exact mode requires source_sample. Rebuild the training cache from ROOT inputs.")
+    samples = sorted(str(x) for x in frame["source_sample"].dropna().unique())
+    expected = sorted(expected_samples)
+    missing = sorted(set(expected) - set(samples))
+    unexpected = sorted(set(samples) - set(expected))
+    if missing or unexpected:
+        raise SystemExit(
+            "PPG12-exact sample set mismatch: "
+            f"missing={missing or []} unexpected={unexpected or []} observed={samples}"
+        )
+
+    labels = frame[label_branch].to_numpy(dtype="int32")
+    sample_arr = frame["source_sample"].astype(str).to_numpy()
+    inventory = []
+    mixed_label_counts: dict[str, int] = {}
+    for sample in expected_samples:
+        mask = sample_arr == sample
+        n_signal = int(np.sum(mask & (labels == 1)))
+        n_background = int(np.sum(mask & (labels == 0)))
+        if "Photon" in sample and n_background:
+            mixed_label_counts[sample] = n_background
+        elif "Jet" in sample and n_signal:
+            mixed_label_counts[sample] = n_signal
+        inventory.append(
+            {
+                "source_sample": sample,
+                "n_rows": int(mask.sum()),
+                "n_signal": n_signal,
+                "n_background": n_background,
+            }
+        )
+    if mixed_label_counts:
+        print(
+            "[WARN] PPG12-exact source_sample/truth-label mixture observed; "
+            "treating source_sample as provenance and truth label as the BDT class: "
+            f"{mixed_label_counts}",
+            flush=True,
+        )
+    return {
+        "expected_samples": list(expected_samples),
+        "observed_samples": samples,
+        "inventory": inventory,
+        "mixed_label_counts": mixed_label_counts,
+        "source_sample_semantics": "provenance",
+        "truth_label_semantics": "per-candidate BDT class",
+        "mixed_labels_are_fatal": False,
+    }
+
+
+def write_ppg12_exact_sample_inventory(frame, label_branch: str, weights, outdir: Path) -> dict:
+    import numpy as np
+    import pandas as pd
+
+    outdir.mkdir(parents=True, exist_ok=True)
+    labels = frame[label_branch].to_numpy(dtype="int32")
+    sample_arr = frame["source_sample"].astype(str).to_numpy()
+    et = frame["cluster_Et"].to_numpy(dtype="float64")
+    eta = frame["cluster_Eta"].to_numpy(dtype="float64")
+    cent = frame["centrality"].to_numpy(dtype="float64") if "centrality" in frame.columns else np.full(len(frame), np.nan)
+    weights = np.asarray(weights, dtype="float64")
+
+    rows = []
+    for sample in sorted(set(sample_arr)):
+        for cls in (0, 1):
+            mask = (sample_arr == sample) & (labels == cls)
+            rows.append(
+                {
+                    "source_sample": sample,
+                    "class": cls,
+                    "class_name": "signal" if cls == 1 else "background",
+                    "n_rows": int(mask.sum()),
+                    "sum_ppg12_exact_weight": float(weights[mask].sum()) if mask.any() else 0.0,
+                    "mean_cluster_Et": float(np.nanmean(et[mask])) if mask.any() else math.nan,
+                    "mean_cluster_Eta": float(np.nanmean(eta[mask])) if mask.any() else math.nan,
+                }
+            )
+    inventory_csv = outdir / "ppg12_exact_sample_inventory.csv"
+    pd.DataFrame(rows).to_csv(inventory_csv, index=False)
+
+    et_edges = np.asarray([15.0, 17.0, 19.0, 21.0, 23.0, 25.0, 27.0, 30.0, 35.0])
+    eta_edges = np.linspace(PPG12_EXACT_ETA_RANGE[0], PPG12_EXACT_ETA_RANGE[1], PPG12_EXACT_N_BINS + 1)
+    cent_bins = [(0.0, 20.0), (20.0, 50.0), (50.0, 80.0)]
+    binned_rows = []
+    for sample in sorted(set(sample_arr)):
+        sample_mask = sample_arr == sample
+        for cls in (0, 1):
+            class_mask = sample_mask & (labels == cls)
+            for lo, hi in zip(et_edges[:-1], et_edges[1:]):
+                mask = class_mask & (et >= lo) & (et < hi)
+                binned_rows.append(
+                    {
+                        "source_sample": sample,
+                        "class": cls,
+                        "axis": "cluster_Et",
+                        "bin_low": float(lo),
+                        "bin_high": float(hi),
+                        "n_rows": int(mask.sum()),
+                        "sum_ppg12_exact_weight": float(weights[mask].sum()) if mask.any() else 0.0,
+                    }
+                )
+            for lo, hi in zip(eta_edges[:-1], eta_edges[1:]):
+                mask = class_mask & (eta >= lo) & (eta < hi)
+                binned_rows.append(
+                    {
+                        "source_sample": sample,
+                        "class": cls,
+                        "axis": "cluster_Eta",
+                        "bin_low": float(lo),
+                        "bin_high": float(hi),
+                        "n_rows": int(mask.sum()),
+                        "sum_ppg12_exact_weight": float(weights[mask].sum()) if mask.any() else 0.0,
+                    }
+                )
+            for lo, hi in cent_bins:
+                mask = class_mask & (cent >= lo) & (cent < hi)
+                binned_rows.append(
+                    {
+                        "source_sample": sample,
+                        "class": cls,
+                        "axis": "centrality",
+                        "bin_low": float(lo),
+                        "bin_high": float(hi),
+                        "n_rows": int(mask.sum()),
+                        "sum_ppg12_exact_weight": float(weights[mask].sum()) if mask.any() else 0.0,
+                    }
+                )
+    binned_csv = outdir / "ppg12_exact_sample_inventory_binned.csv"
+    pd.DataFrame(binned_rows).to_csv(binned_csv, index=False)
+    return {"inventory_csv": str(inventory_csv), "binned_inventory_csv": str(binned_csv)}
+
+
+def step_density(ax, values, bins, *, weights=None, label: str, color: str, linestyle: str = "-"):
+    import numpy as np
+
+    values = np.asarray(values, dtype="float64")
+    finite = np.isfinite(values)
+    if weights is not None:
+        weights = np.asarray(weights, dtype="float64")
+        finite &= np.isfinite(weights) & (weights > 0.0)
+        weights = weights[finite]
+    vals = values[finite]
+    if len(vals) == 0:
+        return np.zeros(len(bins) - 1, dtype="float64")
+    hist, edges = np.histogram(vals, bins=bins, weights=weights)
+    width = np.diff(edges)
+    norm = float(np.sum(hist * width))
+    density = hist / norm if norm > 0.0 else hist
+    y = np.r_[density, density[-1] if len(density) else 0.0]
+    ax.step(edges, y, where="post", label=label, color=color, linewidth=2.2, linestyle=linestyle)
+    return density
+
+
+def make_ppg12_exact_closure_plots(
+    frame,
+    label_branch: str,
+    weights,
+    report: dict,
+    outdir: Path,
+    expected_samples: tuple[str, ...] | None = None,
+) -> dict:
+    import numpy as np
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    outdir.mkdir(parents=True, exist_ok=True)
+    labels = frame[label_branch].to_numpy(dtype="int32")
+    et = frame["cluster_Et"].to_numpy(dtype="float64")
+    eta = frame["cluster_Eta"].to_numpy(dtype="float64")
+    weights = np.asarray(weights, dtype="float64")
+    sig = labels == 1
+    bkg = labels == 0
+    colors = {"signal": "#009E73", "background": "#6B7280"}
+
+    procedure_png = outdir / "ppg12_exact_reweighting_procedure.png"
+    fig, ax = plt.subplots(figsize=(14, 7.5))
+    ax.axis("off")
+    ax.text(0.02, 0.92, "PPG12-exact BDT training reweighting", fontsize=26, fontweight="bold")
+    ax.text(
+        0.02,
+        0.80,
+        "Global training weight is computed once before routed ET/centrality slicing.",
+        fontsize=17,
+        color="#374151",
+    )
+    lines = [
+        "1. Load Photon12+20 signal and Jet12+20+30 background candidates.",
+        "2. Class-balance signal and background total weight.",
+        "3. For each class independently: flatten cluster eta with a spline inverse-PDF in -0.7 < eta < 0.7.",
+        "4. For each class independently: flatten cluster ET with a spline inverse-PDF over the observed ET range.",
+        "5. Cap only the ET inverse-PDF weight at 800, matching PPG12.",
+        "6. Do not multiply Au+Au event, vertex, centrality, or cross-section weights into BDT training.",
+    ]
+    y = 0.66
+    for line in lines:
+        ax.text(0.06, y, line, fontsize=16, color="#111827")
+        y -= 0.085
+    ax.text(
+        0.06,
+        0.08,
+        "The closure plots must show that ET/eta sample composition is controlled before model performance is interpreted.",
+        fontsize=15,
+        color="#4B5563",
+    )
+    fig.tight_layout()
+    fig.savefig(procedure_png, dpi=180)
+    plt.close(fig)
+
+    et_finite = et[np.isfinite(et)]
+    et_lo = float(np.nanmin(et_finite)) if len(et_finite) else 15.0
+    et_hi = float(np.nanmax(et_finite)) if len(et_finite) else 35.0
+    if et_hi <= et_lo:
+        et_lo, et_hi = 15.0, 35.0
+    et_bins = np.linspace(et_lo, et_hi, PPG12_EXACT_N_BINS + 1)
+    eta_bins = np.linspace(PPG12_EXACT_ETA_RANGE[0], PPG12_EXACT_ETA_RANGE[1], PPG12_EXACT_N_BINS + 1)
+
+    closure_png = outdir / "ppg12_exact_et_eta_weight_closure.png"
+    fig, axs = plt.subplots(2, 3, figsize=(17, 9.5))
+    axs = axs.ravel()
+    step_density(axs[0], et[sig], et_bins, label="Signal raw", color=colors["signal"])
+    step_density(axs[0], et[bkg], et_bins, label="Background raw", color=colors["background"])
+    axs[0].set_title("Raw cluster ET")
+    axs[0].set_xlabel("cluster ET [GeV]")
+    axs[0].set_ylabel("Area-normalized density")
+
+    sig_et_w = step_density(axs[1], et[sig], et_bins, weights=weights[sig], label="Signal weighted", color=colors["signal"])
+    bkg_et_w = step_density(axs[1], et[bkg], et_bins, weights=weights[bkg], label="Background weighted", color=colors["background"])
+    axs[1].set_title("PPG12-weighted cluster ET")
+    axs[1].set_xlabel("cluster ET [GeV]")
+
+    ratio = np.divide(sig_et_w, bkg_et_w, out=np.full_like(sig_et_w, np.nan), where=bkg_et_w > 0.0)
+    centers = 0.5 * (et_bins[:-1] + et_bins[1:])
+    axs[2].axhline(1.0, color="#111827", linewidth=1.4)
+    axs[2].plot(centers, ratio, marker="o", color="#2563EB", linewidth=1.8)
+    axs[2].set_title("Weighted signal/background ET ratio")
+    axs[2].set_xlabel("cluster ET [GeV]")
+    axs[2].set_ylabel("density ratio")
+    axs[2].set_ylim(0.0, max(2.0, float(np.nanmax(ratio)) * 1.15 if np.isfinite(ratio).any() else 2.0))
+
+    step_density(axs[3], eta[sig], eta_bins, label="Signal raw", color=colors["signal"])
+    step_density(axs[3], eta[bkg], eta_bins, label="Background raw", color=colors["background"])
+    axs[3].set_title("Raw cluster eta")
+    axs[3].set_xlabel("cluster eta")
+    axs[3].set_ylabel("Area-normalized density")
+
+    step_density(axs[4], eta[sig], eta_bins, weights=weights[sig], label="Signal weighted", color=colors["signal"])
+    step_density(axs[4], eta[bkg], eta_bins, weights=weights[bkg], label="Background weighted", color=colors["background"])
+    axs[4].set_title("PPG12-weighted cluster eta")
+    axs[4].set_xlabel("cluster eta")
+
+    w_min = max(float(np.nanmin(weights[weights > 0.0])), 1.0e-6)
+    w_max = max(float(np.nanmax(weights)), w_min * 1.01)
+    weight_bins = np.geomspace(w_min, w_max, 50)
+    axs[5].hist(weights[sig], bins=weight_bins, histtype="step", linewidth=2.2, density=True, label="Signal", color=colors["signal"])
+    axs[5].hist(weights[bkg], bins=weight_bins, histtype="step", linewidth=2.2, density=True, label="Background", color=colors["background"])
+    axs[5].set_xscale("log")
+    axs[5].set_title("Final training-weight distribution")
+    axs[5].set_xlabel("PPG12-exact training weight")
+    axs[5].set_ylabel("Density")
+
+    for ax in axs:
+        ax.grid(True, color="#E5E7EB", linewidth=0.8)
+        ax.tick_params(direction="in", top=True, right=True)
+        handles, labels_local = ax.get_legend_handles_labels()
+        if handles:
+            ax.legend(frameon=False, fontsize=10)
+    fig.suptitle("PPG12-exact ET/eta training-weight closure", fontsize=22, fontweight="bold", y=0.99)
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    fig.savefig(closure_png, dpi=180)
+    plt.close(fig)
+
+    sample_png = outdir / "ppg12_exact_sample_mix_closure.png"
+    sample_arr = frame["source_sample"].astype(str).to_numpy()
+    sample_order = expected_samples or PPG12_EXACT_EXPECTED_SAMPLES
+    samples = [s for s in sample_order if s in set(sample_arr)]
+    extras = sorted(set(sample_arr) - set(samples))
+    samples.extend(extras)
+    raw_counts = np.asarray([float(np.sum(sample_arr == s)) for s in samples])
+    weighted_counts = np.asarray([float(weights[sample_arr == s].sum()) for s in samples])
+    raw_frac = raw_counts / raw_counts.sum() if raw_counts.sum() > 0.0 else raw_counts
+    weighted_frac = weighted_counts / weighted_counts.sum() if weighted_counts.sum() > 0.0 else weighted_counts
+    x = np.arange(len(samples))
+    fig, ax = plt.subplots(figsize=(15, 7.5))
+    ax.bar(x - 0.18, raw_frac, width=0.36, label="Raw candidate fraction", color="#9CA3AF")
+    ax.bar(x + 0.18, weighted_frac, width=0.36, label="PPG12-weighted fraction", color="#14B8A6")
+    ax.set_xticks(x)
+    ax.set_xticklabels([s.replace("run28_embedded", "") for s in samples], rotation=0, fontsize=12)
+    ax.set_ylabel("Fraction of total candidates / total training weight")
+    ax.set_title("Source-sample composition before and after PPG12-exact weights", fontsize=18, fontweight="bold")
+    ax.grid(True, axis="y", color="#E5E7EB")
+    ax.tick_params(direction="in", top=True, right=True)
+    ax.legend(frameon=False)
+    for i, (r, w) in enumerate(zip(raw_frac, weighted_frac)):
+        ax.text(i - 0.18, r + 0.01, f"{100*r:.1f}%", ha="center", va="bottom", fontsize=10)
+        ax.text(i + 0.18, w + 0.01, f"{100*w:.1f}%", ha="center", va="bottom", fontsize=10)
+    fig.tight_layout()
+    fig.savefig(sample_png, dpi=180)
+    plt.close(fig)
+
+    return {
+        "procedure_png": str(procedure_png),
+        "closure_png": str(closure_png),
+        "sample_mix_png": str(sample_png),
+    }
+
+
+def prepare_ppg12_exact_global_weights(frame, label_branch: str, args):
+    outdir = Path(args.ppg12_exact_closure_dir) if args.ppg12_exact_closure_dir else (args.outdir / "slideReady" / "ppg12_exact_reweight_bdt")
+    expected_samples = parse_expected_samples(args.ppg12_exact_expected_samples)
+    sample_report = validate_ppg12_exact_samples(frame, label_branch, expected_samples)
+    weights, weight_report = compute_ppg12_exact_global_weights(frame, label_branch)
+    frame = frame.copy()
+    frame[PPG12_EXACT_WEIGHT_COLUMN] = weights
+
+    outdir.mkdir(parents=True, exist_ok=True)
+    inventory_paths = write_ppg12_exact_sample_inventory(frame, label_branch, weights, outdir)
+    plot_paths = make_ppg12_exact_closure_plots(frame, label_branch, weights, weight_report, outdir, expected_samples)
+    metadata = {
+        "schema": "AUAU_BDT_PPG12_EXACT_WEIGHT_CLOSURE_V1",
+        "sample_validation": sample_report,
+        "weighting": weight_report,
+        "artifacts": {**inventory_paths, **plot_paths},
+    }
+    metadata_path = outdir / "ppg12_exact_reweighting_metadata.json"
+    metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
+    print(f"[OK] PPG12-exact reweighting closure written: {outdir}", flush=True)
+    return frame, {**metadata, "metadata_json": str(metadata_path)}
+
+
+def summarize_ppg12_exact_precomputed_weights(frame, label_branch: str, args) -> dict:
+    import numpy as np
+
+    expected_samples = parse_expected_samples(args.ppg12_exact_expected_samples)
+    sample_report = validate_ppg12_exact_samples(frame, label_branch, expected_samples)
+    weights = frame[PPG12_EXACT_WEIGHT_COLUMN].to_numpy(dtype="float64")
+    labels = frame[label_branch].to_numpy(dtype="int32")
+    finite_positive = np.isfinite(weights) & (weights > 0.0)
+    if not finite_positive.all():
+        raise SystemExit(f"PPG12-exact precomputed weights contain {(~finite_positive).sum()} invalid rows")
+    return {
+        "schema": "AUAU_BDT_PPG12_EXACT_WEIGHT_CLOSURE_V1",
+        "reused_precomputed_training_weight": True,
+        "sample_validation": sample_report,
+        "weighting": {
+            "weight_mode": "ppg12-exact",
+            "event_weight_used": False,
+            "vertex_reweight": False,
+            "centrality_event_weight": False,
+            "cross_section_weight_used_for_training": False,
+            "weights_computed_before_binning": True,
+            "source": PPG12_EXACT_WEIGHT_COLUMN,
+            "sum_weight_class0": float(weights[labels == 0].sum()),
+            "sum_weight_class1": float(weights[labels == 1].sum()),
+            "min_weight": float(np.min(weights)) if len(weights) else math.nan,
+            "max_weight": float(np.max(weights)) if len(weights) else math.nan,
+            "mean_weight": float(np.mean(weights)) if len(weights) else math.nan,
+        },
+    }
+
+
+def compute_weights(frame, label_branch: str, args) -> tuple[object, dict]:
+    import numpy as np
+
+    labels = frame[label_branch].to_numpy(dtype="int32")
+    if getattr(args, "weight_mode", "legacy") == "ppg12-exact":
+        if PPG12_EXACT_WEIGHT_COLUMN not in frame.columns:
+            if getattr(args, "campaign", None):
+                raise SystemExit(
+                    "PPG12-exact campaign training requires globally precomputed "
+                    f"{PPG12_EXACT_WEIGHT_COLUMN} before model slicing."
+                )
+            weights, diagnostics = compute_ppg12_exact_global_weights(frame, label_branch)
+            return weights, diagnostics
+        weights = frame[PPG12_EXACT_WEIGHT_COLUMN].to_numpy(dtype="float64")
+        finite_positive = np.isfinite(weights) & (weights > 0.0)
+        if not finite_positive.all():
+            raise SystemExit(f"PPG12-exact precomputed weights contain {(~finite_positive).sum()} invalid rows")
+        diagnostics: dict[str, object] = {
+            "weight_mode": "ppg12-exact",
+            "event_weight_used": False,
+            "vertex_reweight": False,
+            "centrality_event_weight": False,
+            "cross_section_weight_used_for_training": False,
+            "weights_computed_before_binning": True,
+            "source": PPG12_EXACT_WEIGHT_COLUMN,
+            "sum_weight_class0": float(weights[labels == 0].sum()),
+            "sum_weight_class1": float(weights[labels == 1].sum()),
+            "min_weight": float(np.min(weights)) if len(weights) else math.nan,
+            "max_weight": float(np.max(weights)) if len(weights) else math.nan,
+            "mean_weight": float(np.mean(weights)) if len(weights) else math.nan,
+        }
+        return weights, diagnostics
+
+    weights = np.ones(len(frame), dtype="float64")
     diagnostics: dict[str, object] = {
+        "weight_mode": "legacy",
         "use_event_weight": bool(args.use_event_weight),
         "et_reweight": bool(args.et_reweight),
         "eta_reweight": bool(args.eta_reweight),
@@ -1008,9 +1607,82 @@ def adaptive_majority_cap(frame, label_branch: str, args, metadata: dict):
     }
 
 
-def train_one(frame, features: list[str], label_branch: str, output: Path, metadata: dict, args) -> dict | None:
+def event_level_train_test_split(frame, x, y, weights, args, metadata: dict):
     import numpy as np
-    from sklearn.metrics import roc_auc_score
+
+    required = ["run", "evt"]
+    missing = [col for col in required if col not in frame.columns]
+    if missing:
+        raise SystemExit(
+            "--split-mode event50 requires event identifier branches in the training frame: "
+            + ", ".join(missing)
+        )
+    if len(frame) != len(x) or len(frame) != len(y) or len(frame) != len(weights):
+        raise SystemExit("--split-mode event50 internal length mismatch")
+
+    source = frame["source_sample"].astype(str).to_numpy() if "source_sample" in frame.columns else np.full(len(frame), "unknown", dtype=object)
+    run = frame["run"].to_numpy()
+    evt = frame["evt"].to_numpy()
+    if len(evt) == 0:
+        raise SystemExit("--split-mode event50 received an empty frame")
+    event_keys = np.asarray([f"{source[i]}:{int(run[i])}:{int(evt[i])}" for i in range(len(frame))], dtype=object)
+    unique_keys = np.unique(event_keys)
+    if len(unique_keys) < 4:
+        raise SystemExit(
+            "--split-mode event50 cannot build a stable 50/50 event split: "
+            f"only {len(unique_keys)} unique event keys"
+        )
+
+    seed = int(getattr(args, "random_seed", 13))
+    hashes = np.asarray([stable_seed("event50", seed, metadata.get("model_id", "model"), key) for key in unique_keys], dtype=np.uint64)
+    order = np.argsort(hashes, kind="mergesort")
+    test_fraction = float(getattr(args, "test_size", 0.5))
+    if not (0.0 < test_fraction < 1.0):
+        raise SystemExit(f"--split-mode event50 requires 0 < --test-size < 1, got {test_fraction}")
+    n_test_events = int(round(len(unique_keys) * test_fraction))
+    n_test_events = min(max(n_test_events, 1), len(unique_keys) - 1)
+    test_keys = set(unique_keys[order[:n_test_events]].tolist())
+    test_mask = np.asarray([key in test_keys for key in event_keys], dtype=bool)
+    train_mask = ~test_mask
+
+    def counts(mask):
+        return {str(cls): int(np.sum(mask & (y == cls))) for cls in (0, 1)}
+
+    train_counts = counts(train_mask)
+    test_counts = counts(test_mask)
+    if any(train_counts[str(cls)] <= 0 for cls in (0, 1)) or any(test_counts[str(cls)] <= 0 for cls in (0, 1)):
+        raise SystemExit(
+            "--split-mode event50 produced a split without both classes in train/test: "
+            f"train={train_counts} test={test_counts}"
+        )
+
+    report = {
+        "mode": "event50",
+        "event_key_columns": ["source_sample", "run", "evt"],
+        "unique_events": int(len(unique_keys)),
+        "test_fraction_requested": test_fraction,
+        "train_events": int(len(unique_keys) - n_test_events),
+        "test_events": int(n_test_events),
+        "train_rows": int(train_mask.sum()),
+        "test_rows": int(test_mask.sum()),
+        "train_class_counts": train_counts,
+        "test_class_counts": test_counts,
+    }
+    return (
+        x[train_mask],
+        x[test_mask],
+        y[train_mask],
+        y[test_mask],
+        weights[train_mask],
+        weights[test_mask],
+        report,
+    )
+
+
+def train_one(frame, features: list[str], label_branch: str, output: Path, metadata: dict, args) -> dict | None:
+    import csv
+    import numpy as np
+    from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
     from sklearn.model_selection import train_test_split
     from xgboost import XGBClassifier
 
@@ -1019,8 +1691,12 @@ def train_one(frame, features: list[str], label_branch: str, output: Path, metad
     frame[label_branch] = frame[label_branch].astype(int)
     frame = frame[frame[label_branch].isin([0, 1])].copy()
     n_rows_after_finite = int(len(frame))
-    frame, subsample_report = ppg12_background_subsample(frame, label_branch, args)
-    frame, majority_cap_report = adaptive_majority_cap(frame, label_branch, args, metadata)
+    if getattr(args, "weight_mode", "legacy") == "ppg12-exact":
+        subsample_report = {"enabled": False, "reason": "ppg12-exact uses global pre-slice training weights"}
+        majority_cap_report = {"enabled": False, "reason": "ppg12-exact disables local majority-cap mutation"}
+    else:
+        frame, subsample_report = ppg12_background_subsample(frame, label_branch, args)
+        frame, majority_cap_report = adaptive_majority_cap(frame, label_branch, args, metadata)
 
     n_sig = int((frame[label_branch] == 1).sum())
     n_bkg = int((frame[label_branch] == 0).sum())
@@ -1059,10 +1735,22 @@ def train_one(frame, features: list[str], label_branch: str, output: Path, metad
     y = frame[label_branch].to_numpy(dtype="int32")
     weights, weight_report = compute_weights(frame, label_branch, args)
 
-    stratify = y if min(n_sig, n_bkg) >= 2 else None
-    x_train, x_test, y_train, y_test, w_train, w_test = train_test_split(
-        x, y, weights, test_size=args.test_size, random_state=args.random_seed, stratify=stratify
-    )
+    split_mode = str(getattr(args, "split_mode", "row"))
+    if split_mode == "event50":
+        x_train, x_test, y_train, y_test, w_train, w_test, split_report = event_level_train_test_split(
+            frame, x, y, weights, args, metadata
+        )
+    else:
+        stratify = y if min(n_sig, n_bkg) >= 2 else None
+        x_train, x_test, y_train, y_test, w_train, w_test = train_test_split(
+            x, y, weights, test_size=args.test_size, random_state=args.random_seed, stratify=stratify
+        )
+        split_report = {
+            "mode": "row",
+            "test_fraction_requested": float(args.test_size),
+            "train_rows": int(len(y_train)),
+            "test_rows": int(len(y_test)),
+        }
 
     model = XGBClassifier(
         n_estimators=args.n_estimators,
@@ -1076,18 +1764,86 @@ def train_one(frame, features: list[str], label_branch: str, output: Path, metad
         max_bin=args.max_bin,
         n_jobs=args.n_jobs,
         objective="binary:logistic",
-        eval_metric="auc",
+        eval_metric=["auc", "logloss"],
         tree_method=args.tree_method,
         random_state=args.random_seed,
     )
-    model.fit(x_train, y_train, sample_weight=w_train)
+    model.fit(
+        x_train,
+        y_train,
+        sample_weight=w_train,
+        eval_set=[(x_train, y_train), (x_test, y_test)],
+        sample_weight_eval_set=[w_train, w_test],
+        verbose=False,
+    )
 
-    pred = model.predict_proba(x_test)[:, 1]
-    auc = float(roc_auc_score(y_test, pred, sample_weight=w_test)) if len(np.unique(y_test)) == 2 else math.nan
+    train_pred = model.predict_proba(x_train)[:, 1]
+    holdout_pred = model.predict_proba(x_test)[:, 1]
+
+    def safe_auc(y_true, pred, weight) -> float:
+        return float(roc_auc_score(y_true, pred, sample_weight=weight)) if len(np.unique(y_true)) == 2 else math.nan
+
+    def safe_logloss(y_true, pred, weight) -> float:
+        try:
+            return float(log_loss(y_true, pred, sample_weight=weight, labels=[0, 1]))
+        except ValueError:
+            return math.nan
+
+    def safe_brier(y_true, pred, weight) -> float:
+        try:
+            return float(brier_score_loss(y_true, pred, sample_weight=weight))
+        except ValueError:
+            return math.nan
+
+    train_auc = safe_auc(y_train, train_pred, w_train)
+    holdout_auc = safe_auc(y_test, holdout_pred, w_test)
+    train_logloss = safe_logloss(y_train, train_pred, w_train)
+    holdout_logloss = safe_logloss(y_test, holdout_pred, w_test)
+    train_brier = safe_brier(y_train, train_pred, w_train)
+    holdout_brier = safe_brier(y_test, holdout_pred, w_test)
+    auc_gap = train_auc - holdout_auc if math.isfinite(train_auc) and math.isfinite(holdout_auc) else math.nan
+    logloss_gap = (
+        holdout_logloss - train_logloss
+        if math.isfinite(holdout_logloss) and math.isfinite(train_logloss)
+        else math.nan
+    )
+    auc = holdout_auc
 
     output.parent.mkdir(parents=True, exist_ok=True)
     json_model = output.with_suffix(".xgb.json")
     model.get_booster().save_model(json_model)
+
+    eval_history = model.evals_result()
+    history_path = output.with_suffix(".training_history.csv")
+    train_hist = eval_history.get("validation_0", {})
+    holdout_hist = eval_history.get("validation_1", {})
+    n_history = max(
+        len(train_hist.get("auc", [])),
+        len(train_hist.get("logloss", [])),
+        len(holdout_hist.get("auc", [])),
+        len(holdout_hist.get("logloss", [])),
+    )
+
+    def history_value(history: dict, metric: str, index: int) -> float:
+        values = history.get(metric, [])
+        return values[index] if index < len(values) else math.nan
+
+    with history_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["iteration", "train_auc", "train_logloss", "holdout_auc", "holdout_logloss"],
+        )
+        writer.writeheader()
+        for idx in range(n_history):
+            writer.writerow(
+                {
+                    "iteration": idx,
+                    "train_auc": history_value(train_hist, "auc", idx),
+                    "train_logloss": history_value(train_hist, "logloss", idx),
+                    "holdout_auc": history_value(holdout_hist, "auc", idx),
+                    "holdout_logloss": history_value(holdout_hist, "logloss", idx),
+                }
+            )
 
     export_status = "not_attempted"
     export_error = ""
@@ -1130,8 +1886,26 @@ def train_one(frame, features: list[str], label_branch: str, output: Path, metad
         "n_signal": n_sig,
         "n_background": n_bkg,
         "auc": auc,
+        "training_history_csv": str(history_path),
+        "overfit_diagnostics": {
+            "schema": "AUAU_BDT_OVERFIT_DIAGNOSTICS_V1",
+            "train_auc": train_auc,
+            "holdout_auc": holdout_auc,
+            "train_logloss": train_logloss,
+            "holdout_logloss": holdout_logloss,
+            "train_brier": train_brier,
+            "holdout_brier": holdout_brier,
+            "auc_gap_train_minus_holdout": auc_gap,
+            "logloss_gap_holdout_minus_train": logloss_gap,
+            "train_rows": int(len(y_train)),
+            "holdout_rows": int(len(y_test)),
+            "history_csv": str(history_path),
+            "eval_metric": ["auc", "logloss"],
+            "eval_history_keys": sorted(eval_history.keys()),
+        },
         "tmva_export": export_status,
         "weighting": weight_report,
+        "split": split_report,
         "xgboost": {
             "n_estimators": args.n_estimators,
             "max_depth": args.max_depth,
@@ -1648,13 +2422,59 @@ def etcent_binned_sixpack_specs(args, outdir: Path) -> list[dict]:
     return specs
 
 
+def etcent_binned_sixpack_noiso_ptcent7_specs(args, outdir: Path) -> list[dict]:
+    specs = [
+        spec
+        for spec in etcent_binned_sixpack_specs(args, outdir)
+        if spec.get("product") == "globalEtCent1535_bdt_noIso_ptCent7"
+    ]
+    expected = (len(parse_float_edges(args.pt_bins)) - 1) * len(parse_cent_bins(args.fine_cent_bins))
+    if len(specs) != expected:
+        raise SystemExit(
+            "etcent-binned-sixpack-noiso-ptcent7 planned an unexpected model count: "
+            f"{len(specs)} vs expected {expected}"
+        )
+    return specs
+
+
+def global_and_etcent_binned_sixpack_noiso_specs(args, outdir: Path) -> list[dict]:
+    global_specs = [
+        spec
+        for spec in global_sixpack_specs(args, outdir)
+        if spec.get("product") == "globalEtCent1535_bdt_noIso"
+    ]
+    routed_specs = [
+        spec
+        for spec in etcent_binned_sixpack_specs(args, outdir)
+        if spec.get("product") in {"globalEtCent1535_bdt_noIso_ptCent3", "globalEtCent1535_bdt_noIso_ptCent7"}
+    ]
+    expected = 1 + (len(parse_float_edges(args.pt_bins)) - 1) * (
+        len(parse_cent_bins(args.coarse_cent_bins)) + len(parse_cent_bins(args.fine_cent_bins))
+    )
+    specs = global_specs + routed_specs
+    if len(specs) != expected:
+        raise SystemExit(
+            "global-and-etcent-binned-sixpack-noiso planned an unexpected model count: "
+            f"{len(specs)} vs expected {expected}"
+        )
+    return specs
+
+
 def etcent_binned_eiso_cone_ablation_specs(args, outdir: Path) -> list[dict]:
-    pt_edges = parse_float_edges(args.pt_bins)
+    requested_pt_edges = parse_float_edges(args.pt_bins)
+    if requested_pt_edges != EISO_CONE_ABLATION_PT_EDGES:
+        print(
+            "[WARN] etcent-binned-eiso-cone-ablation ignores --pt-bins="
+            f"{args.pt_bins!r}; using fixed 15-35 GeV edges "
+            f"{','.join(f'{edge:g}' for edge in EISO_CONE_ABLATION_PT_EDGES)}"
+        )
+    pt_edges = list(EISO_CONE_ABLATION_PT_EDGES)
     pt_bins = bins_from_edges(pt_edges)
-    coarse_cent_bins = parse_cent_bins(args.coarse_cent_bins)
-    fine_cent_bins = parse_cent_bins(args.fine_cent_bins)
+    coarse_cent_bins = list(EISO_CONE_ABLATION_COARSE_CENT_BINS)
+    fine_cent_bins = list(EISO_CONE_ABLATION_FINE_CENT_BINS)
     specs: list[dict] = []
     eiso_r30_features = global_sixpack_eiso_r30_features()
+    eiso_r40_features = global_sixpack_eiso_r40_features()
     eiso_r30r40_features = global_sixpack_eiso_r30r40_features()
 
     def add(
@@ -1706,6 +2526,20 @@ def etcent_binned_eiso_cone_ablation_specs(args, outdir: Path) -> list[dict]:
             "fine-et-fine-cent-bin-global-sixpack-plus-raw-r30-reco-eiso",
         ),
         (
+            "globalEtCent1535_bdt_eisoR40_ptCent3",
+            "globalEtCent1535_bdt_eisoR40_ptCent3",
+            eiso_r40_features,
+            coarse_cent_bins,
+            "fine-et-coarse-cent-bin-global-sixpack-plus-raw-r40-reco-eiso",
+        ),
+        (
+            "globalEtCent1535_bdt_eisoR40_ptCent7",
+            "globalEtCent1535_bdt_eisoR40_ptCent7",
+            eiso_r40_features,
+            fine_cent_bins,
+            "fine-et-fine-cent-bin-global-sixpack-plus-raw-r40-reco-eiso",
+        ),
+        (
             "globalEtCent1535_bdt_eisoR30R40_ptCent3",
             "globalEtCent1535_bdt_eisoR30R40_ptCent3",
             eiso_r30r40_features,
@@ -1731,6 +2565,16 @@ def etcent_binned_eiso_cone_ablation_specs(args, outdir: Path) -> list[dict]:
                     (clo, chi),
                     role,
                 )
+    observed_counts: dict[str, int] = {}
+    for spec in specs:
+        observed_counts[spec["product"]] = observed_counts.get(spec["product"], 0) + 1
+    expected_total = sum(EISO_CONE_ABLATION_EXPECTED_COUNTS.values())
+    if len(specs) != expected_total or observed_counts != EISO_CONE_ABLATION_EXPECTED_COUNTS:
+        raise SystemExit(
+            "Internal raw-eiso campaign spec mismatch: "
+            f"expected {EISO_CONE_ABLATION_EXPECTED_COUNTS} ({expected_total} total), "
+            f"observed {observed_counts} ({len(specs)} total)"
+        )
     return specs
 
 
@@ -1819,7 +2663,10 @@ def shape_residual_ptcent7_specs(args, outdir: Path) -> list[dict]:
 
 def ppg12_pp_sixpack_specs(args, outdir: Path) -> list[dict]:
     specs: list[dict] = []
-    full_pt = (6.0, 35.0)
+    pt_edges = parse_float_edges(args.pt_bins)
+    if len(pt_edges) < 2:
+        raise SystemExit("ppg12-sixpack needs at least two --pt-bins edges")
+    full_pt = (float(pt_edges[0]), float(pt_edges[-1]))
     pp_cent = (-1.0, 0.0)
 
     def add(model_id: str, features: list[str], role: str, diagnostic_only: bool = False) -> None:
@@ -1847,6 +2694,11 @@ def ppg12_pp_sixpack_specs(args, outdir: Path) -> list[dict]:
         "pp-ppg12-base-v1E-no-centrality-no-isolation",
     )
     add(
+        "ppg12_base_v3E_bdt_noIso",
+        PPG12_TIGHT_FEATURES,
+        "pp-ppg12-base-v3E-no-centrality-no-isolation",
+    )
+    add(
         "ppg12_base_v1E_bdt_iso",
         PPG12_BASE_V1E_FEATURES + ISOLATION_DIAGNOSTIC_FEATURES,
         "pp-ppg12-base-v1E-no-centrality-with-isolation-diagnostics",
@@ -1860,6 +2712,14 @@ def registry_payload(specs: list[dict], reports: list[dict], args, status: str =
     products: dict[str, list[str]] = {}
     for spec in specs:
         products.setdefault(spec["product"], []).append(spec["model_id"])
+    if args.campaign == "etcent-binned-eiso-cone-ablation":
+        pt_bins = list(EISO_CONE_ABLATION_PT_EDGES)
+        coarse_cent_bins = [[lo, hi] for lo, hi in EISO_CONE_ABLATION_COARSE_CENT_BINS]
+        fine_cent_bins = [[lo, hi] for lo, hi in EISO_CONE_ABLATION_FINE_CENT_BINS]
+    else:
+        pt_bins = parse_float_edges(args.pt_bins)
+        coarse_cent_bins = [[lo, hi] for lo, hi in parse_cent_bins(args.coarse_cent_bins)]
+        fine_cent_bins = [[lo, hi] for lo, hi in parse_cent_bins(args.fine_cent_bins)]
     return {
         "schema": "AUAU_TIGHT_BDT_EXPANDED_REGISTRY_V1",
         "status": status,
@@ -1867,15 +2727,30 @@ def registry_payload(specs: list[dict], reports: list[dict], args, status: str =
         "expected_model_count": len(specs),
         "model_count": len(specs),
         "products": products,
-        "pt_bins": parse_float_edges(args.pt_bins),
-        "coarse_cent_bins": [[lo, hi] for lo, hi in parse_cent_bins(args.coarse_cent_bins)],
-        "fine_cent_bins": [[lo, hi] for lo, hi in parse_cent_bins(args.fine_cent_bins)],
+        "pt_bins": pt_bins,
+        "coarse_cent_bins": coarse_cent_bins,
+        "fine_cent_bins": fine_cent_bins,
         "defaults": {
+            "weight_mode": getattr(args, "weight_mode", "legacy"),
             "majority_cap_ratio": float(args.majority_cap_ratio),
             "minopt_majority_cap_ratio": float(args.minopt_majority_cap_ratio),
             "parallel_workers": int(args.parallel_workers),
             "xgboost_n_jobs": int(args.n_jobs),
-            "no_cross_section_weights": True,
+            "no_cross_section_weights": getattr(args, "weight_mode", "legacy") == "ppg12-exact",
+            "event_weight_used_for_training": (
+                bool(getattr(args, "use_event_weight", False))
+                and getattr(args, "weight_mode", "legacy") != "ppg12-exact"
+            ),
+            "ppg12_exact_expected_samples": (
+                list(parse_expected_samples(getattr(args, "ppg12_exact_expected_samples", "")))
+                if getattr(args, "weight_mode", "legacy") == "ppg12-exact"
+                else None
+            ),
+            "ppg12_exact_closure_dir": (
+                str(getattr(args, "ppg12_exact_closure_dir", "") or "")
+                if getattr(args, "weight_mode", "legacy") == "ppg12-exact"
+                else None
+            ),
         },
         "models": [{**spec, "report": report_by_id.get(spec["model_id"])} for spec in specs],
     }
@@ -1965,6 +2840,10 @@ def run_campaign(args) -> int:
         specs_all = basev3e_e22_ablation_specs(args, args.outdir)
     elif args.campaign == "etcent-binned-sixpack":
         specs_all = etcent_binned_sixpack_specs(args, args.outdir)
+    elif args.campaign == "etcent-binned-sixpack-noiso-ptcent7":
+        specs_all = etcent_binned_sixpack_noiso_ptcent7_specs(args, args.outdir)
+    elif args.campaign == "global-and-etcent-binned-sixpack-noiso":
+        specs_all = global_and_etcent_binned_sixpack_noiso_specs(args, args.outdir)
     elif args.campaign == "etcent-binned-eiso-cone-ablation":
         specs_all = etcent_binned_eiso_cone_ablation_specs(args, args.outdir)
     elif args.campaign == "shape-residual-ptcent7":
@@ -1974,8 +2853,9 @@ def run_campaign(args) -> int:
     else:
         specs_all = campaign_specs(args, args.outdir)
     specs = filter_specs(specs_all, args)
-    all_features = sorted(set(expand_required_columns([feature for spec in specs for feature in spec["features"]] + ["centrality", label_branch])))
-    if args.majority_cap_ratio <= 0.0 and args.campaign != "ppg12-sixpack":
+    split_columns = ["run", "evt"] if getattr(args, "split_mode", "row") == "event50" else []
+    all_features = sorted(set(expand_required_columns([feature for spec in specs for feature in spec["features"]] + ["centrality", "cluster_Et", "cluster_Eta", label_branch] + split_columns)))
+    if args.majority_cap_ratio <= 0.0 and args.campaign != "ppg12-sixpack" and args.weight_mode != "ppg12-exact":
         args.majority_cap_ratio = 4.0
 
     planned_path = args.registry_output or (args.outdir / "model_registry.planned.json")
@@ -1985,9 +2865,14 @@ def run_campaign(args) -> int:
         return 0
 
     args.outdir.mkdir(parents=True, exist_ok=True)
+    if args.weight_mode == "ppg12-exact":
+        args.majority_cap_ratio = 0.0
+        if args.use_event_weight:
+            print("[INFO] --weight-mode ppg12-exact ignores event_weight for BDT training.", flush=True)
     if args.parallel_workers > 1 and args.n_jobs > 1:
         args.n_jobs = 1
 
+    optional_columns = [] if args.weight_mode == "ppg12-exact" else [args.weight_branch]
     frame, optional_seen, from_cache = load_or_build_frame(
         paths,
         args.tree,
@@ -2002,6 +2887,25 @@ def run_campaign(args) -> int:
         max_load_rows=int(args.max_load_rows or 0),
         load_sample_seed=int(args.load_sample_seed or args.random_seed or 42),
     )
+    ppg12_exact_closure = None
+    if args.weight_mode == "ppg12-exact":
+        if PPG12_EXACT_WEIGHT_COLUMN in frame.columns:
+            ppg12_exact_closure = summarize_ppg12_exact_precomputed_weights(frame, label_branch, args)
+        else:
+            frame, ppg12_exact_closure = prepare_ppg12_exact_global_weights(frame, label_branch, args)
+            if args.cache_file is not None:
+                cache_cols = sorted(
+                    set(
+                        expand_required_columns(all_features)
+                        + all_features
+                        + optional_columns
+                        + ["source_sample", PPG12_EXACT_WEIGHT_COLUMN]
+                        + split_columns
+                    )
+                )
+                save_frame_cache(frame, args.cache_file, cache_cols)
+                print(f"[OK] updated training cache with PPG12-exact weights: {args.cache_file}", flush=True)
+
     if args.cache_only:
         write_registry(planned_path, specs, [], args, "CACHE_READY")
         return 0
@@ -2015,6 +2919,8 @@ def run_campaign(args) -> int:
         "cache_file": str(args.cache_file) if args.cache_file else None,
         "python": sys.version,
         "label_branch": label_branch,
+        "weight_mode": args.weight_mode,
+        "ppg12_exact_closure": ppg12_exact_closure,
     }
 
     reports: list[dict] = []
@@ -2069,6 +2975,23 @@ def main() -> int:
     )
     parser.add_argument("--features", default=None, help="Comma-separated override feature order")
     parser.add_argument("--weight-branch", default="event_weight")
+    parser.add_argument(
+        "--weight-mode",
+        choices=["legacy", "ppg12-exact"],
+        default="legacy",
+        help="Training-weight convention. ppg12-exact computes global class/ET/eta weights before routed model slicing and ignores event_weight.",
+    )
+    parser.add_argument(
+        "--ppg12-exact-expected-samples",
+        default=",".join(PPG12_EXACT_EXPECTED_SAMPLES),
+        help="Comma-separated required source_sample names for --weight-mode ppg12-exact.",
+    )
+    parser.add_argument(
+        "--ppg12-exact-closure-dir",
+        type=Path,
+        default=None,
+        help="Output directory for PPG12-exact sample-mix and ET/eta closure PNG/CSV/JSON artifacts.",
+    )
     parser.add_argument("--use-event-weight", dest="use_event_weight", action="store_true", default=True)
     parser.add_argument("--no-event-weight", dest="use_event_weight", action="store_false")
     parser.add_argument("--et-reweight", dest="et_reweight", action="store_true", default=True)
@@ -2080,6 +3003,12 @@ def main() -> int:
     parser.add_argument("--max-total-weight-factor", type=float, default=50.0)
     parser.add_argument("--min-rows-per-class", type=int, default=10)
     parser.add_argument("--test-size", type=float, default=0.10)
+    parser.add_argument(
+        "--split-mode",
+        choices=["row", "event50"],
+        default="row",
+        help="Train/test split convention. event50 requires run/evt and splits whole events deterministically.",
+    )
     parser.add_argument("--random-seed", type=int, default=13)
     parser.add_argument("--n-estimators", type=int, default=450)
     parser.add_argument("--max-depth", type=int, default=4)
@@ -2092,7 +3021,7 @@ def main() -> int:
     parser.add_argument("--grow-policy", default="lossguide")
     parser.add_argument("--max-bin", type=int, default=256)
     parser.add_argument("--n-jobs", type=int, default=4)
-    parser.add_argument("--campaign", choices=["expanded-tight", "etfine-centstudy", "iso-diagnostic", "global-sixpack", "basev3e-e22-ablation", "etcent-binned-sixpack", "etcent-binned-eiso-cone-ablation", "shape-residual-ptcent7", "ppg12-sixpack"], default=None)
+    parser.add_argument("--campaign", choices=["expanded-tight", "etfine-centstudy", "iso-diagnostic", "global-sixpack", "basev3e-e22-ablation", "etcent-binned-sixpack", "etcent-binned-sixpack-noiso-ptcent7", "global-and-etcent-binned-sixpack-noiso", "etcent-binned-eiso-cone-ablation", "shape-residual-ptcent7", "ppg12-sixpack"], default=None)
     parser.add_argument("--plan-only", action="store_true")
     parser.add_argument("--cache-only", action="store_true")
     parser.add_argument("--cache-file", type=Path, default=None)
@@ -2149,8 +3078,9 @@ def main() -> int:
         )
 
     paths = expand_input_paths(args.input)
-    required_columns = sorted(set(features + [label_branch, "centrality"]))
-    optional_columns = [args.weight_branch]
+    split_columns = ["run", "evt"] if args.split_mode == "event50" else []
+    required_columns = sorted(set(features + [label_branch, "centrality"] + split_columns))
+    optional_columns = [] if args.weight_mode == "ppg12-exact" else [args.weight_branch]
     frame, optional_seen = load_frame(
         paths,
         args.tree,
@@ -2166,6 +3096,12 @@ def main() -> int:
     )
 
     args.outdir.mkdir(parents=True, exist_ok=True)
+    ppg12_exact_closure = None
+    if args.weight_mode == "ppg12-exact":
+        args.majority_cap_ratio = 0.0
+        if args.use_event_weight:
+            print("[INFO] --weight-mode ppg12-exact ignores event_weight for BDT training.", flush=True)
+        frame, ppg12_exact_closure = prepare_ppg12_exact_global_weights(frame, label_branch, args)
     prefix = args.prefix or f"auau_{args.task}_bdt"
     reports = []
     common_metadata = {
@@ -2175,6 +3111,8 @@ def main() -> int:
         "optional_branches_seen": optional_seen,
         "python": sys.version,
         "tight_mode": args.tight_mode if args.task == "tight" else None,
+        "weight_mode": args.weight_mode,
+        "ppg12_exact_closure": ppg12_exact_closure,
     }
 
     train_all_cent = args.task != "tight" or args.tight_mode in ("legacy", "ppg12BaseV1E", "centINDcontrol", "centAsFeat", "centAsFeatMinOpt", "centAsFeat3x3", "centAsFeatBase3x3", "centAsFeatWidthRatios")

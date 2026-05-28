@@ -1,21 +1,21 @@
 # SDCC Operations
 
-## SSH Pattern
+## Local-Only Access Details
 
-Do not rely on `ProxyJump` to `sphnxuserXX` from Codex. Use nested SSH through
-the login node with the macOS launchd SSH agent:
+Specific SDCC hostnames, usernames, remote checkout paths, SSH command
+patterns, Condor cluster IDs, and active watchdog status belong in local-only
+memory, not GitHub-tracked files.
 
-```bash
-SSH_AUTH_SOCK="$(launchctl getenv SSH_AUTH_SOCK)" \
-ssh patsfan753@ssh.sdcc.bnl.gov \
-  "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null sphnxuser05.sdcc.bnl.gov 'cd /sphenix/u/patsfan753/scratch/thesisAnalysis && <command>'"
-```
+Before any SDCC or Condor work in Justin's local checkout, load
+`agent_context/local/SDCC_LOCAL_RULES.md` if it exists. If it is absent, ask
+Justin for the current local access rule instead of inventing one or committing
+site-specific access details.
 
 Use read-only diagnostics by default. Submissions, merge reruns, cleanup, file
 transfer, remote edits, and job control require explicit current-task approval.
-Before a complex check, run a tiny probe such as `hostname; pwd` on the target
-node. If that fails, stop retrying quote-heavy SSH commands and fall back to
-the visible terminal or paste-ready handoff.
+Before a complex check, run a tiny probe on the target node. If that fails,
+stop retrying quote-heavy SSH commands and fall back to the visible terminal or
+a paste-ready handoff.
 
 ## Persistent Session Rule
 
@@ -91,9 +91,27 @@ such as `RECOILJETS_JOB_PROFILE_V1`.
 
 Before any new training/production/merge, run the duplicate guard. Then:
 
+- explicitly pass Codex provenance into the remote submit environment for any
+  RecoilJets/Condor workflow that can send pipeline emails. The remote command
+  that creates the DAG must set both `RJ_CODEX_CHAT_NAME=<short chat label>` and
+  `RJ_CODEX_THREAD_ID=<current Codex thread id>`; local `CODEX_*` environment
+  variables do not automatically propagate through nested SSH or later Condor
+  scheduler nodes. If either value is unavailable, stop before submission and
+  choose a short deterministic `RJ_CODEX_CHAT_NAME` from the workstream/tag;
+  never accept `codex_chat_name=unknown` or `codex_thread_id=unknown` as the
+  intended state for new Codex-launched workflows.
 - record dataset/mode, command, submit host, timestamped roots, DAG paths,
   cluster IDs, report/output roots, and next checkpoint in `STATUS_DASHBOARD.md`
   or `TASK_BOARD.md`;
+- for targeted diagnostics or slide-driven validation, run the narrowest
+  existing submit/merge path that can answer the question. Reuse the validated
+  infrastructure, but constrain its matrix explicitly with row selectors,
+  config matches, sample gates, `maxJobs`, or fanout caps so the job scope
+  matches the requested deliverable. Before submitting, print or otherwise
+  verify the intended cfg count, cfg tag(s), sample list, group size, memory
+  request, and total job count. If the command would launch unrelated cfg rows,
+  broad fanout, extra model families, or a production-size matrix, stop and
+  narrow it instead of relying on the broad default;
 - for paired or multi-dataset submissions, prefer one pasteable driver block
   with `set -euo pipefail`, preflight queue/stale-job checks, explicit memory
   knobs, sequential submission, timestamped log, and post-submit `condor_q`;
@@ -122,6 +140,19 @@ invocation. The driver should fail fast, log output, print queue/report paths,
 and leave enough evidence for future status checks without reconstructing from
 scrollback.
 
+The driver block should define provenance once near the top and reuse it for
+all RecoilJets submit/merge commands, for example:
+
+```bash
+RJ_CODEX_CHAT_NAME="<short-workstream-label>"
+RJ_CODEX_THREAD_ID="<codex-thread-id>"
+export RJ_CODEX_CHAT_NAME RJ_CODEX_THREAD_ID
+```
+
+For nested SSH commands, place those assignments inside the quoted remote
+command that actually runs `RecoilJets_Condor_submit.sh` or `mergeRecoilJets.sh`.
+Setting them only in the local macOS shell is insufficient.
+
 ## Condor Practical Limits
 
 - Input segment/list files are usually about 100k events per ROOT segment.
@@ -137,13 +168,9 @@ scrollback.
 
 ## AuAu ML Environment
 
-For AuAu ML training on SDCC, use:
-
-```bash
-RJ_ML_PYTHON=/sphenix/u/patsfan753/.venvs/thesis-ml/bin/python
-```
-
-This env has `uproot`, `pandas`, `numpy`, `sklearn`, `xgboost`, and `ROOT`.
+For AuAu ML training on SDCC, use the local-only `RJ_ML_PYTHON` path recorded
+in `agent_context/local/SDCC_LOCAL_RULES.md` or current campaign status. The
+intended env has `uproot`, `pandas`, `numpy`, `sklearn`, `xgboost`, and `ROOT`.
 Default CVMFS Python may miss `uproot`/`xgboost`.
 
 ## Submit Host Helper
@@ -169,10 +196,9 @@ escalation, request the narrow command approval and then run it.
 The helper is still local-only: do not upload it to SDCC, do not add it to the
 SFTP allowlist, and do not treat it as a production or mutation command. It
 streams only small queue/log snippets and should be summarized back to Justin
-with the recommended node and any obvious active-cluster context. It checks
-`sphnxuser01` through `sphnxuser08`, ranks primarily by all-user submit-node
-busyness rather than Justin's own queue, and stores temporary local copies
-under `/tmp/checkCondorQ.*` during the run.
+with the recommended node and any obvious active-cluster context. The exact
+node list and access details belong in local-only helper/config state, not in
+tracked Codex policy text.
 
 ## ROOT Merge Strategy
 

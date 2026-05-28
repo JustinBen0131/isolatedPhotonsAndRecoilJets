@@ -31,6 +31,12 @@ from train_auau_photon_mlp import (  # noqa: E402
     parse_bin_spec,
     threshold_for_signal_efficiency,
 )
+from train_auau_photon_bdt import (  # noqa: E402
+    PPG12_EXACT_ETA_RANGE,
+    PPG12_EXACT_ET_WEIGHT_CAP,
+    PPG12_EXACT_N_BINS,
+    ppg12_exact_inverse_pdf_weights,
+)
 
 
 DEFAULT_MLP_SCORE = "score_centInputBase3x3WidthRatiosMLP_pt1535"
@@ -159,6 +165,8 @@ def parse_args() -> argparse.Namespace:
             "stack_tri_score_only",
             "stack_pair_context",
             "stack_tri_context",
+            "stack_pair_base3x3_cent",
+            "stack_pair_score_et_cent",
             "stack_pair_full_no_iso",
             "stack_tri_full_no_iso",
             "stack_bdt_score_full_no_iso",
@@ -199,6 +207,7 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--train-fraction", type=float, default=0.60)
     ap.add_argument("--val-fraction", type=float, default=0.20)
     ap.add_argument("--random-seed", type=int, default=24681357)
+    ap.add_argument("--weight-mode", choices=["legacy", "ppg12-exact"], default="legacy")
     ap.add_argument("--target-signal-efficiency", type=float, default=0.80)
     ap.add_argument("--report-pt-bins", default=DEFAULT_REPORT_PT_BINS)
     ap.add_argument("--report-cent-bins", default=DEFAULT_REPORT_CENT_BINS)
@@ -511,6 +520,94 @@ def class_balanced_weights(y):
     return weights
 
 
+def compute_ppg12_exact_stack_weights(frame, label_key: str = "is_signal") -> tuple[np.ndarray, dict]:
+    labels = np.asarray(frame[label_key], dtype="int32")
+    if "cluster_Et" not in frame or "cluster_Eta" not in frame:
+        raise SystemExit("PPG12-exact stack weights require cluster_Et and cluster_Eta in aligned score caches")
+    weights = np.ones(len(labels), dtype="float64")
+    report: dict[str, object] = {
+        "weight_mode": "ppg12-exact",
+        "event_weight_used": False,
+        "vertex_reweight": False,
+        "centrality_event_weight": False,
+        "cross_section_weight_used_for_training": False,
+        "weights_computed_before_stack_splitting": True,
+        "eta_range": list(PPG12_EXACT_ETA_RANGE),
+        "eta_bins": PPG12_EXACT_N_BINS,
+        "et_bins": PPG12_EXACT_N_BINS,
+        "et_weight_cap": PPG12_EXACT_ET_WEIGHT_CAP,
+    }
+    counts: dict[str, int] = {}
+    factors: dict[str, float] = {}
+    n_total = 0
+    for cls in (0, 1):
+        n_cls = int(np.sum(labels == cls))
+        counts[str(cls)] = n_cls
+        n_total += n_cls
+    if counts["0"] <= 0 or counts["1"] <= 0:
+        raise SystemExit(f"PPG12-exact stack weights need both classes; observed counts={counts}")
+    for cls in (0, 1):
+        factor = float(n_total) / (2.0 * float(counts[str(cls)]))
+        factors[str(cls)] = factor
+        weights[labels == cls] *= factor
+
+    eta_reports = {}
+    et_reports = {}
+    et = np.asarray(frame["cluster_Et"], dtype="float64")
+    eta = np.asarray(frame["cluster_Eta"], dtype="float64")
+    for cls in (0, 1):
+        mask = labels == cls
+        eta_w, eta_report = ppg12_exact_inverse_pdf_weights(
+            eta[mask],
+            n_bins=PPG12_EXACT_N_BINS,
+            fixed_range=PPG12_EXACT_ETA_RANGE,
+            weight_cap=None,
+        )
+        et_w, et_report = ppg12_exact_inverse_pdf_weights(
+            et[mask],
+            n_bins=PPG12_EXACT_N_BINS,
+            fixed_range=None,
+            weight_cap=PPG12_EXACT_ET_WEIGHT_CAP,
+        )
+        weights[mask] *= eta_w * et_w
+        eta_reports[str(cls)] = eta_report
+        et_reports[str(cls)] = et_report
+
+    finite_positive = np.isfinite(weights) & (weights > 0.0)
+    if not finite_positive.all():
+        raise SystemExit(f"PPG12-exact stack weights produced {(~finite_positive).sum()} invalid rows")
+    report.update(
+        {
+            "class_counts": counts,
+            "class_weight_factors": factors,
+            "eta_reweight": eta_reports,
+            "et_reweight": et_reports,
+            "sum_weight_class0": float(weights[labels == 0].sum()),
+            "sum_weight_class1": float(weights[labels == 1].sum()),
+            "min_weight": float(np.min(weights)) if len(weights) else math.nan,
+            "max_weight": float(np.max(weights)) if len(weights) else math.nan,
+            "mean_weight": float(np.mean(weights)) if len(weights) else math.nan,
+        }
+    )
+    return weights, report
+
+
+def stack_training_weights(frame, args) -> tuple[np.ndarray, dict]:
+    y = np.asarray(frame["is_signal"], dtype="int32")
+    if getattr(args, "weight_mode", "legacy") == "ppg12-exact":
+        return compute_ppg12_exact_stack_weights(frame)
+    weights = class_balanced_weights(y)
+    return weights, {
+        "weight_mode": "legacy",
+        "class_balanced_only": True,
+        "sum_weight_class0": float(weights[y == 0].sum()),
+        "sum_weight_class1": float(weights[y == 1].sum()),
+        "min_weight": float(np.min(weights)) if len(weights) else math.nan,
+        "max_weight": float(np.max(weights)) if len(weights) else math.nan,
+        "mean_weight": float(np.mean(weights)) if len(weights) else math.nan,
+    }
+
+
 def train_apply_impute(x_train, x):
     impute = np.nanmedian(np.where(np.isfinite(x_train), x_train, np.nan), axis=0)
     impute = np.where(np.isfinite(impute), impute, 0.0)
@@ -746,13 +843,16 @@ def nn_predict_from_artifact(model: dict, x: np.ndarray) -> np.ndarray:
     return sigmoid(out[:, 0])
 
 
-def fit_nn(name, feature_names, x, y, train_mask, val_mask, args, seed) -> FittedModel:
+def fit_nn(name, feature_names, x, y, train_mask, val_mask, args, seed, sample_weights=None) -> FittedModel:
     hidden_layers = parse_hidden_layers(args.nn_hidden)
     x_clean, impute = train_apply_impute(x[train_mask], x)
     x_train_z, mean, scale = standardize_train_apply(x_clean[train_mask], x_clean[train_mask])
     x_all_z = np.nan_to_num((x_clean - mean) / scale, nan=0.0, posinf=0.0, neginf=0.0)
     y_train = y[train_mask].astype("float64")
-    w_train = class_balanced_weights(y[train_mask])
+    if sample_weights is None:
+        sample_weights = class_balanced_weights(y)
+    sample_weights = np.asarray(sample_weights, dtype="float64")
+    w_train = sample_weights[train_mask]
     if val_mask is None or val_mask.sum() < 20 or len(np.unique(y[val_mask])) < 2:
         rng_split = np.random.default_rng(seed + 7919)
         train_idx_all = np.flatnonzero(train_mask)
@@ -770,10 +870,10 @@ def fit_nn(name, feature_names, x, y, train_mask, val_mask, args, seed) -> Fitte
             val_mask = np.zeros(len(y), dtype=bool)
             val_mask[np.asarray(val_take, dtype=int)] = True
             y_train = y[train_mask].astype("float64")
-            w_train = class_balanced_weights(y[train_mask])
+            w_train = sample_weights[train_mask]
     val_mask = np.zeros(len(y), dtype=bool) if val_mask is None else val_mask
     y_val = y[val_mask].astype("float64")
-    w_val = class_balanced_weights(y[val_mask]) if val_mask.any() else np.ones(0, dtype="float64")
+    w_val = sample_weights[val_mask] if val_mask.any() else np.ones(0, dtype="float64")
     train_indices = np.flatnonzero(train_mask)
     if train_indices.size < 20:
         raise ValueError(f"{name}: insufficient neural-stack train rows")
@@ -797,7 +897,7 @@ def fit_nn(name, feature_names, x, y, train_mask, val_mask, args, seed) -> Fitte
             batch = train_indices[start : start + batch_size]
             xb = x_all_z[batch]
             yb = y[batch].astype("float64")
-            wb = class_balanced_weights(y[batch])
+            wb = sample_weights[batch]
             prob, activations, preacts = nn_forward(xb, params)
             delta = ((prob - yb) * wb / max(float(np.sum(wb)), 1.0))[:, None]
             grad_w = []
@@ -1158,7 +1258,15 @@ RAW_FEATURE_PREFIXES = ("cluster_", "e11_", "e22_", "e32_", "reco_eiso", "vertex
 def matrix_feature_names_for_variant(frame, variant: VariantSpec, args) -> tuple[list[str], list[str]]:
     add_derived_features(frame)
     cohort = variant.input_cohort
-    if cohort in ("stack_pair_score_only", "stack_pair_context", "stack_pair_full_no_iso", "stack_bdt_score_full_no_iso", "stack_mlp_score_full_no_iso"):
+    if cohort in (
+        "stack_pair_score_only",
+        "stack_pair_context",
+        "stack_pair_base3x3_cent",
+        "stack_pair_score_et_cent",
+        "stack_pair_full_no_iso",
+        "stack_bdt_score_full_no_iso",
+        "stack_mlp_score_full_no_iso",
+    ):
         base_scores = list(SCORE_PAIR_FEATURES)
     elif cohort in ("stack_tri_score_only", "stack_tri_context", "stack_tri_full_no_iso"):
         if "logreg_score" not in frame:
@@ -1167,7 +1275,11 @@ def matrix_feature_names_for_variant(frame, variant: VariantSpec, args) -> tuple
     else:
         raise SystemExit(f"Unknown matrix input cohort for feature policy: {cohort}")
 
-    if cohort == "stack_bdt_score_full_no_iso":
+    if cohort == "stack_pair_base3x3_cent":
+        names = ["bdt_score", "mlp_score"] + list(BDT_BASE_FEATURES) + list(WIDTH_3X3_FEATURES) + ["centrality"]
+    elif cohort == "stack_pair_score_et_cent":
+        names = ["bdt_score", "mlp_score", "cluster_Et", "centrality"]
+    elif cohort == "stack_bdt_score_full_no_iso":
         names = ["bdt_score", "bdt_is_finite"]
     elif cohort == "stack_mlp_score_full_no_iso":
         names = ["mlp_score", "mlp_logit", "mlp_is_finite"]
@@ -1231,6 +1343,16 @@ def enforce_matrix_feature_policy(variant: VariantSpec, feature_names: list[str]
         )
         if bad:
             raise SystemExit(f"{variant.name}: context cohort illegally includes full-feature column(s): {bad}")
+    if cohort == "stack_pair_score_et_cent":
+        allowed = {"bdt_score", "mlp_score", "cluster_Et", "centrality"}
+        bad = sorted(name for name in features if name not in allowed)
+        if bad:
+            raise SystemExit(f"{variant.name}: score+E_T+centrality cohort illegally includes feature(s): {bad}")
+    if cohort == "stack_pair_base3x3_cent":
+        allowed = {"bdt_score", "mlp_score", "centrality"} | set(BDT_BASE_FEATURES) | set(WIDTH_3X3_FEATURES)
+        bad = sorted(name for name in features if name not in allowed)
+        if bad:
+            raise SystemExit(f"{variant.name}: base3x3+centrality cohort illegally includes feature(s): {bad}")
     if cohort.endswith("_no_iso") or cohort in ("stack_pair_score_only", "stack_tri_score_only", "stack_pair_context", "stack_tri_context"):
         bad_iso = sorted(name for name in features if "eiso" in name.lower() or "isolation" in name.lower())
         if bad_iso:
@@ -1386,7 +1508,7 @@ def stratified_split(y, seed: int, train_fraction: float, val_fraction: float):
     }
 
 
-def fit_one(name, algorithm, feature_names, x, y, train_mask, args, seed, val_mask=None) -> FittedModel | None:
+def fit_one(name, algorithm, feature_names, x, y, train_mask, args, seed, val_mask=None, sample_weights=None) -> FittedModel | None:
     if train_mask.sum() < 20 or len(np.unique(y[train_mask])) < 2:
         print(f"[stackSweep][WARN] skipping {name}: insufficient train rows/classes", flush=True)
         return None
@@ -1396,7 +1518,7 @@ def fit_one(name, algorithm, feature_names, x, y, train_mask, args, seed, val_ma
         if algorithm == "gbm":
             return fit_gbm(name, feature_names, x, y, train_mask, args, seed, val_mask=val_mask)
         if algorithm in ("nn", "mlp"):
-            return fit_nn(name, feature_names, x, y, train_mask, val_mask, args, seed)
+            return fit_nn(name, feature_names, x, y, train_mask, val_mask, args, seed, sample_weights=sample_weights)
     except Exception as exc:
         print(f"[stackSweep][WARN] skipping {name}: {exc}", flush=True)
         return None
@@ -1405,6 +1527,7 @@ def fit_one(name, algorithm, feature_names, x, y, train_mask, args, seed, val_ma
 
 def score_variant(frame, variant: VariantSpec, algorithm: str, masks, args, seed: int):
     y = np.asarray(frame["is_signal"], dtype="int32")
+    sample_weights, weight_report = stack_training_weights(frame, args)
     feature_names, missing_features = feature_names_for_variant(frame, variant, args)
     x = feature_matrix(frame, feature_names)
     eval_mask = pt_range_mask(frame, variant.pt_lo, variant.pt_hi)
@@ -1418,7 +1541,18 @@ def score_variant(frame, variant: VariantSpec, algorithm: str, masks, args, seed
             mask = eval_mask & route_mask(frame, route)
             train_mask = masks["train"] & mask
             val_mask = masks["val"] & mask
-            fitted = fit_one(f"{model_name}_{route.label}", algorithm, feature_names, x, y, train_mask, args, seed + route_idx + 1, val_mask=val_mask)
+            fitted = fit_one(
+                f"{model_name}_{route.label}",
+                algorithm,
+                feature_names,
+                x,
+                y,
+                train_mask,
+                args,
+                seed + route_idx + 1,
+                val_mask=val_mask,
+                sample_weights=sample_weights,
+            )
             if fitted is None:
                 continue
             pred_mask = mask
@@ -1449,6 +1583,7 @@ def score_variant(frame, variant: VariantSpec, algorithm: str, masks, args, seed
             "input_cohort": variant.input_cohort,
             "routing": variant.routing,
             "stack_training_safety": args.stack_training_safety,
+            "training_weights": weight_report,
             "full_stat_required": bool(args.require_full_stat),
             "algorithm": algorithm,
             "feature_names": feature_names,
@@ -1458,7 +1593,18 @@ def score_variant(frame, variant: VariantSpec, algorithm: str, masks, args, seed
     else:
         train_mask = masks["train"] & eval_mask
         val_mask = masks["val"] & eval_mask
-        fitted = fit_one(model_name, algorithm, feature_names, x, y, train_mask, args, seed, val_mask=val_mask)
+        fitted = fit_one(
+            model_name,
+            algorithm,
+            feature_names,
+            x,
+            y,
+            train_mask,
+            args,
+            seed,
+            val_mask=val_mask,
+            sample_weights=sample_weights,
+        )
         if fitted is None:
             return None
         score[eval_mask] = fitted.predict(x[eval_mask])
@@ -1471,6 +1617,7 @@ def score_variant(frame, variant: VariantSpec, algorithm: str, masks, args, seed
             "input_cohort": variant.input_cohort,
             "routing": variant.routing,
             "stack_training_safety": args.stack_training_safety,
+            "training_weights": weight_report,
             "full_stat_required": bool(args.require_full_stat),
             "algorithm": algorithm,
             "feature_names": feature_names,
@@ -1677,6 +1824,7 @@ def preflight(frame, cache_info, args) -> dict:
         "matrix_wave_name": str(args.matrix_wave_name or ""),
         "training_range": str(args.training_range or ""),
         "matrix_routings": str(args.matrix_routings or ""),
+        "weight_mode": str(args.weight_mode),
         "require_full_stat": bool(args.require_full_stat),
         "expected_shards": int(args.expected_shards),
         "stack_training_safety": str(args.stack_training_safety),
@@ -1742,6 +1890,7 @@ def main():
         "matrix_cohort": str(args.matrix_cohort or ""),
         "training_range": str(args.training_range or ""),
         "matrix_routings": str(args.matrix_routings or ""),
+        "weight_mode": str(args.weight_mode),
         "stack_training_safety": str(args.stack_training_safety),
         "final_comparable_stack_training": bool(args.stack_training_safety in ("disjoint_base_scores_heldout_test", "oof_base_scores_heldout_test") and args.require_full_stat),
         "full_stat_required": bool(args.require_full_stat),
@@ -1816,6 +1965,9 @@ def main():
                 f"test_wp80_fake={test['wp80_fake']} highpt_auc={high['auc']:.5f} highpt_fake={high['wp80_fake']}",
                 flush=True,
             )
+
+    if not rows:
+        raise SystemExit("No stack models trained successfully; inspect warnings above before treating this campaign as READY")
 
     rank_path = args.outdir / "stacked_sweep_rank_table.csv"
     write_csv(rank_path, rows)

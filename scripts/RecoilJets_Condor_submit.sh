@@ -342,6 +342,15 @@ SCALED_TRIGGER_RUNLIST="${BASE}/dst_lists_auau/scaledEffRuns_MBD_NS_geq_2_vtx_lt
 SCALED_TRIGGER_CONFIG_SRC="${BASE}/dst_lists_auau/trigger_scaled_efficiency_studies_auau.txt"
 SCALED_TRIGGER_CONFIG_EXPECTED="${BASE}/dst_lists_auau/scaledEffConfig_MBD_NS_geq_2_vtx_lt_150__Pho10_12.txt"
 SCALED_TRIGGER_OUTPUT_SUFFIX="${RJ_SCALED_TRIGGER_OUTPUT_SUFFIX:-_scaledTriggerStudy}"
+SCALED_TRIGGER_JET_PT_MIN="${RJ_SCALED_TRIGGER_JET_PT_MIN:-5.0}"
+SCALED_TRIGGER_DPHI_FRAC="${RJ_SCALED_TRIGGER_DPHI_FRAC:-0.875}"
+SCALED_TRIGGER_VZ_CUT_CM="${RJ_SCALED_TRIGGER_VZ_CUT_CM:-60}"
+SCALED_TRIGGER_CONE_R="${RJ_SCALED_TRIGGER_CONE_R:-0.40}"
+SCALED_TRIGGER_IS_SLIDING="${RJ_SCALED_TRIGGER_IS_SLIDING:-true}"
+SCALED_TRIGGER_FIXED_GEV="${RJ_SCALED_TRIGGER_FIXED_GEV:-4.0}"
+SCALED_TRIGGER_UEPIPELINE="${RJ_SCALED_TRIGGER_UEPIPELINE:-baseVariant}"
+SCALED_TRIGGER_CENT_EDGES="${RJ_SCALED_TRIGGER_CENT_EDGES:-0,20,50,80}"
+SCALED_TRIGGER_CENT_OUTPUT_SUFFIX="${RJ_SCALED_TRIGGER_CENT_OUTPUT_SUFFIX:-_scaledTriggerCentStudy_cent0_20_50_80}"
 
 # ------------------------ Defaults -------------------------
 GROUP_SIZE=7         # files per Condor job (never mixes runs)
@@ -378,9 +387,11 @@ AUAU_BDT_BACKGROUND_SAMPLES_DEFAULT="run28_embeddedJet12 run28_embeddedJet20"
 
 # Keep the long-standing embedded-inclusive default as Jet12+Jet20. Set
 # RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=1 for the Jet12+Jet20+Jet30 stitching
-# study, where Jet20 is treated as the exclusive 20-30 GeV slice downstream.
+# study, or RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES=1 for Jet12+20+30+40.
 simembeddedinclusive_sample_list() {
-  if [[ "${RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES:-0}" == "1" || "${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30:-0}" == "1" ]]; then
+  if [[ "${RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES:-0}" == "1" || "${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40:-0}" == "1" ]]; then
+    printf "%s\n" "run28_embeddedJet12" "run28_embeddedJet20" "run28_embeddedJet30" "run28_embeddedJet40"
+  elif [[ "${RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES:-0}" == "1" || "${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30:-0}" == "1" ]]; then
     printf "%s\n" "run28_embeddedJet12" "run28_embeddedJet20" "run28_embeddedJet30"
   else
     printf "%s\n" "run28_embeddedJet12" "run28_embeddedJet20"
@@ -891,6 +902,88 @@ jetpt_env_fragment() {
   [[ -n "$csv" ]] && printf ';RJ_INTERNAL_JET_PT_MINS=%s' "$csv"
 }
 
+embedded_inclusive_stitch_env_fragment() {
+  local names=(
+    RJ_SIMEMBEDDED_PHOTON12_LO
+    RJ_SIMEMBEDDED_PHOTON12_HI
+    RJ_SIMEMBEDDED_PHOTON20_LO
+    RJ_SIMEMBEDDED_PHOTON20_HI
+    RJ_SIMEMBEDDED_SIGMA_PHOTON12_PB
+    RJ_SIMEMBEDDED_SIGMA_PHOTON20_PB
+    RJ_SIMEMBEDDEDINCLUSIVE_JET12_LO
+    RJ_SIMEMBEDDEDINCLUSIVE_JET12_HI
+    RJ_SIMEMBEDDEDINCLUSIVE_JET20_LO
+    RJ_SIMEMBEDDEDINCLUSIVE_JET20_HI
+    RJ_SIMEMBEDDEDINCLUSIVE_JET30_LO
+    RJ_SIMEMBEDDEDINCLUSIVE_JET30_HI
+    RJ_SIMEMBEDDEDINCLUSIVE_JET40_LO
+    RJ_SIMEMBEDDEDINCLUSIVE_SIGMA_JET12_PB
+    RJ_SIMEMBEDDEDINCLUSIVE_SIGMA_JET20_PB
+    RJ_SIMEMBEDDEDINCLUSIVE_SIGMA_JET30_PB
+    RJ_SIMEMBEDDEDINCLUSIVE_SIGMA_JET40_PB
+    RJ_RECO_CLUSTER_ET_FINE_DIAG
+    RJ_RECO_CLUSTER_ET_FINE_MAX
+    RJ_PP_NPB_SCORE_MIN_ET
+    RJ_PP_PHOTONID_EXTRACT_ONLY
+    RJ_PP_PHOTONID_TRAINING_TREE
+    RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES
+    RJ_PP_PHOTONID_SOURCE_ROLE
+    RJ_PP_PHOTONID_PPG12_FILTER
+    RJ_PP_PHOTONID_REQUIRE_PRESELECTION
+    RJ_PHOTON_ID_ROW_MATCH
+    RJ_CURRENT_IAN_RAW_PHOTON_ID_ROW_MATCH
+    RJ_CODEX_CHAT_NAME
+    RJ_CODEX_THREAD_ID
+  )
+  local name value
+  for name in "${names[@]}"; do
+    value="${!name:-}"
+    [[ -n "$value" ]] && printf ';%s=%s' "$name" "$value"
+  done
+  return 0
+}
+
+embedded_inclusive_stitch_env_args() {
+  local names=(
+    RJ_SIMEMBEDDED_PHOTON12_LO
+    RJ_SIMEMBEDDED_PHOTON12_HI
+    RJ_SIMEMBEDDED_PHOTON20_LO
+    RJ_SIMEMBEDDED_PHOTON20_HI
+    RJ_SIMEMBEDDED_SIGMA_PHOTON12_PB
+    RJ_SIMEMBEDDED_SIGMA_PHOTON20_PB
+    RJ_SIMEMBEDDEDINCLUSIVE_JET12_LO
+    RJ_SIMEMBEDDEDINCLUSIVE_JET12_HI
+    RJ_SIMEMBEDDEDINCLUSIVE_JET20_LO
+    RJ_SIMEMBEDDEDINCLUSIVE_JET20_HI
+    RJ_SIMEMBEDDEDINCLUSIVE_JET30_LO
+    RJ_SIMEMBEDDEDINCLUSIVE_JET30_HI
+    RJ_SIMEMBEDDEDINCLUSIVE_JET40_LO
+    RJ_SIMEMBEDDEDINCLUSIVE_SIGMA_JET12_PB
+    RJ_SIMEMBEDDEDINCLUSIVE_SIGMA_JET20_PB
+    RJ_SIMEMBEDDEDINCLUSIVE_SIGMA_JET30_PB
+    RJ_SIMEMBEDDEDINCLUSIVE_SIGMA_JET40_PB
+    RJ_RECO_CLUSTER_ET_FINE_DIAG
+    RJ_RECO_CLUSTER_ET_FINE_MAX
+    RJ_PP_NPB_SCORE_MIN_ET
+    RJ_PP_PHOTONID_EXTRACT_ONLY
+    RJ_PP_PHOTONID_TRAINING_TREE
+    RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES
+    RJ_PP_PHOTONID_SOURCE_ROLE
+    RJ_PP_PHOTONID_PPG12_FILTER
+    RJ_PP_PHOTONID_REQUIRE_PRESELECTION
+    RJ_PHOTON_ID_ROW_MATCH
+    RJ_CURRENT_IAN_RAW_PHOTON_ID_ROW_MATCH
+    RJ_CODEX_CHAT_NAME
+    RJ_CODEX_THREAD_ID
+  )
+  local name value
+  for name in "${names[@]}"; do
+    value="${!name:-}"
+    [[ -n "$value" ]] && printf '%s=%s\n' "$name" "$value"
+  done
+  return 0
+}
+
 sim_b2b_tag() {
   local frac="$1"
   if sim_is_close "$frac" "0.5"; then
@@ -1293,15 +1386,137 @@ fanout_dest_allowed() {
 
 declare -a RJ_DAG_COLLECTED_NODES=()
 
+resolve_codex_thread_id() {
+  printf '%s\n' "${RJ_CODEX_THREAD_ID:-${CODEX_THREAD_ID:-}}"
+}
+
+resolve_codex_chat_name() {
+  if [[ -n "${RJ_CODEX_CHAT_NAME:-}" ]]; then
+    printf '%s\n' "$RJ_CODEX_CHAT_NAME"
+    return 0
+  fi
+  if [[ -n "${CODEX_CHAT_NAME:-}" ]]; then
+    printf '%s\n' "$CODEX_CHAT_NAME"
+    return 0
+  fi
+  if [[ -n "${CODEX_THREAD_NAME:-}" ]]; then
+    printf '%s\n' "$CODEX_THREAD_NAME"
+    return 0
+  fi
+  if [[ -n "${CODEX_THREAD_TITLE:-}" ]]; then
+    printf '%s\n' "$CODEX_THREAD_TITLE"
+    return 0
+  fi
+
+  local thread_id
+  thread_id="$(resolve_codex_thread_id)"
+  if [[ -n "$thread_id" && -r "${CODEX_SESSION_INDEX:-${HOME}/.codex/session_index.jsonl}" ]]; then
+    awk -v id="$thread_id" '
+      index($0, "\"id\":\"" id "\"") {
+        line = $0
+        sub(/^.*"thread_name":"?/, "", line)
+        sub(/".*$/, "", line)
+        if (length(line) > 0) name = line
+      }
+      END { if (length(name) > 0) print name }
+    ' "${CODEX_SESSION_INDEX:-${HOME}/.codex/session_index.jsonl}"
+    return 0
+  fi
+
+  printf '%s\n' "unknown"
+}
+
+condor_submit_queue_args_file() {
+  local sub="$1"
+  awk '
+    /^[[:space:]]*queue[[:space:]]+arguments[[:space:]]+from[[:space:]]+/ {
+      for (i = 1; i <= NF; ++i) {
+        if (tolower($i) == "from" && i < NF) {
+          print $(i + 1)
+          exit
+        }
+      }
+    }
+  ' "$sub"
+}
+
+stage_collected_condor_submit() {
+  local sub="$1"
+  [[ -s "$sub" ]] || { err "DAG collection refused missing/empty submit file: $sub"; return 66; }
+  [[ -n "${RJ_COLLECT_DAG_FILE:-}" ]] || { err "DAG collection missing RJ_COLLECT_DAG_FILE"; return 66; }
+
+  local stable_dir="${RJ_COLLECT_SUB_DIR:-$(dirname "$RJ_COLLECT_DAG_FILE")/analysis_submit_files}"
+  mkdir -p "$stable_dir"
+
+  local stable_sub="${stable_dir}/$(basename "$sub")"
+  cp -f "$sub" "$stable_sub"
+
+  local args_path
+  args_path="$(condor_submit_queue_args_file "$sub" || true)"
+  if [[ -n "$args_path" ]]; then
+    [[ -s "$args_path" ]] || {
+      err "DAG collection refused submit with missing/empty queue args file: sub=$sub args=$args_path"
+      return 67
+    }
+    local stable_args="${stable_dir}/$(basename "$args_path")"
+    cp -f "$args_path" "$stable_args"
+
+    local tmp_sub="${stable_sub}.tmp"
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      if [[ "$line" =~ ^[[:space:]]*queue[[:space:]]+arguments[[:space:]]+from[[:space:]]+ ]]; then
+        printf 'queue arguments from %s\n' "$stable_args"
+      else
+        printf '%s\n' "$line"
+      fi
+    done < "$stable_sub" > "$tmp_sub"
+    mv -f "$tmp_sub" "$stable_sub"
+  fi
+
+  [[ -s "$stable_sub" ]] || { err "DAG collection produced missing/empty stable submit file: $stable_sub"; return 68; }
+  printf '%s\n' "$stable_sub"
+}
+
+validate_auto_dag_submit_files() {
+  local dag="$1"
+  [[ -s "$dag" ]] || { err "Automatic workflow DAG is missing/empty: $dag"; return 69; }
+
+  local checked=0
+  local missing=0
+  local kind node sub args_path
+  while read -r kind node sub _rest; do
+    case "$kind" in
+      JOB|FINAL) ;;
+      *) continue ;;
+    esac
+    (( checked += 1 ))
+    if [[ ! -s "$sub" ]]; then
+      err "Automatic workflow DAG references missing/empty submit file: kind=$kind node=$node sub=$sub"
+      (( missing += 1 ))
+      continue
+    fi
+    args_path="$(condor_submit_queue_args_file "$sub" || true)"
+    if [[ -n "$args_path" && ! -s "$args_path" ]]; then
+      err "Automatic workflow DAG references missing/empty queue args file: kind=$kind node=$node sub=$sub args=$args_path"
+      (( missing += 1 ))
+    fi
+  done < "$dag"
+
+  (( checked > 0 )) || { err "Automatic workflow DAG has no JOB/FINAL submit nodes: $dag"; return 70; }
+  (( missing == 0 )) || return 71
+  say "Automatic workflow DAG preflight: ${checked} JOB/FINAL submit files present"
+}
+
 submit_or_collect_condor() {
   local sub="$1"
   local label="${2:-job}"
   if dag_collect_enabled; then
     local node
     node="$(sanitize_node_name "${RJ_COLLECT_NODE_PREFIX:-RJ}_${label}_${#RJ_DAG_COLLECTED_NODES[@]}")"
-    printf 'JOB %s %s\n' "$node" "$sub" >> "$RJ_COLLECT_DAG_FILE"
+    local dag_sub
+    dag_sub="$(stage_collected_condor_submit "$sub")" || exit $?
+    printf 'JOB %s %s\n' "$node" "$dag_sub" >> "$RJ_COLLECT_DAG_FILE"
     RJ_DAG_COLLECTED_NODES+=( "$node" )
-    say "Added Condor submit to orchestration DAG: node=${node} sub=${sub}"
+    say "Added Condor submit to orchestration DAG: node=${node} sub=${dag_sub}"
     return 0
   fi
   need_cmd condor_submit
@@ -1330,6 +1545,8 @@ if [[ -n "$meta_file" && -s "$meta_file" ]]; then
   dataset="${meta[1]:-unknown}"
   dag_file="${meta[2]:-}"
   next_stage="${meta[3]:-}"
+  codex_chat_name="${meta[4]:-unknown}"
+  codex_thread_id="${meta[5]:-unknown}"
 fi
 poll_seconds="${RJ_ORCH_POLL_SECONDS:-120}"
 [[ "$poll_seconds" =~ ^[0-9]+$ && "$poll_seconds" -gt 0 ]] || poll_seconds=120
@@ -1343,6 +1560,11 @@ send_stage_mail() {
   msg="$(mktemp "${TMPDIR:-/tmp}/recoiljets_auto_stage.XXXXXX")"
   {
     echo "RECOILJETS_STAGE_EMAIL_V1"
+    echo "==================== CODEX SUBMISSION ===================="
+    echo "codex_chat_name=${codex_chat_name:-unknown}"
+    echo "codex_thread_id=${codex_thread_id:-unknown}"
+    echo "submitted_from=$(pwd)"
+    echo "=========================================================="
     echo "status=${status}"
     echo "status_note=${note}"
     echo "stage=${stage_key}"
@@ -1446,6 +1668,8 @@ dataset="${meta[2]}"
 dag_file="${meta[3]}"
 next_action="${meta[4]}"
 final_output_base="${meta[5]:-}"
+codex_chat_name="${meta[6]:-unknown}"
+codex_thread_id="${meta[7]:-unknown}"
 dagman_out="${dag_file}.dagman.out"
 nodes_log="${dag_file}.nodes.log"
 status="READY"
@@ -1463,6 +1687,11 @@ subject="[RecoilJets][${stage_key}][${status}]"
 msg="$(mktemp "${TMPDIR:-/tmp}/recoiljets_auto_notify.XXXXXX")"
 {
   echo "RECOILJETS_STAGE_EMAIL_V1"
+  echo "==================== CODEX SUBMISSION ===================="
+  echo "codex_chat_name=${codex_chat_name:-unknown}"
+  echo "codex_thread_id=${codex_thread_id:-unknown}"
+  echo "submitted_from=$(pwd)"
+  echo "=========================================================="
   echo "status=${status}"
   echo "status_note=${status_note}"
   echo "stage=${stage_key}"
@@ -1527,8 +1756,12 @@ add_auto_stage_node() {
   local args_file="${dag%/*}/${node}.args"
   local meta_file="${dag%/*}/${node}.meta"
   local emails
+  local codex_chat_name
+  local codex_thread_id
   local next_stage_note
   emails="$(notify_emails_csv_from_yaml)"
+  codex_chat_name="$(resolve_codex_chat_name)"
+  codex_thread_id="$(resolve_codex_thread_id)"
   case "$node" in
     DATA_PERRUN)
       next_stage_note="If READY, analysis outputs merged per run and the parent DAG will start DATA_SLICERUNS next." ;;
@@ -1550,7 +1783,7 @@ add_auto_stage_node() {
       next_stage_note="If READY, the next DAG dependency is eligible to run." ;;
   esac
   printf '%s\n' "$@" > "$args_file"
-  printf '%s\n%s\n%s\n%s\n' "$emails" "$DATASET" "$dag" "$next_stage_note" > "$meta_file"
+  printf '%s\n%s\n%s\n%s\n%s\n%s\n' "$emails" "$DATASET" "$dag" "$next_stage_note" "$codex_chat_name" "$codex_thread_id" > "$meta_file"
   cat > "$sub" <<EOT
 universe   = scheduler
 executable = /bin/true
@@ -1565,11 +1798,15 @@ EOT
 add_auto_final_node() {
   local dag="$1" node="$2" notify_script="$3" stage_key="$4" dataset="$5" next_action="$6" final_output_base="${7:-}"
   local emails
+  local codex_chat_name
+  local codex_thread_id
   emails="$(notify_emails_csv_from_yaml)"
   [[ -n "$emails" ]] || return 0
+  codex_chat_name="$(resolve_codex_chat_name)"
+  codex_thread_id="$(resolve_codex_thread_id)"
   local sub="${dag%/*}/${node}.sub"
   local meta_file="${dag%/*}/${node}.meta"
-  printf '%s\n%s\n%s\n%s\n%s\n%s\n' "$emails" "$stage_key" "$dataset" "$dag" "$next_action" "$final_output_base" > "$meta_file"
+  printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' "$emails" "$stage_key" "$dataset" "$dag" "$next_action" "$final_output_base" "$codex_chat_name" "$codex_thread_id" > "$meta_file"
   cat > "$sub" <<EOT
 universe   = scheduler
 executable = /bin/true
@@ -2023,6 +2260,10 @@ propagate_pp_photonid_controls_to_yaml() {
   if [[ -n "${RJ_PP_PHOTONID_PPG12_FILTER:-}" ]]; then
     yaml_set_scalar_in_place "$file" "pp_photonid_ppg12_filter" \
       "$(truthy_to_yaml_bool "$RJ_PP_PHOTONID_PPG12_FILTER")"
+  fi
+  if [[ -n "${RJ_PP_PHOTONID_REQUIRE_PRESELECTION:-}" ]]; then
+    yaml_set_scalar_in_place "$file" "pp_photonid_require_preselection" \
+      "$(truthy_to_yaml_bool "$RJ_PP_PHOTONID_REQUIRE_PRESELECTION")"
   fi
   if [[ -n "${RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES:-}" ]]; then
     yaml_set_scalar_in_place "$file" "pp_photonid_training_tree_max_entries" \
@@ -4274,7 +4515,7 @@ auau_ml_run_all_local() {
 }
 
 scaled_trigger_prepare_artifacts() {
-  [[ "$DATASET" == "isAuAu" ]] || { err "scaledTriggerStudy is valid only for isAuAu"; exit 2; }
+  [[ "$DATASET" == "isAuAu" ]] || { err "${ACTION:-scaledTriggerStudy} is valid only for isAuAu"; exit 2; }
   [[ -s "$SCALED_TRIGGER_RUNLIST" ]] || {
     err "Missing scaled-trigger run list: ${SCALED_TRIGGER_RUNLIST}"
     err "Run first on SDCC: ./scripts/make_dstListsData.sh auau QA scaledTriggerAna"
@@ -4303,14 +4544,23 @@ scaled_trigger_prepare_single_yaml() {
   (( ${#data_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
   (( ${#data_cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
 
+  local old_disable_iso_internal="${RJ_DISABLE_ISO_CONE_INTERNALIZATION-__unset__}"
+  RJ_DISABLE_ISO_CONE_INTERNALIZATION=1
   build_iso_modes "$master_yaml"
+  if [[ "$old_disable_iso_internal" == "__unset__" ]]; then
+    unset RJ_DISABLE_ISO_CONE_INTERNALIZATION
+  else
+    RJ_DISABLE_ISO_CONE_INTERNALIZATION="$old_disable_iso_internal"
+  fi
   read_uepipe_modes "$master_yaml" "$TAG"
 
-  local data_pt="${data_pts[0]}"
-  local data_frac="${data_fracs[0]}"
-  local data_vz="${data_vzs[0]}"
-  local data_cone="${data_cones[0]}"
-  local uepipe="${uepipe_modes[0]}"
+  local data_pt="${SCALED_TRIGGER_JET_PT_MIN}"
+  local data_frac="${SCALED_TRIGGER_DPHI_FRAC}"
+  local data_vz="${SCALED_TRIGGER_VZ_CUT_CM}"
+  local data_cone="${SCALED_TRIGGER_CONE_R}"
+  local uepipe="${SCALED_TRIGGER_UEPIPELINE}"
+  local data_sliding="${SCALED_TRIGGER_IS_SLIDING}"
+  local data_fixed="${SCALED_TRIGGER_FIXED_GEV}"
   SCALED_TRIGGER_VZ_CUT="$data_vz"
 
   local dpt_tag dfrac_tag dvz_tag dcone_tag
@@ -4324,24 +4574,30 @@ scaled_trigger_prepare_single_yaml() {
   SCALED_TRIGGER_CFG_TAG="${SCALED_TRIGGER_CFG_TAG}_${iso_selection_tags[0]}"
   SCALED_TRIGGER_OUTPUT_TAG="${SCALED_TRIGGER_CFG_TAG}${SCALED_TRIGGER_OUTPUT_SUFFIX}"
 
-  SCALED_TRIGGER_YAML="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${SCALED_TRIGGER_CFG_TAG}_scaledTriggerStudy.yaml"
+  local study_action="${ACTION:-scaledTriggerStudy}"
+  SCALED_TRIGGER_YAML="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${SCALED_TRIGGER_CFG_TAG}_${study_action}.yaml"
   mkdir -p "$SIM_YAML_OVERRIDE_DIR"
   sed -E \
     -e "s|^([[:space:]]*jet_pt_min:).*|\\1 ${data_pt}|" \
     -e "s|^([[:space:]]*back_to_back_dphi_min_pi_fraction:).*|\\1 ${data_frac}|" \
     -e "s|^([[:space:]]*vz_cut_cm:).*|\\1 ${data_vz}|" \
     -e "s|^([[:space:]]*coneR:).*|\\1 ${data_cone}|" \
-    -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${iso_sliding[0]}|" \
-    -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${iso_fixed[0]}|" \
+    -e "s|^([[:space:]]*isSlidingIso:).*|\\1 ${data_sliding}|" \
+    -e "s|^([[:space:]]*isSlidingAndFixed:).*|\\1 false|" \
+    -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${data_fixed}|" \
     -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${uepipe}|" \
     "$master_yaml" > "$SCALED_TRIGGER_YAML"
   pin_photon_id_scalars_in_yaml "$SCALED_TRIGGER_YAML" "${iso_preselection[0]}" "${iso_tight[0]}" "${iso_nonTight[0]}"
 
-  say "scaledTriggerStudy single config:"
+  say "${study_action} single config:"
   say "  cfg_tag       : ${SCALED_TRIGGER_CFG_TAG}"
   say "  output tag    : ${SCALED_TRIGGER_OUTPUT_TAG}"
   say "  YAML override : ${SCALED_TRIGGER_YAML}"
   say "  run list      : ${SCALED_TRIGGER_RUNLIST} ($(grep -cE '^[0-9]+' "$SCALED_TRIGGER_RUNLIST") runs)"
+  say "  pinned knobs  : jet_pt_min=${data_pt}, dphi/pi=${data_frac}, vz=${data_vz} cm, coneR=${data_cone}, sliding=${data_sliding}, UE=${uepipe}"
+  if [[ "$study_action" == "scaledTriggerCentStudy" ]]; then
+    say "  cent edges    : ${SCALED_TRIGGER_CENT_EDGES}"
+  fi
 }
 
 # ------------------------ Parse CLI ------------------------
@@ -4366,11 +4622,11 @@ for (( idx=0; idx<${#tokens[@]}; idx++ )); do
     trainTightBDT|trainNPB|trainJetMLResidual|trainMLAll)
       ACTION="$tok"
       ;;
-    scaledTriggerStudy)
+    scaledTriggerStudy|scaledTriggerCentStudy)
       ACTION="$tok"
       ;;
     local|localTest|condorDoAll|condorDoAllSmoke|condorDoAllDirect|condorDoAllFromScratch|condorHistFromPool|resume|smokeTest|condorExtract|trainFromExtraction|trainCentInput3x3FromExtraction|trainExpandedFromExtraction|trainExpandedFromExtractionCondor|applyCheck|validateOnSim|validateSim|simValidation|validateOnSimCondor|condorValidateOnSim|validateSimCondor|smokeTestFirstPass|smokeTestSecondPass|smokeTestApplyExisting)
-      if [[ "$ACTION" == trainTightBDT || "$ACTION" == trainNPB || "$ACTION" == trainJetMLResidual || "$ACTION" == trainMLAll || "$ACTION" == scaledTriggerStudy ]]; then
+      if [[ "$ACTION" == trainTightBDT || "$ACTION" == trainNPB || "$ACTION" == trainJetMLResidual || "$ACTION" == trainMLAll || "$ACTION" == scaledTriggerStudy || "$ACTION" == scaledTriggerCentStudy ]]; then
         TRAIN_MODE="$tok"
       elif [[ "$ACTION" == "condor" && "$tok" == "smokeTest" ]]; then
         :  # DATA smokeTest is a condor submode consumed positionally below.
@@ -4428,10 +4684,13 @@ if [[ "$ACTION" == trainTightBDT || "$ACTION" == trainNPB || "$ACTION" == trainJ
   [[ "$DATASET" == "isSimEmbeddedAndInclusive" ]] || { err "${ACTION} is valid only as: $0 isSimEmbeddedAndInclusive ${ACTION} <local|condorDoAll>"; exit 2; }
   [[ -n "$TRAIN_MODE" ]] || TRAIN_MODE="local"
 fi
-if [[ "$ACTION" == "scaledTriggerStudy" ]]; then
-  [[ "$DATASET" == "isAuAu" ]] || { err "scaledTriggerStudy is valid only as: $0 isAuAu scaledTriggerStudy <local|condorDoAll>"; exit 2; }
+if [[ "$ACTION" == "scaledTriggerStudy" || "$ACTION" == "scaledTriggerCentStudy" ]]; then
+  [[ "$DATASET" == "isAuAu" ]] || { err "${ACTION} is valid only as: $0 isAuAu ${ACTION} <local|condorDoAll>"; exit 2; }
   [[ -n "$TRAIN_MODE" ]] || TRAIN_MODE="local"
-  [[ "$TRAIN_MODE" == "local" || "$TRAIN_MODE" == "condorDoAll" ]] || { err "scaledTriggerStudy mode must be local or condorDoAll, got '${TRAIN_MODE}'"; exit 2; }
+  [[ "$TRAIN_MODE" == "local" || "$TRAIN_MODE" == "condorDoAll" ]] || { err "${ACTION} mode must be local or condorDoAll, got '${TRAIN_MODE}'"; exit 2; }
+  if [[ "$ACTION" == "scaledTriggerCentStudy" && -z "${RJ_SCALED_TRIGGER_OUTPUT_SUFFIX:-}" ]]; then
+    SCALED_TRIGGER_OUTPUT_SUFFIX="$SCALED_TRIGGER_CENT_OUTPUT_SUFFIX"
+  fi
   if [[ "${GROUP_SIZE_EXPLICIT:-0}" -eq 0 ]]; then
     GROUP_SIZE=20
   fi
@@ -4476,14 +4735,23 @@ case "$ACTION" in
     exit $?
     ;;
 
-  scaledTriggerStudy)
+  scaledTriggerStudy|scaledTriggerCentStudy)
     scaled_trigger_prepare_artifacts
     scaled_trigger_prepare_single_yaml
+    scaled_trigger_cent_flag=0
+    if [[ "$ACTION" == "scaledTriggerCentStudy" ]]; then
+      scaled_trigger_cent_flag=1
+    fi
     export RJ_CONFIG_YAML="$SCALED_TRIGGER_YAML"
     export RJ_SCALED_TRIGGER_RUNLIST="$SCALED_TRIGGER_RUNLIST"
     export RJ_SCALED_TRIGGER_STUDY_ONLY=1
+    export RJ_SCALED_TRIGGER_CENT_STUDY="$scaled_trigger_cent_flag"
+    export RJ_SCALED_TRIGGER_CENT_EDGES="$SCALED_TRIGGER_CENT_EDGES"
     export RJ_REQUEST_MEMORY="${RJ_SCALED_TRIGGER_REQUEST_MEMORY:-1000MB}"
-    export RJ_SUBMIT_EXTRA_ENV="RJ_SCALED_TRIGGER_STUDY_ONLY=1;RJ_SCALED_TRIGGER_RUNLIST=${SCALED_TRIGGER_RUNLIST};RJ_SCALED_TRIGGER_VZ_MAX_CM=${RJ_SCALED_TRIGGER_VZ_MAX_CM:-${SCALED_TRIGGER_VZ_CUT}}"
+    if [[ "$ACTION" == "scaledTriggerCentStudy" && -z "${RJ_SCALED_TRIGGER_REQUEST_MEMORY:-}" ]]; then
+      export RJ_REQUEST_MEMORY="${RJ_SCALED_TRIGGER_CENT_REQUEST_MEMORY:-1500MB}"
+    fi
+    export RJ_SUBMIT_EXTRA_ENV="RJ_SCALED_TRIGGER_STUDY_ONLY=1;RJ_SCALED_TRIGGER_CENT_STUDY=${scaled_trigger_cent_flag};RJ_SCALED_TRIGGER_CENT_EDGES=${SCALED_TRIGGER_CENT_EDGES};RJ_SCALED_TRIGGER_RUNLIST=${SCALED_TRIGGER_RUNLIST};RJ_SCALED_TRIGGER_VZ_MAX_CM=${RJ_SCALED_TRIGGER_VZ_MAX_CM:-${SCALED_TRIGGER_VZ_CUT}}"
 
     DEST_BASE="${AA_DEST_BASE}/${SCALED_TRIGGER_OUTPUT_TAG}"
 
@@ -4503,18 +4771,23 @@ case "$ACTION" in
         (( ${#groups[@]} )) || { err "No input groups produced for run ${r8}"; exit 82; }
         glist="${groups[0]}"
 
-        say "scaledTriggerStudy local smoke test"
+        say "${ACTION} local smoke test"
         say "  run          : ${r8}"
         say "  groupSize    : ${GROUP_SIZE}"
         say "  list chunk   : ${glist}"
         say "  events       : ${nevt}"
         say "  DEST_BASE    : ${DEST_BASE}"
+        if [[ "$ACTION" == "scaledTriggerCentStudy" ]]; then
+          say "  cent edges   : ${SCALED_TRIGGER_CENT_EDGES}"
+        fi
         say "  memory target: local run (condor default would be ${RJ_REQUEST_MEMORY})"
         say "Invoking wrapper locally..."
 
         RJ_DATASET="$DATASET" RJ_VERBOSITY="$RJV" \
         RJ_CONFIG_YAML="$SCALED_TRIGGER_YAML" \
         RJ_SCALED_TRIGGER_STUDY_ONLY=1 \
+        RJ_SCALED_TRIGGER_CENT_STUDY="$scaled_trigger_cent_flag" \
+        RJ_SCALED_TRIGGER_CENT_EDGES="$SCALED_TRIGGER_CENT_EDGES" \
         RJ_SCALED_TRIGGER_RUNLIST="$SCALED_TRIGGER_RUNLIST" \
         RJ_SCALED_TRIGGER_VZ_MAX_CM="${RJ_SCALED_TRIGGER_VZ_MAX_CM:-${SCALED_TRIGGER_VZ_CUT}}" \
         bash "$EXE" "$r8" "$glist" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
@@ -4523,11 +4796,14 @@ case "$ACTION" in
       condorDoAll)
         cleanup_bulk_snapshots_for_tag
         create_pipeline_snapshot "auau" "$(date +%Y%m%d_%H%M%S)"
-        say "scaledTriggerStudy condorDoAll"
+        say "${ACTION} condorDoAll"
         say "  runs         : $(grep -cE '^[0-9]+' "$SCALED_TRIGGER_RUNLIST")"
         say "  groupSize    : ${GROUP_SIZE}"
         say "  request mem  : ${RJ_REQUEST_MEMORY}"
         say "  DEST_BASE    : ${DEST_BASE}"
+        if [[ "$ACTION" == "scaledTriggerCentStudy" ]]; then
+          say "  cent edges   : ${SCALED_TRIGGER_CENT_EDGES}"
+        fi
         submit_condor "$SCALED_TRIGGER_RUNLIST" ""
         ;;
     esac
@@ -5253,6 +5529,7 @@ case "$ACTION" in
     jetpt_env_for_sub="$(jetpt_env_fragment "${sim_pts[@]}")"
     dphi_env_for_sub="$(dphi_env_fragment "${sim_fracs[@]}")"
     iso_view_env_for_sub="$(iso_view_env_fragment)"
+    stitch_env_for_sub="$(embedded_inclusive_stitch_env_fragment)"
 
     SIM_DEST_BASE_RESOLVED="$DEST_BASE"
 
@@ -5287,7 +5564,7 @@ $(condor_worker_failure_hold_block)
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
-environment   = RJ_VERBOSITY=10;RJ_CONFIG_YAML=${yaml_override}${jetpt_env_for_sub}${dphi_env_for_sub}${iso_view_env_for_sub}
+environment   = RJ_VERBOSITY=10;RJ_CONFIG_YAML=${yaml_override}${jetpt_env_for_sub}${dphi_env_for_sub}${iso_view_env_for_sub}${stitch_env_for_sub};RJ_SIM_SAMPLE=${SIM_SAMPLE};RJ_EMBEDDED_INCLUSIVE_JET_SAMPLE=${SIM_SAMPLE};RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES:-0};RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30:-0};RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES:-0};RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40:-0}
 arguments     = ${SIM_SAMPLE} ${tmp} ${DATASET} \$(Cluster) 0 1 NONE ${DEST_BASE}
 queue
 SUB
@@ -5475,6 +5752,7 @@ SUB
     jetpt_env_for_sub="$(jetpt_env_fragment "${sim_pts[@]}")"
     dphi_env_for_sub="$(dphi_env_fragment "${sim_fracs[@]}")"
     iso_view_env_for_sub="$(iso_view_env_fragment)"
+    stitch_env_for_sub="$(embedded_inclusive_stitch_env_fragment)"
     build_iso_modes "$master_yaml"
     read_uepipe_modes "$master_yaml" "$TAG"
 
@@ -5542,6 +5820,7 @@ SUB
       write_cleanup_manifest "${auto_dag_dir}/cleanup_manifest.txt" "$SIM_YAML_OVERRIDE_DIR" "$SIM_DEST_BASE_RESOLVED"
       RJ_DAG_COLLECTED_NODES=()
       export RJ_COLLECT_DAG_FILE="$auto_dag"
+      export RJ_COLLECT_SUB_DIR="${auto_dag_dir}/analysis_submit_files"
       export RJ_COLLECT_NODE_PREFIX="ANALYSIS_${TAG}"
       say "${BOLD}Automatic analysis-to-merge DAG enabled${RST}"
       say "  dag          : ${auto_dag}"
@@ -5646,7 +5925,7 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification  = Never
-environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${yaml_override}${macro_env_for_sub}${fanout_env_for_sub}${jetpt_env_for_sub}${dphi_env_for_sub}${iso_view_env_for_sub};RJ_PROFILE_JOB=${RJ_PROFILE_JOB:-0};RJ_JOB_HEARTBEAT_SECONDS=${RJ_JOB_HEARTBEAT_SECONDS:-0};RJ_PROFILE_STAGE=${RJ_PROFILE_STAGE:-direct};RJ_PROFILE_LABEL=${RJ_PROFILE_LABEL:-${TAG}};RJ_REQUEST_MEMORY_MB=${direct_request_memory_mb}
+environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${yaml_override}${macro_env_for_sub}${fanout_env_for_sub}${jetpt_env_for_sub}${dphi_env_for_sub}${iso_view_env_for_sub}${stitch_env_for_sub};RJ_SIM_SAMPLE=${SIM_SAMPLE};RJ_EMBEDDED_INCLUSIVE_JET_SAMPLE=${SIM_SAMPLE};RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES:-0};RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30:-0};RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES:-0};RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40:-0};RJ_PROFILE_JOB=${RJ_PROFILE_JOB:-0};RJ_JOB_HEARTBEAT_SECONDS=${RJ_JOB_HEARTBEAT_SECONDS:-0};RJ_PROFILE_STAGE=${RJ_PROFILE_STAGE:-direct};RJ_PROFILE_LABEL=${RJ_PROFILE_LABEL:-${TAG}};RJ_REQUEST_MEMORY_MB=${direct_request_memory_mb}
 queue arguments from ${args_file}
 SUB
 
@@ -5679,6 +5958,7 @@ SUB
     done
     if (( auto_workflow )); then
       unset RJ_COLLECT_DAG_FILE
+      unset RJ_COLLECT_SUB_DIR
       unset RJ_COLLECT_NODE_PREFIX
       runner="${auto_dag_dir}/auto_stage_runner.sh"
       final_notify="${auto_dag_dir}/auto_final_notify.sh"
@@ -5692,18 +5972,30 @@ SUB
           ;;
       esac
       sim_merge_group_size="${RJ_SIM_MERGE_GROUP_SIZE:-${sim_merge_group_size_default}}"
-      first_round_args=( env "MERGE_CONFIG_YAML=${master_yaml}" "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED}" "MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base}" "MERGE_CFG_MATCH=${RJ_PHOTON_ID_ROW_MATCH:-}" "RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES:-0}" "RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30:-0}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" "${BASE}/scripts/mergeRecoilJets.sh" "$DATASET" firstRound groupSize "${sim_merge_group_size}" )
+      first_round_args=( env "MERGE_CONFIG_YAML=${master_yaml}" "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED}" "MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base}" "MERGE_CFG_MATCH=${RJ_PHOTON_ID_ROW_MATCH:-}" "RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES:-0}" "RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30:-0}" "RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES:-0}" "RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40:-0}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" )
+      while IFS= read -r stitch_kv; do
+        [[ -n "$stitch_kv" ]] && first_round_args+=( "$stitch_kv" )
+      done < <(embedded_inclusive_stitch_env_args)
+      first_round_args+=( "${BASE}/scripts/mergeRecoilJets.sh" "$DATASET" firstRound groupSize "${sim_merge_group_size}" )
       if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 1 ]]; then
         first_round_args+=( "SAMPLE=${SIM_SAMPLE}" )
       fi
       add_auto_stage_node "$auto_dag" "SIM_FIRSTROUND" "$runner" "sim_firstRound_${TAG}_all" "${first_round_args[@]}"
-      second_round_args=( env "MERGE_CONFIG_YAML=${master_yaml}" "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED}" "MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base}" "MERGE_CFG_MATCH=${RJ_PHOTON_ID_ROW_MATCH:-}" "RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES:-0}" "RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30:-0}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" "${BASE}/scripts/mergeRecoilJets.sh" "$DATASET" secondRound condor )
+      second_round_args=( env "MERGE_CONFIG_YAML=${master_yaml}" "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED}" "MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base}" "MERGE_CFG_MATCH=${RJ_PHOTON_ID_ROW_MATCH:-}" "RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES:-0}" "RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30:-0}" "RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES:-0}" "RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40:-0}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" )
+      while IFS= read -r stitch_kv; do
+        [[ -n "$stitch_kv" ]] && second_round_args+=( "$stitch_kv" )
+      done < <(embedded_inclusive_stitch_env_args)
+      second_round_args+=( "${BASE}/scripts/mergeRecoilJets.sh" "$DATASET" secondRound condor )
       if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 1 ]]; then
         second_round_args+=( "SAMPLE=${SIM_SAMPLE}" )
       fi
       add_auto_stage_node "$auto_dag" "SIM_SECONDROUND" "$runner" "sim_secondRound_${TAG}_all" "${second_round_args[@]}"
       if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
-        final_stitch_args=( env "MERGE_CONFIG_YAML=${master_yaml}" "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED}" "MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base}" "MERGE_CFG_MATCH=${RJ_PHOTON_ID_ROW_MATCH:-}" "RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES:-0}" "RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30:-0}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" "${BASE}/scripts/mergeRecoilJets.sh" "$DATASET" finalStitch condor )
+        final_stitch_args=( env "MERGE_CONFIG_YAML=${master_yaml}" "MERGE_SIM_INPUT_BASE_OVERRIDE=${SIM_DEST_BASE_RESOLVED}" "MERGE_OUT_BASE_OVERRIDE=${sim_merge_out_base}" "MERGE_CFG_MATCH=${RJ_PHOTON_ID_ROW_MATCH:-}" "RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES:-0}" "RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30:-0}" "RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES:-0}" "RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40:-0}" "RJ_STAGE_EMAIL_MODE=none" "RJ_STAGE_EMAIL_STRICT=1" )
+        while IFS= read -r stitch_kv; do
+          [[ -n "$stitch_kv" ]] && final_stitch_args+=( "$stitch_kv" )
+        done < <(embedded_inclusive_stitch_env_args)
+        final_stitch_args+=( "${BASE}/scripts/mergeRecoilJets.sh" "$DATASET" finalStitch condor )
         add_auto_stage_node "$auto_dag" "SIM_FINALSTITCH" "$runner" "sim_finalStitch_${TAG}_all" "${final_stitch_args[@]}"
       fi
       if (( ${#RJ_DAG_COLLECTED_NODES[@]} > 0 )); then
@@ -5716,6 +6008,7 @@ SUB
         printf 'PARENT SIM_SECONDROUND CHILD SIM_FINALSTITCH\n' >> "$auto_dag"
       fi
       add_auto_final_node "$auto_dag" "FINAL_NOTIFY" "$final_notify" "auto_${TAG}_final_ready" "$DATASET" "./scripts/sftp_get_recoiljets_outputs.sh ${DATASET}" "${sim_merge_out_base}/${TAG}"
+      validate_auto_dag_submit_files "$auto_dag"
       say "Automatic workflow DAG built:"
       say "  analysis nodes : ${#RJ_DAG_COLLECTED_NODES[@]}"
       if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
@@ -5840,7 +6133,7 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification  = Never
-environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=10;RJ_CONFIG_YAML=${yaml_snap}${jetpt_env_for_sub}${dphi_env_for_sub}${iso_view_env_for_sub}
+environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=10;RJ_CONFIG_YAML=${yaml_snap}${jetpt_env_for_sub}${dphi_env_for_sub}${iso_view_env_for_sub};RJ_SIM_SAMPLE=${SIM_SAMPLE};RJ_EMBEDDED_INCLUSIVE_JET_SAMPLE=${SIM_SAMPLE};RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES:-0};RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30:-0};RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES:-0};RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40:-0}
 arguments     = ${r8} ${glist} ${DATASET} \$(Cluster) 0 1 NONE ${DEST_BASE}
 queue
 SUB
@@ -6064,6 +6357,7 @@ SUB
           write_cleanup_manifest "${auto_dag_dir}/cleanup_manifest.txt" "$SIM_YAML_OVERRIDE_DIR" "$DATA_DEST_BASE_SAVED"
           RJ_DAG_COLLECTED_NODES=()
           export RJ_COLLECT_DAG_FILE="$auto_dag"
+          export RJ_COLLECT_SUB_DIR="${auto_dag_dir}/analysis_submit_files"
           export RJ_COLLECT_NODE_PREFIX="ANALYSIS_${TAG}"
           say "${BOLD}Automatic analysis-to-merge DAG enabled${RST}"
           say "  dag          : ${auto_dag}"
@@ -6170,6 +6464,7 @@ SUB
         say "${BOLD}CONDOR ALL complete: ${cell_num} upstream configurations submitted (${elapsed_all}s)${RST}"
         if (( auto_workflow )); then
           unset RJ_COLLECT_DAG_FILE
+          unset RJ_COLLECT_SUB_DIR
           unset RJ_COLLECT_NODE_PREFIX
           runner="${auto_dag_dir}/auto_stage_runner.sh"
           final_notify="${auto_dag_dir}/auto_final_notify.sh"
@@ -6202,6 +6497,7 @@ SUB
             printf 'PARENT DATA_SLICERUNS CHILD DATA_FINAL_ADDCHUNKS\n' >> "$auto_dag"
           fi
           add_auto_final_node "$auto_dag" "FINAL_NOTIFY" "$final_notify" "$auto_final_notify_key" "$DATASET" "$auto_final_next_action" "${data_merge_out_base}/${TAG}"
+          validate_auto_dag_submit_files "$auto_dag"
           say "Automatic workflow DAG built:"
           say "  analysis nodes : ${#RJ_DAG_COLLECTED_NODES[@]}"
           say "  merge stages   : ${auto_final_stage_label} (quiet strict validation; stage-boundary and final emails)"

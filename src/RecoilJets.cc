@@ -567,6 +567,17 @@ namespace
     }
   }
 
+  inline double ppg12PhotonSliceXsecPb(const PPG12PhotonSlice slice)
+  {
+    switch (slice)
+    {
+      case PPG12PhotonSlice::kPhoton5:  return 146359.3;
+      case PPG12PhotonSlice::kPhoton10: return 6944.675;
+      case PPG12PhotonSlice::kPhoton20: return 130.4461;
+      default:                          return 0.0;
+    }
+  }
+
   inline PPG12InclusiveJetSlice ppg12InclusiveJetSliceFromText(const std::string& text)
   {
     const std::string s = lowerCopy(text);
@@ -624,6 +635,55 @@ namespace
     }
   }
 
+  inline bool ppg12InclusiveJetSliceWindow(const PPG12InclusiveJetSlice slice,
+                                           double& lo,
+                                           double& hi)
+  {
+    switch (slice)
+    {
+      case PPG12InclusiveJetSlice::kJet5:
+        lo = 7.0; hi = 9.0; return true;
+      case PPG12InclusiveJetSlice::kJet8:
+        lo = 9.0; hi = 14.0; return true;
+      case PPG12InclusiveJetSlice::kJet12:
+        lo = 14.0; hi = 21.0; return true;
+      case PPG12InclusiveJetSlice::kJet20:
+        lo = 21.0; hi = 32.0; return true;
+      case PPG12InclusiveJetSlice::kJet30:
+        lo = 32.0; hi = 42.0; return true;
+      case PPG12InclusiveJetSlice::kJet40:
+        lo = 42.0; hi = 100.0; return true;
+      default:
+        lo = std::numeric_limits<double>::quiet_NaN();
+        hi = std::numeric_limits<double>::quiet_NaN();
+        return false;
+    }
+  }
+
+  inline double ppg12InclusiveJetSliceXsecPb(const PPG12InclusiveJetSlice slice)
+  {
+    switch (slice)
+    {
+      case PPG12InclusiveJetSlice::kJet5:  return 1.3878e8;
+      case PPG12InclusiveJetSlice::kJet8:  return 1.3013e7;
+      case PPG12InclusiveJetSlice::kJet12: return 1.4903e6;
+      case PPG12InclusiveJetSlice::kJet20: return 6.2623e4;
+      case PPG12InclusiveJetSlice::kJet30: return 2.5298e3;
+      case PPG12InclusiveJetSlice::kJet40: return 1.3553e2;
+      default:                             return 0.0;
+    }
+  }
+
+  inline bool ppg12WindowContains(const double value,
+                                  const double lo,
+                                  const double hi)
+  {
+    if (!std::isfinite(value) || !std::isfinite(lo)) return false;
+    if (value < lo) return false;
+    if (std::isinf(hi)) return true;
+    return value <= hi;
+  }
+
   inline double ppg12InclusiveJetClusterEtUpper(const PPG12InclusiveJetSlice slice)
   {
     switch (slice)
@@ -670,7 +730,8 @@ namespace
 
   double ppg12MaxStoredTruthPhotonPt(PHCompositeNode* topNode,
                                      PHG4TruthInfoContainer* truthInfo,
-                                     const bool requireEmbed = true)
+                                     const bool requireEmbed = true,
+                                     const double etaAbsMax = 1.5)
   {
     if (!truthInfo && topNode)
     {
@@ -697,11 +758,11 @@ namespace
       const double pt = std::hypot(px, py);
       const double eta = safeEtaFromMomentum(px, py, pz);
 
-      // Mirror the CaloAna particle array used by PPG12: primary particles,
-      // |eta| < 1.5, E > particlepTmin, pT > particlepTmin, default threshold 1 GeV.
+      // Default mirrors the CaloAna particle array used by the production
+      // stitch gate. Fig. 5 parity histograms pass etaAbsMax=0.7 below.
       if (!std::isfinite(pt) || pt <= 1.0) continue;
       if (!std::isfinite(e) || e <= 1.0) continue;
-      if (!std::isfinite(eta) || std::fabs(eta) > 1.5) continue;
+      if (!std::isfinite(eta) || std::fabs(eta) > etaAbsMax) continue;
 
       if (pt > maxPt) maxPt = pt;
     }
@@ -1695,7 +1756,10 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
       m_clus_nocorr = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC_NOCORR");
     }
 
-    if (preselectionUsesNPB(m_preselectionVariant))
+    const bool wantsNPBScore =
+      preselectionUsesNPB(m_preselectionVariant) ||
+      (m_ppPhotonIDTrainingTreeEnabled && !m_isAuAu);
+    if (wantsNPBScore)
     {
       if (m_preselectionPhotonNode == "PHOTONCLUSTER_CEMC") m_photons_npb = m_photons;
       else m_photons_npb = findNode::getClass<RawClusterContainer>(top, m_preselectionPhotonNode.c_str());
@@ -1739,11 +1803,12 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
           "PhotonClusterBuilder likely did not run or node name mismatch.");
       return false;
     }
-    if (preselectionUsesNPB(m_preselectionVariant) && !m_photons_npb)
+    if (wantsNPBScore && !m_photons_npb)
     {
       LOG(0, CLR_YELLOW,
-          "    [fetchNodes] " << m_preselectionPhotonNode << " is MISSING while preselection="
-          << m_preselectionVariant << ".");
+          "    [fetchNodes] " << m_preselectionPhotonNode
+          << " is MISSING while NPB score is requested for preselection/training-tree audit."
+          << " preselection=" << m_preselectionVariant << ".");
       return false;
     }
     if (m_tightVariant == "newPPG12" && !m_photons_tightbdt)
@@ -2112,6 +2177,7 @@ int RecoilJets::Init(PHCompositeNode* topNode)
   m_ppPhotonIDTrainingTreeEnabled = envFlag("RJ_PP_PHOTONID_TRAINING_TREE", false);
   m_ppPhotonIDExtractOnly = envFlag("RJ_PP_PHOTONID_EXTRACT_ONLY", false);
   m_ppPhotonIDPPG12Filter = envFlag("RJ_PP_PHOTONID_PPG12_FILTER", true);
+  m_ppPhotonIDRequirePreselection = envFlag("RJ_PP_PHOTONID_REQUIRE_PRESELECTION", false);
   m_ppPhotonIDTrainingTreeMaxEntries = envLongLong("RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES", 0);
   m_ppPhotonIDSourceRole = envString("RJ_PP_PHOTONID_SOURCE_ROLE", "auto");
   std::transform(m_ppPhotonIDSourceRole.begin(), m_ppPhotonIDSourceRole.end(),
@@ -2281,7 +2347,8 @@ void RecoilJets::initPPPhotonIDTrainingTree()
   LOG(1, CLR_GREEN, "[PPPhotonIDTrainingTree] enabled"
                     << " maxEntries=" << m_ppPhotonIDTrainingTreeMaxEntries
                     << " sourceRole=" << m_ppPhotonIDSourceRole
-                    << " ppg12Filter=" << (m_ppPhotonIDPPG12Filter ? "true" : "false"));
+                    << " ppg12Filter=" << (m_ppPhotonIDPPG12Filter ? "true" : "false")
+                    << " requirePreselection=" << (m_ppPhotonIDRequirePreselection ? "true" : "false"));
 }
 
 void RecoilJets::fillPPPhotonIDTrainingTree(const SSVars& v,
@@ -3328,6 +3395,68 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         return h;
       };
 
+      auto fillStitchMetadata = [&](const std::string& name,
+                                    const std::string& title,
+                                    const double lo,
+                                    const double hi,
+                                    const double xsecPb,
+                                    const double binWidth,
+                                    const double truthDefCode,
+                                    const double sampleBin) -> void
+      {
+        auto* hMeta = bookStitch1F(name, title, 8, 0.5, 8.5);
+        if (!hMeta) return;
+        hMeta->GetXaxis()->SetBinLabel(1, "events_processed");
+        hMeta->GetXaxis()->SetBinLabel(2, "window_low_GeV");
+        hMeta->GetXaxis()->SetBinLabel(3, "window_high_GeV");
+        hMeta->GetXaxis()->SetBinLabel(4, "upper_edge_inclusive");
+        hMeta->GetXaxis()->SetBinLabel(5, "bin_width_GeV");
+        hMeta->GetXaxis()->SetBinLabel(6, "xsec_pb");
+        hMeta->GetXaxis()->SetBinLabel(7, "truth_def_code");
+        hMeta->GetXaxis()->SetBinLabel(8, "sample_bin");
+        hMeta->Fill(1.0);
+        hMeta->SetBinContent(2, lo);
+        hMeta->SetBinContent(3, hi);
+        hMeta->SetBinContent(4, 1.0);
+        hMeta->SetBinContent(5, binWidth);
+        hMeta->SetBinContent(6, xsecPb);
+        hMeta->SetBinContent(7, truthDefCode);
+        hMeta->SetBinContent(8, sampleBin);
+      };
+
+      auto fillExactPhotonFamily = [&](const std::string& prefix,
+                                       const std::string& axisTitle,
+                                       const double pt,
+                                       const bool havePt,
+                                       const bool passWindow) -> void
+      {
+        auto* hAll = bookStitch1F(prefix + "_maxPhotonPt_all",
+                                  (prefix + "_maxPhotonPt_all;" + axisTitle + " [GeV];Events").c_str(),
+                                  120, 0.0, 60.0);
+        auto* hKept = bookStitch1F(prefix + "_maxPhotonPt_kept",
+                                   (prefix + "_maxPhotonPt_kept;" + axisTitle + " [GeV];Events").c_str(),
+                                   120, 0.0, 60.0);
+        auto* hRejected = bookStitch1F(prefix + "_maxPhotonPt_rejected",
+                                       (prefix + "_maxPhotonPt_rejected;" + axisTitle + " [GeV];Events").c_str(),
+                                       120, 0.0, 60.0);
+        if (hAll)
+        {
+          if (havePt) hAll->Fill(pt);
+          bumpHistFill("SIM", hAll->GetName());
+        }
+
+        if (passWindow && hKept)
+        {
+          hKept->Fill(pt);
+          bumpHistFill("SIM", hKept->GetName());
+        }
+        else if (hRejected)
+        {
+          if (havePt) hRejected->Fill(pt);
+          bumpHistFill("SIM", hRejected->GetName());
+        }
+      };
+
       std::array<bool, 5> diagHaveTruth{};
       std::array<bool, 5> diagPass{};
       std::array<double, 5> diagPt{};
@@ -3406,6 +3535,35 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
       const double maxPhotonPt = diagPt[g4Idx];
       const bool haveTruth = diagHaveTruth[g4Idx];
       const bool passStitch = diagPass[g4Idx];
+      const double fig5PhotonPt = ppg12MaxStoredTruthPhotonPt(topNode, m_truthInfo, true, 0.7);
+      const bool fig5HaveTruth = (fig5PhotonPt >= 0.0);
+      const bool fig5PassStitch = haveWindow && fig5HaveTruth &&
+                                  ppg12WindowContains(fig5PhotonPt, stitchLo, stitchHi);
+      const bool g4StoredPpg12PassStitch = haveWindow && haveTruth &&
+                                           ppg12WindowContains(maxPhotonPt, stitchLo, stitchHi);
+      const double sampleBin = static_cast<double>(ppg12PhotonSliceBin(ppPhotonSlice));
+      const double photonXsecPb = ppg12PhotonSliceXsecPb(ppPhotonSlice);
+
+      fillStitchMetadata("h_ppPhotonStitch_ppg12TruthSpectrum_metadata",
+                         "h_ppPhotonStitch_ppg12TruthSpectrum_metadata;metadata;value",
+                         stitchLo,
+                         std::isinf(stitchHi) ? 200.0 : stitchHi,
+                         photonXsecPb,
+                         0.5,
+                         1.0,
+                         sampleBin);
+
+      fillExactPhotonFamily("h_ppPhotonStitch_ppg12TruthSpectrum_eta07",
+                            "max truth photon p_{T}, |#eta|<0.7",
+                            fig5PhotonPt,
+                            fig5HaveTruth,
+                            fig5PassStitch);
+
+      fillExactPhotonFamily("h_ppPhotonStitch_ppg12TruthSpectrum_g4Stored",
+                            "max stored truth photon p_{T}",
+                            maxPhotonPt,
+                            haveTruth,
+                            g4StoredPpg12PassStitch);
 
       // Backward-compatible histogram names used by the quick plotting macros.
       if (auto* hAll = bookStitch1F("h_ppPhotonStitch_maxPhotonPt_all",
@@ -3452,6 +3610,34 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         hSample->GetXaxis()->SetBinLabel(3, "PhotonJet20");
         hSample->Fill(ppg12PhotonSliceBin(ppPhotonSlice));
         bumpHistFill("SIM", hSample->GetName());
+      }
+
+      // PPG12 IAN Fig. 5 parity diagnostic: leading stored truth photon with
+      // |eta| < 0.7. Keep the legacy name, but use the PPG12
+      // TruthSpectrumCheck.C binning and inclusive upper-edge semantics.
+      if (auto* hAll = bookStitch1F("h_ppPhotonStitch_ppg12Fig5_maxPhotonPt_all",
+                                    "h_ppPhotonStitch_ppg12Fig5_maxPhotonPt_all;max stored truth p_{T}^{#gamma}, |#eta|<0.7 [GeV];Events",
+                                    120, 0.0, 60.0))
+      {
+        if (fig5HaveTruth) hAll->Fill(fig5PhotonPt);
+        bumpHistFill("SIM", hAll->GetName());
+      }
+      if (fig5PassStitch)
+      {
+        if (auto* hKept = bookStitch1F("h_ppPhotonStitch_ppg12Fig5_maxPhotonPt_kept",
+                                       "h_ppPhotonStitch_ppg12Fig5_maxPhotonPt_kept;max stored truth p_{T}^{#gamma}, |#eta|<0.7 [GeV];Events",
+                                       120, 0.0, 60.0))
+        {
+          hKept->Fill(fig5PhotonPt);
+          bumpHistFill("SIM", hKept->GetName());
+        }
+      }
+      else if (auto* hRejected = bookStitch1F("h_ppPhotonStitch_ppg12Fig5_maxPhotonPt_rejected",
+                                              "h_ppPhotonStitch_ppg12Fig5_maxPhotonPt_rejected;max stored truth p_{T}^{#gamma}, |#eta|<0.7 [GeV];Events",
+                                              120, 0.0, 60.0))
+      {
+        if (fig5HaveTruth) hRejected->Fill(fig5PhotonPt);
+        bumpHistFill("SIM", hRejected->GetName());
       }
 
       auto fillCompare2D = [&](PPStitchDiagVariant yVar)
@@ -3674,7 +3860,13 @@ int RecoilJets::End(PHCompositeNode*)
         continue;
       }
 
-      if (h->GetEntries() == 0)
+      const bool keepEmptyStitchParityHist =
+        key.rfind("h_ppPhotonStitch_ppg12TruthSpectrum_", 0) == 0 ||
+        key.rfind("h_ppPhotonStitch_ppg12Fig5_", 0) == 0 ||
+        key.rfind("h_ppInclusiveJetStitch_ppg12TruthSpectrum_", 0) == 0 ||
+        key.rfind("h_ppInclusiveJetStitch_r04_", 0) == 0;
+
+      if (h->GetEntries() == 0 && !keepEmptyStitchParityHist)
       {
         if (Verbosity() > 1)
           warn("Histogram '" + key + "' (trigger " + trig + ") has 0 entries – skipped");
@@ -7238,6 +7430,10 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
 
     if (m_isSim && !m_isAuAu && doCanonical && ppInclusiveJetContext)
     {
+        double stitchLo = std::numeric_limits<double>::quiet_NaN();
+        double stitchHi = std::numeric_limits<double>::quiet_NaN();
+        const bool haveJetWindow = ppg12InclusiveJetSliceWindow(ppInclusiveJetSlice, stitchLo, stitchHi);
+
         double maxTruthJetPt = -1.0;
         for (const auto& kvT : m_truthJetsByRKey)
         {
@@ -7248,6 +7444,21 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 if (!tj) continue;
                 const double ptj = tj->get_pt();
                 if (std::isfinite(ptj) && ptj > maxTruthJetPt) maxTruthJetPt = ptj;
+            }
+        }
+
+        double maxTruthJetPtR04 = -1.0;
+        if (auto itR04 = m_truthJetsByRKey.find("r04"); itR04 != m_truthJetsByRKey.end())
+        {
+            JetContainer* truthJetsR04 = itR04->second;
+            if (truthJetsR04)
+            {
+                for (const Jet* tj : *truthJetsR04)
+                {
+                    if (!tj) continue;
+                    const double ptj = tj->get_pt();
+                    if (std::isfinite(ptj) && ptj > maxTruthJetPtR04) maxTruthJetPtR04 = ptj;
+                }
             }
         }
 
@@ -7280,6 +7491,26 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 bumpHistFill(trigShort, hMax->GetName());
             }
 
+            TH1F* hMaxR04 = nullptr;
+            if (auto it = H.find("h_ppInclusiveJetStitch_r04_maxTruthJetPt_all"); it != H.end())
+            {
+                hMaxR04 = dynamic_cast<TH1F*>(it->second);
+            }
+            if (!hMaxR04)
+            {
+                hMaxR04 = RJMCWeighting::RJNewTH1F("h_ppInclusiveJetStitch_r04_maxTruthJetPt_all",
+                                                   "h_ppInclusiveJetStitch_r04_maxTruthJetPt_all;max R=0.4 truth jet p_{T} [GeV];Events",
+                                                   1000, 0.0, 100.0);
+                hMaxR04->Sumw2();
+                hMaxR04->SetDirectory(dir);
+                H["h_ppInclusiveJetStitch_r04_maxTruthJetPt_all"] = hMaxR04;
+            }
+            if (maxTruthJetPtR04 >= 0.0)
+            {
+                hMaxR04->Fill(maxTruthJetPtR04);
+                bumpHistFill(trigShort, hMaxR04->GetName());
+            }
+
             TH1I* hSample = nullptr;
             if (auto it = H.find("h_ppInclusiveJetStitch_sample"); it != H.end())
             {
@@ -7301,6 +7532,107 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
             }
             hSample->Fill(ppg12InclusiveJetSliceBin(ppInclusiveJetSlice));
             bumpHistFill(trigShort, hSample->GetName());
+
+            if (prevDir) prevDir->cd();
+        }
+
+        for (const auto& trigShort : activeTrig)
+        {
+            HistMap& H = qaHistogramsByTrigger[trigShort];
+            TDirectory* dir = (out ? out->GetDirectory(trigShort.c_str()) : nullptr);
+            if (!dir && out) dir = out->mkdir(trigShort.c_str());
+            if (!dir) continue;
+            TDirectory* prevDir = gDirectory;
+            dir->cd();
+
+            auto bookExact1F = [&](const std::string& name,
+                                   const std::string& title,
+                                   int nbins,
+                                   double xmin,
+                                   double xmax) -> TH1F*
+            {
+                if (auto it = H.find(name); it != H.end())
+                {
+                    return dynamic_cast<TH1F*>(it->second);
+                }
+                TH1F* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
+                h->Sumw2();
+                h->SetDirectory(dir);
+                H[name] = h;
+                return h;
+            };
+
+            auto fillExactJetFamily = [&](const std::string& prefix,
+                                          const std::string& axisTitle,
+                                          const double pt,
+                                          const bool havePt,
+                                          const bool passWindow) -> void
+            {
+                auto* hAll = bookExact1F(prefix + "_all",
+                                         (prefix + "_all;" + axisTitle + " [GeV];Events").c_str(),
+                                         50, 0.0, 50.0);
+                auto* hKept = bookExact1F(prefix + "_kept",
+                                          (prefix + "_kept;" + axisTitle + " [GeV];Events").c_str(),
+                                          50, 0.0, 50.0);
+                auto* hRejected = bookExact1F(prefix + "_rejected",
+                                              (prefix + "_rejected;" + axisTitle + " [GeV];Events").c_str(),
+                                              50, 0.0, 50.0);
+                if (hAll)
+                {
+                    if (havePt) hAll->Fill(pt);
+                    bumpHistFill(trigShort, hAll->GetName());
+                }
+
+                if (passWindow && hKept)
+                {
+                    hKept->Fill(pt);
+                    bumpHistFill(trigShort, hKept->GetName());
+                }
+                else if (hRejected)
+                {
+                    if (havePt) hRejected->Fill(pt);
+                    bumpHistFill(trigShort, hRejected->GetName());
+                }
+            };
+
+            auto* hMeta = bookExact1F("h_ppInclusiveJetStitch_ppg12TruthSpectrum_metadata",
+                                      "h_ppInclusiveJetStitch_ppg12TruthSpectrum_metadata;metadata;value",
+                                      8, 0.5, 8.5);
+            if (hMeta)
+            {
+                hMeta->GetXaxis()->SetBinLabel(1, "events_processed");
+                hMeta->GetXaxis()->SetBinLabel(2, "window_low_GeV");
+                hMeta->GetXaxis()->SetBinLabel(3, "window_high_GeV");
+                hMeta->GetXaxis()->SetBinLabel(4, "upper_edge_inclusive");
+                hMeta->GetXaxis()->SetBinLabel(5, "bin_width_GeV");
+                hMeta->GetXaxis()->SetBinLabel(6, "xsec_pb");
+                hMeta->GetXaxis()->SetBinLabel(7, "truth_def_code");
+                hMeta->GetXaxis()->SetBinLabel(8, "sample_bin");
+                hMeta->Fill(1.0);
+                hMeta->SetBinContent(2, stitchLo);
+                hMeta->SetBinContent(3, stitchHi);
+                hMeta->SetBinContent(4, 1.0);
+                hMeta->SetBinContent(5, 1.0);
+                hMeta->SetBinContent(6, ppg12InclusiveJetSliceXsecPb(ppInclusiveJetSlice));
+                hMeta->SetBinContent(7, 10.0);
+                hMeta->SetBinContent(8, static_cast<double>(ppg12InclusiveJetSliceBin(ppInclusiveJetSlice)));
+            }
+
+            const bool haveR04 = (maxTruthJetPtR04 >= 0.0);
+            const bool passR04 = haveJetWindow && haveR04 && ppg12WindowContains(maxTruthJetPtR04, stitchLo, stitchHi);
+            fillExactJetFamily("h_ppInclusiveJetStitch_ppg12TruthSpectrum_r04_maxTruthJetPt",
+                               "max R=0.4 truth jet p_{T}",
+                               maxTruthJetPtR04,
+                               haveR04,
+                               passR04);
+
+            const bool haveAnyR = (maxTruthJetPt >= 0.0);
+            const bool passAnyR = haveJetWindow && haveAnyR && ppg12WindowContains(maxTruthJetPt, stitchLo, stitchHi);
+            fillExactJetFamily("h_ppInclusiveJetStitch_ppg12TruthSpectrum_anyR_maxTruthJetPt",
+                               "max truth jet p_{T}, any R key",
+                               maxTruthJetPt,
+                               haveAnyR,
+                               passAnyR);
 
             if (prevDir) prevDir->cd();
         }
@@ -7676,6 +8008,10 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     {
                         if (role == "signal") keepTrainingRow = isPPG12Signal;
                         else if (role == "background" || role == "bkg") keepTrainingRow = !isPPG12Signal;
+                    }
+                    if (keepTrainingRow && m_ppPhotonIDRequirePreselection)
+                    {
+                        keepTrainingRow = passesPhotonPreselection(v);
                     }
 
                     if (keepTrainingRow)
@@ -9106,7 +9442,10 @@ void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars&
 
   if (!pho) return;
 
-  if (preselectionUsesNPB(m_preselectionVariant))
+  const bool wantsNPBScore =
+    preselectionUsesNPB(m_preselectionVariant) ||
+    (m_ppPhotonIDTrainingTreeEnabled && !m_isAuAu);
+  if (wantsNPBScore)
   {
     if (m_photons_npb == m_photons)
     {

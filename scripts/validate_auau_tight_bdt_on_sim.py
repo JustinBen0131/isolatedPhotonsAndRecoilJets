@@ -166,6 +166,8 @@ PLOT_LABELS = {
     "baseBDT_v3E_withCentrality_w33_E22E37_E22E53": "Base v3E + centrality + 3x3 widths + E22/E37 + E22/E53",
     "globalEtCent1535_bdt_eisoR30_ptCent3": "Fine E_T x 3 centrality bins + raw R=0.3 isolation ET",
     "globalEtCent1535_bdt_eisoR30_ptCent7": "Fine E_T x 7 centrality bins + raw R=0.3 isolation ET",
+    "globalEtCent1535_bdt_eisoR40_ptCent3": "Fine E_T x 3 centrality bins + raw R=0.4 isolation ET",
+    "globalEtCent1535_bdt_eisoR40_ptCent7": "Fine E_T x 7 centrality bins + raw R=0.4 isolation ET",
     "globalEtCent1535_bdt_eisoR30R40_ptCent3": "Fine E_T x 3 centrality bins + raw R=0.3 and R=0.4 isolation ET",
     "globalEtCent1535_bdt_eisoR30R40_ptCent7": "Fine E_T x 7 centrality bins + raw R=0.3 and R=0.4 isolation ET",
 }
@@ -184,6 +186,8 @@ PLOT_COLORS = {
     "isoBDT_ptFine15to35_cent7_full": "#C2185B",
     "globalEtCent1535_bdt_eisoR30_ptCent3": "#009E73",
     "globalEtCent1535_bdt_eisoR30_ptCent7": "#0072B2",
+    "globalEtCent1535_bdt_eisoR40_ptCent3": "#E69F00",
+    "globalEtCent1535_bdt_eisoR40_ptCent7": "#F97316",
     "globalEtCent1535_bdt_eisoR30R40_ptCent3": "#D55E00",
     "globalEtCent1535_bdt_eisoR30R40_ptCent7": "#CC79A7",
 }

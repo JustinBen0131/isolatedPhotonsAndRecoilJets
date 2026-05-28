@@ -74,6 +74,26 @@ Do not rely on the uploader's `--commit-push` to commit edits to the local-only
 SFTP helpers or to `AGENTS.md`; use normal local git workflow for those files
 if needed.
 
+## Remote Submit Provenance
+
+When a transferred or paste-ready SDCC command will launch
+`RecoilJets_Condor_submit.sh`, `mergeRecoilJets.sh`, or another RecoilJets
+workflow that emits pipeline emails, include Codex provenance in the remote
+environment:
+
+```bash
+RJ_CODEX_CHAT_NAME="<short-workstream-label>"
+RJ_CODEX_THREAD_ID="<codex-thread-id>"
+export RJ_CODEX_CHAT_NAME RJ_CODEX_THREAD_ID
+```
+
+These assignments must be evaluated on SDCC before the DAG/meta files are
+created. Passing only local `CODEX_*` variables on macOS is not enough, because
+nested SSH and Condor scheduler nodes do not inherit them automatically.
+If the thread id is unknown in the current shell, inspect the local environment
+for `CODEX_THREAD_ID` before composing the remote command; otherwise stop and
+record why the metadata could not be attached.
+
 ## Local And Remote Bases
 
 Local repo:
@@ -82,17 +102,10 @@ Local repo:
 /Users/patsfan753/Desktop/ThesisAnalysis
 ```
 
-Remote SDCC repo:
-
-```bash
-/sphenix/u/patsfan753/scratch/thesisAnalysis
-```
-
-SFTP host:
-
-```bash
-patsfan753@sftp.sdcc.bnl.gov
-```
+Remote SDCC repo and SFTP host are local-only access details. Load
+`agent_context/local/SDCC_LOCAL_RULES.md` in Justin's local checkout or ask
+Justin for the current local rule. Do not commit hostnames, usernames, or
+remote checkout paths to GitHub-tracked policy files.
 
 ## SDCC-Side Pipeline Files
 
@@ -124,11 +137,11 @@ be treated as local-only code.
 If compiled source/headers change, tell Justin the correct rebuild directory:
 
 ```bash
-cd /sphenix/u/patsfan753/scratch/thesisAnalysis/src_AuAu
+cd <REMOTE_THESIS_ANALYSIS>/src_AuAu
 make clean
 makeProject
 
-cd /sphenix/u/patsfan753/scratch/thesisAnalysis/src
+cd <REMOTE_THESIS_ANALYSIS>/src
 make clean
 makeProject
 ```

@@ -9,13 +9,26 @@ load the focused policy file named by the routing table below.
 1. Classify the user's request before acting: science reasoning, SDCC
    training/production/merge, local code edit, plot generation, Google Slides,
    Gmail/watchdog, transfer, cleanup/storage, or memory/status update.
-2. Load the matching policy files from `agent_context/policies/`.
-3. Check the hot-state ledgers before making claims about current campaigns:
+2. If Justin says "add a task", "add this to the task list", "put this on my
+   todo/backlog", "track this as a task", or a close variant, treat that as an
+   explicit task-capture command. Load `CODEX_OPERATING_SYSTEM.md` and
+   `MEMORY_AND_STATUS.md`, then update the full task pipeline: repo register
+   first, Linear second, Today's Plan only if it belongs on today's surface.
+3. Load the matching policy files from `agent_context/policies/`.
+4. For meaningful multi-step work, load
+   `agent_context/policies/CODEX_OPERATING_SYSTEM.md` and claim or update the
+   matching entry in `agent_context/CODEX_WORK_REGISTER.yaml` before starting.
+5. If Justin references slides without giving a deck/slide link, use the
+   `WORKING POINT` line at the top of Today's Plan, or the mirrored
+   `daily_cockpit.active_working_point_deck` entry in
+   `CODEX_WORK_REGISTER.yaml`, as the default working-point slides.
+6. Check the hot-state ledgers before making claims about current campaigns:
+   `agent_context/CODEX_WORK_REGISTER.yaml`,
    `agent_context/STATUS_DASHBOARD.md`, `agent_context/TASK_BOARD.md`, and
    when relevant `codex_notes/PROJECT_BOARD.md`,
    `codex_notes/DATASET_STATUS.md`, `codex_notes/KNOWN_ISSUES.md`,
    `codex_notes/RUN_LOG.md`.
-4. Prefer evidence over memory. Valid/stale/done means backed by file
+7. Prefer evidence over memory. Valid/stale/done means backed by file
    timestamps, ROOT inspection, job IDs, Gmail/Condor output, terminal output,
    or a clear user statement.
 
@@ -32,27 +45,28 @@ Load `agent_context/policies/HARD_STOPS_AND_SAFETY.md` before any risky action.
   outputs, transfer large payloads, edit remote SDCC files, or mutate Google
   Slides unless the current user request explicitly authorizes that action or
   the relevant policy permits it.
+- For approved risky mutations, use the OS safety kernel first:
+  `scripts/codex_os_snapshot.py` plus `scripts/codex_os_guard.py`.
 - Never revert user changes unless explicitly requested.
 - Never ask for, read, store, repeat, or type SDCC passwords or other secrets.
 - Never remove, overwrite, or repurpose a Google Slides `Backup` slide.
 
-## SDCC SSH Rule
+## SDCC Local Rules
 
 Load `agent_context/policies/SDCC_OPERATIONS.md` for SDCC work.
 
-Do not rely on `ProxyJump` to `sphnxuserXX` from Codex. Preferred read-only
-diagnostic pattern from the local Mac:
+Detailed SDCC hostnames, usernames, access patterns, and live campaign ledgers
+are local-only Codex memory. If `agent_context/local/SDCC_LOCAL_RULES.md`
+exists, load it before any SDCC/Condor action. Do not commit SDCC access
+details, queue snapshots, job IDs, remote paths, or watchdog status histories
+to GitHub. Submissions, merge reruns, cleanup, file transfers, and remote edits
+still require explicit approval for the specific campaign action.
 
-```bash
-SSH_AUTH_SOCK="$(launchctl getenv SSH_AUTH_SOCK)" \
-ssh patsfan753@ssh.sdcc.bnl.gov \
-  "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null sphnxuser05.sdcc.bnl.gov 'cd /sphenix/u/patsfan753/scratch/thesisAnalysis && <command>'"
-```
-
-Use nested SSH for compact read-only diagnostics. For sustained SDCC work, open
-one persistent SSH session instead of many tiny logins. Submissions, merge
-reruns, cleanup, file transfers, and remote edits require explicit approval for
-the specific campaign action.
+For Codex-launched RecoilJets/Condor workflows, the remote submit command must
+set `RJ_CODEX_CHAT_NAME` and `RJ_CODEX_THREAD_ID` before DAG/meta files are
+created. Do not rely on local `CODEX_*` variables surviving nested SSH or
+Condor scheduler nodes; missing `codex_chat_name`/`codex_thread_id` in pipeline
+emails is a provenance defect to fix before the next Codex-launched rerun.
 
 ## Routing Table
 
@@ -64,6 +78,7 @@ The machine-readable index is `agent_context/policies/LOAD_MAP.yaml`.
 | SDCC status, held jobs, queue, watchdog, heartbeat | `EMAIL_AND_WATCHDOGS.md`, `SDCC_OPERATIONS.md`, `MEMORY_AND_STATUS.md` |
 | plot generation or plot QA | `PLOTTING.md`, `SCIENCE_REFERENCE_HIERARCHY.md`, `INPUTS_AND_ENVIRONMENT.md` |
 | Google Slides or deck edits | `SLIDES_WORKFLOW.md`, `PLOTTING.md` if plots are involved |
+| slide reference without explicit deck link, current working slides, working point slides | `SLIDES_WORKFLOW.md`, `CODEX_OPERATING_SYSTEM.md` |
 | photon ID, BDT, ABCD, purity, xJ, unfolding, stitching | `SCIENCE_REFERENCE_HIERARCHY.md`, `DUPLICATE_RUN_GUARD.md` if a run/output is involved |
 | SFTP push/get, SDCC pipeline file upload, mapped-file changes | `TRANSFER_AND_PIPELINE_FILES.md`, `SDCC_OPERATIONS.md` |
 | cleanup, quotas, stale outputs, failed payloads | `STORAGE_AND_CLEANUP.md`, `MEMORY_AND_STATUS.md` |
@@ -71,6 +86,11 @@ The machine-readable index is `agent_context/policies/LOAD_MAP.yaml`.
 | missing tool, dependency, plugin, runtime, browser/Drive/Gmail workflow | `TOOLS_AND_DEPENDENCIES.md` |
 | explicit delegation, subagent, Claude, handoff, parallel lanes | `COLLABORATION_AND_HANDOFFS.md` |
 | current stale-output bug or dataset validity | `CURRENT_PROJECT_STATE.md`, `MEMORY_AND_STATUS.md` |
+| Codex work registration, Linear sync, Today's Plan, multi-chat state, active jobs | `CODEX_OPERATING_SYSTEM.md`, `MEMORY_AND_STATUS.md` |
+| agentic OS hardening, self-tuning, symbiotic workflow, thesis control plane, doctor checks | `AGENTIC_OS_HARDENING.md`, `CODEX_OPERATING_SYSTEM.md`, `MEMORY_AND_STATUS.md` |
+| agentic dreaming, synthetic rehearsal, night simulation, dream automation | `AGENTIC_OS_DREAMING.md`, `AGENTIC_OS_HARDENING.md`, `CODEX_OPERATING_SYSTEM.md` |
+| ask ChatGPT, use ChatGPT UI, delegated external research, deep research for OS design | `ASK_CHATGPT_DELEGATION.md`, `TOOLS_AND_DEPENDENCIES.md`, `COLLABORATION_AND_HANDOFFS.md` |
+| "add a task", add to todo/backlog, task capture, task list update | `CODEX_OPERATING_SYSTEM.md`, `MEMORY_AND_STATUS.md` |
 
 ## Science North Star
 
@@ -89,14 +109,22 @@ Load `SCIENCE_REFERENCE_HIERARCHY.md` for details.
 Load `MEMORY_AND_STATUS.md` before recording state.
 
 - `TASK_BOARD.md`: milestones, blockers, next actions.
+- `CODEX_WORK_REGISTER.yaml`: canonical active work, Codex ownership, Linear
+  sync state, Today's Plan anchors, active jobs, and stale-check timing.
 - `STATUS_DASHBOARD.md`: evidence-backed live campaign/output status.
 - `REFERENCE_MAP.md`: compact science/reference decisions.
 - `SLIDE_STYLE_MAP.md`: durable deck style examples.
 - `codex_notes/`: older local project-state ledgers that still matter for
   dataset validity and bug tracking.
 - Record only decisions and evidence, not every thought.
-- When Justin says "track", "add", "remember", "record", update the relevant
-  memory file. When he casually mentions a task, ask before adding it.
+- For meaningful multi-step work, update `CODEX_WORK_REGISTER.yaml` first; use
+  Google Docs and Linear as projections of that register.
+- When Justin says "add a task", "add this to the task list", "put this on my
+  todo/backlog", "track this as a task", or a close variant, do not leave it as
+  a chat note. Add or update the cohesive task pipeline: register, Linear,
+  Today's Plan if relevant, and memory/status notes when durable. When he
+  casually mentions a possible task without task-capture wording, ask before
+  adding it.
 
 ## Editing And Change Control
 
@@ -105,6 +133,8 @@ Load `MEMORY_AND_STATUS.md` before recording state.
   wait for approval.
 - Use `apply_patch` for manual edits. Do not use destructive git commands.
 - You may be in a dirty worktree. Preserve unrelated user changes.
+- When drafting messages for Justin to send, keep the style close to his
+  wording and avoid formal colon-heavy constructions such as `Topic: detail`.
 - For ROOT work, use:
 
 ```bash

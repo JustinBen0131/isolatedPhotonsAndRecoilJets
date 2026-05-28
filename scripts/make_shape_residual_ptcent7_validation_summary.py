@@ -11,19 +11,29 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
+import math
+
 import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
 
 
 BASE_PRODUCT = "globalEtCent1535_bdt_noIso_ptCent7"
 
 PRODUCT_LABELS = {
-    BASE_PRODUCT: "Reference 8 p_{T} x 7 centrality BDT",
+    BASE_PRODUCT: r"Reference 8 $p_{T}$ x 7 centrality BDT",
     "globalEtCent1535_bdt_noIso_ptCent7_shapeResiduals": "Full feature list + residual ratios",
     "globalEtCent1535_bdt_noIso_ptCent7_shapeTemplateDiag": "Full feature list + template distance",
     "globalEtCent1535_bdt_noIso_ptCent7_shapeTemplateAll": "Full feature list + residuals + template distance",
     "baseV3E_w33_cent_ptCent7_shapeTemplateDiag": "Compact base v3E+w33 + template distance",
     "baseV3E_w33_cent_ptCent7_shapeTemplateAll": "Compact base v3E+w33 + residuals + template distance",
+}
+
+PLOT_LABELS = {
+    BASE_PRODUCT: "Reference\n8 $p_{T}$ x 7 centrality",
+    "globalEtCent1535_bdt_noIso_ptCent7_shapeResiduals": "+ residual ratios\nfull feature list",
+    "globalEtCent1535_bdt_noIso_ptCent7_shapeTemplateDiag": "+ template distance\nfull feature list",
+    "globalEtCent1535_bdt_noIso_ptCent7_shapeTemplateAll": "+ residuals\n+ template distance\nfull feature list",
+    "baseV3E_w33_cent_ptCent7_shapeTemplateDiag": "compact base v3E+w33\n+ template distance",
+    "baseV3E_w33_cent_ptCent7_shapeTemplateAll": "compact base v3E+w33\n+ residuals\n+ template distance",
 }
 
 PRODUCT_FAMILY = {
@@ -39,6 +49,15 @@ FAMILY_COLORS = {
     "reference": "#6B7280",
     "full-list variants": "#0072B2",
     "compact variants": "#009E73",
+}
+
+PRODUCT_COLORS = {
+    BASE_PRODUCT: ("#6B7280", "#4B5563", "#F9FAFB"),
+    "globalEtCent1535_bdt_noIso_ptCent7_shapeTemplateAll": ("#16A34A", "#047857", "#F0FDF4"),
+    "globalEtCent1535_bdt_noIso_ptCent7_shapeTemplateDiag": ("#2563EB", "#1D4ED8", "#EFF6FF"),
+    "globalEtCent1535_bdt_noIso_ptCent7_shapeResiduals": ("#F97316", "#C2410C", "#FFF7ED"),
+    "baseV3E_w33_cent_ptCent7_shapeTemplateAll": ("#14B8A6", "#0F766E", "#F0FDFA"),
+    "baseV3E_w33_cent_ptCent7_shapeTemplateDiag": ("#64748B", "#475569", "#F8FAFC"),
 }
 
 
@@ -123,6 +142,13 @@ def write_csv(rows: list[dict], path: Path) -> None:
             writer.writerow({key: row.get(key, "") for key in fieldnames})
 
 
+def order_for_slide22(rows: list[dict]) -> list[dict]:
+    ref = [row for row in rows if row["product"] == BASE_PRODUCT]
+    variants = [row for row in rows if row["product"] != BASE_PRODUCT]
+    variants.sort(key=lambda row: row["auc_0_20"], reverse=True)
+    return ref + variants
+
+
 def draw(rows: list[dict], out: Path) -> None:
     plt.rcParams.update(
         {
@@ -134,75 +160,134 @@ def draw(rows: list[dict], out: Path) -> None:
             "ytick.right": True,
         }
     )
-    fig, ax = plt.subplots(figsize=(15.6, 8.75), dpi=220)
+    rows = order_for_slide22(rows)
+    fig, ax = plt.subplots(figsize=(15.8, 8.9), dpi=220)
     fig.patch.set_facecolor("white")
 
     y = list(range(len(rows)))
     values = [row["auc_0_20"] for row in rows]
-    colors = [FAMILY_COLORS.get(row["family"], "#BDBDBD") for row in rows]
-    labels = [
-        f"{row['label']}\n{row['model_count']} BDTs, {row['feature_count']} inputs"
-        for row in rows
-    ]
-    ax.barh(y, values, color=colors, height=0.64)
-    ax.set_yticks(y)
-    ax.set_yticklabels(labels, fontsize=12.6)
-    ax.invert_yaxis()
-    ax.set_xlim(0.76, 0.89)
-    ax.set_xlabel("Validation AUC in 0-20% centrality", fontsize=16.5)
-    ax.tick_params(axis="x", labelsize=13.8)
-    ax.grid(axis="x", color="#D1D5DB", linewidth=1.0, alpha=0.8)
-    ax.set_axisbelow(True)
+    finite_values = [value for value in values if math.isfinite(value)]
+    ref_auc = next((row["auc_0_20"] for row in rows if row["product"] == BASE_PRODUCT), finite_values[0])
+    xmin = max(0.0, ref_auc - 0.0032)
+    xmax = min(1.0, max(finite_values) + 0.0048)
 
-    for yy, val, row in zip(y, values, rows):
-        ax.text(
-            val + 0.002,
+    for yy, row in zip(y, rows):
+        color, edge, fill = PRODUCT_COLORS.get(row["product"], ("#94A3B8", "#64748B", "#F8FAFC"))
+        if row["product"] != BASE_PRODUCT:
+            ax.axhspan(yy - 0.43, yy + 0.43, color=fill, alpha=0.78, zorder=0)
+            ax.hlines(yy, ref_auc, row["auc_0_20"], color=color, linewidth=11, alpha=0.33, zorder=2)
+        ax.scatter(
+            row["auc_0_20"],
             yy,
-            f"0-20% {val:.3f}   incl. {row['auc_inclusive']:.3f}",
-            va="center",
-            ha="left",
-            fontsize=13.3,
-            fontweight="bold" if yy == 0 else "normal",
+            s=300 if row["product"] != BASE_PRODUCT else 240,
+            color=color,
+            edgecolor=edge,
+            linewidth=2.2,
+            zorder=4,
         )
 
-    handles = [
-        Line2D([0], [0], color=FAMILY_COLORS[name], lw=9, label=name)
-        for name in ("reference", "full-list variants", "compact variants")
-    ]
-    ax.legend(
-        handles=handles,
-        loc="lower right",
-        frameon=True,
-        facecolor="white",
-        edgecolor="#E5E7EB",
-        fontsize=12.5,
-        title="Model family",
-        title_fontsize=13.2,
-    )
+    labels = [PLOT_LABELS.get(row["product"], row["label"]) for row in rows]
+    ax.set_yticks(y)
+    ax.set_yticklabels(labels, fontsize=15.5)
+    ax.invert_yaxis()
+    ax.set_xlim(xmin, xmax)
+    ax.set_ylim(len(rows) - 0.35, -0.65)
+    ax.set_xlabel("0-20% centrality validation AUC", fontsize=20.5)
+    ax.tick_params(axis="x", labelsize=15.8, pad=7)
+    ax.tick_params(axis="y", length=0, pad=18)
+    ax.grid(axis="x", color="#D1D5DB", linewidth=1.0, alpha=0.8)
+    ax.set_axisbelow(True)
+    ax.axvline(ref_auc, color="#4B5563", linewidth=2.0, linestyle=(0, (4, 6)), alpha=0.95, zorder=1)
+    for spine in ("top", "right", "left"):
+        ax.spines[spine].set_visible(False)
+    ax.spines["bottom"].set_linewidth(1.5)
 
-    fig.text(0.052, 0.962, "Shape-residual routed BDT validation", ha="left", va="top", fontsize=24, fontweight="bold")
+    for yy, val, row in zip(y, values, rows):
+        delta = val - ref_auc
+        pct = 100.0 * delta / ref_auc if ref_auc else 0.0
+        color, edge, _ = PRODUCT_COLORS.get(row["product"], ("#94A3B8", "#64748B", "#F8FAFC"))
+        badge_x = ref_auc - 0.00075
+        ax.text(
+            badge_x,
+            yy,
+            f"{row['model_count']} BDTs\n{row['feature_count']} inputs",
+            ha="right",
+            va="center",
+            fontsize=11.9,
+            color="#4B5563",
+            bbox={
+                "boxstyle": "round,pad=0.25",
+                "facecolor": "white",
+                "edgecolor": "#CBD5E1",
+                "linewidth": 1.0,
+                "alpha": 0.97,
+            },
+            zorder=5,
+        )
+        text_x = min(val + 0.00055, xmax - 0.0013)
+        ax.text(
+            text_x,
+            yy - 0.10,
+            f"AUC {val:.4f}",
+            va="center",
+            ha="left",
+            fontsize=18.0,
+            color="#111827",
+            fontweight="bold",
+            zorder=5,
+        )
+        gain_text = "reference" if row["product"] == BASE_PRODUCT else f"{pct:+.2f}% gain in AUC"
+        ax.text(
+            text_x,
+            yy + 0.22,
+            gain_text,
+            va="center",
+            ha="left",
+            fontsize=14.4,
+            color="#4B5563" if row["product"] == BASE_PRODUCT else color,
+            zorder=5,
+        )
+
     fig.text(
-        0.052,
-        0.919,
-        r"Photon12+20 & Jet12+20+30, 15 < $p_{T}$ < 35 GeV; 8 $p_{T}$ x 7 centrality routing",
+        0.255,
+        0.955,
+        "AUC gain from shape-residual inputs (0-20%)",
         ha="left",
         va="top",
-        fontsize=15.0,
-        color="#374151",
+        fontsize=24.0,
+        fontweight="bold",
     )
     fig.text(
-        0.052,
-        0.885,
-        "All variants avoid isolation inputs; ranked by central 0-20% AUC because that is the hardest AuAu region",
+        0.255,
+        0.902,
+        r"Photon12+20 signal & Jet12+20+30 inclusive background; 15 < $p_{T}$ < 35 GeV",
         ha="left",
         va="top",
-        fontsize=13.4,
-        color="#111827",
+        fontsize=15.3,
+        color="#4B5563",
     )
-    fig.text(0.835, 0.958, "sPHENIX", ha="left", va="top", fontsize=19, fontstyle="italic", fontweight="bold")
-    fig.text(0.918, 0.958, " Internal", ha="left", va="top", fontsize=19)
+    fig.text(
+        0.255,
+        0.870,
+        r"All rows use 8 $p_{T}$ x 7 centrality routing; gains are relative to the current 56-BDT reference",
+        ha="left",
+        va="top",
+        fontsize=13.9,
+        color="#4B5563",
+    )
+    fig.text(0.817, 0.918, "sPHENIX", ha="left", va="top", fontsize=20.0, fontstyle="italic", fontweight="bold")
+    fig.text(0.903, 0.918, " Internal", ha="left", va="top", fontsize=20.0)
+    fig.text(
+        0.255,
+        0.055,
+        "0-20% centrality is the ranking metric. Template-distance inputs drive the visible gain; residual ratios alone are nearly neutral.",
+        ha="left",
+        va="bottom",
+        fontsize=11.8,
+        color="#6B7280",
+    )
 
-    fig.tight_layout(rect=[0.045, 0.055, 0.985, 0.825])
+    fig.tight_layout(rect=[0.065, 0.115, 0.975, 0.795])
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out)
     plt.close(fig)
@@ -220,8 +305,9 @@ def main() -> int:
     rows = collect_rows(args.baseline_metrics, args.shape_metrics, args.shape_registry)
     csv_path = args.outdir / f"{args.tag}.csv"
     png_path = args.outdir / f"{args.tag}.png"
-    write_csv(rows, csv_path)
-    draw(rows, png_path)
+    plot_rows = order_for_slide22(rows)
+    write_csv(plot_rows, csv_path)
+    draw(plot_rows, png_path)
     print(png_path)
     print(csv_path)
     return 0

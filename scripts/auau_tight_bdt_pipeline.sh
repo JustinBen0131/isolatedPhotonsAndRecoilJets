@@ -17,10 +17,16 @@ NOTIFY_EMAILS="${RJ_NOTIFY_EMAILS:-just0131@gmail.com}"
 SIGNAL_SAMPLES=(run28_embeddedPhoton12 run28_embeddedPhoton20)
 BACKGROUND_SAMPLES=(run28_embeddedJet12 run28_embeddedJet20)
 if [[ -n "${RJ_AUAU_TIGHT_BDT_SIGNAL_SAMPLES+x}" ]]; then
-  read -r -a SIGNAL_SAMPLES <<< "${RJ_AUAU_TIGHT_BDT_SIGNAL_SAMPLES}"
+  SIGNAL_SAMPLES=()
+  if [[ -n "${RJ_AUAU_TIGHT_BDT_SIGNAL_SAMPLES//[[:space:]]/}" ]]; then
+    read -r -a SIGNAL_SAMPLES <<< "${RJ_AUAU_TIGHT_BDT_SIGNAL_SAMPLES}"
+  fi
 fi
 if [[ -n "${RJ_AUAU_TIGHT_BDT_BACKGROUND_SAMPLES+x}" ]]; then
-  read -r -a BACKGROUND_SAMPLES <<< "${RJ_AUAU_TIGHT_BDT_BACKGROUND_SAMPLES}"
+  BACKGROUND_SAMPLES=()
+  if [[ -n "${RJ_AUAU_TIGHT_BDT_BACKGROUND_SAMPLES//[[:space:]]/}" ]]; then
+    read -r -a BACKGROUND_SAMPLES <<< "${RJ_AUAU_TIGHT_BDT_BACKGROUND_SAMPLES}"
+  fi
 fi
 ALL_SAMPLES=("${SIGNAL_SAMPLES[@]}" "${BACKGROUND_SAMPLES[@]}")
 
@@ -176,7 +182,7 @@ wrapper_path() {
 sample_dataset() {
   case "$1" in
     run28_embeddedPhoton12|run28_embeddedPhoton20) printf '%s\n' "isSimEmbedded" ;;
-    run28_embeddedJet12|run28_embeddedJet20|run28_embeddedJet30) printf '%s\n' "isSimEmbeddedInclusive" ;;
+    run28_embeddedJet12|run28_embeddedJet20|run28_embeddedJet30|run28_embeddedJet40) printf '%s\n' "isSimEmbeddedInclusive" ;;
     *) die "Unknown AuAu BDT training sample: $1" ;;
   esac
 }
@@ -184,7 +190,7 @@ sample_dataset() {
 sample_class() {
   case "$1" in
     run28_embeddedPhoton12|run28_embeddedPhoton20) printf '%s\n' "signal" ;;
-    run28_embeddedJet12|run28_embeddedJet20|run28_embeddedJet30) printf '%s\n' "background" ;;
+    run28_embeddedJet12|run28_embeddedJet20|run28_embeddedJet30|run28_embeddedJet40) printf '%s\n' "background" ;;
     *) die "Unknown AuAu BDT training sample: $1" ;;
   esac
 }
@@ -475,6 +481,7 @@ run_condor_extract() {
     local master="${manifest_dir}/${sample}_5col.list"
     build_sample_master "$sample" "$master"
     local split_prefix="${sub_root}/${sample}_grp_"
+    rm -f "${split_prefix}"*
     split -l "$group_size" -d -a 5 "$master" "$split_prefix"
     local queued=0
     for raw in "${split_prefix}"*; do
@@ -1123,6 +1130,20 @@ train_expanded_from_extraction() {
   local cache_file="${RJ_AUAU_BDT_CACHE_FILE:-${model_dir}/training_matrix.npz}"
   local spec_ids="${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS:-}"
   local campaign="${RJ_AUAU_BDT_CAMPAIGN:-expanded-tight}"
+  local weight_mode="${RJ_AUAU_BDT_WEIGHT_MODE:-legacy}"
+  local etcent_pt_bins="${RJ_AUAU_BDT_ETCENT_PT_BINS:-15,17,19,21,23,25,27,30,35}"
+  local etcent_coarse_cent_bins="${RJ_AUAU_BDT_ETCENT_COARSE_CENT_BINS:-0:20,20:50,50:80}"
+  local etcent_fine_cent_bins="${RJ_AUAU_BDT_ETCENT_FINE_CENT_BINS:-0:10,10:20,20:30,30:40,40:50,50:60,60:80}"
+  local etfine_pt_bins="${RJ_AUAU_BDT_ETFINE_PT_BINS:-15,17,19,21,23,25,27,30,35}"
+  local etfine_coarse_cent_bins="${RJ_AUAU_BDT_ETFINE_COARSE_CENT_BINS:-0:20,20:50,50:80}"
+  local etfine_fine_cent_bins="${RJ_AUAU_BDT_ETFINE_FINE_CENT_BINS:-0:10,10:20,20:30,30:40,40:50,50:60,60:80}"
+  local ppg12_expected_samples="${RJ_AUAU_BDT_PPG12_EXACT_EXPECTED_SAMPLES:-run28_embeddedPhoton12,run28_embeddedPhoton20,run28_embeddedJet12,run28_embeddedJet20,run28_embeddedJet30}"
+  local ppg12_closure_dir="${RJ_AUAU_BDT_PPG12_EXACT_CLOSURE_DIR:-${model_dir}/slideReady/ppg12_exact_reweight_bdt}"
+  local bdt_test_size="${RJ_AUAU_BDT_TEST_SIZE:-0.10}"
+  local bdt_split_mode="${RJ_AUAU_BDT_SPLIT_MODE:-row}"
+  local raw_eiso_pt_bins="${RJ_AUAU_BDT_EISO_CONE_PT_BINS:-15,17,19,21,23,25,27,30,35}"
+  local raw_eiso_coarse_cent_bins="${RJ_AUAU_BDT_EISO_CONE_COARSE_CENT_BINS:-0:20,20:50,50:80}"
+  local raw_eiso_fine_cent_bins="${RJ_AUAU_BDT_EISO_CONE_FINE_CENT_BINS:-0:10,10:20,20:30,30:40,40:50,50:60,60:80}"
   guard_generated_path "expanded training model dir" "$model_dir"
   log_path_plan "trainExpandedFromExtraction" \
     "source    : ${source}" \
@@ -1130,6 +1151,7 @@ train_expanded_from_extraction() {
     "manifest  : ${manifest}" \
     "cache     : ${cache_file}" \
     "campaign  : ${campaign}" \
+    "weight    : ${weight_mode}" \
     "spec ids  : ${spec_ids:-<all>}" \
     "report    : ${report_dir}" \
     "plan only : ${plan_only}"
@@ -1143,11 +1165,42 @@ train_expanded_from_extraction() {
     --outdir "$model_dir"
     --cache-file "${cache_file}"
     --registry-output "${model_dir}/model_registry.json"
+    --weight-mode "${weight_mode}"
+    --test-size "${bdt_test_size}"
+    --split-mode "${bdt_split_mode}"
     --parallel-workers "${RJ_AUAU_BDT_TRAIN_PARALLEL:-4}"
     --n-jobs "${RJ_AUAU_BDT_XGB_N_JOBS:-1}"
     --majority-cap-ratio "${RJ_AUAU_BDT_MAJORITY_CAP_RATIO:-4.0}"
     --minopt-majority-cap-ratio "${RJ_AUAU_BDT_MINOPT_MAJORITY_CAP_RATIO:-2.0}"
   )
+  if [[ "$weight_mode" == "ppg12-exact" ]]; then
+    args+=(
+      --no-event-weight
+      --ppg12-exact-expected-samples "$ppg12_expected_samples"
+      --ppg12-exact-closure-dir "$ppg12_closure_dir"
+    )
+  fi
+  if [[ "$campaign" == "etcent-binned-sixpack" || "$campaign" == "etcent-binned-sixpack-noiso-ptcent7" || "$campaign" == "global-and-etcent-binned-sixpack-noiso" ]]; then
+    args+=(
+      --pt-bins "$etcent_pt_bins"
+      --coarse-cent-bins "$etcent_coarse_cent_bins"
+      --fine-cent-bins "$etcent_fine_cent_bins"
+    )
+  fi
+  if [[ "$campaign" == "etfine-centstudy" ]]; then
+    args+=(
+      --pt-bins "$etfine_pt_bins"
+      --coarse-cent-bins "$etfine_coarse_cent_bins"
+      --fine-cent-bins "$etfine_fine_cent_bins"
+    )
+  fi
+  if [[ "$campaign" == "etcent-binned-eiso-cone-ablation" ]]; then
+    args+=(
+      --pt-bins "$raw_eiso_pt_bins"
+      --coarse-cent-bins "$raw_eiso_coarse_cent_bins"
+      --fine-cent-bins "$raw_eiso_fine_cent_bins"
+    )
+  fi
   if [[ -n "$spec_ids" ]]; then
     args+=( --campaign-spec-ids "$spec_ids" )
   fi
@@ -1210,6 +1263,27 @@ train_expanded_from_extraction_condor() {
   local cache_file="${RJ_AUAU_BDT_CACHE_FILE:-${model_dir}/training_matrix.npz}"
   local spec_ids="${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS:-}"
   local campaign="${RJ_AUAU_BDT_CAMPAIGN:-expanded-tight}"
+  local weight_mode="${RJ_AUAU_BDT_WEIGHT_MODE:-legacy}"
+  local etcent_pt_bins="${RJ_AUAU_BDT_ETCENT_PT_BINS:-15,17,19,21,23,25,27,30,35}"
+  local etcent_coarse_cent_bins="${RJ_AUAU_BDT_ETCENT_COARSE_CENT_BINS:-0:20,20:50,50:80}"
+  local etcent_fine_cent_bins="${RJ_AUAU_BDT_ETCENT_FINE_CENT_BINS:-0:10,10:20,20:30,30:40,40:50,50:60,60:80}"
+  local etfine_pt_bins="${RJ_AUAU_BDT_ETFINE_PT_BINS:-15,17,19,21,23,25,27,30,35}"
+  local etfine_coarse_cent_bins="${RJ_AUAU_BDT_ETFINE_COARSE_CENT_BINS:-0:20,20:50,50:80}"
+  local etfine_fine_cent_bins="${RJ_AUAU_BDT_ETFINE_FINE_CENT_BINS:-0:10,10:20,20:30,30:40,40:50,50:60,60:80}"
+  local ppg12_expected_samples="${RJ_AUAU_BDT_PPG12_EXACT_EXPECTED_SAMPLES:-run28_embeddedPhoton12,run28_embeddedPhoton20,run28_embeddedJet12,run28_embeddedJet20,run28_embeddedJet30}"
+  local ppg12_closure_dir="${RJ_AUAU_BDT_PPG12_EXACT_CLOSURE_DIR:-${model_dir}/slideReady/ppg12_exact_reweight_bdt}"
+  local bdt_test_size="${RJ_AUAU_BDT_TEST_SIZE:-0.10}"
+  local bdt_split_mode="${RJ_AUAU_BDT_SPLIT_MODE:-row}"
+  local raw_eiso_pt_bins="${RJ_AUAU_BDT_EISO_CONE_PT_BINS:-15,17,19,21,23,25,27,30,35}"
+  local raw_eiso_coarse_cent_bins="${RJ_AUAU_BDT_EISO_CONE_COARSE_CENT_BINS:-0:20,20:50,50:80}"
+  local raw_eiso_fine_cent_bins="${RJ_AUAU_BDT_EISO_CONE_FINE_CENT_BINS:-0:10,10:20,20:30,30:40,40:50,50:60,60:80}"
+  if [[ ( "$campaign" == "etcent-binned-eiso-cone-ablation" || "$weight_mode" == "ppg12-exact" ) && -z "${RJ_AUAU_BDT_EXPANDED_REQUEST_MEMORY:-}" ]]; then
+    reqmem="16000MB"
+  fi
+  local cache_reqmem="${RJ_AUAU_BDT_CACHE_REQUEST_MEMORY:-8000MB}"
+  if [[ ( "$campaign" == "etcent-binned-eiso-cone-ablation" || "$weight_mode" == "ppg12-exact" ) && -z "${RJ_AUAU_BDT_CACHE_REQUEST_MEMORY:-}" ]]; then
+    cache_reqmem="16000MB"
+  fi
   guard_generated_path "expanded training model dir" "$model_dir"
   guard_generated_path "expanded training submit root" "$sub_root"
   log_path_plan "trainExpandedFromExtractionCondor" \
@@ -1220,9 +1294,13 @@ train_expanded_from_extraction_condor() {
     "registries: ${registry_dir}" \
     "cache     : ${cache_file}" \
     "campaign  : ${campaign}" \
+    "weight    : ${weight_mode}" \
+    "test size : ${bdt_test_size}" \
+    "split mode: ${bdt_split_mode}" \
     "spec ids  : ${spec_ids:-<all>}" \
     "groupSize : ${group_size}" \
-    "requestMem: ${reqmem}"
+    "requestMem: ${reqmem}" \
+    "cacheMem : ${cache_reqmem}"
   mkdir -p "$model_dir" "$sub_root" "$shard_dir" "$registry_dir"
 
   setup_ml_python_env
@@ -1231,13 +1309,267 @@ train_expanded_from_extraction_condor() {
     "$TRAIN_SCRIPT" --task tight --campaign "$campaign"
     --input "@${manifest}" --outdir "$model_dir"
     --plan-only --registry-output "$planned"
+    --weight-mode "$weight_mode"
+    --test-size "$bdt_test_size"
+    --split-mode "$bdt_split_mode"
     --majority-cap-ratio "${RJ_AUAU_BDT_MAJORITY_CAP_RATIO:-4.0}"
     --minopt-majority-cap-ratio "${RJ_AUAU_BDT_MINOPT_MAJORITY_CAP_RATIO:-2.0}"
   )
+  if [[ "$weight_mode" == "ppg12-exact" ]]; then
+    plan_args+=(
+      --no-event-weight
+      --ppg12-exact-expected-samples "$ppg12_expected_samples"
+      --ppg12-exact-closure-dir "$ppg12_closure_dir"
+    )
+  fi
+  if [[ "$campaign" == "etcent-binned-sixpack" || "$campaign" == "etcent-binned-sixpack-noiso-ptcent7" || "$campaign" == "global-and-etcent-binned-sixpack-noiso" ]]; then
+    plan_args+=(
+      --pt-bins "$etcent_pt_bins"
+      --coarse-cent-bins "$etcent_coarse_cent_bins"
+      --fine-cent-bins "$etcent_fine_cent_bins"
+    )
+  fi
+  if [[ "$campaign" == "etfine-centstudy" ]]; then
+    plan_args+=(
+      --pt-bins "$etfine_pt_bins"
+      --coarse-cent-bins "$etfine_coarse_cent_bins"
+      --fine-cent-bins "$etfine_fine_cent_bins"
+    )
+  fi
+  if [[ "$campaign" == "etcent-binned-eiso-cone-ablation" ]]; then
+    plan_args+=(
+      --pt-bins "$raw_eiso_pt_bins"
+      --coarse-cent-bins "$raw_eiso_coarse_cent_bins"
+      --fine-cent-bins "$raw_eiso_fine_cent_bins"
+    )
+  fi
   if [[ -n "$spec_ids" ]]; then
     plan_args+=( --campaign-spec-ids "$spec_ids" )
   fi
   "$ML_PYTHON" "${plan_args[@]}"
+
+  if [[ "$campaign" == "etcent-binned-eiso-cone-ablation" ]]; then
+    "$ML_PYTHON" - "$planned" <<'PY'
+import json
+import sys
+from collections import Counter
+from pathlib import Path
+
+planned = json.loads(Path(sys.argv[1]).read_text())
+models = planned.get("models", [])
+expected_counts = {
+    "globalEtCent1535_bdt_eisoR30_ptCent3": 24,
+    "globalEtCent1535_bdt_eisoR30_ptCent7": 56,
+    "globalEtCent1535_bdt_eisoR40_ptCent3": 24,
+    "globalEtCent1535_bdt_eisoR40_ptCent7": 56,
+    "globalEtCent1535_bdt_eisoR30R40_ptCent3": 24,
+    "globalEtCent1535_bdt_eisoR30R40_ptCent7": 56,
+}
+products = Counter(model.get("product") for model in models)
+low_pt = [
+    model.get("model_id", "")
+    for model in models
+    if "_pt_005_" in model.get("model_id", "")
+    or "_pt_008_" in model.get("model_id", "")
+    or "_pt_010_" in model.get("model_id", "")
+    or "_pt_012_" in model.get("model_id", "")
+    or "_pt_014_" in model.get("model_id", "")
+]
+pt_bins = planned.get("pt_bins")
+coarse = planned.get("coarse_cent_bins")
+fine = planned.get("fine_cent_bins")
+expected_pt = [15.0, 17.0, 19.0, 21.0, 23.0, 25.0, 27.0, 30.0, 35.0]
+expected_coarse = [[0.0, 20.0], [20.0, 50.0], [50.0, 80.0]]
+expected_fine = [[0.0, 10.0], [10.0, 20.0], [20.0, 30.0], [30.0, 40.0], [40.0, 50.0], [50.0, 60.0], [60.0, 80.0]]
+errors = []
+unknown_products = sorted(set(products) - set(expected_counts))
+if not products:
+    errors.append("no raw-eiso products planned")
+if unknown_products:
+    errors.append(f"unexpected products: {unknown_products}")
+for product, count in sorted(products.items()):
+    expected = expected_counts.get(product)
+    if expected is not None and count != expected:
+        errors.append(f"unexpected count for {product}: {count}, expected {expected}")
+expected_selected = sum(expected_counts[product] for product in products if product in expected_counts)
+if len(models) != expected_selected or planned.get("expected_model_count") != expected_selected:
+    errors.append(
+        "raw-eiso model count mismatch for selected products: "
+        f"expected {expected_selected}, found models={len(models)} "
+        f"expected_model_count={planned.get('expected_model_count')}"
+    )
+if low_pt:
+    errors.append("low-pT model ids found: " + ", ".join(low_pt[:8]))
+if pt_bins != expected_pt:
+    errors.append(f"unexpected pt_bins: {pt_bins}")
+if coarse != expected_coarse:
+    errors.append(f"unexpected coarse_cent_bins: {coarse}")
+if fine != expected_fine:
+    errors.append(f"unexpected fine_cent_bins: {fine}")
+if errors:
+    raise SystemExit("Raw-eiso preflight failed:\n  " + "\n  ".join(errors))
+print(
+    "[OK] raw-eiso preflight: "
+    f"{expected_selected} selected models, products={dict(products)}, "
+    "15-35 GeV pT grid, 3/7 centrality grids"
+)
+PY
+  fi
+
+  if [[ "$weight_mode" == "ppg12-exact" ]]; then
+    "$ML_PYTHON" - "$planned" <<'PY'
+import json
+import sys
+from collections import Counter
+from pathlib import Path
+
+planned = json.loads(Path(sys.argv[1]).read_text())
+models = planned.get("models", [])
+products = Counter(model.get("product") for model in models)
+low_pt = [
+    model.get("model_id", "")
+    for model in models
+    if any(tag in model.get("model_id", "") for tag in ("_pt_005_", "_pt_008_", "_pt_010_", "_pt_012_", "_pt_014_"))
+]
+errors = []
+if planned.get("defaults", {}).get("weight_mode") != "ppg12-exact":
+    errors.append(f"unexpected weight_mode: {planned.get('defaults', {}).get('weight_mode')}")
+if low_pt:
+    errors.append("low-pT model ids found: " + ", ".join(low_pt[:8]))
+expected_pt = [15.0, 17.0, 19.0, 21.0, 23.0, 25.0, 27.0, 30.0, 35.0]
+expected_coarse = [[0.0, 20.0], [20.0, 50.0], [50.0, 80.0]]
+expected_fine = [[0.0, 10.0], [10.0, 20.0], [20.0, 30.0], [30.0, 40.0], [40.0, 50.0], [50.0, 60.0], [60.0, 80.0]]
+if planned.get("defaults", {}).get("event_weight_used_for_training") is not False:
+    errors.append("event_weight_used_for_training is not false")
+if planned.get("defaults", {}).get("no_cross_section_weights") is not True:
+    errors.append("no_cross_section_weights is not true")
+campaign = planned.get("campaign")
+ok_message = ""
+if campaign == "etcent-binned-sixpack-noiso-ptcent7":
+    if dict(products) != {"globalEtCent1535_bdt_noIso_ptCent7": 56}:
+        errors.append(f"unexpected products/counts: {dict(products)}")
+    if len(models) != 56 or planned.get("expected_model_count") != 56:
+        errors.append(
+            f"expected exactly 56 routed models, found models={len(models)} "
+            f"expected_model_count={planned.get('expected_model_count')}"
+        )
+    if planned.get("pt_bins") != expected_pt:
+        errors.append(f"unexpected pt_bins: {planned.get('pt_bins')}")
+    if planned.get("fine_cent_bins") != expected_fine:
+        errors.append(f"unexpected fine_cent_bins: {planned.get('fine_cent_bins')}")
+    ok_message = "[OK] PPG12-exact preflight: 56 no-isolation ptCent7 models, 15-35 GeV grid, no event/cross-section training weights"
+elif campaign == "global-sixpack":
+    if dict(products) != {"globalEtCent1535_bdt_noIso": 1}:
+        errors.append(f"unexpected products/counts for global 32-input BDT: {dict(products)}")
+    if len(models) != 1 or planned.get("expected_model_count") != 1:
+        errors.append(
+            f"expected exactly 1 global 32-input BDT, found models={len(models)} "
+            f"expected_model_count={planned.get('expected_model_count')}"
+        )
+    if models:
+        model = models[0]
+        features = set(model.get("features") or [])
+        required = {"cluster_Et", "centrality", "cluster_weta33_cogx", "cluster_wphi33_cogx"}
+        missing = sorted(required - features)
+        if model.get("model_id") != "globalEtCent1535_bdt_noIso":
+            errors.append(f"unexpected model_id: {model.get('model_id')}")
+        if len(model.get("features") or []) != 32:
+            errors.append(f"global 32-input BDT feature count is not 32: {len(model.get('features') or [])}")
+        if missing:
+            errors.append(f"global 32-input BDT missing required feature(s): {missing}")
+    ok_message = "[OK] PPG12-exact preflight: globalEtCent1535_bdt_noIso 32-input model, no event/cross-section training weights"
+elif campaign in {"etcent-binned-sixpack", "global-and-etcent-binned-sixpack-noiso"}:
+    expected_counts = {
+        "globalEtCent1535_bdt_noIso": 1,
+        "globalEtCent1535_bdt_noIso_ptCent3": 24,
+        "globalEtCent1535_bdt_noIso_ptCent7": 56,
+    }
+    if campaign == "etcent-binned-sixpack":
+        expected_counts.pop("globalEtCent1535_bdt_noIso")
+    unknown = sorted(set(products) - set(expected_counts))
+    if unknown:
+        errors.append(f"unexpected products for requested no-isolation routed run: {unknown}")
+    if not products:
+        errors.append("no products planned for 32-input BDT run")
+    for product, count in sorted(products.items()):
+        expected = expected_counts.get(product)
+        if expected is not None and count != expected:
+            errors.append(f"unexpected count for {product}: {count}, expected {expected}")
+    expected_selected = sum(expected_counts[p] for p in products if p in expected_counts)
+    if len(models) != expected_selected or planned.get("expected_model_count") != expected_selected:
+        errors.append(
+            "32-input model count mismatch: "
+            f"expected {expected_selected}, found models={len(models)} "
+            f"expected_model_count={planned.get('expected_model_count')}"
+        )
+    if planned.get("pt_bins") != expected_pt:
+        errors.append(f"unexpected pt_bins: {planned.get('pt_bins')}")
+    if planned.get("coarse_cent_bins") != expected_coarse:
+        errors.append(f"unexpected coarse_cent_bins: {planned.get('coarse_cent_bins')}")
+    if planned.get("fine_cent_bins") != expected_fine:
+        errors.append(f"unexpected fine_cent_bins: {planned.get('fine_cent_bins')}")
+    bad_feature_counts = [
+        f"{model.get('model_id')}:{len(model.get('features') or [])}"
+        for model in models
+        if len(model.get("features") or []) != 32
+    ]
+    if bad_feature_counts:
+        errors.append("32-input feature count mismatch: " + ", ".join(bad_feature_counts[:8]))
+    ok_message = (
+        "[OK] PPG12-exact preflight: no-isolation 32-input products "
+        f"{dict(products)}, 15-35 GeV grid, no event/cross-section training weights"
+    )
+elif campaign == "etfine-centstudy":
+    product_counts = dict(products)
+    allowed_counts = ({"centInput_pt1535": 1}, {"ptFine_cent7": 56})
+    if product_counts not in allowed_counts:
+        errors.append(
+            "unexpected products/counts for etfine-centstudy PPG12-exact run: "
+            f"{product_counts}; expected one of {allowed_counts}"
+        )
+    expected_model_count = sum(product_counts.values())
+    if len(models) != expected_model_count or planned.get("expected_model_count") != expected_model_count:
+        errors.append(
+            f"expected {expected_model_count} selected etfine-centstudy model(s), "
+            f"found models={len(models)} expected_model_count={planned.get('expected_model_count')}"
+        )
+    if product_counts == {"centInput_pt1535": 1} and models:
+        model = models[0]
+        features = set(model.get("features") or [])
+        required = {"cluster_Et", "centrality", "cluster_weta33_cogx", "cluster_wphi33_cogx"}
+        missing = sorted(required - features)
+        if model.get("model_id") != "centInput_pt1535":
+            errors.append(f"unexpected model_id: {model.get('model_id')}")
+        if missing:
+            errors.append(f"global BDT missing required feature(s): {missing}")
+    elif product_counts == {"ptFine_cent7": 56}:
+        if planned.get("pt_bins") != expected_pt:
+            errors.append(f"unexpected pt_bins: {planned.get('pt_bins')}")
+        if planned.get("fine_cent_bins") != expected_fine:
+            errors.append(f"unexpected fine_cent_bins: {planned.get('fine_cent_bins')}")
+        for model in models:
+            features = set(model.get("features") or [])
+            required = {"cluster_Et", "cluster_weta33_cogx", "cluster_wphi33_cogx"}
+            missing = sorted(required - features)
+            if model.get("product") != "ptFine_cent7":
+                errors.append(f"unexpected model product: {model.get('model_id')} -> {model.get('product')}")
+            if "centrality" in features:
+                errors.append(f"routed model should not include centrality as a feature: {model.get('model_id')}")
+            if missing:
+                errors.append(f"routed model missing required feature(s): {model.get('model_id')} -> {missing}")
+            if errors:
+                break
+    ok_message = (
+        "[OK] PPG12-exact preflight: etfine-centstudy products "
+        f"{product_counts}, 15-35 GeV grid, no event/cross-section training weights"
+    )
+else:
+    errors.append(f"unexpected campaign: {campaign}")
+if errors:
+    raise SystemExit("PPG12-exact preflight failed:\n  " + "\n  ".join(errors))
+print(ok_message)
+PY
+  fi
 
   "$ML_PYTHON" - "$planned" "$shard_dir" "$group_size" <<'PY'
 import json
@@ -1299,10 +1631,36 @@ set -euo pipefail
 export ML_PYTHON="${ML_PYTHON}"
 export RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS="${spec_ids}"
 export RJ_AUAU_BDT_CAMPAIGN="${campaign}"
+export RJ_AUAU_BDT_WEIGHT_MODE="${weight_mode}"
+export RJ_AUAU_BDT_TEST_SIZE="${bdt_test_size}"
+export RJ_AUAU_BDT_SPLIT_MODE="${bdt_split_mode}"
 ${env_prelude}
 extra_args=()
+extra_args+=(--weight-mode "\${RJ_AUAU_BDT_WEIGHT_MODE}")
+extra_args+=(--test-size "\${RJ_AUAU_BDT_TEST_SIZE}")
+extra_args+=(--split-mode "\${RJ_AUAU_BDT_SPLIT_MODE}")
 if [[ -n "\${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS:-}" ]]; then
   extra_args+=(--campaign-spec-ids "\${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS}")
+fi
+if [[ "\${RJ_AUAU_BDT_WEIGHT_MODE:-legacy}" == "ppg12-exact" ]]; then
+  extra_args+=(--no-event-weight)
+  extra_args+=(--ppg12-exact-expected-samples "${ppg12_expected_samples}")
+  extra_args+=(--ppg12-exact-closure-dir "${ppg12_closure_dir}")
+fi
+if [[ "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "etcent-binned-sixpack" || "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "etcent-binned-sixpack-noiso-ptcent7" || "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "global-and-etcent-binned-sixpack-noiso" ]]; then
+  extra_args+=(--pt-bins "${etcent_pt_bins}")
+  extra_args+=(--coarse-cent-bins "${etcent_coarse_cent_bins}")
+  extra_args+=(--fine-cent-bins "${etcent_fine_cent_bins}")
+fi
+if [[ "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "etfine-centstudy" ]]; then
+  extra_args+=(--pt-bins "${etfine_pt_bins}")
+  extra_args+=(--coarse-cent-bins "${etfine_coarse_cent_bins}")
+  extra_args+=(--fine-cent-bins "${etfine_fine_cent_bins}")
+fi
+if [[ "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "etcent-binned-eiso-cone-ablation" ]]; then
+  extra_args+=(--pt-bins "${raw_eiso_pt_bins}")
+  extra_args+=(--coarse-cent-bins "${raw_eiso_coarse_cent_bins}")
+  extra_args+=(--fine-cent-bins "${raw_eiso_fine_cent_bins}")
 fi
 "\$ml_python" "${TRAIN_SCRIPT}" --task tight --campaign "\${RJ_AUAU_BDT_CAMPAIGN}" \\
   --input "@${manifest}" --outdir "${model_dir}" \\
@@ -1324,10 +1682,36 @@ registry="\${2:?registry output}"
 export ML_PYTHON="${ML_PYTHON}"
 export RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS="${spec_ids}"
 export RJ_AUAU_BDT_CAMPAIGN="${campaign}"
+export RJ_AUAU_BDT_WEIGHT_MODE="${weight_mode}"
+export RJ_AUAU_BDT_TEST_SIZE="${bdt_test_size}"
+export RJ_AUAU_BDT_SPLIT_MODE="${bdt_split_mode}"
 ${env_prelude}
 extra_args=()
+extra_args+=(--weight-mode "\${RJ_AUAU_BDT_WEIGHT_MODE}")
+extra_args+=(--test-size "\${RJ_AUAU_BDT_TEST_SIZE}")
+extra_args+=(--split-mode "\${RJ_AUAU_BDT_SPLIT_MODE}")
 if [[ -n "\${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS:-}" ]]; then
   extra_args+=(--campaign-spec-ids "\${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS}")
+fi
+if [[ "\${RJ_AUAU_BDT_WEIGHT_MODE:-legacy}" == "ppg12-exact" ]]; then
+  extra_args+=(--no-event-weight)
+  extra_args+=(--ppg12-exact-expected-samples "${ppg12_expected_samples}")
+  extra_args+=(--ppg12-exact-closure-dir "${ppg12_closure_dir}")
+fi
+if [[ "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "etcent-binned-sixpack" || "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "etcent-binned-sixpack-noiso-ptcent7" || "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "global-and-etcent-binned-sixpack-noiso" ]]; then
+  extra_args+=(--pt-bins "${etcent_pt_bins}")
+  extra_args+=(--coarse-cent-bins "${etcent_coarse_cent_bins}")
+  extra_args+=(--fine-cent-bins "${etcent_fine_cent_bins}")
+fi
+if [[ "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "etfine-centstudy" ]]; then
+  extra_args+=(--pt-bins "${etfine_pt_bins}")
+  extra_args+=(--coarse-cent-bins "${etfine_coarse_cent_bins}")
+  extra_args+=(--fine-cent-bins "${etfine_fine_cent_bins}")
+fi
+if [[ "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "etcent-binned-eiso-cone-ablation" ]]; then
+  extra_args+=(--pt-bins "${raw_eiso_pt_bins}")
+  extra_args+=(--coarse-cent-bins "${raw_eiso_coarse_cent_bins}")
+  extra_args+=(--fine-cent-bins "${raw_eiso_fine_cent_bins}")
 fi
 "\$ml_python" "${TRAIN_SCRIPT}" --task tight --campaign "\${RJ_AUAU_BDT_CAMPAIGN}" \\
   --outdir "${model_dir}" \\
@@ -1470,7 +1854,7 @@ executable = ${cache_worker}
 output = ${sub_root}/cache.out
 error = ${sub_root}/cache.err
 log = ${sub_root}/cache.log
-request_memory = ${RJ_AUAU_BDT_CACHE_REQUEST_MEMORY:-8000MB}
+request_memory = ${cache_reqmem}
 notification = Never
 queue
 EOF

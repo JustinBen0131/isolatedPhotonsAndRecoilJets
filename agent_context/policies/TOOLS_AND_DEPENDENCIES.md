@@ -9,6 +9,9 @@
   for fast code search.
 - For Google Docs/Slides/Sheets, Drive, Gmail, Calendar, browser, or desktop
   work, use the matching connector/plugin/skill workflow when available.
+- For delegated ChatGPT UI research, load
+  `agent_context/policies/ASK_CHATGPT_DELEGATION.md` first and use Chrome or
+  Computer Use only with a sanitized prompt and local transcript provenance.
 - For Office/PDF/spreadsheet/deck local artifact work, call the workspace
   dependency locator before assuming Python/Node package paths.
 
@@ -27,10 +30,28 @@ accuracy, or reliability, ask concisely to install it and name the practical
 reason. Do not silently install dependencies; use the approved escalation flow
 when installation needs network access or writes outside the workspace.
 
+## Connector Session Auth
+
+- For Gmail/Drive/Slides/Calendar connector auth errors in a long-running chat,
+  do not assume the plugin is broken or needs to be revamped.
+- First treat it as possible chat-session credential expiration. If applicable,
+  retry once with exact IDs or a minimal connector call.
+- If it still fails, tell Justin to fork/reopen the chat because connector auth
+  may refresh cleanly in the forked chat. Ask for manual plugin reconnect only
+  after the forked/new chat also fails.
+- Never claim a connector-backed status check was performed when the connector
+  was unavailable.
+
 ## Runtime Bias
 
 - ROOT-dependent work uses `scripts/root_in_analysis_env.sh`.
 - AuAu ML work on SDCC uses the explicit `RJ_ML_PYTHON` path from
   `SDCC_OPERATIONS.md`.
-- Browser/Computer Use is for visual/UI inspection or narrow UI actions, not
-  for mutating Drive/Slides when a connector can do it safely.
+- For PDF text extraction, prefer the installed user-local command:
+  `/Users/patsfan753/.local/bin/pdftotext`. It is Xpdf command-line tools
+  4.06 for macOS ARM, installed under
+  `/Users/patsfan753/.local/opt/xpdf-tools-mac-4.06/`. Use the full path
+  because `~/.local/bin` may not be on `PATH` in Codex shells.
+- Browser/Computer Use is for visual/UI inspection, narrow UI actions, and
+  approved delegated ChatGPT research; it is not for mutating Drive/Slides when
+  a connector can do it safely.

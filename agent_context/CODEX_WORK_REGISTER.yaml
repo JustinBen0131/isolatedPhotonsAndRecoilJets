@@ -1,0 +1,1499 @@
+schema_version: 1
+last_updated: "2026-05-28T11:07:00-04:00"
+owner: Codex
+purpose: >
+  Canonical active-work register for the ThesisAnalysis operating system.
+  Google Docs and Linear are user-facing projections of this file, not the
+  source of truth.
+
+status_vocabulary:
+  - active
+  - running
+  - waiting
+  - blocked
+  - review
+  - backlog
+  - done_pending_review
+  - archived
+
+status_colors:
+  active: green
+  running: amber
+  waiting: blue-gray
+  blocked: red
+  review: amber
+  backlog: gray
+  done_pending_review: muted-green
+  archived: muted-gray
+
+linear:
+  operating_rule: >
+    Codex operates Linear for Justin. Use one issue per durable workstream,
+    not one issue per command or transient step.
+  default_project: ThesisAnalysis Operating System
+  project_url: "https://linear.app/thesisanalysis/project/thesisanalysis-operating-system-f71a34a98c96"
+  operating_rules_document: "https://linear.app/thesisanalysis/document/codex-operating-rules-c21ca9aee5f6"
+  dashboard_doctrine_document: "https://linear.app/thesisanalysis/document/linear-dashboard-doctrine-v2-codex-justin-ed7e8dba8149"
+  campaign_chat_map_doctrine_document: "https://linear.app/thesisanalysis/document/campaign-codex-chat-map-doctrine-9a78c1eec93a"
+  ux_rule: >
+    Linear is the durable detailed dashboard behind the one-page Today's Plan.
+    Titles, labels, and first-screen issue bodies should make the board
+    readable within 30 seconds.
+  title_prefixes:
+    p0_campaign: "P0 Campaign |"
+    p0_approval: "P0 Approval |"
+    running_stitching: "RUN Stitching |"
+    p0_ml: "P0 ML |"
+    p1_closure: "P1 Closure |"
+    waiting_validation: "WAIT Validation |"
+    backlog: "BKL"
+    os_baseline: "OS Baseline |"
+  label_taxonomy:
+    surface:
+      - "Surface: Today"
+      - "Surface: Linear Detail"
+    area:
+      - "Area: Approval"
+      - "Area: Stitching"
+      - "Area: ML"
+      - "Area: Trigger"
+    ops:
+      - "Ops: Active Jobs"
+      - "Ops: Health Check"
+    decision:
+      - "Needs: Justin Review"
+      - "Slide-facing"
+    required:
+      - Workstream
+      - Codex OS
+  issue_body_template:
+    - Goal
+    - Current next action
+    - Why this matters
+    - Codex chat map
+    - Depends on
+    - Evidence
+    - Codex operating rule
+    - Daily surface
+  lanes:
+    - Do First
+    - Active
+    - Running
+    - Waiting
+    - Blocked
+    - Review
+    - Backlog
+    - Done Pending Archive
+  sync_state: synced
+  sync_note: >
+    If Linear tools are unavailable in a session, keep this register current
+    and mark affected workstreams linear_sync: pending.
+  campaign_rule: >
+    Campaign issues are the Linear home base for umbrella goals spanning
+    multiple chats, jobs, slide assets, and validation tasks. Each active
+    workstream must either name its campaign_id or explicitly stand alone.
+    Active Linear issue bodies/comments must include Codex chat labels, thread
+    ids when available, heartbeat ids, active run tags, and DAG clusters.
+
+daily_cockpit:
+  primary_surface: "Today's Plan"
+  current_today_plan:
+    date: "2026-05-28"
+    title: "2026-05-28 - Today's Plan"
+    url: "https://docs.google.com/document/d/1yHOHxbZuglIHHyfCRPvl8VjYzOkooYS-GY5SZDPBwvQ/edit?usp=drivesdk"
+    note: >
+      Created by the Google Drive connector. The exposed create_file action did
+      not support parent-folder targeting, so placement in workingTasks was not
+      verified by connector metadata.
+  drive_folder: "workingTasks"
+  rule: >
+    Today's Plan is a short visual cockpit generated from active, running,
+    waiting, blocked, review, and backlog register entries. Do not roll
+    completed history forward.
+  active_working_point_deck:
+    label: "WORKING POINT"
+    title: "current working-point slides"
+    url: "https://docs.google.com/presentation/d/1-2l9IWNJMpFfunoShVrYk3ywtrIocMWMyePYnR85_zc/edit?slide=id.g3a89b5423f1_0_265#slide=id.g3a89b5423f1_0_265"
+    rollover_rule: >
+      Every new Today's Plan must include this line near the top. Copy the
+      WORKING POINT link from the previous daily plan unless Justin edits that
+      line or explicitly provides a replacement link. Before rendering a new
+      daily plan, read the previous/current Today's Plan; if its WORKING POINT
+      line differs from this register, treat the doc as Justin's latest edit
+      and update this register first.
+    default_prompt_rule: >
+      If Justin asks about slides or a slide number without specifying a deck
+      link, use this working-point deck as the default slide context.
+  morning_health_check:
+    rule: >
+      Include a compact read-only operational snapshot near the top of the
+      daily cockpit. This belongs in Today's Plan, not only Linear, because it
+      tells Justin whether the analysis environment is safe to use that day.
+    quota_checks:
+      - label: tg_bulk_jbennett
+        path: "/sphenix/tg/tg01/bulk/jbennett"
+        report: >
+          Justin-owned Lustre quota from lfs quota: used/quota percent and
+          file-count percent. Do not substitute shared filesystem df totals.
+      - label: sphenix_user_scratch
+        path: "/sphenix/u/patsfan753/scratch -> /sphenix/user/patsfan753"
+        report: >
+          Justin scratch target. If lfs/quota does not expose a personal
+          percentage for this GPFS path, say so explicitly and do not report
+          shared /gpfs df usage as Justin's personal usage.
+      - label: sphenix_u_home
+        path: "/sphenix/u/patsfan753"
+        report: "Small home quota from quota -s: used/quota percent."
+    condor_checks:
+      helper: "./checkCondorQ"
+      report: >
+        Justin's queued/running/held/idle job counts, any held-job warning,
+        and a one-line reminder of which registered workstream/chat submitted
+        each active job group.
+    notes: >
+      Read-only only. Do not remove jobs, clean files, rerun merges, or submit
+      recovery work from the morning health check without explicit approval.
+  sections:
+    - Do First Today
+    - Morning Health Check
+    - Active Slide Deck
+    - HP26 Deadline Driver
+    - Live Codex Work
+    - Active Workstreams
+    - Waiting / Blocked / Review
+    - Backlog
+    - Done Today
+    - Scratch / Inbox
+
+workstreams:
+  - workstream_id: codex_os_infrastructure
+    title: OS Baseline | Codex + Linear Operating System
+    status: done_pending_review
+    priority: P0
+    goal: >
+      Make Codex maintain the project operating system through a canonical repo
+      register, strict start-work gate, Linear projection, Today's Plan
+      projection, stale checks, and handoff rules.
+    current_next_action: >
+      Complete. Use this as the default operating-system structure for future
+      Codex sessions; open separate follow-up workstreams for enhancements
+      rather than keeping the baseline task active.
+    depends_on: []
+    active_codex_session: null
+    chat_label_or_thread: null
+    linear_issue: "https://linear.app/thesisanalysis/issue/THE-13/os-baseline-or-codex-linear-operating-system"
+    linear_sync: synced
+    today_doc_anchor: null
+    workstream_spec: null
+    active_jobs: []
+    artifacts:
+      - "agent_context/CODEX_WORK_REGISTER.yaml"
+      - "agent_context/policies/CODEX_OPERATING_SYSTEM.md"
+      - "scripts/codex_work_register_validate.py"
+      - "scripts/codex_work_register_render.py"
+      - "scripts/codex_work_register_stale.py"
+      - "scripts/codex_work_register_linear_payload.py"
+    evidence:
+      - "Implemented on 2026-05-26; register validates locally and helper scripts render/stale-check/emit Linear payloads."
+      - "Linear Dashboard Doctrine v2 created at https://linear.app/thesisanalysis/document/linear-dashboard-doctrine-v2-codex-justin-ed7e8dba8149."
+      - "2026-05-26 add-task trigger protocol: explicit 'add a task' variants now route through register, Linear, Today's Plan when relevant, and status notes when durable; rule is mirrored in AGENTS.md, LOAD_MAP.yaml, policy docs, Linear THE-13, Today's Plan, and global Codex memory."
+      - "2026-05-26 working-point slide rule: Today's Plan must keep the WORKING POINT deck at the top and future docs copy it forward unless Justin changes it."
+      - "2026-05-26 23:25 EDT closure review: register validates, render/stale helper scripts run, Linear v2 doctrine exists, task-capture and start-work rules are in policy, and the remaining improvements are optional OS refinements rather than baseline blockers. Cleared stale Jet40 active-job and daily-anchor bookkeeping from this workstream before marking complete."
+      - "2026-05-27 OS doctor rerun found a stale active_jobs block in this completed baseline workstream; cleared it because THE-8 owns active Jet40/model-choice jobs."
+    last_verified: "2026-05-26T23:25:00-04:00"
+    next_check: "none; open separate follow-up workstreams for OS enhancements"
+    stale_after: "2026-06-09T10:00:00-04:00"
+    handoff_summary: >
+      OS v1 infrastructure exists and Linear v2 visual doctrine is the
+      baseline: scan-first titles, surface/area/ops/decision labels, one issue
+      per durable workstream, Today's Plan kept short, and explicit "add a
+      task" wording treated as a full task-capture pipeline command. Today's
+      Plan must also carry the WORKING POINT slide link forward so unspecified
+      slide references resolve to the active working-point deck. Do not keep
+      this workstream active for optional improvements; create focused follow-up
+      workstreams if the OS needs new automation, cleanup, or dashboards.
+
+  - workstream_id: codex_os_self_tuning_hardening
+    title: OS Hardening | Self-Tuning Agentic Analysis System
+    status: done_pending_review
+    priority: P0
+    goal: >
+      Upgrade the Codex + Linear + repo operating system from a disciplined
+      baseline into a self-tuning, evidence-gated analysis control plane that
+      can absorb mistakes, convert repeated friction into policy or automation,
+      and keep the thesis narrative, compute state, plots, slides, and task
+      state mutually consistent.
+    current_next_action: >
+      Complete for this hardening pass. Use `scripts/codex_os_doctor.py` as the
+      health gate; open focused follow-up workstreams for future OS automation
+      rather than reopening the completed baseline.
+    depends_on: []
+    active_codex_session: null
+    chat_label_or_thread: "agent-human symbiotic OS hardening"
+    linear_issue: "https://linear.app/thesisanalysis/issue/THE-18/p0-os-hardening-or-self-tuning-agentic-analysis-system"
+    linear_sync: synced
+    today_doc_anchor: null
+    workstream_spec: null
+    active_jobs: []
+    artifacts:
+      - "agent_context/policies/AGENTIC_OS_HARDENING.md"
+      - "agent_context/THESIS_NARRATIVE_MAP.md"
+      - "agent_context/templates/OS_POSTMORTEM_TEMPLATE.md"
+      - "scripts/codex_os_doctor.py"
+      - "agent_context/policies/LOAD_MAP.yaml"
+      - "agent_context/policies/CODEX_OPERATING_SYSTEM.md"
+      - "agent_context/policies/MEMORY_AND_STATUS.md"
+      - "AGENTS.md"
+    evidence:
+      - "2026-05-26 23:46 EDT Justin asked for a deep hardening pass to raise the human-agent research OS from a strong baseline toward a self-tuning, mistake-resistant platform, with online research and surgical repo changes."
+      - "2026-05-26 23:50 EDT added the hardening layer: AGENTIC_OS_HARDENING policy, thesis narrative map, OS postmortem template, codex_os_doctor executable checks, routing updates in AGENTS/LOAD_MAP, and OS/memory policy hooks. Online research basis included Anthropic effective agents, OpenAI Agents SDK state/guardrail/handoff docs, Google SRE monitoring/postmortem culture, DORA WIP/context-engineering capabilities, and Google's ML Test Score rubric."
+      - "2026-05-26 23:50 EDT validation: CODEX_WORK_REGISTER validates, codex_os_doctor passes after the hardening workstream is closed, and git diff --check passed for the touched OS files."
+    last_verified: "2026-05-26T23:50:00-04:00"
+    next_check: "none; future warnings or repeated failures should become focused OS follow-up workstreams"
+    stale_after: "2026-06-09T10:00:00-04:00"
+    handoff_summary: >
+      This hardening pass adds executable checks and policy routes around the
+      completed OS baseline without reopening THE-13. Future OS evolution
+      should use the self-tuning loop: observe failure, classify it, encode a
+      small policy/script/task fix, test with codex_os_doctor, then retire stale
+      active state.
+
+  - workstream_id: codex_linear_campaign_chat_map
+    title: P1 Review | Linear campaign and Codex chat map system
+    status: review
+    priority: P1
+    goal: >
+      Reorganize Linear into campaign-level home bases with child workstreams
+      and explicit Codex chat/thread/run mapping, so Justin can see which chats
+      and automations are actively working under each analysis campaign.
+    current_next_action: >
+      Keep the campaign/chat-map system available, but do not let OS hygiene
+      displace the three science/talk priorities today. Review whether the
+      current campaign-card projection is good enough after the 2026-05-28
+      daily cockpit is used.
+    depends_on:
+      - codex_os_self_tuning_hardening
+    active_codex_session: "Codex thread 019e6700-fd78-7132-a1a6-8e56da820f59"
+    chat_label_or_thread: "OS Linear campaign/chat reorganization"
+    codex_thread_id: "019e6700-fd78-7132-a1a6-8e56da820f59"
+    campaign_id: "codex_operating_system"
+    linear_issue: "https://linear.app/thesisanalysis/issue/THE-21/p0-campaign-or-linear-campaign-and-codex-chat-map-system"
+    linear_sync: synced
+    today_doc_anchor: "2026-05-28 Today's Plan: Waiting / Blocked / Review / THE-21"
+    workstream_spec: "agent_context/policies/CODEX_OPERATING_SYSTEM.md"
+    active_jobs: []
+    artifacts:
+      - "agent_context/policies/CODEX_OPERATING_SYSTEM.md"
+      - "scripts/codex_work_register_linear_payload.py"
+      - "agent_context/CODEX_WORK_REGISTER.yaml"
+      - "https://linear.app/thesisanalysis/document/campaign-codex-chat-map-doctrine-9a78c1eec93a"
+    evidence:
+      - "2026-05-27 Justin explicitly requested Linear campaign/task reorganization with Codex chat ids and chat names connected to active campaigns."
+      - "2026-05-27 Linear Campaign label created; THE-17, THE-8, THE-5 promoted to campaign home bases; THE-21 created for the campaign/chat-map OS upgrade."
+      - "2026-05-27 Linear project updated with campaign hierarchy, and Campaign + Codex Chat Map Doctrine document created."
+      - "2026-05-27 Today's Plan was rewritten into the campaign-first cockpit: campaign index, Do First campaign top three, child/related workstreams under THE-17/THE-5, and explicit propagation rule."
+      - "2026-05-27 Today's Plan was revised again for ADHD/OCD-friendly scanning: Scratch / Inbox moved to the top, sections color-coded, active campaign cards compacted, and child lanes kept below campaign parents."
+    last_verified: "2026-05-28T10:18:00-04:00"
+    next_check: "after Justin uses the 2026-05-28 cockpit, decide whether the OS projection needs another usability pass"
+    stale_after: "2026-06-03T10:00:00-04:00"
+    handoff_summary: >
+      Justin wants Linear to become the main durable dashboard next to local
+      Codex docs, organized by campaign parent issues with child workstreams
+      and explicit Codex chat/thread/heartbeat/run tags. The policy and payload
+      helper are being upgraded so future Codex sessions always project chat
+      and campaign identity into Linear.
+
+  - workstream_id: codex_os_10x_safety_kernel
+    title: OS 10x | Safety Kernel + Thesis Nervous System
+    status: done_pending_review
+    priority: P0
+    goal: >
+      Implement the approval-gated 10/10 ThesisAnalysis agentic OS upgrade:
+      safety preflights, snapshots, private event ledger, artifact provenance,
+      thesis radar, context packs, daily/weekly/monthly cockpit generation,
+      and stricter doctor profiles.
+    current_next_action: >
+      Complete for this implementation pass. Use the safety kernel before risky
+      mutations, register canonical artifacts, and keep the doctor, radar, and
+      context tools in the daily, weekly, and monthly OS reviews. Reopen only if a
+      validation check below fails or Justin asks for the next automation tier.
+    depends_on:
+      - workstream:codex_os_self_tuning_hardening
+    active_codex_session: null
+    chat_label_or_thread: "10/10 ThesisAnalysis Agentic OS implementation"
+    linear_issue: "https://linear.app/thesisanalysis/issue/THE-19/os-10x-or-safety-kernel-thesis-nervous-system"
+    linear_sync: synced
+    today_doc_anchor: null
+    workstream_spec: "agent_context/policies/AGENTIC_OS_HARDENING.md"
+    active_jobs: []
+    artifacts:
+      - "scripts/codex_os_guard.py"
+      - "scripts/codex_os_snapshot.py"
+      - "scripts/codex_context_pack.py"
+      - "scripts/codex_thesis_radar.py"
+      - "scripts/codex_artifact_registry.py"
+      - "scripts/codex_os_doctor.py"
+      - "agent_context/ARTIFACT_REGISTRY.yaml"
+      - "agent_context/local/os_events.jsonl"
+      - "agent_context/policies/AGENTIC_OS_HARDENING.md"
+      - "agent_context/templates/OS_POSTMORTEM_TEMPLATE.md"
+    evidence:
+      - "2026-05-27 Justin approved the 10/10 OS implementation plan with approval-gated autonomy, safety-kernel-first sequencing, and tracked core plus private local state."
+      - "2026-05-27 implementation added guard preflight, OS snapshots, private event log, context pack, thesis radar, artifact registry checks, stricter doctor profiles, and daily cockpit enhancements."
+      - "2026-05-27 00:15 EDT validation passed: register validates with 16 workstreams, artifact registry validates with 6 artifacts, doctor daily/strict/release all pass with 0 warnings, py_compile passes, git diff --check passes for touched OS files, guard failure drills catch missing approval/snapshot and duplicate fingerprints, radar flags an unmapped synthetic P0, and snapshot restore dry-run lists 35 files."
+      - "2026-05-27 00:15 EDT Linear THE-19 created and closed Done with the implementation/validation summary."
+      - "2026-05-27 00:16 EDT automation thesisanalysis-os-doctor updated to run register validation, doctor daily profile, stale check, thesis radar, artifact registry check, daily context pack, plus conditional Monday weekly review and first-three-days monthly audit, all read-only."
+    last_verified: "2026-05-27T00:15:00-04:00"
+    next_check: "none; run python3 scripts/codex_os_doctor.py --profile daily after future OS mutations"
+    stale_after: "2026-06-10T10:00:00-04:00"
+    handoff_summary: >
+      The 10/10 OS pass creates executable guardrails around risky work and
+      turns the thesis OS into a sensed control plane: guard preflights, local
+      snapshots, private JSONL event ledger, artifact provenance, thesis radar,
+      context packs, and doctor profiles. Linear THE-19 is closed Done with the
+      validation summary.
+
+  - workstream_id: codex_os_dream_system
+    title: OS Dreaming | Private Synthetic Rehearsal System
+    status: done_pending_review
+    priority: P0
+    goal: >
+      Add a private proposal-only dreaming layer that replays real
+      ThesisAnalysis state, simulates likely tomorrow questions and failure
+      modes, writes synthetic reports under agent_context/local/dreams/, and
+      never treats synthetic Justin as real approval or mutates external state.
+    current_next_action: >
+      Complete for v1. Let the micro and nightly automations generate private
+      reports, then promote any useful dream proposal only through waking
+      review, normal task capture, and doctor/guard checks.
+    depends_on:
+      - workstream:codex_os_10x_safety_kernel
+    active_codex_session: null
+    chat_label_or_thread: "nightly dream system implementation"
+    linear_issue: "https://linear.app/thesisanalysis/issue/THE-20/os-dreaming-or-private-synthetic-rehearsal-system"
+    linear_sync: synced
+    today_doc_anchor: null
+    workstream_spec: "agent_context/policies/AGENTIC_OS_DREAMING.md"
+    active_jobs: []
+    artifacts:
+      - "scripts/codex_os_dream.py"
+      - "agent_context/policies/AGENTIC_OS_DREAMING.md"
+      - "agent_context/local/dreams/"
+      - "agent_context/policies/LOAD_MAP.yaml"
+      - "scripts/codex_os_doctor.py"
+    evidence:
+      - "2026-05-27 Justin approved the ThesisAnalysis Nightly Dream System plan: 30-minute micro-dream sensing, nightly deep dream, proposal-only mutation boundary, and evidence-stress synthetic Justin simulator."
+      - "2026-05-27 implementation added the dream policy, simulator/validator script, routing, doctor hook, artifact registry entry, and private dream output convention."
+      - "2026-05-27 00:40 EDT validation generated agent_context/local/dreams/validation-micro and validation-nightly-v2; dream validate passed, artifact registry validates with 7 artifacts, and register validates with 17 workstreams."
+      - "2026-05-27 00:40 EDT automations created: thesisanalysis-micro-dream every 30 minutes as a thread heartbeat, and thesisanalysis-nightly-dream daily at 03:30 local as a local cron job."
+      - "2026-05-27 00:40 EDT Linear THE-20 created and closed Done with implementation/validation evidence."
+    last_verified: "2026-05-27T00:40:00-04:00"
+    next_check: "after first automation-generated micro and nightly reports, inspect whether reports are useful and not noisy"
+    stale_after: "2026-06-03T10:00:00-04:00"
+    handoff_summary: >
+      Dream v1 is private and proposal-only. Use `python3 scripts/codex_os_dream.py
+      micro` for 30-minute sensing, `python3 scripts/codex_os_dream.py nightly`
+      for deeper replay, and `python3 scripts/codex_os_dream.py validate
+      --latest` before trusting a report. Do not treat synthetic interactions
+      as approval or real user intent.
+
+  - workstream_id: codex_ask_chatgpt_delegation
+    title: OS Delegation | Ask ChatGPT Research Lane
+    status: done_pending_review
+    priority: P0
+    goal: >
+      Make ChatGPT UI a bounded delegated-research instrument for sanitized
+      long-form research, critique, and dream-system improvement without
+      treating external model output as approval, evidence, or project memory.
+    current_next_action: >
+      Complete for v1. Use the Ask ChatGPT route when Justin explicitly asks or
+      when Codex needs broad external synthesis, but sanitize prompts, save
+      transcripts locally, and verify claims before implementation.
+    depends_on:
+      - workstream:codex_os_dream_system
+    active_codex_session: null
+    chat_label_or_thread: "ask ChatGPT delegated research policy"
+    linear_issue: null
+    linear_sync: pending
+    today_doc_anchor: null
+    workstream_spec: "agent_context/policies/ASK_CHATGPT_DELEGATION.md"
+    active_jobs: []
+    artifacts:
+      - "agent_context/policies/ASK_CHATGPT_DELEGATION.md"
+      - "scripts/codex_chatgpt_research_pack.py"
+      - "agent_context/local/chatgpt_research/"
+      - "agent_context/local/dreams/validation-chatgpt-dream-upgrade/"
+      - "agent_context/policies/LOAD_MAP.yaml"
+    evidence:
+      - "2026-05-27 Justin asked Codex to use ChatGPT UI via Chrome/Computer Use for deep extended research, and to start an ask-ChatGPT policy for explicit asks or high-value research situations."
+      - "2026-05-27 policy implementation added sanitized prompt boundaries, hard stops for sensitive data/quota/account changes/uploads, local transcript provenance, routing, and a research-pack helper."
+      - "2026-05-27 01:07 EDT used Chrome/Computer Use to ask ChatGPT UI a sanitized dream-system research prompt and a sanitized follow-up; no private repo state, SDCC state, email, or collaborator content was transmitted. Transcript/synthesis/source leads were saved under agent_context/local/chatgpt_research/20260527T045052Z-dream-inspired-self-tuning-agentic-research-oper."
+      - "2026-05-27 01:10 EDT upgraded scripts/codex_os_dream.py from the ChatGPT research synthesis: typed evidence classes, scenario portfolio, validator candidates, reflection cards, runbook proposals, quality-control JSON, readiness metrics, and mtime-based latest dream validation. Fresh validation dream written at agent_context/local/dreams/validation-chatgpt-dream-upgrade."
+      - "2026-05-27 01:10 EDT validation passed: ChatGPT research pack validates, dream validate --latest passes, CODEX_WORK_REGISTER validates with 18 workstreams, ARTIFACT_REGISTRY validates with 8 artifacts, OS doctor daily and release/self-test pass, py_compile passes with PYTHONPYCACHEPREFIX, and git diff --check passes."
+    last_verified: "2026-05-27T01:10:00-04:00"
+    next_check: "after first ChatGPT UI research run, decide whether the transcript pack and policy need tuning"
+    stale_after: "2026-06-03T10:00:00-04:00"
+    handoff_summary: >
+      ChatGPT UI is now a delegated research/critique lane. It may be used
+      without another permission loop for sanitized prompts, including dream
+      science and agentic OS design research, but it cannot transmit sensitive
+      state, upload files, spend credits, change accounts, or mutate external
+      systems without action-time approval. Treat output as leads until
+      verified and store transcripts under agent_context/local/chatgpt_research/.
+      The dream engine now emits typed evidence, reflection cards, quality
+      gates, runbook proposals, and readiness metrics for new dream runs.
+
+  - workstream_id: hp26_photon_id_talk
+    title: P0 Campaign | HP2026 Photon Talk
+    status: active
+    priority: P0
+    goal: >
+      Use HPslides_v1 as the truth-base deck for the first Hard Probes
+      photon-identification slide package, then send Anne and Anthony a clean
+      draft by Thursday.
+    current_next_action: >
+      Build the Thursday Anne/Anthony draft from HPslides_v1 and accepted
+      PPG12/reference material first: title, photon motivation, sPHENIX photon
+      selection, accepted photon results, Justin analysis connection, and
+      backup. Treat generic June approval dates as background unless the draft
+      exposes a need for new unapproved plots.
+    depends_on: []
+    active_codex_session: null
+    chat_label_or_thread: "hard probes slide generator chat"
+    campaign_id: "hp2026_photon_talk"
+    linear_issue: "https://linear.app/thesisanalysis/issue/THE-5/p0-campaign-or-hp2026-photon-talk"
+    linear_sync: synced
+    today_doc_anchor: "2026-05-28 Today's Plan: Do First Today / THE-5"
+    workstream_spec: null
+    active_jobs: []
+    artifacts:
+      - "https://docs.google.com/document/d/1uOcPwHg3HlXjTz5-UcylUUT2gRWX0iWwapypdXjwsSA/edit?usp=drivesdk"
+      - "https://docs.google.com/presentation/d/1nJpVvJSx-_oC6pOCESUYbX31kbZZsPhTR7HloMnOT9Y/edit?slide=id.g3ae68be393c_1_58#slide=id.g3ae68be393c_1_58"
+      - "https://docs.google.com/presentation/d/17g8Zor1lIaRVT2OPezeDceYEe_TJH4uSvFsGoZK4niw/edit?slide=id.g3ae68be393c_1_64#slide=id.g3ae68be393c_1_64"
+      - "https://indico.cern.ch/event/1428985/"
+      - "https://indico.cern.ch/event/1428985/timetable/?view=standard_inline_minutes"
+      - "usefulDocs/20260506_DIS_YeonjuGo.pdf"
+      - "usefulDocs/Moriond2026StefanBathe.v1.pdf"
+      - "usefulDocs/sPHENIX_AUM2026_jet_and_photon_measurement.pdf"
+      - "usefulDocs/HP2026_photon_reference_deck_linearization.md"
+      - "https://docs.google.com/document/d/1rv67EALKbPIOjRhDIISi5hQ1q7rs3ff9QKYuX451fbc/edit?usp=drivesdk"
+    evidence:
+      - "Justin reported Speakers Bureau nomination for Hard Probes / HP26 photon-identification talk at Vanderbilt."
+      - "Outlook thread 'Invitation to present a sPHENIX talk HP2026' from Marzia Rosati, 2026-03-12, invited Justin to present 'sPHENIX measurement of isolated prompt photon production in p+p collisions' at HP2026 in Nashville, Tennessee."
+      - "HP2026 Indico lists the event as 2026-06-21 through 2026-06-26 at Vanderbilt University, Nashville, Tennessee, timezone America/Chicago."
+      - "HP2026 Indico timetable lists Justin's contribution 'sPHENIX measurement of isolated prompt photon production in p+p collisions at 200 GeV' in Parallels: E&M on Wednesday 2026-06-24, 16:00-16:20 America/Chicago, duration 20m."
+      - "HP2026 presenter instructions list parallel presentations as 20 minutes total: 15 minutes talk plus 5 minutes questions."
+      - "HP2026 public participant list showed 305 participants when checked on 2026-05-26."
+      - "Justin clarified on 2026-05-26 that the near-term governing milestone is sending Anne and Anthony draft photon-ID slides by Thursday, not the generic June approval schedule."
+      - "Justin created HPslides_v1 on 2026-05-26 and designated it as the truth base for version 1 HP slides."
+      - "Use accepted PPG12 material from the most recent IAN/paper and the reference baseline deck before deciding whether new Justin-made plots need approval."
+      - "2026-05-26 Justin requested a dedicated Google Doc inventory of targeted reference slides, with read-only Outlook search and ranked source/reuse-risk notes."
+      - "2026-05-26 created and read back the HP2026 Photon Talk Reference Slide Inventory Google Doc, linked it from Linear THE-5, and ranked HPslides_v1, PrelimSlides_v1_12_4_25, PPG12/IRC04292026.pdf, Shuhang PPG12 IAN/DNP slides, Yeonju DIS2026 slides, and internal BDT decks."
+      - "Read-only Outlook and Indico search found BNL Indico event 32586 with Shuhang Li and Yeonju Go PPG12/IRC Analysis Overview plus IRC04292026.pdf, and event 32998 with Justin/Blair JSTG_5_20_26_final_V3.pdf."
+      - "2026-05-26 read-only Outlook follow-up confirmed Yeonju Go DIS2026 slides for 'sPHENIX measurements of jet and isolated photon production in p+p collisions at RHIC' with Invenio record c51tr-1z508, and Hanpu Jiang's AUM Jet & photon measurement workshop attachment 'sPHENIX AUM2026 jet & photon measurement.pdf'."
+      - "2026-05-26 read-only Outlook follow-up confirmed Stefan Bathe's Moriond QCD jets-and-photons talk email, listed as 15+5 minutes for 2026-03-26, with Invenio record 2kywn-rnr04, plus Moriond proceedings / Jet and Photon Measurements with sPHENIX record vhyn5-1gd66."
+      - "2026-05-26 Justin rejected the photon+jet kickoff Indico event as irrelevant for this HP prompt-photon talk; it was removed from the ranked inventory."
+      - "2026-05-26 polished the HP2026 Photon Talk Reference Slide Inventory into a click-first source-control document with a fast link shelf, status legend, priority lanes, best-source picks, source evidence log, and next-inspection queue; connector readback plus HTML/PDF export checks confirmed structure and clickable source links."
+      - "2026-05-26 projected the polished inventory update to Linear THE-5 in comment 4b7cf028-741f-4dcf-b922-7cf8eceb88f6."
+      - "2026-05-26 copied Yeonju DIS2026, Stefan Moriond QCD 2026, and Hanpu AUM 2026 PDFs into usefulDocs; SHA-256 checks confirmed each repo copy matches the source file byte-for-byte."
+      - "2026-05-26 extracted text from the three reference PDFs, sampled key photon slides visually, and wrote usefulDocs/HP2026_photon_reference_deck_linearization.md with a proposed 11-slide / 15-minute photon-only HP arc and reuse targets."
+      - "2026-05-26 projected the reference deck linearization update to Linear THE-5 in comment 49263cb5-5eda-4c7b-86d7-f4c325ab67ec."
+      - "2026-05-26 created the HP2026 Photon Talk Scratch Outline Google Doc and read back its heading structure and source links; it frames Justin's unique story as an audit trail from raw EMCal clusters to isolated/tight candidates, purity correction, unfolding, cross section, and future gamma-jet baseline."
+      - "2026-05-26 projected the HP2026 Photon Talk Scratch Outline update to Linear THE-5 in comment f7dd1160-5736-464f-87d2-49cce9d1272d."
+      - "2026-05-28 daily cockpit kept HPslides_v1, the WORKING POINT deck, and the reference baseline deck at the top; HP talk remains the first Do First item."
+    last_verified: "2026-05-28T10:18:00-04:00"
+    next_check: "today: convert HPslides_v1 into the Thursday Anne/Anthony draft and decide whether accepted PPG12/reference material is enough"
+    stale_after: "2026-05-29T10:00:00-04:00"
+    handoff_summary: >
+      Governing deadline driver is HPslides_v1 and the Thursday draft to Anne
+      and Anthony. The confirmed HP2026 slot is a parallel oral in Parallels:
+      E&M on Wednesday 2026-06-24, 16:00-16:20 America/Chicago at Vanderbilt
+      University, with 15 minutes for the talk and 5 minutes for questions.
+      The reference inventory now prioritizes HPslides_v1, current PPG12
+      sources, Yeonju DIS2026, Hanpu AUM, and Stefan Moriond/proceedings; the
+      photon+jet kickoff Indico event is deliberately excluded as irrelevant.
+      Keep generic June approval dates as background context only. Immediate
+      checklist: use the dedicated reference-slide inventory to inspect
+      IRC04292026.pdf, Yeonju DIS2026 slides, Shuhang PPG12 sources, and
+      sPH-CONF-JET-2025-02; make a cleaner title slide image; prune photon+jet
+      and generic preliminary slides; then build the cleanest photon-only PPG12
+      story from the current IAN/paper. After Thursday iteration, decide whether
+      missing pieces require new plots and approval.
+
+  - workstream_id: pp_exact_stitch_ppg12_baseline
+    title: pp Exact-Stitch + PPG12 Baseline
+    status: done_pending_review
+    priority: P0
+    goal: >
+      Establish the pp photon-ID baseline with exact stitching and PPG12-style
+      comparisons before using it as approval-facing reference evidence.
+    current_next_action: >
+      Stitching physics/QA is accepted by Justin. Remaining work is
+      presentation cleanup only: simplify and polish slides 8-11
+      qualitatively, without changing the validated stitching inputs unless
+      Justin asks.
+    depends_on:
+      - avoid duplicate pp reruns
+      - inspect ROOT outputs after current DAG closes
+    active_codex_session: null
+    chat_label_or_thread: "pp photon 0.5 exact stitch watchdog"
+    linear_issue: "https://linear.app/thesisanalysis/issue/THE-6/run-stitching-or-pp-exact-stitch-ppg12-baseline"
+    linear_sync: synced
+    today_doc_anchor: "2026-05-26 Today's Plan: DONE THE-6 pp Exact-Stitch + PPG12 Baseline"
+    workstream_spec: null
+    active_jobs: []
+    artifacts:
+      - "/sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_exactStitchPhoton0p5_20260526_1307"
+      - "/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_basev3E_currentIAN_exactStitchPhoton0p5_20260526_1307"
+      - "/sphenix/u/patsfan753/scratch/thesisAnalysis/output_pp_photon0p5_recovery_20260526_1618"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_exactStitchPhoton0p5_20260526_1307/slide_assets/pp_currentIAN_photon_truth_stitch_slide8_side_by_side_insitu_contract.png"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_exactStitchPhoton0p5_20260526_1307/slide_assets/pp_exactstitch_slide8_photon_side_by_side_current_rhs.png"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_exactStitchPhoton0p5_20260526_1307/slide_assets/slide10_pp_photon_jet_stitch_current_replacement.png"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_exactStitchPhoton0p5_20260526_1307/validation/insitu_stitching/pp_currentian_photon0p5_exactstitch_contract_points.csv"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_exactStitch_20260523_0915/slide_assets/pp_jet8_xsec_old_vs_wiki_comparison_slide.png"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_exactStitch_20260523_0915/slide_assets/slide9_pp_inclusive_jet_stitch_current_replacement.png"
+    evidence:
+      - "Active heartbeat automation pp-photon-0-5-exact-stitch-watchdog records exact tag, destination root, run root, and DAGMan clusters."
+      - "2026-05-26 15:29 EDT read-only sphnxuser05 check: condor_q showed 36 active JobStatus=2 rows and 0 held rows for clusters 5387692/5387694/5387696 plus workers 5387693/5387695/5387697; destination root contains 3000 ROOT files under isSim/preselectionNewPPG12_tightReference_nonTightReference."
+      - "2026-05-26 15:52 EDT Gmail/SDCC diagnosis: photonjet5/photonjet10 extraction completed, but auto firstRound merge/check failed in POST return 31 after nested merge DAGs were removed with SIGUSR1/DAG_STATUS_RM; photonjet10 partials included 589-byte ROOT skeletons. Photonjet20 firstRound merge remained active and had earlier 2048 MB memory holds followed by auto-release."
+      - "2026-05-26 16:01 EDT merge-only recovery submitted on sphnxuser05: photonjet5 DAG 5387727/workers 5387728 and photonjet10 DAG 5387729/workers 5387730, both using groupSize=100 and RJ_SIM_FIRSTROUND_REQUEST_MEMORY=8000MB from the existing extraction ROOTs. No BDT or extraction rerun was submitted."
+      - "2026-05-26 16:20 EDT found and patched mergeRecoilJets.sh local secondRound cleanup bug: sample-specific secondRound previously removed the whole cfg partial directory; patch limits cleanup to chunkMerge_<sample>_grp*.root. Uploaded patched script to SDCC and verified remote bash -n."
+      - "2026-05-26 16:20 EDT started clean isolated merge base /sphenix/u/patsfan753/scratch/thesisAnalysis/output_pp_photon0p5_recovery_20260526_1618 to avoid polluted output/sim partials. Clean firstRound DAGs: 5390493/5390494 photonjet5, 5390495/5390496 photonjet10, 5390497/5390498 photonjet20, all groupSize=100 and 8000MB."
+      - "2026-05-26 15:52 EDT Gmail/SDCC diagnosis: sim_firstRound_sim_all CHECK and auto_sim_final_ready FAILED for photonjet5/photonjet10; SIM_FIRSTROUND POST returned 31 after nested merge DAGs were removed with SIGUSR1/DAG_STATUS_RM. photonjet10 chunkMerge grp001-grp003 are 589 bytes; photonjet20 nested merge has 5387719/5387720 still running after 2048 MB memory holds and auto-release."
+      - "2026-05-26 16:46 EDT clean finalStitch succeeded after patching ReadEventCountFromFile to fall back from missing cnt_SIM to SIM/h_ppPhotonStitch_ppg12TruthSpectrum_metadata events_processed. Final ROOT: /sphenix/u/patsfan753/scratch/thesisAnalysis/output_pp_photon0p5_recovery_20260526_1618/sim/preselectionNewPPG12_tightReference_nonTightReference/photonJet5and10and20merged_SIM/RecoilJets_photonjet5plus10plus20_MERGED.root, size 241 MB."
+      - "2026-05-26 16:50 EDT ROOT readback of final stitched file found SIM/h_ppPhotonStitch_ppg12Fig5_maxPhotonPt_all with 120 bins, 0-60 GeV, 0.5 GeV/bin. Compact photon-only contract CSV/JSON generated with 360 rows using the Fig.5 histograms and pulled locally with the regenerated PNG."
+      - "2026-05-26 16:59 EDT invalidated the first pulled photon PNG/CSV because the comparator recursively misclassified the final RecoilJets_photonjet5plus10plus20_MERGED.root as an extra photonjet5 source. Patched scripts/compare_pp_currentian_insitu_stitch_contract.py to reject plus/merged combo ROOTs, uploaded it, regenerated compact CSV/JSON/PNG, and pulled them locally. Corrected CSV has 360 rows, exactly one source file per photon sample, events_processed_metadata 6.339172M/6.322770M/6.297707M for photon5/10/20, 0.5 GeV bins, and the rendered ratio is flat near 1.0."
+      - "2026-05-26 17:18 EDT Justin accepted the stitching results as good. Remaining work is qualitative cleanup/simplification of slides 8-11; stitching QA itself is complete and should not block ET/eta reweighting validation."
+      - "2026-05-26 17:18 EDT generated slide-facing artifacts: pp_exactstitch_slide8_photon_side_by_side_current_rhs.png and slide10_pp_photon_jet_stitch_current_replacement.png. The slide-8 title was corrected to remove baked-in slide numbering."
+      - "2026-05-26 20:45 EDT Computer Use read the sPHENIX Jet Structure Topical Group wiki Pythia simulations table and found jet8 weight 1.3013e7 pb, while local code had 1.15e7 pb. Patched local constants in AnalyzeRecoilJets.h, src/RecoilJets.cc, compact comparators, mergeRecoilJets.sh, and the PPG12 current-IAN stitching contract note."
+      - "2026-05-26 20:50 EDT no Condor rerun was needed: regenerated the inclusive-jet compact QA from the same in-situ raw counts with only jet8 xsec changed to 1.3013e7 pb. Updated slide9_pp_inclusive_jet_stitch_current_replacement.png is 2560x1440; comparison slide pp_jet8_xsec_old_vs_wiki_comparison_slide.png is 2560x1440. Updated jet boundary QA passes; jet8->jet12 display L/R is 1.670 and same-bin overlap max deviation is 7.65%."
+    last_verified: "2026-05-26T20:50:00-04:00"
+    next_check: "only if Justin asks for slide 8-11 cleanup"
+    stale_after: "2026-05-27T12:00:00-04:00"
+    handoff_summary: >
+      Stitching QA is complete and accepted by Justin. The clean isolated merge base
+      output_pp_photon0p5_recovery_20260526_1618 produced clean secondRound
+      roots and a successful finalStitch after the metadata-denominator patch.
+      The accepted photon stitching candidate uses Justin/RecoilJets in-situ
+      SIM/h_ppPhotonStitch_ppg12Fig5_* histograms with 0.5 GeV bins and
+      metadata events_processed normalization. The first pulled candidate was
+      invalid because the comparator included the final merged combo ROOT as
+      photonjet5; use only artifacts regenerated after the merged-output
+      guard. Inclusive-jet compact QA now uses the wiki jet8 cross section
+      1.3013e7 pb, not the older local 1.15e7 pb; this was a downstream
+      reweight of existing in-situ counts, not a Condor rerun. Remaining work
+      is slide cleanup for slides 8-11 only. Next science gate is ET/eta
+      reweighting validation before pp BDT training and Shuhang overlays.
+
+  - workstream_id: pp_stitching_slides_8_11_cleanup
+    title: P1 Closure | pp Stitching Slides 8-11 Cleanup
+    status: active
+    priority: P1
+    goal: >
+      Turn the accepted pp stitching QA results into clean, readable slides
+      8-11 without changing the validated photon+jet or inclusive-jet
+      stitching inputs.
+    current_next_action: >
+      Simplify slide text, improve qualitative readability, remove stale
+      wording, and preserve the accepted plots/numbers for slides 8-11.
+    depends_on:
+      - pp_exact_stitch_ppg12_baseline
+    active_codex_session: null
+    chat_label_or_thread: null
+    campaign_id: "ppg12_baseline_match"
+    linear_issue: "https://linear.app/thesisanalysis/issue/THE-16/p1-closure-or-pp-stitching-slides-8-11-cleanup"
+    linear_sync: synced
+    today_doc_anchor: "2026-05-27 Today's Plan: Active Workstreams / THE-16"
+    workstream_spec: null
+    active_jobs: []
+    artifacts:
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_exactStitchPhoton0p5_20260526_1307/slide_assets/pp_exactstitch_slide8_photon_side_by_side_current_rhs.png"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_exactStitchPhoton0p5_20260526_1307/slide_assets/slide10_pp_photon_jet_stitch_current_replacement.png"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_exactStitch_20260523_0915/slide_assets/pp_exactstitch_slide9_jet_side_by_side_current_rhs.png"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_exactStitch_20260523_0915/slide_assets/slide9_pp_inclusive_jet_stitch_current_replacement.png"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_exactStitch_20260523_0915/slide_assets/pp_jet8_xsec_old_vs_wiki_comparison_slide.png"
+    evidence:
+      - "2026-05-26 17:18 EDT Justin accepted stitching results and explicitly said remaining stitching work is qualitative cleanup/simplification of slides 8-11."
+      - "Generated slide PNG titles must not include baked-in slide numbers; Justin handles numbering automatically."
+      - "2026-05-26 regenerated slide10_pp_photon_jet_stitch_current_replacement.png with the same 1920-to-2560 full-slide geometry as the inclusive-jet counterpart, fixing the smushed/narrow LHS plot layout on the photon+jet further-information slide."
+      - "2026-05-26 20:50 EDT regenerated the inclusive-jet further-information PNG after updating jet8 xsec to the wiki value 1.3013e7 pb, and produced pp_jet8_xsec_old_vs_wiki_comparison_slide.png as the before/after check."
+    last_verified: "2026-05-26T20:50:00-04:00"
+    next_check: "when Justin asks to clean slides 8-11 or approve slide candidates"
+    stale_after: "2026-05-28T12:00:00-04:00"
+    handoff_summary: >
+      This is presentation cleanup only. Do not reopen stitching physics unless
+      Justin explicitly asks. Preserve accepted in-situ photon 0.5 GeV and
+      inclusive-jet QA outputs; improve readability and narrative flow.
+
+  - workstream_id: pp_reco_cluster_et_leakage_slide
+    title: P1 Closure | pp Reco-Cluster ET Leakage Slide
+    status: review
+    priority: P1
+    goal: >
+      Produce the pp counterpart of the Au+Au slide-7 reco-cluster ET leakage
+      check, using Justin/RecoilJets pp inclusive output trees and wiki-updated
+      pp inclusive cross sections.
+    current_next_action: >
+      Show the extended-50 pp reco-cluster ET leakage PNG to Justin for
+      slide-asset review; no further job monitoring or rerun unless Justin
+      asks.
+    depends_on:
+      - pp_exact_stitch_ppg12_baseline
+      - pp_stitching_slides_8_11_cleanup
+    active_codex_session: null
+    chat_label_or_thread: "pp reco-cluster ET leakage slide"
+    campaign_id: "ppg12_baseline_match"
+    linear_issue: "https://linear.app/thesisanalysis/issue/THE-16/p1-closure-or-pp-stitching-slides-8-11-cleanup"
+    linear_sync: synced
+    today_doc_anchor: "2026-05-27 Today's Plan: Waiting / Review / THE-16 pp reco-cluster ET leakage"
+    workstream_spec: null
+    active_jobs: []
+    artifacts:
+      - "/sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_exactStitch_20260523_0915"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/scripts/make_pp_reco_cluster_et_leakage_slide.py"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_exactStitch_20260523_0915/validation/reco_cluster_et_leakage/pp_reco_cluster_et_leakage_components.csv"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_exactStitch_20260523_0915/validation/reco_cluster_et_leakage/pp_reco_cluster_et_leakage_summary.json"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_exactStitch_20260523_0915/slide_assets/pp_reco_cluster_et_leakage_slide7_style.png"
+      - "/sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_recoEtExt50_20260527_0045/isSimInclusive"
+      - "/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_basev3E_currentIAN_recoEtExt50_20260527_0045/analysis_config_ppg12_basev3E_currentIAN_recoEtExt50_20260527_0045.yaml"
+      - "/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_basev3E_currentIAN_recoEtExt50_20260527_0045/submit_recoEtExt50_ppg12_basev3E_currentIAN_recoEtExt50_20260527_0045.log"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_recoEtExt50_20260527_0045/validation/reco_cluster_et_leakage/pp_reco_cluster_et_leakage_components.csv"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_recoEtExt50_20260527_0045/validation/reco_cluster_et_leakage/pp_reco_cluster_et_leakage_summary.json"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_recoEtExt50_20260527_0045/slide_assets/pp_reco_cluster_et_leakage_slide7_style.png"
+    evidence:
+      - "2026-05-26 23:46 EDT user explicitly approved implementation of the pp reco-cluster ET leakage slide plan."
+      - "Scope is not the truth-stitch spectrum: read AuAuPhotonIDTrainingTree/cluster_Et from run28_jet8/12/20/30/40 under the accepted pp exact-stitch inclusive root."
+      - "Weights requested by Justin are wiki-updated pp inclusive cross sections: jet8=1.3013e7 pb, jet12=1.4903e6 pb, jet20=6.2623e4 pb, jet30=2.5298e3 pb, jet40=1.3553e2 pb, normalized by in-situ metadata events_processed and 1 GeV bin width."
+      - "2026-05-26 23:46 EDT SDCC read-only probe using launchctl SSH_AUTH_SOCK plus nested ssh succeeded; source root exists and sample directories contain ROOT files."
+      - "2026-05-27 00:16 EDT remote tmux pp_reco_cluster_et_leakage_20260526_2348 finished with EXTRACT_RC=0 after reading all 5000 pp inclusive ROOT files directly; no Condor fallback was used."
+      - "2026-05-27 00:18 EDT compact QA passed locally: 225 rows, five samples, 1 GeV bins from 5-50 GeV, all denominators positive, finite weights, and fraction-sum max deviation 2.22e-16. The tree support is populated from about 6-35 GeV."
+      - "2026-05-27 00:22 EDT Linear THE-16 comment 3d63faf9-c9fd-493c-8bcd-494755d3fe0d and Today's Plan were updated with the source root, weighting formula, QA, and local PNG path."
+      - "2026-05-27 00:45 EDT Justin rejected the 12-50 display-only PNG because the underlying pp tree support stopped around 35 GeV. Diagnosis matches the known producer-range issue: cluster candidates above the last jes3_photon_pt_bins edge are not written, so plotting wider is not sufficient."
+      - "2026-05-27 00:47 EDT submitted a focused pp isSimInclusive rerun for tag ppg12_basev3E_currentIAN_recoEtExt50_20260527_0045 using a copied YAML with jes3/unfold photon pT bins extended to [5,8,10,12,14,16,18,20,22,24,26,35,40,50]. Scope is only run28_jet8/12/20/30/40, groupSize 10, current-IAN row match preselectionNewPPG12_tightReference_nonTightReference, destination root under ppPhotonMLPipeline."
+      - "DAGMan clusters submitted on sphnxuser05: 5434421 jet8, 5434423 jet12, 5434425 jet20, 5434427 jet30, 5434429 jet40. Immediate matched worker snapshot after submit showed status 1 idle=3777, status 2 running=223, rows=4000, with no held rows reported by that query."
+      - "2026-05-27 00:49 EDT health check: all five DAGMan parents status 2 running; matched worker query for the tag showed 5000 rows with status 1 idle=4349, status 2 running=651, and no held workers."
+      - "2026-05-27 00:50 EDT Linear THE-16 comment 7ef6dc9c-b27b-4576-b35d-ad8b98bec519 recorded the extended-50 rerun scope, clusters, and next action."
+      - "2026-05-27 02:19 EDT health check: all five DAGMan parents still status 2 running with no hold reasons; matched worker query showed 3948 status-2 workers and zero held rows; all five run28_jet8/12/20/30/40 output directories already contain 1000 ROOT files."
+      - "2026-05-27 02:49 EDT health check: all five DAGMan parents still status 2 running with no hold reasons; matched worker query showed 1507 status-2 workers and zero held rows; all five sample directories remain at 1000 ROOT files."
+      - "2026-05-27 03:19 EDT health check: DAG parent 5434421 jet8 had completed successfully in condor_history with JobStatus 4 and ExitCode 0; remaining DAG parents 5434423/5434425/5434427/5434429 were still status 2 running with no hold reasons; matched worker query had drained to 331 status-2 rows; all five sample directories remain at 1000 ROOT files."
+      - "2026-05-27 03:49 EDT health check: only DAG parents 5434427 jet30 and 5434429 jet40 remained status 2 running with no hold reasons; matched worker query had drained to 14 status-2 rows; all five sample directories remain at 1000 ROOT files."
+      - "2026-05-27 04:19 EDT health check: DAG parents 5434427 jet30 and 5434429 jet40 still status 2 running with no hold reasons, matched worker query for the tag showed rows=0, and all five sample directories remain at 1000 ROOT files. Extraction remains gated on parent DAG closure."
+      - "2026-05-27 04:49 EDT health check: all DAG parents had cleared condor_q, matched worker query showed rows=0, and all five sample directories had 1000 ROOT files."
+      - "2026-05-27 05:22 EDT compact extraction from the extended-50 rerun completed over all 5000 ROOT files and wrote CSV/JSON locally; QA passed with 225 rows, five samples, 1 GeV bins 5-50, finite weights, positive denominators, fraction closure 2.22e-16, and nonzero raw support in the 35-50 aggregate from jet30/jet40."
+      - "2026-05-27 05:23 EDT rendered 2560x1440 PNG pp_reco_cluster_et_leakage_slide7_style.png and visually inspected it. Caveat: the extended rerun restores support above 35 GeV, but cluster_Et maxima in the extracted trees are still about 40 GeV, so 40-50 remains empty on the 12-50 display."
+    last_verified: "2026-05-27T05:23:00-04:00"
+    next_check: "when Justin reviews the extended-50 PNG"
+    stale_after: "2026-05-28T12:00:00-04:00"
+    handoff_summary: >
+      The first direct extraction proved the old pp exact-stitch trees were
+      truncated at about 35 GeV. The extended-50 rerun
+      ppg12_basev3E_currentIAN_recoEtExt50_20260527_0045 completed, compact
+      CSV/JSON QA passed, and the local 2560x1440 PNG exists under
+      dataOutput/ppPhotonMLPipeline/.../slide_assets. Next step is Justin
+      visual review only; do not keep monitoring old DAGs or rerun without
+      explicit request.
+
+  - workstream_id: jet40_embedded_inclusive_stitching
+    title: Jet40 + Embedded-Inclusive Stitching
+    status: done_pending_review
+    priority: P0
+    goal: >
+      Add Jet40 to embedded-inclusive stitching so the four-background-sample
+      model path can be evaluated without relying on incomplete backgrounds.
+    current_next_action: >
+      Complete. Preserve the local CSV/JSON/PNG evidence; reopen only if Justin
+      asks to mutate Google Slides, revise the figure design, or promote the
+      four-sample diagnostic path into a default production setting.
+    depends_on: []
+    active_codex_session: null
+    chat_label_or_thread: "Jet40 extended 50 GeV diagnostic"
+    linear_issue: "https://linear.app/thesisanalysis/issue/THE-7/run-stitching-or-jet40-embedded-inclusive"
+    linear_sync: synced
+    today_doc_anchor: "2026-05-26 - Today's Plan: done"
+    workstream_spec: null
+    active_jobs: []
+    artifacts:
+      - "/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/analysis_config_jet40_ext50_20260526_1947.yaml"
+      - "/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/jet40_ext50_20260526_1947/checkjobs.log"
+      - "/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_generated_configs/jet40_ext50_20260526_1947/submit.log"
+      - "/sphenix/tg/tg01/bulk/jbennett/thesisAna/simembeddedinclusive_jet40_ext50_20260526_1947"
+      - "/sphenix/u/patsfan753/scratch/thesisAnalysis/output_jet40_ext50_20260526_1947"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/stitchDiagnostics/focus21_clusterEt_leakage_jet1234_20260526/inclusive_jet1234_reco_cluster_et_leakage_slide7_followup_12to50.png"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/stitchDiagnostics/focus21_clusterEt_leakage_jet1234_20260526/inclusive_jet1234_reco_cluster_et_weighted_components_blair_12to50.png"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/stitchDiagnostics/focus21_clusterEt_leakage_jet1234_20260526/inclusive_jet1234_reco_cluster_et_weighted_components_fine1gev12to50.csv"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/stitchDiagnostics/focus21_clusterEt_leakage_jet1234_20260526/inclusive_jet1234_reco_cluster_et_weighted_components_fine1gev12to50_summary.json"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/stitchDiagnostics/jet40_slide6_spectrum_20260526/embedded_inclusive_jet1234_stitch_filterjetpt_slide6.png"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/stitchDiagnostics/jet40_slide6_spectrum_20260526/embedded_inclusive_jet1234_stitch_filterjetpt_slide6.csv"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/stitchDiagnostics/jet40_slide6_spectrum_20260526/embedded_inclusive_jet1234_stitch_filterjetpt_slide6_summary.json"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/macros/MakeEmbeddedInclusiveJet40Slide6Replacement.C"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/stitchDiagnostics/jet40_slide6_spectrum_20260526/inclusive4_stitch_bins.csv"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/stitchDiagnostics/jet40_slide6_spectrum_20260526/embeddedInclusiveJet12plus20plus30plus40_slide6_replacement.png"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/stitchDiagnostics/jet40_slide6_spectrum_20260526/embeddedInclusiveJet12plus20plus30plus40_slide6_replacement_summary.json"
+    evidence:
+      - "Targeted retry submitted after broad 15-cfg attempts failed memory: tag simembeddedinclusive_20260526_153853, DAGMan 5387721, RJ_PHOTON_ID_ROW_MATCH=reference|reference|reference, RJ_ID_FANOUT_MAX_ROWS=1, one final cfg tag."
+      - "Active heartbeat automation check-jet40-stitch-dag records tag simembeddedinclusive_20260526_153853 and DAGMan cluster 5387721."
+      - "2026-05-26 18:07 EDT final READY email for auto_simembeddedinclusive_final_ready reported rescue_file_count=0 and codex_chat_name=EmbJet40Incorporation; DAGMan 5387721 exited status 0 and final four-sample ROOT exists at /sphenix/u/patsfan753/scratch/thesisAnalysis/output/simembeddedinclusive/preselectionReference_tightReference_nonTightReference_baseVariant/embeddedJet12and20and30and40merged_SIM/RecoilJets_embeddedJet12plus20plus30plus40_MERGED.root."
+      - "2026-05-26 18:32 EDT compact 12-50 CSV/JSON and two PNG candidates were generated locally from the final chunk files and visually inspected as nonblank; no Google Slides were modified."
+      - "2026-05-26 19:45 EDT follow-up diagnosis: current 12-50 histograms have valid 12-50 binning but zero entries above 35 because RecoilJets rejects candidates when findPtBin(pt_gamma) is outside cfg.jes3_photon_pt_bins, and the current config ends at 35."
+      - "2026-05-26 19:47 EDT duplicate/preflight guard: unique extraction base /sphenix/tg/tg01/bulk/jbennett/thesisAna/simembeddedinclusive_jet40_ext50_20260526_1947 and unique merge base /sphenix/u/patsfan753/scratch/thesisAnalysis/output_jet40_ext50_20260526_1947 were clear; CHECKJOBS reported 1 upstream cfg, 1 final cfg, four samples, 5716 total jobs, and jes3_photon_pt_bins extended to [5,8,10,12,14,16,18,20,22,24,26,35,40,50]."
+      - "2026-05-26 19:50 EDT submitted extended diagnostic auto-DAG 5434370 with RJ_CODEX_CHAT_NAME=EmbJet40Incorporation, RJ_PHOTON_ID_ROW_MATCH=reference|reference|reference, RJ_ID_FANOUT_MAX_ROWS=1, RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES=1, RJ_RECO_CLUSTER_ET_FINE_MAX=50, 6000 MB workers with 8000 MB retry cap, and 8000 MB merge memory."
+      - "2026-05-26 19:51 EDT immediate queue check showed idle=2858, running=1, held=0; DAGMan log showed DAG_STATUS_OK and 0 held job procs while first two analysis nodes were being submitted."
+      - "2026-05-26 20:24 EDT heartbeat: DAGMan 5434370 and child clusters were still active with matched queue idle=0, running=3873, held=0, other=0; DAGMan log showed ongoing successful Jet20 worker completions, no rescue file was present, and the extended final ROOT under output_jet40_ext50_20260526_1947 was not yet written. RecoilJets Pipeline label had 0 unread messages; searches for jet40_ext50_20260526_1947 and simembeddedinclusive_20260526_194846 found no current-run email yet."
+      - "2026-05-26 20:41 EDT generated the slide-6-style Jet12+20+30+40 stitched max truth-jet filter-pT spectrum from completed DAG 5387721 chunkMerge files. The plot uses h_embedInclusiveStitch_filterJetPt_kept, ownership windows 12-21/21-31/31-41/>=41 GeV, and relative sigma/Nraw weights Jet12=9881.07, Jet20=425.51, Jet30=18.43, Jet40=1.0. PNG/CSV/JSON were saved under dataOutput/stitchDiagnostics/jet40_slide6_spectrum_20260526 and visually inspected as populated through 50 GeV."
+      - "2026-05-26 20:54 EDT replaced the provisional slide-6 spectrum recreation with a ROOT macro copied from MakeEmbeddedInclusiveJetSlide5Replacement.C and retargeted only for Jet12+20+30+40. The final candidate uses the same 1 GeV CSV contract, log-space modified-power-law fit A*(1/x)^(b + c ln(x) + d x), spectrum/ratio panel, and ownership stitching. ROOT wrote embeddedInclusiveJet12plus20plus30plus40_slide6_replacement.png; visual QA passed. Boundary jumps are 21 GeV=0.991, 31 GeV=1.056, 41 GeV=1.007."
+      - "2026-05-26 20:56 EDT heartbeat: extended-50 DAG 5434370 is healthy and still active. Top DAG is running, DAG_STATUS_OK, 0 held procs, no rescue files, and no final ROOT yet. Analysis fanout completed 5716/5716 successfully by 20:54; SIM_FIRSTROUND started and completed its submit node, and the user queue then showed 80 idle merge workers, 0 running, 0 held. Relevant RecoilJets Pipeline STARTED email for sim_firstRound_simembeddedinclusive_all had codex_chat_name=EmbJet40Incorporation and was marked read; pipeline unread count is now 0."
+      - "2026-05-26 21:14 EDT user status check: extended-50 DAG 5434370 is not complete yet. Top DAG is still running, DAG_STATUS_OK, 0 held, no rescue files, no final ROOT yet, and 80 chunkMerge ROOT files exist under output_jet40_ext50_20260526_1947. User queue on sphnxuser05 showed 57 jobs running, 0 idle, 0 held. RecoilJets Pipeline unread count was 0."
+      - "2026-05-26 21:25 EDT heartbeat: extended-50 DAG 5434370 is still not complete but remains healthy. Top DAG is running, 24 user jobs running, 0 idle, 0 held, no rescue files, no final ROOT yet, and 80 chunkMerge ROOT files remain present under output_jet40_ext50_20260526_1947. RecoilJets Pipeline unread count was 0."
+      - "2026-05-26 21:33 EDT user status check: extended-50 DAG 5434370 is still not complete. Top DAG remains running in SIM_FIRSTROUND POSTRUN, user condor total was 0 idle/running/held, no rescue files, no final ROOT yet, and 80 chunkMerge ROOT files are present with recent writes through 21:33. Gmail RecoilJets Pipeline unread count was 0."
+      - "2026-05-26 21:56 EDT heartbeat: extended-50 DAG 5434370 is not complete but has advanced. SIM_FIRSTROUND and SIM_SECONDROUND both reported READY emails with codex_chat_name=EmbJet40Incorporation; SIM_FINALSTITCH STARTED at 21:47 EDT and is in postrun. Direct check showed top DAG running, 0 held, no rescue files, no final ROOT yet, four sample-level ALL ROOTs present, and 80 chunkMerge ROOTs. Four matching pipeline emails were consumed and marked read; RecoilJets Pipeline unread count is now 0."
+      - "2026-05-26 22:25 EDT heartbeat: extended-50 DAG 5434370 is still not complete but healthy in SIM_FINALSTITCH. Top DAG is running, user queue shows 8 jobs running, 0 idle, 0 held, no rescue files, no final ROOT yet. Sample-level ALL ROOTs for Jet12/20/30/40 and 80 first-round chunkMerge ROOTs exist. No new unread matching pipeline emails after consuming firstRound/secondRound/finalStitch stage emails."
+      - "2026-05-26 22:58 EDT complete: DAGMan 5434370 exited status 0 with rescue_file_count=0. Final ROOT exists at /sphenix/u/patsfan753/scratch/thesisAnalysis/output_jet40_ext50_20260526_1947/simembeddedinclusive/preselectionReference_tightReference_nonTightReference_baseVariant/embeddedJet12and20and30and40merged_SIM/RecoilJets_embeddedJet12plus20plus30plus40_MERGED.root, size 426323154 bytes. Final READY and finalStitch READY emails confirmed codex_chat_name=EmbJet40Incorporation and were marked read; RecoilJets Pipeline unread count is 0. Compact 12-50 CSV/JSON were extracted from the completed remote sample ALL ROOTs, pulled locally, and two PNG candidates were regenerated and visually inspected: inclusive_jet1234_reco_cluster_et_weighted_components_blair_12to50.png and inclusive_jet1234_reco_cluster_et_leakage_slide7_followup_12to50.png. Heartbeat automation check-jet40-ext50-stitch-dag was deleted after completion."
+      - "2026-05-26 23:16 EDT Justin asked to mark the Jet40 validation lane complete across tasks. The slide-7 follow-up PNG was regenerated with the subtitle removed, local task/status notes were moved to complete/done-pending-review, and the remaining action is only optional future Google Slides insertion or figure revision by explicit request."
+    last_verified: "2026-05-26T23:16:00-04:00"
+    next_check: "none; task complete pending eventual archival"
+    stale_after: "2026-06-02T10:00:00-04:00"
+    handoff_summary: >
+      Extended-50 diagnostic completed cleanly and the local task is complete
+      pending archival. The current deliverables are
+      local compact CSV/JSON and two regenerated PNG candidates under
+      dataOutput/stitchDiagnostics/focus21_clusterEt_leakage_jet1234_20260526.
+      No Google Slides mutation has been done.
+
+  - workstream_id: ml_final_model_ablation_map
+    title: P0 Campaign | Final Photon-ID Model Choice
+    status: active
+    priority: P0
+    goal: >
+      Make the final photon-ID model choice defensible by separating necessary
+      BDT production evidence from MLP/stack robustness and ceiling checks.
+    current_next_action: >
+      Monitor the Jet40-inclusive slide-18/19/20 split-study replay submitted
+      on 2026-05-28: three centInput_pt1535 PPG12-exact row-split trainings are
+      running on sphnxuser05 with DAGMan parents 5485863, 5485864, and 5485866.
+      When all three registries are READY, verify overfit_diagnostics and
+      training_history CSVs, then run the matching full-stat score-cache
+      validations and regenerate the three replacement PNGs without mutating
+      Google Slides.
+    depends_on:
+      - duplicate-run guard before any new training
+    active_codex_session: "Codex local session 2026-05-27 THE-8 Branch A"
+    chat_label_or_thread: "THE8BranchAJetLadder"
+    campaign_id: "final_model_choice"
+    codex_thread_id: "019e6700-fd78-7132-a1a6-8e56da820f59"
+    linear_issue: "https://linear.app/thesisanalysis/issue/THE-8/p0-campaign-or-final-photon-id-model-choice"
+    linear_sync: synced
+    today_doc_anchor: "2026-05-28 Today's Plan: Do First Today / THE-8"
+    workstream_spec: "https://docs.google.com/document/d/10x-gi11LHTCLkvSyCg53oWNQWibGAL6b4VuiraWvs4U/edit?usp=drivesdk"
+    active_jobs:
+      - label: "OverfitDiag split 90/10 centInput_pt1535 BDT training"
+        type: "condor_dag"
+        dag_cluster: 5440749
+        stamp: "ppg12_weighted_centinput_overfitdiag_20260527_1458_train90_test10"
+        submit_host: "sphnxuser05.sdcc.bnl.gov"
+        source: "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_eiso_cone_raw_20260518_2220"
+        model_dir: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/ppg12_weighted_centinput_overfitdiag_20260527_1458_train90_test10"
+        submit_root: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTExpanded_ppg12_weighted_centinput_overfitdiag_20260527_1458_train90_test10"
+        status: "READY registry verified; DAGMan parent cleared condor_q as of 2026-05-27T16:19:12-04:00"
+        monitor: null
+        purpose: "Instrumented 90/10 split replay with train/holdout AUC, logloss, Brier, and training-history CSV."
+      - label: "OverfitDiag split 50/50 centInput_pt1535 BDT training"
+        type: "condor_dag"
+        dag_cluster: 5440751
+        stamp: "ppg12_weighted_centinput_overfitdiag_20260527_1458_train50_test50"
+        submit_host: "sphnxuser05.sdcc.bnl.gov"
+        source: "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_eiso_cone_raw_20260518_2220"
+        model_dir: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/ppg12_weighted_centinput_overfitdiag_20260527_1458_train50_test50"
+        submit_root: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTExpanded_ppg12_weighted_centinput_overfitdiag_20260527_1458_train50_test50"
+        status: "READY registry verified; DAGMan parent cleared condor_q as of 2026-05-27T16:19:12-04:00"
+        monitor: null
+        purpose: "Instrumented 50/50 split replay with train/holdout AUC, logloss, Brier, and training-history CSV."
+      - label: "OverfitDiag split 10/90 centInput_pt1535 BDT training"
+        type: "condor_dag"
+        dag_cluster: 5440753
+        stamp: "ppg12_weighted_centinput_overfitdiag_20260527_1458_train10_test90"
+        submit_host: "sphnxuser05.sdcc.bnl.gov"
+        source: "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_eiso_cone_raw_20260518_2220"
+        model_dir: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/ppg12_weighted_centinput_overfitdiag_20260527_1458_train10_test90"
+        submit_root: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTExpanded_ppg12_weighted_centinput_overfitdiag_20260527_1458_train10_test90"
+        status: "READY registry verified; DAGMan parent cleared condor_q as of 2026-05-27T16:19:12-04:00"
+        monitor: null
+        purpose: "Instrumented 10/90 split replay with train/holdout AUC, logloss, Brier, and training-history CSV."
+      - label: "OverfitDiag split 90/10 centInput_pt1535 full-stat validation"
+        type: "condor_dag"
+        dag_cluster: 5465741
+        stamp: "overfitdiag_20260527_1458_train90_test10_fullstat_20260527_1653"
+        submit_host: "sphnxuser05.sdcc.bnl.gov"
+        source: "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_eiso_cone_raw_20260518_2220"
+        model_dir: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/ppg12_weighted_centinput_overfitdiag_20260527_1458_train90_test10"
+        report_root: "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_eiso_cone_raw_20260518_2220/reports/model_validation_condor_overfitdiag_20260527_1458_train90_test10_fullstat_20260527_1653"
+        submit_root: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTValidate_overfitdiag_20260527_1458_train90_test10_fullstat_20260527_1653"
+        status: "READY; validation_summary status=READY with scored_entries=15847490, finite_score_fraction=1, cache_count=25, DAGMan exit status 0 as of 2026-05-27T17:29:51-04:00"
+        monitor: null
+        purpose: "Full-stat validation with scoreMaxRows=0 for paired score-cache diagnostics and slide PNG regeneration."
+      - label: "OverfitDiag split 50/50 centInput_pt1535 full-stat validation"
+        type: "condor_dag"
+        dag_cluster: 5465743
+        stamp: "overfitdiag_20260527_1458_train50_test50_fullstat_20260527_1653"
+        submit_host: "sphnxuser05.sdcc.bnl.gov"
+        source: "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_eiso_cone_raw_20260518_2220"
+        model_dir: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/ppg12_weighted_centinput_overfitdiag_20260527_1458_train50_test50"
+        report_root: "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_eiso_cone_raw_20260518_2220/reports/model_validation_condor_overfitdiag_20260527_1458_train50_test50_fullstat_20260527_1653"
+        submit_root: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTValidate_overfitdiag_20260527_1458_train50_test50_fullstat_20260527_1653"
+        status: "READY; validation_summary status=READY with scored_entries=15847490, finite_score_fraction=1, cache_count=25, DAGMan exit status 0 as of 2026-05-27T17:29:51-04:00"
+        monitor: null
+        purpose: "Full-stat validation with scoreMaxRows=0 for paired score-cache diagnostics and slide PNG regeneration."
+      - label: "OverfitDiag split 10/90 centInput_pt1535 full-stat validation"
+        type: "condor_dag"
+        dag_cluster: 5465744
+        stamp: "overfitdiag_20260527_1458_train10_test90_fullstat_20260527_1653"
+        submit_host: "sphnxuser05.sdcc.bnl.gov"
+        source: "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_eiso_cone_raw_20260518_2220"
+        model_dir: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/ppg12_weighted_centinput_overfitdiag_20260527_1458_train10_test90"
+        report_root: "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_eiso_cone_raw_20260518_2220/reports/model_validation_condor_overfitdiag_20260527_1458_train10_test90_fullstat_20260527_1653"
+        submit_root: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTValidate_overfitdiag_20260527_1458_train10_test90_fullstat_20260527_1653"
+        status: "READY; validation_summary status=READY with scored_entries=15847490, finite_score_fraction=1, cache_count=25, DAGMan exit status 0 as of 2026-05-27T17:29:51-04:00"
+        monitor: null
+        purpose: "Full-stat validation with scoreMaxRows=0 for paired score-cache diagnostics and slide PNG regeneration."
+      - label: "Jet40 split-study 90/10 centInput_pt1535 BDT training"
+        type: "condor_dag"
+        dag_cluster: 5485863
+        stamp: "THE8_jet40_centinput_overfitdiag_20260528_train90_test10"
+        submit_host: "sphnxuser05.sdcc.bnl.gov"
+        source: "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/THE8_branchA_ladder_jet12_20_30_40_20260527"
+        model_dir: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE8_jet40_centinput_overfitdiag_20260528_train90_test10"
+        submit_root: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTExpanded_THE8_jet40_centinput_overfitdiag_20260528_train90_test10"
+        status: "submitted 2026-05-28T11:36:00-04:00; immediate condor_q showed DAGMan parent JobStatus=2 running, RequestMemory=2000, no hold reason"
+        monitor: "heartbeat automation the-8-jet40-splitstudy-overfitdiag"
+        purpose: "Jet40-inclusive replay of the slide-18/19/20 90/10 centInput_pt1535 PPG12-exact row-split model; only intended physics change is inclusion of Jet40 in the background source."
+      - label: "Jet40 split-study 50/50 centInput_pt1535 BDT training"
+        type: "condor_dag"
+        dag_cluster: 5485864
+        stamp: "THE8_jet40_centinput_overfitdiag_20260528_train50_test50"
+        submit_host: "sphnxuser05.sdcc.bnl.gov"
+        source: "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/THE8_branchA_ladder_jet12_20_30_40_20260527"
+        model_dir: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE8_jet40_centinput_overfitdiag_20260528_train50_test50"
+        submit_root: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTExpanded_THE8_jet40_centinput_overfitdiag_20260528_train50_test50"
+        status: "submitted 2026-05-28T11:36:00-04:00; immediate condor_q showed DAGMan parent JobStatus=2 running, RequestMemory=2000, no hold reason"
+        monitor: "heartbeat automation the-8-jet40-splitstudy-overfitdiag"
+        purpose: "Jet40-inclusive replay of the slide-18/19/20 50/50 centInput_pt1535 PPG12-exact row-split model; only intended physics change is inclusion of Jet40 in the background source."
+      - label: "Jet40 split-study 10/90 centInput_pt1535 BDT training"
+        type: "condor_dag"
+        dag_cluster: 5485866
+        stamp: "THE8_jet40_centinput_overfitdiag_20260528_train10_test90"
+        submit_host: "sphnxuser05.sdcc.bnl.gov"
+        source: "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/THE8_branchA_ladder_jet12_20_30_40_20260527"
+        model_dir: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE8_jet40_centinput_overfitdiag_20260528_train10_test90"
+        submit_root: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTExpanded_THE8_jet40_centinput_overfitdiag_20260528_train10_test90"
+        status: "submitted 2026-05-28T11:36:00-04:00; immediate condor_q showed DAGMan parent JobStatus=2 running, RequestMemory=2000, no hold reason"
+        monitor: "heartbeat automation the-8-jet40-splitstudy-overfitdiag"
+        purpose: "Jet40-inclusive replay of the slide-18/19/20 10/90 centInput_pt1535 PPG12-exact row-split model; only intended physics change is inclusion of Jet40 in the background source."
+      - label: "THE-8 Branch A ladder Jet12+20 global noIso BDT training"
+        type: "condor_dag"
+        dag_cluster: 5440756
+        stamp: "THE8_branchA_jet12_20_global_noiso_bdt_20260527"
+        submit_host: "sphnxuser05.sdcc.bnl.gov"
+        source: "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/THE8_branchA_ladder_jet12_20_20260527"
+        model_dir: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE8_branchA_jet12_20_global_noiso_bdt_20260527"
+        submit_root: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTExpanded_THE8_branchA_jet12_20_global_noiso_bdt_20260527"
+        status: "failed"
+        monitor: null
+        purpose: "THE-8 Branch A background-sample ladder: Jet12+20 branch, globalEtCent1535_bdt_noIso only, PPG12-exact 90/10 row split."
+      - label: "THE-8 Branch A ladder Jet12+20+30 global noIso BDT training"
+        type: "condor_dag"
+        dag_cluster: 5440757
+        stamp: "THE8_branchA_jet12_20_30_global_noiso_bdt_20260527"
+        submit_host: "sphnxuser05.sdcc.bnl.gov"
+        source: "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/THE8_branchA_ladder_jet12_20_30_20260527"
+        model_dir: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE8_branchA_jet12_20_30_global_noiso_bdt_20260527"
+        submit_root: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTExpanded_THE8_branchA_jet12_20_30_global_noiso_bdt_20260527"
+        status: "failed"
+        monitor: null
+        purpose: "THE-8 Branch A background-sample ladder: Jet12+20+30 branch, globalEtCent1535_bdt_noIso only, PPG12-exact 90/10 row split."
+      - label: "THE-8 Branch A ladder Jet12+20+30+40 global noIso BDT training"
+        type: "condor_dag"
+        dag_cluster: 5440759
+        stamp: "THE8_branchA_jet12_20_30_40_global_noiso_bdt_20260527"
+        submit_host: "sphnxuser05.sdcc.bnl.gov"
+        source: "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/THE8_branchA_ladder_jet12_20_30_40_20260527"
+        model_dir: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE8_branchA_jet12_20_30_40_global_noiso_bdt_20260527"
+        submit_root: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTExpanded_THE8_branchA_jet12_20_30_40_global_noiso_bdt_20260527"
+        status: "failed"
+        monitor: null
+        purpose: "THE-8 Branch A background-sample ladder: Jet12+20+30+40 branch, globalEtCent1535_bdt_noIso only, PPG12-exact 90/10 row split."
+      - label: "THE-8 Branch A ladder Jet12+20 global noIso BDT training ML-Python retry"
+        type: "condor_dag"
+        dag_cluster: 5440769
+        stamp: "THE8_branchA_jet12_20_global_noiso_bdt_mlpy_20260527"
+        submit_host: "sphnxuser05.sdcc.bnl.gov"
+        source: "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/THE8_branchA_ladder_jet12_20_20260527"
+        model_dir: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE8_branchA_jet12_20_global_noiso_bdt_mlpy_20260527"
+        submit_root: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTExpanded_THE8_branchA_jet12_20_global_noiso_bdt_mlpy_20260527"
+        status: "removed/cleaned after mem24 retry approval; condor_rm left only removed-history state and submit/model dirs were removed as of 2026-05-27T16:57:00-04:00"
+        monitor: null
+        purpose: "Corrected ML-Python retry for THE-8 Branch A Jet12+20 ladder branch."
+      - label: "THE-8 Branch A ladder Jet12+20+30 global noIso BDT training ML-Python retry"
+        type: "condor_dag"
+        dag_cluster: 5440771
+        stamp: "THE8_branchA_jet12_20_30_global_noiso_bdt_mlpy_20260527"
+        submit_host: "sphnxuser05.sdcc.bnl.gov"
+        source: "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/THE8_branchA_ladder_jet12_20_30_20260527"
+        model_dir: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE8_branchA_jet12_20_30_global_noiso_bdt_mlpy_20260527"
+        submit_root: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTExpanded_THE8_branchA_jet12_20_30_global_noiso_bdt_mlpy_20260527"
+        status: "removed/cleaned after mem24 retry approval; held child/cache job had hit 12032 MB memory limit before cleanup"
+        monitor: null
+        purpose: "Corrected ML-Python retry for THE-8 Branch A Jet12+20+30 ladder branch."
+      - label: "THE-8 Branch A ladder Jet12+20+30+40 global noIso BDT training ML-Python retry"
+        type: "condor_dag"
+        dag_cluster: 5440772
+        stamp: "THE8_branchA_jet12_20_30_40_global_noiso_bdt_mlpy_20260527"
+        submit_host: "sphnxuser05.sdcc.bnl.gov"
+        source: "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/THE8_branchA_ladder_jet12_20_30_40_20260527"
+        model_dir: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE8_branchA_jet12_20_30_40_global_noiso_bdt_mlpy_20260527"
+        submit_root: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTExpanded_THE8_branchA_jet12_20_30_40_global_noiso_bdt_mlpy_20260527"
+        status: "removed/cleaned after mem24 retry approval; condor_rm left only removed-history state and submit/model dirs were removed as of 2026-05-27T16:57:00-04:00"
+        monitor: null
+        purpose: "Corrected ML-Python retry for THE-8 Branch A Jet12+20+30+40 ladder branch."
+      - label: "THE-8 Branch A ladder Jet12+20 global noIso BDT training mem24 retry"
+        type: "condor_dag"
+        dag_cluster: 5466969
+        stamp: "THE8_branchA_jet12_20_global_noiso_bdt_mem24_20260527"
+        submit_host: "sphnxuser05.sdcc.bnl.gov"
+        source: "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/THE8_branchA_ladder_jet12_20_20260527"
+        model_dir: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE8_branchA_jet12_20_global_noiso_bdt_mem24_20260527"
+        submit_root: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTExpanded_THE8_branchA_jet12_20_global_noiso_bdt_mem24_20260527"
+        status: "READY registry verified; DAGMan parent cleared condor_q; AUC=0.715908 with n_signal=5510614 and n_background=356818 as of 2026-05-27T23:42:20-04:00"
+        monitor: null
+        purpose: "Higher-memory manifest-reuse retry for THE-8 Branch A Jet12+20 ladder branch; cache=24000MB, train=16000MB, globalEtCent1535_bdt_noIso only."
+      - label: "THE-8 Branch A ladder Jet12+20+30 global noIso BDT training mem24 retry"
+        type: "condor_dag"
+        dag_cluster: 5467032
+        stamp: "THE8_branchA_jet12_20_30_global_noiso_bdt_mem24_20260527"
+        submit_host: "sphnxuser05.sdcc.bnl.gov"
+        source: "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/THE8_branchA_ladder_jet12_20_30_20260527"
+        model_dir: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE8_branchA_jet12_20_30_global_noiso_bdt_mem24_20260527"
+        submit_root: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTExpanded_THE8_branchA_jet12_20_30_global_noiso_bdt_mem24_20260527"
+        status: "READY registry verified; DAGMan parent cleared condor_q; AUC=0.829586 with n_signal=5525442 and n_background=951639 as of 2026-05-27T23:42:20-04:00"
+        monitor: null
+        purpose: "Higher-memory manifest-reuse retry for THE-8 Branch A Jet12+20+30 ladder branch; cache=24000MB, train=16000MB, globalEtCent1535_bdt_noIso only."
+      - label: "THE-8 Branch A ladder Jet12+20+30+40 global noIso BDT training mem24 retry"
+        type: "condor_dag"
+        dag_cluster: 5467091
+        stamp: "THE8_branchA_jet12_20_30_40_global_noiso_bdt_mem24_20260527"
+        submit_host: "sphnxuser05.sdcc.bnl.gov"
+        source: "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/THE8_branchA_ladder_jet12_20_30_40_20260527"
+        model_dir: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE8_branchA_jet12_20_30_40_global_noiso_bdt_mem24_20260527"
+        submit_root: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTExpanded_THE8_branchA_jet12_20_30_40_global_noiso_bdt_mem24_20260527"
+        status: "READY registry verified; DAGMan parent cleared condor_q; AUC=0.887929 with n_signal=5534588 and n_background=2168422 as of 2026-05-27T23:42:20-04:00"
+        monitor: null
+        purpose: "Higher-memory manifest-reuse retry for THE-8 Branch A Jet12+20+30+40 ladder branch; cache=24000MB, train=16000MB, globalEtCent1535_bdt_noIso only."
+      - label: "THE-8 Branch A ladder Jet12+20 full score-cache validation"
+        type: "condor_dag"
+        dag_cluster: 5485571
+        stamp: "THE8_branchA_jet12_20_scorecache_fullstat_20260527"
+        submit_host: "sphnxuser05.sdcc.bnl.gov"
+        source: "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/THE8_branchA_ladder_jet12_20_20260527"
+        model_dir: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE8_branchA_jet12_20_global_noiso_bdt_mem24_20260527"
+        model_registry: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE8_branchA_jet12_20_global_noiso_bdt_mem24_20260527/model_registry.json"
+        report_root: "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/THE8_branchA_ladder_jet12_20_20260527/reports/model_validation_condor_THE8_branchA_jet12_20_scorecache_fullstat_20260527"
+        submit_root: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTValidate_THE8_branchA_jet12_20_scorecache_fullstat_20260527"
+        status: "READY as of 2026-05-28T10:39:43-04:00; validation_summary status=READY, score_caches.list has expected 80 entries, queue empty for DAG/final-merge clusters"
+        monitor: null
+        purpose: "Full score-cache validation for THE-8 Branch A Jet12+20 ladder branch; scoreMaxRows=0 for slide-23-style score-separation diagnostics."
+      - label: "THE-8 Branch A ladder Jet12+20+30 full score-cache validation"
+        type: "condor_dag"
+        dag_cluster: 5485616
+        stamp: "THE8_branchA_jet12_20_30_scorecache_fullstat_20260527"
+        submit_host: "sphnxuser05.sdcc.bnl.gov"
+        source: "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/THE8_branchA_ladder_jet12_20_30_20260527"
+        model_dir: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE8_branchA_jet12_20_30_global_noiso_bdt_mem24_20260527"
+        model_registry: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE8_branchA_jet12_20_30_global_noiso_bdt_mem24_20260527/model_registry.json"
+        report_root: "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/THE8_branchA_ladder_jet12_20_30_20260527/reports/model_validation_condor_THE8_branchA_jet12_20_30_scorecache_fullstat_20260527"
+        submit_root: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTValidate_THE8_branchA_jet12_20_30_scorecache_fullstat_20260527"
+        status: "READY as of 2026-05-28T10:39:43-04:00; validation_summary status=READY, score_caches.list has expected 95 entries, queue empty for DAG/final-merge clusters"
+        monitor: null
+        purpose: "Full score-cache validation for THE-8 Branch A Jet12+20+30 ladder branch; scoreMaxRows=0 for slide-23-style score-separation diagnostics."
+      - label: "THE-8 Branch A ladder Jet12+20+30+40 full score-cache validation"
+        type: "condor_dag"
+        dag_cluster: 5485653
+        stamp: "THE8_branchA_jet12_20_30_40_scorecache_fullstat_20260527"
+        submit_host: "sphnxuser05.sdcc.bnl.gov"
+        source: "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/THE8_branchA_ladder_jet12_20_30_40_20260527"
+        model_dir: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE8_branchA_jet12_20_30_40_global_noiso_bdt_mem24_20260527"
+        model_registry: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE8_branchA_jet12_20_30_40_global_noiso_bdt_mem24_20260527/model_registry.json"
+        report_root: "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/THE8_branchA_ladder_jet12_20_30_40_20260527/reports/model_validation_condor_THE8_branchA_jet12_20_30_40_scorecache_fullstat_20260527"
+        submit_root: "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTValidate_THE8_branchA_jet12_20_30_40_scorecache_fullstat_20260527"
+        status: "READY as of 2026-05-28T10:39:43-04:00; validation_summary status=READY, score_caches.list has expected 109 entries, queue empty for DAG/final-merge clusters"
+        monitor: null
+        purpose: "Full score-cache validation for THE-8 Branch A Jet12+20+30+40 ladder branch; scoreMaxRows=0 for slide-23-style score-separation diagnostics."
+    artifacts:
+      - "agent_context/auau_model_registry/"
+      - "dataOutput/auauMLDiagnosticRuns/ppg12_weighted_centinput_splitstudy_20260522_1450/diagnostics/slide_png_proof_pack_20260527/"
+      - "dataOutput/auauMLDiagnosticRuns/ppg12_weighted_centinput_overfitdiag_20260527_1458/slide_pngs/overfitdiag_which_split_overfits_worst.png"
+      - "dataOutput/auauMLDiagnosticRuns/ppg12_weighted_centinput_overfitdiag_20260527_1458/slide_pngs/overfitdiag_transfer_story.png"
+      - "dataOutput/auauMLDiagnosticRuns/ppg12_weighted_centinput_overfitdiag_20260527_1458/slide_pngs/overfitdiag_transfer_story_clean.png"
+      - "dataOutput/auauMLDiagnosticRuns/ppg12_weighted_centinput_overfitdiag_20260527_1458/slide_pngs/overfitdiag_generalization_frontier.png"
+      - "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/ppg12_weighted_centinput_overfitdiag_20260527_1458_train90_test10/"
+      - "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/ppg12_weighted_centinput_overfitdiag_20260527_1458_train50_test50/"
+      - "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/ppg12_weighted_centinput_overfitdiag_20260527_1458_train10_test90/"
+      - "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_eiso_cone_raw_20260518_2220/reports/model_validation_condor_overfitdiag_20260527_1458_train90_test10_fullstat_20260527_1653/"
+      - "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_eiso_cone_raw_20260518_2220/reports/model_validation_condor_overfitdiag_20260527_1458_train50_test50_fullstat_20260527_1653/"
+      - "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_eiso_cone_raw_20260518_2220/reports/model_validation_condor_overfitdiag_20260527_1458_train10_test90_fullstat_20260527_1653/"
+      - "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/THE8_branchA_ladder_jet12_20_20260527/manifests/training_roots.list"
+      - "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/THE8_branchA_ladder_jet12_20_30_20260527/manifests/training_roots.list"
+      - "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/THE8_branchA_ladder_jet12_20_30_40_20260527/manifests/training_roots.list"
+      - "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTExpanded_THE8_branchA_jet12_20_global_noiso_bdt_20260527/auau_tight_bdt_expanded_training.dag"
+      - "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTExpanded_THE8_branchA_jet12_20_30_global_noiso_bdt_20260527/auau_tight_bdt_expanded_training.dag"
+      - "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTExpanded_THE8_branchA_jet12_20_30_40_global_noiso_bdt_20260527/auau_tight_bdt_expanded_training.dag"
+      - "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE8_branchA_jet12_20_global_noiso_bdt_20260527/"
+      - "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE8_branchA_jet12_20_30_global_noiso_bdt_20260527/"
+      - "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE8_branchA_jet12_20_30_40_global_noiso_bdt_20260527/"
+      - "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE8_branchA_jet12_20_global_noiso_bdt_mlpy_20260527/"
+      - "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE8_branchA_jet12_20_30_global_noiso_bdt_mlpy_20260527/"
+      - "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE8_branchA_jet12_20_30_40_global_noiso_bdt_mlpy_20260527/"
+      - "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTExpanded_THE8_branchA_jet12_20_global_noiso_bdt_mem24_20260527/auau_tight_bdt_expanded_training.dag"
+      - "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTExpanded_THE8_branchA_jet12_20_30_global_noiso_bdt_mem24_20260527/auau_tight_bdt_expanded_training.dag"
+      - "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTExpanded_THE8_branchA_jet12_20_30_40_global_noiso_bdt_mem24_20260527/auau_tight_bdt_expanded_training.dag"
+      - "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE8_branchA_jet12_20_global_noiso_bdt_mem24_20260527/"
+      - "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE8_branchA_jet12_20_30_global_noiso_bdt_mem24_20260527/"
+      - "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE8_branchA_jet12_20_30_40_global_noiso_bdt_mem24_20260527/"
+      - "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTValidate_THE8_branchA_jet12_20_scorecache_fullstat_20260527/auau_tight_bdt_validateOnSimCondor.dag"
+      - "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTValidate_THE8_branchA_jet12_20_30_scorecache_fullstat_20260527/auau_tight_bdt_validateOnSimCondor.dag"
+      - "/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/auauTightBDTValidate_THE8_branchA_jet12_20_30_40_scorecache_fullstat_20260527/auau_tight_bdt_validateOnSimCondor.dag"
+      - "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/THE8_branchA_ladder_jet12_20_20260527/reports/model_validation_condor_THE8_branchA_jet12_20_scorecache_fullstat_20260527/"
+      - "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/THE8_branchA_ladder_jet12_20_30_20260527/reports/model_validation_condor_THE8_branchA_jet12_20_30_scorecache_fullstat_20260527/"
+      - "/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/THE8_branchA_ladder_jet12_20_30_40_20260527/reports/model_validation_condor_THE8_branchA_jet12_20_30_40_scorecache_fullstat_20260527/"
+      - "dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/the8_branch_a_ladder_compact_score_histograms.json"
+      - "dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/slide23_candidates/the8_branchA_ladder_score_separation_slide23_style.png"
+      - "dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/slide23_candidates/the8_branchA_ladder_score_separation_slide23_style.csv"
+    evidence:
+      - "User-approved ablation direction: BDT production-primary; MLP/stack robustness or ceiling; WP80 fake rate plus isolation/ABCD closure first, AUC second."
+      - "2026-05-27 split-study diagnostic todo added by Justin: understand and deconvolve why the 0-20% centrality-bin AUC in ppg12_weighted_centinput_splitstudy_20260522_1450 rises slightly as the validation fraction increases / training fraction decreases, opposite the naive expectation. Treat as an overfitting/composition/metric-stability investigation, not as evidence that less training data is intrinsically better."
+      - "2026-05-27 first-pass compact split-study diagnostic generated at dataOutput/auauMLDiagnosticRuns/ppg12_weighted_centinput_splitstudy_20260522_1450/diagnostics/auc_deep_dive_20260527/. For 0-20%, AUC deltas vs 90/10 are +0.000682 for 50/50 and +0.001730 for 10/90, only about 0.49 and 1.24 sigma under compact-count independent Hanley-McNeil errors; hist WP80 background fake is not monotonic (0.33314, 0.33451, 0.33290), so the first evidence points to a tiny rank-order/score-shape effect, not proof that less training data improves the model. Next decisive step: paired per-event score-cache bootstrap/DeLong plus train-vs-validation loss/AUC curves."
+      - "2026-05-27 Justin requested slide-ready split-study proof pack: main verdict slide, overfitting-check backup, and 0-20% autopsy backup, generated as local PNG candidates before any Google Slides mutation."
+      - "2026-05-27 split-study proof pack generated and visually inspected at dataOutput/auauMLDiagnosticRuns/ppg12_weighted_centinput_splitstudy_20260522_1450/diagnostics/slide_png_proof_pack_20260527/: slide23_splitstudy_verdict_main.png, slide24_overfitting_check_backup.png, slide25_0to20_auc_autopsy_backup.png. Read-only SDCC registry check found internal holdout AUCs also decrease with less training data (0.829797, 0.809211, 0.805470 for 90/10, 50/50, 10/90). Train AUC/logloss and multi-seed spread remain missing, so do not use AUC alone to justify 5x embedded simulation."
+      - "2026-05-27 14:58 EDT Justin explicitly approved an instrumented split-study retrain plan for the 90/10, 50/50, and 10/90 centInput_pt1535 PPG12-exact BDT splits. This is a deliberate diagnostic replay, not a production replacement: existing split-study outputs lack train-side AUC/logloss/Brier and per-iteration eval histories needed to test overfitting."
+      - "2026-05-27 15:17 EDT overfitdiag implementation/submission: patched scripts/train_auau_photon_bdt.py to keep legacy holdout auc while adding overfit_diagnostics (train/holdout AUC, logloss, Brier, train-holdout gaps) and per-model *.training_history.csv. Local py_compile passed; remote upload status MATCH; remote ML venv py_compile and --help passed; dry-run path plans passed for all three splits with entries=15,847,490, signal=8,784,941, background=7,062,549, campaign=etfine-centstudy, spec=centInput_pt1535, PPG12-exact, row split, one shard. Submitted DAGMan clusters on sphnxuser05: 5440749 for 90/10, 5440751 for 50/50, 5440753 for 10/90. Immediate condor_q showed all three DAGMan parent jobs JobStatus=2 running."
+      - "2026-05-27 15:18 EDT Linear THE-8 comment 6d159dae-bd65-4383-b45d-ae2ee48259dd records the overfitdiag submission evidence. Heartbeat automation check-overfitdiag-split-bdt-training created to check the three training DAGs every 30 minutes and proceed only after READY registries are verified."
+      - "2026-05-27 15:49 EDT overfitdiag heartbeat: condor_q still listed DAGMan parents 5440749, 5440751, and 5440753 as JobStatus=2. Registry inspection found 50/50 already READY with one trained centInput_pt1535 model and populated overfit_diagnostics: train_auc=0.813699, holdout_auc=0.809211, train_logloss=0.504753, holdout_logloss=0.508777, training_history_csv exists. 90/10 and 10/90 still had only planned registries at this checkpoint. Do not launch full-stat validation until all three final registries are READY."
+      - "2026-05-27 15:52 EDT Linear THE-8 comment ff03a98d-2ce8-4d00-bbaf-a1990f7dbf37 mirrors the partial overfitdiag heartbeat evidence."
+      - "2026-05-27 16:01 EDT user-requested status refresh: condor_q only showed 5440753 still running; 5440749 and 5440751 had cleared the queue and final registries were READY. 90/10 overfit diagnostics: train_auc=0.812006, holdout_auc=0.809383, auc_gap=0.002623, train_logloss=0.506162, holdout_logloss=0.507955, logloss_gap=0.001793, train_brier=0.171368, holdout_brier=0.172056, training_history_csv exists. 50/50 diagnostics remain train_auc=0.813699, holdout_auc=0.809211, auc_gap=0.004488, train_logloss=0.504753, holdout_logloss=0.508777, logloss_gap=0.004025, train_brier=0.170763, holdout_brier=0.172422, training_history_csv exists. 10/90 still has planned registry only; DAGMan log shows train node TRAIN_00001 / cluster 5440755 running with 0 held and train stderr empty."
+      - "2026-05-27 16:19 EDT overfitdiag training complete: condor_q returned no rows for 5440749/5440751/5440753 and all three final registries are READY with one trained centInput_pt1535 model, populated overfit_diagnostics, and existing training_history_csv. Final train/holdout metrics: 90/10 train_auc=0.812006 holdout_auc=0.809383 auc_gap=0.002623 train_logloss=0.506162 holdout_logloss=0.507955 logloss_gap=0.001793; 50/50 train_auc=0.813699 holdout_auc=0.809211 auc_gap=0.004488 train_logloss=0.504753 holdout_logloss=0.508777 logloss_gap=0.004025; 10/90 train_auc=0.830674 holdout_auc=0.805470 auc_gap=0.025204 train_logloss=0.491257 holdout_logloss=0.512486 logloss_gap=0.021229. The 10/90 split now shows the clearest internal overfit signature. Next step: guarded full-stat validation with scoreMaxRows=0 for all three model dirs."
+      - "2026-05-27 16:20 EDT Linear THE-8 comment 4a25f697-23ee-47c9-a065-f311075e6d43 mirrors the overfitdiag READY evidence and final internal train/holdout diagnostics."
+      - "2026-05-27 16:57 EDT Justin said proceed and guarded full-stat validation was submitted for the three overfitdiag split-study model dirs. Duplicate check found no matching report dirs, no matching submit dirs, and no active overfitdiag validation queue rows for stamp fullstat_20260527_1653. Snapshot 20260527T205432Z-overfitdiag-fullstat-validation-submit and condor_submit guard preflight passed. Dry-runs showed 2500 ROOT files, 25 shards, scoreMaxPerShard=0, request_memory=4000MB, and exact model_registry for each split. Submitted validateOnSimCondor DAGMan parents on sphnxuser05: 5465741 for 90/10, 5465743 for 50/50, and 5465744 for 10/90. Immediate condor_q showed all three parent jobs JobStatus=2, child shards queued under each parent, and no held validation jobs."
+      - "2026-05-27 16:58 EDT Linear THE-8 comment 808fd519-5add-44b5-893b-836ebf492f28 mirrors the overfitdiag full-stat validation submission evidence and next READY gate."
+      - "2026-05-27 16:59 EDT final closeout queue check: DAGMan parents 5465741/5465743/5465744 still JobStatus=2; validation child sample shows shards queued/running under each parent; held count for these three DAGs is 0."
+      - "2026-05-27 17:29 EDT overfitdiag full-stat validation READY: condor_q returned no parent/child rows for DAGMan 5465741/5465743/5465744 and no held child rows. DAGMan logs ended with 26 Done, 0 Failed/Futile, 0 held, and exit status 0. All three validation_summary.txt files have status=READY, total_entries=scored_entries=15,847,490, signal_entries=8,784,941, background_entries=7,062,549, finite_score_fraction=1, and 25 score caches. Full-stat AUCs: 90/10=0.821053, 50/50=0.820764, 10/90=0.820117. This reverses the old compact slide-23 impression globally: less training does not improve the full-stat global AUC in the instrumented replay."
+      - "2026-05-27 17:35 EDT compact pull attempted after a narrow local helper allowlist patch for auauTightBDT_eiso_cone_raw_* model_validation_condor_* report dirs; bash -n passed. The helper refused NPZ/ROOT/path-like files as intended, but the actual SFTP download failed before transfer with 'Permission denied (publickey)' for patsfan753@sftp.sdcc.bnl.gov. Do not claim compact outputs are local until this is rerun in an interactive/auth-capable context."
+      - "2026-05-27 17:32 EDT Linear THE-8 comment a6344a10-2df0-4962-a8c0-43883c96fcdb mirrors the overfitdiag READY validation evidence, global AUC trend, and compact-pull auth blocker."
+      - "2026-05-27 overfitdiag slide PNG generated and visually inspected locally: dataOutput/auauMLDiagnosticRuns/ppg12_weighted_centinput_overfitdiag_20260527_1458/slide_pngs/overfitdiag_which_split_overfits_worst.png. It shows 10/90 as the worst overfit case: train-holdout AUC gap 0.0252 vs 0.0026/0.0045, holdout-train logloss gap 0.0212 vs 0.0018/0.0040, while full-stat global AUC is highest for 90/10 and lowest for 10/90. PNG is 2560x1440."
+      - "2026-05-27 refined overfitdiag transfer-story PNG generated and visually inspected locally: dataOutput/auauMLDiagnosticRuns/ppg12_weighted_centinput_overfitdiag_20260527_1458/slide_pngs/overfitdiag_transfer_story.png. It removes the bottom-right red conclusion box and uses cleaner diagnostic panels: AUC transfer curves, logloss transfer curves, train-transfer gap bars, and a 90/10->10/90 delta table. PNG is 2560x1440."
+      - "2026-05-27 audience-facing overfitdiag transfer-story PNG generated and visually inspected locally: dataOutput/auauMLDiagnosticRuns/ppg12_weighted_centinput_overfitdiag_20260527_1458/slide_pngs/overfitdiag_transfer_story_clean.png. Latest pass uses Times New Roman text, fixed-size rounded panel cards, larger panel titles moved upward, expanded AUC y-range to keep the legend clear of the orange train curve, no endpoint value labels in either top plot, and a larger/spread-out bottom-right reader guide with organized color-coded definitions plus a separated bottom-line readout. It defines holdout validation as the reserved validation part of each split, defines the full scored sample as the same 15.85M rows scored by each model including train + holdout, defines logloss/gap directly on-slide, removes the red verdict box, and uses three compact diagnostics to show the 10/90 gain is training-only: train AUC rises to 0.830674 while holdout AUC falls to 0.805470, train logloss improves to 0.491257 while holdout logloss worsens to 0.512486, and the train-validation gaps jump to 0.0252 AUC and 0.0212 logloss. PNG is 2560x1440."
+      - "2026-05-27 one-plot overfitdiag verdict slide generated and visually inspected locally: dataOutput/auauMLDiagnosticRuns/ppg12_weighted_centinput_overfitdiag_20260527_1458/slide_pngs/overfitdiag_generalization_frontier.png. Latest pass improves publication-style readability and clarifies the counterintuitive overfitting logic in the subtitle: a high training AUC alone is not success; the check is whether that gain survives on holdout rows the model never trained on. It uses darker/larger Times New Roman typography, equal-size markers, no bubble-size encoding, no callout boxes inside the data region, a single dashed 90/10 -> 50/50 -> 10/90 trajectory showing decreasing training data, subtle preferred/warning regions, and a high-contrast right verdict card carrying the minimum numeric evidence. The generalization map plots holdout validation AUC vs train-holdout AUC gap, putting the preferred model in the upper-left. 90/10 is upper-left with best holdout AUC 0.8094 and smallest AUC gap 0.0026; 50/50 is close but lower/right with gap 0.0045; 10/90 is isolated lower-right with holdout AUC 0.8055 and gap 0.0252. Verdict: 90/10 is the clean choice among these three; 10/90 shows a clear relative overfit signature while 90/10 does not show comparable gap growth. PNG is 2560x1440."
+      - "2026-05-27 read-only SDCC preflight: existing globalEtCentInclusive3Sixpack_20260516_135439 training manifest has Photon12=2000, Photon20=2000, Jet12=2000, Jet20=2000, Jet30=1429, and no Jet40 training-tree roots; Jet40 sim lists exist with 10000 matched file rows, so only Jet40 extraction is missing before comparable ladder training."
+      - "2026-05-27 14:16 EDT submitted corrected Jet40-only AuAuPhotonIDTrainingTree extraction after removing malformed dry-run-contaminated stamp THE8_branchA_jet40_20260527. Corrected stamp THE8_branchA_jet40_retry1_20260527: DAGMan 5440746, workers 5440747, run root /sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_THE8_branchA_jet40_retry1_20260527, submit root /sphenix/u/patsfan753/scratch/thesisAnalysis/condor_sub/auauTightBDT_THE8_branchA_jet40_retry1_20260527, Jet40 only, groupSize 7, 1429 workers, 3000 MB. Immediate queue check: matched_total=1429 idle=1429 running=0 held=0; malformed stamp active=0."
+      - "2026-05-27 user added final visualization target: after Jet40 extraction and comparable 90/10 ladder BDT training/validation, generate a local slide-23-style PNG comparing Jet12+20, Jet12+20+30, and Jet12+20+30+40 signal/background score separation across centrality bins 0-20%, 20-50%, and 50-80%; show the PNG in chat before any deck mutation."
+      - "2026-05-27 14:47 EDT heartbeat: corrected Jet40 extraction still running; queue matched_total=1105, idle=0, running=1105, held=0, DAGMan 5440746 running, malformed stamp active=0, final_summary missing, rescue_count=0, and 1429 ROOT files already exist under the run root. Do not advance to ladder manifests until READY/final_summary closure."
+      - "2026-05-27 15:20 EDT heartbeat: Jet40 extraction READY; final_summary status=READY, root_count=expected_root_count=1429, background_entries=4642168, signal_entries=23205, expected_background_samples=1, queue empty, DAGMan 5440746 exited status 0, malformed stamp active=0, rescue_count=0."
+      - "2026-05-27 15:36 EDT prepared three ladder manifests and dry-ran narrow global noIso BDT trainings with RJ_DAG_DRYRUN=1, PPG12-exact, test_size=0.10, split_mode=row, campaign=global-sixpack, campaign_spec_ids=globalEtCent1535_bdt_noIso, one planned model and one shard per branch. Manifest counts: Jet12+20 total=8000; Jet12+20+30 total=9429; Jet12+20+30+40 total=10858 with Jet40=1429. No Condor training DAGs were submitted."
+      - "2026-05-27 15:31 EDT Justin approved proceed. Snapshot 20260527T192839Z-the8_branch_a_ladder_training_pre_submit and condor_submit guard fingerprint c553c3f91f93c5a5fa46 passed. Remote duplicate check found zero active jobs for the three exact ladder stamps, all manifest paths existed with missing=0, and three DAGMan parents were submitted on sphnxuser05: Jet12+20 cluster 5440756, Jet12+20+30 cluster 5440757, Jet12+20+30+40 cluster 5440759. Immediate cluster-id queue check: all three DAG parents running, 0 held, DAG_STATUS_OK; final registries not written yet."
+      - "2026-05-27 15:31 EDT Linear THE-8 comment c4005e38-9640-4311-851d-77f80b837811 records the Jet40 READY evidence and the three ladder DAG submissions. Heartbeat automation the-8-ladder-bdt-training created to monitor clusters 5440756, 5440757, and 5440759."
+      - "2026-05-27 15:58 EDT status check: three THE-8 ladder DAGs did not finish successfully. Clusters 5440756, 5440757, and 5440759 drained from queue with DAG_STATUS_NODE_FAILED and rescue001 files. Each registry is CHECK with expected_model_count=1, trained_model_count=0, missing_model_count=1 for globalEtCent1535_bdt_noIso. Root cause is cache.err in all three submit roots: default Python missing uproot/pandas/numpy/sklearn/xgboost/PyROOT. Retry should use the established RJ_ML_PYTHON=/sphenix/u/patsfan753/.venvs/thesis-ml/bin/python."
+      - "2026-05-27 16:03 EDT Justin approved cleanup/resubmission. Snapshot 20260527T200034Z-the8_ladder_bdt_cleanup_resubmit_mlpy; cleanup guard passed; condor_submit guard fingerprint 8d681bfbb0e181ed1990 passed. Confirmed ML Python imports uproot/pandas/numpy/sklearn/xgboost/ROOT. Old failed clusters had 0 active jobs and failed submit/model dirs were removed. Corrected ML-Python retry submitted: Jet12+20 cluster 5440769, Jet12+20+30 cluster 5440771, Jet12+20+30+40 cluster 5440772. Immediate cluster-id check: all three DAG parents running, 0 held, DAG_STATUS_OK, rescue_count=0."
+      - "2026-05-27 16:42 EDT heartbeat: corrected retry not READY. DAG parents 5440769, 5440771, 5440772 are still running with parent JobStatus=2 and rescue_count=0. Jet12+20 has active train child 5454694 running at request_memory=6000 MB with training_matrix.npz written. Jet12+20+30 shows DAG_STATUS_OK but recent DAG tail reported 1 held proc; user held queue shows cluster 5440773 held for cgroup memory limit 12032 MB, last usage 11973 MB, consistent with the 12 GB cache request. Jet12+20+30+40 still has only planned registry/training_matrix and no matching child path job at this snapshot. Do not call READY; next action likely requires explicit approval for a higher-memory cache retry/rescue."
+      - "2026-05-27 16:59 EDT Justin approved cleanup/resubmission after memory diagnosis. Snapshot 20260527T205351Z-the8_ladder_mem24_retry_pre_submit and condor_submit guard fingerprint e7a541df1628c90d0d7c passed. Old ML-Python retry clusters 5440769, 5440771, and 5440772 were condor_rm'ed, their submit/model dirs removed, and Jet12+20 manifest was restored to 8000 rows from the Jet12+20+30 manifest excluding Jet30/Jet40 after the failed discovery preflight emptied it. Resubmitted manifest-reuse mem24 retry with RJ_AUAU_BDT_REUSE_EXISTING_MANIFEST=1, RJ_AUAU_BDT_SKIP_TRAINING_TREE_VALIDATE=1, RJ_ML_PYTHON=/sphenix/u/patsfan753/.venvs/thesis-ml/bin/python, cache=24000MB, train=16000MB, one globalEtCent1535_bdt_noIso model per branch: Jet12+20 cluster 5466969, Jet12+20+30 cluster 5467032, Jet12+20+30+40 cluster 5467091. Immediate check found all three DAGMan parents JobStatus=2, no rows for old clusters, each DAG exactly CACHE -> TRAIN_00001 -> FINAL MERGE, and planned registries expected_model_count=1."
+      - "2026-05-27 17:01 EDT queue check: mem24 retry DAGMan parents 5466969/5467032/5467091 were JobStatus=2; cache children 5467256/5467257/5467258 were idle with request_memory=24000 MB and no hold reason."
+      - "2026-05-27 23:42 EDT THE-8 Branch A ladder mem24 retry training complete: condor_q returned no rows for clusters 5466969, 5467032, 5467091 and no rows for old retry clusters 5440769, 5440771, 5440772. All three final registries are READY with expected_model_count=trained_model_count=1, skipped=missing=bad=0. Jet12+20 AUC=0.715908 with n_signal=5510614 and n_background=356818; Jet12+20+30 AUC=0.829586 with n_signal=5525442 and n_background=951639; Jet12+20+30+40 AUC=0.887929 with n_signal=5534588 and n_background=2168422. DAGMan merge nodes completed successfully and ended DAG_STATUS_OK with 0 held."
+      - "2026-05-27 23:43 EDT dry-run prepared, but did not submit, the next full score-cache validation DAGs for the three THE-8 Branch A ladder model dirs using RJ_DAG_DRYRUN=1, RJ_AUAU_BDT_REUSE_EXISTING_MANIFEST=1, scoreMaxRows=0, groupSize=100, request_memory=4000MB, and explicit MODEL_REGISTRY paths. Dry-run sizes: Jet12+20 root_files=8000 shards=80; Jet12+20+30 root_files=9429 shards=95; Jet12+20+30+40 root_files=10858 shards=109. Candidate DAGs are under condor_sub/auauTightBDTValidate_THE8_branchA_*_scorecache_fullstat_20260527/ and require explicit Justin approval before submission."
+      - "2026-05-28 10:03 EDT Justin approved proceeding with validation. Snapshot 20260528T140235Z-the8-ladder-scorecache-validation-submit and condor_submit guard fingerprint f58bcfe60adb2bfbab77 passed. Submitted the three prepared full score-cache validation DAGs on sphnxuser05 with RJ_CODEX_CHAT_NAME=THE8BranchAJetLadder, RJ_CODEX_THREAD_ID=019e6a92-784b-7503-9596-9e6fd660babc, RJ_ML_PYTHON=/sphenix/u/patsfan753/.venvs/thesis-ml/bin/python, RJ_AUAU_BDT_REUSE_EXISTING_MANIFEST=1, scoreMaxRows=0, groupSize=100, and request_memory=4000MB. DAGMan clusters: Jet12+20 5485571 with 80 shards, Jet12+20+30 5485616 with 95 shards, Jet12+20+30+40 5485653 with 109 shards. Immediate queue check at 10:03:57 showed all parent DAGs and all validation shards running, 0 idle, 0 held."
+      - "2026-05-28 10:07 EDT live validation check: condor_q showed only parent DAGMan rows 5485571, 5485616, and 5485653 running, with 0 held. Report roots contain expected score cache lists exactly matching dry-run shards: 80, 95, and 109. DAGMan tails show all VALIDATE shards completed successfully, DAG_STATUS_OK, 0 held, and final MERGE jobs running as 5485858, 5485859, and 5485860. validation_summary.txt files were not written yet, so do not call READY until the final merge nodes finish and summaries verify."
+      - "2026-05-28 10:22 EDT morning heartbeat read-only check found DAGMan parents 5485571, 5485616, and 5485653 still running and no validation_summary.txt files visible yet; keep THE-8 in running status."
+      - "2026-05-28 10:40 EDT validation READY: condor_q returned no rows for DAG clusters 5485571/5485616/5485653 or final merge clusters 5485858/5485859/5485860. All three validation_summary.txt files report status=READY. Score-cache list counts match expected shards exactly: Jet12+20 80, Jet12+20+30 95, Jet12+20+30+40 109. Validation summaries: Jet12+20 total_entries=12000316 scored_entries=12000316 finite_score_fraction=0.999994 AUC=0.731628; Jet12+20+30 total_entries=15524917 scored_entries=15524917 finite_score_fraction=0.999994 AUC=0.840497; Jet12+20+30+40 total_entries=20190290 scored_entries=20190290 finite_score_fraction=0.999995 AUC=0.895427. Remote report PNG/JSON/CSV outputs are present; local slide-23-style combined PNG still requires compact output transfer or an approved local pull path."
+      - "2026-05-28 10:54 EDT generated local slide-23-style 3x3 Branch A ladder score-separation PNG from compact remote validation score_histograms.json data after SFTP helper auth failed with Permission denied(publickey). Local compact histogram JSON and outputs live under dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/. Visual QA showed legible row/column labels and visible Jet30/Jet40 separation gain. Panel binned AUCs by centrality: Jet12+20 = 0.715/0.729/0.739; Jet12+20+30 = 0.810/0.837/0.854; Jet12+20+30+40 = 0.862/0.892/0.908."
+      - "2026-05-28 11:16 EDT rechecked the three Branch A score-cache validation clusters: condor_q has zero active rows for 5485571/5485616/5485653, validation_summary.txt is READY for all three, recursive score-cache counts match expected 80/95/109, and full-stat AUCs remain 0.731628/0.840497/0.895427. Also traced deck slide 15 to scripts/make_ppg12_exact_reweighting_verification_slide.py and verified the THE-8 Jet12+20+30+40 model registry/PPG12-exact metadata: weight_mode=ppg12-exact, expected and observed samples include run28_embeddedJet40, event/cross-section/stitching/vertex/centrality weights are not used for training, eta range is [-0.7,0.7], weights were computed before binning, and local Jet40-inclusive slide-15-style PNG was generated at dataOutput/auauTightBDTValidation/THE8_branchA_jet12_20_30_40_global_noiso_bdt_mem24_20260527/ppg12_exact_reweight_bdt/ppg12_exact_et_eta_reweighting_verification_slide_jet40.png with max ET/eta closure deviations 1.8%/4.7%."
+      - "2026-05-27 19:36 EDT Linear campaign sync refreshed THE-8 as the Final Photon-ID Model Choice campaign home base with active chat/thread/run tags; SDCC job state still needs its separate heartbeat/status check before claiming new physics evidence."
+    last_verified: "2026-05-28T11:16:00-04:00"
+    next_check: "Run or assemble the required WP80 fake-rate, background-composition, 21-22 GeV boundary, and isolation/ABCD closure comparisons before deciding whether Jet12+20+30+40 becomes the isSimEmbeddedInclusive default."
+    stale_after: "2026-05-28T16:00:00-04:00"
+    handoff_summary: >
+      Keep daily doc compact. Full sample ladder, centrality branch, ET branch,
+      BDT engine-control branch, MLP/stack checks, and validation gates live in
+      the linked workstream spec. Also carry the split-study diagnostic: explain
+      the small 0-20% centrality-bin AUC rise as training data decreases. The
+      first compact diagnostic found only +0.001730 at 10/90 vs 90/10 and no
+      monotonic WP80 fake-rate improvement, so do not interpret it as a better
+      model until paired score-cache bootstrap/DeLong and train-vs-validation
+      loss/AUC checks are done.
+
+  - workstream_id: et_eta_reweighting_explanation
+    title: ET/Eta Reweighting Validation
+    status: done_pending_review
+    priority: P0
+    goal: >
+      Validate that pp current-IAN training weights remove raw ET/eta
+      population shortcuts before training the pp baseV3E BDT and comparing to
+      Shuhang's score-shape reference.
+    current_next_action: >
+      Treat the pp ET/eta training-reweighting validation as accepted for the
+      current deck unless Justin asks for a further plot revision. Proceed to
+      updated pp baseV3E BDT training before making the Shuhang overlay.
+    depends_on:
+      - pp_exact_stitch_ppg12_baseline
+    active_codex_session: null
+    chat_label_or_thread: null
+    linear_issue: "https://linear.app/thesisanalysis/issue/THE-9/p0-ml-or-eteta-reweighting-validation"
+    linear_sync: synced
+    today_doc_anchor: "2026-05-26 Today's Plan: P0 THE-9 ET/Eta Reweighting Validation"
+    workstream_spec: null
+    active_jobs: []
+    artifacts:
+      - "Google Slides WP_GammaJets_5_20_26 slide 16: PPG12-style weights remove the pp BDT ET and eta training prior"
+    evidence:
+      - "Justin clarified on 2026-05-26 that ET/eta reweighting itself is not blocked by pp exact-stitch; the Shuhang overlay check is the blocked item."
+      - "2026-05-26 17:18 EDT Justin accepted the pp photon+jet/inclusive stitching output as good and named ET/eta reweighting validation as the next task before pp BDT training and Shuhang overlays."
+      - "2026-05-26 20:58 EDT Computer Use inspection of WP_GammaJets_5_20_26 slide 16 showed the pp ET/eta reweighting slide is readable and aligned with the training-control story: raw ET/eta priors differ, weighted S/B closure is shown, and the slide labels weights as training weights only. Justin said it looks good and asked to move the task state forward."
+    last_verified: "2026-05-26T20:58:00-04:00"
+    next_check: "only if Justin asks for further ET/eta slide cleanup"
+    stale_after: "2026-05-27T12:00:00-04:00"
+    handoff_summary: >
+      PP stitching and pp ET/eta training-weight validation are now accepted
+      for the current deck. The next science gate is to train the updated pp
+      baseV3E/no-centrality BDT in Justin's pipeline, then score/overlay
+      against Shuhang's PPG12 reference ROOT histograms.
+
+  - workstream_id: pp_basev3e_bdt_training_shuhang_overlay
+    title: P0 Campaign | Match pp Baseline Model to PPG12
+    status: active
+    priority: P0
+    goal: >
+      Train Justin's updated pp current-IAN baseV3E/no-centrality BDT using the
+      accepted stitching and ET/eta training-weight validation, then compare
+      the resulting score shapes to Shuhang's PPG12 reference histograms.
+    current_next_action: >
+      Run the narrow rawOverlayEnvFix pp 15-35 GeV rescoring needed for the
+      slide-21 apples-to-apples pp-vs-AuAu score/ROC comparison, then regenerate
+      the local slide candidate and review the corrected PNG before any Google
+      Slides mutation. Continue watching the pp npbet5env slide-15
+      build/train/validate tmux separately.
+    depends_on:
+      - pp_exact_stitch_ppg12_baseline
+      - et_eta_reweighting_explanation
+    active_codex_session: null
+    chat_label_or_thread: "pp baseV3E BDT Shuhang overlay"
+    campaign_id: "ppg12_baseline_match"
+    codex_thread_id: "019e6700-fd78-7132-a1a6-8e56da820f59"
+    heartbeat_automation: "continue-pp-npbet5env-slide-15-rerun"
+    linear_issue: "https://linear.app/thesisanalysis/issue/THE-17/p0-campaign-or-match-pp-baseline-model-to-ppg12"
+    linear_sync: synced
+    today_doc_anchor: "2026-05-28 Today's Plan: Do First Today / THE-17"
+    workstream_spec: null
+    active_jobs:
+      - label: "npbet5env slide-15 build/train/validate pipeline"
+        type: "tmux"
+        session: "pp_npbet5env_slide15_20260528_100102"
+        host: "sphnxuser05.sdcc.bnl.gov"
+        started_at: "2026-05-28T10:01:02-04:00"
+        log: "/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_basev3E_currentIAN_npbet5env_20260527_1356/npbet5env_slide15_build_train_validate_20260528_100102.log"
+        off_condition: >
+          tmux session exits successfully after buildCurrentIANManifests,
+          npbet5env_low_et_5_6_proof.json, trainCurrentIANBDT,
+          validateCurrentIANBDT, and ppg12_exact_fine_reweight_histograms.csv
+          are written from the npbet5env score cache.
+    artifacts:
+      - "/sphenix/user/shuhangli/ppg12/efficiencytool/results/MC_efficiencyshower_shape_jet_inclusive_showershape_nom.root"
+      - "/sphenix/user/shuhangli/ppg12/efficiencytool/results/MC_efficiencyshower_shape_signal_showershape_nom.root"
+      - "/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_basev3E_currentIAN_finalShuhang_20260526_2115/manifest_tree_qa_currentIAN_fast.json"
+      - "/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_basev3E_currentIAN_finalShuhang_20260526_2115/training_roots_currentIAN.list"
+      - "/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_basev3E_currentIAN_finalShuhang_20260526_2115/signal_roots_currentIAN.list"
+      - "/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_basev3E_currentIAN_finalShuhang_20260526_2115/inclusive_roots_currentIAN.list"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_finalShuhang_20260526_2115/validation/fullsim_shuhang_overlay/pp_currentian_basev3e_bdt_score_overlay_vs_shuhang_clean.png"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_finalShuhang_20260526_2115/validation/fullsim_shuhang_overlay/pp_currentian_basev3e_bdt_score_overlay_vs_shuhang_clean_summary.json"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_finalShuhang_20260526_2115/validation/fullsim_shuhang_overlay/pp_currentian_basev3e_bdt_fourcurve_tall_overlay_fig13_noNPB.png"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_finalShuhang_20260526_2115/validation/fullsim_shuhang_overlay/pp_currentian_basev3e_bdt_score_overlay_vs_ppg12_pp_noCent_bdt_22_28_noNPB_eta0-pt3-cut0_summary.json"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_finalShuhang_20260526_2115/validation/fullsim_shuhang_overlay_no_preselection/pp_currentian_basev3e_bdt_fourcurve_tall_overlay_fig13_noNPB_noPreselection.png"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_finalShuhang_20260526_2115/validation/fullsim_shuhang_overlay_no_preselection/pp_currentian_basev3e_bdt_roc_overlay_fig13_noNPB_noPreselection.png"
+      - "/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_basev3E_currentIAN_npbet5env_20260527_1356/submit_npbet5env_currentian.log"
+      - "/sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_npbet5env_20260527_1356"
+      - "/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_basev3E_currentIAN_finalShuhang_20260526_2115/validation/model_equivalence_audit_22_28"
+      - "/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_basev3E_currentIAN_rawOverlayEnvFix_20260527_1630/submit_rawoverlay_ppg12_basev3E_currentIAN_rawOverlayEnvFix_20260527_1630.log"
+      - "/sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_rawOverlayEnvFix_20260527_1630"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_rawOverlayEnvFix_20260527_1630/validation/fullsim_shuhang_overlay_raw_inclusive/pp_currentian_basev3e_bdt_score_overlay_vs_ppg12_pp_noCent_bdt_22_28_noNPB_eta0-pt3-cut0.png"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_rawOverlayEnvFix_20260527_1630/validation/fullsim_shuhang_overlay_raw_inclusive/ppg12_equiv_pp_noCent_bdt_22_28_noNPB_eta0-pt3-cut0_fullInclusive_unitnorm.png"
+      - "scripts/audit_pp_basev3e_shuhang_equivalence.py"
+      - "scripts/pp_photon_ml_pipeline.sh"
+      - "scripts/make_ppg12_fig19_bdt_overlay.py"
+      - "scripts/RecoilJets_Condor_submit.sh"
+    evidence:
+      - "2026-05-28 10:05 EDT read-only pgrep confirmed tmux pp_npbet5env_slide15_20260528_100102 is running run_npbet5env_slide15_pipeline.sh with a manifest/tree QA python process; log has started but not reached closure yet."
+      - "2026-05-26 20:58 EDT stitching is accepted and slide 16 pp ET/eta reweighting validation is accepted as good enough to move forward."
+      - "Training must use Justin's analysis outputs and accepted pp exact-stitch/wiki-weight baseline; Shuhang ROOT files are comparison targets only."
+      - "2026-05-26 20:50 EDT Linear THE-17 created for pp baseV3E BDT training and Shuhang overlay; THE-9 was closed Done and THE-14 was updated to wait on THE-17."
+      - "2026-05-26 21:05 EDT Shuhang signal/inclusive ROOTs opened successfully with uproot; each has 1197 keys and 25 h2d_bdt_eta0_pt*_cut* histograms. Candidate overlay target h2d_bdt_eta0_pt2_cut1 has score axis -1..2 with 300 bins, iso axis -10..30 with 200 bins, signal integral 3.209e6, inclusive integral 2.188e8."
+      - "2026-05-26 21:12 EDT fast manifest QA passed after fixing a double-count guard: 3000 signal files, 5000 inclusive files, 7000 training files; all expected samples present; representative probes have real NPB and run/evt keys."
+      - "2026-05-26 21:13 EDT tmux pp_basev3e_finalShuhang_20260526_2115 started trainCurrentIANBDT -> validateCurrentIANBDT -> plotCurrentIANOverlay with PP_BDT_MAX_LOAD_ROWS_PER_CLASS=2000000 and PP_VALIDATION_MAX_LOAD_ROWS_PER_CLASS=1000000."
+      - "2026-05-26 21:31 EDT training wrote model_registry.json and validation wrote score cache from 2,000,000 rows. Full-sample overlay process PID 695010 is active from make_ppg12_fig19_bdt_overlay.py; plot log is still empty while scoring is in progress."
+      - "2026-05-26 22:21 EDT compact overlay artifacts were pulled locally. The clean Shuhang overlay projects Shuhang's 2D h2d_bdt_eta0_pt2_cut1 ROOT histograms onto the BDT-score axis and unit-normalizes each curve. This analysis rows after cuts: signal 1,928,018 and inclusive 2,191,026. Shuhang selected integrals: signal 3.209e6 and inclusive 2.188e8."
+      - "2026-05-26 22:21 EDT first visual/numerical review found a large inclusive discrepancy: this analysis inclusive has about 67.98% of unit-normalized area below score 0.1, while Shuhang inclusive has about 18.64%; this analysis signal has about 61.8% above score 0.8, while Shuhang signal has about 72.44%."
+      - "2026-05-26 22:48 EDT Justin approved a true rerun for slide-15 pp ET/eta range. Codex patched scripts/train_auau_photon_bdt.py so ppg12-sixpack derives full_pt from --pt-bins, and patched macros/Fun4All_recoilJets_unified_impl.C with RJ_PP_NPB_SCORE_MIN_ET override. Existing finalShuhang manifest probe over 400 files found min cluster_Et 6.00184 and zero 5-6 rows, proving extraction also had to be rerun. Submitted npbet5 extraction with RJ_PP_NPB_SCORE_MIN_ET=5.0 and GROUP_SIZE=10; immediate queue snapshot after submission was condor_rows=8008, status 1=7339, status 2=669."
+      - "2026-05-26 23:20 EDT corrected the PPG12 comparison selection: repo evidence says cut0 is no nbkg and cut1 is w/ nbkg, so the previous h2d_bdt_eta0_pt2_cut1 overlay was not Figure-13-style. Regenerated full-manifest overlay with pt_range 22:28, npb_mode skip, and PPG12 h2d_bdt_eta0_pt3_cut0; selected rows were signal 3,905,110 and inclusive 1,496,782. Pulled compact PNG/JSON and generated tall four-curve canvas pp_currentian_basev3e_bdt_fourcurve_tall_overlay_fig13_noNPB.png."
+      - "2026-05-27 00:12 EDT OS doctor stale check triggered a read-only Condor refresh for the eight npbet5 DAG parent clusters; all eight queried clusters were still status 2/running with one active row each, so the workstream remains running rather than done."
+      - "2026-05-27 00:19 EDT Justin messaged Shuhang on Mattermost with pp_currentian_basev3e_bdt_fourcurve_tall_overlay_fig13_noNPB.png and the corresponding Figure-13 screenshot, asking why this-analysis inclusive MC peaks near the NPB-tagged-data region even though the comparison is no-NPB/no-preselection. Justin assessed the overlay as otherwise pretty good and the inclusive-background peak variation as not the major priority."
+      - "2026-05-27 EDT corrected an initial hyperparameter-control assumption: scripts/pp_photon_ml_pipeline.sh trainCurrentIANBDT already passes the PPG12 nominal XGBoost recipe for finalShuhang (750 trees, depth 5, lr 0.1, subsample 0.5, colsample 0.6, reg-alpha 5, reg-lambda 0.3, lossguide, max-bin 256, seed 42). Remaining definition controls are true no-preselection overlay selection, train/test split recipe, and PPG12 low-ET background subsampling."
+      - "2026-05-27 12:15 EDT uploaded patched scripts/make_ppg12_fig19_bdt_overlay.py with --preselection none support and launched tmux pp_fig13_nopresel_20260527_0136 to regenerate pt 22:28, no-NPB, h2d_bdt_eta0_pt3_cut0 overlay from the existing finalShuhang frozen model; the first launch failed only from shell splitting --step-size '100 MB' and was relaunched without that explicit argument."
+      - "2026-05-27 12:49 EDT true no-preselection overlay completed and compact PNG/JSON/LOG artifacts were pulled locally. Summary confirms preselection=none, pt_range=22:28, npb_mode=skip, signal rows=3,905,110, inclusive rows=1,496,806. Local tall overlay and ROC were regenerated from the no-preselection summary; ROC AUC is 0.93385 for this analysis and 0.73087 for the PPG12 histogram projection."
+      - "2026-05-27 15:09 EDT read-only SDCC ROOT decomposition found Shuhang's merged inclusive BDT target h2d_bdt_eta0_pt2_cut1 and h2d_bdt_eta0_pt3_cut0 are reproduced by nominal jet12+jet20+jet40 per-sample ROOT histograms; jet5/jet8 are zero in these bins, and adding the available jet30 fallback worsens agreement. Capped rescoring of Justin's current ROOTs shows composition alone is insufficient: forced jet12+jet20+jet40 still gives frac(score<0.1) ~0.672 versus Shuhang 0.233. Representative RecoilJets trees have event_weight=1.0, while PPG12 ShowerShapeCheck.C fills h2d_bdt with SampleConfig.weight and applies sample truth-window plus cluster_ET_upper cuts."
+      - "2026-05-27 13:55 EDT root-caused the failed npbet5 low-ET rerun: the macro override existed, but frozen Condor submit environments did not pass RJ_PP_NPB_SCORE_MIN_ET, so old npbet5 ROOTs still started at about 6 GeV. Direct scans of old npbet5 jet samples found rows_5_6=0; run28_jet8 min cluster_Et was 6.000303745269775."
+      - "2026-05-27 13:59 EDT uploaded the submit-wrapper env passthrough fix and submitted fresh tag ppg12_basev3E_currentIAN_npbet5env_20260527_1356 with RJ_PP_NPB_SCORE_MIN_ET=5.0, GROUP_SIZE=10, row match preselectionNewPPG12_tightReference_nonTightReference, and thread id 019e6700-fd78-7132-a1a6-8e56da820f59. Parent DAG clusters are 5440727, 5440729, 5440731, 5440733, 5440735, 5440737, 5440739, 5440741; immediate queue snapshot was 8000 idle, 0 held."
+      - "2026-05-27 14:00 EDT frozen submit-file evidence confirms the corrected workers carry RJ_PP_NPB_SCORE_MIN_ET=5.0 for both photon and inclusive-jet examples; e.g. photon5 RecoilJets_sim_preselectionNewPPG12_tightReference_nonTightReference_run28_photonjet5_20260527_135728.sub and jet8 RecoilJets_sim_preselectionNewPPG12_tightReference_nonTightReference_run28_jet8_20260527_135811.sub."
+      - "2026-05-27 15:36 EDT capped Shuhang model-equivalence sanity pass succeeded over five files/sample and 6000 same-row scatter rows: our AUC=0.9162, Shuhang split AUC=0.9212, Shuhang nosplit AUC=0.9170, our-vs-split Pearson=0.9809 and rank correlation=0.9785. This points away from a gross BDT-implementation mismatch and toward a row-selection/weight/window contract issue."
+      - "2026-05-27 15:39 EDT launched full existing-output tmux pp_shuhang_eq_20260527_1535 to scan finalShuhang signal/inclusive manifests, apply our frozen XGBoost and Shuhang split/nosplit TMVA models on same rows, and write score_contract_audit_22_28.csv/json plus scatter/ROC PNGs under validation/model_equivalence_audit_22_28."
+      - "2026-05-27 16:03 EDT full Shuhang model-equivalence audit completed with ok=true: our_auc=0.9037, Shuhang split_auc=0.9126, our-vs-split Pearson=0.9761, Spearman=0.9740 over 115054 scatter rows. This confirms the trained BDT and Shuhang TMVA are strongly same-row equivalent."
+      - "2026-05-27 16:10 EDT root cause identified: finalShuhang extraction used RJ_PP_PHOTONID_PPG12_FILTER=1 with role=background for inclusive files and RJ_PP_PHOTONID_REQUIRE_PRESELECTION=1, so the overlay input is a truth-background-filtered, preselected candidate table rather than raw inclusive MC. The audit selections all give identical rows because the missing rows were removed during extraction."
+      - "2026-05-27 16:15 EDT patched and uploaded scripts/pp_photon_ml_pipeline.sh so extract_one honors RJ_PP_PHOTONID_PPG12_FILTER and added condorExtractCurrentIANRawOverlay with role=all, RJ_PP_PHOTONID_PPG12_FILTER=0, and RJ_PP_PHOTONID_REQUIRE_PRESELECTION=0. Patched/uploaded scripts/make_ppg12_fig19_bdt_overlay.py with --require-unfiltered-inclusive to fail on truth-background-only inclusive inputs. Local bash -n/py_compile and remote bash -n/py_compile passed."
+      - "2026-05-27 16:20 EDT first rawOverlay attempt was removed after queued worker ads showed missing RJ_PP_PHOTONID_SOURCE_ROLE/RJ_PP_PHOTONID_PPG12_FILTER/RJ_PP_PHOTONID_REQUIRE_PRESELECTION. Patched and uploaded scripts/RecoilJets_Condor_submit.sh so these pp photon-ID extraction controls and Codex provenance are explicitly included in worker submit environments. Dry-run submit files then showed role=all, ppg12_filter=0, require_preselection=0, row-match, RJ_CODEX_CHAT_NAME, and RJ_CODEX_THREAD_ID."
+      - "2026-05-27 16:22 EDT submitted corrected raw-overlay tag ppg12_basev3E_currentIAN_rawOverlayEnvFix_20260527_1630 from sphnxuser05 with parent DAG clusters 5440795, 5440797, 5440799, 5440801, 5440803, 5440881, 5441044, and 5441175. Immediate live worker ad check showed the fixed RJ_PP_PHOTONID_* environment present; queue snapshot was 7939 idle, 69 running, 0 held across corrected parents/children."
+      - "2026-05-27 16:40 EDT progress check: corrected raw-overlay destination has 8000 ROOT files, but Condor still reports all eight parent DAGs running and 8008 matched queue rows in status 2, so scoring is intentionally held until DAG closure confirms files are no longer live."
+      - "2026-05-27 16:50 EDT progress check: corrected raw-overlay destination still has 8000 ROOT files and Condor reports all eight parent DAGs status 2/running with 8000 matched worker rows in status 2. Slide 17 currently contains RHS image pp_currentian_basev3e_bdt_fourcurve_tall_overlay_fig13_noNPB.png, which is affected by the old truth-background-filtered/preselected inclusive table and must be replaced after rawOverlayEnvFix closes and passes ROOT row-contract QA."
+      - "Affected-output note: pp finalShuhang Shuhang/Fig.13 overlays and ROC plots made from validation/fullsim_shuhang_overlay and validation/fullsim_shuhang_overlay_no_preselection are stale for raw-inclusive claims. The pp model registry/training is not invalidated by this evidence; the bug is the overlay extraction row contract. No current evidence says AuAu trained BDT outputs are affected by this pp-specific RJ_PP_PHOTONID row-contract bug, but the broader Condor env-propagation class is now fixed in scripts/RecoilJets_Condor_submit.sh for future RJ_* overrides."
+      - "2026-05-27 16:55 EDT heartbeat check: all eight rawOverlayEnvFix sample directories have 1000 ROOT files each, no held rows printed, and all eight parent DAGs still report queue status 2. Scoring remains gated."
+      - "2026-05-27 17:26 EDT heartbeat check: rawOverlayEnvFix still has 8000 matched worker rows in status 2, no held rows printed, all eight sample directories remain at 1000 ROOT files, and all eight parent DAGs still report queue status 2. Scoring remains gated."
+      - "2026-05-27 17:55 EDT heartbeat check: rawOverlayEnvFix drained to 7138 matched worker rows in status 2, no held rows printed, all eight sample directories remain at 1000 ROOT files, and all eight parent DAGs still report queue status 2. Scoring remains gated until parent/worker closure."
+      - "2026-05-27 17:58 EDT Gmail hygiene: consumed 46 unread RecoilJets Pipeline messages and marked them read; verified label unread count is now 0. The consumed set included pp-npbet5 merge-stage STARTED/READY emails, AuAu overfitdiag train/validate READY emails, and old invalid pp-basev3e-raw-overlay FAILED rescue emails from the removed pre-env-fix attempt."
+      - "2026-05-27 18:26 EDT heartbeat check: Gmail RecoilJets Pipeline remains clean at 0 unread. rawOverlayEnvFix drained to 1621 matched worker rows in status 2, no held rows printed, all eight sample directories remain at 1000 ROOT files, and all eight parent DAGs still report queue status 2. Scoring remains gated until parent/worker closure."
+      - "2026-05-27 18:57 EDT heartbeat check: consumed and marked read four fresh RecoilJets Pipeline stage emails for rawOverlayEnvFix: sim firstRound STARTED, simInclusive firstRound STARTED/READY, and simInclusive secondRound STARTED. Verified label unread count returned to 0. SDCC showed rawOverlayEnvFix drained to 199 matched worker rows in status 2, no held rows printed, 8000 destination ROOT files with 1000 per expected sample, and all eight parent DAGs still in queue status 2. Scoring remains gated until parent/worker closure."
+      - "2026-05-27 19:08 EDT user status check: consumed and marked read two fresh rawOverlayEnvFix stage emails: isSim firstRound READY and isSim secondRound STARTED; verified RecoilJets Pipeline unread count returned to 0. SDCC showed 133 matched worker rows still in status 2, no held rows printed, all eight sample directories at 1000 ROOT files, and all eight parent DAGs still queue status 2. The fixed pp jobs are healthy and nearly drained, but scoring remains gated."
+      - "2026-05-27 19:26 EDT heartbeat check: consumed and marked read three fresh rawOverlayEnvFix stage STARTED emails for isSim/isSimInclusive firstRound; verified RecoilJets Pipeline unread count returned to 0. SDCC showed 12 matched worker rows still in status 2, no held rows printed, all eight sample directories at 1000 ROOT files, and all eight parent DAGs still queue status 2. The corrected extraction is healthy and essentially drained, but scoring remains gated until the parent DAGs/children close."
+      - "2026-05-27 19:56 EDT heartbeat check: consumed and marked read ten rawOverlayEnvFix stage emails for isSim/isSimInclusive firstRound READY/STARTED and secondRound STARTED; verified RecoilJets Pipeline unread count returned to 0. SDCC showed only one matched worker row still in status 2, no held rows printed, 8000 destination ROOT files with 1000 per expected sample, and all eight parent DAGs still queue status 2. Scoring remains gated until the final worker and DAG parents close."
+      - "2026-05-27 20:27 EDT heartbeat check: consumed and marked read one fresh rawOverlayEnvFix stage email for sim_firstRound_siminclusive_all STARTED; verified RecoilJets Pipeline unread count returned to 0. SDCC showed no tag-matched worker status rows from the worker query, no held rows printed, 8000 destination ROOT files with 1000 per expected sample, but all eight parent DAGs still report queue status 2. Scoring remains gated until DAG parents close cleanly."
+      - "2026-05-27 20:55 EDT heartbeat check: consumed and marked read 22 fresh RecoilJets Pipeline stage/final READY emails, including rawOverlayEnvFix sim/isSimInclusive secondRound READY and auto final READY messages plus npbet5 final READY messages; verified RecoilJets Pipeline unread count returned to 0. SDCC showed no tag-matched worker status rows from the worker query, no held rows printed, 8000 destination ROOT files with 1000 per expected sample, seven of eight rawOverlayEnvFix parent DAGs in condor_history with JobStatus=4 ExitCode=0, and only rawOverlayEnvFix parent 5440795 still queue status 2. Scoring remains gated until 5440795 closes cleanly."
+      - "2026-05-27 21:26 EDT heartbeat check: consumed and marked read four fresh RecoilJets Pipeline READY emails and verified unread returned to 0. SDCC showed no tag-matched worker status rows, no held rows printed, 8000 destination ROOT files with 1000 per expected sample, and all eight rawOverlayEnvFix parent DAGs in condor_history with JobStatus=4 ExitCode=0. Representative ROOT QA found AuAuPhotonIDTrainingTree present and inclusive samples contain both signal and background rows, i.e. not truth-background-only. Fast raw-overlay manifests passed: 3000 signal files, 5000 inclusive files, all samples present, no bad probe samples."
+      - "2026-05-27 21:31 EDT launched remote tmux pp_rawoverlay_score_20260527_2126 to score rawOverlayEnvFix with the existing frozen finalShuhang BDT model only and regenerate the Fig.13-style Shuhang overlay under /sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_basev3E_currentIAN_rawOverlayEnvFix_20260527_1630/validation/fullsim_shuhang_overlay_raw_inclusive with --preselection none, --npb-mode skip, --require-unfiltered-inclusive, pt 22:28, Shuhang h2d_bdt_eta0_pt3_cut0, and wiki jet8 scale."
+      - "2026-05-27 21:56 EDT heartbeat check: Gmail RecoilJets Pipeline remained clean at 0 unread. Remote tmux pp_rawoverlay_score_20260527_2126 is still active; score_raw_inclusive_fig13.log remains empty because the overlay script prints at completion, no rc file exists yet, and the Python process PID 2043435 is actively using about 106% CPU after 25 minutes. No stop condition triggered."
+      - "2026-05-27 22:25 EDT raw-inclusive scoring completed with RC=0 and compact PNG/JSON/LOG artifacts were pulled locally from /sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_basev3E_currentIAN_rawOverlayEnvFix_20260527_1630/validation/fullsim_shuhang_overlay_raw_inclusive. Summary confirms --preselection none, --npb-mode skip, --require-unfiltered-inclusive, pt 22:28, signal rows after cuts 4,059,816 and inclusive rows after cuts 1,829,760. Visual inspection shows the raw-inclusive candidate still has a large this-analysis inclusive spike near BDT score 0 and is not yet a clean slide-17 replacement without further interpretation/layout cleanup."
+      - "2026-05-27 22:31 EDT synced this state to the 2026-05-27 Today's Plan and added a Linear THE-17 comment (fc5dd20c-5068-46f5-9012-fd9de0eb6577) noting that rawOverlayEnvFix fixed the upstream row contract but the low-score inclusive spike persists."
+      - "2026-05-27 22:32 EDT Gmail RecoilJets Pipeline label check reports messagesUnread=0 and threadsUnread=0."
+      - "2026-05-28 10:05 EDT pulled full Shuhang model-equivalence audit artifacts locally from validation/model_equivalence_audit_22_28 and generated TH2-style same-row score maps from score_equivalence_sample_22_28.csv: pp_basev3e_same_row_shuhang_split_vs_this_analysis_TH2.png and pp_basev3e_same_row_shuhang_split_nosplit_vs_this_analysis_TH2.png. These compare this-analysis frozen XGBoost score to Shuhang's split/nosplit out-of-the-box baseV3E TMVA scores on the same 115,054 rows."
+      - "2026-05-27 19:58 EDT heartbeat check for npbet5env: parent DAG clusters 5440731, 5440739, and 5440741 still report JobStatus=2; the other five queried parents have left condor_q. No held rows printed. Destination ROOT count is 8000. Frozen submit-file checks show RJ_PP_NPB_SCORE_MIN_ET=5.0 in signal photonjet5/10/20 submit files and inclusive jet12/20/30/40 submit files plus SIM_FIRSTROUND/SIM_SECONDROUND args. Downstream manifest/ROOT 5-6 GeV checks remain gated until the remaining parent DAGs close."
+      - "2026-05-27 20:28 EDT heartbeat check for npbet5env: parent DAG clusters 5440731, 5440739, and 5440741 still report JobStatus=2; no held rows printed. Direct destination count under /sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_npbet5env_20260527_1356 reports 8000 ROOT files. Downstream manifest/ROOT 5-6 GeV checks remain gated until the remaining parent DAGs close."
+      - "2026-05-28 10:01 EDT heartbeat check: npbet5env parent queue is empty, no held rows printed, destination has 8000 ROOT files split as isSim=3000 and isSimInclusive=5000. Started tmux pp_npbet5env_slide15_20260528_100102 to build current-IAN manifests, write npbet5env_low_et_5_6_proof.json, then run trainCurrentIANBDT, validateCurrentIANBDT, and generate ppg12_exact_fine_reweight_histograms.csv if the 5-6 GeV proof passes."
+      - "2026-05-28 12:15 EDT Justin identified the local slide-21 pp-vs-AuAu candidate as non-apples-to-apples: scripts/make_pp_vs_auau_peripheral_bdt_slide.py used the rawOverlayEnvFix pp 22-28 GeV Fig.13-style summary while the AuAu Branch A panel is 15-35 GeV. No local 15-35 pp raw-inclusive summary exists, so the repair is to reuse the existing rawOverlayEnvFix signal/inclusive manifests and frozen current-IAN baseV3E BDT model for a narrow 15:35 rescoring, then regenerate only the local slide PNG/JSON/CSV."
+    last_verified: "2026-05-28T10:05:00-04:00"
+    next_check: "monitor tmux pp_npbet5env_slide15_20260528_100102 log for manifest/5-6 proof/training/validation completion; also review the pulled raw-inclusive slide-17 RHS candidate before any Google Slides mutation"
+    stale_after: "2026-05-28T12:00:00-04:00"
+    handoff_summary: >
+      THE-17 remains in progress. Full same-row audit says Justin's frozen
+      model and Shuhang's TMVA split model are strongly correlated, so the
+      slide-18 discrepancy is not primarily BDT implementation. The old
+      finalShuhang "inclusive" overlay input is truth-background filtered and
+      preselected at extraction time; it cannot be used as a raw inclusive MC
+      Fig.13 comparison. Corrected raw-overlay extraction tag
+      ppg12_basev3E_currentIAN_rawOverlayEnvFix_20260527_1630 closed cleanly
+      with 8000 ROOT files and all eight parent DAGs JobStatus=4 ExitCode=0.
+      Raw-overlay manifests and representative ROOT QA passed. Remote tmux
+      pp_rawoverlay_score_20260527_2126 completed with RC=0 and compact
+      PNG/JSON/LOG outputs were pulled locally. The corrected raw-inclusive
+      candidate still shows a large this-analysis inclusive spike near BDT
+      score 0, so the old row-contract bug is fixed but the comparison still
+      needs interpretation or a follow-up contract check before slide 17 is
+      replaced.
+
+  - workstream_id: shuhang_ppg12_bdt_overlay_validation
+    title: Shuhang PPG12 BDT Overlay
+    status: waiting
+    priority: P1
+    goal: >
+      Compare Justin's updated baseV3E pp BDT score/ROC baseline against
+      Shuhang's PPG12 signal/background ROOT histograms so the Au+Au
+      extrapolation has a clean pp validation reference.
+    current_next_action: >
+      Wait until the updated pp baseV3E BDT baseline is trained and validated,
+      then make the Shuhang overlay from the provided ROOT files.
+    depends_on:
+      - pp_basev3e_bdt_training_shuhang_overlay
+    active_codex_session: null
+    chat_label_or_thread: null
+    campaign_id: "ppg12_baseline_match"
+    linear_issue: "https://linear.app/thesisanalysis/issue/THE-14/wait-validation-or-shuhang-ppg12-bdt-overlay"
+    linear_sync: synced
+    today_doc_anchor: "2026-05-27 Today's Plan: Waiting / Review / THE-14"
+    workstream_spec: null
+    active_jobs: []
+    artifacts:
+      - "/sphenix/user/shuhangli/ppg12/efficiencytool/results/MC_efficiencyshower_shape_jet_inclusive_showershape_nom.root"
+      - "/sphenix/user/shuhangli/ppg12/efficiencytool/results/MC_efficiencyshower_shape_signal_showershape_nom.root"
+    evidence:
+      - "Shuhang provided inclusive MC and signal MC ROOT files for comparing BDT score distributions against Justin's full pp sim/baseV3E baseline after proper stitching/weighting."
+      - "2026-05-26 17:18 EDT stitching gate is accepted; remaining upstream gates are ET/eta reweighting validation and updated pp BDT training."
+      - "2026-05-26 20:58 EDT ET/eta reweighting validation is accepted from slide 16; overlay now waits on updated pp baseV3E BDT training/validation only."
+    last_verified: "2026-05-26T20:58:00-04:00"
+    next_check: "after updated pp baseV3E BDT baseline is trained"
+    stale_after: "2026-05-31T10:00:00-04:00"
+    handoff_summary: >
+      This is the blocked Shuhang/PPG12 leader validation check. Do not treat
+      ET/eta reweighting itself as blocked by this; only the overlay waits for
+      proper stitching/weighting and updated baseV3E BDT training.
+
+  - workstream_id: bdt_et_window_5to35_ablation
+    title: BDT ET-window 5-35 vs 15-35 Ablation
+    status: backlog
+    priority: P2
+    goal: >
+      Test whether training the production-primary BDT over 5-35 GeV instead
+      of the current 15-35 GeV window gives useful low-ET context and improves
+      model robustness, WP80 fake rate, and closure.
+    current_next_action: >
+      Keep as next-wave THE-8 backlog until the current Branch A
+      Jet12+20+30+40 validation and slide evidence are reviewed. When promoted,
+      duplicate-guard against older legacy width-window studies, then train a
+      matched PPG12-exact BDT control with the same feature set, same
+      background mixture, same split and weights, and only the training ET
+      window changed from 15-35 to 5-35.
+    depends_on:
+      - ml_final_model_ablation_map
+      - duplicate-run guard before any new training
+      - current Branch A score-cache plots reviewed
+    active_codex_session: null
+    chat_label_or_thread: null
+    campaign_id: "final_model_choice"
+    linear_issue: "https://linear.app/thesisanalysis/issue/THE-22/bkl-ml-or-bdt-et-window-5-35-vs-15-35-ablation"
+    linear_sync: synced
+    today_doc_anchor: "2026-05-28 Today's Plan: Backlog / BDT ET-window 5-35 vs 15-35"
+    workstream_spec: "https://docs.google.com/document/d/10x-gi11LHTCLkvSyCg53oWNQWibGAL6b4VuiraWvs4U/edit?usp=drivesdk"
+    active_jobs: []
+    artifacts: []
+    evidence:
+      - "2026-05-28 Justin asked to add a task: try training BDT from 5-35 instead of 15-35 to see if the extra context helps the BDT overall."
+      - "Existing historical 5-35/15-35 width-window and stacker studies are legacy/context; before any new training, duplicate-guard them against the current PPG12-exact THE-8 model-choice setup."
+    last_verified: "2026-05-28T11:07:00-04:00"
+    next_check: "after current THE-8 Branch A score-cache PNGs are reviewed"
+    stale_after: "2026-06-04T10:00:00-04:00"
+    handoff_summary: >
+      Backlog THE-8 ablation. The scientific question is whether low-ET
+      5-15 GeV context improves the BDT decision boundary or instead adds
+      domain shift that makes the 15-35 GeV physics region less clean. When
+      promoted, change only the training ET window first; keep features,
+      background mixture, PPG12-exact weights, split mode, and validation gates
+      matched to the current selected Branch A baseline. Compare WP80 fake rate
+      and isolation/ABCD closure first, then AUC.
+
+  - workstream_id: scaled_trigger_efficiency
+    title: Scaled Trigger Efficiency
+    status: backlog
+    priority: P2
+    goal: >
+      Convert PPG meeting notes into trigger-efficiency studies versus ET, eta,
+      phi, and centrality so possible masked detector regions or centrality
+      biases are understood.
+    current_next_action: >
+      Keep in backlog unless HP26 requires it or new production evidence is
+      available.
+    depends_on:
+      - new production or explicit HP26 need
+    active_codex_session: null
+    chat_label_or_thread: null
+    linear_issue: "https://linear.app/thesisanalysis/issue/THE-10/bkl-trigger-or-scaled-trigger-efficiency"
+    linear_sync: synced
+    today_doc_anchor: "2026-05-27 Today's Plan: Backlog / THE-10"
+    workstream_spec: null
+    active_jobs: []
+    artifacts: []
+    evidence:
+      - "PPG Meeting notes Friday, May 22nd, 2026: tabulate efficiencies; make eta/phi trigger-efficiency maps; check centrality dependence."
+    last_verified: "2026-05-26"
+    next_check: "when HP26 slide needs or new production unlock it"
+    stale_after: "2026-06-01T10:00:00-04:00"
+    handoff_summary: >
+      Important but not today's default lane unless it becomes needed for HP26
+      or approval defense.
+
+  - workstream_id: feature_isolation_correlation_checks
+    title: Feature/Isolation Correlation Checks
+    status: backlog
+    priority: P2
+    goal: >
+      Quantify whether specific feature or isolation regions explain model
+      behavior, including the 21-22 GeV isolation diagnostic.
+    current_next_action: >
+      Promote to active only if it informs Jet40 stitching, ablation decisions,
+      or HP26 slide defense.
+    depends_on:
+      - current Jet40 or ML ablation question
+    active_codex_session: null
+    chat_label_or_thread: null
+    linear_issue: "https://linear.app/thesisanalysis/issue/THE-11/bkl-ml-check-or-featureisolation-correlation-checks"
+    linear_sync: synced
+    today_doc_anchor: "2026-05-27 Today's Plan: Backlog / THE-11"
+    workstream_spec: null
+    active_jobs: []
+    artifacts: []
+    evidence:
+      - "User note: make isolation for 21-22 photons and inspect high-weight Jet12 fluctuation behavior."
+    last_verified: "2026-05-26"
+    next_check: "when model-choice evidence needs a diagnostic"
+    stale_after: "2026-06-01T10:00:00-04:00"
+    handoff_summary: >
+      Keep as diagnostic backlog. Do not let it crowd out HP26, pp exact
+      stitch, Jet40, or ML model-choice gating.
+
+  - workstream_id: background_under_bdt_peak
+    title: Background Under BDT Peak
+    status: backlog
+    priority: P2
+    goal: >
+      Quantify background under the signal BDT peak and whether the signal peak
+      shifts left in a measurable way.
+    current_next_action: >
+      Convert into a concrete validation plot only after the production-primary
+      BDT candidate set is fixed.
+    depends_on:
+      - ml_final_model_ablation_map
+    active_codex_session: null
+    chat_label_or_thread: null
+    linear_issue: "https://linear.app/thesisanalysis/issue/THE-12/bkl-ml-check-or-background-under-bdt-peak"
+    linear_sync: synced
+    today_doc_anchor: "2026-05-27 Today's Plan: Backlog / THE-12"
+    workstream_spec: null
+    active_jobs: []
+    artifacts: []
+    evidence:
+      - "User requested quantitative background-under-signal-BDT-peak check in future task summary."
+    last_verified: "2026-05-26"
+    next_check: "after final BDT candidate selection"
+    stale_after: "2026-06-01T10:00:00-04:00"
+    handoff_summary: >
+      Useful model-defense study, but downstream of the ablation map and final
+      candidate selection.
+
+  - workstream_id: bdt_nn_slides_33_39_speaker_notes
+    title: BDT/NN Speaker-Note Scaffold Slides 33-39
+    status: backlog
+    priority: P2
+    goal: >
+      Clean up and linearize slides 33-39 so the BDT and neural-network section
+      becomes a reusable explanatory scaffold, with speaker-note scripts that
+      make the story easy to present and adapt.
+    current_next_action: >
+      When promoted, inspect the current WORKING POINT deck slides 33-39 and
+      existing slide-generation/note scripts, then produce a cleaned
+      slide-by-slide scaffold plus speaker notes script files.
+    depends_on: []
+    active_codex_session: null
+    chat_label_or_thread: null
+    linear_issue: "https://linear.app/thesisanalysis/issue/THE-15/bkl-slides-or-bdtnn-speaker-note-scaffold-33-39"
+    linear_sync: synced
+    today_doc_anchor: "2026-05-27 Today's Plan: Backlog / THE-15"
+    workstream_spec: null
+    active_jobs: []
+    artifacts:
+      - "WORKING POINT deck slides 33-39"
+      - "scripts/make_global32_grouped_split_gain_slide32.py"
+    evidence:
+      - "Justin added this as a low-priority task on 2026-05-26: clean up and linearize slides 33-39 on BDT/neural networks and add speaker-note scripts as reusable explanatory scaffolding."
+      - "Memory notes identify prior slide-32/33 split-gain hierarchy and BDT/MLP/stack slide conventions as useful scaffolding."
+    last_verified: "2026-05-26"
+    next_check: "when slide-scaffolding backlog is promoted"
+    stale_after: "2026-06-07T10:00:00-04:00"
+    handoff_summary: >
+      Backlog only. Do not let this crowd HP26, stitching, or final model
+      choice. When active, read the WORKING POINT deck first, preserve existing
+      slide content unless Justin asks for mutation, and make reusable
+      speaker-note/script scaffolding for slides 33-39.

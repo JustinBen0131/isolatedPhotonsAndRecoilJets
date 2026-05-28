@@ -1072,6 +1072,9 @@ private:
     TH1F* getOrBookPtGammaHist(const std::string& trig,
                                const std::string& base,
                                int centIdx);
+    TH1F* getOrBookRecoClusterEtFineDiagHist(const std::string& trig,
+                                             const std::string& base,
+                                             int centIdx);
     TH1I* getOrBookIsoDecisionHist(const std::string& trig, int ptIdx, int centIdx);
     
     // Event-level photon multiplicity diagnostic:

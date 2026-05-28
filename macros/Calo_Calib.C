@@ -65,6 +65,15 @@ void Process_Calo_Calib()
     }
   }
 
+  bool isScaledTriggerStudyOnly = false;
+  if (const char* scaled = getenv("RJ_SCALED_TRIGGER_STUDY_ONLY"))
+  {
+    std::string flag(scaled);
+    isScaledTriggerStudyOnly =
+        (flag == "1" || flag == "true" || flag == "TRUE" ||
+         flag == "yes" || flag == "YES" || flag == "on" || flag == "ON");
+  }
+
   ///////////////////////////////////////////////
   // Remove incomplete events from event combiner
   if (!isSim && !isSimEmbedded)
@@ -119,6 +128,11 @@ void Process_Calo_Calib()
   {
     std::cout << "[Process_Calo_Calib][isSimEmbedded] skipping CaloTowerStatus setters "
                  "(embedded SIM path uses producer tower-quality state)" << std::endl;
+  }
+  else if (isScaledTriggerStudyOnly)
+  {
+    std::cout << "[Process_Calo_Calib][scaledTriggerStudyOnly] skipping CaloTowerStatus setters "
+                 "(scaled-trigger QA reads max cluster energy and CALOFITTING has no TOWERS_ node)" << std::endl;
   }
   else
   {

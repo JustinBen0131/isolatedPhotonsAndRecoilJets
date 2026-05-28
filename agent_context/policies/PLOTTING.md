@@ -64,6 +64,19 @@ legend, and in-plot analysis labels. Do not bake slide titles, bullets,
 takeaways, footers, or gray callouts into PNGs; those belong as editable Slides
 text/shapes.
 
+Exception: when Justin explicitly asks to `generate a slide`, follow
+`agent_context/policies/SLIDES_WORKFLOW.md` instead. In that workflow the
+deliverable is a polished full-slide 16:9 PNG candidate, so slide title,
+narrative text, callouts, and plot geometry should be composed together and
+shown in chat before any Google Slides mutation. Do not add tiny `Source:` or
+provenance footers to the PNG; keep that evidence in the chat note or adjacent
+summary artifacts.
+
+For full-slide candidates, use plot-panel shadows when they improve hierarchy.
+Preferred Google Slides shadow baseline: black shadow, opacity 18%, angle 60
+degrees, distance 4 px, blur radius 14 px. Approximate these settings in
+matplotlib or other renderers when exact Slides shadow controls are unavailable.
+
 ## Color And Readability
 
 Use high-contrast, colorblind-aware palettes. Avoid pale yellow or low-contrast

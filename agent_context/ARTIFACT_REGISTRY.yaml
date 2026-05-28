@@ -1,0 +1,167 @@
+schema_version: 1
+last_updated: "2026-05-27T00:50:00-04:00"
+owner: Codex
+purpose: >
+  Canonical provenance registry for thesis-facing artifacts. Register plots,
+  ROOT files, CSV/JSON summaries, slide candidates, scripts, and OS evidence
+  bundles before treating them as reusable or slide-ready.
+
+quality_states:
+  - candidate
+  - qa_passed
+  - slide_ready
+  - superseded
+  - invalid
+
+claim_layers:
+  - physics_target
+  - pp_baseline
+  - embedded_background
+  - ml_photon_id
+  - auau_response
+  - final_physics
+  - os_infrastructure
+
+required_artifact_fields:
+  - artifact_id
+  - kind
+  - path
+  - thesis_claim
+  - source_inputs
+  - generation_command
+  - qa_state
+  - qa_evidence
+  - limitations
+  - destination
+  - last_verified
+
+artifacts:
+  - artifact_id: codex_os_doctor
+    kind: script
+    path: scripts/codex_os_doctor.py
+    thesis_claim: os_infrastructure
+    source_inputs:
+      - agent_context/CODEX_WORK_REGISTER.yaml
+      - agent_context/policies/LOAD_MAP.yaml
+      - agent_context/THESIS_NARRATIVE_MAP.md
+    generation_command: "python3 scripts/codex_os_doctor.py --profile daily"
+    qa_state: qa_passed
+    qa_evidence:
+      - "2026-05-26 hardening pass: doctor executable existed and passed after OS policy routing was added."
+    limitations: "Checks OS health and state hygiene; it does not validate physics correctness."
+    destination: "Codex OS health gate"
+    last_verified: "2026-05-26T23:50:00-04:00"
+
+  - artifact_id: thesis_narrative_map
+    kind: policy_map
+    path: agent_context/THESIS_NARRATIVE_MAP.md
+    thesis_claim: os_infrastructure
+    source_inputs:
+      - agent_context/policies/AGENTIC_OS_HARDENING.md
+      - agent_context/CODEX_WORK_REGISTER.yaml
+    generation_command: "manual Codex policy update from Justin's thesis-OS request"
+    qa_state: qa_passed
+    qa_evidence:
+      - "2026-05-26 hardening pass added the durable claim hierarchy and promotion gate."
+    limitations: "Must be updated when collaborator feedback changes the thesis proof obligations."
+    destination: "Boot context for future Codex chats and thesis review"
+    last_verified: "2026-05-26T23:50:00-04:00"
+
+  - artifact_id: artifact_registry_seed
+    kind: registry
+    path: agent_context/ARTIFACT_REGISTRY.yaml
+    thesis_claim: os_infrastructure
+    source_inputs:
+      - agent_context/THESIS_NARRATIVE_MAP.md
+      - agent_context/policies/AGENTIC_OS_HARDENING.md
+    generation_command: "python3 scripts/codex_artifact_registry.py check"
+    qa_state: candidate
+    qa_evidence:
+      - "Seed registry added during 10/10 OS safety-kernel implementation."
+    limitations: "Only seeds OS artifacts; analysis plot/ROOT artifacts should be added as they become canonical."
+    destination: "Artifact provenance source of truth"
+    last_verified: "2026-05-27T00:00:00-04:00"
+
+  - artifact_id: os_safety_kernel
+    kind: script_bundle
+    path: scripts/codex_os_guard.py
+    thesis_claim: os_infrastructure
+    source_inputs:
+      - agent_context/policies/HARD_STOPS_AND_SAFETY.md
+      - agent_context/policies/DUPLICATE_RUN_GUARD.md
+      - agent_context/CODEX_WORK_REGISTER.yaml
+    generation_command: "python3 scripts/codex_os_guard.py preflight --help"
+    qa_state: candidate
+    qa_evidence:
+      - "Guard preflight added for risky mutation scope, approval, duplicate fingerprint, snapshot, and event-ledger checks."
+    limitations: "Approval-gated guard only; it does not execute the risky action itself."
+    destination: "Required preflight for risky ThesisAnalysis mutations"
+    last_verified: "2026-05-27T00:45:00-04:00"
+
+  - artifact_id: os_snapshot_kernel
+    kind: script
+    path: scripts/codex_os_snapshot.py
+    thesis_claim: os_infrastructure
+    source_inputs:
+      - AGENTS.md
+      - agent_context/policies/AGENTIC_OS_HARDENING.md
+      - scripts/codex_os_guard.py
+    generation_command: "python3 scripts/codex_os_snapshot.py create --label <scope>"
+    qa_state: candidate
+    qa_evidence:
+      - "Snapshot helper added to preserve tracked OS core before risky mutations."
+    limitations: "Snapshots are private local archives under agent_context/local and are not a substitute for Git history."
+    destination: "Local rollback and inspection support for OS state"
+    last_verified: "2026-05-27T00:45:00-04:00"
+
+  - artifact_id: thesis_nervous_system_tools
+    kind: script_bundle
+    path: scripts/codex_context_pack.py
+    thesis_claim: os_infrastructure
+    source_inputs:
+      - agent_context/CODEX_WORK_REGISTER.yaml
+      - agent_context/THESIS_NARRATIVE_MAP.md
+      - agent_context/ARTIFACT_REGISTRY.yaml
+    generation_command: "python3 scripts/codex_context_pack.py --cadence boot"
+    qa_state: candidate
+    qa_evidence:
+      - "Context pack, thesis radar, and artifact registry tooling added for daily/weekly/monthly sensing."
+    limitations: "Keyword mapping is a routing aid and must not replace scientific judgment."
+    destination: "Boot context, daily cockpit, weekly review, and monthly thesis audit"
+    last_verified: "2026-05-27T00:45:00-04:00"
+
+  - artifact_id: os_dream_system
+    kind: script_bundle
+    path: scripts/codex_os_dream.py
+    thesis_claim: os_infrastructure
+    source_inputs:
+      - agent_context/policies/AGENTIC_OS_DREAMING.md
+      - agent_context/CODEX_WORK_REGISTER.yaml
+      - agent_context/ARTIFACT_REGISTRY.yaml
+      - agent_context/THESIS_NARRATIVE_MAP.md
+    generation_command: "python3 scripts/codex_os_dream.py nightly && python3 scripts/codex_os_dream.py validate --latest"
+    qa_state: candidate
+    qa_evidence:
+      - "Dream system added as a private proposal-only simulator for micro and nightly synthetic rehearsal."
+      - "2026-05-27 validation generated micro and nightly dream reports and `python3 scripts/codex_os_dream.py validate --latest` passed."
+    limitations: "Dreams are synthetic and proposal-only; they must not be treated as real user approval or live external evidence."
+    destination: "Private dream reports under agent_context/local/dreams/"
+    last_verified: "2026-05-27T00:30:00-04:00"
+
+  - artifact_id: ask_chatgpt_delegation_policy
+    kind: policy_and_script
+    path: agent_context/policies/ASK_CHATGPT_DELEGATION.md
+    thesis_claim: os_infrastructure
+    source_inputs:
+      - agent_context/policies/TOOLS_AND_DEPENDENCIES.md
+      - agent_context/policies/COLLABORATION_AND_HANDOFFS.md
+      - agent_context/policies/AGENTIC_OS_DREAMING.md
+      - scripts/codex_chatgpt_research_pack.py
+    generation_command: "python3 scripts/codex_chatgpt_research_pack.py init --topic <sanitized-topic> --decision <decision>"
+    qa_state: candidate
+    qa_evidence:
+      - "Ask-ChatGPT delegation policy added so Codex can use ChatGPT UI for sanitized deep research while preserving provenance and safety boundaries."
+      - "2026-05-27 ChatGPT UI research pack validated and dream-system upgrade validation passed with typed evidence, reflection cards, quality-control JSON, runbook proposals, and readiness metrics."
+    limitations: "ChatGPT UI output is external model output, not evidence, user approval, or a substitute for primary-source verification."
+    destination: "Delegated research lane for OS, dream-system, and broad synthesis work"
+    last_verified: "2026-05-27T00:50:00-04:00"
