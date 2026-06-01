@@ -1,0 +1,748 @@
+version: 2026-06-01
+purpose: Canonical index for local full-slide PNG generators and slide data extractors.
+stage5_note: Campaign subfolders are canonical; use scripts/bin/thesis-script for old basename resolution.
+defaults:
+  output_root: dataOutput/slide_assets/<campaign>/<slide_key>/
+  render_size_px: 2560x1440
+  google_slides_mutation: out_of_scope
+  provenance: sidecar_or_chat_not_tiny_footer
+common_utilities:
+  - scripts/slides/common/slide_defaults.py
+generators:
+  - id: make_auau_eiso_shower_shape_th2_slide
+    status: canonical
+    group: "features"
+    campaign: "auau_bdt"
+    slide_key: "make_auau_eiso_shower_shape_th2_slide"
+    canonical_path: "scripts/slides/auau_bdt/features/make_auau_eiso_shower_shape_th2_slide.py"
+    historical_compatibility_path: "scripts/make_auau_eiso_shower_shape_th2_slide.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/auau_bdt/make_auau_eiso_shower_shape_th2_slide/
+    last_known_png: null
+  - id: make_auau_iso_slide6_current
+    status: canonical
+    group: "features"
+    campaign: "auau_bdt"
+    slide_key: "slide6"
+    canonical_path: "scripts/slides/auau_bdt/features/make_auau_iso_slide6_current.py"
+    historical_compatibility_path: "scripts/make_auau_iso_slide6_current.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/auau_bdt/slide6/
+    last_known_png: null
+  - id: make_slide30_iso_input_gain_enhanced
+    status: canonical
+    group: "features"
+    campaign: "auau_bdt"
+    slide_key: "slide30"
+    canonical_path: "scripts/slides/auau_bdt/features/make_slide30_iso_input_gain_enhanced.py"
+    historical_compatibility_path: "scripts/make_slide30_iso_input_gain_enhanced.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/auau_bdt/slide30/
+    last_known_png: null
+  - id: make_embedded_inclusive_jet40_slide6_full
+    status: canonical
+    group: "jet40"
+    campaign: "auau_bdt"
+    slide_key: "slide6"
+    canonical_path: "scripts/slides/auau_bdt/jet40/make_embedded_inclusive_jet40_slide6_full.py"
+    historical_compatibility_path: "scripts/make_embedded_inclusive_jet40_slide6_full.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/auau_bdt/slide6/
+    last_known_png: null
+  - id: make_embedded_inclusive_jet40_stitch_spectrum_slide6
+    status: canonical
+    group: "jet40"
+    campaign: "auau_bdt"
+    slide_key: "slide6"
+    canonical_path: "scripts/slides/auau_bdt/jet40/make_embedded_inclusive_jet40_stitch_spectrum_slide6.py"
+    historical_compatibility_path: "scripts/make_embedded_inclusive_jet40_stitch_spectrum_slide6.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/auau_bdt/slide6/
+    last_known_png: null
+  - id: extract_auau_bdt_etbin_score_histograms
+    status: canonical
+    group: "score_shapes"
+    campaign: "auau_bdt"
+    slide_key: "extract_auau_bdt_etbin_score_histograms"
+    canonical_path: "scripts/slides/auau_bdt/score_shapes/extract_auau_bdt_etbin_score_histograms.py"
+    historical_compatibility_path: "scripts/extract_auau_bdt_etbin_score_histograms.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/auau_bdt/extract_auau_bdt_etbin_score_histograms/
+    last_known_png: null
+  - id: make_auau_global_bdt_etbin_score_slide
+    status: canonical
+    group: "score_shapes"
+    campaign: "auau_bdt"
+    slide_key: "make_auau_global_bdt_etbin_score_slide"
+    canonical_path: "scripts/slides/auau_bdt/score_shapes/make_auau_global_bdt_etbin_score_slide.py"
+    historical_compatibility_path: "scripts/make_auau_global_bdt_etbin_score_slide.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/auau_bdt/make_auau_global_bdt_etbin_score_slide/
+    last_known_png: null
+  - id: make_basev3e_truth_performance_slide_clean
+    status: canonical
+    group: "score_shapes"
+    campaign: "auau_bdt"
+    slide_key: "make_basev3e_truth_performance_slide_clean"
+    canonical_path: "scripts/slides/auau_bdt/score_shapes/make_basev3e_truth_performance_slide_clean.py"
+    historical_compatibility_path: "scripts/make_basev3e_truth_performance_slide_clean.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/auau_bdt/make_basev3e_truth_performance_slide_clean/
+    last_known_png: null
+  - id: make_basev3e_vs_ptcent7_score_split_slide15
+    status: canonical
+    group: "score_shapes"
+    campaign: "auau_bdt"
+    slide_key: "slide15"
+    canonical_path: "scripts/slides/auau_bdt/score_shapes/make_basev3e_vs_ptcent7_score_split_slide15.py"
+    historical_compatibility_path: "scripts/make_basev3e_vs_ptcent7_score_split_slide15.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/auau_bdt/slide15/
+    last_known_png: null
+  - id: make_basev3e_w33_e22_input_separation_slide14
+    status: canonical
+    group: "score_shapes"
+    campaign: "auau_bdt"
+    slide_key: "slide14"
+    canonical_path: "scripts/slides/auau_bdt/score_shapes/make_basev3e_w33_e22_input_separation_slide14.py"
+    historical_compatibility_path: "scripts/make_basev3e_w33_e22_input_separation_slide14.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/auau_bdt/slide14/
+    last_known_png: null
+  - id: make_e22_ablation_slide_plots
+    status: canonical
+    group: "score_shapes"
+    campaign: "auau_bdt"
+    slide_key: "make_e22_ablation_slide_plots"
+    canonical_path: "scripts/slides/auau_bdt/score_shapes/make_e22_ablation_slide_plots.py"
+    historical_compatibility_path: "scripts/make_e22_ablation_slide_plots.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/auau_bdt/make_e22_ablation_slide_plots/
+    last_known_png: null
+  - id: make_e22_ratio_overlay_slide21_clean
+    status: canonical
+    group: "score_shapes"
+    campaign: "auau_bdt"
+    slide_key: "slide21"
+    canonical_path: "scripts/slides/auau_bdt/score_shapes/make_e22_ratio_overlay_slide21_clean.py"
+    historical_compatibility_path: "scripts/make_e22_ratio_overlay_slide21_clean.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/auau_bdt/slide21/
+    last_known_png: null
+  - id: make_global_vs_ptcent7_score_split_slide15
+    status: canonical
+    group: "score_shapes"
+    campaign: "auau_bdt"
+    slide_key: "slide15"
+    canonical_path: "scripts/slides/auau_bdt/score_shapes/make_global_vs_ptcent7_score_split_slide15.py"
+    historical_compatibility_path: "scripts/make_global_vs_ptcent7_score_split_slide15.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/auau_bdt/slide15/
+    last_known_png: null
+  - id: make_slide10_auau_pp_score_overlay
+    status: canonical
+    group: "score_shapes"
+    campaign: "auau_bdt"
+    slide_key: "slide10"
+    canonical_path: "scripts/slides/auau_bdt/score_shapes/make_slide10_auau_pp_score_overlay.py"
+    historical_compatibility_path: "scripts/make_slide10_auau_pp_score_overlay.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/auau_bdt/slide10/
+    last_known_png: null
+  - id: make_slide11_basev3e_pp_roc_overlay
+    status: canonical
+    group: "score_shapes"
+    campaign: "auau_bdt"
+    slide_key: "slide11"
+    canonical_path: "scripts/slides/auau_bdt/score_shapes/make_slide11_basev3e_pp_roc_overlay.py"
+    historical_compatibility_path: "scripts/make_slide11_basev3e_pp_roc_overlay.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/auau_bdt/slide11/
+    last_known_png: null
+  - id: make_slide19_e22_shape_separation_candidate
+    status: canonical
+    group: "score_shapes"
+    campaign: "auau_bdt"
+    slide_key: "slide19"
+    canonical_path: "scripts/slides/auau_bdt/score_shapes/make_slide19_e22_shape_separation_candidate.py"
+    historical_compatibility_path: "scripts/make_slide19_e22_shape_separation_candidate.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/auau_bdt/slide19/
+    last_known_png: null
+  - id: add_counts_to_stack_slide28_png
+    status: canonical
+    group: "stacking"
+    campaign: "auau_bdt"
+    slide_key: "slide28"
+    canonical_path: "scripts/slides/auau_bdt/stacking/add_counts_to_stack_slide28_png.py"
+    historical_compatibility_path: "scripts/add_counts_to_stack_slide28_png.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/auau_bdt/slide28/
+    last_known_png: null
+  - id: make_auau_stack_algorithm_comparison_slide
+    status: canonical
+    group: "stacking"
+    campaign: "auau_bdt"
+    slide_key: "make_auau_stack_algorithm_comparison_slide"
+    canonical_path: "scripts/slides/auau_bdt/stacking/make_auau_stack_algorithm_comparison_slide.py"
+    historical_compatibility_path: "scripts/make_auau_stack_algorithm_comparison_slide.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/auau_bdt/make_auau_stack_algorithm_comparison_slide/
+    last_known_png: null
+  - id: make_nn_backup_qa_deepdive
+    status: canonical
+    group: "stacking"
+    campaign: "auau_bdt"
+    slide_key: "make_nn_backup_qa_deepdive"
+    canonical_path: "scripts/slides/auau_bdt/stacking/make_nn_backup_qa_deepdive.js"
+    historical_compatibility_path: "scripts/make_nn_backup_qa_deepdive.js"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/auau_bdt/make_nn_backup_qa_deepdive/
+    last_known_png: null
+  - id: make_nn_backup_qa_generated
+    status: canonical
+    group: "stacking"
+    campaign: "auau_bdt"
+    slide_key: "make_nn_backup_qa_generated"
+    canonical_path: "scripts/slides/auau_bdt/stacking/make_nn_backup_qa_generated.js"
+    historical_compatibility_path: "scripts/make_nn_backup_qa_generated.js"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/auau_bdt/make_nn_backup_qa_generated/
+    last_known_png: null
+  - id: make_nn_backup_qa_triptych
+    status: canonical
+    group: "stacking"
+    campaign: "auau_bdt"
+    slide_key: "make_nn_backup_qa_triptych"
+    canonical_path: "scripts/slides/auau_bdt/stacking/make_nn_backup_qa_triptych.js"
+    historical_compatibility_path: "scripts/make_nn_backup_qa_triptych.js"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/auau_bdt/make_nn_backup_qa_triptych/
+    last_known_png: null
+  - id: extract_auau_bdt_wp80_fit_cells
+    status: canonical
+    group: "working_point"
+    campaign: "auau_bdt"
+    slide_key: "wp80"
+    canonical_path: "scripts/slides/auau_bdt/working_point/extract_auau_bdt_wp80_fit_cells.py"
+    historical_compatibility_path: "scripts/extract_auau_bdt_wp80_fit_cells.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/auau_bdt/wp80/
+    last_known_png: null
+  - id: make_auau_bdt_wp80_fit_slide
+    status: canonical
+    group: "working_point"
+    campaign: "auau_bdt"
+    slide_key: "wp80"
+    canonical_path: "scripts/slides/auau_bdt/working_point/make_auau_bdt_wp80_fit_slide.py"
+    historical_compatibility_path: "scripts/make_auau_bdt_wp80_fit_slide.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/auau_bdt/wp80/
+    last_known_png: null
+  - id: make_auau_bdt_wp80_lookup_slide
+    status: canonical
+    group: "working_point"
+    campaign: "auau_bdt"
+    slide_key: "wp80"
+    canonical_path: "scripts/slides/auau_bdt/working_point/make_auau_bdt_wp80_lookup_slide.py"
+    historical_compatibility_path: "scripts/make_auau_bdt_wp80_lookup_slide.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/auau_bdt/wp80/
+    last_known_png: null
+  - id: make_auau_bdt_wp80_smooth_slide
+    status: canonical
+    group: "working_point"
+    campaign: "auau_bdt"
+    slide_key: "wp80"
+    canonical_path: "scripts/slides/auau_bdt/working_point/make_auau_bdt_wp80_smooth_slide.py"
+    historical_compatibility_path: "scripts/make_auau_bdt_wp80_smooth_slide.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/auau_bdt/wp80/
+    last_known_png: null
+  - id: slide_defaults
+    status: canonical
+    group: "common"
+    campaign: "common"
+    slide_key: "slide_defaults"
+    canonical_path: "scripts/slides/common/slide_defaults.py"
+    historical_compatibility_path: "scripts/slide_defaults.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/common/slide_defaults/
+    last_known_png: null
+  - id: make_photon_detector_motif_variants
+    status: canonical
+    group: "hp2026"
+    campaign: "hp2026"
+    slide_key: "make_photon_detector_motif_variants"
+    canonical_path: "scripts/slides/hp2026/make_photon_detector_motif_variants.py"
+    historical_compatibility_path: "scripts/make_photon_detector_motif_variants.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/hp2026/make_photon_detector_motif_variants/
+    last_known_png: null
+  - id: make_hp2026_title_slide_candidates
+    status: canonical
+    group: "title"
+    campaign: "hp2026"
+    slide_key: "make_hp2026_title_slide_candidates"
+    canonical_path: "scripts/slides/hp2026/title/make_hp2026_title_slide_candidates.py"
+    historical_compatibility_path: "scripts/make_hp2026_title_slide_candidates.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/hp2026/make_hp2026_title_slide_candidates/
+    last_known_png: null
+  - id: make_pp_bdt_direct_tmva_roc_slide24
+    status: canonical
+    group: "bdt"
+    campaign: "pp_currentian"
+    slide_key: "slide24"
+    canonical_path: "scripts/slides/pp_currentian/bdt/make_pp_bdt_direct_tmva_roc_slide24.py"
+    historical_compatibility_path: "scripts/make_pp_bdt_direct_tmva_roc_slide24.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/pp_currentian/slide24/
+    last_known_png: null
+  - id: make_pp_bdt_direct_tmva_score_shape_slide
+    status: canonical
+    group: "bdt"
+    campaign: "pp_currentian"
+    slide_key: "make_pp_bdt_direct_tmva_score_shape_slide"
+    canonical_path: "scripts/slides/pp_currentian/bdt/make_pp_bdt_direct_tmva_score_shape_slide.py"
+    historical_compatibility_path: "scripts/make_pp_bdt_direct_tmva_score_shape_slide.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/pp_currentian/make_pp_bdt_direct_tmva_score_shape_slide/
+    last_known_png: null
+  - id: make_pp_bdt_shuhang_equivalence_slide
+    status: canonical
+    group: "bdt"
+    campaign: "pp_currentian"
+    slide_key: "make_pp_bdt_shuhang_equivalence_slide"
+    canonical_path: "scripts/slides/pp_currentian/bdt/make_pp_bdt_shuhang_equivalence_slide.py"
+    historical_compatibility_path: "scripts/make_pp_bdt_shuhang_equivalence_slide.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/pp_currentian/make_pp_bdt_shuhang_equivalence_slide/
+    last_known_png: null
+  - id: make_pp_vs_auau_peripheral_bdt_slide
+    status: canonical
+    group: "bdt"
+    campaign: "pp_currentian"
+    slide_key: "make_pp_vs_auau_peripheral_bdt_slide"
+    canonical_path: "scripts/slides/pp_currentian/bdt/make_pp_vs_auau_peripheral_bdt_slide.py"
+    historical_compatibility_path: "scripts/make_pp_vs_auau_peripheral_bdt_slide.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/pp_currentian/make_pp_vs_auau_peripheral_bdt_slide/
+    last_known_png: null
+  - id: make_pp_et_top_slide10_auau_bottom_2x3
+    status: canonical
+    group: "currentian"
+    campaign: "pp_currentian"
+    slide_key: "slide10"
+    canonical_path: "scripts/slides/pp_currentian/currentian/make_pp_et_top_slide10_auau_bottom_2x3.py"
+    historical_compatibility_path: "scripts/make_pp_et_top_slide10_auau_bottom_2x3.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/pp_currentian/slide10/
+    last_known_png: null
+  - id: make_pp_et_top_slide10_auau_bottom_2x3_jointnorm
+    status: canonical
+    group: "currentian"
+    campaign: "pp_currentian"
+    slide_key: "slide10"
+    canonical_path: "scripts/slides/pp_currentian/currentian/make_pp_et_top_slide10_auau_bottom_2x3_jointnorm.py"
+    historical_compatibility_path: "scripts/make_pp_et_top_slide10_auau_bottom_2x3_jointnorm.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/pp_currentian/slide10/
+    last_known_png: null
+  - id: make_pp_slide10_photon_jet_current
+    status: canonical
+    group: "currentian"
+    campaign: "pp_currentian"
+    slide_key: "slide10"
+    canonical_path: "scripts/slides/pp_currentian/currentian/make_pp_slide10_photon_jet_current.py"
+    historical_compatibility_path: "scripts/make_pp_slide10_photon_jet_current.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/pp_currentian/slide10/
+    last_known_png: null
+  - id: make_pp_slide9_inclusive_jet_current
+    status: canonical
+    group: "currentian"
+    campaign: "pp_currentian"
+    slide_key: "slide9"
+    canonical_path: "scripts/slides/pp_currentian/currentian/make_pp_slide9_inclusive_jet_current.py"
+    historical_compatibility_path: "scripts/make_pp_slide9_inclusive_jet_current.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/pp_currentian/slide9/
+    last_known_png: null
+  - id: make_ppg12_weighted_route_recovery_slides
+    status: canonical
+    group: "currentian"
+    campaign: "pp_currentian"
+    slide_key: "make_ppg12_weighted_route_recovery_slides"
+    canonical_path: "scripts/slides/pp_currentian/currentian/make_ppg12_weighted_route_recovery_slides.py"
+    historical_compatibility_path: "scripts/make_ppg12_weighted_route_recovery_slides.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/pp_currentian/make_ppg12_weighted_route_recovery_slides/
+    last_known_png: null
+  - id: remake_pp_slide8_side_by_side_current_rhs
+    status: canonical
+    group: "currentian"
+    campaign: "pp_currentian"
+    slide_key: "slide8"
+    canonical_path: "scripts/slides/pp_currentian/currentian/remake_pp_slide8_side_by_side_current_rhs.py"
+    historical_compatibility_path: "scripts/remake_pp_slide8_side_by_side_current_rhs.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/pp_currentian/slide8/
+    last_known_png: null
+  - id: remake_pp_slide9_side_by_side_current_rhs
+    status: canonical
+    group: "currentian"
+    campaign: "pp_currentian"
+    slide_key: "slide9"
+    canonical_path: "scripts/slides/pp_currentian/currentian/remake_pp_slide9_side_by_side_current_rhs.py"
+    historical_compatibility_path: "scripts/remake_pp_slide9_side_by_side_current_rhs.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/pp_currentian/slide9/
+    last_known_png: null
+  - id: make_pp_reco_cluster_et_leakage_slide
+    status: canonical
+    group: "leakage"
+    campaign: "pp_currentian"
+    slide_key: "make_pp_reco_cluster_et_leakage_slide"
+    canonical_path: "scripts/slides/pp_currentian/leakage/make_pp_reco_cluster_et_leakage_slide.py"
+    historical_compatibility_path: "scripts/make_pp_reco_cluster_et_leakage_slide.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/pp_currentian/make_pp_reco_cluster_et_leakage_slide/
+    last_known_png: null
+  - id: make_pp_currentian_insitu_contract_stitch_slides
+    status: canonical
+    group: "stitching"
+    campaign: "pp_currentian"
+    slide_key: "stitching"
+    canonical_path: "scripts/slides/pp_currentian/stitching/make_pp_currentian_insitu_contract_stitch_slides.py"
+    historical_compatibility_path: "scripts/compat/local/make_pp_currentian_insitu_contract_stitch_slides.py"
+    compatibility_path_status: "compat_alias"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/pp_currentian/stitching/
+    last_known_png: null
+  - id: make_pp_currentian_jet_stitch_side_by_side_slide
+    status: canonical
+    group: "stitching"
+    campaign: "pp_currentian"
+    slide_key: "stitching"
+    canonical_path: "scripts/slides/pp_currentian/stitching/make_pp_currentian_jet_stitch_side_by_side_slide.py"
+    historical_compatibility_path: "scripts/make_pp_currentian_jet_stitch_side_by_side_slide.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/pp_currentian/stitching/
+    last_known_png: null
+  - id: make_pp_currentian_photon_stitch_slide8_placeholder
+    status: canonical
+    group: "stitching"
+    campaign: "pp_currentian"
+    slide_key: "slide8"
+    canonical_path: "scripts/slides/pp_currentian/stitching/make_pp_currentian_photon_stitch_slide8_placeholder.py"
+    historical_compatibility_path: "scripts/make_pp_currentian_photon_stitch_slide8_placeholder.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/pp_currentian/slide8/
+    last_known_png: null
+  - id: make_pp_currentian_reweight_plotonly_slide
+    status: canonical
+    group: "stitching"
+    campaign: "pp_currentian"
+    slide_key: "make_pp_currentian_reweight_plotonly_slide"
+    canonical_path: "scripts/slides/pp_currentian/stitching/make_pp_currentian_reweight_plotonly_slide.py"
+    historical_compatibility_path: "scripts/make_pp_currentian_reweight_plotonly_slide.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/pp_currentian/make_pp_currentian_reweight_plotonly_slide/
+    last_known_png: null
+  - id: make_pp_currentian_reweight_verification_slide
+    status: canonical
+    group: "stitching"
+    campaign: "pp_currentian"
+    slide_key: "make_pp_currentian_reweight_verification_slide"
+    canonical_path: "scripts/slides/pp_currentian/stitching/make_pp_currentian_reweight_verification_slide.py"
+    historical_compatibility_path: "scripts/make_pp_currentian_reweight_verification_slide.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/pp_currentian/make_pp_currentian_reweight_verification_slide/
+    last_known_png: null
+  - id: make_pp_currentian_slide9_exact_reweighting_verification
+    status: canonical
+    group: "stitching"
+    campaign: "pp_currentian"
+    slide_key: "slide9"
+    canonical_path: "scripts/slides/pp_currentian/stitching/make_pp_currentian_slide9_exact_reweighting_verification.py"
+    historical_compatibility_path: "scripts/make_pp_currentian_slide9_exact_reweighting_verification.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/pp_currentian/slide9/
+    last_known_png: null
+  - id: make_pp_currentian_stitch_side_by_side_slides
+    status: canonical
+    group: "stitching"
+    campaign: "pp_currentian"
+    slide_key: "stitching"
+    canonical_path: "scripts/slides/pp_currentian/stitching/make_pp_currentian_stitch_side_by_side_slides.py"
+    historical_compatibility_path: "scripts/make_pp_currentian_stitch_side_by_side_slides.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/pp_currentian/stitching/
+    last_known_png: null
+  - id: make_pp_currentian_stitch_spectrum_slides
+    status: canonical
+    group: "stitching"
+    campaign: "pp_currentian"
+    slide_key: "stitching"
+    canonical_path: "scripts/slides/pp_currentian/stitching/make_pp_currentian_stitch_spectrum_slides.py"
+    historical_compatibility_path: "scripts/make_pp_currentian_stitch_spectrum_slides.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/pp_currentian/stitching/
+    last_known_png: null
+  - id: make_pp_exactstitch_acceptance_slide
+    status: canonical
+    group: "stitching"
+    campaign: "pp_currentian"
+    slide_key: "stitching"
+    canonical_path: "scripts/slides/pp_currentian/stitching/make_pp_exactstitch_acceptance_slide.py"
+    historical_compatibility_path: "scripts/make_pp_exactstitch_acceptance_slide.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/pp_currentian/stitching/
+    last_known_png: null
+  - id: make_pp_exactstitch_spectrum_proof_slide
+    status: canonical
+    group: "stitching"
+    campaign: "pp_currentian"
+    slide_key: "stitching"
+    canonical_path: "scripts/slides/pp_currentian/stitching/make_pp_exactstitch_spectrum_proof_slide.py"
+    historical_compatibility_path: "scripts/make_pp_exactstitch_spectrum_proof_slide.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/pp_currentian/stitching/
+    last_known_png: null
+  - id: make_pp_inclusive_jet_stitch_parallel_slide7
+    status: canonical
+    group: "stitching"
+    campaign: "pp_currentian"
+    slide_key: "slide7"
+    canonical_path: "scripts/slides/pp_currentian/stitching/make_pp_inclusive_jet_stitch_parallel_slide7.py"
+    historical_compatibility_path: "scripts/make_pp_inclusive_jet_stitch_parallel_slide7.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/pp_currentian/slide7/
+    last_known_png: null
+  - id: make_pp_jet8_xsec_before_after_slide
+    status: canonical
+    group: "stitching"
+    campaign: "pp_currentian"
+    slide_key: "make_pp_jet8_xsec_before_after_slide"
+    canonical_path: "scripts/slides/pp_currentian/stitching/make_pp_jet8_xsec_before_after_slide.py"
+    historical_compatibility_path: "scripts/make_pp_jet8_xsec_before_after_slide.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/pp_currentian/make_pp_jet8_xsec_before_after_slide/
+    last_known_png: null
+  - id: make_ppg12_exact_reweighting_verification_slide
+    status: canonical
+    group: "stitching"
+    campaign: "pp_currentian"
+    slide_key: "make_ppg12_exact_reweighting_verification_slide"
+    canonical_path: "scripts/slides/pp_currentian/stitching/make_ppg12_exact_reweighting_verification_slide.py"
+    historical_compatibility_path: "scripts/make_ppg12_exact_reweighting_verification_slide.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/pp_currentian/make_ppg12_exact_reweighting_verification_slide/
+    last_known_png: null
+  - id: make_overfitdiag_generalization_frontier_slide
+    status: canonical
+    group: "overfitdiag"
+    campaign: "split_studies"
+    slide_key: "overfitdiag"
+    canonical_path: "scripts/slides/split_studies/overfitdiag/make_overfitdiag_generalization_frontier_slide.py"
+    historical_compatibility_path: "scripts/make_overfitdiag_generalization_frontier_slide.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/split_studies/overfitdiag/
+    last_known_png: null
+  - id: make_overfitdiag_overfit_worst_slide
+    status: canonical
+    group: "overfitdiag"
+    campaign: "split_studies"
+    slide_key: "overfitdiag"
+    canonical_path: "scripts/slides/split_studies/overfitdiag/make_overfitdiag_overfit_worst_slide.py"
+    historical_compatibility_path: "scripts/make_overfitdiag_overfit_worst_slide.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/split_studies/overfitdiag/
+    last_known_png: null
+  - id: make_overfitdiag_transfer_story_clean_slide
+    status: canonical
+    group: "overfitdiag"
+    campaign: "split_studies"
+    slide_key: "overfitdiag"
+    canonical_path: "scripts/slides/split_studies/overfitdiag/make_overfitdiag_transfer_story_clean_slide.py"
+    historical_compatibility_path: "scripts/make_overfitdiag_transfer_story_clean_slide.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/split_studies/overfitdiag/
+    last_known_png: null
+  - id: make_overfitdiag_transfer_story_slide
+    status: canonical
+    group: "overfitdiag"
+    campaign: "split_studies"
+    slide_key: "overfitdiag"
+    canonical_path: "scripts/slides/split_studies/overfitdiag/make_overfitdiag_transfer_story_slide.py"
+    historical_compatibility_path: "scripts/make_overfitdiag_transfer_story_slide.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/split_studies/overfitdiag/
+    last_known_png: null
+  - id: build_auau_splitstudy_compact_from_reports
+    status: canonical
+    group: "proof_pack"
+    campaign: "split_studies"
+    slide_key: "build_auau_splitstudy_compact_from_reports"
+    canonical_path: "scripts/slides/split_studies/proof_pack/build_auau_splitstudy_compact_from_reports.py"
+    historical_compatibility_path: "scripts/build_auau_splitstudy_compact_from_reports.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/split_studies/build_auau_splitstudy_compact_from_reports/
+    last_known_png: null
+  - id: make_auau_bdt_splitstudy_score_slide
+    status: canonical
+    group: "proof_pack"
+    campaign: "split_studies"
+    slide_key: "make_auau_bdt_splitstudy_score_slide"
+    canonical_path: "scripts/slides/split_studies/proof_pack/make_auau_bdt_splitstudy_score_slide.py"
+    historical_compatibility_path: "scripts/make_auau_bdt_splitstudy_score_slide.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/split_studies/make_auau_bdt_splitstudy_score_slide/
+    last_known_png: null
+  - id: make_auau_splitstudy_proof_pack_slides
+    status: canonical
+    group: "proof_pack"
+    campaign: "split_studies"
+    slide_key: "make_auau_splitstudy_proof_pack_slides"
+    canonical_path: "scripts/slides/split_studies/proof_pack/make_auau_splitstudy_proof_pack_slides.py"
+    historical_compatibility_path: "scripts/make_auau_splitstudy_proof_pack_slides.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/split_studies/make_auau_splitstudy_proof_pack_slides/
+    last_known_png: null
+  - id: make_auau_bdt_iso_ptcent7_split_gain_slide_summary
+    status: canonical
+    group: "split_gain"
+    campaign: "split_studies"
+    slide_key: "make_auau_bdt_iso_ptcent7_split_gain_slide_summary"
+    canonical_path: "scripts/slides/split_studies/split_gain/make_auau_bdt_iso_ptcent7_split_gain_slide_summary.py"
+    historical_compatibility_path: "scripts/make_auau_bdt_iso_ptcent7_split_gain_slide_summary.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/split_studies/make_auau_bdt_iso_ptcent7_split_gain_slide_summary/
+    last_known_png: null
+  - id: make_global32_grouped_split_gain_slide32
+    status: canonical
+    group: "split_gain"
+    campaign: "split_studies"
+    slide_key: "slide32"
+    canonical_path: "scripts/slides/split_studies/split_gain/make_global32_grouped_split_gain_slide32.py"
+    historical_compatibility_path: "scripts/make_global32_grouped_split_gain_slide32.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/split_studies/slide32/
+    last_known_png: null
+  - id: make_slide20_e22_split_gain_ablation_candidate
+    status: canonical
+    group: "split_gain"
+    campaign: "split_studies"
+    slide_key: "slide20"
+    canonical_path: "scripts/slides/split_studies/split_gain/make_slide20_e22_split_gain_ablation_candidate.py"
+    historical_compatibility_path: "scripts/make_slide20_e22_split_gain_ablation_candidate.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/split_studies/slide20/
+    last_known_png: null
+  - id: make_split_gain_explainer_slide17_candidate
+    status: canonical
+    group: "split_gain"
+    campaign: "split_studies"
+    slide_key: "slide17"
+    canonical_path: "scripts/slides/split_studies/split_gain/make_split_gain_explainer_slide17_candidate.py"
+    historical_compatibility_path: "scripts/make_split_gain_explainer_slide17_candidate.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/split_studies/slide17/
+    last_known_png: null
+  - id: make_clean_combined_strategy_slide
+    status: canonical
+    group: "working_point"
+    campaign: "working_point"
+    slide_key: "make_clean_combined_strategy_slide"
+    canonical_path: "scripts/slides/working_point/make_clean_combined_strategy_slide.py"
+    historical_compatibility_path: "scripts/make_clean_combined_strategy_slide.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/working_point/make_clean_combined_strategy_slide/
+    last_known_png: null
+  - id: make_focus21_cluster_et_leakage_slide
+    status: canonical
+    group: "working_point"
+    campaign: "working_point"
+    slide_key: "make_focus21_cluster_et_leakage_slide"
+    canonical_path: "scripts/slides/working_point/make_focus21_cluster_et_leakage_slide.py"
+    historical_compatibility_path: "scripts/compat/local/make_focus21_cluster_et_leakage_slide.py"
+    compatibility_path_status: "compat_alias"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/working_point/make_focus21_cluster_et_leakage_slide/
+    last_known_png: null
+  - id: make_scaled_trigger_cent_slide_candidate
+    status: canonical
+    group: "working_point"
+    campaign: "working_point"
+    slide_key: "make_scaled_trigger_cent_slide_candidate"
+    canonical_path: "scripts/slides/working_point/make_scaled_trigger_cent_slide_candidate.py"
+    historical_compatibility_path: "scripts/make_scaled_trigger_cent_slide_candidate.py"
+    compatibility_path_status: "resolver_only"
+    expected_inputs: see script CLI/defaults and adjacent workstream evidence
+    default_output_folder: dataOutput/slide_assets/working_point/make_scaled_trigger_cent_slide_candidate/
+    last_known_png: null

@@ -1,0 +1,1 @@
+../../sdcc/workflows/diagnostics/submit_auau_iso_visible_diagnostic_chain.sh

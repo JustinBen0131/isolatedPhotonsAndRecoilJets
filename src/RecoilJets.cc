@@ -2312,6 +2312,13 @@ void RecoilJets::initPPPhotonIDTrainingTree()
   add("vertexz", &m_bdtTrain_vz, "vertexz/F");
   add("event_weight", &m_bdtTrain_weight, "event_weight/F");
   add("reco_eiso", &m_bdtTrain_eiso, "reco_eiso/F");
+  add("ppg12_sample_bin", &m_bdtTrain_ppg12_sample_bin, "ppg12_sample_bin/I");
+  add("ppg12_xsec_pb", &m_bdtTrain_ppg12_xsec_pb, "ppg12_xsec_pb/F");
+  add("ppg12_xsec_weight", &m_bdtTrain_ppg12_xsec_weight, "ppg12_xsec_weight/F");
+  add("ppg12_window_low", &m_bdtTrain_ppg12_window_low, "ppg12_window_low/F");
+  add("ppg12_window_high", &m_bdtTrain_ppg12_window_high, "ppg12_window_high/F");
+  add("max_truth_jet_pt_r04", &m_bdtTrain_max_truth_jet_pt_r04, "max_truth_jet_pt_r04/F");
+  add("ppg12_truth_window_pass_r04", &m_bdtTrain_ppg12_truth_window_pass_r04, "ppg12_truth_window_pass_r04/I");
   add("truth_track_id", &m_bdtTrain_truth_track_id, "truth_track_id/I");
   add("truth_barcode", &m_bdtTrain_truth_barcode, "truth_barcode/I");
   add("truth_energy_contribution", &m_bdtTrain_truth_energy_contribution, "truth_energy_contribution/F");
@@ -2359,7 +2366,14 @@ void RecoilJets::fillPPPhotonIDTrainingTree(const SSVars& v,
                                             bool isSignal,
                                             int truthTrackId,
                                             int truthBarcode,
-                                            float truthEnergyContribution)
+                                            float truthEnergyContribution,
+                                            int ppg12SampleBin,
+                                            float ppg12XsecPb,
+                                            float ppg12XsecWeight,
+                                            float ppg12WindowLow,
+                                            float ppg12WindowHigh,
+                                            float maxTruthJetPtR04,
+                                            int ppg12TruthWindowPassR04)
 {
   if (!m_ppPhotonIDTrainingTreeEnabled || m_isAuAu) return;
   if (!m_ppPhotonIDTrainingTree) initPPPhotonIDTrainingTree();
@@ -2384,6 +2398,13 @@ void RecoilJets::fillPPPhotonIDTrainingTree(const SSVars& v,
   m_bdtTrain_vz = featureValue(m_vz);
   m_bdtTrain_weight = featureValue(m_mcEventWeight);
   m_bdtTrain_eiso = featureValue(eiso);
+  m_bdtTrain_ppg12_sample_bin = ppg12SampleBin;
+  m_bdtTrain_ppg12_xsec_pb = featureValue(ppg12XsecPb);
+  m_bdtTrain_ppg12_xsec_weight = featureValue(ppg12XsecWeight);
+  m_bdtTrain_ppg12_window_low = featureValue(ppg12WindowLow);
+  m_bdtTrain_ppg12_window_high = featureValue(ppg12WindowHigh);
+  m_bdtTrain_max_truth_jet_pt_r04 = featureValue(maxTruthJetPtR04);
+  m_bdtTrain_ppg12_truth_window_pass_r04 = ppg12TruthWindowPassR04;
   m_bdtTrain_truth_track_id = truthTrackId;
   m_bdtTrain_truth_barcode = truthBarcode;
   m_bdtTrain_truth_energy_contribution =
@@ -7133,6 +7154,54 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
         (m_isSim && !m_isAuAu) ? ppg12InclusiveJetSliceFromContext(Outfile) : PPG12InclusiveJetSlice::kNone;
     const bool ppInclusiveJetContext = (ppInclusiveJetSlice != PPG12InclusiveJetSlice::kNone);
     const double ppInclusiveJetClusterEtUpper = ppg12InclusiveJetClusterEtUpper(ppInclusiveJetSlice);
+    double ppInclusiveJetStitchLo = -999.0;
+    double ppInclusiveJetStitchHi = -999.0;
+    const bool ppInclusiveJetHaveWindow =
+        ppInclusiveJetContext && ppg12InclusiveJetSliceWindow(ppInclusiveJetSlice,
+                                                              ppInclusiveJetStitchLo,
+                                                              ppInclusiveJetStitchHi);
+    double ppInclusiveJetMaxTruthJetPt = -1.0;
+    double ppInclusiveJetMaxTruthJetPtR04 = -1.0;
+    if (m_isSim && !m_isAuAu && ppInclusiveJetContext)
+    {
+        for (const auto& kvT : m_truthJetsByRKey)
+        {
+            JetContainer* truthJets = kvT.second;
+            if (!truthJets) continue;
+            for (const Jet* tj : *truthJets)
+            {
+                if (!tj) continue;
+                const double ptj = tj->get_pt();
+                if (std::isfinite(ptj) && ptj > ppInclusiveJetMaxTruthJetPt) ppInclusiveJetMaxTruthJetPt = ptj;
+            }
+        }
+
+        if (auto itR04 = m_truthJetsByRKey.find("r04"); itR04 != m_truthJetsByRKey.end())
+        {
+            JetContainer* truthJetsR04 = itR04->second;
+            if (truthJetsR04)
+            {
+                for (const Jet* tj : *truthJetsR04)
+                {
+                    if (!tj) continue;
+                    const double ptj = tj->get_pt();
+                    if (std::isfinite(ptj) && ptj > ppInclusiveJetMaxTruthJetPtR04) ppInclusiveJetMaxTruthJetPtR04 = ptj;
+                }
+            }
+        }
+    }
+    const bool ppInclusiveJetHaveR04 = (ppInclusiveJetMaxTruthJetPtR04 >= 0.0);
+    const bool ppInclusiveJetPassR04 =
+        ppInclusiveJetHaveWindow && ppInclusiveJetHaveR04 &&
+        ppg12WindowContains(ppInclusiveJetMaxTruthJetPtR04,
+                            ppInclusiveJetStitchLo,
+                            ppInclusiveJetStitchHi);
+    const bool ppInclusiveJetHaveAnyR = (ppInclusiveJetMaxTruthJetPt >= 0.0);
+    const bool ppInclusiveJetPassAnyR =
+        ppInclusiveJetHaveWindow && ppInclusiveJetHaveAnyR &&
+        ppg12WindowContains(ppInclusiveJetMaxTruthJetPt,
+                            ppInclusiveJetStitchLo,
+                            ppInclusiveJetStitchHi);
 
     if (Verbosity() >= 4)
     {
@@ -7430,38 +7499,6 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
 
     if (m_isSim && !m_isAuAu && doCanonical && ppInclusiveJetContext)
     {
-        double stitchLo = std::numeric_limits<double>::quiet_NaN();
-        double stitchHi = std::numeric_limits<double>::quiet_NaN();
-        const bool haveJetWindow = ppg12InclusiveJetSliceWindow(ppInclusiveJetSlice, stitchLo, stitchHi);
-
-        double maxTruthJetPt = -1.0;
-        for (const auto& kvT : m_truthJetsByRKey)
-        {
-            JetContainer* truthJets = kvT.second;
-            if (!truthJets) continue;
-            for (const Jet* tj : *truthJets)
-            {
-                if (!tj) continue;
-                const double ptj = tj->get_pt();
-                if (std::isfinite(ptj) && ptj > maxTruthJetPt) maxTruthJetPt = ptj;
-            }
-        }
-
-        double maxTruthJetPtR04 = -1.0;
-        if (auto itR04 = m_truthJetsByRKey.find("r04"); itR04 != m_truthJetsByRKey.end())
-        {
-            JetContainer* truthJetsR04 = itR04->second;
-            if (truthJetsR04)
-            {
-                for (const Jet* tj : *truthJetsR04)
-                {
-                    if (!tj) continue;
-                    const double ptj = tj->get_pt();
-                    if (std::isfinite(ptj) && ptj > maxTruthJetPtR04) maxTruthJetPtR04 = ptj;
-                }
-            }
-        }
-
         for (const auto& trigShort : activeTrig)
         {
             HistMap& H = qaHistogramsByTrigger[trigShort];
@@ -7485,9 +7522,9 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 hMax->SetDirectory(dir);
                 H["h_ppInclusiveJetStitch_maxTruthJetPt_all"] = hMax;
             }
-            if (maxTruthJetPt >= 0.0)
+            if (ppInclusiveJetMaxTruthJetPt >= 0.0)
             {
-                hMax->Fill(maxTruthJetPt);
+                hMax->Fill(ppInclusiveJetMaxTruthJetPt);
                 bumpHistFill(trigShort, hMax->GetName());
             }
 
@@ -7505,9 +7542,9 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 hMaxR04->SetDirectory(dir);
                 H["h_ppInclusiveJetStitch_r04_maxTruthJetPt_all"] = hMaxR04;
             }
-            if (maxTruthJetPtR04 >= 0.0)
+            if (ppInclusiveJetMaxTruthJetPtR04 >= 0.0)
             {
-                hMaxR04->Fill(maxTruthJetPtR04);
+                hMaxR04->Fill(ppInclusiveJetMaxTruthJetPtR04);
                 bumpHistFill(trigShort, hMaxR04->GetName());
             }
 
@@ -7609,8 +7646,8 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 hMeta->GetXaxis()->SetBinLabel(7, "truth_def_code");
                 hMeta->GetXaxis()->SetBinLabel(8, "sample_bin");
                 hMeta->Fill(1.0);
-                hMeta->SetBinContent(2, stitchLo);
-                hMeta->SetBinContent(3, stitchHi);
+                hMeta->SetBinContent(2, ppInclusiveJetStitchLo);
+                hMeta->SetBinContent(3, ppInclusiveJetStitchHi);
                 hMeta->SetBinContent(4, 1.0);
                 hMeta->SetBinContent(5, 1.0);
                 hMeta->SetBinContent(6, ppg12InclusiveJetSliceXsecPb(ppInclusiveJetSlice));
@@ -7618,21 +7655,17 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 hMeta->SetBinContent(8, static_cast<double>(ppg12InclusiveJetSliceBin(ppInclusiveJetSlice)));
             }
 
-            const bool haveR04 = (maxTruthJetPtR04 >= 0.0);
-            const bool passR04 = haveJetWindow && haveR04 && ppg12WindowContains(maxTruthJetPtR04, stitchLo, stitchHi);
             fillExactJetFamily("h_ppInclusiveJetStitch_ppg12TruthSpectrum_r04_maxTruthJetPt",
                                "max R=0.4 truth jet p_{T}",
-                               maxTruthJetPtR04,
-                               haveR04,
-                               passR04);
+                               ppInclusiveJetMaxTruthJetPtR04,
+                               ppInclusiveJetHaveR04,
+                               ppInclusiveJetPassR04);
 
-            const bool haveAnyR = (maxTruthJetPt >= 0.0);
-            const bool passAnyR = haveJetWindow && haveAnyR && ppg12WindowContains(maxTruthJetPt, stitchLo, stitchHi);
             fillExactJetFamily("h_ppInclusiveJetStitch_ppg12TruthSpectrum_anyR_maxTruthJetPt",
                                "max truth jet p_{T}, any R key",
-                               maxTruthJetPt,
-                               haveAnyR,
-                               passAnyR);
+                               ppInclusiveJetMaxTruthJetPt,
+                               ppInclusiveJetHaveAnyR,
+                               ppInclusiveJetPassAnyR);
 
             if (prevDir) prevDir->cd();
         }
@@ -8016,6 +8049,12 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
 
                     if (keepTrainingRow)
                     {
+                        const double ppXsecPb = ppInclusiveJetContext
+                            ? ppg12InclusiveJetSliceXsecPb(ppInclusiveJetSlice)
+                            : -999.0;
+                        const double ppXsecWeight = ppInclusiveJetContext
+                            ? (ppXsecPb / 7.3113)
+                            : 1.0;
                         fillPPPhotonIDTrainingTree(v,
                                                    eta,
                                                    phi,
@@ -8024,7 +8063,14 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                                                    isPPG12Signal,
                                                    truthTrackId,
                                                    truthBarcode,
-                                                   truthEContrib);
+                                                   truthEContrib,
+                                                   ppInclusiveJetContext ? ppg12InclusiveJetSliceBin(ppInclusiveJetSlice) : 0,
+                                                   static_cast<float>(ppXsecPb),
+                                                   static_cast<float>(ppXsecWeight),
+                                                   static_cast<float>(ppInclusiveJetContext ? ppInclusiveJetStitchLo : -999.0),
+                                                   static_cast<float>(ppInclusiveJetContext ? ppInclusiveJetStitchHi : -999.0),
+                                                   static_cast<float>(ppInclusiveJetContext ? ppInclusiveJetMaxTruthJetPtR04 : -999.0),
+                                                   ppInclusiveJetContext ? (ppInclusiveJetPassR04 ? 1 : 0) : -1);
                     }
                 }
 

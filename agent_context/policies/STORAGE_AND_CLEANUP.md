@@ -57,6 +57,25 @@ Justin to remove it or remove it when the current request explicitly authorizes
 cleanup. Never use wildcards for these paths; delete only the exact verified
 path and run a post-cleanup check.
 
+Treat front-facing agent/control-plane directories on SDCC the same way.
+`agent_context/`, `.codex/`, `codex*` archive names, and local-only migration
+evidence do not belong in the remote checkout. Keep these records locally under
+`agent_context/local/...`; if they are found on SDCC, inspect them with escaped
+names and sizes, classify them as cleanup candidates, and remove only after
+explicit cleanup approval. Do not move them into another visible agent-named
+remote directory.
+
+Before running `mkdir`, `mv`, `cp`, or `rm` on SDCC from Codex-generated
+commands, validate every path variable with a guard equivalent to:
+
+```bash
+case "$path" in
+  ""|[[:space:]]*|*[[:space:]]) exit 2 ;;
+esac
+```
+
+This prevents accidental directories such as a path named exactly two spaces.
+
 ## Common Cleanup Candidates
 
 - `stdout/`, `error/`, `log/` after evidence is consumed;
@@ -105,6 +124,39 @@ When changing pipeline paths, preserve that split: bulk for scalable production
 intermediates, user/local analysis areas for final products and
 presentation-ready outputs. Do not redirect large per-segment products into the
 user's home/basis directories unless Justin explicitly asks.
+
+## SDCC Base Architecture
+
+After THE-23 stage 6, SDCC base cleanup should preserve the root as a small
+runtime surface. New durable outputs and evidence should use the typed domains
+below instead of creating new loose root entries:
+
+- RecoilJets output roots: `runs/recoiljets/{current,archive,smoke}/`.
+- Condor/runtime state: `state/condor/{sub,snapshots,recovery,segments,generated_configs,yaml_overrides,lists,logs}/`.
+- Inputs and calibration lists: `inputs/{dst_lists,sim_lists,grl,z_vertex,xsec}/`.
+- Models: `models/{bdt,mlp,logreg,stack,promotion_pulls}/`.
+- Small durable evidence: `evidence/{tables,xsec,qa,cleanup}/`.
+- Transient scratch/debug material: `scratch/{tmp,debug,slide_ready,local_sim}/`.
+
+Root-level `output_*`, `tmp_*`, loose `.csv`/`.txt`, `config.log`,
+`pythia_xsec_firstPass*`, and cleanup stamps are cleanup candidates unless an
+audited local-only manifest records them as an active compatibility hold. Move
+historical scientific outputs into canonical homes; do not delete them without
+separate explicit approval.
+
+For new campaign-scoped SIM production after THE-23 stage 7, prefer the typed
+I/O contract over flat roots:
+
+- SDCC merge staging: `runs/recoiljets/current/<campaign>/`.
+- TG bulk signal/background: `thesisAna/recoiljets/<family>/<campaign>/signal`
+  and `.../background`.
+- Local pulls: ROOT inputs under `InputFiles/`; compact QA, plots, and slide
+  assets under `dataOutput/<domain>/<campaign>/`.
+
+Treat flat TG roots such as `thesisAna/simembedded_<campaign>` and
+`thesisAna/simembeddedinclusive_<campaign>` as legacy read-compatible paths,
+not future defaults. Do not move historical TG bulk roots without a separate
+live-job/reference/rollback audit.
 
 ## AuAu Tight-BDT Sidecar Lifecycle
 

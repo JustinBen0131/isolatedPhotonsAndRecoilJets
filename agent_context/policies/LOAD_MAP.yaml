@@ -92,8 +92,8 @@ routes:
       - Run scripts/codex_os_doctor.py before claiming the OS state is healthy.
       - Use scripts/codex_os_guard.py and scripts/codex_os_snapshot.py before
         risky mutations.
-      - Use scripts/codex_context_pack.py, scripts/codex_thesis_radar.py, and
-        scripts/codex_artifact_registry.py for boot context, thesis mapping,
+      - Use scripts/os/context/codex_context_pack.py, scripts/os/context/codex_thesis_radar.py, and
+        scripts/os/artifacts/codex_artifact_registry.py for boot context, thesis mapping,
         and artifact provenance.
       - Create focused follow-up workstreams for enhancements instead of
         reopening the completed OS baseline.
@@ -118,8 +118,9 @@ routes:
     first_actions:
       - Treat synthetic Justin as a test fixture, never user approval.
       - Keep dream writes confined to agent_context/local/dreams/.
-      - Run scripts/codex_os_dream.py micro or nightly, then validate the
-        output before summarizing it.
+      - Run scripts/codex_os_nightly_heartbeat.py nightly for the default
+        overnight pass; use scripts/codex_os_dream.py nightly only when
+        debugging the dream layer directly.
       - Do not mutate SDCC, Gmail, Google Drive/Slides, Linear, or real
         repo-tracked state from a dream.
       - Promote dream proposals only in a waking task-capture or OS-update
@@ -152,6 +153,36 @@ routes:
         agent_context/local/chatgpt_research/.
       - Treat ChatGPT output as source leads and critique only until verified
         against primary sources or local evidence.
+
+  meeting_capture_zoom:
+    triggers:
+      - set up a Zoom room
+      - open a Zoom room
+      - make a Zoom room
+      - start a Zoom room
+      - get me a Zoom invite link
+      - Zoom transcript
+      - Zoom AI summary
+      - meeting transcript
+      - meeting capture
+    load:
+      - agent_context/policies/MEETING_CAPTURE_AND_ZOOM.md
+      - agent_context/policies/TOOLS_AND_DEPENDENCIES.md
+      - agent_context/policies/CODEX_OPERATING_SYSTEM.md
+      - agent_context/policies/MEMORY_AND_STATUS.md
+    first_actions:
+      - For "set up a Zoom room" variants, treat the phrase as explicit
+        permission to use Computer Use on Zoom for the narrow room-setup task.
+      - Open Zoom, create/start the Justin-owned room, enable or verify
+        transcript and AI-summary capture where Zoom exposes those controls,
+        copy the invite link, and return the clean link plus caveats.
+      - Do not imply transcription is invisible; Zoom recording/transcript/AI
+        features can be visible to participants depending on host/account
+        settings.
+      - For meetings Justin only joins, do not secretly record or transcribe;
+        use host-approved artifacts, notes, slides, calendar, Indico, or email.
+      - After transcript/summary artifacts exist, route meeting outcomes
+        through register -> Linear -> Today's Plan when relevant.
 
   duplicate_sensitive_run:
     triggers:
@@ -211,6 +242,7 @@ routes:
       - visualize
     load:
       - agent_context/policies/PLOTTING.md
+      - agent_context/policies/REPO_ORGANIZATION.md
       - agent_context/policies/CODEX_OPERATING_SYSTEM.md
       - agent_context/policies/INPUTS_AND_ENVIRONMENT.md
       - agent_context/policies/SCIENCE_REFERENCE_HIERARCHY.md
@@ -218,7 +250,40 @@ routes:
       - Identify source data and provenance.
       - Claim/update the relevant workstream before generating a plot batch.
       - Reuse existing plotting infrastructure.
+      - Put any new helper in the clearest safe scripts/macros subfolder.
       - View generated PNGs before calling them ready.
+
+  repo_organization:
+    triggers:
+      - organize scripts
+      - organize macros
+      - repo organization
+      - clean up scripts
+      - clean up macros
+      - new plotting script
+      - new slide generator
+      - new ROOT macro
+      - new macro
+      - helper script
+      - side script
+      - diagnostics helper
+      - scripts/macros
+    load:
+      - agent_context/policies/REPO_ORGANIZATION.md
+      - agent_context/policies/CODEX_OPERATING_SYSTEM.md
+      - agent_context/policies/MEMORY_AND_STATUS.md
+      - agent_context/policies/TRANSFER_AND_PIPELINE_FILES.md
+    first_actions:
+      - Search existing scripts/macros before adding a new file.
+      - Classify the target as protected SDCC/Fun4All/pipeline entrypoint or
+        local-side helper.
+      - For protected anchors, preserve current paths and require explicit
+        compatibility migration approval before moves.
+      - For local-side helpers, use or create the narrowest safe subfolder and
+        update local README/policy notes when the convention is reusable.
+      - After THE-23 stage 4, treat top-level scripts as active compatibility
+        aliases only; use scripts/SCRIPT_INDEX.yaml, scripts/HELPER_INDEX.yaml,
+        and scripts/slides/INDEX.yaml for canonical traversal.
 
   slides:
     triggers:
@@ -231,6 +296,7 @@ routes:
       - agent_context/policies/SLIDES_WORKFLOW.md
       - agent_context/policies/CODEX_OPERATING_SYSTEM.md
       - agent_context/policies/PLOTTING.md
+      - agent_context/policies/REPO_ORGANIZATION.md
     first_actions:
       - Resolve deck ID and slide object ID.
       - Claim/update the relevant workstream before editing or generating

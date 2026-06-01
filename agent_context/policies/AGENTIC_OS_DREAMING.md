@@ -21,12 +21,14 @@ the dream directory for waking review.
 
 ## Cadence
 
-- Micro dream: hourly during active work windows. It should spend enough local
-  read-only synthesis to cover every required corner, usually targeting a
-  10-20 minute internal iteration when project state is rich. The heartbeat
-  response should stay concise; detail belongs in dream artifacts.
+- Micro dream is retired from the default contract. Re-enable it only by an
+  explicit policy change plus a real installed automation; historical mentions
+  of micro-dreams do not make them current.
 - Nightly dream: one deeper overnight pass. It replays recent work, simulates
   tomorrow's likely status/provenance pressure, and produces a morning report.
+- Nightly super-heartbeat: the default overnight operating mode. It runs the
+  nightly dream, validates it, runs the doctor and read-only support checks,
+  and emits one consolidated nightly package plus one stable overnight chat.
 - Cleanup dream: proposal-only hygiene scan for local Codex memory surfaces,
   dream artifacts, research packs, and recorded SDCC/storage clutter signals.
   It may identify cleanup candidates but must not delete, move, archive, or
@@ -79,6 +81,20 @@ dreams, not user approval, and not project evidence until verified.
 7. Encode: write private reports and proposed patches only.
 8. Validate: run `python3 scripts/codex_os_dream.py validate --latest`.
 
+The encoded nightly package should include one compact machine-readable
+heartbeat signal for the waking doctor. That signal is still proposal-only, but
+it should summarize the dream's top findings, recurrence, cleanup pressure,
+automation drift, and morning checks without forcing the doctor to parse prose.
+Repeated findings should also be encoded as proposal-only adaptation cards with
+evidence, a validator, retention and decay rules, and a promotion status. Those
+cards may focus waking review but must not mutate policy, doctor checks, memory,
+tasks, or runbooks unless waking Codex validates them and the normal
+Justin-approved workflow applies them.
+When the nightly super-heartbeat orchestrator is used, the same dream run
+directory should also contain `nightly_heartbeat.md`,
+`nightly_heartbeat_signal.json`, and `morning_appendix.md` so one overnight
+artifact package carries the whole read-only story.
+
 ## Safe Overnight Work
 
 Dream-mode overnight work should make waking Codex better without changing the
@@ -120,6 +136,11 @@ paths or scopes when known, risk of deleting, safe verification commands, and
 the approval needed before any real cleanup. Dream mode must not run `rm`, move
 files, mark memory obsolete, or touch SDCC storage.
 
+The dream layer should also practice controlled forgetting. It may rank stale
+local dream artifacts, delegated-research packs, and context residue as cleanup
+candidates based on age, duplication, and lack of promotion, but the result is
+still only a review list for the morning.
+
 ## Physics Scenario Scout
 
 The aspirational target is discovery-grade scientific leverage, not hype. The
@@ -142,6 +163,10 @@ analysis approval, and real validation.
 
 - `dream_report.md`
 - `dream_trace.json`
+- `heartbeat_signal.json`
+- `nightly_heartbeat.md`
+- `nightly_heartbeat_signal.json`
+- `morning_appendix.md`
 - `synthetic_interactions.md`
 - `prompt_archetype_rehearsals.md`
 - `all_corners_review.md`
@@ -153,8 +178,18 @@ analysis approval, and real validation.
 - `linear_update_proposals.md`
 - `daily_plan_proposals.md`
 - `cleanup_proposals.md`
+- `maintenance_debt.md`
+- `adaptation_cards.md`
 - `overnight_hygiene_proposals.md`
 - `physics_scenario_proposals.md`
+
+Dream infrastructure may also maintain a local append-only run index under
+`agent_context/local/dreams/` so recurrence can be detected across nights.
+
+The strongest nightly package should also carry a proposal-only maintenance
+debt ledger: a bounded reliability budget showing whether dream/doctor
+capability growth should continue, slow down, or freeze until cohesion,
+cleanup pressure, or automation drift is reduced.
 
 These are proposal artifacts. They do not become real state until a waking
 Codex session and Justin-approved workflow applies them.
@@ -198,6 +233,10 @@ The morning report should answer:
 - Which ideal final target figures reveal missing real inputs?
 - Which prompt archetype was hardest to answer cleanly, and what runbook,
   validator, or policy patch would improve the waking response?
+- Which repeated dream finding should finally graduate into a doctor rule,
+  policy line, or runbook instead of recurring as narrative drift?
+- Is maintenance debt low enough to keep adding dream capability, or should the
+  system freeze growth and pay down reliability debt first?
 - What exact checks should waking Codex run first?
 
 ## All-Corners Iteration
@@ -219,8 +258,10 @@ Every dream should cover these corners before ranking recommendations:
 
 The goal is thorough private synthesis, not verbose heartbeat output. The
 dream may spend 10-20 minutes producing detailed local artifacts, but the
-thread notification should report only the top finding, report path, and
-validation failure unless user action is needed.
+thread notification should report only the top findings, report path, top
+morning actions, and any validation or doctor failure unless user action is
+needed. The default overnight user-facing surface is one stable nightly
+heartbeat thread, not multiple fragmented dream/doctor chats.
 
 ## Literature And Target-Figure Dreaming
 

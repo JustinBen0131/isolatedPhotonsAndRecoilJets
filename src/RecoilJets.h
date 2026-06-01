@@ -647,7 +647,14 @@ private:
                                   bool isSignal,
                                   int truthTrackId,
                                   int truthBarcode,
-                                  float truthEnergyContribution);
+                                  float truthEnergyContribution,
+                                  int ppg12SampleBin = 0,
+                                  float ppg12XsecPb = -999.0f,
+                                  float ppg12XsecWeight = 1.0f,
+                                  float ppg12WindowLow = -999.0f,
+                                  float ppg12WindowHigh = -999.0f,
+                                  float maxTruthJetPtR04 = -999.0f,
+                                  int ppg12TruthWindowPassR04 = -1);
   void fillPi0MassVsPtHistograms(const std::string& trig, RawClusterContainer* clusterContainer, bool useCorr);
 
   bool getCentralitySlice(int& lo, int& hi, std::string& tag) const;
@@ -1385,6 +1392,13 @@ private:
   float m_bdtTrain_vz = 0.0f;
   float m_bdtTrain_weight = 1.0f;
   float m_bdtTrain_eiso = 0.0f;
+  int m_bdtTrain_ppg12_sample_bin = 0;
+  float m_bdtTrain_ppg12_xsec_pb = -999.0f;
+  float m_bdtTrain_ppg12_xsec_weight = 1.0f;
+  float m_bdtTrain_ppg12_window_low = -999.0f;
+  float m_bdtTrain_ppg12_window_high = -999.0f;
+  float m_bdtTrain_max_truth_jet_pt_r04 = -999.0f;
+  int m_bdtTrain_ppg12_truth_window_pass_r04 = -1;
   int m_bdtTrain_truth_track_id = -1;
   int m_bdtTrain_truth_barcode = -1;
   float m_bdtTrain_truth_energy_contribution = -999.0f;

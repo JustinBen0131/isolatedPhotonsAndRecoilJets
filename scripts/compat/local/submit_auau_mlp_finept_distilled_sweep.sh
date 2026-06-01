@@ -1,0 +1,1 @@
+../../sdcc/workflows/submit/submit_auau_mlp_finept_distilled_sweep.sh

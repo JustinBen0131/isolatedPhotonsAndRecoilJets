@@ -31,6 +31,24 @@ load the focused policy file named by the routing table below.
 7. Prefer evidence over memory. Valid/stale/done means backed by file
    timestamps, ROOT inspection, job IDs, Gmail/Condor output, terminal output,
    or a clear user statement.
+8. When creating new scripts, plotting helpers, slide generators, ROOT macros,
+   diagnostics, or OS utilities, load `REPO_ORGANIZATION.md` and place the new
+   file in the clearest safe home. Do not add more unrelated side helpers to
+   flat `scripts/` or `macros/` by default. Do not move Fun4All, SDCC, Condor,
+   transfer, or base pipeline entrypoints without an explicit compatibility
+   migration plan and Justin's approval. After THE-23 stage 5, top-level
+   `scripts/` entries are hard command aliases and indexes; canonical source
+   should be found through `scripts/COMMAND_INDEX.tsv`,
+   `scripts/bin/thesis-script`, `scripts/SCRIPT_INDEX.yaml`,
+   `scripts/HELPER_INDEX.yaml`, `scripts/slides/INDEX.yaml`, and the purpose
+   subfolders. Historical local names that are not hard aliases live under
+   `scripts/compat/local/`.
+9. If Justin says "set up a Zoom room", "open a Zoom room", "make a Zoom
+   room", "start a Zoom room", "get me a Zoom invite link", or a close variant,
+   load `MEETING_CAPTURE_AND_ZOOM.md`. Treat the phrase as explicit permission
+   to use Computer Use on Zoom for that narrow room-setup task: create/start
+   the Justin-owned room, enable or verify transcript/AI-summary capture where
+   available, copy the invite link, and return the link plus any caveat.
 
 ## Hard Stops
 
@@ -62,6 +80,12 @@ details, queue snapshots, job IDs, remote paths, or watchdog status histories
 to GitHub. Submissions, merge reruns, cleanup, file transfers, and remote edits
 still require explicit approval for the specific campaign action.
 
+Never create or leave a front-facing `agent_context/`, `.codex/`, `codex*`,
+or whitespace-only path in the SDCC checkout. Agent/control-plane evidence is
+local-only unless Justin explicitly approves a one-off remote diagnostic file,
+and even then use a neutral hidden scratch path such as `.recoiljets_tmp/` or
+`/tmp`, not an agent-named directory.
+
 For Codex-launched RecoilJets/Condor workflows, the remote submit command must
 set `RJ_CODEX_CHAT_NAME` and `RJ_CODEX_THREAD_ID` before DAG/meta files are
 created. Do not rely on local `CODEX_*` variables surviving nested SSH or
@@ -78,6 +102,7 @@ The machine-readable index is `agent_context/policies/LOAD_MAP.yaml`.
 | SDCC status, held jobs, queue, watchdog, heartbeat | `EMAIL_AND_WATCHDOGS.md`, `SDCC_OPERATIONS.md`, `MEMORY_AND_STATUS.md` |
 | plot generation or plot QA | `PLOTTING.md`, `SCIENCE_REFERENCE_HIERARCHY.md`, `INPUTS_AND_ENVIRONMENT.md` |
 | Google Slides or deck edits | `SLIDES_WORKFLOW.md`, `PLOTTING.md` if plots are involved |
+| new plotting script, slide generator, ROOT macro, diagnostics helper, or scripts/macros cleanup | `REPO_ORGANIZATION.md`, plus `PLOTTING.md`/`SLIDES_WORKFLOW.md`/`TRANSFER_AND_PIPELINE_FILES.md` as relevant |
 | slide reference without explicit deck link, current working slides, working point slides | `SLIDES_WORKFLOW.md`, `CODEX_OPERATING_SYSTEM.md` |
 | photon ID, BDT, ABCD, purity, xJ, unfolding, stitching | `SCIENCE_REFERENCE_HIERARCHY.md`, `DUPLICATE_RUN_GUARD.md` if a run/output is involved |
 | SFTP push/get, SDCC pipeline file upload, mapped-file changes | `TRANSFER_AND_PIPELINE_FILES.md`, `SDCC_OPERATIONS.md` |
@@ -90,6 +115,7 @@ The machine-readable index is `agent_context/policies/LOAD_MAP.yaml`.
 | agentic OS hardening, self-tuning, symbiotic workflow, thesis control plane, doctor checks | `AGENTIC_OS_HARDENING.md`, `CODEX_OPERATING_SYSTEM.md`, `MEMORY_AND_STATUS.md` |
 | agentic dreaming, synthetic rehearsal, night simulation, dream automation | `AGENTIC_OS_DREAMING.md`, `AGENTIC_OS_HARDENING.md`, `CODEX_OPERATING_SYSTEM.md` |
 | ask ChatGPT, use ChatGPT UI, delegated external research, deep research for OS design | `ASK_CHATGPT_DELEGATION.md`, `TOOLS_AND_DEPENDENCIES.md`, `COLLABORATION_AND_HANDOFFS.md` |
+| Zoom room setup, Zoom invite link, meeting transcript, Zoom AI summary, meeting capture | `MEETING_CAPTURE_AND_ZOOM.md`, `TOOLS_AND_DEPENDENCIES.md`, `CODEX_OPERATING_SYSTEM.md`, `MEMORY_AND_STATUS.md` |
 | "add a task", add to todo/backlog, task capture, task list update | `CODEX_OPERATING_SYSTEM.md`, `MEMORY_AND_STATUS.md` |
 
 ## Science North Star
@@ -157,11 +183,24 @@ Load `PLOTTING.md` and `SLIDES_WORKFLOW.md`.
 Load `TRANSFER_AND_PIPELINE_FILES.md`.
 
 - Use `scripts/sftp_push_recoiljets.sh` for mapped local-to-SDCC pipeline
-  uploads and read-only status/diff checks.
+  uploads and read-only status/diff checks. For script paths, consult
+  `scripts/sdcc/TRANSFER_MAP.tsv`; it records local canonical paths, local
+  aliases, SDCC canonical paths, compatibility paths, and upload targets.
 - Use `scripts/sftp_get_recoiljets_outputs.sh` for pulling ready outputs.
 - Do not run raw `sftp`/`scp` manually from Codex.
 - If a mapped SDCC-side file changes, final response should include the exact
   smallest upload command unless Codex already ran it with approval.
+
+## Repo Organization
+
+Load `REPO_ORGANIZATION.md` before adding or moving code under `scripts/` or
+`macros/`. New local side helpers should go in clear purpose-specific folders
+when safe. For existing scripts, prefer `scripts/bin/thesis-script path <name>`
+or `scripts/COMMAND_INDEX.tsv` over scanning the parent directory. Preserve
+current paths for Fun4All, SDCC, Condor, transfer, and base pipeline entrypoints
+unless a staged migration is explicitly approved. Do not recreate flat
+top-level script source files; use canonical subfolders plus documented hard or
+compat aliases.
 
 ## Research Note
 

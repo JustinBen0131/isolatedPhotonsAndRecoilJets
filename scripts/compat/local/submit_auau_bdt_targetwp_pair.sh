@@ -1,0 +1,1 @@
+../../sdcc/workflows/target_wp/submit_auau_bdt_targetwp_pair.sh

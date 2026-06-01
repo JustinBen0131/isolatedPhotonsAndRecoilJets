@@ -32,6 +32,12 @@ pause and ask before extending the allowlist.
 If an SFTP helper opens an interactive password prompt, Justin enters it
 manually. Codex must not ask for, store, or type the password.
 
+Never transfer local Codex control-plane state to SDCC. `agent_context/`,
+`.codex/`, `codex*` migration/archive files, and local-only OS evidence must
+remain local. SDCC transfer or remote-migration helpers must also reject empty,
+whitespace-only, or leading/trailing-space path strings before creating
+directories or moving files.
+
 ## Read-Only Checks
 
 ```bash
@@ -134,6 +140,12 @@ production/merge/final-stitch scripts depend on it.
 Only offline macros that Justin runs after the online pipeline completes should
 be treated as local-only code.
 
+These SDCC-side pipeline files are protected path anchors for repo organization
+purposes. Do not move or rename them as part of scripts/macros cleanup unless a
+specific refactor is approved with a compatibility plan, reference audit, SDCC
+upload plan, and smoke tests. New local side helpers should be organized around
+them, not by moving these anchors opportunistically.
+
 If compiled source/headers change, tell Justin the correct rebuild directory:
 
 ```bash
@@ -152,27 +164,34 @@ For shell/YAML/macro-only changes that do not require relinking, say no
 ## Known Transfer Map
 
 ```text
-scripts/audit_auau_grl_projection.sh      -> scripts/audit_auau_grl_projection.sh
-scripts/audit_auau_ml_training_smoke.py   -> scripts/audit_auau_ml_training_smoke.py
-scripts/estimateEmbeddedPhotonXsec.sh     -> scripts/estimateEmbeddedPhotonXsec.sh
-scripts/make_dstListsData.sh              -> scripts/make_dstListsData.sh
-scripts/makeThesisSimLists.sh             -> scripts/makeThesisSimLists.sh
-scripts/mergeRecoilJets.sh                -> scripts/mergeRecoilJets.sh
-scripts/recoiljets_cleanup.sh             -> scripts/recoiljets_cleanup.sh
-scripts/root_in_analysis_env.sh           -> scripts/root_in_analysis_env.sh
-scripts/submit_auau_bdt_widthstudy_pt1530_wp080.sh -> scripts/submit_auau_bdt_widthstudy_pt1530_wp080.sh
+Exhaustive script mappings live in `scripts/sdcc/TRANSFER_MAP.tsv`,
+`scripts/sdcc/SDCC_RUNTIME_INDEX.yaml`, and the generated
+`LOCAL_FILES`/`REMOTE_FILES` arrays in
+`scripts/sdcc/transfer/sftp_push_recoiljets.sh`.
+
+Key script examples after THE-23 stage 5:
+
+scripts/compat/local/audit_auau_grl_projection.sh -> scripts/sdcc/runtime/audit/audit_auau_grl_projection.sh
+scripts/compat/local/audit_auau_ml_training_smoke.py -> scripts/ml/audits/audit_auau_ml_training_smoke.py
+scripts/estimateEmbeddedPhotonXsec.sh     -> scripts/sdcc/runtime/xsec/estimateEmbeddedPhotonXsec.sh
+scripts/make_dstListsData.sh              -> scripts/sdcc/runtime/lists/make_dstListsData.sh
+scripts/makeThesisSimLists.sh             -> scripts/sdcc/runtime/lists/makeThesisSimLists.sh
+scripts/mergeRecoilJets.sh                -> scripts/sdcc/runtime/merge/mergeRecoilJets.sh
+scripts/recoiljets_cleanup.sh             -> scripts/sdcc/runtime/cleanup/recoiljets_cleanup.sh
+scripts/root_in_analysis_env.sh           -> scripts/env/root_in_analysis_env.sh
+scripts/compat/local/submit_auau_bdt_widthstudy_pt1530_wp080.sh -> scripts/sdcc/workflows/width_study/submit_auau_bdt_widthstudy_pt1530_wp080.sh
 scripts/RecoilJets_Condor_AuAu.sh         -> RecoilJets_Condor_AuAu.sh
 scripts/RecoilJets_Condor_submit.sh       -> RecoilJets_Condor_submit.sh
 scripts/RecoilJets_Condor.sh              -> RecoilJets_Condor.sh
-scripts/train_auau_jet_residual_bdt.py    -> scripts/train_auau_jet_residual_bdt.py
-scripts/train_auau_photon_bdt.py          -> scripts/train_auau_photon_bdt.py
-scripts/validate_auau_tight_bdt_on_sim.py -> scripts/validate_auau_tight_bdt_on_sim.py
+scripts/compat/local/train_auau_jet_residual_bdt.py -> scripts/ml/stacking/train_auau_jet_residual_bdt.py
+scripts/compat/local/train_auau_photon_bdt.py -> scripts/ml/training/train_auau_photon_bdt.py
+scripts/compat/local/validate_auau_tight_bdt_on_sim.py -> scripts/ml/validation/validate_auau_tight_bdt_on_sim.py
 macros/analysis_config.yaml               -> macros/analysis_config.yaml
 macros/analysis_config_auau_bdt_widthstudy_pt1530_wp080.yaml -> macros/analysis_config_auau_bdt_widthstudy_pt1530_wp080.yaml
 macros/Fun4All_recoilJets.C               -> macros/Fun4All_recoilJets.C
 macros/Fun4All_recoilJets_AuAu.C          -> macros/Fun4All_recoilJets_AuAu.C
 macros/Fun4All_recoilJets_unified_impl.C  -> macros/Fun4All_recoilJets_unified_impl.C
-macros/PrintPPStitchDiagnostics.C         -> macros/PrintPPStitchDiagnostics.C
+macros/PrintPPStitchDiagnostics.C         -> macros/diagnostics/stitching/PrintPPStitchDiagnostics.C
 src/RecoilJets.cc                         -> src/RecoilJets.cc
 src/RecoilJets.h                          -> src/RecoilJets.h
 src_AuAu/RecoilJets_AuAu.cc               -> src_AuAu/RecoilJets_AuAu.cc
@@ -194,3 +213,48 @@ Important mapping detail: `scripts/RecoilJets_Condor*.sh` live under
 The transfer helpers themselves are local-only. Do not include them in SDCC
 transfer commands, and do not rely on helper `--commit-push` for edits to the
 helpers or `AGENTS.md`.
+
+Generated campaign configs should not be added to the static transfer allowlist
+unless they exist locally and need an intentional upload. For example,
+`analysis_config_auau_bdt_mlp_stack_wp080.yaml` is produced by the stack driver
+from `analysis_config_auau_bdt_mlp_stack_template.yaml`; upload the template or
+the driver, not a missing generated output path.
+
+## Local Organization Detail
+
+After THE-23 stage 5, local and SDCC top-level `scripts/` paths are minimal
+command surfaces. Local canonical source lives under purpose folders such as
+`scripts/sdcc/runtime/{condor,merge,lists,cleanup,xsec,audit}/`,
+`scripts/sdcc/workflows/{submit,target_wp,width_study,stacking,scan,diagnostics}/`,
+`scripts/sdcc/pipelines/{auau,pp}/`, `scripts/ml/{training,validation,working_points,stacking,audits}/`,
+`scripts/plotting/{auau_bdt,pp_currentian,stitching,efficiency,trigger,truth_purity}/`,
+`scripts/diagnostics/`, `scripts/data_prep/`, `scripts/slides/`, and
+`scripts/os/`. On SDCC, canonical script source lives in matching subfolders;
+historical remote `scripts/foo` paths are symlinks for operator/command
+compatibility.
+
+For SDCC uploads, continue using the historical local command path or group
+name with `scripts/sftp_push_recoiljets.sh`. The helper resolves local symlink
+targets before upload and compares/stages the canonical source. For scripts,
+the remote write path is now usually the canonical SDCC subfolder path, while
+the old remote `scripts/foo` symlink remains executable. Do not raw-copy
+canonical folders to SDCC.
+
+After THE-23 stage 6, future SDCC output/evidence paths should also be
+canonical-path aware. New RecoilJets outputs belong under `runs/recoiljets/`,
+Condor state under `state/condor/`, inputs under `inputs/`, model state under
+`models/`, small evidence under `evidence/`, and transient material under
+`scratch/`. Do not add new transfer mappings or helper defaults that create
+root-level `output_*`, `tmp_*`, loose `.csv`/`.txt`, `config.log`,
+`pythia_xsec_firstPass*`, or agent-named paths unless a local-only migration
+manifest records the compatibility reason.
+
+After THE-23 stage 7, campaign-aware SIM production should write future
+checkout merge outputs under `runs/recoiljets/current/<campaign>/` and TG bulk
+products under `thesisAna/recoiljets/<family>/<campaign>/{signal,background}/`.
+Historical `output_<campaign>` and `thesisAna/simembedded*_<campaign>` paths
+remain read-compatible legacy paths for old runs. Use
+`scripts/sdcc/runtime/io/resolve_io_contract.py <campaign> --family <family>`
+to inspect canonical and legacy paths, and use `SFTP_GET_CAMPAIGN_TAG=<tag>`
+with `scripts/sftp_get_recoiljets_outputs.sh` when pulling a new canonical
+campaign.

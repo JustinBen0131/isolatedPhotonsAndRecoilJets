@@ -1,0 +1,1 @@
+../../sdcc/workflows/target_wp/submit_auau_bdt_etfine_centstudy_target80.sh

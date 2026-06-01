@@ -7,9 +7,32 @@
   and `SetStats(false)` on frame/data histograms.
 - Reuse existing plotting infrastructure: `macros/AnalyzeRecoilJets*`,
   `macros/sPhenixStyle.*`, existing helpers, styles, axis labels, and output
-  organization.
+  organization. After THE-23 stage 8, use `macros/MACRO_INDEX.yaml` or
+  `macros/bin/thesis-macro path <id-or-basename>` to find canonical ROOT
+  macro source before editing.
 - Plot labels must name the actual comparison in plain physics terms. Avoid
   vague shorthand like `PPG12-like` when the legend can say what changed.
+
+## File Placement
+
+Before creating a new plotting script, slide-candidate generator, ROOT macro,
+or diagnostic helper, load `REPO_ORGANIZATION.md`.
+
+Default to organized side-code placement:
+
+- reusable Python plotting utilities: `scripts/plotting/`;
+- full-slide PNG builders and deck-specific slide helpers: `scripts/slides/`;
+- focused audits or one-campaign diagnostics: `scripts/diagnostics/`;
+- local ML/score/validation plot helpers: `scripts/ml/` when they are more ML
+  than general plotting;
+- offline ROOT plotting macros:
+  `macros/plotting/{auau_bdt,target_wp,width_study,stitching,pp_currentian,ssqa}/`
+  unless a protected runtime anchor or documented hard alias requires a
+  top-level macro path.
+
+Do not move Fun4All, SDCC, Condor, transfer, or base pipeline files while
+making a plot. If a plot requires editing a protected entrypoint, keep the
+existing path and follow the transfer/pipeline policy.
 
 ## sPHENIX Style
 

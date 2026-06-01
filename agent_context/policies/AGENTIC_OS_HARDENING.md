@@ -141,17 +141,17 @@ not tracked by Git.
 
 Use these executable surfaces to keep the OS biological rather than static:
 
-- `python3 scripts/codex_context_pack.py --cadence boot`: compact boot packet
+- `python3 scripts/os/context/codex_context_pack.py --cadence boot`: compact boot packet
   for a fresh Codex chat.
-- `python3 scripts/codex_context_pack.py --cadence daily`: daily cockpit from
+- `python3 scripts/os/context/codex_context_pack.py --cadence daily`: daily cockpit from
   register state.
-- `python3 scripts/codex_context_pack.py --cadence weekly`: weekly review for
+- `python3 scripts/os/context/codex_context_pack.py --cadence weekly`: weekly review for
   promotion, demotion, closure, and friction-to-policy conversion.
-- `python3 scripts/codex_context_pack.py --cadence monthly`: thesis claim-layer
+- `python3 scripts/os/context/codex_context_pack.py --cadence monthly`: thesis claim-layer
   audit.
-- `python3 scripts/codex_thesis_radar.py`: live-work mapping to the thesis
+- `python3 scripts/os/context/codex_thesis_radar.py`: live-work mapping to the thesis
   spine.
-- `python3 scripts/codex_artifact_registry.py check`: provenance check for
+- `python3 scripts/os/artifacts/codex_artifact_registry.py check`: provenance check for
   canonical artifacts.
 
 `agent_context/ARTIFACT_REGISTRY.yaml` is the canonical registry for
@@ -165,15 +165,37 @@ rehearsal. Dreams are proposal-only and may write only under
 `agent_context/local/dreams/`.
 
 ```bash
-python3 scripts/codex_os_dream.py micro
-python3 scripts/codex_os_dream.py nightly
-python3 scripts/codex_os_dream.py validate --latest
+python3 scripts/codex_os_nightly_heartbeat.py nightly
 ```
 
-Dreams simulate tomorrow's likely questions and failure modes. They must never
-treat synthetic Justin as approval, never touch external systems, and never
-mutate real repo state. Waking Codex may promote a dream proposal only through
-normal task-capture, guard, doctor, and evidence checks.
+The default overnight contract is one nightly super-heartbeat: dream
+generation, dream validation, doctor verification, read-only stale/radar/
+artifact/context checks, and a proposal-only morning appendix in one package.
+Dreams must never treat synthetic Justin as approval, never touch external
+systems, and never mutate real repo state. Waking Codex may promote a dream
+proposal only through normal task-capture, guard, doctor, and evidence checks.
+
+The doctor and dream layers should increasingly act like one two-stage
+heartbeat:
+
+- dream: overnight synthetic consolidation, recurrence detection, cleanup
+  ranking, proposal generation, and morning-appendix drafting;
+- doctor: structural verifier phase inside the nightly heartbeat, plus a
+  standalone waking check that consumes the latest machine-readable nightly
+  signal without trusting dream prose as evidence.
+
+Keep the morning planning automation separate for now. It is the waking
+projection step that may later consume the proposal-only appendix if Justin
+approves a planning-surface auto-update phase.
+
+When maintenance debt rises, the heartbeat should say so explicitly. Treat
+that debt like an error budget problem: if automation drift, recurring
+hotspots, cleanup pressure, or boundary defects stay high, pause new dream
+cleverness and pay down reliability debt first.
+
+Repeated dream findings should not remain free-text forever. When the same
+maintenance problem recurs and the doctor can verify the corresponding real
+state, encode it as a policy line, doctor warning, or runbook.
 
 ## Done Protocol
 

@@ -1,0 +1,1 @@
+../../sdcc/workflows/stacking/submit_auau_global_sixpack_oof_stack.sh

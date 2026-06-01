@@ -17,6 +17,92 @@ Before a complex check, run a tiny probe on the target node. If that fails,
 stop retrying quote-heavy SSH commands and fall back to the visible terminal or
 a paste-ready handoff.
 
+## Remote Hygiene Boundary
+
+The SDCC checkout must not contain front-facing agent/control-plane state.
+Never create or leave these paths in the remote checkout:
+
+- `agent_context/`
+- `.codex/`
+- `codex*` helper/archive names
+- whitespace-only or leading/trailing-space paths such as a directory named
+  exactly two spaces
+
+Any Codex-only evidence, migration manifest, rollback manifest, or command
+transcript belongs locally under `agent_context/local/...`, not on SDCC. If a
+remote mutation needs a temporary helper, use `/tmp` or a neutral hidden
+runtime path under `.recoiljets_tmp/`, validate the path string is non-empty
+and has no leading/trailing whitespace, and remove the helper before ending the
+turn unless it is a real pipeline runtime artifact.
+
+After any Codex-run SDCC mutation, run a bounded top-level hygiene check for
+`agent_context`, `.codex`, `codex`, and whitespace-only path names before
+calling the task complete. If such a path exists, report it as a cleanup
+candidate and do not create additional remote state.
+
+## Remote Scripts Layout
+
+After THE-23 stage 5, the SDCC checkout `scripts/` parent is intentionally a
+minimal command surface. Canonical script source lives under purpose folders
+such as `scripts/sdcc/runtime/{condor,merge,lists,cleanup,xsec,audit}/`,
+`scripts/sdcc/pipelines/{auau,pp}/`,
+`scripts/sdcc/workflows/{submit,target_wp,width_study,stacking,scan,diagnostics}/`,
+`scripts/ml/{training,validation,working_points,stacking,audits}/`,
+`scripts/diagnostics/`, `scripts/data_prep/`, `scripts/plotting/`,
+`scripts/slides/`, and `scripts/env/`. Historical remote `scripts/foo` command
+names are symlinks only for hard contracts or documented compatibility.
+
+When editing or uploading SDCC-needed scripts, use the local
+`scripts/sftp_push_recoiljets.sh` mapping, `scripts/sdcc/TRANSFER_MAP.tsv`,
+and `scripts/sdcc/SDCC_RUNTIME_INDEX.yaml`. Do not manually copy broad script
+folders, do not recreate flat remote source files under `scripts/`, and do not
+remove remote compatibility symlinks without a separate reference audit.
+Do not put local-only migration evidence under remote `agent_context/`; keep
+that evidence in the local checkout only.
+
+## Remote Macros Layout
+
+After THE-23 stage 8, the SDCC checkout `macros/` parent is also a small
+runtime surface. Protected Fun4All/config/runtime anchors remain top-level:
+`Fun4All_*`, `analysis_config*.yaml`, `Calo_Calib.C`, `HIJetReco.C`, and
+other fixed-path runtime macros. Offline helper implementations should live in
+neutral canonical folders such as `macros/plotting/stitching/` and
+`macros/diagnostics/stitching/`. Remote top-level helper wrappers remain only
+for active hard aliases; retired compatibility wrappers live under
+`macros/compat/sdcc/`.
+
+Use remote `macros/MACRO_INDEX.remote.tsv` to inspect SDCC macro canonical
+homes. Do not create remote `agent_context`, `.codex`, `codex*`, `THE-*`, or
+whitespace paths while organizing macros. Do not leave ACLiC products, `.d`,
+`.so`, `.pcm`, `.DS_Store`, AppleDouble files, or `__pycache__` front-facing
+under remote `macros/`.
+
+## Remote Base Layout
+
+After THE-23 stage 6, the SDCC checkout root should be a small runtime surface,
+not a mixed archive. Keep hard anchors such as `PROJECT_INDEX.md`,
+`RUNS_CURRENT.md`, `RecoilJets_Condor*.sh`, `scripts/`, `macros/`, `src/`,
+`src_AuAu/`, and `coresoftware_local/` at root unless a separate compatibility
+audit approves moving them.
+
+Canonical SDCC base domains are:
+
+- `runs/recoiljets/{current,archive,smoke}/` for RecoilJets output roots.
+- `state/condor/{sub,snapshots,recovery,segments,generated_configs,yaml_overrides,lists,logs}/`
+  for Condor/runtime state.
+- `inputs/{dst_lists,sim_lists,grl,z_vertex,xsec}/` for list and calibration
+  inputs.
+- `models/{bdt,mlp,logreg,stack,promotion_pulls}/` for trained-model state.
+- `evidence/{tables,xsec,qa,cleanup}/` for small durable CSV/TXT/QA evidence.
+- `scratch/{tmp,debug,slide_ready,local_sim}/` for transient local-runtime
+  material.
+
+Do not create new root-level `output_*`, `tmp_*`, loose `.csv`/`.txt`,
+`config.log`, `pythia_xsec_firstPass*`, or cleanup stamp files. Existing root
+exceptions must be documented as audited holds in local-only manifests before
+they are treated as acceptable. Stage-6 migration manifests, rollback maps, and
+decision evidence belong under local `agent_context/local/...`, never on SDCC.
+
 ## Persistent Session Rule
 
 For more than a tiny check, open one persistent SSH session and reuse it for

@@ -19,6 +19,11 @@ For synthetic dream rehearsal, also load
 `agent_context/policies/AGENTIC_OS_DREAMING.md`. Dream outputs are private
 proposal artifacts under `agent_context/local/dreams/`; they are not user
 approval and must not be promoted silently into real task state.
+The canonical overnight coordinator is
+`python3 scripts/codex_os_nightly_heartbeat.py nightly`, which fuses the
+nightly dream, dream validation, doctor checks, and read-only morning appendix
+into one package. Morning-priorities automation is a downstream waking
+projection step, not part of the overnight mutation boundary.
 
 For delegated ChatGPT UI research, also load
 `agent_context/policies/ASK_CHATGPT_DELEGATION.md`. ChatGPT output is external

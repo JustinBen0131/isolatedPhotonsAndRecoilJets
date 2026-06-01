@@ -1,0 +1,1 @@
+../../sdcc/workflows/submit/submit_auau_logreg_full_chain.sh

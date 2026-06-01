@@ -1,0 +1,1 @@
+../../sdcc/workflows/target_wp/merge_auau_bdt_target80_ready.sh

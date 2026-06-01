@@ -1,99 +1,128 @@
-# ThesisAnalysis RecoilJets Pipeline
+# Isolated Photons And Recoil Jets
 
-This repository contains the core source, macros, and scripts for the sPHENIX
-RecoilJets analysis pipeline. The tracked code is organized around producing
-RecoilJets ROOT outputs from pp, Au+Au, photon+jet simulation, embedded
-photon+jet simulation, and embedded inclusive-jet simulation samples, then
-building the downstream QA, stitching, purity, response, and unfolding products.
+Analysis code for sPHENIX isolated-photon and recoil-jet studies. The
+repository contains the C++ analysis modules, Fun4All steering macros, ROOT
+analysis macros, Condor/workflow helpers, plotting utilities, and ML helpers
+used to produce and study pp, Au+Au, photon+jet simulation, embedded
+photon+jet simulation, and embedded inclusive-jet background samples.
 
-## Code Layout
+The code is organized so production entrypoints stay stable while local
+analysis helpers live in purpose-specific folders.
 
-- `src/`: pp-style RecoilJets module and photon-cluster helper code.
-- `src_AuAu/`: Au+Au and embedded RecoilJets module.
-- `macros/`: Fun4All steering macros, analysis configuration, ROOT QA,
-  stitching, plotting, photon-purity, response, and unfolding workflows.
-- `scripts/`: dataset list builders, Condor submission wrappers, merge helpers,
-  transfer helpers, environment wrappers, diagnostics, and ML training scripts.
+## Repository Layout
 
-## Main Production Flow
+- `src/`: pp-style `RecoilJets` module and photon-cluster helper code.
+- `src_AuAu/`: Au+Au and embedded-sample `RecoilJets_AuAu` module.
+- `macros/`: ROOT and Fun4All macro surface.
+  - `Fun4All_*.C`, `analysis_config*.yaml`, `Calo_Calib.C`,
+    `HIJetReco.C`, `AnalyzeRecoilJets*`, and `sPhenixStyle.*` are stable
+    top-level analysis/runtime anchors.
+  - `macros/plotting/`: offline ROOT plotting macros, grouped by analysis
+    area such as `auau_bdt`, `target_wp`, `width_study`, `stitching`,
+    `pp_currentian`, and `ssqa`.
+  - `macros/diagnostics/`: ROOT inspection and validation helpers.
+  - `macros/MACRO_INDEX.yaml` and `macros/bin/thesis-macro` resolve macro
+    names to canonical implementation paths.
+- `scripts/`: command entrypoints plus organized helper subsystems.
+  - `scripts/sdcc/`: production/runtime/workflow helpers and transfer maps.
+  - `scripts/ml/`: training, validation, working-point, and stacking helpers.
+  - `scripts/plotting/`: Python plotting utilities.
+  - `scripts/slides/`: full-slide PNG builders and slide-specific assets.
+  - `scripts/diagnostics/`: row-contract, split-study, ML, and workflow audits.
+  - `scripts/data_prep/`: manifest, table, stitching, and compact-data helpers.
+  - `scripts/os/`: project operating-system, register, guard, and maintenance
+    utilities.
+  - `scripts/bin/thesis-script` resolves script ids/basenames to canonical
+    paths.
+- `agent_context/`: project-local coordination, policies, indexes, and status
+  ledgers used to keep multi-step analysis work reproducible.
 
-1. Build or update DST/input lists.
-   - Data lists are handled by `scripts/make_dstListsData.sh`.
-   - Thesis simulation lists are handled by `scripts/makeThesisSimLists.sh`.
+## Main Analysis Flow
 
-2. Configure analysis settings.
-   - The main analysis configuration lives in `macros/analysis_config.yaml`.
-   - This controls photon-ID working points, isolation/preselection variants,
-     jet/recoil settings, Au+Au cluster-UE modes, and related analysis axes.
+1. Build DST or simulation input lists.
+   - Data list helpers live under `scripts/sdcc/runtime/lists/`.
+   - The compatibility commands `scripts/make_dstListsData.sh` and
+     `scripts/makeThesisSimLists.sh` remain available.
 
-3. Run the Fun4All analysis module.
+2. Configure photon, isolation, jet, and dataset variants.
+   - Main configuration starts from `macros/analysis_config.yaml`.
+   - Campaign-specific configs live beside it as `analysis_config*.yaml`.
+
+3. Run Fun4All/RecoilJets.
    - pp-style workflows use `macros/Fun4All_recoilJets.C`.
    - Au+Au and embedded workflows use `macros/Fun4All_recoilJets_AuAu.C`.
-   - Shared implementation details live in
-     `macros/Fun4All_recoilJets_unified_impl.C`.
+   - Shared steering logic lives in `macros/Fun4All_recoilJets_unified_impl.C`.
 
-4. Submit or stage production on Condor.
-   - The main entry point is `scripts/RecoilJets_Condor_submit.sh`.
-   - Dataset-specific execution is handled through
-     `scripts/RecoilJets_Condor.sh` and
+4. Submit or stage production workflows.
+   - Condor wrappers remain available as top-level compatibility commands:
+     `scripts/RecoilJets_Condor_submit.sh`,
+     `scripts/RecoilJets_Condor.sh`, and
      `scripts/RecoilJets_Condor_AuAu.sh`.
+   - Canonical workflow implementations live under `scripts/sdcc/`.
 
-5. Merge and collect outputs.
+5. Merge and pull analysis-ready outputs.
    - `scripts/mergeRecoilJets.sh` handles production-side merging.
-   - `scripts/sftp_get_recoiljets_outputs.sh` pulls merged outputs into the
-     local analysis input area.
-   - `scripts/MergeDownloadedRecoilJetsSim.C` builds canonical local SIM
-     combinations after downloads.
+   - `scripts/sftp_get_recoiljets_outputs.sh` pulls merged ROOT outputs into
+     local analysis input areas.
 
-6. Run downstream analysis products.
-   - QA, stitching, photon-purity, response-matrix, unfolding, trigger, and
-     comparison studies are implemented in the `macros/AnalyzeRecoilJets*`
-     macro family and focused helper macros.
-
-## ROOT Environment
-
-ROOT-dependent commands should be run through the repository environment
-wrapper:
-
-```bash
-./scripts/root_in_analysis_env.sh /Users/patsfan753/Desktop/analysis/env/bin/root -l -q 'macros/MyMacro.C()'
-```
-
-This keeps ROOT, RooUnfold, and analysis-library paths consistent across macro
-runs and ACLiC builds.
+6. Produce downstream studies.
+   - ROOT analysis and QA use the `AnalyzeRecoilJets*` macro family and the
+     organized `macros/plotting/` / `macros/diagnostics/` helpers.
+   - ML studies use `scripts/ml/`.
+   - Plot and slide candidates use `scripts/plotting/` and `scripts/slides/`.
 
 ## Dataset Modes
 
-The submission and macro paths are structured around these main dataset modes:
+The production and analysis helpers are built around these dataset modes:
 
 - `isPP`: pp data-style RecoilJets production.
 - `isAuAu`: Au+Au data-style RecoilJets production.
 - `isSim`: pp photon+jet simulation.
 - `isSimInclusive`: pp inclusive-jet simulation/background.
 - `isSimEmbedded`: Au+Au embedded photon+jet simulation.
-- `isSimEmbeddedInclusive`: Au+Au embedded inclusive-jet
-  simulation/background.
+- `isSimEmbeddedInclusive`: Au+Au embedded inclusive-jet background.
 
-Embedded-inclusive analysis is intended to use the current Jet12 and Jet20
-sample pair once the corresponding cross-section weights and stitched products
-are validated.
+## Finding Code
 
-## Important Analysis Products
+Prefer the indexes and resolver commands before adding a new helper:
 
-- Photon-ID and isolation QA are produced from the RecoilJets module outputs
-  and the `AnalyzeRecoilJets` macro family.
-- Photon-purity and Region-C subtraction use ABCD-style isolated/tight sideband
-  histograms, with separate handling for event-leading xJ purity counters.
-- xJ unfolding uses photon-yield unfolding for the `N_gamma` normalization and
-  two-dimensional response matrices in `(pT_gamma, xJgamma)`.
-- Embedded photon and embedded inclusive samples feed the Au+Au photon-BDT and
-  ML-response studies.
-- z-vertex and centrality reweighting should be derived and compared for
-  embedded signal/background BDT training.
+```bash
+scripts/bin/thesis-script path <script-id-or-basename>
+macros/bin/thesis-macro path <macro-id-or-basename>
+```
 
-## GitHub Scope
+Common indexes:
 
-The GitHub repository intentionally tracks only source, macros, scripts, and
-this README. Local ROOT inputs, generated outputs, presentations, reference
-PDFs, scratch files, external dependencies, copied reference repositories, and
-machine-local state are not part of the tracked repository.
+- `scripts/SCRIPT_INDEX.yaml`
+- `scripts/HELPER_INDEX.yaml`
+- `scripts/slides/INDEX.yaml`
+- `scripts/sdcc/SDCC_RUNTIME_INDEX.yaml`
+- `scripts/sdcc/IO_RUNTIME_INDEX.yaml`
+- `macros/MACRO_INDEX.yaml`
+
+New code should go directly into the most specific existing folder rather than
+adding new flat files to the top of `scripts/` or `macros/`.
+
+## ROOT And Environment
+
+ROOT-dependent commands should use the repository wrapper so the analysis
+environment is configured consistently:
+
+```bash
+./scripts/root_in_analysis_env.sh root -l -q 'macros/MyMacro.C()'
+```
+
+Use external cache/build locations for syntax checks and ACLiC products. Do
+not commit generated ROOT dictionaries, `.so` files, `.pcm` files, Python
+`__pycache__`, or local output products.
+
+## Outputs And Tracked Scope
+
+This repository tracks source code, macros, scripts, indexes, and lightweight
+project documentation. It does not track large ROOT inputs, generated analysis
+outputs, plot batches, slide decks, copied external repositories, local
+environment state, or private machine-specific configuration.
+
+Analysis-ready local ROOT files should be kept outside the tracked source tree
+or in ignored data/input areas. Compact plots, QA tables, and slide assets
+should be regenerated from the tracked scripts and macros when possible.

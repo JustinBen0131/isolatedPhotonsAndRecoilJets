@@ -1,0 +1,517 @@
+path	kind	category	canonical_or_target	note
+scripts/COMMAND_INDEX.tsv	file	index_or_readme		stage5_inventory
+scripts/HELPER_INDEX.yaml	file	index_or_readme		stage5_inventory
+scripts/MergeDownloadedRecoilJetsSim.C	symlink	hard_alias	sdcc/local_merge/root/MergeDownloadedRecoilJetsSim.C	stage5_inventory
+scripts/README.md	file	index_or_readme		stage5_inventory
+scripts/RecoilJets_Condor.sh	symlink	hard_alias	sdcc/runtime/condor/RecoilJets_Condor.sh	stage5_inventory
+scripts/RecoilJets_Condor_AuAu.sh	symlink	hard_alias	sdcc/runtime/condor/RecoilJets_Condor_AuAu.sh	stage5_inventory
+scripts/RecoilJets_Condor_submit.sh	symlink	hard_alias	sdcc/runtime/condor/RecoilJets_Condor_submit.sh	stage5_inventory
+scripts/SCRIPT_INDEX.yaml	file	index_or_readme		stage5_inventory
+scripts/auau_tight_bdt_pipeline.sh	symlink	hard_alias	sdcc/pipelines/auau/auau_tight_bdt_pipeline.sh	stage5_inventory
+scripts/auau_tight_logreg_pipeline.sh	symlink	hard_alias	sdcc/pipelines/auau/auau_tight_logreg_pipeline.sh	stage5_inventory
+scripts/auau_tight_mlp_pipeline.sh	symlink	hard_alias	sdcc/pipelines/auau/auau_tight_mlp_pipeline.sh	stage5_inventory
+scripts/bin/README.md	file	index_or_readme		stage5_inventory
+scripts/bin/thesis-script	file	command_gateway		stage5_inventory
+scripts/codex_os_doctor.py	symlink	hard_alias	os/safety/codex_os_doctor.py	stage5_inventory
+scripts/codex_os_dream.py	symlink	hard_alias	os/dream/codex_os_dream.py	stage5_inventory
+scripts/codex_os_guard.py	symlink	hard_alias	os/safety/codex_os_guard.py	stage5_inventory
+scripts/codex_os_nightly_heartbeat.py	symlink	hard_alias	os/heartbeat/codex_os_nightly_heartbeat.py	stage5_inventory
+scripts/codex_os_snapshot.py	symlink	hard_alias	os/safety/codex_os_snapshot.py	stage5_inventory
+scripts/compat/ALIAS_INDEX.tsv	file	index_or_readme		stage5_inventory
+scripts/compat/README.md	file	index_or_readme		stage5_inventory
+scripts/compat/local/MergeDownloadedRecoilJetsSim.C	symlink	compatibility_symlink	../../sdcc/local_merge/root/MergeDownloadedRecoilJetsSim.C	stage5_inventory
+scripts/compat/local/RecoilJets_Condor.sh	symlink	compatibility_symlink	../../sdcc/runtime/condor/RecoilJets_Condor.sh	stage5_inventory
+scripts/compat/local/RecoilJets_Condor_AuAu.sh	symlink	compatibility_symlink	../../sdcc/runtime/condor/RecoilJets_Condor_AuAu.sh	stage5_inventory
+scripts/compat/local/RecoilJets_Condor_submit.sh	symlink	compatibility_symlink	../../sdcc/runtime/condor/RecoilJets_Condor_submit.sh	stage5_inventory
+scripts/compat/local/auau_bdt_mlp_stack_production_driver.sh	symlink	compatibility_symlink	../../sdcc/workflows/stacking/auau_bdt_mlp_stack_production_driver.sh	stage5_inventory
+scripts/compat/local/auau_mlp_bdt_beating_driver.sh	symlink	compatibility_symlink	../../sdcc/workflows/stacking/auau_mlp_bdt_beating_driver.sh	stage5_inventory
+scripts/compat/local/auau_tight_bdt_pipeline.sh	symlink	compatibility_symlink	../../sdcc/pipelines/auau/auau_tight_bdt_pipeline.sh	stage5_inventory
+scripts/compat/local/auau_tight_logreg_pipeline.sh	symlink	compatibility_symlink	../../sdcc/pipelines/auau/auau_tight_logreg_pipeline.sh	stage5_inventory
+scripts/compat/local/auau_tight_mlp_pipeline.sh	symlink	compatibility_symlink	../../sdcc/pipelines/auau/auau_tight_mlp_pipeline.sh	stage5_inventory
+scripts/compat/local/audit_auau_grl_projection.sh	symlink	compatibility_symlink	../../sdcc/runtime/audit/audit_auau_grl_projection.sh	stage5_inventory
+scripts/compat/local/audit_auau_ml_training_smoke.py	symlink	compatibility_symlink	../../ml/audits/audit_auau_ml_training_smoke.py	stage5_inventory
+scripts/compat/local/audit_auau_truth_tags.py	symlink	compatibility_symlink	../../diagnostics/auau_split/audit_auau_truth_tags.py	stage5_inventory
+scripts/compat/local/audit_pp_basev3e_shuhang_equivalence.py	symlink	compatibility_symlink	../../diagnostics/pp_shuhang/audit_pp_basev3e_shuhang_equivalence.py	stage5_inventory
+scripts/compat/local/build_currentian_fast_manifests.py	symlink	compatibility_symlink	../../data_prep/manifests/build_currentian_fast_manifests.py	stage5_inventory
+scripts/compat/local/codex_artifact_registry.py	symlink	compatibility_symlink	../../os/artifacts/codex_artifact_registry.py	stage5_inventory
+scripts/compat/local/codex_chatgpt_research_pack.py	symlink	compatibility_symlink	../../os/research/codex_chatgpt_research_pack.py	stage5_inventory
+scripts/compat/local/codex_context_pack.py	symlink	compatibility_symlink	../../os/context/codex_context_pack.py	stage5_inventory
+scripts/compat/local/codex_os_doctor.py	symlink	compatibility_symlink	../../os/safety/codex_os_doctor.py	stage5_inventory
+scripts/compat/local/codex_os_dream.py	symlink	compatibility_symlink	../../os/dream/codex_os_dream.py	stage5_inventory
+scripts/compat/local/codex_os_guard.py	symlink	compatibility_symlink	../../os/safety/codex_os_guard.py	stage5_inventory
+scripts/compat/local/codex_os_nightly_heartbeat.py	symlink	compatibility_symlink	../../os/heartbeat/codex_os_nightly_heartbeat.py	stage5_inventory
+scripts/compat/local/codex_os_snapshot.py	symlink	compatibility_symlink	../../os/safety/codex_os_snapshot.py	stage5_inventory
+scripts/compat/local/codex_thesis_radar.py	symlink	compatibility_symlink	../../os/context/codex_thesis_radar.py	stage5_inventory
+scripts/compat/local/codex_work_register_common.py	symlink	compatibility_symlink	../../os/register/codex_work_register_common.py	stage5_inventory
+scripts/compat/local/codex_work_register_linear_payload.py	symlink	compatibility_symlink	../../os/register/codex_work_register_linear_payload.py	stage5_inventory
+scripts/compat/local/codex_work_register_render.py	symlink	compatibility_symlink	../../os/register/codex_work_register_render.py	stage5_inventory
+scripts/compat/local/codex_work_register_stale.py	symlink	compatibility_symlink	../../os/register/codex_work_register_stale.py	stage5_inventory
+scripts/compat/local/codex_work_register_validate.py	symlink	compatibility_symlink	../../os/register/codex_work_register_validate.py	stage5_inventory
+scripts/compat/local/compare_pp_currentian_insitu_stitch_contract.py	symlink	compatibility_symlink	../../diagnostics/pp_shuhang/compare_pp_currentian_insitu_stitch_contract.py	stage5_inventory
+scripts/compat/local/estimateEmbeddedPhotonXsec.sh	symlink	compatibility_symlink	../../sdcc/runtime/xsec/estimateEmbeddedPhotonXsec.sh	stage5_inventory
+scripts/compat/local/extract_focus21_fine_cluster_et_components.py	symlink	compatibility_symlink	../../data_prep/stitching/extract_focus21_fine_cluster_et_components.py	stage5_inventory
+scripts/compat/local/makeThesisSimLists.sh	symlink	compatibility_symlink	../../sdcc/runtime/lists/makeThesisSimLists.sh	stage5_inventory
+scripts/compat/local/make_auau_bdt_mlp_stack_roc_overlay.py	symlink	compatibility_symlink	../../plotting/auau_bdt/stacking/make_auau_bdt_mlp_stack_roc_overlay.py	stage5_inventory
+scripts/compat/local/make_auau_bdt_mlp_stack_score_separation.py	symlink	compatibility_symlink	../../plotting/auau_bdt/stacking/make_auau_bdt_mlp_stack_score_separation.py	stage5_inventory
+scripts/compat/local/make_auau_bdt_target_wp_config.py	symlink	compatibility_symlink	../../ml/working_points/make_auau_bdt_target_wp_config.py	stage5_inventory
+scripts/compat/local/make_auau_bdt_training_closure.py	symlink	compatibility_symlink	../../plotting/auau_bdt/make_auau_bdt_training_closure.py	stage5_inventory
+scripts/compat/local/make_auau_iso_visible_diagnostic_summary.py	symlink	compatibility_symlink	../../diagnostics/ml_validation/make_auau_iso_visible_diagnostic_summary.py	stage5_inventory
+scripts/compat/local/make_auau_isolation_feature_correlations.py	symlink	compatibility_symlink	../../plotting/auau_bdt/make_auau_isolation_feature_correlations.py	stage5_inventory
+scripts/compat/local/make_auau_logreg_target_wp_config.py	symlink	compatibility_symlink	../../ml/working_points/make_auau_logreg_target_wp_config.py	stage5_inventory
+scripts/compat/local/make_auau_mlp_expert_validation_plots.py	symlink	compatibility_symlink	../../plotting/auau_bdt/stacking/make_auau_mlp_expert_validation_plots.py	stage5_inventory
+scripts/compat/local/make_auau_mlp_target_wp_config.py	symlink	compatibility_symlink	../../ml/working_points/make_auau_mlp_target_wp_config.py	stage5_inventory
+scripts/compat/local/make_auau_mlp_training_curves.py	symlink	compatibility_symlink	../../plotting/auau_bdt/stacking/make_auau_mlp_training_curves.py	stage5_inventory
+scripts/compat/local/make_auau_stacked_training_curves.py	symlink	compatibility_symlink	../../plotting/auau_bdt/stacking/make_auau_stacked_training_curves.py	stage5_inventory
+scripts/compat/local/make_dstListsData.sh	symlink	compatibility_symlink	../../sdcc/runtime/lists/make_dstListsData.sh	stage5_inventory
+scripts/compat/local/make_focus21_cluster_et_leakage_slide.py	symlink	compatibility_symlink	../../slides/working_point/make_focus21_cluster_et_leakage_slide.py	stage5_inventory
+scripts/compat/local/make_focus21_inclusive_reco_cluster_et_blair_plot.py	symlink	compatibility_symlink	../../plotting/stitching/make_focus21_inclusive_reco_cluster_et_blair_plot.py	stage5_inventory
+scripts/compat/local/make_pp_currentian_insitu_contract_stitch_slides.py	symlink	compatibility_symlink	../../slides/pp_currentian/stitching/make_pp_currentian_insitu_contract_stitch_slides.py	stage5_inventory
+scripts/compat/local/make_ppg12_fig19_bdt_overlay.py	symlink	compatibility_symlink	../../plotting/pp_currentian/make_ppg12_fig19_bdt_overlay.py	stage5_inventory
+scripts/compat/local/mergeRecoilJets.sh	symlink	compatibility_symlink	../../sdcc/runtime/merge/mergeRecoilJets.sh	stage5_inventory
+scripts/compat/local/merge_auau_bdt_target80_ready.sh	symlink	compatibility_symlink	../../sdcc/workflows/target_wp/merge_auau_bdt_target80_ready.sh	stage5_inventory
+scripts/compat/local/merge_auau_bdt_widthstudy_windows_wp050_staged.sh	symlink	compatibility_symlink	../../sdcc/workflows/width_study/merge_auau_bdt_widthstudy_windows_wp050_staged.sh	stage5_inventory
+scripts/compat/local/pp_photon_ml_pipeline.sh	symlink	compatibility_symlink	../../sdcc/pipelines/pp/pp_photon_ml_pipeline.sh	stage5_inventory
+scripts/compat/local/prepare_auau_bdt_target80_available_campaigns.sh	symlink	compatibility_symlink	../../sdcc/workflows/target_wp/prepare_auau_bdt_target80_available_campaigns.sh	stage5_inventory
+scripts/compat/local/promote_auau_stacked_bdt_mlp.py	symlink	compatibility_symlink	../../ml/stacking/promote_auau_stacked_bdt_mlp.py	stage5_inventory
+scripts/compat/local/recoiljets_cleanup.sh	symlink	compatibility_symlink	../../sdcc/runtime/cleanup/recoiljets_cleanup.sh	stage5_inventory
+scripts/compat/local/render_pp_currentian_shuhang_overlay_from_summary.py	symlink	compatibility_symlink	../../plotting/pp_currentian/render_pp_currentian_shuhang_overlay_from_summary.py	stage5_inventory
+scripts/compat/local/root_in_analysis_env.sh	symlink	compatibility_symlink	../../env/root_in_analysis_env.sh	stage5_inventory
+scripts/compat/local/sftp_get_recoiljets_outputs.sh	symlink	compatibility_symlink	../../sdcc/transfer/sftp_get_recoiljets_outputs.sh	stage5_inventory
+scripts/compat/local/sftp_push_recoiljets.sh	symlink	compatibility_symlink	../../sdcc/transfer/sftp_push_recoiljets.sh	stage5_inventory
+scripts/compat/local/submit_auau_bdt_etfine_centstudy_target80.sh	symlink	compatibility_symlink	../../sdcc/workflows/target_wp/submit_auau_bdt_etfine_centstudy_target80.sh	stage5_inventory
+scripts/compat/local/submit_auau_bdt_etfine_centstudy_wp050.sh	symlink	compatibility_symlink	../../sdcc/workflows/target_wp/submit_auau_bdt_etfine_centstudy_wp050.sh	stage5_inventory
+scripts/compat/local/submit_auau_bdt_target80_config_dir.sh	symlink	compatibility_symlink	../../sdcc/workflows/target_wp/submit_auau_bdt_target80_config_dir.sh	stage5_inventory
+scripts/compat/local/submit_auau_bdt_targetwp_pair.sh	symlink	compatibility_symlink	../../sdcc/workflows/target_wp/submit_auau_bdt_targetwp_pair.sh	stage5_inventory
+scripts/compat/local/submit_auau_bdt_widthstudy_pt1530_wp080.sh	symlink	compatibility_symlink	../../sdcc/workflows/width_study/submit_auau_bdt_widthstudy_pt1530_wp080.sh	stage5_inventory
+scripts/compat/local/submit_auau_bdt_widthstudy_windows_wp050.sh	symlink	compatibility_symlink	../../sdcc/workflows/width_study/submit_auau_bdt_widthstudy_windows_wp050.sh	stage5_inventory
+scripts/compat/local/submit_auau_global_sixpack_oof_stack.sh	symlink	compatibility_symlink	../../sdcc/workflows/stacking/submit_auau_global_sixpack_oof_stack.sh	stage5_inventory
+scripts/compat/local/submit_auau_iso_visible_diagnostic_chain.sh	symlink	compatibility_symlink	../../sdcc/workflows/diagnostics/submit_auau_iso_visible_diagnostic_chain.sh	stage5_inventory
+scripts/compat/local/submit_auau_logreg_full_chain.sh	symlink	compatibility_symlink	../../sdcc/workflows/submit/submit_auau_logreg_full_chain.sh	stage5_inventory
+scripts/compat/local/submit_auau_logreg_targetwp_pair.sh	symlink	compatibility_symlink	../../sdcc/workflows/target_wp/submit_auau_logreg_targetwp_pair.sh	stage5_inventory
+scripts/compat/local/submit_auau_mlp_finept_distilled_sweep.sh	symlink	compatibility_symlink	../../sdcc/workflows/submit/submit_auau_mlp_finept_distilled_sweep.sh	stage5_inventory
+scripts/compat/local/submit_auau_mlp_highpt_sweep.sh	symlink	compatibility_symlink	../../sdcc/workflows/submit/submit_auau_mlp_highpt_sweep.sh	stage5_inventory
+scripts/compat/local/submit_auau_mlp_kitchensink.sh	symlink	compatibility_symlink	../../sdcc/workflows/submit/submit_auau_mlp_kitchensink.sh	stage5_inventory
+scripts/compat/local/submit_auau_mlp_targetwp_pair.sh	symlink	compatibility_symlink	../../sdcc/workflows/target_wp/submit_auau_mlp_targetwp_pair.sh	stage5_inventory
+scripts/compat/local/submit_auau_oof_residual_superstacker.sh	symlink	compatibility_symlink	../../sdcc/workflows/stacking/submit_auau_oof_residual_superstacker.sh	stage5_inventory
+scripts/compat/local/submit_auau_stack_matrix_wave.sh	symlink	compatibility_symlink	../../sdcc/workflows/stacking/submit_auau_stack_matrix_wave.sh	stage5_inventory
+scripts/compat/local/submit_auau_stacked_bdt_mlp_calibrator.sh	symlink	compatibility_symlink	../../sdcc/workflows/stacking/submit_auau_stacked_bdt_mlp_calibrator.sh	stage5_inventory
+scripts/compat/local/submit_auau_stacked_bdt_mlp_full_feature_chain.sh	symlink	compatibility_symlink	../../sdcc/workflows/stacking/submit_auau_stacked_bdt_mlp_full_feature_chain.sh	stage5_inventory
+scripts/compat/local/submit_auau_stacked_bdt_mlp_sweep.sh	symlink	compatibility_symlink	../../sdcc/workflows/stacking/submit_auau_stacked_bdt_mlp_sweep.sh	stage5_inventory
+scripts/compat/local/train_auau_jet_residual_bdt.py	symlink	compatibility_symlink	../../ml/stacking/train_auau_jet_residual_bdt.py	stage5_inventory
+scripts/compat/local/train_auau_oof_residual_superstacker.py	symlink	compatibility_symlink	../../ml/stacking/train_auau_oof_residual_superstacker.py	stage5_inventory
+scripts/compat/local/train_auau_photon_bdt.py	symlink	compatibility_symlink	../../ml/training/train_auau_photon_bdt.py	stage5_inventory
+scripts/compat/local/train_auau_photon_logreg.py	symlink	compatibility_symlink	../../ml/training/train_auau_photon_logreg.py	stage5_inventory
+scripts/compat/local/train_auau_photon_mlp.py	symlink	compatibility_symlink	../../ml/training/train_auau_photon_mlp.py	stage5_inventory
+scripts/compat/local/train_auau_stacked_bdt_mlp_calibrator.py	symlink	compatibility_symlink	../../ml/stacking/train_auau_stacked_bdt_mlp_calibrator.py	stage5_inventory
+scripts/compat/local/train_auau_stacked_bdt_mlp_sweep.py	symlink	compatibility_symlink	../../ml/stacking/train_auau_stacked_bdt_mlp_sweep.py	stage5_inventory
+scripts/compat/local/validate_auau_tight_bdt_on_sim.py	symlink	compatibility_symlink	../../ml/validation/validate_auau_tight_bdt_on_sim.py	stage5_inventory
+scripts/compat/local/validate_auau_tight_logreg_on_sim.py	symlink	compatibility_symlink	../../ml/validation/validate_auau_tight_logreg_on_sim.py	stage5_inventory
+scripts/compat/local/validate_auau_tight_mlp_on_sim.py	symlink	compatibility_symlink	../../ml/validation/validate_auau_tight_mlp_on_sim.py	stage5_inventory
+scripts/compat/local/validate_pp_photon_ml_tables.py	symlink	compatibility_symlink	../../ml/validation/validate_pp_photon_ml_tables.py	stage5_inventory
+scripts/data_prep/README.md	file	index_or_readme		stage5_inventory
+scripts/data_prep/manifests/build_auau_model_inventory.py	file	data_prep		stage5_inventory
+scripts/data_prep/manifests/build_currentian_fast_manifests.py	file	data_prep		stage5_inventory
+scripts/data_prep/manifests/classify_scaled_trigger_run_categories.py	file	data_prep		stage5_inventory
+scripts/data_prep/ppg12/extract_ppg12_currentian_truth_spectra.py	file	data_prep		stage5_inventory
+scripts/data_prep/ppg12/extract_ppg12_mc_efficiency_stitch_histograms.py	file	data_prep		stage5_inventory
+scripts/data_prep/ppg12/extract_ppg12_photon_uncut_stitch_histograms.py	file	data_prep		stage5_inventory
+scripts/data_prep/ppg12/extract_ppg12_rootfit_stitch_points.py	file	data_prep		stage5_inventory
+scripts/data_prep/ppg12/extract_ppg12_truth_spectrum_root_histograms.py	file	data_prep		stage5_inventory
+scripts/data_prep/ppg12/generate_ppg12_exact_fine_reweight_histograms.py	file	data_prep		stage5_inventory
+scripts/data_prep/ppg12/reweight_pp_exactstitch_jet8_wiki_xsec.py	file	data_prep		stage5_inventory
+scripts/data_prep/recoiljets/extract_iso_input_score_histograms.py	file	data_prep		stage5_inventory
+scripts/data_prep/recoiljets/extract_recoiljets_raw_sim_purity.py	file	data_prep		stage5_inventory
+scripts/data_prep/recoiljets/extract_recoiljets_reco_candidate_tight_fraction.py	file	data_prep		stage5_inventory
+scripts/data_prep/recoiljets/extract_recoiljets_reco_efficiency.py	file	data_prep		stage5_inventory
+scripts/data_prep/stitching/extract_clean_scaled_trigger_combined_bins.py	file	data_prep		stage5_inventory
+scripts/data_prep/stitching/extract_focus21_fine_cluster_et_components.py	file	data_prep		stage5_inventory
+scripts/data_prep/stitching/prepare_auau_bdt_money_plot_tables.py	file	data_prep		stage5_inventory
+scripts/diagnostics/README.md	file	index_or_readme		stage5_inventory
+scripts/diagnostics/auau_split/analyze_auau_splitstudy_auc_diagnostic.py	file	diagnostic		stage5_inventory
+scripts/diagnostics/auau_split/audit_auau_single_bdt_sample_stats.py	file	diagnostic		stage5_inventory
+scripts/diagnostics/auau_split/audit_auau_truth_tags.py	file	diagnostic		stage5_inventory
+scripts/diagnostics/ml_validation/make_auau_iso_visible_diagnostic_summary.py	file	diagnostic		stage5_inventory
+scripts/diagnostics/pp_shuhang/audit_pp_basev3e_shuhang_equivalence.py	file	diagnostic		stage5_inventory
+scripts/diagnostics/pp_shuhang/compare_pp_currentian_insitu_stitch_contract.py	file	diagnostic		stage5_inventory
+scripts/diagnostics/pp_shuhang/diagnose_shuhang_projection_variants.py	file	diagnostic		stage5_inventory
+scripts/env/README.md	file	index_or_readme		stage5_inventory
+scripts/env/root_in_analysis_env.sh	file	environment_helper		stage5_inventory
+scripts/estimateEmbeddedPhotonXsec.sh	symlink	hard_alias	sdcc/runtime/xsec/estimateEmbeddedPhotonXsec.sh	stage5_inventory
+scripts/makeThesisSimLists.sh	symlink	hard_alias	sdcc/runtime/lists/makeThesisSimLists.sh	stage5_inventory
+scripts/make_dstListsData.sh	symlink	hard_alias	sdcc/runtime/lists/make_dstListsData.sh	stage5_inventory
+scripts/mergeRecoilJets.sh	symlink	hard_alias	sdcc/runtime/merge/mergeRecoilJets.sh	stage5_inventory
+scripts/ml/README.md	file	index_or_readme		stage5_inventory
+scripts/ml/audits/audit_auau_ml_training_smoke.py	file	ml		stage5_inventory
+scripts/ml/stacking/promote_auau_stacked_bdt_mlp.py	file	ml		stage5_inventory
+scripts/ml/stacking/train_auau_jet_residual_bdt.py	file	ml		stage5_inventory
+scripts/ml/stacking/train_auau_oof_residual_superstacker.py	file	ml		stage5_inventory
+scripts/ml/stacking/train_auau_stacked_bdt_mlp_calibrator.py	file	ml		stage5_inventory
+scripts/ml/stacking/train_auau_stacked_bdt_mlp_sweep.py	file	ml		stage5_inventory
+scripts/ml/training/train_auau_photon_bdt.py	file	ml		stage5_inventory
+scripts/ml/training/train_auau_photon_logreg.py	file	ml		stage5_inventory
+scripts/ml/training/train_auau_photon_mlp.py	file	ml		stage5_inventory
+scripts/ml/validation/validate_auau_tight_bdt_on_sim.py	file	ml		stage5_inventory
+scripts/ml/validation/validate_auau_tight_logreg_on_sim.py	file	ml		stage5_inventory
+scripts/ml/validation/validate_auau_tight_mlp_on_sim.py	file	ml		stage5_inventory
+scripts/ml/validation/validate_pp_photon_ml_tables.py	file	ml		stage5_inventory
+scripts/ml/working_points/make_auau_bdt_target_wp_config.py	file	ml		stage5_inventory
+scripts/ml/working_points/make_auau_logreg_target_wp_config.py	file	ml		stage5_inventory
+scripts/ml/working_points/make_auau_mlp_target_wp_config.py	file	ml		stage5_inventory
+scripts/os/README.md	file	index_or_readme		stage5_inventory
+scripts/os/artifacts/codex_artifact_registry.py	file	os_utility		stage5_inventory
+scripts/os/context/codex_context_pack.py	file	os_utility		stage5_inventory
+scripts/os/context/codex_thesis_radar.py	file	os_utility		stage5_inventory
+scripts/os/dream/codex_os_dream.py	file	os_utility		stage5_inventory
+scripts/os/heartbeat/codex_os_nightly_heartbeat.py	file	os_utility		stage5_inventory
+scripts/os/register/codex_work_register_common.py	file	os_utility		stage5_inventory
+scripts/os/register/codex_work_register_linear_payload.py	file	os_utility		stage5_inventory
+scripts/os/register/codex_work_register_render.py	file	os_utility		stage5_inventory
+scripts/os/register/codex_work_register_stale.py	file	os_utility		stage5_inventory
+scripts/os/register/codex_work_register_validate.py	file	os_utility		stage5_inventory
+scripts/os/research/codex_chatgpt_research_pack.py	file	os_utility		stage5_inventory
+scripts/os/safety/codex_os_doctor.py	file	os_utility		stage5_inventory
+scripts/os/safety/codex_os_guard.py	file	os_utility		stage5_inventory
+scripts/os/safety/codex_os_snapshot.py	file	os_utility		stage5_inventory
+scripts/plotting/README.md	file	index_or_readme		stage5_inventory
+scripts/plotting/auau_bdt/make_auau_bdt_binned_noiso_score_comparison.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/make_auau_bdt_iso_input_comparison_sig_bkg_score_split.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/make_auau_bdt_money_plots.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/make_auau_bdt_training_closure.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/make_auau_bdt_wp80_centbin_fit_plots.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/make_auau_best_iso_bdt_sig_bkg_score_split.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/make_auau_eiso_raw_comparison_plots.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/make_auau_isolation_feature_correlations.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/make_auau_ml_wp80_cent3_fit_plots.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/make_auau_ppg12_exact_raw_et_logy.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/make_auau_ptfine_cent7_bdt_feature_importance.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/make_auau_signal_iso_split_bdt_score.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/make_baseline_bdt_score_split_tables.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/make_basev3e_centrality_gain_grid.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/make_basev3e_e22_auc_summary.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/make_basev3e_w33_e22_stepwise_auc_summary.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/make_basev3e_w33_score_split_2x3.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/make_basev3e_w33_vs_expanded_score_split_2x3.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/make_bdt3x3_weta_comparison_plots.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/make_e22_histograms_from_remote_caches.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/make_global32_bdt_feature_diagnostics.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/make_jet1230_leaderboard_with_e22.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/make_the8_branch_a_ladder_score_separation.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/mine_target80_money_plots.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/plot_target80_deep_dive.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/redraw_target80_firstlook_csv.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/split_studies/make_auau_binned_bdt_split_gain_breakdown.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/split_studies/make_auau_eiso_raw_split_gain_summary.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/split_studies/make_basev3e_w33_split_gain_usage.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/split_studies/make_ptcent7_auc_best_evidence_matrix.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/split_studies/make_ptcent_auc_gain_heatmap.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/split_studies/make_shape_residual_ptcent7_validation_summary.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/stacking/make_auau_bdt_mlp_noiso_score_comparison.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/stacking/make_auau_bdt_mlp_stack_roc_overlay.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/stacking/make_auau_bdt_mlp_stack_score_separation.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/stacking/make_auau_mlp_expert_validation_plots.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/stacking/make_auau_mlp_training_curves.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/stacking/make_auau_stack_feature_importance.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/stacking/make_auau_stacked_training_curves.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/stacking/make_nnstack_production_recovery_overlay.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/stacking/remake_auau_roc_overlay_bdt_mlp_logreg.py	file	plotting_utility		stage5_inventory
+scripts/plotting/auau_bdt/width_study/make_widthstudy_1535_roc_backup.py	file	plotting_utility		stage5_inventory
+scripts/plotting/efficiency/make_auau_final_id_efficiency_overlays.py	file	plotting_utility		stage5_inventory
+scripts/plotting/efficiency/make_basev3e_direct_truth_purity_efficiency.py	file	plotting_utility		stage5_inventory
+scripts/plotting/efficiency/make_basev3e_reco_efficiency_overlay.py	file	plotting_utility		stage5_inventory
+scripts/plotting/efficiency/make_clean_efficiency_turnon_tables.py	file	plotting_utility		stage5_inventory
+scripts/plotting/efficiency/make_truth_boxcut_vs_bdt_fixed_efficiency.py	file	plotting_utility		stage5_inventory
+scripts/plotting/pp_currentian/make_basev3e_pp_et_score_separation_2x3.py	file	plotting_utility		stage5_inventory
+scripts/plotting/pp_currentian/make_pp_baseline_bdt_score_separation.py	file	plotting_utility		stage5_inventory
+scripts/plotting/pp_currentian/make_pp_bdt_fourcurve_tall_overlay.py	file	plotting_utility		stage5_inventory
+scripts/plotting/pp_currentian/make_pp_bdt_shuhang_th2_correlation.py	file	plotting_utility		stage5_inventory
+scripts/plotting/pp_currentian/make_pp_currentian_inclusive_jet_stitch_ppg12_style.py	file	plotting_utility		stage5_inventory
+scripts/plotting/pp_currentian/make_pp_currentian_ppg12_exact_stitch_plots.py	file	plotting_utility		stage5_inventory
+scripts/plotting/pp_currentian/make_pp_currentian_raw_et_logy.py	file	plotting_utility		stage5_inventory
+scripts/plotting/pp_currentian/make_pp_shuhang_bestmatch_overlay_and_roc.py	file	plotting_utility		stage5_inventory
+scripts/plotting/pp_currentian/make_ppg12_fig19_bdt_overlay.py	file	plotting_utility		stage5_inventory
+scripts/plotting/pp_currentian/make_wp80_truth_purity_overlay_pp_ptcent7_basev3e.py	file	plotting_utility		stage5_inventory
+scripts/plotting/pp_currentian/render_pp_currentian_shuhang_overlay_from_summary.py	file	plotting_utility		stage5_inventory
+scripts/plotting/stitching/make_focus21_inclusive_reco_cluster_et_blair_plot.py	file	plotting_utility		stage5_inventory
+scripts/plotting/trigger/make_clean_combined_scaled_trigger_panel.py	file	plotting_utility		stage5_inventory
+scripts/plotting/trigger/make_scaled_trigger_category_review_pack.py	file	plotting_utility		stage5_inventory
+scripts/plotting/trigger/make_scaled_trigger_cent_summary_panels.py	file	plotting_utility		stage5_inventory
+scripts/plotting/trigger/make_scaled_trigger_efficiency_review_pack.py	file	plotting_utility		stage5_inventory
+scripts/plotting/truth_purity/make_basev3e_cent_truth_purity_vs_reference.py	file	plotting_utility		stage5_inventory
+scripts/plotting/truth_purity/make_bdt_score_purity_proof_plots.py	file	plotting_utility		stage5_inventory
+scripts/plotting/truth_purity/make_blair_background_abcdsum_spectrum.py	file	plotting_utility		stage5_inventory
+scripts/plotting/truth_purity/make_blair_background_validation_plots.py	file	plotting_utility		stage5_inventory
+scripts/plotting/truth_purity/make_truth_bdt_performance_variants.py	file	plotting_utility		stage5_inventory
+scripts/plotting/truth_purity/make_truth_purity_fine_et_bdt_vs_boxcuts.py	file	plotting_utility		stage5_inventory
+scripts/plotting/truth_purity/plot_reco_truth_abcd_purity_compare.py	file	plotting_utility		stage5_inventory
+scripts/pp_photon_ml_pipeline.sh	symlink	hard_alias	sdcc/pipelines/pp/pp_photon_ml_pipeline.sh	stage5_inventory
+scripts/recoiljets_cleanup.sh	symlink	hard_alias	sdcc/runtime/cleanup/recoiljets_cleanup.sh	stage5_inventory
+scripts/root_in_analysis_env.sh	symlink	hard_alias	env/root_in_analysis_env.sh	stage5_inventory
+scripts/sdcc/README.md	file	index_or_readme		stage5_inventory
+scripts/sdcc/SDCC_RUNTIME_INDEX.yaml	file	index_or_readme		stage5_inventory
+scripts/sdcc/TRANSFER_MAP.tsv	file	index_or_readme		stage5_inventory
+scripts/sdcc/local_merge/README.md	file	index_or_readme		stage5_inventory
+scripts/sdcc/local_merge/root/MergeDownloadedRecoilJetsSim.C	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/pipelines/README.md	file	index_or_readme		stage5_inventory
+scripts/sdcc/pipelines/auau/auau_tight_bdt_pipeline.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/pipelines/auau/auau_tight_logreg_pipeline.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/pipelines/auau/auau_tight_mlp_pipeline.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/pipelines/pp/pp_photon_ml_pipeline.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/runtime/README.md	file	index_or_readme		stage5_inventory
+scripts/sdcc/runtime/audit/audit_auau_grl_projection.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/runtime/cleanup/recoiljets_cleanup.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/runtime/condor/RecoilJets_Condor.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/runtime/condor/RecoilJets_Condor_AuAu.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/runtime/condor/RecoilJets_Condor_submit.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/runtime/lists/makeThesisSimLists.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/runtime/lists/make_dstListsData.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/runtime/merge/mergeRecoilJets.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/runtime/xsec/estimateEmbeddedPhotonXsec.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/transfer/README.md	file	index_or_readme		stage5_inventory
+scripts/sdcc/transfer/sftp_get_recoiljets_outputs.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/transfer/sftp_push_recoiljets.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/validate_transfer_map.py	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/workflows/README.md	file	index_or_readme		stage5_inventory
+scripts/sdcc/workflows/diagnostics/submit_auau_iso_visible_diagnostic_chain.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/workflows/scan/submit_inclusive_stitch_xsec_scan.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/workflows/scan/submit_photon_stitch_xsec_scan.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/workflows/stacking/auau_bdt_mlp_stack_production_driver.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/workflows/stacking/auau_mlp_bdt_beating_driver.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/workflows/stacking/submit_auau_global_sixpack_oof_stack.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/workflows/stacking/submit_auau_oof_residual_superstacker.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/workflows/stacking/submit_auau_stack_matrix_wave.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/workflows/stacking/submit_auau_stacked_bdt_mlp_calibrator.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/workflows/stacking/submit_auau_stacked_bdt_mlp_full_feature_chain.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/workflows/stacking/submit_auau_stacked_bdt_mlp_sweep.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/workflows/submit/submit_auau_logreg_full_chain.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/workflows/submit/submit_auau_mlp_finept_distilled_sweep.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/workflows/submit/submit_auau_mlp_highpt_sweep.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/workflows/submit/submit_auau_mlp_kitchensink.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/workflows/target_wp/merge_auau_bdt_target80_ready.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/workflows/target_wp/prepare_auau_bdt_target80_available_campaigns.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/workflows/target_wp/submit_auau_bdt_etfine_centstudy_target80.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/workflows/target_wp/submit_auau_bdt_etfine_centstudy_wp050.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/workflows/target_wp/submit_auau_bdt_target80_config_dir.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/workflows/target_wp/submit_auau_bdt_targetwp_pair.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/workflows/target_wp/submit_auau_logreg_targetwp_pair.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/workflows/target_wp/submit_auau_mlp_targetwp_pair.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/workflows/width_study/merge_auau_bdt_widthstudy_windows_wp050_staged.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/workflows/width_study/submit_auau_bdt_widthstudy_pt1530_wp080.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sdcc/workflows/width_study/submit_auau_bdt_widthstudy_windows_wp050.sh	file	sdcc_runtime_or_transfer		stage5_inventory
+scripts/sftp_get_recoiljets_outputs.sh	symlink	hard_alias	sdcc/transfer/sftp_get_recoiljets_outputs.sh	stage5_inventory
+scripts/sftp_push_recoiljets.sh	symlink	hard_alias	sdcc/transfer/sftp_push_recoiljets.sh	stage5_inventory
+scripts/slides/INDEX.yaml	file	index_or_readme		stage5_inventory
+scripts/slides/README.md	file	index_or_readme		stage5_inventory
+scripts/slides/auau_bdt/features/make_auau_eiso_shower_shape_th2_slide.py	file	slide_builder		stage5_inventory
+scripts/slides/auau_bdt/features/make_auau_iso_slide6_current.py	file	slide_builder		stage5_inventory
+scripts/slides/auau_bdt/features/make_slide30_iso_input_gain_enhanced.py	file	slide_builder		stage5_inventory
+scripts/slides/auau_bdt/jet40/make_embedded_inclusive_jet40_slide6_full.py	file	slide_builder		stage5_inventory
+scripts/slides/auau_bdt/jet40/make_embedded_inclusive_jet40_stitch_spectrum_slide6.py	file	slide_builder		stage5_inventory
+scripts/slides/auau_bdt/score_shapes/extract_auau_bdt_etbin_score_histograms.py	file	slide_builder		stage5_inventory
+scripts/slides/auau_bdt/score_shapes/make_auau_global_bdt_etbin_score_slide.py	file	slide_builder		stage5_inventory
+scripts/slides/auau_bdt/score_shapes/make_basev3e_truth_performance_slide_clean.py	file	slide_builder		stage5_inventory
+scripts/slides/auau_bdt/score_shapes/make_basev3e_vs_ptcent7_score_split_slide15.py	file	slide_builder		stage5_inventory
+scripts/slides/auau_bdt/score_shapes/make_basev3e_w33_e22_input_separation_slide14.py	file	slide_builder		stage5_inventory
+scripts/slides/auau_bdt/score_shapes/make_e22_ablation_slide_plots.py	file	slide_builder		stage5_inventory
+scripts/slides/auau_bdt/score_shapes/make_e22_ratio_overlay_slide21_clean.py	file	slide_builder		stage5_inventory
+scripts/slides/auau_bdt/score_shapes/make_global_vs_ptcent7_score_split_slide15.py	file	slide_builder		stage5_inventory
+scripts/slides/auau_bdt/score_shapes/make_slide10_auau_pp_score_overlay.py	file	slide_builder		stage5_inventory
+scripts/slides/auau_bdt/score_shapes/make_slide11_basev3e_pp_roc_overlay.py	file	slide_builder		stage5_inventory
+scripts/slides/auau_bdt/score_shapes/make_slide19_e22_shape_separation_candidate.py	file	slide_builder		stage5_inventory
+scripts/slides/auau_bdt/stacking/add_counts_to_stack_slide28_png.py	file	slide_builder		stage5_inventory
+scripts/slides/auau_bdt/stacking/make_auau_stack_algorithm_comparison_slide.py	file	slide_builder		stage5_inventory
+scripts/slides/auau_bdt/stacking/make_nn_backup_qa_deepdive.js	file	slide_builder		stage5_inventory
+scripts/slides/auau_bdt/stacking/make_nn_backup_qa_generated.js	file	slide_builder		stage5_inventory
+scripts/slides/auau_bdt/stacking/make_nn_backup_qa_triptych.js	file	slide_builder		stage5_inventory
+scripts/slides/auau_bdt/working_point/extract_auau_bdt_wp80_fit_cells.py	file	slide_builder		stage5_inventory
+scripts/slides/auau_bdt/working_point/make_auau_bdt_wp80_fit_slide.py	file	slide_builder		stage5_inventory
+scripts/slides/auau_bdt/working_point/make_auau_bdt_wp80_lookup_slide.py	file	slide_builder		stage5_inventory
+scripts/slides/auau_bdt/working_point/make_auau_bdt_wp80_smooth_slide.py	file	slide_builder		stage5_inventory
+scripts/slides/common/README.md	file	index_or_readme		stage5_inventory
+scripts/slides/common/slide_defaults.py	file	slide_builder		stage5_inventory
+scripts/slides/hp2026/README.md	file	index_or_readme		stage5_inventory
+scripts/slides/hp2026/make_photon_detector_motif_variants.py	file	slide_builder		stage5_inventory
+scripts/slides/hp2026/title/make_hp2026_title_slide_candidates.py	file	slide_builder		stage5_inventory
+scripts/slides/pp_currentian/bdt/make_pp_bdt_direct_tmva_roc_slide24.py	file	slide_builder		stage5_inventory
+scripts/slides/pp_currentian/bdt/make_pp_bdt_direct_tmva_score_shape_slide.py	file	slide_builder		stage5_inventory
+scripts/slides/pp_currentian/bdt/make_pp_bdt_shuhang_equivalence_slide.py	file	slide_builder		stage5_inventory
+scripts/slides/pp_currentian/bdt/make_pp_vs_auau_peripheral_bdt_slide.py	file	slide_builder		stage5_inventory
+scripts/slides/pp_currentian/currentian/make_pp_et_top_slide10_auau_bottom_2x3.py	file	slide_builder		stage5_inventory
+scripts/slides/pp_currentian/currentian/make_pp_et_top_slide10_auau_bottom_2x3_jointnorm.py	file	slide_builder		stage5_inventory
+scripts/slides/pp_currentian/currentian/make_pp_slide10_photon_jet_current.py	file	slide_builder		stage5_inventory
+scripts/slides/pp_currentian/currentian/make_pp_slide9_inclusive_jet_current.py	file	slide_builder		stage5_inventory
+scripts/slides/pp_currentian/currentian/make_ppg12_weighted_route_recovery_slides.py	file	slide_builder		stage5_inventory
+scripts/slides/pp_currentian/currentian/remake_pp_slide8_side_by_side_current_rhs.py	file	slide_builder		stage5_inventory
+scripts/slides/pp_currentian/currentian/remake_pp_slide9_side_by_side_current_rhs.py	file	slide_builder		stage5_inventory
+scripts/slides/pp_currentian/leakage/make_pp_reco_cluster_et_leakage_slide.py	file	slide_builder		stage5_inventory
+scripts/slides/pp_currentian/stitching/make_pp_currentian_insitu_contract_stitch_slides.py	file	slide_builder		stage5_inventory
+scripts/slides/pp_currentian/stitching/make_pp_currentian_jet_stitch_side_by_side_slide.py	file	slide_builder		stage5_inventory
+scripts/slides/pp_currentian/stitching/make_pp_currentian_photon_stitch_slide8_placeholder.py	file	slide_builder		stage5_inventory
+scripts/slides/pp_currentian/stitching/make_pp_currentian_reweight_plotonly_slide.py	file	slide_builder		stage5_inventory
+scripts/slides/pp_currentian/stitching/make_pp_currentian_reweight_verification_slide.py	file	slide_builder		stage5_inventory
+scripts/slides/pp_currentian/stitching/make_pp_currentian_slide9_exact_reweighting_verification.py	file	slide_builder		stage5_inventory
+scripts/slides/pp_currentian/stitching/make_pp_currentian_stitch_side_by_side_slides.py	file	slide_builder		stage5_inventory
+scripts/slides/pp_currentian/stitching/make_pp_currentian_stitch_spectrum_slides.py	file	slide_builder		stage5_inventory
+scripts/slides/pp_currentian/stitching/make_pp_exactstitch_acceptance_slide.py	file	slide_builder		stage5_inventory
+scripts/slides/pp_currentian/stitching/make_pp_exactstitch_spectrum_proof_slide.py	file	slide_builder		stage5_inventory
+scripts/slides/pp_currentian/stitching/make_pp_inclusive_jet_stitch_parallel_slide7.py	file	slide_builder		stage5_inventory
+scripts/slides/pp_currentian/stitching/make_pp_jet8_xsec_before_after_slide.py	file	slide_builder		stage5_inventory
+scripts/slides/pp_currentian/stitching/make_ppg12_exact_reweighting_verification_slide.py	file	slide_builder		stage5_inventory
+scripts/slides/split_studies/overfitdiag/make_overfitdiag_generalization_frontier_slide.py	file	slide_builder		stage5_inventory
+scripts/slides/split_studies/overfitdiag/make_overfitdiag_overfit_worst_slide.py	file	slide_builder		stage5_inventory
+scripts/slides/split_studies/overfitdiag/make_overfitdiag_transfer_story_clean_slide.py	file	slide_builder		stage5_inventory
+scripts/slides/split_studies/overfitdiag/make_overfitdiag_transfer_story_slide.py	file	slide_builder		stage5_inventory
+scripts/slides/split_studies/proof_pack/build_auau_splitstudy_compact_from_reports.py	file	slide_builder		stage5_inventory
+scripts/slides/split_studies/proof_pack/make_auau_bdt_splitstudy_score_slide.py	file	slide_builder		stage5_inventory
+scripts/slides/split_studies/proof_pack/make_auau_splitstudy_proof_pack_slides.py	file	slide_builder		stage5_inventory
+scripts/slides/split_studies/split_gain/make_auau_bdt_iso_ptcent7_split_gain_slide_summary.py	file	slide_builder		stage5_inventory
+scripts/slides/split_studies/split_gain/make_global32_grouped_split_gain_slide32.py	file	slide_builder		stage5_inventory
+scripts/slides/split_studies/split_gain/make_slide20_e22_split_gain_ablation_candidate.py	file	slide_builder		stage5_inventory
+scripts/slides/split_studies/split_gain/make_split_gain_explainer_slide17_candidate.py	file	slide_builder		stage5_inventory
+scripts/slides/working_point/make_clean_combined_strategy_slide.py	file	slide_builder		stage5_inventory
+scripts/slides/working_point/make_focus21_cluster_et_leakage_slide.py	file	slide_builder		stage5_inventory
+scripts/slides/working_point/make_scaled_trigger_cent_slide_candidate.py	file	slide_builder		stage5_inventory
+macros/AnalyzeRecoilJets.cpp	file	unknown		stage5_inventory
+macros/AnalyzeRecoilJets.h	file	unknown		stage5_inventory
+macros/AnalyzeRecoilJets_RooUnfoldPipeline.cpp	file	unknown		stage5_inventory
+macros/AnalyzeRecoilJets_RunIsoQA_UEComparisons_AuAu.cpp	file	unknown		stage5_inventory
+macros/AnalyzeRecoilJets_RunJES3QA.cpp	file	unknown		stage5_inventory
+macros/AnalyzeRecoilJets_RunTriggerAna.cpp	file	unknown		stage5_inventory
+macros/AnalyzeRecoilJets_SSQA.cpp	file	unknown		stage5_inventory
+macros/AnalyzeRecoilJets_ppAuAuComparisons.cpp	file	unknown		stage5_inventory
+macros/AnalyzeTriggerGroupings.h	file	unknown		stage5_inventory
+macros/BuildSSQACentralityPtSummariesFast.C	file	unknown		stage5_inventory
+macros/Calo_Calib.C	file	unknown		stage5_inventory
+macros/CompareAuAu3x3IDEfficiency.C	file	unknown		stage5_inventory
+macros/CompareAuAuBoxToNPB.C	file	unknown		stage5_inventory
+macros/ExtractDoNotScaleHistograms.C	file	unknown		stage5_inventory
+macros/Fun4All_auauTightBDTTraining.C	file	protected		stage5_inventory
+macros/Fun4All_recoilJets.C	file	protected		stage5_inventory
+macros/Fun4All_recoilJets_AuAu.C	file	protected		stage5_inventory
+macros/Fun4All_recoilJets_unified_impl.C	file	protected		stage5_inventory
+macros/GenerateYieldOverlayQuick.C	file	unknown		stage5_inventory
+macros/HIJetReco.C	file	unknown		stage5_inventory
+macros/MACRO_INDEX.yaml	file	index_or_readme		stage5_inventory
+macros/MakeAuAu3x3FeatureSeparation.C	file	unknown		stage5_inventory
+macros/MakeAuAu3x3WidthComparison.C	file	unknown		stage5_inventory
+macros/MakeAuAuReferenceDataEmbeddedVertexCentralityTable.C	file	unknown		stage5_inventory
+macros/MakeAuAuTightBDTValidationSlidePlots.C	file	unknown		stage5_inventory
+macros/MakeCentBinnedAucGainHeatmap.C	file	unknown		stage5_inventory
+macros/MakeCentInputAucGainPlot.C	file	unknown		stage5_inventory
+macros/MakeEmbeddedBLeakageCompare.C	file	unknown		stage5_inventory
+macros/MakeEmbeddedInclusiveJet40Slide6Replacement.C	file	unknown		stage5_inventory
+macros/MakeEmbeddedInclusiveJetSlide5Replacement.C	file	unknown		stage5_inventory
+macros/MakeEmbeddedInclusiveMergedStitchSpectrum.C	file	unknown		stage5_inventory
+macros/MakeEmbeddedPhoton12Plus20Stitch35.C	file	unknown		stage5_inventory
+macros/MakeEmbeddedPhotonEfficiencyCompare.C	file	unknown		stage5_inventory
+macros/MakeEmbeddedPhotonXsecNormQA.C	file	unknown		stage5_inventory
+macros/MakeEmbeddedStitchBoundaryCorrectnessScan.C	file	unknown		stage5_inventory
+macros/MakeExpandedStitchCrossCheckBackupSlide.C	file	unknown		stage5_inventory
+macros/MakeFocus21PhotonStitchBlairPNGs.C	file	unknown		stage5_inventory
+macros/MakeFocus21PhotonStitchVariantComparison.C	file	unknown		stage5_inventory
+macros/MakeFocusedPhotonSummaryTables.C	file	unknown		stage5_inventory
+macros/MakeFocusedPhotonUnfoldingQuick.C	file	unknown		stage5_inventory
+macros/MakePPMergedIsoCutFitsQuick.C	file	unknown		stage5_inventory
+macros/MakePPSlidingIsoRDepFits.C	file	unknown		stage5_inventory
+macros/MakePhotonJet12Plus20Slide4Replacement.C	file	unknown		stage5_inventory
+macros/MakePtCentAucGainHeatmap.C	file	unknown		stage5_inventory
+macros/MakeStitchDiagnosticSlideStylePlots.C	file	unknown		stage5_inventory
+macros/MakeWidthStudy1535AucWinnerPlot.C	file	unknown		stage5_inventory
+macros/MakeWidthStudyBDTComparison.C	file	unknown		stage5_inventory
+macros/MakeWidthStudyCentralityGain.C	file	unknown		stage5_inventory
+macros/MakeWidthStudyCentralityStability.C	file	unknown		stage5_inventory
+macros/MakeWidthStudyFeatureImportance.C	file	unknown		stage5_inventory
+macros/MakeWidthStudyFeatureInsight.C	file	unknown		stage5_inventory
+macros/MakeWidthStudyWindowAucComparisons.C	file	unknown		stage5_inventory
+macros/OverlayPPPurityAndLeakageVariants.C	file	unknown		stage5_inventory
+macros/PlotAuAuBDTIDEfficiency.C	file	unknown		stage5_inventory
+macros/PlotAuAuBDTRecoEfficiencyNoGrid.C	file	unknown		stage5_inventory
+macros/PlotAuAuBDTWP080Slide31_32.C	file	unknown		stage5_inventory
+macros/PlotAuAuBestSmoothIDEfficiencyOverlay.C	file	unknown		stage5_inventory
+macros/PlotAuAuWidthStudyIDEff1530.C	file	unknown		stage5_inventory
+macros/PlotBaseV3ERecoEfficiencyOverlay.C	file	unknown		stage5_inventory
+macros/PlotFlatWp050Base3x3RecoEfficiency.C	file	unknown		stage5_inventory
+macros/PlotPPvsAuAuLeakageOverlay.C	file	unknown		stage5_inventory
+macros/PlotPPvsAuAuXJPurityReferenceOverlay.C	file	unknown		stage5_inventory
+macros/PlotScaledTriggerStudy.C	file	unknown		stage5_inventory
+macros/PlotTarget80Expanded5to40Campaign.C	file	unknown		stage5_inventory
+macros/PlotTarget80FirstPairEfficiency.C	file	unknown		stage5_inventory
+macros/PlotTarget80FoodChain.C	file	unknown		stage5_inventory
+macros/PlotTarget80VsPPAndLoss.C	file	unknown		stage5_inventory
+macros/PrintPPStitchDiagnostics.C	file	unknown		stage5_inventory
+macros/README.md	file	index_or_readme		stage5_inventory
+macros/RunPreselectionFailsFast.C	file	unknown		stage5_inventory
+macros/RunPreselectionFailsFast_WithStyle.C	file	unknown		stage5_inventory
+macros/RunSSQAFast.C	file	unknown		stage5_inventory
+macros/SummarizeModelCheck.C	file	unknown		stage5_inventory
+macros/analysis_config.yaml	file	protected		stage5_inventory
+macros/analysis_config_auau_bdt_base3x3_pt5to40_targetwp_template.yaml	file	protected		stage5_inventory
+macros/analysis_config_auau_bdt_etfine_centstudy_wp050.yaml	file	protected		stage5_inventory
+macros/analysis_config_auau_bdt_mlp_stack_template.yaml	file	protected		stage5_inventory
+macros/analysis_config_auau_bdt_validation.yaml	file	protected		stage5_inventory
+macros/analysis_config_auau_bdt_validation_wp080.yaml	file	protected		stage5_inventory
+macros/analysis_config_auau_bdt_validation_wp080_no3x3.yaml	file	protected		stage5_inventory
+macros/analysis_config_auau_bdt_widthstudy_pt1530_wp050.yaml	file	protected		stage5_inventory
+macros/analysis_config_auau_bdt_widthstudy_pt1530_wp080.yaml	file	protected		stage5_inventory
+macros/analysis_config_auau_mlp_v2_validation.yaml	file	protected		stage5_inventory
+macros/analysis_config_auau_mlp_validation.yaml	file	protected		stage5_inventory
+macros/diagnostics/CompareAuAu3x3IDEfficiency.C	file	diagnostic_macro		stage5_inventory
+macros/diagnostics/CompareAuAuBoxToNPB.C	file	diagnostic_macro		stage5_inventory
+macros/diagnostics/ExtractDoNotScaleHistograms.C	file	diagnostic_macro		stage5_inventory
+macros/diagnostics/PrintPPStitchDiagnostics.C	file	diagnostic_macro		stage5_inventory
+macros/diagnostics/README.md	file	index_or_readme		stage5_inventory
+macros/diagnostics/RunPreselectionFailsFast.C	file	diagnostic_macro		stage5_inventory
+macros/diagnostics/RunPreselectionFailsFast_WithStyle.C	file	diagnostic_macro		stage5_inventory
+macros/diagnostics/RunSSQAFast.C	file	diagnostic_macro		stage5_inventory
+macros/diagnostics/SummarizeModelCheck.C	file	diagnostic_macro		stage5_inventory
+macros/gaugeFeasibility.cpp	file	unknown		stage5_inventory
+macros/plotting/BuildSSQACentralityPtSummariesFast.C	file	plotting_macro		stage5_inventory
+macros/plotting/GenerateYieldOverlayQuick.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakeAuAu3x3FeatureSeparation.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakeAuAu3x3WidthComparison.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakeAuAuReferenceDataEmbeddedVertexCentralityTable.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakeAuAuTightBDTValidationSlidePlots.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakeCentBinnedAucGainHeatmap.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakeCentInputAucGainPlot.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakeEmbeddedBLeakageCompare.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakeEmbeddedInclusiveJet40Slide6Replacement.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakeEmbeddedInclusiveJetSlide5Replacement.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakeEmbeddedInclusiveMergedStitchSpectrum.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakeEmbeddedPhoton12Plus20Stitch35.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakeEmbeddedPhotonEfficiencyCompare.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakeEmbeddedPhotonXsecNormQA.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakeEmbeddedStitchBoundaryCorrectnessScan.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakeExpandedStitchCrossCheckBackupSlide.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakeFocus21PhotonStitchBlairPNGs.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakeFocus21PhotonStitchVariantComparison.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakeFocusedPhotonSummaryTables.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakeFocusedPhotonUnfoldingQuick.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakePPMergedIsoCutFitsQuick.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakePPSlidingIsoRDepFits.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakePhotonJet12Plus20Slide4Replacement.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakePtCentAucGainHeatmap.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakeStitchDiagnosticSlideStylePlots.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakeWidthStudy1535AucWinnerPlot.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakeWidthStudyBDTComparison.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakeWidthStudyCentralityGain.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakeWidthStudyCentralityStability.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakeWidthStudyFeatureImportance.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakeWidthStudyFeatureInsight.C	file	plotting_macro		stage5_inventory
+macros/plotting/MakeWidthStudyWindowAucComparisons.C	file	plotting_macro		stage5_inventory
+macros/plotting/OverlayPPPurityAndLeakageVariants.C	file	plotting_macro		stage5_inventory
+macros/plotting/PlotAuAuBDTIDEfficiency.C	file	plotting_macro		stage5_inventory
+macros/plotting/PlotAuAuBDTRecoEfficiencyNoGrid.C	file	plotting_macro		stage5_inventory
+macros/plotting/PlotAuAuBDTWP080Slide31_32.C	file	plotting_macro		stage5_inventory
+macros/plotting/PlotAuAuBestSmoothIDEfficiencyOverlay.C	file	plotting_macro		stage5_inventory
+macros/plotting/PlotAuAuWidthStudyIDEff1530.C	file	plotting_macro		stage5_inventory
+macros/plotting/PlotBaseV3ERecoEfficiencyOverlay.C	file	plotting_macro		stage5_inventory
+macros/plotting/PlotFlatWp050Base3x3RecoEfficiency.C	file	plotting_macro		stage5_inventory
+macros/plotting/PlotPPvsAuAuLeakageOverlay.C	file	plotting_macro		stage5_inventory
+macros/plotting/PlotPPvsAuAuXJPurityReferenceOverlay.C	file	plotting_macro		stage5_inventory
+macros/plotting/PlotScaledTriggerStudy.C	file	plotting_macro		stage5_inventory
+macros/plotting/PlotTarget80Expanded5to40Campaign.C	file	plotting_macro		stage5_inventory
+macros/plotting/PlotTarget80FirstPairEfficiency.C	file	plotting_macro		stage5_inventory
+macros/plotting/PlotTarget80FoodChain.C	file	plotting_macro		stage5_inventory
+macros/plotting/PlotTarget80VsPPAndLoss.C	file	plotting_macro		stage5_inventory
+macros/plotting/README.md	file	index_or_readme		stage5_inventory
+macros/sPhenixStyle.C	file	unknown		stage5_inventory
+macros/sPhenixStyle.h	file	unknown		stage5_inventory

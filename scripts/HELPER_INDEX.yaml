@@ -1,0 +1,992 @@
+version: 2026-06-01
+purpose: Canonical index for non-slide executable helpers under scripts/.
+stage5_note: Parent aliases are hard contracts only; use canonical_path or scripts/bin/thesis-script first.
+entries:
+  - id: build_auau_model_inventory
+    group: "data_prep/manifests"
+    canonical_path: "scripts/data_prep/manifests/build_auau_model_inventory.py"
+    aliases:
+      []
+  - id: build_currentian_fast_manifests
+    group: "data_prep/manifests"
+    canonical_path: "scripts/data_prep/manifests/build_currentian_fast_manifests.py"
+    aliases:
+      - path: "scripts/compat/local/build_currentian_fast_manifests.py"
+        status: "compat_alias"
+  - id: classify_scaled_trigger_run_categories
+    group: "data_prep/manifests"
+    canonical_path: "scripts/data_prep/manifests/classify_scaled_trigger_run_categories.py"
+    aliases:
+      []
+  - id: extract_ppg12_currentian_truth_spectra
+    group: "data_prep/ppg12"
+    canonical_path: "scripts/data_prep/ppg12/extract_ppg12_currentian_truth_spectra.py"
+    aliases:
+      []
+  - id: extract_ppg12_mc_efficiency_stitch_histograms
+    group: "data_prep/ppg12"
+    canonical_path: "scripts/data_prep/ppg12/extract_ppg12_mc_efficiency_stitch_histograms.py"
+    aliases:
+      []
+  - id: extract_ppg12_photon_uncut_stitch_histograms
+    group: "data_prep/ppg12"
+    canonical_path: "scripts/data_prep/ppg12/extract_ppg12_photon_uncut_stitch_histograms.py"
+    aliases:
+      []
+  - id: extract_ppg12_rootfit_stitch_points
+    group: "data_prep/ppg12"
+    canonical_path: "scripts/data_prep/ppg12/extract_ppg12_rootfit_stitch_points.py"
+    aliases:
+      []
+  - id: extract_ppg12_truth_spectrum_root_histograms
+    group: "data_prep/ppg12"
+    canonical_path: "scripts/data_prep/ppg12/extract_ppg12_truth_spectrum_root_histograms.py"
+    aliases:
+      []
+  - id: generate_ppg12_exact_fine_reweight_histograms
+    group: "data_prep/ppg12"
+    canonical_path: "scripts/data_prep/ppg12/generate_ppg12_exact_fine_reweight_histograms.py"
+    aliases:
+      []
+  - id: reweight_pp_exactstitch_jet8_wiki_xsec
+    group: "data_prep/ppg12"
+    canonical_path: "scripts/data_prep/ppg12/reweight_pp_exactstitch_jet8_wiki_xsec.py"
+    aliases:
+      []
+  - id: extract_iso_input_score_histograms
+    group: "data_prep/recoiljets"
+    canonical_path: "scripts/data_prep/recoiljets/extract_iso_input_score_histograms.py"
+    aliases:
+      []
+  - id: extract_recoiljets_raw_sim_purity
+    group: "data_prep/recoiljets"
+    canonical_path: "scripts/data_prep/recoiljets/extract_recoiljets_raw_sim_purity.py"
+    aliases:
+      []
+  - id: extract_recoiljets_reco_candidate_tight_fraction
+    group: "data_prep/recoiljets"
+    canonical_path: "scripts/data_prep/recoiljets/extract_recoiljets_reco_candidate_tight_fraction.py"
+    aliases:
+      []
+  - id: extract_recoiljets_reco_efficiency
+    group: "data_prep/recoiljets"
+    canonical_path: "scripts/data_prep/recoiljets/extract_recoiljets_reco_efficiency.py"
+    aliases:
+      []
+  - id: extract_clean_scaled_trigger_combined_bins
+    group: "data_prep/stitching"
+    canonical_path: "scripts/data_prep/stitching/extract_clean_scaled_trigger_combined_bins.py"
+    aliases:
+      []
+  - id: extract_focus21_fine_cluster_et_components
+    group: "data_prep/stitching"
+    canonical_path: "scripts/data_prep/stitching/extract_focus21_fine_cluster_et_components.py"
+    aliases:
+      - path: "scripts/compat/local/extract_focus21_fine_cluster_et_components.py"
+        status: "compat_alias"
+  - id: prepare_auau_bdt_money_plot_tables
+    group: "data_prep/stitching"
+    canonical_path: "scripts/data_prep/stitching/prepare_auau_bdt_money_plot_tables.py"
+    aliases:
+      []
+  - id: analyze_auau_splitstudy_auc_diagnostic
+    group: "diagnostics/auau_split"
+    canonical_path: "scripts/diagnostics/auau_split/analyze_auau_splitstudy_auc_diagnostic.py"
+    aliases:
+      []
+  - id: audit_auau_single_bdt_sample_stats
+    group: "diagnostics/auau_split"
+    canonical_path: "scripts/diagnostics/auau_split/audit_auau_single_bdt_sample_stats.py"
+    aliases:
+      []
+  - id: audit_auau_truth_tags
+    group: "diagnostics/auau_split"
+    canonical_path: "scripts/diagnostics/auau_split/audit_auau_truth_tags.py"
+    aliases:
+      - path: "scripts/compat/local/audit_auau_truth_tags.py"
+        status: "compat_alias"
+  - id: make_auau_iso_visible_diagnostic_summary
+    group: "diagnostics/ml_validation"
+    canonical_path: "scripts/diagnostics/ml_validation/make_auau_iso_visible_diagnostic_summary.py"
+    aliases:
+      - path: "scripts/compat/local/make_auau_iso_visible_diagnostic_summary.py"
+        status: "compat_alias"
+  - id: audit_pp_basev3e_shuhang_equivalence
+    group: "diagnostics/pp_shuhang"
+    canonical_path: "scripts/diagnostics/pp_shuhang/audit_pp_basev3e_shuhang_equivalence.py"
+    aliases:
+      - path: "scripts/compat/local/audit_pp_basev3e_shuhang_equivalence.py"
+        status: "compat_alias"
+  - id: compare_pp_currentian_insitu_stitch_contract
+    group: "diagnostics/pp_shuhang"
+    canonical_path: "scripts/diagnostics/pp_shuhang/compare_pp_currentian_insitu_stitch_contract.py"
+    aliases:
+      - path: "scripts/compat/local/compare_pp_currentian_insitu_stitch_contract.py"
+        status: "compat_alias"
+  - id: diagnose_shuhang_projection_variants
+    group: "diagnostics/pp_shuhang"
+    canonical_path: "scripts/diagnostics/pp_shuhang/diagnose_shuhang_projection_variants.py"
+    aliases:
+      []
+  - id: root_in_analysis_env
+    group: "env"
+    canonical_path: "scripts/env/root_in_analysis_env.sh"
+    aliases:
+      - path: "scripts/compat/local/root_in_analysis_env.sh"
+        status: "compat_alias"
+      - path: "scripts/root_in_analysis_env.sh"
+        status: "hard_contract"
+  - id: audit_auau_ml_training_smoke
+    group: "ml/audits"
+    canonical_path: "scripts/ml/audits/audit_auau_ml_training_smoke.py"
+    aliases:
+      - path: "scripts/compat/local/audit_auau_ml_training_smoke.py"
+        status: "compat_alias"
+  - id: promote_auau_stacked_bdt_mlp
+    group: "ml/stacking"
+    canonical_path: "scripts/ml/stacking/promote_auau_stacked_bdt_mlp.py"
+    aliases:
+      - path: "scripts/compat/local/promote_auau_stacked_bdt_mlp.py"
+        status: "compat_alias"
+  - id: train_auau_jet_residual_bdt
+    group: "ml/stacking"
+    canonical_path: "scripts/ml/stacking/train_auau_jet_residual_bdt.py"
+    aliases:
+      - path: "scripts/compat/local/train_auau_jet_residual_bdt.py"
+        status: "compat_alias"
+  - id: train_auau_oof_residual_superstacker
+    group: "ml/stacking"
+    canonical_path: "scripts/ml/stacking/train_auau_oof_residual_superstacker.py"
+    aliases:
+      - path: "scripts/compat/local/train_auau_oof_residual_superstacker.py"
+        status: "compat_alias"
+  - id: train_auau_stacked_bdt_mlp_calibrator
+    group: "ml/stacking"
+    canonical_path: "scripts/ml/stacking/train_auau_stacked_bdt_mlp_calibrator.py"
+    aliases:
+      - path: "scripts/compat/local/train_auau_stacked_bdt_mlp_calibrator.py"
+        status: "compat_alias"
+  - id: train_auau_stacked_bdt_mlp_sweep
+    group: "ml/stacking"
+    canonical_path: "scripts/ml/stacking/train_auau_stacked_bdt_mlp_sweep.py"
+    aliases:
+      - path: "scripts/compat/local/train_auau_stacked_bdt_mlp_sweep.py"
+        status: "compat_alias"
+  - id: train_auau_photon_bdt
+    group: "ml/training"
+    canonical_path: "scripts/ml/training/train_auau_photon_bdt.py"
+    aliases:
+      - path: "scripts/compat/local/train_auau_photon_bdt.py"
+        status: "compat_alias"
+  - id: train_auau_photon_logreg
+    group: "ml/training"
+    canonical_path: "scripts/ml/training/train_auau_photon_logreg.py"
+    aliases:
+      - path: "scripts/compat/local/train_auau_photon_logreg.py"
+        status: "compat_alias"
+  - id: train_auau_photon_mlp
+    group: "ml/training"
+    canonical_path: "scripts/ml/training/train_auau_photon_mlp.py"
+    aliases:
+      - path: "scripts/compat/local/train_auau_photon_mlp.py"
+        status: "compat_alias"
+  - id: validate_auau_tight_bdt_on_sim
+    group: "ml/validation"
+    canonical_path: "scripts/ml/validation/validate_auau_tight_bdt_on_sim.py"
+    aliases:
+      - path: "scripts/compat/local/validate_auau_tight_bdt_on_sim.py"
+        status: "compat_alias"
+  - id: validate_auau_tight_logreg_on_sim
+    group: "ml/validation"
+    canonical_path: "scripts/ml/validation/validate_auau_tight_logreg_on_sim.py"
+    aliases:
+      - path: "scripts/compat/local/validate_auau_tight_logreg_on_sim.py"
+        status: "compat_alias"
+  - id: validate_auau_tight_mlp_on_sim
+    group: "ml/validation"
+    canonical_path: "scripts/ml/validation/validate_auau_tight_mlp_on_sim.py"
+    aliases:
+      - path: "scripts/compat/local/validate_auau_tight_mlp_on_sim.py"
+        status: "compat_alias"
+  - id: validate_pp_photon_ml_tables
+    group: "ml/validation"
+    canonical_path: "scripts/ml/validation/validate_pp_photon_ml_tables.py"
+    aliases:
+      - path: "scripts/compat/local/validate_pp_photon_ml_tables.py"
+        status: "compat_alias"
+  - id: make_auau_bdt_target_wp_config
+    group: "ml/working_points"
+    canonical_path: "scripts/ml/working_points/make_auau_bdt_target_wp_config.py"
+    aliases:
+      - path: "scripts/compat/local/make_auau_bdt_target_wp_config.py"
+        status: "compat_alias"
+  - id: make_auau_logreg_target_wp_config
+    group: "ml/working_points"
+    canonical_path: "scripts/ml/working_points/make_auau_logreg_target_wp_config.py"
+    aliases:
+      - path: "scripts/compat/local/make_auau_logreg_target_wp_config.py"
+        status: "compat_alias"
+  - id: make_auau_mlp_target_wp_config
+    group: "ml/working_points"
+    canonical_path: "scripts/ml/working_points/make_auau_mlp_target_wp_config.py"
+    aliases:
+      - path: "scripts/compat/local/make_auau_mlp_target_wp_config.py"
+        status: "compat_alias"
+  - id: codex_artifact_registry
+    group: "os/artifacts"
+    canonical_path: "scripts/os/artifacts/codex_artifact_registry.py"
+    aliases:
+      - path: "scripts/codex_artifact_registry.py"
+        status: "hard_contract"
+      - path: "scripts/compat/local/codex_artifact_registry.py"
+        status: "compat_alias"
+  - id: codex_context_pack
+    group: "os/context"
+    canonical_path: "scripts/os/context/codex_context_pack.py"
+    aliases:
+      - path: "scripts/codex_context_pack.py"
+        status: "hard_contract"
+      - path: "scripts/compat/local/codex_context_pack.py"
+        status: "compat_alias"
+  - id: codex_thesis_radar
+    group: "os/context"
+    canonical_path: "scripts/os/context/codex_thesis_radar.py"
+    aliases:
+      - path: "scripts/codex_thesis_radar.py"
+        status: "hard_contract"
+      - path: "scripts/compat/local/codex_thesis_radar.py"
+        status: "compat_alias"
+  - id: codex_os_dream
+    group: "os/dream"
+    canonical_path: "scripts/os/dream/codex_os_dream.py"
+    aliases:
+      - path: "scripts/codex_os_dream.py"
+        status: "hard_contract"
+      - path: "scripts/compat/local/codex_os_dream.py"
+        status: "compat_alias"
+  - id: codex_os_nightly_heartbeat
+    group: "os/heartbeat"
+    canonical_path: "scripts/os/heartbeat/codex_os_nightly_heartbeat.py"
+    aliases:
+      - path: "scripts/codex_os_nightly_heartbeat.py"
+        status: "hard_contract"
+      - path: "scripts/compat/local/codex_os_nightly_heartbeat.py"
+        status: "compat_alias"
+  - id: codex_work_register_common
+    group: "os/register"
+    canonical_path: "scripts/os/register/codex_work_register_common.py"
+    aliases:
+      - path: "scripts/compat/local/codex_work_register_common.py"
+        status: "compat_alias"
+  - id: codex_work_register_linear_payload
+    group: "os/register"
+    canonical_path: "scripts/os/register/codex_work_register_linear_payload.py"
+    aliases:
+      - path: "scripts/compat/local/codex_work_register_linear_payload.py"
+        status: "compat_alias"
+  - id: codex_work_register_render
+    group: "os/register"
+    canonical_path: "scripts/os/register/codex_work_register_render.py"
+    aliases:
+      - path: "scripts/codex_work_register_render.py"
+        status: "hard_contract"
+      - path: "scripts/compat/local/codex_work_register_render.py"
+        status: "compat_alias"
+  - id: codex_work_register_stale
+    group: "os/register"
+    canonical_path: "scripts/os/register/codex_work_register_stale.py"
+    aliases:
+      - path: "scripts/codex_work_register_stale.py"
+        status: "hard_contract"
+      - path: "scripts/compat/local/codex_work_register_stale.py"
+        status: "compat_alias"
+  - id: codex_work_register_validate
+    group: "os/register"
+    canonical_path: "scripts/os/register/codex_work_register_validate.py"
+    aliases:
+      - path: "scripts/codex_work_register_validate.py"
+        status: "hard_contract"
+      - path: "scripts/compat/local/codex_work_register_validate.py"
+        status: "compat_alias"
+  - id: codex_chatgpt_research_pack
+    group: "os/research"
+    canonical_path: "scripts/os/research/codex_chatgpt_research_pack.py"
+    aliases:
+      - path: "scripts/codex_chatgpt_research_pack.py"
+        status: "hard_contract"
+      - path: "scripts/compat/local/codex_chatgpt_research_pack.py"
+        status: "compat_alias"
+  - id: codex_os_doctor
+    group: "os/safety"
+    canonical_path: "scripts/os/safety/codex_os_doctor.py"
+    aliases:
+      - path: "scripts/codex_os_doctor.py"
+        status: "hard_contract"
+      - path: "scripts/compat/local/codex_os_doctor.py"
+        status: "compat_alias"
+  - id: codex_os_guard
+    group: "os/safety"
+    canonical_path: "scripts/os/safety/codex_os_guard.py"
+    aliases:
+      - path: "scripts/codex_os_guard.py"
+        status: "hard_contract"
+      - path: "scripts/compat/local/codex_os_guard.py"
+        status: "compat_alias"
+  - id: codex_os_snapshot
+    group: "os/safety"
+    canonical_path: "scripts/os/safety/codex_os_snapshot.py"
+    aliases:
+      - path: "scripts/codex_os_snapshot.py"
+        status: "hard_contract"
+      - path: "scripts/compat/local/codex_os_snapshot.py"
+        status: "compat_alias"
+  - id: make_auau_bdt_binned_noiso_score_comparison
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/make_auau_bdt_binned_noiso_score_comparison.py"
+    aliases:
+      []
+  - id: make_auau_bdt_iso_input_comparison_sig_bkg_score_split
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/make_auau_bdt_iso_input_comparison_sig_bkg_score_split.py"
+    aliases:
+      []
+  - id: make_auau_bdt_money_plots
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/make_auau_bdt_money_plots.py"
+    aliases:
+      []
+  - id: make_auau_bdt_training_closure
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/make_auau_bdt_training_closure.py"
+    aliases:
+      - path: "scripts/compat/local/make_auau_bdt_training_closure.py"
+        status: "compat_alias"
+  - id: make_auau_bdt_wp80_centbin_fit_plots
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/make_auau_bdt_wp80_centbin_fit_plots.py"
+    aliases:
+      []
+  - id: make_auau_best_iso_bdt_sig_bkg_score_split
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/make_auau_best_iso_bdt_sig_bkg_score_split.py"
+    aliases:
+      []
+  - id: make_auau_eiso_raw_comparison_plots
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/make_auau_eiso_raw_comparison_plots.py"
+    aliases:
+      []
+  - id: make_auau_isolation_feature_correlations
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/make_auau_isolation_feature_correlations.py"
+    aliases:
+      - path: "scripts/compat/local/make_auau_isolation_feature_correlations.py"
+        status: "compat_alias"
+  - id: make_auau_ml_wp80_cent3_fit_plots
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/make_auau_ml_wp80_cent3_fit_plots.py"
+    aliases:
+      []
+  - id: make_auau_ppg12_exact_raw_et_logy
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/make_auau_ppg12_exact_raw_et_logy.py"
+    aliases:
+      []
+  - id: make_auau_ptfine_cent7_bdt_feature_importance
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/make_auau_ptfine_cent7_bdt_feature_importance.py"
+    aliases:
+      []
+  - id: make_auau_signal_iso_split_bdt_score
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/make_auau_signal_iso_split_bdt_score.py"
+    aliases:
+      []
+  - id: make_baseline_bdt_score_split_tables
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/make_baseline_bdt_score_split_tables.py"
+    aliases:
+      []
+  - id: make_basev3e_centrality_gain_grid
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/make_basev3e_centrality_gain_grid.py"
+    aliases:
+      []
+  - id: make_basev3e_e22_auc_summary
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/make_basev3e_e22_auc_summary.py"
+    aliases:
+      []
+  - id: make_basev3e_w33_e22_stepwise_auc_summary
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/make_basev3e_w33_e22_stepwise_auc_summary.py"
+    aliases:
+      []
+  - id: make_basev3e_w33_score_split_2x3
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/make_basev3e_w33_score_split_2x3.py"
+    aliases:
+      []
+  - id: make_basev3e_w33_vs_expanded_score_split_2x3
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/make_basev3e_w33_vs_expanded_score_split_2x3.py"
+    aliases:
+      []
+  - id: make_bdt3x3_weta_comparison_plots
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/make_bdt3x3_weta_comparison_plots.py"
+    aliases:
+      []
+  - id: make_e22_histograms_from_remote_caches
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/make_e22_histograms_from_remote_caches.py"
+    aliases:
+      []
+  - id: make_global32_bdt_feature_diagnostics
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/make_global32_bdt_feature_diagnostics.py"
+    aliases:
+      []
+  - id: make_jet1230_leaderboard_with_e22
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/make_jet1230_leaderboard_with_e22.py"
+    aliases:
+      []
+  - id: make_the8_branch_a_ladder_score_separation
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/make_the8_branch_a_ladder_score_separation.py"
+    aliases:
+      []
+  - id: mine_target80_money_plots
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/mine_target80_money_plots.py"
+    aliases:
+      []
+  - id: plot_target80_deep_dive
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/plot_target80_deep_dive.py"
+    aliases:
+      []
+  - id: redraw_target80_firstlook_csv
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/redraw_target80_firstlook_csv.py"
+    aliases:
+      []
+  - id: make_auau_binned_bdt_split_gain_breakdown
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/split_studies/make_auau_binned_bdt_split_gain_breakdown.py"
+    aliases:
+      []
+  - id: make_auau_eiso_raw_split_gain_summary
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/split_studies/make_auau_eiso_raw_split_gain_summary.py"
+    aliases:
+      []
+  - id: make_basev3e_w33_split_gain_usage
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/split_studies/make_basev3e_w33_split_gain_usage.py"
+    aliases:
+      []
+  - id: make_ptcent7_auc_best_evidence_matrix
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/split_studies/make_ptcent7_auc_best_evidence_matrix.py"
+    aliases:
+      []
+  - id: make_ptcent_auc_gain_heatmap
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/split_studies/make_ptcent_auc_gain_heatmap.py"
+    aliases:
+      []
+  - id: make_shape_residual_ptcent7_validation_summary
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/split_studies/make_shape_residual_ptcent7_validation_summary.py"
+    aliases:
+      []
+  - id: make_auau_bdt_mlp_noiso_score_comparison
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/stacking/make_auau_bdt_mlp_noiso_score_comparison.py"
+    aliases:
+      []
+  - id: make_auau_bdt_mlp_stack_roc_overlay
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/stacking/make_auau_bdt_mlp_stack_roc_overlay.py"
+    aliases:
+      - path: "scripts/compat/local/make_auau_bdt_mlp_stack_roc_overlay.py"
+        status: "compat_alias"
+  - id: make_auau_bdt_mlp_stack_score_separation
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/stacking/make_auau_bdt_mlp_stack_score_separation.py"
+    aliases:
+      - path: "scripts/compat/local/make_auau_bdt_mlp_stack_score_separation.py"
+        status: "compat_alias"
+  - id: make_auau_mlp_expert_validation_plots
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/stacking/make_auau_mlp_expert_validation_plots.py"
+    aliases:
+      - path: "scripts/compat/local/make_auau_mlp_expert_validation_plots.py"
+        status: "compat_alias"
+  - id: make_auau_mlp_training_curves
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/stacking/make_auau_mlp_training_curves.py"
+    aliases:
+      - path: "scripts/compat/local/make_auau_mlp_training_curves.py"
+        status: "compat_alias"
+  - id: make_auau_stack_feature_importance
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/stacking/make_auau_stack_feature_importance.py"
+    aliases:
+      []
+  - id: make_auau_stacked_training_curves
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/stacking/make_auau_stacked_training_curves.py"
+    aliases:
+      - path: "scripts/compat/local/make_auau_stacked_training_curves.py"
+        status: "compat_alias"
+  - id: make_nnstack_production_recovery_overlay
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/stacking/make_nnstack_production_recovery_overlay.py"
+    aliases:
+      []
+  - id: remake_auau_roc_overlay_bdt_mlp_logreg
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/stacking/remake_auau_roc_overlay_bdt_mlp_logreg.py"
+    aliases:
+      []
+  - id: make_widthstudy_1535_roc_backup
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/width_study/make_widthstudy_1535_roc_backup.py"
+    aliases:
+      []
+  - id: make_auau_final_id_efficiency_overlays
+    group: "plotting/efficiency"
+    canonical_path: "scripts/plotting/efficiency/make_auau_final_id_efficiency_overlays.py"
+    aliases:
+      []
+  - id: make_basev3e_direct_truth_purity_efficiency
+    group: "plotting/efficiency"
+    canonical_path: "scripts/plotting/efficiency/make_basev3e_direct_truth_purity_efficiency.py"
+    aliases:
+      []
+  - id: make_basev3e_reco_efficiency_overlay
+    group: "plotting/efficiency"
+    canonical_path: "scripts/plotting/efficiency/make_basev3e_reco_efficiency_overlay.py"
+    aliases:
+      []
+  - id: make_clean_efficiency_turnon_tables
+    group: "plotting/efficiency"
+    canonical_path: "scripts/plotting/efficiency/make_clean_efficiency_turnon_tables.py"
+    aliases:
+      []
+  - id: make_truth_boxcut_vs_bdt_fixed_efficiency
+    group: "plotting/efficiency"
+    canonical_path: "scripts/plotting/efficiency/make_truth_boxcut_vs_bdt_fixed_efficiency.py"
+    aliases:
+      []
+  - id: make_basev3e_pp_et_score_separation_2x3
+    group: "plotting/pp_currentian"
+    canonical_path: "scripts/plotting/pp_currentian/make_basev3e_pp_et_score_separation_2x3.py"
+    aliases:
+      []
+  - id: make_pp_baseline_bdt_score_separation
+    group: "plotting/pp_currentian"
+    canonical_path: "scripts/plotting/pp_currentian/make_pp_baseline_bdt_score_separation.py"
+    aliases:
+      []
+  - id: make_pp_bdt_fourcurve_tall_overlay
+    group: "plotting/pp_currentian"
+    canonical_path: "scripts/plotting/pp_currentian/make_pp_bdt_fourcurve_tall_overlay.py"
+    aliases:
+      []
+  - id: make_pp_bdt_shuhang_th2_correlation
+    group: "plotting/pp_currentian"
+    canonical_path: "scripts/plotting/pp_currentian/make_pp_bdt_shuhang_th2_correlation.py"
+    aliases:
+      []
+  - id: make_pp_currentian_inclusive_jet_stitch_ppg12_style
+    group: "plotting/pp_currentian"
+    canonical_path: "scripts/plotting/pp_currentian/make_pp_currentian_inclusive_jet_stitch_ppg12_style.py"
+    aliases:
+      []
+  - id: make_pp_currentian_ppg12_exact_stitch_plots
+    group: "plotting/pp_currentian"
+    canonical_path: "scripts/plotting/pp_currentian/make_pp_currentian_ppg12_exact_stitch_plots.py"
+    aliases:
+      []
+  - id: make_pp_currentian_raw_et_logy
+    group: "plotting/pp_currentian"
+    canonical_path: "scripts/plotting/pp_currentian/make_pp_currentian_raw_et_logy.py"
+    aliases:
+      []
+  - id: make_pp_shuhang_bestmatch_overlay_and_roc
+    group: "plotting/pp_currentian"
+    canonical_path: "scripts/plotting/pp_currentian/make_pp_shuhang_bestmatch_overlay_and_roc.py"
+    aliases:
+      []
+  - id: make_ppg12_fig19_bdt_overlay
+    group: "plotting/pp_currentian"
+    canonical_path: "scripts/plotting/pp_currentian/make_ppg12_fig19_bdt_overlay.py"
+    aliases:
+      - path: "scripts/compat/local/make_ppg12_fig19_bdt_overlay.py"
+        status: "compat_alias"
+  - id: make_wp80_truth_purity_overlay_pp_ptcent7_basev3e
+    group: "plotting/pp_currentian"
+    canonical_path: "scripts/plotting/pp_currentian/make_wp80_truth_purity_overlay_pp_ptcent7_basev3e.py"
+    aliases:
+      []
+  - id: render_pp_currentian_shuhang_overlay_from_summary
+    group: "plotting/pp_currentian"
+    canonical_path: "scripts/plotting/pp_currentian/render_pp_currentian_shuhang_overlay_from_summary.py"
+    aliases:
+      - path: "scripts/compat/local/render_pp_currentian_shuhang_overlay_from_summary.py"
+        status: "compat_alias"
+  - id: make_focus21_inclusive_reco_cluster_et_blair_plot
+    group: "plotting/stitching"
+    canonical_path: "scripts/plotting/stitching/make_focus21_inclusive_reco_cluster_et_blair_plot.py"
+    aliases:
+      - path: "scripts/compat/local/make_focus21_inclusive_reco_cluster_et_blair_plot.py"
+        status: "compat_alias"
+  - id: make_clean_combined_scaled_trigger_panel
+    group: "plotting/trigger"
+    canonical_path: "scripts/plotting/trigger/make_clean_combined_scaled_trigger_panel.py"
+    aliases:
+      []
+  - id: make_scaled_trigger_category_review_pack
+    group: "plotting/trigger"
+    canonical_path: "scripts/plotting/trigger/make_scaled_trigger_category_review_pack.py"
+    aliases:
+      []
+  - id: make_scaled_trigger_cent_summary_panels
+    group: "plotting/trigger"
+    canonical_path: "scripts/plotting/trigger/make_scaled_trigger_cent_summary_panels.py"
+    aliases:
+      []
+  - id: make_scaled_trigger_efficiency_review_pack
+    group: "plotting/trigger"
+    canonical_path: "scripts/plotting/trigger/make_scaled_trigger_efficiency_review_pack.py"
+    aliases:
+      []
+  - id: make_basev3e_cent_truth_purity_vs_reference
+    group: "plotting/truth_purity"
+    canonical_path: "scripts/plotting/truth_purity/make_basev3e_cent_truth_purity_vs_reference.py"
+    aliases:
+      []
+  - id: make_bdt_score_purity_proof_plots
+    group: "plotting/truth_purity"
+    canonical_path: "scripts/plotting/truth_purity/make_bdt_score_purity_proof_plots.py"
+    aliases:
+      []
+  - id: make_blair_background_abcdsum_spectrum
+    group: "plotting/truth_purity"
+    canonical_path: "scripts/plotting/truth_purity/make_blair_background_abcdsum_spectrum.py"
+    aliases:
+      []
+  - id: make_blair_background_validation_plots
+    group: "plotting/truth_purity"
+    canonical_path: "scripts/plotting/truth_purity/make_blair_background_validation_plots.py"
+    aliases:
+      []
+  - id: make_truth_bdt_performance_variants
+    group: "plotting/truth_purity"
+    canonical_path: "scripts/plotting/truth_purity/make_truth_bdt_performance_variants.py"
+    aliases:
+      []
+  - id: make_truth_purity_fine_et_bdt_vs_boxcuts
+    group: "plotting/truth_purity"
+    canonical_path: "scripts/plotting/truth_purity/make_truth_purity_fine_et_bdt_vs_boxcuts.py"
+    aliases:
+      []
+  - id: plot_reco_truth_abcd_purity_compare
+    group: "plotting/truth_purity"
+    canonical_path: "scripts/plotting/truth_purity/plot_reco_truth_abcd_purity_compare.py"
+    aliases:
+      []
+  - id: mergedownloadedrecoiljetssim
+    group: "sdcc/local_merge/root"
+    canonical_path: "scripts/sdcc/local_merge/root/MergeDownloadedRecoilJetsSim.C"
+    aliases:
+      - path: "scripts/MergeDownloadedRecoilJetsSim.C"
+        status: "hard_contract"
+      - path: "scripts/compat/local/MergeDownloadedRecoilJetsSim.C"
+        status: "compat_alias"
+  - id: auau_tight_bdt_pipeline
+    group: "sdcc/pipelines/auau"
+    canonical_path: "scripts/sdcc/pipelines/auau/auau_tight_bdt_pipeline.sh"
+    aliases:
+      - path: "scripts/auau_tight_bdt_pipeline.sh"
+        status: "hard_contract"
+      - path: "scripts/compat/local/auau_tight_bdt_pipeline.sh"
+        status: "compat_alias"
+  - id: auau_tight_logreg_pipeline
+    group: "sdcc/pipelines/auau"
+    canonical_path: "scripts/sdcc/pipelines/auau/auau_tight_logreg_pipeline.sh"
+    aliases:
+      - path: "scripts/auau_tight_logreg_pipeline.sh"
+        status: "hard_contract"
+      - path: "scripts/compat/local/auau_tight_logreg_pipeline.sh"
+        status: "compat_alias"
+  - id: auau_tight_mlp_pipeline
+    group: "sdcc/pipelines/auau"
+    canonical_path: "scripts/sdcc/pipelines/auau/auau_tight_mlp_pipeline.sh"
+    aliases:
+      - path: "scripts/auau_tight_mlp_pipeline.sh"
+        status: "hard_contract"
+      - path: "scripts/compat/local/auau_tight_mlp_pipeline.sh"
+        status: "compat_alias"
+  - id: pp_photon_ml_pipeline
+    group: "sdcc/pipelines/pp"
+    canonical_path: "scripts/sdcc/pipelines/pp/pp_photon_ml_pipeline.sh"
+    aliases:
+      - path: "scripts/compat/local/pp_photon_ml_pipeline.sh"
+        status: "compat_alias"
+      - path: "scripts/pp_photon_ml_pipeline.sh"
+        status: "hard_contract"
+  - id: audit_auau_grl_projection
+    group: "sdcc/runtime/audit"
+    canonical_path: "scripts/sdcc/runtime/audit/audit_auau_grl_projection.sh"
+    aliases:
+      - path: "scripts/compat/local/audit_auau_grl_projection.sh"
+        status: "compat_alias"
+  - id: checkout_hygiene_probe
+    group: "sdcc/runtime/audit"
+    canonical_path: "scripts/sdcc/runtime/audit/checkout_hygiene_probe.py"
+    aliases:
+      []
+  - id: recoiljets_cleanup
+    group: "sdcc/runtime/cleanup"
+    canonical_path: "scripts/sdcc/runtime/cleanup/recoiljets_cleanup.sh"
+    aliases:
+      - path: "scripts/compat/local/recoiljets_cleanup.sh"
+        status: "compat_alias"
+      - path: "scripts/recoiljets_cleanup.sh"
+        status: "hard_contract"
+  - id: recoiljets_condor
+    group: "sdcc/runtime/condor"
+    canonical_path: "scripts/sdcc/runtime/condor/RecoilJets_Condor.sh"
+    aliases:
+      - path: "scripts/RecoilJets_Condor.sh"
+        status: "hard_contract"
+      - path: "scripts/compat/local/RecoilJets_Condor.sh"
+        status: "compat_alias"
+  - id: recoiljets_condor_auau
+    group: "sdcc/runtime/condor"
+    canonical_path: "scripts/sdcc/runtime/condor/RecoilJets_Condor_AuAu.sh"
+    aliases:
+      - path: "scripts/RecoilJets_Condor_AuAu.sh"
+        status: "hard_contract"
+      - path: "scripts/compat/local/RecoilJets_Condor_AuAu.sh"
+        status: "compat_alias"
+  - id: recoiljets_condor_submit
+    group: "sdcc/runtime/condor"
+    canonical_path: "scripts/sdcc/runtime/condor/RecoilJets_Condor_submit.sh"
+    aliases:
+      - path: "scripts/RecoilJets_Condor_submit.sh"
+        status: "hard_contract"
+      - path: "scripts/compat/local/RecoilJets_Condor_submit.sh"
+        status: "compat_alias"
+  - id: makethesissimlists
+    group: "sdcc/runtime/lists"
+    canonical_path: "scripts/sdcc/runtime/lists/makeThesisSimLists.sh"
+    aliases:
+      - path: "scripts/compat/local/makeThesisSimLists.sh"
+        status: "compat_alias"
+      - path: "scripts/makeThesisSimLists.sh"
+        status: "hard_contract"
+  - id: make_dstlistsdata
+    group: "sdcc/runtime/lists"
+    canonical_path: "scripts/sdcc/runtime/lists/make_dstListsData.sh"
+    aliases:
+      - path: "scripts/compat/local/make_dstListsData.sh"
+        status: "compat_alias"
+      - path: "scripts/make_dstListsData.sh"
+        status: "hard_contract"
+  - id: mergerecoiljets
+    group: "sdcc/runtime/merge"
+    canonical_path: "scripts/sdcc/runtime/merge/mergeRecoilJets.sh"
+    aliases:
+      - path: "scripts/compat/local/mergeRecoilJets.sh"
+        status: "compat_alias"
+      - path: "scripts/mergeRecoilJets.sh"
+        status: "hard_contract"
+  - id: estimateembeddedphotonxsec
+    group: "sdcc/runtime/xsec"
+    canonical_path: "scripts/sdcc/runtime/xsec/estimateEmbeddedPhotonXsec.sh"
+    aliases:
+      - path: "scripts/compat/local/estimateEmbeddedPhotonXsec.sh"
+        status: "compat_alias"
+      - path: "scripts/estimateEmbeddedPhotonXsec.sh"
+        status: "hard_contract"
+  - id: sftp_get_recoiljets_outputs
+    group: "sdcc/transfer/sftp_get_recoiljets_outputs.sh"
+    canonical_path: "scripts/sdcc/transfer/sftp_get_recoiljets_outputs.sh"
+    aliases:
+      - path: "scripts/compat/local/sftp_get_recoiljets_outputs.sh"
+        status: "compat_alias"
+      - path: "scripts/sftp_get_recoiljets_outputs.sh"
+        status: "hard_contract"
+  - id: sftp_push_recoiljets
+    group: "sdcc/transfer/sftp_push_recoiljets.sh"
+    canonical_path: "scripts/sdcc/transfer/sftp_push_recoiljets.sh"
+    aliases:
+      - path: "scripts/compat/local/sftp_push_recoiljets.sh"
+        status: "compat_alias"
+      - path: "scripts/sftp_push_recoiljets.sh"
+        status: "hard_contract"
+  - id: validate_transfer_map
+    group: "sdcc"
+    canonical_path: "scripts/sdcc/validate_transfer_map.py"
+    aliases:
+      []
+  - id: submit_auau_iso_visible_diagnostic_chain
+    group: "sdcc/workflows/diagnostics"
+    canonical_path: "scripts/sdcc/workflows/diagnostics/submit_auau_iso_visible_diagnostic_chain.sh"
+    aliases:
+      - path: "scripts/compat/local/submit_auau_iso_visible_diagnostic_chain.sh"
+        status: "compat_alias"
+  - id: submit_inclusive_stitch_xsec_scan
+    group: "sdcc/workflows/scan"
+    canonical_path: "scripts/sdcc/workflows/scan/submit_inclusive_stitch_xsec_scan.sh"
+    aliases:
+      []
+  - id: submit_photon_stitch_xsec_scan
+    group: "sdcc/workflows/scan"
+    canonical_path: "scripts/sdcc/workflows/scan/submit_photon_stitch_xsec_scan.sh"
+    aliases:
+      []
+  - id: auau_bdt_mlp_stack_production_driver
+    group: "sdcc/workflows/stacking"
+    canonical_path: "scripts/sdcc/workflows/stacking/auau_bdt_mlp_stack_production_driver.sh"
+    aliases:
+      - path: "scripts/compat/local/auau_bdt_mlp_stack_production_driver.sh"
+        status: "compat_alias"
+  - id: auau_mlp_bdt_beating_driver
+    group: "sdcc/workflows/stacking"
+    canonical_path: "scripts/sdcc/workflows/stacking/auau_mlp_bdt_beating_driver.sh"
+    aliases:
+      - path: "scripts/compat/local/auau_mlp_bdt_beating_driver.sh"
+        status: "compat_alias"
+  - id: submit_auau_global_sixpack_oof_stack
+    group: "sdcc/workflows/stacking"
+    canonical_path: "scripts/sdcc/workflows/stacking/submit_auau_global_sixpack_oof_stack.sh"
+    aliases:
+      - path: "scripts/compat/local/submit_auau_global_sixpack_oof_stack.sh"
+        status: "compat_alias"
+  - id: submit_auau_oof_residual_superstacker
+    group: "sdcc/workflows/stacking"
+    canonical_path: "scripts/sdcc/workflows/stacking/submit_auau_oof_residual_superstacker.sh"
+    aliases:
+      - path: "scripts/compat/local/submit_auau_oof_residual_superstacker.sh"
+        status: "compat_alias"
+  - id: submit_auau_stack_matrix_wave
+    group: "sdcc/workflows/stacking"
+    canonical_path: "scripts/sdcc/workflows/stacking/submit_auau_stack_matrix_wave.sh"
+    aliases:
+      - path: "scripts/compat/local/submit_auau_stack_matrix_wave.sh"
+        status: "compat_alias"
+  - id: submit_auau_stacked_bdt_mlp_calibrator
+    group: "sdcc/workflows/stacking"
+    canonical_path: "scripts/sdcc/workflows/stacking/submit_auau_stacked_bdt_mlp_calibrator.sh"
+    aliases:
+      - path: "scripts/compat/local/submit_auau_stacked_bdt_mlp_calibrator.sh"
+        status: "compat_alias"
+  - id: submit_auau_stacked_bdt_mlp_full_feature_chain
+    group: "sdcc/workflows/stacking"
+    canonical_path: "scripts/sdcc/workflows/stacking/submit_auau_stacked_bdt_mlp_full_feature_chain.sh"
+    aliases:
+      - path: "scripts/compat/local/submit_auau_stacked_bdt_mlp_full_feature_chain.sh"
+        status: "compat_alias"
+  - id: submit_auau_stacked_bdt_mlp_sweep
+    group: "sdcc/workflows/stacking"
+    canonical_path: "scripts/sdcc/workflows/stacking/submit_auau_stacked_bdt_mlp_sweep.sh"
+    aliases:
+      - path: "scripts/compat/local/submit_auau_stacked_bdt_mlp_sweep.sh"
+        status: "compat_alias"
+  - id: submit_auau_logreg_full_chain
+    group: "sdcc/workflows/submit"
+    canonical_path: "scripts/sdcc/workflows/submit/submit_auau_logreg_full_chain.sh"
+    aliases:
+      - path: "scripts/compat/local/submit_auau_logreg_full_chain.sh"
+        status: "compat_alias"
+  - id: submit_auau_mlp_finept_distilled_sweep
+    group: "sdcc/workflows/submit"
+    canonical_path: "scripts/sdcc/workflows/submit/submit_auau_mlp_finept_distilled_sweep.sh"
+    aliases:
+      - path: "scripts/compat/local/submit_auau_mlp_finept_distilled_sweep.sh"
+        status: "compat_alias"
+  - id: submit_auau_mlp_highpt_sweep
+    group: "sdcc/workflows/submit"
+    canonical_path: "scripts/sdcc/workflows/submit/submit_auau_mlp_highpt_sweep.sh"
+    aliases:
+      - path: "scripts/compat/local/submit_auau_mlp_highpt_sweep.sh"
+        status: "compat_alias"
+  - id: submit_auau_mlp_kitchensink
+    group: "sdcc/workflows/submit"
+    canonical_path: "scripts/sdcc/workflows/submit/submit_auau_mlp_kitchensink.sh"
+    aliases:
+      - path: "scripts/compat/local/submit_auau_mlp_kitchensink.sh"
+        status: "compat_alias"
+  - id: merge_auau_bdt_target80_ready
+    group: "sdcc/workflows/target_wp"
+    canonical_path: "scripts/sdcc/workflows/target_wp/merge_auau_bdt_target80_ready.sh"
+    aliases:
+      - path: "scripts/compat/local/merge_auau_bdt_target80_ready.sh"
+        status: "compat_alias"
+  - id: prepare_auau_bdt_target80_available_campaigns
+    group: "sdcc/workflows/target_wp"
+    canonical_path: "scripts/sdcc/workflows/target_wp/prepare_auau_bdt_target80_available_campaigns.sh"
+    aliases:
+      - path: "scripts/compat/local/prepare_auau_bdt_target80_available_campaigns.sh"
+        status: "compat_alias"
+  - id: submit_auau_bdt_etfine_centstudy_target80
+    group: "sdcc/workflows/target_wp"
+    canonical_path: "scripts/sdcc/workflows/target_wp/submit_auau_bdt_etfine_centstudy_target80.sh"
+    aliases:
+      - path: "scripts/compat/local/submit_auau_bdt_etfine_centstudy_target80.sh"
+        status: "compat_alias"
+  - id: submit_auau_bdt_etfine_centstudy_wp050
+    group: "sdcc/workflows/target_wp"
+    canonical_path: "scripts/sdcc/workflows/target_wp/submit_auau_bdt_etfine_centstudy_wp050.sh"
+    aliases:
+      - path: "scripts/compat/local/submit_auau_bdt_etfine_centstudy_wp050.sh"
+        status: "compat_alias"
+  - id: submit_auau_bdt_target80_config_dir
+    group: "sdcc/workflows/target_wp"
+    canonical_path: "scripts/sdcc/workflows/target_wp/submit_auau_bdt_target80_config_dir.sh"
+    aliases:
+      - path: "scripts/compat/local/submit_auau_bdt_target80_config_dir.sh"
+        status: "compat_alias"
+  - id: submit_auau_bdt_targetwp_pair
+    group: "sdcc/workflows/target_wp"
+    canonical_path: "scripts/sdcc/workflows/target_wp/submit_auau_bdt_targetwp_pair.sh"
+    aliases:
+      - path: "scripts/compat/local/submit_auau_bdt_targetwp_pair.sh"
+        status: "compat_alias"
+  - id: submit_auau_logreg_targetwp_pair
+    group: "sdcc/workflows/target_wp"
+    canonical_path: "scripts/sdcc/workflows/target_wp/submit_auau_logreg_targetwp_pair.sh"
+    aliases:
+      - path: "scripts/compat/local/submit_auau_logreg_targetwp_pair.sh"
+        status: "compat_alias"
+  - id: submit_auau_mlp_targetwp_pair
+    group: "sdcc/workflows/target_wp"
+    canonical_path: "scripts/sdcc/workflows/target_wp/submit_auau_mlp_targetwp_pair.sh"
+    aliases:
+      - path: "scripts/compat/local/submit_auau_mlp_targetwp_pair.sh"
+        status: "compat_alias"
+  - id: merge_auau_bdt_widthstudy_windows_wp050_staged
+    group: "sdcc/workflows/width_study"
+    canonical_path: "scripts/sdcc/workflows/width_study/merge_auau_bdt_widthstudy_windows_wp050_staged.sh"
+    aliases:
+      - path: "scripts/compat/local/merge_auau_bdt_widthstudy_windows_wp050_staged.sh"
+        status: "compat_alias"
+  - id: submit_auau_bdt_widthstudy_pt1530_wp080
+    group: "sdcc/workflows/width_study"
+    canonical_path: "scripts/sdcc/workflows/width_study/submit_auau_bdt_widthstudy_pt1530_wp080.sh"
+    aliases:
+      - path: "scripts/compat/local/submit_auau_bdt_widthstudy_pt1530_wp080.sh"
+        status: "compat_alias"
+  - id: submit_auau_bdt_widthstudy_windows_wp050
+    group: "sdcc/workflows/width_study"
+    canonical_path: "scripts/sdcc/workflows/width_study/submit_auau_bdt_widthstudy_windows_wp050.sh"
+    aliases:
+      - path: "scripts/compat/local/submit_auau_bdt_widthstudy_windows_wp050.sh"
+        status: "compat_alias"

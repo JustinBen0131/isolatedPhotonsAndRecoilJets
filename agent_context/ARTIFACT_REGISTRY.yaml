@@ -1,5 +1,5 @@
 schema_version: 1
-last_updated: "2026-05-27T00:50:00-04:00"
+last_updated: "2026-06-01T17:37:15-04:00"
 owner: Codex
 purpose: >
   Canonical provenance registry for thesis-facing artifacts. Register plots,
@@ -74,7 +74,7 @@ artifacts:
     source_inputs:
       - agent_context/THESIS_NARRATIVE_MAP.md
       - agent_context/policies/AGENTIC_OS_HARDENING.md
-    generation_command: "python3 scripts/codex_artifact_registry.py check"
+    generation_command: "python3 scripts/os/artifacts/codex_artifact_registry.py check"
     qa_state: candidate
     qa_evidence:
       - "Seed registry added during 10/10 OS safety-kernel implementation."
@@ -116,13 +116,13 @@ artifacts:
 
   - artifact_id: thesis_nervous_system_tools
     kind: script_bundle
-    path: scripts/codex_context_pack.py
+    path: scripts/os/context/codex_context_pack.py
     thesis_claim: os_infrastructure
     source_inputs:
       - agent_context/CODEX_WORK_REGISTER.yaml
       - agent_context/THESIS_NARRATIVE_MAP.md
       - agent_context/ARTIFACT_REGISTRY.yaml
-    generation_command: "python3 scripts/codex_context_pack.py --cadence boot"
+    generation_command: "python3 scripts/os/context/codex_context_pack.py --cadence boot"
     qa_state: candidate
     qa_evidence:
       - "Context pack, thesis radar, and artifact registry tooling added for daily/weekly/monthly sensing."
@@ -156,8 +156,8 @@ artifacts:
       - agent_context/policies/TOOLS_AND_DEPENDENCIES.md
       - agent_context/policies/COLLABORATION_AND_HANDOFFS.md
       - agent_context/policies/AGENTIC_OS_DREAMING.md
-      - scripts/codex_chatgpt_research_pack.py
-    generation_command: "python3 scripts/codex_chatgpt_research_pack.py init --topic <sanitized-topic> --decision <decision>"
+      - scripts/os/research/codex_chatgpt_research_pack.py
+    generation_command: "python3 scripts/os/research/codex_chatgpt_research_pack.py init --topic <sanitized-topic> --decision <decision>"
     qa_state: candidate
     qa_evidence:
       - "Ask-ChatGPT delegation policy added so Codex can use ChatGPT UI for sanitized deep research while preserving provenance and safety boundaries."
@@ -165,3 +165,106 @@ artifacts:
     limitations: "ChatGPT UI output is external model output, not evidence, user approval, or a substitute for primary-source verification."
     destination: "Delegated research lane for OS, dream-system, and broad synthesis work"
     last_verified: "2026-05-27T00:50:00-04:00"
+
+  - artifact_id: hp2026_title_slide_eye_exam_v1
+    kind: slide_candidate_png_batch
+    path: outputs/manual-20260601-hp2026-title/presentations/hp2026-title-slide/output
+    thesis_claim: physics_target
+    source_inputs:
+      - "HP2026 exact title: sPHENIX measurement of isolated prompt photon production in p+p collisions at 200 GeV"
+      - "https://indico.cern.ch/event/1428985/logo-134929478.png"
+      - "https://indico.cern.ch/event/1428985/attachments/3252768/5813862/image.png"
+      - "/Users/patsfan753/Downloads/sPHENIX_logo_maroon_transparent.png"
+      - "https://www.sphenix.bnl.gov/sites/default/files/sphenix-logo-white-bg_0.png"
+      - "https://www.sphenix.bnl.gov/logo"
+      - "https://indico.cern.ch/event/1339555/contributions/"
+      - "https://indico.cern.ch/event/751767/contributions/"
+      - "https://www.bnl.gov/assets/global/images/bnl-logo-2021.svg"
+      - "https://illinois.edu/wp-content/uploads/2025/10/Illinois_logo_fullcolor_rgb.png"
+      - "usefulDocs/20260506_DIS_YeonjuGo.pdf page 1 DOE logo reference crop"
+      - "https://www.energy.gov/themes/custom/energy_gov/svg/footer-logo.svg"
+      - "outputs/manual-20260601-hp2026-title/presentations/hp2026-title-slide/output/photon_detector_motif_best/hp2026_title_accent_best_photon_hits_detector.png"
+    generation_command: "env PYTHONPYCACHEPREFIX=/private/tmp/codex_pycache /Users/patsfan753/Desktop/analysis/env/bin/python scripts/slides/hp2026/title/make_hp2026_title_slide_candidates.py --only c4-final-institutional-photon-polish"
+    qa_state: candidate
+    qa_evidence:
+      - "2026-06-01T14:58:40-04:00 generated A/B/C title PNGs at 2560x1440 RGB and manifest.json exists."
+      - "Visual QA opened A, B, and C locally; B was regenerated after fixing analysis-path label overlap and a clipped italic line."
+      - "2026-06-01T15:12:40-04:00 generated C1/C2/C3 refinements from Justin's selected C baseline using the verified blue sPHENIX web logo, omitting the yellow photon arc/circles, and grouping Hard Probes 2026/Vanderbilt/date into one coherent lockup. Visual QA opened all three; C2 was the strongest first-pass balance."
+      - "2026-06-01T15:21:01-04:00 generated a single C3-basis refinement at hp2026_title_C3_clean_vanderbilt_doe_footer.png: removed the bottom photo fade that shaded the Vanderbilt image above the HP2026 label, spread the footer branding into sPHENIX/BNL/UIUC/DOE groups, and added DOE Office of Science as text rather than an unverified logo. Visual QA opened the PNG."
+      - "2026-06-01T15:31:18-04:00 generated hp2026_title_C3_professional_logo_rail.png: used the C3 basis, kept the unshaded Vanderbilt photo/event box, removed footer UIUC affiliation text, replaced typed DOE text with a Yeonju-style DOE logo image, and centered sPHENIX/BNL/UIUC/DOE as a compact logo rail. Py-compile, 2560x1440 file check, and visual QA passed."
+      - "2026-06-01T16:16:53-04:00 generated hp2026_title_C3_integrated_photon_accent.png: placed the photon-hits-detector accent in the left-side white space under the author/collaboration block, moved the Illinois Block I beside the UIUC affiliation line, and made the footer a sPHENIX/BNL/DOE rail. Py-compile, 2560x1440 file check, and visual QA passed."
+      - "2026-06-01T16:28:08-04:00 generated hp2026_title_C4_final_institutional_photon_polish.png: rebuilt the photon-hits-detector accent as native PIL artwork, kept the official HP2026/Vanderbilt panel clean, tightened the event label band and sPHENIX/BNL/DOE footer rail, and passed py-compile, 2560x1440 RGB readback, manifest readback, and full-resolution visual QA."
+      - "2026-06-01T16:34:55-04:00 rerendered the same C4 PNG with only the photon path changed to a stronger Feynman-style squiggle; pixel diff versus pre-edit C4 was localized to bbox (210, 861, 1085, 954), and py-compile, 2560x1440 RGB readback, manifest readback, and visual QA passed."
+      - "2026-06-01T16:39:06-04:00 rerendered the same C4 PNG with only the bottom sPHENIX/BNL/DOE logo rail enlarged and spread across the footer band; pixel diff versus pre-footer-edit C4 was localized to bbox (132, 1238, 2429, 1398), and py-compile, 2560x1440 RGB readback, manifest readback, and visual QA passed."
+    limitations: "No Google Slides mutation; C4 is the current local review candidate and still needs Justin approval before insertion or native rebuild."
+    destination: "HPslides_v1 title-slide candidate selection for THE-5 HP2026 Photon Talk"
+    last_verified: "2026-06-01T16:39:06-04:00"
+
+  - artifact_id: hp2026_slide02_opening_motivation_v1
+    kind: slide_candidate_png
+    path: outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_slide02_sphenix_hard_probes_photon_baseline.png
+    thesis_claim: physics_target
+    source_inputs:
+      - "Justin request: first content slide after title should coherently introduce sPHENIX / hard-probes context before narrowing to isolated prompt photons."
+      - "Core claim: the p+p isolated prompt-photon result is the clean baseline entry point for the sPHENIX hard-probes program."
+      - "usefulDocs/HP2026_photon_reference_deck_linearization.md"
+      - "usefulDocs/20260506_DIS_YeonjuGo.pdf"
+      - "usefulDocs/Moriond2026StefanBathe.v1.pdf"
+      - "usefulDocs/sPHENIX_AUM2026_jet_and_photon_measurement.pdf"
+      - "scripts/slides/hp2026/opening/make_hp2026_opening_motivation_slide.py"
+    generation_command: "env PYTHONPYCACHEPREFIX=/private/tmp/codex_pycache /Users/patsfan753/Desktop/analysis/env/bin/python scripts/slides/hp2026/opening/make_hp2026_opening_motivation_slide.py --variant sphenix-hard-probes"
+    qa_state: candidate
+    qa_evidence:
+      - "2026-06-01T17:18:47-04:00 generated one deterministic 2560x1440 RGB PNG candidate with Times New Roman hierarchy, a left conceptual prompt-photon/EMCal visual, three compact right-side motivation reasons, and a bridge to the detector/data slide."
+      - "2026-06-01T17:37:15-04:00 generated the stronger context-first candidate hp2026_slide02_sphenix_hard_probes_photon_baseline.png after Justin identified that the first content slide should introduce sPHENIX and the hard-probes program before the photon object. The slide uses a conceptual RHIC/sPHENIX detector schematic, official cached blue sPHENIX logo, three program-to-photon claims, and a bridge into the photon definition/isolation slide."
+      - "Python compile check passed for scripts/slides/hp2026/opening/make_hp2026_opening_motivation_slide.py."
+      - "Pillow readback confirmed image size (2560, 1440) and mode RGB; manifest readback confirmed google_slides_mutation=false."
+      - "Visual QA opened the context-first PNG and confirmed readable title/body text, no overlap, no slide number, no provenance footer, and no Google Slides mutation."
+    limitations: "Local conceptual candidate only; the detector/program visual is a schematic, not an official detector rendering; not inserted into Google Slides and not yet approved by Justin."
+    destination: "HPslides_v1 Slide 2 opening/motivation candidate for THE-5 HP2026 Photon Talk"
+    last_verified: "2026-06-01T17:37:15-04:00"
+
+  - artifact_id: hp2026_photon_detector_motif_variants_v1
+    kind: transparent_png_motif_batch
+    path: outputs/manual-20260601-hp2026-title/presentations/hp2026-title-slide/output/photon_detector_motif_variants
+    thesis_claim: physics_target
+    source_inputs:
+      - "Justin request: standalone photon-through-detector graphic variants for the HP2026 title slide under the collaboration line"
+      - "scripts/slides/hp2026/make_photon_detector_motif_variants.py"
+    generation_command: "env PYTHONPYCACHEPREFIX=/private/tmp/codex_pycache /Users/patsfan753/Desktop/analysis/env/bin/python scripts/slides/hp2026/make_photon_detector_motif_variants.py"
+    qa_state: candidate
+    qa_evidence:
+      - "2026-06-01T15:38:19-04:00 generated five transparent 1320x320 RGBA motif PNGs plus an RGB contact sheet. Individual assets contain no text/logos/slide number/provenance footer. Py-compile, file dimension checks, manifest readback, and visual contact-sheet QA passed."
+    limitations: "Standalone motif candidates only; not yet placed into the HP2026 title slide or Google Slides."
+    destination: "Optional title-slide graphic under the Justin/on-behalf block for HPslides_v1"
+    last_verified: "2026-06-01T15:38:19-04:00"
+
+  - artifact_id: hp2026_title_beautiful_photon_accent_v1
+    kind: imagegen_title_accent_png_batch
+    path: outputs/manual-20260601-hp2026-title/presentations/hp2026-title-slide/output/photon_detector_motif_beautiful_variants
+    thesis_claim: physics_target
+    source_inputs:
+      - "Justin request: less complicated, more impressive beautiful title-page imagery that enhances the HP2026 photon title slide without inviting technical questions"
+      - "built-in image_gen outputs copied from /Users/patsfan753/.codex/generated_images/019e653a-6c44-78a0-bfcb-f6bb102a2b2e"
+    generation_command: "built-in image_gen for three white-background photon/detector accent concepts; local Pillow crop/tone pass to 1320x320 under outputs/manual-20260601-hp2026-title/presentations/hp2026-title-slide/output/photon_detector_motif_beautiful_variants"
+    qa_state: candidate
+    qa_evidence:
+      - "2026-06-01T15:45:00-04:00 generated three clean 1320x320 RGB white-background title-accent PNGs plus raw imagegen copies and a contact sheet. Individual assets contain no text/logos/labels/watermarks. Visual QA, file dimension checks, and manifest readback passed."
+    limitations: "White-background accent images, not transparent cutouts; not yet composited into the HP2026 title-slide PNG or Google Slides."
+    destination: "Optional pure visual enhancement under the author/collaboration block on the HP2026 title slide"
+    last_verified: "2026-06-01T15:45:00-04:00"
+
+  - artifact_id: hp2026_title_best_photon_hits_detector_accent_v1
+    kind: imagegen_title_accent_png
+    path: outputs/manual-20260601-hp2026-title/presentations/hp2026-title-slide/output/photon_detector_motif_best/hp2026_title_accent_best_photon_hits_detector.png
+    thesis_claim: physics_target
+    source_inputs:
+      - "Justin request: single best current attempt, cleaner than detector-depth variant, photon clearly hitting a detector, pure title-page visual enhancement only"
+      - "built-in image_gen output /Users/patsfan753/.codex/generated_images/019e653a-6c44-78a0-bfcb-f6bb102a2b2e/ig_0b07795274ee8f87016a1de6fc15cc819ba5dc1964291864df.png"
+    generation_command: "built-in image_gen for one photon-hits-detector accent; local Pillow crop/tone pass to 1320x320 under outputs/manual-20260601-hp2026-title/presentations/hp2026-title-slide/output/photon_detector_motif_best"
+    qa_state: candidate
+    qa_evidence:
+      - "2026-06-01T16:11:11-04:00 generated a single 1320x320 RGB white-background title accent with one golden photon trajectory hitting a quiet abstract detector face. The PNG contains no text/logos/labels/axes/watermark/provenance footer. Visual QA, file dimension check, and manifest readback passed."
+    limitations: "White-background accent image, not transparent cutout; not yet composited into the HP2026 title-slide PNG or Google Slides."
+    destination: "Recommended pure visual enhancement under the author/collaboration block on the HP2026 title slide"
+    last_verified: "2026-06-01T16:11:11-04:00"

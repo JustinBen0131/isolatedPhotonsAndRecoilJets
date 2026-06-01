@@ -10,8 +10,14 @@
 - For Google Docs/Slides/Sheets, Drive, Gmail, Calendar, browser, or desktop
   work, use the matching connector/plugin/skill workflow when available.
 - For delegated ChatGPT UI research, load
-  `agent_context/policies/ASK_CHATGPT_DELEGATION.md` first and use Chrome or
-  Computer Use only with a sanitized prompt and local transcript provenance.
+  `agent_context/policies/ASK_CHATGPT_DELEGATION.md` first and use Computer Use
+  in the user's Chrome profile by default, with a sanitized prompt and local
+  transcript provenance.
+- For Justin's explicit "set up a Zoom room" / "get me a Zoom invite link"
+  variants, load `agent_context/policies/MEETING_CAPTURE_AND_ZOOM.md` and use
+  Computer Use on Zoom for the narrow room-setup workflow: create/start the
+  room, enable or verify available transcript/AI-summary capture, copy the
+  invite link, and return it to Justin.
 - For Office/PDF/spreadsheet/deck local artifact work, call the workspace
   dependency locator before assuming Python/Node package paths.
 
@@ -52,6 +58,6 @@ when installation needs network access or writes outside the workspace.
   4.06 for macOS ARM, installed under
   `/Users/patsfan753/.local/opt/xpdf-tools-mac-4.06/`. Use the full path
   because `~/.local/bin` may not be on `PATH` in Codex shells.
-- Browser/Computer Use is for visual/UI inspection, narrow UI actions, and
-  approved delegated ChatGPT research; it is not for mutating Drive/Slides when
-  a connector can do it safely.
+- Browser/Computer Use is for visual/UI inspection, narrow UI actions,
+  approved delegated ChatGPT research, and explicit Zoom-room setup requests;
+  it is not for mutating Drive/Slides when a connector can do it safely.

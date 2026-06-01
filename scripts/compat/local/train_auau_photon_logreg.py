@@ -1,0 +1,1 @@
+../../ml/training/train_auau_photon_logreg.py

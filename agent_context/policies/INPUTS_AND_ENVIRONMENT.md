@@ -40,6 +40,18 @@ Examples: `isSimEmbedded`, `isSimEmbeddedInclusive`, `isSim`, `isAuAu`,
 The inspector is local-only. It parses local filenames and does not use ROOT,
 SSH, or SFTP.
 
+## Local Pull Boundary
+
+For Stage-7 canonical SDCC campaigns, use `SFTP_GET_CAMPAIGN_TAG=<campaign>`
+with `scripts/sftp_get_recoiljets_outputs.sh` so pulls read from
+`runs/recoiljets/current/<campaign>/<dataset>` by default. Use
+`SFTP_GET_REMOTE_DIR_OVERRIDE` only for audited legacy paths such as old
+`output_<campaign>` roots.
+
+Keep the local split strict: `InputFiles/` is for analysis-ready ROOT inputs;
+`dataOutput/` is for compact evidence, plots, diagnostics, and slide assets.
+Do not park raw TG bulk trees under `dataOutput/`.
+
 ## Canonical Local SIM Products
 
 Canonical local SIM combinations are built by the SFTP getter after downloads,

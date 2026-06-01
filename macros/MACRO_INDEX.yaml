@@ -1,0 +1,289 @@
+version: 2026-06-01-stage8
+purpose: Canonical index for local/offline ROOT macros; protected Fun4All/config/runtime anchors stay top-level.
+resolver: macros/bin/thesis-macro
+entries:
+  - id: CompareAuAu3x3IDEfficiency
+    group: diagnostics/auau_bdt
+    canonical_path: macros/diagnostics/auau_bdt/CompareAuAu3x3IDEfficiency.C
+    compatibility_wrapper: macros/CompareAuAu3x3IDEfficiency.C
+    status: hard_alias
+  - id: CompareAuAuBoxToNPB
+    group: diagnostics/auau_bdt
+    canonical_path: macros/diagnostics/auau_bdt/CompareAuAuBoxToNPB.C
+    compatibility_wrapper: macros/compat/local/CompareAuAuBoxToNPB.C
+    status: compat_wrapper
+  - id: gaugeFeasibility
+    group: diagnostics/feasibility
+    canonical_path: macros/diagnostics/feasibility/gaugeFeasibility.cpp
+    compatibility_wrapper: 
+    status: compat_wrapper
+  - id: SummarizeModelCheck
+    group: diagnostics/model_checks
+    canonical_path: macros/diagnostics/model_checks/SummarizeModelCheck.C
+    compatibility_wrapper: macros/compat/local/SummarizeModelCheck.C
+    status: compat_wrapper
+  - id: RunPreselectionFailsFast
+    group: diagnostics/preselection
+    canonical_path: macros/diagnostics/preselection/RunPreselectionFailsFast.C
+    compatibility_wrapper: macros/compat/local/RunPreselectionFailsFast.C
+    status: compat_wrapper
+  - id: RunPreselectionFailsFast_WithStyle
+    group: diagnostics/preselection
+    canonical_path: macros/diagnostics/preselection/RunPreselectionFailsFast_WithStyle.C
+    compatibility_wrapper: macros/compat/local/RunPreselectionFailsFast_WithStyle.C
+    status: compat_wrapper
+  - id: RunSSQAFast
+    group: diagnostics/ssqa
+    canonical_path: macros/diagnostics/ssqa/RunSSQAFast.C
+    compatibility_wrapper: macros/compat/local/RunSSQAFast.C
+    status: compat_wrapper
+  - id: ExtractDoNotScaleHistograms
+    group: diagnostics/stitching
+    canonical_path: macros/diagnostics/stitching/ExtractDoNotScaleHistograms.C
+    compatibility_wrapper: macros/compat/local/ExtractDoNotScaleHistograms.C
+    status: compat_wrapper
+  - id: PrintPPStitchDiagnostics
+    group: diagnostics/stitching
+    canonical_path: macros/diagnostics/stitching/PrintPPStitchDiagnostics.C
+    compatibility_wrapper: macros/PrintPPStitchDiagnostics.C
+    status: hard_alias
+  - id: MakeAuAu3x3FeatureSeparation
+    group: plotting/auau_bdt
+    canonical_path: macros/plotting/auau_bdt/MakeAuAu3x3FeatureSeparation.C
+    compatibility_wrapper: macros/compat/local/MakeAuAu3x3FeatureSeparation.C
+    status: compat_wrapper
+  - id: MakeAuAu3x3WidthComparison
+    group: plotting/auau_bdt
+    canonical_path: macros/plotting/auau_bdt/MakeAuAu3x3WidthComparison.C
+    compatibility_wrapper: macros/compat/local/MakeAuAu3x3WidthComparison.C
+    status: compat_wrapper
+  - id: MakeAuAuReferenceDataEmbeddedVertexCentralityTable
+    group: plotting/auau_bdt
+    canonical_path: macros/plotting/auau_bdt/MakeAuAuReferenceDataEmbeddedVertexCentralityTable.C
+    compatibility_wrapper: macros/compat/local/MakeAuAuReferenceDataEmbeddedVertexCentralityTable.C
+    status: compat_wrapper
+  - id: MakeAuAuTightBDTValidationSlidePlots
+    group: plotting/auau_bdt
+    canonical_path: macros/plotting/auau_bdt/MakeAuAuTightBDTValidationSlidePlots.C
+    compatibility_wrapper: macros/compat/local/MakeAuAuTightBDTValidationSlidePlots.C
+    status: compat_wrapper
+  - id: MakeCentBinnedAucGainHeatmap
+    group: plotting/auau_bdt
+    canonical_path: macros/plotting/auau_bdt/MakeCentBinnedAucGainHeatmap.C
+    compatibility_wrapper: macros/compat/local/MakeCentBinnedAucGainHeatmap.C
+    status: compat_wrapper
+  - id: MakeCentInputAucGainPlot
+    group: plotting/auau_bdt
+    canonical_path: macros/plotting/auau_bdt/MakeCentInputAucGainPlot.C
+    compatibility_wrapper: macros/compat/local/MakeCentInputAucGainPlot.C
+    status: compat_wrapper
+  - id: MakePtCentAucGainHeatmap
+    group: plotting/auau_bdt
+    canonical_path: macros/plotting/auau_bdt/MakePtCentAucGainHeatmap.C
+    compatibility_wrapper: macros/compat/local/MakePtCentAucGainHeatmap.C
+    status: compat_wrapper
+  - id: PlotAuAuBDTIDEfficiency
+    group: plotting/auau_bdt
+    canonical_path: macros/plotting/auau_bdt/PlotAuAuBDTIDEfficiency.C
+    compatibility_wrapper: macros/compat/local/PlotAuAuBDTIDEfficiency.C
+    status: compat_wrapper
+  - id: PlotAuAuBDTRecoEfficiencyNoGrid
+    group: plotting/auau_bdt
+    canonical_path: macros/plotting/auau_bdt/PlotAuAuBDTRecoEfficiencyNoGrid.C
+    compatibility_wrapper: macros/compat/local/PlotAuAuBDTRecoEfficiencyNoGrid.C
+    status: compat_wrapper
+  - id: PlotAuAuBDTWP080Slide31_32
+    group: plotting/auau_bdt
+    canonical_path: macros/plotting/auau_bdt/PlotAuAuBDTWP080Slide31_32.C
+    compatibility_wrapper: macros/compat/local/PlotAuAuBDTWP080Slide31_32.C
+    status: compat_wrapper
+  - id: PlotAuAuBestSmoothIDEfficiencyOverlay
+    group: plotting/auau_bdt
+    canonical_path: macros/plotting/auau_bdt/PlotAuAuBestSmoothIDEfficiencyOverlay.C
+    compatibility_wrapper: macros/compat/local/PlotAuAuBestSmoothIDEfficiencyOverlay.C
+    status: compat_wrapper
+  - id: PlotBaseV3ERecoEfficiencyOverlay
+    group: plotting/auau_bdt
+    canonical_path: macros/plotting/auau_bdt/PlotBaseV3ERecoEfficiencyOverlay.C
+    compatibility_wrapper: macros/compat/local/PlotBaseV3ERecoEfficiencyOverlay.C
+    status: compat_wrapper
+  - id: PlotFlatWp050Base3x3RecoEfficiency
+    group: plotting/auau_bdt
+    canonical_path: macros/plotting/auau_bdt/PlotFlatWp050Base3x3RecoEfficiency.C
+    compatibility_wrapper: macros/compat/local/PlotFlatWp050Base3x3RecoEfficiency.C
+    status: compat_wrapper
+  - id: PlotScaledTriggerStudy
+    group: plotting/auau_bdt
+    canonical_path: macros/plotting/auau_bdt/PlotScaledTriggerStudy.C
+    compatibility_wrapper: macros/compat/local/PlotScaledTriggerStudy.C
+    status: compat_wrapper
+  - id: MakePPMergedIsoCutFitsQuick
+    group: plotting/pp_currentian
+    canonical_path: macros/plotting/pp_currentian/MakePPMergedIsoCutFitsQuick.C
+    compatibility_wrapper: macros/compat/local/MakePPMergedIsoCutFitsQuick.C
+    status: compat_wrapper
+  - id: MakePPSlidingIsoRDepFits
+    group: plotting/pp_currentian
+    canonical_path: macros/plotting/pp_currentian/MakePPSlidingIsoRDepFits.C
+    compatibility_wrapper: macros/compat/local/MakePPSlidingIsoRDepFits.C
+    status: compat_wrapper
+  - id: OverlayPPPurityAndLeakageVariants
+    group: plotting/pp_currentian
+    canonical_path: macros/plotting/pp_currentian/OverlayPPPurityAndLeakageVariants.C
+    compatibility_wrapper: macros/compat/local/OverlayPPPurityAndLeakageVariants.C
+    status: compat_wrapper
+  - id: PlotPPvsAuAuLeakageOverlay
+    group: plotting/pp_currentian
+    canonical_path: macros/plotting/pp_currentian/PlotPPvsAuAuLeakageOverlay.C
+    compatibility_wrapper: macros/compat/local/PlotPPvsAuAuLeakageOverlay.C
+    status: compat_wrapper
+  - id: PlotPPvsAuAuXJPurityReferenceOverlay
+    group: plotting/pp_currentian
+    canonical_path: macros/plotting/pp_currentian/PlotPPvsAuAuXJPurityReferenceOverlay.C
+    compatibility_wrapper: macros/compat/local/PlotPPvsAuAuXJPurityReferenceOverlay.C
+    status: compat_wrapper
+  - id: BuildSSQACentralityPtSummariesFast
+    group: plotting/ssqa
+    canonical_path: macros/plotting/ssqa/BuildSSQACentralityPtSummariesFast.C
+    compatibility_wrapper: macros/compat/local/BuildSSQACentralityPtSummariesFast.C
+    status: compat_wrapper
+  - id: GenerateYieldOverlayQuick
+    group: plotting/stitching
+    canonical_path: macros/plotting/stitching/GenerateYieldOverlayQuick.C
+    compatibility_wrapper: macros/compat/local/GenerateYieldOverlayQuick.C
+    status: compat_wrapper
+  - id: MakeEmbeddedBLeakageCompare
+    group: plotting/stitching
+    canonical_path: macros/plotting/stitching/MakeEmbeddedBLeakageCompare.C
+    compatibility_wrapper: macros/compat/local/MakeEmbeddedBLeakageCompare.C
+    status: compat_wrapper
+  - id: MakeEmbeddedInclusiveJet40Slide6Replacement
+    group: plotting/stitching
+    canonical_path: macros/plotting/stitching/MakeEmbeddedInclusiveJet40Slide6Replacement.C
+    compatibility_wrapper: macros/MakeEmbeddedInclusiveJet40Slide6Replacement.C
+    status: hard_alias
+  - id: MakeEmbeddedInclusiveJetSlide5Replacement
+    group: plotting/stitching
+    canonical_path: macros/plotting/stitching/MakeEmbeddedInclusiveJetSlide5Replacement.C
+    compatibility_wrapper: macros/compat/local/MakeEmbeddedInclusiveJetSlide5Replacement.C
+    status: compat_wrapper
+  - id: MakeEmbeddedInclusiveMergedStitchSpectrum
+    group: plotting/stitching
+    canonical_path: macros/plotting/stitching/MakeEmbeddedInclusiveMergedStitchSpectrum.C
+    compatibility_wrapper: macros/MakeEmbeddedInclusiveMergedStitchSpectrum.C
+    status: hard_alias
+  - id: MakeEmbeddedPhoton12Plus20Stitch35
+    group: plotting/stitching
+    canonical_path: macros/plotting/stitching/MakeEmbeddedPhoton12Plus20Stitch35.C
+    compatibility_wrapper: macros/compat/local/MakeEmbeddedPhoton12Plus20Stitch35.C
+    status: compat_wrapper
+  - id: MakeEmbeddedPhotonEfficiencyCompare
+    group: plotting/stitching
+    canonical_path: macros/plotting/stitching/MakeEmbeddedPhotonEfficiencyCompare.C
+    compatibility_wrapper: macros/compat/local/MakeEmbeddedPhotonEfficiencyCompare.C
+    status: compat_wrapper
+  - id: MakeEmbeddedPhotonXsecNormQA
+    group: plotting/stitching
+    canonical_path: macros/plotting/stitching/MakeEmbeddedPhotonXsecNormQA.C
+    compatibility_wrapper: macros/MakeEmbeddedPhotonXsecNormQA.C
+    status: hard_alias
+  - id: MakeEmbeddedStitchBoundaryCorrectnessScan
+    group: plotting/stitching
+    canonical_path: macros/plotting/stitching/MakeEmbeddedStitchBoundaryCorrectnessScan.C
+    compatibility_wrapper: macros/compat/local/MakeEmbeddedStitchBoundaryCorrectnessScan.C
+    status: compat_wrapper
+  - id: MakeExpandedStitchCrossCheckBackupSlide
+    group: plotting/stitching
+    canonical_path: macros/plotting/stitching/MakeExpandedStitchCrossCheckBackupSlide.C
+    compatibility_wrapper: macros/compat/local/MakeExpandedStitchCrossCheckBackupSlide.C
+    status: compat_wrapper
+  - id: MakeFocus21PhotonStitchBlairPNGs
+    group: plotting/stitching
+    canonical_path: macros/plotting/stitching/MakeFocus21PhotonStitchBlairPNGs.C
+    compatibility_wrapper: macros/compat/local/MakeFocus21PhotonStitchBlairPNGs.C
+    status: compat_wrapper
+  - id: MakeFocus21PhotonStitchVariantComparison
+    group: plotting/stitching
+    canonical_path: macros/plotting/stitching/MakeFocus21PhotonStitchVariantComparison.C
+    compatibility_wrapper: macros/compat/local/MakeFocus21PhotonStitchVariantComparison.C
+    status: compat_wrapper
+  - id: MakeFocusedPhotonSummaryTables
+    group: plotting/stitching
+    canonical_path: macros/plotting/stitching/MakeFocusedPhotonSummaryTables.C
+    compatibility_wrapper: macros/compat/local/MakeFocusedPhotonSummaryTables.C
+    status: compat_wrapper
+  - id: MakeFocusedPhotonUnfoldingQuick
+    group: plotting/stitching
+    canonical_path: macros/plotting/stitching/MakeFocusedPhotonUnfoldingQuick.C
+    compatibility_wrapper: macros/compat/local/MakeFocusedPhotonUnfoldingQuick.C
+    status: compat_wrapper
+  - id: MakePhotonJet12Plus20Slide4Replacement
+    group: plotting/stitching
+    canonical_path: macros/plotting/stitching/MakePhotonJet12Plus20Slide4Replacement.C
+    compatibility_wrapper: macros/compat/local/MakePhotonJet12Plus20Slide4Replacement.C
+    status: compat_wrapper
+  - id: MakeStitchDiagnosticSlideStylePlots
+    group: plotting/stitching
+    canonical_path: macros/plotting/stitching/MakeStitchDiagnosticSlideStylePlots.C
+    compatibility_wrapper: macros/compat/local/MakeStitchDiagnosticSlideStylePlots.C
+    status: compat_wrapper
+  - id: PlotTarget80Expanded5to40Campaign
+    group: plotting/target_wp
+    canonical_path: macros/plotting/target_wp/PlotTarget80Expanded5to40Campaign.C
+    compatibility_wrapper: macros/compat/local/PlotTarget80Expanded5to40Campaign.C
+    status: compat_wrapper
+  - id: PlotTarget80FirstPairEfficiency
+    group: plotting/target_wp
+    canonical_path: macros/plotting/target_wp/PlotTarget80FirstPairEfficiency.C
+    compatibility_wrapper: macros/compat/local/PlotTarget80FirstPairEfficiency.C
+    status: compat_wrapper
+  - id: PlotTarget80FoodChain
+    group: plotting/target_wp
+    canonical_path: macros/plotting/target_wp/PlotTarget80FoodChain.C
+    compatibility_wrapper: macros/PlotTarget80FoodChain.C
+    status: hard_alias
+  - id: PlotTarget80VsPPAndLoss
+    group: plotting/target_wp
+    canonical_path: macros/plotting/target_wp/PlotTarget80VsPPAndLoss.C
+    compatibility_wrapper: macros/compat/local/PlotTarget80VsPPAndLoss.C
+    status: compat_wrapper
+  - id: MakeWidthStudy1535AucWinnerPlot
+    group: plotting/width_study
+    canonical_path: macros/plotting/width_study/MakeWidthStudy1535AucWinnerPlot.C
+    compatibility_wrapper: macros/compat/local/MakeWidthStudy1535AucWinnerPlot.C
+    status: compat_wrapper
+  - id: MakeWidthStudyBDTComparison
+    group: plotting/width_study
+    canonical_path: macros/plotting/width_study/MakeWidthStudyBDTComparison.C
+    compatibility_wrapper: macros/compat/local/MakeWidthStudyBDTComparison.C
+    status: compat_wrapper
+  - id: MakeWidthStudyCentralityGain
+    group: plotting/width_study
+    canonical_path: macros/plotting/width_study/MakeWidthStudyCentralityGain.C
+    compatibility_wrapper: macros/compat/local/MakeWidthStudyCentralityGain.C
+    status: compat_wrapper
+  - id: MakeWidthStudyCentralityStability
+    group: plotting/width_study
+    canonical_path: macros/plotting/width_study/MakeWidthStudyCentralityStability.C
+    compatibility_wrapper: macros/compat/local/MakeWidthStudyCentralityStability.C
+    status: compat_wrapper
+  - id: MakeWidthStudyFeatureImportance
+    group: plotting/width_study
+    canonical_path: macros/plotting/width_study/MakeWidthStudyFeatureImportance.C
+    compatibility_wrapper: macros/compat/local/MakeWidthStudyFeatureImportance.C
+    status: compat_wrapper
+  - id: MakeWidthStudyFeatureInsight
+    group: plotting/width_study
+    canonical_path: macros/plotting/width_study/MakeWidthStudyFeatureInsight.C
+    compatibility_wrapper: macros/compat/local/MakeWidthStudyFeatureInsight.C
+    status: compat_wrapper
+  - id: MakeWidthStudyWindowAucComparisons
+    group: plotting/width_study
+    canonical_path: macros/plotting/width_study/MakeWidthStudyWindowAucComparisons.C
+    compatibility_wrapper: macros/compat/local/MakeWidthStudyWindowAucComparisons.C
+    status: compat_wrapper
+  - id: PlotAuAuWidthStudyIDEff1530
+    group: plotting/width_study
+    canonical_path: macros/plotting/width_study/PlotAuAuWidthStudyIDEff1530.C
+    compatibility_wrapper: macros/compat/local/PlotAuAuWidthStudyIDEff1530.C
+    status: compat_wrapper

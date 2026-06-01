@@ -1,0 +1,1 @@
+../../data_prep/manifests/build_currentian_fast_manifests.py

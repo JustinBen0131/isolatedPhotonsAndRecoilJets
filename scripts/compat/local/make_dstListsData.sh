@@ -1,0 +1,1 @@
+../../sdcc/runtime/lists/make_dstListsData.sh

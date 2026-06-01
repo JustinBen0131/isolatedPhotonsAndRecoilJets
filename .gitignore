@@ -17,6 +17,9 @@
 !/agent_context/ARTIFACT_REGISTRY.yaml
 !/agent_context/REFERENCE_MAP.md
 !/agent_context/THESIS_NARRATIVE_MAP.md
+!/agent_context/REPO_ORGANIZATION_MIGRATION_SPEC.md
+!/agent_context/REPO_ORGANIZATION_INVENTORY.tsv
+!/agent_context/REPO_ORGANIZATION_CLEANUP_MANIFEST.tsv
 !/agent_context/policies/
 !/agent_context/policies/**
 !/agent_context/templates/
@@ -41,6 +44,8 @@ agent_context/local/
 !/scripts/**
 
 # Generated/build artifacts, including those created inside tracked directories.
+**/__pycache__/
+*.py[cod]
 *.so
 *.dylib
 *.pcm

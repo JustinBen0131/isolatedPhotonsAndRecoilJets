@@ -1,0 +1,1 @@
+../../sdcc/workflows/target_wp/prepare_auau_bdt_target80_available_campaigns.sh
