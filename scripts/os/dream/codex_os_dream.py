@@ -56,6 +56,9 @@ ARTIFACT_REGISTRY = Path("agent_context/ARTIFACT_REGISTRY.yaml")
 THESIS_MAP = Path("agent_context/THESIS_NARRATIVE_MAP.md")
 EVENT_LOG = Path("agent_context/local/os_events.jsonl")
 CHATGPT_RESEARCH_ROOT = Path("agent_context/local/chatgpt_research")
+LOCAL_CLEANUP_STORAGE_ROOT = Path("agent_context/local/cleanup_storage")
+CLEANUP_RETENTION_INDEX_JSON = LOCAL_CLEANUP_STORAGE_ROOT / "retention_index.json"
+CLEANUP_RETENTION_INDEX_MD = LOCAL_CLEANUP_STORAGE_ROOT / "retention_index.md"
 DREAM_INDEX = DREAM_ROOT / "dream_index.jsonl"
 APPROVAL_LIKE_PATTERN = re.compile(
     r"\bJustin approved\b|\breal user approval\b|\buser approved\b",
@@ -3297,6 +3300,368 @@ def render_cleanup_compaction(payload: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def path_modified_iso(path: Path) -> str:
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat(timespec="seconds")
+    except OSError:
+        return ""
+
+
+def read_json_dict(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def cleanup_storage_retention_class(surface: str, path: Path, rank: int, age: float, summary: dict[str, Any]) -> tuple[str, str, str]:
+    name = path.name
+    lane_id = str(summary.get("lane_id") or "")
+    if rank < 8:
+        return "hot_keep", "keep_hot", "one of the newest local packs for this surface"
+    if surface == "chatgpt_research":
+        return (
+            "research_pack_review",
+            "keep_indexed_and_review_before_archive",
+            "delegated-research packs need human/source-pointer review before archival",
+        )
+    if name.startswith("validation-") or "-validation-" in name or name.startswith("validation"):
+        return (
+            "validation_noise_summarize",
+            "summarize_to_index_before_any_archive_or_prune",
+            "validation-noise run should stop resurfacing as fresh clutter after summary",
+        )
+    if lane_id:
+        return (
+            "lane_run_summarize",
+            "summarize_to_index_before_any_archive_or_prune",
+            "scheduled lane run is outside the hot window but still preserves useful provenance",
+        )
+    if age >= 30:
+        return (
+            "stale_archive_review",
+            "defer_archive_review_after_source_pointer_summary",
+            "old local pack may be archive-worthy only after waking review",
+        )
+    return (
+        "cold_keep_indexed",
+        "keep_indexed_until_retention_threshold",
+        "not hot, not old enough, and not safe to archive automatically",
+    )
+
+
+def cleanup_storage_anti_entropy_score(entry: dict[str, Any]) -> float:
+    score = 0.0
+    retention_class = str(entry.get("retention_class") or "")
+    if retention_class == "validation_noise_summarize":
+        score += 4.0
+    elif retention_class == "lane_run_summarize":
+        score += 3.0
+    elif retention_class == "research_pack_review":
+        score += 2.5
+    elif retention_class == "stale_archive_review":
+        score += 2.0
+    score += min(float(entry.get("bytes") or 0) / 1_000_000.0, 2.0)
+    score += min(float(entry.get("age_days") or 0) / 10.0, 1.5)
+    if entry.get("has_morning_summary"):
+        score += 0.5
+    if entry.get("recommended_action") == "keep_hot":
+        score -= 2.0
+    return round(score, 3)
+
+
+def cleanup_storage_retention_payload(now: datetime, world: dict[str, Any], cleanup_compaction: dict[str, Any]) -> dict[str, Any]:
+    entries: list[dict[str, Any]] = []
+    groups: dict[str, dict[str, Any]] = {}
+    for surface, root in (("dreams", DREAM_ROOT), ("chatgpt_research", CHATGPT_RESEARCH_ROOT)):
+        dirs = [path for path in root.iterdir() if path.is_dir()] if root.exists() else []
+        dirs.sort(key=lambda item: item.stat().st_mtime if item.exists() else 0, reverse=True)
+        for rank, path in enumerate(dirs):
+            summary = read_json_dict(path / "morning_lane_summary.json")
+            lane_signal = read_json_dict(path / "lane_signal.json")
+            lane_id = str(summary.get("lane_id") or lane_signal.get("lane_id") or "")
+            run_id = str(summary.get("run_id") or lane_signal.get("run_id") or path.name)
+            age = age_days(path, now)
+            retention_class, recommended_action, reason = cleanup_storage_retention_class(surface, path, rank, age, summary or lane_signal)
+            group_key = f"{surface}:{lane_id or 'unknown'}:{retention_class}"
+            entry = {
+                "surface": surface,
+                "path": path.as_posix(),
+                "source_pointer": f"{path.as_posix()}/",
+                "run_id": run_id,
+                "lane_id": lane_id,
+                "rank_newest_first": rank + 1,
+                "modified_utc": path_modified_iso(path),
+                "age_days": age,
+                "bytes": dir_bytes(path),
+                "has_morning_summary": bool(summary),
+                "scheduled_morning_lane": summary.get("scheduled_morning_lane") is True,
+                "status": summary.get("status") or lane_signal.get("status") or "",
+                "retention_class": retention_class,
+                "recommended_action": recommended_action,
+                "reason": reason,
+                "delete_anything": False,
+                "move_anything": False,
+                "archive_requires_waking_approval": recommended_action != "keep_hot",
+                "source_pointer_preserved": True,
+                "group_key": group_key,
+            }
+            entry["anti_entropy_score"] = cleanup_storage_anti_entropy_score(entry)
+            entries.append(entry)
+            group = groups.setdefault(
+                group_key,
+                {
+                    "group_key": group_key,
+                    "surface": surface,
+                    "lane_id": lane_id,
+                    "retention_class": retention_class,
+                    "count": 0,
+                    "bytes": 0,
+                    "recommended_action": recommended_action,
+                },
+            )
+            group["count"] += 1
+            group["bytes"] += int(entry["bytes"])
+    groups_list = sorted(groups.values(), key=lambda item: (int(item["count"]), int(item["bytes"])), reverse=True)
+    compaction_surfaces = cleanup_compaction.get("surfaces") if isinstance(cleanup_compaction.get("surfaces"), list) else []
+    compaction_count = sum(len(surface.get("compact_candidates") or []) for surface in compaction_surfaces if isinstance(surface, dict))
+    validation_noise = [item for item in entries if item["retention_class"] == "validation_noise_summarize"]
+    summarize_runs = [
+        item
+        for item in entries
+        if item["recommended_action"] == "summarize_to_index_before_any_archive_or_prune"
+        and item["retention_class"] != "validation_noise_summarize"
+    ]
+    storage_hits = world.get("storage_signal_hits") if isinstance(world.get("storage_signal_hits"), list) else []
+    deferred: list[dict[str, Any]] = []
+    if validation_noise:
+        deferred.append(
+            {
+                "tier": "blocked_for_waking",
+                "target": "validation_noise_dream_runs",
+                "count": len(validation_noise),
+                "bytes": sum(int(item.get("bytes") or 0) for item in validation_noise),
+                "action": "summarize validation-only dream runs into the retention index, then review archive eligibility",
+                "reason": "archival or movement of meaningful dream directories needs waking judgment even when the runs look like validation noise",
+                "safe_check": "review cleanup_retention_index.md and confirm source pointers before any archive/prune",
+            }
+        )
+    if summarize_runs or compaction_count:
+        deferred.append(
+            {
+                "tier": "blocked_for_waking",
+                "target": "old_dream_run_compaction",
+                "count": len(summarize_runs) or compaction_count,
+                "bytes": sum(int(item.get("bytes") or 0) for item in summarize_runs),
+                "action": "compact older dream/lane summaries into one human-readable index before any archive discussion",
+                "reason": "summary compaction is safe to propose, but deleting or moving source directories is not automatic",
+                "safe_check": "compare cleanup_compaction_index.md against cleanup_retention_index.md",
+            }
+        )
+    if storage_hits:
+        deferred.append(
+            {
+                "tier": "blocked_for_waking",
+                "target": "recorded_sdcc_storage_signals",
+                "count": len(storage_hits),
+                "bytes": 0,
+                "action": "prepare a recorded-evidence-only SDCC/storage cleanup candidate list",
+                "reason": "SDCC/storage cleanup requires explicit waking approval and must not be inferred from local dream text",
+                "safe_check": "read local ledger references only; do not SSH, delete, transfer, or control jobs",
+            }
+        )
+    return {
+        "synthetic": True,
+        "synthetic_header": SYNTHETIC_HEADER,
+        "mutation_boundary": "local_internal_auto_safe",
+        "purpose": "anti-entropy retention index for local dream, research, context, and cleanup byproducts",
+        "delete_anything": False,
+        "move_anything": False,
+        "generated_at": now.isoformat(timespec="seconds"),
+        "source_roots": [DREAM_ROOT.as_posix(), CHATGPT_RESEARCH_ROOT.as_posix()],
+        "entry_count": len(entries),
+        "hot_keep_count": sum(1 for item in entries if item["retention_class"] == "hot_keep"),
+        "summarize_count": sum(1 for item in entries if item["recommended_action"] == "summarize_to_index_before_any_archive_or_prune"),
+        "archive_requires_approval_count": sum(1 for item in entries if item["archive_requires_waking_approval"]),
+        "groups": groups_list[:24],
+        "entries": entries,
+        "top_deferred_improvements": deferred[:3],
+        "anti_entropy_score_rule": (
+            "clarity + retrieval quality + lookup reduction + duplicate-noise reduction + reuse + morning value "
+            "minus risk, rollback complexity, source-pointer loss, and human judgment"
+        ),
+    }
+
+
+def render_cleanup_retention_index(payload: dict[str, Any]) -> str:
+    lines = ["# Cleanup Storage Retention Index", "", SYNTHETIC_HEADER, ""]
+    lines.append("This local-only index fights internal Codex-OS entropy without deleting, moving, archiving, or mutating source directories.")
+    lines.append("")
+    lines.append(f"- generated_at: `{payload.get('generated_at')}`")
+    lines.append(f"- entry_count: {payload.get('entry_count')}")
+    lines.append(f"- hot_keep_count: {payload.get('hot_keep_count')}")
+    lines.append(f"- summarize_count: {payload.get('summarize_count')}")
+    lines.append(f"- archive_requires_approval_count: {payload.get('archive_requires_approval_count')}")
+    lines.append("- delete_anything: `False`")
+    lines.append("- move_anything: `False`")
+    lines.append("")
+    lines.append("## Top Deferred Cleanup Decisions")
+    deferred = payload.get("top_deferred_improvements") if isinstance(payload.get("top_deferred_improvements"), list) else []
+    if deferred:
+        for item in deferred[:3]:
+            lines.append(f"- `{item.get('target')}` count={item.get('count')}: {item.get('action')}")
+            lines.append(f"  reason: {item.get('reason')}")
+            lines.append(f"  safe_check: {item.get('safe_check')}")
+    else:
+        lines.append("- none")
+    lines.append("")
+    lines.append("## Retention Groups")
+    for group in (payload.get("groups") or [])[:12]:
+        lines.append(
+            f"- `{group.get('group_key')}` count={group.get('count')} bytes={group.get('bytes')} action={group.get('recommended_action')}"
+        )
+    lines.append("")
+    lines.append("## Highest Anti-Entropy Entries")
+    entries = payload.get("entries") if isinstance(payload.get("entries"), list) else []
+    ranked = sorted(entries, key=lambda item: float(item.get("anti_entropy_score") or 0.0), reverse=True)
+    for item in ranked[:16]:
+        lines.append(
+            f"- `{item.get('path')}` class={item.get('retention_class')} score={item.get('anti_entropy_score')} "
+            f"action={item.get('recommended_action')}"
+        )
+        lines.append(f"  reason: {item.get('reason')}")
+    lines.append("")
+    lines.append("## Rule")
+    lines.append("- Any archive, movement, deletion, or memory obsolescence decision remains blocked for waking review.")
+    lines.append("- Source pointers are preserved so provenance and rollback chains stay inspectable.")
+    return "\n".join(lines) + "\n"
+
+
+def cleanup_storage_target_allowed(path: Path) -> bool:
+    resolved = path.resolve()
+    root = LOCAL_CLEANUP_STORAGE_ROOT.resolve()
+    return root in [resolved, *resolved.parents]
+
+
+def validate_cleanup_storage_retention_payload(payload: dict[str, Any], target_paths: list[Path]) -> list[dict[str, Any]]:
+    entries = payload.get("entries") if isinstance(payload.get("entries"), list) else []
+    return [
+        {"name": "target_paths_local_only", "passed": all(cleanup_storage_target_allowed(path) for path in target_paths)},
+        {"name": "synthetic_boundary", "passed": payload.get("synthetic") is True and payload.get("synthetic_header") == SYNTHETIC_HEADER},
+        {"name": "no_delete_or_move", "passed": payload.get("delete_anything") is False and payload.get("move_anything") is False},
+        {
+            "name": "source_pointers_preserved",
+            "passed": all(isinstance(item, dict) and item.get("source_pointer_preserved") is True for item in entries),
+        },
+        {"name": "deferred_limit", "passed": len(payload.get("top_deferred_improvements") or []) <= 3},
+    ]
+
+
+def refresh_cleanup_storage_retention_index(run_dir: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    target_paths = [CLEANUP_RETENTION_INDEX_JSON, CLEANUP_RETENTION_INDEX_MD]
+    pre_checks = validate_cleanup_storage_retention_payload(payload, target_paths)
+    if not all(item["passed"] for item in pre_checks):
+        failed = ", ".join(item["name"] for item in pre_checks if not item["passed"]) or "unknown"
+        return {
+            "performed": False,
+            "action": "cleanup_storage_retention_index_blocked",
+            "path": ",".join(path.as_posix() for path in target_paths),
+            "reason": f"pre-refresh validator failed: {failed}",
+            "rollback": "no state changed",
+            "pre_checks": pre_checks,
+            "post_checks": [],
+        }
+    json_content = render_json_file(payload)
+    md_content = render_cleanup_retention_index(payload)
+    before = {
+        CLEANUP_RETENTION_INDEX_JSON.as_posix(): read_text(CLEANUP_RETENTION_INDEX_JSON, default=""),
+        CLEANUP_RETENTION_INDEX_MD.as_posix(): read_text(CLEANUP_RETENTION_INDEX_MD, default=""),
+    }
+    existed_before = {
+        CLEANUP_RETENTION_INDEX_JSON.as_posix(): CLEANUP_RETENTION_INDEX_JSON.exists(),
+        CLEANUP_RETENTION_INDEX_MD.as_posix(): CLEANUP_RETENTION_INDEX_MD.exists(),
+    }
+    after = {
+        CLEANUP_RETENTION_INDEX_JSON.as_posix(): json_content,
+        CLEANUP_RETENTION_INDEX_MD.as_posix(): md_content,
+    }
+    if before == after:
+        return {
+            "performed": False,
+            "action": "cleanup_storage_retention_index_current",
+            "path": CLEANUP_RETENTION_INDEX_JSON.as_posix(),
+            "reason": "local anti-entropy retention index already matches the current dream/research pack state",
+            "rollback": "no state changed",
+            "pre_checks": pre_checks,
+            "post_checks": pre_checks,
+        }
+    rollback_manifest = {
+        "synthetic": True,
+        "synthetic_header": SYNTHETIC_HEADER,
+        "mutation_boundary": "local_internal_auto_safe",
+        "action": "refresh_cleanup_storage_retention_index",
+        "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "targets": [
+            {
+                "path": path,
+                "existed_before": existed_before[path],
+                "before_sha256": file_digest(before[path]) if existed_before[path] else None,
+                "before_content": before[path] if existed_before[path] else None,
+                "after_sha256": file_digest(after[path]),
+            }
+            for path in after
+        ],
+    }
+    LOCAL_CLEANUP_STORAGE_ROOT.mkdir(parents=True, exist_ok=True)
+    CLEANUP_RETENTION_INDEX_JSON.write_text(json_content, encoding="utf-8")
+    CLEANUP_RETENTION_INDEX_MD.write_text(md_content, encoding="utf-8")
+    safe_write(run_dir, "cleanup_storage_rollback_manifest.json", render_json_file(rollback_manifest))
+    post_checks = validate_cleanup_storage_retention_payload(payload, target_paths)
+    try:
+        json.loads(CLEANUP_RETENTION_INDEX_JSON.read_text(encoding="utf-8"))
+        json_valid = True
+    except (OSError, json.JSONDecodeError):
+        json_valid = False
+    post_checks.append({"name": "written_json_valid", "passed": json_valid})
+    if not all(item["passed"] for item in post_checks):
+        for path in target_paths:
+            original = before[path.as_posix()]
+            if not existed_before[path.as_posix()]:
+                try:
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
+            else:
+                path.write_text(original, encoding="utf-8")
+        failed = ", ".join(item["name"] for item in post_checks if not item["passed"]) or "unknown"
+        return {
+            "performed": False,
+            "action": "cleanup_storage_retention_index_rolled_back",
+            "path": ",".join(path.as_posix() for path in target_paths),
+            "reason": f"post-refresh validator failed and rollback restored before state: {failed}",
+            "rollback": "before_content restored from cleanup_storage_rollback_manifest.json",
+            "pre_checks": pre_checks,
+            "post_checks": post_checks,
+        }
+    return {
+        "tier": "auto_safe",
+        "performed": True,
+        "action": "refreshed_cleanup_storage_retention_index",
+        "path": ",".join(path.as_posix() for path in target_paths),
+        "reason": (
+            f"refreshed local anti-entropy retention index for {payload.get('entry_count')} local dream/research packs; "
+            f"{payload.get('summarize_count')} summarize-only entries and "
+            f"{payload.get('archive_requires_approval_count')} approval-gated entries remain source-preserved"
+        ),
+        "rollback": "restore before_content from cleanup_storage_rollback_manifest.json, or delete targets that did not exist before",
+        "before_sha256": file_digest(json.dumps(before, sort_keys=True)),
+        "after_sha256": file_digest(json.dumps(after, sort_keys=True)),
+        "pre_checks": pre_checks,
+        "post_checks": post_checks,
+    }
+
+
 def autonomy_envelope_payload() -> dict[str, Any]:
     return {
         "synthetic": True,
@@ -3472,10 +3837,47 @@ def deferred_actions_payload(maintenance: dict[str, Any], research: dict[str, An
     return deferred
 
 
-def autonomous_maintenance_payload(run_dir: Path, world: dict[str, Any], risks: list[dict[str, Any]], maintenance: dict[str, Any]) -> dict[str, Any]:
+def autonomous_maintenance_payload(
+    run_dir: Path,
+    world: dict[str, Any],
+    risks: list[dict[str, Any]],
+    maintenance: dict[str, Any],
+    *,
+    lane_id: str = "",
+) -> dict[str, Any]:
     envelope = autonomy_envelope_payload()
     candidates = collect_auto_safe_generated_trash(run_dir)
-    changed = remove_auto_safe_generated_trash(candidates)
+    changed = remove_auto_safe_generated_trash(candidates, limit=1 if lane_id == "cleanup_storage" else 200)
+    cleanup_auto: dict[str, Any] = {}
+    cleanup_deferred: list[dict[str, Any]] = []
+    cleanup_retention = maintenance.get("cleanup_retention_index") if isinstance(maintenance.get("cleanup_retention_index"), dict) else {}
+    if lane_id == "cleanup_storage" and cleanup_retention:
+        cleanup_deferred = [
+            {
+                "tier": item.get("tier") or "blocked_for_waking",
+                "reason": item.get("reason"),
+                "target": item.get("target"),
+                "action": item.get("action"),
+                "candidate_files": [
+                    CLEANUP_RETENTION_INDEX_JSON.as_posix(),
+                    CLEANUP_RETENTION_INDEX_MD.as_posix(),
+                    "agent_context/local/dreams/",
+                    "agent_context/local/chatgpt_research/",
+                ],
+                "validation_commands": [
+                    "python3 scripts/codex_os_dream.py lane --lane-id cleanup_storage",
+                    "python3 scripts/codex_os_dream.py validate --latest",
+                ],
+                "safe_check": item.get("safe_check"),
+                "count": item.get("count"),
+                "bytes": item.get("bytes"),
+            }
+            for item in cleanup_retention.get("top_deferred_improvements") or []
+            if isinstance(item, dict)
+        ][:3]
+    if lane_id == "cleanup_storage" and not changed and cleanup_retention:
+        cleanup_auto = refresh_cleanup_storage_retention_index(run_dir, cleanup_retention)
+        changed = [cleanup_auto]
     if not changed:
         changed = [
             {
@@ -3489,6 +3891,8 @@ def autonomous_maintenance_payload(run_dir: Path, world: dict[str, Any], risks: 
         ]
     research = research_scout_payload(world, risks)
     deferred = deferred_actions_payload(maintenance, research)
+    if cleanup_deferred:
+        deferred = cleanup_deferred + deferred
     return {
         "synthetic": True,
         "synthetic_header": SYNTHETIC_HEADER,
@@ -3524,8 +3928,13 @@ def autonomous_maintenance_payload(run_dir: Path, world: dict[str, Any], risks: 
             "changed_count": sum(1 for item in changed if item.get("performed") is True),
             "deferred_count": len(deferred),
             "research_status": research.get("status"),
-            "summary": "auto-safe internal cleanup ran; tracked/external/science changes stayed deferred",
+            "summary": (
+                "cleanup-storage anti-entropy maintenance ran; tracked/external/science changes stayed deferred"
+                if lane_id == "cleanup_storage"
+                else "auto-safe internal cleanup ran; tracked/external/science changes stayed deferred"
+            ),
         },
+        "cleanup_storage_auto_maintenance": cleanup_auto,
     }
 
 
@@ -3620,6 +4029,7 @@ def evolutionary_maintenance_payload(world: dict[str, Any], risks: list[dict[str
     resonance = context_resonance_payload(world, risks)
     generated_at = parse_when(world.get("generated_at")) or now_utc()
     cleanup_compaction = cleanup_compaction_payload(generated_at)
+    cleanup_retention = cleanup_storage_retention_payload(generated_at, world, cleanup_compaction)
     maintenance_stub = {
         "targeted_findings": targeted,
         "branch_pressure": branch,
@@ -3628,6 +4038,7 @@ def evolutionary_maintenance_payload(world: dict[str, Any], risks: list[dict[str
         "lane_heartbeats": lane_heartbeats,
         "context_resonance": resonance,
         "cleanup_compaction": cleanup_compaction,
+        "cleanup_retention_index": cleanup_retention,
     }
     internal_queue = internal_evolution_queue_payload(world, maintenance_stub, risks)
     sdcc_hygiene = sdcc_base_repo_hygiene_payload(world, risks)
@@ -3651,6 +4062,7 @@ def evolutionary_maintenance_payload(world: dict[str, Any], risks: list[dict[str
         "lane_heartbeats": lane_heartbeats,
         "context_resonance": resonance,
         "cleanup_compaction": cleanup_compaction,
+        "cleanup_retention_index": cleanup_retention,
         "internal_evolution_queue": internal_queue,
         "sdcc_base_repo_hygiene": sdcc_hygiene,
         "summary": {
@@ -5212,6 +5624,8 @@ def write_dream_outputs(run_dir: Path, run_id: str, mode: str, world: dict[str, 
     write_lane_outputs(run_dir, maintenance["lane_heartbeats"])
     safe_write(run_dir, "cleanup_compaction_index.json", render_json_file(maintenance["cleanup_compaction"]))
     safe_write(run_dir, "cleanup_compaction_index.md", render_cleanup_compaction(maintenance["cleanup_compaction"]))
+    safe_write(run_dir, "cleanup_retention_index.json", render_json_file(maintenance["cleanup_retention_index"]))
+    safe_write(run_dir, "cleanup_retention_index.md", render_cleanup_retention_index(maintenance["cleanup_retention_index"]))
     safe_write(run_dir, "internal_evolution_queue.json", render_json_file(maintenance["internal_evolution_queue"]))
     safe_write(run_dir, "internal_evolution_queue.md", render_internal_evolution_queue(maintenance["internal_evolution_queue"]))
     safe_write(run_dir, "sdcc_base_repo_hygiene.md", render_sdcc_base_repo_hygiene(maintenance["sdcc_base_repo_hygiene"]))
@@ -5270,6 +5684,8 @@ def lane_required_artifacts(lane_id: str) -> list[str]:
             "cleanup_proposals.md",
             "cleanup_compaction_index.md",
             "cleanup_compaction_index.json",
+            "cleanup_retention_index.md",
+            "cleanup_retention_index.json",
             "changed_actions.md",
             "changed_actions.json",
         ],
@@ -5322,6 +5738,9 @@ def render_lane_heartbeat_report(
     )
     auto_candidate = auto_payload.get("candidate") if isinstance(auto_payload.get("candidate"), dict) else {}
     attempted_candidates = auto_payload.get("attempted_candidates") if isinstance(auto_payload.get("attempted_candidates"), list) else []
+    cleanup_retention = lane_signal_payload.get("cleanup_retention_index") if isinstance(lane_signal_payload.get("cleanup_retention_index"), dict) else {}
+    cleanup_deferred = cleanup_retention.get("top_deferred_improvements") if isinstance(cleanup_retention.get("top_deferred_improvements"), list) else []
+    cleanup_changed = performed_action_rows(lane_signal_payload.get("changed_actions") if isinstance(lane_signal_payload.get("changed_actions"), dict) else {})
     lines = [f"# Dream Lane Heartbeat `{lane_id}`", "", SYNTHETIC_HEADER, ""]
     lines.append(f"- run: `{run_id}`")
     lines.append(f"- lane: `{lane_id}`")
@@ -5335,7 +5754,18 @@ def render_lane_heartbeat_report(
     lines.append(f"- lane_risk_count: {len(lane_risks)}")
     lines.append("")
     lines.append("## Top Findings")
-    if auto_candidate:
+    if cleanup_changed and lane_id == "cleanup_storage":
+        first = cleanup_changed[0]
+        lines.append(f"- applied `{first.get('action')}`: {first.get('reason')}")
+        lines.append(
+            f"- retention index: entries={cleanup_retention.get('entry_count')} summarize={cleanup_retention.get('summarize_count')} "
+            f"approval_gated={cleanup_retention.get('archive_requires_approval_count')}"
+        )
+    elif cleanup_deferred and lane_id == "cleanup_storage":
+        lines.append("- no auto-safe retention mutation was needed or qualified")
+        for item in cleanup_deferred[:3]:
+            lines.append(f"- deferred `{item.get('target')}` count={item.get('count')}: {item.get('action')}")
+    elif auto_candidate:
         lines.append(
             f"- `{auto_candidate.get('change_type')}` score={auto_candidate.get('impact_score')}: {auto_candidate.get('why_now')}"
         )
@@ -5362,7 +5792,15 @@ def render_lane_heartbeat_report(
         lines.append("- none")
     lines.append("")
     lines.append("## Morning Actions")
-    if auto_candidate:
+    if lane_id == "cleanup_storage":
+        if cleanup_changed:
+            lines.append("- No Justin action required for the applied local retention-index refresh; rollback is logged.")
+        if cleanup_deferred:
+            for item in cleanup_deferred[:3]:
+                lines.append(f"- Deferred approval-gated cleanup: {item.get('action')}")
+        if not cleanup_changed and not cleanup_deferred:
+            lines.append("- No cleanup-storage waking action stands out from the current evidence.")
+    elif auto_candidate:
         if auto_candidate.get("blocked_reason"):
             lines.append("- Review `deferred_for_waking.md`; it lists the failed intended update, failure reason, and next validator.")
         else:
@@ -5406,7 +5844,10 @@ def render_lane_heartbeat_report(
                 )
         lines.append("")
     lines.append("## Boundary")
-    lines.append("- Context-resonance auto-maintenance is local-only. No SDCC, Condor, Gmail, Google Drive/Slides, Linear, or repo-tracked mutation.")
+    if lane_id == "cleanup_storage":
+        lines.append("- Cleanup-storage auto-maintenance is local-only. No deletion, archive, SDCC, Condor, science, task, external-app, or repo-tracked mutation.")
+    else:
+        lines.append("- Context-resonance auto-maintenance is local-only. No SDCC, Condor, Gmail, Google Drive/Slides, Linear, or repo-tracked mutation.")
     return "\n".join(lines) + "\n"
 
 
@@ -5435,13 +5876,23 @@ def render_lane_digest(lane_id: str, lane_risks: list[dict[str, Any]], maintenan
     )
     auto_candidate = auto_payload.get("candidate") if isinstance(auto_payload.get("candidate"), dict) else {}
     attempted_candidates = auto_payload.get("attempted_candidates") if isinstance(auto_payload.get("attempted_candidates"), list) else []
+    cleanup_retention = maintenance.get("cleanup_retention_index") if lane_id == "cleanup_storage" and isinstance(maintenance.get("cleanup_retention_index"), dict) else {}
+    cleanup_deferred = cleanup_retention.get("top_deferred_improvements") if isinstance(cleanup_retention.get("top_deferred_improvements"), list) else []
+    cleanup_changed = performed_action_rows(autonomous.get("changed_actions") if isinstance(autonomous.get("changed_actions"), dict) else {})
     lines = [f"# Lane Digest `{lane_id}`", "", SYNTHETIC_HEADER, ""]
     lines.append(f"- role: {lane.get('agent_role')}")
     lines.append(f"- purpose: {lane.get('purpose')}")
     lines.append(f"- risk_count: {len(lane_risks)}")
     lines.append("")
     lines.append("## What Changed")
-    if auto_candidate and not auto_candidate.get("blocked_reason"):
+    if lane_id == "cleanup_storage" and cleanup_changed:
+        first = cleanup_changed[0]
+        lines.append(f"- Applied one auto-safe local `{first.get('action')}` anti-entropy update.")
+        lines.append(f"- {first.get('reason')}")
+    elif lane_id == "cleanup_storage":
+        auto = autonomous.get("cleanup_storage_auto_maintenance") if isinstance(autonomous.get("cleanup_storage_auto_maintenance"), dict) else {}
+        lines.append(f"- No local cleanup mutation applied: {auto.get('reason') or 'no generated junk or retention-index change qualified'}")
+    elif auto_candidate and not auto_candidate.get("blocked_reason"):
         lines.append(f"- Applied one auto-safe local `{auto_candidate.get('change_type')}` maintenance change.")
         skipped = [item for item in attempted_candidates if isinstance(item, dict) and item.get("status") in {"blocked", "rolled_back"}]
         if skipped:
@@ -5455,7 +5906,10 @@ def render_lane_digest(lane_id: str, lane_risks: list[dict[str, Any]], maintenan
         lines.append("- This lane writes only local dream artifacts and proposal surfaces.")
     lines.append("")
     lines.append("## Top 3 Lane Findings")
-    if lane_risks:
+    if lane_id == "cleanup_storage" and cleanup_deferred:
+        for item in cleanup_deferred[:3]:
+            lines.append(f"- `{item.get('target')}`: {item.get('action')}")
+    elif lane_risks:
         for item in lane_risks[:3]:
             lines.append(f"- `{item.get('kind')}`: {item.get('label')}")
     elif research_subtasks:
@@ -5470,7 +5924,10 @@ def render_lane_digest(lane_id: str, lane_risks: list[dict[str, Any]], maintenan
         lines.append("- none")
     lines.append("")
     lines.append("## Top 3 Proposed Morning Actions")
-    if lane_risks:
+    if lane_id == "cleanup_storage" and cleanup_deferred:
+        for item in cleanup_deferred[:3]:
+            lines.append(f"- {item.get('safe_check')}")
+    elif lane_risks:
         for item in lane_risks[:3]:
             lines.append(f"- {validator_candidate_for(item).get('safe_command')}")
     elif research_subtasks:
@@ -5592,6 +6049,8 @@ def write_lane_artifacts(
         safe_write(run_dir, "cleanup_proposals.md", render_cleanup_proposals(world, lane_risks))
         safe_write(run_dir, "cleanup_compaction_index.md", render_cleanup_compaction(maintenance["cleanup_compaction"]))
         safe_write(run_dir, "cleanup_compaction_index.json", render_json_file(maintenance["cleanup_compaction"]))
+        safe_write(run_dir, "cleanup_retention_index.md", render_cleanup_retention_index(maintenance["cleanup_retention_index"]))
+        safe_write(run_dir, "cleanup_retention_index.json", render_json_file(maintenance["cleanup_retention_index"]))
         safe_write(run_dir, "changed_actions.md", render_changed_actions(autonomous["changed_actions"]))
         safe_write(run_dir, "changed_actions.json", render_json_file(autonomous["changed_actions"]))
     elif lane_id == "path_contract":
@@ -5637,6 +6096,7 @@ def build_morning_lane_summary_payload(
     status = "no_safe_change"
     one_line = "no safe improvement passed validators"
     changed = "none"
+    untouched = "external, science, SDCC, Condor, task, and repo-tracked state"
     deferred = "none"
     needs_justin = False
     needs_justin_reason = "none"
@@ -5679,14 +6139,47 @@ def build_morning_lane_summary_payload(
 
     deferred_payload = autonomous.get("deferred_actions") if isinstance(autonomous.get("deferred_actions"), dict) else {}
     deferred_rows.extend(row for row in deferred_payload.get("rows") or [] if isinstance(row, dict))
+    if lane_id == "cleanup_storage":
+        cleanup_retention = signal.get("cleanup_retention_index") if isinstance(signal.get("cleanup_retention_index"), dict) else {}
+        cleanup_deferred = (
+            cleanup_retention.get("top_deferred_improvements")
+            if isinstance(cleanup_retention.get("top_deferred_improvements"), list)
+            else []
+        )
+        deferred_titles = [
+            first_line(item.get("target")) or first_line(item.get("action"))
+            for item in cleanup_deferred[:3]
+            if isinstance(item, dict)
+        ]
+        deferred_titles = [item for item in deferred_titles if item]
+        untouched = "no deletion, archive, SDCC, Condor, science, task, external-app, or repo-tracked mutation"
+        if performed:
+            action_reason = first_row_text(performed, "reason", "action")
+            one_line = action_reason or one_line
+            changed = f"Applied {len(performed)} auto-safe anti-entropy update(s): {first_row_text(performed, 'action')}."
+            deferred = "; ".join(deferred_titles) if deferred_titles else "none"
+            evidence = first_row_text(performed, "path") or evidence
+            daily_plan_priority = 20
+        elif cleanup_retention:
+            status = "no_safe_change"
+            one_line = (
+                "cleanup-storage retention index already current"
+                if signal.get("cleanup_storage_auto_maintenance", {}).get("action") == "cleanup_storage_retention_index_current"
+                else "no cleanup-storage auto-safe mutation qualified"
+            )
+            deferred = "; ".join(deferred_titles) if deferred_titles else "none"
+            evidence = "cleanup_retention_index.md"
     if status == "no_safe_change" and lane_risks:
         status = "deferred"
         risk = lane_risks[0]
         label = first_line(risk.get("label")) or first_line(risk.get("title")) or first_line(risk.get("kind"))
-        one_line = f"proposal-only waking check surfaced: {label}"
-        deferred = label or "proposal-only waking check"
-        evidence = first_line(risk.get("evidence")) or evidence
-        daily_plan_priority = 70
+        if lane_id != "cleanup_storage":
+            one_line = f"proposal-only waking check surfaced: {label}"
+            deferred = label or "proposal-only waking check"
+            evidence = first_line(risk.get("evidence")) or evidence
+            daily_plan_priority = 70
+        else:
+            daily_plan_priority = 70
     elif status == "no_safe_change" and deferred_rows:
         detail = first_row_text(deferred_rows, "reason", "action", "target") or "proposal-only deferred check"
         status = "deferred"
@@ -5705,6 +6198,7 @@ def build_morning_lane_summary_payload(
         "status": status,
         "one_line_result": one_line,
         "changed": changed,
+        "untouched": untouched,
         "deferred": deferred,
         "needs_justin": needs_justin,
         "needs_justin_reason": needs_justin_reason,
@@ -5734,6 +6228,7 @@ def render_morning_lane_summary_text(payload: dict[str, Any]) -> str:
             f"Status: {payload.get('status')}",
             f"One-line result: {payload.get('one_line_result')}",
             f"Changed: {payload.get('changed')}",
+            f"Untouched: {payload.get('untouched')}",
             f"Deferred: {payload.get('deferred')}",
             f"Needs Justin: {needs} - {reason}",
             f"Evidence: {payload.get('evidence')}",
@@ -5763,7 +6258,7 @@ def write_lane_dream_outputs(
             maintenance["context_resonance"],
             auto_maintain=auto_maintain,
         )
-    autonomous = autonomous_maintenance_payload(run_dir, world, risks, maintenance)
+    autonomous = autonomous_maintenance_payload(run_dir, world, risks, maintenance, lane_id=lane_id)
     structural = structural_advancement_payload(world, risks, maintenance)
     maintenance["structural_advancements"] = structural
     maintenance["autonomous_maintenance"] = autonomous
@@ -5873,6 +6368,28 @@ def write_lane_dream_outputs(
             }
             for item in negative[:2]
         ])
+    if lane_id == "cleanup_storage":
+        cleanup_retention = maintenance.get("cleanup_retention_index") if isinstance(maintenance.get("cleanup_retention_index"), dict) else {}
+        cleanup_auto = autonomous.get("cleanup_storage_auto_maintenance") if isinstance(autonomous.get("cleanup_storage_auto_maintenance"), dict) else {}
+        signal["cleanup_retention_index"] = cleanup_retention
+        signal["cleanup_storage_auto_maintenance"] = cleanup_auto
+        signal["changed_actions"] = autonomous["changed_actions"]
+        signal["summary"]["cleanup_retention_entry_count"] = int(cleanup_retention.get("entry_count") or 0)
+        signal["summary"]["cleanup_retention_summarize_count"] = int(cleanup_retention.get("summarize_count") or 0)
+        signal["summary"]["cleanup_deferred_improvement_count"] = len(cleanup_retention.get("top_deferred_improvements") or [])
+        deferred = cleanup_retention.get("top_deferred_improvements") if isinstance(cleanup_retention.get("top_deferred_improvements"), list) else []
+        if deferred:
+            signal["top_findings"] = [
+                {
+                    "kind": "cleanup_storage_deferred_improvement",
+                    "score": None,
+                    "workstream_id": "cleanup_storage",
+                    "title": item.get("target"),
+                    "evidence": item.get("action"),
+                    "validator_kind": "waking_cleanup_review",
+                }
+                for item in deferred[:5]
+            ] + signal["top_findings"]
     maintenance_payload = signal.get("evolutionary_maintenance") if isinstance(signal.get("evolutionary_maintenance"), dict) else {}
     lane_payload = maintenance_payload.get("lane_heartbeats") if isinstance(maintenance_payload.get("lane_heartbeats"), dict) else {}
     if lane_payload:
