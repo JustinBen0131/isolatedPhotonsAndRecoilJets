@@ -1,5 +1,5 @@
 schema_version: 1
-last_updated: "2026-06-01T19:04:00-04:00"
+last_updated: "2026-06-02T01:56:00-04:00"
 owner: Codex
 purpose: >
   Canonical active-work register for the ThesisAnalysis operating system.
@@ -304,6 +304,46 @@ workstreams:
       helper are being upgraded so future Codex sessions always project chat
       and campaign identity into Linear.
 
+  - workstream_id: agentic_os_productization_backburner
+    title: BKL | Agentic Infrastructure Productization Idea
+    status: backlog
+    priority: P3
+    goal: >
+      Preserve Justin's back-burner idea that the ThesisAnalysis agentic
+      infrastructure itself could eventually be productized into a reusable,
+      downloadable deliverable or template package that people might pay for.
+    current_next_action: >
+      Do nothing now. Revisit only after thesis-facing HP26, PPG, model-choice,
+      and analysis-deliverable pressure is under control; then decide whether
+      the OS is generic enough to package as a product, template, course,
+      consulting artifact, or open-core tool.
+    depends_on:
+      - workstream:codex_os_self_tuning_hardening
+    active_codex_session: null
+    chat_label_or_thread: "back-burner productization note"
+    campaign_id: "codex_operating_system"
+    linear_issue: "https://linear.app/thesisanalysis/issue/THE-30/bkl-or-agentic-infrastructure-productization-idea"
+    linear_sync: synced
+    today_doc_anchor: null
+    workstream_spec: null
+    active_jobs: []
+    artifacts:
+      - "agent_context/CODEX_WORK_REGISTER.yaml"
+      - "agent_context/policies/CODEX_OPERATING_SYSTEM.md"
+      - "agent_context/policies/AGENTIC_OS_HARDENING.md"
+    evidence:
+      - "2026-06-02 Justin asked to keep a side back-burner note that turning the agentic infrastructure into a downloadable paid deliverable/package could be a strong future money-making idea, but not something to work on now."
+      - "2026-06-02 Linear THE-30 created in the ThesisAnalysis Operating System project as a low-priority Backlog / Surface: Linear Detail workstream."
+    last_verified: "2026-06-02T00:44:00-04:00"
+    next_check: "after major thesis/HP26/PPG deadlines calm down, reassess whether this belongs as a real productization project"
+    stale_after: "2026-08-01T10:00:00-04:00"
+    handoff_summary: >
+      This is intentionally parked. Justin thinks the human-Codex operating
+      system may have commercial value if turned into a clean downloadable
+      package, but current ThesisAnalysis execution remains the priority. Do
+      not surface in Today's Plan unless Justin asks for productization,
+      business strategy, packaging, or monetization work.
+
   - workstream_id: codex_os_10x_safety_kernel
     title: OS 10x | Safety Kernel + Thesis Nervous System
     status: done_pending_review
@@ -422,15 +462,15 @@ workstreams:
       cleanup/maintenance proposals, and a tighter doctor/dream fusion that
       improves thesis progress without mutating real analysis state overnight.
     current_next_action: >
-      After the next real context-resonance waking use or `03:30` lane run,
-      verify outcome-weighted ranking and homeostasis proposals reflect real
-      local retrieval feedback without expanding context volume or mutating
-      tracked memory registries automatically.
+      After the first real waking retrieval outcomes are recorded, inspect
+      review --json audit warnings and feedback-health; do not add backend
+      surfaces unless real-use evidence shows a resolver failure or
+      homeostasis proposal that the current stabilized loop cannot handle.
     depends_on:
       - workstream:codex_os_dream_system
       - workstream:codex_ask_chatgpt_delegation
     active_codex_session: null
-    chat_label_or_thread: "outcome-weighted context resonance implementation"
+    chat_label_or_thread: "final context-resonance feedback stabilization"
     linear_issue: null
     linear_sync: pending
     today_doc_anchor: null
@@ -488,6 +528,8 @@ workstreams:
       - "2026-06-02 context-resonance fallback refinement added ordered candidate evaluation: blocked candidates now record intended update, failure reason, and best next step, then the lane tries the next implementable candidate instead of treating the run as failed. Validation-context-resonance-skip-summary with --no-auto-maintain emitted a clear deferred summary and attempted_candidates entry; validation-context-resonance-next-implementable applied duplicate_context_compress to ignored local context_alias_overlay.json with rollback and validated cleanly."
       - "2026-06-02 dream-to-Today's-Plan bridge implemented scheduled-only filtering: lane runs now write morning_lane_summary.json/txt, installed 03:30 automations call `--scheduled-morning-lane`, manual runs write `eligible_for_today_plan: false`, the aggregator skips validation/manual/unmarked dirs by default, and the register renderer inserts `Overnight Dream Updates` after `Do First Today`."
       - "2026-06-02 outcome-weighted context resonance implemented: resolver now reads local retrieval_outcome_ledger.jsonl, applies bounded score adjustments with base/final/feedback fields, keeps missed feedback proposal-only, emits homeostasis_proposals in review/maintenance-review, and lets the dream lane package those proposals only as ignored local context-resonance artifacts. Validation passed: resolver/dream py_compile with PYTHONPYCACHEPREFIX=/private/tmp/codex_pycache_context, context canary with feedback fixtures, review --json, representative resolve --json, dream validate --latest, doctor daily with 0 warnings, and git diff --check."
+      - "2026-06-02 feedback-loop health guard added to context_resonance: scripts/os/context/codex_context_resonance.py now emits feedback-health payloads with ledger row accounting, bounded scoring integrity checks, synthetic-row exclusion, route-policy boundary checks, and local proposal-only homeostasis status; scripts/os/dream/codex_os_dream.py now writes feedback_loop_health.md/json, includes health in lane_signal/morning summaries, and validates the compact health contract. Validation runs validation-context-resonance-feedback-health-b and validation-context-resonance-feedback-health-noauto both validated; current live health status is warning only because the local retrieval_outcome_ledger has 0 accepted outcome rows."
+      - "2026-06-02 final context-resonance feedback stabilization landed: resolver now marks trainable versus non-trainable candidates, applies route-aware recency-decayed feedback only to durable memory/schema/negative-memory rows, keeps route policies/live workstream hints/artifact hints/suppressed context/synthetic or proposal-only material fixed, audits noisy outcome rows, requires repeated evidence-backed support for strong homeostasis actions, and adds holdout canaries for trainability, route fallback, decay, weak evidence, caps, synthetic exclusion, and route expectations. Validation passed: PYTHONPYCACHEPREFIX=/private/tmp/codex_pycache_context_stabilize py_compile for resolver and dream import path, context canary --json, review --json, representative resolve --json, feedback-health --json warning-only with 0 accepted real outcome rows, doctor daily with 0 warnings, and git diff --check."
       - "2026-06-01 23:13 EDT research-scout leverage upgrade wired the human-tool principle into the live lane contract: scripts/os/dream/codex_os_dream.py now emits first-class ChatGPT-history/tool-orchestration subtasks plus `human_tool_leverage.md`, and AGENTIC_OS_DREAMING.md now states that `research_scout` owns ChatGPT-history review plans and better use of human-accessible AI/tools."
       - "2026-06-01 validation run agent_context/local/dreams/validation-nightly-super-heartbeat-20260601 succeeded and wrote nightly_heartbeat.md, nightly_heartbeat_signal.json, and morning_appendix.md. Follow-up doctor daily consumed the consolidated heartbeat with automation drift count=0; residual warnings are recurring hotspots plus low cohesion and high maintenance debt."
       - "2026-06-01 Computer Use in Chrome delegated ChatGPT research was run in Heavy mode at chatgpt.com/c/6a1dee12-3a88-83ea-a258-11d2fa845ee3 with sanitized prompt pack agent_context/local/chatgpt_research/20260601T203906Z-dream-state-recurrence-learning-and-low-complexi; pack validation passed and synthesis favored recurrence/adaptation cards over broad new subsystems."
@@ -498,8 +540,8 @@ workstreams:
       - "2026-06-01T20:35 EDT manual five-pass rehearsal found and fixed two shadow-pilot defects: nightly heartbeat now forwards --now into the dream command, and simulation-* runs are isolated by simulation group for pilot-stage progression while excluded from real recurring-hotspot counts."
       - "2026-06-01T20:35 EDT final five-pass simulation simulation-stage9-review2-night1-20260601 through simulation-stage9-review2-day5-20260605 progressed Baseline Map -> Candidate Formation -> Shadow Burn Rehearsal -> Calibration And Human Gate -> Post-Pilot Waiting Human Enablement, with approval_ready_count=0 for every pass and no external mutations."
       - "2026-06-01T20:35 EDT final day-5 simulation agent_context/local/dreams/simulation-stage9-review2-day5-20260605 completed status=warn, doctor ok, helper failures=0, approval-ready allowed=false, and remaining warnings are stale-state/recurring-hotspot/schema-promotion/frozen-growth pressure."
-    last_verified: "2026-06-02T05:10:47+00:00"
-    next_check: "After the next real context-resonance waking use or 03:30 lane run, inspect whether useful/stale/harmful/irrelevant/missed feedback produces the expected bounded ranking changes and proposal-only homeostasis actions."
+    last_verified: "2026-06-02T05:49:05+00:00"
+    next_check: "After the first real waking retrieval outcomes are recorded, inspect review --json audit warnings and feedback-health; keep backend growth frozen unless real-use evidence shows a resolver failure or homeostasis proposal."
     stale_after: "2026-06-04T10:00:00-04:00"
     handoff_summary: >
       Stage 9 now has a guarded autonomous internal-maintenance envelope and
@@ -510,10 +552,17 @@ workstreams:
       ignored local context-resonance state after validators, logs
       changed_actions plus rollback_manifest when it changes anything, and
       keeps tracked registry/policy changes as waking proposals. The resolver
-      now uses local retrieval outcomes as bounded routing feedback: useful
-      outcomes can modestly boost a memory, stale/harmful/repeated irrelevant
-      outcomes cool it, and missed outcomes create proposal-only cue review
-      without ranking boost. If a candidate is blocked, the lane records the
+      now uses local retrieval outcomes as bounded routing feedback only for
+      durable memory/schema/negative-memory rows: useful outcomes can modestly
+      boost a memory, stale/harmful/repeated irrelevant outcomes cool it when
+      evidence-backed, old or weak feedback fades into review context, and
+      missed outcomes create proposal-only cue review without ranking boost.
+      Route policies, live workstream hints, artifact hints, suppressed
+      context, synthetic/proposal-only dream output, and external-model
+      material are non-trainable. It also writes feedback_loop_health.md/json
+      every run to verify ledger parsing, scoring caps, synthetic exclusion,
+      route-policy boundaries, local-only homeostasis, and drift risks. If a
+      candidate is blocked, the lane records the
       intended update, failure reason, and best next step, then proceeds down
       the priority ladder until an implementable candidate passes or emits a
       single no-change/deferred summary. Other lane
@@ -535,6 +584,57 @@ workstreams:
       control, scientific output/model movement or deletion, external app
       mutation, and physics/task status changes remain blocked for waking guard
       checks.
+
+  - workstream_id: codex_paused_dream_cleanup_autopsy
+    title: P1 OS | Paused Dream Cleanup + ChatGPT Autopsy Loop
+    status: backlog
+    priority: P1
+    goal: >
+      Clean up the dream system after the 2026-06-01/02 rapid OS iteration,
+      test whether a paused-dream or reduced-noise dream mode is useful, and
+      extract Justin's effective iterative prompting pattern from recent
+      ChatGPT/Codex conversations into safer future dream/research lanes.
+    current_next_action: >
+      On 2026-06-03, do one focused OS pass: audit current dream outputs,
+      separate stale/outdated internal-cohesion warnings from real risks,
+      test or design a paused-dream mode, autopsy tonight's ChatGPT/Codex
+      prompting pattern, and propose one automatic pressure-point dream prompt
+      that can iterate on different analysis/OS weaknesses without mutating
+      real science state.
+    depends_on:
+      - workstream:codex_os_dream_doctor_fusion
+      - workstream:codex_ask_chatgpt_delegation
+    active_codex_session: null
+    chat_label_or_thread: "tomorrow OS dream cleanup/autopsy"
+    campaign_id: "codex_operating_system"
+    linear_issue: "https://linear.app/thesisanalysis/issue/THE-31/p1-os-or-paused-dream-cleanup-chatgpt-autopsy-loop"
+    linear_sync: synced
+    today_doc_anchor: "2026-06-03 Today's Plan: Backlog / THE-31"
+    workstream_spec: "agent_context/policies/AGENTIC_OS_DREAMING.md"
+    active_jobs: []
+    artifacts:
+      - "agent_context/local/dreams/"
+      - "agent_context/local/chatgpt_research/"
+      - "agent_context/local/chatgpt_history_audits/"
+      - "agent_context/policies/AGENTIC_OS_DREAMING.md"
+      - "agent_context/policies/ASK_CHATGPT_DELEGATION.md"
+      - "scripts/os/dream/codex_os_dream.py"
+      - "scripts/os/dream/codex_dream_morning_summaries.py"
+      - "scripts/os/context/codex_context_resonance.py"
+    evidence:
+      - "2026-06-02 Justin asked to make a tomorrow task to try paused dreams, clean up dreams overall, update outdated internal-cohesion/task state, and autopsy recent ChatGPT/Codex prompting so future dreams can iteratively poke different pressure points without mutating real analysis state."
+      - "2026-06-02 Linear THE-31 created in Backlog with due date 2026-06-03 under the ThesisAnalysis Operating System project."
+    last_verified: "2026-06-02T01:56:00-04:00"
+    next_check: "2026-06-03T10:00:00-04:00"
+    stale_after: "2026-06-04T10:00:00-04:00"
+    handoff_summary: >
+      Tomorrow's OS cleanup task is about compression and learning, not
+      endless infrastructure growth. Review which dream outputs and internal
+      cohesion warnings are stale after tonight's fixes, design/test a paused
+      dream path if useful, and extract Justin's most effective iterative
+      pressure-point prompting pattern from recent conversations into a bounded
+      proposal-only dream/research prompt. Do not let this override urgent
+      thesis-facing work.
 
   - workstream_id: codex_ask_chatgpt_delegation
     title: OS Delegation | Ask ChatGPT Research Lane
@@ -596,7 +696,7 @@ workstreams:
 
   - workstream_id: repo_scripts_macros_organization
     title: OS Hygiene | Organize scripts/macros into agent-friendly folders
-    status: review
+    status: done_pending_review
     priority: P1
     goal: >
       Reorganize the large flat `scripts/` and `macros/` surfaces into
@@ -604,19 +704,20 @@ workstreams:
       creation, and reason about analysis, plotting, SDCC, OS, and slide
       assets with less context friction.
     current_next_action: >
-      Stage 8 macro architecture is implemented locally and mirrored in the
-      bounded SDCC `macros/` helper surface. Next optional pass is a separate
-      TG-bulk migration audit: classify historical flat bulk roots with
-      live-job/reference checks before any move or compatibility symlink.
+      Complete pending archive. Stage 8 macro architecture is implemented
+      locally and mirrored in the bounded SDCC `macros/` helper surface.
+      Future Codex sessions should follow `REPO_ORGANIZATION.md`; the only
+      remaining optional follow-up is a separate TG-bulk migration audit if
+      Justin explicitly asks.
     depends_on:
       - no file moves during active SDCC/job-critical work unless Justin explicitly approves
       - safety snapshot and compatibility test plan before any repo refactor
-    active_codex_session: "THE-23 stage8 macros architecture"
+    active_codex_session: null
     chat_label_or_thread: "THE-23 | scripts/macros organization | 20260601"
     campaign_id: "codex_os_hygiene"
     linear_issue: "https://linear.app/thesisanalysis/issue/THE-23/p1-os-hygiene-or-organize-scriptsmacros-into-agent-friendly-folders"
-    linear_sync: pending
-    today_doc_anchor: "2026-06-01 Today's Plan: Backlog / THE-23"
+    linear_sync: synced
+    today_doc_anchor: null
     workstream_spec: null
     active_jobs: []
     artifacts:
@@ -684,6 +785,7 @@ workstreams:
       - "2026-06-01 stage-5 local verification passed: no broken scripts symlinks; transfer map validation passed; thesis-script resolved pp plotting, retired train_auau_photon_bdt.py, and width-study submit names; find -L scripts -name '*.sh' bash -n passed; PYTHONPYCACHEPREFIX=/private/tmp/codex_pycache_the23_stage5 python3 -m py_compile over find -L scripts -name '*.py' passed; bundled node --check passed for scripts/*.js; ./scripts/auau_tight_bdt_pipeline.sh help passed."
       - "2026-06-01 stage-5 mirrored the scripts-only architecture on SDCC. Remote dry-run before mutation showed top-level scripts/ had 77 symlinks, 2 files, 7 dirs, and no broken symlinks. Remote migration moved 75 canonical files; remote top-level scripts/ now has 9 hard aliases, README.md, SCRIPT_INDEX.remote.tsv, and 7 dirs, with retired aliases under scripts/compat/sdcc/."
       - "2026-06-01 stage-5 remote verification passed on sphnxuser05: no broken symlinks, no top-level trash, bash -n passed for scripts/mergeRecoilJets.sh, canonical merge, canonical AuAu BDT pipeline, and canonical width-study submit; python3 -m py_compile passed for representative ML training, validation, pp/Shuhang diagnostic, and pp CurrentIAN slide helper with external pycache. No Condor submission, production, merge rerun, output deletion, Google Slides mutation, credentials, or non-scripts SDCC mutation was performed."
+      - "2026-06-02 Justin flagged this as outdated active work after the stage-8 macro architecture pass. Linear THE-23 was moved to Done and the register is now done_pending_review; future organization discipline lives in REPO_ORGANIZATION.md, not an active daily task."
       - "2026-06-01 SDCC base hygiene slice started after Justin approved the plan. Local safety snapshot: 20260601T203243Z-the23-sdcc-base-hygiene-cleanup. Guard preflight passed for action=cleanup, workstream=repo_scripts_macros_organization."
       - "2026-06-01 SDCC preflight confirmed two top-level cleanup targets: an empty whitespace-only directory named exactly two spaces and a leaked agent_context/ tree containing only local migration/cache/archive material. Both exact paths were removed. Generated-trash sweep removed one .codex backup fragment and four .DS_Store files under macros/coresoftware-facing paths; no scientific outputs, model artifacts, Condor products, ROOT outputs, submissions, or merges were touched."
       - "2026-06-01 added local prevention: sftp_push_recoiljets.sh and sftp_get_recoiljets_outputs.sh now reject empty, whitespace, agent_context, .codex/codex, THE-*, and traversal-like remote paths before SFTP batch creation; added scripts/sdcc/runtime/audit/checkout_hygiene_probe.py as a read-only checkout hygiene probe and indexed it as local-only audit infrastructure."
@@ -709,11 +811,11 @@ workstreams:
       - "2026-06-01 Stage 8 transfer contract fixed PrintPPStitchDiagnostics so macros/PrintPPStitchDiagnostics.C resolves as a hard alias while uploads target macros/diagnostics/stitching/PrintPPStitchDiagnostics.C. validate_transfer_map.py passed with rows=98 and sftp_push_recoiljets.sh bash -n passed. A read-only SFTP status attempt could not authenticate non-interactively and made no remote changes."
       - "2026-06-01 Stage 8 verification passed: local macro index rows=57 and all canonical/wrapper paths exist; no macro ACLiC/cache/trash artifacts; no broken macro symlinks; ROOT interpreted loads passed for macros/PlotTarget80FoodChain.C, macros/compat/local/MakeWidthStudyBDTComparison.C, macros/PrintPPStitchDiagnostics.C via .L, and macros/diagnostics/preselection/RunPreselectionFailsFast.C via .L. Remote ROOT .L checks passed for macros/PrintPPStitchDiagnostics.C, macros/plotting/stitching/MakeEmbeddedInclusiveMergedStitchSpectrum.C, and macros/compat/sdcc/SummarizeModelCheck.C."
       - "2026-06-01 Stage 8 final SDCC inline check from the resolved checkout path found no top-level agent/whitespace paths, no broken scripts symlinks, no macro generated trash, and bash -n passed for scripts/mergeRecoilJets.sh plus the canonical width-study submit helper."
-    last_verified: "2026-06-01T19:12:00-04:00"
-    next_check: "Stage 8 verification complete; next separate stage is TG-bulk historical root migration audit only if explicitly approved"
-    stale_after: "2026-06-06T10:00:00-04:00"
+    last_verified: "2026-06-02T01:56:00-04:00"
+    next_check: "none; THE-23 is complete pending archive. Open a new workstream only if Justin explicitly wants TG-bulk historical-root migration."
+    stale_after: "2026-07-01T10:00:00-04:00"
     handoff_summary: >
-      Stage 5 scripts organization, Stage 6A SDCC base architecture, Stage 7
+      Complete pending archive. Stage 5 scripts organization, Stage 6A SDCC base architecture, Stage 7
       future I/O defaults, and Stage 8 macro architecture are implemented.
       Local and SDCC `scripts/` parents are minimal command surfaces; canonical
       sources live in deeper domain folders; old aliases live under

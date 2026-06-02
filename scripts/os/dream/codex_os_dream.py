@@ -38,7 +38,9 @@ from codex_context_resonance import (
     SALIENCE_INDEX_NAME,
     build_context_resonance_payload,
     canary_payload as context_resonance_canary_payload,
+    feedback_loop_health_payload as context_resonance_feedback_loop_health_payload,
     local_maintenance_review as context_resonance_local_maintenance_review,
+    render_feedback_loop_health_markdown,
     render_markdown as render_context_resonance_markdown,
 )
 from codex_thesis_radar import analyze as analyze_thesis_radar
@@ -2650,7 +2652,12 @@ def base_context_resonance_candidate(
     return candidate
 
 
-def build_context_resonance_candidates(run_dir: Path, resonance: dict[str, Any], review: dict[str, Any]) -> list[dict[str, Any]]:
+def build_context_resonance_candidates(
+    run_dir: Path,
+    resonance: dict[str, Any],
+    review: dict[str, Any],
+    health: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     evidence = [str(item) for item in review.get("candidate_evidence") or [] if item]
     target = LOCAL_CONTEXT_ROOT / SALIENCE_INDEX_NAME
@@ -2746,6 +2753,31 @@ def build_context_resonance_candidates(run_dir: Path, resonance: dict[str, Any],
             )
         )
 
+    health_payload = health if isinstance(health, dict) else {}
+    health_status = first_line(health_payload.get("feedback_loop_status")) or "unknown"
+    health_ledger = health_payload.get("ledger") if isinstance(health_payload.get("ledger"), dict) else {}
+    health_risks = health_payload.get("risks") if isinstance(health_payload.get("risks"), list) else []
+    target = LOCAL_CONTEXT_ROOT / "feedback_loop_health.json"
+    candidates.append(
+        base_context_resonance_candidate(
+            "feedback_loop_health_refresh",
+            "nightly consistency guard verifies the adaptive memory-feedback loop is bounded and explainable",
+            evidence
+            or [
+                f"feedback_loop_status={health_status}",
+                (
+                    f"accepted={health_ledger.get('accepted_rows', 0)} "
+                    f"ignored={health_ledger.get('ignored_rows', 0)} "
+                    f"risks={len(health_risks)}"
+                ),
+            ],
+            [target.as_posix()],
+            f"feedback loop health status before={health_status}",
+            "refresh compact local feedback-loop health index without editing tracked memory registries",
+            {**common_gain, "safety_gain": 1.0, "future_traversal_gain": 0.9, "validation_cost": 0.15},
+        )
+    )
+
     target = LOCAL_CONTEXT_ROOT / "canary_history.json"
     candidates.append(
         base_context_resonance_candidate(
@@ -2765,7 +2797,12 @@ def select_context_resonance_candidate(run_dir: Path, resonance: dict[str, Any],
     return build_context_resonance_candidates(run_dir, resonance, review)[0]
 
 
-def render_context_resonance_target_payload(candidate: dict[str, Any], resonance: dict[str, Any], review: dict[str, Any]) -> dict[str, Any]:
+def render_context_resonance_target_payload(
+    candidate: dict[str, Any],
+    resonance: dict[str, Any],
+    review: dict[str, Any],
+    health: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     change_type = candidate.get("change_type")
     if change_type == "retrieval_policy_cooldown":
@@ -2824,6 +2861,13 @@ def render_context_resonance_target_payload(candidate: dict[str, Any], resonance
             "policy": "local-only canary history; no tracked canary changed",
             "canary": context_resonance_canary_payload(),
         }
+    if change_type == "feedback_loop_health_refresh":
+        payload = dict(health) if isinstance(health, dict) else context_resonance_feedback_loop_health_payload()
+        auto_applied = payload.get("auto_applied") if isinstance(payload.get("auto_applied"), dict) else {}
+        auto_applied["changed_paths"] = [first_line(item) for item in candidate.get("target_files") or []]
+        auto_applied["action"] = "health_index_refresh"
+        payload["auto_applied"] = auto_applied
+        return payload
     return {
         "version": 2,
         "updated_at": generated_at,
@@ -2909,7 +2953,8 @@ def context_resonance_auto_maintenance(
     auto_maintain: bool,
 ) -> dict[str, Any]:
     review = context_resonance_local_maintenance_review()
-    candidates = build_context_resonance_candidates(run_dir, resonance, review)
+    health = context_resonance_feedback_loop_health_payload(run_id=run_dir.name)
+    candidates = build_context_resonance_candidates(run_dir, resonance, review, health)
     changed_actions = {
         "synthetic": True,
         "synthetic_header": SYNTHETIC_HEADER,
@@ -2982,7 +3027,7 @@ def context_resonance_auto_maintenance(
             )
         for path in target_paths:
             path.parent.mkdir(parents=True, exist_ok=True)
-            payload = render_context_resonance_target_payload(candidate, resonance, review)
+            payload = render_context_resonance_target_payload(candidate, resonance, review, health)
             path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         safe_write(run_dir, "rollback_manifest.json", render_json_file(rollback_manifest))
         post_checks = validate_context_resonance_auto_candidate(candidate, run_dir, rollback_manifest=rollback_manifest)
@@ -3060,6 +3105,16 @@ def context_resonance_auto_maintenance(
             }
         )
 
+    health_for_run = dict(health)
+    health_auto = dict(health_for_run.get("auto_applied") if isinstance(health_for_run.get("auto_applied"), dict) else {})
+    if selected_candidate.get("change_type") == "feedback_loop_health_refresh" and changed_actions["rows"]:
+        health_auto["action"] = "health_index_refresh"
+        health_auto["changed_paths"] = selected_candidate.get("target_files") or []
+    else:
+        health_auto["action"] = "no_safe_change"
+        health_auto["changed_paths"] = []
+    health_for_run["auto_applied"] = health_auto
+
     return {
         "synthetic": True,
         "synthetic_header": SYNTHETIC_HEADER,
@@ -3067,6 +3122,7 @@ def context_resonance_auto_maintenance(
         "candidate": selected_candidate,
         "candidate_count": len(candidates),
         "attempted_candidates": attempted_candidates,
+        "feedback_loop_health": health_for_run,
         "local_review": review,
         "pre_apply_validators": selected_pre_checks,
         "post_apply_validators": selected_post_checks,
@@ -5671,6 +5727,8 @@ def lane_required_artifacts(lane_id: str) -> list[str]:
         "context_resonance": [
             "changed_actions.md",
             "changed_actions.json",
+            "feedback_loop_health.md",
+            "feedback_loop_health.json",
             "context_resonance_review.md",
             "context_resonance_review.json",
             "latent_context_nudges.md",
@@ -5738,6 +5796,10 @@ def render_lane_heartbeat_report(
     )
     auto_candidate = auto_payload.get("candidate") if isinstance(auto_payload.get("candidate"), dict) else {}
     attempted_candidates = auto_payload.get("attempted_candidates") if isinstance(auto_payload.get("attempted_candidates"), list) else []
+    health = auto_payload.get("feedback_loop_health") if isinstance(auto_payload.get("feedback_loop_health"), dict) else {}
+    health_ledger = health.get("ledger") if isinstance(health.get("ledger"), dict) else {}
+    health_scoring = health.get("scoring_integrity") if isinstance(health.get("scoring_integrity"), dict) else {}
+    health_risks = health.get("risks") if isinstance(health.get("risks"), list) else []
     cleanup_retention = lane_signal_payload.get("cleanup_retention_index") if isinstance(lane_signal_payload.get("cleanup_retention_index"), dict) else {}
     cleanup_deferred = cleanup_retention.get("top_deferred_improvements") if isinstance(cleanup_retention.get("top_deferred_improvements"), list) else []
     cleanup_changed = performed_action_rows(lane_signal_payload.get("changed_actions") if isinstance(lane_signal_payload.get("changed_actions"), dict) else {})
@@ -5843,6 +5905,24 @@ def render_lane_heartbeat_report(
                     f"  - `{item.get('change_type')}` status=`{item.get('status')}` reason={item.get('blocked_reason') or 'none'} next={item.get('next_step') or 'none'}"
                 )
         lines.append("")
+    if health:
+        lines.append("## Feedback Loop Health")
+        lines.append(f"- status: `{health.get('feedback_loop_status')}`")
+        lines.append(
+            f"- ledger rows: accepted={health_ledger.get('accepted_rows', 0)} ignored={health_ledger.get('ignored_rows', 0)} "
+            f"synthetic_ignored={health_ledger.get('synthetic_rows_ignored', 0)} malformed_ignored={health_ledger.get('malformed_rows_ignored', 0)}"
+        )
+        lines.append(
+            f"- integrity: caps={health_scoring.get('caps_verified')} missed_review_only={health_scoring.get('missed_review_only_verified')} "
+            f"synthetic_exclusion={health_scoring.get('synthetic_exclusion_verified')} route_policy_boundary={health_scoring.get('route_policy_boundary_verified')}"
+        )
+        if health_risks:
+            for item in health_risks[:3]:
+                if isinstance(item, dict):
+                    lines.append(f"- risk `{item.get('kind')}`: {item.get('summary')}")
+        else:
+            lines.append("- risks: none")
+        lines.append("")
     lines.append("## Boundary")
     if lane_id == "cleanup_storage":
         lines.append("- Cleanup-storage auto-maintenance is local-only. No deletion, archive, SDCC, Condor, science, task, external-app, or repo-tracked mutation.")
@@ -5876,6 +5956,9 @@ def render_lane_digest(lane_id: str, lane_risks: list[dict[str, Any]], maintenan
     )
     auto_candidate = auto_payload.get("candidate") if isinstance(auto_payload.get("candidate"), dict) else {}
     attempted_candidates = auto_payload.get("attempted_candidates") if isinstance(auto_payload.get("attempted_candidates"), list) else []
+    health = auto_payload.get("feedback_loop_health") if isinstance(auto_payload.get("feedback_loop_health"), dict) else {}
+    health_ledger = health.get("ledger") if isinstance(health.get("ledger"), dict) else {}
+    health_risks = health.get("risks") if isinstance(health.get("risks"), list) else []
     cleanup_retention = maintenance.get("cleanup_retention_index") if lane_id == "cleanup_storage" and isinstance(maintenance.get("cleanup_retention_index"), dict) else {}
     cleanup_deferred = cleanup_retention.get("top_deferred_improvements") if isinstance(cleanup_retention.get("top_deferred_improvements"), list) else []
     cleanup_changed = performed_action_rows(autonomous.get("changed_actions") if isinstance(autonomous.get("changed_actions"), dict) else {})
@@ -5904,6 +5987,13 @@ def render_lane_digest(lane_id: str, lane_risks: list[dict[str, Any]], maintenan
             lines.append(f"- Best next step: {latest.get('next_step')}")
     else:
         lines.append("- This lane writes only local dream artifacts and proposal surfaces.")
+    if health:
+        lines.append(
+            f"- Feedback loop health `{health.get('feedback_loop_status')}`: "
+            f"{health_ledger.get('accepted_rows', 0)} accepted outcome rows, "
+            f"{health_ledger.get('synthetic_rows_ignored', 0)} synthetic rows ignored, "
+            f"{len(health_risks)} risk flag(s)."
+        )
     lines.append("")
     lines.append("## Top 3 Lane Findings")
     if lane_id == "cleanup_storage" and cleanup_deferred:
@@ -5988,10 +6078,13 @@ def write_lane_artifacts(
         auto_payload = maintenance.get("context_resonance_auto_maintenance") if isinstance(maintenance.get("context_resonance_auto_maintenance"), dict) else {}
         changed_actions = auto_payload.get("changed_actions") if isinstance(auto_payload.get("changed_actions"), dict) else autonomous["changed_actions"]
         deferred = auto_payload.get("deferred_for_waking") if isinstance(auto_payload.get("deferred_for_waking"), dict) else {}
+        health = auto_payload.get("feedback_loop_health") if isinstance(auto_payload.get("feedback_loop_health"), dict) else {}
         safe_write(run_dir, "changed_actions.md", render_changed_actions(changed_actions))
         safe_write(run_dir, "changed_actions.json", render_json_file(changed_actions))
         if deferred.get("rows"):
             safe_write(run_dir, "deferred_for_waking.md", render_deferred_for_justin(deferred))
+        safe_write(run_dir, "feedback_loop_health.md", render_feedback_loop_health_markdown(health))
+        safe_write(run_dir, "feedback_loop_health.json", render_json_file(health))
         safe_write(run_dir, "context_resonance_review.md", render_context_resonance_markdown(resonance))
         safe_write(run_dir, "context_resonance_review.json", render_json_file(resonance))
         safe_write(
@@ -6127,10 +6220,25 @@ def build_morning_lane_summary_payload(
         )
         deferred_rows.extend(row for row in deferred_payload.get("rows") or [] if isinstance(row, dict))
         candidate = auto_payload.get("candidate") if isinstance(auto_payload.get("candidate"), dict) else {}
+        health = auto_payload.get("feedback_loop_health") if isinstance(auto_payload.get("feedback_loop_health"), dict) else {}
+        health_ledger = health.get("ledger") if isinstance(health.get("ledger"), dict) else {}
+        health_risks = health.get("risks") if isinstance(health.get("risks"), list) else []
+        if health:
+            health_sentence = (
+                f"Feedback loop `{health.get('feedback_loop_status')}`: "
+                f"{health_ledger.get('accepted_rows', 0)} accepted outcomes, "
+                f"{health_ledger.get('synthetic_rows_ignored', 0)} synthetic rows ignored, "
+                f"{len(health_risks)} risk flag(s); no tracked memory registry, science, task, SDCC, or external state changed."
+            )
+            one_line = health_sentence if status != "changed" else f"{one_line} {health_sentence}"
         blocked_reason = first_line(candidate.get("blocked_reason"))
         if blocked_reason and status != "changed":
             status = "deferred"
-            one_line = "one context maintenance improvement was deferred for waking review"
+            one_line = (
+                f"one context maintenance improvement was deferred for waking review. {one_line}"
+                if health
+                else "one context maintenance improvement was deferred for waking review"
+            )
             deferred = blocked_reason
             needs_justin = True
             needs_justin_reason = blocked_reason
@@ -6314,8 +6422,12 @@ def write_lane_dream_outputs(
         resonance_payload = maintenance["context_resonance"]
         auto_payload = maintenance.get("context_resonance_auto_maintenance") if isinstance(maintenance.get("context_resonance_auto_maintenance"), dict) else {}
         candidate = auto_payload.get("candidate") if isinstance(auto_payload.get("candidate"), dict) else {}
+        health = auto_payload.get("feedback_loop_health") if isinstance(auto_payload.get("feedback_loop_health"), dict) else {}
+        health_ledger = health.get("ledger") if isinstance(health.get("ledger"), dict) else {}
+        health_risks = health.get("risks") if isinstance(health.get("risks"), list) else []
         signal["context_resonance"] = resonance_payload
         signal["context_resonance_auto_maintenance"] = auto_payload
+        signal["context_resonance_feedback_loop_health"] = health
         if isinstance(auto_payload.get("changed_actions"), dict):
             signal["changed_actions"] = auto_payload["changed_actions"]
         attempted = auto_payload.get("attempted_candidates") if isinstance(auto_payload.get("attempted_candidates"), list) else []
@@ -6335,6 +6447,11 @@ def write_lane_dream_outputs(
         signal["summary"]["context_resonance_attempted_candidate_count"] = len(attempted)
         signal["summary"]["context_resonance_skipped_candidate_count"] = len(skipped)
         signal["summary"]["context_resonance_blocked_reason"] = candidate.get("blocked_reason") or ""
+        signal["summary"]["context_resonance_feedback_loop_status"] = health.get("feedback_loop_status")
+        signal["summary"]["context_resonance_feedback_accepted_rows"] = health_ledger.get("accepted_rows", 0)
+        signal["summary"]["context_resonance_feedback_ignored_rows"] = health_ledger.get("ignored_rows", 0)
+        signal["summary"]["context_resonance_feedback_synthetic_rows_ignored"] = health_ledger.get("synthetic_rows_ignored", 0)
+        signal["summary"]["context_resonance_feedback_health_risk_count"] = len(health_risks)
         signal["top_findings"] = []
         if candidate:
             signal["top_findings"].append(
@@ -6778,6 +6895,26 @@ def validate_lane_dir(path: Path) -> list[str]:
         except json.JSONDecodeError as exc:
             errors.append(f"changed_actions.json invalid JSON: {exc}")
             changed = {}
+        try:
+            health = json.loads(read_text(path / "feedback_loop_health.json"))
+        except json.JSONDecodeError as exc:
+            errors.append(f"feedback_loop_health.json invalid JSON: {exc}")
+            health = {}
+        if isinstance(health, dict):
+            if health.get("lane_id") != "context_resonance":
+                errors.append("feedback_loop_health.json lane_id is not context_resonance")
+            if health.get("feedback_loop_status") not in {"healthy", "warning", "blocked", "failed"}:
+                errors.append("feedback_loop_health.json status is invalid")
+            ledger = health.get("ledger") if isinstance(health.get("ledger"), dict) else {}
+            if "accepted_rows" not in ledger or "synthetic_rows_ignored" not in ledger:
+                errors.append("feedback_loop_health.json lacks ledger row accounting")
+            scoring = health.get("scoring_integrity") if isinstance(health.get("scoring_integrity"), dict) else {}
+            for field in ("caps_verified", "missed_review_only_verified", "synthetic_exclusion_verified", "route_policy_boundary_verified"):
+                if scoring.get(field) is not True:
+                    errors.append(f"feedback_loop_health.json failed scoring integrity field: {field}")
+            homeostasis = health.get("homeostasis") if isinstance(health.get("homeostasis"), dict) else {}
+            if homeostasis.get("tracked_registry_mutation") is not False:
+                errors.append("feedback_loop_health.json reports tracked registry mutation")
         if isinstance(changed, dict):
             if changed.get("external_mutations_performed") is not False:
                 errors.append("context_resonance changed_actions reports external mutation")

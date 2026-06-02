@@ -141,6 +141,19 @@ blocked actions should write one compact `deferred_for_waking.md` entry instead
 of a pile of review reports. Existing context-resonance review artifacts are
 compatibility views, not the primary human-facing product.
 
+Every `context_resonance` run must also perform a compact feedback-loop health
+check. It verifies that `retrieval_outcome_ledger.jsonl` is parseable; malformed,
+unknown, synthetic, and missing-`memory_id` rows are ignored safely; useful,
+stale, harmful, irrelevant, and missed feedback stay within bounded scoring
+rules; missed feedback remains review-only; route-policy loading is not
+overridden by feedback; synthetic material never becomes conscious context; and
+homeostasis remains local proposal-only. The lane writes
+`feedback_loop_health.md/json` in the run directory and may refresh
+`agent_context/local/context_resonance/feedback_loop_health.json` as an
+auto-safe local maintenance candidate. Tracked memory registries, task state,
+science artifacts, SDCC, Condor, and external systems remain forbidden
+overnight mutation targets.
+
 ## Evolutionary Maintenance Architecture
 
 The dream layer is being upgraded through a four-night shadow pilot into a
@@ -291,6 +304,8 @@ The `context_resonance` lane additionally owns:
 ```text
 context_resonance_review.md
 context_resonance_review.json
+feedback_loop_health.md
+feedback_loop_health.json
 latent_context_nudges.md
 latent_context_nudges.json
 negative_memory_candidates.md

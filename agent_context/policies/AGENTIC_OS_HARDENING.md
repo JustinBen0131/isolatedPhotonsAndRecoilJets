@@ -157,6 +157,11 @@ Use these executable surfaces to keep the OS biological rather than static:
 - `python3 scripts/os/artifacts/codex_artifact_registry.py check`: provenance check for
   canonical artifacts.
 
+Freeze gate: after outcome-weighted context-resonance stabilization, do not add
+new resolver backend surfaces unless a real waking thesis task produces an
+evidence-backed retrieval failure or homeostasis proposal; record outcomes and
+run review first.
+
 `agent_context/ARTIFACT_REGISTRY.yaml` is the canonical registry for
 presentation- or thesis-facing artifacts. Add plots, ROOT files, CSVs, JSONs,
 slide candidates, and scripts before treating them as reusable evidence.

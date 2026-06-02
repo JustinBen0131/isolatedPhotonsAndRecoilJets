@@ -56,3 +56,9 @@ python3 scripts/os/context/codex_context_resonance.py record-outcome \
 The feedback ledger is local-only routing evidence, not canonical project
 truth. The resolver uses it to identify memories that should be promoted,
 cooled, compressed, or turned into validators.
+
+Feedback training is intentionally narrow: only durable memory, schema, and
+negative-memory records are trainable. Route policies, live workstream or
+artifact hints, suppressed context, synthetic material, dream output, and
+external-model material remain fixed pointers; strong promotion, cooling,
+quarantine, or suppression proposals require repeated evidence-backed support.
