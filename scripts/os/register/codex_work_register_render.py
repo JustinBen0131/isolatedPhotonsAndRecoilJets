@@ -22,6 +22,11 @@ from pathlib import Path
 
 from codex_work_register_common import DEFAULT_REGISTER, first_line, load_register, sorted_workstreams
 
+try:
+    from codex_dream_morning_summaries import build_combined_summary
+except Exception:  # pragma: no cover - renderer must stay useful if optional dream bridge breaks.
+    build_combined_summary = None  # type: ignore[assignment]
+
 
 LIVE_STATUSES = {"active", "running", "waiting", "blocked", "review"}
 ACTIVE_NOW_STATUSES = {"active", "running"}
@@ -107,6 +112,19 @@ def working_point_line(data: dict[str, object]) -> str | None:
     return f"{label}: {url}"
 
 
+def dream_updates_markdown() -> str:
+    if build_combined_summary is None:
+        return "## Overnight Dream Updates\n- No overnight dream update needs attention; internal checks stayed quiet.\n"
+    try:
+        summary = build_combined_summary(window="overnight", include_manual=False)
+    except Exception:
+        return "## Overnight Dream Updates\n- No overnight dream update needs attention; internal checks stayed quiet.\n"
+    text = summary.get("daily_doc_markdown") if isinstance(summary, dict) else ""
+    if isinstance(text, str) and text.strip():
+        return text.rstrip() + "\n"
+    return "## Overnight Dream Updates\n- No overnight dream update needs attention; internal checks stayed quiet.\n"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("register", nargs="?", default=str(DEFAULT_REGISTER))
@@ -142,6 +160,9 @@ def main() -> int:
         print(f"- **{item.get('title')}** - {first_line(item.get('current_next_action'))} {linear_key(item)}.")
     if not top:
         print("- No active registered work.")
+
+    print()
+    print(dream_updates_markdown(), end="")
 
     health = data.get("daily_cockpit", {}).get("morning_health_check", {})
     print()

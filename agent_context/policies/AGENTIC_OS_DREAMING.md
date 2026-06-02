@@ -118,6 +118,29 @@ traps to avoid, suppressed context, and required checks. Waking use is
 read-only; the dream lane calls the same resolver in dream mode and writes
 proposal artifacts only under `agent_context/local/dreams/`.
 
+The `context_resonance` lane is also allowed to perform one bounded
+auto-safe memory-maintenance action per run when all validator gates pass. Its
+automatic write surface is limited to ignored local context-resonance state
+under `agent_context/local/context_resonance/` and the current local dream run
+directory. It may refresh a local salience index, write local suppression or
+alias overlays, record local canary history, or compact local retrieval
+metadata. It must not edit tracked memory registries, policies, code, task
+state, science outputs, SDCC, Condor, or external systems overnight; tracked
+registry or policy changes remain `auto_validated` waking proposals.
+
+The lane must select at most one applied primary improvement per run using this
+priority ladder: retrieval pollution fix, repeated trap promotion, duplicate
+context compression, route/index refresh, artifact-noise reduction, then
+canary improvement. If a candidate fails a score, path, validator, rollback, or
+debug-mode gate, the lane should record the intended update, failure reason,
+and best next step, then continue down the ladder until it finds an
+implementable candidate. If none pass, the run should still validate and emit
+one compact no-change summary plus `deferred_for_waking.md`. Each applied
+action must write `changed_actions.md/json` and `rollback_manifest.json`;
+blocked actions should write one compact `deferred_for_waking.md` entry instead
+of a pile of review reports. Existing context-resonance review artifacts are
+compatibility views, not the primary human-facing product.
+
 ## Evolutionary Maintenance Architecture
 
 The dream layer is being upgraded through a four-night shadow pilot into a
@@ -185,9 +208,19 @@ outside that envelope remains deferred for waking Codex or Justin review.
   `status_provenance`, `architecture_cohesion`, `cleanup_storage`,
   `context_resonance`, `path_contract`, `research_scout`, `science_scout`,
   and `presentation_artifacts`.
-- Each lane heartbeat runs `python3 scripts/codex_os_dream.py lane --lane-id <lane_id>`
+- Each lane heartbeat runs
+  `python3 scripts/codex_os_dream.py lane --lane-id <lane_id> --scheduled-morning-lane`
   and writes its own local-only package under
   `agent_context/local/dreams/<timestamp>-lane-<lane_id>/`.
+- The `--scheduled-morning-lane` marker is the only default eligibility gate
+  for Today's Plan. Scheduled 03:30 lanes must write
+  `morning_lane_summary.json` with `scheduled_morning_lane: true`,
+  `scheduled_source: "03:30_dream_automation"`, and
+  `eligible_for_today_plan: true`. Manual, validation, or ad hoc dream runs
+  must write the same summary shape with `eligible_for_today_plan: false`.
+  Morning renderers must use
+  `python3 scripts/os/dream/codex_dream_morning_summaries.py --window overnight --json`
+  in scheduled-only mode and must not infer eligibility from timestamps alone.
 - Cleanup dream: proposal-only hygiene scan for local Codex memory surfaces,
   dream artifacts, research packs, and recorded SDCC/storage clutter signals.
   It may identify cleanup candidates but must not delete, move, archive, or

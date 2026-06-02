@@ -19,6 +19,7 @@ del _CODEX_THIS_FILE, _CODEX_SCRIPTS_DIR, _CODEX_OS_DIR, _CODEX_IMPORT_DIRS, _CO
 
 import argparse
 import difflib
+import hashlib
 import html
 import json
 import os
@@ -26,17 +27,31 @@ import re
 import shutil
 import subprocess
 import sys
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from codex_work_register_common import DEFAULT_REGISTER, first_line, load_register, parse_when, sorted_workstreams
-from codex_context_resonance import build_context_resonance_payload, render_markdown as render_context_resonance_markdown
+from codex_context_resonance import (
+    LOCAL_CONTEXT_ROOT,
+    SALIENCE_INDEX_NAME,
+    build_context_resonance_payload,
+    canary_payload as context_resonance_canary_payload,
+    local_maintenance_review as context_resonance_local_maintenance_review,
+    render_markdown as render_context_resonance_markdown,
+)
 from codex_thesis_radar import analyze as analyze_thesis_radar
 
 
 SYNTHETIC_HEADER = "SYNTHETIC DREAM OUTPUT - NOT USER APPROVAL - NOT REAL USER INTENT"
+DREAM_SUMMARY_BOUNDARY = "proposal-only, not user approval, not science evidence"
+DREAM_SCHEDULED_SOURCE = "03:30_dream_automation"
+DREAM_MANUAL_SOURCE = "manual_or_debug"
+DREAM_MORNING_STATUSES = {"changed", "no_safe_change", "deferred", "failed"}
 DREAM_ROOT = Path("agent_context/local/dreams")
+CONTEXT_RESONANCE_ALLOWED_AUTO_ROOTS = (LOCAL_CONTEXT_ROOT, DREAM_ROOT)
+CONTEXT_RESONANCE_AUTO_APPLY_THRESHOLD = 3.0
 ARTIFACT_REGISTRY = Path("agent_context/ARTIFACT_REGISTRY.yaml")
 THESIS_MAP = Path("agent_context/THESIS_NARRATIVE_MAP.md")
 EVENT_LOG = Path("agent_context/local/os_events.jsonl")
@@ -2534,6 +2549,530 @@ def context_resonance_payload(world: dict[str, Any], risks: list[dict[str, Any]]
     return payload
 
 
+def context_resonance_target_allowed(path: Path, run_dir: Path) -> bool:
+    resolved = path.resolve()
+    allowed_roots = [LOCAL_CONTEXT_ROOT.resolve(), run_dir.resolve()]
+    return any(root in [resolved, *resolved.parents] for root in allowed_roots)
+
+
+def file_digest(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def context_resonance_impact_score(candidate: dict[str, Any]) -> float:
+    factors = candidate.get("impact_factors") if isinstance(candidate.get("impact_factors"), dict) else {}
+    gain = (
+        float(factors.get("thesis_flow_gain", 0.0))
+        + float(factors.get("retrieval_quality_gain", 0.0))
+        + float(factors.get("recurrence_weight", 0.0))
+        + float(factors.get("safety_gain", 0.0))
+        + float(factors.get("future_traversal_gain", 0.0))
+        + float(factors.get("human_friction_reduction", 0.0))
+    )
+    cost = (
+        float(factors.get("token_cost", 0.0))
+        + float(factors.get("lookup_cost", 0.0))
+        + float(factors.get("fragmentation_risk", 0.0))
+        + float(factors.get("rollback_complexity", 0.0))
+        + float(factors.get("validation_cost", 0.0))
+        + float(factors.get("synthetic_contamination_risk", 0.0))
+    )
+    return round(gain - cost, 3)
+
+
+def compact_context_records(resonance: dict[str, Any], generated_at: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for section in ("conscious_context", "latent_context_nudges", "negative_memories", "suppressed_context"):
+        for item in resonance.get(section) or []:
+            if not isinstance(item, dict):
+                continue
+            memory_id = first_line(item.get("memory_id") or item.get("id") or item.get("source"))
+            if not memory_id or memory_id in seen:
+                continue
+            seen.add(memory_id)
+            rows.append(
+                {
+                    "memory_id": memory_id,
+                    "source": first_line(item.get("source")),
+                    "retrieval_policy": first_line(item.get("retrieval_policy")) or ("suppress" if section == "suppressed_context" else "latent_nudge"),
+                    "evidence_class": first_line(item.get("evidence_class")) or "derived",
+                    "relation_type": first_line(item.get("relation_type")) or "same_method",
+                    "reason": first_line(item.get("why_it_surfaced") or item.get("reason") or item.get("trap")),
+                    "required_waking_check": first_line(item.get("required_waking_check") or item.get("first_safe_action")),
+                    "section": section,
+                    "last_seen": generated_at,
+                }
+            )
+    return rows
+
+
+def base_context_resonance_candidate(
+    change_type: str,
+    why_now: str,
+    evidence: list[str],
+    target_files: list[str],
+    before_summary: str,
+    after_summary: str,
+    impact_factors: dict[str, float],
+) -> dict[str, Any]:
+    candidate_id = f"context_resonance.{change_type}"
+    candidate = {
+        "candidate_id": candidate_id,
+        "lane": "context_resonance",
+        "change_type": change_type,
+        "why_now": why_now,
+        "evidence": evidence,
+        "synthetic_used_only_for": "stress test, not evidence",
+        "target_files": target_files,
+        "before_summary": before_summary,
+        "after_summary": after_summary,
+        "rollback_plan": "restore the exact before_content from rollback_manifest.json, or delete a target that did not exist",
+        "validators": [
+            "context_resonance_canary_before",
+            "allowed_path_check",
+            "small_changed_file_count",
+            "json_parse_check",
+            "synthetic_not_evidence_check",
+            "rollback_manifest_check",
+            "git_diff_check",
+            "context_resonance_canary_after",
+            "lane_scope_check",
+        ],
+        "auto_apply_allowed": True,
+        "blocked_reason": "",
+        "impact_factors": impact_factors,
+    }
+    candidate["impact_score"] = context_resonance_impact_score(candidate)
+    return candidate
+
+
+def build_context_resonance_candidates(run_dir: Path, resonance: dict[str, Any], review: dict[str, Any]) -> list[dict[str, Any]]:
+    generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    evidence = [str(item) for item in review.get("candidate_evidence") or [] if item]
+    target = LOCAL_CONTEXT_ROOT / SALIENCE_INDEX_NAME
+    records = compact_context_records(resonance, generated_at)
+    common_gain = {
+        "thesis_flow_gain": 0.6,
+        "retrieval_quality_gain": 0.8,
+        "recurrence_weight": 0.4,
+        "safety_gain": 0.8,
+        "future_traversal_gain": 0.8,
+        "human_friction_reduction": 0.7,
+        "token_cost": 0.15,
+        "lookup_cost": 0.15,
+        "fragmentation_risk": 0.15,
+        "rollback_complexity": 0.2,
+        "validation_cost": 0.25,
+        "synthetic_contamination_risk": 0.05,
+    }
+    candidates: list[dict[str, Any]] = []
+
+    pollution_counts = review.get("pollution_memory_counts") if isinstance(review.get("pollution_memory_counts"), dict) else {}
+    if pollution_counts:
+        target = LOCAL_CONTEXT_ROOT / "suppression_overlay.json"
+        candidates.append(
+            base_context_resonance_candidate(
+                "retrieval_policy_cooldown",
+                "local retrieval feedback contains stale or harmful context pressure",
+                evidence or ["local retrieval feedback reported pollution pressure"],
+                [target.as_posix()],
+                f"{len(pollution_counts)} memory ids have pollution pressure",
+                "write a local suppression overlay without editing tracked registries",
+                {**common_gain, "retrieval_quality_gain": 1.0, "safety_gain": 1.0, "recurrence_weight": 0.7},
+            )
+        )
+
+    homeostasis = review.get("homeostasis_proposals") if isinstance(review.get("homeostasis_proposals"), list) else []
+    if homeostasis:
+        target = LOCAL_CONTEXT_ROOT / "homeostasis_proposals_local.json"
+        action_counts = Counter(str(item.get("action") or "unknown") for item in homeostasis if isinstance(item, dict))
+        candidates.append(
+            base_context_resonance_candidate(
+                "homeostasis_review",
+                "local retrieval feedback produced memory-homeostasis proposals for waking review",
+                evidence or [f"homeostasis actions: {dict(action_counts)}"],
+                [target.as_posix()],
+                f"{len(homeostasis)} local homeostasis proposals",
+                "write local proposal packet without editing tracked memory registries",
+                {**common_gain, "retrieval_quality_gain": 0.9, "future_traversal_gain": 0.9, "approval_burden": 0.1},
+            )
+        )
+
+    useful_counts = review.get("useful_memory_counts") if isinstance(review.get("useful_memory_counts"), dict) else {}
+    repeated_useful = {key: value for key, value in useful_counts.items() if int(value or 0) >= 2}
+    if repeated_useful:
+        target = LOCAL_CONTEXT_ROOT / "negative_memory_promotions_local.json"
+        candidates.append(
+            base_context_resonance_candidate(
+                "negative_memory_promote",
+                "repeated local retrieval outcomes point at a trap worth promoting for waking review",
+                evidence or [f"repeated useful/missed ids: {', '.join(sorted(repeated_useful)[:3])}"],
+                [target.as_posix()],
+                f"{len(repeated_useful)} repeated local feedback ids",
+                "write a local promotion proposal without editing NEGATIVE_MEMORY_MAP.yaml",
+                {**common_gain, "retrieval_quality_gain": 0.9, "recurrence_weight": 1.0, "fragmentation_risk": 0.2},
+            )
+        )
+
+    duplicate_counts = review.get("duplicate_source_counts") if isinstance(review.get("duplicate_source_counts"), dict) else {}
+    if duplicate_counts:
+        target = LOCAL_CONTEXT_ROOT / "context_alias_overlay.json"
+        candidates.append(
+            base_context_resonance_candidate(
+                "duplicate_context_compress",
+                "local salience records contain duplicate source pointers",
+                evidence or [f"duplicate sources: {', '.join(sorted(duplicate_counts)[:3])}"],
+                [target.as_posix()],
+                f"{len(duplicate_counts)} duplicate source groups",
+                "write local alias overlay preserving old ids and sources",
+                {**common_gain, "future_traversal_gain": 1.0, "lookup_cost": 0.1},
+            )
+        )
+
+    if review.get("route_index_refresh_needed") or records:
+        candidates.append(
+            base_context_resonance_candidate(
+                "context_index_update",
+                "local context-resonance salience index is empty or due for a route/index refresh",
+                evidence or ["current resonance payload can seed the local salience index with capped, source-preserving records"],
+                [target.as_posix()],
+                f"local salience records before={review.get('salience_record_count', 0)}",
+                f"refresh local salience index with {len(records)} capped context records",
+                common_gain,
+            )
+        )
+
+    target = LOCAL_CONTEXT_ROOT / "canary_history.json"
+    candidates.append(
+        base_context_resonance_candidate(
+            "canary_tune",
+            "no safer retrieval-pressure candidate exists, so record a local canary snapshot",
+            evidence or ["no local pollution, duplicate, or index-refresh candidate passed"],
+            [target.as_posix()],
+            "no local canary history update selected yet",
+            "append one local canary snapshot for future maintenance selection",
+            {**common_gain, "retrieval_quality_gain": 0.4, "future_traversal_gain": 0.5, "validation_cost": 0.15},
+        )
+    )
+    return candidates
+
+
+def select_context_resonance_candidate(run_dir: Path, resonance: dict[str, Any], review: dict[str, Any]) -> dict[str, Any]:
+    return build_context_resonance_candidates(run_dir, resonance, review)[0]
+
+
+def render_context_resonance_target_payload(candidate: dict[str, Any], resonance: dict[str, Any], review: dict[str, Any]) -> dict[str, Any]:
+    generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    change_type = candidate.get("change_type")
+    if change_type == "retrieval_policy_cooldown":
+        return {
+            "version": 1,
+            "updated_at": generated_at,
+            "policy": "local-only suppression overlay; tracked registries unchanged",
+            "cooldowns": [
+                {
+                    "memory_id": memory_id,
+                    "count": count,
+                    "retrieval_policy": "suppress",
+                    "evidence_class": "derived",
+                    "required_waking_check": "verify local retrieval outcome before promoting to tracked memory",
+                }
+                for memory_id, count in (review.get("pollution_memory_counts") or {}).items()
+            ],
+        }
+    if change_type == "negative_memory_promote":
+        return {
+            "version": 1,
+            "updated_at": generated_at,
+            "policy": "local-only promotion proposal; NEGATIVE_MEMORY_MAP.yaml unchanged",
+            "promotion_candidates": [
+                {
+                    "memory_id": memory_id,
+                    "count": count,
+                    "evidence_class": "derived",
+                    "promotion_target": "tracked_negative_memory_requires_waking_validation",
+                }
+                for memory_id, count in (review.get("useful_memory_counts") or {}).items()
+                if int(count or 0) >= 2
+            ],
+        }
+    if change_type == "duplicate_context_compress":
+        return {
+            "version": 1,
+            "updated_at": generated_at,
+            "policy": "local-only alias overlay; source pointers preserved",
+            "aliases": [
+                {"source": source, "duplicate_count": count, "action": "prefer one canonical local route record"}
+                for source, count in (review.get("duplicate_source_counts") or {}).items()
+            ],
+        }
+    if change_type == "homeostasis_review":
+        return {
+            "version": 1,
+            "updated_at": generated_at,
+            "policy": "local-only memory-homeostasis proposals; tracked registries unchanged",
+            "homeostasis_proposals": review.get("homeostasis_proposals") or [],
+        }
+    if change_type == "canary_tune":
+        return {
+            "version": 1,
+            "updated_at": generated_at,
+            "policy": "local-only canary history; no tracked canary changed",
+            "canary": context_resonance_canary_payload(),
+        }
+    return {
+        "version": 2,
+        "updated_at": generated_at,
+        "purpose": "local-only compact index of useful context resonance signals",
+        "source": "context_resonance_auto_maintenance",
+        "candidate_id": candidate.get("candidate_id"),
+        "records": compact_context_records(resonance, generated_at),
+    }
+
+
+def validate_context_resonance_auto_candidate(
+    candidate: dict[str, Any],
+    run_dir: Path,
+    *,
+    rollback_manifest: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+    target_paths = [Path(item) for item in candidate.get("target_files") or []]
+    before_canary = context_resonance_canary_payload()
+    checks.append({"name": "context_resonance_canary", "passed": before_canary.get("status") == "pass", "detail": before_canary.get("status")})
+    checks.append(
+        {
+            "name": "allowed_path_check",
+            "passed": all(context_resonance_target_allowed(path, run_dir) for path in target_paths),
+            "detail": ",".join(path.as_posix() for path in target_paths),
+        }
+    )
+    checks.append({"name": "small_changed_file_count", "passed": len(target_paths) <= 2, "detail": str(len(target_paths))})
+    checks.append(
+        {
+            "name": "synthetic_not_evidence_check",
+            "passed": "SYNTHETIC Justin" not in json.dumps(candidate, sort_keys=True),
+            "detail": "candidate contains no synthetic approval fixture text",
+        }
+    )
+    if rollback_manifest is not None:
+        checks.append(
+            {
+                "name": "rollback_manifest_check",
+                "passed": bool(rollback_manifest.get("targets")),
+                "detail": "rollback manifest has target snapshots",
+            }
+        )
+        for path in target_paths:
+            try:
+                json.loads(path.read_text(encoding="utf-8"))
+                passed = True
+                detail = "valid JSON"
+            except (OSError, json.JSONDecodeError) as exc:
+                passed = False
+                detail = str(exc)
+            checks.append({"name": f"json_parse_check:{path.as_posix()}", "passed": passed, "detail": detail})
+        git_check = subprocess.run(["git", "diff", "--check"], cwd=Path.cwd(), capture_output=True, text=True)
+        checks.append(
+            {
+                "name": "git_diff_check",
+                "passed": git_check.returncode == 0,
+                "detail": (git_check.stdout or git_check.stderr or "ok").strip()[:300],
+            }
+        )
+        after_canary = context_resonance_canary_payload()
+        checks.append(
+            {
+                "name": "context_resonance_canary_after",
+                "passed": after_canary.get("status") == "pass",
+                "detail": after_canary.get("status"),
+            }
+        )
+    checks.append(
+        {
+            "name": "lane_scope_check",
+            "passed": candidate.get("lane") == "context_resonance",
+            "detail": str(candidate.get("lane")),
+        }
+    )
+    return checks
+
+
+def context_resonance_auto_maintenance(
+    run_dir: Path,
+    resonance: dict[str, Any],
+    *,
+    auto_maintain: bool,
+) -> dict[str, Any]:
+    review = context_resonance_local_maintenance_review()
+    candidates = build_context_resonance_candidates(run_dir, resonance, review)
+    changed_actions = {
+        "synthetic": True,
+        "synthetic_header": SYNTHETIC_HEADER,
+        "mutation_boundary": "local_internal_auto_safe",
+        "repo_tracked_mutations_performed": False,
+        "external_mutations_performed": False,
+        "science_mutations_performed": False,
+        "rows": [],
+    }
+    deferred = {"synthetic": True, "synthetic_header": SYNTHETIC_HEADER, "mutation_boundary": "proposal_only", "rows": []}
+    attempted_candidates: list[dict[str, Any]] = []
+    selected_candidate: dict[str, Any] = candidates[0] if candidates else {}
+    selected_pre_checks: list[dict[str, Any]] = []
+    rollback_manifest: dict[str, Any] | None = None
+    selected_post_checks: list[dict[str, Any]] = []
+
+    for candidate in candidates:
+        pre_checks = validate_context_resonance_auto_candidate(candidate, run_dir)
+        threshold_passed = float(candidate.get("impact_score") or 0.0) >= CONTEXT_RESONANCE_AUTO_APPLY_THRESHOLD
+        blocked_reason = ""
+        if not auto_maintain:
+            blocked_reason = "auto-maintenance disabled by --no-auto-maintain"
+        elif not threshold_passed:
+            blocked_reason = f"impact_score {candidate.get('impact_score')} below threshold {CONTEXT_RESONANCE_AUTO_APPLY_THRESHOLD}"
+        elif not all(item.get("passed") for item in pre_checks):
+            failed = [str(item.get("name")) for item in pre_checks if not item.get("passed")]
+            blocked_reason = f"pre-apply validator failed: {', '.join(failed) if failed else 'unknown'}"
+
+        candidate["auto_apply_allowed"] = not bool(blocked_reason)
+        candidate["blocked_reason"] = blocked_reason
+        selected_candidate = candidate
+        selected_pre_checks = pre_checks
+        attempt = {
+            "candidate_id": candidate.get("candidate_id"),
+            "change_type": candidate.get("change_type"),
+            "impact_score": candidate.get("impact_score"),
+            "target_files": candidate.get("target_files"),
+            "status": "blocked" if blocked_reason else "candidate_passed_precheck",
+            "blocked_reason": blocked_reason,
+            "next_step": "fix the named validator or wait for real local retrieval feedback, then rerun the lane",
+        }
+        if blocked_reason:
+            attempted_candidates.append(attempt)
+            if not auto_maintain:
+                break
+            continue
+
+        selected_candidate = candidate
+        selected_pre_checks = pre_checks
+        target_paths = [Path(item) for item in candidate.get("target_files") or []]
+        rollback_manifest = {
+            "synthetic": True,
+            "synthetic_header": SYNTHETIC_HEADER,
+            "mutation_boundary": "local_internal_auto_safe",
+            "candidate_id": candidate.get("candidate_id"),
+            "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "targets": [],
+        }
+        before_contents: dict[Path, str | None] = {}
+        for path in target_paths:
+            before = path.read_text(encoding="utf-8") if path.exists() else None
+            before_contents[path] = before
+            rollback_manifest["targets"].append(
+                {
+                    "path": path.as_posix(),
+                    "existed_before": before is not None,
+                    "before_sha256": file_digest(before) if before is not None else None,
+                    "before_content": before,
+                }
+            )
+        for path in target_paths:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            payload = render_context_resonance_target_payload(candidate, resonance, review)
+            path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        safe_write(run_dir, "rollback_manifest.json", render_json_file(rollback_manifest))
+        post_checks = validate_context_resonance_auto_candidate(candidate, run_dir, rollback_manifest=rollback_manifest)
+        selected_post_checks = post_checks
+        if not all(item.get("passed") for item in post_checks):
+            for path, before in before_contents.items():
+                if before is None:
+                    try:
+                        path.unlink()
+                    except FileNotFoundError:
+                        pass
+                else:
+                    path.write_text(before, encoding="utf-8")
+            candidate["auto_apply_allowed"] = False
+            failed = [str(item.get("name")) for item in post_checks if not item.get("passed")]
+            candidate["blocked_reason"] = (
+                f"post-apply validator failed and rollback restored before state: {', '.join(failed) if failed else 'unknown'}"
+            )
+            attempted_candidates.append(
+                {
+                    "candidate_id": candidate.get("candidate_id"),
+                    "change_type": candidate.get("change_type"),
+                    "impact_score": candidate.get("impact_score"),
+                    "target_files": candidate.get("target_files"),
+                    "status": "rolled_back",
+                    "blocked_reason": candidate["blocked_reason"],
+                    "next_step": "inspect rollback_manifest.json and rerun context canary before trying this candidate again",
+                }
+            )
+            continue
+        else:
+            attempt["status"] = "applied"
+            attempt["blocked_reason"] = ""
+            attempt["next_step"] = "none; validators passed and rollback is logged"
+            attempted_candidates.append(attempt)
+            for path in target_paths:
+                changed_actions["rows"].append(
+                    {
+                        "tier": "auto_safe",
+                        "performed": True,
+                        "action": candidate.get("change_type"),
+                        "path": path.as_posix(),
+                        "reason": candidate.get("why_now"),
+                        "rollback": "restore before_content from rollback_manifest.json",
+                    }
+                )
+            break
+
+    if not changed_actions["rows"]:
+        final_reason = (
+            attempted_candidates[-1].get("blocked_reason")
+            if attempted_candidates
+            else "no context-resonance maintenance candidates were generated"
+        )
+        if selected_candidate:
+            selected_candidate["auto_apply_allowed"] = False
+            selected_candidate["blocked_reason"] = final_reason
+        deferred["rows"].append(
+            {
+                "tier": "blocked_for_waking",
+                "target": selected_candidate.get("candidate_id") if selected_candidate else "context_resonance",
+                "action": selected_candidate.get("change_type") if selected_candidate else "none",
+                "reason": final_reason,
+                "next_validator": "review attempted_candidates in lane_signal.json and rerun context canary",
+            }
+        )
+        changed_actions["rows"].append(
+            {
+                "tier": "auto_safe",
+                "performed": False,
+                "action": selected_candidate.get("change_type") if selected_candidate else "none",
+                "path": ",".join(selected_candidate.get("target_files") or []) if selected_candidate else "",
+                "reason": final_reason,
+                "rollback": "no state changed",
+            }
+        )
+
+    return {
+        "synthetic": True,
+        "synthetic_header": SYNTHETIC_HEADER,
+        "mutation_boundary": "local_internal_auto_safe",
+        "candidate": selected_candidate,
+        "candidate_count": len(candidates),
+        "attempted_candidates": attempted_candidates,
+        "local_review": review,
+        "pre_apply_validators": selected_pre_checks,
+        "post_apply_validators": selected_post_checks,
+        "changed_actions": changed_actions,
+        "deferred_for_waking": deferred,
+        "rollback_manifest": rollback_manifest,
+    }
+
+
 def render_context_resonance_list(title: str, rows: list[dict[str, Any]]) -> str:
     lines = [f"# {title}", "", SYNTHETIC_HEADER, ""]
     if not rows:
@@ -4716,6 +5255,8 @@ def lane_required_artifacts(lane_id: str) -> list[str]:
         "status_provenance": ["targeted_findings.json", "runbook_proposals.md"],
         "architecture_cohesion": ["structural_advancements.md", "internal_evolution_queue.md", "internal_evolution_queue.json"],
         "context_resonance": [
+            "changed_actions.md",
+            "changed_actions.json",
             "context_resonance_review.md",
             "context_resonance_review.json",
             "latent_context_nudges.md",
@@ -4774,6 +5315,13 @@ def render_lane_heartbeat_report(
     if resonance_payload:
         resonance_findings.extend(resonance_payload.get("latent_context_nudges") or [])
         resonance_findings.extend(resonance_payload.get("negative_memories") or [])
+    auto_payload = (
+        lane_signal_payload.get("context_resonance_auto_maintenance")
+        if lane_id == "context_resonance" and isinstance(lane_signal_payload.get("context_resonance_auto_maintenance"), dict)
+        else {}
+    )
+    auto_candidate = auto_payload.get("candidate") if isinstance(auto_payload.get("candidate"), dict) else {}
+    attempted_candidates = auto_payload.get("attempted_candidates") if isinstance(auto_payload.get("attempted_candidates"), list) else []
     lines = [f"# Dream Lane Heartbeat `{lane_id}`", "", SYNTHETIC_HEADER, ""]
     lines.append(f"- run: `{run_id}`")
     lines.append(f"- lane: `{lane_id}`")
@@ -4787,7 +5335,18 @@ def render_lane_heartbeat_report(
     lines.append(f"- lane_risk_count: {len(lane_risks)}")
     lines.append("")
     lines.append("## Top Findings")
-    if lane_risks:
+    if auto_candidate:
+        lines.append(
+            f"- `{auto_candidate.get('change_type')}` score={auto_candidate.get('impact_score')}: {auto_candidate.get('why_now')}"
+        )
+        if auto_candidate.get("blocked_reason"):
+            lines.append(f"- blocked: {auto_candidate.get('blocked_reason')}")
+        else:
+            lines.append("- applied: one auto-safe local context-resonance maintenance change")
+        skipped = [item for item in attempted_candidates if isinstance(item, dict) and item.get("status") in {"blocked", "rolled_back"}]
+        if skipped:
+            lines.append(f"- skipped_before_final: `{len(skipped)}` intended update(s) blocked or rolled back with reasons logged")
+    elif lane_risks:
         for item in lane_risks[:5]:
             target = item.get("workstream_id") or item.get("evidence") or item.get("title") or "global"
             lines.append(f"- score {item.get('score')} `{item.get('kind')}` {target}: {item.get('label')}")
@@ -4803,7 +5362,16 @@ def render_lane_heartbeat_report(
         lines.append("- none")
     lines.append("")
     lines.append("## Morning Actions")
-    if lane_risks:
+    if auto_candidate:
+        if auto_candidate.get("blocked_reason"):
+            lines.append("- Review `deferred_for_waking.md`; it lists the failed intended update, failure reason, and next validator.")
+        else:
+            skipped = [item for item in attempted_candidates if isinstance(item, dict) and item.get("status") in {"blocked", "rolled_back"}]
+            if skipped:
+                lines.append("- No Justin action required for the applied update; skipped candidates are logged for future runs.")
+            else:
+                lines.append("- No Justin action required; validators passed and rollback is logged.")
+    elif lane_risks:
         for item in lane_risks[:3]:
             lines.append(f"- {dream_response_for(item)}")
     elif research_subtasks:
@@ -4821,8 +5389,24 @@ def render_lane_heartbeat_report(
             lines.append(f"- `{item.get('id')}`: {item.get('goal')}")
             lines.append(f"  next: {item.get('morning_action')}")
         lines.append("")
+    if auto_payload:
+        lines.append("## Auto-Maintenance")
+        lines.append(f"- candidate: `{auto_candidate.get('candidate_id')}`")
+        lines.append(f"- change_type: `{auto_candidate.get('change_type')}`")
+        lines.append(f"- auto_apply_allowed: `{auto_candidate.get('auto_apply_allowed') is True}`")
+        lines.append(f"- blocked_reason: {auto_candidate.get('blocked_reason') or 'none'}")
+        validators = auto_payload.get("post_apply_validators") or auto_payload.get("pre_apply_validators") or []
+        failed = [item for item in validators if isinstance(item, dict) and not item.get("passed")]
+        lines.append(f"- validators: `{'passed' if not failed else 'failed'}`")
+        if attempted_candidates:
+            lines.append("- attempted_updates:")
+            for item in attempted_candidates[:3]:
+                lines.append(
+                    f"  - `{item.get('change_type')}` status=`{item.get('status')}` reason={item.get('blocked_reason') or 'none'} next={item.get('next_step') or 'none'}"
+                )
+        lines.append("")
     lines.append("## Boundary")
-    lines.append("- Proposal only. No SDCC, Condor, Gmail, Google Drive/Slides, Linear, or repo-tracked mutation.")
+    lines.append("- Context-resonance auto-maintenance is local-only. No SDCC, Condor, Gmail, Google Drive/Slides, Linear, or repo-tracked mutation.")
     return "\n".join(lines) + "\n"
 
 
@@ -4844,13 +5428,31 @@ def render_lane_digest(lane_id: str, lane_risks: list[dict[str, Any]], maintenan
     if resonance_payload:
         resonance_findings.extend(resonance_payload.get("latent_context_nudges") or [])
         resonance_findings.extend(resonance_payload.get("negative_memories") or [])
+    auto_payload = (
+        maintenance.get("context_resonance_auto_maintenance")
+        if lane_id == "context_resonance" and isinstance(maintenance.get("context_resonance_auto_maintenance"), dict)
+        else {}
+    )
+    auto_candidate = auto_payload.get("candidate") if isinstance(auto_payload.get("candidate"), dict) else {}
+    attempted_candidates = auto_payload.get("attempted_candidates") if isinstance(auto_payload.get("attempted_candidates"), list) else []
     lines = [f"# Lane Digest `{lane_id}`", "", SYNTHETIC_HEADER, ""]
     lines.append(f"- role: {lane.get('agent_role')}")
     lines.append(f"- purpose: {lane.get('purpose')}")
     lines.append(f"- risk_count: {len(lane_risks)}")
     lines.append("")
     lines.append("## What Changed")
-    lines.append("- This lane writes only local dream artifacts and proposal surfaces.")
+    if auto_candidate and not auto_candidate.get("blocked_reason"):
+        lines.append(f"- Applied one auto-safe local `{auto_candidate.get('change_type')}` maintenance change.")
+        skipped = [item for item in attempted_candidates if isinstance(item, dict) and item.get("status") in {"blocked", "rolled_back"}]
+        if skipped:
+            lines.append(f"- Skipped {len(skipped)} earlier intended update(s); reasons are in `lane_signal.json`.")
+    elif auto_candidate:
+        lines.append(f"- No local change applied: {auto_candidate.get('blocked_reason')}")
+        if attempted_candidates:
+            latest = attempted_candidates[-1]
+            lines.append(f"- Best next step: {latest.get('next_step')}")
+    else:
+        lines.append("- This lane writes only local dream artifacts and proposal surfaces.")
     lines.append("")
     lines.append("## Top 3 Lane Findings")
     if lane_risks:
@@ -4926,6 +5528,13 @@ def write_lane_artifacts(
         safe_write(run_dir, "internal_evolution_queue.json", render_json_file(maintenance["internal_evolution_queue"]))
     elif lane_id == "context_resonance":
         resonance = maintenance["context_resonance"]
+        auto_payload = maintenance.get("context_resonance_auto_maintenance") if isinstance(maintenance.get("context_resonance_auto_maintenance"), dict) else {}
+        changed_actions = auto_payload.get("changed_actions") if isinstance(auto_payload.get("changed_actions"), dict) else autonomous["changed_actions"]
+        deferred = auto_payload.get("deferred_for_waking") if isinstance(auto_payload.get("deferred_for_waking"), dict) else {}
+        safe_write(run_dir, "changed_actions.md", render_changed_actions(changed_actions))
+        safe_write(run_dir, "changed_actions.json", render_json_file(changed_actions))
+        if deferred.get("rows"):
+            safe_write(run_dir, "deferred_for_waking.md", render_deferred_for_justin(deferred))
         safe_write(run_dir, "context_resonance_review.md", render_context_resonance_markdown(resonance))
         safe_write(run_dir, "context_resonance_review.json", render_json_file(resonance))
         safe_write(
@@ -5000,15 +5609,160 @@ def write_lane_artifacts(
         safe_write(run_dir, "daily_plan_proposals.md", render_daily_proposals(lane_risks))
 
 
+def performed_action_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = payload.get("rows") if isinstance(payload.get("rows"), list) else []
+    return [item for item in rows if isinstance(item, dict) and item.get("performed") is True]
+
+
+def first_row_text(rows: list[dict[str, Any]], *keys: str) -> str:
+    for row in rows:
+        for key in keys:
+            text = first_line(row.get(key))
+            if text:
+                return text
+    return ""
+
+
+def build_morning_lane_summary_payload(
+    run_id: str,
+    lane_id: str,
+    world: dict[str, Any],
+    lane_risks: list[dict[str, Any]],
+    maintenance: dict[str, Any],
+    autonomous: dict[str, Any],
+    signal: dict[str, Any],
+    *,
+    scheduled_morning_lane: bool,
+) -> dict[str, Any]:
+    status = "no_safe_change"
+    one_line = "no safe improvement passed validators"
+    changed = "none"
+    deferred = "none"
+    needs_justin = False
+    needs_justin_reason = "none"
+    evidence = f"{run_id}/lane_signal.json"
+    daily_plan_priority = 99
+
+    changed_actions = signal.get("changed_actions") if isinstance(signal.get("changed_actions"), dict) else {}
+    performed = performed_action_rows(changed_actions)
+    if performed:
+        status = "changed"
+        action = first_row_text(performed, "action") or "auto-safe local maintenance"
+        changed = f"Applied {len(performed)} auto-safe local action(s): {action}."
+        one_line = changed
+        evidence = first_row_text(performed, "path") or evidence
+        daily_plan_priority = 20
+
+    deferred_rows: list[dict[str, Any]] = []
+    if lane_id == "context_resonance":
+        auto_payload = (
+            maintenance.get("context_resonance_auto_maintenance")
+            if isinstance(maintenance.get("context_resonance_auto_maintenance"), dict)
+            else {}
+        )
+        deferred_payload = (
+            auto_payload.get("deferred_for_waking")
+            if isinstance(auto_payload.get("deferred_for_waking"), dict)
+            else {}
+        )
+        deferred_rows.extend(row for row in deferred_payload.get("rows") or [] if isinstance(row, dict))
+        candidate = auto_payload.get("candidate") if isinstance(auto_payload.get("candidate"), dict) else {}
+        blocked_reason = first_line(candidate.get("blocked_reason"))
+        if blocked_reason and status != "changed":
+            status = "deferred"
+            one_line = "one context maintenance improvement was deferred for waking review"
+            deferred = blocked_reason
+            needs_justin = True
+            needs_justin_reason = blocked_reason
+            evidence = first_line(candidate.get("candidate_id")) or evidence
+            daily_plan_priority = 50
+
+    deferred_payload = autonomous.get("deferred_actions") if isinstance(autonomous.get("deferred_actions"), dict) else {}
+    deferred_rows.extend(row for row in deferred_payload.get("rows") or [] if isinstance(row, dict))
+    if status == "no_safe_change" and lane_risks:
+        status = "deferred"
+        risk = lane_risks[0]
+        label = first_line(risk.get("label")) or first_line(risk.get("title")) or first_line(risk.get("kind"))
+        one_line = f"proposal-only waking check surfaced: {label}"
+        deferred = label or "proposal-only waking check"
+        evidence = first_line(risk.get("evidence")) or evidence
+        daily_plan_priority = 70
+    elif status == "no_safe_change" and deferred_rows:
+        detail = first_row_text(deferred_rows, "reason", "action", "target") or "proposal-only deferred check"
+        status = "deferred"
+        one_line = f"proposal-only deferred check surfaced: {detail}"
+        deferred = detail
+        daily_plan_priority = 80
+
+    eligible = bool(scheduled_morning_lane)
+    return {
+        "synthetic": True,
+        "synthetic_header": SYNTHETIC_HEADER,
+        "mutation_boundary": "proposal_only",
+        "lane_id": lane_id,
+        "run_id": run_id,
+        "generated_at": first_line(world.get("generated_at")) or datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "status": status,
+        "one_line_result": one_line,
+        "changed": changed,
+        "deferred": deferred,
+        "needs_justin": needs_justin,
+        "needs_justin_reason": needs_justin_reason,
+        "evidence": evidence,
+        "synthetic_boundary": DREAM_SUMMARY_BOUNDARY,
+        "safe_for_daily_plan": True,
+        "daily_plan_priority": daily_plan_priority,
+        "forbidden_interpretations": [
+            "not user approval",
+            "not science evidence",
+            "not task completion",
+            "not permission for external mutation",
+        ],
+        "scheduled_morning_lane": bool(scheduled_morning_lane),
+        "scheduled_source": DREAM_SCHEDULED_SOURCE if scheduled_morning_lane else DREAM_MANUAL_SOURCE,
+        "eligible_for_today_plan": eligible,
+    }
+
+
+def render_morning_lane_summary_text(payload: dict[str, Any]) -> str:
+    needs = "yes" if payload.get("needs_justin") else "no"
+    reason = first_line(payload.get("needs_justin_reason")) or "none"
+    return "\n".join(
+        [
+            SYNTHETIC_HEADER,
+            f"Lane: {payload.get('lane_id')}",
+            f"Status: {payload.get('status')}",
+            f"One-line result: {payload.get('one_line_result')}",
+            f"Changed: {payload.get('changed')}",
+            f"Deferred: {payload.get('deferred')}",
+            f"Needs Justin: {needs} - {reason}",
+            f"Evidence: {payload.get('evidence')}",
+            f"Synthetic boundary: {payload.get('synthetic_boundary')}",
+            f"Scheduled morning lane: {str(payload.get('scheduled_morning_lane')).lower()}",
+            f"Eligible for Today's Plan: {str(payload.get('eligible_for_today_plan')).lower()}",
+            "",
+        ]
+    )
+
+
 def write_lane_dream_outputs(
     run_dir: Path,
     run_id: str,
     lane_id: str,
     world: dict[str, Any],
     risks: list[dict[str, Any]],
-) -> None:
+    *,
+    auto_maintain: bool = True,
+    scheduled_morning_lane: bool = False,
+) -> dict[str, Any]:
     copy_sandbox(run_dir)
     maintenance = evolutionary_maintenance_payload(world, risks)
+    if lane_id == "context_resonance":
+        maintenance["context_resonance_auto_maintenance"] = context_resonance_auto_maintenance(
+            run_dir,
+            maintenance["context_resonance"],
+            auto_maintain=auto_maintain,
+        )
     autonomous = autonomous_maintenance_payload(run_dir, world, risks, maintenance)
     structural = structural_advancement_payload(world, risks, maintenance)
     maintenance["structural_advancements"] = structural
@@ -5022,6 +5776,9 @@ def write_lane_dream_outputs(
     signal["lane"] = lane_definition_by_id(lane_id)
     signal["automation_id"] = DREAM_LANE_AUTOMATIONS[lane_id]["automation_id"]
     signal["thread_binding"] = DREAM_LANE_AUTOMATIONS[lane_id].get("thread_binding", "fresh_chat_per_run")
+    signal["scheduled_morning_lane"] = bool(scheduled_morning_lane)
+    signal["scheduled_source"] = DREAM_SCHEDULED_SOURCE if scheduled_morning_lane else DREAM_MANUAL_SOURCE
+    signal["eligible_for_today_plan"] = bool(scheduled_morning_lane)
     if DREAM_LANE_AUTOMATIONS[lane_id].get("target_thread_id"):
         signal["target_thread_id"] = DREAM_LANE_AUTOMATIONS[lane_id]["target_thread_id"]
     signal["summary"]["lane_risk_count"] = len(lane_risks)
@@ -5060,7 +5817,14 @@ def write_lane_dream_outputs(
             ]
     if lane_id == "context_resonance":
         resonance_payload = maintenance["context_resonance"]
+        auto_payload = maintenance.get("context_resonance_auto_maintenance") if isinstance(maintenance.get("context_resonance_auto_maintenance"), dict) else {}
+        candidate = auto_payload.get("candidate") if isinstance(auto_payload.get("candidate"), dict) else {}
         signal["context_resonance"] = resonance_payload
+        signal["context_resonance_auto_maintenance"] = auto_payload
+        if isinstance(auto_payload.get("changed_actions"), dict):
+            signal["changed_actions"] = auto_payload["changed_actions"]
+        attempted = auto_payload.get("attempted_candidates") if isinstance(auto_payload.get("attempted_candidates"), list) else []
+        skipped = [item for item in attempted if isinstance(item, dict) and item.get("status") in {"blocked", "rolled_back"}]
         nudges = resonance_payload.get("latent_context_nudges") if isinstance(resonance_payload.get("latent_context_nudges"), list) else []
         negative = resonance_payload.get("negative_memories") if isinstance(resonance_payload.get("negative_memories"), list) else []
         retrieval = (
@@ -5071,7 +5835,24 @@ def write_lane_dream_outputs(
         signal["summary"]["context_resonance_nudge_count"] = len(nudges)
         signal["summary"]["negative_memory_candidate_count"] = len(negative)
         signal["summary"]["retrieval_outcome_candidate_count"] = len(retrieval)
-        signal["top_findings"] = [
+        signal["summary"]["context_resonance_auto_applied"] = bool(candidate.get("auto_apply_allowed") and not candidate.get("blocked_reason"))
+        signal["summary"]["context_resonance_primary_change_type"] = candidate.get("change_type")
+        signal["summary"]["context_resonance_attempted_candidate_count"] = len(attempted)
+        signal["summary"]["context_resonance_skipped_candidate_count"] = len(skipped)
+        signal["summary"]["context_resonance_blocked_reason"] = candidate.get("blocked_reason") or ""
+        signal["top_findings"] = []
+        if candidate:
+            signal["top_findings"].append(
+                {
+                    "kind": "context_resonance_auto_maintenance",
+                    "score": candidate.get("impact_score"),
+                    "workstream_id": "context_resonance",
+                    "title": candidate.get("change_type"),
+                    "evidence": candidate.get("why_now"),
+                    "validator_kind": "auto_safe_validator_gate",
+                }
+            )
+        signal["top_findings"].extend([
             {
                 "kind": "latent_context_nudge",
                 "score": None,
@@ -5091,7 +5872,7 @@ def write_lane_dream_outputs(
                 "validator_kind": "negative_memory_review",
             }
             for item in negative[:2]
-        ]
+        ])
     maintenance_payload = signal.get("evolutionary_maintenance") if isinstance(signal.get("evolutionary_maintenance"), dict) else {}
     lane_payload = maintenance_payload.get("lane_heartbeats") if isinstance(maintenance_payload.get("lane_heartbeats"), dict) else {}
     if lane_payload:
@@ -5118,13 +5899,26 @@ def write_lane_dream_outputs(
         "interactions": interactions,
         "lane_signal": signal,
     }
+    summary = build_morning_lane_summary_payload(
+        run_id,
+        lane_id,
+        world,
+        lane_risks,
+        maintenance,
+        autonomous,
+        signal,
+        scheduled_morning_lane=scheduled_morning_lane,
+    )
     safe_write(run_dir, "dream_trace.json", render_json_file(trace))
     safe_write(run_dir, "lane_signal.json", render_json_file(signal))
     safe_write(run_dir, "lane_heartbeat.md", render_lane_heartbeat_report(run_id, lane_id, world, lane_risks, signal))
     safe_write(run_dir, "lane_digest.md", render_lane_digest(lane_id, lane_risks, maintenance, autonomous))
     safe_write(run_dir, "validation_summary.md", render_lane_validation_summary(lane_id))
+    safe_write(run_dir, "morning_lane_summary.json", render_json_file(summary))
+    safe_write(run_dir, "morning_lane_summary.txt", render_morning_lane_summary_text(summary))
     write_lane_artifacts(run_dir, lane_id, world, lane_risks, maintenance, autonomous, structural)
     append_dream_index(signal)
+    return summary
 
 
 def run_dream(args: argparse.Namespace) -> int:
@@ -5142,11 +5936,21 @@ def run_lane_dream(args: argparse.Namespace) -> int:
     artifact_data = load_yaml_like(ARTIFACT_REGISTRY)
     world = build_world(register_data, artifact_data, now, "lane", run_id)
     risks = identify_risks(world, "lane")
-    write_lane_dream_outputs(run_dir, run_id, args.lane_id, world, risks)
+    summary = write_lane_dream_outputs(
+        run_dir,
+        run_id,
+        args.lane_id,
+        world,
+        risks,
+        auto_maintain=not getattr(args, "no_auto_maintain", False),
+        scheduled_morning_lane=bool(getattr(args, "scheduled_morning_lane", False)),
+    )
     lane_risks = lane_risks_for(risks, args.lane_id)
     print(f"OK: lane dream wrote {run_dir}")
     print(f"lane_id={args.lane_id} risks={len(lane_risks)}")
-    print(f"report={run_dir / 'lane_heartbeat.md'}")
+    print(f"summary={run_dir / 'morning_lane_summary.txt'}")
+    print()
+    print(render_morning_lane_summary_text(summary), end="")
     return 0
 
 
@@ -5377,7 +6181,15 @@ def validate_lane_dir(path: Path) -> list[str]:
     if root not in [resolved, *resolved.parents]:
         errors.append(f"dream path is outside dream root: {path}")
         return errors
-    required = ["dream_trace.json", "lane_signal.json", "lane_heartbeat.md", "lane_digest.md", "validation_summary.md"]
+    required = [
+        "dream_trace.json",
+        "lane_signal.json",
+        "lane_heartbeat.md",
+        "lane_digest.md",
+        "validation_summary.md",
+        "morning_lane_summary.json",
+        "morning_lane_summary.txt",
+    ]
     for name in required:
         if not (path / name).exists():
             errors.append(f"missing lane output: {name}")
@@ -5401,6 +6213,33 @@ def validate_lane_dir(path: Path) -> list[str]:
         errors.append("lane_signal.json mutation_boundary is not proposal_only")
     if signal.get("output_kind") != "lane":
         errors.append("lane_signal.json output_kind is not lane")
+    try:
+        morning_summary = json.loads(read_text(path / "morning_lane_summary.json"))
+    except json.JSONDecodeError as exc:
+        errors.append(f"morning_lane_summary.json invalid JSON: {exc}")
+        morning_summary = {}
+    if isinstance(morning_summary, dict):
+        if morning_summary.get("status") not in DREAM_MORNING_STATUSES:
+            errors.append("morning_lane_summary.json has unknown status")
+        if morning_summary.get("lane_id") != lane_id:
+            errors.append("morning_lane_summary.json lane_id does not match lane_signal.json")
+        if morning_summary.get("run_id") != signal.get("run_id"):
+            errors.append("morning_lane_summary.json run_id does not match lane_signal.json")
+        if morning_summary.get("scheduled_morning_lane") != signal.get("scheduled_morning_lane"):
+            errors.append("morning_lane_summary.json scheduled marker does not match lane_signal.json")
+        if morning_summary.get("eligible_for_today_plan") != morning_summary.get("scheduled_morning_lane"):
+            errors.append("morning_lane_summary.json eligibility does not follow scheduled marker")
+        if morning_summary.get("scheduled_morning_lane") is True and morning_summary.get("scheduled_source") != DREAM_SCHEDULED_SOURCE:
+            errors.append("morning_lane_summary.json scheduled source is wrong")
+        if morning_summary.get("scheduled_morning_lane") is False and morning_summary.get("scheduled_source") != DREAM_MANUAL_SOURCE:
+            errors.append("morning_lane_summary.json manual source is wrong")
+        if morning_summary.get("synthetic_boundary") != DREAM_SUMMARY_BOUNDARY:
+            errors.append("morning_lane_summary.json synthetic boundary is wrong")
+        forbidden = morning_summary.get("forbidden_interpretations")
+        if not isinstance(forbidden, list) or "not science evidence" not in forbidden:
+            errors.append("morning_lane_summary.json lacks forbidden interpretations")
+    if DREAM_SUMMARY_BOUNDARY not in read_text(path / "morning_lane_summary.txt"):
+        errors.append("morning_lane_summary.txt lacks synthetic boundary")
     contract = DREAM_LANE_AUTOMATIONS[lane_id]
     if signal.get("automation_id") != contract["automation_id"]:
         errors.append("lane_signal.json automation_id does not match lane contract")
@@ -5416,6 +6255,31 @@ def validate_lane_dir(path: Path) -> list[str]:
     for name in lane_required_artifacts(lane_id):
         if not (path / name).exists():
             errors.append(f"missing lane-specific output: {name}")
+    if lane_id == "context_resonance":
+        try:
+            changed = json.loads(read_text(path / "changed_actions.json"))
+        except json.JSONDecodeError as exc:
+            errors.append(f"changed_actions.json invalid JSON: {exc}")
+            changed = {}
+        if isinstance(changed, dict):
+            if changed.get("external_mutations_performed") is not False:
+                errors.append("context_resonance changed_actions reports external mutation")
+            if changed.get("science_mutations_performed") is not False:
+                errors.append("context_resonance changed_actions reports science mutation")
+            if changed.get("repo_tracked_mutations_performed") is not False:
+                errors.append("context_resonance changed_actions reports repo-tracked mutation")
+        auto_payload = signal.get("context_resonance_auto_maintenance") if isinstance(signal.get("context_resonance_auto_maintenance"), dict) else {}
+        candidate = auto_payload.get("candidate") if isinstance(auto_payload.get("candidate"), dict) else {}
+        if candidate.get("auto_apply_allowed") is True and not candidate.get("blocked_reason"):
+            if not (path / "rollback_manifest.json").exists():
+                errors.append("context_resonance auto-applied change lacks rollback_manifest.json")
+        top_auto = [
+            item
+            for item in signal.get("top_findings") or []
+            if isinstance(item, dict) and item.get("kind") == "context_resonance_auto_maintenance"
+        ]
+        if len(top_auto) > 1:
+            errors.append("context_resonance emitted more than one primary auto-maintenance finding")
     for name in ("nightly_heartbeat.md", "nightly_heartbeat_signal.json", "morning_appendix.md"):
         if (path / name).exists():
             errors.append(f"retired master-heartbeat output still present: {name}")
@@ -5455,6 +6319,12 @@ def main() -> int:
     lane.add_argument("register", nargs="?", default=str(DEFAULT_REGISTER))
     lane.add_argument("--now")
     lane.add_argument("--run-id")
+    lane.add_argument("--no-auto-maintain", action="store_true", help="debug: skip context_resonance auto-safe local maintenance")
+    lane.add_argument(
+        "--scheduled-morning-lane",
+        action="store_true",
+        help="mark this 03:30 scheduled dream lane as eligible for Today's Plan ingestion",
+    )
     lane.set_defaults(func=run_lane_dream)
 
     validate = subparsers.add_parser("validate", help="validate dream output safety")

@@ -366,8 +366,9 @@ workstreams:
     current_next_action: >
       Complete for the lane-heartbeat contract. The default overnight shape is
       eight `03:30` lane heartbeats using `python3 scripts/codex_os_dream.py
-      lane --lane-id <lane_id>`; do not restore the retired nightly
-      super-heartbeat or micro-dream paths.
+      lane --lane-id <lane_id> --scheduled-morning-lane`; only runs with that
+      explicit marker are eligible for Today's Plan. Do not restore the
+      retired nightly super-heartbeat or micro-dream paths.
     depends_on:
       - workstream:codex_os_10x_safety_kernel
     active_codex_session: null
@@ -379,6 +380,7 @@ workstreams:
     active_jobs: []
     artifacts:
       - "scripts/codex_os_dream.py"
+      - "scripts/os/dream/codex_dream_morning_summaries.py"
       - "agent_context/policies/AGENTIC_OS_DREAMING.md"
       - "agent_context/local/dreams/"
       - "agent_context/policies/LOAD_MAP.yaml"
@@ -391,6 +393,7 @@ workstreams:
       - "2026-06-01 nightly super-heartbeat implementation retired the micro-dream expectation from the current contract and merged the separate doctor lane into the nightly overnight package."
       - "2026-06-02 lane-heartbeat migration replaced the super-heartbeat/doctor automation pair with seven `03:30` lane heartbeats, each tied to a single dream lane. The retired `scripts/codex_os_nightly_heartbeat.py nightly`, `scripts/codex_os_dream.py nightly`, and `scripts/codex_os_dream.py micro` entrypoints now fail fast."
       - "2026-06-01 23:20 EDT dream automation binding update removed fixed target-thread requirements from the overnight lane contract. Dream heartbeats are now expected to open a fresh automation-generated chat each nightly run rather than reusing one persistent lane thread."
+      - "2026-06-02 dream-to-Today's-Plan bridge added `--scheduled-morning-lane`, `morning_lane_summary.json/txt`, and scheduled-only aggregation through `scripts/os/dream/codex_dream_morning_summaries.py`; manual, validation, and unmarked dream dirs are excluded from the daily cockpit by default."
       - "2026-05-27 00:40 EDT Linear THE-20 created and closed Done with implementation/validation evidence."
     last_verified: "2026-05-27T00:40:00-04:00"
     next_check: "after first automation-generated micro and nightly reports, inspect whether reports are useful and not noisy"
@@ -398,10 +401,14 @@ workstreams:
     handoff_summary: >
       Dream v1 is private and proposal-only. The default overnight contract is
       eight lane heartbeats at `03:30`, each running
-      `python3 scripts/codex_os_dream.py lane --lane-id <lane_id>` and writing
+      `python3 scripts/codex_os_dream.py lane --lane-id <lane_id>
+      --scheduled-morning-lane` and writing
       `lane_heartbeat.md`, `lane_signal.json`, `lane_digest.md`, and
-      `validation_summary.md` under its own dream directory. Do not use the
-      retired nightly or micro dream entrypoints, and do not treat synthetic
+      `validation_summary.md` plus `morning_lane_summary.json/txt` under its
+      own dream directory. The daily cockpit may ingest only summaries with
+      `eligible_for_today_plan: true`, `scheduled_morning_lane: true`, and
+      `scheduled_source: "03:30_dream_automation"`. Do not use the retired
+      nightly or micro dream entrypoints, and do not treat synthetic
       interactions as approval or real user intent.
 
   - workstream_id: codex_os_dream_doctor_fusion
@@ -415,15 +422,15 @@ workstreams:
       cleanup/maintenance proposals, and a tighter doctor/dream fusion that
       improves thesis progress without mutating real analysis state overnight.
     current_next_action: >
-      Verify the next real `03:30` eight-lane batch opens fresh automation
-      chats with no fixed thread binding, and confirm the doctor still accepts
-      the latest `lane_signal.json` set while `context_resonance` remains
-      compact and useful.
+      After the next real context-resonance waking use or `03:30` lane run,
+      verify outcome-weighted ranking and homeostasis proposals reflect real
+      local retrieval feedback without expanding context volume or mutating
+      tracked memory registries automatically.
     depends_on:
       - workstream:codex_os_dream_system
       - workstream:codex_ask_chatgpt_delegation
     active_codex_session: null
-    chat_label_or_thread: "dream-state ChatGPT enhancement research"
+    chat_label_or_thread: "outcome-weighted context resonance implementation"
     linear_issue: null
     linear_sync: pending
     today_doc_anchor: null
@@ -435,6 +442,7 @@ workstreams:
       - "scripts/codex_os_nightly_heartbeat.py"
       - "scripts/os/heartbeat/codex_os_nightly_heartbeat.py"
       - "scripts/os/dream/codex_os_dream.py"
+      - "scripts/os/dream/codex_dream_morning_summaries.py"
       - "scripts/os/safety/codex_os_doctor.py"
       - "scripts/os/context/codex_context_resonance.py"
       - "scripts/os/context/codex_context_pack.py"
@@ -476,6 +484,10 @@ workstreams:
       - "2026-06-02 context-resonance heartbeat automation installed as `thesisanalysis-dream-lane-context-resonance`, daily 03:30, with no fixed target_thread_id so the nightly run opens a fresh automation chat. Canonical validation run agent_context/local/dreams/20260602T032942Z-lane-context_resonance validated cleanly and produced all required resonance artifacts."
       - "2026-06-02 context resonance validation passed: resolver smoke tests for plot generation, SDCC transfer/path work, slide scripting, OS maintenance, and active-job status returned capped outputs; PYTHONPYCACHEPREFIX=/private/tmp/codex_pycache py_compile passed for the resolver/dream/doctor; dream validate --latest passed; register and artifact registry validate; doctor daily JSON reports status=ok with 0 warnings; git diff --check passed."
       - "2026-06-02 waking context-resonance architecture upgrade added tracked neutral registries under agent_context/memory/, refactored scripts/os/context/codex_context_resonance.py into resolve/record-outcome/review/canary subcommands, integrated optional task nudges into scripts/os/context/codex_context_pack.py, and hardened scripts/os/safety/codex_os_doctor.py with registry validation plus resolver canaries. Validation passed: resolver canary, representative route smoke tests, temp-ledger record/review, context-pack task output, py_compile, register validation, artifact registry validation, doctor daily JSON status=ok with 0 findings, context-resonance lane run validation-waking-context-resonance-20260602 validates with synthetic marker."
+      - "2026-06-02 context-resonance auto-maintenance upgrade added one-primary-improvement selection, local-only allowlisted auto-apply, rollback manifests, changed_actions logging, --no-auto-maintain debug mode, and maintenance-review summaries. Validation run validation-context-resonance-auto-maintain applied a local context_index_update only to agent_context/local/context_resonance/memory_salience_index.json, wrote rollback_manifest.json, and validated cleanly; validation-context-resonance-no-auto proved the blocked/deferred path; status_provenance lane validation-status-unchanged still ran; dream validate --latest, context canary, py_compile with PYTHONPYCACHEPREFIX, git diff --check, and doctor daily all passed."
+      - "2026-06-02 context-resonance fallback refinement added ordered candidate evaluation: blocked candidates now record intended update, failure reason, and best next step, then the lane tries the next implementable candidate instead of treating the run as failed. Validation-context-resonance-skip-summary with --no-auto-maintain emitted a clear deferred summary and attempted_candidates entry; validation-context-resonance-next-implementable applied duplicate_context_compress to ignored local context_alias_overlay.json with rollback and validated cleanly."
+      - "2026-06-02 dream-to-Today's-Plan bridge implemented scheduled-only filtering: lane runs now write morning_lane_summary.json/txt, installed 03:30 automations call `--scheduled-morning-lane`, manual runs write `eligible_for_today_plan: false`, the aggregator skips validation/manual/unmarked dirs by default, and the register renderer inserts `Overnight Dream Updates` after `Do First Today`."
+      - "2026-06-02 outcome-weighted context resonance implemented: resolver now reads local retrieval_outcome_ledger.jsonl, applies bounded score adjustments with base/final/feedback fields, keeps missed feedback proposal-only, emits homeostasis_proposals in review/maintenance-review, and lets the dream lane package those proposals only as ignored local context-resonance artifacts. Validation passed: resolver/dream py_compile with PYTHONPYCACHEPREFIX=/private/tmp/codex_pycache_context, context canary with feedback fixtures, review --json, representative resolve --json, dream validate --latest, doctor daily with 0 warnings, and git diff --check."
       - "2026-06-01 23:13 EDT research-scout leverage upgrade wired the human-tool principle into the live lane contract: scripts/os/dream/codex_os_dream.py now emits first-class ChatGPT-history/tool-orchestration subtasks plus `human_tool_leverage.md`, and AGENTIC_OS_DREAMING.md now states that `research_scout` owns ChatGPT-history review plans and better use of human-accessible AI/tools."
       - "2026-06-01 validation run agent_context/local/dreams/validation-nightly-super-heartbeat-20260601 succeeded and wrote nightly_heartbeat.md, nightly_heartbeat_signal.json, and morning_appendix.md. Follow-up doctor daily consumed the consolidated heartbeat with automation drift count=0; residual warnings are recurring hotspots plus low cohesion and high maintenance debt."
       - "2026-06-01 Computer Use in Chrome delegated ChatGPT research was run in Heavy mode at chatgpt.com/c/6a1dee12-3a88-83ea-a258-11d2fa845ee3 with sanitized prompt pack agent_context/local/chatgpt_research/20260601T203906Z-dream-state-recurrence-learning-and-low-complexi; pack validation passed and synthesis favored recurrence/adaptation cards over broad new subsystems."
@@ -486,21 +498,35 @@ workstreams:
       - "2026-06-01T20:35 EDT manual five-pass rehearsal found and fixed two shadow-pilot defects: nightly heartbeat now forwards --now into the dream command, and simulation-* runs are isolated by simulation group for pilot-stage progression while excluded from real recurring-hotspot counts."
       - "2026-06-01T20:35 EDT final five-pass simulation simulation-stage9-review2-night1-20260601 through simulation-stage9-review2-day5-20260605 progressed Baseline Map -> Candidate Formation -> Shadow Burn Rehearsal -> Calibration And Human Gate -> Post-Pilot Waiting Human Enablement, with approval_ready_count=0 for every pass and no external mutations."
       - "2026-06-01T20:35 EDT final day-5 simulation agent_context/local/dreams/simulation-stage9-review2-day5-20260605 completed status=warn, doctor ok, helper failures=0, approval-ready allowed=false, and remaining warnings are stale-state/recurring-hotspot/schema-promotion/frozen-growth pressure."
-    last_verified: "2026-06-02T03:50:11+00:00"
-    next_check: "After the next real 03:30 context-resonance heartbeat, verify its lane package is compact, useful, and still doctor-clean."
+    last_verified: "2026-06-02T05:10:47+00:00"
+    next_check: "After the next real context-resonance waking use or 03:30 lane run, inspect whether useful/stale/harmful/irrelevant/missed feedback produces the expected bounded ranking changes and proposal-only homeostasis actions."
     stale_after: "2026-06-04T10:00:00-04:00"
     handoff_summary: >
       Stage 9 now has a guarded autonomous internal-maintenance envelope and
       eight lane heartbeats. Each dream heartbeat now opens a fresh
       automation-generated chat per nightly run instead of binding to one
-      persistent lane thread. The context_resonance lane adds compact retrieval
-      nudges, negative-memory candidates, stale/synthetic suppression, and
-      retrieval-outcome candidates. Other lane heartbeats emit TFE/MSV/BPI
+      persistent lane thread. The context_resonance lane now selects at most
+      one bounded internal memory-maintenance action per run, auto-applies only
+      ignored local context-resonance state after validators, logs
+      changed_actions plus rollback_manifest when it changes anything, and
+      keeps tracked registry/policy changes as waking proposals. The resolver
+      now uses local retrieval outcomes as bounded routing feedback: useful
+      outcomes can modestly boost a memory, stale/harmful/repeated irrelevant
+      outcomes cool it, and missed outcomes create proposal-only cue review
+      without ranking boost. If a candidate is blocked, the lane records the
+      intended update, failure reason, and best next step, then proceeds down
+      the priority ladder until an implementable candidate passes or emits a
+      single no-change/deferred summary. Other lane
+      heartbeats emit TFE/MSV/BPI
       scoring, branch-pressure, memory-homeostasis, controlled-burn shadow
       proposals, internal_evolution_queue.md/json, sdcc_base_repo_hygiene.md,
       autonomy_envelope.md/json, changed_actions.md/json,
       deferred_for_justin.md, research_synthesis.md, and lane-local validation
       artifacts under `agent_context/local/dreams/<timestamp>-lane-<lane_id>/`.
+      Lane runs now also emit `morning_lane_summary.json/txt`; the scheduled
+      03:30 automations pass `--scheduled-morning-lane`, and Today's Plan must
+      read only summaries marked `eligible_for_today_plan: true` through
+      `scripts/os/dream/codex_dream_morning_summaries.py`.
       The doctor now aggregates the latest `lane_signal.json` file for each
       expected lane instead of reading one super-heartbeat signal. The dream
       script may auto-apply only untracked generated-junk cleanup in
@@ -876,7 +902,9 @@ workstreams:
       - "2026-06-01T23:35:03-04:00 tightened SLIDES_WORKFLOW so final slide canvases must render intended superscripts/subscripts visually rather than with caret notation. Patched make_hp2026_opening_motivation_slide.py with a rich-text renderer for raised exponents, rerendered hp2026_slide03_pp_dataset_context.png so pb^-1/nb^-1 appear as true superscripted -1 on the PNG, and rewrote the Slide 3 script units as spoken 'inverse picobarns'. Visual QA and 2560x1440 RGB readback passed. No Google Slides mutation."
       - "2026-06-01T23:36:35-04:00 projected the Slide 3 superscript rendering and slide-policy update to Linear THE-5 in comment 6489952e-6942-4a6c-a614-9a79c72bde6e."
       - "2026-06-01T23:46:37-04:00 rerendered hp2026_slide02_sphenix_experiment_for_photons.png after cross-checking the Yeonju DIS2026 detector-overview slide: tracking now includes MVTX/INTT/TPC/TPOT and points to the inner tracking/beamline volume, EMCal/HCal/magnet leaders point to visible barrel regions, MBD points only to the forward beam-axis vicinity, and the barrel-coverage card has no leader. Py-compile, 2560x1440 RGB readback, manifest/script readback, contact-sheet QA, and full-size visual QA passed. No Google Slides mutation."
-    last_verified: "2026-06-01T23:46:37-04:00"
+      - "2026-06-01T23:53:37-04:00 rerendered hp2026_slide02_sphenix_experiment_for_photons.png with presentation-distance arrow styling: white-underlay leader strokes, stronger colored lines, visible arrowheads placed before the target rings, larger endpoint rings, and stronger callout-card borders/header dots. Full-size visual QA confirmed the arrows are readable by eye while preserving the corrected detector-region targets; py-compile, 2560x1440 RGB readback, manifest readback, and contact-sheet QA passed. No Google Slides mutation."
+      - "2026-06-01T23:59:18-04:00 rerendered hp2026_slide02_sphenix_experiment_for_photons.png after simplifying the visible MBD callout title from 'MBD / forward trigger' to 'MBD'. Full-size visual QA confirmed the box title is now MBD only, with the Minimum Bias Detector subtitle and explanatory body preserved; py-compile, 2560x1440 RGB readback, and manifest readback passed. No Google Slides mutation."
+    last_verified: "2026-06-01T23:59:18-04:00"
     next_check: "after Justin reviews the C4 title, the standalone Slide 2 experiment context, standalone Slide 3 dataset context, isolated-photon motivation slide, and the paper-first Slides 4-11 full-talk PNG batch plus scripts, refine the local full-deck story; once approved, place or rebuild the approved images in HPslides_v1 for the Tuesday 2026-06-02 Anne/Anthony draft"
     stale_after: "2026-06-02T10:00:00-04:00"
     handoff_summary: >
@@ -902,7 +930,9 @@ workstreams:
       acronyms expanded for the audience; its callout leaders were corrected
       against the Yeonju DIS2026 detector overview so MBD is treated as a
       forward beam-axis vicinity and barrel coverage has no fake component
-      arrow, then
+      arrow, and the current render uses high-contrast leader strokes,
+      arrowheads, and endpoint rings for presentation-distance readability,
+      then
       outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_slide03_pp_dataset_context.png
       introduces broad p+p availability, separates the PPG12 Run 24 analysis
       luminosity, and keeps heavy-ion running as muted future-program context.

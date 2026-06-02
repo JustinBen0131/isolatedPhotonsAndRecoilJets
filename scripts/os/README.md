@@ -27,8 +27,22 @@ context, and exact waking checks before any claim. The resolver is read-only;
 the legacy flat `--task` interface still works for compatibility. Use
 `record-outcome` to append local-only feedback after a memory helped or polluted
 a real task, `review` to summarize that local feedback, and `canary --json` to
-check routing caps and synthetic suppression. The `context_resonance` dream
-lane writes proposal artifacts only under the local ignored dream run directory.
+check routing caps and synthetic suppression. Use `maintenance-review --json`
+to summarize local retrieval pressure for the context-resonance maintenance
+selector.
+
+The default `python3 scripts/codex_os_dream.py lane --lane-id context_resonance`
+run now selects at most one auto-safe local memory-maintenance action. Allowed
+automatic writes are limited to ignored state under
+`agent_context/local/context_resonance/` and the current ignored dream run
+directory; tracked registries and policies remain waking-review proposals. Use
+`--no-auto-maintain` for a debug run that emits the candidate and validators
+without applying the local change. If a candidate is blocked, the lane records
+the intended update, exact failure reason, and best next step, then tries the
+next candidate in the priority ladder until one validates or the run emits a
+single no-change/deferred summary. The lane writes `changed_actions.md/json`
+and, when it applies a change, `rollback_manifest.json`; old resonance report
+files are compatibility views derived from the same lane signal.
 `cleanup_compaction_index.md/json` summarizes older local dream/research packs
 with source pointers before any future archive/prune decision. Auto-safe dream
 actions are limited to untracked generated junk and ignored local internal
