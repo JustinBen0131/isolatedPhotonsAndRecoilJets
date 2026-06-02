@@ -18,8 +18,10 @@ for _CODEX_IMPORT_DIR in _CODEX_IMPORT_DIRS:
 del _CODEX_THIS_FILE, _CODEX_SCRIPTS_DIR, _CODEX_OS_DIR, _CODEX_IMPORT_DIRS, _CODEX_IMPORT_DIR, _CODEX_IMPORT_DIR_STR
 
 import argparse
+import json
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from codex_work_register_common import DEFAULT_REGISTER, first_line, load_register, parse_when, sorted_workstreams
 
@@ -27,10 +29,102 @@ from codex_work_register_common import DEFAULT_REGISTER, first_line, load_regist
 LIVE_STATUSES = {"active", "running", "waiting", "blocked", "review"}
 
 
+def classify_workstream(item: dict[str, Any], now: datetime) -> dict[str, Any]:
+    workstream_id = item.get("workstream_id")
+    status = item.get("status")
+    evidence = item.get("evidence") if isinstance(item.get("evidence"), list) else []
+    active_jobs = item.get("active_jobs") if isinstance(item.get("active_jobs"), list) else []
+    stale_after = parse_when(item.get("stale_after"))
+    next_check = parse_when(item.get("next_check"))
+    last_verified = parse_when(item.get("last_verified"))
+
+    missing = []
+    for field in ("evidence", "last_verified", "next_check", "stale_after"):
+        value = item.get(field)
+        if value in (None, "", []):
+            missing.append(field)
+    if stale_after is None:
+        missing.append("stale_after_parseable")
+    if next_check is None:
+        missing.append("next_check_parseable")
+    if last_verified is None:
+        missing.append("last_verified_parseable")
+
+    classification = "current"
+    if status in {"done_pending_review", "archived"}:
+        classification = "archive_review"
+    elif missing or not evidence:
+        classification = "needs_evidence"
+    elif stale_after and stale_after <= now:
+        classification = "stale"
+    elif status in {"waiting", "blocked", "review"}:
+        classification = "waiting"
+    elif active_jobs:
+        classification = "current"
+
+    recommended_action = {
+        "current": "keep hot; refresh next_check only after real evidence changes",
+        "waiting": "preserve waiting/blocker reason and set next_check/stale_after from exact evidence",
+        "stale": "inspect evidence before claiming status; update last_verified, next_check, and stale_after after waking validation",
+        "needs_evidence": "add exact evidence or demote/archive; do not let this remain a live ambiguous workstream",
+        "archive_review": "confirm whether this can remain out of live dream/status pressure",
+    }[classification]
+
+    return {
+        "workstream_id": workstream_id,
+        "title": item.get("title"),
+        "status": status,
+        "classification": classification,
+        "last_verified": item.get("last_verified"),
+        "next_check": item.get("next_check"),
+        "stale_after": item.get("stale_after"),
+        "evidence_count": len(evidence),
+        "active_job_count": len(active_jobs),
+        "missing_or_unparseable": sorted(set(missing)),
+        "recommended_action": recommended_action,
+        "mutation_boundary": "read_only_report",
+    }
+
+
+def print_protocol(rows: list[dict[str, Any]], as_json: bool) -> None:
+    if as_json:
+        print(
+            json.dumps(
+                {
+                    "protocol_id": "register_workstream_refresh_contract",
+                    "mutation_boundary": "read_only_report",
+                    "rows": rows,
+                    "summary": {
+                        classification: sum(1 for row in rows if row["classification"] == classification)
+                        for classification in ("current", "waiting", "stale", "needs_evidence", "archive_review")
+                    },
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return
+    print("PROTOCOL register_workstream_refresh_contract mutation_boundary=read_only_report")
+    for row in rows:
+        missing = ",".join(row["missing_or_unparseable"]) or "none"
+        print(
+            f"{row['classification'].upper()} {row['workstream_id']}: {row['title']} | "
+            f"status={row['status']} | evidence={row['evidence_count']} | active_jobs={row['active_job_count']} | "
+            f"last_verified={row['last_verified']} | next_check={row['next_check']} | stale_after={row['stale_after']} | "
+            f"missing={missing} | action={row['recommended_action']}"
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("register", nargs="?", default=str(DEFAULT_REGISTER))
     parser.add_argument("--now", help="ISO timestamp override for testing")
+    parser.add_argument(
+        "--protocol",
+        action="store_true",
+        help="Run the read-only register_workstream_refresh_contract classifier instead of the legacy stale-only report.",
+    )
+    parser.add_argument("--json", action="store_true", help="Emit JSON for --protocol output")
     args = parser.parse_args()
 
     now = parse_when(args.now) if args.now else datetime.now(timezone.utc)
@@ -38,6 +132,15 @@ def main() -> int:
         raise SystemExit("--now must be an ISO timestamp")
 
     data = load_register(Path(args.register))
+    if args.protocol:
+        rows = [
+            classify_workstream(item, now)
+            for item in sorted_workstreams(data)
+            if item.get("status") in LIVE_STATUSES or item.get("status") in {"done_pending_review", "archived"}
+        ]
+        print_protocol(rows, args.json)
+        return 0
+
     stale = []
     unparseable = []
     for item in sorted_workstreams(data):

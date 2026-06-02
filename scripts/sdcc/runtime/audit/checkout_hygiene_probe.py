@@ -37,6 +37,12 @@ BASE_FACING_ROOTS = (
     "coresoftware_local",
 )
 
+LOCAL_ALLOWED_TOPLEVEL = {
+    ".codex",
+    "agent_context",
+    "codex_notes",
+}
+
 STAGE6_ALLOWED_ROOT_OUTPUTS = {
     # Held at SDCC root during THE-23 stage 6 because current docs/macros still
     # reference these exact paths. New output_* roots should be born under runs/.
@@ -45,7 +51,9 @@ STAGE6_ALLOWED_ROOT_OUTPUTS = {
 }
 
 
-def is_bad_visible_name(name: str) -> bool:
+def is_bad_visible_name(name: str, *, profile: str) -> bool:
+    if profile == "local" and name in LOCAL_ALLOWED_TOPLEVEL:
+        return False
     return (
         name.strip() != name
         or name.strip() == ""
@@ -138,6 +146,12 @@ def main() -> int:
         action="store_true",
         help="Always exit 0 after printing findings.",
     )
+    parser.add_argument(
+        "--profile",
+        choices=("sdcc", "local"),
+        default="sdcc",
+        help="Use sdcc for remote checkout hygiene; use local for this Mac checkout where agent_context/codex_notes are expected.",
+    )
     args = parser.parse_args()
 
     root = Path(args.checkout).resolve()
@@ -145,7 +159,7 @@ def main() -> int:
         raise SystemExit(f"[ERROR] Not a directory: {root}")
 
     top_entries = sorted(root.iterdir(), key=lambda p: p.name)
-    suspicious_top = [p for p in top_entries if is_bad_visible_name(p.name)]
+    suspicious_top = [p for p in top_entries if is_bad_visible_name(p.name, profile=args.profile)]
     root_contract_clutter = [
         p for p in top_entries if is_root_contract_clutter(p)
     ]
@@ -153,6 +167,7 @@ def main() -> int:
     broken = broken_script_symlinks(root)
 
     print(f"CHECKOUT {root}")
+    print(f"PROFILE {args.profile}")
     print(f"TOPLEVEL_COUNT {len(top_entries)}")
     print(f"SUSPICIOUS_TOPLEVEL {len(suspicious_top)}")
     for path in suspicious_top:

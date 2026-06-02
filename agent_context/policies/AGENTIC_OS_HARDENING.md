@@ -151,6 +151,9 @@ Use these executable surfaces to keep the OS biological rather than static:
   audit.
 - `python3 scripts/os/context/codex_thesis_radar.py`: live-work mapping to the thesis
   spine.
+- `python3 scripts/os/context/codex_context_resonance.py resolve --task "<task>" --json`: compact
+  retrieval-salience resolver for active facts, latent nudges, negative memories,
+  suppressed context, and required evidence checks.
 - `python3 scripts/os/artifacts/codex_artifact_registry.py check`: provenance check for
   canonical artifacts.
 
@@ -165,24 +168,24 @@ rehearsal. Dreams are proposal-only and may write only under
 `agent_context/local/dreams/`.
 
 ```bash
-python3 scripts/codex_os_nightly_heartbeat.py nightly
+python3 scripts/codex_os_dream.py lane --lane-id status_provenance
 ```
 
-The default overnight contract is one nightly super-heartbeat: dream
-generation, dream validation, doctor verification, read-only stale/radar/
-artifact/context checks, and a proposal-only morning appendix in one package.
-Dreams must never treat synthetic Justin as approval, never touch external
-systems, and never mutate real repo state. Waking Codex may promote a dream
-proposal only through normal task-capture, guard, doctor, and evidence checks.
+The default overnight contract is eight `03:30` lane heartbeats, one per dream
+lane. Each lane writes its own local package and the doctor verifies the set by
+aggregating the latest `lane_signal.json` files across all expected lanes.
+Dreams must never treat synthetic Justin as approval and never touch external
+systems. The allowed automatic mutation surface is deliberately narrow:
+untracked local generated-junk cleanup and ignored local dream/research/index
+artifacts with an audit log. Waking Codex may promote a dream proposal only
+through normal task-capture, guard, doctor, and evidence checks.
 
-The doctor and dream layers should increasingly act like one two-stage
-heartbeat:
+The doctor and dream layers now act like one overnight lane set plus one
+waking verifier:
 
-- dream: overnight synthetic consolidation, recurrence detection, cleanup
-  ranking, proposal generation, and morning-appendix drafting;
-- doctor: structural verifier phase inside the nightly heartbeat, plus a
-  standalone waking check that consumes the latest machine-readable nightly
-  signal without trusting dream prose as evidence.
+- dream lanes: overnight lane-local proposal generation and lane-local signals;
+- doctor: standalone waking check that consumes the latest per-lane signals
+  without trusting dream prose as evidence.
 
 Keep the morning planning automation separate for now. It is the waking
 projection step that may later consume the proposal-only appendix if Justin
@@ -196,6 +199,41 @@ cleverness and pay down reliability debt first.
 Repeated dream findings should not remain free-text forever. When the same
 maintenance problem recurs and the doctor can verify the corresponding real
 state, encode it as a policy line, doctor warning, or runbook.
+
+The nightly package now includes an internal-evolution queue:
+
+```text
+internal_evolution_queue.md
+internal_evolution_queue.json
+sdcc_base_repo_hygiene.md
+```
+
+Use that queue as the self-maintenance control surface. It supports four
+tiers: `auto_safe`, `auto_validated`, `research_only`, and
+`blocked_for_waking`. `auto_safe` may run overnight for untracked generated
+junk and ignored local internal artifacts. `auto_validated` packages small
+tracked OS/policy/runbook/index changes with rollback and validation for
+waking Codex. It must not be used to mutate SDCC, Condor, scientific outputs,
+trained models, Google Drive/Slides/Gmail/Linear, or physics/task status from
+the dream script.
+
+Stage 9 evolutionary maintenance now runs in guarded internal-autonomy mode.
+The dream may inventory, score, classify, rehearse, clean auto-safe generated
+junk, and refresh ignored local internal artifacts under
+`agent_context/local/dreams/`. It may emit Thesis Flow Efficiency, Marginal
+Structure Value, Branch Pressure Index, memory homeostasis, and controlled-burn
+rehearsal artifacts. Tracked repo changes, external mutation, runtime mutation,
+and science-state mutation remain outside the dream script.
+
+This is metabolism before external autonomy:
+
+```text
+ingest -> replay -> score -> auto-safe cleanup -> defer risky work -> validate -> digest
+```
+
+If the autonomous digest produces noisy findings, false positives, missing
+source pointers, or unclear rollback, narrow the `auto_safe` allowlist and
+improve the scorer/validator before adding any new autonomy tier.
 
 ## Done Protocol
 

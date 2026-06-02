@@ -1,5 +1,5 @@
 schema_version: 1
-last_updated: "2026-06-01T17:37:15-04:00"
+last_updated: "2026-06-01T22:06:29-04:00"
 owner: Codex
 purpose: >
   Canonical provenance registry for thesis-facing artifacts. Register plots,
@@ -202,27 +202,130 @@ artifacts:
 
   - artifact_id: hp2026_slide02_opening_motivation_v1
     kind: slide_candidate_png
-    path: outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_slide02_sphenix_hard_probes_photon_baseline.png
+    path: outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_slide02_sphenix_real_detector_opener.png
     thesis_claim: physics_target
     source_inputs:
       - "Justin request: first content slide after title should coherently introduce sPHENIX / hard-probes context before narrowing to isolated prompt photons."
+      - "Justin request: use a real online sPHENIX detector image and make a publication-grade opening slide with an ideal speaker script."
       - "Core claim: the p+p isolated prompt-photon result is the clean baseline entry point for the sPHENIX hard-probes program."
+      - "Official BNL RHIC sPHENIX detector page: https://www.bnl.gov/rhic/sphenix.php"
+      - "Official BNL detector photo asset: https://www.bnl.gov/rhic/images/banner-sphenix-2.jpg"
       - "usefulDocs/HP2026_photon_reference_deck_linearization.md"
       - "usefulDocs/20260506_DIS_YeonjuGo.pdf"
       - "usefulDocs/Moriond2026StefanBathe.v1.pdf"
       - "usefulDocs/sPHENIX_AUM2026_jet_and_photon_measurement.pdf"
       - "scripts/slides/hp2026/opening/make_hp2026_opening_motivation_slide.py"
-    generation_command: "env PYTHONPYCACHEPREFIX=/private/tmp/codex_pycache /Users/patsfan753/Desktop/analysis/env/bin/python scripts/slides/hp2026/opening/make_hp2026_opening_motivation_slide.py --variant sphenix-hard-probes"
+    generation_command: "env PYTHONPYCACHEPREFIX=/private/tmp/codex_pycache /Users/patsfan753/Desktop/analysis/env/bin/python scripts/slides/hp2026/opening/make_hp2026_opening_motivation_slide.py --variant real-detector-opener"
     qa_state: candidate
     qa_evidence:
       - "2026-06-01T17:18:47-04:00 generated one deterministic 2560x1440 RGB PNG candidate with Times New Roman hierarchy, a left conceptual prompt-photon/EMCal visual, three compact right-side motivation reasons, and a bridge to the detector/data slide."
       - "2026-06-01T17:37:15-04:00 generated the stronger context-first candidate hp2026_slide02_sphenix_hard_probes_photon_baseline.png after Justin identified that the first content slide should introduce sPHENIX and the hard-probes program before the photon object. The slide uses a conceptual RHIC/sPHENIX detector schematic, official cached blue sPHENIX logo, three program-to-photon claims, and a bridge into the photon definition/isolation slide."
+      - "2026-06-01T20:06:20-04:00 generated hp2026_slide02_sphenix_real_detector_opener.png using the official BNL RHIC sPHENIX detector photo asset bnl_sphenix_banner_detector.jpg, a detector-region-only photon overlay, three story cards, and companion script hp2026_slide02_sphenix_real_detector_opener_script.md."
       - "Python compile check passed for scripts/slides/hp2026/opening/make_hp2026_opening_motivation_slide.py."
       - "Pillow readback confirmed image size (2560, 1440) and mode RGB; manifest readback confirmed google_slides_mutation=false."
-      - "Visual QA opened the context-first PNG and confirmed readable title/body text, no overlap, no slide number, no provenance footer, and no Google Slides mutation."
-    limitations: "Local conceptual candidate only; the detector/program visual is a schematic, not an official detector rendering; not inserted into Google Slides and not yet approved by Justin."
+      - "Visual QA opened the real-detector PNG and confirmed readable title/body text, visible BNL detector photo, detector-only photon overlay, no overlap, no slide number, no provenance footer, and no Google Slides mutation."
+    limitations: "Local PNG candidate only; photon wave and detector highlight are visual emphasis, not precise subsystem annotations; not inserted into Google Slides and not yet approved by Justin."
     destination: "HPslides_v1 Slide 2 opening/motivation candidate for THE-5 HP2026 Photon Talk"
-    last_verified: "2026-06-01T17:37:15-04:00"
+    last_verified: "2026-06-01T20:06:20-04:00"
+
+  - artifact_id: hp2026_opening_sequence_v2
+    kind: slide_candidate_png_sequence
+    path: outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/manifest.json
+    thesis_claim: physics_target
+    source_inputs:
+      - "Justin request: replace the current single all-in-one Slide 2 with a cleaner two-slide opening sequence after the title."
+      - "Locked ordering: Slide 2 detector/data context first, Slide 3 isolated prompt-photon motivation second."
+      - "Official BNL RHIC sPHENIX detector imagery: https://www.bnl.gov/rhic/sphenix.php and https://www.bnl.gov/rhic/images/spheix-rendering.jpg"
+      - "p+p data values verified from usefulDocs/20260506_DIS_YeonjuGo.pdf and usefulDocs/sPHENIX_AUM2026_jet_and_photon_measurement.pdf"
+      - "scripts/slides/hp2026/opening/make_hp2026_opening_motivation_slide.py"
+    generation_command: "env PYTHONPYCACHEPREFIX=/private/tmp/codex_pycache /Users/patsfan753/Desktop/analysis/env/bin/python scripts/slides/hp2026/opening/make_hp2026_opening_motivation_slide.py --variant opening-sequence"
+    qa_state: candidate
+    qa_evidence:
+      - "2026-06-01T20:30:54-04:00 generated hp2026_slide02_detector_data_context.png and hp2026_slide03_isolated_photon_motivation.png as 2560x1440 RGB local PNG candidates with companion speaker scripts and a combined manifest."
+      - "Data check: pdftotext/rg on Yeonju DIS2026 and Hanpu AUM2026 reference decks confirmed 2024 p+p 107/pb calorimeter-only, 2024 p+p 13/pb all subsystem, and 2026 p+p 17/pb all subsystem before those values were baked into Slide 2."
+      - "Python compile check passed for scripts/slides/hp2026/opening/make_hp2026_opening_motivation_slide.py."
+      - "Pillow readback confirmed both images are (2560, 1440) RGB; json.tool readback passed for manifest.json; script readback passed for both companion scripts."
+      - "Visual QA opened both PNGs and confirmed readable title/body text, no clipped text, no slide number, no provenance footer, Slide 2 uses only photon-relevant detector/data context, and Slide 3 stays photon-only rather than photon+jet."
+    limitations: "Local PNG candidates only; not inserted into Google Slides and not yet approved by Justin. Detector callouts are photon-relevant capability labels, not exact CAD subsystem-boundary annotations."
+    destination: "HPslides_v1 Slides 2-3 opening sequence candidate for THE-5 HP2026 Photon Talk"
+    last_verified: "2026-06-01T20:30:54-04:00"
+
+  - artifact_id: hp2026_slide02_progressive_detector_data_build_v1
+    kind: slide_candidate_png_sequence
+    path: outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_slide02_progressive_build_manifest.json
+    thesis_claim: physics_target
+    source_inputs:
+      - "Justin request: redesign HPslides_v1 Slide 2 as a two-frame click-through detector/data build rather than a dense static slide."
+      - "Official cached BNL sPHENIX detector rendering: outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/assets/bnl_sphenix_detector_rendering.jpg"
+      - "Data-taking references: usefulDocs/20260506_DIS_YeonjuGo.pdf and usefulDocs/sPHENIX_AUM2026_jet_and_photon_measurement.pdf"
+      - "PPG12 analysis luminosity references: usefulDocs/sPHENIX_PPG12_Paper_2026-05-21_current_draft.pdf and usefulDocs/PPG12_analysis_note_2026-05-21_v4_current_IAN.pdf"
+      - "scripts/slides/hp2026/opening/make_hp2026_opening_motivation_slide.py"
+    generation_command: "env PYTHONPYCACHEPREFIX=/private/tmp/codex_pycache /Users/patsfan753/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 scripts/slides/hp2026/opening/make_hp2026_opening_motivation_slide.py --variant detector-data-progressive-build"
+    qa_state: qa_passed
+    qa_evidence:
+      - "2026-06-01T21:33:33-04:00 rendered hp2026_slide02A_detector_subsystems_context.png and hp2026_slide02B_detector_data_context_build.png as 2560x1440 RGB local PNG candidates, plus hp2026_slide02_progressive_build_contact_sheet.png, script, and manifest."
+      - "Data evidence rechecked before render: Yeonju DIS2026 and Hanpu AUM2026 confirm 2024 p+p 107/pb calorimeter-only, 2024 p+p 13/pb all subsystem, 2026 p+p 17/pb all subsystem, 2025 Au+Au 6.6/nb, and 2026 O+O 52.6/nb calorimeter-only plus 23.6/nb all subsystem."
+      - "PPG12 paper and IAN rechecked before render: Run 24 isolated prompt-photon analysis luminosity is reported as about 64.4 pb^-1."
+      - "Python compile check passed for scripts/slides/hp2026/opening/make_hp2026_opening_motivation_slide.py."
+      - "Pillow readback confirmed both frames are (2560, 1440) RGB and the contact sheet is RGB; json.tool readback passed for hp2026_slide02_progressive_build_manifest.json."
+      - "Visual QA opened the contact sheet and both frames full-size. Frame 2B was rerendered after shortening/wrapping the data-context sentence and fitting the muted O+O card inside the panel."
+      - "2026-06-01T21:37:53-04:00 rerendered both frames after removing the in-slide BNL source/caption text; Pillow/manifest readback and contact-sheet visual QA reconfirmed no slide number or provenance footer is baked into either PNG."
+    limitations: "Local PNG candidates only; not inserted into Google Slides and not yet approved by Justin. Detector leader lines are presentation-grade visual anchors, not CAD-precision subsystem boundaries."
+    destination: "Optional HPslides_v1 Slide 2 progressive-build alternate for THE-5 HP2026 Photon Talk"
+    last_verified: "2026-06-01T21:38:03-04:00"
+
+  - artifact_id: hp2026_opening_experiment_dataset_standalone_v1
+    kind: slide_candidate_png_sequence
+    path: outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_experiment_dataset_standalone_manifest.json
+    thesis_claim: physics_target
+    source_inputs:
+      - "Justin correction: prefer two normal consecutive slides over a progressive detector/data build unless progressive delivery is explicitly requested or clearly optional."
+      - "Official cached BNL sPHENIX detector rendering: outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/assets/bnl_sphenix_detector_rendering.jpg"
+      - "Data-taking references: usefulDocs/20260506_DIS_YeonjuGo.pdf and usefulDocs/sPHENIX_AUM2026_jet_and_photon_measurement.pdf"
+      - "PPG12 analysis luminosity references: usefulDocs/sPHENIX_PPG12_Paper_2026-05-21_current_draft.pdf and usefulDocs/PPG12_analysis_note_2026-05-21_v4_current_IAN.pdf"
+      - "Script voice reference read via Google Drive connector: Prelim Narrative & comments Google Doc 1uzYK-8p-mCeHjtqjT0hewC20lXgzgfeu77Xsb2gZAQ8 and linked prelim sPHENIX Subsystems slide g3920ab4f8cb_4_310."
+      - "scripts/slides/hp2026/opening/make_hp2026_opening_motivation_slide.py"
+      - "agent_context/policies/SLIDES_WORKFLOW.md"
+    generation_command: "env PYTHONPYCACHEPREFIX=/private/tmp/codex_pycache /Users/patsfan753/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 scripts/slides/hp2026/opening/make_hp2026_opening_motivation_slide.py --variant experiment-dataset-standalone"
+    qa_state: qa_passed
+    qa_evidence:
+      - "2026-06-01T21:53:20-04:00 rendered hp2026_slide02_sphenix_experiment_for_photons.png and hp2026_slide03_pp_dataset_context.png as 2560x1440 RGB local PNG candidates, plus contact sheet, scripts, and manifest."
+      - "Data evidence rechecked before render: Yeonju DIS2026 and Hanpu AUM2026 confirm 2024 p+p 107/pb calorimeter-only, 2024 p+p 13/pb all subsystem, 2026 p+p 17/pb all subsystem, 2025 Au+Au 6.6/nb, and 2026 O+O 52.6/nb calorimeter-only plus 23.6/nb all subsystem."
+      - "PPG12 paper and IAN rechecked before render: Run 24 isolated prompt-photon analysis luminosity is reported as about 64.4 pb^-1."
+      - "Python compile check passed for scripts/slides/hp2026/opening/make_hp2026_opening_motivation_slide.py."
+      - "Pillow readback confirmed both slides are (2560, 1440) RGB and the contact sheet is RGB; json.tool/readback passed for hp2026_experiment_dataset_standalone_manifest.json."
+      - "Visual QA opened the contact sheet and both slides full-size. The dataset slide was rerendered after separating the PPG12 analysis-luminosity sentence from the large L = 64.4 pb^-1 text and giving the narrative-role card more room."
+      - "2026-06-01T22:06:29-04:00 rerendered hp2026_slide02_sphenix_experiment_for_photons.png as a detector-centered sPHENIX experiment-introduction slide: removed the RHS analysis-summary panel and bottom Next band, expanded EMCal/HCal/MBD/tracking names, and placed subsystem explanation cards around the central detector rendering. Py-compile, 2560x1440 RGB readback, manifest readback, contact-sheet QA, and full-size visual QA passed."
+      - "2026-06-01T22:43:08-04:00 rerendered hp2026_slide02_sphenix_experiment_for_photons.png after removing the internal 'Read this slide as...' canvas note and letting the detector/content block fill the freed space. Also cleaned presenter-scaffolding labels from the paired dataset slide. Slide 2/3 PNGs and companion scripts are present, 2560x1440 RGB readback passed, visual QA passed, and Google Slides was not mutated."
+      - "2026-06-01T23:25:55-04:00 regenerated the companion scripts for Slide 2 and Slide 3 in Justin's prelim-narrative style: first-person spoken orientation, visual-order walkthrough, inline acronym explanation, and a natural spoken bridge. Text readback confirmed no old 'I would', 'Read the slide as', or 'Transition:' meta-note language remains in those two scripts."
+      - "2026-06-01T23:35:03-04:00 rerendered hp2026_slide03_pp_dataset_context.png with true visual superscripts for inverse luminosity units: the p+p cards, L = 64.4 pb^-1 line, and heavy-ion context values render the -1 as raised text rather than visible caret notation. Slide 3 script readback uses spoken 'inverse picobarns' wording. Visual QA and 2560x1440 RGB readback passed."
+      - "2026-06-01T23:46:37-04:00 rerendered hp2026_slide02_sphenix_experiment_for_photons.png after cross-checking Yeonju DIS2026 detector overview labels: tracking now includes MVTX/INTT/TPC/TPOT and points to the inner tracking/beamline volume, EMCal/HCal/magnet leaders point to visible barrel regions, MBD points only to the forward beam-axis vicinity with softer emphasis, and the barrel-coverage card has no leader because it is not a separate detector component. Py-compile, 2560x1440 RGB readback, manifest JSON readback, script readback, contact-sheet QA, and full-size visual QA passed."
+    limitations: "Local PNG candidates only; not inserted into Google Slides and not yet approved by Justin. Detector leader lines are presentation-grade visual anchors, not CAD-precision subsystem boundaries."
+    destination: "Recommended HPslides_v1 Slides 2-3 opening candidate for THE-5 HP2026 Photon Talk"
+    last_verified: "2026-06-01T23:46:37-04:00"
+
+  - artifact_id: hp2026_fulltalk_png_batch_v1
+    kind: slide_candidate_png_sequence
+    path: outputs/manual-20260601-hp2026-fulltalk/presentations/hp2026-fulltalk/output/manifest.json
+    thesis_claim: physics_target
+    source_inputs:
+      - "Justin request: generate Slides 4-11 as local 2560x1440 PNG candidates for an 11-slide, 15-minute HP2026 isolated prompt-photon talk."
+      - "Main plot source: usefulDocs/sPHENIX_PPG12_Paper_2026-05-21_current_draft.pdf"
+      - "Method/detail wording reference: usefulDocs/PPG12_analysis_note_2026-05-21_v4_current_IAN.pdf"
+      - "Existing local title/opening candidates: HP2026 title C4 plus hp2026_slide02_detector_data_context.png and hp2026_slide03_isolated_photon_motivation.png"
+      - "scripts/slides/hp2026/fulltalk/make_hp2026_fulltalk_candidates.py"
+    generation_command: "env PYTHONPYCACHEPREFIX=/private/tmp/codex_pycache /Users/patsfan753/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 scripts/slides/hp2026/fulltalk/make_hp2026_fulltalk_candidates.py"
+    qa_state: qa_passed
+    qa_evidence:
+      - "2026-06-01T21:08:36-04:00 generated hp2026_slide04 through hp2026_slide11 as 2560x1440 RGB local PNG candidates, plus speaker scripts, manifest.json, and hp2026_slides04_11_contact_sheet.png."
+      - "Manifest readback confirms google_slides_mutation=false, main_plot_posture=paper-first, main_physics_plot_source=usefulDocs/sPHENIX_PPG12_Paper_2026-05-21_current_draft.pdf, method_detail_reference=usefulDocs/PPG12_analysis_note_2026-05-21_v4_current_IAN.pdf, no_internal_root_or_data_plots=true, and qa_contact_sheet points to the persistent output contact sheet."
+      - "Embedded PPG12 assets are recorded as paper plot crops for paper Figs. 1-9; generated graphics are recorded only as explanatory scaffolding."
+      - "Python compile check passed for scripts/slides/hp2026/fulltalk/make_hp2026_fulltalk_candidates.py."
+      - "Pillow readback confirmed all eight output PNGs are (2560, 1440) RGB."
+      - "Visual QA opened the contact sheet plus full-size Slide 4, Slide 10, and revised Slide 11; Slide 11 was rerendered after converting the clipped closing diagram into a compact horizontal sequence."
+    limitations: "Local PNG candidates only; not inserted into Google Slides and not yet approved by Justin. Paper plots are cropped from the current draft PDF rather than regenerated, so any later paper update requires rerendering/checking the batch."
+    destination: "HPslides_v1 Slides 4-11 review candidates for THE-5 HP2026 Photon Talk"
+    last_verified: "2026-06-01T21:08:46-04:00"
 
   - artifact_id: hp2026_photon_detector_motif_variants_v1
     kind: transparent_png_motif_batch

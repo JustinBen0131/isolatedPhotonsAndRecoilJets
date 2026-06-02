@@ -12,7 +12,14 @@
 - For delegated ChatGPT UI research, load
   `agent_context/policies/ASK_CHATGPT_DELEGATION.md` first and use Computer Use
   in the user's Chrome profile by default, with a sanitized prompt and local
-  transcript provenance.
+  transcript provenance. Generate a research pack first, copy
+  `clipboard_prompt.txt` to the clipboard, paste once, and send once. Before UI
+  use, record whether the right context is a fresh chat, a continued thread, or
+  a fork with recap. Never type or stream the first prompt directly into the
+  ChatGPT UI. Codex may collect `instant` and `thinking_*` responses itself; for
+  `pro_standard`, `pro_extended`, or `deep_research`, submit one sanitized
+  staged prompt and ask Justin to paste the completed response back into Codex
+  instead of polling.
 - For Justin's explicit "set up a Zoom room" / "get me a Zoom invite link"
   variants, load `agent_context/policies/MEETING_CAPTURE_AND_ZOOM.md` and use
   Computer Use on Zoom for the narrow room-setup workflow: create/start the

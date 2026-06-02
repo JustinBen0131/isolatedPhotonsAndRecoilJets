@@ -1,0 +1,105 @@
+version: 1
+purpose: >
+  Reusable patterns extracted from repeated real events. Schemas are methods
+  and validators, not factual evidence.
+
+schemas:
+  - schema_id: plot_readiness_schema
+    title: Plot-ready claim schema
+    source_pointer:
+      path: agent_context/policies/PLOTTING.md
+      kind: policy
+    routes:
+      - plot_generation
+      - slide_scripting
+    cue_terms:
+      - plot
+      - figure
+      - png
+      - ready
+      - provenance
+      - qa
+      - slide
+    relation_type: same_method
+    evidence_class: human_approved
+    allowed_use: method cue only
+    trigger_pattern: artifact is being called ready, valid, or slide-ready
+    required_waking_check: verify source inputs, generation command, visual QA, and registry pointer before making the claim
+    validator_hint: artifact_registry_pointer_plus_visual_qa
+    salience:
+      thesis_value: 0.85
+      evidence_value: 0.85
+      recurrence: 0.75
+      error_prevention_value: 0.95
+      user_friction: 0.8
+      retrieval_cost: 0.15
+      stale_risk: 0.1
+      interference_risk: 0.15
+      synthetic_contamination_risk: 0.0
+
+  - schema_id: workstream_refresh_schema
+    title: Workstream refresh/archive schema
+    source_pointer:
+      path: agent_context/policies/MEMORY_AND_STATUS.md
+      kind: policy
+    routes:
+      - active_job_status
+      - os_maintenance
+    cue_terms:
+      - workstream
+      - status
+      - stale
+      - waiting
+      - next_check
+      - evidence
+      - refresh
+      - archive
+    relation_type: same_method
+    evidence_class: human_approved
+    allowed_use: method cue only
+    trigger_pattern: repeated stale-state, active-job, or evidence pressure appears in doctor or dream output
+    required_waking_check: run register refresh protocol and update exact evidence, last_verified, next_check, stale_after, and active-job fields only after validation
+    validator_hint: register_workstream_refresh_contract
+    salience:
+      thesis_value: 0.8
+      evidence_value: 0.85
+      recurrence: 0.95
+      error_prevention_value: 0.9
+      user_friction: 0.85
+      retrieval_cost: 0.15
+      stale_risk: 0.1
+      interference_risk: 0.15
+      synthetic_contamination_risk: 0.0
+
+  - schema_id: context_resonance_schema
+    title: Task fingerprint to capped context schema
+    source_pointer:
+      path: agent_context/memory/README.md
+      kind: memory_registry
+    routes:
+      - os_maintenance
+    cue_terms:
+      - context
+      - resonance
+      - memory
+      - retrieval
+      - salience
+      - negative
+      - interference
+      - architecture
+    relation_type: same_method
+    evidence_class: derived
+    allowed_use: architecture cue only
+    trigger_pattern: future Codex needs old context without expanding the boot pack
+    required_waking_check: keep output capped, verify source pointers, suppress synthetic material, and record retrieval outcomes only after real use
+    validator_hint: context_resonance_canary
+    salience:
+      thesis_value: 0.8
+      evidence_value: 0.65
+      recurrence: 0.75
+      error_prevention_value: 0.85
+      user_friction: 0.75
+      retrieval_cost: 0.1
+      stale_risk: 0.1
+      interference_risk: 0.15
+      synthetic_contamination_risk: 0.0

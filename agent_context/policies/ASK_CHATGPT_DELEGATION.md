@@ -25,6 +25,15 @@ Codex should treat ChatGPT as a standing research, discussion, and
 brainstorming engine whenever that would materially improve a task, and always
 when Justin explicitly directs ChatGPT use.
 
+Current subscription/default model policy: Justin is paying for ChatGPT Pro as
+the primary online model lane. Treat ChatGPT as the go-to delegated model for
+online research and critique. Do not route work to Claude, Gemini, or other
+paid model subscriptions by default. Use other models only when they are already
+available without extra subscription friction and there is a clear task-specific
+reason they are better than ChatGPT for that interface or deliverable. If a
+future subscription upgrade would materially improve the ThesisAnalysis OS,
+state the expected benefit and tradeoff explicitly before recommending it.
+
 ## Trigger
 
 Justin may explicitly invoke this lane with:
@@ -41,14 +50,25 @@ and no sensitive data is transmitted.
 
 ## Session Architecture
 
-Use one clean research objective per chat session.
+Use one clean research objective per ChatGPT context. A clean context does not
+always mean a brand-new conversation: reuse an existing thread only when the
+prior context is an asset instead of a liability.
 
 - The first message for that objective must be one consolidated prompt.
+- The first message must be staged locally in a `.txt` file before any UI
+  action. Do not compose, retype, or stream the first prompt directly into the
+  ChatGPT web input.
+- The UI send path is: generate/verify `single_message_prompt.txt`, generate a
+  newline-safe `clipboard_prompt.txt`, copy that file to the system clipboard,
+  open a fresh ChatGPT chat, paste once, visually confirm the full prompt is in
+  the box, then click/send once.
 - Do not split one logical prompt across multiple partial sends.
 - Do not "warm up" ChatGPT by dripping context fragments before the real ask.
 - Do not send a second fragment because the first fragment was incomplete.
 - If an accidental partial send happens, treat that chat as contaminated for
   that objective. Start a fresh chat and resend one complete first prompt.
+- If stale partial text remains in a new-chat input box, clear it and verify the
+  input is empty before pasting from the staged prompt file.
 
 This policy exists because fragmented prompt entry degrades answer quality,
 pollutes the thread state, and makes provenance harder to trust the next
@@ -57,48 +77,173 @@ morning.
 Before pressing Enter on the first message:
 
 1. finish the entire prompt locally first;
-2. verify it is the intended single-message prompt;
-3. verify it is sanitized;
-4. only then submit it once.
+2. save it to `single_message_prompt.txt`;
+3. create `clipboard_prompt.txt` from the same content with hard line breaks
+   collapsed unless the line breaks are semantically required;
+4. verify both files are sanitized and under the length budget;
+5. copy `clipboard_prompt.txt` to the clipboard;
+6. paste once into a fresh ChatGPT chat;
+7. visually confirm the prompt text was pasted as one message;
+8. only then submit it once.
+
+### Thread Reuse And Continuation
+
+Before using ChatGPT UI, decide whether the right context is `fresh`,
+`continue`, or `fork_with_recap`.
+
+Use `continue` when all are true:
+
+- the thread is about the same durable object: one paper, deck, slide family,
+  campaign, code artifact, incident, or policy;
+- the prior attachments, wording conventions, evidence frame, or critique
+  history materially reduce context cost;
+- the thread has not drifted into unrelated objectives;
+- there is no stale partial prompt, accidental send, or contaminated setup;
+- the current task can be stated as one complete continuation message.
+
+Use `fresh` when any are true:
+
+- the objective, audience, artifact, campaign, or risk class changed;
+- the old thread mixed too many unrelated tasks;
+- the old context contains private or sensitive details not needed now;
+- the old answer has stale assumptions that would take more work to correct
+  than to restate cleanly;
+- a Pro/Deep escalation would benefit from a clean first prompt.
+
+Use `fork_with_recap` when the old thread has valuable context but too much
+drift. In that case, create a new chat and start with a compact context capsule
+summarizing only what should survive.
+
+For continued threads, the first Codex-authored message after returning must
+still be staged locally and pasted once. Use this capsule:
+
+```text
+Continuation objective:
+Relevant prior context to preserve:
+What changed since the prior answer:
+Current evidence or artifact frame:
+Hard constraints and exclusions:
+Do not assume:
+Deliverable:
+Failure modes to check:
+```
+
+Observed useful ChatGPT thread archetypes:
+
+- deck/script threads: continue when the same deck PDF, screenshots, slide
+  sequence, and speaker-note tone are the useful context;
+- manuscript/paper project threads: reuse the project container, but keep each
+  child chat scoped to one stage such as rejection response, surgical LaTeX
+  revision, or broad paper strategy;
+- strategic science architecture threads: use a fresh high-effort prompt with
+  explicit stages, constraints, and requested output columns;
+- surgical review/editing threads: use a role stack, exact allowed scope,
+  hard exclusions, and patch-like output format;
+- SDCC/Condor/debug threads: continue only for the same incident/campaign and
+  include a fresh current-evidence plus hard-stop capsule before trusting prior
+  commands or paths;
+- Codex-OS/dream research threads: continue while the design objective is the
+  same; start fresh or fork with recap when moving from concept research to
+  implementation policy.
 
 ## Mode Routing
 
-Public OpenAI guidance currently recommends starting with the smallest prompt
-that preserves the task contract and using more reasoning only when quality
-gains justify the extra time and cost. ChatGPT UI labels such as `instant`,
-`thinking`, `heavy`, and `pro` are treated here as operating modes, not as
-guaranteed public API contracts.
+Public OpenAI guidance and practical UI behavior both favor starting with the
+smallest mode that preserves the task contract and using more reasoning only
+when quality gains justify extra time and compute. ChatGPT UI labels such as
+`instant`, `thinking`, `pro`, and their submodes are treated here as operating
+modes, not guaranteed public API contracts.
 
-Codex should use this escalation ladder:
+Codex should route by family and submode:
 
 1. `instant`
    Use for quick fact gathering, terminology checks, simple rewrites, short
    comparisons, narrow source hunting, and low-risk brainstorming where a fast
    first pass is enough.
-2. `thinking`
-   Default for most useful delegated work: design critique, policy drafting,
+2. `thinking-light`
+   Use for low-risk synthesis, short critiques, outline alternatives, small
+   source-lead requests, and prompt polishing where a plain instant answer may
+   be too shallow but deep reasoning would be wasteful.
+3. `thinking-standard`
+   Default for most delegated work: design critique, policy drafting,
    medium-complexity research, synthesis across a few sources, and structured
    brainstorming.
-3. `heavy`
+4. `thinking-extended`
+   Use when the prompt has several constraints, needs failure modes, compares
+   alternatives, or informs a repo policy/script change.
+5. `thinking-heavy`
    Use when the question is multi-constraint, cross-domain, architecture-heavy,
-   failure-mode sensitive, or needs a deeper literature and systems synthesis.
-4. `pro`
-   Use only when the UI explicitly exposes a deeper premium mode and the task
-   genuinely needs maximum depth, or when `thinking`/`heavy` passes remain
-   materially incomplete after bounded iteration.
+   failure-mode sensitive, or needs a deeper literature and systems synthesis,
+   but is still short enough for Codex to wait and collect.
+6. `pro-standard`
+   Use only when the UI exposes Pro and the task needs premium depth, or when a
+   thinking-heavy answer remains materially incomplete after bounded iteration.
+7. `pro-extended`
+   Use for maximum-depth architecture/research synthesis, unusually long
+   multi-domain prompts, source-lead-heavy literature scoping, or high-stakes
+   OS-policy changes where standard Pro is likely to be too shallow.
+8. `deep-research`
+   Use only when Justin explicitly asks for Deep Research or the UI exposes a
+   separate long-running research workflow that is clearly better than
+   Pro-extended for the objective.
+
+Routing matrix:
+
+| Prompt shape | First mode | Escalate if |
+| --- | --- | --- |
+| Simple wording, title, short summary, narrow definition | `instant` | answer misses nuance -> `thinking-light` |
+| Small critique, compact source hunt, one-page outline | `thinking-light` | lacks structure/source leads -> `thinking-standard` |
+| Default policy/design/synthesis with bounded constraints | `thinking-standard` | misses constraints/failure modes -> `thinking-extended` |
+| Repo-facing policy/script design, safety-sensitive workflow, several constraints | `thinking-extended` | still shallow or underdetermined -> `thinking-heavy` |
+| Cross-domain architecture, dream/OS design, literature + SRE + ML synthesis | `thinking-heavy` | materially incomplete after one follow-up -> `pro-standard` |
+| Maximum-depth architecture or long research job | `pro-standard` | needs broader source synthesis or prior Pro is shallow -> `pro-extended` |
+| Explicit Deep Research/source-report request | `deep-research` | n/a; hand off to Justin paste-back |
 
 Default routing rules:
 
 - Start with the smallest mode likely to succeed.
 - Prefer `thinking` over `instant` when correctness depends on synthesis rather
   than retrieval.
-- Prefer `heavy` only when the first-pass answer must reason across many
-  constraints, anti-patterns, and design tradeoffs.
-- Do not default to `pro`.
+- Within `thinking`, prefer `standard` unless the prompt is obviously simple
+  (`light`) or obviously multi-constraint/safety-sensitive
+  (`extended`/`heavy`).
+- Within `pro`, choose `standard` for deep single-objective synthesis and
+  `extended` for maximum-depth, long, cross-domain, source-heavy work.
+- Do not default to any Pro mode.
 - Escalate only when the previous answer is shallow, misses constraints, lacks
   rigor, or still leaves the design decision underdetermined.
 - After the hard question is answered, de-escalate for follow-up polishing or
   extraction work.
+- Treat the user's own prompting pattern as signal: Justin often benefits from
+  richer conceptual prompts with explicit analogies, hard boundaries, and
+  deliverable shape, but Codex should convert that into a compact staged prompt
+  rather than many UI fragments.
+
+## Response Collection Policy
+
+Codex should not spend its own working time or token budget polling long
+premium ChatGPT research jobs.
+
+- `instant`, `thinking-light`, `thinking-standard`, `thinking-extended`, and
+  `thinking-heavy`: Codex may submit the sanitized staged prompt, wait for the
+  response, collect it, ask bounded follow-ups, save the transcript pack, and
+  synthesize the answer in the same turn.
+- `pro-standard`, `pro-extended`, `deep research`, or equivalent long-running
+  premium research modes: Codex submits one complete sanitized staged prompt,
+  records the mode/thread/local research pack, then stops. Justin pastes the
+  completed ChatGPT response back into Codex when it is done.
+
+For a Pro/Deep handoff, Codex should tell Justin:
+
+```text
+I sent the sanitized prompt to ChatGPT in <mode>.
+Local research pack: <path>
+Paste the completed response back here when it finishes, and I will verify,
+synthesize, and turn only useful pieces into local proposal artifacts.
+```
+
+Do not create a 15-minute polling heartbeat for Pro/Deep by default. Treat it
+like a long external research job whose output returns through Justin.
 
 ## Prompt Construction Standard
 
@@ -129,6 +274,8 @@ Preferred characteristics:
 Avoid:
 
 - fragmented setup messages;
+- direct UI typing of the first prompt;
+- multi-line Computer Use `type_text` entry for ChatGPT first prompts;
 - multiple unrelated asks in one first prompt;
 - vague "thoughts?" prompts for high-stakes design work;
 - exposing private repo, SDCC, Gmail, Drive, or collaborator-sensitive state;
@@ -154,9 +301,10 @@ Computer Use in Google Chrome automatically to:
 - open or claim ChatGPT UI;
 - start a new chat or continue a clearly relevant ChatGPT research chat;
 - type a sanitized research prompt;
-- let a long response or deep-research task run;
-- collect the response;
-- ask bounded follow-up questions;
+- let `instant`, `thinking`, or `heavy` responses run and collect them;
+- ask bounded follow-up questions for Codex-managed modes;
+- for `pro`, `extended pro`, or `deep research`, submit once and hand off to
+  Justin for paste-back instead of polling;
 - save the prompt, transcript, and Codex synthesis under local private state.
 
 No additional confirmation is needed for those steps if the content is
@@ -241,15 +389,17 @@ These files are private local state and must not be committed.
 3. Choose the lightest ChatGPT mode likely to succeed and record the escalation
    ladder.
 4. Prepare one compact first prompt and send it as a single message.
-5. Extract claims, source leads, design ideas, and warnings.
-6. Ask at least one bounded follow-up when the first response is broad, uncited, or
+5. If the mode is Pro/Deep, report the local pack and wait for Justin to paste
+   the finished response before continuing.
+6. Otherwise extract claims, source leads, design ideas, and warnings.
+7. Ask at least one bounded follow-up when the first response is broad, uncited, or
    missing failure modes.
-7. Escalate mode only if the prior answer is materially insufficient for the
+8. Escalate mode only if the prior answer is materially insufficient for the
    decision at hand.
-8. Verify important claims before implementation.
-9. Convert useful output into a small policy, script, task, or dream-system
+9. Verify important claims before implementation.
+10. Convert useful output into a small policy, script, task, or dream-system
    proposal.
-10. Record provenance and limitations.
+11. Record provenance and limitations.
 
 ## Dream-System Use
 

@@ -67,10 +67,30 @@ Google Slides edit.
 - Show the candidate PNG in chat before mutating Google Slides. Include a short
   chat note with source/provenance, interpretation, caveat if applicable, and
   the next action.
+- Every generated full-slide PNG candidate should have a companion speaker
+  script Markdown file in the same output family. The script is not an outline
+  or private presenter note; it is the words Justin can practice saying out
+  loud on that slide. The final chat response must include clickable links to
+  both the PNG and the script.
 - Do not bake tiny `Source:` / provenance footers into full-slide PNG
   candidates. Slides should be audience-facing by default; keep detailed
   provenance in the chat note, generated summary CSV/JSON, speaker notes, or a
   separate technical backup slide when needed.
+- Do not put internal design notes, presenter instructions, implementation
+  reminders, or text addressed to Justin/Codex on the slide canvas. Phrases
+  like "read this slide as", "purpose", "speaker note", "next action", or
+  internal QA/provenance language belong in the companion script, manifest, or
+  chat note. On-slide text must be audience-facing: title, labels, definitions,
+  claims, evidence, caveats the audience needs, and transition language only
+  when it is meant to be spoken or seen by the audience.
+- Do not use caret notation on a final slide canvas for text that should be
+  superscripted or subscripted. Units such as inverse picobarns, inverse
+  nanobarns, `p_T`, `E_T`, `x_J`, `x_{Jgamma}`, powers, indices, and isotope or
+  particle labels must be rendered with true visual superscript/subscript in
+  the PNG or native Slides object. If the renderer cannot format it natively,
+  draw separate text runs with adjusted size and baseline. Caret notation is
+  acceptable only in manifests, code, or plain-text provenance where visual
+  typography is not the output.
 - Do not bake slide numbers/page numbers into generated PNG candidates unless
   Justin explicitly asks. Justin manages slide numbering manually because the
   number changes with deck placement and backup-slide ordering.
@@ -82,6 +102,85 @@ Google Slides edit.
 These full-slide candidates are internal analysis artifacts as much as
 presentation artifacts: they should linearize the analysis state by making clear
 what is shown, why it matters, and what follows.
+
+## Speaker Script Contract
+
+Use Justin's prelim narrative style as the reference voice for generated slide
+scripts. The named exemplar is the Google Doc `Prelim Narrative & comments`
+(`1uzYK-8p-mCeHjtqjT0hewC20lXgzgfeu77Xsb2gZAQ8`), especially the narrative for
+the linked prelim `sPHENIX Subsystems` slide
+(`1FlmFhtPDnp3za_I5v4yLL8gSaTeuaJxzywDF2MKmc14`, slide
+`g3920ab4f8cb_4_310`).
+
+Generated scripts should read like polished spoken narration, not like generic
+speaker notes:
+
+- Start with the exact orientation Justin would say on the slide, using natural
+  first-person transitions when appropriate: for example, "At a high level",
+  "To start us off", "Now", "First", "Second", "So overall", or "With that
+  context in mind".
+- Walk through the slide in the visual order a listener will experience it.
+  Explain acronyms and definitions inline at the moment they appear.
+- Keep the voice audience-facing and conversational but technically precise.
+  Prefer complete spoken sentences over fragments, labels, or stage directions.
+- Personalize when it matters: use "my measurement", "for this talk", or
+  "what I want to emphasize" when that matches Justin's ownership of the work.
+- End with a spoken takeaway or bridge that naturally carries the audience to
+  the next slide. Do not use meta labels such as `Transition:` in normal
+  standalone slide scripts; write the transition as a sentence Justin can say.
+- Keep private reasoning, implementation notes, provenance, QA, and design
+  intent out of the script body unless Justin would actually say it. Put those
+  in the manifest, chat handoff, or separate technical notes.
+- Format each `.md` script as `# <talk/deck> Slide <n> Script - <short title>`
+  followed by short paragraphs in spoken order. Bullets are allowed only when
+  they represent a natural spoken list, not an outline shortcut.
+
+For progressive builds, keep any click or timing cues clearly separated from
+the spoken script text. The default standalone-slide script should be directly
+readable aloud from top to bottom.
+
+## Progressive Build Option
+
+Prefer separate, self-contained full-slide PNG candidates. This is the normal
+and recommended presentation form, especially for PPG, JSTG,
+collaboration-facing updates, and analysis-status decks, where Justin needs
+simple navigation, clean screenshot/export behavior, easy slide-by-slide
+review, and minimal presenter overhead.
+
+Codex should not silently choose a progressive build sequence. A progressive
+build, such as `Slide 2A` / `Slide 2B` or a short three-frame reveal, is allowed
+only when Justin explicitly asks for it, or when Codex presents it as an
+optional alternate beside the recommended standalone-slide version.
+
+Use a progressive alternate only when it clearly beats separate slides for live
+delivery:
+
+- the same visual anchor must remain on screen while a single idea is revealed
+  in stages;
+- revealing all information at once would materially overload the audience;
+- the click timing is essential to the explanation, not merely decorative;
+- the sequence still behaves like one spoken slide, not a hidden extra section.
+
+Do not use progressive builds because a slide has many objects, because
+animation would look polished, because a dense slide can be decomposed, or
+because it is possible. If the story is equally clear as normal consecutive
+slides, generate normal consecutive slides.
+
+When a progressive alternate is generated:
+
+- label it as optional, not the default recommendation;
+- state why it might help and why the standalone version remains safer unless
+  Justin chooses the build;
+- generate each frame as an individual `2560x1440` PNG candidate;
+- provide a contact sheet, speaker-click script, and manifest;
+- keep each frame self-contained enough to present if the sequence is later
+  split into normal slides;
+- do not mutate Google Slides until Justin approves the sequence and the
+  insertion mode.
+
+For approved deck insertion, treat a progressive PNG build as consecutive
+duplicate-frame slides or a native Slides build depending on Justin's chosen
+workflow. Do not bake slide numbers or provenance footers into any frame.
 
 ## Chronicle Context Rule
 

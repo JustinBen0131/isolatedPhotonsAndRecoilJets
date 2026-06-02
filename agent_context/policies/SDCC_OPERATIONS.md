@@ -40,6 +40,15 @@ After any Codex-run SDCC mutation, run a bounded top-level hygiene check for
 calling the task complete. If such a path exists, report it as a cleanup
 candidate and do not create additional remote state.
 
+The checkout hygiene probe is local-side audit infrastructure. For SDCC, prefer
+streaming `scripts/sdcc/runtime/audit/checkout_hygiene_probe.py` into remote
+`python3 - --report-only` or running an already-installed neutral copy. Do not
+assume the probe file exists on SDCC, and do not create a visible remote
+agent/control-plane file just to run the check. For the local Mac checkout,
+use the probe's `--profile local` mode so expected local control-plane
+directories such as `agent_context/` and `codex_notes/` are not treated as SDCC
+violations.
+
 ## Remote Scripts Layout
 
 After THE-23 stage 5, the SDCC checkout `scripts/` parent is intentionally a

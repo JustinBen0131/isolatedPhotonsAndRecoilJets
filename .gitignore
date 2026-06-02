@@ -22,6 +22,8 @@
 !/agent_context/REPO_ORGANIZATION_CLEANUP_MANIFEST.tsv
 !/agent_context/policies/
 !/agent_context/policies/**
+!/agent_context/memory/
+!/agent_context/memory/**
 !/agent_context/templates/
 !/agent_context/templates/**
 

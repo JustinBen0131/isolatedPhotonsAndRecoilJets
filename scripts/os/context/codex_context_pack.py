@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from codex_work_register_common import DEFAULT_REGISTER, first_line, load_register, parse_when, sorted_workstreams
+from codex_context_resonance import build_context_resonance_payload
 from codex_thesis_radar import analyze as analyze_thesis_radar
 
 
@@ -112,6 +113,36 @@ def artifact_claim_counts() -> dict[str, int]:
     return counts
 
 
+def render_task_resonance(task: str) -> None:
+    payload = build_context_resonance_payload(task, max_active=3, max_nudges=3, mode="waking")
+    print("## Latent Context Nudges")
+    print(f"- Task route: `{payload.get('task_signature', {}).get('route')}`")
+    print("- Boundary: read-only routing hints; verify source pointers before claims.")
+    print()
+    print("### Conscious Context")
+    for item in payload.get("conscious_context") or []:
+        print(f"- `{item.get('memory_id')}` -> `{item.get('source')}`: {item.get('reason')}")
+    if not payload.get("conscious_context"):
+        print("- none")
+    print()
+    print("### Nudges")
+    for item in payload.get("latent_context_nudges") or []:
+        print(f"- `{item.get('memory_id')}`: {item.get('why_it_surfaced') or item.get('reason')}")
+    if not payload.get("latent_context_nudges"):
+        print("- none")
+    print()
+    print("### Traps")
+    for item in payload.get("negative_memories") or []:
+        print(f"- `{item.get('memory_id')}`: {item.get('trap')}")
+    if not payload.get("negative_memories"):
+        print("- none")
+    print()
+    print("### Required Checks")
+    for check in payload.get("required_checks_before_claim") or []:
+        print(f"- {check}")
+    print()
+
+
 def render_daily(data: dict[str, Any], workstreams: list[dict[str, Any]], now: datetime, max_top: int) -> None:
     active = [w for w in workstreams if w.get("status") in ACTIVE_STATUSES]
     waiting = [w for w in workstreams if w.get("status") in {"waiting", "blocked", "review"}]
@@ -185,6 +216,7 @@ def main() -> int:
     parser.add_argument("--cadence", choices=["boot", "daily", "weekly", "monthly"], default="boot")
     parser.add_argument("--max-top", type=int, default=3)
     parser.add_argument("--now")
+    parser.add_argument("--task", help="optional task fingerprint for compact context-resonance nudges")
     args = parser.parse_args()
 
     now = parse_when(args.now) if args.now else datetime.now(timezone.utc)
@@ -207,6 +239,9 @@ def main() -> int:
     for line in north_star:
         print(line)
     print()
+
+    if args.task:
+        render_task_resonance(args.task)
 
     if args.cadence in {"boot", "daily"}:
         render_daily(data, workstreams, now, args.max_top)

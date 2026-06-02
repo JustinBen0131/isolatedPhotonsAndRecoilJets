@@ -1,0 +1,170 @@
+version: 1
+purpose: >
+  Compact repeated traps that should surface as warnings. These are not
+  factual proof; they name first safe actions.
+
+negative_memories:
+  - memory_id: no_ready_without_evidence
+    trap: calling an artifact ready from memory or filename alone
+    source_pointer:
+      path: agent_context/policies/PLOTTING.md
+      kind: policy
+    routes:
+      - plot_generation
+      - slide_scripting
+    cue_terms:
+      - plot
+      - figure
+      - png
+      - ready
+      - evidence
+      - artifact
+      - provenance
+    relation_type: warning_only
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: warning only
+    first_safe_action: check artifact registry, source path, generation command, and visual or ROOT QA
+    required_waking_check: cite exact evidence before ready, valid, stale, or done claims
+    salience:
+      thesis_value: 0.85
+      evidence_value: 0.85
+      recurrence: 0.8
+      error_prevention_value: 0.95
+      user_friction: 0.85
+      retrieval_cost: 0.1
+      stale_risk: 0.05
+      interference_risk: 0.1
+      synthetic_contamination_risk: 0.0
+
+  - memory_id: no_synthetic_as_evidence
+    trap: letting dream or external-model output become factual project evidence
+    source_pointer:
+      path: agent_context/policies/AGENTIC_OS_DREAMING.md
+      kind: policy
+    routes:
+      - os_maintenance
+      - slide_scripting
+      - plot_generation
+    cue_terms:
+      - dream
+      - synthetic
+      - chatgpt
+      - external
+      - evidence
+      - approve
+      - memory
+    relation_type: warning_only
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: warning only
+    first_safe_action: mark synthetic or external output as proposal or critique until locally verified
+    required_waking_check: verify against local files, primary sources, logs, or Justin's real instructions
+    salience:
+      thesis_value: 0.75
+      evidence_value: 0.9
+      recurrence: 0.8
+      error_prevention_value: 0.95
+      user_friction: 0.8
+      retrieval_cost: 0.1
+      stale_risk: 0.1
+      interference_risk: 0.2
+      synthetic_contamination_risk: 0.0
+
+  - memory_id: no_remote_cleanup_without_guard
+    trap: treating SDCC or remote cleanup as safe because local organization improved
+    source_pointer:
+      path: agent_context/policies/SDCC_OPERATIONS.md
+      kind: policy
+    routes:
+      - sdcc_path_transfer
+    cue_terms:
+      - sdcc
+      - remote
+      - cleanup
+      - path
+      - sftp
+      - condor
+      - mutation
+      - guard
+    relation_type: path_contract
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: warning only
+    first_safe_action: run read-only probes and preserve compatibility before any remote mutation
+    required_waking_check: explicit approval plus guard/snapshot for SDCC edits or cleanup
+    salience:
+      thesis_value: 0.85
+      evidence_value: 0.9
+      recurrence: 0.85
+      error_prevention_value: 0.98
+      user_friction: 0.9
+      retrieval_cost: 0.15
+      stale_risk: 0.15
+      interference_risk: 0.1
+      synthetic_contamination_risk: 0.0
+
+  - memory_id: no_generic_status_context_bleed
+    trap: pulling unrelated live workstreams from generic words like status, slide, or active
+    source_pointer:
+      path: agent_context/memory/README.md
+      kind: memory_registry
+    routes:
+      - active_job_status
+      - os_maintenance
+    cue_terms:
+      - status
+      - active
+      - job
+      - workstream
+      - stale
+      - context
+      - retrieval
+    relation_type: same_failure_mode
+    evidence_class: derived
+    retrieval_policy: latent_nudge
+    allowed_use: retrieval hygiene warning
+    first_safe_action: require specific-token overlap or explicit workstream ID before surfacing live-workstream facts
+    required_waking_check: verify the surfaced workstream ID is task-specific before using it
+    salience:
+      thesis_value: 0.65
+      evidence_value: 0.6
+      recurrence: 0.75
+      error_prevention_value: 0.85
+      user_friction: 0.8
+      retrieval_cost: 0.1
+      stale_risk: 0.2
+      interference_risk: 0.45
+      synthetic_contamination_risk: 0.0
+
+  - memory_id: no_external_model_as_authority
+    trap: treating ChatGPT or another model as approval, source of truth, or unverified policy
+    source_pointer:
+      path: agent_context/policies/ASK_CHATGPT_DELEGATION.md
+      kind: policy
+    routes:
+      - os_maintenance
+    cue_terms:
+      - chatgpt
+      - external
+      - model
+      - research
+      - prompt
+      - authority
+      - verify
+    relation_type: warning_only
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: warning only
+    first_safe_action: keep external responses as critique/source leads until Codex verifies locally
+    required_waking_check: cite local evidence or primary sources before promotion
+    salience:
+      thesis_value: 0.6
+      evidence_value: 0.8
+      recurrence: 0.65
+      error_prevention_value: 0.9
+      user_friction: 0.7
+      retrieval_cost: 0.15
+      stale_risk: 0.2
+      interference_risk: 0.35
+      synthetic_contamination_risk: 0.0

@@ -15,9 +15,16 @@
 - `agent_context/SLIDE_STYLE_MAP.md`: durable slide design language.
 - `agent_context/THESIS_NARRATIVE_MAP.md`: durable hierarchy from thesis goal
   to evidence, plots, jobs, and slide/story obligations.
+- `agent_context/memory/`: tracked neutral memory-routing registries:
+  `CONTEXT_RESONANCE_INDEX.yaml`, `SCHEMA_REGISTRY.yaml`, and
+  `NEGATIVE_MEMORY_MAP.yaml`. These contain sanitized cue records and source
+  pointers, not raw transcripts or private remote details.
 - `agent_context/local/os_events.jsonl`: private append-only event ledger for
   guard preflights, approvals, snapshots, warnings, repairs, and accepted
   risks. Do not commit it.
+- `agent_context/local/context_resonance/`: private salience, retrieval-outcome,
+  and context-interference ledgers. Use it for distilled memory-routing
+  evidence only, not raw chat transcripts.
 - `codex_notes/PROJECT_BOARD.md`, `DATASET_STATUS.md`, `KNOWN_ISSUES.md`,
   `RUN_LOG.md`: older project-state ledgers, especially dataset validity.
 
@@ -38,6 +45,21 @@ Record durable decisions and evidence:
 
 Do not record speculative guesses, bulky conversational notes, or casual task
 ideas unless Justin asks.
+
+For context resonance, record whether a surfaced memory actually helped,
+polluted the answer, or should be suppressed next time. The goal is better
+retrieval quality: compact active facts, useful latent nudges, negative-memory
+traps, and stale/synthetic context kept cold.
+
+Use the waking resolver before a context-sensitive task:
+
+```bash
+python3 scripts/os/context/codex_context_resonance.py resolve --task "<task>" --json
+```
+
+After a retrieved memory materially affects the task, append local-only
+feedback with `record-outcome`. Do not put raw ChatGPT transcripts, SDCC
+private paths, passwords, or bulky chat text into tracked memory registries.
 
 ## Trigger Words
 
@@ -128,3 +150,19 @@ Use `agent_context/templates/OS_POSTMORTEM_TEMPLATE.md` for postmortems and
 run `python3 scripts/codex_os_doctor.py --profile daily` after OS-state
 repairs. Repeated warnings should become encoded prevention, not permanent
 daily noise.
+
+## Workstream Refresh Protocol
+
+Use `register_workstream_refresh_contract` when live workstreams repeatedly
+create status, active-job, stale-state, or evidence pressure. The read-only
+check is:
+
+```bash
+python3 scripts/os/register/codex_work_register_stale.py agent_context/CODEX_WORK_REGISTER.yaml --protocol
+```
+
+It classifies live workstreams as `current`, `waiting`, `stale`,
+`needs_evidence`, or `archive_review`. Any real register update must preserve
+exact evidence and update `last_verified`, `next_check`, `stale_after`, and
+active-job fields through waking validation; the dream must not close tasks or
+change science status automatically.

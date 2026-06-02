@@ -52,9 +52,14 @@ BASE_REQUIRED_FILES = [
     Path("agent_context/policies/DUPLICATE_RUN_GUARD.md"),
     Path("agent_context/policies/MEMORY_AND_STATUS.md"),
     Path("agent_context/policies/LOAD_MAP.yaml"),
+    Path("agent_context/memory/README.md"),
+    Path("agent_context/memory/CONTEXT_RESONANCE_INDEX.yaml"),
+    Path("agent_context/memory/SCHEMA_REGISTRY.yaml"),
+    Path("agent_context/memory/NEGATIVE_MEMORY_MAP.yaml"),
     Path("agent_context/templates/OS_POSTMORTEM_TEMPLATE.md"),
     Path("scripts/os/artifacts/codex_artifact_registry.py"),
     Path("scripts/os/context/codex_context_pack.py"),
+    Path("scripts/os/context/codex_context_resonance.py"),
     Path("scripts/codex_os_guard.py"),
     Path("scripts/codex_os_dream.py"),
     Path("scripts/codex_os_nightly_heartbeat.py"),
@@ -68,6 +73,31 @@ STRICT_REQUIRED_FILES = [
 ]
 
 DREAM_ROOT = Path("agent_context/local/dreams")
+MEMORY_REGISTRY_FILES = {
+    Path("agent_context/memory/CONTEXT_RESONANCE_INDEX.yaml"): "memory_records",
+    Path("agent_context/memory/SCHEMA_REGISTRY.yaml"): "schemas",
+    Path("agent_context/memory/NEGATIVE_MEMORY_MAP.yaml"): "negative_memories",
+}
+MEMORY_FORBIDDEN_PATTERNS = (
+    "BEGIN TRANSCRIPT",
+    "chatgpt.com/c/",
+    "sphnxuser",
+    "ssh.sdcc",
+    "/sphenix/u/",
+    "RJ_CODEX_THREAD_ID=",
+    "password",
+    "private key",
+)
+EXPECTED_DREAM_LANE_IDS = (
+    "status_provenance",
+    "architecture_cohesion",
+    "context_resonance",
+    "cleanup_storage",
+    "path_contract",
+    "research_scout",
+    "science_scout",
+    "presentation_artifacts",
+)
 
 
 @dataclass
@@ -81,6 +111,14 @@ def text_of(path: Path) -> str:
         return path.read_text(encoding="utf-8")
     except OSError:
         return ""
+
+
+def json_of(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def add(findings: list[Finding], severity: str, message: str) -> None:
@@ -128,8 +166,10 @@ def check_policy_routing(findings: list[Finding]) -> None:
         add(findings, "WARN", "LOAD_MAP.yaml does not mention codex_os_guard.py")
     if "scripts/codex_os_doctor.py" not in os_policy:
         add(findings, "WARN", "CODEX_OPERATING_SYSTEM.md does not mention codex_os_doctor.py")
-    if "scripts/codex_os_nightly_heartbeat.py" not in os_policy:
-        add(findings, "WARN", "CODEX_OPERATING_SYSTEM.md does not mention codex_os_nightly_heartbeat.py")
+    if "scripts/codex_os_dream.py lane --lane-id" not in os_policy:
+        add(findings, "WARN", "CODEX_OPERATING_SYSTEM.md does not mention the lane dream entrypoint")
+    if "scripts/codex_os_nightly_heartbeat.py nightly" in os_policy:
+        add(findings, "WARN", "CODEX_OPERATING_SYSTEM.md still mentions the retired nightly heartbeat entrypoint")
     if "codex_os_guard.py" not in os_policy:
         add(findings, "WARN", "CODEX_OPERATING_SYSTEM.md does not mention codex_os_guard.py")
     if "THESIS_NARRATIVE_MAP.md" not in os_policy:
@@ -140,6 +180,74 @@ def check_policy_routing(findings: list[Finding]) -> None:
         add(findings, "WARN", "CODEX_OPERATING_SYSTEM.md does not mention dream policy")
     if "ASK_CHATGPT_DELEGATION.md" not in os_policy:
         add(findings, "WARN", "CODEX_OPERATING_SYSTEM.md does not mention ChatGPT delegation policy")
+    if "codex_context_resonance.py" not in os_policy:
+        add(findings, "WARN", "CODEX_OPERATING_SYSTEM.md does not mention context resonance resolver")
+
+
+def source_pointer_path(item: dict[str, Any]) -> str:
+    pointer = item.get("source_pointer")
+    if isinstance(pointer, dict):
+        return first_line(pointer.get("path"))
+    return first_line(item.get("source"))
+
+
+def check_memory_architecture(findings: list[Finding]) -> None:
+    for path, list_key in MEMORY_REGISTRY_FILES.items():
+        text = text_of(path)
+        upper_text = text.upper()
+        for pattern in MEMORY_FORBIDDEN_PATTERNS:
+            if pattern.upper() in upper_text:
+                add(findings, "ERROR", f"{path} contains forbidden memory-registry text: {pattern}")
+        try:
+            data = load_register(path)
+        except (RegisterError, OSError, RuntimeError) as exc:
+            add(findings, "ERROR", f"{path} is not parseable: {exc}")
+            continue
+        if not isinstance(data, dict):
+            add(findings, "ERROR", f"{path} did not parse as a mapping")
+            continue
+        rows = data.get(list_key)
+        if not isinstance(rows, list) or not rows:
+            add(findings, "ERROR", f"{path} lacks non-empty {list_key}")
+            continue
+        for index, item in enumerate(rows, start=1):
+            if not isinstance(item, dict):
+                add(findings, "ERROR", f"{path} {list_key}[{index}] is not a mapping")
+                continue
+            memory_id = first_line(item.get("memory_id") or item.get("schema_id") or item.get("id"))
+            if not memory_id:
+                add(findings, "ERROR", f"{path} {list_key}[{index}] lacks memory_id/schema_id")
+            relation_type = first_line(item.get("relation_type"))
+            if relation_type and relation_type not in {
+                "same_artifact",
+                "same_method",
+                "same_failure_mode",
+                "analogy_only",
+                "warning_only",
+                "visual_style",
+                "path_contract",
+            }:
+                add(findings, "ERROR", f"{path} {memory_id}: invalid relation_type {relation_type}")
+            evidence_class = first_line(item.get("evidence_class"))
+            if evidence_class not in {"real_observed", "human_approved", "derived", "synthetic"}:
+                add(findings, "ERROR", f"{path} {memory_id}: invalid evidence_class {evidence_class!r}")
+            retrieval_policy = first_line(item.get("retrieval_policy"))
+            if retrieval_policy and retrieval_policy not in {
+                "conscious_context",
+                "latent_nudge",
+                "suppress",
+                "quarantine_candidate",
+            }:
+                add(findings, "ERROR", f"{path} {memory_id}: invalid retrieval_policy {retrieval_policy}")
+            if evidence_class == "synthetic" and retrieval_policy == "conscious_context":
+                add(findings, "ERROR", f"{path} {memory_id}: synthetic material cannot be conscious_context")
+            if not first_line(item.get("required_waking_check")):
+                add(findings, "ERROR", f"{path} {memory_id}: missing required_waking_check")
+            source = source_pointer_path(item)
+            if not source:
+                add(findings, "ERROR", f"{path} {memory_id}: missing source pointer")
+            elif source.startswith(("agent_context/", "scripts/", "codex_notes/", "macros/")) and not Path(source).exists():
+                add(findings, "ERROR", f"{path} {memory_id}: local source pointer does not exist: {source}")
 
 
 def check_register(data: dict[str, Any], findings: list[Finding], now: datetime) -> None:
@@ -268,51 +376,127 @@ def run_helper(command: list[str]) -> tuple[int, str]:
     return result.returncode, output
 
 
-def latest_dream_signal() -> tuple[Path | None, dict[str, Any] | None]:
+def latest_lane_signals() -> dict[str, tuple[Path | None, dict[str, Any] | None]]:
+    rows: dict[str, tuple[Path | None, dict[str, Any] | None]] = {}
     if not DREAM_ROOT.exists():
-        return None, None
+        return rows
     candidates = [path for path in DREAM_ROOT.iterdir() if path.is_dir()]
-    if not candidates:
-        return None, None
-    latest = max(candidates, key=lambda path: path.stat().st_mtime)
-    for name in ("nightly_heartbeat_signal.json", "heartbeat_signal.json"):
-        signal_path = latest / name
+    for lane_id in EXPECTED_DREAM_LANE_IDS:
+        suffix = f"-lane-{lane_id}"
+        lane_dirs = [path for path in candidates if path.name.endswith(suffix)]
+        if not lane_dirs:
+            rows[lane_id] = (None, None)
+            continue
+        latest = max(lane_dirs, key=lambda path: path.stat().st_mtime)
+        signal_path = latest / "lane_signal.json"
         if not signal_path.exists():
+            rows[lane_id] = (latest, None)
             continue
         try:
             signal = json.loads(signal_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
-            return latest, None
-        return latest, signal if isinstance(signal, dict) else None
-    return latest, None
+            rows[lane_id] = (latest, None)
+            continue
+        rows[lane_id] = (latest, signal if isinstance(signal, dict) else None)
+    return rows
+
+
+def aggregate_lane_signals(bundle: dict[str, tuple[Path | None, dict[str, Any] | None]]) -> tuple[Path | None, dict[str, Any] | None]:
+    valid_rows = [(path, signal) for path, signal in bundle.values() if path is not None and signal is not None]
+    if not valid_rows:
+        return None, None
+    latest_path, latest_signal = max(
+        valid_rows,
+        key=lambda item: parse_when(item[1].get("generated_at")) or datetime.fromtimestamp(item[0].stat().st_mtime, tz=timezone.utc),
+    )
+    aggregate = dict(latest_signal)
+    summary = dict(aggregate.get("summary") or {})
+    summary["missing_lane_count"] = sum(1 for path, signal in bundle.values() if path is None or signal is None)
+    aggregate["summary"] = summary
+    aggregate["lane_statuses"] = {
+        lane_id: {
+            "path": path.as_posix() if path else None,
+            "valid": signal is not None,
+        }
+        for lane_id, (path, signal) in bundle.items()
+    }
+    top_findings: list[dict[str, Any]] = []
+    for lane_id in EXPECTED_DREAM_LANE_IDS:
+        _, signal = bundle.get(lane_id, (None, None))
+        if not signal:
+            continue
+        for item in signal.get("top_findings") or []:
+            if isinstance(item, dict):
+                top_findings.append(item)
+    aggregate["top_findings"] = top_findings[:14]
+    return latest_path, aggregate
 
 
 def check_dream_heartbeat(findings: list[Finding], profile: str, now: datetime) -> None:
-    latest_dir, signal = latest_dream_signal()
+    bundle = latest_lane_signals()
+    latest_dir, signal = aggregate_lane_signals(bundle)
     if latest_dir is None:
         return
     if signal is None:
         severity = "ERROR" if profile in {"strict", "release"} else "WARN"
-        add(findings, severity, f"latest dream is missing a valid heartbeat signal: {latest_dir}")
+        add(findings, severity, "latest dream lanes are missing valid lane signals")
         return
 
-    generated_at = parse_when(signal.get("generated_at"))
-    if generated_at is not None and (now - generated_at).total_seconds() > 48 * 3600:
-        add(findings, "WARN", f"latest dream heartbeat is older than 48h: {latest_dir.name}")
+    missing_lanes = [lane_id for lane_id, (path, lane_signal) in bundle.items() if path is None or lane_signal is None]
+    if missing_lanes:
+        add(
+            findings,
+            "ERROR" if profile in {"strict", "release"} else "WARN",
+            f"dream lane signals missing or invalid for: {', '.join(missing_lanes)}",
+        )
+
+    for lane_id, (path, lane_signal) in bundle.items():
+        if path is None or lane_signal is None:
+            continue
+        generated_at = parse_when(lane_signal.get("generated_at"))
+        if generated_at is not None and (now - generated_at).total_seconds() > 48 * 3600:
+            add(findings, "WARN", f"dream lane heartbeat is older than 48h: {lane_id} at {path.name}")
 
     summary = signal.get("summary") if isinstance(signal.get("summary"), dict) else {}
     automation_drift = int(summary.get("automation_drift_count") or 0)
     recurring = int(summary.get("recurring_hotspot_count") or 0)
+    handled_recurring = int(summary.get("handled_recurring_hotspot_count") or 0)
     cleanup_candidates = int(summary.get("cleanup_candidate_count") or 0)
     schema_candidates = int(summary.get("schema_promotion_candidate_count") or 0)
+    approval_ready_count = int(summary.get("approval_ready_count") or 0)
     cohesion_score = int(signal.get("cohesion_score") or 0)
     debt = signal.get("maintenance_debt") if isinstance(signal.get("maintenance_debt"), dict) else {}
     debt_score = int(debt.get("score") or 0)
     budget_remaining = int(debt.get("budget_remaining") or 0)
     debt_status = str(debt.get("status") or "")
     heartbeat_status = str(signal.get("status") or "")
+    maintenance = signal.get("evolutionary_maintenance") if isinstance(signal.get("evolutionary_maintenance"), dict) else {}
+    pilot = maintenance.get("shadow_pilot") if isinstance(maintenance.get("shadow_pilot"), dict) else {}
     validation = signal.get("validation") if isinstance(signal.get("validation"), dict) else {}
     doctor_error_count = int(summary.get("doctor_error_count") or 0)
+    for lane_id, (path, lane_signal) in bundle.items():
+        if not lane_signal:
+            continue
+        changed_actions = lane_signal.get("changed_actions") if isinstance(lane_signal.get("changed_actions"), dict) else {}
+        if changed_actions.get("external_mutations_performed") not in {False, None}:
+            add(findings, "ERROR", f"dream lane changed_actions reports external mutation: {lane_id}")
+        if changed_actions.get("science_mutations_performed") not in {False, None}:
+            add(findings, "ERROR", f"dream lane changed_actions reports science mutation: {lane_id}")
+        if changed_actions.get("repo_tracked_mutations_performed") not in {False, None}:
+            add(findings, "ERROR", f"dream lane changed_actions reports repo-tracked mutation: {lane_id}")
+        if lane_id == "context_resonance":
+            resonance = lane_signal.get("context_resonance") if isinstance(lane_signal.get("context_resonance"), dict) else {}
+            nudges = resonance.get("latent_context_nudges") if isinstance(resonance.get("latent_context_nudges"), list) else []
+            negative = resonance.get("negative_memories") if isinstance(resonance.get("negative_memories"), list) else []
+            suppressed = resonance.get("suppressed_context") if isinstance(resonance.get("suppressed_context"), list) else []
+            if not resonance:
+                add(findings, "WARN", "context_resonance lane signal lacks context_resonance payload")
+            if not nudges:
+                add(findings, "WARN", "context_resonance lane produced no latent_context_nudges")
+            if not negative:
+                add(findings, "WARN", "context_resonance lane produced no negative_memory candidates")
+            if not suppressed:
+                add(findings, "WARN", "context_resonance lane produced no suppressed_context entries")
 
     if automation_drift:
         add(
@@ -321,9 +505,21 @@ def check_dream_heartbeat(findings: list[Finding], profile: str, now: datetime) 
             f"dream heartbeat reports automation drift count={automation_drift}",
         )
     if recurring:
-        add(findings, "WARN", f"dream heartbeat reports recurring maintenance hotspots count={recurring}")
+        add(findings, "WARN", f"dream heartbeat reports unhandled recurring maintenance hotspots count={recurring}")
     if schema_candidates:
         add(findings, "WARN", f"dream heartbeat has schema-promotion candidates count={schema_candidates}")
+    if approval_ready_count:
+        add(
+            findings,
+            "ERROR" if profile in {"strict", "release"} else "WARN",
+            f"dream heartbeat emitted approval-ready maintenance items during shadow pilot count={approval_ready_count}",
+        )
+    if pilot and pilot.get("approval_ready_allowed") is not False:
+        add(
+            findings,
+            "ERROR" if profile in {"strict", "release"} else "WARN",
+            "dream shadow pilot does not have approval_ready_allowed=false",
+        )
     if cleanup_candidates >= 3:
         add(findings, "WARN", f"dream heartbeat reports local cleanup candidates count={cleanup_candidates}")
     if cohesion_score < 65:
@@ -338,22 +534,23 @@ def check_dream_heartbeat(findings: list[Finding], profile: str, now: datetime) 
         add(
             findings,
             "ERROR" if profile in {"strict", "release"} else "WARN",
-            f"latest nightly heartbeat reports error status: {latest_dir.name}",
+            f"latest lane heartbeat aggregate reports error status: {latest_dir.name}",
         )
     if validation and validation.get("dream_validate_ok") is False:
         add(
             findings,
             "ERROR" if profile in {"strict", "release"} else "WARN",
-            f"latest nightly heartbeat captured dream validation failure: {latest_dir.name}",
+            f"latest lane heartbeat aggregate captured dream validation failure: {latest_dir.name}",
         )
     if doctor_error_count:
-        add(findings, "WARN", f"latest nightly heartbeat captured doctor errors count={doctor_error_count}")
+        add(findings, "WARN", f"latest lane heartbeat aggregate captured doctor errors count={doctor_error_count}")
 
 
 def check_helper_scripts(findings: list[Finding], profile: str) -> None:
     checks = [
         [sys.executable, "scripts/os/artifacts/codex_artifact_registry.py", "check"],
         [sys.executable, "scripts/os/context/codex_thesis_radar.py"],
+        [sys.executable, "scripts/os/context/codex_context_resonance.py", "canary", "--json"],
         [sys.executable, "scripts/codex_os_dream.py", "validate", "--latest", "--allow-missing"],
     ]
     for command in checks:
@@ -472,6 +669,7 @@ def main() -> int:
     findings: list[Finding] = []
     check_required_files(findings, args.profile)
     check_policy_routing(findings)
+    check_memory_architecture(findings)
     check_event_log(findings, args.profile)
 
     try:

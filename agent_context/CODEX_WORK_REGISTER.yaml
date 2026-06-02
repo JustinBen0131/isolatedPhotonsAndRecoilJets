@@ -364,9 +364,10 @@ workstreams:
       modes, writes synthetic reports under agent_context/local/dreams/, and
       never treats synthetic Justin as real approval or mutates external state.
     current_next_action: >
-      Complete for the v1 dream engine. The current default contract is the
-      nightly super-heartbeat; reinstate a micro-dream only through an
-      explicit policy and automation change.
+      Complete for the lane-heartbeat contract. The default overnight shape is
+      eight `03:30` lane heartbeats using `python3 scripts/codex_os_dream.py
+      lane --lane-id <lane_id>`; do not restore the retired nightly
+      super-heartbeat or micro-dream paths.
     depends_on:
       - workstream:codex_os_10x_safety_kernel
     active_codex_session: null
@@ -388,21 +389,24 @@ workstreams:
       - "2026-05-27 00:40 EDT validation generated agent_context/local/dreams/validation-micro and validation-nightly-v2; dream validate passed, artifact registry validates with 7 artifacts, and register validates with 17 workstreams."
       - "2026-05-27 00:40 EDT initial automations created: thesisanalysis-micro-dream every 30 minutes as a thread heartbeat, and thesisanalysis-nightly-dream daily at 03:30 local as a local cron job."
       - "2026-06-01 nightly super-heartbeat implementation retired the micro-dream expectation from the current contract and merged the separate doctor lane into the nightly overnight package."
+      - "2026-06-02 lane-heartbeat migration replaced the super-heartbeat/doctor automation pair with seven `03:30` lane heartbeats, each tied to a single dream lane. The retired `scripts/codex_os_nightly_heartbeat.py nightly`, `scripts/codex_os_dream.py nightly`, and `scripts/codex_os_dream.py micro` entrypoints now fail fast."
+      - "2026-06-01 23:20 EDT dream automation binding update removed fixed target-thread requirements from the overnight lane contract. Dream heartbeats are now expected to open a fresh automation-generated chat each nightly run rather than reusing one persistent lane thread."
       - "2026-05-27 00:40 EDT Linear THE-20 created and closed Done with implementation/validation evidence."
     last_verified: "2026-05-27T00:40:00-04:00"
     next_check: "after first automation-generated micro and nightly reports, inspect whether reports are useful and not noisy"
     stale_after: "2026-06-03T10:00:00-04:00"
     handoff_summary: >
-      Dream v1 is private and proposal-only. The current default overnight
-      entrypoint is `python3 scripts/codex_os_nightly_heartbeat.py nightly`,
-      which wraps the dream plus validation and doctor checks in one package.
-      Use `python3 scripts/codex_os_dream.py nightly` only for direct dream
-      debugging. Do not treat synthetic interactions as approval or real user
-      intent.
+      Dream v1 is private and proposal-only. The default overnight contract is
+      eight lane heartbeats at `03:30`, each running
+      `python3 scripts/codex_os_dream.py lane --lane-id <lane_id>` and writing
+      `lane_heartbeat.md`, `lane_signal.json`, `lane_digest.md`, and
+      `validation_summary.md` under its own dream directory. Do not use the
+      retired nightly or micro dream entrypoints, and do not treat synthetic
+      interactions as approval or real user intent.
 
   - workstream_id: codex_os_dream_doctor_fusion
     title: P0 OS | Dream-Doctor Fusion And Biological Maintenance Loop
-    status: active
+    status: review
     priority: P0
     goal: >
       Upgrade the ThesisAnalysis dream layer from proposal-only nightly
@@ -411,14 +415,14 @@ workstreams:
       cleanup/maintenance proposals, and a tighter doctor/dream fusion that
       improves thesis progress without mutating real analysis state overnight.
     current_next_action: >
-      Review the new adaptation cards from
-      agent_context/local/dreams/validation-nightly-adaptation-cards-20260601,
-      then reduce recurring hotspot / maintenance debt pressure before adding
-      any broader dream-growth behavior.
+      Verify the next real `03:30` eight-lane batch opens fresh automation
+      chats with no fixed thread binding, and confirm the doctor still accepts
+      the latest `lane_signal.json` set while `context_resonance` remains
+      compact and useful.
     depends_on:
       - workstream:codex_os_dream_system
       - workstream:codex_ask_chatgpt_delegation
-    active_codex_session: "current Codex chat: dream-state ChatGPT enhancement research"
+    active_codex_session: null
     chat_label_or_thread: "dream-state ChatGPT enhancement research"
     linear_issue: null
     linear_sync: pending
@@ -430,12 +434,23 @@ workstreams:
       - "scripts/codex_os_doctor.py"
       - "scripts/codex_os_nightly_heartbeat.py"
       - "scripts/os/heartbeat/codex_os_nightly_heartbeat.py"
+      - "scripts/os/dream/codex_os_dream.py"
+      - "scripts/os/safety/codex_os_doctor.py"
+      - "scripts/os/context/codex_context_resonance.py"
+      - "scripts/os/context/codex_context_pack.py"
       - "scripts/os/research/codex_chatgpt_research_pack.py"
+      - "agent_context/memory/README.md"
+      - "agent_context/memory/CONTEXT_RESONANCE_INDEX.yaml"
+      - "agent_context/memory/SCHEMA_REGISTRY.yaml"
+      - "agent_context/memory/NEGATIVE_MEMORY_MAP.yaml"
       - "agent_context/policies/AGENTIC_OS_DREAMING.md"
       - "agent_context/policies/AGENTIC_OS_HARDENING.md"
       - "agent_context/policies/CODEX_OPERATING_SYSTEM.md"
+      - "agent_context/policies/ASK_CHATGPT_DELEGATION.md"
+      - "agent_context/policies/TOOLS_AND_DEPENDENCIES.md"
       - "agent_context/local/chatgpt_research/"
       - "agent_context/local/dreams/"
+      - "agent_context/local/context_resonance/"
     evidence:
       - "2026-06-01 Justin asked for a dramatic enhancement of the dream state into a more maintainable, cohesion-focused, biologically inspired thesis-OS subsystem, explicitly authorizing online research and delegated ChatGPT UI research when useful."
       - "2026-06-01 live inspection found the doctor already validates the latest dream artifact, but there is no structured dream-to-doctor heartbeat signal and the register's historical micro-dream claim needs reconciliation against installed automation files."
@@ -448,35 +463,72 @@ workstreams:
       - "2026-06-01 follow-through implementation added a proposal-only maintenance debt ledger and schema-promotion pressure to scripts/os/codex_os_dream.py plus corresponding doctor warnings in scripts/os/codex_os_doctor.py; validation dream validation-dream-chatgpt-maintenance-20260601 and daily doctor both passed, with residual warnings still limited to automation drift count=1 and low cohesion score 49/100."
       - "2026-06-01 Justin approved implementation of the one-thread nightly super-heartbeat plan: one nightly read-only package, separate morning projection, retirement of the stale micro-dream expectation, and fallback direct automation file edits because the automation-management tool was not exposed in this session."
       - "2026-06-01 implementation landed: scripts/os/heartbeat/codex_os_nightly_heartbeat.py now runs dream nightly + validate + doctor daily JSON + stale/radar/artifact/context checks, writes nightly_heartbeat.md plus nightly_heartbeat_signal.json plus morning_appendix.md into the same dream run directory, and the dream/doctor policies now describe the super-heartbeat as the default overnight contract."
+      - "2026-06-02 lane-heartbeat implementation landed: scripts/os/dream/codex_os_dream.py now exposes `lane --lane-id <lane_id>`, writes per-lane `lane_heartbeat.md`/`lane_signal.json`/`lane_digest.md`/`validation_summary.md`, the doctor aggregates the latest signal per expected lane, and the super-heartbeat script is an explicit retired-entrypoint stub."
+      - "2026-06-02 internal evolution cleanup pass added internal_evolution_queue.md/json and sdcc_base_repo_hygiene.md to nightly dream output, wired them into validation and the heartbeat report, removed a generated top-level .DS_Store from the local repo root, and preserved SDCC mutation as approval-gated while allowing read-only hygiene probes and local recommendations."
+      - "2026-06-02 autonomous dream-state upgrade added an explicit four-tier autonomy envelope, changed_actions/deferred/research/validation/morning digest artifacts, and a simulated heartbeat at agent_context/local/dreams/validation-autonomous-dream-evolution-20260602. The run auto-removed one untracked generated .DS_Store inside the ignored dream directory, deferred 14 tracked/research/runtime items, validated cleanly, and performed no SDCC, Condor, science-output, external-app, or repo-tracked analysis mutation."
+      - "2026-06-02 readable dream-digest upgrade added morning_conversation_digest.md to each dream package and heartbeat reference list. Demo run agent_context/local/dreams/overnight-demo-readable-dream-20260602 validated cleanly, doctor daily passed with the known 6 maintenance-debt warnings, and the digest now reports did/learned/tried/changed/deferred/blocked/next-fix sections directly for chat use."
+      - "2026-06-02 continuous-improvement digest upgrade fixed the no-cleanup ambiguity: AGENTIC_OS_DREAMING.md now says no dream may stop at 'nothing to clean', and morning_conversation_digest.md now always reports cleanup review, architecture-improvement hypotheses, and deeper search angles. Demo run agent_context/local/dreams/overnight-demo-always-improve-20260602 validated cleanly and surfaced 4 architecture hypotheses plus 4 next search angles despite zero auto-safe deletions."
+      - "2026-06-02 structural-first dream upgrade added structural_advancements.md/json so recurring pressure is translated into concrete validators, runbooks, indexes, retention rules, or path-contract improvements. Demo run agent_context/local/dreams/overnight-demo-structural-advancement-20260602 validated cleanly and produced 6 structural advancement candidates; scores are now explicitly supporting metadata rather than the product."
+      - "2026-06-02 full dream pass exposed and fixed a weak stale_state mapping: stale workstreams no longer become vague low-priority proposals, but instead map to refresh/archive runbook candidates requiring exact evidence, last_verified, next_check, and stale_after updates. Corrected run agent_context/local/dreams/overnight-dream-full-pass-corrected-20260602 validated cleanly and produced structural_advancements.md with concrete stale-state and status-refresh infrastructure candidates."
       - "2026-06-01 compatibility and command-path fixes landed: the heartbeat uses canonical scripts/os/... helper paths, doctor helper checks and required-file probes now point at canonical context/artifact/research helpers, and scripts/codex_os_nightly_heartbeat.py was added as the top-level hard alias."
-      - "2026-06-01 installed automation update: thesisanalysis-nightly-dream now points at python3 scripts/codex_os_nightly_heartbeat.py nightly with target_thread_id 019e8259-ab46-7462-a8ab-1e521045e60d, and thesisanalysis-os-doctor was paused as a retired separate lane."
+      - "2026-06-02 installed automation update: removed `thesisanalysis-nightly-dream` and `thesisanalysis-os-doctor`; installed seven `03:30` heartbeat automations for `status_provenance`, `architecture_cohesion`, `cleanup_storage`, `path_contract`, `research_scout`, `science_scout`, and `presentation_artifacts`."
+      - "2026-06-02 context resonance upgrade added an eighth lane and resolver: scripts/os/context/codex_context_resonance.py returns compact active facts, latent nudges, negative-memory traps, suppressed context, and retrieval-outcome candidates. scripts/os/dream/codex_os_dream.py now writes context_resonance_review.*, latent_context_nudges.*, negative_memory_candidates.*, and retrieval_outcome_candidates.* for the lane; scripts/os/safety/codex_os_doctor.py expects and validates the eighth lane."
+      - "2026-06-02 context-resonance heartbeat automation installed as `thesisanalysis-dream-lane-context-resonance`, daily 03:30, with no fixed target_thread_id so the nightly run opens a fresh automation chat. Canonical validation run agent_context/local/dreams/20260602T032942Z-lane-context_resonance validated cleanly and produced all required resonance artifacts."
+      - "2026-06-02 context resonance validation passed: resolver smoke tests for plot generation, SDCC transfer/path work, slide scripting, OS maintenance, and active-job status returned capped outputs; PYTHONPYCACHEPREFIX=/private/tmp/codex_pycache py_compile passed for the resolver/dream/doctor; dream validate --latest passed; register and artifact registry validate; doctor daily JSON reports status=ok with 0 warnings; git diff --check passed."
+      - "2026-06-02 waking context-resonance architecture upgrade added tracked neutral registries under agent_context/memory/, refactored scripts/os/context/codex_context_resonance.py into resolve/record-outcome/review/canary subcommands, integrated optional task nudges into scripts/os/context/codex_context_pack.py, and hardened scripts/os/safety/codex_os_doctor.py with registry validation plus resolver canaries. Validation passed: resolver canary, representative route smoke tests, temp-ledger record/review, context-pack task output, py_compile, register validation, artifact registry validation, doctor daily JSON status=ok with 0 findings, context-resonance lane run validation-waking-context-resonance-20260602 validates with synthetic marker."
+      - "2026-06-01 23:13 EDT research-scout leverage upgrade wired the human-tool principle into the live lane contract: scripts/os/dream/codex_os_dream.py now emits first-class ChatGPT-history/tool-orchestration subtasks plus `human_tool_leverage.md`, and AGENTIC_OS_DREAMING.md now states that `research_scout` owns ChatGPT-history review plans and better use of human-accessible AI/tools."
       - "2026-06-01 validation run agent_context/local/dreams/validation-nightly-super-heartbeat-20260601 succeeded and wrote nightly_heartbeat.md, nightly_heartbeat_signal.json, and morning_appendix.md. Follow-up doctor daily consumed the consolidated heartbeat with automation drift count=0; residual warnings are recurring hotspots plus low cohesion and high maintenance debt."
       - "2026-06-01 Computer Use in Chrome delegated ChatGPT research was run in Heavy mode at chatgpt.com/c/6a1dee12-3a88-83ea-a258-11d2fa845ee3 with sanitized prompt pack agent_context/local/chatgpt_research/20260601T203906Z-dream-state-recurrence-learning-and-low-complexi; pack validation passed and synthesis favored recurrence/adaptation cards over broad new subsystems."
       - "2026-06-01 implementation added proposal-only adaptation cards to scripts/os/dream/codex_os_dream.py and scripts/os/heartbeat/codex_os_nightly_heartbeat.py. validation-dream-adaptation-cards-20260601b validated cleanly, validation-nightly-adaptation-cards-20260601 wrote nightly heartbeat artifacts with 6 adaptation cards and status=warn from existing maintenance debt, and doctor daily passed with 6 warnings."
-    last_verified: "2026-06-01T16:49:55-04:00"
-    next_check: "review adaptation_cards.md and reduce recurring hotspot / maintenance debt pressure before any further dream-growth behavior"
-    stale_after: "2026-06-02T20:00:00-04:00"
+      - "2026-06-01T20:20 EDT Stage 9 four-night shadow pilot implemented: scripts/os/dream/codex_os_dream.py now emits evolutionary_maintenance with TFE/MSV/BPI scoring, memory_homeostasis, branch_pressure, controlled_burn shadow state, morning_approval_queue, and approval_packets/SHADOW_README; scripts/os/heartbeat/codex_os_nightly_heartbeat.py carries the state into nightly_heartbeat_signal.json; scripts/os/safety/codex_os_doctor.py warns if approval-ready items appear during the shadow pilot."
+      - "2026-06-01T20:20 EDT validation dream agent_context/local/dreams/validation-stage9-shadow-pilot-20260601 wrote and validated cleanly with Night 1 - Baseline Map, approval_ready_items=0, and controlled_burn_proposals.yaml proposals=[]."
+      - "2026-06-01T20:20 EDT full heartbeat agent_context/local/dreams/validation-nightly-stage9-shadow-pilot-20260601 completed with status=warn, wrote nightly_heartbeat.md/nightly_heartbeat_signal.json/morning_appendix.md, and preserved approval_ready_count=0. Doctor daily passed with 6 warnings: recurring hotspots, schema-promotion candidates, low cohesion 15/100, maintenance debt 85/100, reliability budget 15/100, frozen-growth request."
+      - "2026-06-01T20:35 EDT manual five-pass rehearsal found and fixed two shadow-pilot defects: nightly heartbeat now forwards --now into the dream command, and simulation-* runs are isolated by simulation group for pilot-stage progression while excluded from real recurring-hotspot counts."
+      - "2026-06-01T20:35 EDT final five-pass simulation simulation-stage9-review2-night1-20260601 through simulation-stage9-review2-day5-20260605 progressed Baseline Map -> Candidate Formation -> Shadow Burn Rehearsal -> Calibration And Human Gate -> Post-Pilot Waiting Human Enablement, with approval_ready_count=0 for every pass and no external mutations."
+      - "2026-06-01T20:35 EDT final day-5 simulation agent_context/local/dreams/simulation-stage9-review2-day5-20260605 completed status=warn, doctor ok, helper failures=0, approval-ready allowed=false, and remaining warnings are stale-state/recurring-hotspot/schema-promotion/frozen-growth pressure."
+    last_verified: "2026-06-02T03:50:11+00:00"
+    next_check: "After the next real 03:30 context-resonance heartbeat, verify its lane package is compact, useful, and still doctor-clean."
+    stale_after: "2026-06-04T10:00:00-04:00"
     handoff_summary: >
-      The one-thread nightly super-heartbeat is implemented and validated. The
-      nightly automation now targets scripts/codex_os_nightly_heartbeat.py and
-      the separate doctor automation is paused. The first consolidated run
-      removed false automation drift, but the heartbeat still reports real
-      recurring-hotspot, low-cohesion, and high-maintenance-debt warnings.
-      Next work is judgment, not plumbing: tune ranking and/or pay down debt
-      before any promotion-gate or planning-automation phase.
+      Stage 9 now has a guarded autonomous internal-maintenance envelope and
+      eight lane heartbeats. Each dream heartbeat now opens a fresh
+      automation-generated chat per nightly run instead of binding to one
+      persistent lane thread. The context_resonance lane adds compact retrieval
+      nudges, negative-memory candidates, stale/synthetic suppression, and
+      retrieval-outcome candidates. Other lane heartbeats emit TFE/MSV/BPI
+      scoring, branch-pressure, memory-homeostasis, controlled-burn shadow
+      proposals, internal_evolution_queue.md/json, sdcc_base_repo_hygiene.md,
+      autonomy_envelope.md/json, changed_actions.md/json,
+      deferred_for_justin.md, research_synthesis.md, and lane-local validation
+      artifacts under `agent_context/local/dreams/<timestamp>-lane-<lane_id>/`.
+      The doctor now aggregates the latest `lane_signal.json` file for each
+      expected lane instead of reading one super-heartbeat signal. The dream
+      script may auto-apply only untracked generated-junk cleanup in
+      local/internal paths and records every performed action. Tracked OS
+      changes are packaged for waking validation; SDCC mutation, Condor/job
+      control, scientific output/model movement or deletion, external app
+      mutation, and physics/task status changes remain blocked for waking guard
+      checks.
 
   - workstream_id: codex_ask_chatgpt_delegation
     title: OS Delegation | Ask ChatGPT Research Lane
-    status: done_pending_review
+    status: review
     priority: P0
     goal: >
       Make ChatGPT UI a bounded delegated-research instrument for sanitized
       long-form research, critique, and dream-system improvement without
       treating external model output as approval, evidence, or project memory.
     current_next_action: >
-      Complete for v1. Use the Ask ChatGPT route when Justin explicitly asks or
-      when Codex needs broad external synthesis, but sanitize prompts, save
-      transcripts locally, and verify claims before implementation.
+      Complete for v4. Always stage ChatGPT first prompts into a local text
+      pack, copy clipboard_prompt.txt, paste once, and never stream/type a first
+      prompt into multiple UI fragments. Before UI use, decide fresh vs
+      continue vs fork_with_recap: continue only when the existing thread is
+      still anchored to the same durable artifact/campaign/incident/policy and
+      its context lowers cost without drift; otherwise start fresh or fork with
+      a compact recap. Use Codex-managed collection for instant/thinking
+      submodes; for pro-standard, pro-extended, or deep research, submit one
+      sanitized prompt, record the local pack, stop, and wait for Justin to
+      paste the completed response before synthesis.
     depends_on:
       - workstream:codex_os_dream_system
     active_codex_session: null
@@ -498,18 +550,23 @@ workstreams:
       - "2026-05-27 01:07 EDT used Chrome/Computer Use to ask ChatGPT UI a sanitized dream-system research prompt and a sanitized follow-up; no private repo state, SDCC state, email, or collaborator content was transmitted. Transcript/synthesis/source leads were saved under agent_context/local/chatgpt_research/20260527T045052Z-dream-inspired-self-tuning-agentic-research-oper."
       - "2026-05-27 01:10 EDT upgraded scripts/codex_os_dream.py from the ChatGPT research synthesis: typed evidence classes, scenario portfolio, validator candidates, reflection cards, runbook proposals, quality-control JSON, readiness metrics, and mtime-based latest dream validation. Fresh validation dream written at agent_context/local/dreams/validation-chatgpt-dream-upgrade."
       - "2026-05-27 01:10 EDT validation passed: ChatGPT research pack validates, dream validate --latest passes, CODEX_WORK_REGISTER validates with 18 workstreams, ARTIFACT_REGISTRY validates with 8 artifacts, OS doctor daily and release/self-test pass, py_compile passes with PYTHONPYCACHEPREFIX, and git diff --check passes."
-    last_verified: "2026-05-27T01:10:00-04:00"
-    next_check: "after first ChatGPT UI research run, decide whether the transcript pack and policy need tuning"
-    stale_after: "2026-06-03T10:00:00-04:00"
+      - "2026-06-01T20:20 EDT Stage 9 updated ASK_CHATGPT_DELEGATION.md, TOOLS_AND_DEPENDENCIES.md, CODEX_OPERATING_SYSTEM.md, and scripts/os/research/codex_chatgpt_research_pack.py with response_collection_policy. instant/thinking/heavy are Codex-managed; pro/extended pro/deep research are user_paste_handoff after one sanitized prompt."
+      - "2026-06-01T20:20 EDT local test pack agent_context/local/chatgpt_research/20260602T002039Z-deep-research-policy-handoff-test validated and recorded recommended_mode=pro, escalation_ladder=pro, response_collection_policy=user_paste_handoff."
+      - "2026-06-02T02:52 UTC Justin caught a live UI failure where direct multi-line Computer Use typing fragmented one ChatGPT prompt. ASK_CHATGPT_DELEGATION.md, TOOLS_AND_DEPENDENCIES.md, and codex_chatgpt_research_pack.py now require staged single_message_prompt.txt plus clipboard_prompt.txt paste-once workflow, expanded instant/thinking/pro/deep-research submode routing, mode_recommendation.json, and Pro/Deep Justin paste-back. Validated pack: agent_context/local/chatgpt_research/20260602T024610Z-chatgpt-mode-escalation-policy-for-delegated-sci; py_compile, pack validate, git diff --check, and doctor daily all passed."
+      - "2026-06-02T03:03 UTC read-only Chrome/Computer Use audit sampled ChatGPT history families across BDT pipeline, SingleIndexTheory paper/project threads, Thesis strategic science, slide/deck scripting, Condor/SDCC debugging search results, and Codex-OS/dream research. ASK_CHATGPT_DELEGATION.md now encodes fresh vs continue vs fork_with_recap thread strategy, continuation capsule format, prompt archetypes, and stricter SDCC/Condor current-evidence capsules. Private aggregate audit: agent_context/local/chatgpt_history_audits/20260602T000000Z-prompting-coherence/prompting_coherence_audit.md."
+    last_verified: "2026-06-02T03:03:03+00:00"
+    next_check: "after the next real ChatGPT delegation, verify thread_strategy.md was filled before UI use and that fresh/continue/fork_with_recap choice matched the actual context; after the next Pro/Deep job, verify Justin paste-back workflow and transcript synthesis are smooth"
+    stale_after: "2026-06-08T10:00:00-04:00"
     handoff_summary: >
-      ChatGPT UI is now a delegated research/critique lane. It may be used
-      without another permission loop for sanitized prompts, including dream
-      science and agentic OS design research, but it cannot transmit sensitive
-      state, upload files, spend credits, change accounts, or mutate external
-      systems without action-time approval. Treat output as leads until
-      verified and store transcripts under agent_context/local/chatgpt_research/.
-      The dream engine now emits typed evidence, reflection cards, quality
-      gates, runbook proposals, and readiness metrics for new dream runs.
+      ChatGPT UI is a delegated research/critique lane. It may be used for
+      sanitized prompts, but it cannot transmit sensitive state, upload files,
+      spend credits, change accounts, or mutate external systems without
+      action-time approval. Treat output as leads until verified. Codex must
+      create a local text research pack and paste clipboard_prompt.txt once into
+      a fresh ChatGPT chat. Codex may collect instant/thinking-submode
+      responses; pro-standard, pro-extended, and deep research jobs are
+      submitted once and handed back to Justin for paste-back into Codex before
+      synthesis.
 
   - workstream_id: repo_scripts_macros_organization
     title: OS Hygiene | Organize scripts/macros into agent-friendly folders
@@ -662,13 +719,23 @@ workstreams:
     current_next_action: >
       C4 title slide is generated locally and pending Justin
       approval/insertion: hp2026_title_C4_final_institutional_photon_polish.png.
-      Next review target is the local 2560x1440 Slide 2 sPHENIX/hard-probes
-      opener hp2026_slide02_sphenix_hard_probes_photon_baseline.png, built as
-      the first content slide after title. The earlier photon-only motivation
-      candidate remains a comparison option. Do not mutate Google Slides before
-      Justin approves a PNG.
+      Opening-sequence review target is now the standalone local PNG pair:
+      Slide 2 hp2026_slide02_sphenix_experiment_for_photons.png introduces
+      sPHENIX and the photon-relevant detector systems; Slide 3
+      hp2026_slide03_pp_dataset_context.png introduces broad p+p availability,
+      separately calls out the PPG12 Run 24 analysis luminosity, and keeps
+      Au+Au/O+O as muted future-program context. The earlier two-frame
+      click-through Slide 2 build remains available only as an optional
+      alternate, not the recommended insertion path. Full-talk review target is
+      the local Slides
+      4-11 PNG batch under
+      outputs/manual-20260601-hp2026-fulltalk/presentations/hp2026-fulltalk/output.
+      It uses paper-first PPG12 plots cropped from
+      usefulDocs/sPHENIX_PPG12_Paper_2026-05-21_current_draft.pdf, IAN only
+      for method/story wording, and no internal ROOT/data-generated physics
+      plots. Do not mutate Google Slides before Justin approves the PNGs.
     depends_on: []
-    active_codex_session: "hard probes slide generator chat: Slide 2 opening motivation candidate 2026-06-01"
+    active_codex_session: "hard probes slide generator chat: full-talk PNG batch 2026-06-01"
     chat_label_or_thread: "hard probes slide generator chat"
     campaign_id: "hp2026_photon_talk"
     linear_issue: "https://linear.app/thesisanalysis/issue/THE-5/p0-campaign-or-hp2026-photon-talk"
@@ -714,7 +781,37 @@ workstreams:
       - "outputs/manual-20260601-hp2026-title/presentations/hp2026-title-slide/output/manifest.json"
       - "outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_slide02_why_isolated_prompt_photons.png"
       - "outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_slide02_sphenix_hard_probes_photon_baseline.png"
+      - "outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_slide02_sphenix_real_detector_opener.png"
+      - "outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_slide02_sphenix_real_detector_opener_script.md"
+      - "outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_slide02_detector_data_context.png"
+      - "outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_slide02_detector_data_context_script.md"
+      - "outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_slide03_isolated_photon_motivation.png"
+      - "outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_slide03_isolated_photon_motivation_script.md"
+      - "outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_slide02A_detector_subsystems_context.png"
+      - "outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_slide02B_detector_data_context_build.png"
+      - "outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_slide02_progressive_build_contact_sheet.png"
+      - "outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_slide02_progressive_build_script.md"
+      - "outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_slide02_progressive_build_manifest.json"
+      - "outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_slide02_sphenix_experiment_for_photons.png"
+      - "outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_slide02_sphenix_experiment_for_photons_script.md"
+      - "outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_slide03_pp_dataset_context.png"
+      - "outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_slide03_pp_dataset_context_script.md"
+      - "outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_experiment_dataset_standalone_contact_sheet.png"
+      - "outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_experiment_dataset_standalone_manifest.json"
+      - "outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/assets/bnl_sphenix_banner_detector.jpg"
+      - "outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/assets/bnl_sphenix_detector_rendering.jpg"
       - "outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/manifest.json"
+      - "outputs/manual-20260601-hp2026-fulltalk/presentations/hp2026-fulltalk/output/hp2026_slide04_emcal_clusters_to_prompt_candidates.png"
+      - "outputs/manual-20260601-hp2026-fulltalk/presentations/hp2026-fulltalk/output/hp2026_slide05_bdt_photon_id_quantitative_cut.png"
+      - "outputs/manual-20260601-hp2026-fulltalk/presentations/hp2026-fulltalk/output/hp2026_slide06_isolation_physics_clean.png"
+      - "outputs/manual-20260601-hp2026-fulltalk/presentations/hp2026-fulltalk/output/hp2026_slide07_data_driven_purity_abcd.png"
+      - "outputs/manual-20260601-hp2026-fulltalk/presentations/hp2026-fulltalk/output/hp2026_slide08_corrections_purity_efficiency_unfolding.png"
+      - "outputs/manual-20260601-hp2026-fulltalk/presentations/hp2026-fulltalk/output/hp2026_slide09_systematics_controlled_chain.png"
+      - "outputs/manual-20260601-hp2026-fulltalk/presentations/hp2026-fulltalk/output/hp2026_slide10_main_cross_section_result.png"
+      - "outputs/manual-20260601-hp2026-fulltalk/presentations/hp2026-fulltalk/output/hp2026_slide11_sphenix_hard_probes_baseline.png"
+      - "outputs/manual-20260601-hp2026-fulltalk/presentations/hp2026-fulltalk/output/manifest.json"
+      - "outputs/manual-20260601-hp2026-fulltalk/presentations/hp2026-fulltalk/output/speaker_scripts"
+      - "scripts/slides/hp2026/fulltalk/make_hp2026_fulltalk_candidates.py"
       - "scripts/slides/hp2026/title/make_hp2026_title_slide_candidates.py"
       - "scripts/slides/hp2026/make_photon_detector_motif_variants.py"
       - "scripts/slides/hp2026/opening/make_hp2026_opening_motivation_slide.py"
@@ -760,8 +857,27 @@ workstreams:
       - "2026-06-01T17:20:58-04:00 projected the title-generated / Slide-2-next status to Linear THE-5 in comment f0f2bcd3-7aa1-4f22-8fb3-d80327bc03ac."
       - "2026-06-01T17:22:19-04:00 updated the 2026-06-01 Today's Plan THE-5 top Next bullet to: title slide generated locally; review/refine Slide 2 opening motivation candidate before any Google Slides mutation. Connector readback confirmed the edit in document 1KCNVzCn7XTTVTXorEpMiBUgUGPOCdjlislfDudUhipk."
       - "2026-06-01T17:37:15-04:00 generated a stronger local 2560x1440 Slide 2 opener hp2026_slide02_sphenix_hard_probes_photon_baseline.png after Justin questioned whether the first content slide should introduce sPHENIX/hard-probes context before the photon object. The new candidate uses a conceptual sPHENIX/RHIC detector schematic, official cached blue sPHENIX logo, and three program-to-photon claims. Py-compile, 2560x1440 RGB readback, manifest readback, and visual QA passed. No Google Slides mutation."
-    last_verified: "2026-06-01T17:37:15-04:00"
-    next_check: "after Justin reviews hp2026_slide02_sphenix_hard_probes_photon_baseline.png, refine the context-first opening candidate; once approved, place or rebuild the approved title and Slide 2 in HPslides_v1; by Tuesday 2026-06-02 continue Anne/Anthony draft assembly"
+      - "2026-06-01T20:06:20-04:00 regenerated Slide 2 as hp2026_slide02_sphenix_real_detector_opener.png using the official BNL RHIC sPHENIX detector photo asset bnl_sphenix_banner_detector.jpg, with a restrained detector-region photon overlay, three story cards, and companion speaker script hp2026_slide02_sphenix_real_detector_opener_script.md. Py-compile, 2560x1440 RGB readback, manifest/source readback, and visual QA passed. No Google Slides mutation."
+      - "2026-06-01T20:30:54-04:00 replaced the single all-in-one opener with a local two-slide opening sequence: hp2026_slide02_detector_data_context.png for sPHENIX detector plus p+p data context and hp2026_slide03_isolated_photon_motivation.png for isolated prompt-photon motivation. The p+p values were verified by text extraction from usefulDocs/20260506_DIS_YeonjuGo.pdf and usefulDocs/sPHENIX_AUM2026_jet_and_photon_measurement.pdf: 2024 p+p 107/pb calorimeter-only and 13/pb all subsystem; 2026 p+p 17/pb all subsystem. Py-compile, 2560x1440 RGB readback, manifest/script readback, and visual QA passed. No Google Slides mutation."
+      - "2026-06-01T20:32:33-04:00 projected the two-slide opening sequence status to Linear THE-5 in comment d5c3e872-f025-4247-a915-74f0f1823b79."
+      - "2026-06-01T21:08:46-04:00 generated the local paper-first Slides 4-11 full-talk PNG batch using current PPG12 paper draft figures 1-9 for the main physics/result plots and IAN only for method/story wording. No internal ROOT/data-generated physics plots were used. Py-compile, 2560x1440 RGB readback for all eight PNGs, json.tool manifest readback, persistent contact-sheet visual QA, and full-size visual QA on key slides passed after a Slide 11 closing-diagram clipping fix. No Google Slides mutation."
+      - "2026-06-01T21:07:08-04:00 projected the Slides 4-11 full-talk PNG batch status to Linear THE-5 in comment 618534c4-bba0-4f53-b82d-ad33c4fdc22f."
+      - "2026-06-01T21:34:18-04:00 generated the Slide 2 two-frame progressive detector/data build: hp2026_slide02A_detector_subsystems_context.png and hp2026_slide02B_detector_data_context_build.png, plus contact sheet, speaker script, and manifest. Reverified Yeonju/Hanpu data-taking numbers and PPG12 paper/IAN luminosity before render. Py-compile, 2560x1440 RGB readback, json.tool manifest readback, contact-sheet visual QA, and full-size visual QA passed after tightening the Frame 2B data panel. No Google Slides mutation."
+      - "2026-06-01T21:35:37-04:00 projected the Slide 2 progressive detector/data build status to Linear THE-5 in comment 5601769e-a5f8-4b22-acf7-0d0ffc9a2f21."
+      - "2026-06-01T21:37:53-04:00 rerendered the same Slide 2 two-frame build after removing the in-slide BNL source/caption text; final contact-sheet QA and Pillow/manifest readback reconfirm no slide number or provenance footer is baked into either PNG. No Google Slides mutation."
+      - "2026-06-01T21:53:51-04:00 tightened the slide policy so standalone full-slide PNGs are the recommended default and progressive builds are only user-requested or optional alternates; generated the recommended standalone experiment/data pair hp2026_slide02_sphenix_experiment_for_photons.png and hp2026_slide03_pp_dataset_context.png plus contact sheet, scripts, and manifest. Rechecked Yeonju/Hanpu data-taking values and PPG12 paper/IAN luminosity before render. Py-compile, 2560x1440 RGB readback, manifest readback, contact-sheet QA, and full-size visual QA passed after tightening the dataset narrative card. No Google Slides mutation."
+      - "2026-06-01T21:55:53-04:00 projected the standalone-opening correction to Linear THE-5 in comment 78ab4821-f2a1-4c33-bf3b-48aade795122."
+      - "2026-06-01T22:06:29-04:00 enhanced hp2026_slide02_sphenix_experiment_for_photons.png into a detector-centered sPHENIX experiment-introduction slide: removed the old RHS 'What sPHENIX gives this analysis' panel and bottom Next band, expanded subsystem names/acronyms for EMCal, HCal, MBD, MVTX/INTT/TPC, and surrounded the central official detector rendering with audience-facing subsystem cards. Py-compile, 2560x1440 RGB readback, manifest readback, contact-sheet QA, and full-size visual QA passed. No Google Slides mutation."
+      - "2026-06-01T22:08:06-04:00 projected the enhanced detector-centered Slide 2 status to Linear THE-5 in comment afb43865-acee-445f-ba8c-7d9292eba393."
+      - "2026-06-01T22:43:08-04:00 tightened SLIDES_WORKFLOW so generated full-slide PNG candidates must be audience-facing only, with internal presenter framing kept in companion scripts/manifests/chat; future slide-generation handoffs must link both the PNG and script. Rerendered hp2026_slide02_sphenix_experiment_for_photons.png after removing the internal 'Read this slide as...' canvas note, expanded the detector image into the freed space, and cleaned similar presenter scaffolding from the paired dataset slide. Visual QA, 2560x1440 RGB readback, and no-Google-Slides-mutation checks passed."
+      - "2026-06-01T22:44:22-04:00 projected the Slide 2 audience-facing policy/artifact cleanup to Linear THE-5 in comment 12685773-e101-4e1c-86d0-f07b5ac83243."
+      - "2026-06-01T23:25:55-04:00 read Justin's Prelim Narrative & comments Google Doc 1uzYK-8p-mCeHjtqjT0hewC20lXgzgfeu77Xsb2gZAQ8 and linked prelim sPHENIX Subsystems slide g3920ab4f8cb_4_310 via Google Drive connector. Updated SLIDES_WORKFLOW with a Speaker Script Contract using that prelim narrative as the voice/format exemplar, then regenerated hp2026_slide02_sphenix_experiment_for_photons_script.md and hp2026_slide03_pp_dataset_context_script.md as spoken first-person scripts rather than generic notes. No Google Slides or Google Docs mutation."
+      - "2026-06-01T23:27:25-04:00 projected the HP script-style policy and Slide 2/3 script rewrite to Linear THE-5 in comment fb999acb-3c09-40c7-b5e4-0a1441e02d8b."
+      - "2026-06-01T23:35:03-04:00 tightened SLIDES_WORKFLOW so final slide canvases must render intended superscripts/subscripts visually rather than with caret notation. Patched make_hp2026_opening_motivation_slide.py with a rich-text renderer for raised exponents, rerendered hp2026_slide03_pp_dataset_context.png so pb^-1/nb^-1 appear as true superscripted -1 on the PNG, and rewrote the Slide 3 script units as spoken 'inverse picobarns'. Visual QA and 2560x1440 RGB readback passed. No Google Slides mutation."
+      - "2026-06-01T23:36:35-04:00 projected the Slide 3 superscript rendering and slide-policy update to Linear THE-5 in comment 6489952e-6942-4a6c-a614-9a79c72bde6e."
+      - "2026-06-01T23:46:37-04:00 rerendered hp2026_slide02_sphenix_experiment_for_photons.png after cross-checking the Yeonju DIS2026 detector-overview slide: tracking now includes MVTX/INTT/TPC/TPOT and points to the inner tracking/beamline volume, EMCal/HCal/magnet leaders point to visible barrel regions, MBD points only to the forward beam-axis vicinity, and the barrel-coverage card has no leader. Py-compile, 2560x1440 RGB readback, manifest/script readback, contact-sheet QA, and full-size visual QA passed. No Google Slides mutation."
+    last_verified: "2026-06-01T23:46:37-04:00"
+    next_check: "after Justin reviews the C4 title, the standalone Slide 2 experiment context, standalone Slide 3 dataset context, isolated-photon motivation slide, and the paper-first Slides 4-11 full-talk PNG batch plus scripts, refine the local full-deck story; once approved, place or rebuild the approved images in HPslides_v1 for the Tuesday 2026-06-02 Anne/Anthony draft"
     stale_after: "2026-06-02T10:00:00-04:00"
     handoff_summary: >
       Governing deadline driver is HPslides_v1 and the Tuesday 2026-06-02 draft to Anne
@@ -779,9 +895,27 @@ workstreams:
       current IAN/paper. The first title-slide PNG eye-exam batch now exists
       locally under outputs/manual-20260601-hp2026-title/presentations/hp2026-title-slide/output;
       current title-slide review target is hp2026_title_C4_final_institutional_photon_polish.png.
-      Slide 2 now has a local opening/motivation candidate at
-      outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_slide02_why_isolated_prompt_photons.png;
-      next step is Justin review/refinement before any Google Slides mutation.
+      The recommended opening sequence now uses normal consecutive local
+      2560x1440 PNG slides, not a progressive build:
+      outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_slide02_sphenix_experiment_for_photons.png
+      introduces the experiment with the detector centered and subsystem
+      acronyms expanded for the audience; its callout leaders were corrected
+      against the Yeonju DIS2026 detector overview so MBD is treated as a
+      forward beam-axis vicinity and barrel coverage has no fake component
+      arrow, then
+      outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_slide03_pp_dataset_context.png
+      introduces broad p+p availability, separates the PPG12 Run 24 analysis
+      luminosity, and keeps heavy-ion running as muted future-program context.
+      The earlier progressive two-frame Slide 2 pair remains only an optional
+      alternate if Justin explicitly wants a click-through build. The isolated
+      prompt-photon motivation slide should move after the dataset slide in the
+      review sequence. Slides 4-11 now have a paper-first local PNG review
+      batch under
+      outputs/manual-20260601-hp2026-fulltalk/presentations/hp2026-fulltalk/output,
+      with the main physics figures cropped from the current PPG12 paper draft
+      and companion speaker scripts/manifest in the same folder. Next step is
+      Justin review/refinement of the full local sequence before any Google
+      Slides mutation.
       After the Tuesday draft iteration, decide whether missing pieces require
       new plots and approval.
 

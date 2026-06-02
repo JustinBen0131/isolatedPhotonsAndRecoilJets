@@ -11,6 +11,10 @@ always_hot_state:
 
 conditional_hot_state:
   memory_design:
+    - agent_context/memory/README.md
+    - agent_context/memory/CONTEXT_RESONANCE_INDEX.yaml
+    - agent_context/memory/SCHEMA_REGISTRY.yaml
+    - agent_context/memory/NEGATIVE_MEMORY_MAP.yaml
     - agent_context/policies/AGENT_MEMORY_DESIGN_NOTES.md
     - agent_context/policies/LEGACY_AGENTS_COVERAGE.md
   dataset_validity:
@@ -77,6 +81,9 @@ routes:
       - doctor checks
       - thesis narrative map
       - durable context
+      - context resonance
+      - memory salience
+      - retrieval quality
       - failure to policy
       - postmortem
       - 10/10
@@ -92,9 +99,10 @@ routes:
       - Run scripts/codex_os_doctor.py before claiming the OS state is healthy.
       - Use scripts/codex_os_guard.py and scripts/codex_os_snapshot.py before
         risky mutations.
-      - Use scripts/os/context/codex_context_pack.py, scripts/os/context/codex_thesis_radar.py, and
-        scripts/os/artifacts/codex_artifact_registry.py for boot context, thesis mapping,
-        and artifact provenance.
+      - Use scripts/os/context/codex_context_pack.py, scripts/os/context/codex_thesis_radar.py,
+        scripts/os/context/codex_context_resonance.py, and
+        scripts/os/artifacts/codex_artifact_registry.py for boot context,
+        thesis mapping, retrieval salience, and artifact provenance.
       - Create focused follow-up workstreams for enhancements instead of
         reopening the completed OS baseline.
 
@@ -106,8 +114,11 @@ routes:
       - synthetic Justin
       - synthetic rehearsal
       - morning report
-      - micro dream
       - nightly dream
+      - lane heartbeat
+      - context resonance
+      - latent context
+      - negative memory
       - self-play
       - dream automation
     load:
@@ -118,9 +129,11 @@ routes:
     first_actions:
       - Treat synthetic Justin as a test fixture, never user approval.
       - Keep dream writes confined to agent_context/local/dreams/.
-      - Run scripts/codex_os_nightly_heartbeat.py nightly for the default
-        overnight pass; use scripts/codex_os_dream.py nightly only when
-        debugging the dream layer directly.
+      - Run scripts/codex_os_dream.py lane --lane-id <lane_id> for the
+        relevant overnight dream lane.
+      - Use scripts/os/context/codex_context_resonance.py resolve --task "<task>" --json
+        when the request is about compact retrieval, stale-context suppression,
+        or context-resonance evaluation.
       - Do not mutate SDCC, Gmail, Google Drive/Slides, Linear, or real
         repo-tracked state from a dream.
       - Promote dream proposals only in a waking task-capture or OS-update

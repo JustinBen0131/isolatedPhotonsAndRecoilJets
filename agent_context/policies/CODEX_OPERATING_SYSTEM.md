@@ -19,16 +19,43 @@ For synthetic dream rehearsal, also load
 `agent_context/policies/AGENTIC_OS_DREAMING.md`. Dream outputs are private
 proposal artifacts under `agent_context/local/dreams/`; they are not user
 approval and must not be promoted silently into real task state.
-The canonical overnight coordinator is
-`python3 scripts/codex_os_nightly_heartbeat.py nightly`, which fuses the
-nightly dream, dream validation, doctor checks, and read-only morning appendix
-into one package. Morning-priorities automation is a downstream waking
+The canonical overnight coordinators are the eight lane commands
+`python3 scripts/codex_os_dream.py lane --lane-id <lane_id>`, one for each
+dream lane at `03:30`. Morning-priorities automation is a downstream waking
 projection step, not part of the overnight mutation boundary.
+For compact retrieval guidance before a task, use:
+
+```bash
+python3 scripts/os/context/codex_context_resonance.py resolve --task "<task>" --json
+```
+
+It returns a small set of `conscious_context` / compatibility `active_facts`,
+latent nudges, negative-memory traps, suppressed context, and evidence checks.
+It is a waking router, not proof; load and verify the cited files before
+making factual claims. Tracked cue records live under `agent_context/memory/`;
+dynamic retrieval feedback stays private under
+`agent_context/local/context_resonance/`.
+The Stage 9 evolutionary-maintenance layer is now a guarded internal
+self-maintenance loop. Dream mode may automatically perform `auto_safe`
+untracked generated-junk cleanup and refresh ignored local dream/research
+artifacts, and it must record those actions in `changed_actions.md/json`.
+`internal_evolution_queue.md` / `internal_evolution_queue.json` are the
+control surface for `auto_validated` tracked OS/policy/runbook/index work:
+waking Codex may apply those small internal improvements automatically when
+the change is local-only, evidence-preserving, reversible, does not alter
+science status or external systems, has exact validation commands, and passes
+the doctor. SDCC edits/cleanup, Condor/job control, scientific output/model
+movement or deletion, Google Drive/Slides/Gmail/Linear mutation, and task
+closure or physics-status changes remain waking guarded actions.
 
 For delegated ChatGPT UI research, also load
 `agent_context/policies/ASK_CHATGPT_DELEGATION.md`. ChatGPT output is external
 research/critique, not evidence or approval, and transcripts stay private under
 `agent_context/local/chatgpt_research/`.
+For `instant`, `thinking`, and `heavy`, Codex may collect and synthesize the
+response. For `pro`, `extended pro`, or `deep research`, Codex submits one
+sanitized prompt and stops; Justin pastes the completed response back before
+Codex verifies or integrates it.
 
 For thesis-facing artifact provenance, use
 `agent_context/ARTIFACT_REGISTRY.yaml`. For risky mutations, use the safety
