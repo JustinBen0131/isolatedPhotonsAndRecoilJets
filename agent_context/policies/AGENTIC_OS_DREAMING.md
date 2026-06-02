@@ -87,9 +87,10 @@ writing its own local dream run directory. Current lanes are:
   cleanup candidate lists, and recorded SDCC/storage clutter signals;
 - `path_contract`: local/SDCC/SFTP/TG bulk canonical-vs-legacy path drift;
 - `research_scout`: sanitized ChatGPT-first external research and critique,
-  ChatGPT-history review plans when useful, and nightly proposals for better
-  use of human-accessible AI/tools rather than reinventing equivalent
-  machinery;
+  ChatGPT-history review plans when useful, the explicit dual-Pro
+  physics-plus-OS research pack/heartbeat plan when Justin asks for it, and
+  nightly proposals for better use of human-accessible AI/tools rather than
+  reinventing equivalent machinery;
 - `science_scout`: hypothesis/null-test/systematic sketches from existing
   provenance-backed surfaces only;
 - `presentation_artifacts`: slide/figure implications only when the active
@@ -153,6 +154,20 @@ homeostasis remains local proposal-only. The lane writes
 auto-safe local maintenance candidate. Tracked memory registries, task state,
 science artifacts, SDCC, Condor, and external systems remain forbidden
 overnight mutation targets.
+
+The explicit dual-Pro research lane is a Codex/Computer-Use automation plan,
+not a shell-dream UI action. The dream may emit
+`dual_pro_research_plan.md/json` and local research-pack commands, but the
+non-interactive dream script must not browse authenticated ChatGPT by itself.
+When Justin has explicitly requested the lane, a Codex automation may submit
+the staged physics prompt and then the separate staged OS prompt in
+`pro_extended` mode, keep one temporary local heartbeat until both responses
+are copied into `agent_context/local/chatgpt_research/`, and write a daily
+report note. The physics response may become memory/report material only after
+local verification. The OS response may drive at most one reversible OS-only
+patch after local verification, rollback notes, and doctor validation; it must
+not change science functionality, task status, SDCC, Condor, Drive/Slides,
+Gmail, Linear, secrets, or external systems.
 
 ## Evolutionary Maintenance Architecture
 

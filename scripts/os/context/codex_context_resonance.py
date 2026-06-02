@@ -108,6 +108,30 @@ FEEDBACK_OLD_DAYS = 180
 CROSS_ROUTE_FEEDBACK_WEIGHT = 0.25
 WEAK_EVIDENCE_POSITIVE_MULTIPLIER = 0.5
 WEAK_EVIDENCE_NEGATIVE_MULTIPLIER = 0.2
+OS_PATCH_ELIGIBILITY_TARGET_ALLOWLIST = {
+    "agent_context/memory/README.md",
+    "agent_context/policies/AGENTIC_OS_HARDENING.md",
+    "agent_context/policies/CODEX_OPERATING_SYSTEM.md",
+    "agent_context/policies/MEMORY_AND_STATUS.md",
+    "scripts/os/context/codex_context_resonance.py",
+    "scripts/os/safety/codex_os_doctor.py",
+}
+OS_PATCH_STRONG_HOMEOSTASIS_ACTIONS = {
+    "keep_hot",
+    "promote",
+    "cool",
+    "quarantine_candidate",
+    "suppress_candidate",
+}
+OS_PATCH_REQUIRED_VALIDATION_COMMANDS = [
+    "python3 scripts/os/context/codex_context_resonance.py canary --json",
+    "python3 scripts/os/context/codex_context_resonance.py review --json",
+    "python3 scripts/os/context/codex_context_resonance.py feedback-health --json",
+    'python3 scripts/os/context/codex_context_resonance.py resolve --task "OS memory architecture and context resonance upgrade" --json',
+    "python3 scripts/codex_os_doctor.py --profile daily",
+    "python3 scripts/codex_work_register_validate.py agent_context/CODEX_WORK_REGISTER.yaml",
+    "git diff --check",
+]
 PRIVATE_TEXT_PATTERNS = (
     "password",
     "passwd",
@@ -672,6 +696,15 @@ def feedback_loop_health_payload(
         status = "failed"
     elif risks:
         status = "warning"
+    evolution = build_os_patch_eligibility_surfaces(
+        ledger_health=ledger,
+        outcomes=rows,
+        homeostasis=homeostasis,
+        scoring_integrity=scoring_integrity,
+        feedback_loop_status=status,
+        canary_status=str(canary.get("status") or "unknown"),
+        canary_failures=canary.get("failures") or [],
+    )
     return {
         "lane_id": "context_resonance",
         "run_id": run_id,
@@ -684,6 +717,10 @@ def feedback_loop_health_payload(
             "top_actions": homeostasis[:5],
             "tracked_registry_mutation": False,
         },
+        "self_evolution_readiness": evolution["self_evolution_readiness"],
+        "os_patch_eligibility_summary": evolution["os_patch_eligibility_summary"],
+        "waking_auto_validated_candidates": evolution["waking_auto_validated_candidates"],
+        "review_candidate_suggestions": evolution["review_candidate_suggestions"],
         "risks": risks,
         "auto_applied": {
             "action": "health_index_refresh",
@@ -712,6 +749,8 @@ def render_feedback_loop_health_markdown(payload: dict[str, Any]) -> str:
     ledger = payload.get("ledger") if isinstance(payload.get("ledger"), dict) else {}
     scoring = payload.get("scoring_integrity") if isinstance(payload.get("scoring_integrity"), dict) else {}
     homeostasis = payload.get("homeostasis") if isinstance(payload.get("homeostasis"), dict) else {}
+    readiness = payload.get("self_evolution_readiness") if isinstance(payload.get("self_evolution_readiness"), dict) else {}
+    suggestions = payload.get("review_candidate_suggestions") if isinstance(payload.get("review_candidate_suggestions"), list) else []
     lines = ["# Context Resonance Feedback Loop Health", "", WAKING_HEADER, ""]
     lines.append(f"- status: `{payload.get('feedback_loop_status')}`")
     lines.append(f"- ledger: `{ledger.get('path')}`")
@@ -728,6 +767,8 @@ def render_feedback_loop_health_markdown(payload: dict[str, Any]) -> str:
         f"route_policy_boundary={scoring.get('route_policy_boundary_verified')}"
     )
     lines.append(f"- homeostasis proposals: {homeostasis.get('proposal_count', 0)}")
+    lines.append(f"- OS patch eligibility: `{readiness.get('status', 'unknown')}`")
+    lines.append(f"- review suggestions: {len(suggestions)} (auto_apply=false)")
     lines.append("- tracked registry mutation: false")
     lines.append("")
     lines.append("## Risks")
@@ -1534,6 +1575,237 @@ def build_homeostasis_proposals(
     return rows
 
 
+def evidence_ref_is_proposal_only(ref: str) -> bool:
+    normalized = ref.strip()
+    return normalized.startswith(("agent_context/local/dreams/", "agent_context/local/chatgpt_research/")) or (
+        "chatgpt.com/c/" in normalized
+    )
+
+
+def os_patch_target_for_proposal(action: str, memory_id: str) -> tuple[str, str, str]:
+    if action in {"cool", "quarantine_candidate", "suppress_candidate"}:
+        return (
+            "scripts/os/context/codex_context_resonance.py",
+            "feedback_guard_or_canary_refinement",
+            "one tiny resolver/canary guard that preserves caps, trainability, and route boundaries",
+        )
+    if "synthetic" in memory_id or "evidence" in memory_id:
+        return (
+            "agent_context/policies/AGENTIC_OS_HARDENING.md",
+            "os_boundary_rule_clarification",
+            "one short OS-boundary clarification; no dream-lane behavior change",
+        )
+    return (
+        "agent_context/memory/README.md",
+        "routing_runbook_note",
+        "one tiny OS memory runbook note; no tracked memory YAML auto-mutation",
+    )
+
+
+def proposal_support_refs(
+    proposal: dict[str, Any],
+    outcomes: list[dict[str, Any]],
+) -> dict[str, Any]:
+    memory_id = first_line(proposal.get("memory_id"))
+    support = proposal.get("support_summary") if isinstance(proposal.get("support_summary"), dict) else {}
+    relevant_results = set(str(item) for item in support.get("relevant_results") or [])
+    strong_refs: list[str] = []
+    weak_refs: list[str] = []
+    proposal_only_refs: list[str] = []
+    synthetic_rows = 0
+    for item in outcomes:
+        if first_line(item.get("memory_id")) != memory_id:
+            continue
+        if relevant_results and str(item.get("result") or "") not in relevant_results:
+            continue
+        ref = evidence_ref_for(item)
+        if str(item.get("evidence_class") or "") == "synthetic":
+            synthetic_rows += 1
+            continue
+        if ref and evidence_ref_is_proposal_only(ref):
+            proposal_only_refs.append(ref)
+            continue
+        quality = str(item.get("evidence_quality") or evidence_quality_for(item))
+        if quality == "strong" and ref:
+            strong_refs.append(ref)
+        elif ref:
+            weak_refs.append(ref)
+    return {
+        "strong_evidence_refs": sorted(set(strong_refs))[:6],
+        "weak_evidence_refs": sorted(set(weak_refs))[:6],
+        "proposal_only_refs": sorted(set(proposal_only_refs))[:6],
+        "synthetic_rows_excluded": synthetic_rows,
+        "strong_evidence_ref_count": len(set(strong_refs)),
+        "proposal_only_ref_count": len(set(proposal_only_refs)),
+    }
+
+
+def os_patch_gate_failures(
+    *,
+    ledger_health: dict[str, Any],
+    scoring_integrity: dict[str, Any],
+    feedback_loop_status: str,
+    canary_status: str,
+) -> list[str]:
+    failures: list[str] = []
+    if feedback_loop_status not in {"healthy", "review_only"}:
+        failures.append(f"feedback_loop_status={feedback_loop_status}")
+    if int(ledger_health.get("audit_warning_count", 0) or 0):
+        failures.append("ledger_audit_warnings_present")
+    if int(ledger_health.get("accepted_rows", 0) or 0) < 3:
+        failures.append("insufficient_accepted_outcomes")
+    if canary_status not in {"pass", "not_run_by_review"}:
+        failures.append(f"canary_status={canary_status}")
+    required_integrity = (
+        "caps_verified",
+        "missed_review_only_verified",
+        "synthetic_exclusion_verified",
+        "route_policy_boundary_verified",
+        "feedback_metadata_visible",
+    )
+    for key in required_integrity:
+        if scoring_integrity.get(key) is not True:
+            failures.append(f"{key}=false")
+    return failures
+
+
+def build_os_patch_eligibility_surfaces(
+    *,
+    ledger_health: dict[str, Any],
+    outcomes: list[dict[str, Any]],
+    homeostasis: list[dict[str, Any]],
+    scoring_integrity: dict[str, Any],
+    feedback_loop_status: str,
+    canary_status: str,
+    canary_failures: list[str] | None = None,
+) -> dict[str, Any]:
+    gate_failures = os_patch_gate_failures(
+        ledger_health=ledger_health,
+        scoring_integrity=scoring_integrity,
+        feedback_loop_status=feedback_loop_status,
+        canary_status=canary_status,
+    )
+    candidates: list[dict[str, Any]] = []
+    for proposal in homeostasis:
+        action = first_line(proposal.get("action"))
+        memory_id = first_line(proposal.get("memory_id"))
+        if action not in OS_PATCH_STRONG_HOMEOSTASIS_ACTIONS or not memory_id:
+            continue
+        target_path, change_type, target_scope = os_patch_target_for_proposal(action, memory_id)
+        support = proposal.get("support_summary") if isinstance(proposal.get("support_summary"), dict) else {}
+        support_refs = proposal_support_refs(proposal, outcomes)
+        support_failures: list[str] = []
+        if int(support.get("criteria_met_count", 0) or 0) < 2:
+            support_failures.append("distinct_support_threshold_not_met")
+        if int(support_refs.get("strong_evidence_ref_count", 0) or 0) < 1:
+            support_failures.append("no_strong_nonproposal_evidence_ref")
+        if int(support_refs.get("proposal_only_ref_count", 0) or 0):
+            support_failures.append("proposal_only_refs_excluded")
+        if int(support_refs.get("synthetic_rows_excluded", 0) or 0):
+            support_failures.append("synthetic_rows_excluded")
+        if target_path not in OS_PATCH_ELIGIBILITY_TARGET_ALLOWLIST:
+            support_failures.append("target_not_allowlisted")
+
+        if canary_status == "not_run_by_review":
+            status = "needs_feedback_health_validation"
+        elif gate_failures or support_failures:
+            status = "blocked_by_gate"
+        else:
+            status = "ready_for_human_review"
+
+        candidate_seed = f"{action}:{memory_id}:{target_path}"
+        candidates.append(
+            {
+                "candidate_id": f"os_patch_suggestion.{hashlib.sha256(candidate_seed.encode()).hexdigest()[:12]}",
+                "status": status,
+                "review_surface": "suggestion_only",
+                "auto_apply": False,
+                "eligible_for_waking_review": status == "ready_for_human_review",
+                "memory_id": memory_id,
+                "homeostasis_action": action,
+                "candidate_type": change_type,
+                "target_path": target_path,
+                "target_allowlisted": target_path in OS_PATCH_ELIGIBILITY_TARGET_ALLOWLIST,
+                "target_scope": target_scope,
+                "proposed_change_summary": (
+                    f"Review whether {memory_id} should get one tiny OS-only {change_type} based on "
+                    f"{action} feedback; do not mutate science, task state, external systems, or dream behavior."
+                ),
+                "evidence_refs": support_refs.get("strong_evidence_refs", []),
+                "excluded_support": {
+                    "weak_evidence_refs": support_refs.get("weak_evidence_refs", []),
+                    "proposal_only_refs": support_refs.get("proposal_only_refs", []),
+                    "synthetic_rows_excluded": support_refs.get("synthetic_rows_excluded", 0),
+                },
+                "distinct_support": support,
+                "gate_failures": gate_failures,
+                "support_failures": support_failures,
+                "required_validation_commands": OS_PATCH_REQUIRED_VALIDATION_COMMANDS,
+                "rollback_notes": (
+                    "Revert the single OS-only tracked patch, rerun the required validation commands, "
+                    "and leave the retrieval-outcome ledger unchanged."
+                ),
+                "reviewer_question": "Should waking Codex apply exactly one tiny OS-only patch for this candidate?",
+                "mutation_boundary": "human_review_required_no_auto_apply",
+            }
+        )
+
+    ready_count = sum(1 for item in candidates if item.get("status") == "ready_for_human_review")
+    if canary_status == "not_run_by_review":
+        status = "requires_feedback_health_validation"
+    elif gate_failures:
+        status = "blocked"
+    elif ready_count:
+        status = "ready_for_human_review"
+    else:
+        status = "stable_no_candidate"
+
+    reasons: list[str] = []
+    if gate_failures:
+        reasons.append("blocked by invariant gates: " + ", ".join(gate_failures[:6]))
+    if status == "requires_feedback_health_validation":
+        reasons.append("review --json is preliminary; run feedback-health --json for canary-validated eligibility")
+    if ready_count:
+        reasons.append(f"{ready_count} suggestion(s) are ready for waking human review only")
+    if status == "stable_no_candidate":
+        reasons.append("feedback loop is healthy but no strong OS-only patch suggestion is currently justified")
+
+    readiness = {
+        "status": status,
+        "generated_from": "local_retrieval_outcome_ledger_and_resolver_canaries",
+        "not_a_grade": True,
+        "auto_apply": False,
+        "tracked_registry_mutation": False,
+        "doctor_status": "not_run_by_resolver",
+        "checked_inputs": {
+            "feedback_loop_status": feedback_loop_status,
+            "accepted_rows": int(ledger_health.get("accepted_rows", 0) or 0),
+            "audit_warning_count": int(ledger_health.get("audit_warning_count", 0) or 0),
+            "canary_status": canary_status,
+            "canary_failure_count": len(canary_failures or []),
+            "strong_homeostasis_proposals": len(candidates),
+            "ready_review_suggestions": ready_count,
+            "synthetic_boundary": bool(scoring_integrity.get("synthetic_exclusion_verified")),
+            "route_policy_boundary": bool(scoring_integrity.get("route_policy_boundary_verified")),
+            "feedback_metadata_visible": bool(scoring_integrity.get("feedback_metadata_visible")),
+            "target_allowlist": sorted(OS_PATCH_ELIGIBILITY_TARGET_ALLOWLIST),
+        },
+        "gate_failures": gate_failures,
+        "reasons": reasons,
+        "authority_boundary": (
+            "This surface may suggest a tiny OS-only patch for waking human review; it cannot apply tracked "
+            "changes and cannot validate from dream, ChatGPT, synthetic, suppressed, artifact-hint, live-workstream, "
+            "or route-policy authority."
+        ),
+    }
+    return {
+        "self_evolution_readiness": readiness,
+        "os_patch_eligibility_summary": readiness,
+        "waking_auto_validated_candidates": candidates[:8],
+        "review_candidate_suggestions": candidates[:8],
+    }
+
+
 def local_maintenance_review(ledger_root: Path | None = None) -> dict[str, Any]:
     root = ledger_root or LOCAL_CONTEXT_ROOT
     ledger_health = inspect_outcome_ledger(root)
@@ -1605,6 +1877,25 @@ def review_payload(ledger_root: Path) -> dict[str, Any]:
     result_counts = Counter(str(item.get("result") or "unknown") for item in outcomes)
     memory_counts = Counter(str(item.get("memory_id") or "unknown") for item in outcomes)
     harmful = [item for item in outcomes if item.get("result") in {"harmful", "stale"}]
+    homeostasis = build_homeostasis_proposals(feedback_counts, outcomes)
+    review_scoring = feedback_scoring_integrity()
+    review_scoring.update(
+        {
+            "feedback_metadata_visible": bool(review_scoring.get("score_metadata_visible")),
+            "synthetic_exclusion_verified": True,
+            "route_policy_boundary_verified": True,
+            "canary_status": "not_run_by_review",
+        }
+    )
+    evolution = build_os_patch_eligibility_surfaces(
+        ledger_health=ledger_health,
+        outcomes=outcomes,
+        homeostasis=homeostasis,
+        scoring_integrity=review_scoring,
+        feedback_loop_status="review_only",
+        canary_status="not_run_by_review",
+        canary_failures=[],
+    )
     return {
         "status": "ok",
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -1621,7 +1912,11 @@ def review_payload(ledger_root: Path) -> dict[str, Any]:
         "feedback_counts": feedback_counts,
         "top_memory_ids": dict(memory_counts.most_common(8)),
         "cooldown_candidates": harmful[-8:],
-        "homeostasis_proposals": build_homeostasis_proposals(feedback_counts, outcomes),
+        "homeostasis_proposals": homeostasis,
+        "self_evolution_readiness": evolution["self_evolution_readiness"],
+        "os_patch_eligibility_summary": evolution["os_patch_eligibility_summary"],
+        "waking_auto_validated_candidates": evolution["waking_auto_validated_candidates"],
+        "review_candidate_suggestions": evolution["review_candidate_suggestions"],
         "review_policy": "feedback is local-only routing evidence, not factual project proof",
     }
 
@@ -2207,6 +2502,269 @@ def feedback_canary_cases() -> dict[str, Any]:
                 "route": signature.get("route"),
                 "feedback_adjustment": score.get("feedback_adjustment"),
                 "homeostasis_actions": sorted(str(action) for action in actions if action),
+            }
+        )
+
+    def canary_scoring_integrity(canary_status: str = "pass") -> dict[str, Any]:
+        scoring = feedback_scoring_integrity()
+        scoring.update(
+            {
+                "feedback_metadata_visible": bool(scoring.get("score_metadata_visible")),
+                "synthetic_exclusion_verified": True,
+                "route_policy_boundary_verified": True,
+                "canary_status": canary_status,
+            }
+        )
+        return scoring
+
+    with TemporaryDirectory(prefix="context_resonance_readiness_ready_") as temp_dir:
+        root = Path(temp_dir)
+        write_canary_outcomes(
+            root,
+            [
+                {
+                    "memory_id": "context_resonance_schema",
+                    "result": "missed",
+                    "route": route,
+                    "task": task,
+                    "evidence_ref": "canary/readiness/promote-1",
+                },
+                {
+                    "memory_id": "context_resonance_schema",
+                    "result": "missed",
+                    "route": route,
+                    "task": "context resonance cue review during OS stabilization",
+                    "evidence_ref": "canary/readiness/promote-2",
+                },
+                {
+                    "memory_id": "context_resonance_architecture",
+                    "result": "useful",
+                    "route": route,
+                    "task": "context resonance candidate gating smoke",
+                    "evidence_ref": "canary/readiness/extra-useful",
+                },
+            ],
+        )
+        ledger_health = inspect_outcome_ledger(root)
+        outcomes = ledger_health.get("rows") if isinstance(ledger_health.get("rows"), list) else []
+        counts = aggregate_feedback_counts(outcomes)
+        homeostasis = build_homeostasis_proposals(counts, outcomes)
+        surfaces = build_os_patch_eligibility_surfaces(
+            ledger_health=ledger_health,
+            outcomes=outcomes,
+            homeostasis=homeostasis,
+            scoring_integrity=canary_scoring_integrity("pass"),
+            feedback_loop_status="healthy",
+            canary_status="pass",
+            canary_failures=[],
+        )
+        readiness = surfaces.get("self_evolution_readiness", {})
+        suggestions = surfaces.get("review_candidate_suggestions", [])
+        ready_suggestions = [item for item in suggestions if item.get("status") == "ready_for_human_review"]
+        if readiness.get("status") != "ready_for_human_review":
+            failures.append("feedback_readiness_ready: strong local evidence did not create ready review status")
+        if not ready_suggestions:
+            failures.append("feedback_readiness_ready: no ready human-review suggestion emitted")
+        if any(item.get("auto_apply") for item in suggestions):
+            failures.append("feedback_readiness_ready: suggestion incorrectly allows auto-apply")
+        cases.append(
+            {
+                "id": "feedback_readiness_ready",
+                "readiness_status": readiness.get("status"),
+                "suggestion_count": len(suggestions),
+                "ready_suggestion_count": len(ready_suggestions),
+                "auto_apply_values": sorted({str(item.get("auto_apply")) for item in suggestions}),
+            }
+        )
+
+        blocked_surfaces = build_os_patch_eligibility_surfaces(
+            ledger_health=ledger_health,
+            outcomes=outcomes,
+            homeostasis=homeostasis,
+            scoring_integrity=canary_scoring_integrity("fail"),
+            feedback_loop_status="healthy",
+            canary_status="fail",
+            canary_failures=["synthetic boundary fixture failure"],
+        )
+        blocked_readiness = blocked_surfaces.get("self_evolution_readiness", {})
+        if blocked_readiness.get("status") != "blocked":
+            failures.append("feedback_readiness_canary_failure: canary failure did not block readiness")
+        cases.append(
+            {
+                "id": "feedback_readiness_canary_failure",
+                "readiness_status": blocked_readiness.get("status"),
+                "gate_failures": blocked_readiness.get("gate_failures"),
+            }
+        )
+
+    with TemporaryDirectory(prefix="context_resonance_readiness_audit_") as temp_dir:
+        root = Path(temp_dir)
+        write_canary_outcomes(
+            root,
+            [
+                {
+                    "memory_id": "context_resonance_schema",
+                    "result": "useful",
+                    "route": "bogus_route",
+                    "task": task,
+                    "evidence_ref": "",
+                },
+                {
+                    "memory_id": "context_resonance_schema",
+                    "result": "useful",
+                    "route": route,
+                    "task": "context resonance audit warning fixture A",
+                    "evidence_ref": "canary/readiness/audit-strong-1",
+                },
+                {
+                    "memory_id": "context_resonance_schema",
+                    "result": "useful",
+                    "route": route,
+                    "task": "context resonance audit warning fixture B",
+                    "evidence_ref": "canary/readiness/audit-strong-2",
+                },
+            ],
+        )
+        ledger_health = inspect_outcome_ledger(root)
+        outcomes = ledger_health.get("rows") if isinstance(ledger_health.get("rows"), list) else []
+        homeostasis = build_homeostasis_proposals(aggregate_feedback_counts(outcomes), outcomes)
+        surfaces = build_os_patch_eligibility_surfaces(
+            ledger_health=ledger_health,
+            outcomes=outcomes,
+            homeostasis=homeostasis,
+            scoring_integrity=canary_scoring_integrity("pass"),
+            feedback_loop_status="warning",
+            canary_status="pass",
+            canary_failures=[],
+        )
+        readiness = surfaces.get("self_evolution_readiness", {})
+        suggestions = surfaces.get("review_candidate_suggestions", [])
+        if readiness.get("status") != "blocked":
+            failures.append("feedback_readiness_audit_warnings: audit warnings did not block readiness")
+        if any(item.get("status") == "ready_for_human_review" for item in suggestions):
+            failures.append("feedback_readiness_audit_warnings: audit warnings allowed a ready suggestion")
+        cases.append(
+            {
+                "id": "feedback_readiness_audit_warnings",
+                "readiness_status": readiness.get("status"),
+                "audit_warning_count": ledger_health.get("audit_warning_count"),
+                "ready_suggestion_count": sum(1 for item in suggestions if item.get("status") == "ready_for_human_review"),
+            }
+        )
+
+    with TemporaryDirectory(prefix="context_resonance_readiness_proposal_refs_") as temp_dir:
+        root = Path(temp_dir)
+        write_canary_outcomes(
+            root,
+            [
+                {
+                    "memory_id": "dream_memory_not_more_context",
+                    "result": "useful",
+                    "route": route,
+                    "task": task,
+                    "evidence_ref": "agent_context/local/chatgpt_research/canary/response.md",
+                },
+                {
+                    "memory_id": "dream_memory_not_more_context",
+                    "result": "useful",
+                    "route": route,
+                    "task": "context resonance proposal-only evidence fixture A",
+                    "evidence_ref": "agent_context/local/dreams/canary/lane_signal.json",
+                },
+                {
+                    "memory_id": "dream_memory_not_more_context",
+                    "result": "useful",
+                    "route": route,
+                    "task": "context resonance proposal-only evidence fixture B",
+                    "evidence_ref": "agent_context/local/chatgpt_research/canary/followup.md",
+                },
+            ],
+        )
+        ledger_health = inspect_outcome_ledger(root)
+        outcomes = ledger_health.get("rows") if isinstance(ledger_health.get("rows"), list) else []
+        homeostasis = build_homeostasis_proposals(aggregate_feedback_counts(outcomes), outcomes)
+        surfaces = build_os_patch_eligibility_surfaces(
+            ledger_health=ledger_health,
+            outcomes=outcomes,
+            homeostasis=homeostasis,
+            scoring_integrity=canary_scoring_integrity("pass"),
+            feedback_loop_status="healthy",
+            canary_status="pass",
+            canary_failures=[],
+        )
+        suggestions = surfaces.get("review_candidate_suggestions", [])
+        if any(item.get("status") == "ready_for_human_review" for item in suggestions):
+            failures.append("feedback_readiness_proposal_refs: dream/ChatGPT refs validated a ready suggestion")
+        if not any(item.get("excluded_support", {}).get("proposal_only_refs") for item in suggestions):
+            failures.append("feedback_readiness_proposal_refs: proposal-only refs were not explicitly excluded")
+        cases.append(
+            {
+                "id": "feedback_readiness_proposal_refs",
+                "suggestion_statuses": sorted(str(item.get("status")) for item in suggestions),
+                "proposal_only_ref_counts": [
+                    len(item.get("excluded_support", {}).get("proposal_only_refs") or []) for item in suggestions
+                ],
+            }
+        )
+
+    with TemporaryDirectory(prefix="context_resonance_readiness_negative_") as temp_dir:
+        root = Path(temp_dir)
+        write_canary_outcomes(
+            root,
+            [
+                {
+                    "memory_id": "context_resonance_architecture",
+                    "result": "harmful",
+                    "route": route,
+                    "task": task,
+                    "evidence_ref": "canary/readiness/negative-1",
+                },
+                {
+                    "memory_id": "context_resonance_architecture",
+                    "result": "stale",
+                    "route": route,
+                    "task": "context resonance negative feedback fixture A",
+                    "evidence_ref": "canary/readiness/negative-2",
+                },
+                {
+                    "memory_id": "context_resonance_architecture",
+                    "result": "stale",
+                    "route": route,
+                    "task": "context resonance negative feedback fixture B",
+                    "evidence_ref": "canary/readiness/negative-3",
+                },
+            ],
+        )
+        ledger_health = inspect_outcome_ledger(root)
+        outcomes = ledger_health.get("rows") if isinstance(ledger_health.get("rows"), list) else []
+        homeostasis = build_homeostasis_proposals(aggregate_feedback_counts(outcomes), outcomes)
+        surfaces = build_os_patch_eligibility_surfaces(
+            ledger_health=ledger_health,
+            outcomes=outcomes,
+            homeostasis=homeostasis,
+            scoring_integrity=canary_scoring_integrity("pass"),
+            feedback_loop_status="warning",
+            canary_status="pass",
+            canary_failures=[],
+        )
+        suggestions = surfaces.get("review_candidate_suggestions", [])
+        negative_suggestions = [
+            item
+            for item in suggestions
+            if item.get("homeostasis_action") in {"cool", "quarantine_candidate", "suppress_candidate"}
+        ]
+        if not negative_suggestions:
+            failures.append("feedback_readiness_negative_candidate: strong negative evidence emitted no gated suggestion")
+        if any(item.get("auto_apply") for item in negative_suggestions):
+            failures.append("feedback_readiness_negative_candidate: negative suggestion allowed auto-apply")
+        if any(item.get("target_path", "").startswith("agent_context/policies/AGENTIC_OS_DREAMING") for item in negative_suggestions):
+            failures.append("feedback_readiness_negative_candidate: negative suggestion targets dream policy")
+        cases.append(
+            {
+                "id": "feedback_readiness_negative_candidate",
+                "suggestion_count": len(negative_suggestions),
+                "auto_apply_values": sorted({str(item.get("auto_apply")) for item in negative_suggestions}),
+                "target_paths": sorted(str(item.get("target_path")) for item in negative_suggestions),
             }
         )
     return {

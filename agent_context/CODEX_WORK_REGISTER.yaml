@@ -261,7 +261,7 @@ workstreams:
 
   - workstream_id: codex_linear_campaign_chat_map
     title: P1 Review | Linear campaign and Codex chat map system
-    status: review
+    status: active
     priority: P1
     goal: >
       Reorganize Linear into campaign-level home bases with child workstreams
@@ -462,15 +462,15 @@ workstreams:
       cleanup/maintenance proposals, and a tighter doctor/dream fusion that
       improves thesis progress without mutating real analysis state overnight.
     current_next_action: >
-      After the first real waking retrieval outcomes are recorded, inspect
-      review --json audit warnings and feedback-health; do not add backend
-      surfaces unless real-use evidence shows a resolver failure or
-      homeostasis proposal that the current stabilized loop cannot handle.
+      Dual-Pro research automation patch is locally validated. Next explicit
+      launch should commit/push the intended repo state first, then run
+      `python3 scripts/os/research/codex_chatgpt_research_pack.py
+      init-dual-pro-overnight` and use the generated manifest/heartbeat.
     depends_on:
       - workstream:codex_os_dream_system
       - workstream:codex_ask_chatgpt_delegation
     active_codex_session: null
-    chat_label_or_thread: "final context-resonance feedback stabilization"
+    chat_label_or_thread: "chatgpt-pro-dual-research automation patch"
     linear_issue: null
     linear_sync: pending
     today_doc_anchor: null
@@ -530,6 +530,9 @@ workstreams:
       - "2026-06-02 outcome-weighted context resonance implemented: resolver now reads local retrieval_outcome_ledger.jsonl, applies bounded score adjustments with base/final/feedback fields, keeps missed feedback proposal-only, emits homeostasis_proposals in review/maintenance-review, and lets the dream lane package those proposals only as ignored local context-resonance artifacts. Validation passed: resolver/dream py_compile with PYTHONPYCACHEPREFIX=/private/tmp/codex_pycache_context, context canary with feedback fixtures, review --json, representative resolve --json, dream validate --latest, doctor daily with 0 warnings, and git diff --check."
       - "2026-06-02 feedback-loop health guard added to context_resonance: scripts/os/context/codex_context_resonance.py now emits feedback-health payloads with ledger row accounting, bounded scoring integrity checks, synthetic-row exclusion, route-policy boundary checks, and local proposal-only homeostasis status; scripts/os/dream/codex_os_dream.py now writes feedback_loop_health.md/json, includes health in lane_signal/morning summaries, and validates the compact health contract. Validation runs validation-context-resonance-feedback-health-b and validation-context-resonance-feedback-health-noauto both validated; current live health status is warning only because the local retrieval_outcome_ledger has 0 accepted outcome rows."
       - "2026-06-02 final context-resonance feedback stabilization landed: resolver now marks trainable versus non-trainable candidates, applies route-aware recency-decayed feedback only to durable memory/schema/negative-memory rows, keeps route policies/live workstream hints/artifact hints/suppressed context/synthetic or proposal-only material fixed, audits noisy outcome rows, requires repeated evidence-backed support for strong homeostasis actions, and adds holdout canaries for trainability, route fallback, decay, weak evidence, caps, synthetic exclusion, and route expectations. Validation passed: PYTHONPYCACHEPREFIX=/private/tmp/codex_pycache_context_stabilize py_compile for resolver and dream import path, context canary --json, review --json, representative resolve --json, feedback-health --json warning-only with 0 accepted real outcome rows, doctor daily with 0 warnings, and git diff --check."
+      - "2026-06-02 retrospective context-resonance ledger seed appended 20 accepted local-only outcome rows to agent_context/local/context_resonance/retrieval_outcome_ledger.jsonl from targeted repo and memory-index evidence for 2026-06-02 and 2026-05-26/27/28: 18 useful, 2 missed, 0 audit warnings, no cooldown candidates, feedback-health healthy, route policies still non-trainable, resolve/canary/doctor daily/git diff --check passed, and tracked memory YAML remained unchanged."
+      - "2026-06-02 final waking-only OS stabilization added review-only self_evolution_readiness/os_patch_eligibility_summary and waking_auto_validated_candidates/review_candidate_suggestions to context-resonance review/feedback-health, with allowlisted OS-only targets, strong local evidence refs, canary/audit/metadata gates, rollback notes, required validation commands, and auto_apply=false. Doctor daily now verifies feedback-health invariants and suggestion boundaries. Confusing hard-stop policy wording was removed after Justin flagged that it could wrongly discourage intentional future improvements; safeguards remain encoded in resolver/doctor readiness checks, not as a blanket policy prohibition. No dream scripts, dream policy, dream automation, science/task/external state, or tracked memory YAML mutation was changed. Validation passed: py_compile for resolver/doctor, context canary --json, review --json, feedback-health --json healthy with 20 accepted rows and 0 audit warnings, representative resolve --json, doctor daily 0 warnings, register validate, and git diff --check."
+      - "2026-06-02 03:28 EDT dual-Pro research automation patch added explicit physics_thesis and os_infrastructure ChatGPT Pro extended pack generation, separate fresh-conversation thread rules, temporary heartbeat/daily-note response ingestion, research_scout dual_pro_research_plan artifacts, and policy exceptions bounded to external critique/source leads. Validation passed: py_compile for research/dream/context/doctor helpers, validate-dual on agent_context/local/chatgpt_research/validation-dual-pro-20260602c.dual_manifest.json, dual-heartbeat waiting-state write, research_scout lane run validation-dual-pro-research-scout-20260602 plus dream validate, context canary --json, feedback-health --json healthy with 0 audit warnings, register validate, doctor daily 0 warnings, and git diff --check."
       - "2026-06-01 23:13 EDT research-scout leverage upgrade wired the human-tool principle into the live lane contract: scripts/os/dream/codex_os_dream.py now emits first-class ChatGPT-history/tool-orchestration subtasks plus `human_tool_leverage.md`, and AGENTIC_OS_DREAMING.md now states that `research_scout` owns ChatGPT-history review plans and better use of human-accessible AI/tools."
       - "2026-06-01 validation run agent_context/local/dreams/validation-nightly-super-heartbeat-20260601 succeeded and wrote nightly_heartbeat.md, nightly_heartbeat_signal.json, and morning_appendix.md. Follow-up doctor daily consumed the consolidated heartbeat with automation drift count=0; residual warnings are recurring hotspots plus low cohesion and high maintenance debt."
       - "2026-06-01 Computer Use in Chrome delegated ChatGPT research was run in Heavy mode at chatgpt.com/c/6a1dee12-3a88-83ea-a258-11d2fa845ee3 with sanitized prompt pack agent_context/local/chatgpt_research/20260601T203906Z-dream-state-recurrence-learning-and-low-complexi; pack validation passed and synthesis favored recurrence/adaptation cards over broad new subsystems."
@@ -540,8 +543,8 @@ workstreams:
       - "2026-06-01T20:35 EDT manual five-pass rehearsal found and fixed two shadow-pilot defects: nightly heartbeat now forwards --now into the dream command, and simulation-* runs are isolated by simulation group for pilot-stage progression while excluded from real recurring-hotspot counts."
       - "2026-06-01T20:35 EDT final five-pass simulation simulation-stage9-review2-night1-20260601 through simulation-stage9-review2-day5-20260605 progressed Baseline Map -> Candidate Formation -> Shadow Burn Rehearsal -> Calibration And Human Gate -> Post-Pilot Waiting Human Enablement, with approval_ready_count=0 for every pass and no external mutations."
       - "2026-06-01T20:35 EDT final day-5 simulation agent_context/local/dreams/simulation-stage9-review2-day5-20260605 completed status=warn, doctor ok, helper failures=0, approval-ready allowed=false, and remaining warnings are stale-state/recurring-hotspot/schema-promotion/frozen-growth pressure."
-    last_verified: "2026-06-02T05:49:05+00:00"
-    next_check: "After the first real waking retrieval outcomes are recorded, inspect review --json audit warnings and feedback-health; keep backend growth frozen unless real-use evidence shows a resolver failure or homeostasis proposal."
+    last_verified: "2026-06-02T03:28:31-04:00"
+    next_check: "none; rerun dual-Pro workflow only when Justin explicitly launches or schedules it"
     stale_after: "2026-06-04T10:00:00-04:00"
     handoff_summary: >
       Stage 9 now has a guarded autonomous internal-maintenance envelope and

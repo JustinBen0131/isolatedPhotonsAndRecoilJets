@@ -56,6 +56,13 @@ For `instant`, `thinking`, and `heavy`, Codex may collect and synthesize the
 response. For `pro`, `extended pro`, or `deep research`, Codex submits one
 sanitized prompt and stops; Justin pastes the completed response back before
 Codex verifies or integrates it.
+The explicit dual-Pro overnight research lane is the only current exception:
+when Justin asks for that lane, Codex may stage two `pro_extended` packs, submit
+them in separate fresh ChatGPT conversations through Computer Use, run one
+temporary local heartbeat until both copied responses are present, and then
+verify locally. The OS response may drive at most one reversible OS-only patch
+after rollback and doctor validation; it must not change science state,
+external systems, task status, or overall functionality.
 
 For thesis-facing artifact provenance, use
 `agent_context/ARTIFACT_REGISTRY.yaml`. For risky mutations, use the safety

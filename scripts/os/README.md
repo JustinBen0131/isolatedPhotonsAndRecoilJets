@@ -65,6 +65,14 @@ only diagnostics, while the ledger names the concrete validator, runbook,
 index, retention, or path-contract improvement the dream thinks will make the
 OS more traversable.
 
+For Justin's explicit dual-Pro overnight research lane, use
+`python3 scripts/os/research/codex_chatgpt_research_pack.py init-dual-pro-overnight`
+to stage two fresh-conversation ChatGPT Pro extended packs: one physics thesis
+prompt and one OS-infrastructure prompt. The generated manifest also names the
+single temporary heartbeat command, response-ingestion commands, daily-note
+path, and git precondition. The shell dream script only emits the plan; a
+Codex automation using Computer Use performs authenticated ChatGPT UI actions.
+
 Use `python3 scripts/os/register/codex_work_register_stale.py
 agent_context/CODEX_WORK_REGISTER.yaml --protocol` as the read-only
 `register_workstream_refresh_contract`. It classifies live workstreams and

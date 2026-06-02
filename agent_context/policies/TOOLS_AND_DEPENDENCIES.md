@@ -19,7 +19,11 @@
   ChatGPT UI. Codex may collect `instant` and `thinking_*` responses itself; for
   `pro_standard`, `pro_extended`, or `deep_research`, submit one sanitized
   staged prompt and ask Justin to paste the completed response back into Codex
-  instead of polling.
+  instead of polling, except for the explicit dual-Pro overnight research lane.
+  That lane uses
+  `python3 scripts/os/research/codex_chatgpt_research_pack.py init-dual-pro-overnight`
+  to stage two fresh-conversation `pro_extended` prompts and a single temporary
+  local heartbeat that waits until both copied responses are present.
 - For Justin's explicit "set up a Zoom room" / "get me a Zoom invite link"
   variants, load `agent_context/policies/MEETING_CAPTURE_AND_ZOOM.md` and use
   Computer Use on Zoom for the narrow room-setup workflow: create/start the

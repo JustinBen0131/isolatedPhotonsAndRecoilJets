@@ -58,6 +58,11 @@ ARTIFACT_REGISTRY = Path("agent_context/ARTIFACT_REGISTRY.yaml")
 THESIS_MAP = Path("agent_context/THESIS_NARRATIVE_MAP.md")
 EVENT_LOG = Path("agent_context/local/os_events.jsonl")
 CHATGPT_RESEARCH_ROOT = Path("agent_context/local/chatgpt_research")
+GITHUB_REPO_URL = "https://github.com/JustinBen0131/isolatedPhotonsAndRecoilJets"
+DUAL_PRO_RESEARCH_SETUP_COMMAND = (
+    "python3 scripts/os/research/codex_chatgpt_research_pack.py "
+    f"init-dual-pro-overnight --repo-url {GITHUB_REPO_URL}"
+)
 LOCAL_CLEANUP_STORAGE_ROOT = Path("agent_context/local/cleanup_storage")
 CLEANUP_RETENTION_INDEX_JSON = LOCAL_CLEANUP_STORAGE_ROOT / "retention_index.json"
 CLEANUP_RETENTION_INDEX_MD = LOCAL_CLEANUP_STORAGE_ROOT / "retention_index.md"
@@ -3792,8 +3797,8 @@ def research_scout_payload(world: dict[str, Any], risks: list[dict[str, Any]]) -
     leverage = {
         "principle": "Use the same tools available to the human more effectively instead of reinventing equivalent machinery.",
         "analogy": "A house robot should use the dishwasher and washer/dryer better than the human can coordinate them, not invent new dishwashing or laundry machines.",
-        "history_review_status": "queued_for_waking_or_delegated_lane",
-        "history_review_boundary": "nightly scripts must not autonomously browse authenticated ChatGPT history; package the review as a waking/delegated task unless the history is already available in a local artifact",
+        "history_review_status": "dual_pro_research_pack_ready_for_codex_automation",
+        "history_review_boundary": "shell dream scripts must not autonomously browse authenticated ChatGPT; a Codex automation with explicit user authorization may use Computer Use on the staged packs and local heartbeat",
         "first_class_subtasks": [
             {
                 "id": "chatgpt_history_review",
@@ -3815,15 +3820,38 @@ def research_scout_payload(world: dict[str, Any], risks: list[dict[str, Any]]) -
             },
         ],
     }
+    dual_pro_research = {
+        "status": "ready_for_codex_automation",
+        "mode": "pro_extended",
+        "conversation_contract": "two fresh ChatGPT conversations: physics first, OS infrastructure second",
+        "setup_command": DUAL_PRO_RESEARCH_SETUP_COMMAND,
+        "validate_command": "python3 scripts/os/research/codex_chatgpt_research_pack.py validate-dual --manifest <manifest>",
+        "heartbeat_command": "python3 scripts/os/research/codex_chatgpt_research_pack.py dual-heartbeat --manifest <manifest>",
+        "response_ingestion_commands": [
+            "python3 scripts/os/research/codex_chatgpt_research_pack.py save-dual-response-from-clipboard --manifest <manifest> --prompt-kind physics_thesis",
+            "python3 scripts/os/research/codex_chatgpt_research_pack.py save-dual-response-from-clipboard --manifest <manifest> --prompt-kind os_infrastructure",
+        ],
+        "git_precondition": (
+            "Before sending the OS prompt, commit and push the intended repo state so ChatGPT can inspect "
+            f"{GITHUB_REPO_URL}; the generated manifest records the local git preflight."
+        ),
+        "physics_prompt_goal": "learn one fundamental, locally verifiable thesis-physics insight for memory/daily-report promotion",
+        "os_prompt_goal": "find one frontier but surgical OS-only improvement after inspecting the pushed repo",
+        "post_response_contract": (
+            "Copy both responses into their local packs, log the temporary heartbeat/daily note, verify claims locally, "
+            "and apply at most one reversible OS-only patch if it passes validation and rollback checks."
+        ),
+        "blocked_by_default_for_shell_script": True,
+    }
     return {
         "synthetic": True,
         "synthetic_header": SYNTHETIC_HEADER,
         "tier": "research_only",
-        "status": "queued_local_prompt_only",
-        "reason_not_submitted_by_script": "non-interactive nightly scripts must not operate authenticated external-model UIs; Codex can submit through Computer Use in a waking/delegated research lane",
+        "status": "dual_pro_research_pack_ready",
+        "reason_not_submitted_by_script": "non-interactive shell dream scripts must not operate authenticated external-model UIs; the generated pack is for Codex/Computer Use automation with a local temporary heartbeat",
         "recommended_modes": [
             {"interface": "ChatGPT", "mode": "thinking_or_heavy", "use_for": "default paid online research/critique lane"},
-            {"interface": "ChatGPT", "mode": "pro_or_deep_research", "use_for": "long source-backed research; user paste-back policy"},
+            {"interface": "ChatGPT", "mode": "pro_extended", "use_for": "explicit dual overnight physics plus OS research with temporary heartbeat ingestion"},
             {
                 "interface": "Claude_or_Gemini",
                 "mode": "optional_second_opinion_only",
@@ -3836,6 +3864,7 @@ def research_scout_payload(world: dict[str, Any], risks: list[dict[str, Any]]) -
             "cohesion_score": cohesion_score(world, risks),
         },
         "human_tool_leverage": leverage,
+        "dual_pro_research": dual_pro_research,
         "sanitized_first_prompt": prompt,
         "recommended_history_sources": [
             "recent ChatGPT threads relevant to dream/OS improvement",
@@ -4388,6 +4417,21 @@ def render_research_synthesis(payload: dict[str, Any]) -> str:
         lines.append(f"  why: {item.get('why')}")
         lines.append(f"  morning_action: {item.get('morning_action')}")
     lines.append("")
+    dual = payload.get("dual_pro_research") if isinstance(payload.get("dual_pro_research"), dict) else {}
+    if dual:
+        lines.append("## Dual Pro Extended Research Automation")
+        lines.append(f"- status: `{dual.get('status')}`")
+        lines.append(f"- mode: `{dual.get('mode')}`")
+        lines.append(f"- conversation_contract: {dual.get('conversation_contract')}")
+        lines.append(f"- git_precondition: {dual.get('git_precondition')}")
+        lines.append(f"- setup_command: `{dual.get('setup_command')}`")
+        lines.append(f"- validate_command: `{dual.get('validate_command')}`")
+        lines.append(f"- heartbeat_command: `{dual.get('heartbeat_command')}`")
+        lines.append("- response_ingestion_commands:")
+        for command in dual.get("response_ingestion_commands") or []:
+            lines.append(f"  - `{command}`")
+        lines.append(f"- post_response_contract: {dual.get('post_response_contract')}")
+        lines.append("")
     lines.append("## Recommended History Sources")
     for source in payload.get("recommended_history_sources") or []:
         lines.append(f"- {source}")
@@ -4404,6 +4448,7 @@ def render_research_synthesis(payload: dict[str, Any]) -> str:
 
 def render_human_tool_leverage(payload: dict[str, Any]) -> str:
     leverage = payload.get("human_tool_leverage") if isinstance(payload.get("human_tool_leverage"), dict) else {}
+    dual = payload.get("dual_pro_research") if isinstance(payload.get("dual_pro_research"), dict) else {}
     lines = ["# Human Tool Leverage", "", SYNTHETIC_HEADER, ""]
     lines.append("This is the standing nightly subtask for improving how Codex uses the same AI/tools available to the human.")
     lines.append("")
@@ -4421,6 +4466,46 @@ def render_human_tool_leverage(payload: dict[str, Any]) -> str:
     lines.append("## Recommended Sources To Inspect")
     for source in payload.get("recommended_history_sources") or []:
         lines.append(f"- {source}")
+    if dual:
+        lines.append("")
+        lines.append("## Dual Pro Extended Research Automation")
+        lines.append(f"- setup: `{dual.get('setup_command')}`")
+        lines.append(f"- heartbeat: `{dual.get('heartbeat_command')}`")
+        lines.append(f"- order: {dual.get('conversation_contract')}")
+        lines.append(f"- OS prompt git precondition: {dual.get('git_precondition')}")
+        lines.append(f"- post-response: {dual.get('post_response_contract')}")
+    return "\n".join(lines) + "\n"
+
+
+def render_dual_pro_research_plan(payload: dict[str, Any]) -> str:
+    lines = ["# Dual Pro Extended Research Plan", "", SYNTHETIC_HEADER, ""]
+    lines.append("This is a local plan for a Codex automation that can use Computer Use; the shell dream script does not operate authenticated ChatGPT.")
+    lines.append("")
+    lines.append(f"- status: `{payload.get('status')}`")
+    lines.append(f"- mode: `{payload.get('mode')}`")
+    lines.append(f"- conversation_contract: {payload.get('conversation_contract')}")
+    lines.append(f"- setup_command: `{payload.get('setup_command')}`")
+    lines.append(f"- validate_command: `{payload.get('validate_command')}`")
+    lines.append(f"- heartbeat_command: `{payload.get('heartbeat_command')}`")
+    lines.append("")
+    lines.append("## Prompt Goals")
+    lines.append(f"- physics: {payload.get('physics_prompt_goal')}")
+    lines.append(f"- OS: {payload.get('os_prompt_goal')}")
+    lines.append("")
+    lines.append("## Response Ingestion")
+    for command in payload.get("response_ingestion_commands") or []:
+        lines.append(f"- `{command}`")
+    lines.append("")
+    lines.append("## Git Precondition")
+    lines.append(str(payload.get("git_precondition") or ""))
+    lines.append("")
+    lines.append("## Post-Response Contract")
+    lines.append(str(payload.get("post_response_contract") or ""))
+    lines.append("")
+    lines.append("## Boundary")
+    lines.append("- External-model output is critique/source leads only until locally verified.")
+    lines.append("- The automatic OS action is capped at one reversible OS-only patch with validation and rollback.")
+    lines.append("- No science, SDCC, Condor, Drive/Slides/Gmail/Linear, task-status, or secret mutation.")
     return "\n".join(lines) + "\n"
 
 
@@ -5748,7 +5833,12 @@ def lane_required_artifacts(lane_id: str) -> list[str]:
             "changed_actions.json",
         ],
         "path_contract": ["path_contract_drift.md", "sdcc_base_repo_hygiene.md"],
-        "research_scout": ["research_synthesis.md", "human_tool_leverage.md"],
+        "research_scout": [
+            "research_synthesis.md",
+            "human_tool_leverage.md",
+            "dual_pro_research_plan.md",
+            "dual_pro_research_plan.json",
+        ],
         "science_scout": ["physics_scenario_proposals.md", "ideal_final_figure_gallery/xjgamma_modification_target.svg"],
         "presentation_artifacts": ["figure_design_notes.md", "daily_plan_proposals.md"],
     }
@@ -6152,6 +6242,21 @@ def write_lane_artifacts(
     elif lane_id == "research_scout":
         safe_write(run_dir, "research_synthesis.md", render_research_synthesis(autonomous["research_scout"]))
         safe_write(run_dir, "human_tool_leverage.md", render_human_tool_leverage(autonomous["research_scout"]))
+        dual = autonomous["research_scout"].get("dual_pro_research") if isinstance(autonomous["research_scout"], dict) else {}
+        if isinstance(dual, dict):
+            safe_write(
+                run_dir,
+                "dual_pro_research_plan.json",
+                render_json_file(
+                    {
+                        "synthetic": True,
+                        "synthetic_header": SYNTHETIC_HEADER,
+                        "mutation_boundary": "proposal_only",
+                        "dual_pro_research": dual,
+                    }
+                ),
+            )
+            safe_write(run_dir, "dual_pro_research_plan.md", render_dual_pro_research_plan(dual))
     elif lane_id == "science_scout":
         safe_write(run_dir, "physics_scenario_proposals.md", render_physics_scenario_proposals(world, lane_risks))
         for spec in IDEAL_FIGURE_SPECS:
@@ -6406,8 +6511,20 @@ def write_lane_dream_outputs(
         research_payload = autonomous["research_scout"]
         leverage = research_payload.get("human_tool_leverage") if isinstance(research_payload.get("human_tool_leverage"), dict) else {}
         subtasks = leverage.get("first_class_subtasks") if isinstance(leverage.get("first_class_subtasks"), list) else []
+        dual = research_payload.get("dual_pro_research") if isinstance(research_payload.get("dual_pro_research"), dict) else {}
+        if dual:
+            signal["dual_pro_research"] = dual
         if subtasks:
             signal["top_findings"] = [
+                {
+                    "kind": "dual_pro_research_plan",
+                    "score": None,
+                    "workstream_id": "research_scout",
+                    "title": "two fresh ChatGPT Pro extended research prompts plus temporary heartbeat",
+                    "evidence": dual.get("setup_command") if dual else "dual Pro research pack setup command",
+                    "validator_kind": "dual_pro_research_pack_validate",
+                },
+            ] + [
                 {
                     "kind": "research_scout_subtask",
                     "score": None,

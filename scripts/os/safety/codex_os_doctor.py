@@ -559,6 +559,53 @@ def check_helper_scripts(findings: list[Finding], profile: str) -> None:
             add(findings, "ERROR", f"{' '.join(command)} failed: {first_line(output)}")
         elif profile in {"strict", "release"} and "UNMAPPED" in output:
             add(findings, "WARN", f"{' '.join(command)} reported unmapped non-P0 work")
+    check_context_resonance_feedback_health(findings, profile)
+
+
+def check_context_resonance_feedback_health(findings: list[Finding], profile: str) -> None:
+    command = [sys.executable, "scripts/os/context/codex_context_resonance.py", "feedback-health", "--json"]
+    returncode, output = run_helper(command)
+    if returncode != 0:
+        add(findings, "ERROR", f"{' '.join(command)} failed: {first_line(output)}")
+        return
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError:
+        add(findings, "ERROR", "context resonance feedback-health did not emit valid JSON")
+        return
+    if not isinstance(payload, dict):
+        add(findings, "ERROR", "context resonance feedback-health emitted non-object JSON")
+        return
+
+    status = str(payload.get("feedback_loop_status") or "unknown")
+    if status == "failed":
+        add(findings, "ERROR", "context resonance feedback-health status is failed")
+    elif status != "healthy":
+        add(findings, "WARN", f"context resonance feedback-health status is {status}")
+
+    ledger = payload.get("ledger") if isinstance(payload.get("ledger"), dict) else {}
+    audit_warning_count = int(ledger.get("audit_warning_count", 0) or 0)
+    if audit_warning_count:
+        severity = "ERROR" if profile in {"strict", "release"} else "WARN"
+        add(findings, severity, f"context resonance outcome ledger has audit warnings count={audit_warning_count}")
+
+    readiness = payload.get("self_evolution_readiness") if isinstance(payload.get("self_evolution_readiness"), dict) else {}
+    readiness_status = str(readiness.get("status") or "unknown")
+    if readiness_status == "blocked":
+        severity = "ERROR" if profile in {"strict", "release"} else "WARN"
+        add(findings, severity, "context resonance OS patch eligibility is blocked")
+
+    suggestions = payload.get("waking_auto_validated_candidates")
+    if isinstance(suggestions, list):
+        for item in suggestions:
+            if not isinstance(item, dict):
+                continue
+            if item.get("auto_apply") is not False:
+                add(findings, "ERROR", "context resonance review suggestion is missing auto_apply=false")
+                break
+            if item.get("target_allowlisted") is not True:
+                add(findings, "ERROR", f"context resonance review suggestion target is not allowlisted: {item.get('target_path')}")
+                break
 
 
 def minimal_workstream(**overrides: Any) -> dict[str, Any]:
