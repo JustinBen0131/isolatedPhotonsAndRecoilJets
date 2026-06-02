@@ -393,6 +393,13 @@ Visual contract:
   context to act without scrolling through the full history;
 - do not roll completed history forward.
 
+If Google Drive import rejects markdown or strips formatting, do not leave a
+plain-text dump as the daily plan. Either apply a native Google Docs styling
+pass immediately from connector readback (title, colored section bands, real
+bullets, neutral body text, status colors, surgical bolding) or stop and report
+that the formatted cockpit could not be created. A raw markdown/plain-text
+Today's Plan is not an acceptable completed morning surface.
+
 Complex studies belong in linked workstream specs, not expanded inside the
 daily cockpit.
 

@@ -259,6 +259,40 @@ EXPERIMENT_INTRO_CARDS = [
         "right",
     ),
 ]
+EXPERIMENT_INTRO_CARD_HEIGHTS = {
+    "EMCal": 204,
+    "Barrel coverage": 204,
+}
+
+SUBSYSTEM_GROUPS = [
+    (
+        "tracking",
+        "Tracking system",
+        "MVTX, INTT, TPC, TPOT",
+        "Silicon vertex detectors and time-projection chamber inside a 1.4 T solenoid.",
+    ),
+    (
+        "calorimetry",
+        "Calorimetry",
+        "EMCal, HCal",
+        "Electromagnetic and hadronic calorimeters, including inner and outer HCal layers.",
+    ),
+    (
+        "forward",
+        "Forward detectors",
+        "MBD, sEPD, ZDC",
+        "Minimum-bias triggers, centrality context, event-plane information and luminosity.",
+    ),
+]
+
+SUBSYSTEM_LABEL_ARROWS = [
+    ("outer HCal", (1588, 392), (0.46, 0.26), "center"),
+    ("inner HCal", (1348, 586), (0.48, 0.39), "left"),
+    ("MVTX & INTT", (1236, 1124), (0.47, 0.54), "center"),
+    ("TPC", (1850, 1128), (0.54, 0.54), "center"),
+    ("EMCal", (2240, 1000), (0.56, 0.42), "center"),
+    ("solenoid", (2248, 726), (0.70, 0.50), "center"),
+]
 
 STANDALONE_DATASET_TITLE = "Dataset context: p+p anchors this measurement"
 STANDALONE_DATASET_SUBTITLE = (
@@ -1375,7 +1409,8 @@ def draw_experiment_intro_card(
     color: tuple[int, int, int],
 ) -> tuple[int, int, int, int]:
     x, y = box_xy
-    w, h = 404, 174
+    w = 404
+    h = EXPERIMENT_INTRO_CARD_HEIGHTS.get(label, 174)
     if x < W / 2:
         w = 430
     draw.rounded_rectangle((x, y, x + w, y + h), radius=10, fill=(255, 255, 255, 248), outline=(194, 208, 222, 255), width=3)
@@ -1387,10 +1422,105 @@ def draw_experiment_intro_card(
     return (x, y, x + w, y + h)
 
 
+def draw_subsystem_group_icon(draw: ImageDraw.ImageDraw, kind: str, box: tuple[int, int, int, int]) -> None:
+    x0, y0, x1, y1 = box
+    cx = (x0 + x1) // 2
+    cy = (y0 + y1) // 2
+    if kind == "tracking":
+        for offset, width in ((-22, 3), (0, 3), (22, 3)):
+            draw.arc((x0 + 4, y0 + 6 + offset, x1 - 8, y1 - 8 + offset), start=205, end=330, fill=(70, 78, 88, 230), width=width)
+            draw.arc((x0 + 18, y0 + 12 + offset, x1 - 22, y1 - 14 + offset), start=205, end=330, fill=(126, 139, 151, 220), width=width)
+        for dx in (-30, -10, 14, 34):
+            draw.line((cx + dx, y0 + 10, cx + dx - 10, y1 - 8), fill=(70, 78, 88, 210), width=3)
+    elif kind == "calorimetry":
+        colors = [(220, 226, 214), (230, 211, 177), (179, 212, 225)]
+        for idx, color in enumerate(colors):
+            y = y0 + 18 + idx * 22
+            poly = [(x0 + 18, y), (x0 + 64, y + 16), (x0 + 42, y + 34), (x0 - 4, y + 16)]
+            draw.polygon(poly, fill=(*color, 255), outline=(70, 78, 88, 230))
+            draw.line((x0 + 64, y + 16, x0 + 64, y + 35, x0 + 42, y + 52), fill=(70, 78, 88, 180), width=2)
+    else:
+        draw.line((x0 + 6, cy, x1 - 16, cy - 34), fill=(70, 78, 88, 215), width=3)
+        draw.line((x0 + 8, cy, x1 - 14, cy + 24), fill=(70, 78, 88, 215), width=3)
+        draw.line((x0 + 8, cy, x1 - 44, y0 + 8), fill=(70, 78, 88, 215), width=3)
+        draw.rectangle((x1 - 34, cy - 48, x1 - 8, cy - 24), fill=(207, 221, 228, 255), outline=(70, 78, 88, 230), width=2)
+        draw.rectangle((x1 - 28, cy + 12, x1 - 4, cy + 38), fill=(224, 205, 178, 255), outline=(70, 78, 88, 230), width=2)
+        draw.polygon([(x0 + 8, cy), (x0 + 24, cy - 9), (x0 + 24, cy + 9)], fill=(*PHOTON_DARK, 210))
+
+
+def draw_subsystem_group_text(draw: ImageDraw.ImageDraw) -> None:
+    panel = (132, 344, 920, 1190)
+    draw.rounded_rectangle(panel, radius=12, fill=(255, 255, 255, 248), outline=(218, 226, 235, 255), width=2)
+    draw.text((174, 384), "Subsystems used in this measurement", font=font(TIMES_BOLD, 37), fill=BLUE)
+    draw.line((174, 440, 878, 440), fill=(220, 228, 236, 255), width=2)
+
+    y_positions = [492, 704, 916]
+    for (kind, heading, parenthetical, body), y in zip(SUBSYSTEM_GROUPS, y_positions):
+        draw_subsystem_group_icon(draw, kind, (174, y + 8, 264, y + 104))
+        heading_font = font(TIMES_BOLD, 34)
+        heading_w, _ = text_box(draw, heading, heading_font)
+        draw.text((300, y + 4), heading, font=heading_font, fill=INK)
+        draw.text((300 + heading_w + 8, y + 8), f"({parenthetical})", font=font(TIMES, 27), fill=INK)
+        draw_wrapped(draw, body, (300, y + 52), 560, font(TIMES, 28), fill=INK, line_gap=6)
+
+
+def draw_detector_direct_arrow(
+    draw: ImageDraw.ImageDraw,
+    label_pos: tuple[int, int],
+    target: tuple[int, int],
+    label: str,
+    align: str,
+) -> None:
+    lx, ly = label_pos
+    label_font = font(TIMES_BOLD, 35)
+    tw, th = text_box(draw, label, label_font)
+    if align == "center":
+        text_x = lx - tw // 2
+    elif align == "right":
+        text_x = lx - tw
+    else:
+        text_x = lx
+    text_y = ly
+    draw.text((text_x, text_y), label, font=label_font, fill=INK, stroke_width=3, stroke_fill=(255, 255, 255, 235))
+
+    start = (lx, ly + th + 12)
+    if ly > target[1]:
+        start = (lx, ly - 8)
+    dx = target[0] - start[0]
+    dy = target[1] - start[1]
+    if not (dx or dy):
+        return
+    angle = math.atan2(dy, dx)
+    line_end = (
+        target[0] - math.cos(angle) * 18,
+        target[1] - math.sin(angle) * 18,
+    )
+    draw.line((start, line_end), fill=(255, 255, 255, 235), width=13)
+    draw.line((start, line_end), fill=(*PHOTON_DARK, 230), width=7)
+    size = 28
+    spread = 0.55
+    base = (
+        target[0] - math.cos(angle) * size,
+        target[1] - math.sin(angle) * size,
+    )
+    p1 = (
+        base[0] + math.cos(angle + math.pi / 2) * size * spread,
+        base[1] + math.sin(angle + math.pi / 2) * size * spread,
+    )
+    p2 = (
+        base[0] + math.cos(angle - math.pi / 2) * size * spread,
+        base[1] + math.sin(angle - math.pi / 2) * size * spread,
+    )
+    draw.polygon([target, p1, p2], fill=(255, 255, 255, 238))
+    draw.polygon([target, p1, p2], fill=(*PHOTON_DARK, 235))
+
+
 def draw_experiment_intro_layout(base: Image.Image, detector_img: Image.Image) -> None:
     draw = ImageDraw.Draw(base, "RGBA")
-    panel = (558, 326, 2002, 1220)
-    image_box = (604, 410, 1956, 1190)
+    draw_subsystem_group_text(draw)
+
+    panel = (950, 326, 2428, 1220)
+    image_box = (980, 342, 2400, 1190)
 
     shadow = Image.new("RGBA", base.size, (0, 0, 0, 0))
     sdraw = ImageDraw.Draw(shadow, "RGBA")
@@ -1399,8 +1529,6 @@ def draw_experiment_intro_layout(base: Image.Image, detector_img: Image.Image) -
     base.alpha_composite(shadow)
 
     draw.rounded_rectangle(panel, radius=14, fill=(255, 255, 255, 255), outline=(216, 225, 234, 255), width=2)
-    draw.text((604, 350), "sPHENIX detector systems", font=font(TIMES_BOLD, 38), fill=BLUE)
-    draw.text((1160, 358), "layered around the RHIC interaction point", font=font(TIMES_ITALIC, 27), fill=MUTED)
     draw.rounded_rectangle(image_box, radius=10, fill=(248, 250, 252, 255), outline=(224, 231, 238, 255), width=1)
 
     rendering = detector_img.convert("RGBA")
@@ -1411,26 +1539,14 @@ def draw_experiment_intro_layout(base: Image.Image, detector_img: Image.Image) -
 
     overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
     odraw = ImageDraw.Draw(overlay, "RGBA")
-    card_boxes: list[tuple[tuple[int, int, int, int], tuple[int, int], tuple[int, int, int], str]] = []
-    for label, expansion, body, color, target_rel, box_xy, side in EXPERIMENT_INTRO_CARDS:
-        if target_rel is None:
-            continue
-        ix0, iy0, ix1, iy1 = image_bounds
+    ix0, iy0, ix1, iy1 = image_bounds
+    for label, label_pos, target_rel, align in SUBSYSTEM_LABEL_ARROWS:
         target = (
             round(ix0 + target_rel[0] * (ix1 - ix0)),
             round(iy0 + target_rel[1] * (iy1 - iy0)),
         )
-        x, y = box_xy
-        w = 430 if x < W / 2 else 404
-        h = 174
-        start = (x + w, y + h // 2) if side == "left" else (x, y + h // 2)
-        draw_leader(odraw, start, target, color, side, approximate=label.startswith("MBD"))
-        card_boxes.append(((x, y, x + w, y + h), target, color, side))
+        draw_detector_direct_arrow(odraw, label_pos, target, label, align)
     base.alpha_composite(overlay)
-
-    draw = ImageDraw.Draw(base, "RGBA")
-    for label, expansion, body, color, _target_rel, box_xy, _side in EXPERIMENT_INTRO_CARDS:
-        draw_experiment_intro_card(draw, box_xy, label, expansion, body, color)
 
 
 def render_standalone_experiment_slide(output_dir: Path) -> Path:
@@ -1645,6 +1761,7 @@ def write_standalone_experiment_dataset_manifest(output_dir: Path, slide2: Path,
             "Slide 2 introduces the experiment only: the detector is centered, subsystem acronyms are expanded, and surrounding cards explain tracking, calorimetry, magnet, trigger, and luminosity context.",
             "Slide 2 callout leaders were corrected to avoid false detector precision: EMCal, HCal, tracking, and magnet point to visible subsystem regions; MBD points only to the forward beam-axis vicinity; barrel coverage has no arrow.",
             "Slide 2 callout leaders use white-underlay strokes, stronger colored lines, arrowheads, and large endpoint rings so the subsystem mapping is readable at presentation distance.",
+            "Slide 2 gives the EMCal and Barrel coverage cards extra vertical room so their final body-text lines are not cramped.",
             "Slide 3 introduces the dataset only: broad p+p availability, separate PPG12 Run 24 analysis luminosity, and muted heavy-ion context.",
             "Slide 4 can remain the isolated prompt-photon motivation slide, preserving a clean progression: experiment -> data -> object.",
             "No slide number or provenance footer is baked into either PNG.",

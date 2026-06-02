@@ -1,5 +1,5 @@
 schema_version: 1
-last_updated: "2026-06-02T01:56:00-04:00"
+last_updated: "2026-06-02T10:00:00-04:00"
 owner: Codex
 purpose: >
   Canonical active-work register for the ThesisAnalysis operating system.
@@ -99,13 +99,18 @@ linear:
 daily_cockpit:
   primary_surface: "Today's Plan"
   current_today_plan:
-    date: "2026-06-01"
-    title: "2026-06-01 - Today's Plan"
-    url: "https://docs.google.com/document/d/1KCNVzCn7XTTVTXorEpMiBUgUGPOCdjlislfDudUhipk/edit?usp=drivesdk"
+    date: "2026-06-02"
+    title: "2026-06-02 - Today's Plan"
+    url: "https://docs.google.com/document/d/1l4kVs8RGaQwMUOYZ129kSyHicRncqfE5MfeRZycIyc4/edit?usp=drivesdk"
     note: >
-      Created by the Google Drive connector. The exposed create_file action did
-      not support parent-folder targeting, so placement in workingTasks was not
-      verified by connector metadata.
+      Created by the Google Drive connector from the register render. The
+      exposed import action did not support parent-folder targeting, so
+      placement in workingTasks was not verified by connector metadata.
+      2026-06-02 formatting repair: the initial plain-text markdown import was
+      replaced with a compact native Google Docs cockpit using real list items,
+      HEADING_2 section bands, status-color cues, neutral body text, and
+      surgical bolding. Future daily-plan creation must not leave a raw
+      markdown/plain-text dump if import formatting fails.
   drive_folder: "workingTasks"
   rule: >
     Today's Plan is a short visual cockpit generated from active, running,
@@ -1009,7 +1014,8 @@ workstreams:
       - "2026-06-01T23:46:37-04:00 rerendered hp2026_slide02_sphenix_experiment_for_photons.png after cross-checking the Yeonju DIS2026 detector-overview slide: tracking now includes MVTX/INTT/TPC/TPOT and points to the inner tracking/beamline volume, EMCal/HCal/magnet leaders point to visible barrel regions, MBD points only to the forward beam-axis vicinity, and the barrel-coverage card has no leader. Py-compile, 2560x1440 RGB readback, manifest/script readback, contact-sheet QA, and full-size visual QA passed. No Google Slides mutation."
       - "2026-06-01T23:53:37-04:00 rerendered hp2026_slide02_sphenix_experiment_for_photons.png with presentation-distance arrow styling: white-underlay leader strokes, stronger colored lines, visible arrowheads placed before the target rings, larger endpoint rings, and stronger callout-card borders/header dots. Full-size visual QA confirmed the arrows are readable by eye while preserving the corrected detector-region targets; py-compile, 2560x1440 RGB readback, manifest readback, and contact-sheet QA passed. No Google Slides mutation."
       - "2026-06-01T23:59:18-04:00 rerendered hp2026_slide02_sphenix_experiment_for_photons.png after simplifying the visible MBD callout title from 'MBD / forward trigger' to 'MBD'. Full-size visual QA confirmed the box title is now MBD only, with the Minimum Bias Detector subtitle and explanatory body preserved; py-compile, 2560x1440 RGB readback, and manifest readback passed. No Google Slides mutation."
-    last_verified: "2026-06-01T23:59:18-04:00"
+      - "2026-06-02T11:13:48-04:00 rerendered hp2026_slide02_sphenix_experiment_for_photons.png after enlarging only the EMCal and Barrel coverage cards vertically from 174 px to 204 px so their bottom body-text lines have more room. Full-size visual QA confirmed the added space reduces cramping without disturbing arrow readability or other card placement; py-compile, 2560x1440 RGB readback, manifest readback, register validation, artifact-registry validation, and git diff --check passed. No Google Slides mutation."
+    last_verified: "2026-06-02T11:13:48-04:00"
     next_check: "after Justin reviews the C4 title, the standalone Slide 2 experiment context, standalone Slide 3 dataset context, isolated-photon motivation slide, and the paper-first Slides 4-11 full-talk PNG batch plus scripts, refine the local full-deck story; once approved, place or rebuild the approved images in HPslides_v1 for the Tuesday 2026-06-02 Anne/Anthony draft"
     stale_after: "2026-06-02T10:00:00-04:00"
     handoff_summary: >

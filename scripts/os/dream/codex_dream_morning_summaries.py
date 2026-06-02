@@ -178,22 +178,92 @@ def select_latest_by_lane(
     return selected, counts
 
 
-def markdown_bullets(payloads: list[dict[str, Any]]) -> list[str]:
+LANE_LABELS = {
+    "status_provenance": "Status provenance",
+    "architecture_cohesion": "Architecture cohesion",
+    "context_resonance": "Context resonance",
+    "cleanup_storage": "Cleanup/storage",
+    "path_contract": "Path contract",
+    "research_scout": "Research scout",
+    "science_scout": "Science scout",
+    "presentation_artifacts": "Presentation artifacts",
+}
+
+LANE_PURPOSES = {
+    "status_provenance": "checks whether active work, jobs, and evidence look stale or need a read-only morning status pass",
+    "architecture_cohesion": "checks whether the OS, doctor checks, automations, and register rules still agree with each other",
+    "context_resonance": "checks the retrieval/memory feedback loop for drift, bad synthetic promotion, or missing context cues",
+    "cleanup_storage": "checks local dream/research packs for safe retention, compaction, and cleanup proposals",
+    "path_contract": "checks whether repo path, script, and helper changes are packaged for waking validation instead of silent self-application",
+    "research_scout": "looks for research/process pressure points that may need a bounded waking research lane",
+    "science_scout": "looks for science-analysis pressure points that may need waking validation or a new task",
+    "presentation_artifacts": "checks slide/artifact hygiene and whether generated presentation assets need waking validation",
+}
+
+
+def lane_label(lane_id: object) -> str:
+    lane = str(lane_id or "")
+    return LANE_LABELS.get(lane, lane.replace("_", " ").title() or "Unknown lane")
+
+
+def status_phrase(status: object) -> str:
+    text = str(status or "no_safe_change")
+    return {
+        "changed": "Changed locally",
+        "failed": "Failed",
+        "deferred": "Deferred for waking Codex",
+        "no_safe_change": "Quiet / no action",
+    }.get(text, text.replace("_", " ").title())
+
+
+def action_phrase(item: dict[str, Any]) -> str:
+    status = str(item.get("status") or "no_safe_change")
+    if status == "changed":
+        return "No user action unless you want to inspect the local OS hygiene artifact."
+    if status == "deferred":
+        return "Treat this as a waking check, not as permission to mutate anything."
+    if status == "failed":
+        return "Inspect this before trusting the overnight dream bridge."
+    return "No action needed."
+
+
+def compact_text(value: object, *, limit: int = 240) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "..."
+
+
+def markdown_bullets(payloads: list[dict[str, Any]], missing_lane_ids: list[str] | None = None) -> list[str]:
     lines: list[str] = []
-    if not payloads:
+    missing = missing_lane_ids or []
+    if not payloads and not missing:
         return ["- No overnight dream update needs attention; internal checks stayed quiet."]
     lines.append("- Dream outputs are proposal-only: not user approval, not science evidence, not task completion.")
-    visible = [item for item in payloads if item.get("status") in {"changed", "failed", "deferred"}]
-    if not visible:
+    visible = [item for item in payloads if item.get("status") in {"changed", "failed", "deferred", "no_safe_change"}]
+    if not visible and not missing:
         lines.append("- No overnight dream update needs attention; internal checks stayed quiet.")
         return lines
-    for item in visible[:6]:
-        status = str(item.get("status") or "no_safe_change").upper()
-        lane = item.get("lane_id")
-        result = item.get("one_line_result") or "no summary"
-        lines.append(f"- **{status} {lane}:** {result}")
+    for item in visible:
+        lane = str(item.get("lane_id") or "")
+        result = compact_text(item.get("one_line_result") or "no summary")
+        purpose = LANE_PURPOSES.get(lane, "checks one scheduled dream lane")
+        lines.append(f"- **{lane_label(lane)} - {status_phrase(item.get('status'))}:** {purpose}.")
+        lines.append(f"  - Result: {result}")
+        if item.get("changed") and str(item.get("changed")) != "none":
+            lines.append(f"  - Changed: {compact_text(item.get('changed'))}")
+        if item.get("deferred") and str(item.get("deferred")) != "none":
+            lines.append(f"  - Waking check: {compact_text(item.get('deferred'))}")
+        evidence = item.get("evidence")
+        if evidence:
+            lines.append(f"  - Evidence: {compact_text(evidence)}")
+        lines.append(f"  - Action: {action_phrase(item)}")
         if item.get("needs_justin"):
             lines.append(f"  - Needs Justin: {item.get('needs_justin_reason') or 'review requested'}")
+    for lane in missing:
+        lines.append(f"- **{lane_label(lane)} - No eligible 03:30 summary found:** {LANE_PURPOSES.get(lane, 'scheduled dream lane')}.")
+        lines.append("  - Result: not shown in Today's Plan because the run did not produce an eligible scheduled-morning summary marker.")
+        lines.append("  - Action: fix the dream-lane summary marker if this lane should be part of the morning digest.")
     return lines
 
 
@@ -218,7 +288,7 @@ def build_combined_summary(
     changed = [item for item in payloads if item.get("status") == "changed"]
     deferred = [item for item in payloads if item.get("status") == "deferred"]
     failed = [item for item in payloads if item.get("status") == "failed"]
-    markdown = "\n".join(["## Overnight Dream Updates", *markdown_bullets(payloads), ""])
+    markdown = "\n".join(["## Overnight Dream Updates", *markdown_bullets(payloads, missing), ""])
     return {
         "generated_at": current.isoformat(timespec="seconds"),
         "window": window,
