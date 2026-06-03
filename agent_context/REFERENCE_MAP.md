@@ -18,13 +18,26 @@ memory.
 | Reference | Path | Use For |
 |---|---|---|
 | PPG12 codebase | `ppg12codeGit/` | Implementation precedent for pp photon ID, BDT/NPB, ABCD, purity, stitching, systematics, and plotting. |
-| PPG12 current IAN | `usefulDocs/PPG12_analysis_note_2026-05-21_v4_current_IAN.pdf` | Preferred current PPG12 internal analysis note. Use first for photon-ID, isolation, BDT/NPB, purity, pp baseline, and analysis-note logic. |
-| PPG12 current paper draft | `usefulDocs/sPHENIX_PPG12_Paper_2026-05-21_current_draft.pdf` | Preferred current paper-draft reference for final PPG12 wording, figures, and physics framing. |
+| PPG12 current IAN | `usefulDocs/PPG12_analysis_note_2026-05-21_v4_current_IAN.pdf` | Preferred current PPG12 internal analysis note for private analysis logic and slide planning only. Do not use IAN plots in public HP2026 slides unless they are separately released or explicitly approved for public use. |
+| PPG12 current paper draft | `usefulDocs/sPHENIX_PPG12_Paper_2026-05-21_current_draft.pdf` | Canonical HP2026 public-candidate PPG12 plot source for final wording, figures, and physics framing. The 2026-06-02 attachment from Downloads was byte-identical to this path by SHA-256. |
 | PPG12 legacy box-cut note | `usefulDocs/PPG12_analysis_note_2026-01-07_legacy_boxcut.pdf` | Historical reference for photon-ID box cuts and isolated-photon pp baseline when older context is needed. |
 | PPG12 legacy BDT note | `usefulDocs/PPG12_analysis_note_2026-05-03_legacy_withBDT.pdf` | Historical BDT/NPB reference; use only when comparing against older slide/code discussions or when v4 does not contain the needed detail. |
 | ATLAS gamma-jet note | `usefulDocs/Gamma_Jet_Analysis_Note (1).pdf` | Target gamma-jet analysis structure, xJgamma presentation, and final-analysis logic. |
 | PPG08 dijet xJ note | `usefulDocs/PPG_08_dijet_xJ_in_Au_Au___draft_Conference_note (7).pdf` | Au+Au xJ correction strategy, presentation style, and dijet-analysis analogy. |
 | GL1/GTM manual | `usefulDocs/Gl1-gtm_user_manual_v53.pdf` | Trigger semantics, live/scaled/raw/scaledown interpretation. |
+
+## HP2026 Public Plot Rule
+
+- For the public Hard Probes isolated-prompt-photon deck, use PPG12 plots only
+  from the current paper PDF above, or from another explicitly public/approved
+  source recorded in the slide manifest.
+- IAN plots, internal ROOT/data-generated plots, screenshot crops from backup
+  slides, and private collaborator plots are planning placeholders only until a
+  public/approved source is identified.
+- The deck remains incomplete for public presentation while embedded PPG12 plots
+  still carry `sPHENIX Internal` labels. Replace with `Preliminary`/approved
+  public labels, or otherwise document collaboration approval, before treating
+  the slide as public-ready.
 
 ## PPG12 Code Areas To Inspect First
 
@@ -110,10 +123,12 @@ slide 3 of `WP_GammaJets_5_20_26`
 
 ## Decision Rules
 
-- For photon-ID cuts, start with the current PPG12 IAN and paper draft before
-  Au+Au changes.
-- For BDT/NPB cuts, start with the current PPG12 IAN, paper draft, and
-  `FunWithxgboost`.
+- For private photon-ID cut interpretation, start with the current PPG12 IAN
+  and paper draft before Au+Au changes; for public HP slide plots, use the
+  paper/public-approved source rule above.
+- For private BDT/NPB cut interpretation, start with the current PPG12 IAN,
+  paper draft, and `FunWithxgboost`; for public HP slide plots, use the
+  paper/public-approved source rule above.
 - For pp baseline comparisons, preserve PPG18/PPG12 behavior unless there is a
   documented reason to diverge.
 - For Au+Au photon ID, treat new BDT/NPB/JetML variants as extensions that

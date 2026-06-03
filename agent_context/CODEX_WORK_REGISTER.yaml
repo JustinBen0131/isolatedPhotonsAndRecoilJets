@@ -1,5 +1,5 @@
 schema_version: 1
-last_updated: "2026-06-02T10:00:00-04:00"
+last_updated: "2026-06-02T21:51:49-04:00"
 owner: Codex
 purpose: >
   Canonical active-work register for the ThesisAnalysis operating system.
@@ -119,7 +119,7 @@ daily_cockpit:
   active_working_point_deck:
     label: "WORKING POINT"
     title: "current working-point slides"
-    url: "https://docs.google.com/presentation/d/1-2l9IWNJMpFfunoShVrYk3ywtrIocMWMyePYnR85_zc/edit?slide=id.g3a89b5423f1_0_265#slide=id.g3a89b5423f1_0_265"
+    url: "https://docs.google.com/presentation/d/1GAoEcN9UGOkUVxTgT0m1vRhghl3O1jd28LwSHg9klBs/edit?slide=id.g3a89b5423f1_0_265#slide=id.g3a89b5423f1_0_265"
     rollover_rule: >
       Every new Today's Plan must include this line near the top. Copy the
       WORKING POINT link from the previous daily plan unless Justin edits that
@@ -853,30 +853,26 @@ workstreams:
       photon-identification slide package, then send Anne and Anthony a clean
       draft by Tuesday 2026-06-02.
     current_next_action: >
-      C4 title slide is generated locally and pending Justin
-      approval/insertion: hp2026_title_C4_final_institutional_photon_polish.png.
-      Opening-sequence review target is now the standalone local PNG pair:
-      Slide 2 hp2026_slide02_sphenix_experiment_for_photons.png introduces
-      sPHENIX and the photon-relevant detector systems; Slide 3
-      hp2026_slide03_pp_dataset_context.png introduces broad p+p availability,
-      separately calls out the PPG12 Run 24 analysis luminosity, and keeps
-      Au+Au/O+O as muted future-program context. The earlier two-frame
-      click-through Slide 2 build remains available only as an optional
-      alternate, not the recommended insertion path. Full-talk review target is
-      the local Slides
-      4-11 PNG batch under
-      outputs/manual-20260601-hp2026-fulltalk/presentations/hp2026-fulltalk/output.
-      It uses paper-first PPG12 plots cropped from
-      usefulDocs/sPHENIX_PPG12_Paper_2026-05-21_current_draft.pdf, IAN only
-      for method/story wording, and no internal ROOT/data-generated physics
-      plots. Do not mutate Google Slides before Justin approves the PNGs.
+      Review the new two-slide closing replacement candidates:
+      hp2026_slide13_main_cross_section_full_glory.png and
+      hp2026_slide14_phenix_systematics_closing.png, together with the current
+      public-source-safe combined Slide 7/8 replacement candidate
+      hp2026_slide07_public_ncb_preselection_photonid_bdt.png. If Justin
+      approves the story, renumber/repair the downstream sequence locally
+      before any Google Slides mutation. The public-readiness caveat remains:
+      embedded paper plots still say sPHENIX Internal until Preliminary or
+      approved public labels, or documented approval, exist. In parallel on
+      2026-06-03, start the high-radar backup-slide/script/Q&A pass: outline
+      deeper ML/BDT/NCB/preselection/shower-shape/isolation/purity backup
+      slides and anticipated expert questions, with a checkpoint on
+      2026-06-17 before HP week.
     depends_on: []
     active_codex_session: "hard probes slide generator chat: full-talk PNG batch 2026-06-01"
     chat_label_or_thread: "hard probes slide generator chat"
     campaign_id: "hp2026_photon_talk"
     linear_issue: "https://linear.app/thesisanalysis/issue/THE-5/p0-campaign-or-hp2026-photon-talk"
     linear_sync: synced
-    today_doc_anchor: "2026-06-01 Today's Plan: Do First Today / THE-5"
+    today_doc_anchor: "2026-06-02 Today's Plan: Do First Today / THE-5 plus backlog radar for 2026-06-03 backup slides/Q&A"
     workstream_spec: null
     active_jobs: []
     artifacts:
@@ -945,6 +941,8 @@ workstreams:
       - "outputs/manual-20260601-hp2026-fulltalk/presentations/hp2026-fulltalk/output/hp2026_slide09_systematics_controlled_chain.png"
       - "outputs/manual-20260601-hp2026-fulltalk/presentations/hp2026-fulltalk/output/hp2026_slide10_main_cross_section_result.png"
       - "outputs/manual-20260601-hp2026-fulltalk/presentations/hp2026-fulltalk/output/hp2026_slide11_sphenix_hard_probes_baseline.png"
+      - "outputs/manual-20260601-hp2026-fulltalk/presentations/hp2026-fulltalk/output/hp2026_slide13_main_cross_section_full_glory.png"
+      - "outputs/manual-20260601-hp2026-fulltalk/presentations/hp2026-fulltalk/output/hp2026_slide14_phenix_systematics_closing.png"
       - "outputs/manual-20260601-hp2026-fulltalk/presentations/hp2026-fulltalk/output/manifest.json"
       - "outputs/manual-20260601-hp2026-fulltalk/presentations/hp2026-fulltalk/output/speaker_scripts"
       - "scripts/slides/hp2026/fulltalk/make_hp2026_fulltalk_candidates.py"
@@ -1015,9 +1013,32 @@ workstreams:
       - "2026-06-01T23:53:37-04:00 rerendered hp2026_slide02_sphenix_experiment_for_photons.png with presentation-distance arrow styling: white-underlay leader strokes, stronger colored lines, visible arrowheads placed before the target rings, larger endpoint rings, and stronger callout-card borders/header dots. Full-size visual QA confirmed the arrows are readable by eye while preserving the corrected detector-region targets; py-compile, 2560x1440 RGB readback, manifest readback, and contact-sheet QA passed. No Google Slides mutation."
       - "2026-06-01T23:59:18-04:00 rerendered hp2026_slide02_sphenix_experiment_for_photons.png after simplifying the visible MBD callout title from 'MBD / forward trigger' to 'MBD'. Full-size visual QA confirmed the box title is now MBD only, with the Minimum Bias Detector subtitle and explanatory body preserved; py-compile, 2560x1440 RGB readback, and manifest readback passed. No Google Slides mutation."
       - "2026-06-02T11:13:48-04:00 rerendered hp2026_slide02_sphenix_experiment_for_photons.png after enlarging only the EMCal and Barrel coverage cards vertically from 174 px to 204 px so their bottom body-text lines have more room. Full-size visual QA confirmed the added space reduces cramping without disturbing arrow readability or other card placement; py-compile, 2560x1440 RGB readback, manifest readback, register validation, artifact-registry validation, and git diff --check passed. No Google Slides mutation."
-    last_verified: "2026-06-02T11:13:48-04:00"
-    next_check: "after Justin reviews the C4 title, the standalone Slide 2 experiment context, standalone Slide 3 dataset context, isolated-photon motivation slide, and the paper-first Slides 4-11 full-talk PNG batch plus scripts, refine the local full-deck story; once approved, place or rebuild the approved images in HPslides_v1 for the Tuesday 2026-06-02 Anne/Anthony draft"
-    stale_after: "2026-06-02T10:00:00-04:00"
+      - "2026-06-02T18:10:00-04:00 verified from the current PPG12 IAN/paper that the exact same-pT E11/E33 three-stage flow is not available as a clean approved figure: Fig. 13 no-preselection high-pT is 22-28 GeV, Fig. 19 preselection high-pT is 18-22 GeV, and tight examples include 22-28 GeV. Local Slide 8 was regenerated as a representative three-stage crop from backup Slide 13, but Justin requested Shuhang regenerate or point to data for same-pT clean plots before using it as final."
+      - "2026-06-02T18:18:00-04:00 deleted the temporary Google Calendar reminder 'Ask Shuhang to regenerate Slide 8 plots' and converted it into this THE-5 task/register/Linear/Today's Plan follow-up instead."
+      - "2026-06-02T18:23:00-04:00 updated 2026-06-02 Today's Plan document 1l4kVs8RGaQwMUOYZ129kSyHicRncqfE5MfeRZycIyc4 so the top THE-5 Do First item says Slide 8 needs same-pT E11/E33 no-preselection -> preselection -> tight-ID plots or a source path from Shuhang before treating it final; connector readback confirmed the replacement."
+      - "2026-06-02T19:33:00-04:00 patched scripts/slides/hp2026/fulltalk/make_hp2026_fulltalk_candidates.py and rerendered hp2026_slide08_tight_photon_id_performance.png so the training-card background row now reads 'complement of prompt definition in inclusive-jet PYTHIA MC'; matching speaker script wording was regenerated. Py-compile, 2560x1440 PNG readback, script text readback, visual QA, and git diff --check passed."
+      - "2026-06-02T19:55:00-04:00 verified Justin's attached sPHENIX_PPG12_Paper (1).pdf is byte-identical to usefulDocs/sPHENIX_PPG12_Paper_2026-05-21_current_draft.pdf by SHA-256 de51743691529a15d35152d71112f45fa3465ec9c219ccaa3b4ab2dacc258e9d. Tightened THE-5 source rules: HP public PPG12 plots must come from the current paper PDF or another explicitly public/approved source; IAN-derived plots, backup-slide screenshot crops, and collaborator-only internal figures are placeholders only; paper plots labeled sPHENIX Internal keep the slides incomplete for public use until Preliminary/approved public-label replacements or documented approval exist."
+      - "2026-06-02T20:07:00-04:00 enhanced hp2026_slide09_isolation_physics_clean.png with an audience-facing Fig. 3 decoding panel: black points = tight-ID data after preselection, red shade = non-tight-ID background-enriched sideband data, blue shade = tight-ID prompt-photon signal MC, plus a cleaned isolation-axis panel. Matching speaker script was regenerated; py-compile, 2560x1440 PNG readback, script readback, visual QA, and git diff --check passed."
+      - "2026-06-02T20:09:09-04:00 generated hp2026_slide07_public_ncb_preselection_photonid_bdt.png as a public-source-safe combined replacement candidate for old Slide 7/8. It uses only PPG12 paper Fig. 1 and Fig. 2 plus generated explanatory flow for raw EMCal clusters -> NCB cleaning BDT -> preselection shape gates -> photon-ID BDT score -> tight/non-tight ID regions. Visual QA confirmed the two plots and bottom flow are readable; no Google Slides mutation."
+      - "2026-06-02T20:12:00-04:00 updated hp2026_slide09_isolation_physics_clean.png again to restore the explicit isolation cut definition, the ~80% isolation-efficiency tuning, the cut+0.8 GeV non-isolated sideband separation, and a compact ABCD purity-region box. Matching speaker script now narrates these points; py-compile, 2560x1440 PNG readback, script readback, visual QA, and git diff --check passed."
+      - "2026-06-02T20:20:06-04:00 qualitatively enhanced hp2026_slide07_public_ncb_preselection_photonid_bdt.png by replacing the cramped five-step flow with a larger three-stage mechanism strip: Clean the pool, Prepare feature space, Define the ID axis. The revised strip uses larger text, numbered stage badges, more whitespace, and tight/non-tight ID pills as the visual endpoint. Visual QA confirmed no clipping or overlap and no Google Slides mutation."
+      - "2026-06-02T20:28:13-04:00 enlarged the top-right Fig. 2 panel in hp2026_slide07_public_ncb_preselection_photonid_bdt.png by removing the stacked text badges, cropping extra paper-figure whitespace, giving the plot the full card body, and moving interpretation into the mechanism strip. Visual QA confirmed the plot labels/axes are substantially more readable; no Google Slides mutation."
+      - "2026-06-02T20:35:06-04:00 removed the outer shadowed white container around the bottom mechanism row in hp2026_slide07_public_ncb_preselection_photonid_bdt.png. The three logic blocks now sit directly on the slide background, spread wider across the canvas, and use larger text while preserving the same paper-only Fig. 1/Fig. 2 source posture. Visual QA confirmed no footer collision; no Google Slides mutation."
+      - "2026-06-02T20:39:25-04:00 adjusted the Slide 7 top plot-card geometry so the two white shadowed evidence panels start below the header rule and end higher above the mechanism-row label. The regenerated hp2026_slide07_public_ncb_preselection_photonid_bdt.png keeps the same paper-only Fig. 1/Fig. 2 content, with improved vertical breathing room and no Google Slides mutation."
+      - "2026-06-02T20:43:11-04:00 enlarged the paper Fig. 1 shower-shape plots inside the top-left Slide 7 card by cropping extra figure whitespace and expanding the paste area. Replaced the shaded blue 'Point:' callout with an unshaded note line using a small note icon and bold 'Note:' label. Visual QA confirmed the top-left plots are larger and the note treatment is cleaner; no Google Slides mutation."
+      - "2026-06-02T20:47:55-04:00 shifted the entire Slide 7 bottom mechanism group upward as one unchanged chunk, from the 'Mechanism: clean, prepare, then classify' title through the three flow boxes, so it is centered between the top evidence cards and the HP2026 footer rule. Visual QA confirmed the group no longer sits directly on the footer line; no Google Slides mutation."
+      - "2026-06-02T20:51:44-04:00 enlarged the subtitles in both top Slide 7 evidence cards from 20 px to 25 px for audience readability and reduced/lowered the top-card plot fit boxes slightly, especially the RHS Fig. 2 BDT plot, so the larger text has clear space. Visual QA confirmed the subtitles are readable and the source posture remains paper Fig. 1/Fig. 2 only; no Google Slides mutation."
+      - "2026-06-02T20:54:02-04:00 recentered the numbered badges in the Slide 7 bottom mechanism flow by placing each digit from its actual rendered text bounding box inside the circle, instead of using a fixed manual y-offset. Visual QA confirmed the 1/2/3 labels are centered; no Google Slides mutation."
+      - "2026-06-02T20:59:46-04:00 updated the on-slide Note text in hp2026_slide07_public_ncb_preselection_photonid_bdt.png from 'data are still background-rich' to 'data still background-rich' and rerendered the local PNG. Visual QA confirmed the wording; no Google Slides mutation."
+      - "2026-06-02T21:14:29-04:00 Justin asked to add a reminder/task-list item for tomorrow to keep HP2026 backup slides, deeper ML specifics, script preparation, and anticipated-question preparation high on the radar; first calendar reminder is 2026-06-03 09:00 ET (event lhq0kd7qgn4sp02svador39dlo) and checkpoint reminder is 2026-06-17 09:00 ET (event jvl7drmbtfo6olqcoha6rnl9cs)."
+      - "2026-06-02T21:17:09-04:00 projected the HP2026 backup-slide/Q&A radar item to Linear THE-5 in comment dc7c9072-9d87-49a7-ba75-b72e691549dc and to the 2026-06-02 Today's Plan backlog in document 1l4kVs8RGaQwMUOYZ129kSyHicRncqfE5MfeRZycIyc4; connector readback confirmed the new backlog bullet."
+      - "2026-06-02T21:24:27-04:00 generated two local 2560x1440 closing replacement PNGs from the current PPG12 paper only: hp2026_slide13_main_cross_section_full_glory.png uses Fig. 8 as the result slide with three read guides, and hp2026_slide14_phenix_systematics_closing.png uses Fig. 9 as the RHIC comparison plus Fig. 7 as the systematics inset. Companion spoken scripts were generated; manifest readback records Fig. 7/8/9 paper crops and google_slides_mutation=false; py-compile, PNG dimension checks, visual QA, and git diff --check passed."
+      - "2026-06-02T21:51:49-04:00 regenerated the three BDT progressive-focus PNG frames hp2026_slide06A_bdt_focus_manual_cuts.png, hp2026_slide06B_bdt_focus_tree_build.png, and hp2026_slide06_bdt_conceptual_photon_id_score.png after changing the shared top-ribbon engine box to read 'Photon-ID Engine' over '= BDT' with a smaller gear icon. Google Slides mutation preflight passed with snapshot 20260603T014551Z-hp2026-bdt-engine-slides-8-10-replace, then HPslides_v1 slides 8-10 were updated by replacing only their full-slide PNG image objects. Connector readback and fresh curled 1600x900 thumbnails confirmed the intended deck/slides and preserved native slide-number boxes."
+      - "2026-06-02T22:03:00-04:00 Justin disliked the 'Photon-ID Engine = BDT' engine-box change and explicitly requested reverting both the live slides and the corresponding code. Reverted the shared BDT ribbon block in make_hp2026_fulltalk_candidates.py to 'BDT engine' / 'learned classifier', regenerated the three BDT focus PNGs, and replaced only the full-slide PNG image objects on HPslides_v1 slides 8-10. Guard snapshot/preflight 20260603T015715Z-hp2026-revert-bdt-engine-slides-8-10 passed; connector readback and fresh curled 1600x900 thumbnails confirmed the revert and preserved native slide-number boxes."
+      - "2026-06-02T22:03:20-04:00 projected the Slides 8-10 BDT-engine revert to Linear THE-5 in comment c8f5d515-54c9-425f-91a6-8e253228ec80."
+    last_verified: "2026-06-02T22:03:20-04:00"
+    next_check: "2026-06-03T09:00:00-04:00 for the backup-slide/Q&A radar block; after Justin reviews hp2026_slide13_main_cross_section_full_glory.png, hp2026_slide14_phenix_systematics_closing.png, and hp2026_slide07_public_ncb_preselection_photonid_bdt.png, either refine these local candidates or approve them as the basis for renumbering/repairing the downstream sequence locally before Google Slides mutation"
+    stale_after: "2026-06-04T12:00:00-04:00"
     handoff_summary: >
       Governing deadline driver is HPslides_v1 and the Tuesday 2026-06-02 draft to Anne
       and Anthony. The confirmed HP2026 slot is a parallel oral in Parallels:
@@ -1034,6 +1055,31 @@ workstreams:
       current IAN/paper. The first title-slide PNG eye-exam batch now exists
       locally under outputs/manual-20260601-hp2026-title/presentations/hp2026-title-slide/output;
       current title-slide review target is hp2026_title_C4_final_institutional_photon_polish.png.
+      Public-source rule as of 2026-06-02 evening: use PPG12 plot images in the
+      HP public deck only from the current paper PDF or another explicitly
+      public/approved source. IAN-derived plots, backup-slide screenshot crops,
+      and collaborator-only internal figures are placeholders only. Current
+      Slide 7 NPB plots and Slide 8 E11/E33 flow need replacement/removal or
+      explicit public approval before HP use. Paper plots still labeled
+      sPHENIX Internal leave the slide incomplete until replaced by
+      Preliminary/approved public-label versions or documented approval. A
+      public-source-safe combined replacement candidate now exists:
+      outputs/manual-20260601-hp2026-fulltalk/presentations/hp2026-fulltalk/output/hp2026_slide07_public_ncb_preselection_photonid_bdt.png,
+      with script and manifest in the same output folder. It uses current-paper
+      Fig. 1 and Fig. 2 plus generated explanatory flow to distinguish NCB
+      candidate-pool cleaning from the photon-ID BDT axis.
+      A two-slide closing replacement now exists locally:
+      outputs/manual-20260601-hp2026-fulltalk/presentations/hp2026-fulltalk/output/hp2026_slide13_main_cross_section_full_glory.png
+      gives paper Fig. 8 the main-result treatment, and
+      outputs/manual-20260601-hp2026-fulltalk/presentations/hp2026-fulltalk/output/hp2026_slide14_phenix_systematics_closing.png
+      closes with paper Fig. 9 plus Fig. 7. Companion spoken scripts are in
+      the output/speaker_scripts folder, and manifest.json records the paper
+      crop provenance with google_slides_mutation=false.
+      A high-radar backup-slide/script/Q&A prep item is now attached to THE-5:
+      start on 2026-06-03 by outlining deeper ML/BDT/NCB/preselection,
+      shower-shape, isolation, purity, and expert-question backups, and use
+      the 2026-06-17 calendar checkpoint as the latest substantial-ready target
+      before HP/Vanderbilt week.
       The recommended opening sequence now uses normal consecutive local
       2560x1440 PNG slides, not a progressive build:
       outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_slide02_sphenix_experiment_for_photons.png
@@ -2074,6 +2120,47 @@ workstreams:
       background mixture, PPG12-exact weights, split mode, and validation gates
       matched to the current selected Branch A baseline. Compare WP80 fake rate
       and isolation/ABCD closure first, then AUC.
+
+  - workstream_id: central_low_calo_energy_bdt_cuts
+    title: P1 ML Check | Remove anomalous central low-calorimeter-energy events before BDT training
+    status: active
+    priority: P1
+    goal: >
+      Define and validate a defensible cut strategy for central Au+Au events
+      with abnormally little calorimeter energy before they enter BDT training,
+      so the final photon-ID model does not learn detector/data-quality
+      pathology.
+    current_next_action: >
+      By Thursday evening 2026-06-04, identify candidate observables for
+      central low-calorimeter-energy events, propose the smallest first
+      threshold/cut diagnostic, and prepare a concise Friday PPG update.
+    depends_on:
+      - THE-8 final photon-ID model-choice context
+      - read-only diagnostic first; no new training or SDCC mutation without explicit approval
+    active_codex_session: null
+    chat_label_or_thread: "THE8CentralLowCaloCuts"
+    campaign_id: "final_model_choice"
+    codex_thread_id: null
+    linear_issue: "https://linear.app/thesisanalysis/issue/THE-32/p1-ml-check-or-remove-anomalous-central-low-calorimeter-energy-events"
+    linear_sync: synced
+    today_doc_anchor: "2026-06-02 Today's Plan: Active Workstreams / THE-32"
+    workstream_spec: null
+    active_jobs: []
+    artifacts: []
+    evidence:
+      - "2026-06-02 Blair Seidlitz: central events with very little calorimeter energy should get removal cuts and those cuts should be imposed in training so the BDT is not confused."
+      - "2026-06-02 Justin replied that he would try to provide an update in Friday's PPG meeting."
+      - "2026-06-02 Linear THE-32 created with due date 2026-06-04 and linked/commented from parent campaign THE-8."
+    last_verified: "2026-06-02T16:04:00-04:00"
+    next_check: "2026-06-04 evening: verify whether a first cut/observable proposal exists for Friday PPG"
+    stale_after: "2026-06-04T20:00:00-04:00"
+    handoff_summary: >
+      Active Thursday-deadline child of THE-8. First step is a read-only
+      diagnostic proposal: choose candidate observables/thresholds for
+      anomalous central events with little calorimeter energy and define how to
+      test training/validation with and without the cut. Do not submit
+      retraining or mutate SDCC without explicit approval and duplicate-run
+      guard.
 
   - workstream_id: logreg_bdt_decision_structure_check
     title: Logistic Regression Check | BDT Decision-Structure Probe

@@ -314,21 +314,32 @@ artifacts:
     source_inputs:
       - "Justin request: generate Slides 4-11 as local 2560x1440 PNG candidates for an 11-slide, 15-minute HP2026 isolated prompt-photon talk."
       - "Main plot source: usefulDocs/sPHENIX_PPG12_Paper_2026-05-21_current_draft.pdf"
-      - "Method/detail wording reference: usefulDocs/PPG12_analysis_note_2026-05-21_v4_current_IAN.pdf"
+      - "Private method/detail reference only: usefulDocs/PPG12_analysis_note_2026-05-21_v4_current_IAN.pdf. IAN plots are not HP-public-safe unless separately released or explicitly approved."
       - "Existing local title/opening candidates: HP2026 title C4 plus hp2026_slide02_detector_data_context.png and hp2026_slide03_isolated_photon_motivation.png"
       - "scripts/slides/hp2026/fulltalk/make_hp2026_fulltalk_candidates.py"
     generation_command: "env PYTHONPYCACHEPREFIX=/private/tmp/codex_pycache /Users/patsfan753/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 scripts/slides/hp2026/fulltalk/make_hp2026_fulltalk_candidates.py"
     qa_state: qa_passed
     qa_evidence:
       - "2026-06-01T21:08:36-04:00 generated hp2026_slide04 through hp2026_slide11 as 2560x1440 RGB local PNG candidates, plus speaker scripts, manifest.json, and hp2026_slides04_11_contact_sheet.png."
-      - "Manifest readback confirms google_slides_mutation=false, main_plot_posture=paper-first, main_physics_plot_source=usefulDocs/sPHENIX_PPG12_Paper_2026-05-21_current_draft.pdf, method_detail_reference=usefulDocs/PPG12_analysis_note_2026-05-21_v4_current_IAN.pdf, no_internal_root_or_data_plots=true, and qa_contact_sheet points to the persistent output contact sheet."
+      - "Manifest readback confirms google_slides_mutation=false, main_plot_posture=paper-first, main_physics_plot_source=usefulDocs/sPHENIX_PPG12_Paper_2026-05-21_current_draft.pdf, private_method_detail_reference=usefulDocs/PPG12_analysis_note_2026-05-21_v4_current_IAN.pdf, ian_and_screenshot_plots_public_status=placeholder_only_not_public_safe, no_internal_root_or_data_plots=true, and qa_contact_sheet points to the persistent output contact sheet."
       - "Embedded PPG12 assets are recorded as paper plot crops for paper Figs. 1-9; generated graphics are recorded only as explanatory scaffolding."
+      - "2026-06-02T19:55:00-04:00 tightened public-source status after Shuhang guidance: HP2026 public PPG12 plot images must come from the current paper PDF or another explicitly public/approved source. Existing IAN-derived figures and screenshot crops are placeholders only, and paper plots with sPHENIX Internal labels leave the slide incomplete for public use until replaced by Preliminary/approved public-label versions or otherwise documented as approved."
+      - "2026-06-02T20:09:09-04:00 generated hp2026_slide07_public_ncb_preselection_photonid_bdt.png as a public-source-safe combined replacement candidate for the old Slide 7/8 NPB and photon-ID evidence path. It uses only current-paper Fig. 1 and Fig. 2, records no IAN/screenshot plot sources in its candidate manifest, and keeps generated flow graphics as explanatory scaffolding."
+      - "2026-06-02T20:20:06-04:00 enhanced hp2026_slide07_public_ncb_preselection_photonid_bdt.png by replacing the cramped five-card flow with a larger three-stage mechanism strip: Clean the pool, Prepare feature space, Define the ID axis. The revised strip uses larger text, numbered stage badges, more whitespace, and tight/non-tight ID pills as the visual endpoint."
+      - "2026-06-02T20:28:13-04:00 enlarged the top-right Fig. 2 plot treatment by removing the stacked callout badges, cropping extra figure whitespace, and giving the paper plot the full card body. The mechanism strip now carries the tight/non-tight interpretation so the plot labels and axes remain audience-readable."
+      - "2026-06-02T20:35:06-04:00 removed the shadowed white outer container from the bottom mechanism row, widened the three stage blocks directly on the slide background, and increased row typography. Visual QA confirmed the row no longer reads as a boxed card and does not collide with the HP2026 footer."
+      - "2026-06-02T20:39:25-04:00 shortened and lowered the two top white plot cards so they no longer touch the header rule and have clearer separation from the mechanism-row label while preserving the same paper Fig. 1/Fig. 2 content."
+      - "2026-06-02T20:43:11-04:00 enlarged the top-left Fig. 1 shower-shape plot treatment and replaced the shaded 'Point:' band with an unshaded note icon plus bold 'Note:' text line."
+      - "2026-06-02T20:47:55-04:00 shifted the full bottom mechanism group upward without changing its contents so the group sits more evenly between the top cards and the footer rule."
+      - "2026-06-02T20:51:44-04:00 increased both top-card subtitle fonts from 20 px to 25 px and slightly reduced/lowered the plot fit areas, especially the RHS BDT plot, to keep the enlarged explanatory text audience-readable."
+      - "2026-06-02T20:54:02-04:00 recentered the 1/2/3 text inside the flow-chart circles using actual rendered text bounds rather than a fixed offset."
+      - "2026-06-02T20:59:46-04:00 changed the top-left card note wording to 'data still background-rich' and rerendered the local Slide 7 PNG."
       - "Python compile check passed for scripts/slides/hp2026/fulltalk/make_hp2026_fulltalk_candidates.py."
       - "Pillow readback confirmed all eight output PNGs are (2560, 1440) RGB."
       - "Visual QA opened the contact sheet plus full-size Slide 4, Slide 10, and revised Slide 11; Slide 11 was rerendered after converting the clipped closing diagram into a compact horizontal sequence."
-    limitations: "Local PNG candidates only; not inserted into Google Slides and not yet approved by Justin. Paper plots are cropped from the current draft PDF rather than regenerated, so any later paper update requires rerendering/checking the batch."
+    limitations: "Local PNG candidates only; not inserted into Google Slides and not yet approved by Justin. Public HP use is blocked for any slide using IAN-derived figures, backup-slide screenshot crops, or paper plots still labeled sPHENIX Internal; replace those with current-paper/public-approved Preliminary versions or record explicit approval before treating the slide as public-ready."
     destination: "HPslides_v1 Slides 4-11 review candidates for THE-5 HP2026 Photon Talk"
-    last_verified: "2026-06-01T21:08:46-04:00"
+    last_verified: "2026-06-02T20:59:46-04:00"
 
   - artifact_id: hp2026_photon_detector_motif_variants_v1
     kind: transparent_png_motif_batch

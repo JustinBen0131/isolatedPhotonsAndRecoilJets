@@ -271,20 +271,20 @@ def add_footer_branding_logo_rail_no_illinois(base: Image.Image, assets: dict[st
 def add_footer_branding_logo_rail_final(base: Image.Image, assets: dict[str, Image.Image]) -> None:
     draw = ImageDraw.Draw(base)
     rail_top = 1238
-    logo_top = 1248
-    logo_bottom = 1396
+    logo_top = 1246
+    logo_bottom = 1398
     draw.line((132, rail_top, W - 132, rail_top), fill=(224, 229, 235), width=2)
 
-    paste_fit(base, assets["sphenix_blue"], (226, logo_top - 2, 724, logo_bottom + 2), "center")
-    paste_fit(base, assets["bnl"], (842, logo_top - 2, 1426, logo_bottom + 2), "center")
+    paste_fit(base, assets["sphenix_blue"], (190, logo_top, 760, logo_bottom), "center")
+    paste_fit(base, assets["bnl"], (950, logo_top + 6, 1550, logo_bottom - 6), "center")
     if "doe" in assets:
-        paste_fit(base, assets["doe"], (1576, logo_top - 2, 2298, logo_bottom + 2), "center")
+        paste_fit(base, assets["doe"], (1752, logo_top - 2, 2388, logo_bottom + 2), "center")
     else:
-        draw.text((1640, logo_top + 26), DOE_LINE_1, font=font(TIMES_BOLD, 39), fill=INK)
-        draw.text((1640, logo_top + 74), DOE_LINE_2, font=font(TIMES, 32), fill=MUTED)
+        draw.text((1800, logo_top + 26), DOE_LINE_1, font=font(TIMES_BOLD, 39), fill=INK)
+        draw.text((1800, logo_top + 74), DOE_LINE_2, font=font(TIMES, 32), fill=MUTED)
 
-    for x in (782, 1502):
-        draw.line((x, logo_top + 12, x, logo_bottom - 12), fill=(229, 233, 238), width=2)
+    for x in (820, 1686):
+        draw.line((x, logo_top + 16, x, logo_bottom - 16), fill=(232, 236, 240), width=2)
 
 
 def add_photo_panel(

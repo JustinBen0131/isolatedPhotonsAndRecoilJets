@@ -46,6 +46,8 @@ PANEL = (246, 249, 252)
 PANEL_EDGE = (218, 226, 235)
 CARD = (255, 255, 255)
 CARD_EDGE = (223, 229, 236)
+HP2026_FOOTER_RULE = (217, 225, 233)
+HP2026_FOOTER_RULE_RGBA = (*HP2026_FOOTER_RULE, 255)
 
 TITLE = "Why isolated prompt photons?"
 SUBTITLE = "A color-neutral hard probe for the p+p baseline at RHIC"
@@ -87,6 +89,12 @@ CONTEXT_REASONS = [
 
 REAL_DETECTOR_PHOTO = ASSET_DIR / "bnl_sphenix_banner_detector.jpg"
 REAL_DETECTOR_RENDERING = ASSET_DIR / "bnl_sphenix_detector_rendering.jpg"
+CURRENT_SLIDE2_SUBSYSTEM_SCREENSHOT = ASSET_DIR / "hp2026_slide02_current_subsystems_body_20260602.png"
+USER_DETECTOR_CLEAN_REFERENCE = ASSET_DIR / "sphenix_detector_clean_reference_user_20260602.png"
+USER_DETECTOR_ANNOTATED_REFERENCE = ASSET_DIR / "sphenix_detector_annotated_reference_user_20260602.png"
+USER_DETECTOR_TARGET_LAYOUT = ASSET_DIR / "sphenix_detector_target_layout_user_20260602.png"
+USER_DETECTOR_THREE_ARROW_TARGET = ASSET_DIR / "sphenix_detector_three_arrow_target_user_20260602.png"
+USER_DETECTOR_EXACT_ARROW_LAYOUT = ASSET_DIR / "sphenix_detector_exact_arrow_layout_user_20260602.png"
 REAL_DETECTOR_SOURCE = {
     "primary_image": "https://www.bnl.gov/rhic/images/banner-sphenix-2.jpg",
     "primary_page": "https://www.bnl.gov/rhic/sphenix.php",
@@ -294,28 +302,52 @@ SUBSYSTEM_LABEL_ARROWS = [
     ("solenoid", (2248, 726), (0.70, 0.50), "center"),
 ]
 
+RECREATED_SUBSYSTEM_ARROWS = [
+    ("outer HCal", (1604, 178), (1860, 468), "center"),
+    ("inner HCal", (1208, 562), (1800, 574), "left"),
+    ("MVTX & INTT", (1340, 1204), (1822, 690), "center"),
+    ("TPC", (2168, 1216), (2028, 690), "center"),
+    ("EMCal", (2388, 1094), (2078, 684), "right"),
+    ("solenoid", (2388, 788), (2198, 594), "right"),
+]
+
+RECREATED_SUBSYSTEM_ARROWS_USER_IMAGE = [
+    ("outer HCal", (0.29, -0.035), (0.365, 0.305), "center"),
+    ("inner HCal", (-0.205, 0.315), (0.365, 0.405), "left"),
+    ("MVTX & INTT", (-0.090, 0.990), (0.455, 0.525), "center"),
+    ("TPC", (0.700, 0.935), (0.575, 0.560), "center"),
+    ("EMCal", (0.865, 0.855), (0.605, 0.515), "center"),
+    ("solenoid", (0.840, 0.520), (0.705, 0.385), "center"),
+]
+
+EXACT_ARROW_VECTOR_OVERLAY = [
+    ("outer HCal", (152, 18), (187, 50), (249, 168), "center"),
+    ("inner HCal", (26, 188), (24, 207), (205, 207), "left"),
+    ("MVTX & INTT", (9, 451), (105, 438), (256, 260), "left"),
+    ("TPC", (392, 492), (382, 490), (329, 278), "center"),
+    ("EMCal", (435, 452), (438, 438), (358, 274), "center"),
+    ("solenoid", (443, 298), (423, 294), (356, 214), "center"),
+]
+
 STANDALONE_DATASET_TITLE = "Dataset context: p+p anchors this measurement"
 STANDALONE_DATASET_SUBTITLE = (
-    "Keep the total available p+p running separate from the smaller, defined PPG12 analysis sample."
+    "Separate the broad all-subsystem p+p context from the defined Run 24 PPG12 cross-section sample."
 )
-STANDALONE_DATASET_BRIDGE = "With the p+p sample established, the talk narrows to the isolated prompt-photon object."
 STANDALONE_PP_AVAILABILITY = [
-    ("2024 p+p", "107", "pb^-1", "calorimeter-only", SPHENIX_BLUE),
     ("2024 p+p", "13", "pb^-1", "all subsystems", PHOTON),
     ("2026 p+p", "17", "pb^-1", "all subsystems", PHOTON_DARK),
 ]
 STANDALONE_HEAVY_ION_CONTEXT = [
     ("2025 Au+Au", "6.6 nb^-1", "all subsystems"),
-    ("2026 O+O", "52.6 nb^-1", "calorimeter-only"),
     ("2026 O+O", "23.6 nb^-1", "all subsystems"),
 ]
 STANDALONE_DATASET_EVIDENCE = {
     "values_on_slide": [
-        "2024 p+p: 107 pb^-1 calorimeter-only; 13 pb^-1 all subsystems",
+        "2024 p+p: 13 pb^-1 all subsystems",
         "2026 p+p: 17 pb^-1 all subsystems",
         "PPG12 Run 24 analysis sample: L = 64.4 pb^-1",
         "2025 Au+Au: 6.6 nb^-1 all subsystems",
-        "2026 O+O: 52.6 nb^-1 calorimeter-only; 23.6 nb^-1 all subsystems",
+        "2026 O+O: 23.6 nb^-1 all subsystems",
     ],
     "source_files": [
         "usefulDocs/20260506_DIS_YeonjuGo.pdf",
@@ -324,26 +356,25 @@ STANDALONE_DATASET_EVIDENCE = {
         "usefulDocs/PPG12_analysis_note_2026-05-21_v4_current_IAN.pdf",
     ],
     "verification_note": (
-        "Yeonju DIS2026 and Hanpu AUM2026 agree on the broad sPHENIX p+p, Au+Au, and O+O data-taking values. "
+        "Yeonju DIS2026 and Hanpu AUM2026 agree on the broad sPHENIX all-subsystem p+p, Au+Au, and O+O data-taking values. "
         "The current PPG12 paper draft and IAN quote the Run 24 isolated prompt-photon analysis luminosity as about 64.4 pb^-1."
     ),
 }
 
 PHOTON_MOTIVATION_TITLE = "Why isolated prompt photons?"
-PHOTON_MOTIVATION_SUBTITLE = "A calibrated hard-scattering probe for the p+p baseline at RHIC."
-PHOTON_MOTIVATION_BRIDGE = "Next: reconstruct the photon candidate, estimate purity, correct to particle level, and compare the cross section."
+PHOTON_MOTIVATION_SUBTITLE = "A color-neutral hard-scattering tag for the p+p baseline at RHIC."
 PHOTON_MOTIVATION_REASONS = [
     (
-        "Prompt photon",
-        "Produced in the hard scattering and measured without strong final-state interaction.",
+        "Hard scale",
+        "The photon is produced in the short-distance scattering and leaves without strong final-state energy loss.",
     ),
     (
         "Isolation",
-        "A quiet cone suppresses decay photons and fragmentation-rich backgrounds before purity correction.",
+        "The quiet cone rejects decay-rich and fragmentation-rich activity around the candidate.",
     ),
     (
         "p+p baseline",
-        "The corrected cross section anchors future gamma-jet and heavy-ion comparisons.",
+        "The corrected cross section anchors the RHIC reference before future heavy-ion photon measurements.",
     ),
 ]
 
@@ -1338,6 +1369,7 @@ def write_progressive_manifest(output_dir: Path, frame_a: Path, frame_b: Path, s
         "mode": "RGB",
         "source_assets": {
             "detector_asset": detector_asset,
+            "slide_2_preserved_body": str(CURRENT_SLIDE2_SUBSYSTEM_SCREENSHOT.relative_to(ROOT)),
             "official_source_urls": REAL_DETECTOR_SOURCE,
         },
         "data_source_evidence": PROGRESSIVE_DATA_EVIDENCE,
@@ -1376,6 +1408,18 @@ def draw_standalone_header(base: Image.Image, title: str, subtitle: str) -> None
     draw.text((132, 86), title, font=font(TIMES_BOLD, 76), fill=INK)
     draw_wrapped(draw, subtitle, (136, 184), 1660, font(TIMES_ITALIC, 35), fill=BLUE, line_gap=5)
     draw.line((132, 300, W - 132, 300), fill=(221, 226, 232), width=3)
+
+
+def draw_standalone_title_only_header(base: Image.Image, title: str) -> None:
+    draw = ImageDraw.Draw(base, "RGBA")
+    draw.rectangle((0, 0, W, H), fill=(*SOFT_BG, 255))
+    draw.rectangle((0, 0, W, 22), fill=(*SPHENIX_BLUE, 255))
+    draw.rectangle((0, 22, W, 30), fill=(*PHOTON, 255))
+    logo = load_sphenix_logo()
+    if logo is not None:
+        paste_fit(base, logo, (2188, 58, 2432, 164), anchor="right")
+    draw.text((132, 84), title, font=font(TIMES_BOLD, 90), fill=INK)
+    draw.line((132, 246, W - 132, 246), fill=(221, 226, 232), width=3)
 
 
 def draw_standalone_bridge(base: Image.Image, text: str) -> None:
@@ -1549,119 +1593,541 @@ def draw_experiment_intro_layout(base: Image.Image, detector_img: Image.Image) -
     base.alpha_composite(overlay)
 
 
+def draw_preserved_subsystems_slide_body(base: Image.Image) -> None:
+    draw = ImageDraw.Draw(base, "RGBA")
+    draw.rectangle((0, 0, W, H), fill=(*SOFT_BG, 255))
+    draw.rectangle((0, 0, W, 22), fill=(*SPHENIX_BLUE, 255))
+    draw.rectangle((0, 22, W, 30), fill=(*PHOTON, 255))
+
+    logo = load_sphenix_logo()
+    if logo is not None:
+        paste_fit(base, logo, (2068, 54, 2388, 128), anchor="right")
+
+    draw.line((96, 142, W - 96, 142), fill=(224, 229, 235, 255), width=2)
+
+    if not CURRENT_SLIDE2_SUBSYSTEM_SCREENSHOT.exists():
+        raise FileNotFoundError(f"Missing preserved Slide 2 screenshot: {CURRENT_SLIDE2_SUBSYSTEM_SCREENSHOT}")
+
+    body = open_rgba(CURRENT_SLIDE2_SUBSYSTEM_SCREENSHOT)
+    body = ImageEnhance.Sharpness(body).enhance(1.18)
+    body_box = (72, 154, W - 72, H - 50)
+    fitted_box = paste_fit_return_box(base, body, body_box)
+    x0, y0, x1, y1 = fitted_box
+    draw.rectangle((x0, y0, x1, y1), outline=(196, 203, 211, 255), width=2)
+
+
 def render_standalone_experiment_slide(output_dir: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
-    detector_img, _detector_asset = load_detector_rendering_asset()
     img = Image.new("RGBA", (W, H), (*SOFT_BG, 255))
-    draw_standalone_header(img, STANDALONE_EXPERIMENT_TITLE, STANDALONE_EXPERIMENT_SUBTITLE)
-    draw_experiment_intro_layout(img, detector_img)
+    draw_preserved_subsystems_slide_body(img)
     png = output_dir / "hp2026_slide02_sphenix_experiment_for_photons.png"
     img.convert("RGB").save(png, "PNG")
     write_standalone_experiment_script(output_dir)
     return png
 
 
+def white_to_alpha(img: Image.Image, threshold: int = 246) -> Image.Image:
+    rgba = img.convert("RGBA")
+    px = rgba.load()
+    for y in range(rgba.height):
+        for x in range(rgba.width):
+            r, g, b, a = px[x, y]
+            if r >= threshold and g >= threshold and b >= threshold:
+                px[x, y] = (r, g, b, 0)
+    return crop_visible(rgba, white_threshold=252)
+
+
+def white_to_alpha_preserve_canvas(img: Image.Image, threshold: int = 252) -> Image.Image:
+    rgba = img.convert("RGBA")
+    px = rgba.load()
+    for y in range(rgba.height):
+        for x in range(rgba.width):
+            r, g, b, a = px[x, y]
+            if r >= threshold and g >= threshold and b >= threshold:
+                px[x, y] = (r, g, b, 0)
+    return rgba
+
+
+def draw_recreated_subsystem_icon(draw: ImageDraw.ImageDraw, kind: str, x: int, y: int) -> None:
+    if kind == "tracking":
+        for idx, scale in enumerate((0, 1, 2)):
+            box = (x + 8 + idx * 8, y + 10 + idx * 28, x + 128 - idx * 8, y + 70 + idx * 28)
+            draw.arc(box, start=205, end=330, fill=(64, 68, 74), width=5)
+            draw.arc((box[0] + 22, box[1] + 8, box[2] - 22, box[3] - 8), start=205, end=330, fill=(116, 125, 136), width=4)
+        for dx in (34, 56, 82, 104):
+            draw.line((x + dx, y + 10, x + dx - 20, y + 132), fill=(65, 70, 78), width=4)
+            draw.polygon([(x + dx, y + 6), (x + dx - 10, y + 24), (x + dx + 8, y + 22)], fill=(65, 70, 78))
+    elif kind == "calorimetry":
+        colors = [(211, 218, 203), (227, 205, 164), (173, 207, 222)]
+        for idx, color in enumerate(colors):
+            top = y + 14 + idx * 34
+            poly = [(x + 20, top), (x + 118, top + 32), (x + 74, top + 66), (x - 18, top + 32)]
+            draw.polygon(poly, fill=(*color, 255), outline=(45, 50, 56), width=3)
+            draw.line((x + 118, top + 32, x + 118, top + 58, x + 74, top + 92), fill=(45, 50, 56), width=3)
+            draw.line((x - 18, top + 32, x - 18, top + 58, x + 74, top + 92), fill=(45, 50, 56), width=3)
+    else:
+        cy = y + 78
+        axis = (55, 61, 70)
+        tan = (218, 200, 158)
+        blue = (172, 204, 218)
+        green = (184, 210, 198)
+        soft = (*SOFT_BG, 255)
+
+        # Forward detectors sit as annular stations along the beam direction.
+        draw.line((x + 4, cy, x + 154, cy), fill=axis, width=5)
+        draw.polygon([(x + 4, cy), (x + 22, cy - 10), (x + 22, cy + 10)], fill=axis)
+        draw.polygon([(x + 154, cy), (x + 136, cy - 10), (x + 136, cy + 10)], fill=axis)
+        draw.ellipse((x + 73, cy - 7, x + 87, cy + 7), fill=(*PHOTON, 255), outline=axis, width=2)
+
+        def endcap(cx: int, fill: tuple[int, int, int], offset: int) -> None:
+            body = (cx - 17, cy - 52, cx + 17, cy + 52)
+            side = (cx + offset - 17, cy - 52, cx + offset + 17, cy + 52)
+            draw.ellipse(side, fill=(*fill, 130), outline=axis, width=2)
+            draw.line((cx + offset, cy - 52, cx, cy - 52), fill=axis, width=2)
+            draw.line((cx + offset, cy + 52, cx, cy + 52), fill=axis, width=2)
+            draw.ellipse(body, fill=(*fill, 230), outline=axis, width=3)
+            # Radial sector lines make the face read like a compact segmented
+            # forward detector disk without adding the long external cabling.
+            rx, ry = 15, 48
+            for deg in range(0, 360, 30):
+                theta = math.radians(deg)
+                ex = cx + rx * math.cos(theta)
+                ey = cy + ry * math.sin(theta)
+                draw.line((cx, cy, ex, ey), fill=(255, 255, 255, 190), width=2)
+            draw.ellipse((cx - 11, cy - 32, cx + 11, cy + 32), outline=(255, 255, 255, 135), width=2)
+            draw.ellipse((cx - 7, cy - 22, cx + 7, cy + 22), fill=soft, outline=axis, width=2)
+            draw.ellipse((cx - 3, cy - 7, cx + 3, cy + 7), fill=(*PHOTON, 235), outline=axis, width=1)
+
+        endcap(x + 48, blue, -8)
+        endcap(x + 112, tan, 8)
+
+        # Small far-forward neutral-energy stations, visually separated from MBD/sEPD.
+        draw.rounded_rectangle((x + 4, cy - 24, x + 26, cy + 24), radius=4, fill=(*green, 245), outline=axis, width=2)
+        draw.rounded_rectangle((x + 134, cy - 24, x + 156, cy + 24), radius=4, fill=(*green, 245), outline=axis, width=2)
+
+
+def render_recreated_subsystem_icon(kind: str) -> Image.Image:
+    canvas = Image.new("RGBA", (240, 200), (0, 0, 0, 0))
+    icon_draw = ImageDraw.Draw(canvas, "RGBA")
+    draw_recreated_subsystem_icon(icon_draw, kind, 48, 28)
+    return crop_visible(canvas, white_threshold=255)
+
+
+def draw_recreated_subsystem_text(base: Image.Image) -> None:
+    draw = ImageDraw.Draw(base, "RGBA")
+    rows = [
+        (
+            "tracking",
+            342,
+            SPHENIX_BLUE,
+            (235, 247, 254),
+            "Tracking system",
+            "(MVTX, INTT, TPC, TPOT)",
+            ["Silicon vertex detectors & time-projection chamber", "inside a 1.4 T solenoid"],
+        ),
+        (
+            "calorimetry",
+            634,
+            PHOTON,
+            (255, 248, 232),
+            "Calorimetry",
+            "(EMCal, HCal)",
+            ["Electromagnetic & hadronic calorimeters", "(inner/outer HCal)"],
+        ),
+        (
+            "forward",
+            926,
+            (49, 132, 97),
+            (226, 246, 238),
+            "Forward detectors",
+            "(MBD, sEPD, ZDC)",
+            ["Provide minimum-bias triggers, centrality, &", "event-plane information"],
+        ),
+    ]
+    panel_left = 94
+    panel_right = 1224
+    panel_h = 244
+    accent_w = 206
+    text_x = panel_left + 258
+    heading_font = font(TIMES_BOLD, 46)
+    paren_font = font(TIMES, 39)
+    body_font = font(TIMES, 40)
+
+    for kind, panel_top, accent, accent_fill, heading, paren, lines in rows:
+        panel = (panel_left, panel_top, panel_right, panel_top + panel_h)
+        shadow_layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
+        shadow_draw = ImageDraw.Draw(shadow_layer, "RGBA")
+        shadow_draw.rounded_rectangle(
+            (panel[0] + 5, panel[1] + 7, panel[2] + 5, panel[3] + 7),
+            radius=12,
+            fill=(29, 45, 64, 34),
+        )
+        shadow_layer = shadow_layer.filter(ImageFilter.GaussianBlur(5))
+        base.alpha_composite(shadow_layer)
+        draw.rounded_rectangle(panel, radius=12, fill=(255, 255, 255, 246), outline=(210, 222, 232, 255), width=2)
+        draw.rounded_rectangle((panel[0] + 1, panel[1] + 1, panel[0] + accent_w, panel[3] - 1), radius=12, fill=(*accent_fill, 235))
+        draw.rounded_rectangle((panel[0] + 1, panel[1] + 1, panel[0] + 13, panel[3] - 1), radius=6, fill=(*accent, 235))
+        draw.line((panel[0] + accent_w, panel[1] + 20, panel[0] + accent_w, panel[3] - 20), fill=(*PANEL_EDGE, 230), width=2)
+        icon = render_recreated_subsystem_icon(kind)
+        icon_box = (panel_left + 26, panel_top + 28, panel_left + accent_w - 24, panel_top + panel_h - 28)
+        paste_fit(base, icon, icon_box)
+        heading_w, _ = text_box(draw, heading, heading_font)
+        heading_y = panel_top + 44
+        body_y = panel_top + 112
+        draw.text((text_x, heading_y), heading, font=heading_font, fill=INK)
+        draw.text((text_x + heading_w + 12, heading_y + 5), paren, font=paren_font, fill=INK)
+        for idx, line in enumerate(lines):
+            draw.text((text_x, body_y + idx * 51), line, font=body_font, fill=INK)
+
+
+def draw_recreated_detector_arrow(
+    draw: ImageDraw.ImageDraw,
+    label: str,
+    label_xy: tuple[int, int],
+    target_xy: tuple[int, int],
+    align: str,
+) -> None:
+    label_font = font(TIMES_BOLD, 42)
+    lx, ly = label_xy
+    tw, th = text_box(draw, label, label_font)
+    if align == "center":
+        tx = lx - tw // 2
+    elif align == "right":
+        tx = lx - tw
+    else:
+        tx = lx
+    draw.text((tx, ly), label, font=label_font, fill=(0, 0, 0), stroke_width=4, stroke_fill=(*SOFT_BG, 245))
+    if align == "left":
+        start = (tx + tw + 16, ly + th // 2)
+    elif align == "right":
+        start = (tx - 16, ly + th // 2)
+    else:
+        start = (lx, ly + th + 12)
+        if ly > target_xy[1]:
+            start = (lx, ly - 8)
+    sx, sy = start
+    ex, ey = target_xy
+    angle = math.atan2(ey - sy, ex - sx)
+    line_end = (ex - math.cos(angle) * 24, ey - math.sin(angle) * 24)
+    arrow = (244, 167, 72, 245)
+    draw.line((start, line_end), fill=(255, 255, 255, 220), width=15)
+    draw.line((start, line_end), fill=arrow, width=8)
+    size = 34
+    spread = 0.58
+    base = (ex - math.cos(angle) * size, ey - math.sin(angle) * size)
+    p1 = (base[0] + math.cos(angle + math.pi / 2) * size * spread, base[1] + math.sin(angle + math.pi / 2) * size * spread)
+    p2 = (base[0] + math.cos(angle - math.pi / 2) * size * spread, base[1] + math.sin(angle - math.pi / 2) * size * spread)
+    draw.polygon([target_xy, p1, p2], fill=(255, 255, 255, 230))
+    draw.polygon([target_xy, p1, p2], fill=arrow)
+
+
+def draw_recreated_detector_arrow_on_image(
+    draw: ImageDraw.ImageDraw,
+    image_bounds: tuple[int, int, int, int],
+    label: str,
+    label_rel: tuple[float, float],
+    target_rel: tuple[float, float],
+    align: str,
+) -> None:
+    x0, y0, x1, y1 = image_bounds
+    iw = x1 - x0
+    ih = y1 - y0
+    label_xy = (round(x0 + label_rel[0] * iw), round(y0 + label_rel[1] * ih))
+    target_xy = (round(x0 + target_rel[0] * iw), round(y0 + target_rel[1] * ih))
+    draw_recreated_detector_arrow(draw, label, label_xy, target_xy, align)
+
+
+def draw_exact_reference_vector_overlay(
+    draw: ImageDraw.ImageDraw,
+    image_bounds: tuple[int, int, int, int],
+    source_size: tuple[int, int],
+) -> None:
+    x0, y0, x1, y1 = image_bounds
+    iw = x1 - x0
+    ih = y1 - y0
+    sw, sh = source_size
+
+    def map_pt(pt: tuple[int, int]) -> tuple[int, int]:
+        return (round(x0 + pt[0] / sw * iw), round(y0 + pt[1] / sh * ih))
+
+    arrow = (244, 167, 72, 252)
+    label_font = font(TIMES_BOLD, 46)
+    for label, label_pos, start_pos, target_pos, align in EXACT_ARROW_VECTOR_OVERLAY:
+        start = map_pt(start_pos)
+        target = map_pt(target_pos)
+        sx, sy = start
+        ex, ey = target
+        angle = math.atan2(ey - sy, ex - sx)
+        line_end = (ex - math.cos(angle) * 25, ey - math.sin(angle) * 25)
+        draw.line((start, line_end), fill=(255, 255, 255, 230), width=17)
+        draw.line((start, line_end), fill=arrow, width=9)
+        size = 35
+        spread = 0.58
+        base = (ex - math.cos(angle) * size, ey - math.sin(angle) * size)
+        p1 = (base[0] + math.cos(angle + math.pi / 2) * size * spread, base[1] + math.sin(angle + math.pi / 2) * size * spread)
+        p2 = (base[0] + math.cos(angle - math.pi / 2) * size * spread, base[1] + math.sin(angle - math.pi / 2) * size * spread)
+        draw.polygon([target, p1, p2], fill=(255, 255, 255, 232))
+        draw.polygon([target, p1, p2], fill=arrow)
+
+        lx, ly = map_pt(label_pos)
+        tw, th = text_box(draw, label, label_font)
+        if align == "center":
+            tx = lx - tw // 2
+        else:
+            tx = lx
+        draw.text((tx, ly), label, font=label_font, fill=(0, 0, 0), stroke_width=5, stroke_fill=(*SOFT_BG, 245))
+
+
+def draw_recreated_footer(base: Image.Image) -> None:
+    draw = ImageDraw.Draw(base, "RGBA")
+    footer_top = 1326
+    draw.rectangle((0, footer_top, W, H), fill=(*SOFT_BG, 255))
+    draw.line((0, footer_top, W, footer_top), fill=HP2026_FOOTER_RULE_RGBA, width=2)
+    asset_dir = TITLE_ASSET_DIR
+    illinois = crop_visible(open_rgba(asset_dir / "illinois_logo_fullcolor_rgb.png"), white_threshold=252)
+    hp = white_to_alpha(open_rgba(asset_dir / "hp2026_indico_logo.png"), threshold=246)
+    illinois = fit(illinois, 54, 62)
+    hp = fit(hp, 116, 60)
+    cy = 1384
+    base.alpha_composite(illinois, (30, cy - illinois.height // 2))
+    draw.text((104, cy - 17), "Justin Bennett", font=font(TIMES, 31), fill=(43, 49, 57))
+    center = "Hard Probes 2026 / June 24, 2026"
+    center_font = font(TIMES_BOLD, 31)
+    cw, ch = text_box(draw, center, center_font)
+    group_w = hp.width + 20 + cw
+    gx = (W - group_w) // 2
+    base.alpha_composite(hp, (gx, cy - hp.height // 2))
+    draw.text((gx + hp.width + 20, cy - ch // 2 - 1), center, font=center_font, fill=(43, 49, 57))
+
+
+def write_recreated_subsystems_script(output_dir: Path) -> Path:
+    script = """# HP2026 Slide 2 Script - sPHENIX Subsystems
+
+To start, I want to introduce the sPHENIX detector at the subsystem level needed for this photon measurement.
+
+On the left, the detector is grouped into tracking, calorimetry, and forward detectors. The tracking system includes the MVTX, INTT, TPC, and TPOT, which give the charged-particle and vertex context inside the 1.4 T solenoid.
+
+The calorimetry is central for this talk. The EMCal measures electromagnetic showers from photon candidates, while the inner and outer HCal layers measure hadronic activity around the event. Those calorimeter systems are what make photon energy, shower shape, and isolation experimentally accessible.
+
+The forward detectors, including the MBD, sEPD, and ZDC, provide minimum-bias triggering, centrality context in nuclear running, event-plane information, and the normalization handles needed for cross-section measurements.
+
+So the detector picture is simple: tracking anchors the event, EMCal measures the photon candidate, HCal helps characterize nearby activity, and the forward systems provide trigger and normalization context. With the detector established, the next step is the p+p data sample used for the measurement.
+"""
+    path = output_dir / "hp2026_slide02_sphenix_subsystems_recreated_script.md"
+    path.write_text(script, encoding="utf-8")
+    return path
+
+
+def render_recreated_sphenix_subsystems(output_dir: Path) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    detector_img = open_rgba(USER_DETECTOR_EXACT_ARROW_LAYOUT)
+    detector_asset = str(USER_DETECTOR_EXACT_ARROW_LAYOUT.relative_to(ROOT))
+    img = Image.new("RGBA", (W, H), (*SOFT_BG, 255))
+    draw = ImageDraw.Draw(img, "RGBA")
+    draw.rectangle((0, 0, W, H), fill=(*SOFT_BG, 255))
+    draw.rectangle((0, 0, W, 22), fill=(*SPHENIX_BLUE, 255))
+    draw.rectangle((0, 22, W, 30), fill=(*PHOTON, 255))
+    logo = load_sphenix_logo()
+    if logo is not None:
+        paste_fit(img, logo, (2188, 58, 2432, 164), anchor="right")
+    draw.text((112, 108), "sPHENIX Subsystems", font=font(TIMES_BOLD, 88), fill=(0, 0, 0))
+    draw.text(
+        (116, 214),
+        "sPHENIX is a RHIC experiment at Brookhaven National Laboratory on Long Island, New York, "
+        "with full azimuthal coverage and spans |η| < 1.1 in pseudorapidity.",
+        font=font(TIMES_ITALIC, 34),
+        fill=BLUE,
+    )
+    draw.line((112, 282, W - 112, 282), fill=(221, 226, 232, 255), width=3)
+    draw_recreated_subsystem_text(img)
+
+    detector_box = (1260, 306, 2428, 1320)
+    rendering = detector_img.convert("RGBA")
+    rendering = rendering.resize((rendering.width * 4, rendering.height * 4), Image.Resampling.LANCZOS)
+    rendering = ImageEnhance.Color(rendering).enhance(1.06)
+    rendering = ImageEnhance.Contrast(rendering).enhance(1.10)
+    rendering = rendering.filter(ImageFilter.UnsharpMask(radius=1.4, percent=170, threshold=2))
+    rendering = white_to_alpha_preserve_canvas(rendering, threshold=253)
+    image_bounds = paste_fit_return_box(img, rendering, detector_box)
+    draw_recreated_footer(img)
+    png = output_dir / "hp2026_slide02_sphenix_subsystems_recreated_enhanced.png"
+    img.convert("RGB").save(png, "PNG")
+    script_path = write_recreated_subsystems_script(output_dir)
+    manifest = {
+        "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "google_slides_mutation": False,
+        "output": str(png.relative_to(ROOT)),
+        "speaker_script": str(script_path.relative_to(ROOT)),
+        "size": [W, H],
+        "mode": "RGB",
+        "detector_asset": detector_asset,
+        "style_notes": [
+            "Recreated from scratch at 2560x1440 using the HP2026 soft background rather than pure white.",
+            "Detector panel uses Justin's exact annotated screenshot for the detector diagram so the subsystem arrows match the requested reference layout.",
+            "The exact annotated detector screenshot is upscaled and sharpened before placement to improve audience-facing readability without moving arrow targets.",
+            "Forward-detector pictogram uses a beamline with annular endcap stations plus far-forward blocks to evoke MBD/sEPD/ZDC geometry.",
+            "The standardized HP2026 identity footer is drawn after the original slide body so the title, subsystem text, icons, detector labels, arrows, and detector placement remain unchanged.",
+        ],
+        "reference_sources": [
+            {
+                "file": "usefulDocs/The_sPHENIX_Detector_-_sPHENIX_Russia_Workshop.pdf",
+                "page": 3,
+                "use": "detector subsystem label and arrow-target reference: outer HCal, inner HCal, MVTX+INTT, TPC, EMCal, solenoid",
+            },
+            {
+                "file": str(USER_DETECTOR_CLEAN_REFERENCE.relative_to(ROOT)),
+                "use": "user-provided clean detector screenshot saved as a stable local visual reference",
+            },
+            {
+                "file": str(USER_DETECTOR_ANNOTATED_REFERENCE.relative_to(ROOT)),
+                "use": "user-provided annotated detector screenshot used to retune oHCal/iHCal/solenoid/EMCal/TPC/MVTX+INTT arrow targets",
+            },
+            {
+                "file": str(USER_DETECTOR_TARGET_LAYOUT.relative_to(ROOT)),
+                "use": "user-provided target layout screenshot used to match final arrow style and placement",
+            },
+            {
+                "file": str(USER_DETECTOR_THREE_ARROW_TARGET.relative_to(ROOT)),
+                "use": "user-provided crop used to correct outer HCal, inner HCal, and solenoid arrow targets",
+            },
+            {
+                "file": str(USER_DETECTOR_EXACT_ARROW_LAYOUT.relative_to(ROOT)),
+                "use": "user-provided exact annotated detector diagram used directly in the final slide panel",
+            }
+        ],
+    }
+    manifest_path = output_dir / "hp2026_slide02_sphenix_subsystems_recreated_manifest.json"
+    with manifest_path.open("w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2)
+        f.write("\n")
+    return png
+
+
 def draw_dataset_primary_panel(base: Image.Image) -> None:
     draw = ImageDraw.Draw(base, "RGBA")
-    panel = (132, 340, 1560, 926)
+    panel = (132, 292, 1518, 742)
     draw.rounded_rectangle(panel, radius=12, fill=(255, 255, 255, 255), outline=(216, 225, 234, 255), width=2)
-    draw.text((178, 382), "Available p+p data set the context", font=font(TIMES_BOLD, 43), fill=BLUE)
+    draw.ellipse((178, 326, 226, 374), fill=(*PHOTON, 255))
+    draw.text((194, 334), "1", font=font(TIMES_BOLD, 30), fill=(255, 255, 255))
+    draw.text((250, 324), "All-subsystem p+p running context", font=font(TIMES_BOLD, 47), fill=INK)
     draw_wrapped(
         draw,
-        "These are the broad sPHENIX p+p running numbers to orient the audience before the analysis details.",
-        (180, 438),
-        1285,
-        font(TIMES_ITALIC, 28),
-        fill=MUTED,
-        line_gap=5,
-    )
-
-    card_y = 548
-    card_w = 394
-    gap = 54
-    for idx, (run, value, unit, detail, color) in enumerate(STANDALONE_PP_AVAILABILITY):
-        x = 178 + idx * (card_w + gap)
-        draw.rounded_rectangle((x, card_y, x + card_w, card_y + 260), radius=12, fill=(247, 250, 252, 255), outline=(222, 229, 236, 255), width=2)
-        draw.rounded_rectangle((x, card_y, x + card_w, card_y + 18), radius=7, fill=(*color, 255))
-        draw.text((x + 28, card_y + 38), run, font=font(TIMES_BOLD, 31), fill=INK)
-        value_font = font(TIMES_BOLD, 76)
-        vw, _ = text_box(draw, value, value_font)
-        draw.text((x + (card_w - vw) / 2, card_y + 92), value, font=value_font, fill=INK)
-        unit_font = font(TIMES, 34)
-        uw, _ = rich_text_box(draw, unit, unit_font)
-        draw_rich_text(draw, (round(x + (card_w - uw) / 2), card_y + 168), unit, unit_font, BLUE)
-        detail_font = font(TIMES_ITALIC, 27)
-        dw, _ = text_box(draw, detail, detail_font)
-        draw.text((x + (card_w - dw) / 2, card_y + 214), detail, font=detail_font, fill=MUTED)
-
-    draw.rounded_rectangle((178, 840, 1514, 884), radius=8, fill=(239, 246, 250, 255), outline=(213, 226, 235, 255), width=1)
-    draw.text((206, 852), "p+p is the baseline system; the analysis sample is defined separately below.", font=font(TIMES_ITALIC, 24), fill=BLUE)
-
-
-def draw_dataset_analysis_sample(base: Image.Image) -> None:
-    draw = ImageDraw.Draw(base, "RGBA")
-    panel = (132, 972, 1560, 1166)
-    draw.rounded_rectangle(panel, radius=12, fill=(239, 246, 250, 255), outline=(205, 221, 232, 255), width=2)
-    draw.rounded_rectangle((132, 972, 150, 1166), radius=6, fill=(*TEAL, 255))
-    draw.text((184, 1006), "PPG12 result uses a defined Run 24 analysis sample", font=font(TIMES_BOLD, 38), fill=INK)
-    draw_rich_text(draw, (184, 1062), "L = 64.4 pb^-1", font(TIMES_BOLD, 62), BLUE)
-    draw_wrapped(
-        draw,
-        "Luminosity for the isolated prompt-photon cross section; separate from the total p+p running shown above.",
-        (720, 1048),
-        720,
-        font(TIMES, 27),
+        "Detector-complete p+p data establish the RHIC baseline context for this photon measurement.",
+        (252, 388),
+        1100,
+        font(TIMES_ITALIC, 30),
         fill=MUTED,
         line_gap=7,
     )
 
+    card_y = 508
+    card_w = 392
+    gap = 46
+    for idx, (run, value, unit, detail, color) in enumerate(STANDALONE_PP_AVAILABILITY):
+        x = 178 + idx * (card_w + gap)
+        draw.rounded_rectangle((x, card_y, x + card_w, card_y + 154), radius=10, fill=(247, 250, 252, 255), outline=(222, 229, 236, 255), width=2)
+        draw.rectangle((x, card_y, x + 12, card_y + 154), fill=(*color, 255))
+        draw.text((x + 34, card_y + 28), run, font=font(TIMES_BOLD, 34), fill=INK)
+        value_font = font(TIMES_BOLD, 69)
+        draw.text((x + 202, card_y + 18), value, font=value_font, fill=INK)
+        draw_rich_text(draw, (x + 294, card_y + 60), unit, font(TIMES, 30), BLUE)
+        draw.text((x + 34, card_y + 102), detail, font=font(TIMES_ITALIC, 25), fill=MUTED)
+
+    summary_x = 178 + 2 * (card_w + gap)
+    draw.rounded_rectangle((summary_x, card_y, summary_x + 432, card_y + 154), radius=10, fill=(255, 251, 239, 255), outline=(239, 223, 184, 255), width=2)
+    draw.text((summary_x + 34, card_y + 26), "combined context", font=font(TIMES_BOLD, 29), fill=MUTED)
+    draw.text((summary_x + 34, card_y + 70), "30", font=font(TIMES_BOLD, 62), fill=INK)
+    draw_rich_text(draw, (summary_x + 122, card_y + 105), "pb^-1", font(TIMES, 28), BLUE)
+    draw.text((summary_x + 218, card_y + 88), "all-subsystem p+p", font=font(TIMES_ITALIC, 26), fill=MUTED)
+
+
+def draw_dataset_analysis_sample(base: Image.Image) -> None:
+    draw = ImageDraw.Draw(base, "RGBA")
+    panel = (132, 802, 1518, 1266)
+    draw.rounded_rectangle(panel, radius=12, fill=(239, 246, 250, 255), outline=(205, 221, 232, 255), width=2)
+    draw.ellipse((178, 842, 226, 890), fill=(*TEAL, 255))
+    draw.text((194, 850), "2", font=font(TIMES_BOLD, 30), fill=(255, 255, 255))
+    draw.text((250, 838), "Defined PPG12 cross-section sample", font=font(TIMES_BOLD, 47), fill=INK)
+    draw_wrapped(
+        draw,
+        "The result in this talk uses one defined Run 24 p+p analysis sample, not the full run-context number above.",
+        (252, 902),
+        1110,
+        font(TIMES_ITALIC, 30),
+        fill=MUTED,
+        line_gap=7,
+    )
+    draw.rounded_rectangle((184, 1018, 1490, 1196), radius=12, fill=(255, 255, 255, 255), outline=(205, 221, 232, 255), width=2)
+    draw.text((226, 1044), "analysis luminosity", font=font(TIMES_BOLD, 33), fill=LIGHT_MUTED)
+    draw_rich_text(draw, (226, 1092), "L = 64.4 pb^-1", font(TIMES_BOLD, 78), BLUE)
+    draw.text((820, 1099), "used for the isolated prompt-photon", font=font(TIMES_ITALIC, 31), fill=MUTED)
+    draw.text((820, 1138), "cross-section measurement", font=font(TIMES_ITALIC, 31), fill=MUTED)
+    draw.rounded_rectangle((184, 1220, 1490, 1252), radius=7, fill=(226, 240, 248, 255))
+    draw.text((210, 1224), "Key distinction: run context and analysis luminosity are quoted for different purposes.", font=font(TIMES_ITALIC, 24), fill=BLUE)
+
 
 def draw_dataset_side_context(base: Image.Image) -> None:
     draw = ImageDraw.Draw(base, "RGBA")
-    panel = (1620, 340, 2428, 1166)
+
+    def draw_centered_rich_line(
+        runs: list[tuple[str, ImageFont.ImageFont, tuple[int, int, int]]],
+        y: int,
+        x0: int = 1646,
+        x1: int = 2388,
+    ) -> None:
+        total = sum(text_box(draw, text, fnt)[0] for text, fnt, _color in runs)
+        x = x0 + ((x1 - x0) - total) / 2
+        for text, fnt, color in runs:
+            draw.text((x, y), text, font=fnt, fill=color)
+            x += text_box(draw, text, fnt)[0]
+
+    panel = (1600, 292, 2428, 1266)
     draw.rounded_rectangle(panel, radius=12, fill=(255, 255, 255, 255), outline=(216, 225, 234, 255), width=2)
-    draw.text((1662, 382), "Broader program context", font=font(TIMES_BOLD, 39), fill=BLUE)
+    draw.ellipse((1644, 326, 1692, 374), fill=(*BLUE, 255))
+    draw.text((1660, 334), "3", font=font(TIMES_BOLD, 30), fill=(255, 255, 255))
+    draw.text((1716, 324), "Nuclear-system data collected", font=font(TIMES_BOLD, 40), fill=INK)
     draw_wrapped(
         draw,
-        "Heavy-ion running motivates why the p+p photon result matters, but it should stay secondary on this opening data slide.",
-        (1664, 438),
-        700,
-        font(TIMES_ITALIC, 27),
+        "Luminosity context for the collected Au+Au and O+O samples that motivate the next stage of the photon program.",
+        (1648, 390),
+        714,
+        font(TIMES_ITALIC, 32),
         fill=MUTED,
-        line_gap=6,
+        line_gap=8,
     )
 
-    y = 548
+    y = 560
     for idx, (system, value, detail) in enumerate(STANDALONE_HEAVY_ION_CONTEXT):
         color = LIGHT_MUTED if idx else TEAL_SOFT
-        draw.rounded_rectangle((1662, y, 2388, y + 112), radius=9, fill=(249, 250, 251, 255), outline=(224, 230, 236, 255), width=1)
-        draw.rounded_rectangle((1662, y, 1676, y + 112), radius=5, fill=(*color, 180))
-        draw.text((1704, y + 24), system, font=font(TIMES_BOLD, 29), fill=MUTED)
-        draw_rich_text(draw, (1930, y + 24), value, font(TIMES_BOLD, 31), MUTED)
-        draw.text((1704, y + 68), detail, font=font(TIMES, 24), fill=LIGHT_MUTED)
-        y += 138
+        draw.rounded_rectangle((1646, y, 2388, y + 174), radius=10, fill=(249, 250, 251, 255), outline=(224, 230, 236, 255), width=1)
+        draw.rectangle((1646, y, 1662, y + 174), fill=(*color, 170))
+        draw.text((1690, y + 34), system, font=font(TIMES_BOLD, 37), fill=INK)
+        draw_rich_text(draw, (1996, y + 28), value, font(TIMES_BOLD, 45), BLUE if idx == 0 else MUTED)
+        draw.text((1690, y + 104), detail, font=font(TIMES_ITALIC, 30), fill=LIGHT_MUTED)
+        y += 216
 
-    draw.rounded_rectangle((1662, 970, 2388, 1118), radius=9, fill=(247, 250, 252, 255), outline=(222, 229, 236, 255), width=2)
-    draw.text((1704, 994), "Why p+p matters", font=font(TIMES_BOLD, 30), fill=INK)
-    draw_wrapped(
-        draw,
-        "p+p provides the calibrated photon baseline for later hard-probes measurements.",
-        (1704, 1036),
-        650,
-        font(TIMES, 24),
-        fill=MUTED,
-        line_gap=5,
-    )
+    draw.rounded_rectangle((1646, 1004, 2388, 1210), radius=10, fill=(239, 246, 250, 255), outline=(213, 226, 235, 255), width=2)
+    normal = font(TIMES, 31)
+    bold = font(TIMES_BOLD, 31)
+    draw_centered_rich_line([("p+p", bold, BLUE), (" serves as the reference baseline", normal, INK)], 1034)
+    draw_centered_rich_line([("for future ", normal, INK), ("A+A", bold, BLUE), (" analyses", normal, INK)], 1076)
+    draw_centered_rich_line([("using the photon as a ", normal, INK), ("color-neutral tag", bold, BLUE)], 1118)
+    draw_centered_rich_line([("to study the ", normal, INK), ("QGP", bold, BLUE)], 1160)
+
+
+def draw_dataset_flow_connectors(base: Image.Image) -> None:
+    return
 
 
 def render_standalone_dataset_slide(output_dir: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     img = Image.new("RGBA", (W, H), (*SOFT_BG, 255))
-    draw_standalone_header(img, STANDALONE_DATASET_TITLE, STANDALONE_DATASET_SUBTITLE)
+    draw_standalone_title_only_header(img, STANDALONE_DATASET_TITLE)
     draw_dataset_primary_panel(img)
     draw_dataset_analysis_sample(img)
     draw_dataset_side_context(img)
-    draw_standalone_bridge(img, STANDALONE_DATASET_BRIDGE)
+    draw_dataset_flow_connectors(img)
+    draw_recreated_footer(img)
     png = output_dir / "hp2026_slide03_pp_dataset_context.png"
     img.convert("RGB").save(png, "PNG")
     write_standalone_dataset_script(output_dir)
@@ -1671,17 +2137,15 @@ def render_standalone_dataset_slide(output_dir: Path) -> Path:
 def write_standalone_experiment_script(output_dir: Path) -> Path:
     script = """# HP2026 Slide 2 Script - sPHENIX Experiment
 
-At a high level, I want to start with the detector itself, because this measurement is built from the experimental handles that sPHENIX gives us.
+To start, I want to introduce the sPHENIX detector at the level needed for this photon measurement.
 
-sPHENIX is a large-acceptance detector at RHIC, designed around tracking, electromagnetic and hadronic calorimetry, a solenoidal magnetic field, and forward trigger and luminosity systems. For this talk, the important point is not every detail of the apparatus, but how these subsystems come together to make an isolated prompt-photon cross-section measurement possible.
+The main subsystems are grouped here into tracking, calorimetry, and forward detectors. The tracking system includes the MVTX, INTT, TPC, and TPOT. These are the silicon vertex detectors and time-projection chamber systems inside the 1.4 T solenoid, and they provide the charged-particle and vertex context for the event.
 
-Reading from the inside outward, the tracking system, MVTX, INTT, TPC, and TPOT, reconstructs charged tracks and the collision vertex. That gives the event context and helps distinguish charged activity from neutral electromagnetic energy.
+The calorimetry is the key part for this talk. The EMCal, or electromagnetic calorimeter, measures electromagnetic showers from photon candidates. The HCal, or hadronic calorimeter, sits around it in inner and outer layers and measures hadronic activity. Together, those calorimeters give both the photon energy measurement and the surrounding activity needed later for isolation.
 
-Surrounding that is the calorimetry. The electromagnetic calorimeter, or EMCal, is the primary detector for the photon candidate: it measures the cluster energy and provides shower-shape information used later for photon identification. The inner and outer hadronic calorimeters, iHCal and oHCal, sample nearby hadronic activity, which matters because isolation is fundamentally asking whether the photon candidate is surrounded by additional event activity.
+The forward detectors, including the MBD, sEPD, and ZDC, provide the minimum-bias trigger, centrality information in heavy-ion running, event-plane information, and the luminosity handles needed to normalize measurements.
 
-The detector sits inside a 1.4 T solenoid, so charged particles bend and can be reconstructed with momentum information. And the MBD, the Minimum Bias Detector, provides fast triggering, timing, vertex context, and the luminosity normalization needed to turn selected candidates into a cross section.
-
-One subtle point is that the MBD sits forward along the beam direction, while this rendering is mainly useful for orienting the central tracking and calorimeter barrel. So overall, this slide is the experimental foundation: tracking gives the event and charged-particle context, calorimetry gives the photon and isolation handles, and MBD/luminosity make the measurement quantitative. With that detector context established, the next step is to separate the broad p+p running available to sPHENIX from the specific Run 24 sample used for the PPG12 result.
+So the detector picture I want the audience to keep in mind is simple: sPHENIX gives us tracking for event context, EMCal for the photon candidate, HCal for the nearby hadronic activity, and forward systems for triggering and normalization. With the experiment oriented, the next step is to say what p+p data this measurement is built from.
 """
     path = output_dir / "hp2026_slide02_sphenix_experiment_for_photons_script.md"
     path.write_text(script, encoding="utf-8")
@@ -1691,15 +2155,15 @@ One subtle point is that the MBD sits forward along the beam direction, while th
 def write_standalone_dataset_script(output_dir: Path) -> Path:
     script = """# HP2026 Slide 3 Script - p+p Dataset Context
 
-Now that the detector context is set, I want to separate two pieces of the data story that can easily get mixed together.
+Now that the detector context is set, I want to make the data story very explicit, because there are two numbers here that mean different things.
 
-First is the broad p+p data available to sPHENIX. In 2024, sPHENIX recorded 107 inverse picobarns with calorimeter information and 13 inverse picobarns with all subsystems. In 2026, there is an additional 17 inverse picobarns with all subsystems. Those numbers tell us the scale of the p+p program and why this is becoming a precision baseline environment.
+First, the top-left panel is the broad all-subsystem p+p context. In 2024, sPHENIX recorded 13 inverse picobarns with all subsystems, and in 2026 there is another 17 inverse picobarns with all subsystems. Together, that gives 30 inverse picobarns of detector-complete p+p context around the photon program.
 
-Second is the actual analysis sample used for the isolated prompt-photon result. The current PPG12 measurement uses the defined Run 24 sample with an integrated luminosity of 64.4 inverse picobarns. So when I quote 64.4 inverse picobarns, that is not the total available p+p running; it is the luminosity for the cross-section result being shown in this talk.
+Second, the lower-left panel is the defined PPG12 sample used for the isolated prompt-photon cross section. That is the Run 24 analysis luminosity, 64.4 inverse picobarns. So when I quote 64.4 inverse picobarns later, that number belongs to the measured cross section, not to the broad all-subsystem run-context summary.
 
-I also want to show the heavy-ion context, but keep it secondary. The 2025 Au+Au and 2026 O+O data are what make this p+p measurement strategically important: p+p establishes the baseline that future hard-probes measurements will need.
+The right side is just a quick declaration of the nuclear-system data already collected. We have 2025 Au+Au data with 6.6 inverse nanobarns using all subsystems, and 2026 O+O data with 23.6 inverse nanobarns using all subsystems. I do not want to dwell on those samples here; they are included to show where this baseline goes next.
 
-So the takeaway from this slide is simple: sPHENIX has the detector and data context for a p+p isolated prompt-photon baseline, and the analysis uses a clearly defined Run 24 sample. With that in place, the next slide can define the physics object itself: the isolated prompt photon.
+So the takeaway is simple: the analysis result I am presenting is p+p, and it uses one clearly defined Run 24 luminosity. That p+p cross section serves as the reference baseline for future A+A analyses using the photon as a color-neutral tag to study the quark-gluon plasma. With the detector and dataset established, the next step is to define the object we are measuring: the isolated prompt photon.
 """
     path = output_dir / "hp2026_slide03_pp_dataset_context_script.md"
     path.write_text(script, encoding="utf-8")
@@ -1758,13 +2222,15 @@ def write_standalone_experiment_dataset_manifest(output_dir: Path, slide2: Path,
         "data_source_evidence": STANDALONE_DATASET_EVIDENCE,
         "design_notes": [
             "Standalone slides are preferred here because they are easier to present, review, screenshot, and insert than a hidden progressive build.",
-            "Slide 2 introduces the experiment only: the detector is centered, subsystem acronyms are expanded, and surrounding cards explain tracking, calorimetry, magnet, trigger, and luminosity context.",
-            "Slide 2 callout leaders were corrected to avoid false detector precision: EMCal, HCal, tracking, and magnet point to visible subsystem regions; MBD points only to the forward beam-axis vicinity; barrel coverage has no arrow.",
-            "Slide 2 callout leaders use white-underlay strokes, stronger colored lines, arrowheads, and large endpoint rings so the subsystem mapping is readable at presentation distance.",
-            "Slide 2 gives the EMCal and Barrel coverage cards extra vertical room so their final body-text lines are not cramped.",
-            "Slide 3 introduces the dataset only: broad p+p availability, separate PPG12 Run 24 analysis luminosity, and muted heavy-ion context.",
+            "Slide 2 preserves the current HPslides_v1 sPHENIX Subsystems slide screenshot as the body content.",
+            "Only the HP2026-style top stripe, sPHENIX mark, and standardized identity footer are added around the preserved Slide 2 body so it matches the rest of the deck without redesigning the subsystem content.",
+            "The subsystem text, icons, detector labels, and arrows are inherited from the screenshot rather than redrawn; the old baked-in body slide number is visually suppressed to keep the footer consistent.",
+            "Slide 3 introduces the dataset only: broad all-subsystem p+p availability, prominent PPG12 Run 24 cross-section luminosity, and muted all-subsystem heavy-ion context.",
+            "Slide 3 deliberately shows only all-subsystem context and the PPG12 Run 24 result luminosity.",
+            "Slide 3 uses a title-only header with larger type and expanded content panels for consistency with the preceding sPHENIX subsystem slide.",
+            "Slide 3 uses the same standardized HP2026 identity footer as the rest of the generated talk slides; the dataset content is otherwise unchanged.",
             "Slide 4 can remain the isolated prompt-photon motivation slide, preserving a clean progression: experiment -> data -> object.",
-            "No slide number or provenance footer is baked into either PNG.",
+            "No provenance footer or internal note is baked into either PNG.",
         ],
     }
     manifest_path = output_dir / "hp2026_experiment_dataset_standalone_manifest.json"
@@ -1831,32 +2297,149 @@ def render_detector_data_context(output_dir: Path) -> Path:
 
 def draw_isolated_photon_visual(base: Image.Image) -> None:
     draw = ImageDraw.Draw(base, "RGBA")
-    panel = (126, 333, 1422, 1112)
+    panel = (126, 333, 1422, 1248)
     draw.rounded_rectangle(panel, radius=10, fill=(*PANEL, 255), outline=(*PANEL_EDGE, 255), width=2)
 
-    draw.text((184, 382), "p+p hard scattering", font=font(TIMES_ITALIC, 33), fill=MUTED)
-    y0 = 666
+    def arrow_line(
+        start: tuple[float, float],
+        end: tuple[float, float],
+        color: tuple[int, int, int],
+        width: int = 4,
+        alpha: int = 230,
+        head: int = 14,
+    ) -> None:
+        sx, sy = start
+        ex, ey = end
+        draw.line((sx, sy, ex, ey), fill=(*color, alpha), width=width)
+        angle = math.atan2(ey - sy, ex - sx)
+        left = (ex - head * math.cos(angle - 0.55), ey - head * math.sin(angle - 0.55))
+        right = (ex - head * math.cos(angle + 0.55), ey - head * math.sin(angle + 0.55))
+        draw.polygon([(ex, ey), left, right], fill=(*color, alpha))
+
+    def label(text: str, xy: tuple[int, int], size: int = 23, fill=MUTED, rich: bool = False) -> None:
+        if rich:
+            draw_rich_text(draw, xy, text, font(TIMES_ITALIC, size), fill)
+        else:
+            draw.text(xy, text, font=font(TIMES_ITALIC, size), fill=fill)
+
+    def draw_small_feynman(box: tuple[int, int, int, int], title: str, equation: str, mode: str) -> None:
+        x0, y0, x1, y1 = box
+        draw.rounded_rectangle(box, radius=8, fill=(255, 255, 255, 238), outline=(222, 229, 236, 255), width=2)
+        draw.text((x0 + 22, y0 + 18), title, font=font(TIMES_BOLD, 25), fill=INK)
+        draw.text((x0 + 22, y0 + 54), equation, font=font(TIMES, 23), fill=BLUE)
+
+        cx, cy = x0 + 160, y0 + 132
+        if mode == "compton":
+            arrow_line((cx - 95, cy - 64), (cx - 10, cy - 12), INK, width=3, alpha=210, head=10)
+            pts = feynman_points((cx - 96, cy + 58), (cx - 8, cy + 14), 6, 5.0, 90)
+            draw_polyline(draw, pts, (*TEAL, 210), 4)
+            arrow_line((cx + 8, cy - 10), (cx + 104, cy - 58), PHOTON_DARK, width=4, alpha=235, head=11)
+            arrow_line((cx + 6, cy + 12), (cx + 104, cy + 58), INK, width=3, alpha=205, head=10)
+            labels = [("q", cx - 118, cy - 82), ("g", cx - 118, cy + 48), ("γ", cx + 112, cy - 76), ("q", cx + 112, cy + 48)]
+        else:
+            arrow_line((cx - 96, cy - 62), (cx - 10, cy - 12), INK, width=3, alpha=210, head=10)
+            arrow_line((cx - 96, cy + 62), (cx - 10, cy + 12), INK, width=3, alpha=210, head=10)
+            arrow_line((cx + 8, cy - 10), (cx + 104, cy - 58), PHOTON_DARK, width=4, alpha=235, head=11)
+            pts = feynman_points((cx + 8, cy + 14), (cx + 104, cy + 58), 6, 5.0, 90)
+            draw_polyline(draw, pts, (*TEAL, 210), 4)
+            labels = [("q", cx - 118, cy - 82), ("q̄", cx - 126, cy + 48), ("γ", cx + 112, cy - 76), ("g", cx + 112, cy + 48)]
+        draw.ellipse((cx - 12, cy - 12, cx + 12, cy + 12), fill=(*BLUE, 220))
+        for txt, lx, ly in labels:
+            draw.text((lx, ly), txt, font=font(TIMES_ITALIC, 21), fill=MUTED)
+
+    def draw_direct_gamma_raa_inset(box: tuple[int, int, int, int]) -> None:
+        x0, y0, x1, y1 = box
+        draw.rounded_rectangle(box, radius=8, fill=(255, 255, 255, 238), outline=(222, 229, 236, 255), width=2)
+        draw.text((x0 + 22, y0 + 16), "Color-neutral check", font=font(TIMES_BOLD, 25), fill=INK)
+        draw.text((x0 + 22, y0 + 48), "PHENIX direct γ in Au+Au", font=font(TIMES_ITALIC, 21), fill=MUTED)
+
+        px0, py0, px1, py1 = x0 + 78, y0 + 84, x1 - 38, y1 - 42
+        draw.rectangle((px0, py0, px1, py1), fill=(255, 255, 255, 255), outline=(80, 84, 90, 255), width=2)
+        for frac in (0.25, 0.5, 0.75):
+            yy = py1 - frac * (py1 - py0)
+            draw.line((px0, yy, px1, yy), fill=(230, 234, 238, 255), width=1)
+        y_one = py1 - 0.5 * (py1 - py0)
+        draw.line((px0, y_one, px1, y_one), fill=(50, 50, 50, 210), width=3)
+
+        band = [
+            (px0 + 78, y_one - 34),
+            (px0 + 150, y_one - 46),
+            (px0 + 226, y_one - 32),
+            (px0 + 308, y_one - 44),
+            (px0 + 394, y_one - 24),
+            (px0 + 394, y_one + 28),
+            (px0 + 308, y_one + 34),
+            (px0 + 226, y_one + 42),
+            (px0 + 150, y_one + 30),
+            (px0 + 78, y_one + 44),
+        ]
+        draw.polygon(band, fill=(180, 186, 194, 92))
+
+        points = [
+            (0.20, 0.50), (0.30, 0.48), (0.39, 0.52), (0.48, 0.49),
+            (0.57, 0.53), (0.67, 0.50), (0.77, 0.69), (0.88, 0.51),
+        ]
+        for fx, fy in points:
+            x = px0 + fx * (px1 - px0)
+            y = py1 - fy * (py1 - py0)
+            draw.line((x, y - 18, x, y + 18), fill=(70, 70, 70, 185), width=2)
+            draw.ellipse((x - 6, y - 6, x + 6, y + 6), fill=(35, 35, 35, 240))
+
+        draw_rich_text(draw, (px0 - 52, py0 + 4), "R_AA", font(TIMES_BOLD, 21), INK)
+        draw.text((px0 + 8, py0 + 8), "√sNN = 200 GeV", font=font(TIMES_BOLD, 18), fill=INK)
+        draw.text((px0 + 8, py0 + 32), "Au+Au", font=font(TIMES, 17), fill=INK)
+        draw_rich_text(draw, (px1 - 98, py1 + 8), "p_T", font(TIMES, 20), INK)
+        draw_rich_text(draw, (px0 + 24, py1 + 8), "direct γ R_AA ≈ 1", font(TIMES_ITALIC, 20), BLUE)
+
+    def draw_prompt_definition_box(box: tuple[int, int, int, int]) -> None:
+        x0, y0, x1, y1 = box
+        draw.rounded_rectangle(box, radius=8, fill=(255, 255, 255, 238), outline=(222, 229, 236, 255), width=2)
+        draw.text((x0 + 22, y0 + 18), "Prompt photon definition", font=font(TIMES_BOLD, 24), fill=INK)
+
+        y = y0 + 62
+        draw.rounded_rectangle((x0 + 24, y, x0 + 118, y + 34), radius=6, fill=(*PHOTON, 235))
+        draw.text((x0 + 42, y + 6), "direct", font=font(TIMES_BOLD, 20), fill=INK)
+        draw.text((x0 + 128, y + 6), "+", font=font(TIMES_BOLD, 22), fill=MUTED)
+        draw.rounded_rectangle((x0 + 154, y, x1 - 24, y + 34), radius=6, fill=(*TEAL, 220))
+        draw.text((x0 + 170, y + 6), "fragmentation", font=font(TIMES_BOLD, 19), fill=(255, 255, 255))
+
+        draw.text((x0 + 44, y + 56), "= prompt photons", font=font(TIMES_BOLD, 24), fill=BLUE)
+        draw.rounded_rectangle((x0 + 24, y + 104, x0 + 48, y + 128), radius=5, fill=(*LIGHT_MUTED, 220))
+        draw.text((x0 + 64, y + 101), "π⁰/η decays", font=font(TIMES_BOLD, 20), fill=MUTED)
+        draw.text((x0 + 190, y + 103), "backgrounds", font=font(TIMES_ITALIC, 19), fill=MUTED)
+
+    draw.text((184, 382), "RHIC p+p hard scattering", font=font(TIMES_ITALIC, 33), fill=MUTED)
+    draw.text((184, 424), "√s = 200 GeV: direct photon tags the short-distance parton scattering", font=font(TIMES, 25), fill=LIGHT_MUTED)
+    y0 = 646
     for x, label in ((300, "p"), (514, "p")):
         draw.ellipse((x - 48, y0 - 48, x + 48, y0 + 48), fill=(255, 255, 255, 255), outline=(98, 139, 169, 255), width=4)
         draw.text((x - 13, y0 - 23), label, font=font(TIMES_BOLD, 45), fill=BLUE)
     draw.line((348, y0, 628, y0), fill=(178, 199, 216, 255), width=6)
     draw.line((466, y0, 628, y0), fill=(178, 199, 216, 255), width=6)
 
-    collision = (654, y0)
-    for r, alpha in ((78, 28), (52, 46), (25, 96)):
+    collision = (666, y0)
+    for r, alpha in ((78, 26), (52, 44), (25, 96)):
         draw.ellipse((collision[0] - r, collision[1] - r, collision[0] + r, collision[1] + r), fill=(*SPHENIX_BLUE, alpha))
     draw.ellipse((collision[0] - 12, collision[1] - 12, collision[0] + 12, collision[1] + 12), fill=(*SPHENIX_BLUE, 220))
+    draw.text((570, 714), "hard q/g vertex", font=font(TIMES_ITALIC, 24), fill=BLUE)
 
-    # Quiet colored activity is drawn outside the isolation cone to explain
-    # suppression without turning this into a photon+jet opening.
-    for angle, length, width, alpha in ((112, 170, 5, 75), (248, 155, 5, 70), (308, 132, 4, 58)):
+    # Muted colored recoil and decay-rich activity provide context without
+    # making the opening a photon+jet slide.
+    for angle, length, width, alpha in ((112, 164, 5, 66), (242, 148, 5, 60), (302, 142, 4, 50)):
         ex = collision[0] + math.cos(math.radians(angle)) * length
         ey = collision[1] + math.sin(math.radians(angle)) * length
         draw.line((collision[0], collision[1], ex, ey), fill=(*TEAL_SOFT, alpha), width=width)
         draw.ellipse((ex - 9, ey - 9, ex + 9, ey + 9), fill=(*TEAL_SOFT, alpha + 25))
 
-    photon_start = (686, 636)
-    cone_tip = (1115, 546)
+    decay_center = (484, 518)
+    draw.ellipse((decay_center[0] - 18, decay_center[1] - 18, decay_center[0] + 18, decay_center[1] + 18), fill=(170, 178, 188, 120), outline=(120, 130, 142, 150), width=2)
+    draw_rich_text(draw, (decay_center[0] - 30, decay_center[1] - 56), "π^0, η decays", font(TIMES_ITALIC, 21), LIGHT_MUTED)
+    for end in ((552, 486), (570, 540)):
+        pts = feynman_points(decay_center, end, 4, 3.2, 80)
+        draw_polyline(draw, pts, (150, 158, 168, 120), 3)
+
+    photon_start = (698, 618)
+    cone_tip = (1122, 540)
     detector = (1238, 454, 1324, 692)
     dx, dy = cone_tip[0] - photon_start[0], cone_tip[1] - photon_start[1]
     length = math.hypot(dx, dy)
@@ -1867,6 +2450,7 @@ def draw_isolated_photon_visual(base: Image.Image) -> None:
     draw.line((photon_start, cone_left), fill=(219, 157, 32, 80), width=3)
     draw.line((photon_start, cone_right), fill=(219, 157, 32, 80), width=3)
     draw.arc((cone_tip[0] - 130, cone_tip[1] - 130, cone_tip[0] + 130, cone_tip[1] + 130), start=346, end=44, fill=(*PHOTON_DARK, 160), width=4)
+    draw.arc((cone_tip[0] - 178, cone_tip[1] - 178, cone_tip[0] + 178, cone_tip[1] + 178), start=346, end=44, fill=(*PHOTON_DARK, 55), width=3)
 
     wave = feynman_points(photon_start, cone_tip, amplitude=16, cycles=7.3, steps=240)
     glow = Image.new("RGBA", base.size, (0, 0, 0, 0))
@@ -1887,55 +2471,391 @@ def draw_isolated_photon_visual(base: Image.Image) -> None:
         draw.line((detector[0], y, detector[2], y), fill=(197, 211, 223, 255), width=2)
     draw.ellipse((cone_tip[0] - 21, cone_tip[1] - 21, cone_tip[0] + 21, cone_tip[1] + 21), fill=(*PHOTON, 235), outline=(*PHOTON_DARK, 210), width=3)
 
-    draw.text((810, 472), "isolated prompt photon", font=font(TIMES_ITALIC, 35), fill=BLUE)
-    draw.text((954, 690), "quiet cone", font=font(TIMES_ITALIC, 29), fill=(145, 111, 43))
+    draw.text((792, 462), "direct prompt photon", font=font(TIMES_ITALIC, 35), fill=BLUE)
+    draw.text((924, 688), "isolation cone", font=font(TIMES_ITALIC, 29), fill=(145, 111, 43))
+    draw.text((1212, 720), "EMCal", font=font(TIMES_ITALIC, 28), fill=LIGHT_MUTED)
 
-    bg_box = (236, 870, 1230, 1018)
-    draw.rounded_rectangle(bg_box, radius=8, fill=(255, 255, 255, 235), outline=(222, 229, 236, 255), width=2)
-    y = draw_wrapped(
-        draw,
-        "Isolation turns the object from a crowded EMCal cluster into a cleaner hard-scattering tag.",
-        (272, 900),
-        900,
-        font(TIMES, 29),
-        fill=INK,
-        line_gap=6,
-    )
-    draw_wrapped(
-        draw,
-        "The p+p cross section is the baseline result; gamma-jet and heavy-ion comparisons come later.",
-        (272, y + 8),
-        900,
-        font(TIMES_ITALIC, 26),
-        fill=MUTED,
-        line_gap=5,
-    )
+    bg_box = (214, 868, 1284, 1178)
+    draw.rounded_rectangle(bg_box, radius=8, fill=(255, 255, 255, 238), outline=(222, 229, 236, 255), width=2)
+    draw.text((250, 900), "Why the photon is a clean tag", font=font(TIMES_BOLD, 32), fill=INK)
+    draw.text((250, 938), "definition plus empirical color-neutral behavior at RHIC", font=font(TIMES_ITALIC, 23), fill=MUTED)
+    draw_prompt_definition_box((246, 980, 566, 1158))
+    draw_direct_gamma_raa_inset((596, 980, 1250, 1158))
+    draw.rounded_rectangle((250, 1190, 1246, 1226), radius=5, fill=(232, 240, 247, 255))
+    draw.text((270, 1198), "Direct photons are not strongly quenched; p+p provides the baseline that makes this comparison meaningful.", font=font(TIMES_ITALIC, 21), fill=BLUE)
 
 
 def draw_photon_motivation_cards(base: Image.Image) -> None:
     draw = ImageDraw.Draw(base, "RGBA")
     x, y = 1510, 345
-    w, h, gap = 870, 216, 34
+    w, h, gap = 870, 226, 32
     accents = [PHOTON, SPHENIX_BLUE, TEAL]
     for idx, (heading, body) in enumerate(PHOTON_MOTIVATION_REASONS):
         top = y + idx * (h + gap)
         draw.rounded_rectangle((x, top, x + w, top + h), radius=10, fill=(*CARD, 255), outline=(*CARD_EDGE, 255), width=2)
         draw.rounded_rectangle((x, top, x + 14, top + h), radius=6, fill=(*accents[idx], 255))
         draw_icon(draw, idx, (x + 86, top + 108))
-        draw.text((x + 162, top + 41), heading, font=font(TIMES_BOLD, 43), fill=INK)
-        draw_wrapped(draw, body, (x + 164, top + 101), 625, font(TIMES, 33), fill=MUTED, line_gap=10)
+        draw.text((x + 162, top + 38), heading, font=font(TIMES_BOLD, 43), fill=INK)
+        draw_wrapped(draw, body, (x + 164, top + 98), 625, font(TIMES, 31), fill=MUTED, line_gap=8)
+
+
+def draw_photon_motivation_payoff(base: Image.Image) -> None:
+    draw = ImageDraw.Draw(base, "RGBA")
+    box = (1510, 1108, 2380, 1290)
+    draw.rounded_rectangle(box, radius=10, fill=(239, 246, 250, 255), outline=(213, 226, 235, 255), width=2)
+    draw.rectangle((box[0], box[1], box[0] + 12, box[3]), fill=(*BLUE, 255))
+    draw.text((box[0] + 42, box[1] + 28), "Measurement logic", font=font(TIMES_BOLD, 34), fill=INK)
+    draw_wrapped(
+        draw,
+        "Color neutral gives the hard scale; isolation makes the candidate interpretable; p+p makes it the reference.",
+        (box[0] + 42, box[1] + 76),
+        box[2] - box[0] - 76,
+        font(TIMES, 28),
+        fill=MUTED,
+        line_gap=6,
+    )
+
+
+def draw_prompt_photon_integrated_slide(base: Image.Image) -> None:
+    draw = ImageDraw.Draw(base, "RGBA")
+
+    def arrow_line(
+        start: tuple[float, float],
+        end: tuple[float, float],
+        color: tuple[int, int, int],
+        width: int = 4,
+        alpha: int = 230,
+        head: int = 13,
+    ) -> None:
+        sx, sy = start
+        ex, ey = end
+        draw.line((sx, sy, ex, ey), fill=(*color, alpha), width=width)
+        angle = math.atan2(ey - sy, ex - sx)
+        left = (ex - head * math.cos(angle - 0.55), ey - head * math.sin(angle - 0.55))
+        right = (ex - head * math.cos(angle + 0.55), ey - head * math.sin(angle + 0.55))
+        draw.polygon([(ex, ey), left, right], fill=(*color, alpha))
+
+    def draw_clean_feynman(cx: int, cy: int, scale: float, mode: str) -> None:
+        node_top = (cx, cy - 42 * scale)
+        node_bot = (cx, cy + 64 * scale)
+        if mode == "fragmentation":
+            node_top = (cx, cy - 4 * scale)
+            node_bot = (cx, cy + 86 * scale)
+            arrow_line((cx - 108 * scale, cy - 88 * scale), node_top, INK, width=3, alpha=215, head=10)
+            arrow_line(node_top, (cx + 112 * scale, cy - 82 * scale), INK, width=3, alpha=215, head=10)
+            pts = feynman_points((cx + 46 * scale, cy - 38 * scale), (cx + 116 * scale, cy + 8 * scale), 5.0 * scale, 4.0, 80)
+            draw_polyline(draw, pts, (*PHOTON_DARK, 235), max(3, round(4 * scale)))
+            pts = feynman_points(node_bot, node_top, 5.0 * scale, 5.0, 90)
+            draw_polyline(draw, pts, (*TEAL, 230), max(3, round(4 * scale)))
+            arrow_line((cx - 108 * scale, cy + 150 * scale), node_bot, INK, width=3, alpha=215, head=10)
+            arrow_line(node_bot, (cx + 112 * scale, cy + 150 * scale), INK, width=3, alpha=215, head=10)
+            labels = [
+                ("q", cx - 132 * scale, cy - 110 * scale),
+                ("q", cx + 124 * scale, cy - 110 * scale),
+                ("γ", cx + 122 * scale, cy + 8 * scale),
+                ("q", cx - 132 * scale, cy + 116 * scale),
+                ("q", cx + 124 * scale, cy + 116 * scale),
+            ]
+        else:
+            arrow_line((cx - 108 * scale, cy - 112 * scale), node_top, INK, width=3, alpha=215, head=10)
+            pts = feynman_points(node_top, (cx + 112 * scale, cy - 112 * scale), 5.5 * scale, 4.3, 80)
+            draw_polyline(draw, pts, (*PHOTON_DARK, 235), max(3, round(4 * scale)))
+            arrow_line(node_top, node_bot, INK, width=3, alpha=210, head=9)
+            if mode == "compton":
+                pts = feynman_points((cx - 112 * scale, cy + 128 * scale), node_bot, 5.5 * scale, 5.0, 90)
+                draw_polyline(draw, pts, (*TEAL, 230), max(3, round(4 * scale)))
+                labels = [
+                    ("q", cx - 132 * scale, cy - 134 * scale),
+                    ("γ", cx + 116 * scale, cy - 132 * scale),
+                    ("g", cx - 128 * scale, cy + 112 * scale),
+                    ("q", cx + 124 * scale, cy + 112 * scale),
+                ]
+            else:
+                arrow_line((cx - 112 * scale, cy + 128 * scale), node_bot, INK, width=3, alpha=215, head=10)
+                labels = [
+                    ("q", cx - 132 * scale, cy - 134 * scale),
+                    ("γ", cx + 116 * scale, cy - 132 * scale),
+                    ("q", cx - 132 * scale, cy + 112 * scale),
+                    ("g", cx + 116 * scale, cy + 112 * scale),
+                ]
+                pts = feynman_points(node_bot, (cx + 112 * scale, cy + 128 * scale), 5.5 * scale, 5.0, 90)
+                draw_polyline(draw, pts, (*TEAL, 230), max(3, round(4 * scale)))
+            arrow_line(node_bot, (cx + 112 * scale, cy + 128 * scale), INK, width=3, alpha=215, head=10) if mode == "compton" else None
+
+        for node in (node_top, node_bot):
+            draw.ellipse((node[0] - 7 * scale, node[1] - 7 * scale, node[0] + 7 * scale, node[1] + 7 * scale), fill=INK)
+        label_font = font(TIMES_ITALIC, max(28, round(42 * scale)))
+        for txt, lx, ly in labels:
+            label_color = PHOTON_DARK if txt == "γ" else TEAL if txt == "g" else INK
+            # Particle labels need a small halo to survive projection at the back of the room.
+            for dx, dy in ((-2, 0), (2, 0), (0, -2), (0, 2), (-1, -1), (1, 1)):
+                draw.text((lx + dx, ly + dy), txt, font=label_font, fill=(255, 255, 255, 235))
+            draw.text((lx, ly), txt, font=label_font, fill=label_color)
+
+    def draw_raa_fallback(box: tuple[int, int, int, int]) -> None:
+        x0, y0, x1, y1 = box
+        draw.rectangle(box, fill=(255, 255, 255, 255), outline=(55, 55, 55, 255), width=3)
+        px0, py0, px1, py1 = x0 + 100, y0 + 36, x1 - 34, y1 - 58
+        draw.line((px0, py1, px1, py1), fill=INK, width=3)
+        draw.line((px0, py0, px0, py1), fill=INK, width=3)
+        for t in range(11):
+            x = px0 + t * (px1 - px0) / 10
+            draw.line((x, py1, x, py1 + 12), fill=INK, width=2)
+            draw.line((x, py0, x, py0 - 8), fill=INK, width=2)
+        for t in range(10):
+            y = py0 + t * (py1 - py0) / 9
+            draw.line((px0, y, px0 - 14, y), fill=INK, width=2)
+            draw.line((px1, y, px1 + 10, y), fill=INK, width=2)
+        y_one = py0 + 0.47 * (py1 - py0)
+        draw.line((px0, y_one, px1, y_one), fill=(35, 35, 35, 255), width=3)
+        band = [
+            (px0 + 280, y_one - 74), (px0 + 410, y_one - 94), (px0 + 560, y_one - 70),
+            (px0 + 690, y_one - 46), (px0 + 690, y_one + 52), (px0 + 560, y_one + 76),
+            (px0 + 410, y_one + 52), (px0 + 280, y_one + 78),
+        ]
+        draw.polygon(band, fill=(180, 184, 190, 100))
+        pts = [
+            (0.30, 0.44), (0.34, 0.49), (0.38, 0.51), (0.42, 0.48), (0.46, 0.52),
+            (0.50, 0.50), (0.54, 0.46), (0.60, 0.50), (0.68, 0.58), (0.78, 0.49),
+            (0.86, 0.69), (0.95, 0.50),
+        ]
+        for fx, fy in pts:
+            x = px0 + fx * (px1 - px0)
+            y = py1 - fy * (py1 - py0)
+            draw.line((x, y - 26, x, y + 26), fill=(70, 70, 70, 180), width=2)
+            draw.ellipse((x - 8, y - 8, x + 8, y + 8), fill=(36, 36, 36, 245))
+        draw.rectangle((px0 - 30, y_one - 28, px0 + 6, y_one + 28), fill=(55, 55, 55, 255))
+        draw.rectangle((px1 - 20, y_one - 28, px1 + 16, y_one + 28), fill=(95, 95, 95, 255))
+        draw.text((x0 + 20, y0 + 34), "direct γ R_AA", font=font(TIMES_BOLD, 35), fill=INK)
+        draw.text((x0 + 140, y0 + 46), "√sNN=200 GeV\nAu+Au, 0-92%", font=font(TIMES_BOLD, 29), fill=INK, spacing=3)
+        draw.text((x0 + 615, y1 - 42), "p_T (GeV/c)", font=font(TIMES_BOLD, 31), fill=INK)
+
+    def draw_exact_or_fallback_raa(box: tuple[int, int, int, int]) -> None:
+        candidates = [
+            ASSET_DIR / "direct_gamma_raa_user_constructed_prl109_fig3_backup_slide14.png",
+            ASSET_DIR / "phenix_direct_gamma_raa.png",
+            ASSET_DIR / "direct_gamma_raa_attached.png",
+            ASSET_DIR / "direct_photon_raa.png",
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                img = open_rgba(candidate)
+                paste_fit(base, img, box)
+                return
+        draw_raa_fallback(box)
+
+    def draw_subset_label(
+        box: tuple[int, int, int, int],
+        text: str,
+        color: tuple[int, int, int],
+        fill: tuple[int, int, int],
+        *,
+        align: str = "left",
+        y_offset: int = -24,
+        size: int = 30,
+    ) -> None:
+        x0, y0, x1, _ = box
+        label_font = font(TIMES_BOLD, size)
+        tw, _ = text_box(draw, text, label_font)
+        if align == "center":
+            lx0 = round((x0 + x1 - tw) / 2) - 22
+        else:
+            lx0 = x0 + 24
+        label_box = (lx0, y0 + y_offset, lx0 + 44 + tw, y0 + y_offset + 54)
+        draw.rounded_rectangle(label_box, radius=20, fill=(*fill, 255), outline=(*color, 210), width=2)
+        draw.text((label_box[0] + 18, label_box[1] + 7), text, font=label_font, fill=color)
+
+    draw.rounded_rectangle((132, 320, 2390, 1278), radius=10, fill=(*PANEL, 255), outline=(*PANEL_EDGE, 255), width=2)
+
+    draw.text((178, 360), "Prompt photons: production and color-neutral behavior", font=font(TIMES_BOLD, 48), fill=INK)
+    draw.text((180, 418), "Direct and fragmentation photons are prompt; decay photons are backgrounds. Isolation selects the quiet prompt-photon subset.", font=font(TIMES_ITALIC, 29), fill=BLUE)
+
+    # Production hierarchy: explicit subset contours instead of a loose bracket diagram.
+    prod_card = (180, 496, 1410, 1216)
+    draw.rounded_rectangle(prod_card, radius=8, fill=(255, 255, 255, 248), outline=(222, 229, 236, 255), width=2)
+    draw.text((216, 528), "Production channels", font=font(TIMES_BOLD, 42), fill=INK)
+    draw.text((218, 582), "Prompt photons include direct and fragmentation; decay photons are backgrounds.", font=font(TIMES_ITALIC, 26), fill=MUTED)
+
+    prompt_box = (220, 674, 1368, 1060)
+    direct_box = (252, 752, 844, 994)
+    frag_box = (908, 752, 1336, 994)
+    draw.rounded_rectangle(prompt_box, radius=30, fill=(255, 247, 244, 120), outline=(197, 64, 48, 210), width=3)
+    draw_subset_label(
+        prompt_box,
+        "Prompt photon production",
+        (197, 64, 48),
+        (255, 247, 244),
+        align="center",
+        y_offset=-37,
+        size=34,
+    )
+    draw.rounded_rectangle(direct_box, radius=20, fill=(237, 247, 254, 230), outline=(*SPHENIX_BLUE, 220), width=3)
+    draw.rounded_rectangle(frag_box, radius=20, fill=(236, 247, 243, 230), outline=(*TEAL, 220), width=3)
+
+    direct_label_box = (388, 700, 706, 748)
+    frag_label_box = (930, 700, 1308, 748)
+    draw.rounded_rectangle(direct_label_box, radius=19, fill=(237, 247, 254, 255), outline=(*SPHENIX_BLUE, 190), width=2)
+    direct_label_font = font(TIMES_BOLD, 32)
+    direct_tw, direct_th = text_box(draw, "Direct photons", direct_label_font)
+    draw.text(
+        (
+            (direct_label_box[0] + direct_label_box[2] - direct_tw) / 2,
+            (direct_label_box[1] + direct_label_box[3] - direct_th) / 2 - 3,
+        ),
+        "Direct photons",
+        font=direct_label_font,
+        fill=SPHENIX_BLUE,
+    )
+    draw.rounded_rectangle(frag_label_box, radius=19, fill=(236, 247, 243, 255), outline=(*TEAL, 190), width=2)
+    frag_label_font = font(TIMES_BOLD, 32)
+    frag_tw, frag_th = text_box(draw, "Fragmentation photons", frag_label_font)
+    draw.text(
+        (
+            (frag_label_box[0] + frag_label_box[2] - frag_tw) / 2,
+            (frag_label_box[1] + frag_label_box[3] - frag_th) / 2 - 3,
+        ),
+        "Fragmentation photons",
+        font=frag_label_font,
+        fill=TEAL,
+    )
+
+    centers = [(406, 880), (678, 880), (1118, 880)]
+    labels = [("Compton scattering", INK), ("Annihilation", INK), ("Fragmentation radiation", TEAL)]
+    for (cx, cy), (label_text, color), mode in zip(centers, labels, ("compton", "annihilation", "fragmentation")):
+        draw_clean_feynman(cx, cy - 18, 0.64, mode)
+        channel_font = font(TIMES_BOLD, 32)
+        tw, _ = text_box(draw, label_text, channel_font)
+        draw.text((cx - tw / 2, 1012), label_text, font=channel_font, fill=color)
+
+    strip = (234, 1084, 1386, 1174)
+    draw.rounded_rectangle(strip, radius=8, fill=(255, 251, 239, 255), outline=(238, 224, 190, 255), width=2)
+    draw.text((260, 1100), "prompt photons", font=font(TIMES_BOLD, 34), fill=(197, 64, 48))
+    draw.text((506, 1100), "=", font=font(TIMES_BOLD, 34), fill=INK)
+    draw.text((548, 1100), "direct photons", font=font(TIMES_BOLD, 34), fill=SPHENIX_BLUE)
+    draw.text((806, 1100), "+", font=font(TIMES_BOLD, 34), fill=INK)
+    draw.text((852, 1100), "fragmentation photons", font=font(TIMES_BOLD, 34), fill=TEAL)
+    draw.text((260, 1146), "decay photons are backgrounds", font=font(TIMES_ITALIC, 24), fill=MUTED)
+
+    # Exact plot slot. The generator pastes a provided PNG if it exists.
+    proof_card = (1458, 496, 2328, 968)
+    draw.rounded_rectangle(proof_card, radius=8, fill=(255, 255, 255, 248), outline=(222, 229, 236, 255), width=2)
+    draw.text((1496, 528), "Color-neutral behavior", font=font(TIMES_BOLD, 36), fill=INK)
+    draw.text((1498, 576), "A RHIC direct-photon reference anchors the intuition.", font=font(TIMES_ITALIC, 26), fill=MUTED)
+    plot_box = (1488, 620, 2298, 842)
+    draw_exact_or_fallback_raa(plot_box)
+    draw.rounded_rectangle((1496, 870, 2298, 930), radius=8, fill=(255, 251, 239, 255), outline=(238, 224, 190, 255), width=2)
+    draw.rectangle((1496, 870, 1508, 930), fill=(*PHOTON, 255))
+    draw.text((1534, 887), "Direct photons stay near unity in Au+Au.", font=font(TIMES_BOLD, 29), fill=INK)
+
+    draw.rounded_rectangle((1458, 988, 2328, 1216), radius=8, fill=(255, 255, 255, 245), outline=(222, 229, 236, 255), width=2)
+    draw.text((1496, 1016), "Isolation definition", font=font(TIMES_BOLD, 36), fill=INK)
+
+    def draw_isolation_equation(x: int, y: int) -> None:
+        eq_font = font(TIMES_BOLD, 28)
+        script_font = font(TIMES_BOLD, 15)
+        x_next, _ = draw_rich_text(draw, (x, y + 7), "E_T^iso =", eq_font, INK)
+        sigma_x = x_next + 18
+        draw.text((sigma_x, y - 2), "Σ", font=font(TIMES_BOLD, 50), fill=INK)
+        sigma_w, _ = text_box(draw, "Σ", font(TIMES_BOLD, 50))
+        sub = "cone towers"
+        sub_w, _ = text_box(draw, sub, script_font)
+        draw.text((sigma_x + sigma_w / 2 - sub_w / 2, y + 43), sub, font=script_font, fill=MUTED)
+        rest_x = round(sigma_x + sigma_w + 16)
+        draw_rich_text(draw, (rest_x, y + 7), "E_T^tower - E_T^candidate", eq_font, INK)
+
+    def draw_isolation_cartoon(box: tuple[int, int, int, int], *, busy: bool) -> None:
+        x0, y0, x1, y1 = box
+        cx = (x0 + x1) // 2
+        outline = (197, 64, 48) if busy else PHOTON_DARK
+        title_color = (197, 64, 48) if busy else BLUE
+        card_fill = (255, 248, 246, 255) if busy else (244, 249, 252, 255)
+        cone_fill = (255, 247, 244, 178) if busy else (244, 250, 253, 208)
+        label = "non-isolated" if busy else "isolated"
+
+        draw.rounded_rectangle(box, radius=7, fill=card_fill, outline=(222, 229, 236, 255), width=2)
+        title_font = font(TIMES_BOLD, 22)
+        tw, _ = text_box(draw, label, title_font)
+        draw.text((cx - tw / 2, y0 + 7), label, font=title_font, fill=title_color)
+
+        rim_y = y0 + 58
+        apex = (cx, y1 - 16)
+        rim_w = min(58, (x1 - x0) // 2 - 16)
+        rim_left = (cx - rim_w, rim_y)
+        rim_right = (cx + rim_w, rim_y)
+        draw.polygon([apex, rim_left, rim_right], fill=cone_fill)
+        draw.line((apex, rim_left), fill=(*outline, 220), width=3)
+        draw.line((apex, rim_right), fill=(*outline, 220), width=3)
+        draw.arc((cx - rim_w, rim_y - 12, cx + rim_w, rim_y + 12), 0, 180, fill=(*outline, 224), width=3)
+        draw.arc((cx - rim_w, rim_y - 12, cx + rim_w, rim_y + 12), 180, 360, fill=(*outline, 92), width=2)
+
+        def activity_ray(start: tuple[int, int], end: tuple[int, int]) -> None:
+            sx, sy = start
+            ex, ey = end
+            draw.line((sx, sy, ex, ey), fill=(255, 255, 255, 214), width=5)
+            draw.line((sx, sy, ex, ey), fill=(*INK, 218), width=2)
+            angle = math.atan2(ey - sy, ex - sx)
+            head = 6
+            left = (ex - head * math.cos(angle - 0.48), ey - head * math.sin(angle - 0.48))
+            right = (ex - head * math.cos(angle + 0.48), ey - head * math.sin(angle + 0.48))
+            draw.polygon([(ex, ey), left, right], fill=(*INK, 218))
+
+        if busy:
+            for start, end in (
+                ((cx - 5, apex[1] - 3), (cx - 29, rim_y + 34)),
+                ((cx - 1, apex[1] - 8), (cx - 12, rim_y + 58)),
+                ((cx + 5, apex[1] - 7), (cx + 8, rim_y + 46)),
+                ((cx + 10, apex[1] - 4), (cx + 26, rim_y + 36)),
+                ((cx - 9, apex[1] - 12), (cx - 3, rim_y + 26)),
+            ):
+                activity_ray(start, end)
+
+        photon_x = cx - 4
+        wave = feynman_points((photon_x, rim_y - 15), (photon_x, apex[1] - 9), 2.2, 5.5, 108)
+        draw_polyline(draw, wave, (*PHOTON_DARK, 228), 2)
+        gamma_font = font(TIMES_ITALIC, 21)
+        draw.text(
+            (photon_x + 10, rim_y - 34),
+            "γ",
+            font=gamma_font,
+            fill=INK,
+            stroke_width=1,
+            stroke_fill=(255, 255, 255, 235),
+        )
+
+    formula_box = (1496, 1066, 1986, 1138)
+    draw.rounded_rectangle(formula_box, radius=8, fill=(255, 251, 239, 255), outline=(238, 224, 190, 255), width=2)
+    draw.rectangle((1496, 1066, 1508, 1138), fill=(*PHOTON, 255))
+    draw_isolation_equation(1536, 1078)
+    draw_rich_text(
+        draw,
+        (1496, 1150),
+        "small E_T^iso → low nearby activity",
+        font(TIMES, 24),
+        MUTED,
+    )
+    draw.text(
+        (1496, 1186),
+        "Suppresses fragmentation-rich nearby activity.",
+        font=font(TIMES_BOLD, 22),
+        fill=TEAL,
+    )
+    draw.line((1994, 1024, 1994, 1204), fill=(222, 229, 236, 255), width=2)
+    draw_isolation_cartoon((2016, 1024, 2162, 1206), busy=False)
+    draw_isolation_cartoon((2178, 1024, 2314, 1206), busy=True)
 
 
 def write_isolated_photon_script(output_dir: Path) -> Path:
-    script = """# HP2026 Slide 3 Speaker Script
+    script = """# HP2026 Slide 4 Speaker Script
 
-Now I can define the physics object. A prompt photon is tied to the short-distance hard scattering, and because it is color neutral it does not lose energy through the strong final-state interactions that affect colored probes.
+Now I want to define the actual physics object of the talk. The important point is that prompt photons are photons associated with the short-distance parton scattering, not photons from neutral-meson decays.
 
-Experimentally, the word isolated matters. We require the energy around the photon candidate to be quiet, which strongly reduces decay photons and fragmentation-rich backgrounds before the purity correction. That is what makes the candidate sample interpretable as a prompt-photon measurement.
+On the left, I am showing that hierarchy explicitly. The first two diagrams are the direct photon channels: Compton scattering and annihilation. The fragmentation channel is also prompt, because the photon is still associated with the hard scattering, but experimentally it tends to come with more nearby activity. Decay photons are outside this prompt-photon box and are the background this analysis has to suppress.
 
-The result I want the audience to hold onto is the p+p cross section. It is valuable on its own, and it also becomes the reference point for future gamma-jet and heavy-ion measurements at sPHENIX.
+The reason photons are powerful is shown on the right. Once the photon is produced, it is color neutral, so it does not undergo the same strong final-state energy loss as a colored parton. The direct-photon reference sits near unity, which is the qualitative behavior we want from a calibrated electromagnetic tag.
 
-Transition: after this motivation, the talk can move into the actual reconstruction chain: clusters, identification, isolation, purity, correction, and then the cross-section comparison.
+Isolation is the experimental step that makes this object clean enough to measure. Operationally, we calculate an isolation energy: the transverse energy from towers in a cone around the candidate, minus the candidate's own transverse energy. The two small graphics show the intuition directly: the isolated case has little activity around the photon candidate, while the non-isolated case has additional nearby particles or calorimeter energy in that same cone.
+
+That is why isolation is especially useful for the fragmentation component. Fragmentation photons tend to come with nearby activity from the parent parton, so the isolation requirement preferentially suppresses fragmentation-rich and decay-rich candidates. So the object for this talk is not just any photon; it is an isolated prompt photon in p+p, which gives the baseline for future heavy-ion photon measurements.
 """
     path = output_dir / "hp2026_slide03_isolated_photon_motivation_script.md"
     path.write_text(script, encoding="utf-8")
@@ -1951,15 +2871,16 @@ def render_isolated_photon_motivation(output_dir: Path) -> Path:
     draw.rectangle((0, 0, W, 22), fill=(*SPHENIX_BLUE, 255))
     draw.rectangle((0, 22, W, 30), fill=(*PHOTON, 255))
 
+    logo = load_sphenix_logo()
+    if logo is not None:
+        paste_fit(img, logo, (2188, 58, 2432, 164), anchor="right")
+
     draw.text((132, 98), PHOTON_MOTIVATION_TITLE, font=font(TIMES_BOLD, 90), fill=INK)
     draw.text((136, 205), PHOTON_MOTIVATION_SUBTITLE, font=font(TIMES_ITALIC, 43), fill=BLUE)
     draw.line((132, 292, W - 132, 292), fill=(221, 226, 232), width=3)
 
-    draw_isolated_photon_visual(img)
-    draw_photon_motivation_cards(img)
-
-    draw.rounded_rectangle((132, 1192, W - 132, 1282), radius=8, fill=(239, 246, 250, 255), outline=(213, 226, 235, 255), width=2)
-    draw.text((174, 1216), PHOTON_MOTIVATION_BRIDGE, font=font(TIMES_ITALIC, 38), fill=BLUE)
+    draw_prompt_photon_integrated_slide(img)
+    draw_recreated_footer(img)
 
     png = output_dir / "hp2026_slide03_isolated_photon_motivation.png"
     img.convert("RGB").save(png, "PNG")
@@ -2000,12 +2921,20 @@ def write_opening_sequence_manifest(output_dir: Path, slide2: Path, slide3: Path
                 "title": PHOTON_MOTIVATION_TITLE,
                 "role": "narrow from detector/data context to the isolated prompt-photon physics object",
                 "speaker_script": str(photon_script.relative_to(ROOT)),
+                "color_neutrality_plot_asset": str(
+                    (ASSET_DIR / "direct_gamma_raa_user_constructed_prl109_fig3_backup_slide14.png").relative_to(ROOT)
+                ),
+                "color_neutrality_plot_source": {
+                    "paper_pdf": str((ROOT / "usefulDocs" / "PHENIX_direct_photon_RAA_PRL109_152302.pdf").relative_to(ROOT)),
+                    "source_note": "User-constructed white-background screenshot crop from PRL 109.152302 Fig. 3 / backup slide 14.",
+                },
             },
         ],
         "data_source_evidence": DATA_SOURCE_EVIDENCE,
         "source_basis": [
             "Official BNL RHIC sPHENIX detector imagery for Slide 2.",
             "Yeonju DIS2026 and Hanpu AUM2026 reference decks for p+p data-taking numbers.",
+            "PHENIX PRL 109.152302 direct-photon R_AA plot used as a color-neutrality reference via Justin's constructed backup-slide crop.",
             "Yeonju/Hanpu-style opening progression used as structure only: experiment/data first, photon object second.",
             "No copied Yeonju screenshots, no copied internal figures, no Google Slides mutation.",
         ],
@@ -2301,6 +3230,8 @@ def render(output_dir: Path, variant: str) -> Path:
         return render_opening_sequence(output_dir)
     if variant == "experiment-dataset-standalone":
         return render_experiment_dataset_standalone(output_dir)
+    if variant == "sphenix-subsystems-recreated":
+        return render_recreated_sphenix_subsystems(output_dir)
     if variant == "detector-data-progressive-build":
         return render_detector_data_progressive_build(output_dir)
     if variant == "detector-data-context":
@@ -2328,6 +3259,7 @@ def main() -> None:
         choices=(
             "opening-sequence",
             "experiment-dataset-standalone",
+            "sphenix-subsystems-recreated",
             "detector-data-progressive-build",
             "detector-data-context",
             "isolated-photon-motivation",

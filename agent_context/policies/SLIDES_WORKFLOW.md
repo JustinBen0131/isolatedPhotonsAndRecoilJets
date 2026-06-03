@@ -76,6 +76,30 @@ Google Slides edit.
   candidates. Slides should be audience-facing by default; keep detailed
   provenance in the chat note, generated summary CSV/JSON, speaker notes, or a
   separate technical backup slide when needed.
+- Use a source-first plot policy for all slide generation, not only public
+  conference talks. When an approved paper figure, collaboration-approved plot,
+  public reference plot, or current vetted analysis plot already exists and is
+  the correct evidence object, place that exact visual artifact on the slide
+  rather than recreating it from scratch. Generated design should improve the
+  presentation around the evidence object: crop, framing, shadow, layout,
+  callout cards, arrows, labels, footer/header consistency, and explanatory
+  scaffolding. Do not impersonate a collaboration/result plot with newly
+  generated fake data, approximated curves, or decorative re-draws. If a plot
+  must be regenerated from data, record the exact code, input files, tag,
+  timestamps, and validation evidence in the manifest or handoff.
+- Apply the same visual-quality bar to collaboration-facing decks, PPG/JSTG
+  updates, internal analysis reviews, and public talks. Public talks have
+  stricter release/label constraints, but internal audiences still deserve
+  clean hierarchy, readable text, consistent typography, uncluttered
+  composition, and digestible claim/evidence/implication structure.
+- For public HP2026 PPG12 photon slides, final PPG12 plot images must come
+  from the current PPG12 paper PDF or from another explicitly public/approved
+  source recorded in the manifest. IAN plots, internal ROOT/data-generated
+  plots, collaborator-only figures, and screenshot crops from backup slides are
+  placeholders only until released or explicitly approved for public use. If a
+  candidate still shows `sPHENIX Internal` where the public version should say
+  `Preliminary` or carry an approved public label, mark the slide incomplete
+  rather than public-ready.
 - Do not put internal design notes, presenter instructions, implementation
   reminders, or text addressed to Justin/Codex on the slide canvas. Phrases
   like "read this slide as", "purpose", "speaker note", "next action", or
@@ -83,6 +107,12 @@ Google Slides edit.
   chat note. On-slide text must be audience-facing: title, labels, definitions,
   claims, evidence, caveats the audience needs, and transition language only
   when it is meant to be spoken or seen by the audience.
+- For explanatory note boxes, target/result boxes, and compact interpretation
+  cards, prefer a short bold lead label followed by regular-weight body text
+  rather than bolding the entire sentence. Examples: `Note:` bold with the note
+  body regular; `Target result:` bold with the result description regular.
+  Use all-bold text only for short labels, card titles, or genuinely emphatic
+  one-line takeaways.
 - Do not use caret notation on a final slide canvas for text that should be
   superscripted or subscripted. Units such as inverse picobarns, inverse
   nanobarns, `p_T`, `E_T`, `x_J`, `x_{Jgamma}`, powers, indices, and isotope or
@@ -181,6 +211,37 @@ When a progressive alternate is generated:
 For approved deck insertion, treat a progressive PNG build as consecutive
 duplicate-frame slides or a native Slides build depending on Justin's chosen
 workflow. Do not bake slide numbers or provenance footers into any frame.
+
+### Progressive Focus Build
+
+A `progressive focus build` is a narrow progressive-build subtype where the
+same slide layout remains fixed while attention moves from one proof object to
+the next. Use this only when the visual object is dense enough that showing all
+panels at full emphasis would compete with the spoken sequence.
+
+The pattern is:
+
+- keep the exact same title, layout, footer, axes, and object placement across
+  all frames;
+- leave the current proof object at full contrast;
+- ghost, desaturate, blur, or soften future proof objects so they remain
+  visible as context but are not read yet;
+- on each click, activate one additional object or annotation while preserving
+  the same visual field;
+- avoid adding internal labels such as `next`, `not yet`, or `click here` on
+  the slide canvas.
+
+This is useful for slides such as a BDT pipeline, ABCD sideband logic,
+corrections chain, or systematics breakdown, where Justin is walking the
+audience through the same diagram step by step. It is not a general animation
+preference: if the content is clearer as normal consecutive standalone slides,
+generate normal slides.
+
+When generating a progressive focus build, produce each frame as an individual
+`2560x1440` PNG, plus a click-aware script or clearly named per-frame scripts.
+The chat handoff should state which frame is active at each step and should
+include links to every PNG/script. Google Slides remains untouched until Justin
+explicitly approves insertion.
 
 ## Chronicle Context Rule
 
