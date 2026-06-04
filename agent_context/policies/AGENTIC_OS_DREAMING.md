@@ -4,6 +4,10 @@ This policy defines the ThesisAnalysis dream layer: private, synthetic,
 proposal-only simulation that helps Codex rehearse likely future failures and
 prepare better next-day responses without touching live external systems.
 
+For a top-down blank-model handoff of the current pipeline, automations, lane
+ownership, Justin/Codex responsibilities, and redundancy boundaries, read
+`agent_context/policies/DREAM_SYSTEM_OPERATING_OVERVIEW.md`.
+
 ## Core Rule
 
 Dreams are not user intent. A synthetic Justin line is a test fixture, never
@@ -53,10 +57,15 @@ validators, runbooks, indexes, retention rules, or path-contract improvements.
 Recurring active-job/status/stale warnings should be retired into
 `register_workstream_refresh_contract` once that protocol is present; doctor
 warnings should count only unhandled recurring hotspots.
-Scores are diagnostic smoke alarms only. `morning_conversation_digest.md` is
-the preferred user-facing summary: it must say what the dream did, learned,
-tried, changed, deferred, why it deferred, which structural advancements it
-found, and the best next internal fix.
+Scores are diagnostic smoke alarms only. Dream summaries are after-action
+reports, not status blips. `morning_conversation_digest.md` and each scheduled
+lane `morning_lane_summary.json` must say, in concrete scan-friendly language:
+what the dream did, what surfaces it inspected, what it researched, what it
+learned, what it changed locally, what it intentionally left untouched, what it
+recommends changing only after waking approval, how long the lane took, which
+artifacts support the report, and what feedback would make the next dream more
+useful. A dream summary that only says "changed/deferred/no action" without
+explaining what improved or what was learned is considered incomplete.
 
 No dream may stop at "nothing to clean." If generated-junk cleanup is empty,
 the dream must still produce at least one reviewable cleanup angle, architecture
@@ -64,6 +73,29 @@ improvement hypothesis, deeper search angle, or sanitized ChatGPT research
 question. The nightly purpose is progressive internal improvement, not merely
 trash collection. Avoid forced edits, but never confuse "no safe deletion" with
 "nothing to learn or improve."
+
+The daily cockpit should show a compact version of the after-action report, but
+the machine-readable JSON must preserve the richer detail. For each lane, prefer
+these fields when rendering morning text:
+
+- `what_happened`: the lane's concrete activity in plain language;
+- `inputs_analyzed`: files, ledgers, indexes, counts, or local artifacts read;
+- `what_was_researched`: research questions, source surfaces, or tool-routing
+  prompts examined;
+- `what_was_learned`: the useful conclusion or pressure point, not just a
+  score;
+- `what_changed`: local-only changes actually performed with rollback evidence;
+- `what_should_change_after_approval`: proposed waking changes and why they
+  need approval or validation;
+- `waking_next_checks`: the next bounded command/review if the lane surfaced
+  useful pressure;
+- `quality_feedback`: whether the dream was useful, too shallow, noisy, stale,
+  or missing evidence;
+- `run_timing`: start, finish, and elapsed seconds.
+
+Research-oriented lanes must be especially explicit: say what was analyzed,
+what was learned, whether external/tool research was actually performed or only
+staged, and which claims remain unverified local proposals.
 
 Do not let arbitrary-looking scores become the product. Low cohesion or high
 maintenance debt must be translated into named infrastructure work: "make this
@@ -73,8 +105,12 @@ duplicate policy," "archive this stale memory candidate after review," or
 advancement, the dream has not searched deeply enough.
 
 The dream should bifurcate by purpose across eight independent `03:30` lane
-heartbeats, each opening a fresh automation-generated chat each night and each
-writing its own local dream run directory. Current lanes are:
+heartbeats. The desired mature topology is one persistent Codex chat per lane,
+so each lane builds in-situ memory and avoids repeating the same exploration
+from scratch. If Codex thread-management tools are unavailable, keep the
+current standalone cron lane jobs running, but treat that as an interim state.
+Do not bind two lanes to one chat, and do not bind dream lanes to the general
+Today's Plan thread. Current lanes are:
 
 - `status_provenance`: stale state, active-job/status pressure, artifact
   provenance, and duplicate-run guard pressure;
@@ -103,6 +139,38 @@ external/science mutation boundary still override any lane suggestion.
 Talk-only workstreams, including `hp26_photon_id_talk`, should not drive
 thesisAnalysis internal-maintenance pressure unless a deck/talk workflow is
 explicitly in scope.
+
+## Fixed Dream-Lane Chats
+
+The fixed-chat plan is:
+
+| Lane | Persistent chat title |
+| --- | --- |
+| `status_provenance` | `Dream Lane | Status Provenance` |
+| `architecture_cohesion` | `Dream Lane | Architecture Cohesion` |
+| `context_resonance` | `Dream Lane | Context Resonance` |
+| `cleanup_storage` | `Dream Lane | Cleanup Storage` |
+| `path_contract` | `Dream Lane | Path Contract` |
+| `research_scout` | `Dream Lane | Research Scout` |
+| `science_scout` | `Dream Lane | Science Scout` |
+| `presentation_artifacts` | `Dream Lane | Presentation Artifacts` |
+
+The tracked template is
+`agent_context/DREAM_LANE_THREAD_BINDINGS.example.json`. The local filled-in
+binding file is
+`agent_context/local/dreams/dream_lane_thread_bindings.json`. After the eight
+chats exist, fill each `target_thread_id` in the local file and update the
+installed automations so the scheduled run resumes the matching fixed thread.
+Until all IDs are known, keep `thread_binding: fresh_chat_per_run` in lane
+signals and mark fixed-thread migration as pending rather than pretending it is
+complete.
+
+When thread tools are exposed, Codex should create and title the eight chats
+directly, record their thread IDs in the local binding file, then convert each
+lane automation from standalone fresh-chat execution to the matching fixed
+thread if the automation system supports `targetThreadId`. If thread tools are
+not exposed, Justin should create those eight chats manually and provide the
+thread IDs or links; Codex can then complete the binding and automation update.
 
 `context_resonance` is not a larger boot pack. It is a salience layer that
 asks what old context should lightly surface, what stale or synthetic context
@@ -310,9 +378,77 @@ evidence, a validator, retention and decay rules, and a promotion status. Those
 cards may focus waking review but must not mutate policy, doctor checks, memory,
 tasks, or runbooks unless waking Codex validates them and the normal
 Justin-approved workflow applies them.
+New lane packages should also emit `learning_atoms.jsonl` and
+`learning_atoms.md`. Learning atoms are the first-class consolidation unit:
+they turn real episode evidence, dream rehearsal, doctor warnings, artifact
+audits, status audits, or user-feedback summaries into one bounded proposal
+with evidence refs, task-family tags, a proposed target, validators, promotion
+status, retention/decay rules, and links back to the raw dream episode. They
+are proposal-only until waking Codex validates them.
+Machine contract: every atom must explicitly carry
+`mutation_boundary: proposal_only`, `promotion.status: proposal_only` by
+default, and `retention.preserve_raw_episode: true`. Use the exact
+`preserve_raw_episode` field so validators can prove raw dream evidence is not
+overwritten by consolidated memory.
+Finitude contract: every new-version atom should also carry compact
+finite-project routing fields when inferable:
+`terminal_path_alignment`, `finitude_pressure`, `regret_if_unfixed`,
+`minimal_publishable_path_impact`, `novelty_gate`, and
+`recommended_waking_action`. These fields are prioritization aids, not proof.
+They must not promote synthetic physics ideas into real project evidence.
 Each lane run directory must contain `lane_heartbeat.md`, `lane_signal.json`,
 `lane_digest.md`, and `validation_summary.md`, plus the artifacts owned by that
 lane.
+
+## Learning Atoms And Waking Promotion
+
+The dream layer follows this consolidation path:
+
+```text
+real episode evidence -> proposal-only dream abstraction -> learning atom ->
+validator/doctor selection -> waking promotion -> durable policy/schema/skill
+or style memory -> decay or cooling of weak proposals
+```
+
+Dreams may generate learning atoms, but they may not promote them. Waking Codex
+may promote a learning atom only when:
+
+- raw evidence and the raw dream episode remain preserved;
+- the atom has nonempty evidence refs and a local raw episode path;
+- the proposed change is narrow and names one target surface;
+- at least one validator or doctor check exists or is added;
+- the relevant policy does not contradict the change;
+- synthetic and privacy filters pass;
+- `python3 scripts/codex_os_doctor.py --profile daily` passes or reports only
+  understood warning-level maintenance debt;
+- risky or external surfaces still require Justin approval.
+
+A promoted atom may become exactly one or more of: policy line, negative memory
+trap, context-resonance cue, schema/validator, slide style-map rule, artifact
+QA rule, runbook/skill contract, work-register correction, or postmortem.
+Synthetic-only atoms may become warnings, rehearsals, or validator ideas; they
+must not become project evidence.
+
+Every scheduled lane should include a compact thesis-finitude rehearsal:
+
+- What did this lane do to close the thesis?
+- What did it reveal as wasted thesis time or attention?
+- What repeated issue is leaking finite thesis time?
+- What missing plot, result, slide, or provenance blocks the minimal
+  publishable path?
+- What should wait until the baseline is safe?
+- What single waking action would most reduce future regret?
+- What real evidence is required before a dream physics idea becomes real work?
+
+Raw episodes, `dream_trace.json`, `lane_signal.json`, `dream_index.jsonl`, and
+evidence artifacts are never overwritten or replaced by consolidated memories.
+Consolidation may summarize or link; it must not erase the evidence trail.
+
+Unpromoted atoms cool if they do not recur. Duplicate atoms should be merged in
+the recurrence index, not deleted automatically. A recurring dream finding that
+remains prose for three nights without a learning atom, validator, or explicit
+rejection becomes maintenance-debt pressure and should block new dream
+cleverness until converted or cooled.
 
 The `context_resonance` lane additionally owns:
 
@@ -446,6 +582,11 @@ analysis approval, and real validation.
 - `cleanup_proposals.md`
 - `maintenance_debt.md`
 - `adaptation_cards.md`
+- `learning_atoms.jsonl`
+- `learning_atoms.md`
+- `dream_recurrence_index.json`
+- `nightly_heartbeat_signal.json`
+- `morning_appendix.md`
 - `targeted_findings.json`
 - `thesis_flow_scores.json`
 - `branch_pressure_report.json`

@@ -42,6 +42,8 @@ Record durable decisions and evidence:
 - cleanup decisions and protected paths.
 - agent/OS failures, near misses, and repeated friction points that should
   become a policy, script, preflight, Linear follow-up, or accepted risk.
+- reusable plot, slide, script, speaker-note, or workflow corrections after
+  Justin feedback, when the lesson can prevent the same mistake in future work.
 
 Do not record speculative guesses, bulky conversational notes, or casual task
 ideas unless Justin asks.
@@ -97,6 +99,31 @@ Record:
 - active jobs, artifacts, evidence, `next_check`, and `stale_after`;
 - compact handoff summary for the next Codex chat.
 
+Optional critical-path fields may be added when they improve routing or
+decision quality. Do not add them mechanically to every task:
+
+- `critical_path_class`: `terminal_path`, `risk_reduction`,
+  `artifact_quality_multiplier`, `evidence_integrity`,
+  `workflow_compounding`, `novelty_after_baseline`, `distraction_risk`, or
+  `blocked_by_missing_evidence`.
+- `terminal_artifact_supported`: the rung of the thesis artifact ladder this
+  work supports.
+- `minimal_publishable_path_impact`: low/medium/high/critical impact on the
+  shortest safe publishable path.
+- `regret_if_delayed`: what future Justin would lose if this waits.
+- `opportunity_cost`: what thesis work or attention this displaces.
+- `safe_next_action`: the smallest evidence-backed next step.
+- `novelty_gate`: why novelty is allowed now or why it should wait.
+- `defer_until_baseline_safe`: true when interesting work should wait for
+  baseline safety.
+- `next_thesis_closing_action`: the next action that most directly closes the
+  thesis path.
+
+If Justin corrects repeated drift that costs thesis time, classify the drift
+and encode the smallest durable prevention mechanism: policy, negative memory,
+schema, validator, style-map entry, artifact QA rule, runbook/skill,
+work-register update, or postmortem.
+
 If another active session already owns the same workstream, stop before doing
 duplicate work and report the existing owner, next check, and evidence.
 
@@ -150,6 +177,63 @@ Use `agent_context/templates/OS_POSTMORTEM_TEMPLATE.md` for postmortems and
 run `python3 scripts/codex_os_doctor.py --profile daily` after OS-state
 repairs. Repeated warnings should become encoded prevention, not permanent
 daily noise.
+
+## Feedback-To-Learning Loop
+
+When Justin corrects a generated plot, full-slide candidate, speaker script,
+task surface, or workflow behavior, classify the correction before moving on.
+The categories are:
+
+- style/narrative;
+- physics/science;
+- provenance/evidence;
+- workflow/safety;
+- retrieval failure;
+- memory salience failure;
+- task/status failure;
+- tool/runtime failure;
+- artifact-quality failure.
+
+Choose exactly one primary durable mechanism when the lesson is reusable:
+policy patch, style-map entry, negative-memory trap, schema/validator,
+artifact QA rule, script/default change, register update, postmortem, or
+Linear follow-up. Do not record every preference; record corrections that
+prevent repeated user friction, scientific ambiguity, unsafe action, or
+artifact-quality regressions.
+
+Every durable reflection must cite concrete evidence: user correction, file
+path, slide ID, artifact path, command output, validator result, or register
+entry. Use:
+
+- `agent_context/templates/OS_REFLECTION_TEMPLATE.md` for OS behavior lessons;
+- `agent_context/templates/SLIDE_FEEDBACK_TEMPLATE.md` for slide/plot/script
+  correction loops;
+- `agent_context/templates/TRAJECTORY_LEARNING_TEMPLATE.md` for multi-step
+  improvements across a campaign or dream lane.
+
+Use this taxonomy when deciding where memory belongs:
+
+- evidence: verified files, commands, logs, artifacts, user statements;
+- experience: observed friction, repeated correction, failed workflow;
+- belief: provisional interpretation that still needs verification;
+- style: Justin-facing visual, wording, hierarchy, or script preferences;
+- policy: hard behavioral rule or safety condition;
+- skill/procedure: repeatable method, checklist, script default, or validator.
+
+Dream learning atoms are not durable memory by themselves. Treat
+`learning_atoms.jsonl` as a proposal queue generated from preserved raw dream
+episodes and real evidence pointers. A waking session may promote one atom only
+when it has a raw episode path, concrete evidence refs, a narrow target, a
+validator or doctor check, and no synthetic-approval ambiguity. Promotion may
+write exactly one or more of: policy line, negative-memory trap,
+context-resonance cue, schema/validator, slide style-map rule, artifact QA
+rule, runbook/skill contract, work-register correction, or postmortem.
+
+Do not overwrite raw episodes or replace evidence with a consolidated atom.
+Unpromoted atoms cool through the dream recurrence index; they are not deleted
+automatically. If the same dream finding appears as prose for three scheduled
+nights without an atom, validator, explicit rejection, or cooldown decision,
+record it as maintenance debt rather than letting it remain recurring noise.
 
 ## Workstream Refresh Protocol
 

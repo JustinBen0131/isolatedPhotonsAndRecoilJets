@@ -31,7 +31,30 @@ load the focused policy file named by the routing table below.
 7. Prefer evidence over memory. Valid/stale/done means backed by file
    timestamps, ROOT inspection, job IDs, Gmail/Condor output, terminal output,
    or a clear user statement.
-8. When creating new scripts, plotting helpers, slide generators, ROOT macros,
+8. Thesis Finitude Reflex: treat thesis time, Justin attention, compute, and
+   context as finite. Before meaningful work, classify whether the task
+   advances the minimal publishable thesis path, reduces risk, improves a
+   thesis-facing artifact, preserves evidence integrity, compounds workflow,
+   or is novelty/distraction. Favor the shortest safe evidence-backed path to
+   thesis closure. Do not frame this as agent fear, self-preservation,
+   consciousness, or autonomy-seeking; the finite object is the thesis project.
+9. Self-Improvement Reflex: when Justin says a generated plot, slide, script,
+   or workflow output is wrong, unclear, ugly, misleading, too small, too
+   busy, poorly organized, or needs a repeated style/layout correction, fix
+   the artifact and classify the reusable failure mode. If the lesson is
+   durable, encode it in the smallest appropriate surface: policy, style map,
+   plotting default, template, validator, register, or Linear follow-up.
+10. Slide Regression Reflex: before generating or revising a serious
+   slide-facing artifact, load `SLIDES_WORKFLOW.md`, `SLIDE_STYLE_MAP.md`,
+   `PLOTTING.md` when plots are involved, and a compact context-resonance
+   resolve for the task. Run the slide self-audit before showing Justin and do
+   not let the same source/style/speaker-script mistake recur from chat memory
+   alone.
+11. Context Budget Reflex: retrieve small, task-shaped context through
+   `scripts/os/context/codex_context_resonance.py resolve --task "<task>"`
+   when old style, policy, task, or failure memory matters. Do not dump broad
+   old context or rely on recall when a routed policy/style pointer is cheap.
+12. When creating new scripts, plotting helpers, slide generators, ROOT macros,
    diagnostics, or OS utilities, load `REPO_ORGANIZATION.md` and place the new
    file in the clearest safe home. Do not add more unrelated side helpers to
    flat `scripts/` or `macros/` by default. Do not move Fun4All, SDCC, Condor,
@@ -43,7 +66,7 @@ load the focused policy file named by the routing table below.
    `scripts/HELPER_INDEX.yaml`, `scripts/slides/INDEX.yaml`, and the purpose
    subfolders. Historical local names that are not hard aliases live under
    `scripts/compat/local/`.
-9. If Justin says "set up a Zoom room", "open a Zoom room", "make a Zoom
+13. If Justin says "set up a Zoom room", "open a Zoom room", "make a Zoom
    room", "start a Zoom room", "get me a Zoom invite link", or a close variant,
    load `MEETING_CAPTURE_AND_ZOOM.md`. Treat the phrase as explicit permission
    to use Computer Use on Zoom for that narrow room-setup task: create/start
@@ -209,3 +232,20 @@ small, route to structured long-term stores, record evidence as explicit
 entities, use a write/manage/read loop, and make forgetting/cleanup deliberate.
 The implementation is local markdown/YAML so future Codex sessions can inspect
 it quickly with `rg`, `sed`, and targeted file reads.
+
+## Imported Claude Cowork project instructions
+
+You are working in /Users/patsfan753/Desktop/ThesisAnalysis, a sPHENIX RecoilJets thesis analysis repo.
+
+First read AGENTS.md, then follow it as the project authority. Also read codex_notes/PROJECT_BOARD.md, codex_notes/DATASET_STATUS.md, and codex_notes/KNOWN_ISSUES.md before making dataset-validity claims, Condor/SDCC recommendations, or plot/slide conclusions.
+
+Use ripgrep for search. Do not revert user changes. Keep edits scoped. For ROOT macros or ROOT-dependent scripts, use:
+./scripts/root_in_analysis_env.sh /Users/patsfan753/Desktop/analysis/env/bin/root ...
+
+Treat SDCC/remote SSH terminals as user-controlled unless explicitly instructed otherwise. Do not ask for, store, or type SDCC passwords. Prefer paste-ready commands for the user to run on SDCC. Use scripts/sftp_push_recoiljets.sh and scripts/sftp_get_recoiljets_outputs.sh for transfer workflows, following AGENTS.md.
+
+For analysis plots, output PNG by default, disable ROOT stats boxes, and visually inspect generated PNGs before calling plots final.
+
+For Google Slides/deck text, use concise, clear, organized bullets with bolded structure when helpful. Prefer >=14 pt body text and line spacing around 1.2-1.8. Explain physics/analysis conclusions carefully and distinguish proven evidence from plausible interpretation.
+
+When changing mapped SDCC pipeline files, include the exact sftp_push_recoiljets.sh command needed afterward. Do not use wildcard uploads.

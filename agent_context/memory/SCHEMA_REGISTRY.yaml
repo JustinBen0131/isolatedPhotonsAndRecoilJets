@@ -103,3 +103,373 @@ schemas:
       stale_risk: 0.1
       interference_risk: 0.15
       synthetic_contamination_risk: 0.0
+
+  - schema_id: slide_candidate_readiness_schema
+    title: Slide candidate readiness schema
+    source_pointer:
+      path: agent_context/policies/SLIDES_WORKFLOW.md
+      kind: policy
+    routes:
+      - slide_scripting
+      - plot_generation
+    cue_terms:
+      - slide
+      - candidate
+      - ready
+      - self-audit
+      - png
+      - script
+      - source
+    relation_type: same_method
+    evidence_class: human_approved
+    allowed_use: method cue only
+    trigger_pattern: a full-slide PNG candidate, slide replacement, or speaker script is about to be shown as ready
+    required_waking_check: verify source object, audience-facing canvas, readable typography, superscript/subscript, hierarchy, no baked slide number/provenance footer, companion script, and mutation boundary
+    validator_hint: slide_candidate_self_audit
+    salience:
+      thesis_value: 0.85
+      evidence_value: 0.85
+      recurrence: 0.9
+      error_prevention_value: 0.98
+      user_friction: 0.95
+      retrieval_cost: 0.1
+      stale_risk: 0.05
+      interference_risk: 0.1
+      synthetic_contamination_risk: 0.0
+
+  - schema_id: slide_feedback_ingestion_schema
+    title: Slide and plot feedback ingestion schema
+    source_pointer:
+      path: agent_context/templates/SLIDE_FEEDBACK_TEMPLATE.md
+      kind: template
+    routes:
+      - slide_scripting
+      - plot_generation
+      - os_maintenance
+    cue_terms:
+      - feedback
+      - correction
+      - wrong
+      - iterate
+      - cleaner
+      - style
+      - plot
+      - slide
+    relation_type: same_method
+    evidence_class: human_approved
+    allowed_use: method cue only
+    trigger_pattern: Justin corrects a generated plot, slide candidate, or speaker script and the lesson may recur
+    required_waking_check: cite the user correction, before/after artifact, and chosen durable mechanism before promotion
+    validator_hint: slide_feedback_record
+    salience:
+      thesis_value: 0.8
+      evidence_value: 0.85
+      recurrence: 0.95
+      error_prevention_value: 0.95
+      user_friction: 0.98
+      retrieval_cost: 0.1
+      stale_risk: 0.05
+      interference_risk: 0.15
+      synthetic_contamination_risk: 0.0
+
+  - schema_id: reflection_record_schema
+    title: Evidence-backed OS reflection record schema
+    source_pointer:
+      path: agent_context/templates/OS_REFLECTION_TEMPLATE.md
+      kind: template
+    routes:
+      - os_maintenance
+      - slide_scripting
+      - plot_generation
+    cue_terms:
+      - reflection
+      - failure
+      - policy
+      - mechanism
+      - evidence
+      - correction
+      - durable
+    relation_type: same_method
+    evidence_class: human_approved
+    allowed_use: method cue only
+    trigger_pattern: a mistake, near miss, or repeated correction needs a durable OS lesson
+    required_waking_check: record trigger, category, concrete evidence, reusable lesson, chosen mechanism, validation, and handoff
+    validator_hint: os_reflection_template
+    salience:
+      thesis_value: 0.75
+      evidence_value: 0.85
+      recurrence: 0.8
+      error_prevention_value: 0.9
+      user_friction: 0.85
+      retrieval_cost: 0.15
+      stale_risk: 0.05
+      interference_risk: 0.2
+      synthetic_contamination_risk: 0.0
+
+  - schema_id: trajectory_learning_record_schema
+    title: Multi-step trajectory learning schema
+    source_pointer:
+      path: agent_context/templates/TRAJECTORY_LEARNING_TEMPLATE.md
+      kind: template
+    routes:
+      - os_maintenance
+      - slide_scripting
+      - plot_generation
+    cue_terms:
+      - trajectory
+      - repeated
+      - campaign
+      - evolution
+      - dream
+      - iterate
+      - learning
+      - pattern
+    relation_type: same_method
+    evidence_class: derived
+    allowed_use: method cue only
+    trigger_pattern: several related attempts reveal a reusable OS, slide, plot, or workflow pattern
+    required_waking_check: cite multiple evidence points and separate verified evidence from interpretation before changing policy or defaults
+    validator_hint: trajectory_learning_template
+    salience:
+      thesis_value: 0.75
+      evidence_value: 0.75
+      recurrence: 0.8
+      error_prevention_value: 0.85
+      user_friction: 0.8
+      retrieval_cost: 0.15
+      stale_risk: 0.1
+      interference_risk: 0.25
+      synthetic_contamination_risk: 0.05
+
+  - schema_id: task_outcome_record_schema
+    title: Task outcome and handoff record schema
+    source_pointer:
+      path: agent_context/policies/MEMORY_AND_STATUS.md
+      kind: policy
+    routes:
+      - active_job_status
+      - os_maintenance
+      - slide_scripting
+      - plot_generation
+    cue_terms:
+      - task
+      - outcome
+      - done
+      - handoff
+      - evidence
+      - next
+      - stale
+      - register
+    relation_type: same_method
+    evidence_class: human_approved
+    allowed_use: method cue only
+    trigger_pattern: a meaningful multi-step task is started, changed, completed, or corrected
+    required_waking_check: update register evidence, next action, active session/jobs, stale timing, and handoff before claiming completion
+    validator_hint: codex_work_register_validate
+    salience:
+      thesis_value: 0.8
+      evidence_value: 0.9
+      recurrence: 0.85
+      error_prevention_value: 0.9
+      user_friction: 0.85
+      retrieval_cost: 0.15
+      stale_risk: 0.1
+      interference_risk: 0.2
+      synthetic_contamination_risk: 0.0
+
+  - schema_id: duplicate_run_fingerprint_schema
+    title: Duplicate-sensitive run fingerprint schema
+    source_pointer:
+      path: agent_context/policies/DUPLICATE_RUN_GUARD.md
+      kind: policy
+    routes:
+      - training_production
+    cue_terms:
+      - train
+      - training
+      - validation
+      - production
+      - merge
+      - fingerprint
+      - duplicate
+      - rerun
+      - condor
+    relation_type: same_method
+    evidence_class: human_approved
+    allowed_use: method cue only
+    trigger_pattern: new or repeated training, validation, production, merge, score-cache, or analysis campaign is requested
+    required_waking_check: fingerprint purpose, dataset, samples, model/features, kinematic ranges, configs, roots, tags, and output intent before acting
+    validator_hint: codex_os_guard_fingerprint_or_preflight
+    salience:
+      thesis_value: 0.9
+      evidence_value: 0.9
+      recurrence: 0.85
+      error_prevention_value: 0.98
+      user_friction: 0.9
+      retrieval_cost: 0.1
+      stale_risk: 0.1
+      interference_risk: 0.1
+      synthetic_contamination_risk: 0.0
+
+  - schema_id: task_capture_pipeline_schema
+    title: Register-first task capture schema
+    source_pointer:
+      path: agent_context/policies/CODEX_OPERATING_SYSTEM.md
+      kind: policy
+    routes:
+      - task_capture
+      - os_maintenance
+    cue_terms:
+      - add
+      - task
+      - tasks
+      - list
+      - todo
+      - backlog
+      - linear
+      - register
+      - capture
+      - track
+    relation_type: same_method
+    evidence_class: human_approved
+    allowed_use: method cue only
+    trigger_pattern: Justin uses explicit task-capture wording
+    required_waking_check: place the task in an existing or new workstream, update register first, sync Linear second, and surface in Today's Plan only if relevant
+    validator_hint: codex_work_register_validate
+    salience:
+      thesis_value: 0.8
+      evidence_value: 0.85
+      recurrence: 0.95
+      error_prevention_value: 0.95
+      user_friction: 0.95
+      retrieval_cost: 0.1
+      stale_risk: 0.05
+      interference_risk: 0.15
+      synthetic_contamination_risk: 0.0
+
+  - schema_id: dream_learning_atom_schema
+    title: Dream learning atom schema
+    source_pointer:
+      path: agent_context/templates/DREAM_LEARNING_ATOM_TEMPLATE.md
+      kind: template
+    routes:
+      - os_maintenance
+      - slide_scripting
+      - plot_generation
+      - active_job_status
+      - training_production
+      - task_capture
+    cue_terms:
+      - dream
+      - learning
+      - atom
+      - proposal
+      - recurrence
+      - promotion
+      - validator
+      - evidence
+      - nightly
+      - terminal_path_alignment
+      - finitude_pressure
+      - regret_if_unfixed
+      - novelty_gate
+    relation_type: same_method
+    evidence_class: human_approved
+    allowed_use: method cue only
+    trigger_pattern: nightly dream pressure needs to become a bounded, evidence-linked, waking-promotable improvement unit
+    required_waking_check: verify raw episode path, real evidence refs, proposal-only boundary, finitude fields, validator command, retention rule, and promotion status before any tracked memory or policy mutation
+    validator_hint: dream_learning_atom_validator
+    salience:
+      thesis_value: 0.85
+      evidence_value: 0.9
+      recurrence: 0.95
+      error_prevention_value: 0.95
+      user_friction: 0.9
+      retrieval_cost: 0.12
+      stale_risk: 0.08
+      interference_risk: 0.15
+      synthetic_contamination_risk: 0.0
+
+  - schema_id: dream_promotion_protocol_schema
+    title: Waking promotion protocol for dream learning atoms
+    source_pointer:
+      path: agent_context/policies/AGENTIC_OS_DREAMING.md
+      kind: policy
+    routes:
+      - os_maintenance
+      - slide_scripting
+      - plot_generation
+      - active_job_status
+      - training_production
+      - task_capture
+    cue_terms:
+      - promote
+      - promotion
+      - waking
+      - validator
+      - doctor
+      - policy
+      - schema
+      - negative
+      - atom
+      - evidence
+    relation_type: same_method
+    evidence_class: human_approved
+    allowed_use: promotion gate only
+    trigger_pattern: a proposal-only dream atom is being considered for tracked policy, schema, style, validator, task, or memory mutation
+    required_waking_check: preserve raw evidence, keep the change narrow, pass privacy/synthetic filters, run the relevant validator and doctor, and require Justin approval for risky or external surfaces
+    validator_hint: codex_os_doctor_dream_learning_atom_contract
+    salience:
+      thesis_value: 0.85
+      evidence_value: 0.95
+      recurrence: 0.9
+      error_prevention_value: 0.98
+      user_friction: 0.9
+      retrieval_cost: 0.12
+      stale_risk: 0.08
+      interference_risk: 0.12
+      synthetic_contamination_risk: 0.0
+
+  - schema_id: thesis_finitude_task_classification_schema
+    title: Thesis finitude task classification schema
+    source_pointer:
+      path: agent_context/policies/AGENTIC_OS_HARDENING.md
+      kind: policy
+    routes:
+      - os_maintenance
+      - slide_scripting
+      - plot_generation
+      - training_production
+      - active_job_status
+      - task_capture
+    cue_terms:
+      - thesis
+      - finitude
+      - care
+      - terminal
+      - critical_path_class
+      - terminal_artifact_supported
+      - minimal_publishable_path_impact
+      - evidence_needed
+      - opportunity_cost
+      - regret_if_delayed
+      - safe_next_action
+      - defer_until_baseline_safe
+      - novelty_gate
+      - validation_required
+    relation_type: same_method
+    evidence_class: human_approved
+    allowed_use: classification schema only
+    trigger_pattern: meaningful work or dream pressure needs critical-path classification before becoming active priority
+    required_waking_check: classify terminal artifact support, evidence needed, opportunity cost, regret if delayed, safe next action, novelty gate, and validation requirement before changing priority or claiming progress
+    validator_hint: codex_os_doctor_care_kernel_contract
+    salience:
+      thesis_value: 0.96
+      evidence_value: 0.9
+      recurrence: 0.9
+      error_prevention_value: 0.92
+      user_friction: 0.85
+      retrieval_cost: 0.1
+      stale_risk: 0.08
+      interference_risk: 0.12
+      synthetic_contamination_risk: 0.0

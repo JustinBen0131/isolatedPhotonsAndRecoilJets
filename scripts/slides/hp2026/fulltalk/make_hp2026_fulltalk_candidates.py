@@ -1852,16 +1852,16 @@ def draw_isolation_cut_logic_panel(base: Image.Image, box: tuple[int, int, int, 
         lw, lh = text_box(draw, label, column_font)
         draw.text((center_x - lw / 2, gy0 - 36), label, font=column_font, fill=color)
     for label, center_y, color in (
-        ("tight ID", gy0 + cell_h / 2, BLUE),
-        ("non-tight", gy0 + cell_h + cell_h / 2, MUTED),
+        ("non-tight", gy0 + cell_h / 2, TEAL),
+        ("tight", gy0 + cell_h + cell_h / 2, PHOTON_DARK),
     ):
         lw, lh = text_box(draw, label, row_font)
         draw.text((gx0 - 14 - lw, center_y - lh / 2 - 1), label, font=row_font, fill=color)
     cells = [
-        ("A", (gx0, gy0), (255, 246, 221), PHOTON_DARK),
-        ("B", (gx0 + cell_w, gy0), (238, 247, 250), TEAL),
-        ("C", (gx0, gy0 + cell_h), (243, 246, 250), BLUE),
-        ("D", (gx0 + cell_w, gy0 + cell_h), (243, 246, 250), MUTED),
+        ("C", (gx0, gy0), (239, 249, 250), TEAL),
+        ("D", (gx0 + cell_w, gy0), (245, 247, 250), MUTED),
+        ("A", (gx0, gy0 + cell_h), (255, 246, 221), PHOTON_DARK),
+        ("B", (gx0 + cell_w, gy0 + cell_h), (238, 247, 252), SPHENIX_BLUE),
     ]
     for letter, (cx, cy), fill, accent in cells:
         draw.rounded_rectangle((cx, cy, cx + cell_w, cy + cell_h), radius=9, fill=(*fill, 255), outline=(*accent, 230), width=3)

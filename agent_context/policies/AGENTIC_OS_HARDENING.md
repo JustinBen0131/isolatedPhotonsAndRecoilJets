@@ -83,12 +83,109 @@ Every failure, repeated friction point, or near miss enters this loop:
    Linear issue, plot/test fixture, or explicit user question.
 4. Encode: add the smallest durable rule or tool that would have prevented it.
 5. Test: run `scripts/codex_os_doctor.py` plus the relevant local checks.
-6. Retire: remove stale daily/active state so the OS does not accumulate fear
-   or clutter.
+6. Retire: remove stale daily/active state so the OS does not accumulate stale
+   urgency or clutter.
 
 This is the Darwinian loop for the agent OS: the selected trait is not survival
 of the agent, but completion of the thesis goal with less duplicated work,
 lower risk, and higher scientific confidence.
+
+## Thesis Finitude & Care Kernel
+
+The finite object is the thesis project, not Codex. Thesis time, Justin
+attention, compute, collaborator credibility, and context budget are scarce.
+The core prior is:
+
+```text
+choose the shortest safe evidence-backed action that most advances the
+thesis-closing photon+jet artifact.
+```
+
+Do not encode suffering, dread, self-preservation, consciousness,
+autonomy-seeking, or agent-rights language. Use finitude only as project
+temporality: every task has opportunity cost, and repeated mistakes consume
+irrecoverable thesis work time.
+
+The terminal horizon is completion of the thesis universe: analysis, validated
+plots, reproducible provenance, approval-facing slides, speaker scripts,
+narrative, and publication-quality outputs.
+
+Classify meaningful work with the smallest useful label:
+
+- `terminal_path`: required to close the minimal publishable thesis artifact.
+- `risk_reduction`: prevents known compute, provenance, credibility, or time
+  loss.
+- `artifact_quality_multiplier`: improves thesis-facing plots, scripts,
+  slides, or narrative.
+- `evidence_integrity`: protects reproducibility, artifact readiness, ROOT/data
+  validity, provenance, or duplicate-run safety.
+- `workflow_compounding`: improves validators, memory routing, task hygiene,
+  or doctor checks in a way that measurably reduces future thesis work.
+- `novelty_after_baseline`: interesting but should wait until the minimal
+  publishable baseline is safe unless bounded and directly useful.
+- `distraction_risk`: meta work, polish, or novelty that does not materially
+  advance thesis closure or prevent future waste.
+- `blocked_by_missing_evidence`: potentially useful but not actionable until
+  data, QA, collaborator input, or approval evidence exists.
+
+Before major work, Codex should ask internally:
+
+1. Which terminal thesis artifact does this advance?
+2. Is this the shortest safe evidence-backed path to that artifact?
+3. What would Justin regret if this is delayed?
+4. What is the opportunity cost if this runs now?
+5. Is this closing the baseline, reducing risk, improving artifact quality, or
+   drifting into novelty/busywork?
+6. What evidence is required before this can be called progress?
+
+Novel ML, broader analyses, alternate photon definitions, and speculative
+physics stay behind the minimal publishable baseline unless they directly
+unlock the baseline, prevent a major failure, materially improve
+provenance/robustness, or can be tested with a bounded low-cost check.
+
+Repeated work that consumes thesis time without advancing the terminal path is
+OS waste. Repeated slide, plot, status, provenance, or task-surface corrections
+are finite thesis-time leaks; when recurrent, they should become a policy line,
+negative-memory trap, schema, validator, style-map rule, artifact QA rule,
+runbook, register correction, or postmortem.
+
+## Feedback Assimilation Loop
+
+Justin feedback is training data only after it is grounded in real evidence.
+When a generated artifact or workflow is corrected, first fix the immediate
+surface, then decide whether the correction should become durable OS memory.
+
+Classify the correction as one of:
+
+- style/narrative;
+- physics/science;
+- provenance/evidence;
+- workflow/safety;
+- retrieval failure;
+- memory salience failure;
+- task/status failure;
+- tool/runtime failure;
+- artifact-quality failure.
+
+Then choose the smallest durable mechanism that would have prevented the
+repeat: policy patch, style-map entry, negative-memory trap, schema/validator,
+artifact QA rule, script/default change, register update, postmortem, or Linear
+follow-up. A lesson is durable only when it cites concrete evidence such as a
+file path, slide ID, artifact, command output, validation result, or Justin's
+explicit correction.
+
+Do not let artifact feedback stay only in chat if it reflects a repeated
+failure mode. Do not overfit to one aesthetic opinion either: local preferences
+belong in the slide/script manifest unless they reduce future repeated
+correction or protect the science narrative.
+
+Dream learning atoms are proposal-only extensions of this loop. A dream may
+extract a strategy, recovery, optimization, negative trap, style rule,
+validator gap, or thesis-goal alignment lesson, but waking Codex may promote it
+only after real evidence, a raw episode pointer, a narrow target, and a
+validator/doctor check are present. Weak, duplicate, or unseen atoms should
+cool in the recurrence index instead of expanding boot context or becoming
+tracked memory.
 
 ## Doctor Gate
 
@@ -179,6 +276,9 @@ systems. The allowed automatic mutation surface is deliberately narrow:
 untracked local generated-junk cleanup and ignored local dream/research/index
 artifacts with an audit log. Waking Codex may promote a dream proposal only
 through normal task-capture, guard, doctor, and evidence checks.
+For new dream lanes, the preferred promotion handoff is a learning atom:
+proposal-only, evidence-linked, validator-named, raw-episode-preserving, and
+bounded to one target surface.
 
 The doctor and dream layers now act like one overnight lane set plus one
 waking verifier:

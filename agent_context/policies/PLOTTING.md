@@ -67,6 +67,38 @@ Any time Codex produces analysis plot images:
    sample weights, numerator/denominator, ROOT input provenance, and histogram
    family before presenting it.
 
+If Justin rejects or iterates on a generated plot because the visualization is
+wrong, unclear, cramped, misleading, or not the intended comparison, do not
+only patch that one PNG. Extract the reusable failure mode and update the next
+attempt accordingly. Examples: axis label too small, legend blocks data,
+comparison definition is ambiguous, color choice hides the key curve,
+normalization is not stated, residual panel is needed, source object was not
+the approved reference, or the plot should have been slide-composed rather than
+raw-exported. Promote repeated lessons into the plotting script defaults,
+manifest checklist, `SLIDE_STYLE_MAP.md`, or this policy so the same correction
+does not have to be restated.
+
+## Plot Feedback Ingestion
+
+Promote repeated plot corrections into defaults or checks when the failure is
+mechanically preventable. Common durable plot lessons include:
+
+- legend overlaps data, labels, headers, or axis text;
+- normalization, weights, numerator/denominator, or unit normalization are not
+  stated clearly enough;
+- source object is wrong, stale, or recreated when an approved artifact exists;
+- residual or ratio panel is needed to make the comparison meaningful;
+- axis ranges or binning hide the important behavior;
+- label fonts, tick labels, marker sizes, or annotation sizes are unreadable on
+  a slide;
+- color semantics conflict with an established plot family;
+- a raw analysis plot should have been rebuilt as a full-slide candidate.
+
+For a durable correction, update the plotting script default, manifest
+checklist, `SLIDE_STYLE_MAP.md`, this policy, or a validator. Keep evidence
+with the lesson: the rejected artifact path, the corrected artifact path, the
+input/source path, and the exact user correction when available.
+
 When Justin explicitly asked for generated plots, also open the containing
 folder and preview the PNGs locally through the macOS `open` command when
 practical, after viewing them in chat. If GUI opening requires escalation,

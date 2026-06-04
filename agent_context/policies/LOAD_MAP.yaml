@@ -87,10 +87,22 @@ routes:
       - failure to policy
       - postmortem
       - 10/10
+      - thesis priority
+      - what should I do next
+      - close the thesis
+      - thesis closeout
+      - finitude
+      - care kernel
+      - novelty gate
+      - minimal publishable
+      - baseline before novelty
+      - opportunity cost
+      - regret minimization
     load:
       - agent_context/policies/AGENTIC_OS_HARDENING.md
       - agent_context/policies/CODEX_OPERATING_SYSTEM.md
       - agent_context/policies/MEMORY_AND_STATUS.md
+      - agent_context/THESIS_NARRATIVE_MAP.md
     first_actions:
       - Read agent_context/THESIS_NARRATIVE_MAP.md and the work register before
         changing OS behavior.

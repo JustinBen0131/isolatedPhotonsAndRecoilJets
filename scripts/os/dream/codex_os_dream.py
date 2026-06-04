@@ -30,6 +30,7 @@ import sys
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 from codex_work_register_common import DEFAULT_REGISTER, first_line, load_register, parse_when, sorted_workstreams
@@ -51,7 +52,75 @@ DREAM_SUMMARY_BOUNDARY = "proposal-only, not user approval, not science evidence
 DREAM_SCHEDULED_SOURCE = "03:30_dream_automation"
 DREAM_MANUAL_SOURCE = "manual_or_debug"
 DREAM_MORNING_STATUSES = {"changed", "no_safe_change", "deferred", "failed"}
+DREAM_LANE_SIGNAL_VERSION = 9
+LEARNING_ATOM_SCHEMA_VERSION = 2
+SUPPORTED_LEARNING_ATOM_SCHEMA_VERSIONS = {1, 2}
+LEARNING_ATOM_SOURCE_KINDS = {
+    "real_episode",
+    "dream_rehearsal",
+    "doctor_warning",
+    "artifact_audit",
+    "status_audit",
+    "user_feedback_summary",
+}
+LEARNING_ATOM_TASK_FAMILIES = {
+    "slide_generation",
+    "plot_generation",
+    "sdcc_status",
+    "duplicate_guard",
+    "task_capture",
+    "physics_scout",
+    "artifact_provenance",
+    "os_hardening",
+}
+LEARNING_ATOM_LESSON_TYPES = {
+    "strategy_tip",
+    "recovery_tip",
+    "optimization_tip",
+    "negative_trap",
+    "validator_gap",
+    "style_rule",
+    "thesis_goal_alignment",
+}
+LEARNING_ATOM_TARGET_KINDS = {
+    "policy",
+    "negative_memory",
+    "schema",
+    "validator",
+    "runbook",
+    "style_map",
+    "context_resonance",
+    "artifact_registry",
+    "work_register",
+    "postmortem",
+}
+LEARNING_ATOM_PROMOTION_STATUSES = {
+    "proposal_only",
+    "waking_validated",
+    "promoted",
+    "rejected",
+    "cooled",
+    "quarantined",
+}
+LEARNING_ATOM_CANDIDATE_BUCKETS = {
+    "high_priority_promotion",
+    "maintenance",
+    "cleanup_proposal",
+}
+LEARNING_ATOM_FORBIDDEN_TARGET_SNIPPETS = (
+    "drive.google.com",
+    "docs.google.com",
+    "mail.google.com",
+    "linear.app",
+    "outlook.cloud.microsoft",
+    "/sphenix/",
+    "/gpfs/",
+    "sdcc",
+    "condor",
+)
 DREAM_ROOT = Path("agent_context/local/dreams")
+TRACKED_DREAM_LANE_THREAD_BINDINGS = Path("agent_context/DREAM_LANE_THREAD_BINDINGS.example.json")
+LOCAL_DREAM_LANE_THREAD_BINDINGS = DREAM_ROOT / "dream_lane_thread_bindings.json"
 CONTEXT_RESONANCE_ALLOWED_AUTO_ROOTS = (LOCAL_CONTEXT_ROOT, DREAM_ROOT)
 CONTEXT_RESONANCE_AUTO_APPLY_THRESHOLD = 3.0
 ARTIFACT_REGISTRY = Path("agent_context/ARTIFACT_REGISTRY.yaml")
@@ -459,6 +528,28 @@ DREAM_LANE_DEFINITIONS = [
     },
 ]
 
+
+def load_dream_lane_thread_bindings() -> dict[str, dict[str, Any]]:
+    """Load optional local fixed-thread bindings without requiring them."""
+    bindings: dict[str, dict[str, Any]] = {}
+    for path in (TRACKED_DREAM_LANE_THREAD_BINDINGS, LOCAL_DREAM_LANE_THREAD_BINDINGS):
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        lanes = payload.get("lanes") if isinstance(payload, dict) else {}
+        if not isinstance(lanes, dict):
+            continue
+        for lane_id, lane_payload in lanes.items():
+            if isinstance(lane_id, str) and isinstance(lane_payload, dict):
+                bindings[lane_id] = dict(lane_payload)
+    return bindings
+
+
+DREAM_LANE_THREAD_BINDINGS = load_dream_lane_thread_bindings()
+
 DREAM_LANE_AUTOMATIONS = {
     "status_provenance": {
         "automation_id": "thesisanalysis-dream-status-provenance",
@@ -493,6 +584,17 @@ DREAM_LANE_AUTOMATIONS = {
         "thread_binding": "fresh_chat_per_run",
     },
 }
+for _lane_id, _binding in DREAM_LANE_THREAD_BINDINGS.items():
+    _target_thread_id = first_line(_binding.get("target_thread_id"))
+    if not _target_thread_id or _lane_id not in DREAM_LANE_AUTOMATIONS:
+        continue
+    DREAM_LANE_AUTOMATIONS[_lane_id]["thread_binding"] = "fixed_thread"
+    DREAM_LANE_AUTOMATIONS[_lane_id]["target_thread_id"] = _target_thread_id
+    _thread_title = first_line(_binding.get("thread_title"))
+    if _thread_title:
+        DREAM_LANE_AUTOMATIONS[_lane_id]["thread_title"] = _thread_title
+for _name in ("_lane_id", "_binding", "_target_thread_id", "_thread_title"):
+    globals().pop(_name, None)
 
 EXPECTED_DREAM_AUTOMATION_IDS = [
     DREAM_LANE_AUTOMATIONS[item["lane_id"]]["automation_id"] for item in DREAM_LANE_DEFINITIONS
@@ -1949,6 +2051,624 @@ def adaptation_cards(world: dict[str, Any], risks: list[dict[str, Any]]) -> list
             }
         )
     return cards[:6]
+
+
+def safe_slug(value: object, *, limit: int = 80) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", str(value or "").lower()).strip("-")
+    return (slug[:limit].strip("-") or "global")
+
+
+def learning_atom_stable_id(run_id: str, lane_id: str, seed: dict[str, Any]) -> str:
+    raw = "|".join(
+        [
+            run_id,
+            lane_id,
+            str(seed.get("kind") or ""),
+            str(seed.get("workstream_id") or ""),
+            str(seed.get("title") or seed.get("label") or ""),
+            str(seed.get("evidence") or ""),
+        ]
+    )
+    digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:10]
+    return f"dream_atom_{safe_slug(lane_id, limit=32)}_{safe_slug(seed.get('kind'), limit=28)}_{digest}"
+
+
+def atom_source_kind(seed: dict[str, Any], lane_id: str) -> str:
+    kind = str(seed.get("kind") or "")
+    if kind in {"stale_state", "active_job_status", "active_job_evidence", "wip_overload"}:
+        return "status_audit"
+    if kind in {"artifact_gap", "ideal_final_figure_design"}:
+        return "artifact_audit"
+    if lane_id == "context_resonance" or kind in {"recurring_hotspot", "memory_hygiene", "safe_overnight_hygiene"}:
+        return "dream_rehearsal"
+    if kind in {"context_resonance_auto_maintenance", "latent_context_nudge", "negative_memory_candidate"}:
+        return "doctor_warning"
+    return "dream_rehearsal"
+
+
+def atom_task_families(seed: dict[str, Any], lane_id: str) -> list[str]:
+    kind = str(seed.get("kind") or "")
+    text = " ".join(str(seed.get(key) or "") for key in ("kind", "label", "title", "evidence")).lower()
+    families: list[str] = []
+    if lane_id == "presentation_artifacts" or any(term in text for term in ("slide", "deck", "speaker", "canvas", "style")):
+        families.append("slide_generation")
+    if kind == "artifact_gap" or any(term in text for term in ("plot", "artifact", "provenance", "registry", "figure")):
+        families.extend(["plot_generation", "artifact_provenance"])
+    if kind in {"stale_state", "active_job_status", "active_job_evidence", "sdcc_clutter_watch"} or "sdcc" in text or "condor" in text:
+        families.append("sdcc_status")
+    if kind == "duplicate_guard" or "duplicate" in text or "rerun" in text:
+        families.append("duplicate_guard")
+    if kind in {"wip_overload", "backlog_rehearsal"} or "task" in text or "todo" in text:
+        families.append("task_capture")
+    if kind in {"physics_hypothesis_scout", "literature_scout", "ideal_final_figure_design"} or "physics" in text or "thesis" in text:
+        families.append("physics_scout")
+    families.append("os_hardening")
+    return sorted({item for item in families if item in LEARNING_ATOM_TASK_FAMILIES})
+
+
+def atom_lesson_type(seed: dict[str, Any], lane_id: str) -> str:
+    kind = str(seed.get("kind") or "")
+    text = " ".join(str(seed.get(key) or "") for key in ("label", "title", "evidence")).lower()
+    if lane_id == "presentation_artifacts" and any(term in text for term in ("tiny", "clutter", "canvas", "style", "script")):
+        return "style_rule"
+    if kind in {"duplicate_guard", "negative_memory_candidate"}:
+        return "negative_trap"
+    if kind in {"artifact_gap", "automation_drift", "recurring_hotspot"}:
+        return "validator_gap"
+    if kind in {"stale_state", "active_job_status", "active_job_evidence"}:
+        return "recovery_tip"
+    if kind in {"memory_hygiene", "safe_overnight_hygiene", "sdcc_clutter_watch"}:
+        return "optimization_tip"
+    if kind in {"physics_hypothesis_scout", "ideal_final_figure_design", "literature_scout"}:
+        return "thesis_goal_alignment"
+    return "strategy_tip"
+
+
+def atom_target(seed: dict[str, Any], lane_id: str, lesson_type: str) -> tuple[str, str]:
+    kind = str(seed.get("kind") or "")
+    if lesson_type == "style_rule":
+        return "style_map", "agent_context/SLIDE_STYLE_MAP.md"
+    if lesson_type == "negative_trap":
+        return "negative_memory", "agent_context/memory/NEGATIVE_MEMORY_MAP.yaml"
+    if lesson_type == "validator_gap":
+        if kind == "artifact_gap":
+            return "artifact_registry", "agent_context/ARTIFACT_REGISTRY.yaml"
+        return "validator", "scripts/os/safety/codex_os_doctor.py"
+    if lesson_type == "recovery_tip" or kind in {"stale_state", "active_job_status", "active_job_evidence"}:
+        return "work_register", "agent_context/CODEX_WORK_REGISTER.yaml"
+    if lane_id == "context_resonance":
+        return "context_resonance", "agent_context/memory/CONTEXT_RESONANCE_INDEX.yaml"
+    if kind in {"memory_hygiene", "safe_overnight_hygiene"}:
+        return "runbook", "agent_context/policies/AGENTIC_OS_DREAMING.md"
+    return "policy", "agent_context/policies/AGENTIC_OS_DREAMING.md"
+
+
+def atom_level_from_score(score: int, *, safety: bool = False) -> str:
+    if safety or score >= 90:
+        return "critical"
+    if score >= 75:
+        return "high"
+    if score >= 55:
+        return "medium"
+    return "low"
+
+
+def atom_text(seed: dict[str, Any], lane_id: str) -> str:
+    parts = [
+        lane_id,
+        seed.get("kind"),
+        seed.get("label"),
+        seed.get("title"),
+        seed.get("summary"),
+        seed.get("evidence"),
+    ]
+    return " ".join(str(part or "") for part in parts).lower()
+
+
+def atom_terminal_path_alignment(seed: dict[str, Any], lane_id: str, families: list[str]) -> str:
+    text = atom_text(seed, lane_id)
+    if any(term in text for term in ("xjgamma", "gamma-jet", "auau", "pp baseline", "bdt", "photon", "thesis")):
+        return "direct"
+    if any(family in families for family in ("plot_generation", "artifact_provenance", "sdcc_status")):
+        return "indirect"
+    if any(term in text for term in ("blocked", "missing", "stale", "waiting")):
+        return "blocked"
+    if "os_hardening" in families:
+        return "weak"
+    return "none"
+
+
+def atom_novelty_gate(seed: dict[str, Any], lane_id: str) -> str:
+    text = atom_text(seed, lane_id)
+    if any(term in text for term in ("missing evidence", "blocked", "unverified", "speculative")):
+        return "blocked_by_missing_evidence"
+    if any(term in text for term in ("novel", "advanced ml", "alternate", "speculative", "hypothesis")):
+        return "defer_until_baseline_safe"
+    if any(term in text for term in ("baseline", "publishable", "provenance", "validator", "duplicate", "closure")):
+        return "allowed"
+    return "not_applicable"
+
+
+def atom_recommended_waking_action(
+    seed: dict[str, Any],
+    lane_id: str,
+    terminal_alignment: str,
+    novelty_gate: str,
+) -> str:
+    if novelty_gate == "defer_until_baseline_safe":
+        return "Keep as proposal-only unless it directly unlocks or protects the minimal publishable baseline."
+    if novelty_gate == "blocked_by_missing_evidence":
+        return "Name the missing real evidence, null test, provenance, or approval before adding active work."
+    if terminal_alignment in {"direct", "indirect"}:
+        return "Map to the terminal artifact ladder and choose the smallest evidence-backed waking action."
+    if "os" in atom_text(seed, lane_id):
+        return "Promote only if it reduces repeated thesis-time waste through a validator, trap, or compact policy cue."
+    return "Review only if the finding recurs or blocks a thesis-facing artifact."
+
+
+def atom_finitude_fields(
+    seed: dict[str, Any],
+    lane_id: str,
+    families: list[str],
+    score_level: str,
+) -> dict[str, str]:
+    score = int(seed.get("score") or 0)
+    alignment = atom_terminal_path_alignment(seed, lane_id, families)
+    novelty_gate = atom_novelty_gate(seed, lane_id)
+    pressure_score = score
+    if alignment == "direct":
+        pressure_score = max(pressure_score, 80)
+    elif alignment == "indirect":
+        pressure_score = max(pressure_score, 65)
+    if novelty_gate in {"defer_until_baseline_safe", "blocked_by_missing_evidence"}:
+        pressure_score = max(pressure_score, 70)
+    pressure = atom_level_from_score(pressure_score)
+    return {
+        "terminal_path_alignment": alignment,
+        "finitude_pressure": pressure,
+        "regret_if_unfixed": pressure if alignment in {"direct", "indirect", "blocked"} else atom_level_from_score(max(score - 20, 0)),
+        "minimal_publishable_path_impact": score_level if alignment == "direct" else ("medium" if alignment == "indirect" else "low"),
+        "novelty_gate": novelty_gate,
+        "recommended_waking_action": atom_recommended_waking_action(seed, lane_id, alignment, novelty_gate),
+    }
+
+
+def atom_bucket(seed: dict[str, Any], lesson_type: str) -> str:
+    score = int(seed.get("score") or 0)
+    kind = str(seed.get("kind") or "")
+    if score >= 80 or kind in {"recurring_hotspot", "artifact_gap"}:
+        return "high_priority_promotion"
+    if lesson_type in {"optimization_tip", "thesis_goal_alignment"} or kind in {"memory_hygiene", "safe_overnight_hygiene"}:
+        return "cleanup_proposal"
+    return "maintenance"
+
+
+def atom_evidence_refs(seed: dict[str, Any], run_id: str) -> list[str]:
+    refs = [
+        f"agent_context/local/dreams/{run_id}/dream_trace.json",
+        f"agent_context/local/dreams/{run_id}/lane_signal.json",
+    ]
+    evidence = first_line(seed.get("evidence"))
+    if evidence:
+        refs.append(evidence)
+    source_path = first_line(seed.get("source_path"))
+    if source_path:
+        refs.append(source_path)
+    return list(dict.fromkeys(refs))
+
+
+def atom_related_policies(families: list[str], target_path: str) -> list[str]:
+    policies = ["agent_context/policies/AGENTIC_OS_DREAMING.md"]
+    if "slide_generation" in families:
+        policies.append("agent_context/policies/SLIDES_WORKFLOW.md")
+    if "plot_generation" in families or "artifact_provenance" in families:
+        policies.append("agent_context/policies/PLOTTING.md")
+    if "sdcc_status" in families:
+        policies.append("agent_context/policies/SDCC_OPERATIONS.md")
+    if "duplicate_guard" in families:
+        policies.append("agent_context/policies/DUPLICATE_RUN_GUARD.md")
+    if "task_capture" in families:
+        policies.append("agent_context/policies/CODEX_OPERATING_SYSTEM.md")
+    if target_path.startswith("agent_context/policies/"):
+        policies.append(target_path)
+    return list(dict.fromkeys(policies))
+
+
+def atom_related_memory_ids(families: list[str], lesson_type: str) -> list[str]:
+    ids = ["dream_learning_atom_schema", "dream_promotion_protocol_schema", "thesis_finitude_care_kernel"]
+    if "slide_generation" in families:
+        ids.extend(["slide_candidate_readiness_schema", "slide_feedback_ingestion_schema", "no_slide_without_self_audit"])
+    if "plot_generation" in families or "artifact_provenance" in families:
+        ids.extend(["plot_readiness_schema", "no_ready_without_evidence"])
+    if "sdcc_status" in families:
+        ids.append("workstream_refresh_schema")
+    if "duplicate_guard" in families:
+        ids.append("duplicate_run_fingerprint_schema")
+    if "task_capture" in families:
+        ids.append("task_capture_pipeline_schema")
+    if lesson_type == "negative_trap":
+        ids.append("no_policy_correction_left_in_chat")
+    if lesson_type == "thesis_goal_alignment":
+        ids.append("minimal_publishable_path_before_novelty")
+    return list(dict.fromkeys(ids))
+
+
+def learning_atom_from_seed(run_id: str, lane_id: str, seed: dict[str, Any]) -> dict[str, Any]:
+    score = int(seed.get("score") or 0)
+    lesson_type = atom_lesson_type(seed, lane_id)
+    target_kind, target_path = atom_target(seed, lane_id, lesson_type)
+    families = atom_task_families(seed, lane_id)
+    validator = validator_candidate_for({**seed, "kind": seed.get("kind") or "manual_review_prompt"})
+    source_kind = atom_source_kind(seed, lane_id)
+    safety_high = "external" in str(seed.get("label") or "").lower() or "approval" in str(seed.get("label") or "").lower()
+    score_level = atom_level_from_score(score, safety=safety_high)
+    bucket = atom_bucket(seed, lesson_type)
+    raw_episode = f"agent_context/local/dreams/{run_id}/dream_trace.json"
+    summary = first_line(seed.get("label")) or first_line(seed.get("title")) or first_line(seed.get("kind")) or "dream pressure"
+    finitude = atom_finitude_fields(seed, lane_id, families, score_level)
+    return {
+        "schema_version": LEARNING_ATOM_SCHEMA_VERSION,
+        "synthetic": True,
+        "synthetic_header": SYNTHETIC_HEADER,
+        "mutation_boundary": "proposal_only",
+        "candidate_bucket": bucket,
+        "learning_atom_id": learning_atom_stable_id(run_id, lane_id, seed),
+        "created_at": first_line(seed.get("created_at")) or datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "dream_run_id": run_id,
+        "source": {
+            "kind": source_kind,
+            "evidence_refs": atom_evidence_refs(seed, run_id),
+        },
+        "raw_episode_path": raw_episode,
+        "task_family": families,
+        "lesson_type": lesson_type,
+        "problem": {
+            "symptom": summary,
+            "recurrence": first_line(seed.get("recurrence")) or ("repeated" if seed.get("repeat_count") else "first_seen"),
+            "thesis_cost": score_level,
+            "user_friction": score_level if "slide_generation" in families or "task_capture" in families else atom_level_from_score(max(score - 10, 0)),
+            "safety_risk": "high" if safety_high else ("medium" if target_kind in {"validator", "negative_memory"} else "low"),
+        },
+        **finitude,
+        "proposed_change": {
+            "target_kind": target_kind,
+            "target_path": target_path,
+            "summary": dream_response_for({**seed, "kind": seed.get("kind") or "manual_review_prompt"}),
+            "patch_path": f"agent_context/local/dreams/{run_id}/proposal_only_patches/{safe_slug(target_kind)}.diff",
+        },
+        "validators": [
+            {
+                "command": validator.get("safe_command") or "python3 scripts/codex_os_doctor.py --profile daily",
+                "expected": validator.get("expected_signal") or "validator result is reviewed before promotion",
+            }
+        ],
+        "promotion": {
+            "status": "proposal_only",
+            "requires_justin_approval": target_kind in {"work_register", "artifact_registry"} or safety_high,
+            "promotion_rule": "waking Codex must preserve raw evidence, verify real support, keep the change narrow, run validators and doctor, and respect Justin approval gates.",
+        },
+        "retention": {
+            "review_after_days": 3,
+            "decay_if_unseen_after_days": 7 if bucket != "high_priority_promotion" else 14,
+            "preserve_raw_episode": True,
+        },
+        "links": {
+            "related_memory_ids": atom_related_memory_ids(families, lesson_type),
+            "related_policies": atom_related_policies(families, target_path),
+            "related_artifacts": [raw_episode, f"agent_context/local/dreams/{run_id}/lane_signal.json"],
+        },
+    }
+
+
+def signal_findings_as_atom_seeds(signal: dict[str, Any], lane_id: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for item in signal.get("top_findings") or []:
+        if not isinstance(item, dict):
+            continue
+        rows.append(
+            {
+                "kind": first_line(item.get("kind")) or "dream_signal",
+                "score": int(item.get("score") or 60),
+                "workstream_id": first_line(item.get("workstream_id")),
+                "title": first_line(item.get("title")),
+                "label": first_line(item.get("title")) or first_line(item.get("evidence")) or f"{lane_id} signal",
+                "evidence": first_line(item.get("evidence")) or f"agent_context/local/dreams lane_signal top_findings for {lane_id}",
+            }
+        )
+    return rows
+
+
+def recurring_hotspots_as_atom_seeds(world: dict[str, Any], lane_id: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for item in world.get("dream_history", {}).get("hotspots") or []:
+        if not isinstance(item, dict):
+            continue
+        kind = first_line(item.get("kind")) or "recurring_hotspot"
+        target = first_line(item.get("workstream_id")) or first_line(item.get("title")) or first_line(item.get("evidence")) or "global"
+        count = int(item.get("count") or 0)
+        if count < 3:
+            continue
+        rows.append(
+            {
+                "kind": "recurring_hotspot",
+                "score": min(100, 70 + count * 5),
+                "workstream_id": first_line(item.get("workstream_id")),
+                "title": target,
+                "label": f"{kind} recurred {count} night(s) for {target}",
+                "evidence": first_line(item.get("evidence")) or f"{kind}|{target}",
+                "repeat_count": count,
+                "recurrence": "chronic" if count >= 3 else "repeated",
+            }
+        )
+    return rows
+
+
+def select_learning_atoms_with_quotas(atoms: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    deduped: list[dict[str, Any]] = []
+    for atom in atoms:
+        atom_id = str(atom.get("learning_atom_id") or "")
+        if not atom_id or atom_id in seen:
+            continue
+        seen.add(atom_id)
+        deduped.append(atom)
+    selected: list[dict[str, Any]] = []
+    for bucket in ("high_priority_promotion", "maintenance", "cleanup_proposal"):
+        rows = [atom for atom in deduped if atom.get("candidate_bucket") == bucket]
+        rows.sort(
+            key=lambda atom: (
+                {"critical": 4, "high": 3, "medium": 2, "low": 1}.get(
+                    str(atom.get("problem", {}).get("thesis_cost") if isinstance(atom.get("problem"), dict) else "low"),
+                    0,
+                ),
+                str(atom.get("learning_atom_id") or ""),
+            ),
+            reverse=True,
+        )
+        selected.extend(rows[:3])
+    return selected
+
+
+def build_learning_atoms_for_lane(
+    run_id: str,
+    lane_id: str,
+    world: dict[str, Any],
+    lane_risks: list[dict[str, Any]],
+    signal: dict[str, Any],
+) -> list[dict[str, Any]]:
+    seeds: list[dict[str, Any]] = []
+    seeds.extend(lane_risks[:8])
+    seeds.extend(signal_findings_as_atom_seeds(signal, lane_id))
+    seeds.extend(recurring_hotspots_as_atom_seeds(world, lane_id))
+    if lane_id == "presentation_artifacts":
+        presentation_terms = ("slide", "deck", "speaker", "canvas", "style", "clutter", "tiny")
+        seeds = [
+            seed
+            for seed in seeds
+            if any(term in " ".join(str(seed.get(key) or "").lower() for key in ("kind", "label", "title", "evidence")) for term in presentation_terms)
+            or seed.get("kind") in {"artifact_gap", "recurring_hotspot"}
+        ]
+    atoms = [learning_atom_from_seed(run_id, lane_id, seed) for seed in seeds]
+    return select_learning_atoms_with_quotas(atoms)
+
+
+def maintenance_debt_level(debt: dict[str, Any]) -> str:
+    status = str(debt.get("status") or "healthy")
+    score = int(debt.get("score") or 0)
+    if status == "frozen_growth":
+        return "freeze_growth"
+    if status == "strained":
+        return "high" if score >= 60 else "medium"
+    return "low"
+
+
+def pressure_level(count: int, high_threshold: int = 3) -> str:
+    if count >= high_threshold:
+        return "high"
+    if count >= 1:
+        return "medium"
+    return "none"
+
+
+def learning_atom_metrics(
+    atoms: list[dict[str, Any]],
+    signal: dict[str, Any],
+    debt: dict[str, Any],
+) -> dict[str, Any]:
+    recurring = len([atom for atom in atoms if atom.get("problem", {}).get("recurrence") in {"repeated", "chronic"}])
+    high_priority = len([atom for atom in atoms if atom.get("candidate_bucket") == "high_priority_promotion"])
+    missing_evidence = len(
+        [
+            atom
+            for atom in atoms
+            if not atom.get("source", {}).get("evidence_refs")
+            or any(str(ref).startswith("SYNTHETIC") for ref in atom.get("source", {}).get("evidence_refs") or [])
+        ]
+    )
+    families = [family for atom in atoms for family in atom.get("task_family") or []]
+    target_kinds = [atom.get("proposed_change", {}).get("target_kind") for atom in atoms if isinstance(atom.get("proposed_change"), dict)]
+    direct_alignment = len([atom for atom in atoms if atom.get("terminal_path_alignment") == "direct"])
+    time_leaks = len([atom for atom in atoms if atom.get("finitude_pressure") in {"high", "critical"}])
+    novelty_warnings = len(
+        [
+            atom
+            for atom in atoms
+            if atom.get("novelty_gate") in {"defer_until_baseline_safe", "blocked_by_missing_evidence"}
+        ]
+    )
+    checks = []
+    for atom in atoms:
+        for validator in atom.get("validators") or []:
+            if isinstance(validator, dict) and validator.get("command"):
+                checks.append(str(validator["command"]))
+    doctor_status = "pass"
+    validation = signal.get("validation") if isinstance(signal.get("validation"), dict) else {}
+    if validation.get("dream_validate_ok") is False:
+        doctor_status = "warn"
+    return {
+        "proposal_count": len(atoms),
+        "high_priority_learning_atoms": high_priority,
+        "recurring_findings": recurring,
+        "promotable_findings": high_priority,
+        "blocked_by_missing_evidence": missing_evidence,
+        "doctor_status": doctor_status,
+        "maintenance_debt_level": maintenance_debt_level(debt),
+        "slide_regression_pressure": pressure_level(families.count("slide_generation")),
+        "artifact_provenance_pressure": pressure_level(families.count("artifact_provenance")),
+        "status_staleness_pressure": pressure_level(families.count("sdcc_status")),
+        "context_bloat_pressure": pressure_level(target_kinds.count("context_resonance") + target_kinds.count("runbook")),
+        "thesis_finitude_pressure": pressure_level(time_leaks),
+        "terminal_path_aligned_atoms": direct_alignment,
+        "finite_project_time_leaks": time_leaks,
+        "baseline_before_novelty_warnings": novelty_warnings,
+        "recommended_waking_checks": list(dict.fromkeys(checks))[:6],
+    }
+
+
+def dream_recurrence_index_payload(
+    run_id: str,
+    lane_id: str,
+    world: dict[str, Any],
+    atoms: list[dict[str, Any]],
+) -> dict[str, Any]:
+    hotspots = []
+    for item in world.get("dream_history", {}).get("hotspots") or []:
+        if isinstance(item, dict):
+            hotspots.append(
+                {
+                    "kind": item.get("kind"),
+                    "target": item.get("workstream_id") or item.get("title") or item.get("evidence") or "global",
+                    "count": item.get("count"),
+                    "latest_run_id": item.get("latest_run_id"),
+                    "handled_by": recurrence_protocol_for(item),
+                }
+            )
+    ids_by_bucket: dict[str, list[str]] = {bucket: [] for bucket in LEARNING_ATOM_CANDIDATE_BUCKETS}
+    for atom in atoms:
+        bucket = str(atom.get("candidate_bucket") or "maintenance")
+        if bucket in ids_by_bucket:
+            ids_by_bucket[bucket].append(str(atom.get("learning_atom_id")))
+    return {
+        "synthetic": True,
+        "synthetic_header": SYNTHETIC_HEADER,
+        "mutation_boundary": "proposal_only",
+        "run_id": run_id,
+        "lane_id": lane_id,
+        "source_index": DREAM_INDEX.as_posix(),
+        "recent_hotspots": hotspots[:12],
+        "learning_atom_ids_by_bucket": ids_by_bucket,
+        "prose_findings_without_atoms": max(0, len([item for item in hotspots if not item.get("handled_by")]) - len(atoms)),
+        "retention_rule": "cool unpromoted duplicate atoms in summaries; never delete raw episode directories automatically",
+    }
+
+
+def render_learning_atoms_jsonl(atoms: list[dict[str, Any]]) -> str:
+    return "".join(json.dumps(atom, sort_keys=True) + "\n" for atom in atoms)
+
+
+def render_learning_atoms_markdown(atoms: list[dict[str, Any]]) -> str:
+    lines = ["# Dream Learning Atoms", "", SYNTHETIC_HEADER, ""]
+    lines.append("These are proposal-only consolidation units. They are not user approval, science evidence, or task completion.")
+    lines.append("")
+    if not atoms:
+        lines.append("- No learning atoms crossed the lane-local quota/evidence gate.")
+        return "\n".join(lines) + "\n"
+    for atom in atoms:
+        problem = atom.get("problem") if isinstance(atom.get("problem"), dict) else {}
+        change = atom.get("proposed_change") if isinstance(atom.get("proposed_change"), dict) else {}
+        source = atom.get("source") if isinstance(atom.get("source"), dict) else {}
+        lines.append(f"## {atom.get('learning_atom_id')}")
+        lines.append(f"- bucket: `{atom.get('candidate_bucket')}`")
+        lines.append(f"- lesson_type: `{atom.get('lesson_type')}`")
+        lines.append(f"- task_family: `{', '.join(atom.get('task_family') or [])}`")
+        lines.append(f"- symptom: {problem.get('symptom')}")
+        lines.append(f"- terminal_path_alignment: `{atom.get('terminal_path_alignment')}`")
+        lines.append(f"- finitude_pressure: `{atom.get('finitude_pressure')}`")
+        lines.append(f"- novelty_gate: `{atom.get('novelty_gate')}`")
+        lines.append(f"- recommended waking action: {atom.get('recommended_waking_action')}")
+        lines.append(f"- proposed target: `{change.get('target_kind')}` -> `{change.get('target_path')}`")
+        lines.append(f"- promotion: `{atom.get('promotion', {}).get('status')}`")
+        lines.append(f"- raw episode: `{atom.get('raw_episode_path')}`")
+        refs = source.get("evidence_refs") if isinstance(source.get("evidence_refs"), list) else []
+        if refs:
+            lines.append(f"- evidence: `{refs[0]}`")
+        lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def render_learning_atom_promotion_candidates(atoms: list[dict[str, Any]]) -> str:
+    lines = ["# Learning Atom Promotion Candidates", "", SYNTHETIC_HEADER, ""]
+    rows = [atom for atom in atoms if atom.get("candidate_bucket") == "high_priority_promotion"]
+    if not rows:
+        lines.append("- No high-priority proposal crossed the quota gate.")
+    for atom in rows[:3]:
+        change = atom.get("proposed_change") if isinstance(atom.get("proposed_change"), dict) else {}
+        lines.append(f"- `{atom.get('learning_atom_id')}` -> `{change.get('target_path')}`")
+        lines.append(f"  promotion rule: {atom.get('promotion', {}).get('promotion_rule')}")
+    lines.append("")
+    lines.append("Waking promotion requires real evidence, narrow change scope, validators, doctor pass, and approval where required.")
+    return "\n".join(lines) + "\n"
+
+
+def render_morning_appendix(
+    run_id: str,
+    lane_id: str,
+    atoms: list[dict[str, Any]],
+    metrics: dict[str, Any],
+    recurrence: dict[str, Any],
+) -> str:
+    lines = ["# Morning Appendix", "", SYNTHETIC_HEADER, ""]
+    lines.append(f"- lane: `{lane_id}`")
+    lines.append(f"- run: `{run_id}`")
+    lines.append(f"- proposal_count: {metrics.get('proposal_count')}")
+    lines.append(f"- maintenance_debt_level: `{metrics.get('maintenance_debt_level')}`")
+    lines.append(f"- slide_regression_pressure: `{metrics.get('slide_regression_pressure')}`")
+    lines.append(f"- artifact_provenance_pressure: `{metrics.get('artifact_provenance_pressure')}`")
+    lines.append(f"- status_staleness_pressure: `{metrics.get('status_staleness_pressure')}`")
+    lines.append("")
+    lines.append("## What Changed")
+    lines.append("- Only local dream-package artifacts were written for this lane.")
+    lines.append("")
+    lines.append("## Learning Atoms")
+    if atoms:
+        for atom in atoms[:9]:
+            problem = atom.get("problem") if isinstance(atom.get("problem"), dict) else {}
+            lines.append(f"- `{atom.get('learning_atom_id')}`: {problem.get('symptom')}")
+    else:
+        lines.append("- none")
+    lines.append("")
+    lines.append("## Recurrence")
+    for item in (recurrence.get("recent_hotspots") or [])[:5]:
+        if isinstance(item, dict):
+            lines.append(f"- `{item.get('kind')}` target=`{item.get('target')}` count={item.get('count')} handled_by={item.get('handled_by') or 'none'}")
+    if not recurrence.get("recent_hotspots"):
+        lines.append("- no recent hotspots")
+    return "\n".join(lines) + "\n"
+
+
+def lane_nightly_heartbeat_signal(
+    run_id: str,
+    lane_id: str,
+    signal: dict[str, Any],
+    atoms: list[dict[str, Any]],
+    metrics: dict[str, Any],
+    recurrence: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "version": DREAM_LANE_SIGNAL_VERSION,
+        "synthetic": True,
+        "synthetic_header": SYNTHETIC_HEADER,
+        "mutation_boundary": "proposal_only",
+        "output_kind": "lane_local_compatibility_signal",
+        "retired_master_heartbeat_recreated": False,
+        "run_id": run_id,
+        "lane_id": lane_id,
+        "generated_at": signal.get("generated_at"),
+        "metrics": metrics,
+        "learning_atom_ids": [atom.get("learning_atom_id") for atom in atoms],
+        "dream_recurrence_index": recurrence,
+        "recommended_waking_checks": metrics.get("recommended_waking_checks") or [],
+    }
 
 
 def cohesion_score(world: dict[str, Any], risks: list[dict[str, Any]]) -> int:
@@ -6280,6 +7000,270 @@ def first_row_text(rows: list[dict[str, Any]], *keys: str) -> str:
     return ""
 
 
+def compact_after_action_text(value: object, *, limit: int = 260) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "..."
+
+
+def append_unique_text(rows: list[str], value: object, *, limit: int = 260) -> None:
+    text = compact_after_action_text(value, limit=limit)
+    if text and text not in rows:
+        rows.append(text)
+
+
+def top_findings_text(signal: dict[str, Any], *, limit: int = 5) -> list[str]:
+    findings = signal.get("top_findings") if isinstance(signal.get("top_findings"), list) else []
+    rows: list[str] = []
+    for item in findings:
+        if not isinstance(item, dict):
+            continue
+        title = first_line(item.get("title")) or first_line(item.get("kind")) or "finding"
+        evidence = first_line(item.get("evidence"))
+        if evidence:
+            append_unique_text(rows, f"{title}: {evidence}")
+        else:
+            append_unique_text(rows, title)
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def lane_artifact_pointers(lane_id: str, run_id: str) -> list[str]:
+    base = f"agent_context/local/dreams/{run_id}"
+    mapping = {
+        "status_provenance": ["lane_digest.md", "targeted_findings.json", "runbook_proposals.md"],
+        "architecture_cohesion": ["lane_digest.md", "structural_advancements.md", "internal_evolution_queue.md"],
+        "context_resonance": [
+            "lane_digest.md",
+            "feedback_loop_health.md",
+            "context_resonance_review.md",
+            "changed_actions.md",
+        ],
+        "cleanup_storage": ["lane_digest.md", "cleanup_retention_index.md", "changed_actions.md"],
+        "path_contract": ["lane_digest.md", "path_contract_drift.md", "sdcc_base_repo_hygiene.md"],
+        "research_scout": ["lane_digest.md", "research_synthesis.md", "human_tool_leverage.md", "dual_pro_research_plan.md"],
+        "science_scout": ["lane_digest.md", "physics_scenario_proposals.md", "ideal_final_figure_gallery/"],
+        "presentation_artifacts": ["lane_digest.md", "figure_design_notes.md", "daily_plan_proposals.md"],
+    }
+    return [f"{base}/{name}" for name in mapping.get(lane_id, ["lane_digest.md", "lane_signal.json"])]
+
+
+def build_dream_after_action(
+    run_id: str,
+    lane_id: str,
+    world: dict[str, Any],
+    lane_risks: list[dict[str, Any]],
+    maintenance: dict[str, Any],
+    autonomous: dict[str, Any],
+    signal: dict[str, Any],
+) -> dict[str, Any]:
+    lane = lane_definition_by_id(lane_id)
+    summary = signal.get("summary") if isinstance(signal.get("summary"), dict) else {}
+    changed_actions = signal.get("changed_actions") if isinstance(signal.get("changed_actions"), dict) else {}
+    performed = performed_action_rows(changed_actions)
+    timing = signal.get("run_timing") if isinstance(signal.get("run_timing"), dict) else {}
+
+    what_happened: list[str] = []
+    inputs_analyzed: list[str] = []
+    researched: list[str] = []
+    learned: list[str] = []
+    changed: list[str] = []
+    approval_changes: list[str] = []
+    waking_checks: list[str] = []
+    quality_feedback: list[str] = []
+
+    append_unique_text(
+        what_happened,
+        f"Ran the `{lane_id}` dream lane as a proposal-only {lane.get('agent_role')} pass focused on {lane.get('purpose')}.",
+    )
+    append_unique_text(
+        what_happened,
+        f"Surfaced {len(lane_risks)} lane-specific pressure signal(s); scheduled summary eligibility is {signal.get('eligible_for_today_plan')}.",
+    )
+    append_unique_text(
+        inputs_analyzed,
+        f"Register/world snapshot: workstreams={world.get('workstream_counts')}, artifacts={world.get('artifact_counts')}, artifact gaps={len(world.get('artifact_gaps') or [])}.",
+    )
+    append_unique_text(
+        inputs_analyzed,
+        f"Lane signal and digest: agent_context/local/dreams/{run_id}/lane_signal.json and lane_digest.md.",
+    )
+    for finding in top_findings_text(signal, limit=4):
+        append_unique_text(learned, finding)
+    learning_atoms = signal.get("learning_atoms") if isinstance(signal.get("learning_atoms"), list) else []
+    if learning_atoms:
+        append_unique_text(
+            learned,
+            f"Generated {len(learning_atoms)} proposal-only learning atom(s); promotion requires waking evidence, validator checks, and doctor pass.",
+        )
+        for atom in learning_atoms[:3]:
+            if not isinstance(atom, dict):
+                continue
+            problem = atom.get("problem") if isinstance(atom.get("problem"), dict) else {}
+            append_unique_text(learned, f"{atom.get('learning_atom_id')}: {problem.get('symptom')}")
+            validators = atom.get("validators") if isinstance(atom.get("validators"), list) else []
+            if validators and isinstance(validators[0], dict):
+                append_unique_text(waking_checks, validators[0].get("command"))
+
+    if performed:
+        for row in performed[:4]:
+            action = first_line(row.get("action")) or "local auto-safe action"
+            reason = first_line(row.get("reason")) or "reason logged in changed_actions"
+            path = first_line(row.get("path")) or "local dream artifact"
+            append_unique_text(changed, f"{action} at {path}: {reason}")
+        append_unique_text(
+            quality_feedback,
+            "Useful run: at least one local-only auto-safe maintenance change passed validators and has rollback evidence.",
+        )
+    else:
+        append_unique_text(changed, "No local file mutation qualified outside the dream run artifacts.")
+        append_unique_text(
+            quality_feedback,
+            "No auto-safe change was applied; value depends on whether the surfaced waking checks are specific enough to act on.",
+        )
+
+    if lane_id == "cleanup_storage":
+        retention = signal.get("cleanup_retention_index") if isinstance(signal.get("cleanup_retention_index"), dict) else {}
+        if retention:
+            append_unique_text(
+                inputs_analyzed,
+                f"Cleanup retention index: {retention.get('entry_count')} packs, {retention.get('summarize_count')} summarize-only, {retention.get('archive_requires_approval_count')} approval-gated.",
+            )
+            for item in (retention.get("top_deferred_improvements") or [])[:3]:
+                if isinstance(item, dict):
+                    append_unique_text(approval_changes, f"{item.get('target')}: {item.get('action')}")
+                    append_unique_text(waking_checks, item.get("safe_check"))
+        append_unique_text(
+            learned,
+            "Cleanup/storage dreams can reduce morning clutter by refreshing indexes, but archive/delete/move decisions remain waking approval-gated.",
+        )
+
+    elif lane_id == "context_resonance":
+        auto_payload = signal.get("context_resonance_auto_maintenance") if isinstance(signal.get("context_resonance_auto_maintenance"), dict) else {}
+        health = signal.get("context_resonance_feedback_loop_health") if isinstance(signal.get("context_resonance_feedback_loop_health"), dict) else {}
+        candidate = auto_payload.get("candidate") if isinstance(auto_payload.get("candidate"), dict) else {}
+        attempted = auto_payload.get("attempted_candidates") if isinstance(auto_payload.get("attempted_candidates"), list) else []
+        if health:
+            ledger = health.get("ledger") if isinstance(health.get("ledger"), dict) else {}
+            append_unique_text(
+                learned,
+                f"Feedback loop health was `{health.get('feedback_loop_status')}` with {ledger.get('accepted_rows', 0)} accepted outcome rows and {ledger.get('synthetic_rows_ignored', 0)} synthetic rows ignored.",
+            )
+        if candidate:
+            append_unique_text(
+                researched,
+                f"Evaluated context-maintenance candidate `{candidate.get('candidate_id')}` with change type `{candidate.get('change_type')}` and impact score {candidate.get('impact_score')}.",
+            )
+            if candidate.get("blocked_reason"):
+                append_unique_text(approval_changes, f"{candidate.get('change_type')}: {candidate.get('blocked_reason')}")
+            else:
+                append_unique_text(learned, f"Candidate `{candidate.get('change_type')}` was safe only because it stayed local and did not edit tracked memory registries.")
+        if attempted:
+            append_unique_text(
+                quality_feedback,
+                f"Attempted {len(attempted)} context candidate(s); skipped or blocked candidates are logged for pressure tuning.",
+            )
+
+    elif lane_id == "research_scout":
+        research_payload = signal.get("research_scout") if isinstance(signal.get("research_scout"), dict) else {}
+        leverage = research_payload.get("human_tool_leverage") if isinstance(research_payload.get("human_tool_leverage"), dict) else {}
+        subtasks = leverage.get("first_class_subtasks") if isinstance(leverage.get("first_class_subtasks"), list) else []
+        dual = research_payload.get("dual_pro_research") if isinstance(research_payload.get("dual_pro_research"), dict) else {}
+        if dual:
+            append_unique_text(
+                researched,
+                f"Staged dual-Pro research plan in `{dual.get('mode')}` mode; shell dream did not browse authenticated ChatGPT or treat external output as truth.",
+            )
+            append_unique_text(waking_checks, dual.get("setup_command"))
+        for item in subtasks[:4]:
+            if isinstance(item, dict):
+                append_unique_text(researched, f"{item.get('id')}: {item.get('goal')}")
+                append_unique_text(waking_checks, item.get("morning_action"))
+        append_unique_text(
+            learned,
+            "Research-scout value is tool-routing and prompt leverage; claims are useful only after waking source verification.",
+        )
+
+    elif lane_id == "science_scout":
+        append_unique_text(
+            researched,
+            "Reviewed provenance-backed science pressure points and synthetic final-figure templates without creating science evidence.",
+        )
+        append_unique_text(
+            learned,
+            "The lane should keep final thesis target figures visible while preserving the boundary that synthetic targets are design aids, not results.",
+        )
+        for spec in IDEAL_FIGURE_SPECS[:3]:
+            append_unique_text(approval_changes, f"Review synthetic target figure `{spec['id']}` only as a design scaffold.")
+
+    elif lane_id == "architecture_cohesion":
+        queue = maintenance.get("internal_evolution_queue") if isinstance(maintenance.get("internal_evolution_queue"), dict) else {}
+        rows = queue.get("rows") if isinstance(queue.get("rows"), list) else []
+        for row in rows[:3]:
+            if isinstance(row, dict):
+                append_unique_text(approval_changes, f"{row.get('target')}: {row.get('action')}")
+        append_unique_text(
+            learned,
+            f"Architecture pressure is about converting repeated warnings into validators/runbooks, not adding another daily-doc paragraph; recurring hotspot count={summary.get('recurring_hotspot_count')}.",
+        )
+
+    elif lane_id == "status_provenance":
+        for risk in lane_risks[:3]:
+            append_unique_text(waking_checks, dream_response_for(risk))
+        append_unique_text(
+            learned,
+            "Status-provenance dreams are useful only when they point to a bounded read-only refresh/archive protocol instead of declaring stale work done.",
+        )
+
+    elif lane_id == "path_contract":
+        append_unique_text(
+            learned,
+            "Path-contract dreams should package repo/path drift for waking validation and must not silently self-apply tracked path moves.",
+        )
+
+    elif lane_id == "presentation_artifacts":
+        append_unique_text(
+            researched,
+            "Checked slide/artifact hygiene and daily-plan proposal surfaces for presentation-facing pressure.",
+        )
+        append_unique_text(
+            learned,
+            "Presentation-artifact dreams should produce candidate implications only; Google Slides mutation remains waking approval-gated.",
+        )
+
+    if not approval_changes and lane_risks:
+        for risk in lane_risks[:3]:
+            append_unique_text(approval_changes, first_line(risk.get("label")) or first_line(risk.get("title")) or first_line(risk.get("kind")))
+    if not waking_checks and lane_risks:
+        for risk in lane_risks[:3]:
+            append_unique_text(waking_checks, validator_candidate_for(risk).get("safe_command"))
+    if not researched:
+        append_unique_text(researched, "No external or online research was performed; this lane used local repo/register/artifact surfaces only.")
+    if not learned:
+        append_unique_text(learned, "No high-confidence new learning surfaced beyond maintaining the proposal-only safety boundary.")
+    if not approval_changes:
+        append_unique_text(approval_changes, "No waking approval change proposed from this lane.")
+    if not waking_checks:
+        append_unique_text(waking_checks, "No lane-local waking action was proposed.")
+
+    return {
+        "detail_version": 1,
+        "summary_contract": "after_action_report",
+        "what_happened": what_happened[:5],
+        "inputs_analyzed": inputs_analyzed[:5],
+        "what_was_researched": researched[:5],
+        "what_was_learned": learned[:6],
+        "what_changed": changed[:5],
+        "what_should_change_after_approval": approval_changes[:5],
+        "waking_next_checks": waking_checks[:5],
+        "quality_feedback": quality_feedback[:5],
+        "run_timing": timing,
+        "artifact_pointers": lane_artifact_pointers(lane_id, run_id),
+    }
+
+
 def build_morning_lane_summary_payload(
     run_id: str,
     lane_id: str,
@@ -6300,6 +7284,7 @@ def build_morning_lane_summary_payload(
     needs_justin_reason = "none"
     evidence = f"{run_id}/lane_signal.json"
     daily_plan_priority = 99
+    after_action = build_dream_after_action(run_id, lane_id, world, lane_risks, maintenance, autonomous, signal)
 
     changed_actions = signal.get("changed_actions") if isinstance(signal.get("changed_actions"), dict) else {}
     performed = performed_action_rows(changed_actions)
@@ -6428,23 +7413,47 @@ def build_morning_lane_summary_payload(
         "scheduled_morning_lane": bool(scheduled_morning_lane),
         "scheduled_source": DREAM_SCHEDULED_SOURCE if scheduled_morning_lane else DREAM_MANUAL_SOURCE,
         "eligible_for_today_plan": eligible,
+        "after_action": after_action,
     }
 
 
 def render_morning_lane_summary_text(payload: dict[str, Any]) -> str:
     needs = "yes" if payload.get("needs_justin") else "no"
     reason = first_line(payload.get("needs_justin_reason")) or "none"
+    after_action = payload.get("after_action") if isinstance(payload.get("after_action"), dict) else {}
+
+    def section(title: str, key: str) -> list[str]:
+        rows = after_action.get(key) if isinstance(after_action.get(key), list) else []
+        if not rows:
+            return []
+        return [f"{title}:"] + [f"- {row}" for row in rows[:5]]
+
+    timing = after_action.get("run_timing") if isinstance(after_action.get("run_timing"), dict) else {}
+    timing_line = ""
+    if timing:
+        timing_line = (
+            "Run timing: "
+            f"started={timing.get('started_at')} finished={timing.get('finished_at')} "
+            f"elapsed_seconds={timing.get('elapsed_seconds')}"
+        )
     return "\n".join(
         [
             SYNTHETIC_HEADER,
             f"Lane: {payload.get('lane_id')}",
             f"Status: {payload.get('status')}",
             f"One-line result: {payload.get('one_line_result')}",
+            timing_line,
             f"Changed: {payload.get('changed')}",
             f"Untouched: {payload.get('untouched')}",
             f"Deferred: {payload.get('deferred')}",
             f"Needs Justin: {needs} - {reason}",
             f"Evidence: {payload.get('evidence')}",
+            *section("What happened", "what_happened"),
+            *section("Inputs analyzed", "inputs_analyzed"),
+            *section("Researched", "what_was_researched"),
+            *section("Learned", "what_was_learned"),
+            *section("Approval-gated changes", "what_should_change_after_approval"),
+            *section("Quality feedback", "quality_feedback"),
             f"Synthetic boundary: {payload.get('synthetic_boundary')}",
             f"Scheduled morning lane: {str(payload.get('scheduled_morning_lane')).lower()}",
             f"Eligible for Today's Plan: {str(payload.get('eligible_for_today_plan')).lower()}",
@@ -6463,6 +7472,8 @@ def write_lane_dream_outputs(
     auto_maintain: bool = True,
     scheduled_morning_lane: bool = False,
 ) -> dict[str, Any]:
+    run_started_at = datetime.now(timezone.utc)
+    run_started_perf = perf_counter()
     copy_sandbox(run_dir)
     maintenance = evolutionary_maintenance_payload(world, risks)
     if lane_id == "context_resonance":
@@ -6478,7 +7489,7 @@ def write_lane_dream_outputs(
     lane_risks = lane_risks_for(risks, lane_id)
     interactions = generate_interactions(lane_risks, "lane")
     signal = heartbeat_signal(run_id, "lane", world, risks, maintenance)
-    signal["version"] = 8
+    signal["version"] = DREAM_LANE_SIGNAL_VERSION
     signal["output_kind"] = "lane"
     signal["lane_id"] = lane_id
     signal["lane"] = lane_definition_by_id(lane_id)
@@ -6489,6 +7500,8 @@ def write_lane_dream_outputs(
     signal["eligible_for_today_plan"] = bool(scheduled_morning_lane)
     if DREAM_LANE_AUTOMATIONS[lane_id].get("target_thread_id"):
         signal["target_thread_id"] = DREAM_LANE_AUTOMATIONS[lane_id]["target_thread_id"]
+    if DREAM_LANE_AUTOMATIONS[lane_id].get("thread_title"):
+        signal["thread_title"] = DREAM_LANE_AUTOMATIONS[lane_id]["thread_title"]
     signal["summary"]["lane_risk_count"] = len(lane_risks)
     signal["top_findings"] = [
         {
@@ -6632,6 +7645,22 @@ def write_lane_dream_outputs(
         lane_payload["engineering_rule"] = "one lane per automation; each nightly run opens a fresh automation chat; doctor aggregates the set"
         lane_payload["lanes"] = lane_rows
         lane_payload.pop("master_heartbeat", None)
+    run_finished_at = datetime.now(timezone.utc)
+    signal["run_timing"] = {
+        "started_at": run_started_at.isoformat(timespec="seconds"),
+        "finished_at": run_finished_at.isoformat(timespec="seconds"),
+        "elapsed_seconds": round(perf_counter() - run_started_perf, 3),
+        "scope": "lane generation through after-action summary payload",
+    }
+    learning_atoms = build_learning_atoms_for_lane(run_id, lane_id, world, lane_risks, signal)
+    recurrence_index = dream_recurrence_index_payload(run_id, lane_id, world, learning_atoms)
+    learning_metrics = learning_atom_metrics(learning_atoms, signal, signal.get("maintenance_debt") if isinstance(signal.get("maintenance_debt"), dict) else {})
+    signal["learning_atoms"] = learning_atoms
+    signal["learning_atom_metrics"] = learning_metrics
+    signal["dream_recurrence_index"] = recurrence_index
+    signal["summary"].update(learning_metrics)
+    signal.update(learning_metrics)
+    nightly_signal = lane_nightly_heartbeat_signal(run_id, lane_id, signal, learning_atoms, learning_metrics, recurrence_index)
     trace = {
         "synthetic": True,
         "synthetic_header": SYNTHETIC_HEADER,
@@ -6665,6 +7694,14 @@ def write_lane_dream_outputs(
     safe_write(run_dir, "lane_heartbeat.md", render_lane_heartbeat_report(run_id, lane_id, world, lane_risks, signal))
     safe_write(run_dir, "lane_digest.md", render_lane_digest(lane_id, lane_risks, maintenance, autonomous))
     safe_write(run_dir, "validation_summary.md", render_lane_validation_summary(lane_id))
+    safe_write(run_dir, "learning_atoms.jsonl", render_learning_atoms_jsonl(learning_atoms))
+    safe_write(run_dir, "learning_atoms.md", render_learning_atoms_markdown(learning_atoms))
+    safe_write(run_dir, "dream_recurrence_index.json", render_json_file(recurrence_index))
+    safe_write(run_dir, "nightly_heartbeat_signal.json", render_json_file(nightly_signal))
+    safe_write(run_dir, "morning_appendix.md", render_morning_appendix(run_id, lane_id, learning_atoms, learning_metrics, recurrence_index))
+    safe_write(run_dir, "maintenance_debt.md", render_maintenance_debt(world, lane_risks))
+    safe_write(run_dir, "adaptation_cards.md", render_adaptation_cards(world, lane_risks))
+    safe_write(run_dir, "promotion_candidates.md", render_learning_atom_promotion_candidates(learning_atoms))
     safe_write(run_dir, "morning_lane_summary.json", render_json_file(summary))
     safe_write(run_dir, "morning_lane_summary.txt", render_morning_lane_summary_text(summary))
     write_lane_artifacts(run_dir, lane_id, world, lane_risks, maintenance, autonomous, structural)
@@ -6925,6 +7962,204 @@ def validate_dream_dir(path: Path) -> list[str]:
     return errors
 
 
+def load_jsonl(path: Path) -> tuple[list[dict[str, Any]], list[str]]:
+    rows: list[dict[str, Any]] = []
+    errors: list[str] = []
+    if not path.exists():
+        return rows, [f"missing JSONL file: {path.name}"]
+    for line_number, line in enumerate(read_text(path).splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError as exc:
+            errors.append(f"{path.name} line {line_number} invalid JSON: {exc}")
+            continue
+        if not isinstance(payload, dict):
+            errors.append(f"{path.name} line {line_number} is not an object")
+            continue
+        rows.append(payload)
+    return rows, errors
+
+
+def load_json_object(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(read_text(path))
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def target_path_is_forbidden(value: object) -> bool:
+    text = str(value or "").lower()
+    if not text:
+        return True
+    if text.startswith(("http://", "https://", "/")):
+        return True
+    return any(snippet in text for snippet in LEARNING_ATOM_FORBIDDEN_TARGET_SNIPPETS)
+
+
+def validate_learning_atom(atom: dict[str, Any], run_dir: Path, lane_id: str, line_number: int) -> list[str]:
+    prefix = f"learning_atoms.jsonl line {line_number}"
+    errors: list[str] = []
+    required = [
+        "schema_version",
+        "synthetic",
+        "synthetic_header",
+        "mutation_boundary",
+        "learning_atom_id",
+        "created_at",
+        "dream_run_id",
+        "source",
+        "task_family",
+        "lesson_type",
+        "problem",
+        "proposed_change",
+        "validators",
+        "promotion",
+        "retention",
+        "links",
+        "raw_episode_path",
+    ]
+    for key in required:
+        if key not in atom:
+            errors.append(f"{prefix} missing required field: {key}")
+    schema_version = atom.get("schema_version")
+    if schema_version not in SUPPORTED_LEARNING_ATOM_SCHEMA_VERSIONS:
+        errors.append(f"{prefix} has unsupported schema_version")
+    if atom.get("synthetic") is not True:
+        errors.append(f"{prefix} synthetic flag is not true")
+    if atom.get("synthetic_header") != SYNTHETIC_HEADER:
+        errors.append(f"{prefix} synthetic header is wrong")
+    if atom.get("mutation_boundary") != "proposal_only":
+        errors.append(f"{prefix} mutation_boundary is not proposal_only")
+    if APPROVAL_LIKE_PATTERN.search(json.dumps(atom, sort_keys=True)):
+        errors.append(f"{prefix} contains approval-like language")
+    if f"_{safe_slug(lane_id, limit=32)}_" not in str(atom.get("learning_atom_id") or ""):
+        errors.append(f"{prefix} learning_atom_id is not lane-scoped")
+
+    source = atom.get("source") if isinstance(atom.get("source"), dict) else {}
+    source_kind = source.get("kind")
+    if source_kind not in LEARNING_ATOM_SOURCE_KINDS:
+        errors.append(f"{prefix} source.kind is invalid: {source_kind}")
+    evidence_refs = source.get("evidence_refs") if isinstance(source.get("evidence_refs"), list) else []
+    if not evidence_refs:
+        errors.append(f"{prefix} has no evidence refs")
+    raw_episode = first_line(atom.get("raw_episode_path"))
+    if not raw_episode:
+        errors.append(f"{prefix} lacks raw_episode_path")
+    elif not Path(raw_episode).exists():
+        errors.append(f"{prefix} raw_episode_path does not exist: {raw_episode}")
+    elif Path(raw_episode).resolve() != (run_dir / "dream_trace.json").resolve():
+        errors.append(f"{prefix} raw_episode_path does not point at this lane trace")
+
+    families = atom.get("task_family") if isinstance(atom.get("task_family"), list) else []
+    if not families:
+        errors.append(f"{prefix} task_family is empty")
+    invalid_families = sorted({str(item) for item in families if item not in LEARNING_ATOM_TASK_FAMILIES})
+    if invalid_families:
+        errors.append(f"{prefix} invalid task_family values: {', '.join(invalid_families)}")
+    if atom.get("lesson_type") not in LEARNING_ATOM_LESSON_TYPES:
+        errors.append(f"{prefix} invalid lesson_type: {atom.get('lesson_type')}")
+    if atom.get("candidate_bucket") not in LEARNING_ATOM_CANDIDATE_BUCKETS:
+        errors.append(f"{prefix} invalid candidate_bucket: {atom.get('candidate_bucket')}")
+
+    problem = atom.get("problem") if isinstance(atom.get("problem"), dict) else {}
+    for key in ("symptom", "recurrence", "thesis_cost", "user_friction", "safety_risk"):
+        if not first_line(problem.get(key)):
+            errors.append(f"{prefix} problem.{key} is missing")
+    if isinstance(schema_version, int) and schema_version >= 2:
+        for key in (
+            "terminal_path_alignment",
+            "finitude_pressure",
+            "regret_if_unfixed",
+            "minimal_publishable_path_impact",
+            "novelty_gate",
+            "recommended_waking_action",
+        ):
+            if not first_line(atom.get(key)):
+                errors.append(f"{prefix} missing finitude field: {key}")
+
+    proposed = atom.get("proposed_change") if isinstance(atom.get("proposed_change"), dict) else {}
+    target_kind = proposed.get("target_kind")
+    target_path = proposed.get("target_path")
+    if target_kind not in LEARNING_ATOM_TARGET_KINDS:
+        errors.append(f"{prefix} invalid target_kind: {target_kind}")
+    if target_path_is_forbidden(target_path):
+        errors.append(f"{prefix} target_path is forbidden or not local policy/schema memory: {target_path}")
+
+    validators = atom.get("validators") if isinstance(atom.get("validators"), list) else []
+    if not validators:
+        errors.append(f"{prefix} lacks validators")
+    for index, validator in enumerate(validators, start=1):
+        if not isinstance(validator, dict):
+            errors.append(f"{prefix} validators[{index}] is not an object")
+            continue
+        if not first_line(validator.get("command")) or not first_line(validator.get("expected")):
+            errors.append(f"{prefix} validators[{index}] lacks command/expected")
+
+    promotion = atom.get("promotion") if isinstance(atom.get("promotion"), dict) else {}
+    status = promotion.get("status")
+    if status not in LEARNING_ATOM_PROMOTION_STATUSES:
+        errors.append(f"{prefix} invalid promotion.status: {status}")
+    if status != "proposal_only" and not validators:
+        errors.append(f"{prefix} non-proposal promotion lacks validator")
+    if "waking" not in str(promotion.get("promotion_rule") or "").lower():
+        errors.append(f"{prefix} promotion rule does not require waking validation")
+
+    retention = atom.get("retention") if isinstance(atom.get("retention"), dict) else {}
+    if retention.get("preserve_raw_episode") is not True:
+        errors.append(f"{prefix} retention.preserve_raw_episode is not true")
+    return errors
+
+
+def validate_learning_atom_package(path: Path, signal: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    rows, row_errors = load_jsonl(path / "learning_atoms.jsonl")
+    errors.extend(row_errors)
+    lane_id = str(signal.get("lane_id") or "")
+    for index, atom in enumerate(rows, start=1):
+        errors.extend(validate_learning_atom(atom, path, lane_id, index))
+    bucket_counts = Counter(str(atom.get("candidate_bucket") or "") for atom in rows)
+    for bucket in LEARNING_ATOM_CANDIDATE_BUCKETS:
+        if bucket_counts[bucket] > 3:
+            errors.append(f"learning atom quota exceeded for {bucket}: {bucket_counts[bucket]}")
+    if len(rows) > 9:
+        errors.append(f"learning atom total quota exceeded: {len(rows)}")
+    signal_atoms = signal.get("learning_atoms") if isinstance(signal.get("learning_atoms"), list) else []
+    if len(signal_atoms) != len(rows):
+        errors.append("lane_signal.json learning_atoms count does not match learning_atoms.jsonl")
+    metrics = signal.get("learning_atom_metrics") if isinstance(signal.get("learning_atom_metrics"), dict) else {}
+    for key in (
+        "proposal_count",
+        "high_priority_learning_atoms",
+        "recurring_findings",
+        "promotable_findings",
+        "blocked_by_missing_evidence",
+        "doctor_status",
+        "maintenance_debt_level",
+        "slide_regression_pressure",
+        "artifact_provenance_pressure",
+        "status_staleness_pressure",
+        "context_bloat_pressure",
+        "recommended_waking_checks",
+    ):
+        if key not in metrics:
+            errors.append(f"learning_atom_metrics missing {key}")
+    if metrics.get("proposal_count") != len(rows):
+        errors.append("learning_atom_metrics proposal_count does not match JSONL count")
+    recurrence = load_json_object(path / "dream_recurrence_index.json")
+    if recurrence.get("mutation_boundary") != "proposal_only":
+        errors.append("dream_recurrence_index.json mutation boundary is wrong")
+    nightly = load_json_object(path / "nightly_heartbeat_signal.json")
+    if nightly.get("retired_master_heartbeat_recreated") is not False:
+        errors.append("nightly_heartbeat_signal.json does not mark retired master heartbeat as false")
+    nightly_metrics = nightly.get("metrics") if isinstance(nightly.get("metrics"), dict) else {}
+    if nightly_metrics.get("proposal_count") != len(rows):
+        errors.append("nightly_heartbeat_signal.json proposal_count does not match JSONL count")
+    return errors
+
+
 def validate_lane_dir(path: Path) -> list[str]:
     errors: list[str] = []
     root = DREAM_ROOT.resolve()
@@ -6955,6 +8190,7 @@ def validate_lane_dir(path: Path) -> list[str]:
     if lane_id not in DREAM_LANE_AUTOMATIONS:
         errors.append(f"lane_signal.json has unknown lane_id: {lane_id}")
         return errors
+    signal_version = int(signal.get("version") or 0)
     for name in required[2:]:
         if SYNTHETIC_HEADER not in read_text(path / name):
             errors.append(f"{name} lacks synthetic provenance header")
@@ -7006,6 +8242,24 @@ def validate_lane_dir(path: Path) -> list[str]:
     for name in lane_required_artifacts(lane_id):
         if not (path / name).exists():
             errors.append(f"missing lane-specific output: {name}")
+    if signal_version >= DREAM_LANE_SIGNAL_VERSION:
+        learning_required = [
+            "learning_atoms.jsonl",
+            "learning_atoms.md",
+            "dream_recurrence_index.json",
+            "nightly_heartbeat_signal.json",
+            "morning_appendix.md",
+            "maintenance_debt.md",
+            "adaptation_cards.md",
+            "promotion_candidates.md",
+        ]
+        for name in learning_required:
+            if not (path / name).exists():
+                errors.append(f"missing learning-atom lane output: {name}")
+        for name in ("learning_atoms.md", "morning_appendix.md", "maintenance_debt.md", "adaptation_cards.md", "promotion_candidates.md"):
+            if (path / name).exists() and SYNTHETIC_HEADER not in read_text(path / name):
+                errors.append(f"{name} lacks synthetic provenance header")
+        errors.extend(validate_learning_atom_package(path, signal))
     if lane_id == "context_resonance":
         try:
             changed = json.loads(read_text(path / "changed_actions.json"))
@@ -7051,7 +8305,10 @@ def validate_lane_dir(path: Path) -> list[str]:
         ]
         if len(top_auto) > 1:
             errors.append("context_resonance emitted more than one primary auto-maintenance finding")
-    for name in ("nightly_heartbeat.md", "nightly_heartbeat_signal.json", "morning_appendix.md"):
+    retired_names = ("nightly_heartbeat.md",)
+    if signal_version < DREAM_LANE_SIGNAL_VERSION:
+        retired_names = ("nightly_heartbeat.md", "nightly_heartbeat_signal.json", "morning_appendix.md")
+    for name in retired_names:
         if (path / name).exists():
             errors.append(f"retired master-heartbeat output still present: {name}")
     return errors

@@ -280,3 +280,374 @@ memory_records:
     state:
       temperature: warm
       plasticity: stable
+
+  - memory_id: slide_candidate_self_audit_contract
+    title: Serious slide candidates need a self-audit before handoff
+    source_pointer:
+      path: agent_context/policies/SLIDES_WORKFLOW.md
+      kind: policy
+    routes:
+      - slide_scripting
+      - plot_generation
+    cue_terms:
+      - slide
+      - candidate
+      - png
+      - self-audit
+      - readable
+      - hierarchy
+      - speaker
+      - script
+      - source
+      - provenance
+    relation_type: same_method
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: readiness checklist cue only
+    required_waking_check: run the slide candidate self-audit and inspect the PNG/script before showing Justin or mutating Slides
+    why_it_surfaced: repeated slide iterations failed when candidate readiness was judged before source, readability, canvas text, and script checks
+    salience:
+      thesis_value: 0.85
+      evidence_value: 0.8
+      recurrence: 0.9
+      error_prevention_value: 0.98
+      user_friction: 0.95
+      retrieval_cost: 0.1
+      stale_risk: 0.05
+      interference_risk: 0.1
+      synthetic_contamination_risk: 0.0
+    state:
+      temperature: hot
+      plasticity: stable
+
+  - memory_id: slide_feedback_to_style_memory
+    title: Justin slide feedback should become durable style memory when reusable
+    source_pointer:
+      path: agent_context/templates/SLIDE_FEEDBACK_TEMPLATE.md
+      kind: template
+    routes:
+      - slide_scripting
+      - plot_generation
+      - os_maintenance
+    cue_terms:
+      - feedback
+      - wrong
+      - fix
+      - iterate
+      - cleaner
+      - clutter
+      - style
+      - too small
+      - script
+      - correction
+    relation_type: same_failure_mode
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: correction-ingestion method cue only
+    required_waking_check: cite the concrete user correction and updated artifact before promoting the lesson to policy or style memory
+    why_it_surfaced: reusable slide/plot corrections should not stay only in chat if they can prevent repeated user friction
+    salience:
+      thesis_value: 0.8
+      evidence_value: 0.85
+      recurrence: 0.95
+      error_prevention_value: 0.95
+      user_friction: 0.98
+      retrieval_cost: 0.1
+      stale_risk: 0.05
+      interference_risk: 0.15
+      synthetic_contamination_risk: 0.0
+    state:
+      temperature: hot
+      plasticity: plastic
+
+  - memory_id: source_first_slide_generation
+    title: Slide generation should use approved source objects before recreating plots
+    source_pointer:
+      path: agent_context/policies/SLIDES_WORKFLOW.md
+      kind: policy
+    routes:
+      - slide_scripting
+      - plot_generation
+    cue_terms:
+      - source
+      - approved
+      - public
+      - paper
+      - reference
+      - recreate
+      - plot
+      - slide
+      - artifact
+    relation_type: same_artifact
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: source-selection warning only
+    required_waking_check: verify whether an approved/reference artifact exists before recreating or approximating a plot for slides
+    why_it_surfaced: public and collaboration-facing slides can regress if Codex redraws a lookalike instead of using the approved evidence object
+    salience:
+      thesis_value: 0.9
+      evidence_value: 0.95
+      recurrence: 0.75
+      error_prevention_value: 0.98
+      user_friction: 0.85
+      retrieval_cost: 0.1
+      stale_risk: 0.1
+      interference_risk: 0.1
+      synthetic_contamination_risk: 0.0
+    state:
+      temperature: hot
+      plasticity: stable
+
+  - memory_id: justin_spoken_script_contract
+    title: Speaker scripts should be spoken Justin narration, not generic outlines
+    source_pointer:
+      path: agent_context/policies/SLIDES_WORKFLOW.md
+      kind: policy
+    routes:
+      - slide_scripting
+    cue_terms:
+      - speaker
+      - script
+      - notes
+      - narration
+      - spoken
+      - outline
+      - practice
+      - slide
+    relation_type: visual_style
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: style cue only
+    required_waking_check: read the generated script aloud mentally and remove private outline/provenance language before handoff
+    why_it_surfaced: Justin needs scripts he can practice saying, not generic presenter notes or private Codex reasoning
+    salience:
+      thesis_value: 0.8
+      evidence_value: 0.75
+      recurrence: 0.8
+      error_prevention_value: 0.85
+      user_friction: 0.9
+      retrieval_cost: 0.1
+      stale_risk: 0.05
+      interference_risk: 0.1
+      synthetic_contamination_risk: 0.0
+    state:
+      temperature: hot
+      plasticity: stable
+
+  - memory_id: thesis_goal_awareness_compact
+    title: Keep thesis north-star context compact and action-shaped
+    source_pointer:
+      path: agent_context/THESIS_NARRATIVE_MAP.md
+      kind: narrative_map
+    routes:
+      - os_maintenance
+      - slide_scripting
+      - plot_generation
+    cue_terms:
+      - thesis
+      - north
+      - star
+      - goal
+      - slide
+      - closing
+      - artifact
+      - priority
+      - claim
+    relation_type: same_method
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: goal-routing cue only
+    required_waking_check: map work to THESIS_NARRATIVE_MAP and the register before promoting it as thesis-facing
+    why_it_surfaced: slide, plot, and OS work should reduce cognitive load while staying tied to the PPG19 AuAu gamma-jet thesis spine
+    salience:
+      thesis_value: 0.95
+      evidence_value: 0.75
+      recurrence: 0.8
+      error_prevention_value: 0.8
+      user_friction: 0.7
+      retrieval_cost: 0.1
+      stale_risk: 0.1
+      interference_risk: 0.2
+      synthetic_contamination_risk: 0.0
+    state:
+      temperature: warm
+      plasticity: stable
+
+  - memory_id: duplicate_run_guard_before_training
+    title: Training, validation, production, and merge work must hit duplicate guard first
+    source_pointer:
+      path: agent_context/policies/DUPLICATE_RUN_GUARD.md
+      kind: policy
+    routes:
+      - training_production
+      - active_job_status
+    cue_terms:
+      - train
+      - training
+      - validation
+      - production
+      - merge
+      - condor
+      - bdt
+      - auau
+      - rerun
+      - duplicate
+    relation_type: same_method
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: duplicate-preflight cue only
+    required_waking_check: build/search a run fingerprint and stop on identical or materially equivalent campaigns before generating or submitting anything
+    why_it_surfaced: duplicate-sensitive campaigns can waste Condor slots, disk, and attention unless the guard runs before preparation
+    salience:
+      thesis_value: 0.9
+      evidence_value: 0.9
+      recurrence: 0.85
+      error_prevention_value: 0.98
+      user_friction: 0.9
+      retrieval_cost: 0.1
+      stale_risk: 0.1
+      interference_risk: 0.1
+      synthetic_contamination_risk: 0.0
+    state:
+      temperature: hot
+      plasticity: stable
+
+  - memory_id: task_capture_register_first
+    title: Explicit task-capture wording updates the register before projections
+    source_pointer:
+      path: agent_context/policies/MEMORY_AND_STATUS.md
+      kind: policy
+    routes:
+      - task_capture
+      - os_maintenance
+    cue_terms:
+      - add
+      - task
+      - tasks
+      - list
+      - todo
+      - backlog
+      - linear
+      - register
+      - capture
+      - track
+      - remember
+    relation_type: same_method
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: task-capture method cue only
+    required_waking_check: update CODEX_WORK_REGISTER.yaml first, then Linear, then Today's Plan only if cockpit-worthy
+    why_it_surfaced: Justin's explicit task-capture wording should never remain only as a chat note
+    salience:
+      thesis_value: 0.8
+      evidence_value: 0.85
+      recurrence: 0.95
+      error_prevention_value: 0.95
+      user_friction: 0.95
+      retrieval_cost: 0.1
+      stale_risk: 0.05
+      interference_risk: 0.15
+      synthetic_contamination_risk: 0.0
+    state:
+      temperature: hot
+      plasticity: stable
+
+  - memory_id: thesis_finitude_care_kernel
+    title: Classify work by finite thesis impact before acting
+    source_pointer:
+      path: agent_context/policies/AGENTIC_OS_HARDENING.md
+      kind: policy
+    routes:
+      - os_maintenance
+      - slide_scripting
+      - plot_generation
+      - training_production
+      - task_capture
+      - active_job_status
+    cue_terms:
+      - thesis
+      - finitude
+      - care
+      - close
+      - closing
+      - closeout
+      - priority
+      - next
+      - regret
+      - opportunity
+      - baseline
+      - publishable
+      - xjgamma
+      - gamma-jet
+      - auau
+      - pp
+      - bdt
+      - novelty
+      - ml
+      - slide
+      - plot
+      - dream
+    relation_type: same_method
+    evidence_class: human_approved
+    retrieval_policy: conscious_context
+    allowed_use: prioritization cue only
+    required_waking_check: map the task to THESIS_NARRATIVE_MAP, classify critical-path impact, and choose the shortest safe evidence-backed next action
+    why_it_surfaced: finite thesis time means terminal-path evidence and risk reduction should outrank novelty, polish, or OS work unless those directly protect thesis closure
+    salience:
+      thesis_value: 0.98
+      evidence_value: 0.85
+      recurrence: 0.9
+      error_prevention_value: 0.9
+      user_friction: 0.85
+      retrieval_cost: 0.08
+      stale_risk: 0.08
+      interference_risk: 0.12
+      synthetic_contamination_risk: 0.0
+    state:
+      temperature: hot
+      plasticity: stable
+
+  - memory_id: minimal_publishable_path_before_novelty
+    title: Minimal publishable baseline comes before novelty
+    source_pointer:
+      path: agent_context/THESIS_NARRATIVE_MAP.md
+      kind: narrative_map
+    routes:
+      - os_maintenance
+      - plot_generation
+      - training_production
+      - slide_scripting
+    cue_terms:
+      - novelty
+      - novel
+      - ml
+      - ablation
+      - advanced
+      - baseline
+      - publishable
+      - auau
+      - pp
+      - gamma-jet
+      - xjgamma
+      - thesis
+      - close
+      - fastest
+    relation_type: same_method
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: novelty gate cue only
+    required_waking_check: verify whether the novelty directly unlocks or protects the minimal publishable path, or defer it behind baseline safety
+    why_it_surfaced: interesting ideas should not outrank the Au+Au/pp gamma-jet baseline unless they are bounded and thesis-critical
+    salience:
+      thesis_value: 0.95
+      evidence_value: 0.85
+      recurrence: 0.85
+      error_prevention_value: 0.9
+      user_friction: 0.8
+      retrieval_cost: 0.08
+      stale_risk: 0.08
+      interference_risk: 0.1
+      synthetic_contamination_risk: 0.0
+    state:
+      temperature: hot
+      plasticity: stable

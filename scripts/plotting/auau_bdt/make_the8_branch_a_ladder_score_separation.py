@@ -20,6 +20,7 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
+import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -67,6 +68,138 @@ def auc_color(auc: float) -> str:
     return "#B45309"
 
 
+def add_card(
+    fig: plt.Figure,
+    *,
+    xy: tuple[float, float],
+    wh: tuple[float, float],
+    title: str,
+    body: str,
+    face: str,
+    edge: str,
+    title_color: str,
+    title_size: float = 18.6,
+    body_size: float = 15.4,
+    body_offset: float = 0.066,
+    line_spacing: float = 1.10,
+) -> None:
+    x, y = xy
+    w, h = wh
+    rect = patches.FancyBboxPatch(
+        (x, y),
+        w,
+        h,
+        boxstyle="round,pad=0.010,rounding_size=0.010",
+        transform=fig.transFigure,
+        linewidth=1.15,
+        edgecolor=edge,
+        facecolor=face,
+    )
+    fig.add_artist(rect)
+    fig.text(x + 0.018, y + h - 0.024, title, ha="left", va="top", fontsize=title_size, fontweight="bold", color=title_color)
+    fig.text(x + 0.018, y + h - body_offset, body, ha="left", va="top", fontsize=body_size, color="#334155", linespacing=line_spacing)
+
+
+def add_legend_band(fig: plt.Figure, *, x: float, y: float, w: float, h: float, sig_color: str, bkg_color: str, ink: str) -> None:
+    rect = patches.FancyBboxPatch(
+        (x, y),
+        w,
+        h,
+        boxstyle="round,pad=0.006,rounding_size=0.010",
+        transform=fig.transFigure,
+        linewidth=1.05,
+        edgecolor="#D1D5DB",
+        facecolor="#FFFFFF",
+    )
+    fig.add_artist(rect)
+    yc = y + 0.5 * h
+    fig.add_artist(matplotlib.lines.Line2D([x + 0.026, x + 0.078], [yc, yc], transform=fig.transFigure, color=sig_color, lw=3.5))
+    fig.text(x + 0.086, yc, "Signal MC (truth prompt)", transform=fig.transFigure, ha="left", va="center", fontsize=13.8, color=ink)
+    fig.add_artist(
+        matplotlib.lines.Line2D(
+            [x + 0.312, x + 0.364],
+            [yc, yc],
+            transform=fig.transFigure,
+            color=bkg_color,
+            lw=3.5,
+            linestyle="--",
+        )
+    )
+    fig.text(
+        x + 0.372,
+        yc,
+        "Inclusive MC (embedded jet)",
+        transform=fig.transFigure,
+        ha="left",
+        va="center",
+        fontsize=13.8,
+        color=ink,
+    )
+
+
+def slide_copy(branches: list[dict]) -> dict[str, str]:
+    modes = {str(b.get("summary", {}).get("validation_mode", "")) for b in branches}
+    if modes == {"own_10pct_training_holdout_truth_signal_inclusive_jet"}:
+        return {
+            "title": "Held-out validation: truth signal vs inclusive-jet MC",
+            "subtitle": r"Global no-isolation photon-ID BDT; each row uses only its own 10% training holdout, $15 < E_T < 35$ GeV.",
+            "left_title": "Validation rows in each pad",
+            "left_body": "Red is truth prompt candidates from embedded-photon MC;\nblue is all candidates from embedded inclusive-jet MC.",
+            "right_title": "Rows use independent holdout samples",
+            "right_body": "Each BDT is validated on its matching training sample:\nJet12+20, then +Jet30, then +Jet40.",
+            "bottom_title": "Weighted holdout AUC by row",
+            "bottom_suffix": "Pad AUC/S/B labels use truth signal and unfiltered inclusive-jet MC rows.",
+            "plot_sample": "10% row holdout",
+        }
+    if modes == {"common_jet12_20_10pct_training_holdout_truth_signal_inclusive_jet"}:
+        return {
+            "title": "Common Jet12+20 holdout: truth signal vs inclusive-jet MC",
+            "subtitle": r"All three independently trained BDTs are scored on the same Jet12+20 10% holdout, $15 < E_T < 35$ GeV.",
+            "left_title": "Same validation rows in every pad",
+            "left_body": "Red is truth prompt candidates from embedded-photon MC;\nblue is all candidates from the same inclusive-jet MC split.",
+            "right_title": "This is the same-sample control",
+            "right_body": "Any row-to-row change here comes from the trained model,\nnot from adding Jet30 or Jet40 rows to validation.",
+            "bottom_title": "Weighted AUC on common Jet12+20 holdout",
+            "bottom_suffix": "Pad AUC/S/B labels use the same truth-signal and inclusive-jet rows in every row.",
+            "plot_sample": "Jet12+20 holdout",
+        }
+    if modes == {"own_10pct_training_holdout"}:
+        return {
+            "title": "Held-out validation confirms the Branch A ladder separation gain",
+            "subtitle": r"Global no-isolation photon-ID BDT; each row uses only its own 10% training holdout, $15 < E_T < 35$ GeV.",
+            "left_title": "Validation rows in each pad",
+            "left_body": "Red uses embedded-photon rows; blue uses all embedded-jet rows\nfrom the held-out 10% split named on that row.",
+            "right_title": "Rows use independent holdout samples",
+            "right_body": "Each BDT is validated on its matching training sample:\nJet12+20, then +Jet30, then +Jet40.",
+            "bottom_title": "Weighted holdout AUC by row",
+            "bottom_suffix": "Pad AUC/S/B labels use source-defined sample rows within each centrality bin.",
+            "plot_sample": "10% row holdout",
+        }
+    if modes == {"common_jet12_20_10pct_training_holdout"}:
+        return {
+            "title": "Common Jet12+20 holdout isolates the model-comparison effect",
+            "subtitle": r"All three independently trained BDTs are scored on the same Jet12+20 10% holdout, $15 < E_T < 35$ GeV.",
+            "left_title": "Same validation rows in every pad",
+            "left_body": "Red uses embedded-photon rows; blue uses all embedded-jet rows\nfrom the same Jet12+20 held-out split.",
+            "right_title": "This is the same-sample control",
+            "right_body": "Any row-to-row change here comes from the trained model,\nnot from adding Jet30 or Jet40 rows to validation.",
+            "bottom_title": "Weighted AUC on common Jet12+20 holdout",
+            "bottom_suffix": "Pad AUC/S/B labels use source-defined sample rows in every row.",
+            "plot_sample": "Jet12+20 holdout",
+        }
+    return {
+        "title": "Jet40-inclusive validation background improves BDT score separation",
+        "subtitle": r"Global no-isolation photon-ID BDT; embedded prompt-photon signal vs embedded inclusive-jet background, $15 < E_T < 35$ GeV.",
+        "left_title": "Validation sample in each pad",
+        "left_body": "Embedded prompt-photon signal is compared to embedded inclusive-jet\nbackground from the combined sample named on that row.",
+        "right_title": "Rows are not one common inclusive pool",
+        "right_body": "Each row validates the matching BDT against its matching combined\ninclusive pool: Jet12+20, then +Jet30, then +Jet40.",
+        "bottom_title": "Inclusive validation AUC by row",
+        "bottom_suffix": "Pad AUC/S/B labels are computed within each centrality bin.",
+        "plot_sample": "Au+Au embedded validation",
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path, required=True)
@@ -76,6 +209,7 @@ def main() -> int:
 
     payload = json.loads(args.input.read_text())
     branches = payload["branches"]
+    copy = slide_copy(branches)
     args.outdir.mkdir(parents=True, exist_ok=True)
 
     plt.rcParams.update(
@@ -90,10 +224,18 @@ def main() -> int:
         }
     )
 
-    fig, axes = plt.subplots(3, 3, figsize=(16, 9), sharex=True, sharey=True, dpi=160)
+    fig, axes = plt.subplots(
+        3,
+        3,
+        figsize=(16, 9),
+        sharex=True,
+        sharey=True,
+        dpi=160,
+        gridspec_kw={"left": 0.118, "right": 0.968, "bottom": 0.205, "top": 0.590, "hspace": 0.34, "wspace": 0.115},
+    )
     fig.patch.set_facecolor("white")
-    sig_color = "#1D4ED8"
-    bkg_color = "#DC2626"
+    sig_color = "#DC2626"
+    bkg_color = "#1D4ED8"
     ink = "#111827"
     muted = "#475569"
     light_grid = "#E5E7EB"
@@ -134,52 +276,88 @@ def main() -> int:
             ax.set_xlim(0.0, 1.0)
             ax.set_ylim(0.0, ymax)
             ax.grid(True, color=light_grid, lw=0.55, alpha=0.85)
-            ax.tick_params(labelsize=9.2, pad=2)
+            ax.tick_params(labelsize=11.6, pad=2)
             ax.set_facecolor("#FFFFFF")
             for spine in ax.spines.values():
                 spine.set_color("#111827")
+                spine.set_linewidth(1.05)
             if irow == 0:
-                ax.set_title(f"{cent_label} centrality", fontsize=14.6, fontweight="bold", pad=8, color=ink)
+                ax.set_title(f"{cent_label} centrality", fontsize=18.4, fontweight="bold", pad=11, color=ink)
             if icol == 0:
-                ax.set_ylabel("Area-normalized density", fontsize=10.4, color=ink)
+                ax.set_ylabel("Area density", fontsize=14.0, color=ink)
                 ax.text(
-                    -0.255,
+                    -0.235,
                     0.5,
-                    branch["label"],
+                    branch["label"].replace("+", "\n+"),
                     transform=ax.transAxes,
                     rotation=90,
                     ha="center",
                     va="center",
-                    fontsize=16.0,
+                    fontsize=17.4,
                     fontweight="bold",
                     color=ink,
-                    bbox=dict(boxstyle="round,pad=0.26", fc=row_colors[irow], ec="#CBD5E1", lw=0.8),
+                    linespacing=0.95,
+                    bbox=dict(boxstyle="round,pad=0.24", fc=row_colors[irow], ec="#CBD5E1", lw=0.9),
                 )
             if irow == 2:
-                ax.set_xlabel("BDT score", fontsize=10.8, color=ink)
+                ax.set_xlabel("BDT score", fontsize=14.2, color=ink)
+            if irow == 0 and icol == 0:
+                ax.text(
+                    0.035,
+                    0.900,
+                    "sPHENIX",
+                    transform=ax.transAxes,
+                    ha="left",
+                    va="top",
+                    fontsize=12.8,
+                    fontstyle="italic",
+                    fontweight="bold",
+                    color=ink,
+                )
+                ax.text(
+                    0.240,
+                    0.900,
+                    "Internal",
+                    transform=ax.transAxes,
+                    ha="left",
+                    va="top",
+                    fontsize=12.8,
+                    color=ink,
+                )
+                ax.text(
+                    0.035,
+                    0.760,
+                    copy["plot_sample"],
+                    transform=ax.transAxes,
+                    ha="left",
+                    va="top",
+                    fontsize=11.8,
+                    color=ink,
+                )
             signal_entries = int(np.sum(item["sig_counts"]))
             background_entries = int(np.sum(item["bkg_counts"]))
             auc = float(item["auc"])
             ax.text(
                 0.965,
-                0.93,
+                0.920,
                 f"AUC {auc:.3f}",
                 transform=ax.transAxes,
                 ha="right",
                 va="top",
-                fontsize=11.0,
+                fontsize=16.2,
                 fontweight="bold",
                 color=ink,
-                bbox=dict(boxstyle="round,pad=0.24", fc="white", ec="#CBD5E1", alpha=0.94),
+                bbox=dict(boxstyle="round,pad=0.28", fc="white", ec="#CBD5E1", lw=0.9, alpha=0.96),
             )
             ax.text(
                 0.965,
-                0.775,
+                0.665,
                 f"S {fmt_millions(signal_entries)}   B {fmt_millions(background_entries)}",
                 transform=ax.transAxes,
                 ha="right",
                 va="top",
-                fontsize=9.0,
+                fontsize=13.4,
+                fontweight="bold",
                 color=muted,
             )
             summary_rows.append(
@@ -201,114 +379,66 @@ def main() -> int:
     jet1234_auc = float(branches[2]["summary"].get("globalEtCent1535_bdt_noIso_auc", "nan"))
     fig.text(
         0.035,
-        0.980,
-        "Jet30 and Jet40 strengthen score separation",
+        0.967,
+        copy["title"],
         ha="left",
         va="top",
-        fontsize=28.0,
+        fontsize=24.0,
         fontweight="bold",
         color=ink,
     )
     fig.text(
-        0.035,
-        0.922,
-        r"Embedded background ladder comparison; full-stat validation, $15 < E_T < 35$ GeV",
+        0.036,
+        0.925,
+        copy["subtitle"],
         ha="left",
         va="top",
-        fontsize=15.0,
+        fontsize=14.4,
         color=muted,
     )
-    bullet_font = 13.8
-    fig.text(
-        0.035,
-        0.885,
-        "• Each row scores the same validation slice while adding harder embedded-jet background samples.",
-        ha="left",
-        va="top",
-        fontsize=bullet_font,
-        color="#334155",
+    add_card(
+        fig,
+        xy=(0.041, 0.704),
+        wh=(0.425, 0.168),
+        title=copy["left_title"],
+        body=copy["left_body"],
+        face="#F8FAFC",
+        edge="#CBD5E1",
+        title_color=ink,
+        title_size=19.3,
+        body_size=16.2,
+        body_offset=0.074,
+        line_spacing=1.28,
     )
-    fig.text(
-        0.035,
-        0.858,
-        "• AUC gain alone is a diagnostic; fake rate, composition, and ABCD closure still decide the default.",
-        ha="left",
-        va="top",
-        fontsize=bullet_font,
-        color="#334155",
+    add_card(
+        fig,
+        xy=(0.534, 0.704),
+        wh=(0.425, 0.168),
+        title=copy["right_title"],
+        body=copy["right_body"],
+        face="#EEF6FF",
+        edge="#93C5FD",
+        title_color="#1D4ED8",
+        title_size=19.3,
+        body_size=16.2,
+        body_offset=0.074,
+        line_spacing=1.28,
     )
-    fig.text(
-        0.738,
-        0.976,
-        "Inclusive AUC",
-        ha="left",
-        va="top",
-        fontsize=10.6,
-        color=muted,
+    add_legend_band(fig, x=0.235, y=0.637, w=0.530, h=0.047, sig_color=sig_color, bkg_color=bkg_color, ink=ink)
+    add_card(
+        fig,
+        xy=(0.038, 0.026),
+        wh=(0.924, 0.083),
+        title=copy["bottom_title"],
+        body=(
+            f"Jet12+20: {jet12_auc:.3f}   |   Jet12+20+30: {jet123_auc:.3f}   |   "
+            f"Jet12+20+30+40: {jet1234_auc:.3f}      "
+            f"{copy['bottom_suffix']}"
+        ),
+        face="#FFF7ED",
+        edge="#FDBA74",
+        title_color="#9A3412",
     )
-    auc_text = f"{jet12_auc:.3f}  ->  {jet123_auc:.3f}  ->  {jet1234_auc:.3f}"
-    fig.text(
-        0.738,
-        0.944,
-        auc_text,
-        ha="left",
-        va="top",
-        fontsize=22.0,
-        fontweight="bold",
-        color="#047857",
-    )
-    sphenix_x = 0.060
-    sphenix_y = 0.795
-    fig.text(
-        sphenix_x,
-        sphenix_y,
-        "sPHENIX",
-        ha="left",
-        va="bottom",
-        fontsize=14.8,
-        fontstyle="italic",
-        fontweight="bold",
-        color=ink,
-    )
-    fig.text(
-        sphenix_x + 0.078,
-        sphenix_y,
-        "Internal  Au+Au embedded validation",
-        ha="left",
-        va="bottom",
-        fontsize=14.2,
-        color=ink,
-    )
-    handles, labels = axes[0, 1].get_legend_handles_labels()
-    leg = fig.legend(
-        handles,
-        labels,
-        loc="upper left",
-        bbox_to_anchor=(0.738, 0.905),
-        ncol=2,
-        frameon=True,
-        fontsize=12.8,
-        handlelength=3.1,
-        columnspacing=1.35,
-        borderpad=0.48,
-        labelspacing=0.45,
-    )
-    leg.get_frame().set_facecolor("white")
-    leg.get_frame().set_edgecolor("#CBD5E1")
-    leg.get_frame().set_linewidth(1.2)
-    leg.get_frame().set_alpha(0.98)
-    for text in leg.get_texts():
-        text.set_color(ink)
-    fig.text(
-        0.035,
-        0.030,
-        "Panel AUCs are computed from compact binned score histograms; final default choice still needs fake-rate, composition, and ABCD-closure checks.",
-        ha="left",
-        va="bottom",
-        fontsize=12.2,
-        color="#334155",
-    )
-    fig.tight_layout(rect=[0.060, 0.095, 0.985, 0.785], h_pad=0.72, w_pad=1.42)
 
     png = args.outdir / f"{args.tag}.png"
     csv_path = args.outdir / f"{args.tag}.csv"

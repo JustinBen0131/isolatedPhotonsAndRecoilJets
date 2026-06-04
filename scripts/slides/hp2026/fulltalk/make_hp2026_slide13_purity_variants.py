@@ -13,7 +13,7 @@ import math
 from datetime import datetime
 from pathlib import Path
 
-from PIL import Image, ImageChops, ImageDraw
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 import make_hp2026_closing_three_candidates as c3
 import make_hp2026_fulltalk_candidates as ft
@@ -26,6 +26,7 @@ MANIFEST = VARIANT_DIR / "hp2026_slide13_purity_variants_manifest.json"
 EQUATION_VARIANT_DIR = VARIANT_DIR / "equation_box_eye_exam"
 EQUATION_CONTACT_SHEET = EQUATION_VARIANT_DIR / "hp2026_slide13_equation_box_eye_exam_contact_sheet.png"
 EQUATION_MANIFEST = EQUATION_VARIANT_DIR / "hp2026_slide13_equation_box_eye_exam_manifest.json"
+UNICODE_FONT = Path("/Library/Fonts/Arial Unicode.ttf")
 
 
 def save_script(stem: str, title: str, body: str) -> Path:
@@ -574,7 +575,7 @@ def draw_b_fraction(
 
 
 def draw_eq2_physical(draw: ImageDraw.ImageDraw, x: int, y: int, size: int = 23) -> None:
-    x = c3.draw_n_var(draw, x, y, "A,RAW", "signal", size=size)
+    x = c3.draw_n_var(draw, x, y, "A,raw", "signal", size=size)
     x = c3.math_text(draw, x, y + 2, " = ", size=size)
     x = c3.draw_n_var(draw, x, y, "A", "raw", size=size)
     x = c3.math_text(draw, x, y + 2, " − ", size=size)
@@ -772,6 +773,14 @@ def draw_eq2_abcd_inline(draw: ImageDraw.ImageDraw, x: int, y: int, size: int = 
     draw_eq2_physical(draw, x + 118, y - 1, size=32)
 
 
+def draw_membership_qualifier(draw: ImageDraw.ImageDraw, x: int, y: int, size: int = 17) -> None:
+    x = c3.math_text(draw, x, y, ", X ", size=size, fill=ft.MUTED, bold=True)
+    symbol_font = ImageFont.truetype(str(UNICODE_FONT), size + 3)
+    draw.text((x, y - 1), "∈", font=symbol_font, fill=ft.MUTED)
+    x += int(draw.textlength("∈", font=symbol_font)) + 4
+    c3.math_text(draw, x, y, "{B,C,D}", size=size, fill=ft.MUTED, bold=True)
+
+
 def draw_eq3_sideband_inline(draw: ImageDraw.ImageDraw, x: int, y: int, size: int = 25) -> None:
     start_x = x + 58
     size = 26
@@ -781,13 +790,13 @@ def draw_eq3_sideband_inline(draw: ImageDraw.ImageDraw, x: int, y: int, size: in
     x = c3.draw_n_var(draw, x, y, "X", "raw", size=size)
     x = c3.math_text(draw, x, y + 1, " − ", size=size)
     x = c3.draw_f_var(draw, x, y, "X,MC", size=size, fill=ft.BLUE)
-    x = c3.draw_n_var(draw, x + 8, y, "A,RAW", "signal", size=size)
-    c3.math_text(draw, x + 10, y + 1, ", X = B,C,D", size=17, fill=ft.MUTED, bold=True)
+    x = c3.draw_n_var(draw, x + 8, y, "A,raw", "signal", size=size)
+    draw_membership_qualifier(draw, x + 10, y + 1, size=17)
 
     x = start_x + 482
-    x = c3.draw_n_var(draw, x, y, "A", "signal", size=size)
+    x = c3.draw_n_var(draw, x, y, "A,corr", "signal", size=size)
     x = c3.math_text(draw, x, y + 1, " = ", size=size)
-    x = c3.draw_n_var(draw, x, y, "A,RAW", "signal", size=size)
+    x = c3.draw_n_var(draw, x, y, "A,raw", "signal", size=size)
     x = c3.math_text(draw, x, y + 1, " − ", size=size)
     x = draw_b_var(draw, x, y + 1, "B", size=size, fill=ft.INK, bold=True)
     x = c3.math_text(draw, x, y + 1, " × ", size=size)
@@ -828,14 +837,14 @@ def draw_purity_comparison_inline(draw: ImageDraw.ImageDraw, x: int, y: int, siz
     xx = c3.math_text(draw, x, raw_y + 2, "P", size=size, fill=ft.INK, bold=True)
     xx = c3.math_text(draw, xx - 2, raw_y + int(size * 0.54), "raw", size=max(13, int(size * 0.50)), fill=ft.INK)
     xx = c3.math_text(draw, xx + 10, raw_y + 2, " = ", size=size)
-    xx = c3.draw_n_var(draw, xx, raw_y, "A,RAW", "signal", size=size, fill=ft.INK)
+    xx = c3.draw_n_var(draw, xx, raw_y, "A,raw", "signal", size=size, fill=ft.INK)
     xx = c3.math_text(draw, xx + 2, raw_y + 2, "/", size=size)
     c3.draw_n_var(draw, xx + 2, raw_y, "A", "raw", size=size, fill=ft.INK)
 
     xx = c3.math_text(draw, corr_x, corr_y + 2, "P", size=size, fill=corrected_blue, bold=True)
     xx = c3.math_text(draw, xx - 2, corr_y + int(size * 0.54), "corr", size=max(13, int(size * 0.50)), fill=corrected_blue)
     xx = c3.math_text(draw, xx + 10, corr_y + 2, " = ", size=size, fill=corrected_blue)
-    xx = c3.draw_n_var(draw, xx, corr_y, "A", "signal", size=size, fill=corrected_blue)
+    xx = c3.draw_n_var(draw, xx, corr_y, "A,corr", "signal", size=size, fill=corrected_blue)
     xx = c3.math_text(draw, xx + 2, corr_y + 2, "/", size=size, fill=corrected_blue)
     c3.draw_n_var(draw, xx + 2, corr_y, "A", "raw", size=size, fill=corrected_blue)
 
@@ -853,14 +862,14 @@ def draw_definition_ribbon_large_rows(draw: ImageDraw.ImageDraw, box: tuple[int,
     c3.draw_n_var(draw, sections[0][0], y0 + 24, "X", "raw", size=26, fill=ft.INK)
     draw.text((sections[0][0] + 110, y0 + 31), "counted candidates", font=ft.font(ft.TIMES, 23), fill=ft.MUTED)
 
-    c3.draw_n_var(draw, sections[1][0], y0 + 24, "A", "signal", size=26, fill=ft.INK)
+    c3.draw_n_var(draw, sections[1][0], y0 + 24, "A,corr", "signal", size=26, fill=ft.INK)
     draw.text((sections[1][0] + 118, y0 + 31), "corrected signal in A", font=ft.font(ft.TIMES, 23), fill=ft.MUTED)
 
     xx = c3.draw_f_var(draw, sections[2][0], y0 + 24, "X,MC", size=27, fill=ft.BLUE)
     xx = c3.math_text(draw, xx, y0 + 29, " = ", size=24)
     xx = c3.draw_n_var(draw, xx, y0 + 24, "X", "leak", size=24, fill=ft.BLUE)
     xx = c3.math_text(draw, xx + 1, y0 + 29, "/", size=24)
-    xx = c3.draw_n_var(draw, xx + 1, y0 + 24, "A", "signal", size=24, fill=ft.BLUE)
+    xx = c3.draw_n_var(draw, xx + 1, y0 + 24, "A,raw", "signal", size=24, fill=ft.BLUE)
     draw.text((xx + 12, y0 + 31), "signal leakage fraction", font=ft.font(ft.TIMES, 23), fill=ft.MUTED)
 
     xx = draw_b_var(draw, sections[3][0], y0 + 27, "X", size=29, fill=ft.INK, bold=True)
@@ -945,7 +954,7 @@ def draw_equation_box_large_rows(img: Image.Image, box: tuple[int, int, int, int
     rows = [
         ("1", "Raw estimate", "candidate count minus ABCD background estimate", ft.PHOTON_DARK, draw_eq2_abcd_inline, 28),
         ("2", "Leakage correction", "sideband count after removing true-photon leakage", ft.TEAL, draw_eq3_sideband_inline, 28),
-        ("3", "Purity", "raw sidebands; blue uses leakage-corrected sidebands", ft.BLUE, draw_purity_comparison_inline, 24),
+        ("3", "Purity", "black uses raw sidebands; blue uses leakage-corrected sidebands", ft.BLUE, draw_purity_comparison_inline, 24),
     ]
     yy = def_y + ribbon_h + 10
     for args in rows:

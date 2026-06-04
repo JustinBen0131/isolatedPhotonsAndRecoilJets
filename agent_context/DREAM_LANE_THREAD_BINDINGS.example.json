@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "purpose": "Template for binding each scheduled ThesisAnalysis dream lane to one persistent Codex chat. Copy to agent_context/local/dreams/dream_lane_thread_bindings.json and fill target_thread_id values after the chats exist.",
+  "binding_rule": "One persistent chat per dream lane. Do not reuse the general Today's Plan thread for dream lane execution.",
+  "lanes": {
+    "status_provenance": {
+      "thread_title": "Dream Lane | Status Provenance",
+      "automation_id": "thesisanalysis-dream-status-provenance",
+      "target_thread_id": null,
+      "purpose": "Evidence, stale-state, active-job, artifact provenance, and duplicate-run guard pressure."
+    },
+    "architecture_cohesion": {
+      "thread_title": "Dream Lane | Architecture Cohesion",
+      "automation_id": "thesisanalysis-dream-architecture-cohesion",
+      "target_thread_id": null,
+      "purpose": "Cross-system structure, validators, runbooks, indexes, compression, and recurring-hotspot promotion."
+    },
+    "context_resonance": {
+      "thread_title": "Dream Lane | Context Resonance",
+      "automation_id": "thesisanalysis-dream-lane-context-resonance",
+      "target_thread_id": null,
+      "purpose": "Retrieval quality, latent nudges, negative memories, stale/synthetic suppression, and feedback-loop health."
+    },
+    "cleanup_storage": {
+      "thread_title": "Dream Lane | Cleanup Storage",
+      "automation_id": "thesisanalysis-dream-cleanup-storage",
+      "target_thread_id": null,
+      "purpose": "Generated junk, retained dream/research packs, cleanup candidates, and recorded storage clutter signals."
+    },
+    "path_contract": {
+      "thread_title": "Dream Lane | Path Contract",
+      "automation_id": "thesisanalysis-dream-path-contract",
+      "target_thread_id": null,
+      "purpose": "Local, SDCC, SFTP, TG bulk, and output-default canonical-vs-legacy path drift."
+    },
+    "research_scout": {
+      "thread_title": "Dream Lane | Research Scout",
+      "automation_id": "thesisanalysis-dream-research-scout",
+      "target_thread_id": null,
+      "purpose": "Sanitized external research plans, ChatGPT-history review, tool leverage, and source-lead critique."
+    },
+    "science_scout": {
+      "thread_title": "Dream Lane | Science Scout",
+      "automation_id": "thesisanalysis-dream-science-scout",
+      "target_thread_id": null,
+      "purpose": "Physics hypotheses, null tests, systematic sketches, and final-figure scaffolds from existing evidence surfaces."
+    },
+    "presentation_artifacts": {
+      "thread_title": "Dream Lane | Presentation Artifacts",
+      "automation_id": "thesisanalysis-dream-presentation-artifacts",
+      "target_thread_id": null,
+      "purpose": "Slide/figure implications, artifact hygiene, and presentation-facing proposal surfaces without Google Slides mutation."
+    }
+  }
+}

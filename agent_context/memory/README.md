@@ -33,6 +33,42 @@ Tracked registry records must contain sanitized pattern names and source
 pointers only. Dynamic outcomes and private feedback stay ignored under
 `agent_context/local/context_resonance/`.
 
+## Memory Type Taxonomy
+
+Use these types when deciding where a lesson belongs:
+
+- evidence: verified local files, commands, plots, logs, user statements, or
+  validator output;
+- experience: observed friction, repeated correction, workflow drag, or a
+  failed attempt;
+- belief: provisional interpretation that still needs waking verification;
+- style: Justin-facing visual hierarchy, wording, speaker-script voice, or
+  formatting preference;
+- policy: durable behavior rule, hard stop, or safety condition;
+- skill/procedure: repeatable method, checklist, script default, or validator.
+
+Tracked memory registries should carry compact route cues and source pointers,
+not raw reflections. Detailed reflection records should use the templates in
+`agent_context/templates/` and should cite concrete evidence.
+
+## Correction Categories
+
+When feedback is promoted into memory, assign one primary category:
+
+- style/narrative;
+- physics/science;
+- provenance/evidence;
+- workflow/safety;
+- retrieval failure;
+- memory salience failure;
+- task/status failure;
+- tool/runtime failure;
+- artifact-quality failure.
+
+Reusable slide/plot/script failures should normally become a style-map entry,
+negative-memory trap, schema, or validator check. One-off local preferences
+should stay in the artifact manifest or chat handoff.
+
 ## Plasticity
 
 Each record can be `stable`, `plastic`, `cooling`, or `quarantine`. Stable

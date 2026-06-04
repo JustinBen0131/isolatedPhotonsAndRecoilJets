@@ -393,6 +393,17 @@ Visual contract:
   context to act without scrolling through the full history;
 - do not roll completed history forward.
 
+Useful visual mutations should propagate. If Codex tries an unrequested but
+safe planning-surface improvement and Justin explicitly says he likes it, treat
+that as approval to preserve the pattern in the OS. Record the pattern in the
+register or policy, and use it in future daily cockpit renders unless Justin
+later rejects it. As of 2026-06-03, the approved pattern is an HTML-first local
+daily cockpit source under `agent_context/local/daily_plans/`, imported to a
+native Google Doc and then patched with explicit Google Docs styling. This
+pattern is preferred over raw markdown because it gives Justin a faster visual
+scan surface and creates a reusable local artifact for future render/template
+improvements.
+
 If Google Drive import rejects markdown or strips formatting, do not leave a
 plain-text dump as the daily plan. Either apply a native Google Docs styling
 pass immediately from connector readback (title, colored section bands, real

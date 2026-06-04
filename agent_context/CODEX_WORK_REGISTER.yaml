@@ -1,5 +1,5 @@
 schema_version: 1
-last_updated: "2026-06-02T21:51:49-04:00"
+last_updated: "2026-06-03T17:45:00-04:00"
 owner: Codex
 purpose: >
   Canonical active-work register for the ThesisAnalysis operating system.
@@ -99,18 +99,31 @@ linear:
 daily_cockpit:
   primary_surface: "Today's Plan"
   current_today_plan:
-    date: "2026-06-02"
-    title: "2026-06-02 - Today's Plan"
-    url: "https://docs.google.com/document/d/1l4kVs8RGaQwMUOYZ129kSyHicRncqfE5MfeRZycIyc4/edit?usp=drivesdk"
+    date: "2026-06-03"
+    title: "2026-06-03 - Today's Plan"
+    url: "https://docs.google.com/document/d/1TV87QP1PoNX2zyXEjAHWFILeC7kAvQlctfZhX8e_sY8/edit?usp=drivesdk"
     note: >
-      Created by the Google Drive connector from the register render. The
-      exposed import action did not support parent-folder targeting, so
-      placement in workingTasks was not verified by connector metadata.
-      2026-06-02 formatting repair: the initial plain-text markdown import was
-      replaced with a compact native Google Docs cockpit using real list items,
-      HEADING_2 section bands, status-color cues, neutral body text, and
-      surgical bolding. Future daily-plan creation must not leave a raw
-      markdown/plain-text dump if import formatting fails.
+      Created by the Google Drive connector from a styled local HTML source at
+      agent_context/local/daily_plans/2026-06-03-todays-plan.html, then patched
+      with explicit Google Docs section-band styling. The exposed import action
+      did not support parent-folder targeting, so placement in workingTasks was
+      not verified by connector metadata. This version keeps the previous
+      WORKING POINT deck link, includes only scheduled 03:30 dream summaries,
+      surfaces the 2026-06-04 GPFS downtime risk, and flags stale THE-8,
+      THE-17, and THE-21 review state from the daily doctor.
+  short_horizon_priorities:
+    window: "2026-06-03 through 2026-06-09"
+    rule: >
+      Until Friday's PPG meeting, rank ML analysis and PPG working-point slides
+      first. Rank HP2026 scripting and slide cleanup second for an
+      Anne/Anthony/Apurva walkthrough Monday 2026-06-08 at 13:00 Central /
+      14:00 Eastern. Rank the PDC/calibrations update third as a weekend stretch: push
+      clean slides for Monday if possible, but do not let PDC displace ML/PPG
+      or HP walkthrough prep.
+    ordered:
+      - "P1-now: THE-8/THE-32 ML analysis and Friday PPG slides."
+      - "P2-now: THE-5 HP2026 script, backup, and slide cleanup due before Monday 2026-06-08 13:00 CT walkthrough."
+      - "P3-now: THE-25 PDC position-dependent-correction update for Monday calibrations if clean enough."
   drive_folder: "workingTasks"
   rule: >
     Today's Plan is a short visual cockpit generated from active, running,
@@ -118,8 +131,8 @@ daily_cockpit:
     completed history forward.
   active_working_point_deck:
     label: "WORKING POINT"
-    title: "current working-point slides"
-    url: "https://docs.google.com/presentation/d/1GAoEcN9UGOkUVxTgT0m1vRhghl3O1jd28LwSHg9klBs/edit?slide=id.g3a89b5423f1_0_265#slide=id.g3a89b5423f1_0_265"
+    title: "WP_GammaJets_6_3_26"
+    url: "https://docs.google.com/presentation/d/1D_m5vPM3eJIBI0nMz9RxAzZcjr15KQaG2uLOTjRTXOY/edit?slide=id.g3dc0f31b83d_0_0#slide=id.g3dc0f31b83d_0_0"
     rollover_rule: >
       Every new Today's Plan must include this line near the top. Copy the
       WORKING POINT link from the previous daily plan unless Justin edits that
@@ -245,7 +258,17 @@ workstreams:
       - "agent_context/policies/AGENTIC_OS_HARDENING.md"
       - "agent_context/THESIS_NARRATIVE_MAP.md"
       - "agent_context/templates/OS_POSTMORTEM_TEMPLATE.md"
+      - "agent_context/templates/OS_REFLECTION_TEMPLATE.md"
+      - "agent_context/templates/SLIDE_FEEDBACK_TEMPLATE.md"
+      - "agent_context/templates/TRAJECTORY_LEARNING_TEMPLATE.md"
+      - "agent_context/SLIDE_STYLE_MAP.md"
+      - "agent_context/memory/CONTEXT_RESONANCE_INDEX.yaml"
+      - "agent_context/memory/NEGATIVE_MEMORY_MAP.yaml"
+      - "agent_context/memory/SCHEMA_REGISTRY.yaml"
       - "scripts/codex_os_doctor.py"
+      - "scripts/os/context/codex_context_resonance.py"
+      - "scripts/os/context/codex_context_pack.py"
+      - "scripts/os/safety/codex_os_doctor.py"
       - "agent_context/policies/LOAD_MAP.yaml"
       - "agent_context/policies/CODEX_OPERATING_SYSTEM.md"
       - "agent_context/policies/MEMORY_AND_STATUS.md"
@@ -254,7 +277,8 @@ workstreams:
       - "2026-05-26 23:46 EDT Justin asked for a deep hardening pass to raise the human-agent research OS from a strong baseline toward a self-tuning, mistake-resistant platform, with online research and surgical repo changes."
       - "2026-05-26 23:50 EDT added the hardening layer: AGENTIC_OS_HARDENING policy, thesis narrative map, OS postmortem template, codex_os_doctor executable checks, routing updates in AGENTS/LOAD_MAP, and OS/memory policy hooks. Online research basis included Anthropic effective agents, OpenAI Agents SDK state/guardrail/handoff docs, Google SRE monitoring/postmortem culture, DORA WIP/context-engineering capabilities, and Google's ML Test Score rubric."
       - "2026-05-26 23:50 EDT validation: CODEX_WORK_REGISTER validates, codex_os_doctor passes after the hardening workstream is closed, and git diff --check passed for the touched OS files."
-    last_verified: "2026-05-26T23:50:00-04:00"
+      - "2026-06-03 self-improvement upgrade implemented: AGENTS reflexes, slide self-audit and feedback ingestion, plot feedback ingestion, style-map regression defaults, reflection templates, slide/training/task-capture memory records, negative traps, schemas, resolver routes/canaries, doctor slide-regression checks, and compact thesis-goal awareness in the context pack. Validation: context-resonance canary pass; review status ok; feedback-health healthy with zero audit warnings; both daily doctor entrypoints status ok; register validation ok; py_compile ok; YAML registry parse ok; git diff --check ok."
+    last_verified: "2026-06-03T19:02:40-04:00"
     next_check: "none; future warnings or repeated failures should become focused OS follow-up workstreams"
     stale_after: "2026-06-09T10:00:00-04:00"
     handoff_summary: >
@@ -266,7 +290,7 @@ workstreams:
 
   - workstream_id: codex_linear_campaign_chat_map
     title: P1 Review | Linear campaign and Codex chat map system
-    status: active
+    status: review
     priority: P1
     goal: >
       Reorganize Linear into campaign-level home bases with child workstreams
@@ -285,7 +309,7 @@ workstreams:
     campaign_id: "codex_operating_system"
     linear_issue: "https://linear.app/thesisanalysis/issue/THE-21/p0-campaign-or-linear-campaign-and-codex-chat-map-system"
     linear_sync: synced
-    today_doc_anchor: "2026-06-01 Today's Plan: Waiting / Blocked / Review / THE-21"
+    today_doc_anchor: "2026-06-03 Today's Plan: Waiting / Blocked / Review / THE-21"
     workstream_spec: "agent_context/policies/CODEX_OPERATING_SYSTEM.md"
     active_jobs: []
     artifacts:
@@ -299,9 +323,9 @@ workstreams:
       - "2026-05-27 Linear project updated with campaign hierarchy, and Campaign + Codex Chat Map Doctrine document created."
       - "2026-05-27 Today's Plan was rewritten into the campaign-first cockpit: campaign index, Do First campaign top three, child/related workstreams under THE-17/THE-5, and explicit propagation rule."
       - "2026-05-27 Today's Plan was revised again for ADHD/OCD-friendly scanning: Scratch / Inbox moved to the top, sections color-coded, active campaign cards compacted, and child lanes kept below campaign parents."
-    last_verified: "2026-05-28T10:18:00-04:00"
-    next_check: "after Justin uses the 2026-05-28 cockpit, decide whether the OS projection needs another usability pass"
-    stale_after: "2026-06-03T10:00:00-04:00"
+    last_verified: "2026-06-03T10:18:00-04:00"
+    next_check: "review only when OS hygiene is promoted; do not displace HP/science priorities today"
+    stale_after: "2026-06-10T10:00:00-04:00"
     handoff_summary: >
       Justin wants Linear to become the main durable dashboard next to local
       Codex docs, organized by campaign parent issues with child workstreams
@@ -413,7 +437,9 @@ workstreams:
       eight `03:30` lane heartbeats using `python3 scripts/codex_os_dream.py
       lane --lane-id <lane_id> --scheduled-morning-lane`; only runs with that
       explicit marker are eligible for Today's Plan. Do not restore the
-      retired nightly super-heartbeat or micro-dream paths.
+      retired nightly super-heartbeat or micro-dream paths. Fixed-thread
+      binding is now locally resolved: each lane has one persistent Codex chat
+      ID recorded in agent_context/local/dreams/dream_lane_thread_bindings.json.
     depends_on:
       - workstream:codex_os_10x_safety_kernel
     active_codex_session: null
@@ -439,10 +465,12 @@ workstreams:
       - "2026-06-02 lane-heartbeat migration replaced the super-heartbeat/doctor automation pair with seven `03:30` lane heartbeats, each tied to a single dream lane. The retired `scripts/codex_os_nightly_heartbeat.py nightly`, `scripts/codex_os_dream.py nightly`, and `scripts/codex_os_dream.py micro` entrypoints now fail fast."
       - "2026-06-01 23:20 EDT dream automation binding update removed fixed target-thread requirements from the overnight lane contract. Dream heartbeats are now expected to open a fresh automation-generated chat each nightly run rather than reusing one persistent lane thread."
       - "2026-06-02 dream-to-Today's-Plan bridge added `--scheduled-morning-lane`, `morning_lane_summary.json/txt`, and scheduled-only aggregation through `scripts/os/dream/codex_dream_morning_summaries.py`; manual, validation, and unmarked dream dirs are excluded from the daily cockpit by default."
+      - "2026-06-03 fixed-thread lane topology staged but not activated: thread tools were unavailable, so the system now has a tracked binding template and local fill-in file while existing cron automations remain unbound until real persistent dream-chat IDs are provided."
+      - "2026-06-03 fixed-thread lane IDs resolved from /Users/patsfan753/.codex/session_index.jsonl after Justin created the eight exact `Dream Lane | ...` chats; local bindings now point each lane to its persistent thread, and installed 03:30 automations were converted from standalone cron jobs to thread-bound heartbeats."
       - "2026-05-27 00:40 EDT Linear THE-20 created and closed Done with implementation/validation evidence."
-    last_verified: "2026-05-27T00:40:00-04:00"
-    next_check: "after first automation-generated micro and nightly reports, inspect whether reports are useful and not noisy"
-    stale_after: "2026-06-03T10:00:00-04:00"
+    last_verified: "2026-06-03T16:35:00-04:00"
+    next_check: "after the next 03:30 run, verify each lane reports from its persistent Dream Lane chat and that scheduled-only morning aggregation still sees exactly one latest eligible run per lane"
+    stale_after: "2026-06-04T10:00:00-04:00"
     handoff_summary: >
       Dream v1 is private and proposal-only. The default overnight contract is
       eight lane heartbeats at `03:30`, each running
@@ -454,12 +482,23 @@ workstreams:
       `eligible_for_today_plan: true`, `scheduled_morning_lane: true`, and
       `scheduled_source: "03:30_dream_automation"`. Do not use the retired
       nightly or micro dream entrypoints, and do not treat synthetic
-      interactions as approval or real user intent.
+      interactions as approval or real user intent. Persistent dream chats have
+      been resolved for all eight lanes in the local binding file; verify the
+      next scheduled automation run actually resumes those chats.
 
   - workstream_id: codex_os_dream_doctor_fusion
     title: P0 OS | Dream-Doctor Fusion And Biological Maintenance Loop
-    status: review
+    status: active
     priority: P0
+    critical_path_class: workflow_compounding
+    terminal_artifact_supported: "thesis-facing plots, scripts, slides, speaker scripts, and narrative"
+    minimal_publishable_path_impact: "medium - improves prioritization and prevents novelty/busywork from outranking baseline-closing evidence"
+    regret_if_delayed: "medium - future Codex sessions can keep spending attention on OS novelty or slide polish before baseline evidence is safe"
+    opportunity_cost: "low if scoped to policy/schema/resolver/doctor hooks; high if it becomes broad philosophical context bloat"
+    novelty_gate: "allowed because it directly reduces workflow drift and adds validator-backed critical-path routing"
+    safe_next_action: "after the next scheduled 03:30 dream cycle, inspect whether care-kernel cues stayed compact and helped rank real thesis work without adding philosophical bloat"
+    defer_until_baseline_safe: false
+    next_thesis_closing_action: "use the kernel to rank next work by minimal publishable Au+Au/pp gamma-jet evidence impact"
     goal: >
       Upgrade the ThesisAnalysis dream layer from proposal-only nightly
       rehearsal into a stronger self-maintaining subsystem with delegated
@@ -467,15 +506,15 @@ workstreams:
       cleanup/maintenance proposals, and a tighter doctor/dream fusion that
       improves thesis progress without mutating real analysis state overnight.
     current_next_action: >
-      Dual-Pro research automation patch is locally validated. Next explicit
-      launch should commit/push the intended repo state first, then run
-      `python3 scripts/os/research/codex_chatgpt_research_pack.py
-      init-dual-pro-overnight` and use the generated manifest/heartbeat.
+      Review the next scheduled 03:30 dream cycle and next boot/daily context
+      pack for whether the Thesis Finitude & Care Kernel keeps novelty,
+      slide polish, OS work, and speculative dream physics behind the shortest
+      safe evidence-backed path to a minimal publishable thesis result.
     depends_on:
       - workstream:codex_os_dream_system
       - workstream:codex_ask_chatgpt_delegation
     active_codex_session: null
-    chat_label_or_thread: "chatgpt-pro-dual-research automation patch"
+    chat_label_or_thread: "thesis finitude care kernel implementation complete 2026-06-03"
     linear_issue: null
     linear_sync: pending
     today_doc_anchor: null
@@ -504,6 +543,7 @@ workstreams:
       - "agent_context/local/chatgpt_research/"
       - "agent_context/local/dreams/"
       - "agent_context/local/context_resonance/"
+      - "agent_context/templates/DREAM_LEARNING_ATOM_TEMPLATE.md"
     evidence:
       - "2026-06-01 Justin asked for a dramatic enhancement of the dream state into a more maintainable, cohesion-focused, biologically inspired thesis-OS subsystem, explicitly authorizing online research and delegated ChatGPT UI research when useful."
       - "2026-06-01 live inspection found the doctor already validates the latest dream artifact, but there is no structured dream-to-doctor heartbeat signal and the register's historical micro-dream claim needs reconciliation against installed automation files."
@@ -538,6 +578,10 @@ workstreams:
       - "2026-06-02 retrospective context-resonance ledger seed appended 20 accepted local-only outcome rows to agent_context/local/context_resonance/retrieval_outcome_ledger.jsonl from targeted repo and memory-index evidence for 2026-06-02 and 2026-05-26/27/28: 18 useful, 2 missed, 0 audit warnings, no cooldown candidates, feedback-health healthy, route policies still non-trainable, resolve/canary/doctor daily/git diff --check passed, and tracked memory YAML remained unchanged."
       - "2026-06-02 final waking-only OS stabilization added review-only self_evolution_readiness/os_patch_eligibility_summary and waking_auto_validated_candidates/review_candidate_suggestions to context-resonance review/feedback-health, with allowlisted OS-only targets, strong local evidence refs, canary/audit/metadata gates, rollback notes, required validation commands, and auto_apply=false. Doctor daily now verifies feedback-health invariants and suggestion boundaries. Confusing hard-stop policy wording was removed after Justin flagged that it could wrongly discourage intentional future improvements; safeguards remain encoded in resolver/doctor readiness checks, not as a blanket policy prohibition. No dream scripts, dream policy, dream automation, science/task/external state, or tracked memory YAML mutation was changed. Validation passed: py_compile for resolver/doctor, context canary --json, review --json, feedback-health --json healthy with 20 accepted rows and 0 audit warnings, representative resolve --json, doctor daily 0 warnings, register validate, and git diff --check."
       - "2026-06-02 03:28 EDT dual-Pro research automation patch added explicit physics_thesis and os_infrastructure ChatGPT Pro extended pack generation, separate fresh-conversation thread rules, temporary heartbeat/daily-note response ingestion, research_scout dual_pro_research_plan artifacts, and policy exceptions bounded to external critique/source leads. Validation passed: py_compile for research/dream/context/doctor helpers, validate-dual on agent_context/local/chatgpt_research/validation-dual-pro-20260602c.dual_manifest.json, dual-heartbeat waiting-state write, research_scout lane run validation-dual-pro-research-scout-20260602 plus dream validate, context canary --json, feedback-health --json healthy with 0 audit warnings, register validate, doctor daily 0 warnings, and git diff --check."
+      - "2026-06-03 dream-summary quality upgrade: AGENTIC_OS_DREAMING now defines dream summaries as after-action reports, `scripts/os/dream/codex_os_dream.py` writes `after_action` fields with what_happened, inputs_analyzed, what_was_researched, what_was_learned, what_changed, approval-gated changes, waking checks, quality feedback, artifact pointers, and run_timing, and `codex_dream_morning_summaries.py` renders those details while falling back to legacy lane_digest.md parsing for pre-upgrade 03:30 runs. Validation passed: py_compile, validation-rich-morning-summary-research-scout dream validate, scheduled-only aggregator found 8 eligible lanes and ignored manual/validation test runs, register validate, doctor daily status=ok with only known dream-cohesion warnings, and git diff --check."
+      - "2026-06-03 fixed dream-lane chat migration staged: thread-management tools were unavailable in this Codex session, so Codex could not create the eight persistent chats directly. Added tracked template agent_context/DREAM_LANE_THREAD_BINDINGS.example.json, local fill-in file agent_context/local/dreams/dream_lane_thread_bindings.json, script support for reading local target_thread_id values and switching lane signals to fixed_thread when populated, and AGENTIC_OS_DREAMING policy describing the desired one-chat-per-lane topology. Existing cron automations remain unbound until real thread IDs exist."
+      - "2026-06-03 fixed dream-lane chat IDs resolved and written to the local binding file: status_provenance=019e8f29-8717-7743-b845-f26ee832c5aa, architecture_cohesion=019e8f29-b2ca-71a0-9b0a-a3b8eecefa47, context_resonance=019e8f29-cedf-7821-8964-21dd57051964, cleanup_storage=019e8f29-f270-7ab3-bd48-6acbf807cc4e, path_contract=019e8f2a-1e26-7643-b8ab-97467e79f95f, research_scout=019e8f2a-46a8-7bc3-88be-cced44dff8fe, science_scout=019e8f2a-69ba-7b60-8c75-0627106b7001, presentation_artifacts=019e8f2a-9aa0-75a0-889c-663a17b90dc3."
+      - "2026-06-03 live automation update succeeded for all eight dream lanes: each installed 03:30 automation now has kind=heartbeat and target_thread_id matching the exact `Dream Lane | ...` chat; local smoke run validation-fixed-thread-binding-status-title validated and wrote lane_signal.json with thread_binding=fixed_thread, target_thread_id, and thread_title."
       - "2026-06-01 23:13 EDT research-scout leverage upgrade wired the human-tool principle into the live lane contract: scripts/os/dream/codex_os_dream.py now emits first-class ChatGPT-history/tool-orchestration subtasks plus `human_tool_leverage.md`, and AGENTIC_OS_DREAMING.md now states that `research_scout` owns ChatGPT-history review plans and better use of human-accessible AI/tools."
       - "2026-06-01 validation run agent_context/local/dreams/validation-nightly-super-heartbeat-20260601 succeeded and wrote nightly_heartbeat.md, nightly_heartbeat_signal.json, and morning_appendix.md. Follow-up doctor daily consumed the consolidated heartbeat with automation drift count=0; residual warnings are recurring hotspots plus low cohesion and high maintenance debt."
       - "2026-06-01 Computer Use in Chrome delegated ChatGPT research was run in Heavy mode at chatgpt.com/c/6a1dee12-3a88-83ea-a258-11d2fa845ee3 with sanitized prompt pack agent_context/local/chatgpt_research/20260601T203906Z-dream-state-recurrence-learning-and-low-complexi; pack validation passed and synthesis favored recurrence/adaptation cards over broad new subsystems."
@@ -548,54 +592,40 @@ workstreams:
       - "2026-06-01T20:35 EDT manual five-pass rehearsal found and fixed two shadow-pilot defects: nightly heartbeat now forwards --now into the dream command, and simulation-* runs are isolated by simulation group for pilot-stage progression while excluded from real recurring-hotspot counts."
       - "2026-06-01T20:35 EDT final five-pass simulation simulation-stage9-review2-night1-20260601 through simulation-stage9-review2-day5-20260605 progressed Baseline Map -> Candidate Formation -> Shadow Burn Rehearsal -> Calibration And Human Gate -> Post-Pilot Waiting Human Enablement, with approval_ready_count=0 for every pass and no external mutations."
       - "2026-06-01T20:35 EDT final day-5 simulation agent_context/local/dreams/simulation-stage9-review2-day5-20260605 completed status=warn, doctor ok, helper failures=0, approval-ready allowed=false, and remaining warnings are stale-state/recurring-hotspot/schema-promotion/frozen-growth pressure."
-    last_verified: "2026-06-02T03:28:31-04:00"
-    next_check: "none; rerun dual-Pro workflow only when Justin explicitly launches or schedules it"
-    stale_after: "2026-06-04T10:00:00-04:00"
+      - "2026-06-03 dream learning-atom upgrade implemented: new version-9 lane packages write learning_atoms.jsonl/md, dream_recurrence_index.json, lane-local nightly_heartbeat_signal.json, morning_appendix.md, promotion_candidates.md, and maintenance_debt.md; atoms are proposal_only by default, preserve raw episodes, carry evidence refs, validators, retention rules, and are capped to 3 high-priority, 3 maintenance, and 3 cleanup/proposal candidates. Policies, schema registry, doctor checks, and context-resonance canaries were updated. Validation passed: py_compile for changed Python helpers; validation-learning-atoms-presentation and validation-learning-atoms-context lane runs generated and validated; both doctor entrypoints passed with known maintenance-debt warnings only; context canary/review/feedback-health/resolve checks passed; register validation, YAML/JSON parse checks, and git diff --check passed."
+      - "2026-06-03 Thesis Finitude & Care Kernel implemented as a compact decision prior: AGENTS now has a finitude reflex; AGENTIC_OS_HARDENING defines terminal_path/risk/evidence/workflow/novelty/distraction classes; THESIS_NARRATIVE_MAP has a terminal artifact ladder; MEMORY_AND_STATUS documents optional critical-path fields; context-resonance memory/traps/schema route minimal publishable baseline before novelty; dream learning atoms carry finitude fields and metrics; context packs expose a compact thesis horizon; doctor checks the care-kernel contract and rejects self-preservation/fear/consciousness drift. Validation passed: py_compile, four resolver simulations, canary/review/feedback-health, validation-finitude-science-scout run+validate+JSON/JSONL parse, both doctor entrypoints status=ok with known dream-maintenance warnings only, register validate, Ruby YAML parse, and git diff --check."
+    last_verified: "2026-06-03T20:41:55-04:00"
+    next_check: "after the next 03:30 scheduled dream run, verify the care-kernel fields and metrics appear only as compact prioritization pressure, not daily bloat; keep frozen-growth maintenance warnings visible until reliability debt drops"
+    stale_after: "2026-06-05T10:00:00-04:00"
     handoff_summary: >
-      Stage 9 now has a guarded autonomous internal-maintenance envelope and
-      eight lane heartbeats. Each dream heartbeat now opens a fresh
-      automation-generated chat per nightly run instead of binding to one
-      persistent lane thread. The context_resonance lane now selects at most
-      one bounded internal memory-maintenance action per run, auto-applies only
-      ignored local context-resonance state after validators, logs
-      changed_actions plus rollback_manifest when it changes anything, and
-      keeps tracked registry/policy changes as waking proposals. The resolver
-      now uses local retrieval outcomes as bounded routing feedback only for
-      durable memory/schema/negative-memory rows: useful outcomes can modestly
-      boost a memory, stale/harmful/repeated irrelevant outcomes cool it when
-      evidence-backed, old or weak feedback fades into review context, and
-      missed outcomes create proposal-only cue review without ranking boost.
-      Route policies, live workstream hints, artifact hints, suppressed
-      context, synthetic/proposal-only dream output, and external-model
-      material are non-trainable. It also writes feedback_loop_health.md/json
-      every run to verify ledger parsing, scoring caps, synthetic exclusion,
-      route-policy boundaries, local-only homeostasis, and drift risks. If a
-      candidate is blocked, the lane records the
-      intended update, failure reason, and best next step, then proceeds down
-      the priority ladder until an implementable candidate passes or emits a
-      single no-change/deferred summary. Other lane
-      heartbeats emit TFE/MSV/BPI
-      scoring, branch-pressure, memory-homeostasis, controlled-burn shadow
-      proposals, internal_evolution_queue.md/json, sdcc_base_repo_hygiene.md,
-      autonomy_envelope.md/json, changed_actions.md/json,
-      deferred_for_justin.md, research_synthesis.md, and lane-local validation
-      artifacts under `agent_context/local/dreams/<timestamp>-lane-<lane_id>/`.
-      Lane runs now also emit `morning_lane_summary.json/txt`; the scheduled
-      03:30 automations pass `--scheduled-morning-lane`, and Today's Plan must
-      read only summaries marked `eligible_for_today_plan: true` through
-      `scripts/os/dream/codex_dream_morning_summaries.py`.
-      The doctor now aggregates the latest `lane_signal.json` file for each
-      expected lane instead of reading one super-heartbeat signal. The dream
-      script may auto-apply only untracked generated-junk cleanup in
-      local/internal paths and records every performed action. Tracked OS
-      changes are packaged for waking validation; SDCC mutation, Condor/job
-      control, scientific output/model movement or deletion, external app
-      mutation, and physics/task status changes remain blocked for waking guard
-      checks.
+      The dream layer is now a proposal-only learning-atom system on top of
+      the existing eight 03:30 lanes. New version-9 lane packages keep raw
+      episodes untouched and add learning_atoms.jsonl/md,
+      dream_recurrence_index.json, lane-local nightly_heartbeat_signal.json,
+      morning_appendix.md, promotion_candidates.md, and maintenance_debt.md.
+      Learning atoms are the bridge from real episode evidence or dream
+      rehearsal pressure into waking-reviewable improvements: they must carry
+      evidence refs, raw episode links, task-family tags, lesson type, proposed
+      target, validators, promotion status, retention/decay rules, and
+      proposal-only boundaries. Waking Codex may promote an atom only as a
+      narrow policy line, negative-memory trap, context-resonance cue,
+      schema/validator, slide style-map rule, artifact QA rule,
+      runbook/skill contract, register correction, or postmortem after raw
+      evidence is preserved, validators and doctor pass, privacy filters pass,
+      and Justin-approval rules are respected. Candidate output is capped to
+      3 high-priority, 3 maintenance, and 3 cleanup/proposal candidates per
+      lane to prevent dream churn. The Thesis Finitude & Care Kernel is now
+      layered on top of that system: future Codex sessions should classify
+      meaningful work by terminal thesis impact, evidence integrity,
+      opportunity cost, and novelty gate before spending Justin attention or
+      compute. The next check is empirical: after the next scheduled 03:30
+      run, inspect all eight real lane outputs for version-9 atom packages,
+      useful morning appendix detail, compact care-kernel prioritization, and
+      no duplicate chat proliferation.
 
   - workstream_id: codex_paused_dream_cleanup_autopsy
     title: P1 OS | Paused Dream Cleanup + ChatGPT Autopsy Loop
-    status: backlog
+    status: done_pending_review
     priority: P1
     goal: >
       Clean up the dream system after the 2026-06-01/02 rapid OS iteration,
@@ -603,12 +633,9 @@ workstreams:
       extract Justin's effective iterative prompting pattern from recent
       ChatGPT/Codex conversations into safer future dream/research lanes.
     current_next_action: >
-      On 2026-06-03, do one focused OS pass: audit current dream outputs,
-      separate stale/outdated internal-cohesion warnings from real risks,
-      test or design a paused-dream mode, autopsy tonight's ChatGPT/Codex
-      prompting pattern, and propose one automatic pressure-point dream prompt
-      that can iterate on different analysis/OS weaknesses without mutating
-      real science state.
+      Complete per Justin's 2026-06-03 instruction. Keep as done-pending-review
+      until the next OS archive cleanup; do not resurface in Today's Plan as an
+      active or backlog task.
     depends_on:
       - workstream:codex_os_dream_doctor_fusion
       - workstream:codex_ask_chatgpt_delegation
@@ -617,7 +644,7 @@ workstreams:
     campaign_id: "codex_operating_system"
     linear_issue: "https://linear.app/thesisanalysis/issue/THE-31/p1-os-or-paused-dream-cleanup-chatgpt-autopsy-loop"
     linear_sync: synced
-    today_doc_anchor: "2026-06-03 Today's Plan: Backlog / THE-31"
+    today_doc_anchor: null
     workstream_spec: "agent_context/policies/AGENTIC_OS_DREAMING.md"
     active_jobs: []
     artifacts:
@@ -632,17 +659,14 @@ workstreams:
     evidence:
       - "2026-06-02 Justin asked to make a tomorrow task to try paused dreams, clean up dreams overall, update outdated internal-cohesion/task state, and autopsy recent ChatGPT/Codex prompting so future dreams can iteratively poke different pressure points without mutating real analysis state."
       - "2026-06-02 Linear THE-31 created in Backlog with due date 2026-06-03 under the ThesisAnalysis Operating System project."
-    last_verified: "2026-06-02T01:56:00-04:00"
-    next_check: "2026-06-03T10:00:00-04:00"
-    stale_after: "2026-06-04T10:00:00-04:00"
+      - "2026-06-03 Justin explicitly said to mark `P1 OS | Paused Dream Cleanup + ChatGPT Autopsy Loop` complete."
+    last_verified: "2026-06-03T17:45:00-04:00"
+    next_check: "none; archive during the next done-pending-review cleanup"
+    stale_after: null
     handoff_summary: >
-      Tomorrow's OS cleanup task is about compression and learning, not
-      endless infrastructure growth. Review which dream outputs and internal
-      cohesion warnings are stale after tonight's fixes, design/test a paused
-      dream path if useful, and extract Justin's most effective iterative
-      pressure-point prompting pattern from recent conversations into a bounded
-      proposal-only dream/research prompt. Do not let this override urgent
-      thesis-facing work.
+      Completed by user instruction on 2026-06-03. Do not roll this forward as
+      active/backlog work. Keep the record only so future OS cleanup can archive
+      it deliberately without losing the history.
 
   - workstream_id: codex_ask_chatgpt_delegation
     title: OS Delegation | Ask ChatGPT Research Lane
@@ -667,8 +691,8 @@ workstreams:
       - workstream:codex_os_dream_system
     active_codex_session: null
     chat_label_or_thread: "ask ChatGPT delegated research policy"
-    linear_issue: null
-    linear_sync: pending
+    linear_issue: "https://linear.app/thesisanalysis/issue/THE-34/bkl-slide-or-auau-shower-shape-evolution-through-npbbdt-selection"
+    linear_sync: synced
     today_doc_anchor: null
     workstream_spec: "agent_context/policies/ASK_CHATGPT_DELEGATION.md"
     active_jobs: []
@@ -849,30 +873,26 @@ workstreams:
     status: active
     priority: P0
     goal: >
-      Use HPslides_v1 as the truth-base deck for the first Hard Probes
-      photon-identification slide package, then send Anne and Anthony a clean
-      draft by Tuesday 2026-06-02.
+      Use HPslides_v1 as the truth-base deck for the Hard Probes
+      photon-identification talk, incorporate Anne/Anthony feedback after the
+      first draft, and keep the deck, backup slides, Q&A, and spoken script
+      ready for the 2026-06-24 HP2026 talk.
     current_next_action: >
-      Review the new two-slide closing replacement candidates:
-      hp2026_slide13_main_cross_section_full_glory.png and
-      hp2026_slide14_phenix_systematics_closing.png, together with the current
-      public-source-safe combined Slide 7/8 replacement candidate
-      hp2026_slide07_public_ncb_preselection_photonid_bdt.png. If Justin
-      approves the story, renumber/repair the downstream sequence locally
-      before any Google Slides mutation. The public-readiness caveat remains:
-      embedded paper plots still say sPHENIX Internal until Preliminary or
-      approved public labels, or documented approval, exist. In parallel on
-      2026-06-03, start the high-radar backup-slide/script/Q&A pass: outline
-      deeper ML/BDT/NCB/preselection/shower-shape/isolation/purity backup
-      slides and anticipated expert questions, with a checkpoint on
-      2026-06-17 before HP week.
+      Draft has been sent to Anne and Anthony. For the next 5-6 days, keep HP
+      as the second priority behind Friday PPG ML work: clean HPslides_v1,
+      tighten the speaker script and backup/Q&A scaffolding, and have the slide
+      cleanup/script package ready before the fixed walkthrough with Anne,
+      Anthony, and Apurva on Monday 2026-06-08 at 13:00 Central / 14:00
+      Eastern. Keep the 2026-06-11 circulation and 2026-06-17 rehearsal
+      deadlines visible, but do not let HP cleanup displace the Friday PPG ML
+      slide push unless Justin explicitly redirects.
     depends_on: []
     active_codex_session: "hard probes slide generator chat: full-talk PNG batch 2026-06-01"
     chat_label_or_thread: "hard probes slide generator chat"
     campaign_id: "hp2026_photon_talk"
     linear_issue: "https://linear.app/thesisanalysis/issue/THE-5/p0-campaign-or-hp2026-photon-talk"
     linear_sync: synced
-    today_doc_anchor: "2026-06-02 Today's Plan: Do First Today / THE-5 plus backlog radar for 2026-06-03 backup slides/Q&A"
+    today_doc_anchor: "2026-06-03 Today's Plan: Do First Today / THE-5 draft sent; feedback + backup/Q&A"
     workstream_spec: null
     active_jobs: []
     artifacts:
@@ -959,6 +979,7 @@ workstreams:
       - "Justin clarified on 2026-05-26 that the near-term governing milestone is sending Anne and Anthony draft photon-ID slides, not the generic June approval schedule."
       - "2026-05-28 Justin reset the Anne/Anthony draft deadline to Monday night, 2026-06-01; Linear THE-5 due date was updated from 2026-05-28 to 2026-06-01."
       - "2026-06-01 Justin reset the Anne/Anthony draft deadline to tomorrow, Tuesday 2026-06-02; Linear THE-5 due date was updated from 2026-06-01 to 2026-06-02 and the 2026-06-01 Today's Plan was created with the Tuesday target."
+      - "2026-06-03 Justin reported that the draft was already sent to Anne and Anthony; THE-5 should no longer show the old send-draft action as incomplete."
       - "2026-06-01 added Google Calendar entries for the confirmed HP2026 talk slot (event 1j7iqkjkhu66engnr0cj7pua30), pre-talk E&M session buffer (9nfgbg6gvpa5vb9fuvjn9tn7jg), and script memorization prep blocks on 2026-06-22 (l5iv1ova2tbgsq6ejegshibqf8) and 2026-06-23 (bq4aj0kvnc539tddnc9tfeakog)."
       - "Justin created HPslides_v1 on 2026-05-26 and designated it as the truth base for version 1 HP slides."
       - "Use accepted PPG12 material from the most recent IAN/paper and the reference baseline deck before deciding whether new Justin-made plots need approval."
@@ -1036,23 +1057,40 @@ workstreams:
       - "2026-06-02T21:51:49-04:00 regenerated the three BDT progressive-focus PNG frames hp2026_slide06A_bdt_focus_manual_cuts.png, hp2026_slide06B_bdt_focus_tree_build.png, and hp2026_slide06_bdt_conceptual_photon_id_score.png after changing the shared top-ribbon engine box to read 'Photon-ID Engine' over '= BDT' with a smaller gear icon. Google Slides mutation preflight passed with snapshot 20260603T014551Z-hp2026-bdt-engine-slides-8-10-replace, then HPslides_v1 slides 8-10 were updated by replacing only their full-slide PNG image objects. Connector readback and fresh curled 1600x900 thumbnails confirmed the intended deck/slides and preserved native slide-number boxes."
       - "2026-06-02T22:03:00-04:00 Justin disliked the 'Photon-ID Engine = BDT' engine-box change and explicitly requested reverting both the live slides and the corresponding code. Reverted the shared BDT ribbon block in make_hp2026_fulltalk_candidates.py to 'BDT engine' / 'learned classifier', regenerated the three BDT focus PNGs, and replaced only the full-slide PNG image objects on HPslides_v1 slides 8-10. Guard snapshot/preflight 20260603T015715Z-hp2026-revert-bdt-engine-slides-8-10 passed; connector readback and fresh curled 1600x900 thumbnails confirmed the revert and preserved native slide-number boxes."
       - "2026-06-02T22:03:20-04:00 projected the Slides 8-10 BDT-engine revert to Linear THE-5 in comment c8f5d515-54c9-425f-91a6-8e253228ec80."
-    last_verified: "2026-06-02T22:03:20-04:00"
-    next_check: "2026-06-03T09:00:00-04:00 for the backup-slide/Q&A radar block; after Justin reviews hp2026_slide13_main_cross_section_full_glory.png, hp2026_slide14_phenix_systematics_closing.png, and hp2026_slide07_public_ncb_preselection_photonid_bdt.png, either refine these local candidates or approve them as the basis for renumbering/repairing the downstream sequence locally before Google Slides mutation"
-    stale_after: "2026-06-04T12:00:00-04:00"
+      - "2026-06-03T15:16:00-04:00 Apurva quoted the sPHENIX Speakers Bureau rules: nearly complete draft presentations must be posted to the relevant TG/subsystem list at least 7 working days before the event, conveners should approve/disapprove within 2 working days of posting, and presenters must rehearse before several sPHENIX collaborators at least 3 working days before the event. For HP2026, Apurva identified the circulation deadline as 2026-06-11."
+      - "2026-06-03T15:16:00-04:00 Anne asked to set up time to go over Justin's and Apurva's talks. Justin's response plan: tell Anne the governing dates are draft circulation by 2026-06-11 and rehearsal by 2026-06-17, with an Anne/Apurva review window of 2026-06-12 through 2026-06-17, ideally early that week before Vanderbilt travel on 2026-06-18 and pre-HP practice starting 2026-06-19."
+      - "2026-06-03T15:23:52-04:00 projected the Speakers Bureau timeline update to Linear THE-5 in comment 661c70d3-db3f-459e-b688-ad62e07d6391, the HP2026 Photon Talk Reference Slide Inventory Google Doc, the HP2026 Photon Talk Scratch Outline Google Doc, and the 2026-06-03 Today's Plan."
+      - "2026-06-03 Justin reoriented the next 5-6 days: HP2026 is second priority behind Friday PPG ML analysis/slides, with the practical target of a walkthrough with Anne, Anthony, and Apurva on Monday or Tuesday next week."
+      - "2026-06-03 Justin solidified the HP2026 walkthrough for Monday 2026-06-08 at 13:00 Central / 14:00 Eastern with Anne, Anthony, and Apurva. Google Calendar event created: tc2d4iuu2gc2esq110vag6h8p0, https://www.google.com/calendar/event?eid=dGMyZDRpdXUyZ2MyZXNxMTEwdmFnNmg4cDAganVzdDAxMzFAbQ."
+    last_verified: "2026-06-03T16:55:00-04:00"
+    next_check: "after Friday PPG slide push, finish HPslides_v1 cleanup, speaker script, and backup/Q&A scaffold before the Monday 2026-06-08 13:00 CT walkthrough"
+    stale_after: "2026-06-10T12:00:00-04:00"
     handoff_summary: >
-      Governing deadline driver is HPslides_v1 and the Tuesday 2026-06-02 draft to Anne
-      and Anthony. The confirmed HP2026 slot is a parallel oral in Parallels:
+      HPslides_v1 is the active truth-base deck. Justin reported on 2026-06-03
+      that the first Anne/Anthony draft was already sent, so do not keep
+      resurfacing "send the draft" as an incomplete task. The confirmed HP2026
+      slot is a parallel oral in Parallels:
       E&M on Wednesday 2026-06-24, 16:00-16:20 America/Chicago at Vanderbilt
       University, with 15 minutes for the talk and 5 minutes for questions.
+      The governing Speakers Bureau schedule is now explicit: circulate the
+      nearly complete draft by 2026-06-11, expect convener comments/approval
+      within about 2 working days of posting, rehearse before several sPHENIX
+      collaborators by 2026-06-17, travel to Vanderbilt on 2026-06-18, and
+      enter pre-HP practice starting 2026-06-19. The near-term walkthrough is
+      now fixed for Monday 2026-06-08 at 13:00 Central / 14:00 Eastern with
+      Anne, Anthony, and Apurva; Google Calendar event
+      `tc2d4iuu2gc2esq110vag6h8p0` carries HPslides_v1 and THE-5 links. Have
+      the script, slide cleanup, and backup/Q&A scaffold ready before that
+      meeting.
       The reference inventory now prioritizes HPslides_v1, current PPG12
       sources, Yeonju DIS2026, Hanpu AUM, and Stefan Moriond/proceedings; the
       photon+jet kickoff Indico event is deliberately excluded as irrelevant.
       Keep generic June approval dates as background context only. Immediate
-      checklist: use the dedicated reference-slide inventory to inspect
-      IRC04292026.pdf, Yeonju DIS2026 slides, Shuhang PPG12 sources, and
-      sPH-CONF-JET-2025-02; keep pruning photon+jet and generic preliminary
-      material; then build the cleanest photon-only PPG12 story from the
-      current IAN/paper. The first title-slide PNG eye-exam batch now exists
+      checklist after the sent draft: triage Anne/Anthony feedback, continue
+      backup-slide/Q&A/script preparation, keep pruning photon+jet and generic
+      preliminary material, and preserve the cleanest photon-only PPG12 story
+      from the current public/approved sources. The first title-slide PNG
+      eye-exam batch now exists
       locally under outputs/manual-20260601-hp2026-title/presentations/hp2026-title-slide/output;
       current title-slide review target is hp2026_title_C4_final_institutional_photon_polish.png.
       Public-source rule as of 2026-06-02 evening: use PPG12 plot images in the
@@ -1353,16 +1391,16 @@ workstreams:
       Make the final photon-ID model choice defensible by separating necessary
       BDT production evidence from MLP/stack robustness and ceiling checks.
     current_next_action: >
-      Jet40-inclusive slide 18-20 split-study replacement deliverable is
-      complete pending Justin review: quickstat validations are READY, local
-      PNGs were regenerated and visually inspected, and Google Slides were not
-      mutated. Keep the separate 5x-statistics saturation study parked for next
-      week: saturation plot plus decision table, with no 5x production unless
-      evidence points beyond current or targeted extra stats. Also fold in the
-      2026-05-28 PPG meeting comments: clarify slide-15 train/holdout
-      AUC-logloss behavior, test tree-depth capacity effects, explain the
-      sample-ladder score-separation mechanism with fixed-validation and
-      fine-ET checks, and backtrack the PPG12 WP80/centrality cut logic.
+      First priority until Friday's PPG meeting: turn the existing ML evidence
+      into clear working-point slides and a defensible spoken story. Use the
+      Jet40-inclusive slide 18-20 split-study replacements, the sample-ladder
+      BDT separation evidence, and the 2026-05-28 PPG comments to prepare the
+      Friday update. Focus on: explaining AUC/logloss without confusing box
+      plots, explaining why Jet12+20 vs Jet12+20+30 vs Jet12+20+30+40 changes
+      separation, adding or planning the same-validation-sample and fine-ET
+      checks, and keeping the Blair central low-calo event cut follow-up ready
+      for Friday. Keep the separate 5x-statistics saturation study parked for
+      next week; do not start broad 5x production.
     depends_on:
       - duplicate-run guard before any new training
     active_codex_session: "Codex local session 2026-05-27 THE-8 Branch A"
@@ -1371,7 +1409,7 @@ workstreams:
     codex_thread_id: "019e6700-fd78-7132-a1a6-8e56da820f59"
     linear_issue: "https://linear.app/thesisanalysis/issue/THE-8/p0-campaign-or-final-photon-id-model-choice"
     linear_sync: synced
-    today_doc_anchor: "2026-06-01 Today's Plan: Do First Today / THE-8; Backlog / next-week 5x-statistics saturation check"
+    today_doc_anchor: "2026-06-03 Today's Plan: Do First Today / priority 1 through Friday PPG ML slides"
     workstream_spec: "https://docs.google.com/document/d/10x-gi11LHTCLkvSyCg53oWNQWibGAL6b4VuiraWvs4U/edit?usp=drivesdk"
     active_jobs:
       - label: "OverfitDiag split 90/10 centInput_pt1535 BDT training"
@@ -1812,16 +1850,19 @@ workstreams:
       - "2026-05-28 15:19 EDT heartbeat consumed and marked read three fresh RecoilJets Pipeline READY emails for the sphnxuser07 Jet40 split-study quickstat validations. All three scored 20,190,290 rows with finite_score_fraction=1: 90/10 AUC=0.877427, 50/50 AUC=0.877172, 10/90 AUC=0.877205. Report roots are model_validation_condor_THE8_jet40_centinput_overfitdiag_20260528_train{90_test10,50_test50,10_test90}_quickstat_20260528_1450."
       - "2026-05-28 15:23 EDT Jet40 slide 18-20 replacement deliverable complete pending Justin review: remote quickstat validations on sphnxuser07 verified READY with 218/218 score caches per split, scored_entries=20,190,290, finite_score_fraction=1, full-stat AUCs 90/10=0.877427, 50/50=0.877172, 10/90=0.877205, and condor_q active_rows=0 for DAGMan parents 437899/438100/438219. Local compact JSON, diagnostics, and visually inspected PNG handoff set live under dataOutput/auauMLDiagnosticRuns/THE8_jet40_centinput_splitstudy_20260528/slideReady/slide18_19_20_replacements/. Google Slides were not modified."
       - "2026-06-01 Justin provided post-PPG comments from the 2026-05-28 presentation deck: split-study explanation needs clearer AUC/logloss logic and possibly tree-depth checks; sample-ladder score separation needs a fixed-validation-sample control, fine-ET decomposition, isolation/nearby-activity mechanism study, and eventual Jet50 check; WP80 slides need PPG12 tuning backtracking plus a centrality-only cut-control option. Details are preserved in agent_context/PPG_MEETING_NOTES_2026-05-28.md."
-    last_verified: "2026-05-28T15:23:00-04:00"
-    next_check: "No further heartbeat for slide 18-20 replacement; await Justin review or explicit slide insertion request. Next week: promote the 5x-statistics saturation study only when ready to work it."
-    stale_after: "2026-06-02T10:00:00-04:00"
+      - "2026-06-03 Justin reoriented the next 5-6 days: first priority until Friday is ML analysis and getting slides prepared for the Friday PPG meeting."
+    last_verified: "2026-06-03T16:55:00-04:00"
+    next_check: "before Friday PPG meeting: make the ML slide story coherent, especially Jet40 split-study slides, sample-ladder mechanism, Blair low-calo cut follow-up, and PPG comment response"
+    stale_after: "2026-06-06T10:00:00-04:00"
     handoff_summary: >
       Keep daily doc compact. The Jet40-inclusive slide 18-20 split-study
       replacement is complete pending Justin review: three local PNGs live in
       dataOutput/auauMLDiagnosticRuns/THE8_jet40_centinput_splitstudy_20260528/slideReady/slide18_19_20_replacements/,
       with READY validation evidence from the sphnxuser07 quickstat reports.
-      Google Slides were not modified. The 5x-statistics decision is parked for
-      next week, not today's Do First list. When promoted, test whether the
+      Google Slides were not modified. Through Friday, this is the first
+      priority: convert ML evidence and PPG-comment follow-ups into a clean
+      Friday PPG story. The 5x-statistics decision is parked for next week, not
+      today's Do First list. When promoted, test whether the
       model is statistics-saturated before proposing any broad 5x production.
       The strongest single plot is training fraction or train rows versus
       full-stat AUC, train-holdout AUC gap, logloss gap, and ideally WP80 fake
@@ -1871,16 +1912,18 @@ workstreams:
 
   - workstream_id: pp_basev3e_bdt_training_shuhang_overlay
     title: P0 Campaign | Match pp Baseline Model to PPG12
-    status: active
+    status: done_pending_review
     priority: P0
     goal: >
       Train Justin's updated pp current-IAN baseV3E/no-centrality BDT using the
       accepted stitching and ET/eta training-weight validation, then compare
       the resulting score shapes to Shuhang's PPG12 reference histograms.
     current_next_action: >
-      Review the pulled truth-window weighted slide-20 RHS/Shuhang candidate
-      before any Google Slides mutation. Candidate artifacts are local under
-      dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_truthWindowOverlayFix_20260528_1305/validation/fullsim_shuhang_overlay_truthwindow_ppg12_weighted.
+      Complete for PPG12 BDT overlay-validation/story purposes. Only remaining
+      action is Justin review/approval for optional Google Slides insertion of
+      the local four-slide clean-slate WP_GammaJets_6_3_26 opening story. Do
+      not reopen THE-17 for exact pixel-identical PPG12 closure; that lives in
+      the separate low-priority residual-audit backlog item.
     depends_on:
       - pp_exact_stitch_ppg12_baseline
       - et_eta_reweighting_explanation
@@ -1891,20 +1934,9 @@ workstreams:
     heartbeat_automation: "continue-pp-npbet5env-slide-15-rerun; pp-slide20-rhs-truth-window-fix-watchdog"
     linear_issue: "https://linear.app/thesisanalysis/issue/THE-17/p0-campaign-or-match-pp-baseline-model-to-ppg12"
     linear_sync: synced
-    today_doc_anchor: "2026-06-01 Today's Plan: Do First Today / THE-17"
+    today_doc_anchor: "2026-06-03 Today's Plan: Active Workstreams / THE-17 review gate"
     workstream_spec: null
-    active_jobs:
-      - label: "npbet5env slide-15 build/train/validate pipeline"
-        type: "tmux"
-        session: "pp_npbet5env_slide15_20260528_100102"
-        host: "sphnxuser05.sdcc.bnl.gov"
-        started_at: "2026-05-28T10:01:02-04:00"
-        log: "/sphenix/u/patsfan753/scratch/thesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_matched_ppg12_basev3E_currentIAN_npbet5env_20260527_1356/npbet5env_slide15_build_train_validate_20260528_100102.log"
-        off_condition: >
-          tmux session exits successfully after buildCurrentIANManifests,
-          npbet5env_low_et_5_6_proof.json, trainCurrentIANBDT,
-          validateCurrentIANBDT, and ppg12_exact_fine_reweight_histograms.csv
-          are written from the npbet5env score cache.
+    active_jobs: []
     artifacts:
       - "/sphenix/user/shuhangli/ppg12/efficiencytool/results/MC_efficiencyshower_shape_jet_inclusive_showershape_nom.root"
       - "/sphenix/user/shuhangli/ppg12/efficiencytool/results/MC_efficiencyshower_shape_signal_showershape_nom.root"
@@ -1933,6 +1965,13 @@ workstreams:
       - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_truthWindowOverlayFix_20260528_1305/validation/fullsim_shuhang_overlay_truthwindow_ppg12_weighted/truthwindow_overlay_key_metrics.txt"
       - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_rawOverlayEnvFix_20260527_1630/validation/fullsim_shuhang_overlay_raw_inclusive/pp_currentian_basev3e_bdt_score_overlay_vs_ppg12_pp_noCent_bdt_22_28_noNPB_eta0-pt3-cut0.png"
       - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_rawOverlayEnvFix_20260527_1630/validation/fullsim_shuhang_overlay_raw_inclusive/ppg12_equiv_pp_noCent_bdt_22_28_noNPB_eta0-pt3-cut0_fullInclusive_unitnorm.png"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/scripts/slides/wp_gammajets/ppg12_overlay_story/make_ppg12_overlay_story_slides.py"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/slides/wp_gammajets_6_3_26/ppg12_overlay_story_20260603/slide01_define_ppg12_reference_object.png"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/slides/wp_gammajets_6_3_26/ppg12_overlay_story_20260603/slide02_overlay_exercise_three_way_comparison.png"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/slides/wp_gammajets_6_3_26/ppg12_overlay_story_20260603/slide03_direct_model_confirmation.png"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/slides/wp_gammajets_6_3_26/ppg12_overlay_story_20260603/slide04_same_row_summary_and_backburner.png"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/slides/wp_gammajets_6_3_26/ppg12_overlay_story_20260603/ppg12_overlay_story_manifest.json"
+      - "/Users/patsfan753/Desktop/ThesisAnalysis/dataOutput/slides/wp_gammajets_6_3_26/ppg12_overlay_story_20260603/ppg12_overlay_story_contact_sheet.png"
       - "scripts/audit_pp_basev3e_shuhang_equivalence.py"
       - "scripts/pp_photon_ml_pipeline.sh"
       - "scripts/make_ppg12_fig19_bdt_overlay.py"
@@ -2010,57 +2049,53 @@ workstreams:
       - "2026-05-31 22:20 EDT heartbeat: consumed and marked read 10 RecoilJets Pipeline truthWindowOverlayFix isSimInclusive stage/final emails and verified unread returned to 0. SDCC showed no parent-DAG queue rows, no tag-matched active rows, and NO_HELD_MATCHED_ROWS. DAGMan logs show clusters 5485878, 5485880, 5485882, and 5485884 all DAG_STATUS_OK and EXITING WITH STATUS 0 with zero rescue files. Destination has 4000 ROOT files with 1000 each for run28_photonjet20, run28_jet12, run28_jet20, and run28_jet40 and no recent writes. Representative ROOT QA passed for ppg12_truth_window_pass_r04, max_truth_jet_pt_r04, ppg12_xsec_weight, ppg12_window_low, and ppg12_window_high. Built truth-window manifests with 1000 signal files and 3000 inclusive files, then started tmux pp_truthwindow_score_20260531_2218 to run make_ppg12_fig19_bdt_overlay.py with --preselection none --npb-mode skip --pt-range 22:28 --require-unfiltered-inclusive --sample-weight-mode ppg12-shower-shape --require-ppg12-truth-window."
       - "2026-05-31 23:15 EDT heartbeat: tmux pp_truthwindow_score_20260531_2218 completed with RC=0 and compact PNG/JSON/LOG artifacts were pulled locally. Local metrics CSV/TXT were generated from the summary. The fixed contract selected 4,042,616 signal rows and 926,228 inclusive rows. Inclusive frac(score<0.1) is now 0.2695 for this analysis versus 0.2334 for PPG12/Shuhang, and the peak low-score bin is 0.1807 versus 0.1653. This is the first slide-20 RHS candidate made with raw-inclusive rows, PPG12 shower-shape sample weights, and explicit truth-jet pT window filtering. Prior rawOverlayEnvFix RHS outputs are stale for histogram-contract claims. Updated Linear THE-17 comment 60c32c67-c5c7-4058-8329-87dc3bdd4725 and the 2026-05-28 Today's Plan THE-17 card."
       - "2026-06-01 PPG meeting follow-up added a specific THE-17 contract question: check whether PPG12 upscaled all background by an additional weighting factor not present in Justin's PPG12 comparisons before interpreting remaining Shuhang/PPG12 mismatches."
-    last_verified: "2026-05-31T23:15:00-04:00"
-    next_check: "Justin review of the pulled truth-window weighted slide-20 RHS candidate; do not mutate Google Slides unless approved"
-    stale_after: "2026-06-02T10:00:00-04:00"
+      - "2026-06-03 16:35 EDT deck process formalized: Justin made old copied working-point deck WP_GammaJets_6_1_26 and clean-slate working-point deck WP_GammaJets_6_3_26. For Friday PPG prep, THE-17 should open the new deck with the improved truth-window weighted BDT separation and explicitly teach the slide-42 lesson: same-row/same-pipeline TMVA comparisons tested model equivalence, while direct PPG12 IAN overlays require matching the PPG12 histogram contract: raw-inclusive rows, PPG12 shower-shape sample weights, truth-jet pT window selection, pT/eta/preselection/NPB binning, and unit normalization."
+      - "2026-06-03 15:50 EDT generated four 2560x1440 local full-slide PNG candidates for the clean-slate WP_GammaJets_6_3_26 opening story under dataOutput/slides/wp_gammajets_6_3_26/ppg12_overlay_story_20260603. The candidate set defines the PPG12 IAN Fig.13 reference object, contrasts stale slide-42-style direct-overlay logic with the corrected truth-window weighted overlay, confirms same-row model equivalence via the old slide-41 direct-TMVA check, and closes with slide-39/40 same-row comparison plus residual perfect-overlay audit as back-burner. Builder py_compile passed, sips confirmed all four slide PNGs are 2560x1440, and Google Slides were not mutated."
+      - "2026-06-03 15:54 EDT Linear THE-17 marked Done and refreshed with final evidence; Linear comment f294f231-197c-47f7-8f9c-f0450fa360a6 records the slide-story artifact paths and metrics."
+      - "2026-06-03 16:13 EDT updated slide-generation policy for audience readability and Google-Slides-style shadow baseline, then regenerated the PPG12 overlay story slide family. Slide 1 and slide 2 now use larger title/card/body typography, lighter 18%/60deg/4px/14px-style shadows, and shorter audience-facing cards. Revalidated slide01 and slide02 at 2560x1440."
+      - "2026-06-03 17:25 EDT Justin marked the PPG12 BDT overlay-validation task complete for current working-point purposes, with explicit caveats: stitching/fill-contract cleanup remains the higher-priority unresolved pp-baseline work, while exact pixel-identical PPG12 overlay closure is back-burner."
+      - "2026-06-03 17:41 EDT added Linear THE-17 closure comment d6d3067f-4d37-4f54-9aaa-652a1bdf787b with the same evidence and caveats."
+    last_verified: "2026-06-03T17:41:00-04:00"
+    next_check: "Justin review/approval for optional Google Slides insertion only; science validation is complete unless Justin deliberately promotes a new follow-up."
+    stale_after: "2026-06-05T12:00:00-04:00"
     handoff_summary: >
-      THE-17 remains in progress. Full same-row audit says Justin's frozen
-      model and Shuhang's TMVA split model are strongly correlated, so the
-      slide-18 discrepancy is not primarily BDT implementation. The old
-      finalShuhang "inclusive" overlay input is truth-background filtered and
-      preselected at extraction time; it cannot be used as a raw inclusive MC
-      Fig.13 comparison. Corrected raw-overlay extraction tag
-      ppg12_basev3E_currentIAN_rawOverlayEnvFix_20260527_1630 closed cleanly
-      with 8000 ROOT files and all eight parent DAGs JobStatus=4 ExitCode=0.
-      Raw-overlay manifests and representative ROOT QA passed. Remote tmux
-      pp_rawoverlay_score_20260527_2126 completed with RC=0 and compact
-      PNG/JSON/LOG outputs were pulled locally. The corrected raw-inclusive
-      candidate still shows a large this-analysis inclusive spike near BDT
-      score 0. The 2026-05-28 root-cause audit now points to a second
-      contract mismatch: raw tree event weights and missing PPG12 max-truth-jet
-      window filtering in the BDT tree, not a gross BDT-model mismatch. Local
-      code is patched to add PPG12 sample-weight plotting and future
-      truth-window branches. Justin approved the bounded rerun on 2026-05-28;
-      patched RecoilJets/overlay/pipeline code was uploaded and rebuilt on
-      SDCC, and four parent DAGs are now active for tag
-      ppg12_basev3E_currentIAN_truthWindowOverlayFix_20260528_1305:
-      5485878 photon20, 5485880 jet12, 5485882 jet20, and 5485884 jet40.
-      The next valid action is monitoring and branch QA. Do not score or edit
-      Slides until the DAGs close cleanly and ROOTs contain
-      ppg12_truth_window_pass_r04/max_truth_jet_pt_r04. New meeting-note
-      follow-up: explicitly audit whether PPG12 uses an additional background
-      upscaling/normalization factor beyond the sample-weight/truth-window
-      contract now implemented.
+      THE-17 is complete at the local slide-candidate/evidence level and
+      pending only Justin review/approval for any Google Slides insertion. The
+      trained pp baseV3E BDT was not the gross problem: same-row audits show
+      strong agreement between Justin's frozen model and Shuhang's TMVA split
+      model. The old slide-42 direct PPG12 IAN overlay used a mismatched
+      histogram contract; corrected evidence now uses raw-inclusive rows,
+      PPG12 shower-shape sample weights, explicit truth-jet pT window filtering,
+      pT 22-28, eta0/pt3/cut0, no NPB, no preselection, and unit normalization.
+      The clean-slate WP_GammaJets_6_3_26 opening story has four local 16:9
+      PNG candidates plus a contact sheet under
+      dataOutput/slides/wp_gammajets_6_3_26/ppg12_overlay_story_20260603.
+      Residual perfect-overlay closure is lower-priority back-burner work, not
+      a current blocker. Stitching/fill-contract cleanup remains separate and
+      higher-priority than any attempt to make the pp/PPG12 score overlay
+      exactly identical.
 
   - workstream_id: shuhang_ppg12_bdt_overlay_validation
-    title: Shuhang PPG12 BDT Overlay
-    status: waiting
-    priority: P1
+    title: BKL Follow-up | Perfect pp/PPG12 Overlay Residual Audit
+    status: backlog
+    priority: P3
     goal: >
-      Compare Justin's updated baseV3E pp BDT score/ROC baseline against
-      Shuhang's PPG12 signal/background ROOT histograms so the Au+Au
-      extrapolation has a clean pp validation reference.
+      Back-burner audit for exact pp/PPG12 BDT-score overlay closure after the
+      corrected truth-window weighted story is already good enough to move on.
     current_next_action: >
-      Wait until the updated pp baseV3E BDT baseline is trained and validated,
-      then make the Shuhang overlay from the provided ROOT files.
-    depends_on:
-      - pp_basev3e_bdt_training_shuhang_overlay
+      Back-burner only: do not spend current PPG-prep time on exact
+      pixel-identical closure. If later promoted, audit the residual small
+      shape differences after the truth-window weighted overlay, including
+      possible PPG12 background-scale conventions, remaining sample-composition
+      details, TMVA/XGBoost score calibration, and histogram normalization/cut
+      bookkeeping.
+    depends_on: []
     active_codex_session: null
     chat_label_or_thread: null
     campaign_id: "ppg12_baseline_match"
-    linear_issue: "https://linear.app/thesisanalysis/issue/THE-14/wait-validation-or-shuhang-ppg12-bdt-overlay"
+    linear_issue: "https://linear.app/thesisanalysis/issue/THE-14/bkl-follow-up-or-perfect-ppppg12-overlay-residual-audit"
     linear_sync: synced
-    today_doc_anchor: "2026-06-01 Today's Plan: Waiting / Blocked / Review / THE-14"
+    today_doc_anchor: null
     workstream_spec: null
     active_jobs: []
     artifacts:
@@ -2070,13 +2105,17 @@ workstreams:
       - "Shuhang provided inclusive MC and signal MC ROOT files for comparing BDT score distributions against Justin's full pp sim/baseV3E baseline after proper stitching/weighting."
       - "2026-05-26 17:18 EDT stitching gate is accepted; remaining upstream gates are ET/eta reweighting validation and updated pp BDT training."
       - "2026-05-26 20:58 EDT ET/eta reweighting validation is accepted from slide 16; overlay now waits on updated pp baseV3E BDT training/validation only."
-    last_verified: "2026-06-01T14:05:00-04:00"
-    next_check: "after THE-17 truth-window weighted pp/PPG12 candidate is reviewed"
-    stale_after: "2026-06-05T10:00:00-04:00"
+      - "2026-06-03 15:50 EDT THE-17 local slide-story candidate set treats the remaining subtle pp/PPG12 differences as a back-burner perfect-overlay audit, not a blocker for the Friday working-point story."
+      - "2026-06-03 15:54 EDT Linear THE-14 renamed BKL Follow-up | Perfect pp/PPG12 Overlay Residual Audit, moved to Backlog with Low priority, and updated via comment f7da3573-d83b-42d1-a0d3-81b9e049e931."
+      - "2026-06-03 17:25 EDT Justin reconfirmed exact pp/PPG12 identity is back-burner; stitching/fill-contract cleanup is the higher-priority unresolved pp-baseline work."
+    last_verified: "2026-06-03T17:25:00-04:00"
+    next_check: "only if Justin promotes exact perfect-overlay closure from back burner"
+    stale_after: null
     handoff_summary: >
-      This is the blocked Shuhang/PPG12 leader validation check. Do not treat
-      ET/eta reweighting itself as blocked by this; only the overlay waits for
-      proper stitching/weighting and updated baseV3E BDT training.
+      Back-burner residual audit only. The main THE-17 pp/PPG12 story is now
+      good enough to move on: the corrected overlay matches the PPG12 histogram
+      contract closely enough for the working-point deck, while perfect closure
+      would require a lower-priority audit of small remaining conventions.
 
   - workstream_id: bdt_et_window_5to35_ablation
     title: BDT ET-window 5-35 vs 15-35 Ablation
@@ -2339,17 +2378,19 @@ workstreams:
 
   - workstream_id: pdc_calo_calibrations_presentation
     title: PDC Calo Calibrations Presentation
-    status: backlog
-    priority: P1
+    status: active
+    priority: P2
     goal: >
       Prepare a concise position-dependent-correction update for the
       Calorimeter Calibrations meeting on Monday 2026-06-08.
     current_next_action: >
-      After the Tuesday HP2026 photon draft pressure clears, open
-      `PDC_WP_5_7_26`, identify the clean current story, and build the June 8
-      PDC update around incidence-based motivation, current correction
-      convention, validation evidence, what is ready, and what decision or
-      help is needed from the calibration group.
+      Third priority for the next 5-6 days: use the weekend to push the PDC
+      update if ML/PPG and HP walkthrough prep allow it. Open `PDC_WP_5_7_26`,
+      identify the clean current story, and build a concise Monday
+      Calorimeter Calibrations update around incidence-based motivation,
+      correction convention, validation evidence, what is ready, and what help
+      or decision is needed. If clean slides are not ready by Monday, provide a
+      lighter status update rather than forcing a weak deck.
     depends_on:
       - HP2026 Anne/Anthony draft handled first
       - Justin decision on polished final deck vs working update for June 8
@@ -2358,7 +2399,7 @@ workstreams:
     campaign_id: "pdc_calo_calibrations"
     linear_issue: "https://linear.app/thesisanalysis/issue/THE-25/p1-slides-or-pdc-calo-calibrations-presentation"
     linear_sync: synced
-    today_doc_anchor: "2026-06-01 Today's Plan: Backlog / THE-25 PDC Calo Calibrations Presentation"
+    today_doc_anchor: "2026-06-03 Today's Plan: lower-priority weekend stretch / THE-25 PDC Calo Calibrations Presentation"
     workstream_spec: null
     active_jobs: []
     artifacts:
@@ -2368,15 +2409,16 @@ workstreams:
       - "Google Calendar June 8 instance was updated to `Calorimeter Calibrations Meeting - PDC presentation target` with Linear THE-25 and PDC_WP_5_7_26 links."
       - "Existing Drive deck `PDC_WP_5_7_26` is the current baseline PDC update deck."
       - "Linear THE-25 created on 2026-06-01 as a P1 backlog/upcoming slide-facing workstream due 2026-06-08."
-    last_verified: "2026-06-01T14:32:00-04:00"
-    next_check: "after THE-5 HP2026 Anne/Anthony draft is sent, or by 2026-06-04"
-    stale_after: "2026-06-04T10:00:00-04:00"
+      - "2026-06-03 Justin reoriented PDC as third priority: push over the weekend and provide a Monday calibration-meeting update if clean slides are ready; no harm if not."
+    last_verified: "2026-06-03T16:55:00-04:00"
+    next_check: "weekend 2026-06-06/07: if ML/PPG and HP prep are under control, build the PDC Monday update from PDC_WP_5_7_26"
+    stale_after: "2026-06-08T09:00:00-04:00"
     handoff_summary: >
-      This is a near-term presentation obligation, not today's Top 3 while
-      THE-5 is due tomorrow. Keep it visible as upcoming/backlog, then promote
-      once the HP2026 draft pressure clears. Use the PDC_WP_5_7_26 deck as the
+      Third priority through next Monday. Use the PDC_WP_5_7_26 deck as the
       starting evidence base and make a concise update for the June 8
-      Calorimeter Calibrations meeting.
+      Calorimeter Calibrations meeting if the weekend allows. Do not let this
+      displace Friday PPG ML slides or HP walkthrough prep; a clean status
+      update is acceptable if polished slides are not ready.
 
   - workstream_id: ppg19_ian_paper_context_miner
     title: PPG19 IAN/Paper Context Miner
@@ -2558,3 +2600,91 @@ workstreams:
       dips are caused by xsec weights, stitching boundaries, trigger or row
       selection, normalization, or a mismatch with the AuAu embedded-sim
       treatment.
+
+  - workstream_id: local_memory_storage_retention
+    title: BKL OS | Local Memory Storage Retention + Cloud Archive Triage
+    status: backlog
+    priority: P3
+    goal: >
+      Keep Codex, Chronicle, and ThesisAnalysis local storage efficient without
+      prematurely moving raw memory into cloud systems or deleting useful
+      evidence.
+    current_next_action: >
+      Backburner only. When promoted, rerun local disk inventory, identify the
+      largest safe-to-archive Codex logs, local artifacts, and repo outputs,
+      then propose a local-first retention policy with optional cold archive
+      targets such as Google Drive or S3 only for bulky low-frequency files.
+    depends_on:
+      - no urgent disk pressure from current local check
+      - approval before deletion, cloud upload, or broad archive movement
+    active_codex_session: null
+    chat_label_or_thread: "Chronicle memory/storage audit follow-up 2026-06-03"
+    campaign_id: "codex_os_infrastructure"
+    linear_issue: "https://linear.app/thesisanalysis/issue/THE-33/bkl-os-or-local-memory-storage-retention-cloud-archive-triage"
+    linear_sync: synced
+    today_doc_anchor: null
+    workstream_spec: null
+    active_jobs: []
+    artifacts:
+      - "tmp/chronicle_audit/chronicle_audit_summary.md"
+      - "tmp/chronicle_audit/chronicle_audit_data.json"
+    evidence:
+      - "2026-06-03 local disk check: data volume /System/Volumes/Data was 838Gi used of 926Gi with 63Gi available, 93% capacity."
+      - "2026-06-03 local size check: /Users/patsfan753/.codex was 14G; /Users/patsfan753/.codex/memories was 21M; Chronicle persisted memory summaries were 12M; ThesisAnalysis was 52G."
+      - "2026-06-03 Chronicle audit recommendation: keep Chronicle off by default for broad/heavy Codex work; enable narrowly for focused slide/research sessions and distill durable facts into project files."
+      - "Linear THE-33 created on 2026-06-03 as a P3 backlog storage-retention/cloud-archive triage task."
+    last_verified: "2026-06-03T01:43:00-04:00"
+    next_check: "when free local disk drops below roughly 40GiB, before enabling always-on Chronicle again, or when a cloud/archive policy is explicitly promoted"
+    stale_after: null
+    handoff_summary: >
+      Backburner storage/memory retention task. There is wiggle room now: about
+      63GiB free on the local data volume. Chronicle text memories are not the
+      storage problem at 12M; larger candidates are Codex local state/logs,
+      ignored artifacts, and repo outputs. Do not delete, upload, or move
+      anything without a fresh inventory and Justin approval. Prefer
+      local-first distilled memory; consider cloud only for cold bulky archives.
+
+  - workstream_id: auau_shower_shape_evolution_slide
+    title: BKL Slide | AuAu Shower-Shape Evolution Through NPB/BDT Selection
+    status: backlog
+    priority: P2
+    goal: >
+      Build a future Au+Au photon-ID story slide showing how shower-shape
+      variables evolve across increasingly photon-like selections, analogous
+      to the PPG12 figure sequence with no preselection, NPB/preselection, and
+      tight selection.
+    current_next_action: >
+      When Au+Au data/score outputs are available again, define the exact
+      three-panel comparison: baseline/no preselection, NPB or PPG12-like
+      preselection, and tight BDT/WP80 selection. Use matched Et/centrality
+      bins, unit-normalized data/signal/background shapes, and residual panels
+      so the slide shows what NPB and BDT are actually sculpting.
+    depends_on:
+      - renewed AuAu data/score-output availability
+      - final photon-ID BDT/NPB working-point definition
+      - PPG12 shower-shape figure convention audit
+      - duplicate-run guard before any new scoring or production
+    active_codex_session: null
+    chat_label_or_thread: "RecoilJetsTasks task capture 2026-06-03"
+    campaign_id: "final_model_choice"
+    linear_issue: null
+    linear_sync: pending
+    today_doc_anchor: null
+    workstream_spec: null
+    active_jobs: []
+    artifacts:
+      - "/Users/patsfan753/Desktop/Screenshot 2026-06-03 at 4.56.47 PM.png"
+      - "usefulDocs/PPG12_analysis_note_2026-05-21_v4_current_IAN.pdf"
+    evidence:
+      - "2026-06-03 Justin requested a task for an idyllic target slide: show shower-shape variable evolution like the provided PPG12-style image through NPB and BDT in AuAu once data is analyzed again."
+      - "Linear THE-34 created on 2026-06-03 as a P2 backlog slide-facing workstream."
+    last_verified: "2026-06-03T17:05:00-04:00"
+    next_check: "after AuAu data/score-output analysis is available again or when building final photon-ID story slides"
+    stale_after: null
+    handoff_summary: >
+      Backlog slide/story target, not current-day execution. The desired
+      deliverable is a clean visual sequence: no preselection -> NPB/PPG12-like
+      preselection -> tight BDT/WP80 selection, with shower-shape variables and
+      residuals shown in AuAu using matched bins. It should become slide-facing
+      only after the underlying AuAu data and score outputs are available and
+      the selected photon-ID working point is stable.

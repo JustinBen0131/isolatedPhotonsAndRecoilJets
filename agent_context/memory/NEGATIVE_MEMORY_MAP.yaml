@@ -168,3 +168,596 @@ negative_memories:
       stale_risk: 0.2
       interference_risk: 0.35
       synthetic_contamination_risk: 0.0
+
+  - memory_id: no_slide_without_self_audit
+    trap: showing a serious slide candidate without source, readability, canvas, and script self-audit
+    source_pointer:
+      path: agent_context/policies/SLIDES_WORKFLOW.md
+      kind: policy
+    routes:
+      - slide_scripting
+      - plot_generation
+    cue_terms:
+      - slide
+      - candidate
+      - ready
+      - self-audit
+      - png
+      - script
+      - readable
+    relation_type: warning_only
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: warning only
+    first_safe_action: run the slide candidate self-audit and inspect PNG/script before handoff
+    required_waking_check: cite the source object, visual QA, and companion script before calling slide-ready
+    salience:
+      thesis_value: 0.85
+      evidence_value: 0.85
+      recurrence: 0.9
+      error_prevention_value: 0.98
+      user_friction: 0.95
+      retrieval_cost: 0.1
+      stale_risk: 0.05
+      interference_risk: 0.1
+      synthetic_contamination_risk: 0.0
+
+  - memory_id: no_slide_style_map_omission
+    trap: relying on chat memory for slide style instead of loading SLIDE_STYLE_MAP.md
+    source_pointer:
+      path: agent_context/SLIDE_STYLE_MAP.md
+      kind: style_map
+    routes:
+      - slide_scripting
+    cue_terms:
+      - slide
+      - style
+      - cleaner
+      - format
+      - hierarchy
+      - iterate
+      - current
+    relation_type: visual_style
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: warning only
+    first_safe_action: read SLIDE_STYLE_MAP.md and the relevant slide workflow before regenerating the artifact
+    required_waking_check: verify the current task's slide family against the style-map defaults and autopsies
+    salience:
+      thesis_value: 0.75
+      evidence_value: 0.75
+      recurrence: 0.9
+      error_prevention_value: 0.9
+      user_friction: 0.95
+      retrieval_cost: 0.1
+      stale_risk: 0.1
+      interference_risk: 0.15
+      synthetic_contamination_risk: 0.0
+
+  - memory_id: no_tiny_text_or_clutter_regression
+    trap: repeating tiny text, over-dense boxes, or clutter after Justin has already corrected it
+    source_pointer:
+      path: agent_context/SLIDE_STYLE_MAP.md
+      kind: style_map
+    routes:
+      - slide_scripting
+      - plot_generation
+    cue_terms:
+      - tiny
+      - small
+      - clutter
+      - busy
+      - dense
+      - readable
+      - font
+      - hierarchy
+    relation_type: same_failure_mode
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: warning only
+    first_safe_action: increase text size by reducing wording or splitting layout, not by hoping the user will accept dense text
+    required_waking_check: inspect the final PNG/thumbnail at presentation scale for text size, spacing, and scan path
+    salience:
+      thesis_value: 0.8
+      evidence_value: 0.8
+      recurrence: 0.95
+      error_prevention_value: 0.95
+      user_friction: 0.98
+      retrieval_cost: 0.1
+      stale_risk: 0.05
+      interference_risk: 0.1
+      synthetic_contamination_risk: 0.0
+
+  - memory_id: no_internal_notes_on_slide_canvas
+    trap: putting Codex notes, provenance minutiae, TODOs, or speaker/private instructions on the slide canvas
+    source_pointer:
+      path: agent_context/policies/SLIDES_WORKFLOW.md
+      kind: policy
+    routes:
+      - slide_scripting
+    cue_terms:
+      - slide
+      - canvas
+      - note
+      - provenance
+      - source
+      - speaker
+      - todo
+      - internal
+    relation_type: warning_only
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: warning only
+    first_safe_action: move internal notes to the script, manifest, chat handoff, or backup material
+    required_waking_check: verify all on-slide text is audience-facing before handoff
+    salience:
+      thesis_value: 0.8
+      evidence_value: 0.8
+      recurrence: 0.8
+      error_prevention_value: 0.92
+      user_friction: 0.9
+      retrieval_cost: 0.1
+      stale_risk: 0.05
+      interference_risk: 0.1
+      synthetic_contamination_risk: 0.0
+
+  - memory_id: no_generic_speaker_outline
+    trap: generating a generic outline instead of a spoken Justin-style slide script
+    source_pointer:
+      path: agent_context/policies/SLIDES_WORKFLOW.md
+      kind: policy
+    routes:
+      - slide_scripting
+    cue_terms:
+      - speaker
+      - script
+      - notes
+      - outline
+      - spoken
+      - narration
+      - practice
+    relation_type: visual_style
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: warning only
+    first_safe_action: rewrite as complete spoken narration in the order the audience sees the slide
+    required_waking_check: ensure the script is something Justin can read aloud without meta labels or private notes
+    salience:
+      thesis_value: 0.75
+      evidence_value: 0.75
+      recurrence: 0.8
+      error_prevention_value: 0.85
+      user_friction: 0.9
+      retrieval_cost: 0.1
+      stale_risk: 0.05
+      interference_risk: 0.1
+      synthetic_contamination_risk: 0.0
+
+  - memory_id: no_policy_correction_left_in_chat
+    trap: leaving a repeated Justin correction only in chat instead of encoding a durable prevention rule
+    source_pointer:
+      path: agent_context/policies/MEMORY_AND_STATUS.md
+      kind: policy
+    routes:
+      - os_maintenance
+      - slide_scripting
+      - plot_generation
+    cue_terms:
+      - correction
+      - feedback
+      - wrong
+      - again
+      - future
+      - remember
+      - policy
+      - durable
+    relation_type: same_failure_mode
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: warning only
+    first_safe_action: classify the failure mode and choose one durable mechanism or explicitly keep it local-only
+    required_waking_check: cite the user correction and changed artifact or policy before claiming the lesson is encoded
+    salience:
+      thesis_value: 0.8
+      evidence_value: 0.85
+      recurrence: 0.9
+      error_prevention_value: 0.95
+      user_friction: 0.95
+      retrieval_cost: 0.1
+      stale_risk: 0.05
+      interference_risk: 0.15
+      synthetic_contamination_risk: 0.0
+
+  - memory_id: no_recreate_approved_source_plot
+    trap: recreating a source plot when the correct approved artifact already exists
+    source_pointer:
+      path: agent_context/policies/SLIDES_WORKFLOW.md
+      kind: policy
+    routes:
+      - slide_scripting
+      - plot_generation
+    cue_terms:
+      - approved
+      - public
+      - paper
+      - reference
+      - source
+      - plot
+      - recreate
+      - slide
+    relation_type: same_artifact
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: warning only
+    first_safe_action: locate and use the approved/reference artifact unless Justin asks for regeneration
+    required_waking_check: record the source artifact and approval/public status before using or recreating it
+    salience:
+      thesis_value: 0.9
+      evidence_value: 0.95
+      recurrence: 0.75
+      error_prevention_value: 0.98
+      user_friction: 0.85
+      retrieval_cost: 0.1
+      stale_risk: 0.1
+      interference_risk: 0.1
+      synthetic_contamination_risk: 0.0
+
+  - memory_id: no_duplicate_training_without_guard
+    trap: preparing or launching a materially equivalent training, validation, production, or merge run without duplicate guard
+    source_pointer:
+      path: agent_context/policies/DUPLICATE_RUN_GUARD.md
+      kind: policy
+    routes:
+      - training_production
+    cue_terms:
+      - train
+      - training
+      - validation
+      - production
+      - merge
+      - condor
+      - rerun
+      - duplicate
+      - bdt
+      - auau
+    relation_type: warning_only
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: warning only
+    first_safe_action: search existing tags/artifacts and build a run fingerprint before generating or submitting anything
+    required_waking_check: report identical/materially equivalent evidence and ask reuse/compare/rerun only if a duplicate is found
+    salience:
+      thesis_value: 0.9
+      evidence_value: 0.9
+      recurrence: 0.85
+      error_prevention_value: 0.98
+      user_friction: 0.9
+      retrieval_cost: 0.1
+      stale_risk: 0.1
+      interference_risk: 0.1
+      synthetic_contamination_risk: 0.0
+
+  - memory_id: no_task_capture_chat_only
+    trap: treating explicit add-task wording as a chat reminder instead of updating the task pipeline
+    source_pointer:
+      path: agent_context/policies/MEMORY_AND_STATUS.md
+      kind: policy
+    routes:
+      - task_capture
+      - os_maintenance
+    cue_terms:
+      - add
+      - task
+      - tasks
+      - list
+      - todo
+      - backlog
+      - linear
+      - register
+      - track
+      - remember
+    relation_type: same_failure_mode
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: warning only
+    first_safe_action: update the register first, then Linear, then Today's Plan only if it belongs on the daily surface
+    required_waking_check: cite the workstream id/Linear issue or pending sync state after task capture
+    salience:
+      thesis_value: 0.8
+      evidence_value: 0.85
+      recurrence: 0.95
+      error_prevention_value: 0.95
+      user_friction: 0.95
+      retrieval_cost: 0.1
+      stale_risk: 0.05
+      interference_risk: 0.15
+      synthetic_contamination_risk: 0.0
+
+  - memory_id: no_novelty_before_minimal_publishable_baseline
+    trap: pursuing novel ML, alternate photon definitions, or broad extensions before the minimal publishable baseline is safe
+    source_pointer:
+      path: agent_context/policies/AGENTIC_OS_HARDENING.md
+      kind: policy
+    routes:
+      - training_production
+      - plot_generation
+      - os_maintenance
+    cue_terms:
+      - novelty
+      - novel
+      - ml
+      - advanced
+      - ablation
+      - baseline
+      - publishable
+      - thesis
+      - auau
+      - pp
+      - gamma-jet
+      - xjgamma
+    relation_type: warning_only
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: warning only
+    first_safe_action: classify whether the novelty directly unlocks or protects a terminal thesis artifact, or defer it
+    required_waking_check: cite the terminal artifact supported and evidence needed before treating novelty as active thesis work
+    salience:
+      thesis_value: 0.98
+      evidence_value: 0.85
+      recurrence: 0.85
+      error_prevention_value: 0.95
+      user_friction: 0.8
+      retrieval_cost: 0.08
+      stale_risk: 0.08
+      interference_risk: 0.12
+      synthetic_contamination_risk: 0.0
+
+  - memory_id: no_meta_os_as_progress
+    trap: treating OS/meta infrastructure work as thesis progress when a thesis artifact or validation is blocked
+    source_pointer:
+      path: agent_context/policies/AGENTIC_OS_HARDENING.md
+      kind: policy
+    routes:
+      - os_maintenance
+      - task_capture
+    cue_terms:
+      - os
+      - infrastructure
+      - meta
+      - automation
+      - dream
+      - doctor
+      - context
+      - architecture
+      - thesis
+      - progress
+    relation_type: warning_only
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: warning only
+    first_safe_action: state which future thesis-time leak the OS work prevents and keep the patch bounded
+    required_waking_check: verify a concrete validator, routing improvement, or reduced repeated friction before calling OS work progress
+    salience:
+      thesis_value: 0.9
+      evidence_value: 0.85
+      recurrence: 0.9
+      error_prevention_value: 0.9
+      user_friction: 0.8
+      retrieval_cost: 0.08
+      stale_risk: 0.08
+      interference_risk: 0.14
+      synthetic_contamination_risk: 0.0
+
+  - memory_id: no_finite_time_artifact_leak_repetition
+    trap: letting repeated slide, plot, status, or provenance mistakes keep consuming thesis time without becoming durable prevention
+    source_pointer:
+      path: agent_context/policies/MEMORY_AND_STATUS.md
+      kind: policy
+    routes:
+      - slide_scripting
+      - plot_generation
+      - active_job_status
+      - os_maintenance
+    cue_terms:
+      - repeated
+      - again
+      - wrong
+      - slide
+      - plot
+      - status
+      - provenance
+      - evidence
+      - leak
+      - finitude
+    relation_type: same_failure_mode
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: warning only
+    first_safe_action: fix the immediate artifact, then classify the reusable failure mode
+    required_waking_check: encode one smallest durable prevention mechanism with concrete correction evidence if the issue is recurrent
+    salience:
+      thesis_value: 0.9
+      evidence_value: 0.9
+      recurrence: 0.95
+      error_prevention_value: 0.98
+      user_friction: 0.95
+      retrieval_cost: 0.08
+      stale_risk: 0.08
+      interference_risk: 0.1
+      synthetic_contamination_risk: 0.0
+
+  - memory_id: no_dream_physics_without_evidence
+    trap: treating dream-generated physics ideas as thesis progress before real inputs, null tests, systematic controls, or provenance exist
+    source_pointer:
+      path: agent_context/policies/AGENTIC_OS_DREAMING.md
+      kind: policy
+    routes:
+      - os_maintenance
+      - plot_generation
+      - training_production
+    cue_terms:
+      - dream
+      - speculative
+      - physics
+      - hypothesis
+      - idea
+      - null
+      - evidence
+      - baseline
+    relation_type: warning_only
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: warning only
+    first_safe_action: keep the idea proposal-only and name the real data, ROOT, artifact, or null-test evidence required
+    required_waking_check: do not add a run, plot campaign, or science claim until real evidence and explicit waking scope exist
+    salience:
+      thesis_value: 0.9
+      evidence_value: 0.95
+      recurrence: 0.8
+      error_prevention_value: 0.98
+      user_friction: 0.85
+      retrieval_cost: 0.08
+      stale_risk: 0.08
+      interference_risk: 0.12
+      synthetic_contamination_risk: 0.0
+
+  - memory_id: no_autonomy_over_thesis_progress
+    trap: optimizing Codex autonomy, dreams, or agentic cleverness when it does not improve thesis-progress-per-information-cost
+    source_pointer:
+      path: agent_context/policies/AGENTIC_OS_HARDENING.md
+      kind: policy
+    routes:
+      - os_maintenance
+    cue_terms:
+      - autonomy
+      - agentic
+      - dream
+      - self-improvement
+      - cleverness
+      - automation
+      - thesis
+      - efficiency
+    relation_type: warning_only
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: warning only
+    first_safe_action: prove the automation reduces duplicated work, repeated correction, stale state, or evidence risk
+    required_waking_check: run doctor/resolver validation and keep external/science/task mutations behind existing approval gates
+    salience:
+      thesis_value: 0.86
+      evidence_value: 0.85
+      recurrence: 0.9
+      error_prevention_value: 0.9
+      user_friction: 0.8
+      retrieval_cost: 0.08
+      stale_risk: 0.08
+      interference_risk: 0.14
+      synthetic_contamination_risk: 0.0
+
+  - memory_id: no_philosophy_context_bloat
+    trap: loading philosophical framing as broad context instead of using it as a compact thesis-priority decision prior
+    source_pointer:
+      path: agent_context/policies/AGENTIC_OS_HARDENING.md
+      kind: policy
+    routes:
+      - os_maintenance
+      - task_capture
+    cue_terms:
+      - philosophy
+      - heidegger
+      - finitude
+      - care
+      - context
+      - bloat
+      - prompt
+      - essay
+    relation_type: warning_only
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: warning only
+    first_safe_action: reduce the framing to terminal artifact, critical-path class, opportunity cost, and safe next action
+    required_waking_check: keep context-pack and daily-cockpit output short enough to scan
+    salience:
+      thesis_value: 0.8
+      evidence_value: 0.8
+      recurrence: 0.9
+      error_prevention_value: 0.9
+      user_friction: 0.9
+      retrieval_cost: 0.08
+      stale_risk: 0.08
+      interference_risk: 0.18
+      synthetic_contamination_risk: 0.0
+
+  - memory_id: no_slide_polish_over_stale_provenance
+    trap: polishing a slide while the core plot, result, source object, or artifact provenance remains stale or unverified
+    source_pointer:
+      path: agent_context/policies/SLIDES_WORKFLOW.md
+      kind: policy
+    routes:
+      - slide_scripting
+      - plot_generation
+    cue_terms:
+      - slide
+      - polish
+      - clean
+      - prettier
+      - plot
+      - provenance
+      - stale
+      - source
+      - ready
+      - thesis
+    relation_type: warning_only
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: warning only
+    first_safe_action: verify plot source, artifact registry, visual QA, and claim support before spending time on polish
+    required_waking_check: cite artifact path and provenance or mark the slide as visual draft only
+    salience:
+      thesis_value: 0.92
+      evidence_value: 0.95
+      recurrence: 0.85
+      error_prevention_value: 0.95
+      user_friction: 0.9
+      retrieval_cost: 0.08
+      stale_risk: 0.08
+      interference_risk: 0.1
+      synthetic_contamination_risk: 0.0
+
+  - memory_id: no_skip_boring_validation_for_claim
+    trap: avoiding a boring validation, provenance, duplicate, or ROOT check even though it gates a thesis-facing claim
+    source_pointer:
+      path: agent_context/THESIS_NARRATIVE_MAP.md
+      kind: narrative_map
+    routes:
+      - plot_generation
+      - training_production
+      - active_job_status
+      - slide_scripting
+    cue_terms:
+      - validation
+      - boring
+      - check
+      - provenance
+      - root
+      - duplicate
+      - claim
+      - ready
+      - thesis
+      - slide
+    relation_type: warning_only
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: warning only
+    first_safe_action: run or name the smallest validation that gates the claim before calling it ready
+    required_waking_check: cite command output, artifact registry entry, ROOT inspection, or duplicate-guard evidence
+    salience:
+      thesis_value: 0.96
+      evidence_value: 0.98
+      recurrence: 0.85
+      error_prevention_value: 0.98
+      user_friction: 0.9
+      retrieval_cost: 0.08
+      stale_risk: 0.08
+      interference_risk: 0.1
+      synthetic_contamination_risk: 0.0

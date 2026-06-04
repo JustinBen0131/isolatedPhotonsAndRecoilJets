@@ -16,6 +16,25 @@ The scientific center is PPG19 Au+Au gamma-jet / `x_{J#gamma}`. PPG18 pp
 gamma-jet is the validated baseline. PPG12 supplies the prompt-photon ID,
 isolation, purity, BDT/NPB, and pp-infrastructure reference layer.
 
+## Terminal Artifact Ladder
+
+Prefer lower-numbered rungs until they are safe enough. Later-rung work may
+move earlier only when it directly unlocks or protects the minimal publishable
+path.
+
+1. Minimal publishable Au+Au BDT isolated photon result.
+2. Minimal publishable pp photon and pp gamma-jet baseline.
+3. Minimal publishable Au+Au gamma-jet result.
+4. pp vs Au+Au `x_{J#gamma}` overlay.
+5. unfolding, systematic, and provenance path where feasible.
+6. thesis-facing plots, scripts, slides, speaker scripts, and narrative.
+7. novelty, advanced ML, alternate photon definitions, and broader extensions
+   after baseline safety.
+
+Minimal publishable baseline comes before novelty unless the novelty is a
+bounded test that directly unlocks the baseline, prevents a major failure, or
+protects provenance.
+
 ## Justin's Position
 
 Justin is both physics owner and operating-system owner for this work: PPG19
@@ -61,6 +80,17 @@ judgment.
   inclusive regression reproduces the validated inclusive result.
 - Active HP2026 slide work should privilege accepted PPG12/PPG18 material first,
   then use new Justin-made plots only when they close an actual gap.
+
+## Highest-Value Missing Artifacts
+
+- HP2026 photon-ID talk package: public/approved PPG12-first slides, spoken
+  scripts, approval caveats, and backup material ready for collaborator review.
+- pp baseline closure: source-verified Shuhang/PPG12 score overlays after
+  stitching, ET/eta weighting, and selection differences are controlled.
+- ML model-choice closure: WP80 fake-rate, isolation/ABCD closure, score-shape
+  stability, and pathological-bin checks supporting one production-primary BDT.
+- Au+Au final-analysis bridge: response/unfolding-ready artifacts that connect
+  validated photon ID to the final `x_{J#gamma}` physics claim.
 
 ## Symbiotic Working Model
 

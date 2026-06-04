@@ -72,6 +72,60 @@ def working_point(data: dict[str, Any]) -> str:
     return f"{label}: {url}"
 
 
+def clean_bullet(line: str) -> str:
+    return line.strip().lstrip("-").strip()
+
+
+def first_non_os_live_action(workstreams: list[dict[str, Any]]) -> str:
+    for priority in ("P0", "P1"):
+        for item in workstreams:
+            wid = str(item.get("workstream_id") or "")
+            if item.get("status") not in LIVE_STATUSES or item.get("priority") != priority:
+                continue
+            if wid.startswith("codex_os") or "os_" in wid:
+                continue
+            title = first_line(item.get("title")) or wid
+            action = first_line(item.get("current_next_action")) or "check register for next action"
+            return f"{title}: {action}"
+    return "none surfaced from live non-OS P0/P1 workstreams"
+
+
+def first_terminal_target() -> str:
+    ladder = extract_section(Path("agent_context/THESIS_NARRATIVE_MAP.md"), "## Terminal Artifact Ladder", max_lines=10)
+    for line in ladder:
+        cleaned = clean_bullet(line)
+        if cleaned.startswith("1. "):
+            return cleaned[3:].strip()
+    return "minimal publishable Au+Au BDT isolated photon result"
+
+
+def highest_opportunity_cost_distraction(workstreams: list[dict[str, Any]]) -> str:
+    for item in workstreams:
+        if item.get("status") not in LIVE_STATUSES:
+            continue
+        critical_class = str(item.get("critical_path_class") or "")
+        novelty_gate = str(item.get("novelty_gate") or "")
+        if critical_class == "distraction_risk" or novelty_gate in {"defer_until_baseline_safe", "blocked_by_missing_evidence"}:
+            title = first_line(item.get("title")) or first_line(item.get("workstream_id")) or "unnamed workstream"
+            cost = first_line(item.get("opportunity_cost")) or "displaces terminal-path work"
+            return f"{title}: {cost}"
+    return "none flagged in live register"
+
+
+def render_goal_awareness(data: dict[str, Any], workstreams: list[dict[str, Any]]) -> None:
+    sharp_edges = extract_section(Path("agent_context/THESIS_NARRATIVE_MAP.md"), "## Current Sharp Edges", max_lines=4)
+    gaps = extract_section(Path("agent_context/THESIS_NARRATIVE_MAP.md"), "## Highest-Value Missing Artifacts", max_lines=4)
+    dangerous_assumption = clean_bullet(sharp_edges[0]) if sharp_edges else "none listed"
+    highest_gap = clean_bullet(gaps[0]) if gaps else "none listed"
+    print("## Thesis Goal Awareness")
+    print(f"- Current terminal target: {first_terminal_target()}")
+    print(f"- Next thesis-closing action: {first_non_os_live_action(workstreams)}")
+    print(f"- Most dangerous stale assumption: {dangerous_assumption}")
+    print(f"- Highest-value missing artifact: {highest_gap}")
+    print(f"- Highest opportunity-cost distraction: {highest_opportunity_cost_distraction(workstreams)}")
+    print()
+
+
 def stale_rows(workstreams: list[dict[str, Any]], now: datetime) -> list[dict[str, Any]]:
     rows = []
     for item in workstreams:
@@ -239,6 +293,7 @@ def main() -> int:
     for line in north_star:
         print(line)
     print()
+    render_goal_awareness(data, workstreams)
 
     if args.task:
         render_task_resonance(args.task)

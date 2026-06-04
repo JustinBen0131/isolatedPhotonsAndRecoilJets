@@ -234,6 +234,106 @@ def compact_text(value: object, *, limit: int = 240) -> str:
     return text[: limit - 1].rstrip() + "..."
 
 
+def read_legacy_digest_section(item: dict[str, Any], heading: str, *, limit: int = 3, text_limit: int = 260) -> list[str]:
+    run_dir = item.get("run_dir")
+    if not isinstance(run_dir, str) or not run_dir:
+        return []
+    path = Path(run_dir) / "lane_digest.md"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    lines = text.splitlines()
+    rows: list[str] = []
+    in_section = False
+    target = f"## {heading}".strip()
+    for line in lines:
+        stripped = line.strip()
+        if stripped == target:
+            in_section = True
+            continue
+        if in_section and stripped.startswith("## "):
+            break
+        if not in_section or not stripped.startswith("- "):
+            continue
+        cleaned = stripped[2:].strip()
+        if cleaned and cleaned.lower() != "none":
+            rows.append(compact_text(cleaned, limit=text_limit))
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def legacy_after_action_rows(item: dict[str, Any], key: str, *, limit: int = 3, text_limit: int = 260) -> list[str]:
+    lane = str(item.get("lane_id") or "")
+    if key == "what_happened":
+        rows = [
+            f"Ran the scheduled `{lane}` dream lane, but this older summary used the compact pre-after-action schema.",
+            f"Legacy result: {compact_text(item.get('one_line_result') or 'no one-line result', limit=text_limit)}",
+        ]
+        rows.extend(read_legacy_digest_section(item, "What Changed", limit=1, text_limit=text_limit))
+        return rows[:limit]
+    if key == "what_was_researched":
+        rows = read_legacy_digest_section(item, "First-Class Research Scout Subtasks", limit=limit, text_limit=text_limit)
+        if not rows:
+            rows = [f"Analyzed local `{lane}` surfaces only; no authenticated external research is represented in this legacy summary."]
+        return rows[:limit]
+    if key == "what_was_learned":
+        rows = read_legacy_digest_section(item, "Top 3 Lane Findings", limit=limit, text_limit=text_limit)
+        if not rows and item.get("deferred") and str(item.get("deferred")) != "none":
+            rows = [str(item.get("deferred"))]
+        return [compact_text(row, limit=text_limit) for row in rows[:limit]]
+    if key == "what_changed":
+        rows = read_legacy_digest_section(item, "What Changed", limit=limit, text_limit=text_limit)
+        if not rows:
+            changed = item.get("changed")
+            rows = [f"Legacy changed field: {changed}" if changed and str(changed) != "none" else "No local mutation was recorded by the legacy summary."]
+        return rows[:limit]
+    if key == "what_should_change_after_approval":
+        rows = read_legacy_digest_section(item, "Best Next Internal Fix", limit=limit, text_limit=text_limit)
+        if not rows and item.get("deferred") and str(item.get("deferred")) != "none":
+            rows = [f"Validate before acting: {item.get('deferred')}"]
+        return rows[:limit]
+    if key == "waking_next_checks":
+        rows = read_legacy_digest_section(item, "Top 3 Proposed Morning Actions", limit=limit, text_limit=text_limit)
+        if not rows:
+            rows = ["No lane-local waking check was recorded by the legacy summary."]
+        return rows[:limit]
+    if key == "quality_feedback":
+        return [
+            "This is a legacy compact dream summary; future scheduled runs now emit richer after-action fields with timing, learning, research, and approval-gated follow-up.",
+        ][:limit]
+    return []
+
+
+def after_action_rows(item: dict[str, Any], key: str, *, limit: int = 3, text_limit: int = 260) -> list[str]:
+    after = item.get("after_action") if isinstance(item.get("after_action"), dict) else {}
+    rows = after.get(key) if isinstance(after.get(key), list) else []
+    if rows:
+        return [compact_text(row, limit=text_limit) for row in rows[:limit] if compact_text(row, limit=text_limit)]
+    return legacy_after_action_rows(item, key, limit=limit, text_limit=text_limit)
+
+
+def run_timing_phrase(item: dict[str, Any]) -> str:
+    after = item.get("after_action") if isinstance(item.get("after_action"), dict) else {}
+    timing = after.get("run_timing") if isinstance(after.get("run_timing"), dict) else {}
+    elapsed = timing.get("elapsed_seconds")
+    started = timing.get("started_at")
+    if elapsed not in {None, ""}:
+        return f"elapsed {elapsed}s"
+    if started:
+        return f"started {started}"
+    return "timing unavailable"
+
+
+def append_subbullets(lines: list[str], label: str, rows: list[str]) -> None:
+    if not rows:
+        return
+    lines.append(f"  - {label}:")
+    for row in rows:
+        lines.append(f"    - {row}")
+
+
 def markdown_bullets(payloads: list[dict[str, Any]], missing_lane_ids: list[str] | None = None) -> list[str]:
     lines: list[str] = []
     missing = missing_lane_ids or []
@@ -248,12 +348,28 @@ def markdown_bullets(payloads: list[dict[str, Any]], missing_lane_ids: list[str]
         lane = str(item.get("lane_id") or "")
         result = compact_text(item.get("one_line_result") or "no summary")
         purpose = LANE_PURPOSES.get(lane, "checks one scheduled dream lane")
-        lines.append(f"- **{lane_label(lane)} - {status_phrase(item.get('status'))}:** {purpose}.")
-        lines.append(f"  - Result: {result}")
+        lines.append(f"- **{lane_label(lane)} - {status_phrase(item.get('status'))} ({run_timing_phrase(item)}):** {purpose}.")
+        happened = after_action_rows(item, "what_happened", limit=2)
+        learned = after_action_rows(item, "what_was_learned", limit=3)
+        researched = after_action_rows(item, "what_was_researched", limit=2)
+        changed_rows = after_action_rows(item, "what_changed", limit=2)
+        approval_rows = after_action_rows(item, "what_should_change_after_approval", limit=2)
+        next_rows = after_action_rows(item, "waking_next_checks", limit=2)
+        quality_rows = after_action_rows(item, "quality_feedback", limit=2)
+        if happened:
+            append_subbullets(lines, "What happened", happened)
+        else:
+            lines.append(f"  - Result: {result}")
+        append_subbullets(lines, "Researched / analyzed", researched)
+        append_subbullets(lines, "Learned", learned)
+        append_subbullets(lines, "Changed locally", changed_rows)
         if item.get("changed") and str(item.get("changed")) != "none":
-            lines.append(f"  - Changed: {compact_text(item.get('changed'))}")
+            lines.append(f"  - Legacy changed field: {compact_text(item.get('changed'))}")
+        append_subbullets(lines, "Approval-gated follow-up", approval_rows)
         if item.get("deferred") and str(item.get("deferred")) != "none":
-            lines.append(f"  - Waking check: {compact_text(item.get('deferred'))}")
+            lines.append(f"  - Legacy deferred field: {compact_text(item.get('deferred'))}")
+        append_subbullets(lines, "Next waking check", next_rows)
+        append_subbullets(lines, "Quality feedback", quality_rows)
         evidence = item.get("evidence")
         if evidence:
             lines.append(f"  - Evidence: {compact_text(evidence)}")
@@ -289,6 +405,7 @@ def build_combined_summary(
     deferred = [item for item in payloads if item.get("status") == "deferred"]
     failed = [item for item in payloads if item.get("status") == "failed"]
     markdown = "\n".join(["## Overnight Dream Updates", *markdown_bullets(payloads, missing), ""])
+    detailed = "\n".join(["# Overnight Dream After-Action Detail", *markdown_bullets(payloads, missing), ""])
     return {
         "generated_at": current.isoformat(timespec="seconds"),
         "window": window,
@@ -302,6 +419,7 @@ def build_combined_summary(
         "counts": counts,
         "top_updates": payloads[:6],
         "daily_doc_markdown": markdown,
+        "detailed_markdown": detailed,
     }
 
 

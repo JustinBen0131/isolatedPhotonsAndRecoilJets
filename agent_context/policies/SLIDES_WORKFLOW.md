@@ -92,6 +92,29 @@ Google Slides edit.
   stricter release/label constraints, but internal audiences still deserve
   clean hierarchy, readable text, consistent typography, uncluttered
   composition, and digestible claim/evidence/implication structure.
+- Audience readability is a hard baseline, not a final polish pass. For
+  generated 16:9 `2560x1440` full-slide PNG candidates, use title typography
+  equivalent to at least 24-26 pt, and larger when white space allows. Section
+  labels, card titles, plot labels, and text-box lead lines should be
+  equivalent to at least 16 pt. Body text inside callout cards or colored text
+  boxes should be equivalent to at least 13-14 pt. If the text does not fit at
+  those sizes, reduce wording, split the idea across slides, or change the
+  layout; do not silently shrink audience-facing text below readability.
+- Full-slide candidates should balance context, specificity, digestibility, and
+  visual hierarchy without requiring Justin to catch repeated readability
+  problems. Prefer fewer, sharper audience-facing statements over dense
+  paragraphs. Each slide should make clear what object is shown, why it matters,
+  and what conclusion the audience should carry forward.
+- In explanatory boxes that define categories, samples, symbols, or comparison
+  logic, structure the text as readable rows rather than one paragraph. Bold
+  the lead label, for example `Signal =` or `Inclusive =`, put distinct
+  definitions on separate lines, and separate the concluding question or
+  takeaway into its own line. Avoid burying multiple definitions and the key
+  interpretation in a single wrapped chunk.
+- For panel/card shadows, use the Google Slides-style baseline unless a
+  specific visual reason justifies a variation: black shadow, opacity 18%,
+  angle 60 degrees, distance 4 px, blur radius 14 px. Avoid heavy drop shadows
+  that compete with the plot or make internal analysis slides look decorative.
 - For public HP2026 PPG12 photon slides, final PPG12 plot images must come
   from the current PPG12 paper PDF or from another explicitly public/approved
   source recorded in the manifest. IAN plots, internal ROOT/data-generated
@@ -278,6 +301,82 @@ Match Justin's preferred slide language: concise bullets above plots, clear
 hierarchy, bold lead phrases, organized sub-bullets when helpful, and a
 claim/evidence/implication flow. Preserve the essence of Justin's wording while
 making it easier to scan and explain aloud.
+
+## Iteration Learning Loop
+
+When Justin reacts to a generated plot, full-slide candidate, or speaker script
+with feedback such as "wrong", "too busy", "hard to read", "not what I meant",
+"make it cleaner", "do it like yesterday", or repeated geometry/style
+corrections, treat the feedback as both an artifact fix and a reusable training
+signal.
+
+For each non-trivial iteration:
+
+1. Fix the requested artifact directly and keep the response focused on the
+   requested change.
+2. Identify the general failure mode in one sentence: for example, unreadable
+   hierarchy, over-dense text, weak scan path, wrong plot/source object,
+   bad legend placement, mismatched comparison definition, too much blue/bold
+   styling, or failure to preserve a proven layout.
+3. Decide whether the lesson is local or durable. Local lessons stay in the
+   slide/script manifest or chat handoff; durable lessons go into
+   `agent_context/SLIDE_STYLE_MAP.md`, this policy, `PLOTTING.md`, or the
+   relevant generator defaults.
+4. If the same correction appears twice across nearby iterations, promote it
+   from a one-off preference into a default checklist item for that plot family
+   or slide type.
+5. Do not over-record every aesthetic opinion. Record only rules that reduce
+   future repeated correction, prevent scientific miscommunication, or improve
+   Justin's visual parsing.
+
+The practical question after any failed candidate is: "What should future
+Codex do differently so Justin does not need to make this same correction
+again?" Apply that answer before generating the next version when it is safe
+and scoped.
+
+## Slide Candidate Self-Audit
+
+Before showing Justin a serious slide-facing artifact, run this audit and fix
+failures before handoff:
+
+- correct source object: approved/reference plot used when one exists; no
+  accidental recreation of an approved artifact;
+- audience-facing canvas: no internal notes, Codex instructions, provenance
+  minutiae, implementation reminders, or private next actions on the slide;
+- readable typography: title, section labels, card text, axes, legend, and
+  annotations are readable at meeting scale;
+- true superscript/subscript: no caret notation for visual units or physics
+  labels that should be typeset;
+- clean hierarchy and whitespace: one main scan path, no box collisions,
+  legend-axis crowding, tiny captions, or over-dense callout text;
+- slide numbers/provenance: no baked slide numbers and no tiny visible
+  `Source:` footers unless Justin explicitly asks;
+- speaker script: companion script exists and reads as Justin's spoken
+  narration, not as a generic outline or private notes;
+- mutation boundary: Google Slides is untouched unless Justin approved deck
+  mutation for the current target deck/slide.
+
+If an audit item fails, regenerate or revise before presenting the artifact as
+ready. If the failure repeats across iterations, promote it through the
+feedback-ingestion loop.
+
+## Feedback Ingestion
+
+After Justin correction, record the smallest lesson that prevents recurrence.
+
+- Classify the correction: style/narrative, physics/science,
+  provenance/evidence, workflow/safety, retrieval failure, memory salience
+  failure, task/status failure, tool/runtime failure, or artifact-quality
+  failure.
+- Decide local versus durable. Local corrections go in the artifact manifest or
+  handoff. Durable corrections go in `agent_context/SLIDE_STYLE_MAP.md`, this
+  policy, `PLOTTING.md`, a generator default, a negative memory trap, or a
+  validator.
+- Cite evidence: user correction, slide ID, PNG path, deck link, source plot,
+  command output, manifest, or visual QA note.
+- Do not record every small taste change. Record only lessons that reduce
+  repeated user correction, prevent source/provenance mistakes, or protect the
+  science story.
 
 ## Verification
 

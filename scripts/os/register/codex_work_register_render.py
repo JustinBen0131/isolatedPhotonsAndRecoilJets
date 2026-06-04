@@ -31,11 +31,13 @@ except Exception:  # pragma: no cover - renderer must stay useful if optional dr
 LIVE_STATUSES = {"active", "running", "waiting", "blocked", "review"}
 ACTIVE_NOW_STATUSES = {"active", "running"}
 TOP_ORDER = {
-    "hp26_photon_id_talk": 0,
-    "pp_exact_stitch_ppg12_baseline": 1,
-    "jet40_embedded_inclusive_stitching": 2,
-    "ml_final_model_ablation_map": 3,
-    "et_eta_reweighting_explanation": 4,
+    "ml_final_model_ablation_map": 0,
+    "hp26_photon_id_talk": 1,
+    "pdc_calo_calibrations_presentation": 2,
+    "central_low_calo_energy_bdt_cuts": 8,
+    "pp_exact_stitch_ppg12_baseline": 4,
+    "jet40_embedded_inclusive_stitching": 5,
+    "et_eta_reweighting_explanation": 6,
 }
 
 

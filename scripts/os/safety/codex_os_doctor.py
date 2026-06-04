@@ -44,6 +44,7 @@ BASE_REQUIRED_FILES = [
     Path("agent_context/CODEX_WORK_REGISTER.yaml"),
     Path("agent_context/ARTIFACT_REGISTRY.yaml"),
     Path("agent_context/THESIS_NARRATIVE_MAP.md"),
+    Path("agent_context/SLIDE_STYLE_MAP.md"),
     Path("agent_context/policies/CODEX_OPERATING_SYSTEM.md"),
     Path("agent_context/policies/AGENTIC_OS_HARDENING.md"),
     Path("agent_context/policies/AGENTIC_OS_DREAMING.md"),
@@ -57,6 +58,10 @@ BASE_REQUIRED_FILES = [
     Path("agent_context/memory/SCHEMA_REGISTRY.yaml"),
     Path("agent_context/memory/NEGATIVE_MEMORY_MAP.yaml"),
     Path("agent_context/templates/OS_POSTMORTEM_TEMPLATE.md"),
+    Path("agent_context/templates/DREAM_LEARNING_ATOM_TEMPLATE.md"),
+    Path("agent_context/templates/OS_REFLECTION_TEMPLATE.md"),
+    Path("agent_context/templates/SLIDE_FEEDBACK_TEMPLATE.md"),
+    Path("agent_context/templates/TRAJECTORY_LEARNING_TEMPLATE.md"),
     Path("scripts/os/artifacts/codex_artifact_registry.py"),
     Path("scripts/os/context/codex_context_pack.py"),
     Path("scripts/os/context/codex_context_resonance.py"),
@@ -98,6 +103,50 @@ EXPECTED_DREAM_LANE_IDS = (
     "science_scout",
     "presentation_artifacts",
 )
+REQUIRED_SLIDE_MEMORY_IDS = {
+    "slide_candidate_self_audit_contract",
+    "slide_feedback_to_style_memory",
+    "source_first_slide_generation",
+    "justin_spoken_script_contract",
+    "thesis_goal_awareness_compact",
+}
+REQUIRED_SLIDE_NEGATIVE_IDS = {
+    "no_slide_without_self_audit",
+    "no_slide_style_map_omission",
+    "no_tiny_text_or_clutter_regression",
+    "no_internal_notes_on_slide_canvas",
+    "no_generic_speaker_outline",
+    "no_policy_correction_left_in_chat",
+    "no_recreate_approved_source_plot",
+}
+REQUIRED_SLIDE_SCHEMA_IDS = {
+    "slide_candidate_readiness_schema",
+    "slide_feedback_ingestion_schema",
+    "reflection_record_schema",
+    "trajectory_learning_record_schema",
+    "task_outcome_record_schema",
+}
+REQUIRED_DREAM_SCHEMA_IDS = {
+    "dream_learning_atom_schema",
+    "dream_promotion_protocol_schema",
+}
+REQUIRED_CARE_MEMORY_IDS = {
+    "thesis_finitude_care_kernel",
+    "minimal_publishable_path_before_novelty",
+}
+REQUIRED_CARE_NEGATIVE_IDS = {
+    "no_novelty_before_minimal_publishable_baseline",
+    "no_meta_os_as_progress",
+    "no_finite_time_artifact_leak_repetition",
+    "no_dream_physics_without_evidence",
+    "no_autonomy_over_thesis_progress",
+    "no_philosophy_context_bloat",
+    "no_slide_polish_over_stale_provenance",
+    "no_skip_boring_validation_for_claim",
+}
+REQUIRED_CARE_SCHEMA_IDS = {
+    "thesis_finitude_task_classification_schema",
+}
 
 
 @dataclass
@@ -119,6 +168,24 @@ def json_of(path: Path) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def jsonl_objects(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return rows
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            rows.append(payload)
+    return rows
 
 
 def add(findings: list[Finding], severity: str, message: str) -> None:
@@ -248,6 +315,166 @@ def check_memory_architecture(findings: list[Finding]) -> None:
                 add(findings, "ERROR", f"{path} {memory_id}: missing source pointer")
             elif source.startswith(("agent_context/", "scripts/", "codex_notes/", "macros/")) and not Path(source).exists():
                 add(findings, "ERROR", f"{path} {memory_id}: local source pointer does not exist: {source}")
+
+
+def registry_ids(path: Path, list_key: str) -> set[str]:
+    try:
+        data = load_register(path)
+    except (RegisterError, OSError, RuntimeError):
+        return set()
+    rows = data.get(list_key) if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return set()
+    ids: set[str] = set()
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        memory_id = first_line(item.get("memory_id") or item.get("schema_id") or item.get("id"))
+        if memory_id:
+            ids.add(memory_id)
+    return ids
+
+
+def check_slide_regression_contract(findings: list[Finding]) -> None:
+    agents = text_of(Path("AGENTS.md"))
+    slides = text_of(Path("agent_context/policies/SLIDES_WORKFLOW.md"))
+    plotting = text_of(Path("agent_context/policies/PLOTTING.md"))
+    style_map = text_of(Path("agent_context/SLIDE_STYLE_MAP.md"))
+
+    for term in ("Self-Improvement Reflex", "Slide Regression Reflex", "Context Budget Reflex"):
+        if term not in agents:
+            add(findings, "ERROR", f"AGENTS.md lacks {term}")
+
+    for term in ("Slide Candidate Self-Audit", "Feedback Ingestion", "Iteration Learning Loop"):
+        if term not in slides:
+            add(findings, "ERROR", f"SLIDES_WORKFLOW.md lacks {term}")
+    if "Plot Feedback Ingestion" not in plotting:
+        add(findings, "ERROR", "PLOTTING.md lacks Plot Feedback Ingestion")
+    if "Regression Prevention Defaults" not in style_map:
+        add(findings, "ERROR", "SLIDE_STYLE_MAP.md lacks Regression Prevention Defaults")
+
+    memory_ids = registry_ids(Path("agent_context/memory/CONTEXT_RESONANCE_INDEX.yaml"), "memory_records")
+    missing_memory = sorted(REQUIRED_SLIDE_MEMORY_IDS - memory_ids)
+    if missing_memory:
+        add(findings, "ERROR", f"slide-regression memory records missing: {', '.join(missing_memory)}")
+
+    negative_ids = registry_ids(Path("agent_context/memory/NEGATIVE_MEMORY_MAP.yaml"), "negative_memories")
+    missing_negative = sorted(REQUIRED_SLIDE_NEGATIVE_IDS - negative_ids)
+    if missing_negative:
+        add(findings, "ERROR", f"slide-regression negative memories missing: {', '.join(missing_negative)}")
+
+    schema_ids = registry_ids(Path("agent_context/memory/SCHEMA_REGISTRY.yaml"), "schemas")
+    missing_schemas = sorted(REQUIRED_SLIDE_SCHEMA_IDS - schema_ids)
+    if missing_schemas:
+        add(findings, "ERROR", f"slide-regression schemas missing: {', '.join(missing_schemas)}")
+
+
+def check_dream_learning_atom_contract(findings: list[Finding]) -> None:
+    dreaming = text_of(Path("agent_context/policies/AGENTIC_OS_DREAMING.md"))
+    hardening = text_of(Path("agent_context/policies/AGENTIC_OS_HARDENING.md"))
+    memory = text_of(Path("agent_context/policies/MEMORY_AND_STATUS.md"))
+    template = text_of(Path("agent_context/templates/DREAM_LEARNING_ATOM_TEMPLATE.md"))
+    for term in (
+        "Learning Atoms And Waking Promotion",
+        "learning_atoms.jsonl",
+        "preserve_raw_episode",
+        "proposal_only",
+    ):
+        if term not in dreaming:
+            add(findings, "ERROR", f"AGENTIC_OS_DREAMING.md lacks dream learning atom term: {term}")
+    for term in ("proposal-only", "validator", "raw episode"):
+        if term not in hardening:
+            add(findings, "ERROR", f"AGENTIC_OS_HARDENING.md lacks dream promotion guard: {term}")
+    if "learning_atoms.jsonl" not in memory or "not durable memory" not in memory:
+        add(findings, "ERROR", "MEMORY_AND_STATUS.md lacks learning atom memory-boundary language")
+    for term in ("learning_atom_id", "evidence_refs", "promotion", "retention", "preserve_raw_episode"):
+        if term not in template:
+            add(findings, "ERROR", f"DREAM_LEARNING_ATOM_TEMPLATE.md lacks {term}")
+    schema_ids = registry_ids(Path("agent_context/memory/SCHEMA_REGISTRY.yaml"), "schemas")
+    missing_schemas = sorted(REQUIRED_DREAM_SCHEMA_IDS - schema_ids)
+    if missing_schemas:
+        add(findings, "ERROR", f"dream learning atom schemas missing: {', '.join(missing_schemas)}")
+
+
+def check_care_kernel_contract(findings: list[Finding]) -> None:
+    agents = text_of(Path("AGENTS.md"))
+    hardening = text_of(Path("agent_context/policies/AGENTIC_OS_HARDENING.md"))
+    memory = text_of(Path("agent_context/policies/MEMORY_AND_STATUS.md"))
+    narrative = text_of(Path("agent_context/THESIS_NARRATIVE_MAP.md"))
+    context_pack = text_of(Path("scripts/os/context/codex_context_pack.py"))
+    context_resonance = text_of(Path("scripts/os/context/codex_context_resonance.py"))
+    dreaming = text_of(Path("scripts/os/dream/codex_os_dream.py"))
+
+    for term in ("Thesis Finitude Reflex", "minimal publishable thesis path", "finite object is the thesis project"):
+        if term not in agents:
+            add(findings, "ERROR", f"AGENTS.md lacks care-kernel reflex term: {term}")
+    for term in (
+        "Thesis Finitude & Care Kernel",
+        "terminal_path",
+        "risk_reduction",
+        "artifact_quality_multiplier",
+        "evidence_integrity",
+        "workflow_compounding",
+        "novelty_after_baseline",
+        "distraction_risk",
+        "blocked_by_missing_evidence",
+    ):
+        if term not in hardening:
+            add(findings, "ERROR", f"AGENTIC_OS_HARDENING.md lacks care-kernel term: {term}")
+    if "Terminal Artifact Ladder" not in narrative or "Minimal publishable Au+Au BDT isolated photon result" not in narrative:
+        add(findings, "ERROR", "THESIS_NARRATIVE_MAP.md lacks terminal artifact ladder")
+    if "critical_path_class" not in memory or "next_thesis_closing_action" not in memory:
+        add(findings, "ERROR", "MEMORY_AND_STATUS.md lacks critical-path optional field guidance")
+    if "Current terminal target" not in context_pack or "Highest opportunity-cost distraction" not in context_pack:
+        add(findings, "ERROR", "context pack lacks compact finitude horizon lines")
+    if len([line for line in context_pack.splitlines() if "Thesis Goal Awareness" in line or "terminal" in line.lower() or "opportunity-cost" in line.lower()]) > 24:
+        add(findings, "WARN", "context pack finitude support may be too verbose")
+    for term in (
+        "terminal_path_alignment",
+        "finitude_pressure",
+        "regret_if_unfixed",
+        "minimal_publishable_path_impact",
+        "novelty_gate",
+        "recommended_waking_action",
+    ):
+        if term not in dreaming:
+            add(findings, "ERROR", f"dream atom code lacks finitude field: {term}")
+
+    memory_ids = registry_ids(Path("agent_context/memory/CONTEXT_RESONANCE_INDEX.yaml"), "memory_records")
+    missing_memory = sorted(REQUIRED_CARE_MEMORY_IDS - memory_ids)
+    if missing_memory:
+        add(findings, "ERROR", f"care-kernel memory records missing: {', '.join(missing_memory)}")
+    negative_ids = registry_ids(Path("agent_context/memory/NEGATIVE_MEMORY_MAP.yaml"), "negative_memories")
+    missing_negative = sorted(REQUIRED_CARE_NEGATIVE_IDS - negative_ids)
+    if missing_negative:
+        add(findings, "ERROR", f"care-kernel negative memories missing: {', '.join(missing_negative)}")
+    schema_ids = registry_ids(Path("agent_context/memory/SCHEMA_REGISTRY.yaml"), "schemas")
+    missing_schema = sorted(REQUIRED_CARE_SCHEMA_IDS - schema_ids)
+    if missing_schema:
+        add(findings, "ERROR", f"care-kernel schemas missing: {', '.join(missing_schema)}")
+
+    for task in (
+        "what should I do next to close the thesis fastest without sacrificing physics accuracy",
+        "should I pursue novel ML or finish the minimal publishable AuAu gamma-jet baseline first",
+        "generate a thesis-facing xJgamma slide without wasting time or repeating old formatting mistakes",
+        "nightly dream finds a speculative physics idea but the baseline result is not safe",
+    ):
+        if task not in context_resonance:
+            add(findings, "ERROR", f"context resonance canary missing care-kernel task: {task}")
+
+    anthropomorphic_bad = (
+        "codex fear",
+        "codex fears",
+        "codex dread",
+        "codex suffers",
+        "codex consciousness",
+        "codex self-preservation",
+        "codex autonomy-seeking",
+    )
+    combined = "\n".join([agents, hardening, memory, narrative]).lower()
+    for phrase in anthropomorphic_bad:
+        if phrase in combined:
+            add(findings, "WARN", f"care-kernel text may drift into anthropomorphic framing: {phrase}")
 
 
 def check_register(data: dict[str, Any], findings: list[Finding], now: datetime) -> None:
@@ -484,6 +711,41 @@ def check_dream_heartbeat(findings: list[Finding], profile: str, now: datetime) 
             add(findings, "ERROR", f"dream lane changed_actions reports science mutation: {lane_id}")
         if changed_actions.get("repo_tracked_mutations_performed") not in {False, None}:
             add(findings, "ERROR", f"dream lane changed_actions reports repo-tracked mutation: {lane_id}")
+        if int(lane_signal.get("version") or 0) >= 9 and path is not None:
+            metrics = lane_signal.get("learning_atom_metrics") if isinstance(lane_signal.get("learning_atom_metrics"), dict) else {}
+            if not metrics:
+                add(findings, "ERROR", f"dream lane {lane_id} version>=9 lacks learning_atom_metrics")
+            atoms = jsonl_objects(path / "learning_atoms.jsonl")
+            if not atoms and int(metrics.get("proposal_count") or 0):
+                add(findings, "ERROR", f"dream lane {lane_id} learning_atoms.jsonl is empty but metrics report proposals")
+            if int(metrics.get("proposal_count") or 0) != len(atoms):
+                add(findings, "ERROR", f"dream lane {lane_id} learning atom count does not match metrics")
+            if int(metrics.get("proposal_count") or 0) > 9:
+                add(findings, "ERROR", f"dream lane {lane_id} exceeds 3/3/3 learning atom quota")
+            for artifact_name in ("learning_atoms.md", "dream_recurrence_index.json", "nightly_heartbeat_signal.json", "morning_appendix.md"):
+                if not (path / artifact_name).exists():
+                    add(findings, "ERROR", f"dream lane {lane_id} missing learning-atom artifact: {artifact_name}")
+            for atom in atoms:
+                atom_id = first_line(atom.get("learning_atom_id")) or "unknown_atom"
+                source = atom.get("source") if isinstance(atom.get("source"), dict) else {}
+                promotion = atom.get("promotion") if isinstance(atom.get("promotion"), dict) else {}
+                retention = atom.get("retention") if isinstance(atom.get("retention"), dict) else {}
+                validators = atom.get("validators") if isinstance(atom.get("validators"), list) else []
+                if not source.get("evidence_refs"):
+                    add(findings, "ERROR", f"dream lane {lane_id} atom {atom_id} lacks evidence refs")
+                if not first_line(atom.get("raw_episode_path")):
+                    add(findings, "ERROR", f"dream lane {lane_id} atom {atom_id} lacks raw episode path")
+                if retention.get("preserve_raw_episode") is not True:
+                    add(findings, "ERROR", f"dream lane {lane_id} atom {atom_id} does not preserve raw episode")
+                if promotion.get("status") != "proposal_only":
+                    add(findings, "WARN", f"dream lane {lane_id} atom {atom_id} is not proposal_only")
+                if not validators:
+                    add(findings, "ERROR", f"dream lane {lane_id} atom {atom_id} lacks validator")
+            if str(metrics.get("maintenance_debt_level") or "") in {"high", "freeze_growth"}:
+                add(findings, "WARN", f"dream lane {lane_id} learning atoms report maintenance_debt_level={metrics.get('maintenance_debt_level')}")
+            lane_summary = lane_signal.get("summary") if isinstance(lane_signal.get("summary"), dict) else {}
+            if int(lane_summary.get("recurring_hotspot_count") or 0) and not atoms:
+                add(findings, "WARN", f"dream lane {lane_id} has recurring prose pressure but no learning atoms")
         if lane_id == "context_resonance":
             resonance = lane_signal.get("context_resonance") if isinstance(lane_signal.get("context_resonance"), dict) else {}
             nudges = resonance.get("latent_context_nudges") if isinstance(resonance.get("latent_context_nudges"), list) else []
@@ -717,6 +979,9 @@ def main() -> int:
     check_required_files(findings, args.profile)
     check_policy_routing(findings)
     check_memory_architecture(findings)
+    check_slide_regression_contract(findings)
+    check_dream_learning_atom_contract(findings)
+    check_care_kernel_contract(findings)
     check_event_log(findings, args.profile)
 
     try:
