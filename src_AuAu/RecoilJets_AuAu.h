@@ -850,6 +850,7 @@ private:
         std::string variant;
         bool binned = false;
         bool grid2d = false;
+        bool centralityLinear = false;
         double intercept = std::numeric_limits<double>::quiet_NaN();
         double slope = 0.0;
         double ptMin = std::numeric_limits<double>::quiet_NaN();
@@ -885,6 +886,7 @@ private:
     bool configuredTightBDTPass(double score, double et) const;
     bool configuredNonTightBDTPass(double score, double et) const;
     TightTag configuredVariantABDTTag(double score, double et) const;
+    struct TruthSignalPhotonInfo;
     void initAuAuBDTTrainingTree();
     void fillAuAuBDTTrainingTree(const SSVars& v,
                                  double eta,
@@ -900,6 +902,20 @@ private:
                                  bool hasAwayJet = false,
                                  double eisoR30 = std::numeric_limits<double>::quiet_NaN(),
                                  double eisoR40 = std::numeric_limits<double>::quiet_NaN());
+    void initTHE44PythiaAutopsyTree();
+    void fillTHE44PythiaAutopsyTree(const SSVars& v,
+                                    double eta,
+                                    double phi,
+                                    double eiso,
+                                    int ptIdx,
+                                    int centIdx,
+                                    bool isSignal,
+                                    int clusterTruthTrackId,
+                                    int clusterTruthPid,
+                                    int clusterTruthBarcode,
+                                    float eContrib,
+                                    const TruthSignalPhotonInfo& matchedTruth,
+                                    const HepMC::GenEvent* evt);
     bool isPPG12DataNPBTaggedCluster(const SSVars& v,
                                      double phi,
                                      double& clusterMbdDeltaT,
@@ -1390,6 +1406,13 @@ private:
     int m_centBin = -1;                 // 0..99 (Au+Au), or -1 in pp
     double m_centPercent = -1.0;        // event centrality percentile (float, used for reweighting)
     std::vector<int> m_centEdges;       // centrality bin edges, e.g. {0,10,20,...,100}
+
+    // Event-level calorimeter sums cached once per accepted event.
+    float m_eventCaloCemcEnergy = 0.0f;
+    float m_eventCaloIhcalEnergy = 0.0f;
+    float m_eventCaloOhcalEnergy = 0.0f;
+    float m_eventCaloTotalEnergy = 0.0f;
+    float m_eventCaloLog10TotalEnergyPlus1 = 0.0f;
     
     // Photon fiducial + binning
     double m_etaAbsMax = 0.7;           // photon |eta| cut
@@ -1774,6 +1797,11 @@ private:
     float m_bdtTrain_cent = -1.0f;
     float m_bdtTrain_vz = 0.0f;
     float m_bdtTrain_weight = 1.0f;
+    float m_bdtTrain_event_calo_cemc_energy = 0.0f;
+    float m_bdtTrain_event_calo_ihcal_energy = 0.0f;
+    float m_bdtTrain_event_calo_ohcal_energy = 0.0f;
+    float m_bdtTrain_event_calo_total_energy = 0.0f;
+    float m_bdtTrain_event_calo_log10_total_energy_plus1 = 0.0f;
     float m_bdtTrain_eiso = 0.0f;
     float m_bdtTrain_eiso_r30 = 0.0f;
     float m_bdtTrain_eiso_r40 = 0.0f;
@@ -1815,6 +1843,57 @@ private:
     float m_bdtTrain_auau_tight_mlp_score = -2.0f;
     float m_bdtTrain_auau_tight_bdt_mlp_score = -2.0f;
     float m_bdtTrain_auau_tight_logreg_score = -2.0f;
+
+    bool m_the44PythiaAutopsyEnabled = false;
+    long long m_the44PythiaAutopsyMaxEntries = 200;
+    long long m_the44PythiaAutopsyEntries = 0;
+    long long m_the44PythiaAutopsyHighBkgEntries = 0;
+    long long m_the44PythiaAutopsyMidSigEntries = 0;
+    double m_the44PythiaAutopsyHighBDTMin = 0.80;
+    double m_the44PythiaAutopsyMidBDTMin = 0.45;
+    double m_the44PythiaAutopsyMidBDTMax = 0.65;
+    double m_the44PythiaAutopsyMinPt = 15.0;
+    double m_the44PythiaAutopsyMaxPt = 35.0;
+    double m_the44PythiaAutopsyParticleCone = 0.30;
+    double m_the44PythiaAutopsyParticleMinPt = 0.30;
+    int m_the44PythiaAutopsyMaxParticles = 64;
+    TTree* m_the44PythiaAutopsyTree = nullptr;
+    int m_the44_run = 0;
+    long long m_the44_evt = 0;
+    int m_the44_category = 0;
+    int m_the44_is_signal = 0;
+    int m_the44_pt_bin = -1;
+    int m_the44_cent_bin = -1;
+    int m_the44_source_sample_code = 0;
+    float m_the44_cluster_et = 0.0f;
+    float m_the44_cluster_eta = 0.0f;
+    float m_the44_cluster_phi = 0.0f;
+    float m_the44_centrality = -1.0f;
+    float m_the44_reco_eiso = 0.0f;
+    float m_the44_bdt_score = -2.0f;
+    float m_the44_npb_score = -2.0f;
+    float m_the44_weta = 0.0f;
+    float m_the44_wphi = 0.0f;
+    float m_the44_e11e33 = 0.0f;
+    float m_the44_e32e35 = 0.0f;
+    int m_the44_cluster_truth_track_id = -1;
+    int m_the44_cluster_truth_pid = 0;
+    int m_the44_cluster_truth_barcode = -1;
+    float m_the44_cluster_truth_econtrib = -999.0f;
+    int m_the44_matched_signal_barcode = -1;
+    float m_the44_matched_signal_pt = -1.0f;
+    float m_the44_matched_signal_eta = -999.0f;
+    float m_the44_matched_signal_phi = -999.0f;
+    float m_the44_matched_signal_iso = -999.0f;
+    std::vector<int> m_the44_part_pdg;
+    std::vector<int> m_the44_part_status;
+    std::vector<int> m_the44_part_barcode;
+    std::vector<int> m_the44_part_parent0_pdg;
+    std::vector<int> m_the44_part_parent1_pdg;
+    std::vector<float> m_the44_part_pt;
+    std::vector<float> m_the44_part_eta;
+    std::vector<float> m_the44_part_phi;
+    std::vector<float> m_the44_part_dr;
 
     bool m_jetMLTrainingTreeEnabled = false;
     long long m_jetMLTrainingTreeMaxEntries = 0;

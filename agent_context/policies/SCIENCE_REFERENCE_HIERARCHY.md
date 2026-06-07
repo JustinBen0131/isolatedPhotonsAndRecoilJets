@@ -29,6 +29,14 @@
 
 - Do not invent photon-ID, purity, unfolding, xJ, BDT/NPB, stitching, or
   systematic conventions when a PPG12/PPG18/ATLAS/PPG08 precedent exists.
+- For pp inclusive-jet stitching and stitched-source diagnostics, the baseline
+  contract is canonical candidate rows, `ppg12_truth_window_pass_r04 > 0.5`,
+  PPG12 sample/event cross-section weights, and recorded sample ownership caps.
+  Keep trees broad enough for diagnostics, but require downstream consumers to
+  apply the truth-window and ownership-cap gates before claiming a coherent
+  stitched pp baseline. For ABCD-facing reco-cluster `E_T` diagnostics, also
+  match the reference ABCD row scope: fixed-iso signal/sideband rows, reference
+  tight or non-tight candidates, and exclusion of isolation-gap/neither rows.
 - For PPG12 photon-ID, BDT/NPB, purity, isolation, pp baseline, and paper
   wording, prefer
   `PPG12_analysis_note_2026-05-21_v4_current_IAN.pdf` and

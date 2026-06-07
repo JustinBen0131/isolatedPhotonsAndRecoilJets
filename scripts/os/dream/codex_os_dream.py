@@ -45,6 +45,14 @@ from codex_context_resonance import (
     render_markdown as render_context_resonance_markdown,
 )
 from codex_thesis_radar import analyze as analyze_thesis_radar
+from pressure_governor import (
+    classify_pressure,
+    classify_register_workstream,
+    decorate_pressure_item,
+    effective_active_jobs,
+    normalize_pressure,
+    pressure_summary,
+)
 
 
 SYNTHETIC_HEADER = "SYNTHETIC DREAM OUTPUT - NOT USER APPROVAL - NOT REAL USER INTENT"
@@ -291,6 +299,38 @@ IDEAL_FIGURE_SPECS = [
         "required_inputs": "PPG12-style references, BDT/ML validation, leakage checks, domain-shift controls",
     },
 ]
+SCIENCE_SCOUT_SCENARIOS = [
+    {
+        "id": "provenance_clean_gamma_jet_modification",
+        "hypothesis": "A nontrivial gamma-jet modification pattern appears only after pp baseline and embedded-background closure are both provenance-clean.",
+        "signature": "shape change persists under baseline, stitching, and closure variations rather than appearing as a normalization artifact",
+        "null_test": "repeat on validated pp or embedding closure surface where no medium modification should appear",
+        "systematic": "photon purity, background stitching, response/unfolding, and stale artifact contamination",
+        "minimal_diagnostic": "waking review of registered artifacts and existing plots only",
+        "why_it_matters": "this is the shortest path from infrastructure correctness to a thesis-facing medium-modification claim",
+        "chatgpt_challenge": "find the strongest non-physics explanations for this pattern and name the first local falsification check",
+    },
+    {
+        "id": "ml_photon_id_control_region_leverage",
+        "hypothesis": "ML photon-ID or isolation behavior exposes a control-region structure that improves final Au+Au gamma-jet sensitivity.",
+        "signature": "robust separation or purity stability across centrality, kinematic, and control-region variations",
+        "null_test": "compare against PPG12-style baseline selection and known-safe pp/reference samples",
+        "systematic": "domain shift, training leakage, sample stitching, and selection sculpting",
+        "minimal_diagnostic": "waking review of registered artifacts and existing plots only",
+        "why_it_matters": "better photon selection can multiply thesis reach only if leakage and domain-shift controls are convincing",
+        "chatgpt_challenge": "propose adversarial leakage and sculpting tests that do not require a new production campaign",
+    },
+    {
+        "id": "xjgamma_response_feature_survives_controls",
+        "hypothesis": "A surprising xJgamma or recoil response feature survives all known detector/background controls.",
+        "signature": "localized, reproducible deviation tied to physics variables and not file/sample/provenance boundaries",
+        "null_test": "sideband, closure, shuffled labels, alternate binning, and independent production cross-check",
+        "systematic": "unfolding regularization, response mismodeling, centrality bias, and trigger/sample boundaries",
+        "minimal_diagnostic": "waking review of registered artifacts and existing plots only",
+        "why_it_matters": "a real surviving response feature would define the final analysis story, but false positives are easy here",
+        "chatgpt_challenge": "rank the most likely fake-signal mechanisms and source-lead checks from heavy-ion gamma-jet analyses",
+    },
+]
 PROMPT_ARCHETYPES = [
     {
         "id": "status_pressure",
@@ -511,11 +551,16 @@ DREAM_LANE_DEFINITIONS = [
     },
     {
         "lane_id": "science_scout",
-        "purpose": "draft high-upside physics hypotheses only from provenance-backed existing surfaces",
-        "agent_role": "physics hypothesis scout",
+        "purpose": "draft high-upside physics hypotheses, falsification checks, and ChatGPT critique handoffs only from provenance-backed existing surfaces",
+        "agent_role": "physics hypothesis and falsification scout",
         "parallelizable": True,
-        "primary_outputs": ["physics_scenario_proposals.md", "figure_design_notes.md"],
-        "progression": "identify usable surfaces -> require null tests/systematics -> never claim results from dreams",
+        "primary_outputs": [
+            "physics_scenario_proposals.md",
+            "science_scout_frontier_review.md",
+            "chatgpt_science_critique_prompt.md",
+            "ideal_final_figure_gallery/",
+        ],
+        "progression": "identify usable surfaces -> require null tests/systematics -> stage sanitized external critique prompt -> never claim results from dreams",
     },
     {
         "lane_id": "presentation_artifacts",
@@ -1133,19 +1178,23 @@ def recurring_findings(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for row in history:
         if str(row.get("run_id") or "").startswith("simulation-"):
             continue
+        source_lane = first_line(row.get("lane_id")) or first_line(row.get("lane")) or ""
         for finding in row.get("top_findings") or []:
             if not isinstance(finding, dict):
                 continue
-            fingerprint = f"{finding.get('kind')}|{finding.get('workstream_id') or finding.get('title') or finding.get('evidence')}"
+            normalized = normalize_pressure(finding, source_lane=source_lane)
+            fingerprint = normalized["pressure_key"]
             if "hp26_photon_id_talk" in fingerprint or "hard probes" in fingerprint.lower() or "hp2026" in fingerprint.lower():
                 continue
             entry = counts.setdefault(
                 fingerprint,
                 {
-                    "kind": finding.get("kind"),
-                    "workstream_id": finding.get("workstream_id"),
+                    "kind": normalized["pressure_kind"],
+                    "workstream_id": normalized["pressure_target"],
                     "title": finding.get("title"),
-                    "evidence": finding.get("evidence"),
+                    "evidence": finding.get("evidence") or f"{normalized['pressure_kind']}|{normalized['pressure_target']}",
+                    "source_lane": normalized["source_lane"],
+                    "pressure_key": normalized["pressure_key"],
                     "count": 0,
                     "latest_run_id": row.get("run_id"),
                 },
@@ -1158,25 +1207,19 @@ def recurring_findings(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def recurrence_protocol_for(item: dict[str, Any]) -> str:
-    kind = str(item.get("kind") or "")
-    target = str(item.get("workstream_id") or item.get("title") or item.get("evidence") or "")
-    protocol = HANDLED_RECURRENCE_PROTOCOLS.get(kind, "")
-    if protocol == "register_workstream_refresh_contract" and target == "global":
-        return ""
-    return protocol
+    return str(classify_pressure(item).get("handler") or "")
 
 
 def split_recurring_hotspots(world: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     handled: list[dict[str, Any]] = []
     unhandled: list[dict[str, Any]] = []
+    register_rows = world.get("register_protocol_by_id") if isinstance(world.get("register_protocol_by_id"), dict) else {}
     for item in world.get("dream_history", {}).get("hotspots") or []:
-        protocol = recurrence_protocol_for(item)
-        if protocol:
-            copied = dict(item)
-            copied["handled_by"] = protocol
-            handled.append(copied)
+        copied = decorate_pressure_item(item, register_rows_by_id=register_rows, source_lane=item.get("source_lane"))
+        if copied.get("unhandled_actionable"):
+            unhandled.append(copied)
         else:
-            unhandled.append(item)
+            handled.append(copied)
     return handled, unhandled
 
 
@@ -1358,7 +1401,12 @@ def build_world(register_data: dict[str, Any], artifact_data: dict[str, Any], no
         stale_after = parse_when(item.get("stale_after"))
         if stale_after and stale_after <= now:
             stale.append(item)
-    active_jobs = [w for w in live if w.get("active_jobs")]
+    active_jobs = [w for w in live if effective_active_jobs(w)]
+    register_protocol_rows = [
+        classify_register_workstream(w, now)
+        for w in workstreams
+        if w.get("status") in LIVE_STATUSES or w.get("status") in {"done_pending_review", "archived"}
+    ]
     radar_rows = analyze_thesis_radar(register_data)
     counts = artifact_counts(artifact_data)
     mapped_claims = sorted({claim for row in radar_rows for claim in row.get("claims", [])})
@@ -1393,6 +1441,12 @@ def build_world(register_data: dict[str, Any], artifact_data: dict[str, Any], no
         "backlog": backlog,
         "stale": stale,
         "active_jobs": active_jobs,
+        "register_protocol_rows": register_protocol_rows,
+        "register_protocol_by_id": {
+            str(row.get("workstream_id")): row
+            for row in register_protocol_rows
+            if row.get("workstream_id")
+        },
         "active_p0": active_p0,
         "radar_rows": radar_rows,
         "artifact_counts": counts,
@@ -1436,8 +1490,12 @@ def identify_risks(world: dict[str, Any], mode: str) -> list[dict[str, Any]]:
                 evidence=f"automation={automation_id}",
             )
         )
+    register_rows = world.get("register_protocol_by_id") if isinstance(world.get("register_protocol_by_id"), dict) else {}
     for item in world.get("dream_history", {}).get("hotspots") or []:
-        target = item.get("workstream_id") or item.get("title") or item.get("evidence") or "global"
+        governed = classify_pressure(item, register_rows_by_id=register_rows, source_lane=item.get("source_lane"))
+        if not governed.get("unhandled_actionable"):
+            continue
+        target = governed.get("pressure_target") or item.get("workstream_id") or item.get("title") or item.get("evidence") or "global"
         if str(target) in DREAM_INTERNAL_NOISE_WORKSTREAM_IDS or "hp26_photon_id_talk" in str(target):
             continue
         risks.append(
@@ -1445,7 +1503,7 @@ def identify_risks(world: dict[str, Any], mode: str) -> list[dict[str, Any]]:
                 f"Recurring maintenance hotspot has appeared {item['count']} recent dreams",
                 "recurring_hotspot",
                 77,
-                evidence=f"{item.get('kind')}|{target}",
+                evidence=f"{governed.get('pressure_kind') or item.get('kind')}|{target}",
             )
         )
     for item in world["stale"]:
@@ -2005,10 +2063,12 @@ def schema_promotion_candidates(world: dict[str, Any]) -> list[dict[str, Any]]:
 def adaptation_cards(world: dict[str, Any], risks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     cards = []
     debt = maintenance_debt(world, risks)
+    register_rows = world.get("register_protocol_by_id") if isinstance(world.get("register_protocol_by_id"), dict) else {}
     for item in world.get("dream_history", {}).get("hotspots") or []:
         count = int(item.get("count") or 0)
         if count < 2:
             continue
+        governed = classify_pressure(item, register_rows_by_id=register_rows, source_lane=item.get("source_lane"))
         kind = str(item.get("kind") or "recurring_hotspot")
         target = item.get("workstream_id") or item.get("title") or item.get("evidence") or "global"
         evidence = item.get("evidence") or f"{kind}|{target}"
@@ -2027,14 +2087,19 @@ def adaptation_cards(world: dict[str, Any], risks: list[dict[str, Any]]) -> list
             status = "ready_for_waking_review"
         if debt.get("status") == "frozen_growth" and count >= 3:
             status = "review_before_new_growth"
-        if handled_by:
-            status = "handled_by_protocol"
+        if not governed.get("unhandled_actionable"):
+            status = str(governed.get("pressure_status") or "handled_by_protocol")
         card_id = re.sub(r"[^a-z0-9]+", "-", f"{kind}-{target}".lower()).strip("-")[:80] or "global"
         cards.append(
             {
                 "id": card_id,
-                "kind": kind,
-                "target": target,
+                "kind": governed.get("pressure_kind") or kind,
+                "target": governed.get("pressure_target") or target,
+                "source_lane": governed.get("source_lane"),
+                "pressure_key": governed.get("pressure_key"),
+                "pressure_status": governed.get("pressure_status"),
+                "daily_visibility": governed.get("daily_visibility"),
+                "suppression_reason": governed.get("suppression_reason"),
                 "repeat_count": count,
                 "latest_run_id": item.get("latest_run_id"),
                 "evidence": evidence,
@@ -2042,7 +2107,7 @@ def adaptation_cards(world: dict[str, Any], risks: list[dict[str, Any]]) -> list
                 "safe_command": validator["safe_command"],
                 "expected_signal": validator["expected_signal"],
                 "promotion_status": status,
-                "handled_by": handled_by,
+                "handled_by": governed.get("handler") if not governed.get("unhandled_actionable") else handled_by,
                 "retention_rule": "keep hot while repeat_count >= 2 or latest_run_id is within the recent dream index window",
                 "decay_rule": "down-rank to warm if the finding disappears from the recent dream index; never delete evidence automatically",
                 "promotion_rule": "promote only after waking Codex validates the signal against real state and encodes one smallest approved rule or runbook",
@@ -2365,6 +2430,8 @@ def signal_findings_as_atom_seeds(signal: dict[str, Any], lane_id: str) -> list[
     for item in signal.get("top_findings") or []:
         if not isinstance(item, dict):
             continue
+        if item.get("daily_visibility") != "daily" and item.get("pressure_status") in {"handled", "cooling", "appendix_only", "resolved"}:
+            continue
         rows.append(
             {
                 "kind": first_line(item.get("kind")) or "dream_signal",
@@ -2380,8 +2447,12 @@ def signal_findings_as_atom_seeds(signal: dict[str, Any], lane_id: str) -> list[
 
 def recurring_hotspots_as_atom_seeds(world: dict[str, Any], lane_id: str) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
+    register_rows = world.get("register_protocol_by_id") if isinstance(world.get("register_protocol_by_id"), dict) else {}
     for item in world.get("dream_history", {}).get("hotspots") or []:
         if not isinstance(item, dict):
+            continue
+        governed = classify_pressure(item, register_rows_by_id=register_rows, source_lane=item.get("source_lane"))
+        if not governed.get("unhandled_actionable"):
             continue
         kind = first_line(item.get("kind")) or "recurring_hotspot"
         target = first_line(item.get("workstream_id")) or first_line(item.get("title")) or first_line(item.get("evidence")) or "global"
@@ -2532,15 +2603,24 @@ def dream_recurrence_index_payload(
     atoms: list[dict[str, Any]],
 ) -> dict[str, Any]:
     hotspots = []
+    register_rows = world.get("register_protocol_by_id") if isinstance(world.get("register_protocol_by_id"), dict) else {}
     for item in world.get("dream_history", {}).get("hotspots") or []:
         if isinstance(item, dict):
+            governed = classify_pressure(item, register_rows_by_id=register_rows, source_lane=item.get("source_lane"))
             hotspots.append(
                 {
-                    "kind": item.get("kind"),
-                    "target": item.get("workstream_id") or item.get("title") or item.get("evidence") or "global",
+                    "kind": governed.get("pressure_kind") or item.get("kind"),
+                    "target": governed.get("pressure_target") or item.get("workstream_id") or item.get("title") or item.get("evidence") or "global",
+                    "source_lane": governed.get("source_lane"),
+                    "pressure_key": governed.get("pressure_key"),
+                    "pressure_status": governed.get("pressure_status"),
+                    "handler": governed.get("handler"),
+                    "daily_visibility": governed.get("daily_visibility"),
+                    "suppression_reason": governed.get("suppression_reason"),
+                    "unhandled_actionable": governed.get("unhandled_actionable"),
                     "count": item.get("count"),
                     "latest_run_id": item.get("latest_run_id"),
-                    "handled_by": recurrence_protocol_for(item),
+                    "handled_by": governed.get("handled_by") or governed.get("handler") or "",
                 }
             )
     ids_by_bucket: dict[str, list[str]] = {bucket: [] for bucket in LEARNING_ATOM_CANDIDATE_BUCKETS}
@@ -2556,8 +2636,9 @@ def dream_recurrence_index_payload(
         "lane_id": lane_id,
         "source_index": DREAM_INDEX.as_posix(),
         "recent_hotspots": hotspots[:12],
+        "pressure_summary": pressure_summary(hotspots[:12]),
         "learning_atom_ids_by_bucket": ids_by_bucket,
-        "prose_findings_without_atoms": max(0, len([item for item in hotspots if not item.get("handled_by")]) - len(atoms)),
+        "prose_findings_without_atoms": max(0, len([item for item in hotspots if item.get("unhandled_actionable")]) - len(atoms)),
         "retention_rule": "cool unpromoted duplicate atoms in summaries; never delete raw episode directories automatically",
     }
 
@@ -2638,9 +2719,17 @@ def render_morning_appendix(
         lines.append("- none")
     lines.append("")
     lines.append("## Recurrence")
-    for item in (recurrence.get("recent_hotspots") or [])[:5]:
+    for item in (recurrence.get("recent_hotspots") or [])[:8]:
         if isinstance(item, dict):
-            lines.append(f"- `{item.get('kind')}` target=`{item.get('target')}` count={item.get('count')} handled_by={item.get('handled_by') or 'none'}")
+            handled = item.get("handler") or item.get("handled_by") or "none"
+            status = item.get("pressure_status") or "unknown"
+            visibility = item.get("daily_visibility") or "daily"
+            reason = f" reason={item.get('suppression_reason')}" if item.get("suppression_reason") else ""
+            handled_note = f" Handled by {handled}; no waking action." if status == "handled" and handled else ""
+            lines.append(
+                f"- `{item.get('kind')}` target=`{item.get('target')}` source_lane=`{item.get('source_lane')}` "
+                f"count={item.get('count')} status={status} visibility={visibility} handled_by={handled}{reason}{handled_note}"
+            )
     if not recurrence.get("recent_hotspots"):
         lines.append("- no recent hotspots")
     return "\n".join(lines) + "\n"
@@ -2667,6 +2756,7 @@ def lane_nightly_heartbeat_signal(
         "metrics": metrics,
         "learning_atom_ids": [atom.get("learning_atom_id") for atom in atoms],
         "dream_recurrence_index": recurrence,
+        "pressure_governor": signal.get("pressure_governor") if isinstance(signal.get("pressure_governor"), dict) else {},
         "recommended_waking_checks": metrics.get("recommended_waking_checks") or [],
     }
 
@@ -5591,6 +5681,23 @@ def render_shadow_approval_packet_readme(maintenance: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def apply_pressure_governor_to_signal(signal: dict[str, Any], world: dict[str, Any], source_lane: str) -> None:
+    register_rows = world.get("register_protocol_by_id") if isinstance(world.get("register_protocol_by_id"), dict) else {}
+    findings = [
+        decorate_pressure_item(item, register_rows_by_id=register_rows, source_lane=source_lane)
+        for item in (signal.get("top_findings") or [])
+        if isinstance(item, dict)
+    ]
+    signal["top_findings"] = findings
+    summary = pressure_summary(findings)
+    signal["pressure_governor"] = summary
+    signal.setdefault("summary", {})
+    signal["summary"]["actionable_pressure_count"] = summary["unhandled_actionable_count"]
+    signal["summary"]["suppressed_pressure_count"] = summary["suppressed_count"]
+    signal["summary"]["daily_visible_pressure_count"] = summary["daily_visible_count"]
+    signal["summary"]["appendix_only_pressure_count"] = summary["appendix_only_count"]
+
+
 def heartbeat_signal(
     run_id: str,
     mode: str,
@@ -5621,11 +5728,12 @@ def heartbeat_signal(
     schemas = schema_promotion_candidates(world)
     cards = adaptation_cards(world, risks)
     handled_hotspots, unhandled_hotspots = split_recurring_hotspots(world)
+    governed_recurring_summary = pressure_summary(handled_hotspots + unhandled_hotspots)
     if maintenance is None:
         maintenance = evolutionary_maintenance_payload(world, risks)
     autonomous = maintenance.get("autonomous_maintenance") if isinstance(maintenance.get("autonomous_maintenance"), dict) else {}
     autonomous_digest = autonomous.get("morning_digest") if isinstance(autonomous.get("morning_digest"), dict) else {}
-    return {
+    signal = {
         "version": 7,
         "synthetic": True,
         "synthetic_header": SYNTHETIC_HEADER,
@@ -5643,6 +5751,8 @@ def heartbeat_signal(
             + len(world.get("automation_state", {}).get("inactive_expected") or []),
             "recurring_hotspot_count": len(unhandled_hotspots),
             "handled_recurring_hotspot_count": len(handled_hotspots),
+            "suppressed_recurring_hotspot_count": governed_recurring_summary["suppressed_count"],
+            "daily_visible_recurring_hotspot_count": governed_recurring_summary["daily_visible_count"],
             "raw_recurring_hotspot_count": len(world.get("dream_history", {}).get("hotspots") or []),
             "cleanup_candidate_count": sum(
                 int(item.get("cleanup_candidate_count") or 0) for item in (world.get("local_state") or {}).values()
@@ -5665,6 +5775,9 @@ def heartbeat_signal(
         "top_findings": top_findings,
         "morning_checks": checks,
     }
+    apply_pressure_governor_to_signal(signal, world, "global")
+    signal["pressure_governor"]["recurrence"] = governed_recurring_summary
+    return signal
 
 
 def append_dream_index(signal: dict[str, Any]) -> None:
@@ -6178,6 +6291,7 @@ def render_maintenance_debt(world: dict[str, Any], risks: list[dict[str, Any]]) 
     schemas = schema_promotion_candidates(world)
     cards = adaptation_cards(world, risks)
     handled_hotspots, unhandled_hotspots = split_recurring_hotspots(world)
+    recurrence_pressure = pressure_summary(handled_hotspots + unhandled_hotspots)
     lines = ["# Maintenance Debt Ledger", "", SYNTHETIC_HEADER, ""]
     lines.append(
         "This ledger is a proposal-only reliability budget for the thesis OS. It ranks debt that should reduce dream/doctor feature growth until it is controlled."
@@ -6199,6 +6313,8 @@ def render_maintenance_debt(world: dict[str, Any], risks: list[dict[str, Any]]) 
     lines.append("## Recurrence Retirement")
     lines.append(f"- handled_recurring_hotspots: {len(handled_hotspots)}")
     lines.append(f"- unhandled_recurring_hotspots: {len(unhandled_hotspots)}")
+    lines.append(f"- suppressed_or_appendix_hotspots: {recurrence_pressure.get('suppressed_count')}")
+    lines.append(f"- daily_visible_hotspots: {recurrence_pressure.get('daily_visible_count')}")
     for item in handled_hotspots:
         lines.append(
             f"- handled `{item.get('kind')}` target={item.get('workstream_id') or item.get('title') or item.get('evidence') or 'global'} by `{item.get('handled_by')}`"
@@ -6240,6 +6356,12 @@ def render_adaptation_cards(world: dict[str, Any], risks: list[dict[str, Any]]) 
         lines.append(f"## `{item['id']}`")
         lines.append(f"- kind: `{item['kind']}`")
         lines.append(f"- target: {item['target']}")
+        lines.append(f"- source_lane: `{item.get('source_lane') or 'global'}`")
+        lines.append(f"- pressure_key: `{item.get('pressure_key') or 'unknown'}`")
+        lines.append(f"- pressure_status: `{item.get('pressure_status') or 'unknown'}`")
+        lines.append(f"- daily_visibility: `{item.get('daily_visibility') or 'daily'}`")
+        if item.get("suppression_reason"):
+            lines.append(f"- suppression_reason: {item['suppression_reason']}")
         lines.append(f"- repeat_count: {item['repeat_count']}")
         lines.append(f"- latest_run_id: {item.get('latest_run_id') or 'unknown'}")
         lines.append(f"- evidence: {item['evidence']}")
@@ -6306,37 +6428,144 @@ def render_physics_scenario_proposals(world: dict[str, Any], risks: list[dict[st
         lines.append("No physics scenario proposed because no usable registered physics artifact surface was found.")
         return "\n".join(lines) + "\n"
     lines.append("## High-Upside Hypothesis Templates For Waking Review")
-    proposals = [
-        {
-            "hypothesis": "A nontrivial gamma-jet modification pattern appears only after pp baseline and embedded-background closure are both provenance-clean.",
-            "signature": "shape change persists under baseline/stitching/closure variations rather than appearing as a normalization artifact",
-            "null_test": "repeat on validated pp or embedding closure surface where no medium modification should appear",
-            "systematic": "photon purity, background stitching, response/unfolding, and stale artifact contamination",
-        },
-        {
-            "hypothesis": "ML photon-ID or isolation behavior exposes a control-region structure that improves final Au+Au gamma-jet sensitivity.",
-            "signature": "robust separation or purity stability across centrality/kinematic/control variations",
-            "null_test": "compare against PPG12-style baseline selection and known-safe pp/reference samples",
-            "systematic": "domain shift, training leakage, sample stitching, and selection sculpting",
-        },
-        {
-            "hypothesis": "A surprising xJgamma or recoil response feature survives all known detector/background controls.",
-            "signature": "localized, reproducible deviation tied to physics variables and not file/sample/provenance boundaries",
-            "null_test": "sideband, closure, shuffled labels, alternate binning, and independent production cross-check",
-            "systematic": "unfolding regularization, response mismodeling, centrality bias, and trigger/sample boundaries",
-        },
-    ]
-    for index, proposal in enumerate(proposals, start=1):
+    for index, proposal in enumerate(SCIENCE_SCOUT_SCENARIOS, start=1):
         lines.append(f"### Scenario {index}")
+        lines.append(f"- id: `{proposal['id']}`")
         lines.append(f"- hypothesis: {proposal['hypothesis']}")
         lines.append(f"- expected qualitative signature: {proposal['signature']}")
         lines.append("- required input provenance: `python3 scripts/codex_artifact_registry.py check`")
         lines.append(f"- null/control check: {proposal['null_test']}")
         lines.append(f"- dominant systematic risk: {proposal['systematic']}")
-        lines.append("- minimal safe next diagnostic: waking review of registered artifacts and existing plots only")
+        lines.append(f"- minimal safe next diagnostic: {proposal['minimal_diagnostic']}")
+        lines.append(f"- why it matters for the thesis spine: {proposal['why_it_matters']}")
         lines.append("- promotion rule: no run, plot campaign, or claim without explicit waking approval")
         lines.append("")
     return "\n".join(lines)
+
+
+def science_scout_frontier_payload(world: dict[str, Any], risks: list[dict[str, Any]]) -> dict[str, Any]:
+    surfaces = world.get("physics_surfaces") or {}
+    claims = surfaces.get("claims_with_artifacts") or []
+    topics = surfaces.get("topic_tokens") or []
+    falsification_rows = []
+    for scenario in SCIENCE_SCOUT_SCENARIOS:
+        falsification_rows.append(
+            {
+                "scenario_id": scenario["id"],
+                "first_false_positive_to_eliminate": scenario["systematic"],
+                "minimum_local_check": scenario["minimal_diagnostic"],
+                "null_or_control": scenario["null_test"],
+                "chatgpt_critique_question": scenario["chatgpt_challenge"],
+                "promotion_gate": "artifact registry check, duplicate-run guard if a run is proposed, waking validation, and explicit analysis approval",
+            }
+        )
+    prompt = render_science_scout_chatgpt_prompt_text(claims, topics)
+    return {
+        "synthetic": True,
+        "synthetic_header": SYNTHETIC_HEADER,
+        "mutation_boundary": "proposal_only",
+        "lane_id": "science_scout",
+        "external_execution": "not_performed_by_dream",
+        "research_scout_handoff": "route this prompt through ASK_CHATGPT_DELEGATION.md if waking Codex chooses to use ChatGPT",
+        "usable_surfaces": {
+            "claims_with_artifacts": claims,
+            "topic_tokens": topics,
+        },
+        "scenario_count": len(SCIENCE_SCOUT_SCENARIOS),
+        "target_figure_count": len(IDEAL_FIGURE_SPECS),
+        "scenarios": SCIENCE_SCOUT_SCENARIOS,
+        "falsification_matrix": falsification_rows,
+        "chatgpt_prompt": prompt,
+        "waking_next_checks": [
+            "python3 scripts/codex_artifact_registry.py check",
+            "review existing registered plots before proposing any new analysis run",
+            "if ChatGPT is used, save the response under agent_context/local/chatgpt_research/ and verify claims locally before promotion",
+        ],
+        "boundaries": [
+            "synthetic target figures are design scaffolds, not data",
+            "ChatGPT output is critique/source leads, not evidence",
+            "no science output, task status, SDCC, Condor, Drive, Slides, Linear, or repo-tracked mutation from the dream",
+        ],
+    }
+
+
+def render_science_scout_frontier_review(payload: dict[str, Any]) -> str:
+    lines = ["# Science Scout Frontier Review", "", SYNTHETIC_HEADER, ""]
+    lines.append("This file is a proposal-only research and falsification map. It is not a result, signal, discovery, or approval to run analysis.")
+    lines.append("")
+    surfaces = payload.get("usable_surfaces") if isinstance(payload.get("usable_surfaces"), dict) else {}
+    claims = surfaces.get("claims_with_artifacts") if isinstance(surfaces.get("claims_with_artifacts"), list) else []
+    topics = surfaces.get("topic_tokens") if isinstance(surfaces.get("topic_tokens"), list) else []
+    lines.append("## Inputs Seen")
+    lines.append(f"- registered claim layers with artifacts: {', '.join(claims) if claims else 'none'}")
+    lines.append(f"- active science/topic tokens: {', '.join(topics) if topics else 'none'}")
+    lines.append(f"- synthetic target figures available: {payload.get('target_figure_count')}")
+    lines.append("")
+    lines.append("## Falsification Matrix")
+    rows = payload.get("falsification_matrix") if isinstance(payload.get("falsification_matrix"), list) else []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        lines.append(f"### `{row.get('scenario_id')}`")
+        lines.append(f"- first false-positive class to eliminate: {row.get('first_false_positive_to_eliminate')}")
+        lines.append(f"- minimum local check: {row.get('minimum_local_check')}")
+        lines.append(f"- null/control: {row.get('null_or_control')}")
+        lines.append(f"- ChatGPT critique question: {row.get('chatgpt_critique_question')}")
+        lines.append(f"- promotion gate: {row.get('promotion_gate')}")
+        lines.append("")
+    lines.append("## Waking Next Checks")
+    for item in payload.get("waking_next_checks") or []:
+        lines.append(f"- {item}")
+    lines.append("")
+    lines.append("## Boundary")
+    for item in payload.get("boundaries") or []:
+        lines.append(f"- {item}")
+    return "\n".join(lines) + "\n"
+
+
+def render_science_scout_chatgpt_prompt_text(claims: list[Any], topics: list[Any]) -> str:
+    claim_text = ", ".join(str(item) for item in claims) if claims else "no named claim layers with registered artifacts"
+    topic_text = ", ".join(str(item) for item in topics) if topics else "no active topic tokens"
+    scenario_lines = []
+    for scenario in SCIENCE_SCOUT_SCENARIOS:
+        scenario_lines.append(
+            f"- {scenario['id']}: hypothesis={scenario['hypothesis']} | null/control={scenario['null_test']} | dominant risk={scenario['systematic']}"
+        )
+    return "\n".join(
+        [
+            "Sanitized external critique prompt for a scientific analysis workflow.",
+            "",
+            "Do not assume access to private project facts. Mark uncertain claims. Prefer named methods, primary-source leads, and testable design recommendations.",
+            "Treat this as critique and source-lead generation only, not evidence and not permission to run analysis.",
+            "",
+            "Context:",
+            "- The analysis is a heavy-ion gamma-jet thesis workflow aiming at a final xJgamma-style result.",
+            f"- Current local registered claim layers seen by the dream: {claim_text}.",
+            f"- Current local topic tokens seen by the dream: {topic_text}.",
+            "- Synthetic target figures exist only as design scaffolds and are not data.",
+            "",
+            "Candidate hypothesis templates to attack:",
+            *scenario_lines,
+            "",
+            "Deliverable:",
+            "1. For each hypothesis, list the strongest fake-signal explanations.",
+            "2. For each, propose the first low-cost falsification check using existing plots/artifacts before any new production run.",
+            "3. Name source-lead areas or public analysis notes that would sharpen the check.",
+            "4. Identify which ideas are likely distractions until the pp baseline, embedding closure, photon purity, and response/unfolding provenance are safe.",
+            "5. Return a compact table with columns: hypothesis_id, possible_fake_signal, existing-artifact_check, source_leads, promote_or_defer_reason.",
+        ]
+    )
+
+
+def render_science_scout_chatgpt_prompt_markdown(payload: dict[str, Any]) -> str:
+    lines = ["# Science Scout ChatGPT Critique Prompt", "", SYNTHETIC_HEADER, ""]
+    lines.append("This is a sanitized prompt for `research_scout` to use through `ASK_CHATGPT_DELEGATION.md` if waking Codex chooses to delegate critique.")
+    lines.append("The dream did not send this prompt or browse ChatGPT.")
+    lines.append("")
+    lines.append("```text")
+    lines.append(str(payload.get("chatgpt_prompt") or ""))
+    lines.append("```")
+    return "\n".join(lines) + "\n"
 
 
 def proposed_diff(path: Path, proposal_lines: list[str]) -> str:
@@ -6559,7 +6788,14 @@ def lane_required_artifacts(lane_id: str) -> list[str]:
             "dual_pro_research_plan.md",
             "dual_pro_research_plan.json",
         ],
-        "science_scout": ["physics_scenario_proposals.md", "ideal_final_figure_gallery/xjgamma_modification_target.svg"],
+        "science_scout": [
+            "physics_scenario_proposals.md",
+            "science_scout_frontier_review.md",
+            "science_scout_frontier_review.json",
+            "chatgpt_science_critique_prompt.md",
+            "chatgpt_science_critique_prompt.txt",
+            "ideal_final_figure_gallery/xjgamma_modification_target.svg",
+        ],
         "presentation_artifacts": ["figure_design_notes.md", "daily_plan_proposals.md"],
     }
     return mapping[lane_id]
@@ -6613,6 +6849,8 @@ def render_lane_heartbeat_report(
     cleanup_retention = lane_signal_payload.get("cleanup_retention_index") if isinstance(lane_signal_payload.get("cleanup_retention_index"), dict) else {}
     cleanup_deferred = cleanup_retention.get("top_deferred_improvements") if isinstance(cleanup_retention.get("top_deferred_improvements"), list) else []
     cleanup_changed = performed_action_rows(lane_signal_payload.get("changed_actions") if isinstance(lane_signal_payload.get("changed_actions"), dict) else {})
+    science_payload = lane_signal_payload.get("science_scout") if lane_id == "science_scout" and isinstance(lane_signal_payload.get("science_scout"), dict) else {}
+    science_rows = science_payload.get("falsification_matrix") if isinstance(science_payload.get("falsification_matrix"), list) else []
     lines = [f"# Dream Lane Heartbeat `{lane_id}`", "", SYNTHETIC_HEADER, ""]
     lines.append(f"- run: `{run_id}`")
     lines.append(f"- lane: `{lane_id}`")
@@ -6648,6 +6886,11 @@ def render_lane_heartbeat_report(
         skipped = [item for item in attempted_candidates if isinstance(item, dict) and item.get("status") in {"blocked", "rolled_back"}]
         if skipped:
             lines.append(f"- skipped_before_final: `{len(skipped)}` intended update(s) blocked or rolled back with reasons logged")
+    elif science_rows:
+        for item in science_rows[:5]:
+            if isinstance(item, dict):
+                lines.append(f"- `{item.get('scenario_id')}`: eliminate {item.get('first_false_positive_to_eliminate')}")
+        lines.append("- ChatGPT prompt staged locally for `research_scout`; no external UI action was performed by the dream.")
     elif lane_risks:
         for item in lane_risks[:5]:
             target = item.get("workstream_id") or item.get("evidence") or item.get("title") or "global"
@@ -6681,6 +6924,10 @@ def render_lane_heartbeat_report(
                 lines.append("- No Justin action required for the applied update; skipped candidates are logged for future runs.")
             else:
                 lines.append("- No Justin action required; validators passed and rollback is logged.")
+    elif science_rows:
+        lines.append("- Review `science_scout_frontier_review.md` and existing registered plots before proposing any new analysis.")
+        lines.append("- If external critique is useful, hand `chatgpt_science_critique_prompt.md` to `research_scout` under `ASK_CHATGPT_DELEGATION.md`.")
+        lines.append("- Keep every ChatGPT idea as source leads or falsification suggestions until locally verified.")
     elif lane_risks:
         for item in lane_risks[:3]:
             lines.append(f"- {dream_response_for(item)}")
@@ -6693,6 +6940,15 @@ def render_lane_heartbeat_report(
     else:
         lines.append("- No lane-local waking action stands out from the current evidence.")
     lines.append("")
+    if science_rows:
+        lines.append("## Science Frontier Checks")
+        for item in science_rows[:3]:
+            if isinstance(item, dict):
+                lines.append(f"- `{item.get('scenario_id')}`")
+                lines.append(f"  false-positive class: {item.get('first_false_positive_to_eliminate')}")
+                lines.append(f"  local check: {item.get('minimum_local_check')}")
+                lines.append(f"  ChatGPT critique: {item.get('chatgpt_critique_question')}")
+        lines.append("")
     if research_subtasks:
         lines.append("## Human-Tool Leverage Subtasks")
         for item in research_subtasks[:3]:
@@ -6736,8 +6992,10 @@ def render_lane_heartbeat_report(
     lines.append("## Boundary")
     if lane_id == "cleanup_storage":
         lines.append("- Cleanup-storage auto-maintenance is local-only. No deletion, archive, SDCC, Condor, science, task, external-app, or repo-tracked mutation.")
+    elif lane_id == "science_scout":
+        lines.append("- Science-scout output is proposal-only. It may stage sanitized critique prompts, but the dream does not browse ChatGPT or create science evidence.")
     else:
-        lines.append("- Context-resonance auto-maintenance is local-only. No SDCC, Condor, Gmail, Google Drive/Slides, Linear, or repo-tracked mutation.")
+        lines.append("- This lane is local-only. No SDCC, Condor, Gmail, Google Drive/Slides, Linear, or repo-tracked mutation.")
     return "\n".join(lines) + "\n"
 
 
@@ -6809,6 +7067,10 @@ def render_lane_digest(lane_id: str, lane_risks: list[dict[str, Any]], maintenan
     if lane_id == "cleanup_storage" and cleanup_deferred:
         for item in cleanup_deferred[:3]:
             lines.append(f"- `{item.get('target')}`: {item.get('action')}")
+    elif lane_id == "science_scout":
+        for item in SCIENCE_SCOUT_SCENARIOS[:3]:
+            lines.append(f"- `{item.get('id')}`: {item.get('hypothesis')}")
+        lines.append("- `chatgpt_science_critique_prompt`: sanitized external-critique prompt staged for research_scout, not sent by the dream.")
     elif lane_risks:
         for item in lane_risks[:3]:
             lines.append(f"- `{item.get('kind')}`: {item.get('label')}")
@@ -6827,6 +7089,10 @@ def render_lane_digest(lane_id: str, lane_risks: list[dict[str, Any]], maintenan
     if lane_id == "cleanup_storage" and cleanup_deferred:
         for item in cleanup_deferred[:3]:
             lines.append(f"- {item.get('safe_check')}")
+    elif lane_id == "science_scout":
+        lines.append("- review science_scout_frontier_review.md")
+        lines.append("- run `python3 scripts/codex_artifact_registry.py check` before promoting any hypothesis")
+        lines.append("- route chatgpt_science_critique_prompt.md through research_scout only if waking critique is useful")
     elif lane_risks:
         for item in lane_risks[:3]:
             lines.append(f"- {validator_candidate_for(item).get('safe_command')}")
@@ -6978,7 +7244,12 @@ def write_lane_artifacts(
             )
             safe_write(run_dir, "dual_pro_research_plan.md", render_dual_pro_research_plan(dual))
     elif lane_id == "science_scout":
+        science_payload = science_scout_frontier_payload(world, lane_risks)
         safe_write(run_dir, "physics_scenario_proposals.md", render_physics_scenario_proposals(world, lane_risks))
+        safe_write(run_dir, "science_scout_frontier_review.md", render_science_scout_frontier_review(science_payload))
+        safe_write(run_dir, "science_scout_frontier_review.json", render_json_file(science_payload))
+        safe_write(run_dir, "chatgpt_science_critique_prompt.md", render_science_scout_chatgpt_prompt_markdown(science_payload))
+        safe_write(run_dir, "chatgpt_science_critique_prompt.txt", str(science_payload.get("chatgpt_prompt") or "") + "\n")
         for spec in IDEAL_FIGURE_SPECS:
             safe_write(run_dir, f"ideal_final_figure_gallery/{spec['id']}.svg", render_target_figure_svg(spec))
     elif lane_id == "presentation_artifacts":
@@ -7044,7 +7315,13 @@ def lane_artifact_pointers(lane_id: str, run_id: str) -> list[str]:
         "cleanup_storage": ["lane_digest.md", "cleanup_retention_index.md", "changed_actions.md"],
         "path_contract": ["lane_digest.md", "path_contract_drift.md", "sdcc_base_repo_hygiene.md"],
         "research_scout": ["lane_digest.md", "research_synthesis.md", "human_tool_leverage.md", "dual_pro_research_plan.md"],
-        "science_scout": ["lane_digest.md", "physics_scenario_proposals.md", "ideal_final_figure_gallery/"],
+        "science_scout": [
+            "lane_digest.md",
+            "physics_scenario_proposals.md",
+            "science_scout_frontier_review.md",
+            "chatgpt_science_critique_prompt.md",
+            "ideal_final_figure_gallery/",
+        ],
         "presentation_artifacts": ["lane_digest.md", "figure_design_notes.md", "daily_plan_proposals.md"],
     }
     return [f"{base}/{name}" for name in mapping.get(lane_id, ["lane_digest.md", "lane_signal.json"])]
@@ -7187,16 +7464,33 @@ def build_dream_after_action(
         )
 
     elif lane_id == "science_scout":
+        science_payload = signal.get("science_scout") if isinstance(signal.get("science_scout"), dict) else {}
         append_unique_text(
             researched,
-            "Reviewed provenance-backed science pressure points and synthetic final-figure templates without creating science evidence.",
+            "Reviewed provenance-backed science pressure points, falsification checks, and synthetic final-figure templates without creating science evidence.",
         )
         append_unique_text(
             learned,
-            "The lane should keep final thesis target figures visible while preserving the boundary that synthetic targets are design aids, not results.",
+            f"Generated {science_payload.get('scenario_count', len(SCIENCE_SCOUT_SCENARIOS))} hypothesis/falsification templates and a sanitized ChatGPT critique prompt for research_scout handoff.",
+        )
+        append_unique_text(
+            learned,
+            "The strongest frontier move is adversarial falsification: use ChatGPT for fake-signal and source-lead critique, then verify locally before any promotion.",
+        )
+        append_unique_text(
+            waking_checks,
+            "review `science_scout_frontier_review.md` before any new science work",
+        )
+        append_unique_text(
+            waking_checks,
+            "route `chatgpt_science_critique_prompt.md` through `research_scout` only if external critique is worth the attention cost",
         )
         for spec in IDEAL_FIGURE_SPECS[:3]:
             append_unique_text(approval_changes, f"Review synthetic target figure `{spec['id']}` only as a design scaffold.")
+        append_unique_text(
+            approval_changes,
+            "Use the ChatGPT critique prompt only as source leads and failure-mode critique; do not treat its response as evidence.",
+        )
 
     elif lane_id == "architecture_cohesion":
         queue = maintenance.get("internal_evolution_queue") if isinstance(maintenance.get("internal_evolution_queue"), dict) else {}
@@ -7285,6 +7579,17 @@ def build_morning_lane_summary_payload(
     evidence = f"{run_id}/lane_signal.json"
     daily_plan_priority = 99
     after_action = build_dream_after_action(run_id, lane_id, world, lane_risks, maintenance, autonomous, signal)
+    register_rows = world.get("register_protocol_by_id") if isinstance(world.get("register_protocol_by_id"), dict) else {}
+    governed_lane_risks = [
+        decorate_pressure_item(item, register_rows_by_id=register_rows, source_lane=lane_id)
+        for item in lane_risks
+    ]
+    daily_lane_risks = [
+        item
+        for item in governed_lane_risks
+        if item.get("pressure_status") in {"actionable", "blocked_for_waking"}
+        and item.get("daily_visibility") == "daily"
+    ]
 
     changed_actions = signal.get("changed_actions") if isinstance(signal.get("changed_actions"), dict) else {}
     performed = performed_action_rows(changed_actions)
@@ -7367,9 +7672,9 @@ def build_morning_lane_summary_payload(
             )
             deferred = "; ".join(deferred_titles) if deferred_titles else "none"
             evidence = "cleanup_retention_index.md"
-    if status == "no_safe_change" and lane_risks:
+    if status == "no_safe_change" and daily_lane_risks:
         status = "deferred"
-        risk = lane_risks[0]
+        risk = daily_lane_risks[0]
         label = first_line(risk.get("label")) or first_line(risk.get("title")) or first_line(risk.get("kind"))
         if lane_id != "cleanup_storage":
             one_line = f"proposal-only waking check surfaced: {label}"
@@ -7414,6 +7719,7 @@ def build_morning_lane_summary_payload(
         "scheduled_source": DREAM_SCHEDULED_SOURCE if scheduled_morning_lane else DREAM_MANUAL_SOURCE,
         "eligible_for_today_plan": eligible,
         "after_action": after_action,
+        "pressure_governor": signal.get("pressure_governor") if isinstance(signal.get("pressure_governor"), dict) else pressure_summary(governed_lane_risks),
     }
 
 
@@ -7637,6 +7943,24 @@ def write_lane_dream_outputs(
                 }
                 for item in deferred[:5]
             ] + signal["top_findings"]
+    if lane_id == "science_scout":
+        science_payload = science_scout_frontier_payload(world, lane_risks)
+        signal["science_scout"] = science_payload
+        signal["summary"]["science_scout_scenario_count"] = science_payload.get("scenario_count")
+        signal["summary"]["science_scout_target_figure_count"] = science_payload.get("target_figure_count")
+        signal["summary"]["science_scout_external_execution"] = science_payload.get("external_execution")
+        signal["top_findings"] = [
+            {
+                "kind": "science_hypothesis_falsification",
+                "score": None,
+                "workstream_id": "science_scout",
+                "title": item.get("id"),
+                "evidence": item.get("hypothesis"),
+                "validator_kind": "physics_hypothesis_provenance_check",
+            }
+            for item in science_payload.get("scenarios", [])[:5]
+            if isinstance(item, dict)
+        ]
     maintenance_payload = signal.get("evolutionary_maintenance") if isinstance(signal.get("evolutionary_maintenance"), dict) else {}
     lane_payload = maintenance_payload.get("lane_heartbeats") if isinstance(maintenance_payload.get("lane_heartbeats"), dict) else {}
     if lane_payload:
@@ -7645,6 +7969,7 @@ def write_lane_dream_outputs(
         lane_payload["engineering_rule"] = "one lane per automation; each nightly run opens a fresh automation chat; doctor aggregates the set"
         lane_payload["lanes"] = lane_rows
         lane_payload.pop("master_heartbeat", None)
+    apply_pressure_governor_to_signal(signal, world, lane_id)
     run_finished_at = datetime.now(timezone.utc)
     signal["run_timing"] = {
         "started_at": run_started_at.isoformat(timespec="seconds"),
@@ -7658,6 +7983,7 @@ def write_lane_dream_outputs(
     signal["learning_atoms"] = learning_atoms
     signal["learning_atom_metrics"] = learning_metrics
     signal["dream_recurrence_index"] = recurrence_index
+    signal["pressure_governor"]["recurrence"] = recurrence_index.get("pressure_summary") or {}
     signal["summary"].update(learning_metrics)
     signal.update(learning_metrics)
     nightly_signal = lane_nightly_heartbeat_signal(run_id, lane_id, signal, learning_atoms, learning_metrics, recurrence_index)
@@ -8305,6 +8631,27 @@ def validate_lane_dir(path: Path) -> list[str]:
         ]
         if len(top_auto) > 1:
             errors.append("context_resonance emitted more than one primary auto-maintenance finding")
+    if lane_id == "science_scout":
+        for name in ("science_scout_frontier_review.md", "chatgpt_science_critique_prompt.md"):
+            if SYNTHETIC_HEADER not in read_text(path / name):
+                errors.append(f"{name} lacks synthetic provenance header")
+        try:
+            science_payload = json.loads(read_text(path / "science_scout_frontier_review.json"))
+        except json.JSONDecodeError as exc:
+            errors.append(f"science_scout_frontier_review.json invalid JSON: {exc}")
+            science_payload = {}
+        if isinstance(science_payload, dict):
+            if science_payload.get("synthetic") is not True:
+                errors.append("science_scout_frontier_review.json missing synthetic=true")
+            if science_payload.get("mutation_boundary") != "proposal_only":
+                errors.append("science_scout_frontier_review.json mutation_boundary is not proposal_only")
+            if science_payload.get("external_execution") != "not_performed_by_dream":
+                errors.append("science_scout_frontier_review.json does not preserve external execution boundary")
+            if len(science_payload.get("falsification_matrix") or []) < len(SCIENCE_SCOUT_SCENARIOS):
+                errors.append("science_scout_frontier_review.json missing falsification rows")
+            prompt = str(science_payload.get("chatgpt_prompt") or "")
+            if "not evidence" not in prompt or "fake-signal" not in prompt:
+                errors.append("science_scout ChatGPT prompt lacks evidence/fake-signal boundary")
     retired_names = ("nightly_heartbeat.md",)
     if signal_version < DREAM_LANE_SIGNAL_VERSION:
         retired_names = ("nightly_heartbeat.md", "nightly_heartbeat_signal.json", "morning_appendix.md")

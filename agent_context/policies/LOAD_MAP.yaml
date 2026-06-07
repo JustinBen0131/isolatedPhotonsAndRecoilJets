@@ -98,6 +98,12 @@ routes:
       - baseline before novelty
       - opportunity cost
       - regret minimization
+      - context conservation
+      - conservation mode
+      - token conservation
+      - low on tokens
+      - context budget
+      - pause dreams
     load:
       - agent_context/policies/AGENTIC_OS_HARDENING.md
       - agent_context/policies/CODEX_OPERATING_SYSTEM.md
@@ -108,6 +114,9 @@ routes:
         changing OS behavior.
       - Prefer executable checks, route updates, or compact policy patches over
         broad prose-only guidance.
+      - If context conservation is requested, set
+        daily_cockpit.context_conservation_mode, pause only dream-lane
+        automations, and keep handoffs compact until Justin turns the mode off.
       - Run scripts/codex_os_doctor.py before claiming the OS state is healthy.
       - Use scripts/codex_os_guard.py and scripts/codex_os_snapshot.py before
         risky mutations.

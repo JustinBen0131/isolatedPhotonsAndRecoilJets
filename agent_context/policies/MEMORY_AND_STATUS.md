@@ -99,6 +99,13 @@ Record:
 - active jobs, artifacts, evidence, `next_check`, and `stale_after`;
 - compact handoff summary for the next Codex chat.
 
+If the matching workstream is an umbrella campaign and the current deliverable
+can finish without completing the campaign, record or create a focused child
+workstream instead of overloading the parent. The child should own the active
+Codex session, heartbeat automation, active jobs, artifact contract, QA
+criteria, and done criteria. The parent should keep only the campaign goal,
+child map, durable context, and campaign-level decision state.
+
 Optional critical-path fields may be added when they improve routing or
 decision quality. Do not add them mechanically to every task:
 
@@ -145,6 +152,20 @@ record:
 - next expected checkpoint.
 
 Use visible terminal prompt node as evidence when present.
+
+### AuAu Campaign Timing And Efficiency
+
+For AuAu RecoilJets campaigns, every heartbeat should treat the campaign as a
+measured system, not just a Condor queue. Record submitted runs/files/jobs,
+`groupSize`, requested memory, active/running/held counts, non-tiny ROOT
+coverage, complete-run count, output byte growth since the previous checkpoint,
+recovery-target status, and known failure modes. "Finished" means ROOT coverage
+and sanity: non-tiny, non-zombie, expected keys/histograms, and merge-readiness,
+not Condor history alone. Use
+`scripts/sdcc/runtime/audit/auau_campaign_checkpoint.py` for compact
+checkpoint JSON/text where possible, and store sidecar timing results
+separately from mergeable campaign outputs before changing future broad
+submission defaults.
 
 ## Evidence Discipline
 

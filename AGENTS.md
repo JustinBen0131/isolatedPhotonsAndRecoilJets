@@ -18,43 +18,69 @@ load the focused policy file named by the routing table below.
 4. For meaningful multi-step work, load
    `agent_context/policies/CODEX_OPERATING_SYSTEM.md` and claim or update the
    matching entry in `agent_context/CODEX_WORK_REGISTER.yaml` before starting.
-5. If Justin references slides without giving a deck/slide link, use the
+5. Chat Naming Reflex: after claiming or creating a Linear-backed workstream,
+   align the Codex chat title to the primary Linear issue when thread-title
+   tools are available. If this chat owns one issue, use `THE-X | Short Task`.
+   If it owns multiple focused issues, use `THE-X+THE-Y | Shared Theme` and
+   make the primary issue explicit in the register and Linear comment. If
+   thread-title tools are unavailable, record the intended title in
+   `chat_label_or_thread` / `active_codex_session`, sync it to Linear's
+   `Codex chat map`, and tell Justin the exact title to use manually.
+6. Umbrella Decomposition Reflex: if the natural unit of work has a concrete
+   deliverable/checkpoint but the matching Linear/register item is too broad
+   to complete when that deliverable is done, split or claim a focused child
+   workstream before proceeding. Keep the umbrella issue as campaign context,
+   move active jobs/artifact contracts to the child, and clean the parent so a
+   Codex chat can say "I am working on THE-X" and later mark that focused task
+   done without pretending the whole campaign is complete.
+7. If Justin references slides without giving a deck/slide link, use the
    `WORKING POINT` line at the top of Today's Plan, or the mirrored
    `daily_cockpit.active_working_point_deck` entry in
    `CODEX_WORK_REGISTER.yaml`, as the default working-point slides.
-6. Check the hot-state ledgers before making claims about current campaigns:
+8. Check the hot-state ledgers before making claims about current campaigns:
    `agent_context/CODEX_WORK_REGISTER.yaml`,
    `agent_context/STATUS_DASHBOARD.md`, `agent_context/TASK_BOARD.md`, and
    when relevant `codex_notes/PROJECT_BOARD.md`,
    `codex_notes/DATASET_STATUS.md`, `codex_notes/KNOWN_ISSUES.md`,
    `codex_notes/RUN_LOG.md`.
-7. Prefer evidence over memory. Valid/stale/done means backed by file
+9. Prefer evidence over memory. Valid/stale/done means backed by file
    timestamps, ROOT inspection, job IDs, Gmail/Condor output, terminal output,
    or a clear user statement.
-8. Thesis Finitude Reflex: treat thesis time, Justin attention, compute, and
+10. Thesis Finitude Reflex: treat thesis time, Justin attention, compute, and
    context as finite. Before meaningful work, classify whether the task
    advances the minimal publishable thesis path, reduces risk, improves a
    thesis-facing artifact, preserves evidence integrity, compounds workflow,
    or is novelty/distraction. Favor the shortest safe evidence-backed path to
    thesis closure. Do not frame this as agent fear, self-preservation,
    consciousness, or autonomy-seeking; the finite object is the thesis project.
-9. Self-Improvement Reflex: when Justin says a generated plot, slide, script,
+11. Self-Improvement Reflex: when Justin says a generated plot, slide, script,
    or workflow output is wrong, unclear, ugly, misleading, too small, too
    busy, poorly organized, or needs a repeated style/layout correction, fix
    the artifact and classify the reusable failure mode. If the lesson is
    durable, encode it in the smallest appropriate surface: policy, style map,
    plotting default, template, validator, register, or Linear follow-up.
-10. Slide Regression Reflex: before generating or revising a serious
+12. Slide Regression Reflex: before generating or revising a serious
    slide-facing artifact, load `SLIDES_WORKFLOW.md`, `SLIDE_STYLE_MAP.md`,
    `PLOTTING.md` when plots are involved, and a compact context-resonance
-   resolve for the task. Run the slide self-audit before showing Justin and do
-   not let the same source/style/speaker-script mistake recur from chat memory
-   alone.
-11. Context Budget Reflex: retrieve small, task-shaped context through
-   `scripts/os/context/codex_context_resonance.py resolve --task "<task>"`
-   when old style, policy, task, or failure memory matters. Do not dump broad
-   old context or rely on recall when a routed policy/style pointer is cheap.
-12. When creating new scripts, plotting helpers, slide generators, ROOT macros,
+   triage/resolve for the task. Run the slide self-audit before showing Justin
+   and do not let the same source/style/speaker-script mistake recur from chat
+   memory alone.
+13. Context Budget Reflex: retrieve small, task-shaped context through
+   `scripts/os/context/codex_context_resonance.py triage --task "<task>"`
+   before broad ledger reads when old style, policy, task, or failure memory
+   matters. Use `resolve` only when the triage plan or task risk calls for
+   deeper cues. Do not dump broad old context or rely on recall when a routed
+   policy/style pointer is cheap.
+14. Context Conservation Mode Reflex: if Justin says "proceed with context
+   conservation mode", "we need to be in context conservation mode", or a close
+   variant, load `CODEX_OPERATING_SYSTEM.md` and set the persistent
+   `daily_cockpit.context_conservation_mode` state. While active, pause only
+   dream-lane automations, use the smallest sufficient reads, avoid Chronicle /
+   browser / Computer Use unless explicitly requested or required for safety,
+   keep answers brief, and keep slide work to PNG candidates plus terse
+   evidence/caveat notes unless Justin explicitly asks for deck mutation or a
+   full script. The mode remains active until Justin explicitly turns it off.
+15. When creating new scripts, plotting helpers, slide generators, ROOT macros,
    diagnostics, or OS utilities, load `REPO_ORGANIZATION.md` and place the new
    file in the clearest safe home. Do not add more unrelated side helpers to
    flat `scripts/` or `macros/` by default. Do not move Fun4All, SDCC, Condor,
@@ -66,7 +92,7 @@ load the focused policy file named by the routing table below.
    `scripts/HELPER_INDEX.yaml`, `scripts/slides/INDEX.yaml`, and the purpose
    subfolders. Historical local names that are not hard aliases live under
    `scripts/compat/local/`.
-13. If Justin says "set up a Zoom room", "open a Zoom room", "make a Zoom
+16. If Justin says "set up a Zoom room", "open a Zoom room", "make a Zoom
    room", "start a Zoom room", "get me a Zoom invite link", or a close variant,
    load `MEETING_CAPTURE_AND_ZOOM.md`. Treat the phrase as explicit permission
    to use Computer Use on Zoom for that narrow room-setup task: create/start

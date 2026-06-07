@@ -24,66 +24,10 @@ from pathlib import Path
 from typing import Any
 
 from codex_work_register_common import DEFAULT_REGISTER, first_line, load_register, parse_when, sorted_workstreams
+from pressure_governor import classify_register_workstream
 
 
 LIVE_STATUSES = {"active", "running", "waiting", "blocked", "review"}
-
-
-def classify_workstream(item: dict[str, Any], now: datetime) -> dict[str, Any]:
-    workstream_id = item.get("workstream_id")
-    status = item.get("status")
-    evidence = item.get("evidence") if isinstance(item.get("evidence"), list) else []
-    active_jobs = item.get("active_jobs") if isinstance(item.get("active_jobs"), list) else []
-    stale_after = parse_when(item.get("stale_after"))
-    next_check = parse_when(item.get("next_check"))
-    last_verified = parse_when(item.get("last_verified"))
-
-    missing = []
-    for field in ("evidence", "last_verified", "next_check", "stale_after"):
-        value = item.get(field)
-        if value in (None, "", []):
-            missing.append(field)
-    if stale_after is None:
-        missing.append("stale_after_parseable")
-    if next_check is None:
-        missing.append("next_check_parseable")
-    if last_verified is None:
-        missing.append("last_verified_parseable")
-
-    classification = "current"
-    if status in {"done_pending_review", "archived"}:
-        classification = "archive_review"
-    elif missing or not evidence:
-        classification = "needs_evidence"
-    elif stale_after and stale_after <= now:
-        classification = "stale"
-    elif status in {"waiting", "blocked", "review"}:
-        classification = "waiting"
-    elif active_jobs:
-        classification = "current"
-
-    recommended_action = {
-        "current": "keep hot; refresh next_check only after real evidence changes",
-        "waiting": "preserve waiting/blocker reason and set next_check/stale_after from exact evidence",
-        "stale": "inspect evidence before claiming status; update last_verified, next_check, and stale_after after waking validation",
-        "needs_evidence": "add exact evidence or demote/archive; do not let this remain a live ambiguous workstream",
-        "archive_review": "confirm whether this can remain out of live dream/status pressure",
-    }[classification]
-
-    return {
-        "workstream_id": workstream_id,
-        "title": item.get("title"),
-        "status": status,
-        "classification": classification,
-        "last_verified": item.get("last_verified"),
-        "next_check": item.get("next_check"),
-        "stale_after": item.get("stale_after"),
-        "evidence_count": len(evidence),
-        "active_job_count": len(active_jobs),
-        "missing_or_unparseable": sorted(set(missing)),
-        "recommended_action": recommended_action,
-        "mutation_boundary": "read_only_report",
-    }
 
 
 def print_protocol(rows: list[dict[str, Any]], as_json: bool) -> None:
@@ -109,9 +53,10 @@ def print_protocol(rows: list[dict[str, Any]], as_json: bool) -> None:
         missing = ",".join(row["missing_or_unparseable"]) or "none"
         print(
             f"{row['classification'].upper()} {row['workstream_id']}: {row['title']} | "
-            f"status={row['status']} | evidence={row['evidence_count']} | active_jobs={row['active_job_count']} | "
+            f"status={row['status']} | evidence={row['evidence_count']} | "
+            f"active_jobs={row['active_job_count']} raw_active_jobs={row.get('raw_active_job_count', row['active_job_count'])} | "
             f"last_verified={row['last_verified']} | next_check={row['next_check']} | stale_after={row['stale_after']} | "
-            f"missing={missing} | action={row['recommended_action']}"
+            f"umbrella_parent={str(row.get('umbrella_parent', False)).lower()} | missing={missing} | action={row['recommended_action']}"
         )
 
 
@@ -134,7 +79,7 @@ def main() -> int:
     data = load_register(Path(args.register))
     if args.protocol:
         rows = [
-            classify_workstream(item, now)
+            classify_register_workstream(item, now)
             for item in sorted_workstreams(data)
             if item.get("status") in LIVE_STATUSES or item.get("status") in {"done_pending_review", "archived"}
         ]

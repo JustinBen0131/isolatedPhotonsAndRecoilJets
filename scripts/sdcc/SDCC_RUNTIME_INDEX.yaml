@@ -143,6 +143,11 @@ entries:
     domain: "sdcc/workflows/diagnostics"
     hard_aliases:
       []
+  - id: submit_the38_tree_depth_capacity_campaign
+    canonical_path: "scripts/sdcc/workflows/diagnostics/submit_the38_tree_depth_capacity_campaign.sh"
+    domain: "sdcc/workflows/diagnostics"
+    hard_aliases:
+      []
   - id: submit_inclusive_stitch_xsec_scan
     canonical_path: "scripts/sdcc/workflows/scan/submit_inclusive_stitch_xsec_scan.sh"
     domain: "sdcc/workflows/scan"

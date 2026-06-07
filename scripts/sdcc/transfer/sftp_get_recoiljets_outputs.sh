@@ -2,7 +2,7 @@
 set -euo pipefail
 
 LOCAL_BASE="/Users/patsfan753/Desktop/ThesisAnalysis"
-REMOTE_BASE="/sphenix/u/patsfan753/scratch/thesisAnalysis"
+REMOTE_BASE="${SFTP_GET_REMOTE_BASE:-/sphenix/u/patsfan753/scratch/thesisAnalysis}"
 REMOTE_HOST="patsfan753@sftp.sdcc.bnl.gov"
 
 usage() {
@@ -16,8 +16,10 @@ Usage:
   ./scripts/sftp_get_recoiljets_outputs.sh auauMLDiagnosticCompact <remote-dir> <local-dir> <file...>
   ./scripts/sftp_get_recoiljets_outputs.sh stitchDiagnosticsCompact <remote-dir> <local-dir> <file...>
   ./scripts/sftp_get_recoiljets_outputs.sh auauBDTMLPStackPromotion <remote-run-dir>
+  ./scripts/sftp_get_recoiljets_outputs.sh freshOOFStackCompact <remote-run-dir> [local-dir]
   ./scripts/sftp_get_recoiljets_outputs.sh ppPhotonMLCompact <remote-dir> <local-dir> <file...>
   ./scripts/sftp_get_recoiljets_outputs.sh ppPhotonMLValidation <remote-validation-dir> [local-dir] [file ...]
+  ./scripts/sftp_get_recoiljets_outputs.sh selectedRootFiles <remote-dir> <local-dir> <relative-root-file...>
   ./scripts/sftp_get_recoiljets_outputs.sh mlIntegrationLatest
   ./scripts/sftp_get_recoiljets_outputs.sh mlIntegration <remote-path-or-dir-name>
   ./scripts/sftp_get_recoiljets_outputs.sh smokeTestLatest <dataset> [--roots]
@@ -75,9 +77,18 @@ auauBDTMLPStackPromotion pulls a single stack-promotion / WP-diagnostic run
 directory into:
   dataOutput/auauBDTMLPStackPromotion
 
+freshOOFStackCompact pulls only compact CSV/JSON artifacts from a fresh
+pp/AuAu BDT+MLP OOF stack run under the SDCC mlp_models area into:
+  dataOutput/fresh_pp_auau_oof_stack/<run-name>
+
 ppPhotonMLValidation pulls selected compact validation artifacts from an
 explicit ppPhotonMLPipeline validation directory. If file names are not passed,
 it defaults to the corrected Fig. 19 NPB overlay PNG/JSON/LOG set.
+
+selectedRootFiles pulls an explicit list of ROOT files from a known RecoilJets
+output directory. It is intended for narrow diagnostics of partial or staged
+outputs; it refuses wildcards, absolute file arguments, traversal, and
+non-RecoilJets output roots.
 
 ppPhotonMLCompact pulls selected compact PNG/JSON/CSV/TXT/LOG artifacts from
 an explicit ppPhotonMLPipeline directory such as validation/insitu_stitching or
@@ -132,6 +143,25 @@ validate_remote_path() {
     *"/../"*|*"//"*|*/..|../*)
       echo "[ERROR] Unsafe ${label}: ${path}" >&2
       echo "[ERROR] Refusing traversal-like SDCC paths." >&2
+      exit 2
+      ;;
+  esac
+}
+
+validate_remote_relative_file() {
+  local path="$1"
+  local label="${2:-remote relative file}"
+  case "$path" in
+    ""|/*|*[[:space:]]*|*agent_context*|*.codex*|*codex*|*THE-*|*"*"*|*"?"*|*"["*|*"]"*)
+      echo "[ERROR] Unsafe ${label}: ${path}" >&2
+      echo "[ERROR] Refusing empty, absolute, wildcard, whitespace, agent-context, codex, or THE-* paths." >&2
+      exit 2
+      ;;
+  esac
+  case "$path" in
+    *"/../"*|*"//"*|*/..|../*|..)
+      echo "[ERROR] Unsafe ${label}: ${path}" >&2
+      echo "[ERROR] Refusing traversal-like relative paths." >&2
       exit 2
       ;;
   esac
@@ -327,13 +357,15 @@ required_samples_for_merge_dataset() {
 
 sim_combined_remote_file() {
   local label="$1" cfg="$2"
+  local embedded_inclusive_dir="${SFTP_GET_EMBEDDED_INCLUSIVE_MERGED_DIR:-embeddedJet12and20merged_SIM}"
+  local embedded_inclusive_file="${SFTP_GET_EMBEDDED_INCLUSIVE_MERGED_FILE:-RecoilJets_embeddedJet12plus20_MERGED.root}"
   case "$label" in
     isSim)
       echo "${cfg}/photonJet5and10and20merged_SIM/RecoilJets_photonjet5plus10plus20_MERGED.root" ;;
     isSimEmbedded)
       echo "${cfg}/photonJet12and20merged_SIM/RecoilJets_embeddedPhoton12plus20_MERGED.root" ;;
     isSimEmbeddedInclusive)
-      echo "${cfg}/embeddedJet12and20merged_SIM/RecoilJets_embeddedJet12plus20_MERGED.root" ;;
+      echo "${cfg}/${embedded_inclusive_dir}/${embedded_inclusive_file}" ;;
     isSimInclusive)
       echo "${cfg}/inclusiveJet5to40_SIM/RecoilJets_jet5plus8plus12plus20plus30plus40_MERGED.root" ;;
     *)
@@ -345,13 +377,15 @@ sim_combined_local_file() {
   local label="$1" cfg="$2"
   local sim_base="${SFTP_GET_LOCAL_COMBINED_BASE:-${LOCAL_BASE}/dataOutput/combinedSimOnly}"
   local embed_base="${SFTP_GET_LOCAL_COMBINED_BASE:-${LOCAL_BASE}/dataOutput/combinedSimOnlyEMBEDDED}"
+  local embedded_inclusive_dir="${SFTP_GET_EMBEDDED_INCLUSIVE_MERGED_DIR:-embeddedJet12and20merged_SIM}"
+  local embedded_inclusive_file="${SFTP_GET_EMBEDDED_INCLUSIVE_MERGED_FILE:-RecoilJets_embeddedJet12plus20_MERGED.root}"
   case "$label" in
     isSim)
       echo "${sim_base}/${cfg}/photonJet5and10and20merged_SIM/RecoilJets_photonjet5plus10plus20_MERGED.root" ;;
     isSimEmbedded)
       echo "${embed_base}/${cfg}/photonJet12and20merged_SIM/RecoilJets_embeddedPhoton12plus20_MERGED.root" ;;
     isSimEmbeddedInclusive)
-      echo "${embed_base}/${cfg}/embeddedJet12and20merged_SIM/RecoilJets_embeddedJet12plus20_MERGED.root" ;;
+      echo "${embed_base}/${cfg}/${embedded_inclusive_dir}/${embedded_inclusive_file}" ;;
     isSimInclusive)
       echo "${sim_base}/${cfg}/inclusiveJet5to40_SIM/RecoilJets_jet5plus8plus12plus20plus30plus40_MERGED.root" ;;
     *)
@@ -1045,10 +1079,16 @@ download_auau_ml_diagnostic_compact() {
       ;;
     /sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/THE8_branchA_ladder_jet12_20*_20260527/reports/model_validation_condor_THE8_branchA_jet12_20*_scorecache_fullstat_20260527)
       ;;
+    /gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE38_tree_depth_capacity_*_d[0-9])
+      ;;
+    /sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE38_tree_depth_capacity_*_d[0-9])
+      ;;
+    /sphenix/u/patsfan753/thesisAnalysis/bdt_models/THE38_tree_depth_capacity_*_d[0-9])
+      ;;
     *)
       echo "[ERROR] Refusing non-compact AuAu ML diagnostic path:" >&2
       echo "  ${remote_dir}" >&2
-      echo "[ERROR] Expected dataOutput/auauMLDiagnosticRuns/*, an auauTightBDT_eiso_cone_raw_* model_validation_condor_* report, or a THE8_branchA_ladder compact validation report." >&2
+      echo "[ERROR] Expected dataOutput/auauMLDiagnosticRuns/*, an auauTightBDT_eiso_cone_raw_* model_validation_condor_* report, a THE8_branchA_ladder compact validation report, or a THE38_tree_depth_capacity compact model registry directory." >&2
       exit 2
       ;;
   esac
@@ -1065,7 +1105,7 @@ download_auau_ml_diagnostic_compact() {
         echo "[ERROR] Refusing non-compact or path-like file argument: ${f}" >&2
         exit 2
         ;;
-      *.png|*.json|*.log|*.txt|*.csv) ;;
+      *.png|*.json|*.log|*.txt|*.csv|*.md) ;;
       *)
         echo "[ERROR] Refusing unsupported compact artifact extension: ${f}" >&2
         exit 2
@@ -1280,6 +1320,95 @@ download_pp_photon_ml_compact() {
     echo "[ERROR] sftp download failed with exit code ${status}." >&2
     exit "$status"
   fi
+}
+
+download_selected_root_files() {
+  local remote_dir="${1:-}"
+  local local_dir="${2:-}"
+  shift 2 || true
+  local files=("$@")
+  local batch
+
+  if [[ -z "$remote_dir" || -z "$local_dir" || ${#files[@]} -eq 0 ]]; then
+    echo "[ERROR] selectedRootFiles requires remote-dir local-dir relative-root-file..." >&2
+    exit 2
+  fi
+
+  remote_dir="${remote_dir%/}"
+  case "$remote_dir" in
+    /sphenix/tg/tg01/bulk/jbennett/thesisAna/auau/*|\
+    /sphenix/tg/tg01/bulk/jbennett/thesisAna/recoiljets/*|\
+    /sphenix/tg/tg01/bulk/jbennett/thesisAnaSmoke/*|\
+    /sphenix/u/patsfan753/scratch/thesisAnalysis/runs/recoiljets/current/*)
+      ;;
+    *)
+      echo "[ERROR] Refusing selected ROOT pull from non-RecoilJets output path:" >&2
+      echo "  ${remote_dir}" >&2
+      exit 2
+      ;;
+  esac
+  validate_remote_path "$remote_dir" "selected ROOT remote directory"
+
+  if [[ "$local_dir" != /* ]]; then
+    local_dir="${LOCAL_BASE}/${local_dir}"
+  fi
+
+  local f
+  for f in "${files[@]}"; do
+    validate_remote_relative_file "$f" "selected ROOT file"
+    case "$f" in
+      *.root|*.ROOT) ;;
+      *)
+        echo "[ERROR] selectedRootFiles accepts only .root file arguments: ${f}" >&2
+        exit 2
+        ;;
+    esac
+  done
+
+  mkdir -p "$local_dir"
+  batch="$(make_tmp_file "sftp_get_recoiljets_selected_roots")"
+  cleanup_selected_roots() { rm -f "$batch"; }
+  trap cleanup_selected_roots EXIT
+
+  {
+    printf 'lcd %s\n' "$local_dir"
+    printf 'cd %s\n' "$remote_dir"
+    for f in "${files[@]}"; do
+      printf 'get %s %s\n' "$f" "${f##*/}"
+    done
+  } > "$batch"
+
+  echo
+  echo "Remote host          : ${REMOTE_HOST}"
+  echo "Selected ROOT dir    : ${remote_dir}"
+  echo "Local dir            : ${local_dir}"
+  echo
+  echo "This downloads only the explicitly listed ROOT files."
+  echo
+  echo "sftp batch commands:"
+  sed 's/^/  /' "$batch"
+  echo
+  echo "Opening interactive sftp to download selected ROOT files."
+  echo "Public-key auth is tried first; no password is needed if your SDCC key is installed."
+  if sftp \
+      -oBatchMode=no \
+      -oPreferredAuthentications=publickey,password,keyboard-interactive \
+      -b "$batch" \
+      "$REMOTE_HOST"; then
+    echo
+    echo "[OK] Download complete."
+    trap - EXIT
+    rm -f "$batch"
+  else
+    status=$?
+    echo
+    echo "[ERROR] sftp download failed with exit code ${status}." >&2
+    echo "[ERROR] No success confirmation was received from sftp." >&2
+    exit "$status"
+  fi
+
+  echo
+  echo "Downloaded ${#files[@]} selected ROOT file(s)."
 }
 
 download_ml_integration_latest() {
@@ -1887,6 +2016,96 @@ download_auau_bdt_mlp_stack_promotion() {
   fi
 }
 
+download_fresh_oof_stack_compact() {
+  local remote_dir="${1:-}"
+  local local_dir="${2:-}"
+  local run_name batch
+  local files=(
+    campaign_manifest.json
+    partition_qa.json
+    feature_contract.json
+    base_model_artifacts.json
+    stack_model_artifacts.json
+    model_metrics.csv
+    model_metrics.json
+    stratified_metrics.csv
+    overlay_histograms.csv
+    score_correlations.json
+    leakage_qa.json
+  )
+  if [[ -z "$remote_dir" ]]; then
+    echo "[ERROR] freshOOFStackCompact requires the remote fresh OOF stack run directory." >&2
+    echo "[ERROR] Example:" >&2
+    echo "  ./scripts/sftp_get_recoiljets_outputs.sh freshOOFStackCompact /gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/fresh_pp_auau_bdt_mlp_oof_stack_YYYYMMDD_HHMMSS" >&2
+    exit 2
+  fi
+  remote_dir="${remote_dir%/}"
+  run_name="${remote_dir##*/}"
+
+  case "$remote_dir" in
+    /gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/fresh_pp_auau_bdt_mlp_oof_stack_*) ;;
+    /gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/fresh_pp_auau_bdt_mlp_simple_holdout_stack_*) ;;
+    *)
+      echo "[ERROR] Refusing to pull non-fresh-stack path:" >&2
+      echo "  ${remote_dir}" >&2
+      echo "[ERROR] Expected a fresh_pp_auau_bdt_mlp_oof_stack_* or fresh_pp_auau_bdt_mlp_simple_holdout_stack_* run under the SDCC mlp_models area." >&2
+      exit 2
+      ;;
+  esac
+  validate_remote_path "$remote_dir" "fresh OOF stack remote directory"
+
+  if [[ -z "$local_dir" ]]; then
+    local_dir="${LOCAL_BASE}/dataOutput/fresh_pp_auau_oof_stack/${run_name}"
+  elif [[ "$local_dir" != /* ]]; then
+    local_dir="${LOCAL_BASE}/${local_dir}"
+  fi
+
+  mkdir -p "$local_dir/pp" "$local_dir/auau"
+  batch="$(make_tmp_file "sftp_get_recoiljets_fresh_oof_stack_compact")"
+  cleanup_fresh_oof_stack_compact() { rm -f "$batch"; }
+  trap cleanup_fresh_oof_stack_compact EXIT
+
+  {
+    printf 'lcd %s\n' "$local_dir"
+    printf 'get %s/campaign_submit_manifest.json campaign_submit_manifest.json\n' "$remote_dir"
+    local domain f
+    for domain in pp auau; do
+      printf 'lcd %s/%s\n' "$local_dir" "$domain"
+      for f in "${files[@]}"; do
+        printf 'get %s/%s/%s\n' "$remote_dir" "$domain" "$f"
+      done
+    done
+  } > "$batch"
+
+  echo
+  echo "Remote host          : ${REMOTE_HOST}"
+  echo "Fresh OOF remote dir : ${remote_dir}"
+  echo "Local dir            : ${local_dir}"
+  echo
+  echo "This downloads only compact CSV/JSON artifacts; it excludes ROOT, NPZ, and model binaries."
+  echo
+  echo "sftp batch commands:"
+  sed 's/^/  /' "$batch"
+  echo
+  if sftp \
+      -oBatchMode=no \
+      -oPreferredAuthentications=publickey,password,keyboard-interactive \
+      -b "$batch" \
+      "$REMOTE_HOST"; then
+    echo
+    echo "[OK] fresh OOF stack compact download complete."
+    echo "Downloaded into: ${local_dir}"
+    trap - EXIT
+    rm -f "$batch"
+  else
+    status=$?
+    echo
+    echo "[ERROR] sftp download failed with exit code ${status}." >&2
+    echo "Batch file was: ${batch}" >&2
+    exit "$status"
+  fi
+}
+
 dataset="${1:-}"
 case "$dataset" in
   -h|--help|help|"")
@@ -1936,6 +2155,11 @@ if [[ "$dataset" == "auauBDTMLPStackPromotion" ]]; then
   exit 0
 fi
 
+if [[ "$dataset" == "freshOOFStackCompact" ]]; then
+  download_fresh_oof_stack_compact "${2:-}" "${3:-}"
+  exit 0
+fi
+
 if [[ "$dataset" == "ppPhotonMLCompact" ]]; then
   download_pp_photon_ml_compact "${2:-}" "${3:-}" "${@:4}"
   exit 0
@@ -1943,6 +2167,11 @@ fi
 
 if [[ "$dataset" == "ppPhotonMLValidation" ]]; then
   download_pp_photon_ml_validation "${2:-}" "${3:-}" "${@:4}"
+  exit 0
+fi
+
+if [[ "$dataset" == "selectedRootFiles" ]]; then
+  download_selected_root_files "${2:-}" "${3:-}" "${@:4}"
   exit 0
 fi
 

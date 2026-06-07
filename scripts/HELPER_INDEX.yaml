@@ -272,6 +272,10 @@ entries:
         status: "hard_contract"
       - path: "scripts/compat/local/codex_os_nightly_heartbeat.py"
         status: "compat_alias"
+  - id: codex_thread_heartbeat_fallback
+    group: "os/heartbeat"
+    canonical_path: "scripts/os/heartbeat/codex_thread_heartbeat_fallback.py"
+    aliases: []
   - id: codex_work_register_common
     group: "os/register"
     canonical_path: "scripts/os/register/codex_work_register_common.py"
@@ -435,6 +439,16 @@ entries:
   - id: make_bdt3x3_weta_comparison_plots
     group: "plotting/auau_bdt"
     canonical_path: "scripts/plotting/auau_bdt/make_bdt3x3_weta_comparison_plots.py"
+    aliases:
+      []
+  - id: make_default_eiso_bdt_kbird_probability_variants
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/make_default_eiso_bdt_kbird_probability_variants.py"
+    aliases:
+      []
+  - id: make_shower_width_isolation_correlation_examples
+    group: "plotting/auau_bdt"
+    canonical_path: "scripts/plotting/auau_bdt/make_shower_width_isolation_correlation_examples.py"
     aliases:
       []
   - id: make_e22_histograms_from_remote_caches
@@ -749,6 +763,11 @@ entries:
   - id: checkout_hygiene_probe
     group: "sdcc/runtime/audit"
     canonical_path: "scripts/sdcc/runtime/audit/checkout_hygiene_probe.py"
+    aliases:
+      []
+  - id: auau_campaign_checkpoint
+    group: "sdcc/runtime/audit"
+    canonical_path: "scripts/sdcc/runtime/audit/auau_campaign_checkpoint.py"
     aliases:
       []
   - id: recoiljets_cleanup

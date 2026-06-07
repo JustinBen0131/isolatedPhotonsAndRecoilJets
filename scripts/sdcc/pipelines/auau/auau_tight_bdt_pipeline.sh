@@ -268,6 +268,7 @@ validate_training_tree() {
   local report="$2"
   if [[ "${RJ_AUAU_BDT_SKIP_TRAINING_TREE_VALIDATE:-0}" == "1" ]]; then
     mkdir -p "$(dirname "$report")"
+    setup_ml_python_env
     "$ML_PYTHON" - "$manifest" "$report" <<'PY'
 import json
 import sys
@@ -1139,8 +1140,13 @@ train_expanded_from_extraction() {
   local etfine_fine_cent_bins="${RJ_AUAU_BDT_ETFINE_FINE_CENT_BINS:-0:10,10:20,20:30,30:40,40:50,50:60,60:80}"
   local ppg12_expected_samples="${RJ_AUAU_BDT_PPG12_EXACT_EXPECTED_SAMPLES:-run28_embeddedPhoton12,run28_embeddedPhoton20,run28_embeddedJet12,run28_embeddedJet20,run28_embeddedJet30}"
   local ppg12_closure_dir="${RJ_AUAU_BDT_PPG12_EXACT_CLOSURE_DIR:-${model_dir}/slideReady/ppg12_exact_reweight_bdt}"
+  local ppg12_closure_artifacts="${RJ_AUAU_BDT_PPG12_EXACT_CLOSURE_ARTIFACTS:-full}"
   local bdt_test_size="${RJ_AUAU_BDT_TEST_SIZE:-0.10}"
   local bdt_split_mode="${RJ_AUAU_BDT_SPLIT_MODE:-row}"
+  local bdt_max_depth="${RJ_AUAU_BDT_MAX_DEPTH:-}"
+  local event_quality_cut_json="${RJ_AUAU_BDT_EVENT_QUALITY_CUT_JSON:-}"
+  local event_quality_audit_output="${RJ_AUAU_BDT_EVENT_QUALITY_AUDIT_OUTPUT:-${model_dir}/event_quality_filter_audit.json}"
+  local event_quality_audit_only="${RJ_AUAU_BDT_EVENT_QUALITY_AUDIT_ONLY:-0}"
   local raw_eiso_pt_bins="${RJ_AUAU_BDT_EISO_CONE_PT_BINS:-15,17,19,21,23,25,27,30,35}"
   local raw_eiso_coarse_cent_bins="${RJ_AUAU_BDT_EISO_CONE_COARSE_CENT_BINS:-0:20,20:50,50:80}"
   local raw_eiso_fine_cent_bins="${RJ_AUAU_BDT_EISO_CONE_FINE_CENT_BINS:-0:10,10:20,20:30,30:40,40:50,50:60,60:80}"
@@ -1152,7 +1158,9 @@ train_expanded_from_extraction() {
     "cache     : ${cache_file}" \
     "campaign  : ${campaign}" \
     "weight    : ${weight_mode}" \
+    "max depth : ${bdt_max_depth:-<trainer default>}" \
     "spec ids  : ${spec_ids:-<all>}" \
+    "event cut : ${event_quality_cut_json:-<disabled>}" \
     "report    : ${report_dir}" \
     "plan only : ${plan_only}"
   mkdir -p "$model_dir"
@@ -1178,6 +1186,7 @@ train_expanded_from_extraction() {
       --no-event-weight
       --ppg12-exact-expected-samples "$ppg12_expected_samples"
       --ppg12-exact-closure-dir "$ppg12_closure_dir"
+      --ppg12-exact-closure-artifacts "$ppg12_closure_artifacts"
     )
   fi
   if [[ "$campaign" == "etcent-binned-sixpack" || "$campaign" == "etcent-binned-sixpack-noiso-ptcent7" || "$campaign" == "global-and-etcent-binned-sixpack-noiso" ]]; then
@@ -1203,6 +1212,17 @@ train_expanded_from_extraction() {
   fi
   if [[ -n "$spec_ids" ]]; then
     args+=( --campaign-spec-ids "$spec_ids" )
+  fi
+  if [[ -n "$bdt_max_depth" ]]; then
+    args+=( --max-depth "$bdt_max_depth" )
+  fi
+  if [[ -n "$event_quality_cut_json" ]]; then
+    args+=( --event-quality-cut-json "$event_quality_cut_json" )
+    args+=( --event-quality-audit-output "$event_quality_audit_output" )
+    args+=( --require-global-event-key )
+    if [[ "$event_quality_audit_only" == "1" ]]; then
+      args+=( --event-quality-audit-only )
+    fi
   fi
   if [[ "$plan_only" == "1" ]]; then
     args+=( --plan-only --registry-output "${model_dir}/model_registry.planned.json" )
@@ -1272,8 +1292,13 @@ train_expanded_from_extraction_condor() {
   local etfine_fine_cent_bins="${RJ_AUAU_BDT_ETFINE_FINE_CENT_BINS:-0:10,10:20,20:30,30:40,40:50,50:60,60:80}"
   local ppg12_expected_samples="${RJ_AUAU_BDT_PPG12_EXACT_EXPECTED_SAMPLES:-run28_embeddedPhoton12,run28_embeddedPhoton20,run28_embeddedJet12,run28_embeddedJet20,run28_embeddedJet30}"
   local ppg12_closure_dir="${RJ_AUAU_BDT_PPG12_EXACT_CLOSURE_DIR:-${model_dir}/slideReady/ppg12_exact_reweight_bdt}"
+  local ppg12_closure_artifacts="${RJ_AUAU_BDT_PPG12_EXACT_CLOSURE_ARTIFACTS:-full}"
   local bdt_test_size="${RJ_AUAU_BDT_TEST_SIZE:-0.10}"
   local bdt_split_mode="${RJ_AUAU_BDT_SPLIT_MODE:-row}"
+  local bdt_max_depth="${RJ_AUAU_BDT_MAX_DEPTH:-}"
+  local event_quality_cut_json="${RJ_AUAU_BDT_EVENT_QUALITY_CUT_JSON:-}"
+  local event_quality_audit_output="${RJ_AUAU_BDT_EVENT_QUALITY_AUDIT_OUTPUT:-${model_dir}/event_quality_filter_audit.json}"
+  local event_quality_assume_filtered="${RJ_AUAU_BDT_EVENT_QUALITY_ASSUME_FILTERED:-0}"
   local raw_eiso_pt_bins="${RJ_AUAU_BDT_EISO_CONE_PT_BINS:-15,17,19,21,23,25,27,30,35}"
   local raw_eiso_coarse_cent_bins="${RJ_AUAU_BDT_EISO_CONE_COARSE_CENT_BINS:-0:20,20:50,50:80}"
   local raw_eiso_fine_cent_bins="${RJ_AUAU_BDT_EISO_CONE_FINE_CENT_BINS:-0:10,10:20,20:30,30:40,40:50,50:60,60:80}"
@@ -1297,7 +1322,9 @@ train_expanded_from_extraction_condor() {
     "weight    : ${weight_mode}" \
     "test size : ${bdt_test_size}" \
     "split mode: ${bdt_split_mode}" \
+    "max depth : ${bdt_max_depth:-<trainer default>}" \
     "spec ids  : ${spec_ids:-<all>}" \
+    "event cut : ${event_quality_cut_json:-<disabled>}" \
     "groupSize : ${group_size}" \
     "requestMem: ${reqmem}" \
     "cacheMem : ${cache_reqmem}"
@@ -1320,6 +1347,7 @@ train_expanded_from_extraction_condor() {
       --no-event-weight
       --ppg12-exact-expected-samples "$ppg12_expected_samples"
       --ppg12-exact-closure-dir "$ppg12_closure_dir"
+      --ppg12-exact-closure-artifacts "$ppg12_closure_artifacts"
     )
   fi
   if [[ "$campaign" == "etcent-binned-sixpack" || "$campaign" == "etcent-binned-sixpack-noiso-ptcent7" || "$campaign" == "global-and-etcent-binned-sixpack-noiso" ]]; then
@@ -1345,6 +1373,14 @@ train_expanded_from_extraction_condor() {
   fi
   if [[ -n "$spec_ids" ]]; then
     plan_args+=( --campaign-spec-ids "$spec_ids" )
+  fi
+  if [[ -n "$bdt_max_depth" ]]; then
+    plan_args+=( --max-depth "$bdt_max_depth" )
+  fi
+  if [[ -n "$event_quality_cut_json" ]]; then
+    plan_args+=( --event-quality-cut-json "$event_quality_cut_json" )
+    plan_args+=( --event-quality-audit-output "$event_quality_audit_output" )
+    plan_args+=( --require-global-event-key )
   fi
   "$ML_PYTHON" "${plan_args[@]}"
 
@@ -1634,11 +1670,26 @@ export RJ_AUAU_BDT_CAMPAIGN="${campaign}"
 export RJ_AUAU_BDT_WEIGHT_MODE="${weight_mode}"
 export RJ_AUAU_BDT_TEST_SIZE="${bdt_test_size}"
 export RJ_AUAU_BDT_SPLIT_MODE="${bdt_split_mode}"
+export RJ_AUAU_BDT_MAX_DEPTH="${bdt_max_depth}"
+export RJ_AUAU_BDT_EVENT_QUALITY_CUT_JSON="${event_quality_cut_json}"
+export RJ_AUAU_BDT_EVENT_QUALITY_AUDIT_OUTPUT="${event_quality_audit_output}"
+export RJ_AUAU_BDT_EVENT_QUALITY_ASSUME_FILTERED="${event_quality_assume_filtered}"
 ${env_prelude}
 extra_args=()
 extra_args+=(--weight-mode "\${RJ_AUAU_BDT_WEIGHT_MODE}")
 extra_args+=(--test-size "\${RJ_AUAU_BDT_TEST_SIZE}")
 extra_args+=(--split-mode "\${RJ_AUAU_BDT_SPLIT_MODE}")
+if [[ -n "\${RJ_AUAU_BDT_MAX_DEPTH:-}" ]]; then
+  extra_args+=(--max-depth "\${RJ_AUAU_BDT_MAX_DEPTH}")
+fi
+if [[ -n "\${RJ_AUAU_BDT_EVENT_QUALITY_CUT_JSON:-}" ]]; then
+  extra_args+=(--event-quality-cut-json "\${RJ_AUAU_BDT_EVENT_QUALITY_CUT_JSON}")
+  extra_args+=(--event-quality-audit-output "\${RJ_AUAU_BDT_EVENT_QUALITY_AUDIT_OUTPUT}")
+  extra_args+=(--require-global-event-key)
+  if [[ "\${RJ_AUAU_BDT_EVENT_QUALITY_ASSUME_FILTERED:-0}" == "1" ]]; then
+    extra_args+=(--event-quality-assume-filtered)
+  fi
+fi
 if [[ -n "\${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS:-}" ]]; then
   extra_args+=(--campaign-spec-ids "\${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS}")
 fi
@@ -1646,6 +1697,7 @@ if [[ "\${RJ_AUAU_BDT_WEIGHT_MODE:-legacy}" == "ppg12-exact" ]]; then
   extra_args+=(--no-event-weight)
   extra_args+=(--ppg12-exact-expected-samples "${ppg12_expected_samples}")
   extra_args+=(--ppg12-exact-closure-dir "${ppg12_closure_dir}")
+  extra_args+=(--ppg12-exact-closure-artifacts "${ppg12_closure_artifacts}")
 fi
 if [[ "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "etcent-binned-sixpack" || "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "etcent-binned-sixpack-noiso-ptcent7" || "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "global-and-etcent-binned-sixpack-noiso" ]]; then
   extra_args+=(--pt-bins "${etcent_pt_bins}")
@@ -1685,11 +1737,24 @@ export RJ_AUAU_BDT_CAMPAIGN="${campaign}"
 export RJ_AUAU_BDT_WEIGHT_MODE="${weight_mode}"
 export RJ_AUAU_BDT_TEST_SIZE="${bdt_test_size}"
 export RJ_AUAU_BDT_SPLIT_MODE="${bdt_split_mode}"
+export RJ_AUAU_BDT_MAX_DEPTH="${bdt_max_depth}"
+export RJ_AUAU_BDT_EVENT_QUALITY_CUT_JSON="${event_quality_cut_json}"
+export RJ_AUAU_BDT_EVENT_QUALITY_ASSUME_FILTERED="${event_quality_assume_filtered}"
 ${env_prelude}
 extra_args=()
 extra_args+=(--weight-mode "\${RJ_AUAU_BDT_WEIGHT_MODE}")
 extra_args+=(--test-size "\${RJ_AUAU_BDT_TEST_SIZE}")
 extra_args+=(--split-mode "\${RJ_AUAU_BDT_SPLIT_MODE}")
+if [[ -n "\${RJ_AUAU_BDT_MAX_DEPTH:-}" ]]; then
+  extra_args+=(--max-depth "\${RJ_AUAU_BDT_MAX_DEPTH}")
+fi
+if [[ -n "\${RJ_AUAU_BDT_EVENT_QUALITY_CUT_JSON:-}" ]]; then
+  extra_args+=(--event-quality-cut-json "\${RJ_AUAU_BDT_EVENT_QUALITY_CUT_JSON}")
+  extra_args+=(--require-global-event-key)
+  if [[ "\${RJ_AUAU_BDT_EVENT_QUALITY_ASSUME_FILTERED:-0}" == "1" ]]; then
+    extra_args+=(--event-quality-assume-filtered)
+  fi
+fi
 if [[ -n "\${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS:-}" ]]; then
   extra_args+=(--campaign-spec-ids "\${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS}")
 fi
@@ -1697,6 +1762,7 @@ if [[ "\${RJ_AUAU_BDT_WEIGHT_MODE:-legacy}" == "ppg12-exact" ]]; then
   extra_args+=(--no-event-weight)
   extra_args+=(--ppg12-exact-expected-samples "${ppg12_expected_samples}")
   extra_args+=(--ppg12-exact-closure-dir "${ppg12_closure_dir}")
+  extra_args+=(--ppg12-exact-closure-artifacts "${ppg12_closure_artifacts}")
 fi
 if [[ "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "etcent-binned-sixpack" || "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "etcent-binned-sixpack-noiso-ptcent7" || "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "global-and-etcent-binned-sixpack-noiso" ]]; then
   extra_args+=(--pt-bins "${etcent_pt_bins}")
@@ -2146,11 +2212,16 @@ validate_on_sim() {
   if [[ -n "$outdir" ]]; then
     args+=( --outdir "$outdir" )
   fi
+  if [[ -n "${RJ_AUAU_BDT_EVENT_QUALITY_CUT_JSON:-}" ]]; then
+    args+=( --event-quality-cut-json "${RJ_AUAU_BDT_EVENT_QUALITY_CUT_JSON}" )
+    args+=( --event-quality-audit-output "${outdir:-${source}/reports}/event_quality_filter_audit.json" )
+  fi
 
   say "Validating tight-BDT models on embedded-sim extraction trees"
   say "  source    : $source"
   say "  model dir : $model_dir"
   [[ -n "$model_registry" ]] && say "  registry  : $model_registry"
+  [[ -n "${RJ_AUAU_BDT_EVENT_QUALITY_CUT_JSON:-}" ]] && say "  event cut : ${RJ_AUAU_BDT_EVENT_QUALITY_CUT_JSON}"
   local rc=0
   "$ML_PYTHON" "${args[@]}" || rc=$?
 
@@ -2210,6 +2281,7 @@ validate_on_sim_condor() {
   local sub_root="${RJ_REPO_BASE}/condor_sub/auauTightBDTValidate_${stamp}"
   local shard_dir="${sub_root}/shards"
   local cache_dir="${report_root}/score_caches"
+  local event_quality_cut_json="${RJ_AUAU_BDT_EVENT_QUALITY_CUT_JSON:-}"
   guard_generated_path "validation report root" "$report_root"
   guard_generated_path "validation submit root" "$sub_root"
   log_path_plan "validateOnSimCondor" \
@@ -2220,6 +2292,7 @@ validate_on_sim_condor() {
     "submit    : ${sub_root}" \
     "shards    : ${shard_dir}" \
     "caches    : ${cache_dir}" \
+    "event cut : ${event_quality_cut_json:-<disabled>}" \
     "groupSize : ${group_size}" \
     "requestMem: ${reqmem}" \
     "scoreMax  : ${total_score_max}"
@@ -2303,10 +2376,15 @@ model_registry_arg=()
 if [[ -n "\$model_registry" ]]; then
   model_registry_arg=(--model-registry "\$model_registry")
 fi
+event_quality_args=()
+if [[ -n "${event_quality_cut_json}" ]]; then
+  event_quality_args=(--event-quality-cut-json "${event_quality_cut_json}" --event-quality-audit-output "\${outdir}/event_quality_filter_audit.json")
+fi
 "\$ml_python" "${VALIDATE_SCRIPT}" \\
   --source "${source}" \\
   --model-dir "${model_dir}" \\
   "\${model_registry_arg[@]}" \\
+  "\${event_quality_args[@]}" \\
   --manifest "\$manifest" \\
   --outdir "\$outdir" \\
   --write-score-cache "\$cache" \\
@@ -2385,6 +2463,10 @@ model_registry_arg=()
 if [[ -n "\$model_registry" ]]; then
   model_registry_arg=(--model-registry "\$model_registry")
 fi
+event_quality_args=()
+if [[ -n "${event_quality_cut_json}" ]]; then
+  event_quality_args=(--event-quality-cut-json "${event_quality_cut_json}" --event-quality-audit-output "${report_root}/event_quality_filter_audit.json")
+fi
 cache_manifest="${report_root}/score_caches.list"
 find "${cache_dir}" -type f -name 'score_cache_*.npz' | sort -V > "\$cache_manifest" || true
 expected=${idx}
@@ -2409,6 +2491,7 @@ else
     --source "${source}" \\
     --model-dir "${model_dir}" \\
     "\${model_registry_arg[@]}" \\
+    "\${event_quality_args[@]}" \\
     --merge-score-caches "\$cache_manifest" \\
     --outdir "${report_root}" || rc=\$?
 fi

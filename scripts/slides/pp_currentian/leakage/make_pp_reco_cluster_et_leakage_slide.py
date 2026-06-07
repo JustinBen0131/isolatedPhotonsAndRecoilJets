@@ -28,7 +28,7 @@ from typing import Any
 import numpy as np
 
 
-REPO = Path(__file__).resolve().parents[1]
+REPO = Path(__file__).resolve().parents[4]
 DEFAULT_LOCAL_BASE = (
     REPO
     / "dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_recoEtExt50_20260527_0045"
@@ -42,7 +42,27 @@ DEFAULT_SOURCE_ROOT = Path(
 )
 TREE_NAME = "AuAuPhotonIDTrainingTree"
 BRANCH = "cluster_Et"
+TRUTH_WINDOW_BRANCH = "ppg12_truth_window_pass_r04"
 META_PATH = "SIM/h_ppInclusiveJetStitch_ppg12TruthSpectrum_metadata"
+
+TREE_FILTER_PRESELECTED = "preselected"
+TREE_FILTER_ABCD_REFERENCE = "abcd-reference"
+ABCD_FILTER_BRANCHES = (
+    "reco_eiso",
+    "cluster_weta_cogx",
+    "cluster_wphi_cogx",
+    "e11_over_e33",
+    "cluster_et1",
+    "e32_over_e35",
+)
+
+TIGHT_W_LO = 0.0
+TIGHT_E11E33_MIN = 0.40
+TIGHT_E11E33_MAX = 0.98
+TIGHT_ET1_MIN = 0.90
+TIGHT_ET1_MAX = 1.00
+TIGHT_E32E35_MIN = 0.92
+TIGHT_E32E35_MAX = 1.00
 
 
 @dataclass(frozen=True)
@@ -57,11 +77,11 @@ class Sample:
 
 
 SAMPLES: tuple[Sample, ...] = (
-    Sample("run28_jet8", "jet8", 1.3013e7, 15.0, r"$p_T^{truth\,jet}<14$", "#d22c98", "o"),
-    Sample("run28_jet12", "jet12", 1.4903e6, 23.0, r"$14\leq p_T^{truth\,jet}<21$", "#2ca02c", "s"),
-    Sample("run28_jet20", "jet20", 6.2623e4, 35.0, r"$21\leq p_T^{truth\,jet}<32$", "#0090ff", "^"),
-    Sample("run28_jet30", "jet30", 2.5298e3, 45.0, r"$32\leq p_T^{truth\,jet}<42$", "#ff6b00", "v"),
-    Sample("run28_jet40", "jet40", 1.3553e2, 100.0, r"$p_T^{truth\,jet}\geq42$", "#cc00cc", "D"),
+    Sample("run28_jet8", "jet8", 1.3013e7, 15.0, r"$p_T^{truth\,jet}<14$", "#808080", "o"),
+    Sample("run28_jet12", "jet12", 1.4903e6, 23.0, r"$14\leq p_T^{truth\,jet}<21$", "#214cc3", "s"),
+    Sample("run28_jet20", "jet20", 6.2623e4, 35.0, r"$21\leq p_T^{truth\,jet}<32$", "#ee7212", "^"),
+    Sample("run28_jet30", "jet30", 2.5298e3, 45.0, r"$32\leq p_T^{truth\,jet}<42$", "#cc2ba8", "v"),
+    Sample("run28_jet40", "jet40", 1.3553e2, 100.0, r"$p_T^{truth\,jet}\geq42$", "#239637", "D"),
 )
 
 
@@ -75,6 +95,31 @@ def parse_args() -> argparse.Namespace:
     extract.add_argument("--bins", default="5:50:1", help="lo:hi:width in GeV")
     extract.add_argument("--max-files-per-sample", type=int, default=0)
     extract.add_argument("--progress-every", type=int, default=100)
+    extract.add_argument(
+        "--tree-filter",
+        choices=(TREE_FILTER_PRESELECTED, TREE_FILTER_ABCD_REFERENCE),
+        default=TREE_FILTER_PRESELECTED,
+        help=(
+            "Candidate row scope. 'preselected' keeps all selected training-tree rows; "
+            "'abcd-reference' keeps only reference tight/non-tight rows outside the isolation gap."
+        ),
+    )
+    extract.add_argument(
+        "--abcd-fixed-iso-gev",
+        type=float,
+        default=2.0,
+        help="Fixed isolation threshold used for the pp ABCD reference filter; non-iso is threshold+1 GeV.",
+    )
+    extract.add_argument(
+        "--enforce-sample-cap",
+        action="store_true",
+        help="Drop rows with reco cluster_Et above the sample's recorded ownership cap.",
+    )
+    extract.add_argument(
+        "--no-require-truth-window",
+        action="store_true",
+        help="Do not require/apply ppg12_truth_window_pass_r04. This is for legacy debugging only.",
+    )
 
     render = sub.add_parser("render", help="Render the slide-ready PNG from compact CSV/JSON.")
     render.add_argument("--csv", type=Path, default=DEFAULT_OUTDIR / "pp_reco_cluster_et_leakage_components.csv")
@@ -88,6 +133,31 @@ def parse_args() -> argparse.Namespace:
     both.add_argument("--bins", default="5:50:1")
     both.add_argument("--max-files-per-sample", type=int, default=0)
     both.add_argument("--progress-every", type=int, default=100)
+    both.add_argument(
+        "--tree-filter",
+        choices=(TREE_FILTER_PRESELECTED, TREE_FILTER_ABCD_REFERENCE),
+        default=TREE_FILTER_PRESELECTED,
+        help=(
+            "Candidate row scope. 'preselected' keeps all selected training-tree rows; "
+            "'abcd-reference' keeps only reference tight/non-tight rows outside the isolation gap."
+        ),
+    )
+    both.add_argument(
+        "--abcd-fixed-iso-gev",
+        type=float,
+        default=2.0,
+        help="Fixed isolation threshold used for the pp ABCD reference filter; non-iso is threshold+1 GeV.",
+    )
+    both.add_argument(
+        "--enforce-sample-cap",
+        action="store_true",
+        help="Drop rows with reco cluster_Et above the sample's recorded ownership cap.",
+    )
+    both.add_argument(
+        "--no-require-truth-window",
+        action="store_true",
+        help="Do not require/apply ppg12_truth_window_pass_r04. This is for legacy debugging only.",
+    )
     return parser.parse_args()
 
 
@@ -135,6 +205,63 @@ def read_metadata(uproot_file: Any) -> dict[str, float]:
     return out
 
 
+def in_open_interval(values: np.ndarray, lo: float, hi: float) -> np.ndarray:
+    return np.isfinite(values) & (values > lo) & (values < hi)
+
+
+def abcd_reference_mask(
+    arrays: dict[str, np.ndarray],
+    cluster_et: np.ndarray,
+    fixed_iso_gev: float,
+    base_mask: np.ndarray | None = None,
+) -> tuple[np.ndarray, dict[str, int]]:
+    """Return rows that match the pp reference ABCD candidate scope."""
+
+    eiso = np.asarray(arrays["reco_eiso"], dtype=np.float64)
+    weta = np.asarray(arrays["cluster_weta_cogx"], dtype=np.float64)
+    wphi = np.asarray(arrays["cluster_wphi_cogx"], dtype=np.float64)
+    e11e33 = np.asarray(arrays["e11_over_e33"], dtype=np.float64)
+    et1 = np.asarray(arrays["cluster_et1"], dtype=np.float64)
+    e32e35 = np.asarray(arrays["e32_over_e35"], dtype=np.float64)
+
+    valid_iso = np.isfinite(eiso) & (eiso < 1.0e8)
+    iso = valid_iso & (eiso < fixed_iso_gev)
+    noniso = valid_iso & (eiso > fixed_iso_gev + 1.0)
+    outside_gap = iso | noniso
+
+    w_hi = 0.15 + 0.006 * cluster_et
+    pass_weta = in_open_interval(weta, TIGHT_W_LO, np.inf) & np.isfinite(w_hi) & (weta < w_hi)
+    pass_wphi = in_open_interval(wphi, TIGHT_W_LO, np.inf) & np.isfinite(w_hi) & (wphi < w_hi)
+    pass_e11e33 = in_open_interval(e11e33, TIGHT_E11E33_MIN, TIGHT_E11E33_MAX)
+    pass_et1 = in_open_interval(et1, TIGHT_ET1_MIN, TIGHT_ET1_MAX)
+    pass_e32e35 = in_open_interval(e32e35, TIGHT_E32E35_MIN, TIGHT_E32E35_MAX)
+
+    fail_count = (
+        (~pass_weta).astype(np.int16)
+        + (~pass_wphi).astype(np.int16)
+        + (~pass_e11e33).astype(np.int16)
+        + (~pass_et1).astype(np.int16)
+        + (~pass_e32e35).astype(np.int16)
+    )
+    tight = fail_count == 0
+    nontight = fail_count >= 2
+    neither = fail_count == 1
+    if base_mask is None:
+        scope = np.ones_like(outside_gap, dtype=bool)
+    else:
+        scope = np.asarray(base_mask, dtype=bool)
+    selected = scope & outside_gap & (tight | nontight)
+
+    diagnostics = {
+        "abcd_invalid_iso_entries": int((scope & ~valid_iso).sum()),
+        "abcd_iso_gap_entries": int((scope & valid_iso & ~outside_gap).sum()),
+        "abcd_neither_entries": int((scope & outside_gap & neither).sum()),
+        "abcd_tight_entries": int((scope & outside_gap & tight).sum()),
+        "abcd_nontight_entries": int((scope & outside_gap & nontight).sum()),
+    }
+    return selected, diagnostics
+
+
 def extract(args: argparse.Namespace) -> tuple[Path, Path]:
     import uproot
 
@@ -143,6 +270,13 @@ def extract(args: argparse.Namespace) -> tuple[Path, Path]:
     if not np.allclose(bin_widths, bin_widths[0]):
         raise ValueError("only uniform bins are supported")
     bin_width = float(bin_widths[0])
+    tree_filter = getattr(args, "tree_filter", TREE_FILTER_PRESELECTED)
+    abcd_fixed_iso_gev = float(getattr(args, "abcd_fixed_iso_gev", 2.0))
+    enforce_sample_cap = bool(getattr(args, "enforce_sample_cap", False))
+    if tree_filter == TREE_FILTER_ABCD_REFERENCE and not math.isfinite(abcd_fixed_iso_gev):
+        raise ValueError("--abcd-fixed-iso-gev must be finite")
+    if tree_filter == TREE_FILTER_ABCD_REFERENCE and abcd_fixed_iso_gev < 0:
+        raise ValueError("--abcd-fixed-iso-gev must be non-negative")
 
     rows: list[dict[str, Any]] = []
     summary_samples: list[dict[str, Any]] = []
@@ -154,10 +288,21 @@ def extract(args: argparse.Namespace) -> tuple[Path, Path]:
         metadata_xsecs: list[float] = []
         missing_tree = 0
         missing_branch = 0
+        truth_window_rejected = 0
+        truth_window_accepted = 0
+        candidate_filter_rejected = 0
+        sample_cap_rejected = 0
         nonfinite = 0
         above_cap = 0
         et_min = math.inf
         et_max = -math.inf
+        abcd_diagnostics = {
+            "abcd_invalid_iso_entries": 0,
+            "abcd_iso_gap_entries": 0,
+            "abcd_neither_entries": 0,
+            "abcd_tight_entries": 0,
+            "abcd_nontight_entries": 0,
+        }
 
         for idx, path in enumerate(paths, start=1):
             with uproot.open(path) as root_file:
@@ -169,20 +314,55 @@ def extract(args: argparse.Namespace) -> tuple[Path, Path]:
                     missing_tree += 1
                     continue
                 tree = root_file[TREE_NAME]
-                if BRANCH not in tree.keys():
+                tree_keys = set(tree.keys())
+                if BRANCH not in tree_keys:
                     missing_branch += 1
                     continue
-                arr = tree[BRANCH].array(library="np")
-                vals = np.asarray(arr, dtype=np.float64)
-                finite = np.isfinite(vals)
-                nonfinite += int((~finite).sum())
-                vals = vals[finite]
-                entries_seen += int(vals.size)
-                if vals.size:
-                    et_min = min(et_min, float(np.min(vals)))
-                    et_max = max(et_max, float(np.max(vals)))
-                    above_cap += int(np.sum(vals > sample.cap_gev))
-                    counts += np.histogram(vals, bins=edges)[0].astype(np.float64)
+                require_truth_window = not getattr(args, "no_require_truth_window", False)
+                if require_truth_window and TRUTH_WINDOW_BRANCH not in tree_keys:
+                    raise KeyError(
+                        f"{path} is missing {TRUTH_WINDOW_BRANCH}; cannot build a strict pp stitch-window leakage spectrum"
+                    )
+                if tree_filter == TREE_FILTER_ABCD_REFERENCE:
+                    missing = [branch for branch in ABCD_FILTER_BRANCHES if branch not in tree_keys]
+                    if missing:
+                        raise KeyError(f"{path} is missing ABCD filter branches: {', '.join(missing)}")
+                branches = [BRANCH]
+                if require_truth_window:
+                    branches.append(TRUTH_WINDOW_BRANCH)
+                if tree_filter == TREE_FILTER_ABCD_REFERENCE:
+                    branches.extend(ABCD_FILTER_BRANCHES)
+                arrays = tree.arrays(branches, library="np")
+                vals = np.asarray(arrays[BRANCH], dtype=np.float64)
+                selected = np.isfinite(vals)
+                nonfinite += int((~selected).sum())
+                if require_truth_window:
+                    pass_window = np.asarray(arrays[TRUTH_WINDOW_BRANCH], dtype=np.float64) > 0.5
+                    truth_window_rejected += int((selected & ~pass_window).sum())
+                    selected &= pass_window
+                truth_window_accepted += int(selected.sum())
+                if tree_filter == TREE_FILTER_ABCD_REFERENCE:
+                    before_filter = int(selected.sum())
+                    selected, diagnostics = abcd_reference_mask(
+                        arrays,
+                        vals,
+                        abcd_fixed_iso_gev,
+                        base_mask=selected,
+                    )
+                    candidate_filter_rejected += before_filter - int(selected.sum())
+                    for key, value in diagnostics.items():
+                        abcd_diagnostics[key] += int(value)
+                if enforce_sample_cap:
+                    within_cap = vals <= sample.cap_gev
+                    sample_cap_rejected += int((selected & ~within_cap).sum())
+                    selected &= within_cap
+                selected_vals = vals[selected]
+                entries_seen += int(selected_vals.size)
+                if selected_vals.size:
+                    et_min = min(et_min, float(np.min(selected_vals)))
+                    et_max = max(et_max, float(np.max(selected_vals)))
+                    above_cap += int(np.sum(selected_vals > sample.cap_gev))
+                    counts += np.histogram(selected_vals, bins=edges)[0].astype(np.float64)
             if args.progress_every and idx % args.progress_every == 0:
                 print(f"[extract] {sample.key}: {idx}/{len(paths)} files", flush=True)
 
@@ -217,6 +397,9 @@ def extract(args: argparse.Namespace) -> tuple[Path, Path]:
                     "cluster_et_cap_gev_recorded": sample.cap_gev,
                     "truth_jet_window": sample.window,
                     "source_root": str(args.source_root),
+                    "candidate_filter": tree_filter,
+                    "abcd_fixed_iso_gev": abcd_fixed_iso_gev if tree_filter == TREE_FILTER_ABCD_REFERENCE else "",
+                    "sample_cap_enforced": enforce_sample_cap,
                 }
             )
         summary_samples.append(
@@ -233,6 +416,16 @@ def extract(args: argparse.Namespace) -> tuple[Path, Path]:
                 "entries_above_recorded_cap": above_cap,
                 "missing_tree_files": missing_tree,
                 "missing_branch_files": missing_branch,
+                "truth_window_branch": TRUTH_WINDOW_BRANCH,
+                "truth_window_required": not getattr(args, "no_require_truth_window", False),
+                "truth_window_rejected_entries": truth_window_rejected,
+                "truth_window_accepted_entries": truth_window_accepted,
+                "candidate_filter": tree_filter,
+                "candidate_filter_rejected_entries": candidate_filter_rejected,
+                "abcd_fixed_iso_gev": abcd_fixed_iso_gev if tree_filter == TREE_FILTER_ABCD_REFERENCE else None,
+                "sample_cap_enforced": enforce_sample_cap,
+                "sample_cap_rejected_entries": sample_cap_rejected,
+                **abcd_diagnostics,
                 "nonfinite_cluster_et": nonfinite,
                 "cluster_et_min": None if et_min == math.inf else et_min,
                 "cluster_et_max": None if et_max == -math.inf else et_max,
@@ -248,7 +441,16 @@ def extract(args: argparse.Namespace) -> tuple[Path, Path]:
         writer.writeheader()
         writer.writerows(rows)
 
-    summary = build_summary(rows, summary_samples, args.source_root, csv_path, summary_path)
+    summary = build_summary(
+        rows,
+        summary_samples,
+        args.source_root,
+        csv_path,
+        summary_path,
+        tree_filter,
+        abcd_fixed_iso_gev if tree_filter == TREE_FILTER_ABCD_REFERENCE else None,
+        enforce_sample_cap,
+    )
     summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
     print(f"[extract] wrote {csv_path}", flush=True)
     print(f"[extract] wrote {summary_path}", flush=True)
@@ -261,6 +463,9 @@ def build_summary(
     source_root: Path,
     csv_path: Path,
     summary_path: Path,
+    candidate_filter: str = TREE_FILTER_PRESELECTED,
+    abcd_fixed_iso_gev: float | None = None,
+    enforce_sample_cap: bool = False,
 ) -> dict[str, Any]:
     by_bin: dict[tuple[float, float], dict[str, float]] = {}
     for row in rows:
@@ -295,13 +500,57 @@ def build_summary(
             fraction_sum_max_dev = max(fraction_sum_max_dev, abs(frac_sum - 1.0))
             finite_fraction_bins += 1
 
+    filter_description = "all finite training-tree rows passing the truth-window selection"
+    if candidate_filter == TREE_FILTER_ABCD_REFERENCE:
+        filter_description = (
+            "finite truth-window rows restricted to reference ABCD candidates: "
+            f"reco_eiso < {abcd_fixed_iso_gev:g} GeV or reco_eiso > {abcd_fixed_iso_gev + 1.0:g} GeV, "
+            "with reference tight (0 failures) or non-tight (>=2 failures); "
+            "isolation-gap and neither-tightness rows are excluded"
+        )
+    if enforce_sample_cap:
+        filter_description += "; rows above each sample's recorded reco-cluster ET ownership cap are excluded"
+
+    weight_formula = "weighted_entries = selected raw_candidate_count * xsec_pb / events_processed / bin_width"
+
     return {
         "schema": "PP_RECO_CLUSTER_ET_LEAKAGE_V1",
         "source_root": str(source_root),
         "tree": TREE_NAME,
         "branch": BRANCH,
+        "truth_window_branch": TRUTH_WINDOW_BRANCH,
+        "truth_window_selection": (
+            "required ppg12_truth_window_pass_r04 > 0.5"
+            if all(s.get("truth_window_required") for s in summary_samples)
+            else "not applied"
+        ),
+        "candidate_filter": candidate_filter,
+        "candidate_filter_description": filter_description,
+        "abcd_fixed_iso_gev": abcd_fixed_iso_gev,
+        "sample_cap_enforced": enforce_sample_cap,
+        "abcd_reference_cuts": {
+            "isolation": (
+                None
+                if abcd_fixed_iso_gev is None
+                else {
+                    "iso_region": f"reco_eiso < {abcd_fixed_iso_gev:g} GeV",
+                    "noniso_region": f"reco_eiso > {abcd_fixed_iso_gev + 1.0:g} GeV",
+                    "gap_region": f"{abcd_fixed_iso_gev:g} <= reco_eiso <= {abcd_fixed_iso_gev + 1.0:g} GeV excluded",
+                }
+            ),
+            "tight_axis": {
+                "cluster_weta_cogx": "0 < weta < 0.15 + 0.006 * cluster_Et",
+                "cluster_wphi_cogx": "0 < wphi < 0.15 + 0.006 * cluster_Et",
+                "e11_over_e33": f"{TIGHT_E11E33_MIN:g} < e11/e33 < {TIGHT_E11E33_MAX:g}",
+                "cluster_et1": f"{TIGHT_ET1_MIN:g} < cluster_et1 < {TIGHT_ET1_MAX:g}",
+                "e32_over_e35": f"{TIGHT_E32E35_MIN:g} < e32/e35 < {TIGHT_E32E35_MAX:g}",
+                "tight": "zero reference-cut failures",
+                "non_tight": "at least two reference-cut failures",
+                "neither": "exactly one reference-cut failure; excluded from ABCD",
+            },
+        },
         "metadata_histogram": META_PATH,
-        "weight_formula": "weighted_entries = raw_candidate_count * xsec_pb / events_processed / bin_width",
+        "weight_formula": weight_formula,
         "xsec_source": "sPHENIX wiki-updated pp inclusive cross sections recorded in local RecoilJets constants",
         "output_csv": str(csv_path),
         "output_summary": str(summary_path),

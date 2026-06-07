@@ -30,10 +30,13 @@ except Exception:  # pragma: no cover - renderer must stay useful if optional dr
 
 LIVE_STATUSES = {"active", "running", "waiting", "blocked", "review"}
 ACTIVE_NOW_STATUSES = {"active", "running"}
+COCKPIT_CHILD_STATUSES = {"active", "running", "waiting", "blocked", "review", "backlog"}
 TOP_ORDER = {
+    "the8_fresh_oof_stack_artifact_qa": 0,
+    "the8_friday_ppg_ml_story_assembly": 1,
     "ml_final_model_ablation_map": 0,
-    "hp26_photon_id_talk": 1,
-    "pdc_calo_calibrations_presentation": 2,
+    "hp26_photon_id_talk": 2,
+    "pdc_calo_calibrations_presentation": 3,
     "central_low_calo_energy_bdt_cuts": 8,
     "pp_exact_stitch_ppg12_baseline": 4,
     "jet40_embedded_inclusive_stitching": 5,
@@ -73,6 +76,28 @@ def linear_key(item: dict[str, object]) -> str:
         key = slug.split("/", 1)[0].upper()
         return f"Linear: {key}"
     return f"Linear: {issue}"
+
+
+def child_workstream_ids(item: dict[str, object]) -> list[str]:
+    children = item.get("child_workstreams")
+    if not isinstance(children, list):
+        return []
+    ids: list[str] = []
+    for child in children:
+        if isinstance(child, dict):
+            child_id = first_line(child.get("workstream_id"))
+            if child_id:
+                ids.append(child_id)
+    return ids
+
+
+def suppress_parent_container(item: dict[str, object], by_id: dict[str, dict[str, object]]) -> bool:
+    """Hide campaign parents from the daily cockpit when focused children exist."""
+    for child_id in child_workstream_ids(item):
+        child = by_id.get(child_id)
+        if child and child.get("status") in COCKPIT_CHILD_STATUSES:
+            return True
+    return False
 
 
 def daily_rank(item: dict[str, object]) -> tuple[int, int, str]:
@@ -135,11 +160,13 @@ def main() -> int:
 
     data = load_register(Path(args.register))
     workstreams = sorted_workstreams(data)
+    by_id = {str(w.get("workstream_id")): w for w in workstreams if w.get("workstream_id")}
+    cockpit_workstreams = [w for w in workstreams if not suppress_parent_container(w, by_id)]
 
-    top = sorted([w for w in workstreams if w.get("status") in ACTIVE_NOW_STATUSES], key=daily_rank)
-    active = sorted([w for w in workstreams if w.get("status") in ACTIVE_NOW_STATUSES], key=daily_rank)
-    backlog = [w for w in workstreams if w.get("status") == "backlog"]
-    live_for_checks = [w for w in workstreams if w.get("status") in {"active", "running", "waiting", "blocked", "review"}]
+    top = sorted([w for w in cockpit_workstreams if w.get("status") in ACTIVE_NOW_STATUSES], key=daily_rank)
+    active = sorted([w for w in cockpit_workstreams if w.get("status") in ACTIVE_NOW_STATUSES], key=daily_rank)
+    backlog = [w for w in cockpit_workstreams if w.get("status") == "backlog"]
+    live_for_checks = [w for w in cockpit_workstreams if w.get("status") in {"active", "running", "waiting", "blocked", "review"}]
 
     print("# Today's Plan")
     print()
@@ -197,7 +224,7 @@ def main() -> int:
 
     print()
     print("## Waiting / Review")
-    waiting_review = [w for w in workstreams if w.get("status") in {"waiting", "blocked", "review"}]
+    waiting_review = [w for w in cockpit_workstreams if w.get("status") in {"waiting", "blocked", "review"}]
     for item in waiting_review:
         print(f"- **{str(item.get('status')).upper()} {item.get('title')}**: {first_line(item.get('current_next_action'))} {linear_key(item)}.")
     if not waiting_review:

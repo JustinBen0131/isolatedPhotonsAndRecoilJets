@@ -71,6 +71,85 @@ negative_memories:
       interference_risk: 0.2
       synthetic_contamination_risk: 0.0
 
+  - memory_id: no_visual_label_lie
+    trap: making a slide or plot label, legend, title, caption, or claim say something different from the actual plotted object or approval state
+    source_pointer:
+      path: agent_context/policies/PLOTTING.md
+      kind: policy
+    routes:
+      - plot_generation
+      - slide_scripting
+    cue_terms:
+      - label
+      - legend
+      - title
+      - caption
+      - plot
+      - slide
+      - truth
+      - actual
+      - placeholder
+      - synthetic
+      - ready
+    relation_type: warning_only
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: warning only
+    first_safe_action: verify the exact source object, sample, selection, weight, model, tag, and approval state before naming it on the visual
+    required_waking_check: if any element is a proxy, placeholder, synthetic target, stale output, approximation, or unvalidated artifact, label it as such and do not call it ready
+    salience:
+      thesis_value: 0.95
+      evidence_value: 0.98
+      recurrence: 0.9
+      error_prevention_value: 1.0
+      user_friction: 0.95
+      retrieval_cost: 0.08
+      stale_risk: 0.05
+      interference_risk: 0.08
+      synthetic_contamination_risk: 0.0
+
+  - memory_id: no_auau_calofitting_without_tower_status
+    trap: treating AuAu DST_CALOFITTING data as calibrated or final-merge-safe without proving CDB tower status reaches clustering inputs
+    source_pointer:
+      path: agent_context/policies/INPUTS_AND_ENVIRONMENT.md
+      kind: policy
+    routes:
+      - sdcc_path_transfer
+      - active_job_status
+      - plot_generation
+      - slide_scripting
+    cue_terms:
+      - AuAu
+      - CALOFITTING
+      - DST_CALOFITTING
+      - CaloTowerStatus
+      - CaloStatusSkimmer
+      - TowerInfo
+      - get_isGood
+      - RawClusterBuilderTemplate
+      - shower shape
+      - E11
+      - E33
+      - isolation
+      - hot tower
+      - CDB
+    relation_type: warning_only
+    evidence_class: human_approved
+    retrieval_policy: latent_nudge
+    allowed_use: warning only
+    first_safe_action: run a foreground v008 proof that CaloTowerStatus reaches the correct TowerInfo or calibrated TowerInfo nodes before RawClusterBuilderTemplate clustering
+    required_waking_check: do not merge, call slide-ready, or broaden AuAu CALOFITTING data until CDB status, get_isGood rejection, zero isolation tower floor, and non-pathological E11/E33 shape are verified
+    salience:
+      thesis_value: 0.98
+      evidence_value: 0.95
+      recurrence: 0.9
+      error_prevention_value: 1.0
+      user_friction: 1.0
+      retrieval_cost: 0.08
+      stale_risk: 0.12
+      interference_risk: 0.08
+      synthetic_contamination_risk: 0.0
+
   - memory_id: no_remote_cleanup_without_guard
     trap: treating SDCC or remote cleanup as safe because local organization improved
     source_pointer:

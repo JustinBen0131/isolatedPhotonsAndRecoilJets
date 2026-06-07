@@ -18,13 +18,17 @@ schemas:
       - png
       - ready
       - provenance
+      - truth
+      - label
+      - legend
+      - actual
       - qa
       - slide
     relation_type: same_method
     evidence_class: human_approved
     allowed_use: method cue only
     trigger_pattern: artifact is being called ready, valid, or slide-ready
-    required_waking_check: verify source inputs, generation command, visual QA, and registry pointer before making the claim
+    required_waking_check: verify source inputs, generation command, visual QA, registry pointer, and that labels/legends/captions exactly match the actual plotted object before making the claim
     validator_hint: artifact_registry_pointer_plus_visual_qa
     salience:
       thesis_value: 0.85
@@ -120,11 +124,15 @@ schemas:
       - png
       - script
       - source
+      - truth
+      - label
+      - legend
+      - actual
     relation_type: same_method
     evidence_class: human_approved
     allowed_use: method cue only
     trigger_pattern: a full-slide PNG candidate, slide replacement, or speaker script is about to be shown as ready
-    required_waking_check: verify source object, audience-facing canvas, readable typography, superscript/subscript, hierarchy, no baked slide number/provenance footer, companion script, and mutation boundary
+    required_waking_check: verify source object, label/legend/caption truthfulness, audience-facing canvas, readable typography, superscript/subscript, hierarchy, no baked slide number/provenance footer, companion script, and mutation boundary
     validator_hint: slide_candidate_self_audit
     salience:
       thesis_value: 0.85

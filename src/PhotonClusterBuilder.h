@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <vector>
 #include <limits>
 
@@ -13,6 +14,7 @@ class PHCompositeNode;
 class RawClusterContainer;
 class RawCluster;
 class PhotonClusterv1;
+class TowerInfo;
 class TowerInfoContainer;
 class RawTowerGeomContainer;
 class RawTowerGeom;
@@ -85,6 +87,8 @@ class PhotonClusterBuilder : public SubsysReco
   std::vector<int> find_closest_hcal_tower(float eta, float phi, RawTowerGeomContainer* geom, TowerInfoContainer* towerContainer, float vertex_z, bool isihcal);
   double deltaR(double eta1, double phi1, double eta2, double phi2);
   float calculate_layer_et(float seed_eta, float seed_phi, float radius, TowerInfoContainer* towerContainer, RawTowerGeomContainer* geomContainer, RawTowerDefs::CalorimeterId calo_id, float vertex_z);
+  void load_cemc_bad_tower_mask();
+  bool is_cemc_tower_good(TowerInfo* tower, unsigned int tower_key) const;
     bool m_do_bdt{false};
 
       struct AuditSnapshot
@@ -141,6 +145,9 @@ class PhotonClusterBuilder : public SubsysReco
       std::string m_emc_tower_node{"TOWERINFO_CALIB_CEMC"};
       TowerInfoContainer* m_emc_tower_container{nullptr};
       RawTowerGeomContainer* m_geomEM{nullptr};
+      bool m_apply_cemc_bad_tower_mask{false};
+      bool m_cemc_bad_tower_mask_loaded{false};
+      std::unordered_set<unsigned int> m_cemc_bad_tower_keys;
       std::string m_ihcal_tower_node{"TOWERINFO_CALIB_HCALIN"};
       TowerInfoContainer* m_ihcal_tower_container{nullptr};
       RawTowerGeomContainer* m_geomIH{nullptr};

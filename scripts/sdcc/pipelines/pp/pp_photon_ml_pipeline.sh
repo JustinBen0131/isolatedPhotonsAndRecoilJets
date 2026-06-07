@@ -4,7 +4,7 @@ set -euo pipefail
 # pp Photon-ID ML pipeline: PPG12-matched extraction first, then the same
 # trainer/validation family used by the Au+Au photon-ID work.
 
-REPO_BASE="${RJ_REPO_BASE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+REPO_BASE="${RJ_REPO_BASE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)}"
 STAMP="${RJ_PP_PHOTON_ML_STAMP:-$(date +%Y%m%d_%H%M%S)}"
 RUN_ROOT="${RJ_PP_PHOTON_ML_RUN_ROOT:-${REPO_BASE}/dataOutput/ppPhotonMLPipeline/ppg12_matched_${STAMP}}"
 REMOTE_DEST_ROOT="${RJ_PP_PHOTON_ML_DEST_ROOT:-/sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/${STAMP}}"
@@ -80,6 +80,8 @@ Modes
   validateOnSim             Alias for validateTables.
   runAll                    buildManifest, train BDT/MLP, validate tables, train stacks.
   condorExtractCurrentIAN   Submit current May-21-IAN pp extraction for full-sim base-v3E validation.
+  condorExtractCurrentIANInclusiveRecoEt50
+                           Submit only current-IAN full-inclusive pp jet samples with reco-cluster ET accepted to 50 GeV.
   condorExtractCurrentIANRawOverlay
                            Submit raw all-cluster pp extraction for Shuhang/Fig13-style overlays only.
   buildCurrentIANManifests  Build current-IAN train/signal/inclusive manifests from ROOT_DIR.
@@ -492,6 +494,28 @@ condor_extract_currentian() {
   log "submitted current-IAN extraction jobs. After outputs are ready, run: ROOT_DIR=/path/to/roots $0 buildCurrentIANManifests"
 }
 
+condor_extract_currentian_inclusive_recoet50() {
+  [[ "${RJ_DO_RUN:-0}" == "1" ]] || die "condorExtractCurrentIANInclusiveRecoEt50 is mutating; rerun with RJ_DO_RUN=1 after checking queue pressure."
+  mkdir_run
+  write_currentian_metadata
+  local previous_row_match="$PHOTON_ID_ROW_MATCH"
+  PHOTON_ID_ROW_MATCH="$CURRENT_IAN_ROW_MATCH"
+  export RJ_PP_PHOTONID_REQUIRE_PRESELECTION=1
+  export RJ_RECO_CLUSTER_ET_ANALYSIS_BINS="${RJ_RECO_CLUSTER_ET_ANALYSIS_BINS:-5,8,10,12,14,16,18,20,22,24,26,35,40,45,50}"
+  export RJ_PP_INCLUSIVE_CLUSTER_ET_MAX_OVERRIDE="${RJ_PP_INCLUSIVE_CLUSTER_ET_MAX_OVERRIDE:-50}"
+  export RJ_PP_NPB_SCORE_MAX_ET="${RJ_PP_NPB_SCORE_MAX_ET:-50}"
+  log "current-IAN reco-ET50 row match: ${PHOTON_ID_ROW_MATCH}"
+  log "reco-cluster ET analysis bins: ${RJ_RECO_CLUSTER_ET_ANALYSIS_BINS}"
+  log "inclusive sample cluster-ET cap override: ${RJ_PP_INCLUSIVE_CLUSTER_ET_MAX_OVERRIDE}"
+  log "pp NPB score max ET override: ${RJ_PP_NPB_SCORE_MAX_ET}"
+  log "submitting current-IAN full-inclusive jet samples only: ${CURRENT_IAN_FULL_INCLUSIVE_JET_SAMPLES[*]}"
+  for sample in "${CURRENT_IAN_FULL_INCLUSIVE_JET_SAMPLES[@]}"; do
+    extract_one isSimInclusive "$sample" background condorDoAll groupSize "$GROUP_SIZE"
+  done
+  PHOTON_ID_ROW_MATCH="$previous_row_match"
+  log "submitted current-IAN inclusive reco-ET50 extraction jobs. Use these outputs for the corrected pp reco-cluster ET leakage slide."
+}
+
 condor_extract_currentian_raw_overlay() {
   [[ "${RJ_DO_RUN:-0}" == "1" ]] || die "condorExtractCurrentIANRawOverlay is mutating; rerun with RJ_DO_RUN=1 after checking queue pressure."
   mkdir_run
@@ -799,6 +823,7 @@ case "$mode" in
   validateOnSim) validate_tables ;;
   runAll) build_manifest; train_bdt; train_mlp; validate_tables; train_stack ;;
   condorExtractCurrentIAN) condor_extract_currentian ;;
+  condorExtractCurrentIANInclusiveRecoEt50) condor_extract_currentian_inclusive_recoet50 ;;
   condorExtractCurrentIANRawOverlay) condor_extract_currentian_raw_overlay ;;
   buildCurrentIANManifests) build_currentian_manifests ;;
   trainCurrentIANBDT) train_currentian_bdt ;;

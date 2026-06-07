@@ -9,7 +9,6 @@ from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-
 DREAM_ROOT = Path("agent_context/local/dreams")
 SYNTHETIC_HEADER = "SYNTHETIC DREAM OUTPUT - NOT USER APPROVAL - NOT REAL USER INTENT"
 DREAM_SCHEDULED_SOURCE = "03:30_dream_automation"
@@ -334,9 +333,72 @@ def append_subbullets(lines: list[str], label: str, rows: list[str]) -> None:
         lines.append(f"    - {row}")
 
 
-def markdown_bullets(payloads: list[dict[str, Any]], missing_lane_ids: list[str] | None = None) -> list[str]:
+def pressure_counts(item: dict[str, Any]) -> tuple[int, int]:
+    pressure = item.get("pressure_governor") if isinstance(item.get("pressure_governor"), dict) else {}
+    actionable = int(pressure.get("unhandled_actionable_count") or 0)
+    suppressed = int(pressure.get("suppressed_count") or 0)
+    recurrence = pressure.get("recurrence") if isinstance(pressure.get("recurrence"), dict) else {}
+    actionable += int(recurrence.get("unhandled_actionable_count") or 0)
+    suppressed += int(recurrence.get("suppressed_count") or 0)
+    return actionable, suppressed
+
+
+def daily_item_visible(item: dict[str, Any]) -> bool:
+    actionable, _ = pressure_counts(item)
+    status = str(item.get("status") or "no_safe_change")
+    changed = str(item.get("changed") or "none")
+    return (
+        status == "failed"
+        or item.get("needs_justin") is True
+        or changed != "none"
+        or actionable > 0
+    )
+
+
+def compact_daily_bullets(payloads: list[dict[str, Any]], missing_lane_ids: list[str] | None = None) -> list[str]:
     lines: list[str] = []
     missing = missing_lane_ids or []
+    visible = [item for item in payloads if daily_item_visible(item)]
+    if not visible and not missing:
+        return ["- No overnight dream update needs attention; repeated proposal-only OS pressure stayed in appendix detail."]
+    lines.append("- Dream outputs are proposal-only: not user approval, not science evidence, not task completion.")
+    suppressed_total = 0
+    for item in payloads:
+        _, suppressed = pressure_counts(item)
+        suppressed_total += suppressed
+    if suppressed_total:
+        lines.append(f"- OS pressure governor suppressed {suppressed_total} handled/cooling appendix item(s) from the daily surface.")
+    for item in visible:
+        lane = str(item.get("lane_id") or "")
+        result = compact_text(item.get("one_line_result") or "no summary", limit=180)
+        actionable, suppressed = pressure_counts(item)
+        lines.append(f"- **{lane_label(lane)} - {status_phrase(item.get('status'))}:** {result}")
+        changed_rows = after_action_rows(item, "what_changed", limit=1, text_limit=180)
+        next_rows = after_action_rows(item, "waking_next_checks", limit=1, text_limit=180)
+        approval_rows = after_action_rows(item, "what_should_change_after_approval", limit=1, text_limit=180)
+        if changed_rows and str(item.get("changed") or "none") != "none":
+            lines.append(f"  - Changed: {changed_rows[0]}")
+        if actionable:
+            lines.append(f"  - Actionable OS pressure: {actionable}; suppressed appendix pressure: {suppressed}.")
+        elif suppressed:
+            lines.append(f"  - Handled appendix pressure: {suppressed}; no waking action.")
+        if item.get("needs_justin") and approval_rows:
+            lines.append(f"  - Needs review: {approval_rows[0]}")
+        elif actionable and next_rows:
+            lines.append(f"  - Next check: {next_rows[0]}")
+        evidence = item.get("evidence")
+        if evidence:
+            lines.append(f"  - Evidence: {compact_text(evidence, limit=180)}")
+    for lane in missing:
+        lines.append(f"- **{lane_label(lane)} - No eligible 03:30 summary found:** fix the dream-lane summary marker if this lane should be in the morning digest.")
+    return lines
+
+
+def markdown_bullets(payloads: list[dict[str, Any]], missing_lane_ids: list[str] | None = None, *, detailed: bool = False) -> list[str]:
+    lines: list[str] = []
+    missing = missing_lane_ids or []
+    if not detailed:
+        return compact_daily_bullets(payloads, missing)
     if not payloads and not missing:
         return ["- No overnight dream update needs attention; internal checks stayed quiet."]
     lines.append("- Dream outputs are proposal-only: not user approval, not science evidence, not task completion.")
@@ -405,7 +467,7 @@ def build_combined_summary(
     deferred = [item for item in payloads if item.get("status") == "deferred"]
     failed = [item for item in payloads if item.get("status") == "failed"]
     markdown = "\n".join(["## Overnight Dream Updates", *markdown_bullets(payloads, missing), ""])
-    detailed = "\n".join(["# Overnight Dream After-Action Detail", *markdown_bullets(payloads, missing), ""])
+    detailed = "\n".join(["# Overnight Dream After-Action Detail", *markdown_bullets(payloads, missing, detailed=True), ""])
     return {
         "generated_at": current.isoformat(timespec="seconds"),
         "window": window,

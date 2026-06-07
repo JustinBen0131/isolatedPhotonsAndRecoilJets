@@ -98,6 +98,36 @@ profile rows, output ROOTs appearing, and whether the next stage started.
 The `RecoilJets pipeline watchdog` should be paused by default. It is
 campaign-scoped, not a permanent monitor.
 
+For Codex-submitted Condor campaigns, the default watchdog mechanism is a real
+Codex app thread heartbeat automation attached to the submitting chat. Do not
+substitute local `sleep`/`nohup`/tmux polling for this when the automation tool
+is available. The automation should wake the same thread, check Gmail/Condor/SDCC
+state as appropriate, and either finish the artifact pipeline or create/update
+the next heartbeat with exact blocker evidence.
+
+If Justin is operating from a phone or another surface where the
+`codex_app.automation_update` tool is exposed but returns
+`No handler registered`, do not fall back to a Terminal watcher, `nohup`, tmux,
+or a raw polling loop. Treat that as an app-handler availability failure and
+write the same heartbeat into the persisted Codex automation store with:
+
+```bash
+python3 scripts/os/heartbeat/codex_thread_heartbeat_fallback.py \
+  --id <automation-id> \
+  --name "<short name>" \
+  --target-thread-id <thread-id> \
+  --prompt-file <bounded-heartbeat-prompt.txt> \
+  --rrule "FREQ=MINUTELY;INTERVAL=<minutes>" \
+  --update
+```
+
+Then verify `/Users/patsfan753/.codex/automations/<automation-id>/automation.toml`
+exists, parses or field-validates, has `kind = "heartbeat"` and
+`status = "ACTIVE"`, and record the automation id/path in the register/status.
+This fallback is only for same-thread heartbeat persistence when the native
+handler is unavailable; it is not approval to create cron workarounds, local
+shell monitors, or external mutations.
+
 Turn it on only with concrete evidence of an active production/training/merge:
 user says jobs were submitted, terminal output shows cluster/DAG IDs, a
 pipeline email reports running/check/ready/failure, or Justin explicitly asks

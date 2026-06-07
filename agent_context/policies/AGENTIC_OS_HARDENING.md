@@ -248,9 +248,12 @@ Use these executable surfaces to keep the OS biological rather than static:
   audit.
 - `python3 scripts/os/context/codex_thesis_radar.py`: live-work mapping to the thesis
   spine.
-- `python3 scripts/os/context/codex_context_resonance.py resolve --task "<task>" --json`: compact
+- `python3 scripts/os/context/codex_context_resonance.py triage --task "<task>" --json`: compact
+  read-plan gate for required reads, optional reads, suppressed context, artifact goal,
+  decision focus, and mutation boundaries before broad ledger reads.
+- `python3 scripts/os/context/codex_context_resonance.py resolve --task "<task>" --json`: deeper
   retrieval-salience resolver for active facts, latent nudges, negative memories,
-  suppressed context, and required evidence checks.
+  suppressed context, and required evidence checks after triage warrants it.
 - `python3 scripts/os/artifacts/codex_artifact_registry.py check`: provenance check for
   canonical artifacts.
 

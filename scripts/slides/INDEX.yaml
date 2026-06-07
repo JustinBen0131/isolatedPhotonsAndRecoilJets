@@ -9,6 +9,160 @@ defaults:
 common_utilities:
   - scripts/slides/common/slide_defaults.py
 generators:
+  - id: make_the8_hard_inclusive_mechanism_closure_slide
+    status: canonical
+    group: "score_shapes"
+    campaign: "auau_bdt"
+    slide_key: "THE8_hard_inclusive_jet3040_mechanism_closure"
+    canonical_path: "scripts/slides/auau_bdt/score_shapes/make_the8_hard_inclusive_mechanism_closure_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: "Hard-inclusive Jet30/Jet40 mechanism audit CSV/Markdown outputs under THE8_branchA_ladder_scorecache_fullstat_20260527/diagnostics/hard_inclusive_jet3040_mechanism_20260605/"
+    default_output_folder: dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/slideReady/hard_inclusive_jet3040_mechanism_closure_20260605/
+    last_known_png: dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/slideReady/hard_inclusive_jet3040_mechanism_closure_20260605/hard_inclusive_jet3040_mechanism_closure_slide.png
+  - id: make_the11_bdt_isolation_insight_slides
+    status: canonical
+    group: "isolation_correlations"
+    campaign: "auau_bdt"
+    slide_key: "THE11_bdt_isolation_insight"
+    canonical_path: "scripts/slides/auau_bdt/isolation_correlations/make_the11_bdt_isolation_insight_slides.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: "Existing THE-11 no-isolation score correlation CSV/JSON/PNGs under noiso_score_diagnostic"
+    default_output_folder: dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/slideReady/isolation_feature_correlations/noiso_score_diagnostic/the11_bdt_isolation_story_20260604/
+    last_known_png: dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/slideReady/isolation_feature_correlations/noiso_score_diagnostic/the11_bdt_isolation_story_20260604/the11_slide01_noiso_bdt_discovers_nearby_activity.png
+  - id: make_the11_default_eiso_bdt_scatter_slide
+    status: canonical
+    group: "isolation_correlations"
+    campaign: "auau_bdt"
+    slide_key: "THE11_default_eiso_bdt_scatter"
+    canonical_path: "scripts/slides/auau_bdt/isolation_correlations/make_the11_default_eiso_bdt_scatter_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: dataOutput/auauTightBDTValidation/model_validation_condor_20260511_194832/score_caches.local.list
+    default_output_folder: dataOutput/auauTightBDTValidation/model_validation_condor_20260511_194832/slideReady/default_eiso_vs_bdt_score_20260604/
+    last_known_png: dataOutput/auauTightBDTValidation/model_validation_condor_20260511_194832/slideReady/default_eiso_vs_bdt_score_20260604/the11_default_eiso_vs_bdt_score_scatter_slide.png
+  - id: make_the11_truth_photon_bdt_isolation_slice_slide
+    status: canonical
+    group: "isolation_correlations"
+    campaign: "auau_bdt"
+    slide_key: "THE11_truth_photon_bdt_isolation_slices"
+    canonical_path: "scripts/slides/auau_bdt/isolation_correlations/make_the11_truth_photon_bdt_isolation_slice_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: dataOutput/auauTightBDTValidation/model_validation_condor_20260511_194832/score_caches.local.list
+    default_output_folder: dataOutput/auauTightBDTValidation/model_validation_condor_20260511_194832/slideReady/default_eiso_vs_bdt_score_20260604/the11_truth_photon_bdt_isolation_slices_20260605/
+    last_known_png: dataOutput/auauTightBDTValidation/model_validation_condor_20260511_194832/slideReady/default_eiso_vs_bdt_score_20260604/the11_truth_photon_bdt_isolation_slices_20260605/truth_photon_bdt_isolation_slices_slide.png
+  - id: make_the11_isolation_shapes_by_bdt_slice_slide
+    status: canonical
+    group: "isolation_correlations"
+    campaign: "auau_bdt"
+    slide_key: "THE11_isolation_shapes_by_bdt_slice"
+    canonical_path: "scripts/slides/auau_bdt/isolation_correlations/make_the11_isolation_shapes_by_bdt_slice_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: dataOutput/auauTightBDTValidation/model_validation_condor_20260511_194832/score_caches.local.list
+    default_output_folder: dataOutput/auauTightBDTValidation/model_validation_condor_20260511_194832/slideReady/default_eiso_vs_bdt_score_20260604/the11_isolation_shapes_by_bdt_slice_20260605/
+    last_known_png: dataOutput/auauTightBDTValidation/model_validation_condor_20260511_194832/slideReady/default_eiso_vs_bdt_score_20260604/the11_isolation_shapes_by_bdt_slice_20260605/isolation_shapes_by_bdt_slice_slide.png
+  - id: make_the11_background_bdt_slice_normalization_slide
+    status: canonical
+    group: "isolation_correlations"
+    campaign: "auau_bdt"
+    slide_key: "THE11_background_bdt_slice_normalization"
+    canonical_path: "scripts/slides/auau_bdt/isolation_correlations/make_the11_background_bdt_slice_normalization_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: dataOutput/auauTightBDTValidation/model_validation_condor_20260511_194832/score_caches.local.list
+    default_output_folder: dataOutput/auauTightBDTValidation/model_validation_condor_20260511_194832/slideReady/default_eiso_vs_bdt_score_20260604/the11_background_bdt_slice_normalization_20260606/
+    last_known_png: dataOutput/auauTightBDTValidation/model_validation_condor_20260511_194832/slideReady/default_eiso_vs_bdt_score_20260604/the11_background_bdt_slice_normalization_20260606/background_bdt_slice_normalization_slide.png
+  - id: make_the11_inclusive_hotspot_decomposition_slide
+    status: canonical
+    group: "isolation_correlations"
+    campaign: "auau_bdt"
+    slide_key: "THE11_inclusive_hotspot_decomposition"
+    canonical_path: "scripts/slides/auau_bdt/isolation_correlations/make_the11_inclusive_hotspot_decomposition_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: dataOutput/auauTightBDTValidation/model_validation_condor_20260511_194832/score_caches.local.list
+    default_output_folder: dataOutput/auauTightBDTValidation/model_validation_condor_20260511_194832/slideReady/default_eiso_vs_bdt_score_20260604/the11_inclusive_hotspot_decomposition_20260606/
+    last_known_png: dataOutput/auauTightBDTValidation/model_validation_condor_20260511_194832/slideReady/default_eiso_vs_bdt_score_20260604/the11_inclusive_hotspot_decomposition_20260606/inclusive_hotspot_decomposition_slide.png
+  - id: make_the11_weighted_bdt_isolation_fullstat_slide
+    status: canonical
+    group: "isolation_correlations"
+    campaign: "auau_bdt"
+    slide_key: "THE11_weighted_bdt_isolation_fullstat"
+    canonical_path: "scripts/slides/auau_bdt/isolation_correlations/make_the11_weighted_bdt_isolation_fullstat_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: "Source-preserving full-stat validation score caches from model_validation_condor_the11_weighted_bdt_iso_fullstat_basev3e_20260606_1645"
+    default_output_folder: dataOutput/auauTightBDTValidation/the11_weighted_bdt_iso_fullstat_basev3e_20260606/slideReady/
+    last_known_png: dataOutput/auauTightBDTValidation/the11_weighted_bdt_iso_fullstat_basev3e_20260606/slideReady/weighted_bdt_isolation_fullstat_slide.png
+  - id: make_the11_bdt_tight_id_isolation_closure_slide
+    status: canonical
+    group: "isolation_correlations"
+    campaign: "auau_bdt"
+    slide_key: "THE11_bdt_tight_id_isolation_closure"
+    canonical_path: "scripts/slides/auau_bdt/isolation_correlations/make_the11_bdt_tight_id_isolation_closure_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: dataOutput/auauTightBDTValidation/model_validation_condor_20260511_194832/score_caches.local.list
+    default_output_folder: dataOutput/auauTightBDTValidation/model_validation_condor_20260511_194832/slideReady/default_eiso_vs_bdt_score_20260604/the11_bdt_tight_id_isolation_closure_20260605/
+    last_known_png: dataOutput/auauTightBDTValidation/model_validation_condor_20260511_194832/slideReady/default_eiso_vs_bdt_score_20260604/the11_bdt_tight_id_isolation_closure_20260605/bdt_tight_id_isolation_closure_slide.png
+  - id: make_the11_centrality_isolation_density_slides
+    status: canonical
+    group: "isolation_correlations"
+    campaign: "auau_bdt"
+    slide_key: "THE11_centrality_isolation_story"
+    canonical_path: "scripts/slides/auau_bdt/isolation_correlations/make_the11_centrality_isolation_density_slides.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: "Local default reco_eiso score caches plus exact no-isolation R=0.3/R=0.4 aggregate correlation CSV"
+    default_output_folder: dataOutput/auauTightBDTValidation/model_validation_condor_20260511_194832/slideReady/default_eiso_vs_bdt_score_20260604/the11_centrality_isolation_story_20260604/
+    last_known_png: dataOutput/auauTightBDTValidation/model_validation_condor_20260511_194832/slideReady/default_eiso_vs_bdt_score_20260604/the11_centrality_isolation_story_20260604/slide01_r30_log_density_centrality.png
+  - id: make_the11_class_split_correlation_slides
+    status: canonical
+    group: "isolation_correlations"
+    campaign: "auau_bdt"
+    slide_key: "THE11_class_split_correlation_story"
+    canonical_path: "scripts/slides/auau_bdt/isolation_correlations/make_the11_class_split_correlation_slides.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: "Exact THE-11 no-isolation score correlation CSV plus local row-level default-score caches for the R=0.3 centrality class-density visual"
+    default_output_folder: dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/slideReady/isolation_feature_correlations/noiso_score_diagnostic/the11_class_split_correlation_story_20260604/
+    last_known_png: dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/slideReady/isolation_feature_correlations/noiso_score_diagnostic/the11_class_split_correlation_story_20260604/slide02_r30_centrality_class_density.png
+  - id: make_the42_wp80_auau_ss_overlay_slide
+    status: canonical
+    group: "shower_shape"
+    campaign: "auau_bdt"
+    slide_key: "THE42_wp80_auau_ss_overlay"
+    canonical_path: "scripts/slides/auau_bdt/shower_shape/make_the42_wp80_auau_ss_overlay_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: "THE-42 merged AuAu data, Photon+Jet embedded, and inclusive-jet embedded RecoilJets ROOT outputs"
+    default_output_folder: dataOutput/auauTightBDTValidation/THE42_wp80_centlinear_ss_20260604/
+    last_known_png: null
+  - id: make_the42_energy_sum_feature_distribution_grid
+    status: canonical
+    group: "shower_shape"
+    campaign: "auau_bdt"
+    slide_key: "THE42_energy_sum_feature_distribution_grid"
+    canonical_path: "scripts/slides/auau_bdt/shower_shape/make_the42_energy_sum_feature_distribution_grid.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: "THE-42 pulled Signal MC and Inclusive MC merged RecoilJets ROOT outputs with SIM/h_ss_et1, SIM/h_ss_e11e33, and SIM/h_ss_e32e35 before/tight stage histograms"
+    default_output_folder: dataOutput/auauTightBDTValidation/THE42_wp80_centlinear_ss_20260604/efficiency_purity_qa/
+    last_known_png: dataOutput/auauTightBDTValidation/THE42_wp80_centlinear_ss_20260604/efficiency_purity_qa/the42_energy_sum_feature_distribution_grid_slide.png
+  - id: make_the42_energy_sum_feature_shape_difference_grid
+    status: canonical
+    group: "shower_shape"
+    campaign: "auau_bdt"
+    slide_key: "THE42_energy_sum_feature_shape_difference_grid"
+    canonical_path: "scripts/slides/auau_bdt/shower_shape/make_the42_energy_sum_feature_shape_difference_grid.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: "THE-42 pulled Signal MC and Inclusive MC merged RecoilJets ROOT outputs with SIM/h_ss_et1, SIM/h_ss_e11e33, and SIM/h_ss_e32e35 before/tight stage histograms"
+    default_output_folder: dataOutput/auauTightBDTValidation/THE42_wp80_centlinear_ss_20260604/efficiency_purity_qa/
+    last_known_png: dataOutput/auauTightBDTValidation/THE42_wp80_centlinear_ss_20260604/efficiency_purity_qa/the42_energy_sum_feature_shape_difference_grid_slide.png
   - id: make_auau_eiso_shower_shape_th2_slide
     status: canonical
     group: "features"
@@ -185,6 +339,17 @@ generators:
     expected_inputs: see script CLI/defaults and adjacent workstream evidence
     default_output_folder: dataOutput/slide_assets/auau_bdt/slide19/
     last_known_png: null
+  - id: make_the32_low_calo_diagnostic_closure_slides
+    status: canonical
+    group: "low_calo_closure"
+    campaign: "auau_bdt"
+    slide_key: "THE32_low_calo_closure"
+    canonical_path: "scripts/slides/auau_bdt/low_calo_closure/make_the32_low_calo_diagnostic_closure_slides.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: "THE-32 diagnostic score_caches.list with source_sample, run, evt, event_calo_* columns"
+    default_output_folder: dataOutput/auauTightBDTValidation/THE32_lowCaloDiagnosticClosure_20260603/
+    last_known_png: null
   - id: add_counts_to_stack_slide28_png
     status: canonical
     group: "stacking"
@@ -284,6 +449,17 @@ generators:
     expected_inputs: see script CLI/defaults and adjacent workstream evidence
     default_output_folder: dataOutput/slide_assets/auau_bdt/wp80/
     last_known_png: null
+  - id: make_the41_centdep_bdt_wp_slides
+    status: canonical
+    group: "working_point"
+    campaign: "auau_bdt"
+    slide_key: "the41_centdep_wp"
+    canonical_path: "scripts/slides/auau_bdt/working_point/make_the41_centdep_bdt_wp_slides.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "canonical_only"
+    expected_inputs: "THE-8 Branch A score-cache manifest or extracted THE41_CENTRALITY_DEPENDENT_BDT_WP_V1 JSON"
+    default_output_folder: dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/the41_centdep_wp_slides_20260604/
+    last_known_png: dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/the41_centdep_wp_slides_20260604/the41_centdep_bdt_wp_linear_fits_slide.png
   - id: slide_defaults
     status: canonical
     group: "common"
@@ -449,6 +625,17 @@ generators:
     expected_inputs: see script CLI/defaults and adjacent workstream evidence
     default_output_folder: dataOutput/slide_assets/pp_currentian/make_pp_reco_cluster_et_leakage_slide/
     last_known_png: null
+  - id: make_pp_reco_cluster_et_leakage_followup_slide
+    status: canonical
+    group: "leakage"
+    campaign: "pp_currentian"
+    slide_key: "pp_reco_cluster_et_leakage_followup"
+    canonical_path: "scripts/slides/pp_currentian/leakage/make_pp_reco_cluster_et_leakage_followup_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: "Existing pp reco-cluster ET leakage CSV/JSON sidecars under ppg12_basev3E_currentIAN_recoEtExt50_20260527_0045/validation/reco_cluster_et_leakage/"
+    default_output_folder: dataOutput/slides/wp_gammajets_6_1_26/pp_reco_cluster_et_leakage_20260605/
+    last_known_png: dataOutput/slides/wp_gammajets_6_1_26/pp_reco_cluster_et_leakage_20260605/pp_reco_cluster_et_leakage_followup_slide.png
   - id: make_pp_currentian_insitu_contract_stitch_slides
     status: canonical
     group: "stitching"
@@ -592,6 +779,39 @@ generators:
     expected_inputs: see script CLI/defaults and adjacent workstream evidence
     default_output_folder: dataOutput/slide_assets/pp_currentian/make_ppg12_exact_reweighting_verification_slide/
     last_known_png: null
+  - id: make_pp_stitch_weight_parity_audit_slide
+    status: canonical
+    group: "stitching"
+    campaign: "pp_currentian"
+    slide_key: "pp_stitch_weight_parity_audit"
+    canonical_path: "scripts/slides/pp_currentian/stitching/make_pp_stitch_weight_parity_audit_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: "Accepted pp exact-stitch contract CSV/JSON files plus PPG12/RecoilJets cross-section constants"
+    default_output_folder: dataOutput/slides/wp_gammajets_6_1_26/pp_stitch_weight_parity_20260604/
+    last_known_png: dataOutput/slides/wp_gammajets_6_1_26/pp_stitch_weight_parity_20260604/pp_stitch_weight_parity_audit_slide.png
+  - id: make_embedded_stitching_closure_slide
+    status: canonical
+    group: "stitching"
+    campaign: "wp_gammajets"
+    slide_key: "embedded_stitching_closure"
+    canonical_path: "scripts/slides/wp_gammajets/stitching/make_embedded_stitching_closure_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: "PhotonJet12+20 and Inclusive Jet12+20+30+40 embedded stitching PNGs plus summary JSON files under dataOutput/stitchDiagnostics"
+    default_output_folder: dataOutput/slides/wp_gammajets_6_1_26/stitching_closure_20260604/
+    last_known_png: dataOutput/slides/wp_gammajets_6_1_26/stitching_closure_20260604/embedded_signal_inclusive_stitching_closure_slide.png
+  - id: make_reco_cluster_et_leakage_followup_slide
+    status: canonical
+    group: "stitching"
+    campaign: "wp_gammajets"
+    slide_key: "reco_cluster_et_leakage_followup"
+    canonical_path: "scripts/slides/wp_gammajets/stitching/make_reco_cluster_et_leakage_followup_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: "Inclusive Jet12+20+30+40 reco-cluster ET leakage CSV/summary under dataOutput/stitchDiagnostics/focus21_clusterEt_leakage_jet1234_20260526"
+    default_output_folder: dataOutput/slides/wp_gammajets_6_1_26/reco_cluster_et_leakage_20260604/
+    last_known_png: dataOutput/slides/wp_gammajets_6_1_26/reco_cluster_et_leakage_20260604/reco_cluster_et_leakage_followup_slide.png
   - id: make_overfitdiag_generalization_frontier_slide
     status: canonical
     group: "overfitdiag"
@@ -668,6 +888,17 @@ generators:
     compatibility_path_status: "resolver_only"
     expected_inputs: see script CLI/defaults and adjacent workstream evidence
     default_output_folder: dataOutput/slide_assets/split_studies/make_auau_splitstudy_proof_pack_slides/
+    last_known_png: null
+  - id: make_the38_tree_depth_capacity_slide
+    status: canonical
+    group: "tree_depth"
+    campaign: "split_studies"
+    slide_key: "THE38_tree_depth_capacity"
+    canonical_path: "scripts/slides/split_studies/tree_depth/make_the38_tree_depth_capacity_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: "THE-38 depth-sweep model_registry.json files with report.overfit_diagnostics"
+    default_output_folder: dataOutput/auauMLDiagnosticRuns/THE38_tree_depth_capacity_<stamp>/slideReady/
     last_known_png: null
   - id: make_auau_bdt_iso_ptcent7_split_gain_slide_summary
     status: canonical

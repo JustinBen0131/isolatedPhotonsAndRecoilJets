@@ -53,6 +53,17 @@ PPG12_EXACT_SAMPLE_ALIASES = (
     ("run28_jet40", ("run28_jet40",)),
 )
 
+GLOBAL_EVENT_KEY_COLUMNS = ["source_sample", "input_file_index", "run", "evt"]
+GLOBAL_CANDIDATE_KEY_COLUMNS = GLOBAL_EVENT_KEY_COLUMNS + ["input_tree_entry"]
+TRAINING_IDENTITY_OPTIONAL_COLUMNS = ["run", "evt", "global_event_key"]
+EVENT_QUALITY_DIRECT_COLUMNS = ["centrality", "event_calo_log10_total_energy_plus1"]
+EVENT_QUALITY_COMPONENT_COLUMNS = [
+    "event_calo_cemc_energy",
+    "event_calo_ihcal_energy",
+    "event_calo_ohcal_energy",
+    "event_calo_total_energy",
+]
+
 
 PPG12_TIGHT_FEATURES = [
     "cluster_Et",
@@ -630,6 +641,497 @@ def expand_input_paths(items: list[Path]) -> list[Path]:
     return paths
 
 
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def load_low_calo_cut(path: Path) -> dict:
+    if not path.is_file():
+        raise SystemExit(f"Low-calo cut JSON does not exist: {path}")
+    payload = json.loads(path.read_text())
+    envelope = payload.get("envelope")
+    if not isinstance(envelope, list) or not envelope:
+        raise SystemExit(f"Low-calo cut JSON has no envelope table: {path}")
+    rows = []
+    for item in envelope:
+        try:
+            row = {
+                "cent_lo": float(item["cent_lo"]),
+                "cent_hi": float(item["cent_hi"]),
+                "threshold": float(item["threshold"]),
+                "median": float(item.get("median", math.nan)),
+                "mad_sigma": float(item.get("mad_sigma", math.nan)),
+                "quantile_floor": float(item.get("quantile_floor", math.nan)),
+                "n_events": int(item.get("n_events", 0)),
+                "status": str(item.get("status", "unknown")),
+            }
+        except KeyError as exc:
+            raise SystemExit(f"Low-calo cut envelope row missing required field {exc}: {path}") from exc
+        rows.append(row)
+    rows.sort(key=lambda row: (row["cent_lo"], row["cent_hi"]))
+    return {
+        "path": str(path),
+        "sha256": file_sha256(path),
+        "schema": payload.get("schema"),
+        "source_blind": bool(payload.get("source_blind", False)),
+        "truth_blind": bool(payload.get("truth_blind", False)),
+        "bdt_score_blind": bool(payload.get("bdt_score_blind", False)),
+        "centrality_source": payload.get("centrality_source"),
+        "cut_variable": payload.get("cut_variable"),
+        "mad_scale": payload.get("mad_scale"),
+        "quantile_floor": payload.get("quantile_floor"),
+        "slice_width_percent": payload.get("slice_width_percent"),
+        "envelope": rows,
+    }
+
+
+def _series_to_str(frame, name: str):
+    return frame[name].astype(str).to_numpy(dtype=object, copy=False)
+
+
+def ensure_global_event_identity(frame):
+    missing = [col for col in GLOBAL_EVENT_KEY_COLUMNS if col not in frame.columns]
+    if missing:
+        return frame
+    return frame
+
+
+def _factorized_source_codes(frame):
+    import numpy as np
+    import pandas as pd
+
+    if "source_sample" not in frame.columns:
+        return np.zeros(len(frame), dtype="int32"), ["unknown"]
+    codes, labels = pd.factorize(frame["source_sample"].astype(str), sort=True)
+    labels = [str(item) for item in labels.tolist()]
+    return codes.astype("int32", copy=False), labels
+
+
+def _numeric_event_records(frame, columns: list[str]):
+    import numpy as np
+
+    missing = [col for col in columns if col not in frame.columns]
+    if missing:
+        return None
+    dtype = []
+    payload = {}
+    for col in columns:
+        if col == "source_sample":
+            values, _ = _factorized_source_codes(frame)
+            dtype.append((col, "i4"))
+            payload[col] = values
+        else:
+            values = frame[col].to_numpy()
+            dtype.append((col, "i8"))
+            payload[col] = values.astype("int64", copy=False)
+    records = np.empty(len(frame), dtype=dtype)
+    for col, values in payload.items():
+        records[col] = values
+    return records
+
+
+def _numeric_event_identity(frame, *, require_file_qualified: bool = False):
+    import numpy as np
+
+    columns = list(GLOBAL_EVENT_KEY_COLUMNS)
+    records = _numeric_event_records(frame, columns)
+    if records is None and not require_file_qualified:
+        columns = ["source_sample", "run", "evt"]
+        records = _numeric_event_records(frame, columns)
+    if records is not None:
+        _, inverse, counts = np.unique(records, return_inverse=True, return_counts=True)
+        return {
+            "status": "ok",
+            "columns": columns,
+            "inverse": inverse.astype("int64", copy=False),
+            "counts": counts.astype("int64", copy=False),
+            "unique_events": int(len(counts)),
+            "uses_numeric_identity": True,
+        }
+    if "global_event_key" in frame.columns:
+        keys = frame["global_event_key"].astype(str).to_numpy(dtype=object, copy=False)
+        _, inverse, counts = np.unique(keys, return_inverse=True, return_counts=True)
+        return {
+            "status": "ok",
+            "columns": ["global_event_key"],
+            "inverse": inverse.astype("int64", copy=False),
+            "counts": counts.astype("int64", copy=False),
+            "unique_events": int(len(counts)),
+            "uses_numeric_identity": False,
+        }
+    missing = [col for col in GLOBAL_EVENT_KEY_COLUMNS if col not in frame.columns]
+    if require_file_qualified:
+        raise SystemExit("File-qualified global event key is required but missing: " + ", ".join(missing))
+    fallback = ["source_sample", "run", "evt"]
+    missing_fallback = [col for col in fallback if col not in frame.columns]
+    if missing_fallback:
+        raise SystemExit("Cannot build event key; missing: " + ", ".join(missing_fallback))
+    keys, columns = global_event_keys(frame, require_file_qualified=False)
+    _, inverse, counts = np.unique(keys, return_inverse=True, return_counts=True)
+    return {
+        "status": "ok",
+        "columns": columns,
+        "inverse": inverse.astype("int64", copy=False),
+        "counts": counts.astype("int64", copy=False),
+        "unique_events": int(len(counts)),
+        "uses_numeric_identity": False,
+    }
+
+
+def _event_count_for_mask(event_inverse, n_events: int, mask) -> int:
+    import numpy as np
+
+    mask = np.asarray(mask, dtype=bool)
+    if not mask.any():
+        return 0
+    counts = np.bincount(event_inverse[mask], minlength=n_events)
+    return int(np.count_nonzero(counts))
+
+
+def _event_key_audit_from_counts(frame, columns: list[str], counts):
+    import numpy as np
+
+    counts = np.asarray(counts, dtype="int64")
+    counts = counts[counts > 0]
+    event_key_columns_available = [col for col in GLOBAL_EVENT_KEY_COLUMNS if col in frame.columns]
+    missing_event_key_columns = [col for col in GLOBAL_EVENT_KEY_COLUMNS if col not in frame.columns]
+    report = {
+        "present": all(col in frame.columns for col in GLOBAL_EVENT_KEY_COLUMNS),
+        "available_event_key_columns": event_key_columns_available,
+        "missing_event_key_columns": missing_event_key_columns,
+        "event_key_columns": list(columns),
+        "candidate_key_columns": [col for col in GLOBAL_CANDIDATE_KEY_COLUMNS if col in frame.columns],
+        "candidate_rows": int(len(frame)),
+        "unique_events": int(len(counts)),
+        "candidate_multiplicity_mean": float(np.mean(counts)) if len(counts) else math.nan,
+        "candidate_multiplicity_max": int(np.max(counts)) if len(counts) else 0,
+        "event_dedup_relies_only_on_source_run_evt": list(columns) != GLOBAL_EVENT_KEY_COLUMNS,
+        "source_run_evt_unique_keys": None,
+        "source_run_evt_repeated_after_global_event_dedup": None,
+        "audit_status": "ok",
+    }
+    if all(col in frame.columns for col in ["source_sample", "run", "evt"]):
+        simple = _numeric_event_records(frame, ["source_sample", "run", "evt"])
+        simple_unique = np.unique(simple)
+        report["source_run_evt_unique_keys"] = int(len(simple_unique))
+        report["source_run_evt_repeated_after_global_event_dedup"] = int(len(counts) - len(simple_unique))
+    return report
+
+
+def _centrality_thresholds(cent, envelope: list[dict]):
+    import numpy as np
+
+    thresholds = np.full(len(cent), math.nan, dtype="float64")
+    for row in envelope:
+        lo = float(row["cent_lo"])
+        hi = float(row["cent_hi"])
+        threshold = float(row["threshold"])
+        thresholds[(cent >= lo) & (cent < hi)] = threshold
+    return thresholds
+
+
+def global_event_keys(frame, *, require_file_qualified: bool = False):
+    import numpy as np
+
+    if "global_event_key" in frame.columns:
+        return frame["global_event_key"].astype(str).to_numpy(dtype=object, copy=False), list(GLOBAL_EVENT_KEY_COLUMNS)
+    missing = [col for col in GLOBAL_EVENT_KEY_COLUMNS if col not in frame.columns]
+    if not missing:
+        source = _series_to_str(frame, "source_sample")
+        file_index = frame["input_file_index"].to_numpy()
+        run = frame["run"].to_numpy()
+        evt = frame["evt"].to_numpy()
+        return np.asarray(
+            [f"{source[i]}|{int(file_index[i])}|{int(run[i])}|{int(evt[i])}" for i in range(len(frame))],
+            dtype=object,
+        ), list(GLOBAL_EVENT_KEY_COLUMNS)
+    if require_file_qualified:
+        raise SystemExit("File-qualified global event key is required but missing: " + ", ".join(missing))
+    fallback = ["source_sample", "run", "evt"]
+    missing_fallback = [col for col in fallback if col not in frame.columns]
+    if missing_fallback:
+        raise SystemExit("Cannot build event key; missing: " + ", ".join(missing_fallback))
+    source = _series_to_str(frame, "source_sample")
+    run = frame["run"].to_numpy()
+    evt = frame["evt"].to_numpy()
+    return np.asarray(
+        [f"{source[i]}|{int(run[i])}|{int(evt[i])}" for i in range(len(frame))],
+        dtype=object,
+    ), fallback
+
+
+def summarize_global_event_key(frame) -> dict:
+    import numpy as np
+
+    event_key_columns_available = [col for col in GLOBAL_EVENT_KEY_COLUMNS if col in frame.columns]
+    missing_event_key_columns = [col for col in GLOBAL_EVENT_KEY_COLUMNS if col not in frame.columns]
+    report = {
+        "present": all(col in frame.columns for col in GLOBAL_EVENT_KEY_COLUMNS),
+        "available_event_key_columns": event_key_columns_available,
+        "missing_event_key_columns": missing_event_key_columns,
+        "event_key_columns": [],
+        "candidate_key_columns": [col for col in GLOBAL_CANDIDATE_KEY_COLUMNS if col in frame.columns],
+        "candidate_rows": int(len(frame)),
+        "unique_events": 0,
+        "candidate_multiplicity_mean": math.nan,
+        "candidate_multiplicity_max": 0,
+        "event_dedup_relies_only_on_source_run_evt": True,
+        "source_run_evt_unique_keys": None,
+        "source_run_evt_repeated_after_global_event_dedup": None,
+    }
+    if len(frame) == 0:
+        return report
+    if not report["present"] and not all(col in frame.columns for col in ["source_sample", "run", "evt"]):
+        report["audit_status"] = "missing_event_key_columns"
+        return report
+    identity = _numeric_event_identity(frame, require_file_qualified=False)
+    report["audit_status"] = "ok"
+    report["event_key_columns"] = identity["columns"]
+    report["event_dedup_relies_only_on_source_run_evt"] = identity["columns"] != GLOBAL_EVENT_KEY_COLUMNS
+    counts = identity["counts"]
+    report["unique_events"] = int(identity["unique_events"])
+    if len(counts):
+        report["candidate_multiplicity_mean"] = float(np.mean(counts))
+        report["candidate_multiplicity_max"] = int(np.max(counts))
+    if all(col in frame.columns for col in ["source_sample", "run", "evt"]):
+        simple = _numeric_event_records(frame, ["source_sample", "run", "evt"])
+        simple_unique = np.unique(simple)
+        report["source_run_evt_unique_keys"] = int(len(simple_unique))
+        report["source_run_evt_repeated_after_global_event_dedup"] = int(identity["unique_events"] - len(simple_unique))
+    return report
+
+
+def centrality_slice_threshold(cent: float, envelope: list[dict]) -> float:
+    for row in envelope:
+        lo = float(row["cent_lo"])
+        hi = float(row["cent_hi"])
+        if cent >= lo and cent < hi:
+            return float(row["threshold"])
+    return math.nan
+
+
+def _fraction_table(frame, reject_mask, by: str, event_inverse, n_events: int):
+    import numpy as np
+
+    rows = []
+    if by == "centrality_bin":
+        cent = frame["centrality"].to_numpy(dtype="float64")
+        categories = [("0-20", (cent >= 0.0) & (cent < 20.0)), ("20-50", (cent >= 20.0) & (cent < 50.0)), ("50-80", (cent >= 50.0) & (cent < 80.0))]
+    elif by == "source_sample":
+        source = frame["source_sample"].astype(str).to_numpy() if "source_sample" in frame.columns else np.full(len(frame), "unknown", dtype=object)
+        categories = [(name, source == name) for name in sorted(np.unique(source).tolist())]
+    else:
+        raise ValueError(by)
+    for name, mask in categories:
+        mask = np.asarray(mask, dtype=bool)
+        if not mask.any():
+            continue
+        total_candidates = int(mask.sum())
+        rejected_candidates = int(np.sum(mask & reject_mask))
+        total_events = _event_count_for_mask(event_inverse, n_events, mask)
+        rejected_events = _event_count_for_mask(event_inverse, n_events, mask & reject_mask)
+        rows.append(
+            {
+                by: name,
+                "total_events": total_events,
+                "rejected_events": rejected_events,
+                "event_rejection_fraction": rejected_events / total_events if total_events else math.nan,
+                "total_candidates": total_candidates,
+                "rejected_candidates": rejected_candidates,
+                "candidate_rejection_fraction": rejected_candidates / total_candidates if total_candidates else math.nan,
+                "candidate_minus_event_fraction": (
+                    (rejected_candidates / total_candidates) - (rejected_events / total_events)
+                    if total_candidates and total_events
+                    else math.nan
+                ),
+            }
+        )
+    return rows
+
+
+def _component_median_table(frame, reject_mask, event_inverse, n_events: int):
+    import numpy as np
+
+    components = [
+        ("CEMC", "event_calo_cemc_energy"),
+        ("IHCal", "event_calo_ihcal_energy"),
+        ("OHCal", "event_calo_ohcal_energy"),
+        ("total_calo", "event_calo_total_energy"),
+    ]
+    available = [(label, col) for label, col in components if col in frame.columns]
+    if not available:
+        return []
+    cent = frame["centrality"].to_numpy(dtype="float64")
+    component_arrays = {col: frame[col].to_numpy(dtype="float64") for _, col in available}
+    event_reject = np.bincount(event_inverse[reject_mask], minlength=n_events) > 0
+    rows = []
+    for cent_label, cent_mask in [("0-20", (cent >= 0.0) & (cent < 20.0)), ("20-50", (cent >= 20.0) & (cent < 50.0)), ("50-80", (cent >= 50.0) & (cent < 80.0))]:
+        if not cent_mask.any():
+            continue
+        idx = np.flatnonzero(cent_mask)
+        first_row = np.full(n_events, len(frame), dtype="int64")
+        np.minimum.at(first_row, event_inverse[idx], idx)
+        valid = first_row < len(frame)
+        first_idx = first_row[valid]
+        reject_events = event_reject[valid]
+        for label, col in available:
+            values = component_arrays[col][first_idx]
+            retained = values[~reject_events]
+            rejected = values[reject_events]
+            retained = retained[np.isfinite(retained)]
+            rejected = rejected[np.isfinite(rejected)]
+            retained_median = float(np.median(retained)) if len(retained) else math.nan
+            rejected_median = float(np.median(rejected)) if len(rejected) else math.nan
+            rows.append(
+                {
+                    "centrality_bin": cent_label,
+                    "component": label,
+                    "retained_median": retained_median,
+                    "rejected_median": rejected_median,
+                    "rejected_over_retained": (
+                        rejected_median / retained_median
+                        if math.isfinite(retained_median) and retained_median != 0.0
+                        else math.nan
+                    ),
+                }
+            )
+    return rows
+
+
+def apply_low_calo_event_quality_filter(frame, cut_json: Path | None, audit_output: Path | None = None, audit_only: bool = False):
+    import numpy as np
+
+    if cut_json is None:
+        return frame, {"enabled": False}
+    missing = [col for col in EVENT_QUALITY_DIRECT_COLUMNS if col not in frame.columns]
+    if missing:
+        raise SystemExit("Low-calo event-quality filter missing required column(s): " + ", ".join(missing))
+    cut = load_low_calo_cut(cut_json)
+    frame = ensure_global_event_identity(frame.copy())
+    event_identity = _numeric_event_identity(frame, require_file_qualified=True)
+    event_inverse = event_identity["inverse"]
+    event_key_columns = event_identity["columns"]
+    n_events = int(event_identity["unique_events"])
+    cent = frame["centrality"].to_numpy(dtype="float64")
+    log_calo = frame["event_calo_log10_total_energy_plus1"].to_numpy(dtype="float64")
+    thresholds = _centrality_thresholds(cent, cut["envelope"])
+    in_range = np.isfinite(cent) & np.isfinite(log_calo) & np.isfinite(thresholds)
+    row_below = in_range & (log_calo < thresholds)
+    event_reject = np.bincount(event_inverse[row_below], minlength=n_events) > 0
+    reject = event_reject[event_inverse]
+    keep = ~reject
+    retained_below = keep & in_range & (log_calo < thresholds)
+    kept_events = np.bincount(event_inverse[keep], minlength=n_events) > 0
+    retained_below_events = np.bincount(event_inverse[retained_below], minlength=n_events) > 0
+    report = {
+        "schema": "AUAU_LOW_CALO_UPSTREAM_FILTER_AUDIT_V1",
+        "enabled": True,
+        "audit_only": bool(audit_only),
+        "cut_json_path": str(cut_json),
+        "cut_json_sha256": cut["sha256"],
+        "cut_json_schema": cut.get("schema"),
+        "source_blind": cut.get("source_blind"),
+        "truth_blind": cut.get("truth_blind"),
+        "bdt_score_blind": cut.get("bdt_score_blind"),
+        "variables_used_for_cut": list(EVENT_QUALITY_DIRECT_COLUMNS),
+        "variables_not_used_for_cut": [
+            "source_sample",
+            "is_signal",
+            "truth photon label",
+            "truth isolation label",
+            "BDT score",
+            "cluster_Et",
+            "cluster_Eta",
+            "candidate shower-shape variables",
+            "train/test split",
+            "sample weight",
+            "WP80 behavior",
+        ],
+        "boundary_convention": "centrality slice uses cent_lo <= centrality < cent_hi; candidate/event is rejected only when log10(total calo + 1) < threshold; equality is retained",
+        "threshold_table": cut["envelope"],
+        "rows_before": int(len(frame)),
+        "rows_after": int(keep.sum()),
+        "rows_rejected": int(reject.sum()),
+        "globally_unique_events_before": int(n_events),
+        "globally_unique_events_after": int(np.count_nonzero(kept_events)),
+        "globally_unique_events_rejected": int(np.count_nonzero(event_reject)),
+        "retained_below_envelope_events": int(np.count_nonzero(retained_below_events)),
+        "retained_below_envelope_candidates": int(retained_below.sum()),
+        "out_of_envelope_range_candidates_retained": int((~in_range).sum()),
+        "event_key_audit_before": _event_key_audit_from_counts(frame, event_key_columns, event_identity["counts"]),
+        "event_key_columns_used": event_key_columns,
+        "rejection_by_centrality": _fraction_table(frame, reject, "centrality_bin", event_inverse, n_events),
+        "rejection_by_source": _fraction_table(frame, reject, "source_sample", event_inverse, n_events),
+        "component_medians_by_centrality": _component_median_table(frame, reject, event_inverse, n_events),
+    }
+    retained = frame.loc[keep].copy()
+    kept_event_counts = np.bincount(event_inverse[keep], minlength=n_events)
+    report["event_key_audit_after"] = _event_key_audit_from_counts(retained, event_key_columns, kept_event_counts)
+    if audit_output is not None:
+        audit_output.parent.mkdir(parents=True, exist_ok=True)
+        audit_output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+        print(f"[OK] wrote low-calo event-quality filter audit: {audit_output}", flush=True)
+    return retained, report
+
+
+def assume_low_calo_event_quality_filter_applied(
+    frame,
+    cut_json: Path,
+    audit_output: Path | None,
+    outdir: Path,
+):
+    if audit_output is not None:
+        candidates = [audit_output]
+    else:
+        candidates = [
+            outdir / "event_quality_filter_training_audit.json",
+            outdir / "event_quality_filter_audit.json",
+        ]
+    existing = next((path for path in candidates if path.is_file()), None)
+    if existing is None:
+        searched = ", ".join(str(path) for path in candidates)
+        raise SystemExit(
+            "Cannot assume low-calo event-quality filter is already applied: "
+            f"no audit JSON found; searched {searched}"
+        )
+    cut = load_low_calo_cut(cut_json)
+    report = json.loads(existing.read_text())
+    if report.get("cut_json_sha256") != cut["sha256"]:
+        raise SystemExit(
+            "Cannot assume low-calo event-quality filter is already applied: "
+            f"audit cut hash {report.get('cut_json_sha256')} does not match {cut['sha256']}"
+        )
+    if (
+        report.get("retained_below_envelope_events", 0) != 0
+        or report.get("retained_below_envelope_candidates", 0) != 0
+    ):
+        raise SystemExit(
+            "Cannot assume low-calo event-quality filter is already applied: "
+            "audit has retained below-envelope events/candidates"
+        )
+    rows_after = report.get("rows_after", report.get("candidate_rows_after"))
+    if rows_after is None:
+        raise SystemExit(
+            "Cannot assume low-calo event-quality filter is already applied: "
+            "audit JSON does not contain rows_after"
+        )
+    if int(rows_after) != len(frame):
+        raise SystemExit(
+            "Cannot assume low-calo event-quality filter is already applied: "
+            f"audit rows_after={rows_after} but cache rows={len(frame)}"
+        )
+    assumed = dict(report)
+    assumed["assumed_already_applied"] = True
+    assumed["audit_output_used"] = str(existing)
+    assumed["validated_filtered_rows"] = int(len(frame))
+    print(f"[OK] using pre-applied low-calo event-quality filter audit: {existing}", flush=True)
+    return frame, assumed
+
+
 def finite_mask(frame, columns: Iterable[str]):
     import numpy as np
 
@@ -669,6 +1171,7 @@ def load_frame(
     load_class_counts = {0: 0, 1: 0}
     total_loaded_rows = 0
     load_cap_enabled = max_load_rows_per_class > 0 or max_load_rows > 0
+    file_index_by_path = {str(path): idx for idx, path in enumerate(paths)}
     iter_paths = list(paths)
     rng = np.random.default_rng(load_sample_seed)
     if load_cap_enabled:
@@ -701,13 +1204,21 @@ def load_frame(
             if missing:
                 raise SystemExit(f"{path}:{tree_name} missing required branches: {', '.join(missing)}")
             present_optional = [col for col in optional_columns if col in keys]
+            present_identity = [
+                col
+                for col in TRAINING_IDENTITY_OPTIONAL_COLUMNS
+                if col in keys and col not in required_columns and col not in present_optional
+            ]
             seen_optional.update(present_optional)
-            read_columns = [col for col in required_columns if col in keys] + present_optional
+            read_columns = [col for col in required_columns if col in keys] + present_optional + present_identity
             frame = tree.arrays(read_columns, library="pd")
             if allow_missing_label:
                 frame[missing_label_branch] = int(missing_label_value)
             if "source_sample" not in frame.columns:
                 frame["source_sample"] = infer_source_sample(path)
+            frame["input_file"] = str(path)
+            frame["input_file_index"] = int(file_index_by_path.get(str(path), -1))
+            frame["input_tree_entry"] = np.arange(len(frame), dtype="int64")
             if load_cap_enabled and label_branch and label_branch in frame.columns:
                 keep_parts = []
                 for cls in (0, 1):
@@ -756,6 +1267,7 @@ def load_frame(
             flush=True,
         )
     frame = add_derived_features(pd.concat(frames, ignore_index=True))
+    ensure_global_event_identity(frame)
     if load_cap_enabled:
         print(
             "[INFO] loaded capped frame: "
@@ -804,6 +1316,7 @@ def load_or_build_frame(
 ):
     if cache_file is not None and cache_file.is_file():
         frame = add_derived_features(load_frame_cache(cache_file))
+        ensure_global_event_identity(frame)
         missing = [col for col in required_columns if col not in frame.columns]
         if missing:
             raise SystemExit(f"Training cache {cache_file} is missing required columns: {', '.join(missing)}")
@@ -826,7 +1339,19 @@ def load_or_build_frame(
         load_sample_seed=load_sample_seed,
     )
     if cache_file is not None:
-        cache_cols = sorted(set(expand_required_columns(required_columns) + required_columns + optional_columns + ["source_sample"]))
+        cache_cols = sorted(
+            set(
+                expand_required_columns(required_columns)
+                + required_columns
+                + optional_columns
+                + [
+                    "source_sample",
+                    "input_file_index",
+                    "input_tree_entry",
+                ]
+                + TRAINING_IDENTITY_OPTIONAL_COLUMNS
+            )
+        )
         save_frame_cache(frame, cache_file, cache_cols)
         print(f"[OK] wrote training cache: {cache_file}")
     if cache_only:
@@ -1336,24 +1861,82 @@ def make_ppg12_exact_closure_plots(
 def prepare_ppg12_exact_global_weights(frame, label_branch: str, args):
     outdir = Path(args.ppg12_exact_closure_dir) if args.ppg12_exact_closure_dir else (args.outdir / "slideReady" / "ppg12_exact_reweight_bdt")
     expected_samples = parse_expected_samples(args.ppg12_exact_expected_samples)
+    artifact_mode = getattr(args, "ppg12_exact_closure_artifacts", "full")
     sample_report = validate_ppg12_exact_samples(frame, label_branch, expected_samples)
     weights, weight_report = compute_ppg12_exact_global_weights(frame, label_branch)
     frame = frame.copy()
     frame[PPG12_EXACT_WEIGHT_COLUMN] = weights
 
     outdir.mkdir(parents=True, exist_ok=True)
-    inventory_paths = write_ppg12_exact_sample_inventory(frame, label_branch, weights, outdir)
-    plot_paths = make_ppg12_exact_closure_plots(frame, label_branch, weights, weight_report, outdir, expected_samples)
+    inventory_paths = {}
+    plot_paths = {}
+    if artifact_mode == "full":
+        inventory_paths = write_ppg12_exact_sample_inventory(frame, label_branch, weights, outdir)
+        plot_paths = make_ppg12_exact_closure_plots(frame, label_branch, weights, weight_report, outdir, expected_samples)
     metadata = {
         "schema": "AUAU_BDT_PPG12_EXACT_WEIGHT_CLOSURE_V1",
+        "artifact_mode": artifact_mode,
         "sample_validation": sample_report,
         "weighting": weight_report,
         "artifacts": {**inventory_paths, **plot_paths},
     }
     metadata_path = outdir / "ppg12_exact_reweighting_metadata.json"
     metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
-    print(f"[OK] PPG12-exact reweighting closure written: {outdir}", flush=True)
+    if artifact_mode == "full":
+        print(f"[OK] PPG12-exact reweighting closure written: {outdir}", flush=True)
+    else:
+        print(f"[OK] PPG12-exact reweighting metadata written: {outdir} artifacts={artifact_mode}", flush=True)
     return frame, {**metadata, "metadata_json": str(metadata_path)}
+
+
+def ppg12_exact_precomputed_weight_status(frame) -> dict:
+    import numpy as np
+
+    if PPG12_EXACT_WEIGHT_COLUMN not in frame.columns:
+        return {"usable": False, "reason": "missing", "has_column": False}
+    weights = frame[PPG12_EXACT_WEIGHT_COLUMN].to_numpy(dtype="float64")
+    finite_positive = np.isfinite(weights) & (weights > 0.0)
+    invalid_rows = int((~finite_positive).sum())
+    if invalid_rows:
+        return {
+            "usable": False,
+            "reason": "invalid_rows",
+            "has_column": True,
+            "invalid_rows": invalid_rows,
+            "n_rows": int(len(weights)),
+        }
+    all_unit = bool(len(weights) and np.allclose(weights, 1.0, rtol=0.0, atol=1.0e-12))
+    min_weight = float(np.min(weights)) if len(weights) else math.nan
+    max_weight = float(np.max(weights)) if len(weights) else math.nan
+    mean_weight = float(np.mean(weights)) if len(weights) else math.nan
+    return {
+        "usable": not all_unit,
+        "reason": "ok" if not all_unit else "all_unit_placeholder",
+        "has_column": True,
+        "n_rows": int(len(weights)),
+        "min_weight": min_weight,
+        "max_weight": max_weight,
+        "mean_weight": mean_weight,
+        "all_unit_placeholder": all_unit,
+    }
+
+
+def require_usable_ppg12_exact_precomputed_weights(frame, context: str) -> dict:
+    status = ppg12_exact_precomputed_weight_status(frame)
+    if status.get("usable"):
+        return status
+    reason = status.get("reason", "unknown")
+    if reason == "all_unit_placeholder":
+        raise SystemExit(
+            f"PPG12-exact precomputed weights for {context} are all 1.0; "
+            "this is the unweighted placeholder, not a valid exact-weight cache."
+        )
+    if reason == "invalid_rows":
+        raise SystemExit(
+            f"PPG12-exact precomputed weights for {context} contain "
+            f"{status.get('invalid_rows')} invalid rows"
+        )
+    raise SystemExit(f"PPG12-exact precomputed weights for {context} are not usable: {reason}")
 
 
 def summarize_ppg12_exact_precomputed_weights(frame, label_branch: str, args) -> dict:
@@ -1361,14 +1944,13 @@ def summarize_ppg12_exact_precomputed_weights(frame, label_branch: str, args) ->
 
     expected_samples = parse_expected_samples(args.ppg12_exact_expected_samples)
     sample_report = validate_ppg12_exact_samples(frame, label_branch, expected_samples)
+    status = require_usable_ppg12_exact_precomputed_weights(frame, "campaign setup")
     weights = frame[PPG12_EXACT_WEIGHT_COLUMN].to_numpy(dtype="float64")
     labels = frame[label_branch].to_numpy(dtype="int32")
-    finite_positive = np.isfinite(weights) & (weights > 0.0)
-    if not finite_positive.all():
-        raise SystemExit(f"PPG12-exact precomputed weights contain {(~finite_positive).sum()} invalid rows")
     return {
         "schema": "AUAU_BDT_PPG12_EXACT_WEIGHT_CLOSURE_V1",
         "reused_precomputed_training_weight": True,
+        "precomputed_weight_status": status,
         "sample_validation": sample_report,
         "weighting": {
             "weight_mode": "ppg12-exact",
@@ -1400,10 +1982,8 @@ def compute_weights(frame, label_branch: str, args) -> tuple[object, dict]:
                 )
             weights, diagnostics = compute_ppg12_exact_global_weights(frame, label_branch)
             return weights, diagnostics
+        status = require_usable_ppg12_exact_precomputed_weights(frame, "model training")
         weights = frame[PPG12_EXACT_WEIGHT_COLUMN].to_numpy(dtype="float64")
-        finite_positive = np.isfinite(weights) & (weights > 0.0)
-        if not finite_positive.all():
-            raise SystemExit(f"PPG12-exact precomputed weights contain {(~finite_positive).sum()} invalid rows")
         diagnostics: dict[str, object] = {
             "weight_mode": "ppg12-exact",
             "event_weight_used": False,
@@ -1417,6 +1997,7 @@ def compute_weights(frame, label_branch: str, args) -> tuple[object, dict]:
             "min_weight": float(np.min(weights)) if len(weights) else math.nan,
             "max_weight": float(np.max(weights)) if len(weights) else math.nan,
             "mean_weight": float(np.mean(weights)) if len(weights) else math.nan,
+            "precomputed_weight_status": status,
         }
         return weights, diagnostics
 
@@ -1620,12 +2201,12 @@ def event_level_train_test_split(frame, x, y, weights, args, metadata: dict):
     if len(frame) != len(x) or len(frame) != len(y) or len(frame) != len(weights):
         raise SystemExit("--split-mode event50 internal length mismatch")
 
-    source = frame["source_sample"].astype(str).to_numpy() if "source_sample" in frame.columns else np.full(len(frame), "unknown", dtype=object)
-    run = frame["run"].to_numpy()
-    evt = frame["evt"].to_numpy()
-    if len(evt) == 0:
+    if len(frame) == 0:
         raise SystemExit("--split-mode event50 received an empty frame")
-    event_keys = np.asarray([f"{source[i]}:{int(run[i])}:{int(evt[i])}" for i in range(len(frame))], dtype=object)
+    event_keys, event_key_columns = global_event_keys(
+        frame,
+        require_file_qualified=bool(getattr(args, "require_global_event_key", False)),
+    )
     unique_keys = np.unique(event_keys)
     if len(unique_keys) < 4:
         raise SystemExit(
@@ -1658,7 +2239,8 @@ def event_level_train_test_split(frame, x, y, weights, args, metadata: dict):
 
     report = {
         "mode": "event50",
-        "event_key_columns": ["source_sample", "run", "evt"],
+        "event_key_columns": event_key_columns,
+        "file_qualified_event_key": event_key_columns == GLOBAL_EVENT_KEY_COLUMNS,
         "unique_events": int(len(unique_keys)),
         "test_fraction_requested": test_fraction,
         "train_events": int(len(unique_keys) - n_test_events),
@@ -2751,6 +3333,18 @@ def registry_payload(specs: list[dict], reports: list[dict], args, status: str =
                 if getattr(args, "weight_mode", "legacy") == "ppg12-exact"
                 else None
             ),
+            "ppg12_exact_closure_artifacts": (
+                str(getattr(args, "ppg12_exact_closure_artifacts", "full") or "full")
+                if getattr(args, "weight_mode", "legacy") == "ppg12-exact"
+                else None
+            ),
+            "event_quality_filter_enabled": bool(getattr(args, "event_quality_cut_json", None)),
+            "event_quality_cut_json": (
+                str(getattr(args, "event_quality_cut_json", "") or "")
+                if getattr(args, "event_quality_cut_json", None)
+                else None
+            ),
+            "require_global_event_key": bool(getattr(args, "require_global_event_key", False)),
         },
         "models": [{**spec, "report": report_by_id.get(spec["model_id"])} for spec in specs],
     }
@@ -2854,7 +3448,18 @@ def run_campaign(args) -> int:
         specs_all = campaign_specs(args, args.outdir)
     specs = filter_specs(specs_all, args)
     split_columns = ["run", "evt"] if getattr(args, "split_mode", "row") == "event50" else []
-    all_features = sorted(set(expand_required_columns([feature for spec in specs for feature in spec["features"]] + ["centrality", "cluster_Et", "cluster_Eta", label_branch] + split_columns)))
+    event_quality_enabled = args.event_quality_cut_json is not None
+    event_quality_required = EVENT_QUALITY_DIRECT_COLUMNS + EVENT_QUALITY_COMPONENT_COLUMNS + ["run", "evt"] if event_quality_enabled else []
+    all_features = sorted(
+        set(
+            expand_required_columns(
+                [feature for spec in specs for feature in spec["features"]]
+                + ["centrality", "cluster_Et", "cluster_Eta", label_branch]
+                + split_columns
+                + event_quality_required
+            )
+        )
+    )
     if args.majority_cap_ratio <= 0.0 and args.campaign != "ppg12-sixpack" and args.weight_mode != "ppg12-exact":
         args.majority_cap_ratio = 4.0
 
@@ -2872,7 +3477,7 @@ def run_campaign(args) -> int:
     if args.parallel_workers > 1 and args.n_jobs > 1:
         args.n_jobs = 1
 
-    optional_columns = [] if args.weight_mode == "ppg12-exact" else [args.weight_branch]
+    optional_columns = [PPG12_EXACT_WEIGHT_COLUMN] if args.weight_mode == "ppg12-exact" else [args.weight_branch]
     frame, optional_seen, from_cache = load_or_build_frame(
         paths,
         args.tree,
@@ -2880,18 +3485,91 @@ def run_campaign(args) -> int:
         optional_columns,
         label_branch,
         args.missing_label_value,
-        args.cache_file,
+        None if args.event_quality_audit_only else args.cache_file,
         args.cache_only,
         skip_missing_tree=args.skip_missing_tree,
         max_load_rows_per_class=int(args.max_load_rows_per_class or 0),
         max_load_rows=int(args.max_load_rows or 0),
         load_sample_seed=int(args.load_sample_seed or args.random_seed or 42),
     )
+    event_quality_report = {"enabled": False}
+    if event_quality_enabled:
+        audit_output = args.event_quality_audit_output
+        if audit_output is None and (args.campaign_spec_list is None or args.event_quality_audit_only):
+            audit_output = args.outdir / "event_quality_filter_audit.json"
+        if args.event_quality_assume_filtered:
+            if args.event_quality_audit_only:
+                raise SystemExit("--event-quality-assume-filtered cannot be combined with --event-quality-audit-only")
+            frame, event_quality_report = assume_low_calo_event_quality_filter_applied(
+                frame,
+                args.event_quality_cut_json,
+                audit_output,
+                args.outdir,
+            )
+        else:
+            frame, event_quality_report = apply_low_calo_event_quality_filter(
+                frame,
+                args.event_quality_cut_json,
+                audit_output=audit_output,
+                audit_only=bool(args.event_quality_audit_only),
+            )
+        if (
+            event_quality_report.get("retained_below_envelope_events", 0) != 0
+            or event_quality_report.get("retained_below_envelope_candidates", 0) != 0
+        ):
+            raise SystemExit(
+                "Low-calo upstream filter failed closure target: retained below-envelope "
+                f"events={event_quality_report.get('retained_below_envelope_events')} "
+                f"candidates={event_quality_report.get('retained_below_envelope_candidates')}"
+            )
+        if args.cache_file is not None and not args.event_quality_audit_only:
+            cache_optional_columns = [] if args.weight_mode == "ppg12-exact" else optional_columns
+            cache_cols = sorted(
+                set(
+                    expand_required_columns(all_features)
+                    + all_features
+                    + cache_optional_columns
+                    + [
+                        "source_sample",
+                        "input_file_index",
+                        "input_tree_entry",
+                    ]
+                    + TRAINING_IDENTITY_OPTIONAL_COLUMNS
+                )
+            )
+            save_frame_cache(frame, args.cache_file, cache_cols)
+            print(f"[OK] wrote upstream-filtered training cache: {args.cache_file}", flush=True)
+        if args.event_quality_audit_only:
+            planned_path.parent.mkdir(parents=True, exist_ok=True)
+            planned_path.write_text(
+                json.dumps(
+                    {
+                        "schema": "AUAU_LOW_CALO_UPSTREAM_FILTER_DRYRUN_V1",
+                        "status": "EVENT_QUALITY_FILTER_AUDIT_READY",
+                        "campaign": args.campaign,
+                        "selected_specs": len(specs),
+                        "event_quality_filter": event_quality_report,
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+            print(f"[OK] dry-run event-quality audit passed: {audit_output}", flush=True)
+            return 0
     ppg12_exact_closure = None
     if args.weight_mode == "ppg12-exact":
-        if PPG12_EXACT_WEIGHT_COLUMN in frame.columns:
+        precomputed_status = ppg12_exact_precomputed_weight_status(frame)
+        if precomputed_status.get("usable"):
             ppg12_exact_closure = summarize_ppg12_exact_precomputed_weights(frame, label_branch, args)
         else:
+            if precomputed_status.get("has_column"):
+                print(
+                    "[WARN] ignoring unusable PPG12-exact cached weight column: "
+                    f"{precomputed_status.get('reason')}; recomputing before CACHE_READY",
+                    flush=True,
+                )
+                frame = frame.drop(columns=[PPG12_EXACT_WEIGHT_COLUMN])
             frame, ppg12_exact_closure = prepare_ppg12_exact_global_weights(frame, label_branch, args)
             if args.cache_file is not None:
                 cache_cols = sorted(
@@ -2899,7 +3577,13 @@ def run_campaign(args) -> int:
                         expand_required_columns(all_features)
                         + all_features
                         + optional_columns
-                        + ["source_sample", PPG12_EXACT_WEIGHT_COLUMN]
+                        + [
+                            "source_sample",
+                            "input_file_index",
+                            "input_tree_entry",
+                            PPG12_EXACT_WEIGHT_COLUMN,
+                        ]
+                        + TRAINING_IDENTITY_OPTIONAL_COLUMNS
                         + split_columns
                     )
                 )
@@ -2921,6 +3605,8 @@ def run_campaign(args) -> int:
         "label_branch": label_branch,
         "weight_mode": args.weight_mode,
         "ppg12_exact_closure": ppg12_exact_closure,
+        "event_quality_filter": event_quality_report,
+        "global_event_key_audit": summarize_global_event_key(frame),
     }
 
     reports: list[dict] = []
@@ -2992,6 +3678,12 @@ def main() -> int:
         default=None,
         help="Output directory for PPG12-exact sample-mix and ET/eta closure PNG/CSV/JSON artifacts.",
     )
+    parser.add_argument(
+        "--ppg12-exact-closure-artifacts",
+        choices=["full", "metadata-only"],
+        default="full",
+        help="Control PPG12-exact closure artifacts. metadata-only preserves training weights while deferring heavy CSV/PNG diagnostics.",
+    )
     parser.add_argument("--use-event-weight", dest="use_event_weight", action="store_true", default=True)
     parser.add_argument("--no-event-weight", dest="use_event_weight", action="store_false")
     parser.add_argument("--et-reweight", dest="et_reweight", action="store_true", default=True)
@@ -3008,6 +3700,40 @@ def main() -> int:
         choices=["row", "event50"],
         default="row",
         help="Train/test split convention. event50 requires run/evt and splits whole events deterministically.",
+    )
+    parser.add_argument(
+        "--require-global-event-key",
+        action="store_true",
+        default=os.environ.get("RJ_AUAU_BDT_REQUIRE_GLOBAL_EVENT_KEY", "0") == "1",
+        help="Require source_sample + stable input_file_index + run + evt event keys where event-level deduplication is audited.",
+    )
+    parser.add_argument(
+        "--event-quality-cut-json",
+        type=Path,
+        default=Path(os.environ["RJ_AUAU_BDT_EVENT_QUALITY_CUT_JSON"])
+        if os.environ.get("RJ_AUAU_BDT_EVENT_QUALITY_CUT_JSON")
+        else None,
+        help="Explicitly enable the source/truth/score-blind event-quality filter using this stored low-calo cut JSON.",
+    )
+    parser.add_argument(
+        "--event-quality-audit-output",
+        type=Path,
+        default=Path(os.environ["RJ_AUAU_BDT_EVENT_QUALITY_AUDIT_OUTPUT"])
+        if os.environ.get("RJ_AUAU_BDT_EVENT_QUALITY_AUDIT_OUTPUT")
+        else None,
+        help="Write the upstream event-quality filter audit JSON to this path.",
+    )
+    parser.add_argument(
+        "--event-quality-audit-only",
+        action="store_true",
+        default=os.environ.get("RJ_AUAU_BDT_EVENT_QUALITY_AUDIT_ONLY", "0") == "1",
+        help="Run the upstream low-calo filter audit and exit before training.",
+    )
+    parser.add_argument(
+        "--event-quality-assume-filtered",
+        action="store_true",
+        default=os.environ.get("RJ_AUAU_BDT_EVENT_QUALITY_ASSUME_FILTERED", "0") == "1",
+        help="Resume from a cache that already has the upstream low-calo event-quality filter applied; requires a matching audit JSON.",
     )
     parser.add_argument("--random-seed", type=int, default=13)
     parser.add_argument("--n-estimators", type=int, default=450)
@@ -3079,8 +3805,10 @@ def main() -> int:
 
     paths = expand_input_paths(args.input)
     split_columns = ["run", "evt"] if args.split_mode == "event50" else []
-    required_columns = sorted(set(features + [label_branch, "centrality"] + split_columns))
-    optional_columns = [] if args.weight_mode == "ppg12-exact" else [args.weight_branch]
+    event_quality_enabled = args.event_quality_cut_json is not None
+    event_quality_required = EVENT_QUALITY_DIRECT_COLUMNS + EVENT_QUALITY_COMPONENT_COLUMNS + ["run", "evt"] if event_quality_enabled else []
+    required_columns = sorted(set(features + [label_branch, "centrality"] + split_columns + event_quality_required))
+    optional_columns = [PPG12_EXACT_WEIGHT_COLUMN] if args.weight_mode == "ppg12-exact" else [args.weight_branch]
     frame, optional_seen = load_frame(
         paths,
         args.tree,
@@ -3096,6 +3824,37 @@ def main() -> int:
     )
 
     args.outdir.mkdir(parents=True, exist_ok=True)
+    event_quality_report = {"enabled": False}
+    if event_quality_enabled:
+        audit_output = args.event_quality_audit_output or (args.outdir / "event_quality_filter_audit.json")
+        if args.event_quality_assume_filtered:
+            if args.event_quality_audit_only:
+                raise SystemExit("--event-quality-assume-filtered cannot be combined with --event-quality-audit-only")
+            frame, event_quality_report = assume_low_calo_event_quality_filter_applied(
+                frame,
+                args.event_quality_cut_json,
+                audit_output,
+                args.outdir,
+            )
+        else:
+            frame, event_quality_report = apply_low_calo_event_quality_filter(
+                frame,
+                args.event_quality_cut_json,
+                audit_output=audit_output,
+                audit_only=bool(args.event_quality_audit_only),
+            )
+        if (
+            event_quality_report.get("retained_below_envelope_events", 0) != 0
+            or event_quality_report.get("retained_below_envelope_candidates", 0) != 0
+        ):
+            raise SystemExit(
+                "Low-calo upstream filter failed closure target: retained below-envelope "
+                f"events={event_quality_report.get('retained_below_envelope_events')} "
+                f"candidates={event_quality_report.get('retained_below_envelope_candidates')}"
+            )
+        if args.event_quality_audit_only:
+            print(f"[OK] dry-run event-quality audit passed: {audit_output}", flush=True)
+            return 0
     ppg12_exact_closure = None
     if args.weight_mode == "ppg12-exact":
         args.majority_cap_ratio = 0.0
@@ -3113,6 +3872,8 @@ def main() -> int:
         "tight_mode": args.tight_mode if args.task == "tight" else None,
         "weight_mode": args.weight_mode,
         "ppg12_exact_closure": ppg12_exact_closure,
+        "event_quality_filter": event_quality_report,
+        "global_event_key_audit": summarize_global_event_key(frame),
     }
 
     train_all_cent = args.task != "tight" or args.tight_mode in ("legacy", "ppg12BaseV1E", "centINDcontrol", "centAsFeat", "centAsFeatMinOpt", "centAsFeat3x3", "centAsFeatBase3x3", "centAsFeatWidthRatios")

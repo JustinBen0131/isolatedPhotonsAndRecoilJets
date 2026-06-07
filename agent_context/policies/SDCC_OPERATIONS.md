@@ -198,6 +198,28 @@ Before any new training/production/merge, run the duplicate guard. Then:
 - record dataset/mode, command, submit host, timestamped roots, DAG paths,
   cluster IDs, report/output roots, and next checkpoint in `STATUS_DASHBOARD.md`
   or `TASK_BOARD.md`;
+- for any Condor validation, production, merge, or score-cache campaign whose
+  purpose is a slide, plot, table, or other presentation artifact, immediately
+  create a real Codex app `heartbeat` automation attached to the current thread
+  after submission. This must be visible in the app Automations surface and
+  should use `codex_app.automation_update` with `kind=heartbeat` and
+  `destination=thread`, not a local `sleep`, `nohup`, tmux watcher, cron
+  workaround, or plain chat promise. The heartbeat objective is the downstream
+  artifact, not merely Condor `READY`.
+- the heartbeat prompt must include cluster/DAG IDs, submit/report/output roots,
+  exact owed artifacts, allowed read-only checks, and hard prohibitions on
+  resubmission, deletion, Condor job control, and Google Slides mutation unless
+  Justin explicitly approves. If GPFS/SDCC is down, the heartbeat should report
+  exact evidence and create/update the next thread heartbeat instead of polling
+  continuously in-chat.
+- do not retire the heartbeat until the intended local PNG/CSV/JSON/table is
+  generated, visually or structurally checked as appropriate, registered in
+  local status, and shown or linked to Justin. When the campaign is complete,
+  delete or mark complete the heartbeat automation, update the register/status,
+  and then continue with the next campaign step. If automation tools are not
+  exposed, say so explicitly, leave the workstream `running` with exact cluster
+  IDs, report roots, the artifact still owed, and the next checkpoint, and do
+  not pretend a local sleeper is equivalent to a thread heartbeat.
 - for targeted diagnostics or slide-driven validation, run the narrowest
   existing submit/merge path that can answer the question. Reuse the validated
   infrastructure, but constrain its matrix explicitly with row selectors,

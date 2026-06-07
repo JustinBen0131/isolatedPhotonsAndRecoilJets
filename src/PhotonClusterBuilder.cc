@@ -9,6 +9,8 @@
 #include <g4main/PHG4TruthInfoContainer.h>
 #include <g4main/PHG4VtxPoint.h>
 #include <calobase/TowerInfoDefs.h>
+#include <cdbobjects/CDBTTree.h>
+#include <ffamodules/CDBInterface.h>
 
 // Tower stuff
 #include <calobase/RawTowerGeom.h>
@@ -31,13 +33,16 @@
 #include <TMVA/RBDT.hxx>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <iomanip>   // NEW: for std::setw / std::setprecision in debug tables
+#include <limits>
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <unordered_set>
 #include <utility>
 
 namespace
@@ -57,6 +62,27 @@ namespace
     {
       ieta = -1;  // invalid
     }
+  }
+
+  std::string lower_env_value(const char* name)
+  {
+    const char* value = std::getenv(name);
+    if (!value) return "";
+    std::string out(value);
+    std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c) { return std::tolower(c); });
+    return out;
+  }
+
+  bool env_truthy(const char* name)
+  {
+    const std::string value = lower_env_value(name);
+    return value == "1" || value == "true" || value == "yes" || value == "on";
+  }
+
+  bool env_falsey(const char* name)
+  {
+    const std::string value = lower_env_value(name);
+    return value == "0" || value == "false" || value == "no" || value == "off";
   }
 }  // namespace
 
@@ -108,6 +134,7 @@ int PhotonClusterBuilder::InitRun(PHCompositeNode* topNode)
       std::cerr << Name() << ": could not find TowerInfoContainer node '" << m_emc_tower_node << "'" << std::endl;
       return Fun4AllReturnCodes::ABORTRUN;
     }
+    load_cemc_bad_tower_mask();
 
     m_geomEM = findNode::getClass<RawTowerGeomContainer>(topNode, "TOWERGEOM_CEMC");
     if (!m_geomEM)
@@ -266,6 +293,113 @@ int PhotonClusterBuilder::InitRun(PHCompositeNode* topNode)
     CreateNodes(topNode);
     m_audit_last_summary = make_audit_snapshot();
     return Fun4AllReturnCodes::EVENT_OK;
+}
+
+void PhotonClusterBuilder::load_cemc_bad_tower_mask()
+{
+  m_apply_cemc_bad_tower_mask = false;
+  m_cemc_bad_tower_mask_loaded = false;
+  m_cemc_bad_tower_keys.clear();
+
+  if (!m_emc_tower_container || m_emc_tower_node != "TOWERINFO_CALIB_CEMC")
+  {
+    return;
+  }
+
+  const std::string dataset = lower_env_value("RJ_DATASET");
+  const bool isAuAuData = (dataset == "isauau" || dataset == "auau" || dataset == "aa");
+  if (env_falsey("RJ_APPLY_CEMC_BAD_TOWER_MASK") || env_truthy("RJ_DISABLE_CEMC_BAD_TOWER_MASK"))
+  {
+    return;
+  }
+  if (!isAuAuData && !env_truthy("RJ_APPLY_CEMC_BAD_TOWER_MASK"))
+  {
+    return;
+  }
+
+  const std::string hotMapUrl = CDBInterface::instance()->getUrl("CEMC_BadTowerMap");
+  const std::string chi2Url = CDBInterface::instance()->getUrl("CEMC_hotTowers_fracBadChi2");
+  if (hotMapUrl.empty() && chi2Url.empty())
+  {
+    std::cout << Name() << ": CEMC bad-tower mask requested but no CDB payloads were found" << std::endl;
+    return;
+  }
+
+  std::unique_ptr<CDBTTree> hotMapTree;
+  std::unique_ptr<CDBTTree> chi2Tree;
+  if (!hotMapUrl.empty()) hotMapTree = std::make_unique<CDBTTree>(hotMapUrl);
+  if (!chi2Url.empty()) chi2Tree = std::make_unique<CDBTTree>(chi2Url);
+
+  constexpr float kZScoreThreshold = 5.0f;
+  constexpr float kZScoreThresholdDefault = 5.0f;
+  constexpr float kFractionBadChi2Threshold = 0.01f;
+  unsigned int nHotMapPayload = 0;
+  unsigned int nChi2Payload = 0;
+
+  const unsigned int ntowers = m_emc_tower_container->size();
+  for (unsigned int channel = 0; channel < ntowers; ++channel)
+  {
+    const unsigned int key = m_emc_tower_container->encode_key(channel);
+    bool reject = false;
+    if (hotMapTree)
+    {
+      const int hotMapVal = hotMapTree->GetIntValue(key, "status");
+      const float zScore = hotMapTree->GetFloatValue(key, "CEMC_sigma");
+      if (hotMapVal != std::numeric_limits<int>::min() || std::isfinite(zScore))
+      {
+        ++nHotMapPayload;
+      }
+      reject = reject ||
+               hotMapVal == 1 ||
+               (std::isfinite(zScore) && std::fabs(zScore) > kZScoreThreshold) ||
+               (hotMapVal == 3 && std::isfinite(zScore) && zScore >= -1.0f * kZScoreThresholdDefault);
+    }
+    if (chi2Tree)
+    {
+      const float fractionBadChi2 = chi2Tree->GetFloatValue(key, "fraction");
+      if (std::isfinite(fractionBadChi2))
+      {
+        ++nChi2Payload;
+        reject = reject || fractionBadChi2 > kFractionBadChi2Threshold;
+      }
+    }
+    if (reject)
+    {
+      m_cemc_bad_tower_keys.insert(key);
+    }
+  }
+
+  m_apply_cemc_bad_tower_mask = true;
+  m_cemc_bad_tower_mask_loaded = true;
+  std::cout << Name() << ": CEMC bad-tower mask loaded"
+            << " ntowers=" << ntowers
+            << " reject_keys=" << m_cemc_bad_tower_keys.size()
+            << " hotMapPayload=" << nHotMapPayload
+            << " chi2Payload=" << nChi2Payload
+            << " hotMapUrl=" << (hotMapUrl.empty() ? "missing" : hotMapUrl)
+            << " chi2Url=" << (chi2Url.empty() ? "missing" : chi2Url)
+            << std::endl;
+}
+
+bool PhotonClusterBuilder::is_cemc_tower_good(TowerInfo* tower, unsigned int tower_key) const
+{
+  if (!tower || !tower->get_isGood())
+  {
+    return false;
+  }
+  constexpr float kBadChi2ThresholdConst = 1.0e4f;
+  constexpr float kBadChi2ThresholdQuadratic = 1.0f / 100.0f;
+  constexpr float kBadChi2ThresholdMax = 1.0e8f;
+  const float chi2 = tower->get_chi2();
+  const float energy = tower->get_energy();
+  if (std::isfinite(chi2) && std::isfinite(energy) &&
+      chi2 > std::min(std::max(kBadChi2ThresholdConst, energy * energy * kBadChi2ThresholdQuadratic),
+                      kBadChi2ThresholdMax))
+  {
+    return false;
+  }
+  return !(m_apply_cemc_bad_tower_mask && m_cemc_bad_tower_mask_loaded &&
+           m_cemc_bad_tower_keys.find(tower_key) != m_cemc_bad_tower_keys.end());
 }
 
 PhotonClusterBuilder::AuditSnapshot PhotonClusterBuilder::make_audit_snapshot() const
@@ -1140,7 +1274,7 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
             }
             
             TowerInfo* towerinfo = m_emc_tower_container->get_tower_at_key(towerinfokey);
-            if (towerinfo && towerinfo->get_isGood())
+            if (is_cemc_tower_good(towerinfo, towerinfokey))
             {
                 float energy = towerinfo->get_energy();
                 if (energy > m_shape_min_tower_E)
@@ -2057,7 +2191,13 @@ float PhotonClusterBuilder::calculate_layer_et(float seed_eta, float seed_phi, f
       continue;
     }
 
-    if (tower->get_isGood())
+    const unsigned int towerkey = towerContainer->encode_key(channel);
+    const bool towerGood =
+        (calo_id == RawTowerDefs::CalorimeterId::CEMC && towerContainer == m_emc_tower_container)
+            ? is_cemc_tower_good(tower, towerkey)
+            : tower->get_isGood();
+
+    if (towerGood)
     {
       ++nIsGood;
     }
@@ -2067,7 +2207,6 @@ float PhotonClusterBuilder::calculate_layer_et(float seed_eta, float seed_phi, f
       continue;
     }
 
-    unsigned int towerkey = towerContainer->encode_key(channel);
     int ieta = towerContainer->getTowerEtaBin(towerkey);
     int iphi = towerContainer->getTowerPhiBin(towerkey);
 

@@ -9,6 +9,9 @@
 #include <caloreco/RawClusterDeadHotMask.h>
 #include <caloreco/RawClusterPositionCorrection.h>
 
+#include <calobase/TowerInfo.h>
+#include <calobase/TowerInfoContainer.h>
+
 #include <calostatusskimmer/CaloStatusSkimmer.h>
 
 #include <ffamodules/CDBInterface.h>
@@ -16,17 +19,132 @@
 
 #include <fun4all/Fun4AllInputManager.h>
 #include <fun4all/Fun4AllRunNodeInputManager.h>
+#include <fun4all/Fun4AllReturnCodes.h>
 #include <fun4all/Fun4AllServer.h>  // for Fun4AllServer
+#include <fun4all/SubsysReco.h>
 
+#include <phool/PHCompositeNode.h>
 #include <phool/RunnumberRange.h>
+#include <phool/getClass.h>
 #include <phool/recoConsts.h>
 
 #include <TSystem.h>  // for gSystem
 
-R__LOAD_LIBRARY(libcalo_reco.so)
+#include <algorithm>
+#include <cctype>
+#include <string>
+#include <vector>
+
+R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)
 R__LOAD_LIBRARY(libffamodules.so)
 R__LOAD_LIBRARY(libfun4allutils.so)
 R__LOAD_LIBRARY(libCaloStatusSkimmer.so)
+
+namespace
+{
+  bool rj_env_truthy(const char* name)
+  {
+    const char* raw = getenv(name);
+    if (!raw)
+    {
+      return false;
+    }
+    std::string flag(raw);
+    std::transform(flag.begin(), flag.end(), flag.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    return (flag == "1" || flag == "true" || flag == "yes" || flag == "on");
+  }
+
+  class RJCaloTowerStatusAudit : public SubsysReco
+  {
+   public:
+    explicit RJCaloTowerStatusAudit(const std::string& name,
+                                    const std::vector<std::string>& nodes)
+      : SubsysReco(name)
+      , m_nodes(nodes)
+    {
+    }
+
+    int process_event(PHCompositeNode* topNode) override
+    {
+      if (m_done)
+      {
+        return Fun4AllReturnCodes::EVENT_OK;
+      }
+      m_done = true;
+
+      std::cout << "[RJCaloTowerStatusAudit] first-event calibrated TowerInfo status audit" << std::endl;
+      for (const auto& node : m_nodes)
+      {
+        TowerInfoContainer* towers = findNode::getClass<TowerInfoContainer>(topNode, node);
+        if (!towers)
+        {
+          std::cout << "[RJCaloTowerStatusAudit] node=" << node << " missing" << std::endl;
+          continue;
+        }
+
+        unsigned int present = 0;
+        unsigned int good = 0;
+        unsigned int bad = 0;
+        unsigned int hot = 0;
+        unsigned int badChi2 = 0;
+        unsigned int noCalib = 0;
+        unsigned int notInstr = 0;
+
+        const unsigned int nchannels = towers->size();
+        for (unsigned int channel = 0; channel < nchannels; ++channel)
+        {
+          TowerInfo* tower = towers->get_tower_at_channel(channel);
+          if (!tower)
+          {
+            continue;
+          }
+          ++present;
+          if (tower->get_isGood())
+          {
+            ++good;
+          }
+          else
+          {
+            ++bad;
+          }
+          if (tower->get_isHot())
+          {
+            ++hot;
+          }
+          if (tower->get_isBadChi2())
+          {
+            ++badChi2;
+          }
+          if (tower->get_isNoCalib())
+          {
+            ++noCalib;
+          }
+          if (tower->get_isNotInstr())
+          {
+            ++notInstr;
+          }
+        }
+
+        std::cout << "[RJCaloTowerStatusAudit] node=" << node
+                  << " channels=" << nchannels
+                  << " present=" << present
+                  << " good=" << good
+                  << " bad=" << bad
+                  << " hot=" << hot
+                  << " badChi2=" << badChi2
+                  << " noCalib=" << noCalib
+                  << " notInstr=" << notInstr
+                  << std::endl;
+      }
+      return Fun4AllReturnCodes::EVENT_OK;
+    }
+
+   private:
+    std::vector<std::string> m_nodes;
+    bool m_done = false;
+  };
+}
 
 void Process_Calo_Calib()
 {
@@ -65,18 +183,14 @@ void Process_Calo_Calib()
     }
   }
 
-  bool isScaledTriggerStudyOnly = false;
-  if (const char* scaled = getenv("RJ_SCALED_TRIGGER_STUDY_ONLY"))
-  {
-    std::string flag(scaled);
-    isScaledTriggerStudyOnly =
-        (flag == "1" || flag == "true" || flag == "TRUE" ||
-         flag == "yes" || flag == "YES" || flag == "on" || flag == "ON");
-  }
+  bool isScaledTriggerStudyOnly = rj_env_truthy("RJ_SCALED_TRIGGER_STUDY_ONLY");
+  bool skipCaloStatusSkimmer = rj_env_truthy("RJ_SKIP_CALO_STATUS_SKIMMER");
+  bool skipLegacyCaloTowerStatus = isScaledTriggerStudyOnly || rj_env_truthy("RJ_SKIP_CALO_TOWER_STATUS");
+  bool auditCalibTowerStatus = rj_env_truthy("RJ_CALO_STATUS_AUDIT");
 
   ///////////////////////////////////////////////
   // Remove incomplete events from event combiner
-  if (!isSim && !isSimEmbedded)
+  if (!isSim && !isSimEmbedded && !skipCaloStatusSkimmer)
   {
     CaloStatusSkimmer *css = new CaloStatusSkimmer("CaloStatusSkimmer");
     se->registerSubsystem(css);
@@ -85,6 +199,11 @@ void Process_Calo_Calib()
   {
     std::cout << "[Process_Calo_Calib][isSimEmbedded] skipping CaloStatusSkimmer "
                  "(data event-combiner completeness guard is not used for embedded SIM)" << std::endl;
+  }
+  else if (skipCaloStatusSkimmer)
+  {
+    std::cout << "[Process_Calo_Calib] skipping CaloStatusSkimmer "
+                 "(CALOFITTING/TowerInfo input is analyzed as the primary data stream)" << std::endl;
   }
 
   //////////////////////
@@ -129,10 +248,10 @@ void Process_Calo_Calib()
     std::cout << "[Process_Calo_Calib][isSimEmbedded] skipping CaloTowerStatus setters "
                  "(embedded SIM path uses producer tower-quality state)" << std::endl;
   }
-  else if (isScaledTriggerStudyOnly)
+  else if (skipLegacyCaloTowerStatus)
   {
-    std::cout << "[Process_Calo_Calib][scaledTriggerStudyOnly] skipping CaloTowerStatus setters "
-                 "(scaled-trigger QA reads max cluster energy and CALOFITTING has no TOWERS_ node)" << std::endl;
+    std::cout << "[Process_Calo_Calib] skipping CaloTowerStatus setters "
+                 "(CALOFITTING/TowerInfo input has no legacy TOWERS_ node)" << std::endl;
   }
   else
   {
@@ -154,14 +273,26 @@ void Process_Calo_Calib()
       std::string calibdir = CDBInterface::instance()->getUrl(calibName_hotMap);
       statusEMC->set_directURL_hotMap(calibdir);
     }
+    if (auditCalibTowerStatus)
+    {
+      statusEMC->Verbosity(1);
+    }
     se->registerSubsystem(statusEMC);
 
     CaloTowerStatus *statusHCalIn = new CaloTowerStatus("HCALINSTATUS");
     statusHCalIn->set_detector_type(CaloTowerDefs::HCALIN);
+    if (auditCalibTowerStatus)
+    {
+      statusHCalIn->Verbosity(1);
+    }
     se->registerSubsystem(statusHCalIn);
 
     CaloTowerStatus *statusHCALOUT = new CaloTowerStatus("HCALOUTSTATUS");
     statusHCALOUT->set_detector_type(CaloTowerDefs::HCALOUT);
+    if (auditCalibTowerStatus)
+    {
+      statusHCALOUT->Verbosity(1);
+    }
     se->registerSubsystem(statusHCALOUT);
   }
 
@@ -181,6 +312,15 @@ void Process_Calo_Calib()
   CaloTowerCalib *calibIHCal = new CaloTowerCalib("HCALIN");
   calibIHCal->set_detector_type(CaloTowerDefs::HCALIN);
   se->registerSubsystem(calibIHCal);
+
+  if (!isSimEmbedded && auditCalibTowerStatus)
+  {
+    std::cout << "[Process_Calo_Calib] auditing TOWERINFO_CALIB_* status after CaloTowerCalib copy "
+                 "and before RawClusterBuilderTemplate" << std::endl;
+    se->registerSubsystem(new RJCaloTowerStatusAudit(
+        "RJCaloTowerStatusAudit",
+        {"TOWERINFO_CALIB_CEMC", "TOWERINFO_CALIB_HCALIN", "TOWERINFO_CALIB_HCALOUT"}));
+  }
 
   ////////////////
   // MC Calibration

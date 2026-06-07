@@ -1,5 +1,5 @@
 schema_version: 1
-last_updated: "2026-06-01T22:06:29-04:00"
+last_updated: "2026-06-07T15:12:49-04:00"
 owner: Codex
 purpose: >
   Canonical provenance registry for thesis-facing artifacts. Register plots,
@@ -36,6 +36,53 @@ required_artifact_fields:
   - last_verified
 
 artifacts:
+  - artifact_id: the8_hard_inclusive_jet3040_mechanism_closure_slide_v1
+    kind: slide_candidate_png
+    path: dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/slideReady/hard_inclusive_jet3040_mechanism_closure_20260605/hard_inclusive_jet3040_mechanism_closure_slide.png
+    thesis_claim: ml_photon_id
+    source_inputs:
+      - dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/diagnostics/hard_inclusive_jet3040_mechanism_20260605/row_matched_holdout_cent020_et_metrics.csv
+      - dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/diagnostics/hard_inclusive_jet3040_mechanism_20260605/source_fractions_holdout_cent020.csv
+      - dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/diagnostics/hard_inclusive_jet3040_mechanism_20260605/fixed_validation_training_effect_auc.csv
+      - dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/diagnostics/hard_inclusive_jet3040_mechanism_20260605/wp80_full_scorecache_fake_rate_summary.csv
+      - dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/diagnostics/hard_inclusive_jet3040_mechanism_20260605/hard_inclusive_jet3040_mechanism_report.md
+      - scripts/slides/auau_bdt/score_shapes/make_the8_hard_inclusive_mechanism_closure_slide.py
+    generation_command: "/Users/patsfan753/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 scripts/slides/auau_bdt/score_shapes/make_the8_hard_inclusive_mechanism_closure_slide.py"
+    qa_state: qa_passed
+    qa_evidence:
+      - "2026-06-05 generated a 2560x1440 full-slide PNG candidate plus companion speaker script and manifest."
+      - "Visual QA passed after fixing right-column title clipping, panel crowding, source-legend overlap, and lower-panel annotation collision."
+      - "2026-06-05 13:28 EDT revised after Justin flagged lower-panel ambiguity: bottom evidence is now split into a log total-count support comparison and a separate expanded-pool source-fraction panel with distinct legends."
+      - "2026-06-05 13:35 EDT revised layout polish after Justin flagged crowding: increased title/subtitle separation, widened the gutter between the plot panel and RHS boxes, moved legends out of data regions, removed extra data-area annotations, and simplified RHS text."
+      - "2026-06-05 13:42 EDT revised title to 'Jet30/40 Gains: Further Diagnostic', removed the decorative rule behind the top-panel title, lifted the lower-section header stack, and removed the visible dagger caveat from the slide canvas."
+      - "2026-06-05 13:45 EDT revised top AUC gain labels to stay inside the plot canvas, aligned lower legend text to marker centers, and replaced text arrows with rendered arrow glyphs."
+      - "2026-06-05 13:48 EDT changed the slide canvas to pure white for working-point deck consistency and softened the callout fills to preserve hierarchy on the white background."
+      - "py_compile passed for scripts/slides/auau_bdt/score_shapes/make_the8_hard_inclusive_mechanism_closure_slide.py."
+      - "file confirmed PNG image data, 2560 x 1440, 8-bit/color RGBA."
+    limitations: "Local PNG candidate only; Google Slides was not mutated. The hard-background mechanism is supported by source labels and shower-shape proxies; no event-by-event HEPMC ancestry was available in the ML matrix."
+    destination: "WP_GammaJets_6_3_26 candidate to insert after current slide 10 after Justin approval"
+    last_verified: "2026-06-05T13:48:00-04:00"
+
+  - artifact_id: the11_bdt_isolation_insight_slide_story_v1
+    kind: slide_candidate_png_sequence
+    path: dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/slideReady/isolation_feature_correlations/noiso_score_diagnostic/the11_bdt_isolation_story_20260604/the11_bdt_isolation_story_manifest.json
+    thesis_claim: ml_photon_id
+    source_inputs:
+      - dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/slideReady/isolation_feature_correlations/noiso_score_diagnostic/isolation_feature_score_correlations.csv
+      - dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/slideReady/isolation_feature_correlations/noiso_score_diagnostic/isolation_feature_score_correlations_summary.json
+      - scripts/slides/auau_bdt/isolation_correlations/make_the11_bdt_isolation_insight_slides.py
+    generation_command: "/Users/patsfan753/Desktop/analysis/env/bin/python scripts/slides/auau_bdt/isolation_correlations/make_the11_bdt_isolation_insight_slides.py"
+    qa_state: qa_passed
+    qa_evidence:
+      - "2026-06-04 generated three local 2560x1440 full-slide PNG candidates plus companion speaker scripts and manifest."
+      - "Visual QA passed after fixing title/subtitle overlap, legend/bar-label collision, clipped card text, and bottom interpretation-band overflow."
+      - "py_compile passed for scripts/slides/auau_bdt/isolation_correlations/make_the11_bdt_isolation_insight_slides.py."
+      - "sips confirmed all three output PNGs are 2560x1440."
+      - "Source summary reports files_read=125, files_requested=125, missing_column_files=0, entries_seen=15847490, and score column score_globalEtCent1535_bdt_noIso_ptCent7."
+    limitations: "Local PNG candidates only; Google Slides was not mutated. The targeted no-isolation rescore produced all 125/125 score caches but the formal validation merge-summary node failed, so the slides use local row-aligned ABCD-safe compact outputs rather than a formal validation_summary.txt."
+    destination: "THE-11 model-inquiry / Friday PPG ML story review candidate"
+    last_verified: "2026-06-04T18:58:00-04:00"
+
   - artifact_id: codex_os_doctor
     kind: script
     path: scripts/codex_os_doctor.py
@@ -97,6 +144,281 @@ artifacts:
     limitations: "Approval-gated guard only; it does not execute the risky action itself."
     destination: "Required preflight for risky ThesisAnalysis mutations"
     last_verified: "2026-05-27T00:45:00-04:00"
+
+  - artifact_id: the8_branch_a_fixed_sample_holdout_scorecache_slide_v1
+    kind: slide_candidate_png
+    path: dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_scorecache_controls_truthSignal_inclusiveJet_slide_v1.png
+    thesis_claim: ml_photon_id
+    source_inputs:
+      - "Four READY common-sample score-cache validation reports from 2026-06-03 plus two duplicate-reused diagonal score-cache reports from 2026-05-27."
+      - "dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_scorecache_controls_truthSignal_inclusiveJet_v1.json"
+      - "scripts/plotting/auau_bdt/extract_the8_branch_a_holdout_score_histograms.py"
+      - "scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py"
+    generation_command: "PYTHONPYCACHEPREFIX=/private/tmp /Users/patsfan753/Desktop/analysis/env/bin/python scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py --input-json dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_scorecache_controls_truthSignal_inclusiveJet_v1.json --outpng dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_scorecache_controls_truthSignal_inclusiveJet_slide_v1.png"
+    qa_state: qa_passed
+    qa_evidence:
+      - "2026-06-03 visual QA passed locally at 2560x1440: white background, separated legend, panel-local bold italic sPHENIX Internal labels, no text spilling outside boxes, and source-defined class contract visible on-slide."
+      - "Holdout source-defined weighted AUCs: Jet12+20 validation sample 0.853610/0.860016/0.862522; Jet12+20+30+40 validation sample 0.891625/0.900656/0.901821 for Jet12+20, Jet12+20+30, Jet12+20+30+40-trained models."
+    limitations: "Local PNG candidate only; Google Slides was not mutated. This compares source-defined Signal MC to source-defined Inclusive MC, not truth signal versus truth background."
+    destination: "WP_GammaJets_6_3_26 Friday PPG working-point slide candidate"
+    last_verified: "2026-06-03T22:34:00-04:00"
+
+  - artifact_id: the8_branch_a_fixed_sample_holdout_3x3_direct_slide_v1
+    kind: slide_candidate_png
+    path: dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_slide_v1.png
+    thesis_claim: ml_photon_id
+    source_inputs:
+      - "Three THE-8 Branch A mem24 trained BDT model registries and training matrices from 2026-05-27."
+      - "dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v1.json"
+      - "scripts/plotting/auau_bdt/extract_the8_branch_a_holdout_score_histograms.py"
+      - "scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py"
+    generation_command: "PYTHONPYCACHEPREFIX=/private/tmp /Users/patsfan753/Desktop/analysis/env/bin/python scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py --input-json dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v1.json --outpng dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_slide_v1.png"
+    qa_state: qa_passed
+    qa_evidence:
+      - "2026-06-03 visual QA passed locally at 2560x1440: complete 3x3 validation-sample by trained-model grid, diagonal cells included, white background, separated legend, panel-local bold italic sPHENIX Internal labels, and no middle-row axis-label collision."
+      - "Holdout source-defined weighted AUC rows: Jet12+20 0.853610/0.860016/0.862522; Jet12+20+30 0.866629/0.877464/0.878840; Jet12+20+30+40 0.891625/0.900656/0.901821."
+    limitations: "Local PNG candidate only; Google Slides was not mutated. Middle-row cross-comparisons are direct model scoring, not Condor score-cache reports."
+    destination: "WP_GammaJets_6_3_26 Friday PPG working-point slide candidate"
+    last_verified: "2026-06-03T23:05:00-04:00"
+
+  - artifact_id: the8_branch_a_fixed_sample_holdout_3x3_direct_0to20_slide_v2
+    kind: slide_candidate_png
+    path: dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_0to20_truthSignal_inclusiveJet_slide_v2.png
+    thesis_claim: ml_photon_id
+    source_inputs:
+      - "Three THE-8 Branch A mem24 trained BDT model registries and training matrices from 2026-05-27."
+      - "dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v2_withCentAuc.json"
+      - "scripts/plotting/auau_bdt/extract_the8_branch_a_holdout_score_histograms.py"
+      - "scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py"
+    generation_command: "PYTHONPYCACHEPREFIX=/private/tmp /Users/patsfan753/Desktop/analysis/env/bin/python scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py --input-json dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v2_withCentAuc.json --outpng dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_0to20_truthSignal_inclusiveJet_slide_v2.png --centrality-key 0_20 --centrality-label '0-20%'"
+    qa_state: qa_passed
+    qa_evidence:
+      - "2026-06-03 visual QA passed locally at 2560x1440: 0-20% centrality stated in title and AUC strip, complete 3x3 grid, construction-language removed, reduced prose, top row/column boxes fit, bottom AUC strip fits."
+      - "0-20% source-defined weighted AUC rows: Jet12+20 0.829877/0.832975/0.835435; Jet12+20+30 0.834206/0.848736/0.849380; Jet12+20+30+40 0.857927/0.869484/0.869887."
+    limitations: "Local PNG candidate only; Google Slides was not mutated. Middle-row cross-comparisons are direct model scoring, not Condor score-cache reports."
+    destination: "WP_GammaJets_6_3_26 Friday PPG working-point slide candidate"
+    last_verified: "2026-06-03T23:32:00-04:00"
+
+  - artifact_id: the8_branch_a_fixed_sample_holdout_3x3_direct_0to20_slide_v3
+    kind: slide_candidate_png
+    path: dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_0to20_truthSignal_inclusiveJet_slide_v3.png
+    thesis_claim: ml_photon_id
+    source_inputs:
+      - "Three THE-8 Branch A mem24 trained BDT model registries and training matrices from 2026-05-27."
+      - "dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v3_withCentAuc.json"
+      - "scripts/plotting/auau_bdt/extract_the8_branch_a_holdout_score_histograms.py"
+      - "scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py"
+    generation_command: "PYTHONPYCACHEPREFIX=/private/tmp /Users/patsfan753/Desktop/analysis/env/bin/python scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py --input-json dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v3_withCentAuc.json --outpng dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_0to20_truthSignal_inclusiveJet_slide_v3.png --centrality-key 0_20 --centrality-label '0-20%'"
+    qa_state: qa_passed
+    qa_evidence:
+      - "2026-06-03 visual QA passed locally at 2560x1440: bottom numeric AUC table removed, bottom band now summarizes the matrix with two takeaways, legend states Signal MC (truth-isolated prompt), and JSON metadata records the same class-definition contract."
+      - "0-20% source-defined weighted AUC rows remain Jet12+20 0.829877/0.832975/0.835435; Jet12+20+30 0.834206/0.848736/0.849380; Jet12+20+30+40 0.857927/0.869484/0.869887."
+    limitations: "Local PNG candidate only; Google Slides was not mutated. Middle-row cross-comparisons are direct model scoring, not Condor score-cache reports."
+    destination: "WP_GammaJets_6_3_26 Friday PPG working-point slide candidate"
+    last_verified: "2026-06-03T23:55:00-04:00"
+
+  - artifact_id: the8_branch_a_fixed_sample_holdout_3x3_direct_0to20_slide_v4
+    kind: slide_candidate_png
+    path: dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_0to20_truthSignal_inclusiveJet_slide_v4.png
+    thesis_claim: ml_photon_id
+    source_inputs:
+      - "Three THE-8 Branch A mem24 trained BDT model registries and training matrices from 2026-05-27."
+      - "dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v3_withCentAuc.json"
+      - "scripts/plotting/auau_bdt/extract_the8_branch_a_holdout_score_histograms.py"
+      - "scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py"
+    generation_command: "PYTHONPYCACHEPREFIX=/private/tmp /Users/patsfan753/Desktop/analysis/env/bin/python scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py --input-json dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v3_withCentAuc.json --outpng dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_0to20_truthSignal_inclusiveJet_slide_v4.png --centrality-key 0_20 --centrality-label '0-20%'"
+    qa_state: qa_passed
+    qa_evidence:
+      - "2026-06-04 visual QA passed locally at 2560x1440: redundant subtitle removed, THE-8 task label no longer appears on-slide, top boxes shifted upward, and no layout collisions introduced."
+    limitations: "Local PNG candidate only; Google Slides was not mutated. Middle-row cross-comparisons are direct model scoring, not Condor score-cache reports."
+    destination: "WP_GammaJets_6_3_26 Friday PPG working-point slide candidate"
+    last_verified: "2026-06-04T00:05:00-04:00"
+
+  - artifact_id: the8_branch_a_fixed_sample_holdout_3x3_direct_0to20_slide_v5
+    kind: slide_candidate_png
+    path: dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_0to20_truthSignal_inclusiveJet_slide_v5.png
+    thesis_claim: ml_photon_id
+    source_inputs:
+      - "Three THE-8 Branch A mem24 trained BDT model registries and training matrices from 2026-05-27."
+      - "dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v3_withCentAuc.json"
+      - "scripts/plotting/auau_bdt/extract_the8_branch_a_holdout_score_histograms.py"
+      - "scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py"
+    generation_command: "PYTHONPYCACHEPREFIX=/private/tmp /Users/patsfan753/Desktop/analysis/env/bin/python scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py --input-json dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v3_withCentAuc.json --outpng dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_0to20_truthSignal_inclusiveJet_slide_v5.png --centrality-key 0_20 --centrality-label '0-20%'"
+    qa_state: qa_passed
+    qa_evidence:
+      - "2026-06-04 visual QA passed locally at 2560x1440: per-pad sPHENIX Internal labels removed, y-axis headroom increased, and AUC/S/Incl readouts moved higher and enlarged without curve collisions."
+    limitations: "Local PNG candidate only; Google Slides was not mutated. Middle-row cross-comparisons are direct model scoring, not Condor score-cache reports."
+    destination: "WP_GammaJets_6_3_26 Friday PPG working-point slide candidate"
+    last_verified: "2026-06-04T00:15:00-04:00"
+
+  - artifact_id: the8_branch_a_fixed_sample_holdout_3x3_direct_0to20_slide_v6
+    kind: slide_candidate_png
+    path: dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_0to20_truthSignal_inclusiveJet_slide_v6.png
+    thesis_claim: ml_photon_id
+    source_inputs:
+      - "Three THE-8 Branch A mem24 trained BDT model registries and training matrices from 2026-05-27."
+      - "dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v3_withCentAuc.json"
+      - "scripts/plotting/auau_bdt/extract_the8_branch_a_holdout_score_histograms.py"
+      - "scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py"
+    generation_command: "PYTHONPYCACHEPREFIX=/private/tmp /Users/patsfan753/Desktop/analysis/env/bin/python scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py --input-json dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v3_withCentAuc.json --outpng dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_0to20_truthSignal_inclusiveJet_slide_v6.png --centrality-key 0_20 --centrality-label '0-20%'"
+    qa_state: qa_passed
+    qa_evidence:
+      - "2026-06-04 visual QA passed locally at 2560x1440: green/gold/violet structural accents now key the Jet12+20, Jet12+20+30, and Jet12+20+30+40 sample ladder across row cards and column header pills while red/blue remain reserved for Signal MC vs Inclusive MC curves."
+    limitations: "Local PNG candidate only; Google Slides was not mutated. Middle-row cross-comparisons are direct model scoring, not Condor score-cache reports."
+    destination: "WP_GammaJets_6_3_26 Friday PPG working-point slide candidate"
+    last_verified: "2026-06-04T00:25:00-04:00"
+
+  - artifact_id: the8_branch_a_fixed_sample_holdout_3x3_direct_0to20_slide_v7
+    kind: slide_candidate_png
+    path: dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_0to20_truthSignal_inclusiveJet_slide_v7.png
+    thesis_claim: ml_photon_id
+    source_inputs:
+      - "Three THE-8 Branch A mem24 trained BDT model registries and training matrices from 2026-05-27."
+      - "dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v3_withCentAuc.json"
+      - "scripts/plotting/auau_bdt/extract_the8_branch_a_holdout_score_histograms.py"
+      - "scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py"
+    generation_command: "PYTHONPYCACHEPREFIX=/private/tmp /Users/patsfan753/Desktop/analysis/env/bin/python scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py --input-json dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v3_withCentAuc.json --outpng dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_0to20_truthSignal_inclusiveJet_slide_v7.png --centrality-key 0_20 --centrality-label '0-20%'"
+    qa_state: qa_passed
+    qa_evidence:
+      - "2026-06-04 visual QA passed locally at 2560x1440: bottom insight band shortened, plot grid made taller, redundant class-definition sentence removed from the bottom band, and the bottom text now gives numeric AUC gains plus the conceptual Jet30/Jet40 saturation takeaway."
+    limitations: "Local PNG candidate only; Google Slides was not mutated. Middle-row cross-comparisons are direct model scoring, not Condor score-cache reports."
+    destination: "WP_GammaJets_6_3_26 Friday PPG working-point slide candidate"
+    last_verified: "2026-06-04T00:35:00-04:00"
+
+  - artifact_id: the8_branch_a_fixed_sample_holdout_3x3_direct_0to20_slide_v8
+    kind: slide_candidate_png
+    path: dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_0to20_truthSignal_inclusiveJet_slide_v8.png
+    thesis_claim: ml_photon_id
+    source_inputs:
+      - "Three THE-8 Branch A mem24 trained BDT model registries and training matrices from 2026-05-27."
+      - "dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v3_withCentAuc.json"
+      - "scripts/plotting/auau_bdt/extract_the8_branch_a_holdout_score_histograms.py"
+      - "scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py"
+    generation_command: "PYTHONPYCACHEPREFIX=/private/tmp /Users/patsfan753/Desktop/analysis/env/bin/python scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py --input-json dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v3_withCentAuc.json --outpng dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_0to20_truthSignal_inclusiveJet_slide_v8.png --centrality-key 0_20 --centrality-label '0-20%'"
+    qa_state: qa_passed
+    qa_evidence:
+      - "2026-06-04 visual QA passed locally at 2560x1440: legend moved into a standalone band above the column labels, horizontal header accent lines removed, top orientation boxes simplified, and column labels separated cleanly from the legend and plot grid."
+    limitations: "Local PNG candidate only; Google Slides was not mutated. Middle-row cross-comparisons are direct model scoring, not Condor score-cache reports."
+    destination: "WP_GammaJets_6_3_26 Friday PPG working-point slide candidate"
+    last_verified: "2026-06-04T00:45:00-04:00"
+
+  - artifact_id: the8_branch_a_fixed_sample_holdout_3x3_direct_0to20_slide_v11
+    kind: slide_candidate_png
+    path: dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_0to20_truthSignal_inclusiveJet_slide_v11.png
+    thesis_claim: ml_photon_id
+    source_inputs:
+      - "Three THE-8 Branch A mem24 trained BDT model registries and training matrices from 2026-05-27."
+      - "dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v3_withCentAuc.json"
+      - "scripts/plotting/auau_bdt/extract_the8_branch_a_holdout_score_histograms.py"
+      - "scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py"
+    generation_command: "PYTHONPYCACHEPREFIX=/private/tmp /Users/patsfan753/Desktop/analysis/env/bin/python scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py --input-json dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v3_withCentAuc.json --outpng dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_0to20_truthSignal_inclusiveJet_slide_v11.png --centrality-key 0_20 --centrality-label '0-20%'"
+    qa_state: qa_passed
+    qa_evidence:
+      - "2026-06-04 visual QA passed locally at 2560x1440: row/column roles are now explicit as VALIDATION ROW and TRAINING COLUMN badges, sample names remain color-keyed, and the plot grid was shifted right slightly to keep row cards separated from y-axis tick labels."
+    limitations: "Local PNG candidate only; Google Slides was not mutated. Middle-row cross-comparisons are direct model scoring, not Condor score-cache reports."
+    destination: "WP_GammaJets_6_3_26 Friday PPG working-point slide candidate"
+    last_verified: "2026-06-04T00:55:00-04:00"
+
+  - artifact_id: the8_branch_a_fixed_sample_holdout_3x3_direct_0to20_slide_v12
+    kind: slide_candidate_png
+    path: dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_0to20_truthSignal_inclusiveJet_slide_v12.png
+    thesis_claim: ml_photon_id
+    source_inputs:
+      - "Three THE-8 Branch A mem24 trained BDT model registries and training matrices from 2026-05-27."
+      - "dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v3_withCentAuc.json"
+      - "scripts/plotting/auau_bdt/extract_the8_branch_a_holdout_score_histograms.py"
+      - "scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py"
+    generation_command: "PYTHONPYCACHEPREFIX=/private/tmp /Users/patsfan753/Desktop/analysis/env/bin/python scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py --input-json dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v3_withCentAuc.json --outpng dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_0to20_truthSignal_inclusiveJet_slide_v12.png --centrality-key 0_20 --centrality-label '0-20%'"
+    qa_state: qa_passed
+    qa_evidence:
+      - "2026-06-04 visual QA passed locally at 2560x1440: restored the cleaner v8-style row/column box proportions while making TRAINING and VALIDATION labels larger and color keyed to the sample ladder."
+    limitations: "Local PNG candidate only; Google Slides was not mutated. Middle-row cross-comparisons are direct model scoring, not Condor score-cache reports."
+    destination: "WP_GammaJets_6_3_26 Friday PPG working-point slide candidate"
+    last_verified: "2026-06-04T01:05:00-04:00"
+
+  - artifact_id: the8_branch_a_fixed_sample_holdout_3x3_direct_0to20_slide_v13
+    kind: slide_candidate_png
+    path: dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_0to20_truthSignal_inclusiveJet_slide_v13.png
+    thesis_claim: ml_photon_id
+    source_inputs:
+      - "Three THE-8 Branch A mem24 trained BDT model registries and training matrices from 2026-05-27."
+      - "dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v3_withCentAuc.json"
+      - "scripts/plotting/auau_bdt/extract_the8_branch_a_holdout_score_histograms.py"
+      - "scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py"
+    generation_command: "PYTHONPYCACHEPREFIX=/private/tmp /Users/patsfan753/Desktop/analysis/env/bin/python scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py --input-json dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v3_withCentAuc.json --outpng dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_0to20_truthSignal_inclusiveJet_slide_v13.png --centrality-key 0_20 --centrality-label '0-20%'"
+    qa_state: qa_passed
+    qa_evidence:
+      - "2026-06-04 visual QA passed locally at 2560x1440: kept the v12 layout and box geometry unchanged while changing TRAINING and VALIDATION label text to dark/black."
+    limitations: "Local PNG candidate only; Google Slides was not mutated. Middle-row cross-comparisons are direct model scoring, not Condor score-cache reports."
+    destination: "WP_GammaJets_6_3_26 Friday PPG working-point slide candidate"
+    last_verified: "2026-06-04T01:12:00-04:00"
+
+  - artifact_id: the8_branch_a_fixed_sample_holdout_3x3_direct_0to20_slide_v14
+    kind: slide_candidate_png
+    path: dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_0to20_truthSignal_inclusiveJet_slide_v14.png
+    thesis_claim: ml_photon_id
+    source_inputs:
+      - "Three THE-8 Branch A mem24 trained BDT model registries and training matrices from 2026-05-27."
+      - "dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v3_withCentAuc.json"
+      - "scripts/plotting/auau_bdt/extract_the8_branch_a_holdout_score_histograms.py"
+      - "scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py"
+    generation_command: "PYTHONPYCACHEPREFIX=/private/tmp /Users/patsfan753/Desktop/analysis/env/bin/python scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py --input-json dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v3_withCentAuc.json --outpng dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_0to20_truthSignal_inclusiveJet_slide_v14.png --centrality-key 0_20 --centrality-label '0-20%'"
+    qa_state: qa_passed
+    qa_evidence:
+      - "2026-06-04 visual QA passed locally at 2560x1440: top orientation boxes keep the same top edge but are shortened from the bottom, the legend/column labels/plot grid are shifted upward together, and the unchanged bottom yellow box no longer crowds the x-axis labels."
+    limitations: "Local PNG candidate only; Google Slides was not mutated. Middle-row cross-comparisons are direct model scoring, not Condor score-cache reports."
+    destination: "WP_GammaJets_6_3_26 Friday PPG working-point slide candidate"
+    last_verified: "2026-06-04T01:20:00-04:00"
+
+  - artifact_id: the8_branch_a_fixed_sample_holdout_3x3_direct_0to20_slide_v15
+    kind: slide_candidate_png
+    path: dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_0to20_truthSignal_inclusiveJet_slide_v15.png
+    thesis_claim: ml_photon_id
+    source_inputs:
+      - "Three THE-8 Branch A mem24 trained BDT model registries and training matrices from 2026-05-27."
+      - "dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v3_withCentAuc.json"
+      - "scripts/plotting/auau_bdt/extract_the8_branch_a_holdout_score_histograms.py"
+      - "scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py"
+    generation_command: "PYTHONPYCACHEPREFIX=/private/tmp /Users/patsfan753/Desktop/analysis/env/bin/python scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py --input-json dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v3_withCentAuc.json --outpng dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_0to20_truthSignal_inclusiveJet_slide_v15.png --centrality-key 0_20 --centrality-label '0-20%'"
+    qa_state: qa_passed
+    qa_evidence:
+      - "2026-06-04 visual QA passed locally at 2560x1440: bottom yellow insight band tightened vertically around its text, adding a bit more separation from the x-axis labels while preserving text readability."
+    limitations: "Local PNG candidate only; Google Slides was not mutated. Middle-row cross-comparisons are direct model scoring, not Condor score-cache reports."
+    destination: "WP_GammaJets_6_3_26 Friday PPG working-point slide candidate"
+    last_verified: "2026-06-04T01:28:00-04:00"
+
+  - artifact_id: the8_branch_a_fixed_sample_holdout_3x3_direct_0to20_slide_v16
+    kind: slide_candidate_png
+    path: dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_0to20_truthSignal_inclusiveJet_slide_v16.png
+    thesis_claim: ml_photon_id
+    source_inputs:
+      - "Three THE-8 Branch A mem24 trained BDT model registries and training matrices from 2026-05-27."
+      - "dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v3_withCentAuc.json"
+      - "scripts/plotting/auau_bdt/extract_the8_branch_a_holdout_score_histograms.py"
+      - "scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py"
+    generation_command: "PYTHONPYCACHEPREFIX=/private/tmp /Users/patsfan753/Desktop/analysis/env/bin/python scripts/slides/auau_bdt/score_shapes/make_the8_branch_a_fixed_sample_scorecache_slide.py --input-json dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branch_a_ladder_fixed_sample_holdout_3x3_direct_truthSignal_inclusiveJet_v3_withCentAuc.json --outpng dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_0to20_truthSignal_inclusiveJet_slide_v16.png --centrality-key 0_20 --centrality-label '0-20%'"
+    qa_state: qa_passed
+    qa_evidence:
+      - "2026-06-04 visual QA passed locally at 2560x1440: only the text blocks inside the top gray/purple orientation boxes were shifted upward to sit more centrally between each box top and bottom edge."
+    limitations: "Local PNG candidate only; Google Slides was not mutated. Middle-row cross-comparisons are direct model scoring, not Condor score-cache reports."
+    destination: "WP_GammaJets_6_3_26 Friday PPG working-point slide candidate"
+    last_verified: "2026-06-04T01:35:00-04:00"
+
+  - artifact_id: the8_branch_a_holdout_cent020_etbins_slide_v10
+    kind: slide_candidate_png
+    path: dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/slide23_candidates/the8_branchA_ladder_holdout_cent020_etbins_truthSignal_inclusiveJet_v10.png
+    thesis_claim: ml_photon_id
+    source_inputs:
+      - "Three THE-8 Branch A mem24 trained BDT model registries and training matrices from 2026-05-27."
+      - "dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/slide23_candidates/the8_branchA_ladder_holdout_cent020_etbins_truthSignal_inclusiveJet_v1.payload.json"
+      - "scripts/slides/auau_bdt/score_shapes/make_the8_holdout_cent020_etbin_slide.py"
+    generation_command: "PYTHONPYCACHEPREFIX=/private/tmp /Users/patsfan753/Desktop/analysis/env/bin/python scripts/slides/auau_bdt/score_shapes/make_the8_holdout_cent020_etbin_slide.py render --input dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/slide23_candidates/the8_branchA_ladder_holdout_cent020_etbins_truthSignal_inclusiveJet_v1.payload.json --outdir dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/slide23_candidates --tag the8_branchA_ladder_holdout_cent020_etbins_truthSignal_inclusiveJet_v10"
+    qa_state: qa_passed
+    qa_evidence:
+      - "2026-06-03 visual QA passed locally at 2560x1440: slide is 0-20% validation holdout only, rows are Jet12+20 / Jet12+20+30 / Jet12+20+30+40, columns are 15-35 and 15-20/20-25/25-30/30-35, legend says Signal MC (truth-isolated prompt) and Inclusive MC (embedded jet; no truth filter), and JSON records the same class contract."
+    limitations: "Local PNG candidate only; Google Slides was not mutated. Jet12+20 30-35 bin has low inclusive statistics (I=13)."
+    destination: "WP_GammaJets_6_3_26 Friday PPG working-point slide candidate"
+    last_verified: "2026-06-03T22:51:38-04:00"
 
   - artifact_id: os_snapshot_kernel
     kind: script
@@ -306,6 +628,26 @@ artifacts:
     limitations: "Local PNG candidates only; not inserted into Google Slides and not yet approved by Justin. Detector leader lines are presentation-grade visual anchors, not CAD-precision subsystem boundaries."
     destination: "Recommended HPslides_v1 Slides 2-3 opening candidate for THE-5 HP2026 Photon Talk"
     last_verified: "2026-06-02T11:13:48-04:00"
+
+  - artifact_id: hp2026_slide04_run24pp_luminosity_dataset_v1
+    kind: google_slides_replacement_png_with_extracted_plot_asset
+    path: outputs/manual-20260607-run24pp-lumi-asset/hp2026_slide04_run24pp_luminosity_dataset_v2.png
+    thesis_claim: physics_target
+    source_inputs:
+      - "usefulDocs/SPHENIXRunCoordinator_ppLumi2024.pptx"
+      - "usefulDocs/run24pp_luminosity_assets/run2024_pp_luminosity_photon_jet_calorimeter_context.png"
+      - "usefulDocs/run24pp_luminosity_assets/run2024_pp_luminosity_photon_jet_calorimeter_context.pdf"
+      - "outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide/output/hp2026_slide03_pp_dataset_context.png used as the visual template for preserving the HPslides_v1 title, top logo, rule, footer, author/date, and slide-number style."
+    generation_command: "2026-06-07 inline Python/Pillow composition from existing Slide 4 PNG template plus extracted ppt/media/image3.png Run 2024 p+p luminosity plot; no new physics curve/data were regenerated."
+    qa_state: qa_passed
+    qa_evidence:
+      - "2026-06-07T15:06:00-04:00 extracted ppt/media/image3.png from usefulDocs/SPHENIXRunCoordinator_ppLumi2024.pptx as the cleaner Run 2024 p+p photon/jet-triggered calorimeter running-context plot and saved standalone PNG/PDF assets under usefulDocs/run24pp_luminosity_assets/."
+      - "2026-06-07T15:10:36-04:00 safety snapshot 20260607T191007Z-hp2026-slide4-run24pp-lumi-replace and google_slides_mutation guard preflight passed for replacing only HPslides_v1 Slide 4 g3e50bf84864_0_74 full-slide image g3e50bf84864_0_75 plus its speaker notes."
+      - "2026-06-07T15:12:49-04:00 live HPslides_v1 Slide 4 was replaced with the rendered 2560x1440 PNG and notes were updated. Connector readback confirmed the target deck, target slide, full-slide image object, native slide-number box, and updated notes; final revision v1sVJ5nBBtqIFw."
+      - "Fresh post-write thumbnail was curled to agent_context/local/google_slides_qa/hp_slide4_run24pp_lumi_20260607/slide4_after.png and visually checked: Run 24 p+p plot is dominant, L = 64.4 pb^-1 is visually unmistakable, key distinction text avoids implying a simple conversion from 107.4 pb^-1, future-data ribbon is secondary, and footer/logo/slide numbering style is preserved."
+    limitations: "Uses a public/run-coordinator raster plot image extracted from the PPTX; the slide treats 107.4 pb^-1 as run-context calorimeter sampled luminosity and separately labels 64.4 pb^-1 as the PPG12 isolated prompt-photon cross-section normalization luminosity."
+    destination: "Live HPslides_v1 Slide 4 g3e50bf84864_0_74 for THE-5 HP2026 Photon Talk"
+    last_verified: "2026-06-07T15:12:49-04:00"
 
   - artifact_id: hp2026_fulltalk_png_batch_v1
     kind: slide_candidate_png_sequence

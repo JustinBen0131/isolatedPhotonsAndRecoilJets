@@ -23,18 +23,62 @@ The canonical overnight coordinators are the eight lane commands
 `python3 scripts/codex_os_dream.py lane --lane-id <lane_id>`, one for each
 dream lane at `03:30`. Morning-priorities automation is a downstream waking
 projection step, not part of the overnight mutation boundary.
-For compact retrieval guidance before a task, use:
+Recurring dream pressure is governed by the register refresh contract, not by
+prose recurrence count. Pressure keys use `kind|target|source_lane`; handled,
+cooling, appendix-only, or resolved pressure stays out of daily surfaces unless
+it produced an actual local change, failure, required approval, or unhandled
+actionable warning. Parent/umbrella workstreams delegate active-pressure
+ownership to focused `child_workstreams`; old READY/removed/completed job
+records are evidence history, not live active pressure.
+For compact retrieval guidance before a task, start with the read-plan gate:
+
+```bash
+python3 scripts/os/context/codex_context_resonance.py triage --task "<task>" --json
+```
+
+It returns `required_reads` with local `line_range`/`excerpt` pointers when
+available, `optional_reads`, `suppressed_context`, mutation boundaries,
+artifact goal, and decision focus. If the task still needs deeper historical
+cues after those reads, use:
 
 ```bash
 python3 scripts/os/context/codex_context_resonance.py resolve --task "<task>" --json
 ```
 
-It returns a small set of `conscious_context` / compatibility `active_facts`,
-latent nudges, negative-memory traps, suppressed context, and evidence checks.
-It is a waking router, not proof; load and verify the cited files before
-making factual claims. Tracked cue records live under `agent_context/memory/`;
-dynamic retrieval feedback stays private under
+The resolver returns a small set of `conscious_context` / compatibility
+`active_facts`, latent nudges, negative-memory traps, suppressed context, and
+evidence checks. Both commands are waking routers, not proof; load and verify
+the cited files before making factual claims. Tracked cue records live under
+`agent_context/memory/`; dynamic retrieval feedback stays private under
 `agent_context/local/context_resonance/`.
+
+## Context Conservation Mode
+
+When Justin says "proceed with context conservation mode", "we need to be in
+context conservation mode", or a close variant, Codex must record the mode in
+`daily_cockpit.context_conservation_mode` and keep it active until Justin
+explicitly asks to turn it off.
+
+While active:
+
+- pause only the eight `thesisanalysis-dream-*` lane automations and record
+  their previous statuses under `agent_context/local/context_conservation/`;
+- do not pause morning priorities, live job/status heartbeats, meeting
+  reminders, or focused campaign watches;
+- use targeted reads, `rg`, and resolver `triage` before broad context loads;
+- avoid Chronicle, browser, Computer Use, delegated ChatGPT, and broad memory
+  scans unless Justin explicitly asks or the task cannot be handled safely
+  without that surface;
+- prefer brief handoffs, compact evidence lines, and no raw dream/doctor logs;
+- for slide generation, default to a 2560x1440 PNG candidate plus a terse
+  source/caveat note, and do not mutate Google Slides unless Justin explicitly
+  asks after seeing the PNG;
+- make companion speaker scripts optional unless Justin asks or an imminent
+  talk makes the script a real delivery risk.
+
+Every Today's Plan rendered while the mode is active should include:
+`Context Conservation Mode: ON; dream lanes paused; use targeted context only.`
+
 The Stage 9 evolutionary-maintenance layer is now a guarded internal
 self-maintenance loop. Dream mode may automatically perform `auto_safe`
 untracked generated-junk cleanup and refresh ignored local dream/research
@@ -87,6 +131,41 @@ Meaningful work includes:
 
 Tiny one-shot answers do not need a register claim unless they change project
 state or create a follow-up obligation.
+
+## Umbrella Decomposition Rule
+
+Before claiming a campaign issue as the unit of work, Codex must ask whether
+the current deliverable is finite enough to complete independently.
+
+Create or claim a focused child workstream when all of these are true:
+
+- the parent issue is an umbrella campaign, such as model choice, HP talk, pp
+  baseline, approval writing, or an OS project;
+- the current work has its own concrete artifact, heartbeat, status check,
+  slide bundle, QA package, note, or collaborator-answer line;
+- finishing that artifact would not make the parent campaign complete;
+- another Codex chat could reasonably own this work without owning the whole
+  campaign;
+- the work needs its own `next_check`, `stale_after`, active jobs, artifacts,
+  or completion criteria.
+
+When splitting an umbrella:
+
+1. Keep the parent as campaign context, not the active unit of work.
+2. Create or claim one child issue/workstream with a narrow title,
+   acceptance criteria, dependencies, and one next action.
+3. Move live job IDs, heartbeat automation IDs, artifact contracts, and
+   completion evidence to the child when they belong to the child deliverable.
+4. Update the parent with a child map and remove labels that falsely make the
+   parent look like the active job surface, such as `Running` or
+   `Surface: Today`, unless the parent itself is truly the active surface.
+5. Surface the child in Today's Plan only if it is active today. Keep the
+   parent in Linear detail unless a campaign-level decision is needed.
+6. A Codex chat should be able to say "I am working on THE-X" and later mark
+   THE-X complete without implying the whole campaign is done.
+
+If the child would be a one-command transient action, do not create a Linear
+issue. Record it as evidence under the existing focused workstream instead.
 
 ## Task Capture Trigger
 
@@ -154,6 +233,36 @@ Before real work:
 10. For risky mutations, run the safety guard with exact scope, duplicate
     fingerprint when relevant, snapshot ID, and explicit approval before the
     mutation.
+
+For slide-facing or artifact-facing Condor submissions, the active work is not
+complete when Condor reports `READY`. The submitting chat must keep a heartbeat
+automation alive through the downstream artifact contract: retrieve or stream
+the needed outputs, generate the intended PNG/CSV/JSON/table, run the required
+QA, update status/register evidence, and show or link the artifact to Justin.
+This means a real Codex app thread heartbeat (`kind=heartbeat`,
+`destination=thread`) visible in Automations, not a local sleeper/nohup script
+or a vague promise to check later. Only then may the heartbeat be retired or
+deleted. If the automation tool is unavailable, state that limitation plainly
+and leave the workstream `running` with exact cluster IDs, report roots, the
+owed artifact, and a concrete next checkpoint. If the tool is exposed but its
+handler returns `No handler registered` because the chat is being operated from
+a phone or degraded app surface, use the persisted automation-store fallback
+instead of a local watcher:
+
+```bash
+python3 scripts/os/heartbeat/codex_thread_heartbeat_fallback.py \
+  --id <automation-id> \
+  --name "<short name>" \
+  --target-thread-id <thread-id> \
+  --prompt-file <bounded-heartbeat-prompt.txt> \
+  --rrule "FREQ=MINUTELY;INTERVAL=<minutes>" \
+  --update
+```
+
+Record the resulting
+`/Users/patsfan753/.codex/automations/<automation-id>/automation.toml` path in
+the register/status and verify it is `kind = "heartbeat"` and
+`status = "ACTIVE"`.
 
 If a task is already claimed by another active Codex session, stop and report
 the existing workstream, owner/session, next check, and evidence before doing
@@ -264,6 +373,9 @@ Every active or running workstream must identify:
   recognize.
 - `active_codex_session`: the current chat/thread/heartbeat label when Codex
   is actively working.
+- `heartbeat_automation_id`: required for active artifact-facing Condor
+  campaigns once jobs are submitted; record the real Codex app automation id,
+  not a local process id.
 - `RJ_CODEX_CHAT_NAME` and `RJ_CODEX_THREAD_ID` for SDCC submissions that can
   emit pipeline emails.
 
@@ -282,6 +394,35 @@ Suggested chat names should be short and campaign-scoped:
 
 Example: `PPG12 Match | Watch npbet5env`.
 
+### Codex Chat Title Sync
+
+Codex chat titles should track the focused Linear issue being worked on. The
+title is not cosmetic: it is part of the multi-chat provenance system that
+lets Justin see which chat owns which task.
+
+When a chat claims or creates a Linear-backed workstream:
+
+1. Determine the primary issue. Prefer the focused child issue over an umbrella
+   campaign issue when both are involved.
+2. Build a short title from the issue key and task, for example
+   `THE-35 | Fresh OOF Stack QA`, `THE-41 | Cent-BDT WP Curves`, or
+   `THE-5 | HP Talk Walkthrough`.
+3. If the chat is truly working multiple focused issues, use a compact combined
+   title such as `THE-28+THE-29 | Friday PPG Checks`, and record which issue is
+   primary in the register and Linear comment.
+4. If Codex thread-title tools such as `set_thread_title` are available, rename
+   the current chat immediately after the workstream claim and before doing
+   substantial work.
+5. If thread-title tools are unavailable, do not block the task. Record the
+   intended title in `chat_label_or_thread` and `active_codex_session`, sync it
+   into Linear's `Codex chat map`, and tell Justin the exact suggested chat
+   title in the final response when useful.
+6. When a chat switches primary workstream, update the title and close out the
+   old Linear/register handoff so the same chat does not silently own unrelated
+   tasks.
+7. Do not title a chat only after a broad umbrella such as `THE-8` when the
+   actual active work is a child like `THE-35` or `THE-41`.
+
 ### Linear UX Doctrine
 
 Use scan-first titles. The first words should tell Justin why the issue matters
@@ -297,6 +438,12 @@ before he reads the rest:
   prerequisites.
 - `BKL ... | ...`: preserved backlog that should not distract today.
 - `OS Baseline | ...`: meta-infrastructure for the operating system.
+
+When a `BKL ...` or other backlog-named issue is promoted into active,
+running, review, or today-facing work, rename it during the same Linear sync.
+Do not leave `BKL`, `Backlog`, or stale "later" wording in the title or
+headline once the issue is an active workstream; use the active thesis-facing
+name instead, such as `P1 ML | BDT Isolation Insight Slides`.
 
 Use labels as a visual grammar, not decoration:
 
@@ -320,17 +467,38 @@ Every durable issue should include, in this order:
 - `Codex operating rule`: what future Codex sessions must preserve.
 - `Daily surface`: whether the item belongs in Today's Plan today.
 
-Linear lanes should map to register statuses:
+Linear lanes should map to register state and current ownership:
 
-- `active` -> In Progress with `Surface: Today` if it can move today.
-- `running` -> In Progress with `Running` and `Ops: Active Jobs`.
-- `waiting` -> waiting label/state when available, otherwise In Progress plus
-  `Waiting`.
-- `blocked` -> blocked label/state when available, otherwise In Progress plus
-  `Blocked`.
-- `review` -> In Progress plus `Review` and usually `Needs: Justin Review`.
+- `running`, any non-empty `active_jobs`, any active heartbeat/watchdog, or a
+  claimed active Codex session -> In Progress.
+- Any workstream with `active_jobs`, an active heartbeat/watchdog, or an
+  active external job is not backlog, even if it started from a BKL title:
+  Linear state must be In Progress, with stale `BKL`/`Backlog` title language
+  removed in the same update.
+- `active`, `waiting`, `blocked`, or `review` without a current Codex owner or
+  watched job -> Todo, with the matching `Waiting`, `Blocked`, or `Review`
+  label when applicable.
 - `backlog` -> Backlog plus `Surface: Linear Detail`.
 - `done_pending_review` -> Done only after evidence and handoff are recorded.
+
+Linear lane ordering should be deterministic and easy to scan:
+
+- In each Linear lane, sort issues by increasing Linear issue number
+  (`THE-5` before `THE-8` before `THE-35`) whenever the connector or UI
+  supports manual ordering.
+- The only exception is `In Progress`: issues with currently running or watched
+  jobs must stay at the top, then sort by increasing `THE` number inside that
+  watched-job group.
+- A workstream counts as watched when it has non-empty `active_jobs`, a real
+  heartbeat automation id, `status: running`, or an active Codex session whose
+  next action is a status/watch/checkpoint.
+- Do not rename issues with fake numeric prefixes just to force sorting. Use
+  Linear's native ordering when available; otherwise include the emitted
+  `lane_order_key` from `codex_work_register_linear_payload.py` in sync notes
+  and preserve scan-first titles.
+- Parent campaign issues stay ordered by their own `THE` number. Focused child
+  issues should be numerically ordered with other issues in the same lane, not
+  nested in a way that hides active watched jobs.
 
 Each Linear issue should include goal, current next action, blocker or
 dependency, active jobs, Today's Plan link, workstream spec link, and latest

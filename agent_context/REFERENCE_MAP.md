@@ -86,6 +86,40 @@ Justin explicitly starts a new Jet40 or alternate-boundary study.
   The corrected weighted diagnostic has no Jet12 contribution above 22 GeV;
   the 35-40 GeV bins are present but have zero total entries in this run.
 
+## Canonical pp Inclusive Stitching Rules
+
+Use these rules for future pp inclusive-jet stitched baselines and slide-facing
+source-composition diagnostics unless Justin explicitly starts an alternate
+boundary or weight study.
+
+- Production should keep broad enough ROOT/tree output for diagnostics, but a
+  stitched pp inclusive baseline must be consumed with canonical candidate rows
+  only. The pp photon-ID training tree fill is guarded by `doCanonical` in
+  `src/RecoilJets.cc`; if future outputs show all-even raw-count parity in
+  nonzero bins, re-audit for duplicate internal-view fills before trusting the
+  compact product.
+- Stitched pp inclusive consumers must require
+  `ppg12_truth_window_pass_r04 > 0.5`, use the current PPG12 sample/event
+  cross-section weights, and apply the recorded reco-cluster-`E_T` ownership
+  caps for source-composition plots. For the slide-5 ET50/NPBMax50 diagnostic,
+  caps were jet8 `15`, jet12 `23`, jet20 `35`, jet30 `45`, and jet40 `100`
+  GeV.
+- For reco-cluster `E_T` plots compared to embedded ABCD histograms, match the
+  reference ABCD candidate scope: fixed-iso signal/sideband rows, reference
+  tight or non-tight candidates, and no isolation-gap or neither-tightness
+  rows. ABCD matching alone is not sufficient if above-cap lower-threshold rows
+  are allowed to contribute.
+- THE-6 2026-06-06 evidence: the recovered canonical-tree campaign
+  `ppg12_currentIAN_recoEt50NPBMax50_canonicalTree_20260606_152337` had
+  final ROOT counts `400/400/400/400/400` and parity QA passed. The clean pp
+  slide-5 source-composition candidate used strict truth-window, ABCD iso2 row
+  scope, and sample caps; it removed only `28` above-cap rows
+  (`5/12/7/4/0` for jet8/12/20/30/40), retained max selected
+  `cluster_Et=49.9914 GeV`, and kept `4842` raw entries in `40-50 GeV`.
+- Use embedded slide-4 inclusive sample color semantics for pp slide-5
+  counterparts: Jet12 blue, Jet20 orange, Jet30 magenta, Jet40 green. Use a
+  neutral color for pp-only Jet8.
+
 ## Scaled Trigger Study Pipeline
 
 Use this entry when Justin refers to the scaled-trigger analysis that produced
@@ -129,6 +163,12 @@ slide 3 of `WP_GammaJets_5_20_26`
 - For private BDT/NPB cut interpretation, start with the current PPG12 IAN,
   paper draft, and `FunWithxgboost`; for public HP slide plots, use the
   paper/public-approved source rule above.
+- For Au+Au BDT/final-result work after THE-32, treat the BDT trained with the
+  upstream per-event total-calorimeter-energy floor veto as the current intended
+  baseline. Au+Au BDTs trained without that upstream cut are stale/not fully up
+  to date for final results unless explicitly used as historical comparison
+  baselines. The floor veto is applied before train/test splitting and training,
+  not as a post-hoc score-cache cleanup.
 - For pp baseline comparisons, preserve PPG18/PPG12 behavior unless there is a
   documented reason to diverge.
 - For Au+Au photon ID, treat new BDT/NPB/JetML variants as extensions that

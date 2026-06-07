@@ -9,6 +9,7 @@ production will consume, and writes quick PPG12-style separation diagnostics.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -63,6 +64,13 @@ ISOLATION_DIAGNOSTIC_FEATURES = [
 ISOLATION_CONE_RAW_FEATURES = [
     "reco_eiso_r30",
     "reco_eiso_r40",
+]
+EVENT_CALO_DIAGNOSTIC_FEATURES = [
+    "event_calo_cemc_energy",
+    "event_calo_ihcal_energy",
+    "event_calo_ohcal_energy",
+    "event_calo_total_energy",
+    "event_calo_log10_total_energy_plus1",
 ]
 EXTENDED_SHOWER_FEATURES = [
     "cluster_weta35_cogx",
@@ -199,10 +207,27 @@ FALLBACK_COLORS = [
 PT_BINS = [(6, 10), (10, 15), (15, 20), (20, 25), (25, 35)]
 CENT_BINS = [(0, 20), (20, 50), (50, 80)]
 DIAGNOSTIC_FEATURES = []
-for _name in BASE_FEATURES + WIDTH_3X3_FEATURES + EXTENDED_SHOWER_FEATURES + WIDTH_RATIO_FEATURES + SHAPE_RESIDUAL_FEATURES + SHAPE_TEMPLATE_FEATURES + ISOLATION_DIAGNOSTIC_FEATURES + ISOLATION_CONE_RAW_FEATURES + ["centrality", "reco_eiso"]:
+for _name in BASE_FEATURES + WIDTH_3X3_FEATURES + EXTENDED_SHOWER_FEATURES + WIDTH_RATIO_FEATURES + SHAPE_RESIDUAL_FEATURES + SHAPE_TEMPLATE_FEATURES + ISOLATION_DIAGNOSTIC_FEATURES + ISOLATION_CONE_RAW_FEATURES + EVENT_CALO_DIAGNOSTIC_FEATURES + ["centrality", "reco_eiso"]:
     if _name not in DIAGNOSTIC_FEATURES:
         DIAGNOSTIC_FEATURES.append(_name)
 MANDATORY_CACHE_COLUMNS = ["is_signal", "cluster_Et", "cluster_Eta", "centrality", "reco_eiso"]
+OPTIONAL_CACHE_COLUMNS = [
+    "source_sample",
+    "run",
+    "evt",
+    "event_weight",
+    "input_file_index",
+    "input_tree_entry",
+]
+GLOBAL_EVENT_KEY_COLUMNS = ["source_sample", "input_file_index", "run", "evt"]
+GLOBAL_CANDIDATE_KEY_COLUMNS = GLOBAL_EVENT_KEY_COLUMNS + ["input_tree_entry"]
+EVENT_QUALITY_DIRECT_COLUMNS = ["centrality", "event_calo_log10_total_energy_plus1"]
+EVENT_QUALITY_COMPONENT_COLUMNS = [
+    "event_calo_cemc_energy",
+    "event_calo_ihcal_energy",
+    "event_calo_ohcal_energy",
+    "event_calo_total_energy",
+]
 EFFICIENCY_TARGETS = [0.50, 0.70, 0.80, 0.90, 0.95]
 FAKE_RATE_TARGETS = [0.01, 0.02, 0.05, 0.10, 0.20]
 
@@ -351,6 +376,333 @@ def add_derived_features(frame):
         )
         frame["reco_eiso_signed_log1p"] = (np.sign(clipped) * np.log1p(np.abs(clipped))).astype("float32")
 
+    if "event_calo_log10_total_energy_plus1" not in cols and "event_calo_total_energy" in cols:
+        total = np.asarray(frame["event_calo_total_energy"], dtype="float64")
+        frame["event_calo_log10_total_energy_plus1"] = np.log10(np.maximum(total, 0.0) + 1.0).astype("float32")
+
+
+def infer_source_sample(path: Path) -> str:
+    text = str(path)
+    aliases = (
+        ("run28_embeddedPhoton12", ("run28_embeddedPhoton12", "embeddedPhoton12")),
+        ("run28_embeddedPhoton20", ("run28_embeddedPhoton20", "embeddedPhoton20")),
+        ("run28_embeddedJet12", ("run28_embeddedJet12", "embeddedJet12")),
+        ("run28_embeddedJet20", ("run28_embeddedJet20", "embeddedJet20")),
+        ("run28_embeddedJet30", ("run28_embeddedJet30", "embeddedJet30")),
+        ("run28_embeddedJet40", ("run28_embeddedJet40", "embeddedJet40")),
+    )
+    for sample, sample_aliases in aliases:
+        if any(alias in text for alias in sample_aliases):
+            return sample
+    return "unknown"
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def load_low_calo_cut(path: Path) -> dict:
+    if not path.is_file():
+        raise SystemExit(f"Low-calo cut JSON does not exist: {path}")
+    payload = json.loads(path.read_text())
+    envelope = payload.get("envelope")
+    if not isinstance(envelope, list) or not envelope:
+        raise SystemExit(f"Low-calo cut JSON has no envelope table: {path}")
+    rows = []
+    for item in envelope:
+        rows.append(
+            {
+                "cent_lo": float(item["cent_lo"]),
+                "cent_hi": float(item["cent_hi"]),
+                "threshold": float(item["threshold"]),
+                "median": float(item.get("median", math.nan)),
+                "mad_sigma": float(item.get("mad_sigma", math.nan)),
+                "quantile_floor": float(item.get("quantile_floor", math.nan)),
+                "n_events": int(item.get("n_events", 0)),
+                "status": str(item.get("status", "unknown")),
+            }
+        )
+    rows.sort(key=lambda row: (row["cent_lo"], row["cent_hi"]))
+    return {
+        "path": str(path),
+        "sha256": file_sha256(path),
+        "schema": payload.get("schema"),
+        "source_blind": bool(payload.get("source_blind", False)),
+        "truth_blind": bool(payload.get("truth_blind", False)),
+        "bdt_score_blind": bool(payload.get("bdt_score_blind", False)),
+        "centrality_source": payload.get("centrality_source"),
+        "cut_variable": payload.get("cut_variable"),
+        "mad_scale": payload.get("mad_scale"),
+        "quantile_floor": payload.get("quantile_floor"),
+        "slice_width_percent": payload.get("slice_width_percent"),
+        "envelope": rows,
+    }
+
+
+def centrality_slice_threshold(cent: float, envelope: list[dict]) -> float:
+    for row in envelope:
+        if cent >= float(row["cent_lo"]) and cent < float(row["cent_hi"]):
+            return float(row["threshold"])
+    return math.nan
+
+
+def add_global_event_identity(frame):
+    missing = [col for col in GLOBAL_EVENT_KEY_COLUMNS if col not in frame]
+    if missing:
+        return frame
+    return frame
+
+
+def _frame_len(frame) -> int:
+    if "is_signal" in frame:
+        return int(len(frame["is_signal"]))
+    for values in frame.values():
+        return int(len(values))
+    return 0
+
+
+def _numeric_source_codes(frame):
+    import numpy as np
+
+    if "source_sample" not in frame:
+        return np.zeros(_frame_len(frame), dtype="int32")
+    source = np.asarray(frame["source_sample"], dtype=object).astype(str)
+    _labels, inverse = np.unique(source, return_inverse=True)
+    return inverse.astype("int32", copy=False)
+
+
+def _numeric_event_records(frame, columns: list[str]):
+    import numpy as np
+
+    missing = [col for col in columns if col not in frame]
+    if missing:
+        return None
+    dtype = []
+    payload = {}
+    for col in columns:
+        if col == "source_sample":
+            dtype.append((col, "i4"))
+            payload[col] = _numeric_source_codes(frame)
+        else:
+            dtype.append((col, "i8"))
+            payload[col] = np.asarray(frame[col]).astype("int64", copy=False)
+    records = np.empty(_frame_len(frame), dtype=dtype)
+    for col, values in payload.items():
+        records[col] = values
+    return records
+
+
+def _numeric_event_identity(frame, *, require_file_qualified: bool = False):
+    import numpy as np
+
+    columns = list(GLOBAL_EVENT_KEY_COLUMNS)
+    records = _numeric_event_records(frame, columns)
+    if records is None and not require_file_qualified:
+        columns = ["source_sample", "run", "evt"]
+        records = _numeric_event_records(frame, columns)
+    if records is not None:
+        _, inverse, counts = np.unique(records, return_inverse=True, return_counts=True)
+        return {
+            "columns": columns,
+            "inverse": inverse.astype("int64", copy=False),
+            "counts": counts.astype("int64", copy=False),
+            "unique_events": int(len(counts)),
+            "uses_numeric_identity": True,
+        }
+    if "global_event_key" in frame:
+        keys = np.asarray(frame["global_event_key"], dtype=object).astype(str)
+        _, inverse, counts = np.unique(keys, return_inverse=True, return_counts=True)
+        return {
+            "columns": ["global_event_key"],
+            "inverse": inverse.astype("int64", copy=False),
+            "counts": counts.astype("int64", copy=False),
+            "unique_events": int(len(counts)),
+            "uses_numeric_identity": False,
+        }
+    missing = [col for col in GLOBAL_EVENT_KEY_COLUMNS if col not in frame]
+    if require_file_qualified:
+        raise SystemExit("File-qualified global event key is required but missing: " + ", ".join(missing))
+    missing_fallback = [col for col in ["source_sample", "run", "evt"] if col not in frame]
+    if missing_fallback:
+        raise SystemExit("Cannot build event key; missing: " + ", ".join(missing_fallback))
+    keys, columns = global_event_keys(frame, require_file_qualified=False)
+    _, inverse, counts = np.unique(keys, return_inverse=True, return_counts=True)
+    return {
+        "columns": columns,
+        "inverse": inverse.astype("int64", copy=False),
+        "counts": counts.astype("int64", copy=False),
+        "unique_events": int(len(counts)),
+        "uses_numeric_identity": False,
+    }
+
+
+def _event_key_audit_from_counts(frame, columns: list[str], counts) -> dict:
+    import numpy as np
+
+    positive_counts = np.asarray(counts, dtype="int64")
+    positive_counts = positive_counts[positive_counts > 0]
+    unique_events = int(len(positive_counts))
+    report = {
+        "present": all(col in frame for col in GLOBAL_EVENT_KEY_COLUMNS),
+        "event_key_columns": list(columns),
+        "candidate_key_columns": [col for col in GLOBAL_CANDIDATE_KEY_COLUMNS if col in frame],
+        "candidate_rows": _frame_len(frame),
+        "unique_events": unique_events,
+        "candidate_multiplicity_mean": float(np.mean(positive_counts)) if len(positive_counts) else math.nan,
+        "candidate_multiplicity_max": int(np.max(positive_counts)) if len(positive_counts) else 0,
+        "event_dedup_relies_only_on_source_run_evt": list(columns) != GLOBAL_EVENT_KEY_COLUMNS,
+        "source_run_evt_unique_keys": None,
+        "source_run_evt_repeated_after_global_event_dedup": None,
+        "uses_numeric_identity": list(columns) != ["global_event_key"],
+    }
+    simple = _numeric_event_records(frame, ["source_sample", "run", "evt"])
+    if simple is not None:
+        simple_unique = np.unique(simple)
+        report["source_run_evt_unique_keys"] = int(len(simple_unique))
+        report["source_run_evt_repeated_after_global_event_dedup"] = int(unique_events - len(simple_unique))
+    return report
+
+
+def _centrality_thresholds(cent, envelope: list[dict]):
+    import numpy as np
+
+    thresholds = np.full(len(cent), math.nan, dtype="float64")
+    for row in envelope:
+        lo = float(row["cent_lo"])
+        hi = float(row["cent_hi"])
+        thresholds[(cent >= lo) & (cent < hi)] = float(row["threshold"])
+    return thresholds
+
+
+def global_event_keys(frame, *, require_file_qualified: bool = False):
+    import numpy as np
+
+    if "global_event_key" in frame:
+        return np.asarray(frame["global_event_key"], dtype=object).astype(str), list(GLOBAL_EVENT_KEY_COLUMNS)
+    missing = [col for col in GLOBAL_EVENT_KEY_COLUMNS if col not in frame]
+    if not missing:
+        source = np.asarray(frame["source_sample"], dtype=object).astype(str)
+        file_index = np.asarray(frame["input_file_index"])
+        run = np.asarray(frame["run"])
+        evt = np.asarray(frame["evt"])
+        return np.asarray(
+            [f"{source[i]}|{int(file_index[i])}|{int(run[i])}|{int(evt[i])}" for i in range(len(source))],
+            dtype=object,
+        ), list(GLOBAL_EVENT_KEY_COLUMNS)
+    if require_file_qualified:
+        raise SystemExit("File-qualified global event key is required but missing: " + ", ".join(missing))
+    fallback = ["source_sample", "run", "evt"]
+    missing_fallback = [col for col in fallback if col not in frame]
+    if missing_fallback:
+        raise SystemExit("Cannot build event key; missing: " + ", ".join(missing_fallback))
+    source = np.asarray(frame["source_sample"], dtype=object).astype(str)
+    run = np.asarray(frame["run"])
+    evt = np.asarray(frame["evt"])
+    return np.asarray([f"{source[i]}|{int(run[i])}|{int(evt[i])}" for i in range(len(source))], dtype=object), fallback
+
+
+def summarize_global_event_key(frame) -> dict:
+    n = _frame_len(frame)
+    report = {
+        "present": all(col in frame for col in GLOBAL_EVENT_KEY_COLUMNS),
+        "event_key_columns": [],
+        "candidate_key_columns": [col for col in GLOBAL_CANDIDATE_KEY_COLUMNS if col in frame],
+        "candidate_rows": n,
+        "unique_events": 0,
+        "candidate_multiplicity_mean": math.nan,
+        "candidate_multiplicity_max": 0,
+        "event_dedup_relies_only_on_source_run_evt": True,
+        "source_run_evt_unique_keys": None,
+        "source_run_evt_repeated_after_global_event_dedup": None,
+    }
+    if n == 0:
+        return report
+    identity = _numeric_event_identity(frame, require_file_qualified=False)
+    return _event_key_audit_from_counts(frame, identity["columns"], identity["counts"])
+
+
+def filter_frame_rows(frame, keep):
+    import numpy as np
+
+    return {name: np.asarray(values)[keep] for name, values in frame.items() if len(values) == len(keep)}
+
+
+def apply_low_calo_event_quality_filter(frame, counts: dict, cut_json: Path, audit_output: Path | None = None):
+    import numpy as np
+
+    missing = [col for col in EVENT_QUALITY_DIRECT_COLUMNS if col not in frame]
+    if missing:
+        raise SystemExit("Low-calo event-quality filter missing required column(s): " + ", ".join(missing))
+    cut = load_low_calo_cut(cut_json)
+    add_global_event_identity(frame)
+    event_identity = _numeric_event_identity(frame, require_file_qualified=True)
+    event_key_columns = event_identity["columns"]
+    event_inverse = event_identity["inverse"]
+    event_counts = event_identity["counts"]
+    n_events = int(event_identity["unique_events"])
+    cent = np.asarray(frame["centrality"], dtype="float64")
+    log_calo = np.asarray(frame["event_calo_log10_total_energy_plus1"], dtype="float64")
+    thresholds = _centrality_thresholds(cent, cut["envelope"])
+    in_range = np.isfinite(cent) & np.isfinite(log_calo) & np.isfinite(thresholds)
+    row_below = in_range & (log_calo < thresholds)
+    event_reject = np.bincount(event_inverse[row_below], minlength=n_events) > 0
+    reject = event_reject[event_inverse]
+    keep = ~reject
+    retained_below = keep & in_range & (log_calo < thresholds)
+    before = dict(counts)
+    filtered = filter_frame_rows(frame, keep)
+    kept_event_counts = np.bincount(event_inverse[keep], minlength=n_events)
+    retained_below_events = np.bincount(event_inverse[retained_below], minlength=n_events) > 0
+    report = {
+        "schema": "AUAU_LOW_CALO_UPSTREAM_FILTER_AUDIT_V1",
+        "enabled": True,
+        "cut_json_path": str(cut_json),
+        "cut_json_sha256": cut["sha256"],
+        "cut_json_schema": cut.get("schema"),
+        "source_blind": cut.get("source_blind"),
+        "truth_blind": cut.get("truth_blind"),
+        "bdt_score_blind": cut.get("bdt_score_blind"),
+        "variables_used_for_cut": list(EVENT_QUALITY_DIRECT_COLUMNS),
+        "variables_not_used_for_cut": [
+            "source_sample",
+            "is_signal",
+            "truth photon label",
+            "truth isolation label",
+            "BDT score",
+            "cluster_Et",
+            "cluster_Eta",
+            "candidate shower-shape variables",
+            "train/test split",
+            "sample weight",
+            "WP80 behavior",
+        ],
+        "boundary_convention": "centrality slice uses cent_lo <= centrality < cent_hi; candidate/event is rejected only when log10(total calo + 1) < threshold; equality is retained",
+        "threshold_table": cut["envelope"],
+        "rows_before": int(len(keep)),
+        "rows_after": int(keep.sum()),
+        "rows_rejected": int(reject.sum()),
+        "globally_unique_events_before": int(n_events),
+        "globally_unique_events_after": int(np.count_nonzero(kept_event_counts)),
+        "globally_unique_events_rejected": int(np.count_nonzero(event_reject)),
+        "retained_below_envelope_events": int(np.count_nonzero(retained_below_events)),
+        "retained_below_envelope_candidates": int(retained_below.sum()),
+        "out_of_envelope_range_candidates_retained": int((~in_range).sum()),
+        "event_key_audit_before": _event_key_audit_from_counts(frame, event_key_columns, event_counts),
+        "event_key_audit_after": _event_key_audit_from_counts(filtered, event_key_columns, kept_event_counts),
+        "event_key_columns_used": event_key_columns,
+        "uses_numeric_event_identity": bool(event_identity["uses_numeric_identity"]),
+        "pre_filter_counts": before,
+    }
+    if audit_output is not None:
+        audit_output.parent.mkdir(parents=True, exist_ok=True)
+        audit_output.write_text(json.dumps(json_ready(report), indent=2, sort_keys=True) + "\n")
+        print(f"[validateAuAuTightBDT] wrote low-calo event-quality filter audit: {audit_output}", flush=True)
+    return filtered, report, keep
+
 
 def range_key(lo, hi) -> str:
     return f"{lo:g}_{hi:g}".replace(".", "p")
@@ -377,6 +729,22 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--merge-score-caches", type=Path, default=None, help="Merge a list of .npz score caches and make final plots.")
     ap.add_argument("--no-plots", action="store_true", help="Skip plot/curve writing; useful for Condor scoring shards.")
     ap.add_argument("--score-max-rows", type=int, default=int(os.environ.get("RJ_AUAU_TIGHT_BDT_VALIDATE_SCORE_MAX_ROWS", "300000")))
+    ap.add_argument(
+        "--event-quality-cut-json",
+        type=Path,
+        default=Path(os.environ["RJ_AUAU_BDT_EVENT_QUALITY_CUT_JSON"])
+        if os.environ.get("RJ_AUAU_BDT_EVENT_QUALITY_CUT_JSON")
+        else None,
+        help="Explicitly enable the source/truth/score-blind low-calo event-quality filter before validation scoring.",
+    )
+    ap.add_argument(
+        "--event-quality-audit-output",
+        type=Path,
+        default=Path(os.environ["RJ_AUAU_BDT_EVENT_QUALITY_AUDIT_OUTPUT"])
+        if os.environ.get("RJ_AUAU_BDT_EVENT_QUALITY_AUDIT_OUTPUT")
+        else None,
+        help="Write the validation event-quality filter audit JSON to this path.",
+    )
     ap.add_argument("--progress-every", type=int, default=int(os.environ.get("RJ_AUAU_TIGHT_BDT_VALIDATE_PROGRESS_EVERY", "500")))
     ap.add_argument("--min-finite-fraction", type=float, default=float(os.environ.get("RJ_AUAU_TIGHT_BDT_VALIDATE_MIN_FINITE_FRACTION", "0.95")))
     ap.add_argument("--min-auc", type=float, default=float(os.environ.get("RJ_AUAU_TIGHT_BDT_VALIDATE_MIN_AUC", "0.55")))
@@ -586,8 +954,25 @@ def score_rows(frame, models, product_specs):
     import ROOT
 
     scores = {}
+    n_rows = len(frame["is_signal"])
     for product, spec in product_specs.items():
         features = spec["features"]
+        missing_features = [name for name in features if name not in frame]
+        wrong_length_features = [
+            f"{name}={len(frame[name])}"
+            for name in features
+            if name in frame and len(frame[name]) != n_rows
+        ]
+        if missing_features or wrong_length_features:
+            detail = []
+            if missing_features:
+                detail.append("missing features: " + ", ".join(missing_features))
+            if wrong_length_features:
+                detail.append(
+                    f"feature length mismatch against is_signal={n_rows}: "
+                    + ", ".join(wrong_length_features)
+                )
+            raise SystemExit(f"Cannot score product {product}; " + "; ".join(detail))
         out = np.full(len(frame["is_signal"]), np.nan, dtype="float32")
         for selector, model in models[product]:
             mask = selector_mask(frame, selector)
@@ -633,7 +1018,12 @@ def collect_rows(
             + expand_required_columns(list(feature_names or []))
         )
     )
-    arrays = {name: [] for name in required}
+    optional = [name for name in DIAGNOSTIC_FEATURES + ["run", "evt", "event_weight"] if name not in required]
+    arrays = {name: [] for name in required + optional}
+    source_parts = []
+    input_file_parts = []
+    input_file_index_parts = []
+    input_tree_entry_parts = []
     total_entries = 0
     signal_entries = 0
     background_entries = 0
@@ -668,17 +1058,31 @@ def collect_rows(
                     read_n = min(read_n, per_file_score_limit)
                 if read_n <= 0:
                     continue
-                chunk = tree.arrays(required, entry_stop=read_n, library="np")
-                for name in required:
+                present_optional = [name for name in optional if name in keys]
+                read_columns = required + present_optional
+                chunk = tree.arrays(read_columns, entry_stop=read_n, library="np")
+                for name in read_columns:
                     arrays[name].append(chunk[name])
+                source_parts.append(np.full(read_n, infer_source_sample(path), dtype=object))
+                input_file_parts.append(np.full(read_n, str(path), dtype=object))
+                input_file_index_parts.append(np.full(read_n, idx - 1, dtype="int32"))
+                input_tree_entry_parts.append(np.arange(read_n, dtype="int64"))
                 selected_rows += read_n
         except Exception as exc:
             missing_tree.append(f"{path}: {exc}")
 
     frame = {}
     for name, parts in arrays.items():
-        frame[name] = np.concatenate(parts) if parts else np.array([], dtype="float32")
+        if parts:
+            frame[name] = np.concatenate(parts)
+        elif name in required:
+            frame[name] = np.array([], dtype="float32")
+    frame["source_sample"] = np.concatenate(source_parts) if source_parts else np.array([], dtype=object)
+    frame["input_file"] = np.concatenate(input_file_parts) if input_file_parts else np.array([], dtype=object)
+    frame["input_file_index"] = np.concatenate(input_file_index_parts) if input_file_index_parts else np.array([], dtype="int32")
+    frame["input_tree_entry"] = np.concatenate(input_tree_entry_parts) if input_tree_entry_parts else np.array([], dtype="int64")
     add_derived_features(frame)
+    add_global_event_identity(frame)
     return frame, {
         "files": len(paths),
         "total_entries": total_entries,
@@ -698,6 +1102,18 @@ def write_score_cache(path: Path, frame, scores, counts):
         "is_signal": frame["is_signal"].astype("int32"),
         "counts_json": np.array(json.dumps(json_ready(counts)), dtype=object),
     }
+    if "source_sample" in frame:
+        payload["source_sample"] = np.asarray(frame["source_sample"], dtype=object)
+    if "run" in frame:
+        payload["run"] = frame["run"].astype("int32")
+    if "evt" in frame:
+        payload["evt"] = frame["evt"].astype("int64")
+    if "event_weight" in frame:
+        payload["event_weight"] = frame["event_weight"].astype("float32")
+    if "input_file_index" in frame:
+        payload["input_file_index"] = frame["input_file_index"].astype("int32")
+    if "input_tree_entry" in frame:
+        payload["input_tree_entry"] = frame["input_tree_entry"].astype("int64")
     for name in DIAGNOSTIC_FEATURES:
         if name in frame:
             payload[name] = frame[name].astype("float32")
@@ -711,7 +1127,7 @@ def load_score_caches(cache_manifest: Path):
     import numpy as np
 
     cache_paths = read_manifest(cache_manifest)
-    frame_parts = {name: [] for name in ["is_signal"] + DIAGNOSTIC_FEATURES}
+    frame_parts = {name: [] for name in ["is_signal"] + OPTIONAL_CACHE_COLUMNS + DIAGNOSTIC_FEATURES}
     score_parts = {}
     counts = {
         "files": 0,
@@ -726,7 +1142,7 @@ def load_score_caches(cache_manifest: Path):
     for idx, path in enumerate(cache_paths, 1):
         print(f"[validateAuAuTightBDT] merging score cache {idx}/{len(cache_paths)}: {path}", flush=True)
         with np.load(path, allow_pickle=True) as data:
-            for name in ["is_signal"] + DIAGNOSTIC_FEATURES:
+            for name in ["is_signal"] + OPTIONAL_CACHE_COLUMNS + DIAGNOSTIC_FEATURES:
                 if name in data:
                     frame_parts[name].append(data[name])
                 elif name in MANDATORY_CACHE_COLUMNS:
@@ -753,6 +1169,7 @@ def load_score_caches(cache_manifest: Path):
         if name in MANDATORY_CACHE_COLUMNS or len(parts) == len(cache_paths):
             frame[name] = np.concatenate(parts) if parts else np.array([], dtype="float32")
     add_derived_features(frame)
+    add_global_event_identity(frame)
     scores = {
         product: np.concatenate(parts) if parts else np.array([], dtype="float32")
         for product, parts in score_parts.items()
@@ -2211,9 +2628,63 @@ def main() -> int:
             args.progress_every,
             feature_names=feature_names,
         )
+        event_quality_report = {"enabled": False}
+        if args.event_quality_cut_json is not None:
+            audit_output = args.event_quality_audit_output or (outdir / "event_quality_filter_audit.json")
+            frame, event_quality_report, _keep_mask = apply_low_calo_event_quality_filter(
+                frame,
+                counts,
+                args.event_quality_cut_json,
+                audit_output=audit_output,
+            )
+            if (
+                event_quality_report.get("retained_below_envelope_events", 0) != 0
+                or event_quality_report.get("retained_below_envelope_candidates", 0) != 0
+            ):
+                raise SystemExit(
+                    "Low-calo validation filter failed closure target: retained below-envelope "
+                    f"events={event_quality_report.get('retained_below_envelope_events')} "
+                    f"candidates={event_quality_report.get('retained_below_envelope_candidates')}"
+                )
+            counts["event_quality_filter"] = event_quality_report
+            counts["pre_event_quality_filter_total_entries"] = counts.get("total_entries", 0)
+            counts["pre_event_quality_filter_signal_entries"] = counts.get("signal_entries", 0)
+            counts["pre_event_quality_filter_background_entries"] = counts.get("background_entries", 0)
+            counts["total_entries"] = int(len(frame["is_signal"]))
+            counts["signal_entries"] = int((frame["is_signal"] == 1).sum())
+            counts["background_entries"] = int((frame["is_signal"] == 0).sum())
+            counts["scored_entries"] = int(len(frame["is_signal"]))
         scores = score_rows(frame, models, product_specs) if counts["scored_entries"] > 0 else {p: np.array([], dtype="float32") for p in product_names}
         if args.write_score_cache is not None:
             write_score_cache(args.write_score_cache, frame, scores, counts)
+    if args.merge_score_caches is not None:
+        event_quality_report = {"enabled": False}
+        if args.event_quality_cut_json is not None:
+            audit_output = args.event_quality_audit_output or (outdir / "event_quality_filter_audit.json")
+            frame, event_quality_report, keep_mask = apply_low_calo_event_quality_filter(
+                frame,
+                counts,
+                args.event_quality_cut_json,
+                audit_output=audit_output,
+            )
+            if (
+                event_quality_report.get("retained_below_envelope_events", 0) != 0
+                or event_quality_report.get("retained_below_envelope_candidates", 0) != 0
+            ):
+                raise SystemExit(
+                    "Low-calo validation merge filter failed closure target: retained below-envelope "
+                    f"events={event_quality_report.get('retained_below_envelope_events')} "
+                    f"candidates={event_quality_report.get('retained_below_envelope_candidates')}"
+                )
+            scores = {product: score[keep_mask] for product, score in scores.items()}
+            keep_len = int(len(frame["is_signal"]))
+            counts["event_quality_filter"] = event_quality_report
+            counts["scored_entries"] = keep_len
+            counts["total_entries"] = keep_len
+            counts["signal_entries"] = int((frame["is_signal"] == 1).sum())
+            counts["background_entries"] = int((frame["is_signal"] == 0).sum())
+    else:
+        event_quality_report = counts.get("event_quality_filter", {"enabled": False})
 
     notes = []
     if counts["missing_tree_files"]:
@@ -2260,7 +2731,16 @@ def main() -> int:
         make_working_point_diagnostic(outdir, working_points)
         make_plots(outdir, frame, scores, metrics)
         write_curve_exports(outdir, frame, scores, metrics)
-    metrics_json = json_ready({"counts": counts, **metrics, "status": status, "notes": notes})
+    metrics_json = json_ready(
+        {
+            "counts": counts,
+            **metrics,
+            "status": status,
+            "notes": notes,
+            "event_quality_filter": event_quality_report,
+            "global_event_key_audit": summarize_global_event_key(frame) if counts["scored_entries"] > 0 else {},
+        }
+    )
     (outdir / "validation_metrics.json").write_text(json.dumps(metrics_json, indent=2, sort_keys=True) + "\n")
     write_model_rankings(outdir, metrics)
     write_parseable_summary(outdir / "validation_summary.txt", status, args, counts, metrics, notes)

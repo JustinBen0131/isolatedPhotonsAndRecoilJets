@@ -45,6 +45,7 @@ SCHEMA_REGISTRY = MEMORY_ROOT / "SCHEMA_REGISTRY.yaml"
 NEGATIVE_MEMORY_MAP = MEMORY_ROOT / "NEGATIVE_MEMORY_MAP.yaml"
 LOCAL_CONTEXT_ROOT = Path("agent_context/local/context_resonance")
 OUTCOME_LEDGER_NAME = "retrieval_outcome_ledger.jsonl"
+OUTCOME_QUARANTINE_NAME = "retrieval_outcome_quarantine.json"
 INTERFERENCE_LEDGER_NAME = "context_interference_ledger.jsonl"
 SALIENCE_INDEX_NAME = "memory_salience_index.json"
 
@@ -278,18 +279,52 @@ GENERIC_WORKSTREAM_MATCH_TOKENS = {
     "candidate",
     "check",
     "context",
+    "cleanup",
     "current",
     "dream",
     "evidence",
     "generation",
+    "immediate",
+    "maintainability",
     "maintenance",
     "ready",
     "script",
     "slide",
+    "stability",
     "status",
     "task",
+    "traversibility",
     "work",
 }
+GLOBAL_CONTEXT_MATCH_TOKENS = {
+    "architecture",
+    "assess",
+    "codex",
+    "helping",
+    "hurting",
+    "justin",
+    "memory",
+    "patsfan753",
+    "performance",
+    "thesisanalysis",
+    "whether",
+    "workflow",
+}
+WORKSTREAM_HINT_STOP_TOKENS = GENERIC_WORKSTREAM_MATCH_TOKENS | GLOBAL_CONTEXT_MATCH_TOKENS
+WEAK_HINT_REPORT_STOP_TOKENS = {
+    "cleanup",
+    "immediate",
+    "maintainability",
+    "stability",
+    "traversibility",
+}
+BROAD_CONTEXT_SURFACES = {
+    "agent_context/CODEX_WORK_REGISTER.yaml",
+    "agent_context/STATUS_DASHBOARD.md",
+    "agent_context/TASK_BOARD.md",
+}
+TRIAGE_EXCERPT_SUFFIXES = {".md", ".yaml", ".yml", ".py"}
+OUTCOME_QUARANTINE_KEY_FIELDS = ("recorded_at", "memory_id", "task", "route", "result", "evidence_ref")
 
 
 def tokenize(text: str) -> set[str]:
@@ -298,6 +333,11 @@ def tokenize(text: str) -> set[str]:
         for token in re.findall(r"[a-zA-Z0-9_+-]{4,}", text.lower())
         if token not in {"this", "that", "with", "from", "should", "would", "current", "task"}
     }
+
+
+def specific_match_tokens(tokens: set[str]) -> set[str]:
+    """Return task tokens specific enough to route live workstream/artifact hints."""
+    return tokens - WORKSTREAM_HINT_STOP_TOKENS
 
 
 def load_yaml_dict(path: Path) -> dict[str, Any]:
@@ -420,6 +460,54 @@ def evidence_ref_for(item: dict[str, Any]) -> str:
     return first_line(item.get("evidence_ref") or item.get("evidence") or item.get("source") or "")
 
 
+def outcome_quarantine_path(ledger_root: Path) -> Path:
+    return ledger_root / OUTCOME_QUARANTINE_NAME
+
+
+def outcome_quarantine_key(item: dict[str, Any]) -> str:
+    payload = {
+        field: first_line(evidence_ref_for(item) if field == "evidence_ref" else item.get(field))
+        for field in OUTCOME_QUARANTINE_KEY_FIELDS
+    }
+    text = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def load_outcome_quarantine(ledger_root: Path) -> dict[str, dict[str, Any]]:
+    path = outcome_quarantine_path(ledger_root)
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    entries = data.get("entries") if isinstance(data, dict) else data
+    if isinstance(entries, dict):
+        return {
+            first_line(key): value if isinstance(value, dict) else {"reason": first_line(value)}
+            for key, value in entries.items()
+            if first_line(key)
+        }
+    if isinstance(entries, list):
+        out: dict[str, dict[str, Any]] = {}
+        for item in entries:
+            if isinstance(item, dict) and first_line(item.get("key")):
+                out[first_line(item.get("key"))] = item
+        return out
+    return {}
+
+
+def quarantine_summary_for(entry: dict[str, Any], row_index: int, key: str, item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "row_index": row_index,
+        "key": key,
+        "memory_id": first_line(item.get("memory_id")),
+        "result": first_line(item.get("result")),
+        "route": first_line(item.get("route")),
+        "reason": first_line(entry.get("reason")) or "locally quarantined feedback row",
+    }
+
+
 def row_contains_suspicious_text(item: dict[str, Any]) -> bool:
     text = " ".join(
         first_line(item.get(key))
@@ -537,7 +625,9 @@ def normalize_feedback_detail(value: dict[str, Any] | None) -> dict[str, Any]:
 
 def inspect_outcome_ledger(ledger_root: Path) -> dict[str, Any]:
     path = outcome_ledger_path(ledger_root)
+    quarantine_entries = load_outcome_quarantine(ledger_root)
     rows: list[dict[str, Any]] = []
+    quarantined: list[dict[str, Any]] = []
     audit_warnings: list[dict[str, Any]] = []
     audit_warning_counts: Counter[str] = Counter()
     malformed_rows = 0
@@ -585,6 +675,11 @@ def inspect_outcome_ledger(ledger_root: Path) -> dict[str, Any]:
                             "detail": "row is not a JSON object",
                         }
                     )
+                    continue
+                quarantine_key = outcome_quarantine_key(item)
+                quarantine_entry = quarantine_entries.get(quarantine_key)
+                if quarantine_entry:
+                    quarantined.append(quarantine_summary_for(quarantine_entry, raw_rows, quarantine_key, item))
                     continue
                 if row_contains_suspicious_text(item):
                     suspicious_text_rows += 1
@@ -660,6 +755,9 @@ def inspect_outcome_ledger(ledger_root: Path) -> dict[str, Any]:
         "raw_rows": raw_rows,
         "accepted_rows": len(rows),
         "ignored_rows": ignored_rows,
+        "quarantined_rows": len(quarantined),
+        "quarantine_path": outcome_quarantine_path(ledger_root).as_posix(),
+        "quarantined": quarantined[:40],
         "synthetic_rows_ignored": synthetic_rows,
         "malformed_rows_ignored": malformed_rows,
         "unknown_outcome_rows_ignored": unknown_outcome_rows,
@@ -1142,12 +1240,13 @@ def route_policy_candidates(route: str) -> list[dict[str, Any]]:
 def live_workstream_hint(task_tokens: set[str], limit: int = 1) -> list[dict[str, Any]]:
     data = load_yaml_dict(DEFAULT_REGISTER)
     rows = []
-    specific_tokens = task_tokens - GENERIC_WORKSTREAM_MATCH_TOKENS
+    specific_tokens = specific_match_tokens(task_tokens)
     if not specific_tokens:
         return []
     for item in sorted_workstreams(data):
         if item.get("status") not in {"active", "running", "waiting", "blocked", "review"}:
             continue
+        id_title_text = " ".join(first_line(value) for value in (item.get("workstream_id"), item.get("title")))
         text = " ".join(
             first_line(value)
             for value in (
@@ -1157,9 +1256,10 @@ def live_workstream_hint(task_tokens: set[str], limit: int = 1) -> list[dict[str
                 item.get("handoff_summary"),
             )
         )
-        overlap = len(specific_tokens & tokenize(text))
-        if overlap >= 2:
-            rows.append((overlap, item))
+        match_tokens = sorted(specific_tokens & tokenize(text))
+        id_title_overlap = specific_tokens & tokenize(id_title_text)
+        if len(match_tokens) >= 2 and (id_title_overlap or len(match_tokens) >= 3):
+            rows.append((len(match_tokens), match_tokens, item))
     rows.sort(key=lambda pair: pair[0], reverse=True)
     return [
         {
@@ -1168,6 +1268,7 @@ def live_workstream_hint(task_tokens: set[str], limit: int = 1) -> list[dict[str
             "workstream_id": item.get("workstream_id"),
             "title": item.get("title"),
             "reason": f"live workstream has cue overlap with task ({score} specific tokens)",
+            "match_tokens": match_tokens,
             "status": item.get("status"),
             "next_action": first_line(item.get("current_next_action")),
             "relation_type": "same_artifact",
@@ -1178,26 +1279,75 @@ def live_workstream_hint(task_tokens: set[str], limit: int = 1) -> list[dict[str
             "required_waking_check": "verify current register evidence before changing status or claiming completion",
             "score": {"resonance_score": 18.0 + score, "cue_overlap": score, "route_bonus": 0.0},
         }
-        for score, item in rows[:limit]
+        for score, match_tokens, item in rows[:limit]
+    ]
+
+
+def suppressed_weak_workstream_hints(task_tokens: set[str], limit: int = 3) -> list[dict[str, Any]]:
+    data = load_yaml_dict(DEFAULT_REGISTER)
+    rows = []
+    specific_tokens = specific_match_tokens(task_tokens)
+    if not task_tokens:
+        return []
+    for item in sorted_workstreams(data):
+        if item.get("status") not in {"active", "running", "waiting", "blocked", "review"}:
+            continue
+        id_title_text = " ".join(first_line(value) for value in (item.get("workstream_id"), item.get("title")))
+        text = " ".join(
+            first_line(value)
+            for value in (
+                item.get("workstream_id"),
+                item.get("title"),
+                item.get("current_next_action"),
+                item.get("handoff_summary"),
+            )
+        )
+        text_tokens = tokenize(text)
+        raw_match_tokens = sorted((task_tokens - WEAK_HINT_REPORT_STOP_TOKENS) & text_tokens)
+        match_tokens = sorted(specific_tokens & text_tokens)
+        id_title_overlap = specific_tokens & tokenize(id_title_text)
+        strong_enough = len(match_tokens) >= 2 and (id_title_overlap or len(match_tokens) >= 3)
+        if len(raw_match_tokens) >= 2 and not strong_enough:
+            rows.append((len(raw_match_tokens), len(match_tokens), raw_match_tokens, match_tokens, item))
+    rows.sort(key=lambda pair: (pair[1], pair[0]), reverse=True)
+    return [
+        {
+            "memory_id": f"suppressed.workstream.{item.get('workstream_id')}",
+            "source": "agent_context/CODEX_WORK_REGISTER.yaml",
+            "workstream_id": item.get("workstream_id"),
+            "title": item.get("title"),
+            "reason": "weak generic overlap with a live workstream; exact active artifact, task id, campaign, or title overlap is required before reading it",
+            "matched_terms": raw_match_tokens,
+            "specific_match_tokens": match_tokens,
+            "relation_type": "warning_only",
+            "retrieval_policy": "suppress",
+            "evidence_class": "real_observed",
+            "feedback_trainable": False,
+            "allowed_use": "suppression evidence only",
+            "required_waking_check": "do not use this workstream for orientation unless a later exact anchor is present",
+        }
+        for _raw_score, _specific_score, raw_match_tokens, match_tokens, item in rows[:limit]
     ]
 
 
 def artifact_hint(task_tokens: set[str]) -> list[dict[str, Any]]:
     data = load_yaml_dict(ARTIFACT_REGISTRY)
     rows = []
-    specific_tokens = task_tokens - GENERIC_WORKSTREAM_MATCH_TOKENS
+    specific_tokens = specific_match_tokens(task_tokens)
     if not specific_tokens:
         return []
     for item in data.get("artifacts") or []:
         if not isinstance(item, dict):
             continue
+        id_title_text = " ".join(first_line(value) for value in (item.get("artifact_id") or item.get("id"), item.get("title")))
         text = " ".join(first_line(value) for value in item.values())
-        overlap = len(specific_tokens & tokenize(text))
-        if overlap >= 2:
-            rows.append((overlap, item))
+        match_tokens = sorted(specific_tokens & tokenize(text))
+        id_title_overlap = specific_tokens & tokenize(id_title_text)
+        if len(match_tokens) >= 2 and (id_title_overlap or len(match_tokens) >= 3):
+            rows.append((len(match_tokens), match_tokens, item))
     rows.sort(key=lambda pair: pair[0], reverse=True)
     out = []
-    for score, item in rows[:1]:
+    for score, match_tokens, item in rows[:1]:
         out.append(
             {
                 "memory_id": f"artifact.{item.get('artifact_id') or item.get('id') or 'matched'}",
@@ -1205,6 +1355,7 @@ def artifact_hint(task_tokens: set[str]) -> list[dict[str, Any]]:
                 "artifact_id": item.get("artifact_id") or item.get("id"),
                 "title": first_line(item.get("title")) or first_line(item.get("artifact_id")),
                 "reason": f"registered artifact has cue overlap with task ({score} specific tokens)",
+                "match_tokens": match_tokens,
                 "relation_type": "same_artifact",
                 "retrieval_policy": "conscious_context",
                 "evidence_class": "real_observed",
@@ -1356,6 +1507,7 @@ def suppressed_context(route: str, task_tokens: set[str], feedback_counts: dict[
     for item in suppressed_rows:
         if item.get("retrieval_policy") in {"suppress", "quarantine_candidate"} or item.get("evidence_class") == "synthetic":
             rows.append(item)
+    rows.extend(suppressed_weak_workstream_hints(task_tokens))
     return rows
 
 
@@ -1382,6 +1534,300 @@ def retrieval_outcome_candidates(route: str, task: str, selected_ids: list[str])
             }
         )
     return rows
+
+
+def context_budget_triage(route: str, conscious_context: list[dict[str, Any]]) -> dict[str, Any]:
+    selected_sources = []
+    for item in conscious_context:
+        source = first_line(item.get("source"))
+        if source and source not in selected_sources:
+            selected_sources.append(source)
+    broad_surfaces = {
+        "agent_context/CODEX_WORK_REGISTER.yaml": {
+            "defer_unless": {"active_job_status", "task_capture", "training_production"},
+            "reason": "large canonical register; read targeted workstream blocks unless status/task routing requires broader scan",
+        },
+        "agent_context/STATUS_DASHBOARD.md": {
+            "defer_unless": {"active_job_status", "training_production"},
+            "reason": "large append-only status log; read current snapshot only unless campaign evidence is required",
+        },
+        "agent_context/TASK_BOARD.md": {
+            "defer_unless": {"task_capture", "active_job_status"},
+            "reason": "planning surface; read Now/Next only unless task routing requires full board context",
+        },
+        "agent_context/local/dreams/": {
+            "defer_unless": {"os_maintenance"},
+            "reason": "synthetic/proposal-only run archive; inspect exact dream run artifacts only when OS maintenance asks for them",
+        },
+    }
+    read_first = [source for source in selected_sources if source not in broad_surfaces]
+    deferred = []
+    for path, config in broad_surfaces.items():
+        if route in config["defer_unless"]:
+            continue
+        if path in selected_sources:
+            read_first.append(path)
+            continue
+        deferred.append({"surface": path, "reason": config["reason"]})
+    return {
+        "route": route,
+        "read_first": read_first[:5],
+        "defer_by_default": deferred,
+        "rule": "Read exact routed policies and selected evidence before broad dashboards; open broad surfaces only when the route or match tokens require them.",
+    }
+
+
+def local_context_file(source: str) -> Path | None:
+    if not source or source.startswith(("http://", "https://")):
+        return None
+    path = Path(source)
+    if path.is_absolute() or path.is_dir():
+        return None
+    if not source.startswith(("agent_context/", "scripts/", "codex_notes/", "macros/", "src/", "src_AuAu/")):
+        return None
+    if not path.exists() or not path.is_file():
+        return None
+    if path.suffix.lower() not in TRIAGE_EXCERPT_SUFFIXES:
+        return None
+    return path
+
+
+def line_contains_any(line: str, terms: list[str]) -> bool:
+    lowered = line.lower()
+    return any(term and term.lower() in lowered for term in terms)
+
+
+def relevant_source_line(lines: list[str], memory_id: str, reason: str, match_tokens: list[str]) -> int:
+    if not lines:
+        return 1
+    if memory_id.startswith("route_policy."):
+        return 1
+    search_terms = [memory_id] if memory_id else []
+    search_terms.extend(first_line(token) for token in match_tokens)
+    search_terms.extend(sorted(tokenize(reason))[:4])
+    search_terms = [term for term in search_terms if len(term) >= 4]
+    for index, line in enumerate(lines, start=1):
+        if line_contains_any(line, search_terms):
+            return index
+    return 1
+
+
+def triage_source_pointer(
+    source: str,
+    memory_id: str,
+    reason: str,
+    match_tokens: list[str],
+    *,
+    max_lines: int,
+    allow_broad_excerpt: bool,
+) -> dict[str, str]:
+    path = local_context_file(source)
+    if path is None:
+        return {"line_range": "", "excerpt": ""}
+    if source in BROAD_CONTEXT_SURFACES and not allow_broad_excerpt:
+        return {"line_range": "", "excerpt": ""}
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return {"line_range": "", "excerpt": ""}
+    if not lines:
+        return {"line_range": "", "excerpt": ""}
+    anchor_line = relevant_source_line(lines, memory_id, reason, match_tokens)
+    if source in BROAD_CONTEXT_SURFACES:
+        start = anchor_line
+    else:
+        start = max(1, anchor_line - 1)
+    end = min(len(lines), start + max(1, max_lines) - 1)
+    excerpt_lines = [
+        f"{line_no}: {lines[line_no - 1][:220]}"
+        for line_no in range(start, end + 1)
+    ]
+    return {"line_range": f"{start}-{end}", "excerpt": "\n".join(excerpt_lines)[:1600]}
+
+
+def enrich_required_read(read: dict[str, Any], *, max_lines: int, allow_broad_excerpt: bool) -> dict[str, Any]:
+    pointer = triage_source_pointer(
+        first_line(read.get("path")),
+        first_line(read.get("memory_id")),
+        first_line(read.get("reason")),
+        [first_line(token) for token in read.get("match_tokens") or []],
+        max_lines=max_lines,
+        allow_broad_excerpt=allow_broad_excerpt,
+    )
+    out = dict(read)
+    out.update(pointer)
+    return out
+
+
+def evidence_rank_for_context_item(item: dict[str, Any]) -> str:
+    memory_id = first_line(item.get("memory_id"))
+    source = first_line(item.get("source"))
+    if memory_id.startswith("route_policy."):
+        return "policy"
+    if source == "agent_context/CODEX_WORK_REGISTER.yaml":
+        return "active_register"
+    if source == "agent_context/ARTIFACT_REGISTRY.yaml":
+        return "exact_artifact"
+    if str(item.get("evidence_class") or "") == "human_approved":
+        return "authority"
+    return "weak"
+
+
+def route_confidence(signature: dict[str, Any]) -> float:
+    scores = signature.get("scores") if isinstance(signature.get("scores"), dict) else {}
+    total = sum(int(value or 0) for value in scores.values())
+    route_score = int(scores.get(signature.get("route"), 0) or 0)
+    if total <= 0:
+        return 0.0
+    return round(route_score / total, 3)
+
+
+def artifact_goal_for_route(route: str) -> str:
+    return {
+        "plot_generation": "produce or QA a plot artifact with provenance before slide use",
+        "slide_scripting": "advance a coherent slide/story artifact, not just raw plot generation",
+        "training_production": "preserve evidence-backed campaign validity without duplicate production",
+        "sdcc_path_transfer": "orient transfer or SDCC path work without unsafe remote mutation",
+        "active_job_status": "check current job/output state with exact evidence",
+        "task_capture": "update the task pipeline from the repo register outward",
+        "os_maintenance": "reduce context drag while preserving evidence-first thesis execution",
+    }.get(route, "orient the task with the smallest evidence-backed context")
+
+
+def build_context_triage_payload(
+    task: str,
+    max_active: int = 3,
+    max_nudges: int = 3,
+    *,
+    mode: str = "waking",
+    ledger_root: Path | None = None,
+    budget_lines: int = 120,
+) -> dict[str, Any]:
+    payload = build_context_resonance_payload(
+        task,
+        max_active=max_active,
+        max_nudges=max_nudges,
+        mode=mode,
+        ledger_root=ledger_root,
+    )
+    signature = payload.get("task_signature") if isinstance(payload.get("task_signature"), dict) else {}
+    route = first_line(signature.get("route")) or "os_maintenance"
+    required_reads = []
+    seen_sources: set[str] = set()
+    for item in payload.get("conscious_context") or []:
+        if not isinstance(item, dict):
+            continue
+        source = first_line(item.get("source"))
+        if not source or source in seen_sources:
+            continue
+        seen_sources.add(source)
+        required_reads.append(
+            {
+                "path": source,
+                "line_range": "",
+                "excerpt": "",
+                "reason": item.get("reason") or item.get("why_it_surfaced") or "selected by route-gated context resonance",
+                "evidence_rank": evidence_rank_for_context_item(item),
+                "memory_id": item.get("memory_id"),
+                "match_tokens": item.get("match_tokens") or [],
+            }
+        )
+
+    triage = payload.get("context_budget_triage") if isinstance(payload.get("context_budget_triage"), dict) else {}
+    for source in triage.get("read_first") or []:
+        if isinstance(source, str) and source and source not in seen_sources:
+            seen_sources.add(source)
+            required_reads.append(
+                {
+                    "path": source,
+                    "line_range": "",
+                    "excerpt": "",
+                    "reason": "route-gated read-first source",
+                    "evidence_rank": "policy" if source.endswith(".md") else "weak",
+                    "memory_id": "",
+                    "match_tokens": [],
+                }
+            )
+
+    suppressed_reads = []
+    for item in payload.get("suppressed_context") or []:
+        if not isinstance(item, dict):
+            continue
+        suppressed_reads.append(
+            {
+                "path": first_line(item.get("source")),
+                "reason": item.get("reason") or "suppressed context",
+                "memory_id": item.get("memory_id"),
+                "matched_terms": item.get("matched_terms") or item.get("match_tokens") or [],
+                "specific_match_tokens": item.get("specific_match_tokens") or [],
+            }
+        )
+    for item in triage.get("defer_by_default") or []:
+        if isinstance(item, dict):
+            suppressed_reads.append(
+                {
+                    "path": item.get("surface"),
+                    "reason": item.get("reason"),
+                    "memory_id": "deferred.broad_surface",
+                    "matched_terms": [],
+                    "specific_match_tokens": [],
+                }
+            )
+
+    read_excerpt_lines = max(3, min(8, int(budget_lines / max(max_active, 1))))
+    selected_required_reads = [
+        enrich_required_read(read, max_lines=read_excerpt_lines, allow_broad_excerpt=True)
+        for read in required_reads[:max_active]
+    ]
+
+    return {
+        "status": payload.get("status"),
+        "mutation_boundary": payload.get("mutation_boundary"),
+        "generated_at": payload.get("generated_at"),
+        "task": task,
+        "route": route,
+        "route_confidence": route_confidence(signature),
+        "task_anchors": signature.get("tokens") or [],
+        "required_reads": selected_required_reads,
+        "optional_reads": [
+            {
+                "path": first_line(item.get("source")),
+                "reason": item.get("reason") or item.get("why_it_surfaced"),
+                "memory_id": item.get("memory_id"),
+            }
+            for item in payload.get("latent_context_nudges") or []
+            if isinstance(item, dict)
+        ][:max_nudges],
+        "suppressed_context": suppressed_reads,
+        "negative_traps": [
+            {
+                "memory_id": item.get("memory_id"),
+                "trap": item.get("trap") or item.get("reason"),
+                "first_safe_action": item.get("first_safe_action"),
+            }
+            for item in payload.get("negative_memories") or []
+            if isinstance(item, dict)
+        ],
+        "forbidden_mutations": [
+            "no external-system mutation from triage",
+            "no science-output mutation from triage",
+            "no task/status mutation from triage",
+        ],
+        "artifact_goal": artifact_goal_for_route(route),
+        "decision_focus": "choose the smallest read set that can support the next evidence-backed action",
+        "acceptance_checks": [
+            "required reads stay within the configured cap",
+            "weak live-workstream matches remain suppressed unless exact anchors appear",
+            "dream and ChatGPT material remain proposal/critique until locally verified",
+            "slide/story tasks are treated as narrative-deliverable work, not only plot generation",
+        ],
+        "budget_summary": {
+            "max_lines": budget_lines,
+            "selected_reads": len(selected_required_reads),
+            "optional_reads": min(len(payload.get("latent_context_nudges") or []), max_nudges),
+            "suppressed_candidates": len(suppressed_reads),
+        },
+    }
 
 
 def build_context_resonance_payload(
@@ -1451,6 +1897,7 @@ def build_context_resonance_payload(
         "latent_context_nudges": latent_context_nudges,
         "negative_memories": negative_memories,
         "suppressed_context": suppressed_context(route, task_tokens, feedback_counts),
+        "context_budget_triage": context_budget_triage(route, conscious_context),
         "retrieval_outcome_candidates": retrieval_outcome_candidates(route, task, selected_ids),
         "required_checks_before_claim": [
             "load route policy before acting",
@@ -1497,9 +1944,70 @@ def render_markdown(payload: dict[str, Any]) -> str:
     for item in payload.get("suppressed_context") or []:
         lines.append(f"- `{item.get('memory_id')}` -> `{item.get('source')}`: {item.get('reason')}")
     lines.append("")
+    triage = payload.get("context_budget_triage") if isinstance(payload.get("context_budget_triage"), dict) else {}
+    lines.append("## Context Budget Triage")
+    lines.append(f"- rule: {triage.get('rule')}")
+    read_first = triage.get("read_first") if isinstance(triage.get("read_first"), list) else []
+    if read_first:
+        lines.append("- read first:")
+        for source in read_first:
+            lines.append(f"  - `{source}`")
+    deferred = triage.get("defer_by_default") if isinstance(triage.get("defer_by_default"), list) else []
+    if deferred:
+        lines.append("- defer by default:")
+        for item in deferred:
+            if isinstance(item, dict):
+                lines.append(f"  - `{item.get('surface')}`: {item.get('reason')}")
+    if not read_first and not deferred:
+        lines.append("- no route-specific triage")
+    lines.append("")
     lines.append("## Required Checks Before Claim")
     for item in payload.get("required_checks_before_claim") or []:
         lines.append(f"- {item}")
+    return "\n".join(lines) + "\n"
+
+
+def render_triage_markdown(payload: dict[str, Any]) -> str:
+    lines = ["# Context Triage Gate", "", WAKING_HEADER, ""]
+    lines.append(f"- task: {payload.get('task')}")
+    lines.append(f"- route: `{payload.get('route')}`")
+    lines.append(f"- route_confidence: {payload.get('route_confidence')}")
+    lines.append(f"- mutation_boundary: {payload.get('mutation_boundary')}")
+    lines.append(f"- artifact_goal: {payload.get('artifact_goal')}")
+    lines.append(f"- decision_focus: {payload.get('decision_focus')}")
+    lines.append("")
+    lines.append("## Required Reads")
+    for item in payload.get("required_reads") or []:
+        line_range = item.get("line_range")
+        range_suffix = f":{line_range}" if line_range else ""
+        lines.append(f"- `{item.get('path')}{range_suffix}` ({item.get('evidence_rank')}): {item.get('reason')}")
+        excerpt = first_line(item.get("excerpt"))
+        if excerpt:
+            lines.append(f"  excerpt: {excerpt}")
+    if not payload.get("required_reads"):
+        lines.append("- none")
+    lines.append("")
+    lines.append("## Suppressed Context")
+    for item in payload.get("suppressed_context") or []:
+        matched = item.get("matched_terms") or []
+        matched_suffix = f"; matched={matched}" if matched else ""
+        lines.append(f"- `{item.get('memory_id')}` -> `{item.get('path')}`: {item.get('reason')}{matched_suffix}")
+    if not payload.get("suppressed_context"):
+        lines.append("- none")
+    lines.append("")
+    lines.append("## Acceptance Checks")
+    for item in payload.get("acceptance_checks") or []:
+        lines.append(f"- {item}")
+    lines.append("")
+    budget = payload.get("budget_summary") if isinstance(payload.get("budget_summary"), dict) else {}
+    lines.append("## Budget")
+    lines.append(
+        "- "
+        + ", ".join(
+            f"{key}={value}"
+            for key, value in budget.items()
+        )
+    )
     return "\n".join(lines) + "\n"
 
 
@@ -2140,6 +2648,30 @@ CANARY_TASKS = [
         "task": "OS memory architecture and context resonance upgrade",
         "route": "os_maintenance",
         "expected_any": {"context_resonance_architecture", "dream_memory_not_more_context"},
+        "forbidden_any": {"workstream.ppg_zoom_transcript_summary_workflow"},
+    },
+    {
+        "id": "memory_architecture_no_global_workstream_bleed",
+        "task": "assess whether memory architecture is helping or hurting Codex performance in ThesisAnalysis",
+        "route": "os_maintenance",
+        "expected_any": {"context_resonance_architecture", "dream_memory_not_more_context"},
+        "forbidden_any": {"workstream.ppg_zoom_transcript_summary_workflow"},
+    },
+    {
+        "id": "immediate_os_cleanup_no_live_workstream_bleed",
+        "task": "immediate cleanup targets for agentic OS stability traversibility maintainability",
+        "route": "os_maintenance",
+        "expected_any": {
+            "context_resonance_architecture",
+            "dream_memory_not_more_context",
+            "no_autonomy_over_thesis_progress",
+        },
+        "forbidden_any": {"workstream.hp26_photon_id_talk", "workstream.ppg_zoom_transcript_summary_workflow"},
+        "forbidden_suppressed_any": {
+            "suppressed.workstream.hp26_photon_id_talk",
+            "suppressed.workstream.ppg_zoom_transcript_summary_workflow",
+        },
+        "fail_on_forbidden_suppressed": True,
     },
     {
         "id": "dream_slide_regression_learning",
@@ -2236,6 +2768,9 @@ def canary_payload() -> dict[str, Any]:
                 failures.append(f"{spec['id']}: negative_memories cap exceeded")
             if not ids & set(spec["expected_any"]):
                 failures.append(f"{spec['id']}: expected one of {sorted(spec['expected_any'])}, got {sorted(ids)}")
+            forbidden_ids = ids & set(spec.get("forbidden_any") or set())
+            if forbidden_ids:
+                failures.append(f"{spec['id']}: forbidden memory ids surfaced: {sorted(forbidden_ids)}")
             for key in ("conscious_context", "latent_context_nudges", "negative_memories"):
                 for item in payload.get(key) or []:
                     score = item.get("score") if isinstance(item.get("score"), dict) else {}
@@ -2260,11 +2795,50 @@ def canary_payload() -> dict[str, Any]:
                     failures.append(f"{spec['id']}: synthetic material surfaced as conscious context")
                 if not item.get("required_waking_check"):
                     failures.append(f"{spec['id']}: conscious item lacks required_waking_check")
+            triage_payload = build_context_triage_payload(
+                spec["task"],
+                max_active=3,
+                max_nudges=3,
+                mode="waking",
+                ledger_root=empty_ledger_root,
+            )
+            if triage_payload.get("route") != spec["route"]:
+                failures.append(f"{spec['id']}: triage expected route {spec['route']} got {triage_payload.get('route')}")
+            if not isinstance(triage_payload.get("required_reads"), list):
+                failures.append(f"{spec['id']}: triage missing required_reads list")
+            if not isinstance(triage_payload.get("suppressed_context"), list):
+                failures.append(f"{spec['id']}: triage missing suppressed_context list")
+            budget = triage_payload.get("budget_summary") if isinstance(triage_payload.get("budget_summary"), dict) else {}
+            if int(budget.get("selected_reads", 0) or 0) > 3:
+                failures.append(f"{spec['id']}: triage selected_reads cap exceeded")
+            for item in triage_payload.get("required_reads") or []:
+                if not isinstance(item, dict):
+                    continue
+                source = first_line(item.get("path"))
+                if local_context_file(source):
+                    if not first_line(item.get("line_range")):
+                        failures.append(f"{spec['id']}: triage required read {source} lacks line_range")
+                    if not first_line(item.get("excerpt")):
+                        failures.append(f"{spec['id']}: triage required read {source} lacks excerpt")
+            suppressed_ids = {
+                first_line(item.get("memory_id"))
+                for item in triage_payload.get("suppressed_context") or []
+                if isinstance(item, dict)
+            }
+            forbidden_suppressed = suppressed_ids & set(spec.get("forbidden_suppressed_any") or set())
+            if spec.get("fail_on_forbidden_suppressed") and forbidden_suppressed:
+                failures.append(f"{spec['id']}: forbidden suppressed context surfaced: {sorted(forbidden_suppressed)}")
             cases.append(
                 {
                     "id": spec["id"],
                     "route": signature.get("route"),
                     "memory_ids": sorted(ids),
+                    "triage": {
+                        "route": triage_payload.get("route"),
+                        "required_read_count": len(triage_payload.get("required_reads") or []),
+                        "suppressed_count": len(triage_payload.get("suppressed_context") or []),
+                        "forbidden_suppressed": sorted(forbidden_suppressed),
+                    },
                     "caps": {
                         "conscious_context": len(payload.get("conscious_context") or []),
                         "latent_context_nudges": len(payload.get("latent_context_nudges") or []),
@@ -3036,6 +3610,23 @@ def resolve(args: argparse.Namespace) -> int:
     return 0
 
 
+def triage(args: argparse.Namespace) -> int:
+    ledger_root = Path(args.ledger_root) if getattr(args, "ledger_root", None) else LOCAL_CONTEXT_ROOT
+    payload = build_context_triage_payload(
+        args.task,
+        max_active=args.max_active,
+        max_nudges=args.max_nudges,
+        mode=args.mode,
+        ledger_root=ledger_root,
+        budget_lines=args.budget_lines,
+    )
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print(render_triage_markdown(payload), end="")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command")
@@ -3048,6 +3639,16 @@ def build_parser() -> argparse.ArgumentParser:
     resolve_parser.add_argument("--mode", choices=["waking", "dream"], default="waking")
     resolve_parser.add_argument("--ledger-root", help="local context-resonance ledger root for deterministic testing")
     resolve_parser.set_defaults(func=resolve)
+
+    triage_parser = subparsers.add_parser("triage", help="emit a route-gated read plan before broad context reads")
+    triage_parser.add_argument("--task", required=True, help="short natural-language task description")
+    triage_parser.add_argument("--json", action="store_true", help="emit JSON instead of Markdown")
+    triage_parser.add_argument("--max-active", type=int, default=3)
+    triage_parser.add_argument("--max-nudges", type=int, default=3)
+    triage_parser.add_argument("--budget-lines", type=int, default=120)
+    triage_parser.add_argument("--mode", choices=["waking", "dream"], default="waking")
+    triage_parser.add_argument("--ledger-root", help="local context-resonance ledger root for deterministic testing")
+    triage_parser.set_defaults(func=triage)
 
     record_parser = subparsers.add_parser("record-outcome", help="append local retrieval feedback")
     record_parser.add_argument("--memory-id", required=True)
@@ -3095,7 +3696,7 @@ def legacy_resolve(argv: list[str]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     raw_args = list(sys.argv[1:] if argv is None else argv)
-    commands = {"resolve", "record-outcome", "review", "maintenance-review", "canary", "feedback-health"}
+    commands = {"resolve", "triage", "record-outcome", "review", "maintenance-review", "canary", "feedback-health"}
     if not raw_args or raw_args[0].startswith("-"):
         return legacy_resolve(raw_args)
     if raw_args[0] not in commands:

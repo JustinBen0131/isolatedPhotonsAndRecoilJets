@@ -686,6 +686,21 @@ namespace
 
   inline double ppg12InclusiveJetClusterEtUpper(const PPG12InclusiveJetSlice slice)
   {
+    if (const char* raw = std::getenv("RJ_PP_INCLUSIVE_CLUSTER_ET_MAX_OVERRIDE"))
+    {
+      std::string value = lowerCopy(raw);
+      value.erase(std::remove_if(value.begin(), value.end(), ::isspace), value.end());
+      if (value == "off" || value == "none" || value == "inf" || value == "infinity")
+      {
+        return std::numeric_limits<double>::infinity();
+      }
+      try
+      {
+        const double override = std::stod(value);
+        if (std::isfinite(override) && override > 0.0) return override;
+      }
+      catch (...) {}
+    }
     switch (slice)
     {
       case PPG12InclusiveJetSlice::kJet5:  return 10.0;
@@ -7994,7 +8009,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     ssNonIso = (eiso_et > thrNonIsoSS);
                 }
 
-                if (m_ppPhotonIDTrainingTreeEnabled && m_isSim && !m_isAuAu)
+                if (doCanonical && m_ppPhotonIDTrainingTreeEnabled && m_isSim && !m_isAuAu)
                 {
                     bool isPPG12Signal = false;
                     int truthTrackId = -1;

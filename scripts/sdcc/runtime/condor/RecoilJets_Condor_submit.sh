@@ -465,6 +465,23 @@ create_pipeline_snapshot() {
   cp -f "${user_root}/thesisAnalysis/install/lib/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
   cp -f "${user_root}/thesisAnalysis_auau/install/lib/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
 
+  # Preserve dynamic-loader identity inside the frozen snapshot.  The copied
+  # files are the bare linker names, but their DT_NEEDED entries request the
+  # SONAMEs (for example libcalo_io.so.0).  Without these links, dependent
+  # libraries can bind to a different user/CVMFS copy while R__LOAD_LIBRARY
+  # opens the snapshot copy, duplicating ROOT dictionaries in one process.
+  if command -v readelf >/dev/null 2>&1; then
+    local snap_so soname
+    for snap_so in "${snap_lib_dir}"/lib*.so; do
+      [[ -f "$snap_so" ]] || continue
+      soname="$(readelf -d "$snap_so" 2>/dev/null | awk -F'[][]' '/SONAME/ {print $2; exit}' || true)"
+      [[ -n "$soname" ]] || continue
+      ln -sfn "$(basename "$snap_so")" "${snap_lib_dir}/${soname}"
+    done
+  else
+    warn "readelf not available; snapshot SONAME links were not generated"
+  fi
+
   sed -i "s|#include \"/sphenix/u/patsfan753/scratch/thesisAnalysis/macros/Fun4All_recoilJets_unified_impl.C\"|#include \"${snap_impl}\"|" "$snap_macro"
   sed -i "s|#include \"/sphenix/u/patsfan753/scratch/thesisAnalysis/macros/Calo_Calib.C\"|#include \"${snap_calo}\"|" "$snap_impl"
   sed -i "s|#include \"/sphenix/u/patsfan753/scratch/thesisAnalysis/src/RecoilJets.h\"|#include \"${snap_pp_header}\"|" "$snap_impl"
@@ -924,14 +941,26 @@ embedded_inclusive_stitch_env_fragment() {
     RJ_RECO_CLUSTER_ET_FINE_DIAG
     RJ_RECO_CLUSTER_ET_FINE_MAX
     RJ_PP_NPB_SCORE_MIN_ET
+    RJ_PP_NPB_SCORE_MAX_ET
     RJ_PP_PHOTONID_EXTRACT_ONLY
     RJ_PP_PHOTONID_TRAINING_TREE
     RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES
     RJ_PP_PHOTONID_SOURCE_ROLE
     RJ_PP_PHOTONID_PPG12_FILTER
     RJ_PP_PHOTONID_REQUIRE_PRESELECTION
+    RJ_PP_INCLUSIVE_CLUSTER_ET_MAX_OVERRIDE
     RJ_PHOTON_ID_ROW_MATCH
     RJ_CURRENT_IAN_RAW_PHOTON_ID_ROW_MATCH
+    RJ_THE44_PYTHIA_AUTOPSY
+    RJ_THE44_PYTHIA_AUTOPSY_MAX_ENTRIES
+    RJ_THE44_PYTHIA_AUTOPSY_HIGH_BDT_MIN
+    RJ_THE44_PYTHIA_AUTOPSY_MID_BDT_MIN
+    RJ_THE44_PYTHIA_AUTOPSY_MID_BDT_MAX
+    RJ_THE44_PYTHIA_AUTOPSY_MIN_PT
+    RJ_THE44_PYTHIA_AUTOPSY_MAX_PT
+    RJ_THE44_PYTHIA_AUTOPSY_PARTICLE_CONE
+    RJ_THE44_PYTHIA_AUTOPSY_PARTICLE_MIN_PT
+    RJ_THE44_PYTHIA_AUTOPSY_MAX_PARTICLES
     RJ_CODEX_CHAT_NAME
     RJ_CODEX_THREAD_ID
   )
@@ -965,14 +994,26 @@ embedded_inclusive_stitch_env_args() {
     RJ_RECO_CLUSTER_ET_FINE_DIAG
     RJ_RECO_CLUSTER_ET_FINE_MAX
     RJ_PP_NPB_SCORE_MIN_ET
+    RJ_PP_NPB_SCORE_MAX_ET
     RJ_PP_PHOTONID_EXTRACT_ONLY
     RJ_PP_PHOTONID_TRAINING_TREE
     RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES
     RJ_PP_PHOTONID_SOURCE_ROLE
     RJ_PP_PHOTONID_PPG12_FILTER
     RJ_PP_PHOTONID_REQUIRE_PRESELECTION
+    RJ_PP_INCLUSIVE_CLUSTER_ET_MAX_OVERRIDE
     RJ_PHOTON_ID_ROW_MATCH
     RJ_CURRENT_IAN_RAW_PHOTON_ID_ROW_MATCH
+    RJ_THE44_PYTHIA_AUTOPSY
+    RJ_THE44_PYTHIA_AUTOPSY_MAX_ENTRIES
+    RJ_THE44_PYTHIA_AUTOPSY_HIGH_BDT_MIN
+    RJ_THE44_PYTHIA_AUTOPSY_MID_BDT_MIN
+    RJ_THE44_PYTHIA_AUTOPSY_MID_BDT_MAX
+    RJ_THE44_PYTHIA_AUTOPSY_MIN_PT
+    RJ_THE44_PYTHIA_AUTOPSY_MAX_PT
+    RJ_THE44_PYTHIA_AUTOPSY_PARTICLE_CONE
+    RJ_THE44_PYTHIA_AUTOPSY_PARTICLE_MIN_PT
+    RJ_THE44_PYTHIA_AUTOPSY_MAX_PARTICLES
     RJ_CODEX_CHAT_NAME
     RJ_CODEX_THREAD_ID
   )
@@ -2275,6 +2316,16 @@ propagate_pp_photonid_controls_to_yaml() {
   fi
 }
 
+propagate_reco_cluster_et_bins_to_yaml() {
+  local file="$1"
+  local bins="${RJ_RECO_CLUSTER_ET_ANALYSIS_BINS:-}"
+  [[ -n "$bins" ]] || return 0
+  [[ "$bins" == \[*\] ]] || bins="[${bins}]"
+  yaml_set_scalar_in_place "$file" "jes3_photon_pt_bins" "$bins"
+  yaml_set_scalar_in_place "$file" "unfold_reco_photon_pt_bins" "$bins"
+  yaml_set_scalar_in_place "$file" "unfold_truth_photon_pt_bins" "$bins"
+}
+
 sim_make_yaml_override() {
   local master="$1" pt="$2" frac="$3" vz="$4" cone="$5" sliding="$6" fixed="$7" uepipe="$8" preselection="$9" tight="${10}" nonTight="${11}" tag="${12}" stamp="${13:-}" force_sliding_and_fixed="${14:-}"
   mkdir -p "$SIM_YAML_OVERRIDE_DIR"
@@ -2303,6 +2354,7 @@ sim_make_yaml_override() {
   sed -E "${sed_args[@]}" "$master" > "$out"
   pin_photon_id_scalars_in_yaml "$out" "$preselection" "$tight" "$nonTight"
   propagate_pp_photonid_controls_to_yaml "$out"
+  propagate_reco_cluster_et_bins_to_yaml "$out"
   echo "$out"
 }
 
@@ -2451,6 +2503,12 @@ resolve_dataset() {
   if [[ -n "${RJ_GOLDEN_OVERRIDE:-}" ]]; then
     GOLDEN="$RJ_GOLDEN_OVERRIDE"
   fi
+  if [[ -n "${RJ_LIST_DIR_OVERRIDE:-}" ]]; then
+    LIST_DIR="$RJ_LIST_DIR_OVERRIDE"
+  fi
+  if [[ -n "${RJ_LIST_PREFIX_OVERRIDE:-}" ]]; then
+    LIST_PREFIX="$RJ_LIST_PREFIX_OVERRIDE"
+  fi
   mkdir -p "$STAGE_DIR" "$ROUND_DIR" "$LOG_DIR" "$OUT_DIR" "$ERR_DIR" "$SUB_DIR"
 }
 
@@ -2502,20 +2560,290 @@ pick_first_iso_ping_run() {
 
 # Build per-run grouped list files; prints absolute paths to grouped lists, one per line
 #   make_groups <run8> <groupSize>  → writes STAGE_DIR/run<run8>_grpXXX.list files
+resolve_data_input_list() {
+  local src="$1" out="$2" r8="${3:-unknown}"
+  [[ -s "$src" ]] || { warn "resolve input requested for missing/empty list: $src"; return 1; }
+
+  local tmpdir macro log
+  tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/rj_resolve_inputs.XXXXXX")" || return 1
+  macro="${tmpdir}/rj_resolve_input_list.C"
+  log="${out}.resolve.log"
+
+  cat > "$macro" <<'ROOTMACRO'
+#include <frog/FROG.h>
+#include <TSystem.h>
+
+#include <fstream>
+#include <iostream>
+#include <sstream>
+#include <string>
+#include <vector>
+#include <cstdlib>
+#include <cstdio>
+
+namespace {
+bool is_protocol(const std::string& s) { return s.find("://") != std::string::npos; }
+bool is_absolute(const std::string& s) { return !s.empty() && s[0] == '/'; }
+bool exists_local(const std::string& s) { return gSystem && !gSystem->AccessPathName(s.c_str()); }
+
+std::string physical_run3auau_pro001_path(const std::string& token)
+{
+  const std::string calo_prefix = "DST_CALOFITTING_run3auau_pro001_pcdb001_v001-";
+  const std::string zdc_prefix = "DST_ZDC_RAW_run3auau_pro001_pcdb001_v001-";
+  std::string stream;
+  std::size_t offset = std::string::npos;
+  if (token.rfind(calo_prefix, 0) == 0)
+  {
+    stream = "DST_CALOFITTING";
+    offset = calo_prefix.size();
+  }
+  else if (token.rfind(zdc_prefix, 0) == 0)
+  {
+    stream = "DST_ZDC_RAW";
+    offset = zdc_prefix.size();
+  }
+  else
+  {
+    return "";
+  }
+
+  if (token.size() < offset + 8) return "";
+  const std::string run_str = token.substr(offset, 8);
+  int run = 0;
+  try
+  {
+    run = std::stoi(run_str);
+  }
+  catch (...)
+  {
+    return "";
+  }
+  const int lo = (run / 100) * 100;
+  const int hi = lo + 100;
+  char bucket[64];
+  std::snprintf(bucket, sizeof(bucket), "run_%08d_%08d", lo, hi);
+  const std::string path =
+      "/sphenix/lustre01/sphnxpro/production/run3auau/physics/"
+      "pro001_pcdb001_v001/" + stream + "/" + bucket + "/" + token;
+  return exists_local(path) ? path : "";
+}
+
+std::string resolve_one(const std::string& token, int column, const std::string& run, bool& changed)
+{
+  if (token.empty() || token == "NONE" || token[0] == '#') return token;
+  const bool required_calo = (column == 0 || token.find("DST_CALOFITTING") != std::string::npos);
+  if (is_protocol(token)) return token;
+  if (is_absolute(token))
+  {
+    if (required_calo && !exists_local(token))
+    {
+      std::cerr << "[resolve][FAIL] run=" << run
+                << " required CALO path is absolute but inaccessible: " << token << std::endl;
+      throw 10;
+    }
+    return token;
+  }
+  if (exists_local(token)) return token;
+  const std::string physical = physical_run3auau_pro001_path(token);
+  if (!physical.empty())
+  {
+    if (physical != token) changed = true;
+    return physical;
+  }
+
+  FROG frog;
+  const char* raw = frog.location(token.c_str());
+  if (!raw || !std::string(raw).size())
+  {
+    if (!required_calo) return token;
+    std::cerr << "[resolve][FAIL] run=" << run << " column=" << column
+              << " FROG returned empty for " << token << std::endl;
+    throw 11;
+  }
+  std::string resolved(raw);
+  if (!is_protocol(resolved) && !is_absolute(resolved) && !exists_local(resolved))
+  {
+    if (!required_calo) return token;
+    std::cerr << "[resolve][FAIL] run=" << run << " column=" << column
+              << " FROG unresolved: " << token << " -> " << resolved << std::endl;
+    throw 12;
+  }
+  if (required_calo && !is_protocol(resolved) && !exists_local(resolved))
+  {
+    std::cerr << "[resolve][FAIL] run=" << run
+              << " required CALO path resolved but is inaccessible: "
+              << token << " -> " << resolved << std::endl;
+    throw 13;
+  }
+  if (resolved != token) changed = true;
+  return resolved;
+}
+}  // namespace
+
+void rj_resolve_input_list(const char* in_path, const char* out_path, const char* run)
+{
+  std::ifstream in(in_path);
+  if (!in)
+  {
+    std::cerr << "[resolve][FAIL] cannot open input list: " << in_path << std::endl;
+    gSystem->Exit(20);
+  }
+  std::ofstream out(out_path);
+  if (!out)
+  {
+    std::cerr << "[resolve][FAIL] cannot open output list: " << out_path << std::endl;
+    gSystem->Exit(21);
+  }
+
+  std::string line;
+  std::size_t lines = 0;
+  std::size_t kept_lines = 0;
+  std::size_t skipped_lines = 0;
+  std::size_t changed_lines = 0;
+  const char* filter_env = std::getenv("RJ_RESOLVE_FILTER_BAD_INPUT_LINES");
+  const bool filter_bad = filter_env &&
+                          (std::string(filter_env) == "1" ||
+                           std::string(filter_env) == "true" ||
+                           std::string(filter_env) == "TRUE" ||
+                           std::string(filter_env) == "yes" ||
+                           std::string(filter_env) == "YES");
+
+  while (std::getline(in, line))
+  {
+    if (line.empty() || line[0] == '#')
+    {
+      out << line << '\n';
+      continue;
+    }
+    ++lines;
+    std::istringstream ss(line);
+    std::vector<std::string> cols;
+    std::string tok;
+    while (ss >> tok) cols.push_back(tok);
+    if (cols.empty())
+    {
+      out << line << '\n';
+      continue;
+    }
+    bool changed = false;
+    try
+    {
+      for (std::size_t i = 0; i < cols.size(); ++i)
+      {
+        cols[i] = resolve_one(cols[i], static_cast<int>(i), run, changed);
+      }
+    }
+    catch (int rc)
+    {
+      if (!filter_bad) gSystem->Exit(rc);
+      ++skipped_lines;
+      continue;
+    }
+    for (std::size_t i = 0; i < cols.size(); ++i)
+    {
+      if (i) out << '\t';
+      out << cols[i];
+    }
+    out << '\n';
+    ++kept_lines;
+    if (changed) ++changed_lines;
+  }
+  if (kept_lines == 0)
+  {
+    std::cerr << "[resolve][FAIL] run=" << run
+              << " kept_lines=0 skipped_lines=" << skipped_lines
+              << " input=" << in_path << std::endl;
+    gSystem->Exit(30);
+  }
+
+  std::cout << "[resolve][OK] run=" << run
+            << " lines=" << lines
+            << " kept_lines=" << kept_lines
+            << " skipped_lines=" << skipped_lines
+            << " changed_lines=" << changed_lines
+            << " input=" << in_path
+            << " output=" << out_path << std::endl;
+}
+ROOTMACRO
+
+  if ! root -l -b -q "${macro}(\"${src}\",\"${out}\",\"${r8}\")" > "$log" 2>&1; then
+    warn "Input resolver failed for run ${r8}; see ${log}"
+    rm -rf "$tmpdir"
+    return 1
+  fi
+  rm -rf "$tmpdir"
+  [[ -s "$out" ]] || { warn "Input resolver produced empty output for run ${r8}: ${out}"; return 1; }
+  if [[ "${RJ_GROUP_TRACE:-0}" == "1" ]]; then
+    tail -5 "$log" >&2 || true
+  fi
+}
+
+resolve_golden_run_list() {
+  local source="${1:?run source required}"
+  local out_file="${2:?output run list required}"
+  local stats_file="${3:-}"
+  [[ -s "$source" ]] || { err "Run source not found or empty: $source"; return 5; }
+  mkdir -p "$(dirname "$out_file")"
+  : > "$out_file"
+  if [[ -n "$stats_file" ]]; then
+    mkdir -p "$(dirname "$stats_file")"
+    : > "$stats_file"
+  fi
+
+  local stamp probe_stage old_stage total=0 pass=0 fail=0 r8_raw r8 src resolved
+  stamp="$(date +%Y%m%d_%H%M%S)"
+  probe_stage="${STAGE_DIR}/resolveProbe_${stamp}"
+  mkdir -p "$probe_stage"
+  old_stage="${STAGE_DIR}"
+
+  while IFS= read -r r8_raw; do
+    [[ -z "$r8_raw" || "$r8_raw" =~ ^# ]] && continue
+    r8="$(run8 "$r8_raw")"
+    (( total += 1 ))
+    src="${LIST_DIR}/${LIST_PREFIX}-${r8}.list"
+    if [[ ! -s "$src" ]]; then
+      (( fail += 1 ))
+      [[ -z "$stats_file" ]] || printf '%s\tFAIL\tmissing_list\t%s\n' "$r8" "$src" >> "$stats_file"
+      continue
+    fi
+    resolved="${probe_stage}/run${r8}_resolved.list"
+    if RJ_RESOLVE_FILTER_BAD_INPUT_LINES="${RJ_RESOLVE_FILTER_BAD_INPUT_LINES:-1}" resolve_data_input_list "$src" "$resolved" "$r8"; then
+      (( pass += 1 ))
+      printf '%s\n' "$r8" >> "$out_file"
+      [[ -z "$stats_file" ]] || printf '%s\tPASS\tinput_files=%s\tresolved_files=%s\t%s\n' "$r8" "$(wc -l < "$src" | tr -d ' ')" "$(grep -vcE '^[[:space:]]*(#|$)' "$resolved" 2>/dev/null || echo 0)" "$resolved" >> "$stats_file"
+    else
+      (( fail += 1 ))
+      [[ -z "$stats_file" ]] || printf '%s\tFAIL\tresolve_failed\t%s\n' "$r8" "${resolved}.resolve.log" >> "$stats_file"
+    fi
+  done < "$source"
+  STAGE_DIR="$old_stage"
+  say "Resolver preflight summary: source=${source} total=${total} pass=${pass} fail=${fail}"
+  say "Resolved run list: ${out_file}"
+  [[ -z "$stats_file" ]] || say "Resolver stats: ${stats_file}"
+  (( pass > 0 ))
+}
+
 make_groups() {
   local r8="$1" gs="$2"
   local src="${LIST_DIR}/${LIST_PREFIX}-${r8}.list"
   [[ -s "$src" ]] || { warn "List is missing/empty for run ${r8} → $src"; return 1; }
 
+  local src_for_group="$src"
+  if [[ "${RJ_RESOLVE_GROUP_INPUTS:-0}" == "1" || "${RJ_RESOLVE_GROUP_INPUTS:-0}" == "true" || "${RJ_RESOLVE_GROUP_INPUTS:-0}" == "TRUE" ]]; then
+    local resolved_src="${STAGE_DIR}/run${r8}_resolved.list"
+    RJ_RESOLVE_FILTER_BAD_INPUT_LINES="${RJ_RESOLVE_FILTER_BAD_INPUT_LINES:-1}" resolve_data_input_list "$src" "$resolved_src" "$r8" || return 1
+    src_for_group="$resolved_src"
+  fi
+
   # Clean old groups for this run
   rm -f "${STAGE_DIR}/run${r8}_grp"*.list 2>/dev/null || true
   rm -f "${STAGE_DIR}/run${r8}_LOCAL_"*.list 2>/dev/null || true
 
-  local nfiles; nfiles=$(wc -l < "$src" | awk '{print $1}')
+  local nfiles; nfiles=$(wc -l < "$src_for_group" | awk '{print $1}')
   local ngroups; ngroups=$(ceil_div "$nfiles" "$gs")
 
   if [[ "${RJ_GROUP_TRACE:-0}" == "1" ]]; then
-    say "[group] run=${r8} src=$(basename "$src") files=${nfiles} groupSize=${gs} groups=${ngroups}" >&2
+    say "[group] run=${r8} src=$(basename "$src_for_group") files=${nfiles} groupSize=${gs} groups=${ngroups}" >&2
   fi
 
   local start=1
@@ -2525,7 +2853,7 @@ make_groups() {
     local out="${STAGE_DIR}/run${r8}_grp$(printf "%03d" "$g").list"
     # sed is 1-indexed on lines; clamp 'end' to nfiles
     if (( end > nfiles )); then end="$nfiles"; fi
-    sed -n "${start},${end}p" "$src" > "$out"
+    sed -n "${start},${end}p" "$src_for_group" > "$out"
     echo "$out"
     start=$(( end + 1 ))
     g=$(( g + 1 ))
@@ -3252,7 +3580,7 @@ submit_condor() {
   cp -f "$yaml_src" "$yaml_snap"
   say "YAML snapshot: ${yaml_snap}"
   say "Submit context: source=${source}  runs=${source_runs:-0}  groupSize=${GROUP_SIZE}  nEvents=${direct_nevents}  firstChunk=${first_chunk:-none}"
-  say "Submit environment: RJ_DATASET=${DATASET}  RJ_VERBOSITY=0  RJ_CONFIG_YAML=${yaml_snap}${macro_env}${submit_extra_env};RJ_PROFILE_JOB=${RJ_PROFILE_JOB:-0};RJ_PROFILE_STAGE=${RJ_PROFILE_STAGE:-direct};RJ_REQUEST_MEMORY_MB=${request_memory_mb}"
+  say "Submit environment: RJ_DATASET=${DATASET}  RJ_VERBOSITY=0  RJ_CONFIG_YAML=${yaml_snap}${macro_env}${submit_extra_env};RJ_PROFILE_JOB=${RJ_PROFILE_JOB:-0};RJ_PROFILE_STAGE=${RJ_PROFILE_STAGE:-direct};RJ_REQUEST_MEMORY_MB=${request_memory_mb};RJ_REQUIRE_NON_TINY_OUTPUT=${RJ_REQUIRE_NON_TINY_OUTPUT:-0};RJ_MIN_OUTPUT_BYTES=${RJ_MIN_OUTPUT_BYTES:-50000};RJ_FAIL_ON_MISSING_CALO_INPUT=${RJ_FAIL_ON_MISSING_CALO_INPUT:-0}"
 
   cat > "$sub" <<SUB
 universe      = vanilla
@@ -3269,7 +3597,7 @@ stream_output = True
 stream_error  = True
 notification  = Never
 # Force dataset & quiet macro on Condor (YAML frozen at submit time):
-environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${yaml_snap}${macro_env}${submit_extra_env};RJ_PROFILE_JOB=${RJ_PROFILE_JOB:-0};RJ_JOB_HEARTBEAT_SECONDS=${RJ_JOB_HEARTBEAT_SECONDS:-0};RJ_PROFILE_STAGE=${RJ_PROFILE_STAGE:-direct};RJ_PROFILE_LABEL=${RJ_PROFILE_LABEL:-${TAG}};RJ_REQUEST_MEMORY_MB=${request_memory_mb}
+environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${yaml_snap}${macro_env}${submit_extra_env};RJ_PROFILE_JOB=${RJ_PROFILE_JOB:-0};RJ_JOB_HEARTBEAT_SECONDS=${RJ_JOB_HEARTBEAT_SECONDS:-0};RJ_PROFILE_STAGE=${RJ_PROFILE_STAGE:-direct};RJ_PROFILE_LABEL=${RJ_PROFILE_LABEL:-${TAG}};RJ_REQUEST_MEMORY_MB=${request_memory_mb};RJ_REQUIRE_NON_TINY_OUTPUT=${RJ_REQUIRE_NON_TINY_OUTPUT:-0};RJ_MIN_OUTPUT_BYTES=${RJ_MIN_OUTPUT_BYTES:-50000};RJ_FAIL_ON_MISSING_CALO_INPUT=${RJ_FAIL_ON_MISSING_CALO_INPUT:-0}
 queue arguments from ${args_file}
 SUB
 
@@ -4634,7 +4962,7 @@ for (( idx=0; idx<${#tokens[@]}; idx++ )); do
         ACTION="$tok"
       fi
       ;;
-    checkModels|workflowCheck|isLocalIsoPing|orchestrationSelfTest|condor|splitGoldenRunList|condorTest)
+    checkModels|workflowCheck|isLocalIsoPing|orchestrationSelfTest|resolveGoldenRunList|condor|splitGoldenRunList|condorTest)
       ACTION="$tok"
       ;;
     groupSize)
@@ -4733,6 +5061,22 @@ case "$ACTION" in
   orchestrationSelfTest)
     orchestration_self_test
     exit $?
+    ;;
+
+  resolveGoldenRunList)
+    [[ "$IS_SIM" -eq 0 ]] || { err "resolveGoldenRunList is only valid for data datasets"; exit 2; }
+    resolve_source="${RJ_RESOLVE_RUN_SOURCE:-${GOLDEN}}"
+    resolve_stamp="$(date +%Y%m%d_%H%M%S)"
+    resolve_out="${RJ_RESOLVE_RUNLIST_OUT:-${SUB_DIR}/${TAG}_resolvedGolden_${resolve_stamp}_runs.list}"
+    resolve_stats="${RJ_RESOLVE_STATS_OUT:-${SUB_DIR}/${TAG}_resolvedGolden_${resolve_stamp}_run_stats.txt}"
+    say "${BOLD}DATA input resolver preflight requested${RST}"
+    say "  dataset      : ${DATASET}"
+    say "  source runs  : ${resolve_source}"
+    say "  input lists  : ${LIST_DIR}"
+    say "  output runs  : ${resolve_out}"
+    say "  output stats : ${resolve_stats}"
+    say "  requirement  : each run list must resolve required CALOFITTING inputs before submit"
+    resolve_golden_run_list "$resolve_source" "$resolve_out" "$resolve_stats"
     ;;
 
   scaledTriggerStudy|scaledTriggerCentStudy)

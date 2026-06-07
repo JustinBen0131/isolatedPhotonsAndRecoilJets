@@ -718,6 +718,16 @@ entries:
         status: "compat_alias"
     transfer_mappings:
       []
+  - id: codex_thread_heartbeat_fallback
+    canonical_path: "scripts/os/heartbeat/codex_thread_heartbeat_fallback.py"
+    category: "os"
+    domain: "os/heartbeat"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
   - id: codex_work_register_common
     canonical_path: "scripts/os/register/codex_work_register_common.py"
     category: "os"
@@ -1031,6 +1041,26 @@ entries:
       []
   - id: make_bdt3x3_weta_comparison_plots
     canonical_path: "scripts/plotting/auau_bdt/make_bdt3x3_weta_comparison_plots.py"
+    category: "plotting"
+    domain: "plotting/auau_bdt"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: make_default_eiso_bdt_kbird_probability_variants
+    canonical_path: "scripts/plotting/auau_bdt/make_default_eiso_bdt_kbird_probability_variants.py"
+    category: "plotting"
+    domain: "plotting/auau_bdt"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: make_shower_width_isolation_correlation_examples
+    canonical_path: "scripts/plotting/auau_bdt/make_shower_width_isolation_correlation_examples.py"
     category: "plotting"
     domain: "plotting/auau_bdt"
     status: "canonical_source"
@@ -1734,6 +1764,16 @@ entries:
         upload_target: "scripts/sdcc/runtime/audit/audit_auau_grl_projection.sh"
   - id: checkout_hygiene_probe
     canonical_path: "scripts/sdcc/runtime/audit/checkout_hygiene_probe.py"
+    category: "sdcc"
+    domain: "sdcc/runtime/audit"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: auau_campaign_checkpoint
+    canonical_path: "scripts/sdcc/runtime/audit/auau_campaign_checkpoint.py"
     category: "sdcc"
     domain: "sdcc/runtime/audit"
     status: "canonical_source"
@@ -2544,6 +2584,16 @@ entries:
       []
   - id: make_auau_bdt_wp80_smooth_slide
     canonical_path: "scripts/slides/auau_bdt/working_point/make_auau_bdt_wp80_smooth_slide.py"
+    category: "slide_builder"
+    domain: "slides/auau_bdt/working_point"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: make_the41_centdep_bdt_wp_slides
+    canonical_path: "scripts/slides/auau_bdt/working_point/make_the41_centdep_bdt_wp_slides.py"
     category: "slide_builder"
     domain: "slides/auau_bdt/working_point"
     status: "canonical_source"

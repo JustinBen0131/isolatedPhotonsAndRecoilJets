@@ -1294,6 +1294,18 @@ void RecoilJets::parseAuAuTightBDTWorkingPointEntries(const std::vector<std::str
       {
         wp.binned = false;
         wp.grid2d = false;
+        wp.centralityLinear = false;
+        wp.intercept = std::stod(cols[2]);
+        wp.slope = std::stod(cols[3]);
+        wp.ptMin = std::stod(cols[4]);
+        wp.ptMax = std::stod(cols[5]);
+        wp.maxScore = std::stod(cols[6]);
+      }
+      else if (mode == "centlinear" || mode == "centrality_linear")
+      {
+        wp.binned = false;
+        wp.grid2d = false;
+        wp.centralityLinear = true;
         wp.intercept = std::stod(cols[2]);
         wp.slope = std::stod(cols[3]);
         wp.ptMin = std::stod(cols[4]);
@@ -1304,6 +1316,7 @@ void RecoilJets::parseAuAuTightBDTWorkingPointEntries(const std::vector<std::str
       {
         wp.binned = true;
         wp.grid2d = false;
+        wp.centralityLinear = false;
         wp.edges = parseDoubles(cols[2]);
         wp.thresholds = parseDoubles(cols[3]);
         wp.ptMin = std::stod(cols[4]);
@@ -1324,6 +1337,7 @@ void RecoilJets::parseAuAuTightBDTWorkingPointEntries(const std::vector<std::str
         }
         wp.binned = false;
         wp.grid2d = true;
+        wp.centralityLinear = false;
         wp.edges = parseDoubles(cols[2]);
         wp.centEdges = parseDoubles(cols[3]);
         wp.thresholds = parseDoubles(cols[4]);
@@ -1381,6 +1395,12 @@ double RecoilJets::configuredAuAuTightBDTMin(double et) const
   if (!std::isfinite(et) || et < wp->ptMin || et >= wp->ptMax)
   {
     return std::numeric_limits<double>::quiet_NaN();
+  }
+  if (wp->centralityLinear)
+  {
+    const double cent = m_centPercent;
+    if (!std::isfinite(cent)) return std::numeric_limits<double>::quiet_NaN();
+    return wp->intercept + wp->slope * cent;
   }
   if (wp->grid2d)
   {
@@ -2779,6 +2799,16 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     m_auauBDTTrainingTreeMaxEntries = envToLL("RJ_AUAU_BDT_TRAINING_TREE_MAX_ENTRIES", 0);
     m_auauBDTNPBDataTaggingEnabled = envToBool("RJ_AUAU_BDT_NPB_DATA_TAGGING", false);
     m_auauNPBTagDeltaTCut = envToDouble("RJ_AUAU_NPB_TAG_DELTA_T_CUT", -7.0);
+  m_the44PythiaAutopsyEnabled = envToBool("RJ_THE44_PYTHIA_AUTOPSY", m_the44PythiaAutopsyEnabled);
+  m_the44PythiaAutopsyMaxEntries = envToLL("RJ_THE44_PYTHIA_AUTOPSY_MAX_ENTRIES", m_the44PythiaAutopsyMaxEntries);
+  m_the44PythiaAutopsyHighBDTMin = envToDouble("RJ_THE44_PYTHIA_AUTOPSY_HIGH_BDT_MIN", m_the44PythiaAutopsyHighBDTMin);
+  m_the44PythiaAutopsyMidBDTMin = envToDouble("RJ_THE44_PYTHIA_AUTOPSY_MID_BDT_MIN", m_the44PythiaAutopsyMidBDTMin);
+  m_the44PythiaAutopsyMidBDTMax = envToDouble("RJ_THE44_PYTHIA_AUTOPSY_MID_BDT_MAX", m_the44PythiaAutopsyMidBDTMax);
+  m_the44PythiaAutopsyMinPt = envToDouble("RJ_THE44_PYTHIA_AUTOPSY_MIN_PT", m_the44PythiaAutopsyMinPt);
+  m_the44PythiaAutopsyMaxPt = envToDouble("RJ_THE44_PYTHIA_AUTOPSY_MAX_PT", m_the44PythiaAutopsyMaxPt);
+  m_the44PythiaAutopsyParticleCone = envToDouble("RJ_THE44_PYTHIA_AUTOPSY_PARTICLE_CONE", m_the44PythiaAutopsyParticleCone);
+  m_the44PythiaAutopsyParticleMinPt = envToDouble("RJ_THE44_PYTHIA_AUTOPSY_PARTICLE_MIN_PT", m_the44PythiaAutopsyParticleMinPt);
+  m_the44PythiaAutopsyMaxParticles = static_cast<int>(envToLL("RJ_THE44_PYTHIA_AUTOPSY_MAX_PARTICLES", m_the44PythiaAutopsyMaxParticles));
   m_auauNPBTagWetaMin = envToDouble("RJ_AUAU_NPB_TAG_WETA_MIN", 0.0);
   m_auauNPBTagAwayJetPtMin = envToDouble("RJ_AUAU_NPB_TAG_AWAY_JET_PT_MIN", 5.0);
   m_auauNPBTagAwayJetDPhiMin = envToDouble("RJ_AUAU_NPB_TAG_AWAY_JET_DPHI_MIN", M_PI / 2.0);
@@ -3206,7 +3236,31 @@ int RecoilJets::Init(PHCompositeNode* topNode)
                    [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
     return (s == "1" || s == "true" || s == "yes" || s == "on");
   };
+  auto initEnvLL = [](const char* name, long long def) -> long long
+  {
+    const char* raw = std::getenv(name);
+    if (!raw) return def;
+    try { return std::stoll(std::string(raw)); }
+    catch (...) { return def; }
+  };
+  auto initEnvDouble = [](const char* name, double def) -> double
+  {
+    const char* raw = std::getenv(name);
+    if (!raw) return def;
+    try { return std::stod(std::string(raw)); }
+    catch (...) { return def; }
+  };
   m_auauBDTExtractOnly = initEnvBool("RJ_AUAU_BDT_EXTRACT_ONLY", m_auauBDTExtractOnly);
+  m_the44PythiaAutopsyEnabled = initEnvBool("RJ_THE44_PYTHIA_AUTOPSY", m_the44PythiaAutopsyEnabled);
+  m_the44PythiaAutopsyMaxEntries = initEnvLL("RJ_THE44_PYTHIA_AUTOPSY_MAX_ENTRIES", m_the44PythiaAutopsyMaxEntries);
+  m_the44PythiaAutopsyHighBDTMin = initEnvDouble("RJ_THE44_PYTHIA_AUTOPSY_HIGH_BDT_MIN", m_the44PythiaAutopsyHighBDTMin);
+  m_the44PythiaAutopsyMidBDTMin = initEnvDouble("RJ_THE44_PYTHIA_AUTOPSY_MID_BDT_MIN", m_the44PythiaAutopsyMidBDTMin);
+  m_the44PythiaAutopsyMidBDTMax = initEnvDouble("RJ_THE44_PYTHIA_AUTOPSY_MID_BDT_MAX", m_the44PythiaAutopsyMidBDTMax);
+  m_the44PythiaAutopsyMinPt = initEnvDouble("RJ_THE44_PYTHIA_AUTOPSY_MIN_PT", m_the44PythiaAutopsyMinPt);
+  m_the44PythiaAutopsyMaxPt = initEnvDouble("RJ_THE44_PYTHIA_AUTOPSY_MAX_PT", m_the44PythiaAutopsyMaxPt);
+  m_the44PythiaAutopsyParticleCone = initEnvDouble("RJ_THE44_PYTHIA_AUTOPSY_PARTICLE_CONE", m_the44PythiaAutopsyParticleCone);
+  m_the44PythiaAutopsyParticleMinPt = initEnvDouble("RJ_THE44_PYTHIA_AUTOPSY_PARTICLE_MIN_PT", m_the44PythiaAutopsyParticleMinPt);
+  m_the44PythiaAutopsyMaxParticles = static_cast<int>(initEnvLL("RJ_THE44_PYTHIA_AUTOPSY_MAX_PARTICLES", m_the44PythiaAutopsyMaxParticles));
   if (m_auauBDTExtractOnly)
   {
     m_auauBDTTrainingTreeEnabled = true;
@@ -3234,6 +3288,10 @@ int RecoilJets::Init(PHCompositeNode* topNode)
   if (m_jetMLTrainingTreeEnabled)
   {
     initJetMLTrainingTree();
+  }
+  if (m_the44PythiaAutopsyEnabled)
+  {
+    initTHE44PythiaAutopsyTree();
   }
 
   /* 1.  optional DST node-tree dump ---------------------------------- */
@@ -3344,6 +3402,11 @@ void RecoilJets::initAuAuBDTTrainingTree()
   add("centrality", &m_bdtTrain_cent, "centrality/F");
   add("vertexz", &m_bdtTrain_vz, "vertexz/F");
   add("event_weight", &m_bdtTrain_weight, "event_weight/F");
+  add("event_calo_cemc_energy", &m_bdtTrain_event_calo_cemc_energy, "event_calo_cemc_energy/F");
+  add("event_calo_ihcal_energy", &m_bdtTrain_event_calo_ihcal_energy, "event_calo_ihcal_energy/F");
+  add("event_calo_ohcal_energy", &m_bdtTrain_event_calo_ohcal_energy, "event_calo_ohcal_energy/F");
+  add("event_calo_total_energy", &m_bdtTrain_event_calo_total_energy, "event_calo_total_energy/F");
+  add("event_calo_log10_total_energy_plus1", &m_bdtTrain_event_calo_log10_total_energy_plus1, "event_calo_log10_total_energy_plus1/F");
   add("reco_eiso", &m_bdtTrain_eiso, "reco_eiso/F");
   add("reco_eiso_r30", &m_bdtTrain_eiso_r30, "reco_eiso_r30/F");
   add("reco_eiso_r40", &m_bdtTrain_eiso_r40, "reco_eiso_r40/F");
@@ -3427,6 +3490,11 @@ void RecoilJets::fillAuAuBDTTrainingTree(const SSVars& v,
   m_bdtTrain_cent = bdtFeatureValue(m_centPercent);
   m_bdtTrain_vz = bdtFeatureValue(m_vz);
   m_bdtTrain_weight = bdtFeatureValue(m_mcEventWeight);
+  m_bdtTrain_event_calo_cemc_energy = m_eventCaloCemcEnergy;
+  m_bdtTrain_event_calo_ihcal_energy = m_eventCaloIhcalEnergy;
+  m_bdtTrain_event_calo_ohcal_energy = m_eventCaloOhcalEnergy;
+  m_bdtTrain_event_calo_total_energy = m_eventCaloTotalEnergy;
+  m_bdtTrain_event_calo_log10_total_energy_plus1 = m_eventCaloLog10TotalEnergyPlus1;
   m_bdtTrain_eiso = bdtFeatureValue(eiso);
   m_bdtTrain_eiso_r30 = bdtFeatureValue(eisoR30);
   m_bdtTrain_eiso_r40 = bdtFeatureValue(eisoR40);
@@ -3471,6 +3539,271 @@ void RecoilJets::fillAuAuBDTTrainingTree(const SSVars& v,
 
   m_auauBDTTrainingTree->Fill();
   ++m_auauBDTTrainingTreeEntries;
+}
+
+void RecoilJets::initTHE44PythiaAutopsyTree()
+{
+  if (m_the44PythiaAutopsyTree) return;
+
+  if (!out || !out->IsOpen())
+  {
+    LOG(1, CLR_YELLOW, "[THE44PythiaAutopsyTree] output file is not open; disabling autopsy tree");
+    m_the44PythiaAutopsyEnabled = false;
+    return;
+  }
+
+  out->cd();
+  m_the44PythiaAutopsyTree = new TTree("THE44PythiaAutopsyTree",
+                                       "THE-44 high-BDT candidate Pythia/HepMC particle-list diagnostic");
+  if (!m_the44PythiaAutopsyTree)
+  {
+    LOG(1, CLR_YELLOW, "[THE44PythiaAutopsyTree] failed to allocate tree; disabling");
+    m_the44PythiaAutopsyEnabled = false;
+    return;
+  }
+  m_the44PythiaAutopsyTree->SetDirectory(out);
+
+  auto add = [&](const char* name, void* addr, const char* leaf)
+  {
+    if (!m_the44PythiaAutopsyTree->Branch(name, addr, leaf))
+    {
+      LOG(1, CLR_YELLOW, "[THE44PythiaAutopsyTree] failed to book branch " << name);
+      m_the44PythiaAutopsyEnabled = false;
+    }
+  };
+
+  add("run", &m_the44_run, "run/I");
+  add("evt", &m_the44_evt, "evt/L");
+  add("category", &m_the44_category, "category/I");
+  add("is_signal", &m_the44_is_signal, "is_signal/I");
+  add("pt_bin", &m_the44_pt_bin, "pt_bin/I");
+  add("cent_bin", &m_the44_cent_bin, "cent_bin/I");
+  add("source_sample_code", &m_the44_source_sample_code, "source_sample_code/I");
+  add("cluster_Et", &m_the44_cluster_et, "cluster_Et/F");
+  add("cluster_Eta", &m_the44_cluster_eta, "cluster_Eta/F");
+  add("cluster_Phi", &m_the44_cluster_phi, "cluster_Phi/F");
+  add("centrality", &m_the44_centrality, "centrality/F");
+  add("reco_eiso", &m_the44_reco_eiso, "reco_eiso/F");
+  add("auau_tight_bdt_score", &m_the44_bdt_score, "auau_tight_bdt_score/F");
+  add("npb_score", &m_the44_npb_score, "npb_score/F");
+  add("cluster_weta_cogx", &m_the44_weta, "cluster_weta_cogx/F");
+  add("cluster_wphi_cogx", &m_the44_wphi, "cluster_wphi_cogx/F");
+  add("e11_over_e33", &m_the44_e11e33, "e11_over_e33/F");
+  add("e32_over_e35", &m_the44_e32e35, "e32_over_e35/F");
+  add("cluster_truth_track_id", &m_the44_cluster_truth_track_id, "cluster_truth_track_id/I");
+  add("cluster_truth_pid", &m_the44_cluster_truth_pid, "cluster_truth_pid/I");
+  add("cluster_truth_barcode", &m_the44_cluster_truth_barcode, "cluster_truth_barcode/I");
+  add("cluster_truth_econtrib", &m_the44_cluster_truth_econtrib, "cluster_truth_econtrib/F");
+  add("matched_signal_barcode", &m_the44_matched_signal_barcode, "matched_signal_barcode/I");
+  add("matched_signal_pt", &m_the44_matched_signal_pt, "matched_signal_pt/F");
+  add("matched_signal_eta", &m_the44_matched_signal_eta, "matched_signal_eta/F");
+  add("matched_signal_phi", &m_the44_matched_signal_phi, "matched_signal_phi/F");
+  add("matched_signal_iso", &m_the44_matched_signal_iso, "matched_signal_iso/F");
+  m_the44PythiaAutopsyTree->Branch("part_pdg", &m_the44_part_pdg);
+  m_the44PythiaAutopsyTree->Branch("part_status", &m_the44_part_status);
+  m_the44PythiaAutopsyTree->Branch("part_barcode", &m_the44_part_barcode);
+  m_the44PythiaAutopsyTree->Branch("part_parent0_pdg", &m_the44_part_parent0_pdg);
+  m_the44PythiaAutopsyTree->Branch("part_parent1_pdg", &m_the44_part_parent1_pdg);
+  m_the44PythiaAutopsyTree->Branch("part_pt", &m_the44_part_pt);
+  m_the44PythiaAutopsyTree->Branch("part_eta", &m_the44_part_eta);
+  m_the44PythiaAutopsyTree->Branch("part_phi", &m_the44_part_phi);
+  m_the44PythiaAutopsyTree->Branch("part_dr", &m_the44_part_dr);
+
+  LOG(1, CLR_GREEN, "[THE44PythiaAutopsyTree] enabled"
+                    << " maxEntries=" << m_the44PythiaAutopsyMaxEntries
+                    << " highBDT>=" << m_the44PythiaAutopsyHighBDTMin
+                    << " midSignal=(" << m_the44PythiaAutopsyMidBDTMin
+                    << "," << m_the44PythiaAutopsyMidBDTMax << ")");
+}
+
+void RecoilJets::fillTHE44PythiaAutopsyTree(const SSVars& v,
+                                            double eta,
+                                            double phi,
+                                            double eiso,
+                                            int ptIdx,
+                                            int centIdx,
+                                            bool isSignal,
+                                            int clusterTruthTrackId,
+                                            int clusterTruthPid,
+                                            int clusterTruthBarcode,
+                                            float eContrib,
+                                            const RecoilJets::TruthSignalPhotonInfo& matchedTruth,
+                                            const HepMC::GenEvent* evt)
+{
+  if (!m_the44PythiaAutopsyEnabled) return;
+  if (!m_the44PythiaAutopsyTree) initTHE44PythiaAutopsyTree();
+  if (!m_the44PythiaAutopsyEnabled || !m_the44PythiaAutopsyTree) return;
+  if (!evt) return;
+  if (m_the44PythiaAutopsyMaxEntries > 0 &&
+      m_the44PythiaAutopsyEntries >= m_the44PythiaAutopsyMaxEntries) return;
+  if (!std::isfinite(v.pt_gamma) || !std::isfinite(v.auau_tight_bdt_score)) return;
+  if (v.pt_gamma < m_the44PythiaAutopsyMinPt || v.pt_gamma >= m_the44PythiaAutopsyMaxPt) return;
+
+  int category = 0;
+  if (!isSignal && v.auau_tight_bdt_score >= m_the44PythiaAutopsyHighBDTMin)
+  {
+    category = 1;
+  }
+  else if (isSignal &&
+           v.auau_tight_bdt_score >= m_the44PythiaAutopsyMidBDTMin &&
+           v.auau_tight_bdt_score < m_the44PythiaAutopsyMidBDTMax)
+  {
+    category = 2;
+  }
+  else
+  {
+    return;
+  }
+
+  if (m_the44PythiaAutopsyMaxEntries > 1)
+  {
+    const long long perCategoryCap = std::max<long long>(1, m_the44PythiaAutopsyMaxEntries / 2);
+    if (category == 1 && m_the44PythiaAutopsyHighBkgEntries >= perCategoryCap) return;
+    if (category == 2 && m_the44PythiaAutopsyMidSigEntries >= perCategoryCap) return;
+  }
+
+  struct ParticleRow
+  {
+    int pdg = 0;
+    int status = 0;
+    int barcode = -1;
+    int parent0 = 0;
+    int parent1 = 0;
+    float pt = 0.0f;
+    float eta = 0.0f;
+    float phi = 0.0f;
+    float dr = 0.0f;
+  };
+  std::vector<ParticleRow> rows;
+
+  const double cone = std::max(0.0, m_the44PythiaAutopsyParticleCone);
+  const double minPt = std::max(0.0, m_the44PythiaAutopsyParticleMinPt);
+  const int maxParts = std::max(0, m_the44PythiaAutopsyMaxParticles);
+
+  for (auto it = evt->particles_begin(); it != evt->particles_end(); ++it)
+  {
+    const HepMC::GenParticle* p = *it;
+    if (!p) continue;
+
+    const double ppt = std::hypot(p->momentum().px(), p->momentum().py());
+    if (!std::isfinite(ppt) || ppt < minPt) continue;
+    const double peta = p->momentum().pseudoRapidity();
+    const double pphi = TVector2::Phi_mpi_pi(p->momentum().phi());
+    if (!std::isfinite(peta) || !std::isfinite(pphi)) continue;
+
+    const double dphi = TVector2::Phi_mpi_pi(pphi - phi);
+    const double deta = peta - eta;
+    const double dr = std::sqrt(deta * deta + dphi * dphi);
+    if (!std::isfinite(dr) || dr > cone) continue;
+
+    ParticleRow row;
+    row.pdg = p->pdg_id();
+    row.status = p->status();
+    row.barcode = p->barcode();
+    row.pt = static_cast<float>(ppt);
+    row.eta = static_cast<float>(peta);
+    row.phi = static_cast<float>(pphi);
+    row.dr = static_cast<float>(dr);
+
+    if (const HepMC::GenVertex* vertex = p->production_vertex())
+    {
+      int parentIdx = 0;
+      for (auto inItr = vertex->particles_in_const_begin();
+           inItr != vertex->particles_in_const_end() && parentIdx < 2;
+           ++inItr, ++parentIdx)
+      {
+        const HepMC::GenParticle* parent = *inItr;
+        if (!parent) continue;
+        if (parentIdx == 0) row.parent0 = parent->pdg_id();
+        else row.parent1 = parent->pdg_id();
+      }
+    }
+
+    rows.push_back(row);
+  }
+
+  std::sort(rows.begin(), rows.end(),
+            [](const ParticleRow& a, const ParticleRow& b)
+            {
+              if (a.pt != b.pt) return a.pt > b.pt;
+              return a.dr < b.dr;
+            });
+  if (maxParts > 0 && static_cast<int>(rows.size()) > maxParts)
+  {
+    rows.resize(static_cast<std::size_t>(maxParts));
+  }
+
+  m_the44_part_pdg.clear();
+  m_the44_part_status.clear();
+  m_the44_part_barcode.clear();
+  m_the44_part_parent0_pdg.clear();
+  m_the44_part_parent1_pdg.clear();
+  m_the44_part_pt.clear();
+  m_the44_part_eta.clear();
+  m_the44_part_phi.clear();
+  m_the44_part_dr.clear();
+
+  m_the44_part_pdg.reserve(rows.size());
+  m_the44_part_status.reserve(rows.size());
+  m_the44_part_barcode.reserve(rows.size());
+  m_the44_part_parent0_pdg.reserve(rows.size());
+  m_the44_part_parent1_pdg.reserve(rows.size());
+  m_the44_part_pt.reserve(rows.size());
+  m_the44_part_eta.reserve(rows.size());
+  m_the44_part_phi.reserve(rows.size());
+  m_the44_part_dr.reserve(rows.size());
+
+  for (const auto& row : rows)
+  {
+    m_the44_part_pdg.push_back(row.pdg);
+    m_the44_part_status.push_back(row.status);
+    m_the44_part_barcode.push_back(row.barcode);
+    m_the44_part_parent0_pdg.push_back(row.parent0);
+    m_the44_part_parent1_pdg.push_back(row.parent1);
+    m_the44_part_pt.push_back(row.pt);
+    m_the44_part_eta.push_back(row.eta);
+    m_the44_part_phi.push_back(row.phi);
+    m_the44_part_dr.push_back(row.dr);
+  }
+
+  auto the44FeatureValue = [](double x) -> float
+  {
+    if (!std::isfinite(x)) return -999.0f;
+    return static_cast<float>(x);
+  };
+
+  m_the44_run = (m_evtHeader ? m_evtHeader->get_RunNumber() : 0);
+  m_the44_evt = event_count;
+  m_the44_category = category;
+  m_the44_is_signal = isSignal ? 1 : 0;
+  m_the44_pt_bin = ptIdx;
+  m_the44_cent_bin = centIdx;
+  m_the44_source_sample_code = embeddedInclusiveJetSampleCodeFromContext(Outfile);
+  m_the44_cluster_et = the44FeatureValue(v.pt_gamma);
+  m_the44_cluster_eta = the44FeatureValue(eta);
+  m_the44_cluster_phi = the44FeatureValue(phi);
+  m_the44_centrality = the44FeatureValue(m_centPercent);
+  m_the44_reco_eiso = the44FeatureValue(eiso);
+  m_the44_bdt_score = the44FeatureValue(v.auau_tight_bdt_score);
+  m_the44_npb_score = std::isfinite(v.npb_score) ? static_cast<float>(v.npb_score) : -2.0f;
+  m_the44_weta = the44FeatureValue(v.weta_cogx);
+  m_the44_wphi = the44FeatureValue(v.wphi_cogx);
+  m_the44_e11e33 = the44FeatureValue(v.e11_over_e33);
+  m_the44_e32e35 = the44FeatureValue(v.e32_over_e35);
+  m_the44_cluster_truth_track_id = clusterTruthTrackId;
+  m_the44_cluster_truth_pid = clusterTruthPid;
+  m_the44_cluster_truth_barcode = clusterTruthBarcode;
+  m_the44_cluster_truth_econtrib = std::isfinite(eContrib) ? eContrib : -999.0f;
+  m_the44_matched_signal_barcode = matchedTruth.barcode;
+  m_the44_matched_signal_pt = std::isfinite(matchedTruth.pt) ? static_cast<float>(matchedTruth.pt) : -1.0f;
+  m_the44_matched_signal_eta = std::isfinite(matchedTruth.eta) ? static_cast<float>(matchedTruth.eta) : -999.0f;
+  m_the44_matched_signal_phi = std::isfinite(matchedTruth.phi) ? static_cast<float>(matchedTruth.phi) : -999.0f;
+  m_the44_matched_signal_iso = std::isfinite(matchedTruth.isoEt) ? static_cast<float>(matchedTruth.isoEt) : -999.0f;
+
+  m_the44PythiaAutopsyTree->Fill();
+  ++m_the44PythiaAutopsyEntries;
+  if (category == 1) ++m_the44PythiaAutopsyHighBkgEntries;
+  if (category == 2) ++m_the44PythiaAutopsyMidSigEntries;
 }
 
 bool RecoilJets::isPPG12DataNPBTaggedCluster(const SSVars& v,
@@ -6787,15 +7120,14 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         fillInclusiveJetQA(activeTrig, centIdxForJets, kv.first);
     }
 
-    auto sumCaloEnergy = [&](const std::string& key) -> double
+    auto sumTowerInfoEnergy = [](TowerInfoContainer* towers) -> double
     {
-        auto it = m_calo.find(key);
-        if (it == m_calo.end() || !it->second.towers) return 0.0;
+        if (!towers) return 0.0;
 
         double sum = 0.0;
-        for (unsigned int ch = 0; ch < it->second.towers->size(); ++ch)
+        for (unsigned int ch = 0; ch < towers->size(); ++ch)
         {
-            TowerInfo* tower = it->second.towers->get_tower_at_channel(ch);
+            TowerInfo* tower = towers->get_tower_at_channel(ch);
             if (!tower) continue;
 
             const double e = tower->get_energy();
@@ -6805,10 +7137,21 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         return sum;
     };
 
-    const double emcalEnergy = sumCaloEnergy("CEMC");
-    const double ihcalEnergy = sumCaloEnergy("IHCAL");
-    const double ohcalEnergy = sumCaloEnergy("OHCAL");
+    TowerInfoContainer* eventCemcTowers =
+        findNode::getClass<TowerInfoContainer>(topNode, "TOWERINFO_CALIB_CEMC");
+    TowerInfoContainer* eventIhcalTowers =
+        findNode::getClass<TowerInfoContainer>(topNode, "TOWERINFO_CALIB_HCALIN");
+    TowerInfoContainer* eventOhcalTowers =
+        findNode::getClass<TowerInfoContainer>(topNode, "TOWERINFO_CALIB_HCALOUT");
+    const double emcalEnergy = sumTowerInfoEnergy(eventCemcTowers);
+    const double ihcalEnergy = sumTowerInfoEnergy(eventIhcalTowers);
+    const double ohcalEnergy = sumTowerInfoEnergy(eventOhcalTowers);
     const double totalCaloEnergy = emcalEnergy + ihcalEnergy + ohcalEnergy;
+    m_eventCaloCemcEnergy = static_cast<float>(emcalEnergy);
+    m_eventCaloIhcalEnergy = static_cast<float>(ihcalEnergy);
+    m_eventCaloOhcalEnergy = static_cast<float>(ohcalEnergy);
+    m_eventCaloTotalEnergy = static_cast<float>(totalCaloEnergy);
+    m_eventCaloLog10TotalEnergyPlus1 = static_cast<float>(std::log10(std::max(0.0, totalCaloEnergy) + 1.0));
 
     if (m_mbdpmts)
     {
@@ -7124,6 +7467,22 @@ int RecoilJets::End(PHCompositeNode*)
     else
     {
       warn("JetResidualMLTrainingTree Write() returned 0");
+    }
+  }
+
+  if (m_the44PythiaAutopsyTree)
+  {
+    out->cd();
+    if (m_the44PythiaAutopsyTree->Write("", TObject::kOverwrite) > 0)
+    {
+      info(1, "THE44PythiaAutopsyTree written with " +
+              std::to_string(m_the44PythiaAutopsyEntries) + " entries"
+              " (highBkg=" + std::to_string(m_the44PythiaAutopsyHighBkgEntries) +
+              ", midSig=" + std::to_string(m_the44PythiaAutopsyMidSigEntries) + ")");
+    }
+    else
+    {
+      warn("THE44PythiaAutopsyTree Write() returned 0");
     }
   }
 
@@ -10241,7 +10600,8 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
 void RecoilJets::processCandidates(PHCompositeNode* topNode,
                                    const std::vector<std::string>& activeTrig)
 {
-    const bool singleViewForTraining = (m_auauBDTTrainingTreeEnabled || m_jetMLTrainingTreeEnabled);
+    const bool singleViewForTraining =
+        (m_auauBDTTrainingTreeEnabled || m_jetMLTrainingTreeEnabled || m_the44PythiaAutopsyEnabled);
     if (m_internalIsoViews.empty() || singleViewForTraining)
     {
         m_activeIsoViewSuffix.clear();
@@ -10975,19 +11335,30 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 // ── SIM: fill inclusive _sig / _bkg PPG12-style SS templates (before preselection) ──
                 bool bdtTrainIsSignal = false;
                 bool bdtTrainHaveLabel = false;
+                TruthSignalPhotonInfo bdtTrainMatchedTruth;
+                int bdtTrainClusterTruthTrackId = -1;
+                int bdtTrainClusterTruthPid = 0;
+                int bdtTrainClusterTruthBarcode = -1;
+                float bdtTrainEContrib = std::numeric_limits<float>::quiet_NaN();
                 if (doCanonical && m_isSim)
                 {
                     bool isSig_incl = false;
                     if (evtHepMC_SS && clustereval_SS && haveCaloEval_SS)
                     {
-                        TruthSignalPhotonInfo matchedTruth_incl;
-                        int clusterTruthTrackId_incl = -1;
-                        float eContrib_incl = std::numeric_limits<float>::lowest();
                         isSig_incl = classifyRecoPhotonWithPPG12TruthTrack(rc, *clustereval_SS,
                                                                            truthSignalByTrackId_SS,
-                                                                           matchedTruth_incl,
-                                                                           clusterTruthTrackId_incl,
-                                                                           eContrib_incl);
+                                                                           bdtTrainMatchedTruth,
+                                                                           bdtTrainClusterTruthTrackId,
+                                                                           bdtTrainEContrib);
+                        RawCluster* rc_nc = const_cast<RawCluster*>(rc);
+                        PHG4Particle* primary = clustereval_SS->max_truth_primary_particle_by_energy(rc_nc);
+                        if (primary)
+                        {
+                            bdtTrainClusterTruthTrackId = primary->get_track_id();
+                            bdtTrainClusterTruthPid = primary->get_pid();
+                            bdtTrainClusterTruthBarcode = primary->get_barcode();
+                            bdtTrainEContrib = clustereval_SS->get_energy_contribution(rc_nc, primary);
+                        }
                         bdtTrainHaveLabel = true;
                         bdtTrainIsSignal = isSig_incl;
                     }
@@ -11063,6 +11434,18 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                                                 eiso_et_r30,
                                                 eiso_et_r40);
                     }
+                }
+
+                if (doCanonical && m_isSim && bdtTrainHaveLabel && bdtTrainPassCommonGate)
+                {
+                    fillTHE44PythiaAutopsyTree(v, eta, phi, eiso_et, ptIdx, centIdx,
+                                                bdtTrainIsSignal,
+                                                bdtTrainClusterTruthTrackId,
+                                                bdtTrainClusterTruthPid,
+                                                bdtTrainClusterTruthBarcode,
+                                                bdtTrainEContrib,
+                                                bdtTrainMatchedTruth,
+                                                evtHepMC_SS);
                 }
 
                 if (m_auauBDTExtractOnly)

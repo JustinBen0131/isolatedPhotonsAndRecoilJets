@@ -12,6 +12,13 @@
   macro source before editing.
 - Plot labels must name the actual comparison in plain physics terms. Avoid
   vague shorthand like `PPG12-like` when the legend can say what changed.
+- Plot truthfulness is non-negotiable. Legends, axis labels, annotations,
+  filenames, captions, slide text, and handoff text must match the actual
+  histogram/array/tree/sample/model/selection/weight/binning/run tag being
+  plotted. Do not relabel a proxy, placeholder, synthetic target, stale output,
+  approximate recreation, or unvalidated file as the real result. If the exact
+  source object or processing chain is not verified, mark the output as a
+  draft/placeholder and do not call it ready.
 
 ## File Placement
 
@@ -94,6 +101,16 @@ mechanically preventable. Common durable plot lessons include:
 - color semantics conflict with an established plot family;
 - a raw analysis plot should have been rebuilt as a full-slide candidate.
 
+For pp inclusive-jet stitched-source composition plots, do not treat a smooth
+truth-`p_T` spectrum alone as proof that a reco-cluster-`E_T` diagnostic is
+coherent. Before presenting a stitched pp inclusive composition, verify that
+the plotted rows use canonical candidate fills, require
+`ppg12_truth_window_pass_r04 > 0.5`, use the intended PPG12 sample weights, and
+apply the recorded sample ownership caps. For slide-facing ABCD counterparts,
+match the embedded/reference ABCD row scope before comparing shapes. If the
+bottom fraction/ratio panel reaches farther than the log-y top panel, check
+the top-panel y-axis floor before interpreting the tail as missing.
+
 For a durable correction, update the plotting script default, manifest
 checklist, `SLIDE_STYLE_MAP.md`, this policy, or a validator. Keep evidence
 with the lesson: the rejected artifact path, the corrected artifact path, the
@@ -113,6 +130,12 @@ When Justin asks for plots for slides:
 - explain what is plotted, what is learned, why it does or does not belong on a
   slide, and any physics/formatting caveat;
 - do not insert or replace Google Slides plots until Justin approves the image.
+
+If context conservation mode is active, keep the handoff to the PNG path(s)
+plus one terse source/caveat line unless Justin asks for the full explanation.
+Do not generate extra companion formats, alternate panels, or deck edits unless
+they are required to avoid a misleading result or Justin explicitly requests
+them.
 
 Generated slide-use PNGs should contain only the scientific plot: axes, data,
 legend, and in-plot analysis labels. Do not bake slide titles, bullets,

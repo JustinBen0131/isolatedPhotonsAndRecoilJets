@@ -23,20 +23,28 @@ del _CODEX_THIS_FILE, _CODEX_SCRIPTS_DIR, _CODEX_OS_DIR, _CODEX_IMPORT_DIRS, _CO
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 from codex_work_register_common import DEFAULT_REGISTER, first_line, load_register, sorted_workstreams
 
 
 STATUS_TO_LANE = {
-    "active": "Active",
-    "running": "Running",
-    "waiting": "Waiting",
-    "blocked": "Blocked",
-    "review": "Review",
+    "active": "Todo",
+    "running": "In Progress",
+    "waiting": "Todo",
+    "blocked": "Todo",
+    "review": "Todo",
     "backlog": "Backlog",
     "done_pending_review": "Done Pending Archive",
     "archived": "Done Pending Archive",
+}
+
+LANE_SORT_ORDER = {
+    "In Progress": 0,
+    "Todo": 1,
+    "Backlog": 2,
+    "Done Pending Archive": 3,
 }
 
 CAMPAIGN_NAMES = {
@@ -61,6 +69,113 @@ AREA_LABELS = {
     "isolation": "Area: ML",
     "trigger": "Area: Trigger",
 }
+
+
+THE_RE = re.compile(r"\bTHE-(\d+)\b", re.IGNORECASE)
+
+
+def the_issue_number(item: dict[str, object]) -> int | None:
+    """Extract the native Linear THE number from URL/key/title-like fields."""
+
+    fields = (
+        item.get("linear_issue"),
+        item.get("title"),
+        item.get("workstream_id"),
+    )
+    for value in fields:
+        match = THE_RE.search(str(value or ""))
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def has_watched_job(item: dict[str, object]) -> bool:
+    """Return whether the issue should float to the top of In Progress."""
+
+    status = str(item.get("status") or "")
+    next_action = first_line(item.get("current_next_action")).lower()
+    active_session = first_line(item.get("active_codex_session"))
+    heartbeat = first_line(
+        item.get("heartbeat_automation_id")
+        or item.get("heartbeat_automation")
+        or item.get("heartbeat")
+    )
+    if item.get("active_jobs"):
+        return True
+    if status == "running":
+        return True
+    if heartbeat and heartbeat.lower() not in {"none", "null", "not_needed"}:
+        return True
+    if active_session and any(token in next_action for token in ("watch", "status", "check", "checkpoint", "heartbeat")):
+        return True
+    return False
+
+
+def lane_order_for(item: dict[str, object]) -> dict[str, object]:
+    """Emit deterministic ordering metadata for Codex-operated Linear sync."""
+
+    status = str(item.get("status") or "")
+    watched = has_watched_job(item)
+    active_session = first_line(item.get("active_codex_session"))
+    lane = STATUS_TO_LANE.get(status, "Backlog")
+    if status == "active" and (watched or active_session):
+        lane = "In Progress"
+    if status in {"waiting", "blocked", "review"} and (watched or active_session):
+        lane = "In Progress"
+    issue_number = the_issue_number(item)
+    lane_order_group = 0 if lane == "In Progress" and watched else 1
+    issue_sort = issue_number if issue_number is not None else 999999
+    title = first_line(item.get("title")) or first_line(item.get("workstream_id"))
+    return {
+        "lane": lane,
+        "issue_number": issue_number,
+        "watched_job_first": bool(lane == "In Progress" and watched),
+        "lane_order_group": lane_order_group,
+        "lane_order_key": f"{lane_order_group:02d}-{issue_sort:06d}-{title.lower()}",
+    }
+
+
+def concise_issue_subject(item: dict[str, object]) -> str:
+    """Return a compact subject suitable for a Codex chat title."""
+
+    title = linear_title_for(item)
+    prefixes = (
+        "P0 Campaign | ",
+        "P0 Approval | ",
+        "RUN Stitching | ",
+        "P0 ML | ",
+        "P1 Closure | ",
+        "WAIT Validation | ",
+        "BKL ML Check | ",
+        "BKL Trigger | ",
+        "BKL Backlog | ",
+        "OS Baseline | ",
+    )
+    for prefix in prefixes:
+        if title.startswith(prefix):
+            title = title[len(prefix) :]
+            break
+    title = title.replace(" | ", " ")
+    title = re.sub(r"^(P[0-3]\s+)?THE-\d+[A-Z]?\s+", "", title)
+    title = re.sub(r"^P[0-3]\s+", "", title)
+    words = title.split()
+    compact = " ".join(words[:6])
+    return compact or first_line(item.get("workstream_id")) or "Task"
+
+
+def suggested_chat_title_for(item: dict[str, object]) -> str:
+    """Return the preferred Codex chat title for a Linear-backed workstream."""
+
+    issue_number = the_issue_number(item)
+    subject = concise_issue_subject(item)
+    if len(subject) > 42:
+        subject = subject[:39].rstrip() + "..."
+    if issue_number is not None:
+        return f"THE-{issue_number} | {subject}"
+    campaign_id = first_line(item.get("campaign_id"))
+    if campaign_id:
+        return f"{campaign_id} | {subject}"
+    return subject
 
 
 def linear_title_for(item: dict[str, object]) -> str:
@@ -212,15 +327,19 @@ def main() -> int:
 
     data = load_register(Path(args.register))
     payloads = []
+    issue_rows = []
     for item in sorted_workstreams(data):
         if item.get("status") == "archived" and not args.include_archived:
             continue
-        payloads.append(
+        order = lane_order_for(item)
+        issue_rows.append(
             {
                 "workstream_id": item.get("workstream_id"),
                 "title": linear_title_for(item),
                 "status": item.get("status"),
-                "lane": STATUS_TO_LANE.get(str(item.get("status")), "Backlog"),
+                "lane": order["lane"],
+                "lane_order": order,
+                "suggested_chat_title": suggested_chat_title_for(item),
                 "priority": item.get("priority"),
                 "labels": labels_for(item),
                 "existing_linear_issue": item.get("linear_issue"),
@@ -228,6 +347,13 @@ def main() -> int:
                 "body": body_for(item),
             }
         )
+    payloads = sorted(
+        issue_rows,
+        key=lambda row: (
+            LANE_SORT_ORDER.get(str(row.get("lane")), 99),
+            str((row.get("lane_order") or {}).get("lane_order_key")),
+        ),
+    )
 
     print(json.dumps({"project": data.get("linear", {}).get("default_project"), "issues": payloads}, indent=2))
     return 0

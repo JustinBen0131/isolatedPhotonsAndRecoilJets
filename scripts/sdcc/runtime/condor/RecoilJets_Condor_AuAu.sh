@@ -58,6 +58,16 @@ if [[ -d "$MYINSTALL_AUAU" ]]; then
 fi
 set -u
 
+# Frozen Condor snapshots carry a sibling lib/ directory with copied local
+# analysis libraries. Put it first so DT_NEEDED SONAME lookups and explicit
+# ROOT loads resolve to the same snapshot copy.
+wrapper_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+snapshot_lib_dir="${RJ_SNAPSHOT_LIB_DIR:-${wrapper_dir}/lib}"
+if [[ -d "$snapshot_lib_dir" ]]; then
+  export LD_LIBRARY_PATH="${snapshot_lib_dir}:${LD_LIBRARY_PATH:-}"
+  echo "[INFO] Snapshot lib prepended: ${snapshot_lib_dir}"
+fi
+
 # ------------------------ Dataset routing ------------------
 # Normalize dataset and set defaults:
 #  - isSim must remain isSim end-to-end so the analysis module can detect it.
@@ -196,6 +206,7 @@ profile_enabled="${RJ_PROFILE_JOB:-0}"
 profile_stage="${RJ_PROFILE_STAGE:-analysis}"
 profile_label="${RJ_PROFILE_LABEL:-${chunk_tag}}"
 profile_file="${TMPDIR:-/tmp}/recoiljets_time_$$_${chunk_tag}.txt"
+root_stderr_file="${TMPDIR:-/tmp}/recoiljets_root_stderr_$$_${chunk_tag}.log"
 input_files="$(grep -Ev '^[[:space:]]*($|#)' "$chunk_list" | wc -l | awk '{print $1}')"
 
 file_size_bytes() {
@@ -207,6 +218,116 @@ file_size_bytes() {
   else
     wc -c < "$f" | awk '{print $1}'
   fi
+}
+
+truthy_env() {
+  case "${1:-0}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+  esac
+  return 1
+}
+
+root_output_structurally_valid() {
+  local f="$1"
+  [[ -f "$f" ]] || return 1
+  python3 - "$f" <<'PY'
+import sys
+
+path = sys.argv[1]
+try:
+    import ROOT
+except Exception as exc:
+    print(f"[WARN] Could not import ROOT for small-output validation: {exc}", file=sys.stderr)
+    sys.exit(2)
+
+ROOT.gROOT.SetBatch(True)
+tf = ROOT.TFile.Open(path)
+if not tf or tf.IsZombie():
+    sys.exit(1)
+
+keys = list(tf.GetListOfKeys())
+if not keys:
+    tf.Close()
+    sys.exit(1)
+
+has_config = False
+has_directory = False
+has_histogram = False
+for key in keys:
+    name = key.GetName()
+    obj = key.ReadObj()
+    if name == "analysis_config_yaml":
+        has_config = True
+    if obj.InheritsFrom("TDirectory"):
+        has_directory = True
+        for subkey in obj.GetListOfKeys():
+            subobj = subkey.ReadObj()
+            if subobj.InheritsFrom("TH1"):
+                has_histogram = True
+                break
+    elif obj.InheritsFrom("TH1"):
+        has_histogram = True
+
+tf.Close()
+sys.exit(0 if (has_config or (has_directory and has_histogram)) else 1)
+PY
+}
+
+validate_non_tiny_output_if_requested() {
+  truthy_env "${RJ_REQUIRE_NON_TINY_OUTPUT:-0}" || return 0
+  local min_bytes="${RJ_MIN_OUTPUT_BYTES:-50000}"
+  [[ "$min_bytes" =~ ^[0-9]+$ ]] || min_bytes=50000
+  local output_files=0 output_bytes=0 f sz
+  local output_paths=()
+  if (( ${#fanout_outputs[@]} > 0 )); then
+    for f in "${fanout_outputs[@]}"; do
+      [[ -f "$f" ]] || continue
+      sz="$(file_size_bytes "$f")"
+      output_bytes=$(( output_bytes + sz ))
+      output_files=$(( output_files + 1 ))
+      output_paths+=("$f")
+    done
+  elif [[ -f "$out_root" ]]; then
+    output_bytes="$(file_size_bytes "$out_root")"
+    output_files=1
+    output_paths+=("$out_root")
+  fi
+  if (( output_files == 0 )); then
+    echo "[ERROR] Output failed validation: files=${output_files} bytes=${output_bytes} min_bytes=${min_bytes}"
+    echo "[ERROR] This usually means the worker could not open real CALOFITTING input or wrote no ROOT output."
+    return 9
+  fi
+  if (( output_bytes < min_bytes )); then
+    local valid_small_outputs=0
+    for f in "${output_paths[@]}"; do
+      if root_output_structurally_valid "$f"; then
+        valid_small_outputs=$(( valid_small_outputs + 1 ))
+      fi
+    done
+    if (( valid_small_outputs == output_files )); then
+      echo "[INFO] Output passed small-ROOT structural validation: files=${output_files} bytes=${output_bytes} min_bytes=${min_bytes}"
+      return 0
+    fi
+    echo "[ERROR] Output failed non-tiny validation: files=${output_files} bytes=${output_bytes} min_bytes=${min_bytes}"
+    echo "[ERROR] This usually means the worker could not open real CALOFITTING input or wrote a zero-event placeholder."
+    return 9
+  fi
+  echo "[INFO] Output passed non-tiny validation: files=${output_files} bytes=${output_bytes} min_bytes=${min_bytes}"
+}
+
+missing_calo_input_detected() {
+  [[ -s "$root_stderr_file" ]] || return 1
+  grep -Eq 'DST_CALOFITTING.*does not exist|file .*DST_CALOFITTING.* does not exist' "$root_stderr_file"
+}
+
+validate_missing_calo_input_if_requested() {
+  truthy_env "${RJ_FAIL_ON_MISSING_CALO_INPUT:-0}" || return 0
+  if missing_calo_input_detected; then
+    echo "[ERROR] Required CALOFITTING input was reported missing by ROOT."
+    echo "[ERROR] This indicates an unresolved or unavailable DST_CALOFITTING logical file, not a low-stat/no-photon output."
+    return 10
+  fi
+  echo "[INFO] No missing CALOFITTING input errors detected."
 }
 
 emit_profile_summary() {
@@ -305,9 +426,9 @@ echo "[INFO] Running ROOT:"
 echo "root -b -q -l \"${MACRO}(${nevents}, \\\"${chunk_list}\\\", \\\"${out_root}\\\", false)\""
 start_heartbeat
 if [[ "$profile_enabled" == "1" || "$profile_enabled" == "true" || "$profile_enabled" == "TRUE" ]] && command -v /usr/bin/time >/dev/null 2>&1; then
-  /usr/bin/time -v -o "$profile_file" root -b -q -l "${MACRO}(${nevents}, \"${chunk_list}\", \"${out_root}\", false)"
+  /usr/bin/time -v -o "$profile_file" root -b -q -l "${MACRO}(${nevents}, \"${chunk_list}\", \"${out_root}\", false)" 2> >(tee "$root_stderr_file" >&2)
 else
-  root -b -q -l "${MACRO}(${nevents}, \"${chunk_list}\", \"${out_root}\", false)"
+  root -b -q -l "${MACRO}(${nevents}, \"${chunk_list}\", \"${out_root}\", false)" 2> >(tee "$root_stderr_file" >&2)
 fi
 rc=$?
 stop_heartbeat
@@ -327,6 +448,8 @@ if (( rc != 0 )); then
   echo "[ERROR] Fun4All macro failed (rc=$rc)"
   exit $rc
 fi
+validate_missing_calo_input_if_requested
+validate_non_tiny_output_if_requested
 if (( ${#fanout_outputs[@]} > 0 )); then
   missing=0
   for f in "${fanout_outputs[@]}"; do
@@ -340,4 +463,5 @@ if (( ${#fanout_outputs[@]} > 0 )); then
 else
   echo "[OK]   Finished successfully → $(ls -l "$out_root" 2>/dev/null || echo '(file not found!)')"
 fi
+rm -f "$root_stderr_file"
 exit 0

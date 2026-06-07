@@ -43,6 +43,7 @@
 #include <caloreco/CaloTowerBuilder.h>
 #include <phool/PHNodeIterator.h>
 #include <phool/PHIODataNode.h>
+#include <frog/FROG.h>
 #include <calotrigger/MinimumBiasClassifier.h>
 #include <ffamodules/FlagHandler.h>
 #include <ffamodules/CDBInterface.h>
@@ -3402,6 +3403,80 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         return true;
     };
     
+    std::map<std::string, std::string> frogResolvedCache;
+    std::size_t nFrogResolved = 0;
+    auto resolveInputPath = [&](const std::string& path, const char* streamLabel) -> std::string
+    {
+        if (path.empty() || path == "NONE") return path;
+        if (path.find("://") != std::string::npos) return path;
+        if (!path.empty() && path[0] == '/') return path;
+        if (gSystem && !gSystem->AccessPathName(path.c_str())) return path;
+
+        auto cached = frogResolvedCache.find(path);
+        if (cached != frogResolvedCache.end()) return cached->second;
+
+        FROG frog;
+        const char* resolvedRaw = frog.location(path);
+        if (resolvedRaw && std::string(resolvedRaw).size())
+        {
+            std::string resolved(resolvedRaw);
+            if (resolved.find("://") == std::string::npos &&
+                (resolved.empty() || resolved[0] != '/') &&
+                (!gSystem || gSystem->AccessPathName(resolved.c_str())))
+            {
+                // Fun4AllDstInputManager has its own logical-file handling; do
+                // not reject unresolved logical names here solely because this
+                // direct FROG probe returned the original basename.
+                frogResolvedCache[path] = path;
+                if (vlevel > 1)
+                {
+                    std::cout << "[FROG] " << streamLabel
+                              << ": leaving logical input for Fun4All: "
+                              << path << std::endl;
+                }
+                return path;
+            }
+            frogResolvedCache[path] = resolved;
+            if (resolved != path) ++nFrogResolved;
+            if (vlevel > 1)
+            {
+                std::cout << "[FROG] " << streamLabel << ": " << path
+                          << " -> " << resolved << std::endl;
+            }
+            return resolved;
+        }
+
+        frogResolvedCache[path] = path;
+        if (vlevel > 1)
+        {
+            std::cout << "[FROG] " << streamLabel
+                      << ": no direct resolution; leaving logical input for Fun4All: "
+                      << path << std::endl;
+        }
+        return path;
+    };
+
+    auto resolveVectorPaths = [&](std::vector<std::string>& paths, const char* streamLabel)
+    {
+        for (auto& path : paths)
+        {
+            path = resolveInputPath(path, streamLabel);
+        }
+    };
+
+    resolveVectorPaths(filesCalo, "CALO");
+    resolveVectorPaths(filesZdc, "ZDC_RAW");
+    resolveVectorPaths(filesG4, "G4");
+    resolveVectorPaths(filesJets, "JETS");
+    resolveVectorPaths(filesGlobal, "GLOBAL");
+    resolveVectorPaths(filesMbd, "MBD_EPD");
+
+    if ((verbose || vlevel > 0) && nFrogResolved > 0)
+    {
+        std::cout << "[FROG] resolved " << nFrogResolved
+                  << " logical input file names before Fun4All AddFile" << std::endl;
+    }
+
     const bool listHasZdc    = all_nonempty(filesZdc);
     const bool listHasG4     = all_nonempty(filesG4);
     const bool listHasJets   = all_nonempty(filesJets);
@@ -3469,7 +3544,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     // ------------------ ZDC RAW DST (AuAu MB-classifier gate only) -------------------
     if (needZdcRawForMinBias)
     {
-        auto* inZdc = new Fun4AllDstInputManager("DST_ZDC_RAW_IN");
+        auto* inZdc = new Fun4AllNoSyncDstInputManager("DST_ZDC_RAW_IN");
         for (const auto& f : filesZdc) inZdc->AddFile(f);
         se->registerInputManager(inZdc);
 
@@ -3681,6 +3756,22 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             if (isAuAuRequested)
             {
                 std::cout << "[DATA][AuAu] clusterUEpipeline may still apply native UE subtraction and reclusterization afterward\n";
+            }
+        }
+        if (!isSim && isAuAuRequested && caloInputMode == "calofitting")
+        {
+            setenv("RJ_SKIP_CALO_STATUS_SKIMMER", "1", 1);
+            unsetenv("RJ_SKIP_CALO_TOWER_STATUS");
+            unsetenv("RJ_DEFER_CALO_TOWER_STATUS_TO_CALIB");
+            unsetenv("RJ_USE_TOWERINFO_CALO_INPUT");
+            unsetenv("RJ_CALO_INPUT_NODE_PREFIX");
+            setenv("RJ_DISABLE_CEMC_BAD_TOWER_MASK", "1", 1);
+            if (vlevel > 0)
+            {
+                std::cout << "[DATA][AuAu] CALOFITTING/TowerInfo input: skipping legacy CaloStatusSkimmer, "
+                          << "running the stock CaloTowerStatus -> CaloTowerCalib chain on TOWERS_* so status is copied "
+                          << "into TOWERINFO_CALIB_* before cluster building, and disabling the downstream "
+                          << "PhotonClusterBuilder CEMC mask for canonical proof\n";
             }
         }
         Process_Calo_Calib();
@@ -4866,12 +4957,19 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                 const float parsed = std::strtof(env, &end);
                 if (end != env && std::isfinite(parsed)) ppNPBScoreMinEt = parsed;
             }
+            float ppNPBScoreMaxEt = 40.0f;
+            if (const char* env = std::getenv("RJ_PP_NPB_SCORE_MAX_ET"))
+            {
+                char* end = nullptr;
+                const float parsed = std::strtof(env, &end);
+                if (end != env && (std::isfinite(parsed) || std::isinf(parsed))) ppNPBScoreMaxEt = parsed;
+            }
             preselectionPhotonNode = "PHOTONCLUSTER_CEMC";
             photonBuilder->add_named_bdt_score("npb_score",
                                                cfg.npb_model_file,
                                                cfg.npb_features,
                                                ppNPBScoreMinEt,
-                                               40.0f,
+                                               ppNPBScoreMaxEt,
                                                0.7f);
             if (ppPhotonIDTrainingWantsNPBAudit && !fanoutUsesNPB)
             {

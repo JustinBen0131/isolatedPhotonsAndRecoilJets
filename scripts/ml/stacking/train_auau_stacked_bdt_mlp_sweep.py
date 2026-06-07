@@ -46,6 +46,7 @@ DEFAULT_REPORT_PT_BINS = "5,10,15,18,20,22.5,25,30,35"
 DEFAULT_REPORT_CENT_BINS = "0,10,20,30,40,50,60,80"
 ALIGNMENT_KEYS = ("is_signal", "cluster_Et", "centrality", "reco_eiso")
 EPS = 1.0e-6
+STACK_MATRIX_DTYPE = np.float32
 
 BDT_BASE_FEATURES = [
     "cluster_Et",
@@ -845,15 +846,12 @@ def nn_predict_from_artifact(model: dict, x: np.ndarray) -> np.ndarray:
 
 def fit_nn(name, feature_names, x, y, train_mask, val_mask, args, seed, sample_weights=None) -> FittedModel:
     hidden_layers = parse_hidden_layers(args.nn_hidden)
-    x_clean, impute = train_apply_impute(x[train_mask], x)
-    x_train_z, mean, scale = standardize_train_apply(x_clean[train_mask], x_clean[train_mask])
-    x_all_z = np.nan_to_num((x_clean - mean) / scale, nan=0.0, posinf=0.0, neginf=0.0)
-    y_train = y[train_mask].astype("float64")
+    train_mask = np.asarray(train_mask, dtype=bool).copy()
+    val_mask = np.zeros(len(y), dtype=bool) if val_mask is None else np.asarray(val_mask, dtype=bool).copy()
     if sample_weights is None:
         sample_weights = class_balanced_weights(y)
     sample_weights = np.asarray(sample_weights, dtype="float64")
-    w_train = sample_weights[train_mask]
-    if val_mask is None or val_mask.sum() < 20 or len(np.unique(y[val_mask])) < 2:
+    if val_mask.sum() < 20 or len(np.unique(y[val_mask])) < 2:
         rng_split = np.random.default_rng(seed + 7919)
         train_idx_all = np.flatnonzero(train_mask)
         val_take = []
@@ -869,14 +867,41 @@ def fit_nn(name, feature_names, x, y, train_mask, val_mask, args, seed, sample_w
             train_mask[np.asarray(keep_take, dtype=int)] = True
             val_mask = np.zeros(len(y), dtype=bool)
             val_mask[np.asarray(val_take, dtype=int)] = True
-            y_train = y[train_mask].astype("float64")
-            w_train = sample_weights[train_mask]
-    val_mask = np.zeros(len(y), dtype=bool) if val_mask is None else val_mask
-    y_val = y[val_mask].astype("float64")
-    w_val = sample_weights[val_mask] if val_mask.any() else np.ones(0, dtype="float64")
-    train_indices = np.flatnonzero(train_mask)
-    if train_indices.size < 20:
+    train_global_indices = np.flatnonzero(train_mask)
+    if train_global_indices.size < 20:
         raise ValueError(f"{name}: insufficient neural-stack train rows")
+
+    x_train_raw = np.asarray(x[train_mask], dtype=STACK_MATRIX_DTYPE)
+    with np.errstate(all="ignore"):
+        impute = np.nanmedian(np.where(np.isfinite(x_train_raw), x_train_raw, np.nan), axis=0)
+    impute = np.where(np.isfinite(impute), impute, 0.0).astype("float64", copy=False)
+    x_train_clean = np.where(np.isfinite(x_train_raw), x_train_raw, impute).astype(STACK_MATRIX_DTYPE, copy=False)
+    mean = np.nanmean(x_train_clean, axis=0).astype("float64", copy=False)
+    scale = np.nanstd(x_train_clean, axis=0).astype("float64", copy=False)
+    mean = np.where(np.isfinite(mean), mean, 0.0)
+    scale = np.where(np.isfinite(scale) & (scale > 1.0e-9), scale, 1.0)
+    x_train_z = np.nan_to_num((x_train_clean - mean) / scale, nan=0.0, posinf=0.0, neginf=0.0).astype(
+        STACK_MATRIX_DTYPE,
+        copy=False,
+    )
+    del x_train_raw, x_train_clean
+
+    y_train = y[train_mask].astype("float64")
+    w_train = sample_weights[train_mask]
+    if val_mask.any():
+        x_val_raw = np.asarray(x[val_mask], dtype=STACK_MATRIX_DTYPE)
+        x_val_clean = np.where(np.isfinite(x_val_raw), x_val_raw, impute).astype(STACK_MATRIX_DTYPE, copy=False)
+        x_val_z = np.nan_to_num((x_val_clean - mean) / scale, nan=0.0, posinf=0.0, neginf=0.0).astype(
+            STACK_MATRIX_DTYPE,
+            copy=False,
+        )
+        del x_val_raw, x_val_clean
+        y_val = y[val_mask].astype("float64")
+        w_val = sample_weights[val_mask]
+    else:
+        x_val_z = np.empty((0, x.shape[1]), dtype=STACK_MATRIX_DTYPE)
+        y_val = np.ones(0, dtype="float64")
+        w_val = np.ones(0, dtype="float64")
 
     params = init_nn_params(x.shape[1], hidden_layers, seed)
     m = [{"weight": np.zeros_like(layer["weight"]), "bias": np.zeros_like(layer["bias"])} for layer in params]
@@ -891,13 +916,14 @@ def fit_nn(name, feature_names, x, y, train_mask, val_mask, args, seed, sample_w
     lr = float(args.nn_learning_rate)
     beta1 = 0.9
     beta2 = 0.999
+    train_indices = np.arange(len(y_train), dtype=np.int64)
     for epoch in range(1, max(1, int(args.nn_epochs)) + 1):
         rng.shuffle(train_indices)
         for start in range(0, len(train_indices), batch_size):
             batch = train_indices[start : start + batch_size]
-            xb = x_all_z[batch]
-            yb = y[batch].astype("float64")
-            wb = sample_weights[batch]
+            xb = x_train_z[batch]
+            yb = y_train[batch]
+            wb = w_train[batch]
             prob, activations, preacts = nn_forward(xb, params)
             delta = ((prob - yb) * wb / max(float(np.sum(wb)), 1.0))[:, None]
             grad_w = []
@@ -923,11 +949,11 @@ def fit_nn(name, feature_names, x, y, train_mask, val_mask, args, seed, sample_w
                     m_hat = m[layer_idx][key] / (1.0 - beta1**step)
                     v_hat = v[layer_idx][key] / (1.0 - beta2**step)
                     params[layer_idx][key] -= lr * m_hat / (np.sqrt(v_hat) + 1.0e-8)
-        train_prob = nn_forward(x_all_z[train_mask], params)[0]
+        train_prob = nn_forward(x_train_z, params)[0]
         l2_value = 0.5 * float(args.nn_l2) * sum(float(np.sum(layer["weight"] ** 2)) for layer in params)
         train_loss = binary_cross_entropy(y_train, train_prob, w_train, l2_value)
         if val_mask.any():
-            val_prob = nn_forward(x_all_z[val_mask], params)[0]
+            val_prob = nn_forward(x_val_z, params)[0]
             val_loss = binary_cross_entropy(y_val, val_prob, w_val, l2_value)
             val_auc = auc_score(y[val_mask], val_prob)
         else:

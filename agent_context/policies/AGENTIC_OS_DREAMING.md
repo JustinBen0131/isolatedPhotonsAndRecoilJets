@@ -57,6 +57,18 @@ validators, runbooks, indexes, retention rules, or path-contract improvements.
 Recurring active-job/status/stale warnings should be retired into
 `register_workstream_refresh_contract` once that protocol is present; doctor
 warnings should count only unhandled recurring hotspots.
+The pressure governor is the canonical rule for repeated dream pressure.
+Dream internals, morning summaries, and doctor checks should normalize pressure
+as `kind|target|source_lane` and assign exactly one status: `actionable`,
+`handled`, `cooling`, `appendix_only`, `blocked_for_waking`, or `resolved`.
+Daily-facing output should include only actual local changes, failures,
+required waking approval, or unhandled actionable warnings. Repeated
+proposal-only atoms, handled register pressure, context-resonance maintenance
+hints, and research-scout subtasks move to the OS Appendix with
+`daily_visibility: appendix` and a concrete `suppression_reason`. If a repeated
+pressure is already covered by a validator, runbook, or register refresh
+contract, render one line: `Handled by <contract>; no waking action.` Raw dream
+artifacts stay preserved; suppression only changes daily visibility.
 Scores are diagnostic smoke alarms only. Dream summaries are after-action
 reports, not status blips. `morning_conversation_digest.md` and each scheduled
 lane `morning_lane_summary.json` must say, in concrete scan-friendly language:
@@ -127,8 +139,10 @@ Today's Plan thread. Current lanes are:
   physics-plus-OS research pack/heartbeat plan when Justin asks for it, and
   nightly proposals for better use of human-accessible AI/tools rather than
   reinventing equivalent machinery;
-- `science_scout`: hypothesis/null-test/systematic sketches from existing
-  provenance-backed surfaces only;
+- `science_scout`: hypothesis/null-test/systematic sketches, falsification
+  matrices, and sanitized ChatGPT critique handoff prompts from existing
+  provenance-backed surfaces only; external execution remains owned by
+  `research_scout`;
 - `presentation_artifacts`: slide/figure implications only when the active
   thesis work needs them.
 
@@ -557,6 +571,14 @@ usable, provenance-backed data surfaces. Outputs should be phrased as:
 - minimal safe next diagnostic;
 - why it matters for the thesis spine.
 
+For high-value scenarios, `science_scout` should also emit a compact
+falsification matrix and a sanitized ChatGPT critique prompt. The prompt should
+ask for fake-signal explanations, source leads, and low-cost checks on existing
+artifacts. The dream must not submit that prompt itself. Waking Codex may route
+it through `research_scout` and `ASK_CHATGPT_DELEGATION.md`; the response is
+source leads and critique only until verified against local artifacts, primary
+sources, and the normal analysis guardrails.
+
 No dream output may claim a physics result. A surprising scenario becomes
 actionable only after waking review, duplicate-run guard, provenance check,
 analysis approval, and real validation.
@@ -604,6 +626,10 @@ analysis approval, and real validation.
 - `approval_packets/SHADOW_README.md`
 - `overnight_hygiene_proposals.md`
 - `physics_scenario_proposals.md`
+- `science_scout_frontier_review.md`
+- `science_scout_frontier_review.json`
+- `chatgpt_science_critique_prompt.md`
+- `chatgpt_science_critique_prompt.txt`
 
 Dream infrastructure may also maintain a local append-only run index under
 `agent_context/local/dreams/` so recurrence can be detected across nights.

@@ -32,8 +32,10 @@ from codex_work_register_common import (
     first_line,
     load_register,
     parse_when,
+    sorted_workstreams,
     validate_register,
 )
+from pressure_governor import classify_register_workstream, decorate_pressure_item, pressure_summary
 
 
 LIVE_STATUSES = {"active", "running", "waiting", "blocked", "review"}
@@ -648,14 +650,50 @@ def aggregate_lane_signals(bundle: dict[str, tuple[Path | None, dict[str, Any] |
         for lane_id, (path, signal) in bundle.items()
     }
     top_findings: list[dict[str, Any]] = []
+    recurrence_unhandled = 0
+    recurrence_suppressed = 0
+    recurrence_handled = 0
+    register_rows_by_id: dict[str, dict[str, Any]] = {}
+    try:
+        register_data = load_register(DEFAULT_REGISTER)
+        now = datetime.now(timezone.utc)
+        register_rows_by_id = {
+            str(row.get("workstream_id")): row
+            for row in (
+                classify_register_workstream(item, now)
+                for item in sorted_workstreams(register_data)
+                if isinstance(item, dict)
+            )
+            if row.get("workstream_id")
+        }
+    except RegisterError:
+        register_rows_by_id = {}
     for lane_id in EXPECTED_DREAM_LANE_IDS:
         _, signal = bundle.get(lane_id, (None, None))
         if not signal:
             continue
         for item in signal.get("top_findings") or []:
             if isinstance(item, dict):
-                top_findings.append(item)
+                top_findings.append(
+                    item
+                    if item.get("pressure_status")
+                    else decorate_pressure_item(item, register_rows_by_id=register_rows_by_id, source_lane=lane_id)
+                )
+        pressure = signal.get("pressure_governor") if isinstance(signal.get("pressure_governor"), dict) else {}
+        recurrence = pressure.get("recurrence") if isinstance(pressure.get("recurrence"), dict) else {}
+        recurrence_unhandled += int(recurrence.get("unhandled_actionable_count") or 0)
+        recurrence_suppressed += int(recurrence.get("suppressed_count") or 0)
+        status_counts = recurrence.get("status_counts") if isinstance(recurrence.get("status_counts"), dict) else {}
+        recurrence_handled += int(status_counts.get("handled") or 0)
     aggregate["top_findings"] = top_findings[:14]
+    governed = pressure_summary(top_findings)
+    aggregate["pressure_governor"] = governed
+    summary["recurring_hotspot_count"] = recurrence_unhandled
+    summary["handled_recurring_hotspot_count"] = recurrence_handled
+    summary["suppressed_recurring_hotspot_count"] = recurrence_suppressed
+    summary["actionable_pressure_count"] = governed["unhandled_actionable_count"]
+    summary["suppressed_pressure_count"] = governed["suppressed_count"]
+    aggregate["summary"] = summary
     return latest_path, aggregate
 
 
@@ -688,6 +726,9 @@ def check_dream_heartbeat(findings: list[Finding], profile: str, now: datetime) 
     automation_drift = int(summary.get("automation_drift_count") or 0)
     recurring = int(summary.get("recurring_hotspot_count") or 0)
     handled_recurring = int(summary.get("handled_recurring_hotspot_count") or 0)
+    suppressed_recurring = int(summary.get("suppressed_recurring_hotspot_count") or 0)
+    actionable_pressure = int(summary.get("actionable_pressure_count") or 0)
+    suppressed_pressure = int(summary.get("suppressed_pressure_count") or 0)
     cleanup_candidates = int(summary.get("cleanup_candidate_count") or 0)
     schema_candidates = int(summary.get("schema_promotion_candidate_count") or 0)
     approval_ready_count = int(summary.get("approval_ready_count") or 0)
@@ -701,6 +742,7 @@ def check_dream_heartbeat(findings: list[Finding], profile: str, now: datetime) 
     pilot = maintenance.get("shadow_pilot") if isinstance(maintenance.get("shadow_pilot"), dict) else {}
     validation = signal.get("validation") if isinstance(signal.get("validation"), dict) else {}
     doctor_error_count = int(summary.get("doctor_error_count") or 0)
+    governed_pressure = signal.get("pressure_governor") if isinstance(signal.get("pressure_governor"), dict) else {}
     for lane_id, (path, lane_signal) in bundle.items():
         if not lane_signal:
             continue
@@ -713,6 +755,11 @@ def check_dream_heartbeat(findings: list[Finding], profile: str, now: datetime) 
             add(findings, "ERROR", f"dream lane changed_actions reports repo-tracked mutation: {lane_id}")
         if int(lane_signal.get("version") or 0) >= 9 and path is not None:
             metrics = lane_signal.get("learning_atom_metrics") if isinstance(lane_signal.get("learning_atom_metrics"), dict) else {}
+            lane_pressure = lane_signal.get("pressure_governor") if isinstance(lane_signal.get("pressure_governor"), dict) else {}
+            lane_recurrence = lane_pressure.get("recurrence") if isinstance(lane_pressure.get("recurrence"), dict) else {}
+            lane_actionable_pressure = int(lane_pressure.get("unhandled_actionable_count") or 0) + int(
+                lane_recurrence.get("unhandled_actionable_count") or 0
+            )
             if not metrics:
                 add(findings, "ERROR", f"dream lane {lane_id} version>=9 lacks learning_atom_metrics")
             atoms = jsonl_objects(path / "learning_atoms.jsonl")
@@ -741,11 +788,11 @@ def check_dream_heartbeat(findings: list[Finding], profile: str, now: datetime) 
                     add(findings, "WARN", f"dream lane {lane_id} atom {atom_id} is not proposal_only")
                 if not validators:
                     add(findings, "ERROR", f"dream lane {lane_id} atom {atom_id} lacks validator")
-            if str(metrics.get("maintenance_debt_level") or "") in {"high", "freeze_growth"}:
+            if str(metrics.get("maintenance_debt_level") or "") in {"high", "freeze_growth"} and lane_actionable_pressure:
                 add(findings, "WARN", f"dream lane {lane_id} learning atoms report maintenance_debt_level={metrics.get('maintenance_debt_level')}")
             lane_summary = lane_signal.get("summary") if isinstance(lane_signal.get("summary"), dict) else {}
-            if int(lane_summary.get("recurring_hotspot_count") or 0) and not atoms:
-                add(findings, "WARN", f"dream lane {lane_id} has recurring prose pressure but no learning atoms")
+            if lane_actionable_pressure and int(lane_summary.get("recurring_hotspot_count") or 0) and not atoms:
+                add(findings, "WARN", f"dream lane {lane_id} has unhandled actionable recurring pressure but no learning atoms")
         if lane_id == "context_resonance":
             resonance = lane_signal.get("context_resonance") if isinstance(lane_signal.get("context_resonance"), dict) else {}
             nudges = resonance.get("latent_context_nudges") if isinstance(resonance.get("latent_context_nudges"), list) else []
@@ -766,8 +813,12 @@ def check_dream_heartbeat(findings: list[Finding], profile: str, now: datetime) 
             "ERROR" if profile in {"strict", "release"} else "WARN",
             f"dream heartbeat reports automation drift count={automation_drift}",
         )
-    if recurring:
-        add(findings, "WARN", f"dream heartbeat reports unhandled recurring maintenance hotspots count={recurring}")
+    governed_actionable = max(recurring, actionable_pressure)
+    if governed_actionable:
+        pressure_keys = governed_pressure.get("top_unhandled_keys") if isinstance(governed_pressure.get("top_unhandled_keys"), list) else []
+        key_suffix = f": {', '.join(str(item) for item in pressure_keys[:4])}" if pressure_keys else ""
+        add(findings, "WARN", f"dream heartbeat reports unhandled actionable recurring pressure count={governed_actionable}{key_suffix}")
+    suppressed_total = suppressed_recurring + suppressed_pressure + handled_recurring
     if schema_candidates:
         add(findings, "WARN", f"dream heartbeat has schema-promotion candidates count={schema_candidates}")
     if approval_ready_count:
@@ -784,14 +835,17 @@ def check_dream_heartbeat(findings: list[Finding], profile: str, now: datetime) 
         )
     if cleanup_candidates >= 3:
         add(findings, "WARN", f"dream heartbeat reports local cleanup candidates count={cleanup_candidates}")
-    if cohesion_score < 65:
+    broad_pressure = governed_actionable or automation_drift or approval_ready_count
+    if cohesion_score < 65 and broad_pressure:
         add(findings, "WARN", f"dream heartbeat cohesion score is low: {cohesion_score}/100")
-    if debt_score >= 60:
+    if debt_score >= 60 and broad_pressure:
         add(findings, "WARN", f"dream heartbeat maintenance debt is elevated: {debt_score}/100")
-    if budget_remaining < 40:
+    if budget_remaining < 40 and broad_pressure:
         add(findings, "WARN", f"dream heartbeat reliability budget remaining is low: {budget_remaining}/100")
-    if debt_status == "frozen_growth":
+    if debt_status == "frozen_growth" and broad_pressure:
         add(findings, "WARN", "dream heartbeat requests frozen-growth mode until debt is reduced")
+    if suppressed_total and profile in {"strict", "release"}:
+        add(findings, "INFO", f"dream pressure governor suppressed or handled recurring pressure count={suppressed_total}")
     if heartbeat_status == "error":
         add(
             findings,

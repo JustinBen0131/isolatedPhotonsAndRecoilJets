@@ -16,8 +16,13 @@ BRANCHES = [
     ("jet12_20_30", "Jet12+20+30"),
     ("jet12_20_30_40", "Jet12+20+30+40"),
 ]
+COMMON_VALIDATION_SAMPLES = [
+    ("jet12_20", "Jet12+20"),
+    ("jet12_20_30_40", "Jet12+20+30+40"),
+]
 CENTRALITY = [("0_20", "0-20%", 0.0, 20.0), ("20_50", "20-50%", 20.0, 50.0), ("50_80", "50-80%", 50.0, 80.0)]
 PRODUCT = "globalEtCent1535_bdt_noIso"
+SCORE_COL = f"score_{PRODUCT}"
 WEIGHT_COL = "__ppg12_exact_training_weight"
 
 
@@ -121,12 +126,45 @@ def score_model(model_path: Path, frame: dict[str, np.ndarray], features: list[s
 
 
 def weighted_auc(y: np.ndarray, score: np.ndarray, weight: np.ndarray) -> float:
-    from sklearn.metrics import roc_auc_score
-
     mask = np.isin(y, [0, 1]) & np.isfinite(score) & np.isfinite(weight) & (weight > 0.0)
     if len(np.unique(y[mask])) != 2:
         return math.nan
-    return float(roc_auc_score(y[mask], score[mask], sample_weight=weight[mask]))
+    yy = y[mask].astype("int32", copy=False)
+    ss = score[mask].astype("float64", copy=False)
+    ww = weight[mask].astype("float64", copy=False)
+    try:
+        from sklearn.metrics import roc_auc_score
+
+        return float(roc_auc_score(yy, ss, sample_weight=ww))
+    except Exception:
+        return weighted_auc_rank(yy, ss, ww)
+
+
+def weighted_auc_rank(y: np.ndarray, score: np.ndarray, weight: np.ndarray) -> float:
+    order = np.argsort(score, kind="mergesort")
+    y = y[order]
+    score = score[order]
+    weight = weight[order]
+    pos_total = float(np.sum(weight[y == 1]))
+    neg_total = float(np.sum(weight[y == 0]))
+    if pos_total <= 0.0 or neg_total <= 0.0:
+        return math.nan
+    wins = 0.0
+    neg_below = 0.0
+    start = 0
+    n = len(score)
+    while start < n:
+        stop = start + 1
+        while stop < n and score[stop] == score[start]:
+            stop += 1
+        y_group = y[start:stop]
+        w_group = weight[start:stop]
+        pos_group = float(np.sum(w_group[y_group == 1]))
+        neg_group = float(np.sum(w_group[y_group == 0]))
+        wins += pos_group * neg_below + 0.5 * pos_group * neg_group
+        neg_below += neg_group
+        start = stop
+    return wins / (pos_total * neg_total)
 
 
 def weighted_auc_from_masks(signal_mask: np.ndarray, background_mask: np.ndarray, score: np.ndarray, weight: np.ndarray) -> float:
@@ -162,7 +200,8 @@ def hist_payload(signal_mask: np.ndarray, background_mask: np.ndarray, score: np
 
 
 PLOT_CLASS_DEFINITION = (
-    "Signal MC = source_sample contains embeddedPhoton and is_signal == 1; "
+    "Signal MC = source_sample contains embeddedPhoton and is_signal == 1 "
+    "(truth-isolated prompt label); "
     "Inclusive MC = source_sample contains embeddedJet with no truth-background filter"
 )
 
@@ -195,6 +234,14 @@ def branch_record(
     signal_mask, background_mask = source_class_masks(source, y)
     h = hist_payload(signal_mask, background_mask, score, cent, bins)
     auc = weighted_auc_from_masks(signal_mask, background_mask, score, weight)
+    centrality_summary = {}
+    for key, _label, lo, hi in CENTRALITY:
+        cmask = np.isfinite(cent) & (cent >= lo) & (cent < hi)
+        sig_c = signal_mask & cmask
+        bkg_c = background_mask & cmask
+        centrality_summary[f"{PRODUCT}_auc_{key}"] = f"{weighted_auc_from_masks(sig_c, bkg_c, score, weight):.6f}"
+        centrality_summary[f"signal_entries_{key}"] = str(int(np.sum(sig_c)))
+        centrality_summary[f"background_entries_{key}"] = str(int(np.sum(bkg_c)))
     total = int(len(score))
     sig = int(np.sum(signal_mask))
     bkg = int(np.sum(background_mask))
@@ -213,6 +260,7 @@ def branch_record(
             "signal_entries": str(sig),
             "background_entries": str(bkg),
             f"{PRODUCT}_auc": f"{auc:.6f}",
+            **centrality_summary,
             f"{PRODUCT}_finite_score_fraction": f"{float(np.mean(np.isfinite(score))):.6f}",
             "finite_score_fraction": f"{float(np.mean(np.isfinite(score))):.6f}",
             "plot_class_definition": PLOT_CLASS_DEFINITION,
@@ -220,17 +268,417 @@ def branch_record(
     }
 
 
+def branch_record_from_score_caches(
+    label: str,
+    summary: dict,
+    model_dir: Path,
+    report_dir: Path,
+    bins: np.ndarray,
+    *,
+    matrix_dir: Path | None = None,
+    keep_indices: np.ndarray | None = None,
+) -> dict:
+    validation_matrix_dir = matrix_dir or model_dir
+    matrix_path = validation_matrix_dir / "training_matrix.npz"
+    cache_list = report_dir / "score_caches.list"
+    if cache_list.exists():
+        cache_paths = [Path(line.strip()) for line in cache_list.read_text().splitlines() if line.strip()]
+    else:
+        cache_paths = sorted((report_dir / "score_caches").glob("score_cache_*.npz"))
+    if not cache_paths:
+        raise SystemExit(f"No score caches found in {report_dir}")
+
+    matrix = np.load(matrix_path, allow_pickle=True)
+    missing = [name for name in ["source_sample", "is_signal", "centrality", WEIGHT_COL] if name not in matrix.files]
+    if missing:
+        raise SystemExit(f"{matrix_path} is missing columns needed for source-defined full-sample plotting: {missing}")
+    source_all = matrix["source_sample"].astype(str)
+    y_all = matrix["is_signal"].astype("int32", copy=False)
+    cent_all = matrix["centrality"].astype("float32", copy=False)
+    weight_all = matrix[WEIGHT_COL].astype("float64", copy=False)
+    keep_row_mask = None
+    if keep_indices is not None:
+        keep_row_mask = np.zeros(len(source_all), dtype=bool)
+        keep_row_mask[np.asarray(keep_indices, dtype="int64")] = True
+
+    source_parts = []
+    y_parts = []
+    score_parts = []
+    cent_parts = []
+    weight_parts = []
+    total_entries = 0
+    scored_entries = 0
+    offset = 0
+    for cache_path in cache_paths:
+        cache = np.load(cache_path, allow_pickle=True)
+        if SCORE_COL not in cache.files:
+            raise SystemExit(f"{cache_path} is missing {SCORE_COL}")
+        score = cache[SCORE_COL].astype("float32", copy=False)
+        n = len(score)
+        stop = offset + n
+        if stop > len(source_all):
+            raise SystemExit(f"Score cache rows exceed training matrix length for {label}: stop={stop} matrix={len(source_all)}")
+        y = cache["is_signal"].astype("int32", copy=False)
+        if not np.array_equal(y, y_all[offset:stop]):
+            raise SystemExit(f"Score cache/training-matrix is_signal order mismatch at {cache_path}")
+        source = source_all[offset:stop]
+        cent = cent_all[offset:stop]
+        weight = weight_all[offset:stop]
+        finite = np.isfinite(score)
+        row_keep = np.ones(n, dtype=bool) if keep_row_mask is None else keep_row_mask[offset:stop]
+        signal = (np.char.find(source, "embeddedPhoton") >= 0) & (y == 1) & finite & row_keep
+        background = (np.char.find(source, "embeddedJet") >= 0) & finite & row_keep
+        keep = signal | background
+        source_parts.append(source[keep])
+        y_parts.append(y[keep])
+        score_parts.append(score[keep])
+        cent_parts.append(cent[keep])
+        weight_parts.append(weight[keep])
+        total_entries += n
+        scored_entries += int(np.sum(finite & row_keep))
+        offset = stop
+    if offset != len(source_all):
+        raise SystemExit(f"Score cache rows do not cover full training matrix for {label}: cache={offset} matrix={len(source_all)}")
+
+    record = branch_record(
+        label,
+        summary,
+        np.concatenate(source_parts),
+        np.concatenate(y_parts),
+        np.concatenate(score_parts),
+        np.concatenate(cent_parts),
+        np.concatenate(weight_parts),
+        bins,
+    )
+    selected_entries = int(np.sum(keep_row_mask)) if keep_row_mask is not None else total_entries
+    finite_fraction = float(scored_entries / selected_entries) if selected_entries else math.nan
+    record["summary"]["total_entries"] = str(selected_entries)
+    record["summary"]["scored_entries"] = str(scored_entries)
+    record["summary"][f"{PRODUCT}_finite_score_fraction"] = f"{finite_fraction:.6f}"
+    record["summary"]["finite_score_fraction"] = f"{finite_fraction:.6f}"
+    record["summary"]["score_cache_list"] = str(cache_list)
+    record["summary"]["validation_matrix"] = str(matrix_path)
+    if keep_row_mask is not None:
+        record["summary"]["score_cache_row_filter"] = "source_10pct_holdout_indices"
+    return record
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--remote-source-base", type=Path, default=Path("/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining"))
     ap.add_argument("--remote-model-base", type=Path, default=Path("/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models"))
-    ap.add_argument("--outdir", type=Path, required=True)
+    ap.add_argument("--outdir", type=Path)
     ap.add_argument("--random-seed", type=int, default=13)
     ap.add_argument("--batch-size", type=int, default=200000)
+    ap.add_argument(
+        "--stdout-full-own",
+        action="store_true",
+        help="Print only the own full allotted training+holdout sample payload as JSON.",
+    )
+    ap.add_argument(
+        "--stdout-full-common-grid",
+        action="store_true",
+        help="Print all three BDTs on the two fixed full score-cache validation samples as JSON.",
+    )
+    ap.add_argument(
+        "--stdout-holdout-common-grid-from-scorecache",
+        action="store_true",
+        help="Print all three BDTs on the two fixed 10% source holdouts using full score-cache reports as score sources.",
+    )
+    ap.add_argument(
+        "--stdout-holdout-three-by-three-direct",
+        action="store_true",
+        help="Print all three BDTs on all three fixed 10% source holdouts using direct model scoring.",
+    )
     args = ap.parse_args()
 
-    args.outdir.mkdir(parents=True, exist_ok=True)
+    if args.outdir is None and not (
+        args.stdout_full_own
+        or args.stdout_full_common_grid
+        or args.stdout_holdout_common_grid_from_scorecache
+        or args.stdout_holdout_three_by_three_direct
+    ):
+        ap.error("--outdir is required unless a stdout extraction mode is set")
+    if args.outdir is not None:
+        args.outdir.mkdir(parents=True, exist_ok=True)
     bins = np.linspace(0.0, 1.0, 51)
+    if args.stdout_full_own:
+        full_own_branches = []
+        for tag, label in BRANCHES:
+            model_dir = args.remote_model_base / f"THE8_branchA_{tag}_global_noiso_bdt_mem24_20260527"
+            source_dir = args.remote_source_base / f"THE8_branchA_ladder_{tag}_20260527"
+            report_dir = source_dir / "reports" / f"model_validation_condor_THE8_branchA_{tag}_scorecache_fullstat_20260527"
+            registry = load_registry(model_dir / "model_registry.json")
+            full_own_branches.append(
+                branch_record_from_score_caches(
+                    label,
+                    {
+                        "validation_mode": "own_full_allotted_sample_truth_signal_inclusive_jet",
+                        "source": str(source_dir),
+                        "model_dir": str(model_dir),
+                        "model_registry": str(model_dir / "model_registry.json"),
+                        "report_dir": str(report_dir),
+                        "split_mode": "full_training_matrix",
+                        "row_scope": "training_plus_holdout",
+                        "test_fraction_requested": "0.10",
+                        "random_seed": str(args.random_seed),
+                        "reported_train_rows": str(registry["reported_train_rows"]),
+                        "reported_holdout_rows": str(registry["reported_holdout_rows"]),
+                    },
+                    model_dir,
+                    report_dir,
+                    bins,
+                )
+            )
+        print(
+            json.dumps(
+                {
+                    "schema": "THE8_BRANCH_A_LADDER_COMPACT_FULL_SAMPLE_SCORE_HISTOGRAMS_V1",
+                    "description": "Each BDT scored on its own full allotted Branch A training matrix: training rows plus the 10% row holdout.",
+                    "plot_class_definition": PLOT_CLASS_DEFINITION,
+                    "branches": full_own_branches,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0
+
+    if args.stdout_full_common_grid:
+        common_samples = []
+        model_dirs = {
+            tag: args.remote_model_base / f"THE8_branchA_{tag}_global_noiso_bdt_mem24_20260527"
+            for tag, _ in BRANCHES
+        }
+        source_dirs = {
+            tag: args.remote_source_base / f"THE8_branchA_ladder_{tag}_20260527"
+            for tag, _ in BRANCHES
+        }
+        common_report_tags = {
+            ("jet12_20", "jet12_20"): "THE8_branchA_jet12_20_scorecache_fullstat_20260527",
+            ("jet12_20", "jet12_20_30"): "THE8_commonJet12_20_modelJet12_20_30_scorecache_fullstat_20260603",
+            ("jet12_20", "jet12_20_30_40"): "THE8_commonJet12_20_modelJet12_20_30_40_scorecache_fullstat_20260603",
+            ("jet12_20_30_40", "jet12_20"): "THE8_commonJet12_20_30_40_modelJet12_20_scorecache_fullstat_20260603",
+            ("jet12_20_30_40", "jet12_20_30"): "THE8_commonJet12_20_30_40_modelJet12_20_30_scorecache_fullstat_20260603",
+            ("jet12_20_30_40", "jet12_20_30_40"): "THE8_branchA_jet12_20_30_40_scorecache_fullstat_20260527",
+        }
+        for common_tag, common_label in COMMON_VALIDATION_SAMPLES:
+            source_dir = source_dirs[common_tag]
+            source_matrix_dir = model_dirs[common_tag]
+            branches = []
+            for model_tag, model_label in BRANCHES:
+                model_dir = model_dirs[model_tag]
+                report_tag = common_report_tags[(common_tag, model_tag)]
+                report_dir = source_dir / "reports" / f"model_validation_condor_{report_tag}"
+                branches.append(
+                    branch_record_from_score_caches(
+                        model_label,
+                        {
+                            "validation_mode": f"common_{common_tag}_full_scorecache_truth_signal_inclusive_jet",
+                            "source": str(source_dir),
+                            "model_dir": str(model_dir),
+                            "model_registry": str(model_dir / "model_registry.json"),
+                            "report_dir": str(report_dir),
+                            "split_mode": "full_training_matrix",
+                            "row_scope": "training_plus_holdout",
+                            "test_fraction_requested": "0.10",
+                            "random_seed": str(args.random_seed),
+                            "common_validation_sample": common_label,
+                            "model_training_sample": model_label,
+                        },
+                        model_dir,
+                        report_dir,
+                        bins,
+                        matrix_dir=source_matrix_dir,
+                    )
+                )
+            common_samples.append(
+                {
+                    "validation_sample": common_label,
+                    "validation_tag": common_tag,
+                    "validation_matrix": str(source_matrix_dir / "training_matrix.npz"),
+                    "branches": branches,
+                }
+            )
+        print(
+            json.dumps(
+                {
+                    "schema": "THE8_BRANCH_A_LADDER_COMPACT_FIXED_FULL_SAMPLE_SCORE_HISTOGRAMS_V1",
+                    "description": "All three BDTs scored on each fixed full score-cache validation sample: Jet12+20 and Jet12+20+30+40.",
+                    "plot_class_definition": PLOT_CLASS_DEFINITION,
+                    "common_samples": common_samples,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0
+
+    if args.stdout_holdout_three_by_three_direct:
+        loaded: dict[str, dict] = {}
+        for tag, label in BRANCHES:
+            model_dir = args.remote_model_base / f"THE8_branchA_{tag}_global_noiso_bdt_mem24_20260527"
+            source_dir = args.remote_source_base / f"THE8_branchA_ladder_{tag}_20260527"
+            registry = load_registry(model_dir / "model_registry.json")
+            frame = load_matrix(model_dir / "training_matrix.npz", registry["features"])
+            holdout = holdout_indices(frame, registry, args.random_seed)
+            loaded[tag] = {
+                "label": label,
+                "model_dir": model_dir,
+                "source_dir": source_dir,
+                "registry": registry,
+                "frame": frame,
+                "holdout": holdout,
+            }
+
+        common_samples = []
+        for common_tag, common_label in BRANCHES:
+            common = loaded[common_tag]
+            common_idx = common["holdout"]
+            common_branches = []
+            for model_tag, model_label in BRANCHES:
+                model_item = loaded[model_tag]
+                reg = model_item["registry"]
+                score = score_model(
+                    model_item["model_dir"] / "auau_tight_bdt_globalEtCent1535_bdt_noIso_tmva.xgb.json",
+                    common["frame"],
+                    reg["features"],
+                    common_idx,
+                    args.batch_size,
+                )
+                y = common["frame"]["is_signal"][common_idx].astype("int32", copy=False)
+                cent = common["frame"]["centrality"][common_idx].astype("float32", copy=False)
+                weight = common["frame"][WEIGHT_COL][common_idx].astype("float64", copy=False)
+                source = common["frame"]["source_sample"][common_idx].astype(str)
+                common_branches.append(
+                    branch_record(
+                        model_label,
+                        {
+                            "validation_mode": f"common_{common_tag}_10pct_holdout_direct_truth_signal_inclusive_jet",
+                            "source": str(common["source_dir"]),
+                            "model_dir": str(model_item["model_dir"]),
+                            "model_registry": str(model_item["model_dir"] / "model_registry.json"),
+                            "split_mode": "row",
+                            "row_scope": "source_10pct_holdout_direct_model_scoring",
+                            "test_fraction_requested": "0.10",
+                            "random_seed": str(args.random_seed),
+                            "common_validation_sample": common_label,
+                            "model_training_sample": model_label,
+                            "reported_holdout_rows": str(common["registry"]["reported_holdout_rows"]),
+                        },
+                        source,
+                        y,
+                        score,
+                        cent,
+                        weight,
+                        bins,
+                    )
+                )
+            common_samples.append(
+                {
+                    "validation_sample": common_label,
+                    "validation_tag": common_tag,
+                    "validation_matrix": str(common["model_dir"] / "training_matrix.npz"),
+                    "row_scope": "source_10pct_holdout_direct_model_scoring",
+                    "branches": common_branches,
+                }
+            )
+        print(
+            json.dumps(
+                {
+                    "schema": "THE8_BRANCH_A_LADDER_COMPACT_FIXED_HOLDOUT_3X3_DIRECT_SCORE_HISTOGRAMS_V1",
+                    "description": "All three BDTs directly scored on all three fixed 10% source holdouts: Jet12+20, Jet12+20+30, and Jet12+20+30+40.",
+                    "plot_class_definition": PLOT_CLASS_DEFINITION,
+                    "common_samples": common_samples,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0
+
+    if args.stdout_holdout_common_grid_from_scorecache:
+        common_samples = []
+        model_dirs = {
+            tag: args.remote_model_base / f"THE8_branchA_{tag}_global_noiso_bdt_mem24_20260527"
+            for tag, _ in BRANCHES
+        }
+        source_dirs = {
+            tag: args.remote_source_base / f"THE8_branchA_ladder_{tag}_20260527"
+            for tag, _ in BRANCHES
+        }
+        common_report_tags = {
+            ("jet12_20", "jet12_20"): "THE8_branchA_jet12_20_scorecache_fullstat_20260527",
+            ("jet12_20", "jet12_20_30"): "THE8_commonJet12_20_modelJet12_20_30_scorecache_fullstat_20260603",
+            ("jet12_20", "jet12_20_30_40"): "THE8_commonJet12_20_modelJet12_20_30_40_scorecache_fullstat_20260603",
+            ("jet12_20_30_40", "jet12_20"): "THE8_commonJet12_20_30_40_modelJet12_20_scorecache_fullstat_20260603",
+            ("jet12_20_30_40", "jet12_20_30"): "THE8_commonJet12_20_30_40_modelJet12_20_30_scorecache_fullstat_20260603",
+            ("jet12_20_30_40", "jet12_20_30_40"): "THE8_branchA_jet12_20_30_40_scorecache_fullstat_20260527",
+        }
+        holdout_by_source = {}
+        registry_by_source = {}
+        for common_tag, _ in COMMON_VALIDATION_SAMPLES:
+            source_matrix_dir = model_dirs[common_tag]
+            registry = load_registry(source_matrix_dir / "model_registry.json")
+            frame = load_matrix(source_matrix_dir / "training_matrix.npz", registry["features"])
+            holdout_by_source[common_tag] = holdout_indices(frame, registry, args.random_seed)
+            registry_by_source[common_tag] = registry
+        for common_tag, common_label in COMMON_VALIDATION_SAMPLES:
+            source_dir = source_dirs[common_tag]
+            source_matrix_dir = model_dirs[common_tag]
+            registry = registry_by_source[common_tag]
+            branches = []
+            for model_tag, model_label in BRANCHES:
+                model_dir = model_dirs[model_tag]
+                report_tag = common_report_tags[(common_tag, model_tag)]
+                report_dir = source_dir / "reports" / f"model_validation_condor_{report_tag}"
+                branches.append(
+                    branch_record_from_score_caches(
+                        model_label,
+                        {
+                            "validation_mode": f"common_{common_tag}_10pct_holdout_from_full_scorecache_truth_signal_inclusive_jet",
+                            "source": str(source_dir),
+                            "model_dir": str(model_dir),
+                            "model_registry": str(model_dir / "model_registry.json"),
+                            "report_dir": str(report_dir),
+                            "split_mode": "row",
+                            "row_scope": "source_10pct_holdout_from_full_scorecache",
+                            "test_fraction_requested": "0.10",
+                            "random_seed": str(args.random_seed),
+                            "reported_holdout_rows": str(registry["reported_holdout_rows"]),
+                            "common_validation_sample": common_label,
+                            "model_training_sample": model_label,
+                        },
+                        model_dir,
+                        report_dir,
+                        bins,
+                        matrix_dir=source_matrix_dir,
+                        keep_indices=holdout_by_source[common_tag],
+                    )
+                )
+            common_samples.append(
+                {
+                    "validation_sample": common_label,
+                    "validation_tag": common_tag,
+                    "validation_matrix": str(source_matrix_dir / "training_matrix.npz"),
+                    "row_scope": "source_10pct_holdout_from_full_scorecache",
+                    "branches": branches,
+                }
+            )
+        print(
+            json.dumps(
+                {
+                    "schema": "THE8_BRANCH_A_LADDER_COMPACT_FIXED_HOLDOUT_SCORECACHE_HISTOGRAMS_V1",
+                    "description": "All three BDTs scored on each fixed 10% source holdout: Jet12+20 and Jet12+20+30+40. Scores are read from the full score-cache reports.",
+                    "plot_class_definition": PLOT_CLASS_DEFINITION,
+                    "common_samples": common_samples,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0
+
     loaded: dict[str, dict] = {}
     for tag, label in BRANCHES:
         model_dir = args.remote_model_base / f"THE8_branchA_{tag}_global_noiso_bdt_mem24_20260527"
@@ -288,56 +736,62 @@ def main() -> int:
             )
         )
 
-    common = loaded["jet12_20"]
-    common_idx = common["holdout"]
-    common_branches = []
-    for tag, label in BRANCHES:
-        model_item = loaded[tag]
-        reg = model_item["registry"]
-        score = score_model(
-            model_item["model_dir"] / "auau_tight_bdt_globalEtCent1535_bdt_noIso_tmva.xgb.json",
-            common["frame"],
-            reg["features"],
-            common_idx,
-            args.batch_size,
-        )
-        y = common["frame"]["is_signal"][common_idx].astype("int32", copy=False)
-        cent = common["frame"]["centrality"][common_idx].astype("float32", copy=False)
-        weight = common["frame"][WEIGHT_COL][common_idx].astype("float64", copy=False)
-        source = common["frame"]["source_sample"][common_idx].astype(str)
-        common_branches.append(
-            branch_record(
-                label,
-                {
-                    "validation_mode": "common_jet12_20_10pct_training_holdout_truth_signal_inclusive_jet",
-                    "source": str(common["source_dir"]),
-                    "model_dir": str(model_item["model_dir"]),
-                    "model_registry": str(model_item["model_dir"] / "model_registry.json"),
-                    "split_mode": "row",
-                    "test_fraction_requested": "0.10",
-                    "random_seed": str(args.random_seed),
-                    "common_holdout_sample": "Jet12+20",
-                },
-                source,
-                y,
-                score,
-                cent,
-                weight,
-                bins,
+    common_outputs = {}
+    for common_tag, common_label in COMMON_VALIDATION_SAMPLES:
+        common = loaded[common_tag]
+        common_idx = common["holdout"]
+        common_branches = []
+        mode_tag = common_tag.replace("_", "_")
+        for tag, label in BRANCHES:
+            model_item = loaded[tag]
+            reg = model_item["registry"]
+            score = score_model(
+                model_item["model_dir"] / "auau_tight_bdt_globalEtCent1535_bdt_noIso_tmva.xgb.json",
+                common["frame"],
+                reg["features"],
+                common_idx,
+                args.batch_size,
             )
-        )
+            y = common["frame"]["is_signal"][common_idx].astype("int32", copy=False)
+            cent = common["frame"]["centrality"][common_idx].astype("float32", copy=False)
+            weight = common["frame"][WEIGHT_COL][common_idx].astype("float64", copy=False)
+            source = common["frame"]["source_sample"][common_idx].astype(str)
+            common_branches.append(
+                branch_record(
+                    label,
+                    {
+                        "validation_mode": f"common_{mode_tag}_10pct_training_holdout_truth_signal_inclusive_jet",
+                        "source": str(common["source_dir"]),
+                        "model_dir": str(model_item["model_dir"]),
+                        "model_registry": str(model_item["model_dir"] / "model_registry.json"),
+                        "split_mode": "row",
+                        "test_fraction_requested": "0.10",
+                        "random_seed": str(args.random_seed),
+                        "common_holdout_sample": common_label,
+                    },
+                    source,
+                    y,
+                    score,
+                    cent,
+                    weight,
+                    bins,
+                )
+            )
+        common_outputs[f"the8_branch_a_ladder_common_{common_tag}_holdout_score_histograms.json"] = {
+            "schema": "THE8_BRANCH_A_LADDER_COMPACT_HOLDOUT_SCORE_HISTOGRAMS_V1",
+            "description": f"All three BDTs scored on the same {common_label} 10% row holdout from the Branch A training matrix.",
+            "plot_class_definition": PLOT_CLASS_DEFINITION,
+            "branches": common_branches,
+        }
 
     outputs = {
         "the8_branch_a_ladder_own_holdout_score_histograms.json": {
             "schema": "THE8_BRANCH_A_LADDER_COMPACT_HOLDOUT_SCORE_HISTOGRAMS_V1",
             "description": "Each BDT scored on its own 10% row holdout from the matching Branch A training matrix.",
+            "plot_class_definition": PLOT_CLASS_DEFINITION,
             "branches": own_branches,
         },
-        "the8_branch_a_ladder_common_jet12_20_holdout_score_histograms.json": {
-            "schema": "THE8_BRANCH_A_LADDER_COMPACT_HOLDOUT_SCORE_HISTOGRAMS_V1",
-            "description": "All three BDTs scored on the same Jet12+20 10% row holdout from the Branch A training matrix.",
-            "branches": common_branches,
-        },
+        **common_outputs,
     }
     for name, payload in outputs.items():
         path = args.outdir / name

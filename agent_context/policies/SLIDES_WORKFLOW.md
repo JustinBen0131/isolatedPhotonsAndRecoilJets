@@ -48,6 +48,14 @@ When Justin asks to `generate a slide`, interpret that as a request for a
 polished full-slide replacement candidate, not merely a plot export or raw
 Google Slides edit.
 
+If `daily_cockpit.context_conservation_mode.active` is true, keep the slide
+handoff compressed: generate/show only the updated `2560x1440` PNG candidate
+plus a terse source/caveat note unless Justin explicitly asks for more. Do not
+mutate Google Slides in conservation mode unless Justin explicitly asks to
+update/insert/replace the deck after reviewing the PNG. Companion speaker
+scripts are optional in this mode unless Justin asks or the slide is for an
+imminent talk where missing narration would create real delivery risk.
+
 - Default deliverable: a complete 16:9 PNG candidate that composes the plot(s),
   title, explanatory text, and caveat/status line when needed into one
   slide-ready visual.
@@ -87,6 +95,14 @@ Google Slides edit.
   generated fake data, approximated curves, or decorative re-draws. If a plot
   must be regenerated from data, record the exact code, input files, tag,
   timestamps, and validation evidence in the manifest or handoff.
+- Visual truthfulness is a hard requirement. Never make slide labels,
+  legends, captions, callouts, titles, or spoken claims say something stronger
+  or different than the actual plotted object, source file, selection, sample,
+  weight, model, run tag, or approval state. If a slide uses pseudo-data,
+  design scaffolding, a placeholder, an approximate recreation, an internal-only
+  source, or an unvalidated output, label it that way clearly in the handoff
+  and, when audience-visible, on the slide itself. If the true object cannot be
+  verified, do not call the candidate slide-ready.
 - Apply the same visual-quality bar to collaboration-facing decks, PPG/JSTG
   updates, internal analysis reviews, and public talks. Public talks have
   stricter release/label constraints, but internal audiences still deserve

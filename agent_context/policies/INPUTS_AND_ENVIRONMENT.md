@@ -25,6 +25,48 @@ When Justin refers to local ROOT inputs, first check:
 
 The UI may not autocomplete `@InputFiles`; still use literal paths.
 
+## AuAu CALOFITTING Fun4All Contract
+
+AuAu `DST_CALOFITTING` inputs are not analysis-ready `DST_CALOJET` products.
+For RecoilJets/PhotonClusterBuilder jobs that read fresh AuAu CALOFITTING
+TowerInfo inputs, Fun4All must explicitly run the calorimeter calibration and
+tower-status chain before clustering, shower-shape calculations, and isolation
+are treated as physics-ready.
+
+Required contract:
+
+- Do not skip `CaloTowerStatus` for fresh AuAu CALOFITTING. It must run on the
+  current coresoftware path: `CaloTowerStatus` reads the `TOWERS_*` nodes, then
+  `CaloTowerCalib` copies the status bits into `TOWERINFO_CALIB_*`. Do not
+  defer status to calibrated nodes unless a current upstream interface changes
+  and a new foreground proof establishes that contract.
+- If a local CaloReco library is hard-loaded for RecoilJets, the matching local
+  include prefix must also be first in the ROOT environment. Loading
+  `/sphenix/u/.../install/lib/libcalo_reco.so` while ROOT sees stale headers from
+  `/sphenix/user/.../install/include` can corrupt inline setter behavior. The
+  foreground guard is that `CaloTowerStatus("CEMCSTATUS")->set_detector_type`
+  must resolve to `TOWERS_CEMC`, never `TOWERS_`.
+- `RawClusterBuilderTemplate` must see calibrated towers whose
+  `TowerInfo::get_isGood()` reflects current CDB bad/hot tower status before it
+  builds EMCal clusters. A downstream photon-shower mask is diagnostic only
+  unless clustering was also protected.
+- `CaloStatusSkimmer` is not the same mechanism as `CaloTowerStatus`. The
+  legacy skimmer is unsafe as a blanket CALOFITTING guard when it is hard-coded
+  to `TOWERS_*` nodes; skipping it must not imply skipping tower status.
+- AuAu isolation must preserve the zero constituent-tower floor needed for UE
+  subtraction cancellation. Do not reintroduce the 70 MeV isolation tower cut
+  that was removed in the 2026-04-22 JSTG-good state.
+
+Before any broad AuAu CALOFITTING Condor submission or final data merge, require
+a foreground v008 smoke plus ROOT audit proving:
+
+- current CDB calibration/status payloads load;
+- bad/hot tower status reaches calibrated TowerInfo containers;
+- `RawClusterBuilderTemplate` rejects bad towers through `get_isGood()`;
+- isolation logs show the AuAu zero tower-floor path;
+- E11/E33 does not reproduce the 2026-03-04 JSTG slide-36 edge-spike
+  signature or a new low-edge artifact.
+
 ## Variant Inspector
 
 When asked what input variants, cuts, or local merged outputs are available for
