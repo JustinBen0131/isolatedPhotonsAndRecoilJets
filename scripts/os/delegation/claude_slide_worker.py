@@ -21,12 +21,19 @@ WORKER_ID = "claude_slide_worker"
 AGENT_NAME = "thesis-slide-policy-worker"
 AGENT_FILE = REPO_ROOT / ".claude" / "agents" / f"{AGENT_NAME}.md"
 POLICY_FILE = REPO_ROOT / "agent_context" / "policies" / "DELEGATION_KERNEL.md"
-TEMPLATE_FILE = (
+SLIDE_REPORT_TEMPLATE_FILE = (
     REPO_ROOT
     / "agent_context"
     / "templates"
     / "delegation"
     / "CLAUDE_SLIDE_WORKER_CONTEXT_PACK.md"
+)
+ITERATION_DIGEST_TEMPLATE_FILE = (
+    REPO_ROOT
+    / "agent_context"
+    / "templates"
+    / "delegation"
+    / "CLAUDE_SLIDE_ITERATION_DISTILLATION_PACK.md"
 )
 DEFAULT_OUTPUT_ROOT = (
     REPO_ROOT / "agent_context" / "local" / "delegations" / WORKER_ID
@@ -42,6 +49,18 @@ FISH_CANDIDATES = [
     Path("/usr/local/bin/fish"),
     Path("/bin/fish"),
 ]
+CONTRACTS = {
+    "slide_report": {
+        "name": "Slide Worker Report",
+        "expected_heading": "# Slide Worker Report",
+        "template": SLIDE_REPORT_TEMPLATE_FILE,
+    },
+    "iteration_digest": {
+        "name": "Slide Iteration Learning Digest",
+        "expected_heading": "# Slide Iteration Learning Digest",
+        "template": ITERATION_DIGEST_TEMPLATE_FILE,
+    },
+}
 
 
 def local_now() -> datetime:
@@ -208,6 +227,7 @@ def unique_run_dir(output_root: Path, objective: str) -> Path:
 
 
 def create_context_pack(args: argparse.Namespace) -> Path:
+    contract = CONTRACTS[args.contract]
     output_root = repo_path(args.out_root or DEFAULT_OUTPUT_ROOT)
     output_root.mkdir(parents=True, exist_ok=True)
     run_dir = unique_run_dir(output_root, args.objective)
@@ -261,7 +281,7 @@ def create_context_pack(args: argparse.Namespace) -> Path:
                 )
             )
 
-    template = TEMPLATE_FILE.read_text(encoding="utf-8")
+    template = contract["template"].read_text(encoding="utf-8")
     pack_id = run_dir.name
     context_pack = (
         template.replace("{{generated_at}}", iso_now())
@@ -276,7 +296,7 @@ def create_context_pack(args: argparse.Namespace) -> Path:
         [
             "You are the ThesisAnalysis Claude slide-policy worker under Codex control.",
             "Use only the sealed context pack below and the named local files.",
-            "Return exactly one Markdown Slide Worker Report matching the output contract.",
+            f"Return exactly one Markdown {contract['name']} matching the output contract.",
             "Do not edit files, mutate external state, browse the web, install software,",
             "or ask for broader authority. If a task exceeds scope, refuse that portion.",
             "",
@@ -292,6 +312,8 @@ def create_context_pack(args: argparse.Namespace) -> Path:
         "worker_id": WORKER_ID,
         "agent_name": AGENT_NAME,
         "created_at": iso_now(),
+        "contract": args.contract,
+        "expected_heading": contract["expected_heading"],
         "repo_root": str(REPO_ROOT),
         "run_dir": str(run_dir),
         "objective": args.objective.strip(),
@@ -367,7 +389,16 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     )
     add_check("agent_file", AGENT_FILE.exists(), display_path(AGENT_FILE))
     add_check("delegation_policy", POLICY_FILE.exists(), display_path(POLICY_FILE))
-    add_check("context_template", TEMPLATE_FILE.exists(), display_path(TEMPLATE_FILE))
+    add_check(
+        "slide_report_template",
+        SLIDE_REPORT_TEMPLATE_FILE.exists(),
+        display_path(SLIDE_REPORT_TEMPLATE_FILE),
+    )
+    add_check(
+        "iteration_digest_template",
+        ITERATION_DIGEST_TEMPLATE_FILE.exists(),
+        display_path(ITERATION_DIGEST_TEMPLATE_FILE),
+    )
     add_check(
         "output_root",
         output_root.exists() and output_root.is_dir(),
@@ -434,14 +465,14 @@ def claude_command(prompt: str, max_budget_usd: str) -> list[str]:
     ]
 
 
-def extract_report(stdout: str) -> str | None:
+def extract_report(stdout: str, expected_heading: str) -> str | None:
     stripped = stdout.strip()
     if not stripped:
         return None
     try:
         payload = json.loads(stripped)
     except json.JSONDecodeError:
-        return stripped if "# Slide Worker Report" in stripped else None
+        return stripped if expected_heading in stripped else None
     for key in ("result", "content", "text", "message"):
         value = payload.get(key)
         if isinstance(value, str) and value.strip():
@@ -465,6 +496,14 @@ def invoke_pack(
         return 2
 
     prompt = prompt_file.read_text(encoding="utf-8")
+    expected_heading = "# Slide Worker Report"
+    manifest_file = pack_dir / "manifest.json"
+    if manifest_file.exists():
+        try:
+            manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+            expected_heading = manifest.get("expected_heading", expected_heading)
+        except json.JSONDecodeError:
+            pass
     report_file = pack_dir / "worker_report.md"
     error_file = pack_dir / "worker_error.md"
     for stale_file in (report_file, error_file):
@@ -496,12 +535,12 @@ def invoke_pack(
     finished_at = iso_now()
     (pack_dir / "claude_stdout.txt").write_text(stdout or "", encoding="utf-8")
     (pack_dir / "claude_stderr.txt").write_text(stderr or "", encoding="utf-8")
-    report = extract_report(stdout or "")
-    contract_ok = bool(report and "# Slide Worker Report" in report)
+    report = extract_report(stdout or "", expected_heading)
+    contract_ok = bool(report and expected_heading in report)
     if returncode == 0 and not contract_ok:
         returncode = 3
         report = None
-    elif returncode != 0 and report and "# Slide Worker Report" not in report:
+    elif returncode != 0 and report and expected_heading not in report:
         report = None
     invocation = {
         "schema_version": 1,
@@ -512,6 +551,7 @@ def invoke_pack(
         "returncode": returncode,
         "raw_returncode": raw_returncode,
         "report_contract_ok": contract_ok,
+        "expected_heading": expected_heading,
         "timed_out": timed_out,
         "timeout_seconds": timeout,
         "max_budget_usd": max_budget_usd,
@@ -586,6 +626,7 @@ def cmd_smoke(args: argparse.Namespace) -> int:
         script=[],
         include_file=[],
         policy=[str(POLICY_FILE), str(AGENT_FILE)],
+        contract="slide_report",
         notes=(
             "This is a smoke test. Confirm the worker boundaries, identify any "
             "missing setup evidence, and return the required report shape. Do "
@@ -624,6 +665,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     pack = subparsers.add_parser("pack", help="Create a sealed context pack.")
     pack.add_argument("--objective", required=True)
+    pack.add_argument(
+        "--contract",
+        default="slide_report",
+        choices=sorted(CONTRACTS),
+        help="Output contract/template to require from Claude.",
+    )
     pack.add_argument("--png", action="append", help="Slide PNG path.")
     pack.add_argument("--script", action="append", help="Slide generator/script path.")
     pack.add_argument("--include-file", action="append", help="Additional local file.")

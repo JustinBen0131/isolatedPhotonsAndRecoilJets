@@ -199,6 +199,10 @@ routes:
       - model routing
       - sealed context
       - slide worker
+      - slide iteration
+      - iteration ledger
+      - Slide Iteration Learning Digest
+      - slide learning digest
       - external model worker
     load:
       - agent_context/policies/DELEGATION_KERNEL.md

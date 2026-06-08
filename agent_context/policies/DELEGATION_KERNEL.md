@@ -77,6 +77,19 @@ code is not enough: if the worker does not return `# Slide Worker Report`, keep
 the run as `worker_error.md` rather than accepting a plan or partial response
 as a report.
 
+The same harness can build a second contract for iteration learning:
+
+```bash
+python3 scripts/os/delegation/slide_iteration_learning.py pack-claude \
+  --run-dir agent_context/local/slide_iterations/<run_id> \
+  --invoke
+```
+
+That path asks Claude for `# Slide Iteration Learning Digest`, not a normal
+slide critique. It is for distilling conception/attempt/feedback/accepted
+history into Codex-readable prevention rules and an injection brief for future
+slide generation.
+
 Authentication is a user boundary. Codex may check:
 
 ```bash
@@ -131,6 +144,25 @@ Future workers should be added only after the first worker has evidence:
 - one documented false-positive or waste case;
 - measured iteration cost, latency, and Codex integration burden;
 - a clear narrower role than Codex itself.
+
+## Slide Iteration Learning
+
+Slide improvement should descend a measurable gradient:
+
+```text
+initial conception -> candidate attempt -> Justin/Codex/Claude feedback ->
+revision -> accepted artifact -> distilled prevention rule -> next slide context
+```
+
+Use `scripts/os/delegation/slide_iteration_learning.py` to maintain the local
+iteration ledger. The ledger is the shared substrate between Codex and Claude:
+Codex records attempts and verified corrections; Claude sorts the history into
+compact patterns; Codex decides what to inject into the next generation and
+what to promote to durable policy.
+
+Tracked policy should hold only the stable rule. Local ignored ledgers should
+hold raw iteration history. Do not promote one-off taste changes or weak
+signals into repo policy.
 
 ## Promotion Rule
 

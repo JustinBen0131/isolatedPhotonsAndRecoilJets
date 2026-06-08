@@ -394,6 +394,49 @@ After Justin correction, record the smallest lesson that prevents recurrence.
   repeated user correction, prevent source/provenance mistakes, or protect the
   science story.
 
+## Iteration Learning Loop
+
+For serious full-slide generation or repeated slide revision, maintain a local
+iteration ledger instead of leaving the learning trail in chat.
+
+Use:
+
+```bash
+python3 scripts/os/delegation/slide_iteration_learning.py init \
+  --slide-key "<deck-or-talk>-slide-<n>-<topic>" \
+  --objective "<initial slide conception>"
+```
+
+The helper writes local ignored records under
+`agent_context/local/slide_iterations/`. Record:
+
+- initial conception and intended audience;
+- each generated candidate PNG/script/generator attempt;
+- each Justin correction, grouped by category rather than as raw annoyance;
+- each Codex self-audit or Claude worker critique;
+- the accepted artifact and the iteration number where it became acceptable.
+
+After enough evidence exists, ask Claude to distill the ledger:
+
+```bash
+python3 scripts/os/delegation/slide_iteration_learning.py pack-claude \
+  --run-dir agent_context/local/slide_iterations/<run_id> \
+  --invoke
+```
+
+Claude's role is to return a `Slide Iteration Learning Digest`: iteration
+metrics, recurring failure modes, prevention rules, a compact Codex injection
+brief, and promotion candidates. This is not model-weight training. It is
+structured retrieval/policy learning. Codex must verify the digest before using
+it to change `SLIDE_STYLE_MAP.md`, this policy, a generator default, a
+validator, or a future slide context pack.
+
+Before generating the next related slide, Codex should load the relevant
+`iteration_summary.md` or Claude digest when available and paste only the
+compact `Codex Injection Brief` into the new slide-generation context. The goal
+is to reduce repeated slide iterations by preventing the same concrete failure,
+not to overfit every slide to the last correction.
+
 ## Verification
 
 After connector edits, fetch a fresh large thumbnail for every touched slide

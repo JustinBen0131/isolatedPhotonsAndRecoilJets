@@ -9,8 +9,15 @@ files in this tree first.
 Use `python3 scripts/os/delegation/claude_slide_worker.py doctor` to verify the
 terminal Claude Code slide worker. Use `pack` to create a sealed context pack
 under `agent_context/local/delegations/claude_slide_worker/`, then `invoke` to
-run Claude in plan mode with no session persistence and capture the worker
+run Claude with no session persistence and capture the worker
 report locally for Codex verification.
+
+Use `python3 scripts/os/delegation/slide_iteration_learning.py init` to start a
+local ignored slide-iteration ledger under `agent_context/local/slide_iterations/`.
+Record conception, attempts, Justin corrections, Claude reports, and accepted
+artifacts with `record`; use `pack-claude --invoke` to ask the Claude slide
+worker for a `Slide Iteration Learning Digest` that Codex can inject into the
+next slide-generation context.
 
 Lane dream output now includes `internal_evolution_queue.md`,
 `internal_evolution_queue.json`, and `sdcc_base_repo_hygiene.md` under the

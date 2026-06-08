@@ -260,6 +260,10 @@ entries:
     group: "os/delegation"
     canonical_path: "scripts/os/delegation/claude_slide_worker.py"
     aliases: []
+  - id: slide_iteration_learning
+    group: "os/delegation"
+    canonical_path: "scripts/os/delegation/slide_iteration_learning.py"
+    aliases: []
   - id: codex_os_dream
     group: "os/dream"
     canonical_path: "scripts/os/dream/codex_os_dream.py"
