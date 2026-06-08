@@ -66,11 +66,16 @@ python3 scripts/os/delegation/claude_slide_worker.py invoke \
   --max-budget-usd 0.50
 ```
 
-The harness invokes Claude with a project agent, plan permission mode,
-`--no-session-persistence`, a small budget, and explicit read-only tool
-allowances. If Claude asks for broader access, authentication changes,
-installation, web access, or a mutation, stop and bring the request back to
-Codex/Justin.
+The harness invokes Claude with a project agent, `--no-session-persistence`, a
+small budget, and an explicit read-only tool set (`Read,Grep,Glob`). It uses a
+noninteractive permission mode only because mutation tools are not exposed. If
+Claude asks for broader access, authentication changes, installation, web
+access, or a mutation, stop and bring the request back to Codex/Justin.
+
+The harness must validate the output contract. A successful subprocess return
+code is not enough: if the worker does not return `# Slide Worker Report`, keep
+the run as `worker_error.md` rather than accepting a plan or partial response
+as a report.
 
 Authentication is a user boundary. Codex may check:
 

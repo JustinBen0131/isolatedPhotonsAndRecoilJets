@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from datetime import datetime
@@ -35,6 +36,11 @@ DEFAULT_POLICY_FILES = [
     REPO_ROOT / "agent_context" / "policies" / "SLIDES_WORKFLOW.md",
     REPO_ROOT / "agent_context" / "policies" / "PLOTTING.md",
     REPO_ROOT / "agent_context" / "SLIDE_STYLE_MAP.md",
+]
+FISH_CANDIDATES = [
+    Path("/opt/homebrew/bin/fish"),
+    Path("/usr/local/bin/fish"),
+    Path("/bin/fish"),
 ]
 
 
@@ -102,6 +108,46 @@ def run_cmd(argv: list[str], timeout: int = 20) -> dict[str, Any]:
             else "",
             "timeout": True,
         }
+
+
+def auth_status(argv: list[str]) -> tuple[bool, str]:
+    result = run_cmd(argv, timeout=20)
+    detail = result["stdout"] or result["stderr"]
+    ok = False
+    if result["stdout"]:
+        try:
+            payload = json.loads(result["stdout"])
+            ok = bool(payload.get("loggedIn"))
+        except json.JSONDecodeError:
+            ok = False
+    return ok, detail
+
+
+def fish_binary() -> Path | None:
+    return next((path for path in FISH_CANDIDATES if path.exists()), None)
+
+
+def shell_quote_command(argv: list[str]) -> str:
+    return " ".join(shlex.quote(arg) for arg in argv)
+
+
+def fish_wrapped_command(argv: list[str], fish_bin: Path) -> list[str]:
+    return [str(fish_bin), "-lc", "exec " + shell_quote_command(argv)]
+
+
+def select_claude_runner(prompt: str, max_budget_usd: str) -> tuple[list[str], str]:
+    direct_argv = claude_command(prompt, max_budget_usd)
+    direct_ok, _ = auth_status([str(CLAUDE_BIN), "auth", "status", "--json"])
+    if direct_ok:
+        return direct_argv, "direct"
+    fish_bin = fish_binary()
+    if fish_bin:
+        fish_ok, _ = auth_status(
+            [str(fish_bin), "-lc", "claude auth status --json"]
+        )
+        if fish_ok:
+            return fish_wrapped_command(direct_argv, fish_bin), "fish-login-shell"
+    return direct_argv, "direct-unauthenticated"
 
 
 def read_excerpt(path: Path, max_chars: int = 9000) -> str:
@@ -268,12 +314,7 @@ def create_context_pack(args: argparse.Namespace) -> Path:
 def cmd_doctor(args: argparse.Namespace) -> int:
     output_root = DEFAULT_OUTPUT_ROOT
     output_root.mkdir(parents=True, exist_ok=True)
-    fish_candidates = [
-        Path("/opt/homebrew/bin/fish"),
-        Path("/usr/local/bin/fish"),
-        Path("/bin/fish"),
-    ]
-    fish_bin = next((path for path in fish_candidates if path.exists()), None)
+    fish_bin = fish_binary()
     checks: list[dict[str, Any]] = []
 
     def add_check(name: str, ok: bool, detail: str, critical: bool = True) -> None:
@@ -297,21 +338,32 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         version["returncode"] == 0 and "Claude Code" in version["stdout"],
         version["stdout"] or version["stderr"],
     )
-    auth = run_cmd([str(CLAUDE_BIN), "auth", "status", "--json"], timeout=20)
-    auth_detail = auth["stdout"] or auth["stderr"]
-    auth_ok = False
-    if auth["stdout"]:
-        try:
-            auth_payload = json.loads(auth["stdout"])
-            auth_ok = bool(auth_payload.get("loggedIn"))
-        except json.JSONDecodeError:
-            auth_ok = False
+    auth_ok, auth_detail = auth_status(
+        [str(CLAUDE_BIN), "auth", "status", "--json"]
+    )
+    fish_auth_ok = False
+    fish_auth_detail = "fish not found"
+    if fish_bin:
+        fish_auth_ok, fish_auth_detail = auth_status(
+            [str(fish_bin), "-lc", "claude auth status --json"]
+        )
     add_check(
-        "claude_auth",
+        "claude_auth_direct",
         auth_ok,
         auth_detail
         or "run /Users/patsfan753/.local/bin/claude auth login --claudeai",
         critical=False,
+    )
+    add_check(
+        "claude_auth_fish",
+        fish_auth_ok,
+        fish_auth_detail,
+        critical=False,
+    )
+    add_check(
+        "claude_invocation_auth",
+        auth_ok or fish_auth_ok,
+        "direct" if auth_ok else "fish-login-shell" if fish_auth_ok else "none",
     )
     add_check("agent_file", AGENT_FILE.exists(), display_path(AGENT_FILE))
     add_check("delegation_policy", POLICY_FILE.exists(), display_path(POLICY_FILE))
@@ -344,8 +396,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         add_check("fish_login_path", False, "fish not found", critical=False)
 
     critical_ok = all(check["ok"] for check in checks if check["critical"])
-    warnings_ok = all(check["ok"] for check in checks if not check["critical"])
-    status = "ok" if critical_ok and warnings_ok else "warn" if critical_ok else "fail"
+    status = "ok" if critical_ok else "fail"
     payload = {
         "status": status,
         "checked_at": iso_now(),
@@ -368,7 +419,7 @@ def claude_command(prompt: str, max_budget_usd: str) -> list[str]:
         "--agent",
         AGENT_NAME,
         "--permission-mode",
-        "plan",
+        "dontAsk",
         "--output-format",
         "json",
         "--no-session-persistence",
@@ -376,7 +427,7 @@ def claude_command(prompt: str, max_budget_usd: str) -> list[str]:
         "project,local",
         "--max-budget-usd",
         max_budget_usd,
-        "--allowedTools",
+        "--tools",
         "Read,Grep,Glob",
         "-p",
         prompt,
@@ -419,7 +470,7 @@ def invoke_pack(
     for stale_file in (report_file, error_file):
         if stale_file.exists():
             stale_file.unlink()
-    argv = claude_command(prompt, max_budget_usd)
+    argv, runner = select_claude_runner(prompt, max_budget_usd)
     started_at = iso_now()
     try:
         completed = subprocess.run(
@@ -431,11 +482,13 @@ def invoke_pack(
             check=False,
         )
         returncode = completed.returncode
+        raw_returncode = completed.returncode
         stdout = completed.stdout
         stderr = completed.stderr
         timed_out = False
     except subprocess.TimeoutExpired as exc:
         returncode = 124
+        raw_returncode = 124
         stdout = exc.stdout if isinstance(exc.stdout, str) else ""
         stderr = exc.stderr if isinstance(exc.stderr, str) else ""
         timed_out = True
@@ -443,6 +496,13 @@ def invoke_pack(
     finished_at = iso_now()
     (pack_dir / "claude_stdout.txt").write_text(stdout or "", encoding="utf-8")
     (pack_dir / "claude_stderr.txt").write_text(stderr or "", encoding="utf-8")
+    report = extract_report(stdout or "")
+    contract_ok = bool(report and "# Slide Worker Report" in report)
+    if returncode == 0 and not contract_ok:
+        returncode = 3
+        report = None
+    elif returncode != 0 and report and "# Slide Worker Report" not in report:
+        report = None
     invocation = {
         "schema_version": 1,
         "worker_id": WORKER_ID,
@@ -450,9 +510,12 @@ def invoke_pack(
         "started_at": started_at,
         "finished_at": finished_at,
         "returncode": returncode,
+        "raw_returncode": raw_returncode,
+        "report_contract_ok": contract_ok,
         "timed_out": timed_out,
         "timeout_seconds": timeout,
         "max_budget_usd": max_budget_usd,
+        "runner": runner,
         "cwd": str(REPO_ROOT),
         "claude_bin": str(CLAUDE_BIN),
         "argv_without_prompt": claude_command("@prompt.txt", max_budget_usd),
@@ -461,9 +524,6 @@ def invoke_pack(
         json.dumps(invocation, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    report = extract_report(stdout or "")
-    if returncode != 0 and report and "# Slide Worker Report" not in report:
-        report = None
     if report:
         report_file.write_text(report + "\n", encoding="utf-8")
     elif returncode != 0:
@@ -473,7 +533,9 @@ def invoke_pack(
                     "# Claude Slide Worker Error",
                     "",
                     f"- returncode: {returncode}",
+                    f"- raw_returncode: {raw_returncode}",
                     f"- timed_out: {timed_out}",
+                    f"- report_contract_ok: {contract_ok}",
                     f"- stdout: {(stdout or '').strip()[:1000]}",
                     f"- stderr: {(stderr or '').strip()[:1000]}",
                     "",
@@ -486,6 +548,7 @@ def invoke_pack(
         print(f"pack_dir={display_path(pack_dir)}")
         print(f"returncode={returncode}")
         print(f"timed_out={timed_out}")
+        print(f"runner={runner}")
         if report:
             print(f"worker_report={display_path(report_file)}")
         elif returncode != 0:
