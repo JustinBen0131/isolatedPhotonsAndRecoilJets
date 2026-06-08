@@ -158,10 +158,10 @@ The machine-readable index is `agent_context/policies/LOAD_MAP.yaml`.
 | cleanup, quotas, stale outputs, failed payloads | `STORAGE_AND_CLEANUP.md`, `MEMORY_AND_STATUS.md` |
 | local ROOT macro or ROOT-dependent script | `INPUTS_AND_ENVIRONMENT.md`, `PLOTTING.md` if producing figures |
 | missing tool, dependency, plugin, runtime, browser/Drive/Gmail workflow | `TOOLS_AND_DEPENDENCIES.md` |
-| explicit delegation, subagent, Claude, handoff, parallel lanes | `COLLABORATION_AND_HANDOFFS.md` |
+| explicit delegation, subagent, Claude, handoff, parallel lanes | `DELEGATION_KERNEL.md`, `COLLABORATION_AND_HANDOFFS.md` |
 | current stale-output bug or dataset validity | `CURRENT_PROJECT_STATE.md`, `MEMORY_AND_STATUS.md` |
 | Codex work registration, Linear sync, Today's Plan, multi-chat state, active jobs | `CODEX_OPERATING_SYSTEM.md`, `MEMORY_AND_STATUS.md` |
-| agentic OS hardening, self-tuning, symbiotic workflow, thesis control plane, doctor checks | `AGENTIC_OS_HARDENING.md`, `CODEX_OPERATING_SYSTEM.md`, `MEMORY_AND_STATUS.md` |
+| agentic OS hardening, self-tuning, symbiotic workflow, thesis control plane, doctor checks | `AGENTIC_OS_HARDENING.md`, `DELEGATION_KERNEL.md` when model workers are involved, `CODEX_OPERATING_SYSTEM.md`, `MEMORY_AND_STATUS.md` |
 | agentic dreaming, synthetic rehearsal, night simulation, dream automation | `AGENTIC_OS_DREAMING.md`, `AGENTIC_OS_HARDENING.md`, `CODEX_OPERATING_SYSTEM.md` |
 | ask ChatGPT, use ChatGPT UI, delegated external research, deep research for OS design | `ASK_CHATGPT_DELEGATION.md`, `TOOLS_AND_DEPENDENCIES.md`, `COLLABORATION_AND_HANDOFFS.md` |
 | Zoom room setup, Zoom invite link, meeting transcript, Zoom AI summary, meeting capture | `MEETING_CAPTURE_AND_ZOOM.md`, `TOOLS_AND_DEPENDENCIES.md`, `CODEX_OPERATING_SYSTEM.md`, `MEMORY_AND_STATUS.md` |

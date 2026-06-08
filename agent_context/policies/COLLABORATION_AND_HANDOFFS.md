@@ -5,6 +5,8 @@
 - Codex owns orchestration: SDCC status strategy, Gmail pipeline emails, local
   notes, dashboards, Google Slides, Drive presentation context, integration,
   transfer-command guidance, and final sanity checks.
+- For terminal model workers, load `DELEGATION_KERNEL.md`; use sealed context
+  packs and treat worker output as report/proposal until Codex verifies it.
 - Claude or any other delegated code/reference worker owns bounded lanes only
   when Justin explicitly asks for delegation: PPG12/reference inspection, local
   code changes, local static analysis, feature implementation, and compact

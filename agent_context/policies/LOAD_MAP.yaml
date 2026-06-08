@@ -188,6 +188,32 @@ routes:
       - Treat ChatGPT output as source leads and critique only until verified
         against primary sources or local evidence.
 
+  delegation_kernel:
+    triggers:
+      - delegation
+      - delegate
+      - subagent
+      - Claude
+      - Claude Code
+      - worker
+      - model routing
+      - sealed context
+      - slide worker
+      - external model worker
+    load:
+      - agent_context/policies/DELEGATION_KERNEL.md
+      - agent_context/policies/COLLABORATION_AND_HANDOFFS.md
+      - agent_context/policies/TOOLS_AND_DEPENDENCIES.md
+      - agent_context/policies/CODEX_OPERATING_SYSTEM.md
+    first_actions:
+      - Keep Codex as the kernel; workers return reports or proposals only.
+      - Build a sealed context pack under agent_context/local/delegations/
+        before invoking terminal model workers.
+      - Use scripts/os/delegation/claude_slide_worker.py for the first
+        terminal Claude slide-policy worker.
+      - Verify worker output against local artifacts or Justin feedback before
+        promoting it to policy, style maps, Linear, or repo changes.
+
   meeting_capture_zoom:
     triggers:
       - set up a Zoom room
@@ -380,6 +406,7 @@ routes:
       - Claude
       - parallel lanes
     load:
+      - agent_context/policies/DELEGATION_KERNEL.md
       - agent_context/policies/COLLABORATION_AND_HANDOFFS.md
       - agent_context/policies/CODEX_OPERATING_SYSTEM.md
     first_actions:

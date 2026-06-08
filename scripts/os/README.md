@@ -1,9 +1,16 @@
 # Codex OS Helpers
 
 Agent operating-system utilities organized into `safety/`, `register/`,
-`dream/`, `heartbeat/`, `research/`, `context/`, and `artifacts/`. Top-level
+`dream/`, `heartbeat/`, `research/`, `context/`, `delegation/`, and
+`artifacts/`. Top-level
 `scripts/` entries are hard-contract compatibility aliases; edit the canonical
 files in this tree first.
+
+Use `python3 scripts/os/delegation/claude_slide_worker.py doctor` to verify the
+terminal Claude Code slide worker. Use `pack` to create a sealed context pack
+under `agent_context/local/delegations/claude_slide_worker/`, then `invoke` to
+run Claude in plan mode with no session persistence and capture the worker
+report locally for Codex verification.
 
 Lane dream output now includes `internal_evolution_queue.md`,
 `internal_evolution_queue.json`, and `sdcc_base_repo_hygiene.md` under the

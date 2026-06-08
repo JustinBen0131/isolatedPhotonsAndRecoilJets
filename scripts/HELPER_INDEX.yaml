@@ -256,6 +256,10 @@ entries:
         status: "hard_contract"
       - path: "scripts/compat/local/codex_thesis_radar.py"
         status: "compat_alias"
+  - id: claude_slide_worker
+    group: "os/delegation"
+    canonical_path: "scripts/os/delegation/claude_slide_worker.py"
+    aliases: []
   - id: codex_os_dream
     group: "os/dream"
     canonical_path: "scripts/os/dream/codex_os_dream.py"
