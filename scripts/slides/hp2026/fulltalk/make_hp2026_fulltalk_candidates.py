@@ -23,7 +23,11 @@ from pypdf import PdfReader, PdfWriter
 
 W, H = 2560, 1440
 
-ROOT = next(p for p in Path(__file__).resolve().parents if (p / "AGENTS.md").exists())
+ROOT = next(
+    p
+    for p in Path(__file__).resolve().parents
+    if (p / "README.md").exists() and (p / "scripts").exists() and (p / "src").exists()
+)
 WORKSPACE = ROOT / "outputs/manual-20260601-hp2026-fulltalk/presentations/hp2026-fulltalk"
 OUTPUT = WORKSPACE / "output"
 ASSETS = WORKSPACE / "assets"

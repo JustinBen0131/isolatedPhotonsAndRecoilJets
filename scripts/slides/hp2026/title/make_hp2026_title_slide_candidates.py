@@ -32,6 +32,11 @@ TITLE_LINES = [
     "prompt photon production in",
     "p+p collisions at 200 GeV",
 ]
+TITLE_LINES_CLEAN = [
+    "sPHENIX measurement of isolated",
+    "prompt-photon production",
+    "in p+p collisions at 200 GeV",
+]
 AUTHOR = "Justin Bennett"
 AFFILIATION = "University of Illinois Urbana-Champaign"
 COLLAB = "on behalf of the sPHENIX Collaboration"
@@ -42,7 +47,11 @@ DOE_LINE_1 = "U.S. Department of Energy"
 DOE_LINE_2 = "Office of Science"
 
 
-ROOT = next(p for p in Path(__file__).resolve().parents if (p / "AGENTS.md").exists())
+ROOT = next(
+    p
+    for p in Path(__file__).resolve().parents
+    if (p / "README.md").exists() and (p / "scripts").exists() and (p / "src").exists()
+)
 DEFAULT_WORKSPACE = ROOT / "outputs/manual-20260601-hp2026-title/presentations/hp2026-title-slide"
 
 FONT_DIR = Path("/System/Library/Fonts/Supplemental")
@@ -85,6 +94,23 @@ def draw_lines(
         draw.text((x, y), line, font=fnt, fill=fill)
         _, h = text_size(draw, line, fnt)
         y += h + line_gap
+    return y
+
+
+def draw_centered_lines(
+    draw: ImageDraw.ImageDraw,
+    x0: int,
+    y: int,
+    x1: int,
+    lines: list[str],
+    fnt: ImageFont.ImageFont,
+    fill: tuple[int, int, int],
+    line_gap: int,
+) -> int:
+    for line in lines:
+        tw, th = text_size(draw, line, fnt)
+        draw.text((x0 + (x1 - x0 - tw) / 2, y), line, font=fnt, fill=fill)
+        y += th + line_gap
     return y
 
 
@@ -285,6 +311,31 @@ def add_footer_branding_logo_rail_final(base: Image.Image, assets: dict[str, Ima
 
     for x in (820, 1686):
         draw.line((x, logo_top + 16, x, logo_bottom - 16), fill=(232, 236, 240), width=2)
+
+
+def add_footer_branding_sphenix_illinois_clean(base: Image.Image, assets: dict[str, Image.Image]) -> None:
+    """Clean post-practice footer: collaboration + presenter institution only."""
+    draw = ImageDraw.Draw(base)
+    rail_top = 1238
+    footer_center_y = (rail_top + H) // 2
+    logo_top = footer_center_y - 72
+    logo_bottom = footer_center_y + 72
+    draw.line((132, rail_top, W - 132, rail_top), fill=(224, 229, 235), width=2)
+
+    paste_fit(base, assets["sphenix_blue"], (84, logo_top, 670, logo_bottom), "left")
+    paste_fit(base, assets["illinois"], (2214, logo_top - 10, 2398, logo_bottom + 10), "center")
+
+
+def draw_clean_title_headline(draw: ImageDraw.ImageDraw, x: int, y: int, size: int = 91) -> int:
+    return draw_lines(draw, (x, y), TITLE_LINES_CLEAN, font(TIMES_BOLD, size), INK, 18)
+
+
+def title_block_refined_large_no_inline_illinois(draw: ImageDraw.ImageDraw, x: int, y: int, size: int = 91) -> int:
+    end_y = draw_clean_title_headline(draw, x, y, size)
+    draw.text((x, end_y + 76), AUTHOR, font=font(TIMES_BOLD, 72), fill=INK)
+    draw.text((x, end_y + 160), AFFILIATION, font=font(TIMES, 50), fill=MUTED)
+    draw.text((x, end_y + 223), COLLAB, font=font(TIMES_ITALIC, 43), fill=MUTED)
+    return end_y + 265
 
 
 def add_photo_panel(
@@ -787,6 +838,52 @@ def candidate_c4_final_institutional_photon_polish(path: Path, assets: dict[str,
     base.convert("RGB").save(path, quality=95)
 
 
+def candidate_c5_clean_sphenix_illinois(path: Path, assets: dict[str, Image.Image]) -> None:
+    base = background()
+    draw = ImageDraw.Draw(base)
+    add_photo_panel(base, assets, (1514, 164, 2456, 1218), tint_alpha=22, bottom_fade=0)
+    title_block_refined_large_no_inline_illinois(draw, 160, 172, 82)
+    add_integrated_photon_detector_accent(base)
+    draw_event_caption_band_final(base, assets)
+    add_footer_branding_sphenix_illinois_clean(base, assets)
+    base.convert("RGB").save(path, quality=95)
+
+
+def draw_title_roadmap_boxes(base: Image.Image) -> None:
+    draw = ImageDraw.Draw(base)
+    rows = [
+        ("1", "Detector + dataset"),
+        ("2", "Photon selection + purity"),
+        ("3", "Cross section + theory"),
+    ]
+    x0, x1 = 142, 1398
+    y0 = 517
+    row_h = 180
+    gap = 46
+    for idx, (num, label) in enumerate(rows):
+        y = y0 + idx * (row_h + gap)
+        draw.rounded_rectangle((x0, y, x1, y + row_h), radius=22, fill=(255, 255, 255, 242), outline=(218, 226, 235), width=3)
+        draw.rounded_rectangle((x0 + 2, y + 18, x0 + 24, y + row_h - 18), radius=11, fill=PHOTON)
+        cx, cy = x0 + 124, y + row_h // 2
+        draw.ellipse((cx - 47, cy - 47, cx + 47, cy + 47), fill=BLUE, outline=PHOTON, width=5)
+        tw, th = text_size(draw, num, font(ARIAL_BOLD, 37))
+        draw.text((cx - tw / 2, cy - th / 2 - 2), num, font=font(ARIAL_BOLD, 37), fill=(255, 255, 255))
+        draw.text((x0 + 236, y + 58), label, font=font(TIMES_BOLD, 60), fill=INK)
+
+
+def candidate_c5_clean_sphenix_illinois_roadmap(path: Path, assets: dict[str, Image.Image]) -> None:
+    base = background()
+    draw = ImageDraw.Draw(base)
+    add_photo_panel(base, assets, (1514, 164, 2456, 1218), tint_alpha=22, bottom_fade=0)
+    # Build frame keeps the main title and conference card, replacing only the
+    # lower-left presenter/photon region with the three-step roadmap.
+    draw_clean_title_headline(draw, 160, 172, 82)
+    draw_title_roadmap_boxes(base)
+    draw_event_caption_band_final(base, assets)
+    add_footer_branding_sphenix_illinois_clean(base, assets)
+    base.convert("RGB").save(path, quality=95)
+
+
 def write_manifest(out_dir: Path, asset_dir: Path, files: list[Path]) -> None:
     manifest = {
         "title": TITLE,
@@ -856,6 +953,7 @@ def write_manifest(out_dir: Path, asset_dir: Path, files: list[Path]) -> None:
             "The UIUC footer affiliation text is intentionally removed; the footer row uses the Block I logo only.",
             "The integrated photon-accent refinement places the photon-hit image in the left-side white space under the author/collaboration block and moves the Illinois Block I mark beside the UIUC affiliation line, leaving the footer as sPHENIX/BNL/DOE only.",
             "The C4 final polish pass uses a native-drawn photon/detector accent instead of pasting the standalone motif, keeps the official HP2026/Vanderbilt panel, and keeps the footer to sPHENIX/BNL/DOE.",
+            "The C5 post-practice title candidates keep the polished HP/Vanderbilt title composition but remove visible BNL/DOE footer branding and enlarge the sPHENIX + Illinois identity.",
         ],
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
@@ -872,6 +970,8 @@ def main() -> None:
             "c3-professional-logo-rail",
             "c3-integrated-photon-accent",
             "c4-final-institutional-photon-polish",
+            "c5-clean-sphenix-illinois",
+            "c5-clean-sphenix-illinois-roadmap",
         ],
         default="all",
         help="Render only one named final candidate when requested.",
@@ -907,6 +1007,16 @@ def main() -> None:
             "c4-final-institutional-photon-polish",
             out_dir / "hp2026_title_C4_final_institutional_photon_polish.png",
             candidate_c4_final_institutional_photon_polish,
+        ),
+        (
+            "c5-clean-sphenix-illinois",
+            out_dir / "hp2026_title_C5_clean_sphenix_illinois.png",
+            candidate_c5_clean_sphenix_illinois,
+        ),
+        (
+            "c5-clean-sphenix-illinois-roadmap",
+            out_dir / "hp2026_title_C5_clean_sphenix_illinois_roadmap.png",
+            candidate_c5_clean_sphenix_illinois_roadmap,
         ),
     ]
     selected = candidates if args.only == "all" else [c for c in candidates if c[0] == args.only]

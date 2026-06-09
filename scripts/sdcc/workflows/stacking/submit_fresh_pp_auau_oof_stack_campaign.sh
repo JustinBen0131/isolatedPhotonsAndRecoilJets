@@ -39,6 +39,7 @@ MAX_LOAD_ROWS_PER_CLASS="${RJ_FRESH_OOF_MAX_LOAD_ROWS_PER_CLASS:-0}"
 MAX_LOAD_ROWS="${RJ_FRESH_OOF_MAX_LOAD_ROWS:-0}"
 BDT_ESTIMATORS="${RJ_FRESH_OOF_BDT_ESTIMATORS:-750}"
 PREDICT_CHUNK_ROWS="${RJ_FRESH_OOF_PREDICT_CHUNK_ROWS:-750000}"
+REUSE_BASE_MODELS="${RJ_FRESH_OOF_REUSE_BASE_MODELS:-0}"
 STACK_MLP_EPOCHS="${RJ_FRESH_OOF_STACK_MLP_EPOCHS:-180}"
 STACK_MLP_HIDDEN="${RJ_FRESH_OOF_STACK_MLP_HIDDEN:-256,128,64}"
 STACK_MLP_BATCH_SIZE="${RJ_FRESH_OOF_STACK_MLP_BATCH_SIZE:-8192}"
@@ -92,6 +93,7 @@ print_plan() {
   say "request_cpus=$REQUEST_CPUS request_memory=$REQUEST_MEMORY"
   say "max_load_rows_per_class=$MAX_LOAD_ROWS_PER_CLASS max_load_rows=$MAX_LOAD_ROWS"
   say "predict_chunk_rows=$PREDICT_CHUNK_ROWS"
+  say "reuse_base_models=$REUSE_BASE_MODELS"
 }
 
 need_file() {
@@ -192,6 +194,7 @@ write_campaign_metadata() {
   "request_cpus": "${REQUEST_CPUS}",
   "request_memory": "${REQUEST_MEMORY}",
   "predict_chunk_rows": ${PREDICT_CHUNK_ROWS},
+  "reuse_base_models": "${REUSE_BASE_MODELS}",
   "max_load_rows_per_class": "${MAX_LOAD_ROWS_PER_CLASS}",
   "max_load_rows": "${MAX_LOAD_ROWS}",
   "codex_chat_name": "${RJ_CODEX_CHAT_NAME:-}",
@@ -236,10 +239,13 @@ cd "$RJ_REPO_BASE"
 ML_PYTHON="$ML_PYTHON"
 REQUEST_CPUS="$REQUEST_CPUS"
 PREDICT_CHUNK_ROWS="$PREDICT_CHUNK_ROWS"
+REUSE_BASE_MODELS="$REUSE_BASE_MODELS"
 export RJ_CODEX_CHAT_NAME="${RJ_CODEX_CHAT_NAME:-}"
 export RJ_CODEX_THREAD_ID="${RJ_CODEX_THREAD_ID:-}"
 $(declare -f setup_env)
 setup_env
+EXTRA_ARGS=()
+[[ "\$REUSE_BASE_MODELS" == "1" ]] && EXTRA_ARGS+=(--reuse-existing-base-models)
 "$ML_PYTHON" scripts/ml/stacking/train_photon_bdt_mlp_oof_stack.py \\
   --domain pp \\
   --input "@${PP_TRAIN_MANIFEST}" \\
@@ -265,6 +271,7 @@ setup_env
   --skip-missing-tree \\
   --n-jobs "$REQUEST_CPUS" \\
   --predict-chunk-rows "$PREDICT_CHUNK_ROWS" \\
+  "\${EXTRA_ARGS[@]}" \\
   --bdt-estimators "$BDT_ESTIMATORS" \\
   --stack-mlp-hidden "$STACK_MLP_HIDDEN" \\
   --stack-mlp-epochs "$STACK_MLP_EPOCHS" \\
@@ -282,10 +289,13 @@ cd "$RJ_REPO_BASE"
 ML_PYTHON="$ML_PYTHON"
 REQUEST_CPUS="$REQUEST_CPUS"
 PREDICT_CHUNK_ROWS="$PREDICT_CHUNK_ROWS"
+REUSE_BASE_MODELS="$REUSE_BASE_MODELS"
 export RJ_CODEX_CHAT_NAME="${RJ_CODEX_CHAT_NAME:-}"
 export RJ_CODEX_THREAD_ID="${RJ_CODEX_THREAD_ID:-}"
 $(declare -f setup_env)
 setup_env
+EXTRA_ARGS=()
+[[ "\$REUSE_BASE_MODELS" == "1" ]] && EXTRA_ARGS+=(--reuse-existing-base-models)
 "$ML_PYTHON" scripts/ml/stacking/train_photon_bdt_mlp_oof_stack.py \\
   --domain auau \\
   --input "@${AUAU_MANIFEST}" \\
@@ -312,6 +322,7 @@ setup_env
   --skip-missing-tree \\
   --n-jobs "$REQUEST_CPUS" \\
   --predict-chunk-rows "$PREDICT_CHUNK_ROWS" \\
+  "\${EXTRA_ARGS[@]}" \\
   --bdt-estimators "$BDT_ESTIMATORS" \\
   --stack-mlp-hidden "$STACK_MLP_HIDDEN" \\
   --stack-mlp-epochs "$STACK_MLP_EPOCHS" \\

@@ -19,7 +19,11 @@ from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFo
 
 W, H = 2560, 1440
 
-ROOT = next(p for p in Path(__file__).resolve().parents if (p / "AGENTS.md").exists())
+ROOT = next(
+    p
+    for p in Path(__file__).resolve().parents
+    if (p / "README.md").exists() and (p / "scripts").exists() and (p / "src").exists()
+)
 DEFAULT_WORKSPACE = ROOT / "outputs/manual-20260601-hp2026-opening-slide/presentations/hp2026-opening-slide"
 DEFAULT_OUTPUT = DEFAULT_WORKSPACE / "output"
 ASSET_DIR = DEFAULT_WORKSPACE / "assets"
@@ -2536,6 +2540,31 @@ def draw_prompt_photon_integrated_slide(base: Image.Image) -> None:
         draw.polygon([(ex, ey), left, right], fill=(*color, alpha))
 
     def draw_clean_feynman(cx: int, cy: int, scale: float, mode: str) -> None:
+        def draw_gluon_spring(
+            start: tuple[float, float],
+            end: tuple[float, float],
+            *,
+            amplitude: float,
+            loops: float,
+            steps: int = 130,
+        ) -> None:
+            sx, sy = start
+            ex, ey = end
+            vx, vy = ex - sx, ey - sy
+            length = math.hypot(vx, vy)
+            if length == 0:
+                return
+            ux, uy = vx / length, vy / length
+            px, py = -uy, ux
+            pts = []
+            for i in range(steps + 1):
+                t = i / steps
+                phase = 2 * math.pi * loops * t
+                along = t * length + 0.9 * amplitude * math.sin(phase)
+                off = amplitude * math.cos(phase)
+                pts.append((sx + ux * along + px * off, sy + uy * along + py * off))
+            draw_polyline(draw, pts, (*TEAL, 230), max(3, round(4 * scale)))
+
         node_top = (cx, cy - 42 * scale)
         node_bot = (cx, cy + 64 * scale)
         if mode == "fragmentation":
@@ -2545,8 +2574,7 @@ def draw_prompt_photon_integrated_slide(base: Image.Image) -> None:
             arrow_line(node_top, (cx + 112 * scale, cy - 82 * scale), INK, width=3, alpha=215, head=10)
             pts = feynman_points((cx + 46 * scale, cy - 38 * scale), (cx + 116 * scale, cy + 8 * scale), 5.0 * scale, 4.0, 80)
             draw_polyline(draw, pts, (*PHOTON_DARK, 235), max(3, round(4 * scale)))
-            pts = feynman_points(node_bot, node_top, 5.0 * scale, 5.0, 90)
-            draw_polyline(draw, pts, (*TEAL, 230), max(3, round(4 * scale)))
+            draw_gluon_spring(node_bot, node_top, amplitude=6.0 * scale, loops=6.6, steps=130)
             arrow_line((cx - 108 * scale, cy + 150 * scale), node_bot, INK, width=3, alpha=215, head=10)
             arrow_line(node_bot, (cx + 112 * scale, cy + 150 * scale), INK, width=3, alpha=215, head=10)
             labels = [
@@ -2562,8 +2590,13 @@ def draw_prompt_photon_integrated_slide(base: Image.Image) -> None:
             draw_polyline(draw, pts, (*PHOTON_DARK, 235), max(3, round(4 * scale)))
             arrow_line(node_top, node_bot, INK, width=3, alpha=210, head=9)
             if mode == "compton":
-                pts = feynman_points((cx - 112 * scale, cy + 128 * scale), node_bot, 5.5 * scale, 5.0, 90)
-                draw_polyline(draw, pts, (*TEAL, 230), max(3, round(4 * scale)))
+                draw_gluon_spring(
+                    (cx - 112 * scale, cy + 128 * scale),
+                    node_bot,
+                    amplitude=6.0 * scale,
+                    loops=7.4,
+                    steps=130,
+                )
                 labels = [
                     ("q", cx - 132 * scale, cy - 134 * scale),
                     ("γ", cx + 116 * scale, cy - 132 * scale),
@@ -2575,11 +2608,16 @@ def draw_prompt_photon_integrated_slide(base: Image.Image) -> None:
                 labels = [
                     ("q", cx - 132 * scale, cy - 134 * scale),
                     ("γ", cx + 116 * scale, cy - 132 * scale),
-                    ("q", cx - 132 * scale, cy + 112 * scale),
+                    ("qbar", cx - 132 * scale, cy + 112 * scale),
                     ("g", cx + 116 * scale, cy + 112 * scale),
                 ]
-                pts = feynman_points(node_bot, (cx + 112 * scale, cy + 128 * scale), 5.5 * scale, 5.0, 90)
-                draw_polyline(draw, pts, (*TEAL, 230), max(3, round(4 * scale)))
+                draw_gluon_spring(
+                    node_bot,
+                    (cx + 112 * scale, cy + 128 * scale),
+                    amplitude=6.0 * scale,
+                    loops=7.3,
+                    steps=130,
+                )
             arrow_line(node_bot, (cx + 112 * scale, cy + 128 * scale), INK, width=3, alpha=215, head=10) if mode == "compton" else None
 
         for node in (node_top, node_bot):
@@ -2632,6 +2670,7 @@ def draw_prompt_photon_integrated_slide(base: Image.Image) -> None:
 
     def draw_exact_or_fallback_raa(box: tuple[int, int, int, int]) -> None:
         candidates = [
+            ASSET_DIR / "direct_gamma_raa_uncropped_user_20260607.png",
             ASSET_DIR / "direct_gamma_raa_user_constructed_prl109_fig3_backup_slide14.png",
             ASSET_DIR / "phenix_direct_gamma_raa.png",
             ASSET_DIR / "direct_gamma_raa_attached.png",
@@ -2860,6 +2899,278 @@ That is why isolation is especially useful for the fragmentation component. Frag
     path = output_dir / "hp2026_slide03_isolated_photon_motivation_script.md"
     path.write_text(script, encoding="utf-8")
     return path
+
+
+def render_prompt_photon_slide5_current(output_dir: Path) -> Path:
+    """Render the current Slide 5 directly from source, using native Feynman diagrams."""
+
+    def spring_points(start: tuple[float, float], end: tuple[float, float], amp: float, loops: float, steps: int = 140) -> list[tuple[float, float]]:
+        sx, sy = start
+        ex, ey = end
+        vx, vy = ex - sx, ey - sy
+        length = math.hypot(vx, vy)
+        if length == 0:
+            return [start]
+        ux, uy = vx / length, vy / length
+        px, py = -uy, ux
+        pts = []
+        for i in range(steps):
+            t = i / (steps - 1)
+            phase = math.tau * loops * t
+            along = t * length + 0.9 * amp * math.sin(phase)
+            off = amp * math.cos(phase)
+            pts.append((sx + ux * along + px * off, sy + uy * along + py * off))
+        return pts
+
+    def arrow_line(draw: ImageDraw.ImageDraw, start: tuple[float, float], end: tuple[float, float], *, pos: float = 0.68, width: int = 3, head: int = 10) -> None:
+        sx, sy = start
+        ex, ey = end
+        draw.line((sx, sy, ex, ey), fill=(*INK, 220), width=width)
+        hx, hy = sx + (ex - sx) * pos, sy + (ey - sy) * pos
+        angle = math.atan2(ey - sy, ex - sx)
+        left = (hx - head * math.cos(angle - 0.55), hy - head * math.sin(angle - 0.55))
+        right = (hx - head * math.cos(angle + 0.55), hy - head * math.sin(angle + 0.55))
+        draw.polygon([(hx, hy), left, right], fill=(*INK, 220))
+
+    def draw_feynman(draw: ImageDraw.ImageDraw, cx: int, cy: int, scale: float, mode: str) -> None:
+        def photon(start: tuple[float, float], end: tuple[float, float]) -> None:
+            pts = feynman_points(start, end, 5.3 * scale, 4.2, 86)
+            draw_polyline(draw, pts, (*PHOTON_DARK, 235), max(3, round(4 * scale)))
+
+        def gluon(start: tuple[float, float], end: tuple[float, float], loops: float) -> None:
+            pts = spring_points(start, end, 6.0 * scale, loops)
+            draw_polyline(draw, pts, (*TEAL, 235), max(3, round(4 * scale)))
+
+        node_top = (cx, cy - 42 * scale)
+        node_bot = (cx, cy + 64 * scale)
+        if mode == "fragmentation":
+            node_top = (cx, cy - 4 * scale)
+            node_bot = (cx, cy + 86 * scale)
+            arrow_line(draw, (cx - 108 * scale, cy - 88 * scale), node_top, pos=0.66)
+            arrow_line(draw, node_top, (cx + 112 * scale, cy - 82 * scale), pos=0.74)
+            photon((cx + 46 * scale, cy - 38 * scale), (cx + 116 * scale, cy + 8 * scale))
+            gluon(node_top, node_bot, 6.6)
+            arrow_line(draw, (cx - 108 * scale, cy + 150 * scale), node_bot, pos=0.58)
+            arrow_line(draw, node_bot, (cx + 112 * scale, cy + 150 * scale), pos=0.74)
+            labels = [
+                ("q", cx - 132 * scale, cy - 110 * scale),
+                ("q", cx + 124 * scale, cy - 110 * scale),
+                ("γ", cx + 122 * scale, cy + 8 * scale),
+                ("q", cx - 132 * scale, cy + 116 * scale),
+                ("q", cx + 124 * scale, cy + 116 * scale),
+            ]
+        else:
+            arrow_line(draw, (cx - 108 * scale, cy - 112 * scale), node_top, pos=0.66)
+            photon(node_top, (cx + 112 * scale, cy - 112 * scale))
+            arrow_line(draw, node_top, node_bot, pos=0.72)
+            if mode == "compton":
+                gluon((cx - 112 * scale, cy + 128 * scale), node_bot, 7.4)
+                arrow_line(draw, node_bot, (cx + 112 * scale, cy + 128 * scale), pos=0.78)
+                labels = [
+                    ("q", cx - 132 * scale, cy - 134 * scale),
+                    ("γ", cx + 116 * scale, cy - 132 * scale),
+                    ("g", cx - 128 * scale, cy + 112 * scale),
+                    ("q", cx + 124 * scale, cy + 112 * scale),
+                ]
+            else:
+                arrow_line(draw, (cx - 112 * scale, cy + 128 * scale), node_bot, pos=0.55)
+                gluon(node_bot, (cx + 112 * scale, cy + 128 * scale), 7.3)
+                labels = [
+                    ("q", cx - 132 * scale, cy - 134 * scale),
+                    ("γ", cx + 116 * scale, cy - 132 * scale),
+                    ("qbar", cx - 132 * scale, cy + 112 * scale),
+                    ("g", cx + 116 * scale, cy + 112 * scale),
+                ]
+
+        for node in (node_top, node_bot):
+            draw.ellipse((node[0] - 7 * scale, node[1] - 7 * scale, node[0] + 7 * scale, node[1] + 7 * scale), fill=INK)
+        label_font = font(TIMES_ITALIC, max(28, round(42 * scale)))
+        for txt, lx, ly in labels:
+            color = PHOTON_DARK if txt == "γ" else TEAL if txt == "g" else INK
+            label_text = "q" if txt == "qbar" else txt
+            for dx, dy in ((-2, 0), (2, 0), (0, -2), (0, 2)):
+                draw.text((lx + dx, ly + dy), label_text, font=label_font, fill=(255, 255, 255, 235))
+            draw.text((lx, ly), label_text, font=label_font, fill=color)
+            if txt == "qbar":
+                tw, _ = text_box(draw, "q", label_font)
+                draw.line((lx, ly + 4 * scale, lx + tw, ly + 4 * scale), fill=(*color, 240), width=max(2, round(2 * scale)))
+
+    def centered_label(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], text: str, color: tuple[int, int, int], fill: tuple[int, int, int], y_offset: int, size: int) -> None:
+        x0, y0, x1, _ = box
+        fnt = font(TIMES_BOLD, size)
+        tw, th = text_box(draw, text, fnt)
+        lx0 = round((x0 + x1 - tw) / 2) - 22
+        label_box = (lx0, y0 + y_offset, lx0 + 44 + tw, y0 + y_offset + 54)
+        draw.rounded_rectangle(label_box, radius=20, fill=(*fill, 255), outline=(*color, 210), width=2)
+        draw.text((label_box[0] + 18, label_box[1] + (54 - th) / 2 - 2), text, font=fnt, fill=color)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    img = Image.new("RGBA", (W, H), (*SOFT_BG, 255))
+    draw = ImageDraw.Draw(img, "RGBA")
+    draw.rectangle((0, 0, W, H), fill=(*SOFT_BG, 255))
+    draw.rectangle((0, 0, W, 22), fill=(*SPHENIX_BLUE, 255))
+    draw.rectangle((0, 22, W, 30), fill=(*PHOTON, 255))
+    logo_path = TITLE_ASSET_DIR / "sphenix-logo-white-bg_0.png"
+    if logo_path.exists():
+        logo_fit = fit(crop_visible(Image.open(logo_path).convert("RGBA"), white_threshold=252), 366, 107)
+        img.alpha_composite(logo_fit, (2432 - logo_fit.width, 58))
+
+    draw.text((132, 86), "Prompt photons: production and color-neutral behavior", font=font(TIMES_BOLD, 66), fill=INK)
+    draw.text((136, 180), "Direct and fragmentation photons are prompt; isolation selects the quiet prompt-photon subset.", font=font(TIMES_ITALIC, 31), fill=MUTED)
+    draw.line((132, 286, W - 132, 286), fill=(221, 226, 232, 255), width=3)
+
+    prod_card = (132, 330, 1448, 1218)
+    color_card = (1496, 330, 2428, 772)
+    iso_card = (1496, 804, 2428, 1218)
+    for card, stripe in ((prod_card, (197, 64, 48)), (color_card, SPHENIX_BLUE), (iso_card, PHOTON)):
+        draw.rounded_rectangle(card, radius=8, fill=(255, 255, 255, 248), outline=(222, 229, 236, 255), width=2)
+        draw.rounded_rectangle((card[0] + 14, card[1] + 16, card[0] + 26, card[3] - 16), radius=6, fill=(*stripe, 255))
+
+    draw.text((180, 376), "Production channels", font=font(TIMES_BOLD, 40), fill=INK)
+    draw.text((182, 430), "Prompt photons include direct and fragmentation; decay photons are backgrounds.", font=font(TIMES_ITALIC, 25), fill=MUTED)
+    prompt_box = (208, 520, 1392, 920)
+    direct_box = (242, 600, 842, 850)
+    frag_box = (910, 600, 1368, 850)
+    draw.rounded_rectangle(prompt_box, radius=30, fill=(255, 247, 244, 120), outline=(197, 64, 48, 210), width=3)
+    centered_label(draw, prompt_box, "Prompt photon production", (197, 64, 48), (255, 247, 244), -37, 32)
+    draw.rounded_rectangle(direct_box, radius=20, fill=(237, 247, 254, 230), outline=(*SPHENIX_BLUE, 220), width=3)
+    draw.rounded_rectangle(frag_box, radius=20, fill=(236, 247, 243, 230), outline=(*TEAL, 220), width=3)
+    centered_label(draw, direct_box, "Direct photons", SPHENIX_BLUE, (237, 247, 254), -60, 30)
+    centered_label(draw, frag_box, "Fragmentation photons", TEAL, (236, 247, 243), -60, 30)
+    feynman_scale = 0.74
+    for (cx, cy), (label, color), mode in zip(
+        [(396, 716), (688, 716), (1138, 708)],
+        [("Compton scattering", INK), ("Annihilation", INK), ("Fragmentation radiation", TEAL)],
+        ("compton", "annihilation", "fragmentation"),
+    ):
+        draw_feynman(draw, cx, cy, feynman_scale, mode)
+        fnt = font(TIMES_BOLD, 32)
+        tw, _ = text_box(draw, label, fnt)
+        draw.text((cx - tw / 2, 872), label, font=fnt, fill=color)
+    eq_font = font(TIMES_BOLD, 44)
+    eq_segments = (
+        ("prompt photons", (197, 64, 48), 24),
+        ("=", INK, 24),
+        ("direct photons", SPHENIX_BLUE, 27),
+        ("+", INK, 27),
+        ("fragmentation photons", TEAL, 0),
+    )
+    eq_width = sum(text_box(draw, text, eq_font)[0] + gap for text, _, gap in eq_segments)
+    x_eq = (prod_card[0] + prod_card[2] - eq_width) / 2
+    y_eq = 1028
+    for piece, color, gap in eq_segments:
+        draw.text((x_eq, y_eq), piece, font=eq_font, fill=color)
+        x_eq += text_box(draw, piece, eq_font)[0] + gap
+
+    bg_label_font = font(TIMES_BOLD, 31)
+    bg_text_font = font(TIMES, 31)
+    bg_decay_font = font(TIMES_BOLD, 34)
+    bg_segments = (
+        ("dominant backgrounds", bg_label_font, (58, 66, 76), 13),
+        ("= meson-decay photons:", bg_text_font, MUTED, 25),
+        ("π^0 → γγ", bg_decay_font, (58, 66, 76), 30),
+        ("η → γγ", bg_decay_font, (58, 66, 76), 0),
+    )
+    bg_width = sum(rich_text_box(draw, text, fnt)[0] + gap for text, fnt, _, gap in bg_segments)
+    x_bg = (prod_card[0] + prod_card[2] - bg_width) / 2
+    y_bg = 1126
+    for text, fnt, fill, gap in bg_segments:
+        draw_rich_text(draw, (x_bg, y_bg), text, fnt, fill)
+        x_bg += rich_text_box(draw, text, fnt)[0] + gap
+
+    draw.text((1540, 374), "Color-neutral behavior", font=font(TIMES_BOLD, 38), fill=INK)
+    draw.text((1542, 426), "A RHIC direct-photon reference anchors the intuition.", font=font(TIMES_ITALIC, 26), fill=MUTED)
+    raa_asset = ASSET_DIR / "direct_gamma_raa_user_constructed_prl109_fig3_backup_slide14.png"
+    if raa_asset.exists():
+        paste_fit(img, open_rgba(raa_asset), (1588, 462, 2336, 690))
+    draw.text((1586, 708), "Direct photons stay near unity in Au+Au.", font=font(TIMES_BOLD, 31), fill=INK)
+
+    draw.text((1540, 850), "Isolation definition", font=font(TIMES_BOLD, 38), fill=INK)
+    draw.text((1542, 904), "Selects photons with little nearby calorimeter activity.", font=font(TIMES_ITALIC, 26), fill=MUTED)
+    eq_box = (1556, 944, 2070, 1048)
+    draw.rounded_rectangle(eq_box, radius=7, fill=(255, 251, 239, 255), outline=(238, 203, 128, 255), width=2)
+    draw_rich_text(draw, (1610, 970), "E_T^iso = Σ E_T^tower - E_T^candidate", font(TIMES_BOLD, 40), INK)
+    draw_rich_text(draw, (1570, 1082), "small E_T^iso  means low nearby activity", font(TIMES, 25), MUTED)
+    draw.text((1568, 1162), "Suppresses fragmentation-rich nearby activity.", font=font(TIMES_BOLD, 24), fill=INK)
+    draw.line((2084, 948, 2084, 1190), fill=(222, 229, 236, 255), width=2)
+    def cone_card(box: tuple[int, int, int, int], *, busy: bool) -> None:
+        x0, y0, x1, y1 = box
+        s = 4
+        bw, bh = (x1 - x0) * s, (y1 - y0) * s
+        tile = Image.new("RGBA", (bw, bh), (255, 255, 255, 0))
+        td = ImageDraw.Draw(tile, "RGBA")
+        cx = bw // 2
+        color = (197, 64, 48) if busy else PHOTON_DARK
+        title_color = (197, 64, 48) if busy else BLUE
+        card_fill = (255, 248, 246, 255) if busy else (244, 249, 252, 255)
+        cone_fill = (255, 247, 244, 178) if busy else (244, 250, 253, 208)
+        label = "non-isolated" if busy else "isolated"
+
+        def sc_pt(pt: tuple[float, float]) -> tuple[float, float]:
+            return (pt[0] * s, pt[1] * s)
+
+        def local_polyline(points: list[tuple[float, float]], fill: tuple[int, int, int, int], width: float) -> None:
+            td.line([sc_pt(p) for p in points], fill=fill, width=max(1, round(width * s)), joint="curve")
+
+        def local_arrow(start: tuple[float, float], end: tuple[float, float], *, width: float = 2.5, head: float = 7.0) -> None:
+            sx, sy = sc_pt(start)
+            ex, ey = sc_pt(end)
+            td.line((sx, sy, ex, ey), fill=(255, 255, 255, 224), width=round((width + 2.2) * s))
+            td.line((sx, sy, ex, ey), fill=(*INK, 232), width=round(width * s))
+            angle = math.atan2(ey - sy, ex - sx)
+            h = head * s
+            left = (ex - h * math.cos(angle - 0.58), ey - h * math.sin(angle - 0.58))
+            right = (ex - h * math.cos(angle + 0.58), ey - h * math.sin(angle + 0.58))
+            td.polygon([(ex, ey), left, right], fill=(*INK, 232))
+
+        td.rounded_rectangle((0, 0, bw - 1, bh - 1), radius=8 * s, fill=card_fill, outline=(222, 229, 236, 255), width=2 * s)
+        title_font = font(TIMES_BOLD, 20 * s)
+        title_probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+        tw, th = text_box(title_probe, label, title_font)
+        td.text(((bw - tw) / 2, 10 * s), label, font=title_font, fill=title_color)
+
+        rim_y = 86
+        apex = ((x1 - x0) / 2, (y1 - y0) - 46)
+        rim_w = min(49, (x1 - x0) / 2 - 20)
+        td.polygon([sc_pt(apex), sc_pt((apex[0] - rim_w, rim_y)), sc_pt((apex[0] + rim_w, rim_y))], fill=cone_fill)
+        td.line((sc_pt(apex), sc_pt((apex[0] - rim_w, rim_y))), fill=(*color, 230), width=3 * s)
+        td.line((sc_pt(apex), sc_pt((apex[0] + rim_w, rim_y))), fill=(*color, 230), width=3 * s)
+        td.arc(tuple(v * s for v in (apex[0] - rim_w, rim_y - 12, apex[0] + rim_w, rim_y + 12)), 0, 180, fill=(*color, 240), width=3 * s)
+        td.arc(tuple(v * s for v in (apex[0] - rim_w, rim_y - 12, apex[0] + rim_w, rim_y + 12)), 180, 360, fill=(*color, 122), width=2 * s)
+
+        photon_start = (apex[0] - 6, rim_y - 38)
+        photon_end = (apex[0], apex[1] - 8)
+        pts = feynman_points(photon_start, photon_end, 6.4, 4.8, 120)
+        local_polyline(pts, (*color, 246), 4.4)
+        tip = (photon_start[0] - 2.4, photon_start[1] - 5.0)
+        td.polygon(
+            [sc_pt(tip), sc_pt((tip[0] - 9.0, tip[1] + 14.0)), sc_pt((tip[0] + 5.5, tip[1] + 11.8))],
+            fill=(*color, 246),
+        )
+        gamma_font = font(TIMES_ITALIC, 22 * s)
+        td.text(sc_pt((tip[0] + 17, tip[1] + 2)), "γ", font=gamma_font, fill=color)
+
+        if busy:
+            origin = (apex[0], apex[1] - 7)
+            for start, end in (
+                (origin, (apex[0] - 43, apex[1] - 42)),
+                (origin, (apex[0] - 26, apex[1] - 104)),
+                (origin, (apex[0] - 5, apex[1] - 72)),
+                (origin, (apex[0] + 28, apex[1] - 101)),
+                (origin, (apex[0] + 45, apex[1] - 46)),
+            ):
+                local_arrow(start, end)
+
+        tile = tile.resize((x1 - x0, y1 - y0), Image.Resampling.LANCZOS)
+        img.alpha_composite(tile, (x0, y0))
+
+    cone_card((2122, 920, 2246, 1192), busy=False)
+    cone_card((2270, 920, 2400, 1192), busy=True)
+    draw_recreated_footer(img)
+
+    png = output_dir / "hp2026_slide05_prompt_photons_source_native.png"
+    img.convert("RGB").save(png, quality=95)
+    return png
 
 
 def render_isolated_photon_motivation(output_dir: Path) -> Path:
@@ -3242,6 +3553,8 @@ def render(output_dir: Path, variant: str) -> Path:
         png = render_isolated_photon_motivation(output_dir)
         write_opening_sequence_manifest(output_dir, output_dir / "hp2026_slide02_detector_data_context.png", png)
         return png
+    if variant == "prompt-photon-slide5-current":
+        return render_prompt_photon_slide5_current(output_dir)
     if variant == "real-detector-opener":
         return render_real_detector_opener(output_dir)
     if variant == "why-photons":
@@ -3263,6 +3576,7 @@ def main() -> None:
             "detector-data-progressive-build",
             "detector-data-context",
             "isolated-photon-motivation",
+            "prompt-photon-slide5-current",
             "real-detector-opener",
             "sphenix-hard-probes",
             "why-photons",

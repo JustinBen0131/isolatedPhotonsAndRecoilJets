@@ -45,7 +45,7 @@ from train_auau_photon_bdt import (  # noqa: E402
     summarize_ppg12_exact_precomputed_weights,
 )
 from train_auau_photon_mlp import auc_score, threshold_for_signal_efficiency  # noqa: E402
-from train_auau_stacked_bdt_mlp_sweep import fit_one  # noqa: E402
+from train_auau_stacked_bdt_mlp_sweep import fit_one, nn_predict_from_artifact  # noqa: E402
 
 
 SCHEMA = "RJ_FRESH_PP_AUAU_BDT_MLP_STACK_V2"
@@ -483,6 +483,57 @@ def fit_bdt(name: str, x: np.ndarray, y: np.ndarray, train_mask: np.ndarray, wei
     return artifact, predict
 
 
+def load_existing_bdt(name: str, outdir: Path, expected_train_mask: np.ndarray | None = None, y: np.ndarray | None = None):
+    model_dir = outdir / "base_models"
+    metadata_path = model_dir / f"{name}.metadata.json"
+    if not metadata_path.is_file():
+        return None
+    artifact = json.loads(metadata_path.read_text())
+    model_path = Path(str(artifact.get("model_path", "")))
+    if not model_path.is_file():
+        return None
+    if expected_train_mask is not None:
+        expected_rows = int(expected_train_mask.sum())
+        if int(artifact.get("n_train_rows", -1)) != expected_rows:
+            raise SystemExit(f"Existing BDT {name} has n_train_rows={artifact.get('n_train_rows')} but expected {expected_rows}")
+        if y is not None and artifact.get("train_label_counts") != label_counts(y, expected_train_mask):
+            raise SystemExit(f"Existing BDT {name} label counts do not match the current partition")
+    backend = str(artifact.get("backend", ""))
+    impute = np.asarray(artifact.get("feature_impute", []), dtype=MATRIX_DTYPE)
+    if backend == "xgboost" or model_path.suffixes[-2:] == [".xgb", ".json"]:
+        import xgboost as xgb
+
+        clf = xgb.XGBClassifier()
+        clf.load_model(str(model_path))
+
+        def predict(x_pred: np.ndarray) -> np.ndarray:
+            return np.asarray(clf.predict_proba(apply_imputer(x_pred, impute))[:, 1], dtype="float64")
+
+        return artifact, predict
+    if backend == "sklearn_gradient_boosting" or model_path.suffix == ".pkl":
+        with model_path.open("rb") as handle:
+            clf = pickle.load(handle)
+
+        def predict(x_pred: np.ndarray) -> np.ndarray:
+            return np.asarray(clf.predict_proba(apply_imputer(x_pred, impute))[:, 1], dtype="float64")
+
+        return artifact, predict
+    if backend == "numpy_logistic_fallback_for_self_test":
+        payload = json.loads(model_path.read_text())
+        coef = np.asarray(payload["coef"], dtype="float64")
+        mean = np.asarray(payload["mean"], dtype="float64")
+        scale = np.asarray(payload["scale"], dtype="float64")
+        intercept = float(payload["intercept"])
+
+        def predict(x_pred: np.ndarray) -> np.ndarray:
+            xp = apply_imputer(x_pred, impute)
+            xz = (xp - mean) / scale
+            return sigmoid(xz @ coef + intercept).astype("float64")
+
+        return artifact, predict
+    raise SystemExit(f"Unsupported existing BDT backend for {name}: {backend}")
+
+
 def stack_args_from(base_args: argparse.Namespace) -> argparse.Namespace:
     return argparse.Namespace(
         l2=base_args.stack_l2,
@@ -537,6 +588,47 @@ def train_mlp_model(name: str, features: list[str], x: np.ndarray, y: np.ndarray
     }
     write_json(model_dir / f"{name}.metadata.json", metadata)
     return metadata, fitted.predict
+
+
+def load_existing_mlp(name: str, features: list[str], outdir: Path, expected_train_mask: np.ndarray | None = None, y: np.ndarray | None = None):
+    model_dir = outdir / "base_models"
+    metadata_path = model_dir / f"{name}.metadata.json"
+    if not metadata_path.is_file():
+        return None
+    metadata = json.loads(metadata_path.read_text())
+    artifact_path = Path(str(metadata.get("artifact_path", model_dir / f"{name}.artifact.json")))
+    if not artifact_path.is_file():
+        return None
+    artifact = json.loads(artifact_path.read_text())
+    if list(artifact.get("feature_names", [])) != list(features):
+        raise SystemExit(f"Existing MLP {name} feature contract does not match the current run")
+    if expected_train_mask is not None:
+        expected_rows = int(expected_train_mask.sum())
+        if int(metadata.get("n_train_rows", -1)) != expected_rows:
+            raise SystemExit(f"Existing MLP {name} has n_train_rows={metadata.get('n_train_rows')} but expected {expected_rows}")
+        if y is not None and metadata.get("train_label_counts") != label_counts(y, expected_train_mask):
+            raise SystemExit(f"Existing MLP {name} label counts do not match the current partition")
+
+    def predict(x_pred: np.ndarray) -> np.ndarray:
+        return np.asarray(nn_predict_from_artifact(artifact, x_pred), dtype="float64")
+
+    return metadata, predict
+
+
+def fit_or_load_bdt(name: str, x: np.ndarray, y: np.ndarray, train_mask: np.ndarray, weights: np.ndarray, args, outdir: Path, seed: int):
+    if args.reuse_existing_base_models:
+        loaded = load_existing_bdt(name, outdir, train_mask, y)
+        if loaded is not None:
+            return loaded
+    return fit_bdt(name, x, y, train_mask, weights, args, outdir, seed)
+
+
+def train_or_load_mlp_model(name: str, features: list[str], x: np.ndarray, y: np.ndarray, train_mask: np.ndarray, val_mask: np.ndarray, weights: np.ndarray, args, outdir: Path, seed: int):
+    if args.reuse_existing_base_models:
+        loaded = load_existing_mlp(name, features, outdir, train_mask, y)
+        if loaded is not None:
+            return loaded
+    return train_mlp_model(name, features, x, y, train_mask, val_mask, weights, args, outdir, seed)
 
 
 def weighted_threshold_report(y: np.ndarray, score: np.ndarray, weights: np.ndarray, target: float) -> dict:
@@ -868,11 +960,11 @@ def train_and_score(args: argparse.Namespace) -> dict:
         for fold in range(args.folds):
             pred_mask = trainval_mask & (fold_id == fold)
             fit_mask = trainval_mask & (fold_id != fold)
-            bdt_artifact, bdt_predict = fit_bdt(f"fold{fold}_bdt", x, y, fit_mask, weights, args, args.outdir, args.random_seed + fold + 1)
+            bdt_artifact, bdt_predict = fit_or_load_bdt(f"fold{fold}_bdt", x, y, fit_mask, weights, args, args.outdir, args.random_seed + fold + 1)
             oof_bdt[pred_mask] = predict_in_chunks(bdt_predict, x[pred_mask], args.predict_chunk_rows)
             del bdt_predict
             gc.collect()
-            mlp_artifact, mlp_predict = train_mlp_model(
+            mlp_artifact, mlp_predict = train_or_load_mlp_model(
                 f"fold{fold}_mlp",
                 contract.features,
                 x,
@@ -912,7 +1004,7 @@ def train_and_score(args: argparse.Namespace) -> dict:
     elif args.stack_training_mode == "simple_holdout":
         pred_mask = trainval_mask & (fold_id == simple_stack_fold)
         fit_mask = trainval_mask & (fold_id != simple_stack_fold)
-        bdt_artifact, bdt_predict = fit_bdt(
+        bdt_artifact, bdt_predict = fit_or_load_bdt(
             f"simple_holdout_fold{simple_stack_fold}_bdt",
             x,
             y,
@@ -925,7 +1017,7 @@ def train_and_score(args: argparse.Namespace) -> dict:
         oof_bdt[pred_mask] = predict_in_chunks(bdt_predict, x[pred_mask], args.predict_chunk_rows)
         del bdt_predict
         gc.collect()
-        mlp_artifact, mlp_predict = train_mlp_model(
+        mlp_artifact, mlp_predict = train_or_load_mlp_model(
             f"simple_holdout_fold{simple_stack_fold}_mlp",
             contract.features,
             x,
@@ -971,8 +1063,8 @@ def train_and_score(args: argparse.Namespace) -> dict:
     else:
         raise SystemExit(f"Unsupported --stack-training-mode: {args.stack_training_mode}")
 
-    final_bdt_artifact, final_bdt_predict = fit_bdt("final_trainval_bdt", x, y, trainval_mask, weights, args, args.outdir, args.random_seed + 999)
-    final_mlp_artifact, final_mlp_predict = train_mlp_model(
+    final_bdt_artifact, final_bdt_predict = fit_or_load_bdt("final_trainval_bdt", x, y, trainval_mask, weights, args, args.outdir, args.random_seed + 999)
+    final_mlp_artifact, final_mlp_predict = train_or_load_mlp_model(
         "final_trainval_mlp",
         contract.features,
         x,
@@ -1308,6 +1400,11 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=750000,
         help="Rows per prediction chunk for memory-bounded scoring. Set <=0 to score each region at once.",
+    )
+    ap.add_argument(
+        "--reuse-existing-base-models",
+        action="store_true",
+        help="Load completed base BDT/MLP artifacts from --outdir/base_models when their partition contract matches, then train only missing base models.",
     )
     ap.add_argument("--bdt-estimators", type=int, default=750)
     ap.add_argument("--bdt-max-depth", type=int, default=5)
