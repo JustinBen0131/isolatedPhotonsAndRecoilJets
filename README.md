@@ -30,12 +30,8 @@ analysis helpers live in purpose-specific folders.
   - `scripts/slides/`: full-slide PNG builders and slide-specific assets.
   - `scripts/diagnostics/`: row-contract, split-study, ML, and workflow audits.
   - `scripts/data_prep/`: manifest, table, stitching, and compact-data helpers.
-  - `scripts/os/`: project operating-system, register, guard, and maintenance
-    utilities.
   - `scripts/bin/thesis-script` resolves script ids/basenames to canonical
     paths.
-- `agent_context/`: project-local coordination, policies, indexes, and status
-  ledgers used to keep multi-step analysis work reproducible.
 
 ## Main Analysis Flow
 
@@ -119,9 +115,9 @@ not commit generated ROOT dictionaries, `.so` files, `.pcm` files, Python
 ## Outputs And Tracked Scope
 
 This repository tracks source code, macros, scripts, indexes, and lightweight
-project documentation. It does not track large ROOT inputs, generated analysis
+analysis documentation. It does not track large ROOT inputs, generated analysis
 outputs, plot batches, slide decks, copied external repositories, local
-environment state, or private machine-specific configuration.
+workflow state, or private machine-specific configuration.
 
 Analysis-ready local ROOT files should be kept outside the tracked source tree
 or in ignored data/input areas. Compact plots, QA tables, and slide assets

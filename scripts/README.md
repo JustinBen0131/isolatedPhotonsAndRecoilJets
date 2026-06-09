@@ -9,8 +9,8 @@ basenames, old paths, and canonical paths.
 ## Top-Level Contract
 
 Top-level script names are hard contract symlinks unless the file is this
-README or an index. After THE-23 stage 5, only active SDCC/runtime/transfer/OS
-command contracts stay front-facing. Historical aliases moved to
+README or an index. Only active SDCC/runtime/transfer command contracts stay
+front-facing. Historical aliases moved to
 `scripts/compat/local/` and are indexed in `SCRIPT_INDEX.yaml`,
 `HELPER_INDEX.yaml`, `slides/INDEX.yaml`, and `compat/ALIAS_INDEX.tsv`.
 
@@ -28,15 +28,10 @@ is explicitly approved:
 - `sftp_get_recoiljets_outputs.sh`
 - `auau_tight_*_pipeline.sh`
 - `pp_photon_ml_pipeline.sh`
-- `codex_os_snapshot.py`
-- `codex_os_guard.py`
-- `codex_os_doctor.py`
-- `codex_os_dream.py`
-- `codex_os_nightly_heartbeat.py`
 
-These are tied to SDCC transfer, Condor, ROOT setup, core Codex safety, or
-existing operator muscle memory. Edit their canonical source under the indexed
-purpose folder, not through an assumed flat source layout.
+These are tied to SDCC transfer, Condor, ROOT setup, or existing operator
+muscle memory. Edit their canonical source under the indexed purpose folder,
+not through an assumed flat source layout.
 
 ## Canonical Homes
 
@@ -45,7 +40,6 @@ When adding new local-side code, use the narrowest purpose-specific folder:
 - `scripts/bin/`: stable command gateways.
 - `scripts/compat/local/`: old local names that should remain resolvable but
   should not clutter the parent.
-- `scripts/os/{safety,register,dream,research,context,artifacts}/`
 - `scripts/sdcc/runtime/{condor,merge,lists,cleanup,xsec,audit}/`
 - `scripts/sdcc/workflows/{submit,target_wp,width_study,stacking,scan,diagnostics}/`
 - `scripts/sdcc/pipelines/{auau,pp}/`

@@ -1,6 +1,6 @@
 # Neutral RecoilJets I/O architecture index for future SDCC/local runs.
 generated_at: "2026-06-01T18:05:00-04:00"
-stage: "THE-23 stage 7"
+stage: "repository organization stage 7"
 policy: "write canonical for new outputs; read legacy for audited historical outputs"
 canonical_patterns:
   sdcc_checkout_merge_root: "runs/recoiljets/current/<campaign>/"

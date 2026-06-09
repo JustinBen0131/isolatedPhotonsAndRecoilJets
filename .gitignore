@@ -8,31 +8,8 @@
 
 !README.md
 !.gitignore
-!AGENTS.md
 !checkAvailableVariant
 !checkCondorQ
-
-!/agent_context/
-!/agent_context/CODEX_WORK_REGISTER.yaml
-!/agent_context/ARTIFACT_REGISTRY.yaml
-!/agent_context/REFERENCE_MAP.md
-!/agent_context/THESIS_NARRATIVE_MAP.md
-!/agent_context/DREAM_LANE_THREAD_BINDINGS.example.json
-!/agent_context/REPO_ORGANIZATION_MIGRATION_SPEC.md
-!/agent_context/REPO_ORGANIZATION_INVENTORY.tsv
-!/agent_context/REPO_ORGANIZATION_CLEANUP_MANIFEST.tsv
-!/agent_context/policies/
-!/agent_context/policies/**
-!/agent_context/memory/
-!/agent_context/memory/**
-!/agent_context/templates/
-!/agent_context/templates/**
-
-# Private local OS state: event logs, snapshots, SDCC details, and local-only
-# recovery ledgers must stay off GitHub.
-agent_context/local/
-
-!/codex_notes/
 
 !/src/
 !/src/**
@@ -45,6 +22,17 @@ agent_context/local/
 
 !/scripts/
 !/scripts/**
+
+# Private agent/control-plane state belongs in the private companion repository,
+# not this public analysis-code repository.
+AGENTS.md
+CLAUDE.md
+.claude/
+agent_context/
+codex_notes/
+scripts/os/
+scripts/codex*.py
+scripts/compat/local/codex*.py
 
 # Generated/build artifacts, including those created inside tracked directories.
 **/__pycache__/
