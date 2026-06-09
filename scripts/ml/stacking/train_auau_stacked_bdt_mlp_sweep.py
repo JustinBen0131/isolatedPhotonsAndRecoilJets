@@ -844,13 +844,91 @@ def nn_predict_from_artifact(model: dict, x: np.ndarray) -> np.ndarray:
     return sigmoid(out[:, 0])
 
 
+def _nn_standardize_batch(
+    x: np.ndarray,
+    row_indices: np.ndarray,
+    impute: np.ndarray,
+    mean: np.ndarray,
+    scale: np.ndarray,
+) -> np.ndarray:
+    raw = np.asarray(x[row_indices], dtype=STACK_MATRIX_DTYPE)
+    clean = np.where(np.isfinite(raw), raw, impute).astype(STACK_MATRIX_DTYPE, copy=False)
+    return np.nan_to_num((clean - mean) / scale, nan=0.0, posinf=0.0, neginf=0.0).astype(
+        STACK_MATRIX_DTYPE,
+        copy=False,
+    )
+
+
+def _nn_normalization_from_indices(x: np.ndarray, train_indices: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    n_features = int(x.shape[1])
+    impute = np.zeros(n_features, dtype="float64")
+    mean = np.zeros(n_features, dtype="float64")
+    scale = np.ones(n_features, dtype="float64")
+    for feature_idx in range(n_features):
+        column = np.asarray(x[train_indices, feature_idx], dtype="float64")
+        finite = np.isfinite(column)
+        if finite.any():
+            impute_value = float(np.median(column[finite]))
+        else:
+            impute_value = 0.0
+        impute[feature_idx] = impute_value
+        clean = np.where(finite, column, impute_value)
+        feature_mean = float(np.mean(clean)) if clean.size else 0.0
+        feature_std = float(np.std(clean)) if clean.size else 1.0
+        mean[feature_idx] = feature_mean if math.isfinite(feature_mean) else 0.0
+        scale[feature_idx] = feature_std if math.isfinite(feature_std) and feature_std > 1.0e-9 else 1.0
+        del column, finite, clean
+    return impute, mean, scale
+
+
+def _nn_predict_indices(
+    x: np.ndarray,
+    row_indices: np.ndarray,
+    params: list[dict[str, np.ndarray]],
+    impute: np.ndarray,
+    mean: np.ndarray,
+    scale: np.ndarray,
+    batch_size: int,
+) -> np.ndarray:
+    probs = np.empty(len(row_indices), dtype="float64")
+    for start in range(0, len(row_indices), batch_size):
+        stop = min(start + batch_size, len(row_indices))
+        xb = _nn_standardize_batch(x, row_indices[start:stop], impute, mean, scale)
+        probs[start:stop] = nn_forward(xb, params)[0]
+    return probs
+
+
+def _nn_loss_indices(
+    x: np.ndarray,
+    row_indices: np.ndarray,
+    y_values: np.ndarray,
+    weight_values: np.ndarray,
+    params: list[dict[str, np.ndarray]],
+    impute: np.ndarray,
+    mean: np.ndarray,
+    scale: np.ndarray,
+    batch_size: int,
+    l2_value: float,
+) -> float:
+    denom = max(float(np.sum(weight_values)), 1.0)
+    loss_sum = 0.0
+    for start in range(0, len(row_indices), batch_size):
+        stop = min(start + batch_size, len(row_indices))
+        xb = _nn_standardize_batch(x, row_indices[start:stop], impute, mean, scale)
+        prob = np.clip(nn_forward(xb, params)[0].astype("float64", copy=False), EPS, 1.0 - EPS)
+        yb = y_values[start:stop]
+        wb = weight_values[start:stop]
+        loss_sum += float(np.sum(wb * (yb * np.log(prob) + (1.0 - yb) * np.log(1.0 - prob))))
+    return float((-loss_sum / denom) + l2_value)
+
+
 def fit_nn(name, feature_names, x, y, train_mask, val_mask, args, seed, sample_weights=None) -> FittedModel:
     hidden_layers = parse_hidden_layers(args.nn_hidden)
     train_mask = np.asarray(train_mask, dtype=bool).copy()
     val_mask = np.zeros(len(y), dtype=bool) if val_mask is None else np.asarray(val_mask, dtype=bool).copy()
     if sample_weights is None:
         sample_weights = class_balanced_weights(y)
-    sample_weights = np.asarray(sample_weights, dtype="float64")
+    sample_weights = np.asarray(sample_weights)
     if val_mask.sum() < 20 or len(np.unique(y[val_mask])) < 2:
         rng_split = np.random.default_rng(seed + 7919)
         train_idx_all = np.flatnonzero(train_mask)
@@ -871,35 +949,14 @@ def fit_nn(name, feature_names, x, y, train_mask, val_mask, args, seed, sample_w
     if train_global_indices.size < 20:
         raise ValueError(f"{name}: insufficient neural-stack train rows")
 
-    x_train_raw = np.asarray(x[train_mask], dtype=STACK_MATRIX_DTYPE)
-    with np.errstate(all="ignore"):
-        impute = np.nanmedian(np.where(np.isfinite(x_train_raw), x_train_raw, np.nan), axis=0)
-    impute = np.where(np.isfinite(impute), impute, 0.0).astype("float64", copy=False)
-    x_train_clean = np.where(np.isfinite(x_train_raw), x_train_raw, impute).astype(STACK_MATRIX_DTYPE, copy=False)
-    mean = np.nanmean(x_train_clean, axis=0).astype("float64", copy=False)
-    scale = np.nanstd(x_train_clean, axis=0).astype("float64", copy=False)
-    mean = np.where(np.isfinite(mean), mean, 0.0)
-    scale = np.where(np.isfinite(scale) & (scale > 1.0e-9), scale, 1.0)
-    x_train_z = np.nan_to_num((x_train_clean - mean) / scale, nan=0.0, posinf=0.0, neginf=0.0).astype(
-        STACK_MATRIX_DTYPE,
-        copy=False,
-    )
-    del x_train_raw, x_train_clean
-
-    y_train = y[train_mask].astype("float64")
-    w_train = sample_weights[train_mask]
-    if val_mask.any():
-        x_val_raw = np.asarray(x[val_mask], dtype=STACK_MATRIX_DTYPE)
-        x_val_clean = np.where(np.isfinite(x_val_raw), x_val_raw, impute).astype(STACK_MATRIX_DTYPE, copy=False)
-        x_val_z = np.nan_to_num((x_val_clean - mean) / scale, nan=0.0, posinf=0.0, neginf=0.0).astype(
-            STACK_MATRIX_DTYPE,
-            copy=False,
-        )
-        del x_val_raw, x_val_clean
-        y_val = y[val_mask].astype("float64")
-        w_val = sample_weights[val_mask]
+    impute, mean, scale = _nn_normalization_from_indices(x, train_global_indices)
+    y_train = np.asarray(y[train_global_indices], dtype="float64")
+    w_train = np.asarray(sample_weights[train_global_indices], dtype="float64")
+    val_global_indices = np.flatnonzero(val_mask)
+    if val_global_indices.size:
+        y_val = np.asarray(y[val_global_indices], dtype="float64")
+        w_val = np.asarray(sample_weights[val_global_indices], dtype="float64")
     else:
-        x_val_z = np.empty((0, x.shape[1]), dtype=STACK_MATRIX_DTYPE)
         y_val = np.ones(0, dtype="float64")
         w_val = np.ones(0, dtype="float64")
 
@@ -921,7 +978,7 @@ def fit_nn(name, feature_names, x, y, train_mask, val_mask, args, seed, sample_w
         rng.shuffle(train_indices)
         for start in range(0, len(train_indices), batch_size):
             batch = train_indices[start : start + batch_size]
-            xb = x_train_z[batch]
+            xb = _nn_standardize_batch(x, train_global_indices[batch], impute, mean, scale)
             yb = y_train[batch]
             wb = w_train[batch]
             prob, activations, preacts = nn_forward(xb, params)
@@ -949,13 +1006,23 @@ def fit_nn(name, feature_names, x, y, train_mask, val_mask, args, seed, sample_w
                     m_hat = m[layer_idx][key] / (1.0 - beta1**step)
                     v_hat = v[layer_idx][key] / (1.0 - beta2**step)
                     params[layer_idx][key] -= lr * m_hat / (np.sqrt(v_hat) + 1.0e-8)
-        train_prob = nn_forward(x_train_z, params)[0]
         l2_value = 0.5 * float(args.nn_l2) * sum(float(np.sum(layer["weight"] ** 2)) for layer in params)
-        train_loss = binary_cross_entropy(y_train, train_prob, w_train, l2_value)
-        if val_mask.any():
-            val_prob = nn_forward(x_val_z, params)[0]
+        train_loss = _nn_loss_indices(
+            x,
+            train_global_indices,
+            y_train,
+            w_train,
+            params,
+            impute,
+            mean,
+            scale,
+            batch_size,
+            l2_value,
+        )
+        if val_global_indices.size:
+            val_prob = _nn_predict_indices(x, val_global_indices, params, impute, mean, scale, batch_size)
             val_loss = binary_cross_entropy(y_val, val_prob, w_val, l2_value)
-            val_auc = auc_score(y[val_mask], val_prob)
+            val_auc = auc_score(y_val, val_prob)
         else:
             val_loss = train_loss
             val_auc = math.nan
