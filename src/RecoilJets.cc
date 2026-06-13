@@ -67,6 +67,7 @@
 #include <cctype>
 #include <cmath>       // std::cosh, std::hypot, std::fmod
 #include <cstdlib>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -316,6 +317,60 @@ namespace
   constexpr double kPPG12NonTightBDTMinSlope = -0.01333333333333333;
   constexpr double kPPG12NonTightBDTMaxIntercept = 0.6666666666666666;
   constexpr double kPPG12NonTightBDTMaxSlope = 0.003333333333333336;
+
+  struct PPG12TableQAVarDef
+  {
+    const char* key;
+    const char* axis;
+    int nbins;
+    double xmin;
+    double xmax;
+  };
+
+  const std::array<PPG12TableQAVarDef, 12>& ppg12TableQAVars()
+  {
+    static const std::array<PPG12TableQAVarDef, 12> vars{{
+      {"weta_cogx",   "w_{#eta}^{cogX}",      100, 0.0, 2.0},
+      {"wphi_cogx",   "w_{#phi}^{cogX}",      100, 0.0, 2.0},
+      {"wr",          "w_{#phi}^{cogX}/w_{#eta}^{cogX}", 100, 0.0, 2.0},
+      {"et1",         "E_{T}^{1}/E_{T}^{cluster}", 100, 0.0, 1.2},
+      {"et2",         "E_{T}^{2}/E_{T}^{cluster}", 100, 0.0, 1.2},
+      {"et3",         "E_{T}^{3}/E_{T}^{cluster}", 100, 0.0, 1.2},
+      {"et4",         "E_{T}^{4}/E_{T}^{cluster}", 100, 0.0, 0.3},
+      {"e11_to_e33",  "E_{11}/E_{33}",        100, 0.0, 1.2},
+      {"e17_to_e77",  "E_{17}/E_{77}",        100, 0.0, 1.2},
+      {"e32_to_e35",  "E_{32}/E_{35}",        100, 0.0, 1.2},
+      {"bdt",         "BDT score",            100, 0.0, 1.0},
+      {"npb_score",   "NPB score",            100, 0.0, 1.0}
+    }};
+    return vars;
+  }
+
+  const PPG12TableQAVarDef* findPPG12TableQAVar(const std::string& key)
+  {
+    for (const auto& var : ppg12TableQAVars())
+    {
+      if (key == var.key) return &var;
+    }
+    return nullptr;
+  }
+
+  std::vector<std::string> ppg12TableQAPtTokens(double pt)
+  {
+    std::vector<std::string> out;
+    if (!std::isfinite(pt)) return out;
+    if (pt > 10.0 && pt < 14.0) out.emplace_back("0");
+    if (pt > 18.0 && pt < 22.0) out.emplace_back("2");
+    if (pt > 22.0 && pt < 28.0) out.emplace_back("3");
+    if (pt > 15.0 && pt < 35.0) out.emplace_back("1535");
+    return out;
+  }
+
+  const std::array<const char*, 4>& ppg12TableQAAllPtTokens()
+  {
+    static const std::array<const char*, 4> tokens{{"0", "2", "3", "1535"}};
+    return tokens;
+  }
 
   inline bool preselectionUsesNPB(const std::string& preselectionVariant)
   {
@@ -1509,6 +1564,8 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
   // ------------------------------------------------------------------
   GlobalVertexMap* gvmap  = findNode::getClass<GlobalVertexMap>(top, "GlobalVertexMap");
   MbdVertexMap*    mbdmap = findNode::getClass<MbdVertexMap>(top, "MbdVertexMap");
+  m_mbdout = findNode::getClass<MbdOut>(top, "MbdOut");
+  m_evtHeader = findNode::getClass<EventHeader>(top, "EventHeader");
 
   // ------------------------------------------------------------------
   // Dataset / sim mode determination
@@ -1773,14 +1830,16 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
 
     const bool wantsNPBScore =
       preselectionUsesNPB(m_preselectionVariant) ||
-      (m_ppPhotonIDTrainingTreeEnabled && !m_isAuAu);
+      (m_ppPhotonIDTrainingTreeEnabled && !m_isAuAu) ||
+      m_ppg12TableQAEnabled;
     if (wantsNPBScore)
     {
       if (m_preselectionPhotonNode == "PHOTONCLUSTER_CEMC") m_photons_npb = m_photons;
       else m_photons_npb = findNode::getClass<RawClusterContainer>(top, m_preselectionPhotonNode.c_str());
     }
 
-    if (m_tightVariant == "newPPG12")
+    const bool wantsTightScore = (m_tightVariant == "newPPG12" || m_ppg12TableQAEnabled);
+    if (wantsTightScore)
     {
       if (m_tightPhotonNode == "PHOTONCLUSTER_CEMC") m_photons_tightbdt = m_photons;
       else m_photons_tightbdt = findNode::getClass<RawClusterContainer>(top, m_tightPhotonNode.c_str());
@@ -1826,10 +1885,11 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
           << " preselection=" << m_preselectionVariant << ".");
       return false;
     }
-    if (m_tightVariant == "newPPG12" && !m_photons_tightbdt)
+    if (wantsTightScore && !m_photons_tightbdt)
     {
       LOG(0, CLR_YELLOW,
-          "    [fetchNodes] " << m_tightPhotonNode << " is MISSING while tight=newPPG12.");
+          "    [fetchNodes] " << m_tightPhotonNode
+          << " is MISSING while tight BDT score is requested.");
       return false;
     }
 
@@ -2183,6 +2243,13 @@ int RecoilJets::Init(PHCompositeNode* topNode)
     try { return std::stoll(std::string(raw)); }
     catch (...) { return def; }
   };
+  auto envDouble = [](const char* key, double def) -> double
+  {
+    const char* raw = std::getenv(key);
+    if (!raw) return def;
+    try { return std::stod(std::string(raw)); }
+    catch (...) { return def; }
+  };
   auto envString = [](const char* key, const std::string& def) -> std::string
   {
     const char* raw = std::getenv(key);
@@ -2198,6 +2265,29 @@ int RecoilJets::Init(PHCompositeNode* topNode)
   std::transform(m_ppPhotonIDSourceRole.begin(), m_ppPhotonIDSourceRole.end(),
                  m_ppPhotonIDSourceRole.begin(), [](unsigned char c){ return std::tolower(c); });
   if (m_ppPhotonIDExtractOnly) m_ppPhotonIDTrainingTreeEnabled = true;
+
+  m_ppg12TableQAEnabled = envFlag("RJ_PPG12_TABLE_QA", false);
+  m_ppg12TableQANPBDataTaggingEnabled =
+      envFlag("RJ_PPG12_TABLE_QA_NPB_DATA_TAGGING", m_ppg12TableQAEnabled);
+  m_ppg12TableQANPBTagTimeSampleNs =
+      envDouble("RJ_PPG12_TABLE_QA_NPB_TIME_SAMPLE_NS", m_ppg12TableQANPBTagTimeSampleNs);
+  m_ppg12TableQANPBDeltaTCut =
+      envDouble("RJ_PPG12_TABLE_QA_NPB_DELTA_T_CUT", m_ppg12TableQANPBDeltaTCut);
+  m_ppg12TableQANPBWetaMin =
+      envDouble("RJ_PPG12_TABLE_QA_NPB_WETA_MIN", m_ppg12TableQANPBWetaMin);
+  m_ppg12TableQANPBAwayJetPtMin =
+      envDouble("RJ_PPG12_TABLE_QA_NPB_AWAY_JET_PT_MIN", m_ppg12TableQANPBAwayJetPtMin);
+  m_ppg12TableQANPBAwayJetDPhiMin =
+      envDouble("RJ_PPG12_TABLE_QA_NPB_AWAY_JET_DPHI_MIN", m_ppg12TableQANPBAwayJetDPhiMin);
+  m_ppg12TableQAMbdT0CorrectionFile =
+      envString("RJ_PPG12_TABLE_QA_MBD_T0_CORRECTION_FILE", "");
+  loadPPG12TableQAMbdT0Corrections(m_ppg12TableQAMbdT0CorrectionFile);
+  if (m_ppg12TableQAEnabled)
+  {
+    LOG(1, CLR_MAGENTA,
+        "[Init] RJ_PPG12_TABLE_QA=1: writing PPG12_TABLE_QA_V1 TH2 histograms"
+        << " | NPB data tagging=" << (m_ppg12TableQANPBDataTaggingEnabled ? "on" : "off"));
+  }
 
   /* 0.  book-keeping & QA histograms --------------------------------- */
   out = new TFile(Outfile.c_str(), "RECREATE");
@@ -3901,8 +3991,13 @@ int RecoilJets::End(PHCompositeNode*)
         key.rfind("h_ppPhotonStitch_ppg12Fig5_", 0) == 0 ||
         key.rfind("h_ppInclusiveJetStitch_ppg12TruthSpectrum_", 0) == 0 ||
         key.rfind("h_ppInclusiveJetStitch_r04_", 0) == 0;
+      const bool keepEmptyPPG12TableQAHist =
+        m_ppg12TableQAEnabled &&
+        (key.rfind("h1d_", 0) == 0 || key.rfind("h2d_", 0) == 0) &&
+        key.find("_eta0_pt") != std::string::npos &&
+        key.find("_cut") != std::string::npos;
 
-      if (h->GetEntries() == 0 && !keepEmptyStitchParityHist)
+      if (h->GetEntries() == 0 && !keepEmptyStitchParityHist && !keepEmptyPPG12TableQAHist)
       {
         if (Verbosity() > 1)
           warn("Histogram '" + key + "' (trigger " + trig + ") has 0 entries – skipped");
@@ -4733,9 +4828,11 @@ RecoilJets::SSVars RecoilJets::makeSSFromPhoton(const PhotonClusterv1* pho, doub
   const double e51 = pho->get_shower_shape_parameter("e51");
   const double e53 = pho->get_shower_shape_parameter("e53");
   const double e71 = pho->get_shower_shape_parameter("e71");
+  const double e77 = pho->get_shower_shape_parameter("e77");
   const double w32 = pho->get_shower_shape_parameter("w32");
   const double w52 = pho->get_shower_shape_parameter("w52");
   const double w72 = pho->get_shower_shape_parameter("w72");
+  const double mean_time = pho->get_shower_shape_parameter("mean_time");
 
   // Derived ratios (protect denominators)
   auto ratio = [](double num, double den) -> double
@@ -4761,6 +4858,7 @@ RecoilJets::SSVars RecoilJets::makeSSFromPhoton(const PhotonClusterv1* pho, doub
   // Preserve NaN for invalid denominators/inputs.
   // This ensures preselection/tight cuts fail cleanly for invalid SS inputs.
   v.e11_over_e33 = e11_over_e33_raw;
+  v.e17_over_e77 = ratio(e17, e77);
   v.e32_over_e35 = e32_over_e35_raw;
   v.e11_over_e22 = ratio(e11, e22);
   v.e11_over_e13 = ratio(e11, e13);
@@ -4776,6 +4874,7 @@ RecoilJets::SSVars RecoilJets::makeSSFromPhoton(const PhotonClusterv1* pho, doub
   v.w32 = w32;
   v.w52 = w52;
   v.w72 = w72;
+  v.mean_time = mean_time;
 
   attachVariantScoresToSSVars(pho, v);
 
@@ -7797,6 +7896,28 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 }
             }
 
+            std::string ppPhotonIDResolvedRole = m_ppPhotonIDSourceRole;
+            if (m_isSim && !m_isAuAu && ppPhotonIDResolvedRole == "auto")
+            {
+                std::string outLower = Outfile;
+                std::transform(outLower.begin(), outLower.end(), outLower.begin(),
+                               [](unsigned char c){ return std::tolower(c); });
+                if (outLower.find("photonjet") != std::string::npos ||
+                    outLower.find("photon") != std::string::npos)
+                {
+                    ppPhotonIDResolvedRole = "signal";
+                }
+                else if (outLower.find("jet") != std::string::npos ||
+                         ppInclusiveJetContext)
+                {
+                    ppPhotonIDResolvedRole = "background";
+                }
+                else
+                {
+                    ppPhotonIDResolvedRole = "all";
+                }
+            }
+
             int iPho = 0;
             for (auto pit = prange.first; pit != prange.second; ++pit, ++iPho)
             {
@@ -7945,6 +8066,42 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 const int effCentIdx_SS = (m_isAuAu ? centIdx : -1);
                 const std::string slice_SS = suffixForBins(ptIdx, effCentIdx_SS);
 
+                bool isPPG12Signal = false;
+                int truthTrackId = -1;
+                int truthBarcode = -1;
+                float truthEContrib = std::numeric_limits<float>::lowest();
+                if (m_isSim && !m_isAuAu && haveCaloEval_SS && clustereval_SS)
+                {
+                    TruthSignalPhotonInfo matchedTruth;
+                    isPPG12Signal =
+                        classifyRecoPhotonWithPPG12TruthTrack(rc,
+                                                              *clustereval_SS,
+                                                              truthSignalByTrackId_SS,
+                                                              matchedTruth,
+                                                              truthTrackId,
+                                                              truthEContrib);
+                    if (isPPG12Signal) truthBarcode = matchedTruth.barcode;
+                }
+
+                bool keepPPG12TableQARow = true;
+                double ppg12TableQARowWeight = 1.0;
+                if (m_ppg12TableQAEnabled && m_isSim && !m_isAuAu)
+                {
+                    if (ppInclusiveJetContext)
+                    {
+                        keepPPG12TableQARow = ppInclusiveJetPassR04;
+                        ppg12TableQARowWeight = ppg12InclusiveJetSliceXsecPb(ppInclusiveJetSlice) / 7.3113;
+                    }
+                    else if (ppPhotonIDResolvedRole == "signal")
+                    {
+                        keepPPG12TableQARow = isPPG12Signal;
+                    }
+                    else if (ppPhotonIDResolvedRole == "background" || ppPhotonIDResolvedRole == "bkg")
+                    {
+                        keepPPG12TableQARow = !isPPG12Signal;
+                    }
+                }
+
                 if (doCanonical)
                 {
                     for (const auto& trigShort : activeTrig)
@@ -7997,6 +8154,24 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 // ------------------------------------------------------------------
                 const double eiso_et = eiso(rc, topNode);
 
+                if (keepPPG12TableQARow)
+                {
+                    fillPPG12TableQA(activeTrig, v, eiso_et, effCentIdx_SS, 0, ppg12TableQARowWeight);
+                }
+                if (!m_isSim)
+                {
+                    double npbDeltaT = std::numeric_limits<double>::quiet_NaN();
+                    double npbMbdTime = std::numeric_limits<double>::quiet_NaN();
+                    bool npbHasAwayJet = false;
+                    if (isPPG12TableQADataNPBTaggedCluster(v, phi_gamma, npbDeltaT, npbMbdTime, npbHasAwayJet, true))
+                    {
+                        (void) npbDeltaT;
+                        (void) npbMbdTime;
+                        (void) npbHasAwayJet;
+                        fillPPG12TableQA(activeTrig, v, eiso_et, effCentIdx_SS, 4);
+                    }
+                }
+
                 bool ssIso = false;
                 bool ssNonIso = false;
 
@@ -8011,51 +8186,11 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
 
                 if (doCanonical && m_ppPhotonIDTrainingTreeEnabled && m_isSim && !m_isAuAu)
                 {
-                    bool isPPG12Signal = false;
-                    int truthTrackId = -1;
-                    int truthBarcode = -1;
-                    float truthEContrib = std::numeric_limits<float>::lowest();
-
-                    if (haveCaloEval_SS && clustereval_SS)
-                    {
-                        TruthSignalPhotonInfo matchedTruth;
-                        isPPG12Signal =
-                            classifyRecoPhotonWithPPG12TruthTrack(rc,
-                                                                  *clustereval_SS,
-                                                                  truthSignalByTrackId_SS,
-                                                                  matchedTruth,
-                                                                  truthTrackId,
-                                                                  truthEContrib);
-                        if (isPPG12Signal) truthBarcode = matchedTruth.barcode;
-                    }
-
-                    std::string role = m_ppPhotonIDSourceRole;
-                    if (role == "auto")
-                    {
-                        std::string outLower = Outfile;
-                        std::transform(outLower.begin(), outLower.end(), outLower.begin(),
-                                       [](unsigned char c){ return std::tolower(c); });
-                        if (outLower.find("photonjet") != std::string::npos ||
-                            outLower.find("photon") != std::string::npos)
-                        {
-                            role = "signal";
-                        }
-                        else if (outLower.find("jet") != std::string::npos ||
-                                 ppInclusiveJetContext)
-                        {
-                            role = "background";
-                        }
-                        else
-                        {
-                            role = "all";
-                        }
-                    }
-
                     bool keepTrainingRow = true;
                     if (m_ppPhotonIDPPG12Filter)
                     {
-                        if (role == "signal") keepTrainingRow = isPPG12Signal;
-                        else if (role == "background" || role == "bkg") keepTrainingRow = !isPPG12Signal;
+                        if (ppPhotonIDResolvedRole == "signal") keepTrainingRow = isPPG12Signal;
+                        else if (ppPhotonIDResolvedRole == "background" || ppPhotonIDResolvedRole == "bkg") keepTrainingRow = !isPPG12Signal;
                     }
                     if (keepTrainingRow && m_ppPhotonIDRequirePreselection)
                     {
@@ -8360,6 +8495,10 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     LOG(4, CLR_RED, msg.str());
                 }
                 if (doCanonical) ++m_bk.pre_pass;
+                if (keepPPG12TableQARow)
+                {
+                    fillPPG12TableQA(activeTrig, v, eiso_et, effCentIdx_SS, 1, ppg12TableQARowWeight);
+                }
 
                 if (doCanonical && m_tightVariant == "newPPG12" && std::isfinite(v.tight_bdt_score))
                 {
@@ -8516,6 +8655,21 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                                 { h->Fill(1); bumpHistFill(trigShort, std::string("h_tightFail_e32e35") + slice_SS); }
                             }
                         }
+                    }
+                }
+
+                if (tightTag == TightTag::kTight)
+                {
+                    if (keepPPG12TableQARow)
+                    {
+                        fillPPG12TableQA(activeTrig, v, eiso_et, effCentIdx_SS, 2, ppg12TableQARowWeight);
+                    }
+                }
+                else if (tightTag == TightTag::kNonTight)
+                {
+                    if (keepPPG12TableQARow)
+                    {
+                        fillPPG12TableQA(activeTrig, v, eiso_et, effCentIdx_SS, 3, ppg12TableQARowWeight);
                     }
                 }
 
@@ -9505,7 +9659,8 @@ void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars&
 
   const bool wantsNPBScore =
     preselectionUsesNPB(m_preselectionVariant) ||
-    (m_ppPhotonIDTrainingTreeEnabled && !m_isAuAu);
+    (m_ppPhotonIDTrainingTreeEnabled && !m_isAuAu) ||
+    m_ppg12TableQAEnabled;
   if (wantsNPBScore)
   {
     if (m_photons_npb == m_photons)
@@ -9520,7 +9675,7 @@ void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars&
     }
   }
 
-  if (m_tightVariant == "newPPG12")
+  if (m_tightVariant == "newPPG12" || m_ppg12TableQAEnabled)
   {
     if (m_photons_tightbdt == m_photons)
     {
@@ -15967,6 +16122,302 @@ TH1F* RecoilJets::getOrBookSSHist(const std::string& trig,
 
     if (prevDir) prevDir->cd();
     return h;
+}
+
+
+TH1F* RecoilJets::getOrBookPPG12TableQA1DHist(const std::string& trig,
+                                              const std::string& varKey,
+                                              const std::string& ptToken,
+                                              const std::string& centToken,
+                                              int cutIdx)
+{
+    if (!m_ppg12TableQAEnabled) return nullptr;
+    if (trig.empty() || varKey.empty() || ptToken.empty() || cutIdx < 0 || cutIdx > 4)
+    {
+        LOG(2, CLR_YELLOW, "  [getOrBookPPG12TableQA1DHist] invalid key request");
+        return nullptr;
+    }
+    const PPG12TableQAVarDef* def = findPPG12TableQAVar(varKey);
+    if (!def)
+    {
+        LOG(2, CLR_YELLOW, "  [getOrBookPPG12TableQA1DHist] unknown varKey \"" << varKey << '"');
+        return nullptr;
+    }
+
+    std::string name = "h1d_" + varKey + "_eta0_pt" + ptToken;
+    if (!centToken.empty()) name += "_" + centToken;
+    name += "_cut" + std::to_string(cutIdx);
+
+    auto& H = qaHistogramsByTrigger[trig];
+    if (auto it = H.find(name); it != H.end())
+    {
+        if (auto* h = dynamic_cast<TH1F*>(it->second)) return h;
+        LOG(2, CLR_YELLOW, "    [getOrBookPPG12TableQA1DHist] replacing non-TH1F object \"" << name << '"');
+        H.erase(it);
+    }
+    if (!out || !out->IsOpen())
+    {
+        LOG(1, CLR_YELLOW, "  [getOrBookPPG12TableQA1DHist] output TFile invalid/null");
+        return nullptr;
+    }
+
+    TDirectory* const prevDir = gDirectory;
+    TDirectory* dir = out->GetDirectory(trig.c_str());
+    if (!dir) dir = out->mkdir(trig.c_str());
+    if (!dir)
+    {
+        LOG(1, CLR_YELLOW, "  [getOrBookPPG12TableQA1DHist] failed to create/access directory \"" << trig << "\"");
+        if (prevDir) prevDir->cd();
+        return nullptr;
+    }
+    dir->cd();
+
+    const std::string title =
+        std::string("PPG12_TABLE_QA_V1;") + def->axis + ";Weighted counts";
+    auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(),
+                                       def->nbins, def->xmin, def->xmax);
+    if (h) H[name] = h;
+    if (prevDir) prevDir->cd();
+    return h;
+}
+
+
+TH2F* RecoilJets::getOrBookPPG12TableQAHist(const std::string& trig,
+                                            const std::string& varKey,
+                                            const std::string& ptToken,
+                                            const std::string& centToken,
+                                            int cutIdx)
+{
+    if (!m_ppg12TableQAEnabled) return nullptr;
+    if (trig.empty() || varKey.empty() || ptToken.empty() || cutIdx < 0 || cutIdx > 4)
+    {
+        LOG(2, CLR_YELLOW, "  [getOrBookPPG12TableQAHist] invalid key request");
+        return nullptr;
+    }
+    const PPG12TableQAVarDef* def = findPPG12TableQAVar(varKey);
+    if (!def)
+    {
+        LOG(2, CLR_YELLOW, "  [getOrBookPPG12TableQAHist] unknown varKey \"" << varKey << '"');
+        return nullptr;
+    }
+
+    std::string name = "h2d_" + varKey + "_eta0_pt" + ptToken;
+    if (!centToken.empty()) name += "_" + centToken;
+    name += "_cut" + std::to_string(cutIdx);
+
+    auto& H = qaHistogramsByTrigger[trig];
+    if (auto it = H.find(name); it != H.end())
+    {
+        if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+        LOG(2, CLR_YELLOW, "    [getOrBookPPG12TableQAHist] replacing non-TH2F object \"" << name << '"');
+        H.erase(it);
+    }
+    if (!out || !out->IsOpen())
+    {
+        LOG(1, CLR_YELLOW, "  [getOrBookPPG12TableQAHist] output TFile invalid/null");
+        return nullptr;
+    }
+
+    TDirectory* const prevDir = gDirectory;
+    TDirectory* dir = out->GetDirectory(trig.c_str());
+    if (!dir) dir = out->mkdir(trig.c_str());
+    if (!dir)
+    {
+        LOG(1, CLR_YELLOW, "  [getOrBookPPG12TableQAHist] failed to create/access directory \"" << trig << "\"");
+        if (prevDir) prevDir->cd();
+        return nullptr;
+    }
+    dir->cd();
+
+    const std::string title =
+        std::string("PPG12_TABLE_QA_V1;") + def->axis + ";E_{T}^{iso} [GeV]";
+    auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
+                                       def->nbins, def->xmin, def->xmax,
+                                       200, -10.0, 30.0);
+    if (h) H[name] = h;
+    if (prevDir) prevDir->cd();
+    return h;
+}
+
+
+void RecoilJets::bookPPG12TableQASchema(const std::vector<std::string>& activeTrig)
+{
+    if (!m_ppg12TableQAEnabled) return;
+
+    for (const auto& trigShort : activeTrig)
+    {
+        if (trigShort.empty()) continue;
+        if (!m_ppg12TableQASchemaBookedTriggers.insert(trigShort).second) continue;
+
+        for (const char* ptToken : ppg12TableQAAllPtTokens())
+        {
+            for (int cutIdx = 0; cutIdx <= 4; ++cutIdx)
+            {
+                for (const auto& var : ppg12TableQAVars())
+                {
+                    getOrBookPPG12TableQA1DHist(trigShort, var.key, ptToken, "", cutIdx);
+                    getOrBookPPG12TableQAHist(trigShort, var.key, ptToken, "", cutIdx);
+                }
+            }
+        }
+    }
+}
+
+
+double RecoilJets::ppg12TableQABDTScore(const SSVars& v) const
+{
+    if (std::isfinite(v.tight_bdt_score)) return v.tight_bdt_score;
+    return std::numeric_limits<double>::quiet_NaN();
+}
+
+
+void RecoilJets::fillPPG12TableQA(const std::vector<std::string>& activeTrig,
+                                  const SSVars& v,
+                                  double eisoEt,
+                                  int centIdx,
+                                  int cutIdx,
+                                  double rowWeight)
+{
+    (void) centIdx;
+    if (!m_ppg12TableQAEnabled) return;
+    bookPPG12TableQASchema(activeTrig);
+    if (!std::isfinite(eisoEt) || eisoEt > 1e8) return;
+
+    const std::vector<std::string> ptTokens = ppg12TableQAPtTokens(v.pt_gamma);
+    if (ptTokens.empty()) return;
+
+    const double wr = (std::isfinite(v.wphi_cogx) && std::isfinite(v.weta_cogx) &&
+                       std::fabs(v.weta_cogx) > 1e-12)
+        ? (v.wphi_cogx / v.weta_cogx)
+        : std::numeric_limits<double>::quiet_NaN();
+    const double bdtScore = ppg12TableQABDTScore(v);
+
+    auto valueFor = [&](const std::string& key) -> double
+    {
+        if (key == "weta_cogx")  return v.weta_cogx;
+        if (key == "wphi_cogx")  return v.wphi_cogx;
+        if (key == "wr")         return wr;
+        if (key == "et1")        return v.et1;
+        if (key == "et2")        return v.et2;
+        if (key == "et3")        return v.et3;
+        if (key == "et4")        return v.et4;
+        if (key == "e11_to_e33") return v.e11_over_e33;
+        if (key == "e17_to_e77") return v.e17_over_e77;
+        if (key == "e32_to_e35") return v.e32_over_e35;
+        if (key == "bdt")        return bdtScore;
+        if (key == "npb_score")  return v.npb_score;
+        return std::numeric_limits<double>::quiet_NaN();
+    };
+
+    for (const auto& trigShort : activeTrig)
+    {
+        for (const std::string& ptToken : ptTokens)
+        {
+            for (const auto& var : ppg12TableQAVars())
+            {
+                const double value = valueFor(var.key);
+                if (!std::isfinite(value)) continue;
+                if (auto* h1 = getOrBookPPG12TableQA1DHist(trigShort, var.key, ptToken, "", cutIdx))
+                {
+                    h1->Fill(value, rowWeight);
+                    bumpHistFill(trigShort, h1->GetName());
+                }
+                if (auto* h = getOrBookPPG12TableQAHist(trigShort, var.key, ptToken, "", cutIdx))
+                {
+                    h->Fill(value, eisoEt, rowWeight);
+                    bumpHistFill(trigShort, h->GetName());
+                }
+            }
+        }
+    }
+}
+
+
+void RecoilJets::loadPPG12TableQAMbdT0Corrections(const std::string& path)
+{
+    m_ppg12TableQAMbdT0Correction.clear();
+    if (path.empty()) return;
+
+    std::ifstream in(path);
+    if (!in)
+    {
+        LOG(1, CLR_YELLOW, "[PPG12_TABLE_QA_V1] could not open MBD t0 correction file: " << path);
+        return;
+    }
+    std::string line;
+    while (std::getline(in, line))
+    {
+        const auto hash = line.find('#');
+        if (hash != std::string::npos) line = line.substr(0, hash);
+        std::istringstream ss(line);
+        int run = 0;
+        double correction = 0.0;
+        if (ss >> run >> correction) m_ppg12TableQAMbdT0Correction[run] = correction;
+    }
+    LOG(1, CLR_MAGENTA,
+        "[PPG12_TABLE_QA_V1] loaded " << m_ppg12TableQAMbdT0Correction.size()
+        << " MBD t0 correction rows from " << path);
+}
+
+
+double RecoilJets::ppg12TableQAMbdT0OffsetForRun(int runNumber) const
+{
+    const auto it = m_ppg12TableQAMbdT0Correction.find(runNumber);
+    return (it != m_ppg12TableQAMbdT0Correction.end()) ? it->second : 0.0;
+}
+
+
+bool RecoilJets::isPPG12TableQADataNPBTaggedCluster(const SSVars& v,
+                                                    double phi,
+                                                    double& clusterMbdDeltaT,
+                                                    double& mbdTime,
+                                                    bool& hasAwayJet,
+                                                    bool requireTaggingEnabled) const
+{
+    clusterMbdDeltaT = std::numeric_limits<double>::quiet_NaN();
+    mbdTime = std::numeric_limits<double>::quiet_NaN();
+    hasAwayJet = false;
+
+    if (m_isSim || m_isAuAu) return false;
+    if (requireTaggingEnabled && !m_ppg12TableQANPBDataTaggingEnabled) return false;
+    if (!m_mbdout || m_mbdout->isValid() == 0) return false;
+    if (m_mbdout->get_npmt(0) < 1 || m_mbdout->get_npmt(1) < 1) return false;
+    if (!std::isfinite(v.mean_time) || !std::isfinite(phi)) return false;
+
+    const double rawMbdT0 = static_cast<double>(m_mbdout->get_t0());
+    if (!std::isfinite(rawMbdT0)) return false;
+
+    const int runNumber = m_evtHeader ? m_evtHeader->get_RunNumber() : 0;
+    mbdTime = rawMbdT0 - ppg12TableQAMbdT0OffsetForRun(runNumber);
+    const double clusterTime = v.mean_time * m_ppg12TableQANPBTagTimeSampleNs;
+    if (!std::isfinite(clusterTime) || !std::isfinite(mbdTime)) return false;
+
+    clusterMbdDeltaT = clusterTime - mbdTime;
+    if (!std::isfinite(v.pt_gamma) || v.pt_gamma < 6.0 || v.pt_gamma > 40.0) return false;
+    if (!std::isfinite(v.weta_cogx) || v.weta_cogx < m_ppg12TableQANPBWetaMin) return false;
+    if (!(clusterMbdDeltaT < m_ppg12TableQANPBDeltaTCut)) return false;
+
+    for (const auto& [rKey, jets] : m_jets)
+    {
+        (void) rKey;
+        if (!jets) continue;
+        for (auto it = jets->begin(); it != jets->end(); ++it)
+        {
+            const Jet* jet = *it;
+            if (!jet) continue;
+            const double jetPt = jet->get_pt();
+            const double jetPhi = jet->get_phi();
+            if (!std::isfinite(jetPt) || !std::isfinite(jetPhi)) continue;
+            if (jetPt < m_ppg12TableQANPBAwayJetPtMin) continue;
+            const double dphi = std::fabs(TVector2::Phi_mpi_pi(phi - jetPhi));
+            if (dphi > m_ppg12TableQANPBAwayJetDPhiMin)
+            {
+                hasAwayJet = true;
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 

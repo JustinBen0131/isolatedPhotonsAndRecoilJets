@@ -128,6 +128,11 @@ entries:
     canonical_path: "scripts/diagnostics/pp_shuhang/diagnose_shuhang_projection_variants.py"
     aliases:
       []
+  - id: extract_the42_tableqa_inclusive_hists
+    group: "diagnostics/pp_currentian"
+    canonical_path: "scripts/diagnostics/pp_currentian/extract_the42_tableqa_inclusive_hists.py"
+    aliases:
+      []
   - id: root_in_analysis_env
     group: "env"
     canonical_path: "scripts/env/root_in_analysis_env.sh"
@@ -530,6 +535,11 @@ entries:
     aliases:
       - path: "scripts/compat/local/make_ppg12_fig19_bdt_overlay.py"
         status: "compat_alias"
+  - id: make_the42_ppg12_tableqa_v1_tables
+    group: "plotting/pp_currentian"
+    canonical_path: "scripts/plotting/pp_currentian/make_the42_ppg12_tableqa_v1_tables.py"
+    aliases:
+      []
   - id: make_wp80_truth_purity_overlay_pp_ptcent7_basev3e
     group: "plotting/pp_currentian"
     canonical_path: "scripts/plotting/pp_currentian/make_wp80_truth_purity_overlay_pp_ptcent7_basev3e.py"

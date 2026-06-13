@@ -8,6 +8,7 @@ import json
 import math
 import textwrap
 from pathlib import Path
+from typing import Any
 
 import matplotlib
 
@@ -15,6 +16,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib import colors, font_manager  # noqa: E402
 from matplotlib.colors import LinearSegmentedColormap  # noqa: E402
+from matplotlib.lines import Line2D  # noqa: E402
 from matplotlib.patches import FancyBboxPatch  # noqa: E402
 import numpy as np  # noqa: E402
 
@@ -252,6 +254,49 @@ def write_text(fig: plt.Figure, x: float, y: float, text: str, width: int, **kwa
     fig.text(x, y, textwrap.fill(text, width=width), ha="left", va="top", linespacing=1.12, **kwargs)
 
 
+def fig_box_to_px(xywh: tuple[float, float, float, float]) -> list[float]:
+    x, y, w, h = xywh
+    return [x * W, (1.0 - y - h) * H, (x + w) * W, (1.0 - y) * H]
+
+
+def artist_box_to_px(fig: plt.Figure, artist: Any) -> list[float]:
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    bbox = artist.get_window_extent(renderer=renderer)
+    return [float(bbox.x0), float(H - bbox.y1), float(bbox.x1), float(H - bbox.y0)]
+
+
+def union_box(boxes: list[list[float]]) -> list[float]:
+    return [
+        min(box[0] for box in boxes),
+        min(box[1] for box in boxes),
+        max(box[2] for box in boxes),
+        max(box[3] for box in boxes),
+    ]
+
+
+def text_runs_for_label(label: str, body: str) -> list[dict[str, object]]:
+    return [
+        {"text": f"{label}:", "bold": True},
+        {"text": f" {body}", "bold": False},
+    ]
+
+
+def add_divider(fig: plt.Figure, x0: float, x1: float, y: float, color: str) -> None:
+    fig.add_artist(
+        Line2D(
+            [x0, x1],
+            [y, y],
+            transform=fig.transFigure,
+            color=color,
+            linewidth=0.7,
+            alpha=0.72,
+            solid_capstyle="round",
+            zorder=0.8,
+        )
+    )
+
+
 def plot_slide(summary_npz: Path, summary_json: Path, out_dir: Path) -> tuple[Path, Path, Path]:
     setup_style()
     with np.load(summary_npz, allow_pickle=True) as data:
@@ -276,30 +321,34 @@ def plot_slide(summary_npz: Path, summary_json: Path, out_dir: Path) -> tuple[Pa
 
     fig = plt.figure(figsize=(W / DPI, H / DPI), dpi=DPI)
     fig.patch.set_facecolor(WHITE)
-    fig.text(
+    title_artist = fig.text(
         0.055,
-        0.955,
-        "Full-stat weighted sample confirms distinct BDT-isolation regions",
+        0.957,
+        "BDT and isolation separate photons from background, but not independently",
         ha="left",
         va="top",
-        fontsize=23,
+        fontsize=24.0,
         fontweight="bold",
     )
-    add_box(fig, (0.055, 0.866, 0.885, 0.064), SUBTITLE_BG, SUBTITLE_EDGE)
-    write_text(
-        fig,
-        0.071,
-        0.914,
-        "Au+Au embedded Photon+Jet + Inclusive+Jet, 15-35 GeV clusters. Color is weighted candidates per bin on a log scale; each panel is normalized within its own class and centrality bin, so the shape comparison is not driven by raw sample size.",
-        142,
-        fontsize=12.4,
-        color="#253243",
+    subtitle_artist = fig.text(
+        0.056,
+        0.916,
+        (
+            r"Au+Au embedded Photon+Jet + Inclusive+Jet, "
+            r"$15 \leq E_T^{cluster} < 35$ GeV; "
+            r"panels normalized within class and centrality."
+        ),
+        ha="left",
+        va="top",
+        fontsize=13.5,
+        color="#4f5b68",
     )
 
-    left0, bottom0 = 0.125, 0.300
-    ax_w, ax_h = 0.238, 0.232
-    x_gap, y_gap = 0.028, 0.058
+    left0, bottom0 = 0.120, 0.285
+    ax_w, ax_h = 0.244, 0.250
+    x_gap, y_gap = 0.028, 0.060
     mesh = None
+    panel_stat_artists: list[Any] = []
     for row_idx, (_, class_name, class_color) in enumerate(CLASS_ROWS):
         for col_idx, (_, _, cent_label) in enumerate(CENT_BINS):
             ax = fig.add_axes([left0 + col_idx * (ax_w + x_gap), bottom0 + (1 - row_idx) * (ax_h + y_gap), ax_w, ax_h])
@@ -308,7 +357,7 @@ def plot_slide(summary_npz: Path, summary_json: Path, out_dir: Path) -> tuple[Pa
             ax.set_xlim(-10, 18)
             ax.set_ylim(0, 1)
             ax.grid(True, color=GRID, linewidth=0.45, alpha=0.75)
-            ax.tick_params(axis="both", labelsize=9.5, length=3)
+            ax.tick_params(axis="both", labelsize=9.6, length=3)
             if row_idx == 1:
                 ax.set_xlabel(r"reco $E_T^{iso}$, $\Delta R < 0.3$ [GeV]", fontsize=10.4)
             else:
@@ -318,20 +367,24 @@ def plot_slide(summary_npz: Path, summary_json: Path, out_dir: Path) -> tuple[Pa
             else:
                 ax.set_yticklabels([])
             if row_idx == 0:
-                ax.set_title(cent_label + " centrality", fontsize=13, fontweight="bold", pad=6)
+                ax.set_title(cent_label + " centrality", fontsize=12.8, fontweight="bold", pad=7)
             summary = meta["summaries"][class_name][cent_label]
-            ax.text(
+            n_value = summary["n"]
+            n_text = f"{n_value / 1.0e6:.2f}M" if n_value >= 1_000_000 else f"{n_value / 1.0e3:.0f}k"
+            stat_artist = ax.text(
                 0.02,
                 0.965,
-                f"N={summary['n']:,}\n"
+                f"N={n_text}\n"
                 f"med iso={summary['median_eiso']:.2f} GeV\n"
                 f"rho={summary['weighted_pearson_score_eiso']:+.2f}",
                 transform=ax.transAxes,
                 ha="left",
                 va="top",
-                fontsize=8.8,
-                bbox=dict(boxstyle="round,pad=0.22", facecolor="white", edgecolor="#b8c2ce", alpha=0.90),
+                fontsize=10.0,
+                linespacing=1.0,
+                bbox=dict(boxstyle="round,pad=0.20", facecolor="white", edgecolor="#c2cbd6", alpha=0.86),
             )
+            panel_stat_artists.append(stat_artist)
         fig.text(
             0.063,
             bottom0 + (1 - row_idx) * (ax_h + y_gap) + ax_h / 2,
@@ -339,79 +392,216 @@ def plot_slide(summary_npz: Path, summary_json: Path, out_dir: Path) -> tuple[Pa
             ha="center",
             va="center",
             rotation=90,
-            fontsize=15,
+            fontsize=14.2,
             fontweight="bold",
             color=class_color,
         )
 
     if mesh is not None:
-        cax = fig.add_axes([0.925, 0.333, 0.018, 0.470])
+        cax = fig.add_axes([0.932, 0.302, 0.017, 0.472])
         cb = fig.colorbar(mesh, cax=cax)
-        cb.ax.tick_params(labelsize=9)
-        cb.set_label("weighted fraction / bin\nlog scale", fontsize=9.5)
+        cb.ax.tick_params(labelsize=10.0)
+        cb.ax.set_title("normalized occupancy\n(log scale)", fontsize=11.0, pad=14)
 
-    add_box(fig, (0.074, 0.038, 0.833, 0.130), CARD_BG, CARD_EDGE)
-    write_text(
-        fig,
-        0.097,
-        0.145,
-        "Why this replaces the sampled plot: this uses the full embedded source, event weights, and explicit R=0.3 cone isolation rather than a small validation sample.",
-        46,
-        fontsize=10.8,
-        color=INK,
-    )
-    write_text(
-        fig,
-        0.376,
-        0.145,
-        "How to read it: truth photons concentrate at high BDT score and low cone energy. Inclusive background spreads into lower-score and positive-isolation regions.",
-        50,
-        fontsize=10.8,
-        color=INK,
-    )
-    write_text(
-        fig,
-        0.671,
-        0.145,
-        "Physics implication: BDT and isolation are not independent background axes; the key follow-up is the correlated background surviving both working points.",
-        45,
-        fontsize=10.8,
-        color=INK,
-    )
+    left_card = (0.074, 0.040, 0.405, 0.145)
+    right_card = (0.502, 0.040, 0.405, 0.145)
+    add_box(fig, left_card, SUBTITLE_BG, SUBTITLE_EDGE)
+    left_heading = fig.text(0.096, 0.174, "How to read the panels", ha="left", va="top", fontsize=15.0, fontweight="bold", color=INK)
+    for y in (0.142, 0.113, 0.084):
+        add_divider(fig, 0.096, 0.442, y, SUBTITLE_EDGE)
+    left_rows = [
+        ("Rows", "truth photons vs inclusive background"),
+        ("Columns", "centrality class"),
+        ("Color", "within-panel density in BDT score vs R=0.3 isolation"),
+    ]
+    left_row_artists = []
+    for y, (label, body) in zip([0.136, 0.107, 0.078], left_rows):
+        label_artist = fig.text(0.096, y, f"{label}:", ha="left", va="top", fontsize=13.0, fontweight="bold", color=INK)
+        body_artist = fig.text(0.164, y, body, ha="left", va="top", fontsize=13.0, color="#242c36")
+        left_row_artists.append((label, body, label_artist, body_artist))
 
+    add_box(fig, right_card, CARD_BG, CARD_EDGE)
+    right_heading = fig.text(0.524, 0.174, "Physical interpretation", ha="left", va="top", fontsize=15.0, fontweight="bold", color=INK)
+    for y in (0.142, 0.113, 0.084):
+        add_divider(fig, 0.524, 0.886, y, CARD_EDGE)
+    right_rows = [
+        ("Photon band", "high BDT score and low cone energy"),
+        ("Background tail", "positive isolation and lower BDT score"),
+        ("ABCD test", "correlated background requires closure"),
+    ]
+    right_row_artists = []
+    for y, (label, body) in zip([0.136, 0.107, 0.078], right_rows):
+        label_artist = fig.text(0.524, y, f"{label}:", ha="left", va="top", fontsize=13.0, fontweight="bold", color=INK)
+        body_artist = fig.text(0.657, y, body, ha="left", va="top", fontsize=13.0, color="#242c36")
+        right_row_artists.append((label, body, label_artist, body_artist))
+    fig.canvas.draw()
     out_dir.mkdir(parents=True, exist_ok=True)
     png = out_dir / "weighted_bdt_isolation_fullstat_slide.png"
     script = out_dir / "weighted_bdt_isolation_fullstat_speaker_script.md"
     manifest = out_dir / "weighted_bdt_isolation_fullstat_manifest.json"
+    layout_nodes = out_dir / "layout_nodes.json"
+    left_text_boxes = [artist_box_to_px(fig, left_heading)]
+    right_text_boxes = [artist_box_to_px(fig, right_heading)]
+    nodes: list[dict[str, object]] = [
+        {
+            "name": "header band",
+            "kind": "panel",
+            "bbox": [0, 0, W, 225],
+        },
+        {
+            "name": "slide title",
+            "kind": "text",
+            "role": "title",
+            "title_anchor": True,
+            "font_px": 24.0 * DPI / 72.0,
+            "bbox": artist_box_to_px(fig, title_artist),
+            "text": "BDT and isolation separate photons from background, but not independently",
+            "parent": "header band",
+            "intentional_alignment": "top",
+        },
+        {
+            "name": "subtitle",
+            "kind": "text",
+            "role": "audience",
+            "font_px": 13.5 * DPI / 72.0,
+            "bbox": artist_box_to_px(fig, subtitle_artist),
+            "text": "Au+Au embedded Photon+Jet + Inclusive+Jet, 15 <= ET cluster < 35 GeV; panels normalized within class and centrality.",
+            "parent": "header band",
+            "intentional_alignment": "top",
+            "colon_style_exception": True,
+        },
+        {"name": "heatmap grid", "kind": "panel", "bbox": fig_box_to_px((0.120, 0.285, 0.788, 0.560))},
+        {
+            "name": "left explanation card",
+            "kind": "panel",
+            "bbox": fig_box_to_px(left_card),
+            "symmetry_group": "bottom cards",
+            "fill_color": SUBTITLE_BG,
+            "edge_color": SUBTITLE_EDGE,
+            "color_difference_intentional": True,
+            "color_difference_reason": "left card teaches how to read the plot; right card carries the physics interpretation",
+        },
+        {
+            "name": "right interpretation card",
+            "kind": "panel",
+            "bbox": fig_box_to_px(right_card),
+            "symmetry_group": "bottom cards",
+            "fill_color": CARD_BG,
+            "edge_color": CARD_EDGE,
+            "color_difference_intentional": True,
+            "color_difference_reason": "left card teaches how to read the plot; right card carries the physics interpretation",
+        },
+    ]
+    for idx, artist in enumerate(panel_stat_artists, start=1):
+        nodes.append(
+            {
+                "name": f"panel stat annotation {idx}",
+                "kind": "text",
+                "role": "plot_annotation",
+                "font_px": 10.0 * DPI / 72.0,
+                "bbox": artist_box_to_px(fig, artist),
+                "text": artist.get_text(),
+            }
+        )
+    if mesh is not None:
+        colorbar_text_artists = [cb.ax.title, *cb.ax.get_yticklabels()]
+        for idx, artist in enumerate(colorbar_text_artists, start=1):
+            nodes.append(
+                {
+                    "name": f"colorbar text {idx}",
+                    "kind": "text",
+                    "role": "plot_annotation",
+                    "font_px": artist.get_fontsize() * DPI / 72.0,
+                    "bbox": artist_box_to_px(fig, artist),
+                    "text": artist.get_text(),
+                }
+            )
+    for prefix, row_artists, text_boxes in (
+        ("left", left_row_artists, left_text_boxes),
+        ("right", right_row_artists, right_text_boxes),
+    ):
+        for label, body, label_artist, body_artist in row_artists:
+            row_box = union_box([artist_box_to_px(fig, label_artist), artist_box_to_px(fig, body_artist)])
+            text_boxes.append(row_box)
+            nodes.append(
+                {
+                    "name": f"{prefix} card row {label}",
+                    "kind": "text",
+                    "role": "audience",
+                    "font_px": 13.0 * DPI / 72.0,
+                    "bbox": row_box,
+                    "text": f"{label}: {body}",
+                    "text_runs": text_runs_for_label(label, body),
+                }
+            )
+    nodes.extend(
+        [
+            {
+                "name": "left explanation card text block",
+                "kind": "text",
+                "role": "audience",
+                "font_px": 13.0 * DPI / 72.0,
+                "bbox": union_box(left_text_boxes),
+                "parent": "left explanation card",
+                "text": "How to read the panels\nRows: truth photons vs inclusive background\nColumns: centrality class\nColor: within-panel density in BDT score vs R=0.3 isolation",
+                "colon_style_exception": True,
+            },
+            {
+                "name": "right interpretation card text block",
+                "kind": "text",
+                "role": "audience",
+                "font_px": 13.0 * DPI / 72.0,
+                "bbox": union_box(right_text_boxes),
+                "parent": "right interpretation card",
+                "text": "Physical interpretation\nPhoton band: high BDT score and low cone energy\nBackground tail: positive isolation and lower BDT score\nABCD test: correlated background requires closure",
+                "colon_style_exception": True,
+            },
+        ]
+    )
+    layout_nodes.write_text(
+        json.dumps(
+            {
+                "schema": "slide_layout_nodes_v1",
+                "slide": "the11_weighted_bdt_isolation_fullstat",
+                "minimum_audience_font_px": 13.0 * DPI / 72.0,
+                "minimum_plot_annotation_font_px": 10.0 * DPI / 72.0,
+                "minimum_title_font_px": 24.0 * DPI / 72.0,
+                "nodes": nodes,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
     fig.savefig(png, dpi=DPI)
     plt.close(fig)
 
     script.write_text(
-        "# THE-11 Weighted BDT-Isolation Full-Stat Slide Script\n\n"
-        "This slide is the full-stat version of the BDT versus isolation picture. "
-        "The important change is that I am no longer showing a small sampled validation cache. "
-        "This is the embedded Photon+Jet and Inclusive+Jet source, with the event weights carried through, "
-        "and with the R equals 0.3 reconstructed isolation branch written explicitly in the score caches.\n\n"
-        "The top row is truth photons. They concentrate at high BDT score and low reconstructed cone energy, "
-        "which is the behavior we want from an isolated photon population. The bottom row is the inclusive "
-        "background. It fills a broader positive-isolation tail and lower BDT score region, which is the "
-        "hadronic activity around the EM cluster showing up in both variables.\n\n"
-        "The main takeaway is that isolation and BDT are not independent axes for the background. The BDT is "
-        "doing useful photon-likeness classification, but the remaining background structure is correlated "
-        "with cone activity, so this is exactly the place where the ABCD assumption needs a quantitative "
-        "closure or systematic treatment rather than a visual assumption of factorization.\n"
+        "# THE-11 BDT-Isolation Full-Stat Slide Script\n\n"
+        "This slide is the cleaned full-stat BDT-versus-isolation map. Each panel is normalized within its own "
+        "truth class and centrality bin, so the color is meant to show shape, not the raw number of candidates. "
+        "The raw N in the corner is only a scale cue.\n\n"
+        "The top row is truth photons. They form the desired high-BDT, low-isolation population. The bottom row "
+        "is the inclusive background. It is broader, extends to positive reconstructed cone energy, and occupies "
+        "lower BDT scores.\n\n"
+        "The main message is that the BDT is doing sensible photon-likeness classification, but the background "
+        "does not factorize cleanly into independent BDT and isolation axes. The surviving background has visible "
+        "correlated structure, so this motivates a quantitative ABCD closure or systematic treatment rather than "
+        "assuming visual independence.\n"
     )
     manifest.write_text(
         json.dumps(
             {
                 "png": str(png),
                 "speaker_script": str(script),
+                "layout_nodes": str(layout_nodes),
                 "summary_npz": str(summary_npz),
                 "summary_json": str(summary_json),
                 "render_size_px": [W, H],
                 "score_column": SCORE_COLUMN,
                 "isolation_column": ISO_COLUMN,
                 "normalization": meta["normalization"],
+                "layout_revision": "2026-06-12 THE-51 calibration v1: 24pt title, 13pt card rows, layout-node emission for checker-readable card/text/bisector checks",
             },
             indent=2,
             sort_keys=True,

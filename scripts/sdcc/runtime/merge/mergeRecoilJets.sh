@@ -929,6 +929,12 @@ submit_condor_stage_with_ready_email() {
     emails="__none__"
   fi
 
+  if (( DRYRUN )); then
+    say "DRYRUN: would submit merge stage ${stage_key}"
+    say "DRYRUN: submit file: ${sub}"
+    return 0
+  fi
+
   if [[ -z "$emails" && "$strict" != "1" ]]; then
     condor_submit "$sub"
     return $?
@@ -3018,10 +3024,15 @@ EOT
           say "SIM firstRound (CONDOR): cfg=${cfg_tag} sample=${SIM_SAMPLE} inputs=${#SIM_INPUTS[@]} -> grouped hadd jobs on Condor"
         fi
 
-        # Clean previous partials for this sample
-        find "$DEST_DIR" -maxdepth 1 -type f -name "${SIM_PARTIAL_PREFIX}*.root" -delete || true
-        # Clean stale secondRound final so it can't coexist with fresh partials
-        rm -f "${FLAT_OUT_DIR}/${FINAL_PREFIX}_${SIM_TAG}_ALL_${cfg_tag}.root" 2>/dev/null || true
+        if (( DRYRUN )); then
+          say "DRYRUN: would clean previous partials matching ${DEST_DIR}/${SIM_PARTIAL_PREFIX}*.root"
+          say "DRYRUN: would remove stale secondRound final ${FLAT_OUT_DIR}/${FINAL_PREFIX}_${SIM_TAG}_ALL_${cfg_tag}.root"
+        else
+          # Clean previous partials for this sample
+          find "$DEST_DIR" -maxdepth 1 -type f -name "${SIM_PARTIAL_PREFIX}*.root" -delete || true
+          # Clean stale secondRound final so it can't coexist with fresh partials
+          rm -f "${FLAT_OUT_DIR}/${FINAL_PREFIX}_${SIM_TAG}_ALL_${cfg_tag}.root" 2>/dev/null || true
+        fi
 
         total="${#SIM_INPUTS[@]}"
         grp=0
@@ -3124,7 +3135,11 @@ EOT
             "RecoilJets_SIM_firstRound_ready" \
             "SIM firstRound merge is complete for cfg=${cfg_tag}, sample=${SIM_TAG}. You can now run the local secondRound merge for this sample/cfg set." \
             "$EXPECTED"
-          say "FirstRound submitted. Stage tracking: $(merge_stage_tracking_description). Partials will appear under: ${DEST_DIR}"
+          if (( DRYRUN )); then
+            say "DRYRUN: FirstRound plan complete. No Condor stage submitted and no existing partials were removed."
+          else
+            say "FirstRound submitted. Stage tracking: $(merge_stage_tracking_description). Partials will appear under: ${DEST_DIR}"
+          fi
         fi
 
       elif [[ "$SIM_ACTION" == "secondRound" ]]; then

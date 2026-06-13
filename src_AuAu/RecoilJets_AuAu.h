@@ -62,6 +62,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <set>
 #include <sstream>
 #include <string>
 #include <tuple>
@@ -200,6 +201,7 @@ public:
         double et3            = 0.0;
         double et4            = 0.0;
         double e11_over_e33   = 0.0;
+        double e17_over_e77   = std::numeric_limits<double>::quiet_NaN();
         double e32_over_e35   = 0.0;
         double e11_over_e22   = 0.0;
         double e11_over_e13   = 0.0;
@@ -1122,6 +1124,24 @@ private:
                           const std::string& tagKey,
                           int ptIdx, int centIdx,
                           HistViewScope scope = HistViewScope::IsoView);
+    TH1F* getOrBookPPG12TableQA1DHist(const std::string& trig,
+                                      const std::string& varKey,
+                                      const std::string& ptToken,
+                                      const std::string& centToken,
+                                      int cutIdx);
+    TH2F* getOrBookPPG12TableQAHist(const std::string& trig,
+                                    const std::string& varKey,
+                                    const std::string& ptToken,
+                                    const std::string& centToken,
+                                    int cutIdx);
+    void bookPPG12TableQASchema(const std::vector<std::string>& activeTrig);
+    void fillPPG12TableQA(const std::vector<std::string>& activeTrig,
+                          const SSVars& v,
+                          double eisoEt,
+                          int centIdx,
+                          int cutIdx,
+                          double rowWeight = 1.0);
+    double ppg12TableQABDTScore(const SSVars& v) const;
     
     // Physics outputs (already radius-tagged in your .cc)
     TH1F* getOrBookXJHist(const std::string& trig,
@@ -1785,6 +1805,8 @@ private:
     double m_auauNPBTagAwayJetDPhiMin = 1.5707963267948966;
     double m_auauNPBTagTimeSampleNs = 17.6;
     double m_auauNPBMbdT0Offset = 0.0;
+    bool m_ppg12TableQAEnabled = false;
+    std::set<std::string> m_ppg12TableQASchemaBookedTriggers;
 
     int m_bdtTrain_run = 0;
     long long m_bdtTrain_evt = 0;

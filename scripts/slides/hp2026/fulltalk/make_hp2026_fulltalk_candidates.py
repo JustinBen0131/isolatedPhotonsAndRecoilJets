@@ -66,6 +66,14 @@ PANEL_EDGE = (218, 226, 235)
 CARD_EDGE = (221, 228, 236)
 HP2026_FOOTER_RULE = (217, 225, 233)
 HP2026_FOOTER_RULE_RGBA = (*HP2026_FOOTER_RULE, 255)
+HP2026_MAIN_HEADER = {
+    "deck": "hp2026_main_talk",
+    "title_font_size": 86,
+    "subtitle_font_size": None,
+    "title_xy": [132, 76],
+    "subtitle_xy": None,
+    "divider_y": 232,
+}
 
 
 @dataclass(frozen=True)
@@ -502,6 +510,26 @@ def header(draw: ImageDraw.ImageDraw, title: str, subtitle: str | None = None) -
     draw.line((132, 278, W - 132, 278), fill=(221, 226, 232), width=3)
 
 
+def hp2026_main_header(draw: ImageDraw.ImageDraw, title: str, subtitle: str | None = None) -> None:
+    draw.rectangle((0, 0, W, 22), fill=SPHENIX_BLUE)
+    draw.rectangle((0, 22, W, 30), fill=PHOTON)
+    draw.text(
+        tuple(HP2026_MAIN_HEADER["title_xy"]),
+        title,
+        font=font(TIMES_BOLD, HP2026_MAIN_HEADER["title_font_size"]),
+        fill=INK,
+    )
+    if subtitle and HP2026_MAIN_HEADER.get("subtitle_xy") and HP2026_MAIN_HEADER.get("subtitle_font_size"):
+        draw.text(
+            tuple(HP2026_MAIN_HEADER["subtitle_xy"]),
+            subtitle,
+            font=font(TIMES_ITALIC, HP2026_MAIN_HEADER["subtitle_font_size"]),
+            fill=MUTED,
+        )
+    y = HP2026_MAIN_HEADER["divider_y"]
+    draw.line((132, y, W - 132, y), fill=(221, 226, 232), width=3)
+
+
 def base_slide(title: str, subtitle: str | None = None) -> Image.Image:
     img = Image.new("RGBA", (W, H), (*SOFT_BG, 255))
     draw = ImageDraw.Draw(img, "RGBA")
@@ -509,8 +537,26 @@ def base_slide(title: str, subtitle: str | None = None) -> Image.Image:
     return img
 
 
+def base_slide_hp2026_main(title: str, subtitle: str | None = None) -> Image.Image:
+    img = Image.new("RGBA", (W, H), (*SOFT_BG, 255))
+    draw = ImageDraw.Draw(img, "RGBA")
+    hp2026_main_header(draw, title, subtitle)
+    return img
+
+
+def write_hp2026_main_header_spec(png: Path) -> None:
+    png.with_suffix(".header.json").write_text(
+        json.dumps({"hp2026_main_header": HP2026_MAIN_HEADER}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
 def rounded_panel(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], fill=(255, 255, 255), radius=10) -> None:
     draw.rounded_rectangle(box, radius=radius, fill=(*fill, 255), outline=(*PANEL_EDGE, 255), width=2)
+
+
+def outer_card_sidebar(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], accent: tuple[int, int, int], *, width: int = 12) -> None:
+    draw.rounded_rectangle((box[0], box[1], box[0] + width, box[3]), radius=6, fill=(*accent, 235))
 
 
 def shadow(base: Image.Image, box: tuple[int, int, int, int], radius: int = 10) -> None:
@@ -641,10 +687,13 @@ def place_figure(
     label: str | None = None,
     anchor: str = "center",
     inset: int = 28,
+    accent: tuple[int, int, int] | None = None,
 ) -> tuple[int, int, int, int]:
     draw = ImageDraw.Draw(base, "RGBA")
     shadow(base, box)
     rounded_panel(draw, box)
+    if accent:
+        outer_card_sidebar(draw, box, accent)
     img = Image.open(figure_path(key)).convert("RGBA")
     placed = paste_fit(base, img, (box[0] + inset, box[1] + inset, box[2] - inset, box[3] - inset), anchor=anchor)
     if label:
@@ -1734,6 +1783,7 @@ def draw_isolation_population_panel(base: Image.Image, box: tuple[int, int, int,
     shadow(base, box)
     x0, y0, x1, y1 = box
     draw.rounded_rectangle(box, radius=12, fill=(255, 255, 255, 255), outline=(*PANEL_EDGE, 255), width=2)
+    outer_card_sidebar(draw, box, SPHENIX_BLUE)
     draw.text((x0 + 34, y0 + 26), "How to read the isolation distribution", font=font(TIMES_BOLD, 34), fill=INK)
     draw_wrapped(
         draw,
@@ -1813,6 +1863,7 @@ def draw_isolation_cut_logic_panel(base: Image.Image, box: tuple[int, int, int, 
     shadow(base, box)
     x0, y0, x1, y1 = box
     draw.rounded_rectangle(box, radius=12, fill=(255, 255, 255, 255), outline=(*PANEL_EDGE, 255), width=2)
+    outer_card_sidebar(draw, box, PHOTON)
     draw.text((x0 + 34, y0 + 24), "Isolation cut defines the second sideband axis", font=font(TIMES_BOLD, 31), fill=INK)
 
     left = (x0 + 34, y0 + 84, x0 + 452, y1 - 34)
@@ -2853,18 +2904,21 @@ def slide05() -> tuple[Path, Path]:
 
 
 def slide06() -> tuple[Path, Path]:
-    img = base_slide("Isolation makes the photon sample physics-clean", "The isolation-energy shape separates quiet prompt-like candidates from nearby jet activity.")
+    title = "Isolation defines the photon sample"
+    subtitle = "Quiet prompt-like candidates separate from nearby jet activity."
+    img = base_slide_hp2026_main(title, subtitle)
     draw = ImageDraw.Draw(img, "RGBA")
     add_top_right_sphenix_logo_like_slide2(img)
-    place_figure(img, "fig3_isolation", (132, 308, 1446, 1248), inset=18)
+    place_figure(img, "fig3_isolation", (132, 308, 1446, 1248), inset=18, accent=TEAL)
     draw_isolation_population_panel(img, (1504, 308, 2390, 838))
     draw_isolation_cut_logic_panel(img, (1504, 868, 2390, 1248))
     draw_hp2026_identity_footer(img)
     png = OUTPUT / "hp2026_slide09_isolation_physics_clean.png"
     img.convert("RGB").save(png, "PNG")
+    write_hp2026_main_header_spec(png)
     script = save_script(
         9,
-        "Isolation makes the photon sample physics-clean",
+        title,
         "Now that the photon-ID BDT has defined a prompt-like cluster, the next question is whether the area around that cluster is quiet. That is what isolation measures. A prompt photon should leave the hard scattering and not carry a lot of nearby hadronic activity with it, while fragmentation photons and neutral-meson backgrounds tend to live inside a busier jet environment.\n\nThe plot on the left is the reconstructed isolation-energy distribution. The black points are the tight-ID data candidate sample after preselection. The red shaded distribution is non-tight-ID data, so it is a background-enriched sideband shape. The blue shaded distribution is the tight-ID prompt-photon signal MC. The useful visual point is that the prompt-photon template is concentrated at low isolation energy, while the background-enriched shape carries a longer high-isolation tail.\n\nThe lower-right panel makes the cut definition explicit. A candidate is called isolated when the reconstructed isolation energy is below 0.49 plus 0.037 times the photon transverse energy, and that threshold is chosen to keep about 80 percent isolation efficiency. The non-isolated sideband is separated from the cut by at least 0.8 GeV, so the sideband is not just the edge of the selected region.\n\nThis is also where the ABCD structure starts to become concrete. Tight versus non-tight photon ID gives one axis, and isolated versus non-isolated gives the second axis. Region A is the selected tight-and-isolated sample, while B, C, and D are the sideband regions that constrain the residual background. So the main message is that isolation cleans the sample, but more importantly it creates the second controlled axis needed for the data-driven purity measurement.",
     )
     return png, script

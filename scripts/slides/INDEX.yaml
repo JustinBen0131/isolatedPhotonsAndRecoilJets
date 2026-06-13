@@ -8,6 +8,8 @@ defaults:
   provenance: sidecar_or_chat_not_tiny_footer
 common_utilities:
   - scripts/slides/common/slide_defaults.py
+  - scripts/slides/common/slide_symmetry_audit.py
+  - scripts/slides/common/post_render_slide_audit.py
 generators:
   - id: make_the8_hard_inclusive_mechanism_closure_slide
     status: canonical
@@ -97,6 +99,17 @@ generators:
     expected_inputs: "Source-preserving full-stat validation score caches from model_validation_condor_the11_weighted_bdt_iso_fullstat_basev3e_20260606_1645"
     default_output_folder: dataOutput/auauTightBDTValidation/the11_weighted_bdt_iso_fullstat_basev3e_20260606/slideReady/
     last_known_png: dataOutput/auauTightBDTValidation/the11_weighted_bdt_iso_fullstat_basev3e_20260606/slideReady/weighted_bdt_isolation_fullstat_slide.png
+  - id: make_the11_background_conditional_profiles
+    status: canonical
+    group: "isolation_correlations"
+    campaign: "auau_bdt"
+    slide_key: "THE11_background_conditional_profiles"
+    canonical_path: "scripts/slides/auau_bdt/isolation_correlations/make_the11_background_conditional_profiles.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: "Existing source-preserving full-stat validation score caches from model_validation_condor_the11_weighted_bdt_iso_fullstat_basev3e_20260606_1645; no new SDCC production"
+    default_output_folder: dataOutput/auauTightBDTValidation/the11_weighted_bdt_iso_fullstat_basev3e_20260606/backgroundConditionalProfiles/
+    last_known_png: dataOutput/auauTightBDTValidation/the11_weighted_bdt_iso_fullstat_basev3e_20260606/backgroundConditionalProfiles/the11_background_eiso_given_bdt_integrated_cent.png
   - id: make_the11_bdt_tight_id_isolation_closure_slide
     status: canonical
     group: "isolation_correlations"
@@ -470,6 +483,28 @@ generators:
     compatibility_path_status: "resolver_only"
     expected_inputs: see script CLI/defaults and adjacent workstream evidence
     default_output_folder: dataOutput/slide_assets/common/slide_defaults/
+    last_known_png: null
+  - id: slide_symmetry_audit
+    status: canonical
+    group: "common"
+    campaign: "common"
+    slide_key: "slide_symmetry_audit"
+    canonical_path: "scripts/slides/common/slide_symmetry_audit.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "canonical_only"
+    expected_inputs: "Campaign-specific layout nodes and rendered PNG paths supplied by slide generators/auditors."
+    default_output_folder: dataOutput/slide_assets/common/slide_symmetry_audit/
+    last_known_png: null
+  - id: post_render_slide_audit
+    status: canonical
+    group: "common"
+    campaign: "common"
+    slide_key: "post_render_slide_audit"
+    canonical_path: "scripts/slides/common/post_render_slide_audit.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "canonical_only"
+    expected_inputs: "Rendered 2560x1440 PNG plus optional generator-emitted layout_nodes.json."
+    default_output_folder: dataOutput/slide_assets/common/post_render_slide_audit/
     last_known_png: null
   - id: make_photon_detector_motif_variants
     status: canonical

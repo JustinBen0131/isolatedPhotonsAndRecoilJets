@@ -22,16 +22,35 @@ ROOT = next(
 )
 SCRIPT_DIR = ROOT / "scripts/slides/hp2026/fulltalk"
 sys.path.insert(0, str(SCRIPT_DIR))
+COMMON_DIR = ROOT / "scripts/slides/common"
+sys.path.insert(0, str(COMMON_DIR))
 
 import make_hp2026_closing_three_candidates as c3  # noqa: E402
 import make_hp2026_fulltalk_candidates as ft  # noqa: E402
+from slide_symmetry_audit import Box, Check, SymmetryAudit, require_audit_passed  # noqa: E402
 
 
 ARIAL_UNICODE = Path("/System/Library/Fonts/Supplemental/Arial Unicode.ttf")
-OUTDIR = ROOT / "outputs/manual-20260608-yield_flow_redesign_refined"
+OUTDIR = ROOT / "outputs/manual-20260610-slide16_yield_flow_main_talk_replacement"
 CANDIDATE_DIR = OUTDIR / "internal_candidates"
-FINAL_PNG = OUTDIR / "slide16_yield_flow_redesign_refined_purity_card.png"
-MANIFEST = OUTDIR / "slide16_yield_flow_redesign_refined_purity_card_manifest.json"
+FINAL_PNG = OUTDIR / "slide16_yield_flow_plot_flow_first_replacement.png"
+MANIFEST = OUTDIR / "slide16_yield_flow_plot_flow_first_replacement_manifest.json"
+SYMMETRY_REPORT = OUTDIR / "slide16_yield_flow_plot_flow_first_replacement_symmetry.json"
+HEADER_SPEC = FINAL_PNG.with_suffix(".header.json")
+
+HP2026_MAIN_HEADER = {
+    "deck": "hp2026_main_talk",
+    "title_font_size": 86,
+    "subtitle_font_size": None,
+    "title_xy": [132, 76],
+    "subtitle_xy": None,
+    "divider_y": 232,
+}
+
+TITLE = "From selected candidates to a corrected photon yield"
+SUBTITLE = None
+
+LAYOUT: dict[str, tuple[int, int, int, int]] = {}
 
 
 def trim_white_margins(img: Image.Image, tolerance: int = 12, pad: int = 8) -> Image.Image:
@@ -46,10 +65,25 @@ def trim_white_margins(img: Image.Image, tolerance: int = 12, pad: int = 8) -> I
 
 
 def base_slide() -> Image.Image:
-    img = ft.base_slide(
-        "From selected candidates to a corrected photon yield",
-        "Sidebands determine purity; purity, efficiency, and unfolding convert Region A candidates to particle level.",
+    img = Image.new("RGBA", (ft.W, ft.H), (*ft.SOFT_BG, 255))
+    draw = ImageDraw.Draw(img, "RGBA")
+    draw.rectangle((0, 0, ft.W, ft.H), fill=(*ft.SOFT_BG, 255))
+    draw.rectangle((0, 0, ft.W, 22), fill=(*ft.SPHENIX_BLUE, 255))
+    draw.rectangle((0, 22, ft.W, 30), fill=(*ft.PHOTON, 255))
+    draw.text(
+        tuple(HP2026_MAIN_HEADER["title_xy"]),
+        TITLE,
+        font=ft.font(ft.TIMES_BOLD, HP2026_MAIN_HEADER["title_font_size"]),
+        fill=ft.INK,
     )
+    if SUBTITLE and HP2026_MAIN_HEADER["subtitle_xy"] and HP2026_MAIN_HEADER["subtitle_font_size"]:
+        draw.text(
+            tuple(HP2026_MAIN_HEADER["subtitle_xy"]),
+            SUBTITLE,
+            font=ft.font(ft.TIMES_ITALIC, HP2026_MAIN_HEADER["subtitle_font_size"]),
+            fill=ft.MUTED,
+        )
+    draw.line((132, HP2026_MAIN_HEADER["divider_y"], ft.W - 132, HP2026_MAIN_HEADER["divider_y"]), fill=(221, 226, 232, 255), width=3)
     ft.add_top_right_sphenix_logo_like_slide2(img)
     return img
 
@@ -58,7 +92,7 @@ def draw_card(base: Image.Image, box: tuple[int, int, int, int], accent: tuple[i
     draw = ImageDraw.Draw(base, "RGBA")
     ft.shadow(base, box, radius=12)
     draw.rounded_rectangle(box, radius=12, fill=(255, 255, 255, 255), outline=(*ft.PANEL_EDGE, 255), width=2)
-    draw.rounded_rectangle((box[0] + 18, box[1] + 24, box[0] + 30, box[3] - 24), radius=6, fill=(*accent, 255))
+    draw.rounded_rectangle((box[0], box[1], box[0] + 12, box[3]), radius=6, fill=(*accent, 235))
     draw.text((box[0] + 54, box[1] + 24), title, font=ft.font(ft.TIMES_BOLD, 33), fill=ft.INK)
     ft.draw_wrapped(
         draw,
@@ -77,7 +111,7 @@ def draw_plain_accent_card(base: Image.Image, box: tuple[int, int, int, int], ac
     draw = ImageDraw.Draw(base, "RGBA")
     ft.shadow(base, box, radius=12)
     draw.rounded_rectangle(box, radius=12, fill=(255, 255, 255, 255), outline=(*ft.PANEL_EDGE, 255), width=2)
-    draw.rounded_rectangle((box[0] + 18, box[1] + 24, box[0] + 30, box[3] - 24), radius=6, fill=(*accent, 255))
+    draw.rounded_rectangle((box[0], box[1], box[0] + 12, box[3]), radius=6, fill=(*accent, 235))
     return draw
 
 
@@ -96,14 +130,20 @@ def draw_leakage_map(base: Image.Image, box: tuple[int, int, int, int]) -> None:
     draw = ImageDraw.Draw(base, "RGBA")
     x0, y0, x1, y1 = box
 
-    header_font = ft.font(ft.TIMES_BOLD, 35)
-    definition_font = ft.font(ft.TIMES, 27)
+    header_font = ft.font(ft.TIMES_BOLD, 38)
+    definition_font = ft.font(ft.TIMES, 29)
     header_x, header_y = x0 + 8, y0 + 4
-    draw.text((header_x, header_y), "Leakage", font=header_font, fill=ft.BLUE)
-    header_w = ft.text_box(draw, "Leakage", header_font)[0]
+    draw.text((header_x, header_y), "Leakage =", font=header_font, fill=ft.BLUE)
+    header_w = ft.text_box(draw, "Leakage =", header_font)[0]
     draw.text(
-        (header_x + header_w + 9, header_y + 7),
-        "= truth-matched signal photons in PYTHIA MC found in regions B/C/D",
+        (header_x + header_w + 10, header_y + 7),
+        "truth-matched signal photons in PYTHIA MC",
+        font=definition_font,
+        fill=ft.INK,
+    )
+    draw.text(
+        (header_x + header_w + 10, header_y + 41),
+        "found in B/C/D control regions",
         font=definition_font,
         fill=ft.INK,
     )
@@ -175,19 +215,19 @@ def draw_purity_plot(base: Image.Image, box: tuple[int, int, int, int], title: s
     draw = ImageDraw.Draw(base, "RGBA")
     ft.shadow(base, box, radius=12)
     draw.rounded_rectangle(box, radius=12, fill=(255, 255, 255, 255), outline=(*ft.PANEL_EDGE, 255), width=2)
-    draw.rounded_rectangle((box[0] + 18, box[1] + 24, box[0] + 30, box[3] - 24), radius=6, fill=(*ft.SPHENIX_BLUE, 255))
+    draw.rounded_rectangle((box[0], box[1], box[0] + 12, box[3]), radius=6, fill=(*ft.SPHENIX_BLUE, 235))
     header_x = box[0] + 54
     header_y = box[1] + 24
-    title_font = ft.font(ft.TIMES_BOLD, 33)
-    body_font = ft.font(ft.TIMES, 27)
+    title_font = ft.font(ft.TIMES_BOLD, 38)
+    body_font = ft.font(ft.TIMES, 30)
     draw.text((header_x, header_y), title, font=title_font, fill=ft.INK)
     title_w = ft.text_box(draw, title, title_font)[0]
-    draw.text((header_x + title_w + 10, header_y + 8), "= signal fraction carried into the corrected yield.", font=body_font, fill=ft.INK)
-    draw.line((box[0] + 54, box[1] + 82, box[2] - 34, box[1] + 82), fill=(221, 228, 236), width=2)
+    draw.text((header_x + title_w + 12, header_y + 10), "= signal fraction carried into the corrected yield.", font=body_font, fill=ft.INK)
+    draw.line((box[0] + 54, box[1] + 90, box[2] - 34, box[1] + 90), fill=(221, 228, 236), width=2)
 
     plot = trim_white_margins(Image.open(ft.figure_path("fig5_purity")).convert("RGBA"), tolerance=10, pad=6)
-    content = (box[0] + 54, box[1] + 100, box[2] - 34, box[3] - 28)
-    plot_box = (content[0] + 32, content[1] + 6, content[0] + 548, content[3] - 6)
+    content = (box[0] + 54, box[1] + 108, box[2] - 34, box[3] - 26)
+    plot_box = (content[0] + 18, content[1] + 0, content[0] + 612, content[3] - 2)
     ft.shadow(base, plot_box, radius=10)
     draw.rounded_rectangle(
         (plot_box[0] - 8, plot_box[1] - 8, plot_box[2] + 8, plot_box[3] + 8),
@@ -201,7 +241,7 @@ def draw_purity_plot(base: Image.Image, box: tuple[int, int, int, int], title: s
 
 
 def draw_purity_reading_key(base: Image.Image, content: tuple[int, int, int, int], plot_box: tuple[int, int, int, int]) -> None:
-    key_x0 = plot_box[2] + 34
+    key_x0 = plot_box[2] + 30
     key_x1 = content[2] - 8
     gap = 20
     key_h = ((content[3] - 18) - (content[1] + 18) - gap) // 2
@@ -213,7 +253,7 @@ def draw_purity_reading_key(base: Image.Image, content: tuple[int, int, int, int
         raw_box,
         (32, 32, 32),
         "Raw sideband purity",
-        "Black points show the ABCD sideband estimate before correcting signal leakage into B/C/D.",
+        "Black points: ABCD sideband estimate before correcting true-photon leakage into B/C/D.",
         fill=(246, 247, 249, 255),
     )
     draw_purity_key_card(
@@ -221,7 +261,7 @@ def draw_purity_reading_key(base: Image.Image, content: tuple[int, int, int, int
         corr_box,
         ft.SPHENIX_BLUE,
         "Leakage-corrected purity",
-        "Blue points remove true-photon leakage using MC. This corrected purity curve is applied to Region A in the yield correction.",
+        "Blue points: MC leakage correction applied. This curve is carried into the Region A yield.",
         fill=(236, 247, 255, 255),
     )
 
@@ -236,16 +276,298 @@ def draw_purity_key_card(
 ) -> None:
     draw = ImageDraw.Draw(base, "RGBA")
     draw.rounded_rectangle(box, radius=12, fill=fill, outline=(205, 221, 235, 255), width=2)
-    draw.text((box[0] + 24, box[1] + 22), title, font=ft.font(ft.TIMES_BOLD, 29), fill=color)
+    draw.text((box[0] + 30, box[1] + 28), title, font=ft.font(ft.TIMES_BOLD, 43), fill=color)
     ft.draw_wrapped(
         draw,
         body,
-        (box[0] + 24, box[1] + 68),
-        box[2] - box[0] - 48,
-        ft.font(ft.TIMES, 25),
+        (box[0] + 30, box[1] + 92),
+        box[2] - box[0] - 60,
+        ft.font(ft.TIMES, 38),
         fill=ft.INK,
-        line_gap=4,
+        line_gap=8,
     )
+
+
+def draw_purity_logic_band(base: Image.Image, box: tuple[int, int, int, int]) -> None:
+    draw = ImageDraw.Draw(base, "RGBA")
+    x0, y0, x1, y1 = box
+    draw.rounded_rectangle(box, radius=12, fill=(250, 252, 254, 255), outline=(211, 224, 235, 255), width=2)
+    draw.text((x0 + 28, y0 + 18), "Reading the purity plot", font=ft.font(ft.TIMES_BOLD, 38), fill=ft.INK)
+    draw.text(
+        (x0 + 454, y0 + 26),
+        "raw sidebands become the leakage-corrected purity.",
+        font=ft.font(ft.TIMES, 32),
+        fill=ft.MUTED,
+    )
+    draw.line((x0 + 28, y0 + 76, x1 - 28, y0 + 76), fill=(224, 232, 240), width=2)
+
+    col_y0 = y0 + 104
+    col_y1 = y1 - 24
+    inner_x0 = x0 + 28
+    inner_x1 = x1 - 28
+    cell_w = (inner_x1 - inner_x0) / 3
+    col_inset = 7
+    columns = [
+        (
+            "1",
+            "Raw ABCD",
+            "black points",
+            "Raw sideband purity.",
+            (35, 35, 35),
+            (246, 247, 249),
+        ),
+        (
+            "2",
+            "MC leakage",
+            "truth correction",
+            "Subtract signal in B/C/D.",
+            ft.TEAL,
+            (240, 249, 250),
+        ),
+        (
+            "3",
+            "Corrected purity",
+            "blue points / fit",
+            "Used for Region A yield.",
+            ft.SPHENIX_BLUE,
+            (236, 247, 255),
+        ),
+    ]
+    for idx, (num, title, tag, body, color, fill) in enumerate(columns):
+        cx0 = round(inner_x0 + idx * cell_w + col_inset)
+        cx1 = round(inner_x0 + (idx + 1) * cell_w - col_inset)
+        col_w = cx1 - cx0
+        LAYOUT[f"purity_logic_col_{idx + 1}"] = (cx0, col_y0, cx1, col_y1)
+        draw.rounded_rectangle((cx0, col_y0, cx1, col_y1), radius=11, fill=(*fill, 255), outline=(*color, 185), width=2)
+        badge = (cx0 + 20, col_y0 + 18, cx0 + 62, col_y0 + 60)
+        draw.ellipse(badge, fill=(255, 255, 255, 255), outline=(*color, 230), width=3)
+        nf = ft.font(ft.TIMES_BOLD, 26)
+        nw, nh = ft.text_box(draw, num, nf)
+        draw.text((badge[0] + (42 - nw) / 2, badge[1] + (42 - nh) / 2 - 1), num, font=nf, fill=color)
+        draw.text((cx0 + 78, col_y0 + 16), title, font=ft.font(ft.TIMES_BOLD, 30), fill=color)
+        draw.text((cx0 + 78, col_y0 + 53), tag, font=ft.font(ft.TIMES_BOLD, 25), fill=ft.INK)
+        ft.draw_wrapped(draw, body, (cx0 + 22, col_y0 + 96), col_w - 44, ft.font(ft.TIMES, 29), fill=ft.INK, line_gap=3)
+
+
+def draw_raw_abcd_count_equation(
+    draw: ImageDraw.ImageDraw,
+    x: int,
+    y: int,
+    *,
+    size: int = 34,
+) -> None:
+    base = ft.font(ft.TIMES_ITALIC, size)
+    roman = ft.font(ft.TIMES, size)
+    small = ft.font(ft.TIMES_BOLD, max(15, int(size * 0.56)))
+    small_plain = ft.font(ft.TIMES, max(15, int(size * 0.56)))
+    region_colors = {
+        "A": ft.PHOTON_DARK,
+        "B": ft.SPHENIX_BLUE,
+        "C": ft.TEAL,
+        "D": ft.MUTED,
+    }
+
+    def advance(text: str, font, fill=ft.INK, dy: int = 0) -> None:
+        nonlocal x
+        draw.text((x, y + dy), text, font=font, fill=fill)
+        x += ft.text_box(draw, text, font)[0]
+
+    def n_sig_raw() -> None:
+        nonlocal x
+        draw.text((x, y), "N", font=base, fill=ft.INK)
+        bw = ft.text_box(draw, "N", base)[0]
+        draw.text((x + bw - 1, y - int(size * 0.34)), "raw", font=small_plain, fill=ft.INK)
+        draw.text((x + bw - 1, y + int(size * 0.47)), "sig,A", font=small_plain, fill=ft.INK)
+        x += bw + max(ft.text_box(draw, "raw", small_plain)[0], ft.text_box(draw, "sig,A", small_plain)[0]) + 10
+
+    def n_region(region: str, x_pos: int | None = None, y_pos: int | None = None, term_size: int | None = None) -> int:
+        nonlocal x
+        if x_pos is None:
+            x_pos = x
+        if y_pos is None:
+            y_pos = y
+        if term_size is None:
+            term_size = size
+        term_base = ft.font(ft.TIMES_ITALIC, term_size)
+        term_small = ft.font(ft.TIMES_BOLD, max(14, int(term_size * 0.58)))
+        draw.text((x_pos, y_pos), "N", font=term_base, fill=ft.INK)
+        bw = ft.text_box(draw, "N", term_base)[0]
+        draw.text((x_pos + bw - 1, y_pos + int(term_size * 0.48)), region, font=term_small, fill=region_colors[region])
+        end = x_pos + bw + ft.text_box(draw, region, term_small)[0] + 8
+        if x_pos == x:
+            x = end
+        return end
+
+    n_sig_raw()
+    advance(" = ", roman)
+    n_region("A")
+    advance(" − ", roman)
+    n_region("B")
+    advance(" (", roman)
+    n_region("C")
+    advance(" / ", roman)
+    n_region("D")
+    advance(")", roman)
+
+
+def draw_abcd_mini_cue(base: Image.Image, box: tuple[int, int, int, int]) -> None:
+    draw = ImageDraw.Draw(base, "RGBA")
+    x0, y0, x1, y1 = box
+    draw.rounded_rectangle(box, radius=12, fill=(250, 252, 254, 255), outline=(211, 224, 235, 255), width=2)
+    draw.text((x0 + 28, y0 + 22), "Sideband control regions", font=ft.font(ft.TIMES_BOLD, 42), fill=ft.INK)
+    ft.draw_wrapped(
+        draw,
+        "B/C/D constrain residual background; MC removes leaked true photons.",
+        (x0 + 28, y0 + 78),
+        x1 - x0 - 56,
+        ft.font(ft.TIMES, 36),
+        fill=ft.MUTED,
+        line_gap=5,
+    )
+
+    grid_top = y0 + 162
+    gap = 18
+    cell_w = (x1 - x0 - 56 - gap) // 2
+    cell_h = 94
+    cells = [
+        ("C", "isolated\nnon-tight (bkg-like)", ft.TEAL, (239, 249, 250)),
+        ("D", "non-isolated\nnon-tight", ft.MUTED, (246, 247, 249)),
+        ("A", "isolated and tight\nselected sample", ft.PHOTON_DARK, (255, 249, 235)),
+        ("B", "non-isolated\ntight (photon-like)", ft.SPHENIX_BLUE, (239, 248, 253)),
+    ]
+    for i, (region, label, color, fill) in enumerate(cells):
+        row = i // 2
+        col = i % 2
+        cx = x0 + 28 + col * (cell_w + gap)
+        cy = grid_top + row * (cell_h + gap)
+        draw.rounded_rectangle((cx, cy, cx + cell_w, cy + cell_h), radius=9, fill=(*fill, 255), outline=(*color, 230), width=3)
+        draw.text((cx + 18, cy + 18), region, font=ft.font(ft.TIMES_BOLD, 45), fill=color)
+        lines = label.splitlines()
+        for j, line in enumerate(lines):
+            fnt = ft.font(ft.TIMES_BOLD if j == 0 else ft.TIMES, 31)
+            draw.text((cx + 82, cy + 15 + j * 36), line, font=fnt, fill=ft.INK if j == 0 else ft.MUTED)
+
+    eq_box = (x0 + 24, y1 - 112, x1 - 24, y1 - 22)
+    LAYOUT["abcd_equation_box"] = eq_box
+    draw.rounded_rectangle(eq_box, radius=10, fill=(255, 255, 255, 250), outline=(213, 225, 236, 255), width=2)
+    draw.text(
+        (eq_box[0] + 22, eq_box[1] + 14),
+        "Raw ABCD estimate",
+        font=ft.font(ft.TIMES_BOLD, 35),
+        fill=ft.INK,
+    )
+    draw.text(
+        (eq_box[0] + 22, eq_box[1] + 52),
+        "from region counts:",
+        font=ft.font(ft.TIMES_BOLD, 35),
+        fill=ft.INK,
+    )
+    draw_raw_abcd_count_equation(draw, eq_box[0] + 430, eq_box[1] + 28, size=44)
+
+
+def draw_purity_definition_card(base: Image.Image, box: tuple[int, int, int, int]) -> None:
+    draw = ImageDraw.Draw(base, "RGBA")
+    x0, y0, x1, y1 = box
+    draw.rounded_rectangle(box, radius=12, fill=(246, 251, 255, 255), outline=(197, 225, 243, 255), width=2)
+    draw.text((x0 + 30, y0 + 24), "Leakage-corrected purity", font=ft.font(ft.TIMES_BOLD, 42), fill=ft.SPHENIX_BLUE)
+    draw.line((x0 + 30, y0 + 82, x1 - 30, y0 + 82), fill=(207, 225, 238, 255), width=2)
+    draw.text((x0 + 30, y0 + 112), "MC corrects signal leakage into the sidebands.", font=ft.font(ft.TIMES, 38), fill=ft.INK)
+    draw.text((x0 + 30, y0 + 168), "Blue points / fit are used in the corrected yield.", font=ft.font(ft.TIMES_BOLD, 37), fill=ft.BLUE)
+
+
+def draw_compact_abcd_cue(base: Image.Image, box: tuple[int, int, int, int]) -> None:
+    draw = ImageDraw.Draw(base, "RGBA")
+    x0, y0, x1, y1 = box
+    draw.rounded_rectangle(box, radius=12, fill=(255, 255, 255, 255), outline=(211, 224, 235, 255), width=2)
+    draw.text((x0 + 30, y0 + 16), "Data control regions", font=ft.font(ft.TIMES_BOLD, 44), fill=ft.INK)
+
+    grid_top = y0 + 79
+    gap = 14
+    cell_w = (x1 - x0 - 60 - gap) // 2
+    cell_h = 106
+    cells = [
+        ("C", "isolated\nnon-tight (bkg-like)", ft.TEAL, (239, 249, 250)),
+        ("D", "non-isolated\nnon-tight", ft.MUTED, (246, 247, 249)),
+        ("A", "isolated and tight\nselected sample", ft.PHOTON_DARK, (255, 249, 235)),
+        ("B", "non-isolated\ntight (photon-like)", ft.SPHENIX_BLUE, (239, 248, 253)),
+    ]
+    for i, (region, label, color, fill) in enumerate(cells):
+        row = i // 2
+        col = i % 2
+        cx = x0 + 30 + col * (cell_w + gap)
+        cy = grid_top + row * (cell_h + gap)
+        draw.rounded_rectangle((cx, cy, cx + cell_w, cy + cell_h), radius=8, fill=(*fill, 255), outline=(*color, 230), width=3)
+        draw.text((cx + 18, cy + 20), region, font=ft.font(ft.TIMES_BOLD, 54), fill=color)
+        lines = label.splitlines()
+        draw.text((cx + 98, cy + 17), lines[0], font=ft.font(ft.TIMES_BOLD, 39), fill=ft.INK)
+        second_line_font = ft.font(ft.TIMES, 33 if "(" in lines[1] else 37)
+        draw.text((cx + 98, cy + 61), lines[1], font=second_line_font, fill=ft.MUTED)
+
+    eq_box = (x0 + 30, y1 - 94, x1 - 30, y1 - 18)
+    LAYOUT["abcd_equation_box"] = eq_box
+    draw.text((eq_box[0] + 4, eq_box[1] + 21), "Raw signal estimate:", font=ft.font(ft.TIMES_BOLD, 39), fill=ft.INK)
+    draw_raw_abcd_count_equation(draw, eq_box[0] + 390, eq_box[1] + 14, size=50)
+
+
+def draw_compact_plot_readout(base: Image.Image, box: tuple[int, int, int, int]) -> None:
+    draw = ImageDraw.Draw(base, "RGBA")
+    x0, y0, x1, y1 = box
+    draw.rounded_rectangle(box, radius=12, fill=(255, 255, 255, 250), outline=(211, 224, 235, 255), width=2)
+    rows = [
+        ((35, 35, 35), "Black points", "raw data-driven purity"),
+        (ft.SPHENIX_BLUE, "Blue points / fit", "leakage-corrected purity"),
+    ]
+    label_font = ft.font(ft.TIMES_BOLD, 41)
+    body_font = ft.font(ft.TIMES, 41)
+
+    def draw_midline_text(x: int, center_y: int, text: str, font, fill: tuple[int, int, int]) -> None:
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_h = bbox[3] - bbox[1]
+        draw.text((x, center_y - text_h / 2 - bbox[1]), text, font=font, fill=fill)
+
+    row_h = (y1 - y0 - 24) // 2
+    for i, (color, label, body) in enumerate(rows):
+        ry0 = y0 + 12 + i * row_h
+        ry1 = y0 + 12 + (i + 1) * row_h
+        if i:
+            draw.line((x0 + 28, ry0, x1 - 28, ry0), fill=(224, 232, 240, 255), width=2)
+        cy = (ry0 + ry1) // 2
+        draw.ellipse((x0 + 32, cy - 10, x0 + 52, cy + 10), fill=(*color, 255))
+        draw_midline_text(x0 + 82, cy, label, label_font, color)
+        draw_midline_text(x0 + 430, cy, body, body_font, ft.INK)
+
+
+def draw_purity_hero_panel(base: Image.Image, box: tuple[int, int, int, int]) -> None:
+    draw = ImageDraw.Draw(base, "RGBA")
+    ft.shadow(base, box, radius=12)
+    draw.rounded_rectangle(box, radius=12, fill=(255, 255, 255, 255), outline=(*ft.PANEL_EDGE, 255), width=2)
+    draw.rounded_rectangle((box[0], box[1], box[0] + 12, box[3]), radius=6, fill=(*ft.SPHENIX_BLUE, 235))
+    LAYOUT["hero_panel"] = box
+
+    plot = trim_white_margins(Image.open(ft.figure_path("fig5_purity")).convert("RGBA"), tolerance=10, pad=6)
+    plot_box = (box[0] + 70, box[1] + 70, box[0] + 1120, box[3] - 58)
+    LAYOUT["purity_plot_box"] = plot_box
+    ft.shadow(base, plot_box, radius=10)
+    draw.rounded_rectangle(
+        (plot_box[0] - 8, plot_box[1] - 8, plot_box[2] + 8, plot_box[3] + 8),
+        radius=10,
+        fill=(255, 255, 255, 255),
+        outline=(213, 225, 236, 255),
+        width=2,
+    )
+    ft.paste_fit(base, plot, plot_box, anchor="center")
+
+    rhs_x0 = plot_box[2] + 58
+    rhs_x1 = box[2] - 54
+    readout_box = (rhs_x0, plot_box[1], rhs_x1, plot_box[1] + 238)
+    sideband_box = (rhs_x0, readout_box[3] + 26, rhs_x1, readout_box[3] + 438)
+    definition_box = (rhs_x0, sideband_box[3] + 26, rhs_x1, plot_box[3])
+    LAYOUT["plot_readout_box"] = readout_box
+    LAYOUT["sideband_cue_box"] = sideband_box
+    LAYOUT["purity_definition_box"] = definition_box
+    draw_compact_plot_readout(base, readout_box)
+    draw_compact_abcd_cue(base, sideband_box)
+    draw_purity_definition_card(base, definition_box)
 
 
 def draw_purity_logic_box(base: Image.Image, box: tuple[int, int, int, int]) -> None:
@@ -611,13 +933,13 @@ def draw_bottom_flow(base: Image.Image, box: tuple[int, int, int, int]) -> None:
     draw = ImageDraw.Draw(base, "RGBA")
     ft.shadow(base, box, radius=12)
     draw.rounded_rectangle(box, radius=12, fill=(255, 255, 255, 255), outline=(*ft.PANEL_EDGE, 255), width=2)
-    draw.text((box[0] + 42, box[1] + 28), "Corrected-yield flow", font=ft.font(ft.TIMES_BOLD, 42), fill=ft.INK)
+    draw.text((box[0] + 42, box[1] + 24), "Corrected-yield flow", font=ft.font(ft.TIMES_BOLD, 46), fill=ft.INK)
     ft.draw_wrapped(
         draw,
         "Leakage-corrected purity is applied to Region A; efficiency and unfolding move the yield to particle level.",
         (box[0] + 42, box[1] + 82),
         box[2] - box[0] - 84,
-        ft.font(ft.TIMES_ITALIC, 31),
+        ft.font(ft.TIMES_ITALIC, 33),
         fill=ft.MUTED,
         line_gap=5,
     )
@@ -632,8 +954,8 @@ def draw_bottom_flow(base: Image.Image, box: tuple[int, int, int, int]) -> None:
     gap = 20
     total_w = sum(w for _, _, w in nodes) + (len(nodes) - 1) * (arrow_w + gap)
     x = box[0] + (box[2] - box[0] - total_w) // 2
-    y = box[1] + 174
-    h = 112
+    y = box[1] + 158
+    h = 130
     for idx, (label, color, w) in enumerate(nodes):
         draw.rounded_rectangle((x, y, x + w, y + h), radius=12, fill=(247, 250, 252, 255), outline=(*color, 230), width=3)
         draw.rounded_rectangle((x, y, x + 15, y + h), radius=5, fill=(*color, 255))
@@ -641,7 +963,7 @@ def draw_bottom_flow(base: Image.Image, box: tuple[int, int, int, int]) -> None:
         line_h = 36
         start_y = y + (h - len(lines) * line_h) // 2 - 1
         for j, line in enumerate(lines):
-            fnt = ft.font(ft.TIMES_BOLD, 30)
+            fnt = ft.font(ft.TIMES_BOLD, 33)
             tw, _ = ft.text_box(draw, line, fnt)
             draw.text((x + 15 + (w - 15 - tw) / 2, start_y + j * line_h), line, font=fnt, fill=ft.INK)
         if idx < len(nodes) - 1:
@@ -649,23 +971,87 @@ def draw_bottom_flow(base: Image.Image, box: tuple[int, int, int, int]) -> None:
         x += w + arrow_w + gap
 
 
+def _box(name: str) -> Box:
+    return Box(*LAYOUT[name], name)
+
+
+def _audit_within(audit: SymmetryAudit, child: Box, parent: Box, pad: float = 0, *, name: str) -> None:
+    ok = (
+        child.x0 >= parent.x0 + pad
+        and child.y0 >= parent.y0 + pad
+        and child.x1 <= parent.x1 - pad
+        and child.y1 <= parent.y1 - pad
+    )
+    audit.checks.append(
+        Check(
+            name=name,
+            kind="within",
+            ok=ok,
+            got=child.as_int_tuple(),
+            want=parent.as_int_tuple(),
+            tolerance=pad,
+        )
+    )
+
+
+def write_header_and_symmetry_reports() -> dict[str, object]:
+    HEADER_SPEC.write_text(json.dumps({"hp2026_main_header": HP2026_MAIN_HEADER}, indent=2) + "\n", encoding="utf-8")
+
+    audit = SymmetryAudit(name="slide16_yield_flow_plot_first_layout")
+    slide = Box(0, 0, ft.W, ft.H, "slide canvas")
+    main_canvas = Box(132, HP2026_MAIN_HEADER["divider_y"] + 6, 2390, 1326, "main canvas above footer")
+    hero = _box("hero_panel")
+    plot = _box("purity_plot_box")
+    readout = _box("plot_readout_box")
+    cue = _box("sideband_cue_box")
+    definition = _box("purity_definition_box")
+    eq_box = _box("abcd_equation_box")
+
+    audit.image_size(FINAL_PNG, (2560, 1440))
+    audit.font_size_at_least("slide title font", HP2026_MAIN_HEADER["title_font_size"], 86, context="HP2026 main-talk header")
+    if HP2026_MAIN_HEADER["subtitle_font_size"]:
+        audit.font_size_at_least("slide subtitle font", HP2026_MAIN_HEADER["subtitle_font_size"], 56, context="HP2026 main-talk header")
+    tmp = Image.new("RGBA", (ft.W, ft.H), (255, 255, 255, 0))
+    tmp_draw = ImageDraw.Draw(tmp, "RGBA")
+    title_bbox = tmp_draw.textbbox(tuple(HP2026_MAIN_HEADER["title_xy"]), TITLE, font=ft.font(ft.TIMES_BOLD, HP2026_MAIN_HEADER["title_font_size"]))
+    _audit_within(audit, Box(*title_bbox, "slide title text bbox"), Box(0, 0, 2188, 175, "header before logo"), name="slide title clears logo/header bounds")
+    if SUBTITLE and HP2026_MAIN_HEADER["subtitle_xy"] and HP2026_MAIN_HEADER["subtitle_font_size"]:
+        subtitle_bbox = tmp_draw.textbbox(tuple(HP2026_MAIN_HEADER["subtitle_xy"]), SUBTITLE, font=ft.font(ft.TIMES_ITALIC, HP2026_MAIN_HEADER["subtitle_font_size"]))
+        _audit_within(audit, Box(*subtitle_bbox, "slide subtitle text bbox"), Box(0, 160, 2390, 274, "subtitle usable band"), name="slide subtitle fits visible header band")
+    for node in (hero, plot, readout, cue, definition, eq_box):
+        _audit_within(audit, node, slide, name=f"{node.name} contained on canvas")
+    _audit_within(audit, hero, main_canvas, name="hero panel contained between title divider and footer")
+    audit.equal_padding_x(main_canvas, hero, hero, tol=3, name="hero panel left/right page padding")
+    audit.close("hero panel top begins just below divider", hero.y0, 258, 4)
+    audit.close("hero panel bottom clears footer rule", hero.y1, 1308, 4)
+    audit.close("plot centered in its usable vertical band", plot.cy, Box(plot.x0, hero.y0 + 70, plot.x1, hero.y1 - 58, "plot usable band").cy, 1)
+    audit.close("plot readout and plot share top edge", readout.y0, plot.y0, 1)
+    audit.close("sideband cue aligns to readout left edge", cue.x0, readout.x0, 1)
+    audit.close("sideband cue aligns to readout right edge", cue.x1, readout.x1, 1)
+    audit.close("definition card aligns to readout left edge", definition.x0, readout.x0, 1)
+    audit.close("definition card aligns to readout right edge", definition.x1, readout.x1, 1)
+    audit.close("equation box centered in sideband cue X", eq_box.cx, cue.cx, 2)
+    audit.font_size_at_least("hero card title", 43, 35, context="card title")
+    audit.font_size_at_least("hero card lead line", 32, 30, context="lead line")
+    audit.font_size_at_least("sideband cue title", 42, 35, context="card title")
+    audit.font_size_at_least("sideband cue body", 32, 31, context="card body")
+    audit.font_size_at_least("ABCD equation", 44, 40, context="equation")
+    audit.font_size_at_least("plot readout label", 34, 30, context="compact plot readout")
+    report = audit.write_json(SYMMETRY_REPORT)
+    require_audit_passed(report)
+    return report
+
+
 def render_candidate(kind: str) -> Image.Image:
     img = base_slide()
     if kind == "wide_plot":
-        leak_box = (132, 306, 1168, 890)
-        purity_box = (1210, 306, 2390, 890)
+        hero_box = (132, 258, 2390, 1308)
     elif kind == "balanced":
-        leak_box = (132, 306, 1168, 890)
-        purity_box = (1210, 306, 2390, 890)
+        hero_box = (132, 258, 2390, 1308)
     else:
-        leak_box = (132, 306, 1206, 896)
-        purity_box = (1248, 306, 2390, 896)
+        hero_box = (132, 258, 2390, 1308)
 
-    draw_plain_accent_card(img, leak_box, ft.PHOTON_DARK)
-    draw_leakage_map(img, (leak_box[0] + 54, leak_box[1] + 26, leak_box[2] - 34, leak_box[3] - 22))
-    draw_purity_plot(img, purity_box)
-    flow_y = 914 if kind != "large_diagram" else 920
-    draw_bottom_flow(img, (132, flow_y, 2390, 1294))
+    draw_purity_hero_panel(img, hero_box)
     ft.draw_hp2026_identity_footer(img)
     return img
 
@@ -694,21 +1080,24 @@ def main() -> None:
     }
     paths: list[Path] = []
     for stem, kind in variants.items():
+        LAYOUT.clear()
         img = render_candidate(kind)
         out = CANDIDATE_DIR / f"{stem}.png"
         img.convert("RGB").save(out, "PNG")
         paths.append(out)
 
     selected = paths[1]
-    shutil.copyfile(selected, FINAL_PNG)
     contact = write_contact_sheet(paths)
+    LAYOUT.clear()
+    render_candidate("balanced").convert("RGB").save(FINAL_PNG, "PNG")
+    symmetry_report = write_header_and_symmetry_reports()
     MANIFEST.write_text(
         json.dumps(
             {
                 "generated_at": datetime.now().isoformat(timespec="seconds"),
                 "script": str(Path(__file__).resolve()),
-                "source_generator_found": str((SCRIPT_DIR / "make_hp2026_closing_three_candidates.py").resolve()),
-                "source_function": "slide10() / draw_purity_equation_panel() / draw_leakage_meaning_card()",
+                "source_generator_found": str(Path(__file__).resolve()),
+                "source_function": "draw_purity_hero_panel()",
                 "source_plot_assets": {
                     "purity": str(ft.figure_path("fig5_purity")),
                 },
@@ -716,7 +1105,11 @@ def main() -> None:
                 "candidate_paths": [str(p) for p in paths],
                 "selected": str(FINAL_PNG),
                 "contact_sheet": str(contact),
-                "selection_rationale": "two-panel upper row: the sideband/leakage diagram explains the control regions, while the purity panel places the corrected-purity plot next to compact raw and leakage-corrected ABCD definitions; the freed lower region becomes a larger corrected-yield flow ribbon.",
+                "hp2026_main_header": HP2026_MAIN_HEADER,
+                "header_spec": str(HEADER_SPEC),
+                "symmetry_report": str(SYMMETRY_REPORT),
+                "symmetry_ok": bool(symmetry_report.get("ok")),
+                "selection_rationale": "main-talk plot-first slide: the corrected-yield flow ribbon was removed, the leakage-corrected purity plot and data-control-region cue were expanded into one integrated card, and the lower band now gives a compact plot-reading sequence from raw data-driven points to leakage-corrected purity.",
             },
             indent=2,
         )

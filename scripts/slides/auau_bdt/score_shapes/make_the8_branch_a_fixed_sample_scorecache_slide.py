@@ -40,6 +40,11 @@ DEFAULT_PP_BASELINE_JSON = (
     / "validation/fullsim_shuhang_overlay_raw_inclusive_pt1535"
     / "pp_currentian_basev3e_bdt_score_overlay_vs_ppg12_pp_noCent_bdt_15_35_noNPB_eta0-pt3-cut0_summary.json"
 )
+DEFAULT_EXACT_METRICS_CSV = (
+    REPO
+    / "dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527"
+    / "fixed_sample_controls/the8_branchA_fixed_sample_holdout_3x3_direct_exact_metrics_from_sdcc_20260611.csv"
+)
 PRODUCT = "globalEtCent1535_bdt_noIso"
 
 NAVY = "#101828"
@@ -207,6 +212,30 @@ def hist_block(branch: dict, centrality_key: str | None = None) -> dict:
     return branch["inclusive"]
 
 
+def load_exact_metric_table(path: Path, *, scope: str) -> dict[tuple[str, str], dict[str, float]]:
+    out: dict[tuple[str, str], dict[str, float]] = {}
+    if not path.exists():
+        return out
+    with path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            if row.get("scope") != scope:
+                continue
+            key = (row["validation_sample"], row["training_sample"])
+            out[key] = {
+                "auc": float(row["weighted_auc_source_classes"]),
+                "logloss": float(row["weighted_logloss_source_classes"]),
+                "brier": float(row["weighted_brier_source_classes"]),
+                "median_signal_score": float(row["median_signal_score"]),
+                "median_background_score": float(row["median_background_score"]),
+                "median_gap": float(row["median_gap"]),
+                "entries": float(row["entries"]),
+                "signal_entries": float(row["signal_entries"]),
+                "background_entries": float(row["background_entries"]),
+            }
+    return out
+
+
 def formatted_sample_label(label: str) -> str:
     if label == "Jet12+20+30":
         return "Jet12+20\n+30"
@@ -233,6 +262,8 @@ def draw_cell(
     centrality_key: str | None,
     annotate_wp80_fake: bool,
     annotate_median_gap: bool,
+    annotate_metric_table: bool,
+    exact_metrics: dict[str, float] | None = None,
 ) -> dict[str, float]:
     edges = np.asarray(branch["bin_edges"], dtype=float)
     block = hist_block(branch, centrality_key)
@@ -262,7 +293,29 @@ def draw_cell(
     auc = auc_of(branch, centrality_key)
     wp80 = wp_fake_rate_at_signal_eff(branch, centrality_key=centrality_key)
     med_gap = median_bdt_score_gap(branch, centrality_key=centrality_key)
-    if annotate_median_gap:
+    if annotate_metric_table:
+        auc_show = exact_metrics.get("auc", auc) if exact_metrics else auc
+        logloss_show = exact_metrics.get("logloss", float("nan")) if exact_metrics else float("nan")
+        gap_show = exact_metrics.get("median_gap", med_gap["median_score_gap"]) if exact_metrics else med_gap["median_score_gap"]
+        ax.text(
+            0.040,
+            0.940,
+            (
+                f"AUC        {auc_show:.3f}\n"
+                f"Logloss    {logloss_show:.3f}\n"
+                f"Median gap {gap_show:.2f}\n"
+                f"WP80 fake  {100.0 * wp80['background_fake_rate']:.1f}%"
+            ),
+            transform=ax.transAxes,
+            fontsize=9.8,
+            fontweight="bold",
+            ha="left",
+            va="top",
+            color="#111827",
+            linespacing=1.12,
+            bbox=dict(facecolor="#FFFFFF", edgecolor="#94A3B8", boxstyle="round,pad=0.26", alpha=0.97),
+        )
+    elif annotate_median_gap:
         ax.text(
             0.045,
             0.925,
@@ -327,6 +380,9 @@ def draw_cell(
         )
     return {
         "auc": auc,
+        "exact_auc": exact_metrics.get("auc", auc) if exact_metrics else auc,
+        "exact_logloss": exact_metrics.get("logloss", float("nan")) if exact_metrics else float("nan"),
+        "exact_brier": exact_metrics.get("brier", float("nan")) if exact_metrics else float("nan"),
         "wp80_threshold": wp80["threshold"],
         "wp80_signal_efficiency": wp80["signal_efficiency"],
         "wp80_background_fake_rate": wp80["background_fake_rate"],
@@ -405,6 +461,9 @@ def build_slide(
     centrality_label: str | None = None,
     annotate_wp80_fake: bool = False,
     annotate_median_gap: bool = False,
+    annotate_metric_table: bool = False,
+    exact_metrics_csv: Path = DEFAULT_EXACT_METRICS_CSV,
+    omit_bottom_box: bool = False,
 ) -> Path:
     outpng.parent.mkdir(parents=True, exist_ok=True)
     plt.rcParams.update(
@@ -427,46 +486,23 @@ def build_slide(
         weight="bold",
         color=NAVY,
     )
-    add_box(fig, (0.050, 0.812), (0.425, 0.078), SOFT_GRAY)
-    add_text(fig, 0.070, 0.875, "Validation rows", size=17.6, weight="bold", color=NAVY)
-    add_text(
-        fig,
-        0.070,
-        0.837,
-        "Compare models on the same holdout sample.",
-        size=14.2,
-        color=INK,
-        linespacing=1.24,
-    )
-    add_box(fig, (0.525, 0.812), (0.425, 0.078), SOFT_LAVENDER, edge="#CAB8DA")
-    add_text(fig, 0.545, 0.875, "Training columns", size=17.6, weight="bold", color=NAVY)
-    add_text(
-        fig,
-        0.545,
-        0.837,
-        "Move left to right to change only training input.",
-        size=14.2,
-        color=INK,
-        linespacing=1.34,
-    )
-
-    add_box(fig, (0.222, 0.742), (0.710, 0.041), "white", edge="#A9B8CC", lw=1.0, radius=0.008)
-    fig.lines.append(plt.Line2D([0.262, 0.304], [0.762, 0.762], transform=fig.transFigure, color=SIGNAL, lw=3.0))
+    add_box(fig, (0.222, 0.845), (0.710, 0.041), "white", edge="#A9B8CC", lw=1.0, radius=0.008)
+    fig.lines.append(plt.Line2D([0.262, 0.304], [0.865, 0.865], transform=fig.transFigure, color=SIGNAL, lw=3.0))
     add_text(
         fig,
         0.314,
-        0.772,
+        0.875,
         "Signal MC (truth-isolated prompt)",
         size=12.7,
         weight="bold",
         color=INK,
         va="top",
     )
-    fig.lines.append(plt.Line2D([0.618, 0.660], [0.762, 0.762], transform=fig.transFigure, color=INCLUSIVE, lw=3.0))
+    fig.lines.append(plt.Line2D([0.618, 0.660], [0.865, 0.865], transform=fig.transFigure, color=INCLUSIVE, lw=3.0))
     add_text(
         fig,
         0.670,
-        0.772,
+        0.875,
         "Inclusive MC (embedded jet; no truth filter)",
         size=12.7,
         weight="bold",
@@ -478,22 +514,24 @@ def build_slide(
     cols = [branch["label"] for branch in samples[0]["branches"]]
     summary_rows: list[dict[str, object]] = []
     left, right = 0.185, 0.968
-    bottom, top = 0.198, 0.647
+    bottom, top = (0.080, 0.750) if omit_bottom_box else (0.198, 0.750)
     wspace, hspace = 0.026, 0.072
     ncols, nrows = 3, len(samples)
     if nrows >= 3:
-        hspace = 0.038
+        hspace = 0.032 if omit_bottom_box else 0.038
     ax_w = (right - left - wspace * (ncols - 1)) / ncols
     ax_h = (top - bottom - hspace * (nrows - 1)) / nrows
+    metric_scope = centrality_key if centrality_key is not None else "all_cent"
+    exact_metric_table = load_exact_metric_table(exact_metrics_csv, scope=metric_scope) if annotate_metric_table else {}
 
     for c, col in enumerate(cols):
         accent = SAMPLE_ACCENTS[c % len(SAMPLE_ACCENTS)]
         x_header = left + c * (ax_w + wspace)
-        add_box(fig, (x_header + 0.004, 0.672), (ax_w - 0.008, 0.035), accent["fill"], edge=accent["edge"], lw=1.1, radius=0.007)
+        add_box(fig, (x_header + 0.004, 0.775), (ax_w - 0.008, 0.035), accent["fill"], edge=accent["edge"], lw=1.1, radius=0.007)
         add_text(
             fig,
             left + c * (ax_w + wspace) + ax_w / 2,
-            0.699,
+            0.802,
             f"TRAINING: {col}",
             size=13.1,
             weight="bold",
@@ -524,6 +562,8 @@ def build_slide(
                 centrality_key=centrality_key,
                 annotate_wp80_fake=annotate_wp80_fake,
                 annotate_median_gap=annotate_median_gap,
+                annotate_metric_table=annotate_metric_table,
+                exact_metrics=exact_metric_table.get((sample["validation_sample"], branch["label"])),
             )
             summary_rows.append(
                 {
@@ -531,6 +571,9 @@ def build_slide(
                     "training_sample": branch["label"],
                     "centrality": centrality_label or centrality_key or "0-80%",
                     "auc": metrics["auc"],
+                    "exact_auc_source_classes": metrics["exact_auc"],
+                    "exact_logloss_source_classes": metrics["exact_logloss"],
+                    "exact_brier_source_classes": metrics["exact_brier"],
                     "wp80_threshold_binned": metrics["wp80_threshold"],
                     "wp80_signal_efficiency_binned": metrics["wp80_signal_efficiency"],
                     "wp80_background_fake_rate_binned": metrics["wp80_background_fake_rate"],
@@ -563,8 +606,11 @@ def build_slide(
     median_gap_text = " / ".join(f"{left_gap:.2f}->{right_gap:.2f}" for left_gap, right_gap in median_gap_steps)
     pp_baseline = pp_baseline_median_gaps() if annotate_median_gap else None
 
-    add_box(fig, (0.050, 0.022), (0.900, 0.118), "#FFF7ED", edge="#FDBA74", lw=1.1, radius=0.010)
-    if annotate_median_gap:
+    if not omit_bottom_box:
+        add_box(fig, (0.050, 0.022), (0.900, 0.118), "#FFF7ED", edge="#FDBA74", lw=1.1, radius=0.010)
+    if omit_bottom_box:
+        pass
+    elif annotate_median_gap:
         add_text(fig, 0.070, 0.130, "What median BDT gap means", size=15.0, weight="bold", color="#9A3412")
         add_text(
             fig,
@@ -637,7 +683,9 @@ def build_slide(
     fig.savefig(outpng, dpi=SLIDE_DPI)
     plt.close(fig)
     if summary_rows:
-        if annotate_median_gap:
+        if annotate_metric_table:
+            csv_path = outpng.with_suffix(".metric_table_summary.csv")
+        elif annotate_median_gap:
             csv_path = outpng.with_suffix(".median_gap_summary.csv")
         elif annotate_wp80_fake:
             csv_path = outpng.with_suffix(".wp80_summary.csv")
@@ -658,11 +706,29 @@ def write_speaker_script(
     centrality_key: str | None = None,
     centrality_label: str | None = None,
     annotate_median_gap: bool = False,
+    annotate_metric_table: bool = False,
+    exact_metrics_csv: Path = DEFAULT_EXACT_METRICS_CSV,
 ) -> Path:
     outmd = outpng.with_suffix(".speaker_script.md")
     sample_lines = []
+    metric_scope = centrality_key if centrality_key is not None else "all_cent"
+    exact_metric_table = load_exact_metric_table(exact_metrics_csv, scope=metric_scope) if annotate_metric_table else {}
     for sample in payload["common_samples"]:
-        if annotate_median_gap:
+        if annotate_metric_table:
+            parts = []
+            for branch in sample["branches"]:
+                exact = exact_metric_table.get((sample["validation_sample"], branch["label"]), {})
+                wp80 = wp_fake_rate_at_signal_eff(branch, centrality_key=centrality_key)
+                parts.append(
+                    (
+                        f"{branch['label']} AUC {exact.get('auc', auc_of(branch, centrality_key)):.3f}, "
+                        f"logloss {exact.get('logloss', float('nan')):.3f}, "
+                        f"gap {exact.get('median_gap', median_bdt_score_gap(branch, centrality_key=centrality_key)['median_score_gap']):.2f}, "
+                        f"WP80 fake {100.0 * wp80['background_fake_rate']:.1f}%"
+                    )
+                )
+            metrics = "; ".join(parts)
+        elif annotate_median_gap:
             metrics = ", ".join(
                 f"{branch['label']} median BDT gap {median_bdt_score_gap(branch, centrality_key=centrality_key)['median_score_gap']:.2f}"
                 for branch in sample["branches"]
@@ -677,6 +743,11 @@ def write_speaker_script(
             )
         sample_lines.append(f"- {sample['validation_sample']}: {metrics}")
     interpretation = (
+        "The important check is that AUC barely moves in the top row, while logloss and the median score gap move strongly. "
+        "AUC is mostly a ranking metric; logloss is sensitive to whether the BDT assigns cleaner probabilities and a more decisive score scale. "
+        "That is why the eye sees a much better signal-background split even when the AUC number changes only slightly."
+        if annotate_metric_table
+        else
         "The important check is that the same-sample score curves do visibly polarize as the training sample expands. "
         "The median BDT score gap captures that: it is larger left-to-right because the signal median moves farther above the inclusive-jet median. "
         "Physically, that means the BDT is putting photon-like shower-shape patterns farther to the high-score side than the inclusive jet-like population. "
@@ -684,7 +755,12 @@ def write_speaker_script(
         if annotate_median_gap
         else "The important check is that the top row does not show a large WP80 fake-rate drop when we keep the Jet12+20 validation sample fixed. The score distributions shift, but at a re-derived 80% signal working point the background acceptance is roughly flat."
     )
-    summary_title = "Binned median BDT score-gap summary:" if annotate_median_gap else "Weighted source-defined AUC and binned WP80 fake-rate summary:"
+    if annotate_metric_table:
+        summary_title = "Per-pad metric summary:"
+    elif annotate_median_gap:
+        summary_title = "Binned median BDT score-gap summary:"
+    else:
+        summary_title = "Weighted source-defined AUC and binned WP80 fake-rate summary:"
     pp_lines: list[str] = []
     if annotate_median_gap:
         pp_baseline = pp_baseline_median_gaps()
@@ -713,6 +789,7 @@ def write_speaker_script(
                 "",
                 f"PNG: {outpng}",
                 f"JSON: {input_json}",
+                f"Exact metric CSV: {exact_metrics_csv}" if annotate_metric_table else "",
             ]
         )
         + "\n"
@@ -736,6 +813,13 @@ def main() -> int:
         action="store_true",
         help="Replace cell AUC labels with binned median BDT score gap.",
     )
+    parser.add_argument(
+        "--annotate-metric-table",
+        action="store_true",
+        help="Annotate each pad with AUC, exact logloss, exact median BDT gap, and binned WP80 fake rate.",
+    )
+    parser.add_argument("--exact-metrics-csv", type=Path, default=DEFAULT_EXACT_METRICS_CSV)
+    parser.add_argument("--omit-bottom-box", action="store_true", help="Remove the bottom explanation band and enlarge plot pads.")
     args = parser.parse_args()
     payload = json.loads(args.input_json.read_text())
     build_slide(
@@ -745,6 +829,9 @@ def main() -> int:
         centrality_label=args.centrality_label,
         annotate_wp80_fake=args.annotate_wp80_fake,
         annotate_median_gap=args.annotate_median_gap,
+        annotate_metric_table=args.annotate_metric_table,
+        exact_metrics_csv=args.exact_metrics_csv,
+        omit_bottom_box=args.omit_bottom_box,
     )
     write_speaker_script(
         payload,
@@ -753,10 +840,14 @@ def main() -> int:
         centrality_key=args.centrality_key,
         centrality_label=args.centrality_label,
         annotate_median_gap=args.annotate_median_gap,
+        annotate_metric_table=args.annotate_metric_table,
+        exact_metrics_csv=args.exact_metrics_csv,
     )
     print(args.outpng)
     print(args.outpng.with_suffix(".speaker_script.md"))
-    if args.annotate_median_gap:
+    if args.annotate_metric_table:
+        print(args.outpng.with_suffix(".metric_table_summary.csv"))
+    elif args.annotate_median_gap:
         print(args.outpng.with_suffix(".median_gap_summary.csv"))
     elif args.annotate_wp80_fake:
         print(args.outpng.with_suffix(".wp80_summary.csv"))

@@ -371,6 +371,16 @@ entries:
       []
     transfer_mappings:
       []
+  - id: extract_the42_tableqa_inclusive_hists
+    canonical_path: "scripts/diagnostics/pp_currentian/extract_the42_tableqa_inclusive_hists.py"
+    category: "diagnostic"
+    domain: "diagnostics/pp_currentian"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
   - id: readme
     canonical_path: "scripts/env/README.md"
     category: "environment"
@@ -1253,6 +1263,16 @@ entries:
         sdcc_canonical: "scripts/plotting/pp_currentian/make_ppg12_fig19_bdt_overlay.py"
         sdcc_compat: "scripts/plotting/make_ppg12_fig19_bdt_overlay.py"
         upload_target: "scripts/plotting/pp_currentian/make_ppg12_fig19_bdt_overlay.py"
+  - id: make_the42_ppg12_tableqa_v1_tables
+    canonical_path: "scripts/plotting/pp_currentian/make_the42_ppg12_tableqa_v1_tables.py"
+    category: "plotting"
+    domain: "plotting/pp_currentian"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
   - id: make_wp80_truth_purity_overlay_pp_ptcent7_basev3e
     canonical_path: "scripts/plotting/pp_currentian/make_wp80_truth_purity_overlay_pp_ptcent7_basev3e.py"
     category: "plotting"
@@ -2406,6 +2426,26 @@ entries:
     canonical_path: "scripts/slides/common/slide_defaults.py"
     category: "slide_builder"
     domain: "slides/common/slide_defaults.py"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: slide_symmetry_audit
+    canonical_path: "scripts/slides/common/slide_symmetry_audit.py"
+    category: "slide_builder"
+    domain: "slides/common/slide_symmetry_audit.py"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: post_render_slide_audit
+    canonical_path: "scripts/slides/common/post_render_slide_audit.py"
+    category: "slide_builder"
+    domain: "slides/common/post_render_slide_audit.py"
     status: "canonical_source"
     sdcc_transfer: false
     aliases:

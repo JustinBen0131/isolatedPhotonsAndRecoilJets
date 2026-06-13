@@ -18,11 +18,11 @@ from matplotlib.patches import FancyArrowPatch, FancyBboxPatch, PathPatch, Recta
 REPO = Path(__file__).resolve().parents[4]
 BASE = REPO / "dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527"
 THE44_DIR = BASE / "diagnostics/the44_high_bdt_pythia_autopsy_20260605/slideReady/full_autopsy_20260605_2108"
-DEFAULT_OUTDIR = THE44_DIR / "particle_intensive/connected_flow_master_slide_v6_20260607"
+DEFAULT_OUTDIR = THE44_DIR / "particle_intensive/connected_flow_master_slide_v9_20260612"
 
 INK = "#111827"
 MUTED = "#5B6572"
-BG = "#F6F8FB"
+BG = "#FFFFFF"
 CARD = "#FFFFFF"
 GRID = "#D7DFEA"
 YELLOW = "#FFF8DC"
@@ -300,28 +300,30 @@ def draw_node(ax: plt.Axes, node: Node, label: str, *, highlight: bool = False) 
 
 
 def read_key(ax: plt.Axes) -> None:
-    rounded_box(ax, 0.055, 0.804, 0.890, 0.060, face="#FFFFFF", edge="#D8E0EA", lw=1.0, radius=0.012, zorder=24)
-    txt(ax, 0.078, 0.845, "How to read", size=13.0, color=INK, weight="bold", va="center", zorder=31)
-    x0 = 0.205
-    ax.add_patch(Rectangle((x0, 0.830), 0.023, 0.022, transform=ax.transAxes, facecolor=RED, edgecolor=YELLOW_EDGE, linewidth=1.5, zorder=31))
-    txt(ax, x0 + 0.033, 0.845, "block size = candidate count", size=11.8, color=INK, va="center", zorder=31)
-    ribbon(ax, 0.405, 0.831, 0.852, 0.475, 0.831, 0.852, color=RED, alpha=0.42, edge=YELLOW_EDGE, lw=0.65, zorder=31)
-    txt(ax, 0.492, 0.845, "ribbon width = flow count", size=11.8, color=INK, va="center", zorder=31)
-    ax.add_patch(Rectangle((0.672, 0.830), 0.023, 0.022, transform=ax.transAxes, facecolor="#FFFFFF", edgecolor=YELLOW_EDGE, linewidth=1.7, zorder=31))
-    txt(ax, 0.704, 0.845, "gold outline = dominant branch", size=11.8, color=INK, weight="bold", va="center", zorder=31)
-    txt(ax, 0.704, 0.823, "node labels show n/160 and median BDT", size=10.4, color=MUTED, va="center", zorder=31)
+    rounded_box(ax, 0.055, 0.805, 0.890, 0.058, face="#FFFFFF", edge="#D8E0EA", lw=1.0, radius=0.012, zorder=24)
+    txt(ax, 0.078, 0.844, "How to read", size=12.8, color=INK, weight="bold", va="center", zorder=31)
+    for x in [0.185, 0.395, 0.615, 0.790]:
+        ax.plot([x, x], [0.817, 0.852], color="#EDF1F6", lw=1.1, transform=ax.transAxes, zorder=30)
+    x0 = 0.218
+    ax.add_patch(Rectangle((x0, 0.831), 0.023, 0.021, transform=ax.transAxes, facecolor=RED, edgecolor=YELLOW_EDGE, linewidth=1.4, zorder=31))
+    txt(ax, x0 + 0.033, 0.844, "block height = candidate count", size=11.2, color=INK, va="center", zorder=31)
+    ribbon(ax, 0.425, 0.832, 0.852, 0.493, 0.832, 0.852, color=RED, alpha=0.42, edge=YELLOW_EDGE, lw=0.65, zorder=31)
+    txt(ax, 0.510, 0.844, "ribbon width = flow count", size=11.2, color=INK, va="center", zorder=31)
+    ax.add_patch(Rectangle((0.640, 0.831), 0.023, 0.021, transform=ax.transAxes, facecolor="#FFFFFF", edgecolor=YELLOW_EDGE, linewidth=1.7, zorder=31))
+    txt(ax, 0.672, 0.844, "gold outline = dominant path", size=11.2, color=INK, weight="bold", va="center", zorder=31)
+    txt(ax, 0.805, 0.844, "labels show n/160 + median BDT", size=11.2, color=MUTED, va="center", zorder=31)
 
 
 def header_pill(ax: plt.Axes, x: float, label: str, w: float = 0.165) -> None:
-    rounded_box(ax, x - w / 2, 0.750, w, 0.040, face=BG, edge=BG, lw=0.0, radius=0.010, zorder=20)
-    txt(ax, x, 0.771, label, size=15.5, weight="bold", ha="center", va="center", color=INK, zorder=32)
+    rounded_box(ax, x - w / 2, 0.750, w, 0.038, face=BG, edge=BG, lw=0.0, radius=0.010, zorder=20)
+    txt(ax, x, 0.770, label, size=14.8, weight="bold", ha="center", va="center", color=INK, zorder=32)
 
 
 def stage_arrow(ax: plt.Axes, x0: float, x1: float) -> None:
     ax.add_patch(
         FancyArrowPatch(
-            (x0, 0.771),
-            (x1, 0.771),
+            (x0, 0.770),
+            (x1, 0.770),
             transform=ax.transAxes,
             arrowstyle="-|>",
             mutation_scale=15,
@@ -377,7 +379,7 @@ def make_slide(inc: pd.DataFrame, true: pd.DataFrame, part: pd.DataFrame, outdir
     stage_arrow(ax, 0.462, 0.514)
     stage_arrow(ax, 0.730, 0.782)
 
-    rounded_box(ax, 0.043, 0.247, 0.912, 0.525, face="#FBFCFE", edge="#D6DEE9", lw=1.2, radius=0.016, zorder=0)
+    rounded_box(ax, 0.043, 0.247, 0.912, 0.510, face="#FFFFFF", edge="#D6DEE9", lw=1.2, radius=0.016, zorder=0)
 
     source_truth = pd.crosstab(inc["source"], inc["truth_bucket"])
     truth_cone = pd.crosstab(inc["truth_bucket"], inc["cone_bucket"])
@@ -466,36 +468,42 @@ def make_slide(inc: pd.DataFrame, true: pd.DataFrame, part: pd.DataFrame, outdir
     budget = budget.reindex(["neutral_meson", "charged_hadron", "photon", "other"]).fillna(0.0)
     budget_frac = budget / max(float(budget.sum()), 1.0)
 
-    rounded_box(ax, 0.055, 0.048, 0.890, 0.174, face=YELLOW, edge=YELLOW_EDGE, lw=1.35, radius=0.018, zorder=20)
+    card_y = 0.040
+    card_h = 0.132
+    card_w = 0.278
+    gap = 0.035
+    left_x = 0.060
+    mid_x = left_x + card_w + gap
+    right_x = mid_x + card_w + gap
     txt(
         ax,
-        0.078,
-        0.204,
+        left_x,
+        0.207,
         "Answer from the autopsy: high-BDT fakes are mostly hard neutral-meson fragmentation",
-        size=15.2,
+        size=16.0,
         weight="bold",
         color=INK,
         zorder=30,
     )
-    rounded_box(ax, 0.073, 0.065, 0.285, 0.101, face="#FFFFFF", edge="#E7C75B", lw=0.9, radius=0.012, zorder=24)
-    rounded_box(ax, 0.376, 0.065, 0.302, 0.101, face="#FFFFFF", edge="#E7C75B", lw=0.9, radius=0.012, zorder=24)
-    rounded_box(ax, 0.696, 0.065, 0.225, 0.101, face="#FFFFFF", edge="#E7C75B", lw=0.9, radius=0.012, zorder=24)
+    rounded_box(ax, left_x, card_y, card_w, card_h, face="#FFFFFF", edge="#E7C75B", lw=0.95, radius=0.012, zorder=24)
+    rounded_box(ax, mid_x, card_y, card_w, card_h, face="#FFFFFF", edge="#E7C75B", lw=0.95, radius=0.012, zorder=24)
+    rounded_box(ax, right_x, card_y, card_w, card_h, face="#FFFFFF", edge="#E7C75B", lw=0.95, radius=0.012, zorder=24)
 
-    txt(ax, 0.091, 0.153, "Dominant answer", size=12.4, weight="bold", color=INK, zorder=30)
-    txt(ax, 0.091, 0.128, f"{len(dom)}/{total}", size=22.5, weight="bold", color=RED, zorder=30)
-    txt(ax, 0.196, 0.122, f"median BDT = {dom['auau_tight_bdt_score'].median():.2f}", size=13.2, weight="bold", color=INK, zorder=30)
+    txt(ax, left_x + 0.018, 0.158, "Dominant answer", size=13.4, weight="bold", color=INK, zorder=30)
+    txt(ax, left_x + 0.018, 0.131, f"{len(dom)}/{total}", size=25.8, weight="bold", color=RED, zorder=30)
+    txt(ax, left_x + 0.133, 0.121, f"median BDT = {dom['auau_tight_bdt_score'].median():.2f}", size=13.8, weight="bold", color=INK, zorder=30)
     txt(
         ax,
-        0.091,
-        0.092,
+        left_x + 0.018,
+        0.075,
         "Jet30/40 -> $\\pi^0/\\eta$ seed -> non-photon-rich cone -> high BDT",
-        size=10.4,
+        size=11.2,
         color=INK,
         zorder=30,
     )
 
-    bar_x, bar_y, bar_w, bar_h = 0.398, 0.107, 0.250, 0.031
-    txt(ax, 0.395, 0.154, "Inside the dominant branch's cone", size=12.4, weight="bold", color=INK, zorder=36)
+    bar_x, bar_y, bar_w, bar_h = mid_x + 0.028, 0.111, card_w - 0.056, 0.034
+    txt(ax, mid_x + 0.028, 0.158, "Inside the dominant branch's cone", size=13.4, weight="bold", color=INK, zorder=36)
     cursor = bar_x
     for group, frac in budget_frac.items():
         width = bar_w * float(frac)
@@ -520,43 +528,43 @@ def make_slide(inc: pd.DataFrame, true: pd.DataFrame, part: pd.DataFrame, outdir
         (GREEN, f"~{100 * budget_frac['photon']:.0f}% photon"),
     ]
     for i, (color, label) in enumerate(labels):
-        x = bar_x + 0.002 + 0.083 * i
-        ax.scatter([x], [0.091], transform=ax.transAxes, s=34, marker="s", color=color, edgecolors="none", zorder=35)
-        txt(ax, x + 0.011, 0.100, label, size=9.4, color=INK, va="center", zorder=35)
+        x = bar_x + 0.002 + 0.076 * i
+        ax.scatter([x], [0.088], transform=ax.transAxes, s=34, marker="s", color=color, edgecolors="none", zorder=35)
+        txt(ax, x + 0.011, 0.097, label, size=9.4, color=INK, va="center", zorder=35)
     txt(
         ax,
-        0.395,
-        0.078,
+        mid_x + 0.028,
+        0.068,
         "High BDT does not imply a photon-rich truth cone.",
-        size=10.0,
+        size=10.8,
         color=INK,
         zorder=30,
     )
 
-    txt(ax, 0.714, 0.153, "Control check", size=12.4, weight="bold", color=GREEN, zorder=30)
+    txt(ax, right_x + 0.018, 0.158, "Control check", size=13.4, weight="bold", color=GREEN, zorder=30)
     txt(
         ax,
-        0.714,
-        0.126,
+        right_x + 0.018,
+        0.132,
         f"Photon-sample control:\nphoton-rich, median BDT {true['auau_tight_bdt_score'].median():.2f}",
-        size=10.0,
+        size=10.6,
         color=INK,
-        linespacing=0.92,
+        linespacing=0.96,
         zorder=30,
     )
     txt(
         ax,
-        0.714,
-        0.087,
+        right_x + 0.018,
+        0.090,
         "This tail is fragmentation that\nlooks photon-like to the BDT.",
-        size=9.8,
+        size=10.8,
         color=INK,
         weight="bold",
-        linespacing=0.92,
+        linespacing=0.96,
         zorder=30,
     )
 
-    out = outdir / "the44_connected_flow_master_slide_v6.png"
+    out = outdir / "the44_connected_flow_master_slide_v9.png"
     fig.savefig(out, dpi=160)
     plt.close(fig)
 
@@ -588,7 +596,7 @@ def main() -> int:
     inc, true, part = load_data()
     slide, metrics = make_slide(inc, true, part, args.outdir)
 
-    script_path = args.outdir / "the44_connected_flow_master_slide_v6_script.md"
+    script_path = args.outdir / "the44_connected_flow_master_slide_v9_script.md"
     script_path.write_text(
         "# THE-44 Connected Flow Master Slide Script\n\n"
         "This slide follows the high-BDT inclusive background candidates as a connected particle-production path, instead of asking the audience to decode isolated markers. "
@@ -609,7 +617,7 @@ def main() -> int:
         },
         "caveat": "Internal qualitative diagnostic from saved THE-44 candidate and particle rows; not a production-weighted purity estimate.",
     }
-    manifest_path = args.outdir / "the44_connected_flow_master_slide_v6_manifest.json"
+    manifest_path = args.outdir / "the44_connected_flow_master_slide_v9_manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     print(json.dumps(manifest, indent=2))
     return 0

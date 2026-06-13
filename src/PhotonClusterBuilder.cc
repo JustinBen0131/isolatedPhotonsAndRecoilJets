@@ -1274,13 +1274,29 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
             }
             
             TowerInfo* towerinfo = m_emc_tower_container->get_tower_at_key(towerinfokey);
-            if (is_cemc_tower_good(towerinfo, towerinfokey))
+            float energy = 0.0F;
+            bool use_energy = false;
+            if (!m_is_auau && m_input_cluster_node == "CLUSTERINFO_CEMC")
             {
-                float energy = towerinfo->get_energy();
-                if (energy > m_shape_min_tower_E)
+                const RawTowerDefs::keytype raw_key =
+                    RawTowerDefs::encode_towerid(RawTowerDefs::CalorimeterId::CEMC,
+                                                 temp_ieta,
+                                                 temp_iphi);
+                const auto raw_it = tower_map.find(raw_key);
+                if (raw_it != tower_map.end())
                 {
-                    E77[ieta - maxieta + 3][iphi - maxiphi + 3] = energy;
+                    energy = raw_it->second;
+                    use_energy = true;
                 }
+            }
+            else if (is_cemc_tower_good(towerinfo, towerinfokey))
+            {
+                energy = towerinfo->get_energy();
+                use_energy = true;
+            }
+            if (use_energy && energy > m_shape_min_tower_E)
+            {
+                E77[ieta - maxieta + 3][iphi - maxiphi + 3] = energy;
             }
         }
     }

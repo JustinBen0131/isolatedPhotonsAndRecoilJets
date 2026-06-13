@@ -3221,6 +3221,18 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         idFanoutEntries.push_back(single);
     }
 
+    auto envFlag = [](const char* key) -> bool
+    {
+        const char* raw = std::getenv(key);
+        if (!raw) return false;
+        std::string v(raw);
+        std::transform(v.begin(), v.end(), v.begin(), [](unsigned char c){ return std::tolower(c); });
+        return v == "1" || v == "true" || v == "yes" || v == "on";
+    };
+    const bool ppg12TableQAEnabled = envFlag("RJ_PPG12_TABLE_QA");
+    const bool ppg12TableQAWantsPPScoreNodes =
+        ppg12TableQAEnabled && !isAuAuRequested && !isSimEmbedded;
+
     bool fanoutUsesNPB = false;
     bool fanoutUsesAuAuNPB = false;
     bool fanoutUsesNewPPG12Tight = false;
@@ -3230,12 +3242,17 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         fanoutUsesAuAuNPB = fanoutUsesAuAuNPB || yamlcfg::PreselectionUsesAuAuNPB(e.preselection);
         fanoutUsesNewPPG12Tight = fanoutUsesNewPPG12Tight || (e.tight == "newPPG12");
     }
+    // PPG12 table-QA needs the analysis-row BDT score and the ordinary NPB
+    // score. It should not force an AuAu-only NPB model unless the selected
+    // photon-ID row itself uses preselection=auauOnlyNPB.
+    fanoutUsesNewPPG12Tight = fanoutUsesNewPPG12Tight || ppg12TableQAWantsPPScoreNodes;
     const bool ppPhotonIDTrainingWantsNPBAudit =
         isSim && !isSimEmbedded &&
         (cfg.pp_photonid_extract_only || cfg.pp_photonid_training_tree) &&
         !cfg.npb_model_file.empty() &&
         !cfg.npb_features.empty();
-    const bool attachPPNPBScore = fanoutUsesNPB || ppPhotonIDTrainingWantsNPBAudit;
+    const bool attachPPNPBScore =
+        fanoutUsesNPB || ppPhotonIDTrainingWantsNPBAudit || ppg12TableQAWantsPPScoreNodes;
 
     cfg.preselection = idFanoutEntries.front().preselection;
     cfg.tight = idFanoutEntries.front().tight;
@@ -5806,6 +5823,30 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                                                "RJ_PP_PHOTONID_REQUIRE_PRESELECTION",
                                                envOrDefault("RJ_PP_PHOTONID_REQUIRE_PRESELECTION",
                                                             cfg.pp_photonid_require_preselection ? "true" : "false")));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PPG12_TABLE_QA",
+                                               "RJ_PPG12_TABLE_QA",
+                                               envOrDefault("RJ_PPG12_TABLE_QA", "0")));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PPG12_TABLE_QA_NPB_DATA_TAGGING",
+                                               "RJ_PPG12_TABLE_QA_NPB_DATA_TAGGING",
+                                               envOrDefault("RJ_PPG12_TABLE_QA_NPB_DATA_TAGGING", "1")));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PPG12_TABLE_QA_NPB_TIME_SAMPLE_NS",
+                                               "RJ_PPG12_TABLE_QA_NPB_TIME_SAMPLE_NS",
+                                               envOrDefault("RJ_PPG12_TABLE_QA_NPB_TIME_SAMPLE_NS", "17.6")));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PPG12_TABLE_QA_NPB_DELTA_T_CUT",
+                                               "RJ_PPG12_TABLE_QA_NPB_DELTA_T_CUT",
+                                               envOrDefault("RJ_PPG12_TABLE_QA_NPB_DELTA_T_CUT", "-5.0")));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PPG12_TABLE_QA_NPB_WETA_MIN",
+                                               "RJ_PPG12_TABLE_QA_NPB_WETA_MIN",
+                                               envOrDefault("RJ_PPG12_TABLE_QA_NPB_WETA_MIN", "0.4")));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PPG12_TABLE_QA_NPB_AWAY_JET_PT_MIN",
+                                               "RJ_PPG12_TABLE_QA_NPB_AWAY_JET_PT_MIN",
+                                               envOrDefault("RJ_PPG12_TABLE_QA_NPB_AWAY_JET_PT_MIN", "5.0")));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PPG12_TABLE_QA_NPB_AWAY_JET_DPHI_MIN",
+                                               "RJ_PPG12_TABLE_QA_NPB_AWAY_JET_DPHI_MIN",
+                                               envOrDefault("RJ_PPG12_TABLE_QA_NPB_AWAY_JET_DPHI_MIN", "1.5707963267948966")));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PPG12_TABLE_QA_MBD_T0_CORRECTION_FILE",
+                                               "RJ_PPG12_TABLE_QA_MBD_T0_CORRECTION_FILE",
+                                               envOrDefault("RJ_PPG12_TABLE_QA_MBD_T0_CORRECTION_FILE", "")));
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NPB_TAG_DELTA_T_CUT",
                                                "RJ_AUAU_NPB_TAG_DELTA_T_CUT",
                                                fmtDouble(cfg.auau_npb_tag_delta_t_cut)));

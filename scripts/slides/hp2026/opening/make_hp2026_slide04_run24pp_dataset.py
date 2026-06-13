@@ -10,15 +10,32 @@ sample and luminosity needed for the 15-minute talk narrative.
 
 Output:
   outputs/manual-20260607-run24pp-lumi-asset/
-      hp2026_slide04_analysis_dataset_context_v12_story.png
+      hp2026_slide04_analysis_dataset_context_v13_lint_expanded.png
+      hp2026_slide04_analysis_dataset_context_v14_cards_expanded.png
+      hp2026_slide04_analysis_dataset_context_v15_cleaner_cards.png
+      hp2026_slide04_analysis_dataset_context_v16_lumi_card_aligned.png
+      hp2026_slide04_analysis_dataset_context_v17_no_sample_row.png
+      hp2026_slide04_analysis_dataset_context_v18_large_row_labels.png
+      hp2026_slide04_analysis_dataset_context_v19_no_rhs_carry_note.png
+      hp2026_slide04_analysis_dataset_context_v20_logo_matched.png
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 W, H = 2560, 1440
+
+HP2026_MAIN_HEADER = {
+    "deck": "hp2026_main_talk",
+    "title_font_size": 86,
+    "subtitle_font_size": None,
+    "title_xy": [132, 76],
+    "subtitle_xy": None,
+    "divider_y": 232,
+}
 
 ROOT = next(
     p
@@ -147,6 +164,48 @@ def wrapped(
     return y
 
 
+def _wrap_lines(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    max_w: int,
+    f: ImageFont.ImageFont,
+) -> list[str]:
+    words = text.split()
+    lines: list[str] = []
+    cur = ""
+    for word in words:
+        trial = word if not cur else f"{cur} {word}"
+        if tbox(draw, trial, f)[0] <= max_w:
+            cur = trial
+        else:
+            if cur:
+                lines.append(cur)
+            cur = word
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+def wrapped_vcenter(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    box: tuple[int, int, int, int],
+    f: ImageFont.ImageFont,
+    fill: tuple[int, int, int] = INK,
+    gap: int = 7,
+) -> None:
+    """Draw wrapped text vertically centered inside a bounded box."""
+    lines = _wrap_lines(draw, text, box[2] - box[0], f)
+    if not lines:
+        return
+    heights = [tbox(draw, line, f)[1] for line in lines]
+    total_h = sum(heights) + gap * (len(lines) - 1)
+    y = box[1] + ((box[3] - box[1]) - total_h) // 2
+    for line, h in zip(lines, heights):
+        draw.text((box[0], y), line, font=f, fill=fill)
+        y += h + gap
+
+
 # ── image helpers ─────────────────────────────────────────────────────────────
 
 def fit_img(img: Image.Image, max_w: int, max_h: int) -> Image.Image:
@@ -207,23 +266,39 @@ def round_panel(
     draw.rounded_rectangle(box, radius=r, fill=(*fill, 255), outline=(*edge, 255), width=2)
 
 
+def side_accent(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    color: tuple[int, int, int],
+    width: int = 14,
+) -> None:
+    """Draw a solid left-edge accent without panel-border seams."""
+    r = width // 2
+    x0 = box[0] - 1
+    x1 = box[0] + width
+    y0 = box[1]
+    y1 = box[3]
+    draw.rectangle((x0, y0 + r, x1, y1 - r), fill=(*color, 255))
+    draw.ellipse((x0, y0, x1, y0 + width), fill=(*color, 255))
+    draw.ellipse((x0, y1 - width, x1, y1), fill=(*color, 255))
+
+
 # ── slide sections ────────────────────────────────────────────────────────────
 
 def _draw_header(base: Image.Image) -> None:
     draw = ImageDraw.Draw(base, "RGBA")
     draw.rectangle((0, 0, W, 22), fill=(*SPHENIX_BLUE, 255))
     draw.rectangle((0, 22, W, 30), fill=(*PHOTON, 255))
-    draw.text((132, 84), "Run 24 p+p dataset used for this measurement",
-              font=fnt(TIMES_BOLD, 74), fill=INK)
-    rich(draw, (136, 184),
-         "Define only the analyzed p+p sample carried into the isolated prompt-photon cross section.",
-         fnt(TIMES_ITAL, 36), BLUE)
-    draw.line((132, 278, W - 132, 278), fill=(221, 226, 232), width=3)
+    draw.text((132, 76), "Run 24 p+p dataset used for this measurement",
+              font=fnt(TIMES_BOLD, 86), fill=INK)
+    draw.line((132, 232, W - 132, 232), fill=(221, 226, 232), width=3)
 
     logo_path = ASSET_DIR / "sphenix-logo-white-bg_0.png"
     if logo_path.exists():
-        logo = fit_img(crop_vis(Image.open(logo_path).convert("RGBA"), thr=252), 316, 92)
-        base.alpha_composite(logo, (2444 - logo.width, 58 + (92 - logo.height) // 2))
+        # Match the logo geometry used on the following prompt-photon and
+        # shower-shape slides exactly: same crop, fit box, top y, and right x.
+        logo = fit_img(crop_vis(Image.open(logo_path).convert("RGBA"), thr=252), 366, 107)
+        base.alpha_composite(logo, (2432 - logo.width, 58))
 
 
 def _draw_text_centered(
@@ -253,107 +328,99 @@ def _draw_badge(
     return box
 
 
-def _draw_sample_definition_card(base: Image.Image) -> None:
+def _draw_large_row_label(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    text: str,
+) -> None:
+    f = fnt(TIMES_BOLD, 39)
+    tw, th = tbox(draw, text, f)
+    draw.rounded_rectangle(box, radius=14, fill=(243, 248, 252, 255), outline=(210, 224, 236, 255), width=2)
+    draw.text((box[0] + (box[2] - box[0] - tw) // 2, box[1] + (box[3] - box[1] - th) // 2 - 1),
+              text, font=f, fill=BLUE)
+
+
+def _draw_dataset_table_card(base: Image.Image) -> None:
     draw = ImageDraw.Draw(base, "RGBA")
-    box = (132, 318, 1548, 1136)
-    drop_shadow(base, box)
+    box = (132, 272, 2428, 1278)
+    # Projector-friendly: keep a soft lift, but avoid the heavy laptop-screen
+    # card shadow that can muddy on a room display.
+    layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    sd = ImageDraw.Draw(layer, "RGBA")
+    sd.rounded_rectangle((box[0] + 5, box[1] + 6, box[2] + 5, box[3] + 6),
+                         radius=12, fill=(30, 42, 58, 14))
+    base.alpha_composite(layer.filter(ImageFilter.GaussianBlur(9)))
     round_panel(draw, box)
-    draw.rounded_rectangle((box[0], box[1], box[0] + 14, box[3]), radius=6, fill=(*PHOTON, 255))
+    side_accent(draw, box, PHOTON, width=14)
 
-    x = box[0] + 54
-    y = box[1] + 42
-    draw.text((x, y), "Analysis sample used in this talk", font=fnt(TIMES_BOLD, 50), fill=INK)
-    y += 72
-    draw.text((x, y), "Run 24 p+p collisions at √s = 200 GeV", font=fnt(TIMES, 39), fill=MUTED)
-
-    # Centerpiece luminosity statement.
-    cx = (box[0] + box[2]) // 2
-    draw.rounded_rectangle((x, 506, box[2] - 54, 764), radius=18,
-                           fill=(255, 250, 237, 255), outline=(*AMBER_BORDER, 255), width=2)
-    _draw_text_centered(draw, "PPG12 analysis luminosity", (cx, 556), fnt(TIMES_BOLD, 38), BLUE)
-    rich(draw, (x + 314, 610), "L = 64.4 pb^{-1}", fnt(TIMES_BOLD, 118), RED)
-
-    # Three digestible rows: sample, object, use.
-    row_y = 828
-    rows = [
-        ("Sample", "analyzed Run 24 p+p data used for this measurement"),
-        ("Object", "isolated prompt photons reconstructed in sPHENIX"),
-        ("Use", "normalization for the reported p+p cross section"),
-    ]
-    for label, body in rows:
-        _draw_badge(draw, (x, row_y), label, (243, 248, 252), (210, 224, 236), BLUE)
-        draw.text((x + 190, row_y + 7), body, font=fnt(TIMES, 34), fill=INK)
-        row_y += 72
-
-
-def _draw_luminosity_definition_card(base: Image.Image) -> None:
-    draw = ImageDraw.Draw(base, "RGBA")
-    box = (1600, 318, 2428, 1136)
-    drop_shadow(base, box)
-    round_panel(draw, box)
-    draw.rounded_rectangle((box[0], box[1], box[0] + 14, box[3]), radius=6, fill=(*SPHENIX_BLUE, 255))
-    x0 = box[0] + 46
-    y = box[1] + 42
-    draw.text((x0, y), "How the luminosity is defined", font=fnt(TIMES_BOLD, 48), fill=INK)
-    y += 72
-    wrapped(draw,
-            "Use the calibrated analysis luminosity, not a run-summary luminosity plot.",
-            (x0, y), box[2] - x0 - 42, fnt(TIMES_ITAL, 34), fill=MUTED, gap=7)
-
-    # Compact method equation.
-    method = (x0, 548, box[2] - 46, 706)
-    draw.rounded_rectangle(method, radius=14, fill=(244, 249, 252, 255),
-                           outline=(205, 224, 238, 255), width=2)
-    rich(draw, (method[0] + 72, method[1] + 48),
-         "L_int = N_MB^analyzed / σ_MBD^Vernier",
-         fnt(TIMES_BOLD, 45), BLUE)
+    x0 = box[0] + 56
+    x1 = box[2] - 54
+    # Table geometry: one highlighted analysis row plus three forward samples.
+    # The outer card spine carries the accent; the table itself stays calm.
+    table = (x0, box[1] + 54, x1, box[3] - 56)
+    col_sample = table[0] + 44
+    col_lumi = table[0] + 820
+    col_role = table[0] + 1320
+    header_y = table[1]
+    draw.rounded_rectangle(table, radius=14, fill=(255, 255, 255, 255), outline=(220, 228, 236, 255), width=2)
+    draw.rectangle((table[0], table[1], table[2], table[1] + 94), fill=(244, 248, 251, 255))
+    for label, x in (("Dataset", col_sample), ("Integrated luminosity", col_lumi), ("Role in this program", col_role)):
+        draw.text((x, header_y + 24), label, font=fnt(TIMES_BOLD, 43), fill=BLUE)
+    for vx in (col_lumi - 44, col_role - 44):
+        draw.line((vx, table[1] + 14, vx, table[3] - 14), fill=(224, 231, 238, 255), width=2)
 
     rows = [
-        ("σ_MBD^Vernier", "MBD minimum-bias trigger cross section measured in a Vernier scan"),
-        ("N_MB^analyzed", "minimum-bias-triggered events in the analyzed sample"),
+        {
+            "sample": "Run 24 p+p\n√s = 200 GeV",
+            "luminosity": "L = 64.4 pb^{-1}",
+            "role": "analyzed sample\nfor this measurement",
+            "fill": (255, 255, 255),
+            "h": 270,
+            "lumi_size": 72,
+        },
+        {
+            "sample": "2026 p+p",
+            "luminosity": "17 pb^{-1}",
+            "role": "future p+p statistics",
+            "fill": (248, 251, 253),
+            "h": 178,
+            "lumi_size": 50,
+        },
+        {
+            "sample": "2025 Au+Au",
+            "luminosity": "6.6 nb^{-1}",
+            "role": "move the analysis into A+A",
+            "fill": (255, 255, 255),
+            "h": 178,
+            "lumi_size": 50,
+        },
+        {
+            "sample": "2026 O+O",
+            "luminosity": "23.6 nb^{-1}",
+            "role": "smaller-system comparison",
+            "fill": (250, 250, 252),
+            "h": 178,
+            "lumi_size": 50,
+        },
     ]
-    y = 756
-    for label, body in rows:
-        draw.rounded_rectangle((x0, y, box[2] - 46, y + 100), radius=12,
-                               fill=(255, 255, 255, 255), outline=(222, 229, 236, 255), width=2)
-        rich(draw, (x0 + 28, y + 25), label, fnt(TIMES_BOLD, 34), BLUE)
-        wrapped(draw, body, (x0 + 265, y + 19), box[2] - x0 - 315,
-                fnt(TIMES, 31), fill=INK, gap=5)
-        y += 120
+    y = table[1] + 94
+    for idx, row in enumerate(rows):
+        ry0, ry1 = y, y + row["h"]
+        draw.rectangle((table[0], ry0, table[2], ry1), fill=(*row["fill"], 255))
+        if idx:
+            draw.line((table[0] + 28, ry0, table[2] - 28, ry0), fill=(224, 231, 238, 255), width=2)
 
-    draw.rounded_rectangle((x0, 1018, box[2] - 46, 1086), radius=12,
-                           fill=(255, 250, 237, 255), outline=(*AMBER_BORDER, 255), width=2)
-    draw.text((x0 + 28, 1033), "Carried forward as the cross-section normalization.",
-              font=fnt(TIMES_BOLD, 31), fill=PHOTON_DARK)
-
-
-def _draw_future_extensions(base: Image.Image) -> None:
-    draw = ImageDraw.Draw(base, "RGBA")
-    box = (132, 1162, 2428, 1278)
-    draw.rounded_rectangle(box, radius=12, fill=(248, 251, 253, 255),
-                           outline=(220, 228, 236, 255), width=2)
-    draw.rounded_rectangle((box[0], box[1], box[0] + 12, box[3]), radius=6, fill=(*SPHENIX_BLUE, 255))
-
-    draw.text((box[0] + 42, box[1] + 20), "Future extensions already collected",
-              font=fnt(TIMES_BOLD, 34), fill=INK)
-    draw.text((box[0] + 42, box[1] + 62), "Not used in this measurement.",
-              font=fnt(TIMES, 28), fill=MUTED)
-
-    datasets = [
-        ("2026 p+p", "17", "pb^{-1}", PHOTON, (255, 250, 237)),
-        ("2025 Au+Au", "6.6", "nb^{-1}", TEAL_SOFT, (241, 250, 251)),
-        ("2026 O+O", "23.6", "nb^{-1}", LIGHT_MUTED, (247, 248, 250)),
-    ]
-    x = box[0] + 710
-    y = box[1] + 30
-    for sys_label, value, unit, dot_col, fill_col in datasets:
-        chip_w = 420
-        draw.rounded_rectangle((x, y, x + chip_w, y + 58), radius=22,
-                               fill=(*fill_col, 255), outline=(210, 220, 230, 255), width=2)
-        draw.rounded_rectangle((x + 18, y + 13, x + 28, y + 45), radius=5, fill=(*dot_col, 255))
-        draw.text((x + 48, y + 14), sys_label, font=fnt(TIMES_BOLD, 30), fill=INK)
-        rich(draw, (x + 245, y + 14), f"{value} {unit}", fnt(TIMES_BOLD, 28), BLUE)
-        x += chip_w + 42
+        sample_lines = str(row["sample"]).split("\n")
+        sample_font = fnt(TIMES_BOLD, 50 if idx == 0 else 46)
+        y_sample = ry0 + (64 if idx == 0 else 61)
+        for line in sample_lines:
+            draw.text((col_sample, y_sample), line, font=sample_font, fill=INK)
+            y_sample += 58
+        rich(draw, (col_lumi, ry0 + (80 if idx == 0 else 60)), str(row["luminosity"]),
+             fnt(TIMES_BOLD, int(row["lumi_size"])), RED if idx == 0 else BLUE)
+        role_font = fnt(TIMES, 46 if idx == 0 else 43)
+        wrapped_vcenter(draw, str(row["role"]), (col_role, ry0 + 22, table[2] - 50, ry1 - 22), role_font, fill=INK, gap=6)
+        y = ry1
 
 
 def _draw_footer(base: Image.Image) -> None:
@@ -388,12 +455,14 @@ def main() -> Path:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     img = Image.new("RGBA", (W, H), (*SOFT_BG, 255))
     _draw_header(img)
-    _draw_sample_definition_card(img)
-    _draw_luminosity_definition_card(img)
-    _draw_future_extensions(img)
+    _draw_dataset_table_card(img)
     _draw_footer(img)
-    out = OUTPUT_DIR / "hp2026_slide04_analysis_dataset_context_v12_story.png"
+    out = OUTPUT_DIR / "hp2026_slide04_dataset_table_v24_projector_neutral_rows.png"
     img.convert("RGB").save(out, "PNG")
+    out.with_suffix(".header.json").write_text(
+        json.dumps({"hp2026_main_header": HP2026_MAIN_HEADER}, indent=2) + "\n",
+        encoding="utf-8",
+    )
     print(f"Saved: {out}")
     return out
 

@@ -21,6 +21,16 @@ import make_hp2026_fulltalk_candidates as full
 ROOT = full.ROOT
 OUT_DIR = ROOT / "outputs/manual-20260608-slides8-10-no-blur-variants"
 W, H = full.W, full.H
+EXPAND_PANEL_TOP = 306
+EXPAND_PANEL_BOTTOM = 1282
+SYNTH_FIGURE_LABEL_Y = 132
+SYNTH_GRID_Y = 176
+SYNTH_GRID_CELL = 58
+SYNTH_CAPTION_Y = 490
+SYNTH_LOGIC_Y0 = 612
+SYNTH_LOGIC_Y1 = 762
+SYNTH_TAKEAWAY_Y0 = 802
+SYNTH_TAKEAWAY_Y1 = 936
 
 PANELS = [
     {
@@ -50,9 +60,9 @@ PANELS = [
 ]
 
 SUBTITLES = [
-    "First, check whether the EMCal energy is concentrated in the local core.",
-    "Next, check whether the surrounding energy remains narrow around the core.",
-    "A photon-like EMCal cluster has a concentrated core, narrow shoulders, and little evidence of elongation or splitting.",
+    "Start with one local question: is the energy concentrated in the core?",
+    "Keep the core check as context, then test whether the surrounding energy stays narrow.",
+    "Together, these checks separate compact photon-like deposits from broader or split backgrounds.",
 ]
 
 BOTTOM_STEP_TEXT = [
@@ -172,10 +182,14 @@ def panel_boxes() -> list[tuple[int, int, int, int]]:
 
 
 def new_base(frame: int, subtitle: str | None = None) -> Image.Image:
-    img = full.base_slide(
-        "What the shower-shape variables measure",
-        subtitle or SUBTITLES[frame],
-    )
+    img = Image.new("RGBA", (W, H), (*full.SOFT_BG, 255))
+    draw = ImageDraw.Draw(img, "RGBA")
+    draw.rectangle((0, 0, W, H), fill=(*full.SOFT_BG, 255))
+    draw.rectangle((0, 0, W, 22), fill=(*full.SPHENIX_BLUE, 255))
+    draw.rectangle((0, 22, W, 30), fill=(*full.PHOTON, 255))
+    draw.text((132, 76), "Reading photon-like shower shapes", font=full.font(full.TIMES_BOLD, 86), fill=full.INK)
+    draw.text((136, 190), subtitle or SUBTITLES[frame], font=full.font(full.TIMES_ITALIC, 56), fill=full.MUTED)
+    draw.line((132, 286, W - 132, 286), fill=(221, 226, 232, 255), width=3)
     full.add_top_right_sphenix_logo_like_slide2(img)
     return img
 
@@ -302,9 +316,23 @@ def draw_photon_like_takeaway(
             break
         first_line_words.append(body_words.pop(0))
 
-    hanging_left = left + label_w + space_w
-    hanging_width = max(120, right - hanging_left)
-    rest_lines = wrap_words_by_width(draw, body_words, hanging_width, body_font)
+    rest_lines = wrap_words_by_width(draw, body_words, max_width, body_font)
+    while first_line_words and len(rest_lines) == 1:
+        first_body = " ".join(first_line_words)
+        first_w = label_w + space_w + full.text_box(draw, first_body, body_font)[0]
+        second_w = full.text_box(draw, rest_lines[0], body_font)[0]
+        if second_w >= 0.62 * first_w:
+            break
+        moved = first_line_words[-1]
+        candidate_second = f"{moved} {rest_lines[0]}"
+        candidate_first = " ".join(first_line_words[:-1])
+        candidate_first_w = label_w + (space_w + full.text_box(draw, candidate_first, body_font)[0] if candidate_first else 0)
+        candidate_second_w = full.text_box(draw, candidate_second, body_font)[0]
+        if candidate_first and candidate_first_w <= max_width and candidate_second_w <= max_width:
+            first_line_words.pop()
+            rest_lines[0] = candidate_second
+        else:
+            break
     lines: list[tuple[bool, str]] = [(True, " ".join(first_line_words))]
     lines.extend((False, line) for line in rest_lines)
     line_heights = [max(label_h if is_first else 0, full.text_box(draw, text, body_font)[1]) for is_first, text in lines]
@@ -312,12 +340,293 @@ def draw_photon_like_takeaway(
     y = y0 + ((y1 - y0) - total_h) / 2
     for (is_first, text), line_h in zip(lines, line_heights):
         if is_first:
-            draw.text((left, y), label, font=label_font, fill=style["label"])
+            body_w = full.text_box(draw, text, body_font)[0] if text else 0
+            line_w = label_w + (space_w + body_w if text else 0)
+            x = x0 + ((x1 - x0) - line_w) / 2
+            draw.text((x, y), label, font=label_font, fill=style["label"])
             if text:
-                draw.text((hanging_left, y), text, font=body_font, fill=style["body"])
+                draw.text((x + label_w + space_w, y), text, font=body_font, fill=style["body"])
         else:
-            draw.text((hanging_left, y), text, font=body_font, fill=style["body"])
+            line_w = full.text_box(draw, text, body_font)[0]
+            x = x0 + ((x1 - x0) - line_w) / 2
+            draw.text((x, y), text, font=body_font, fill=style["body"])
         y += line_h + line_gap
+
+
+def draw_centered_text(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    center: tuple[float, float],
+    fnt,
+    fill: tuple[int, int, int],
+) -> None:
+    tw, th = full.text_box(draw, text, fnt)
+    draw.text((center[0] - tw / 2, center[1] - th / 2), text, font=fnt, fill=fill)
+
+
+def draw_arrowhead(
+    draw: ImageDraw.ImageDraw,
+    tip: tuple[float, float],
+    direction: tuple[float, float],
+    fill: tuple[int, int, int],
+    *,
+    size: int = 12,
+) -> None:
+    dx, dy = direction
+    norm = math.hypot(dx, dy) or 1.0
+    ux, uy = dx / norm, dy / norm
+    px, py = -uy, ux
+    base = (tip[0] - ux * size, tip[1] - uy * size)
+    points = [
+        tip,
+        (base[0] + px * size * 0.48, base[1] + py * size * 0.48),
+        (base[0] - px * size * 0.48, base[1] - py * size * 0.48),
+    ]
+    draw.polygon(points, fill=fill)
+
+
+def draw_double_arrow(
+    draw: ImageDraw.ImageDraw,
+    start: tuple[float, float],
+    end: tuple[float, float],
+    fill: tuple[int, int, int],
+    *,
+    width: int = 4,
+    head: int = 13,
+) -> None:
+    draw.line((start[0], start[1], end[0], end[1]), fill=(*fill, 230), width=width)
+    draw_arrowhead(draw, end, (end[0] - start[0], end[1] - start[1]), fill, size=head)
+    draw_arrowhead(draw, start, (start[0] - end[0], start[1] - end[1]), fill, size=head)
+
+
+def draw_width_symbol(
+    draw: ImageDraw.ImageDraw,
+    xy: tuple[float, float],
+    subscript: str,
+    size: int,
+    fill: tuple[int, int, int],
+) -> int:
+    """Draw w with eta/phi as a true subscript and return the next x position."""
+    base_font = full.font(full.TIMES_BOLD, size)
+    sub_font = full.font(full.TIMES_BOLD, max(16, round(size * 0.64)))
+    x, y = xy
+    base_w, _ = full.text_box(draw, "w", base_font)
+    sub_offset = round(size * 0.36)
+    draw.text((x, y), "w", font=base_font, fill=fill)
+    draw.text((x + base_w + 1, y + sub_offset), subscript, font=sub_font, fill=fill)
+    return round(x + base_w + full.text_box(draw, subscript, sub_font)[0] + 3)
+
+
+def width_symbol_box(
+    draw: ImageDraw.ImageDraw,
+    subscript: str,
+    size: int,
+) -> tuple[int, int]:
+    base_font = full.font(full.TIMES_BOLD, size)
+    sub_font = full.font(full.TIMES_BOLD, max(16, round(size * 0.64)))
+    base_w, base_h = full.text_box(draw, "w", base_font)
+    sub_w, sub_h = full.text_box(draw, subscript, sub_font)
+    return base_w + sub_w + 3, max(base_h, round(size * 0.36) + sub_h)
+
+
+def draw_centered_width_symbol(
+    draw: ImageDraw.ImageDraw,
+    subscript: str,
+    center: tuple[float, float],
+    size: int,
+    fill: tuple[int, int, int],
+) -> None:
+    w, h = width_symbol_box(draw, subscript, size)
+    draw_width_symbol(draw, (center[0] - w / 2, center[1] - h / 2), subscript, size, fill)
+
+
+def draw_width_explanation(
+    draw: ImageDraw.ImageDraw,
+    xy: tuple[int, int],
+    *,
+    size: int,
+    suffix: str,
+) -> None:
+    x, y = xy
+    x = draw_width_symbol(draw, (x, y), "η", size, full.SPHENIX_BLUE)
+    fnt = full.font(full.TIMES, size)
+    gap_text = " and "
+    draw.text((x, y), gap_text, font=fnt, fill=full.MUTED)
+    x += full.text_box(draw, gap_text, fnt)[0]
+    x = draw_width_symbol(draw, (x, y), "φ", size, (230, 70, 45))
+    draw.text((x + 2, y), suffix, font=fnt, fill=full.MUTED)
+
+
+def draw_core_geometry_labels(draw: ImageDraw.ImageDraw, gx: int, gy: int, cell: int, *, large: bool = False) -> None:
+    label_size = 26 if large else 20
+    seed_size = 30 if large else 20
+    line_w = 3 if large else 2
+    two_label = (gx + cell - (42 if large else 10), gy + cell - (48 if large else 20))
+    three_label = (gx + 3 * cell - (16 if large else 10), gy + 3 * cell + (16 if large else 8))
+    draw.line(
+        (gx + cell * 1.72, gy + cell * 1.22, gx + cell * 1.18, gy + cell * 1.02),
+        fill=(*full.PHOTON_DARK, 205),
+        width=line_w,
+    )
+    draw.line(
+        (gx + cell * 3.62, gy + cell * 3.56, gx + cell * 4.0, gy + cell * 4.0),
+        fill=(*full.SPHENIX_BLUE, 205),
+        width=line_w,
+    )
+    full.callout_label(draw, two_label, "2x2 core", full.PHOTON_DARK, size=label_size)
+    full.callout_label(draw, three_label, "3x3 local core", full.SPHENIX_BLUE, size=label_size)
+    seed_text = "seed"
+    seed_font = full.font(full.TIMES_BOLD, seed_size)
+    stw, sth = full.text_box(draw, seed_text, seed_font)
+    sx = gx + 2 * cell + (8 if large else 10)
+    sy = gy + 2 * cell + (0.82 * cell if large else 0.62 * cell)
+    if large:
+        draw.rounded_rectangle((sx - 8, sy - 4, sx + stw + 8, sy + sth + 4), radius=6, fill=(255, 255, 255, 230))
+    draw.text((sx, sy), seed_text, font=seed_font, fill=full.INK)
+
+
+def draw_width_labels(
+    draw: ImageDraw.ImageDraw,
+    grid: tuple[int, int, int, int],
+    *,
+    compact: bool,
+    label_size: int,
+    eta_label_inside: bool = False,
+) -> None:
+    gx0, gy0, gx1, gy1 = grid
+    width_color = full.SPHENIX_BLUE
+    bracket_color = (230, 70, 45)
+    x = gx0 + 18 if eta_label_inside else gx0 - 22
+    draw_double_arrow(draw, (x, gy0 + 58), (x, gy1 - 58), width_color, width=4, head=12)
+    eta_center_x = x + 32 if eta_label_inside else x - 26
+    draw_centered_width_symbol(
+        draw,
+        "η",
+        (eta_center_x, (gy0 + gy1) / 2),
+        label_size,
+        width_color,
+    )
+    draw_centered_width_symbol(
+        draw,
+        "φ",
+        ((gx0 + gx1) / 2, gy0 - (18 if label_size >= 34 else 13)),
+        label_size,
+        bracket_color,
+    )
+
+
+def draw_region_tags_for_strip_ratio(
+    draw: ImageDraw.ImageDraw,
+    grid: tuple[int, int, int, int],
+    cell: int,
+    *,
+    label_size: int = 20,
+) -> None:
+    gx0, gy0, gx1, _ = grid
+    full.callout_label(
+        draw,
+        (gx0 + 0.84 * cell, gy0 + 1.10 * cell),
+        "3x5 region",
+        full.SPHENIX_BLUE,
+        size=label_size,
+    )
+    full.callout_label(
+        draw,
+        (gx0 + 1.34 * cell, gy0 + 2.28 * cell),
+        "3x2 strip",
+        full.PHOTON_DARK,
+        size=label_size,
+    )
+    draw.line(
+        (gx0 + 1.58 * cell, gy0 + 1.62 * cell, gx0 + 1.05 * cell, gy0 + 0.14 * cell),
+        fill=(*full.SPHENIX_BLUE, 190),
+        width=2,
+    )
+    draw.line(
+        (gx0 + 2.14 * cell, gy0 + 2.6 * cell, gx1 - 1.2 * cell, gy0 + 2.5 * cell),
+        fill=(*full.PHOTON_DARK, 205),
+        width=2,
+    )
+
+
+def draw_stretch_region_labels(
+    draw: ImageDraw.ImageDraw,
+    left_grid: tuple[int, int, int, int],
+    right_grid: tuple[int, int, int, int],
+    cell: int,
+    *,
+    size: int = 24,
+) -> None:
+    """Label the 3x2 and 3x5 regions beside the maps with short leaders."""
+    lgx0, lgy0, _, _ = left_grid
+    _, rgy0, rgx1, _ = right_grid
+    orange = full.PHOTON_DARK
+    blue = full.SPHENIX_BLUE
+    orange_fill = (255, 246, 222, 255)
+    blue_fill = (231, 246, 255, 255)
+    fnt = full.font(full.TIMES_BOLD, size)
+
+    def chip(xy: tuple[float, float], text: str, color: tuple[int, int, int], fill: tuple[int, int, int]) -> tuple[int, int, int, int]:
+        tw, th = full.text_box(draw, text, fnt)
+        rect = (int(xy[0]), int(xy[1]), int(xy[0] + tw + 28), int(xy[1] + th + 14))
+        draw.rounded_rectangle(rect, radius=8, fill=fill, outline=(*color, 255), width=3)
+        draw_centered_text(draw, text, ((rect[0] + rect[2]) / 2, (rect[1] + rect[3]) / 2), fnt, color)
+        return rect
+
+    left_rect = chip((lgx0 + 6, lgy0 + 2 * cell + 6), "3x2 strip", orange, orange_fill)
+    blue_w = full.text_box(draw, "3x5 local region", fnt)[0] + 28
+    right_rect = chip((rgx1 - blue_w - 8, rgy0 + 8), "3x5 local region", blue, blue_fill)
+
+    draw.line((left_rect[2], (left_rect[1] + left_rect[3]) / 2, lgx0 + cell, lgy0 + 2.5 * cell), fill=(*orange, 220), width=3)
+    draw.line((right_rect[2] - 2, right_rect[3], rgx1 - 0.95 * cell, rgy0 + 0.25 * cell), fill=(*blue, 220), width=3)
+
+
+def draw_strip_ratio_key(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    *,
+    y: int,
+    size: int = 23,
+) -> None:
+    x0, _, x1, _ = box
+    items = [
+        ("3x2 strip", full.PHOTON_DARK, (255, 246, 222, 255)),
+        ("3x5 local region", full.SPHENIX_BLUE, (231, 246, 255, 255)),
+    ]
+    fnt = full.font(full.TIMES_BOLD, size)
+    widths = [full.text_box(draw, text, fnt)[0] + 50 for text, _, _ in items]
+    gap = 26
+    total = sum(widths) + gap
+    x = x0 + ((x1 - x0) - total) / 2
+    for (text, color, fill), width in zip(items, widths):
+        pill = (int(x), y, int(x + width), y + 46)
+        draw.rounded_rectangle(pill, radius=9, fill=fill, outline=(*color, 255), width=3)
+        draw_centered_text(draw, text, ((pill[0] + pill[2]) / 2, (pill[1] + pill[3]) / 2), fnt, color)
+        x += width + gap
+
+
+def draw_core_region_key(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    *,
+    y: int,
+    size: int = 22,
+) -> None:
+    x0, _, x1, _ = box
+    items = [
+        ("2x2 core", full.PHOTON_DARK, (255, 246, 222, 255)),
+        ("3x3 local core", full.SPHENIX_BLUE, (231, 246, 255, 255)),
+    ]
+    fnt = full.font(full.TIMES_BOLD, size)
+    widths = [full.text_box(draw, text, fnt)[0] + 48 for text, _, _ in items]
+    gap = 24
+    total = sum(widths) + gap
+    x = x0 + ((x1 - x0) - total) / 2
+    for (text, color, fill), width in zip(items, widths):
+        pill = (int(x), y, int(x + width), y + 46)
+        draw.rounded_rectangle(pill, radius=9, fill=fill, outline=(*color, 255), width=3)
+        draw_centered_text(draw, text, ((pill[0] + pill[2]) / 2, (pill[1] + pill[3]) / 2), fnt, color)
+        x += width + gap
 
 
 def draw_labeled_takeaway_vcenter(
@@ -564,45 +873,71 @@ def draw_core_summary_card(img: Image.Image, box: tuple[int, int, int, int], *, 
         [0.05, 0.20, 0.38, 0.19, 0.05],
         [0.03, 0.05, 0.07, 0.05, 0.03],
     ]
-    cell = 64
-    gx = x0 + (x1 - x0 - 5 * cell) // 2
-    gy = y0 + 174
+    diffuse = [
+        [0.12, 0.20, 0.28, 0.20, 0.12],
+        [0.22, 0.38, 0.52, 0.40, 0.22],
+        [0.30, 0.55, 0.78, 0.58, 0.32],
+        [0.22, 0.40, 0.54, 0.42, 0.22],
+        [0.12, 0.20, 0.30, 0.20, 0.12],
+    ]
+    cell = SYNTH_GRID_CELL
+    gap = 46
+    total = 2 * 5 * cell + gap
+    left_x = x0 + (x1 - x0 - total) // 2
+    gy = y0 + SYNTH_GRID_Y
     label = "Local EMCal energy map"
-    lf = full.font(full.TIMES_BOLD, 30)
+    lf = full.font(full.TIMES_BOLD, 37)
     ltw, _ = full.text_box(draw, label, lf)
-    draw.text((gx + (5 * cell - ltw) / 2, y0 + 124), label, font=lf, fill=full.BLUE)
-    full.draw_small_tower_grid(
-        draw,
-        (gx, gy),
-        cell,
-        values,
-        highlight=(1, 1, 3, 3),
-        highlight_color=full.PHOTON_DARK,
-        secondary=(1, 1, 4, 4),
-        secondary_color=full.SPHENIX_BLUE,
-    )
-    full.callout_label(draw, (gx + cell + 4, gy + cell + 14), "2x2 core", full.PHOTON_DARK, size=18)
-    full.callout_label(draw, (gx + 3 * cell - 1, gy + 3 * cell + 8), "3x3 local core", full.SPHENIX_BLUE, size=18)
-    draw.text((gx + 2 * cell + 16, gy + 2 * cell + 39), "seed", font=full.font(full.TIMES_ITALIC, 19), fill=full.INK)
-    draw.line((gx + 2 * cell - 12, gy + cell + 48, gx + cell + 16, gy + cell + 18), fill=(*full.PHOTON_DARK, 180), width=2)
-    draw.line((gx + 3 * cell + 19, gy + 3 * cell + 18, gx + 4 * cell - 8, gy + 4 * cell - 8), fill=(*full.SPHENIX_BLUE, 170), width=2)
+    draw.text((x0 + (x1 - x0 - ltw) / 2 + 18, y0 + SYNTH_FIGURE_LABEL_Y), label, font=lf, fill=full.BLUE)
+    grids = [
+        full.draw_small_tower_grid(
+            draw,
+            (left_x, gy),
+            cell,
+            values,
+            highlight=(1, 1, 3, 3),
+            highlight_color=full.PHOTON_DARK,
+            secondary=(1, 1, 4, 4),
+            secondary_color=full.SPHENIX_BLUE,
+        ),
+        full.draw_small_tower_grid(
+            draw,
+            (left_x + 5 * cell + gap, gy),
+            cell,
+            diffuse,
+            highlight=(1, 1, 3, 3),
+            highlight_color=full.PHOTON_DARK,
+            secondary=(1, 1, 4, 4),
+            secondary_color=full.SPHENIX_BLUE,
+        ),
+    ]
+    for grid in grids:
+        gx0, gy0, _, _ = grid
+        draw.rectangle((gx0 + cell, gy0 + cell, gx0 + 4 * cell, gy0 + 4 * cell), outline=(*full.SPHENIX_BLUE, 255), width=5)
+        draw.rectangle((gx0 + cell, gy0 + cell, gx0 + 3 * cell, gy0 + 3 * cell), outline=(*full.PHOTON_DARK, 255), width=5)
+        draw.ellipse((gx0 + 2.5 * cell - 8, gy0 + 2.5 * cell - 8, gx0 + 2.5 * cell + 8, gy0 + 2.5 * cell + 8), fill=(0, 0, 0, 255))
+    for caption, grid in (("photon-like", grids[0]), ("background-like", grids[1])):
+        gx0, _, gx1, _ = grid
+        cf = full.font(full.TIMES_BOLD, 34)
+        ctw, _ = full.text_box(draw, caption, cf)
+        draw.text((gx0 + (gx1 - gx0 - ctw) / 2, y0 + SYNTH_CAPTION_Y), caption, font=cf, fill=full.BLUE if caption == "photon-like" else full.MUTED)
+    draw_core_region_key(draw, (x0 + 54, y0, x1 - 54, y0 + 1), y=y0 + 548, size=25)
 
-    logic = (x0 + 56, y0 + 618, x1 - 56, y0 + 770)
+    logic = (x0 + 56, y0 + SYNTH_LOGIC_Y0, x1 - 56, y0 + SYNTH_LOGIC_Y1)
     draw.rounded_rectangle(logic, radius=10, fill=(249, 251, 253, 255), outline=(219, 227, 236, 255), width=2)
     draw_core_fraction_eq(draw, (logic[0] + 28, logic[1] + 30), 32, prefix="Core fraction = ")
     draw.line((logic[0] + 28, logic[1] + 78, logic[2] - 28, logic[1] + 78), fill=(216, 225, 235, 255), width=2)
     draw_e1x1_e3x3_eq(draw, (logic[0] + 28, logic[1] + 104), 32, prefix="")
     draw.text((logic[0] + 196, logic[1] + 104), " = center-tower dominance", font=full.font(full.TIMES, 32), fill=full.INK)
     if show_takeaway:
-        summary = (x0 + 56, y0 + 800, x1 - 56, y0 + 910)
-        draw.rounded_rectangle(summary, radius=10, fill=(242, 248, 253, 255), outline=(197, 220, 239, 255), width=2)
-        draw_wrapped_vcenter(
+        summary = (x0 + 42, y0 + SYNTH_TAKEAWAY_Y0, x1 - 42, y0 + SYNTH_TAKEAWAY_Y1)
+        draw_photon_like_takeaway(
             draw,
-            "Photon-like: energy stays concentrated in the core.",
-            (summary[0] + 30, summary[1] + 16, summary[2] - 30, summary[3] - 16),
-            full.font(full.TIMES_ITALIC, 34),
-            fill=full.BLUE,
-            line_gap=8,
+            summary,
+            0,
+            "energy stays concentrated in the core.",
+            font_size=39,
+            line_gap=7,
         )
 
 
@@ -623,44 +958,72 @@ def draw_large_core_focus_panel(img: Image.Image, box: tuple[int, int, int, int]
         [0.05, 0.20, 0.38, 0.19, 0.05],
         [0.03, 0.05, 0.07, 0.05, 0.03],
     ]
-    cell = 80
-    gx = x0 + 300
-    gy = y0 + 190
+    diffuse = [
+        [0.12, 0.20, 0.28, 0.20, 0.12],
+        [0.22, 0.38, 0.52, 0.40, 0.22],
+        [0.30, 0.55, 0.78, 0.58, 0.32],
+        [0.22, 0.40, 0.54, 0.42, 0.22],
+        [0.12, 0.20, 0.30, 0.20, 0.12],
+    ]
+    cell = 68
+    gap = 92
+    total_grid_w = 2 * 5 * cell + gap
+    gx = x0 + 80 + ((1012 - 80) - total_grid_w) // 2
+    gy = y0 + 170
     label = "Local EMCal energy map"
-    lf = full.font(full.TIMES_BOLD, 34)
+    lf = full.font(full.TIMES_BOLD, 46)
     ltw, _ = full.text_box(draw, label, lf)
-    draw.text((gx + (5 * cell - ltw) / 2, y0 + 132), label, font=lf, fill=full.BLUE)
-    grid = full.draw_small_tower_grid(
-        draw,
-        (gx, gy),
-        cell,
-        values,
-        highlight=(1, 1, 3, 3),
-        highlight_color=full.PHOTON_DARK,
-        secondary=(1, 1, 4, 4),
-        secondary_color=full.SPHENIX_BLUE,
-    )
-    full.callout_label(draw, (gx + 1 * cell + 14, gy + cell + 22), "2x2 core", full.PHOTON_DARK, size=24)
-    full.callout_label(draw, (gx + 3 * cell + 2, gy + 3 * cell + 20), "3x3 local core", full.SPHENIX_BLUE, size=24)
-    draw.text((gx + 2 * cell + 23, gy + 2 * cell + 54), "seed", font=full.font(full.TIMES_ITALIC, 25), fill=full.INK)
-    draw.line((gx + 2 * cell - 14, gy + cell + 68, gx + cell + 22, gy + cell + 24), fill=(*full.PHOTON_DARK, 190), width=3)
-    draw.line((gx + 3 * cell + 28, gy + 3 * cell + 30, gx + 4 * cell - 12, gy + 4 * cell - 12), fill=(*full.SPHENIX_BLUE, 180), width=3)
+    label_x = x0 + 80 + (932 - ltw) / 2
+    label_y = y0 + 108
+    draw.text((label_x, label_y), label, font=lf, fill=full.BLUE)
+    grids = [
+        full.draw_small_tower_grid(
+            draw,
+            (gx, gy),
+            cell,
+            values,
+            highlight=(1, 1, 3, 3),
+            highlight_color=full.PHOTON_DARK,
+            secondary=(1, 1, 4, 4),
+            secondary_color=full.SPHENIX_BLUE,
+        ),
+        full.draw_small_tower_grid(
+            draw,
+            (gx + 5 * cell + gap, gy),
+            cell,
+            diffuse,
+            highlight=(1, 1, 3, 3),
+            highlight_color=full.PHOTON_DARK,
+            secondary=(1, 1, 4, 4),
+            secondary_color=full.SPHENIX_BLUE,
+        ),
+    ]
+    for grid in grids:
+        gx0, gy0, _, _ = grid
+        draw.rectangle((gx0 + cell, gy0 + cell, gx0 + 4 * cell, gy0 + 4 * cell), outline=(*full.SPHENIX_BLUE, 255), width=6)
+        draw.rectangle((gx0 + cell, gy0 + cell, gx0 + 3 * cell, gy0 + 3 * cell), outline=(*full.PHOTON_DARK, 255), width=6)
+        draw.ellipse((gx0 + 2.5 * cell - 10, gy0 + 2.5 * cell - 10, gx0 + 2.5 * cell + 10, gy0 + 2.5 * cell + 10), fill=(0, 0, 0, 255))
+    for caption, grid in (("photon-like", grids[0]), ("background-like", grids[1])):
+        gx0, _, gx1, _ = grid
+        cf = full.font(full.TIMES_BOLD, 43)
+        ctw, _ = full.text_box(draw, caption, cf)
+        draw.text((gx0 + (gx1 - gx0 - ctw) / 2, y0 + 528), caption, font=cf, fill=full.BLUE if caption == "photon-like" else full.MUTED)
+    draw_core_region_key(draw, (x0 + 112, y0, x0 + 980, y0 + 1), y=y0 + 578, size=28)
 
-    logic = (x0 + 80, y0 + 628, x0 + 1012, y0 + 780)
+    logic = (x0 + 80, y0 + 650, x0 + 1012, y0 + 802)
     draw.rounded_rectangle(logic, radius=10, fill=(249, 251, 253, 255), outline=(219, 227, 236, 255), width=2)
     draw_core_fraction_eq(draw, (logic[0] + 30, logic[1] + 30), 38, prefix="Core fraction = ")
     draw.line((logic[0] + 30, logic[1] + 78, logic[2] - 30, logic[1] + 78), fill=(216, 225, 235, 255), width=2)
     draw_e1x1_e3x3_eq(draw, (logic[0] + 30, logic[1] + 104), 38)
     draw.text((logic[0] + 226, logic[1] + 104), " = center-tower dominance in the local core", font=full.font(full.TIMES, 38), fill=full.INK)
 
-    summary = (x0 + 80, y0 + 802, x0 + 1012, y0 + 908)
-    draw.rounded_rectangle(summary, radius=10, fill=(242, 248, 253, 255), outline=(197, 220, 239, 255), width=2)
-    draw_wrapped_vcenter(
+    summary = (x0 + 80, y0 + 834, x0 + 1012, y0 + 966)
+    draw_photon_like_takeaway(
         draw,
-        "Photon-like: energy stays concentrated in the core.",
-        (summary[0] + 34, summary[1] + 14, summary[2] - 34, summary[3] - 14),
-        full.font(full.TIMES_ITALIC, 38),
-        fill=full.BLUE,
+        summary,
+        0,
+        "energy stays concentrated in the core.",
+        font_size=40,
         line_gap=8,
     )
 
@@ -683,18 +1046,19 @@ def draw_large_core_focus_panel(img: Image.Image, box: tuple[int, int, int, int]
             draw.text((row_box[0] + 24, y), label, font=full.font(full.TIMES_BOLD, 37), fill=full.PHOTON_DARK)
         full.draw_wrapped(draw, body, (row_box[0] + 296, y + 1), row_box[2] - row_box[0] - 324, full.font(full.TIMES, 35), fill=full.INK, line_gap=6)
         y += 118
-    takeaway = (note[0], note[3] + 22, note[2], note[3] + 174)
+    takeaway = (note[0], note[3] + 22, note[2], note[3] + 216)
     draw.rounded_rectangle(takeaway, radius=10, fill=(242, 248, 253, 255), outline=(197, 220, 239, 255), width=2)
-    draw_labeled_takeaway_vcenter(
-        draw,
-        takeaway,
-        "Takeaway",
-        "A prompt-photon-like cluster should begin as one concentrated EMCal deposit.",
-        full.font(full.TIMES_BOLD, 33),
-        full.font(full.TIMES_BOLD, 37),
-        fill=full.BLUE,
-        line_gap=6,
-    )
+    takeaway_text = "A prompt-photon-like cluster should begin as one concentrated EMCal deposit."
+    tf = full.font(full.TIMES_BOLD, 46)
+    lines = wrap_lines(draw, takeaway_text, takeaway[2] - takeaway[0] - 92, tf)
+    line_gap = 9
+    heights = [full.text_box(draw, line, tf)[1] for line in lines]
+    total_h = sum(heights) + line_gap * max(0, len(lines) - 1)
+    ty = takeaway[1] + ((takeaway[3] - takeaway[1]) - total_h) / 2
+    for line, lh in zip(lines, heights):
+        tw, _ = full.text_box(draw, line, tf)
+        draw.text((takeaway[0] + ((takeaway[2] - takeaway[0]) - tw) / 2, ty), line, font=tf, fill=full.BLUE)
+        ty += lh + line_gap
 
 
 def draw_large_shoulders_panel(img: Image.Image, box: tuple[int, int, int, int]) -> None:
@@ -726,7 +1090,7 @@ def draw_large_shoulders_panel(img: Image.Image, box: tuple[int, int, int, int])
     left_x = x0 + (x1 - x0 - total_grid_w) // 2
     gy = y0 + 190
     label = "Energy map with center tower omitted"
-    lf = full.font(full.TIMES_BOLD, 34)
+    lf = full.font(full.TIMES_BOLD, 46)
     ltw, _ = full.text_box(draw, label, lf)
     draw.text((x0 + (x1 - x0 - ltw) / 2, y0 + 108), label, font=lf, fill=full.BLUE)
     grids = [
@@ -739,19 +1103,18 @@ def draw_large_shoulders_panel(img: Image.Image, box: tuple[int, int, int, int])
             start, end = gx0 + 138, gx1 - 138
         else:
             start, end = gx0 + 34, gx1 - 34
-        draw.line((start, gy0 - 28, end, gy0 - 28), fill=(230, 70, 45, 230), width=5)
-        draw.line((start, gy0 - 40, start, gy0 - 16), fill=(230, 70, 45, 230), width=5)
-        draw.line((end, gy0 - 40, end, gy0 - 16), fill=(230, 70, 45, 230), width=5)
+        draw_double_arrow(draw, (start, gy0 + 12), (end, gy0 + 12), (230, 70, 45), width=5, head=14)
         center_cell = (gx0 + 2 * cell, gy0 + 2 * cell, gx0 + 3 * cell, gy0 + 3 * cell)
         draw.rectangle(center_cell, fill=(255, 255, 255, 215), outline=(160, 168, 176, 215), width=2)
         draw.line((center_cell[0] + 10, center_cell[1] + 10, center_cell[2] - 10, center_cell[3] - 10), fill=(160, 168, 176, 190), width=3)
         draw.line((center_cell[0] + 10, center_cell[3] - 10, center_cell[2] - 10, center_cell[1] + 10), fill=(160, 168, 176, 190), width=3)
         draw.ellipse((gx0 + 2.5 * cell - 10, gy0 + 2.5 * cell - 10, gx0 + 2.5 * cell + 10, gy0 + 2.5 * cell + 10), fill=(0, 0, 0, 255))
-    for label, grid in (("photon-like", grids[0]), ("broad / multi-tower", grids[1])):
+        draw_width_labels(draw, grid, compact=idx == 0, label_size=42)
+    for label, grid in (("photon-like", grids[0]), ("background-like", grids[1])):
         gx0, _, gx1, _ = grid
-        lf = full.font(full.TIMES_ITALIC, 34)
+        lf = full.font(full.TIMES_BOLD, 43)
         tw, _ = full.text_box(draw, label, lf)
-        draw.text((gx0 + (gx1 - gx0 - tw) / 2, y0 + 612), label, font=lf, fill=full.MUTED)
+        draw.text((gx0 + (gx1 - gx0 - tw) / 2, y0 + 612), label, font=lf, fill=full.BLUE if label == "photon-like" else full.MUTED)
     logic = (x0 + 86, y0 + 674, x1 - 86, y0 + 800)
     draw.rounded_rectangle(logic, radius=10, fill=(249, 251, 253, 255), outline=(219, 227, 236, 255), width=2)
     full.draw_formula_run(
@@ -760,20 +1123,14 @@ def draw_large_shoulders_panel(img: Image.Image, box: tuple[int, int, int, int])
         [("Shoulder width", 42, 0, full.TIMES_BOLD), (" = seed-excluded spread around the core", 42, 0, full.TIMES)],
         fill=full.INK,
     )
-    full.draw_formula_run(
+    draw_width_explanation(draw, (logic[0] + 34, logic[1] + 82), size=38, suffix=" describe the surrounding energy")
+    takeaway = (x0 + 86, y0 + 824, x1 - 86, y0 + 948)
+    draw_photon_like_takeaway(
         draw,
-        (logic[0] + 34, logic[1] + 82),
-        [("w", 30, 0, full.TIMES_BOLD), ("η", 22, 11, full.TIMES_BOLD), ("cogX", 19, -11, full.TIMES_BOLD), (" and w", 30, 0, full.TIMES_BOLD), ("φ", 22, 11, full.TIMES_BOLD), ("cogX", 19, -11, full.TIMES_BOLD), (" describe the surrounding energy", 30, 0, full.TIMES)],
-        fill=full.MUTED,
-    )
-    takeaway = (x0 + 86, y0 + 812, x1 - 86, y0 + 918)
-    draw.rounded_rectangle(takeaway, radius=10, fill=(242, 248, 253, 255), outline=(197, 220, 239, 255), width=2)
-    draw_wrapped_vcenter(
-        draw,
-        "Photon-like: narrow shoulders around the core.",
-        (takeaway[0] + 34, takeaway[1] + 14, takeaway[2] - 34, takeaway[3] - 14),
-        full.font(full.TIMES_ITALIC, 42),
-        fill=full.BLUE,
+        takeaway,
+        1,
+        "narrow shoulders around the core.",
+        font_size=43,
         line_gap=8,
     )
 
@@ -802,11 +1159,11 @@ def draw_shoulders_summary_card(img: Image.Image, box: tuple[int, int, int, int]
         [0.18, 0.34, 0.46, 0.34, 0.18],
         [0.10, 0.18, 0.25, 0.18, 0.10],
     ]
-    cell = 58
+    cell = SYNTH_GRID_CELL
     gap = 46
     total = 2 * 5 * cell + gap
     left_x = x0 + (x1 - x0 - total) // 2
-    gy = y0 + 152
+    gy = y0 + SYNTH_GRID_Y
     grids = [
         full.draw_small_tower_grid(draw, (left_x, gy), cell, compact),
         full.draw_small_tower_grid(draw, (left_x + 5 * cell + gap, gy), cell, broad),
@@ -814,20 +1171,19 @@ def draw_shoulders_summary_card(img: Image.Image, box: tuple[int, int, int, int]
     for idx, grid in enumerate(grids):
         gx0, gy0, gx1, _ = grid
         start, end = (gx0 + 106, gx1 - 106) if idx == 0 else (gx0 + 26, gx1 - 26)
-        draw.line((start, gy0 - 20, end, gy0 - 20), fill=(230, 70, 45, 220), width=4)
-        draw.line((start, gy0 - 30, start, gy0 - 10), fill=(230, 70, 45, 220), width=4)
-        draw.line((end, gy0 - 30, end, gy0 - 10), fill=(230, 70, 45, 220), width=4)
+        draw_double_arrow(draw, (start, gy0 + 10), (end, gy0 + 10), (230, 70, 45), width=4, head=11)
         center_cell = (gx0 + 2 * cell, gy0 + 2 * cell, gx0 + 3 * cell, gy0 + 3 * cell)
         draw.rectangle(center_cell, fill=(255, 255, 255, 215), outline=(160, 168, 176, 215), width=2)
         draw.line((center_cell[0] + 8, center_cell[1] + 8, center_cell[2] - 8, center_cell[3] - 8), fill=(160, 168, 176, 190), width=3)
         draw.line((center_cell[0] + 8, center_cell[3] - 8, center_cell[2] - 8, center_cell[1] + 8), fill=(160, 168, 176, 190), width=3)
         draw.ellipse((gx0 + 2.5 * cell - 8, gy0 + 2.5 * cell - 8, gx0 + 2.5 * cell + 8, gy0 + 2.5 * cell + 8), fill=(0, 0, 0, 255))
-    for label, grid in (("photon-like", grids[0]), ("broad / multi-tower", grids[1])):
+        draw_width_labels(draw, grid, compact=idx == 0, label_size=31, eta_label_inside=True)
+    for label, grid in (("photon-like", grids[0]), ("background-like", grids[1])):
         gx0, _, gx1, _ = grid
-        lf = full.font(full.TIMES_ITALIC, 27)
+        lf = full.font(full.TIMES_BOLD, 34)
         tw, _ = full.text_box(draw, label, lf)
-        draw.text((gx0 + (gx1 - gx0 - tw) / 2, y0 + 458), label, font=lf, fill=full.MUTED)
-    logic = (x0 + 54, y0 + 618, x1 - 54, y0 + 738)
+        draw.text((gx0 + (gx1 - gx0 - tw) / 2, y0 + SYNTH_CAPTION_Y), label, font=lf, fill=full.BLUE if label == "photon-like" else full.MUTED)
+    logic = (x0 + 54, y0 + SYNTH_LOGIC_Y0, x1 - 54, y0 + SYNTH_LOGIC_Y1)
     draw.rounded_rectangle(logic, radius=10, fill=(249, 251, 253, 255), outline=(219, 227, 236, 255), width=2)
     full.draw_formula_run(
         draw,
@@ -835,21 +1191,15 @@ def draw_shoulders_summary_card(img: Image.Image, box: tuple[int, int, int, int]
         [("Shoulder width", 33, 0, full.TIMES_BOLD), (" = seed-excluded spread", 33, 0, full.TIMES)],
         fill=full.INK,
     )
-    full.draw_formula_run(
-        draw,
-        (logic[0] + 28, logic[1] + 74),
-        [("w", 27, 0, full.TIMES_BOLD), ("η", 19, 10, full.TIMES_BOLD), ("cogX", 16, -10, full.TIMES_BOLD), (" and w", 27, 0, full.TIMES_BOLD), ("φ", 19, 10, full.TIMES_BOLD), ("cogX", 16, -10, full.TIMES_BOLD)],
-        fill=full.MUTED,
-    )
+    draw_width_explanation(draw, (logic[0] + 28, logic[1] + 74), size=32, suffix=" describe surrounding energy")
     if show_takeaway:
-        summary = (x0 + 54, y0 + 800, x1 - 54, y0 + 910)
-        draw.rounded_rectangle(summary, radius=10, fill=(242, 248, 253, 255), outline=(197, 220, 239, 255), width=2)
-        draw_wrapped_vcenter(
+        summary = (x0 + 42, y0 + SYNTH_TAKEAWAY_Y0, x1 - 42, y0 + SYNTH_TAKEAWAY_Y1)
+        draw_photon_like_takeaway(
             draw,
-            "Photon-like: narrow shoulders around the core.",
-            (summary[0] + 30, summary[1] + 16, summary[2] - 30, summary[3] - 16),
-            full.font(full.TIMES_ITALIC, 32),
-            fill=full.BLUE,
+            summary,
+            1,
+            "narrow shoulders around the core.",
+            font_size=38,
             line_gap=7,
         )
 
@@ -872,47 +1222,49 @@ def draw_stretch_summary_card(img: Image.Image, box: tuple[int, int, int, int], 
         [0.02, 0.04, 0.06, 0.04, 0.02],
     ]
     split = [
-        [0.02, 0.05, 0.12, 0.08, 0.02],
-        [0.03, 0.12, 0.46, 0.28, 0.05],
-        [0.05, 0.22, 0.95, 0.36, 0.08],
-        [0.03, 0.42, 0.52, 0.14, 0.04],
-        [0.02, 0.30, 0.26, 0.08, 0.02],
+        [0.02, 0.06, 0.10, 0.08, 0.04],
+        [0.06, 0.18, 0.28, 0.24, 0.10],
+        [0.18, 0.62, 0.98, 0.78, 0.44],
+        [0.16, 0.54, 0.72, 0.58, 0.34],
+        [0.04, 0.12, 0.18, 0.14, 0.06],
     ]
-    cell = 56
+    cell = SYNTH_GRID_CELL
     gap = 46
     total = 2 * 5 * cell + gap
-    left_x = x0 + (x1 - x0 - total) // 2 + 4
-    gy = y0 + 182
+    left_x = x0 + (x1 - x0 - total) // 2
+    gy = y0 + SYNTH_GRID_Y
     grids = [
         full.draw_small_tower_grid(draw, (left_x, gy), cell, compact),
         full.draw_small_tower_grid(draw, (left_x + 5 * cell + gap, gy), cell, split),
     ]
     for grid in grids:
         gx0, gy0, _, _ = grid
-        draw.rectangle((gx0 + cell, gy0, gx0 + 4 * cell, gy0 + 5 * cell), outline=(*full.SPHENIX_BLUE, 210), width=3)
-        draw.rectangle((gx0 + cell, gy0 + 2 * cell, gx0 + 4 * cell, gy0 + 3 * cell), outline=(*full.PHOTON_DARK, 220), width=3)
+        draw.rectangle((gx0 + cell, gy0, gx0 + 4 * cell, gy0 + 5 * cell), outline=(*full.SPHENIX_BLUE, 235), width=5)
+        draw.rectangle((gx0 + cell, gy0 + 2 * cell, gx0 + 4 * cell, gy0 + 4 * cell), outline=(*full.PHOTON_DARK, 245), width=5)
         draw.ellipse((gx0 + 2.5 * cell - 8, gy0 + 2.5 * cell - 8, gx0 + 2.5 * cell + 8, gy0 + 2.5 * cell + 8), fill=(0, 0, 0, 255))
     plot_label = "Narrow strip compared with wider local region"
-    plf = full.font(full.TIMES_BOLD, 25)
+    plf = full.font(full.TIMES_BOLD, 32)
     pltw, _ = full.text_box(draw, plot_label, plf)
-    draw.text((x0 + (x1 - x0 - pltw) / 2 + 14, y0 + 136), plot_label, font=plf, fill=full.BLUE)
-    for label, grid in (("compact local", grids[0]), ("stretched / split", grids[1])):
+    draw.text((x0 + (x1 - x0 - pltw) / 2 + 14, y0 + SYNTH_FIGURE_LABEL_Y), plot_label, font=plf, fill=full.BLUE)
+    for label, grid in (("photon-like", grids[0]), ("background-like", grids[1])):
         gx0, _, gx1, _ = grid
-        lf = full.font(full.TIMES_ITALIC, 27)
+        lf = full.font(full.TIMES_BOLD, 34)
         tw, _ = full.text_box(draw, label, lf)
-        draw.text((gx0 + (gx1 - gx0 - tw) / 2, y0 + 474), label, font=lf, fill=full.MUTED)
-    logic = (x0 + 54, y0 + 618, x1 - 54, y0 + 738)
+        draw.text((gx0 + (gx1 - gx0 - tw) / 2, y0 + SYNTH_CAPTION_Y), label, font=lf, fill=full.BLUE if label == "photon-like" else full.MUTED)
+    draw_strip_ratio_key(draw, (x0 + 54, y0, x1 - 54, y0 + 1), y=y0 + 548, size=25)
+    logic = (x0 + 54, y0 + SYNTH_LOGIC_Y0, x1 - 54, y0 + SYNTH_LOGIC_Y1)
     draw.rounded_rectangle(logic, radius=10, fill=(249, 251, 253, 255), outline=(219, 227, 236, 255), width=2)
-    draw_e3x2_e3x5_eq(draw, (logic[0] + 28, logic[1] + 36), 32)
+    eq_size = 38
+    eq_text_w = full.text_box(draw, "E3x2 / E3x5 = narrow-strip share", full.font(full.TIMES, eq_size))[0]
+    draw_e3x2_e3x5_eq(draw, (logic[0] + max(28, ((logic[2] - logic[0]) - eq_text_w) // 2), logic[1] + 34), eq_size)
     if show_takeaway:
-        summary = (x0 + 54, y0 + 800, x1 - 54, y0 + 910)
-        draw.rounded_rectangle(summary, radius=10, fill=(242, 248, 253, 255), outline=(197, 220, 239, 255), width=2)
-        draw_wrapped_vcenter(
+        summary = (x0 + 42, y0 + SYNTH_TAKEAWAY_Y0, x1 - 42, y0 + SYNTH_TAKEAWAY_Y1)
+        draw_photon_like_takeaway(
             draw,
-            "Photon-like: little elongation or splitting in the local region.",
-            (summary[0] + 30, summary[1] + 16, summary[2] - 30, summary[3] - 16),
-            full.font(full.TIMES_ITALIC, 31),
-            fill=full.BLUE,
+            summary,
+            2,
+            "little elongation or splitting in the local region.",
+            font_size=36,
             line_gap=7,
         )
 
@@ -920,10 +1272,10 @@ def draw_stretch_summary_card(img: Image.Image, box: tuple[int, int, int, int], 
 def draw_clean_full_synthesis() -> Image.Image:
     img = new_base(
         2,
-        subtitle="A photon-like EMCal cluster has a concentrated core, narrow surrounding energy, and little evidence of elongation or splitting.",
+        subtitle="Together, these checks separate compact photon-like deposits from broader or split backgrounds.",
     )
-    panel_top = 324
-    panel_bottom = 1248
+    panel_top = EXPAND_PANEL_TOP
+    panel_bottom = EXPAND_PANEL_BOTTOM
     gap = 38
     panel_w = (W - 2 * 132 - 2 * gap) // 3
     boxes = [
@@ -943,15 +1295,15 @@ def variant_e_expand_collapse(frame: int) -> Image.Image:
         return draw_clean_full_synthesis()
 
     subtitle = [
-        "Start with one readable shower-shape question: is the energy concentrated in the local core?",
-        "Keep the core check as context, then add the seed-excluded shoulder-width question.",
+        "Start with one local question: is the energy concentrated in the core?",
+        "Keep the core check as context, then test whether the surrounding energy stays narrow.",
     ][frame]
     img = new_base(frame, subtitle=subtitle)
     if frame == 0:
-        draw_large_core_focus_panel(img, (132, 324, W - 132, 1248))
+        draw_large_core_focus_panel(img, (132, EXPAND_PANEL_TOP, W - 132, EXPAND_PANEL_BOTTOM))
     else:
-        draw_core_summary_card(img, (132, 324, 885, 1248))
-        draw_large_shoulders_panel(img, (935, 324, W - 132, 1248))
+        draw_core_summary_card(img, (132, EXPAND_PANEL_TOP, 885, EXPAND_PANEL_BOTTOM))
+        draw_large_shoulders_panel(img, (935, EXPAND_PANEL_TOP, W - 132, EXPAND_PANEL_BOTTOM))
     full.draw_hp2026_identity_footer(img)
     return img.convert("RGB")
 

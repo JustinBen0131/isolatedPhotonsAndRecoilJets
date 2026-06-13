@@ -29,6 +29,7 @@ AGENTS.md
 CLAUDE.md
 .claude/
 agent_context/
+agent_context/local/model_routing/
 codex_notes/
 scripts/os/
 scripts/codex*.py

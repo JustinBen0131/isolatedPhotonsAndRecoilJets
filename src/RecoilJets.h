@@ -64,6 +64,7 @@
 #include <iomanip>
 #include <limits>
 #include <map>
+#include <set>
 #include <sstream>
 #include <string>
 #include <tuple>
@@ -80,6 +81,7 @@ using HistMap = std::map<std::string, TObject*>;
 class CentralityInfo;
 class Gl1Packet;
 class EventHeader;
+class MbdOut;
 class PHG4TruthInfoContainer;
 class PHG4Particle;
 class PHG4VtxPoint;
@@ -198,6 +200,7 @@ public:
       double et3            = std::numeric_limits<double>::quiet_NaN();
       double et4            = std::numeric_limits<double>::quiet_NaN();
       double e11_over_e33   = 0.0;
+      double e17_over_e77   = std::numeric_limits<double>::quiet_NaN();
       double e32_over_e35   = 0.0;
       double e11_over_e22   = std::numeric_limits<double>::quiet_NaN();
       double e11_over_e13   = std::numeric_limits<double>::quiet_NaN();
@@ -213,6 +216,7 @@ public:
       double w32            = std::numeric_limits<double>::quiet_NaN();
       double w52            = std::numeric_limits<double>::quiet_NaN();
       double w72            = std::numeric_limits<double>::quiet_NaN();
+      double mean_time      = std::numeric_limits<double>::quiet_NaN();
       double npb_score      = std::numeric_limits<double>::quiet_NaN();
       double tight_bdt_score = std::numeric_limits<double>::quiet_NaN();
     };
@@ -861,6 +865,32 @@ private:
                         const std::string& tagKey,
                         int ptIdx, int centIdx,
                         HistViewScope scope = HistViewScope::IsoView);
+  TH1F* getOrBookPPG12TableQA1DHist(const std::string& trig,
+                                    const std::string& varKey,
+                                    const std::string& ptToken,
+                                    const std::string& centToken,
+                                    int cutIdx);
+  TH2F* getOrBookPPG12TableQAHist(const std::string& trig,
+                                  const std::string& varKey,
+                                  const std::string& ptToken,
+                                  const std::string& centToken,
+                                  int cutIdx);
+  void bookPPG12TableQASchema(const std::vector<std::string>& activeTrig);
+  void fillPPG12TableQA(const std::vector<std::string>& activeTrig,
+                        const SSVars& v,
+                        double eisoEt,
+                        int centIdx,
+                        int cutIdx,
+                        double rowWeight = 1.0);
+  double ppg12TableQABDTScore(const SSVars& v) const;
+  bool isPPG12TableQADataNPBTaggedCluster(const SSVars& v,
+                                          double phi,
+                                          double& clusterMbdDeltaT,
+                                          double& mbdTime,
+                                          bool& hasAwayJet,
+                                          bool requireTaggingEnabled = true) const;
+  void loadPPG12TableQAMbdT0Corrections(const std::string& path);
+  double ppg12TableQAMbdT0OffsetForRun(int runNumber) const;
   TH1F* getOrBookBDTScoreHist(const std::string& trig,
                               const std::string& base,
                               int ptIdx, int centIdx);
@@ -1261,6 +1291,7 @@ private:
   RawClusterContainer* m_photons           = nullptr;
   RawClusterContainer* m_photons_npb       = nullptr;
   RawClusterContainer* m_photons_tightbdt  = nullptr;
+  MbdOut* m_mbdout                         = nullptr;
 
   // Calo tower bundles (node cache)
   struct CaloBundle
@@ -1379,6 +1410,17 @@ private:
   long long m_ppPhotonIDTrainingTreeEntries = 0;
   TTree* m_ppPhotonIDTrainingTree = nullptr;
   std::string m_ppPhotonIDSourceRole = "auto";  // auto, signal, background, all
+
+  bool m_ppg12TableQAEnabled = false;
+  bool m_ppg12TableQANPBDataTaggingEnabled = false;
+  double m_ppg12TableQANPBTagTimeSampleNs = 17.6;
+  double m_ppg12TableQANPBDeltaTCut = -5.0;
+  double m_ppg12TableQANPBWetaMin = 0.4;
+  double m_ppg12TableQANPBAwayJetPtMin = 5.0;
+  double m_ppg12TableQANPBAwayJetDPhiMin = 1.5707963267948966;
+  std::string m_ppg12TableQAMbdT0CorrectionFile;
+  std::map<int, double> m_ppg12TableQAMbdT0Correction;
+  std::set<std::string> m_ppg12TableQASchemaBookedTriggers;
 
   int m_bdtTrain_run = 0;
   long long m_bdtTrain_evt = 0;
