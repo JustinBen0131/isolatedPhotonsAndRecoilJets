@@ -32,6 +32,7 @@ PLOTTER_PATH = REPO_ROOT / "scripts/plotting/pp_currentian/make_the42_ppg12_tabl
 PPG12_IAN_PAGE19 = IAN_DIR / "ppg12_ian_page19_300dpi.png"
 PPG12_E11_REF = REF_DIR / "ppg12_fig13_e11_to_e33_clean.png"
 PPG12_BDT_REF = REF_DIR / "ppg12_fig13_bdt_clean.png"
+PPG12_IAN_LABEL = "PPG12 IAN v4 (May 21, 2026)"
 
 
 def load_plotter():
@@ -142,10 +143,12 @@ def clean_the42_panel(var: str, out: Path) -> dict:
     plotter.draw_shape(ax, sig, label="Signal MC", color="red", linewidth=2.0)
     plotter.draw_shape(ax, inc, label="Inclusive MC", color="blue", linewidth=2.0)
     plotter.draw_shape(ax, npb, label="NPB-tagged data", color="#238b1e", linewidth=2.0)
-    plotter.add_panel_annotation(ax, table, chi2)
+    plotter.add_panel_annotation(ax, table, chi2, fontsize=14.5, linespacing=1.08, include_chi2=False)
     ax.legend(loc="upper right", frameon=False, fontsize=15, handlelength=1.9)
     ax.set_xlim(*xlim)
     ax.set_ylim(bottom=0)
+    ymin, ymax = ax.get_ylim()
+    ax.set_ylim(ymin, ymax * 1.10)
     ax.tick_params(axis="both", labelsize=15, direction="in", top=True, right=True)
     ax.set_xlabel(var, fontsize=18)
     ax.set_ylabel("normalized counts", fontsize=18)
@@ -156,8 +159,10 @@ def clean_the42_panel(var: str, out: Path) -> dict:
     return {"png": str(out), "var": var, "chi2": chi2, "npb_scale": npb_scale}
 
 
-def fit_plot(path: Path, size: tuple[int, int]) -> Image.Image:
-    img = crop_whitespace(Image.open(path).convert("RGB"), pad=8)
+def fit_plot(path: Path, size: tuple[int, int], *, crop: bool = True, pad: int = 8) -> Image.Image:
+    img = Image.open(path).convert("RGB")
+    if crop:
+        img = crop_whitespace(img, pad=pad)
     return ImageOps.contain(img, size, method=Image.Resampling.LANCZOS)
 
 
@@ -203,16 +208,70 @@ def draw_text_box(
     ]
 
 
+def draw_arrow_bullets(
+    draw: ImageDraw.ImageDraw,
+    *,
+    xy: tuple[int, int],
+    bullets: list[str],
+    max_width: int,
+    font_px: int = 40,
+) -> list[dict]:
+    x, y = xy
+    body_f = font(font_px)
+    nodes: list[dict] = []
+    line_gap = 12
+    bullet_gap = 20
+    arrow_w = 24
+    for idx, text in enumerate(bullets):
+        words = text.split()
+        lines: list[str] = []
+        current = ""
+        for word in words:
+            trial = word if not current else f"{current} {word}"
+            if draw.textlength(trial, font=body_f) <= max_width - 58:
+                current = trial
+            else:
+                if current:
+                    lines.append(current)
+                current = word
+        if current:
+            lines.append(current)
+
+        arrow_y = y + 14
+        draw.polygon(
+            [(x, arrow_y), (x + arrow_w, arrow_y + 12), (x, arrow_y + 24)],
+            fill="#2468a8",
+        )
+        text_x = x + 42
+        top_y = y
+        for line in lines:
+            draw.text((text_x, y), line, font=body_f, fill="#172033")
+            y += font_px + line_gap
+        bbox = (x, top_y, x + max_width, y - line_gap)
+        nodes.append({
+            "kind": "text",
+            "name": f"arrow bullet {idx + 1}",
+            "role": "audience",
+            "text": text,
+            "bbox": list(bbox),
+            "font_px": font_px,
+            "title_axis_align": "left",
+        })
+        y += bullet_gap
+    return nodes
+
+
 def compose_slide(
     *,
     slug: str,
     title: str,
     reference_plot: Path,
     output_plot: Path,
-    interpretation: str,
+    bullets: list[str],
+    speaker_readout: str,
     manifest_extra: dict,
 ) -> dict:
-    slide = Image.new("RGB", (SLIDE_WIDTH_PX, SLIDE_HEIGHT_PX), "#f5f7fb")
+    slide = Image.new("RGB", (SLIDE_WIDTH_PX, SLIDE_HEIGHT_PX), "white")
     draw = ImageDraw.Draw(slide)
     nodes: list[dict] = []
     title_f = font(68, bold=True)
@@ -220,61 +279,27 @@ def compose_slide(
     draw.text(title_xy, title, font=title_f, fill="#111827")
     title_box = text_bbox(draw, title_xy, title, title_f)
     nodes.append({"kind": "text", "name": "title", "role": "title", "text": title, "bbox": list(title_box), "font_px": 68, "title_anchor": True})
-    draw.rounded_rectangle((82, 126, 2480, 137), radius=5, fill="#2468a8")
-    draw_rich_sphenix(draw, (2125, 52), 30, (35, 43, 58))
 
-    nodes.extend(draw_text_box(
-        draw,
-        (82, 154, 1222, 326),
-        fill="#f1f3f6",
-        outline="#c2c8d2",
-        title="PPG12 IAN v4 reference",
-        body="Direct Figure 13 crop for p+p 22-28 GeV, no NPB cut, with NPB-tagged data as the control overlay.",
-        title_color="#263040",
-        body_color="#263040",
-    ))
-    nodes.extend(draw_text_box(
-        draw,
-        (1338, 154, 2480, 326),
-        fill="#eef6ff",
-        outline="#b9d2ee",
-        title="THE-42 repaired output",
-        body="Same bin and stage after the inclusive-MC repair, using the sample-level jet8-40 cache with no second stitch weight.",
-        title_color="#123c69",
-        body_color="#123c69",
-    ))
+    nodes.extend(draw_arrow_bullets(draw, xy=(82, 164), bullets=bullets, max_width=2150, font_px=40))
 
-    compare_f = font(38, bold=True)
-    compare = "Readout target: class ordering and shape hierarchy, not bin-by-bin equality."
-    compare_xy = (82, 346)
-    draw.text(compare_xy, compare, font=compare_f, fill="#172033")
-    nodes.append({"kind": "text", "name": "readout target", "role": "audience", "text": compare, "bbox": list(text_bbox(draw, compare_xy, compare, compare_f)), "font_px": 38, "title_axis_align": "left", "colon_style_exception": True})
-
-    plot_top, plot_bottom = 392, 1320
+    plot_top, plot_bottom = 330, 1360
     left_frame = (82, plot_top, 1222, plot_bottom)
     right_frame = (1338, plot_top, 2480, plot_bottom)
-    for box, label, accent, path, frame_fill, frame_outline in [
-        (left_frame, "IAN reference", "#525866", reference_plot, "#fbfbfc", "#c3cad5"),
-        (right_frame, "THE-42 repaired output", "#2468a8", output_plot, "#fbfdff", "#a8c8e8"),
+    for box, label, accent, path, frame_fill, frame_outline, crop_plot in [
+        (left_frame, "IAN reference, May 21, 2026", "#525866", reference_plot, "#ffffff", "#c3cad5", True),
+        (right_frame, "This analysis base pp output", "#2468a8", output_plot, "#ffffff", "#a8c8e8", False),
     ]:
         x0, y0, x1, y1 = box
         draw.rounded_rectangle(box, radius=16, fill=frame_fill, outline=frame_outline, width=3)
-        label_f = font(34, bold=True)
-        label_w = int(draw.textlength(label, font=label_f)) + 56
-        draw.rounded_rectangle((x0 + 22, y0 + 18, x0 + 22 + label_w, y0 + 62), radius=10, fill=accent)
-        draw.text((x0 + 44, y0 + 22), label, font=label_f, fill="white")
-        fitted = fit_plot(path, (x1 - x0 - 52, y1 - y0 - 94))
+        label_f = font(45, bold=True)
+        label_w = min(x1 - x0 - 44, int(draw.textlength(label, font=label_f)) + 64)
+        draw.rounded_rectangle((x0 + 22, y0 + 16, x0 + 22 + label_w, y0 + 74), radius=10, fill=accent)
+        draw.text((x0 + 50, y0 + 20), label, font=label_f, fill="white")
+        fitted = fit_plot(path, (x1 - x0 - 80, y1 - y0 - 116), crop=crop_plot, pad=18)
         px = x0 + (x1 - x0 - fitted.size[0]) // 2
-        py = y0 + 78 + (y1 - y0 - 94 - fitted.size[1]) // 2
+        py = y0 + 94 + (y1 - y0 - 116 - fitted.size[1]) // 2
         slide.paste(fitted, (px, py))
         nodes.append({"kind": "box", "name": f"{label} plot frame", "bbox": [x0, y0, x1, y1], **({"title_axis_align": "left"} if x0 == 82 else {})})
-
-    interp_box = (82, 1342, 2480, 1408)
-    draw.rounded_rectangle(interp_box, radius=12, fill="#fff7e8", outline="#e7c36a", width=2)
-    interp_f = font(35, bold=True)
-    interp_xy = (interp_box[0] + 26, interp_box[1] + 15)
-    draw.text(interp_xy, interpretation, font=interp_f, fill="#543f02")
-    nodes.append({"kind": "text", "name": "interpretation", "role": "audience", "text": interpretation, "bbox": list(text_bbox(draw, interp_xy, interpretation, interp_f)), "font_px": 37, "colon_style_exception": True})
 
     out_png = OUT_DIR / f"{slug}.png"
     slide.save(out_png)
@@ -286,10 +311,10 @@ def compose_slide(
         "\n".join([
             "# Speaker Script",
             "",
-            f"This slide compares the PPG12 reference panel to the THE-42 macro-matched {manifest_extra['variable_label']} output.",
-            "The left panel is cropped directly from PPG12 IAN v4 Figure 13. The right panel is regenerated from the THE-42 table-QA merged outputs with the corrected sample-level inclusive cache.",
-            "The intended readout is ordering and hierarchy, not bin-by-bin equality, because the PPG12 reference and THE-42 output use different BDT/configuration versions.",
-            interpretation,
+            f"This slide compares the {PPG12_IAN_LABEL} reference panel to the repaired RecoilJets {manifest_extra['variable_label']} output.",
+            bullets[0],
+            bullets[1],
+            speaker_readout,
             "",
         ])
     )
@@ -301,7 +326,10 @@ def compose_slide(
         "reference_plot": str(reference_plot),
         "output_plot": str(output_plot),
         "ppg12_ian_page": str(PPG12_IAN_PAGE19),
+        "ppg12_ian_label": PPG12_IAN_LABEL,
         "inclusive_cache": str(INCLUSIVE_CACHE),
+        "slide_bullets": bullets,
+        "speaker_readout": speaker_readout,
         **manifest_extra,
     }
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
@@ -318,18 +346,26 @@ def make_slides() -> list[dict]:
     manifests = [
         compose_slide(
             slug="the42_ppg12_macro_match_e11_slide",
-            title="E11/E33 pp QA: repaired THE-42 output matches PPG12 ordering",
+            title="E11/E33 pp QA against PPG12 IAN v4",
             reference_plot=PPG12_E11_REF,
             output_plot=e11_out,
-            interpretation="After the inclusive-MC repair, the hierarchy is coherent: control low, inclusive broad, signal high.",
+            bullets=[
+                f"Shows the {PPG12_IAN_LABEL} reference and repaired pp output for 22 < E_T < 28 GeV, no NPB cut.",
+                "The repaired output recovers the same class hierarchy with NPB control low, inclusive broad, signal high.",
+            ],
+            speaker_readout="The comparison is meant as a qualitative contract check: the repaired inclusive route now gives the expected PPG12 ordering.",
             manifest_extra={"variable": "e11_to_e33", "variable_label": "E11/E33", "the42_panel": e11_meta},
         ),
         compose_slide(
             slug="the42_ppg12_macro_match_bdt_slide",
-            title="BDT-score pp QA: repaired THE-42 output matches PPG12 ordering",
+            title="BDT-score pp QA against PPG12 IAN v4",
             reference_plot=PPG12_BDT_REF,
             output_plot=bdt_out,
-            interpretation="Score ordering follows PPG12: control/background concentrated at low BDT, signal high.",
+            bullets=[
+                f"Shows the {PPG12_IAN_LABEL} reference and repaired pp output for the same Figure 13 BDT-score panel.",
+                "The score hierarchy matches with NPB-tagged data and inclusive MC low, while signal MC concentrates high.",
+            ],
+            speaker_readout="The readout is the same ordering and shape logic as PPG12, not a claim of identical bin-by-bin yields.",
             manifest_extra={"variable": "bdt", "variable_label": "BDT-score", "the42_panel": bdt_meta},
         ),
     ]

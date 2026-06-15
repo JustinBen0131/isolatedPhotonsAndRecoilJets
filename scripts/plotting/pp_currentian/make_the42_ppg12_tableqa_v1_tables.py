@@ -363,7 +363,15 @@ def npb_tail_scale(files: dict[str, ROOT.TFile], table: dict) -> float:
     return float((all_tail / all_tot) / (npb_tail / npb_tot))
 
 
-def add_panel_annotation(ax, table: dict, chi2: dict | None) -> None:
+def add_panel_annotation(
+    ax,
+    table: dict,
+    chi2: dict | None,
+    *,
+    fontsize: float = 6.6,
+    linespacing: float = 1.05,
+    include_chi2: bool = True,
+) -> None:
     cut_text = {
         "cut0": "w/o nbkg cut",
         "cut1": "w/ nbkg cut",
@@ -375,7 +383,7 @@ def add_panel_annotation(ax, table: dict, chi2: dict | None) -> None:
         r"$|\eta^\gamma|<0.7$",
         f"{table['pt_label']},{cut_text}",
     ]
-    if chi2 is not None:
+    if include_chi2 and chi2 is not None:
         lines.extend([
             rf"$\chi^2$/ndf = {chi2['chi2']:.1f}/{chi2['ndf']} = {chi2['chi2_ndf']:.2f}",
             f"p-value = {chi2['pvalue']:.4f}",
@@ -387,8 +395,8 @@ def add_panel_annotation(ax, table: dict, chi2: dict | None) -> None:
         transform=ax.transAxes,
         ha="left",
         va="top",
-        fontsize=6.6,
-        linespacing=1.05,
+        fontsize=fontsize,
+        linespacing=linespacing,
     )
 
 

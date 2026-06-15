@@ -2880,3 +2880,23 @@ entries:
       []
     transfer_mappings:
       []
+  - id: desktop_model_usage_report
+    canonical_path: "scripts/os/delegation/desktop_model_usage_report.py"
+    category: "os_control_plane"
+    domain: "os/delegation"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: overnight_findings_check
+    canonical_path: "scripts/os/claude/overnight_findings_check.py"
+    category: "os_control_plane"
+    domain: "os/claude"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []

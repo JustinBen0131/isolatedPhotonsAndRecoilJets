@@ -17,6 +17,7 @@ Usage:
   ./scripts/sftp_get_recoiljets_outputs.sh stitchDiagnosticsCompact <remote-dir> <local-dir> <file...>
   ./scripts/sftp_get_recoiljets_outputs.sh auauBDTMLPStackPromotion <remote-run-dir>
   ./scripts/sftp_get_recoiljets_outputs.sh freshOOFStackCompact <remote-run-dir> [local-dir]
+  ./scripts/sftp_get_recoiljets_outputs.sh freshOOFStackDAGCompact <remote-run-dir> [local-dir]
   ./scripts/sftp_get_recoiljets_outputs.sh ppPhotonMLCompact <remote-dir> <local-dir> <file...>
   ./scripts/sftp_get_recoiljets_outputs.sh ppPhotonMLValidation <remote-validation-dir> [local-dir] [file ...]
   ./scripts/sftp_get_recoiljets_outputs.sh selectedRootFiles <remote-dir> <local-dir> <relative-root-file...>
@@ -79,6 +80,10 @@ directory into:
 
 freshOOFStackCompact pulls only compact CSV/JSON artifacts from a fresh
 pp/AuAu BDT+MLP OOF stack run under the SDCC mlp_models area into:
+  dataOutput/fresh_pp_auau_oof_stack/<run-name>
+
+freshOOFStackDAGCompact pulls the compact CSV/JSON plus locked-test NPZ
+artifacts from a clean-slate staged DAG run under the SDCC mlp_models area into:
   dataOutput/fresh_pp_auau_oof_stack/<run-name>
 
 ppPhotonMLValidation pulls selected compact validation artifacts from an
@@ -1085,6 +1090,12 @@ download_auau_ml_diagnostic_compact() {
       ;;
     /sphenix/u/patsfan753/thesisAnalysis/bdt_models/THE38_tree_depth_capacity_*_d[0-9])
       ;;
+    /gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE32_lowcalo_upstreamcut_*)
+      ;;
+    /sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE32_lowcalo_upstreamcut_*)
+      ;;
+    /sphenix/u/patsfan753/scratch/thesisAnalysis/bdt_models/THE32_lowcalo_upstreamcut_*)
+      ;;
     *)
       echo "[ERROR] Refusing non-compact AuAu ML diagnostic path:" >&2
       echo "  ${remote_dir}" >&2
@@ -1340,6 +1351,9 @@ download_selected_root_files() {
     /sphenix/tg/tg01/bulk/jbennett/thesisAna/recoiljets/*|\
     /sphenix/tg/tg01/bulk/jbennett/thesisAnaSmoke/*|\
     /sphenix/u/patsfan753/scratch/thesisAnalysis/runs/recoiljets/current/*)
+      ;;
+    /sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE32_lowcalo_upstreamcut_*|\
+    /sphenix/u/patsfan753/scratch/thesisAnalysis/bdt_models/THE32_lowcalo_upstreamcut_*)
       ;;
     *)
       echo "[ERROR] Refusing selected ROOT pull from non-RecoilJets output path:" >&2
@@ -2106,6 +2120,156 @@ download_fresh_oof_stack_compact() {
   fi
 }
 
+download_fresh_oof_stack_dag_compact() {
+  local remote_dir="${1:-}"
+  local local_dir="${2:-}"
+  local run_name batch listfile
+  local files=(
+    campaign_manifest.json
+    partition_qa.json
+    feature_contract.json
+    base_model_artifacts.json
+    stack_model_artifacts.json
+    model_metrics.csv
+    model_metrics.json
+    stratified_metrics.csv
+    overlay_histograms.csv
+    score_correlations.json
+    leakage_qa.json
+    locked_test_score_table.npz
+  )
+  local rel_paths=()
+  if [[ -z "$remote_dir" ]]; then
+    echo "[ERROR] freshOOFStackDAGCompact requires the remote clean-slate DAG run directory." >&2
+    echo "[ERROR] Example:" >&2
+    echo "  ./scripts/sftp_get_recoiljets_outputs.sh freshOOFStackDAGCompact /gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/fresh_pp_auau_bdt_mlp_oof_stack_dag_YYYYMMDD_HHMM_clean_dag" >&2
+    exit 2
+  fi
+  remote_dir="${remote_dir%/}"
+  run_name="${remote_dir##*/}"
+
+  case "$remote_dir" in
+    /gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/mlp_models/fresh_pp_auau_bdt_mlp_oof_stack_dag_*) ;;
+    *)
+      echo "[ERROR] Refusing to pull non-fresh-stack-DAG path:" >&2
+      echo "  ${remote_dir}" >&2
+      echo "[ERROR] Expected a fresh_pp_auau_bdt_mlp_oof_stack_dag_* run under the SDCC mlp_models area." >&2
+      exit 2
+      ;;
+  esac
+  validate_remote_path "$remote_dir" "fresh OOF stack DAG remote directory"
+
+  if [[ -z "$local_dir" ]]; then
+    local_dir="${LOCAL_BASE}/dataOutput/fresh_pp_auau_oof_stack/${run_name}"
+  elif [[ "$local_dir" != /* ]]; then
+    local_dir="${LOCAL_BASE}/${local_dir}"
+  fi
+
+  local lane domain f
+  for lane in current_oof simple_holdout; do
+    for domain in pp auau; do
+      mkdir -p "$local_dir/$lane/$domain"
+      for f in "${files[@]}"; do
+        rel_paths+=("$lane/$domain/$f")
+      done
+    done
+  done
+
+  if [[ "${SFTP_GET_NESTED_SSH_TAR:-0}" == "1" ]]; then
+    local gateway="${SFTP_GET_NESTED_SSH_GATEWAY:-patsfan753@ssh.sdcc.bnl.gov}"
+    local target="${SFTP_GET_NESTED_SSH_TARGET:-sphnxuser05.sdcc.bnl.gov}"
+    local remote_tar_cmd encoded archive
+    listfile="$(make_tmp_file "sftp_get_recoiljets_fresh_oof_stack_dag_files")"
+    encoded="$(make_tmp_file "sftp_get_recoiljets_fresh_oof_stack_dag_payload.b64")"
+    archive="$(make_tmp_file "sftp_get_recoiljets_fresh_oof_stack_dag_payload.tgz")"
+    cleanup_fresh_oof_stack_dag_tar() { rm -f "$listfile" "$encoded" "$archive"; }
+    trap cleanup_fresh_oof_stack_dag_tar EXIT
+    printf '%s\n' "${rel_paths[@]}" > "$listfile"
+    remote_tar_cmd="cd $(printf '%q' "$remote_dir") && printf '__RJ_TAR_BEGIN__\\n' && tar -czf - -T - | base64 && printf '\\n__RJ_TAR_END__\\n'"
+
+    echo
+    echo "Nested SSH gateway      : ${gateway}"
+    echo "Nested SSH target       : ${target}"
+    echo "Fresh OOF DAG remote dir: ${remote_dir}"
+    echo "Local dir               : ${local_dir}"
+    echo
+    echo "This downloads compact CSV/JSON artifacts plus locked_test_score_table.npz via tar over nested SSH; it excludes ROOT and model binaries."
+    echo
+    echo "Relative files:"
+    sed 's/^/  /' "$listfile"
+    echo
+    if ssh -q -o BatchMode=yes "$gateway" \
+        "ssh -q -T -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${target} $(printf '%q' "$remote_tar_cmd")" \
+        < "$listfile" \
+        | awk '
+            BEGIN { seen = 0; done = 0 }
+            /^__RJ_TAR_BEGIN__$/ { seen = 1; next }
+            /^__RJ_TAR_END__$/ { done = 1; exit 0 }
+            seen { print }
+            END { if (!seen || !done) exit 42 }
+          ' > "$encoded" \
+        && base64 -D -i "$encoded" -o "$archive" \
+        && tar -xzf "$archive" -C "$local_dir"; then
+      echo
+      echo "[OK] fresh OOF stack DAG compact download complete."
+      echo "Downloaded into: ${local_dir}"
+      trap - EXIT
+      rm -f "$listfile" "$encoded" "$archive"
+      return 0
+    else
+      status=$?
+      echo
+      echo "[ERROR] nested SSH tar download failed with exit code ${status}." >&2
+      echo "File list was: ${listfile}" >&2
+      exit "$status"
+    fi
+  fi
+
+  batch="$(make_tmp_file "sftp_get_recoiljets_fresh_oof_stack_dag_compact")"
+  cleanup_fresh_oof_stack_dag_compact() { rm -f "$batch"; }
+  trap cleanup_fresh_oof_stack_dag_compact EXIT
+
+  {
+    printf 'lcd %s\n' "$local_dir"
+    for lane in current_oof simple_holdout; do
+      for domain in pp auau; do
+        printf 'lcd %s/%s/%s\n' "$local_dir" "$lane" "$domain"
+        for f in "${files[@]}"; do
+          printf 'get %s/%s/%s/%s\n' "$remote_dir" "$lane" "$domain" "$f"
+        done
+      done
+    done
+  } > "$batch"
+
+  echo
+  echo "Remote host              : ${REMOTE_HOST}"
+  echo "Fresh OOF DAG remote dir : ${remote_dir}"
+  echo "Local dir                : ${local_dir}"
+  echo
+  echo "This downloads compact CSV/JSON artifacts plus locked_test_score_table.npz; it excludes ROOT and model binaries."
+  echo
+  echo "sftp batch commands:"
+  sed 's/^/  /' "$batch"
+  echo
+  if sftp \
+      -oBatchMode=no \
+      -oPreferredAuthentications=publickey,password,keyboard-interactive \
+      -b "$batch" \
+      "$REMOTE_HOST"; then
+    echo
+    echo "[OK] fresh OOF stack DAG compact download complete."
+    echo "Downloaded into: ${local_dir}"
+    trap - EXIT
+    rm -f "$batch"
+  else
+    status=$?
+    echo
+    echo "[ERROR] sftp download failed with exit code ${status}." >&2
+    echo "Batch file was: ${batch}" >&2
+    exit "$status"
+  fi
+}
+
 dataset="${1:-}"
 case "$dataset" in
   -h|--help|help|"")
@@ -2157,6 +2321,11 @@ fi
 
 if [[ "$dataset" == "freshOOFStackCompact" ]]; then
   download_fresh_oof_stack_compact "${2:-}" "${3:-}"
+  exit 0
+fi
+
+if [[ "$dataset" == "freshOOFStackDAGCompact" ]]; then
+  download_fresh_oof_stack_dag_compact "${2:-}" "${3:-}"
   exit 0
 fi
 

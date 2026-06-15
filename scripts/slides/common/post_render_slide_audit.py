@@ -15,6 +15,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from PIL import Image, ImageStat
+
 from slide_defaults import SLIDE_DPI, SLIDE_HEIGHT_PX, SLIDE_WIDTH_PX
 from slide_symmetry_audit import Check, SymmetryAudit, audit_layout_nodes, require_audit_passed
 
@@ -413,6 +415,48 @@ def audit_vertical_margin_balance(audit: SymmetryAudit, nodes: list[dict[str, An
         )
 
 
+def audit_white_slide_backdrop(audit: SymmetryAudit, png: Path, *, allow_nonwhite: bool) -> None:
+    if allow_nonwhite:
+        audit.checks.append(
+            Check(
+                name="main slide backdrop is white",
+                kind="white_backdrop",
+                ok=True,
+                got="explicitly allowed non-white backdrop",
+                want="white canvas unless explicitly allowed",
+            )
+        )
+        return
+
+    img = Image.open(png).convert("RGB")
+    width, height = img.size
+    patch = 36
+    boxes = {
+        "top_left": (0, 0, patch, patch),
+        "top_right": (width - patch, 0, width, patch),
+        "bottom_left": (0, height - patch, patch, height),
+        "bottom_right": (width - patch, height - patch, width, height),
+    }
+    samples: dict[str, list[float]] = {}
+    ok = True
+    for name, box in boxes.items():
+        stat = ImageStat.Stat(img.crop(box))
+        mean = [round(float(v), 2) for v in stat.mean[:3]]
+        samples[name] = mean
+        if any(v < 248.0 for v in mean) or (max(mean) - min(mean) > 5.0):
+            ok = False
+    audit.checks.append(
+        Check(
+            name="main slide backdrop is white",
+            kind="white_backdrop",
+            ok=ok,
+            got=samples,
+            want="corner backdrop patches RGB >= 248 and neutral",
+            details={"sample_patch_px": patch},
+        )
+    )
+
+
 def build_audit(args: argparse.Namespace) -> tuple[SymmetryAudit, Path]:
     png = Path(args.png).expanduser().resolve()
     report_path = Path(args.output).expanduser().resolve() if args.output else png.with_suffix(".slide_audit.json")
@@ -425,6 +469,7 @@ def build_audit(args: argparse.Namespace) -> tuple[SymmetryAudit, Path]:
         ),
     )
     audit.image_size(png, (args.expect_width, args.expect_height))
+    audit_white_slide_backdrop(audit, png, allow_nonwhite=args.allow_nonwhite_backdrop)
 
     if args.layout_nodes:
         layout_path = Path(args.layout_nodes).expanduser().resolve()
@@ -530,6 +575,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--text-center-tolerance-px", type=float, default=10.0)
     parser.add_argument("--repeated-node-tolerance-px", type=float, default=6.0)
     parser.add_argument("--allow-slide-numbers", action="store_true")
+    parser.add_argument("--allow-nonwhite-backdrop", action="store_true")
     parser.add_argument("--require-pass", action="store_true")
     parser.add_argument("--json", action="store_true")
     return parser

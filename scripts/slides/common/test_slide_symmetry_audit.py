@@ -638,6 +638,55 @@ class SlideSymmetryAuditTests(unittest.TestCase):
             failures = [check for check in payload["checks"] if check["kind"] == "vertical_margin_target" and not check["ok"]]
             self.assertEqual(len(failures), 1)
 
+    def test_white_slide_backdrop_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            png = root / "candidate.png"
+            Image.new("RGB", (2560, 1440), "white").save(png)
+            report = root / "audit.json"
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(POST_RENDER),
+                    "--png",
+                    str(png),
+                    "--output",
+                    str(report),
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr + completed.stdout)
+            payload = json.loads(report.read_text(encoding="utf-8"))
+            checks = [check for check in payload["checks"] if check["kind"] == "white_backdrop"]
+            self.assertEqual(len(checks), 1)
+            self.assertTrue(checks[0]["ok"])
+
+    def test_tinted_slide_backdrop_fails_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            png = root / "candidate.png"
+            Image.new("RGB", (2560, 1440), "#f5f7fb").save(png)
+            report = root / "audit.json"
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(POST_RENDER),
+                    "--png",
+                    str(png),
+                    "--output",
+                    str(report),
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(completed.returncode, 0)
+            payload = json.loads(report.read_text(encoding="utf-8"))
+            failures = [check for check in payload["checks"] if check["kind"] == "white_backdrop" and not check["ok"]]
+            self.assertEqual(len(failures), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

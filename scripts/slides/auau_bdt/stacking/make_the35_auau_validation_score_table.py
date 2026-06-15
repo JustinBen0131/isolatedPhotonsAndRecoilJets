@@ -66,6 +66,17 @@ def stack_label(model: str) -> str:
     }.get(model, model.replace("_", " "))
 
 
+def short_stack_label(model: str) -> str:
+    return {
+        "score_only_logistic": "score-only logistic combiner",
+        "score_only_gbm": "score-only GBM combiner",
+        "score_only_mlp": "score-only MLP combiner",
+        "score_context_logistic": "score + context logistic combiner",
+        "score_context_gbm": "score + context GBM combiner",
+        "score_context_mlp": "score + context MLP combiner",
+    }.get(model, model.replace("_", " "))
+
+
 def short_lane_label(lane: str) -> str:
     return {
         "current_oof": "5-fold OOF",
@@ -199,13 +210,24 @@ def render(summary_path: Path, outdir: Path) -> dict:
     summary = loaded["summary"]
     lane = loaded["lane"]
     selected_stack = summary["selected_stack_model"]
-    cent_bins = [(float(lo), float(hi)) for lo, hi in summary["centrality_bins"]]
+    domain_label = summary.get("domain_label") or ("Au+Au" if summary.get("domain") == "auau" else str(summary.get("domain", "validation")).upper())
+    panel_bins = summary.get("panel_bins", summary.get("centrality_bins"))
+    panel_axis = summary.get("panel_axis_label", "centrality")
+    panel_unit = summary.get("panel_axis_unit", "%")
+    cent_bins = [(float(lo), float(hi)) for lo, hi in panel_bins]
     lookup = panel_lookup(lane)
     row_models = ["BDT", "MLP", selected_stack]
     row_specs = [
         ("BDT", "Input BDT", "final trainval BDT score", "same locked-test rows", BDT_EDGE, BDT_FILL),
         ("MLP", "Input MLP", "final trainval MLP score", "same locked-test rows", MLP_EDGE, MLP_FILL),
-        (selected_stack, "Best stack", "score-only GBM combiner", "BDT + MLP score inputs", STACK_EDGE, STACK_FILL),
+        (
+            selected_stack,
+            "Best stack",
+            summary.get("selected_stack_display", short_stack_label(selected_stack)),
+            summary.get("selected_stack_inputs", "BDT + MLP score inputs"),
+            STACK_EDGE,
+            STACK_FILL,
+        ),
     ]
     ymax = max(
         max(max(p["signal_density"]), max(p["background_density"]))
@@ -218,12 +240,15 @@ def render(summary_path: Path, outdir: Path) -> dict:
     fig = plt.figure(figsize=(W / DPI, H / DPI), dpi=DPI)
     fig.set_facecolor("white")
 
-    draw_text(fig, 0.052, 0.966, "Au+Au validation score separation", fontsize=28.5, fontweight="bold")
+    draw_text(fig, 0.052, 0.966, f"{domain_label} validation score separation", fontsize=28.5, fontweight="bold")
     draw_text(
         fig,
         0.052,
         0.890,
-        "Same held-out validation rows in every panel. Panel badges show AUC, median score gap, and WP80 fake rate.",
+        summary.get(
+            "subtitle",
+            "Same held-out validation rows in every panel. Panel badges show AUC, median score gap, and WP80 fake rate.",
+        ),
         fontsize=16.5,
         color="#3f4650",
     )
@@ -237,7 +262,11 @@ def render(summary_path: Path, outdir: Path) -> dict:
     row_h = 0.190
     for i, (lo, hi) in enumerate(cent_bins):
         rounded_box(fig, x0 + i * (w + gap) + w / 2 - 0.033, 0.801, 0.066, 0.032, "#fbfcfe", "#d5d9df", lw=0.8, radius=0.010)
-        draw_text(fig, x0 + i * (w + gap) + w / 2, 0.819, f"{lo:g}-{hi:g}%", fontsize=13.2, fontweight="bold", ha="center", va="center")
+        if panel_unit:
+            bin_label = f"{lo:g}-{hi:g}{panel_unit if panel_unit == '%' else ' ' + panel_unit}"
+        else:
+            bin_label = f"{lo:g}-{hi:g}"
+        draw_text(fig, x0 + i * (w + gap) + w / 2, 0.819, bin_label, fontsize=13.2, fontweight="bold", ha="center", va="center")
 
     for row_index, (model, title, line1, line2, edge, fill) in enumerate(row_specs):
         y = row_y[row_index]
@@ -268,7 +297,7 @@ def render(summary_path: Path, outdir: Path) -> dict:
         fig,
         0.142,
         0.080,
-        "The score-only GBM stack is best by weighted AUC and visibly sharpens the high-score signal peak.",
+        summary.get("readout_text", f"The {short_stack_label(selected_stack)} is best by weighted AUC."),
         fontsize=12.7,
     )
     draw_text(
@@ -280,7 +309,7 @@ def render(summary_path: Path, outdir: Path) -> dict:
         color=STACK_EDGE,
     )
 
-    stem = "auau_validation_bdt_mlp_best_stack_score_table"
+    stem = summary.get("output_stem", f"{summary.get('domain', 'validation')}_validation_bdt_mlp_best_stack_score_table")
     png = outdir / f"{stem}.png"
     fig.savefig(png, dpi=DPI)
     plt.close(fig)
@@ -288,10 +317,12 @@ def render(summary_path: Path, outdir: Path) -> dict:
     csv_path = outdir / f"{stem}.csv"
     write_summary_csv(csv_path, summary, lane)
     manifest = {
-        "schema": "RJ_THE35_AUAU_VALIDATION_SCORE_TABLE_MANIFEST_V1",
+        "schema": "RJ_THE35_VALIDATION_SCORE_TABLE_MANIFEST_V2",
         "png": str(png),
         "summary_json": str(summary_path),
         "summary_csv": str(csv_path),
+        "domain": summary.get("domain"),
+        "domain_label": domain_label,
         "selected_lane": lane["lane"],
         "selected_stack_model": selected_stack,
         "selected_reason": summary["selected_reason"],
@@ -305,9 +336,11 @@ def render(summary_path: Path, outdir: Path) -> dict:
             "MLP": mlp_auc,
             selected_stack: stack_auc,
         },
-        "centrality_bins": summary["centrality_bins"],
+        "panel_axis_label": panel_axis,
+        "panel_axis_unit": panel_unit,
+        "panel_bins": panel_bins,
         "panel_extra_metrics": {
-            "weighted_median_separation": "weighted median(signal score) - weighted median(background score) in each centrality panel",
+            "weighted_median_separation": f"weighted median(signal score) - weighted median(background score) in each {panel_axis} panel",
             "wp80_weighted_background_fake_rate": "background weighted fake rate at per-panel threshold with weighted signal efficiency about 80%",
         },
         "color_convention": "signal red, background blue",
@@ -317,9 +350,9 @@ def render(summary_path: Path, outdir: Path) -> dict:
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     speaker = outdir / f"{stem}.speaker.md"
     speaker.write_text(
-        "This slide compares the final BDT, final MLP, and the best available Au+Au stack on the same clean-DAG locked-test validation rows. "
-        f"The selected stack is the {short_lane_label(lane['lane'])} {stack_label(selected_stack)}, chosen because it has the highest locked-test weighted AUC among the completed Au+Au stack models. "
-        f"The gain over the BDT is small but consistent in the three centrality bins shown: {stack_auc - bdt_auc:+.6f} inclusive weighted AUC.\n"
+        f"This slide compares the final BDT, final MLP, and the best available {domain_label} stack on the same clean-DAG locked-test validation rows. "
+        f"The selected stack is the {short_lane_label(lane['lane'])} {stack_label(selected_stack)}, chosen because it has the highest locked-test weighted AUC among the completed {domain_label} stack models. "
+        f"The gain over the BDT is {stack_auc - bdt_auc:+.6f} inclusive weighted AUC across the {panel_axis} panels shown.\n"
     )
     return {"png": png, "csv": csv_path, "manifest": manifest_path, "speaker": speaker}
 
