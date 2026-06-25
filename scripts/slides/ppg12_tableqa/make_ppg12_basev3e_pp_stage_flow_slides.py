@@ -140,11 +140,15 @@ def draw_arrow_bullets(
     nodes: list[dict] = []
     for idx, text in enumerate(bullets):
         top = y
-        arrow_y = y + 11
-        draw.polygon([(x, arrow_y), (x + 24, arrow_y + 12), (x, arrow_y + 24)], fill="#2468a8")
-        lines = wrap_text(draw, text, fnt, max_width - 54)
+        lines = wrap_text(draw, text, fnt, max_width - 44)
+        first_bbox = text_bbox(draw, (0, 0), lines[0], fnt)
+        first_line_h = first_bbox[3] - first_bbox[1]
+        arrow_h = 28
+        arrow_w = 27
+        arrow_y = y + max(0, (first_line_h - arrow_h) // 2) + 5
+        draw.polygon([(x, arrow_y), (x + arrow_w, arrow_y + arrow_h // 2), (x, arrow_y + arrow_h)], fill="#2468a8")
         for line in lines:
-            draw.text((x + 44, y), line, font=fnt, fill="#172033")
+            draw.text((x + 38, y), line, font=fnt, fill="#172033")
             y += font_px + 8
         nodes.append({
             "kind": "text",
@@ -155,7 +159,7 @@ def draw_arrow_bullets(
             "font_px": font_px,
             "title_axis_align": "left",
         })
-        y += 12
+        y += 28
     return y, nodes
 
 
@@ -270,35 +274,37 @@ def compose_slide(var: str, panel_meta: list[dict]) -> dict:
     bullet_bottom, bullet_nodes = draw_arrow_bullets(
         draw,
         xy=(82, 162),
-        bullets=spec["takeaways"],
+        bullets=spec["takeaways"] + [f"{MODEL_LABEL}, 15 < ET < 35 GeV."],
         max_width=2280,
-        font_px=43,
+        font_px=58,
     )
     nodes.extend(bullet_nodes)
 
-    panel_top = max(328, bullet_bottom + 20)
-    panel_bottom = 1384
-    left = 82
-    gutter = 34
+    panel_top = max(356, bullet_bottom + 8)
+    panel_bottom = 1388
+    left = 58
+    gutter = 22
     panel_w = (SLIDE_WIDTH_PX - 2 * left - 2 * gutter) // 3
-    label_f = font(38, bold=True)
-    small_f = font(26)
+    label_f = font(66, bold=True)
     for idx, meta in enumerate(panel_meta):
         x0 = left + idx * (panel_w + gutter)
         y0 = panel_top
         x1 = x0 + panel_w
         y1 = panel_bottom
-        draw.rounded_rectangle((x0, y0, x1, y1), radius=14, fill="#ffffff", outline="#d0d6df", width=2)
         stage_label = meta["stage_label"]
-        draw.text((x0 + 18, y0 + 15), stage_label, font=label_f, fill="#173b63")
-        draw.text((x0 + 18, y0 + 55), f"{MODEL_LABEL}, 15 < ET < 35 GeV", font=small_f, fill="#4b5563")
-        fitted = fit_plot(Path(meta["png"]), (panel_w - 20, y1 - y0 - 82))
+        label_box = text_bbox(draw, (0, 0), stage_label, label_f)
+        label_w = label_box[2] - label_box[0]
+        label_x = x0 + (panel_w - label_w) // 2
+        label_y = y0 + 8
+        draw.text((label_x, label_y), stage_label, font=label_f, fill="#173b63")
+        plot_top = y0 + 86
+        plot_bottom = y1
+        fitted = fit_plot(Path(meta["png"]), (panel_w, plot_bottom - plot_top))
         px = x0 + (panel_w - fitted.size[0]) // 2
-        py = y0 + 76 + (y1 - y0 - 82 - fitted.size[1]) // 2
-        py = min(py + 44, y1 - fitted.size[1] - 18)
+        py = plot_bottom - fitted.size[1]
         slide.paste(fitted, (px, py))
-        nodes.append({"kind": "box", "name": f"{stage_label} plot frame", "bbox": [x0, y0, x1, y1], **({"title_axis_align": "left"} if idx == 0 else {})})
-        nodes.append({"kind": "text", "name": f"{stage_label} panel label", "role": "audience", "text": stage_label, "bbox": list(text_bbox(draw, (x0 + 18, y0 + 15), stage_label, label_f)), "font_px": 38})
+        nodes.append({"kind": "box", "name": f"{stage_label} plot area", "bbox": [x0, plot_top, x1, y1]})
+        nodes.append({"kind": "text", "name": f"{stage_label} panel label", "role": "audience", "text": stage_label, "bbox": list(text_bbox(draw, (label_x, label_y), stage_label, label_f)), "font_px": 66})
 
     slug = f"ppg12_basev3e_pp_stage_flow_{spec['slug']}_slide"
     out_png = OUT_DIR / f"{slug}.png"

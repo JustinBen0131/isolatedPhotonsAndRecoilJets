@@ -323,6 +323,19 @@ final_root_is_good() {
   [[ -s "$f" ]]
 }
 
+sim_sample_tag() {
+  local sample="$1"
+  case "$sample" in
+    run28_photonjet5)          printf '%s\n' "photonjet5" ;;
+    run28_photonjet10)         printf '%s\n' "photonjet10" ;;
+    run28_photonjet20)         printf '%s\n' "photonjet20" ;;
+    run28_photonjet5_double)   printf '%s\n' "photonjet5_double" ;;
+    run28_photonjet10_double)  printf '%s\n' "photonjet10_double" ;;
+    run28_photonjet20_double)  printf '%s\n' "photonjet20_double" ;;
+    *)                         printf '%s\n' "${sample##*_}" ;;
+  esac
+}
+
 cleanup_current_tmp_dir_after_local_final() {
   [[ -n "${TMP_DIR:-}" ]] || return 0
 
@@ -2257,6 +2270,17 @@ sim_stitch_plan_for_dataset() {
   local token="$1"
   case "$token" in
     isSim|sim|SIM)
+      if [[ "${RJ_SIM_SIGNAL_SAMPLE_SET:-}" == "ppg12_double" || "${RJ_SIM_SIGNAL_SAMPLE_SET:-}" == "double" ]]; then
+        SIM_STITCH_COMBO_DIR="photonJet5and10and20doublemerged_SIM"
+        SIM_STITCH_OUTPUT_FILE="RecoilJets_photonjet5plus10plus20_double_MERGED.root"
+        SIM_STITCH_TOPDIR="SIM"
+        SIM_STITCH_ROWS=(
+          "photonJet5Double|146359.3|photonjet5_double"
+          "photonJet10Double|6944.675|photonjet10_double"
+          "photonJet20Double|130.4461|photonjet20_double"
+        )
+        return 0
+      fi
       SIM_STITCH_COMBO_DIR="photonJet5and10and20merged_SIM"
       SIM_STITCH_OUTPUT_FILE="RecoilJets_photonjet5plus10plus20_MERGED.root"
       SIM_STITCH_TOPDIR="SIM"
@@ -2709,7 +2733,13 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|isSimInclusive|issiminclusiv
       isSimMB|simmb|SIMMB)       samples=( "run28_detroit" ) ;;
       isSimEmbedded|issimembedded|simembedded|SIMEMBEDDED) samples=( "run28_embeddedPhoton12" "run28_embeddedPhoton20" ) ;;
       isSimEmbeddedInclusive|issimembeddedinclusive|simembeddedinclusive|SIMEMBEDDEDINCLUSIVE) mapfile -t samples < <(simembeddedinclusive_sample_list) ;;
-      *)                         samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
+      *)
+        if [[ "${RJ_SIM_SIGNAL_SAMPLE_SET:-}" == "ppg12_double" || "${RJ_SIM_SIGNAL_SAMPLE_SET:-}" == "double" ]]; then
+          samples=( "run28_photonjet5_double" "run28_photonjet10_double" "run28_photonjet20_double" )
+        else
+          samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" )
+        fi
+        ;;
     esac
   else
     samples=( "${SIM_SAMPLE}" )
@@ -2740,7 +2770,7 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|isSimInclusive|issiminclusiv
   if [[ "$SIM_ACTION" == "finalStitch" ]]; then
     mapfile -t _ALL_SIM_CFG_TAGS < <(
       find "$FLAT_OUT_DIR" -maxdepth 1 -type f -name "${FINAL_PREFIX}_*_ALL_*.root" -printf '%f\n' \
-        | sed -E "s/^${FINAL_PREFIX}_[^_]+_ALL_//; s/[.]root$//" \
+        | sed -E "s/^${FINAL_PREFIX}_.+_ALL_//; s/[.]root$//" \
         | sort -Vu
     )
   else
@@ -2781,7 +2811,7 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|isSimInclusive|issiminclusiv
     # finalStitch consumes secondRound sample-level ROOTs under output/<simTag>.
     _keep_cfg=0
     for _samp in "${samples[@]}"; do
-      _sample_tag="${_samp##*_}"
+      _sample_tag="$(sim_sample_tag "$_samp")"
       case "$SIM_ACTION" in
         firstRound)
           [[ -d "${_discover_base}/${_cfg}/${_samp}" ]] || continue
@@ -2930,7 +2960,7 @@ EOT
 
     for samp in "${samples[@]}"; do
       SIM_SAMPLE="$samp"
-      SIM_TAG="${SIM_SAMPLE##*_}"
+      SIM_TAG="$(sim_sample_tag "$SIM_SAMPLE")"
 
       if [[ "$SIM_ACTION" == "firstRound" ]]; then
         SIM_INPUT_DIR="${COMBO_INPUT_BASE}/${SIM_SAMPLE}"

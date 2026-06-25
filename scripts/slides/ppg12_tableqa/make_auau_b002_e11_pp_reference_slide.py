@@ -284,7 +284,7 @@ def compose_slide(panel_meta: dict, auau_meta: dict) -> dict:
     bullet_f = font(38)
     bullets = [
         "Rows compare AuAu centrality bins to the validated pp table-QA reference using the same E11/E33 stage flow.",
-        "Interim view uses complete b002 data runs only; regenerate after the full AuAu campaign drains and merges.",
+        "AuAu rows use completed-run data histograms; pp reference row uses the recovered complete pp data merge.",
     ]
     y = 162
     for i, bullet in enumerate(bullets):
@@ -338,7 +338,7 @@ def compose_slide(panel_meta: dict, auau_meta: dict) -> dict:
     note = "Rightmost column is the current tight-ID shape target: AuAu data moves into the same high-E11/E33 photon-like region seen in the validated pp reference."
     note_f = font(37)
     draw.text((82, strip_y + 14), note, font=note_f, fill="#172033")
-    nodes.append({"kind": "text", "name": "bottom readout", "role": "audience", "text": note, "bbox": text_bbox(draw, (82, strip_y + 14), note, note_f), "font_px": 31, "title_axis_align": "left"})
+    nodes.append({"kind": "text", "name": "bottom readout", "role": "audience", "text": note, "bbox": text_bbox(draw, (82, strip_y + 14), note, note_f), "font_px": 37, "title_axis_align": "left"})
 
     out_png = OUT_DIR / "auau_b002_e11_to_e33_pp_reference_stage_flow_slide.png"
     slide.save(out_png)
@@ -368,7 +368,7 @@ def compose_slide(panel_meta: dict, auau_meta: dict) -> dict:
             "title": "WP_GammaJets_6_10_26",
             "presentation_id": "167x-He2rOOBO2i4nNS6Pdcqu7Wv03GeFMuWH9tRRx-8",
             "slide_number": 17,
-            "slide_object_id": "g3ebf6faceae_1_0",
+            "slide_object_id": "g3ebf6faceae_1_261",
         },
         "variable": VAR,
         "pt_label": PT_LABEL,
@@ -381,7 +381,7 @@ def compose_slide(panel_meta: dict, auau_meta: dict) -> dict:
             "stitched_inclusive_not_used_for_plot": str(PP_STITCHED_INCLUSIVE_ROOT),
         },
         "panel_meta": panel_meta,
-        "caveat": "AuAu b002 row uses a bounded complete-run subset and no active-output merge; regenerate after b002 drains and final merge/audit passes.",
+        "caveat": "AuAu rows use a bounded completed-run data subset and no active-output merge; regenerate after the current AuAu data campaign has a final merge/audit.",
     }
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     return manifest

@@ -213,7 +213,7 @@ def style_axis(ax):
         ax.spines[spine].set_visible(False)
     for spine in ("left", "bottom"):
         ax.spines[spine].set_color("#9aa7b8")
-    ax.tick_params(labelsize=12.8, colors=COLORS["muted"])
+    ax.tick_params(labelsize=14.2, colors=COLORS["muted"])
     ax.xaxis.label.set_color(COLORS["ink"])
     ax.yaxis.label.set_color(COLORS["ink"])
 
@@ -227,16 +227,16 @@ def add_depth_regions(ax, depths: np.ndarray, baseline_depth: int) -> None:
     ax.axvline(baseline_depth, color=COLORS["baseline"], linewidth=1.5, linestyle=(0, (4, 3)), zorder=1)
 
 
-def plot_line_panel(ax, depths, train, holdout, ylabel, title, baseline_depth, lower_is_better=False):
+def plot_line_panel(ax, depths, train, holdout, ylabel, title, baseline_depth, lower_is_better=False, show_xlabel=True):
     add_depth_regions(ax, depths, baseline_depth)
     ax.plot(depths, train, color=COLORS["train"], marker="o", linewidth=2.4, markersize=6.5, label="Train")
     ax.plot(depths, holdout, color=COLORS["holdout"], marker="o", linewidth=2.4, markersize=6.5, label="Holdout")
-    ax.set_title(title, fontsize=15.5, fontweight="bold", pad=10, color=COLORS["ink"])
-    ax.set_xlabel("XGBoost max depth", fontsize=12.8)
-    ax.set_ylabel(ylabel, fontsize=12.8)
+    ax.set_title(title, fontsize=17.2, fontweight="bold", pad=10, color=COLORS["ink"])
+    ax.set_xlabel("XGBoost max depth" if show_xlabel else "", fontsize=14.3)
+    ax.set_ylabel(ylabel, fontsize=14.3)
     ax.set_xticks(depths)
     ax.set_ylim(*padded_limits(np.concatenate([train, holdout]), min_pad=0.0007 if "AUC" in ylabel else 0.0009))
-    ax.legend(frameon=False, fontsize=12.5, loc="best")
+    ax.legend(frameon=False, fontsize=14.0, loc="best")
     style_axis(ax)
     direction = "lower is better" if lower_is_better else "higher is better"
     note_y = 0.075 if lower_is_better else 0.925
@@ -248,7 +248,7 @@ def plot_line_panel(ax, depths, train, holdout, ylabel, title, baseline_depth, l
         transform=ax.transAxes,
         ha="left",
         va=note_va,
-        fontsize=11.8,
+        fontsize=12.7,
         color=COLORS["muted"],
         bbox=dict(boxstyle="round,pad=0.20", facecolor="white", edgecolor="none", alpha=0.82),
     )
@@ -261,12 +261,12 @@ def plot_gap_panel(ax, depths, auc_gap, logloss_gap, baseline_depth):
     ax.bar(x - width / 2, auc_gap, width=width, color=COLORS["auc_gap"], label="AUC gap")
     ax.bar(x + width / 2, logloss_gap, width=width, color=COLORS["logloss_gap"], label="Logloss gap")
     ax.axhline(0.0, color="#9aa7b8", linewidth=1.0)
-    ax.set_title("Train-holdout gaps are the capacity warning", fontsize=15.5, fontweight="bold", pad=10, color=COLORS["ink"])
-    ax.set_xlabel("", fontsize=12.8)
-    ax.set_ylabel("Gap size", fontsize=12.8)
+    ax.set_title("Train-holdout gaps show overfit risk", fontsize=17.0, fontweight="bold", pad=10, color=COLORS["ink"])
+    ax.set_xlabel("", fontsize=14.3)
+    ax.set_ylabel("Gap size", fontsize=14.3)
     ax.set_xticks(depths)
     ax.set_ylim(*padded_limits(np.concatenate([auc_gap, logloss_gap]), min_pad=0.0008))
-    ax.legend(frameon=False, fontsize=12.5, loc="upper right", bbox_to_anchor=(0.985, 1.56), ncol=2)
+    ax.legend(frameon=False, fontsize=14.0, loc="upper right", bbox_to_anchor=(0.985, 1.36), ncol=2)
     style_axis(ax)
     for xx, yy in zip(x - width / 2, auc_gap):
         offset = 0.00030 if yy >= 0 else -0.00022
@@ -276,7 +276,7 @@ def plot_gap_panel(ax, depths, auc_gap, logloss_gap, baseline_depth):
             f"{yy:.4f}",
             ha="center",
             va="bottom" if yy >= 0 else "top",
-            fontsize=9.8,
+            fontsize=10.8,
             color=COLORS["auc_gap"],
         )
     for xx, yy in zip(x + width / 2, logloss_gap):
@@ -287,7 +287,7 @@ def plot_gap_panel(ax, depths, auc_gap, logloss_gap, baseline_depth):
             f"{yy:.4f}",
             ha="center",
             va="bottom" if yy >= 0 else "top",
-            fontsize=9.8,
+            fontsize=10.8,
             color=COLORS["logloss_gap"],
         )
 
@@ -327,12 +327,12 @@ def add_reading_boxes(fig) -> None:
     ]
     for x, y, w, h, face, edge, title, body in boxes:
         add_card(fig, (x, y, w, h), face=face, edge=edge, radius=0.010)
-        fig.text(x + 0.018, y + h - 0.028, title, fontsize=16.2, fontweight="bold", color=COLORS["ink"], va="top")
+        fig.text(x + 0.018, y + h - 0.026, title, fontsize=17.0, fontweight="bold", color=COLORS["ink"], va="top")
         fig.text(
             x + 0.018,
             y + h - 0.068,
-            "\n".join(textwrap.wrap(body, width=46)),
-            fontsize=12.5,
+            "\n".join(textwrap.wrap(body, width=40)),
+            fontsize=13.5,
             color=COLORS["ink"],
             va="top",
             linespacing=1.20,
@@ -343,13 +343,13 @@ def best_capacity_sentence(metrics: list[DepthMetric]) -> str:
     best_holdout = max(metrics, key=lambda item: item.holdout_auc)
     smallest_auc_gap = min(metrics, key=lambda item: abs(item.auc_gap))
     return (
-        f"Observed anchor: depth {best_holdout.depth} has the highest holdout AUC in this sweep; "
-        f"depth {smallest_auc_gap.depth} has the smallest absolute AUC gap."
+        f"Holdout AUC peaks at depth {best_holdout.depth}; "
+        f"smallest absolute AUC gap is depth {smallest_auc_gap.depth}."
     )
 
 
 def render_slide(metrics: list[DepthMetric], args: argparse.Namespace) -> Path:
-    out_png = args.outdir / "the38_tree_depth_capacity_control_slide.png"
+    out_png = args.outdir / args.output_basename
     depths = np.asarray([m.depth for m in metrics], dtype=int)
     train_auc = np.asarray([m.train_auc for m in metrics], dtype=float)
     holdout_auc = np.asarray([m.holdout_auc for m in metrics], dtype=float)
@@ -368,27 +368,30 @@ def render_slide(metrics: list[DepthMetric], args: argparse.Namespace) -> Path:
         }
     )
     fig = plt.figure(figsize=slide_figsize(SLIDE_DPI), dpi=SLIDE_DPI)
-    fig.text(0.050, 0.938, args.title, fontsize=29.0, fontweight="bold", color=COLORS["ink"], ha="left", va="center")
-    fig.text(0.050, 0.895, args.subtitle, fontsize=15.2, color=COLORS["muted"], ha="left", va="center")
-    fig.text(
-        0.950,
-        0.932,
-        f"Fixed split: 90/10 row holdout\nCurrent baseline: max depth = {args.baseline_depth}",
-        fontsize=12.6,
-        color=COLORS["muted"],
-        ha="right",
-        va="top",
-        linespacing=1.20,
+    fig.text(0.050, 0.925, args.title, fontsize=args.title_font_size, fontweight="bold", color=COLORS["ink"], ha="left", va="center")
+    if args.subtitle:
+        fig.text(0.050, 0.882, args.subtitle, fontsize=15.2, color=COLORS["muted"], ha="left", va="center")
+    right_note = args.right_note if args.right_note is not None else f"Fixed split: 90/10 row holdout\nCurrent baseline: max depth = {args.baseline_depth}"
+    if right_note:
+        fig.text(0.950, 0.932, right_note, fontsize=12.6, color=COLORS["muted"], ha="right", va="top", linespacing=1.20)
+
+    add_card(fig, (0.045, 0.462, 0.430, 0.373))
+    add_card(fig, (0.525, 0.462, 0.430, 0.373))
+    add_card(fig, (0.045, 0.195, 0.910, 0.218))
+
+    ax_auc = fig.add_axes([0.086, 0.515, 0.348, 0.265])
+    ax_log = fig.add_axes([0.566, 0.515, 0.348, 0.265])
+    ax_gap = fig.add_axes([0.103, 0.243, 0.814, 0.135])
+    plot_line_panel(
+        ax_auc,
+        depths,
+        train_auc,
+        holdout_auc,
+        "AUC",
+        "AUC: train versus unseen holdout",
+        args.baseline_depth,
+        show_xlabel=False,
     )
-
-    add_card(fig, (0.045, 0.480, 0.430, 0.355))
-    add_card(fig, (0.525, 0.480, 0.430, 0.355))
-    add_card(fig, (0.045, 0.230, 0.910, 0.190))
-
-    ax_auc = fig.add_axes([0.087, 0.535, 0.346, 0.235])
-    ax_log = fig.add_axes([0.567, 0.535, 0.346, 0.235])
-    ax_gap = fig.add_axes([0.105, 0.270, 0.812, 0.105])
-    plot_line_panel(ax_auc, depths, train_auc, holdout_auc, "AUC", "AUC: train versus unseen holdout", args.baseline_depth)
     plot_line_panel(
         ax_log,
         depths,
@@ -398,20 +401,11 @@ def render_slide(metrics: list[DepthMetric], args: argparse.Namespace) -> Path:
         "Logloss: probability calibration check",
         args.baseline_depth,
         lower_is_better=True,
+        show_xlabel=False,
     )
     plot_gap_panel(ax_gap, depths, auc_gap, logloss_gap, args.baseline_depth)
 
-    fig.text(0.050, 0.446, best_capacity_sentence(metrics), fontsize=14.2, color=COLORS["ink"], ha="left", va="center")
-    fig.text(
-        0.050,
-        0.192,
-        "How to read it",
-        fontsize=16.0,
-        fontweight="bold",
-        color=COLORS["ink"],
-        ha="left",
-        va="center",
-    )
+    fig.text(0.050, 0.431, best_capacity_sentence(metrics), fontsize=15.2, color=COLORS["ink"], ha="left", va="center")
     add_reading_boxes(fig)
 
     out_png.parent.mkdir(parents=True, exist_ok=True)
@@ -473,6 +467,8 @@ def write_sidecars(metrics: list[DepthMetric], args: argparse.Namespace, out_png
         "tag": args.tag,
         "title": args.title,
         "subtitle": args.subtitle,
+        "metrics_source": str(args.metrics_json) if args.metrics_json else "model_registry_json",
+        "metrics_section": args.metrics_section,
         "model_id": args.model_id,
         "baseline_depth": args.baseline_depth,
         "required_samples": sorted(args.require_sample),
@@ -518,11 +514,16 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--registry", action="append", type=parse_registry_entry, default=[], help="Depth registry entry as DEPTH=/path/model_registry.json")
     parser.add_argument("--registry-root", type=Path, default=None, help="Optional root containing d<depth>/model_registry.json folders")
+    parser.add_argument("--metrics-json", type=Path, default=None, help="Optional JSON snapshot containing depth rows with train/holdout metrics")
+    parser.add_argument("--metrics-section", default="rows", help="Section inside --metrics-json; use 'depth' for THE37 snapshot depth rows")
     parser.add_argument("--depths", default="2,3,4,5,6")
     parser.add_argument("--outdir", type=Path, default=DEFAULT_OUTDIR)
+    parser.add_argument("--output-basename", default="the38_tree_depth_capacity_control_slide.png")
     parser.add_argument("--tag", default="THE38_tree_depth_capacity")
     parser.add_argument("--title", default=DEFAULT_TITLE)
+    parser.add_argument("--title-font-size", type=float, default=29.0)
     parser.add_argument("--subtitle", default=DEFAULT_SUBTITLE)
+    parser.add_argument("--right-note", default=None)
     parser.add_argument("--baseline-depth", type=int, default=4)
     parser.add_argument("--model-id", default=MODEL_ID)
     parser.add_argument("--require-sample", action="append", default=["run28_embeddedJet40"])
@@ -552,20 +553,85 @@ def registry_entries(args: argparse.Namespace) -> list[tuple[int, Path]]:
     return out
 
 
+def _row_float(row: dict[str, Any], names: tuple[str, ...], label: str, source: Path) -> float:
+    for name in names:
+        if name in row and row[name] is not None:
+            return finite_float(row[name], label, source)
+    raise SystemExit(f"{source} row for depth {row.get('depth')} is missing {label}; tried {names}")
+
+
+def load_metrics_json_metrics(args: argparse.Namespace) -> list[DepthMetric]:
+    if args.metrics_json is None:
+        raise SystemExit("Internal error: load_metrics_json_metrics called without --metrics-json")
+    source = args.metrics_json.expanduser()
+    payload = json.loads(source.read_text())
+    rows_obj: Any
+    if args.metrics_section == ".":
+        rows_obj = payload
+    else:
+        rows_obj = payload.get(args.metrics_section)
+    if not isinstance(rows_obj, list):
+        raise SystemExit(f"{source} section {args.metrics_section!r} is not a list of metric rows")
+    wanted = {int(item.strip()) for item in args.depths.split(",") if item.strip()}
+    metrics: list[DepthMetric] = []
+    for row_obj in rows_obj:
+        if not isinstance(row_obj, dict):
+            raise SystemExit(f"{source} contains a non-object metric row: {row_obj!r}")
+        if "depth" not in row_obj:
+            continue
+        depth = int(row_obj["depth"])
+        if wanted and depth not in wanted:
+            continue
+        registry_text = str(row_obj.get("registry") or row_obj.get("source_registry") or source)
+        max_depth = int(row_obj.get("xgboost_max_depth") or row_obj.get("max_depth") or depth)
+        if max_depth != depth:
+            raise SystemExit(f"{source} row depth {depth} reports xgboost max_depth {max_depth}")
+        observed = row_obj.get("observed_samples") or []
+        if not isinstance(observed, list):
+            observed = []
+        metrics.append(
+            DepthMetric(
+                depth=depth,
+                registry=Path(registry_text),
+                status=str(row_obj.get("status", "READY")),
+                train_auc=_row_float(row_obj, ("train_auc",), "train_auc", source),
+                holdout_auc=_row_float(row_obj, ("holdout_auc",), "holdout_auc", source),
+                train_logloss=_row_float(row_obj, ("train_logloss",), "train_logloss", source),
+                holdout_logloss=_row_float(row_obj, ("holdout_logloss",), "holdout_logloss", source),
+                auc_gap=_row_float(row_obj, ("auc_gap_train_minus_holdout", "auc_gap"), "auc_gap", source),
+                logloss_gap=_row_float(row_obj, ("logloss_gap_holdout_minus_train", "logloss_gap"), "logloss_gap", source),
+                train_rows=int(row_obj.get("train_rows", 0) or 0),
+                holdout_rows=int(row_obj.get("holdout_rows", 0) or 0),
+                history_csv=str(row_obj.get("training_history_csv") or row_obj.get("history_csv") or ""),
+                xgboost_max_depth=max_depth,
+                observed_samples=tuple(str(item) for item in observed),
+                sample_validation_source=str(row_obj.get("sample_validation_source", "snapshot")),
+                sample_check=str(row_obj.get("sample_check", "snapshot")),
+            )
+        )
+    missing = sorted(wanted - {metric.depth for metric in metrics})
+    if missing:
+        raise SystemExit(f"{source} section {args.metrics_section!r} is missing requested depth(s): {missing}")
+    return metrics
+
+
 def main() -> int:
     args = parse_args()
     args.outdir.mkdir(parents=True, exist_ok=True)
-    required_samples = set(args.require_sample or [])
-    metrics = [
-        load_registry_metric(
-            depth,
-            registry,
-            model_id=args.model_id,
-            required_samples=required_samples,
-            require_ready=not args.allow_non_ready,
-        )
-        for depth, registry in registry_entries(args)
-    ]
+    if args.metrics_json:
+        metrics = load_metrics_json_metrics(args)
+    else:
+        required_samples = set(args.require_sample or [])
+        metrics = [
+            load_registry_metric(
+                depth,
+                registry,
+                model_id=args.model_id,
+                required_samples=required_samples,
+                require_ready=not args.allow_non_ready,
+            )
+            for depth, registry in registry_entries(args)
+        ]
     metrics = sorted(metrics, key=lambda item: item.depth)
     if len({metric.depth for metric in metrics}) != len(metrics):
         raise SystemExit("Duplicate depth entries were provided")

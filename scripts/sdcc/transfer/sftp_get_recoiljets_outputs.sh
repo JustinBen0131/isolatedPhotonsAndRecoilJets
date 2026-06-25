@@ -13,6 +13,7 @@ Usage:
   ./scripts/sftp_get_recoiljets_outputs.sh tightBDTSmokeLatest
   ./scripts/sftp_get_recoiljets_outputs.sh tightBDTSmoke <remote-path-or-dir-name>
   ./scripts/sftp_get_recoiljets_outputs.sh auauTightBDTValidation <remote-report-dir>
+  ./scripts/sftp_get_recoiljets_outputs.sh auauTightBDTValidationScores <remote-report-dir> <local-dir>
   ./scripts/sftp_get_recoiljets_outputs.sh auauMLDiagnosticCompact <remote-dir> <local-dir> <file...>
   ./scripts/sftp_get_recoiljets_outputs.sh stitchDiagnosticsCompact <remote-dir> <local-dir> <file...>
   ./scripts/sftp_get_recoiljets_outputs.sh auauBDTMLPStackPromotion <remote-run-dir>
@@ -67,6 +68,11 @@ local/smoke workflow. They download into:
 auauTightBDTValidation pulls a single finished simulation-validation report
 directory into:
   dataOutput/auauTightBDTValidation
+
+auauTightBDTValidationScores pulls only score_caches.list plus score_caches/
+from an explicit AuAu tight-BDT validation report directory. It is intended for
+regenerating working-point plots from event-level scores without pulling the
+entire report.
 
 auauMLDiagnosticCompact pulls selected compact PNG/JSON/CSV/TXT artifacts from
 an explicit SDCC dataOutput/auauMLDiagnosticRuns directory.
@@ -1061,6 +1067,66 @@ download_auau_tight_bdt_validation() {
   fi
 }
 
+download_auau_tight_bdt_validation_scores() {
+  local remote_dir="${1:-}"
+  local local_dir_arg="${2:-}"
+  local local_dir batch
+  if [[ -z "$remote_dir" || -z "$local_dir_arg" ]]; then
+    echo "[ERROR] auauTightBDTValidationScores requires remote-report-dir and local-dir." >&2
+    exit 2
+  fi
+  remote_dir="${remote_dir%/}"
+  local_dir="${LOCAL_BASE}/${local_dir_arg#/}"
+
+  case "$remote_dir" in
+    /sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/*/validation_*|\
+    /sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_*/reports/model_validation_*) ;;
+    *)
+      echo "[ERROR] Refusing to pull score caches from non-validation path:" >&2
+      echo "  ${remote_dir}" >&2
+      exit 2
+      ;;
+  esac
+  validate_remote_path "$remote_dir" "AuAu tight-BDT validation score-cache remote directory"
+
+  mkdir -p "$local_dir"
+  batch="$(make_tmp_file "sftp_get_recoiljets_auau_bdt_validation_scores")"
+  cleanup_auau_bdt_validation_scores() { rm -f "$batch"; }
+  trap cleanup_auau_bdt_validation_scores EXIT
+
+  {
+    printf 'lcd %s\n' "$local_dir"
+    printf 'get %s/score_caches.list score_caches.list\n' "$remote_dir"
+    printf 'get -r %s/score_caches score_caches\n' "$remote_dir"
+  } > "$batch"
+
+  echo
+  echo "Remote host       : ${REMOTE_HOST}"
+  echo "Validation remote : ${remote_dir}"
+  echo "Local dir         : ${local_dir}"
+  echo
+  echo "sftp batch commands:"
+  sed 's/^/  /' "$batch"
+  echo
+  echo "Opening interactive sftp to download validation score caches only."
+  if sftp \
+      -oBatchMode=no \
+      -oPreferredAuthentications=publickey,password,keyboard-interactive \
+      -b "$batch" \
+      "$REMOTE_HOST"; then
+    echo
+    echo "[OK] AuAu tight-BDT validation score-cache download complete."
+    echo "Downloaded into: ${local_dir}"
+    trap - EXIT
+    rm -f "$batch"
+  else
+    status=$?
+    echo
+    echo "[ERROR] sftp download failed with exit code ${status}." >&2
+    exit "$status"
+  fi
+}
+
 download_auau_ml_diagnostic_compact() {
   local remote_dir="${1:-}"
   local local_dir="${2:-}"
@@ -1083,6 +1149,8 @@ download_auau_ml_diagnostic_compact() {
     /sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/auauTightBDT_eiso_cone_raw_*/reports/model_validation_condor_*)
       ;;
     /sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/THE8_branchA_ladder_jet12_20*_20260527/reports/model_validation_condor_THE8_branchA_jet12_20*_scorecache_fullstat_20260527)
+      ;;
+    /sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/the57_models/*/validation_*)
       ;;
     /gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE38_tree_depth_capacity_*_d[0-9])
       ;;
@@ -1116,7 +1184,7 @@ download_auau_ml_diagnostic_compact() {
         echo "[ERROR] Refusing non-compact or path-like file argument: ${f}" >&2
         exit 2
         ;;
-      *.png|*.json|*.log|*.txt|*.csv|*.md) ;;
+      *.png|*.json|*.log|*.txt|*.csv|*.md|*.yaml|*.yml) ;;
       *)
         echo "[ERROR] Refusing unsupported compact artifact extension: ${f}" >&2
         exit 2
@@ -1381,8 +1449,13 @@ download_selected_root_files() {
 
   mkdir -p "$local_dir"
   batch="$(make_tmp_file "sftp_get_recoiljets_selected_roots")"
-  cleanup_selected_roots() { rm -f "$batch"; }
+  local listfile encoded archive
+  listfile="$(make_tmp_file "sftp_get_recoiljets_selected_roots_files")"
+  encoded="$(make_tmp_file "sftp_get_recoiljets_selected_roots_payload.b64")"
+  archive="$(make_tmp_file "sftp_get_recoiljets_selected_roots_payload.tgz")"
+  cleanup_selected_roots() { rm -f "$batch" "$listfile" "$encoded" "$archive"; }
   trap cleanup_selected_roots EXIT
+  printf '%s\n' "${files[@]}" > "$listfile"
 
   {
     printf 'lcd %s\n' "$local_dir"
@@ -1391,6 +1464,54 @@ download_selected_root_files() {
       printf 'get %s %s\n' "$f" "${f##*/}"
     done
   } > "$batch"
+
+  if [[ "${SFTP_GET_NESTED_SSH_TAR:-0}" == "1" ]]; then
+    local gateway="${SFTP_GET_NESTED_SSH_GATEWAY:-patsfan753@ssh.sdcc.bnl.gov}"
+    local target="${SFTP_GET_NESTED_SSH_TARGET:-sphnxuser05.sdcc.bnl.gov}"
+    local remote_tar_cmd
+    remote_tar_cmd="cd $(printf '%q' "$remote_dir") && printf '__RJ_TAR_BEGIN__\\n' && tar -czf - -T - | base64 && printf '\\n__RJ_TAR_END__\\n'"
+
+    echo
+    echo "Nested SSH gateway   : ${gateway}"
+    echo "Nested SSH target    : ${target}"
+    echo "Selected ROOT dir    : ${remote_dir}"
+    echo "Local dir            : ${local_dir}"
+    echo
+    echo "This downloads only the explicitly listed ROOT files via nested SSH tar."
+    echo
+    echo "Relative ROOT files:"
+    sed 's/^/  /' "$listfile"
+    echo
+    if SSH_AUTH_SOCK="${SSH_AUTH_SOCK:-$(launchctl getenv SSH_AUTH_SOCK 2>/dev/null || true)}" \
+        ssh -q -o BatchMode=yes "$gateway" \
+        "ssh -q -T -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${target} $(printf '%q' "$remote_tar_cmd")" \
+        < "$listfile" \
+        | awk '
+            BEGIN { seen = 0; done = 0 }
+            /^__RJ_TAR_BEGIN__$/ { seen = 1; next }
+            /^__RJ_TAR_END__$/ { done = 1; exit 0 }
+            seen { print }
+            END { if (!seen || !done) exit 42 }
+          ' > "$encoded" \
+        && base64 -D -i "$encoded" -o "$archive" \
+        && tar -xzf "$archive" -C "$local_dir"; then
+      echo
+      echo "[OK] Download complete."
+      echo "Downloaded into: ${local_dir}"
+      trap - EXIT
+      rm -f "$batch" "$listfile" "$encoded" "$archive"
+    else
+      status=$?
+      echo
+      echo "[ERROR] nested SSH tar download failed with exit code ${status}." >&2
+      echo "File list was: ${listfile}" >&2
+      exit "$status"
+    fi
+
+    echo
+    echo "Downloaded ${#files[@]} selected ROOT file(s)."
+    return 0
+  fi
 
   echo
   echo "Remote host          : ${REMOTE_HOST}"
@@ -2304,6 +2425,11 @@ if [[ "$dataset" == "auauTightBDTValidation" ]]; then
   exit 0
 fi
 
+if [[ "$dataset" == "auauTightBDTValidationScores" ]]; then
+  download_auau_tight_bdt_validation_scores "${2:-}" "${3:-}"
+  exit 0
+fi
+
 if [[ "$dataset" == "auauMLDiagnosticCompact" ]]; then
   download_auau_ml_diagnostic_compact "${2:-}" "${3:-}" "${@:4}"
   exit 0
@@ -2589,6 +2715,81 @@ case "$confirm" in
     exit 0
     ;;
 esac
+
+if [[ "${SFTP_GET_NESTED_SSH_TAR:-0}" == "1" ]]; then
+  nested_gateway="${SFTP_GET_NESTED_SSH_GATEWAY:-patsfan753@ssh.sdcc.bnl.gov}"
+  nested_target="${SFTP_GET_NESTED_SSH_TARGET:-sphnxuser05.sdcc.bnl.gov}"
+  nested_listfile="$(make_tmp_file "sftp_get_recoiljets_standard_files")"
+  nested_encoded="$(make_tmp_file "sftp_get_recoiljets_standard_payload.b64")"
+  nested_archive="$(make_tmp_file "sftp_get_recoiljets_standard_payload.tgz")"
+  nested_extract_dir="$(mktemp -d "${LOCAL_BASE}/.tmp/sftp_get_recoiljets_standard_extract.XXXXXX")"
+  cleanup_standard_nested_tar() {
+    rm -f "$get_batch" "$nested_listfile" "$nested_encoded" "$nested_archive"
+    rm -rf "$nested_extract_dir"
+  }
+  trap cleanup_standard_nested_tar EXIT
+
+  for f in "${remote_files[@]}"; do
+    validate_remote_relative_file "$f" "nested SSH ROOT pull file"
+  done
+  printf '%s\n' "${remote_files[@]}" > "$nested_listfile"
+  nested_remote_tar_cmd="cd $(printf '%q' "$remote_dir") && printf '__RJ_TAR_BEGIN__\\n' && tar -czf - -T - | base64 && printf '\\n__RJ_TAR_END__\\n'"
+
+  echo
+  echo "Nested SSH gateway: ${nested_gateway}"
+  echo "Nested SSH target : ${nested_target}"
+  echo "Remote dir        : ${remote_dir}"
+  echo "Local target base : ${local_dir}"
+  echo
+  echo "This downloads the requested dataset files through the RecoilJets transfer helper using nested SSH tar."
+  echo
+  echo "Relative files:"
+  sed 's/^/  /' "$nested_listfile"
+  echo
+
+  if SSH_AUTH_SOCK="${SSH_AUTH_SOCK:-$(launchctl getenv SSH_AUTH_SOCK 2>/dev/null || true)}" \
+      ssh -q -o BatchMode=yes "$nested_gateway" \
+      "ssh -q -T -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${nested_target} $(printf '%q' "$nested_remote_tar_cmd")" \
+      < "$nested_listfile" \
+      | awk '
+          BEGIN { seen = 0; done = 0 }
+          /^__RJ_TAR_BEGIN__$/ { seen = 1; next }
+          /^__RJ_TAR_END__$/ { done = 1; exit 0 }
+          seen { print }
+          END { if (!seen || !done) exit 42 }
+        ' > "$nested_encoded" \
+      && base64 -D -i "$nested_encoded" -o "$nested_archive" \
+      && tar -xzf "$nested_archive" -C "$nested_extract_dir"; then
+    for i in "${!remote_files[@]}"; do
+      src="${nested_extract_dir}/${remote_files[$i]}"
+      dst="${local_files[$i]}"
+      if [[ ! -f "$src" ]]; then
+        echo "[ERROR] Nested SSH tar did not produce expected file: ${remote_files[$i]}" >&2
+        exit 43
+      fi
+      mkdir -p "$(dirname "$dst")"
+      mv "$src" "$dst"
+    done
+    echo
+    echo "[OK] Nested SSH tar download complete."
+    trap - EXIT
+    rm -f "$get_batch" "$nested_listfile" "$nested_encoded" "$nested_archive"
+    rm -rf "$nested_extract_dir"
+  else
+    status=$?
+    echo
+    echo "[ERROR] nested SSH tar download failed with exit code ${status}." >&2
+    exit "$status"
+  fi
+
+  echo
+  echo "Downloaded ${#remote_files[@]} file(s)."
+
+  if is_merge_dataset "$label" && (( sim_combined_pull == 0 )); then
+    merge_recoiljets_sim_outputs "$label" "${cfg_tags[@]}"
+  fi
+  exit 0
+fi
 
 {
   printf 'lcd %s\n' "$local_dir"

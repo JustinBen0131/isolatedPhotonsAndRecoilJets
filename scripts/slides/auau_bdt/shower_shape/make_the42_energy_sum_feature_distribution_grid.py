@@ -238,6 +238,14 @@ def collect_curves(signal_root: Path, inclusive_root: Path, rebin: int) -> list[
     return curves
 
 
+def load_curves_json(path: Path) -> tuple[list[Curve], dict[str, object]]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    curves = [Curve(**item) for item in payload.get("curves", [])]
+    if not curves:
+        raise RuntimeError(f"No curves found in {path}")
+    return curves, payload
+
+
 def curve_lookup(curves: list[Curve]) -> dict[tuple[str, str, str, str], Curve]:
     return {(c.sample, c.variable, c.pt_group, c.stage): c for c in curves}
 
@@ -258,27 +266,30 @@ def rounded_box(fig, xywh, face, edge=PANEL_EDGE, radius=0.018, lw=1.0):
     return ax
 
 
-def draw_legend(fig) -> None:
-    guide = rounded_box(fig, [0.055, 0.812, 0.250, 0.065], "#F5F8FC", edge=PANEL_EDGE, radius=0.014)
-    guide.text(0.075, 0.64, "Read vertically", ha="left", va="center",
+def draw_legend(fig, *, source_payload: dict[str, object] | None = None) -> None:
+    before_label = "top = before tight-ID" if source_payload else "top = no preselection"
+    after_label = "bottom = after tight-ID" if source_payload else "bottom = tight WP80"
+    guide = rounded_box(fig, [0.055, 0.795, 0.250, 0.065], "#F5F8FC", edge=PANEL_EDGE, radius=0.014)
+    guide.text(0.50, 0.64, "Read vertically", ha="center", va="center",
                fontsize=15.4, fontweight="bold", color=INK, transform=guide.transAxes)
-    guide.text(0.075, 0.28, "top = no preselection",
-               fontsize=12.8, color=MUTED, ha="left", va="center", transform=guide.transAxes)
-    guide.text(0.555, 0.28, "bottom = tight WP80",
-               fontsize=12.8, color=TAKEAWAY, ha="left", va="center", transform=guide.transAxes)
+    guide.text(0.28, 0.28, before_label,
+               fontsize=12.8, color=MUTED, ha="center", va="center", transform=guide.transAxes)
+    guide.text(0.74, 0.28, after_label,
+               fontsize=12.8, color=TAKEAWAY, ha="center", va="center", transform=guide.transAxes)
 
-    ax = rounded_box(fig, [0.323, 0.812, 0.622, 0.065], SOFT_PANEL, edge=PANEL_EDGE, radius=0.014)
+    ax = rounded_box(fig, [0.323, 0.795, 0.622, 0.065], SOFT_PANEL, edge=PANEL_EDGE, radius=0.014)
+    tight_band_label = "green band = after tight-ID" if source_payload else "green band = tight WP80"
     items = (
-        ("Signal MC", SAMPLE_COLORS["Signal MC"]["tight"], "-", 0.050),
-        ("Inclusive MC", SAMPLE_COLORS["Inclusive MC"]["tight"], "-", 0.245),
-        ("shared shape region", OVERLAP, "-", 0.495),
-        ("green band = tight WP80", TAKEAWAY, "-", 0.750),
+        ("Signal MC", SAMPLE_COLORS["Signal MC"]["tight"], "-", 0.125),
+        ("Inclusive MC", SAMPLE_COLORS["Inclusive MC"]["tight"], "-", 0.375),
+        ("shared shape region", OVERLAP, "-", 0.625),
+        (tight_band_label, TAKEAWAY, "-", 0.875),
     )
-    for label, color, style, x in items:
-        ax.plot([x, x + 0.052], [0.50, 0.50], color=color, linewidth=3.2,
+    for label, color, style, x_center in items:
+        ax.plot([x_center - 0.050, x_center + 0.050], [0.64, 0.64], color=color, linewidth=3.2,
                 linestyle=style, transform=ax.transAxes)
-        ax.text(x + 0.062, 0.50, label, ha="left", va="center",
-                fontsize=13.4, color=INK, transform=ax.transAxes)
+        ax.text(x_center, 0.30, label, ha="center", va="center",
+                fontsize=12.8, color=INK, transform=ax.transAxes)
 
 
 def draw_column_guides(
@@ -312,6 +323,8 @@ def draw_panel(
     variable: dict[str, object],
     pt_label: str,
     column_style: dict[str, str],
+    *,
+    source_payload: dict[str, object] | None = None,
 ) -> None:
     variable_label = str(variable["plain"])
     plotted = []
@@ -374,12 +387,14 @@ def draw_panel(
         ax.stairs(overlap_y, edges, color=OVERLAP, linewidth=1.0, alpha=0.70, zorder=3.5)
 
     x_left = variable["xlim"][0] + 0.02 * (variable["xlim"][1] - variable["xlim"][0])
-    ax.text(x_left, 1.43, "Before (no preselection)", ha="left", va="top", fontsize=9.2,
+    before_label = "Before tight-ID" if source_payload else "Before (no preselection)"
+    after_label = "After tight-ID" if source_payload else "After tight selection WP80"
+    ax.text(x_left, 1.45, before_label, ha="left", va="top", fontsize=16.4,
             fontweight="bold", color="#465366",
-            bbox=dict(boxstyle="round,pad=0.08", facecolor="white", edgecolor="none", alpha=0.75))
-    ax.text(x_left, 0.55, "After tight selection WP80", ha="left", va="top", fontsize=9.2,
+            bbox=dict(boxstyle="round,pad=0.075", facecolor="white", edgecolor="none", alpha=0.78))
+    ax.text(x_left, 0.57, after_label, ha="left", va="top", fontsize=16.4,
             fontweight="bold", color=TAKEAWAY,
-            bbox=dict(boxstyle="round,pad=0.08", facecolor="white", edgecolor="none", alpha=0.75))
+            bbox=dict(boxstyle="round,pad=0.075", facecolor="white", edgecolor="none", alpha=0.78))
 
     ax.set_xlim(*variable["xlim"])
     ax.set_ylim(0.04, 1.52)
@@ -389,19 +404,41 @@ def draw_panel(
     ax.tick_params(axis="y", length=0)
 
 
-def render_slide(curves: list[Curve], outdir: Path) -> dict[str, Path]:
+def render_slide(
+    curves: list[Curve],
+    outdir: Path,
+    *,
+    source_payload: dict[str, object] | None = None,
+) -> dict[str, Path]:
     setup_style()
     outdir.mkdir(parents=True, exist_ok=True)
     lk = curve_lookup(curves)
 
     fig = plt.figure(figsize=(16, 9), dpi=160)
-    fig.text(0.045, 0.956, r"0-20% only: tight WP80 pulls background shapes toward signal",
+    title = r"0-20% only: tight WP80 pulls background shapes toward signal"
+    if source_payload:
+        title = r"0-20% only: default tight-ID pulls background shapes toward signal"
+    fig.text(0.045, 0.956, title,
              ha="left", va="top", fontsize=31.0, fontweight="bold", color=INK)
-    fig.text(0.046, 0.904,
-             r"Shower-shape distributions across $15 \leq p_T < 35$ GeV; top lanes are before selection, bottom lanes are after tight WP80 selection.",
-             ha="left", va="top", fontsize=16.0, color=MUTED)
+    subtitle = (
+        r"Shower-shape distributions across $15 \leq p_T < 35$ GeV; top lanes are before selection, "
+        r"bottom lanes are after tight WP80 selection."
+    )
+    if source_payload:
+        wp80 = source_payload.get("wp80_formula", {})
+        if isinstance(wp80, dict) and "intercept" in wp80 and "slope" in wp80:
+            formula = f"T80(c) = {float(wp80['intercept']):.4f} + {float(wp80['slope']):.6f} c"
+        elif isinstance(wp80, dict):
+            formula = str(wp80.get("expression", "default WP80"))
+        else:
+            formula = "default WP80"
+        subtitle = (
+            r"Full weighted signal/inclusive MC sample; top lanes are before tight selection, "
+            rf"bottom lanes use default {formula}."
+        )
+    fig.text(0.046, 0.904, subtitle, ha="left", va="top", fontsize=19.0, color=MUTED)
 
-    draw_legend(fig)
+    draw_legend(fig, source_payload=source_payload)
 
     left = 0.165
     panel_w = 0.245
@@ -432,12 +469,12 @@ def render_slide(curves: list[Curve], outdir: Path) -> dict[str, Path]:
         label_ax = rounded_box(fig, [0.042, ys[row_idx] + 0.016, 0.098, panel_h - 0.032],
                                "#FFFFFF", edge=PANEL_EDGE, radius=0.016)
         label_ax.text(0.50, 0.62, str(variable["label"]), ha="center", va="center",
-                      fontsize=12.5, fontweight="bold", color=INK, transform=label_ax.transAxes)
+                      fontsize=17.2, fontweight="bold", color=INK, transform=label_ax.transAxes)
         label_ax.text(0.50, 0.32, str(variable["feature"]), ha="center", va="center",
-                      fontsize=8.5, color=MUTED, transform=label_ax.transAxes)
+                      fontsize=10.4, color=MUTED, transform=label_ax.transAxes)
         for col_idx, (pt_label, _) in enumerate(PT_GROUPS):
             ax = fig.add_axes([xs[col_idx], ys[row_idx], panel_w, panel_h])
-            draw_panel(ax, lk, variable, pt_label, PT_COLUMN_STYLES[col_idx])
+            draw_panel(ax, lk, variable, pt_label, PT_COLUMN_STYLES[col_idx], source_payload=source_payload)
             if row_idx == len(VARIABLES) - 1:
                 ax.set_xlabel(str(variable["label"]), fontsize=11.8, labelpad=2)
             else:
@@ -446,8 +483,16 @@ def render_slide(curves: list[Curve], outdir: Path) -> dict[str, Path]:
                 ax.set_ylabel("normalized shape", fontsize=10.5, labelpad=5)
 
     note = rounded_box(fig, [0.055, 0.036, 0.890, 0.052], "#FFF3BF", edge="#EAB308", radius=0.014)
-    note.text(0.025, 0.50,
-              r"Key point: with no preselection, blue background and red signal are visibly separated; after tight WP80, blue contracts into the red signal-like region.",
+    note_text = (
+        r"Key point: with no preselection, blue background and red signal are visibly separated; "
+        r"after tight WP80, blue contracts into the red signal-like region."
+    )
+    if source_payload:
+        note_text = (
+            r"Key point: before the default tight-ID split, inclusive MC is broader; after tight-ID, "
+            r"the selected inclusive shape contracts into the signal-like region."
+        )
+    note.text(0.025, 0.50, note_text,
               ha="left", va="center", fontsize=13.0, color="#7A4B00", transform=note.transAxes)
 
     png = outdir / "the42_energy_sum_feature_distribution_grid_slide.png"
@@ -455,16 +500,23 @@ def render_slide(curves: list[Curve], outdir: Path) -> dict[str, Path]:
     script = outdir / "the42_energy_sum_feature_distribution_grid_script.md"
     fig.savefig(png, dpi=160)
     plt.close(fig)
+    source_sentence = (
+        "Rows are the energy-sum BDT inputs written as THE-42 stage histograms: cluster_et1, E11/E33, and E32/E35."
+    )
+    if source_payload:
+        source_sentence = (
+            "Rows are the energy-sum BDT inputs rebuilt from the THE-57 full weighted scored matrix: "
+            "cluster_et1, E11/E33, and E32/E35."
+        )
     script.write_text(
-        "# THE-42 Energy-Sum BDT Input Distribution Grid Script\n\n"
+        "# Energy-Sum BDT Input Distribution Grid Script\n\n"
         "This slide shows the actual shower-shape distributions, not a subtraction or a table. The centrality "
-        "scope is only 0-20 percent. Rows are the energy-sum BDT inputs written as THE-42 stage histograms: "
-        "cluster_et1, E11/E33, and E32/E35. Columns are broad cluster-pT groups spanning the full 15-35 GeV "
-        "working range. Each panel has two horizontal stage lanes: the top lane is "
-        "before preselection and the bottom lane is after the tight centrality-linear WP80 BDT cut. Signal MC is "
-        "always red and inclusive MC is always blue.\n\n"
-        "The point to emphasize is visual. With no preselection, the blue inclusive-MC shape has a broader "
-        "background-like shoulder and is visibly separated from the red signal shape. After tight WP80, the blue "
+        f"scope is only 0-20 percent. {source_sentence} Columns are broad cluster-pT groups spanning the full "
+        "15-35 GeV working range. Each panel has two horizontal stage lanes: the top lane is before tight-ID "
+        "and the bottom lane is after the tight centrality-linear WP80 BDT cut. Signal MC is always red and "
+        "inclusive MC is always blue.\n\n"
+        "The point to emphasize is visual. Before tight-ID, the blue inclusive-MC shape has a broader "
+        "background-like shoulder and is visibly separated from the red signal shape. After tight-ID, the blue "
         "shape contracts into the red signal-like region. The subtle purple fill marks the shared shape region, "
         "which is easier to see in the tight lane. The vertical offsets are visual only; each lane is independently "
         "normalized in the shown x range.\n",
@@ -473,14 +525,44 @@ def render_slide(curves: list[Curve], outdir: Path) -> dict[str, Path]:
     return {"png": png, "manifest": manifest, "speaker_script": script}
 
 
-def write_manifest(path: Path, curves: list[Curve], outputs: dict[str, Path], args: argparse.Namespace) -> None:
+def write_manifest(
+    path: Path,
+    curves: list[Curve],
+    outputs: dict[str, Path],
+    args: argparse.Namespace,
+    source_payload: dict[str, object] | None = None,
+) -> None:
     payload = {
-        "campaign": "THE-42 WP80 centrality-linear AuAu SS overlay",
+        "campaign": (
+            "THE-57 default 14-feature AuAu baseline WP80 energy-sum overlay"
+            if source_payload else
+            "THE-42 WP80 centrality-linear AuAu SS overlay"
+        ),
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "script": str(THIS_FILE),
-        "signal_root": str(args.signal_root.resolve()),
-        "inclusive_root": str(args.inclusive_root.resolve()),
-        "plot_mode": "distribution grid, before preselection versus tight WP80; curves unit-normalized in shown x range",
+        "signal_root": str(args.signal_root.resolve()) if args.signal_root else None,
+        "inclusive_root": str(args.inclusive_root.resolve()) if args.inclusive_root else None,
+        "curves_json": str(args.curves_json.resolve()) if args.curves_json else None,
+        "source_payload_summary": {
+            key: source_payload.get(key)
+            for key in (
+                "schema",
+                "matrix",
+                "model",
+                "full_matrix_rows",
+                "rows_loaded",
+                "weight_mode",
+                "wp80_formula",
+                "source_label",
+                "model_label",
+            )
+        } if source_payload else None,
+        "plot_mode": (
+            "distribution grid, before default tight-ID versus after default tight-ID; "
+            "curves unit-normalized in shown x range"
+            if source_payload else
+            "distribution grid, before preselection versus tight WP80; curves unit-normalized in shown x range"
+        ),
         "display_rebin_factor": args.rebin,
         "pt_groups": [{"label": label, "fine_bins": bins} for label, bins in PT_GROUPS],
         "centrality_focus": {"label": CENT_FOCUS_LABEL, "fine_bins": CENT_FOCUS_BINS},
@@ -511,6 +593,7 @@ def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--signal-root", type=Path, default=DEFAULT_SIGNAL_ROOT)
     ap.add_argument("--inclusive-root", type=Path, default=DEFAULT_INCLUSIVE_ROOT)
+    ap.add_argument("--curves-json", type=Path, default=None, help="Optional precomputed Curve payload; skips ROOT inputs.")
     ap.add_argument("--output-dir", type=Path, default=DEFAULT_OUTDIR)
     ap.add_argument("--rebin", type=int, default=3, help="Display-only rebin factor applied after summing ROOT histograms.")
     return ap.parse_args()
@@ -520,12 +603,20 @@ def main() -> int:
     args = parse_args()
     if args.rebin < 1:
         raise SystemExit("--rebin must be >= 1")
-    for path in (args.signal_root, args.inclusive_root):
-        if not path.exists():
-            raise SystemExit(f"Missing ROOT input: {path}")
-    curves = collect_curves(args.signal_root, args.inclusive_root, args.rebin)
-    outputs = render_slide(curves, args.output_dir)
-    write_manifest(outputs["manifest"], curves, outputs, args)
+    source_payload = None
+    if args.curves_json:
+        if not args.curves_json.exists():
+            raise SystemExit(f"Missing curves JSON input: {args.curves_json}")
+        curves, source_payload = load_curves_json(args.curves_json)
+        args.signal_root = None
+        args.inclusive_root = None
+    else:
+        for path in (args.signal_root, args.inclusive_root):
+            if not path.exists():
+                raise SystemExit(f"Missing ROOT input: {path}")
+        curves = collect_curves(args.signal_root, args.inclusive_root, args.rebin)
+    outputs = render_slide(curves, args.output_dir, source_payload=source_payload)
+    write_manifest(outputs["manifest"], curves, outputs, args, source_payload=source_payload)
     for key, value in outputs.items():
         print(f"{key}={value}")
     return 0

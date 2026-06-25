@@ -11,7 +11,7 @@ MASTER_YAML="${RJ_AUAU_TIGHT_BDT_CONFIG_SRC:-${RJ_REPO_BASE}/macros/analysis_con
 TRAIN_MACRO="${RJ_AUAU_TIGHT_BDT_MACRO:-${RJ_REPO_BASE}/macros/Fun4All_auauTightBDTTraining.C}"
 TRAIN_SCRIPT="${RJ_AUAU_TIGHT_BDT_TRAIN_SCRIPT:-${RJ_REPO_BASE}/scripts/train_auau_photon_bdt.py}"
 VALIDATE_SCRIPT="${RJ_AUAU_TIGHT_BDT_VALIDATE_SCRIPT:-${RJ_REPO_BASE}/scripts/validate_auau_tight_bdt_on_sim.py}"
-ML_PYTHON="${RJ_ML_PYTHON:-python3}"
+ML_PYTHON="${RJ_ML_PYTHON:-${ML_PYTHON:-python3}}"
 NOTIFY_EMAILS="${RJ_NOTIFY_EMAILS:-just0131@gmail.com}"
 
 SIGNAL_SAMPLES=(run28_embeddedPhoton12 run28_embeddedPhoton20)
@@ -1138,12 +1138,25 @@ train_expanded_from_extraction() {
   local etfine_pt_bins="${RJ_AUAU_BDT_ETFINE_PT_BINS:-15,17,19,21,23,25,27,30,35}"
   local etfine_coarse_cent_bins="${RJ_AUAU_BDT_ETFINE_COARSE_CENT_BINS:-0:20,20:50,50:80}"
   local etfine_fine_cent_bins="${RJ_AUAU_BDT_ETFINE_FINE_CENT_BINS:-0:10,10:20,20:30,30:40,40:50,50:60,60:80}"
+  # Single-pt-window base+3x3-width spec (the centAsFeatBase3x3 baseline) is only built when
+  # this pt-range flag is forwarded to the trainer. Exposing it lets the DEFAULT Au+Au baseline
+  # train under the canonical name centAsFeatBase3x3_pt15to35 (the SAME 14 features as
+  # etfine-centstudy's centInput_pt1535). Defaults empty => no change for existing campaigns.
+  local extra_base3x3_pt_ranges="${RJ_AUAU_BDT_EXTRA_CENT_AS_FEAT_BASE3X3_PT_RANGES:-}"
   local ppg12_expected_samples="${RJ_AUAU_BDT_PPG12_EXACT_EXPECTED_SAMPLES:-run28_embeddedPhoton12,run28_embeddedPhoton20,run28_embeddedJet12,run28_embeddedJet20,run28_embeddedJet30}"
   local ppg12_closure_dir="${RJ_AUAU_BDT_PPG12_EXACT_CLOSURE_DIR:-${model_dir}/slideReady/ppg12_exact_reweight_bdt}"
   local ppg12_closure_artifacts="${RJ_AUAU_BDT_PPG12_EXACT_CLOSURE_ARTIFACTS:-full}"
   local bdt_test_size="${RJ_AUAU_BDT_TEST_SIZE:-0.10}"
   local bdt_split_mode="${RJ_AUAU_BDT_SPLIT_MODE:-row}"
   local bdt_max_depth="${RJ_AUAU_BDT_MAX_DEPTH:-}"
+  local bdt_random_seed="${RJ_AUAU_BDT_RANDOM_SEED:-}"
+  local bdt_n_estimators="${RJ_AUAU_BDT_N_ESTIMATORS:-}"
+  local bdt_learning_rate="${RJ_AUAU_BDT_LEARNING_RATE:-}"
+  local bdt_subsample="${RJ_AUAU_BDT_SUBSAMPLE:-}"
+  local bdt_colsample_bytree="${RJ_AUAU_BDT_COLSAMPLE_BYTREE:-}"
+  local bdt_reg_alpha="${RJ_AUAU_BDT_REG_ALPHA:-}"
+  local bdt_reg_lambda="${RJ_AUAU_BDT_REG_LAMBDA:-}"
+  local bdt_max_bin="${RJ_AUAU_BDT_MAX_BIN:-}"
   local event_quality_cut_json="${RJ_AUAU_BDT_EVENT_QUALITY_CUT_JSON:-}"
   local event_quality_audit_output="${RJ_AUAU_BDT_EVENT_QUALITY_AUDIT_OUTPUT:-${model_dir}/event_quality_filter_audit.json}"
   local event_quality_audit_only="${RJ_AUAU_BDT_EVENT_QUALITY_AUDIT_ONLY:-0}"
@@ -1159,6 +1172,9 @@ train_expanded_from_extraction() {
     "campaign  : ${campaign}" \
     "weight    : ${weight_mode}" \
     "max depth : ${bdt_max_depth:-<trainer default>}" \
+    "seed      : ${bdt_random_seed:-<trainer default>}" \
+    "estimators: ${bdt_n_estimators:-<trainer default>}" \
+    "learn rate: ${bdt_learning_rate:-<trainer default>}" \
     "spec ids  : ${spec_ids:-<all>}" \
     "event cut : ${event_quality_cut_json:-<disabled>}" \
     "report    : ${report_dir}" \
@@ -1196,7 +1212,7 @@ train_expanded_from_extraction() {
       --fine-cent-bins "$etcent_fine_cent_bins"
     )
   fi
-  if [[ "$campaign" == "etfine-centstudy" ]]; then
+  if [[ "$campaign" == "etfine-centstudy" || "$campaign" == "corrected-baseline-binned14" ]]; then
     args+=(
       --pt-bins "$etfine_pt_bins"
       --coarse-cent-bins "$etfine_coarse_cent_bins"
@@ -1210,12 +1226,23 @@ train_expanded_from_extraction() {
       --fine-cent-bins "$raw_eiso_fine_cent_bins"
     )
   fi
+  if [[ -n "$extra_base3x3_pt_ranges" ]]; then
+    args+=( --extra-cent-as-feat-base3x3-pt-ranges "$extra_base3x3_pt_ranges" )
+  fi
   if [[ -n "$spec_ids" ]]; then
     args+=( --campaign-spec-ids "$spec_ids" )
   fi
   if [[ -n "$bdt_max_depth" ]]; then
     args+=( --max-depth "$bdt_max_depth" )
   fi
+  if [[ -n "$bdt_random_seed" ]]; then args+=( --random-seed "$bdt_random_seed" ); fi
+  if [[ -n "$bdt_n_estimators" ]]; then args+=( --n-estimators "$bdt_n_estimators" ); fi
+  if [[ -n "$bdt_learning_rate" ]]; then args+=( --learning-rate "$bdt_learning_rate" ); fi
+  if [[ -n "$bdt_subsample" ]]; then args+=( --subsample "$bdt_subsample" ); fi
+  if [[ -n "$bdt_colsample_bytree" ]]; then args+=( --colsample-bytree "$bdt_colsample_bytree" ); fi
+  if [[ -n "$bdt_reg_alpha" ]]; then args+=( --reg-alpha "$bdt_reg_alpha" ); fi
+  if [[ -n "$bdt_reg_lambda" ]]; then args+=( --reg-lambda "$bdt_reg_lambda" ); fi
+  if [[ -n "$bdt_max_bin" ]]; then args+=( --max-bin "$bdt_max_bin" ); fi
   if [[ -n "$event_quality_cut_json" ]]; then
     args+=( --event-quality-cut-json "$event_quality_cut_json" )
     args+=( --event-quality-audit-output "$event_quality_audit_output" )
@@ -1267,12 +1294,18 @@ train_expanded_from_extraction_condor() {
   [[ -d "$source" ]] || die "SOURCE is not a directory: $source"
   [[ "$group_size" =~ ^[0-9]+$ && "$group_size" -gt 0 ]] || die "groupSize must be a positive integer"
 
+  local manifest_override="${RJ_AUAU_BDT_ROOT_MANIFEST:-}"
   local manifest="${source}/manifests/training_roots.list"
   local search_root="$source"
   [[ -d "${source}/extraction" ]] && search_root="${source}/extraction"
-  local report_dir="${source}/reports"
+  local report_dir="${RJ_AUAU_BDT_REPORT_DIR:-${source}/reports}"
   mkdir -p "$report_dir"
-  make_root_manifest "$search_root" "$manifest"
+  if [[ -n "$manifest_override" ]]; then
+    [[ -s "$manifest_override" ]] || die "RJ_AUAU_BDT_ROOT_MANIFEST is empty or missing: $manifest_override"
+    manifest="$manifest_override"
+  else
+    make_root_manifest "$search_root" "$manifest"
+  fi
   validate_training_tree "$manifest" "${report_dir}/training_tree_validation.json"
 
   local stamp="${RJ_AUAU_TIGHT_BDT_TRAIN_STAMP:-$(ts)}"
@@ -1290,12 +1323,25 @@ train_expanded_from_extraction_condor() {
   local etfine_pt_bins="${RJ_AUAU_BDT_ETFINE_PT_BINS:-15,17,19,21,23,25,27,30,35}"
   local etfine_coarse_cent_bins="${RJ_AUAU_BDT_ETFINE_COARSE_CENT_BINS:-0:20,20:50,50:80}"
   local etfine_fine_cent_bins="${RJ_AUAU_BDT_ETFINE_FINE_CENT_BINS:-0:10,10:20,20:30,30:40,40:50,50:60,60:80}"
+  # Single-pt-window base+3x3-width spec (the centAsFeatBase3x3 baseline) is only built when
+  # this pt-range flag is forwarded to the trainer. Exposing it lets the DEFAULT Au+Au baseline
+  # train under the canonical name centAsFeatBase3x3_pt15to35 (the SAME 14 features as
+  # etfine-centstudy's centInput_pt1535). Defaults empty => no change for existing campaigns.
+  local extra_base3x3_pt_ranges="${RJ_AUAU_BDT_EXTRA_CENT_AS_FEAT_BASE3X3_PT_RANGES:-}"
   local ppg12_expected_samples="${RJ_AUAU_BDT_PPG12_EXACT_EXPECTED_SAMPLES:-run28_embeddedPhoton12,run28_embeddedPhoton20,run28_embeddedJet12,run28_embeddedJet20,run28_embeddedJet30}"
   local ppg12_closure_dir="${RJ_AUAU_BDT_PPG12_EXACT_CLOSURE_DIR:-${model_dir}/slideReady/ppg12_exact_reweight_bdt}"
   local ppg12_closure_artifacts="${RJ_AUAU_BDT_PPG12_EXACT_CLOSURE_ARTIFACTS:-full}"
   local bdt_test_size="${RJ_AUAU_BDT_TEST_SIZE:-0.10}"
   local bdt_split_mode="${RJ_AUAU_BDT_SPLIT_MODE:-row}"
   local bdt_max_depth="${RJ_AUAU_BDT_MAX_DEPTH:-}"
+  local bdt_random_seed="${RJ_AUAU_BDT_RANDOM_SEED:-}"
+  local bdt_n_estimators="${RJ_AUAU_BDT_N_ESTIMATORS:-}"
+  local bdt_learning_rate="${RJ_AUAU_BDT_LEARNING_RATE:-}"
+  local bdt_subsample="${RJ_AUAU_BDT_SUBSAMPLE:-}"
+  local bdt_colsample_bytree="${RJ_AUAU_BDT_COLSAMPLE_BYTREE:-}"
+  local bdt_reg_alpha="${RJ_AUAU_BDT_REG_ALPHA:-}"
+  local bdt_reg_lambda="${RJ_AUAU_BDT_REG_LAMBDA:-}"
+  local bdt_max_bin="${RJ_AUAU_BDT_MAX_BIN:-}"
   local event_quality_cut_json="${RJ_AUAU_BDT_EVENT_QUALITY_CUT_JSON:-}"
   local event_quality_audit_output="${RJ_AUAU_BDT_EVENT_QUALITY_AUDIT_OUTPUT:-${model_dir}/event_quality_filter_audit.json}"
   local event_quality_assume_filtered="${RJ_AUAU_BDT_EVENT_QUALITY_ASSUME_FILTERED:-0}"
@@ -1309,10 +1355,26 @@ train_expanded_from_extraction_condor() {
   if [[ ( "$campaign" == "etcent-binned-eiso-cone-ablation" || "$weight_mode" == "ppg12-exact" ) && -z "${RJ_AUAU_BDT_CACHE_REQUEST_MEMORY:-}" ]]; then
     cache_reqmem="16000MB"
   fi
+  local staged_cache="${RJ_AUAU_BDT_STAGED_CACHE:-auto}"
+  if [[ "$staged_cache" == "auto" ]]; then
+    if [[ "$weight_mode" == "ppg12-exact" ]]; then
+      staged_cache="1"
+    else
+      staged_cache="0"
+    fi
+  fi
+  local cache_shards="${RJ_AUAU_BDT_CACHE_SHARDS:-12}"
+  local cache_part_reqmem="${RJ_AUAU_BDT_CACHE_PART_REQUEST_MEMORY:-6000MB}"
+  local cache_reduce_reqmem="${RJ_AUAU_BDT_CACHE_REDUCE_REQUEST_MEMORY:-12000MB}"
+  local cache_part_maxjobs="${RJ_AUAU_BDT_CACHE_PART_MAXJOBS:-4}"
+  [[ "$staged_cache" == "0" || "$staged_cache" == "1" ]] || die "RJ_AUAU_BDT_STAGED_CACHE must be 0, 1, or auto"
+  [[ "$cache_shards" =~ ^[0-9]+$ && "$cache_shards" -gt 0 ]] || die "RJ_AUAU_BDT_CACHE_SHARDS must be a positive integer"
+  [[ "$cache_part_maxjobs" =~ ^[0-9]+$ && "$cache_part_maxjobs" -gt 0 ]] || die "RJ_AUAU_BDT_CACHE_PART_MAXJOBS must be a positive integer"
   guard_generated_path "expanded training model dir" "$model_dir"
   guard_generated_path "expanded training submit root" "$sub_root"
   log_path_plan "trainExpandedFromExtractionCondor" \
     "source    : ${source}" \
+    "manifest  : ${manifest}" \
     "model dir : ${model_dir}" \
     "submit    : ${sub_root}" \
     "shards    : ${shard_dir}" \
@@ -1323,11 +1385,15 @@ train_expanded_from_extraction_condor() {
     "test size : ${bdt_test_size}" \
     "split mode: ${bdt_split_mode}" \
     "max depth : ${bdt_max_depth:-<trainer default>}" \
+    "seed      : ${bdt_random_seed:-<trainer default>}" \
+    "estimators: ${bdt_n_estimators:-<trainer default>}" \
+    "learn rate: ${bdt_learning_rate:-<trainer default>}" \
     "spec ids  : ${spec_ids:-<all>}" \
     "event cut : ${event_quality_cut_json:-<disabled>}" \
     "groupSize : ${group_size}" \
     "requestMem: ${reqmem}" \
-    "cacheMem : ${cache_reqmem}"
+    "cacheMem : ${cache_reqmem}" \
+    "cacheMode: $([[ "$staged_cache" == "1" ]] && echo "staged shards=${cache_shards} partMem=${cache_part_reqmem} reduceMem=${cache_reduce_reqmem} maxJobs=${cache_part_maxjobs}" || echo "single")"
   mkdir -p "$model_dir" "$sub_root" "$shard_dir" "$registry_dir"
 
   setup_ml_python_env
@@ -1357,7 +1423,7 @@ train_expanded_from_extraction_condor() {
       --fine-cent-bins "$etcent_fine_cent_bins"
     )
   fi
-  if [[ "$campaign" == "etfine-centstudy" ]]; then
+  if [[ "$campaign" == "etfine-centstudy" || "$campaign" == "corrected-baseline-binned14" ]]; then
     plan_args+=(
       --pt-bins "$etfine_pt_bins"
       --coarse-cent-bins "$etfine_coarse_cent_bins"
@@ -1371,12 +1437,23 @@ train_expanded_from_extraction_condor() {
       --fine-cent-bins "$raw_eiso_fine_cent_bins"
     )
   fi
+  if [[ -n "$extra_base3x3_pt_ranges" ]]; then
+    plan_args+=( --extra-cent-as-feat-base3x3-pt-ranges "$extra_base3x3_pt_ranges" )
+  fi
   if [[ -n "$spec_ids" ]]; then
     plan_args+=( --campaign-spec-ids "$spec_ids" )
   fi
   if [[ -n "$bdt_max_depth" ]]; then
     plan_args+=( --max-depth "$bdt_max_depth" )
   fi
+  if [[ -n "$bdt_random_seed" ]]; then plan_args+=( --random-seed "$bdt_random_seed" ); fi
+  if [[ -n "$bdt_n_estimators" ]]; then plan_args+=( --n-estimators "$bdt_n_estimators" ); fi
+  if [[ -n "$bdt_learning_rate" ]]; then plan_args+=( --learning-rate "$bdt_learning_rate" ); fi
+  if [[ -n "$bdt_subsample" ]]; then plan_args+=( --subsample "$bdt_subsample" ); fi
+  if [[ -n "$bdt_colsample_bytree" ]]; then plan_args+=( --colsample-bytree "$bdt_colsample_bytree" ); fi
+  if [[ -n "$bdt_reg_alpha" ]]; then plan_args+=( --reg-alpha "$bdt_reg_alpha" ); fi
+  if [[ -n "$bdt_reg_lambda" ]]; then plan_args+=( --reg-lambda "$bdt_reg_lambda" ); fi
+  if [[ -n "$bdt_max_bin" ]]; then plan_args+=( --max-bin "$bdt_max_bin" ); fi
   if [[ -n "$event_quality_cut_json" ]]; then
     plan_args+=( --event-quality-cut-json "$event_quality_cut_json" )
     plan_args+=( --event-quality-audit-output "$event_quality_audit_output" )
@@ -1599,6 +1676,124 @@ elif campaign == "etfine-centstudy":
         "[OK] PPG12-exact preflight: etfine-centstudy products "
         f"{product_counts}, 15-35 GeV grid, no event/cross-section training weights"
     )
+elif campaign == "corrected-baseline-shower-ladder":
+    if not models:
+        errors.append("no corrected-baseline shower-ladder models planned")
+    allowed_products = {"baseV3E11_pt1535", "baseV3E11_cent12_pt1535", "centAsFeatBase3x3_pt15to35", "globalEtCent1535_bdt_noIso", "base14_to32_cumulative_ladder"}
+    for product in products:
+        if not (
+            product in allowed_products
+            or product.startswith("base14_plus1_")
+        ):
+            errors.append(f"unexpected shower-ladder product: {product}")
+    for model in models:
+        model_id = model.get("model_id", "")
+        feats = model.get("features") or []
+        pt_range = model.get("pt_range")
+        cent_range = model.get("cent_range")
+        if pt_range != [15.0, 35.0] or cent_range is not None:
+            errors.append(f"unexpected shower-ladder phase space: {model_id} pt={pt_range} cent={cent_range}")
+        if model_id == "baseV3E11_pt1535" and len(feats) != 11:
+            errors.append(f"baseV3E11_pt1535 feature count is not 11: {len(feats)}")
+        elif model_id == "baseV3E11_cent12_pt1535" and len(feats) != 12:
+            errors.append(f"baseV3E11_cent12_pt1535 feature count is not 12: {len(feats)}")
+        elif model_id == "centAsFeatBase3x3_pt15to35" and len(feats) != 14:
+            errors.append(f"centAsFeatBase3x3_pt15to35 feature count is not 14: {len(feats)}")
+        elif model_id.startswith("base14_plus1_") and len(feats) != 15:
+            errors.append(f"{model_id} plus-one feature count is not 15: {len(feats)}")
+        elif model_id.startswith("base14_ladder") and not (15 <= len(feats) <= 31):
+            errors.append(f"{model_id} cumulative feature count outside 15..31: {len(feats)}")
+        elif model_id == "globalEtCent1535_bdt_noIso" and len(feats) != 32:
+            errors.append(f"globalEtCent1535_bdt_noIso feature count is not 32: {len(feats)}")
+        if errors:
+            break
+    ok_message = (
+        "[OK] PPG12-exact preflight: corrected-baseline shower ladder "
+        f"products={dict(products)}, selected={len(models)}, no event/cross-section training weights"
+    )
+elif campaign == "corrected-baseline-binned14":
+    expected_counts = {
+        "base14_perEt": 8,
+        "base14_perCent3": 3,
+        "base14_perCent7": 7,
+        "base14_perEtCent3": 24,
+        "base14_perEtCent7": 56,
+    }
+    unknown = sorted(set(products) - set(expected_counts))
+    if unknown:
+        errors.append(f"unexpected corrected-baseline binned14 products: {unknown}")
+    if not products:
+        errors.append("no corrected-baseline binned14 products planned")
+    for product, count in sorted(products.items()):
+        expected = expected_counts.get(product)
+        if expected is not None and count > expected:
+            errors.append(f"too many models for {product}: {count}, expected <= {expected}")
+    if planned.get("pt_bins") != expected_pt:
+        errors.append(f"unexpected pt_bins: {planned.get('pt_bins')}")
+    if planned.get("coarse_cent_bins") != expected_coarse:
+        errors.append(f"unexpected coarse_cent_bins: {planned.get('coarse_cent_bins')}")
+    if planned.get("fine_cent_bins") != expected_fine:
+        errors.append(f"unexpected fine_cent_bins: {planned.get('fine_cent_bins')}")
+    bad_feature_counts = [
+        f"{model.get('model_id')}:{len(model.get('features') or [])}"
+        for model in models
+        if len(model.get("features") or []) != 14
+    ]
+    if bad_feature_counts:
+        errors.append("corrected-baseline binned14 feature count mismatch: " + ", ".join(bad_feature_counts[:8]))
+    ok_message = (
+        "[OK] PPG12-exact preflight: corrected-baseline 14-feature binned products "
+        f"{dict(products)}, 15-35 GeV grid, no event/cross-section training weights"
+    )
+elif campaign == "corrected-baseline-iso14":
+    allowed = {
+        "base14_eisoR30_pt1535": 15,
+        "base14_eisoR40_pt1535": 15,
+        "base14_eisoR30R40_pt1535": 16,
+    }
+    unknown = sorted(set(products) - set(allowed))
+    if unknown:
+        errors.append(f"unexpected corrected-baseline iso14 products: {unknown}")
+    if not products:
+        errors.append("no corrected-baseline iso14 products planned")
+    for model in models:
+        model_id = model.get("model_id", "")
+        feats = model.get("features") or []
+        expected = allowed.get(model_id)
+        if expected is None:
+            errors.append(f"unexpected iso14 model_id: {model_id}")
+        elif len(feats) != expected:
+            errors.append(f"{model_id} feature count is not {expected}: {len(feats)}")
+        if model.get("pt_range") != [15.0, 35.0] or model.get("cent_range") is not None:
+            errors.append(f"unexpected iso14 phase space: {model_id} pt={model.get('pt_range')} cent={model.get('cent_range')}")
+        if not model.get("diagnostic_only"):
+            errors.append(f"iso14 model not marked diagnostic_only: {model_id}")
+        if errors:
+            break
+    ok_message = (
+        "[OK] PPG12-exact preflight: corrected-baseline base14 raw-eiso diagnostics "
+        f"{dict(products)}, no event/cross-section training weights"
+    )
+elif campaign == "expanded-tight":
+    if dict(products) not in ({"centAsFeatBase3x3_pt15to35": 1}, {"centAsFeatBase3x3_pt5to40": 1}):
+        errors.append(f"unexpected products/counts for expanded-tight baseline: {dict(products)}")
+    if len(models) != 1 or planned.get("expected_model_count") != 1:
+        errors.append(
+            f"expected exactly 1 centAsFeatBase3x3 model, found models={len(models)} "
+            f"expected_model_count={planned.get('expected_model_count')}"
+        )
+    if models:
+        model = models[0]
+        feats = model.get("features") or []
+        required = {"cluster_Et", "centrality", "cluster_weta33_cogx", "cluster_wphi33_cogx"}
+        missing = sorted(required - set(feats))
+        if model.get("model_id") not in {"centAsFeatBase3x3_pt15to35", "centAsFeatBase3x3_pt5to40"}:
+            errors.append(f"unexpected model_id: {model.get('model_id')}")
+        if len(feats) != 14:
+            errors.append(f"centAsFeatBase3x3 baseline feature count is not 14: {len(feats)}")
+        if missing:
+            errors.append(f"centAsFeatBase3x3 baseline missing required feature(s): {missing}")
+    ok_message = "[OK] PPG12-exact preflight: centAsFeatBase3x3 14-input baseline/window, no event/cross-section training weights"
 else:
     errors.append(f"unexpected campaign: {campaign}")
 if errors:
@@ -1634,6 +1829,45 @@ PY
 )"
   shard_count="$(find "$shard_dir" -maxdepth 1 -type f -name 'specs_*.list' | wc -l | tr -d ' ')"
   [[ "$spec_count" == "$expected_spec_count" ]] || die "Expanded campaign expected ${expected_spec_count} specs, planned ${spec_count}"
+
+  local root_shard_dir="${sub_root}/cache_root_shards"
+  local cache_partial_dir="${model_dir}/cache_shards"
+  local cache_partials_manifest="${sub_root}/cache_partials.list"
+  local cache_part_count="0"
+  if [[ "$staged_cache" == "1" ]]; then
+    mkdir -p "$root_shard_dir" "$cache_partial_dir"
+    "$ML_PYTHON" - "$manifest" "$root_shard_dir" "$cache_partial_dir" "$cache_partials_manifest" "$cache_shards" <<'PY'
+import math
+import sys
+from pathlib import Path
+
+manifest = Path(sys.argv[1])
+root_shard_dir = Path(sys.argv[2])
+cache_partial_dir = Path(sys.argv[3])
+partials_manifest = Path(sys.argv[4])
+requested = int(sys.argv[5])
+
+roots = [line.strip() for line in manifest.read_text().splitlines() if line.strip() and not line.lstrip().startswith("#")]
+if not roots:
+    raise SystemExit(f"empty training manifest: {manifest}")
+requested = max(1, min(requested, len(roots)))
+for old in root_shard_dir.glob("roots_*.list"):
+    old.unlink()
+chunk = int(math.ceil(len(roots) / requested))
+partials = []
+for idx in range(requested):
+    subset = roots[idx * chunk : (idx + 1) * chunk]
+    if not subset:
+        continue
+    root_list = root_shard_dir / f"roots_{idx:05d}.list"
+    root_list.write_text("\n".join(subset) + "\n")
+    partials.append(cache_partial_dir / f"training_matrix_part_{idx:05d}.npz")
+partials_manifest.write_text("\n".join(str(path) for path in partials) + "\n")
+print(len(partials))
+PY
+    cache_part_count="$(wc -l < "$cache_partials_manifest" | tr -d ' ')"
+    [[ "$cache_part_count" =~ ^[0-9]+$ && "$cache_part_count" -gt 0 ]] || die "staged cache requested but no partial cache shards were created"
+  fi
 
   local env_prelude='
 export USER="${USER:-$(id -u -n)}"
@@ -1674,6 +1908,7 @@ export RJ_AUAU_BDT_MAX_DEPTH="${bdt_max_depth}"
 export RJ_AUAU_BDT_EVENT_QUALITY_CUT_JSON="${event_quality_cut_json}"
 export RJ_AUAU_BDT_EVENT_QUALITY_AUDIT_OUTPUT="${event_quality_audit_output}"
 export RJ_AUAU_BDT_EVENT_QUALITY_ASSUME_FILTERED="${event_quality_assume_filtered}"
+export RJ_AUAU_BDT_EXTRA_CENT_AS_FEAT_BASE3X3_PT_RANGES="${extra_base3x3_pt_ranges}"
 ${env_prelude}
 extra_args=()
 extra_args+=(--weight-mode "\${RJ_AUAU_BDT_WEIGHT_MODE}")
@@ -1693,6 +1928,9 @@ fi
 if [[ -n "\${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS:-}" ]]; then
   extra_args+=(--campaign-spec-ids "\${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS}")
 fi
+if [[ -n "\${RJ_AUAU_BDT_EXTRA_CENT_AS_FEAT_BASE3X3_PT_RANGES:-}" ]]; then
+  extra_args+=(--extra-cent-as-feat-base3x3-pt-ranges "\${RJ_AUAU_BDT_EXTRA_CENT_AS_FEAT_BASE3X3_PT_RANGES}")
+fi
 if [[ "\${RJ_AUAU_BDT_WEIGHT_MODE:-legacy}" == "ppg12-exact" ]]; then
   extra_args+=(--no-event-weight)
   extra_args+=(--ppg12-exact-expected-samples "${ppg12_expected_samples}")
@@ -1704,7 +1942,7 @@ if [[ "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "etcent-binned-sixpack" || "\${RJ_AUAU_BDT
   extra_args+=(--coarse-cent-bins "${etcent_coarse_cent_bins}")
   extra_args+=(--fine-cent-bins "${etcent_fine_cent_bins}")
 fi
-if [[ "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "etfine-centstudy" ]]; then
+if [[ "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "etfine-centstudy" || "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "corrected-baseline-binned14" ]]; then
   extra_args+=(--pt-bins "${etfine_pt_bins}")
   extra_args+=(--coarse-cent-bins "${etfine_coarse_cent_bins}")
   extra_args+=(--fine-cent-bins "${etfine_fine_cent_bins}")
@@ -1725,6 +1963,427 @@ fi
 EOF
   chmod +x "$cache_worker"
 
+  local cache_part_worker="${sub_root}/expanded_cache_part.sh"
+cat > "$cache_part_worker" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+root_manifest="\${1:?root shard manifest}"
+partial_cache="\${2:?partial cache output}"
+registry="\${3:?registry output}"
+export ML_PYTHON="${ML_PYTHON}"
+export RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS="${spec_ids}"
+export RJ_AUAU_BDT_CAMPAIGN="${campaign}"
+export RJ_AUAU_BDT_WEIGHT_MODE="${weight_mode}"
+export RJ_AUAU_BDT_TEST_SIZE="${bdt_test_size}"
+export RJ_AUAU_BDT_SPLIT_MODE="${bdt_split_mode}"
+export RJ_AUAU_BDT_MAX_DEPTH="${bdt_max_depth}"
+export RJ_AUAU_BDT_EVENT_QUALITY_CUT_JSON="${event_quality_cut_json}"
+export RJ_AUAU_BDT_EVENT_QUALITY_ASSUME_FILTERED="${event_quality_assume_filtered}"
+export RJ_AUAU_BDT_EXTRA_CENT_AS_FEAT_BASE3X3_PT_RANGES="${extra_base3x3_pt_ranges}"
+export MALLOC_ARENA_MAX="${RJ_AUAU_BDT_MALLOC_ARENA_MAX:-2}"
+${env_prelude}
+extra_args=()
+extra_args+=(--weight-mode "\${RJ_AUAU_BDT_WEIGHT_MODE}")
+extra_args+=(--test-size "\${RJ_AUAU_BDT_TEST_SIZE}")
+extra_args+=(--split-mode "\${RJ_AUAU_BDT_SPLIT_MODE}")
+if [[ -n "\${RJ_AUAU_BDT_MAX_DEPTH:-}" ]]; then
+  extra_args+=(--max-depth "\${RJ_AUAU_BDT_MAX_DEPTH}")
+fi
+if [[ -n "\${RJ_AUAU_BDT_EVENT_QUALITY_CUT_JSON:-}" ]]; then
+  extra_args+=(--event-quality-cut-json "\${RJ_AUAU_BDT_EVENT_QUALITY_CUT_JSON}")
+  extra_args+=(--event-quality-audit-output "\${partial_cache%.npz}.event_quality_filter_audit.json")
+  extra_args+=(--require-global-event-key)
+  if [[ "\${RJ_AUAU_BDT_EVENT_QUALITY_ASSUME_FILTERED:-0}" == "1" ]]; then
+    extra_args+=(--event-quality-assume-filtered)
+  fi
+fi
+if [[ -n "\${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS:-}" ]]; then
+  extra_args+=(--campaign-spec-ids "\${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS}")
+fi
+if [[ -n "\${RJ_AUAU_BDT_EXTRA_CENT_AS_FEAT_BASE3X3_PT_RANGES:-}" ]]; then
+  extra_args+=(--extra-cent-as-feat-base3x3-pt-ranges "\${RJ_AUAU_BDT_EXTRA_CENT_AS_FEAT_BASE3X3_PT_RANGES}")
+fi
+if [[ "\${RJ_AUAU_BDT_WEIGHT_MODE:-legacy}" == "ppg12-exact" ]]; then
+  extra_args+=(--no-event-weight)
+  extra_args+=(--ppg12-exact-expected-samples "${ppg12_expected_samples}")
+  extra_args+=(--ppg12-exact-closure-dir "${ppg12_closure_dir}")
+  extra_args+=(--ppg12-exact-closure-artifacts metadata-only)
+  extra_args+=(--cache-only-skip-ppg12-exact-weights)
+fi
+if [[ "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "etcent-binned-sixpack" || "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "etcent-binned-sixpack-noiso-ptcent7" || "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "global-and-etcent-binned-sixpack-noiso" ]]; then
+  extra_args+=(--pt-bins "${etcent_pt_bins}")
+  extra_args+=(--coarse-cent-bins "${etcent_coarse_cent_bins}")
+  extra_args+=(--fine-cent-bins "${etcent_fine_cent_bins}")
+fi
+if [[ "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "etfine-centstudy" || "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "corrected-baseline-binned14" ]]; then
+  extra_args+=(--pt-bins "${etfine_pt_bins}")
+  extra_args+=(--coarse-cent-bins "${etfine_coarse_cent_bins}")
+  extra_args+=(--fine-cent-bins "${etfine_fine_cent_bins}")
+fi
+if [[ "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "etcent-binned-eiso-cone-ablation" ]]; then
+  extra_args+=(--pt-bins "${raw_eiso_pt_bins}")
+  extra_args+=(--coarse-cent-bins "${raw_eiso_coarse_cent_bins}")
+  extra_args+=(--fine-cent-bins "${raw_eiso_fine_cent_bins}")
+fi
+"\$ml_python" "${TRAIN_SCRIPT}" --task tight --campaign "\${RJ_AUAU_BDT_CAMPAIGN}" \\
+  --input "@\${root_manifest}" --outdir "${model_dir}" \\
+  --cache-file "\${partial_cache}" --cache-only \\
+  --registry-output "\${registry}" \\
+  --n-jobs "${RJ_AUAU_BDT_XGB_N_JOBS:-1}" \\
+  --majority-cap-ratio "${RJ_AUAU_BDT_MAJORITY_CAP_RATIO:-4.0}" \\
+  --minopt-majority-cap-ratio "${RJ_AUAU_BDT_MINOPT_MAJORITY_CAP_RATIO:-2.0}" \\
+  "\${extra_args[@]}"
+EOF
+  chmod +x "$cache_part_worker"
+
+  local cache_reduce_worker="${sub_root}/expanded_cache_reduce.sh"
+cat > "$cache_reduce_worker" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+export ML_PYTHON="${ML_PYTHON}"
+export MALLOC_ARENA_MAX="${RJ_AUAU_BDT_MALLOC_ARENA_MAX:-2}"
+${env_prelude}
+"\$ml_python" - "${TRAIN_SCRIPT}" "${cache_partials_manifest}" "${cache_file}" "${model_dir}" "${ppg12_closure_dir}" "${ppg12_expected_samples}" "${ppg12_closure_artifacts}" "${model_dir}/model_registry.cache.json" <<'PY'
+import importlib.util
+import csv
+import json
+import math
+import os
+import sys
+from pathlib import Path
+import zipfile
+
+import numpy as np
+from numpy.lib.format import write_array
+
+trainer_path = Path(sys.argv[1])
+partials_manifest = Path(sys.argv[2])
+output_cache = Path(sys.argv[3])
+model_dir = Path(sys.argv[4])
+closure_dir = Path(sys.argv[5])
+expected_samples = sys.argv[6]
+closure_artifacts = sys.argv[7]
+registry_output = Path(sys.argv[8])
+
+spec = importlib.util.spec_from_file_location("train_auau_photon_bdt_runtime", trainer_path)
+if spec is None or spec.loader is None:
+    raise SystemExit(f"cannot load trainer module from {trainer_path}")
+trainer = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(trainer)
+
+partials = [Path(line.strip()) for line in partials_manifest.read_text().splitlines() if line.strip()]
+if not partials:
+    raise SystemExit(f"empty staged cache partial manifest: {partials_manifest}")
+missing = [str(path) for path in partials if not path.is_file() or path.stat().st_size <= 0]
+if missing:
+    raise SystemExit("missing staged cache partial(s):\n  " + "\n  ".join(missing[:20]))
+
+partial_reports = []
+columns_ref = None
+row_counts = []
+for path in partials:
+    with np.load(path, allow_pickle=True) as data:
+        columns = [str(item) for item in data["__columns__"].tolist()]
+        if not columns:
+            raise SystemExit(f"empty staged cache partial columns: {path}")
+        row_count = int(len(data[columns[0]]))
+        for col in columns:
+            if int(len(data[col])) != row_count:
+                raise SystemExit(f"staged cache partial has inconsistent column lengths: {path}:{col}")
+    if columns_ref is None:
+        columns_ref = sorted(columns)
+    elif sorted(columns) != columns_ref:
+        raise SystemExit(
+            "staged cache partial schema mismatch:\n"
+            f"  reference={columns_ref}\n"
+            f"  path={path}\n"
+            f"  columns={sorted(columns)}"
+        )
+    row_counts.append(row_count)
+    partial_reports.append({"path": str(path), "rows": row_count, "columns": sorted(columns)})
+
+if columns_ref is None:
+    raise SystemExit(f"empty staged cache partial manifest: {partials_manifest}")
+
+weight_col = getattr(trainer, "PPG12_EXACT_WEIGHT_COLUMN")
+required_reduce_columns = ["is_signal", "cluster_Et", "cluster_Eta", "source_sample"]
+missing_reduce = [col for col in required_reduce_columns if col not in columns_ref]
+if missing_reduce:
+    raise SystemExit("staged cache partials missing reducer columns: " + ", ".join(missing_reduce))
+
+
+def concat_column(name):
+    pieces = []
+    for path in partials:
+        with np.load(path, allow_pickle=True) as data:
+            pieces.append(np.asarray(data[name]))
+    if not pieces:
+        return np.asarray([])
+    return np.concatenate(pieces)
+
+
+labels = concat_column("is_signal").astype("int32", copy=False)
+cluster_et = concat_column("cluster_Et").astype("float64", copy=False)
+cluster_eta = concat_column("cluster_Eta").astype("float64", copy=False)
+source_sample = np.asarray([str(item) for item in concat_column("source_sample")], dtype=object)
+if "centrality" in columns_ref:
+    centrality = concat_column("centrality").astype("float64", copy=False)
+else:
+    centrality = np.full(len(labels), np.nan, dtype="float64")
+n_rows = int(len(labels))
+
+
+def validate_samples_numpy(labels_arr, sample_arr, expected_text):
+    expected = trainer.parse_expected_samples(expected_text)
+    samples = sorted(set(map(str, sample_arr.tolist())))
+    missing_samples = sorted(set(expected) - set(samples))
+    unexpected = sorted(set(samples) - set(expected))
+    if missing_samples or unexpected:
+        raise SystemExit(
+            "PPG12-exact sample set mismatch: "
+            f"missing={missing_samples or []} unexpected={unexpected or []} observed={samples}"
+        )
+    inventory = []
+    mixed_label_counts = {}
+    for sample in expected:
+        mask = sample_arr == sample
+        n_signal = int(np.sum(mask & (labels_arr == 1)))
+        n_background = int(np.sum(mask & (labels_arr == 0)))
+        if "Photon" in sample and n_background:
+            mixed_label_counts[sample] = n_background
+        elif "Jet" in sample and n_signal:
+            mixed_label_counts[sample] = n_signal
+        inventory.append(
+            {
+                "source_sample": sample,
+                "n_rows": int(mask.sum()),
+                "n_signal": n_signal,
+                "n_background": n_background,
+            }
+        )
+    if mixed_label_counts:
+        print(
+            "[WARN] PPG12-exact source_sample/truth-label mixture observed; "
+            "treating source_sample as provenance and truth label as the BDT class: "
+            f"{mixed_label_counts}",
+            flush=True,
+        )
+    return {
+        "expected_samples": list(expected),
+        "observed_samples": samples,
+        "inventory": inventory,
+        "mixed_label_counts": mixed_label_counts,
+        "source_sample_semantics": "provenance",
+        "truth_label_semantics": "per-candidate BDT class",
+        "mixed_labels_are_fatal": False,
+    }, expected
+
+
+def compute_ppg12_exact_weights_numpy(labels_arr, et_arr, eta_arr):
+    weights = np.ones(len(labels_arr), dtype="float64")
+    report = {
+        "weight_mode": "ppg12-exact",
+        "event_weight_used": False,
+        "vertex_reweight": False,
+        "centrality_event_weight": False,
+        "cross_section_weight_used_for_training": False,
+        "weights_computed_before_binning": True,
+        "eta_range": list(trainer.PPG12_EXACT_ETA_RANGE),
+        "eta_bins": int(trainer.PPG12_EXACT_N_BINS),
+        "et_bins": int(trainer.PPG12_EXACT_N_BINS),
+        "et_weight_cap": float(trainer.PPG12_EXACT_ET_WEIGHT_CAP),
+    }
+    class_counts = {}
+    class_weight_factors = {}
+    n_total = 0
+    for cls in (0, 1):
+        n_cls = int((labels_arr == cls).sum())
+        class_counts[str(cls)] = n_cls
+        n_total += n_cls
+    if class_counts["0"] <= 0 or class_counts["1"] <= 0:
+        raise SystemExit(f"PPG12-exact weights need both classes; observed counts={class_counts}")
+    for cls in (0, 1):
+        factor = float(n_total) / (2.0 * float(class_counts[str(cls)]))
+        class_weight_factors[str(cls)] = factor
+        weights[labels_arr == cls] *= factor
+
+    eta_reports = {}
+    et_reports = {}
+    for cls in (0, 1):
+        mask = labels_arr == cls
+        eta_w, eta_report = trainer.ppg12_exact_inverse_pdf_weights(
+            eta_arr[mask],
+            n_bins=int(trainer.PPG12_EXACT_N_BINS),
+            fixed_range=trainer.PPG12_EXACT_ETA_RANGE,
+            weight_cap=None,
+        )
+        weights[mask] *= eta_w
+        eta_reports[str(cls)] = eta_report
+        et_w, et_report = trainer.ppg12_exact_inverse_pdf_weights(
+            et_arr[mask],
+            n_bins=int(trainer.PPG12_EXACT_N_BINS),
+            fixed_range=None,
+            weight_cap=float(trainer.PPG12_EXACT_ET_WEIGHT_CAP),
+        )
+        weights[mask] *= et_w
+        et_reports[str(cls)] = et_report
+
+    finite_positive = np.isfinite(weights) & (weights > 0.0)
+    if not finite_positive.all():
+        bad = int((~finite_positive).sum())
+        raise SystemExit(f"PPG12-exact weights produced {bad} non-finite/non-positive rows")
+    report["class_counts"] = class_counts
+    report["class_weight_factors"] = class_weight_factors
+    report["eta_reweight"] = eta_reports
+    report["et_reweight"] = et_reports
+    report["sum_weight_class0"] = float(weights[labels_arr == 0].sum())
+    report["sum_weight_class1"] = float(weights[labels_arr == 1].sum())
+    report["min_weight"] = float(np.min(weights)) if len(weights) else math.nan
+    report["max_weight"] = float(np.max(weights)) if len(weights) else math.nan
+    report["mean_weight"] = float(np.mean(weights)) if len(weights) else math.nan
+    return weights, report
+
+
+def write_array_csv(path, rows, fieldnames):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def write_inventory_artifacts(labels_arr, sample_arr, et_arr, eta_arr, cent_arr, weights_arr, outdir):
+    rows = []
+    for sample in sorted(set(map(str, sample_arr.tolist()))):
+        sample_mask = sample_arr == sample
+        for cls in (0, 1):
+            mask = sample_mask & (labels_arr == cls)
+            rows.append(
+                {
+                    "source_sample": sample,
+                    "class": cls,
+                    "class_name": "signal" if cls == 1 else "background",
+                    "n_rows": int(mask.sum()),
+                    "sum_ppg12_exact_weight": float(weights_arr[mask].sum()) if mask.any() else 0.0,
+                    "mean_cluster_Et": float(np.nanmean(et_arr[mask])) if mask.any() else math.nan,
+                    "mean_cluster_Eta": float(np.nanmean(eta_arr[mask])) if mask.any() else math.nan,
+                }
+            )
+    inventory_csv = outdir / "ppg12_exact_sample_inventory.csv"
+    write_array_csv(
+        inventory_csv,
+        rows,
+        ["source_sample", "class", "class_name", "n_rows", "sum_ppg12_exact_weight", "mean_cluster_Et", "mean_cluster_Eta"],
+    )
+    et_edges = np.asarray([15.0, 17.0, 19.0, 21.0, 23.0, 25.0, 27.0, 30.0, 35.0])
+    eta_edges = np.linspace(trainer.PPG12_EXACT_ETA_RANGE[0], trainer.PPG12_EXACT_ETA_RANGE[1], int(trainer.PPG12_EXACT_N_BINS) + 1)
+    cent_bins = [(0.0, 20.0), (20.0, 50.0), (50.0, 80.0)]
+    binned_rows = []
+    for sample in sorted(set(map(str, sample_arr.tolist()))):
+        sample_mask = sample_arr == sample
+        for cls in (0, 1):
+            class_mask = sample_mask & (labels_arr == cls)
+            for lo, hi in zip(et_edges[:-1], et_edges[1:]):
+                mask = class_mask & (et_arr >= lo) & (et_arr < hi)
+                binned_rows.append({"source_sample": sample, "class": cls, "axis": "cluster_Et", "bin_low": float(lo), "bin_high": float(hi), "n_rows": int(mask.sum()), "sum_ppg12_exact_weight": float(weights_arr[mask].sum()) if mask.any() else 0.0})
+            for lo, hi in zip(eta_edges[:-1], eta_edges[1:]):
+                mask = class_mask & (eta_arr >= lo) & (eta_arr < hi)
+                binned_rows.append({"source_sample": sample, "class": cls, "axis": "cluster_Eta", "bin_low": float(lo), "bin_high": float(hi), "n_rows": int(mask.sum()), "sum_ppg12_exact_weight": float(weights_arr[mask].sum()) if mask.any() else 0.0})
+            for lo, hi in cent_bins:
+                mask = class_mask & (cent_arr >= lo) & (cent_arr < hi)
+                binned_rows.append({"source_sample": sample, "class": cls, "axis": "centrality", "bin_low": float(lo), "bin_high": float(hi), "n_rows": int(mask.sum()), "sum_ppg12_exact_weight": float(weights_arr[mask].sum()) if mask.any() else 0.0})
+    binned_csv = outdir / "ppg12_exact_sample_inventory_binned.csv"
+    write_array_csv(
+        binned_csv,
+        binned_rows,
+        ["source_sample", "class", "axis", "bin_low", "bin_high", "n_rows", "sum_ppg12_exact_weight"],
+    )
+    return {"inventory_csv": str(inventory_csv), "binned_inventory_csv": str(binned_csv)}
+
+
+def write_npz_streaming(path, columns, weights_arr):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = Path(str(path) + ".tmp")
+    if tmp.exists():
+        tmp.unlink()
+    with zipfile.ZipFile(tmp, mode="w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
+        with archive.open("__columns__.npy", mode="w", force_zip64=True) as handle:
+            write_array(handle, np.asarray(columns, dtype=object), allow_pickle=True)
+        for col in columns:
+            if col == weight_col:
+                arr = weights_arr
+            elif col == "is_signal":
+                arr = labels
+            elif col == "cluster_Et":
+                arr = cluster_et
+            elif col == "cluster_Eta":
+                arr = cluster_eta
+            elif col == "source_sample":
+                arr = source_sample
+            elif col == "centrality":
+                arr = centrality
+            else:
+                arr = concat_column(col)
+            with archive.open(f"{col}.npy", mode="w", force_zip64=True) as handle:
+                write_array(handle, np.asarray(arr), allow_pickle=True)
+            del arr
+    os.replace(tmp, path)
+
+
+sample_report, _expected_samples_tuple = validate_samples_numpy(labels, source_sample, expected_samples)
+weights, weight_report = compute_ppg12_exact_weights_numpy(labels, cluster_et, cluster_eta)
+closure_dir_path = Path(closure_dir)
+closure_dir_path.mkdir(parents=True, exist_ok=True)
+inventory_paths = {}
+if closure_artifacts == "full":
+    inventory_paths = write_inventory_artifacts(labels, source_sample, cluster_et, cluster_eta, centrality, weights, closure_dir_path)
+metadata = {
+    "schema": "AUAU_BDT_PPG12_EXACT_WEIGHT_CLOSURE_V1",
+    "artifact_mode": closure_artifacts,
+    "sample_validation": sample_report,
+    "weighting": weight_report,
+    "artifacts": inventory_paths,
+}
+metadata_path = closure_dir_path / "ppg12_exact_reweighting_metadata.json"
+metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
+closure = {**metadata, "metadata_json": str(metadata_path)}
+output_columns = sorted([col for col in columns_ref if col != weight_col] + [weight_col])
+write_npz_streaming(output_cache, output_columns, weights)
+registry_output.parent.mkdir(parents=True, exist_ok=True)
+registry_output.write_text(
+    json.dumps(
+        {
+            "schema": "AUAU_BDT_STAGED_TRAINING_CACHE_REDUCE_V1",
+            "status": "CACHE_READY",
+            "partial_count": len(partials),
+            "rows": n_rows,
+            "columns": output_columns,
+            "output_cache": str(output_cache),
+            "partials_manifest": str(partials_manifest),
+            "partials": partial_reports,
+            "ppg12_exact_closure": closure,
+        },
+        indent=2,
+        sort_keys=True,
+    )
+    + "\n"
+)
+print(
+    json.dumps(
+        {
+            "schema": "AUAU_BDT_STAGED_TRAINING_CACHE_REDUCE_V1",
+            "status": "CACHE_READY",
+            "partial_count": len(partials),
+            "rows": n_rows,
+            "output_cache": str(output_cache),
+        },
+        sort_keys=True,
+    )
+)
+PY
+EOF
+  chmod +x "$cache_reduce_worker"
+
   local train_worker="${sub_root}/expanded_train_worker.sh"
   cat > "$train_worker" <<EOF
 #!/usr/bin/env bash
@@ -1738,8 +2397,17 @@ export RJ_AUAU_BDT_WEIGHT_MODE="${weight_mode}"
 export RJ_AUAU_BDT_TEST_SIZE="${bdt_test_size}"
 export RJ_AUAU_BDT_SPLIT_MODE="${bdt_split_mode}"
 export RJ_AUAU_BDT_MAX_DEPTH="${bdt_max_depth}"
+export RJ_AUAU_BDT_RANDOM_SEED="${bdt_random_seed}"
+export RJ_AUAU_BDT_N_ESTIMATORS="${bdt_n_estimators}"
+export RJ_AUAU_BDT_LEARNING_RATE="${bdt_learning_rate}"
+export RJ_AUAU_BDT_SUBSAMPLE="${bdt_subsample}"
+export RJ_AUAU_BDT_COLSAMPLE_BYTREE="${bdt_colsample_bytree}"
+export RJ_AUAU_BDT_REG_ALPHA="${bdt_reg_alpha}"
+export RJ_AUAU_BDT_REG_LAMBDA="${bdt_reg_lambda}"
+export RJ_AUAU_BDT_MAX_BIN="${bdt_max_bin}"
 export RJ_AUAU_BDT_EVENT_QUALITY_CUT_JSON="${event_quality_cut_json}"
 export RJ_AUAU_BDT_EVENT_QUALITY_ASSUME_FILTERED="${event_quality_assume_filtered}"
+export RJ_AUAU_BDT_EXTRA_CENT_AS_FEAT_BASE3X3_PT_RANGES="${extra_base3x3_pt_ranges}"
 ${env_prelude}
 extra_args=()
 extra_args+=(--weight-mode "\${RJ_AUAU_BDT_WEIGHT_MODE}")
@@ -1747,6 +2415,30 @@ extra_args+=(--test-size "\${RJ_AUAU_BDT_TEST_SIZE}")
 extra_args+=(--split-mode "\${RJ_AUAU_BDT_SPLIT_MODE}")
 if [[ -n "\${RJ_AUAU_BDT_MAX_DEPTH:-}" ]]; then
   extra_args+=(--max-depth "\${RJ_AUAU_BDT_MAX_DEPTH}")
+fi
+if [[ -n "\${RJ_AUAU_BDT_RANDOM_SEED:-}" ]]; then
+  extra_args+=(--random-seed "\${RJ_AUAU_BDT_RANDOM_SEED}")
+fi
+if [[ -n "\${RJ_AUAU_BDT_N_ESTIMATORS:-}" ]]; then
+  extra_args+=(--n-estimators "\${RJ_AUAU_BDT_N_ESTIMATORS}")
+fi
+if [[ -n "\${RJ_AUAU_BDT_LEARNING_RATE:-}" ]]; then
+  extra_args+=(--learning-rate "\${RJ_AUAU_BDT_LEARNING_RATE}")
+fi
+if [[ -n "\${RJ_AUAU_BDT_SUBSAMPLE:-}" ]]; then
+  extra_args+=(--subsample "\${RJ_AUAU_BDT_SUBSAMPLE}")
+fi
+if [[ -n "\${RJ_AUAU_BDT_COLSAMPLE_BYTREE:-}" ]]; then
+  extra_args+=(--colsample-bytree "\${RJ_AUAU_BDT_COLSAMPLE_BYTREE}")
+fi
+if [[ -n "\${RJ_AUAU_BDT_REG_ALPHA:-}" ]]; then
+  extra_args+=(--reg-alpha "\${RJ_AUAU_BDT_REG_ALPHA}")
+fi
+if [[ -n "\${RJ_AUAU_BDT_REG_LAMBDA:-}" ]]; then
+  extra_args+=(--reg-lambda "\${RJ_AUAU_BDT_REG_LAMBDA}")
+fi
+if [[ -n "\${RJ_AUAU_BDT_MAX_BIN:-}" ]]; then
+  extra_args+=(--max-bin "\${RJ_AUAU_BDT_MAX_BIN}")
 fi
 if [[ -n "\${RJ_AUAU_BDT_EVENT_QUALITY_CUT_JSON:-}" ]]; then
   extra_args+=(--event-quality-cut-json "\${RJ_AUAU_BDT_EVENT_QUALITY_CUT_JSON}")
@@ -1757,6 +2449,9 @@ if [[ -n "\${RJ_AUAU_BDT_EVENT_QUALITY_CUT_JSON:-}" ]]; then
 fi
 if [[ -n "\${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS:-}" ]]; then
   extra_args+=(--campaign-spec-ids "\${RJ_AUAU_BDT_CAMPAIGN_SPEC_IDS}")
+fi
+if [[ -n "\${RJ_AUAU_BDT_EXTRA_CENT_AS_FEAT_BASE3X3_PT_RANGES:-}" ]]; then
+  extra_args+=(--extra-cent-as-feat-base3x3-pt-ranges "\${RJ_AUAU_BDT_EXTRA_CENT_AS_FEAT_BASE3X3_PT_RANGES}")
 fi
 if [[ "\${RJ_AUAU_BDT_WEIGHT_MODE:-legacy}" == "ppg12-exact" ]]; then
   extra_args+=(--no-event-weight)
@@ -1769,7 +2464,7 @@ if [[ "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "etcent-binned-sixpack" || "\${RJ_AUAU_BDT
   extra_args+=(--coarse-cent-bins "${etcent_coarse_cent_bins}")
   extra_args+=(--fine-cent-bins "${etcent_fine_cent_bins}")
 fi
-if [[ "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "etfine-centstudy" ]]; then
+if [[ "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "etfine-centstudy" || "\${RJ_AUAU_BDT_CAMPAIGN:-}" == "corrected-baseline-binned14" ]]; then
   extra_args+=(--pt-bins "${etfine_pt_bins}")
   extra_args+=(--coarse-cent-bins "${etfine_coarse_cent_bins}")
   extra_args+=(--fine-cent-bins "${etfine_fine_cent_bins}")
@@ -1798,7 +2493,7 @@ cat > "$merge_worker" <<EOF
 set -euo pipefail
 export ML_PYTHON="${ML_PYTHON}"
 ${env_prelude}
-"\$ml_python" - "${planned}" "${registry_dir}" "${model_dir}/model_registry.json" "${source}" "${model_dir}" "${report_dir}/expanded_training_summary.txt" <<'PY'
+  "\$ml_python" - "${planned}" "${registry_dir}" "${model_dir}/model_registry.json" "${source}" "${manifest}" "${model_dir}" "${report_dir}/expanded_training_summary.txt" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -1810,8 +2505,9 @@ planned = json.loads(Path(sys.argv[1]).read_text())
 registry_dir = Path(sys.argv[2])
 out_registry = Path(sys.argv[3])
 source = sys.argv[4]
-model_dir = Path(sys.argv[5])
-summary = Path(sys.argv[6])
+manifest = sys.argv[5]
+model_dir = Path(sys.argv[6])
+summary = Path(sys.argv[7])
 reports = {}
 for path in sorted(registry_dir.glob("registry_*.json")):
     data = json.loads(path.read_text())
@@ -1890,6 +2586,7 @@ summary.write_text(
         "RECOILJETS_AUAU_TIGHT_BDT_EXPANDED_TRAINING_V1",
         f"status={status}",
         f"source={source}",
+        f"training_manifest={manifest}",
         f"model_dir={model_dir}",
         f"registry={out_registry}",
         f"expected_model_count={planned.get('expected_model_count', len(planned.get('models', [])))}",
@@ -1921,6 +2618,47 @@ output = ${sub_root}/cache.out
 error = ${sub_root}/cache.err
 log = ${sub_root}/cache.log
 request_memory = ${cache_reqmem}
+notification = Never
+queue
+EOF
+
+  local cache_part_nodes="${sub_root}/cache_part_nodes.txt"
+  : > "$cache_part_nodes"
+  if [[ "$staged_cache" == "1" ]]; then
+    local part_idx=0
+    local root_list partial_cache partial_registry
+    for root_list in "${root_shard_dir}"/roots_*.list; do
+      [[ -s "$root_list" ]] || continue
+      partial_cache="$(sed -n "$((part_idx + 1))p" "$cache_partials_manifest")"
+      [[ -n "$partial_cache" ]] || die "missing partial cache path for staged cache shard ${part_idx}"
+      local part_label; part_label="$(printf '%05d' "$part_idx")"
+      partial_registry="${cache_partial_dir}/registry_part_${part_label}.json"
+      local part_sub="${sub_root}/cache_part_${part_label}.sub"
+      cat > "$part_sub" <<EOF
+universe = vanilla
+executable = ${cache_part_worker}
+arguments = ${root_list} ${partial_cache} ${partial_registry}
+output = ${sub_root}/cache_part_${part_label}.out
+error = ${sub_root}/cache_part_${part_label}.err
+log = ${sub_root}/cache_part_${part_label}.log
+request_memory = ${cache_part_reqmem}
+notification = Never
+queue
+EOF
+      printf 'CACHE_PART_%s %s\n' "$part_label" "$part_sub" >> "$cache_part_nodes"
+      part_idx=$((part_idx + 1))
+    done
+    [[ "$part_idx" == "$cache_part_count" ]] || die "staged cache shard count mismatch: roots=${part_idx} partials=${cache_part_count}"
+  fi
+
+  local cache_reduce_sub="${sub_root}/expanded_cache_reduce.sub"
+  cat > "$cache_reduce_sub" <<EOF
+universe = vanilla
+executable = ${cache_reduce_worker}
+output = ${sub_root}/cache_reduce.out
+error = ${sub_root}/cache_reduce.err
+log = ${sub_root}/cache_reduce.log
+request_memory = ${cache_reduce_reqmem}
 notification = Never
 queue
 EOF
@@ -1962,11 +2700,31 @@ EOF
 
   local dag="${sub_root}/auau_tight_bdt_expanded_training.dag"
   {
-    echo "JOB CACHE ${cache_sub}"
+    if [[ "$staged_cache" == "1" ]]; then
+      echo "MAXJOBS cache_part ${cache_part_maxjobs}"
+      echo
+      while read -r node sub; do
+        [[ -n "${node:-}" ]] || continue
+        echo "JOB ${node} ${sub}"
+        echo "CATEGORY ${node} cache_part"
+        echo "RETRY ${node} 1"
+      done < "$cache_part_nodes"
+      echo "JOB CACHE_REDUCE ${cache_reduce_sub}"
+      while read -r node sub; do
+        [[ -n "${node:-}" ]] || continue
+        echo "PARENT ${node} CHILD CACHE_REDUCE"
+      done < "$cache_part_nodes"
+    else
+      echo "JOB CACHE ${cache_sub}"
+    fi
     while read -r node sub; do
       [[ -n "${node:-}" ]] || continue
       echo "JOB ${node} ${sub}"
-      echo "PARENT CACHE CHILD ${node}"
+      if [[ "$staged_cache" == "1" ]]; then
+        echo "PARENT CACHE_REDUCE CHILD ${node}"
+      else
+        echo "PARENT CACHE CHILD ${node}"
+      fi
       echo "RETRY ${node} 1"
     done < "$train_nodes"
     echo "FINAL MERGE ${merge_sub}"
@@ -1975,6 +2733,9 @@ EOF
   say "source: $source"
   say "model dir: $model_dir"
   say "specs=${spec_count} shards=${shard_count} groupSize=${group_size} request_memory=${reqmem}"
+  if [[ "$staged_cache" == "1" ]]; then
+    say "staged cache: root_shards=${cache_part_count} part_memory=${cache_part_reqmem} reduce_memory=${cache_reduce_reqmem} maxjobs=${cache_part_maxjobs}"
+  fi
   if [[ "${RJ_DAG_DRYRUN:-0}" == "1" ]]; then
     echo "RECOILJETS_AUAU_TIGHT_BDT_EXPANDED_DRYRUN_V1"
     echo "source=${source}"
@@ -1983,6 +2744,8 @@ EOF
     echo "dag=${dag}"
     echo "specs=${spec_count}"
     echo "shards=${shard_count}"
+    echo "staged_cache=${staged_cache}"
+    echo "cache_part_count=${cache_part_count}"
     return 0
   fi
   condor_submit_dag "$dag"

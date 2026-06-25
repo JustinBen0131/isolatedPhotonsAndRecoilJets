@@ -18,7 +18,10 @@ from typing import Iterable
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_ML_DIR = _SCRIPT_DIR.parent
+for _path in (_SCRIPT_DIR, _ML_DIR / "training", _ML_DIR / "stacking"):
+    sys.path.insert(0, str(_path))
 from train_auau_photon_bdt import add_derived_features, expand_input_paths, expand_required_columns, load_frame  # noqa: E402
 from train_auau_photon_mlp import (  # noqa: E402
     MODEL_SPECS,

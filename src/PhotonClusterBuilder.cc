@@ -47,6 +47,8 @@
 
 namespace
 {
+  unsigned long long g_pcb_event_index = 0;
+
   // Helper function to shift tower indices for wrapping in phi
   void shift_tower_index(int& ieta, int& iphi, int etadiv, int phidiv)
   {
@@ -83,6 +85,26 @@ namespace
   {
     const std::string value = lower_env_value(name);
     return value == "0" || value == "false" || value == "no" || value == "off";
+  }
+
+  bool debug_shape_event_requested(unsigned long long evt)
+  {
+    const char* raw = std::getenv("RJ_PPG12_SHAPE_DEBUG_EVENTS");
+    if (!raw || !*raw) return false;
+
+    std::stringstream ss(raw);
+    std::string token;
+    while (std::getline(ss, token, ','))
+    {
+      token.erase(std::remove_if(token.begin(), token.end(),
+                                 [](unsigned char c) { return std::isspace(c); }),
+                  token.end());
+      if (token.empty()) continue;
+      char* end = nullptr;
+      const unsigned long long val = std::strtoull(token.c_str(), &end, 10);
+      if (end != token.c_str() && val == evt) return true;
+    }
+    return false;
   }
 }  // namespace
 
@@ -270,7 +292,9 @@ int PhotonClusterBuilder::InitRun(PHCompositeNode* topNode)
                 << " output=" << m_output_photon_node
                 << " ETthr=" << m_min_cluster_et
                 << " shapeTowerMinE=" << m_shape_min_tower_E
+                << " rawTowermapCEMCShapes=" << (m_use_raw_cluster_towermap_for_cemc_shapes ? "true" : "false")
                 << " ppIsoAxis=" << (m_use_ppg12_pp_iso_axis ? "cogTower" : "cluster")
+                << " ppg12PPSimTruthVertex=" << (m_use_ppg12_pp_sim_truth_vertex ? "true" : "false")
                 << " skipPPG12EtaEdge=" << (m_skip_ppg12_edge_clusters ? "true" : "false")
                 << " namedBDT=" << m_named_bdt_scores.size()
                 << " isoTowerPolicy=no_one_sided_cut"
@@ -387,6 +411,15 @@ bool PhotonClusterBuilder::is_cemc_tower_good(TowerInfo* tower, unsigned int tow
   {
     return false;
   }
+
+  // PPG12 Fig.29 SIM trees used only TowerInfo::get_isGood() when forming
+  // CEMC shower-shape moments. Keep the stricter local chi2/CDB masking out
+  // of this pp-only parity path so width/BDT inputs match the reference.
+  if (m_use_ppg12_pp_sim_truth_vertex && !m_is_auau)
+  {
+    return true;
+  }
+
   constexpr float kBadChi2ThresholdConst = 1.0e4f;
   constexpr float kBadChi2ThresholdQuadratic = 1.0f / 100.0f;
   constexpr float kBadChi2ThresholdMax = 1.0e8f;
@@ -582,6 +615,7 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
 {
     static unsigned long long s_evt = 0;
     ++s_evt;
+    g_pcb_event_index = s_evt;
     ++m_evt_seen;
 
     auto finish_event = [&](int rc)
@@ -625,6 +659,7 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
     // Snapshot what the maps contain (so we can print on skip)
     float mbd_z = std::numeric_limits<float>::quiet_NaN();
     float gv_z  = std::numeric_limits<float>::quiet_NaN();
+    float truth_z = std::numeric_limits<float>::quiet_NaN();
     size_t mbd_n = 0;
     size_t gv_n  = 0;
 
@@ -646,8 +681,28 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
       }
     }
 
+    if (m_use_ppg12_pp_sim_truth_vertex)
+    {
+      if (auto* truth = findNode::getClass<PHG4TruthInfoContainer>(topNode, "G4TruthInfo"))
+      {
+        const int primaryvtxid = truth->GetPrimaryVertexIndex();
+        if (const PHG4VtxPoint* vtx = truth->GetVtx(primaryvtxid))
+        {
+          truth_z = vtx->get_z();
+        }
+      }
+    }
+
+    // 0) Optional PPG12 pp SIM parity mode: Shuhang's Fig.29 SIM analyzer uses
+    // truth vertex for cluster ET, CoG-tower isolation axis, and topo isolation.
+    if (m_use_ppg12_pp_sim_truth_vertex && std::isfinite(truth_z))
+    {
+      m_vertex = truth_z;
+      vtx_source = "G4Truth";
+    }
+
     // 1) MBD vertex (preferred, but only if finite)
-    if (std::isfinite(mbd_z))
+    if (!std::isfinite(m_vertex) && std::isfinite(mbd_z))
     {
       m_vertex = mbd_z;
       vtx_source = "MBD";
@@ -1085,8 +1140,10 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
     int lead_ieta = leadtowerindex.first;
     int lead_iphi = leadtowerindex.second;
     
-    float avg_eta = showershape[4] + 0.5F;
-    float avg_phi = showershape[5] + 0.5F;
+    const float ppg12_ietacent_raw = showershape[4];
+    const float ppg12_iphicent_raw = showershape[5];
+    float avg_eta = ppg12_ietacent_raw + 0.5F;
+    float avg_phi = ppg12_iphicent_raw + 0.5F;
     
     
     int maxieta = std::floor(avg_eta);
@@ -1276,7 +1333,11 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
             TowerInfo* towerinfo = m_emc_tower_container->get_tower_at_key(towerinfokey);
             float energy = 0.0F;
             bool use_energy = false;
-            if (!m_is_auau && m_input_cluster_node == "CLUSTERINFO_CEMC")
+            const bool use_raw_towermap_for_cemc_shapes =
+                m_input_cluster_node == "CLUSTERINFO_CEMC" &&
+                (m_use_raw_cluster_towermap_for_cemc_shapes ||
+                 (!m_is_auau && !m_use_ppg12_pp_sim_truth_vertex));
+            if (use_raw_towermap_for_cemc_shapes)
             {
                 const RawTowerDefs::keytype raw_key =
                     RawTowerDefs::encode_towerid(RawTowerDefs::CalorimeterId::CEMC,
@@ -1345,6 +1406,7 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
     float detacog = std::abs(maxieta - avg_eta);
     float dphicog = std::abs(maxiphi - avg_phi);
     float drad = std::sqrt(dphicog*dphicog + detacog*detacog);
+    int ppg12_shape_n_owned = 0;
     
     
     int signphi = (avg_phi - std::floor(avg_phi)) > 0.5 ? 1 : -1;
@@ -1360,6 +1422,7 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
             
             if (E77_ownership[i][j] == 1)
             {
+                ++ppg12_shape_n_owned;
                 weta += E77[i][j] * di * di;
                 wphi += E77[i][j] * dj * dj;
                 weta_cog += E77[i][j] * di_float * di_float;
@@ -1475,6 +1538,46 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
             }
         }
     }
+
+    const float ppg12_shape_owned_e = Eetaphi;
+    const float ppg12_shape_all_e = e77;
+    const float ppg12_shape_weta_cogx_num = weta_cogx;
+    const float ppg12_shape_wphi_cogx_num = wphi_cogx;
+
+    if (m_use_ppg12_pp_sim_truth_vertex &&
+        debug_shape_event_requested(g_pcb_event_index))
+    {
+        const double cluster_et = photon->get_energy() / std::cosh(cluster_eta);
+        std::cout << "[PPG12_SHAPE_DEBUG] evt=" << g_pcb_event_index
+                  << " node=" << m_input_cluster_node
+                  << " ET=" << std::setprecision(8) << cluster_et
+                  << " eta=" << cluster_eta
+                  << " phi=" << cluster_phi
+                  << " center=(" << maxieta << "," << maxiphi << ")"
+                  << " avg=(" << avg_eta << "," << avg_phi << ")"
+                  << " cog=(" << cog_eta << "," << cog_phi << ")"
+                  << " nOwned=" << ppg12_shape_n_owned
+                  << " ownedE=" << ppg12_shape_owned_e
+                  << " allE=" << ppg12_shape_all_e
+                  << " wetaNum=" << ppg12_shape_weta_cogx_num
+                  << " wphiNum=" << ppg12_shape_wphi_cogx_num
+                  << std::endl;
+
+        for (int i = 0; i < 7; ++i)
+        {
+            for (int j = 0; j < 7; ++j)
+            {
+                if (E77_ownership[i][j] == 1 || E77[i][j] > 0.0F)
+                {
+                    std::cout << "[PPG12_SHAPE_CELL] evt=" << g_pcb_event_index
+                              << " rel=(" << i << "," << j << ")"
+                              << " own=" << E77_ownership[i][j]
+                              << " E=" << std::setprecision(8) << E77[i][j]
+                              << std::endl;
+                }
+            }
+        }
+    }
     
     if (Eetaphi > 0)
     {
@@ -1563,12 +1666,30 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
     photon->set_shower_shape_parameter("w72", w72);
     photon->set_shower_shape_parameter("cluster_eta", cluster_eta);
     photon->set_shower_shape_parameter("cluster_phi", cluster_phi);
+    photon->set_shower_shape_parameter("cluster_ietacent", static_cast<float>(maxieta));
+    photon->set_shower_shape_parameter("cluster_iphicent", static_cast<float>(cog_iphi_wrapped));
+    photon->set_shower_shape_parameter("ppg12_cluster_ietacent_raw", ppg12_ietacent_raw);
+    photon->set_shower_shape_parameter("ppg12_cluster_iphicent_raw", ppg12_iphicent_raw);
     photon->set_shower_shape_parameter("ppg12_iso_axis_eta", ppg12_iso_axis_eta);
     photon->set_shower_shape_parameter("ppg12_iso_axis_phi", ppg12_iso_axis_phi);
     photon->set_shower_shape_parameter("mean_time", clusteravgtime);
     photon->set_shower_shape_parameter("detacog", detacog);
     photon->set_shower_shape_parameter("dphicog", dphicog);
     photon->set_shower_shape_parameter("drad", drad);
+
+    if (m_use_ppg12_pp_sim_truth_vertex && !m_is_auau)
+    {
+        photon->set_shower_shape_parameter("ppg12_shape_n_owned", static_cast<float>(ppg12_shape_n_owned));
+        photon->set_shower_shape_parameter("ppg12_shape_owned_e", ppg12_shape_owned_e);
+        photon->set_shower_shape_parameter("ppg12_shape_all_e", ppg12_shape_all_e);
+        photon->set_shower_shape_parameter("ppg12_shape_den_e", ppg12_shape_owned_e);
+        photon->set_shower_shape_parameter("ppg12_shape_weta_cogx_num", ppg12_shape_weta_cogx_num);
+        photon->set_shower_shape_parameter("ppg12_shape_wphi_cogx_num", ppg12_shape_wphi_cogx_num);
+        photon->set_shower_shape_parameter("ppg12_shape_cog_eta", cog_eta);
+        photon->set_shower_shape_parameter("ppg12_shape_cog_phi", cog_phi);
+        photon->set_shower_shape_parameter("ppg12_shape_center_ieta", static_cast<float>(maxieta));
+        photon->set_shower_shape_parameter("ppg12_shape_center_iphi", static_cast<float>(cog_iphi_wrapped));
+    }
     
     // HCAL info
     std::vector<int> ihcal_tower = find_closest_hcal_tower(cluster_eta, cluster_phi, m_geomIH, m_ihcal_tower_container, 0.0, true);

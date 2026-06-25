@@ -32,6 +32,26 @@ ASCII_TIMES_IN_FORMULA_RE = re.compile(
     r"\b(median|mad|sigma|threshold|formula|t_bin|q_0\.1)\b.*\s+x\s+",
     re.IGNORECASE,
 )
+INTERNAL_LINEAR_TASK_ID_RE = re.compile(r"\bTHE(?:[-\s]?\d{1,4}[A-Z]?)\b")
+
+
+def warning_check(name: str, *, kind: str, got: Any, want: Any, details: dict[str, Any] | None = None) -> Check:
+    merged_details = {"severity": "warning"}
+    if details:
+        merged_details.update(details)
+    return Check(name=name, kind=kind, ok=True, got=got, want=want, details=merged_details)
+
+
+def report_warnings(report: dict[str, Any]) -> list[str]:
+    warnings: list[str] = []
+    for check in report.get("checks", []):
+        details = check.get("details")
+        if isinstance(details, dict) and details.get("severity") == "warning":
+            name = str(check.get("name") or "slide audit warning")
+            got = check.get("got")
+            want = check.get("want")
+            warnings.append(f"{name}: got {got!r}; want {want!r}")
+    return warnings
 
 
 def pt_to_px(points: float, dpi: int = SLIDE_DPI) -> float:
@@ -98,6 +118,17 @@ def audit_internal_canvas_text(audit: SymmetryAudit, nodes: list[dict[str, Any]]
                 want="use × or a styled math renderer, not bare x, for multiplication",
             )
         )
+        internal_task_ids = sorted(set(INTERNAL_LINEAR_TASK_ID_RE.findall(text)))
+        if internal_task_ids:
+            audit.checks.append(
+                warning_check(
+                    name=f"{name} avoids internal Linear task IDs on audience canvas",
+                    kind="internal_linear_task_id_warning",
+                    got=internal_task_ids,
+                    want="audience-facing wording; keep THE-## task IDs in manifests, notes, or chat only",
+                    details={"text": text[:200]},
+                )
+            )
 
 
 def audit_title_bottom_clearance(audit: SymmetryAudit, nodes: list[dict[str, Any]], *, clearance_px: float) -> None:
@@ -538,6 +569,14 @@ def build_audit(args: argparse.Namespace) -> tuple[SymmetryAudit, Path]:
                 want="optional for legacy generators; preferred for serious slides",
             )
         )
+        audit.checks.append(
+            warning_check(
+                name="internal Linear task ID text audit limited",
+                kind="internal_linear_task_id_visibility_warning",
+                got="no layout-node text supplied and no OCR backend configured",
+                want="provide --layout-nodes for serious audience-facing slides so THE-## task IDs can be detected before delivery",
+            )
+        )
 
     audit.checks.append(
         Check(
@@ -587,11 +626,14 @@ def main(argv: list[str] | None = None) -> int:
     report = audit.write_json(report_path)
     if args.require_pass:
         require_audit_passed(report)
+    warnings = report_warnings(report)
     if args.json:
-        print(json.dumps({"ok": report["ok"], "report": str(report_path)}, sort_keys=True))
+        print(json.dumps({"ok": report["ok"], "report": str(report_path), "warnings": warnings}, sort_keys=True))
     else:
         status = "OK" if report["ok"] else "FAIL"
         print(f"{status}: slide audit wrote {report_path}")
+        for warning in warnings:
+            print(f"WARNING: {warning}")
     return 0 if report["ok"] else 1
 
 

@@ -614,6 +614,74 @@ def slide4_same_row_summary() -> Path:
     return out
 
 
+def slide_combined_fixed_vs_ppg12(fixed_path: Path) -> Path:
+    """One clean slide: corrected inclusive diagnostic (green) vs PPG12 reference.
+
+    Folds the old slide-9 figure definition and slide-10 fixed-vs-reference
+    comparison into a single slide with the two plots drawn as large as the
+    16:9 frame allows and a single consistency takeaway.
+    """
+    out = OUT / "slide_combined_fixed_vs_ppg12_reference.png"
+    im = canvas().convert("RGBA")
+    draw = ImageDraw.Draw(im)
+    draw_title(
+        draw,
+        "Corrected inclusive BDT diagnostic is consistent with the PPG12 reference",
+        "From the current PPG12 IAN Fig. 13: BDT score, 22 < ET < 28 GeV, |η| < 0.7, no NPB cut, unit-normalized.",
+    )
+
+    plot_top, plot_bottom = 280, 1170
+    plot_h = plot_bottom - plot_top
+
+    fixed_img = padded_image(Image.open(fixed_path).convert("RGB"), bottom=24)
+    ref_img = padded_image(crop_old_slide42_reference(), bottom=24)
+    fa = fixed_img.width / fixed_img.height
+    ra = ref_img.width / ref_img.height
+    fixed_w = int(round(plot_h * fa))
+    ref_w = int(round(plot_h * ra))
+
+    gap = 120
+    total_w = fixed_w + ref_w + gap
+    left = (W - total_w) // 2
+    box_left = (left, plot_top, left + ref_w, plot_bottom)
+    bx = left + ref_w + gap
+    box_right = (bx, plot_top, bx + fixed_w, plot_bottom)
+
+    panels = [
+        (box_left, "PPG12 IAN Fig. 13 reference", ref_img, (239, 242, 246), INK),
+        (box_right, "This analysis", fixed_img, LIGHT_GREEN, GREEN),
+    ]
+    for box, title, img, fill, accent in panels:
+        label_bar(draw, (box[0], box[1] - 66, box[2], box[1] - 8), title, fill)
+        shadow_paste(im, img, box, radius=18)
+        draw.rounded_rectangle(box, radius=18, outline=accent, width=5)
+
+    bullet_card(
+        draw,
+        (110, 1195, 1270, 1410),
+        "Reference object",
+        "Unit-normalized BDT-score shapes vs data, signal MC, inclusive MC and NPB-tagged data. "
+        "Signal = truth prompt photons; inclusive = reconstructed candidates in inclusive jet MC after selections.",
+        fill=(250, 250, 250),
+        accent=INK,
+        title_font=F["label"],
+        body_font=F["body_small"],
+    )
+    bullet_card(
+        draw,
+        (1290, 1195, 2450, 1410),
+        "Takeaway",
+        "The inclusive diagnostic rebuilt in this analysis' code infrastructure tracks the PPG12 paper shapes "
+        "across the full BDT range; residual differences are small, so the two are overall consistent.",
+        fill=LIGHT_GREEN,
+        accent=GREEN,
+        title_font=F["label"],
+        body_font=F["body_small"],
+    )
+    im.convert("RGB").save(out, quality=95)
+    return out
+
+
 SCRIPTS = {
     "slide01_define_ppg12_reference_object.md": """# WP GammaJets Slide 1 Script - Define the PPG12 reference object
 

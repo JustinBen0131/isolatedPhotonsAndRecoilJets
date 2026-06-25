@@ -2915,6 +2915,220 @@ def basev3e_e22_ablation_specs(args, outdir: Path) -> list[dict]:
     return specs
 
 
+def corrected_baseline_shower_ladder_specs(args, outdir: Path) -> list[dict]:
+    specs: list[dict] = []
+    full_pt = (15.0, 35.0)
+    base11 = list(PPG12_TIGHT_FEATURES)
+    base12 = list(PPG12_TIGHT_FEATURES) + ["centrality"]
+    base14 = list(PPG12_TIGHT_FEATURES_BASE_AND_3X3_WIDTHS) + ["centrality"]
+    full32 = global_sixpack_noiso_features()
+    ladder_features = [feature for feature in full32 if feature not in base14]
+
+    def safe_token(text: str) -> str:
+        return "".join(ch if ch.isalnum() else "_" for ch in text).strip("_")
+
+    def unique_features(features: list[str]) -> list[str]:
+        out: list[str] = []
+        for feature in features:
+            if feature not in out:
+                out.append(feature)
+        return out
+
+    def add(
+        product: str,
+        model_id: str,
+        features: list[str],
+        role: str,
+        diagnostic_only: bool = False,
+        warning: str | None = None,
+    ) -> None:
+        safe = model_id.replace(".", "p")
+        specs.append(
+            {
+                "model_id": safe,
+                "product": product,
+                "role": role,
+                "features": unique_features(features),
+                "pt_range": list(full_pt),
+                "cent_range": None,
+                "minority_optimized": False,
+                "output_tmva": str(outdir / f"auau_tight_bdt_{safe}_tmva.root"),
+                "output_xgb_json": str(outdir / f"auau_tight_bdt_{safe}_tmva.xgb.json"),
+                "metadata": str(outdir / f"auau_tight_bdt_{safe}_tmva.metadata.json"),
+                "majority_cap_ratio": None,
+                "diagnostic_only": diagnostic_only,
+                "abcd_warning": warning,
+            }
+        )
+
+    add(
+        "baseV3E11_pt1535",
+        "baseV3E11_pt1535",
+        base11,
+        "base-v3E-11-feature-control-no-centrality-no-3x3-widths",
+    )
+    add(
+        "baseV3E11_cent12_pt1535",
+        "baseV3E11_cent12_pt1535",
+        base12,
+        "base-v3E-12-feature-control-centrality-no-3x3-widths",
+    )
+    add(
+        "centAsFeatBase3x3_pt15to35",
+        "centAsFeatBase3x3_pt15to35",
+        base14,
+        "corrected-default-14-feature-reference",
+    )
+    for feature in ladder_features:
+        token = safe_token(feature)
+        add(
+            f"base14_plus1_{token}_pt1535",
+            f"base14_plus1_{token}_pt1535",
+            base14 + [feature],
+            f"corrected-default-14-plus-single-shower-feature:{feature}",
+        )
+    cumulative = list(base14)
+    for index, feature in enumerate(ladder_features, start=1):
+        cumulative.append(feature)
+        token = safe_token(feature)
+        model_id = (
+            "globalEtCent1535_bdt_noIso"
+            if index == len(ladder_features)
+            else f"base14_ladder{index:02d}_{token}_pt1535"
+        )
+        product = (
+            "globalEtCent1535_bdt_noIso"
+            if index == len(ladder_features)
+            else "base14_to32_cumulative_ladder"
+        )
+        add(
+            product,
+            model_id,
+            cumulative,
+            f"corrected-default-cumulative-shower-ladder-step-{index:02d}:{feature}",
+        )
+    return specs
+
+
+def corrected_baseline_binned14_specs(args, outdir: Path) -> list[dict]:
+    pt_edges = parse_float_edges(args.pt_bins)
+    pt_bins = bins_from_edges(pt_edges)
+    coarse_cent_bins = parse_cent_bins(args.coarse_cent_bins)
+    fine_cent_bins = parse_cent_bins(args.fine_cent_bins)
+    features = list(PPG12_TIGHT_FEATURES_BASE_AND_3X3_WIDTHS) + ["centrality"]
+    specs: list[dict] = []
+
+    def add(
+        product: str,
+        model_id: str,
+        pt_range: tuple[float, float] | None,
+        cent_range: tuple[float, float] | None,
+        role: str,
+    ) -> None:
+        safe = model_id.replace(".", "p")
+        specs.append(
+            {
+                "model_id": safe,
+                "product": product,
+                "role": role,
+                "features": list(features),
+                "pt_range": list(pt_range) if pt_range is not None else None,
+                "cent_range": list(cent_range) if cent_range is not None else None,
+                "minority_optimized": False,
+                "output_tmva": str(outdir / f"auau_tight_bdt_{safe}_tmva.root"),
+                "output_xgb_json": str(outdir / f"auau_tight_bdt_{safe}_tmva.xgb.json"),
+                "metadata": str(outdir / f"auau_tight_bdt_{safe}_tmva.metadata.json"),
+                "majority_cap_ratio": None,
+                "diagnostic_only": False,
+                "abcd_warning": None,
+            }
+        )
+
+    if len(pt_edges) < 2:
+        raise SystemExit("corrected-baseline-binned14 needs at least two pT edges")
+    full_pt = (pt_edges[0], pt_edges[-1])
+    for plo, phi in pt_bins:
+        add(
+            "base14_perEt",
+            f"base14_perEt_{pt_tag(plo, phi)}",
+            (plo, phi),
+            None,
+            "corrected-default-14-feature-fine-et-bin",
+        )
+    for clo, chi in coarse_cent_bins:
+        add(
+            "base14_perCent3",
+            f"base14_perCent3_{cent_tag(clo, chi)}",
+            full_pt,
+            (clo, chi),
+            "corrected-default-14-feature-coarse-centrality-bin",
+        )
+    for clo, chi in fine_cent_bins:
+        add(
+            "base14_perCent7",
+            f"base14_perCent7_{cent_tag(clo, chi)}",
+            full_pt,
+            (clo, chi),
+            "corrected-default-14-feature-fine-centrality-bin",
+        )
+    for plo, phi in pt_bins:
+        for clo, chi in coarse_cent_bins:
+            add(
+                "base14_perEtCent3",
+                f"base14_perEtCent3_{pt_tag(plo, phi)}_{cent_tag(clo, chi)}",
+                (plo, phi),
+                (clo, chi),
+                "corrected-default-14-feature-fine-et-coarse-centrality-bin",
+            )
+        for clo, chi in fine_cent_bins:
+            add(
+                "base14_perEtCent7",
+                f"base14_perEtCent7_{pt_tag(plo, phi)}_{cent_tag(clo, chi)}",
+                (plo, phi),
+                (clo, chi),
+                "corrected-default-14-feature-fine-et-fine-centrality-bin",
+            )
+    return specs
+
+
+def corrected_baseline_iso14_specs(args, outdir: Path) -> list[dict]:
+    specs: list[dict] = []
+    full_pt = (15.0, 35.0)
+    base14 = list(PPG12_TIGHT_FEATURES_BASE_AND_3X3_WIDTHS) + ["centrality"]
+    warning = (
+        "Uses raw reconstructed isolation ET as a BDT input. Diagnostic only; "
+        "not ABCD-safe photon ID without a separate purity redesign."
+    )
+
+    def add(model_id: str, extra_features: list[str], role: str) -> None:
+        specs.append(
+            {
+                "model_id": model_id,
+                "product": model_id,
+                "role": role,
+                "features": list(base14) + list(extra_features),
+                "pt_range": list(full_pt),
+                "cent_range": None,
+                "minority_optimized": False,
+                "output_tmva": str(outdir / f"auau_tight_bdt_{model_id}_tmva.root"),
+                "output_xgb_json": str(outdir / f"auau_tight_bdt_{model_id}_tmva.xgb.json"),
+                "metadata": str(outdir / f"auau_tight_bdt_{model_id}_tmva.metadata.json"),
+                "majority_cap_ratio": None,
+                "diagnostic_only": True,
+                "abcd_warning": warning,
+            }
+        )
+
+    add("base14_eisoR30_pt1535", ["reco_eiso_r30"], "corrected-default-14-plus-raw-etiso-r03")
+    add("base14_eisoR40_pt1535", ["reco_eiso_r40"], "corrected-default-14-plus-raw-etiso-r04")
+    add(
+        "base14_eisoR30R40_pt1535",
+        ["reco_eiso_r30", "reco_eiso_r40"],
+        "corrected-default-14-plus-raw-etiso-r03-and-r04",
+    )
+    return specs
+
+
 def etcent_binned_sixpack_specs(args, outdir: Path) -> list[dict]:
     pt_edges = parse_float_edges(args.pt_bins)
     pt_bins = bins_from_edges(pt_edges)
@@ -3345,6 +3559,17 @@ def registry_payload(specs: list[dict], reports: list[dict], args, status: str =
                 else None
             ),
             "require_global_event_key": bool(getattr(args, "require_global_event_key", False)),
+            "random_seed": int(getattr(args, "random_seed", 13)),
+            "n_estimators": int(getattr(args, "n_estimators", 450)),
+            "max_depth": int(getattr(args, "max_depth", 4)),
+            "learning_rate": float(getattr(args, "learning_rate", 0.035)),
+            "subsample": float(getattr(args, "subsample", 0.85)),
+            "colsample_bytree": float(getattr(args, "colsample_bytree", 0.85)),
+            "tree_method": str(getattr(args, "tree_method", "hist")),
+            "reg_alpha": float(getattr(args, "reg_alpha", 5.0)),
+            "reg_lambda": float(getattr(args, "reg_lambda", 0.3)),
+            "grow_policy": str(getattr(args, "grow_policy", "lossguide")),
+            "max_bin": int(getattr(args, "max_bin", 256)),
         },
         "models": [{**spec, "report": report_by_id.get(spec["model_id"])} for spec in specs],
     }
@@ -3432,6 +3657,12 @@ def run_campaign(args) -> int:
         specs_all = global_sixpack_specs(args, args.outdir)
     elif args.campaign == "basev3e-e22-ablation":
         specs_all = basev3e_e22_ablation_specs(args, args.outdir)
+    elif args.campaign == "corrected-baseline-shower-ladder":
+        specs_all = corrected_baseline_shower_ladder_specs(args, args.outdir)
+    elif args.campaign == "corrected-baseline-binned14":
+        specs_all = corrected_baseline_binned14_specs(args, args.outdir)
+    elif args.campaign == "corrected-baseline-iso14":
+        specs_all = corrected_baseline_iso14_specs(args, args.outdir)
     elif args.campaign == "etcent-binned-sixpack":
         specs_all = etcent_binned_sixpack_specs(args, args.outdir)
     elif args.campaign == "etcent-binned-sixpack-noiso-ptcent7":
@@ -3557,6 +3788,9 @@ def run_campaign(args) -> int:
             )
             print(f"[OK] dry-run event-quality audit passed: {audit_output}", flush=True)
             return 0
+    if args.cache_only and args.weight_mode == "ppg12-exact" and args.cache_only_skip_ppg12_exact_weights:
+        write_registry(planned_path, specs, [], args, "CACHE_READY_UNWEIGHTED")
+        return 0
     ppg12_exact_closure = None
     if args.weight_mode == "ppg12-exact":
         precomputed_status = ppg12_exact_precomputed_weight_status(frame)
@@ -3747,9 +3981,38 @@ def main() -> int:
     parser.add_argument("--grow-policy", default="lossguide")
     parser.add_argument("--max-bin", type=int, default=256)
     parser.add_argument("--n-jobs", type=int, default=4)
-    parser.add_argument("--campaign", choices=["expanded-tight", "etfine-centstudy", "iso-diagnostic", "global-sixpack", "basev3e-e22-ablation", "etcent-binned-sixpack", "etcent-binned-sixpack-noiso-ptcent7", "global-and-etcent-binned-sixpack-noiso", "etcent-binned-eiso-cone-ablation", "shape-residual-ptcent7", "ppg12-sixpack"], default=None)
+    parser.add_argument(
+        "--campaign",
+        choices=[
+            "expanded-tight",
+            "etfine-centstudy",
+            "iso-diagnostic",
+            "global-sixpack",
+            "basev3e-e22-ablation",
+            "corrected-baseline-shower-ladder",
+            "corrected-baseline-binned14",
+            "corrected-baseline-iso14",
+            "etcent-binned-sixpack",
+            "etcent-binned-sixpack-noiso-ptcent7",
+            "global-and-etcent-binned-sixpack-noiso",
+            "etcent-binned-eiso-cone-ablation",
+            "shape-residual-ptcent7",
+            "ppg12-sixpack",
+        ],
+        default=None,
+    )
     parser.add_argument("--plan-only", action="store_true")
     parser.add_argument("--cache-only", action="store_true")
+    parser.add_argument(
+        "--cache-only-skip-ppg12-exact-weights",
+        action="store_true",
+        default=os.environ.get("RJ_AUAU_BDT_CACHE_ONLY_SKIP_PPG12_EXACT_WEIGHTS", "0") == "1",
+        help=(
+            "For staged Condor cache builds only: write the post-selection frame cache and "
+            "exit before computing global PPG12-exact weights. A later reduce stage must "
+            "merge all shards and compute the global weights once before training."
+        ),
+    )
     parser.add_argument("--cache-file", type=Path, default=None)
     parser.add_argument("--registry-output", type=Path, default=None)
     parser.add_argument("--campaign-spec-list", type=Path, default=None)

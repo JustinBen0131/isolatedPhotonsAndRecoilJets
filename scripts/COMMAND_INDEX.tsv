@@ -123,6 +123,7 @@ recoiljets_condor	RecoilJets_Condor.sh	scripts/sdcc/runtime/condor/RecoilJets_Co
 recoiljets_condor_auau	RecoilJets_Condor_AuAu.sh	scripts/sdcc/runtime/condor/RecoilJets_Condor_AuAu.sh	sdcc/runtime/condor	sh	scripts/RecoilJets_Condor_AuAu.sh,scripts/compat/local/RecoilJets_Condor_AuAu.sh
 recoiljets_condor_submit	RecoilJets_Condor_submit.sh	scripts/sdcc/runtime/condor/RecoilJets_Condor_submit.sh	sdcc/runtime/condor	sh	scripts/RecoilJets_Condor_submit.sh,scripts/compat/local/RecoilJets_Condor_submit.sh
 makethesissimlists	makeThesisSimLists.sh	scripts/sdcc/runtime/lists/makeThesisSimLists.sh	sdcc/runtime/lists	sh	scripts/compat/local/makeThesisSimLists.sh,scripts/makeThesisSimLists.sh
+makeppg12doublesimlists	makePPG12DoubleSimLists.sh	scripts/sdcc/runtime/lists/makePPG12DoubleSimLists.sh	sdcc/runtime/lists	sh
 make_dstlistsdata	make_dstListsData.sh	scripts/sdcc/runtime/lists/make_dstListsData.sh	sdcc/runtime/lists	sh	scripts/compat/local/make_dstListsData.sh,scripts/make_dstListsData.sh
 mergerecoiljets	mergeRecoilJets.sh	scripts/sdcc/runtime/merge/mergeRecoilJets.sh	sdcc/runtime/merge	sh	scripts/compat/local/mergeRecoilJets.sh,scripts/mergeRecoilJets.sh
 estimateembeddedphotonxsec	estimateEmbeddedPhotonXsec.sh	scripts/sdcc/runtime/xsec/estimateEmbeddedPhotonXsec.sh	sdcc/runtime/xsec	sh	scripts/compat/local/estimateEmbeddedPhotonXsec.sh,scripts/estimateEmbeddedPhotonXsec.sh

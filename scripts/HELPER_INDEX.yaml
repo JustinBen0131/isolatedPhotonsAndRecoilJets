@@ -708,6 +708,10 @@ entries:
         status: "compat_alias"
       - path: "scripts/makeThesisSimLists.sh"
         status: "hard_contract"
+  - id: makeppg12doublesimlists
+    group: "sdcc/runtime/lists"
+    canonical_path: "scripts/sdcc/runtime/lists/makePPG12DoubleSimLists.sh"
+    aliases: []
   - id: make_dstlistsdata
     group: "sdcc/runtime/lists"
     canonical_path: "scripts/sdcc/runtime/lists/make_dstListsData.sh"
@@ -759,6 +763,11 @@ entries:
     aliases:
       - path: "scripts/compat/local/submit_auau_iso_visible_diagnostic_chain.sh"
         status: "compat_alias"
+  - id: submit_the8_corrected_baseline_diagnostic_expansion
+    group: "sdcc/workflows/diagnostics"
+    canonical_path: "scripts/sdcc/workflows/diagnostics/submit_the8_corrected_baseline_diagnostic_expansion.sh"
+    aliases:
+      []
   - id: submit_inclusive_stitch_xsec_scan
     group: "sdcc/workflows/scan"
     canonical_path: "scripts/sdcc/workflows/scan/submit_inclusive_stitch_xsec_scan.sh"

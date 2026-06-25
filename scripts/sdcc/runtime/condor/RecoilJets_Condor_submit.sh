@@ -762,6 +762,34 @@ env_truthy() {
   return 1
 }
 
+append_submit_extra_env_var() {
+  local extra="$1"
+  local key="$2"
+  local val="${!key:-}"
+  [[ -n "$val" ]] || { printf '%s' "$extra"; return; }
+  case ";${extra};" in
+    *";${key}="*) printf '%s' "$extra"; return ;;
+  esac
+  printf '%s' "${extra:+${extra};}${key}=${val}"
+}
+
+build_submit_extra_env_fragment() {
+  local extra="${RJ_SUBMIT_EXTRA_ENV:-}"
+  # Load-bearing worker-side analysis modes must reach Condor workers, not
+  # only the submit shell. RJ_SUBMIT_EXTRA_ENV remains the general override.
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PHOTON_YIELD)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PHOTON_YIELD_TRUTH_VERTEX)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PHOTON_YIELD_DOUBLE)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PHOTON_YIELD_MIX_WEIGHT)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PPSIM_G4_ONLY)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_SIM_ALLOW_NONE_LISTS)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PP_VERTEX_REWEIGHT_FILE)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PP_VERTEX_REWEIGHT_HIST)"
+  [[ -n "$extra" && "$extra" != \;* ]] && extra=";${extra}"
+  printf '%s' "$extra"
+}
+
 dataset_default_vz_cut() {
   case "${DATASET:-}" in
     isAuAu|isOO|isSimEmbedded|isSimEmbeddedInclusive|isSimEmbeddedAndInclusive)
@@ -1130,8 +1158,16 @@ sim_iso_tag() {
   fi
 }
 
+ppg12_photon_yield_enabled() {
+  case "${RJ_PPG12_PHOTON_YIELD:-0}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 iso_view_internal_enabled() {
   id_fanout_enabled || return 1
+  ppg12_photon_yield_enabled && return 1
   [[ "${RJ_DIRECT_DST_DOALL:-0}" == "1" ]] && return 1
   case "${RJ_DISABLE_ISO_CONE_INTERNALIZATION:-0}" in
     1|true|TRUE|yes|YES|on|ON) return 1 ;;
@@ -1174,6 +1210,10 @@ iso_view_env_value() {
 }
 
 cone_submit_values() {
+  if ppg12_photon_yield_enabled; then
+    printf '%s\n' "0.40"
+    return 0
+  fi
   if iso_view_internal_enabled; then
     local v
     for v in "$@"; do
@@ -2147,6 +2187,12 @@ build_iso_modes() {
   _both="$(trim_ws "$_both")"
   _slide="$(trim_ws "$_slide")"
 
+  if ppg12_photon_yield_enabled; then
+    _both="false"
+    _slide="true"
+    _fixeds=( "2.0" )
+  fi
+
   if iso_view_internal_enabled; then
     local _fixed_internal
     _fixed_internal="$(iso_view_fixed_value_for_tag)"
@@ -2266,6 +2312,18 @@ yaml_set_scalar_in_place() {
   fi
 }
 
+force_ppg12_photon_yield_yaml_contract() {
+  local file="$1"
+  ppg12_photon_yield_enabled || return 0
+
+  yaml_set_scalar_in_place "$file" "coneR" "0.40"
+  yaml_set_scalar_in_place "$file" "isSlidingIso" "true"
+  yaml_set_scalar_in_place "$file" "isSlidingAndFixed" "false"
+  yaml_set_scalar_in_place "$file" "fixedGeV" "2.0"
+  yaml_set_scalar_in_place "$file" "isolation_wp" "{aGeV: 0.490, bPerGeV: 0.037, sideGapGeV: 0.8, truthIsoGeV: 4.0, towerMin: 0.0}"
+  yaml_set_scalar_in_place "$file" "pp_iso_wp_r40" "{aGeV: 0.490, bPerGeV: 0.037, sideGapGeV: 0.8}"
+}
+
 pin_photon_id_scalars_in_yaml() {
   local file="$1" preselection="$2" tight="$3" nonTight="$4"
   yaml_set_scalar_in_place "$file" "preselection" "$preselection"
@@ -2352,6 +2410,7 @@ sim_make_yaml_override() {
   fi
 
   sed -E "${sed_args[@]}" "$master" > "$out"
+  force_ppg12_photon_yield_yaml_contract "$out"
   pin_photon_id_scalars_in_yaml "$out" "$preselection" "$tight" "$nonTight"
   propagate_pp_photonid_controls_to_yaml "$out"
   propagate_reco_cluster_et_bins_to_yaml "$out"
@@ -2883,17 +2942,49 @@ sim_init() {
   local jets="${SIM_DIR}/DST_JETS.matched.list"
   local glob="${SIM_DIR}/DST_GLOBAL.matched.list"
   local mbd="${SIM_DIR}/DST_MBD_EPD.matched.list"
+  local allow_none_lists=0
+  env_truthy "${RJ_SIM_ALLOW_NONE_LISTS:-0}" && allow_none_lists=1
 
-  [[ -s "$calo" ]] || { err "Missing: $calo"; err "Run makeThesisSimLists.sh for ${SIM_SAMPLE}"; exit 23; }
   [[ -s "$g4"   ]] || { err "Missing: $g4";   err "Run makeThesisSimLists.sh for ${SIM_SAMPLE}"; exit 23; }
   [[ -s "$jets" ]] || { err "Missing: $jets"; err "Run makeThesisSimLists.sh for ${SIM_SAMPLE}"; exit 23; }
-  [[ -s "$glob" ]] || { err "Missing: $glob"; err "Run makeThesisSimLists.sh for ${SIM_SAMPLE}"; exit 23; }
-  [[ -s "$mbd"  ]] || { err "Missing: $mbd";  err "Run makeThesisSimLists.sh for ${SIM_SAMPLE}"; exit 23; }
 
   SIM_MASTER_LIST="${SIM_STAGE_DIR}/sim_${SIM_SAMPLE}_${SIM_MASTER5_NAME}"
-  local _ninput; _ninput=$(wc -l < "$calo" | tr -d ' ')
+  local _ninput; _ninput=$(wc -l < "$g4" | tr -d ' ')
+  local _none_dir="${SIM_STAGE_DIR}/none_placeholders"
+  local _none_calo="${_none_dir}/DST_CALO_CLUSTER.NONE.list"
+  local _none_glob="${_none_dir}/DST_GLOBAL.NONE.list"
+  local _none_mbd="${_none_dir}/DST_MBD_EPD.NONE.list"
+  make_none_sim_list() {
+    local out="$1"
+    mkdir -p "$(dirname "$out")"
+    awk -v n="${_ninput}" 'BEGIN{for(i=0;i<n;i++) print "NONE"}' > "$out"
+  }
+  if [[ ! -s "$calo" ]]; then
+    if (( allow_none_lists )); then
+      make_none_sim_list "$_none_calo"
+      calo="$_none_calo"
+    else
+      err "Missing: $calo"; err "Run makeThesisSimLists.sh for ${SIM_SAMPLE}"; exit 23
+    fi
+  fi
+  if [[ ! -s "$glob" ]]; then
+    if (( allow_none_lists )); then
+      make_none_sim_list "$_none_glob"
+      glob="$_none_glob"
+    else
+      err "Missing: $glob"; err "Run makeThesisSimLists.sh for ${SIM_SAMPLE}"; exit 23
+    fi
+  fi
+  if [[ ! -s "$mbd" ]]; then
+    if (( allow_none_lists )); then
+      make_none_sim_list "$_none_mbd"
+      mbd="$_none_mbd"
+    else
+      err "Missing: $mbd"; err "Run makeThesisSimLists.sh for ${SIM_SAMPLE}"; exit 23
+    fi
+  fi
   if [[ "${ACTION:-}" != "CHECKJOBS" ]]; then
-    say "    [sim_init] paste 5 matched lists (${_ninput} lines each) → master list…" >&2
+    say "    [sim_init] paste 5 matched lists (${_ninput} G4 lines; allow_NONE=${allow_none_lists}) → master list…" >&2
   fi
   paste "$calo" "$g4" "$jets" "$glob" "$mbd" > "$SIM_MASTER_LIST"
   if [[ "${ACTION:-}" != "CHECKJOBS" ]]; then
@@ -2977,9 +3068,7 @@ check_jobs_sim() {
   (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
   (( ${#sim_cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
   local -a sim_view_cones=( "${sim_cones[@]}" )
-  if iso_view_internal_enabled; then
-    mapfile -t sim_cones < <( cone_submit_values "${sim_view_cones[@]}" )
-  fi
+  mapfile -t sim_cones < <( cone_submit_values "${sim_view_cones[@]}" )
   local -a sim_submit_pts sim_submit_fracs
   mapfile -t sim_submit_pts < <( jetpt_submit_values "${sim_pts[@]}" )
   mapfile -t sim_submit_fracs < <( dphi_submit_values "${sim_fracs[@]}" )
@@ -3275,9 +3364,7 @@ check_jobs_all() {
   (( ${#ck_vzs[@]} ))   || { err "No values found for vz_cut_cm in $data_yaml_src"; exit 72; }
   (( ${#ck_cones[@]} )) || { err "No values found for coneR in $data_yaml_src"; exit 72; }
   local -a ck_view_cones=( "${ck_cones[@]}" )
-  if iso_view_internal_enabled; then
-    mapfile -t ck_cones < <( cone_submit_values "${ck_view_cones[@]}" )
-  fi
+  mapfile -t ck_cones < <( cone_submit_values "${ck_view_cones[@]}" )
   mapfile -t ck_submit_pts < <( jetpt_submit_values "${ck_pts[@]}" )
   mapfile -t ck_submit_fracs < <( dphi_submit_values "${ck_fracs[@]}" )
   build_iso_modes "$data_yaml_src"
@@ -3292,7 +3379,7 @@ check_jobs_all() {
 
     if [[ ! -s "$lf" ]]; then
       warn "No per-run list for ${r8}; skipping"
-      ((missing++))
+      ((missing += 1))
       continue
     fi
 
@@ -3503,9 +3590,7 @@ workflow_check() {
   (( ${#fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $yaml_src"; exit 72; }
   (( ${#vzs[@]} ))   || { err "No values found for vz_cut_cm in $yaml_src"; exit 72; }
   (( ${#cones[@]} )) || { err "No values found for coneR in $yaml_src"; exit 72; }
-  if iso_view_internal_enabled; then
-    mapfile -t cones < <( cone_submit_values "${cones[@]}" )
-  fi
+  mapfile -t cones < <( cone_submit_values "${cones[@]}" )
   mapfile -t submit_pts < <( jetpt_submit_values "${pts[@]}" )
   mapfile -t submit_fracs < <( dphi_submit_values "${fracs[@]}" )
 
@@ -3560,8 +3645,8 @@ submit_condor() {
   local exe_to_use="${BULK_FROZEN_EXE:-${EXE}}"
   local macro_env=""
   [[ -n "${BULK_FROZEN_MACRO:-}" ]] && macro_env=";RJ_MACRO_PATH=${BULK_FROZEN_MACRO}"
-  local submit_extra_env="${RJ_SUBMIT_EXTRA_ENV:-}"
-  [[ -n "$submit_extra_env" && "$submit_extra_env" != \;* ]] && submit_extra_env=";${submit_extra_env}"
+  local submit_extra_env
+  submit_extra_env="$(build_submit_extra_env_fragment)"
   local request_memory="${RJ_REQUEST_MEMORY:-2000MB}"
   local request_memory_mb
   request_memory_mb="$(memory_request_to_mb "$request_memory")"
@@ -3578,6 +3663,7 @@ submit_condor() {
   source_runs=$(grep -cE '^[0-9]+' "$source" 2>/dev/null || true)
   mkdir -p "$SIM_YAML_OVERRIDE_DIR"
   cp -f "$yaml_src" "$yaml_snap"
+  force_ppg12_photon_yield_yaml_contract "$yaml_snap"
   say "YAML snapshot: ${yaml_snap}"
   say "Submit context: source=${source}  runs=${source_runs:-0}  groupSize=${GROUP_SIZE}  nEvents=${direct_nevents}  firstChunk=${first_chunk:-none}"
   say "Submit environment: RJ_DATASET=${DATASET}  RJ_VERBOSITY=0  RJ_CONFIG_YAML=${yaml_snap}${macro_env}${submit_extra_env};RJ_PROFILE_JOB=${RJ_PROFILE_JOB:-0};RJ_PROFILE_STAGE=${RJ_PROFILE_STAGE:-direct};RJ_REQUEST_MEMORY_MB=${request_memory_mb};RJ_REQUIRE_NON_TINY_OUTPUT=${RJ_REQUIRE_NON_TINY_OUTPUT:-0};RJ_MIN_OUTPUT_BYTES=${RJ_MIN_OUTPUT_BYTES:-50000};RJ_FAIL_ON_MISSING_CALO_INPUT=${RJ_FAIL_ON_MISSING_CALO_INPUT:-0}"
@@ -5468,9 +5554,7 @@ case "$ACTION" in
       (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
       (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
       (( ${#sim_cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
-      if iso_view_internal_enabled; then
-        mapfile -t sim_cones < <( cone_submit_values "${sim_cones[@]}" )
-      fi
+      mapfile -t sim_cones < <( cone_submit_values "${sim_cones[@]}" )
       mapfile -t sim_submit_pts < <( jetpt_submit_values "${sim_pts[@]}" )
       mapfile -t sim_submit_fracs < <( dphi_submit_values "${sim_fracs[@]}" )
       build_iso_modes "$master_yaml"
@@ -5638,9 +5722,7 @@ case "$ACTION" in
       (( ${#data_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $data_yaml_src"; exit 72; }
       (( ${#data_vzs[@]} ))   || { err "No values found for vz_cut_cm in $data_yaml_src"; exit 72; }
       (( ${#data_cones[@]} )) || { err "No values found for coneR in $data_yaml_src"; exit 72; }
-      if iso_view_internal_enabled; then
-        mapfile -t data_cones < <( cone_submit_values "${data_cones[@]}" )
-      fi
+      mapfile -t data_cones < <( cone_submit_values "${data_cones[@]}" )
       mapfile -t data_submit_pts < <( jetpt_submit_values "${data_pts[@]}" )
       mapfile -t data_submit_fracs < <( dphi_submit_values "${data_fracs[@]}" )
       build_iso_modes "$data_yaml_src"
@@ -5665,6 +5747,7 @@ case "$ACTION" in
           -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${iso_fixed[$iso_idx]}|" \
           -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${uepipe}|" \
           "$data_yaml_src" > "$yaml_override"
+        force_ppg12_photon_yield_yaml_contract "$yaml_override"
         pin_photon_id_scalars_in_yaml "$yaml_override" "${iso_preselection[$iso_idx]}" "${iso_tight[$iso_idx]}" "${iso_nonTight[$iso_idx]}"
         DEST_BASE="${DATA_DEST_BASE_SAVED}/${data_cfg_tag}"
 
@@ -5769,6 +5852,7 @@ case "$ACTION" in
       -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${iso_fixed[$iso_idx]}|" \
       -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${selected_uepipe}|" \
       "$data_yaml_src" > "$yaml_override"
+    force_ppg12_photon_yield_yaml_contract "$yaml_override"
     pin_photon_id_scalars_in_yaml "$yaml_override" "${iso_preselection[$iso_idx]}" "${iso_tight[$iso_idx]}" "${iso_nonTight[$iso_idx]}"
 
     r8="$(pick_first_iso_ping_run "$ISO_PING_TRIGGER_BIT")"
@@ -5863,9 +5947,7 @@ case "$ACTION" in
     (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
     (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
     (( ${#sim_cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
-    if iso_view_internal_enabled; then
-      mapfile -t sim_cones < <( cone_submit_values "${sim_cones[@]}" )
-    fi
+    mapfile -t sim_cones < <( cone_submit_values "${sim_cones[@]}" )
     mapfile -t sim_submit_pts < <( jetpt_submit_values "${sim_pts[@]}" )
     mapfile -t sim_submit_fracs < <( dphi_submit_values "${sim_fracs[@]}" )
     build_iso_modes "$master_yaml"
@@ -5874,6 +5956,7 @@ case "$ACTION" in
     dphi_env_for_sub="$(dphi_env_fragment "${sim_fracs[@]}")"
     iso_view_env_for_sub="$(iso_view_env_fragment)"
     stitch_env_for_sub="$(embedded_inclusive_stitch_env_fragment)"
+    submit_extra_env_for_sub="$(build_submit_extra_env_fragment)"
 
     SIM_DEST_BASE_RESOLVED="$DEST_BASE"
 
@@ -5908,7 +5991,7 @@ $(condor_worker_failure_hold_block)
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
-environment   = RJ_VERBOSITY=10;RJ_CONFIG_YAML=${yaml_override}${jetpt_env_for_sub}${dphi_env_for_sub}${iso_view_env_for_sub}${stitch_env_for_sub};RJ_SIM_SAMPLE=${SIM_SAMPLE};RJ_EMBEDDED_INCLUSIVE_JET_SAMPLE=${SIM_SAMPLE};RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES:-0};RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30:-0};RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES:-0};RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40:-0}
+environment   = RJ_VERBOSITY=10;RJ_CONFIG_YAML=${yaml_override}${jetpt_env_for_sub}${dphi_env_for_sub}${iso_view_env_for_sub}${stitch_env_for_sub}${submit_extra_env_for_sub};RJ_SIM_SAMPLE=${SIM_SAMPLE};RJ_EMBEDDED_INCLUSIVE_JET_SAMPLE=${SIM_SAMPLE};RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES:-0};RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30:-0};RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES:-0};RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40:-0}
 arguments     = ${SIM_SAMPLE} ${tmp} ${DATASET} \$(Cluster) 0 1 NONE ${DEST_BASE}
 queue
 SUB
@@ -6088,9 +6171,7 @@ SUB
     (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
     (( ${#sim_cones[@]} )) || { err "No values found for coneR in $master_yaml"; exit 72; }
     sim_view_cones=( "${sim_cones[@]}" )
-    if iso_view_internal_enabled; then
-      mapfile -t sim_cones < <( cone_submit_values "${sim_view_cones[@]}" )
-    fi
+    mapfile -t sim_cones < <( cone_submit_values "${sim_view_cones[@]}" )
     mapfile -t sim_submit_pts < <( jetpt_submit_values "${sim_pts[@]}" )
     mapfile -t sim_submit_fracs < <( dphi_submit_values "${sim_fracs[@]}" )
     jetpt_env_for_sub="$(jetpt_env_fragment "${sim_pts[@]}")"
@@ -6254,6 +6335,7 @@ SUB
           [[ -n "${BULK_FROZEN_MACRO:-}" ]] && macro_env_for_sub=";RJ_MACRO_PATH=${BULK_FROZEN_MACRO}"
           fanout_env_for_sub=""
           id_fanout_enabled && fanout_env_for_sub=";RJ_ID_FANOUT_FILE=${fanout_dirs};RJ_ID_FANOUT_DIRS_FILE=${fanout_dirs}"
+          submit_extra_env_for_sub="$(build_submit_extra_env_fragment)"
 
           cat > "$sub" <<SUB
 universe      = vanilla
@@ -6269,7 +6351,7 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification  = Never
-environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${yaml_override}${macro_env_for_sub}${fanout_env_for_sub}${jetpt_env_for_sub}${dphi_env_for_sub}${iso_view_env_for_sub}${stitch_env_for_sub};RJ_SIM_SAMPLE=${SIM_SAMPLE};RJ_EMBEDDED_INCLUSIVE_JET_SAMPLE=${SIM_SAMPLE};RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES:-0};RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30:-0};RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES:-0};RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40:-0};RJ_PROFILE_JOB=${RJ_PROFILE_JOB:-0};RJ_JOB_HEARTBEAT_SECONDS=${RJ_JOB_HEARTBEAT_SECONDS:-0};RJ_PROFILE_STAGE=${RJ_PROFILE_STAGE:-direct};RJ_PROFILE_LABEL=${RJ_PROFILE_LABEL:-${TAG}};RJ_REQUEST_MEMORY_MB=${direct_request_memory_mb}
+environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${yaml_override}${macro_env_for_sub}${fanout_env_for_sub}${jetpt_env_for_sub}${dphi_env_for_sub}${iso_view_env_for_sub}${stitch_env_for_sub}${submit_extra_env_for_sub};RJ_SIM_SAMPLE=${SIM_SAMPLE};RJ_EMBEDDED_INCLUSIVE_JET_SAMPLE=${SIM_SAMPLE};RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES:-0};RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30:-0};RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES:-0};RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40:-0};RJ_PROFILE_JOB=${RJ_PROFILE_JOB:-0};RJ_JOB_HEARTBEAT_SECONDS=${RJ_JOB_HEARTBEAT_SECONDS:-0};RJ_PROFILE_STAGE=${RJ_PROFILE_STAGE:-direct};RJ_PROFILE_LABEL=${RJ_PROFILE_LABEL:-${TAG}};RJ_REQUEST_MEMORY_MB=${direct_request_memory_mb}
 queue arguments from ${args_file}
 SUB
 
@@ -6398,9 +6480,7 @@ SUB
     (( ${#data_vzs[@]} ))   || { err "No values found for vz_cut_cm in $data_yaml_src"; exit 72; }
     (( ${#data_cones[@]} )) || { err "No values found for coneR in $data_yaml_src"; exit 72; }
     data_view_cones=( "${data_cones[@]}" )
-    if iso_view_internal_enabled; then
-      mapfile -t data_cones < <( cone_submit_values "${data_view_cones[@]}" )
-    fi
+    mapfile -t data_cones < <( cone_submit_values "${data_view_cones[@]}" )
     mapfile -t data_submit_pts < <( jetpt_submit_values "${data_pts[@]}" )
     mapfile -t data_submit_fracs < <( dphi_submit_values "${data_fracs[@]}" )
     jetpt_env_for_sub="$(jetpt_env_fragment "${data_pts[@]}")"
@@ -6459,9 +6539,11 @@ SUB
           -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${iso_fixed[0]}|" \
           -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${uepipe_modes[0]}|" \
           "$yaml_src" > "$yaml_snap"
+        force_ppg12_photon_yield_yaml_contract "$yaml_snap"
         pin_photon_id_scalars_in_yaml "$yaml_snap" "${iso_preselection[0]}" "${iso_tight[0]}" "${iso_nonTight[0]}"
         say "YAML snapshot (pt=${pt0}, frac=${frac0}, vz=${vz0}, coneR=${cone0}, iso=${iso_tags[0]}, uepipe=${uepipe_modes[0]}): ${yaml_snap}"
         DEST_BASE="${DATA_DEST_BASE_SAVED}/${data_cfg_tag}"
+        submit_extra_env_for_sub="$(build_submit_extra_env_fragment)"
 
         cat > "$sub" <<SUB
 universe      = vanilla
@@ -6477,7 +6559,7 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification  = Never
-environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=10;RJ_CONFIG_YAML=${yaml_snap}${jetpt_env_for_sub}${dphi_env_for_sub}${iso_view_env_for_sub};RJ_SIM_SAMPLE=${SIM_SAMPLE};RJ_EMBEDDED_INCLUSIVE_JET_SAMPLE=${SIM_SAMPLE};RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES:-0};RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30:-0};RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES:-0};RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40:-0}
+environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=10;RJ_CONFIG_YAML=${yaml_snap}${jetpt_env_for_sub}${dphi_env_for_sub}${iso_view_env_for_sub}${submit_extra_env_for_sub};RJ_SIM_SAMPLE=${SIM_SAMPLE};RJ_EMBEDDED_INCLUSIVE_JET_SAMPLE=${SIM_SAMPLE};RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES:-0};RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30:-0};RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES:-0};RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40:-0}
 arguments     = ${r8} ${glist} ${DATASET} \$(Cluster) 0 1 NONE ${DEST_BASE}
 queue
 SUB
@@ -6580,6 +6662,7 @@ SUB
             -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${iso_fixed[$iso_idx]}|" \
             -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${uepipe}|" \
             "$data_yaml_src" > "$yaml_override"
+          force_ppg12_photon_yield_yaml_contract "$yaml_override"
           pin_photon_id_scalars_in_yaml "$yaml_override" "${iso_preselection[$iso_idx]}" "${iso_tight[$iso_idx]}" "${iso_nonTight[$iso_idx]}"
           if iso_cone_fanout_enabled; then
             emit_direct_fanout_shard_file "$fanout_dirs" "$DATA_DEST_BASE_SAVED" "$data_pt" "$data_frac" "$data_vz" "$uepipe" "$direct_shard_idx" "${data_cones[@]}"
@@ -6745,6 +6828,7 @@ SUB
             -e "s|^([[:space:]]*fixedGeV:).*|\\1 ${iso_fixed[$iso_idx]}|" \
             -e "s|^([[:space:]]*clusterUEpipeline:).*|\\1 ${uepipe}|" \
             "$data_yaml_src" > "$yaml_override"
+          force_ppg12_photon_yield_yaml_contract "$yaml_override"
           pin_photon_id_scalars_in_yaml "$yaml_override" "${iso_preselection[$iso_idx]}" "${iso_tight[$iso_idx]}" "${iso_nonTight[$iso_idx]}"
           if iso_cone_fanout_enabled; then
             emit_direct_fanout_shard_file "$fanout_dirs" "$DATA_DEST_BASE_SAVED" "$data_pt" "$data_frac" "$data_vz" "$uepipe" "$direct_shard_idx" "${data_cones[@]}"

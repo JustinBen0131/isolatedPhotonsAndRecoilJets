@@ -55,8 +55,10 @@
 #include <caloreco/CaloGeomMapping.h>
 #include <caloreco/RawClusterPositionCorrection.h>
 #include <caloreco/RawClusterBuilderTemplate.h>
+#include <caloreco/RawClusterBuilderTopo.h>
 #include <calobase/RawTowerGeom.h>
 #include <caloreco/RawTowerCalibration.h>
+#include <calowaveformsim/CaloWaveformSim.h>
 #include "/sphenix/u/patsfan753/thesisAnalysis/install/include/caloreco/PhotonClusterBuilder.h"
 #include <jetbase/Jet.h>
 #include <g4jets/TruthJetInput.h>
@@ -114,9 +116,34 @@
 #include <TH1F.h>
 #include <TNamed.h>
 #include <TObject.h>
+#include <TRandom3.h>
 #include "/sphenix/u/patsfan753/scratch/thesisAnalysis/macros/Calo_Calib.C"
 
-// Load local CaloReco/CaloIO first so PhotonClusterBuilder and CaloReco stay on your thesisAnalysis install.
+// Load local CaloReco/CaloIO before the sPHENIX G4 helper macros. Those
+// helpers also call R__LOAD_LIBRARY(libcalo_reco.so); loading the private
+// build first keeps helper-side CaloTowerStatus on the patched thesisAnalysis
+// implementation for gated PPG12 pp-SIM parity diagnostics.
+R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)
+R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_io.so)
+
+#if defined(__has_include)
+#  if __has_include(<GlobalVariables.C>) && __has_include(<G4_Input.C>) && __has_include(<G4_CEmc_Spacal.C>) && __has_include(<G4_HcalIn_ref.C>) && __has_include(<G4_HcalOut_ref.C>) && __has_include(<G4_Mbd.C>) && __has_include(<G4_RunSettings.C>)
+#    include <GlobalVariables.C>
+#    include <G4_Input.C>
+#    include <G4_CEmc_Spacal.C>
+#    include <G4_HcalIn_ref.C>
+#    include <G4_HcalOut_ref.C>
+#    include <G4_Mbd.C>
+#    include <G4_RunSettings.C>
+#    define RJ_HAS_SPHENIX_G4_INPUT_MACROS 1
+#  endif
+#endif
+#ifndef RJ_HAS_SPHENIX_G4_INPUT_MACROS
+#  define RJ_HAS_SPHENIX_G4_INPUT_MACROS 0
+#endif
+
+// Keep explicit absolute loads here as a guard for environments that skip the
+// optional G4 helper include block.
 R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)
 R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_io.so)
 #if defined(RJ_UNIFIED_ANALYSIS_AUAU)
@@ -130,6 +157,8 @@ R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libjetbase.so)
 
 // Then load the rest of the environment stack
 R__LOAD_LIBRARY(libfun4all.so)
+R__LOAD_LIBRARY(libfun4allraw.so)
+R__LOAD_LIBRARY(libCaloWaveformSim.so)
 R__LOAD_LIBRARY(libffarawobjects.so)
 R__LOAD_LIBRARY(libcaloTreeGen.so)
 R__LOAD_LIBRARY(libjetbackground.so)
@@ -175,6 +204,7 @@ namespace detail
     if (!s.empty() && s.back() == '.') s.pop_back();
     return s.empty() ? "0" : s;
   }
+
 }
 
 namespace detail
@@ -1264,6 +1294,50 @@ namespace yamlcfg
             }
         };
 
+        auto yaml_has_key = [&](const std::string& key) -> bool
+        {
+            std::istringstream text(cfg.yamlText);
+            std::string raw;
+            while (std::getline(text, raw))
+            {
+                std::string line = detail::trim(raw);
+                if (line.empty() || line[0] == '#') continue;
+                if (StartsWithKey(line, key)) return true;
+            }
+            return false;
+        };
+
+        auto recover_cent_iso_wp_block = [&](const std::string& key, std::vector<Config::CentIsoWP>& out)
+        {
+            out.clear();
+            std::istringstream text(cfg.yamlText);
+            std::string raw;
+            bool inBlock = false;
+            while (std::getline(text, raw))
+            {
+                std::string line = detail::trim(raw);
+                if (line.empty() || line[0] == '#') continue;
+                if (!inBlock)
+                {
+                    if (StartsWithKey(line, key)) inBlock = true;
+                    continue;
+                }
+                if (line[0] != '-') break;
+                std::map<std::string, double> m;
+                ParseInlineMapDoubles(line.substr(1), m);
+                Config::CentIsoWP wp{};
+                wp.aGeV       = m.count("aGeV")       ? m["aGeV"]       : cfg.isoA;
+                wp.bPerGeV    = m.count("bPerGeV")    ? m["bPerGeV"]    : cfg.isoB;
+                wp.sideGapGeV = m.count("sideGapGeV") ? m["sideGapGeV"] : cfg.isoGap;
+                out.push_back(wp);
+            }
+            if (yamlV > 0 && !out.empty())
+            {
+                std::cout << "[CFG] " << key << ": recovered " << out.size()
+                          << " entries from YAML block\n";
+            }
+        };
+
         for (std::string rawLine; ; )
         {
             if (hasPendingLine)
@@ -2316,6 +2390,26 @@ namespace yamlcfg
                 if (m.count("step"))  cfg.unfold_jet_pt_step  = m["step"];
             }
         }
+
+        if (cfg.auauCentIsoWP.empty() && yaml_has_key("auau_cent_iso_wp"))
+            recover_cent_iso_wp_block("auau_cent_iso_wp", cfg.auauCentIsoWP);
+        if (cfg.auauCentIsoWPR30.empty() && yaml_has_key("auau_cent_iso_wp_r30"))
+            recover_cent_iso_wp_block("auau_cent_iso_wp_r30", cfg.auauCentIsoWPR30);
+        if (cfg.auauCentIsoWPR40.empty() && yaml_has_key("auau_cent_iso_wp_r40"))
+            recover_cent_iso_wp_block("auau_cent_iso_wp_r40", cfg.auauCentIsoWPR40);
+
+        auto require_loaded_cent_iso_wp = [&](const std::string& key, const std::vector<Config::CentIsoWP>& values)
+        {
+            if (!yaml_has_key(key) || !values.empty()) return;
+            std::ostringstream oss;
+            oss << "YAML contains '" << key
+                << "' but no centrality-dependent isolation entries were loaded; "
+                << "refusing to run with fixed-isolation fallback.";
+            throw std::runtime_error(oss.str());
+        };
+        require_loaded_cent_iso_wp("auau_cent_iso_wp", cfg.auauCentIsoWP);
+        require_loaded_cent_iso_wp("auau_cent_iso_wp_r30", cfg.auauCentIsoWPR30);
+        require_loaded_cent_iso_wp("auau_cent_iso_wp_r40", cfg.auauCentIsoWPR40);
         
         if (yamlV > 0)
         {
@@ -2907,6 +3001,12 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c){ return std::tolower(c); });
         return s;
     };
+
+    auto env_truthy_local = [&](const char* key) -> bool
+    {
+        const std::string v = env_lower(key);
+        return v == "1" || v == "true" || v == "yes" || v == "on";
+    };
     
     //--------------------------------------------------------------------
     // 1.  Parse the file list & determine run / segment
@@ -2947,8 +3047,9 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         iss >> fCalo >> fAux1 >> fJets >> fGlobal >> fMbd;
         
         if (fCalo.empty()) continue;
-        
-        filesCalo.emplace_back(fCalo);
+        const std::string fCaloNorm = (fCalo != "NONE") ? fCalo : std::string{};
+
+        filesCalo.emplace_back(fCaloNorm);
         
         // Keep vectors key-aligned (same length as filesCalo):
         // empty string == "not provided on this line"
@@ -2962,7 +3063,27 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     if (filesCalo.empty())
         detail::bail("input list \"" + std::string(listFile) + "\" is empty");
     
-    const std::string& firstFile = filesCalo.front(); // used for GetRunSegment
+    std::string firstFile; // used for GetRunSegment
+    auto captureFirstInput = [&](const std::vector<std::string>& paths)
+    {
+        if (!firstFile.empty()) return;
+        for (const auto& path : paths)
+        {
+            if (!path.empty() && path != "NONE")
+            {
+                firstFile = path;
+                return;
+            }
+        }
+    };
+    captureFirstInput(filesCalo);
+    captureFirstInput(filesG4);
+    captureFirstInput(filesJets);
+    captureFirstInput(filesGlobal);
+    captureFirstInput(filesMbd);
+    captureFirstInput(filesZdc);
+    if (firstFile.empty())
+        detail::bail("input list \"" + std::string(listFile) + "\" contains no usable file tokens");
     
     // Dataset / input-mode detection
     //  - RJ_DATASET drives analysis mode: isPP | isPPrun25 | isAuAu | isSim | isSimEmbedded
@@ -3025,7 +3146,18 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     auto detect_input_mode = [&](const std::string& firstFileLower) -> std::string
     {
         std::string forced = env_lower("RJ_CALO_INPUT_MODE");
-        if (forced == "jetcalo" || forced == "calofitting" || forced == "simdst") return forced;
+        if (forced == "jetcalo" || forced == "calofitting" || forced == "simdst")
+        {
+            if (isSimEmbedded && forced == "simdst" && !env_truthy_local("RJ_ALLOW_SIMEMBEDDED_SIMDST"))
+            {
+                detail::bail(
+                    "RJ_CALO_INPUT_MODE=simdst would skip Process_Calo_Calib for embedded DST_CALO inputs. "
+                    "The Blair-style embedded AuAu contract builds TOWERINFO_CALIB_{CEMC,HCALIN,HCALOUT} "
+                    "and CLUSTERINFO_CEMC from DST_CALO before RetowerCEMC. Set RJ_ALLOW_SIMEMBEDDED_SIMDST=1 "
+                    "only for a foreground diagnostic proving those nodes already exist.");
+            }
+            return forced;
+        }
         if (isSim && !isSimEmbedded) return "simdst";
         if (isSimEmbedded)
         {
@@ -3339,9 +3471,15 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     // 2.  CDB + IO managers
     // --------------------------------------------------------------------
     recoConsts* rc = recoConsts::instance();
+    const bool usePPG12PPSimRebuildCaloFromG4 =
+        isSim && !isSimEmbedded &&
+        env_truthy_local("RJ_PPG12_PHOTON_YIELD") &&
+        env_truthy_local("RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4");
+
     // CDB_GLOBALTAG is REQUIRED for any CDBInterface::getUrl() call.
-    // Allow override via env, otherwise default to your known-good tag.
-    std::string gtag = "newcdbtag";
+    // The PPG12 pp-SIM G4 rebuild macro uses MDC2; keep the normal analysis
+    // default untouched outside that gated diagnostic/parity path.
+    std::string gtag = usePPG12PPSimRebuildCaloFromG4 ? "MDC2" : "newcdbtag";
     if (const char* envGT = std::getenv("RJ_CDB_GLOBALTAG"))
     {
         std::string tmp = detail::trim(std::string(envGT));
@@ -3351,26 +3489,33 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     
     if (vlevel > 0)
         std::cout << "[INFO] CDB_GLOBALTAG=" << gtag << "\n";
-    
+
     // TIMESTAMP:
     //  - DATA: use run number (must be > 1000 so Calo_Calib treats it as DATA)
-    //  - SIM : use a known-good fixed timestamp (SIM does NOT run Process_Calo_Calib)
+    //  - embedded SIM: use the embedded data run for CDB/centrality context.
+    //    Blair-style DST_CALO embedded inputs still run Process_Calo_Calib() once
+    //    to build TOWERINFO_CALIB_{CEMC,HCALIN,HCALOUT} and CLUSTERINFO_CEMC,
+    //    while Calo_Calib skips data-only skimmer/ZDC/status pieces for embedded MC.
+    //  - PPG12 pp-SIM G4 rebuild: use the SIM run number, matching PPG12's
+    //    anatreemaker macro so Process_Calo_Calib() stays in its SIM branch.
+    //  - plain SIM: use a known-good fixed timestamp (SIM does NOT run Process_Calo_Calib)
     unsigned long long cdbts = static_cast<unsigned long long>(run);
     
     if (!isSim || isSimEmbedded)
     {
-        // DATA (and isSimEmbedded) must satisfy Calo_Calib's heuristic (TIMESTAMP > 1000 => data)
-        // isSimEmbedded uses real AuAu calofitting DSTs, so it needs the actual run number.
+        // DATA and embedded SIM carry real data-run context.
         if (cdbts <= 1000ULL)
         {
             std::cerr << "[FATAL] DATA/embedded run number " << cdbts
-            << " would make Calo_Calib treat this as SIM (TIMESTAMP<=1000).\n";
-            throw std::runtime_error("Invalid DATA/embedded TIMESTAMP for Calo_Calib (must be > 1000).");
+            << " is invalid for data-run CDB/centrality context.\n";
+            throw std::runtime_error("Invalid DATA/embedded TIMESTAMP (must be > 1000).");
         }
     }
     else
     {
-        cdbts = 47289ULL;  // keep your old working SIM timestamp
+        cdbts = usePPG12PPSimRebuildCaloFromG4
+            ? (run > 0 ? static_cast<unsigned long long>(run) : 28ULL)
+            : 47289ULL;  // keep your old working SIM timestamp
     }
     
     if (const char* ts = std::getenv("RJ_CDB_TIMESTAMP"))
@@ -3495,10 +3640,32 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     }
 
     const bool listHasZdc    = all_nonempty(filesZdc);
+    const bool listHasCalo   = all_nonempty(filesCalo);
     const bool listHasG4     = all_nonempty(filesG4);
     const bool listHasJets   = all_nonempty(filesJets);
     const bool listHasGlobal = all_nonempty(filesGlobal);
     const bool listHasMbd    = all_nonempty(filesMbd);
+    const bool usePPG12PPSimG4OnlyInput =
+        usePPG12PPSimRebuildCaloFromG4 &&
+        env_truthy_local("RJ_PPG12_PPSIM_G4_ONLY");
+
+    if (usePPG12PPSimRebuildCaloFromG4)
+    {
+        if (!listHasG4 || !listHasJets)
+        {
+            detail::bail(
+                "RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4=1 requires SIM list columns "
+                "<DST_CALO_CLUSTER_or_NONE> <G4Hits> <DST_JETS> [<DST_GLOBAL_or_NONE> <DST_MBD_EPD_or_NONE>], "
+                "matching the PPG12 anatreemaker input contract.");
+        }
+        if (!usePPG12PPSimG4OnlyInput && (!listHasCalo || !listHasMbd))
+        {
+            detail::bail(
+                "RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4=1 requires the PPG12 SIM input stack "
+                "lanes 1=DST_CALO_CLUSTER and 3=DST_MBD_EPD in addition to lanes 0=G4Hits and 4=DST_JETS. "
+                "Set RJ_PPG12_PPSIM_G4_ONLY=1 for the PPG12 DI_NEW double samples that intentionally provide only G4Hits + DST_JETS.");
+        }
+    }
 
     const bool needZdcRawForMinBias =
         cfg.setMinBiasClassifer &&
@@ -3523,8 +3690,6 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         << " | minBiasClassifierGate=" << (cfg.setMinBiasClassifer ? "true" : "false")
         << std::endl;
     }
-    
-    // Normalize env token to lowercase
     
     const std::string truthMode = env_lower("RJ_TRUTH_JETS_MODE", "auto");
     if (truthMode == "dst")
@@ -3553,6 +3718,112 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         buildTruthJetsAsAltNode = false;
     }
     
+    if (usePPG12PPSimRebuildCaloFromG4)
+    {
+#if RJ_HAS_SPHENIX_G4_INPUT_MACROS
+        auto write_ppg12_stack_list =
+            [&](const std::vector<std::string>& paths,
+                const std::string& label) -> std::string
+        {
+            const char* dirEnv = std::getenv("RJ_PPG12_PPSIM_INPUT_STACK_DIR");
+            std::string dir = (dirEnv && std::string(dirEnv).size())
+                ? detail::trim(std::string(dirEnv))
+                : std::string("/tmp");
+            if (dir.empty()) dir = "/tmp";
+            if (!dir.empty() && dir.back() == '/') dir.pop_back();
+
+            std::ostringstream path;
+            path << dir << "/rj_ppg12_" << label << "_"
+                 << static_cast<long long>(::getpid()) << ".list";
+            std::ofstream out(path.str());
+            if (!out.is_open())
+            {
+                detail::bail("failed to create PPG12 SIM input-stack list: " + path.str());
+            }
+            for (const auto& p : paths)
+            {
+                if (!p.empty()) out << p << '\n';
+            }
+            out.close();
+            return path.str();
+        };
+
+        const bool usePPG12PPSimAuxInputs = !usePPG12PPSimG4OnlyInput;
+        const std::string g4List   = write_ppg12_stack_list(filesG4, "g4hits");
+        const std::string caloList = (usePPG12PPSimAuxInputs && listHasCalo)
+            ? write_ppg12_stack_list(filesCalo, "dst_calo_cluster")
+            : std::string();
+        const std::string mbdList = (usePPG12PPSimAuxInputs && listHasMbd)
+            ? write_ppg12_stack_list(filesMbd, "dst_mbd_epd")
+            : std::string();
+        const std::string jetsList = write_ppg12_stack_list(filesJets, "dst_truth_jet");
+
+        Input::VERBOSITY = (vlevel > 0) ? 1 : 0;
+        Input::READHITS = true;
+        INPUTREADHITS::listfile[0] = g4List;
+        if (usePPG12PPSimAuxInputs && listHasCalo) INPUTREADHITS::listfile[1] = caloList;
+        if (usePPG12PPSimAuxInputs && listHasMbd) INPUTREADHITS::listfile[3] = mbdList;
+        INPUTREADHITS::listfile[4] = jetsList;
+        setenv("RJ_SKIP_CALO_TOWER_STATUS", "1", 1);
+        InputInit();
+        InputRegister();
+        if (usePPG12PPSimG4OnlyInput)
+        {
+            Enable::MBDRECO = false;
+            if (verbose || vlevel > 0)
+            {
+                std::cout << "[PPG12_PPSIM_REBUILD_CALO_FROM_G4] skipping helper Mbd_Reco() for G4-only pp SIM input; "
+                          << "PPG12 photon-yield diagnostics use truth-vertex kinematics and this stack has no safe MBD timing calibration"
+                          << std::endl;
+            }
+        }
+        else
+        {
+            Enable::MBDRECO = true;
+            Mbd_Reco();
+        }
+        RunSettings(28);
+        Enable::CEMC_TOWERINFO = true;
+        Enable::HCALIN_TOWERINFO = true;
+        Enable::HCALOUT_TOWERINFO = true;
+        CEMC_Towers();
+        HCALInner_Towers();
+        HCALOuter_Towers();
+        InputManagers();
+
+        TRandom3 randGen;
+        randGen.SetSeed(PHRandomSeed());
+        const int sequence = randGen.Integer(3260);
+        std::ostringstream pedName;
+        pedName << "pedestal-54256-0" << std::setw(4) << std::setfill('0') << sequence << ".root";
+        auto* pedIn = new Fun4AllNoSyncDstInputManager("DST2");
+        pedIn->AddFile(pedName.str());
+        pedIn->Repeat();
+        se->registerInputManager(pedIn);
+
+        if (verbose || vlevel > 0)
+        {
+            std::cout << "[PPG12_PPSIM_REBUILD_CALO_FROM_G4] using PPG12-style InputRegister/InputManagers"
+                      << " g4List=" << g4List
+                      << " caloList=" << ((usePPG12PPSimAuxInputs && listHasCalo) ? caloList : "DISABLED")
+                      << " mbdList=" << ((usePPG12PPSimAuxInputs && listHasMbd) ? mbdList : "DISABLED")
+                      << " jetsList=" << jetsList
+                      << " listfile_indices=0"
+                      << ((usePPG12PPSimAuxInputs && listHasCalo) ? ",1" : "")
+                      << ((usePPG12PPSimAuxInputs && listHasMbd) ? ",3" : "")
+                      << ",4"
+                      << " g4_only=" << (usePPG12PPSimG4OnlyInput ? "true" : "false")
+                      << " pedestal=" << pedName.str()
+                      << std::endl;
+        }
+#else
+        detail::bail(
+            "RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4=1 requested, but GlobalVariables.C/G4_Input.C "
+            "were not available to this ROOT macro environment.");
+#endif
+    }
+    else
+    {
     // ------------------ Calo cluster DST (always) -------------------
     auto* inCalo = new Fun4AllDstInputManager("DSTcalofitting");
     for (const auto& f : filesCalo) inCalo->AddFile(f);
@@ -3662,6 +3933,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         if (verbose)
             std::cout << "[INFO] isSim: registered DST_JETS input manager (truth jets from DST)\n";
     }
+    }
     
     if (verbose && isSim)
     {
@@ -3735,16 +4007,36 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     // ------------------------------------------------------------------
     // Calo calibration + clustering contract
     //
-    //   jetcalo     -> real-data lower-level tower input: run Process_Calo_Calib()
-    //   calofitting -> real-data waveform-fit input: run Process_Calo_Calib()
+    //   jetcalo     -> lower-level tower input: run Process_Calo_Calib()
+    //                  (also the default for embedded DST_CALO MC)
+    //   calofitting -> waveform-fit input: run Process_Calo_Calib()
     //   simdst      -> analysis DST already carries calibrated towers/clusters
+    //   RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4=1
+    //              -> pp SIM diagnostic path: reproduce PPG12 anatreemaker's
+    //                 G4/input/pedestal stack and rebuild CEMC clusters.
     // ------------------------------------------------------------------
-    if (isSim && !isSimEmbedded)
+    if (usePPG12PPSimRebuildCaloFromG4)
     {
         if (vlevel > 0)
         {
-            std::cout << "[isSim] skipping Process_Calo_Calib() "
-            << "(SIM DST already has TOWERINFO_CALIB and CLUSTERINFO_CEMC)\n";
+            std::cout << "[PPG12_PPSIM_REBUILD_CALO_FROM_G4] running Process_Calo_Calib() "
+                      << "on the PPG12 four-lane input stack for pp SIM parity diagnostics\n";
+        }
+#if RJ_HAS_SPHENIX_G4_INPUT_MACROS
+        Process_Calo_Calib();
+#else
+        detail::bail(
+            "RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4=1 requested tower rebuild, but "
+            "GlobalVariables.C/G4_Input.C were not available to this ROOT macro environment.");
+#endif
+    }
+    else if (isSim && caloInputMode == "simdst")
+    {
+        if (vlevel > 0)
+        {
+            std::cout << (isSimEmbedded ? "[isSimEmbedded]" : "[isSim]")
+            << " skipping Process_Calo_Calib() "
+            << "(SIM DST already has calibrated towers/clusters)\n";
         }
     }
     else if (caloInputMode == "calofitting" || caloInputMode == "jetcalo")
@@ -3755,11 +4047,13 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             {
                 if (caloInputMode == "calofitting")
                 {
-                    std::cout << "[isSimEmbedded] running Process_Calo_Calib() on CALOFITTING input\n";
+                    std::cout << "[isSimEmbedded][embedded DST_CALO contract] "
+                              << "running Process_Calo_Calib() on CALOFITTING input\n";
                 }
                 else
                 {
-                    std::cout << "[isSimEmbedded] running Process_Calo_Calib() on DST_CALO / JETCALO input\n";
+                    std::cout << "[isSimEmbedded][embedded DST_CALO contract] "
+                              << "running Process_Calo_Calib() on DST_CALO / JETCALO input\n";
                 }
             }
             else if (caloInputMode == "calofitting")
@@ -3791,6 +4085,16 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                           << "PhotonClusterBuilder CEMC mask for canonical proof\n";
             }
         }
+        if (isSimEmbedded)
+        {
+            setenv("RJ_DISABLE_CEMC_BAD_TOWER_MASK", "1", 1);
+            if (vlevel > 0)
+            {
+                std::cout << "[isSimEmbedded] disabling downstream PhotonClusterBuilder CEMC bad-tower mask; "
+                          << "embedded MC uses the producer tower-quality state while Process_Calo_Calib "
+                          << "provides the calibrated CEMC/HCAL nodes needed by clustering and RetowerCEMC\n";
+            }
+        }
         Process_Calo_Calib();
     }
     else
@@ -3807,6 +4111,16 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             std::cout << "[isSimEmbedded] skipping ZdcReco (not needed for embedded minimal path)" << std::endl;
             std::cout << "[isSimEmbedded] skipping GlobalVertexReco (use embedded sample's existing GlobalVertexMap)" << std::endl;
         }
+    }
+    else if (usePPG12PPSimG4OnlyInput)
+    {
+        if (vlevel > 0)
+        {
+            std::cout << "[PPG12_PPSIM_REBUILD_CALO_FROM_G4] skipping standard MbdReco/ZdcReco for G4-only pp SIM input; "
+                      << "registering GlobalVertexReco only for downstream node compatibility" << std::endl;
+        }
+        std::unique_ptr<GlobalVertexReco> gvertex = std::make_unique<GlobalVertexReco>();
+        se->registerSubsystem(gvertex.release());
     }
     else
     {
@@ -3993,7 +4307,10 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         std::cout << "[FLOW] reco/calibration branch:"
         << " | branch=" << (isAuAuLike ? "AuAu-like HI UE subtraction + SUB1 jets + JetCalib"
                             : "pp-style jets + JetCalib")
-        << " | Process_Calo_Calib=" << (((!isSim || isSimEmbedded) && (caloInputMode == "calofitting" || caloInputMode == "jetcalo")) ? "ON" : "OFF")
+        << " | Process_Calo_Calib=" << (usePPG12PPSimRebuildCaloFromG4 ||
+                                       (!isSim && (caloInputMode == "calofitting" || caloInputMode == "jetcalo")) ||
+                                       (isSimEmbedded && (caloInputMode == "calofitting" || caloInputMode == "jetcalo"))
+                                           ? "ON" : "OFF")
         << " | clusterUEpipeline=" << cfg.clusterUEpipeline
         << " | towerPrefixPCB=" << towerPrefixPCB
         << " | truthJets=" << (useDSTTruthJets ? "DST" : "BUILD")
@@ -4902,6 +5219,14 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     
     const bool useSamePhotonBDTScores = true;
     const bool usePPG12PPIsoTowerFloor = !isAuAuLike;
+    const bool usePPG12PPSimTruthVertex =
+        env_truthy_local("RJ_PPG12_PHOTON_YIELD") &&
+        env_truthy_local("RJ_PPG12_PHOTON_YIELD_TRUTH_VERTEX") &&
+        isSim && !isAuAuLike;
+    constexpr double kPPG12PPSimVertexCutCm = 60.0;
+    const double photonBuilderVzCutCm = usePPG12PPSimTruthVertex
+        ? kPPG12PPSimVertexCutCm
+        : cfg.vz_cut_cm;
     constexpr float kPPG12PPIsoTowerMin = 0.12f;
     const float photonBuilderIsoTowerMin = usePPG12PPIsoTowerFloor
         ? kPPG12PPIsoTowerMin
@@ -4916,11 +5241,13 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         builder->set_ET_threshold(static_cast<float>(minPhotonEt));
         builder->set_iso_min_tower_energy(photonBuilderIsoTowerMin);
         builder->set_use_ppg12_pp_iso_axis(useSamePhotonBDTScores);
+        builder->set_use_ppg12_pp_sim_truth_vertex(usePPG12PPSimTruthVertex);
         builder->set_skip_ppg12_edge_clusters(useSamePhotonBDTScores);
         builder->set_enable_ss_3x3_moments(isAuAuLike);
+        builder->set_use_raw_cluster_towermap_for_cemc_shapes(isSimEmbedded);
         
         builder->set_use_vz_cut(cfg.use_vz_cut);
-        builder->set_vz_cut_cm(cfg.vz_cut_cm);
+        builder->set_vz_cut_cm(photonBuilderVzCutCm);
         
         builder->set_is_auau(photonBuilderIsAuAu);
         if ((cfg.clusterUEpipeline == "variantA" || cfg.clusterUEpipeline == "variantB") && isAuAuLike)
@@ -5072,6 +5399,26 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         if (!has) features.push_back("centrality");
         return features;
     };
+    // Fail loud when a tight mode's OWN feature key is missing. The exported BDT is
+    // positional (feature names stripped to f0..fN at export), so silently falling
+    // back to a DIFFERENT feature set corrupts every score with no error. Modes
+    // whose fallback would resolve to a different shower-shape set (3x3 / base3x3)
+    // must require their own key instead of guessing.
+    auto requireFeatures = [](const std::vector<std::string>& primary,
+                              const char* keyName,
+                              const std::string& mode) -> const std::vector<std::string>&
+    {
+        if (primary.empty())
+        {
+            std::ostringstream oss;
+            oss << "tightMode '" << mode << "' requires config key '" << keyName
+                << "' but it is missing/empty. Refusing to silently fall back to a different "
+                   "feature set (the model is positional; a wrong feature list corrupts every "
+                   "score). Define '" << keyName << "' in the active analysis config.";
+            throw std::runtime_error(oss.str());
+        }
+        return primary;
+    };
     auto validateModelCount = [](const std::string& label, std::size_t got, std::size_t expected)
     {
         if (got == expected) return;
@@ -5218,14 +5565,14 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             out.modelFile = cfg.auau_tight_bdt_centInput3x3_model_file.empty()
                 ? expandedModelPath("centAsFeat3x3_pt5to40")
                 : cfg.auau_tight_bdt_centInput3x3_model_file;
-            out.features = appendCentralityFeature(featureListOrFallback(cfg.auau_tight_bdt_centAsFeat3x3_features, cfg.auau_tight_bdt_centAsFeat_features));
+            out.features = appendCentralityFeature(requireFeatures(cfg.auau_tight_bdt_centAsFeat3x3_features, "auau_tight_bdt_centAsFeat3x3_features", tightMode));
         }
         else if (tightMode == "auauCentInputBase3x3BDT")
         {
             out.modelFile = cfg.auau_tight_bdt_centInputBase3x3_model_file.empty()
                 ? expandedModelPath("centAsFeatBase3x3_pt15to30")
                 : cfg.auau_tight_bdt_centInputBase3x3_model_file;
-            out.features = appendCentralityFeature(featureListOrFallback(cfg.auau_tight_bdt_centAsFeatBase3x3_features, cfg.auau_tight_bdt_centAsFeat3x3_features));
+            out.features = appendCentralityFeature(requireFeatures(cfg.auau_tight_bdt_centAsFeatBase3x3_features, "auau_tight_bdt_centAsFeatBase3x3_features", tightMode));
         }
         else if (tightMode == "auauCentInputMinOptBDT")
         {
@@ -5293,7 +5640,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         }
         else if (tightMode == "auauEtFineCentInputBDT")
         {
-            out.features = appendCentralityFeature(featureListOrFallback(cfg.auau_tight_bdt_centAsFeatBase3x3_features, cfg.auau_tight_bdt_centAsFeat_features));
+            out.features = appendCentralityFeature(requireFeatures(cfg.auau_tight_bdt_centAsFeatBase3x3_features, "auau_tight_bdt_centAsFeatBase3x3_features", tightMode));
             out.ptEdges = cfg.auau_tight_bdt_etfine_pt_bin_edges.empty() ? cfg.auau_tight_bdt_pt_bin_edges : cfg.auau_tight_bdt_etfine_pt_bin_edges;
             out.ptModelFiles = cfg.auau_tight_bdt_etFineCentInput_model_files;
             if (out.ptModelFiles.empty())
@@ -5547,7 +5894,8 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         
         std::cout << "[DBG] PhotonClusterBuilder vzCut config: use="
         << (cfg.use_vz_cut ? "true" : "false")
-        << " vz_cut_cm=" << cfg.vz_cut_cm
+        << " vz_cut_cm=" << photonBuilderVzCutCm
+        << (usePPG12PPSimTruthVertex ? " (PPG12 pp-SIM override)" : "")
         << " | isAuAuLike=" << (isAuAuLike ? "true" : "false")
         << " | isSimEmbedded=" << (isSimEmbedded ? "true" : "false")
         << " | photonBuilderIsAuAu=" << (photonBuilderIsAuAu ? "true" : "false")
@@ -5966,7 +6314,10 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     recoilJets->setMinJetPt(cfg.jet_pt_min);
     recoilJets->setMinBackToBack(cfg.back_to_back_dphi_min_pi_fraction * M_PI);
     
-    recoilJets->setUseVzCut(cfg.use_vz_cut, cfg.vz_cut_cm);
+    const double recoilJetsVzCutCm = usePPG12PPSimTruthVertex
+        ? kPPG12PPSimVertexCutCm
+        : cfg.vz_cut_cm;
+    recoilJets->setUseVzCut(cfg.use_vz_cut, recoilJetsVzCutCm);
 #if defined(RJ_UNIFIED_ANALYSIS_AUAU)
     recoilJets->setMinBiasClassifier(cfg.setMinBiasClassifer);
     recoilJets->setCentEdges(cfg.centrality_edges);
@@ -5977,9 +6328,26 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                                          cfg.centrality_reweight_file,
                                          cfg.centrality_reweight_hist);
 #else
-    recoilJets->setVertexReweighting(cfg.vertex_reweight_on_pp,
-                                     cfg.vertex_reweight_file_pp,
-                                     cfg.vertex_reweight_hist_pp);
+    bool ppVertexReweightOn = cfg.vertex_reweight_on_pp;
+    std::string ppVertexReweightFile = cfg.vertex_reweight_file_pp;
+    std::string ppVertexReweightHist = cfg.vertex_reweight_hist_pp;
+    if (const char* env = std::getenv("RJ_PP_VERTEX_REWEIGHT_FILE"))
+    {
+        const std::string value = detail::trim(std::string(env));
+        if (!value.empty())
+        {
+            ppVertexReweightOn = true;
+            ppVertexReweightFile = value;
+        }
+    }
+    if (const char* env = std::getenv("RJ_PP_VERTEX_REWEIGHT_HIST"))
+    {
+        const std::string value = detail::trim(std::string(env));
+        if (!value.empty()) ppVertexReweightHist = value;
+    }
+    recoilJets->setVertexReweighting(ppVertexReweightOn,
+                                     ppVertexReweightFile,
+                                     ppVertexReweightHist);
 #endif
     recoilJets->setActiveJetRKeys(activeJetRKeys);
     const double entryConeR = idEntry.hasIsoOverride ? idEntry.coneR : cfg.isoConeR;
@@ -6376,7 +6744,35 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         << std::endl;
     }
     recoilJets->setDataType(dtype);
+    recoilJets->setPPG12PhotonYieldUseTruthVertexInPPSim(usePPG12PPSimTruthVertex);
     };
+
+    if (env_truthy_local("RJ_PPG12_PHOTON_YIELD") && !isAuAuLike)
+    {
+        auto* ppg12TopoBuilder = new RawClusterBuilderTopo("RawClusterBuilderTopo_PPG12PhotonYield");
+        ppg12TopoBuilder->set_nodename("TOPOCLUSTER_ALLCALO");
+        ppg12TopoBuilder->setInputTowerNodePrefix(towerPrefixPCB);
+        ppg12TopoBuilder->set_enable_HCal(true);
+        ppg12TopoBuilder->set_enable_EMCal(true);
+        ppg12TopoBuilder->set_noise(0.0053, 0.0351, 0.0684);
+        ppg12TopoBuilder->set_significance(4.0, 2.0, 1.0);
+        ppg12TopoBuilder->allow_corner_neighbor(true);
+        ppg12TopoBuilder->set_do_split(true);
+        ppg12TopoBuilder->set_minE_local_max(1.0, 2.0, 0.5);
+        ppg12TopoBuilder->set_R_shower(0.025);
+        ppg12TopoBuilder->set_use_only_good_towers(true);
+        ppg12TopoBuilder->set_absE(true);
+        ppg12TopoBuilder->Verbosity(0);
+        se->registerSubsystem(ppg12TopoBuilder);
+        if (vlevel > 0)
+        {
+            std::cout << "[PPG12_PHOTON_YIELD_V1] registered pp topo cluster builder"
+                      << " node=TOPOCLUSTER_ALLCALO"
+                      << " towerPrefix=" << towerPrefixPCB
+                      << " ppg12TopoConfig=noise(0.0053,0.0351,0.0684),sig(4,2,1),split,goodTowers,absE"
+                      << " before RecoilJets fanout\n";
+        }
+    }
     
     for (std::size_t i = 0; i < idFanoutEntries.size(); ++i)
     {

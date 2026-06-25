@@ -1672,6 +1672,18 @@ entries:
         sdcc_canonical: "scripts/sdcc/runtime/lists/makeThesisSimLists.sh"
         sdcc_compat: "scripts/sdcc/runtime/makeThesisSimLists.sh"
         upload_target: "scripts/sdcc/runtime/lists/makeThesisSimLists.sh"
+  - id: makeppg12doublesimlists
+    canonical_path: "scripts/sdcc/runtime/lists/makePPG12DoubleSimLists.sh"
+    category: "sdcc"
+    domain: "sdcc/runtime/lists"
+    status: "canonical_source"
+    sdcc_transfer: true
+    aliases: []
+    transfer_mappings:
+      - local_alias: "scripts/sdcc/runtime/lists/makePPG12DoubleSimLists.sh"
+        sdcc_canonical: "scripts/sdcc/runtime/lists/makePPG12DoubleSimLists.sh"
+        sdcc_compat: ""
+        upload_target: "scripts/sdcc/runtime/lists/makePPG12DoubleSimLists.sh"
   - id: make_dstlistsdata
     canonical_path: "scripts/sdcc/runtime/lists/make_dstListsData.sh"
     category: "sdcc"

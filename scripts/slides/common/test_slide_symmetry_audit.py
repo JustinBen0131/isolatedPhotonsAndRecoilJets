@@ -136,6 +136,65 @@ class SlideSymmetryAuditTests(unittest.TestCase):
             payload = json.loads(report.read_text(encoding="utf-8"))
             self.assertTrue(payload["ok"])
 
+    def test_internal_linear_task_id_warns_without_failing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            png = root / "candidate.png"
+            Image.new("RGB", (2560, 1440), "white").save(png)
+            nodes = {
+                "minimum_audience_font_px": 36,
+                "minimum_title_font_px": 67,
+                "nodes": [
+                    {
+                        "name": "slide title",
+                        "kind": "text",
+                        "role": "title",
+                        "bbox": [100, 70, 1600, 145],
+                        "font_px": 72,
+                        "text": "Audience title",
+                    },
+                    {
+                        "name": "slide subtitle",
+                        "kind": "text",
+                        "role": "audience",
+                        "bbox": [102, 178, 1700, 222],
+                        "font_px": 40,
+                        "text": "THE-57 full weighted sample should not be on the audience canvas",
+                    },
+                ],
+            }
+            layout = root / "layout_nodes.json"
+            layout.write_text(json.dumps(nodes), encoding="utf-8")
+            report = root / "audit.json"
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(POST_RENDER),
+                    "--png",
+                    str(png),
+                    "--layout-nodes",
+                    str(layout),
+                    "--output",
+                    str(report),
+                    "--require-pass",
+                    "--json",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr + completed.stdout)
+            cli = json.loads(completed.stdout)
+            self.assertTrue(any("internal Linear task IDs" in warning for warning in cli["warnings"]))
+            payload = json.loads(report.read_text(encoding="utf-8"))
+            self.assertTrue(payload["ok"])
+            warnings = [
+                check for check in payload["checks"]
+                if check["kind"] == "internal_linear_task_id_warning"
+            ]
+            self.assertEqual(len(warnings), 1)
+            self.assertEqual(warnings[0]["got"], ["THE-57"])
+
     def test_reference_style_title_minimum_and_anchor(self) -> None:
         audit = SymmetryAudit(name="title-test")
         nodes = [

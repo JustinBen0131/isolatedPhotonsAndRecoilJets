@@ -97,6 +97,11 @@ entries:
     domain: "sdcc/runtime/lists"
     hard_aliases:
       - "scripts/makeThesisSimLists.sh"
+  - id: makeppg12doublesimlists
+    canonical_path: "scripts/sdcc/runtime/lists/makePPG12DoubleSimLists.sh"
+    domain: "sdcc/runtime/lists"
+    hard_aliases:
+      []
   - id: make_dstlistsdata
     canonical_path: "scripts/sdcc/runtime/lists/make_dstListsData.sh"
     domain: "sdcc/runtime/lists"
@@ -145,6 +150,11 @@ entries:
       []
   - id: submit_the38_tree_depth_capacity_campaign
     canonical_path: "scripts/sdcc/workflows/diagnostics/submit_the38_tree_depth_capacity_campaign.sh"
+    domain: "sdcc/workflows/diagnostics"
+    hard_aliases:
+      []
+  - id: submit_the8_corrected_baseline_diagnostic_expansion
+    canonical_path: "scripts/sdcc/workflows/diagnostics/submit_the8_corrected_baseline_diagnostic_expansion.sh"
     domain: "sdcc/workflows/diagnostics"
     hard_aliases:
       []

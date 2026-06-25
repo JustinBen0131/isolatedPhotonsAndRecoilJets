@@ -412,8 +412,7 @@ def build_slide(args: argparse.Namespace) -> dict[str, object]:
     fig.text(0.046, 0.958, title,
              ha="left", va="top", fontsize=24.8, fontweight="bold", color="#111827")
     fig.text(0.046, 0.908,
-             r"$22 \leq p_T^\gamma < 28$ GeV, $0$-$80\%$ centrality; tight BDT uses "
-             r"$T_{80}(c)=0.5593+0.00166c$",
+             rf"{pt_label}, {cent_label}; tight BDT uses {args.t80_label}",
              ha="left", va="top", fontsize=14.8, color="#263241")
 
     add_text_box(
@@ -534,7 +533,7 @@ def build_slide(args: argparse.Namespace) -> dict[str, object]:
         "selection_definition": {
             "tight": "score > T80(c)",
             "non_tight": "score <= T80(c)",
-            "T80": "0.5593 + 0.00166*c",
+            "T80": args.t80_label,
         },
         "roots": {
             "data": [str(p) for p in data_roots],
@@ -640,6 +639,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--rebin", type=int, default=4, help="Rebin factor applied before plotting.")
     ap.add_argument("--trigger-regex", default=None, help="Optional regex to restrict matched ROOT object paths.")
     ap.add_argument("--sim-only", action="store_true", help="Omit Au+Au data and plot Signal MC vs Inclusive MC only.")
+    ap.add_argument("--t80-label", default=r"$T_{80}(c)=0.5593+0.00166c$",
+                    help="Displayed and manifest-recorded tight-BDT working-point label.")
     return ap
 
 

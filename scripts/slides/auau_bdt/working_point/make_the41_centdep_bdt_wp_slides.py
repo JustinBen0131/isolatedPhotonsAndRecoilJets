@@ -230,6 +230,9 @@ def extract(args: argparse.Namespace) -> dict:
 def flat_fit_rows(payload: dict) -> list[dict]:
     import numpy as np
 
+    if payload.get("flat_rows"):
+        return list(payload["flat_rows"])
+
     cells = payload.get("et_cells") or []
     if not cells:
         return payload["rows"]
@@ -639,15 +642,23 @@ def draw_slide_fits(payload: dict, fits: dict[float, dict], out: Path) -> None:
     foot.text(0.030, 0.670, "Calibration sample", fontsize=15.6, fontweight="bold", color=INK, ha="left", va="center")
     foot.text(0.220, 0.670, audience_sample_label(payload), fontsize=14.8, color=INK, ha="left", va="center")
     foot.text(0.030, 0.315, "Inputs + rows", fontsize=15.6, fontweight="bold", color=INK, ha="left", va="center")
+    input_line = f"{payload['training_inputs']}"
+    count_line = (
+        f"S={total_sig:,}, Incl.={total_bkg:,}; "
+        f"{int(payload['et_range'][0])} <= cluster $E_T$ < {int(payload['et_range'][1])} GeV"
+    )
+    if payload.get("full_matrix_rows") is not None:
+        count_line += f"; full matrix rows={int(payload['full_matrix_rows']):,}"
     foot.text(
         0.220,
-        0.315,
-        f"{payload['training_inputs']}; S={total_sig:,}, Incl.={total_bkg:,}; {int(payload['et_range'][0])} <= cluster $E_T$ < {int(payload['et_range'][1])} GeV",
-        fontsize=14.8,
+        0.405,
+        input_line,
+        fontsize=13.9,
         color=MUTED,
         ha="left",
         va="center",
     )
+    foot.text(0.220, 0.205, count_line, fontsize=13.9, color=MUTED, ha="left", va="center")
 
     fig.savefig(out, dpi=160)
     plt.close(fig)
@@ -674,6 +685,10 @@ def write_csv(payload: dict, path: Path, fits: dict[float, dict]) -> None:
         "background_fake_rate",
         "signal_entries",
         "background_entries",
+        "signal_weight_sum",
+        "background_weight_sum",
+        "signal_effective_entries",
+        "background_effective_entries",
         "n_et_points",
         "flat_max_abs_residual",
         "flat_rms_residual",
@@ -768,7 +783,10 @@ def render(args: argparse.Namespace) -> dict:
         "fits": {TARGET_NAMES[k]: v for k, v in fits.items()},
         "n_et_cells": len(payload.get("et_cells", [])),
         "n_flat_fit_constants": len(flats),
-        "stat_uncertainty_method": "One-sigma binomial order-statistic quantile uncertainty is drawn for each E_T-bin threshold point. Flat constants and centrality lines are simple unweighted fits.",
+        "stat_uncertainty_method": payload.get(
+            "stat_uncertainty_method",
+            "One-sigma binomial order-statistic quantile uncertainty is drawn for each E_T-bin threshold point. Flat constants and centrality lines are simple unweighted fits.",
+        ),
         "source_label": payload.get("source_label"),
         "model_label": payload.get("model_label"),
         "files_loaded": payload.get("files_loaded"),

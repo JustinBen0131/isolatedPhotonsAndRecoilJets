@@ -10,6 +10,38 @@ RUN_ROOT="${RJ_PP_PHOTON_ML_RUN_ROOT:-${REPO_BASE}/dataOutput/ppPhotonMLPipeline
 REMOTE_DEST_ROOT="${RJ_PP_PHOTON_ML_DEST_ROOT:-/sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/${STAMP}}"
 ML_PYTHON="${RJ_ML_PYTHON:-/sphenix/u/patsfan753/.venvs/thesis-ml/bin/python}"
 TREE_NAME="${RJ_PP_PHOTON_ML_TREE:-AuAuPhotonIDTrainingTree}"
+TRAIN_AUAU_BDT_SCRIPT="${RJ_TRAIN_AUAU_BDT_SCRIPT:-}"
+if [[ -z "$TRAIN_AUAU_BDT_SCRIPT" ]]; then
+  if [[ -s "${REPO_BASE}/scripts/ml/training/train_auau_photon_bdt.py" ]]; then
+    TRAIN_AUAU_BDT_SCRIPT="${REPO_BASE}/scripts/ml/training/train_auau_photon_bdt.py"
+  else
+    TRAIN_AUAU_BDT_SCRIPT="${REPO_BASE}/scripts/train_auau_photon_bdt.py"
+  fi
+fi
+TRAIN_AUAU_MLP_SCRIPT="${RJ_TRAIN_AUAU_MLP_SCRIPT:-}"
+if [[ -z "$TRAIN_AUAU_MLP_SCRIPT" ]]; then
+  if [[ -s "${REPO_BASE}/scripts/ml/training/train_auau_photon_mlp.py" ]]; then
+    TRAIN_AUAU_MLP_SCRIPT="${REPO_BASE}/scripts/ml/training/train_auau_photon_mlp.py"
+  else
+    TRAIN_AUAU_MLP_SCRIPT="${REPO_BASE}/scripts/train_auau_photon_mlp.py"
+  fi
+fi
+TRAIN_AUAU_STACKER_SCRIPT="${RJ_TRAIN_AUAU_STACKER_SCRIPT:-}"
+if [[ -z "$TRAIN_AUAU_STACKER_SCRIPT" ]]; then
+  if [[ -s "${REPO_BASE}/scripts/ml/stacking/train_auau_oof_residual_superstacker.py" ]]; then
+    TRAIN_AUAU_STACKER_SCRIPT="${REPO_BASE}/scripts/ml/stacking/train_auau_oof_residual_superstacker.py"
+  else
+    TRAIN_AUAU_STACKER_SCRIPT="${REPO_BASE}/scripts/train_auau_oof_residual_superstacker.py"
+  fi
+fi
+VALIDATE_PP_SCRIPT="${RJ_PP_VALIDATE_SCRIPT:-}"
+if [[ -z "$VALIDATE_PP_SCRIPT" ]]; then
+  if [[ -s "${REPO_BASE}/scripts/ml/validation/validate_pp_photon_ml_tables.py" ]]; then
+    VALIDATE_PP_SCRIPT="${REPO_BASE}/scripts/ml/validation/validate_pp_photon_ml_tables.py"
+  else
+    VALIDATE_PP_SCRIPT="${REPO_BASE}/scripts/validate_pp_photon_ml_tables.py"
+  fi
+fi
 MANIFEST="${MANIFEST:-${RUN_ROOT}/training_roots.list}"
 BDT_OUTDIR="${BDT_OUTDIR:-${RUN_ROOT}/models/bdt_ppg12_sixpack}"
 MLP_OUTDIR="${MLP_OUTDIR:-${RUN_ROOT}/models/mlp_ppg12_sixpack}"
@@ -43,6 +75,9 @@ CURRENT_IAN_EXPECTED_SAMPLES="run28_photonjet5,run28_photonjet10,run28_photonjet
 if [[ -n "${RJ_CURRENT_IAN_SIGNAL_SAMPLES:-}" ]]; then
   read -r -a CURRENT_IAN_SIGNAL_SAMPLES <<<"$RJ_CURRENT_IAN_SIGNAL_SAMPLES"
 fi
+if [[ -n "${RJ_CURRENT_IAN_TRAIN_JET_SAMPLES:-}" ]]; then
+  read -r -a CURRENT_IAN_TRAIN_JET_SAMPLES <<<"$RJ_CURRENT_IAN_TRAIN_JET_SAMPLES"
+fi
 if [[ -n "${RJ_CURRENT_IAN_FULL_INCLUSIVE_JET_SAMPLES:-}" ]]; then
   read -r -a CURRENT_IAN_FULL_INCLUSIVE_JET_SAMPLES <<<"$RJ_CURRENT_IAN_FULL_INCLUSIVE_JET_SAMPLES"
 fi
@@ -59,6 +94,15 @@ CURRENT_IAN_VALIDATION_OUTDIR="${CURRENT_IAN_VALIDATION_OUTDIR:-${RUN_ROOT}/vali
 CURRENT_IAN_OVERLAY_OUTDIR="${CURRENT_IAN_OVERLAY_OUTDIR:-${RUN_ROOT}/validation/fullsim_shuhang_overlay}"
 SHUHANG_SIGNAL_ROOT="${SHUHANG_SIGNAL_ROOT:-/sphenix/user/shuhangli/ppg12/efficiencytool/results/MC_efficiencyshower_shape_signal_showershape_nom.root}"
 SHUHANG_INCLUSIVE_ROOT="${SHUHANG_INCLUSIVE_ROOT:-/sphenix/user/shuhangli/ppg12/efficiencytool/results/MC_efficiencyshower_shape_jet_inclusive_showershape_nom.root}"
+
+CURRENT_IAN_GRID_TAG="${RJ_CURRENT_IAN_GRID_TAG:-pp_currentian_basev3e_sample_grid_20260620}"
+CURRENT_IAN_GRID_SOURCE_ROOT="${RJ_CURRENT_IAN_GRID_SOURCE_ROOT:-/sphenix/tg/tg01/bulk/jbennett/thesisAna/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_npbet5env_20260527_1356}"
+CURRENT_IAN_GRID_RUN_BASE="${RJ_CURRENT_IAN_GRID_RUN_BASE:-${REPO_BASE}/dataOutput/ppPhotonMLPipeline/${CURRENT_IAN_GRID_TAG}}"
+CURRENT_IAN_GRID_SUBMIT_ROOT="${RJ_CURRENT_IAN_GRID_SUBMIT_ROOT:-/gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/condor_sub/ppCurrentIANBaseV3ESampleGrid_${CURRENT_IAN_GRID_TAG}}"
+CURRENT_IAN_GRID_REQUEST_CPUS="${RJ_CURRENT_IAN_GRID_REQUEST_CPUS:-2}"
+CURRENT_IAN_GRID_REQUEST_MEMORY="${RJ_CURRENT_IAN_GRID_REQUEST_MEMORY:-36000MB}"
+CURRENT_IAN_GRID_MAXJOBS="${RJ_CURRENT_IAN_GRID_MAXJOBS:-3}"
+CURRENT_IAN_GRID_LANES_CSV="${RJ_CURRENT_IAN_GRID_LANES:-sig5_bkg8_12,sig5_bkg8_12_20,sig5_bkg8_12_20_30,sig5_bkg8_12_20_30_40,sig5_10_bkg8_12,sig5_10_bkg8_12_20,sig5_10_bkg8_12_20_30,sig5_10_bkg8_12_20_30_40,sig5_10_20_bkg8_12,sig5_10_20_bkg8_12_20,sig5_10_20_bkg8_12_20_30,sig5_10_20_bkg8_12_20_30_40}"
 
 log() { printf '[ppPhotonML] %s\n' "$*"; }
 die() { printf '[ppPhotonML][ERROR] %s\n' "$*" >&2; exit 2; }
@@ -89,6 +133,13 @@ Modes
   validateCurrentIANBDT     Score current-IAN tables and make internal ROC/score QA.
   plotCurrentIANOverlay     Make full-sim Fig19-style overlay for our frozen model.
   runCurrentIAN             buildCurrentIANManifests, trainCurrentIANBDT, validateCurrentIANBDT, plotCurrentIANOverlay.
+  planCurrentIANSampleGrid  Print the bounded pp baseV3E signal/background threshold-ladder grid.
+  runCurrentIANSampleGridLane
+                           Build manifests, train baseV3E, and validate one sample-grid lane; requires RJ_CURRENT_IAN_GRID_LANE.
+  submitCurrentIANSampleGrid
+                           Submit one Condor DAG with one train+validate job per sample-grid lane; requires RJ_DO_RUN=1.
+  statusCurrentIANSampleGrid
+                           Read-only registry/queue status for the sample-grid DAG.
   status                    Print resolved paths and expected inputs.
 
 Important variables
@@ -335,7 +386,7 @@ train_bdt() {
   if [[ "$PP_SKIP_TMVA_EXPORT" == "1" ]]; then
     tmva_args+=(--skip-tmva-export)
   fi
-  "$ML_PYTHON" "${REPO_BASE}/scripts/train_auau_photon_bdt.py" \
+  "$ML_PYTHON" "$TRAIN_AUAU_BDT_SCRIPT" \
     --task tight \
     --input "@${MANIFEST}" \
     --tree "$TREE_NAME" \
@@ -371,7 +422,7 @@ train_bdt() {
 train_mlp() {
   mkdir_run
   need_file "$MANIFEST"
-  "$ML_PYTHON" "${REPO_BASE}/scripts/train_auau_photon_mlp.py" \
+  "$ML_PYTHON" "$TRAIN_AUAU_MLP_SCRIPT" \
     --input "@${MANIFEST}" \
     --tree "$TREE_NAME" \
     --outdir "$MLP_OUTDIR" \
@@ -404,7 +455,7 @@ validate_tables() {
   need_file "$MANIFEST"
   need_file "${BDT_OUTDIR}/model_registry.json"
   need_file "${MLP_OUTDIR}/model_registry.json"
-  "$ML_PYTHON" "${REPO_BASE}/scripts/validate_pp_photon_ml_tables.py" \
+  "$ML_PYTHON" "$VALIDATE_PP_SCRIPT" \
     --input "@${MANIFEST}" \
     --tree "$TREE_NAME" \
     --outdir "$BDT_VALIDATION_OUTDIR" \
@@ -416,7 +467,7 @@ validate_tables() {
     --max-load-rows-per-class "$PP_VALIDATION_MAX_LOAD_ROWS_PER_CLASS" \
     --random-seed "$PP_LOAD_SAMPLE_SEED" \
     --skip-missing-tree
-  "$ML_PYTHON" "${REPO_BASE}/scripts/validate_pp_photon_ml_tables.py" \
+  "$ML_PYTHON" "$VALIDATE_PP_SCRIPT" \
     --input "@${MANIFEST}" \
     --tree "$TREE_NAME" \
     --outdir "$MLP_VALIDATION_OUTDIR" \
@@ -445,7 +496,7 @@ train_stack_one() {
   local bdt_cache="${BDT_CACHE:-${BDT_VALIDATION_OUTDIR}/score_caches.list}"
   need_file "$mlp_cache"
   need_file "$bdt_cache"
-  "$ML_PYTHON" "${REPO_BASE}/scripts/train_auau_oof_residual_superstacker.py" \
+  "$ML_PYTHON" "$TRAIN_AUAU_STACKER_SCRIPT" \
     --mlp-cache "$mlp_cache" \
     --bdt-cache "$bdt_cache" \
     --outdir "$outdir" \
@@ -695,7 +746,7 @@ train_currentian_bdt() {
   if [[ "$PP_SKIP_TMVA_EXPORT" == "1" ]]; then
     tmva_args+=(--skip-tmva-export)
   fi
-  "$ML_PYTHON" "${REPO_BASE}/scripts/train_auau_photon_bdt.py" \
+  "$ML_PYTHON" "$TRAIN_AUAU_BDT_SCRIPT" \
     --task tight \
     --input "@${CURRENT_IAN_TRAIN_MANIFEST}" \
     --tree "$TREE_NAME" \
@@ -736,7 +787,7 @@ validate_currentian_bdt() {
   write_currentian_metadata
   need_file "$CURRENT_IAN_TRAIN_MANIFEST"
   need_file "${CURRENT_IAN_BDT_OUTDIR}/model_registry.json"
-  "$ML_PYTHON" "${REPO_BASE}/scripts/validate_pp_photon_ml_tables.py" \
+  "$ML_PYTHON" "$VALIDATE_PP_SCRIPT" \
     --input "@${CURRENT_IAN_TRAIN_MANIFEST}" \
     --tree "$TREE_NAME" \
     --outdir "$CURRENT_IAN_VALIDATION_OUTDIR" \
@@ -749,6 +800,318 @@ validate_currentian_bdt() {
     --random-seed "$PP_LOAD_SAMPLE_SEED" \
     --skip-missing-tree
   log "current-IAN BDT validation done: ${CURRENT_IAN_VALIDATION_OUTDIR}"
+}
+
+join_csv_words() {
+  local IFS=,
+  printf '%s' "$*"
+}
+
+currentian_grid_lane_config() {
+  local lane="$1"
+  GRID_SIGNAL_SAMPLES=""
+  GRID_BACKGROUND_SAMPLES=""
+  GRID_DESCRIPTION=""
+  case "$lane" in
+    sig5_bkg8_12)
+      GRID_SIGNAL_SAMPLES="run28_photonjet5"
+      GRID_BACKGROUND_SAMPLES="run28_jet8 run28_jet12"
+      GRID_DESCRIPTION="photon5 signal; jet8+12 background"
+      ;;
+    sig5_bkg8_12_20)
+      GRID_SIGNAL_SAMPLES="run28_photonjet5"
+      GRID_BACKGROUND_SAMPLES="run28_jet8 run28_jet12 run28_jet20"
+      GRID_DESCRIPTION="photon5 signal; jet8+12+20 background"
+      ;;
+    sig5_bkg8_12_20_30)
+      GRID_SIGNAL_SAMPLES="run28_photonjet5"
+      GRID_BACKGROUND_SAMPLES="run28_jet8 run28_jet12 run28_jet20 run28_jet30"
+      GRID_DESCRIPTION="photon5 signal; jet8+12+20+30 background"
+      ;;
+    sig5_bkg8_12_20_30_40)
+      GRID_SIGNAL_SAMPLES="run28_photonjet5"
+      GRID_BACKGROUND_SAMPLES="run28_jet8 run28_jet12 run28_jet20 run28_jet30 run28_jet40"
+      GRID_DESCRIPTION="photon5 signal; jet8+12+20+30+40 background"
+      ;;
+    sig5_10_bkg8_12)
+      GRID_SIGNAL_SAMPLES="run28_photonjet5 run28_photonjet10"
+      GRID_BACKGROUND_SAMPLES="run28_jet8 run28_jet12"
+      GRID_DESCRIPTION="photon5+10 signal; jet8+12 background"
+      ;;
+    sig5_10_bkg8_12_20)
+      GRID_SIGNAL_SAMPLES="run28_photonjet5 run28_photonjet10"
+      GRID_BACKGROUND_SAMPLES="run28_jet8 run28_jet12 run28_jet20"
+      GRID_DESCRIPTION="photon5+10 signal; jet8+12+20 background"
+      ;;
+    sig5_10_bkg8_12_20_30)
+      GRID_SIGNAL_SAMPLES="run28_photonjet5 run28_photonjet10"
+      GRID_BACKGROUND_SAMPLES="run28_jet8 run28_jet12 run28_jet20 run28_jet30"
+      GRID_DESCRIPTION="photon5+10 signal; jet8+12+20+30 background"
+      ;;
+    sig5_10_bkg8_12_20_30_40)
+      GRID_SIGNAL_SAMPLES="run28_photonjet5 run28_photonjet10"
+      GRID_BACKGROUND_SAMPLES="run28_jet8 run28_jet12 run28_jet20 run28_jet30 run28_jet40"
+      GRID_DESCRIPTION="photon5+10 signal; jet8+12+20+30+40 background"
+      ;;
+    sig5_10_20_bkg8_12)
+      GRID_SIGNAL_SAMPLES="run28_photonjet5 run28_photonjet10 run28_photonjet20"
+      GRID_BACKGROUND_SAMPLES="run28_jet8 run28_jet12"
+      GRID_DESCRIPTION="photon5+10+20 signal; jet8+12 background"
+      ;;
+    sig5_10_20_bkg8_12_20)
+      GRID_SIGNAL_SAMPLES="run28_photonjet5 run28_photonjet10 run28_photonjet20"
+      GRID_BACKGROUND_SAMPLES="run28_jet8 run28_jet12 run28_jet20"
+      GRID_DESCRIPTION="photon5+10+20 signal; jet8+12+20 background"
+      ;;
+    sig5_10_20_bkg8_12_20_30)
+      GRID_SIGNAL_SAMPLES="run28_photonjet5 run28_photonjet10 run28_photonjet20"
+      GRID_BACKGROUND_SAMPLES="run28_jet8 run28_jet12 run28_jet20 run28_jet30"
+      GRID_DESCRIPTION="photon5+10+20 signal; jet8+12+20+30 background"
+      ;;
+    sig5_10_20_bkg8_12_20_30_40)
+      GRID_SIGNAL_SAMPLES="run28_photonjet5 run28_photonjet10 run28_photonjet20"
+      GRID_BACKGROUND_SAMPLES="run28_jet8 run28_jet12 run28_jet20 run28_jet30 run28_jet40"
+      GRID_DESCRIPTION="photon5+10+20 signal; jet8+12+20+30+40 background"
+      ;;
+    *)
+      die "unknown current-IAN sample-grid lane: $lane"
+      ;;
+  esac
+}
+
+set_currentian_grid_lane_paths() {
+  local lane="$1"
+  currentian_grid_lane_config "$lane"
+  read -r -a CURRENT_IAN_SIGNAL_SAMPLES <<<"$GRID_SIGNAL_SAMPLES"
+  read -r -a CURRENT_IAN_TRAIN_JET_SAMPLES <<<"$GRID_BACKGROUND_SAMPLES"
+  read -r -a CURRENT_IAN_FULL_INCLUSIVE_JET_SAMPLES <<<"$GRID_BACKGROUND_SAMPLES"
+  CURRENT_IAN_EXPECTED_SAMPLES="$(join_csv_words "${CURRENT_IAN_SIGNAL_SAMPLES[@]}" "${CURRENT_IAN_TRAIN_JET_SAMPLES[@]}")"
+  RUN_ROOT="${CURRENT_IAN_GRID_RUN_BASE}/${lane}"
+  CURRENT_IAN_TRAIN_MANIFEST="${RUN_ROOT}/training_roots_currentIAN.list"
+  CURRENT_IAN_SIGNAL_MANIFEST="${RUN_ROOT}/signal_roots_currentIAN.list"
+  CURRENT_IAN_INCLUSIVE_MANIFEST="${RUN_ROOT}/inclusive_roots_currentIAN.list"
+  CURRENT_IAN_BDT_OUTDIR="${RUN_ROOT}/models/bdt_ppg12_currentIAN_basev3E"
+  CURRENT_IAN_CLOSURE_DIR="${RUN_ROOT}/validation/ppg12_exact_reweight_closure"
+  CURRENT_IAN_VALIDATION_OUTDIR="${RUN_ROOT}/validation/currentIAN_bdt"
+  CURRENT_IAN_OVERLAY_OUTDIR="${RUN_ROOT}/validation/fullsim_shuhang_overlay"
+}
+
+write_currentian_grid_lane_manifests() {
+  local lane="$1"
+  [[ -d "$CURRENT_IAN_GRID_SOURCE_ROOT" ]] || die "missing CURRENT_IAN_GRID_SOURCE_ROOT: $CURRENT_IAN_GRID_SOURCE_ROOT"
+  mkdir -p "$RUN_ROOT"
+  local all_roots="${RUN_ROOT}/all_candidate_roots_currentIAN_grid.list"
+  local qa_json="${RUN_ROOT}/manifest_tree_qa_currentIAN_grid.json"
+  find "$CURRENT_IAN_GRID_SOURCE_ROOT" -type f -name '*.root' | sort > "$all_roots"
+  "$ML_PYTHON" - "$all_roots" "$CURRENT_IAN_TRAIN_MANIFEST" "$CURRENT_IAN_SIGNAL_MANIFEST" "$CURRENT_IAN_INCLUSIVE_MANIFEST" "$qa_json" "$GRID_SIGNAL_SAMPLES" "$GRID_BACKGROUND_SAMPLES" "$TREE_NAME" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+all_roots = Path(sys.argv[1])
+train_manifest = Path(sys.argv[2])
+signal_manifest = Path(sys.argv[3])
+inclusive_manifest = Path(sys.argv[4])
+qa_json = Path(sys.argv[5])
+signal_samples = [item for item in sys.argv[6].split() if item]
+background_samples = [item for item in sys.argv[7].split() if item]
+tree_name = sys.argv[8]
+
+def pattern_for(sample: str) -> re.Pattern[str]:
+    aliases = {sample, sample.replace("run28_", "")}
+    return re.compile(r"(^|/)(" + "|".join(re.escape(alias) for alias in sorted(aliases, key=len, reverse=True)) + r")([/_]|$)")
+
+signal_patterns = {sample: pattern_for(sample) for sample in signal_samples}
+background_patterns = {sample: pattern_for(sample) for sample in background_samples}
+counts = {sample: 0 for sample in signal_samples + background_samples}
+signal_paths = []
+inclusive_paths = []
+unknown_paths = 0
+
+for raw in all_roots.read_text().splitlines():
+    path = raw.strip()
+    if not path:
+        continue
+    matched = False
+    for sample, pattern in signal_patterns.items():
+        if pattern.search(path):
+            signal_paths.append(path)
+            counts[sample] += 1
+            matched = True
+            break
+    if matched:
+        continue
+    for sample, pattern in background_patterns.items():
+        if pattern.search(path):
+            inclusive_paths.append(path)
+            counts[sample] += 1
+            matched = True
+            break
+    if not matched:
+        unknown_paths += 1
+
+missing = [sample for sample, count in counts.items() if count <= 0]
+train_paths = signal_paths + inclusive_paths
+for path, values in [(train_manifest, train_paths), (signal_manifest, signal_paths), (inclusive_manifest, inclusive_paths)]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(values) + ("\n" if values else ""))
+
+qa = {
+    "tree_name": tree_name,
+    "source_root": str(all_roots),
+    "signal_samples": signal_samples,
+    "background_samples": background_samples,
+    "sample_root_counts": counts,
+    "training_files": len(train_paths),
+    "signal_files": len(signal_paths),
+    "inclusive_files": len(inclusive_paths),
+    "ignored_other_root_files": unknown_paths,
+    "missing_samples": missing,
+    "training_manifest": str(train_manifest),
+    "signal_manifest": str(signal_manifest),
+    "inclusive_manifest": str(inclusive_manifest),
+}
+qa_json.parent.mkdir(parents=True, exist_ok=True)
+qa_json.write_text(json.dumps(qa, indent=2, sort_keys=True) + "\n")
+print(json.dumps(qa, sort_keys=True))
+if missing:
+    raise SystemExit("current-IAN sample-grid manifest missing samples: " + ",".join(missing) + f"; see {qa_json}")
+if not signal_paths or not inclusive_paths or not train_paths:
+    raise SystemExit(f"current-IAN sample-grid manifest empty; see {qa_json}")
+PY
+  log "current-IAN sample-grid manifests ready lane=${lane}: ${RUN_ROOT}"
+}
+
+plan_currentian_sample_grid() {
+  local lanes_csv="${CURRENT_IAN_GRID_LANES_CSV}"
+  local -a lanes
+  IFS=',' read -r -a lanes <<<"$lanes_csv"
+  printf 'lane\tsignal_samples\tbackground_samples\texpected_samples\trun_root\tdescription\n'
+  local lane
+  for lane in "${lanes[@]}"; do
+    set_currentian_grid_lane_paths "$lane"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$lane" "$GRID_SIGNAL_SAMPLES" "$GRID_BACKGROUND_SAMPLES" "$CURRENT_IAN_EXPECTED_SAMPLES" "$RUN_ROOT" "$GRID_DESCRIPTION"
+  done
+}
+
+run_currentian_sample_grid_lane() {
+  local lane="${RJ_CURRENT_IAN_GRID_LANE:-}"
+  [[ -n "$lane" ]] || die "runCurrentIANSampleGridLane requires RJ_CURRENT_IAN_GRID_LANE"
+  set_currentian_grid_lane_paths "$lane"
+  log "current-IAN sample-grid lane=${lane}"
+  log "  source=${CURRENT_IAN_GRID_SOURCE_ROOT}"
+  log "  signal=${GRID_SIGNAL_SAMPLES}"
+  log "  background=${GRID_BACKGROUND_SAMPLES}"
+  log "  expected=${CURRENT_IAN_EXPECTED_SAMPLES}"
+  log "  run_root=${RUN_ROOT}"
+  write_currentian_grid_lane_manifests "$lane"
+  train_currentian_bdt
+  validate_currentian_bdt
+}
+
+submit_currentian_sample_grid() {
+  [[ "${RJ_DO_RUN:-0}" == "1" ]] || die "submitCurrentIANSampleGrid is mutating; rerun with RJ_DO_RUN=1 after duplicate guard."
+  [[ -n "${RJ_CODEX_CHAT_NAME:-}" ]] || die "submitCurrentIANSampleGrid requires RJ_CODEX_CHAT_NAME"
+  [[ -n "${RJ_CODEX_THREAD_ID:-}" ]] || die "submitCurrentIANSampleGrid requires RJ_CODEX_THREAD_ID"
+  [[ -d "$CURRENT_IAN_GRID_SOURCE_ROOT" ]] || die "missing CURRENT_IAN_GRID_SOURCE_ROOT: $CURRENT_IAN_GRID_SOURCE_ROOT"
+  local -a lanes
+  IFS=',' read -r -a lanes <<<"$CURRENT_IAN_GRID_LANES_CSV"
+  mkdir -p "$CURRENT_IAN_GRID_SUBMIT_ROOT"/{log,out,err}
+  local dag="${CURRENT_IAN_GRID_SUBMIT_ROOT}/pp_currentian_basev3e_sample_grid.dag"
+  local script_self
+  script_self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/$(basename "${BASH_SOURCE[0]}")"
+  : > "$dag"
+  local lane job runner sub
+  for lane in "${lanes[@]}"; do
+    set_currentian_grid_lane_paths "$lane"
+    job="J_${lane}"
+    runner="${CURRENT_IAN_GRID_SUBMIT_ROOT}/run_${lane}.sh"
+    sub="${CURRENT_IAN_GRID_SUBMIT_ROOT}/${lane}.sub"
+    cat > "$runner" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$REPO_BASE"
+export RJ_CODEX_CHAT_NAME="$RJ_CODEX_CHAT_NAME"
+export RJ_CODEX_THREAD_ID="$RJ_CODEX_THREAD_ID"
+export RJ_CURRENT_IAN_GRID_LANE="$lane"
+export RJ_CURRENT_IAN_GRID_TAG="$CURRENT_IAN_GRID_TAG"
+export RJ_CURRENT_IAN_GRID_SOURCE_ROOT="$CURRENT_IAN_GRID_SOURCE_ROOT"
+export RJ_CURRENT_IAN_GRID_RUN_BASE="$CURRENT_IAN_GRID_RUN_BASE"
+export RJ_ML_PYTHON="$ML_PYTHON"
+export PP_BDT_MAX_LOAD_ROWS_PER_CLASS="$PP_BDT_MAX_LOAD_ROWS_PER_CLASS"
+export PP_VALIDATION_MAX_LOAD_ROWS_PER_CLASS="$PP_VALIDATION_MAX_LOAD_ROWS_PER_CLASS"
+export PP_LOAD_SAMPLE_SEED="$PP_LOAD_SAMPLE_SEED"
+export PP_BDT_N_JOBS="$PP_BDT_N_JOBS"
+export PP_SKIP_TMVA_EXPORT="$PP_SKIP_TMVA_EXPORT"
+ml_python="\$RJ_ML_PYTHON"
+ml_python_prefix="\$(cd "\$(dirname "\$ml_python")/.." && pwd -P 2>/dev/null || true)"
+ml_python_real="\$(readlink -f "\$ml_python" 2>/dev/null || true)"
+ml_python_real_prefix=""
+if [[ -n "\$ml_python_real" ]]; then
+  ml_python_real_prefix="\$(cd "\$(dirname "\$ml_python_real")/.." && pwd -P 2>/dev/null || true)"
+fi
+ld_joined=""
+for d in "\$ml_python_prefix/lib" "\$ml_python_prefix/lib64" "\$ml_python_real_prefix/lib" "\$ml_python_real_prefix/lib64"; do
+  [[ -n "\$d" && -d "\$d" ]] || continue
+  case ":\$ld_joined:" in *":\$d:"*) ;; *) ld_joined="\${ld_joined:+\$ld_joined:}\$d" ;; esac
+done
+[[ -n "\$ld_joined" ]] && export LD_LIBRARY_PATH="\$ld_joined:\${LD_LIBRARY_PATH:-}"
+unset PYTHONHOME
+exec "$script_self" runCurrentIANSampleGridLane
+EOF
+    chmod +x "$runner"
+    cat > "$sub" <<EOF
+universe = vanilla
+executable = $runner
+getenv = True
+request_cpus = $CURRENT_IAN_GRID_REQUEST_CPUS
+request_memory = $CURRENT_IAN_GRID_REQUEST_MEMORY
+notification = Never
++JobBatchName = "$CURRENT_IAN_GRID_TAG"
+log = $CURRENT_IAN_GRID_SUBMIT_ROOT/log/${lane}.\$(Cluster).\$(Process).log
+output = $CURRENT_IAN_GRID_SUBMIT_ROOT/out/${lane}.\$(Cluster).\$(Process).out
+error = $CURRENT_IAN_GRID_SUBMIT_ROOT/err/${lane}.\$(Cluster).\$(Process).err
+queue 1
+EOF
+    {
+      printf 'JOB %s %s\n' "$job" "$sub"
+      printf 'CATEGORY %s lane\n' "$job"
+    } >> "$dag"
+  done
+  printf 'MAXJOBS lane %s\n' "$CURRENT_IAN_GRID_MAXJOBS" >> "$dag"
+  log "submit_root=${CURRENT_IAN_GRID_SUBMIT_ROOT}"
+  log "dag=${dag}"
+  condor_submit_dag "$dag"
+}
+
+status_currentian_sample_grid() {
+  local -a lanes
+  IFS=',' read -r -a lanes <<<"$CURRENT_IAN_GRID_LANES_CSV"
+  log "tag=${CURRENT_IAN_GRID_TAG}"
+  log "source=${CURRENT_IAN_GRID_SOURCE_ROOT}"
+  log "run_base=${CURRENT_IAN_GRID_RUN_BASE}"
+  log "submit_root=${CURRENT_IAN_GRID_SUBMIT_ROOT}"
+  local lane registry status
+  for lane in "${lanes[@]}"; do
+    set_currentian_grid_lane_paths "$lane"
+    registry="${CURRENT_IAN_BDT_OUTDIR}/model_registry.json"
+    if [[ -s "$registry" ]]; then
+      status="$("$ML_PYTHON" - "$registry" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+print(f"{data.get('status')} trained={data.get('trained_model_count', data.get('model_count'))} expected={data.get('expected_model_count')}")
+PY
+)"
+    else
+      status="MISSING"
+    fi
+    log "lane=${lane} registry=${registry} status=${status}"
+  done
+  if command -v condor_q >/dev/null 2>&1; then
+    log "matching_condor_rows:"
+    condor_q "${USER:-$LOGNAME}" -wide 2>/dev/null | grep -F "$CURRENT_IAN_GRID_TAG" || true
+  fi
 }
 
 plot_currentian_overlay() {
@@ -830,6 +1193,10 @@ case "$mode" in
   validateCurrentIANBDT) validate_currentian_bdt ;;
   plotCurrentIANOverlay) plot_currentian_overlay ;;
   runCurrentIAN) run_currentian ;;
+  planCurrentIANSampleGrid) plan_currentian_sample_grid ;;
+  runCurrentIANSampleGridLane) run_currentian_sample_grid_lane ;;
+  submitCurrentIANSampleGrid) submit_currentian_sample_grid ;;
+  statusCurrentIANSampleGrid) status_currentian_sample_grid ;;
   status) status ;;
   ""|-h|--help|help) usage ;;
   *) usage; die "unknown mode: $mode" ;;

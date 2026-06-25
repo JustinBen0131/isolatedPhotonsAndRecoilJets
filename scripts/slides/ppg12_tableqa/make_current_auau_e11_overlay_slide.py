@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,6 +29,11 @@ LOCAL_INPUT = REPO / "InputFiles/the42_current_auau_tableqa"
 DEFAULT_DATA_ROOT = LOCAL_INPUT / f"RecoilJets_auau_ALL_{CFG}.root"
 DEFAULT_SIGNAL_ROOT = LOCAL_INPUT / "RecoilJets_embeddedPhoton12plus20_MERGED.root"
 DEFAULT_INCLUSIVE_ROOT = LOCAL_INPUT / "RecoilJets_embeddedJet12plus20plus30plus40_MERGED.root"
+DEFAULT_INTERIM_DATA_CACHE = (
+    REPO
+    / "dataOutput/ppg12TableQA/THE42_ppg12_tableqa_v1_auauDataNewV008_b002_20260612"
+    / "interim_complete_runs/the42_b002_interim_complete_run_shower_shape_hists.json"
+)
 
 PP_CAMPAIGN = REPO / "dataOutput/ppg12TableQA/THE42_ppg12_tableqa_v1_basev3e_20260611"
 PP_ROOT_DIR = PP_CAMPAIGN / "merged_roots"
@@ -41,6 +47,22 @@ DEFAULT_OUTDIR = REPO / "dataOutput/ppg12TableQA/THE42_current_auau_tableqa_2026
 VAR = "e11_to_e33"
 PT_TOKEN = "1535"
 PT_LABEL = r"$15<E_T<35$ GeV"
+VARIABLE_CONFIG = {
+    "e11_to_e33": {
+        "axis": r"$E_{11}/E_{33}$",
+        "slug": "e11_to_e33",
+        "title": r"$E_{11}/E_{33}$ shower-shape overlay: current AuAu table-QA data with matched MC",
+        "lead": "Rows show AuAu centrality bins and the validated pp reference; columns follow the photon-ID selection flow.",
+        "takeaway": "The tight-ID column should move the data toward the signal-like shower-shape region while retaining a coherent inclusive-MC comparison.",
+    },
+    "bdt": {
+        "axis": "BDT score",
+        "slug": "bdt_score",
+        "title": "BDT-score separation overlay: current AuAu default BDT data with matched MC",
+        "lead": "Rows show AuAu centrality bins and the pp reference; columns follow the photon-ID selection flow.",
+        "takeaway": "Signal MC should concentrate at higher score than inclusive MC; data should sit between the two without pathological pileups.",
+    },
+}
 
 STAGES = [
     ("cut0", "Before preselection"),
@@ -52,6 +74,13 @@ CENTRALITIES = [
     ("cent20_50", "AuAu 20-50%"),
     ("cent50_80", "AuAu 50-80%"),
 ]
+CENTRALITY_MIDPOINTS = {
+    "cent0_20": 10.0,
+    "cent20_50": 35.0,
+    "cent50_80": 65.0,
+}
+WP80_INTERCEPT = 0.53471108
+WP80_SLOPE = 0.0012284143
 SAMPLE_COLORS = {
     "Data": "#111827",
     "Signal MC": "#C22F2F",
@@ -132,6 +161,31 @@ def rebin_arrays(x: np.ndarray, y: np.ndarray, e: np.ndarray, factor: int) -> tu
     return xr.mean(axis=1), yr.sum(axis=1), np.sqrt(np.sum(er * er, axis=1))
 
 
+def coarsen_payload(payload: tuple[np.ndarray, np.ndarray, np.ndarray], factor: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    x, y, e = payload
+    return rebin_arrays(np.asarray(x, dtype=float), np.asarray(y, dtype=float), np.asarray(e, dtype=float), factor)
+
+
+def coarsen_arrays(arr: Arrays, factor: int) -> Arrays:
+    x, y, e = rebin_arrays(arr.x, arr.y, arr.e, factor)
+    suffix = f"; display_coarsen={factor}" if factor > 1 else ""
+    return Arrays(x=x, y=y, e=e, integral=arr.integral, source=f"{arr.source}{suffix}")
+
+
+def compress_sideband_for_display(arr: Arrays, target_peak: float) -> Arrays:
+    peak = float(np.nanmax(arr.y)) if arr.y.size else 0.0
+    if peak <= 0.0 or target_peak <= 0.0:
+        return Arrays(x=arr.x, y=np.zeros_like(arr.y), e=np.zeros_like(arr.e), integral=arr.integral, source=f"{arr.source}; compressed_sideband_display")
+    scale = target_peak / peak
+    return Arrays(
+        x=arr.x,
+        y=arr.y * scale,
+        e=arr.e * scale,
+        integral=arr.integral,
+        source=f"{arr.source}; compressed_sideband_display_scale={scale:.6g}",
+    )
+
+
 def hist_to_arrays(hist, *, source: str, xlim: tuple[float, float] = (0.0, 1.0), rebin: int = 4) -> Arrays:
     nb = hist.GetNbinsX()
     x = np.array([hist.GetXaxis().GetBinCenter(i) for i in range(1, nb + 1)], dtype=float)
@@ -147,11 +201,22 @@ def hist_to_arrays(hist, *, source: str, xlim: tuple[float, float] = (0.0, 1.0),
     return Arrays(x=x, y=y, e=e, integral=integral, source=source)
 
 
-def load_tableqa_arrays(root: Path, index: dict[str, list[str]], cent: str, stage: str) -> Arrays:
+def load_tableqa_arrays(
+    root: Path,
+    index: dict[str, list[str]],
+    cent: str,
+    stage: str,
+    *,
+    path_regex: re.Pattern[str] | None = None,
+) -> Arrays:
     name = tableqa_name(cent, stage)
     paths = index.get(name, [])
     if not paths:
         raise KeyError(f"Missing {name} in {root}")
+    if path_regex is not None:
+        matched = [p for p in paths if path_regex.search(p)]
+        if matched:
+            paths = matched
     f = open_root(root)
     try:
         obj = f.Get(paths[0])
@@ -164,6 +229,28 @@ def load_tableqa_arrays(root: Path, index: dict[str, list[str]], cent: str, stag
     return hist_to_arrays(h, source=paths[0], rebin=4)
 
 
+def load_interim_cache(path: Path) -> dict:
+    payload = json.loads(path.read_text())
+    if payload.get("schema") != "THE42_B002_INTERIM_COMPLETE_RUN_SHOWER_SHAPES_V1":
+        raise RuntimeError(f"Unexpected interim data cache schema in {path}")
+    return payload
+
+
+def load_cache_arrays(cache: dict, cache_path: Path, cent: str, stage: str) -> Arrays:
+    item = cache["hists"][VAR][cent][stage]
+    x = np.asarray(item["x"], dtype=float)
+    y = np.asarray(item["y"], dtype=float)
+    e = np.asarray(item["e"], dtype=float)
+    x, y, e = rebin_arrays(x, y, e, 4)
+    mask = np.isfinite(x) & np.isfinite(y) & np.isfinite(e) & (x >= 0.0) & (x <= 1.0)
+    x, y, e = x[mask], y[mask], e[mask]
+    integral = float(np.sum(y))
+    if integral > 0:
+        y = y / integral
+        e = e / integral
+    return Arrays(x=x, y=y, e=e, integral=integral, source=f"{cache_path}:{VAR}:{cent}:{stage}")
+
+
 def load_pp_plotter():
     spec = importlib.util.spec_from_file_location("pp_tableqa_plotter", PP_PLOTTER_PATH)
     if spec is None or spec.loader is None:
@@ -173,7 +260,7 @@ def load_pp_plotter():
     return module
 
 
-def load_pp_arrays(stage: str) -> dict[str, Arrays]:
+def load_pp_arrays(stage: str, *, npb_display_coarsen: int = 1, include_npb: bool = True) -> dict[str, Arrays]:
     plotter = load_pp_plotter()
     files = {
         "data": plotter.open_root(PP_DATA_ROOT),
@@ -190,20 +277,16 @@ def load_pp_arrays(stage: str) -> dict[str, Arrays]:
     out["Data"] = Arrays(*data, integral=float(np.sum(data[1])), source=f"{PP_DATA_ROOT}:{stage}")
     out["Signal MC"] = Arrays(*sig, integral=float(np.sum(sig[1])), source=f"{PP_SIGNAL_ROOT}:{stage}")
     out["Inclusive MC"] = Arrays(*inc, integral=float(np.sum(inc[1])), source=f"{PP_INCLUSIVE_CACHE}:current_ian_jet8to40:{stage}")
-    if stage == "cut0":
-        npb_scale = plotter.npb_tail_scale(
-            files,
-            {
-                "pt_token": PT_TOKEN,
-                "pt_label": r"$15<E_T<35$ GeV",
-                "cut": stage,
-                "cut_label": "all candidates",
-                "include_npb_template": True,
-            },
+    if include_npb and stage == "cut0":
+        npb_hist = plotter.get_hist(files["data"], PP_TOPDIR_DATA, VAR, PT_TOKEN, "cut4")
+        npb_raw_entries = float(npb_hist.GetEntries())
+        npb = plotter.norm_arrays(npb_hist, rebin, xlim)
+        npb = coarsen_payload(npb, npb_display_coarsen)
+        out["NPB-tagged data"] = Arrays(
+            *npb,
+            integral=npb_raw_entries,
+            source=f"{PP_DATA_ROOT}:cut4 raw-sideband-shape; display_coarsen={npb_display_coarsen}",
         )
-        npb = plotter.norm_arrays(plotter.get_hist(files["data"], PP_TOPDIR_DATA, VAR, PT_TOKEN, "cut4"), rebin, xlim)
-        npb = plotter.scale_arrays(npb, npb_scale)
-        out["NPB-tagged data"] = Arrays(*npb, integral=float(np.sum(npb[1])), source=f"{PP_DATA_ROOT}:cut4 scaled")
     return out
 
 
@@ -226,10 +309,23 @@ def draw_curve(ax, arrays: Arrays, label: str) -> None:
             alpha=0.96,
             label=label,
         )
+    elif label == "NPB-tagged data":
+        ax.fill_between(arrays.x, 0.0, arrays.y, step="mid", color=color, alpha=0.115, linewidth=0)
+        ax.step(arrays.x, arrays.y, where="mid", color=color, lw=3.0, alpha=0.98, label=label)
+        ax.plot(
+            arrays.x,
+            arrays.y,
+            "s",
+            ms=2.8,
+            color=color,
+            mfc="white",
+            mec=color,
+            mew=0.8,
+            alpha=0.98,
+        )
     else:
         ax.step(arrays.x, arrays.y, where="mid", color=color, lw=1.85, alpha=0.97, label=label)
-        if label != "NPB-tagged data":
-            ax.errorbar(arrays.x, arrays.y, yerr=arrays.e, fmt="none", ecolor=color, elinewidth=0.38, alpha=0.42)
+        ax.errorbar(arrays.x, arrays.y, yerr=arrays.e, fmt="none", ecolor=color, elinewidth=0.38, alpha=0.42)
 
 
 def add_sphenix_label(ax, *, system: str) -> None:
@@ -247,6 +343,10 @@ def draw_arrow_text(fig, x: float, y: float, text: str) -> None:
 
 
 def render(args: argparse.Namespace) -> dict:
+    global VAR
+    VAR = args.var
+    var_cfg = VARIABLE_CONFIG[VAR]
+    include_npb = bool(args.include_npb_sideband and VAR == "e11_to_e33")
     setup_style()
     outdir = args.outdir
     outdir.mkdir(parents=True, exist_ok=True)
@@ -254,24 +354,33 @@ def render(args: argparse.Namespace) -> dict:
     data_root = args.data_root
     signal_root = args.signal_root
     inclusive_root = args.inclusive_root
-    for path in (data_root, signal_root, inclusive_root):
+    data_cache_path = args.data_cache
+    for path in (signal_root, inclusive_root):
         if not path.exists():
             raise FileNotFoundError(path)
+    if data_cache_path is None and not data_root.exists():
+        raise FileNotFoundError(data_root)
+    if data_cache_path is not None and not data_cache_path.exists():
+        raise FileNotFoundError(data_cache_path)
 
-    data_index = build_index(data_root)
+    data_cache = load_interim_cache(data_cache_path) if data_cache_path is not None else None
+    data_index = build_index(data_root) if data_cache is None else {}
     signal_index = build_index(signal_root)
     inclusive_index = build_index(inclusive_root)
+    data_trigger_regex = re.compile(args.data_trigger_regex) if args.data_trigger_regex else None
 
     fig, axes = plt.subplots(4, 3, figsize=slide_figsize(), constrained_layout=False)
     fig.patch.set_facecolor("white")
-    fig.subplots_adjust(left=0.070, right=0.990, top=0.755, bottom=0.070, wspace=0.120, hspace=0.235)
+    fig.subplots_adjust(left=0.070, right=0.990, top=0.720, bottom=0.070, wspace=0.120, hspace=0.220)
 
     manifest: dict = {
-        "schema": "CURRENT_AUAU_TABLEQA_E11_OVERLAY_SLIDE_V1",
+        "schema": "CURRENT_AUAU_TABLEQA_OVERLAY_SLIDE_V2",
         "variable": VAR,
         "pt_token": PT_TOKEN,
         "pt_label": "15 < E_T < 35 GeV",
-        "data_root": str(data_root),
+        "data_root": str(data_root) if data_cache is None else None,
+        "data_interim_cache": str(data_cache_path) if data_cache is not None else None,
+        "data_interim_cache_metadata": data_cache.get("metadata", {}) if data_cache is not None else None,
         "signal_root": str(signal_root),
         "inclusive_root": str(inclusive_root),
         "pp_reference": {
@@ -279,6 +388,14 @@ def render(args: argparse.Namespace) -> dict:
             "signal": str(PP_SIGNAL_ROOT),
             "inclusive_sample_cache": str(PP_INCLUSIVE_CACHE),
         },
+        "npb_sideband_note": (
+            "Green is raw cut4 NPB-tagged data in both pp and AuAu. "
+            "It is drawn as a compressed diagnostic strip and does not set the unit-area data/MC y-axis."
+            if include_npb
+            else None
+        ),
+        "npb_display_coarsen": args.npb_display_coarsen,
+        "include_npb_sideband": include_npb,
         "curves": [],
     }
 
@@ -288,14 +405,27 @@ def render(args: argparse.Namespace) -> dict:
             ax = axes[row, col]
             plotted: list[Arrays] = []
             if cent_key == "pp":
-                curves = load_pp_arrays(stage)
+                curves = load_pp_arrays(stage, npb_display_coarsen=args.npb_display_coarsen, include_npb=include_npb)
             else:
+                data = (
+                    load_cache_arrays(data_cache, data_cache_path, cent_key, stage)
+                    if data_cache is not None
+                    else load_tableqa_arrays(data_root, data_index, cent_key, stage, path_regex=data_trigger_regex)
+                )
                 curves = {
-                    "Data": load_tableqa_arrays(data_root, data_index, cent_key, stage),
+                    "Data": data,
                     "Signal MC": load_tableqa_arrays(signal_root, signal_index, cent_key, stage),
                     "Inclusive MC": load_tableqa_arrays(inclusive_root, inclusive_index, cent_key, stage),
                 }
-            for sample in ("Data", "Signal MC", "Inclusive MC", "NPB-tagged data"):
+                if include_npb and stage == "cut0":
+                    npb = (
+                        load_cache_arrays(data_cache, data_cache_path, cent_key, "cut4")
+                        if data_cache is not None
+                        else load_tableqa_arrays(data_root, data_index, cent_key, "cut4", path_regex=data_trigger_regex)
+                    )
+                    npb = coarsen_arrays(npb, args.npb_display_coarsen)
+                    curves["NPB-tagged data"] = npb
+            for sample in ("Data", "Signal MC", "Inclusive MC"):
                 arr = curves.get(sample)
                 if arr is None:
                     continue
@@ -311,8 +441,42 @@ def render(args: argparse.Namespace) -> dict:
                     }
                 )
             ymax = max((float(np.nanmax(a.y + a.e)) for a in plotted if a.y.size), default=0.02)
+            npb = curves.get("NPB-tagged data") if include_npb else None
+            if npb is not None:
+                npb_display = compress_sideband_for_display(npb, target_peak=max(0.012, ymax * 0.185))
+                draw_curve(ax, npb_display, "NPB-tagged data")
+                manifest["curves"].append(
+                    {
+                        "row": row_label,
+                        "stage": stage,
+                        "sample": "NPB-tagged data",
+                        "integral_before_normalization": npb.integral,
+                        "source": npb.source,
+                        "display_source": npb_display.source,
+                        "display_mode": "compressed_sideband_strip",
+                    }
+                )
+            if include_npb and stage == "cut0":
+                npb = curves.get("NPB-tagged data")
+                if npb is not None:
+                    note = "cut4 NPB: N=0" if npb.integral <= 0 else f"cut4 NPB: N={npb.integral:.0f}"
+                    ax.text(
+                        0.975,
+                        0.905,
+                        note,
+                        transform=ax.transAxes,
+                        ha="right",
+                        va="top",
+                        fontsize=10.2,
+                        color=SAMPLE_COLORS["NPB-tagged data"],
+                        fontweight="bold",
+                        bbox={"boxstyle": "round,pad=0.16", "facecolor": "white", "edgecolor": "none", "alpha": 0.78},
+                    )
             ax.set_xlim(0.0, 1.0)
             ax.set_ylim(0.0, max(0.025, ymax * 1.16))
+            if VAR == "bdt" and cent_key in CENTRALITY_MIDPOINTS:
+                wp80 = WP80_INTERCEPT + WP80_SLOPE * CENTRALITY_MIDPOINTS[cent_key]
+                ax.axvline(wp80, color="#4B5563", lw=1.05, ls=(0, (3.2, 2.6)), alpha=0.72, zorder=0)
             ax.grid(True, axis="y", color="#E5E7EB", lw=0.52, alpha=0.78)
             ax.tick_params(labelsize=7.8, pad=1, direction="in", top=True, right=True)
             if col == 0:
@@ -321,26 +485,71 @@ def render(args: argparse.Namespace) -> dict:
             if row == 0:
                 ax.set_title(stage_label, fontsize=14.7, fontweight="bold", pad=6, color="#173B63")
             if row == 3:
-                ax.set_xlabel(r"$E_{11}/E_{33}$", fontsize=10.7, labelpad=1)
+                ax.set_xlabel(var_cfg["axis"], fontsize=10.7, labelpad=1)
             else:
                 ax.tick_params(labelbottom=False)
 
-    title = r"$E_{11}/E_{33}$ shower-shape overlay: current AuAu table-QA data with matched MC"
+    title = var_cfg["title"]
     fig.text(0.055, 0.955, title, fontsize=23.8, fontweight="bold", ha="left", va="top", color="#111827")
-    draw_arrow_text(fig, 0.058, 0.895, "Rows show AuAu centrality bins and the validated pp reference; columns follow the photon-ID selection flow.")
-    draw_arrow_text(fig, 0.058, 0.855, "Each panel overlays data markers with matched signal and inclusive MC shapes, normalized within the visible range.")
+    if data_cache is not None:
+        meta = data_cache.get("metadata", {})
+        data_line = (
+            f"Interim data subset: {meta.get('complete_runs', '?')} complete runs, "
+            f"{meta.get('complete_root_files_used', '?')} completed ROOT chunks; final merge will replace this when the tail drains."
+        )
+    else:
+        data_line = var_cfg["lead"]
+    draw_arrow_text(fig, 0.058, 0.895, data_line)
+    if include_npb:
+        draw_arrow_text(
+            fig,
+            0.058,
+            0.855,
+            "Green is the same raw cut4 NPB-tagged data sideband in pp and AuAu; entries are printed in every before-preselection panel.",
+        )
+        draw_arrow_text(
+            fig,
+            0.058,
+            0.818,
+            "The green height is compressed into a diagnostic strip, so sparse AuAu sidebands do not look like high-stat unit-area shapes.",
+        )
+    else:
+        draw_arrow_text(fig, 0.058, 0.855, var_cfg["takeaway"])
+        if VAR == "bdt":
+            draw_arrow_text(
+                fig,
+                0.058,
+                0.818,
+                "AuAu uses the new 14-feature default BDT/WP80 production; the pp row is a PPG12/baseV3E reference-score shape, not a shared score calibration.",
+            )
 
     handles = [
         plt.Line2D([0], [0], color=SAMPLE_COLORS["Signal MC"], lw=2.4, label="Signal MC"),
         plt.Line2D([0], [0], color=SAMPLE_COLORS["Inclusive MC"], lw=2.4, label="Inclusive MC"),
         plt.Line2D([0], [0], color=SAMPLE_COLORS["Data"], marker="o", markersize=6.5, lw=0, markerfacecolor=SAMPLE_COLORS["Data"], markeredgecolor="white", label="Data"),
-        plt.Line2D([0], [0], color=SAMPLE_COLORS["NPB-tagged data"], lw=2.0, label="NPB-tagged data (pp cut0 only)"),
     ]
-    fig.legend(handles=handles, loc="upper right", bbox_to_anchor=(0.985, 0.810), frameon=False, ncol=4, fontsize=9.4, handlelength=1.6, columnspacing=1.1)
+    if VAR == "bdt":
+        handles.append(plt.Line2D([0], [0], color="#4B5563", lw=1.2, ls=(0, (3.2, 2.6)), label="AuAu WP80"))
+    if include_npb:
+        handles.append(
+            plt.Line2D(
+            [0],
+            [0],
+            color=SAMPLE_COLORS["NPB-tagged data"],
+            lw=2.9,
+            marker="s",
+            markersize=4.4,
+            markerfacecolor="white",
+            markeredgecolor=SAMPLE_COLORS["NPB-tagged data"],
+            label="NPB-tagged sideband strip",
+            )
+        )
+    fig.legend(handles=handles, loc="upper right", bbox_to_anchor=(0.985, 0.800), frameon=False, ncol=4, fontsize=9.2, handlelength=1.6, columnspacing=1.0)
 
-    out_png = outdir / "current_auau_tableqa_e11_to_e33_data_mc_overlay_slide.png"
-    out_manifest = outdir / "current_auau_tableqa_e11_to_e33_data_mc_overlay_slide_manifest.json"
-    out_script = outdir / "current_auau_tableqa_e11_to_e33_data_mc_overlay_slide_speaker_script.md"
+    out_stem = "current_auau_tableqa_e11_to_e33_data_mc_overlay_slide" if VAR == "e11_to_e33" else f"current_auau_tableqa_{var_cfg['slug']}_data_mc_overlay_slide"
+    out_png = outdir / f"{out_stem}.png"
+    out_manifest = outdir / f"{out_stem}_manifest.json"
+    out_script = outdir / f"{out_stem}_speaker_script.md"
     fig.savefig(out_png, dpi=SLIDE_DPI)
     plt.close(fig)
 
@@ -352,13 +561,15 @@ def render(args: argparse.Namespace) -> dict:
             [
                 "# Speaker Script",
                 "",
-                "This slide is the E11 over E33 shower-shape check from the current AuAu table-QA chain.",
+                f"This slide is the {var_cfg['axis']} check from the current AuAu table-QA chain.",
                 "Each AuAu row is one centrality bin. In every panel, black markers are data, the red line is matched embedded signal MC, and the blue line is matched embedded inclusive MC.",
                 "The columns show the selection flow: before preselection, after preselection, and after the tight BDT ID.",
                 "The bottom row is the validated pp reference using the repaired table-QA plotting path, so the audience can compare the AuAu behavior against the known pp photon-ID pattern.",
+                "The green curve is omitted for the BDT-score slide." if not include_npb else "The green curve is the raw cut4 NPB-tagged data sideband in both systems. It is compressed into a diagnostic strip and does not share the unit-area y-scale of the data/MC shape overlays.",
+                "This rendered version uses the interim completed-run data subset if a data cache is recorded in the manifest. The final merged data ROOT can be substituted without changing the slide layout.",
                 "",
-                "The point to emphasize is whether the tight-ID column moves the data toward the signal-like shower-shape region while retaining a coherent inclusive-MC comparison.",
-                "All curves are normalized within the plotted E11 over E33 range, so this is a shape comparison rather than a yield comparison.",
+                var_cfg["takeaway"],
+                f"All curves are normalized within the plotted {var_cfg['axis']} range, so this is a shape comparison rather than a yield comparison.",
                 "",
             ]
         )
@@ -369,10 +580,33 @@ def render(args: argparse.Namespace) -> dict:
 def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT)
+    ap.add_argument("--var", choices=sorted(VARIABLE_CONFIG), default="e11_to_e33")
+    ap.add_argument("--data-cache", type=Path, default=None)
+    ap.add_argument("--use-default-interim-cache", action="store_true")
     ap.add_argument("--signal-root", type=Path, default=DEFAULT_SIGNAL_ROOT)
     ap.add_argument("--inclusive-root", type=Path, default=DEFAULT_INCLUSIVE_ROOT)
     ap.add_argument("--outdir", type=Path, default=DEFAULT_OUTDIR)
-    return ap.parse_args()
+    ap.add_argument(
+        "--data-trigger-regex",
+        default=r"photon_12_plus_MBD_NS_geq_2_vtx_lt_150/",
+        help="Regex used to choose the AuAu data trigger directory when duplicate table-QA histograms exist.",
+    )
+    ap.add_argument(
+        "--npb-display-coarsen",
+        type=int,
+        default=2,
+        help="Extra display-only bin grouping for the sparse NPB-tagged data sideband.",
+    )
+    ap.add_argument(
+        "--include-npb-sideband",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Draw the cut4 NPB sideband strip when the selected variable supports it.",
+    )
+    args = ap.parse_args()
+    if args.use_default_interim_cache:
+        args.data_cache = DEFAULT_INTERIM_DATA_CACHE
+    return args
 
 
 def main() -> int:

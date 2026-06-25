@@ -15,7 +15,12 @@ Use `post_render_slide_audit.py` after rendering serious slide candidates. It
 checks the rendered PNG and, when the generator emits `layout_nodes.json`, the
 same transferable geometry contracts that proved useful in the HP sequence:
 audience text size, containment, box/text centering, repeated-card symmetry,
-and internal/provenance text leakage.
+and internal/provenance text leakage. Audience-facing final slides should not
+use internal Linear task IDs such as `THE-57`, `THE72`, or `THE-8B` on the
+canvas; the audit warns on those IDs when it can inspect text. For reliable
+coverage, serious slide generators should emit `layout_nodes.json` text nodes,
+because raster-only PNG text is not universally OCR-readable in the local
+runtime.
 
 Example:
 

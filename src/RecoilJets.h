@@ -26,6 +26,7 @@
 #include <TH1D.h>
 #include <TH1F.h>
 #include <TH1I.h>
+#include <TH2.h>
 #include <TH2D.h>
 #include <TH2F.h>
 #include <TH2Poly.h>
@@ -174,8 +175,8 @@ public:
   {
     kPreselectionFail = 0,
     kTight            = 1,
-    kNonTight         = 2,  // >=2 fails
-    kNeither          = 3   // exactly 1 fail
+    kNonTight         = 2,
+    kNeither          = 3
   };
 
   enum class EventReject : std::uint8_t
@@ -217,8 +218,19 @@ public:
       double w52            = std::numeric_limits<double>::quiet_NaN();
       double w72            = std::numeric_limits<double>::quiet_NaN();
       double mean_time      = std::numeric_limits<double>::quiet_NaN();
+      double cluster_prob   = std::numeric_limits<double>::quiet_NaN();
       double npb_score      = std::numeric_limits<double>::quiet_NaN();
       double tight_bdt_score = std::numeric_limits<double>::quiet_NaN();
+      double ppg12_shape_n_owned = std::numeric_limits<double>::quiet_NaN();
+      double ppg12_shape_owned_e = std::numeric_limits<double>::quiet_NaN();
+      double ppg12_shape_all_e = std::numeric_limits<double>::quiet_NaN();
+      double ppg12_shape_den_e = std::numeric_limits<double>::quiet_NaN();
+      double ppg12_shape_weta_cogx_num = std::numeric_limits<double>::quiet_NaN();
+      double ppg12_shape_wphi_cogx_num = std::numeric_limits<double>::quiet_NaN();
+      double ppg12_shape_cog_eta = std::numeric_limits<double>::quiet_NaN();
+      double ppg12_shape_cog_phi = std::numeric_limits<double>::quiet_NaN();
+      double ppg12_shape_center_ieta = std::numeric_limits<double>::quiet_NaN();
+      double ppg12_shape_center_iphi = std::numeric_limits<double>::quiet_NaN();
     };
 
   // Per-(trigger,slice) category counters printed in End()
@@ -403,6 +415,14 @@ public:
   void setUnfoldTruthPhotonPtBins(const std::vector<double>& bins) { m_unfoldTruthPhotonPtBins = bins; }
   void setUnfoldJetPtBins(const std::vector<double>& bins)         { m_unfoldJetPtBins = bins; }
   void setUnfoldXJBins(const std::vector<double>& bins)            { m_unfoldXJBins = bins; }
+  void setPPG12PhotonYieldEnabled(bool on = true)                  { m_ppg12PhotonYieldEnabled = on; }
+  void setPPG12PhotonYieldUseTruthVertexInPPSim(bool on = true)    { m_ppg12PhotonYieldUseTruthVertexInPPSim = on; }
+  void usePPG12PhotonYieldBinning()
+  {
+      m_gammaPtBins = m_ppg12PhotonYieldRecoPtBins;
+      m_unfoldRecoPhotonPtBins = m_ppg12PhotonYieldRecoPtBins;
+      m_unfoldTruthPhotonPtBins = m_ppg12PhotonYieldTruthPtBins;
+  }
 
   // Analysis provenance stamping (written once into output ROOT by RecoilJets.cc)
   void setAnalysisConfigYAML(const std::string& yamlText, const std::string& tag)
@@ -647,6 +667,14 @@ private:
                                   double eta,
                                   double phi,
                                   double eiso,
+                                  double ppg12RawEiso,
+                                  double ppg12RecoEiso,
+                                  double ppg12IsoThreshold,
+                                  double ppg12NonIsoThreshold,
+                                  bool ppg12Iso,
+                                  bool ppg12NonIso,
+                                  bool ppg12CommonPass,
+                                  int ppg12TightTag,
                                   int ptIdx,
                                   bool isSignal,
                                   int truthTrackId,
@@ -683,6 +711,8 @@ private:
                                                          const PhotonClusterv1* ref) const;
     bool   passesPhotonPreselection(const SSVars& v);
     TightTag classifyPhotonTightness(const SSVars& v);
+    bool passesPPG12PhotonYieldCommon(const SSVars& v) const;
+    TightTag classifyPPG12PhotonYieldTightness(const SSVars& v) const;
     double configuredTightBDTMin(double et) const;
     double configuredNonTightBDTMin(double et) const;
     double configuredNonTightBDTMax(double et) const;
@@ -693,6 +723,13 @@ private:
 
     // Isolation helpers
     double eiso(const RawCluster* clus, PHCompositeNode* topNode) const;
+    double ppg12PhotonYieldRawEiso(const RawCluster* clus, PHCompositeNode* topNode) const;
+    double ppg12PhotonYieldEiso(double eisoEt) const;
+    double ppg12PhotonYieldClusterEtForCuts(double ptGamma, int candidateIndex) const;
+    bool ppg12PhotonYieldTowerMasked(const PhotonClusterv1* pho) const;
+    double ppg12PhotonYieldKinematicVertexZ() const;
+    bool ppg12PhotonYieldInResponseWindow(double recoPt, double truthPt) const;
+    bool loadPPG12PhotonYieldTowerMask();
   bool   isIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const;
   bool   isNonIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const;
 
@@ -719,6 +756,8 @@ private:
     double eta = std::numeric_limits<double>::quiet_NaN();
     double phi = std::numeric_limits<double>::quiet_NaN();
     double isoEt = std::numeric_limits<double>::quiet_NaN();
+    int photonClass = -999;
+    int embedId = -999;
     const HepMC::GenParticle* hep = nullptr;
     const PHG4Particle* g4 = nullptr;
   };
@@ -729,6 +768,7 @@ private:
   //   signal if that track id maps to a truth photon passing isTruthPromptIsolatedSignalPhoton().
   // This deliberately does not impose an additional truth-reco ΔR cut.
   TruthSignalPhotonMap buildPPG12TruthSignalPhotonMap(const HepMC::GenEvent* evt) const;
+  TruthSignalPhotonMap buildPPG12TruthSignalPhotonMap(PHCompositeNode* topNode) const;
   bool classifyRecoPhotonWithPPG12TruthTrack(const RawCluster* rc,
                                              CaloRawClusterEval& clustereval,
                                              const TruthSignalPhotonMap& truthSignalByTrackId,
@@ -834,6 +874,29 @@ private:
   TH1F* getOrBookPtGammaHist(const std::string& trig,
                                  const std::string& base,
                                  int centIdx);
+  TH1F* getOrBookPPG12PhotonYield1D(const std::string& trig,
+                                    const std::string& name,
+                                    const std::vector<double>& bins,
+                                    const std::string& xAxisTitle,
+                                    const std::string& yAxisTitle);
+  TH2F* getOrBookPPG12PhotonYieldResponse2D(const std::string& trig,
+                                            const std::string& name);
+  void bookPPG12PhotonYieldSchema(const std::vector<std::string>& activeTrig);
+  void fillPPG12PhotonYieldAllCommon(const std::vector<std::string>& activeTrig,
+                                     double ptGamma,
+                                     bool commonPass,
+                                     bool haveTruthClass,
+                                     bool isTruthSignal,
+                                     double weight);
+  void fillPPG12PhotonYieldTightAndABCD(const std::vector<std::string>& activeTrig,
+                                        double ptGamma,
+                                        double truthPt,
+                                        TightTag tightTag,
+                                        bool iso,
+                                        bool nonIso,
+                                        bool haveTruthClass,
+                                        bool isTruthSignal,
+                                        double weight);
   TH1I* getOrBookIsoDecisionHist(const std::string& trig, int ptIdx, int centIdx);
 
   // Event-level photon multiplicity diagnostic:
@@ -847,8 +910,8 @@ private:
   // SIM ONLY: matched truth-signal → reco ABCD leakage counters (per pT[/cent] slice)
   //   bins: 1=A, 2=B, 3=C, 4=D
   // -------------------------------------------------------------------------
-  TH1I* getOrBookSigABCDLeakageHist(const std::string& trig, int ptIdx, int centIdx,
-                                    const std::string& base = "h_sigABCD_MC");
+  TH1* getOrBookSigABCDLeakageHist(const std::string& trig, int ptIdx, int centIdx,
+                                   const std::string& base = "h_sigABCD_MC");
 
   // Isolation QA (truth, SIM only)
   // These are NOT sliced; they live in the trigger directory (SIM => /SIM/).
@@ -1170,6 +1233,7 @@ private:
   float m_vy = 0.0f;
   float m_vz = 0.0f;
   double m_truthVz = std::numeric_limits<double>::quiet_NaN();
+  double m_truthVzMB = std::numeric_limits<double>::quiet_NaN();
 
   bool  m_useVzCut = true;
   float m_vzCut    = 30.0f;
@@ -1291,6 +1355,7 @@ private:
   RawClusterContainer* m_photons           = nullptr;
   RawClusterContainer* m_photons_npb       = nullptr;
   RawClusterContainer* m_photons_tightbdt  = nullptr;
+  RawClusterContainer* m_ppg12TopoClusters = nullptr;
   MbdOut* m_mbdout                         = nullptr;
 
   // Calo tower bundles (node cache)
@@ -1421,9 +1486,28 @@ private:
   std::string m_ppg12TableQAMbdT0CorrectionFile;
   std::map<int, double> m_ppg12TableQAMbdT0Correction;
   std::set<std::string> m_ppg12TableQASchemaBookedTriggers;
+  bool m_ppg12PhotonYieldEnabled = false;
+  bool m_ppg12PhotonYieldUseTopoIso = true;
+  bool m_ppg12PhotonYieldApplyTowerMask = true;
+  bool m_ppg12PhotonYieldUseTruthVertexInPPSim = false;
+  bool m_ppg12PhotonYieldExcludeCandidateTopoCluster = false;
+  bool m_ppg12PhotonYieldDoubleInteraction = false;
+  std::string m_ppg12PhotonYieldTowerMaskFile;
+  std::string m_ppg12PhotonYieldTowerMaskName;
+  TH2* m_ppg12PhotonYieldTowerMask = nullptr;
+  double m_ppg12PhotonYieldClusterERes = 0.04;
+  double m_ppg12PhotonYieldMcIsoScale = 1.2;
+  double m_ppg12PhotonYieldMcIsoShift = 0.1;
+  double m_ppg12PhotonYieldMixWeight = 1.0;
+  std::set<std::string> m_ppg12PhotonYieldSchemaBookedTriggers;
+  std::vector<double> m_ppg12PhotonYieldRecoPtBins =
+      {10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 32, 36};
+  std::vector<double> m_ppg12PhotonYieldTruthPtBins =
+      {8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 32, 36, 45};
 
   int m_bdtTrain_run = 0;
   long long m_bdtTrain_evt = 0;
+  long long m_bdtTrain_eventnumber = 0;
   int m_bdtTrain_is_signal = 0;
   int m_bdtTrain_pt_bin = -1;
   int m_bdtTrain_cent_bin = -1;
@@ -1432,8 +1516,17 @@ private:
   float m_bdtTrain_phi = 0.0f;
   float m_bdtTrain_cent = -1.0f;
   float m_bdtTrain_vz = 0.0f;
+  float m_bdtTrain_ppg12_kin_vertexz = 0.0f;
   float m_bdtTrain_weight = 1.0f;
   float m_bdtTrain_eiso = 0.0f;
+  float m_bdtTrain_ppg12_raw_eiso = 0.0f;
+  float m_bdtTrain_ppg12_reco_eiso = 0.0f;
+  float m_bdtTrain_ppg12_iso_threshold = 0.0f;
+  float m_bdtTrain_ppg12_noniso_threshold = 0.0f;
+  int m_bdtTrain_ppg12_is_iso = 0;
+  int m_bdtTrain_ppg12_is_noniso = 0;
+  int m_bdtTrain_ppg12_common_pass = 0;
+  int m_bdtTrain_ppg12_tight_tag = -1;
   int m_bdtTrain_ppg12_sample_bin = 0;
   float m_bdtTrain_ppg12_xsec_pb = -999.0f;
   float m_bdtTrain_ppg12_xsec_weight = 1.0f;
@@ -1472,6 +1565,16 @@ private:
   float m_bdtTrain_w72 = 0.0f;
   float m_bdtTrain_npb_score = -2.0f;
   float m_bdtTrain_tight_bdt_score = -2.0f;
+  float m_bdtTrain_ppg12_shape_n_owned = -999.0f;
+  float m_bdtTrain_ppg12_shape_owned_e = -999.0f;
+  float m_bdtTrain_ppg12_shape_all_e = -999.0f;
+  float m_bdtTrain_ppg12_shape_den_e = -999.0f;
+  float m_bdtTrain_ppg12_shape_weta_cogx_num = -999.0f;
+  float m_bdtTrain_ppg12_shape_wphi_cogx_num = -999.0f;
+  float m_bdtTrain_ppg12_shape_cog_eta = -999.0f;
+  float m_bdtTrain_ppg12_shape_cog_phi = -999.0f;
+  float m_bdtTrain_ppg12_shape_center_ieta = -999.0f;
+  float m_bdtTrain_ppg12_shape_center_iphi = -999.0f;
 
   // -------------------------------------------------------------------------
   // Diagnostics / accounting

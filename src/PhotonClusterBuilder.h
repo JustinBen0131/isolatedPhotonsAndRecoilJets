@@ -57,6 +57,7 @@ class PhotonClusterBuilder : public SubsysReco
     const std::vector<std::string>& get_bdt_feature_list() const { return m_bdt_feature_list; }
 
     void set_use_ppg12_pp_iso_axis(bool use) { m_use_ppg12_pp_iso_axis = use; }
+    void set_use_ppg12_pp_sim_truth_vertex(bool use) { m_use_ppg12_pp_sim_truth_vertex = use; }
     void set_skip_ppg12_edge_clusters(bool skip) { m_skip_ppg12_edge_clusters = skip; }
 
     void set_vz_cut(bool use, float vz_cm) { m_use_vz_cut = use; m_vz_cut_cm = vz_cm; }
@@ -77,6 +78,7 @@ class PhotonClusterBuilder : public SubsysReco
     //   <prefix>_CEMC_RETOWER_SUB1, <prefix>_HCALIN_SUB1, <prefix>_HCALOUT_SUB1
     void set_tower_node_prefix(const std::string& p) { m_tower_node_prefix = p; }
     const std::string& get_tower_node_prefix() const { return m_tower_node_prefix; }
+    void set_use_raw_cluster_towermap_for_cemc_shapes(bool use) { m_use_raw_cluster_towermap_for_cemc_shapes = use; }
 
  private:
   void CreateNodes(PHCompositeNode* topNode);
@@ -137,6 +139,7 @@ class PhotonClusterBuilder : public SubsysReco
         bool m_use_vz_cut{true};
         float m_vz_cut_cm{30.0f};
         bool m_use_ppg12_pp_iso_axis{false};
+        bool m_use_ppg12_pp_sim_truth_vertex{false};
         bool m_skip_ppg12_edge_clusters{false};
         bool m_enable_ss_3x3_moments{false};
 
@@ -145,6 +148,7 @@ class PhotonClusterBuilder : public SubsysReco
       std::string m_emc_tower_node{"TOWERINFO_CALIB_CEMC"};
       TowerInfoContainer* m_emc_tower_container{nullptr};
       RawTowerGeomContainer* m_geomEM{nullptr};
+      bool m_use_raw_cluster_towermap_for_cemc_shapes{false};
       bool m_apply_cemc_bad_tower_mask{false};
       bool m_cemc_bad_tower_mask_loaded{false};
       std::unordered_set<unsigned int> m_cemc_bad_tower_keys;
