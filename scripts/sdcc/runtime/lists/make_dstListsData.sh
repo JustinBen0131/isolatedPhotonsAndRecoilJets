@@ -21,6 +21,8 @@ set -uo pipefail  # (intentionally NOT using -e)
 
 IN_BASE="/sphenix/u/patsfan753/scratch/thesisAnalysis"
 GRL_BASE="$IN_BASE/GRLs_tanner"
+PPG12_PP_RUNLIST_DEFAULT="$GRL_BASE/run2pp_ana521_2025p007_v001_ppg12_runlist.list"
+PPG12_PP_RUNLIST_SOURCE_DEFAULT="/sphenix/user/shuhangli/ppg12/anatreemaker/macro_maketree/data/ana521/runList.txt"
 MODE="${1:-}"
 ACTION="${2:-}"
 EXTRA_ACTION="${3:-}"
@@ -54,9 +56,62 @@ read_runs_from_file() {
   done < "$f"
 }
 
+pp24_paired_enabled() {
+  case "${PP24_PPG12_PAIR_INPUT:-1}" in
+    0|false|FALSE|no|NO|off|OFF) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+dst_stem_for_type() {
+  local dtype="$1"
+  dtype="${dtype#DST_}"
+  echo "$dtype" | tr '[:upper:]' '[:lower:]'
+}
+
+find_per_run_dst_list() {
+  local dtype="$1" run8="$2" stem candidate
+  stem="$(dst_stem_for_type "$dtype")"
+  for candidate in \
+    "${OUT_DIR}/dst_${stem}-${run8}.list" \
+    "${OUT_DIR}/${dtype}-${run8}.list" \
+    "${OUT_DIR}/${dtype}_${DATASET}_${TAG}-${run8}.list"
+  do
+    if [[ -s "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+default_pp24_runlist() {
+  if [[ -n "${PP24_GRL_FILE:-}" ]]; then
+    printf '%s\n' "$PP24_GRL_FILE"
+    return 0
+  fi
+  if [[ -n "${RJ_PP_GOLDEN:-}" ]]; then
+    printf '%s\n' "$RJ_PP_GOLDEN"
+    return 0
+  fi
+  if [[ -f "$PPG12_PP_RUNLIST_DEFAULT" ]]; then
+    printf '%s\n' "$PPG12_PP_RUNLIST_DEFAULT"
+    return 0
+  fi
+  if [[ -f "$PPG12_PP_RUNLIST_SOURCE_DEFAULT" ]]; then
+    printf '%s\n' "$PPG12_PP_RUNLIST_SOURCE_DEFAULT"
+    return 0
+  fi
+  printf '%s\n' "$PPG12_PP_RUNLIST_DEFAULT"
+}
+
 mode_requested_type() {
   if [[ "${BUILD_MODE:-}" == "per_run" ]]; then
-    printf '%s\n' "${TYPE:-}"
+    if [[ "${LABEL:-}" == "pp24" ]] && pp24_paired_enabled; then
+      printf '%s\n' "DST_Jet + DST_JETCALO paired"
+    else
+      printf '%s\n' "${TYPE:-}"
+    fi
   else
     printf '%s\n' "${PREFIX:-}"
   fi
@@ -64,10 +119,14 @@ mode_requested_type() {
 
 mode_output_files() {
   if [[ "${BUILD_MODE:-}" == "per_run" ]]; then
-    {
-      compgen -G "${OUT_DIR}/dst_jetcalo-*.list" || true
-      compgen -G "${OUT_DIR}/DST_JETCALO-*.list" || true
-    } | sort -u
+    if [[ "${LABEL:-}" == "pp24" ]] && pp24_paired_enabled; then
+      compgen -G "${OUT_DIR}/${PP24_PAIR_PREFIX:-dst_ppg12_pair}-*.list" || true
+    else
+      {
+        compgen -G "${OUT_DIR}/dst_jetcalo-*.list" || true
+        compgen -G "${OUT_DIR}/DST_JETCALO-*.list" || true
+      } | sort -u
+    fi
   else
     local stem
     stem="${PREFIX#DST_}"
@@ -84,8 +143,15 @@ print_naming_scheme_summary() {
   local stem
   echo "Naming scheme summary:"
   if [[ "${BUILD_MODE:-}" == "per_run" ]]; then
-    echo "  Primary emitted pattern : dst_jetcalo-<RUN8>.list"
-    echo "  Also accepted           : DST_JETCALO-<RUN8>.list"
+    if [[ "${LABEL:-}" == "pp24" ]] && pp24_paired_enabled; then
+      echo "  Submit-ready pattern    : ${PP24_PAIR_PREFIX:-dst_ppg12_pair}-<RUN8>.list"
+      echo "  Column 1                : DST_Jet, matching PPG12 ana521 run.sh inputdata.txt"
+      echo "  Column 2                : DST_JETCALO, matching PPG12 ana521 run.sh inputdatacalo.txt"
+      echo "  Raw lists retained      : dst_jet-<RUN8>.list and dst_jetcalo-<RUN8>.list"
+    else
+      echo "  Primary emitted pattern : dst_jetcalo-<RUN8>.list"
+      echo "  Also accepted           : DST_JETCALO-<RUN8>.list"
+    fi
   else
     stem="${PREFIX#DST_}"
     stem="$(echo "$stem" | tr '[:upper:]' '[:lower:]')"
@@ -1092,10 +1158,13 @@ setup_mode() {
   case "$MODE" in
     pp24)
       LABEL="pp24"
-      LIST_FILE="$GRL_BASE/run2pp_ana509_2024p022_v001_dst_calofitting_grl.list"
+      LIST_FILE="$(default_pp24_runlist)"
       OUT_DIR="$IN_BASE/dst_lists_pp"
-      TAG="ana521_2025p007_v001"
+      TAG="${PP24_TAG:-ana521_2025p007_v001}"
       TYPE="DST_JETCALO"
+      PP24_PRIMARY_TYPE="${PP24_PRIMARY_TYPE:-DST_Jet}"
+      PP24_CALO_TYPE="${PP24_CALO_TYPE:-DST_JETCALO}"
+      PP24_PAIR_PREFIX="${PP24_PAIR_PREFIX:-dst_ppg12_pair}"
       DATASET="run2pp"
       PREFIX="DST_JETCALO"
       BUILD_MODE="per_run"
@@ -2927,7 +2996,12 @@ build_pp24_lists() {
 
   echo "Mode: $LABEL"
   echo "Tag: $TAG"
-  echo "Type: $TYPE"
+  if pp24_paired_enabled; then
+    echo "Type: ${PP24_PRIMARY_TYPE} + ${PP24_CALO_TYPE} paired"
+    echo "Pair prefix: ${PP24_PAIR_PREFIX}"
+  else
+    echo "Type: $TYPE"
+  fi
   echo "Input: $LIST_FILE"
   echo "Output dir: $OUT_DIR"
   echo "Tool: $CREATE_DST_TOOL"
@@ -2947,23 +3021,68 @@ build_pp24_lists() {
     ((total++))
     pad=$(printf "%08d" "$runnum")
 
-    echo "[INFO] ($total / ${#RUNS_ALL[@]}) Creating $TYPE list for run $runnum"
-    perl "$CREATE_DST_TOOL" --tag "$TAG" --run "$runnum" "$TYPE"
-    rc=$?
+    if pp24_paired_enabled; then
+      echo "[INFO] ($total / ${#RUNS_ALL[@]}) Creating PPG12-paired ${PP24_PRIMARY_TYPE} + ${PP24_CALO_TYPE} lists for run $runnum"
 
-    if [[ -s "dst_jetcalo-$pad.list" || -s "DST_JETCALO-$pad.list" ]]; then
-      ((made++))
-      echo "[INFO] Created list for run $runnum"
+      perl "$CREATE_DST_TOOL" --tag "$TAG" --run "$runnum" "$PP24_PRIMARY_TYPE"
+      rc_primary=$?
+      perl "$CREATE_DST_TOOL" --tag "$TAG" --run "$runnum" "$PP24_CALO_TYPE"
+      rc_calo=$?
+
+      primary_list="$(find_per_run_dst_list "$PP24_PRIMARY_TYPE" "$pad" || true)"
+      calo_list="$(find_per_run_dst_list "$PP24_CALO_TYPE" "$pad" || true)"
+      pair_list="${PP24_PAIR_PREFIX}-${pad}.list"
+
+      if [[ -z "$primary_list" || -z "$calo_list" ]]; then
+        echo "[WARN] Missing PPG12 pair input for run $runnum (primary=${primary_list:-missing}, calo=${calo_list:-missing}, rc_primary=$rc_primary, rc_calo=$rc_calo)"
+        rm -f "$pair_list"
+        continue
+      fi
+
+      primary_lines=$(wc -l < "$primary_list" | awk '{print $1}')
+      calo_lines=$(wc -l < "$calo_list" | awk '{print $1}')
+      if [[ "$primary_lines" -ne "$calo_lines" ]]; then
+        echo "[WARN] PPG12 pair count mismatch for run $runnum: ${PP24_PRIMARY_TYPE}=${primary_lines}, ${PP24_CALO_TYPE}=${calo_lines}; not writing $pair_list"
+        rm -f "$pair_list"
+        continue
+      fi
+
+      paste "$primary_list" "$calo_list" > "$pair_list"
+      if [[ -s "$pair_list" ]]; then
+        ((made++))
+        echo "[INFO] Created PPG12 paired submit list for run $runnum: $pair_list (${primary_lines} rows)"
+      else
+        echo "[WARN] PPG12 pair list was empty for run $runnum: $pair_list"
+        rm -f "$pair_list"
+      fi
     else
-      echo "[WARN] No list file found (or file empty) for run $runnum (exit=$rc)"
+      echo "[INFO] ($total / ${#RUNS_ALL[@]}) Creating $TYPE list for run $runnum"
+      perl "$CREATE_DST_TOOL" --tag "$TAG" --run "$runnum" "$TYPE"
+      rc=$?
+
+      if [[ -s "dst_jetcalo-$pad.list" || -s "DST_JETCALO-$pad.list" ]]; then
+        ((made++))
+        echo "[INFO] Created list for run $runnum"
+      else
+        echo "[WARN] No list file found (or file empty) for run $runnum (exit=$rc)"
+      fi
     fi
   done
 
   echo "----------------------------------------"
   echo "Requested runs: $total"
-  echo "List files made: $made"
+  if pp24_paired_enabled; then
+    echo "PPG12 paired submit lists made: $made"
+    echo "Runs without PPG12 paired submit list: $(( total - made ))"
+  else
+    echo "List files made: $made"
+  fi
   echo "Done. Files are in: $OUT_DIR"
   print_naming_scheme_summary
+
+  if pp24_paired_enabled && [[ "$made" -ne "$total" ]]; then
+    return 1
+  fi
 }
 
 build_dataset_lists() {

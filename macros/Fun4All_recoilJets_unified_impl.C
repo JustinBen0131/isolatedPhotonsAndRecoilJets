@@ -3038,6 +3038,14 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         const std::string v = env_lower(key);
         return v == "1" || v == "true" || v == "yes" || v == "on";
     };
+
+    auto env_bool_local = [&](const char* key, bool def) -> bool
+    {
+        const std::string v = env_lower(key, def ? "1" : "0");
+        if (v == "1" || v == "true" || v == "yes" || v == "on") return true;
+        if (v == "0" || v == "false" || v == "no" || v == "off") return false;
+        return def;
+    };
     
     //--------------------------------------------------------------------
     // 1.  Parse the file list & determine run / segment
@@ -3049,12 +3057,14 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     // ---------------------------------------------------------------
     // Parse list file
     //   DATA:  1 column  -> calo DST
-    //          2 columns -> calo DST + DST_ZDC_RAW  (required when setMinBiasClassifer=true)
+    //          2 columns -> pp PPG12: DST_Jet + DST_JETCALO
+    //                    -> AuAu MB gate: calo DST + DST_ZDC_RAW
     //   SIM :  5 columns -> calo + G4Hits + (truth jets) + global + mbd_epd
     //
     // NOTE:
     //   The second token is interpreted by mode:
-    //     DATA: DST_ZDC_RAW
+    //     pp DATA: DST_JETCALO, with column 1 carrying DST_Jet
+    //     AuAu DATA: DST_ZDC_RAW
     //     SIM : G4Hits
     // ---------------------------------------------------------------
     std::vector<std::string> filesCalo;
@@ -3072,6 +3082,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         
         // Columns:
         //   DATA : <DST_CALO_CLUSTER> [<DST_ZDC_RAW>]
+        //      or <DST_Jet> <DST_JETCALO> for PPG12 pp-data parity
         //   SIM  : <DST_CALO_CLUSTER> <G4Hits> <DST_JETS> <DST_GLOBAL> <DST_MBD_EPD>
         std::istringstream iss(line);
         std::string fCalo, fAux1, fJets, fGlobal, fMbd;
@@ -3676,6 +3687,12 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     const bool listHasJets   = all_nonempty(filesJets);
     const bool listHasGlobal = all_nonempty(filesGlobal);
     const bool listHasMbd    = all_nonempty(filesMbd);
+    const bool isRun24PPData = !isSim && !isPPrun25 && !isAuAuRequested;
+    const bool usePPG12PPDataPair =
+        isRun24PPData &&
+        listHasCalo &&
+        listHasZdc &&
+        env_bool_local("RJ_PPG12_PP_DATA_PAIRED", true);
     const bool usePPG12PPSimG4OnlyInput =
         usePPG12PPSimRebuildCaloFromG4 &&
         env_truthy_local("RJ_PPG12_PPSIM_G4_ONLY");
@@ -3718,6 +3735,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         << " | DST_GLOBAL=" << (listHasGlobal ? "present" : "missing")
         << " | DST_MBD_EPD=" << (listHasMbd ? "present" : "missing")
         << " | caloInputMode=" << caloInputMode
+        << " | ppPPG12DataPair=" << (usePPG12PPDataPair ? "true" : "false")
         << " | minBiasClassifierGate=" << (cfg.setMinBiasClassifer ? "true" : "false")
         << std::endl;
     }
@@ -3866,24 +3884,43 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     }
     else
     {
-    // ------------------ Calo cluster DST (always) -------------------
-    auto* inCalo = new Fun4AllDstInputManager("DSTcalofitting");
-    for (const auto& f : filesCalo) inCalo->AddFile(f);
-    se->registerInputManager(inCalo);
-
-    // ------------------ ZDC RAW DST (AuAu MB-classifier gate only) -------------------
-    if (needZdcRawForMinBias)
-    {
-        auto* inZdc = new Fun4AllNoSyncDstInputManager("DST_ZDC_RAW_IN");
-        for (const auto& f : filesZdc) inZdc->AddFile(f);
-        se->registerInputManager(inZdc);
-
-        if (vlevel > 0)
+        if (usePPG12PPDataPair)
         {
-            std::cout << "[INFO] AuAu MinimumBiasClassifier gate enabled: registered paired DST_ZDC_RAW input stream"
-                      << " (nFiles=" << filesZdc.size() << ")" << std::endl;
+            auto* inPpJet = new Fun4AllDstInputManager("DST_JET_IN");
+            for (const auto& f : filesCalo) inPpJet->AddFile(f);
+            se->registerInputManager(inPpJet);
+
+            auto* inPpJetCalo = new Fun4AllDstInputManager("DST_JETCALO_IN");
+            for (const auto& f : filesZdc) inPpJetCalo->AddFile(f);
+            se->registerInputManager(inPpJetCalo);
+
+            if (vlevel > 0)
+            {
+                std::cout << "[INFO] PPG12 pp-data paired input enabled: registered DST_Jet + DST_JETCALO streams"
+                          << " (nFiles=" << filesCalo.size() << ")" << std::endl;
+            }
         }
-    }
+        else
+        {
+            // ------------------ Calo cluster DST (single-stream data or SIM calo lane) -------------------
+            auto* inCalo = new Fun4AllDstInputManager("DSTcalofitting");
+            for (const auto& f : filesCalo) inCalo->AddFile(f);
+            se->registerInputManager(inCalo);
+
+            // ------------------ ZDC RAW DST (AuAu MB-classifier gate only) -------------------
+            if (needZdcRawForMinBias)
+            {
+                auto* inZdc = new Fun4AllNoSyncDstInputManager("DST_ZDC_RAW_IN");
+                for (const auto& f : filesZdc) inZdc->AddFile(f);
+                se->registerInputManager(inZdc);
+
+                if (vlevel > 0)
+                {
+                    std::cout << "[INFO] AuAu MinimumBiasClassifier gate enabled: registered paired DST_ZDC_RAW input stream"
+                              << " (nFiles=" << filesZdc.size() << ")" << std::endl;
+                }
+            }
+        }
     
     if (isSim)
     {
@@ -5277,6 +5314,54 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         ? kPPG12PPIsoTowerMin
         : 0.0f;
     const double recoilJetsIsoTowerMin = isAuAuLike ? 0.0 : cfg.isoTowMin;
+    const bool usePPG12PhotonYieldTopoIso =
+        env_truthy_local("RJ_PPG12_PHOTON_YIELD") &&
+        !isAuAuLike &&
+        env_bool_local("RJ_PPG12_PHOTON_YIELD_TOPO_ISO", true);
+    const bool ppg12ExcludeCandidateTopo =
+        ppg12PhotonYieldPPSim &&
+        env_bool_local("RJ_PPG12_PHOTON_YIELD_EXCLUDE_CANDIDATE_TOPO", false);
+
+    bool ppg12TopoBuilderRegistered = false;
+    auto registerPPG12PhotonYieldTopoBuilder = [&](const char* placement)
+    {
+        if (ppg12TopoBuilderRegistered)
+        {
+            return;
+        }
+
+        auto* ppg12TopoBuilder = new RawClusterBuilderTopo("RawClusterBuilderTopo_PPG12PhotonYield");
+        ppg12TopoBuilder->set_nodename("TOPOCLUSTER_ALLCALO");
+        ppg12TopoBuilder->setInputTowerNodePrefix(towerPrefixPCB);
+        ppg12TopoBuilder->set_enable_HCal(true);
+        ppg12TopoBuilder->set_enable_EMCal(true);
+        ppg12TopoBuilder->set_noise(0.0053, 0.0351, 0.0684);
+        ppg12TopoBuilder->set_significance(4.0, 2.0, 1.0);
+        ppg12TopoBuilder->allow_corner_neighbor(true);
+        ppg12TopoBuilder->set_do_split(true);
+        ppg12TopoBuilder->set_minE_local_max(1.0, 2.0, 0.5);
+        ppg12TopoBuilder->set_R_shower(0.025);
+        ppg12TopoBuilder->set_use_only_good_towers(true);
+        ppg12TopoBuilder->set_absE(true);
+        ppg12TopoBuilder->Verbosity(0);
+        se->registerSubsystem(ppg12TopoBuilder);
+        ppg12TopoBuilderRegistered = true;
+
+        if (vlevel > 0)
+        {
+            std::cout << "[PPG12_PHOTON_YIELD_V1] registered pp topo cluster builder"
+                      << " node=TOPOCLUSTER_ALLCALO"
+                      << " towerPrefix=" << towerPrefixPCB
+                      << " ppg12TopoConfig=noise(0.0053,0.0351,0.0684),sig(4,2,1),split,goodTowers,absE"
+                      << " placement=" << placement
+                      << "\n";
+        }
+    };
+
+    if (usePPG12PhotonYieldTopoIso)
+    {
+        registerPPG12PhotonYieldTopoBuilder("before PhotonClusterBuilder");
+    }
 
     auto configurePhotonBuilder =
     [&](PhotonClusterBuilder* builder, const std::string& outNode)
@@ -5289,6 +5374,10 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         builder->set_use_ppg12_pp_sim_truth_vertex(usePPG12PPSimTruthVertexForBuilder);
         builder->set_use_ppg12_pp_sim_global_mbd_vertex(ppg12PhotonYieldPPSim);
         builder->set_use_ppg12_pp_sim_towerinfo_shapes(ppg12PhotonYieldPPSim);
+        builder->set_use_ppg12_topocluster_isolation(usePPG12PhotonYieldTopoIso);
+        builder->set_ppg12_topocluster_node("TOPOCLUSTER_ALLCALO");
+        builder->set_ppg12_topocluster_iso_radius(0.4f);
+        builder->set_ppg12_topocluster_exclude_candidate(ppg12ExcludeCandidateTopo);
         builder->set_skip_ppg12_edge_clusters(useSamePhotonBDTScores);
         builder->set_enable_ss_3x3_moments(isAuAuLike);
         builder->set_use_raw_cluster_towermap_for_cemc_shapes(isSimEmbedded);
@@ -6825,31 +6914,9 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     recoilJets->setPPG12PhotonYieldUseTruthVertexInPPSim(usePPG12PPSimTruthVertexForIso);
     };
 
-    if (env_truthy_local("RJ_PPG12_PHOTON_YIELD") && !isAuAuLike)
+    if (usePPG12PhotonYieldTopoIso && !ppg12TopoBuilderRegistered)
     {
-        auto* ppg12TopoBuilder = new RawClusterBuilderTopo("RawClusterBuilderTopo_PPG12PhotonYield");
-        ppg12TopoBuilder->set_nodename("TOPOCLUSTER_ALLCALO");
-        ppg12TopoBuilder->setInputTowerNodePrefix(towerPrefixPCB);
-        ppg12TopoBuilder->set_enable_HCal(true);
-        ppg12TopoBuilder->set_enable_EMCal(true);
-        ppg12TopoBuilder->set_noise(0.0053, 0.0351, 0.0684);
-        ppg12TopoBuilder->set_significance(4.0, 2.0, 1.0);
-        ppg12TopoBuilder->allow_corner_neighbor(true);
-        ppg12TopoBuilder->set_do_split(true);
-        ppg12TopoBuilder->set_minE_local_max(1.0, 2.0, 0.5);
-        ppg12TopoBuilder->set_R_shower(0.025);
-        ppg12TopoBuilder->set_use_only_good_towers(true);
-        ppg12TopoBuilder->set_absE(true);
-        ppg12TopoBuilder->Verbosity(0);
-        se->registerSubsystem(ppg12TopoBuilder);
-        if (vlevel > 0)
-        {
-            std::cout << "[PPG12_PHOTON_YIELD_V1] registered pp topo cluster builder"
-                      << " node=TOPOCLUSTER_ALLCALO"
-                      << " towerPrefix=" << towerPrefixPCB
-                      << " ppg12TopoConfig=noise(0.0053,0.0351,0.0684),sig(4,2,1),split,goodTowers,absE"
-                      << " before RecoilJets fanout\n";
-        }
+        registerPPG12PhotonYieldTopoBuilder("before RecoilJets fanout");
     }
 
     if (env_truthy_local("RJ_PPG12_FIG8_BUILD_NOSPLIT") &&

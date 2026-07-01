@@ -64,6 +64,7 @@ case "$dataset_raw" in
     analysis_tag="isPP"
     export RJ_DATASET="isPP"
     export RJ_IS_SIM=0
+    export RJ_PPG12_PP_DATA_PAIRED="${RJ_PPG12_PP_DATA_PAIRED:-1}"
     ;;
   isPPrun25|pprun25|pp25|PP25)
     dataset="isPPrun25"

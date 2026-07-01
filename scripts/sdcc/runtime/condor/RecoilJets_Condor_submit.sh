@@ -166,7 +166,11 @@
 # INPUT CONTRACTS
 #   DATA:
 #     • Golden run list + per-run list files.
-#     • Per-run list file contains one ROOT file path per line.
+#     • PP Run-24 PPG12 parity uses paired per-run lists:
+#       col1 = DST_Jet, col2 = DST_JETCALO, both from ana521_2025p007_v001.
+#       This mirrors ppg12codeGit/anatreemaker/macro_maketree/data/ana521/run.sh.
+#     • Other DATA per-run list files contain one ROOT file path per line,
+#       except Au+Au lists that opt into paired DST_ZDC_RAW for MB classification.
 #     • isLocalIsoPing reuses the existing Au+Au per-run list infrastructure and
 #       concatenates grouped local chunks into one combined local input list.
 #
@@ -191,7 +195,8 @@
 #
 # DATA INPUTS
 #   Golden run lists:
-#     • PP      : ${BASE}/GRLs_tanner/run2pp_ana509_2024p022_v001_dst_calofitting_grl.list
+#     • PP      : ${BASE}/GRLs_tanner/run2pp_ana521_2025p007_v001_ppg12_runlist.list
+#                 or, if absent, Shuhang's PPG12 ana521 runList.txt
 #     • PP run25: ${BASE}/GRLs_tanner/run3pp_new_newcdbtag_v008_dst_calofitting_grl.list
 #     • AuAu    : ${BASE}/GRLs_tanner/run3auau_new_newcdbtag_v008_dst_calofitting_grl.list
 #     • OO      : ${BASE}/GRLs_tanner/run3oo_ana536_2025p010_v001_dst_calofitting_grl.list
@@ -317,7 +322,12 @@ SUB_DIR="${BASE}/condor_sub"
 CLEANUP_HELPER="${BASE}/scripts/recoiljets_cleanup.sh"
 
 # Golden lists provided by you
-PP_GOLDEN="${BASE}/GRLs_tanner/run2pp_ana509_2024p022_v001_dst_calofitting_grl.list"
+PP_GOLDEN_DEFAULT="${BASE}/GRLs_tanner/run2pp_ana521_2025p007_v001_ppg12_runlist.list"
+PP_GOLDEN_PPG12_SOURCE="/sphenix/user/shuhangli/ppg12/anatreemaker/macro_maketree/data/ana521/runList.txt"
+PP_GOLDEN="${RJ_PP_GOLDEN:-$PP_GOLDEN_DEFAULT}"
+if [[ -z "${RJ_PP_GOLDEN:-}" && ! -f "$PP_GOLDEN" && -f "$PP_GOLDEN_PPG12_SOURCE" ]]; then
+  PP_GOLDEN="$PP_GOLDEN_PPG12_SOURCE"
+fi
 PP25_GOLDEN="${BASE}/GRLs_tanner/run3pp_new_newcdbtag_v008_dst_calofitting_grl.list"
 AA_GOLDEN="${BASE}/GRLs_tanner/run3auau_pro001_pcdb001_v001_dst_calofitting_grl.list"
 OO_GOLDEN="${BASE}/GRLs_tanner/run3oo_ana536_2025p010_v001_dst_calofitting_grl.list"
@@ -816,6 +826,7 @@ build_submit_extra_env_fragment() {
   extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_FIG8_FALLBACK_TO_SPLIT)"
   extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4)"
   extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PPSIM_G4_ONLY)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PP_DATA_PAIRED)"
   extra="$(append_submit_extra_env_var "$extra" RJ_SIM_ALLOW_NONE_LISTS)"
   extra="$(append_submit_extra_env_var "$extra" RJ_PP_VERTEX_REWEIGHT_FILE)"
   extra="$(append_submit_extra_env_var "$extra" RJ_PP_VERTEX_REWEIGHT_HIST)"
@@ -2457,7 +2468,8 @@ resolve_dataset() {
       DATASET="isPP"
       GOLDEN="$PP_GOLDEN"
       LIST_DIR="$PP_LIST_DIR"
-      LIST_PREFIX="dst_jetcalo"
+      LIST_PREFIX="${RJ_PP_LIST_PREFIX:-dst_ppg12_pair}"
+      export RJ_PPG12_PP_DATA_PAIRED="${RJ_PPG12_PP_DATA_PAIRED:-1}"
       DEST_BASE="$PP_DEST_BASE"
       TAG="pp"
       MACRO="${BASE}/macros/Fun4All_recoilJets.C"
@@ -2609,6 +2621,61 @@ ceil_div() { local n="$1" d="$2"; echo $(( (n + d - 1) / d )); }
 
 # Format run to 8 digits
 run8() { printf "%08d" "$((10#$1))"; }
+
+ppg12_pp_strict_list_coverage_enabled() {
+  [[ "$DATASET" == "isPP" ]] || return 1
+  case "${RJ_PPG12_PP_STRICT_LIST_COVERAGE:-1}" in
+    0|false|FALSE|no|NO|off|OFF) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+validate_ppg12_pp_list_coverage() {
+  local source="${1:?run source required}"
+  [[ -s "$source" ]] || { err "PPG12 pp data source not found or empty: $source"; return 4; }
+
+  if [[ "$LIST_PREFIX" != "dst_ppg12_pair" ]]; then
+    case "${RJ_PPG12_PP_ALLOW_LEGACY_LIST_PREFIX:-0}" in
+      1|true|TRUE|yes|YES|on|ON) ;;
+      *)
+        err "PPG12 pp strict intake requires LIST_PREFIX=dst_ppg12_pair; got '${LIST_PREFIX}'. Set RJ_PPG12_PP_ALLOW_LEGACY_LIST_PREFIX=1 only for an explicit diagnostic."
+        return 3
+        ;;
+    esac
+  fi
+
+  local total=0 missing=0 rn r8 src
+  local missing_tmp
+  missing_tmp="$(mktemp "${TMPDIR:-/tmp}/rj_ppg12_pp_missing.XXXXXX")" || return 5
+
+  while IFS= read -r rn; do
+    [[ -z "$rn" || "$rn" =~ ^# ]] && continue
+    r8="$(run8 "$rn")"
+    (( total += 1 ))
+    src="${LIST_DIR}/${LIST_PREFIX}-${r8}.list"
+    if [[ ! -s "$src" ]]; then
+      (( missing += 1 ))
+      printf '%s\t%s\n' "$r8" "$src" >> "$missing_tmp"
+    fi
+  done < "$source"
+
+  if (( total == 0 )); then
+    rm -f "$missing_tmp"
+    err "PPG12 pp data source contains no run numbers: $source"
+    return 6
+  fi
+
+  if (( missing > 0 )); then
+    err "PPG12 pp data intake is incomplete: ${missing}/${total} requested runs lack submit-ready ${LIST_PREFIX}-<RUN8>.list files."
+    sed -n '1,20p' "$missing_tmp" >&2 || true
+    rm -f "$missing_tmp"
+    return 7
+  fi
+
+  rm -f "$missing_tmp"
+  say "PPG12 pp data intake coverage OK: runs=${total} list_prefix=${LIST_PREFIX} list_dir=${LIST_DIR}"
+  return 0
+}
 
 # Check if a GL1 trigger bit is active for a run (scaledown != -1).
 # Usage: is_trigger_active <run8> <bit> ; returns 0 if active, 1 otherwise.
@@ -3716,6 +3783,9 @@ submit_condor() {
   local first_chunk="${2:-}"
 
   [[ -s "$source" ]] || { err "Run source not found or empty: $source"; exit 5; }
+  if ppg12_pp_strict_list_coverage_enabled; then
+    validate_ppg12_pp_list_coverage "$source" || exit 88
+  fi
 
   # Clean stale .sub files for this TAG only in direct-submit mode. In
   # orchestration mode previous analysis nodes are still referenced by the
