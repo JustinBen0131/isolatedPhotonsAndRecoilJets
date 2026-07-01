@@ -229,6 +229,39 @@ file_size_bytes() {
   fi
 }
 
+require_non_tiny_output() {
+  case "${RJ_REQUIRE_NON_TINY_OUTPUT:-0}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+min_output_bytes() {
+  local min="${RJ_MIN_OUTPUT_BYTES:-50000}"
+  if [[ ! "$min" =~ ^[0-9]+$ ]]; then
+    echo "[WARN] Invalid RJ_MIN_OUTPUT_BYTES='$min'; using 50000" >&2
+    min=50000
+  fi
+  echo "$min"
+}
+
+check_required_output_file() {
+  local f="$1"
+  local label="$2"
+  local min bytes
+  min="$(min_output_bytes)"
+  if [[ ! -f "$f" ]]; then
+    echo "[ERROR] Missing required ${label} output: $f"
+    return 1
+  fi
+  bytes="$(file_size_bytes "$f")"
+  if (( bytes < min )); then
+    echo "[ERROR] Required ${label} output is too small: $f (${bytes} bytes < ${min})"
+    return 1
+  fi
+  return 0
+}
+
 emit_profile_summary() {
   local exit_code="$1"
   local end_epoch elapsed max_rss_kb user_cpu_s system_cpu_s cpu_percent major_faults minor_faults voluntary_cs involuntary_cs fs_inputs fs_outputs output_files output_bytes f sz fanout_view_count fanout_output_roots
@@ -346,11 +379,16 @@ if (( ${#fanout_outputs[@]} > 0 )); then
     if [[ ! -s "$f" ]]; then
       echo "[ERROR] Missing fanout output: $f"
       missing=1
+    elif require_non_tiny_output && ! check_required_output_file "$f" "fanout"; then
+      missing=1
     fi
   done
   (( missing == 0 )) || exit 8
   echo "[OK]   Finished successfully → ${#fanout_outputs[@]} fanout ROOT files"
 else
+  if require_non_tiny_output; then
+    check_required_output_file "$out_root" "primary" || exit 8
+  fi
   echo "[OK]   Finished successfully → $(ls -l "$out_root" 2>/dev/null || echo '(file not found!)')"
 fi
 exit 0
