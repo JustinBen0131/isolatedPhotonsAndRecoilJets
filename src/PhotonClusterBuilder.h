@@ -57,6 +57,11 @@ class PhotonClusterBuilder : public SubsysReco
     const std::vector<std::string>& get_bdt_feature_list() const { return m_bdt_feature_list; }
 
     void set_use_ppg12_pp_iso_axis(bool use) { m_use_ppg12_pp_iso_axis = use; }
+    void set_isolation_source(const std::string& source);
+    void set_use_ppg12_topocluster_isolation(bool use) { m_use_ppg12_topocluster_isolation = use; }
+    void set_ppg12_topocluster_node(const std::string& n) { m_ppg12_topocluster_node = n; }
+    void set_ppg12_topocluster_iso_radius(float radius);
+    void set_ppg12_topocluster_exclude_candidate(bool use) { m_ppg12_topocluster_exclude_candidate = use; }
     void set_use_ppg12_pp_sim_truth_vertex(bool use) { m_use_ppg12_pp_sim_truth_vertex = use; }
     void set_use_ppg12_pp_sim_global_mbd_vertex(bool use) { m_use_ppg12_pp_sim_global_mbd_vertex = use; }
     void set_use_ppg12_pp_sim_towerinfo_shapes(bool use) { m_use_ppg12_pp_sim_towerinfo_shapes = use; }
@@ -91,6 +96,7 @@ class PhotonClusterBuilder : public SubsysReco
   std::vector<int> find_closest_hcal_tower(float eta, float phi, RawTowerGeomContainer* geom, TowerInfoContainer* towerContainer, float vertex_z, bool isihcal);
   double deltaR(double eta1, double phi1, double eta2, double phi2);
   float calculate_layer_et(float seed_eta, float seed_phi, float radius, TowerInfoContainer* towerContainer, RawTowerGeomContainer* geomContainer, RawTowerDefs::CalorimeterId calo_id, float vertex_z);
+  float calculate_ppg12_topocluster_raw_eiso(float seed_eta, float seed_phi, float candidate_et, float& topo_sum_et);
   void load_cemc_bad_tower_mask();
   bool is_cemc_tower_good(TowerInfo* tower, unsigned int tower_key) const;
     bool m_do_bdt{false};
@@ -103,6 +109,7 @@ class PhotonClusterBuilder : public SubsysReco
         unsigned long long evt_vertex_from_global = 0;
         unsigned long long evt_no_finite_vertex = 0;
         unsigned long long evt_skip_vz = 0;
+        unsigned long long evt_missing_ppg12_topocluster = 0;
         unsigned long long evt_zero_input_clusters = 0;
         unsigned long long evt_zero_pass_et_clusters = 0;
         unsigned long long evt_zero_built_after_pass_et = 0;
@@ -141,6 +148,7 @@ class PhotonClusterBuilder : public SubsysReco
         bool m_use_vz_cut{true};
         float m_vz_cut_cm{30.0f};
         bool m_use_ppg12_pp_iso_axis{false};
+        bool m_use_ppg12_topocluster_isolation{false};
         bool m_use_ppg12_pp_sim_truth_vertex{false};
         bool m_use_ppg12_pp_sim_global_mbd_vertex{false};
         bool m_use_ppg12_pp_sim_towerinfo_shapes{false};
@@ -163,6 +171,11 @@ class PhotonClusterBuilder : public SubsysReco
       TowerInfoContainer* m_ohcal_tower_container{nullptr};
       RawTowerGeomContainer* m_geomOH{nullptr};
 
+      std::string m_ppg12_topocluster_node{"TOPOCLUSTER_ALLCALO"};
+      RawClusterContainer* m_ppg12_topocluster_container{nullptr};
+      float m_ppg12_topocluster_iso_radius{0.4f};
+      bool m_ppg12_topocluster_exclude_candidate{false};
+
       // Au+Au UE-subtracted tower nodes (used ONLY for isolation sums)
       bool m_is_auau{false};
       std::string m_tower_node_prefix{"TOWERINFO_CALIB"};
@@ -180,6 +193,7 @@ class PhotonClusterBuilder : public SubsysReco
       unsigned long long m_evt_vertex_from_global{0};
       unsigned long long m_evt_no_finite_vertex{0};
       unsigned long long m_evt_skip_vz{0};
+      unsigned long long m_evt_missing_ppg12_topocluster{0};
       unsigned long long m_evt_zero_input_clusters{0};
       unsigned long long m_evt_zero_pass_et_clusters{0};
       unsigned long long m_evt_zero_built_after_pass_et{0};

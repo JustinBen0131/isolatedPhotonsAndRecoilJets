@@ -158,6 +158,35 @@ void PhotonClusterBuilder::add_named_bdt_score(const std::string& score_name,
   m_named_bdt_scores.push_back(std::move(cfg));
 }
 
+void PhotonClusterBuilder::set_isolation_source(const std::string& source)
+{
+  std::string value = source;
+  std::transform(value.begin(), value.end(), value.begin(),
+                 [](unsigned char c) { return std::tolower(c); });
+
+  if (value == "tower" || value == "tower_cone" || value == "default")
+  {
+    m_use_ppg12_topocluster_isolation = false;
+    return;
+  }
+  if (value == "ppg12_topocluster" || value == "topocluster" || value == "topo")
+  {
+    m_use_ppg12_topocluster_isolation = true;
+    return;
+  }
+
+  throw std::invalid_argument("PhotonClusterBuilder::set_isolation_source unknown source: " + source);
+}
+
+void PhotonClusterBuilder::set_ppg12_topocluster_iso_radius(float radius)
+{
+  if (!std::isfinite(radius) || radius <= 0.0f)
+  {
+    throw std::invalid_argument("PhotonClusterBuilder::set_ppg12_topocluster_iso_radius requires a positive finite radius");
+  }
+  m_ppg12_topocluster_iso_radius = radius;
+}
+
 int PhotonClusterBuilder::InitRun(PHCompositeNode* topNode)
 {
   // BDT
@@ -275,6 +304,20 @@ int PhotonClusterBuilder::InitRun(PHCompositeNode* topNode)
       m_geomEM_iso = nullptr;
     }
 
+    if (m_use_ppg12_topocluster_isolation)
+    {
+      m_ppg12_topocluster_container =
+          findNode::getClass<RawClusterContainer>(topNode, m_ppg12_topocluster_node);
+      if (!m_ppg12_topocluster_container && Verbosity() > 0)
+      {
+        std::cout << Name()
+                  << ": PPG12 topocluster isolation requested; node "
+                  << m_ppg12_topocluster_node
+                  << " not present during InitRun. It will be checked each event."
+                  << std::endl;
+      }
+    }
+
     m_iso_audit_mode = false;
     if (const char* env = std::getenv("RJ_ISO_AUDIT_MODE"))
     {
@@ -299,6 +342,7 @@ int PhotonClusterBuilder::InitRun(PHCompositeNode* topNode)
     m_evt_vertex_from_global = 0;
     m_evt_no_finite_vertex = 0;
     m_evt_skip_vz = 0;
+    m_evt_missing_ppg12_topocluster = 0;
     m_evt_zero_input_clusters = 0;
     m_evt_zero_pass_et_clusters = 0;
     m_evt_zero_built_after_pass_et = 0;
@@ -326,6 +370,10 @@ int PhotonClusterBuilder::InitRun(PHCompositeNode* topNode)
                 << " ppg12PPSimGlobalMbdVertex=" << (m_use_ppg12_pp_sim_global_mbd_vertex ? "true" : "false")
                 << " ppg12PPSimTowerInfoShapes=" << (m_use_ppg12_pp_sim_towerinfo_shapes ? "true" : "false")
                 << " skipPPG12EtaEdge=" << (m_skip_ppg12_edge_clusters ? "true" : "false")
+                << " isolationSource=" << (m_use_ppg12_topocluster_isolation ? "ppg12_topocluster" : "tower_cone")
+                << " ppg12TopoNode=" << (m_use_ppg12_topocluster_isolation ? m_ppg12_topocluster_node : "off")
+                << " ppg12TopoR=" << (m_use_ppg12_topocluster_isolation ? m_ppg12_topocluster_iso_radius : 0.0f)
+                << " ppg12TopoExcludeCandidate=" << (m_ppg12_topocluster_exclude_candidate ? "true" : "false")
                 << " namedBDT=" << m_named_bdt_scores.size()
                 << " isoTowerPolicy=no_one_sided_cut"
                 << " useVzCut=" << (m_use_vz_cut ? "true" : "false")
@@ -474,6 +522,7 @@ PhotonClusterBuilder::AuditSnapshot PhotonClusterBuilder::make_audit_snapshot() 
   s.evt_vertex_from_global = m_evt_vertex_from_global;
   s.evt_no_finite_vertex = m_evt_no_finite_vertex;
   s.evt_skip_vz = m_evt_skip_vz;
+  s.evt_missing_ppg12_topocluster = m_evt_missing_ppg12_topocluster;
   s.evt_zero_input_clusters = m_evt_zero_input_clusters;
   s.evt_zero_pass_et_clusters = m_evt_zero_pass_et_clusters;
   s.evt_zero_built_after_pass_et = m_evt_zero_built_after_pass_et;
@@ -515,6 +564,7 @@ void PhotonClusterBuilder::print_audit_summary(bool force)
   const unsigned long long win_evt_vertex_from_global = diff(cur.evt_vertex_from_global, prev.evt_vertex_from_global);
   const unsigned long long win_evt_no_finite_vertex = diff(cur.evt_no_finite_vertex, prev.evt_no_finite_vertex);
   const unsigned long long win_evt_skip_vz = diff(cur.evt_skip_vz, prev.evt_skip_vz);
+  const unsigned long long win_evt_missing_ppg12_topocluster = diff(cur.evt_missing_ppg12_topocluster, prev.evt_missing_ppg12_topocluster);
   const unsigned long long win_evt_zero_input_clusters = diff(cur.evt_zero_input_clusters, prev.evt_zero_input_clusters);
   const unsigned long long win_evt_zero_pass_et_clusters = diff(cur.evt_zero_pass_et_clusters, prev.evt_zero_pass_et_clusters);
   const unsigned long long win_evt_zero_built_after_pass_et = diff(cur.evt_zero_built_after_pass_et, prev.evt_zero_built_after_pass_et);
@@ -562,6 +612,7 @@ void PhotonClusterBuilder::print_audit_summary(bool force)
             << " vertex(MBD/Global)=" << win_evt_vertex_from_mbd << "/" << win_evt_vertex_from_global
             << " noFiniteRecoVertex=" << win_evt_no_finite_vertex
             << " skipVz=" << win_evt_skip_vz
+            << " missingPPG12Topo=" << win_evt_missing_ppg12_topocluster
             << " zeroInputClusters=" << win_evt_zero_input_clusters
             << " zeroPassET=" << win_evt_zero_pass_et_clusters
             << " zeroBuiltAfterPassET=" << win_evt_zero_built_after_pass_et
@@ -598,6 +649,7 @@ void PhotonClusterBuilder::print_audit_summary(bool force)
             << " events=" << cur.evt_seen
             << " rawclustersMissing=" << cur.evt_missing_rawclusters
             << " skipVz=" << cur.evt_skip_vz
+            << " missingPPG12Topo=" << cur.evt_missing_ppg12_topocluster
             << " zeroInputClusters=" << cur.evt_zero_input_clusters
             << " zeroPassET=" << cur.evt_zero_pass_et_clusters
             << " zeroBuiltAfterPassET=" << cur.evt_zero_built_after_pass_et
@@ -665,6 +717,16 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
         ++m_evt_missing_rawclusters;
         std::cerr << Name() << ": missing RawClusterContainer '" << m_input_cluster_node << "'" << std::endl;
         return finish_event(Fun4AllReturnCodes::ABORTEVENT);
+      }
+    }
+
+    if (m_use_ppg12_topocluster_isolation)
+    {
+      m_ppg12_topocluster_container =
+          findNode::getClass<RawClusterContainer>(topNode, m_ppg12_topocluster_node);
+      if (!m_ppg12_topocluster_container)
+      {
+        ++m_evt_missing_ppg12_topocluster;
       }
     }
 
@@ -2003,6 +2065,21 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
     const float iso_02_emcal  = use_variant_a_iso ? emcal_et_02  : (emcal_et_02  - ET);
     const float iso_01_emcal  = use_variant_a_iso ? emcal_et_01  : (emcal_et_01  - ET);
     const float iso_005_emcal = use_variant_a_iso ? emcal_et_005 : (emcal_et_005 - ET);
+
+    float ppg12_topo_sum_et_04 = std::numeric_limits<float>::quiet_NaN();
+    float ppg12_topo_raw_eiso_04 = std::numeric_limits<float>::quiet_NaN();
+    float ppg12_topo_valid_04 = 0.0f;
+    if (m_use_ppg12_topocluster_isolation)
+    {
+        ppg12_topo_raw_eiso_04 =
+            calculate_ppg12_topocluster_raw_eiso(iso_seed_eta, iso_seed_phi, ET, ppg12_topo_sum_et_04);
+        ppg12_topo_valid_04 =
+            (std::isfinite(ppg12_topo_raw_eiso_04) &&
+             std::isfinite(ppg12_topo_sum_et_04) &&
+             ppg12_topo_raw_eiso_04 < 1.0e8f)
+                ? 1.0f
+                : 0.0f;
+    }
     
     // Total iso (what RecoilJets effectively uses when it adds EMCal + HCal pieces)
     const float iso03_total = iso_03_emcal + ihcal_et_03 + ohcal_et_03;
@@ -2257,6 +2334,16 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
     photon->set_shower_shape_parameter("iso_02_emcal",  iso_02_emcal);
     photon->set_shower_shape_parameter("iso_01_emcal",  iso_01_emcal);
     photon->set_shower_shape_parameter("iso_005_emcal", iso_005_emcal);
+    if (m_use_ppg12_topocluster_isolation)
+    {
+        photon->set_shower_shape_parameter("ppg12_topo_raw_eiso_04", ppg12_topo_raw_eiso_04);
+        photon->set_shower_shape_parameter("ppg12_topo_sumet_04", ppg12_topo_sum_et_04);
+        photon->set_shower_shape_parameter("ppg12_topo_valid_04", ppg12_topo_valid_04);
+        photon->set_shower_shape_parameter("ppg12_topo_radius_04", m_ppg12_topocluster_iso_radius);
+        photon->set_shower_shape_parameter("ppg12_topo_vertex_z", m_vertex);
+        photon->set_shower_shape_parameter("ppg12_topo_exclude_candidate",
+                                           m_ppg12_topocluster_exclude_candidate ? 1.0f : 0.0f);
+    }
     return true;
 }
 
@@ -2462,6 +2549,60 @@ float PhotonClusterBuilder::calculate_layer_et(float seed_eta, float seed_phi, f
   }
 
   return layer_et;
+}
+
+float PhotonClusterBuilder::calculate_ppg12_topocluster_raw_eiso(float seed_eta,
+                                                                 float seed_phi,
+                                                                 float candidate_et,
+                                                                 float& topo_sum_et)
+{
+  topo_sum_et = std::numeric_limits<float>::quiet_NaN();
+  if (!m_ppg12_topocluster_container ||
+      !std::isfinite(seed_eta) ||
+      !std::isfinite(seed_phi) ||
+      !std::isfinite(candidate_et) ||
+      candidate_et <= 0.0f)
+  {
+    return 1.0e9f;
+  }
+
+  const CLHEP::Hep3Vector vertex(0.0, 0.0, m_vertex);
+  double topo_sum = 0.0;
+  const auto range = m_ppg12_topocluster_container->getClusters();
+  for (auto it = range.first; it != range.second; ++it)
+  {
+    const RawCluster* topo = it->second;
+    if (!topo)
+    {
+      continue;
+    }
+
+    const double topo_eta = RawClusterUtility::GetPseudorapidity(*topo, vertex);
+    const double topo_phi = RawClusterUtility::GetAzimuthAngle(*topo, vertex);
+    if (!std::isfinite(topo_eta) || !std::isfinite(topo_phi))
+    {
+      continue;
+    }
+
+    const double topo_et = topo->get_energy() / std::cosh(topo_eta);
+    if (!std::isfinite(topo_et) || topo_et <= 0.0)
+    {
+      continue;
+    }
+
+    if (deltaR(seed_eta, seed_phi, topo_eta, topo_phi) < m_ppg12_topocluster_iso_radius)
+    {
+      topo_sum += topo_et;
+    }
+  }
+
+  topo_sum_et = static_cast<float>(topo_sum);
+  double raw_eiso = topo_sum - candidate_et;
+  if (m_ppg12_topocluster_exclude_candidate)
+  {
+    raw_eiso -= candidate_et;
+  }
+  return std::isfinite(raw_eiso) ? static_cast<float>(raw_eiso) : 1.0e9f;
 }
 
 double PhotonClusterBuilder::deltaR(double eta1, double phi1, double eta2, double phi2)

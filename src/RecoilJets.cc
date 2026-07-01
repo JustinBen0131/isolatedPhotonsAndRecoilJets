@@ -7760,11 +7760,15 @@ void RecoilJets::fillPureIsolationQA(PHCompositeNode* topNode,
 
   // Total isolation. PPG12 pp photon-yield mode uses the topo-cluster scalar;
   // legacy/default analyses keep the PhotonClusterBuilder tower-cone scalar.
+  const bool usePPG12YieldIso =
+      (m_ppg12PhotonYieldEnabled && m_ppg12PhotonYieldUseTopoIso && !m_isAuAu);
   const double builder_eiso_tot = eiso(rc, topNode);
+  const double ppg12YieldRawEisoEt =
+      usePPG12YieldIso ? ppg12PhotonYieldRawEiso(rc, topNode) : builder_eiso_tot;
+  const double ppg12YieldEisoEt =
+      usePPG12YieldIso ? ppg12PhotonYieldEiso(ppg12YieldRawEisoEt) : builder_eiso_tot;
   const double eiso_tot =
-      (m_ppg12PhotonYieldEnabled && !m_isAuAu)
-          ? ppg12PhotonYieldEiso(ppg12PhotonYieldRawEiso(rc, topNode))
-          : builder_eiso_tot;
+      usePPG12YieldIso ? ppg12YieldEisoEt : builder_eiso_tot;
 
   // Component isolation (PhotonClusterBuilder iso_* pieces)
   // Default to fail-safe (goes to overflow with your [-5,12] binning).
@@ -7833,28 +7837,48 @@ void RecoilJets::fillPureIsolationQA(PHCompositeNode* topNode,
         bumpHistFill(trigShort, hIso->GetName());
       }
 
-      if (auto* hEm = getOrBookIsoPartHist(trigShort, "h_Eiso_emcal",
-                                           "E_{T}^{iso,EMCal} [GeV]",
-                                           ptIdx, effCentIdx))
+      if (usePPG12YieldIso)
       {
-        hEm->Fill(eiso_emcal);
-        bumpHistFill(trigShort, hEm->GetName());
+        if (auto* hRaw = getOrBookIsoPartHist(trigShort, "h_Eiso_ppg12_topo_raw",
+                                             "E_{T}^{iso,raw topo} [GeV]",
+                                             ptIdx, effCentIdx))
+        {
+          hRaw->Fill(ppg12YieldRawEisoEt);
+          bumpHistFill(trigShort, hRaw->GetName());
+        }
+        if (auto* hReco = getOrBookIsoPartHist(trigShort, "h_Eiso_ppg12_topo_reco",
+                                              "E_{T}^{iso,reco PPG12} [GeV]",
+                                              ptIdx, effCentIdx))
+        {
+          hReco->Fill(ppg12YieldEisoEt);
+          bumpHistFill(trigShort, hReco->GetName());
+        }
       }
-
-      if (auto* hHi = getOrBookIsoPartHist(trigShort, "h_Eiso_hcalin",
-                                           "E_{T}^{iso,IHCAL} [GeV]",
-                                           ptIdx, effCentIdx))
+      else
       {
-        hHi->Fill(eiso_hcalin);
-        bumpHistFill(trigShort, hHi->GetName());
-      }
+        if (auto* hEm = getOrBookIsoPartHist(trigShort, "h_Eiso_emcal",
+                                             "E_{T}^{iso,EMCal} [GeV]",
+                                             ptIdx, effCentIdx))
+        {
+          hEm->Fill(eiso_emcal);
+          bumpHistFill(trigShort, hEm->GetName());
+        }
 
-      if (auto* hHo = getOrBookIsoPartHist(trigShort, "h_Eiso_hcalout",
-                                           "E_{T}^{iso,OHCAL} [GeV]",
-                                           ptIdx, effCentIdx))
-      {
-        hHo->Fill(eiso_hcalout);
-        bumpHistFill(trigShort, hHo->GetName());
+        if (auto* hHi = getOrBookIsoPartHist(trigShort, "h_Eiso_hcalin",
+                                             "E_{T}^{iso,IHCAL} [GeV]",
+                                             ptIdx, effCentIdx))
+        {
+          hHi->Fill(eiso_hcalin);
+          bumpHistFill(trigShort, hHi->GetName());
+        }
+
+        if (auto* hHo = getOrBookIsoPartHist(trigShort, "h_Eiso_hcalout",
+                                             "E_{T}^{iso,OHCAL} [GeV]",
+                                             ptIdx, effCentIdx))
+        {
+          hHo->Fill(eiso_hcalout);
+          bumpHistFill(trigShort, hHo->GetName());
+        }
       }
     }
 
@@ -10170,7 +10194,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                                                    phi,
                                                    iPho,
                                                    ppg12ScoreInputEt,
-                                                   eiso_et,
+                                                   ppg12ParityEisoEt,
                                                    ppg12YieldRawEisoEt,
                                                    ppg12YieldEisoEt,
                                                    ppg12YieldIsoMax,
@@ -10704,13 +10728,12 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 //   Isolation-energy spectra split by tightness (NO isolation requirement)
                 //
                 //   - inclusive: already filled in fillPureIsolationQA() as:
-                //       h_Eiso, h_Eiso_emcal, h_Eiso_hcalin, h_Eiso_hcalout
+                //       default/AuAu: h_Eiso, h_Eiso_emcal, h_Eiso_hcalin, h_Eiso_hcalout
+                //       pp PPG12:    h_Eiso, h_Eiso_ppg12_topo_raw, h_Eiso_ppg12_topo_reco
                 //
                 //   - tight / nonTight use the active configured tight/non-tight variant; "Neither" excluded:
-                //       h_Eiso_tight,            h_Eiso_nonTight
-                //       h_Eiso_emcal_tight,      h_Eiso_emcal_nonTight
-                //       h_Eiso_hcalin_tight,     h_Eiso_hcalin_nonTight
-                //       h_Eiso_hcalout_tight,    h_Eiso_hcalout_nonTight
+                //       default/AuAu: h_Eiso_{tight,nonTight} plus EMCal/IHCal/OHCal pieces
+                //       pp PPG12:    h_Eiso_{tight,nonTight} plus explicit topo raw/reco pieces
                 // -------------------------------------------------------------------------
                 if (tightTag == TightTag::kTight || tightTag == TightTag::kNonTight)
                 {
@@ -10718,6 +10741,10 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     const char* base_em  = (tightTag == TightTag::kTight) ? "h_Eiso_emcal_tight" : "h_Eiso_emcal_nonTight";
                     const char* base_hi  = (tightTag == TightTag::kTight) ? "h_Eiso_hcalin_tight" : "h_Eiso_hcalin_nonTight";
                     const char* base_ho  = (tightTag == TightTag::kTight) ? "h_Eiso_hcalout_tight" : "h_Eiso_hcalout_nonTight";
+                    const char* base_ppg12_raw =
+                        (tightTag == TightTag::kTight) ? "h_Eiso_ppg12_topo_raw_tight" : "h_Eiso_ppg12_topo_raw_nonTight";
+                    const char* base_ppg12_reco =
+                        (tightTag == TightTag::kTight) ? "h_Eiso_ppg12_topo_reco_tight" : "h_Eiso_ppg12_topo_reco_nonTight";
 
                     // Component isolation (PhotonClusterBuilder iso_* pieces)
                     double eiso_emcal   = 1e9;
@@ -10767,28 +10794,48 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                               bumpHistFill(trigShort, hIso->GetName());
                           }
 
-                          if (auto* hEm = getOrBookIsoPartHist(trigShort, base_em,
-                                                               "E_{T}^{iso,EMCal} [GeV]",
-                                                               ptIdx, effCentIdx_SS))
+                          if (m_ppg12PhotonYieldEnabled && m_ppg12PhotonYieldUseTopoIso && !m_isAuAu)
                           {
-                              hEm->Fill(eiso_emcal);
-                              bumpHistFill(trigShort, hEm->GetName());
+                              if (auto* hRaw = getOrBookIsoPartHist(trigShort, base_ppg12_raw,
+                                                                    "E_{T}^{iso,raw topo} [GeV]",
+                                                                    ptIdx, effCentIdx_SS))
+                              {
+                                  hRaw->Fill(ppg12YieldRawEisoEt);
+                                  bumpHistFill(trigShort, hRaw->GetName());
+                              }
+                              if (auto* hReco = getOrBookIsoPartHist(trigShort, base_ppg12_reco,
+                                                                     "E_{T}^{iso,reco PPG12} [GeV]",
+                                                                     ptIdx, effCentIdx_SS))
+                              {
+                                  hReco->Fill(ppg12YieldEisoEt);
+                                  bumpHistFill(trigShort, hReco->GetName());
+                              }
                           }
-
-                          if (auto* hHi = getOrBookIsoPartHist(trigShort, base_hi,
-                                                               "E_{T}^{iso,IHCAL} [GeV]",
-                                                               ptIdx, effCentIdx_SS))
+                          else
                           {
-                              hHi->Fill(eiso_hcalin);
-                              bumpHistFill(trigShort, hHi->GetName());
-                          }
+                              if (auto* hEm = getOrBookIsoPartHist(trigShort, base_em,
+                                                                   "E_{T}^{iso,EMCal} [GeV]",
+                                                                   ptIdx, effCentIdx_SS))
+                              {
+                                  hEm->Fill(eiso_emcal);
+                                  bumpHistFill(trigShort, hEm->GetName());
+                              }
 
-                          if (auto* hHo = getOrBookIsoPartHist(trigShort, base_ho,
-                                                               "E_{T}^{iso,OHCAL} [GeV]",
-                                                               ptIdx, effCentIdx_SS))
-                          {
-                              hHo->Fill(eiso_hcalout);
-                              bumpHistFill(trigShort, hHo->GetName());
+                              if (auto* hHi = getOrBookIsoPartHist(trigShort, base_hi,
+                                                                   "E_{T}^{iso,IHCAL} [GeV]",
+                                                                   ptIdx, effCentIdx_SS))
+                              {
+                                  hHi->Fill(eiso_hcalin);
+                                  bumpHistFill(trigShort, hHi->GetName());
+                              }
+
+                              if (auto* hHo = getOrBookIsoPartHist(trigShort, base_ho,
+                                                                   "E_{T}^{iso,OHCAL} [GeV]",
+                                                                   ptIdx, effCentIdx_SS))
+                              {
+                                  hHo->Fill(eiso_hcalout);
+                                  bumpHistFill(trigShort, hHo->GetName());
+                              }
                           }
                       }
                     }
@@ -12647,6 +12694,40 @@ double RecoilJets::ppg12PhotonYieldRawEiso(const RawCluster* clus, PHCompositeNo
           "  [PPG12_PHOTON_YIELD_V1][topo-iso] cluster is not PhotonClusterv1 -> +inf");
     return 1e9;
   }
+
+  const double storedTopoValid = pho->get_shower_shape_parameter("ppg12_topo_valid_04");
+  const double storedTopoRawEiso = pho->get_shower_shape_parameter("ppg12_topo_raw_eiso_04");
+  if (std::isfinite(storedTopoValid) &&
+      storedTopoValid > 0.5 &&
+      std::isfinite(storedTopoRawEiso) &&
+      storedTopoRawEiso < 1.0e8)
+  {
+    const double expectedVertexZ = ppg12PhotonYieldKinematicVertexZ();
+    const double storedVertexZ = pho->get_shower_shape_parameter("ppg12_topo_vertex_z");
+    const bool vertexCompatible =
+        !std::isfinite(expectedVertexZ) ||
+        (std::isfinite(storedVertexZ) && std::fabs(storedVertexZ - expectedVertexZ) < 1.0e-3);
+    if (vertexCompatible)
+    {
+      if (Verbosity() >= 5)
+      {
+        LOG(5, CLR_BLUE,
+            "  [PPG12_PHOTON_YIELD_V1][topo-iso] using PhotonClusterBuilder stored raw eiso="
+            << storedTopoRawEiso
+            << " vertex_z=" << storedVertexZ);
+      }
+      return storedTopoRawEiso;
+    }
+    if (Verbosity() >= 3)
+    {
+      LOG(3, CLR_YELLOW,
+          "  [PPG12_PHOTON_YIELD_V1][topo-iso] stored PhotonClusterBuilder eiso vertex mismatch"
+          << " stored=" << storedVertexZ
+          << " expected=" << expectedVertexZ
+          << " -> recomputing in RecoilJets");
+    }
+  }
+
   if (!m_ppg12TopoClusters)
   {
     if (Verbosity() >= 1)
