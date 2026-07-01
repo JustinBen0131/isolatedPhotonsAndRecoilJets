@@ -336,6 +336,16 @@ def audience_sample_label(payload: dict) -> str:
     return sample
 
 
+def audience_model_label(payload: dict) -> str:
+    model = str(payload.get("model_label", "")).strip()
+    return model or "Centrality-dependent AuAu BDT"
+
+
+def audience_et_range_label(payload: dict) -> str:
+    lo, hi = payload["et_range"]
+    return f"{int(lo)} <= cluster $E_T$ < {int(hi)} GeV"
+
+
 def draw_slide_points(payload: dict, flat_rows: list[dict], out: Path) -> None:
     import matplotlib.pyplot as plt
     import numpy as np
@@ -361,13 +371,15 @@ def draw_slide_points(payload: dict, flat_rows: list[dict], out: Path) -> None:
     )
     subtitle.text(
         0.030,
-        0.54,
-        "Flat fits versus $E_T$ give one threshold per centrality bin for the centrality-dependent working point.",
+        0.57,
+        f"{audience_model_label(payload)}; thresholds extracted in {audience_et_range_label(payload)}.\n"
+        "Flat fits versus $E_T$ give one threshold per centrality bin.",
         transform=subtitle.transAxes,
-        fontsize=15.4,
+        fontsize=13.4,
         color=INK,
         ha="left",
         va="center",
+        linespacing=1.12,
     )
 
     legend = fig.add_axes([0.635, 0.825, 0.325, 0.085])
@@ -449,7 +461,7 @@ def draw_slide_points(payload: dict, flat_rows: list[dict], out: Path) -> None:
     tab = fig.add_axes([0.080, 0.025, 0.840, 0.185])
     tab.axis("off")
     tab.add_patch(plt.Rectangle((0, 0), 1, 1, transform=tab.transAxes, facecolor=PANEL, edgecolor=PANEL_EDGE, linewidth=1.0))
-    tab.text(0.030, 0.78, "Flat-fit constants used as centrality-fit points", fontsize=15.0, fontweight="bold", color=INK, ha="left", va="center")
+    tab.text(0.030, 0.78, "Flat-fit constants used as centrality-fit points", fontsize=14.6, fontweight="bold", color=INK, ha="left", va="center")
     labels = [r["centrality_label"] for r in rows_by_target(flat_rows, 0.80)]
     xs = np.linspace(0.385, 0.950, len(labels))
     for x, label in zip(xs, labels):
@@ -502,9 +514,9 @@ def draw_slide_fits(payload: dict, fits: dict[float, dict], out: Path) -> None:
     subtitle.text(
         0.030,
         0.52,
-        "Seven centrality-bin thresholds are fit versus centrality; WP80 sets the nominal split.",
+        f"{audience_model_label(payload)}; flat WP80 constants from {audience_et_range_label(payload)} are fit versus centrality.",
         transform=subtitle.transAxes,
-        fontsize=15.8,
+        fontsize=14.4,
         color=INK,
         ha="left",
         va="center",
@@ -639,13 +651,13 @@ def draw_slide_fits(payload: dict, fits: dict[float, dict], out: Path) -> None:
     )
     total_sig = sum(int(r["signal_entries"]) for r in rows_by_target(rows, 0.80))
     total_bkg = sum(int(r["background_entries"]) for r in rows_by_target(rows, 0.80))
-    foot.text(0.030, 0.670, "Calibration sample", fontsize=15.6, fontweight="bold", color=INK, ha="left", va="center")
-    foot.text(0.220, 0.670, audience_sample_label(payload), fontsize=14.8, color=INK, ha="left", va="center")
+    foot.text(0.030, 0.670, "Model + sample", fontsize=15.6, fontweight="bold", color=INK, ha="left", va="center")
+    foot.text(0.220, 0.670, f"{audience_model_label(payload)}; {audience_sample_label(payload)}", fontsize=13.7, color=INK, ha="left", va="center")
     foot.text(0.030, 0.315, "Inputs + rows", fontsize=15.6, fontweight="bold", color=INK, ha="left", va="center")
     input_line = f"{payload['training_inputs']}"
     count_line = (
         f"S={total_sig:,}, Incl.={total_bkg:,}; "
-        f"{int(payload['et_range'][0])} <= cluster $E_T$ < {int(payload['et_range'][1])} GeV"
+        + audience_et_range_label(payload)
     )
     if payload.get("full_matrix_rows") is not None:
         count_line += f"; full matrix rows={int(payload['full_matrix_rows']):,}"

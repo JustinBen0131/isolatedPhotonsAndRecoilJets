@@ -11,6 +11,50 @@ common_utilities:
   - scripts/slides/common/slide_symmetry_audit.py
   - scripts/slides/common/post_render_slide_audit.py
 generators:
+  - id: make_the79_training_window_problem_slide
+    status: canonical
+    group: "model_selection"
+    campaign: "auau_photon_raa"
+    slide_key: "THE79_training_window_problem"
+    canonical_path: "scripts/slides/auau_photon_raa/make_the79_training_window_problem_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: "Local 0-20% model-window score caches and comparison CSV for centAsFeat3x3_pt5to40 versus centAsFeatBase3x3_pt15to35"
+    default_output_folder: dataOutput/auauBDTModelSelection/THE79_training_window_problem_20260627/
+    last_known_png: dataOutput/auauBDTModelSelection/THE79_training_window_problem_20260627/the79_training_window_problem_slide.png
+  - id: make_the79_bdt_model_selection_slide
+    status: canonical
+    group: "model_selection"
+    campaign: "auau_photon_raa"
+    slide_key: "THE79_5to40_bdt_model_selection_summary"
+    canonical_path: "scripts/slides/auau_photon_raa/make_the79_bdt_model_selection_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: "THE-79 full-stat validation rankings from binned14/global15/global5 reports under auauTightBDT_the79_true5to40_defaultsrc_20260626_0015/reports/"
+    default_output_folder: dataOutput/auauBDTModelSelection/THE79_5to40_candidate_summary_20260627/
+    last_known_png: dataOutput/auauBDTModelSelection/THE79_5to40_candidate_summary_20260627/the79_bdt_model_selection_summary_slide.png
+  - id: make_the79_ppg12_binned_validation_slide
+    status: canonical
+    group: "model_selection"
+    campaign: "auau_photon_raa"
+    slide_key: "THE79_ppg12_binned_validation"
+    canonical_path: "scripts/slides/auau_photon_raa/make_the79_ppg12_binned_validation_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: "Paired true-5-40 validation score caches for the PPG12-extended base14_perEtCent7 model and default centAsFeatBase3x3_pt15to35 baseline"
+    default_output_folder: dataOutput/auauBDTModelSelection/THE79_ppg12_binned_validation_20260627/
+    last_known_png: null
+  - id: make_the79_expanded_bdt_cent3_pt_auc_slide
+    status: canonical
+    group: "model_selection"
+    campaign: "auau_photon_raa"
+    slide_key: "THE79_expanded_bdt_cent3_pt_auc"
+    canonical_path: "scripts/slides/auau_photon_raa/make_the79_expanded_bdt_cent3_pt_auc_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: "Validated expanded 5-40/all-range AuAu tight-BDT report dataOutput/auauTightBDTValidation/model_validation_condor_20260509_192942/validation_auc_table.csv"
+    default_output_folder: dataOutput/auauBDTModelSelection/THE79_expanded_bdt_cent3_pt_auc_20260627/
+    last_known_png: dataOutput/auauBDTModelSelection/THE79_expanded_bdt_cent3_pt_auc_20260627/the79_expanded_bdt_cent3_pt_auc_slide.png
   - id: make_the8_hard_inclusive_mechanism_closure_slide
     status: canonical
     group: "score_shapes"
@@ -22,6 +66,39 @@ generators:
     expected_inputs: "Hard-inclusive Jet30/Jet40 mechanism audit CSV/Markdown outputs under THE8_branchA_ladder_scorecache_fullstat_20260527/diagnostics/hard_inclusive_jet3040_mechanism_20260605/"
     default_output_folder: dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/slideReady/hard_inclusive_jet3040_mechanism_closure_20260605/
     last_known_png: dataOutput/auauTightBDTValidation/THE8_branchA_ladder_scorecache_fullstat_20260527/slideReady/hard_inclusive_jet3040_mechanism_closure_20260605/hard_inclusive_jet3040_mechanism_closure_slide.png
+  - id: make_the37_metric_delta_summary_slide
+    status: canonical
+    group: "sample_grid"
+    campaign: "auau_bdt"
+    slide_key: "THE37_sample_grid_metric_delta_summary"
+    canonical_path: "scripts/slides/auau_bdt/sample_grid/make_the37_metric_delta_summary_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: "THE37 sample-grid JSON payloads plus THE8 exact 0-20% fixed-validation metric table under dataOutput/auauTightBDTValidation/"
+    default_output_folder: dataOutput/auauTightBDTValidation/THE37_sample_grid_slides_20260621/metric_delta_summary_20260628/
+    last_known_png: dataOutput/auauTightBDTValidation/THE37_sample_grid_slides_20260621/metric_delta_summary_20260628/the37_sample_grid_metric_delta_summary_slide.png
+  - id: make_the37_boxchart_story_summary_slide
+    status: canonical
+    group: "sample_grid"
+    campaign: "auau_bdt"
+    slide_key: "THE37_slides25_28_boxchart_story_summary"
+    canonical_path: "scripts/slides/auau_bdt/sample_grid/make_the37_boxchart_story_summary_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: "PPG19_6_29_26 slides 25-28 story inputs: THE8 exact 0-20% fixed-validation metric table plus THE37 pp/AuAu train-validation JSON payloads under dataOutput/auauTightBDTValidation/"
+    default_output_folder: dataOutput/auauTightBDTValidation/THE37_sample_grid_slides_20260621/box_story_summary_20260628/
+    last_known_png: dataOutput/auauTightBDTValidation/THE37_sample_grid_slides_20260621/box_story_summary_20260628/the37_slides25_28_boxchart_story_summary_slide.png
+  - id: make_the37_score_distribution_story_slide
+    status: canonical
+    group: "sample_grid"
+    campaign: "auau_bdt"
+    slide_key: "THE37_slides25_28_score_distribution_story"
+    canonical_path: "scripts/slides/auau_bdt/sample_grid/make_the37_score_distribution_story_slide.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: "PPG19_6_29_26 slides 25-28 source BDT score histograms: THE8 fixed-sample score JSON plus THE37 pp/AuAu train-validation JSON payloads under dataOutput/auauTightBDTValidation/"
+    default_output_folder: dataOutput/auauTightBDTValidation/THE37_sample_grid_slides_20260621/score_distribution_story_20260629/
+    last_known_png: dataOutput/auauTightBDTValidation/THE37_sample_grid_slides_20260621/score_distribution_story_20260629/the37_slides25_28_score_distribution_story_slide.png
   - id: make_the11_bdt_isolation_insight_slides
     status: canonical
     group: "isolation_correlations"

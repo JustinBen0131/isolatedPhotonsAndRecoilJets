@@ -227,8 +227,11 @@ clusterUEpipeline: [baseVariant]
 #
 #   nonTight = auauBDTSideband
 #     For tight=auauEmbeddedBDT, centINDcontrol, centAsFeat, or centDepBDTs, use
-#     the AuAu-trained BDT sideband window configured by auau_nontight_bdt_*
-#     parameters. This is the ABCD-style nominal option.
+#     the AuAu-trained BDT sideband window. The default mode is the historical
+#     ET-linear window configured by auau_nontight_bdt_* parameters. A diagnostic
+#     campaign can instead set auau_nontight_bdt_sideband_mode: relativeToTight
+#     to use tight_threshold + [relative_min_offset, relative_max_offset].
+#     This is the ABCD-style nominal option.
 #
 #   nonTight = auauBDTComplement
 #     For tight=auauEmbeddedBDT, centINDcontrol, centAsFeat, or centDepBDTs, use
@@ -345,10 +348,15 @@ tight_bdt_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, 
 #   auau_tight_bdt_score < auau_tight_bdt_max
 #
 # nonTight = auauBDTSideband:
-#   auau_nontight_bdt_min_intercept
-#     + auau_nontight_bdt_min_slope * E_T^gamma < score
-#   score < auau_nontight_bdt_max_intercept
-#     + auau_nontight_bdt_max_slope * E_T^gamma
+#   auau_nontight_bdt_sideband_mode: etLinear
+#     auau_nontight_bdt_min_intercept
+#       + auau_nontight_bdt_min_slope * E_T^gamma < score
+#     score < auau_nontight_bdt_max_intercept
+#       + auau_nontight_bdt_max_slope * E_T^gamma
+#
+#   auau_nontight_bdt_sideband_mode: relativeToTight
+#     tight_threshold(E_T, centrality) + relative_min_offset < score
+#     score < tight_threshold(E_T, centrality) + relative_max_offset
 #
 # nonTight = auauBDTComplement:
 #   complement of the AuAu tight BDT after preselection.
@@ -368,6 +376,9 @@ auau_nontight_bdt_min_intercept: 0.7333333333333334
 auau_nontight_bdt_min_slope: -0.013333333333333334
 auau_nontight_bdt_max_intercept: 0.6666666666666666
 auau_nontight_bdt_max_slope: 0.003333333333333333
+auau_nontight_bdt_sideband_mode: etLinear
+auau_nontight_bdt_relative_min_offset: -0.20
+auau_nontight_bdt_relative_max_offset: -0.03
 auau_tight_bdt_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35]
 auau_tight_bdt_centINDcontrol_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35]
 auau_tight_bdt_centAsFeat_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35, centrality]

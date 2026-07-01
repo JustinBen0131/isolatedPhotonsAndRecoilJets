@@ -694,6 +694,26 @@ memory_request_to_mb() {
   printf '%s\n' "$mb"
 }
 
+memory_request_from_env_or_default() {
+  local default_request="$1"
+  if [[ -n "${RJ_REQUEST_MEMORY:-}" ]]; then
+    printf '%s\n' "$RJ_REQUEST_MEMORY"
+    return 0
+  fi
+  if [[ -n "${RJ_REQUEST_MEMORY_MB:-}" ]]; then
+    case "$RJ_REQUEST_MEMORY_MB" in
+      *[Mm][Bb]|*[Gg][Bb]|*[Gg])
+        printf '%s\n' "$RJ_REQUEST_MEMORY_MB"
+        ;;
+      *)
+        printf '%sMB\n' "$RJ_REQUEST_MEMORY_MB"
+        ;;
+    esac
+    return 0
+  fi
+  printf '%s\n' "$default_request"
+}
+
 condor_auto_memory_retry_block() {
   local base_mb="${1:-0}"
   [[ "$base_mb" =~ ^[0-9]+$ ]] || base_mb=0
@@ -779,8 +799,21 @@ build_submit_extra_env_fragment() {
   # only the submit shell. RJ_SUBMIT_EXTRA_ENV remains the general override.
   extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PHOTON_YIELD)"
   extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PHOTON_YIELD_TRUTH_VERTEX)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PHOTON_YIELD_BUILDER_TRUTH_VERTEX)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PHOTON_YIELD_RECO_TRUTH_VERTEX)"
   extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PHOTON_YIELD_DOUBLE)"
   extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PHOTON_YIELD_MIX_WEIGHT)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PERIOD)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_CROSSING_PERIOD)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PERIOD_FILTER_DATA)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PERIOD_USE_LUMI_WEIGHT)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PERIOD_STRICT_DI)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PERIOD_ALLOW_ALL_SIM)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PERIOD_ALLOW_MIX_OVERRIDE)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PERIOD_ALLOW_VERTEX_FILE_OVERRIDE)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_FIG8_BUILD_NOSPLIT)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_FIG8_CLUSTER_NODE)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_FIG8_FALLBACK_TO_SPLIT)"
   extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4)"
   extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PPSIM_G4_ONLY)"
   extra="$(append_submit_extra_env_var "$extra" RJ_SIM_ALLOW_NONE_LISTS)"
@@ -1455,7 +1488,7 @@ emit_direct_fanout_shard_file() {
 fanout_dest_allowed() {
   local fan_dest="$1"
   case "$fan_dest" in
-    */thesisAna/pp/*|*/thesisAna/pp25/*|*/thesisAna/auau/*|*/thesisAna/oo/*|*/thesisAna/sim/*|*/thesisAna/simembedded/*|*/thesisAna/simembeddedinclusive/*|*/thesisAna/siminclusive/*|*/thesisAna/simjet5/*|*/thesisAna/simmb/*)
+    */thesisAna/pp/*|*/thesisAna/pp25/*|*/thesisAna/auau/*|*/thesisAna/oo/*|*/thesisAna/sim/*|*/thesisAna/simembedded/*|*/thesisAna/simembeddedinclusive/*|*/thesisAna/siminclusive/*|*/thesisAna/simjet5/*|*/thesisAna/simmb/*|*/thesisAna/recoiljets/*)
       return 0
       ;;
     */thesisAnaSmoke/pp_smokeTest_*/*|*/thesisAnaSmoke/pp25_smokeTest_*/*|*/thesisAnaSmoke/auau_smokeTest_*/*|*/thesisAnaSmoke/oo_smokeTest_*/*|*/thesisAnaSmoke/sim_smokeTest_*/*|*/thesisAnaSmoke/simembedded_smokeTest_*/*|*/thesisAnaSmoke/simembeddedinclusive_smokeTest_*/*|*/thesisAnaSmoke/siminclusive_smokeTest_*/*|*/thesisAnaSmoke/simjet5_smokeTest_*/*|*/thesisAnaSmoke/simmb_smokeTest_*/*)
@@ -2924,6 +2957,55 @@ make_groups() {
 }
 
 # ------------------------ Simulation helpers --------------------------
+sim_path_validation_requested() {
+  env_truthy "${RJ_VALIDATE_SIM_INPUT_PATHS:-0}" && return 0
+  env_truthy "${RJ_PPG12_PHOTON_YIELD:-0}" && return 0
+  env_truthy "${RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4:-0}" && return 0
+  return 1
+}
+
+validate_sim_clean_list_paths() {
+  local list="$1"
+  local allow_none_lists="$2"
+  local failures=0
+  local line_no=0
+  local line col_idx p
+  local -a cols
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line_no=$((line_no + 1))
+    IFS=$'\t' read -r -a cols <<< "$line"
+    if (( ${#cols[@]} != 5 )); then
+      err "SIM input validation: line ${line_no} has ${#cols[@]} columns, expected 5 in ${list}"
+      failures=$((failures + 1))
+      (( failures < 20 )) || break
+      continue
+    fi
+    for col_idx in 0 1 2 3 4; do
+      p="${cols[$col_idx]}"
+      if [[ "$p" == "NONE" ]]; then
+        if (( allow_none_lists )); then
+          continue
+        fi
+        err "SIM input validation: line ${line_no} column $((col_idx + 1)) is NONE but RJ_SIM_ALLOW_NONE_LISTS is not enabled"
+        failures=$((failures + 1))
+      elif [[ "$p" != /* ]]; then
+        err "SIM input validation: line ${line_no} column $((col_idx + 1)) is not an absolute path: ${p}"
+        failures=$((failures + 1))
+      elif [[ ! -e "$p" ]]; then
+        err "SIM input validation: line ${line_no} column $((col_idx + 1)) path does not exist: ${p}"
+        failures=$((failures + 1))
+      fi
+      (( failures < 20 )) || break 2
+    done
+  done < "$list"
+
+  if (( failures > 0 )); then
+    err "SIM input validation failed with ${failures} displayed failure(s); refusing to submit zero-event workers."
+    err "For PPG12 double samples, regenerate lists with makePPG12DoubleSimLists.sh so relative G4/TRUTH entries resolve to js_pp200_signal_dual paths."
+    exit 24
+  fi
+}
+
 # Initializes paths for isSim mode and prepares a cleaned master list.
 sim_init() {
   SIM_DIR="${SIM_ROOT}/${SIM_SAMPLE}"
@@ -3001,6 +3083,10 @@ sim_init() {
     say "    [sim_init] clean list ready: $(wc -l < "$SIM_CLEAN_LIST" | tr -d ' ') lines → $(basename "$SIM_CLEAN_LIST")" >&2
   fi
   [[ -s "$SIM_CLEAN_LIST" ]] || { err "Sim master list empty after cleaning: $SIM_MASTER_LIST"; exit 22; }
+  if sim_path_validation_requested; then
+    [[ "${ACTION:-}" != "CHECKJOBS" ]] && say "    [sim_init] validating SIM input paths before submission…" >&2
+    validate_sim_clean_list_paths "$SIM_CLEAN_LIST" "$allow_none_lists"
+  fi
 
   SIM_OUT_DIR="${DEST_BASE}/${SIM_SAMPLE}"
   [[ "${ACTION:-}" != "CHECKJOBS" ]] && mkdir -p "$SIM_OUT_DIR"
@@ -3647,7 +3733,8 @@ submit_condor() {
   [[ -n "${BULK_FROZEN_MACRO:-}" ]] && macro_env=";RJ_MACRO_PATH=${BULK_FROZEN_MACRO}"
   local submit_extra_env
   submit_extra_env="$(build_submit_extra_env_fragment)"
-  local request_memory="${RJ_REQUEST_MEMORY:-2000MB}"
+  local request_memory
+  request_memory="$(memory_request_from_env_or_default "2000MB")"
   local request_memory_mb
   request_memory_mb="$(memory_request_to_mb "$request_memory")"
   local direct_nevents
@@ -5398,7 +5485,7 @@ case "$ACTION" in
     mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
     mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
     mapfile -t sim_vzs   < <( dataset_vz_values "$master_yaml" )
-    mapfile -t sim_cones < <( yaml_get_values "coneR" "" )
+    mapfile -t sim_cones < <( yaml_get_values "coneR" "$master_yaml" )
     (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
     (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
     (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
@@ -5942,7 +6029,7 @@ case "$ACTION" in
     mapfile -t sim_pts   < <( yaml_get_values "jet_pt_min" "$master_yaml" )
     mapfile -t sim_fracs < <( yaml_get_values "back_to_back_dphi_min_pi_fraction" "$master_yaml" )
     mapfile -t sim_vzs   < <( dataset_vz_values "$master_yaml" )
-    mapfile -t sim_cones < <( yaml_get_values "coneR" "" )
+    mapfile -t sim_cones < <( yaml_get_values "coneR" "$master_yaml" )
     (( ${#sim_pts[@]} ))   || { err "No values found for jet_pt_min in $master_yaml"; exit 72; }
     (( ${#sim_fracs[@]} )) || { err "No values found for back_to_back_dphi_min_pi_fraction in $master_yaml"; exit 72; }
     (( ${#sim_vzs[@]} ))   || { err "No values found for vz_cut_cm in $master_yaml"; exit 72; }
@@ -6121,9 +6208,9 @@ SUB
       fi
     fi
     direct_nevents="$(direct_worker_nevents)"
-    direct_request_memory="${RJ_REQUEST_MEMORY:-2000MB}"
+    direct_request_memory="$(memory_request_from_env_or_default "2000MB")"
     direct_memory_floor_mb=0
-    if [[ -z "${RJ_REQUEST_MEMORY:-}" ]]; then
+    if [[ -z "${RJ_REQUEST_MEMORY:-}" && -z "${RJ_REQUEST_MEMORY_MB:-}" ]]; then
       case "$DATASET" in
         isSimEmbedded|isSimEmbeddedInclusive)
           # Embedded AuAu workers are ROOT/TMVA heavy enough that the generic

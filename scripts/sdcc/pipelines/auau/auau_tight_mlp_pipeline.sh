@@ -105,7 +105,7 @@ train_from_extraction() {
   local pt_bin_weight_mode="${RJ_AUAU_MLP_TRAIN_PT_BIN_WEIGHT_MODE:-none}"
   local pt_bin_weight_spec="${RJ_AUAU_MLP_TRAIN_PT_BIN_WEIGHT_SPEC:-}"
   local weight_mode="${RJ_AUAU_MLP_WEIGHT_MODE:-legacy}"
-  local ppg12_expected_samples="${RJ_AUAU_MLP_PPG12_EXACT_EXPECTED_SAMPLES:-run28_embeddedPhoton12,run28_embeddedPhoton20,run28_embeddedJet12,run28_embeddedJet20,run28_embeddedJet30}"
+  local ppg12_expected_samples="${RJ_AUAU_MLP_PPG12_EXACT_EXPECTED_SAMPLES:-run28_embeddedPhoton12,run28_embeddedPhoton20,run28_embeddedJet12,run28_embeddedJet20,run28_embeddedJet30,run28_embeddedJet40}"
   local ppg12_closure_dir="${RJ_AUAU_MLP_PPG12_EXACT_CLOSURE_DIR:-}"
   local highpt_selection_weights="${RJ_AUAU_MLP_TRAIN_HIGHPT_SELECTION_WEIGHTS:-}"
   local hard_example_branch="${RJ_AUAU_MLP_TRAIN_HARD_EXAMPLE_BRANCH:-}"

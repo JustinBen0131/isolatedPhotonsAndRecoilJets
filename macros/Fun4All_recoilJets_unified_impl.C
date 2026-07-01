@@ -70,6 +70,7 @@
 
 #include <centrality/CentralityReco.h>
 #include <centrality/CentralityInfo.h>
+#include <g4mbd/MbdDigitization.h>
 #include <mbd/MbdEvent.h>
 #include <mbd/MbdReco.h>
 #include <zdcinfo/ZdcReco.h>
@@ -172,6 +173,7 @@ R__LOAD_LIBRARY(libcentrality_io.so)   // if you instantiate CentralityReco
 R__LOAD_LIBRARY(libcalotrigger.so)
 R__LOAD_LIBRARY(libzdcinfo.so)
 R__LOAD_LIBRARY(libmbd.so)
+R__LOAD_LIBRARY(libg4mbd.so)
 
 //======================================================================
 //  Convenience helpers
@@ -814,6 +816,8 @@ namespace yamlcfg
         std::vector<std::string> auau_tight_bdt_etFineCentInput_model_files;
         std::vector<std::string> auau_tight_bdt_etFineCent3_model_files;
         std::vector<std::string> auau_tight_bdt_etFineCent7_model_files;
+        std::string auau_tight_bdt_etFineCent3_product = "";
+        std::string auau_tight_bdt_etFineCent7_product = "";
         std::string auau_tight_bdt_ptBinCentInput_fallback_model_file = "";
         std::vector<std::string> auau_tight_bdt_ptCent3_fallback_model_files;
         std::vector<std::string> auau_tight_bdt_ptCent7_fallback_model_files;
@@ -833,6 +837,9 @@ namespace yamlcfg
         double auau_nontight_bdt_min_slope = -0.01333333333333333;
         double auau_nontight_bdt_max_intercept = 0.6666666666666666;
         double auau_nontight_bdt_max_slope = 0.003333333333333336;
+        std::string auau_nontight_bdt_sideband_mode = "etLinear";
+        double auau_nontight_bdt_relative_min_offset = -0.20;
+        double auau_nontight_bdt_relative_max_offset = -0.03;
         std::vector<std::string> auau_tight_bdt_features;
         std::vector<std::string> auau_tight_bdt_centINDcontrol_features;
         std::vector<std::string> auau_tight_bdt_centAsFeat_features;
@@ -1723,6 +1730,14 @@ namespace yamlcfg
                 const std::string rhs = AfterColon(line);
                 ParseInlineListStrings(rhs, cfg.auau_tight_bdt_etFineCent7_model_files);
             }
+            else if (StartsWithKey(line, "auau_tight_bdt_etFineCent3_product"))
+            {
+                cfg.auau_tight_bdt_etFineCent3_product = detail::trim(AfterColon(line));
+            }
+            else if (StartsWithKey(line, "auau_tight_bdt_etFineCent7_product"))
+            {
+                cfg.auau_tight_bdt_etFineCent7_product = detail::trim(AfterColon(line));
+            }
             else if (StartsWithKey(line, "auau_tight_bdt_ptBinCentInput_fallback_model_file"))
             {
                 cfg.auau_tight_bdt_ptBinCentInput_fallback_model_file = detail::trim(AfterColon(line));
@@ -1827,6 +1842,22 @@ namespace yamlcfg
                 const std::string rhs = AfterColon(line);
                 if (!ParseDouble(rhs, cfg.auau_nontight_bdt_max_slope))
                     warn_parse("auau_nontight_bdt_max_slope", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_nontight_bdt_sideband_mode"))
+            {
+                cfg.auau_nontight_bdt_sideband_mode = detail::trim(AfterColon(line));
+            }
+            else if (StartsWithKey(line, "auau_nontight_bdt_relative_min_offset"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_nontight_bdt_relative_min_offset))
+                    warn_parse("auau_nontight_bdt_relative_min_offset", rhs, "expected a scalar double");
+            }
+            else if (StartsWithKey(line, "auau_nontight_bdt_relative_max_offset"))
+            {
+                const std::string rhs = AfterColon(line);
+                if (!ParseDouble(rhs, cfg.auau_nontight_bdt_relative_max_offset))
+                    warn_parse("auau_nontight_bdt_relative_max_offset", rhs, "expected a scalar double");
             }
             else if (StartsWithKey(line, "auau_tight_bdt_features"))
             {
@@ -3767,20 +3798,31 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         setenv("RJ_SKIP_CALO_TOWER_STATUS", "1", 1);
         InputInit();
         InputRegister();
+        Enable::MBDRECO = false;
+        if (verbose || vlevel > 0)
+        {
+            std::cout << "[PPG12_PPSIM_REBUILD_CALO_FROM_G4] skipping helper Mbd_Reco() in the G4 input stack; "
+                      << (usePPG12PPSimG4OnlyInput
+                              ? "G4-only input has no standalone MBD DST lane; manual MbdReco will run on the G4 stack"
+                              : "standard RecoilJets MbdReco is registered once after Process_Calo_Calib")
+                      << std::endl;
+        }
         if (usePPG12PPSimG4OnlyInput)
         {
-            Enable::MBDRECO = false;
-            if (verbose || vlevel > 0)
+            if (vlevel > 0)
             {
-                std::cout << "[PPG12_PPSIM_REBUILD_CALO_FROM_G4] skipping helper Mbd_Reco() for G4-only pp SIM input; "
-                          << "PPG12 photon-yield diagnostics use truth-vertex kinematics and this stack has no safe MBD timing calibration"
+                std::cout << "[PPG12_PPSIM_REBUILD_CALO_FROM_G4] registering early MbdDigitization + MbdReco + GlobalVertexReco "
+                          << "immediately after InputRegister() to match the PPG12 double-interaction macro"
                           << std::endl;
             }
-        }
-        else
-        {
-            Enable::MBDRECO = true;
-            Mbd_Reco();
+            std::unique_ptr<MbdDigitization> mbddigi = std::make_unique<MbdDigitization>();
+            se->registerSubsystem(mbddigi.release());
+
+            std::unique_ptr<MbdReco> mbdreco = std::make_unique<MbdReco>();
+            se->registerSubsystem(mbdreco.release());
+
+            std::unique_ptr<GlobalVertexReco> gvertex = std::make_unique<GlobalVertexReco>();
+            se->registerSubsystem(gvertex.release());
         }
         RunSettings(28);
         Enable::CEMC_TOWERINFO = true;
@@ -4116,11 +4158,9 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     {
         if (vlevel > 0)
         {
-            std::cout << "[PPG12_PPSIM_REBUILD_CALO_FROM_G4] skipping standard MbdReco/ZdcReco for G4-only pp SIM input; "
-                      << "registering GlobalVertexReco only for downstream node compatibility" << std::endl;
+            std::cout << "[PPG12_PPSIM_REBUILD_CALO_FROM_G4] MbdDigitization + MbdReco + GlobalVertexReco already registered early "
+                      << "for G4-only pp SIM input" << std::endl;
         }
-        std::unique_ptr<GlobalVertexReco> gvertex = std::make_unique<GlobalVertexReco>();
-        se->registerSubsystem(gvertex.release());
     }
     else
     {
@@ -5219,12 +5259,17 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     
     const bool useSamePhotonBDTScores = true;
     const bool usePPG12PPIsoTowerFloor = !isAuAuLike;
-    const bool usePPG12PPSimTruthVertex =
+    const bool ppg12PhotonYieldPPSim =
         env_truthy_local("RJ_PPG12_PHOTON_YIELD") &&
-        env_truthy_local("RJ_PPG12_PHOTON_YIELD_TRUTH_VERTEX") &&
         isSim && !isAuAuLike;
+    const bool usePPG12PPSimTruthVertexForIso =
+        ppg12PhotonYieldPPSim &&
+        env_truthy_local("RJ_PPG12_PHOTON_YIELD_TRUTH_VERTEX");
+    const bool usePPG12PPSimTruthVertexForBuilder =
+        ppg12PhotonYieldPPSim &&
+        env_truthy_local("RJ_PPG12_PHOTON_YIELD_BUILDER_TRUTH_VERTEX");
     constexpr double kPPG12PPSimVertexCutCm = 60.0;
-    const double photonBuilderVzCutCm = usePPG12PPSimTruthVertex
+    const double photonBuilderVzCutCm = usePPG12PPSimTruthVertexForIso
         ? kPPG12PPSimVertexCutCm
         : cfg.vz_cut_cm;
     constexpr float kPPG12PPIsoTowerMin = 0.12f;
@@ -5241,7 +5286,9 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         builder->set_ET_threshold(static_cast<float>(minPhotonEt));
         builder->set_iso_min_tower_energy(photonBuilderIsoTowerMin);
         builder->set_use_ppg12_pp_iso_axis(useSamePhotonBDTScores);
-        builder->set_use_ppg12_pp_sim_truth_vertex(usePPG12PPSimTruthVertex);
+        builder->set_use_ppg12_pp_sim_truth_vertex(usePPG12PPSimTruthVertexForBuilder);
+        builder->set_use_ppg12_pp_sim_global_mbd_vertex(ppg12PhotonYieldPPSim);
+        builder->set_use_ppg12_pp_sim_towerinfo_shapes(ppg12PhotonYieldPPSim);
         builder->set_skip_ppg12_edge_clusters(useSamePhotonBDTScores);
         builder->set_enable_ss_3x3_moments(isAuAuLike);
         builder->set_use_raw_cluster_towermap_for_cemc_shapes(isSimEmbedded);
@@ -5658,7 +5705,12 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             out.ptCentModelFiles = (tightMode == "auauEtFineCent3BDT") ? cfg.auau_tight_bdt_etFineCent3_model_files : cfg.auau_tight_bdt_etFineCent7_model_files;
             if (out.ptCentModelFiles.empty())
             {
-                out.ptCentModelFiles = expandedPtCentModels(tightMode == "auauEtFineCent3BDT" ? "ptFine_cent3" : "ptFine_cent7",
+                const std::string defaultProduct = tightMode == "auauEtFineCent3BDT" ? "ptFine_cent3" : "ptFine_cent7";
+                const std::string configuredProduct = tightMode == "auauEtFineCent3BDT"
+                    ? cfg.auau_tight_bdt_etFineCent3_product
+                    : cfg.auau_tight_bdt_etFineCent7_product;
+                const std::string product = configuredProduct.empty() ? defaultProduct : configuredProduct;
+                out.ptCentModelFiles = expandedPtCentModels(product,
                                                             out.ptEdges,
                                                             out.centEdges);
             }
@@ -5895,7 +5947,10 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         std::cout << "[DBG] PhotonClusterBuilder vzCut config: use="
         << (cfg.use_vz_cut ? "true" : "false")
         << " vz_cut_cm=" << photonBuilderVzCutCm
-        << (usePPG12PPSimTruthVertex ? " (PPG12 pp-SIM override)" : "")
+        << (usePPG12PPSimTruthVertexForIso ? " (PPG12 pp-SIM override)" : "")
+        << " | ppg12IsoTruthVertex=" << (usePPG12PPSimTruthVertexForIso ? "true" : "false")
+        << " | ppg12BuilderTruthVertex=" << (usePPG12PPSimTruthVertexForBuilder ? "true" : "false")
+        << " | ppg12TowerInfoShapes=" << (ppg12PhotonYieldPPSim ? "true" : "false")
         << " | isAuAuLike=" << (isAuAuLike ? "true" : "false")
         << " | isSimEmbedded=" << (isSimEmbedded ? "true" : "false")
         << " | photonBuilderIsAuAu=" << (photonBuilderIsAuAu ? "true" : "false")
@@ -6138,6 +6193,15 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NONTIGHT_BDT_MAX_SLOPE",
                                                "RJ_AUAU_NONTIGHT_BDT_MAX_SLOPE",
                                                fmtDouble(cfg.auau_nontight_bdt_max_slope)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NONTIGHT_BDT_SIDEBAND_MODE",
+                                               "RJ_AUAU_NONTIGHT_BDT_SIDEBAND_MODE",
+                                               cfg.auau_nontight_bdt_sideband_mode));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NONTIGHT_BDT_RELATIVE_MIN_OFFSET",
+                                               "RJ_AUAU_NONTIGHT_BDT_RELATIVE_MIN_OFFSET",
+                                               fmtDouble(cfg.auau_nontight_bdt_relative_min_offset)));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NONTIGHT_BDT_RELATIVE_MAX_OFFSET",
+                                               "RJ_AUAU_NONTIGHT_BDT_RELATIVE_MAX_OFFSET",
+                                               fmtDouble(cfg.auau_nontight_bdt_relative_max_offset)));
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_BDT_TRAINING_TREE",
                                                "RJ_AUAU_BDT_TRAINING_TREE",
                                                cfg.auau_bdt_training_tree ? "true" : "false"));
@@ -6314,7 +6378,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     recoilJets->setMinJetPt(cfg.jet_pt_min);
     recoilJets->setMinBackToBack(cfg.back_to_back_dphi_min_pi_fraction * M_PI);
     
-    const double recoilJetsVzCutCm = usePPG12PPSimTruthVertex
+    const double recoilJetsVzCutCm = usePPG12PPSimTruthVertexForIso
         ? kPPG12PPSimVertexCutCm
         : cfg.vz_cut_cm;
     recoilJets->setUseVzCut(cfg.use_vz_cut, recoilJetsVzCutCm);
@@ -6607,8 +6671,22 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             }
             if (idEntry.nonTight == "auauBDTSideband")
             {
-                std::cout << " nonTight=(" << cfg.auau_nontight_bdt_min_slope << " * ET + " << cfg.auau_nontight_bdt_min_intercept
-                          << ", " << cfg.auau_nontight_bdt_max_slope << " * ET + " << cfg.auau_nontight_bdt_max_intercept << ")";
+                std::string sidebandModeLower = detail::trim(cfg.auau_nontight_bdt_sideband_mode);
+                std::transform(sidebandModeLower.begin(), sidebandModeLower.end(), sidebandModeLower.begin(),
+                               [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+                if (sidebandModeLower == "relativetotight" || sidebandModeLower == "relative_to_tight" ||
+                    sidebandModeLower == "tightrelative" || sidebandModeLower == "tight_relative")
+                {
+                    std::cout << " nonTight=relativeToTight"
+                              << " tight+[" << cfg.auau_nontight_bdt_relative_min_offset
+                              << "," << cfg.auau_nontight_bdt_relative_max_offset << "]";
+                }
+                else
+                {
+                    std::cout << " nonTight=etLinear("
+                              << cfg.auau_nontight_bdt_min_slope << " * ET + " << cfg.auau_nontight_bdt_min_intercept
+                              << ", " << cfg.auau_nontight_bdt_max_slope << " * ET + " << cfg.auau_nontight_bdt_max_intercept << ")";
+                }
             }
             else
             {
@@ -6744,7 +6822,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         << std::endl;
     }
     recoilJets->setDataType(dtype);
-    recoilJets->setPPG12PhotonYieldUseTruthVertexInPPSim(usePPG12PPSimTruthVertex);
+    recoilJets->setPPG12PhotonYieldUseTruthVertexInPPSim(usePPG12PPSimTruthVertexForIso);
     };
 
     if (env_truthy_local("RJ_PPG12_PHOTON_YIELD") && !isAuAuLike)
@@ -6770,6 +6848,36 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                       << " node=TOPOCLUSTER_ALLCALO"
                       << " towerPrefix=" << towerPrefixPCB
                       << " ppg12TopoConfig=noise(0.0053,0.0351,0.0684),sig(4,2,1),split,goodTowers,absE"
+                      << " before RecoilJets fanout\n";
+        }
+    }
+
+    if (env_truthy_local("RJ_PPG12_FIG8_BUILD_NOSPLIT") &&
+        env_truthy_local("RJ_PPG12_PHOTON_YIELD") &&
+        isSim && !isAuAuLike)
+    {
+        auto* ppg12Fig8NoSplitBuilder =
+            new RawClusterBuilderTemplate("EmcRawClusterBuilderTemplate_PPG12Fig8NoSplit");
+        ppg12Fig8NoSplitBuilder->Detector("CEMC");
+        ppg12Fig8NoSplitBuilder->set_threshold_energy(0.070);
+        const char* calibroot = std::getenv("CALIBRATIONROOT");
+        if (calibroot && std::string(calibroot).size())
+        {
+            const std::string emcProfile =
+                std::string(calibroot) + "/EmcProfile/CEMCprof_Thresh30MeV.root";
+            ppg12Fig8NoSplitBuilder->LoadProfile(emcProfile);
+        }
+        ppg12Fig8NoSplitBuilder->setSubclusterSplitting(false);
+        ppg12Fig8NoSplitBuilder->setOutputClusterNodeName("CLUSTERINFO_CEMC_NO_SPLIT");
+        ppg12Fig8NoSplitBuilder->set_UseTowerInfo(1);
+        ppg12Fig8NoSplitBuilder->Verbosity(0);
+        se->registerSubsystem(ppg12Fig8NoSplitBuilder);
+        if (vlevel > 0)
+        {
+            std::cout << "[PPG12_FIG8] registered no-split template cluster builder"
+                      << " node=CLUSTERINFO_CEMC_NO_SPLIT"
+                      << " threshold=0.070"
+                      << " profile=CEMCprof_Thresh30MeV.root"
                       << " before RecoilJets fanout\n";
         }
     }

@@ -213,6 +213,11 @@ entries:
     domain: "sdcc/workflows/submit"
     hard_aliases:
       []
+  - id: submit_the79_phenix_like_raa_campaign
+    canonical_path: "scripts/sdcc/workflows/submit/submit_the79_phenix_like_raa_campaign.sh"
+    domain: "sdcc/workflows/submit"
+    hard_aliases:
+      []
   - id: submit_auau_mlp_finept_distilled_sweep
     canonical_path: "scripts/sdcc/workflows/submit/submit_auau_mlp_finept_distilled_sweep.sh"
     domain: "sdcc/workflows/submit"

@@ -1249,6 +1249,9 @@ load_firstpass_manifest() {
   [[ -f "${manifest_path}" ]] || fatal "manifest not found: ${manifest_path}"
   # shellcheck disable=SC1090
   source "${manifest_path}"
+  # Older manifests may cache PREFIX_STEM with the leading "dst_" included.
+  # Recompute from PREFIX so list lookup consistently targets dst_<stem>-RUN.list.
+  recompute_prefix_stem
 
   TMP_IS_EPHEMERAL=0
   TMP_EXPECTED_DIR="${TMP_ROOT}/expected_lists"

@@ -58,6 +58,8 @@ class PhotonClusterBuilder : public SubsysReco
 
     void set_use_ppg12_pp_iso_axis(bool use) { m_use_ppg12_pp_iso_axis = use; }
     void set_use_ppg12_pp_sim_truth_vertex(bool use) { m_use_ppg12_pp_sim_truth_vertex = use; }
+    void set_use_ppg12_pp_sim_global_mbd_vertex(bool use) { m_use_ppg12_pp_sim_global_mbd_vertex = use; }
+    void set_use_ppg12_pp_sim_towerinfo_shapes(bool use) { m_use_ppg12_pp_sim_towerinfo_shapes = use; }
     void set_skip_ppg12_edge_clusters(bool skip) { m_skip_ppg12_edge_clusters = skip; }
 
     void set_vz_cut(bool use, float vz_cm) { m_use_vz_cut = use; m_vz_cut_cm = vz_cm; }
@@ -140,6 +142,8 @@ class PhotonClusterBuilder : public SubsysReco
         float m_vz_cut_cm{30.0f};
         bool m_use_ppg12_pp_iso_axis{false};
         bool m_use_ppg12_pp_sim_truth_vertex{false};
+        bool m_use_ppg12_pp_sim_global_mbd_vertex{false};
+        bool m_use_ppg12_pp_sim_towerinfo_shapes{false};
         bool m_skip_ppg12_edge_clusters{false};
         bool m_enable_ss_3x3_moments{false};
 

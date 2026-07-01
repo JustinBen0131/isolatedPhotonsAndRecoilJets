@@ -86,7 +86,7 @@ Modes:
 Common overrides:
   SOURCE=/path ROOT_MANIFEST=/path TAG=name STAMP=YYYYmmdd_HHMMSS
   EVENT_QUALITY_CUT_JSON=/path MODEL_BASE=/path
-  LANES=sample_jet12_20,sample_jet12_20_30
+  LANES=sample_jet12_20,sample_jet12_20_30  # deliberate sample-composition controls
 EOF
 }
 
@@ -232,13 +232,13 @@ lane_config() {
       ;;
     sample_jet12_20)
       LANE_FAMILY="sample-composition"
-      LANE_DESCRIPTION="default 14-feature model with Jet12+20 background only"
+      LANE_DESCRIPTION="sample-composition control: 14-feature model with Jet12+20 background only"
       LANE_BACKGROUND_SAMPLES="run28_embeddedJet12 run28_embeddedJet20"
       LANE_EXPECTED_SAMPLES="run28_embeddedPhoton12,run28_embeddedPhoton20,run28_embeddedJet12,run28_embeddedJet20"
       ;;
     sample_jet12_20_30)
       LANE_FAMILY="sample-composition"
-      LANE_DESCRIPTION="default 14-feature model with Jet12+20+30 background only"
+      LANE_DESCRIPTION="sample-composition control: 14-feature model with Jet12+20+30 background only"
       LANE_BACKGROUND_SAMPLES="run28_embeddedJet12 run28_embeddedJet20 run28_embeddedJet30"
       LANE_EXPECTED_SAMPLES="run28_embeddedPhoton12,run28_embeddedPhoton20,run28_embeddedJet12,run28_embeddedJet20,run28_embeddedJet30"
       ;;
@@ -491,6 +491,9 @@ run_lane() {
     export RJ_AUAU_BDT_PPG12_EXACT_CLOSURE_ARTIFACTS="$PPG12_CLOSURE_ARTIFACTS"
     export RJ_AUAU_TIGHT_BDT_SIGNAL_SAMPLES="$LANE_SIGNAL_SAMPLES"
     export RJ_AUAU_TIGHT_BDT_BACKGROUND_SAMPLES="$LANE_BACKGROUND_SAMPLES"
+    if [[ "$LANE_SIGNAL_SAMPLES" != "$DEFAULT_SIGNAL_SAMPLES" || "$LANE_BACKGROUND_SAMPLES" != "$DEFAULT_BACKGROUND_SAMPLES" ]]; then
+      export RJ_AUAU_TIGHT_BDT_ALLOW_SAMPLE_COMPOSITION_CONTROL=1
+    fi
     export RJ_AUAU_BDT_STAGED_CACHE=1
     export RJ_AUAU_BDT_EXPANDED_GROUP_SIZE="$TRAIN_GROUP_SIZE"
     export RJ_AUAU_BDT_EXPANDED_REQUEST_MEMORY="$TRAIN_REQUEST_MEMORY"

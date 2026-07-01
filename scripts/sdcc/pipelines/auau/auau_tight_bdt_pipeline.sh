@@ -9,13 +9,15 @@ LOCAL_BASE="${RJ_AUAU_TIGHT_BDT_LOCAL_BASE:-${RJ_REPO_BASE}/local_bdt_training_o
 MODEL_BASE="${RJ_AUAU_BDT_MODEL_BASE:-${RJ_REPO_BASE}/bdt_models}"
 MASTER_YAML="${RJ_AUAU_TIGHT_BDT_CONFIG_SRC:-${RJ_REPO_BASE}/macros/analysis_config.yaml}"
 TRAIN_MACRO="${RJ_AUAU_TIGHT_BDT_MACRO:-${RJ_REPO_BASE}/macros/Fun4All_auauTightBDTTraining.C}"
-TRAIN_SCRIPT="${RJ_AUAU_TIGHT_BDT_TRAIN_SCRIPT:-${RJ_REPO_BASE}/scripts/train_auau_photon_bdt.py}"
-VALIDATE_SCRIPT="${RJ_AUAU_TIGHT_BDT_VALIDATE_SCRIPT:-${RJ_REPO_BASE}/scripts/validate_auau_tight_bdt_on_sim.py}"
+TRAIN_SCRIPT="${RJ_AUAU_TIGHT_BDT_TRAIN_SCRIPT:-${RJ_REPO_BASE}/scripts/ml/training/train_auau_photon_bdt.py}"
+VALIDATE_SCRIPT="${RJ_AUAU_TIGHT_BDT_VALIDATE_SCRIPT:-${RJ_REPO_BASE}/scripts/ml/validation/validate_auau_tight_bdt_on_sim.py}"
 ML_PYTHON="${RJ_ML_PYTHON:-${ML_PYTHON:-python3}}"
 NOTIFY_EMAILS="${RJ_NOTIFY_EMAILS:-just0131@gmail.com}"
 
-SIGNAL_SAMPLES=(run28_embeddedPhoton12 run28_embeddedPhoton20)
-BACKGROUND_SAMPLES=(run28_embeddedJet12 run28_embeddedJet20)
+DEFAULT_SIGNAL_SAMPLES=(run28_embeddedPhoton12 run28_embeddedPhoton20)
+DEFAULT_BACKGROUND_SAMPLES=(run28_embeddedJet12 run28_embeddedJet20 run28_embeddedJet30 run28_embeddedJet40)
+SIGNAL_SAMPLES=("${DEFAULT_SIGNAL_SAMPLES[@]}")
+BACKGROUND_SAMPLES=("${DEFAULT_BACKGROUND_SAMPLES[@]}")
 if [[ -n "${RJ_AUAU_TIGHT_BDT_SIGNAL_SAMPLES+x}" ]]; then
   SIGNAL_SAMPLES=()
   if [[ -n "${RJ_AUAU_TIGHT_BDT_SIGNAL_SAMPLES//[[:space:]]/}" ]]; then
@@ -35,6 +37,29 @@ say() { printf '\033[1;36m[auauTightBDT]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[auauTightBDT][WARN]\033[0m %s\n' "$*" >&2; }
 err() { printf '\033[1;31m[auauTightBDT][ERR]\033[0m %s\n' "$*" >&2; }
 die() { err "$*"; exit 2; }
+
+join_by_comma() {
+  local IFS=,
+  printf '%s' "$*"
+}
+
+enforce_default_embedded_samples() {
+  local expected_signal expected_background actual_signal actual_background
+  expected_signal="$(join_by_comma "${DEFAULT_SIGNAL_SAMPLES[@]}")"
+  expected_background="$(join_by_comma "${DEFAULT_BACKGROUND_SAMPLES[@]}")"
+  actual_signal="$(join_by_comma "${SIGNAL_SAMPLES[@]}")"
+  actual_background="$(join_by_comma "${BACKGROUND_SAMPLES[@]}")"
+  if [[ "$actual_signal" == "$expected_signal" && "$actual_background" == "$expected_background" ]]; then
+    return 0
+  fi
+  if [[ "${RJ_AUAU_TIGHT_BDT_ALLOW_SAMPLE_COMPOSITION_CONTROL:-0}" == "1" ]]; then
+    warn "Using non-default AuAu BDT embedded sample composition: signal=${actual_signal:-<none>} background=${actual_background:-<none>}"
+    return 0
+  fi
+  die "AuAu BDT embedded training defaults must be Photon12+20 and Jet12+20+30+40. Got signal=${actual_signal:-<none>} background=${actual_background:-<none>}. Set RJ_AUAU_TIGHT_BDT_ALLOW_SAMPLE_COMPOSITION_CONTROL=1 only for deliberate sample-composition tests."
+}
+
+enforce_default_embedded_samples
 
 guard_generated_path() {
   local label="$1"
@@ -142,8 +167,8 @@ Usage:
   ./scripts/auau_tight_bdt_pipeline.sh generateWorkingPointConfig TEMPLATE=/path WORKING_POINTS=/path PRODUCT_MAP=a=b,c=d OUT=/path [MODEL_DIR=/path]
 
 Sidecar AuAu tight-BDT workflow:
-  extraction reads embeddedPhoton12/20 and embeddedJet12/20 samples by default,
-  with optional explicit sample overrides such as run28_embeddedJet30,
+  extraction reads embeddedPhoton12/20 and embeddedJet12/20/30/40 samples by default,
+  with optional explicit sample overrides for deliberate sample-composition controls,
   writes AuAuPhotonIDTrainingTree ROOT files, and avoids normal cfg-tag
   histogram production. validateOnSim scores those same trees with the
   final TMVA ROOT models and writes quick ROC/AUC simulation diagnostics.
@@ -1143,7 +1168,7 @@ train_expanded_from_extraction() {
   # train under the canonical name centAsFeatBase3x3_pt15to35 (the SAME 14 features as
   # etfine-centstudy's centInput_pt1535). Defaults empty => no change for existing campaigns.
   local extra_base3x3_pt_ranges="${RJ_AUAU_BDT_EXTRA_CENT_AS_FEAT_BASE3X3_PT_RANGES:-}"
-  local ppg12_expected_samples="${RJ_AUAU_BDT_PPG12_EXACT_EXPECTED_SAMPLES:-run28_embeddedPhoton12,run28_embeddedPhoton20,run28_embeddedJet12,run28_embeddedJet20,run28_embeddedJet30}"
+  local ppg12_expected_samples="${RJ_AUAU_BDT_PPG12_EXACT_EXPECTED_SAMPLES:-run28_embeddedPhoton12,run28_embeddedPhoton20,run28_embeddedJet12,run28_embeddedJet20,run28_embeddedJet30,run28_embeddedJet40}"
   local ppg12_closure_dir="${RJ_AUAU_BDT_PPG12_EXACT_CLOSURE_DIR:-${model_dir}/slideReady/ppg12_exact_reweight_bdt}"
   local ppg12_closure_artifacts="${RJ_AUAU_BDT_PPG12_EXACT_CLOSURE_ARTIFACTS:-full}"
   local bdt_test_size="${RJ_AUAU_BDT_TEST_SIZE:-0.10}"
@@ -1328,7 +1353,7 @@ train_expanded_from_extraction_condor() {
   # train under the canonical name centAsFeatBase3x3_pt15to35 (the SAME 14 features as
   # etfine-centstudy's centInput_pt1535). Defaults empty => no change for existing campaigns.
   local extra_base3x3_pt_ranges="${RJ_AUAU_BDT_EXTRA_CENT_AS_FEAT_BASE3X3_PT_RANGES:-}"
-  local ppg12_expected_samples="${RJ_AUAU_BDT_PPG12_EXACT_EXPECTED_SAMPLES:-run28_embeddedPhoton12,run28_embeddedPhoton20,run28_embeddedJet12,run28_embeddedJet20,run28_embeddedJet30}"
+  local ppg12_expected_samples="${RJ_AUAU_BDT_PPG12_EXACT_EXPECTED_SAMPLES:-run28_embeddedPhoton12,run28_embeddedPhoton20,run28_embeddedJet12,run28_embeddedJet20,run28_embeddedJet30,run28_embeddedJet40}"
   local ppg12_closure_dir="${RJ_AUAU_BDT_PPG12_EXACT_CLOSURE_DIR:-${model_dir}/slideReady/ppg12_exact_reweight_bdt}"
   local ppg12_closure_artifacts="${RJ_AUAU_BDT_PPG12_EXACT_CLOSURE_ARTIFACTS:-full}"
   local bdt_test_size="${RJ_AUAU_BDT_TEST_SIZE:-0.10}"
@@ -1547,16 +1572,21 @@ low_pt = [
 errors = []
 if planned.get("defaults", {}).get("weight_mode") != "ppg12-exact":
     errors.append(f"unexpected weight_mode: {planned.get('defaults', {}).get('weight_mode')}")
-if low_pt:
-    errors.append("low-pT model ids found: " + ", ".join(low_pt[:8]))
 expected_pt = [15.0, 17.0, 19.0, 21.0, 23.0, 25.0, 27.0, 30.0, 35.0]
+extended_pt = [15.0, 17.0, 19.0, 21.0, 23.0, 25.0, 27.0, 30.0, 35.0, 40.0]
+ppg12_ext_pt = [5.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0, 24.0, 26.0, 28.0, 32.0, 36.0, 40.0]
 expected_coarse = [[0.0, 20.0], [20.0, 50.0], [50.0, 80.0]]
 expected_fine = [[0.0, 10.0], [10.0, 20.0], [20.0, 30.0], [30.0, 40.0], [40.0, 50.0], [50.0, 60.0], [60.0, 80.0]]
+planned_pt = planned.get("pt_bins") or expected_pt
+allowed_pt_grids = (expected_pt, extended_pt, ppg12_ext_pt)
+campaign = planned.get("campaign")
+allow_low_pt = campaign == "corrected-baseline-binned14" and planned_pt == ppg12_ext_pt
+if low_pt and not allow_low_pt:
+    errors.append("low-pT model ids found: " + ", ".join(low_pt[:8]))
 if planned.get("defaults", {}).get("event_weight_used_for_training") is not False:
     errors.append("event_weight_used_for_training is not false")
 if planned.get("defaults", {}).get("no_cross_section_weights") is not True:
     errors.append("no_cross_section_weights is not true")
-campaign = planned.get("campaign")
 ok_message = ""
 if campaign == "etcent-binned-sixpack-noiso-ptcent7":
     if dict(products) != {"globalEtCent1535_bdt_noIso_ptCent7": 56}:
@@ -1712,12 +1742,17 @@ elif campaign == "corrected-baseline-shower-ladder":
         f"products={dict(products)}, selected={len(models)}, no event/cross-section training weights"
     )
 elif campaign == "corrected-baseline-binned14":
+    if planned_pt not in allowed_pt_grids:
+        errors.append(f"unexpected pt_bins: {planned.get('pt_bins')}")
+    n_pt_bins = max(0, len(planned_pt) - 1)
+    n_coarse = len(expected_coarse)
+    n_fine = len(expected_fine)
     expected_counts = {
-        "base14_perEt": 8,
-        "base14_perCent3": 3,
-        "base14_perCent7": 7,
-        "base14_perEtCent3": 24,
-        "base14_perEtCent7": 56,
+        "base14_perEt": n_pt_bins,
+        "base14_perCent3": n_coarse,
+        "base14_perCent7": n_fine,
+        "base14_perEtCent3": n_pt_bins * n_coarse,
+        "base14_perEtCent7": n_pt_bins * n_fine,
     }
     unknown = sorted(set(products) - set(expected_counts))
     if unknown:
@@ -1728,8 +1763,6 @@ elif campaign == "corrected-baseline-binned14":
         expected = expected_counts.get(product)
         if expected is not None and count > expected:
             errors.append(f"too many models for {product}: {count}, expected <= {expected}")
-    if planned.get("pt_bins") != expected_pt:
-        errors.append(f"unexpected pt_bins: {planned.get('pt_bins')}")
     if planned.get("coarse_cent_bins") != expected_coarse:
         errors.append(f"unexpected coarse_cent_bins: {planned.get('coarse_cent_bins')}")
     if planned.get("fine_cent_bins") != expected_fine:
@@ -1743,7 +1776,7 @@ elif campaign == "corrected-baseline-binned14":
         errors.append("corrected-baseline binned14 feature count mismatch: " + ", ".join(bad_feature_counts[:8]))
     ok_message = (
         "[OK] PPG12-exact preflight: corrected-baseline 14-feature binned products "
-        f"{dict(products)}, 15-35 GeV grid, no event/cross-section training weights"
+        f"{dict(products)}, pT grid={planned_pt}, no event/cross-section training weights"
     )
 elif campaign == "corrected-baseline-iso14":
     allowed = {
@@ -1775,7 +1808,14 @@ elif campaign == "corrected-baseline-iso14":
         f"{dict(products)}, no event/cross-section training weights"
     )
 elif campaign == "expanded-tight":
-    if dict(products) not in ({"centAsFeatBase3x3_pt15to35": 1}, {"centAsFeatBase3x3_pt5to40": 1}):
+    allowed_single_products = (
+        {"centAsFeatBase3x3_pt15to35": 1},
+        {"centAsFeatBase3x3_pt15to40": 1},
+        {"centAsFeatBase3x3_pt8to40": 1},
+        {"centAsFeatBase3x3_pt5to40": 1},
+    )
+    allowed_single_ids = {"centAsFeatBase3x3_pt15to35", "centAsFeatBase3x3_pt15to40", "centAsFeatBase3x3_pt8to40", "centAsFeatBase3x3_pt5to40"}
+    if dict(products) not in allowed_single_products:
         errors.append(f"unexpected products/counts for expanded-tight baseline: {dict(products)}")
     if len(models) != 1 or planned.get("expected_model_count") != 1:
         errors.append(
@@ -1787,7 +1827,7 @@ elif campaign == "expanded-tight":
         feats = model.get("features") or []
         required = {"cluster_Et", "centrality", "cluster_weta33_cogx", "cluster_wphi33_cogx"}
         missing = sorted(required - set(feats))
-        if model.get("model_id") not in {"centAsFeatBase3x3_pt15to35", "centAsFeatBase3x3_pt5to40"}:
+        if model.get("model_id") not in allowed_single_ids:
             errors.append(f"unexpected model_id: {model.get('model_id')}")
         if len(feats) != 14:
             errors.append(f"centAsFeatBase3x3 baseline feature count is not 14: {len(feats)}")
@@ -3014,6 +3054,8 @@ validate_on_sim_condor() {
   local group_size="${RJ_AUAU_TIGHT_BDT_VALIDATE_GROUP_SIZE:-100}"
   local total_score_max="${RJ_AUAU_TIGHT_BDT_VALIDATE_TOTAL_SCORE_MAX_ROWS:-400000}"
   local reqmem="${RJ_AUAU_TIGHT_BDT_VALIDATE_REQUEST_MEMORY:-2500MB}"
+  local merge_universe="${RJ_AUAU_TIGHT_BDT_VALIDATE_MERGE_UNIVERSE:-scheduler}"
+  local merge_reqmem="${RJ_AUAU_TIGHT_BDT_VALIDATE_MERGE_REQUEST_MEMORY:-}"
   for tok in "$@"; do
     case "$tok" in
       SOURCE=*) source="${tok#SOURCE=}" ;;
@@ -3038,6 +3080,10 @@ validate_on_sim_condor() {
   [[ -z "$model_registry" || -s "$model_registry" ]] || die "MODEL_REGISTRY is not a readable file: $model_registry"
   [[ -s "$VALIDATE_SCRIPT" ]] || die "Missing validation script: $VALIDATE_SCRIPT"
   [[ "$group_size" =~ ^[0-9]+$ && "$group_size" -gt 0 ]] || die "groupSize must be a positive integer"
+  case "$merge_universe" in
+    scheduler|vanilla) ;;
+    *) die "RJ_AUAU_TIGHT_BDT_VALIDATE_MERGE_UNIVERSE must be scheduler or vanilla, got: ${merge_universe}" ;;
+  esac
 
   local stamp="${RJ_AUAU_TIGHT_BDT_VALIDATE_STAMP:-$(ts)}"
   local report_root="${outdir:-${source}/reports/model_validation_condor_${stamp}}"
@@ -3058,6 +3104,8 @@ validate_on_sim_condor() {
     "event cut : ${event_quality_cut_json:-<disabled>}" \
     "groupSize : ${group_size}" \
     "requestMem: ${reqmem}" \
+    "mergeUniv : ${merge_universe}" \
+    "mergeMem  : ${merge_reqmem:-<default>}" \
     "scoreMax  : ${total_score_max}"
   mkdir -p "$report_root" "$sub_root" "$shard_dir" "$cache_dir"
 
@@ -3274,12 +3322,17 @@ EOF
 
   local merge_sub="${sub_root}/validate_merge.sub"
   cat > "$merge_sub" <<EOF
-universe = scheduler
+universe = ${merge_universe}
 executable = ${merge}
 output = ${sub_root}/validate_merge.out
 error = ${sub_root}/validate_merge.err
 log = ${sub_root}/validate_merge.log
 notification = Never
+EOF
+  if [[ -n "$merge_reqmem" ]]; then
+    echo "request_memory = ${merge_reqmem}" >> "$merge_sub"
+  fi
+  cat >> "$merge_sub" <<EOF
 queue
 EOF
 

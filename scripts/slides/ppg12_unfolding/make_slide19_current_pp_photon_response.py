@@ -264,7 +264,7 @@ def compose_slide(response_img: Image.Image, response_meta: dict) -> Path:
     panel_label_font = font(42, bold=True)
     bullet_font = font(45, bold=False)
 
-    title_text = "Photon Response Matrix — Truth ↔ Reco Migration"
+    title_text = "Photon Response Matrix - PPG12 Cross-Check"
     title_x = 70
     draw.text((title_x, 42), title_text, font=title_font, fill=(0, 0, 0))
     title_bbox = draw.textbbox((title_x, 42), title_text, font=title_font)
@@ -310,7 +310,7 @@ def compose_slide(response_img: Image.Image, response_meta: dict) -> Path:
         xy=(70, 1218),
         bullets=[
             "RooUnfoldResponse input for inclusive photon-yield unfolding; current IAN Fig. 36 at left, this analysis output at right.",
-            "Validation check: same pT binning and diagonal migration structure are present. Fig. 29 data purity is the next pp-data gate.",
+            "Validation check → same pT binning; inconsistencies are under further study between the PPG12 matrix and this analysis.",
         ],
         max_width=2240,
         body_font=bullet_font,

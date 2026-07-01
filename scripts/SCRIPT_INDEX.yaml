@@ -241,6 +241,16 @@ entries:
       []
     transfer_mappings:
       []
+  - id: replay_auau_photon_candidate_skim
+    canonical_path: "scripts/data_prep/recoiljets/replay_auau_photon_candidate_skim.py"
+    category: "data_prep"
+    domain: "data_prep/recoiljets"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
   - id: extract_clean_scaled_trigger_combined_bins
     canonical_path: "scripts/data_prep/stitching/extract_clean_scaled_trigger_combined_bins.py"
     category: "data_prep"

@@ -87,6 +87,34 @@ namespace
     return value == "0" || value == "false" || value == "no" || value == "off";
   }
 
+  bool ppg12_global_mbd_vertex_z(PHCompositeNode* topNode, float& z)
+  {
+    z = std::numeric_limits<float>::quiet_NaN();
+    auto* gvmap = findNode::getClass<GlobalVertexMap>(topNode, "GlobalVertexMap");
+    if (!gvmap || gvmap->empty()) return false;
+
+    auto* gvertex = gvmap->begin()->second;
+    if (!gvertex) return false;
+
+    bool found = false;
+    auto mbdStartIter = gvertex->find_vertexes(GlobalVertex::MBD);
+    auto mbdEndIter = gvertex->end_vertexes();
+    for (auto iter = mbdStartIter; iter != mbdEndIter; ++iter)
+    {
+      const auto& [type, vertexVec] = *iter;
+      if (type != GlobalVertex::MBD) continue;
+      for (const auto* vertex : vertexVec)
+      {
+        if (!vertex) continue;
+        const float candidate = vertex->get_z();
+        if (!std::isfinite(candidate)) continue;
+        z = candidate;
+        found = true;
+      }
+    }
+    return found;
+  }
+
   bool debug_shape_event_requested(unsigned long long evt)
   {
     const char* raw = std::getenv("RJ_PPG12_SHAPE_DEBUG_EVENTS");
@@ -295,6 +323,8 @@ int PhotonClusterBuilder::InitRun(PHCompositeNode* topNode)
                 << " rawTowermapCEMCShapes=" << (m_use_raw_cluster_towermap_for_cemc_shapes ? "true" : "false")
                 << " ppIsoAxis=" << (m_use_ppg12_pp_iso_axis ? "cogTower" : "cluster")
                 << " ppg12PPSimTruthVertex=" << (m_use_ppg12_pp_sim_truth_vertex ? "true" : "false")
+                << " ppg12PPSimGlobalMbdVertex=" << (m_use_ppg12_pp_sim_global_mbd_vertex ? "true" : "false")
+                << " ppg12PPSimTowerInfoShapes=" << (m_use_ppg12_pp_sim_towerinfo_shapes ? "true" : "false")
                 << " skipPPG12EtaEdge=" << (m_skip_ppg12_edge_clusters ? "true" : "false")
                 << " namedBDT=" << m_named_bdt_scores.size()
                 << " isoTowerPolicy=no_one_sided_cut"
@@ -414,8 +444,8 @@ bool PhotonClusterBuilder::is_cemc_tower_good(TowerInfo* tower, unsigned int tow
 
   // PPG12 Fig.29 SIM trees used only TowerInfo::get_isGood() when forming
   // CEMC shower-shape moments. Keep the stricter local chi2/CDB masking out
-  // of this pp-only parity path so width/BDT inputs match the reference.
-  if (m_use_ppg12_pp_sim_truth_vertex && !m_is_auau)
+  // of this pp-only parity path independently of the vertex convention.
+  if (m_use_ppg12_pp_sim_towerinfo_shapes && !m_is_auau)
   {
     return true;
   }
@@ -659,6 +689,7 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
     // Snapshot what the maps contain (so we can print on skip)
     float mbd_z = std::numeric_limits<float>::quiet_NaN();
     float gv_z  = std::numeric_limits<float>::quiet_NaN();
+    float ppg12_gv_mbd_z = std::numeric_limits<float>::quiet_NaN();
     float truth_z = std::numeric_limits<float>::quiet_NaN();
     size_t mbd_n = 0;
     size_t gv_n  = 0;
@@ -671,6 +702,10 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
         mbd_z = mbdmap->begin()->second->get_z();
       }
     }
+
+    const bool havePPG12GlobalMbdZ =
+        m_use_ppg12_pp_sim_global_mbd_vertex &&
+        ppg12_global_mbd_vertex_z(topNode, ppg12_gv_mbd_z);
 
     if (auto* gvmap = findNode::getClass<GlobalVertexMap>(topNode, "GlobalVertexMap"))
     {
@@ -693,16 +728,30 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
       }
     }
 
-    // 0) Optional PPG12 pp SIM parity mode: Shuhang's Fig.29 SIM analyzer uses
-    // truth vertex for cluster ET, CoG-tower isolation axis, and topo isolation.
+    // 0) Optional diagnostic mode: use the truth vertex for reconstructed
+    // cluster kinematics. This is not enabled by the default PPG12 photon-jet
+    // parity path, which keeps reco-object coordinates on the reco vertex.
     if (m_use_ppg12_pp_sim_truth_vertex && std::isfinite(truth_z))
     {
       m_vertex = truth_z;
       vtx_source = "G4Truth";
     }
 
+    // 0b) PPG12 photon-yield pp-SIM parity mode: CaloAna24 uses the MBD
+    // subvertex stored inside GlobalVertexMap for MC reco-object kinematics.
+    // If that subvertex is absent, PPG12 writes vertexz=-9999 and the
+    // efficiency tool rejects the event; do not fall back to MbdVertexMap.
+    const bool requirePPG12GlobalMbdVertex =
+        m_use_ppg12_pp_sim_global_mbd_vertex && !m_use_ppg12_pp_sim_truth_vertex;
+    if (!std::isfinite(m_vertex) && requirePPG12GlobalMbdVertex && havePPG12GlobalMbdZ)
+    {
+      m_vertex = ppg12_gv_mbd_z;
+      vtx_source = "GlobalVertexMap::MBD(PPG12)";
+      used_global_vertex = true;
+    }
+
     // 1) MBD vertex (preferred, but only if finite)
-    if (!std::isfinite(m_vertex) && std::isfinite(mbd_z))
+    if (!std::isfinite(m_vertex) && !requirePPG12GlobalMbdVertex && std::isfinite(mbd_z))
     {
       m_vertex = mbd_z;
       vtx_source = "MBD";
@@ -710,7 +759,7 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
     }
 
     // 2) Optional fallback: GlobalVertexMap (still reco, only if finite)
-    if (!std::isfinite(m_vertex) && std::isfinite(gv_z))
+    if (!std::isfinite(m_vertex) && !requirePPG12GlobalMbdVertex && std::isfinite(gv_z))
     {
       m_vertex = gv_z;
       vtx_source = "GlobalVertex";
@@ -727,6 +776,7 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
                   << ": [evt=" << s_evt << "] SKIP (no finite reco vertex)"
                   << " | MbdVertexMap n=" << mbd_n << " z=" << (std::isfinite(mbd_z) ? std::to_string(mbd_z) : std::string("NaN/NA"))
                   << " | GlobalVertexMap n=" << gv_n << " z=" << (std::isfinite(gv_z) ? std::to_string(gv_z) : std::string("NaN/NA"))
+                  << " | GlobalVertexMap::MBD(PPG12) z=" << (std::isfinite(ppg12_gv_mbd_z) ? std::to_string(ppg12_gv_mbd_z) : std::string("NaN/NA"))
                   << std::endl;
       }
       return finish_event(Fun4AllReturnCodes::EVENT_OK);
@@ -860,7 +910,8 @@ int PhotonClusterBuilder::process_event(PHCompositeNode* topNode)
         // (e.g. RecoilJets) can read consistent eta/phi/pt and vertex.
         //
         // NOTE:
-        //   - We compute eta/phi using the chosen vertex_z (truth for SIM, MBD for DATA)
+        //   - We compute eta/phi using the chosen vertex_z (normally reco/MBD;
+        //     truth only for the explicit diagnostic override)
         //   - ET = E / cosh(eta)
         //   - For photons, pT == ET (massless)
         // ------------------------------------------------------------------
@@ -1336,7 +1387,9 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
             const bool use_raw_towermap_for_cemc_shapes =
                 m_input_cluster_node == "CLUSTERINFO_CEMC" &&
                 (m_use_raw_cluster_towermap_for_cemc_shapes ||
-                 (!m_is_auau && !m_use_ppg12_pp_sim_truth_vertex));
+                 (!m_is_auau &&
+                  !m_use_ppg12_pp_sim_truth_vertex &&
+                  !m_use_ppg12_pp_sim_towerinfo_shapes));
             if (use_raw_towermap_for_cemc_shapes)
             {
                 const RawTowerDefs::keytype raw_key =

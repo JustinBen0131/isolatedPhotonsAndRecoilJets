@@ -3,7 +3,10 @@ set -euo pipefail
 
 LOCAL_BASE="/Users/patsfan753/Desktop/ThesisAnalysis"
 REMOTE_BASE="/sphenix/u/patsfan753/scratch/thesisAnalysis"
-REMOTE_HOST="patsfan753@sftp.sdcc.bnl.gov"
+REMOTE_HOST="${RJ_SFTP_REMOTE_HOST:-patsfan753@sftp.sdcc.bnl.gov}"
+REMOTE_TRANSPORT="${RJ_SFTP_TRANSPORT:-sftp}"
+REMOTE_SSH_GATEWAY="${RJ_SDCC_SSH_GATEWAY:-patsfan753@ssh.sdcc.bnl.gov}"
+REMOTE_SSH_TARGET="${RJ_SDCC_SSH_TARGET:-sphnxuser05.sdcc.bnl.gov}"
 
 LOCAL_FILES=(
   "scripts/sdcc/runtime/audit/audit_auau_grl_projection.sh"
@@ -42,6 +45,8 @@ LOCAL_FILES=(
   "scripts/sdcc/workflows/target_wp/submit_auau_logreg_targetwp_pair.sh"
   "scripts/sdcc/workflows/target_wp/submit_auau_bdt_target80_config_dir.sh"
   "scripts/sdcc/workflows/target_wp/submit_auau_mlp_targetwp_pair.sh"
+  "scripts/sdcc/workflows/submit/submit_the79_phenix_like_raa_campaign.sh"
+  "scripts/diagnostics/ml_validation/check_the79_phenix_like_raa_inputs.py"
   "scripts/sdcc/workflows/submit/submit_auau_mlp_highpt_sweep.sh"
   "scripts/sdcc/workflows/submit/submit_auau_mlp_kitchensink.sh"
   "scripts/sdcc/workflows/submit/submit_auau_mlp_finept_distilled_sweep.sh"
@@ -90,6 +95,7 @@ LOCAL_FILES=(
   "macros/analysis_config_auau_bdt_validation.yaml"
   "macros/analysis_config_auau_bdt_validation_wp080.yaml"
   "macros/analysis_config_auau_bdt_validation_wp080_no3x3.yaml"
+  "macros/analysis_config_the88_bounded_sideband_default_bdt.yaml"
   "macros/analysis_config_auau_mlp_validation.yaml"
   "macros/analysis_config_auau_mlp_v2_validation.yaml"
   "macros/analysis_config_auau_bdt_widthstudy_pt1530_wp080.yaml"
@@ -98,6 +104,8 @@ LOCAL_FILES=(
   "macros/analysis_config_auau_bdt_mlp_stack_template.yaml"
   "macros/analysis_config_auau_bdt_base3x3_pt5to40_targetwp_template.yaml"
   "macros/analysis_config_the42_wp80_centlinear_ss_overlay.yaml"
+  "macros/analysis_config_the79_phenix_like_raa_pp_ppg12.yaml"
+  "macros/analysis_config_the79_phenix_like_raa_auau_bdt98_wp80.yaml"
   "macros/Calo_Calib.C"
   "macros/Fun4All_recoilJets.C"
   "macros/Fun4All_recoilJets_AuAu.C"
@@ -153,6 +161,8 @@ REMOTE_FILES=(
   "scripts/sdcc/workflows/target_wp/submit_auau_logreg_targetwp_pair.sh"
   "scripts/sdcc/workflows/target_wp/submit_auau_bdt_target80_config_dir.sh"
   "scripts/sdcc/workflows/target_wp/submit_auau_mlp_targetwp_pair.sh"
+  "scripts/sdcc/workflows/submit/submit_the79_phenix_like_raa_campaign.sh"
+  "scripts/diagnostics/ml_validation/check_the79_phenix_like_raa_inputs.py"
   "scripts/sdcc/workflows/submit/submit_auau_mlp_highpt_sweep.sh"
   "scripts/sdcc/workflows/submit/submit_auau_mlp_kitchensink.sh"
   "scripts/sdcc/workflows/submit/submit_auau_mlp_finept_distilled_sweep.sh"
@@ -201,6 +211,7 @@ REMOTE_FILES=(
   "macros/analysis_config_auau_bdt_validation.yaml"
   "macros/analysis_config_auau_bdt_validation_wp080.yaml"
   "macros/analysis_config_auau_bdt_validation_wp080_no3x3.yaml"
+  "macros/analysis_config_the88_bounded_sideband_default_bdt.yaml"
   "macros/analysis_config_auau_mlp_validation.yaml"
   "macros/analysis_config_auau_mlp_v2_validation.yaml"
   "macros/analysis_config_auau_bdt_widthstudy_pt1530_wp080.yaml"
@@ -209,6 +220,8 @@ REMOTE_FILES=(
   "macros/analysis_config_auau_bdt_mlp_stack_template.yaml"
   "macros/analysis_config_auau_bdt_base3x3_pt5to40_targetwp_template.yaml"
   "macros/analysis_config_the42_wp80_centlinear_ss_overlay.yaml"
+  "macros/analysis_config_the79_phenix_like_raa_pp_ppg12.yaml"
+  "macros/analysis_config_the79_phenix_like_raa_auau_bdt98_wp80.yaml"
   "macros/Calo_Calib.C"
   "macros/Fun4All_recoilJets.C"
   "macros/Fun4All_recoilJets_AuAu.C"
@@ -238,6 +251,7 @@ GROUP_MACROS=(
   "macros/analysis_config_auau_bdt_validation.yaml"
   "macros/analysis_config_auau_bdt_validation_wp080.yaml"
   "macros/analysis_config_auau_bdt_validation_wp080_no3x3.yaml"
+  "macros/analysis_config_the88_bounded_sideband_default_bdt.yaml"
   "macros/analysis_config_auau_mlp_validation.yaml"
   "macros/analysis_config_auau_mlp_v2_validation.yaml"
   "macros/analysis_config_auau_bdt_widthstudy_pt1530_wp080.yaml"
@@ -246,6 +260,8 @@ GROUP_MACROS=(
   "macros/analysis_config_auau_bdt_mlp_stack_template.yaml"
   "macros/analysis_config_auau_bdt_base3x3_pt5to40_targetwp_template.yaml"
   "macros/analysis_config_the42_wp80_centlinear_ss_overlay.yaml"
+  "macros/analysis_config_the79_phenix_like_raa_pp_ppg12.yaml"
+  "macros/analysis_config_the79_phenix_like_raa_auau_bdt98_wp80.yaml"
   "macros/Calo_Calib.C"
   "macros/Fun4All_recoilJets.C"
   "macros/Fun4All_recoilJets_AuAu.C"
@@ -291,6 +307,8 @@ GROUP_SCRIPTS=(
   "scripts/sdcc/workflows/target_wp/submit_auau_logreg_targetwp_pair.sh"
   "scripts/sdcc/workflows/target_wp/submit_auau_bdt_target80_config_dir.sh"
   "scripts/sdcc/workflows/target_wp/submit_auau_mlp_targetwp_pair.sh"
+  "scripts/sdcc/workflows/submit/submit_the79_phenix_like_raa_campaign.sh"
+  "scripts/diagnostics/ml_validation/check_the79_phenix_like_raa_inputs.py"
   "scripts/sdcc/workflows/submit/submit_auau_mlp_highpt_sweep.sh"
   "scripts/sdcc/workflows/submit/submit_auau_mlp_kitchensink.sh"
   "scripts/sdcc/workflows/submit/submit_auau_mlp_finept_distilled_sweep.sh"
@@ -346,6 +364,10 @@ Uploads selected known files from the local Mac checkout to the SDCC analysis
 checkout via interactive sftp. No password is stored; sftp prompts normally.
 Upload mode prints the overwrite preview and then starts sftp directly; it does
 not ask for an extra y/N confirmation.
+If the SFTP endpoint rejects the available key but the SDCC SSH gateway works,
+set RJ_SFTP_TRANSPORT=ssh-tar. That transport still uses this mapped-file
+allowlist and path validation, then streams an exact tar payload through the
+approved SSH gateway.
 
 Local organization note:
   Top-level scripts are hard command aliases after THE-23 stage 5. This helper
@@ -794,6 +816,44 @@ run_remote_compare() {
   fi
 }
 
+run_ssh_tar_upload() {
+  local stage_dir tar_file
+  stage_dir="$(mktemp -d "${TMPDIR:-/tmp}/sftp_push_recoiljets_stage.XXXXXX")"
+  tar_file="$(mktemp "${TMPDIR:-/tmp}/sftp_push_recoiljets_payload.XXXXXX.tar")"
+  local i src dst dst_dir
+  for (( i=0; i<${#selected_local[@]}; i++ )); do
+    src="${LOCAL_BASE}/${selected_local[$i]}"
+    dst="${stage_dir}/${selected_remote[$i]}"
+    dst_dir="$(dirname "$dst")"
+    mkdir -p "$dst_dir"
+    cp -p "$(real_abs_path "$src")" "$dst"
+  done
+
+  (cd "$stage_dir" && tar -cf "$tar_file" .)
+
+  if [[ -z "${SSH_AUTH_SOCK:-}" ]] && command -v launchctl >/dev/null 2>&1; then
+    export SSH_AUTH_SOCK="$(launchctl getenv SSH_AUTH_SOCK 2>/dev/null || true)"
+  fi
+
+  echo
+  echo "Using RJ_SFTP_TRANSPORT=ssh-tar"
+  echo "Gateway     : ${REMOTE_SSH_GATEWAY}"
+  echo "Target host : ${REMOTE_SSH_TARGET}"
+  echo "Remote base : ${REMOTE_BASE}"
+  echo "Payload tar : ${tar_file}"
+
+  if ssh "${REMOTE_SSH_GATEWAY}" \
+      "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${REMOTE_SSH_TARGET} 'mkdir -p ${REMOTE_BASE} && cd ${REMOTE_BASE} && tar -xf -'" \
+      < "$tar_file"; then
+    rm -rf "$stage_dir" "$tar_file"
+    return 0
+  fi
+
+  local status=$?
+  rm -rf "$stage_dir" "$tar_file"
+  return "$status"
+}
+
 if (( $# == 0 )); then
   usage
   exit 2
@@ -934,7 +994,15 @@ echo "sftp batch commands:"
 sed 's/^/  /' "$batch_file"
 echo
 echo "Opening interactive sftp. Enter your SDCC password when prompted."
-if sftp \
+if [[ "$REMOTE_TRANSPORT" == "ssh-tar" ]]; then
+  if run_ssh_tar_upload; then
+    :
+  else
+    status=$?
+    echo "[ERROR] ssh-tar upload failed with exit code ${status}." >&2
+    exit "$status"
+  fi
+elif sftp \
     -oBatchMode=no \
     -oPreferredAuthentications=password,keyboard-interactive,publickey \
     -b "$batch_file" \

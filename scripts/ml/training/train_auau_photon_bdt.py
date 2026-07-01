@@ -35,6 +35,7 @@ PPG12_EXACT_EXPECTED_SAMPLES = (
     "run28_embeddedJet12",
     "run28_embeddedJet20",
     "run28_embeddedJet30",
+    "run28_embeddedJet40",
 )
 PPG12_EXACT_SAMPLE_ALIASES = (
     ("run28_embeddedPhoton12", ("run28_embeddedPhoton12", "embeddedPhoton12", "Photon12")),
@@ -1738,7 +1739,7 @@ def make_ppg12_exact_closure_plots(
         color="#374151",
     )
     lines = [
-        "1. Load Photon12+20 signal and Jet12+20+30 background candidates.",
+        "1. Load Photon12+20 signal and Jet12+20+30+40 background candidates.",
         "2. Class-balance signal and background total weight.",
         "3. For each class independently: flatten cluster eta with a spline inverse-PDF in -0.7 < eta < 0.7.",
         "4. For each class independently: flatten cluster ET with a spline inverse-PDF over the observed ET range.",

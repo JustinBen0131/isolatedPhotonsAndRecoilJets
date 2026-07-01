@@ -73,6 +73,11 @@ entries:
     canonical_path: "scripts/data_prep/recoiljets/extract_recoiljets_reco_efficiency.py"
     aliases:
       []
+  - id: replay_auau_photon_candidate_skim
+    group: "data_prep/recoiljets"
+    canonical_path: "scripts/data_prep/recoiljets/replay_auau_photon_candidate_skim.py"
+    aliases:
+      []
   - id: extract_clean_scaled_trigger_combined_bins
     group: "data_prep/stitching"
     canonical_path: "scripts/data_prep/stitching/extract_clean_scaled_trigger_combined_bins.py"

@@ -71,7 +71,22 @@ def get_hist(file_handle: ROOT.TFile, hist_name: str) -> ROOT.TH1:
     raise RuntimeError(f"missing histogram {hist_name} in {file_handle.GetName()}")
 
 
-def read_current_root(path: Path) -> dict[str, dict[tuple[float, float], tuple[float, float]]]:
+def _hist_axis_bins(hist: ROOT.TH1) -> list[tuple[float, float]]:
+    axis = hist.GetXaxis()
+    return [
+        (float(axis.GetBinLowEdge(ibin)), float(axis.GetBinUpEdge(ibin)))
+        for ibin in range(1, hist.GetNbinsX() + 1)
+    ]
+
+
+def _sigabcd_hist_name(lo: float, hi: float) -> str:
+    return f"h_sigABCD_MC_pT_{int(round(lo))}_{int(round(hi))}"
+
+
+def read_current_root(
+    path: Path,
+    signal_source: str = "ppg12_named",
+) -> dict[str, dict[tuple[float, float], tuple[float, float]]]:
     file_handle = ROOT.TFile.Open(str(path))
     if not file_handle or file_handle.IsZombie():
         raise RuntimeError(f"cannot open current ROOT file: {path}")
@@ -84,6 +99,19 @@ def read_current_root(path: Path) -> dict[str, dict[tuple[float, float], tuple[f
             lo_hi = (float(axis.GetBinLowEdge(ibin)), float(axis.GetBinUpEdge(ibin)))
             bins[lo_hi] = (float(hist.GetBinContent(ibin)), float(hist.GetBinError(ibin)))
         out[hist_name] = bins
+    if signal_source == "sigabcd":
+        base_hist = get_hist(file_handle, HISTS["A"])
+        for lo_hi in _hist_axis_bins(base_hist):
+            sig_hist = get_hist(file_handle, _sigabcd_hist_name(*lo_hi))
+            for ibin, short in enumerate(("A", "B", "C", "D"), start=1):
+                hist_name = HISTS[short]
+                if sig_hist:
+                    out[hist_name][lo_hi] = (
+                        float(sig_hist.GetBinContent(ibin)),
+                        float(sig_hist.GetBinError(ibin)),
+                    )
+                else:
+                    out[hist_name][lo_hi] = (0.0, 0.0)
     file_handle.Close()
     return out
 
@@ -274,13 +302,24 @@ def main() -> int:
     parser.add_argument("--current-root", type=Path, default=DEFAULT_CURRENT_ROOT)
     parser.add_argument("--ppg12-stage-csv", type=Path, default=DEFAULT_PPG12_STAGE)
     parser.add_argument("--outdir", type=Path, default=DEFAULT_OUTDIR)
+    parser.add_argument(
+        "--current-signal-source",
+        choices=("ppg12_named", "sigabcd"),
+        default="ppg12_named",
+        help=(
+            "Use PPG12-named signal histograms by default. Use sigabcd to read "
+            "A/B/C/D from h_sigABCD_MC_pT_* counters for the histogram-wiring "
+            "forecast validated by the THE-76 canary."
+        ),
+    )
     args = parser.parse_args()
 
     args.outdir.mkdir(parents=True, exist_ok=True)
     ppg12 = read_ppg12_stage(args.ppg12_stage_csv)
-    current = read_current_root(args.current_root)
+    current = read_current_root(args.current_root, args.current_signal_source)
     rows = build_rows(ppg12, current)
-    stem = "current_vs_ppg12_fig29_leakage_stage_parity"
+    suffix = "" if args.current_signal_source == "ppg12_named" else f"_{args.current_signal_source}"
+    stem = f"current_vs_ppg12_fig29_leakage_stage_parity{suffix}"
     csv_path = args.outdir / f"{stem}.csv"
     md_path = args.outdir / f"{stem}.md"
     png_path = args.outdir / f"{stem}.png"

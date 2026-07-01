@@ -385,6 +385,9 @@ public:
         m_vzCut    = static_cast<float>(vz);
     }
     void setMinBiasClassifier(bool on) { m_useMinBiasClassifier = on; }
+    // pp-only unified-macro compatibility; AuAu vertex handling is unchanged.
+    void setPPG12PhotonYieldUseTruthVertexInPPSim(bool = true) {}
+    void setPPG12PhotonYieldUseTruthVertexForRecoObjectsInPPSim(bool = true) {}
     void setGammaPtBins(const std::vector<double>& bins)
     {
         // Canonical pT^gamma binning for ALL photon-binned histograms (reco + truth):
@@ -866,6 +869,9 @@ private:
     const AuAuTightBDTWorkingPoint* activeAuAuTightBDTWorkingPoint() const;
     double configuredAuAuTightBDTMin(double et) const;
     double configuredAuAuTightBDTMax(double et) const;
+    double configuredAuAuNonTightBDTMin(const SSVars& v) const;
+    double configuredAuAuNonTightBDTMax(const SSVars& v) const;
+    bool configuredAuAuNonTightBDTPass(double score, const SSVars& v) const;
     void parseAuAuTightMLPWorkingPointEntries(const std::vector<std::string>& entries);
     const AuAuTightBDTWorkingPoint* activeAuAuTightMLPWorkingPoint() const;
     double configuredAuAuTightMLPMin(double et) const;
@@ -904,6 +910,31 @@ private:
                                  bool hasAwayJet = false,
                                  double eisoR30 = std::numeric_limits<double>::quiet_NaN(),
                                  double eisoR40 = std::numeric_limits<double>::quiet_NaN());
+    void initAuAuPhotonCandidateSkimTree();
+    void fillAuAuPhotonCandidateSkimTree(PHCompositeNode* topNode,
+                                         const PhotonClusterv1* pho,
+                                         const std::vector<std::string>& activeTrig,
+                                         const SSVars& v,
+                                         double eta,
+                                         double phi,
+                                         double eiso,
+                                         double eisoR30,
+                                         double eisoR40,
+                                         int ptIdx,
+                                         int centIdx,
+                                         bool preselectionPass,
+                                         TightTag activeTightTag,
+                                         bool iso,
+                                         bool nonIso,
+                                         double isoThreshold,
+                                         double nonIsoThreshold,
+                                         double isoSideGap,
+                                         bool haveTruthLabel,
+                                         bool isSignal,
+                                         int clusterTruthTrackId = -1,
+                                         int clusterTruthPid = 0,
+                                         int clusterTruthBarcode = -1,
+                                         float clusterTruthEContrib = std::numeric_limits<float>::quiet_NaN());
     void initTHE44PythiaAutopsyTree();
     void fillTHE44PythiaAutopsyTree(const SSVars& v,
                                     double eta,
@@ -1200,6 +1231,17 @@ private:
     TH2F* getOrBookUnfoldResponsePhoPtGamma    (const std::string& trig, int centIdx);
     TH1F* getOrBookUnfoldRecoPhoFakesPtGamma   (const std::string& trig, int centIdx);
     TH1F* getOrBookUnfoldTruthPhoMissesPtGamma (const std::string& trig, int centIdx);
+
+    // photon-efficiency stage QA (SIM only): truth-pT binned denominators and numerators
+    TH1F* getOrBookPhotonEffStagePtGamma       (const std::string& trig, int centIdx,
+                                                const std::string& base,
+                                                const std::string& yTitle,
+                                                bool useIsoViewSuffix);
+    TH1F* getOrBookPhotonEffTruthDenPtGamma    (const std::string& trig, int centIdx);
+    TH1F* getOrBookPhotonEffRecoPtGamma        (const std::string& trig, int centIdx);
+    TH1F* getOrBookPhotonEffRecoIsoPtGamma     (const std::string& trig, int centIdx);
+    TH1F* getOrBookPhotonEffRecoTightPtGamma   (const std::string& trig, int centIdx);
+    TH1F* getOrBookPhotonEffRecoTightIsoPtGamma(const std::string& trig, int centIdx);
     
     // unfolding QA helpers (SIM only): explicit matched distributions + type-split fakes/misses
     TH2F* getOrBookUnfoldTruthMatchedPtXJIncl      (const std::string& trig, const std::string& rKey, int centIdx);
@@ -1462,6 +1504,9 @@ private:
     double m_auauNonTightBDTMinSlope = -0.01333333333333333;
     double m_auauNonTightBDTMaxIntercept = 0.6666666666666666;
     double m_auauNonTightBDTMaxSlope = 0.003333333333333336;
+    std::string m_auauNonTightBDTSidebandMode = "etLinear";
+    double m_auauNonTightBDTRelativeMinOffset = -0.20;
+    double m_auauNonTightBDTRelativeMaxOffset = -0.03;
     std::vector<int> m_auauTightBDTCentDepEdges;
     std::vector<std::string> m_auauTightBDTCentDepScoreNames;
     std::string m_auauTightBDTModelFile;
@@ -1865,6 +1910,95 @@ private:
     float m_bdtTrain_auau_tight_mlp_score = -2.0f;
     float m_bdtTrain_auau_tight_bdt_mlp_score = -2.0f;
     float m_bdtTrain_auau_tight_logreg_score = -2.0f;
+
+    bool m_auauPhotonCandidateSkimEnabled = false;
+    long long m_auauPhotonCandidateSkimMaxEntries = 0;
+    long long m_auauPhotonCandidateSkimEntries = 0;
+    TTree* m_auauPhotonCandidateSkimTree = nullptr;
+    int m_phoSkim_run = 0;
+    long long m_phoSkim_evt = 0;
+    long long m_phoSkim_event_count = 0;
+    int m_phoSkim_is_sim = 0;
+    int m_phoSkim_is_sim_embedded = 0;
+    int m_phoSkim_sample_code = 0;
+    int m_phoSkim_pt_bin = -1;
+    int m_phoSkim_cent_bin = -1;
+    std::string m_phoSkim_active_triggers;
+    unsigned long long m_phoSkim_gl1_scaled_vector = 0ULL;
+    float m_phoSkim_cluster_et = 0.0f;
+    float m_phoSkim_cluster_eta = 0.0f;
+    float m_phoSkim_cluster_phi = 0.0f;
+    float m_phoSkim_centrality = -1.0f;
+    float m_phoSkim_vertexz = 0.0f;
+    float m_phoSkim_event_weight = 1.0f;
+    float m_phoSkim_event_calo_cemc_energy = 0.0f;
+    float m_phoSkim_event_calo_ihcal_energy = 0.0f;
+    float m_phoSkim_event_calo_ohcal_energy = 0.0f;
+    float m_phoSkim_event_calo_total_energy = 0.0f;
+    float m_phoSkim_weta = 0.0f;
+    float m_phoSkim_wphi = 0.0f;
+    float m_phoSkim_weta33 = 0.0f;
+    float m_phoSkim_wphi33 = 0.0f;
+    float m_phoSkim_weta35 = 0.0f;
+    float m_phoSkim_wphi53 = 0.0f;
+    float m_phoSkim_et1 = 0.0f;
+    float m_phoSkim_et2 = 0.0f;
+    float m_phoSkim_et3 = 0.0f;
+    float m_phoSkim_et4 = 0.0f;
+    float m_phoSkim_e11e33 = 0.0f;
+    float m_phoSkim_e32e35 = 0.0f;
+    float m_phoSkim_e11e22 = 0.0f;
+    float m_phoSkim_e11e13 = 0.0f;
+    float m_phoSkim_e11e15 = 0.0f;
+    float m_phoSkim_e11e17 = 0.0f;
+    float m_phoSkim_e11e31 = 0.0f;
+    float m_phoSkim_e11e51 = 0.0f;
+    float m_phoSkim_e11e71 = 0.0f;
+    float m_phoSkim_e22e33 = 0.0f;
+    float m_phoSkim_e22e35 = 0.0f;
+    float m_phoSkim_e22e37 = 0.0f;
+    float m_phoSkim_e22e53 = 0.0f;
+    float m_phoSkim_w32 = 0.0f;
+    float m_phoSkim_w52 = 0.0f;
+    float m_phoSkim_w72 = 0.0f;
+    float m_phoSkim_mean_time = -999.0f;
+    float m_phoSkim_eiso = 0.0f;
+    float m_phoSkim_eiso_r30 = 0.0f;
+    float m_phoSkim_eiso_r40 = 0.0f;
+    float m_phoSkim_iso_threshold = 0.0f;
+    float m_phoSkim_noniso_threshold = 0.0f;
+    float m_phoSkim_iso_side_gap = 0.0f;
+    int m_phoSkim_iso_pass = 0;
+    int m_phoSkim_noniso_pass = 0;
+    int m_phoSkim_iso_gap = 0;
+    int m_phoSkim_preselection_pass = 0;
+    int m_phoSkim_active_tight_tag = 0;
+    int m_phoSkim_active_abcd_region = 0;
+    float m_phoSkim_npb_score = -2.0f;
+    int m_phoSkim_npb_pass = 0;
+    float m_phoSkim_auau_npb_score = -2.0f;
+    float m_phoSkim_ppg12_tight_bdt_score = -2.0f;
+    float m_phoSkim_auau_tight_bdt_score = -2.0f;
+    float m_phoSkim_baseline_wp80_threshold = -2.0f;
+    int m_phoSkim_baseline_bdt_tight = 0;
+    int m_phoSkim_baseline_bdt_nontight = 0;
+    int m_phoSkim_baseline_bdt_abcd_region = 0;
+    int m_phoSkim_box_tight = 0;
+    int m_phoSkim_box_nontight = 0;
+    int m_phoSkim_box_fail_count = 0;
+    int m_phoSkim_box_abcd_region = 0;
+    int m_phoSkim_have_truth_label = 0;
+    int m_phoSkim_is_truth_signal = 0;
+    int m_phoSkim_cluster_truth_track_id = -1;
+    int m_phoSkim_cluster_truth_pid = 0;
+    int m_phoSkim_cluster_truth_barcode = -1;
+    float m_phoSkim_cluster_truth_econtrib = -999.0f;
+    std::string m_phoSkim_lead_recoil_rkey;
+    float m_phoSkim_lead_recoil_pt = -1.0f;
+    float m_phoSkim_lead_recoil_eta = -999.0f;
+    float m_phoSkim_lead_recoil_phi = -999.0f;
+    float m_phoSkim_lead_recoil_dphi = -999.0f;
+    float m_phoSkim_lead_xj = -1.0f;
 
     bool m_the44PythiaAutopsyEnabled = false;
     long long m_the44PythiaAutopsyMaxEntries = 200;
