@@ -62,6 +62,7 @@
 #include <bitset>
 #include <cstdint>
 #include <cmath>
+#include <fstream>
 #include <iomanip>
 #include <limits>
 #include <map>
@@ -739,7 +740,9 @@ private:
     bool ppg12PhotonYieldTowerMasked(const PhotonClusterv1* pho) const;
     double ppg12PhotonYieldKinematicVertexZ() const;
     bool ppg12PhotonYieldInResponseWindow(double recoPt, double truthPt) const;
+    double ppg12Fig36TruthPriorWeight(double truthPt) const;
     bool loadPPG12PhotonYieldTowerMask();
+    int currentRunNumber() const;
     bool ppg12PeriodRunContains(int runNumber) const;
     void fillPPG12VertexContractQA(const std::vector<std::string>& activeTrig,
                                    bool preVzCut);
@@ -973,6 +976,11 @@ private:
                                   const std::string& ptToken,
                                   const std::string& centToken,
                                   int cutIdx);
+  TH2D* getOrBookPPG12TimingHist(const std::string& trig,
+                                 const std::string& name,
+                                 const std::string& title,
+                                 int xBins, double xMin, double xMax,
+                                 int yBins, double yMin, double yMax);
   TH1F* getOrBookPPG12Fig13E11E33Hist(const std::string& trig,
                                       const std::string& sampleKey,
                                       const std::string& ptToken,
@@ -984,11 +992,33 @@ private:
   TH1F* getOrBookPPG12IsoStackHist(const std::string& trig,
                                    const std::string& tightness,
                                    int ptIdx);
+  TH2F* getOrBookPPG12Fig11ETIsoHist(const std::string& trig,
+                                     const std::string& sampleKey);
+  TH1D* getOrBookPPG12Fig11AuditHist(const std::string& trig);
+  int findPPG12Fig24RecoPtBin(double recoEt) const;
+  std::string ppg12Fig24RecoPtSuffix(int ptIdx) const;
+  TH2F* getOrBookPPG12Fig24ETIsoHist(const std::string& trig,
+                                     const std::string& name);
+  TH1F* getOrBookPPG12Fig24IsoHist(const std::string& trig,
+                                   int ptIdx);
+  TH1D* getOrBookPPG12Fig24AuditHist(const std::string& trig);
+  void fillPPG12Fig11SBDiagnostic(const std::vector<std::string>& activeTrig,
+                                  const SSVars& v,
+                                  double eta,
+                                  double recoEtForBinning,
+                                  double rawTopoEisoEt,
+                                  bool ppPhotonSignalContext,
+                                  bool isPPG12Signal,
+                                  double photonSampleWeight,
+                                  bool ppInclusiveJetContext,
+                                  bool ppInclusiveJetPassR04,
+                                  double inclusiveJetSampleWeight);
   void fillPPG12Fig13E11E33(const std::vector<std::string>& activeTrig,
                             const SSVars& v,
                             double eisoEt,
                             const std::string& sampleKey,
-                            int cutIdx);
+                            int cutIdx,
+                            double ptForBinning = std::numeric_limits<double>::quiet_NaN());
   void fillPPG12IsoStackQA(const std::vector<std::string>& activeTrig,
                            double ptGamma,
                            double eisoEt,
@@ -999,7 +1029,20 @@ private:
                         double eisoEt,
                         int centIdx,
                         int cutIdx,
-                        double rowWeight = 1.0);
+                        double rowWeight = 1.0,
+                        double ptForBinning = std::numeric_limits<double>::quiet_NaN());
+  bool computePPG12ClusterMbdTiming(const SSVars& v,
+                                    double& clusterMbdDeltaT,
+                                    double& clusterTime,
+                                    double& mbdTime) const;
+  bool passPPG12Fig14NpbMbdTimingSelection(const SSVars& v,
+                                           double phi) const;
+  void fillPPG12Fig14Fig15TimingQA(const std::vector<std::string>& activeTrig,
+                                   const SSVars& v,
+                                   double eta,
+                                   double phi,
+                                   double ptForBinning = std::numeric_limits<double>::quiet_NaN(),
+                                   double rowWeight = 1.0);
   double ppg12TableQABDTScore(const SSVars& v) const;
   bool isPPG12TableQADataNPBTaggedCluster(const SSVars& v,
                                           double phi,
@@ -1071,6 +1114,27 @@ private:
   TH2F* getOrBookUnfoldResponsePhoPtGammaPPG12Obj    (const std::string& trig, int centIdx);
   TH1F* getOrBookUnfoldRecoPhoFakesPtGammaPPG12Obj   (const std::string& trig, int centIdx);
   TH1F* getOrBookUnfoldTruthPhoMissesPtGammaPPG12Obj (const std::string& trig, int centIdx);
+
+  // Explicit Fig.37-style response inputs using the xJgamma leading-photon tag.
+  // These mirror the existing photon-only unfolding bookkeeping, but with stable
+  // names for downstream PPG12 iteration-stability reproduction checks.
+  TH1F* getOrBookPPG12Fig37LeadTagInput1D(const std::string& trig,
+                                          const std::string& name,
+                                          const std::vector<double>& bins,
+                                          const std::string& xAxisTitle,
+                                          const std::string& yAxisTitle);
+  TH2F* getOrBookPPG12Fig37LeadTagResponse2D(const std::string& trig,
+                                             const std::string& name);
+  void fillPPG12Fig37LeadTagInput1D(const std::vector<std::string>& activeTrig,
+                                    const std::string& name,
+                                    const std::vector<double>& bins,
+                                    const std::string& xAxisTitle,
+                                    const std::string& yAxisTitle,
+                                    double value);
+  void fillPPG12Fig37LeadTagResponse(const std::vector<std::string>& activeTrig,
+                                     const std::string& name,
+                                     double truthPt,
+                                     double recoPt);
 
   // unfolding QA helpers (SIM only): explicit matched distributions + type-split fakes/misses
   TH2F* getOrBookUnfoldTruthMatchedPtXJIncl      (const std::string& trig, const std::string& rKey, int centIdx);
@@ -1246,6 +1310,7 @@ private:
   void fillInclusiveJetQA(const std::vector<std::string>& activeTrig,
                           int centIdx,
                           const std::string& rKey);
+  bool fillPPG12InclusiveJetTruthSpectrumQA(PHCompositeNode* topNode = nullptr);
 
   void fillSelectedJetQA(const std::vector<std::string>& activeTrig,
                          int ptIdx, int centIdx,
@@ -1537,6 +1602,7 @@ private:
   bool m_ppg12TableQAEnabled = false;
   bool m_ppg12TableQANPBDataTaggingEnabled = false;
   bool m_ppg12Fig7TriggerDiagnostic = false;
+  bool m_ppg12Fig11SBDiagnostic = false;
   bool m_ppg12Fig13Bit30Diagnostic = false;
   bool m_ppg12Fig13ParityQA = false;
   double m_ppg12TableQANPBTagTimeSampleNs = 17.6;
@@ -1544,6 +1610,9 @@ private:
   double m_ppg12TableQANPBWetaMin = 0.4;
   double m_ppg12TableQANPBAwayJetPtMin = 5.0;
   double m_ppg12TableQANPBAwayJetDPhiMin = 1.5707963267948966;
+  double m_ppg12Fig14NPBMbdWetaMin = 0.6;
+  double m_ppg12TableQAMcIsoScale = 1.2;
+  double m_ppg12TableQAMcIsoShift = 0.2;
   std::string m_ppg12TableQAMbdT0CorrectionFile;
   std::map<int, double> m_ppg12TableQAMbdT0Correction;
   std::set<std::string> m_ppg12TableQASchemaBookedTriggers;
@@ -1582,6 +1651,25 @@ private:
   double m_ppg12PeriodFDouble = -1.0;
   double m_ppg12PeriodFSingle = -1.0;
   double m_ppg12PeriodClosureZCut = -1.0;
+  bool m_ppg12Fig6EventCanaryEnabled = false;
+  bool m_ppg12Fig6FilledThisEvent = false;
+  long long m_ppg12Fig6EventCanaryMaxRows = 6000;
+  long long m_ppg12Fig6EventCanaryRowsWritten = 0;
+  std::string m_ppg12Fig6EventCanaryPath;
+  std::string m_ppg12Fig6EventCanarySummaryPath;
+  std::ofstream m_ppg12Fig6EventCanaryOut;
+  long long m_ppg12Fig6CanaryEventsSeen = 0;
+  long long m_ppg12Fig6CanaryValidTruthJets = 0;
+  long long m_ppg12Fig6CanaryOwnedWindowEvents = 0;
+  long long m_ppg12Fig6CanaryRawOwnedEntries = 0;
+  double m_ppg12Fig6CanaryWeightedOwnedIntegral = 0.0;
+  double m_ppg12Fig6CanarySumXsecFactor = 0.0;
+  double m_ppg12Fig6CanarySumLumiFactor = 0.0;
+  double m_ppg12Fig6CanarySumMixFactor = 0.0;
+  double m_ppg12Fig6CanarySumVertexWeight = 0.0;
+  double m_ppg12Fig6CanarySumFinalFillWeight = 0.0;
+  double m_ppg12Fig6CanaryIANSuffixIntegral = std::numeric_limits<double>::quiet_NaN();
+  double m_ppg12Fig6CanaryTruePeriodIntegral = std::numeric_limits<double>::quiet_NaN();
   std::set<std::string> m_ppg12PhotonYieldSchemaBookedTriggers;
   std::vector<double> m_ppg12PhotonYieldRecoPtBins =
       {10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 32, 36};
