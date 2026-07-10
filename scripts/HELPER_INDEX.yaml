@@ -474,6 +474,11 @@ entries:
     canonical_path: "scripts/plotting/efficiency/make_auau_final_id_efficiency_overlays.py"
     aliases:
       []
+  - id: make_the96_auau_isolation_efficiency_fits
+    group: "plotting/efficiency"
+    canonical_path: "scripts/plotting/efficiency/make_the96_auau_isolation_efficiency_fits.py"
+    aliases:
+      []
   - id: make_basev3e_direct_truth_purity_efficiency
     group: "plotting/efficiency"
     canonical_path: "scripts/plotting/efficiency/make_basev3e_direct_truth_purity_efficiency.py"

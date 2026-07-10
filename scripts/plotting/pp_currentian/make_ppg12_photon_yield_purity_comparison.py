@@ -35,7 +35,7 @@ DEFAULT_SIGNAL_ROOT = (
 DEFAULT_OUTDIR = REPO / "dataOutput/ppg12PhotonYield/ppg12_photon_yield_v1_data_20260620/purity_fig29_comparison"
 IAN_PDF = REPO / "usefulDocs/PPG12_analysis_note_2026-05-21_v4_current_IAN.pdf"
 PDFTOPPM = Path("/Users/patsfan753/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/pdftoppm")
-TRIGGER_DIR = "Photon_4_GeV_plus_MBD_NS_geq_1"
+TRIGGER_DIR = "PPG12_scaledtrigger30"
 SIM_DIR = "SIM"
 PT_EDGES = [10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 32, 36]
 

@@ -1139,6 +1139,16 @@ entries:
       []
     transfer_mappings:
       []
+  - id: make_the96_auau_isolation_efficiency_fits
+    canonical_path: "scripts/plotting/efficiency/make_the96_auau_isolation_efficiency_fits.py"
+    category: "plotting"
+    domain: "plotting/efficiency"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
   - id: make_basev3e_direct_truth_purity_efficiency
     canonical_path: "scripts/plotting/efficiency/make_basev3e_direct_truth_purity_efficiency.py"
     category: "plotting"

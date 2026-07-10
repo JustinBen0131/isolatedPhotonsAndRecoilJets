@@ -8,6 +8,7 @@ Outputs:
 
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import math
@@ -49,7 +50,7 @@ CURRENT_ROOT = REPO / (
     "preselectionNewPPG12_tightNewPPG12_nonTightNewPPG12.root"
 )
 
-HIST_DIR = "Photon_4_GeV_plus_MBD_NS_geq_1"
+HIST_DIR = "PPG12_scaledtrigger30"
 CURRENT_HISTS = [
     "h_ss_weta_inclusive_pT_22_24",
     "h_ss_weta_inclusive_pT_24_26",
@@ -80,6 +81,7 @@ def read_sdcc() -> dict[str, np.ndarray]:
         "centers": np.asarray(payload["centers"], dtype=float),
         "values": np.asarray(payload["values"], dtype=float),
         "errors": np.asarray(payload["errors"], dtype=float),
+        "raw_sum": float(payload.get("raw_sum", 0.0)),
     }
 
 
@@ -193,12 +195,56 @@ def write_digitized_overlay() -> None:
     )
 
 
-def extract_current_fullpp() -> tuple[np.ndarray, np.ndarray, np.ndarray, float, float]:
+def hist_to_arrays(hist, *, xmin: float, xmax: float) -> tuple[np.ndarray, np.ndarray, np.ndarray, float, float]:
+    nbins = hist.GetNbinsX()
+    overflow_entries = float(hist.GetBinContent(nbins + 1))
+    first = hist.GetXaxis().FindBin(xmin + 1e-6)
+    last = hist.GetXaxis().FindBin(xmax - 1e-6)
+    norm = float(hist.Integral(first, last))
+    if norm <= 0:
+        raise RuntimeError(f"Current pp has no entries in {xmin} <= weta_cogx <= {xmax}")
+
+    xs, ys, errs = [], [], []
+    axis = hist.GetXaxis()
+    for ibin in range(first, last + 1):
+        xs.append(0.5 * (axis.GetBinLowEdge(ibin) + axis.GetBinUpEdge(ibin)))
+        ys.append(float(hist.GetBinContent(ibin)) / norm)
+        errs.append(float(hist.GetBinError(ibin)) / norm)
+    return np.asarray(xs), np.asarray(ys), np.asarray(errs), norm, overflow_entries
+
+
+def extract_current_exact_hist(
+    root_path: Path,
+    hist_name: str,
+    *,
+    rebin: int,
+    xmin: float,
+    xmax: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, float, float]:
     import ROOT
 
-    root_file = ROOT.TFile.Open(str(CURRENT_ROOT))
+    root_file = ROOT.TFile.Open(str(root_path))
     if not root_file or root_file.IsZombie():
-        raise RuntimeError(f"Could not open current ROOT: {CURRENT_ROOT}")
+        raise RuntimeError(f"Could not open current ROOT: {root_path}")
+    hist = root_file.Get(hist_name)
+    if not hist:
+        root_file.Close()
+        raise RuntimeError(f"Missing exact current histogram: {hist_name}")
+    clone = hist.Clone("h_current_exact_weta_cogx")
+    clone.SetDirectory(0)
+    root_file.Close()
+    if rebin > 1:
+        clone = clone.Rebin(rebin, f"{clone.GetName()}_rebin{rebin}")
+        clone.SetDirectory(0)
+    return hist_to_arrays(clone, xmin=xmin, xmax=xmax)
+
+
+def extract_current_fullpp(current_root: Path = CURRENT_ROOT) -> tuple[np.ndarray, np.ndarray, np.ndarray, float, float]:
+    import ROOT
+
+    root_file = ROOT.TFile.Open(str(current_root))
+    if not root_file or root_file.IsZombie():
+        raise RuntimeError(f"Could not open current ROOT: {current_root}")
     combined = None
     raw_entries = 0.0
     missing: list[str] = []
@@ -226,24 +272,36 @@ def extract_current_fullpp() -> tuple[np.ndarray, np.ndarray, np.ndarray, float,
     norm_entries = visible_entries + overflow_entries
     rebinned = combined.Rebin(4, "h_current_fullpp_weta_rebinned_004")
     rebinned.SetDirectory(0)
-    first = rebinned.GetXaxis().FindBin(0.000001)
-    last = rebinned.GetXaxis().FindBin(1.999999)
-    norm = norm_entries
-    if norm <= 0:
-        raise RuntimeError("Current pp has no entries in 0 <= weta_cogx <= 2")
-
-    xs, ys, errs = [], [], []
-    axis = rebinned.GetXaxis()
-    for ibin in range(first, last + 1):
-        xs.append(0.5 * (axis.GetBinLowEdge(ibin) + axis.GetBinUpEdge(ibin)))
-        ys.append(float(rebinned.GetBinContent(ibin)) / norm)
-        errs.append(float(rebinned.GetBinError(ibin)) / norm)
-    return np.asarray(xs), np.asarray(ys), np.asarray(errs), raw_entries, overflow_entries
+    xs, ys, errs, _, _ = hist_to_arrays(rebinned, xmin=0.0, xmax=2.0)
+    # Legacy h_ss_weta histograms put the 1.2-2.0 tail into overflow, so retain
+    # the historical normalization for that diagnostic path.
+    if norm_entries > 0:
+        ys *= float(rebinned.Integral(1, rebinned.GetNbinsX())) / norm_entries
+        errs *= float(rebinned.Integral(1, rebinned.GetNbinsX())) / norm_entries
+    return xs, ys, errs, raw_entries, overflow_entries
 
 
-def write_current_overlay() -> None:
+def write_current_overlay(args: argparse.Namespace | None = None) -> None:
     sdcc = read_sdcc()
-    cur_x, cur_y, cur_err, raw_entries, overflow_entries = extract_current_fullpp()
+    output = CURRENT_PNG
+    current_root = CURRENT_ROOT
+    current_hists: list[str] | str = CURRENT_HISTS
+    if args is not None:
+        output = args.output
+        current_root = args.current_root
+        if args.current_hist:
+            current_hists = args.current_hist
+            cur_x, cur_y, cur_err, raw_entries, overflow_entries = extract_current_exact_hist(
+                current_root,
+                args.current_hist,
+                rebin=args.current_rebin,
+                xmin=0.0,
+                xmax=2.0,
+            )
+        else:
+            cur_x, cur_y, cur_err, raw_entries, overflow_entries = extract_current_fullpp(current_root)
+    else:
+        cur_x, cur_y, cur_err, raw_entries, overflow_entries = extract_current_fullpp()
     ref_mask = sdcc["centers"] <= (float(np.max(cur_x)) + 1e-6)
     ref_x = sdcc["centers"][ref_mask]
     ref_y = sdcc["values"][ref_mask]
@@ -256,9 +314,23 @@ def write_current_overlay() -> None:
     for i, (r, y, ey, yr, eyr) in enumerate(zip(ratio, cur_y, cur_err, ref_y, ref_err)):
         if np.isfinite(r) and y > 0 and yr > 0:
             ratio_err[i] = abs(r) * math.sqrt((ey / y) ** 2 + (eyr / yr) ** 2)
+    max_dev_percent = float(np.nanmax(np.abs(ratio - 1.0)) * 100.0)
+
+    if args is not None and args.current_hist:
+        cmp_label = args.current_legend
+        extra_text = None
+        stats_text = (
+            f"PPG12 SDCC N={sdcc['raw_sum']:.0f}\n"
+            f"July 1 final pp N={raw_entries:.0f}\n"
+            rf"max $|R-1|$ = {max_dev_percent:.1f}%"
+        )
+    else:
+        cmp_label = "Current default pp data"
+        extra_text = f"current full pp, N={raw_entries:.0f}; overflow={overflow_entries:.0f}"
+        stats_text = None
 
     plot_two_point_overlay(
-        CURRENT_PNG,
+        output,
         x_ref=ref_x,
         y_ref=ref_y,
         e_ref=ref_err,
@@ -266,7 +338,7 @@ def write_current_overlay() -> None:
         y_cmp=cur_y,
         e_cmp=cur_err,
         ref_label="PPG12 SDCC data",
-        cmp_label="Current default pp data",
+        cmp_label=cmp_label,
         cmp_color="#1f77b4",
         cmp_marker="s",
         ratio=ratio,
@@ -274,22 +346,44 @@ def write_current_overlay() -> None:
         ratio_label="Current / PPG12",
         y_lim=(0.0, Y_MAX),
         ratio_lim=(0.0, 2.6),
-        extra_text=f"current full pp, N={raw_entries:.0f}; overflow={overflow_entries:.0f}",
+        extra_text=extra_text,
+        stats_text=stats_text,
     )
-    CURRENT_MANIFEST.write_text(
+    manifest = output.with_name(output.stem + "_manifest.json")
+    if args is not None and args.current_hist:
+        current_axis_note = (
+            "Exact TableQA h1d_weta_cogx_eta0_pt3_cut0 spans 0 <= weta_cogx <= 2; "
+            "entries above 2 are recorded as overflow and are not included in the normalized plotted range."
+        )
+        note = (
+            "Current points are from the final hierarchical July 1 combined pp ROOT, using the exact "
+            "PPG12 TableQA 22<pT<28 GeV no-NPB weta_cogx object, rebinned to the PPG12 Fig. 13 grid."
+        )
+    else:
+        current_axis_note = (
+            "Existing current pp histograms span 0 <= weta_cogx <= 1.2; entries above 1.2 are in "
+            "overflow and cannot be shape-compared to the PPG12 0-2 tail."
+        )
+        note = (
+            "Current points are the full-pp PhotonClusterBuilder h_ss_weta_inclusive pT 22-28 GeV "
+            "sum, rebinned and normalized to the PPG12 Fig. 13 convention."
+        )
+
+    manifest.write_text(
         json.dumps(
             {
-                "artifact": str(CURRENT_PNG),
-                "current_root": str(CURRENT_ROOT),
+                "artifact": str(output),
+                "current_root": str(current_root),
                 "current_hist_dir": HIST_DIR,
-                "current_hists": CURRENT_HISTS,
+                "current_hists": current_hists,
                 "current_raw_entries": raw_entries,
                 "current_overflow_entries": overflow_entries,
-                "current_axis_note": "Existing current pp histograms span 0 <= weta_cogx <= 1.2; entries above 1.2 are in overflow and cannot be shape-compared to the PPG12 0-2 tail.",
+                "current_axis_note": current_axis_note,
                 "sdcc_json": str(SDCC_JSON),
+                "sdcc_raw_entries": float(sdcc["raw_sum"]),
                 "mean_abs_ratio_minus_one": float(np.nanmean(np.abs(ratio - 1.0))),
                 "max_abs_ratio_minus_one": float(np.nanmax(np.abs(ratio - 1.0))),
-                "note": "Current points are the full-pp PhotonClusterBuilder h_ss_weta_inclusive pT 22-28 GeV sum, rebinned and normalized to the PPG12 Fig. 13 convention.",
+                "note": note,
             },
             indent=2,
             sort_keys=True,
@@ -317,6 +411,7 @@ def plot_two_point_overlay(
     y_lim: tuple[float, float],
     ratio_lim: tuple[float, float],
     extra_text: str | None = None,
+    stats_text: str | None = None,
 ) -> None:
     plt.rcParams.update(
         {
@@ -378,7 +473,25 @@ def plot_two_point_overlay(
     ax.text(0.055, 0.650, "no NPB cut", transform=ax.transAxes, fontsize=11)
     if extra_text:
         ax.text(0.055, 0.590, extra_text, transform=ax.transAxes, fontsize=10)
-    ax.legend(loc="upper right", frameon=False, fontsize=13.5, handlelength=1.4)
+    ax.legend(
+        loc="upper right",
+        frameon=False,
+        fontsize=16.0,
+        handlelength=1.4,
+        borderaxespad=0.35,
+        labelspacing=0.55,
+    )
+    if stats_text:
+        ax.text(
+            0.590,
+            0.790,
+            stats_text,
+            transform=ax.transAxes,
+            fontsize=15.0,
+            va="top",
+            ha="left",
+            linespacing=1.55,
+        )
 
     rax.axhline(1.0, color="black", lw=1.0, ls=(0, (4, 4)))
     rax.errorbar(
@@ -405,11 +518,24 @@ def plot_two_point_overlay(
     plt.close(fig)
 
 
+def parse_args() -> argparse.Namespace:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--current-root", type=Path, default=CURRENT_ROOT)
+    ap.add_argument("--current-hist", default=None)
+    ap.add_argument("--current-rebin", type=int, default=2)
+    ap.add_argument("--current-legend", default="July 1 final pp data")
+    ap.add_argument("--output", type=Path, default=CURRENT_PNG)
+    ap.add_argument("--skip-digitized", action="store_true")
+    return ap.parse_args()
+
+
 def main() -> None:
-    write_digitized_overlay()
-    write_current_overlay()
-    print(DIGITIZED_PNG)
-    print(CURRENT_PNG)
+    args = parse_args()
+    if not args.skip_digitized:
+        write_digitized_overlay()
+        print(DIGITIZED_PNG)
+    write_current_overlay(args)
+    print(args.output)
 
 
 if __name__ == "__main__":

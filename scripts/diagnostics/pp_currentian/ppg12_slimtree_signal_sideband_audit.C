@@ -271,9 +271,9 @@ void ppg12_slimtree_signal_sideband_audit(long long max_entries)
             cluster_weta_cogx[ic] < 2.0 &&
             cluster_npb_score[ic] > 0.5;
 
-        const double tight_bdt_min = 0.8333333333333334 - 0.003333333333333336 * et;
+        const double tight_bdt_min = 0.815625 - 0.0015625 * et;
         const double nt_bdt_min = 0.7333333333333333 - 0.01333333333333333 * et;
-        const double nt_bdt_max = 0.6666666666666666 + 0.003333333333333336 * et;
+        const double nt_bdt_max = 0.684375 + 0.0015625 * et;
 
         const bool tightProb = open_interval(cluster_prob[ic], 0.0, 1.0);
         const bool tightWeta = open_interval(cluster_weta_cogx[ic], 0.0, 1.0);

@@ -35,7 +35,7 @@ DEFAULT_OUT = (
     / "ppg12_sdcc_vs_current_default_fullpp_e11_e33_data_overlay_slidefit_772x998.png"
 )
 
-HIST_DIR = "Photon_4_GeV_plus_MBD_NS_geq_1"
+HIST_DIR = "PPG12_scaledtrigger30"
 CURRENT_HISTS = [
     "h_ss_e11e33_inclusive_pT_22_24",
     "h_ss_e11e33_inclusive_pT_24_26",
@@ -47,17 +47,65 @@ def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--ppg12-json", type=Path, default=DEFAULT_PPG12_JSON)
     ap.add_argument("--current-root", type=Path, default=DEFAULT_CURRENT_ROOT)
+    ap.add_argument(
+        "--current-hist",
+        default=None,
+        help=(
+            "Optional exact current histogram path inside the ROOT file. "
+            "When set, this bypasses the legacy h_ss_e11e33 22-28 fallback sum."
+        ),
+    )
+    ap.add_argument("--current-legend", default="Current default pp data")
+    ap.add_argument("--current-note", default="current full pp")
     ap.add_argument("--output", type=Path, default=DEFAULT_OUT)
     return ap.parse_args()
 
 
-def extract_current(root_path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+def hist_to_arrays(hist) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+    raw_entries = float(hist.Integral())
+    first = hist.GetXaxis().FindBin(0.000001)
+    last = hist.GetXaxis().FindBin(0.999999)
+    norm = float(hist.Integral(first, last))
+    if norm <= 0:
+        raise RuntimeError("Current pp has no entries in 0 <= E11/E33 <= 1")
+
+    xs = []
+    ys = []
+    errs = []
+    axis = hist.GetXaxis()
+    for ibin in range(first, last + 1):
+        xs.append(0.5 * (axis.GetBinLowEdge(ibin) + axis.GetBinUpEdge(ibin)))
+        ys.append(float(hist.GetBinContent(ibin)) / norm)
+        errs.append(float(hist.GetBinError(ibin)) / norm)
+    return np.asarray(xs), np.asarray(ys), np.asarray(errs), raw_entries
+
+
+def infer_count_from_normalized_errors(values: np.ndarray, errors: np.ndarray) -> float:
+    """Recover the source count when y=n/N and err=sqrt(n)/N."""
+    counts = [
+        (float(y) / float(err)) ** 2
+        for y, err in zip(values, errors)
+        if y > 0 and err > 0
+    ]
+    return float(sum(counts))
+
+
+def extract_current(root_path: Path, current_hist: str | None) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
     root_file = ROOT.TFile.Open(str(root_path))
     if not root_file or root_file.IsZombie():
         raise RuntimeError(f"Could not open current ROOT: {root_path}")
 
+    if current_hist:
+        hist = root_file.Get(current_hist)
+        if not hist:
+            root_file.Close()
+            raise RuntimeError(f"Missing exact current histogram: {current_hist}")
+        clone = hist.Clone("h_current_exact_e11e33")
+        clone.SetDirectory(0)
+        root_file.Close()
+        return hist_to_arrays(clone)
+
     combined = None
-    raw_entries = 0.0
     missing: list[str] = []
     for hist_name in CURRENT_HISTS:
         full_name = f"{HIST_DIR}/{hist_name}"
@@ -80,21 +128,7 @@ def extract_current(root_path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray
 
     rebinned = combined.Rebin(4, "h_current_fullpp_e11e33_rebinned_004")
     rebinned.SetDirectory(0)
-    first = rebinned.GetXaxis().FindBin(0.000001)
-    last = rebinned.GetXaxis().FindBin(0.999999)
-    norm = float(rebinned.Integral(first, last))
-    if norm <= 0:
-        raise RuntimeError("Current pp has no entries in 0 <= E11/E33 <= 1")
-
-    xs = []
-    ys = []
-    errs = []
-    for ibin in range(first, last + 1):
-        axis = rebinned.GetXaxis()
-        xs.append(0.5 * (axis.GetBinLowEdge(ibin) + axis.GetBinUpEdge(ibin)))
-        ys.append(float(rebinned.GetBinContent(ibin)) / norm)
-        errs.append(float(rebinned.GetBinError(ibin)) / norm)
-    return np.asarray(xs), np.asarray(ys), np.asarray(errs), raw_entries
+    return hist_to_arrays(rebinned)
 
 
 def main() -> None:
@@ -105,12 +139,14 @@ def main() -> None:
     ref_x = np.asarray(ppg12_payload["centers"], dtype=float)
     ref_y = np.asarray(ppg12_payload["values"], dtype=float)
     ref_err = np.asarray(ppg12_payload["errors"], dtype=float)
-    cur_x, cur_y, cur_err, raw_entries = extract_current(args.current_root)
+    cur_x, cur_y, cur_err, raw_entries = extract_current(args.current_root, args.current_hist)
 
     if len(cur_x) != len(ref_x) or not np.allclose(cur_x, ref_x, atol=1e-6):
         raise RuntimeError("Current and PPG12 E11/E33 bin centers do not match")
 
     ratio = np.divide(cur_y, ref_y, out=np.full_like(cur_y, np.nan), where=ref_y > 0)
+    max_dev_percent = float(np.nanmax(np.abs(ratio - 1.0)) * 100.0)
+    ref_entries = infer_count_from_normalized_errors(ref_y, ref_err)
     ratio_err = np.zeros_like(ratio)
     for i, (r, y, ey, yr, eyr) in enumerate(zip(ratio, cur_y, cur_err, ref_y, ref_err)):
         if not np.isfinite(r) or y <= 0 or yr <= 0:
@@ -161,7 +197,7 @@ def main() -> None:
         ms=5.0,
         lw=1.0,
         capsize=0,
-        label="Current default pp data",
+        label=args.current_legend,
         zorder=4,
     )
 
@@ -186,8 +222,28 @@ def main() -> None:
     ax.text(0.050, 0.780, r"$|\eta^\gamma|<0.7$", transform=ax.transAxes, fontsize=11)
     ax.text(0.050, 0.715, r"$22<p_T<28$ GeV", transform=ax.transAxes, fontsize=11)
     ax.text(0.050, 0.650, "no NPB cut", transform=ax.transAxes, fontsize=11)
-    ax.text(0.050, 0.590, f"current full pp, N={raw_entries:.0f}", transform=ax.transAxes, fontsize=10)
-    ax.legend(loc="upper right", frameon=False, fontsize=14.0, handlelength=1.4)
+    ax.legend(
+        loc="upper right",
+        frameon=False,
+        fontsize=16.0,
+        handlelength=1.4,
+        borderaxespad=0.35,
+        labelspacing=0.55,
+    )
+    ax.text(
+        0.590,
+        0.790,
+        (
+            f"PPG12 SDCC N={ref_entries:.0f}\n"
+            f"{args.current_note} N={raw_entries:.0f}\n"
+            rf"max $|R-1|$ = {max_dev_percent:.1f}%"
+        ),
+        transform=ax.transAxes,
+        fontsize=15.0,
+        va="top",
+        ha="left",
+        linespacing=1.55,
+    )
 
     rax.axhline(1.0, color="black", lw=1.0, ls=(0, (4, 4)))
     rax.errorbar(

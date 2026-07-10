@@ -43,7 +43,7 @@ PHOTON_SAMPLES = [
 ]
 
 JET_SAMPLES = [
-    Sample("jet", "jet8", 1.3013e7, 9.0, 14.0, "#E7298A", "h_max_truth_jet_pt_filtered"),
+    Sample("jet", "jet8", 1.15e7, 9.0, 14.0, "#E7298A", "h_max_truth_jet_pt_filtered"),
     Sample("jet", "jet12", 1.4903e6, 14.0, 21.0, "#33A02C", "h_max_truth_jet_pt_filtered"),
     Sample("jet", "jet20", 6.2623e4, 21.0, 32.0, "#1F78B4", "h_max_truth_jet_pt_filtered"),
     Sample("jet", "jet30", 2.5298e3, 32.0, 42.0, "#FF7F00", "h_max_truth_jet_pt_filtered"),

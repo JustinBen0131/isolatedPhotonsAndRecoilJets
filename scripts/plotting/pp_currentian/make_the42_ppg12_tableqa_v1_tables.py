@@ -338,12 +338,12 @@ def chi2_summary(data_arrays, inc_arrays) -> dict | None:
 def npb_tail_scale(files: dict[str, ROOT.TFile], table: dict) -> float:
     xlim = (0.0, 2.0)
     data = raw_project_arrays(
-        get_hist(files["data"], "Photon_4_GeV_plus_MBD_NS_geq_1", "weta_cogx", table["pt_token"], "cut0"),
+        get_hist(files["data"], "PPG12_scaledtrigger30", "weta_cogx", table["pt_token"], "cut0"),
         4,
         xlim,
     )
     npb = raw_project_arrays(
-        get_hist(files["data"], "Photon_4_GeV_plus_MBD_NS_geq_1", "weta_cogx", table["pt_token"], "cut4"),
+        get_hist(files["data"], "PPG12_scaledtrigger30", "weta_cogx", table["pt_token"], "cut4"),
         4,
         xlim,
     )
@@ -477,7 +477,7 @@ def draw_table(
 
         cut = table["cut"]
         data = norm_arrays(
-            get_hist(files["data"], "Photon_4_GeV_plus_MBD_NS_geq_1", var, table["pt_token"], cut),
+            get_hist(files["data"], "PPG12_scaledtrigger30", var, table["pt_token"], cut),
             use_rebin,
             xlim,
         )
@@ -494,7 +494,7 @@ def draw_table(
         draw_shape(ax, inc, label="Inclusive MC", color="blue")
         if table.get("include_npb_template"):
             npb = norm_arrays(
-                get_hist(files["data"], "Photon_4_GeV_plus_MBD_NS_geq_1", var, table["pt_token"], "cut4"),
+                get_hist(files["data"], "PPG12_scaledtrigger30", var, table["pt_token"], "cut4"),
                 use_rebin,
                 xlim,
             )

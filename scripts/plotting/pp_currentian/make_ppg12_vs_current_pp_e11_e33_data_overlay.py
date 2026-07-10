@@ -38,7 +38,7 @@ DEFAULT_OUT = (
     / "ppg12_sdcc_vs_current_pp_canary_e11_e33_data_overlay.png"
 )
 
-HIST_DIR = "Photon_4_GeV_plus_MBD_NS_geq_1"
+HIST_DIR = "PPG12_scaledtrigger30"
 CURRENT_HISTS = [
     "h_ss_e11e33_inclusive_pT_22_24",
     "h_ss_e11e33_inclusive_pT_24_26",

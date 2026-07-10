@@ -77,7 +77,7 @@ class Sample:
 
 
 SAMPLES: tuple[Sample, ...] = (
-    Sample("run28_jet8", "jet8", 1.3013e7, 15.0, r"$p_T^{truth\,jet}<14$", "#808080", "o"),
+    Sample("run28_jet8", "jet8", 1.15e7, 15.0, r"$p_T^{truth\,jet}<14$", "#808080", "o"),
     Sample("run28_jet12", "jet12", 1.4903e6, 23.0, r"$14\leq p_T^{truth\,jet}<21$", "#214cc3", "s"),
     Sample("run28_jet20", "jet20", 6.2623e4, 35.0, r"$21\leq p_T^{truth\,jet}<32$", "#ee7212", "^"),
     Sample("run28_jet30", "jet30", 2.5298e3, 45.0, r"$32\leq p_T^{truth\,jet}<42$", "#cc2ba8", "v"),
@@ -551,7 +551,7 @@ def build_summary(
         },
         "metadata_histogram": META_PATH,
         "weight_formula": weight_formula,
-        "xsec_source": "sPHENIX wiki-updated pp inclusive cross sections recorded in local RecoilJets constants",
+        "xsec_source": "PPG12 nominal pp inclusive cross sections recorded in local RecoilJets constants",
         "output_csv": str(csv_path),
         "output_summary": str(summary_path),
         "samples": summary_samples,

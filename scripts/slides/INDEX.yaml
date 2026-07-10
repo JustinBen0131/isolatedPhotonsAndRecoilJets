@@ -11,6 +11,50 @@ common_utilities:
   - scripts/slides/common/slide_symmetry_audit.py
   - scripts/slides/common/post_render_slide_audit.py
 generators:
+  - id: make_the96_r03_baseline_isolation_fit_slides
+    status: canonical
+    group: "isolation_working_points"
+    campaign: "auau_isolation_baseline5pct"
+    slide_key: "THE96_r03_baseline_isolation_fit_diagnostics"
+    canonical_path: "scripts/slides/auau_isolation/make_the96_r03_baseline_isolation_fit_slides.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: "THE-96 R=0.3 baseline nominal 15-35 cutoff-point, flat-fit, and linear-fit CSVs under dataOutput/auau/isolation_baseline5pct_the96_20260709/r03_baseline_nominal_15to35/"
+    default_output_folder: dataOutput/auau/isolation_baseline5pct_the96_20260709/r03_baseline_nominal_15to35/slide_candidates/
+    last_known_png: dataOutput/auau/isolation_baseline5pct_the96_20260709/r03_baseline_nominal_15to35/slide_candidates/auau_r03_baseline_isolation_pt_flat_fits_slide.png
+  - id: make_the96_r04_baseline_isolation_fit_slides
+    status: canonical
+    group: "isolation_working_points"
+    campaign: "auau_isolation_baseline5pct"
+    slide_key: "THE96_r04_baseline_isolation_fit_diagnostics"
+    canonical_path: "scripts/slides/auau_isolation/make_the96_r03_baseline_isolation_fit_slides.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "shared_generator_use_--cone_R40"
+    expected_inputs: "THE-96 R=0.4 baseline nominal 15-35 cutoff-point, flat-fit, and linear-fit CSVs under dataOutput/auau/isolation_baseline5pct_the96_20260709/r04_baseline_nominal_15to35/"
+    default_output_folder: dataOutput/auau/isolation_baseline5pct_the96_20260709/r04_baseline_nominal_15to35/slide_candidates/
+    last_known_png: dataOutput/auau/isolation_baseline5pct_the96_20260709/r04_baseline_nominal_15to35/slide_candidates/auau_r04_baseline_isolation_pt_flat_fits_slide.png
+  - id: make_the96_r03_topocluster_isolation_fit_slides
+    status: canonical
+    group: "isolation_working_points"
+    campaign: "auau_isolation_baseline5pct"
+    slide_key: "THE96_r03_topocluster_isolation_fit_diagnostics"
+    canonical_path: "scripts/slides/auau_isolation/make_the96_r03_baseline_isolation_fit_slides.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "shared_generator_use_--cone_R30_--algorithm_topocluster"
+    expected_inputs: "THE-96 R=0.3 topocluster nominal 15-35 cutoff-point, flat-fit, and linear-fit CSVs under dataOutput/auau/isolation_baseline5pct_the96_20260709/r03_topocluster_nominal_15to35/"
+    default_output_folder: dataOutput/auau/isolation_baseline5pct_the96_20260709/r03_topocluster_nominal_15to35/slide_candidates/
+    last_known_png: dataOutput/auau/isolation_baseline5pct_the96_20260709/r03_topocluster_nominal_15to35/slide_candidates/auau_r03_topocluster_isolation_pt_flat_fits_slide.png
+  - id: make_the96_r03_baseline_expanded_isolation_fit_slides
+    status: canonical
+    group: "isolation_working_points"
+    campaign: "auau_isolation_baseline5pct"
+    slide_key: "THE96_r03_baseline_expanded_5to40_isolation_fit_diagnostics"
+    canonical_path: "scripts/slides/auau_isolation/make_the96_r03_baseline_isolation_fit_slides.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "shared_generator_use_--cone_R30_--algorithm_baseline_--pt-scheme_expanded"
+    expected_inputs: "THE-96 R=0.3 baseline expanded 5-40 cutoff-point, flat-fit, and linear-fit CSVs under dataOutput/auau/isolation_baseline5pct_the96_20260709/r03_baseline_expanded_5to40/"
+    default_output_folder: dataOutput/auau/isolation_baseline5pct_the96_20260709/r03_baseline_expanded_5to40/slide_candidates/
+    last_known_png: dataOutput/auau/isolation_baseline5pct_the96_20260709/r03_baseline_expanded_5to40/slide_candidates/auau_r03_baseline_isolation_pt_flat_fits_slide.png
   - id: make_the79_training_window_problem_slide
     status: canonical
     group: "model_selection"
