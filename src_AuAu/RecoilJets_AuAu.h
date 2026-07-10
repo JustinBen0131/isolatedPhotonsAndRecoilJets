@@ -815,6 +815,10 @@ private:
     void fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
                                          const std::vector<std::string>& activeTrig,
                                          const int centIdx);
+
+    void fillAuAuEmbeddedTruthIsolationDiagnostics(
+        PHCompositeNode* topNode,
+        const std::vector<std::string>& activeTrig);
     
     void processCandidates(PHCompositeNode* topNode, const std::vector<std::string>& activeTrig);
     void fillPi0MassVsPtHistograms(const std::string& trig, RawClusterContainer* clusterContainer, bool useCorr);
@@ -1638,13 +1642,13 @@ private:
     mutable bool m_auauTightLogRegModelInitAttempted = false;
     mutable AuAuTightBDTMLPStackModel m_auauTightLogRegModel;
 
-    double m_tightBDTMinIntercept = 0.8333333333333334;
-    double m_tightBDTMinSlope = -0.003333333333333336;
+    double m_tightBDTMinIntercept = 0.815625;
+    double m_tightBDTMinSlope = -0.0015625;
     double m_tightBDTMax = 1.0;
     double m_nonTightBDTMinIntercept = 0.7333333333333333;
     double m_nonTightBDTMinSlope = -0.01333333333333333;
-    double m_nonTightBDTMaxIntercept = 0.6666666666666666;
-    double m_nonTightBDTMaxSlope = 0.003333333333333336;
+    double m_nonTightBDTMaxIntercept = 0.684375;
+    double m_nonTightBDTMaxSlope = 0.0015625;
     
     double m_phoid_tight_w_lo           = 0.0;
     double m_phoid_tight_w_hi_intercept = 0.15;
@@ -1685,6 +1689,7 @@ private:
     double m_isoConeR  = 0.3;
     double m_isoTowMin = 0.0;
     bool   m_isSlidingIso = true;
+    bool   m_useTopoClusterIsolationForEiso = false;
     std::vector<IsoView> m_internalIsoViews;
     std::string m_activeIsoViewSuffix;
     

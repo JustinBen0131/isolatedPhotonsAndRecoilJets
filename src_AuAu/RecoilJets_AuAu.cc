@@ -301,14 +301,14 @@ namespace
     constexpr double kPPG12PreE32E35Min = 0.8;
     constexpr double kPPG12PreE32E35Max = 1.0;
 
-    constexpr double kPPG12TightBDTMinIntercept = 0.8333333333333334;
-    constexpr double kPPG12TightBDTMinSlope = -0.003333333333333336;
+    constexpr double kPPG12TightBDTMinIntercept = 0.815625;
+    constexpr double kPPG12TightBDTMinSlope = -0.0015625;
     constexpr double kPPG12TightBDTMax = 1.0;
 
     constexpr double kPPG12NonTightBDTMinIntercept = 0.7333333333333333;
     constexpr double kPPG12NonTightBDTMinSlope = -0.01333333333333333;
-    constexpr double kPPG12NonTightBDTMaxIntercept = 0.6666666666666666;
-    constexpr double kPPG12NonTightBDTMaxSlope = 0.003333333333333336;
+    constexpr double kPPG12NonTightBDTMaxIntercept = 0.684375;
+    constexpr double kPPG12NonTightBDTMaxSlope = 0.0015625;
 
     struct PPG12TableQAVarDef
     {
@@ -3408,6 +3408,8 @@ int RecoilJets::Init(PHCompositeNode* topNode)
                                                      m_auauNonTightBDTRelativeMinOffset);
   m_auauNonTightBDTRelativeMaxOffset = initEnvDouble("RJ_AUAU_NONTIGHT_BDT_RELATIVE_MAX_OFFSET",
                                                      m_auauNonTightBDTRelativeMaxOffset);
+  m_useTopoClusterIsolationForEiso =
+    initEnvBool("RJ_AUAU_USE_TOPOCLUSTER_ISOLATION", m_useTopoClusterIsolationForEiso);
   m_ppg12TableQAEnabled = initEnvBool("RJ_PPG12_TABLE_QA", m_ppg12TableQAEnabled);
   m_the44PythiaAutopsyEnabled = initEnvBool("RJ_THE44_PYTHIA_AUTOPSY", m_the44PythiaAutopsyEnabled);
   m_the44PythiaAutopsyMaxEntries = initEnvLL("RJ_THE44_PYTHIA_AUTOPSY_MAX_ENTRIES", m_the44PythiaAutopsyMaxEntries);
@@ -3432,6 +3434,11 @@ int RecoilJets::Init(PHCompositeNode* topNode)
   {
     LOG(1, CLR_MAGENTA,
         "[Init] RJ_PPG12_TABLE_QA=1: writing PPG12_TABLE_QA_V1 TH2 histograms");
+  }
+  if (m_useTopoClusterIsolationForEiso)
+  {
+    LOG(1, CLR_MAGENTA,
+        "[Init] RJ_AUAU_USE_TOPOCLUSTER_ISOLATION=1: eiso() reads PhotonClusterBuilder topo-cluster isolation scalars");
   }
 
   /* 0.  book-keeping & QA histograms --------------------------------- */
@@ -3895,10 +3902,10 @@ void RecoilJets::fillAuAuPhotonCandidateSkimTree(PHCompositeNode* topNode,
     if (sampleCode == 0) sampleCode = embeddedInclusiveJetSampleCodeFromContext(Outfile);
   }
 
-  // Fixed THE-57/THE-69 AuAu baseline photon-ID contract.
+  // Fixed THE-95 no-veto AuAu baseline photon-ID contract.
   // This is the simulation-derived default WP80 line, not a skim-side retune.
-  constexpr double kDefaultAuAuBDTWP80Intercept = 0.53471108;
-  constexpr double kDefaultAuAuBDTWP80Slope = 0.0012284143;
+  constexpr double kDefaultAuAuBDTWP80Intercept = 0.5387310379;
+  constexpr double kDefaultAuAuBDTWP80Slope = 0.0011102647;
   constexpr double kDefaultAuAuBDTWP80PtMin = 15.0;
   constexpr double kDefaultAuAuBDTWP80PtMax = 35.0;
 
@@ -7661,7 +7668,19 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         fillInclusiveJetQA(activeTrig, centIdxForJets, kv.first);
     }
 
-    auto sumTowerInfoEnergy = [](TowerInfoContainer* towers) -> double
+    static const bool requireEventCaloGoodTowers = []() -> bool
+    {
+        const char* raw = std::getenv("RJ_EVENT_CALO_REQUIRE_ISGOOD");
+        if (!raw) return true;
+        std::string flag(raw);
+        std::transform(flag.begin(), flag.end(), flag.begin(),
+                       [](unsigned char c) { return std::tolower(c); });
+        if (flag == "0" || flag == "false" || flag == "no" || flag == "off") return false;
+        if (flag == "1" || flag == "true" || flag == "yes" || flag == "on") return true;
+        return true;
+    }();
+
+    auto sumTowerInfoEnergy = [requireEventCaloGoodTowers](TowerInfoContainer* towers) -> double
     {
         if (!towers) return 0.0;
 
@@ -7670,9 +7689,10 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         {
             TowerInfo* tower = towers->get_tower_at_channel(ch);
             if (!tower) continue;
+            if (requireEventCaloGoodTowers && !tower->get_isGood()) continue;
 
             const double e = tower->get_energy();
-            if (!std::isfinite(e) || e <= 0.0) continue;
+            if (!std::isfinite(e)) continue;
             sum += e;
         }
         return sum;
@@ -11228,6 +11248,351 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
 }
 
 
+void RecoilJets::fillAuAuEmbeddedTruthIsolationDiagnostics(
+    PHCompositeNode* topNode,
+    const std::vector<std::string>& activeTrig)
+{
+  if (!topNode || !m_isSimEmbedded || !fillCanonicalThisView()) return;
+
+  const int sampleCode = embeddedPhotonSampleCodeFromContext(Outfile);
+  if (sampleCode != 12 && sampleCode != 20) return;
+
+  auto getOrBook = [&](const std::string& trig,
+                       const std::string& name,
+                       const std::string& title,
+                       const int nbins,
+                       const double xmin,
+                       const double xmax) -> TH1F*
+  {
+    if (trig.empty() || name.empty()) return nullptr;
+    auto& histograms = qaHistogramsByTrigger[trig];
+    if (auto it = histograms.find(name); it != histograms.end())
+    {
+      return dynamic_cast<TH1F*>(it->second);
+    }
+    if (!out || !out->IsOpen()) return nullptr;
+
+    TDirectory* const previousDirectory = gDirectory;
+    TDirectory* directory = out->GetDirectory(trig.c_str());
+    if (!directory) directory = out->mkdir(trig.c_str());
+    if (!directory)
+    {
+      if (previousDirectory) previousDirectory->cd();
+      return nullptr;
+    }
+    directory->cd();
+
+    auto* histogram = RJMCWeighting::RJNewTH1F(
+        name.c_str(), title.c_str(), nbins, xmin, xmax);
+    histogram->Sumw2();
+    histograms[name] = histogram;
+    if (previousDirectory) previousDirectory->cd();
+    return histogram;
+  };
+
+  auto fillAudit = [&](const int bin)
+  {
+    for (const auto& trig : activeTrig)
+    {
+      auto* audit = getOrBook(
+          trig,
+          "h_auauTruthIsoDiag_audit",
+          "AuAu embedded truth-isolation diagnostic audit;Audit category;Weighted count",
+          16, 0.5, 16.5);
+      if (!audit) continue;
+      static const std::array<const char*, 16> labels = {{
+          "accepted events", "HepMC photons evaluated", "direct class",
+          "fragmentation class", "invalid photon class", "invalid truth match",
+          "eta rejection", "vertex rejection", "invalid centrality",
+          "missing HepMC event", "10-12 GeV limited coverage", "photon12 events",
+          "photon20 events", "events cent 0-20", "events cent 20-50",
+          "events cent 50-80"
+      }};
+      for (int i = 0; i < static_cast<int>(labels.size()); ++i)
+      {
+        audit->GetXaxis()->SetBinLabel(i + 1, labels[static_cast<std::size_t>(i)]);
+      }
+      audit->Fill(bin);
+      bumpHistFill(trig, audit->GetName());
+    }
+  };
+
+  // Prebook the complete contract so a one-file smoke can verify object
+  // presence even when a particular class, pT interval, or centrality is empty.
+  static const std::array<const char*, 3> centralityTags = {{
+      "cent_0_20", "cent_20_50", "cent_50_80"
+  }};
+  static const std::array<const char*, 3> fig2PtTags = {{
+      "pT_10_15", "pT_15_20", "pT_25_30"
+  }};
+  for (const auto& trig : activeTrig)
+  {
+    getOrBook(
+        trig,
+        "h_auauTruthIsoDiag_audit",
+        "AuAu embedded truth-isolation diagnostic audit;Audit category;Weighted count",
+        16, 0.5, 16.5);
+    for (const char* centralityTag : centralityTags)
+    {
+      for (const char* className : {"direct", "fragmentation"})
+      {
+        for (const char* ptTag : fig2PtTags)
+        {
+          const std::string name =
+              std::string("h_auauTruthIso_") + className + "_" +
+              ptTag + "_" + centralityTag;
+          const std::string title =
+              std::string("AuAu embedded ") + className +
+              " photons;E_{T}^{iso,truth}(R=0.3) [GeV];Weighted photons";
+          if (auto* histogram = getOrBook(trig, name, title, 500, 0.0, 50.0))
+          {
+            if (histogram->GetEntries() == 0.0) histogram->Fill(0.0, 0.0);
+          }
+        }
+      }
+      for (const char* className : {"total", "direct", "fragmentation"})
+      {
+        const std::string name =
+            std::string("h_auauTruthPt_") + className + "_iso4_" + centralityTag;
+        const std::string title =
+            "AuAu embedded truth photons, E_{T}^{iso}<4 GeV;"
+            "p_{T}^{#gamma,truth} [GeV];Weighted photons / GeV";
+        if (auto* histogram = getOrBook(trig, name, title, 25, 10.0, 35.0))
+        {
+          if (histogram->GetEntries() == 0.0) histogram->Fill(10.0, 0.0);
+        }
+      }
+    }
+  }
+
+  if (!std::isfinite(m_vz) || std::fabs(m_vz) >= 30.0)
+  {
+    fillAudit(8);
+    return;
+  }
+
+  int diagCentIdx = -1;
+  if (std::isfinite(m_centBin))
+  {
+    if (m_centBin >= 0.0 && m_centBin < 20.0) diagCentIdx = 0;
+    else if (m_centBin >= 20.0 && m_centBin < 50.0) diagCentIdx = 1;
+    else if (m_centBin >= 50.0 && m_centBin < 80.0) diagCentIdx = 2;
+  }
+  if (diagCentIdx < 0)
+  {
+    fillAudit(9);
+    return;
+  }
+
+  PHHepMCGenEventMap* eventMap =
+      findNode::getClass<PHHepMCGenEventMap>(topNode, "PHHepMCGenEventMap");
+  PHHepMCGenEvent* phEvent = nullptr;
+  if (eventMap)
+  {
+    phEvent = eventMap->get(0);
+    if (!phEvent) phEvent = eventMap->get(1);
+    if (!phEvent && !eventMap->empty()) phEvent = eventMap->begin()->second;
+  }
+  HepMC::GenEvent* event = phEvent ? phEvent->getEvent() : nullptr;
+  if (!event || !m_truthInfo)
+  {
+    fillAudit(10);
+    return;
+  }
+
+  const std::string centralityTag = centralityTags[static_cast<std::size_t>(diagCentIdx)];
+
+  fillAudit(1);
+  fillAudit(sampleCode == 12 ? 12 : 13);
+  fillAudit(14 + diagCentIdx);
+
+  auto classifyPhoton = [](const HepMC::GenParticle* photon) -> int
+  {
+    if (!photon || photon->pdg_id() != 22) return 0;
+    const HepMC::GenVertex* vertex = photon->production_vertex();
+    if (!vertex) return 0;
+
+    std::vector<const HepMC::GenParticle*> incoming;
+    for (auto it = vertex->particles_in_const_begin();
+         it != vertex->particles_in_const_end(); ++it)
+    {
+      if (*it) incoming.push_back(*it);
+    }
+    while (incoming.size() == 1 && incoming.front() &&
+           incoming.front()->pdg_id() == 22)
+    {
+      vertex = incoming.front()->production_vertex();
+      if (!vertex) return 0;
+      incoming.clear();
+      for (auto it = vertex->particles_in_const_begin();
+           it != vertex->particles_in_const_end(); ++it)
+      {
+        if (*it) incoming.push_back(*it);
+      }
+    }
+
+    std::vector<const HepMC::GenParticle*> outgoing;
+    for (auto it = vertex->particles_out_const_begin();
+         it != vertex->particles_out_const_end(); ++it)
+    {
+      if (*it) outgoing.push_back(*it);
+    }
+    const bool hasPhoton = std::any_of(
+        outgoing.begin(), outgoing.end(),
+        [](const HepMC::GenParticle* particle)
+        { return particle && particle->pdg_id() == 22; });
+    if (!hasPhoton) return 0;
+
+    if (incoming.size() == 2 && outgoing.size() == 2)
+    {
+      const bool partonicTopology = std::all_of(
+          incoming.begin(), incoming.end(),
+          [](const HepMC::GenParticle* particle)
+          { return particle && std::abs(particle->pdg_id()) <= 22; }) &&
+          std::all_of(
+              outgoing.begin(), outgoing.end(),
+              [](const HepMC::GenParticle* particle)
+              { return particle && std::abs(particle->pdg_id()) <= 22; });
+      if (partonicTopology) return 1;
+    }
+    else if (incoming.size() == 1 && incoming.front())
+    {
+      const int incomingPid = incoming.front()->pdg_id();
+      if (std::abs(incomingPid) <= 11 && outgoing.size() == 2)
+      {
+        const bool preservesParton = std::any_of(
+            outgoing.begin(), outgoing.end(),
+            [incomingPid](const HepMC::GenParticle* particle)
+            { return particle && particle->pdg_id() == incomingPid; });
+        if (preservesParton) return 2;
+      }
+    }
+    return 0;
+  };
+
+  constexpr double kTruthConeR = 0.3;
+  constexpr double kPhotonRemovalDR = 0.001;
+  constexpr double kTruthEtaMax = 0.7;
+
+  for (auto particleIt = event->particles_begin();
+       particleIt != event->particles_end(); ++particleIt)
+  {
+    const HepMC::GenParticle* photon = *particleIt;
+    if (!photon || photon->pdg_id() != 22) continue;
+    fillAudit(2);
+
+    const int photonClass = classifyPhoton(photon);
+    if (photonClass != 1 && photonClass != 2)
+    {
+      fillAudit(5);
+      continue;
+    }
+    fillAudit(photonClass == 1 ? 3 : 4);
+
+    const PHG4Particle* truthPhoton = nullptr;
+    auto primaryRange = m_truthInfo->GetPrimaryParticleRange();
+    for (auto truthIt = primaryRange.first; truthIt != primaryRange.second; ++truthIt)
+    {
+      const PHG4Particle* truth = truthIt->second;
+      if (!truth) continue;
+      if (m_truthInfo->isEmbeded(truth->get_track_id()) < 1) continue;
+      if (truth->get_pid() != 22) continue;
+      if (truth->get_barcode() != photon->barcode()) continue;
+      truthPhoton = truth;
+      break;
+    }
+    if (!truthPhoton)
+    {
+      fillAudit(6);
+      continue;
+    }
+
+    TLorentzVector photonMomentum(
+        truthPhoton->get_px(), truthPhoton->get_py(), truthPhoton->get_pz(),
+        truthPhoton->get_e());
+    const double truthPt = std::hypot(photon->momentum().px(), photon->momentum().py());
+    const double truthEta = photonMomentum.Eta();
+    if (!std::isfinite(truthPt) || truthPt <= 0.0 ||
+        !std::isfinite(truthEta) || std::fabs(truthEta) >= kTruthEtaMax)
+    {
+      fillAudit(7);
+      continue;
+    }
+
+    double coneEt = 0.0;
+    double photonEt = 0.0;
+    primaryRange = m_truthInfo->GetPrimaryParticleRange();
+    for (auto truthIt = primaryRange.first; truthIt != primaryRange.second; ++truthIt)
+    {
+      const PHG4Particle* truth = truthIt->second;
+      if (!truth) continue;
+      if (m_truthInfo->isEmbeded(truth->get_track_id()) < 1) continue;
+
+      TLorentzVector momentum(
+          truth->get_px(), truth->get_py(), truth->get_pz(), truth->get_e());
+      const double transverseEnergy = momentum.Et();
+      if (!std::isfinite(transverseEnergy) || transverseEnergy <= 0.0) continue;
+      const double deltaR = photonMomentum.DeltaR(momentum);
+      if (!std::isfinite(deltaR)) continue;
+      if (deltaR < kTruthConeR) coneEt += transverseEnergy;
+      if (deltaR < kPhotonRemovalDR) photonEt += transverseEnergy;
+    }
+    const double truthIsoEt = coneEt - photonEt;
+    if (!std::isfinite(truthIsoEt))
+    {
+      fillAudit(6);
+      continue;
+    }
+
+    if (truthPt >= 10.0 && truthPt < 12.0) fillAudit(11);
+
+    const char* className = photonClass == 1 ? "direct" : "fragmentation";
+    const std::array<std::pair<double, double>, 3> fig2PtBins = {{
+        {10.0, 15.0}, {15.0, 20.0}, {25.0, 30.0}
+    }};
+    for (std::size_t ptBin = 0; ptBin < fig2PtBins.size(); ++ptBin)
+    {
+      const auto [ptLow, ptHigh] = fig2PtBins[ptBin];
+      if (truthPt < ptLow || truthPt >= ptHigh) continue;
+      for (const auto& trig : activeTrig)
+      {
+        const std::string name =
+            std::string("h_auauTruthIso_") + className + "_" +
+            fig2PtTags[ptBin] + "_" + centralityTag;
+        const std::string title =
+            std::string("AuAu embedded ") + className +
+            " photons;E_{T}^{iso,truth}(R=0.3) [GeV];Weighted photons";
+        if (auto* histogram = getOrBook(trig, name, title, 500, 0.0, 50.0))
+        {
+          histogram->Fill(truthIsoEt);
+          bumpHistFill(trig, histogram->GetName());
+        }
+      }
+    }
+
+    if (truthPt >= 10.0 && truthPt < 35.0 && truthIsoEt < 4.0)
+    {
+      for (const auto& trig : activeTrig)
+      {
+        for (const char* spectrumClass : {"total", className})
+        {
+          const std::string name =
+              std::string("h_auauTruthPt_") + spectrumClass + "_iso4_" + centralityTag;
+          const std::string title =
+              "AuAu embedded truth photons, E_{T}^{iso}<4 GeV;"
+              "p_{T}^{#gamma,truth} [GeV];Weighted photons / GeV";
+          if (auto* histogram = getOrBook(trig, name, title, 25, 10.0, 35.0))
+          {
+            histogram->Fill(truthPt);
+            bumpHistFill(trig, histogram->GetName());
+          }
+        }
+      }
+    }
+  }
+}
+
+
 
 
 
@@ -11301,6 +11666,13 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
         os << "}";
 
         LOG(4, CLR_BLUE, os.str());
+    }
+
+    // Fixed-R truth-only diagnostics are independent of the active reco
+    // isolation view and are therefore filled once in the canonical view.
+    if (m_isSimEmbedded && doCanonical)
+    {
+        fillAuAuEmbeddedTruthIsolationDiagnostics(topNode, activeTrig);
     }
 
     // If neither photons nor clusters are present, we cannot do anything
@@ -14340,6 +14712,34 @@ double RecoilJets::eisoForCone(const RawCluster* clus, double coneR) const
       LOG(2, CLR_YELLOW,
           "  [eiso] requested coneR=" << coneR << " (cone10=" << cone10
           << ") not supported by PhotonClusterBuilder full calo iso → return +inf (fail-safe)");
+    return 1e9;
+  }
+
+  if (m_useTopoClusterIsolationForEiso)
+  {
+    const char* k_topo = (cone10 == 3) ? "ppg12_topo_raw_eiso_03" : "ppg12_topo_raw_eiso_04";
+    const char* k_valid = (cone10 == 3) ? "ppg12_topo_valid_03" : "ppg12_topo_valid_04";
+    const double topoIso = pho->get_shower_shape_parameter(k_topo);
+    const double topoValid = pho->get_shower_shape_parameter(k_valid);
+    if (std::isfinite(topoIso) && topoIso < 1e8 && topoValid > 0.5)
+    {
+      if (Verbosity() >= 5)
+      {
+        LOG(5, CLR_BLUE,
+            "  [eiso(topo)] cone10=" << cone10
+            << "  " << k_topo << "=" << topoIso
+            << "  " << k_valid << "=" << topoValid);
+      }
+      return topoIso;
+    }
+
+    if (Verbosity() >= 2)
+    {
+      LOG(2, CLR_YELLOW,
+          "  [eiso(topo)] invalid PhotonClusterBuilder topo iso: "
+          << k_topo << "=" << topoIso << " " << k_valid << "=" << topoValid
+          << " → return +inf (fail-safe)");
+    }
     return 1e9;
   }
 

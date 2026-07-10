@@ -535,6 +535,10 @@ run_condor_extract() {
   if [[ "${RJ_AUAU_TIGHT_BDT_TOLERATE_ROOT_ABORT_WITH_OUTPUT:-0}" == "1" ]]; then
     allow_nonzero_with_output=1
   fi
+  local force_status="${RJ_FORCE_CALO_TOWER_STATUS_FOR_EMBEDDED:-0}"
+  local event_calo_require_isgood="${RJ_EVENT_CALO_REQUIRE_ISGOOD:-1}"
+  local status_audit="${RJ_CALO_STATUS_AUDIT:-0}"
+  local status_input_prefix="${RJ_CALO_TOWER_STATUS_INPUT_PREFIX:-}"
   cat > "$sub" <<EOF
 universe = vanilla
 executable = /usr/bin/bash
@@ -544,7 +548,7 @@ error = ${sub_root}/extract_\$(Cluster)_\$(Process).err
 log = ${sub_root}/extract_\$(Cluster).log
 request_memory = ${reqmem}
 notification = Never
-environment = "RJ_CONFIG_YAML=${yaml} RJ_MACRO_PATH=${TRAIN_MACRO} RJ_AUAU_BDT_EXTRACT_ONLY=1 RJ_AUAU_BDT_TRAINING_TREE=1 RJ_DISABLE_ID_FANOUT=1 RJ_DISABLE_ISO_CONE_INTERNALIZATION=1 RJ_DISABLE_JET_PT_INTERNALIZATION=1 RJ_DISABLE_DPHI_INTERNALIZATION=1 RJ_PROFILE_JOB=1 RJ_ALLOW_NONZERO_WITH_ROOT_OUTPUT=${allow_nonzero_with_output}"
+environment = "RJ_CONFIG_YAML=${yaml} RJ_MACRO_PATH=${TRAIN_MACRO} RJ_AUAU_BDT_EXTRACT_ONLY=1 RJ_AUAU_BDT_TRAINING_TREE=1 RJ_DISABLE_ID_FANOUT=1 RJ_DISABLE_ISO_CONE_INTERNALIZATION=1 RJ_DISABLE_JET_PT_INTERNALIZATION=1 RJ_DISABLE_DPHI_INTERNALIZATION=1 RJ_PROFILE_JOB=1 RJ_ALLOW_NONZERO_WITH_ROOT_OUTPUT=${allow_nonzero_with_output} RJ_FORCE_CALO_TOWER_STATUS_FOR_EMBEDDED=${force_status} RJ_EVENT_CALO_REQUIRE_ISGOOD=${event_calo_require_isgood} RJ_CALO_STATUS_AUDIT=${status_audit} RJ_CALO_TOWER_STATUS_INPUT_PREFIX=${status_input_prefix}"
 queue sample,chunk,dataset,nevents,chunkidx,dest from ${args_file}
 EOF
 

@@ -421,6 +421,9 @@ stop_heartbeat() {
   fi
 }
 
+# Defensive default: with set -u enabled, never let wrapper bookkeeping turn
+# into an unbound rc hold. ROOT success/failure overwrites this immediately.
+rc=125
 set +e
 echo "[INFO] Running ROOT:"
 echo "root -b -q -l \"${MACRO}(${nevents}, \\\"${chunk_list}\\\", \\\"${out_root}\\\", false)\""

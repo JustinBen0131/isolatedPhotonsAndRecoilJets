@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import math
+import sys
 from io import BytesIO
 from pathlib import Path
 from textwrap import wrap
@@ -15,6 +16,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 REPO = Path(__file__).resolve().parents[4]
 OUT = REPO / "dataOutput/slides/wp_gammajets_6_1_26/stitching_closure_20260604"
+DEFAULT_PAIR_OUT = REPO / "dataOutput/stitchDiagnostics/auau_embedded_default_stitched_spectra_20260706"
 
 PHOTON_PLOT = (
     REPO
@@ -45,6 +47,16 @@ INCLUSIVE_CSV = (
     REPO
     / "dataOutput/stitchDiagnostics/jet40_slide6_spectrum_20260526"
     / "inclusive4_stitch_bins.csv"
+)
+DEFAULT_INCLUSIVE_SUMMARY = (
+    REPO
+    / "dataOutput/stitchDiagnostics/focus21_inclusive_variants_20260521"
+    / "embeddedInclusiveJet12plus20plus30_exclusive31_slide5_replacement_summary.json"
+)
+DEFAULT_INCLUSIVE_CSV = (
+    REPO
+    / "dataOutput/stitchDiagnostics/focus21_inclusive_variants_20260521"
+    / "inclusive_exclusive31_stitch_bins.csv"
 )
 
 W, H = 2560, 1440
@@ -179,6 +191,18 @@ def fit_modified_power_law(points: list[dict[str, float]]):
         lx = math.log(x)
         li = math.log(1.0 / x)
         logy = coeff[0] + coeff[1] * li + coeff[2] * lx * li + coeff[3] * x * li
+        return math.exp(logy) if math.isfinite(logy) else 0.0
+
+    return eval_y
+
+
+def fit_logp_polynomial(points: list[dict[str, float]], degree: int = 4):
+    xs = np.array([p["x"] for p in points if p["y"] > 0.0], dtype=float)
+    ys = np.array([p["y"] for p in points if p["y"] > 0.0], dtype=float)
+    coeff = np.polyfit(np.log(xs), np.log(ys), degree)
+
+    def eval_y(x: float) -> float:
+        logy = float(np.polyval(coeff, math.log(x)))
         return math.exp(logy) if math.isfinite(logy) else 0.0
 
     return eval_y
@@ -400,6 +424,165 @@ def render_stitch_plot(
     return Image.open(buf).convert("RGB")
 
 
+def render_stitch_plot_ppg12_style(
+    *,
+    label: str,
+    sample_label: str,
+    points: list[dict[str, float]],
+    pieces: list[dict],
+    x_min: float,
+    x_max: float,
+    y_min: float,
+    y_max: float,
+    ratio_ylim: tuple[float, float],
+    x_label: str,
+    y_label: str,
+    ratio_label: str,
+    fit_kind: str = "modified_power_law",
+    fit_label: str = "Modified power-law fit",
+) -> Image.Image:
+    import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+    from matplotlib.offsetbox import AnchoredOffsetbox, HPacker, TextArea
+    from matplotlib.ticker import LogLocator, NullFormatter
+
+    plt.rcParams.update(
+        {
+            "font.family": "DejaVu Sans",
+            "mathtext.fontset": "dejavusans",
+            "axes.linewidth": 1.25,
+            "xtick.direction": "in",
+            "ytick.direction": "in",
+            "xtick.top": True,
+            "ytick.right": True,
+        }
+    )
+    if fit_kind == "logp_poly4":
+        fit = fit_logp_polynomial(points, degree=4)
+    else:
+        fit = fit_modified_power_law(points)
+    fig = plt.figure(figsize=(8.0, 8.89), dpi=100, facecolor="white")
+    gs = fig.add_gridspec(
+        2,
+        1,
+        height_ratios=(3.35, 1.05),
+        hspace=0.035,
+        left=0.18,
+        right=0.955,
+        top=0.965,
+        bottom=0.105,
+    )
+    ax = fig.add_subplot(gs[0])
+    rax = fig.add_subplot(gs[1], sharex=ax)
+
+    xs_fit = np.linspace(x_min, x_max, 900)
+    ys_fit = np.array([fit(float(x)) for x in xs_fit])
+    ax.plot(xs_fit, ys_fit, color="red", lw=1.7, zorder=2)
+
+    for piece in pieces:
+        vals = [p for p in points if piece["lo"] <= p["x"] < piece["hi"] and p["y"] > 0.0]
+        if not vals:
+            continue
+        color = piece["color"]
+        x = np.array([p["x"] for p in vals], dtype=float)
+        y = np.array([p["y"] for p in vals], dtype=float)
+        yerr = np.array([p["ey"] for p in vals], dtype=float)
+        fit_y = np.array([fit(float(xx)) for xx in x], dtype=float)
+        ax.errorbar(
+            x,
+            y,
+            yerr=yerr,
+            fmt="o",
+            ms=4.6,
+            mfc=color,
+            mec=color,
+            mew=0.8,
+            ecolor=color,
+            elinewidth=0.75,
+            capsize=0,
+            linestyle="none",
+            zorder=4,
+        )
+        rax.errorbar(
+            x,
+            y / fit_y,
+            yerr=yerr / fit_y,
+            fmt="o",
+            ms=4.1,
+            mfc=color,
+            mec=color,
+            mew=0.7,
+            ecolor=color,
+            elinewidth=0.7,
+            capsize=0,
+            linestyle="none",
+            zorder=4,
+        )
+
+    ax.set_yscale("log")
+    ax.set_xlim(x_min, x_max)
+    ax.set_ylim(y_min, y_max)
+    ax.set_ylabel(y_label, fontsize=18)
+    ax.tick_params(labelbottom=False, which="both", length=7, labelsize=15)
+    ax.tick_params(which="minor", length=3.5)
+    ax.yaxis.set_major_locator(LogLocator(base=10))
+    ax.yaxis.set_minor_locator(LogLocator(base=10, subs=np.arange(2, 10) * 0.1))
+    ax.yaxis.set_minor_formatter(NullFormatter())
+
+    rax.axhline(1.0, color="0.45", lw=1.0, ls="--", zorder=1)
+    rax.set_ylim(*ratio_ylim)
+    rax.set_ylabel(ratio_label, fontsize=14.5)
+    rax.set_xlabel(x_label, fontsize=18)
+    rax.tick_params(which="both", length=7, labelsize=15)
+    rax.tick_params(which="minor", length=3.5)
+    rax.minorticks_on()
+
+    sphenix = TextArea(
+        "sPHENIX",
+        textprops={
+            "fontsize": 18,
+            "fontstyle": "italic",
+            "fontweight": "bold",
+            "color": "black",
+        },
+    )
+    internal = TextArea(" Internal", textprops={"fontsize": 18, "color": "black"})
+    label_box = HPacker(children=[sphenix, internal], align="baseline", pad=0, sep=0)
+    anchored_label = AnchoredOffsetbox(
+        loc="upper right",
+        child=label_box,
+        pad=0.0,
+        borderpad=0.0,
+        frameon=False,
+        bbox_to_anchor=(0.97, 0.92),
+        bbox_transform=ax.transAxes,
+    )
+    ax.add_artist(anchored_label)
+    ax.text(0.97, 0.84, sample_label, transform=ax.transAxes, fontsize=15, ha="right", va="top")
+    ax.text(0.97, 0.77, "PYTHIA8", transform=ax.transAxes, fontsize=15, ha="right", va="top")
+
+    sample_handles = [
+        Line2D([0], [0], marker="o", color=piece["color"], mfc=piece["color"], mec=piece["color"], lw=0, label=piece["label"])
+        for piece in pieces
+    ]
+    fit_handle = Line2D([0], [0], color="red", lw=1.7, label=fit_label)
+    ax.legend(
+        handles=sample_handles + [fit_handle],
+        title=label,
+        loc="lower left",
+        frameon=False,
+        fontsize=12.5,
+        title_fontsize=11.5,
+        handletextpad=0.55,
+        borderpad=0.2,
+    )
+    buf = BytesIO()
+    fig.savefig(buf, format="png", dpi=100, facecolor="white")
+    plt.close(fig)
+    buf.seek(0)
+    return Image.open(buf).convert("RGB")
+
+
 def build_standardized_plots(photon: dict, inclusive: dict) -> tuple[Image.Image, Image.Image, Path, Path]:
     photon_points_raw = read_csv_points(PHOTON_CSV, "bounded_12_21_ge21")
     photon_points = [p for p in photon_points_raw if 12.0 <= p["x"] <= 40.0 and p["y"] > 0.0]
@@ -459,6 +642,162 @@ def build_standardized_plots(photon: dict, inclusive: dict) -> tuple[Image.Image
     photon_plot.save(photon_png)
     inclusive_plot.save(inclusive_png)
     return photon_plot, inclusive_plot, photon_png, inclusive_png
+
+
+def build_default_pair() -> tuple[Path, Path, Path]:
+    DEFAULT_PAIR_OUT.mkdir(parents=True, exist_ok=True)
+    photon = load_json(PHOTON_SUMMARY)
+    inclusive = load_json(INCLUSIVE_SUMMARY)
+
+    photon_points_raw = read_csv_points(PHOTON_CSV, "bounded_12_21_ge21")
+    photon_points = [p for p in photon_points_raw if 12.0 <= p["x"] <= 40.0 and p["y"] > 0.0]
+    inclusive_points = [
+        p for p in read_csv_points(INCLUSIVE_CSV, "inclusive4") if 12.0 <= p["x"] <= 50.0 and p["y"] > 0.0
+    ]
+
+    photon_plot = render_stitch_plot_ppg12_style(
+        label="sample",
+        sample_label="Embedded Photon+Jet 12+20",
+        points=photon_points,
+        pieces=[
+            {"label": "photon12", "lo": 12.0, "hi": 21.0, "color": "#214cc3"},
+            {"label": "photon20", "lo": 21.0, "hi": 40.1, "color": "#d2232a"},
+        ],
+        x_min=12.0,
+        x_max=40.0,
+        y_min=2.0e3,
+        y_max=1.6e8,
+        ratio_ylim=(0.90, 1.10),
+        x_label=r"Leading $E_T^\gamma$ [GeV]",
+        y_label="Weighted stitched entries / bin",
+        ratio_label="MC / fit",
+    )
+
+    inclusive_plot = render_stitch_plot_ppg12_style(
+        label="sample",
+        sample_label="Embedded Inclusive Jet 12+20+30+40",
+        points=inclusive_points,
+        pieces=[
+            {"label": "jet12", "lo": 12.0, "hi": 21.0, "color": "#2b55b7"},
+            {"label": "jet20", "lo": 21.0, "hi": 31.0, "color": "#ff7f0e"},
+            {"label": "jet30", "lo": 31.0, "hi": 41.0, "color": "#d65ad1"},
+            {"label": "jet40", "lo": 41.0, "hi": 50.1, "color": "#238b45"},
+        ],
+        x_min=12.0,
+        x_max=50.0,
+        y_min=1.0,
+        y_max=1.2e6,
+        ratio_ylim=(0.88, 1.10),
+        x_label=r"Leading $p_T^\mathrm{jet}$ [GeV]",
+        y_label="Weighted stitched entries / bin",
+        ratio_label="MC / fit",
+    )
+    inclusive_logpoly_plot = render_stitch_plot_ppg12_style(
+        label="sample",
+        sample_label="Embedded Inclusive Jet 12+20+30+40",
+        points=inclusive_points,
+        pieces=[
+            {"label": "jet12", "lo": 12.0, "hi": 21.0, "color": "#2b55b7"},
+            {"label": "jet20", "lo": 21.0, "hi": 31.0, "color": "#ff7f0e"},
+            {"label": "jet30", "lo": 31.0, "hi": 41.0, "color": "#d65ad1"},
+            {"label": "jet40", "lo": 41.0, "hi": 50.1, "color": "#238b45"},
+        ],
+        x_min=12.0,
+        x_max=50.0,
+        y_min=1.0,
+        y_max=1.2e6,
+        ratio_ylim=(0.94, 1.06),
+        x_label=r"Leading $p_T^\mathrm{jet}$ [GeV]",
+        y_label="Weighted stitched entries / bin",
+        ratio_label="MC / fit",
+        fit_kind="logp_poly4",
+        fit_label=r"log-$p_T$ quartic fit",
+    )
+
+    photon_png = DEFAULT_PAIR_OUT / "auau_embedded_photonjet12plus20_default_stitched_spectrum.png"
+    inclusive_png = DEFAULT_PAIR_OUT / "auau_embedded_inclusivejet12plus20plus30plus40_stitched_spectrum.png"
+    inclusive_logpoly_png = DEFAULT_PAIR_OUT / "auau_embedded_inclusivejet12plus20plus30plus40_logpoly4_shape_fit_diagnostic.png"
+    manifest = DEFAULT_PAIR_OUT / "auau_embedded_default_stitched_spectra_manifest.json"
+    photon_plot.save(photon_png)
+    inclusive_plot.save(inclusive_png)
+    inclusive_logpoly_plot.save(inclusive_logpoly_png)
+    manifest.write_text(
+        json.dumps(
+            {
+                "pngs": {
+                    "photonjet": str(photon_png),
+                    "inclusivejet": str(inclusive_png),
+                    "inclusivejet_logp_poly4_shape_fit_diagnostic": str(inclusive_logpoly_png),
+                },
+                "google_slides_mutation": False,
+                "plot_geometry_px": [800, 889],
+                "style_reference": "PPG12 parity ROOT-style stitched overlays generated under dataOutput/ppg12Parity: 800 x 889 px, top/bottom pad ratio 3.35:1.05",
+                "fit_function": "A*(1/x)^(b + c ln(x) + d x)",
+                "diagnostic_fit_function": "exp(poly4(ln x)); smoother empirical shape guide for inclusive spectrum only",
+                "ratio_panel": "MC / fit",
+                "source_csvs": {
+                    "photon": str(PHOTON_CSV),
+                    "inclusive": str(INCLUSIVE_CSV),
+                },
+                "source_summaries": {
+                    "photon": str(PHOTON_SUMMARY),
+                    "inclusive": str(INCLUSIVE_SUMMARY),
+                },
+                "photon": {
+                    "windows": {
+                        "PhotonJet12": photon["photonjet12_gate"],
+                        "PhotonJet20": photon["photonjet20_gate"],
+                    },
+                    "sigma_eff_pb": {
+                        "PhotonJet12": photon["photonjet12_sigma_eff_pb"],
+                        "PhotonJet20": photon["photonjet20_sigma_eff_pb"],
+                    },
+                    "relative_weights": {
+                        "PhotonJet12": photon["photonjet12_merge_scale"],
+                        "PhotonJet20": 1.0,
+                    },
+                    "boundary_jump": photon["jump_21_over_19_21"],
+                    "source_root": photon.get("source_root"),
+                },
+                "inclusive": {
+                    "windows": {
+                        "Jet12": inclusive["jet12_gate"],
+                        "Jet20": inclusive["jet20_gate"],
+                        "Jet30": inclusive["jet30_gate"],
+                        "Jet40": inclusive["jet40_gate"],
+                    },
+                    "sigma_eff_pb": {
+                        "Jet12": inclusive["jet12_sigma_eff_pb"],
+                        "Jet20": inclusive["jet20_sigma_eff_pb"],
+                        "Jet30": inclusive["jet30_sigma_eff_pb"],
+                        "Jet40": inclusive["jet40_sigma_eff_pb"],
+                    },
+                    "relative_weights_to_jet40": {
+                        "Jet12": inclusive["jet12_relative_weight_to_jet40"],
+                        "Jet20": inclusive["jet20_relative_weight_to_jet40"],
+                        "Jet30": inclusive["jet30_relative_weight_to_jet40"],
+                        "Jet40": inclusive["jet40_relative_weight_to_jet40"],
+                    },
+                    "boundary_jumps": {
+                        "21": inclusive["jump_21_over_19_21"],
+                        "31": inclusive["jump_31_over_29_31"],
+                        "41": inclusive["jump_41_over_39_41"],
+                    },
+                    "source_root": inclusive["source_root"],
+                },
+                "note": (
+                    "This pair follows the requested closure-audit convention: PhotonJet12+20 "
+                    "and InclusiveJet12+20+30+40 with counted ownership-window weights. "
+                    "The narrower Jet12+20+30 policy remains the recorded default for older "
+                    "current-production routing, but Jet40 is included here because Justin "
+                    "explicitly requested the closure spectrum shown in the screenshot."
+                ),
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return photon_png, inclusive_png, manifest
 
 
 def rounded(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], fill, outline=LINE, width=2, radius=16) -> None:
@@ -848,6 +1187,6 @@ The dashed curve is the modified power-law fit used only as a smooth closure ref
 
 
 if __name__ == "__main__":
-    paths = build()
+    paths = build_default_pair() if "--default-pair" in sys.argv else build()
     for path in paths:
         print(path)

@@ -119,13 +119,13 @@ npb_cut: 0.5
 npb_features: [cluster_Et, cluster_Eta, vertexz, e11_over_e33, e32_over_e35, e11_over_e22, e11_over_e13, e11_over_e15, e11_over_e17, e11_over_e31, e11_over_e51, e11_over_e71, e22_over_e33, e22_over_e35, e22_over_e37, e22_over_e53, cluster_weta_cogx, cluster_wphi_cogx, cluster_et1, cluster_et2, cluster_et3, cluster_et4, cluster_w32, cluster_w52, cluster_w72]
 
 tight_bdt_model_file: /sphenix/user/shuhangli/ppg12/FunWithxgboost/binned_models/model_base_v3E_split_single_tmva.root
-tight_bdt_min_intercept: 0.8333333333333334
-tight_bdt_min_slope: -0.003333333333333336
+tight_bdt_min_intercept: 0.815625
+tight_bdt_min_slope: -0.0015625
 tight_bdt_max: 1.0
 nontight_bdt_min_intercept: 0.7333333333333333
 nontight_bdt_min_slope: -0.01333333333333333
-nontight_bdt_max_intercept: 0.6666666666666666
-nontight_bdt_max_slope: 0.003333333333333336
+nontight_bdt_max_intercept: 0.684375
+nontight_bdt_max_slope: 0.0015625
 tight_bdt_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35]
 
 auau_tight_bdt_expanded_model_dir: ${model_dir}
