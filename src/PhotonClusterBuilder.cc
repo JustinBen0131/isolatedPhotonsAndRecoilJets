@@ -2066,13 +2066,31 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
     const float iso_01_emcal  = use_variant_a_iso ? emcal_et_01  : (emcal_et_01  - ET);
     const float iso_005_emcal = use_variant_a_iso ? emcal_et_005 : (emcal_et_005 - ET);
 
+    float ppg12_topo_sum_et_03 = std::numeric_limits<float>::quiet_NaN();
+    float ppg12_topo_raw_eiso_03 = std::numeric_limits<float>::quiet_NaN();
+    float ppg12_topo_valid_03 = 0.0f;
     float ppg12_topo_sum_et_04 = std::numeric_limits<float>::quiet_NaN();
+    float ppg12_topo_positive_only_sum_et_04 = std::numeric_limits<float>::quiet_NaN();
     float ppg12_topo_raw_eiso_04 = std::numeric_limits<float>::quiet_NaN();
     float ppg12_topo_valid_04 = 0.0f;
     if (m_use_ppg12_topocluster_isolation)
     {
+        ppg12_topo_raw_eiso_03 =
+            calculate_ppg12_topocluster_raw_eiso_for_radius(iso_seed_eta, iso_seed_phi, ET, 0.3f, ppg12_topo_sum_et_03);
+        ppg12_topo_valid_03 =
+            (std::isfinite(ppg12_topo_raw_eiso_03) &&
+             std::isfinite(ppg12_topo_sum_et_03) &&
+             ppg12_topo_raw_eiso_03 < 1.0e8f)
+                ? 1.0f
+                : 0.0f;
         ppg12_topo_raw_eiso_04 =
-            calculate_ppg12_topocluster_raw_eiso(iso_seed_eta, iso_seed_phi, ET, ppg12_topo_sum_et_04);
+            calculate_ppg12_topocluster_raw_eiso_for_radius(
+                iso_seed_eta,
+                iso_seed_phi,
+                ET,
+                0.4f,
+                ppg12_topo_sum_et_04,
+                &ppg12_topo_positive_only_sum_et_04);
         ppg12_topo_valid_04 =
             (std::isfinite(ppg12_topo_raw_eiso_04) &&
              std::isfinite(ppg12_topo_sum_et_04) &&
@@ -2336,10 +2354,24 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
     photon->set_shower_shape_parameter("iso_005_emcal", iso_005_emcal);
     if (m_use_ppg12_topocluster_isolation)
     {
+        photon->set_shower_shape_parameter("ppg12_topo_raw_eiso_03", ppg12_topo_raw_eiso_03);
+        photon->set_shower_shape_parameter("ppg12_topo_sumet_03", ppg12_topo_sum_et_03);
+        photon->set_shower_shape_parameter("ppg12_topo_valid_03", ppg12_topo_valid_03);
+        photon->set_shower_shape_parameter("ppg12_topo_radius_03", 0.3f);
         photon->set_shower_shape_parameter("ppg12_topo_raw_eiso_04", ppg12_topo_raw_eiso_04);
         photon->set_shower_shape_parameter("ppg12_topo_sumet_04", ppg12_topo_sum_et_04);
+        photon->set_shower_shape_parameter("ppg12_topo_positive_only_sumet_04",
+                                           ppg12_topo_positive_only_sum_et_04);
+        float ppg12_topo_positive_only_raw_eiso_04 =
+            ppg12_topo_positive_only_sum_et_04 - ET;
+        if (m_ppg12_topocluster_exclude_candidate)
+        {
+          ppg12_topo_positive_only_raw_eiso_04 -= ET;
+        }
+        photon->set_shower_shape_parameter("ppg12_topo_positive_only_raw_eiso_04",
+                                           ppg12_topo_positive_only_raw_eiso_04);
         photon->set_shower_shape_parameter("ppg12_topo_valid_04", ppg12_topo_valid_04);
-        photon->set_shower_shape_parameter("ppg12_topo_radius_04", m_ppg12_topocluster_iso_radius);
+        photon->set_shower_shape_parameter("ppg12_topo_radius_04", 0.4f);
         photon->set_shower_shape_parameter("ppg12_topo_vertex_z", m_vertex);
         photon->set_shower_shape_parameter("ppg12_topo_exclude_candidate",
                                            m_ppg12_topocluster_exclude_candidate ? 1.0f : 0.0f);
@@ -2556,18 +2588,36 @@ float PhotonClusterBuilder::calculate_ppg12_topocluster_raw_eiso(float seed_eta,
                                                                  float candidate_et,
                                                                  float& topo_sum_et)
 {
+  return calculate_ppg12_topocluster_raw_eiso_for_radius(
+      seed_eta, seed_phi, candidate_et, m_ppg12_topocluster_iso_radius, topo_sum_et);
+}
+
+float PhotonClusterBuilder::calculate_ppg12_topocluster_raw_eiso_for_radius(float seed_eta,
+                                                                            float seed_phi,
+                                                                            float candidate_et,
+                                                                            float radius,
+                                                                            float& topo_sum_et,
+                                                                            float* positive_only_sum_et)
+{
   topo_sum_et = std::numeric_limits<float>::quiet_NaN();
+  if (positive_only_sum_et)
+  {
+    *positive_only_sum_et = std::numeric_limits<float>::quiet_NaN();
+  }
   if (!m_ppg12_topocluster_container ||
       !std::isfinite(seed_eta) ||
       !std::isfinite(seed_phi) ||
       !std::isfinite(candidate_et) ||
-      candidate_et <= 0.0f)
+      candidate_et <= 0.0f ||
+      !std::isfinite(radius) ||
+      radius <= 0.0f)
   {
     return 1.0e9f;
   }
 
   const CLHEP::Hep3Vector vertex(0.0, 0.0, m_vertex);
   double topo_sum = 0.0;
+  double positive_only_topo_sum = 0.0;
   const auto range = m_ppg12_topocluster_container->getClusters();
   for (auto it = range.first; it != range.second; ++it)
   {
@@ -2585,18 +2635,29 @@ float PhotonClusterBuilder::calculate_ppg12_topocluster_raw_eiso(float seed_eta,
     }
 
     const double topo_et = topo->get_energy() / std::cosh(topo_eta);
-    if (!std::isfinite(topo_et) || topo_et <= 0.0)
+    // PPG12 CaloAna24::calculateET_topo_6cones sums signed topo-cluster
+    // transverse energy. RawClusterBuilderTopo(absE=true) can retain a
+    // negative signed cluster energy, so dropping it here biases Eiso upward.
+    if (!std::isfinite(topo_et))
     {
       continue;
     }
 
-    if (deltaR(seed_eta, seed_phi, topo_eta, topo_phi) < m_ppg12_topocluster_iso_radius)
+    if (deltaR(seed_eta, seed_phi, topo_eta, topo_phi) < radius)
     {
       topo_sum += topo_et;
+      if (topo_et > 0.0)
+      {
+        positive_only_topo_sum += topo_et;
+      }
     }
   }
 
   topo_sum_et = static_cast<float>(topo_sum);
+  if (positive_only_sum_et)
+  {
+    *positive_only_sum_et = static_cast<float>(positive_only_topo_sum);
+  }
   double raw_eiso = topo_sum - candidate_et;
   if (m_ppg12_topocluster_exclude_candidate)
   {

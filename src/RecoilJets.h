@@ -418,11 +418,6 @@ public:
   void setUnfoldJetPtBins(const std::vector<double>& bins)         { m_unfoldJetPtBins = bins; }
   void setUnfoldXJBins(const std::vector<double>& bins)            { m_unfoldXJBins = bins; }
   void setPPG12PhotonYieldEnabled(bool on = true)                  { m_ppg12PhotonYieldEnabled = on; }
-  void setPPG12PhotonYieldUseTruthVertexInPPSim(bool on = true)    { m_ppg12PhotonYieldUseTruthVertexInPPSim = on; }
-  void setPPG12PhotonYieldUseTruthVertexForRecoObjectsInPPSim(bool on = true)
-  {
-      m_ppg12PhotonYieldUseTruthVertexForRecoObjectsInPPSim = on;
-  }
   void setPPG12PhotonYieldApplyBinning(bool on = true)             { m_ppg12PhotonYieldApplyBinning = on; }
   void setPPG12Fig8ClusterNode(const std::string& node)            { m_ppg12Fig8ClusterNode = node; }
   void usePPG12PhotonYieldBinning()
@@ -733,8 +728,30 @@ private:
 
 
     // Isolation helpers
+    struct PPG12EisoPathAudit
+    {
+      double storedRaw = std::numeric_limits<double>::quiet_NaN();
+      double legacyPositiveOnlyRaw = std::numeric_limits<double>::quiet_NaN();
+      double storedValid = std::numeric_limits<double>::quiet_NaN();
+      double storedVertexZ = std::numeric_limits<double>::quiet_NaN();
+      double expectedVertexZ = std::numeric_limits<double>::quiet_NaN();
+      double recomputedRaw = std::numeric_limits<double>::quiet_NaN();
+      double finalRaw = std::numeric_limits<double>::quiet_NaN();
+      double candidateEt = std::numeric_limits<double>::quiet_NaN();
+      bool vertexCompatible = false;
+      bool storedUsable = false;
+      bool storedAccepted = false;
+      bool storedRejected = false;
+      bool recomputeFallbackUsed = false;
+      bool vertexMismatchRejected = false;
+      bool recoVertexUsedForEiso = false;
+      int pathCode = 0;  // 0=invalid, 1=stored, 2=recomputed
+    };
     double eiso(const RawCluster* clus, PHCompositeNode* topNode) const;
-    double ppg12PhotonYieldRawEiso(const RawCluster* clus, PHCompositeNode* topNode) const;
+    double ppg12PhotonYieldRawEiso(const RawCluster* clus, PHCompositeNode* topNode);
+    double ppg12PhotonYieldRawEisoDetailed(const RawCluster* clus,
+                                           PHCompositeNode* topNode,
+                                           PPG12EisoPathAudit* audit);
     double ppg12PhotonYieldEiso(double eisoEt) const;
     double ppg12PhotonYieldClusterEtForCuts(double ptGamma, int candidateIndex) const;
     bool ppg12PhotonYieldTowerMasked(const PhotonClusterv1* pho) const;
@@ -746,8 +763,23 @@ private:
     bool ppg12PeriodRunContains(int runNumber) const;
     void fillPPG12VertexContractQA(const std::vector<std::string>& activeTrig,
                                    bool preVzCut);
-  bool   isIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const;
-  bool   isNonIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const;
+    void recordPPG12EisoVertexContractAudit(const PPG12EisoPathAudit& audit);
+    bool configurePPG12SimEventWeight(double sliceFactor, int laneCode);
+    void fillPPG12SimWeightAudit();
+    void finalizePPG12SimWeightAudit();
+    void recordPPG12EisoPathCanary(const PPG12EisoPathAudit& audit,
+                                   int candidateIndex,
+                                   double recoEt,
+                                   double eta,
+                                   double phi,
+                                   bool isTruthSignal,
+                                   const SSVars& vars,
+                                   double correctedEiso,
+                                   double isoThreshold,
+                                   double nonIsoLower,
+                                   TightTag tightTag);
+  bool   isIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode);
+  bool   isNonIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode);
 
     // Unified truth-MC signal definition for "isolated prompt photon" (SIM only)
     // Definition
@@ -905,6 +937,7 @@ private:
                                       const std::string& xAxisTitle,
                                       const std::string& yAxisTitle);
   TH1I* getOrBookPPG12Fig8AuditHist(const std::string& trig);
+  TH1I* getOrBookPPG12EisoVertexContractAuditHist(const std::string& trig);
   TH1F* getOrBookPPG12VertexQA1D(const std::string& trig,
                                  const std::string& name,
                                  const std::string& title,
@@ -913,6 +946,8 @@ private:
                                  double xmax);
   TH1I* getOrBookPPG12VertexQAAuditHist(const std::string& trig);
   TH1D* getOrBookPPG12PeriodContractValues(const std::string& trig);
+  void fillPPG12Fig81DataHDReferenceVertexQA(PHCompositeNode* topNode);
+  void fillPPG12Fig81SlimtreeVertexQA(PHCompositeNode* topNode);
   void bookPPG12PhotonYieldSchema(const std::vector<std::string>& activeTrig);
   void fillPPG12Fig8ResponseTargets(const std::vector<std::string>& activeTrig,
                                     CaloRawClusterEval& clustereval,
@@ -1022,7 +1057,12 @@ private:
   void fillPPG12IsoStackQA(const std::vector<std::string>& activeTrig,
                            double ptGamma,
                            double eisoEt,
-                           TightTag tightTag);
+                           TightTag tightTag,
+                           double weight = 1.0);
+  double ppg12DataTriggerEfficiencyWeight(double recoEt) const;
+  void fillPPG12DataTriggerEfficiencyAudit(const std::vector<std::string>& activeTrig,
+                                           double recoEt,
+                                           double correctionWeight);
   void bookPPG12TableQASchema(const std::vector<std::string>& activeTrig);
   void fillPPG12TableQA(const std::vector<std::string>& activeTrig,
                         const SSVars& v,
@@ -1364,6 +1404,14 @@ private:
   TH1*        m_vertexReweightH = nullptr;
   double      m_mcVertexWeight = 1.0;
   double      m_mcEventWeight = 1.0;
+  bool        m_ppg12SimWeightActive = false;
+  int         m_ppg12SimWeightLaneCode = 0;  // 1=photon+jet, 2=inclusive-jet
+  int         m_ppg12SimWeightLaneComponentCode = 0;
+  double      m_ppg12SimWeightFactorSlice = 1.0;
+  double      m_ppg12SimWeightFactorVertex = 1.0;
+  double      m_ppg12SimWeightFactorMix = 1.0;
+  double      m_ppg12SimWeightFactorPeriod = 1.0;
+  double      m_ppg12SimWeightFactorFinal = 1.0;
 
   // pp PhotonJet5/10/20 stitching diagnostics.  These are intentionally
   // parallel to the nominal event weight so a debug production can compare
@@ -1397,13 +1445,13 @@ private:
     std::string m_tightPhotonNode = "PHOTONCLUSTER_CEMC";
     bool m_explicitPhotonIDVariants = false;
     double m_npbCut = 0.5;
-    double m_tightBDTMinIntercept = 0.8333333333333334;
-    double m_tightBDTMinSlope = -0.003333333333333336;
+    double m_tightBDTMinIntercept = 0.815625;
+    double m_tightBDTMinSlope = -0.0015625;
     double m_tightBDTMax = 1.0;
     double m_nonTightBDTMinIntercept = 0.7333333333333333;
     double m_nonTightBDTMinSlope = -0.01333333333333333;
-    double m_nonTightBDTMaxIntercept = 0.6666666666666666;
-    double m_nonTightBDTMaxSlope = 0.003333333333333336;
+    double m_nonTightBDTMaxIntercept = 0.684375;
+    double m_nonTightBDTMaxSlope = 0.0015625;
 
     double m_phoid_tight_w_lo           = 0.0;
     double m_phoid_tight_w_hi_intercept = 0.15;
@@ -1435,12 +1483,11 @@ private:
   bool        m_analysisConfigStamped  = false;
 
 
-  // Generic/default isolation WP. PPG12 photon-yield pp mode is not allowed
-  // to rely on these defaults; Init() requires the current PPG12 contract:
+  // Generic/default isolation WP. PPG12 photon-yield pp mode requires:
   // sliding R=0.4, Eiso < 0.490 + 0.037*pT, non-iso gap=0.8.
-  double m_isoA      = 1.08128;
-  double m_isoB      = 0.0299107;
-  double m_isoGap    = 1.0;
+  double m_isoA      = 0.490;
+  double m_isoB      = 0.037;
+  double m_isoGap    = 0.8;
   double m_isoFixed  = 2.0;          // used ONLY when m_isSlidingIso==false (RECO)
   double m_truthIsoMaxGeV = 4.0;     // TRUTH isolation max (independent of sliding/fixed mode)
   double m_isoConeR  = 0.3;
@@ -1619,8 +1666,6 @@ private:
   bool m_ppg12PhotonYieldEnabled = false;
   bool m_ppg12PhotonYieldUseTopoIso = true;
   bool m_ppg12PhotonYieldApplyTowerMask = true;
-  bool m_ppg12PhotonYieldUseTruthVertexInPPSim = false;
-  bool m_ppg12PhotonYieldUseTruthVertexForRecoObjectsInPPSim = false;
   bool m_ppg12PhotonYieldExcludeCandidateTopoCluster = false;
   bool m_ppg12PhotonYieldDoubleInteraction = false;
   bool m_ppg12PhotonYieldDiagFeatures = false;
@@ -1658,6 +1703,13 @@ private:
   std::string m_ppg12Fig6EventCanaryPath;
   std::string m_ppg12Fig6EventCanarySummaryPath;
   std::ofstream m_ppg12Fig6EventCanaryOut;
+  bool m_ppg12EisoPathCanaryEnabled = false;
+  long long m_ppg12EisoPathCanaryMaxRows = 5000;
+  long long m_ppg12EisoPathCanaryRowsWritten = 0;
+  double m_ppg12EisoPathCanaryMinEt = 10.0;
+  double m_ppg12EisoPathCanaryMaxEt = 36.0;
+  std::string m_ppg12EisoPathCanaryPath;
+  std::ofstream m_ppg12EisoPathCanaryOut;
   long long m_ppg12Fig6CanaryEventsSeen = 0;
   long long m_ppg12Fig6CanaryValidTruthJets = 0;
   long long m_ppg12Fig6CanaryOwnedWindowEvents = 0;

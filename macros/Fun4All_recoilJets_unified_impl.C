@@ -120,12 +120,9 @@
 #include <TRandom3.h>
 #include "/sphenix/u/patsfan753/scratch/thesisAnalysis/macros/Calo_Calib.C"
 
-// Load local CaloReco/CaloIO before the sPHENIX G4 helper macros. Those
-// helpers also call R__LOAD_LIBRARY(libcalo_reco.so); loading the private
-// build first keeps helper-side CaloTowerStatus on the patched thesisAnalysis
-// implementation for gated PPG12 pp-SIM parity diagnostics.
-R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)
-R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_io.so)
+// Calo_Calib.C loads the private CaloReco stack once.  Do not explicitly
+// reload libcalo_reco/libcalo_io here: ROOT will re-register the CaloBase
+// dictionaries and pp-SIM G4 rebuild jobs can abort before event processing.
 
 #if defined(__has_include)
 #  if __has_include(<GlobalVariables.C>) && __has_include(<G4_Input.C>) && __has_include(<G4_CEmc_Spacal.C>) && __has_include(<G4_HcalIn_ref.C>) && __has_include(<G4_HcalOut_ref.C>) && __has_include(<G4_Mbd.C>) && __has_include(<G4_RunSettings.C>)
@@ -143,10 +140,7 @@ R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_io.so)
 #  define RJ_HAS_SPHENIX_G4_INPUT_MACROS 0
 #endif
 
-// Keep explicit absolute loads here as a guard for environments that skip the
-// optional G4 helper include block.
-R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)
-R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_io.so)
+// CaloReco/CaloIO are intentionally provided by Calo_Calib.C above.
 #if defined(RJ_UNIFIED_ANALYSIS_AUAU)
 R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis_auau/install/lib/libRecoilJetsAuAu.so)
 #else
@@ -712,9 +706,9 @@ namespace yamlcfg
         std::string centrality_reweight_file = "/sphenix/u/bseidlitz/work/pj_auau/reweightingDer/output/centrality_reweighting.root";
         std::string centrality_reweight_hist = "nom_cent_rw_hist";
         
-        double isoA = 1.08128;
-        double isoB = 0.0299107;
-        double isoGap = 1.0;
+        double isoA = 0.490;
+        double isoB = 0.037;
+        double isoGap = 0.8;
         double isoFixed = 2.0;
         double truthIsoGeV = 4.0;
         double isoConeR = 0.30;
@@ -785,13 +779,13 @@ namespace yamlcfg
         std::vector<std::string> npb_features;
 
         std::string tight_bdt_model_file = "";
-        double tight_bdt_min_intercept = 0.8333333333333334;
-        double tight_bdt_min_slope = -0.003333333333333336;
+        double tight_bdt_min_intercept = 0.815625;
+        double tight_bdt_min_slope = -0.0015625;
         double tight_bdt_max = 1.0;
         double nontight_bdt_min_intercept = 0.7333333333333333;
         double nontight_bdt_min_slope = -0.01333333333333333;
-        double nontight_bdt_max_intercept = 0.6666666666666666;
-        double nontight_bdt_max_slope = 0.003333333333333336;
+        double nontight_bdt_max_intercept = 0.684375;
+        double nontight_bdt_max_slope = 0.0015625;
         std::vector<std::string> tight_bdt_features;
 
         std::string auau_npb_model_file = "";
@@ -1436,7 +1430,21 @@ namespace yamlcfg
             {
                 const std::string rhs = AfterColon(line);
                 if (!ParseDouble(rhs, cfg.isoConeR))
-                    warn_parse("coneR", rhs, "expected a scalar double");
+                {
+                    std::vector<double> v;
+                    ParseInlineListDoubles(rhs, v);
+                    if (!v.empty())
+                    {
+                        cfg.isoConeR = v.front();
+                        std::ostringstream oss;
+                        oss << "[CFG] coneR is a list (n=" << v.size() << "); using first value = " << cfg.isoConeR;
+                        info_parse(oss.str());
+                    }
+                    else
+                    {
+                        warn_parse("coneR", rhs, "expected a scalar double or an inline list [..]");
+                    }
+                }
             }
             else if (StartsWithKey(line, "centrality_edges"))
             {
@@ -3058,13 +3066,15 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     // Parse list file
     //   DATA:  1 column  -> calo DST
     //          2 columns -> pp PPG12: DST_Jet + DST_JETCALO
+    //                    -> AuAu data policy: DST_JET + DST_JETCALO
     //                    -> AuAu MB gate: calo DST + DST_ZDC_RAW
     //   SIM :  5 columns -> calo + G4Hits + (truth jets) + global + mbd_epd
     //
     // NOTE:
     //   The second token is interpreted by mode:
     //     pp DATA: DST_JETCALO, with column 1 carrying DST_Jet
-    //     AuAu DATA: DST_ZDC_RAW
+    //     AuAu DATA: DST_JETCALO for the paired jet stream, or DST_ZDC_RAW
+    //                 for the legacy MB-gate stream
     //     SIM : G4Hits
     // ---------------------------------------------------------------
     std::vector<std::string> filesCalo;
@@ -3083,6 +3093,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         // Columns:
         //   DATA : <DST_CALO_CLUSTER> [<DST_ZDC_RAW>]
         //      or <DST_Jet> <DST_JETCALO> for PPG12 pp-data parity
+        //      or <DST_JET> <DST_JETCALO> for the AuAu paired data policy
         //   SIM  : <DST_CALO_CLUSTER> <G4Hits> <DST_JETS> <DST_GLOBAL> <DST_MBD_EPD>
         std::istringstream iss(line);
         std::string fCalo, fAux1, fJets, fGlobal, fMbd;
@@ -3209,6 +3220,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         }
         if (firstFileLower.find("calofitting") != std::string::npos) return "calofitting";
         if (firstFileLower.find("jetcalo") != std::string::npos) return "jetcalo";
+        if (firstFileLower.find("dst_jet") != std::string::npos) return "jetcalo";
         if (isPPrun25 || isAuAuRequested) return "calofitting";
         return "jetcalo";
     };
@@ -3406,6 +3418,8 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     const bool ppg12TableQAEnabled = envFlag("RJ_PPG12_TABLE_QA");
     const bool ppg12TableQAWantsPPScoreNodes =
         ppg12TableQAEnabled && !isAuAuRequested && !isSimEmbedded;
+    const bool ppg12PhotonYieldPPSimWantsPPScoreNodes =
+        envFlag("RJ_PPG12_PHOTON_YIELD") && isSim && !isAuAuRequested && !isSimEmbedded;
 
     bool fanoutUsesNPB = false;
     bool fanoutUsesAuAuNPB = false;
@@ -3419,14 +3433,20 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     // PPG12 table-QA needs the analysis-row BDT score and the ordinary NPB
     // score. It should not force an AuAu-only NPB model unless the selected
     // photon-ID row itself uses preselection=auauOnlyNPB.
-    fanoutUsesNewPPG12Tight = fanoutUsesNewPPG12Tight || ppg12TableQAWantsPPScoreNodes;
+    fanoutUsesNewPPG12Tight =
+        fanoutUsesNewPPG12Tight ||
+        ppg12TableQAWantsPPScoreNodes ||
+        ppg12PhotonYieldPPSimWantsPPScoreNodes;
     const bool ppPhotonIDTrainingWantsNPBAudit =
         isSim && !isSimEmbedded &&
         (cfg.pp_photonid_extract_only || cfg.pp_photonid_training_tree) &&
         !cfg.npb_model_file.empty() &&
         !cfg.npb_features.empty();
     const bool attachPPNPBScore =
-        fanoutUsesNPB || ppPhotonIDTrainingWantsNPBAudit || ppg12TableQAWantsPPScoreNodes;
+        fanoutUsesNPB ||
+        ppPhotonIDTrainingWantsNPBAudit ||
+        ppg12TableQAWantsPPScoreNodes ||
+        ppg12PhotonYieldPPSimWantsPPScoreNodes;
 
     cfg.preselection = idFanoutEntries.front().preselection;
     cfg.tight = idFanoutEntries.front().tight;
@@ -3574,6 +3594,32 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         << " (isSim=" << (isSim ? "true" : "false") << ")\n";
     
     CDBInterface::instance()->Verbosity(0);
+
+    const bool auditJESCdb = !env_truthy_local("RJ_DISABLE_JES_CDB_AUDIT");
+    if (auditJESCdb)
+    {
+        try
+        {
+            const std::string jesUrl = CDBInterface::instance()->getUrl("JES_Calib_Default");
+            std::cout << "[INFO] JES_CDB_AUDIT CDB_GLOBALTAG=" << gtag
+                      << " TIMESTAMP=" << rc->get_uint64Flag("TIMESTAMP")
+                      << " JES_Calib_Default="
+                      << (jesUrl.empty() ? std::string("<empty>") : jesUrl)
+                      << "\n";
+        }
+        catch (const std::exception& e)
+        {
+            std::cout << "[WARN] JES_CDB_AUDIT failed for CDB_GLOBALTAG=" << gtag
+                      << " TIMESTAMP=" << rc->get_uint64Flag("TIMESTAMP")
+                      << ": " << e.what() << "\n";
+        }
+        catch (...)
+        {
+            std::cout << "[WARN] JES_CDB_AUDIT failed for CDB_GLOBALTAG=" << gtag
+                      << " TIMESTAMP=" << rc->get_uint64Flag("TIMESTAMP")
+                      << " with unknown exception\n";
+        }
+    }
     
     
     auto* flag = new FlagHandler();
@@ -3693,9 +3739,37 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         listHasCalo &&
         listHasZdc &&
         env_bool_local("RJ_PPG12_PP_DATA_PAIRED", true);
+    auto first_nonempty_lower = [](const std::vector<std::string>& paths) -> std::string
+    {
+        for (const auto& path : paths)
+        {
+            if (path.empty() || path == "NONE") continue;
+            std::string out = path;
+            std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c){ return std::tolower(c); });
+            return out;
+        }
+        return {};
+    };
+    const std::string firstAuxLower = first_nonempty_lower(filesZdc);
+    const bool auxLooksZdcRaw =
+        firstAuxLower.find("zdc") != std::string::npos;
+    const bool auxLooksJetCalo =
+        firstAuxLower.find("jetcalo") != std::string::npos ||
+        firstAuxLower.find("dst_jetcalo") != std::string::npos;
+    const bool useAuAuJetCaloDataPair =
+        isAuAuRequested &&
+        !isSim &&
+        listHasCalo &&
+        listHasZdc &&
+        env_bool_local("RJ_AUAU_DATA_PAIRED", true) &&
+        (caloInputMode == "jetcalo" || auxLooksJetCalo) &&
+        !auxLooksZdcRaw;
     const bool usePPG12PPSimG4OnlyInput =
         usePPG12PPSimRebuildCaloFromG4 &&
         env_truthy_local("RJ_PPG12_PPSIM_G4_ONLY");
+    const bool usePPG12Fig11G4OnlyRebuild =
+        usePPG12PPSimG4OnlyInput &&
+        env_truthy_local("RJ_PPG12_FIG11_SB_DIAGNOSTIC");
 
     if (usePPG12PPSimRebuildCaloFromG4)
     {
@@ -3717,6 +3791,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 
     const bool needZdcRawForMinBias =
         cfg.setMinBiasClassifer &&
+        !useAuAuJetCaloDataPair &&
         !isSim &&
         (isAuAuRequested || (!isPPrun25 && run > 53864));
 
@@ -3736,6 +3811,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         << " | DST_MBD_EPD=" << (listHasMbd ? "present" : "missing")
         << " | caloInputMode=" << caloInputMode
         << " | ppPPG12DataPair=" << (usePPG12PPDataPair ? "true" : "false")
+        << " | auauJetCaloDataPair=" << (useAuAuJetCaloDataPair ? "true" : "false")
         << " | minBiasClassifierGate=" << (cfg.setMinBiasClassifer ? "true" : "false")
         << std::endl;
     }
@@ -3813,7 +3889,14 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         if (usePPG12PPSimAuxInputs && listHasCalo) INPUTREADHITS::listfile[1] = caloList;
         if (usePPG12PPSimAuxInputs && listHasMbd) INPUTREADHITS::listfile[3] = mbdList;
         INPUTREADHITS::listfile[4] = jetsList;
-        setenv("RJ_SKIP_CALO_TOWER_STATUS", "1", 1);
+        if (usePPG12PPSimG4OnlyInput)
+        {
+            setenv("RJ_SKIP_CALO_TOWER_STATUS", "1", 1);
+        }
+        else
+        {
+            unsetenv("RJ_SKIP_CALO_TOWER_STATUS");
+        }
         InputInit();
         InputRegister();
         Enable::MBDRECO = false;
@@ -3822,7 +3905,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             std::cout << "[PPG12_PPSIM_REBUILD_CALO_FROM_G4] skipping helper Mbd_Reco() in the G4 input stack; "
                       << (usePPG12PPSimG4OnlyInput
                               ? "G4-only input has no standalone MBD DST lane; manual MbdReco will run on the G4 stack"
-                              : "standard RecoilJets MbdReco is registered once after Process_Calo_Calib")
+                              : "four-lane input follows the visible PPG12 macro: DST_CALO_CLUSTER + DST_MBD_EPD with manual MbdReco before Process_Calo_Calib")
                       << std::endl;
         }
         if (usePPG12PPSimG4OnlyInput)
@@ -3842,13 +3925,60 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             std::unique_ptr<GlobalVertexReco> gvertex = std::make_unique<GlobalVertexReco>();
             se->registerSubsystem(gvertex.release());
         }
-        RunSettings(28);
-        Enable::CEMC_TOWERINFO = true;
-        Enable::HCALIN_TOWERINFO = true;
-        Enable::HCALOUT_TOWERINFO = true;
-        CEMC_Towers();
-        HCALInner_Towers();
-        HCALOuter_Towers();
+        else
+        {
+            if (vlevel > 0)
+            {
+                std::cout << "[PPG12_PPSIM_REBUILD_CALO_FROM_G4] registering MbdReco + GlobalVertexReco "
+                          << "before Process_Calo_Calib for four-lane Fig.11-compatible input"
+                          << std::endl;
+            }
+            std::unique_ptr<MbdReco> mbdreco = std::make_unique<MbdReco>();
+            se->registerSubsystem(mbdreco.release());
+
+            std::unique_ptr<GlobalVertexReco> gvertex = std::make_unique<GlobalVertexReco>();
+            se->registerSubsystem(gvertex.release());
+        }
+        if (usePPG12PPSimG4OnlyInput)
+        {
+            RunSettings(28);
+            Enable::CEMC_TOWERINFO = true;
+            Enable::HCALIN_TOWERINFO = true;
+            Enable::HCALOUT_TOWERINFO = true;
+            if (usePPG12Fig11G4OnlyRebuild)
+            {
+                CEMC_Cells();
+                HCALInner_Cells();
+                HCALOuter_Cells();
+            }
+            CEMC_Towers();
+            HCALInner_Towers();
+            HCALOuter_Towers();
+            if (usePPG12Fig11G4OnlyRebuild)
+            {
+                auto* clusterBuilder = new RawClusterBuilderTemplate("EmcRawClusterBuilderTemplate");
+                clusterBuilder->Detector("CEMC");
+                clusterBuilder->set_threshold_energy(0.070);
+                std::string emcProf = getenv("CALIBRATIONROOT");
+                emcProf += "/EmcProfile/CEMCprof_Thresh30MeV.root";
+                clusterBuilder->LoadProfile(emcProf);
+                clusterBuilder->set_UseTowerInfo(1);
+                se->registerSubsystem(clusterBuilder);
+
+                if (verbose || vlevel > 0)
+                {
+                    std::cout << "[PPG12_FIG11_SB][G4_ONLY_REBUILD] registered single CEMC cluster builder "
+                              << "after G4 helper tower/status/calib chain; Process_Calo_Calib will be skipped "
+                              << "to avoid duplicate TOWERINFO_CALIB_* nodes" << std::endl;
+                }
+            }
+        }
+        else if (verbose || vlevel > 0)
+        {
+            std::cout << "[PPG12_FIG11_SB][FOUR_LANE] using DST_CALO_CLUSTER + DST_MBD_EPD inputs; "
+                      << "not registering the G4 waveform/tower helper stack. Process_Calo_Calib() will match the visible PPG12 macro."
+                      << std::endl;
+            }
         InputManagers();
 
         TRandom3 randGen;
@@ -3884,19 +4014,76 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     }
     else
     {
-        if (usePPG12PPDataPair)
-        {
-            auto* inPpJet = new Fun4AllDstInputManager("DST_JET_IN");
-            for (const auto& f : filesCalo) inPpJet->AddFile(f);
-            se->registerInputManager(inPpJet);
+        const bool usePPG12PPSimPrebuiltG4OnlyInput =
+            isSim && !isSimEmbedded &&
+            env_truthy_local("RJ_PPG12_FIG11_SB_DIAGNOSTIC") &&
+            env_truthy_local("RJ_PPG12_PPSIM_G4_ONLY") &&
+            env_truthy_local("RJ_ALLOW_LEGACY_PPG12_PPSIM_PREBUILT_G4_ONLY");
 
-            auto* inPpJetCalo = new Fun4AllDstInputManager("DST_JETCALO_IN");
-            for (const auto& f : filesZdc) inPpJetCalo->AddFile(f);
-            se->registerInputManager(inPpJetCalo);
+        if (isSim && !isSimEmbedded &&
+            env_truthy_local("RJ_PPG12_FIG11_SB_DIAGNOSTIC") &&
+            env_truthy_local("RJ_PPG12_PPSIM_G4_ONLY") &&
+            !usePPG12PPSimPrebuiltG4OnlyInput)
+        {
+            detail::bail(
+                "RJ_PPG12_FIG11_SB_DIAGNOSTIC=1 with RJ_PPG12_PPSIM_G4_ONLY=1 "
+                "must use the PPG12-style G4 rebuild stack. Set "
+                "RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4=1 so the macro runs "
+                "Input::READHITS/InputRegister, MbdReco, GlobalVertexReco, "
+                "and the calo reconstruction path instead of the legacy "
+                "prebuilt-G4 shortcut. To debug the old shortcut explicitly, "
+                "set RJ_ALLOW_LEGACY_PPG12_PPSIM_PREBUILT_G4_ONLY=1.");
+        }
+
+        if (usePPG12PPSimPrebuiltG4OnlyInput)
+        {
+            // Legacy diagnostic-only path.  PPG12 production macros rebuild
+            // from G4Hits with Input::READHITS/InputRegister, MbdReco,
+            // GlobalVertexReco, and the calo reconstruction chain; keep this
+            // shortcut opt-in so it cannot become the canonical parity path.
+            if (!listHasG4 || !listHasJets)
+            {
+                detail::bail(
+                    "RJ_PPG12_FIG11_SB_DIAGNOSTIC=1 with RJ_PPG12_PPSIM_G4_ONLY=1 "
+                    "requires G4Hits and DST_JETS columns for the prebuilt-cluster input mode.");
+            }
+
+            auto* inG4 = new Fun4AllNoSyncDstInputManager("DST_G4HITS_IN");
+            for (const auto& f : filesG4) inG4->AddFile(f);
+            se->registerInputManager(inG4);
+
+            if (useDSTTruthJets)
+            {
+                auto* inJets = new Fun4AllNoSyncDstInputManager("DST_JETS_IN");
+                for (const auto& f : filesJets) inJets->AddFile(f);
+                se->registerInputManager(inJets);
+            }
 
             if (vlevel > 0)
             {
-                std::cout << "[INFO] PPG12 pp-data paired input enabled: registered DST_Jet + DST_JETCALO streams"
+                std::cout << "[PPG12_FIG11_SB][G4_ONLY_PREBUILT] registered G4Hits"
+                          << (useDSTTruthJets ? " + DST_JETS" : "")
+                          << " no-sync input streams without DST_GLOBAL and without calo rebuild"
+                          << " (nFiles=" << filesG4.size() << ")" << std::endl;
+            }
+        }
+        else
+        {
+        if (usePPG12PPDataPair || useAuAuJetCaloDataPair)
+        {
+            auto* inDataJet = new Fun4AllDstInputManager("DST_JET_IN");
+            for (const auto& f : filesCalo) inDataJet->AddFile(f);
+            se->registerInputManager(inDataJet);
+
+            auto* inDataJetCalo = new Fun4AllDstInputManager("DST_JETCALO_IN");
+            for (const auto& f : filesZdc) inDataJetCalo->AddFile(f);
+            se->registerInputManager(inDataJetCalo);
+
+            if (vlevel > 0)
+            {
+                std::cout << (useAuAuJetCaloDataPair
+                              ? "[INFO] AuAu data paired input enabled: registered DST_JET + DST_JETCALO streams"
+                              : "[INFO] PPG12 pp-data paired input enabled: registered DST_Jet + DST_JETCALO streams")
                           << " (nFiles=" << filesCalo.size() << ")" << std::endl;
             }
         }
@@ -3992,11 +4179,11 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     
     
     // ------------------ Jets DST (SIM optional; for truth jets) -------
-    if (isSim && useDSTTruthJets)
-    {
-        if (!listHasJets)
+        if (isSim && useDSTTruthJets)
         {
-            std::ostringstream os;
+            if (!listHasJets)
+            {
+                std::ostringstream os;
             os << "RJ_TRUTH_JETS_MODE=" << truthMode << " requires a list with at least 3 columns:\n"
             << "  <DST_CALO_CLUSTER> <G4Hits> <DST_JETS> [<DST_GLOBAL> <DST_MBD_EPD>]\n"
             << "Use your staged 5-column master list built from the matched lists.";
@@ -4012,6 +4199,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         if (verbose)
             std::cout << "[INFO] isSim: registered DST_JETS input manager (truth jets from DST)\n";
     }
+        }
     }
     
     if (verbose && isSim)
@@ -4098,11 +4286,16 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     {
         if (vlevel > 0)
         {
-            std::cout << "[PPG12_PPSIM_REBUILD_CALO_FROM_G4] running Process_Calo_Calib() "
-                      << "on the PPG12 four-lane input stack for pp SIM parity diagnostics\n";
+            std::cout << "[PPG12_PPSIM_REBUILD_CALO_FROM_G4] "
+                      << (usePPG12Fig11G4OnlyRebuild
+                              ? "skipping Process_Calo_Calib(); Fig.11 G4-only path already registered the G4 helper tower/status/calib chain and CEMC cluster builder\n"
+                              : "running Process_Calo_Calib() on the PPG12 four-lane input stack for pp SIM parity diagnostics\n");
         }
 #if RJ_HAS_SPHENIX_G4_INPUT_MACROS
-        Process_Calo_Calib();
+        if (!usePPG12Fig11G4OnlyRebuild)
+        {
+            Process_Calo_Calib();
+        }
 #else
         detail::bail(
             "RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4=1 requested tower rebuild, but "
@@ -4164,6 +4357,22 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                           << "PhotonClusterBuilder CEMC mask for canonical proof\n";
             }
         }
+        if (!isSim && (usePPG12PPDataPair || useAuAuJetCaloDataPair) && caloInputMode == "jetcalo")
+        {
+            // The paired DST_JET + DST_JETCALO data streams already carry
+            // TOWERINFO_CALIB_* nodes. Keep those producer status/calibration
+            // nodes intact instead of rerunning the legacy status setter on
+            // missing raw TOWERS_* input.
+            setenv("RJ_SKIP_CALO_TOWER_STATUS", "1", 1);
+            unsetenv("RJ_CALO_TOWER_STATUS_INPUT_PREFIX");
+            if (vlevel > 0)
+            {
+                std::cout << (useAuAuJetCaloDataPair ? "[DATA][AuAu]" : "[DATA][PPG12 pp]")
+                          << " JETCALO/TowerInfo input: "
+                          << "preserving existing TOWERINFO_CALIB_* status/calibration nodes "
+                          << (useAuAuJetCaloDataPair ? "(DST_JET/DST_JETCALO data policy)\n" : "(PPG12 ana521 parity)\n");
+            }
+        }
         if (isSimEmbedded)
         {
             setenv("RJ_DISABLE_CEMC_BAD_TOWER_MASK", "1", 1);
@@ -4191,12 +4400,13 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             std::cout << "[isSimEmbedded] skipping GlobalVertexReco (use embedded sample's existing GlobalVertexMap)" << std::endl;
         }
     }
-    else if (usePPG12PPSimG4OnlyInput)
+    else if (usePPG12PPSimRebuildCaloFromG4)
     {
         if (vlevel > 0)
         {
-            std::cout << "[PPG12_PPSIM_REBUILD_CALO_FROM_G4] MbdDigitization + MbdReco + GlobalVertexReco already registered early "
-                      << "for G4-only pp SIM input" << std::endl;
+            std::cout << "[PPG12_PPSIM_REBUILD_CALO_FROM_G4] MBD/GlobalVertex reconstruction already registered early "
+                      << (usePPG12PPSimG4OnlyInput ? "for G4-only pp SIM input" : "for four-lane PPG12 pp SIM input")
+                      << std::endl;
         }
     }
     else
@@ -5299,28 +5509,37 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     const bool ppg12PhotonYieldPPSim =
         env_truthy_local("RJ_PPG12_PHOTON_YIELD") &&
         isSim && !isAuAuLike;
-    const bool usePPG12PPSimTruthVertexForIso =
+    const bool requestedPPG12TruthVertexForReco =
         ppg12PhotonYieldPPSim &&
-        env_truthy_local("RJ_PPG12_PHOTON_YIELD_TRUTH_VERTEX");
-    const bool usePPG12PPSimTruthVertexForBuilder =
-        ppg12PhotonYieldPPSim &&
-        env_truthy_local("RJ_PPG12_PHOTON_YIELD_BUILDER_TRUTH_VERTEX");
-    constexpr double kPPG12PPSimVertexCutCm = 60.0;
-    const double photonBuilderVzCutCm = usePPG12PPSimTruthVertexForIso
-        ? kPPG12PPSimVertexCutCm
-        : cfg.vz_cut_cm;
+        (env_truthy_local("RJ_PPG12_PHOTON_YIELD_TRUTH_VERTEX") ||
+         env_truthy_local("RJ_PPG12_PHOTON_YIELD_BUILDER_TRUTH_VERTEX") ||
+         env_truthy_local("RJ_PPG12_PHOTON_YIELD_RECO_TRUTH_VERTEX"));
+    if (requestedPPG12TruthVertexForReco)
+    {
+        detail::bail(
+            "PPG12 truth-for-reconstructed-object vertex mode is forbidden: "
+            "reconstructed cluster kinematics/Eiso use reconstructed MBD z; "
+            "truth vertices are reserved for SI/DI event weights.");
+    }
+    const double photonBuilderVzCutCm = cfg.vz_cut_cm;
     constexpr float kPPG12PPIsoTowerMin = 0.12f;
     const float photonBuilderIsoTowerMin = usePPG12PPIsoTowerFloor
         ? kPPG12PPIsoTowerMin
         : 0.0f;
     const double recoilJetsIsoTowerMin = isAuAuLike ? 0.0 : cfg.isoTowMin;
+    const bool useAuAuTopoClusterIsoCalibration =
+        isAuAuLike &&
+        env_truthy_local("RJ_AUAU_BUILD_TOPOCLUSTER_ISOLATION");
     const bool usePPG12PhotonYieldTopoIso =
-        env_truthy_local("RJ_PPG12_PHOTON_YIELD") &&
-        !isAuAuLike &&
-        env_bool_local("RJ_PPG12_PHOTON_YIELD_TOPO_ISO", true);
+        (env_truthy_local("RJ_PPG12_PHOTON_YIELD") &&
+         !isAuAuLike &&
+         env_bool_local("RJ_PPG12_PHOTON_YIELD_TOPO_ISO", true)) ||
+        useAuAuTopoClusterIsoCalibration;
     const bool ppg12ExcludeCandidateTopo =
-        ppg12PhotonYieldPPSim &&
-        env_bool_local("RJ_PPG12_PHOTON_YIELD_EXCLUDE_CANDIDATE_TOPO", false);
+        (ppg12PhotonYieldPPSim &&
+         env_bool_local("RJ_PPG12_PHOTON_YIELD_EXCLUDE_CANDIDATE_TOPO", false)) ||
+        (useAuAuTopoClusterIsoCalibration &&
+         env_bool_local("RJ_AUAU_TOPOCLUSTER_EXCLUDE_CANDIDATE", false));
 
     bool ppg12TopoBuilderRegistered = false;
     auto registerPPG12PhotonYieldTopoBuilder = [&](const char* placement)
@@ -5371,7 +5590,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         builder->set_ET_threshold(static_cast<float>(minPhotonEt));
         builder->set_iso_min_tower_energy(photonBuilderIsoTowerMin);
         builder->set_use_ppg12_pp_iso_axis(useSamePhotonBDTScores);
-        builder->set_use_ppg12_pp_sim_truth_vertex(usePPG12PPSimTruthVertexForBuilder);
+        builder->set_use_ppg12_pp_sim_truth_vertex(false);
         builder->set_use_ppg12_pp_sim_global_mbd_vertex(ppg12PhotonYieldPPSim);
         builder->set_use_ppg12_pp_sim_towerinfo_shapes(ppg12PhotonYieldPPSim);
         builder->set_use_ppg12_topocluster_isolation(usePPG12PhotonYieldTopoIso);
@@ -6036,9 +6255,9 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         std::cout << "[DBG] PhotonClusterBuilder vzCut config: use="
         << (cfg.use_vz_cut ? "true" : "false")
         << " vz_cut_cm=" << photonBuilderVzCutCm
-        << (usePPG12PPSimTruthVertexForIso ? " (PPG12 pp-SIM override)" : "")
-        << " | ppg12IsoTruthVertex=" << (usePPG12PPSimTruthVertexForIso ? "true" : "false")
-        << " | ppg12BuilderTruthVertex=" << (usePPG12PPSimTruthVertexForBuilder ? "true" : "false")
+        << " | ppg12RecoVertex="
+        << (ppg12PhotonYieldPPSim ? "GlobalVertexMap::MBD" : "default reco")
+        << " | ppg12TruthVertexRole=SI/DI weight only"
         << " | ppg12TowerInfoShapes=" << (ppg12PhotonYieldPPSim ? "true" : "false")
         << " | isAuAuLike=" << (isAuAuLike ? "true" : "false")
         << " | isSimEmbedded=" << (isSimEmbedded ? "true" : "false")
@@ -6327,6 +6546,12 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PPG12_TABLE_QA",
                                                "RJ_PPG12_TABLE_QA",
                                                envOrDefault("RJ_PPG12_TABLE_QA", "0")));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PPG12_TABLE_QA_MC_ISO_SCALE",
+                                               "RJ_PPG12_TABLE_QA_MC_ISO_SCALE",
+                                               envOrDefault("RJ_PPG12_TABLE_QA_MC_ISO_SCALE", "1.2")));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PPG12_TABLE_QA_MC_ISO_SHIFT",
+                                               "RJ_PPG12_TABLE_QA_MC_ISO_SHIFT",
+                                               envOrDefault("RJ_PPG12_TABLE_QA_MC_ISO_SHIFT", "0.2")));
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PPG12_TABLE_QA_NPB_DATA_TAGGING",
                                                "RJ_PPG12_TABLE_QA_NPB_DATA_TAGGING",
                                                envOrDefault("RJ_PPG12_TABLE_QA_NPB_DATA_TAGGING", "1")));
@@ -6348,6 +6573,18 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PPG12_TABLE_QA_MBD_T0_CORRECTION_FILE",
                                                "RJ_PPG12_TABLE_QA_MBD_T0_CORRECTION_FILE",
                                                envOrDefault("RJ_PPG12_TABLE_QA_MBD_T0_CORRECTION_FILE", "")));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PPG12_FIG11_SB_DIAGNOSTIC",
+                                               "RJ_PPG12_FIG11_SB_DIAGNOSTIC",
+                                               envOrDefault("RJ_PPG12_FIG11_SB_DIAGNOSTIC", "0")));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PPG12_FIG13_PARITY_QA",
+                                               "RJ_PPG12_FIG13_PARITY_QA",
+                                               envOrDefault("RJ_PPG12_FIG13_PARITY_QA", "0")));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PPG12_FIG7_TRIGGER_DIAGNOSTIC",
+                                               "RJ_PPG12_FIG7_TRIGGER_DIAGNOSTIC",
+                                               envOrDefault("RJ_PPG12_FIG7_TRIGGER_DIAGNOSTIC", "0")));
+    se->registerSubsystem(new ProcessEnvSetter("Env_RJ_PPG12_FIG13_BIT30_DIAGNOSTIC",
+                                               "RJ_PPG12_FIG13_BIT30_DIAGNOSTIC",
+                                               envOrDefault("RJ_PPG12_FIG13_BIT30_DIAGNOSTIC", "0")));
     se->registerSubsystem(new ProcessEnvSetter("Env_RJ_AUAU_NPB_TAG_DELTA_T_CUT",
                                                "RJ_AUAU_NPB_TAG_DELTA_T_CUT",
                                                fmtDouble(cfg.auau_npb_tag_delta_t_cut)));
@@ -6467,10 +6704,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     recoilJets->setMinJetPt(cfg.jet_pt_min);
     recoilJets->setMinBackToBack(cfg.back_to_back_dphi_min_pi_fraction * M_PI);
     
-    const double recoilJetsVzCutCm = usePPG12PPSimTruthVertexForIso
-        ? kPPG12PPSimVertexCutCm
-        : cfg.vz_cut_cm;
-    recoilJets->setUseVzCut(cfg.use_vz_cut, recoilJetsVzCutCm);
+    recoilJets->setUseVzCut(cfg.use_vz_cut, cfg.vz_cut_cm);
 #if defined(RJ_UNIFIED_ANALYSIS_AUAU)
     recoilJets->setMinBiasClassifier(cfg.setMinBiasClassifer);
     recoilJets->setCentEdges(cfg.centrality_edges);
@@ -6911,7 +7145,6 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         << std::endl;
     }
     recoilJets->setDataType(dtype);
-    recoilJets->setPPG12PhotonYieldUseTruthVertexInPPSim(usePPG12PPSimTruthVertexForIso);
     };
 
     if (usePPG12PhotonYieldTopoIso && !ppg12TopoBuilderRegistered)

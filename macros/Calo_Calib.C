@@ -32,6 +32,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -186,7 +187,11 @@ void Process_Calo_Calib()
   bool isScaledTriggerStudyOnly = rj_env_truthy("RJ_SCALED_TRIGGER_STUDY_ONLY");
   bool skipCaloStatusSkimmer = rj_env_truthy("RJ_SKIP_CALO_STATUS_SKIMMER");
   bool skipLegacyCaloTowerStatus = isScaledTriggerStudyOnly || rj_env_truthy("RJ_SKIP_CALO_TOWER_STATUS");
+  bool forceEmbeddedCaloTowerStatus = rj_env_truthy("RJ_FORCE_CALO_TOWER_STATUS_FOR_EMBEDDED");
   bool auditCalibTowerStatus = rj_env_truthy("RJ_CALO_STATUS_AUDIT");
+  const char* statusInputPrefixRaw = getenv("RJ_CALO_TOWER_STATUS_INPUT_PREFIX");
+  const std::string statusInputPrefix = statusInputPrefixRaw ? std::string(statusInputPrefixRaw) : std::string();
+  const bool useStatusInputPrefix = !statusInputPrefix.empty();
 
   ///////////////////////////////////////////////
   // Remove incomplete events from event combiner
@@ -243,7 +248,7 @@ void Process_Calo_Calib()
 
   //////////////////////////////
   // set statuses on raw towers
-  if (isSimEmbedded)
+  if (isSimEmbedded && !forceEmbeddedCaloTowerStatus)
   {
     std::cout << "[Process_Calo_Calib][isSimEmbedded] skipping CaloTowerStatus setters "
                  "(embedded SIM path uses producer tower-quality state)" << std::endl;
@@ -258,6 +263,12 @@ void Process_Calo_Calib()
     std::cout << "status setters" << std::endl;
     CaloTowerStatus *statusEMC = new CaloTowerStatus("CEMCSTATUS");
     statusEMC->set_detector_type(CaloTowerDefs::CEMC);
+    if (useStatusInputPrefix)
+    {
+      statusEMC->set_inputNodePrefix(statusInputPrefix);
+      std::cout << "[Process_Calo_Calib] CEMCSTATUS input prefix: "
+                << statusInputPrefix << std::endl;
+    }
     // MC Towers Status
     if (isSim)
     {
@@ -281,6 +292,12 @@ void Process_Calo_Calib()
 
     CaloTowerStatus *statusHCalIn = new CaloTowerStatus("HCALINSTATUS");
     statusHCalIn->set_detector_type(CaloTowerDefs::HCALIN);
+    if (useStatusInputPrefix)
+    {
+      statusHCalIn->set_inputNodePrefix(statusInputPrefix);
+      std::cout << "[Process_Calo_Calib] HCALINSTATUS input prefix: "
+                << statusInputPrefix << std::endl;
+    }
     if (auditCalibTowerStatus)
     {
       statusHCalIn->Verbosity(1);
@@ -289,6 +306,12 @@ void Process_Calo_Calib()
 
     CaloTowerStatus *statusHCALOUT = new CaloTowerStatus("HCALOUTSTATUS");
     statusHCALOUT->set_detector_type(CaloTowerDefs::HCALOUT);
+    if (useStatusInputPrefix)
+    {
+      statusHCALOUT->set_inputNodePrefix(statusInputPrefix);
+      std::cout << "[Process_Calo_Calib] HCALOUTSTATUS input prefix: "
+                << statusInputPrefix << std::endl;
+    }
     if (auditCalibTowerStatus)
     {
       statusHCALOUT->Verbosity(1);
@@ -313,7 +336,7 @@ void Process_Calo_Calib()
   calibIHCal->set_detector_type(CaloTowerDefs::HCALIN);
   se->registerSubsystem(calibIHCal);
 
-  if (!isSimEmbedded && auditCalibTowerStatus)
+  if ((!isSimEmbedded || forceEmbeddedCaloTowerStatus) && auditCalibTowerStatus)
   {
     std::cout << "[Process_Calo_Calib] auditing TOWERINFO_CALIB_* status after CaloTowerCalib copy "
                  "and before RawClusterBuilderTemplate" << std::endl;

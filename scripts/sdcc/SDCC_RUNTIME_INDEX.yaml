@@ -218,6 +218,16 @@ entries:
     domain: "sdcc/workflows/submit"
     hard_aliases:
       []
+  - id: submit_the96_auau_iso_baseline5pct_campaign
+    canonical_path: "scripts/sdcc/workflows/submit/submit_the96_auau_iso_baseline5pct_campaign.sh"
+    domain: "sdcc/workflows/submit"
+    hard_aliases:
+      []
+  - id: heartbeat_the96_auau_iso_baseline5pct_campaign
+    canonical_path: "scripts/sdcc/workflows/submit/heartbeat_the96_auau_iso_baseline5pct_campaign.sh"
+    domain: "sdcc/workflows/submit"
+    hard_aliases:
+      []
   - id: submit_auau_mlp_finept_distilled_sweep
     canonical_path: "scripts/sdcc/workflows/submit/submit_auau_mlp_finept_distilled_sweep.sh"
     domain: "sdcc/workflows/submit"

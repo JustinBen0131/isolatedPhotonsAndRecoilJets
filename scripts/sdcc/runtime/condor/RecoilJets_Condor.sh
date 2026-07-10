@@ -51,6 +51,14 @@ if [[ -d "$MYINSTALL" ]]; then
   # do not fail if local area is not present; macro has R__LOAD_LIBRARY with absolute path
   source /opt/sphenix/core/bin/setup_local.sh "$MYINSTALL" || true
 fi
+if [[ -d "${MYINSTALL}/lib" ]]; then
+  # setup_local can leave an older user install ahead of this campaign install.
+  # Keep DT_NEEDED dependencies bound to the same rebuilt library stack.
+  export LD_LIBRARY_PATH="${MYINSTALL}/lib:${LD_LIBRARY_PATH:-}"
+fi
+if [[ -d "${MYINSTALL}/include" ]]; then
+  export ROOT_INCLUDE_PATH="${MYINSTALL}/include:${ROOT_INCLUDE_PATH:-}"
+fi
 set -u
 
 # ------------------------ Dataset routing ------------------
@@ -242,8 +250,31 @@ min_output_bytes() {
     echo "[WARN] Invalid RJ_MIN_OUTPUT_BYTES='$min'; using 50000" >&2
     min=50000
   fi
+  # Sparse pp data chunks can be valid around 30-45 KB after event/candidate
+  # cuts. Keep the stub guard, but do not hold those successful chunks.
+  if [[ "${dataset:-${RJ_DATASET:-}}" == "isPP" && "$min" -gt 25000 ]]; then
+    min=25000
+  fi
   echo "$min"
 }
+
+rj_truthy() {
+  case "${1:-0}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+root_invoke_prefix=()
+if rj_truthy "${RJ_FORCE_RELEASE_CALO_IO:-0}"; then
+  release_calo_io="${RJ_RELEASE_CALO_IO_PATH:-/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.558/lib/libcalo_io.so.0}"
+  if [[ ! -r "$release_calo_io" ]]; then
+    echo "[FATAL] RJ_FORCE_RELEASE_CALO_IO requested, but libcalo_io is not readable: $release_calo_io"
+    exit 9
+  fi
+  root_invoke_prefix=( env "LD_PRELOAD=${release_calo_io}${LD_PRELOAD:+:${LD_PRELOAD}}" )
+  echo "[INFO] RJ_FORCE_RELEASE_CALO_IO=1: preloading $release_calo_io for ROOT invocation only"
+fi
 
 check_required_output_file() {
   local f="$1"
@@ -353,14 +384,17 @@ stop_heartbeat() {
   fi
 }
 
+# Defensive default: with set -u enabled, never let wrapper bookkeeping turn
+# into an unbound rc hold. ROOT success/failure overwrites this immediately.
+rc=125
 set +e
 echo "[INFO] Running ROOT:"
 echo "root -b -q -l \"${MACRO}(${nevents}, \\\"${chunk_list}\\\", \\\"${out_root}\\\", false)\""
 start_heartbeat
 if [[ "$profile_enabled" == "1" || "$profile_enabled" == "true" || "$profile_enabled" == "TRUE" ]] && command -v /usr/bin/time >/dev/null 2>&1; then
-  /usr/bin/time -v -o "$profile_file" root -b -q -l "${MACRO}(${nevents}, \"${chunk_list}\", \"${out_root}\", false)"
+  /usr/bin/time -v -o "$profile_file" "${root_invoke_prefix[@]}" root -b -q -l "${MACRO}(${nevents}, \"${chunk_list}\", \"${out_root}\", false)"
 else
-  root -b -q -l "${MACRO}(${nevents}, \"${chunk_list}\", \"${out_root}\", false)"
+  "${root_invoke_prefix[@]}" root -b -q -l "${MACRO}(${nevents}, \"${chunk_list}\", \"${out_root}\", false)"
 fi
 rc=$?
 stop_heartbeat
@@ -375,8 +409,17 @@ if (( rc != 0 )); then
 fi
 if (( ${#fanout_outputs[@]} > 0 )); then
   missing=0
+  primary_fanout_output="${fanout_outputs[0]}"
+  allow_missing_secondary_fanout=0
+  if rj_truthy "${RJ_ALLOW_MISSING_SECONDARY_FANOUT:-0}"; then
+    allow_missing_secondary_fanout=1
+  fi
   for f in "${fanout_outputs[@]}"; do
     if [[ ! -s "$f" ]]; then
+      if (( allow_missing_secondary_fanout )) && [[ "$f" != "$primary_fanout_output" ]]; then
+        echo "[WARN] Missing secondary fanout output allowed by RJ_ALLOW_MISSING_SECONDARY_FANOUT=1: $f"
+        continue
+      fi
       echo "[ERROR] Missing fanout output: $f"
       missing=1
     elif require_non_tiny_output && ! check_required_output_file "$f" "fanout"; then
@@ -388,6 +431,8 @@ if (( ${#fanout_outputs[@]} > 0 )); then
 else
   if require_non_tiny_output; then
     check_required_output_file "$out_root" "primary" || exit 8
+  elif [[ ! -f "$out_root" ]]; then
+    echo "[WARN] ROOT exited with rc=0 but primary output is missing and RJ_REQUIRE_NON_TINY_OUTPUT=0: $out_root"
   fi
   echo "[OK]   Finished successfully → $(ls -l "$out_root" 2>/dev/null || echo '(file not found!)')"
 fi

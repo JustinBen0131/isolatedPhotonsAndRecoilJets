@@ -63,6 +63,14 @@ pp24_paired_enabled() {
   esac
 }
 
+auau_jet_pair_enabled() {
+  [[ "${LABEL:-}" == "auau" ]] || return 1
+  case "${AUAU_JET_PAIR_INPUT:-1}" in
+    0|false|FALSE|no|NO|off|OFF) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
 dst_stem_for_type() {
   local dtype="$1"
   dtype="${dtype#DST_}"
@@ -112,6 +120,8 @@ mode_requested_type() {
     else
       printf '%s\n' "${TYPE:-}"
     fi
+  elif auau_jet_pair_enabled; then
+    printf '%s\n' "${AUAU_PRIMARY_TYPE:-DST_Jet} + ${AUAU_CALO_TYPE:-DST_JETCALO} paired"
   else
     printf '%s\n' "${PREFIX:-}"
   fi
@@ -127,6 +137,8 @@ mode_output_files() {
         compgen -G "${OUT_DIR}/DST_JETCALO-*.list" || true
       } | sort -u
     fi
+  elif auau_jet_pair_enabled; then
+    compgen -G "${OUT_DIR}/${AUAU_PAIR_PREFIX:-dst_auau_jet_pair}-*.list" || true
   else
     local stem
     stem="${PREFIX#DST_}"
@@ -152,6 +164,11 @@ print_naming_scheme_summary() {
       echo "  Primary emitted pattern : dst_jetcalo-<RUN8>.list"
       echo "  Also accepted           : DST_JETCALO-<RUN8>.list"
     fi
+  elif auau_jet_pair_enabled; then
+    echo "  Submit-ready pattern    : ${AUAU_PAIR_PREFIX:-dst_auau_jet_pair}-<RUN8>.list"
+    echo "  Column 1                : ${AUAU_PRIMARY_TYPE:-DST_Jet}, matching the pp paired-stream intake pattern"
+    echo "  Column 2                : ${AUAU_CALO_TYPE:-DST_JETCALO}, matching the pp paired-stream intake pattern"
+    echo "  Raw lists retained      : dst_jet-<RUN8>.list and dst_jetcalo-<RUN8>.list"
   else
     stem="${PREFIX#DST_}"
     stem="$(echo "$stem" | tr '[:upper:]' '[:lower:]')"
@@ -280,100 +297,135 @@ pair_calo_zdc_for_run() {
   local zdc_file="$3"
   local out_file="$4"
   local tmp_file="${out_file}.tmp_pair_$$"
+  local metrics_file="${out_file}.tmp_pair_metrics_$$"
 
   PAIR_MATCHED_SEG=0
   PAIR_CALO_ONLY_SEG=0
   PAIR_ZDC_ONLY_SEG=0
   PAIR_MODE="none"
 
-  local -a calo_lines=()
-  local -a zdc_lines=()
-  mapfile -t calo_lines < <(awk 'NF{print $1}' "$calo_file")
-  mapfile -t zdc_lines  < <(awk 'NF{print $1}' "$zdc_file")
+  local py_rc=0
+  python3 - "$run8" "$calo_file" "$zdc_file" "$tmp_file" "$metrics_file" <<'PY'
+import os
+import re
+import sys
 
-  if (( ${#calo_lines[@]} == 0 )); then
-    echo "[WARN] Empty primary list for run ${run8}: ${calo_file}"
-    return 1
-  fi
-  if (( ${#zdc_lines[@]} == 0 )); then
-    echo "[WARN] Empty DST_ZDC_RAW list for run ${run8}: ${zdc_file}"
-    return 1
-  fi
+run8, calo_file, zdc_file, tmp_file, metrics_file = sys.argv[1:6]
 
-  local use_keyed_pairing=1
-  declare -A zdc_by_key=()
-  declare -A zdc_seen=()
-  declare -A zdc_used=()
-  local zdc key calo
+def read_first_column(path):
+    lines = []
+    with open(path, "r", encoding="utf-8", errors="replace") as handle:
+        for raw in handle:
+            parts = raw.split()
+            if parts:
+                lines.append(parts[0])
+    return lines
 
-  for zdc in "${zdc_lines[@]}"; do
-    key="$(dst_runseg_key "$zdc" || true)"
-    if [[ -z "$key" || -n "${zdc_by_key[$key]:-}" ]]; then
-      use_keyed_pairing=0
-      break
-    fi
-    zdc_by_key["$key"]="$zdc"
-    zdc_seen["$key"]=1
-  done
+def runseg_key(path):
+    base = os.path.basename(path)
+    match = re.search(r"-([0-9]{8})-([0-9]{5})(?:[-.]|\.root$)", base)
+    if match:
+        return f"{match.group(1)}_{match.group(2)}"
+    match = re.search(r"-([0-9]{8})-([0-9]+)\.root$", base)
+    if match:
+        return f"{match.group(1)}_{match.group(2)}"
+    return None
 
-  : > "$tmp_file"
+calo_lines = read_first_column(calo_file)
+zdc_lines = read_first_column(zdc_file)
 
-  if (( use_keyed_pairing )); then
-    for calo in "${calo_lines[@]}"; do
-      key="$(dst_runseg_key "$calo" || true)"
-      if [[ -z "$key" ]]; then
-        use_keyed_pairing=0
+if not calo_lines:
+    sys.exit(11)
+if not zdc_lines:
+    sys.exit(12)
+
+zdc_by_key = {}
+zdc_seen = set()
+use_keyed = True
+for zdc in zdc_lines:
+    key = runseg_key(zdc)
+    if not key or key in zdc_by_key:
+        use_keyed = False
         break
-      fi
+    zdc_by_key[key] = zdc
+    zdc_seen.add(key)
 
-      if [[ -n "${zdc_by_key[$key]:-}" ]]; then
-        printf '%s %s\n' "$calo" "${zdc_by_key[$key]}" >> "$tmp_file"
-        zdc_used["$key"]=1
-        ((PAIR_MATCHED_SEG+=1))
-      else
-        ((PAIR_CALO_ONLY_SEG+=1))
-      fi
-    done
+matched = []
+calo_only = 0
+zdc_used = set()
+if use_keyed:
+    for calo in calo_lines:
+        key = runseg_key(calo)
+        if not key:
+            use_keyed = False
+            break
+        zdc = zdc_by_key.get(key)
+        if zdc:
+            matched.append((calo, zdc))
+            zdc_used.add(key)
+        else:
+            calo_only += 1
 
-    if (( use_keyed_pairing )); then
-      for key in "${!zdc_seen[@]}"; do
-        if [[ -z "${zdc_used[$key]:-}" ]]; then
-          ((PAIR_ZDC_ONLY_SEG+=1))
-        fi
-      done
+if use_keyed:
+    zdc_only = len(zdc_seen - zdc_used)
+    if not matched:
+        sys.exit(13)
+    with open(tmp_file, "w", encoding="utf-8") as out:
+        for calo, zdc in matched:
+            out.write(f"{calo} {zdc}\n")
+    with open(metrics_file, "w", encoding="utf-8") as out:
+        out.write(f"{len(matched)} {calo_only} {zdc_only} segment_intersection\n")
+    sys.exit(0)
 
-      if (( PAIR_MATCHED_SEG == 0 )); then
-        echo "[WARN] No matching run/segment pairs for run ${run8}: primary entries=${#calo_lines[@]} DST_ZDC_RAW entries=${#zdc_lines[@]}"
-        rm -f "$tmp_file"
-        return 1
-      fi
+if len(calo_lines) != len(zdc_lines):
+    sys.exit(14)
 
-      PAIR_MODE="segment_intersection"
-      mv -f "$tmp_file" "$out_file"
-      return 0
-    fi
-  fi
-
-  : > "$tmp_file"
-  PAIR_MATCHED_SEG=0
-  PAIR_CALO_ONLY_SEG=0
-  PAIR_ZDC_ONLY_SEG=0
-
-  if (( ${#calo_lines[@]} != ${#zdc_lines[@]} )); then
-    echo "[WARN] Cannot pair run ${run8}: primary entries=${#calo_lines[@]} DST_ZDC_RAW entries=${#zdc_lines[@]}"
-    rm -f "$tmp_file"
+with open(tmp_file, "w", encoding="utf-8") as out:
+    for calo, zdc in zip(calo_lines, zdc_lines):
+        out.write(f"{calo} {zdc}\n")
+with open(metrics_file, "w", encoding="utf-8") as out:
+    out.write(f"{len(calo_lines)} 0 0 line_by_line\n")
+sys.exit(0)
+PY
+  py_rc=$?
+  if (( py_rc != 0 )); then
+    case "$py_rc" in
+      11)
+        echo "[WARN] Empty primary list for run ${run8}: ${calo_file}"
+        ;;
+      12)
+        echo "[WARN] Empty DST_ZDC_RAW list for run ${run8}: ${zdc_file}"
+        ;;
+      13)
+        echo "[WARN] No matching run/segment pairs for run ${run8}"
+        ;;
+      14)
+        local primary_n zdc_n
+        primary_n="$(awk 'NF{n++} END{print n+0}' "$calo_file")"
+        zdc_n="$(awk 'NF{n++} END{print n+0}' "$zdc_file")"
+        echo "[WARN] Cannot pair run ${run8}: primary entries=${primary_n} DST_ZDC_RAW entries=${zdc_n}"
+        ;;
+      *)
+        echo "[WARN] Python segment matcher failed for run ${run8} with exit code ${py_rc}"
+        ;;
+    esac
+    rm -f "$tmp_file" "$metrics_file"
     return 1
   fi
 
-  echo "[WARN] Falling back to line-by-line DST_ZDC_RAW pairing for run ${run8}; could not parse run/segment from every filename."
-  local i
-  for (( i=0; i<${#calo_lines[@]}; i++ )); do
-    printf '%s %s\n' "${calo_lines[$i]}" "${zdc_lines[$i]}" >> "$tmp_file"
-    ((PAIR_MATCHED_SEG+=1))
-  done
+  if [[ ! -s "$metrics_file" ]]; then
+    echo "[WARN] Segment matcher produced no metrics for run ${run8}"
+    rm -f "$tmp_file" "$metrics_file"
+    return 1
+  fi
 
-  PAIR_MODE="line_by_line"
+  read -r PAIR_MATCHED_SEG PAIR_CALO_ONLY_SEG PAIR_ZDC_ONLY_SEG PAIR_MODE < "$metrics_file"
+  if [[ "$PAIR_MODE" == "line_by_line" ]]; then
+    echo "[WARN] Falling back to line-by-line DST_ZDC_RAW pairing for run ${run8}; could not parse run/segment from every filename."
+  fi
+
   mv -f "$tmp_file" "$out_file"
+  rm -f "$metrics_file"
   return 0
 }
 
@@ -968,6 +1020,273 @@ pair_zdc_raw_for_auau_lists() {
   return 0
 }
 
+pair_jetcalo_for_auau_lists() {
+  auau_jet_pair_enabled || return 0
+
+  local primary_type="${AUAU_PRIMARY_TYPE:-DST_Jet}"
+  local calo_type="${AUAU_CALO_TYPE:-DST_JETCALO}"
+  local calo_tag="${AUAU_CALO_TAG:-$TAG}"
+  local calo_dataset="${AUAU_CALO_DATASET:-$DATASET}"
+  local pair_prefix="${AUAU_PAIR_PREFIX:-dst_auau_jet_pair}"
+  local calo_rc=0
+  local primary_present=0
+  local calo_present=0
+  local both_present=0
+  local paired=0
+  local missing_primary=0
+  local missing_calo=0
+  local pair_fail=0
+  local primary_total_segments=0
+  local calo_total_segments=0
+  local matched_segment_pairs=0
+  local primary_only_segments=0
+  local calo_only_segments=0
+  local partial_pair_runs=0
+  local r r8 primary_file calo_file pair_out
+  local report_file="${OUT_DIR}/dst_pairing_report_${LABEL}.txt"
+  local -a primary_present_runs=()
+  local -a calo_present_runs=()
+  local -a both_present_runs=()
+  local -a paired_runs=()
+  local -a partial_pair_runs_list=()
+  local -a missing_primary_runs=()
+  local -a missing_calo_runs=()
+  local -a missing_both_runs=()
+  local -a missing_primary_only_runs=()
+  local -a missing_calo_only_runs=()
+  local -a pair_fail_runs=()
+
+  echo "[INFO] Building paired AuAu DATA lists: ${primary_type} + ${calo_type}"
+  echo "[INFO] Running CreateDstList.pl for dataset=${calo_dataset} prefix=${calo_type} tag=${calo_tag}"
+  CreateDstList.pl --tag "$calo_tag" --dataset "$calo_dataset" --list "$LIST_FILE" "$calo_type"
+  calo_rc=$?
+  echo "[INFO] CreateDstList.pl for ${calo_type} finished with exit code: $calo_rc"
+
+  if (( calo_rc != 0 )); then
+    {
+      echo "DST pairing report for $LABEL"
+      echo "Input golden run list: $LIST_FILE"
+      echo "Output dir: $OUT_DIR"
+      echo "Pair prefix: $pair_prefix"
+      echo "Primary type: $primary_type"
+      echo "Primary dataset: $DATASET"
+      echo "Primary tag: $TAG"
+      echo "Calo type: $calo_type"
+      echo "Calo dataset: $calo_dataset"
+      echo "Calo tag: $calo_tag"
+      echo
+      echo "CreateDstList.pl for ${calo_type} failed with exit code: $calo_rc"
+      echo "Pairing status: ERROR_CREATE_CALO_LISTS"
+    } > "$report_file"
+    echo "[WARN] DST pairing report saved to: $report_file"
+    echo "[WARN] Pairing status: ERROR_CREATE_CALO_LISTS"
+    return 1
+  fi
+
+  for r in "${RUNS_ALL[@]}"; do
+    r8=$(printf "%08d" "$((10#$r))")
+    primary_file="$(find_run_list_for_type "$primary_type" "$r8" || true)"
+    calo_file="$(find_run_list_for_type "$calo_type" "$r8" || true)"
+    pair_out="${OUT_DIR}/${pair_prefix}-${r8}.list"
+    rm -f "$pair_out"
+
+    if [[ -n "$primary_file" ]]; then
+      ((primary_present+=1))
+      primary_present_runs+=( "$r8" )
+      primary_total_segments=$(( primary_total_segments + $(awk 'NF{n++} END{print n+0}' "$primary_file") ))
+    fi
+
+    if [[ -n "$calo_file" ]]; then
+      ((calo_present+=1))
+      calo_present_runs+=( "$r8" )
+      calo_total_segments=$(( calo_total_segments + $(awk 'NF{n++} END{print n+0}' "$calo_file") ))
+    fi
+
+    if [[ -z "$primary_file" && -z "$calo_file" ]]; then
+      ((missing_primary+=1))
+      ((missing_calo+=1))
+      missing_primary_runs+=( "$r8" )
+      missing_calo_runs+=( "$r8" )
+      missing_both_runs+=( "$r8" )
+      continue
+    fi
+
+    if [[ -z "$primary_file" ]]; then
+      ((missing_primary+=1))
+      missing_primary_runs+=( "$r8" )
+      missing_primary_only_runs+=( "$r8" )
+      continue
+    fi
+
+    if [[ -z "$calo_file" ]]; then
+      ((missing_calo+=1))
+      missing_calo_runs+=( "$r8" )
+      missing_calo_only_runs+=( "$r8" )
+      continue
+    fi
+
+    ((both_present+=1))
+    both_present_runs+=( "$r8" )
+
+    if pair_calo_zdc_for_run "$r8" "$primary_file" "$calo_file" "$pair_out"; then
+      ((paired+=1))
+      paired_runs+=( "$r8" )
+
+      matched_segment_pairs=$(( matched_segment_pairs + PAIR_MATCHED_SEG ))
+      primary_only_segments=$(( primary_only_segments + PAIR_CALO_ONLY_SEG ))
+      calo_only_segments=$(( calo_only_segments + PAIR_ZDC_ONLY_SEG ))
+
+      if (( PAIR_CALO_ONLY_SEG > 0 || PAIR_ZDC_ONLY_SEG > 0 )); then
+        ((partial_pair_runs+=1))
+        partial_pair_runs_list+=( "${r8} matched=${PAIR_MATCHED_SEG} primaryOnly=${PAIR_CALO_ONLY_SEG} caloOnly=${PAIR_ZDC_ONLY_SEG} mode=${PAIR_MODE}" )
+        echo "[WARN] Partial segment overlap for run ${r8}: matched=${PAIR_MATCHED_SEG} primaryOnly=${PAIR_CALO_ONLY_SEG} caloOnly=${PAIR_ZDC_ONLY_SEG}"
+      fi
+    else
+      ((pair_fail+=1))
+      pair_fail_runs+=( "$r8" )
+      rm -f "$pair_out"
+    fi
+  done
+
+  local coverage_status="COMPLETE"
+  if (( missing_primary > 0 || missing_calo > 0 )); then
+    coverage_status="PARTIAL"
+  fi
+
+  local pairing_status="OK"
+  if (( paired == 0 )); then
+    pairing_status="ERROR_NO_PAIRED_RUNS"
+  elif (( pair_fail > 0 )); then
+    pairing_status="ERROR_SEGMENT_PAIRING"
+  elif (( partial_pair_runs > 0 )); then
+    pairing_status="OK_PARTIAL_SEGMENTS_EXCLUDED"
+  elif (( missing_primary > 0 || missing_calo > 0 )); then
+    pairing_status="OK_PARTIAL_RUN_COVERAGE"
+  fi
+
+  local original_run_count="${#RUNS_ALL[@]}"
+  local run_loss=$(( original_run_count - paired ))
+  local run_retained_pct
+  local run_lost_pct
+  local segment_retained_pct
+  local segment_lost_pct
+  run_retained_pct="$(awk -v n="$paired" -v d="$original_run_count" 'BEGIN{ if (d>0) printf "%.2f", 100*n/d; else printf "0.00"; }')"
+  run_lost_pct="$(awk -v n="$run_loss" -v d="$original_run_count" 'BEGIN{ if (d>0) printf "%.2f", 100*n/d; else printf "0.00"; }')"
+  segment_retained_pct="$(awk -v n="$matched_segment_pairs" -v d="$primary_total_segments" 'BEGIN{ if (d>0) printf "%.2f", 100*n/d; else printf "0.00"; }')"
+  segment_lost_pct="$(awk -v n="$primary_only_segments" -v d="$primary_total_segments" 'BEGIN{ if (d>0) printf "%.2f", 100*n/d; else printf "0.00"; }')"
+
+  {
+    echo "DST pairing report for $LABEL"
+    echo "Input golden run list: $LIST_FILE"
+    echo "Output dir: $OUT_DIR"
+    echo "Pair prefix: $pair_prefix"
+    echo "Primary type: $primary_type"
+    echo "Primary dataset: $DATASET"
+    echo "Primary tag: $TAG"
+    echo "Calo type: $calo_type"
+    echo "Calo dataset: $calo_dataset"
+    echo "Calo tag: $calo_tag"
+    echo
+    echo "Run-level summary:"
+    echo "Total requested runs: ${#RUNS_ALL[@]}"
+    echo "Runs with ${primary_type} list: $primary_present"
+    echo "Runs with ${calo_type} list: $calo_present"
+    echo "Runs with both lists available: $both_present"
+    echo "Runs with at least one matched ${primary_type}/${calo_type} segment pair: $paired"
+    echo "Runs with partial segment overlap kept: $partial_pair_runs"
+    echo "Runs with zero segment-pairing overlap/failure: $pair_fail"
+    echo "Coverage status: $coverage_status"
+    echo "Pairing status: $pairing_status"
+    echo
+    echo "Segment-level summary:"
+    echo "${primary_type} segments available in covered runs: $primary_total_segments"
+    echo "${calo_type} segments available in covered runs: $calo_total_segments"
+    echo "Matched ${primary_type}/${calo_type} segment pairs written: $matched_segment_pairs"
+    echo "${primary_type}-only segments excluded: $primary_only_segments"
+    echo "${calo_type}-only segments excluded: $calo_only_segments"
+    echo "Segment retained fraction vs available ${primary_type}: ${segment_retained_pct}%"
+    echo "Segment loss fraction vs available ${primary_type}: ${segment_lost_pct}%"
+    echo
+    echo "Retention relative to input GRL:"
+    echo "Input GRL runs: $original_run_count"
+    echo "Final analyzable paired runs: $paired"
+    echo "Dropped runs: $run_loss"
+    echo "Run retained fraction: ${run_retained_pct}%"
+    echo "Run loss fraction: ${run_lost_pct}%"
+    echo "Input available ${primary_type} segments: $primary_total_segments"
+    echo "Final matched segment pairs: $matched_segment_pairs"
+    echo "Excluded ${primary_type} segments: $primary_only_segments"
+    echo "Segment retained fraction: ${segment_retained_pct}%"
+    echo "Segment loss fraction: ${segment_lost_pct}%"
+    echo
+    echo "Run-list policy:"
+    echo "Using Tanner's configured input GRL directly to build paired ${primary_type}+${calo_type} submit lists."
+    echo "Configured input GRL: $LIST_FILE"
+    echo
+    echo "Runs with ${primary_type} list:"
+    ((${#primary_present_runs[@]})) && printf '%s\n' "${primary_present_runs[@]}" || echo "(none)"
+    echo
+    echo "Runs with ${calo_type} list:"
+    ((${#calo_present_runs[@]})) && printf '%s\n' "${calo_present_runs[@]}" || echo "(none)"
+    echo
+    echo "Runs with both lists available:"
+    ((${#both_present_runs[@]})) && printf '%s\n' "${both_present_runs[@]}" || echo "(none)"
+    echo
+    echo "Runs with at least one matched ${primary_type}/${calo_type} segment pair:"
+    ((${#paired_runs[@]})) && printf '%s\n' "${paired_runs[@]}" || echo "(none)"
+    echo
+    echo "Runs with partial segment overlap kept:"
+    ((${#partial_pair_runs_list[@]})) && printf '%s\n' "${partial_pair_runs_list[@]}" || echo "(none)"
+    echo
+    echo "Missing ${primary_type} runs:"
+    ((${#missing_primary_runs[@]})) && printf '%s\n' "${missing_primary_runs[@]}" || echo "(none)"
+    echo
+    echo "Missing ${calo_type} runs:"
+    ((${#missing_calo_runs[@]})) && printf '%s\n' "${missing_calo_runs[@]}" || echo "(none)"
+    echo
+    echo "Missing both:"
+    ((${#missing_both_runs[@]})) && printf '%s\n' "${missing_both_runs[@]}" || echo "(none)"
+    echo
+    echo "Missing ${primary_type} only:"
+    ((${#missing_primary_only_runs[@]})) && printf '%s\n' "${missing_primary_only_runs[@]}" || echo "(none)"
+    echo
+    echo "Missing ${calo_type} only:"
+    ((${#missing_calo_only_runs[@]})) && printf '%s\n' "${missing_calo_only_runs[@]}" || echo "(none)"
+    echo
+    echo "Zero-overlap / segment-pairing failure runs:"
+    ((${#pair_fail_runs[@]})) && printf '%s\n' "${pair_fail_runs[@]}" || echo "(none)"
+  } > "$report_file"
+
+  echo "----------------------------------------"
+  echo "DST pairing diagnostic for $LABEL"
+  echo "  pair prefix                               : $pair_prefix"
+  echo "  total requested runs                       : ${#RUNS_ALL[@]}"
+  echo "  runs with ${primary_type} list             : $primary_present"
+  echo "  runs with ${calo_type} list                : $calo_present"
+  echo "  runs with both lists available             : $both_present"
+  echo "  runs with matched segment pairs            : $paired"
+  echo "  partial-overlap runs kept                  : $partial_pair_runs"
+  echo "  zero-overlap / segment-pairing failures    : $pair_fail"
+  echo "  ${primary_type} segments available         : $primary_total_segments"
+  echo "  ${calo_type} segments available            : $calo_total_segments"
+  echo "  matched segment pairs                      : $matched_segment_pairs"
+  echo "  ${primary_type}-only segments excluded     : $primary_only_segments"
+  echo "  ${calo_type}-only segments excluded        : $calo_only_segments"
+  echo "  run retained fraction                      : ${run_retained_pct}%"
+  echo "  segment retained fraction                  : ${segment_retained_pct}%"
+  echo "  missing ${primary_type} runs               : $missing_primary"
+  echo "  missing ${calo_type} runs                  : $missing_calo"
+  echo "  coverage status                            : $coverage_status"
+  echo "  pairing status                             : $pairing_status"
+  echo "  report                                     : $report_file"
+
+  if (( paired == 0 || pair_fail > 0 )); then
+    return 1
+  fi
+
+  return 0
+}
+
 collect_mode_build_metrics() {
   SUMMARY_REQUESTED_TYPE="$(mode_requested_type)"
 
@@ -1183,10 +1502,10 @@ setup_mode() {
       LABEL="auau"
       LIST_FILE="${AUAU_GRL_FILE:-$GRL_BASE/run3auau_pro001_pcdb001_v001_dst_calofitting_grl.list}"
       OUT_DIR="$IN_BASE/dst_lists_auau"
-      TAG="${AUAU_TAG:-pro001_pcdb001_v001}"
+      TAG="${AUAU_TAG:-pro001_2025p012_v001}"
       DATASET="run3auau"
-      PREFIX="DST_CALOFITTING"
-      TYPE="DST_CALOFITTING"
+      PREFIX="${AUAU_PRIMARY_TYPE:-DST_Jet}"
+      TYPE="${AUAU_PRIMARY_TYPE:-DST_Jet}"
       BUILD_MODE="dataset_list"
       ;;
     oo25)
@@ -3127,7 +3446,11 @@ build_dataset_lists() {
   echo "[INFO] CreateDstList.pl finished with exit code: $rc"
 
   pair_rc=0
-  if ! pair_zdc_raw_for_auau_lists; then
+  if auau_jet_pair_enabled; then
+    if ! pair_jetcalo_for_auau_lists; then
+      pair_rc=1
+    fi
+  elif ! pair_zdc_raw_for_auau_lists; then
     pair_rc=1
   fi
 
@@ -3136,11 +3459,23 @@ build_dataset_lists() {
   local stem
   stem="${PREFIX#DST_}"
   stem="$(echo "$stem" | tr '[:upper:]' '[:lower:]')"
+  local coverage_mode="raw"
+  local expected_pair_prefix=""
+  if auau_jet_pair_enabled; then
+    coverage_mode="paired"
+    expected_pair_prefix="${AUAU_PAIR_PREFIX:-dst_auau_jet_pair}"
+  fi
 
   made=0
   for r in "${RUNS_ALL[@]}"; do
     r8=$(printf "%08d" "$((10#$r))")
-    if [[ -s "${OUT_DIR}/dst_${stem}-${r8}.list" || -s "${OUT_DIR}/${PREFIX}-${r8}.list" || -s "${OUT_DIR}/${PREFIX}_${DATASET}_${TAG}-${r8}.list" ]]; then
+    if [[ "$coverage_mode" == "paired" ]]; then
+      if [[ -s "${OUT_DIR}/${expected_pair_prefix}-${r8}.list" ]]; then
+        ((made+=1))
+      else
+        echo "[WARN] Missing expected paired submit list for run $r: ${expected_pair_prefix}-${r8}.list"
+      fi
+    elif [[ -s "${OUT_DIR}/dst_${stem}-${r8}.list" || -s "${OUT_DIR}/${PREFIX}-${r8}.list" || -s "${OUT_DIR}/${PREFIX}_${DATASET}_${TAG}-${r8}.list" ]]; then
       ((made+=1))
     else
       echo "[WARN] Missing expected list for run $r"

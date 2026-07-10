@@ -98,9 +98,13 @@
 #   ./mergeRecoilJets.sh isSim secondRound condor
 #   ./mergeRecoilJets.sh isSim secondRound condor SAMPLE=run28_photonjet10
 #
-# STEP 3 — finalStitch (Condor weighted stitch across SIM samples per cfg_tag)
+# STEP 3a — finalStitch (legacy weighted stitch across unweighted SIM samples)
 #   ./mergeRecoilJets.sh isSim finalStitch condor
 #   ./mergeRecoilJets.sh isSimEmbedded finalStitch condor
+#
+# STEP 3b — finalAdditive (PPG12 event-preweighted samples; no merge weighting)
+#   ./mergeRecoilJets.sh isSim finalAdditive
+#   ./mergeRecoilJets.sh isSimInclusive finalAdditive
 #
 # ═══════════════════════════════════════════════════════════════════════════════
 # OUTPUT LOCATIONS
@@ -270,7 +274,7 @@ fi
 #   runs/recoiljets/current/<campaign>/auau
 
 # ---------- Logs / temp / round files ----------
-BASE="/sphenix/u/patsfan753/scratch/thesisAnalysis"
+BASE="${RJ_MERGE_BASE:-/sphenix/u/patsfan753/scratch/thesisAnalysis}"
 HOSTTAG="$(hostname -s 2>/dev/null || echo unknownhost)"
 
 LOG_DIR="${BASE}/log"
@@ -332,6 +336,17 @@ sim_sample_tag() {
     run28_photonjet5_double)   printf '%s\n' "photonjet5_double" ;;
     run28_photonjet10_double)  printf '%s\n' "photonjet10_double" ;;
     run28_photonjet20_double)  printf '%s\n' "photonjet20_double" ;;
+    run28_jet5)                printf '%s\n' "jet5" ;;
+    run28_jet8)                printf '%s\n' "jet8" ;;
+    run28_jet12)               printf '%s\n' "jet12" ;;
+    run28_jet20)               printf '%s\n' "jet20" ;;
+    run28_jet30)               printf '%s\n' "jet30" ;;
+    run28_jet40)               printf '%s\n' "jet40" ;;
+    run28_jet8_double)         printf '%s\n' "jet8_double" ;;
+    run28_jet12_double)        printf '%s\n' "jet12_double" ;;
+    run28_jet20_double)        printf '%s\n' "jet20_double" ;;
+    run28_jet30_double)        printf '%s\n' "jet30_double" ;;
+    run28_jet40_double)        printf '%s\n' "jet40_double" ;;
     *)                         printf '%s\n' "${sample##*_}" ;;
   esac
 }
@@ -409,6 +424,7 @@ scale_per_run_corrected_histograms_in_file() {
 #include <TDirectory.h>
 #include <TFile.h>
 #include <TH1.h>
+#include <TH2.h>
 #include <TNamed.h>
 #include <TObject.h>
 #include <TKey.h>
@@ -1468,6 +1484,7 @@ void _extract_cfg(const char* fname) {
   std::cout << "__YAMLEND__" << std::endl;
   f->Close();
 }
+
 ENDMACRO
 
   local _raw
@@ -1550,6 +1567,37 @@ ENDMACRO
     _tag="${_tag}_${_selection_tag}"
   fi
   echo "$_tag"
+}
+
+validate_ppg12_event_preweighted_root() {
+  local rootfile="$1"
+  [[ -s "$rootfile" ]] || return 1
+
+  local macro="${TMP_DIR}/_validate_ppg12_preweighted_$$.C"
+  cat > "$macro" <<'ENDMACRO'
+#include <TFile.h>
+#include <TH1.h>
+#include <iostream>
+void _validate_ppg12_preweighted(const char* fname) {
+  TFile* f = TFile::Open(fname, "READ");
+  if (!f || f->IsZombie()) { std::cout << "__FAIL__:open" << std::endl; return; }
+  TH1* hFinal = dynamic_cast<TH1*>(f->Get("SIM/h_ppg12_weight_audit_factor_final"));
+  TH1* hEvents = dynamic_cast<TH1*>(f->Get("SIM/h_ppg12_weight_audit_component_events"));
+  TH2* hModes = dynamic_cast<TH2*>(f->Get("SIM/h_ppg12_weight_audit_fill_mode"));
+  const bool ok = hFinal && hEvents && hModes &&
+                  hFinal->GetEntries() > 0.0 &&
+                  hEvents->Integral(0, hEvents->GetNbinsX() + 1) > 0.0 &&
+                  hModes->GetBinContent(1, 1) + hModes->GetBinContent(1, 2) +
+                  hModes->GetBinContent(1, 3) + hModes->GetBinContent(1, 4) > 0.0;
+  std::cout << (ok ? "__OK__" : "__FAIL__:weight_audit") << std::endl;
+  f->Close();
+}
+ENDMACRO
+
+  local raw
+  raw="$(root -b -l -q "${macro}(\"${rootfile}\")" 2>/dev/null || true)"
+  rm -f "$macro"
+  grep -q '^__OK__$' <<< "$raw"
 }
 
 to_tag() {
@@ -1817,6 +1865,10 @@ send_recoiljets_merge_notification() {
 
 echo "[hadd_condor] inputs=$(wc -l < "$LIST")  ->  $OUT"
 hadd -v 3 -f "$OUT" @"$LIST"
+if [[ ! -s "$OUT" ]]; then
+  echo "[hadd_condor] ERROR: hadd completed but output is missing or empty: $OUT" >&2
+  exit 22
+fi
 scale_scaled_trig_after_hadd "$OUT"
 send_recoiljets_merge_notification
 EOS
@@ -2291,17 +2343,43 @@ sim_stitch_plan_for_dataset() {
       )
       ;;
     isSimInclusive|issiminclusive|siminclusive|SIMINCLUSIVE|isSimJet5|isSimjet5|simjet5|SIMJET5)
-      SIM_STITCH_COMBO_DIR="inclusiveJet5to40_SIM"
-      SIM_STITCH_OUTPUT_FILE="RecoilJets_jet5plus8plus12plus20plus30plus40_MERGED.root"
       SIM_STITCH_TOPDIR="SIM"
-      SIM_STITCH_ROWS=(
-        "jet5|1.3878e8|jet5"
-        "jet8|1.3013e7|jet8"
-        "jet12|1.4903e6|jet12"
-        "jet20|6.2623e4|jet20"
-        "jet30|2.5298e3|jet30"
-        "jet40|1.3553e2|jet40"
-      )
+      if [[ "${RJ_SIMINCLUSIVE_SAMPLE_SET:-}" == "ppg12_double" || "${RJ_SIMINCLUSIVE_SAMPLE_SET:-}" == "double" ]]; then
+        # PPG12 DI inclusive sample has no jet5_double partner, so the
+        # canonical double-interaction stitch starts at jet8.
+        SIM_STITCH_COMBO_DIR="inclusiveJet8to40double_SIM"
+        SIM_STITCH_OUTPUT_FILE="RecoilJets_jet8plus12plus20plus30plus40_double_MERGED.root"
+        SIM_STITCH_ROWS=(
+          "jet8Double|1.15e7|jet8_double"
+          "jet12Double|1.4903e6|jet12_double"
+          "jet20Double|6.2623e4|jet20_double"
+          "jet30Double|2.5298e3|jet30_double"
+          "jet40Double|1.3553e2|jet40_double"
+        )
+      elif [[ "${RJ_SIMINCLUSIVE_INCLUDE_JET5:-0}" == "1" ]]; then
+        SIM_STITCH_COMBO_DIR="inclusiveJet5to40_SIM"
+        SIM_STITCH_OUTPUT_FILE="RecoilJets_jet5plus8plus12plus20plus30plus40_MERGED.root"
+        SIM_STITCH_ROWS=(
+          "jet5|1.3878e8|jet5"
+          "jet8|1.15e7|jet8"
+          "jet12|1.4903e6|jet12"
+          "jet20|6.2623e4|jet20"
+          "jet30|2.5298e3|jet30"
+          "jet40|1.3553e2|jet40"
+        )
+      else
+        # PPG12 current MergeSim.C drops jet5 in the nominal DI-blended
+        # inclusive pipeline because there is no jet5_double partner.
+        SIM_STITCH_COMBO_DIR="inclusiveJet8to40_SIM"
+        SIM_STITCH_OUTPUT_FILE="RecoilJets_jet8plus12plus20plus30plus40_MERGED.root"
+        SIM_STITCH_ROWS=(
+          "jet8|1.15e7|jet8"
+          "jet12|1.4903e6|jet12"
+          "jet20|6.2623e4|jet20"
+          "jet30|2.5298e3|jet30"
+          "jet40|1.3553e2|jet40"
+        )
+      fi
       ;;
     isSimEmbedded|issimembedded|simembedded|SIMEMBEDDED)
       SIM_STITCH_COMBO_DIR="photonJet12and20merged_SIM"
@@ -2728,7 +2806,11 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|isSimInclusive|issiminclusiv
   if [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 0 ]]; then
     case "$SIM_DATASET_TOKEN" in
       isSimJet5|isSimjet5|simjet5|SIMJET5|isSimInclusive|issiminclusive|siminclusive|SIMINCLUSIVE)
-        samples=( "run28_jet5" "run28_jet8" "run28_jet12" "run28_jet20" "run28_jet30" "run28_jet40" )
+        if [[ "${RJ_SIMINCLUSIVE_SAMPLE_SET:-}" == "ppg12_double" || "${RJ_SIMINCLUSIVE_SAMPLE_SET:-}" == "double" ]]; then
+          samples=( "run28_jet8_double" "run28_jet12_double" "run28_jet20_double" "run28_jet30_double" "run28_jet40_double" )
+        else
+          samples=( "run28_jet5" "run28_jet8" "run28_jet12" "run28_jet20" "run28_jet30" "run28_jet40" )
+        fi
         ;;
       isSimMB|simmb|SIMMB)       samples=( "run28_detroit" ) ;;
       isSimEmbedded|issimembedded|simembedded|SIMEMBEDDED) samples=( "run28_embeddedPhoton12" "run28_embeddedPhoton20" ) ;;
@@ -2758,16 +2840,16 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|isSimInclusive|issiminclusiv
 
   if [[ "$SIM_ACTION" == "firstRound" ]]; then
     _discover_base="$SIM_INPUT_BASE"
-  elif [[ "$SIM_ACTION" == "secondRound" || "$SIM_ACTION" == "finalStitch" ]]; then
+  elif [[ "$SIM_ACTION" == "secondRound" || "$SIM_ACTION" == "finalStitch" || "$SIM_ACTION" == "finalAdditive" ]]; then
     # Keep discovery anchored to the TG input base, but filter cfg_tags below
     # by the requested sample directories for this dataset token.
     _discover_base="$SIM_INPUT_BASE"
   else
-    err "Unknown isSim action '${SIM_ACTION}'. Allowed: firstRound | secondRound | finalStitch"
+    err "Unknown isSim action '${SIM_ACTION}'. Allowed: firstRound | secondRound | finalStitch | finalAdditive"
     exit 2
   fi
 
-  if [[ "$SIM_ACTION" == "finalStitch" ]]; then
+  if [[ "$SIM_ACTION" == "finalStitch" || "$SIM_ACTION" == "finalAdditive" ]]; then
     mapfile -t _ALL_SIM_CFG_TAGS < <(
       find "$FLAT_OUT_DIR" -maxdepth 1 -type f -name "${FINAL_PREFIX}_*_ALL_*.root" -printf '%f\n' \
         | sed -E "s/^${FINAL_PREFIX}_.+_ALL_//; s/[.]root$//" \
@@ -2819,7 +2901,7 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|isSimInclusive|issiminclusiv
         secondRound)
           compgen -G "${FLAT_OUT_DIR}/${_cfg}/chunkMerge_${_sample_tag}_grp*.root" >/dev/null || continue
           ;;
-        finalStitch)
+        finalStitch|finalAdditive)
           [[ -s "${FLAT_OUT_DIR}/${FINAL_PREFIX}_${_sample_tag}_ALL_${_cfg}.root" ]] || continue
           ;;
       esac
@@ -2867,6 +2949,71 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|isSimInclusive|issiminclusiv
     say "  Work  : ${DEST_DIR}"
     echo
 
+    if [[ "$SIM_ACTION" == "finalAdditive" ]]; then
+      sim_stitch_plan_for_dataset "$SIM_DATASET_TOKEN" || {
+        err "No SIM additive-final plan is configured for dataset token: ${SIM_DATASET_TOKEN}"
+        exit 43
+      }
+
+      ADDITIVE_OUT="${DEST_DIR}/${SIM_STITCH_COMBO_DIR}/${SIM_STITCH_OUTPUT_FILE}"
+      ADDITIVE_LIST="${TMP_DIR}/recoil_sim_${cfg_tag}_finalAdditive.list"
+      : > "$ADDITIVE_LIST"
+      _additive_missing=0
+      for _row in "${SIM_STITCH_ROWS[@]}"; do
+        IFS='|' read -r _label _sigma _sample_tag <<< "$_row"
+        _sample_final="${FLAT_OUT_DIR}/${FINAL_PREFIX}_${_sample_tag}_ALL_${cfg_tag}.root"
+        if [[ ! -s "$_sample_final" ]]; then
+          warn "Missing sample-level secondRound input for finalAdditive: ${_sample_final}"
+          _additive_missing=1
+          continue
+        fi
+        printf '%s\n' "$_sample_final" >> "$ADDITIVE_LIST"
+      done
+      (( _additive_missing == 0 )) || {
+        err "Cannot run finalAdditive for cfg=${cfg_tag}; one or more sample-level secondRound files are missing."
+        exit 44
+      }
+
+      say "SIM finalAdditive: cfg=${cfg_tag} samples=$(wc -l < "$ADDITIVE_LIST") -> ${ADDITIVE_OUT}"
+      if (( DRYRUN )); then
+        while IFS= read -r _sample_final; do
+          say "  [DRYRUN] require PPG12 nonzero weight-audit objects: ${_sample_final}"
+        done < "$ADDITIVE_LIST"
+        say "  [DRYRUN] hadd -v 3 -f ${ADDITIVE_OUT} @${ADDITIVE_LIST}"
+        echo
+        continue
+      fi
+
+      need_cmd root
+      need_cmd hadd
+      while IFS= read -r _sample_final; do
+        if ! validate_ppg12_event_preweighted_root "$_sample_final"; then
+          err "finalAdditive rejected non-audited or non-preweighted input: ${_sample_final}"
+          exit 45
+        fi
+      done < "$ADDITIVE_LIST"
+
+      if [[ -e "$ADDITIVE_OUT" && "${RJ_SIM_FINAL_ADDITIVE_ALLOW_OVERWRITE:-0}" != "1" ]]; then
+        err "finalAdditive output already exists; refusing overwrite: ${ADDITIVE_OUT}"
+        err "Use a fresh output base. RJ_SIM_FINAL_ADDITIVE_ALLOW_OVERWRITE=1 is an explicit exceptional override."
+        exit 46
+      fi
+      mkdir -p "$(dirname "$ADDITIVE_OUT")"
+      hadd -v 3 -f "$ADDITIVE_OUT" @"$ADDITIVE_LIST"
+      [[ -s "$ADDITIVE_OUT" ]] || {
+        err "finalAdditive produced a missing/empty ROOT: ${ADDITIVE_OUT}"
+        exit 47
+      }
+      validate_ppg12_event_preweighted_root "$ADDITIVE_OUT" || {
+        err "finalAdditive output failed the PPG12 weight-audit readback: ${ADDITIVE_OUT}"
+        exit 48
+      }
+      say "SIM finalAdditive READY: event-preweighted inputs were combined additively with no merge-layer scaling."
+      final_paths+=( "$ADDITIVE_OUT" )
+      echo
+      continue
+    fi
+
     if [[ "$SIM_ACTION" == "finalStitch" ]]; then
       sim_stitch_plan_for_dataset "$SIM_DATASET_TOKEN" || {
         err "No SIM final-stitch plan is configured for dataset token: ${SIM_DATASET_TOKEN}"
@@ -2908,6 +3055,23 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|isSimInclusive|issiminclusiv
         exit 42
       }
 
+      # The legacy weighted stitch is invalid for ROOTs already carrying the
+      # canonical PPG12 event weight. Refuse that double-weighting path and
+      # route such inputs to finalAdditive instead.
+      if (( DRYRUN )); then
+        say "  [DRYRUN] finalStitch is legacy weighted mode; event-preweighted inputs must use finalAdditive."
+      else
+        need_cmd root
+        for _slice_row in "${_slice_rows[@]}"; do
+          IFS='|' read -r _label _sigma _sample_final <<< "$_slice_row"
+          if validate_ppg12_event_preweighted_root "$_sample_final"; then
+            err "finalStitch rejected event-preweighted input: ${_sample_final}"
+            err "Use finalAdditive so the persisted slice/mix/period/vertex weight is applied exactly once."
+            exit 49
+          fi
+        done
+      fi
+
       for (( _shard=0; _shard<STITCH_SHARDS; ++_shard )); do
         _partial="${STITCH_PARTIAL_DIR}/shard_${_shard}_of_${STITCH_SHARDS}.root"
         _spec="${STITCH_PARTIAL_DIR}/shard_${_shard}_of_${STITCH_SHARDS}.spec"
@@ -2932,7 +3096,7 @@ if [[ "${1}" =~ ^(isSim|sim|SIM|isSimJet5|isSimjet5|isSimInclusive|issiminclusiv
 
       cat > "$STITCH_SUB" <<EOT
 universe   = vanilla
-executable = $CONDOR_EXEC
+executable = /usr/bin/env
 output     = $OUT_DIR/recoil.sim.${cfg_tag}.finalStitchShard.\$(Cluster).\$(Process).out
 error      = $ERR_DIR/recoil.sim.${cfg_tag}.finalStitchShard.\$(Cluster).\$(Process).err
 log        = $LOG_DIR/recoil.sim.${cfg_tag}.finalStitchShard.\$(Cluster).\$(Process).log
@@ -2943,7 +3107,8 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification = Never
-queue arguments from ${STITCH_ARGS}
+arguments = bash $CONDOR_EXEC \$(merge_arg)
+queue merge_arg from ${STITCH_ARGS}
 EOT
 
       say "SIM finalStitch: cfg=${cfg_tag} samples=${#SIM_STITCH_ROWS[@]} shards=${STITCH_SHARDS} -> ${STITCH_OUT}"
@@ -2973,7 +3138,11 @@ EOT
         say "  [scan] sample=${SIM_SAMPLE}"
         say "  [scan] input dir: ${SIM_INPUT_DIR}"
         say "  [scan] discovering candidate ROOT files..."
-        mapfile -t SIM_INPUTS_RAW < <(find "$SIM_INPUT_DIR" -maxdepth 1 -type f -name "*.root" -not -name "*_LOCAL_*" -not -name "*_condorTest_*" | sort -V || true)
+        if [[ "${MERGE_SIM_FOLLOW_SYMLINKS:-0}" == "1" ]]; then
+          mapfile -t SIM_INPUTS_RAW < <(find -L "$SIM_INPUT_DIR" -maxdepth 1 -type f -name "*.root" -not -name "*_LOCAL_*" -not -name "*_condorTest_*" | sort -V || true)
+        else
+          mapfile -t SIM_INPUTS_RAW < <(find "$SIM_INPUT_DIR" -maxdepth 1 -type f -name "*.root" -not -name "*_LOCAL_*" -not -name "*_condorTest_*" | sort -V || true)
+        fi
         say "  [scan] raw ROOT files found: ${#SIM_INPUTS_RAW[@]}"
 
         if (( ${#SIM_INPUTS_RAW[@]} == 0 )); then
@@ -2984,7 +3153,11 @@ EOT
         say "  [fast-filter] using cfg_tag directory + filename match instead of opening ROOT per file"
         say "  [fast-filter] required filename token: ${cfg_tag}"
 
-        mapfile -t SIM_INPUTS < <(find "$SIM_INPUT_DIR" -maxdepth 1 -type f -name "*${cfg_tag}*.root" -not -name "*_LOCAL_*" -not -name "*_condorTest_*" | sort -V || true)
+        if [[ "${MERGE_SIM_FOLLOW_SYMLINKS:-0}" == "1" ]]; then
+          mapfile -t SIM_INPUTS < <(find -L "$SIM_INPUT_DIR" -maxdepth 1 -type f -name "*${cfg_tag}*.root" -not -name "*_LOCAL_*" -not -name "*_condorTest_*" | sort -V || true)
+        else
+          mapfile -t SIM_INPUTS < <(find "$SIM_INPUT_DIR" -maxdepth 1 -type f -name "*${cfg_tag}*.root" -not -name "*_LOCAL_*" -not -name "*_condorTest_*" | sort -V || true)
+        fi
 
         SIM_CFG_FILENAME_MISMATCH_COUNT=$(( ${#SIM_INPUTS_RAW[@]} - ${#SIM_INPUTS[@]} ))
         say "  [fast-filter] kept=${#SIM_INPUTS[@]} rejected_by_filename=${SIM_CFG_FILENAME_MISMATCH_COUNT}"
@@ -3084,6 +3257,10 @@ EOT
             out="${DEST_DIR}/${SIM_PARTIAL_PREFIX}${grpTag}.root"
             say "[LOCAL firstRound] cfg=${cfg_tag} sample=${SIM_TAG} grp=${grpTag} inputs=$(wc -l < "$listfile") -> $(basename "$out")"
             hadd -v 3 -f "$out" @"$listfile"
+            if [[ ! -s "$out" ]]; then
+              err "LOCAL firstRound hadd completed but output is missing or empty: $out"
+              exit 22
+            fi
           done
 
           say "LOCAL firstRound complete for cfg=${cfg_tag} sample=${SIM_SAMPLE}. Partials are under: ${DEST_DIR}"
@@ -3098,7 +3275,7 @@ EOT
           : > "$EXPECTED"
           cat > "$SUB" <<EOT
 universe   = vanilla
-executable = $CONDOR_EXEC
+executable = /usr/bin/env
 output     = $OUT_DIR/recoil.sim.${cfg_tag}.${SIM_TAG}.\$(Cluster).\$(Process).out
 error      = $ERR_DIR/recoil.sim.${cfg_tag}.${SIM_TAG}.\$(Cluster).\$(Process).err
 log        = $LOG_DIR/recoil.sim.${cfg_tag}.${SIM_TAG}.\$(Cluster).\$(Process).log
@@ -3109,7 +3286,8 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification = Never
-queue arguments from ${ARGS}
+arguments = bash $CONDOR_EXEC \$(merge_arg)
+queue merge_arg from ${ARGS}
 EOT
 
           ngroups=$(( (total + SIM_GROUP_SIZE - 1) / SIM_GROUP_SIZE ))
@@ -3210,7 +3388,7 @@ EOT
           printf '%s\n' "$SIM_FINAL" > "$EXPECTED"
           cat > "$SUB" <<EOT
 universe   = vanilla
-executable = $CONDOR_EXEC
+executable = /usr/bin/env
 output     = $OUT_DIR/recoil.sim.${cfg_tag}.${SIM_TAG}.final.\$(Cluster).\$(Process).out
 error      = $ERR_DIR/recoil.sim.${cfg_tag}.${SIM_TAG}.final.\$(Cluster).\$(Process).err
 log        = $LOG_DIR/recoil.sim.${cfg_tag}.${SIM_TAG}.final.\$(Cluster).\$(Process).log
@@ -3221,7 +3399,7 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification = Never
-arguments = $LIST $SIM_FINAL
+arguments = bash $CONDOR_EXEC $LIST $SIM_FINAL
 queue
 EOT
           say "Submitting secondRound final merge on Condor → $(basename "$SUB")"
@@ -3579,7 +3757,7 @@ if [[ "$MODE" == "condor" ]]; then
     : > "$EXPECTED"
     cat > "$SUB" <<EOT
 universe   = vanilla
-executable = $CONDOR_EXEC
+executable = /usr/bin/env
 output     = $OUT_DIR/recoil.\$(Cluster).\$(Process).out
 error      = $ERR_DIR/recoil.\$(Cluster).\$(Process).err
 log        = $LOG_DIR/recoil.\$(Cluster).\$(Process).log
@@ -3590,6 +3768,7 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification = Never
+arguments = bash $CONDOR_EXEC \$(merge_arg)
 EOT
     if [[ "$TAG" == "auau" ]]; then
       cat >> "$SUB" <<EOT
@@ -3597,7 +3776,7 @@ environment = "RJ_SCALED_TRIG_AFTER_HADD=1 RJ_ANALYSIS_BASE=${BASE} RJ_SCALED_TR
 EOT
     fi
     cat >> "$SUB" <<EOT
-queue arguments from ${ARGS}
+queue merge_arg from ${ARGS}
 EOT
 
     queued=0
@@ -3761,7 +3940,7 @@ if [[ "$MODE" == "addChunks" ]]; then
       : > "$EXPECTED"
       cat > "$SUB" <<EOT
 universe   = vanilla
-executable = $CONDOR_EXEC
+executable = /usr/bin/env
 output     = $OUT_DIR/recoil.slice.\$(Cluster).\$(Process).out
 error      = $ERR_DIR/recoil.slice.\$(Cluster).\$(Process).err
 log        = $LOG_DIR/recoil.slice.\$(Cluster).\$(Process).log
@@ -3772,7 +3951,8 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification = Never
-queue arguments from ${ARGS}
+arguments = bash $CONDOR_EXEC \$(merge_arg)
+queue merge_arg from ${ARGS}
 EOT
 
       _offset=0
@@ -3851,7 +4031,7 @@ EOT
       printf '%s\n' "$FINAL" > "$EXPECTED"
       cat > "$SUB" <<EOT
 universe   = vanilla
-executable = $CONDOR_EXEC
+executable = /usr/bin/env
 output     = $OUT_DIR/recoil.final.\$(Cluster).\$(Process).out
 error      = $ERR_DIR/recoil.final.\$(Cluster).\$(Process).err
 log        = $LOG_DIR/recoil.final.\$(Cluster).\$(Process).log
@@ -3862,7 +4042,7 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification = Never
-arguments = $LIST $FINAL
+arguments = bash $CONDOR_EXEC $LIST $FINAL
 queue
 EOT
       say "Submitting final merge on Condor → $(basename "$SUB")"
