@@ -7182,6 +7182,8 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         }
     }
     
+    std::vector<RecoilJets*> recoilJetsInstances;
+    recoilJetsInstances.reserve(idFanoutEntries.size());
     for (std::size_t i = 0; i < idFanoutEntries.size(); ++i)
     {
         const auto& entry = idFanoutEntries[i];
@@ -7190,6 +7192,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         auto* recoilJets = new RecoilJets(entry.outRoot, moduleName.str());
         configureRecoilJetsInstance(recoilJets, entry);
         se->registerSubsystem(recoilJets);
+        recoilJetsInstances.push_back(recoilJets);
         if (vlevel > 0)
         {
             std::cout << "[ID-FANOUT] registered " << moduleName.str()
@@ -7228,8 +7231,43 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             se->run(nEvents);
         }
         
+        bool centralityContractFailed = false;
+        std::ostringstream centralityContractFailure;
+        if (isAuAuData)
+        {
+            for (std::size_t i = 0; i < recoilJetsInstances.size(); ++i)
+            {
+                const auto* recoilJets = recoilJetsInstances[i];
+                const auto valid = recoilJets->validCentralityObservedEvents();
+                const auto invalid = recoilJets->invalidCentralityObservedEvents();
+                const auto evaluated = valid + invalid;
+                const char* status =
+                    (invalid > 0) ? "FAIL_INVALID_CENTRALITY" :
+                    (valid > 0) ? "PASS" :
+                    "EMPTY_NO_EVALUABLE_EVENTS";
+                std::cout << "[AUAU_CENTRALITY_CONTRACT] module=RecoilJets_ID" << i
+                          << " valid=" << valid
+                          << " invalid=" << invalid
+                          << " evaluated=" << evaluated
+                          << " status=" << status << std::endl;
+                if (invalid > 0)
+                {
+                    centralityContractFailed = true;
+                    centralityContractFailure
+                        << " RecoilJets_ID" << i << " observed invalid centrality for "
+                        << invalid << " of " << evaluated << " evaluated events;";
+                }
+            }
+        }
+
         if (vlevel > 0) std::cout << "[INFO] Calling se->End() …" << std::endl;
         se->End();
+        if (centralityContractFailed)
+        {
+            detail::bail(
+                "AuAu data centrality output contract failed." +
+                centralityContractFailure.str());
+        }
         if (vlevel > 0) std::cout << "[INFO] Finished successfully." << std::endl;
     }
     catch (const std::exception& e)

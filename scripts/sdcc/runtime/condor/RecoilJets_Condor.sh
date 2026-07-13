@@ -258,6 +258,32 @@ min_output_bytes() {
   echo "$min"
 }
 
+root_output_structurally_valid() {
+  local f="$1"
+  [[ -f "$f" ]] || return 1
+  python3 - "$f" <<'PY'
+import sys
+
+path = sys.argv[1]
+try:
+    import ROOT
+except Exception as exc:
+    print(f"[WARN] Could not import ROOT for small-output validation: {exc}", file=sys.stderr)
+    sys.exit(2)
+
+ROOT.gROOT.SetBatch(True)
+tf = ROOT.TFile.Open(path)
+if not tf or tf.IsZombie():
+    sys.exit(1)
+
+keys = list(tf.GetListOfKeys())
+has_config = any(key.GetName() == "analysis_config_yaml" for key in keys)
+has_directory = any(key.ReadObj().InheritsFrom("TDirectory") for key in keys)
+tf.Close()
+sys.exit(0 if (has_config and has_directory) else 1)
+PY
+}
+
 rj_truthy() {
   case "${1:-0}" in
     1|true|TRUE|yes|YES|on|ON) return 0 ;;
@@ -287,6 +313,10 @@ check_required_output_file() {
   fi
   bytes="$(file_size_bytes "$f")"
   if (( bytes < min )); then
+    if [[ "${dataset:-${RJ_DATASET:-}}" == "isAuAu" ]] && root_output_structurally_valid "$f"; then
+      echo "[INFO] Required ${label} output passed small AuAu ROOT structural validation: $f (${bytes} bytes < ${min})"
+      return 0
+    fi
     echo "[ERROR] Required ${label} output is too small: $f (${bytes} bytes < ${min})"
     return 1
   fi
