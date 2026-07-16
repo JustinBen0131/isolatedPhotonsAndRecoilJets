@@ -32,6 +32,9 @@ SPECTRUM_STYLES = {
     "fragmentation": ("Fragmentation", "^", "#2474e5"),
 }
 CUTOFFS = np.arange(1.0, 21.0, 1.0)
+TRUTH_PT_DISPLAY_MIN_GEV = 15.0
+TH1F_CLOSURE_RTOL = 1.0e-7
+TH1F_CLOSURE_ATOL = 1.0e-6
 
 
 def parse_args() -> argparse.Namespace:
@@ -60,7 +63,9 @@ def setup_style() -> None:
     )
 
 
-def sph_label(ax: plt.Axes, y: float = 0.97) -> None:
+def sph_label(ax: plt.Axes, y: float = 0.97, pythia_y: float | None = None) -> None:
+    if pythia_y is None:
+        pythia_y = y - 0.09
     ax.text(
         0.035,
         y,
@@ -68,7 +73,16 @@ def sph_label(ax: plt.Axes, y: float = 0.97) -> None:
         transform=ax.transAxes,
         ha="left",
         va="top",
-        fontsize=11,
+        fontsize=14,
+    )
+    ax.text(
+        0.035,
+        pythia_y,
+        r"embedded $\mathrm{PYTHIA}$ $\sqrt{s_{NN}}=200$ GeV",
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=11.5,
     )
 
 
@@ -203,7 +217,12 @@ def spectrum_data(
         total = data[cent_tag]["total"][0]
         direct = data[cent_tag]["direct"][0]
         fragmentation = data[cent_tag]["fragmentation"][0]
-        if not np.allclose(total, direct + fragmentation, rtol=1.0e-9, atol=1.0e-9):
+        if not np.allclose(
+            total,
+            direct + fragmentation,
+            rtol=TH1F_CLOSURE_RTOL,
+            atol=TH1F_CLOSURE_ATOL,
+        ):
             difference = float(np.max(np.abs(total - direct - fragmentation)))
             raise ValueError(f"total != direct + fragmentation for {cent_tag}; max diff={difference}")
     return data, names
@@ -218,7 +237,7 @@ def format_fraction_axis(
     ax.set_title(title, pad=9)
     ax.set_xlim(0.5, 20.5)
     ax.set_xticks(np.arange(2, 21, 2))
-    ax.set_ylim(0.90 if photon_class == "direct" else 0.0, 1.015)
+    ax.set_ylim(0.90 if photon_class == "direct" else 0.80, 1.015)
     ax.set_xlabel(r"Truth $E_{T}^{iso}$ cutoff [GeV]")
     if ylabel:
         ax.set_ylabel("Fraction passing cutoff")
@@ -234,9 +253,6 @@ def draw_fraction_panel(
 ) -> None:
     for pt_tag, pt_label, marker, color in PT_INTERVALS:
         fractions, errors = series[pt_tag]
-        label = pt_label
-        if pt_tag == "pT_10_15":
-            label += " (coverage starts at 12 GeV)"
         ax.errorbar(
             CUTOFFS,
             fractions,
@@ -246,29 +262,30 @@ def draw_fraction_panel(
             markersize=4.5,
             capsize=1.8,
             color=color,
-            label=label,
+            label=pt_label,
         )
     format_fraction_axis(
         ax,
-        f"AuAu embedded photon simulation, {cent_label}\n{photon_class.capitalize()} photons",
+        f"{cent_label}\n{photon_class.capitalize()} photons",
         photon_class,
         ylabel=ylabel,
     )
-    sph_label(ax, y=0.24 if photon_class == "direct" else 0.97)
+    direct = photon_class == "direct"
+    sph_label(
+        ax,
+        y=0.34,
+        pythia_y=0.245,
+    )
     ax.text(
         0.035,
-        0.14 if photon_class == "direct" else 0.865,
-        (
-            r"$|\eta^\gamma|<0.7$, $|z_{vtx}|<30$ cm" + "\n" + r"$R=0.3$"
-            if photon_class == "direct"
-            else r"$|\eta^\gamma|<0.7$, $|z_{vtx}|<30$ cm, $R=0.3$"
-        ),
+        0.115 if direct else 0.065,
+        r"$|\eta^\gamma|<0.7$, $|z_{vtx}|<30$ cm, $R=0.3$",
         transform=ax.transAxes,
         ha="left",
         va="top",
-        fontsize=9.5,
+        fontsize=10.5,
     )
-    ax.legend(loc="lower right", frameon=False)
+    ax.legend(loc="lower right", frameon=False, fontsize=11.2)
 
 
 def draw_spectrum_panel(
@@ -299,39 +316,28 @@ def draw_spectrum_panel(
     if np.any((fraction[np.isfinite(fraction)] < 0.0) | (fraction[np.isfinite(fraction)] > 1.0)):
         raise ValueError(f"direct/total outside [0,1] for {cent_label}")
 
-    top.axvspan(10.0, 12.0, color="#f2c94c", alpha=0.22, linewidth=0.0)
-    ratio.axvspan(10.0, 12.0, color="#f2c94c", alpha=0.22, linewidth=0.0)
     top.set_yscale("log")
     positive = np.concatenate([series[key][0][series[key][0] > 0.0] for key in SPECTRUM_STYLES])
     if positive.size:
         top.set_ylim(max(float(np.min(positive)) * 0.45, 1.0e-8), float(np.max(positive)) * 2.5)
-    top.set_xlim(10.0, 35.0)
-    top.set_title(f"AuAu embedded photon simulation, {cent_label}", pad=9)
+    top.set_xlim(TRUTH_PT_DISPLAY_MIN_GEV, 35.0)
+    top.set_title(cent_label, pad=9)
     if ylabel:
         top.set_ylabel("Weighted photons / GeV")
         ratio.set_ylabel("Direct / total")
-    top.legend(loc="upper right", frameon=False)
+    top.legend(loc="upper right", frameon=False, fontsize=11.2)
     top.grid(axis="y", which="both", color="#e0e0e0", linewidth=0.6, alpha=0.65)
     top.tick_params(labelbottom=False)
-    sph_label(top)
+    sph_label(top, y=0.97, pythia_y=0.88)
     top.text(
-        0.34,
-        0.96,
+        0.035,
+        0.11,
         r"$E_{T}^{iso}<4$ GeV, $R=0.3$" + "\n" + r"$|\eta^\gamma|<0.7$, $|z_{vtx}|<30$ cm",
         transform=top.transAxes,
         ha="left",
         va="top",
-        fontsize=9.2,
+        fontsize=10.5,
     )
-    top.text(
-        0.08,
-        0.09,
-        "10-12 GeV: source coverage limited",
-        transform=top.transAxes,
-        fontsize=8.8,
-        color="#6c5600",
-    )
-
     ratio.errorbar(
         centers,
         fraction,
@@ -342,7 +348,7 @@ def draw_spectrum_panel(
         capsize=1.5,
         color=SPECTRUM_STYLES["direct"][2],
     )
-    ratio.set_xlim(10.0, 35.0)
+    ratio.set_xlim(TRUTH_PT_DISPLAY_MIN_GEV, 35.0)
     ratio.set_ylim(0.0, 1.02)
     ratio.set_xlabel(r"Truth photon $p_T$ [GeV]")
     ratio.grid(axis="y", color="#d9d9d9", linewidth=0.7, alpha=0.75)
@@ -363,7 +369,7 @@ def write_fraction_plots(
         plt.close(fig)
         outputs.append(path)
 
-    fig, axes = plt.subplots(1, 3, figsize=(17.0, 5.25), constrained_layout=True)
+    fig, axes = plt.subplots(1, 3, figsize=(17.0, 6.0), constrained_layout=True)
     for index, ((cent_tag, cent_label), ax) in enumerate(zip(CENTRALITIES, axes)):
         draw_fraction_panel(
             ax,
@@ -430,7 +436,6 @@ def csv_rows(
                             "x_unit": "GeV",
                             "value": value,
                             "stat_error": error,
-                            "coverage_limited": pt_tag == "pT_10_15",
                         }
                     )
 
@@ -449,7 +454,6 @@ def csv_rows(
                         "x_unit": "GeV",
                         "value": value,
                         "stat_error": math.sqrt(max(float(variance), 0.0)),
-                        "coverage_limited": center < 12.0,
                     }
                 )
         values, errors = ratios[cent_tag]
@@ -464,7 +468,6 @@ def csv_rows(
                     "x_unit": "GeV",
                     "value": value,
                     "stat_error": error,
-                    "coverage_limited": center < 12.0,
                 }
             )
     return rows
@@ -489,7 +492,12 @@ def main() -> int:
         audit_values, _ = values_and_variances(audit)
         if audit_values.size != 16:
             raise ValueError("truth-isolation audit histogram must have 16 bins")
-        if not np.isclose(audit_values[0], np.sum(audit_values[13:16]), rtol=1.0e-9, atol=1.0e-9):
+        if not np.isclose(
+            audit_values[0],
+            np.sum(audit_values[13:16], dtype=np.float64),
+            rtol=TH1F_CLOSURE_RTOL,
+            atol=TH1F_CLOSURE_ATOL,
+        ):
             raise ValueError("accepted-event audit count does not equal centrality-bin event sum")
         if audit_values[2] <= 0.0 or audit_values[3] <= 0.0:
             raise ValueError("direct or fragmentation audit population is zero")
@@ -531,11 +539,6 @@ def main() -> int:
         "weighting": {
             "histogram_contract": "RecoilJets RJMCWeighting weighted TH1F with Sumw2",
             "merge_contract": "photon12 and photon20 source weights applied by established embedded weighting path",
-        },
-        "coverage_limitation": {
-            "range_gev": [10, 12],
-            "reason": "Available focused signal production begins with run28_embeddedPhoton12.",
-            "affected_fraction_series": "[10,15) GeV",
         },
         "root_objects": object_names,
         "validation": {

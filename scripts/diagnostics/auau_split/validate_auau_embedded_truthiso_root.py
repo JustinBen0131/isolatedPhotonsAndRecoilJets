@@ -16,6 +16,8 @@ CENTRALITIES = ("cent_0_20", "cent_20_50", "cent_50_80")
 PT_INTERVALS = ("pT_10_15", "pT_15_20", "pT_25_30")
 PHOTON_CLASSES = ("direct", "fragmentation")
 SPECTRUM_CLASSES = ("total", "direct", "fragmentation")
+TH1F_CLOSURE_RTOL = 1.0e-7
+TH1F_CLOSURE_ATOL = 1.0e-6
 
 
 def parse_args() -> argparse.Namespace:
@@ -89,7 +91,12 @@ def validate_file(path: str) -> dict[str, Any]:
         }
         if audit_values[2] <= 0.0 or audit_values[3] <= 0.0:
             result["errors"].append("direct or fragmentation audit population is zero")
-        if not math.isclose(audit_values[0], sum(audit_values[13:16]), rel_tol=1.0e-9, abs_tol=1.0e-9):
+        if not math.isclose(
+            audit_values[0],
+            sum(audit_values[13:16]),
+            rel_tol=TH1F_CLOSURE_RTOL,
+            abs_tol=TH1F_CLOSURE_ATOL,
+        ):
             result["errors"].append("accepted event count does not equal centrality event sum")
 
     closure_failures: list[dict[str, Any]] = []
@@ -107,8 +114,13 @@ def validate_file(path: str) -> dict[str, Any]:
                 - direct.GetBinContent(bin_index)
                 - fragmentation.GetBinContent(bin_index)
             )
-            scale = max(abs(float(total.GetBinContent(bin_index))), 1.0)
-            if abs(difference) > 1.0e-9 * scale:
+            scale = max(
+                abs(float(total.GetBinContent(bin_index))),
+                abs(float(direct.GetBinContent(bin_index)))
+                + abs(float(fragmentation.GetBinContent(bin_index))),
+                1.0,
+            )
+            if abs(difference) > TH1F_CLOSURE_ATOL + TH1F_CLOSURE_RTOL * scale:
                 closure_failures.append(
                     {"centrality": centrality, "bin": bin_index, "difference": difference}
                 )

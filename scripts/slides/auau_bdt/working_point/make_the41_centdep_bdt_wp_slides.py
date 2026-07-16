@@ -276,21 +276,29 @@ def flat_fit_rows(payload: dict) -> list[dict]:
     return rows
 
 
-def fit_lines(rows: list[dict]) -> dict[float, dict]:
+def fit_lines(rows: list[dict], payload: dict | None = None) -> dict[float, dict]:
     import numpy as np
 
     fits = {}
+    weighted = "inverse_variance" in str((payload or {}).get("flat_fit_mode", "")).lower()
     for target in TARGETS:
         sub = [r for r in rows if abs(float(r["target_signal_efficiency"]) - target) < 1e-9]
         x = np.array([float(r["centrality_center"]) for r in sub], dtype=float)
         y = np.array([float(r["threshold"]) for r in sub], dtype=float)
-        slope, intercept = np.polyfit(x, y, 1)
+        if weighted:
+            sigma = np.array([float(r.get("threshold_stat_err", math.nan)) for r in sub], dtype=float)
+            if not np.all(np.isfinite(sigma) & (sigma > 0)):
+                raise ValueError("Inverse-variance centrality fit requested, but threshold errors are missing or invalid")
+            slope, intercept = np.polyfit(x, y, 1, w=1.0 / sigma)
+        else:
+            slope, intercept = np.polyfit(x, y, 1)
         pred = slope * x + intercept
         fits[target] = {
             "slope": float(slope),
             "intercept": float(intercept),
             "max_abs_residual": float(np.max(np.abs(y - pred))),
             "rms_residual": float(np.sqrt(np.mean((y - pred) ** 2))),
+            "fit_mode": "inverse_variance_weighted" if weighted else "unweighted",
         }
     return fits
 
@@ -370,14 +378,14 @@ def draw_slide_points(payload: dict, flat_rows: list[dict], out: Path) -> None:
         )
     )
     subtitle.text(
-        0.030,
+        0.500,
         0.57,
-        f"{audience_model_label(payload)}; thresholds extracted in {audience_et_range_label(payload)}.\n"
-        "Flat fits versus $E_T$ give one threshold per centrality bin.",
+        f"{audience_model_label(payload)}\n"
+        f"{audience_et_range_label(payload)}; flat fits versus $E_T$ give one threshold per centrality bin.",
         transform=subtitle.transAxes,
-        fontsize=13.4,
+        fontsize=12.8,
         color=INK,
-        ha="left",
+        ha="center",
         va="center",
         linespacing=1.12,
     )
@@ -495,9 +503,13 @@ def draw_slide_fits(payload: dict, fits: dict[float, dict], out: Path) -> None:
     fig = plt.figure(figsize=(16, 9), dpi=160, facecolor="white")
     nominal = 0.80
     nominal_fit = fits[nominal]
+    coefficient_digits = int(payload.get("coefficient_digits", 4))
+    nontight_relative_min = payload.get("nontight_relative_min_offset")
+    nontight_relative_max = payload.get("nontight_relative_max_offset")
+    bounded_nontight = nontight_relative_min is not None and nontight_relative_max is not None
     fig.text(0.045, 0.965, "The 80% efficiency fit defines the tight BDT selection", fontsize=29.0, fontweight="bold", color=INK, ha="left", va="top")
 
-    subtitle = fig.add_axes([0.045, 0.835, 0.690, 0.055])
+    subtitle = fig.add_axes([0.045, 0.835, 0.935, 0.055])
     subtitle.axis("off")
     subtitle.add_patch(
         FancyBboxPatch(
@@ -512,13 +524,13 @@ def draw_slide_fits(payload: dict, fits: dict[float, dict], out: Path) -> None:
         )
     )
     subtitle.text(
-        0.030,
+        0.500,
         0.52,
         f"{audience_model_label(payload)}; flat WP80 constants from {audience_et_range_label(payload)} are fit versus centrality.",
         transform=subtitle.transAxes,
         fontsize=14.4,
         color=INK,
-        ha="left",
+        ha="center",
         va="center",
     )
 
@@ -584,7 +596,8 @@ def draw_slide_fits(payload: dict, fits: dict[float, dict], out: Path) -> None:
     ax.text(
         0.965,
         0.060,
-        f"Nominal: T$_{{80}}$(c) = {nominal_fit['intercept']:.4f} {nominal_fit['slope']:+.5f} c",
+        f"Nominal: T$_{{80}}$(c) = {nominal_fit['intercept']:.{coefficient_digits}f} "
+        f"{nominal_fit['slope']:+.{coefficient_digits}f} c",
         transform=ax.transAxes,
         fontsize=14.2,
         fontweight="bold",
@@ -610,12 +623,37 @@ def draw_slide_fits(payload: dict, fits: dict[float, dict], out: Path) -> None:
     decision.add_patch(plt.Rectangle((0.000, 0.000), 0.018, 1.000, transform=decision.transAxes, facecolor=TARGET_COLORS[nominal], edgecolor="none"))
     decision.text(0.070, 0.865, "Final working definition", transform=decision.transAxes, fontsize=17.0, fontweight="bold", color=INK, ha="left", va="center")
     decision.text(0.070, 0.700, "Nominal tight-BDT cut:", transform=decision.transAxes, fontsize=14.4, color=INK, ha="left", va="center")
-    decision.text(0.070, 0.570, f"T$_{{80}}$(c) = {nominal_fit['intercept']:.4f} {nominal_fit['slope']:+.5f} c", transform=decision.transAxes, fontsize=17.4, fontweight="bold", color=TARGET_COLORS[nominal], ha="left", va="center")
+    decision.text(
+        0.070,
+        0.570,
+        f"T$_{{80}}$(c) = {nominal_fit['intercept']:.{coefficient_digits}f} "
+        f"{nominal_fit['slope']:+.{coefficient_digits}f} c",
+        transform=decision.transAxes,
+        fontsize=15.2 if coefficient_digits > 6 else 17.4,
+        fontweight="bold",
+        color=TARGET_COLORS[nominal],
+        ha="left",
+        va="center",
+    )
     decision.text(0.070, 0.455, f"Fit residuals: RMS={nominal_fit['rms_residual']:.4f}, max={nominal_fit['max_abs_residual']:.4f}", transform=decision.transAxes, fontsize=13.4, color=MUTED, ha="left", va="center")
     decision.text(0.070, 0.305, "Tight BDT", transform=decision.transAxes, fontsize=14.8, fontweight="bold", color=INK, ha="left", va="center")
     decision.text(0.395, 0.305, "score > T$_{80}$(c)", transform=decision.transAxes, fontsize=14.8, color=INK, ha="left", va="center")
-    decision.text(0.070, 0.160, "Non-tight", transform=decision.transAxes, fontsize=14.8, fontweight="bold", color=INK, ha="left", va="center")
-    decision.text(0.395, 0.160, "score <= T$_{80}$(c)", transform=decision.transAxes, fontsize=14.8, color=INK, ha="left", va="center")
+    if bounded_nontight:
+        decision.text(0.070, 0.165, "Non-tight C/D", transform=decision.transAxes, fontsize=14.0, fontweight="bold", color=INK, ha="left", va="center")
+        decision.text(
+            0.070,
+            0.085,
+            f"T$_{{80}}$(c) {float(nontight_relative_min):+.2f} < score < "
+            f"T$_{{80}}$(c) {float(nontight_relative_max):+.2f}",
+            transform=decision.transAxes,
+            fontsize=12.4,
+            color=INK,
+            ha="left",
+            va="center",
+        )
+    else:
+        decision.text(0.070, 0.160, "Non-tight", transform=decision.transAxes, fontsize=14.8, fontweight="bold", color=INK, ha="left", va="center")
+        decision.text(0.395, 0.160, "score <= T$_{80}$(c)", transform=decision.transAxes, fontsize=14.8, color=INK, ha="left", va="center")
 
     context = fig.add_axes([0.715, 0.255, 0.265, 0.190])
     context.axis("off")
@@ -632,8 +670,8 @@ def draw_slide_fits(payload: dict, fits: dict[float, dict], out: Path) -> None:
         )
     )
     context.text(0.060, 0.765, "Context curves", transform=context.transAxes, fontsize=14.8, fontweight="bold", color=INK, ha="left", va="center")
-    context.text(0.060, 0.505, f"WP90: T(c) = {fits[0.90]['intercept']:.4f} {fits[0.90]['slope']:+.5f} c", transform=context.transAxes, fontsize=13.4, color=TARGET_COLORS[0.90], fontweight="bold", ha="left", va="center")
-    context.text(0.060, 0.275, f"WP70: T(c) = {fits[0.70]['intercept']:.4f} {fits[0.70]['slope']:+.5f} c", transform=context.transAxes, fontsize=13.4, color=TARGET_COLORS[0.70], fontweight="bold", ha="left", va="center")
+    context.text(0.060, 0.505, f"WP90: T(c) = {fits[0.90]['intercept']:.6f} {fits[0.90]['slope']:+.7f} c", transform=context.transAxes, fontsize=12.6, color=TARGET_COLORS[0.90], fontweight="bold", ha="left", va="center")
+    context.text(0.060, 0.275, f"WP70: T(c) = {fits[0.70]['intercept']:.6f} {fits[0.70]['slope']:+.7f} c", transform=context.transAxes, fontsize=12.6, color=TARGET_COLORS[0.70], fontweight="bold", ha="left", va="center")
 
     foot = fig.add_axes([0.070, 0.030, 0.910, 0.150])
     foot.axis("off")
@@ -756,17 +794,31 @@ def write_scripts(outdir: Path, payload: dict, fits: dict[float, dict]) -> dict[
         "Then, on the next slide, we fit those seven flat constants as a function of centrality to define the proposed runtime BDT threshold.\n"
     )
     wp80_fit = fits[0.80]
+    coefficient_digits = int(payload.get("coefficient_digits", 4))
+    fit_mode = "inverse-variance weighted" if wp80_fit.get("fit_mode") == "inverse_variance_weighted" else "unweighted"
+    nontight_relative_min = payload.get("nontight_relative_min_offset")
+    nontight_relative_max = payload.get("nontight_relative_max_offset")
+    if nontight_relative_min is not None and nontight_relative_max is not None:
+        nontight_script = (
+            "The non-tight C/D sideband is intentionally bounded: a candidate must satisfy "
+            f"T80 of centrality {float(nontight_relative_min):+.2f} less than score less than "
+            f"T80 of centrality {float(nontight_relative_max):+.2f}. "
+            "The narrow gap below tight and the lower score tail are excluded from ABCD."
+        )
+    else:
+        nontight_script = "A candidate is non-tight if its BDT score is less than or equal to the threshold."
     script2.write_text(
         "# THE-41 Slide Script - Linear Centrality Fits\n\n"
-        "Now I take the seven flat-fit constants from the previous slide and fit each efficiency target with a linear function of centrality. "
+        f"Now I take the seven flat-fit constants from the previous slide and fit each efficiency target with a {fit_mode} linear function of centrality. "
         "This is the direct analogue of the sliding-isolation cutoff procedure, but applied to the BDT score threshold.\n\n"
         "The main decision on this slide is that I am taking the 80 percent signal-efficiency line as the nominal working point. "
-        f"That gives T80 of centrality equals {wp80_fit['intercept']:.4f} plus {wp80_fit['slope']:.5f} times the centrality percentile.\n\n"
+        f"That gives T80 of centrality equals {wp80_fit['intercept']:.{coefficient_digits}f} plus "
+        f"{wp80_fit['slope']:.{coefficient_digits}f} times the centrality percentile.\n\n"
         f"The shaded green band around that line is the RMS residual of the WP80 centrality fit, which is {wp80_fit['rms_residual']:.4f} in BDT score. "
         f"The largest WP80 point-to-line residual is {wp80_fit['max_abs_residual']:.4f}, so this is a compact visual check of how well the linear centrality model describes the seven flat-fit constants.\n\n"
         "The selection definition is then explicit. "
         "A candidate is tight BDT if its BDT score is above T80 of centrality. "
-        "A candidate is non-tight if its BDT score is less than or equal to that threshold. "
+        f"{nontight_script} "
         "The 90 and 70 percent curves are kept on the plot as context, but the green WP80 line is the cut definition I would carry into the shower-shape overlay step.\n"
     )
     return {"points_script": str(script1), "fits_script": str(script2)}
@@ -774,8 +826,17 @@ def write_scripts(outdir: Path, payload: dict, fits: dict[float, dict]) -> dict[
 
 def render(args: argparse.Namespace) -> dict:
     payload = json.loads(args.input.read_text())
+    for key in ("model_label", "source_label", "training_sample", "training_inputs"):
+        override = getattr(args, f"{key}_override")
+        if override:
+            payload[key] = override
+    payload["coefficient_digits"] = args.coefficient_digits
+    if args.nontight_relative_min_offset is not None:
+        payload["nontight_relative_min_offset"] = args.nontight_relative_min_offset
+    if args.nontight_relative_max_offset is not None:
+        payload["nontight_relative_max_offset"] = args.nontight_relative_max_offset
     flats = flat_fit_rows(payload)
-    fits = fit_lines(flats)
+    fits = fit_lines(flats, payload)
     outdir = args.outdir
     outdir.mkdir(parents=True, exist_ok=True)
     points_png = outdir / "the41_centdep_bdt_wp_flat_points_slide.png"
@@ -825,6 +886,13 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--model-label", default="global EtCent1535 no-iso BDT")
     ap.add_argument("--training-sample", default="Photon+Jet Embedded 12+20, Inclusive Jet Embedded 12+20+30+40")
     ap.add_argument("--training-inputs", default="baseV3E + centrality + weta33/wphi33")
+    ap.add_argument("--model-label-override")
+    ap.add_argument("--source-label-override")
+    ap.add_argument("--training-sample-override")
+    ap.add_argument("--training-inputs-override")
+    ap.add_argument("--coefficient-digits", type=int, default=4)
+    ap.add_argument("--nontight-relative-min-offset", type=float)
+    ap.add_argument("--nontight-relative-max-offset", type=float)
     args = ap.parse_args()
     if args.mode == "extract" and (args.manifest is None or args.json_out is None):
         ap.error("--manifest and --json-out are required for --mode extract")

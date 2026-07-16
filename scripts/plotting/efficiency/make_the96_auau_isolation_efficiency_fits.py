@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Derive THE-96 Au+Au isolation-efficiency cutoffs and centrality fits.
+"""Derive Au+Au isolation-efficiency cutoffs and centrality fits.
 
 The input is a merged embedded-photon RecoilJets ROOT file. For each photon-pT
 and 5% centrality cell, the script reads the truth-matched reconstructed
@@ -530,6 +530,13 @@ def main() -> int:
     parser.add_argument("--cone", choices=("R30", "R40"), default="R30")
     parser.add_argument("--algorithm", choices=("baseline", "topocluster"), default="baseline")
     parser.add_argument("--pt-scheme", choices=("nominal", "expanded"), default="nominal")
+    parser.add_argument("--campaign", default="THE-96")
+    parser.add_argument("--campaign-tag", default="the96_auau_iso_baseline5pct_20260709_1335")
+    parser.add_argument(
+        "--output-prefix",
+        default="the96",
+        help="Filename prefix only; defaults preserve the reviewed THE-96 products.",
+    )
     args = parser.parse_args()
 
     input_path = args.input.resolve()
@@ -541,7 +548,10 @@ def main() -> int:
     max_flow_fraction = max(row["flow_fraction"] for row in points)
     cone_label = "R=0.3" if args.cone == "R30" else "R=0.4"
     algorithm_label = "tower-cone baseline (no topocluster)" if args.algorithm == "baseline" else "topocluster isolation"
-    stem = f"the96_auau_iso_{args.cone.lower()}_{args.algorithm}_{args.pt_scheme}"
+    output_prefix = args.output_prefix.strip()
+    if not output_prefix or any(character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for character in output_prefix):
+        raise ValueError(f"invalid --output-prefix: {args.output_prefix!r}")
+    stem = f"{output_prefix}_auau_iso_{args.cone.lower()}_{args.algorithm}_{args.pt_scheme}"
     grid_png = output_dir / f"{stem}_5pct_flat_fit_grid.png"
     summary_png = output_dir / f"{stem}_centrality_linear_fits.png"
     points_csv = output_dir / f"{stem}_cutoff_points.csv"
@@ -555,8 +565,8 @@ def main() -> int:
     write_csv(flat_csv, flat_fits)
     write_csv(linear_csv, centrality_fits)
     manifest = {
-        "campaign": "THE-96",
-        "campaign_tag": "the96_auau_iso_baseline5pct_20260709_1335",
+        "campaign": args.campaign,
+        "campaign_tag": args.campaign_tag,
         "input_root": str(input_path),
         "root_directory": "SIM",
         "histogram_family": f"h_EisoReco_truthSigMatched_iso{args.cone}_pT_*_cent_*",

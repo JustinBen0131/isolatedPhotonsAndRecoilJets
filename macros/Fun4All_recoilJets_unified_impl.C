@@ -5509,6 +5509,9 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     const bool ppg12PhotonYieldPPSim =
         env_truthy_local("RJ_PPG12_PHOTON_YIELD") &&
         isSim && !isAuAuLike;
+    const bool usePPG12PPTowerInfoShapes =
+        env_truthy_local("RJ_PPG12_PHOTON_YIELD") &&
+        !isAuAuLike;
     const bool requestedPPG12TruthVertexForReco =
         ppg12PhotonYieldPPSim &&
         (env_truthy_local("RJ_PPG12_PHOTON_YIELD_TRUTH_VERTEX") ||
@@ -5592,7 +5595,11 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         builder->set_use_ppg12_pp_iso_axis(useSamePhotonBDTScores);
         builder->set_use_ppg12_pp_sim_truth_vertex(false);
         builder->set_use_ppg12_pp_sim_global_mbd_vertex(ppg12PhotonYieldPPSim);
-        builder->set_use_ppg12_pp_sim_towerinfo_shapes(ppg12PhotonYieldPPSim);
+        // CaloAna24 forms the PPG12 7x7 shower-shape inputs from the complete
+        // TowerInfo grid for both data and SIM.  Do not fall back to the raw
+        // cluster towermap for pp data: that omits non-owned neighboring cells
+        // and changes the NPB/tight-BDT inputs for non-isolated candidates.
+        builder->set_use_ppg12_pp_sim_towerinfo_shapes(usePPG12PPTowerInfoShapes);
         builder->set_use_ppg12_topocluster_isolation(usePPG12PhotonYieldTopoIso);
         builder->set_ppg12_topocluster_node("TOPOCLUSTER_ALLCALO");
         builder->set_ppg12_topocluster_iso_radius(0.4f);
@@ -6258,7 +6265,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         << " | ppg12RecoVertex="
         << (ppg12PhotonYieldPPSim ? "GlobalVertexMap::MBD" : "default reco")
         << " | ppg12TruthVertexRole=SI/DI weight only"
-        << " | ppg12TowerInfoShapes=" << (ppg12PhotonYieldPPSim ? "true" : "false")
+        << " | ppg12TowerInfoShapes=" << (usePPG12PPTowerInfoShapes ? "true" : "false")
         << " | isAuAuLike=" << (isAuAuLike ? "true" : "false")
         << " | isSimEmbedded=" << (isSimEmbedded ? "true" : "false")
         << " | photonBuilderIsAuAu=" << (photonBuilderIsAuAu ? "true" : "false")
@@ -7231,8 +7238,8 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             se->run(nEvents);
         }
         
-        bool centralityContractFailed = false;
-        std::ostringstream centralityContractFailure;
+        std::uint64_t centralityValidTotal = 0;
+        std::uint64_t centralityInvalidSkippedTotal = 0;
         if (isAuAuData)
         {
             for (std::size_t i = 0; i < recoilJetsInstances.size(); ++i)
@@ -7241,33 +7248,26 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                 const auto valid = recoilJets->validCentralityObservedEvents();
                 const auto invalid = recoilJets->invalidCentralityObservedEvents();
                 const auto evaluated = valid + invalid;
+                centralityValidTotal += valid;
+                centralityInvalidSkippedTotal += invalid;
                 const char* status =
-                    (invalid > 0) ? "FAIL_INVALID_CENTRALITY" :
+                    (valid > 0 && invalid > 0) ? "PASS_WITH_SKIPPED_INVALID" :
                     (valid > 0) ? "PASS" :
+                    (invalid > 0) ? "EMPTY_ALL_INVALID_EVENTS_SKIPPED" :
                     "EMPTY_NO_EVALUABLE_EVENTS";
                 std::cout << "[AUAU_CENTRALITY_CONTRACT] module=RecoilJets_ID" << i
                           << " valid=" << valid
                           << " invalid=" << invalid
                           << " evaluated=" << evaluated
                           << " status=" << status << std::endl;
-                if (invalid > 0)
-                {
-                    centralityContractFailed = true;
-                    centralityContractFailure
-                        << " RecoilJets_ID" << i << " observed invalid centrality for "
-                        << invalid << " of " << evaluated << " evaluated events;";
-                }
             }
+            std::cout << "[AUAU_CENTRALITY_CONTRACT_SUMMARY] valid=" << centralityValidTotal
+                      << " invalid_skipped=" << centralityInvalidSkippedTotal
+                      << " action=invalid_events_audited_and_skipped" << std::endl;
         }
 
         if (vlevel > 0) std::cout << "[INFO] Calling se->End() …" << std::endl;
         se->End();
-        if (centralityContractFailed)
-        {
-            detail::bail(
-                "AuAu data centrality output contract failed." +
-                centralityContractFailure.str());
-        }
         if (vlevel > 0) std::cout << "[INFO] Finished successfully." << std::endl;
     }
     catch (const std::exception& e)

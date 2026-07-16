@@ -728,16 +728,35 @@ private:
 
 
     // Isolation helpers
+    struct PPG12EisoConeMemberAudit
+    {
+      std::uint64_t key = 0;
+      double energy = std::numeric_limits<double>::quiet_NaN();
+      double eta = std::numeric_limits<double>::quiet_NaN();
+      double phi = std::numeric_limits<double>::quiet_NaN();
+      double et = std::numeric_limits<double>::quiet_NaN();
+      double dEta = std::numeric_limits<double>::quiet_NaN();
+      double dPhi = std::numeric_limits<double>::quiet_NaN();
+      double dR = std::numeric_limits<double>::quiet_NaN();
+    };
     struct PPG12EisoPathAudit
     {
       double storedRaw = std::numeric_limits<double>::quiet_NaN();
       double legacyPositiveOnlyRaw = std::numeric_limits<double>::quiet_NaN();
+      double storedTopoSumEt = std::numeric_limits<double>::quiet_NaN();
+      double storedPositiveOnlyTopoSumEt = std::numeric_limits<double>::quiet_NaN();
       double storedValid = std::numeric_limits<double>::quiet_NaN();
       double storedVertexZ = std::numeric_limits<double>::quiet_NaN();
       double expectedVertexZ = std::numeric_limits<double>::quiet_NaN();
+      double isoAxisEta = std::numeric_limits<double>::quiet_NaN();
+      double isoAxisPhi = std::numeric_limits<double>::quiet_NaN();
+      double recomputedTopoSumEt = std::numeric_limits<double>::quiet_NaN();
+      double recomputedPositiveOnlyTopoSumEt = std::numeric_limits<double>::quiet_NaN();
       double recomputedRaw = std::numeric_limits<double>::quiet_NaN();
       double finalRaw = std::numeric_limits<double>::quiet_NaN();
       double candidateEt = std::numeric_limits<double>::quiet_NaN();
+      long long topoNodeCount = 0;
+      long long inConeMemberCount = 0;
       bool vertexCompatible = false;
       bool storedUsable = false;
       bool storedAccepted = false;
@@ -746,6 +765,7 @@ private:
       bool vertexMismatchRejected = false;
       bool recoVertexUsedForEiso = false;
       int pathCode = 0;  // 0=invalid, 1=stored, 2=recomputed
+      std::vector<PPG12EisoConeMemberAudit> coneMembers;
     };
     double eiso(const RawCluster* clus, PHCompositeNode* topNode) const;
     double ppg12PhotonYieldRawEiso(const RawCluster* clus, PHCompositeNode* topNode);
@@ -754,6 +774,9 @@ private:
                                            PPG12EisoPathAudit* audit);
     double ppg12PhotonYieldEiso(double eisoEt) const;
     double ppg12PhotonYieldClusterEtForCuts(double ptGamma, int candidateIndex) const;
+    double ppg12PhotonYieldClusterEtForResponse(double recoEt,
+                                                double truthPt,
+                                                int candidateIndex) const;
     bool ppg12PhotonYieldTowerMasked(const PhotonClusterv1* pho) const;
     double ppg12PhotonYieldKinematicVertexZ() const;
     bool ppg12PhotonYieldInResponseWindow(double recoPt, double truthPt) const;
@@ -962,6 +985,7 @@ private:
                                      bool fillInclusive = true);
   void fillPPG12PhotonYieldTightAndABCD(const std::vector<std::string>& activeTrig,
                                         double ptGamma,
+                                        double responsePtGamma,
                                         double truthPt,
                                         TightTag tightTag,
                                         bool iso,
@@ -1684,7 +1708,6 @@ private:
   std::string m_ppg12PeriodLabel = "unset";
   std::string m_ppg12PeriodExpectedVertexFile;
   TH2* m_ppg12PhotonYieldTowerMask = nullptr;
-  double m_ppg12PhotonYieldClusterERes = 0.04;
   double m_ppg12PhotonYieldMcIsoScale = 1.2;
   double m_ppg12PhotonYieldMcIsoShift = 0.1;
   double m_ppg12PhotonYieldMixWeight = 1.0;
@@ -1710,6 +1733,11 @@ private:
   double m_ppg12EisoPathCanaryMaxEt = 36.0;
   std::string m_ppg12EisoPathCanaryPath;
   std::ofstream m_ppg12EisoPathCanaryOut;
+  long long m_ppg12EisoConeMemberCanaryMaxRows = 100000;
+  long long m_ppg12EisoConeMemberCanaryRowsWritten = 0;
+  std::string m_ppg12EisoConeMemberCanaryPath;
+  std::ofstream m_ppg12EisoConeMemberCanaryOut;
+  std::string m_ppg12EisoVertexSource = "unset";
   long long m_ppg12Fig6CanaryEventsSeen = 0;
   long long m_ppg12Fig6CanaryValidTruthJets = 0;
   long long m_ppg12Fig6CanaryOwnedWindowEvents = 0;

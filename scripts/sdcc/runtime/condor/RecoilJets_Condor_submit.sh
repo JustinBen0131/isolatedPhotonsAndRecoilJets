@@ -432,6 +432,7 @@ create_pipeline_snapshot() {
   local snap_dir="${SNAPSHOT_ROOT}/${TAG}_${stamp}"
   local snap_lib_dir="${snap_dir}/lib"
   local user_root="/sphenix/u/${USER:-$(id -u -n)}"
+  local auau_library_source="${RJ_AUAU_LIBRARY_OVERRIDE:-${user_root}/thesisAnalysis_auau/install/lib/libRecoilJetsAuAu.so}"
 
   local live_wrapper=""
   local live_macro=""
@@ -483,7 +484,12 @@ create_pipeline_snapshot() {
     cp -f "${user_root}/thesisAnalysis/install/lib/libjetbase.so" "$snap_lib_dir/"
   fi
   [[ -f "${user_root}/thesisAnalysis/install/lib/libRecoilJets.so" ]] && cp -f "${user_root}/thesisAnalysis/install/lib/libRecoilJets.so" "$snap_lib_dir/"
-  [[ -f "${user_root}/thesisAnalysis_auau/install/lib/libRecoilJetsAuAu.so" ]] && cp -f "${user_root}/thesisAnalysis_auau/install/lib/libRecoilJetsAuAu.so" "$snap_lib_dir/"
+  if [[ -f "$auau_library_source" ]]; then
+    cp -f "$auau_library_source" "$snap_lib_dir/libRecoilJetsAuAu.so"
+  elif [[ "$mode" == "auau" ]]; then
+    err "AuAu snapshot library is missing: ${auau_library_source}"
+    exit 2
+  fi
 
   # Copy companion ROOT PCM dictionaries so R__LOAD_LIBRARY doesn't spew missing-PCM errors
   cp -f "${user_root}/thesisAnalysis/install/lib/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
@@ -602,6 +608,7 @@ PY
   say "  snapshot dir : ${snap_dir}"
   say "  frozen exe   : ${BULK_FROZEN_EXE}"
   say "  frozen macro : ${BULK_FROZEN_MACRO}"
+  [[ "$mode" == "auau" ]] && say "  AuAu library : ${auau_library_source}"
 }
 
 cleanup_bulk_snapshots_for_tag() {

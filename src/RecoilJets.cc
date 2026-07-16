@@ -66,6 +66,7 @@
 // Standard C++ -------------------------------------------------------------
 #include <atomic>
 #include <algorithm>   // std::clamp
+#include <bit>
 #include <cctype>
 #include <cmath>       // std::cosh, std::hypot, std::fmod
 #include <cstdlib>
@@ -488,7 +489,15 @@ namespace
   constexpr double kPPG12ShowerShapeMcIsoScale = 1.2;
   constexpr double kPPG12ShowerShapeMcIsoShift = 0.2;
   constexpr double kPPG12YieldTruthIsoConeR = 0.3;
-  constexpr double kPPG12YieldClusterERes = 0.04;
+  // PPG12 keeps calibrated cluster ET unsmeared for cuts, ID, isolation, and
+  // ABCD yields.  Only the response-matrix arm receives the additive
+  // data-minus-MC resolution term configured in config_bdt_nom*.yaml.
+  constexpr double kPPG12YieldResponseEResDataP0 = 0.15;
+  constexpr double kPPG12YieldResponseEResDataP1 = 0.05;
+  constexpr double kPPG12YieldResponseEResDataP2 = 0.05;
+  constexpr double kPPG12YieldResponseEResMcP0 = 0.185;
+  constexpr double kPPG12YieldResponseEResMcP1 = 0.0;
+  constexpr double kPPG12YieldResponseEResMcP2 = 0.04;
   constexpr const char* kPPG12YieldTopoClusterNode = "TOPOCLUSTER_ALLCALO";
   constexpr const char* kPPG12YieldTowerMaskFile =
       "/sphenix/user/shuhangli/ppg12/efficiencytool/tower_masks_bdt_nom.root";
@@ -1812,6 +1821,18 @@ std::string RecoilJets::baseRKeyFromDphiHistKey(const std::string& rKey) const
 
 RecoilJets::~RecoilJets()
 {
+  // End() normally owns the diagnostic stream shutdown.  Keep the destructor
+  // defensive so an aborted canary cannot leave buffered CSV rows unwritten.
+  if (m_ppg12EisoPathCanaryOut.is_open())
+  {
+    m_ppg12EisoPathCanaryOut.flush();
+    m_ppg12EisoPathCanaryOut.close();
+  }
+  if (m_ppg12EisoConeMemberCanaryOut.is_open())
+  {
+    m_ppg12EisoConeMemberCanaryOut.flush();
+    m_ppg12EisoConeMemberCanaryOut.close();
+  }
   if (m_vertexReweightH)
   {
     delete m_vertexReweightH;
@@ -1949,6 +1970,7 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     m_truthVz = std::numeric_limits<double>::quiet_NaN();
     m_truthVzMB = std::numeric_limits<double>::quiet_NaN();
     m_truthInfo = nullptr;
+    m_ppg12EisoVertexSource = "none";
 
     double gv_z    = std::numeric_limits<double>::quiet_NaN();
     double ppg12_gv_mbd_z = std::numeric_limits<double>::quiet_NaN();
@@ -2073,6 +2095,7 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
         << " → skip event");
     return false;
   }
+  m_ppg12EisoVertexSource = vz_source;
 
   // Print comparison ONLY if it matters (data only)
   if (!isSim && haveMBDZ && haveGVZ)
@@ -2758,8 +2781,6 @@ int RecoilJets::Init(PHCompositeNode* topNode)
         envString("RJ_PPG12_PHOTON_YIELD_TOWER_MASK_FILE", kPPG12YieldTowerMaskFile);
     m_ppg12PhotonYieldTowerMaskName =
         envString("RJ_PPG12_PHOTON_YIELD_TOWER_MASK_NAME", kPPG12YieldTowerMaskName);
-    m_ppg12PhotonYieldClusterERes =
-        envDouble("RJ_PPG12_PHOTON_YIELD_CLUSTER_ERES", kPPG12YieldClusterERes);
     m_ppg12PhotonYieldMcIsoScale =
         envDouble("RJ_PPG12_PHOTON_YIELD_MC_ISO_SCALE", kPPG12YieldMcIsoScale);
     m_ppg12PhotonYieldMcIsoShift =
@@ -2955,7 +2976,11 @@ int RecoilJets::Init(PHCompositeNode* topNode)
                                       + m_ppg12Fig8ClusterNode
                                       + ",fallback_to_split="
                                       + std::string(m_ppg12Fig8UseFallbackClusterNode ? "on" : "off") : "")
-        << " | cluster_eres=" << (m_isSim && !m_isAuAu ? m_ppg12PhotonYieldClusterERes : 0.0)
+        << (m_isSim && !m_isAuAu
+              ? " | cut_cluster_eres=0 | response_eres=PPG12_additive_sigma_extra"
+                " | response_eres_data=(0.15,0.05,0.05)"
+                " | response_eres_mc=(0.185,0,0.04)"
+              : "")
         << (m_isSim && !m_isAuAu ? " | reconstructed_vertex=GlobalVertexMap::MBD"
                                      " | truth_vertex_role=SI/DI_weight_only" : "")
         << (m_isSim && !m_isAuAu ? " | topo_candidate_exclusion="
@@ -3043,18 +3068,33 @@ int RecoilJets::Init(PHCompositeNode* topNode)
         envDouble("RJ_PPG12_EISO_PATH_CANARY_MIN_ET", m_ppg12EisoPathCanaryMinEt);
     m_ppg12EisoPathCanaryMaxEt =
         envDouble("RJ_PPG12_EISO_PATH_CANARY_MAX_ET", m_ppg12EisoPathCanaryMaxEt);
+    m_ppg12EisoConeMemberCanaryMaxRows =
+        envLongLong("RJ_PPG12_EISO_CONE_MEMBER_CANARY_MAX_ROWS",
+                    m_ppg12EisoConeMemberCanaryMaxRows);
     if (!std::isfinite(m_ppg12EisoPathCanaryMinEt) ||
         !std::isfinite(m_ppg12EisoPathCanaryMaxEt) ||
-        m_ppg12EisoPathCanaryMaxEt <= m_ppg12EisoPathCanaryMinEt)
+        m_ppg12EisoPathCanaryMaxEt <= m_ppg12EisoPathCanaryMinEt ||
+        m_ppg12EisoConeMemberCanaryMaxRows <= 0)
     {
       LOG(0, CLR_RED,
-          "[Init][PPG12_EISO_PATH_CANARY][FATAL] invalid ET window"
+          "[Init][PPG12_EISO_PATH_CANARY][FATAL] invalid bounded-canary configuration"
           << " | min=" << m_ppg12EisoPathCanaryMinEt
-          << " | max=" << m_ppg12EisoPathCanaryMaxEt);
+          << " | max=" << m_ppg12EisoPathCanaryMaxEt
+          << " | member_rows_max=" << m_ppg12EisoConeMemberCanaryMaxRows);
       return Fun4AllReturnCodes::ABORTRUN;
     }
     m_ppg12EisoPathCanaryPath =
         envString("RJ_PPG12_EISO_PATH_CANARY_PATH", Outfile + ".ppg12_eiso_path_canary.csv");
+    m_ppg12EisoConeMemberCanaryPath =
+        envString("RJ_PPG12_EISO_CONE_MEMBER_CANARY_PATH",
+                  Outfile + ".ppg12_eiso_cone_member_canary.csv");
+    if (m_ppg12EisoPathCanaryPath == m_ppg12EisoConeMemberCanaryPath)
+    {
+      LOG(0, CLR_RED,
+          "[Init][PPG12_EISO_PATH_CANARY][FATAL] candidate and cone-member CSV paths must differ"
+          << " | path=" << m_ppg12EisoPathCanaryPath);
+      return Fun4AllReturnCodes::ABORTRUN;
+    }
     m_ppg12EisoPathCanaryOut.open(m_ppg12EisoPathCanaryPath.c_str(), std::ios::out);
     if (!m_ppg12EisoPathCanaryOut)
     {
@@ -3063,22 +3103,43 @@ int RecoilJets::Init(PHCompositeNode* topNode)
           << m_ppg12EisoPathCanaryPath);
       return Fun4AllReturnCodes::ABORTRUN;
     }
+    m_ppg12EisoConeMemberCanaryOut.open(
+        m_ppg12EisoConeMemberCanaryPath.c_str(), std::ios::out);
+    if (!m_ppg12EisoConeMemberCanaryOut)
+    {
+      m_ppg12EisoPathCanaryOut.close();
+      LOG(0, CLR_RED,
+          "[Init][PPG12_EISO_CONE_MEMBER_CANARY][FATAL] could not open "
+          << m_ppg12EisoConeMemberCanaryPath);
+      return Fun4AllReturnCodes::ABORTRUN;
+    }
     m_ppg12EisoPathCanaryOut
-        << "run,event_index,candidate_index,reco_et,eta,phi,is_truth_signal,"
+        << "run,event_index,event_sequence,candidate_index,reco_et,eta,phi,is_truth_signal,"
         << "bdt,npb_score,npb_pass,loose_ss_pass,common_pass,tight_tag,"
-        << "stored_raw_eiso,legacy_positive_only_raw_eiso,stored_valid,stored_vertex_z,expected_vertex_z,"
+        << "vertex_source,stored_raw_eiso,legacy_positive_only_raw_eiso,"
+        << "stored_topo_sum_et,stored_positive_only_topo_sum_et,stored_valid,"
+        << "stored_vertex_z,expected_vertex_z,iso_axis_eta,iso_axis_phi,isolation_candidate_et,"
         << "vertex_compatible,stored_accepted,stored_rejected,recompute_fallback,"
         << "vertex_mismatch_rejected,reco_vertex_used_for_eiso,"
-        << "recomputed_raw_eiso,final_raw_eiso,path_code,path_label,"
+        << "topo_node_count,in_cone_member_count,recomputed_topo_sum_et,"
+        << "recomputed_positive_only_topo_sum_et,recomputed_raw_eiso,"
+        << "member_rows_captured,member_capture_complete,final_raw_eiso,path_code,path_label,"
         << "corrected_eiso,iso_threshold,noniso_lower,noniso_upper,"
         << "stored_region,legacy_positive_only_region,recomputed_region,current_region,mismatch_reason,"
         << "pt_bin,eiso_bin,final_ppg12_sim_weight\n";
+    m_ppg12EisoConeMemberCanaryOut
+        << "run,event_index,event_sequence,candidate_index,reco_et,candidate_eta,candidate_phi,"
+        << "is_truth_signal,bdt,npb_score,tight_tag,vertex_source,recompute_vertex_z,"
+        << "iso_axis_eta,iso_axis_phi,topo_node_count,in_cone_member_count,member_index,"
+        << "topo_key,energy,eta,phi,et,deta,dphi,dr\n";
     LOG(1, CLR_MAGENTA,
         "[Init] RJ_PPG12_EISO_PATH_CANARY=1: writing bounded Eiso-path CSV"
         << " | rows_max=" << m_ppg12EisoPathCanaryMaxRows
         << " | et_window=[" << m_ppg12EisoPathCanaryMinEt
         << "," << m_ppg12EisoPathCanaryMaxEt << ")"
-        << " | path=" << m_ppg12EisoPathCanaryPath);
+        << " | path=" << m_ppg12EisoPathCanaryPath
+        << " | member_rows_max=" << m_ppg12EisoConeMemberCanaryMaxRows
+        << " | members=" << m_ppg12EisoConeMemberCanaryPath);
   }
 
   trigAna = new TriggerAnalyzer();
@@ -5759,14 +5820,24 @@ int RecoilJets::End(PHCompositeNode*)
     }
   }
 
-  if (m_ppg12EisoPathCanaryEnabled && m_ppg12EisoPathCanaryOut.is_open())
+  if (m_ppg12EisoPathCanaryEnabled)
   {
-    m_ppg12EisoPathCanaryOut.flush();
-    m_ppg12EisoPathCanaryOut.close();
+    if (m_ppg12EisoPathCanaryOut.is_open())
+    {
+      m_ppg12EisoPathCanaryOut.flush();
+      m_ppg12EisoPathCanaryOut.close();
+    }
+    if (m_ppg12EisoConeMemberCanaryOut.is_open())
+    {
+      m_ppg12EisoConeMemberCanaryOut.flush();
+      m_ppg12EisoConeMemberCanaryOut.close();
+    }
     LOG(1, CLR_MAGENTA,
         "[End][PPG12_EISO_PATH_CANARY] wrote "
         << m_ppg12EisoPathCanaryRowsWritten << " rows to "
-        << m_ppg12EisoPathCanaryPath);
+        << m_ppg12EisoPathCanaryPath << " and "
+        << m_ppg12EisoConeMemberCanaryRowsWritten << " cone-member rows to "
+        << m_ppg12EisoConeMemberCanaryPath);
   }
 
   //--------------------------------------------------------------------
@@ -8730,6 +8801,17 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
       ppg12WindowContains(fig6OwnerPhotonPt, fig6StitchLo, fig6StitchHi);
   const PPG12PhotonSlice fig3PhotonSlice = fig24PhotonSlice;
   const bool fig3PhotonSampleContext = (fig3PhotonSlice != PPG12PhotonSlice::kNone);
+  // PPG12 RecoEffCalculator_TTreeReader rejects the complete event before
+  // filling h_{direct,frag}_pT_truth_isoET_0 unless the largest stored truth
+  // photon belongs to the declared PhotonJet5/10/20 ownership window.  The
+  // stored-particle contract is identical to the Fig. 6 gate above, so reuse
+  // that audited decision rather than allowing every slice to fill Fig. 3.
+  const bool fig3HaveWindow = fig6HaveWindow;
+  const bool fig3HaveOwnerTruth = fig6HaveOwnerTruth;
+  const bool fig3OwnedBySample = fig6OwnedBySample;
+  const bool fig3SampleAccepted =
+      fig3PhotonSampleContext && fig3HaveWindow &&
+      fig3HaveOwnerTruth && fig3OwnedBySample;
   const double fig3PhotonSliceWeight = fig3PhotonSampleContext
       ? (ppg12PhotonSliceXsecPb(fig3PhotonSlice) / kPPG12Photon20CrossPb)
       : 0.0;
@@ -8843,6 +8925,38 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
       }
     }
   };
+
+  auto fillPPG12Fig3OwnershipAudit = [&](const int stage)
+  {
+    if (!m_ppg12PhotonYieldEnabled) return;
+    if (!(m_isSim && !m_isAuAu)) return;
+
+    static const std::vector<double> kFig3AuditBins = {0.5, 1.5, 2.5, 3.5, 4.5, 5.5};
+    bookPPG12PhotonYieldSchema(activeTrig);
+    for (const auto& trigShort : activeTrig)
+    {
+      if (auto* h = getOrBookPPG12PhotonYield1D(trigShort,
+                                                "h_ppg12_fig3_sample_ownership_audit",
+                                                kFig3AuditBins,
+                                                "Fig. 3 ownership gate stage",
+                                                "Weighted events"))
+      {
+        h->GetXaxis()->SetBinLabel(1, "input_event");
+        h->GetXaxis()->SetBinLabel(2, "sample_context");
+        h->GetXaxis()->SetBinLabel(3, "owner_truth_found");
+        h->GetXaxis()->SetBinLabel(4, "owned_accepted");
+        h->GetXaxis()->SetBinLabel(5, "ownership_rejected");
+        h->Fill(static_cast<double>(stage));
+        bumpHistFill(trigShort, h->GetName());
+      }
+    }
+  };
+
+  fillPPG12Fig3OwnershipAudit(1);
+  if (fig3PhotonSampleContext) fillPPG12Fig3OwnershipAudit(2);
+  if (fig3HaveOwnerTruth) fillPPG12Fig3OwnershipAudit(3);
+  if (fig3SampleAccepted) fillPPG12Fig3OwnershipAudit(4);
+  else fillPPG12Fig3OwnershipAudit(5);
 
   auto ppg12Fig6SampleAccepted = [&]() -> bool
   {
@@ -9060,6 +9174,7 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
     if (!std::isfinite(truthPt) || truthPt <= 0.0) return;
     if (!std::isfinite(m_vz) || std::fabs(m_vz) >= 30.0) return;
     if (!fig3PhotonSampleContext) return;
+    if (!fig3SampleAccepted) return;
     if (!std::isfinite(fig3PhotonSliceWeight) || fig3PhotonSliceWeight <= 0.0) return;
 
     const char* classKey = (photonClass == 1) ? "direct" : "frag";
@@ -9944,6 +10059,8 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
 
         const double rawPt = recoPho->get_shower_shape_parameter("cluster_pt");
         const double rPt = ppg12PhotonYieldClusterEtForCuts(rawPt, candidateIndex);
+        const double responsePt =
+            ppg12PhotonYieldClusterEtForResponse(rawPt, matchedTruth.pt, candidateIndex);
         const int ptIdx_sig = findPtBin(rPt);
         if (ptIdx_sig < 0) continue;
 
@@ -10115,6 +10232,7 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
         {
           fillPPG12PhotonYieldTightAndABCD(activeTrig,
                                            rPt,
+                                           responsePt,
                                            matchedTruth.pt,
                                            tag,
                                            iso,
@@ -11294,6 +11412,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 }
 
                 fillPPG12PhotonYieldTightAndABCD(activeTrig,
+                                                 pt_gamma,
                                                  pt_gamma,
                                                  ppg12SignalTruthPt,
                                                  ppg12YieldTag,
@@ -14625,6 +14744,10 @@ double RecoilJets::ppg12PhotonYieldRawEisoDetailed(const RawCluster* clus,
   const double storedTopoRawEiso = pho->get_shower_shape_parameter("ppg12_topo_raw_eiso_04");
   const double legacyPositiveOnlyRawEiso =
       pho->get_shower_shape_parameter("ppg12_topo_positive_only_raw_eiso_04");
+  const double storedTopoSumEt =
+      pho->get_shower_shape_parameter("ppg12_topo_sumet_04");
+  const double storedPositiveOnlyTopoSumEt =
+      pho->get_shower_shape_parameter("ppg12_topo_positive_only_sumet_04");
   const double expectedVertexZ = ppg12PhotonYieldKinematicVertexZ();
   const double storedVertexZ = pho->get_shower_shape_parameter("ppg12_topo_vertex_z");
   const bool vertexCompatible =
@@ -14636,6 +14759,8 @@ double RecoilJets::ppg12PhotonYieldRawEisoDetailed(const RawCluster* clus,
 
   pathAudit.storedRaw = storedTopoRawEiso;
   pathAudit.legacyPositiveOnlyRaw = legacyPositiveOnlyRawEiso;
+  pathAudit.storedTopoSumEt = storedTopoSumEt;
+  pathAudit.storedPositiveOnlyTopoSumEt = storedPositiveOnlyTopoSumEt;
   pathAudit.storedValid = storedTopoValid;
   pathAudit.storedVertexZ = storedVertexZ;
   pathAudit.expectedVertexZ = expectedVertexZ;
@@ -14702,6 +14827,8 @@ double RecoilJets::ppg12PhotonYieldRawEisoDetailed(const RawCluster* clus,
             "  [PPG12_PHOTON_YIELD_V1][topo-iso] non-finite iso axis -> +inf");
       return 1e9;
     }
+    pathAudit.isoAxisEta = axisEta;
+    pathAudit.isoAxisPhi = axisPhi;
 
     double candidateEt = pho->get_shower_shape_parameter("cluster_et");
     if (!std::isfinite(candidateEt)) candidateEt = pho->get_shower_shape_parameter("cluster_pt");
@@ -14722,6 +14849,7 @@ double RecoilJets::ppg12PhotonYieldRawEisoDetailed(const RawCluster* clus,
     const auto range = m_ppg12TopoClusters->getClusters();
     for (auto it = range.first; it != range.second; ++it)
     {
+      ++pathAudit.topoNodeCount;
       const RawCluster* topo = it->second;
       if (!topo) continue;
 
@@ -14737,10 +14865,26 @@ double RecoilJets::ppg12PhotonYieldRawEisoDetailed(const RawCluster* clus,
       const double dR = std::sqrt(dEta * dEta + dPhi * dPhi);
       if (dR < kPPG12YieldRecoIsoConeR)
       {
+        ++pathAudit.inConeMemberCount;
         topoEt04 += topoEt;
         if (topoEt > 0.0) positiveOnlyTopoEt04 += topoEt;
+        if (audit && m_ppg12EisoConeMemberCanaryOut.is_open())
+        {
+          PPG12EisoConeMemberAudit member;
+          member.key = static_cast<std::uint64_t>(it->first);
+          member.energy = topo->get_energy();
+          member.eta = topoEta;
+          member.phi = topoPhi;
+          member.et = topoEt;
+          member.dEta = dEta;
+          member.dPhi = dPhi;
+          member.dR = dR;
+          pathAudit.coneMembers.push_back(member);
+        }
       }
     }
+    pathAudit.recomputedTopoSumEt = topoEt04;
+    pathAudit.recomputedPositiveOnlyTopoSumEt = positiveOnlyTopoEt04;
 
     double iso = topoEt04 - candidateEt;
     double positiveOnlyIso = positiveOnlyTopoEt04 - candidateEt;
@@ -14852,7 +14996,63 @@ void RecoilJets::recordPPG12EisoPathCanary(const PPG12EisoPathAudit& audit,
       in_open_interval(vars.et1, kPPG12YieldTightEt1Min, kPPG12YieldTightEt1Max) &&
       in_open_interval(vars.e32_over_e35, kPPG12YieldTightE32E35Min, kPPG12YieldTightE32E35Max);
 
-  m_ppg12EisoPathCanaryOut << currentRunNumber() << ',' << event_count << ',' << candidateIndex << ',';
+  const long long eventSequence = m_evtHeader
+      ? static_cast<long long>(m_evtHeader->get_EvtSequence())
+      : -1;
+  const long long memberRowsRequested =
+      static_cast<long long>(audit.coneMembers.size());
+  const bool memberVectorComplete =
+      memberRowsRequested == audit.inConeMemberCount;
+  const bool memberRowsFit =
+      m_ppg12EisoConeMemberCanaryMaxRows <= 0 ||
+      m_ppg12EisoConeMemberCanaryRowsWritten + memberRowsRequested <=
+          m_ppg12EisoConeMemberCanaryMaxRows;
+  const bool memberCaptureComplete =
+      m_ppg12EisoConeMemberCanaryOut.is_open() && memberVectorComplete && memberRowsFit;
+  long long memberRowsCaptured = 0;
+  if (memberCaptureComplete)
+  {
+    auto writeMemberNumber = [&](const double value)
+    {
+      if (std::isfinite(value))
+      {
+        m_ppg12EisoConeMemberCanaryOut << std::setprecision(17) << value;
+      }
+    };
+    for (std::size_t memberIndex = 0; memberIndex < audit.coneMembers.size(); ++memberIndex)
+    {
+      const auto& member = audit.coneMembers[memberIndex];
+      m_ppg12EisoConeMemberCanaryOut
+          << currentRunNumber() << ',' << event_count << ',' << eventSequence << ','
+          << candidateIndex << ',';
+      writeMemberNumber(recoEt); m_ppg12EisoConeMemberCanaryOut << ',';
+      writeMemberNumber(eta); m_ppg12EisoConeMemberCanaryOut << ',';
+      writeMemberNumber(phi); m_ppg12EisoConeMemberCanaryOut << ','
+          << (isTruthSignal ? 1 : 0) << ',';
+      writeMemberNumber(vars.tight_bdt_score); m_ppg12EisoConeMemberCanaryOut << ',';
+      writeMemberNumber(vars.npb_score); m_ppg12EisoConeMemberCanaryOut << ','
+          << tightTagName(tightTag) << ',' << m_ppg12EisoVertexSource << ',';
+      writeMemberNumber(audit.expectedVertexZ); m_ppg12EisoConeMemberCanaryOut << ',';
+      writeMemberNumber(audit.isoAxisEta); m_ppg12EisoConeMemberCanaryOut << ',';
+      writeMemberNumber(audit.isoAxisPhi); m_ppg12EisoConeMemberCanaryOut << ','
+          << audit.topoNodeCount << ',' << audit.inConeMemberCount << ','
+          << memberIndex << ',' << member.key << ',';
+      writeMemberNumber(member.energy); m_ppg12EisoConeMemberCanaryOut << ',';
+      writeMemberNumber(member.eta); m_ppg12EisoConeMemberCanaryOut << ',';
+      writeMemberNumber(member.phi); m_ppg12EisoConeMemberCanaryOut << ',';
+      writeMemberNumber(member.et); m_ppg12EisoConeMemberCanaryOut << ',';
+      writeMemberNumber(member.dEta); m_ppg12EisoConeMemberCanaryOut << ',';
+      writeMemberNumber(member.dPhi); m_ppg12EisoConeMemberCanaryOut << ',';
+      writeMemberNumber(member.dR);
+      m_ppg12EisoConeMemberCanaryOut << '\n';
+      ++memberRowsCaptured;
+      ++m_ppg12EisoConeMemberCanaryRowsWritten;
+    }
+  }
+
+  m_ppg12EisoPathCanaryOut
+      << currentRunNumber() << ',' << event_count << ',' << eventSequence << ','
+      << candidateIndex << ',';
   writeNumber(recoEt); m_ppg12EisoPathCanaryOut << ',';
   writeNumber(eta); m_ppg12EisoPathCanaryOut << ',';
   writeNumber(phi); m_ppg12EisoPathCanaryOut << ','
@@ -14862,19 +15062,29 @@ void RecoilJets::recordPPG12EisoPathCanary(const PPG12EisoPathAudit& audit,
       << (npbPass ? 1 : 0) << ','
       << (looseSSPass ? 1 : 0) << ','
       << (passesPPG12PhotonYieldCommon(vars) ? 1 : 0) << ','
-      << tightTagName(tightTag) << ',';
+      << tightTagName(tightTag) << ',' << m_ppg12EisoVertexSource << ',';
   writeNumber(audit.storedRaw); m_ppg12EisoPathCanaryOut << ',';
   writeNumber(audit.legacyPositiveOnlyRaw); m_ppg12EisoPathCanaryOut << ',';
+  writeNumber(audit.storedTopoSumEt); m_ppg12EisoPathCanaryOut << ',';
+  writeNumber(audit.storedPositiveOnlyTopoSumEt); m_ppg12EisoPathCanaryOut << ',';
   writeNumber(audit.storedValid); m_ppg12EisoPathCanaryOut << ',';
   writeNumber(audit.storedVertexZ); m_ppg12EisoPathCanaryOut << ',';
-  writeNumber(audit.expectedVertexZ); m_ppg12EisoPathCanaryOut << ','
+  writeNumber(audit.expectedVertexZ); m_ppg12EisoPathCanaryOut << ',';
+  writeNumber(audit.isoAxisEta); m_ppg12EisoPathCanaryOut << ',';
+  writeNumber(audit.isoAxisPhi); m_ppg12EisoPathCanaryOut << ',';
+  writeNumber(audit.candidateEt); m_ppg12EisoPathCanaryOut << ','
       << (audit.vertexCompatible ? 1 : 0) << ','
       << (audit.storedAccepted ? 1 : 0) << ','
       << (audit.storedRejected ? 1 : 0) << ','
       << (audit.recomputeFallbackUsed ? 1 : 0) << ','
       << (audit.vertexMismatchRejected ? 1 : 0) << ','
-      << (audit.recoVertexUsedForEiso ? 1 : 0) << ',';
+      << (audit.recoVertexUsedForEiso ? 1 : 0) << ','
+      << audit.topoNodeCount << ',' << audit.inConeMemberCount << ',';
+  writeNumber(audit.recomputedTopoSumEt); m_ppg12EisoPathCanaryOut << ',';
+  writeNumber(audit.recomputedPositiveOnlyTopoSumEt); m_ppg12EisoPathCanaryOut << ',';
   writeNumber(audit.recomputedRaw); m_ppg12EisoPathCanaryOut << ',';
+  m_ppg12EisoPathCanaryOut
+      << memberRowsCaptured << ',' << (memberCaptureComplete ? 1 : 0) << ',';
   writeNumber(audit.finalRaw); m_ppg12EisoPathCanaryOut << ','
       << audit.pathCode << ',' << pathLabel << ',';
   writeNumber(correctedEiso); m_ppg12EisoPathCanaryOut << ','
@@ -14905,27 +15115,68 @@ double RecoilJets::ppg12PhotonYieldEiso(double eisoEt) const
 
 double RecoilJets::ppg12PhotonYieldClusterEtForCuts(double ptGamma, int candidateIndex) const
 {
-  if (!(m_ppg12PhotonYieldEnabled && m_isSim && !m_isAuAu))
+  (void) candidateIndex;
+  // RecoEffCalculator_TTreeReader.C uses the calibrated, unsmeared cluster ET
+  // for every analysis cut, ID/iso decision, and ABCD yield.  Do not couple
+  // those physics selections to the response-only resolution model below.
+  return ptGamma;
+}
+
+double RecoilJets::ppg12PhotonYieldClusterEtForResponse(double recoEt,
+                                                        double truthPt,
+                                                        int candidateIndex) const
+{
+  if (!(m_ppg12PhotonYieldEnabled && m_isSim && !m_isAuAu)) return recoEt;
+  if (!std::isfinite(recoEt) || recoEt <= 0.0 ||
+      !std::isfinite(truthPt) || truthPt <= 0.0)
   {
-    return ptGamma;
-  }
-  if (!std::isfinite(ptGamma) || ptGamma <= 0.0)
-  {
-    return ptGamma;
-  }
-  if (!(m_ppg12PhotonYieldClusterERes > 0.0))
-  {
-    return ptGamma;
+    return recoEt;
   }
 
-  const unsigned int evtPart = static_cast<unsigned int>(event_count & 0xffffffffULL);
-  const unsigned int idxPart = static_cast<unsigned int>(std::max(candidateIndex, 0));
-  unsigned int seed = 0x9e3779b9U ^ (evtPart * 2654435761U) ^ (idxPart * 2246822519U);
-  if (seed == 0U) seed = 1U;
+  const double dataSigma2 =
+      (kPPG12YieldResponseEResDataP0 * kPPG12YieldResponseEResDataP0) / truthPt +
+      (kPPG12YieldResponseEResDataP1 * kPPG12YieldResponseEResDataP1) /
+          (truthPt * truthPt) +
+      kPPG12YieldResponseEResDataP2 * kPPG12YieldResponseEResDataP2;
+  const double mcSigma2 =
+      (kPPG12YieldResponseEResMcP0 * kPPG12YieldResponseEResMcP0) / truthPt +
+      (kPPG12YieldResponseEResMcP1 * kPPG12YieldResponseEResMcP1) /
+          (truthPt * truthPt) +
+      kPPG12YieldResponseEResMcP2 * kPPG12YieldResponseEResMcP2;
+  const double sigmaExtraGeV =
+      std::sqrt(std::max(0.0, dataSigma2 - mcSigma2)) * truthPt;
+  if (!(sigmaExtraGeV > 0.0) || !std::isfinite(sigmaExtraGeV)) return recoEt;
+
+  // PPG12 uses a fixed seed but a stateful draw sequence.  Distributed jobs
+  // cannot preserve that monolithic entry ordering, so derive one stable draw
+  // per physical event/candidate while retaining the same Gaussian model.
+  std::uint64_t key = static_cast<std::uint64_t>(std::max(currentRunNumber(), 0));
+  auto mixKey = [&key](const std::uint64_t value)
+  {
+    key ^= value + 0x9e3779b97f4a7c15ULL + (key << 6U) + (key >> 2U);
+  };
+  const std::uint64_t eventKey = m_evtHeader
+      ? static_cast<std::uint64_t>(static_cast<std::uint32_t>(m_evtHeader->get_EvtSequence()))
+      : static_cast<std::uint64_t>(event_count);
+  mixKey(eventKey);
+  mixKey(static_cast<std::uint64_t>(event_count));
+  mixKey(static_cast<std::uint64_t>(std::max(candidateIndex, 0)));
+  // Event sequence and candidate indices can restart at DST/file boundaries.
+  // Mixing the exact reco/truth kinematics avoids correlated repeated draws
+  // across independently chunked jobs while remaining reproducible when the
+  // same physical candidate is replayed.
+  mixKey(std::bit_cast<std::uint64_t>(recoEt));
+  mixKey(std::bit_cast<std::uint64_t>(truthPt));
+  key += 0x9e3779b97f4a7c15ULL;
+  key = (key ^ (key >> 30U)) * 0xbf58476d1ce4e5b9ULL;
+  key = (key ^ (key >> 27U)) * 0x94d049bb133111ebULL;
+  key ^= key >> 31U;
+  unsigned int seed = static_cast<unsigned int>((key ^ (key >> 32U)) & 0xffffffffULL);
+  if (seed == 0U) seed = 42U;
+
   TRandom3 rng(seed);
-  const double scale = rng.Gaus(1.0, m_ppg12PhotonYieldClusterERes);
-  const double smeared = ptGamma * scale;
-  return (std::isfinite(smeared) && smeared > 0.0) ? smeared : ptGamma;
+  const double smeared = recoEt + rng.Gaus(0.0, sigmaExtraGeV);
+  return (std::isfinite(smeared) && smeared > 0.0) ? smeared : recoEt;
 }
 
 bool RecoilJets::ppg12PhotonYieldInResponseWindow(double recoPt, double truthPt) const
@@ -21399,6 +21650,7 @@ void RecoilJets::fillPPG12PhotonYieldAllCommon(const std::vector<std::string>& a
 
 void RecoilJets::fillPPG12PhotonYieldTightAndABCD(const std::vector<std::string>& activeTrig,
                                                   double ptGamma,
+                                                  double responsePtGamma,
                                                   double truthPt,
                                                   RecoilJets::TightTag tightTag,
                                                   bool iso,
@@ -21451,21 +21703,34 @@ void RecoilJets::fillPPG12PhotonYieldTightAndABCD(const std::vector<std::string>
                                        const std::string& name,
                                        const double extraWeight)
     {
+        if (!std::isfinite(responsePtGamma) || responsePtGamma <= 0.0) return;
         if (!std::isfinite(extraWeight)) return;
         if (auto* h = getOrBookPPG12PhotonYield1D(trigShort, name, m_ppg12PhotonYieldRecoPtBins,
                                                   "p_{T}^{#gamma,reco} [GeV]", "Entries"))
         {
-            h->Fill(ptGamma, weight * extraWeight);
+            h->Fill(responsePtGamma, weight * extraWeight);
+            bumpHistFill(trigShort, name);
+        }
+    };
+
+    auto fillResponseReco = [&](const std::string& trigShort, const std::string& name)
+    {
+        if (!std::isfinite(responsePtGamma) || responsePtGamma <= 0.0) return;
+        if (auto* h = getOrBookPPG12PhotonYield1D(trigShort, name, m_ppg12PhotonYieldRecoPtBins,
+                                                  "p_{T}^{#gamma,reco} [GeV]", "Entries"))
+        {
+            h->Fill(responsePtGamma, weight);
             bumpHistFill(trigShort, name);
         }
     };
 
     auto fillResponse = [&](const std::string& trigShort)
     {
+        if (!std::isfinite(responsePtGamma) || responsePtGamma <= 0.0) return;
         if (!std::isfinite(truthPt) || truthPt <= 0.0) return;
         if (auto* h = getOrBookPPG12PhotonYieldResponse2D(trigShort, "h_response_full_0"))
         {
-            h->Fill(ptGamma, truthPt, weight);
+            h->Fill(responsePtGamma, truthPt, weight);
             bumpHistFill(trigShort, "h_response_full_0");
         }
     };
@@ -21474,21 +21739,23 @@ void RecoilJets::fillPPG12PhotonYieldTightAndABCD(const std::vector<std::string>
                                                 const std::string& name,
                                                 const double extraWeight)
     {
+        if (!std::isfinite(responsePtGamma) || responsePtGamma <= 0.0) return;
         if (!std::isfinite(truthPt) || truthPt <= 0.0) return;
         if (!std::isfinite(extraWeight)) return;
         if (auto* h = getOrBookPPG12PhotonYieldResponse2D(trigShort, name))
         {
-            h->Fill(ptGamma, truthPt, weight * extraWeight);
+            h->Fill(responsePtGamma, truthPt, weight * extraWeight);
             bumpHistFill(trigShort, name);
         }
     };
 
     auto fillResponseNamed = [&](const std::string& trigShort, const std::string& name)
     {
+        if (!std::isfinite(responsePtGamma) || responsePtGamma <= 0.0) return;
         if (!std::isfinite(truthPt) || truthPt <= 0.0) return;
         if (auto* h = getOrBookPPG12PhotonYieldResponse2D(trigShort, name))
         {
-            h->Fill(ptGamma, truthPt, weight);
+            h->Fill(responsePtGamma, truthPt, weight);
             bumpHistFill(trigShort, name);
         }
     };
@@ -21496,7 +21763,8 @@ void RecoilJets::fillPPG12PhotonYieldTightAndABCD(const std::vector<std::string>
     const bool tight = (tightTag == TightTag::kTight);
     const bool nontight = (tightTag == TightTag::kNonTight);
     if (!tight && !nontight) return;
-    const bool inResponseWindow = ppg12PhotonYieldInResponseWindow(ptGamma, truthPt);
+    const bool inAnalysisWindow = ppg12PhotonYieldInResponseWindow(ptGamma, truthPt);
+    const bool inResponseWindow = ppg12PhotonYieldInResponseWindow(responsePtGamma, truthPt);
 
     for (const auto& trigShort : activeTrig)
     {
@@ -21504,7 +21772,7 @@ void RecoilJets::fillPPG12PhotonYieldTightAndABCD(const std::vector<std::string>
         {
             fillReco(trigShort, "h_tight_cluster_0");
         }
-        if (tight && haveTruthClass && (!isTruthSignal || inResponseWindow))
+        if (tight && haveTruthClass && (!isTruthSignal || inAnalysisWindow))
         {
             fillReco(trigShort, isTruthSignal ? "h_tight_cluster_signal_0" : "h_tight_cluster_notmatch_0");
         }
@@ -21530,7 +21798,7 @@ void RecoilJets::fillPPG12PhotonYieldTightAndABCD(const std::vector<std::string>
             const bool isTightIsoSignal =
                 isTruthSignal && tight && iso &&
                 (std::string(regionBase) == "h_tight_iso_cluster");
-            if (!isTightIsoSignal || inResponseWindow)
+            if (!isTightIsoSignal || inAnalysisWindow)
             {
                 fillReco(trigShort, std::string(regionBase) + suffix);
             }
@@ -21540,7 +21808,7 @@ void RecoilJets::fillPPG12PhotonYieldTightAndABCD(const std::vector<std::string>
         {
             const double fig36PriorWeight = ppg12Fig36TruthPriorWeight(truthPt);
             fillTruth(trigShort, "h_pT_truth_response_0");
-            fillReco(trigShort, "h_pT_reco_response_0");
+            fillResponseReco(trigShort, "h_pT_reco_response_0");
             fillResponse(trigShort);
             fillTruthWithExtraWeight(trigShort,
                                       "h_ppg12_fig36_pT_truth_response_prior_0",
@@ -21552,26 +21820,26 @@ void RecoilJets::fillPPG12PhotonYieldTightAndABCD(const std::vector<std::string>
                                              "h2_ppg12_fig36_response_reco_truth_prior_0",
                                              fig36PriorWeight);
             fillTruth(trigShort, "h_ppg12_fig37_input_truth_pT_0");
-            fillReco(trigShort, "h_ppg12_fig37_input_reco_pT_0");
+            fillResponseReco(trigShort, "h_ppg12_fig37_input_reco_pT_0");
             fillResponseNamed(trigShort, "h2_ppg12_fig37_input_response_reco_truth_0");
             if ((m_bk.evt_seen % 2) == 0)
             {
                 fillTruth(trigShort, "h_pT_truth_half_response_0");
-                fillReco(trigShort, "h_pT_reco_half_response_0");
+                fillResponseReco(trigShort, "h_pT_reco_half_response_0");
                 fillResponseNamed(trigShort, "h_response_half_0");
                 fillResponseNamedWithExtraWeight(trigShort,
                                                  "h2_ppg12_fig36_response_half_reco_truth_prior_0",
                                                  fig36PriorWeight);
                 fillTruth(trigShort, "h_ppg12_fig37_input_truth_half_pT_0");
-                fillReco(trigShort, "h_ppg12_fig37_input_reco_half_pT_0");
+                fillResponseReco(trigShort, "h_ppg12_fig37_input_reco_half_pT_0");
                 fillResponseNamed(trigShort, "h2_ppg12_fig37_input_response_half_reco_truth_0");
             }
             else
             {
                 fillTruth(trigShort, "h_pT_truth_secondhalf_response_0");
-                fillReco(trigShort, "h_pT_reco_secondhalf_response_0");
+                fillResponseReco(trigShort, "h_pT_reco_secondhalf_response_0");
                 fillTruth(trigShort, "h_ppg12_fig37_input_truth_secondhalf_pT_0");
-                fillReco(trigShort, "h_ppg12_fig37_input_reco_secondhalf_pT_0");
+                fillResponseReco(trigShort, "h_ppg12_fig37_input_reco_secondhalf_pT_0");
             }
         }
         else if (haveTruthClass && !isTruthSignal && tight && iso)

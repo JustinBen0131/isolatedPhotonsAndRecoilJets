@@ -122,6 +122,16 @@ entries:
     aliases:
       - path: "scripts/compat/local/audit_pp_basev3e_shuhang_equivalence.py"
         status: "compat_alias"
+  - id: audit_the97_pp_data_eiso_boundary
+    group: "diagnostics/pp_currentian"
+    canonical_path: "scripts/diagnostics/pp_currentian/audit_the97_pp_data_eiso_boundary.py"
+    aliases:
+      []
+  - id: audit_the97_final_sim_merge
+    group: "diagnostics/pp_currentian"
+    canonical_path: "scripts/diagnostics/pp_currentian/audit_the97_final_sim_merge.py"
+    aliases:
+      []
   - id: compare_pp_currentian_insitu_stitch_contract
     group: "diagnostics/pp_shuhang"
     canonical_path: "scripts/diagnostics/pp_shuhang/compare_pp_currentian_insitu_stitch_contract.py"
@@ -934,5 +944,10 @@ entries:
   - id: overnight_findings_check
     group: "os/claude"
     canonical_path: "scripts/os/claude/overnight_findings_check.py"
+    aliases:
+      []
+  - id: overleaf_git_bridge
+    group: "os/ian"
+    canonical_path: "scripts/os/ian/overleaf_git_bridge.py"
     aliases:
       []

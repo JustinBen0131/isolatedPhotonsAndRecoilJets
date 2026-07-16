@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import math
 import os
@@ -40,6 +41,14 @@ PT_LABEL = r"$16 < E_T^\gamma < 22\ \mathrm{GeV}$"
 HIST_BASE = "h_tight_isoET_0_"
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 @dataclass(frozen=True)
 class HistSeries:
     label: str
@@ -67,37 +76,38 @@ class HistSeries:
         return float(np.sum(self.raw_values))
 
 
-def read_current_series(path: Path, directory: str, label: str) -> HistSeries:
+def read_current_series(paths: list[Path], directory: str, label: str) -> HistSeries:
     values_sum: np.ndarray | None = None
     variances_sum: np.ndarray | None = None
     edges_ref: np.ndarray | None = None
     keys: list[str] = []
-    with uproot.open(path) as fh:
-        for idx in PT_INDEXES:
-            key = f"{directory}/{HIST_BASE}{idx}"
-            if key not in fh:
-                raise KeyError(f"missing current histogram {key} in {path}")
-            hist = fh[key]
-            values, edges = hist.to_numpy(flow=False)
-            variances = hist.variances(flow=False)
-            if variances is None:
-                variances = np.clip(values, 0.0, None)
-            values = values.astype(float)
-            variances = variances.astype(float)
-            edges = edges.astype(float)
-            if values_sum is None:
-                values_sum = np.zeros_like(values, dtype=float)
-                variances_sum = np.zeros_like(variances, dtype=float)
-                edges_ref = edges
-            elif len(edges) != len(edges_ref) or float(np.max(np.abs(edges - edges_ref))) > 1.0e-9:
-                raise ValueError(f"incompatible current binning for {key}")
-            values_sum += values
-            variances_sum += variances
-            keys.append(key)
+    for path in paths:
+        with uproot.open(path) as fh:
+            for idx in PT_INDEXES:
+                key = f"{directory}/{HIST_BASE}{idx}"
+                if key not in fh:
+                    raise KeyError(f"missing current histogram {key} in {path}")
+                hist = fh[key]
+                values, edges = hist.to_numpy(flow=False)
+                variances = hist.variances(flow=False)
+                if variances is None:
+                    variances = np.clip(values, 0.0, None)
+                values = values.astype(float)
+                variances = variances.astype(float)
+                edges = edges.astype(float)
+                if values_sum is None:
+                    values_sum = np.zeros_like(values, dtype=float)
+                    variances_sum = np.zeros_like(variances, dtype=float)
+                    edges_ref = edges
+                elif len(edges) != len(edges_ref) or float(np.max(np.abs(edges - edges_ref))) > 1.0e-9:
+                    raise ValueError(f"incompatible current binning for {key} in {path}")
+                values_sum += values
+                variances_sum += variances
+                keys.append(f"{path}:{key}")
     assert values_sum is not None and variances_sum is not None and edges_ref is not None
     return make_processed_series(
         label=label,
-        source=str(path),
+        source=" + ".join(str(path) for path in paths),
         keys=keys,
         raw_values=values_sum,
         raw_variances=variances_sum,
@@ -248,6 +258,23 @@ def make_processed_series(
     )
 
 
+def scale_processed_series(series: HistSeries, scale: float) -> HistSeries:
+    """Scale plotted/rebinned values while retaining the unscaled raw payload."""
+    return HistSeries(
+        label=series.label,
+        source=series.source,
+        keys=series.keys,
+        raw_values=series.raw_values,
+        raw_variances=series.raw_variances,
+        raw_edges=series.raw_edges,
+        values=series.values * scale,
+        variances=series.variances * scale * scale,
+        edges=series.edges,
+        density=series.density * scale,
+        density_variance=series.density_variance * scale * scale,
+    )
+
+
 def ratio_payload(current: HistSeries, sdcc: HistSeries) -> dict[str, np.ndarray | float]:
     if len(current.edges) != len(sdcc.edges) or float(np.max(np.abs(current.edges - sdcc.edges))) > 1.0e-9:
         raise ValueError("current and SDCC rebinned edges do not match")
@@ -320,7 +347,17 @@ def write_csv(path: Path, current: HistSeries, sdcc: HistSeries, ratios: dict[st
             writer.writerow([lo, hi, x, s, se, c, ce, r, re])
 
 
-def draw_overlay(path: Path, current: HistSeries, sdcc: HistSeries, ratios: dict[str, Any], *, current_dir: str) -> None:
+def draw_overlay(
+    path: Path,
+    current: HistSeries,
+    sdcc: HistSeries,
+    ratios: dict[str, Any],
+    *,
+    current_dir: str,
+    partial_completed: int | None,
+    partial_expected: int | None,
+    normalization_scale: float,
+) -> None:
     plt.rcParams.update(
         {
             "font.family": "DejaVu Sans",
@@ -391,11 +428,26 @@ def draw_overlay(path: Path, current: HistSeries, sdcc: HistSeries, ratios: dict
 
     stats_text = (
         f"PPG12 N = {sdcc.raw_integral:.1f}\n"
-        f"Current N = {current.raw_integral:.0f}\n"
+        f"Current raw N = {current.raw_integral:.0f}\n"
+        f"Area norm. factor = {normalization_scale:.3f}\n"
         f"main max |R-1| = {ratios['main_max_abs_deviation_percent']:.1f}%\n"
         f"near $E_T^{{iso}}$ = {ratios['main_max_deviation_center']:.2g} GeV"
     )
-    ax.text(0.56, 0.47, stats_text, transform=ax.transAxes, ha="left", va="top", fontsize=16)
+    ax.text(0.53, 0.47, stats_text, transform=ax.transAxes, ha="left", va="top", fontsize=14.5)
+    if partial_completed is not None and partial_expected is not None:
+        coverage = 100.0 * partial_completed / partial_expected
+        ax.text(
+            0.53,
+            0.19,
+            "PRELIMINARY\n"
+            f"PARTIAL-COVERAGE: {coverage:.3f}%\n"
+            f"{partial_completed:,} / {partial_expected:,} files",
+            transform=ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=12.5,
+            color="#d62728",
+        )
     rax.axhline(1.0, color="gray", linestyle=(0, (4, 4)), linewidth=1.1)
     rax.errorbar(
         current.centers,
@@ -444,21 +496,41 @@ def write_manifest(path: Path, current: HistSeries, sdcc: HistSeries, ratios: di
             "variable_rebin": "group size 1 for original bins with low edge < 2.5 GeV, else group size 5",
             "scaling": "counts divided by rebinned bin width",
             "ratio": "current density / PPG12 SDCC density",
+            "normalization": (
+                "current area scaled to PPG12 area before overlay and ratio"
+                if args.normalize_current_to_ppg12
+                else "none"
+            ),
         },
         "ppg12_sdcc": {
             "source_root": sdcc.source,
             "keys": sdcc.keys,
             "sdcc_json": str(sdcc_json),
+            "sdcc_json_sha256": sha256_file(sdcc_json),
             "raw_integral": sdcc.raw_integral,
         },
         "current": {
-            "source_root": current.source,
+            "source_roots": [str(path.resolve()) for path in args.current_root],
+            "source_root_sha256": {
+                str(path.resolve()): sha256_file(path.resolve()) for path in args.current_root
+            },
             "label": current.label,
             "directory": args.current_dir,
             "keys": current.keys,
             "raw_integral": current.raw_integral,
-            "artifact_pointer": str(DEFAULT_CURRENT_ROOT),
+            "normalization_scale": args.normalization_scale,
+            "normalized_integral": current.raw_integral * args.normalization_scale,
         },
+        "coverage": (
+            {
+                "status": "PRELIMINARY PARTIAL-COVERAGE",
+                "completed_files": args.partial_completed,
+                "expected_files": args.partial_expected,
+                "percent": 100.0 * args.partial_completed / args.partial_expected,
+            }
+            if args.partial_completed is not None and args.partial_expected is not None
+            else {"status": "not specified"}
+        ),
         "metrics": {
             "max_abs_deviation_percent": ratios["max_abs_deviation_percent"],
             "max_deviation_center": ratios["max_deviation_center"],
@@ -478,16 +550,31 @@ def write_manifest(path: Path, current: HistSeries, sdcc: HistSeries, ratios: di
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--current-root", type=Path, default=DEFAULT_CURRENT_ROOT)
+    parser.add_argument(
+        "--current-root",
+        type=Path,
+        nargs="+",
+        default=[DEFAULT_CURRENT_ROOT],
+        help="one or more current-data ROOT files; histograms are added before rebinning",
+    )
     parser.add_argument("--current-dir", default="PPG12_scaledtrigger30")
     parser.add_argument("--current-label", default=DEFAULT_CURRENT_LABEL)
     parser.add_argument("--campaign-tag", default=CAMPAIGN)
     parser.add_argument("--outdir", type=Path, default=DEFAULT_OUTDIR)
     parser.add_argument("--remote-ppg12-root", default=DEFAULT_REMOTE_PPG12_ROOT)
+    parser.add_argument(
+        "--sdcc-json",
+        type=Path,
+        default=None,
+        help="existing cached PPG12 SDCC payload; avoids a remote refresh",
+    )
     parser.add_argument("--login-host", default=DEFAULT_LOGIN_HOST)
     parser.add_argument("--worker-host", default=DEFAULT_WORKER_HOST)
     parser.add_argument("--refresh-sdcc", action="store_true")
     parser.add_argument("--tag", default=None, help="output tag suffix; defaults from current-dir")
+    parser.add_argument("--partial-completed", type=int, default=None)
+    parser.add_argument("--partial-expected", type=int, default=None)
+    parser.add_argument("--normalize-current-to-ppg12", action="store_true")
     return parser.parse_args()
 
 
@@ -495,7 +582,11 @@ def main() -> None:
     args = parse_args()
     tag = args.tag or args.current_dir.replace("/", "_")
     args.outdir.mkdir(parents=True, exist_ok=True)
-    sdcc_json = args.outdir / "ppg12_sdcc_fig3_iso_template_pt16_22_tight_data.json"
+    sdcc_json = (
+        args.sdcc_json.resolve()
+        if args.sdcc_json is not None
+        else args.outdir / "ppg12_sdcc_fig3_iso_template_pt16_22_tight_data.json"
+    )
     sdcc = read_sdcc_series(
         sdcc_json,
         refresh=args.refresh_sdcc,
@@ -503,7 +594,17 @@ def main() -> None:
         login_host=args.login_host,
         worker_host=args.worker_host,
     )
-    current = read_current_series(args.current_root.resolve(), args.current_dir, args.current_label)
+    if (args.partial_completed is None) != (args.partial_expected is None):
+        raise ValueError("--partial-completed and --partial-expected must be supplied together")
+    if args.partial_expected is not None and not (0 <= args.partial_completed <= args.partial_expected):
+        raise ValueError("partial coverage must satisfy 0 <= completed <= expected")
+    current = read_current_series([path.resolve() for path in args.current_root], args.current_dir, args.current_label)
+    args.normalization_scale = (
+        sdcc.raw_integral / current.raw_integral
+        if args.normalize_current_to_ppg12
+        else 1.0
+    )
+    current = scale_processed_series(current, args.normalization_scale)
     ratios = ratio_payload(current, sdcc)
 
     stem = f"ppg12_fig3_iso_template_pt16_22_sdcc_vs_current_{tag}_ratio"
@@ -511,7 +612,16 @@ def main() -> None:
     csv_path = args.outdir / f"{stem}.csv"
     manifest_path = args.outdir / f"{stem}_manifest.json"
     write_csv(csv_path, current, sdcc, ratios)
-    draw_overlay(png_path, current, sdcc, ratios, current_dir=args.current_dir)
+    draw_overlay(
+        png_path,
+        current,
+        sdcc,
+        ratios,
+        current_dir=args.current_dir,
+        partial_completed=args.partial_completed,
+        partial_expected=args.partial_expected,
+        normalization_scale=args.normalization_scale,
+    )
     write_manifest(manifest_path, current, sdcc, ratios, args, csv_path, png_path, sdcc_json)
     print(json.dumps({"png": str(png_path), "csv": str(csv_path), "manifest": str(manifest_path)}, indent=2))
 

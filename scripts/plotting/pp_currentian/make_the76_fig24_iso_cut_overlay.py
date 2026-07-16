@@ -413,7 +413,7 @@ def main() -> int:
         if not math.isfinite(p["cut"]) or p["integral"] <= 0
     ]
     manifest = {
-        "artifact": "THE-76 dedicated PPG12 Fig.24 isolation cutoff overlay",
+        "artifact": f"Dedicated PPG12 Fig.24 isolation cutoff overlay for {args.campaign_tag}",
         "png": str(png),
         "points_csv": str(points_csv),
         "current_root": str(args.current_root),

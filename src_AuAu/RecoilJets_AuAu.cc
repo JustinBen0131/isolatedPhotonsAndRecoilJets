@@ -61,6 +61,7 @@
 #include <mbd/MbdOut.h>
 #include <ffarawobjects/Gl1Packet.h>
 #include <mbd/MbdPmtContainer.h>
+#include <epd/EpdGeom.h>
 #include <centrality/CentralityInfo.h>
 #include <calotrigger/MinimumBiasInfo.h>
 // Standard C++ -------------------------------------------------------------
@@ -107,6 +108,40 @@
 
 
 using namespace PhoIDCuts;
+
+namespace
+{
+  double normalizedMbdNsCentralityPercent(const CentralityInfo* central)
+  {
+    if (!central)
+    {
+      return std::numeric_limits<double>::quiet_NaN();
+    }
+
+    constexpr auto property = CentralityInfo::PROP::mbd_NS;
+    if (central->has_centrality_bin(property))
+    {
+      const double centralityBin = central->get_centrality_bin(property);
+      if (std::isfinite(centralityBin) && centralityBin >= 0.0 && centralityBin <= 100.0)
+      {
+        return centralityBin;
+      }
+    }
+
+    if (central->has_centile(property))
+    {
+      const double centile = central->get_centile(property);
+      if (std::isfinite(centile) && centile >= 0.0 && centile <= 100.0)
+      {
+        // CentralityInfov2 stores centiles as fractions; producer-side
+        // CentralityInfov1 files store the same quantity in percent.
+        return (centile <= 1.0) ? 100.0 * centile : centile;
+      }
+    }
+
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+}
 
 namespace RJMCWeighting
 {
@@ -236,6 +271,25 @@ namespace RJMCWeighting
                          Int_t nbinsy, const Double_t* ybins,
                          Int_t nbinsz, const Double_t* zbins)
   { return new WeightedTH3F(name, title, nbinsx, xbins, nbinsy, ybins, nbinsz, zbins); }
+
+  inline TH3F* RJNewTH3F(const char* name, const char* title,
+                         Int_t nbinsx, Double_t xlow, Double_t xup,
+                         Int_t nbinsy, Double_t ylow, Double_t yup,
+                         Int_t nbinsz, Double_t zlow, Double_t zup)
+  { return new WeightedTH3F(name, title, nbinsx, xlow, xup,
+                            nbinsy, ylow, yup, nbinsz, zlow, zup); }
+
+  inline TH3F* RJNewTH3F(const char* name, const char* title,
+                         Int_t nbinsx, Double_t xlow, Double_t xup,
+                         Int_t nbinsy, Double_t ylow, Double_t yup,
+                         Int_t nbinsz, const Double_t* zbins)
+  {
+    if (!zbins || nbinsz <= 0) return nullptr;
+    auto* h = new WeightedTH3F(name, title, nbinsx, xlow, xup,
+                               nbinsy, ylow, yup, nbinsz, zbins[0], zbins[nbinsz]);
+    h->GetZaxis()->Set(nbinsz, zbins);
+    return h;
+  }
 
   inline TProfile* RJNewTProfile(const char* name, const char* title,
                                  Int_t nbinsx, const Double_t* xbins,
@@ -2980,6 +3034,18 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
   m_photons           = findNode::getClass<RawClusterContainer>(top, "PHOTONCLUSTER_CEMC");
   m_mbdout            = findNode::getClass<MbdOut>(top, "MbdOut");
   m_mbdpmts           = findNode::getClass<MbdPmtContainer>(top, "MbdPmtContainer");
+  if (!m_mbdpmts && m_isSimEmbedded)
+  {
+    // The 2025 embedded DST_GLOBAL production persists the data-overlay PMTs
+    // under this node name, while reconstructed data uses MbdPmtContainer.
+    m_mbdpmts = findNode::getClass<MbdPmtContainer>(top, "MbdPmtContainer_data");
+  }
+  if (m_mbdPmtLowCaloDiagnosticsEnabled)
+  {
+    m_mbdgeom = findNode::getClass<MbdGeom>(top, "MbdGeom");
+    m_sepdTowers = findNode::getClass<TowerInfoContainer>(top, "TOWERINFO_CALIB_SEPD");
+    m_epdgeom = findNode::getClass<EpdGeom>(top, "TOWERGEOM_EPD");
+  }
   m_photons_npb       = nullptr;
   m_photons_tightbdt  = nullptr;
 
@@ -3411,6 +3477,15 @@ int RecoilJets::Init(PHCompositeNode* topNode)
   m_useTopoClusterIsolationForEiso =
     initEnvBool("RJ_AUAU_USE_TOPOCLUSTER_ISOLATION", m_useTopoClusterIsolationForEiso);
   m_ppg12TableQAEnabled = initEnvBool("RJ_PPG12_TABLE_QA", m_ppg12TableQAEnabled);
+  m_auauDualViewDiagnosticsEnabled =
+    initEnvBool("RJ_AUAU_DUALVIEW_DIAGNOSTICS", m_auauDualViewDiagnosticsEnabled);
+  m_auauFig25CorrelationDiagnosticsEnabled =
+    initEnvBool("RJ_AUAU_FIG25_CORRELATION_DIAGNOSTICS",
+                m_auauFig25CorrelationDiagnosticsEnabled);
+  m_mbdPmtLowCaloDiagnosticsEnabled =
+    initEnvBool("RJ_MBD_PMT_LOW_CALO_DIAGNOSTICS", m_mbdPmtLowCaloDiagnosticsEnabled);
+  m_requireEmbeddedMinBiasClassifier =
+    initEnvBool("RJ_REQUIRE_EMBEDDED_MINBIAS_CLASSIFIER", m_requireEmbeddedMinBiasClassifier);
   m_the44PythiaAutopsyEnabled = initEnvBool("RJ_THE44_PYTHIA_AUTOPSY", m_the44PythiaAutopsyEnabled);
   m_the44PythiaAutopsyMaxEntries = initEnvLL("RJ_THE44_PYTHIA_AUTOPSY_MAX_ENTRIES", m_the44PythiaAutopsyMaxEntries);
   m_the44PythiaAutopsyHighBDTMin = initEnvDouble("RJ_THE44_PYTHIA_AUTOPSY_HIGH_BDT_MIN", m_the44PythiaAutopsyHighBDTMin);
@@ -3434,6 +3509,28 @@ int RecoilJets::Init(PHCompositeNode* topNode)
   {
     LOG(1, CLR_MAGENTA,
         "[Init] RJ_PPG12_TABLE_QA=1: writing PPG12_TABLE_QA_V1 TH2 histograms");
+  }
+  if (m_auauDualViewDiagnosticsEnabled)
+  {
+    LOG(1, CLR_MAGENTA,
+        "[Init] RJ_AUAU_DUALVIEW_DIAGNOSTICS=1: bounded fanout owner writes weighted "
+        "(score-T80, Eiso, pTgamma) surfaces for offline sideband scans");
+  }
+  if (m_auauFig25CorrelationDiagnosticsEnabled)
+  {
+    LOG(1, CLR_MAGENTA,
+        "[Init] RJ_AUAU_FIG25_CORRELATION_DIAGNOSTICS=1: canonical embedded-inclusive "
+        "background writes weighted e11/e33-isolation and raw-BDT-isolation surfaces");
+  }
+  if (m_mbdPmtLowCaloDiagnosticsEnabled)
+  {
+    LOG(1, CLR_MAGENTA,
+        "[Init] RJ_MBD_PMT_LOW_CALO_DIAGNOSTICS=1: booking merge-safe MBD PMT and optional sEPD diagnostics");
+  }
+  if (m_requireEmbeddedMinBiasClassifier)
+  {
+    LOG(1, CLR_MAGENTA,
+        "[Init] RJ_REQUIRE_EMBEDDED_MINBIAS_CLASSIFIER=1: embedded physics output requires MinimumBiasInfo::isAuAuMinimumBias(); PMT diagnostics retain pass/fail events");
   }
   if (m_useTopoClusterIsolationForEiso)
   {
@@ -3570,6 +3667,8 @@ void RecoilJets::initAuAuBDTTrainingTree()
   add("is_signal", &m_bdtTrain_is_signal, "is_signal/I");
   add("pt_bin", &m_bdtTrain_pt_bin, "pt_bin/I");
   add("cent_bin", &m_bdtTrain_cent_bin, "cent_bin/I");
+  add("minimum_bias_classifier_decision", &m_bdtTrain_minbias_decision,
+      "minimum_bias_classifier_decision/I");
   add("cluster_Et", &m_bdtTrain_pt, "cluster_Et/F");
   add("cluster_Eta", &m_bdtTrain_eta, "cluster_Eta/F");
   add("cluster_Phi", &m_bdtTrain_phi, "cluster_Phi/F");
@@ -3658,6 +3757,7 @@ void RecoilJets::fillAuAuBDTTrainingTree(const SSVars& v,
   m_bdtTrain_is_signal = isSignal ? 1 : 0;
   m_bdtTrain_pt_bin = ptIdx;
   m_bdtTrain_cent_bin = centIdx;
+  m_bdtTrain_minbias_decision = m_embeddedMinBiasDecision;
   m_bdtTrain_pt = bdtFeatureValue(v.pt_gamma);
   m_bdtTrain_eta = bdtFeatureValue(eta);
   m_bdtTrain_phi = bdtFeatureValue(phi);
@@ -3902,10 +4002,10 @@ void RecoilJets::fillAuAuPhotonCandidateSkimTree(PHCompositeNode* topNode,
     if (sampleCode == 0) sampleCode = embeddedInclusiveJetSampleCodeFromContext(Outfile);
   }
 
-  // Fixed THE-95 no-veto AuAu baseline photon-ID contract.
+  // Fixed THE-101 classifier-pass AuAu baseline photon-ID contract.
   // This is the simulation-derived default WP80 line, not a skim-side retune.
-  constexpr double kDefaultAuAuBDTWP80Intercept = 0.5387310379;
-  constexpr double kDefaultAuAuBDTWP80Slope = 0.0011102647;
+  constexpr double kDefaultAuAuBDTWP80Intercept = 0.5378806890;
+  constexpr double kDefaultAuAuBDTWP80Slope = 0.0011122896;
   constexpr double kDefaultAuAuBDTWP80PtMin = 15.0;
   constexpr double kDefaultAuAuBDTWP80PtMax = 35.0;
 
@@ -6033,7 +6133,470 @@ int RecoilJets::InitRun(PHCompositeNode* /*topNode*/)
     return Fun4AllReturnCodes::EVENT_OK;
   }
 
+void RecoilJets::bookMbdPmtLowCaloDiagnostics()
+{
+  if (!m_mbdPmtLowCaloDiagnosticsEnabled || !m_isSim || !m_isAuAu) return;
 
+  HistMap& H = qaHistogramsByTrigger["SIM"];
+
+  auto add = [&](TH1* h)
+  {
+    if (!h) return;
+    h->Sumw2();
+    H[h->GetName()] = h;
+  };
+
+  if (H.find("h_pmtDiag_audit") == H.end())
+  {
+    auto* h = RJMCWeighting::RJNewTH1F(
+      "h_pmtDiag_audit",
+      "PMT/sEPD diagnostic audit;condition;weighted events",
+      18, 0.5, 18.5);
+    const std::array<const char*, 18> labels = {{
+      "evaluated", "invalid centrality", "centrality outside 0-80%",
+      "MBD PMT container missing", "MBD geometry missing", "zero positive MBD PMTs",
+      "low band (cent<55%)", "main band (cent<55%)", "cent>=55% unclassified",
+      "sEPD container missing", "sEPD geometry missing", "sEPD map unavailable",
+      "zero positive sEPD tiles", "sEPD available", "MinimumBiasInfo present",
+      "minimum-bias pass", "minimum-bias fail", "MinimumBiasInfo missing"
+    }};
+    for (int i = 0; i < static_cast<int>(labels.size()); ++i)
+      h->GetXaxis()->SetBinLabel(i + 1, labels[i]);
+    add(h);
+  }
+
+  auto add3 = [&](TH3F* h)
+  {
+    add(h);
+    h->GetZaxis()->SetBinLabel(1, "all");
+    h->GetZaxis()->SetBinLabel(2, "low band");
+    h->GetZaxis()->SetBinLabel(3, "main band");
+  };
+
+  if (H.find("h3_pmtDiag_mbdPmtOccupancyByChannel") == H.end())
+    add3(RJMCWeighting::RJNewTH3F(
+      "h3_pmtDiag_mbdPmtOccupancyByChannel",
+      "MBD positive-charge PMT occupancy;PMT channel;centrality [%];event class",
+      128, -0.5, 127.5, 16, 0.0, 80.0, 3, 0.5, 3.5));
+
+  if (H.find("h3_pmtDiag_mbdPmtChargeByChannel") == H.end())
+    add3(RJMCWeighting::RJNewTH3F(
+      "h3_pmtDiag_mbdPmtChargeByChannel",
+      "MBD calibrated charge by channel;PMT channel;centrality [%];event class",
+      128, -0.5, 127.5, 16, 0.0, 80.0, 3, 0.5, 3.5));
+
+  if (H.find("h3_pmtDiag_mbdNFiredTotalByClass") == H.end())
+    add3(RJMCWeighting::RJNewTH3F(
+      "h3_pmtDiag_mbdNFiredTotalByClass",
+      "MBD fired-PMT multiplicity;N_{fired}^{MBD};centrality [%];event class",
+      129, -0.5, 128.5, 16, 0.0, 80.0, 3, 0.5, 3.5));
+
+  if (H.find("h3_pmtDiag_mbdChargeTotalByClass") == H.end())
+    add3(RJMCWeighting::RJNewTH3F(
+      "h3_pmtDiag_mbdChargeTotalByClass",
+      "MBD total calibrated charge;#Sigma Q_{MBD};centrality [%];event class",
+      160, 0.0, 8000.0, 16, 0.0, 80.0, 3, 0.5, 3.5));
+
+  if (H.find("h3_pmtDiag_mbdChargeAsymmetryByClass") == H.end())
+    add3(RJMCWeighting::RJNewTH3F(
+      "h3_pmtDiag_mbdChargeAsymmetryByClass",
+      "MBD charge asymmetry;(Q_{N}-Q_{S})/(Q_{N}+Q_{S});centrality [%];event class",
+      120, -1.2, 1.2, 16, 0.0, 80.0, 3, 0.5, 3.5));
+
+  if (H.find("h3_pmtDiag_mbdNFiredSouthVsNorth") == H.end())
+    add(RJMCWeighting::RJNewTH3F(
+      "h3_pmtDiag_mbdNFiredSouthVsNorth",
+      "MBD fired-PMT arm correlation;N_{fired}^{South};N_{fired}^{North};centrality [%]",
+      65, -0.5, 64.5, 65, -0.5, 64.5, 16, 0.0, 80.0));
+
+  if (H.find("h3_pmtDiag_mbdChargeSouthVsNorth") == H.end())
+    add(RJMCWeighting::RJNewTH3F(
+      "h3_pmtDiag_mbdChargeSouthVsNorth",
+      "MBD arm-charge correlation;Q_{South};Q_{North};centrality [%]",
+      80, 0.0, 4000.0, 80, 0.0, 4000.0, 16, 0.0, 80.0));
+
+  if (H.find("h3_pmtDiag_logTotalCaloVsMbdCharge") == H.end())
+    add(RJMCWeighting::RJNewTH3F(
+      "h3_pmtDiag_logTotalCaloVsMbdCharge",
+      "Signed-good tower sum correlation;#Sigma Q_{MBD};log_{10}(max(0,E_{calo})+1);centrality [%]",
+      80, 0.0, 8000.0, 120, 0.0, 4.0, 16, 0.0, 80.0));
+
+  const std::array<std::tuple<const char*, const char*, double, double>, 4> caloDefs = {{
+    {"h3_pmtDiag_emcalEnergyVsMbdCharge", "EMCal signed-good tower sum", -1000.0, 8000.0},
+    {"h3_pmtDiag_ihcalEnergyVsMbdCharge", "IHCal signed-good tower sum", -500.0, 4000.0},
+    {"h3_pmtDiag_ohcalEnergyVsMbdCharge", "OHCal signed-good tower sum", -500.0, 4000.0},
+    {"h3_pmtDiag_totalCaloEnergyVsMbdCharge", "Total signed-good tower sum", -1500.0, 12000.0}
+  }};
+  for (const auto& [name, label, ymin, ymax] : caloDefs)
+  {
+    if (H.find(name) != H.end()) continue;
+    const std::string title = std::string(label) + ";#Sigma Q_{MBD};calorimeter energy [GeV];centrality [%]";
+    add(RJMCWeighting::RJNewTH3F(name, title.c_str(),
+                                 80, 0.0, 8000.0, 80, ymin, ymax, 16, 0.0, 80.0));
+  }
+
+  const std::array<std::pair<const char*, const char*>, 4> geometryDefs = {{
+    {"h_pmtDiag_mbdGeometryEntries", "MBD geometry samples;PMT channel;weighted samples"},
+    {"h_pmtDiag_mbdGeometryXSum", "MBD geometry x sum;PMT channel;weighted x sum [cm]"},
+    {"h_pmtDiag_mbdGeometryYSum", "MBD geometry y sum;PMT channel;weighted y sum [cm]"},
+    {"h_pmtDiag_mbdGeometryArmSum", "MBD geometry arm sum;PMT channel;weighted arm sum"}
+  }};
+  for (const auto& [name, title] : geometryDefs)
+    if (H.find(name) == H.end()) add(RJMCWeighting::RJNewTH1F(name, title, 128, -0.5, 127.5));
+
+  if (m_requireEmbeddedMinBiasClassifier)
+  {
+    const std::array<std::pair<const char*, const char*>, 3> mbDecisions = {{
+      {"mbPass", "minimum-bias pass"},
+      {"mbFail", "minimum-bias fail"},
+      {"mbMissing", "MinimumBiasInfo missing"}
+    }};
+    for (const auto& [suffix, label] : mbDecisions)
+    {
+      const std::string occName = "h3_pmtDiag_mbdPmtOccupancyByChannel_" + std::string(suffix);
+      if (H.find(occName) == H.end())
+        add3(RJMCWeighting::RJNewTH3F(
+          occName.c_str(),
+          (std::string("MBD positive-charge PMT occupancy, ") + label + ";PMT channel;centrality [%];event class").c_str(),
+          128, -0.5, 127.5, 16, 0.0, 80.0, 3, 0.5, 3.5));
+
+      const std::string chargeName = "h3_pmtDiag_mbdPmtChargeByChannel_" + std::string(suffix);
+      if (H.find(chargeName) == H.end())
+        add3(RJMCWeighting::RJNewTH3F(
+          chargeName.c_str(),
+          (std::string("MBD calibrated charge by channel, ") + label + ";PMT channel;centrality [%];event class").c_str(),
+          128, -0.5, 127.5, 16, 0.0, 80.0, 3, 0.5, 3.5));
+
+      for (const auto& [baseName, title, bins, low, high] :
+           std::array<std::tuple<const char*, const char*, int, double, double>, 3>{{
+             {"h3_pmtDiag_mbdNFiredTotalByClass_", "MBD fired-PMT multiplicity", 129, -0.5, 128.5},
+             {"h3_pmtDiag_mbdChargeTotalByClass_", "MBD total calibrated charge", 160, 0.0, 8000.0},
+             {"h3_pmtDiag_mbdChargeAsymmetryByClass_", "MBD charge asymmetry", 120, -1.2, 1.2}
+           }})
+      {
+        const std::string name = std::string(baseName) + suffix;
+        if (H.find(name) == H.end())
+          add3(RJMCWeighting::RJNewTH3F(
+            name.c_str(),
+            (std::string(title) + ", " + label + ";value;centrality [%];event class").c_str(),
+            bins, low, high, 16, 0.0, 80.0, 3, 0.5, 3.5));
+      }
+
+      const std::string logName = "h3_pmtDiag_logTotalCaloVsMbdCharge_" + std::string(suffix);
+      if (H.find(logName) == H.end())
+        add(RJMCWeighting::RJNewTH3F(
+          logName.c_str(),
+          (std::string("Signed-good tower sum correlation, ") + label + ";#Sigma Q_{MBD};log_{10}(max(0,E_{calo})+1);centrality [%]").c_str(),
+          80, 0.0, 8000.0, 120, 0.0, 4.0, 16, 0.0, 80.0));
+
+      const std::string totalName = "h3_pmtDiag_totalCaloEnergyVsMbdCharge_" + std::string(suffix);
+      if (H.find(totalName) == H.end())
+        add(RJMCWeighting::RJNewTH3F(
+          totalName.c_str(),
+          (std::string("Total signed-good tower sum, ") + label + ";#Sigma Q_{MBD};calorimeter energy [GeV];centrality [%]").c_str(),
+          80, 0.0, 8000.0, 80, -1500.0, 12000.0, 16, 0.0, 80.0));
+    }
+  }
+
+  if (H.find("h3_pmtDiag_sepdRingOccupancy") == H.end())
+    add3(RJMCWeighting::RJNewTH3F(
+      "h3_pmtDiag_sepdRingOccupancy",
+      "sEPD positive-energy tile occupancy;arm#times16+ring;centrality [%];event class",
+      32, -0.5, 31.5, 16, 0.0, 80.0, 3, 0.5, 3.5));
+
+  if (H.find("h3_pmtDiag_sepdRingCharge") == H.end())
+    add3(RJMCWeighting::RJNewTH3F(
+      "h3_pmtDiag_sepdRingCharge",
+      "sEPD energy by arm and ring;arm#times16+ring;centrality [%];event class",
+      32, -0.5, 31.5, 16, 0.0, 80.0, 3, 0.5, 3.5));
+
+  if (H.find("h3_pmtDiag_sepdChargeTotalByClass") == H.end())
+    add3(RJMCWeighting::RJNewTH3F(
+      "h3_pmtDiag_sepdChargeTotalByClass",
+      "sEPD total positive energy;#Sigma E_{sEPD};centrality [%];event class",
+      160, 0.0, 16000.0, 16, 0.0, 80.0, 3, 0.5, 3.5));
+
+  if (H.find("h3_pmtDiag_logTotalCaloVsSepdCharge") == H.end())
+    add(RJMCWeighting::RJNewTH3F(
+      "h3_pmtDiag_logTotalCaloVsSepdCharge",
+      "sEPD versus signed-good tower sum;#Sigma E_{sEPD};log_{10}(max(0,E_{calo})+1);centrality [%]",
+      80, 0.0, 16000.0, 120, 0.0, 4.0, 16, 0.0, 80.0));
+
+  if (H.find("h3_pmtDiag_mbdChargeVsSepdCharge") == H.end())
+    add(RJMCWeighting::RJNewTH3F(
+      "h3_pmtDiag_mbdChargeVsSepdCharge",
+      "MBD-sEPD correlation;#Sigma Q_{MBD};#Sigma E_{sEPD};centrality [%]",
+      80, 0.0, 8000.0, 80, 0.0, 16000.0, 16, 0.0, 80.0));
+}
+
+bool RecoilJets::buildSepdChannelMapForDiagnostics()
+{
+  if (m_sepdDiagnosticMapAttempted) return m_sepdDiagnosticMapReady;
+  m_sepdDiagnosticMapAttempted = true;
+  m_sepdDiagnosticMapReady = false;
+  m_sepdDiagnosticKeys.clear();
+
+  if (!m_sepdTowers) return false;
+
+  try
+  {
+    const std::string url = CDBInterface::instance()->getUrl("SEPD_CHANNELMAP");
+    if (url.empty()) return false;
+
+    CDBTTree tree(url);
+    const std::size_t nChannels = m_sepdTowers->size();
+    m_sepdDiagnosticKeys.assign(nChannels, std::numeric_limits<unsigned int>::max());
+    std::size_t mapped = 0;
+    for (std::size_t channel = 0; channel < nChannels; ++channel)
+    {
+      const int tile = tree.GetIntValue(channel, "epd_channel_map");
+      if (tile == 999 || tile < 0 || tile >= 256) continue;
+      const unsigned int arm = (channel >= 384) ? 1U : 0U;
+      m_sepdDiagnosticKeys[channel] = TowerInfoDefs::encode_epd(arm * 256U + static_cast<unsigned int>(tile));
+      ++mapped;
+    }
+    m_sepdDiagnosticMapReady = (mapped > 0);
+  }
+  catch (const std::exception& e)
+  {
+    LOG(1, CLR_YELLOW, "[PMT diagnostics] sEPD channel-map build failed: " << e.what());
+  }
+  return m_sepdDiagnosticMapReady;
+}
+
+void RecoilJets::fillMbdPmtLowCaloDiagnostics(const std::vector<std::string>& activeTrig,
+                                              double emcalEnergy,
+                                              double ihcalEnergy,
+                                              double ohcalEnergy,
+                                              double totalCaloEnergy)
+{
+  if (!m_mbdPmtLowCaloDiagnosticsEnabled || !m_isSim || !m_isAuAu) return;
+  if (std::find(activeTrig.begin(), activeTrig.end(), "SIM") == activeTrig.end()) return;
+
+  auto itTrig = qaHistogramsByTrigger.find("SIM");
+  if (itTrig == qaHistogramsByTrigger.end()) return;
+  HistMap& H = itTrig->second;
+
+  auto* audit = dynamic_cast<TH1F*>(H["h_pmtDiag_audit"]);
+  auto auditFill = [&](int bin)
+  {
+    if (audit) audit->Fill(static_cast<double>(bin));
+  };
+  auditFill(1);
+
+  const char* mbDecisionSuffix = nullptr;
+  if (m_requireEmbeddedMinBiasClassifier)
+  {
+    if (m_embeddedMinBiasDecision == 2)
+    {
+      auditFill(15);
+      auditFill(16);
+      mbDecisionSuffix = "mbPass";
+    }
+    else if (m_embeddedMinBiasDecision == 1)
+    {
+      auditFill(15);
+      auditFill(17);
+      mbDecisionSuffix = "mbFail";
+    }
+    else
+    {
+      auditFill(18);
+      mbDecisionSuffix = "mbMissing";
+    }
+  }
+
+  if (!std::isfinite(m_centPercent))
+  {
+    auditFill(2);
+    return;
+  }
+  const double centrality = m_centPercent;
+  if (centrality < 0.0 || centrality >= 80.0)
+  {
+    auditFill(3);
+    return;
+  }
+
+  const double logTotalCalo = std::log10(std::max(0.0, totalCaloEnergy) + 1.0);
+  int eventClass = 1;
+  if (centrality < 55.0)
+  {
+    const double threshold =
+      -8.484848484848325e-05 * centrality * centrality
+      -0.006181818181818246 * centrality
+      +2.5830757575757572;
+    eventClass = (logTotalCalo < threshold) ? 2 : 3;
+    auditFill(eventClass == 2 ? 7 : 8);
+  }
+  else
+  {
+    auditFill(9);
+  }
+
+  if (!m_mbdpmts)
+  {
+    auditFill(4);
+    return;
+  }
+  if (!m_mbdgeom) auditFill(5);
+
+  auto* hOcc = dynamic_cast<TH3F*>(H["h3_pmtDiag_mbdPmtOccupancyByChannel"]);
+  auto* hCharge = dynamic_cast<TH3F*>(H["h3_pmtDiag_mbdPmtChargeByChannel"]);
+  TH3F* hOccByMb = nullptr;
+  TH3F* hChargeByMb = nullptr;
+  if (mbDecisionSuffix)
+  {
+    hOccByMb = dynamic_cast<TH3F*>(H["h3_pmtDiag_mbdPmtOccupancyByChannel_" + std::string(mbDecisionSuffix)]);
+    hChargeByMb = dynamic_cast<TH3F*>(H["h3_pmtDiag_mbdPmtChargeByChannel_" + std::string(mbDecisionSuffix)]);
+  }
+  double mbdCharge[2] = {0.0, 0.0};
+  int mbdFired[2] = {0, 0};
+  const unsigned int nPmt = std::min<unsigned int>(128U, static_cast<unsigned int>(m_mbdpmts->get_npmt()));
+
+  if (!m_mbdPmtGeometryFilled && m_mbdgeom)
+  {
+    auto* hN = dynamic_cast<TH1F*>(H["h_pmtDiag_mbdGeometryEntries"]);
+    auto* hX = dynamic_cast<TH1F*>(H["h_pmtDiag_mbdGeometryXSum"]);
+    auto* hY = dynamic_cast<TH1F*>(H["h_pmtDiag_mbdGeometryYSum"]);
+    auto* hArm = dynamic_cast<TH1F*>(H["h_pmtDiag_mbdGeometryArmSum"]);
+    for (unsigned int ipmt = 0; ipmt < nPmt; ++ipmt)
+    {
+      const double x = m_mbdgeom->get_x(ipmt);
+      const double y = m_mbdgeom->get_y(ipmt);
+      if (!std::isfinite(x) || !std::isfinite(y)) continue;
+      hN->Fill(ipmt);
+      hX->Fill(ipmt, x);
+      hY->Fill(ipmt, y);
+      hArm->Fill(ipmt, m_mbdgeom->get_arm(ipmt));
+    }
+    m_mbdPmtGeometryFilled = true;
+  }
+
+  for (unsigned int ipmt = 0; ipmt < nPmt; ++ipmt)
+  {
+    MbdPmtHit* pmt = m_mbdpmts->get_pmt(ipmt);
+    if (!pmt) continue;
+    const double q = pmt->get_q();
+    if (!std::isfinite(q) || q <= 0.0) continue;
+    const int arm = m_mbdgeom ? std::clamp(m_mbdgeom->get_arm(ipmt), 0, 1) : (ipmt < 64U ? 0 : 1);
+    mbdCharge[arm] += q;
+    ++mbdFired[arm];
+    if (hOcc)
+    {
+      hOcc->Fill(ipmt, centrality, 1.0);
+      if (eventClass > 1) hOcc->Fill(ipmt, centrality, eventClass);
+    }
+    if (hCharge)
+    {
+      hCharge->Fill(ipmt, centrality, 1.0, q);
+      if (eventClass > 1) hCharge->Fill(ipmt, centrality, eventClass, q);
+    }
+    if (hOccByMb)
+    {
+      hOccByMb->Fill(ipmt, centrality, 1.0);
+      if (eventClass > 1) hOccByMb->Fill(ipmt, centrality, eventClass);
+    }
+    if (hChargeByMb)
+    {
+      hChargeByMb->Fill(ipmt, centrality, 1.0, q);
+      if (eventClass > 1) hChargeByMb->Fill(ipmt, centrality, eventClass, q);
+    }
+  }
+
+  const int firedTotal = mbdFired[0] + mbdFired[1];
+  const double chargeTotal = mbdCharge[0] + mbdCharge[1];
+  if (firedTotal == 0) auditFill(6);
+  const double asymmetry = chargeTotal > 0.0 ? (mbdCharge[1] - mbdCharge[0]) / chargeTotal : 0.0;
+
+  auto fillClassHist = [&](const char* name, double value)
+  {
+    auto* h = dynamic_cast<TH3F*>(H[name]);
+    if (!h) return;
+    h->Fill(value, centrality, 1.0);
+    if (eventClass > 1) h->Fill(value, centrality, eventClass);
+  };
+  fillClassHist("h3_pmtDiag_mbdNFiredTotalByClass", firedTotal);
+  fillClassHist("h3_pmtDiag_mbdChargeTotalByClass", chargeTotal);
+  fillClassHist("h3_pmtDiag_mbdChargeAsymmetryByClass", asymmetry);
+  if (mbDecisionSuffix)
+  {
+    fillClassHist(("h3_pmtDiag_mbdNFiredTotalByClass_" + std::string(mbDecisionSuffix)).c_str(), firedTotal);
+    fillClassHist(("h3_pmtDiag_mbdChargeTotalByClass_" + std::string(mbDecisionSuffix)).c_str(), chargeTotal);
+    fillClassHist(("h3_pmtDiag_mbdChargeAsymmetryByClass_" + std::string(mbDecisionSuffix)).c_str(), asymmetry);
+  }
+
+  dynamic_cast<TH3F*>(H["h3_pmtDiag_mbdNFiredSouthVsNorth"])
+    ->Fill(mbdFired[0], mbdFired[1], centrality);
+  dynamic_cast<TH3F*>(H["h3_pmtDiag_mbdChargeSouthVsNorth"])
+    ->Fill(mbdCharge[0], mbdCharge[1], centrality);
+  dynamic_cast<TH3F*>(H["h3_pmtDiag_logTotalCaloVsMbdCharge"])
+    ->Fill(chargeTotal, logTotalCalo, centrality);
+  dynamic_cast<TH3F*>(H["h3_pmtDiag_emcalEnergyVsMbdCharge"])
+    ->Fill(chargeTotal, emcalEnergy, centrality);
+  dynamic_cast<TH3F*>(H["h3_pmtDiag_ihcalEnergyVsMbdCharge"])
+    ->Fill(chargeTotal, ihcalEnergy, centrality);
+  dynamic_cast<TH3F*>(H["h3_pmtDiag_ohcalEnergyVsMbdCharge"])
+    ->Fill(chargeTotal, ohcalEnergy, centrality);
+  dynamic_cast<TH3F*>(H["h3_pmtDiag_totalCaloEnergyVsMbdCharge"])
+    ->Fill(chargeTotal, totalCaloEnergy, centrality);
+  if (mbDecisionSuffix)
+  {
+    dynamic_cast<TH3F*>(H["h3_pmtDiag_logTotalCaloVsMbdCharge_" + std::string(mbDecisionSuffix)])
+      ->Fill(chargeTotal, logTotalCalo, centrality);
+    dynamic_cast<TH3F*>(H["h3_pmtDiag_totalCaloEnergyVsMbdCharge_" + std::string(mbDecisionSuffix)])
+      ->Fill(chargeTotal, totalCaloEnergy, centrality);
+  }
+
+  if (!m_sepdTowers)
+  {
+    auditFill(10);
+    return;
+  }
+  if (!m_epdgeom) auditFill(11);
+  if (!buildSepdChannelMapForDiagnostics())
+  {
+    auditFill(12);
+    return;
+  }
+  auditFill(14);
+
+  auto* hSepdOcc = dynamic_cast<TH3F*>(H["h3_pmtDiag_sepdRingOccupancy"]);
+  auto* hSepdCharge = dynamic_cast<TH3F*>(H["h3_pmtDiag_sepdRingCharge"]);
+  double sepdChargeTotal = 0.0;
+  int sepdFired = 0;
+  const unsigned int nSepd = std::min<unsigned int>(
+    static_cast<unsigned int>(m_sepdTowers->size()),
+    static_cast<unsigned int>(m_sepdDiagnosticKeys.size()));
+  for (unsigned int channel = 0; channel < nSepd; ++channel)
+  {
+    const unsigned int key = m_sepdDiagnosticKeys[channel];
+    if (key == std::numeric_limits<unsigned int>::max()) continue;
+    TowerInfo* tile = m_sepdTowers->get_tower_at_channel(channel);
+    if (!tile) continue;
+    const double q = tile->get_energy();
+    if (!std::isfinite(q) || q <= 0.0) continue;
+    const unsigned int arm = TowerInfoDefs::get_epd_arm(key);
+    const unsigned int ring = TowerInfoDefs::get_epd_rbin(key);
+    if (arm > 1U || ring > 15U) continue;
+    const double armRing = static_cast<double>(arm * 16U + ring);
+    sepdChargeTotal += q;
+    ++sepdFired;
+    hSepdOcc->Fill(armRing, centrality, 1.0);
+    hSepdCharge->Fill(armRing, centrality, 1.0, q);
+    if (eventClass > 1)
+    {
+      hSepdOcc->Fill(armRing, centrality, eventClass);
+      hSepdCharge->Fill(armRing, centrality, eventClass, q);
+    }
+  }
+  if (sepdFired == 0) auditFill(13);
+  fillClassHist("h3_pmtDiag_sepdChargeTotalByClass", sepdChargeTotal);
+  dynamic_cast<TH3F*>(H["h3_pmtDiag_logTotalCaloVsSepdCharge"])
+    ->Fill(sepdChargeTotal, logTotalCalo, centrality);
+  dynamic_cast<TH3F*>(H["h3_pmtDiag_mbdChargeVsSepdCharge"])
+    ->Fill(chargeTotal, sepdChargeTotal, centrality);
+}
 
 void RecoilJets::createHistos_Data()
 {
@@ -6058,6 +6621,20 @@ void RecoilJets::createHistos_Data()
     dir->cd();
 
     HistMap& H = qaHistogramsByTrigger[trig];
+
+    if (m_mbdPmtLowCaloDiagnosticsEnabled)
+    {
+      bookMbdPmtLowCaloDiagnostics();
+    }
+
+    if (m_auauFig25CorrelationDiagnosticsEnabled)
+    {
+      for (int centIdx = 0; centIdx < 3; ++centIdx)
+      {
+        getOrBookAuAuFig25CorrelationSurface(trig, centIdx, "e11e33");
+        getOrBookAuAuFig25CorrelationSurface(trig, centIdx, "bdtScore");
+      }
+    }
 
     // 1) per-job event counter (SIM)
     const std::string hcnt = "cnt_" + trig;
@@ -6479,7 +7056,27 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
   if (m_isSim)
   {
     activeTrig.emplace_back("SIM");
-    if (outMinimumBiasPass) *outMinimumBiasPass = true;
+    m_embeddedMinBiasDecision = -1;
+    bool minimumBiasPass = true;
+    if (m_isSimEmbedded && m_requireEmbeddedMinBiasClassifier)
+    {
+      const MinimumBiasInfo* mbInfo = findNode::getClass<MinimumBiasInfo>(topNode, "MinimumBiasInfo");
+      if (!mbInfo)
+      {
+        m_embeddedMinBiasDecision = 0;
+        minimumBiasPass = false;
+      }
+      else if (mbInfo->isAuAuMinimumBias())
+      {
+        m_embeddedMinBiasDecision = 2;
+      }
+      else
+      {
+        m_embeddedMinBiasDecision = 1;
+        minimumBiasPass = false;
+      }
+    }
+    if (outMinimumBiasPass) *outMinimumBiasPass = minimumBiasPass;
     if (outTriggerPass) *outTriggerPass = true;
 
     if (applyVzCut && m_useVzCut && std::fabs(m_vz) >= m_vzCut)
@@ -6501,9 +7098,19 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
       std::ostringstream os;
       os << "    [firstEventCuts] ACCEPT (SIM)"
          << " | vz=" << std::fixed << std::setprecision(3) << m_vz;
+      if (m_isSimEmbedded && m_requireEmbeddedMinBiasClassifier)
+        os << " | embeddedMinBiasDecision=" << m_embeddedMinBiasDecision
+           << " (gate " << (m_mbdPmtLowCaloDiagnosticsEnabled ? "deferred for PMT diagnostics" : "immediate") << ")";
       if (applyVzCut && m_useVzCut) os << " (|vz|cut=" << m_vzCut << ")";
       else if (m_useVzCut) os << " (|vz|cut deferred)";
       LOG(4, CLR_GREEN, os.str());
+    }
+
+    if (m_isSimEmbedded && m_requireEmbeddedMinBiasClassifier &&
+        !minimumBiasPass && !m_mbdPmtLowCaloDiagnosticsEnabled)
+    {
+      m_lastReject = EventReject::MinBias;
+      return false;
     }
 
     m_lastReject = EventReject::None;
@@ -6753,36 +7360,43 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         ++m_isoAuditFlowGlobal.valid_reco_vertex_found;
     }
 
+    double eventCentralityPercent = std::numeric_limits<double>::quiet_NaN();
+    if (m_isAuAu)
+    {
+        const CentralityInfo* central =
+        findNode::getClass<CentralityInfo>(topNode, "CentralityInfo");
+        eventCentralityPercent = normalizedMbdNsCentralityPercent(central);
+        if (std::isfinite(eventCentralityPercent))
+        {
+            ++m_validCentralityObservedEvents;
+        }
+        else
+        {
+            ++m_invalidCentralityObservedEvents;
+        }
+    }
+
     bool auditCentValid = false;
     int auditCentIdx = -1;
     int auditCentBin = -1;
 
     if (m_isoAuditMode && m_isAuAu)
     {
-        CentralityInfo* auditCentral =
-        findNode::getClass<CentralityInfo>(topNode, "CentralityInfo");
-
-        if (auditCentral)
+        if (std::isfinite(eventCentralityPercent))
         {
-            const float auditCentile =
-            auditCentral->get_centrality_bin(CentralityInfo::PROP::mbd_NS);
+            auditCentValid = true;
+            auditCentBin = static_cast<int>(eventCentralityPercent);
+            auditCentIdx = findCentBin(auditCentBin);
 
-            if (std::isfinite(auditCentile) && auditCentile >= 0.f)
+            ++m_isoAuditFlowGlobal.valid_centrality_info;
+
+            if (auditCentIdx >= 0 && auditCentIdx < static_cast<int>(m_isoAuditFlowByCent.size()))
             {
-                auditCentValid = true;
-                auditCentBin = static_cast<int>(auditCentile);
-                auditCentIdx = findCentBin(auditCentBin);
-
-                ++m_isoAuditFlowGlobal.valid_centrality_info;
-
-                if (auditCentIdx >= 0 && auditCentIdx < static_cast<int>(m_isoAuditFlowByCent.size()))
-                {
-                    auto& flow = m_isoAuditFlowByCent[auditCentIdx];
-                    ++flow.evt_seen;
-                    ++flow.mandatory_nodes_ok;
-                    ++flow.valid_reco_vertex_found;
-                    ++flow.valid_centrality_info;
-                }
+                auto& flow = m_isoAuditFlowByCent[auditCentIdx];
+                ++flow.evt_seen;
+                ++flow.mandatory_nodes_ok;
+                ++flow.valid_reco_vertex_found;
+                ++flow.valid_centrality_info;
             }
         }
     }
@@ -7456,32 +8070,16 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     /* ------------------------------------------------------------------ */
     if (m_isAuAu)
     {
-        CentralityInfo* central =
-        findNode::getClass<CentralityInfo>(topNode, "CentralityInfo");
-
-        if (!central)
+        if (!std::isfinite(eventCentralityPercent))
         {
             LOG(4, CLR_YELLOW,
-                "    CentralityInfo node missing (Au+Au) – ABORTEVENT");
+                "    missing or invalid mbd_NS centrality (Au+Au) – ABORTEVENT");
             return Fun4AllReturnCodes::ABORTEVENT;
         }
 
-        const float centile =
-        central->get_centrality_bin(CentralityInfo::PROP::mbd_NS);
-
-        if (!std::isfinite(centile) || centile < 0.f)
-        {
-            LOG(4, CLR_YELLOW,
-                "    invalid mbd_NS centile – treating as minimum-bias (0–100%)");
-            m_centBin = -1;
-            m_centPercent = -1.0;
-        }
-        else
-        {
-            m_centBin = static_cast<int>(centile);
-            m_centPercent = static_cast<double>(centile);
-            LOG(5, CLR_GREEN, "    centrality bin = " << m_centBin << '%');
-        }
+        m_centPercent = eventCentralityPercent;
+        m_centBin = static_cast<int>(eventCentralityPercent);
+        LOG(5, CLR_GREEN, "    centrality = " << m_centPercent << '%');
     }
     else
     {
@@ -7587,19 +8185,6 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         return Fun4AllReturnCodes::ABORTEVENT;
     }
 
-    if (m_isoAuditMode)
-    {
-        ++m_isoAuditFlowGlobal.vz_pass;
-        ++m_isoAuditFlowGlobal.events_reaching_photon_loop;
-
-        if (auditCentValid && auditCentIdx >= 0 && auditCentIdx < static_cast<int>(m_isoAuditFlowByCent.size()))
-        {
-            auto& flow = m_isoAuditFlowByCent[auditCentIdx];
-            ++flow.vz_pass;
-            ++flow.events_reaching_photon_loop;
-        }
-    }
-
     const double vzAbs  = std::max(1.0, std::fabs(static_cast<double>(m_vzCut)));
     const double vzBinW = 0.5; // cm/bin
     const int    nbVz   = std::max(1, static_cast<int>(std::lround((2.0 * vzAbs) / vzBinW)));
@@ -7659,15 +8244,10 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     }
 
     /* ------------------------------------------------------------------ */
-    /* 6) Pure jet QA (independent of photon pipeline)                     */
-    /*     Filled once per accepted event, after centrality/vz.            */
+    /* 6) Event-level calorimeter and PMT diagnostics.                      */
+    /*     The opt-in embedded MB gate is delayed until after this fill so  */
+    /*     classifier-fail events remain available for Blair's comparison. */
     /* ------------------------------------------------------------------ */
-    const int centIdxForJets = (m_isAuAu ? findCentBin(m_centBin) : -1);
-    for (const auto& kv : m_jets)
-    {
-        fillInclusiveJetQA(activeTrig, centIdxForJets, kv.first);
-    }
-
     static const bool requireEventCaloGoodTowers = []() -> bool
     {
         const char* raw = std::getenv("RJ_EVENT_CALO_REQUIRE_ISGOOD");
@@ -7713,6 +8293,45 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     m_eventCaloOhcalEnergy = static_cast<float>(ohcalEnergy);
     m_eventCaloTotalEnergy = static_cast<float>(totalCaloEnergy);
     m_eventCaloLog10TotalEnergyPlus1 = static_cast<float>(std::log10(std::max(0.0, totalCaloEnergy) + 1.0));
+
+    fillMbdPmtLowCaloDiagnostics(activeTrig,
+                                 emcalEnergy,
+                                 ihcalEnergy,
+                                 ohcalEnergy,
+                                 totalCaloEnergy);
+
+    if (m_isSimEmbedded && m_requireEmbeddedMinBiasClassifier && m_embeddedMinBiasDecision != 2)
+    {
+        m_lastReject = EventReject::MinBias;
+        ++m_bk.evt_fail_minbias;
+        LOG(4, CLR_YELLOW,
+            "    embedded event rejected after PMT diagnostics by MinimumBiasClassifier"
+            << " | decision=" << m_embeddedMinBiasDecision
+            << " (0=missing,1=fail,2=pass)");
+        return Fun4AllReturnCodes::ABORTEVENT;
+    }
+
+    if (m_isoAuditMode)
+    {
+        ++m_isoAuditFlowGlobal.vz_pass;
+        ++m_isoAuditFlowGlobal.events_reaching_photon_loop;
+
+        if (auditCentValid && auditCentIdx >= 0 && auditCentIdx < static_cast<int>(m_isoAuditFlowByCent.size()))
+        {
+            auto& flow = m_isoAuditFlowByCent[auditCentIdx];
+            ++flow.vz_pass;
+            ++flow.events_reaching_photon_loop;
+        }
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* 7) Pure jet QA (independent of photon pipeline).                    */
+    /* ------------------------------------------------------------------ */
+    const int centIdxForJets = (m_isAuAu ? findCentBin(m_centBin) : -1);
+    for (const auto& kv : m_jets)
+    {
+        fillInclusiveJetQA(activeTrig, centIdxForJets, kv.first);
+    }
 
     if (m_mbdpmts)
     {
@@ -7986,7 +8605,13 @@ int RecoilJets::End(PHCompositeNode*)
         key.find("_eta0_pt") != std::string::npos &&
         key.find("_cut") != std::string::npos;
 
-      if (h->GetEntries() == 0 && !keepEmptyPPG12TableQAHist)
+      const bool keepEmptyAuAuFig25Hist =
+        m_auauFig25CorrelationDiagnosticsEnabled &&
+        key.rfind("h2_auauFig25_", 0) == 0;
+
+      if (h->GetEntries() == 0 &&
+          !keepEmptyPPG12TableQAHist &&
+          !keepEmptyAuAuFig25Hist)
       {
         if (Verbosity() > 1)
           warn("Histogram '" + key + "' (trigger " + trig + ") has 0 entries – skipped");
@@ -13162,10 +13787,13 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 {
                     fillPPG12TableQA(activeTrig, v, eiso_et, centIdx, 2);
                 }
-                else if (tightTag == TightTag::kNonTight)
-                {
-                    fillPPG12TableQA(activeTrig, v, eiso_et, centIdx, 3);
-                }
+				else if (tightTag == TightTag::kNonTight)
+				{
+				    fillPPG12TableQA(activeTrig, v, eiso_et, centIdx, 3);
+				}
+
+				fillAuAuDualViewScoreIsoSurface(activeTrig, v, eiso_et,
+				                                        effCentIdx_SS, "all");
 
                 if (haveAuditSample && doCanonical)
                 {
@@ -13209,13 +13837,20 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                             TruthSignalPhotonInfo matchedTruth;
                             int clusterTruthTrackId = -1;
                             float eContrib = std::numeric_limits<float>::lowest();
-                            isSig = classifyRecoPhotonWithPPG12TruthTrack(rc, *clustereval_SS,
-                                                                          truthSignalByTrackId_SS,
-                                                                          matchedTruth,
-                                                                          clusterTruthTrackId,
-                                                                          eContrib);
-                        }
+						    isSig = classifyRecoPhotonWithPPG12TruthTrack(rc, *clustereval_SS,
+						                                                  truthSignalByTrackId_SS,
+						                                                  matchedTruth,
+						                                                  clusterTruthTrackId,
+						                                                  eContrib);
+						    if (isSig)
+						    {
+						        fillAuAuDualViewScoreIsoSurface(activeTrig, v, eiso_et,
+						                                                effCentIdx_SS, "truthSignal");
+						    }
+						}
                         mcSuffix = (isSig ? "_sig" : "_bkg");
+                        fillAuAuFig25CorrelationSurfaces(activeTrig, v, eiso_et,
+                                                         effCentIdx_SS, !isSig);
                     }
 
                     auto fillSSPPG12 = [&](const std::string& trigShort, const std::string& baseTag)
@@ -21015,6 +21650,168 @@ double RecoilJets::ppg12TableQABDTScore(const SSVars& v) const
   if (std::isfinite(v.auau_tight_bdt_mlp_score)) return v.auau_tight_bdt_mlp_score;
   if (std::isfinite(v.tight_bdt_score)) return v.tight_bdt_score;
   return std::numeric_limits<double>::quiet_NaN();
+}
+
+
+TH3F* RecoilJets::getOrBookAuAuDualViewScoreIsoSurface(const std::string& trig,
+                                                        int centIdx,
+                                                        const std::string& category)
+{
+  if (!m_auauDualViewDiagnosticsEnabled || trig.empty() || centIdx < 0) return nullptr;
+  if (category != "all" && category != "truthSignal") return nullptr;
+
+  const std::string base = "h3_auauDualView_scoreMinusT80_vs_Eiso_vs_pT_" + category;
+  // This focused diagnostic is defined at fixed R=0.3. Keep the object name
+  // independent of whichever internal isolation view happens to be active
+  // while the merge-stable schema is prebooked.
+  const std::string name = base + "_isoR30" + suffixForBins(-1, centIdx);
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH3F*>(it->second)) return h;
+    H.erase(it);
+  }
+  if (!out || !out->IsOpen() || m_gammaPtBins.size() < 2) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir)
+  {
+    if (prevDir) prevDir->cd();
+    return nullptr;
+  }
+  dir->cd();
+
+  const std::string title =
+    name + ";BDT score - T_{80}(centrality);E_{T}^{iso,reco} [GeV];p_{T}^{#gamma,reco} [GeV]";
+  auto* h = RJMCWeighting::RJNewTH3F(name.c_str(), title.c_str(),
+                                     65, -0.8, 0.5,
+                                     160, -20.0, 60.0,
+                                     static_cast<int>(m_gammaPtBins.size()) - 1,
+                                     m_gammaPtBins.data());
+  if (h)
+  {
+    h->Sumw2();
+    H[name] = h;
+  }
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+
+void RecoilJets::fillAuAuDualViewScoreIsoSurface(const std::vector<std::string>& activeTrig,
+                                                  const SSVars& v,
+                                                  double eisoEt,
+                                                  int centIdx,
+                                                  const std::string& category)
+{
+  if (!m_auauDualViewDiagnosticsEnabled || m_nonTightVariant != "auauBDTSideband") return;
+  if (!auauTightBDTMode(m_tightVariant) || !fillConeThisView()) return;
+
+  const double score = v.auau_tight_bdt_score;
+  const double threshold = configuredAuAuTightBDTMin(v.pt_gamma);
+  if (!std::isfinite(score) || !std::isfinite(threshold) ||
+      !std::isfinite(eisoEt) || eisoEt >= 1e8 ||
+      !std::isfinite(v.pt_gamma) || centIdx < 0)
+  {
+    return;
+  }
+
+  const double scoreDelta = score - threshold;
+  for (const auto& trigShort : activeTrig)
+  {
+    if (auto* h = getOrBookAuAuDualViewScoreIsoSurface(trigShort, centIdx, category))
+    {
+      h->Fill(scoreDelta, eisoEt, v.pt_gamma);
+      bumpHistFill(trigShort, h->GetName());
+    }
+  }
+}
+
+
+TH2F* RecoilJets::getOrBookAuAuFig25CorrelationSurface(const std::string& trig,
+                                                        int centIdx,
+                                                        const std::string& axisKey)
+{
+  if (!m_auauFig25CorrelationDiagnosticsEnabled || trig.empty() || centIdx < 0) return nullptr;
+  if (axisKey != "e11e33" && axisKey != "bdtScore") return nullptr;
+
+  const std::string base = "h2_auauFig25_" + axisKey + "_vs_Eiso_background_pT15to35";
+  // This diagnostic is defined only for the fixed R=0.3 view. Use the
+  // explicit suffix during both prebooking and filling so sparse jobs retain
+  // the same schema as populated jobs.
+  const std::string name = base + "_isoR30" + suffixForBins(-1, centIdx);
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+    H.erase(it);
+  }
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir)
+  {
+    if (prevDir) prevDir->cd();
+    return nullptr;
+  }
+  dir->cd();
+
+  const std::string xTitle = (axisKey == "e11e33") ? "E_{1x1}/E_{3x3}" : "Au+Au photon-ID BDT score";
+  const std::string title = name + ";" + xTitle + ";E_{T}^{iso,reco} [GeV]";
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
+                                     50, 0.0, 1.000001,
+                                     160, -20.0, 60.0);
+  if (h)
+  {
+    h->Sumw2();
+    H[name] = h;
+  }
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+
+void RecoilJets::fillAuAuFig25CorrelationSurfaces(const std::vector<std::string>& activeTrig,
+                                                   const SSVars& v,
+                                                   double eisoEt,
+                                                   int centIdx,
+                                                   bool isBackground)
+{
+  if (!m_auauFig25CorrelationDiagnosticsEnabled || !isBackground || !m_isSimEmbedded) return;
+  if (embeddedInclusiveJetSampleCodeFromContext(Outfile) == 0) return;
+  if (m_nonTightVariant != "auauBDTSideband" || !auauTightBDTMode(m_tightVariant) ||
+      !fillConeThisView()) return;
+  // Match the PPG12 diagnostic definition and fill exactly one internal view:
+  // the fixed-isolation representative for R = 0.3.
+  if (static_cast<int>(std::lround(100.0 * m_isoConeR)) != 30) return;
+  if (!std::isfinite(v.pt_gamma) || v.pt_gamma < 15.0 || v.pt_gamma >= 35.0 || centIdx < 0) return;
+  if (!std::isfinite(eisoEt) || eisoEt >= 1e8) return;
+
+  for (const auto& trigShort : activeTrig)
+  {
+    if (std::isfinite(v.e11_over_e33))
+    {
+      if (auto* h = getOrBookAuAuFig25CorrelationSurface(trigShort, centIdx, "e11e33"))
+      {
+        h->Fill(v.e11_over_e33, eisoEt);
+        bumpHistFill(trigShort, h->GetName());
+      }
+    }
+    if (std::isfinite(v.auau_tight_bdt_score))
+    {
+      if (auto* h = getOrBookAuAuFig25CorrelationSurface(trigShort, centIdx, "bdtScore"))
+      {
+        h->Fill(v.auau_tight_bdt_score, eisoEt);
+        bumpHistFill(trigShort, h->GetName());
+      }
+    }
+  }
 }
 
 

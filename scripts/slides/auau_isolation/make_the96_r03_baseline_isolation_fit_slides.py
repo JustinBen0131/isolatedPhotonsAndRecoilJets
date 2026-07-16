@@ -42,15 +42,21 @@ ALGORITHM = "baseline"
 PT_SCHEME = "nominal"
 PT_RANGE_TEXT = "15-35"
 PT_BIN_COUNT = 6
+CAMPAIGN_LABEL = "THE96"
 
 
 def configure_paths(
     cone: str,
     algorithm: str = "baseline",
     pt_scheme: str = "nominal",
+    *,
+    source_dir_override: Path | None = None,
+    output_dir_override: Path | None = None,
+    source_prefix_root: str = "the96",
+    campaign_label: str = "THE96",
 ) -> None:
     global CONE, RADIUS_TEXT, RADIUS_TAG, ALGORITHM
-    global PT_SCHEME, PT_RANGE_TEXT, PT_BIN_COUNT
+    global PT_SCHEME, PT_RANGE_TEXT, PT_BIN_COUNT, CAMPAIGN_LABEL
     global SOURCE_DIR, POINTS_CSV, FLAT_CSV, LINEAR_CSV, SOURCE_MANIFEST
     global OUT_DIR, GRID_PNG, GRID_SCRIPT, GRID_LAYOUT, GRID_AUDIT
     global CENT_PNG, CENT_SCRIPT, CENT_LAYOUT, CENT_AUDIT, OUT_MANIFEST
@@ -66,22 +72,37 @@ def configure_paths(
     PT_SCHEME = pt_scheme
     PT_RANGE_TEXT = "15-35" if pt_scheme == "nominal" else "5-40"
     PT_BIN_COUNT = 6 if pt_scheme == "nominal" else 13
+    CAMPAIGN_LABEL = campaign_label.strip().upper().replace("-", "")
+    if not CAMPAIGN_LABEL or not CAMPAIGN_LABEL.isalnum():
+        raise ValueError(f"invalid campaign label: {campaign_label!r}")
+    source_prefix_root = source_prefix_root.strip()
+    if not source_prefix_root or any(
+        character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+        for character in source_prefix_root
+    ):
+        raise ValueError(f"invalid source prefix root: {source_prefix_root!r}")
     RADIUS_TEXT = "0.3" if cone == "R30" else "0.4"
     RADIUS_TAG = "r03" if cone == "R30" else "r04"
     histogram_tag = "r30" if cone == "R30" else "r40"
 
     SOURCE_DIR = (
-        REPO
+        source_dir_override.expanduser().resolve()
+        if source_dir_override is not None
+        else REPO
         / "dataOutput/auau/isolation_baseline5pct_the96_20260709"
         / f"{RADIUS_TAG}_{ALGORITHM}_{PT_SCHEME}_{'15to35' if PT_SCHEME == 'nominal' else '5to40'}"
     )
-    source_prefix = f"the96_auau_iso_{histogram_tag}_{ALGORITHM}_{PT_SCHEME}"
+    source_prefix = f"{source_prefix_root}_auau_iso_{histogram_tag}_{ALGORITHM}_{PT_SCHEME}"
     POINTS_CSV = SOURCE_DIR / f"{source_prefix}_cutoff_points.csv"
     FLAT_CSV = SOURCE_DIR / f"{source_prefix}_flat_fits.csv"
     LINEAR_CSV = SOURCE_DIR / f"{source_prefix}_linear_fits.csv"
     SOURCE_MANIFEST = SOURCE_DIR / f"{source_prefix}_manifest.json"
 
-    OUT_DIR = SOURCE_DIR / "slide_candidates"
+    OUT_DIR = (
+        output_dir_override.expanduser().resolve()
+        if output_dir_override is not None
+        else SOURCE_DIR / "slide_candidates"
+    )
     slide_prefix = f"auau_{RADIUS_TAG}_{ALGORITHM}_isolation"
     GRID_PNG = OUT_DIR / f"{slide_prefix}_pt_flat_fits_slide.png"
     GRID_SCRIPT = OUT_DIR / f"{slide_prefix}_pt_flat_fits_speaker_script.md"
@@ -794,7 +815,7 @@ def write_sidecars(linear: pd.DataFrame) -> None:
     OUT_MANIFEST.write_text(
         json.dumps(
             {
-                "schema": f"THE96_AUAU_{CONE}_{ALGORITHM.upper()}_ISOLATION_SLIDES_V1",
+                "schema": f"{CAMPAIGN_LABEL}_AUAU_{CONE}_{ALGORITHM.upper()}_ISOLATION_SLIDES_V1",
                 "campaign_tag": source_manifest.get("campaign_tag"),
                 "sample": "embedded Photon12+20 truth-matched signal",
                 "algorithm": (
@@ -868,8 +889,20 @@ def main() -> None:
     parser.add_argument("--cone", choices=("R30", "R40"), default="R30")
     parser.add_argument("--algorithm", choices=("baseline", "topocluster"), default="baseline")
     parser.add_argument("--pt-scheme", choices=("nominal", "expanded"), default="nominal")
+    parser.add_argument("--source-dir", type=Path)
+    parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--source-prefix-root", default="the96")
+    parser.add_argument("--campaign-label", default="THE96")
     args = parser.parse_args()
-    configure_paths(args.cone, args.algorithm, args.pt_scheme)
+    configure_paths(
+        args.cone,
+        args.algorithm,
+        args.pt_scheme,
+        source_dir_override=args.source_dir,
+        output_dir_override=args.output_dir,
+        source_prefix_root=args.source_prefix_root,
+        campaign_label=args.campaign_label,
+    )
     setup_style()
     points, flat, linear = load_tables()
     render_grid_slide(points, flat)

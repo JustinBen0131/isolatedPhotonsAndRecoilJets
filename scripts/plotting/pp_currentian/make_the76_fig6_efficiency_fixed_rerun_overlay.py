@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""PPG12 Fig. 6 efficiency overlay for the THE-76 fixed photon+jet rerun.
+"""PPG12 Fig. 6 efficiency overlay for the current photon+jet artifact.
 
-Reads the July 2 fixed photon+jet rerun ROOT directly, not the stale July 1
-artifact, and overlays the current-analysis efficiency numerators against the
+Resolves the promoted photon+jet ROOT through the current-artifact pointer and
+compares its dedicated PPG12 Fig. 6 efficiency-stage histograms with the direct
 PPG12 TEfficiency readback.
 """
 
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -38,15 +39,11 @@ DEFAULT_PPG12_CSV = (
     / "ppg12_bdt_nom_efficiency_tefficiency_readback_full_remote_clean.csv"
 )
 
-HIST_DEN = "h_photonEffTruthDen_pTgamma_0"
-HIST_RECO = "h_photonEffReco_pTgamma_0"
-HIST_RECO_ID = "h_photonEffRecoTight_pTgamma_0"
-HIST_RECO_ISO = "h_photonEffRecoIso_pTgamma_0"
-HIST_ALL = "h_photonEffRecoTightIso_pTgamma_0"
-STRICT_NAMED_EXPECTED = [
-    "h_photonEffPpg12Fig6TruthDen_pTgamma_0",
-    "h_photonEffPpg12Fig6RecoTight_pTgamma_0",
-]
+HIST_DEN = "h_photonEffPpg12Fig6TruthDen_pTgamma_0"
+HIST_RECO = "h_photonEffPpg12Fig6Reco_pTgamma_0"
+HIST_RECO_ID = "h_photonEffPpg12Fig6RecoTight_pTgamma_0"
+HIST_RECO_ISO = "h_photonEffPpg12Fig6RecoIso_pTgamma_0"
+HIST_ALL = "h_photonEffPpg12Fig6RecoTightIso_pTgamma_0"
 
 PLOT_XMIN = 10.0
 PLOT_XMAX = 35.0
@@ -58,21 +55,25 @@ CURVES = [
 ]
 
 
-def ratio_error(num: float, den: float, enum: float, eden: float) -> float:
-    if den <= 0.0 or num < 0.0:
-        return math.nan
-    return math.sqrt((enum / den) ** 2 + ((num * eden) / (den * den)) ** 2)
+def weighted_subset_efficiency(num: float, den: float, den_err: float) -> tuple[float, float]:
+    """Weighted-binomial efficiency/error for a nested numerator and denominator."""
+    if den <= 0.0 or num < 0.0 or num > den or den_err <= 0.0:
+        return math.nan, math.nan
+    eff = num / den
+    n_eff = (den / den_err) ** 2
+    err = math.sqrt(max(0.0, eff * (1.0 - eff) / n_eff)) if n_eff > 0.0 else math.nan
+    return eff, err
 
 
-def resolve_default_root(path_arg: Path | None) -> tuple[Path, str]:
+def resolve_default_root(path_arg: Path | None) -> tuple[Path, str, str]:
     if path_arg is not None:
-        return path_arg, "explicit --root"
+        return path_arg, "explicit --root", "explicit_root"
     if DEFAULT_CURRENT_POINTER.exists():
         payload = json.loads(DEFAULT_CURRENT_POINTER.read_text())
         roots = payload.get("root_paths") or []
         if roots:
-            return Path(roots[0]), str(DEFAULT_CURRENT_POINTER)
-    return DEFAULT_ROOT, "fallback hardcoded fixed-rerun ROOT"
+            return Path(roots[0]), str(DEFAULT_CURRENT_POINTER), payload.get("campaign_tag", "current")
+    return DEFAULT_ROOT, "fallback hardcoded fixed-rerun ROOT", DEFAULT_CAMPAIGN
 
 
 def read_ppg12(csv_path: Path) -> dict[str, list[dict[str, float]]]:
@@ -129,11 +130,9 @@ def hist_ratio_row(num: ROOT.TH1, den: ROOT.TH1, ppg12_row: dict[str, float]) ->
     ib_num = num.GetXaxis().FindBin(mid)
     ib_den = den.GetXaxis().FindBin(mid)
     n = float(num.GetBinContent(ib_num))
-    ne = float(num.GetBinError(ib_num))
     d = float(den.GetBinContent(ib_den))
     de = float(den.GetBinError(ib_den))
-    eff = n / d if d > 0.0 else math.nan
-    err = ratio_error(n, d, ne, de)
+    eff, err = weighted_subset_efficiency(n, d, de)
     return {
         "pt_low": ppg12_row["pt_low"],
         "pt_high": ppg12_row["pt_high"],
@@ -146,6 +145,39 @@ def hist_ratio_row(num: ROOT.TH1, den: ROOT.TH1, ppg12_row: dict[str, float]) ->
     }
 
 
+def product_ratio_row(
+    reco: ROOT.TH1,
+    den: ROOT.TH1,
+    tight_iso: ROOT.TH1,
+    reco_iso: ROOT.TH1,
+    ppg12_row: dict[str, float],
+) -> dict[str, float]:
+    """Mirror PPG12 Fig. 6 magenta: reco efficiency times conditional ID."""
+    mid = ppg12_row["pt_mid"]
+    ir = reco.GetXaxis().FindBin(mid)
+    iden = den.GetXaxis().FindBin(mid)
+    ia = tight_iso.GetXaxis().FindBin(mid)
+    ii = reco_iso.GetXaxis().FindBin(mid)
+    reco_num = float(reco.GetBinContent(ir))
+    truth_den = float(den.GetBinContent(iden))
+    all_num = float(tight_iso.GetBinContent(ia))
+    iso_den = float(reco_iso.GetBinContent(ii))
+    reco_eff, reco_err = weighted_subset_efficiency(reco_num, truth_den, float(den.GetBinError(iden)))
+    id_eff, id_err = weighted_subset_efficiency(all_num, iso_den, float(reco_iso.GetBinError(ii)))
+    eff = reco_eff * id_eff
+    err = math.sqrt((id_eff * reco_err) ** 2 + (reco_eff * id_err) ** 2)
+    return {
+        "pt_low": ppg12_row["pt_low"],
+        "pt_high": ppg12_row["pt_high"],
+        "pt_mid": mid,
+        "eff": eff,
+        "err_low": err,
+        "err_high": err,
+        "num": all_num,
+        "den": iso_den,
+    }
+
+
 def read_current(root_path: Path, ppg12: dict[str, list[dict[str, float]]]) -> dict[str, list[dict[str, float]]]:
     handle = ROOT.TFile.Open(str(root_path), "READ")
     if not handle or handle.IsZombie():
@@ -154,21 +186,60 @@ def read_current(root_path: Path, ppg12: dict[str, list[dict[str, float]]]) -> d
     if not sim:
         raise RuntimeError(f"Missing SIM directory in {root_path}")
 
-    missing_strict_named = [name for name in STRICT_NAMED_EXPECTED if not sim.Get(name)]
     h_den = require_hist(sim, HIST_DEN)
     h_reco = require_hist(sim, HIST_RECO)
-    h_reco_id = require_hist(sim, HIST_RECO_ID)
-    require_hist(sim, HIST_RECO_ISO)
+    require_hist(sim, HIST_RECO_ID)
+    h_reco_iso = require_hist(sim, HIST_RECO_ISO)
     h_all = require_hist(sim, HIST_ALL)
 
     out = {
         "reco": [hist_ratio_row(h_reco, h_den, r) for r in ppg12["reco"]],
-        "reco_id": [hist_ratio_row(h_reco_id, h_den, r) for r in ppg12["reco_id"]],
+        "reco_id": [product_ratio_row(h_reco, h_den, h_all, h_reco_iso, r) for r in ppg12["reco_id"]],
         "reco_id_iso": [hist_ratio_row(h_all, h_den, r) for r in ppg12["reco_id_iso"]],
     }
     handle.Close()
-    out["_missing_strict_named"] = missing_strict_named
     return out
+
+
+def read_current_csv(csv_path: Path, ppg12: dict[str, list[dict[str, float]]]) -> dict[str, list[dict[str, float]]]:
+    """Read a compact, provenance-pinned Fig. 6 efficiency extraction."""
+    out: dict[str, list[dict[str, float]]] = {stage: [] for stage, *_rest in CURVES}
+    with csv_path.open() as handle:
+        for row in csv.DictReader(handle):
+            stage = row["stage"]
+            if stage not in out:
+                raise RuntimeError(f"Unexpected current-efficiency stage {stage!r} in {csv_path}")
+            out[stage].append(
+                {
+                    "pt_low": float(row["pt_low"]),
+                    "pt_high": float(row["pt_high"]),
+                    "pt_mid": float(row["pt_mid"]),
+                    "eff": float(row["current_eff"]),
+                    "err_low": float(row["current_err"]),
+                    "err_high": float(row["current_err"]),
+                    "num": float(row["current_num"]),
+                    "den": float(row["current_den"]),
+                }
+            )
+
+    for stage in out:
+        out[stage].sort(key=lambda row: row["pt_mid"])
+        expected = [row["pt_mid"] for row in ppg12[stage]]
+        observed = [row["pt_mid"] for row in out[stage]]
+        if observed != expected:
+            raise RuntimeError(
+                f"Current compact extraction does not match the PPG12 {stage} bin centers: "
+                f"observed={observed}, expected={expected}"
+            )
+    return out
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def write_csv(path: Path, ppg12: dict[str, list[dict[str, float]]], current: dict[str, list[dict[str, float]]]) -> None:
@@ -335,20 +406,39 @@ def draw(path: Path, ppg12: dict[str, list[dict[str, float]]], current: dict[str
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--root", type=Path, default=None)
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--root", type=Path, default=None)
+    source.add_argument("--current-csv", type=Path, default=None)
     parser.add_argument("--ppg12-csv", type=Path, default=DEFAULT_PPG12_CSV)
-    parser.add_argument("--out-dir", type=Path, default=REPO / "dataOutput/ppg12Parity" / DEFAULT_CAMPAIGN / "fig6_efficiency_fixed_rerun_direct")
+    parser.add_argument("--out-dir", type=Path, default=None)
+    parser.add_argument("--campaign-tag", default=None)
+    parser.add_argument("--current-source-root", default=None)
+    parser.add_argument("--current-source-sha256", default=None)
+    parser.add_argument("--status-label", default="current production comparison")
+    parser.add_argument("--production-artifact-exception", default=None)
     args = parser.parse_args()
 
+    current_csv_sha256 = None
+    if args.current_csv is not None:
+        if not args.current_source_root or not args.current_source_sha256:
+            parser.error("--current-csv requires --current-source-root and --current-source-sha256")
+        current_root = args.current_source_root
+        root_resolution = "compact read-only histogram extraction from explicit remote ROOT"
+        campaign_tag = args.campaign_tag or args.current_csv.parent.name
+        current_csv_sha256 = sha256_file(args.current_csv)
+    else:
+        resolved_root, root_resolution, resolved_campaign = resolve_default_root(args.root)
+        current_root = str(resolved_root)
+        campaign_tag = args.campaign_tag or resolved_campaign
+    if args.out_dir is None:
+        args.out_dir = REPO / "dataOutput/ppg12Parity" / campaign_tag / "fig6_efficiency_current_direct"
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    out_png = args.out_dir / "ppg12_fig6_sdcc_vs_current_fixed_rerun_direct_overlay.png"
-    out_csv = args.out_dir / "ppg12_fig6_sdcc_vs_current_fixed_rerun_direct_overlay_points.csv"
-    out_manifest = args.out_dir / "ppg12_fig6_sdcc_vs_current_fixed_rerun_direct_overlay_manifest.json"
+    out_png = args.out_dir / "ppg12_fig6_sdcc_vs_current_dedicated_overlay.png"
+    out_csv = args.out_dir / "ppg12_fig6_sdcc_vs_current_dedicated_overlay_points.csv"
+    out_manifest = args.out_dir / "ppg12_fig6_sdcc_vs_current_dedicated_overlay_manifest.json"
 
-    current_root, root_resolution = resolve_default_root(args.root)
     ppg12 = read_ppg12(args.ppg12_csv)
-    current = read_current(current_root, ppg12)
-    missing_strict_named = current.pop("_missing_strict_named", [])
+    current = read_current_csv(args.current_csv, ppg12) if args.current_csv else read_current(Path(current_root), ppg12)
     write_csv(out_csv, ppg12, current)
     summary = draw(out_png, ppg12, current)
     out_manifest.write_text(
@@ -356,20 +446,27 @@ def main() -> None:
             {
                 "artifact": str(out_png),
                 "comparison_csv": str(out_csv),
-                "campaign_tag": DEFAULT_CAMPAIGN,
+                "campaign_tag": campaign_tag,
+                "status": args.status_label,
                 "current_root": str(current_root),
                 "current_root_resolution": root_resolution,
+                "current_source_sha256": args.current_source_sha256,
+                "current_compact_csv": str(args.current_csv) if args.current_csv else None,
+                "current_compact_csv_sha256": current_csv_sha256,
+                "production_artifact_exception": args.production_artifact_exception,
                 "ppg12_csv": str(args.ppg12_csv),
+                "ppg12_csv_sha256": sha256_file(args.ppg12_csv),
                 "ppg12_source_root": "/sphenix/user/shuhangli/ppg12/efficiencytool/results/MC_efficiency_bdt_nom.root",
                 "current_histograms": {
                     "denominator": f"SIM/{HIST_DEN}",
                     "reco": f"SIM/{HIST_RECO}",
-                    "reco_id": f"SIM/{HIST_RECO_ID}",
-                    "reco_iso_crosscheck": f"SIM/{HIST_RECO_ISO}",
+                    "reco_id_direct_crosscheck": f"SIM/{HIST_RECO_ID}",
+                    "reco_iso": f"SIM/{HIST_RECO_ISO}",
+                    "reco_id": f"({HIST_RECO}/{HIST_DEN})*({HIST_ALL}/{HIST_RECO_ISO})",
                     "reco_id_iso": f"SIM/{HIST_ALL}",
                 },
-                "definition_note": "Current curves use the complete direct efficiency-stage family present in the fixed rerun ROOT: reco/TruthDen, reco&&ID/TruthDen, reco&&ID&&iso/TruthDen. This avoids the stale plotting-side derived magenta formula reco*(tight_iso/iso).",
-                "missing_strict_named_fig6_objects_in_current_root": missing_strict_named,
+                "definition_note": "Exact PPG12 Fig. 6 construction: reco = Fig6Reco/Fig6TruthDen; reco*ID = (Fig6Reco/Fig6TruthDen)*(Fig6RecoTightIso/Fig6RecoIso); reco*ID*iso = Fig6RecoTightIso/Fig6TruthDen.",
+                "current_statistical_errors": "Weighted-binomial subset errors using denominator effective entries; magenta product propagated as in the PPG12 macro.",
                 "ratio_panel": "Current output / PPG12 SDCC source",
                 "ratio_summary": summary,
             },

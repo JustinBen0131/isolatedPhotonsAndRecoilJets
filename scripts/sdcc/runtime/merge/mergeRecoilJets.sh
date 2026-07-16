@@ -1573,10 +1573,14 @@ validate_ppg12_event_preweighted_root() {
   local rootfile="$1"
   [[ -s "$rootfile" ]] || return 1
 
-  local macro="${TMP_DIR}/_validate_ppg12_preweighted_$$.C"
+  # ROOT resolves an invoked macro call from the file stem. Keep the stem
+  # identical to the fixed function name below; TMP_DIR is already unique per
+  # merge invocation, so no PID suffix is needed for collision avoidance.
+  local macro="${TMP_DIR}/_validate_ppg12_preweighted.C"
   cat > "$macro" <<'ENDMACRO'
 #include <TFile.h>
 #include <TH1.h>
+#include <TH2.h>
 #include <iostream>
 void _validate_ppg12_preweighted(const char* fname) {
   TFile* f = TFile::Open(fname, "READ");

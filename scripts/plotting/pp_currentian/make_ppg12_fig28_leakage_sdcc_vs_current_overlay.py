@@ -64,14 +64,21 @@ CURRENT_OBJECT_FAMILIES = {
     },
     "macro_raw": {
         "suffix": "_0",
-        "description": "non-suffixed raw histograms matching the PPG12 Fig.28 plotting macro object names",
+        "description": (
+            "non-suffixed all-reconstructed-candidate signal-MC ABCD histograms "
+            "matching the PPG12 Fig.28 display-macro object names; these are not "
+            "the truth-matched leakage factors used by the purity correction"
+        ),
     },
 }
 
 
 PPG12_SOURCE_ROOTS = {
+    "analysis_note_fig28": "preserved PPG12 IAN Fig.28 analysis-note backup values",
     "macro_recomputed": "/sphenix/user/shuhangli/ppg12/efficiencytool/results/MC_efficiency_bdt_nom.root",
     "persisted_final": "/sphenix/user/shuhangli/ppg12/efficiencytool/results/Photon_final_bdt_nom_mc.root",
+    "persisted_nom_combined": "/sphenix/user/shuhangli/ppg12/efficiencytool/results/Photon_final_bdt_nom_mc.root",
+    "persisted_all": "/sphenix/user/shuhangli/ppg12/efficiencytool/results/Photon_final_bdt_all_mc.root",
 }
 
 
@@ -124,6 +131,62 @@ def read_ppg12_rows(
             )
     for rows in out.values():
         rows.sort(key=lambda r: r["bin_index"])
+    return out
+
+
+def read_ppg12_root(
+    path: Path, series: list[dict[str, object]]
+) -> dict[str, list[dict[str, float]]]:
+    f = ROOT.TFile.Open(str(path))
+    if not f or f.IsZombie():
+        raise RuntimeError(f"failed to open PPG12 ROOT: {path}")
+    out: dict[str, list[dict[str, float]]] = {}
+    for spec in series:
+        region = spec["region"]
+        hist_name = f"h_leak_{region}"
+        hist = f.Get(hist_name)
+        if not hist:
+            raise RuntimeError(f"missing {hist_name} in {path}")
+        rows: list[dict[str, float]] = []
+        for i in range(1, hist.GetNbinsX() + 1):
+            rows.append(
+                {
+                    "bin_index": i,
+                    "x_low": hist.GetXaxis().GetBinLowEdge(i),
+                    "x_high": hist.GetXaxis().GetBinUpEdge(i),
+                    "x_center": hist.GetXaxis().GetBinCenter(i),
+                    "y": hist.GetBinContent(i),
+                    "err": hist.GetBinError(i),
+                }
+            )
+        out[region] = rows
+    f.Close()
+    return out
+
+
+def read_analysis_note_rows(
+    path: Path, series: list[dict[str, object]]
+) -> dict[str, list[dict[str, float]]]:
+    fields = {
+        "B": "ppg12_fig28_f_b",
+        "C": "ppg12_fig28_f_c",
+        "D": "ppg12_fig28_f_d",
+    }
+    source_rows = list(csv.DictReader(path.open(newline="")))
+    out: dict[str, list[dict[str, float]]] = {}
+    for spec in series:
+        region = spec["region"]
+        out[region] = [
+            {
+                "bin_index": i,
+                "x_low": float(row["pt_lo"]),
+                "x_high": float(row["pt_hi"]),
+                "x_center": float(row["pt_center"]),
+                "y": float(row[fields[region]]),
+                "err": 0.0,
+            }
+            for i, row in enumerate(source_rows, start=1)
+        ]
     return out
 
 
@@ -245,19 +308,23 @@ def draw_line_legend(text_x: float, y: float, color: int, text: str, size: float
 
 
 def ratio_axis_bounds(ratio_rows_by_region: dict[str, list[dict[str, float]]]) -> tuple[float, float]:
-    values: list[float] = []
+    lower_values: list[float] = []
+    upper_values: list[float] = []
     for rows in ratio_rows_by_region.values():
         for row in rows:
             y = row.get("y")
-            if y is None:
+            err = row.get("err", 0.0)
+            if y is None or err is None:
                 continue
-            if math.isfinite(y) and y > 0.0:
-                values.append(y)
-    if not values:
+            if math.isfinite(y) and math.isfinite(err) and y > 0.0 and err >= 0.0:
+                lower_values.append(y - err)
+                upper_values.append(y + err)
+    if not upper_values:
         return 0.5, 3.0
 
-    low = min(min(values), 1.0)
-    high = max(max(values), 1.0)
+    # Bound the full statistical error bars, not only their central values.
+    low = min(min(lower_values), 1.0)
+    high = max(max(upper_values), 1.0)
     span = high - low
     pad = max(0.025, 0.07 * span)
     low = max(0.0, low - pad)
@@ -279,6 +346,8 @@ def render(
     current: dict[str, list[dict[str, float]]],
     output_png: Path,
     series: list[dict[str, object]],
+    source_kind: str,
+    current_object_family: str,
 ) -> dict[str, object]:
     ROOT.gROOT.SetBatch(True)
     ROOT.gStyle.SetOptStat(0)
@@ -305,6 +374,7 @@ def render(
         pad.Draw()
 
     ppg_hists = {}
+    ppg_graphs = {}
     cur_graphs = {}
     ratio_graphs = {}
     ratio_rows_by_region: dict[str, list[dict[str, float]]] = {}
@@ -314,6 +384,9 @@ def render(
         region = spec["region"]
         ppg_hists[region] = make_ppg12_hist(
             ppg12[region], f"h_ppg12_{region}", spec["color"]
+        )
+        ppg_graphs[region] = make_graph(
+            ppg12[region], f"g_ppg12_{region}", spec["color"], 24
         )
         cur_graphs[region] = make_graph(
             current[region], f"g_current_{region}", spec["color"], spec["marker"]
@@ -358,8 +431,12 @@ def render(
     frame_top.GetYaxis().SetNdivisions(507)
     frame_top.Draw("axis")
 
+    ppg_as_markers = source_kind == "persisted_nom_combined"
     for spec in series:
-        ppg_hists[spec["region"]].Draw("same hist")
+        if ppg_as_markers:
+            ppg_graphs[spec["region"]].Draw("same p")
+        else:
+            ppg_hists[spec["region"]].Draw("same hist")
     for spec in series:
         cur_graphs[spec["region"]].Draw("same p")
 
@@ -375,11 +452,11 @@ def render(
     for y, spec in zip([0.89, 0.81, 0.73], series):
         draw_line_legend(0.47, y, spec["color"], spec["label"], 0.038)
 
-    src_leg = ROOT.TLegend(0.56, 0.49, 0.93, 0.61)
+    src_leg = ROOT.TLegend(0.17, 0.48, 0.61, 0.61)
     src_leg.SetBorderSize(0)
     src_leg.SetFillStyle(0)
     src_leg.SetTextFont(42)
-    src_leg.SetTextSize(0.035)
+    src_leg.SetTextSize(0.034)
     dummy_line = ROOT.TLine()
     dummy_line.SetLineColor(ROOT.kBlack)
     dummy_line.SetLineWidth(2)
@@ -387,8 +464,25 @@ def render(
     dummy_marker.SetMarkerColor(ROOT.kBlack)
     dummy_marker.SetMarkerStyle(20)
     dummy_marker.SetMarkerSize(0.9)
-    src_leg.AddEntry(dummy_line, "PPG12 SDCC", "l")
-    src_leg.AddEntry(dummy_marker, "Current output", "p")
+    dummy_ppg_marker = ROOT.TGraph()
+    dummy_ppg_marker.SetMarkerColor(ROOT.kBlack)
+    dummy_ppg_marker.SetMarkerStyle(24)
+    dummy_ppg_marker.SetMarkerSize(0.9)
+    if source_kind == "analysis_note_fig28" and current_object_family == "macro_raw":
+        src_leg.AddEntry(dummy_line, "PPG12 IAN Fig.28", "l")
+        src_leg.AddEntry(dummy_marker, "Current all-reco Fig.28 family", "p")
+    elif source_kind == "persisted_nom_combined" and current_object_family == "signal":
+        src_leg.AddEntry(dummy_ppg_marker, "PPG12 correction input (SI+DI)", "p")
+        src_leg.AddEntry(dummy_marker, "Current correction input (SI+DI)", "p")
+    elif source_kind == "persisted_all" and current_object_family == "signal":
+        src_leg.AddEntry(dummy_line, "PPG12 combined 0+1.5 mrad", "l")
+        src_leg.AddEntry(dummy_marker, "Current combined 0+1.5 mrad SI+DI", "p")
+    elif source_kind == "persisted_final" and current_object_family == "signal":
+        src_leg.AddEntry(dummy_line, "PPG12 nominal correction input", "l")
+        src_leg.AddEntry(dummy_marker, "Current combined 0+1.5 mrad SI+DI", "p")
+    else:
+        src_leg.AddEntry(dummy_line, "PPG12 SDCC", "l")
+        src_leg.AddEntry(dummy_marker, "Current output", "p")
     src_leg.Draw()
     top.RedrawAxis()
 
@@ -399,7 +493,11 @@ def render(
     ratio_y_min, ratio_y_max = ratio_axis_bounds(ratio_rows_by_region)
     frame_bot.GetYaxis().SetRangeUser(ratio_y_min, ratio_y_max)
     frame_bot.GetXaxis().SetTitle("#it{E}_{T}^{#gamma,rec} [GeV]")
-    frame_bot.GetYaxis().SetTitle("SDCC / Current")
+    frame_bot.GetYaxis().SetTitle(
+        "IAN Fig.28 / Current"
+        if source_kind == "analysis_note_fig28"
+        else "SDCC / Current"
+    )
     frame_bot.GetXaxis().SetTitleSize(0.095)
     frame_bot.GetYaxis().SetTitleSize(0.080)
     frame_bot.GetXaxis().SetLabelSize(0.080)
@@ -450,20 +548,35 @@ def write_points_csv(rows: list[dict[str, object]], path: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--ppg12-csv", type=Path, default=DEFAULT_PPG12_CSV)
+    parser.add_argument(
+        "--ppg12-root",
+        type=Path,
+        help="read canonical h_leak_B/C/D directly from an audited PPG12 ROOT",
+    )
+    parser.add_argument(
+        "--ppg12-analysis-note-csv",
+        type=Path,
+        help="read preserved historical PPG12 IAN Fig.28 B/C/D values",
+    )
     parser.add_argument("--current-json", type=Path, default=DEFAULT_CURRENT_JSON)
     parser.add_argument("--outdir", type=Path, default=DEFAULT_OUTDIR)
     parser.add_argument("--source-kind", default="macro_recomputed")
     parser.add_argument(
         "--current-object-family",
         choices=sorted(CURRENT_OBJECT_FAMILIES),
-        default="signal",
+        default="macro_raw",
         help="current ROOT object family to compare against the selected PPG12 source",
     )
     args = parser.parse_args()
 
     current_root = resolve_current_root(args.current_json)
     current_den, series = build_series(args.current_object_family)
-    ppg12 = read_ppg12_rows(args.ppg12_csv, args.source_kind, series)
+    if args.ppg12_analysis_note_csv:
+        ppg12 = read_analysis_note_rows(args.ppg12_analysis_note_csv, series)
+    elif args.ppg12_root:
+        ppg12 = read_ppg12_root(args.ppg12_root, series)
+    else:
+        ppg12 = read_ppg12_rows(args.ppg12_csv, args.source_kind, series)
     current = current_points(current_root, current_den, series)
 
     stem = (
@@ -472,7 +585,14 @@ def main() -> None:
         "_overlay_ratio"
     )
     png = args.outdir / f"{stem}.png"
-    payload = render(ppg12, current, png, series)
+    payload = render(
+        ppg12,
+        current,
+        png,
+        series,
+        args.source_kind,
+        args.current_object_family,
+    )
     csv_path = png.with_name(png.stem + "_points.csv")
     json_path = png.with_name(png.stem + "_manifest.json")
     write_points_csv(payload["ratio_table"], csv_path)
@@ -481,6 +601,12 @@ def main() -> None:
         "png": str(png),
         "points_csv": str(csv_path),
         "ppg12_csv": str(args.ppg12_csv),
+        "ppg12_input_root": str(args.ppg12_root) if args.ppg12_root else None,
+        "ppg12_analysis_note_csv": (
+            str(args.ppg12_analysis_note_csv)
+            if args.ppg12_analysis_note_csv
+            else None
+        ),
         "ppg12_source_kind": args.source_kind,
         "ppg12_source_root": PPG12_SOURCE_ROOTS.get(args.source_kind, "unknown"),
         "current_json": str(args.current_json),
@@ -489,9 +615,62 @@ def main() -> None:
         "current_object_family_description": CURRENT_OBJECT_FAMILIES[args.current_object_family]["description"],
         "current_denominator": current_den,
         "current_numerators": {spec["region"]: spec["current_num"] for spec in series},
-        "ratio_definition": "PPG12 SDCC / Current output",
+        "ratio_definition": (
+            "PPG12 IAN Fig.28 / Current output"
+            if args.source_kind == "analysis_note_fig28"
+            else "PPG12 SDCC / Current output"
+        ),
         "ratio_y_range": [payload["ratio_y_min"], payload["ratio_y_max"]],
-        "top_panel": "PPG12 SDCC as solid step curves; Current output as filled markers",
+        "top_panel": (
+            "PPG12 IAN Fig.28 as solid step curves; current all-reconstructed-candidate "
+            "Fig.28 display-macro family as filled markers; not the purity-correction inputs"
+            if args.source_kind == "analysis_note_fig28"
+            else (
+                "PPG12 SDCC as open markers; Current output as filled markers"
+                if args.source_kind == "persisted_nom_combined"
+                else "PPG12 SDCC as solid step curves; Current output as filled markers"
+            )
+        ),
+        "comparison_scope": (
+            "Published PPG12 IAN Fig.28 leakage values versus the current "
+            "unsuffixed all-reconstructed-candidate photon-MC ABCD ratios used for "
+            "Fig.28 display-macro parity; this is not a comparison of the truth-matched "
+            "leakage factors used by the purity correction"
+            if args.source_kind == "analysis_note_fig28"
+            and args.current_object_family == "macro_raw"
+            else (
+                "PPG12 persisted purity-correction leakage factors versus the current "
+                "fully combined, preweighted 0+1.5 mrad SI+DI photon sample"
+                if args.source_kind
+                in {"persisted_final", "persisted_nom_combined", "persisted_all"}
+                and args.current_object_family == "signal"
+                else "PPG12 and current leakage comparison"
+            )
+        ),
+        "canonical_for_combined_nominal_parity": (
+            args.source_kind == "persisted_nom_combined"
+            and args.current_object_family == "signal"
+        ),
+        "canonical_for_published_fig28_parity": (
+            args.source_kind == "analysis_note_fig28"
+            and args.current_object_family == "macro_raw"
+        ),
+        "current_values_used_by_purity_correction": (
+            args.current_object_family == "signal"
+        ),
+        "reference_status": (
+            "preserved historical PPG12 IAN Fig.28 reference"
+            if args.source_kind == "analysis_note_fig28"
+            else (
+                "current June combined-nominal PPG12 correction product"
+                if args.source_kind == "persisted_nom_combined"
+                else (
+                    "legacy April bdt_all product; not canonical for current combined-nominal parity"
+                    if args.source_kind == "persisted_all"
+                    else "diagnostic or alternate PPG12 reference"
+                )
+            )
+        ),
     }
     json_path.write_text(json.dumps(manifest, indent=2) + "\n")
     print(png)
