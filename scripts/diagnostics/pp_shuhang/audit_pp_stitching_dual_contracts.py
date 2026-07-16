@@ -87,14 +87,14 @@ PHOTON_XSECS_PB = {
     "run28_photonjet10": 6944.675,
     "run28_photonjet20": 130.4461,
 }
-JET_XSECS_CURRENT_PB = {
+JET_XSECS_OLD_LOCAL_PB = {
     "run28_jet8": 1.3013e7,
     "run28_jet12": 1.4903e6,
     "run28_jet20": 6.2623e4,
     "run28_jet30": 2.5298e3,
     "run28_jet40": 1.3553e2,
 }
-JET_XSECS_PPG12_LEGACY_PB = {
+JET_XSECS_PPG12_NOMINAL_PB = {
     "run28_jet8": 1.15e7,
     "run28_jet12": 1.4903e6,
     "run28_jet20": 6.2623e4,
@@ -231,7 +231,7 @@ def current_jet_points(
             y = float(row["density_pb_per_gev"])
             ey = float(row["density_err_pb_per_gev"])
         elif mode in {"ppg12_weighted_counts", "ppg12_weighted_counts_scaled"}:
-            xsec = JET_XSECS_PPG12_LEGACY_PB[sample]
+            xsec = JET_XSECS_PPG12_NOMINAL_PB[sample]
             scale = 1.0 if exposure_scales is None else exposure_scales.get(ref_sample, 1.0)
             y = raw * xsec / JET50_XSEC_PB * scale
             ey = math.sqrt(raw) * xsec / JET50_XSEC_PB * scale
@@ -531,8 +531,8 @@ def main() -> None:
         },
         "ppg12_legacy_constants": {
             "jet50_xsec_pb": JET50_XSEC_PB,
-            "jet_xsecs_pb": JET_XSECS_PPG12_LEGACY_PB,
-            "current_clean_jet_xsecs_pb": JET_XSECS_CURRENT_PB,
+            "jet_xsecs_pb": JET_XSECS_PPG12_NOMINAL_PB,
+            "old_local_jet_xsecs_pb": JET_XSECS_OLD_LOCAL_PB,
             "photon_xsecs_pb": PHOTON_XSECS_PB,
         },
         "derived_scales": {

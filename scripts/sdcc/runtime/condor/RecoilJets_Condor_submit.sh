@@ -432,6 +432,7 @@ create_pipeline_snapshot() {
   local snap_dir="${SNAPSHOT_ROOT}/${TAG}_${stamp}"
   local snap_lib_dir="${snap_dir}/lib"
   local user_root="/sphenix/u/${USER:-$(id -u -n)}"
+  local auau_library_source="${RJ_AUAU_LIBRARY_OVERRIDE:-${user_root}/thesisAnalysis_auau/install/lib/libRecoilJetsAuAu.so}"
 
   local live_wrapper=""
   local live_macro=""
@@ -442,6 +443,9 @@ create_pipeline_snapshot() {
   local snap_calo="${snap_dir}/Calo_Calib.C"
   local snap_pp_header="${snap_dir}/RecoilJets.h"
   local snap_auau_header="${snap_dir}/RecoilJets_AuAu.h"
+  local use_release_core_libs=0
+  local release_core_lib_dir="${RJ_RELEASE_CORE_LIB_DIR:-/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.558/lib}"
+  local release_core_lib64_dir="${RJ_RELEASE_CORE_LIB64_DIR:-/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.558/lib64}"
 
   mkdir -p "$snap_dir" "$snap_lib_dir"
 
@@ -464,12 +468,28 @@ create_pipeline_snapshot() {
   cp -f "${BASE}/src/RecoilJets.h" "$snap_pp_header"
   cp -f "${BASE}/src_AuAu/RecoilJets_AuAu.h" "$snap_auau_header"
 
-  cp -f "${user_root}/thesisAnalysis/install/lib/libcalo_reco.so" "$snap_lib_dir/"
-  cp -f "${user_root}/thesisAnalysis/install/lib/libcalo_io.so" "$snap_lib_dir/"
-  cp -f "${user_root}/thesisAnalysis/install/lib/libclusteriso.so" "$snap_lib_dir/"
-  cp -f "${user_root}/thesisAnalysis/install/lib/libjetbase.so" "$snap_lib_dir/"
+  if [[ "$mode" != "auau" ]] && env_truthy "${RJ_FORCE_RELEASE_CORE_LIBS:-0}"; then
+    use_release_core_libs=1
+    for release_core_so in libcalo_reco.so libclusteriso.so libjetbase.so; do
+      if [[ ! -r "${release_core_lib_dir}/${release_core_so}" && ! -r "${release_core_lib64_dir}/${release_core_so}" ]]; then
+        err "RJ_FORCE_RELEASE_CORE_LIBS requested, but ${release_core_so} is not readable in ${release_core_lib_dir} or ${release_core_lib64_dir}"
+        exit 2
+      fi
+    done
+    say "RJ_FORCE_RELEASE_CORE_LIBS=1: using release CaloReco/ClusterIso/JetBase instead of private core library snapshots."
+  else
+    cp -f "${user_root}/thesisAnalysis/install/lib/libcalo_reco.so" "$snap_lib_dir/"
+    cp -f "${user_root}/thesisAnalysis/install/lib/libcalo_io.so" "$snap_lib_dir/"
+    cp -f "${user_root}/thesisAnalysis/install/lib/libclusteriso.so" "$snap_lib_dir/"
+    cp -f "${user_root}/thesisAnalysis/install/lib/libjetbase.so" "$snap_lib_dir/"
+  fi
   [[ -f "${user_root}/thesisAnalysis/install/lib/libRecoilJets.so" ]] && cp -f "${user_root}/thesisAnalysis/install/lib/libRecoilJets.so" "$snap_lib_dir/"
-  [[ -f "${user_root}/thesisAnalysis_auau/install/lib/libRecoilJetsAuAu.so" ]] && cp -f "${user_root}/thesisAnalysis_auau/install/lib/libRecoilJetsAuAu.so" "$snap_lib_dir/"
+  if [[ -f "$auau_library_source" ]]; then
+    cp -f "$auau_library_source" "$snap_lib_dir/libRecoilJetsAuAu.so"
+  elif [[ "$mode" == "auau" ]]; then
+    err "AuAu snapshot library is missing: ${auau_library_source}"
+    exit 2
+  fi
 
   # Copy companion ROOT PCM dictionaries so R__LOAD_LIBRARY doesn't spew missing-PCM errors
   cp -f "${user_root}/thesisAnalysis/install/lib/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
@@ -497,14 +517,89 @@ create_pipeline_snapshot() {
   sed -i "s|#include \"/sphenix/u/patsfan753/scratch/thesisAnalysis/src/RecoilJets.h\"|#include \"${snap_pp_header}\"|" "$snap_impl"
   sed -i "s|#include \"/sphenix/u/patsfan753/scratch/thesisAnalysis/src_AuAu/RecoilJets_AuAu.h\"|#include \"${snap_auau_header}\"|" "$snap_impl"
 
-  sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)|R__LOAD_LIBRARY(${snap_lib_dir}/libcalo_reco.so)|" "$snap_impl"
-  sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_io.so)|R__LOAD_LIBRARY(${snap_lib_dir}/libcalo_io.so)|" "$snap_impl"
-  sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libclusteriso.so)|R__LOAD_LIBRARY(${snap_lib_dir}/libclusteriso.so)|" "$snap_impl"
-  sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libjetbase.so)|R__LOAD_LIBRARY(${snap_lib_dir}/libjetbase.so)|" "$snap_impl"
+  if (( use_release_core_libs )); then
+    sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)|R__LOAD_LIBRARY(libcalo_reco.so)|" "$snap_impl"
+    sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_io.so)|R__LOAD_LIBRARY(libcalo_io.so)|" "$snap_impl"
+    sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libclusteriso.so)|R__LOAD_LIBRARY(libclusteriso.so)|" "$snap_impl"
+    sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libjetbase.so)|R__LOAD_LIBRARY(libjetbase.so)|" "$snap_impl"
+  else
+    sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)|R__LOAD_LIBRARY(${snap_lib_dir}/libcalo_reco.so)|" "$snap_impl"
+    sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_io.so)|R__LOAD_LIBRARY(${snap_lib_dir}/libcalo_io.so)|" "$snap_impl"
+    sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libclusteriso.so)|R__LOAD_LIBRARY(${snap_lib_dir}/libclusteriso.so)|" "$snap_impl"
+    sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libjetbase.so)|R__LOAD_LIBRARY(${snap_lib_dir}/libjetbase.so)|" "$snap_impl"
+  fi
   sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libRecoilJets.so)|R__LOAD_LIBRARY(${snap_lib_dir}/libRecoilJets.so)|" "$snap_impl"
   sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis_auau/install/lib/libRecoilJetsAuAu.so)|R__LOAD_LIBRARY(${snap_lib_dir}/libRecoilJetsAuAu.so)|" "$snap_impl"
+  if (( use_release_core_libs )); then
+    sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)|R__LOAD_LIBRARY(libcalo_reco.so)|" "$snap_calo"
+  else
+    sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)|R__LOAD_LIBRARY(${snap_lib_dir}/libcalo_reco.so)|" "$snap_calo"
+  fi
+  if [[ "${RJ_FORCE_RELEASE_CALO_IO:-0}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]]; then
+    local release_calo_io="${RJ_RELEASE_CALO_IO_PATH:-/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.558/lib/libcalo_io.so.0}"
+    if [[ ! -r "$release_calo_io" ]]; then
+      err "RJ_FORCE_RELEASE_CALO_IO requested, but libcalo_io is not readable: ${release_calo_io}"
+      exit 2
+    fi
+    # Keep ROOT to a single calo_io dictionary provider. Preloading the release
+    # library while the frozen macro R__LOAD_LIBRARYs the private snapshot copy
+    # duplicates classes and can abort before event processing starts.
+    sed -i "s|R__LOAD_LIBRARY(${snap_lib_dir}/libcalo_io.so)|R__LOAD_LIBRARY(${release_calo_io})|" "$snap_impl"
+  fi
+
+  python3 - "$snap_wrapper" "$snap_lib_dir" "$snap_dir" "$use_release_core_libs" "$release_core_lib64_dir" "$release_core_lib_dir" <<'PY'
+from pathlib import Path
+import sys
+
+wrapper = Path(sys.argv[1])
+snap_lib = sys.argv[2]
+snap_dir = sys.argv[3]
+use_release_core = sys.argv[4] == "1"
+release_core_lib64 = sys.argv[5]
+release_core_lib = sys.argv[6]
+text = wrapper.read_text()
+marker = "# ------------------------ Dataset routing"
+release_prefix = f":{release_core_lib64}:{release_core_lib}" if use_release_core else ""
+
+if marker not in text:
+    raise SystemExit(f"snapshot wrapper insertion anchor not found in {wrapper}")
+
+if "snapshot_lib_dir=" not in text:
+    block = f"""# Frozen Condor snapshots carry a sibling lib/ directory with copied local
+# analysis libraries. Put it first so DT_NEEDED SONAME lookups and explicit
+# ROOT loads resolve to the same snapshot copy.
+wrapper_dir=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd -P)\"
+snapshot_lib_dir=\"${{RJ_SNAPSHOT_LIB_DIR:-${{wrapper_dir}}/lib}}\"
+if [[ -d \"$snapshot_lib_dir\" ]]; then
+  export LD_LIBRARY_PATH=\"$snapshot_lib_dir{release_prefix}:${{LD_LIBRARY_PATH:-}}\"
+  echo \"[INFO] Snapshot lib prepended: $snapshot_lib_dir\"
+fi
+if [[ -d \"$wrapper_dir\" ]]; then
+  export ROOT_INCLUDE_PATH=\"$wrapper_dir:${{ROOT_INCLUDE_PATH:-}}\"
+fi
+
+"""
+    text = text.replace(marker, block + marker, 1)
+elif "ROOT_INCLUDE_PATH=\"$wrapper_dir" not in text:
+    block = """if [[ -d "$wrapper_dir" ]]; then
+  export ROOT_INCLUDE_PATH="$wrapper_dir:${ROOT_INCLUDE_PATH:-}"
+fi
+
+"""
+    text = text.replace(marker, block + marker, 1)
+
+wrapper.write_text(text)
+PY
 
   chmod +x "$snap_wrapper"
+  if ! bash -n "$snap_wrapper"; then
+    err "Frozen wrapper failed bash -n: ${snap_wrapper}"
+    exit 2
+  fi
+  if ! grep -Eq '^[[:space:]]*rc=125([[:space:]]|$)' "$snap_wrapper"; then
+    err "Frozen wrapper lacks the rc sentinel required to prevent rc-unbound holds: ${snap_wrapper}"
+    exit 2
+  fi
 
   BULK_FROZEN_EXE="$snap_wrapper"
   BULK_FROZEN_MACRO="$snap_macro"
@@ -513,6 +608,7 @@ create_pipeline_snapshot() {
   say "  snapshot dir : ${snap_dir}"
   say "  frozen exe   : ${BULK_FROZEN_EXE}"
   say "  frozen macro : ${BULK_FROZEN_MACRO}"
+  [[ "$mode" == "auau" ]] && say "  AuAu library : ${auau_library_source}"
 }
 
 cleanup_bulk_snapshots_for_tag() {
@@ -792,6 +888,13 @@ env_truthy() {
   return 1
 }
 
+dataset_is_sim_like() {
+  case "${1:-${DATASET:-}}" in
+    isSim|isSimEmbedded|isSimEmbeddedInclusive|isSimEmbeddedAndInclusive|isSimInclusive|isSimJet5|isSimMB) return 0 ;;
+  esac
+  return 1
+}
+
 append_submit_extra_env_var() {
   local extra="$1"
   local key="$2"
@@ -803,33 +906,148 @@ append_submit_extra_env_var() {
   printf '%s' "${extra:+${extra};}${key}=${val}"
 }
 
+remove_submit_extra_env_var() {
+  local extra="$1"
+  local key="$2"
+  local out=""
+  local old_ifs="$IFS"
+  local part part_key
+  IFS=';'
+  for part in $extra; do
+    [[ -n "$part" ]] || continue
+    part_key="${part%%=*}"
+    [[ "$part_key" == "$key" ]] && continue
+    out="${out:+${out};}${part}"
+  done
+  IFS="$old_ifs"
+  printf '%s' "$out"
+}
+
+submit_extra_env_var_is_truthy() {
+  local extra="$1"
+  local key="$2"
+  local old_ifs="$IFS"
+  local part part_key part_value
+  IFS=';'
+  for part in $extra; do
+    [[ -n "$part" ]] || continue
+    part_key="${part%%=*}"
+    [[ "$part_key" == "$key" ]] || continue
+    part_value="${part#*=}"
+    IFS="$old_ifs"
+    env_truthy "$part_value"
+    return
+  done
+  IFS="$old_ifs"
+  return 1
+}
+
+ppg12_period_sim_uses_auto_mix_weight() {
+  dataset_is_sim_like "${DATASET:-}" || return 1
+  env_truthy "${RJ_PPG12_PHOTON_YIELD:-0}" || return 1
+  [[ -n "${RJ_PPG12_PERIOD:-}" ]] || return 1
+  env_truthy "${RJ_PPG12_PERIOD_ALLOW_MIX_OVERRIDE:-0}" && return 1
+  [[ -n "${RJ_PPG12_PHOTON_YIELD_MIX_WEIGHT:-}" || "${RJ_SUBMIT_EXTRA_ENV:-}" == *RJ_PPG12_PHOTON_YIELD_MIX_WEIGHT=* ]] || return 1
+  return 0
+}
+
+effective_require_non_tiny_output() {
+  if env_truthy "${RJ_REQUIRE_NON_TINY_OUTPUT:-0}"; then
+    printf '1'
+    return
+  fi
+  if env_truthy "${RJ_PPG12_PHOTON_YIELD:-0}" \
+    || env_truthy "${RJ_PPG12_TABLE_QA:-0}" \
+    || env_truthy "${RJ_PPG12_FIG11_SB_DIAGNOSTIC:-0}" \
+    || env_truthy "${RJ_PPG12_FIG13_PARITY_QA:-0}" \
+    || env_truthy "${RJ_PPG12_FIG7_TRIGGER_DIAGNOSTIC:-0}" \
+    || env_truthy "${RJ_PPG12_FIG13_BIT30_DIAGNOSTIC:-0}"; then
+    printf '1'
+    return
+  fi
+  printf '0'
+}
+
 build_submit_extra_env_fragment() {
   local extra="${RJ_SUBMIT_EXTRA_ENV:-}"
+  local sim_dataset=0
+  dataset_is_sim_like "${DATASET:-}" && sim_dataset=1
+  if (( ! sim_dataset )) && [[ "${DATASET:-}" == "isPP" ]] \
+    && [[ -z "${RJ_PPG12_FIG13_BIT30_DIAGNOSTIC+x}" ]] \
+    && { env_truthy "${RJ_PPG12_PHOTON_YIELD:-0}" \
+      || env_truthy "${RJ_PPG12_TABLE_QA:-0}" \
+      || env_truthy "${RJ_PPG12_FIG13_PARITY_QA:-0}"; }; then
+    # PPG12 pp-data parity uses direct GL1 ScaledVector bit 30 as the
+    # canonical Photon 4 GeV + MBD N&S trigger, not the TriggerAnalyzer alias.
+    RJ_PPG12_FIG13_BIT30_DIAGNOSTIC=1
+  fi
   # Load-bearing worker-side analysis modes must reach Condor workers, not
   # only the submit shell. RJ_SUBMIT_EXTRA_ENV remains the general override.
   extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PHOTON_YIELD)"
-  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PHOTON_YIELD_TRUTH_VERTEX)"
-  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PHOTON_YIELD_BUILDER_TRUTH_VERTEX)"
-  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PHOTON_YIELD_RECO_TRUTH_VERTEX)"
-  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PHOTON_YIELD_DOUBLE)"
-  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PHOTON_YIELD_MIX_WEIGHT)"
+  if (( sim_dataset )); then
+    if env_truthy "${RJ_PPG12_PHOTON_YIELD:-0}" &&
+       { env_truthy "${RJ_PPG12_PHOTON_YIELD_TRUTH_VERTEX:-0}" ||
+         env_truthy "${RJ_PPG12_PHOTON_YIELD_BUILDER_TRUTH_VERTEX:-0}" ||
+         env_truthy "${RJ_PPG12_PHOTON_YIELD_RECO_TRUTH_VERTEX:-0}" ||
+         submit_extra_env_var_is_truthy "$extra" RJ_PPG12_PHOTON_YIELD_TRUTH_VERTEX ||
+         submit_extra_env_var_is_truthy "$extra" RJ_PPG12_PHOTON_YIELD_BUILDER_TRUTH_VERTEX ||
+         submit_extra_env_var_is_truthy "$extra" RJ_PPG12_PHOTON_YIELD_RECO_TRUTH_VERTEX; }; then
+      printf '%s\n' \
+        "ERROR: PPG12 truth-for-reconstructed-object vertex mode is forbidden; use reconstructed MBD z for reco kinematics/Eiso and truth z only for SI/DI weights." >&2
+      return 97
+    fi
+    extra="$(remove_submit_extra_env_var "$extra" RJ_PPG12_PHOTON_YIELD_TRUTH_VERTEX)"
+    extra="$(remove_submit_extra_env_var "$extra" RJ_PPG12_PHOTON_YIELD_BUILDER_TRUTH_VERTEX)"
+    extra="$(remove_submit_extra_env_var "$extra" RJ_PPG12_PHOTON_YIELD_RECO_TRUTH_VERTEX)"
+    extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PHOTON_YIELD_DOUBLE)"
+    if ppg12_period_sim_uses_auto_mix_weight; then
+      extra="$(remove_submit_extra_env_var "$extra" RJ_PPG12_PHOTON_YIELD_MIX_WEIGHT)"
+    else
+      extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PHOTON_YIELD_MIX_WEIGHT)"
+    fi
+  fi
   extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PERIOD)"
   extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_CROSSING_PERIOD)"
   extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PERIOD_FILTER_DATA)"
-  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PERIOD_USE_LUMI_WEIGHT)"
-  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PERIOD_STRICT_DI)"
-  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PERIOD_ALLOW_ALL_SIM)"
-  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PERIOD_ALLOW_MIX_OVERRIDE)"
-  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PERIOD_ALLOW_VERTEX_FILE_OVERRIDE)"
+  if (( sim_dataset )); then
+    extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PERIOD_USE_LUMI_WEIGHT)"
+    extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PERIOD_STRICT_DI)"
+    extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PERIOD_ALLOW_ALL_SIM)"
+    extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PERIOD_ALLOW_MIX_OVERRIDE)"
+    extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PERIOD_ALLOW_VERTEX_FILE_OVERRIDE)"
+  fi
   extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_FIG8_BUILD_NOSPLIT)"
   extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_FIG8_CLUSTER_NODE)"
   extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_FIG8_FALLBACK_TO_SPLIT)"
-  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4)"
-  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PPSIM_G4_ONLY)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_TABLE_QA)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_TABLE_QA_MC_ISO_SCALE)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_TABLE_QA_MC_ISO_SHIFT)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_TABLE_QA_MBD_T0_CORRECTION_FILE)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_TABLE_QA_NPB_DATA_TAGGING)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_TABLE_QA_NPB_TIME_SAMPLE_NS)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_TABLE_QA_NPB_DELTA_T_CUT)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_TABLE_QA_NPB_WETA_MIN)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_TABLE_QA_NPB_AWAY_JET_PT_MIN)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_TABLE_QA_NPB_AWAY_JET_DPHI_MIN)"
+  if (( sim_dataset )); then
+    extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_FIG11_SB_DIAGNOSTIC)"
+  fi
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_FIG13_PARITY_QA)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_FIG7_TRIGGER_DIAGNOSTIC)"
+  extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_FIG13_BIT30_DIAGNOSTIC)"
+  if (( sim_dataset )); then
+    extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4)"
+    extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PPSIM_G4_ONLY)"
+    extra="$(append_submit_extra_env_var "$extra" RJ_SIM_ALLOW_NONE_LISTS)"
+    extra="$(append_submit_extra_env_var "$extra" RJ_FORCE_RELEASE_CORE_LIBS)"
+    extra="$(append_submit_extra_env_var "$extra" RJ_RELEASE_CORE_LIB_DIR)"
+    extra="$(append_submit_extra_env_var "$extra" RJ_RELEASE_CORE_LIB64_DIR)"
+    extra="$(append_submit_extra_env_var "$extra" RJ_FORCE_RELEASE_CALO_IO)"
+    extra="$(append_submit_extra_env_var "$extra" RJ_RELEASE_CALO_IO_PATH)"
+    extra="$(append_submit_extra_env_var "$extra" RJ_PP_VERTEX_REWEIGHT_FILE)"
+    extra="$(append_submit_extra_env_var "$extra" RJ_PP_VERTEX_REWEIGHT_HIST)"
+  fi
   extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PP_DATA_PAIRED)"
-  extra="$(append_submit_extra_env_var "$extra" RJ_SIM_ALLOW_NONE_LISTS)"
-  extra="$(append_submit_extra_env_var "$extra" RJ_PP_VERTEX_REWEIGHT_FILE)"
-  extra="$(append_submit_extra_env_var "$extra" RJ_PP_VERTEX_REWEIGHT_HIST)"
   [[ -n "$extra" && "$extra" != \;* ]] && extra=";${extra}"
   printf '%s' "$extra"
 }
@@ -1033,6 +1251,9 @@ embedded_inclusive_stitch_env_fragment() {
     RJ_THE44_PYTHIA_AUTOPSY_PARTICLE_CONE
     RJ_THE44_PYTHIA_AUTOPSY_PARTICLE_MIN_PT
     RJ_THE44_PYTHIA_AUTOPSY_MAX_PARTICLES
+    RJ_AUAU_BUILD_TOPOCLUSTER_ISOLATION
+    RJ_AUAU_USE_TOPOCLUSTER_ISOLATION
+    RJ_AUAU_TOPOCLUSTER_EXCLUDE_CANDIDATE
     RJ_CODEX_CHAT_NAME
     RJ_CODEX_THREAD_ID
   )
@@ -1086,6 +1307,9 @@ embedded_inclusive_stitch_env_args() {
     RJ_THE44_PYTHIA_AUTOPSY_PARTICLE_CONE
     RJ_THE44_PYTHIA_AUTOPSY_PARTICLE_MIN_PT
     RJ_THE44_PYTHIA_AUTOPSY_MAX_PARTICLES
+    RJ_AUAU_BUILD_TOPOCLUSTER_ISOLATION
+    RJ_AUAU_USE_TOPOCLUSTER_ISOLATION
+    RJ_AUAU_TOPOCLUSTER_EXCLUDE_CANDIDATE
     RJ_CODEX_CHAT_NAME
     RJ_CODEX_THREAD_ID
   )
@@ -1355,6 +1579,13 @@ iso_group_count() {
 }
 
 id_fanout_enabled() {
+  # Fig.11 S/B background production needs one PPG12 diagnostic TH2 output.
+  # The generic photon-ID fanout writes many secondary cfg ROOTs with long
+  # preselection/tight/non-tight names; those are not part of the Fig.11
+  # contract and can exceed filesystem filename limits.
+  if env_truthy "${RJ_PPG12_FIG11_SB_DIAGNOSTIC:-0}"; then
+    return 1
+  fi
   case "${RJ_DISABLE_ID_FANOUT:-0}" in
     1|true|TRUE|yes|YES|on|ON) return 1 ;;
   esac
@@ -2489,7 +2720,8 @@ resolve_dataset() {
       DATASET="isAuAu"
       GOLDEN="$AA_GOLDEN"
       LIST_DIR="$AA_LIST_DIR"
-      LIST_PREFIX="dst_calofitting"
+      LIST_PREFIX="${RJ_AUAU_LIST_PREFIX:-dst_auau_jet_pair}"
+      export RJ_AUAU_DATA_PAIRED="${RJ_AUAU_DATA_PAIRED:-1}"
       DEST_BASE="$AA_DEST_BASE"
       TAG="auau"
       MACRO="${BASE}/macros/Fun4All_recoilJets_AuAu.C"
@@ -3031,11 +3263,22 @@ sim_path_validation_requested() {
   return 1
 }
 
+sim_requires_global_lane() {
+  env_truthy "${RJ_REQUIRE_SIM_GLOBAL:-0}" && return 0
+  env_truthy "${RJ_PPG12_PHOTON_YIELD:-0}" && return 0
+  env_truthy "${RJ_PPG12_TABLE_QA:-0}" && return 0
+  env_truthy "${RJ_PPG12_FIG7_TRIGGER_DIAGNOSTIC:-0}" && return 0
+  env_truthy "${RJ_PPG12_FIG13_PARITY_QA:-0}" && return 0
+  [[ -n "${RJ_PPG12_PERIOD:-}" ]] && return 0
+  return 1
+}
+
 validate_sim_clean_list_paths() {
   local list="$1"
   local allow_none_lists="$2"
   local failures=0
   local line_no=0
+  local max_lines="${RJ_VALIDATE_SIM_INPUT_MAX_LINES:-0}"
   local line col_idx p
   local -a cols
   while IFS= read -r line || [[ -n "$line" ]]; do
@@ -3050,6 +3293,12 @@ validate_sim_clean_list_paths() {
     for col_idx in 0 1 2 3 4; do
       p="${cols[$col_idx]}"
       if [[ "$p" == "NONE" ]]; then
+        if (( col_idx == 3 )) && sim_requires_global_lane; then
+          err "SIM input validation: line ${line_no} column 4 is NONE, but this PPG12 SIM contract requires a real DST_GLOBAL reco-vertex stream"
+          failures=$((failures + 1))
+          (( failures < 20 )) || break 2
+          continue
+        fi
         if (( allow_none_lists )); then
           continue
         fi
@@ -3064,6 +3313,10 @@ validate_sim_clean_list_paths() {
       fi
       (( failures < 20 )) || break 2
     done
+    if [[ "$max_lines" =~ ^[0-9]+$ && "$max_lines" -gt 0 && "$line_no" -ge "$max_lines" ]]; then
+      say "    [sim_init] validation capped at ${line_no} line(s) by RJ_VALIDATE_SIM_INPUT_MAX_LINES=${max_lines}" >&2
+      break
+    fi
   done < "$list"
 
   if (( failures > 0 )); then
@@ -3092,7 +3345,9 @@ sim_init() {
   local glob="${SIM_DIR}/DST_GLOBAL.matched.list"
   local mbd="${SIM_DIR}/DST_MBD_EPD.matched.list"
   local allow_none_lists=0
-  env_truthy "${RJ_SIM_ALLOW_NONE_LISTS:-0}" && allow_none_lists=1
+  if env_truthy "${RJ_SIM_ALLOW_NONE_LISTS:-0}" || env_truthy "${RJ_PPG12_PPSIM_G4_ONLY:-0}"; then
+    allow_none_lists=1
+  fi
 
   [[ -s "$g4"   ]] || { err "Missing: $g4";   err "Run makeThesisSimLists.sh for ${SIM_SAMPLE}"; exit 23; }
   [[ -s "$jets" ]] || { err "Missing: $jets"; err "Run makeThesisSimLists.sh for ${SIM_SAMPLE}"; exit 23; }
@@ -3117,6 +3372,11 @@ sim_init() {
     fi
   fi
   if [[ ! -s "$glob" ]]; then
+    if sim_requires_global_lane; then
+      err "Missing: $glob"
+      err "This PPG12 SIM contract requires DST_GLOBAL; run makePPG12DoubleSimLists.sh or makeThesisSimLists.sh with the global lane before submitting."
+      exit 23
+    fi
     if (( allow_none_lists )); then
       make_none_sim_list "$_none_glob"
       glob="$_none_glob"
@@ -3168,17 +3428,28 @@ sim_init() {
 # Build grouped chunk lists for isSim (one job per chunk list)
 make_sim_groups() {
   local gs="$1"
+  local max_groups="${2:-0}"
   sim_init
 
   rm -f "${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_grp"*.list 2>/dev/null || true
 
   local _nclean; _nclean=$(wc -l < "$SIM_CLEAN_LIST" | tr -d ' ')
   local _nexpect=$(( (_nclean + gs - 1) / gs ))
-  say "    [make_sim_groups] splitting ${_nclean} lines into chunks of ${gs} (expect ~${_nexpect} groups)…" >&2
+  local split_source="$SIM_CLEAN_LIST"
+  local _nsource="$_nclean"
+  if [[ "$max_groups" =~ ^[0-9]+$ && "$max_groups" -gt 0 && "$_nexpect" -gt "$max_groups" ]]; then
+    local _ncap=$(( max_groups * gs ))
+    (( _ncap > _nclean )) && _ncap="$_nclean"
+    split_source="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_grp_source_first${_ncap}.list"
+    head -n "$_ncap" "$SIM_CLEAN_LIST" > "$split_source"
+    _nsource="$_ncap"
+    say "    [make_sim_groups] limiting split source for maxJobs=${max_groups}: ${_nclean} → ${_nsource} lines" >&2
+  fi
+  say "    [make_sim_groups] splitting ${_nsource} lines into chunks of ${gs} (expect ~${_nexpect} groups before cap)…" >&2
 
   # Use split(1) for O(n) grouping instead of sed-in-a-loop (critical for 200k+ file samples)
   local prefix="${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_grp_raw_"
-  split -l "$gs" -d -a 5 "$SIM_CLEAN_LIST" "$prefix"
+  split -l "$gs" -d -a 5 "$split_source" "$prefix"
   say "    [make_sim_groups] split done, renaming chunk files…" >&2
 
   # Rename split's numeric suffixes to our grpNNN.list naming convention
@@ -3817,13 +4088,15 @@ submit_condor() {
   local yaml_src="${RJ_CONFIG_YAML:-${SIM_YAML_DEFAULT}}"
   local yaml_snap="${SIM_YAML_OVERRIDE_DIR}/analysis_config_${TAG}_${stamp}.yaml"
   local source_runs
+  local require_non_tiny_output
   source_runs=$(grep -cE '^[0-9]+' "$source" 2>/dev/null || true)
+  require_non_tiny_output="$(effective_require_non_tiny_output)"
   mkdir -p "$SIM_YAML_OVERRIDE_DIR"
   cp -f "$yaml_src" "$yaml_snap"
   force_ppg12_photon_yield_yaml_contract "$yaml_snap"
   say "YAML snapshot: ${yaml_snap}"
   say "Submit context: source=${source}  runs=${source_runs:-0}  groupSize=${GROUP_SIZE}  nEvents=${direct_nevents}  firstChunk=${first_chunk:-none}"
-  say "Submit environment: RJ_DATASET=${DATASET}  RJ_VERBOSITY=0  RJ_CONFIG_YAML=${yaml_snap}${macro_env}${submit_extra_env};RJ_PROFILE_JOB=${RJ_PROFILE_JOB:-0};RJ_PROFILE_STAGE=${RJ_PROFILE_STAGE:-direct};RJ_REQUEST_MEMORY_MB=${request_memory_mb};RJ_REQUIRE_NON_TINY_OUTPUT=${RJ_REQUIRE_NON_TINY_OUTPUT:-0};RJ_MIN_OUTPUT_BYTES=${RJ_MIN_OUTPUT_BYTES:-50000};RJ_FAIL_ON_MISSING_CALO_INPUT=${RJ_FAIL_ON_MISSING_CALO_INPUT:-0}"
+  say "Submit environment: RJ_DATASET=${DATASET}  RJ_VERBOSITY=0  RJ_CONFIG_YAML=${yaml_snap}${macro_env}${submit_extra_env};RJ_PROFILE_JOB=${RJ_PROFILE_JOB:-0};RJ_PROFILE_STAGE=${RJ_PROFILE_STAGE:-direct};RJ_REQUEST_MEMORY_MB=${request_memory_mb};RJ_REQUIRE_NON_TINY_OUTPUT=${require_non_tiny_output};RJ_MIN_OUTPUT_BYTES=${RJ_MIN_OUTPUT_BYTES:-50000};RJ_FAIL_ON_MISSING_CALO_INPUT=${RJ_FAIL_ON_MISSING_CALO_INPUT:-0}"
 
   cat > "$sub" <<SUB
 universe      = vanilla
@@ -3840,7 +4113,7 @@ stream_output = True
 stream_error  = True
 notification  = Never
 # Force dataset & quiet macro on Condor (YAML frozen at submit time):
-environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${yaml_snap}${macro_env}${submit_extra_env};RJ_PROFILE_JOB=${RJ_PROFILE_JOB:-0};RJ_JOB_HEARTBEAT_SECONDS=${RJ_JOB_HEARTBEAT_SECONDS:-0};RJ_PROFILE_STAGE=${RJ_PROFILE_STAGE:-direct};RJ_PROFILE_LABEL=${RJ_PROFILE_LABEL:-${TAG}};RJ_REQUEST_MEMORY_MB=${request_memory_mb};RJ_REQUIRE_NON_TINY_OUTPUT=${RJ_REQUIRE_NON_TINY_OUTPUT:-0};RJ_MIN_OUTPUT_BYTES=${RJ_MIN_OUTPUT_BYTES:-50000};RJ_FAIL_ON_MISSING_CALO_INPUT=${RJ_FAIL_ON_MISSING_CALO_INPUT:-0}
+environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=0;RJ_CONFIG_YAML=${yaml_snap}${macro_env}${submit_extra_env};RJ_PROFILE_JOB=${RJ_PROFILE_JOB:-0};RJ_JOB_HEARTBEAT_SECONDS=${RJ_JOB_HEARTBEAT_SECONDS:-0};RJ_PROFILE_STAGE=${RJ_PROFILE_STAGE:-direct};RJ_PROFILE_LABEL=${RJ_PROFILE_LABEL:-${TAG}};RJ_REQUEST_MEMORY_MB=${request_memory_mb};RJ_REQUIRE_NON_TINY_OUTPUT=${require_non_tiny_output};RJ_MIN_OUTPUT_BYTES=${RJ_MIN_OUTPUT_BYTES:-50000};RJ_FAIL_ON_MISSING_CALO_INPUT=${RJ_FAIL_ON_MISSING_CALO_INPUT:-0}
 queue arguments from ${args_file}
 SUB
 
@@ -6192,6 +6465,9 @@ SUB
     export RJ_JOB_HEARTBEAT_SECONDS="${RJ_JOB_HEARTBEAT_SECONDS:-${RJ_SMOKE_JOB_HEARTBEAT_SECONDS:-120}}"
     export RJ_PROFILE_STAGE="${RJ_PROFILE_STAGE:-directSmoke}"
     export RJ_PROFILE_LABEL="${RJ_PROFILE_LABEL:-${TAG}_smokeTest}"
+    if [[ -z "${RJ_VALIDATE_SIM_INPUT_MAX_LINES:-}" && "$GROUP_SIZE" =~ ^[0-9]+$ && "$MAX_JOBS" =~ ^[0-9]+$ && "$MAX_JOBS" -gt 0 ]]; then
+      export RJ_VALIDATE_SIM_INPUT_MAX_LINES="$(( GROUP_SIZE * MAX_JOBS ))"
+    fi
 
     say "${BOLD}SIM direct-fanout smokeTest requested${RST}"
     say "  dataset      : ${DATASET}"
@@ -6345,7 +6621,13 @@ SUB
         isSimEmbeddedInclusive) mapfile -t samples < <(simembeddedinclusive_sample_list) ;;
         isSimInclusive|isSimJet5) samples=( "run28_jet5" "run28_jet8" "run28_jet12" "run28_jet20" "run28_jet30" "run28_jet40" ) ;;
         isSimMB)                samples=( "run28_detroit" ) ;;
-        *)                      samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" ) ;;
+        *)
+          if [[ "${RJ_SIM_SIGNAL_SAMPLE_SET:-}" == "ppg12_double" || "${RJ_SIM_SIGNAL_SAMPLE_SET:-}" == "double" ]]; then
+            samples=( "run28_photonjet5_double" "run28_photonjet10_double" "run28_photonjet20_double" )
+          else
+            samples=( "run28_photonjet5" "run28_photonjet10" "run28_photonjet20" )
+          fi
+          ;;
       esac
     else
       samples=( "${SIM_SAMPLE}" )
@@ -6476,7 +6758,7 @@ SUB
           rm -f "${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_LOCAL_"*.list 2>/dev/null || true
           rm -f "${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_condorTest_"*.list 2>/dev/null || true
 
-          mapfile -t groups < <( make_sim_groups "$GROUP_SIZE" )
+          mapfile -t groups < <( make_sim_groups "$GROUP_SIZE" "$MAX_JOBS" )
           (( ${#groups[@]} )) || { err "No sim groups produced (sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG})"; exit 30; }
           if [[ "$MAX_JOBS" =~ ^[0-9]+$ && "$MAX_JOBS" -gt 0 && "${#groups[@]}" -gt "$MAX_JOBS" ]]; then
             say "Capping ${DATASET} group list for sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG}: ${#groups[@]} → ${MAX_JOBS} jobs"
@@ -6493,6 +6775,7 @@ SUB
           fanout_env_for_sub=""
           id_fanout_enabled && fanout_env_for_sub=";RJ_ID_FANOUT_FILE=${fanout_dirs};RJ_ID_FANOUT_DIRS_FILE=${fanout_dirs}"
           submit_extra_env_for_sub="$(build_submit_extra_env_fragment)"
+          direct_require_non_tiny_output="$(effective_require_non_tiny_output)"
 
           cat > "$sub" <<SUB
 universe      = vanilla
@@ -6508,7 +6791,7 @@ should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification  = Never
-environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${yaml_override}${macro_env_for_sub}${fanout_env_for_sub}${jetpt_env_for_sub}${dphi_env_for_sub}${iso_view_env_for_sub}${stitch_env_for_sub}${submit_extra_env_for_sub};RJ_SIM_SAMPLE=${SIM_SAMPLE};RJ_EMBEDDED_INCLUSIVE_JET_SAMPLE=${SIM_SAMPLE};RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES:-0};RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30:-0};RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES:-0};RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40:-0};RJ_PROFILE_JOB=${RJ_PROFILE_JOB:-0};RJ_JOB_HEARTBEAT_SECONDS=${RJ_JOB_HEARTBEAT_SECONDS:-0};RJ_PROFILE_STAGE=${RJ_PROFILE_STAGE:-direct};RJ_PROFILE_LABEL=${RJ_PROFILE_LABEL:-${TAG}};RJ_REQUEST_MEMORY_MB=${direct_request_memory_mb}
+environment   = RJ_VERBOSITY=0;RJ_CONFIG_YAML=${yaml_override}${macro_env_for_sub}${fanout_env_for_sub}${jetpt_env_for_sub}${dphi_env_for_sub}${iso_view_env_for_sub}${stitch_env_for_sub}${submit_extra_env_for_sub};RJ_SIM_SAMPLE=${SIM_SAMPLE};RJ_EMBEDDED_INCLUSIVE_JET_SAMPLE=${SIM_SAMPLE};RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES:-0};RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30:-0};RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES:-0};RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40:-0};RJ_PROFILE_JOB=${RJ_PROFILE_JOB:-0};RJ_JOB_HEARTBEAT_SECONDS=${RJ_JOB_HEARTBEAT_SECONDS:-0};RJ_PROFILE_STAGE=${RJ_PROFILE_STAGE:-direct};RJ_PROFILE_LABEL=${RJ_PROFILE_LABEL:-${TAG}};RJ_REQUEST_MEMORY_MB=${direct_request_memory_mb};RJ_REQUIRE_NON_TINY_OUTPUT=${direct_require_non_tiny_output};RJ_MIN_OUTPUT_BYTES=${RJ_MIN_OUTPUT_BYTES:-50000};RJ_FAIL_ON_MISSING_CALO_INPUT=${RJ_FAIL_ON_MISSING_CALO_INPUT:-0}
 queue arguments from ${args_file}
 SUB
 
@@ -6701,6 +6984,14 @@ SUB
         say "YAML snapshot (pt=${pt0}, frac=${frac0}, vz=${vz0}, coneR=${cone0}, iso=${iso_tags[0]}, uepipe=${uepipe_modes[0]}): ${yaml_snap}"
         DEST_BASE="${DATA_DEST_BASE_SAVED}/${data_cfg_tag}"
         submit_extra_env_for_sub="$(build_submit_extra_env_fragment)"
+        test_require_non_tiny_output="$(effective_require_non_tiny_output)"
+        test_nevents="${RJ_TEST_DATA_NEVENTS:-${RJ_DIRECT_NEVENTS:-${RJ_SMOKE_DATA_NEVENTS:-3000}}}"
+        [[ "$test_nevents" == "-1" ]] && test_nevents=0
+        [[ "$test_nevents" =~ ^[0-9]+$ ]] || { err "RJ_TEST_DATA_NEVENTS/RJ_DIRECT_NEVENTS must be -1 or a non-negative integer, got '${test_nevents}'"; exit 2; }
+        test_verbosity="${RJ_TEST_VERBOSITY:-${RJ_CONDOR_TEST_VERBOSITY:-0}}"
+        [[ "$test_verbosity" =~ ^[0-9]+$ ]] || { err "RJ_TEST_VERBOSITY must be a non-negative integer, got '${test_verbosity}'"; exit 2; }
+        test_request_memory="$(memory_request_from_env_or_default "2000MB")"
+        test_request_memory_mb="$(memory_request_to_mb "$test_request_memory")"
 
         cat > "$sub" <<SUB
 universe      = vanilla
@@ -6710,17 +7001,17 @@ getenv        = True
 log           = ${LOG_DIR}/job.\$(Cluster).\$(Process).log
 output        = ${OUT_DIR}/job.\$(Cluster).\$(Process).out
 error         = ${ERR_DIR}/job.\$(Cluster).\$(Process).err
-$(condor_auto_memory_retry_block "2000")
+$(condor_auto_memory_retry_block "$test_request_memory_mb")
 $(condor_worker_failure_hold_block)
 should_transfer_files = NO
 stream_output = True
 stream_error  = True
 notification  = Never
-environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=10;RJ_CONFIG_YAML=${yaml_snap}${jetpt_env_for_sub}${dphi_env_for_sub}${iso_view_env_for_sub}${submit_extra_env_for_sub};RJ_SIM_SAMPLE=${SIM_SAMPLE};RJ_EMBEDDED_INCLUSIVE_JET_SAMPLE=${SIM_SAMPLE};RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_THREE_SAMPLES:-0};RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET30:-0};RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES=${RJ_SIMEMBEDDEDINCLUSIVE_FOUR_SAMPLES:-0};RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40=${RJ_SIMEMBEDDEDINCLUSIVE_INCLUDE_JET40:-0}
-arguments     = ${r8} ${glist} ${DATASET} \$(Cluster) 0 1 NONE ${DEST_BASE}
+environment   = RJ_DATASET=${DATASET};RJ_VERBOSITY=${test_verbosity};RJ_CONFIG_YAML=${yaml_snap}${jetpt_env_for_sub}${dphi_env_for_sub}${iso_view_env_for_sub}${submit_extra_env_for_sub};RJ_PROFILE_JOB=${RJ_PROFILE_JOB:-0};RJ_JOB_HEARTBEAT_SECONDS=${RJ_JOB_HEARTBEAT_SECONDS:-0};RJ_PROFILE_STAGE=${RJ_PROFILE_STAGE:-testJob};RJ_PROFILE_LABEL=${RJ_PROFILE_LABEL:-${TAG}_testJob};RJ_REQUEST_MEMORY_MB=${test_request_memory_mb};RJ_REQUIRE_NON_TINY_OUTPUT=${test_require_non_tiny_output};RJ_MIN_OUTPUT_BYTES=${RJ_MIN_OUTPUT_BYTES:-50000};RJ_FAIL_ON_MISSING_CALO_INPUT=${RJ_FAIL_ON_MISSING_CALO_INPUT:-0}
+arguments     = ${r8} ${glist} ${DATASET} \$(Cluster) ${test_nevents} 1 NONE ${DEST_BASE}
 queue
 SUB
-        say "Submitting 1 test job on run ${BOLD}${r8}${RST} (first chunk, groupSize=1, vz=${vz0}) → $(basename "$sub")"
+        say "Submitting 1 test job on run ${BOLD}${r8}${RST} (first chunk, groupSize=1, nEvents=${test_nevents}, vz=${vz0}, RJ_VERBOSITY=${test_verbosity}, requestMem=${test_request_memory_mb}MB) → $(basename "$sub")"
         condor_submit "$sub"
         ;;
       smokeTest)

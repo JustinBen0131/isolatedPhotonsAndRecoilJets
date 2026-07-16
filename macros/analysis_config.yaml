@@ -221,7 +221,7 @@ clusterUEpipeline: [baseVariant]
 #   nonTight = newPPG12
 #     Use the PPG12 BDT sideband, not the tight complement:
 #       0.7333333333 - 0.0133333333 * E_T^gamma < tight_bdt_score
-#       tight_bdt_score < 0.6666666667 + 0.0033333333 * E_T^gamma
+#       tight_bdt_score < 0.684375 + 0.0015625 * E_T^gamma
 #
 #     BDT scores outside the tight and non-tight windows are treated as neither.
 #
@@ -313,22 +313,22 @@ npb_features: [cluster_Et, cluster_Eta, vertexz, e11_over_e33, e32_over_e35, e11
 #   e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35
 #
 # Tight decision:
-#   tight_bdt_score > 0.8333333333 - 0.0033333333 * E_T^gamma
+#   tight_bdt_score > 0.815625 - 0.0015625 * E_T^gamma
 #   no upper tight_bdt_score cap is applied for tight: newPPG12
 #
 # PPG12 BDT non-tight sideband, used when nonTight: newPPG12:
 #   0.7333333333 - 0.0133333333 * E_T^gamma < tight_bdt_score
-#   tight_bdt_score < 0.6666666667 + 0.0033333333 * E_T^gamma
+#   tight_bdt_score < 0.684375 + 0.0015625 * E_T^gamma
 # -----------------------------------------------------------------------------
 tight_bdt_model_file: /sphenix/user/shuhangli/ppg12/FunWithxgboost/binned_models/model_base_v3E_split_single_tmva.root
-tight_bdt_min_intercept: 0.8333333333333334
-tight_bdt_min_slope: -0.003333333333333336
+tight_bdt_min_intercept: 0.815625
+tight_bdt_min_slope: -0.0015625
 # Kept for backward-compatible parsing; tight: newPPG12 no longer applies this upper cap.
 tight_bdt_max: 1.0
 nontight_bdt_min_intercept: 0.7333333333333333
 nontight_bdt_min_slope: -0.01333333333333333
-nontight_bdt_max_intercept: 0.6666666666666666
-nontight_bdt_max_slope: 0.003333333333333336
+nontight_bdt_max_intercept: 0.684375
+nontight_bdt_max_slope: 0.0015625
 tight_bdt_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35]
 
 # -----------------------------------------------------------------------------
@@ -511,19 +511,19 @@ fixedGeV: [2.0, 4.0]
 coneR: [0.30, 0.40]
 
 # Global sliding WP parameters.
-# Used as the legacy fallback when no cone-specific pp or AuAu entry is available.
+# Used as the fallback when no cone-specific pp or AuAu entry is available.
 # sideGapGeV: offset for non-isolated sideband
 # truthIsoGeV: generator-level isolation cut (SIM only)
 # towerMin: minimum tower energy for isolation sum (0 = no floor)
-isolation_wp: {aGeV: 0.081, bPerGeV: 0.019, sideGapGeV: 0.8, truthIsoGeV: 4.0, towerMin: 0.0}
+isolation_wp: {aGeV: 0.490, bPerGeV: 0.037, sideGapGeV: 0.8, truthIsoGeV: 4.0, towerMin: 0.0}
 
-# Cone-specific pp/non-embedded sliding isolation WPs.
-# Derived from canonical pp PhotonJet5+10+20 SIM truth-signal-matched Eiso
-# distributions, separately for R=0.3 and R=0.4. Production default uses the
-# 90% signal-retention fit:
+# Canonical PPG12 pp/non-embedded sliding isolation WP.
+# PPG12 final photon-yield parity uses R=0.4 with:
 #   thrReco(pT) = aGeV + bPerGeV * pT(gamma)
-pp_iso_wp_r30: {aGeV: 0.904000, bPerGeV: 0.0345788, sideGapGeV: 1.0}
-pp_iso_wp_r40: {aGeV: 1.44949, bPerGeV: 0.0312783, sideGapGeV: 1.0}
+# R=0.3 diagnostic views intentionally reuse the same paper-era threshold
+# rather than a historical optimization fit.
+pp_iso_wp_r30: {aGeV: 0.490, bPerGeV: 0.037, sideGapGeV: 0.8}
+pp_iso_wp_r40: {aGeV: 0.490, bPerGeV: 0.037, sideGapGeV: 0.8}
 
 # Exact Au+Au centrality-fit isolation working point.
 # With a SINGLE entry, RecoilJets_AuAu evaluates:

@@ -36,6 +36,10 @@ sdcc_base_layout:
     - "agent_context/local/sdcc_base_architecture/"
   io_contract_index: "scripts/sdcc/IO_RUNTIME_INDEX.yaml"
 entries:
+  - id: submit_the102_auau_fig25_correlations
+    canonical_path: "scripts/sdcc/workflows/diagnostics/submit_the102_auau_fig25_correlations.sh"
+    domain: "sdcc/workflows/diagnostics"
+    hard_aliases: []
   - id: mergedownloadedrecoiljetssim
     canonical_path: "scripts/sdcc/local_merge/root/MergeDownloadedRecoilJetsSim.C"
     domain: "sdcc/local_merge/root"
@@ -215,6 +219,21 @@ entries:
       []
   - id: submit_the79_phenix_like_raa_campaign
     canonical_path: "scripts/sdcc/workflows/submit/submit_the79_phenix_like_raa_campaign.sh"
+    domain: "sdcc/workflows/submit"
+    hard_aliases:
+      []
+  - id: submit_the96_auau_iso_baseline5pct_campaign
+    canonical_path: "scripts/sdcc/workflows/submit/submit_the96_auau_iso_baseline5pct_campaign.sh"
+    domain: "sdcc/workflows/submit"
+    hard_aliases:
+      []
+  - id: submit_the98_auau_emcal_phosub_iso_campaign
+    canonical_path: "scripts/sdcc/workflows/submit/submit_the98_auau_emcal_phosub_iso_campaign.sh"
+    domain: "sdcc/workflows/submit"
+    hard_aliases:
+      []
+  - id: heartbeat_the96_auau_iso_baseline5pct_campaign
+    canonical_path: "scripts/sdcc/workflows/submit/heartbeat_the96_auau_iso_baseline5pct_campaign.sh"
     domain: "sdcc/workflows/submit"
     hard_aliases:
       []

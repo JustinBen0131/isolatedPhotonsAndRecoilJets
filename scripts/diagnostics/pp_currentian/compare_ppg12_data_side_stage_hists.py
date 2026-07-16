@@ -23,7 +23,7 @@ import ROOT
 
 ROOT.gROOT.SetBatch(True)
 
-TRIGGER_DIR = "Photon_4_GeV_plus_MBD_NS_geq_1"
+TRIGGER_DIR = "PPG12_scaledtrigger30"
 DEFAULT_CURRENT_ROOT = Path(
     "/Users/patsfan753/Desktop/ThesisAnalysis/InputFiles/pp24/"
     "ppg12_photon_yield_v1_data_20260620/pp/"

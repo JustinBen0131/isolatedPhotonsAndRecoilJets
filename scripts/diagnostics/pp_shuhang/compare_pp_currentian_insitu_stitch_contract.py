@@ -44,17 +44,18 @@ class Sample:
     all_hist: str
     kept_hist: str
     metadata_hist: str
+    value_mode: str = "raw_xsec_over_events_per_bin_width"
 
 
 SAMPLES: tuple[Sample, ...] = (
     Sample("photon", "run28_photonjet5", 146359.3, 0.0, 14.0, 1, "SIM/h_ppPhotonStitch_ppg12Fig5_maxPhotonPt_all", "SIM/h_ppPhotonStitch_ppg12Fig5_maxPhotonPt_kept", "SIM/h_ppPhotonStitch_ppg12TruthSpectrum_metadata"),
     Sample("photon", "run28_photonjet10", 6944.675, 14.0, 22.0, 2, "SIM/h_ppPhotonStitch_ppg12Fig5_maxPhotonPt_all", "SIM/h_ppPhotonStitch_ppg12Fig5_maxPhotonPt_kept", "SIM/h_ppPhotonStitch_ppg12TruthSpectrum_metadata"),
     Sample("photon", "run28_photonjet20", 130.4461, 22.0, 200.0, 3, "SIM/h_ppPhotonStitch_ppg12Fig5_maxPhotonPt_all", "SIM/h_ppPhotonStitch_ppg12Fig5_maxPhotonPt_kept", "SIM/h_ppPhotonStitch_ppg12TruthSpectrum_metadata"),
-    Sample("jet", "run28_jet8", 1.3013e7, 9.0, 14.0, 2, "SIM/h_ppInclusiveJetStitch_ppg12TruthSpectrum_r04_maxTruthJetPt_all", "SIM/h_ppInclusiveJetStitch_ppg12TruthSpectrum_r04_maxTruthJetPt_kept", "SIM/h_ppInclusiveJetStitch_ppg12TruthSpectrum_metadata"),
-    Sample("jet", "run28_jet12", 1.4903e6, 14.0, 21.0, 3, "SIM/h_ppInclusiveJetStitch_ppg12TruthSpectrum_r04_maxTruthJetPt_all", "SIM/h_ppInclusiveJetStitch_ppg12TruthSpectrum_r04_maxTruthJetPt_kept", "SIM/h_ppInclusiveJetStitch_ppg12TruthSpectrum_metadata"),
-    Sample("jet", "run28_jet20", 6.2623e4, 21.0, 32.0, 4, "SIM/h_ppInclusiveJetStitch_ppg12TruthSpectrum_r04_maxTruthJetPt_all", "SIM/h_ppInclusiveJetStitch_ppg12TruthSpectrum_r04_maxTruthJetPt_kept", "SIM/h_ppInclusiveJetStitch_ppg12TruthSpectrum_metadata"),
-    Sample("jet", "run28_jet30", 2.5298e3, 32.0, 42.0, 5, "SIM/h_ppInclusiveJetStitch_ppg12TruthSpectrum_r04_maxTruthJetPt_all", "SIM/h_ppInclusiveJetStitch_ppg12TruthSpectrum_r04_maxTruthJetPt_kept", "SIM/h_ppInclusiveJetStitch_ppg12TruthSpectrum_metadata"),
-    Sample("jet", "run28_jet40", 1.3553e2, 42.0, 100.0, 6, "SIM/h_ppInclusiveJetStitch_ppg12TruthSpectrum_r04_maxTruthJetPt_all", "SIM/h_ppInclusiveJetStitch_ppg12TruthSpectrum_r04_maxTruthJetPt_kept", "SIM/h_ppInclusiveJetStitch_ppg12TruthSpectrum_metadata"),
+    Sample("jet", "run28_jet8", 1.15e7, 9.0, 14.0, 2, "SIM/h_ppInclusiveJetStitch_ppg12Fig6EventWeighted_r04_maxTruthJetPt_all", "SIM/h_ppInclusiveJetStitch_ppg12Fig6EventWeighted_r04_maxTruthJetPt_kept", "SIM/h_ppInclusiveJetStitch_ppg12Fig6EventWeighted_metadata", "ppg12_event_weighted_xsec_over_jet50_counts"),
+    Sample("jet", "run28_jet12", 1.4903e6, 14.0, 21.0, 3, "SIM/h_ppInclusiveJetStitch_ppg12Fig6EventWeighted_r04_maxTruthJetPt_all", "SIM/h_ppInclusiveJetStitch_ppg12Fig6EventWeighted_r04_maxTruthJetPt_kept", "SIM/h_ppInclusiveJetStitch_ppg12Fig6EventWeighted_metadata", "ppg12_event_weighted_xsec_over_jet50_counts"),
+    Sample("jet", "run28_jet20", 6.2623e4, 21.0, 32.0, 4, "SIM/h_ppInclusiveJetStitch_ppg12Fig6EventWeighted_r04_maxTruthJetPt_all", "SIM/h_ppInclusiveJetStitch_ppg12Fig6EventWeighted_r04_maxTruthJetPt_kept", "SIM/h_ppInclusiveJetStitch_ppg12Fig6EventWeighted_metadata", "ppg12_event_weighted_xsec_over_jet50_counts"),
+    Sample("jet", "run28_jet30", 2.5298e3, 32.0, 42.0, 5, "SIM/h_ppInclusiveJetStitch_ppg12Fig6EventWeighted_r04_maxTruthJetPt_all", "SIM/h_ppInclusiveJetStitch_ppg12Fig6EventWeighted_r04_maxTruthJetPt_kept", "SIM/h_ppInclusiveJetStitch_ppg12Fig6EventWeighted_metadata", "ppg12_event_weighted_xsec_over_jet50_counts"),
+    Sample("jet", "run28_jet40", 1.3553e2, 42.0, 100.0, 6, "SIM/h_ppInclusiveJetStitch_ppg12Fig6EventWeighted_r04_maxTruthJetPt_all", "SIM/h_ppInclusiveJetStitch_ppg12Fig6EventWeighted_r04_maxTruthJetPt_kept", "SIM/h_ppInclusiveJetStitch_ppg12Fig6EventWeighted_metadata", "ppg12_event_weighted_xsec_over_jet50_counts"),
 )
 
 
@@ -80,7 +81,7 @@ def read_metadata(root_file: uproot.ReadOnlyDirectory, spec: Sample) -> dict[str
     values, _ = root_file[spec.metadata_hist].to_numpy(flow=False)
     if len(values) < 8:
         raise ValueError(f"metadata histogram {spec.metadata_hist} has {len(values)} bins")
-    return {
+    out = {
         "events_processed": float(values[0]),
         "window_low_GeV": float(values[1]),
         "window_high_GeV": float(values[2]),
@@ -90,6 +91,18 @@ def read_metadata(root_file: uproot.ReadOnlyDirectory, spec: Sample) -> dict[str
         "truth_def_code": float(values[6]),
         "sample_bin": float(values[7]),
     }
+    if len(values) >= 12:
+        out.update(
+            {
+                "xsec_over_jet50": float(values[6]),
+                "sample_bin": float(values[7]),
+                "truth_def_code": float(values[8]),
+                "includes_current_weight": float(values[9]),
+                "includes_slice_weight": float(values[10]),
+                "value_mode_code": float(values[11]),
+            }
+        )
+    return out
 
 
 def add_hist(acc: dict[str, np.ndarray], values: np.ndarray, variances: np.ndarray | None, edges: np.ndarray) -> None:
@@ -195,13 +208,25 @@ def write_outputs(records: dict[str, dict[str, object]], out_csv: Path, out_json
         centers = 0.5 * (edges[:-1] + edges[1:])
         widths = np.diff(edges)
         window_mask = ppg12_bin_center_window(centers, spec)
-        values = np.where(window_mask, all_values, 0.0)
-        variances = np.where(window_mask, all_variances, 0.0)
+        if spec.value_mode == "ppg12_event_weighted_xsec_over_jet50_counts":
+            # PPG12 Fig.6 h_max_truth_jet_pT skips events outside the owned
+            # max-truth-jet window before filling.  The RecoilJets parity
+            # counterpart is therefore the in-window `_kept` histogram; `_all`
+            # is a diagnostic for rejected/out-of-window auditing only.
+            values = kept_values
+            variances = kept_variances
+        else:
+            values = np.where(window_mask, all_values, 0.0)
+            variances = np.where(window_mask, all_variances, 0.0)
         events_processed = float(meta["events_processed"])
         if events_processed <= 0:
             raise ValueError(f"{sample_name}: non-positive events_processed metadata")
-        density = values * spec.xsec_pb / events_processed / widths
-        density_err = np.sqrt(np.clip(variances, 0, None)) * spec.xsec_pb / events_processed / widths
+        if spec.value_mode == "ppg12_event_weighted_xsec_over_jet50_counts":
+            density = values
+            density_err = np.sqrt(np.clip(variances, 0, None))
+        else:
+            density = values * spec.xsec_pb / events_processed / widths
+            density_err = np.sqrt(np.clip(variances, 0, None)) * spec.xsec_pb / events_processed / widths
         for lo, hi, center, count, all_count, kept_count, windowed, y, ey in zip(
             edges[:-1],
             edges[1:],
@@ -232,6 +257,7 @@ def write_outputs(records: dict[str, dict[str, object]], out_csv: Path, out_json
                     "stitch_window_high": f"{spec.window_high:.8g}",
                     "metadata_bin_width_GeV": f"{float(meta['bin_width_GeV']):.8g}",
                     "metadata_truth_def_code": f"{float(meta['truth_def_code']):.8g}",
+                    "value_mode": spec.value_mode,
                     "source_files": int(rec["files"]),
                 }
             )
@@ -247,9 +273,13 @@ def write_outputs(records: dict[str, dict[str, object]], out_csv: Path, out_json
                 "raw_event_kept_integral": float(np.sum(kept_values)),
                 "xsec_pb": spec.xsec_pb,
                 "stitch_window": [spec.window_low, spec.window_high],
-                "window_application": "PPG12 plot contract: full _all histogram, zero bins by bin center with lower-inclusive upper-exclusive window",
+                "window_application": (
+                    "Photon Fig.5 uses the full _all histogram zeroed by bin-center window; "
+                    "inclusive Fig.6 strict parity uses the event-windowed _kept histogram."
+                ),
                 "hist_bin_width": float(widths[0]) if len(widths) else math.nan,
                 "metadata": meta,
+                "value_mode": spec.value_mode,
             }
         )
     fields = [
@@ -270,6 +300,7 @@ def write_outputs(records: dict[str, dict[str, object]], out_csv: Path, out_json
         "stitch_window_high",
         "metadata_bin_width_GeV",
         "metadata_truth_def_code",
+        "value_mode",
         "source_files",
     ]
     with out_csv.open("w", newline="") as f:
@@ -280,9 +311,9 @@ def write_outputs(records: dict[str, dict[str, object]], out_csv: Path, out_json
         json.dumps(
             {
                 "schema": "PP_CURRENTIAN_INSITU_PPG12_STITCH_CONTRACT_V1",
-                "normalization": "density = ppg12_bin_center_windowed_all_counts * xsec_pb / events_processed_metadata / bin_width",
+                "normalization": "photon density = windowed raw counts * xsec_pb / events_processed_metadata / bin_width; jet strict Fig.6 = event-level PPG12 weighted counts already filled with xsec/jet50 * period/mix/vertex/lumi weights",
                 "important_guard": "Do not normalize by histogram integral; metadata event counter is required.",
-                "display_contract": "PPG12 plotting macros build the stitched display from the full weighted per-sample truth histogram and zero bins outside the window by bin center. Event-level kept/rejected histograms remain audit metadata, not the displayed Fig.5/6 parity spectrum.",
+                "display_contract": "PPG12 Fig.5 plotting uses the full per-sample truth histogram and zeroes bins outside the window by bin center. PPG12 Fig.6 strict parity uses the event-windowed _kept max-R04-truth-jet histogram filled before reco/candidate gates.",
                 "samples": sample_summaries,
             },
             indent=2,

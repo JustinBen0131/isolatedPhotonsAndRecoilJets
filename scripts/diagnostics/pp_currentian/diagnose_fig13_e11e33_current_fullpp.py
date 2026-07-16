@@ -45,7 +45,7 @@ DEFAULT_OUT_CSV = (
 
 HIST_KEY = "e11e33"
 TAG_KEY = "inclusive"
-DIR_HINT = "Photon_4_GeV_plus_MBD_NS_geq_1"
+DIR_HINT = "PPG12_scaledtrigger30"
 
 
 def parse_args() -> argparse.Namespace:

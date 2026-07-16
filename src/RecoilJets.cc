@@ -1,4 +1,5 @@
 #include "RecoilJets.h"
+#include "PPG12SimWeight.h"
 //––– Fun4All / PHOOL -------------------------------------------------------
 #include <fun4all/Fun4AllReturnCodes.h>
 #include <fun4all/Fun4AllServer.h>
@@ -65,11 +66,13 @@
 // Standard C++ -------------------------------------------------------------
 #include <atomic>
 #include <algorithm>   // std::clamp
+#include <bit>
 #include <cctype>
 #include <cmath>       // std::cosh, std::hypot, std::fmod
 #include <cstdlib>
 #include <fstream>
 #include <iomanip>
+#include <initializer_list>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -109,6 +112,50 @@ using namespace PhoIDCuts;
 
 namespace RJMCWeighting
 {
+  inline int& CurrentLaneComponentCode()
+  {
+    // 0=not a PPG12 pp-SIM weighting context, 1=photon SI, 2=photon DI,
+    // 3=inclusive-jet SI, 4=inclusive-jet DI.
+    static int code = 0;
+    return code;
+  }
+
+  inline std::array<unsigned long long, 5>& FullFillCounts()
+  {
+    static std::array<unsigned long long, 5> counts{};
+    return counts;
+  }
+
+  inline std::array<unsigned long long, 5>& RawFillCounts()
+  {
+    static std::array<unsigned long long, 5> counts{};
+    return counts;
+  }
+
+  inline void RecordFullFill()
+  {
+    const int code = CurrentLaneComponentCode();
+    if (code > 0 && code < static_cast<int>(FullFillCounts().size()))
+    {
+      ++FullFillCounts()[static_cast<std::size_t>(code)];
+    }
+  }
+
+  inline void RecordRawFill()
+  {
+    const int code = CurrentLaneComponentCode();
+    if (code > 0 && code < static_cast<int>(RawFillCounts().size()))
+    {
+      ++RawFillCounts()[static_cast<std::size_t>(code)];
+    }
+  }
+
+  inline void ResetFillCounts()
+  {
+    FullFillCounts().fill(0);
+    RawFillCounts().fill(0);
+  }
+
   inline double& CurrentWeight()
   {
     static double w = 1.0;
@@ -118,71 +165,109 @@ namespace RJMCWeighting
   inline double SafeWeight()
   {
     const double w = CurrentWeight();
-    return (std::isfinite(w) && w >= 0.0) ? w : 1.0;
+    if (std::isfinite(w) && w >= 0.0) return w;
+
+    // A recognized PPG12 pp-SIM lane must never degrade to an unweighted fill.
+    // configurePPG12SimEventWeight() rejects invalid factors before this point;
+    // returning zero here is the final defensive barrier against silent unity.
+    if (CurrentLaneComponentCode() > 0) return 0.0;
+    return 1.0;
   }
 
   class WeightedTH1F : public TH1F
   {
   public:
     using TH1F::TH1F;
-    Int_t Fill(Double_t x) override { return TH1F::Fill(x, SafeWeight()); }
-    Int_t Fill(Double_t x, Double_t w) override { return TH1F::Fill(x, w * SafeWeight()); }
+    Int_t Fill(Double_t x) override { RecordFullFill(); return TH1F::Fill(x, SafeWeight()); }
+    Int_t Fill(Double_t x, Double_t w) override { RecordFullFill(); return TH1F::Fill(x, w * SafeWeight()); }
   };
 
   class WeightedTH1D : public TH1D
   {
   public:
     using TH1D::TH1D;
-    Int_t Fill(Double_t x) override { return TH1D::Fill(x, SafeWeight()); }
-    Int_t Fill(Double_t x, Double_t w) override { return TH1D::Fill(x, w * SafeWeight()); }
+    Int_t Fill(Double_t x) override { RecordFullFill(); return TH1D::Fill(x, SafeWeight()); }
+    Int_t Fill(Double_t x, Double_t w) override { RecordFullFill(); return TH1D::Fill(x, w * SafeWeight()); }
   };
 
   class WeightedTH1I : public TH1I
   {
   public:
     using TH1I::TH1I;
-    Int_t Fill(Double_t x) override { return TH1I::Fill(x, SafeWeight()); }
-    Int_t Fill(Double_t x, Double_t w) override { return TH1I::Fill(x, w * SafeWeight()); }
+    Int_t Fill(Double_t x) override { RecordFullFill(); return TH1I::Fill(x, SafeWeight()); }
+    Int_t Fill(Double_t x, Double_t w) override { RecordFullFill(); return TH1I::Fill(x, w * SafeWeight()); }
+  };
+
+  class RawTH1I : public TH1I
+  {
+  public:
+    using TH1I::TH1I;
+    Int_t Fill(Double_t x) override { RecordRawFill(); return TH1I::Fill(x); }
+    Int_t Fill(Double_t x, Double_t w) override { RecordRawFill(); return TH1I::Fill(x, w); }
+  };
+
+  class RawTH1F : public TH1F
+  {
+  public:
+    using TH1F::TH1F;
+    Int_t Fill(Double_t x) override { RecordRawFill(); return TH1F::Fill(x); }
+    Int_t Fill(Double_t x, Double_t w) override { RecordRawFill(); return TH1F::Fill(x, w); }
+  };
+
+  class RawTH1D : public TH1D
+  {
+  public:
+    using TH1D::TH1D;
+    Int_t Fill(Double_t x) override { RecordRawFill(); return TH1D::Fill(x); }
+    Int_t Fill(Double_t x, Double_t w) override { RecordRawFill(); return TH1D::Fill(x, w); }
+  };
+
+  class RawTH2F : public TH2F
+  {
+  public:
+    using TH2F::TH2F;
+    Int_t Fill(Double_t x, Double_t y) override { RecordRawFill(); return TH2F::Fill(x, y); }
+    Int_t Fill(Double_t x, Double_t y, Double_t w) override { RecordRawFill(); return TH2F::Fill(x, y, w); }
   };
 
   class WeightedTH2F : public TH2F
   {
   public:
     using TH2F::TH2F;
-    Int_t Fill(Double_t x, Double_t y) override { return TH2F::Fill(x, y, SafeWeight()); }
-    Int_t Fill(Double_t x, Double_t y, Double_t w) override { return TH2F::Fill(x, y, w * SafeWeight()); }
+    Int_t Fill(Double_t x, Double_t y) override { RecordFullFill(); return TH2F::Fill(x, y, SafeWeight()); }
+    Int_t Fill(Double_t x, Double_t y, Double_t w) override { RecordFullFill(); return TH2F::Fill(x, y, w * SafeWeight()); }
   };
 
   class WeightedTH2D : public TH2D
   {
   public:
     using TH2D::TH2D;
-    Int_t Fill(Double_t x, Double_t y) override { return TH2D::Fill(x, y, SafeWeight()); }
-    Int_t Fill(Double_t x, Double_t y, Double_t w) override { return TH2D::Fill(x, y, w * SafeWeight()); }
+    Int_t Fill(Double_t x, Double_t y) override { RecordFullFill(); return TH2D::Fill(x, y, SafeWeight()); }
+    Int_t Fill(Double_t x, Double_t y, Double_t w) override { RecordFullFill(); return TH2D::Fill(x, y, w * SafeWeight()); }
   };
 
   class WeightedTH3F : public TH3F
   {
   public:
     using TH3F::TH3F;
-    Int_t Fill(Double_t x, Double_t y, Double_t z) override { return TH3F::Fill(x, y, z, SafeWeight()); }
-    Int_t Fill(Double_t x, Double_t y, Double_t z, Double_t w) override { return TH3F::Fill(x, y, z, w * SafeWeight()); }
+    Int_t Fill(Double_t x, Double_t y, Double_t z) override { RecordFullFill(); return TH3F::Fill(x, y, z, SafeWeight()); }
+    Int_t Fill(Double_t x, Double_t y, Double_t z, Double_t w) override { RecordFullFill(); return TH3F::Fill(x, y, z, w * SafeWeight()); }
   };
 
   class WeightedTProfile : public TProfile
   {
   public:
     using TProfile::TProfile;
-    Int_t Fill(Double_t x, Double_t y) override { return TProfile::Fill(x, y, SafeWeight()); }
-    Int_t Fill(Double_t x, Double_t y, Double_t w) override { return TProfile::Fill(x, y, w * SafeWeight()); }
+    Int_t Fill(Double_t x, Double_t y) override { RecordFullFill(); return TProfile::Fill(x, y, SafeWeight()); }
+    Int_t Fill(Double_t x, Double_t y, Double_t w) override { RecordFullFill(); return TProfile::Fill(x, y, w * SafeWeight()); }
   };
 
   class WeightedTProfile3D : public TProfile3D
   {
   public:
     using TProfile3D::TProfile3D;
-    Int_t Fill(Double_t x, Double_t y, Double_t z, Double_t t) override { return TProfile3D::Fill(x, y, z, t, SafeWeight()); }
-    Int_t Fill(Double_t x, Double_t y, Double_t z, Double_t t, Double_t w) override { return TProfile3D::Fill(x, y, z, t, w * SafeWeight()); }
+    Int_t Fill(Double_t x, Double_t y, Double_t z, Double_t t) override { RecordFullFill(); return TProfile3D::Fill(x, y, z, t, SafeWeight()); }
+    Int_t Fill(Double_t x, Double_t y, Double_t z, Double_t t, Double_t w) override { RecordFullFill(); return TProfile3D::Fill(x, y, z, t, w * SafeWeight()); }
   };
 
   inline TH1F* RJNewTH1F(const char* name, const char* title, Int_t nbinsx, Double_t xlow, Double_t xup)
@@ -199,6 +284,23 @@ namespace RJMCWeighting
 
   inline TH1I* RJNewTH1I(const char* name, const char* title, Int_t nbinsx, Double_t xlow, Double_t xup)
   { return new WeightedTH1I(name, title, nbinsx, xlow, xup); }
+
+  inline TH1I* RJNewRawTH1I(const char* name, const char* title, Int_t nbinsx, Double_t xlow, Double_t xup)
+  { return new RawTH1I(name, title, nbinsx, xlow, xup); }
+
+  inline TH1F* RJNewRawTH1F(const char* name, const char* title, Int_t nbinsx, Double_t xlow, Double_t xup)
+  { return new RawTH1F(name, title, nbinsx, xlow, xup); }
+
+  inline TH1F* RJNewRawTH1F(const char* name, const char* title, Int_t nbinsx, const Double_t* xbins)
+  { return new RawTH1F(name, title, nbinsx, xbins); }
+
+  inline TH1D* RJNewRawTH1D(const char* name, const char* title, Int_t nbinsx, Double_t xlow, Double_t xup)
+  { return new RawTH1D(name, title, nbinsx, xlow, xup); }
+
+  inline TH2F* RJNewRawTH2F(const char* name, const char* title,
+                            Int_t nbinsx, Double_t xlow, Double_t xup,
+                            Int_t nbinsy, Double_t ylow, Double_t yup)
+  { return new RawTH2F(name, title, nbinsx, xlow, xup, nbinsy, ylow, yup); }
 
   inline TH2F* RJNewTH2F(const char* name, const char* title,
                          Int_t nbinsx, Double_t xlow, Double_t xup,
@@ -337,16 +439,16 @@ namespace
   constexpr double kPPG12PreE32E35Min = 0.8;
   constexpr double kPPG12PreE32E35Max = 1.0;
 
-  constexpr double kPPG12TightBDTMinIntercept = 0.8333333333333334;
-  constexpr double kPPG12TightBDTMinSlope = -0.003333333333333336;
+  constexpr double kPPG12TightBDTMinIntercept = 0.815625;
+  constexpr double kPPG12TightBDTMinSlope = -0.0015625;
   constexpr double kPPG12TightBDTMax = 1.0;
 
   constexpr double kPPG12NonTightBDTMinIntercept = 0.7333333333333333;
   constexpr double kPPG12NonTightBDTMinSlope = -0.01333333333333333;
-  constexpr double kPPG12NonTightBDTMaxIntercept = 0.6666666666666666;
-  constexpr double kPPG12NonTightBDTMaxSlope = 0.003333333333333336;
+  constexpr double kPPG12NonTightBDTMaxIntercept = 0.684375;
+  constexpr double kPPG12NonTightBDTMaxSlope = 0.0015625;
 
-  // PPG12 current IAN/paper photon-yield contract
+  // Canonical PPG12 paper-era photon-yield contract
   // (efficiencytool/config_bdt_purity_pade.yaml +
   //  efficiencytool/RecoEffCalculator_TTreeReader.C).
   constexpr double kPPG12YieldCommonProbMin = 0.0;
@@ -380,17 +482,45 @@ namespace
   constexpr double kPPG12YieldRecoIsoGap = 0.8;
   constexpr double kPPG12YieldRecoIsoMin = -20.0;
   constexpr double kPPG12YieldRecoNonIsoMax = 20.0;
+  constexpr double kPPG12YieldRecoMinET = 5.0;
   constexpr double kPPG12YieldIsoTolerance = 1e-6;
   constexpr double kPPG12YieldMcIsoScale = 1.2;
   constexpr double kPPG12YieldMcIsoShift = 0.1;
+  constexpr double kPPG12ShowerShapeMcIsoScale = 1.2;
+  constexpr double kPPG12ShowerShapeMcIsoShift = 0.2;
   constexpr double kPPG12YieldTruthIsoConeR = 0.3;
-  constexpr double kPPG12YieldClusterERes = 0.04;
+  // PPG12 keeps calibrated cluster ET unsmeared for cuts, ID, isolation, and
+  // ABCD yields.  Only the response-matrix arm receives the additive
+  // data-minus-MC resolution term configured in config_bdt_nom*.yaml.
+  constexpr double kPPG12YieldResponseEResDataP0 = 0.15;
+  constexpr double kPPG12YieldResponseEResDataP1 = 0.05;
+  constexpr double kPPG12YieldResponseEResDataP2 = 0.05;
+  constexpr double kPPG12YieldResponseEResMcP0 = 0.185;
+  constexpr double kPPG12YieldResponseEResMcP1 = 0.0;
+  constexpr double kPPG12YieldResponseEResMcP2 = 0.04;
   constexpr const char* kPPG12YieldTopoClusterNode = "TOPOCLUSTER_ALLCALO";
   constexpr const char* kPPG12YieldTowerMaskFile =
       "/sphenix/user/shuhangli/ppg12/efficiencytool/tower_masks_bdt_nom.root";
   constexpr const char* kPPG12YieldTowerMaskName = "mask_phisymm_tight";
   constexpr const char* kPPG12Fig7TriggerKey = "PPG12_trigger_fig7";
   constexpr const char* kPPG12Fig13Bit30TriggerKey = "PPG12_scaledtrigger30";
+  constexpr const char* kPPG12Fig11SignalSampleKey = "signal_mc";
+  constexpr const char* kPPG12Fig11InclusiveJetSampleKey = "jet_inclusive_mc";
+  constexpr double kPPG12Photon20CrossPb = 130.4461;
+  constexpr double kPPG12Jet50CrossPb = 7.3113;
+  constexpr double kPPG12Fig11RecoIsoA = 0.502095;
+  constexpr double kPPG12Fig11RecoIsoB = 0.0433036;
+  constexpr double kPPG12Fig11RecoIsoMin = -1.0;
+  constexpr double kPPG12Fig11RecoEtMin = 10.0;
+  constexpr double kPPG12Fig11RecoEtMax = 30.0;
+  constexpr double kPPG12Fig11EtaAbsMax = 0.7;
+  constexpr double kPPG12Fig11McIsoScale = 1.2;
+  constexpr double kPPG12Fig11McIsoShift = 0.1;
+  constexpr const char* kPPG12Fig24SignalRecoIsoName = "h_ppg12_fig24_signal_reco_isoET_eta0";
+  constexpr const char* kPPG12Fig24PPG12CompatName = "h_singal_reco_isoET_0";
+  constexpr double kPPG12Fig24RecoEtMin = 10.0;
+  constexpr double kPPG12Fig24RecoEtMax = 36.0;
+  constexpr double kPPG12Fig24EtaAbsMax = 0.7;
   constexpr const char* kPPG12Fig8DefaultClusterNode = "CLUSTERINFO_CEMC_NO_SPLIT";
   constexpr const char* kPPG12Fig8FallbackClusterNode = "CLUSTERINFO_CEMC";
   constexpr double kPPG12Fig8VertexAbsMax = 30.0;
@@ -403,6 +533,14 @@ namespace
   constexpr int kPPG12Fig8TruthEtBins = 100;
   constexpr int kPPG12Fig8ResponseBins = 250;
   constexpr int kPPG12Fig8EnergyBins = 100;
+
+  inline const std::array<double, 14>& ppg12Fig24RecoEtEdges()
+  {
+    static const std::array<double, 14> kEdges =
+        {{10.0, 12.0, 14.0, 16.0, 18.0, 20.0, 22.0,
+          24.0, 26.0, 28.0, 30.0, 32.0, 34.0, 36.0}};
+    return kEdges;
+  }
 
   const std::vector<double>& ppg12Fig7TurnonEdges()
   {
@@ -454,20 +592,37 @@ namespace
     return nullptr;
   }
 
+  struct PPG12TableQA2DXAxisDef
+  {
+    int nbins;
+    double xmin;
+    double xmax;
+  };
+
+  PPG12TableQA2DXAxisDef ppg12TableQA2DXAxis(const std::string& key)
+  {
+    // Match PPG12 efficiencytool/ShowerShapeCheck.C h2d_all booking.
+    // The compact 1D h1d_* outputs keep their slide-facing per-variable axes.
+    if (key == "npb_score") return {100, 0.0, 1.0};
+    return {300, -1.0, 2.0};
+  }
+
   std::vector<std::string> ppg12TableQAPtTokens(double pt)
   {
     std::vector<std::string> out;
     if (!std::isfinite(pt)) return out;
     if (pt > 10.0 && pt < 14.0) out.emplace_back("0");
+    if (pt > 14.0 && pt < 18.0) out.emplace_back("1");
     if (pt > 18.0 && pt < 22.0) out.emplace_back("2");
     if (pt > 22.0 && pt < 28.0) out.emplace_back("3");
+    if (pt > 28.0 && pt < 30.0) out.emplace_back("4");
     if (pt > 15.0 && pt < 35.0) out.emplace_back("1535");
     return out;
   }
 
-  const std::array<const char*, 4>& ppg12TableQAAllPtTokens()
+  const std::array<const char*, 6>& ppg12TableQAAllPtTokens()
   {
-    static const std::array<const char*, 4> tokens{{"0", "2", "3", "1535"}};
+    static const std::array<const char*, 6> tokens{{"0", "1", "2", "3", "4", "1535"}};
     return tokens;
   }
 
@@ -819,7 +974,7 @@ namespace
     switch (slice)
     {
       case PPG12InclusiveJetSlice::kJet5:  return 1.3878e8;
-      case PPG12InclusiveJetSlice::kJet8:  return 1.3013e7;
+      case PPG12InclusiveJetSlice::kJet8:  return 1.15e7;
       case PPG12InclusiveJetSlice::kJet12: return 1.4903e6;
       case PPG12InclusiveJetSlice::kJet20: return 6.2623e4;
       case PPG12InclusiveJetSlice::kJet30: return 2.5298e3;
@@ -1666,6 +1821,18 @@ std::string RecoilJets::baseRKeyFromDphiHistKey(const std::string& rKey) const
 
 RecoilJets::~RecoilJets()
 {
+  // End() normally owns the diagnostic stream shutdown.  Keep the destructor
+  // defensive so an aborted canary cannot leave buffered CSV rows unwritten.
+  if (m_ppg12EisoPathCanaryOut.is_open())
+  {
+    m_ppg12EisoPathCanaryOut.flush();
+    m_ppg12EisoPathCanaryOut.close();
+  }
+  if (m_ppg12EisoConeMemberCanaryOut.is_open())
+  {
+    m_ppg12EisoConeMemberCanaryOut.flush();
+    m_ppg12EisoConeMemberCanaryOut.close();
+  }
   if (m_vertexReweightH)
   {
     delete m_vertexReweightH;
@@ -1803,6 +1970,7 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     m_truthVz = std::numeric_limits<double>::quiet_NaN();
     m_truthVzMB = std::numeric_limits<double>::quiet_NaN();
     m_truthInfo = nullptr;
+    m_ppg12EisoVertexSource = "none";
 
     double gv_z    = std::numeric_limits<double>::quiet_NaN();
     double ppg12_gv_mbd_z = std::numeric_limits<double>::quiet_NaN();
@@ -1886,31 +2054,31 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
     }
   }
 
-  // Choose the reco z we will USE:
-  //   - default SIM + data: MBD -> else Global -> else SKIP
-  //   - optional legacy PPG12 pp-SIM diagnostic: truth vertex for reco objects
+  // Choose the reconstructed z used by reconstructed quantities. PPG12 data
+  // uses MbdVertexMap; PPG12 SIM uses the MBD subvertex in GlobalVertexMap.
+  // Truth vertices are reserved for SIM event reweighting below.
   const char* vz_source = "none";
-  const bool usePPG12TruthVertexForPPSim =
-      (m_ppg12PhotonYieldUseTruthVertexForRecoObjectsInPPSim && isSim && !isAuAu && haveTruthZ);
-  const bool requirePPG12GlobalMbdVertex =
-      (m_ppg12PhotonYieldEnabled && isSim && !isAuAu && !usePPG12TruthVertexForPPSim);
+  const bool requirePPG12SimGlobalMbdVertex =
+      (m_ppg12PhotonYieldEnabled && isSim && !isAuAu);
+  const bool requirePPG12DataMbdVertex =
+      (m_ppg12PhotonYieldEnabled && !isSim && !isAuAu);
 
-  if (usePPG12TruthVertexForPPSim)
-  {
-    m_vz = static_cast<float>(truth_z);
-    vz_source = "G4Truth(PPG12 pp-SIM)";
-  }
-  else if (requirePPG12GlobalMbdVertex && havePPG12GlobalMbdZ)
+  if (requirePPG12SimGlobalMbdVertex && havePPG12GlobalMbdZ)
   {
     m_vz = static_cast<float>(ppg12_gv_mbd_z);
     vz_source = "GlobalVertexMap::MBD(PPG12)";
   }
-  else if (!requirePPG12GlobalMbdVertex && haveMBDZ)
+  else if (requirePPG12DataMbdVertex && haveMBDZ)
+  {
+    m_vz = static_cast<float>(mbd_z);
+    vz_source = "MbdVertexMap(PPG12)";
+  }
+  else if (!requirePPG12SimGlobalMbdVertex && !requirePPG12DataMbdVertex && haveMBDZ)
   {
     m_vz = static_cast<float>(mbd_z);
     vz_source = "MBD";
   }
-  else if (!requirePPG12GlobalMbdVertex && haveGVZ)
+  else if (!requirePPG12SimGlobalMbdVertex && !requirePPG12DataMbdVertex && haveGVZ)
   {
     m_vz = static_cast<float>(gv_z);
     vz_source = "Global";
@@ -1919,10 +2087,15 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
   {
     LOG(1, CLR_YELLOW,
         "  [fetchNodes] no usable RECO vertex z"
-        << (requirePPG12GlobalMbdVertex ? " (required PPG12 GlobalVertexMap::MBD missing)" : " (MBD/Global)")
+        << (requirePPG12SimGlobalMbdVertex
+                ? " (required PPG12 SIM GlobalVertexMap::MBD missing)"
+                : (requirePPG12DataMbdVertex
+                       ? " (required PPG12 data MbdVertexMap missing)"
+                       : " (MBD/Global)"))
         << " → skip event");
     return false;
   }
+  m_ppg12EisoVertexSource = vz_source;
 
   // Print comparison ONLY if it matters (data only)
   if (!isSim && haveMBDZ && haveGVZ)
@@ -2039,17 +2212,24 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
       m_clus_nocorr = findNode::getClass<RawClusterContainer>(top, "CLUSTERINFO_CEMC_NOCORR");
     }
 
+    const bool wantsPPG12PPSimYieldScores =
+      m_ppg12PhotonYieldEnabled && m_isSim && !m_isAuAu;
+
     const bool wantsNPBScore =
       preselectionUsesNPB(m_preselectionVariant) ||
       (m_ppPhotonIDTrainingTreeEnabled && !m_isAuAu) ||
-      m_ppg12TableQAEnabled;
+      m_ppg12TableQAEnabled ||
+      wantsPPG12PPSimYieldScores;
     if (wantsNPBScore)
     {
       if (m_preselectionPhotonNode == "PHOTONCLUSTER_CEMC") m_photons_npb = m_photons;
       else m_photons_npb = findNode::getClass<RawClusterContainer>(top, m_preselectionPhotonNode.c_str());
     }
 
-    const bool wantsTightScore = (m_tightVariant == "newPPG12" || m_ppg12TableQAEnabled);
+    const bool wantsTightScore =
+      m_tightVariant == "newPPG12" ||
+      m_ppg12TableQAEnabled ||
+      wantsPPG12PPSimYieldScores;
     if (wantsTightScore)
     {
       if (m_tightPhotonNode == "PHOTONCLUSTER_CEMC") m_photons_tightbdt = m_photons;
@@ -2459,6 +2639,7 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
 int RecoilJets::Init(PHCompositeNode* topNode)
 {
   LOG(1, CLR_BLUE, "[Init] RecoilJets – starting");
+  RJMCWeighting::ResetFillCounts();
   configureInternalJetPtScanFromEnv();
   configureInternalBackToBackScanFromEnv();
   configureInternalIsoViewsFromEnv();
@@ -2507,6 +2688,8 @@ int RecoilJets::Init(PHCompositeNode* topNode)
       (!m_isSim && !m_isAuAu && envFlag("RJ_PPG12_FIG7_TRIGGER_DIAGNOSTIC", false));
   m_ppg12Fig13Bit30Diagnostic =
       (!m_isSim && !m_isAuAu && envFlag("RJ_PPG12_FIG13_BIT30_DIAGNOSTIC", false));
+  m_ppg12Fig11SBDiagnostic =
+      (m_isSim && !m_isAuAu && envFlag("RJ_PPG12_FIG11_SB_DIAGNOSTIC", false));
   m_ppg12Fig13ParityQA = requestedPPG12Fig13ParityQA || m_ppg12Fig13Bit30Diagnostic;
 
   m_ppg12TableQAEnabled = envFlag("RJ_PPG12_TABLE_QA", false);
@@ -2523,21 +2706,32 @@ int RecoilJets::Init(PHCompositeNode* topNode)
       envDouble("RJ_PPG12_TABLE_QA_NPB_AWAY_JET_PT_MIN", m_ppg12TableQANPBAwayJetPtMin);
   m_ppg12TableQANPBAwayJetDPhiMin =
       envDouble("RJ_PPG12_TABLE_QA_NPB_AWAY_JET_DPHI_MIN", m_ppg12TableQANPBAwayJetDPhiMin);
+  m_ppg12Fig14NPBMbdWetaMin =
+      envDouble("RJ_PPG12_FIG14_NPB_MBD_WETA_MIN", m_ppg12Fig14NPBMbdWetaMin);
+  m_ppg12TableQAMcIsoScale =
+      envDouble("RJ_PPG12_TABLE_QA_MC_ISO_SCALE", kPPG12ShowerShapeMcIsoScale);
+  m_ppg12TableQAMcIsoShift =
+      envDouble("RJ_PPG12_TABLE_QA_MC_ISO_SHIFT", kPPG12ShowerShapeMcIsoShift);
   m_ppg12TableQAMbdT0CorrectionFile =
       envString("RJ_PPG12_TABLE_QA_MBD_T0_CORRECTION_FILE", "");
   loadPPG12TableQAMbdT0Corrections(m_ppg12TableQAMbdT0CorrectionFile);
   if (m_ppg12TableQAEnabled)
   {
     LOG(1, CLR_MAGENTA,
-        "[Init] RJ_PPG12_TABLE_QA=1: writing PPG12_TABLE_QA_V1 TH2 histograms"
-        << " | NPB data tagging=" << (m_ppg12TableQANPBDataTaggingEnabled ? "on" : "off"));
+        "[Init] RJ_PPG12_TABLE_QA=1: writing compact TH1 and PPG12 ShowerShapeCheck-compatible TH2 histograms"
+        << " | NPB data tagging=" << (m_ppg12TableQANPBDataTaggingEnabled ? "on" : "off")
+        << " | Fig14/15 timing QA=" << (!m_isSim && !m_isAuAu ? "on" : "off")
+        << (m_isSim && !m_isAuAu ? " | pp SIM ShowerShapeCheck iso transform="
+                                    + std::to_string(m_ppg12TableQAMcIsoScale)
+                                    + "*Eiso+"
+                                    + std::to_string(m_ppg12TableQAMcIsoShift) : ""));
   }
 
   if (m_ppg12Fig7TriggerDiagnostic)
   {
     LOG(1, CLR_MAGENTA,
-        "[Init] RJ_PPG12_FIG7_TRIGGER_DIAGNOSTIC=1: writing exact PPG12 Fig.7 "
-        << "scaled[10] and live[29/30/31] trigger-efficiency QA under "
+        "[Init] RJ_PPG12_FIG7_TRIGGER_DIAGNOSTIC=1: writing PPG12 Fig.7 "
+        << "scaled[10] live-bit diagnostics plus live[10]-denominator trigger-turn-on QA under "
         << kPPG12Fig7TriggerKey);
   }
   if (m_ppg12Fig13Bit30Diagnostic)
@@ -2545,6 +2739,15 @@ int RecoilJets::Init(PHCompositeNode* topNode)
     LOG(1, CLR_MAGENTA,
         "[Init] RJ_PPG12_FIG13_BIT30_DIAGNOSTIC=1: adding direct GL1 scaled-bit-30 pp data QA under "
         << kPPG12Fig13Bit30TriggerKey);
+  }
+  if (m_ppg12Fig11SBDiagnostic)
+  {
+    LOG(1, CLR_MAGENTA,
+        "[Init] RJ_PPG12_FIG11_SB_DIAGNOSTIC=1: writing pp-SIM PPG12 Fig.11 S/B input TH2s"
+        << " | h_ET_isoET_eta0 signal/inclusive-jet analogs"
+        << " | diagnostic reference line=" << kPPG12Fig11RecoIsoA
+        << "+" << kPPG12Fig11RecoIsoB << "*E_T"
+        << " | active final-yield cut remains 0.490+0.037*pT,gap0.8");
   }
   if (m_ppg12Fig13ParityQA)
   {
@@ -2555,6 +2758,13 @@ int RecoilJets::Init(PHCompositeNode* topNode)
   }
 
   m_ppg12PhotonYieldEnabled = envFlag("RJ_PPG12_PHOTON_YIELD", m_ppg12PhotonYieldEnabled);
+  if (m_ppg12Fig11SBDiagnostic && !m_ppg12PhotonYieldEnabled)
+  {
+    LOG(1, CLR_YELLOW,
+        "[PPG12_FIG11_SB] RJ_PPG12_FIG11_SB_DIAGNOSTIC=1 was requested without "
+        "RJ_PPG12_PHOTON_YIELD=1; Fig.11 output will not fill because it requires "
+        "the PPG12 topo-isolation/truth-signal path.");
+  }
   if (m_ppg12PhotonYieldEnabled)
   {
     m_ppg12PhotonYieldApplyBinning =
@@ -2571,8 +2781,6 @@ int RecoilJets::Init(PHCompositeNode* topNode)
         envString("RJ_PPG12_PHOTON_YIELD_TOWER_MASK_FILE", kPPG12YieldTowerMaskFile);
     m_ppg12PhotonYieldTowerMaskName =
         envString("RJ_PPG12_PHOTON_YIELD_TOWER_MASK_NAME", kPPG12YieldTowerMaskName);
-    m_ppg12PhotonYieldClusterERes =
-        envDouble("RJ_PPG12_PHOTON_YIELD_CLUSTER_ERES", kPPG12YieldClusterERes);
     m_ppg12PhotonYieldMcIsoScale =
         envDouble("RJ_PPG12_PHOTON_YIELD_MC_ISO_SCALE", kPPG12YieldMcIsoScale);
     m_ppg12PhotonYieldMcIsoShift =
@@ -2582,13 +2790,19 @@ int RecoilJets::Init(PHCompositeNode* topNode)
     m_ppg12PhotonYieldDoubleInteraction =
         (m_isSim && !m_isAuAu &&
          envFlag("RJ_PPG12_PHOTON_YIELD_DOUBLE", m_ppg12PhotonYieldDoubleInteraction));
-    m_ppg12PhotonYieldUseTruthVertexInPPSim =
+    const bool requestedTruthVertexForReco =
         (m_isSim && !m_isAuAu &&
-         envFlag("RJ_PPG12_PHOTON_YIELD_TRUTH_VERTEX", m_ppg12PhotonYieldUseTruthVertexInPPSim));
-    m_ppg12PhotonYieldUseTruthVertexForRecoObjectsInPPSim =
-        (m_isSim && !m_isAuAu &&
-         envFlag("RJ_PPG12_PHOTON_YIELD_RECO_TRUTH_VERTEX",
-                 m_ppg12PhotonYieldUseTruthVertexForRecoObjectsInPPSim));
+         (envFlag("RJ_PPG12_PHOTON_YIELD_TRUTH_VERTEX", false) ||
+          envFlag("RJ_PPG12_PHOTON_YIELD_BUILDER_TRUTH_VERTEX", false) ||
+          envFlag("RJ_PPG12_PHOTON_YIELD_RECO_TRUTH_VERTEX", false)));
+    if (requestedTruthVertexForReco)
+    {
+      LOG(0, CLR_RED,
+          "[PPG12_VERTEX_CONTRACT][FATAL] truth-for-reconstructed-object mode is forbidden. "
+          "PPG12 reconstructed cluster kinematics and Eiso use reconstructed MBD z; "
+          "hard/MB truth vertices are reserved for SI/DI event weights.");
+      return Fun4AllReturnCodes::ABORTRUN;
+    }
     m_ppg12PhotonYieldExcludeCandidateTopoCluster =
         (m_isSim && !m_isAuAu &&
          envFlag("RJ_PPG12_PHOTON_YIELD_EXCLUDE_CANDIDATE_TOPO",
@@ -2757,15 +2971,18 @@ int RecoilJets::Init(PHCompositeNode* topNode)
         << " | tower_mask=" << (m_ppg12PhotonYieldApplyTowerMask && !m_isAuAu ? m_ppg12PhotonYieldTowerMaskName : "off")
         << " | truth_iso_R=" << (m_isSim && !m_isAuAu ? kPPG12YieldTruthIsoConeR : m_isoConeR)
         << (m_isSim && !m_isAuAu ? " | fig2_truth_iso=direct/frag,pT10-15/15-20/25-30,eta07,vz30" : "")
+        << (m_isSim && !m_isAuAu ? " | fig3_truth_pt=total/direct/frag,pt10-35,eta07,vz30,r03,iso4" : "")
         << (m_isSim && !m_isAuAu ? " | fig8_response=truth-matched clusterET/truthET,vz30,truth_eta07,node="
                                       + m_ppg12Fig8ClusterNode
                                       + ",fallback_to_split="
                                       + std::string(m_ppg12Fig8UseFallbackClusterNode ? "on" : "off") : "")
-        << " | cluster_eres=" << (m_isSim && !m_isAuAu ? m_ppg12PhotonYieldClusterERes : 0.0)
-        << (m_isSim && !m_isAuAu ? " | truth_vertex_topo_iso="
-                                      + std::string(m_ppg12PhotonYieldUseTruthVertexInPPSim ? "on" : "off") : "")
-        << (m_isSim && !m_isAuAu ? " | truth_vertex_reco_objects="
-                                      + std::string(m_ppg12PhotonYieldUseTruthVertexForRecoObjectsInPPSim ? "on" : "off") : "")
+        << (m_isSim && !m_isAuAu
+              ? " | cut_cluster_eres=0 | response_eres=PPG12_additive_sigma_extra"
+                " | response_eres_data=(0.15,0.05,0.05)"
+                " | response_eres_mc=(0.185,0,0.04)"
+              : "")
+        << (m_isSim && !m_isAuAu ? " | reconstructed_vertex=GlobalVertexMap::MBD"
+                                     " | truth_vertex_role=SI/DI_weight_only" : "")
         << (m_isSim && !m_isAuAu ? " | topo_candidate_exclusion="
                                       + std::string(m_ppg12PhotonYieldExcludeCandidateTopoCluster ? "on" : "off") : "")
         << (m_isSim && !m_isAuAu ? " | diag_features="
@@ -2800,6 +3017,131 @@ int RecoilJets::Init(PHCompositeNode* topNode)
   out = new TFile(Outfile.c_str(), "RECREATE");
   LOG(1, CLR_GREEN, "[Init] opened output file: " << Outfile);
 
+  m_ppg12Fig6EventCanaryEnabled =
+      (m_isSim && !m_isAuAu && envFlag("RJ_PPG12_FIG6_EVENT_CANARY", false));
+  if (m_ppg12Fig6EventCanaryEnabled)
+  {
+    m_ppg12Fig6EventCanaryMaxRows =
+        envLongLong("RJ_PPG12_FIG6_EVENT_CANARY_MAX_ROWS", m_ppg12Fig6EventCanaryMaxRows);
+    m_ppg12Fig6EventCanaryPath =
+        envString("RJ_PPG12_FIG6_EVENT_CANARY_PATH", Outfile + ".ppg12_fig6_event_canary.csv");
+    m_ppg12Fig6EventCanarySummaryPath =
+        envString("RJ_PPG12_FIG6_EVENT_CANARY_SUMMARY_PATH",
+                  Outfile + ".ppg12_fig6_event_canary_summary.csv");
+    m_ppg12Fig6CanaryIANSuffixIntegral =
+        envDouble("RJ_PPG12_FIG6_EVENT_CANARY_IAN_NO_SUFFIX_INTEGRAL",
+                  std::numeric_limits<double>::quiet_NaN());
+    m_ppg12Fig6CanaryTruePeriodIntegral =
+        envDouble("RJ_PPG12_FIG6_EVENT_CANARY_TRUE_PERIOD_INTEGRAL",
+                  std::numeric_limits<double>::quiet_NaN());
+    m_ppg12Fig6EventCanaryOut.open(m_ppg12Fig6EventCanaryPath.c_str(), std::ios::out);
+    if (!m_ppg12Fig6EventCanaryOut)
+    {
+      LOG(0, CLR_RED,
+          "[Init][PPG12_FIG6_EVENT_CANARY][FATAL] could not open "
+          << m_ppg12Fig6EventCanaryPath);
+      return Fun4AllReturnCodes::ABORTRUN;
+    }
+    m_ppg12Fig6EventCanaryOut
+        << "sample,input_family_path,period,component,event_index,"
+        << "max_r04_truth_jet_pt,owned_window_low,owned_window_high,owned_window_pass,"
+        << "histogram_family,fill_target,raw_fill_count,xsec_pb,jet50_xsec_pb,"
+        << "xsec_over_jet50,lumi_factor,si_di_mix_factor,hard_truth_vertex,"
+        << "mb_truth_vertex,hard_truth_vertex_weight,mb_truth_vertex_weight,"
+        << "current_event_weight_before_fig6_fill,final_fig6_fill_weight,"
+        << "equivalent_ppg12_formula_weight,our_over_ppg12_formula,reason\n";
+    LOG(1, CLR_MAGENTA,
+        "[Init] RJ_PPG12_FIG6_EVENT_CANARY=1: writing bounded Fig.6 event-factor CSV"
+        << " | rows_max=" << m_ppg12Fig6EventCanaryMaxRows
+        << " | events=" << m_ppg12Fig6EventCanaryPath
+        << " | summary=" << m_ppg12Fig6EventCanarySummaryPath);
+  }
+
+  m_ppg12EisoPathCanaryEnabled =
+      (m_ppg12PhotonYieldEnabled && !m_isAuAu &&
+       envFlag("RJ_PPG12_EISO_PATH_CANARY", false));
+  if (m_ppg12EisoPathCanaryEnabled)
+  {
+    m_ppg12EisoPathCanaryMaxRows =
+        envLongLong("RJ_PPG12_EISO_PATH_CANARY_MAX_ROWS", m_ppg12EisoPathCanaryMaxRows);
+    m_ppg12EisoPathCanaryMinEt =
+        envDouble("RJ_PPG12_EISO_PATH_CANARY_MIN_ET", m_ppg12EisoPathCanaryMinEt);
+    m_ppg12EisoPathCanaryMaxEt =
+        envDouble("RJ_PPG12_EISO_PATH_CANARY_MAX_ET", m_ppg12EisoPathCanaryMaxEt);
+    m_ppg12EisoConeMemberCanaryMaxRows =
+        envLongLong("RJ_PPG12_EISO_CONE_MEMBER_CANARY_MAX_ROWS",
+                    m_ppg12EisoConeMemberCanaryMaxRows);
+    if (!std::isfinite(m_ppg12EisoPathCanaryMinEt) ||
+        !std::isfinite(m_ppg12EisoPathCanaryMaxEt) ||
+        m_ppg12EisoPathCanaryMaxEt <= m_ppg12EisoPathCanaryMinEt ||
+        m_ppg12EisoConeMemberCanaryMaxRows <= 0)
+    {
+      LOG(0, CLR_RED,
+          "[Init][PPG12_EISO_PATH_CANARY][FATAL] invalid bounded-canary configuration"
+          << " | min=" << m_ppg12EisoPathCanaryMinEt
+          << " | max=" << m_ppg12EisoPathCanaryMaxEt
+          << " | member_rows_max=" << m_ppg12EisoConeMemberCanaryMaxRows);
+      return Fun4AllReturnCodes::ABORTRUN;
+    }
+    m_ppg12EisoPathCanaryPath =
+        envString("RJ_PPG12_EISO_PATH_CANARY_PATH", Outfile + ".ppg12_eiso_path_canary.csv");
+    m_ppg12EisoConeMemberCanaryPath =
+        envString("RJ_PPG12_EISO_CONE_MEMBER_CANARY_PATH",
+                  Outfile + ".ppg12_eiso_cone_member_canary.csv");
+    if (m_ppg12EisoPathCanaryPath == m_ppg12EisoConeMemberCanaryPath)
+    {
+      LOG(0, CLR_RED,
+          "[Init][PPG12_EISO_PATH_CANARY][FATAL] candidate and cone-member CSV paths must differ"
+          << " | path=" << m_ppg12EisoPathCanaryPath);
+      return Fun4AllReturnCodes::ABORTRUN;
+    }
+    m_ppg12EisoPathCanaryOut.open(m_ppg12EisoPathCanaryPath.c_str(), std::ios::out);
+    if (!m_ppg12EisoPathCanaryOut)
+    {
+      LOG(0, CLR_RED,
+          "[Init][PPG12_EISO_PATH_CANARY][FATAL] could not open "
+          << m_ppg12EisoPathCanaryPath);
+      return Fun4AllReturnCodes::ABORTRUN;
+    }
+    m_ppg12EisoConeMemberCanaryOut.open(
+        m_ppg12EisoConeMemberCanaryPath.c_str(), std::ios::out);
+    if (!m_ppg12EisoConeMemberCanaryOut)
+    {
+      m_ppg12EisoPathCanaryOut.close();
+      LOG(0, CLR_RED,
+          "[Init][PPG12_EISO_CONE_MEMBER_CANARY][FATAL] could not open "
+          << m_ppg12EisoConeMemberCanaryPath);
+      return Fun4AllReturnCodes::ABORTRUN;
+    }
+    m_ppg12EisoPathCanaryOut
+        << "run,event_index,event_sequence,candidate_index,reco_et,eta,phi,is_truth_signal,"
+        << "bdt,npb_score,npb_pass,loose_ss_pass,common_pass,tight_tag,"
+        << "vertex_source,stored_raw_eiso,legacy_positive_only_raw_eiso,"
+        << "stored_topo_sum_et,stored_positive_only_topo_sum_et,stored_valid,"
+        << "stored_vertex_z,expected_vertex_z,iso_axis_eta,iso_axis_phi,isolation_candidate_et,"
+        << "vertex_compatible,stored_accepted,stored_rejected,recompute_fallback,"
+        << "vertex_mismatch_rejected,reco_vertex_used_for_eiso,"
+        << "topo_node_count,in_cone_member_count,recomputed_topo_sum_et,"
+        << "recomputed_positive_only_topo_sum_et,recomputed_raw_eiso,"
+        << "member_rows_captured,member_capture_complete,final_raw_eiso,path_code,path_label,"
+        << "corrected_eiso,iso_threshold,noniso_lower,noniso_upper,"
+        << "stored_region,legacy_positive_only_region,recomputed_region,current_region,mismatch_reason,"
+        << "pt_bin,eiso_bin,final_ppg12_sim_weight\n";
+    m_ppg12EisoConeMemberCanaryOut
+        << "run,event_index,event_sequence,candidate_index,reco_et,candidate_eta,candidate_phi,"
+        << "is_truth_signal,bdt,npb_score,tight_tag,vertex_source,recompute_vertex_z,"
+        << "iso_axis_eta,iso_axis_phi,topo_node_count,in_cone_member_count,member_index,"
+        << "topo_key,energy,eta,phi,et,deta,dphi,dr\n";
+    LOG(1, CLR_MAGENTA,
+        "[Init] RJ_PPG12_EISO_PATH_CANARY=1: writing bounded Eiso-path CSV"
+        << " | rows_max=" << m_ppg12EisoPathCanaryMaxRows
+        << " | et_window=[" << m_ppg12EisoPathCanaryMinEt
+        << "," << m_ppg12EisoPathCanaryMaxEt << ")"
+        << " | path=" << m_ppg12EisoPathCanaryPath
+        << " | member_rows_max=" << m_ppg12EisoConeMemberCanaryMaxRows
+        << " | members=" << m_ppg12EisoConeMemberCanaryPath);
+  }
+
   trigAna = new TriggerAnalyzer();
   if (!m_ppPhotonIDExtractOnly)
   {
@@ -2816,6 +3158,16 @@ int RecoilJets::Init(PHCompositeNode* topNode)
     bookPPG12PhotonYieldSchema({"SIM"});
     LOG(1, CLR_MAGENTA,
         "[Init] PPG12_PHOTON_YIELD_V1 prebooked SIM schema so empty/low-yield chunks still write a mergeable ROOT");
+  }
+
+  if (m_ppg12Fig11SBDiagnostic && m_ppg12PhotonYieldEnabled && m_isSim && !m_isAuAu)
+  {
+    getOrBookPPG12Fig11AuditHist("SIM");
+    getOrBookPPG12Fig11ETIsoHist("SIM", kPPG12Fig11SignalSampleKey);
+    getOrBookPPG12Fig11ETIsoHist("SIM", kPPG12Fig11InclusiveJetSampleKey);
+    LOG(1, CLR_MAGENTA,
+        "[Init] RJ_PPG12_FIG11_SB_DIAGNOSTIC prebooked Fig.11 signal/background TH2 schema "
+        "so empty/low-stat chunks remain mergeable");
   }
 
   if (m_ppPhotonIDTrainingTreeEnabled && !m_isAuAu)
@@ -3038,7 +3390,7 @@ void RecoilJets::fillPPPhotonIDTrainingTree(const SSVars& v,
     return std::isfinite(x) ? static_cast<float>(x) : 0.0f;
   };
 
-  m_bdtTrain_run = (m_evtHeader ? m_evtHeader->get_RunNumber() : 0);
+  m_bdtTrain_run = currentRunNumber();
   m_bdtTrain_evt = event_count;
   m_bdtTrain_eventnumber = (m_evtHeader ? m_evtHeader->get_EvtSequence() : event_count);
   m_bdtTrain_cluster_index = clusterIndex;
@@ -3052,6 +3404,7 @@ void RecoilJets::fillPPPhotonIDTrainingTree(const SSVars& v,
   m_bdtTrain_cent = -1.0f;
   m_bdtTrain_vz = featureValue(m_vz);
   m_bdtTrain_ppg12_kin_vertexz = featureValue(ppg12PhotonYieldKinematicVertexZ());
+  // m_mcEventWeight is the canonical full PPG12 SIM weight in pp-SIM lanes.
   m_bdtTrain_weight = featureValue(m_mcEventWeight);
   m_bdtTrain_eiso = featureValue(eiso);
   m_bdtTrain_ppg12_raw_eiso = featureValue(ppg12RawEiso);
@@ -3169,7 +3522,9 @@ int RecoilJets::InitRun(PHCompositeNode* /*topNode*/)
 
   const bool initPPPhotonVertexWeight =
       m_isSim && !m_isAuAu && m_vertexReweightOn &&
-      (ppg12PhotonSliceFromContext(Outfile) != PPG12PhotonSlice::kNone);
+      (ppg12PhotonSliceFromContext(Outfile) != PPG12PhotonSlice::kNone ||
+       (m_ppg12PhotonYieldEnabled &&
+        ppg12InclusiveJetSliceFromContext(Outfile) != PPG12InclusiveJetSlice::kNone));
 
   if (initPPPhotonVertexWeight)
   {
@@ -3732,7 +4087,7 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
           return nullptr;
         }
         dir->cd();
-        auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
+        auto* h = RJMCWeighting::RJNewRawTH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
         if (h) H[name] = h;
         if (prevDir) prevDir->cd();
         return h;
@@ -3765,7 +4120,7 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
         bumpHistFill(kPPG12Fig13Bit30TriggerKey, h->GetName());
       }
 
-      const int runNumber = (m_evtHeader ? m_evtHeader->get_RunNumber() : 0);
+      const int runNumber = currentRunNumber();
       if (runNumber > 0)
       {
         if (ppg12ScaledBit30Fired)
@@ -3879,7 +4234,7 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
 
       if (m_ppg12PeriodFilterData)
       {
-        const int runNumber = (m_evtHeader ? m_evtHeader->get_RunNumber() : 0);
+        const int runNumber = currentRunNumber();
         if (!ppg12PeriodRunContains(runNumber))
         {
           m_lastReject = EventReject::Period;
@@ -4088,7 +4443,16 @@ void RecoilJets::fillPPG12Fig7TriggerQA(PHCompositeNode* topNode)
       "clusters_live30_vz200",
       "clusters_live31_vz200",
       "clusters_eta_reject",
-      "clusters_et_range_reject"
+      "clusters_et_range_reject",
+      "live10",
+      "live10_vz200",
+      "live10_live29_vz200",
+      "live10_live30_vz200",
+      "live10_live31_vz200",
+      "clusters_live10_vz200",
+      "clusters_live10_live29_vz200",
+      "clusters_live10_live30_vz200",
+      "clusters_live10_live31_vz200"
   };
 
   TH1D* hCounts = bookCounter("h_ppg12_fig7_event_and_cluster_counts",
@@ -4113,11 +4477,12 @@ void RecoilJets::fillPPG12Fig7TriggerQA(PHCompositeNode* topNode)
   const uint64_t liveVector = static_cast<uint64_t>(gl1Packet->getLiveVector());
   const bool passVz200 = std::isfinite(m_vz) && (std::fabs(m_vz) <= 200.0);
   const bool scaled10 = ((scaledVector & (1ULL << 10U)) != 0ULL);
+  const bool live10 = ((liveVector & (1ULL << 10U)) != 0ULL);
   const bool live29 = ((liveVector & (1ULL << 29U)) != 0ULL);
   const bool live30 = ((liveVector & (1ULL << 30U)) != 0ULL);
   const bool live31 = ((liveVector & (1ULL << 31U)) != 0ULL);
 
-  const int runNumber = (m_evtHeader ? m_evtHeader->get_RunNumber() : 0);
+  const int runNumber = currentRunNumber();
 
   TH1D* hRunSeen = book1D("h_ppg12_fig7_run_all_seen",
                           "PPG12 Fig.7 run coverage, all seen;run number;events",
@@ -4128,6 +4493,12 @@ void RecoilJets::fillPPG12Fig7TriggerQA(PHCompositeNode* topNode)
   TH1D* hRunScaled10Vz = book1D("h_ppg12_fig7_run_scaled10_vz200",
                                 "PPG12 Fig.7 run coverage, scaled[10] and |vz|<200;run number;events",
                                 20000, 40000.0, 60000.0);
+  TH1D* hRunLive10 = book1D("h_ppg12_fig7_run_live10",
+                            "PPG12 Fig.7 run coverage, live[10];run number;events",
+                            20000, 40000.0, 60000.0);
+  TH1D* hRunLive10Vz = book1D("h_ppg12_fig7_run_live10_vz200",
+                              "PPG12 Fig.7 run coverage, live[10] and |vz|<200;run number;events",
+                              20000, 40000.0, 60000.0);
   TH1D* hRunLive29 = book1D("h_ppg12_fig7_run_scaled10_live29_vz200",
                             "PPG12 Fig.7 run coverage, scaled[10] and live[29];run number;events",
                             20000, 40000.0, 60000.0);
@@ -4137,6 +4508,15 @@ void RecoilJets::fillPPG12Fig7TriggerQA(PHCompositeNode* topNode)
   TH1D* hRunLive31 = book1D("h_ppg12_fig7_run_scaled10_live31_vz200",
                             "PPG12 Fig.7 run coverage, scaled[10] and live[31];run number;events",
                             20000, 40000.0, 60000.0);
+  TH1D* hRunLive10Live29 = book1D("h_ppg12_fig7_run_live10_live29_vz200",
+                                  "PPG12 Fig.7 run coverage, live[10] and live[29];run number;events",
+                                  20000, 40000.0, 60000.0);
+  TH1D* hRunLive10Live30 = book1D("h_ppg12_fig7_run_live10_live30_vz200",
+                                  "PPG12 Fig.7 run coverage, live[10] and live[30];run number;events",
+                                  20000, 40000.0, 60000.0);
+  TH1D* hRunLive10Live31 = book1D("h_ppg12_fig7_run_live10_live31_vz200",
+                                  "PPG12 Fig.7 run coverage, live[10] and live[31];run number;events",
+                                  20000, 40000.0, 60000.0);
 
   if (runNumber > 0 && hRunSeen) hRunSeen->Fill(runNumber);
   if (passVz200) fillCount(3);
@@ -4144,6 +4524,11 @@ void RecoilJets::fillPPG12Fig7TriggerQA(PHCompositeNode* topNode)
   {
     fillCount(4);
     if (runNumber > 0 && hRunScaled10) hRunScaled10->Fill(runNumber);
+  }
+  if (live10)
+  {
+    fillCount(15);
+    if (runNumber > 0 && hRunLive10) hRunLive10->Fill(runNumber);
   }
   if (scaled10 && passVz200)
   {
@@ -4163,6 +4548,26 @@ void RecoilJets::fillPPG12Fig7TriggerQA(PHCompositeNode* topNode)
     {
       fillCount(8);
       if (runNumber > 0 && hRunLive31) hRunLive31->Fill(runNumber);
+    }
+  }
+  if (live10 && passVz200)
+  {
+    fillCount(16);
+    if (runNumber > 0 && hRunLive10Vz) hRunLive10Vz->Fill(runNumber);
+    if (live29)
+    {
+      fillCount(17);
+      if (runNumber > 0 && hRunLive10Live29) hRunLive10Live29->Fill(runNumber);
+    }
+    if (live30)
+    {
+      fillCount(18);
+      if (runNumber > 0 && hRunLive10Live30) hRunLive10Live30->Fill(runNumber);
+    }
+    if (live31)
+    {
+      fillCount(19);
+      if (runNumber > 0 && hRunLive10Live31) hRunLive10Live31->Fill(runNumber);
     }
   }
 
@@ -4197,6 +4602,9 @@ void RecoilJets::fillPPG12Fig7TriggerQA(PHCompositeNode* topNode)
   TH1D* hLiveBits = book1D("h_ppg12_fig7_live_bit_occupancy_scaled10_vz200",
                            "PPG12 Fig.7 live bit occupancy for scaled[10] events after |vz|<200;GL1 bit;events",
                            64, -0.5, 63.5);
+  TH1D* hLiveBitsLive10 = book1D("h_ppg12_fig7_live_bit_occupancy_live10_vz200",
+                                 "PPG12 Fig.7 live bit occupancy for live[10] events after |vz|<200;GL1 bit;events",
+                                 64, -0.5, 63.5);
   if (passVz200 && hScaledBits)
   {
     for (int bit = 0; bit < 64; ++bit)
@@ -4217,8 +4625,18 @@ void RecoilJets::fillPPG12Fig7TriggerQA(PHCompositeNode* topNode)
       }
     }
   }
+  if (passVz200 && live10 && hLiveBitsLive10)
+  {
+    for (int bit = 0; bit < 64; ++bit)
+    {
+      if ((liveVector & (1ULL << static_cast<unsigned>(bit))) != 0ULL)
+      {
+        hLiveBitsLive10->Fill(bit);
+      }
+    }
+  }
 
-  if (!passVz200 || !scaled10) return;
+  if (!passVz200 || (!scaled10 && !live10)) return;
 
   TH1D* hDen = book1DVar("h_ppg12_fig7_cluster_et_scaled10",
                          "PPG12 Fig.7 denominator: scaled[10];E_{T}^{cluster} [GeV];clusters");
@@ -4240,6 +4658,26 @@ void RecoilJets::fillPPG12Fig7TriggerQA(PHCompositeNode* topNode)
                            "PPG12 Fig.7 TEff total for bit 31;E_{T}^{cluster} [GeV];clusters");
   TH1D* hPass31 = book1DVar("h_ppg12_fig7_eff_pass_bit31",
                             "PPG12 Fig.7 TEff pass for bit 31;E_{T}^{cluster} [GeV];clusters");
+  TH1D* hLive10Den = book1DVar("h_ppg12_fig7_cluster_et_live10",
+                               "PPG12 Fig.7 denominator: live[10];E_{T}^{cluster} [GeV];clusters");
+  TH1D* hLive10Live29Et = book1DVar("h_ppg12_fig7_cluster_et_live10_live29",
+                                    "PPG12 Fig.7 numerator: live[10] and live[29];E_{T}^{cluster} [GeV];clusters");
+  TH1D* hLive10Live30Et = book1DVar("h_ppg12_fig7_cluster_et_live10_live30",
+                                    "PPG12 Fig.7 numerator: live[10] and live[30];E_{T}^{cluster} [GeV];clusters");
+  TH1D* hLive10Live31Et = book1DVar("h_ppg12_fig7_cluster_et_live10_live31",
+                                    "PPG12 Fig.7 numerator: live[10] and live[31];E_{T}^{cluster} [GeV];clusters");
+  TH1D* hLive10Tot29 = book1DVar("h_ppg12_fig7_eff_total_live10_bit29",
+                                 "PPG12 Fig.7 TEff total for bit 29 with live[10] denominator;E_{T}^{cluster} [GeV];clusters");
+  TH1D* hLive10Pass29 = book1DVar("h_ppg12_fig7_eff_pass_live10_bit29",
+                                  "PPG12 Fig.7 TEff pass for bit 29 with live[10] denominator;E_{T}^{cluster} [GeV];clusters");
+  TH1D* hLive10Tot30 = book1DVar("h_ppg12_fig7_eff_total_live10_bit30",
+                                 "PPG12 Fig.7 TEff total for bit 30 with live[10] denominator;E_{T}^{cluster} [GeV];clusters");
+  TH1D* hLive10Pass30 = book1DVar("h_ppg12_fig7_eff_pass_live10_bit30",
+                                  "PPG12 Fig.7 TEff pass for bit 30 with live[10] denominator;E_{T}^{cluster} [GeV];clusters");
+  TH1D* hLive10Tot31 = book1DVar("h_ppg12_fig7_eff_total_live10_bit31",
+                                 "PPG12 Fig.7 TEff total for bit 31 with live[10] denominator;E_{T}^{cluster} [GeV];clusters");
+  TH1D* hLive10Pass31 = book1DVar("h_ppg12_fig7_eff_pass_live10_bit31",
+                                  "PPG12 Fig.7 TEff pass for bit 31 with live[10] denominator;E_{T}^{cluster} [GeV];clusters");
 
   if (!m_clus) return;
 
@@ -4267,29 +4705,60 @@ void RecoilJets::fillPPG12Fig7TriggerQA(PHCompositeNode* topNode)
       continue;
     }
 
-    if (hDen) hDen->Fill(et);
-    if (hTot29) hTot29->Fill(et);
-    if (hTot30) hTot30->Fill(et);
-    if (hTot31) hTot31->Fill(et);
-    fillCount(9);
+    if (scaled10)
+    {
+      if (hDen) hDen->Fill(et);
+      if (hTot29) hTot29->Fill(et);
+      if (hTot30) hTot30->Fill(et);
+      if (hTot31) hTot31->Fill(et);
+      fillCount(9);
 
-    if (live29)
-    {
-      if (hLive29Et) hLive29Et->Fill(et);
-      if (hPass29) hPass29->Fill(et);
-      fillCount(10);
+      if (live29)
+      {
+        if (hLive29Et) hLive29Et->Fill(et);
+        if (hPass29) hPass29->Fill(et);
+        fillCount(10);
+      }
+      if (live30)
+      {
+        if (hLive30Et) hLive30Et->Fill(et);
+        if (hPass30) hPass30->Fill(et);
+        fillCount(11);
+      }
+      if (live31)
+      {
+        if (hLive31Et) hLive31Et->Fill(et);
+        if (hPass31) hPass31->Fill(et);
+        fillCount(12);
+      }
     }
-    if (live30)
+
+    if (live10)
     {
-      if (hLive30Et) hLive30Et->Fill(et);
-      if (hPass30) hPass30->Fill(et);
-      fillCount(11);
-    }
-    if (live31)
-    {
-      if (hLive31Et) hLive31Et->Fill(et);
-      if (hPass31) hPass31->Fill(et);
-      fillCount(12);
+      if (hLive10Den) hLive10Den->Fill(et);
+      if (hLive10Tot29) hLive10Tot29->Fill(et);
+      if (hLive10Tot30) hLive10Tot30->Fill(et);
+      if (hLive10Tot31) hLive10Tot31->Fill(et);
+      fillCount(20);
+
+      if (live29)
+      {
+        if (hLive10Live29Et) hLive10Live29Et->Fill(et);
+        if (hLive10Pass29) hLive10Pass29->Fill(et);
+        fillCount(21);
+      }
+      if (live30)
+      {
+        if (hLive10Live30Et) hLive10Live30Et->Fill(et);
+        if (hLive10Pass30) hLive10Pass30->Fill(et);
+        fillCount(22);
+      }
+      if (live31)
+      {
+        if (hLive10Live31Et) hLive10Live31Et->Fill(et);
+        if (hLive10Pass31) hLive10Pass31->Fill(et);
+        fillCount(23);
+      }
     }
   }
 }
@@ -4300,17 +4769,36 @@ void RecoilJets::fillPPG12Fig7TriggerQA(PHCompositeNode* topNode)
 int RecoilJets::process_event(PHCompositeNode* topNode)
 {
   RJMCWeighting::CurrentWeight() = 1.0;
+  RJMCWeighting::CurrentLaneComponentCode() = 0;
   m_mcVertexWeight = 1.0;
   m_mcEventWeight = 1.0;
+  m_ppg12SimWeightActive = false;
+  m_ppg12SimWeightLaneCode = 0;
+  m_ppg12SimWeightLaneComponentCode = 0;
+  m_ppg12SimWeightFactorSlice = 1.0;
+  m_ppg12SimWeightFactorVertex = 1.0;
+  m_ppg12SimWeightFactorMix = 1.0;
+  m_ppg12SimWeightFactorPeriod = 1.0;
+  m_ppg12SimWeightFactorFinal = 1.0;
+  m_ppg12Fig6FilledThisEvent = false;
 
   /* ------------------------------------------------------------------ */
   /* 0) Banner & counter                                                */
   /* ------------------------------------------------------------------ */
   ++event_count;
   ++m_bk.evt_seen;
-  std::cout << "==================== processing event "
-            << std::setw(6) << event_count
-            << " ====================" << std::endl;
+  if (Verbosity() >= 4)
+  {
+    std::cout << "==================== processing event "
+              << std::setw(6) << event_count
+              << " ====================" << std::endl;
+  }
+
+  if (m_ppg12PhotonYieldEnabled && m_isSim && !m_isAuAu &&
+      ppg12InclusiveJetSliceFromContext(Outfile) != PPG12InclusiveJetSlice::kNone)
+  {
+    m_ppg12Fig6FilledThisEvent = fillPPG12InclusiveJetTruthSpectrumQA(topNode);
+  }
 
   /* ------------------------------------------------------------------ */
   /* 1) Mandatory nodes                                                 */
@@ -4320,6 +4808,174 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
   {
     LOG(4, CLR_YELLOW, "    mandatory node(s) missing → ABORTEVENT");
     return Fun4AllReturnCodes::ABORTEVENT;
+  }
+
+  // PPG12 Fig.81 data h_D reference contract. This must be filled before
+  // firstEventCuts()/vz60 and before cluster requirements: PPG12's
+  // truth_vertex_reweight h_D uses only data scaled bit 30, run period, and
+  // finite MBD vertex z within |z| <= 200 cm.
+  fillPPG12Fig81DataHDReferenceVertexQA(topNode);
+
+  // PPG12 Fig. 6 parity fallback: the strict truth-spectrum fill normally
+  // happens before fetchNodes() so reco/MBD vertex failures cannot bias it.
+  // This post-fetch fallback is only for unexpected missing truth nodes in the
+  // pre-fetch path; the per-event guard prevents double counting.
+  if (m_ppg12PhotonYieldEnabled && m_isSim && !m_isAuAu &&
+      ppg12InclusiveJetSliceFromContext(Outfile) != PPG12InclusiveJetSlice::kNone &&
+      !m_ppg12Fig6FilledThisEvent)
+  {
+    m_ppg12Fig6FilledThisEvent = fillPPG12InclusiveJetTruthSpectrumQA();
+  }
+
+  // Strict PPG12 IAN Fig. 5 source-stage diagnostic. This is intentionally
+  // before firstEventCuts()/vz so the next photon5/10/20 canary can test the
+  // PPG12 source-plot contract separately from the existing post-vz stitch QA.
+  if (m_isSim && !m_isAuAu)
+  {
+    const PPG12PhotonSlice fig5PreVzSlice = ppg12PhotonSliceFromContext(Outfile);
+    if (fig5PreVzSlice != PPG12PhotonSlice::kNone)
+    {
+      double fig5PreVzLo = std::numeric_limits<double>::quiet_NaN();
+      double fig5PreVzHi = std::numeric_limits<double>::quiet_NaN();
+      const bool fig5PreVzHaveWindow =
+          ppg12PhotonSliceWindow(fig5PreVzSlice, fig5PreVzLo, fig5PreVzHi);
+      const double fig5PreVzPhotonPt =
+          ppg12MaxStoredTruthPhotonPt(topNode, m_truthInfo, true, 0.7);
+      const bool fig5PreVzHaveTruth = (fig5PreVzPhotonPt >= 0.0);
+      const bool fig5PreVzPass =
+          fig5PreVzHaveWindow && fig5PreVzHaveTruth &&
+          ppg12WindowContains(fig5PreVzPhotonPt, fig5PreVzLo, fig5PreVzHi);
+
+      auto bookFig5PreVz1F = [&](const std::string& name,
+                                 const std::string& title,
+                                 int nbins,
+                                 double xmin,
+                                 double xmax) -> TH1F*
+      {
+        HistMap& H = qaHistogramsByTrigger["SIM"];
+        if (auto it = H.find(name); it != H.end())
+        {
+          return dynamic_cast<TH1F*>(it->second);
+        }
+
+        TDirectory* dir = (out ? out->GetDirectory("SIM") : nullptr);
+        if (!dir && out) dir = out->mkdir("SIM");
+        if (!dir) return nullptr;
+
+        TDirectory* prevDir = gDirectory;
+        dir->cd();
+
+        auto* h = RJMCWeighting::RJNewRawTH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
+        h->Sumw2();
+        h->SetDirectory(dir);
+        H[name] = h;
+
+        if (prevDir) prevDir->cd();
+        return h;
+      };
+
+      auto bookFig5PreVz1I = [&](const std::string& name,
+                                 const std::string& title,
+                                 int nbins,
+                                 double xmin,
+                                 double xmax) -> TH1I*
+      {
+        HistMap& H = qaHistogramsByTrigger["SIM"];
+        if (auto it = H.find(name); it != H.end())
+        {
+          return dynamic_cast<TH1I*>(it->second);
+        }
+
+        TDirectory* dir = (out ? out->GetDirectory("SIM") : nullptr);
+        if (!dir && out) dir = out->mkdir("SIM");
+        if (!dir) return nullptr;
+
+        TDirectory* prevDir = gDirectory;
+        dir->cd();
+
+        auto* h = RJMCWeighting::RJNewRawTH1I(name.c_str(), title.c_str(), nbins, xmin, xmax);
+        h->SetDirectory(dir);
+        H[name] = h;
+
+        if (prevDir) prevDir->cd();
+        return h;
+      };
+
+      if (auto* hMeta = bookFig5PreVz1F(
+              "h_ppPhotonStitch_ppg12Fig5PreVz_metadata",
+              "h_ppPhotonStitch_ppg12Fig5PreVz_metadata;metadata;value",
+              10, 0.5, 10.5))
+      {
+        hMeta->GetXaxis()->SetBinLabel(1, "events_pre_firstEventCuts");
+        hMeta->GetXaxis()->SetBinLabel(2, "window_low_GeV");
+        hMeta->GetXaxis()->SetBinLabel(3, "window_high_GeV");
+        hMeta->GetXaxis()->SetBinLabel(4, "upper_edge_inclusive");
+        hMeta->GetXaxis()->SetBinLabel(5, "bin_width_GeV");
+        hMeta->GetXaxis()->SetBinLabel(6, "xsec_pb");
+        hMeta->GetXaxis()->SetBinLabel(7, "truth_def_code");
+        hMeta->GetXaxis()->SetBinLabel(8, "sample_bin");
+        hMeta->GetXaxis()->SetBinLabel(9, "stage_code_pre_firstEventCuts");
+        hMeta->GetXaxis()->SetBinLabel(10, "uses_current_event_weight");
+        hMeta->Fill(1.0);
+        hMeta->SetBinContent(2, fig5PreVzLo);
+        hMeta->SetBinContent(3, std::isinf(fig5PreVzHi) ? 200.0 : fig5PreVzHi);
+        hMeta->SetBinContent(4, 1.0);
+        hMeta->SetBinContent(5, 0.5);
+        hMeta->SetBinContent(6, ppg12PhotonSliceXsecPb(fig5PreVzSlice));
+        hMeta->SetBinContent(7, 5.0);
+        hMeta->SetBinContent(8, static_cast<double>(ppg12PhotonSliceBin(fig5PreVzSlice)));
+        hMeta->SetBinContent(9, 1.0);
+        hMeta->SetBinContent(10, 0.0);
+        bumpHistFill("SIM", hMeta->GetName());
+      }
+
+      if (auto* hAll = bookFig5PreVz1F(
+              "h_ppPhotonStitch_ppg12Fig5PreVz_maxPhotonPt_all",
+              "h_ppPhotonStitch_ppg12Fig5PreVz_maxPhotonPt_all;max stored truth p_{T}^{#gamma}, |#eta|<0.7 [GeV];Events",
+              120, 0.0, 60.0))
+      {
+        if (fig5PreVzHaveTruth)
+        {
+          hAll->Fill(fig5PreVzPhotonPt);
+          bumpHistFill("SIM", hAll->GetName());
+        }
+      }
+      if (fig5PreVzPass)
+      {
+        if (auto* hKept = bookFig5PreVz1F(
+                "h_ppPhotonStitch_ppg12Fig5PreVz_maxPhotonPt_kept",
+                "h_ppPhotonStitch_ppg12Fig5PreVz_maxPhotonPt_kept;max stored truth p_{T}^{#gamma}, |#eta|<0.7 [GeV];Events",
+                120, 0.0, 60.0))
+        {
+          hKept->Fill(fig5PreVzPhotonPt);
+          bumpHistFill("SIM", hKept->GetName());
+        }
+      }
+      else if (auto* hRejected = bookFig5PreVz1F(
+                   "h_ppPhotonStitch_ppg12Fig5PreVz_maxPhotonPt_rejected",
+                   "h_ppPhotonStitch_ppg12Fig5PreVz_maxPhotonPt_rejected;max stored truth p_{T}^{#gamma}, |#eta|<0.7 [GeV];Events",
+                   120, 0.0, 60.0))
+      {
+        if (fig5PreVzHaveTruth)
+        {
+          hRejected->Fill(fig5PreVzPhotonPt);
+          bumpHistFill("SIM", hRejected->GetName());
+        }
+      }
+
+      if (auto* hDecision = bookFig5PreVz1I(
+              "h_ppPhotonStitch_ppg12Fig5PreVz_decision",
+              "h_ppPhotonStitch_ppg12Fig5PreVz_decision;decision;Events",
+              4, 0.5, 4.5))
+      {
+        hDecision->GetXaxis()->SetBinLabel(1, "kept");
+        hDecision->GetXaxis()->SetBinLabel(2, "rejected");
+        hDecision->GetXaxis()->SetBinLabel(3, "missing truth");
+        hDecision->GetXaxis()->SetBinLabel(4, "unknown sample");
+        hDecision->Fill(fig5PreVzPass ? 1 : (fig5PreVzHaveTruth ? 2 : 3));
+        bumpHistFill("SIM", hDecision->GetName());
+      }
+    }
   }
 
   /* ------------------------------------------------------------------ */
@@ -4342,7 +4998,7 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
 
     if (gl1Packet)
     {
-      const uint64_t runNumber     = recoConsts::instance()->get_uint64Flag("TIMESTAMP", 0);
+      const uint64_t runNumber     = static_cast<uint64_t>(currentRunNumber());
       uint64_t triggerVector = 0;
       uint64_t liveVector    = 0;
       getDoNotScaleEventVectors(gl1Packet, triggerVector, liveVector);
@@ -4496,6 +5152,8 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
   /* 3) Trigger counters (one per trigger) + Vertex-z QA                */
   /* ------------------------------------------------------------------ */
 
+  fillPPG12Fig81SlimtreeVertexQA(topNode);
+
   bookPPG12PhotonYieldSchema(activeTrig);
 
   // Bump the per-trigger counter once per accepted event (and LOG fills via bumpHistFill)
@@ -4528,6 +5186,8 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
   /* ------------------------------------------------------------------ */
   PPG12PhotonSlice ppPhotonSlice = PPG12PhotonSlice::kNone;
   bool ppPhotonSliceContext = false;
+  PPG12InclusiveJetSlice ppInclusiveJetSliceForWeight = PPG12InclusiveJetSlice::kNone;
+  bool ppInclusiveJetContextForWeight = false;
   m_ppStitchDiagContext = false;
   m_ppStitchDiagKeep.fill(false);
   m_ppStitchDiagPhotonPt.fill(-1.0);
@@ -4535,6 +5195,9 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
   {
     ppPhotonSlice = ppg12PhotonSliceFromContext(Outfile);
     ppPhotonSliceContext = (ppPhotonSlice != PPG12PhotonSlice::kNone);
+    ppInclusiveJetSliceForWeight = ppg12InclusiveJetSliceFromContext(Outfile);
+    ppInclusiveJetContextForWeight =
+      (ppInclusiveJetSliceForWeight != PPG12InclusiveJetSlice::kNone);
     m_ppStitchDiagContext = ppPhotonSliceContext;
 
     if (ppPhotonSliceContext)
@@ -4562,7 +5225,7 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         TDirectory* prevDir = gDirectory;
         dir->cd();
 
-        auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
+        auto* h = RJMCWeighting::RJNewRawTH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
         h->Sumw2();
         h->SetDirectory(dir);
         H[name] = h;
@@ -4593,9 +5256,9 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         TDirectory* prevDir = gDirectory;
         dir->cd();
 
-        auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
-                                          nxbins, xmin, xmax,
-                                          nybins, ymin, ymax);
+        auto* h = RJMCWeighting::RJNewRawTH2F(name.c_str(), title.c_str(),
+                                             nxbins, xmin, xmax,
+                                             nybins, ymin, ymax);
         h->Sumw2();
         h->SetDirectory(dir);
         H[name] = h;
@@ -4623,7 +5286,7 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
         TDirectory* prevDir = gDirectory;
         dir->cd();
 
-        auto* h = RJMCWeighting::RJNewTH1I(name.c_str(), title.c_str(), nbins, xmin, xmax);
+        auto* h = RJMCWeighting::RJNewRawTH1I(name.c_str(), title.c_str(), nbins, xmin, xmax);
         h->SetDirectory(dir);
         H[name] = h;
 
@@ -4915,20 +5578,21 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
           << " | g4Stored pT^gamma=" << std::fixed << std::setprecision(3) << maxPhotonPt
           << " | keep window=[" << stitchLo << ", " << stitchHi << "]");
     }
-    else
+    else if (!ppInclusiveJetContextForWeight)
     {
-      static bool warnedUnknownPPPhotonSlice = false;
-      if (!warnedUnknownPPPhotonSlice)
+      if (m_ppg12PhotonYieldEnabled)
       {
-        LOG(1, CLR_YELLOW,
-            "    [pp photon stitch] WARNING: isSim pp event, but output/context did not identify "
-            "PhotonJet5/10/20. Leaving sample unstitched. Outfile=\"" << Outfile << "\"");
-        warnedUnknownPPPhotonSlice = true;
+        LOG(0, CLR_RED,
+            "    [PPG12_SIM_WEIGHT][FATAL] canonical pp-SIM output/context did not identify "
+            "a PhotonJet5/10/20 or inclusive-jet slice; refusing unity-weight fallback"
+            << " | outfile=\"" << Outfile << "\"");
+        return Fun4AllReturnCodes::ABORTEVENT;
       }
     }
   }
+  const bool ppPpg12McWeightContext = ppPhotonSliceContext || ppInclusiveJetContextForWeight;
 
-  if (m_isSim && !m_isAuAu && ppPhotonSliceContext && m_vertexReweightOn && m_vertexReweightH)
+  if (m_isSim && !m_isAuAu && ppPpg12McWeightContext && m_vertexReweightOn && m_vertexReweightH)
   {
     m_mcVertexWeight = ppg12TruthVertexWeight(m_vertexReweightH, m_truthVz);
     if (m_ppg12PhotonYieldEnabled && m_ppg12PhotonYieldDoubleInteraction)
@@ -4946,21 +5610,23 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
       }
       m_mcVertexWeight *= ppg12TruthVertexWeight(m_vertexReweightH, m_truthVzMB);
     }
-    m_mcEventWeight = m_mcVertexWeight;
-    if (m_mcEventWeight < 0.0)
+    if (m_mcVertexWeight < 0.0)
     {
       return Fun4AllReturnCodes::ABORTEVENT;
     }
   }
-  if (m_isSim && !m_isAuAu && ppPhotonSliceContext && m_ppg12PhotonYieldEnabled)
+
+  if (m_isSim && !m_isAuAu && ppPpg12McWeightContext)
   {
-    m_mcEventWeight *= m_ppg12PhotonYieldMixWeight;
-    if (m_ppg12PeriodUseLumiWeight)
+    const int laneCode = ppPhotonSliceContext ? 1 : 2;
+    const double sliceFactor = ppPhotonSliceContext
+        ? (ppg12PhotonSliceXsecPb(ppPhotonSlice) / kPPG12Photon20CrossPb)
+        : (ppg12InclusiveJetSliceXsecPb(ppInclusiveJetSliceForWeight) / kPPG12Jet50CrossPb);
+    if (!configurePPG12SimEventWeight(sliceFactor, laneCode))
     {
-      m_mcEventWeight *= m_ppg12PeriodLumiWeight;
+      return Fun4AllReturnCodes::ABORTEVENT;
     }
   }
-  RJMCWeighting::CurrentWeight() = (m_isSim && !m_isAuAu && ppPhotonSliceContext) ? m_mcEventWeight : 1.0;
 
   // SIM pi0 fill: not trigger-gated, only vertex-gated (mirrors pp pi0 logic).
   // For pp photon+jet SIM this is filled after stitching and vertex weighting.
@@ -5039,10 +5705,6 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     return Fun4AllReturnCodes::ABORTEVENT;
   }
 
-  /* ------------------------------------------------------------------ */
-  /* 6) Pure jet QA (independent of photon pipeline)                     */
-  /*     Filled once per accepted event, after centrality/vz.            */
-  /* ------------------------------------------------------------------ */
   const int centIdxForJets = (m_isAuAu ? findCentBin(m_centBin) : -1);
   for (const auto& kv : m_jets)
   {
@@ -5080,6 +5742,104 @@ int RecoilJets::End(PHCompositeNode*)
   auto info = [&](int lvl, const std::string& m)
   { LOG(lvl, CLR_GREEN, "[End] " << m); };
 
+  if (m_ppg12Fig6EventCanaryEnabled)
+  {
+    if (m_ppg12Fig6EventCanaryOut.is_open())
+    {
+      m_ppg12Fig6EventCanaryOut.flush();
+      m_ppg12Fig6EventCanaryOut.close();
+    }
+
+    std::ofstream summaryOut(m_ppg12Fig6EventCanarySummaryPath.c_str(), std::ios::out);
+    if (summaryOut)
+    {
+      const auto slice = ppg12InclusiveJetSliceFromContext(Outfile);
+      const double denomEvents = static_cast<double>(std::max<long long>(1, m_ppg12Fig6CanaryEventsSeen));
+      const double meanXsecFactor = m_ppg12Fig6CanarySumXsecFactor / denomEvents;
+      const double meanLumiFactor = m_ppg12Fig6CanarySumLumiFactor / denomEvents;
+      const double meanMixFactor = m_ppg12Fig6CanarySumMixFactor / denomEvents;
+      const double meanVertexWeight = m_ppg12Fig6CanarySumVertexWeight / denomEvents;
+      const double meanFinalFillWeight = m_ppg12Fig6CanarySumFinalFillWeight / denomEvents;
+      const double ratioToIAN =
+          (std::isfinite(m_ppg12Fig6CanaryIANSuffixIntegral) &&
+           m_ppg12Fig6CanaryIANSuffixIntegral != 0.0)
+          ? (m_ppg12Fig6CanaryWeightedOwnedIntegral / m_ppg12Fig6CanaryIANSuffixIntegral)
+          : std::numeric_limits<double>::quiet_NaN();
+      const double ratioToTrue =
+          (std::isfinite(m_ppg12Fig6CanaryTruePeriodIntegral) &&
+           m_ppg12Fig6CanaryTruePeriodIntegral != 0.0)
+          ? (m_ppg12Fig6CanaryWeightedOwnedIntegral / m_ppg12Fig6CanaryTruePeriodIntegral)
+          : std::numeric_limits<double>::quiet_NaN();
+      const double oldClosureDelta =
+          std::isfinite(ratioToIAN) ? (ratioToIAN / 1.94) : std::numeric_limits<double>::quiet_NaN();
+
+      auto writeNum = [&](double v)
+      {
+        if (std::isfinite(v))
+        {
+          summaryOut << std::setprecision(17) << v;
+        }
+      };
+
+      summaryOut
+          << "sample,component,period,events_seen,events_with_valid_truth_jets,"
+          << "events_in_owned_window,raw_owned_window_entries,weighted_owned_window_integral,"
+          << "mean_xsec_factor,mean_lumi_factor,mean_mix_factor,mean_vertex_weight,"
+          << "mean_final_fill_weight,ian_no_suffix_integral,true_period_combined_integral,"
+          << "ratio_to_ian_no_suffix,ratio_to_true_period_combined,"
+          << "old_flat_1p94_closure_delta,closure_direction_note\n";
+      summaryOut << ppg12InclusiveJetSliceName(slice) << ','
+                 << (m_ppg12PhotonYieldDoubleInteraction ? "DI" : "SI") << ','
+                 << m_ppg12PeriodKey << ','
+                 << m_ppg12Fig6CanaryEventsSeen << ','
+                 << m_ppg12Fig6CanaryValidTruthJets << ','
+                 << m_ppg12Fig6CanaryOwnedWindowEvents << ','
+                 << m_ppg12Fig6CanaryRawOwnedEntries << ',';
+      writeNum(m_ppg12Fig6CanaryWeightedOwnedIntegral); summaryOut << ',';
+      writeNum(meanXsecFactor); summaryOut << ',';
+      writeNum(meanLumiFactor); summaryOut << ',';
+      writeNum(meanMixFactor); summaryOut << ',';
+      writeNum(meanVertexWeight); summaryOut << ',';
+      writeNum(meanFinalFillWeight); summaryOut << ',';
+      writeNum(m_ppg12Fig6CanaryIANSuffixIntegral); summaryOut << ',';
+      writeNum(m_ppg12Fig6CanaryTruePeriodIntegral); summaryOut << ',';
+      writeNum(ratioToIAN); summaryOut << ',';
+      writeNum(ratioToTrue); summaryOut << ',';
+      writeNum(oldClosureDelta); summaryOut << ',';
+      summaryOut << "requires_reference_integrals_for_direction\n";
+      LOG(1, CLR_MAGENTA,
+          "[End][PPG12_FIG6_EVENT_CANARY] wrote "
+          << m_ppg12Fig6EventCanaryRowsWritten << " event rows to "
+          << m_ppg12Fig6EventCanaryPath << " and summary to "
+          << m_ppg12Fig6EventCanarySummaryPath);
+    }
+    else
+    {
+      warn("PPG12 Fig.6 event canary summary could not be opened: " +
+           m_ppg12Fig6EventCanarySummaryPath);
+    }
+  }
+
+  if (m_ppg12EisoPathCanaryEnabled)
+  {
+    if (m_ppg12EisoPathCanaryOut.is_open())
+    {
+      m_ppg12EisoPathCanaryOut.flush();
+      m_ppg12EisoPathCanaryOut.close();
+    }
+    if (m_ppg12EisoConeMemberCanaryOut.is_open())
+    {
+      m_ppg12EisoConeMemberCanaryOut.flush();
+      m_ppg12EisoConeMemberCanaryOut.close();
+    }
+    LOG(1, CLR_MAGENTA,
+        "[End][PPG12_EISO_PATH_CANARY] wrote "
+        << m_ppg12EisoPathCanaryRowsWritten << " rows to "
+        << m_ppg12EisoPathCanaryPath << " and "
+        << m_ppg12EisoConeMemberCanaryRowsWritten << " cone-member rows to "
+        << m_ppg12EisoConeMemberCanaryPath);
+  }
+
   //--------------------------------------------------------------------
   // 1. Basic checks on the output file pointer
   //--------------------------------------------------------------------
@@ -5093,6 +5853,8 @@ int RecoilJets::End(PHCompositeNode*)
     warn("Output file is *not* open (" + std::string(out->GetName()) + ")");
     return Fun4AllReturnCodes::ABORTEVENT;
   }
+
+  finalizePPG12SimWeightAudit();
 
   //--------------------------------------------------------------------
   // 2. Write histograms trigger-by-trigger
@@ -5123,15 +5885,16 @@ int RecoilJets::End(PHCompositeNode*)
         key.rfind("h_ppPhotonStitch_ppg12TruthSpectrum_", 0) == 0 ||
         key.rfind("h_ppPhotonStitch_ppg12Fig5_", 0) == 0 ||
         key.rfind("h_ppInclusiveJetStitch_ppg12TruthSpectrum_", 0) == 0 ||
+        key.rfind("h_ppInclusiveJetStitch_ppg12Fig6EventWeighted_", 0) == 0 ||
         key.rfind("h_ppInclusiveJetStitch_r04_", 0) == 0;
       const bool keepEmptyPPG12TableQAHist =
         m_ppg12TableQAEnabled &&
         (key.rfind("h1d_", 0) == 0 || key.rfind("h2d_", 0) == 0) &&
         key.find("_eta0_pt") != std::string::npos &&
         key.find("_cut") != std::string::npos;
-      const bool keepEmptyPPG12PhotonYieldHist =
-        m_ppg12PhotonYieldEnabled &&
-        (key == "h_all_cluster_0" ||
+	      const bool keepEmptyPPG12PhotonYieldHist =
+	        m_ppg12PhotonYieldEnabled &&
+	        (key == "h_all_cluster_0" ||
          key == "h_common_cluster_0" ||
          key == "h_all_cluster_signal_0" ||
          key == "h_all_cluster_notmatch_0" ||
@@ -5167,8 +5930,14 @@ int RecoilJets::End(PHCompositeNode*)
          key == "h_pT_truth_secondhalf_response_0" ||
          key == "h_response_full_0" ||
          key == "h_response_half_0" ||
-         key.rfind("h2_ppg12_fig8_", 0) == 0 ||
-         key.rfind("h_ppg12_fig8_", 0) == 0);
+	         key.rfind("h_ppg12_fig36_", 0) == 0 ||
+	         key.rfind("h2_ppg12_fig36_", 0) == 0 ||
+	         key.rfind("h_ppg12_fig37_input_", 0) == 0 ||
+	         key.rfind("h2_ppg12_fig37_input_", 0) == 0 ||
+	         key.rfind("h_ppg12_fig11_ET_isoET_eta0_", 0) == 0 ||
+	         key.rfind("h2_ppg12_fig8_", 0) == 0 ||
+	         key.rfind("h_ppg12_fig3_", 0) == 0 ||
+	         key.rfind("h_ppg12_fig8_", 0) == 0);
 
       if (h->GetEntries() == 0 &&
           !keepEmptyStitchParityHist &&
@@ -7718,6 +8487,45 @@ bool RecoilJets::runLeadIsoTightPhotonJetMatchingAndUnfolding(
       }
     }
 
+    if (m_isSim)
+    {
+      if (haveTruthPho)
+      {
+        fillPPG12Fig37LeadTagInput1D(activeTrig,
+                                      "h_ppg12_fig37_input_leadtag_reco_pT_0",
+                                      m_unfoldRecoPhotonPtBins,
+                                      "p_{T}^{#gamma,reco} [GeV]",
+                                      "Reco photons",
+                                      leadPtGamma);
+      }
+      else
+      {
+        fillPPG12Fig37LeadTagInput1D(activeTrig,
+                                      "h_ppg12_fig37_input_leadtag_fake_pT_0",
+                                      m_unfoldRecoPhotonPtBins,
+                                      "p_{T}^{#gamma,reco} [GeV]",
+                                      "Reco fakes",
+                                      leadPtGamma);
+      }
+
+      if (haveTruthSigPho && haveTruthPho)
+      {
+        fillPPG12Fig37LeadTagResponse(activeTrig,
+                                       "h2_ppg12_fig37_input_leadtag_response_truth_reco_0",
+                                       tPtSig,
+                                       leadPtGamma);
+      }
+      else if (haveTruthSigPho)
+      {
+        fillPPG12Fig37LeadTagInput1D(activeTrig,
+                                      "h_ppg12_fig37_input_leadtag_miss_pT_0",
+                                      m_unfoldTruthPhotonPtBins,
+                                      "p_{T}^{#gamma,truth} [GeV]",
+                                      "Truth misses",
+                                      tPtSig);
+      }
+    }
+
 
   if (Verbosity() >= 5)
   {
@@ -7955,6 +8763,72 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
       ? buildPPG12TruthSignalPhotonMap(topNode)
       : buildPPG12TruthSignalPhotonMap(evt);
 
+  const PPG12PhotonSlice fig24PhotonSlice =
+      (m_isSim && !m_isAuAu && m_ppg12PhotonYieldEnabled)
+          ? ppg12PhotonSliceFromContext(Outfile)
+          : PPG12PhotonSlice::kNone;
+  double fig24StitchLo = std::numeric_limits<double>::quiet_NaN();
+  double fig24StitchHi = std::numeric_limits<double>::quiet_NaN();
+  const bool fig24PhotonSampleContext = (fig24PhotonSlice != PPG12PhotonSlice::kNone);
+  const bool fig24HaveWindow =
+      fig24PhotonSampleContext && ppg12PhotonSliceWindow(fig24PhotonSlice,
+                                                         fig24StitchLo,
+                                                         fig24StitchHi);
+  const double fig24OwnerPhotonPt =
+      fig24HaveWindow
+          ? ppg12MaxStoredTruthPhotonPt(topNode, m_truthInfo, true, kPPG12Fig24EtaAbsMax)
+          : -1.0;
+  const bool fig24HaveOwnerTruth = (fig24OwnerPhotonPt >= 0.0);
+  const bool fig24OwnedBySample =
+      fig24HaveWindow && fig24HaveOwnerTruth &&
+      ppg12WindowContains(fig24OwnerPhotonPt, fig24StitchLo, fig24StitchHi);
+
+  const PPG12PhotonSlice fig6PhotonSlice = fig24PhotonSlice;
+  double fig6StitchLo = std::numeric_limits<double>::quiet_NaN();
+  double fig6StitchHi = std::numeric_limits<double>::quiet_NaN();
+  const bool fig6PhotonSampleContext = (fig6PhotonSlice != PPG12PhotonSlice::kNone);
+  const bool fig6HaveWindow =
+      fig6PhotonSampleContext && ppg12PhotonSliceWindow(fig6PhotonSlice,
+                                                        fig6StitchLo,
+                                                        fig6StitchHi);
+  const double fig6OwnerPhotonPt =
+      fig6HaveWindow
+          ? ppg12MaxStoredTruthPhotonPt(topNode, m_truthInfo, true)
+          : -1.0;
+  const bool fig6HaveOwnerTruth = (fig6OwnerPhotonPt >= 0.0);
+  const bool fig6OwnedBySample =
+      fig6HaveWindow && fig6HaveOwnerTruth &&
+      ppg12WindowContains(fig6OwnerPhotonPt, fig6StitchLo, fig6StitchHi);
+  const PPG12PhotonSlice fig3PhotonSlice = fig24PhotonSlice;
+  const bool fig3PhotonSampleContext = (fig3PhotonSlice != PPG12PhotonSlice::kNone);
+  // PPG12 RecoEffCalculator_TTreeReader rejects the complete event before
+  // filling h_{direct,frag}_pT_truth_isoET_0 unless the largest stored truth
+  // photon belongs to the declared PhotonJet5/10/20 ownership window.  The
+  // stored-particle contract is identical to the Fig. 6 gate above, so reuse
+  // that audited decision rather than allowing every slice to fill Fig. 3.
+  const bool fig3HaveWindow = fig6HaveWindow;
+  const bool fig3HaveOwnerTruth = fig6HaveOwnerTruth;
+  const bool fig3OwnedBySample = fig6OwnedBySample;
+  const bool fig3SampleAccepted =
+      fig3PhotonSampleContext && fig3HaveWindow &&
+      fig3HaveOwnerTruth && fig3OwnedBySample;
+  const double fig3PhotonSliceWeight = fig3PhotonSampleContext
+      ? (ppg12PhotonSliceXsecPb(fig3PhotonSlice) / kPPG12Photon20CrossPb)
+      : 0.0;
+  static int s_ppg12Fig6DebugPrints = 0;
+  int ppg12Fig6DebugPrintLimit = 0;
+  if (const char* raw = std::getenv("RJ_PPG12_FIG6_DEBUG_PRINT"))
+  {
+    try
+    {
+      ppg12Fig6DebugPrintLimit = std::max(0, std::stoi(raw));
+    }
+    catch (...)
+    {
+      ppg12Fig6DebugPrintLimit = 0;
+    }
+  }
+
   auto getOrBookPPStitchFlowHist = [&](const std::string& trig,
                                        const std::string& name,
                                        const std::string& xAxisTitle) -> TH1F*
@@ -7984,7 +8858,7 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
     dir->cd();
     const int nb = static_cast<int>(m_gammaPtBins.size()) - 1;
     const std::string title = viewName + ";" + xAxisTitle + ";raw entries";
-    auto* h = RJMCWeighting::RJNewTH1F(viewName.c_str(), title.c_str(), nb, m_gammaPtBins.data());
+    auto* h = RJMCWeighting::RJNewRawTH1F(viewName.c_str(), title.c_str(), nb, m_gammaPtBins.data());
     if (h) H[viewName] = h;
     if (prevDir) prevDir->cd();
     return h;
@@ -8002,7 +8876,7 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
     {
       if (auto* h = getOrBookPPStitchFlowHist(trigShort, base, xAxisTitle))
       {
-        h->TH1F::Fill(pt, 1.0);
+        h->Fill(pt);
         bumpHistFill(trigShort, base);
       }
     }
@@ -8029,6 +8903,106 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
       }
     }
   };
+
+  auto fillPPG12Fig6OwnershipAudit = [&](const int stage,
+                                         const double weight)
+  {
+    if (!m_ppg12PhotonYieldEnabled) return;
+    if (!(m_isSim && !m_isAuAu)) return;
+
+    static const std::vector<double> kFig6AuditBins = {0.5, 1.5, 2.5, 3.5, 4.5, 5.5};
+    bookPPG12PhotonYieldSchema(activeTrig);
+    for (const auto& trigShort : activeTrig)
+    {
+      if (auto* h = getOrBookPPG12PhotonYield1D(trigShort,
+                                                "h_ppg12_fig6_sample_ownership_audit",
+                                                kFig6AuditBins,
+                                                "Fig. 6 ownership gate stage",
+                                                "Weighted entries"))
+      {
+        h->Fill(static_cast<double>(stage), weight);
+        bumpHistFill(trigShort, h->GetName());
+      }
+    }
+  };
+
+  auto fillPPG12Fig3OwnershipAudit = [&](const int stage)
+  {
+    if (!m_ppg12PhotonYieldEnabled) return;
+    if (!(m_isSim && !m_isAuAu)) return;
+
+    static const std::vector<double> kFig3AuditBins = {0.5, 1.5, 2.5, 3.5, 4.5, 5.5};
+    bookPPG12PhotonYieldSchema(activeTrig);
+    for (const auto& trigShort : activeTrig)
+    {
+      if (auto* h = getOrBookPPG12PhotonYield1D(trigShort,
+                                                "h_ppg12_fig3_sample_ownership_audit",
+                                                kFig3AuditBins,
+                                                "Fig. 3 ownership gate stage",
+                                                "Weighted events"))
+      {
+        h->GetXaxis()->SetBinLabel(1, "input_event");
+        h->GetXaxis()->SetBinLabel(2, "sample_context");
+        h->GetXaxis()->SetBinLabel(3, "owner_truth_found");
+        h->GetXaxis()->SetBinLabel(4, "owned_accepted");
+        h->GetXaxis()->SetBinLabel(5, "ownership_rejected");
+        h->Fill(static_cast<double>(stage));
+        bumpHistFill(trigShort, h->GetName());
+      }
+    }
+  };
+
+  fillPPG12Fig3OwnershipAudit(1);
+  if (fig3PhotonSampleContext) fillPPG12Fig3OwnershipAudit(2);
+  if (fig3HaveOwnerTruth) fillPPG12Fig3OwnershipAudit(3);
+  if (fig3SampleAccepted) fillPPG12Fig3OwnershipAudit(4);
+  else fillPPG12Fig3OwnershipAudit(5);
+
+  auto ppg12Fig6SampleAccepted = [&]() -> bool
+  {
+    if (!m_ppg12PhotonYieldEnabled) return true;
+    if (!(m_isSim && !m_isAuAu)) return true;
+    return fig6PhotonSampleContext && fig6HaveWindow &&
+           fig6HaveOwnerTruth && fig6OwnedBySample;
+  };
+
+  auto maybePrintPPG12Fig6Gate = [&](const double truthPt,
+                                     const double weight,
+                                     const bool accepted)
+  {
+    if (ppg12Fig6DebugPrintLimit <= 0) return;
+    if (s_ppg12Fig6DebugPrints >= ppg12Fig6DebugPrintLimit) return;
+    ++s_ppg12Fig6DebugPrints;
+
+    std::cout << "[PPG12_FIG6_GATE]"
+              << " event=" << event_count
+              << " sample=" << ppg12PhotonSliceName(fig6PhotonSlice)
+              << " ownerPt=" << fig6OwnerPhotonPt
+              << " window=[" << fig6StitchLo << ","
+              << (std::isinf(fig6StitchHi) ? 200.0 : fig6StitchHi) << "]"
+              << " truthPt=" << truthPt
+              << " weight=" << weight
+              << " context=" << fig6PhotonSampleContext
+              << " haveWindow=" << fig6HaveWindow
+              << " haveOwner=" << fig6HaveOwnerTruth
+              << " owned=" << fig6OwnedBySample
+              << " accepted=" << accepted
+              << std::endl;
+  };
+
+  static int s_ppg12Fig6MatchDebugPrints = 0;
+  int ppg12Fig6MatchDebugPrintLimit = 0;
+  if (const char* raw = std::getenv("RJ_PPG12_FIG6_MATCH_DEBUG_PRINT"))
+  {
+    try
+    {
+      ppg12Fig6MatchDebugPrintLimit = std::max(0, std::stoi(raw));
+    }
+    catch (...)
+    {
+      ppg12Fig6MatchDebugPrintLimit = 0;
+    }
+  }
 
   auto ppg12Fig2PhotonClass = [](const HepMC::GenParticle* pho) -> int
   {
@@ -8149,6 +9123,104 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
     }
   };
 
+  auto getOrBookPPG12Fig3TruthIso2D = [&](const std::string& trig,
+                                          const std::string& classKey) -> TH2D*
+  {
+    if (trig.empty() || classKey.empty()) return nullptr;
+
+    const std::string name =
+        (classKey == "direct") ? "h_direct_pT_truth_isoET_0" :
+        (classKey == "frag")   ? "h_frag_pT_truth_isoET_0"   :
+                                  "";
+    if (name.empty()) return nullptr;
+
+    auto& H = qaHistogramsByTrigger[trig];
+    if (auto it = H.find(name); it != H.end())
+    {
+      if (auto* h = dynamic_cast<TH2D*>(it->second)) return h;
+      H.erase(it);
+    }
+
+    if (!out || !out->IsOpen()) return nullptr;
+
+    TDirectory* const prevDir = gDirectory;
+    TDirectory* dir = out->GetDirectory(trig.c_str());
+    if (!dir) dir = out->mkdir(trig.c_str());
+    if (!dir)
+    {
+      if (prevDir) prevDir->cd();
+      return nullptr;
+    }
+
+    dir->cd();
+    const std::string title = name + ";p_{T}^{#gamma,truth} [GeV];E_{T}^{iso,truth} [GeV]";
+    auto* h = RJMCWeighting::RJNewTH2D(name.c_str(), title.c_str(),
+                                      400, 0.0, 40.0,
+                                      400, 0.0, 40.0);
+    if (h) h->Sumw2();
+    H[name] = h;
+    if (prevDir) prevDir->cd();
+    return h;
+  };
+
+  auto fillPPG12Fig3TruthPt = [&](const int photonClass,
+                                  const double truthPt,
+                                  const double isoEtTruth,
+                                  const bool passTruthIso)
+  {
+    if (!m_ppg12PhotonYieldEnabled) return;
+    if (!(m_isSim && !m_isAuAu)) return;
+    if (!(photonClass == 1 || photonClass == 2)) return;
+    if (!std::isfinite(truthPt) || truthPt <= 0.0) return;
+    if (!std::isfinite(m_vz) || std::fabs(m_vz) >= 30.0) return;
+    if (!fig3PhotonSampleContext) return;
+    if (!fig3SampleAccepted) return;
+    if (!std::isfinite(fig3PhotonSliceWeight) || fig3PhotonSliceWeight <= 0.0) return;
+
+    const char* classKey = (photonClass == 1) ? "direct" : "frag";
+    if (std::isfinite(isoEtTruth))
+    {
+      for (const auto& trigShort : activeTrig)
+      {
+        if (auto* h2 = getOrBookPPG12Fig3TruthIso2D(trigShort, classKey))
+        {
+          h2->Fill(truthPt, isoEtTruth);
+          bumpHistFill(trigShort, h2->GetName());
+        }
+      }
+    }
+
+    if (!passTruthIso) return;
+    if (truthPt < 10.0 || truthPt >= 35.0) return;
+
+    static const std::vector<double> kFig3TruthPtBins = []()
+    {
+      std::vector<double> bins;
+      for (int edge = 10; edge <= 35; ++edge) bins.push_back(static_cast<double>(edge));
+      return bins;
+    }();
+
+    const std::array<std::string, 2> names = {{
+      "h_ppg12_fig3_truthPt_total_eta07_vz30_r03_iso4",
+      std::string("h_ppg12_fig3_truthPt_") + classKey + "_eta07_vz30_r03_iso4"
+    }};
+
+    for (const auto& trigShort : activeTrig)
+    {
+      for (const auto& histName : names)
+      {
+        if (auto* h = getOrBookPPG12PhotonYield1D(trigShort, histName,
+                                                  kFig3TruthPtBins,
+                                                  "p_{T}^{#gamma,truth} [GeV]",
+                                                  "Weighted entries"))
+        {
+          h->Fill(truthPt);
+          bumpHistFill(trigShort, histName);
+        }
+      }
+    }
+  };
+
   int nTruthSig        = 0;
   int nTruthSigMatched = 0;
 
@@ -8185,6 +9257,8 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
     }
 
     const bool passTruthIso = havePPG12TruthForDiag ? true : passStrictTruthIso;
+    const double truthPtForFig3 = std::hypot(p->momentum().px(), p->momentum().py());
+    fillPPG12Fig3TruthPt(ppg12Fig2Class, truthPtForFig3, isoEtTruth, passTruthIso);
 
     // ---------------------------
     //  Truth isolation QA (SIM)
@@ -8226,10 +9300,26 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
                                       ? ppg12TruthInfoForDiag.pt
                                       : truthPtFromHepMC;
     if (!std::isfinite(truthPtForDiag) || truthPtForDiag <= 0.0) continue;
-    const double photonEffWeight = std::isfinite(m_mcEventWeight) ? m_mcEventWeight : 1.0;
+    // The weighted histogram wrapper already carries the full PPG12 SIM
+    // event weight; explicit weights here are extra multipliers only.
+    constexpr double photonEffWeight = 1.0;
+    const bool fig6SampleAccepted = ppg12Fig6SampleAccepted();
+    fillPPG12Fig6OwnershipAudit(1, photonEffWeight);
+    if (fig6PhotonSampleContext) fillPPG12Fig6OwnershipAudit(2, photonEffWeight);
+    if (fig6HaveOwnerTruth) fillPPG12Fig6OwnershipAudit(3, photonEffWeight);
+    if (fig6SampleAccepted) fillPPG12Fig6OwnershipAudit(4, photonEffWeight);
+    else fillPPG12Fig6OwnershipAudit(5, photonEffWeight);
+    maybePrintPPG12Fig6Gate(truthPtForDiag, photonEffWeight, fig6SampleAccepted);
+
     fillPPG12PhotonEfficiencyStage("h_photonEffTruthDen_pTgamma_0",
                                    truthPtForDiag,
                                    photonEffWeight);
+    if (fig6SampleAccepted)
+    {
+      fillPPG12PhotonEfficiencyStage("h_photonEffPpg12Fig6TruthDen_pTgamma_0",
+                                     truthPtForDiag,
+                                     photonEffWeight);
+    }
     fillPPStitchFlow("h_ppStitchDiag_flow_truthIso_truthPt_noVtxW",
                      truthPtForDiag,
                      "truth p_{T}^{#gamma} [GeV]");
@@ -8397,6 +9487,7 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
       bool ppg12Fig6Reco = false;
       bool ppg12Fig6Iso = false;
       bool ppg12Fig6ID = false;
+      bool ppg12Fig6PrintedMatch = false;
 
       if (m_photons)
       {
@@ -8426,7 +9517,7 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
           const double rawPtForEff = recoPhoForEff->get_shower_shape_parameter("cluster_pt");
           const double ptForCuts = ppg12PhotonYieldClusterEtForCuts(rawPtForEff, candidateIndex);
           if (!std::isfinite(etaForEff) || std::fabs(etaForEff) >= 0.7) continue;
-          if (!std::isfinite(ptForCuts) || ptForCuts <= 0.0) continue;
+          if (!std::isfinite(ptForCuts) || ptForCuts < kPPG12YieldRecoMinET) continue;
 
           ppg12Fig6Reco = true;
 
@@ -8442,26 +9533,60 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
           }
 
           const SSVars stageVarsForEff = makeSSFromPhoton(recoPhoForEff, ptForCuts);
-          if (classifyPPG12PhotonYieldTightness(stageVarsForEff) == TightTag::kTight)
+          const TightTag ppg12Fig6TightTag = classifyPPG12PhotonYieldTightness(stageVarsForEff);
+          if (ppg12Fig6TightTag == TightTag::kTight)
           {
             ppg12Fig6ID = true;
+          }
+          if (!ppg12Fig6PrintedMatch &&
+              ppg12Fig6MatchDebugPrintLimit > 0 &&
+              s_ppg12Fig6MatchDebugPrints < ppg12Fig6MatchDebugPrintLimit)
+          {
+            ++s_ppg12Fig6MatchDebugPrints;
+            ppg12Fig6PrintedMatch = true;
+            std::cout << "[PPG12_FIG6_MATCH]"
+                      << " event=" << event_count
+                      << " sample=" << ppg12PhotonSliceName(fig6PhotonSlice)
+                      << " truthPt=" << truthPtForDiag
+                      << " ownerPt=" << fig6OwnerPhotonPt
+                      << " accepted=" << fig6SampleAccepted
+                      << " recoPtRaw=" << rawPtForEff
+                      << " recoPtForCuts=" << ptForCuts
+                      << " eta=" << etaForEff
+                      << " rawEiso=" << ppg12PhotonYieldRawEiso(recoForEff, topNode)
+                      << " recoEiso=" << eisoForEff
+                      << " isoMax=" << recoIsoThreshold(ptForCuts)
+                      << " bdt=" << stageVarsForEff.tight_bdt_score
+                      << " bdtMin=" << configuredTightBDTMin(ptForCuts)
+                      << " common=" << passesPPG12PhotonYieldCommon(stageVarsForEff)
+                      << " tag=" << tightTagName(ppg12Fig6TightTag)
+                      << " reco=" << ppg12Fig6Reco
+                      << " iso=" << ppg12Fig6Iso
+                      << " id=" << ppg12Fig6ID
+                      << std::endl;
           }
         }
       }
 
-      if (ppg12Fig6Reco)
+      if (fig6SampleAccepted && ppg12Fig6Reco)
       {
         fillPPG12PhotonEfficiencyStage("h_photonEffPpg12Fig6Reco_pTgamma_0",
                                        truthPtForDiag,
                                        photonEffWeight);
       }
-      if (ppg12Fig6Reco && ppg12Fig6Iso)
+      if (fig6SampleAccepted && ppg12Fig6Reco && ppg12Fig6ID)
+      {
+        fillPPG12PhotonEfficiencyStage("h_photonEffPpg12Fig6RecoTight_pTgamma_0",
+                                       truthPtForDiag,
+                                       photonEffWeight);
+      }
+      if (fig6SampleAccepted && ppg12Fig6Reco && ppg12Fig6Iso)
       {
         fillPPG12PhotonEfficiencyStage("h_photonEffPpg12Fig6RecoIso_pTgamma_0",
                                        truthPtForDiag,
                                        photonEffWeight);
       }
-      if (ppg12Fig6Reco && ppg12Fig6Iso && ppg12Fig6ID)
+      if (fig6SampleAccepted && ppg12Fig6Reco && ppg12Fig6Iso && ppg12Fig6ID)
       {
         fillPPG12PhotonEfficiencyStage("h_photonEffPpg12Fig6RecoTightIso_pTgamma_0",
                                        truthPtForDiag,
@@ -8511,6 +9636,102 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
       continue;
     }
 
+    const double eiso_et = ppg12PhotonYieldEiso(ppg12PhotonYieldRawEiso(recoMatch, topNode));
+    const bool eisoEtValid = (std::isfinite(eiso_et) && eiso_et <= 1e8);
+
+    if (doCanonical && m_ppg12PhotonYieldEnabled && m_isSim && !m_isAuAu)
+    {
+      auto fillFig24AuditOne = [&](const std::string& trigShort, const int bin)
+      {
+        if (trigShort.empty()) return;
+        if (auto* hAudit = getOrBookPPG12Fig24AuditHist(trigShort))
+        {
+          hAudit->Fill(bin);
+          bumpHistFill(trigShort, hAudit->GetName());
+        }
+      };
+
+      auto fillFig24Audit = [&](const int bin)
+      {
+        for (const auto& trigShort : activeTrig)
+        {
+          fillFig24AuditOne(trigShort, bin);
+        }
+      };
+
+      auto fillPPG12Fig24SignalRecoIso = [&]()
+      {
+        fillFig24Audit(1);
+        if (!std::isfinite(rEta) || std::fabs(rEta) >= kPPG12Fig24EtaAbsMax) return;
+        fillFig24Audit(2);
+
+        const int fig24PtIdx = findPPG12Fig24RecoPtBin(rPt);
+        if (fig24PtIdx < 0) return;
+        fillFig24Audit(3);
+
+        if (!std::isfinite(eiso_et) || eiso_et >= 1e8)
+        {
+          return;
+        }
+        fillFig24Audit(4);
+
+        if (!fig24PhotonSampleContext)
+        {
+          fillFig24Audit(12);
+          return;
+        }
+        fillFig24Audit(5);
+
+        if (!fig24HaveWindow)
+        {
+          fillFig24Audit(12);
+          return;
+        }
+        fillFig24Audit(6);
+
+        if (!fig24HaveOwnerTruth)
+        {
+          fillFig24Audit(11);
+          return;
+        }
+
+        if (!fig24OwnedBySample)
+        {
+          fillFig24Audit(10);
+          return;
+        }
+        fillFig24Audit(7);
+
+        for (const auto& trigShort : activeTrig)
+        {
+          if (trigShort.empty()) continue;
+
+          if (auto* hCompat = getOrBookPPG12Fig24ETIsoHist(trigShort,
+                                                           kPPG12Fig24PPG12CompatName))
+          {
+            hCompat->Fill(rPt, eiso_et);
+            bumpHistFill(trigShort, hCompat->GetName());
+          }
+          if (auto* hNamed = getOrBookPPG12Fig24ETIsoHist(trigShort,
+                                                          kPPG12Fig24SignalRecoIsoName))
+          {
+            hNamed->Fill(rPt, eiso_et);
+            bumpHistFill(trigShort, hNamed->GetName());
+          }
+          fillFig24AuditOne(trigShort, 8);
+
+          if (auto* hIsoBin = getOrBookPPG12Fig24IsoHist(trigShort, fig24PtIdx))
+          {
+            hIsoBin->Fill(eiso_et);
+            bumpHistFill(trigShort, hIsoBin->GetName());
+          }
+          fillFig24AuditOne(trigShort, 9);
+        }
+      };
+
+      fillPPG12Fig24SignalRecoIso();
+    }
+
     const int ptIdx_sig = findPtBin(rPt);
     if (ptIdx_sig < 0)
     {
@@ -8538,8 +9759,7 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
                                      photonEffWeight);
     }
 
-    const double eiso_et = ppg12PhotonYieldEiso(ppg12PhotonYieldRawEiso(recoMatch, topNode));
-    if (!std::isfinite(eiso_et) || eiso_et > 1e8)
+    if (!eisoEtValid)
     {
       if (Verbosity() >= 8)
       {
@@ -8550,6 +9770,7 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
       }
       continue;
     }
+
     const double stageIsoMax = recoIsoThreshold(rPt);
     const bool stageIso =
         (eiso_et > kPPG12YieldRecoIsoMin) && (eiso_et < stageIsoMax);
@@ -8611,6 +9832,10 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
                                                        "E_{T}^{iso,reco} [GeV] (truth iso signal match, stitch variant, no vtx weight)",
                                                        ptIdx_sig, effCentIdx_sig))
             {
+              // Explicit raw diagnostic opt-out. This object predates the full
+              // PPG12 event-weight contract and intentionally carries no SIM
+              // event factors; the canonical physics object above is weighted.
+              RJMCWeighting::RecordRawFill();
               hVarNoVtx->TH1F::Fill(eiso_et, 1.0);
               bumpHistFill(trigShort, hVarNoVtx->GetName());
             }
@@ -8748,7 +9973,7 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
 
     if (m_ppg12PhotonYieldDiagFeatures && m_clus)
     {
-      const double diagWeight = std::isfinite(m_mcEventWeight) ? m_mcEventWeight : 1.0;
+      constexpr double diagWeight = 1.0;
       int rawCandidateIndex = 0;
       const CLHEP::Hep3Vector rawVertex(0.0, 0.0, ppg12PhotonYieldKinematicVertexZ());
       const auto crange = m_clus->getClusters();
@@ -8834,6 +10059,8 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
 
         const double rawPt = recoPho->get_shower_shape_parameter("cluster_pt");
         const double rPt = ppg12PhotonYieldClusterEtForCuts(rawPt, candidateIndex);
+        const double responsePt =
+            ppg12PhotonYieldClusterEtForResponse(rawPt, matchedTruth.pt, candidateIndex);
         const int ptIdx_sig = findPtBin(rPt);
         if (ptIdx_sig < 0) continue;
 
@@ -8855,7 +10082,7 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
             in_open_interval(v.e32_over_e35, kPPG12YieldTightE32E35Min, kPPG12YieldTightE32E35Max);
         auto fillPPG12Diag = [&](const char* name)
         {
-          fillPPG12DiagPt(name, rPt, std::isfinite(m_mcEventWeight) ? m_mcEventWeight : 1.0);
+          fillPPG12DiagPt(name, rPt, 1.0);
         };
         if (m_ppg12PhotonYieldDiagFeatures && commonPass)
         {
@@ -8913,7 +10140,7 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
           const std::string ptSuffix =
               "pT" + edgeLabel(m_ppg12PhotonYieldRecoPtBins[ptIdx_sig]) +
               "_" + edgeLabel(m_ppg12PhotonYieldRecoPtBins[ptIdx_sig + 1]);
-          const double featureWeight = std::isfinite(m_mcEventWeight) ? m_mcEventWeight : 1.0;
+          constexpr double featureWeight = 1.0;
           const char* tagName = "neither";
           if (tag == TightTag::kTight) tagName = "tight";
           else if (tag == TightTag::kNonTight) tagName = "nontight";
@@ -8988,7 +10215,7 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
         const bool validRegion = hasPPG12YieldClass && (iso || nonIso);
         const bool inResponseWindowSig =
             ppg12PhotonYieldInResponseWindow(rPt, matchedTruth.pt);
-        const double fillWeight = std::isfinite(m_mcEventWeight) ? m_mcEventWeight : 1.0;
+        constexpr double fillWeight = 1.0;
 
         fillPPG12PhotonYieldAllCommon(activeTrig,
                                       rPt,
@@ -9005,6 +10232,7 @@ void RecoilJets::fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
         {
           fillPPG12PhotonYieldTightAndABCD(activeTrig,
                                            rPt,
+                                           responsePt,
                                            matchedTruth.pt,
                                            tag,
                                            iso,
@@ -9126,6 +10354,9 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
     // Centrality bin index (Au+Au only, else -1)
     const int centIdx = (m_isAuAu ? findCentBin(m_centBin) : -1);
     const bool doCanonical = fillCanonicalThisView();
+    const PPG12PhotonSlice ppPhotonSlice =
+        (m_isSim && !m_isAuAu) ? ppg12PhotonSliceFromContext(Outfile) : PPG12PhotonSlice::kNone;
+    const bool ppPhotonSliceContext = (ppPhotonSlice != PPG12PhotonSlice::kNone);
     const PPG12InclusiveJetSlice ppInclusiveJetSlice =
         (m_isSim && !m_isAuAu) ? ppg12InclusiveJetSliceFromContext(Outfile) : PPG12InclusiveJetSlice::kNone;
     const bool ppInclusiveJetContext = (ppInclusiveJetSlice != PPG12InclusiveJetSlice::kNone);
@@ -9491,9 +10722,9 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
             }
             if (!hMax)
             {
-                hMax = RJMCWeighting::RJNewTH1F("h_ppInclusiveJetStitch_maxTruthJetPt_all",
-                                                "h_ppInclusiveJetStitch_maxTruthJetPt_all;max truth jet p_{T} [GeV];Events",
-                                                1000, 0.0, 200.0);
+                hMax = RJMCWeighting::RJNewRawTH1F("h_ppInclusiveJetStitch_maxTruthJetPt_all",
+                                                   "h_ppInclusiveJetStitch_maxTruthJetPt_all;max truth jet p_{T} [GeV];Events",
+                                                   1000, 0.0, 200.0);
                 hMax->Sumw2();
                 hMax->SetDirectory(dir);
                 H["h_ppInclusiveJetStitch_maxTruthJetPt_all"] = hMax;
@@ -9511,9 +10742,9 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
             }
             if (!hMaxR04)
             {
-                hMaxR04 = RJMCWeighting::RJNewTH1F("h_ppInclusiveJetStitch_r04_maxTruthJetPt_all",
-                                                   "h_ppInclusiveJetStitch_r04_maxTruthJetPt_all;max R=0.4 truth jet p_{T} [GeV];Events",
-                                                   1000, 0.0, 100.0);
+                hMaxR04 = RJMCWeighting::RJNewRawTH1F("h_ppInclusiveJetStitch_r04_maxTruthJetPt_all",
+                                                      "h_ppInclusiveJetStitch_r04_maxTruthJetPt_all;max R=0.4 truth jet p_{T} [GeV];Events",
+                                                      1000, 0.0, 100.0);
                 hMaxR04->Sumw2();
                 hMaxR04->SetDirectory(dir);
                 H["h_ppInclusiveJetStitch_r04_maxTruthJetPt_all"] = hMaxR04;
@@ -9531,9 +10762,9 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
             }
             if (!hSample)
             {
-                hSample = RJMCWeighting::RJNewTH1I("h_ppInclusiveJetStitch_sample",
-                                                  "h_ppInclusiveJetStitch_sample;sample;Events",
-                                                  6, 0.5, 6.5);
+                hSample = RJMCWeighting::RJNewRawTH1I("h_ppInclusiveJetStitch_sample",
+                                                     "h_ppInclusiveJetStitch_sample;sample;Events",
+                                                     6, 0.5, 6.5);
                 hSample->GetXaxis()->SetBinLabel(1, "Jet5");
                 hSample->GetXaxis()->SetBinLabel(2, "Jet8");
                 hSample->GetXaxis()->SetBinLabel(3, "Jet12");
@@ -9568,7 +10799,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 {
                     return dynamic_cast<TH1F*>(it->second);
                 }
-                TH1F* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
+                TH1F* h = RJMCWeighting::RJNewRawTH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
                 h->Sumw2();
                 h->SetDirectory(dir);
                 H[name] = h;
@@ -9605,7 +10836,10 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                                               kPPG12Fig6JetPtMax);
                 if (hAll)
                 {
-                    if (havePt) hAll->Fill(pt);
+                    if (havePt)
+                    {
+                        hAll->Fill(pt);
+                    }
                     bumpHistFill(trigShort, hAll->GetName());
                 }
 
@@ -9616,7 +10850,10 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 }
                 else if (hRejected)
                 {
-                    if (havePt) hRejected->Fill(pt);
+                    if (havePt)
+                    {
+                        hRejected->Fill(pt);
+                    }
                     bumpHistFill(trigShort, hRejected->GetName());
                 }
             };
@@ -9990,13 +11227,12 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 }
 
                 bool keepPPG12TableQARow = true;
-                double ppg12TableQARowWeight = 1.0;
+                constexpr double ppg12TableQARowWeight = 1.0;
                 if (m_ppg12TableQAEnabled && m_isSim && !m_isAuAu)
                 {
                     if (ppInclusiveJetContext)
                     {
                         keepPPG12TableQARow = ppInclusiveJetPassR04;
-                        ppg12TableQARowWeight = ppg12InclusiveJetSliceXsecPb(ppInclusiveJetSlice) / 7.3113;
                     }
                     else if (ppPhotonIDResolvedRole == "signal")
                     {
@@ -10007,6 +11243,8 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                         keepPPG12TableQARow = !isPPG12Signal;
                     }
                 }
+
+                fillPPG12Fig14Fig15TimingQA(activeTrig, v, eta, phi_gamma, ppg12ScoreInputEt, 1.0);
 
                 if (doCanonical)
                 {
@@ -10059,14 +11297,41 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 //   - "nonIso" : Eiso > (A + B * pT + gap)     (strict sideband; GAP excluded)
                 // ------------------------------------------------------------------
                 const double eiso_et = eiso(rc, topNode);
-                const double ppg12YieldRawEisoEt = ppg12PhotonYieldRawEiso(rc, topNode);
+                PPG12EisoPathAudit ppg12EisoAudit;
+                const double ppg12YieldRawEisoEt = ppg12PhotonYieldRawEisoDetailed(
+                    rc,
+                    topNode,
+                    m_ppg12EisoPathCanaryEnabled ? &ppg12EisoAudit : nullptr);
                 const double ppg12YieldEisoEt = ppg12PhotonYieldEiso(ppg12YieldRawEisoEt);
                 const double ppg12ParityEisoEt =
                     (m_ppg12PhotonYieldEnabled && !m_isAuAu) ? ppg12YieldEisoEt : eiso_et;
+                const bool usePPG12TableQAShowerShapeIso =
+                    (m_ppg12TableQAEnabled && m_isSim && !m_isAuAu &&
+                     m_ppg12PhotonYieldEnabled && m_ppg12PhotonYieldUseTopoIso &&
+                     std::isfinite(ppg12YieldRawEisoEt) && ppg12YieldRawEisoEt < 1e8);
+                const double ppg12TableQAEisoEt = usePPG12TableQAShowerShapeIso
+                    ? (m_ppg12TableQAMcIsoScale * ppg12YieldRawEisoEt + m_ppg12TableQAMcIsoShift)
+                    : ppg12ParityEisoEt;
+
+                const bool ppg12Fig11PhotonSignalContext =
+                    ppPhotonSliceContext &&
+                    ppPhotonIDResolvedRole != "background" &&
+                    ppPhotonIDResolvedRole != "bkg";
+                fillPPG12Fig11SBDiagnostic(activeTrig,
+                                            v,
+                                            eta,
+                                            ppg12ScoreInputEt,
+                                            ppg12YieldRawEisoEt,
+                                            ppg12Fig11PhotonSignalContext,
+                                            isPPG12Signal,
+                                            1.0,
+                                            ppInclusiveJetContext,
+                                            ppInclusiveJetPassR04,
+                                            1.0);
 
                 if (!m_isSim)
                 {
-                    fillPPG12Fig13E11E33(activeTrig, v, ppg12ParityEisoEt, "data", 0);
+                    fillPPG12Fig13E11E33(activeTrig, v, ppg12ParityEisoEt, "data", 0, ppg12ScoreInputEt);
                 }
                 else if (!m_isAuAu)
                 {
@@ -10074,28 +11339,36 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     {
                         if (ppInclusiveJetPassR04)
                         {
-                            fillPPG12Fig13E11E33(activeTrig, v, ppg12ParityEisoEt, "inclusive_mc", 0);
+                            fillPPG12Fig13E11E33(activeTrig, v, ppg12ParityEisoEt, "inclusive_mc", 0, ppg12ScoreInputEt);
                         }
                     }
                     else if (ppPhotonIDResolvedRole == "signal")
                     {
                         if (isPPG12Signal)
                         {
-                            fillPPG12Fig13E11E33(activeTrig, v, ppg12ParityEisoEt, "signal_mc", 0);
+                            fillPPG12Fig13E11E33(activeTrig, v, ppg12ParityEisoEt, "signal_mc", 0, ppg12ScoreInputEt);
                         }
                     }
                     else if (ppPhotonIDResolvedRole == "background" || ppPhotonIDResolvedRole == "bkg")
                     {
-                        fillPPG12Fig13E11E33(activeTrig, v, ppg12ParityEisoEt, "inclusive_mc", 0);
+                        fillPPG12Fig13E11E33(activeTrig, v, ppg12ParityEisoEt, "inclusive_mc", 0, ppg12ScoreInputEt);
                     }
                     else if (ppPhotonIDResolvedRole == "all")
                     {
-                        fillPPG12Fig13E11E33(activeTrig, v, ppg12ParityEisoEt, "inclusive_mc", 0);
+                        fillPPG12Fig13E11E33(activeTrig, v, ppg12ParityEisoEt, "inclusive_mc", 0, ppg12ScoreInputEt);
                         if (isPPG12Signal)
                         {
-                            fillPPG12Fig13E11E33(activeTrig, v, ppg12ParityEisoEt, "signal_mc", 0);
+                            fillPPG12Fig13E11E33(activeTrig, v, ppg12ParityEisoEt, "signal_mc", 0, ppg12ScoreInputEt);
                         }
                     }
+                }
+
+                const double ppg12DataYieldWeight = ppg12DataTriggerEfficiencyWeight(pt_gamma);
+                if (!m_isSim && !m_isAuAu)
+                {
+                    fillPPG12DataTriggerEfficiencyAudit(activeTrig,
+                                                        pt_gamma,
+                                                        ppg12DataYieldWeight);
                 }
 
                 const bool ppg12PhotonYieldCommonPass = passesPPG12PhotonYieldCommon(v);
@@ -10108,7 +11381,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                                               ppg12PhotonYieldCommonPass,
                                               ppg12MainLoopHaveTruthClass,
                                               isPPG12Signal,
-                                              1.0);
+                                              ppg12DataYieldWeight);
 
                 const double ppg12YieldIsoMax = recoIsoThreshold(pt_gamma);
                 const double ppg12YieldNonIsoMin = recoNonIsoThreshold(pt_gamma);
@@ -10123,7 +11396,23 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
 
                 const TightTag ppg12YieldTag = classifyPPG12PhotonYieldTightness(v);
 
+                if (m_ppg12EisoPathCanaryEnabled)
+                {
+                    recordPPG12EisoPathCanary(ppg12EisoAudit,
+                                              iPho,
+                                              pt_gamma,
+                                              eta,
+                                              phi_gamma,
+                                              isPPG12Signal,
+                                              v,
+                                              ppg12YieldEisoEt,
+                                              ppg12YieldIsoMax,
+                                              ppg12YieldNonIsoMin,
+                                              ppg12YieldTag);
+                }
+
                 fillPPG12PhotonYieldTightAndABCD(activeTrig,
+                                                 pt_gamma,
                                                  pt_gamma,
                                                  ppg12SignalTruthPt,
                                                  ppg12YieldTag,
@@ -10131,15 +11420,19 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                                                  ppg12YieldNonIso,
                                                  ppg12MainLoopHaveTruthClass,
                                                  isPPG12Signal,
-                                                 1.0);
+                                                 ppg12DataYieldWeight);
                 if (ppg12PhotonYieldCommonPass)
                 {
-                    fillPPG12IsoStackQA(activeTrig, pt_gamma, ppg12YieldEisoEt, ppg12YieldTag);
+                    fillPPG12IsoStackQA(activeTrig,
+                                        pt_gamma,
+                                        ppg12YieldEisoEt,
+                                        ppg12YieldTag,
+                                        ppg12DataYieldWeight);
                 }
 
                 if (keepPPG12TableQARow)
                 {
-                    fillPPG12TableQA(activeTrig, v, ppg12ParityEisoEt, effCentIdx_SS, 0, ppg12TableQARowWeight);
+                    fillPPG12TableQA(activeTrig, v, ppg12TableQAEisoEt, effCentIdx_SS, 0, ppg12TableQARowWeight, ppg12ScoreInputEt);
                 }
                 if (!m_isSim)
                 {
@@ -10151,8 +11444,8 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                         (void) npbDeltaT;
                         (void) npbMbdTime;
                         (void) npbHasAwayJet;
-                        fillPPG12Fig13E11E33(activeTrig, v, ppg12ParityEisoEt, "npb_tagged_data", 4);
-                        fillPPG12TableQA(activeTrig, v, ppg12ParityEisoEt, effCentIdx_SS, 4);
+                        fillPPG12Fig13E11E33(activeTrig, v, ppg12ParityEisoEt, "npb_tagged_data", 4, ppg12ScoreInputEt);
+                        fillPPG12TableQA(activeTrig, v, ppg12TableQAEisoEt, effCentIdx_SS, 4, 1.0, ppg12ScoreInputEt);
                     }
                 }
 
@@ -10187,7 +11480,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                             ? ppg12InclusiveJetSliceXsecPb(ppInclusiveJetSlice)
                             : -999.0;
                         const double ppXsecWeight = ppInclusiveJetContext
-                            ? (ppXsecPb / 7.3113)
+                            ? (ppXsecPb / kPPG12Jet50CrossPb)
                             : 1.0;
                         fillPPPhotonIDTrainingTree(v,
                                                    eta,
@@ -10491,7 +11784,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 if (doCanonical) ++m_bk.pre_pass;
                 if (keepPPG12TableQARow)
                 {
-                    fillPPG12TableQA(activeTrig, v, ppg12ParityEisoEt, effCentIdx_SS, 1, ppg12TableQARowWeight);
+                    fillPPG12TableQA(activeTrig, v, ppg12TableQAEisoEt, effCentIdx_SS, 1, ppg12TableQARowWeight, ppg12ScoreInputEt);
                 }
 
                 if (doCanonical && m_tightVariant == "newPPG12" && std::isfinite(v.tight_bdt_score))
@@ -10656,14 +11949,14 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 {
                     if (keepPPG12TableQARow)
                     {
-                        fillPPG12TableQA(activeTrig, v, ppg12ParityEisoEt, effCentIdx_SS, 2, ppg12TableQARowWeight);
+                        fillPPG12TableQA(activeTrig, v, ppg12TableQAEisoEt, effCentIdx_SS, 2, ppg12TableQARowWeight, ppg12ScoreInputEt);
                     }
                 }
                 else if (tightTag == TightTag::kNonTight)
                 {
                     if (keepPPG12TableQARow)
                     {
-                        fillPPG12TableQA(activeTrig, v, ppg12ParityEisoEt, effCentIdx_SS, 3, ppg12TableQARowWeight);
+                        fillPPG12TableQA(activeTrig, v, ppg12TableQAEisoEt, effCentIdx_SS, 3, ppg12TableQARowWeight, ppg12ScoreInputEt);
                     }
                 }
 
@@ -11112,6 +12405,22 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 // Fill truth photon spectrum once per event (SIM) for the baseline selected-anchor family.
                 if (haveTruthSigPho)
                 {
+                    fillPPG12Fig37LeadTagInput1D(activeTrig,
+                                                  "h_ppg12_fig37_input_leadtag_truth_pT_0",
+                                                  m_unfoldTruthPhotonPtBins,
+                                                  "p_{T}^{#gamma,truth} [GeV]",
+                                                  "Truth photons",
+                                                  tPtSig);
+                    if (!haveLeadIsoTight)
+                    {
+                        fillPPG12Fig37LeadTagInput1D(activeTrig,
+                                                      "h_ppg12_fig37_input_leadtag_miss_pT_0",
+                                                      m_unfoldTruthPhotonPtBins,
+                                                      "p_{T}^{#gamma,truth} [GeV]",
+                                                      "Truth misses",
+                                                      tPtSig);
+                    }
+
 	                    for (const auto& trigShort : activeTrig)
 	                    {
 	                        if (doCanonical)
@@ -11695,10 +13004,16 @@ void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars&
 
   if (!pho) return;
 
+  // PPG12 pp SIM parity diagnostics need these score nodes even when the
+  // active local output selection is not the newPPG12 variant.
+  const bool wantsPPG12PPSimYieldScores =
+    m_ppg12PhotonYieldEnabled && m_isSim && !m_isAuAu;
+
   const bool wantsNPBScore =
     preselectionUsesNPB(m_preselectionVariant) ||
     (m_ppPhotonIDTrainingTreeEnabled && !m_isAuAu) ||
-    m_ppg12TableQAEnabled;
+    m_ppg12TableQAEnabled ||
+    wantsPPG12PPSimYieldScores;
   if (wantsNPBScore)
   {
     if (m_photons_npb == m_photons)
@@ -11713,7 +13028,9 @@ void RecoilJets::attachVariantScoresToSSVars(const PhotonClusterv1* pho, SSVars&
     }
   }
 
-  if (m_tightVariant == "newPPG12" || m_ppg12TableQAEnabled)
+  if (m_tightVariant == "newPPG12" ||
+      m_ppg12TableQAEnabled ||
+      wantsPPG12PPSimYieldScores)
   {
     if (m_photons_tightbdt == m_photons)
     {
@@ -12458,6 +13775,30 @@ bool RecoilJets::loadPPG12PhotonYieldTowerMask()
   return true;
 }
 
+int RecoilJets::currentRunNumber() const
+{
+  if (m_evtHeader)
+  {
+    const int runNumber = m_evtHeader->get_RunNumber();
+    if (runNumber > 0) return runNumber;
+  }
+
+  auto* rc = recoConsts::instance();
+  if (!rc) return 0;
+
+  uint64_t runNumber = rc->get_uint64Flag("RUNNUMBER", 0);
+  if (runNumber == 0)
+  {
+    runNumber = rc->get_uint64Flag("TIMESTAMP", 0);
+  }
+  if (runNumber == 0 ||
+      runNumber > static_cast<uint64_t>(std::numeric_limits<int>::max()))
+  {
+    return 0;
+  }
+  return static_cast<int>(runNumber);
+}
+
 bool RecoilJets::ppg12PeriodRunContains(int runNumber) const
 {
   return (m_ppg12PeriodContractEnabled &&
@@ -12465,12 +13806,253 @@ bool RecoilJets::ppg12PeriodRunContains(int runNumber) const
           runNumber < m_ppg12PeriodRunMaxExclusive);
 }
 
+bool RecoilJets::configurePPG12SimEventWeight(const double sliceFactor,
+                                              const int laneCode)
+{
+  m_ppg12SimWeightActive = false;
+  m_ppg12SimWeightLaneCode = 0;
+  m_ppg12SimWeightLaneComponentCode = 0;
+  m_ppg12SimWeightFactorSlice = 1.0;
+  m_ppg12SimWeightFactorVertex = 1.0;
+  m_ppg12SimWeightFactorMix = 1.0;
+  m_ppg12SimWeightFactorPeriod = 1.0;
+  m_ppg12SimWeightFactorFinal = 1.0;
+  m_mcEventWeight = 1.0;
+
+  if (!(m_isSim && !m_isAuAu)) return true;
+  if (!(laneCode == 1 || laneCode == 2) || !std::isfinite(sliceFactor) || sliceFactor <= 0.0)
+  {
+    LOG(0, CLR_RED,
+        "[PPG12_SIM_WEIGHT][FATAL] invalid lane or slice factor"
+        << " | lane=" << laneCode << " | slice=" << sliceFactor
+        << " | outfile=" << Outfile);
+    return false;
+  }
+
+  if (!m_ppg12PhotonYieldEnabled ||
+      !m_ppg12PeriodContractEnabled ||
+      !m_ppg12PeriodUseLumiWeight ||
+      !m_vertexReweightOn ||
+      !m_vertexReweightH)
+  {
+    LOG(0, CLR_RED,
+        "[PPG12_SIM_WEIGHT][FATAL] incomplete canonical PPG12 SIM weighting contract"
+        << " | photon_yield=" << m_ppg12PhotonYieldEnabled
+        << " | period_contract=" << m_ppg12PeriodContractEnabled
+        << " | period_lumi_weight=" << m_ppg12PeriodUseLumiWeight
+        << " | vertex_reweight_on=" << m_vertexReweightOn
+        << " | vertex_hist_loaded=" << (m_vertexReweightH != nullptr)
+        << " | lane=" << laneCode
+        << " | outfile=" << Outfile);
+    return false;
+  }
+
+  const bool haveHardTruthVertex =
+      std::isfinite(m_truthVz) && m_truthVz > kPPG12TruthVtxSentinelThreshold;
+  const bool haveRequiredMBTruthVertex =
+      !m_ppg12PhotonYieldDoubleInteraction ||
+      (std::isfinite(m_truthVzMB) && m_truthVzMB > kPPG12TruthVtxSentinelThreshold);
+  if (!haveHardTruthVertex || !haveRequiredMBTruthVertex)
+  {
+    LOG(0, CLR_RED,
+        "[PPG12_SIM_WEIGHT][FATAL] missing truth vertex required by canonical SI/DI weight"
+        << " | hard_truth_z=" << m_truthVz
+        << " | mb_truth_z=" << m_truthVzMB
+        << " | component=" << (m_ppg12PhotonYieldDoubleInteraction ? "DI" : "SI")
+        << " | outfile=" << Outfile);
+    return false;
+  }
+
+  const double mixFactor = m_ppg12PhotonYieldMixWeight;
+  const double periodFactor = m_ppg12PeriodLumiWeight;
+  PPG12SimWeight::Factors factors;
+  if (!PPG12SimWeight::Build(sliceFactor,
+                             m_mcVertexWeight,
+                             mixFactor,
+                             periodFactor,
+                             factors))
+  {
+    LOG(0, CLR_RED,
+        "[PPG12_SIM_WEIGHT][FATAL] non-finite or negative factor"
+        << " | slice=" << sliceFactor
+        << " | vertex=" << m_mcVertexWeight
+        << " | mix=" << mixFactor
+        << " | period=" << periodFactor);
+    return false;
+  }
+
+  m_ppg12SimWeightActive = true;
+  m_ppg12SimWeightLaneCode = laneCode;
+  m_ppg12SimWeightLaneComponentCode =
+      (laneCode == 1)
+          ? (m_ppg12PhotonYieldDoubleInteraction ? 2 : 1)
+          : (m_ppg12PhotonYieldDoubleInteraction ? 4 : 3);
+  m_ppg12SimWeightFactorSlice = factors.slice;
+  m_ppg12SimWeightFactorVertex = factors.vertex;
+  m_ppg12SimWeightFactorMix = factors.mix;
+  m_ppg12SimWeightFactorPeriod = factors.period;
+  m_ppg12SimWeightFactorFinal = factors.final;
+  m_mcEventWeight = factors.final;
+
+  // From this point onward, every weighted RecoilJets histogram sees the
+  // complete PPG12 event weight. Explicit Fill weights are extra physics
+  // factors only; raw diagnostics must bypass the weighted wrapper.
+  RJMCWeighting::CurrentLaneComponentCode() = m_ppg12SimWeightLaneComponentCode;
+  RJMCWeighting::CurrentWeight() = factors.final;
+  fillPPG12SimWeightAudit();
+  if (auto* h = getOrBookPPG12EisoVertexContractAuditHist("SIM"))
+  {
+    h->Fill(7);
+  }
+
+  LOG(4, CLR_MAGENTA,
+      "[PPG12_SIM_WEIGHT] canonical factors"
+      << " | lane=" << (laneCode == 1 ? "photonjet" : "inclusivejet")
+      << " | component=" << (m_ppg12PhotonYieldDoubleInteraction ? "DI" : "SI")
+      << " | period=" << m_ppg12PeriodKey
+      << " | slice=" << factors.slice
+      << " | vertex=" << factors.vertex
+      << " | mix=" << factors.mix
+      << " | period_factor=" << factors.period
+      << " | final=" << factors.final);
+  return true;
+}
+
+void RecoilJets::fillPPG12SimWeightAudit()
+{
+  if (!m_ppg12SimWeightActive || !out || !out->IsOpen()) return;
+
+  constexpr const char* kTrig = "SIM";
+  HistMap& H = qaHistogramsByTrigger[kTrig];
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(kTrig);
+  if (!dir) dir = out->mkdir(kTrig);
+  if (!dir)
+  {
+    if (prevDir) prevDir->cd();
+    return;
+  }
+  dir->cd();
+
+  auto book1D = [&](const std::string& name,
+                    const std::string& title,
+                    const int nbins,
+                    const double xmin,
+                    const double xmax) -> TH1D*
+  {
+    if (auto it = H.find(name); it != H.end()) return dynamic_cast<TH1D*>(it->second);
+    auto* h = new TH1D(name.c_str(), title.c_str(), nbins, xmin, xmax);
+    h->Sumw2();
+    h->SetDirectory(dir);
+    H[name] = h;
+    return h;
+  };
+
+  auto book2D = [&](const std::string& name,
+                    const std::string& title,
+                    const int nx,
+                    const double xmin,
+                    const double xmax,
+                    const int ny,
+                    const double ymin,
+                    const double ymax) -> TH2D*
+  {
+    if (auto it = H.find(name); it != H.end()) return dynamic_cast<TH2D*>(it->second);
+    auto* h = new TH2D(name.c_str(), title.c_str(), nx, xmin, xmax, ny, ymin, ymax);
+    h->Sumw2();
+    h->SetDirectory(dir);
+    H[name] = h;
+    return h;
+  };
+
+  const auto logWeight = [](const double value)
+  {
+    return std::log10(std::max(value, 1.0e-12));
+  };
+
+  if (auto* h = book1D("h_ppg12_weight_audit_factor_slice",
+                       "PPG12 SIM slice factor;log_{10}(w_{slice});events",
+                       240, -4.0, 8.0))
+    h->Fill(logWeight(m_ppg12SimWeightFactorSlice));
+  if (auto* h = book1D("h_ppg12_weight_audit_factor_vertex",
+                       "PPG12 SIM vertex factor;w_{vertex};events",
+                       400, 0.0, 10.0))
+    h->Fill(m_ppg12SimWeightFactorVertex);
+  if (auto* h = book1D("h_ppg12_weight_audit_factor_mix",
+                       "PPG12 SIM SI/DI mixture factor;w_{mix};events",
+                       240, 0.0, 1.2))
+    h->Fill(m_ppg12SimWeightFactorMix);
+  if (auto* h = book1D("h_ppg12_weight_audit_factor_period",
+                       "PPG12 SIM period exposure factor;w_{period};events",
+                       240, 0.0, 1.2))
+    h->Fill(m_ppg12SimWeightFactorPeriod);
+  if (auto* h = book1D("h_ppg12_weight_audit_factor_final",
+                       "PPG12 SIM final fill weight;log_{10}(w_{final});events",
+                       400, -12.0, 8.0))
+    h->Fill(logWeight(m_ppg12SimWeightFactorFinal));
+
+  if (auto* h = book1D("h_ppg12_weight_audit_component_events",
+                       "PPG12 SIM weighted events;lane/component;events",
+                       4, 0.5, 4.5))
+  {
+    h->GetXaxis()->SetBinLabel(1, "photonjet_SI");
+    h->GetXaxis()->SetBinLabel(2, "photonjet_DI");
+    h->GetXaxis()->SetBinLabel(3, "inclusivejet_SI");
+    h->GetXaxis()->SetBinLabel(4, "inclusivejet_DI");
+    h->Fill(m_ppg12SimWeightLaneComponentCode);
+  }
+
+  if (auto* h2 = book2D("h2_ppg12_weight_audit_final_vs_vertex_z",
+                        "PPG12 SIM final weight vs hard vertex;z_{truth} [cm];log_{10}(w_{final})",
+                        400, -200.0, 200.0,
+                        400, -12.0, 8.0))
+  {
+    if (std::isfinite(m_truthVz)) h2->Fill(m_truthVz, logWeight(m_ppg12SimWeightFactorFinal));
+  }
+
+  if (auto* h2 = book2D("h_ppg12_weight_audit_fill_mode",
+                        "PPG12 SIM histogram fill modes;mode;lane/component",
+                        2, 0.5, 2.5,
+                        4, 0.5, 4.5))
+  {
+    h2->GetXaxis()->SetBinLabel(1, "full_weight");
+    h2->GetXaxis()->SetBinLabel(2, "raw_opt_out");
+    h2->GetYaxis()->SetBinLabel(1, "photonjet_SI");
+    h2->GetYaxis()->SetBinLabel(2, "photonjet_DI");
+    h2->GetYaxis()->SetBinLabel(3, "inclusivejet_SI");
+    h2->GetYaxis()->SetBinLabel(4, "inclusivejet_DI");
+  }
+
+  if (prevDir) prevDir->cd();
+}
+
+void RecoilJets::finalizePPG12SimWeightAudit()
+{
+  auto trigIt = qaHistogramsByTrigger.find("SIM");
+  if (trigIt == qaHistogramsByTrigger.end()) return;
+  auto histIt = trigIt->second.find("h_ppg12_weight_audit_fill_mode");
+  if (histIt == trigIt->second.end()) return;
+  auto* h2 = dynamic_cast<TH2D*>(histIt->second);
+  if (!h2) return;
+
+  const auto& full = RJMCWeighting::FullFillCounts();
+  const auto& raw = RJMCWeighting::RawFillCounts();
+  unsigned long long total = 0;
+  for (int code = 1; code <= 4; ++code)
+  {
+    h2->SetBinContent(1, code, static_cast<double>(full[static_cast<std::size_t>(code)]));
+    h2->SetBinContent(2, code, static_cast<double>(raw[static_cast<std::size_t>(code)]));
+    total += full[static_cast<std::size_t>(code)] + raw[static_cast<std::size_t>(code)];
+  }
+  h2->SetEntries(static_cast<double>(total));
+}
+
 void RecoilJets::fillPPG12VertexContractQA(const std::vector<std::string>& activeTrig,
                                            bool preVzCut)
 {
   if (!m_ppg12PhotonYieldEnabled || m_isAuAu || activeTrig.empty()) return;
 
-  const int runNumber = (m_evtHeader ? m_evtHeader->get_RunNumber() : 0);
+  const int runNumber = currentRunNumber();
   const std::string runPeriod = (!m_isSim && runNumber > 0)
                                     ? ppg12PeriodLabelForRun(runNumber)
                                     : m_ppg12PeriodKey;
@@ -12645,6 +14227,454 @@ void RecoilJets::fillPPG12VertexContractQA(const std::vector<std::string>& activ
   }
 }
 
+void RecoilJets::fillPPG12Fig81DataHDReferenceVertexQA(PHCompositeNode* topNode)
+{
+  if (!m_ppg12PhotonYieldEnabled || m_isAuAu || m_isSim) return;
+  if (!topNode || !out || !out->IsOpen()) return;
+
+  auto& H = qaHistogramsByTrigger[kPPG12Fig13Bit30TriggerKey];
+
+  auto ensureDir = [&]() -> TDirectory*
+  {
+    TDirectory* dir = out->GetDirectory(kPPG12Fig13Bit30TriggerKey);
+    if (!dir) dir = out->mkdir(kPPG12Fig13Bit30TriggerKey);
+    return dir;
+  };
+
+  auto getAudit = [&]() -> TH1I*
+  {
+    const std::string name = "h_ppg12_fig81_hD_reference_contract_audit";
+    if (auto it = H.find(name); it != H.end())
+    {
+      if (auto* h = dynamic_cast<TH1I*>(it->second)) return h;
+      H.erase(it);
+    }
+
+    TDirectory* const prevDir = gDirectory;
+    TDirectory* dir = ensureDir();
+    if (!dir)
+    {
+      if (prevDir) prevDir->cd();
+      return nullptr;
+    }
+    dir->cd();
+
+    auto* h = RJMCWeighting::RJNewTH1I(
+        name.c_str(),
+        "PPG12 Fig.81 data h_D reference contract audit;stage;events",
+        16, 0.5, 16.5);
+    if (h)
+    {
+      h->GetXaxis()->SetBinLabel(1, "seen_after_fetchNodes_pre_firstEventCuts");
+      h->GetXaxis()->SetBinLabel(2, "gl1_present");
+      h->GetXaxis()->SetBinLabel(3, "scaled_bit30");
+      h->GetXaxis()->SetBinLabel(4, "mbd_vertex_map_present");
+      h->GetXaxis()->SetBinLabel(5, "mbd_vertex_entry_present");
+      h->GetXaxis()->SetBinLabel(6, "mbd_z_finite");
+      h->GetXaxis()->SetBinLabel(7, "abs_mbd_z_le_200");
+      h->GetXaxis()->SetBinLabel(8, "run_period_known");
+      h->GetXaxis()->SetBinLabel(9, "filled");
+      h->GetXaxis()->SetBinLabel(10, "reject_no_gl1");
+      h->GetXaxis()->SetBinLabel(11, "reject_no_bit30");
+      h->GetXaxis()->SetBinLabel(12, "reject_no_mbd_map");
+      h->GetXaxis()->SetBinLabel(13, "reject_no_mbd_entry");
+      h->GetXaxis()->SetBinLabel(14, "reject_bad_mbd_z");
+      h->GetXaxis()->SetBinLabel(15, "reject_abs_mbd_z_gt_200");
+      h->GetXaxis()->SetBinLabel(16, "reject_period_other");
+      H[name] = h;
+    }
+
+    if (prevDir) prevDir->cd();
+    return h;
+  };
+
+  auto book1F = [&](const std::string& name,
+                    const std::string& title,
+                    int nbins,
+                    double xmin,
+                    double xmax) -> TH1F*
+  {
+    if (auto it = H.find(name); it != H.end())
+    {
+      if (auto* h = dynamic_cast<TH1F*>(it->second)) return h;
+      H.erase(it);
+    }
+
+    TDirectory* const prevDir = gDirectory;
+    TDirectory* dir = ensureDir();
+    if (!dir)
+    {
+      if (prevDir) prevDir->cd();
+      return nullptr;
+    }
+    dir->cd();
+
+    auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
+    if (h)
+    {
+      h->Sumw2();
+      H[name] = h;
+    }
+    if (prevDir) prevDir->cd();
+    return h;
+  };
+
+  auto* audit = getAudit();
+  auto fillAudit = [&](int bin)
+  {
+    if (audit) audit->Fill(bin);
+  };
+  auto finishAudit = [&]()
+  {
+    bumpHistFill(kPPG12Fig13Bit30TriggerKey,
+                 audit ? audit->GetName() : "h_ppg12_fig81_hD_reference_contract_audit");
+  };
+
+  fillAudit(1);
+
+  Gl1Packet* gl1 = findNode::getClass<Gl1Packet>(topNode, "14001");
+  if (!gl1) gl1 = findNode::getClass<Gl1Packet>(topNode, "GL1Packet");
+  if (!gl1)
+  {
+    fillAudit(10);
+    finishAudit();
+    return;
+  }
+  fillAudit(2);
+
+  const uint64_t scaledVector = static_cast<uint64_t>(gl1->lValue(0, "ScaledVector"));
+  const bool scaledBit30 = ((scaledVector & (1ULL << 30U)) != 0ULL);
+  if (!scaledBit30)
+  {
+    fillAudit(11);
+    finishAudit();
+    return;
+  }
+  fillAudit(3);
+
+  MbdVertexMap* mbdMap = findNode::getClass<MbdVertexMap>(topNode, "MbdVertexMap");
+  if (!mbdMap || mbdMap->empty())
+  {
+    fillAudit(12);
+    finishAudit();
+    return;
+  }
+  fillAudit(4);
+
+  MbdVertex* mbdVertex = mbdMap->begin()->second;
+  if (!mbdVertex)
+  {
+    fillAudit(13);
+    finishAudit();
+    return;
+  }
+  fillAudit(5);
+
+  const double mbdZ = mbdVertex->get_z();
+  if (!std::isfinite(mbdZ))
+  {
+    fillAudit(14);
+    finishAudit();
+    return;
+  }
+  fillAudit(6);
+
+  if (std::fabs(mbdZ) > 200.0)
+  {
+    fillAudit(15);
+    finishAudit();
+    return;
+  }
+  fillAudit(7);
+
+  const int runNumber = currentRunNumber();
+  const std::string period = ppg12PeriodLabelForRun(runNumber);
+  if (!(period == "0mrad" || period == "1p5mrad"))
+  {
+    fillAudit(16);
+    finishAudit();
+    return;
+  }
+  fillAudit(8);
+
+  if (auto* hAll = book1F(
+          "h_ppg12_fig81_data_reco_z_hD_reference_contract_all",
+          "PPG12 Fig.81 data reco vertex z, h_D reference contract;MBD z_{reco} [cm];events",
+          80, -200.0, 200.0))
+  {
+    hAll->Fill(mbdZ);
+    bumpHistFill(kPPG12Fig13Bit30TriggerKey, hAll->GetName());
+  }
+
+  if (auto* hPeriod = book1F(
+          "h_ppg12_fig81_data_reco_z_hD_reference_contract_" + period,
+          "PPG12 Fig.81 data reco vertex z, h_D reference contract (" + period + ");MBD z_{reco} [cm];events",
+          80, -200.0, 200.0))
+  {
+    hPeriod->Fill(mbdZ);
+    bumpHistFill(kPPG12Fig13Bit30TriggerKey, hPeriod->GetName());
+  }
+
+  if (std::isfinite(m_vz))
+  {
+    if (auto* hDelta = book1F(
+            "h_ppg12_fig81_mbd_minus_recoiljets_vz_hD_reference_contract",
+            "PPG12 Fig.81 h_D reference contract MBD - RecoilJets v_{z};MBD z - m_vz [cm];events",
+            400, -2.0, 2.0))
+    {
+      hDelta->Fill(mbdZ - static_cast<double>(m_vz));
+      bumpHistFill(kPPG12Fig13Bit30TriggerKey, hDelta->GetName());
+    }
+  }
+
+  if (runNumber > 0)
+  {
+    if (auto* hRun = book1F(
+            "h_ppg12_fig81_data_run_hD_reference_contract_" + period,
+            "PPG12 Fig.81 data run audit, h_D reference contract (" + period + ");run number;events",
+            20000, 40000.0, 60000.0))
+    {
+      hRun->Fill(runNumber);
+      bumpHistFill(kPPG12Fig13Bit30TriggerKey, hRun->GetName());
+    }
+  }
+
+  fillAudit(9);
+  finishAudit();
+}
+
+void RecoilJets::fillPPG12Fig81SlimtreeVertexQA(PHCompositeNode* topNode)
+{
+  if (!m_ppg12PhotonYieldEnabled || m_isAuAu || m_isSim) return;
+  if (!topNode || !out || !out->IsOpen()) return;
+
+  auto& H = qaHistogramsByTrigger[kPPG12Fig13Bit30TriggerKey];
+
+  auto ensureDir = [&]() -> TDirectory*
+  {
+    TDirectory* dir = out->GetDirectory(kPPG12Fig13Bit30TriggerKey);
+    if (!dir) dir = out->mkdir(kPPG12Fig13Bit30TriggerKey);
+    return dir;
+  };
+
+  auto getAudit = [&]() -> TH1I*
+  {
+    const std::string name = "h_ppg12_fig81_slimtree_vertex_contract_audit";
+    if (auto it = H.find(name); it != H.end())
+    {
+      if (auto* h = dynamic_cast<TH1I*>(it->second)) return h;
+      H.erase(it);
+    }
+
+    TDirectory* const prevDir = gDirectory;
+    TDirectory* dir = ensureDir();
+    if (!dir)
+    {
+      if (prevDir) prevDir->cd();
+      return nullptr;
+    }
+    dir->cd();
+
+    auto* h = RJMCWeighting::RJNewTH1I(
+        name.c_str(),
+        "PPG12 Fig.81 data slimtree vertex contract audit;stage;events",
+        18, 0.5, 18.5);
+    if (h)
+    {
+      h->GetXaxis()->SetBinLabel(1, "accepted_pp_event");
+      h->GetXaxis()->SetBinLabel(2, "gl1_14001_present");
+      h->GetXaxis()->SetBinLabel(3, "scaled_bit30");
+      h->GetXaxis()->SetBinLabel(4, "mbd_vertex_map_present");
+      h->GetXaxis()->SetBinLabel(5, "mbd_vertex_entry_present");
+      h->GetXaxis()->SetBinLabel(6, "mbd_z_finite");
+      h->GetXaxis()->SetBinLabel(7, "abs_mbd_z_le_200");
+      h->GetXaxis()->SetBinLabel(8, "run_period_known");
+      h->GetXaxis()->SetBinLabel(9, "saved_cluster_proxy");
+      h->GetXaxis()->SetBinLabel(10, "filled");
+      h->GetXaxis()->SetBinLabel(11, "reject_no_gl1_14001");
+      h->GetXaxis()->SetBinLabel(12, "reject_no_bit30");
+      h->GetXaxis()->SetBinLabel(13, "reject_no_mbd_map");
+      h->GetXaxis()->SetBinLabel(14, "reject_no_mbd_entry");
+      h->GetXaxis()->SetBinLabel(15, "reject_bad_mbd_z");
+      h->GetXaxis()->SetBinLabel(16, "reject_abs_mbd_z_gt_200");
+      h->GetXaxis()->SetBinLabel(17, "reject_period_other");
+      h->GetXaxis()->SetBinLabel(18, "reject_no_saved_cluster");
+      H[name] = h;
+    }
+
+    if (prevDir) prevDir->cd();
+    return h;
+  };
+
+  auto book1F = [&](const std::string& name,
+                    const std::string& title,
+                    int nbins,
+                    double xmin,
+                    double xmax) -> TH1F*
+  {
+    if (auto it = H.find(name); it != H.end())
+    {
+      if (auto* h = dynamic_cast<TH1F*>(it->second)) return h;
+      H.erase(it);
+    }
+
+    TDirectory* const prevDir = gDirectory;
+    TDirectory* dir = ensureDir();
+    if (!dir)
+    {
+      if (prevDir) prevDir->cd();
+      return nullptr;
+    }
+    dir->cd();
+
+    auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
+    if (h) h->Sumw2();
+    H[name] = h;
+    if (prevDir) prevDir->cd();
+    return h;
+  };
+
+  auto countClusters = [](RawClusterContainer* container) -> std::size_t
+  {
+    if (!container) return 0;
+    std::size_t n = 0;
+    const auto range = container->getClusters();
+    for (auto it = range.first; it != range.second; ++it)
+    {
+      if (it->second) ++n;
+    }
+    return n;
+  };
+
+  auto* audit = getAudit();
+  auto fillAudit = [&](int bin)
+  {
+    if (audit) audit->Fill(bin);
+  };
+
+  fillAudit(1);
+
+  Gl1Packet* gl1 = findNode::getClass<Gl1Packet>(topNode, "14001");
+  if (!gl1)
+  {
+    fillAudit(11);
+    return;
+  }
+  fillAudit(2);
+
+  const uint64_t scaledVector = static_cast<uint64_t>(gl1->lValue(0, "ScaledVector"));
+  const bool scaledBit30 = ((scaledVector & (1ULL << 30U)) != 0ULL);
+  if (!scaledBit30)
+  {
+    fillAudit(12);
+    return;
+  }
+  fillAudit(3);
+
+  MbdVertexMap* mbdMap = findNode::getClass<MbdVertexMap>(topNode, "MbdVertexMap");
+  if (!mbdMap || mbdMap->empty())
+  {
+    fillAudit(13);
+    return;
+  }
+  fillAudit(4);
+
+  MbdVertex* mbdVertex = mbdMap->begin()->second;
+  if (!mbdVertex)
+  {
+    fillAudit(14);
+    return;
+  }
+  fillAudit(5);
+
+  const double mbdZ = mbdVertex->get_z();
+  if (!std::isfinite(mbdZ))
+  {
+    fillAudit(15);
+    return;
+  }
+  fillAudit(6);
+
+  if (std::fabs(mbdZ) > 200.0)
+  {
+    fillAudit(16);
+    return;
+  }
+  fillAudit(7);
+
+  const int runNumber = currentRunNumber();
+  const std::string period = ppg12PeriodLabelForRun(runNumber);
+  if (!(period == "0mrad" || period == "1p5mrad"))
+  {
+    fillAudit(17);
+    return;
+  }
+  fillAudit(8);
+
+  std::set<RawClusterContainer*> clusterContainers;
+  if (m_clus) clusterContainers.insert(m_clus);
+  if (m_clus_nocorr) clusterContainers.insert(m_clus_nocorr);
+  if (m_photons) clusterContainers.insert(m_photons);
+  if (m_photons_npb) clusterContainers.insert(m_photons_npb);
+  if (m_photons_tightbdt) clusterContainers.insert(m_photons_tightbdt);
+  if (m_ppg12TopoClusters) clusterContainers.insert(m_ppg12TopoClusters);
+
+  std::size_t savedClusterProxyCount = 0;
+  for (auto* container : clusterContainers)
+  {
+    savedClusterProxyCount += countClusters(container);
+  }
+
+  if (auto* hCount = book1F(
+          "h_ppg12_fig81_slimtree_saved_cluster_proxy_count",
+          "PPG12 Fig.81 slimtree saved-cluster proxy multiplicity;unique persisted cluster entries;events",
+          500, -0.5, 499.5))
+  {
+    hCount->Fill(static_cast<double>(std::min<std::size_t>(savedClusterProxyCount, 499)));
+    bumpHistFill(kPPG12Fig13Bit30TriggerKey, hCount->GetName());
+  }
+
+  if (savedClusterProxyCount == 0)
+  {
+    fillAudit(18);
+    return;
+  }
+  fillAudit(9);
+
+  if (auto* hAll = book1F(
+          "h_ppg12_fig81_data_reco_z_slimtree_contract_all",
+          "PPG12 Fig.81 data reco vertex z, slimtree contract;MBD z_{reco} [cm];events",
+          80, -200.0, 200.0))
+  {
+    hAll->Fill(mbdZ);
+    bumpHistFill(kPPG12Fig13Bit30TriggerKey, hAll->GetName());
+  }
+
+  if (auto* hPeriod = book1F(
+          "h_ppg12_fig81_data_reco_z_slimtree_contract_" + period,
+          "PPG12 Fig.81 data reco vertex z, slimtree contract (" + period + ");MBD z_{reco} [cm];events",
+          80, -200.0, 200.0))
+  {
+    hPeriod->Fill(mbdZ);
+    bumpHistFill(kPPG12Fig13Bit30TriggerKey, hPeriod->GetName());
+  }
+
+  if (runNumber > 0)
+  {
+    if (auto* hRun = book1F(
+            "h_ppg12_fig81_data_run_slimtree_contract_" + period,
+            "PPG12 Fig.81 data run audit, slimtree contract (" + period + ");run number;events",
+            20000, 40000.0, 60000.0))
+    {
+      hRun->Fill(runNumber);
+      bumpHistFill(kPPG12Fig13Bit30TriggerKey, hRun->GetName());
+    }
+  }
+
+  fillAudit(10);
+  bumpHistFill(kPPG12Fig13Bit30TriggerKey, audit ? audit->GetName() : "h_ppg12_fig81_slimtree_vertex_contract_audit");
+}
+
 bool RecoilJets::ppg12PhotonYieldTowerMasked(const PhotonClusterv1* pho) const
 {
   if (!(m_ppg12PhotonYieldEnabled && m_ppg12PhotonYieldApplyTowerMask && !m_isAuAu))
@@ -12672,23 +14702,38 @@ bool RecoilJets::ppg12PhotonYieldTowerMasked(const PhotonClusterv1* pho) const
 
 double RecoilJets::ppg12PhotonYieldKinematicVertexZ() const
 {
-  if (m_ppg12PhotonYieldUseTruthVertexInPPSim && m_isSim && !m_isAuAu && std::isfinite(m_truthVz))
-  {
-    return m_truthVz;
-  }
+  // CaloAna24 uses the reconstructed MBD vertex for reconstructed cluster
+  // kinematics and topocluster isolation in both data and photon-jet MC.
+  // Truth vertices are used only by configurePPG12SimEventWeight().
   return m_vz;
 }
 
-double RecoilJets::ppg12PhotonYieldRawEiso(const RawCluster* clus, PHCompositeNode* topNode) const
+double RecoilJets::ppg12PhotonYieldRawEiso(const RawCluster* clus, PHCompositeNode* topNode)
 {
+  return ppg12PhotonYieldRawEisoDetailed(clus, topNode, nullptr);
+}
+
+double RecoilJets::ppg12PhotonYieldRawEisoDetailed(const RawCluster* clus,
+                                                   PHCompositeNode* topNode,
+                                                   PPG12EisoPathAudit* audit)
+{
+  PPG12EisoPathAudit localAudit;
+  PPG12EisoPathAudit& pathAudit = audit ? *audit : localAudit;
+  pathAudit = PPG12EisoPathAudit{};
   if (!(m_ppg12PhotonYieldEnabled && m_ppg12PhotonYieldUseTopoIso && !m_isAuAu))
   {
-    return eiso(clus, topNode);
+    const double fallback = eiso(clus, topNode);
+    pathAudit.recomputedRaw = fallback;
+    pathAudit.finalRaw = fallback;
+    pathAudit.pathCode = std::isfinite(fallback) && fallback < 1e8 ? 2 : 0;
+    return fallback;
   }
 
   const auto* pho = dynamic_cast<const PhotonClusterv1*>(clus);
   if (!pho)
   {
+    pathAudit.storedRejected = true;
+    recordPPG12EisoVertexContractAudit(pathAudit);
     if (Verbosity() >= 2)
       LOG(2, CLR_YELLOW,
           "  [PPG12_PHOTON_YIELD_V1][topo-iso] cluster is not PhotonClusterv1 -> +inf");
@@ -12697,18 +14742,43 @@ double RecoilJets::ppg12PhotonYieldRawEiso(const RawCluster* clus, PHCompositeNo
 
   const double storedTopoValid = pho->get_shower_shape_parameter("ppg12_topo_valid_04");
   const double storedTopoRawEiso = pho->get_shower_shape_parameter("ppg12_topo_raw_eiso_04");
-  if (std::isfinite(storedTopoValid) &&
-      storedTopoValid > 0.5 &&
-      std::isfinite(storedTopoRawEiso) &&
-      storedTopoRawEiso < 1.0e8)
+  const double legacyPositiveOnlyRawEiso =
+      pho->get_shower_shape_parameter("ppg12_topo_positive_only_raw_eiso_04");
+  const double storedTopoSumEt =
+      pho->get_shower_shape_parameter("ppg12_topo_sumet_04");
+  const double storedPositiveOnlyTopoSumEt =
+      pho->get_shower_shape_parameter("ppg12_topo_positive_only_sumet_04");
+  const double expectedVertexZ = ppg12PhotonYieldKinematicVertexZ();
+  const double storedVertexZ = pho->get_shower_shape_parameter("ppg12_topo_vertex_z");
+  const bool vertexCompatible =
+      !std::isfinite(expectedVertexZ) ||
+      (std::isfinite(storedVertexZ) && std::fabs(storedVertexZ - expectedVertexZ) < 1.0e-3);
+  const bool storedUsable =
+      std::isfinite(storedTopoValid) && storedTopoValid > 0.5 &&
+      std::isfinite(storedTopoRawEiso) && storedTopoRawEiso < 1.0e8;
+
+  pathAudit.storedRaw = storedTopoRawEiso;
+  pathAudit.legacyPositiveOnlyRaw = legacyPositiveOnlyRawEiso;
+  pathAudit.storedTopoSumEt = storedTopoSumEt;
+  pathAudit.storedPositiveOnlyTopoSumEt = storedPositiveOnlyTopoSumEt;
+  pathAudit.storedValid = storedTopoValid;
+  pathAudit.storedVertexZ = storedVertexZ;
+  pathAudit.expectedVertexZ = expectedVertexZ;
+  pathAudit.vertexCompatible = vertexCompatible;
+  pathAudit.storedUsable = storedUsable;
+
+  // A valid PhotonClusterBuilder value was already constructed with the
+  // reconstructed MBD vertex. Never invalidate or recompute it because a
+  // truth vertex differs from the reconstructed one.
+  if (storedUsable)
   {
-    const double expectedVertexZ = ppg12PhotonYieldKinematicVertexZ();
-    const double storedVertexZ = pho->get_shower_shape_parameter("ppg12_topo_vertex_z");
-    const bool vertexCompatible =
-        !std::isfinite(expectedVertexZ) ||
-        (std::isfinite(storedVertexZ) && std::fabs(storedVertexZ - expectedVertexZ) < 1.0e-3);
-    if (vertexCompatible)
+    pathAudit.storedAccepted = true;
+    pathAudit.recoVertexUsedForEiso = std::isfinite(storedVertexZ);
+    pathAudit.finalRaw = storedTopoRawEiso;
+    pathAudit.pathCode = 1;
+    if (!audit)
     {
+      recordPPG12EisoVertexContractAudit(pathAudit);
       if (Verbosity() >= 5)
       {
         LOG(5, CLR_BLUE,
@@ -12718,92 +14788,314 @@ double RecoilJets::ppg12PhotonYieldRawEiso(const RawCluster* clus, PHCompositeNo
       }
       return storedTopoRawEiso;
     }
+  }
+  else
+  {
+    pathAudit.storedRejected = true;
+    pathAudit.recomputeFallbackUsed = true;
     if (Verbosity() >= 3)
     {
       LOG(3, CLR_YELLOW,
-          "  [PPG12_PHOTON_YIELD_V1][topo-iso] stored PhotonClusterBuilder eiso vertex mismatch"
-          << " stored=" << storedVertexZ
-          << " expected=" << expectedVertexZ
+          "  [PPG12_PHOTON_YIELD_V1][topo-iso] stored PhotonClusterBuilder eiso is missing/invalid"
+          << " stored_raw=" << storedTopoRawEiso
           << " -> recomputing in RecoilJets");
     }
   }
 
-  if (!m_ppg12TopoClusters)
+  auto recomputeRawEiso = [&]() -> double
   {
-    if (Verbosity() >= 1)
-      LOG(1, CLR_RED,
-          "  [PPG12_PHOTON_YIELD_V1][topo-iso] "
-          << kPPG12YieldTopoClusterNode << " missing -> +inf");
-    return 1e9;
+    if (!m_ppg12TopoClusters)
+    {
+      if (Verbosity() >= 1)
+        LOG(1, CLR_RED,
+            "  [PPG12_PHOTON_YIELD_V1][topo-iso] "
+            << kPPG12YieldTopoClusterNode << " missing -> +inf");
+      return 1e9;
+    }
+
+    double axisEta = pho->get_shower_shape_parameter("ppg12_iso_axis_eta");
+    double axisPhi = TVector2::Phi_mpi_pi(pho->get_shower_shape_parameter("ppg12_iso_axis_phi"));
+    if (!std::isfinite(axisEta) || !std::isfinite(axisPhi))
+    {
+      axisEta = pho->get_shower_shape_parameter("cluster_eta");
+      axisPhi = TVector2::Phi_mpi_pi(pho->get_shower_shape_parameter("cluster_phi"));
+    }
+    if (!std::isfinite(axisEta) || !std::isfinite(axisPhi))
+    {
+      if (Verbosity() >= 2)
+        LOG(2, CLR_YELLOW,
+            "  [PPG12_PHOTON_YIELD_V1][topo-iso] non-finite iso axis -> +inf");
+      return 1e9;
+    }
+    pathAudit.isoAxisEta = axisEta;
+    pathAudit.isoAxisPhi = axisPhi;
+
+    double candidateEt = pho->get_shower_shape_parameter("cluster_et");
+    if (!std::isfinite(candidateEt)) candidateEt = pho->get_shower_shape_parameter("cluster_pt");
+    pathAudit.candidateEt = candidateEt;
+    if (!std::isfinite(candidateEt) || candidateEt <= 0.0)
+    {
+      if (Verbosity() >= 2)
+        LOG(2, CLR_YELLOW,
+            "  [PPG12_PHOTON_YIELD_V1][topo-iso] invalid candidate ET=" << candidateEt << " -> +inf");
+      return 1e9;
+    }
+
+    double topoEt04 = 0.0;
+    double positiveOnlyTopoEt04 = 0.0;
+    const double recoVertexZ = ppg12PhotonYieldKinematicVertexZ();
+    pathAudit.recoVertexUsedForEiso = std::isfinite(recoVertexZ);
+    const CLHEP::Hep3Vector vertex(0.0, 0.0, recoVertexZ);
+    const auto range = m_ppg12TopoClusters->getClusters();
+    for (auto it = range.first; it != range.second; ++it)
+    {
+      ++pathAudit.topoNodeCount;
+      const RawCluster* topo = it->second;
+      if (!topo) continue;
+
+      const double topoEta = RawClusterUtility::GetPseudorapidity(*topo, vertex);
+      const double topoPhi = TVector2::Phi_mpi_pi(RawClusterUtility::GetAzimuthAngle(*topo, vertex));
+      if (!std::isfinite(topoEta) || !std::isfinite(topoPhi)) continue;
+
+      const double topoEt = topo->get_energy() / std::cosh(topoEta);
+      if (!std::isfinite(topoEt)) continue;
+
+      const double dEta = axisEta - topoEta;
+      const double dPhi = TVector2::Phi_mpi_pi(axisPhi - topoPhi);
+      const double dR = std::sqrt(dEta * dEta + dPhi * dPhi);
+      if (dR < kPPG12YieldRecoIsoConeR)
+      {
+        ++pathAudit.inConeMemberCount;
+        topoEt04 += topoEt;
+        if (topoEt > 0.0) positiveOnlyTopoEt04 += topoEt;
+        if (audit && m_ppg12EisoConeMemberCanaryOut.is_open())
+        {
+          PPG12EisoConeMemberAudit member;
+          member.key = static_cast<std::uint64_t>(it->first);
+          member.energy = topo->get_energy();
+          member.eta = topoEta;
+          member.phi = topoPhi;
+          member.et = topoEt;
+          member.dEta = dEta;
+          member.dPhi = dPhi;
+          member.dR = dR;
+          pathAudit.coneMembers.push_back(member);
+        }
+      }
+    }
+    pathAudit.recomputedTopoSumEt = topoEt04;
+    pathAudit.recomputedPositiveOnlyTopoSumEt = positiveOnlyTopoEt04;
+
+    double iso = topoEt04 - candidateEt;
+    double positiveOnlyIso = positiveOnlyTopoEt04 - candidateEt;
+    if (m_ppg12PhotonYieldExcludeCandidateTopoCluster && m_isSim && !m_isAuAu)
+    {
+      // PPG12 Fig.29 final slimtree behaves like the photon topocluster is
+      // excluded from the topo-cone residual before the final candidate-ET
+      // subtraction. Our topo collection includes it, so remove it here only
+      // for the pp-SIM PPG12 photon-yield compatibility path.
+      iso -= candidateEt;
+      positiveOnlyIso -= candidateEt;
+    }
+    if (!std::isfinite(pathAudit.legacyPositiveOnlyRaw))
+    {
+      pathAudit.legacyPositiveOnlyRaw = positiveOnlyIso;
+    }
+    if (Verbosity() >= 5)
+    {
+      LOG(5, CLR_BLUE,
+          "  [PPG12_PHOTON_YIELD_V1][topo-iso] topoET04=" << topoEt04
+          << " candidateET=" << candidateEt
+          << " candidateExcluded=" << (m_ppg12PhotonYieldExcludeCandidateTopoCluster ? "true" : "false")
+          << " iso=" << iso);
+    }
+    return std::isfinite(iso) ? iso : 1e9;
+  };
+
+  const double recomputedRawEiso = recomputeRawEiso();
+  pathAudit.recomputedRaw = recomputedRawEiso;
+  if (!storedUsable)
+  {
+    pathAudit.finalRaw = recomputedRawEiso;
+    pathAudit.pathCode =
+        (std::isfinite(recomputedRawEiso) && recomputedRawEiso < 1e8) ? 2 : 0;
+  }
+  recordPPG12EisoVertexContractAudit(pathAudit);
+  return storedUsable ? storedTopoRawEiso : recomputedRawEiso;
+}
+
+void RecoilJets::recordPPG12EisoVertexContractAudit(const PPG12EisoPathAudit& audit)
+{
+  if (!(m_ppg12PhotonYieldEnabled && m_ppg12PhotonYieldUseTopoIso && !m_isAuAu)) return;
+
+  const std::string auditDirectory = m_isSim ? "SIM" : kPPG12Fig13Bit30TriggerKey;
+  TH1I* h = getOrBookPPG12EisoVertexContractAuditHist(auditDirectory);
+  if (!h) return;
+
+  if (audit.storedUsable) h->Fill(1);
+  if (audit.storedAccepted) h->Fill(2);
+  if (audit.storedRejected) h->Fill(3);
+  if (audit.recomputeFallbackUsed) h->Fill(4);
+  if (audit.vertexMismatchRejected) h->Fill(5);
+  if (audit.recoVertexUsedForEiso) h->Fill(6);
+}
+
+void RecoilJets::recordPPG12EisoPathCanary(const PPG12EisoPathAudit& audit,
+                                           const int candidateIndex,
+                                           const double recoEt,
+                                           const double eta,
+                                           const double phi,
+                                           const bool isTruthSignal,
+                                           const SSVars& vars,
+                                           const double correctedEiso,
+                                           const double isoThreshold,
+                                           const double nonIsoLower,
+                                           const TightTag tightTag)
+{
+  if (!m_ppg12EisoPathCanaryEnabled || !m_ppg12EisoPathCanaryOut.is_open()) return;
+  if (m_ppg12EisoPathCanaryMaxRows > 0 &&
+      m_ppg12EisoPathCanaryRowsWritten >= m_ppg12EisoPathCanaryMaxRows) return;
+  if (!std::isfinite(recoEt) || recoEt < m_ppg12EisoPathCanaryMinEt ||
+      recoEt >= m_ppg12EisoPathCanaryMaxEt) return;
+
+  auto writeNumber = [&](const double value)
+  {
+    if (std::isfinite(value)) m_ppg12EisoPathCanaryOut << std::setprecision(17) << value;
+  };
+  const int ptBin = findPPG12Fig24RecoPtBin(recoEt);
+  const int eisoBin = std::isfinite(correctedEiso)
+      ? static_cast<int>(std::floor((correctedEiso + 10.0) / 0.1)) + 1
+      : -1;
+  const char* pathLabel = audit.pathCode == 1 ? "stored" :
+                          audit.pathCode == 2 ? "recomputed" : "invalid";
+
+  auto regionFor = [&](const double value) -> const char*
+  {
+    if (!std::isfinite(value) || value >= 1e8) return "invalid";
+    if (value > kPPG12YieldRecoIsoMin && value < isoThreshold) return "isolated";
+    if (value > nonIsoLower && value < kPPG12YieldRecoNonIsoMax) return "nonisolated";
+    if (value >= kPPG12YieldRecoNonIsoMax) return "overflow";
+    return "gap";
+  };
+  const double storedCorrected = ppg12PhotonYieldEiso(audit.storedRaw);
+  const double legacyPositiveOnlyCorrected =
+      ppg12PhotonYieldEiso(audit.legacyPositiveOnlyRaw);
+  const double recomputedCorrected = ppg12PhotonYieldEiso(audit.recomputedRaw);
+  const char* storedRegion = regionFor(storedCorrected);
+  const char* legacyPositiveOnlyRegion = regionFor(legacyPositiveOnlyCorrected);
+  const char* recomputedRegion = regionFor(recomputedCorrected);
+  const char* currentRegion = regionFor(correctedEiso);
+  const char* mismatchReason = "none";
+  if (!audit.storedUsable) mismatchReason = "stored_invalid_fallback";
+  else if (std::string(storedRegion) != std::string(recomputedRegion))
+    mismatchReason = "stored_recomputed_region_disagree";
+
+  const bool npbPass = std::isfinite(vars.npb_score) && vars.npb_score > kPPG12YieldNpbMin;
+  const bool looseSSPass =
+      std::isfinite(vars.e11_over_e33) && vars.e11_over_e33 < kPPG12YieldCommonE11E33Max &&
+      in_open_interval(vars.et1, kPPG12YieldTightEt1Min, kPPG12YieldTightEt1Max) &&
+      in_open_interval(vars.e32_over_e35, kPPG12YieldTightE32E35Min, kPPG12YieldTightE32E35Max);
+
+  const long long eventSequence = m_evtHeader
+      ? static_cast<long long>(m_evtHeader->get_EvtSequence())
+      : -1;
+  const long long memberRowsRequested =
+      static_cast<long long>(audit.coneMembers.size());
+  const bool memberVectorComplete =
+      memberRowsRequested == audit.inConeMemberCount;
+  const bool memberRowsFit =
+      m_ppg12EisoConeMemberCanaryMaxRows <= 0 ||
+      m_ppg12EisoConeMemberCanaryRowsWritten + memberRowsRequested <=
+          m_ppg12EisoConeMemberCanaryMaxRows;
+  const bool memberCaptureComplete =
+      m_ppg12EisoConeMemberCanaryOut.is_open() && memberVectorComplete && memberRowsFit;
+  long long memberRowsCaptured = 0;
+  if (memberCaptureComplete)
+  {
+    auto writeMemberNumber = [&](const double value)
+    {
+      if (std::isfinite(value))
+      {
+        m_ppg12EisoConeMemberCanaryOut << std::setprecision(17) << value;
+      }
+    };
+    for (std::size_t memberIndex = 0; memberIndex < audit.coneMembers.size(); ++memberIndex)
+    {
+      const auto& member = audit.coneMembers[memberIndex];
+      m_ppg12EisoConeMemberCanaryOut
+          << currentRunNumber() << ',' << event_count << ',' << eventSequence << ','
+          << candidateIndex << ',';
+      writeMemberNumber(recoEt); m_ppg12EisoConeMemberCanaryOut << ',';
+      writeMemberNumber(eta); m_ppg12EisoConeMemberCanaryOut << ',';
+      writeMemberNumber(phi); m_ppg12EisoConeMemberCanaryOut << ','
+          << (isTruthSignal ? 1 : 0) << ',';
+      writeMemberNumber(vars.tight_bdt_score); m_ppg12EisoConeMemberCanaryOut << ',';
+      writeMemberNumber(vars.npb_score); m_ppg12EisoConeMemberCanaryOut << ','
+          << tightTagName(tightTag) << ',' << m_ppg12EisoVertexSource << ',';
+      writeMemberNumber(audit.expectedVertexZ); m_ppg12EisoConeMemberCanaryOut << ',';
+      writeMemberNumber(audit.isoAxisEta); m_ppg12EisoConeMemberCanaryOut << ',';
+      writeMemberNumber(audit.isoAxisPhi); m_ppg12EisoConeMemberCanaryOut << ','
+          << audit.topoNodeCount << ',' << audit.inConeMemberCount << ','
+          << memberIndex << ',' << member.key << ',';
+      writeMemberNumber(member.energy); m_ppg12EisoConeMemberCanaryOut << ',';
+      writeMemberNumber(member.eta); m_ppg12EisoConeMemberCanaryOut << ',';
+      writeMemberNumber(member.phi); m_ppg12EisoConeMemberCanaryOut << ',';
+      writeMemberNumber(member.et); m_ppg12EisoConeMemberCanaryOut << ',';
+      writeMemberNumber(member.dEta); m_ppg12EisoConeMemberCanaryOut << ',';
+      writeMemberNumber(member.dPhi); m_ppg12EisoConeMemberCanaryOut << ',';
+      writeMemberNumber(member.dR);
+      m_ppg12EisoConeMemberCanaryOut << '\n';
+      ++memberRowsCaptured;
+      ++m_ppg12EisoConeMemberCanaryRowsWritten;
+    }
   }
 
-  double axisEta = pho->get_shower_shape_parameter("ppg12_iso_axis_eta");
-  double axisPhi = TVector2::Phi_mpi_pi(pho->get_shower_shape_parameter("ppg12_iso_axis_phi"));
-  if (!std::isfinite(axisEta) || !std::isfinite(axisPhi))
-  {
-    axisEta = pho->get_shower_shape_parameter("cluster_eta");
-    axisPhi = TVector2::Phi_mpi_pi(pho->get_shower_shape_parameter("cluster_phi"));
-  }
-  if (!std::isfinite(axisEta) || !std::isfinite(axisPhi))
-  {
-    if (Verbosity() >= 2)
-      LOG(2, CLR_YELLOW,
-          "  [PPG12_PHOTON_YIELD_V1][topo-iso] non-finite iso axis -> +inf");
-    return 1e9;
-  }
-
-  double candidateEt = pho->get_shower_shape_parameter("cluster_et");
-  if (!std::isfinite(candidateEt))
-  {
-    candidateEt = pho->get_shower_shape_parameter("cluster_pt");
-  }
-  if (!std::isfinite(candidateEt) || candidateEt <= 0.0)
-  {
-    if (Verbosity() >= 2)
-      LOG(2, CLR_YELLOW,
-          "  [PPG12_PHOTON_YIELD_V1][topo-iso] invalid candidate ET=" << candidateEt << " -> +inf");
-    return 1e9;
-  }
-
-  double topoEt04 = 0.0;
-  const CLHEP::Hep3Vector vertex(0.0, 0.0, ppg12PhotonYieldKinematicVertexZ());
-  const auto range = m_ppg12TopoClusters->getClusters();
-  for (auto it = range.first; it != range.second; ++it)
-  {
-    const RawCluster* topo = it->second;
-    if (!topo) continue;
-
-    const double topoEta = RawClusterUtility::GetPseudorapidity(*topo, vertex);
-    const double topoPhi = TVector2::Phi_mpi_pi(RawClusterUtility::GetAzimuthAngle(*topo, vertex));
-    if (!std::isfinite(topoEta) || !std::isfinite(topoPhi)) continue;
-
-    const double topoEt = topo->get_energy() / std::cosh(topoEta);
-    if (!std::isfinite(topoEt) || topoEt <= 0.0) continue;
-
-    const double dEta = axisEta - topoEta;
-    const double dPhi = TVector2::Phi_mpi_pi(axisPhi - topoPhi);
-    const double dR = std::sqrt(dEta * dEta + dPhi * dPhi);
-    if (dR < kPPG12YieldRecoIsoConeR) topoEt04 += topoEt;
-  }
-
-  double iso = topoEt04 - candidateEt;
-  if (m_ppg12PhotonYieldExcludeCandidateTopoCluster && m_isSim && !m_isAuAu)
-  {
-    // PPG12 Fig.29 final slimtree behaves like the photon topocluster is
-    // excluded from the topo-cone residual before the final candidate-ET
-    // subtraction. Our topo collection includes it, so remove it here only
-    // for the pp-SIM PPG12 photon-yield compatibility path.
-    iso -= candidateEt;
-  }
-  if (Verbosity() >= 5)
-  {
-    LOG(5, CLR_BLUE,
-        "  [PPG12_PHOTON_YIELD_V1][topo-iso] topoET04=" << topoEt04
-        << " candidateET=" << candidateEt
-        << " candidateExcluded=" << (m_ppg12PhotonYieldExcludeCandidateTopoCluster ? "true" : "false")
-        << " iso=" << iso);
-  }
-  return std::isfinite(iso) ? iso : 1e9;
+  m_ppg12EisoPathCanaryOut
+      << currentRunNumber() << ',' << event_count << ',' << eventSequence << ','
+      << candidateIndex << ',';
+  writeNumber(recoEt); m_ppg12EisoPathCanaryOut << ',';
+  writeNumber(eta); m_ppg12EisoPathCanaryOut << ',';
+  writeNumber(phi); m_ppg12EisoPathCanaryOut << ','
+      << (isTruthSignal ? 1 : 0) << ',';
+  writeNumber(vars.tight_bdt_score); m_ppg12EisoPathCanaryOut << ',';
+  writeNumber(vars.npb_score); m_ppg12EisoPathCanaryOut << ','
+      << (npbPass ? 1 : 0) << ','
+      << (looseSSPass ? 1 : 0) << ','
+      << (passesPPG12PhotonYieldCommon(vars) ? 1 : 0) << ','
+      << tightTagName(tightTag) << ',' << m_ppg12EisoVertexSource << ',';
+  writeNumber(audit.storedRaw); m_ppg12EisoPathCanaryOut << ',';
+  writeNumber(audit.legacyPositiveOnlyRaw); m_ppg12EisoPathCanaryOut << ',';
+  writeNumber(audit.storedTopoSumEt); m_ppg12EisoPathCanaryOut << ',';
+  writeNumber(audit.storedPositiveOnlyTopoSumEt); m_ppg12EisoPathCanaryOut << ',';
+  writeNumber(audit.storedValid); m_ppg12EisoPathCanaryOut << ',';
+  writeNumber(audit.storedVertexZ); m_ppg12EisoPathCanaryOut << ',';
+  writeNumber(audit.expectedVertexZ); m_ppg12EisoPathCanaryOut << ',';
+  writeNumber(audit.isoAxisEta); m_ppg12EisoPathCanaryOut << ',';
+  writeNumber(audit.isoAxisPhi); m_ppg12EisoPathCanaryOut << ',';
+  writeNumber(audit.candidateEt); m_ppg12EisoPathCanaryOut << ','
+      << (audit.vertexCompatible ? 1 : 0) << ','
+      << (audit.storedAccepted ? 1 : 0) << ','
+      << (audit.storedRejected ? 1 : 0) << ','
+      << (audit.recomputeFallbackUsed ? 1 : 0) << ','
+      << (audit.vertexMismatchRejected ? 1 : 0) << ','
+      << (audit.recoVertexUsedForEiso ? 1 : 0) << ','
+      << audit.topoNodeCount << ',' << audit.inConeMemberCount << ',';
+  writeNumber(audit.recomputedTopoSumEt); m_ppg12EisoPathCanaryOut << ',';
+  writeNumber(audit.recomputedPositiveOnlyTopoSumEt); m_ppg12EisoPathCanaryOut << ',';
+  writeNumber(audit.recomputedRaw); m_ppg12EisoPathCanaryOut << ',';
+  m_ppg12EisoPathCanaryOut
+      << memberRowsCaptured << ',' << (memberCaptureComplete ? 1 : 0) << ',';
+  writeNumber(audit.finalRaw); m_ppg12EisoPathCanaryOut << ','
+      << audit.pathCode << ',' << pathLabel << ',';
+  writeNumber(correctedEiso); m_ppg12EisoPathCanaryOut << ','
+      << isoThreshold << ',' << nonIsoLower << ',' << kPPG12YieldRecoNonIsoMax << ','
+      << storedRegion << ',' << legacyPositiveOnlyRegion << ','
+      << recomputedRegion << ',' << currentRegion << ','
+      << mismatchReason << ','
+      << ptBin << ',' << eisoBin << ',';
+  writeNumber(m_ppg12SimWeightFactorFinal);
+  m_ppg12EisoPathCanaryOut << '\n';
+  ++m_ppg12EisoPathCanaryRowsWritten;
 }
 
 double RecoilJets::ppg12PhotonYieldEiso(double eisoEt) const
@@ -12823,27 +15115,68 @@ double RecoilJets::ppg12PhotonYieldEiso(double eisoEt) const
 
 double RecoilJets::ppg12PhotonYieldClusterEtForCuts(double ptGamma, int candidateIndex) const
 {
-  if (!(m_ppg12PhotonYieldEnabled && m_isSim && !m_isAuAu))
+  (void) candidateIndex;
+  // RecoEffCalculator_TTreeReader.C uses the calibrated, unsmeared cluster ET
+  // for every analysis cut, ID/iso decision, and ABCD yield.  Do not couple
+  // those physics selections to the response-only resolution model below.
+  return ptGamma;
+}
+
+double RecoilJets::ppg12PhotonYieldClusterEtForResponse(double recoEt,
+                                                        double truthPt,
+                                                        int candidateIndex) const
+{
+  if (!(m_ppg12PhotonYieldEnabled && m_isSim && !m_isAuAu)) return recoEt;
+  if (!std::isfinite(recoEt) || recoEt <= 0.0 ||
+      !std::isfinite(truthPt) || truthPt <= 0.0)
   {
-    return ptGamma;
-  }
-  if (!std::isfinite(ptGamma) || ptGamma <= 0.0)
-  {
-    return ptGamma;
-  }
-  if (!(m_ppg12PhotonYieldClusterERes > 0.0))
-  {
-    return ptGamma;
+    return recoEt;
   }
 
-  const unsigned int evtPart = static_cast<unsigned int>(event_count & 0xffffffffULL);
-  const unsigned int idxPart = static_cast<unsigned int>(std::max(candidateIndex, 0));
-  unsigned int seed = 0x9e3779b9U ^ (evtPart * 2654435761U) ^ (idxPart * 2246822519U);
-  if (seed == 0U) seed = 1U;
+  const double dataSigma2 =
+      (kPPG12YieldResponseEResDataP0 * kPPG12YieldResponseEResDataP0) / truthPt +
+      (kPPG12YieldResponseEResDataP1 * kPPG12YieldResponseEResDataP1) /
+          (truthPt * truthPt) +
+      kPPG12YieldResponseEResDataP2 * kPPG12YieldResponseEResDataP2;
+  const double mcSigma2 =
+      (kPPG12YieldResponseEResMcP0 * kPPG12YieldResponseEResMcP0) / truthPt +
+      (kPPG12YieldResponseEResMcP1 * kPPG12YieldResponseEResMcP1) /
+          (truthPt * truthPt) +
+      kPPG12YieldResponseEResMcP2 * kPPG12YieldResponseEResMcP2;
+  const double sigmaExtraGeV =
+      std::sqrt(std::max(0.0, dataSigma2 - mcSigma2)) * truthPt;
+  if (!(sigmaExtraGeV > 0.0) || !std::isfinite(sigmaExtraGeV)) return recoEt;
+
+  // PPG12 uses a fixed seed but a stateful draw sequence.  Distributed jobs
+  // cannot preserve that monolithic entry ordering, so derive one stable draw
+  // per physical event/candidate while retaining the same Gaussian model.
+  std::uint64_t key = static_cast<std::uint64_t>(std::max(currentRunNumber(), 0));
+  auto mixKey = [&key](const std::uint64_t value)
+  {
+    key ^= value + 0x9e3779b97f4a7c15ULL + (key << 6U) + (key >> 2U);
+  };
+  const std::uint64_t eventKey = m_evtHeader
+      ? static_cast<std::uint64_t>(static_cast<std::uint32_t>(m_evtHeader->get_EvtSequence()))
+      : static_cast<std::uint64_t>(event_count);
+  mixKey(eventKey);
+  mixKey(static_cast<std::uint64_t>(event_count));
+  mixKey(static_cast<std::uint64_t>(std::max(candidateIndex, 0)));
+  // Event sequence and candidate indices can restart at DST/file boundaries.
+  // Mixing the exact reco/truth kinematics avoids correlated repeated draws
+  // across independently chunked jobs while remaining reproducible when the
+  // same physical candidate is replayed.
+  mixKey(std::bit_cast<std::uint64_t>(recoEt));
+  mixKey(std::bit_cast<std::uint64_t>(truthPt));
+  key += 0x9e3779b97f4a7c15ULL;
+  key = (key ^ (key >> 30U)) * 0xbf58476d1ce4e5b9ULL;
+  key = (key ^ (key >> 27U)) * 0x94d049bb133111ebULL;
+  key ^= key >> 31U;
+  unsigned int seed = static_cast<unsigned int>((key ^ (key >> 32U)) & 0xffffffffULL);
+  if (seed == 0U) seed = 42U;
+
   TRandom3 rng(seed);
-  const double scale = rng.Gaus(1.0, m_ppg12PhotonYieldClusterERes);
-  const double smeared = ptGamma * scale;
-  return (std::isfinite(smeared) && smeared > 0.0) ? smeared : ptGamma;
+  const double smeared = recoEt + rng.Gaus(0.0, sigmaExtraGeV);
+  return (std::isfinite(smeared) && smeared > 0.0) ? smeared : recoEt;
 }
 
 bool RecoilJets::ppg12PhotonYieldInResponseWindow(double recoPt, double truthPt) const
@@ -12857,7 +15190,28 @@ bool RecoilJets::ppg12PhotonYieldInResponseWindow(double recoPt, double truthPt)
          truthPt < m_ppg12PhotonYieldTruthPtBins.back();
 }
 
-bool RecoilJets::isIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const
+double RecoilJets::ppg12Fig36TruthPriorWeight(double truthPt) const
+{
+  if (!std::isfinite(truthPt)) return 1.0;
+
+  // PPG12 config_bdt_nom.yaml analysis.unfold.truth_reweight:
+  // ([0] + [1]x + [3]x^2) / (1 + [2]x + [4]x^2), clamped to 10-30 GeV.
+  const double x = std::min(30.0, std::max(10.0, truthPt));
+  constexpr double p0 = 4.05592;
+  constexpr double p1 = -0.984728;
+  constexpr double p2 = -0.478818;
+  constexpr double p3 = 0.0723232;
+  constexpr double p4 = 0.0522681;
+
+  const double den = 1.0 + p2 * x + p4 * x * x;
+  if (!std::isfinite(den) || den == 0.0) return 1.0;
+
+  const double num = p0 + p1 * x + p3 * x * x;
+  const double w = num / den;
+  return std::isfinite(w) ? w : 1.0;
+}
+
+bool RecoilJets::isIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode)
 {
   if (!std::isfinite(et_gamma) || et_gamma <= 0.0)
   {
@@ -12882,7 +15236,7 @@ bool RecoilJets::isIsolated(const RawCluster* clus, double et_gamma, PHComposite
 }
 
 
-bool RecoilJets::isNonIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const
+bool RecoilJets::isNonIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode)
 {
   if (!std::isfinite(et_gamma) || et_gamma <= 0.0)
   {
@@ -13860,6 +16214,10 @@ void RecoilJets::appendEventDisplayDiagnosticsFromJet(const Jet* jet,
       const unsigned int calokey = towers->encode_key(idx);
       const int twr_ieta = towers->getTowerEtaBin(calokey);
       const int twr_iphi = towers->getTowerPhiBin(calokey);
+      if (twr_ieta < 0 || twr_iphi < 0 || twr_ieta >= 4095 || twr_iphi >= 4095)
+      {
+        return;
+      }
 
       RawTowerDefs::keytype key = RawTowerDefs::encode_towerid(caloId, twr_ieta, twr_iphi);
       RawTowerGeom* tower_geom = geom->get_tower_geometry(key);
@@ -13946,7 +16304,7 @@ void RecoilJets::fillEventDisplayDiagnostics(const std::string& rKey,
 
     if (m_evtHeader)
     {
-        m_evtDiag_run = m_evtHeader->get_RunNumber();
+        m_evtDiag_run = currentRunNumber();
         m_evtDiag_evt = m_evtHeader->get_EvtSequence();
     }
     m_evtDiag_eventCount = event_count;
@@ -14242,6 +16600,25 @@ TH1I* RecoilJets::getOrBookCountHist(const std::string& trig,
 
     dir->cd();
 
+    // This booking helper serves both physics counts and diagnostic counters.
+    // ABCD/purity/xJ counts remain weighted; finite/missing and cut-failure
+    // diagnostics are explicitly raw so they cannot be mistaken for PPG12
+    // weighted observables.
+    const bool rawDiagnostic =
+        base.rfind("h_npbScore_", 0) == 0 ||
+        base.rfind("h_tightBDTScore_", 0) == 0 ||
+        base.rfind("h_preRefFail", 0) == 0 ||
+        base.rfind("h_preRefMatrix_", 0) == 0 ||
+        base.rfind("h_preFail", 0) == 0 ||
+        base.rfind("h_tightFail", 0) == 0;
+
+    auto bookCount = [&](const char* title, int nbins, double xmin, double xmax) -> TH1I*
+    {
+        return rawDiagnostic
+            ? RJMCWeighting::RJNewRawTH1I(name.c_str(), title, nbins, xmin, xmax)
+            : RJMCWeighting::RJNewTH1I(name.c_str(), title, nbins, xmin, xmax);
+    };
+
     if (base == "h_preFailMask" || base.rfind("h_preRefFailMask_", 0) == 0)
     {
         const std::string title = name + ";preselection fail mask;entries";
@@ -14249,7 +16626,7 @@ TH1I* RecoilJets::getOrBookCountHist(const std::string& trig,
         if (Verbosity() >= 5)
             LOG(5, CLR_BLUE, "    [getOrBookCountHist] booking TH1I name=\"" << name << "\" title=\"" << title << '"');
 
-        auto* h = RJMCWeighting::RJNewTH1I(name.c_str(), title.c_str(), 16, -0.5, 15.5);
+        auto* h = bookCount(title.c_str(), 16, -0.5, 15.5);
         if (!h)
         {
             LOG(1, CLR_YELLOW, "  [getOrBookCountHist] new TH1I failed for \"" << name << '"');
@@ -14292,7 +16669,7 @@ TH1I* RecoilJets::getOrBookCountHist(const std::string& trig,
         if (Verbosity() >= 5)
             LOG(5, CLR_BLUE, "    [getOrBookCountHist] booking TH1I name=\"" << name << "\" title=\"" << title << '"');
 
-        auto* h = RJMCWeighting::RJNewTH1I(name.c_str(), title.c_str(), 32, -0.5, 31.5);
+        auto* h = bookCount(title.c_str(), 32, -0.5, 31.5);
         if (!h)
         {
             LOG(1, CLR_YELLOW, "  [getOrBookCountHist] new TH1I failed for \"" << name << '"');
@@ -14348,7 +16725,7 @@ TH1I* RecoilJets::getOrBookCountHist(const std::string& trig,
     if (Verbosity() >= 5)
         LOG(5, CLR_BLUE, "    [getOrBookCountHist] booking TH1I name=\"" << name << "\" title=\"" << title << '"');
 
-    auto* h = RJMCWeighting::RJNewTH1I(name.c_str(), title.c_str(), 1, 0.5, 1.5);
+    auto* h = bookCount(title.c_str(), 1, 0.5, 1.5);
     if (!h)
     {
         LOG(1, CLR_YELLOW, "  [getOrBookCountHist] new TH1I failed for \"" << name << '"');
@@ -14391,7 +16768,12 @@ TH1F* RecoilJets::getOrBookBDTScoreHist(const std::string& trig,
 
   dir->cd();
   const std::string title = name + ";BDT score;Entries";
-  auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), 120, -1.05, 1.05);
+  const bool rawDiagnostic =
+      base.rfind("h_npbScore_", 0) == 0 ||
+      base.rfind("h_tightBDTScore_", 0) == 0;
+  auto* h = rawDiagnostic
+      ? RJMCWeighting::RJNewRawTH1F(name.c_str(), title.c_str(), 120, -1.05, 1.05)
+      : RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), 120, -1.05, 1.05);
   H[name] = h;
 
   if (prevDir) prevDir->cd();
@@ -15347,6 +17729,119 @@ TH1F* RecoilJets::getOrBookUnfoldTruthPhoMissesPtGammaPPG12Obj(const std::string
   H[name] = h;
   if (prevDir) prevDir->cd();
   return h;
+}
+
+TH1F* RecoilJets::getOrBookPPG12Fig37LeadTagInput1D(const std::string& trig,
+                                                    const std::string& name,
+                                                    const std::vector<double>& bins,
+                                                    const std::string& xAxisTitle,
+                                                    const std::string& yAxisTitle)
+{
+  if (!m_ppg12PhotonYieldEnabled || !m_isSim || m_isAuAu) return nullptr;
+  if (trig.empty() || name.empty() || bins.size() < 2) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH1F*>(it->second)) return h;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+  dir->cd();
+
+  const int nb = static_cast<int>(bins.size()) - 1;
+  const std::string title = name + ";" + xAxisTitle + ";" + yAxisTitle;
+
+  auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nb, bins.data());
+  if (h) h->Sumw2();
+
+  H[name] = h;
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+TH2F* RecoilJets::getOrBookPPG12Fig37LeadTagResponse2D(const std::string& trig,
+                                                       const std::string& name)
+{
+  if (!m_ppg12PhotonYieldEnabled || !m_isSim || m_isAuAu) return nullptr;
+  if (trig.empty() || name.empty() ||
+      m_unfoldTruthPhotonPtBins.size() < 2 ||
+      m_unfoldRecoPhotonPtBins.size() < 2) return nullptr;
+
+  auto& H = qaHistogramsByTrigger[trig];
+  if (auto it = H.find(name); it != H.end())
+  {
+    if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+    H.erase(it);
+  }
+
+  if (!out || !out->IsOpen()) return nullptr;
+
+  TDirectory* const prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(trig.c_str());
+  if (!dir) dir = out->mkdir(trig.c_str());
+  if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+  dir->cd();
+
+  const int nx = static_cast<int>(m_unfoldTruthPhotonPtBins.size()) - 1;
+  const int ny = static_cast<int>(m_unfoldRecoPhotonPtBins.size()) - 1;
+  const std::string title =
+      name + ";p_{T}^{#gamma,truth} [GeV];p_{T}^{#gamma,reco} [GeV]";
+
+  auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
+                                    nx, m_unfoldTruthPhotonPtBins.data(),
+                                    ny, m_unfoldRecoPhotonPtBins.data());
+  if (h) h->Sumw2();
+
+  H[name] = h;
+  if (prevDir) prevDir->cd();
+  return h;
+}
+
+void RecoilJets::fillPPG12Fig37LeadTagInput1D(const std::vector<std::string>& activeTrig,
+                                             const std::string& name,
+                                             const std::vector<double>& bins,
+                                             const std::string& xAxisTitle,
+                                             const std::string& yAxisTitle,
+                                             double value)
+{
+  if (!m_ppg12PhotonYieldEnabled || !m_isSim || m_isAuAu) return;
+  if (!std::isfinite(value) || value <= 0.0) return;
+
+  for (const auto& trigShort : activeTrig)
+  {
+    if (auto* h = getOrBookPPG12Fig37LeadTagInput1D(trigShort, name, bins,
+                                                    xAxisTitle, yAxisTitle))
+    {
+      h->Fill(value);
+      bumpHistFill(trigShort, h->GetName());
+    }
+  }
+}
+
+void RecoilJets::fillPPG12Fig37LeadTagResponse(const std::vector<std::string>& activeTrig,
+                                               const std::string& name,
+                                               double truthPt,
+                                               double recoPt)
+{
+  if (!m_ppg12PhotonYieldEnabled || !m_isSim || m_isAuAu) return;
+  if (!std::isfinite(truthPt) || truthPt <= 0.0 ||
+      !std::isfinite(recoPt) || recoPt <= 0.0) return;
+
+  for (const auto& trigShort : activeTrig)
+  {
+    if (auto* h = getOrBookPPG12Fig37LeadTagResponse2D(trigShort, name))
+    {
+      h->Fill(truthPt, recoPt);
+      bumpHistFill(trigShort, h->GetName());
+    }
+  }
 }
 
 // -------------------------------------------------------------------------
@@ -18112,7 +20607,10 @@ TH1F* RecoilJets::getOrBookPPG12PhotonYield1D(const std::string& trig,
     const int nb = static_cast<int>(bins.size()) - 1;
     const std::string title = name + ";" + xAxisTitle + ";" + yAxisTitle;
 
-    auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nb, bins.data());
+    const bool rawDiagnostic = name.rfind("h_ppg12_diag_", 0) == 0;
+    auto* h = rawDiagnostic
+        ? RJMCWeighting::RJNewRawTH1F(name.c_str(), title.c_str(), nb, bins.data())
+        : RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nb, bins.data());
     if (h) h->Sumw2();
 
     H[name] = h;
@@ -18275,6 +20773,357 @@ TH1I* RecoilJets::getOrBookPPG12Fig8AuditHist(const std::string& trig)
     return h;
 }
 
+int RecoilJets::findPPG12Fig24RecoPtBin(const double recoEt) const
+{
+    if (!std::isfinite(recoEt) ||
+        recoEt < kPPG12Fig24RecoEtMin ||
+        recoEt >= kPPG12Fig24RecoEtMax)
+    {
+      return -1;
+    }
+
+    const auto& edges = ppg12Fig24RecoEtEdges();
+    for (std::size_t i = 0; i + 1 < edges.size(); ++i)
+    {
+      if (recoEt >= edges[i] && recoEt < edges[i + 1])
+      {
+        return static_cast<int>(i);
+      }
+    }
+    return -1;
+}
+
+std::string RecoilJets::ppg12Fig24RecoPtSuffix(const int ptIdx) const
+{
+    const auto& edges = ppg12Fig24RecoEtEdges();
+    if (ptIdx < 0 || static_cast<std::size_t>(ptIdx + 1) >= edges.size())
+    {
+      return "invalid";
+    }
+
+    auto edgeToken = [](const double value) -> std::string
+    {
+      const long long rounded = std::llround(value);
+      if (std::fabs(value - static_cast<double>(rounded)) < 1.0e-9)
+      {
+        return std::to_string(rounded);
+      }
+      std::ostringstream os;
+      os << std::fixed << std::setprecision(1) << value;
+      std::string token = os.str();
+      std::replace(token.begin(), token.end(), '.', 'p');
+      return token;
+    };
+
+    return "pT_" + edgeToken(edges[ptIdx]) + "_" + edgeToken(edges[ptIdx + 1]);
+}
+
+TH2F* RecoilJets::getOrBookPPG12Fig24ETIsoHist(const std::string& trig,
+                                               const std::string& name)
+{
+    if (!m_ppg12PhotonYieldEnabled || !m_isSim || m_isAuAu) return nullptr;
+    if (trig.empty() || name.empty()) return nullptr;
+
+    auto& H = qaHistogramsByTrigger[trig];
+    if (auto it = H.find(name); it != H.end())
+    {
+      if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+      H.erase(it);
+    }
+
+    if (!out || !out->IsOpen()) return nullptr;
+
+    TDirectory* const prevDir = gDirectory;
+    TDirectory* dir = out->GetDirectory(trig.c_str());
+    if (!dir) dir = out->mkdir(trig.c_str());
+    if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+    dir->cd();
+
+    const std::string title =
+        name + ";E_{T}^{#gamma,reco} [GeV];E_{T}^{iso,reco} [GeV]";
+    auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
+                                      400, 0.0, 50.0,
+                                      4400, -5.0, 50.0);
+    if (h) h->Sumw2();
+
+    H[name] = h;
+    if (prevDir) prevDir->cd();
+    return h;
+}
+
+TH1F* RecoilJets::getOrBookPPG12Fig24IsoHist(const std::string& trig,
+                                             const int ptIdx)
+{
+    if (!m_ppg12PhotonYieldEnabled || !m_isSim || m_isAuAu) return nullptr;
+    if (trig.empty()) return nullptr;
+    const std::string suffix = ppg12Fig24RecoPtSuffix(ptIdx);
+    if (suffix == "invalid") return nullptr;
+
+    const std::string name = "h_ppg12_fig24_EisoReco_truthSigMatched_" + suffix;
+    auto& H = qaHistogramsByTrigger[trig];
+    if (auto it = H.find(name); it != H.end())
+    {
+      if (auto* h = dynamic_cast<TH1F*>(it->second)) return h;
+      H.erase(it);
+    }
+
+    if (!out || !out->IsOpen()) return nullptr;
+
+    TDirectory* const prevDir = gDirectory;
+    TDirectory* dir = out->GetDirectory(trig.c_str());
+    if (!dir) dir = out->mkdir(trig.c_str());
+    if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+    dir->cd();
+
+    const auto& edges = ppg12Fig24RecoEtEdges();
+    const std::string title =
+        "PPG12 Fig.24 truth-matched signal, " +
+        std::to_string(static_cast<int>(std::llround(edges[ptIdx]))) +
+        " < E_{T}^{#gamma,reco} < " +
+        std::to_string(static_cast<int>(std::llround(edges[ptIdx + 1]))) +
+        " GeV;E_{T}^{iso,reco} [GeV];Entries";
+    auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(),
+                                      4400, -5.0, 50.0);
+    if (h) h->Sumw2();
+
+    H[name] = h;
+    if (prevDir) prevDir->cd();
+    return h;
+}
+
+TH1D* RecoilJets::getOrBookPPG12Fig24AuditHist(const std::string& trig)
+{
+    if (!m_ppg12PhotonYieldEnabled || !m_isSim || m_isAuAu) return nullptr;
+    if (trig.empty()) return nullptr;
+
+    const std::string name = "h_ppg12_fig24_audit_flow";
+    auto& H = qaHistogramsByTrigger[trig];
+    if (auto it = H.find(name); it != H.end())
+    {
+      if (auto* h = dynamic_cast<TH1D*>(it->second)) return h;
+      H.erase(it);
+    }
+
+    if (!out || !out->IsOpen()) return nullptr;
+
+    TDirectory* const prevDir = gDirectory;
+    TDirectory* dir = out->GetDirectory(trig.c_str());
+    if (!dir) dir = out->mkdir(trig.c_str());
+    if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+    dir->cd();
+
+    auto* h = RJMCWeighting::RJNewRawTH1D(name.c_str(),
+                                         "h_ppg12_fig24_audit_flow;Fig.24 fill stage;Raw entries",
+                                         12, 0.5, 12.5);
+    if (h)
+    {
+      h->Sumw2();
+      h->GetXaxis()->SetBinLabel(1, "truth_sig_matched");
+      h->GetXaxis()->SetBinLabel(2, "eta_abs_lt07");
+      h->GetXaxis()->SetBinLabel(3, "reco_et_10_36");
+      h->GetXaxis()->SetBinLabel(4, "finite_reco_iso");
+      h->GetXaxis()->SetBinLabel(5, "photon_sample_context");
+      h->GetXaxis()->SetBinLabel(6, "sample_window");
+      h->GetXaxis()->SetBinLabel(7, "owned_sample");
+      h->GetXaxis()->SetBinLabel(8, "filled_th2");
+      h->GetXaxis()->SetBinLabel(9, "filled_ptbin_1d");
+      h->GetXaxis()->SetBinLabel(10, "rejected_not_owned");
+      h->GetXaxis()->SetBinLabel(11, "missing_owner_truth");
+      h->GetXaxis()->SetBinLabel(12, "bad_context");
+    }
+
+    H[name] = h;
+    if (prevDir) prevDir->cd();
+    return h;
+}
+
+TH2F* RecoilJets::getOrBookPPG12Fig11ETIsoHist(const std::string& trig,
+                                                const std::string& sampleKey)
+{
+    if (!m_ppg12Fig11SBDiagnostic || !m_ppg12PhotonYieldEnabled || !m_isSim || m_isAuAu) return nullptr;
+    if (trig.empty()) return nullptr;
+    if (sampleKey != kPPG12Fig11SignalSampleKey &&
+        sampleKey != kPPG12Fig11InclusiveJetSampleKey)
+    {
+        return nullptr;
+    }
+
+    const std::string name = "h_ppg12_fig11_ET_isoET_eta0_" + sampleKey;
+    auto& H = qaHistogramsByTrigger[trig];
+    if (auto it = H.find(name); it != H.end())
+    {
+      if (auto* h = dynamic_cast<TH2F*>(it->second)) return h;
+      H.erase(it);
+    }
+
+    if (!out || !out->IsOpen()) return nullptr;
+
+    TDirectory* const prevDir = gDirectory;
+    TDirectory* dir = out->GetDirectory(trig.c_str());
+    if (!dir) dir = out->mkdir(trig.c_str());
+    if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+    dir->cd();
+
+    const std::string title =
+        "PPG12 Fig.11 S/B input " + sampleKey +
+        ";E_{T}^{#gamma,reco} [GeV];E_{T}^{iso,reco} [GeV]";
+    auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
+                                      400, 0.0, 50.0,
+                                      4400, -5.0, 50.0);
+    if (h) h->Sumw2();
+
+    H[name] = h;
+    if (prevDir) prevDir->cd();
+    return h;
+}
+
+TH1D* RecoilJets::getOrBookPPG12Fig11AuditHist(const std::string& trig)
+{
+    if (!m_ppg12Fig11SBDiagnostic || !m_ppg12PhotonYieldEnabled || !m_isSim || m_isAuAu) return nullptr;
+    if (trig.empty()) return nullptr;
+
+    const std::string name = "h_ppg12_fig11_audit_flow";
+    auto& H = qaHistogramsByTrigger[trig];
+    if (auto it = H.find(name); it != H.end())
+    {
+      if (auto* h = dynamic_cast<TH1D*>(it->second)) return h;
+      H.erase(it);
+    }
+
+    if (!out || !out->IsOpen()) return nullptr;
+
+    TDirectory* const prevDir = gDirectory;
+    TDirectory* dir = out->GetDirectory(trig.c_str());
+    if (!dir) dir = out->mkdir(trig.c_str());
+    if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+    dir->cd();
+
+    auto* h = RJMCWeighting::RJNewTH1D(name.c_str(),
+                                      "h_ppg12_fig11_audit_flow;Fig.11 fill stage;Weighted entries",
+                                      12, 0.5, 12.5);
+    if (h)
+    {
+      h->Sumw2();
+      h->GetXaxis()->SetBinLabel(1, "ppsim_candidate");
+      h->GetXaxis()->SetBinLabel(2, "eta_abs_lt07");
+      h->GetXaxis()->SetBinLabel(3, "et_10_30_raw");
+      h->GetXaxis()->SetBinLabel(4, "finite_topo_eiso");
+      h->GetXaxis()->SetBinLabel(5, "signal_context");
+      h->GetXaxis()->SetBinLabel(6, "truth_signal_match");
+      h->GetXaxis()->SetBinLabel(7, "filled_signal");
+      h->GetXaxis()->SetBinLabel(8, "inclusive_jet_context");
+      h->GetXaxis()->SetBinLabel(9, "jet_truth_window_r04");
+      h->GetXaxis()->SetBinLabel(10, "filled_jet_inclusive");
+      h->GetXaxis()->SetBinLabel(11, "unknown_context");
+      h->GetXaxis()->SetBinLabel(12, "topo_disabled_or_bad");
+    }
+
+    H[name] = h;
+    if (prevDir) prevDir->cd();
+    return h;
+}
+
+void RecoilJets::fillPPG12Fig11SBDiagnostic(const std::vector<std::string>& activeTrig,
+                                            const SSVars& v,
+                                            const double eta,
+                                            const double recoEtForBinning,
+                                            const double rawTopoEisoEt,
+                                            const bool ppPhotonSignalContext,
+                                            const bool isPPG12Signal,
+                                            const double photonSampleWeight,
+                                            const bool ppInclusiveJetContext,
+                                            const bool ppInclusiveJetPassR04,
+                                            const double inclusiveJetSampleWeight)
+{
+    if (!m_ppg12Fig11SBDiagnostic || !m_ppg12PhotonYieldEnabled || !m_isSim || m_isAuAu) return;
+    if (activeTrig.empty()) return;
+
+    auto fillAudit = [&](const int bin, const double weight = 1.0)
+    {
+        for (const auto& trigShort : activeTrig)
+        {
+            if (trigShort.empty()) continue;
+            if (auto* h = getOrBookPPG12Fig11AuditHist(trigShort))
+            {
+                h->Fill(bin, weight);
+                bumpHistFill(trigShort, h->GetName());
+            }
+        }
+    };
+
+    fillAudit(1);
+    if (!std::isfinite(eta) || std::fabs(eta) >= kPPG12Fig11EtaAbsMax) return;
+    fillAudit(2);
+
+    const double recoEt = std::isfinite(recoEtForBinning) ? recoEtForBinning : v.pt_gamma;
+    if (!std::isfinite(recoEt) ||
+        recoEt <= kPPG12Fig11RecoEtMin ||
+        recoEt >= kPPG12Fig11RecoEtMax)
+    {
+        return;
+    }
+    fillAudit(3);
+
+    if (!m_ppg12PhotonYieldUseTopoIso ||
+        !std::isfinite(rawTopoEisoEt) ||
+        rawTopoEisoEt >= 1e8)
+    {
+        fillAudit(12);
+        return;
+    }
+
+    const double recoIsoEt = kPPG12Fig11McIsoScale * rawTopoEisoEt + kPPG12Fig11McIsoShift;
+    if (!std::isfinite(recoIsoEt) || recoIsoEt <= kPPG12Fig11RecoIsoMin) return;
+    fillAudit(4);
+
+    bool filled = false;
+    if (ppPhotonSignalContext)
+    {
+        fillAudit(5);
+        for (const auto& trigShort : activeTrig)
+        {
+            if (trigShort.empty()) continue;
+            if (auto* h = getOrBookPPG12Fig11ETIsoHist(trigShort, kPPG12Fig11SignalSampleKey))
+            {
+                h->Fill(recoEt, recoIsoEt, photonSampleWeight);
+                bumpHistFill(trigShort, h->GetName());
+            }
+        }
+        fillAudit(7, photonSampleWeight);
+        filled = true;
+
+        if (isPPG12Signal)
+        {
+            fillAudit(6);
+        }
+    }
+
+    if (ppInclusiveJetContext)
+    {
+        fillAudit(8);
+        if (ppInclusiveJetPassR04)
+        {
+            fillAudit(9);
+            for (const auto& trigShort : activeTrig)
+            {
+                if (trigShort.empty()) continue;
+                if (auto* h = getOrBookPPG12Fig11ETIsoHist(trigShort, kPPG12Fig11InclusiveJetSampleKey))
+                {
+                    h->Fill(recoEt, recoIsoEt, inclusiveJetSampleWeight);
+                    bumpHistFill(trigShort, h->GetName());
+                }
+            }
+            fillAudit(10, inclusiveJetSampleWeight);
+            filled = true;
+        }
+    }
+
+    if (!filled && !ppPhotonSignalContext && !ppInclusiveJetContext)
+    {
+        fillAudit(11);
+    }
+}
+
 TH1F* RecoilJets::getOrBookPPG12VertexQA1D(const std::string& trig,
                                            const std::string& name,
                                            const std::string& title,
@@ -18302,6 +21151,47 @@ TH1F* RecoilJets::getOrBookPPG12VertexQA1D(const std::string& trig,
 
     auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
     if (h) h->Sumw2();
+
+    H[name] = h;
+    if (prevDir) prevDir->cd();
+    return h;
+}
+
+TH1I* RecoilJets::getOrBookPPG12EisoVertexContractAuditHist(const std::string& trig)
+{
+    if (!m_ppg12PhotonYieldEnabled || m_isAuAu || trig.empty()) return nullptr;
+
+    const std::string name = "h_ppg12_eiso_vertex_contract_audit";
+    auto& H = qaHistogramsByTrigger[trig];
+    if (auto it = H.find(name); it != H.end())
+    {
+      if (auto* h = dynamic_cast<TH1I*>(it->second)) return h;
+      H.erase(it);
+    }
+
+    if (!out || !out->IsOpen()) return nullptr;
+
+    TDirectory* const prevDir = gDirectory;
+    TDirectory* dir = out->GetDirectory(trig.c_str());
+    if (!dir) dir = out->mkdir(trig.c_str());
+    if (!dir) { if (prevDir) prevDir->cd(); return nullptr; }
+    dir->cd();
+
+    auto* h = RJMCWeighting::RJNewRawTH1I(
+        name.c_str(),
+        "PPG12 reconstructed-Eiso/truth-weight role audit;contract stage;raw counts",
+        7, 0.5, 7.5);
+    if (h)
+    {
+      h->Sumw2();
+      h->GetXaxis()->SetBinLabel(1, "stored_valid");
+      h->GetXaxis()->SetBinLabel(2, "stored_accepted");
+      h->GetXaxis()->SetBinLabel(3, "stored_rejected");
+      h->GetXaxis()->SetBinLabel(4, "recompute_fallback");
+      h->GetXaxis()->SetBinLabel(5, "vertex_mismatch_reject");
+      h->GetXaxis()->SetBinLabel(6, "reco_vertex_for_eiso");
+      h->GetXaxis()->SetBinLabel(7, "truth_vertex_for_sim_weight");
+    }
 
     H[name] = h;
     if (prevDir) prevDir->cd();
@@ -18459,7 +21349,12 @@ void RecoilJets::bookPPG12PhotonYieldSchema(const std::vector<std::string>& acti
         "h_pT_reco_response_0",
         "h_pT_reco_half_response_0",
         "h_pT_reco_secondhalf_response_0",
-        "h_pT_reco_fake_0"
+        "h_pT_reco_fake_0",
+        "h_ppg12_fig36_pT_reco_response_prior_0",
+        "h_ppg12_fig37_input_reco_pT_0",
+        "h_ppg12_fig37_input_reco_half_pT_0",
+        "h_ppg12_fig37_input_reco_secondhalf_pT_0",
+        "h_ppg12_fig37_input_fake_pT_0"
     };
 
     static const char* truthObjects[] = {
@@ -18474,17 +21369,31 @@ void RecoilJets::bookPPG12PhotonYieldSchema(const std::vector<std::string>& acti
         "h_photonEffRecoTight_pTgamma_0",
         "h_photonEffRecoIso_pTgamma_0",
         "h_photonEffRecoTightIso_pTgamma_0",
+        "h_photonEffPpg12Fig6TruthDen_pTgamma_0",
         "h_photonEffPpg12Fig6Reco_pTgamma_0",
+        "h_photonEffPpg12Fig6RecoTight_pTgamma_0",
         "h_photonEffPpg12Fig6RecoIso_pTgamma_0",
         "h_photonEffPpg12Fig6RecoTightIso_pTgamma_0",
         "h_pT_truth_response_0",
         "h_pT_truth_half_response_0",
-        "h_pT_truth_secondhalf_response_0"
+        "h_pT_truth_secondhalf_response_0",
+        "h_ppg12_fig36_pT_truth_response_prior_0",
+        "h_ppg12_fig37_input_truth_pT_0",
+        "h_ppg12_fig37_input_truth_half_pT_0",
+        "h_ppg12_fig37_input_truth_secondhalf_pT_0"
     };
 
+    // Keep the response contracts separated:
+    //   h_response_*                         : current inclusive-yield response, no PPG12 truth-prior multiplier.
+    //   h2_ppg12_fig36_*_prior_*             : PPG12 Fig.36 reproduction, truth-prior applied during fill.
+    //   h2_ppg12_fig37_input_*               : current analysis / xJgamma normalization response inputs.
     static const char* responseObjects[] = {
         "h_response_full_0",
-        "h_response_half_0"
+        "h_response_half_0",
+        "h2_ppg12_fig36_response_reco_truth_prior_0",
+        "h2_ppg12_fig36_response_half_reco_truth_prior_0",
+        "h2_ppg12_fig37_input_response_reco_truth_0",
+        "h2_ppg12_fig37_input_response_half_reco_truth_0"
     };
 
     for (const auto& trigShort : activeTrig)
@@ -18511,6 +21420,28 @@ void RecoilJets::bookPPG12PhotonYieldSchema(const std::vector<std::string>& acti
         }
         if (m_isSim && !m_isAuAu)
         {
+            getOrBookPPG12Fig37LeadTagInput1D(trigShort,
+                                              "h_ppg12_fig37_input_leadtag_reco_pT_0",
+                                              m_unfoldRecoPhotonPtBins,
+                                              "p_{T}^{#gamma,reco} [GeV]",
+                                              "Reco photons");
+            getOrBookPPG12Fig37LeadTagInput1D(trigShort,
+                                              "h_ppg12_fig37_input_leadtag_fake_pT_0",
+                                              m_unfoldRecoPhotonPtBins,
+                                              "p_{T}^{#gamma,reco} [GeV]",
+                                              "Reco fakes");
+            getOrBookPPG12Fig37LeadTagInput1D(trigShort,
+                                              "h_ppg12_fig37_input_leadtag_truth_pT_0",
+                                              m_unfoldTruthPhotonPtBins,
+                                              "p_{T}^{#gamma,truth} [GeV]",
+                                              "Truth photons");
+            getOrBookPPG12Fig37LeadTagInput1D(trigShort,
+                                              "h_ppg12_fig37_input_leadtag_miss_pT_0",
+                                              m_unfoldTruthPhotonPtBins,
+                                              "p_{T}^{#gamma,truth} [GeV]",
+                                              "Truth misses");
+            getOrBookPPG12Fig37LeadTagResponse2D(trigShort,
+                                                 "h2_ppg12_fig37_input_leadtag_response_truth_reco_0");
             getOrBookPPG12Fig8Response2D(trigShort,
                                          "h2_ppg12_fig8_respET_vs_truthET_reco_vz30_eta07",
                                          "E_{T}^{cluster} / E_{T}^{#gamma,truth}");
@@ -18576,7 +21507,7 @@ void RecoilJets::fillPPG12Fig8ResponseTargets(const std::vector<std::string>& ac
     fillAudit(3);
     fillAudit(usingFallbackSplitNode ? 5 : 4);
 
-    const double fillWeight = std::isfinite(m_mcEventWeight) ? m_mcEventWeight : 1.0;
+    constexpr double fillWeight = 1.0;
     const CLHEP::Hep3Vector clusterVertex(0.0, 0.0, ppg12PhotonYieldKinematicVertexZ());
     const auto crange = fig8Clusters->getClusters();
     for (auto cit = crange.first; cit != crange.second; ++cit)
@@ -18719,6 +21650,7 @@ void RecoilJets::fillPPG12PhotonYieldAllCommon(const std::vector<std::string>& a
 
 void RecoilJets::fillPPG12PhotonYieldTightAndABCD(const std::vector<std::string>& activeTrig,
                                                   double ptGamma,
+                                                  double responsePtGamma,
                                                   double truthPt,
                                                   RecoilJets::TightTag tightTag,
                                                   bool iso,
@@ -18753,22 +21685,77 @@ void RecoilJets::fillPPG12PhotonYieldTightAndABCD(const std::vector<std::string>
         }
     };
 
+    auto fillTruthWithExtraWeight = [&](const std::string& trigShort,
+                                        const std::string& name,
+                                        const double extraWeight)
+    {
+        if (!std::isfinite(truthPt) || truthPt <= 0.0) return;
+        if (!std::isfinite(extraWeight)) return;
+        if (auto* h = getOrBookPPG12PhotonYield1D(trigShort, name, m_ppg12PhotonYieldTruthPtBins,
+                                                  "p_{T}^{#gamma,truth} [GeV]", "Entries"))
+        {
+            h->Fill(truthPt, weight * extraWeight);
+            bumpHistFill(trigShort, name);
+        }
+    };
+
+    auto fillRecoWithExtraWeight = [&](const std::string& trigShort,
+                                       const std::string& name,
+                                       const double extraWeight)
+    {
+        if (!std::isfinite(responsePtGamma) || responsePtGamma <= 0.0) return;
+        if (!std::isfinite(extraWeight)) return;
+        if (auto* h = getOrBookPPG12PhotonYield1D(trigShort, name, m_ppg12PhotonYieldRecoPtBins,
+                                                  "p_{T}^{#gamma,reco} [GeV]", "Entries"))
+        {
+            h->Fill(responsePtGamma, weight * extraWeight);
+            bumpHistFill(trigShort, name);
+        }
+    };
+
+    auto fillResponseReco = [&](const std::string& trigShort, const std::string& name)
+    {
+        if (!std::isfinite(responsePtGamma) || responsePtGamma <= 0.0) return;
+        if (auto* h = getOrBookPPG12PhotonYield1D(trigShort, name, m_ppg12PhotonYieldRecoPtBins,
+                                                  "p_{T}^{#gamma,reco} [GeV]", "Entries"))
+        {
+            h->Fill(responsePtGamma, weight);
+            bumpHistFill(trigShort, name);
+        }
+    };
+
     auto fillResponse = [&](const std::string& trigShort)
     {
+        if (!std::isfinite(responsePtGamma) || responsePtGamma <= 0.0) return;
         if (!std::isfinite(truthPt) || truthPt <= 0.0) return;
         if (auto* h = getOrBookPPG12PhotonYieldResponse2D(trigShort, "h_response_full_0"))
         {
-            h->Fill(ptGamma, truthPt, weight);
+            h->Fill(responsePtGamma, truthPt, weight);
             bumpHistFill(trigShort, "h_response_full_0");
+        }
+    };
+
+    auto fillResponseNamedWithExtraWeight = [&](const std::string& trigShort,
+                                                const std::string& name,
+                                                const double extraWeight)
+    {
+        if (!std::isfinite(responsePtGamma) || responsePtGamma <= 0.0) return;
+        if (!std::isfinite(truthPt) || truthPt <= 0.0) return;
+        if (!std::isfinite(extraWeight)) return;
+        if (auto* h = getOrBookPPG12PhotonYieldResponse2D(trigShort, name))
+        {
+            h->Fill(responsePtGamma, truthPt, weight * extraWeight);
+            bumpHistFill(trigShort, name);
         }
     };
 
     auto fillResponseNamed = [&](const std::string& trigShort, const std::string& name)
     {
+        if (!std::isfinite(responsePtGamma) || responsePtGamma <= 0.0) return;
         if (!std::isfinite(truthPt) || truthPt <= 0.0) return;
         if (auto* h = getOrBookPPG12PhotonYieldResponse2D(trigShort, name))
         {
-            h->Fill(ptGamma, truthPt, weight);
+            h->Fill(responsePtGamma, truthPt, weight);
             bumpHistFill(trigShort, name);
         }
     };
@@ -18776,7 +21763,8 @@ void RecoilJets::fillPPG12PhotonYieldTightAndABCD(const std::vector<std::string>
     const bool tight = (tightTag == TightTag::kTight);
     const bool nontight = (tightTag == TightTag::kNonTight);
     if (!tight && !nontight) return;
-    const bool inResponseWindow = ppg12PhotonYieldInResponseWindow(ptGamma, truthPt);
+    const bool inAnalysisWindow = ppg12PhotonYieldInResponseWindow(ptGamma, truthPt);
+    const bool inResponseWindow = ppg12PhotonYieldInResponseWindow(responsePtGamma, truthPt);
 
     for (const auto& trigShort : activeTrig)
     {
@@ -18784,7 +21772,7 @@ void RecoilJets::fillPPG12PhotonYieldTightAndABCD(const std::vector<std::string>
         {
             fillReco(trigShort, "h_tight_cluster_0");
         }
-        if (tight && haveTruthClass && (!isTruthSignal || inResponseWindow))
+        if (tight && haveTruthClass && (!isTruthSignal || inAnalysisWindow))
         {
             fillReco(trigShort, isTruthSignal ? "h_tight_cluster_signal_0" : "h_tight_cluster_notmatch_0");
         }
@@ -18810,7 +21798,7 @@ void RecoilJets::fillPPG12PhotonYieldTightAndABCD(const std::vector<std::string>
             const bool isTightIsoSignal =
                 isTruthSignal && tight && iso &&
                 (std::string(regionBase) == "h_tight_iso_cluster");
-            if (!isTightIsoSignal || inResponseWindow)
+            if (!isTightIsoSignal || inAnalysisWindow)
             {
                 fillReco(trigShort, std::string(regionBase) + suffix);
             }
@@ -18818,24 +21806,46 @@ void RecoilJets::fillPPG12PhotonYieldTightAndABCD(const std::vector<std::string>
 
         if (haveTruthClass && isTruthSignal && tight && iso && inResponseWindow)
         {
+            const double fig36PriorWeight = ppg12Fig36TruthPriorWeight(truthPt);
             fillTruth(trigShort, "h_pT_truth_response_0");
-            fillReco(trigShort, "h_pT_reco_response_0");
+            fillResponseReco(trigShort, "h_pT_reco_response_0");
             fillResponse(trigShort);
+            fillTruthWithExtraWeight(trigShort,
+                                      "h_ppg12_fig36_pT_truth_response_prior_0",
+                                      fig36PriorWeight);
+            fillRecoWithExtraWeight(trigShort,
+                                     "h_ppg12_fig36_pT_reco_response_prior_0",
+                                     fig36PriorWeight);
+            fillResponseNamedWithExtraWeight(trigShort,
+                                             "h2_ppg12_fig36_response_reco_truth_prior_0",
+                                             fig36PriorWeight);
+            fillTruth(trigShort, "h_ppg12_fig37_input_truth_pT_0");
+            fillResponseReco(trigShort, "h_ppg12_fig37_input_reco_pT_0");
+            fillResponseNamed(trigShort, "h2_ppg12_fig37_input_response_reco_truth_0");
             if ((m_bk.evt_seen % 2) == 0)
             {
                 fillTruth(trigShort, "h_pT_truth_half_response_0");
-                fillReco(trigShort, "h_pT_reco_half_response_0");
+                fillResponseReco(trigShort, "h_pT_reco_half_response_0");
                 fillResponseNamed(trigShort, "h_response_half_0");
+                fillResponseNamedWithExtraWeight(trigShort,
+                                                 "h2_ppg12_fig36_response_half_reco_truth_prior_0",
+                                                 fig36PriorWeight);
+                fillTruth(trigShort, "h_ppg12_fig37_input_truth_half_pT_0");
+                fillResponseReco(trigShort, "h_ppg12_fig37_input_reco_half_pT_0");
+                fillResponseNamed(trigShort, "h2_ppg12_fig37_input_response_half_reco_truth_0");
             }
             else
             {
                 fillTruth(trigShort, "h_pT_truth_secondhalf_response_0");
-                fillReco(trigShort, "h_pT_reco_secondhalf_response_0");
+                fillResponseReco(trigShort, "h_pT_reco_secondhalf_response_0");
+                fillTruth(trigShort, "h_ppg12_fig37_input_truth_secondhalf_pT_0");
+                fillResponseReco(trigShort, "h_ppg12_fig37_input_reco_secondhalf_pT_0");
             }
         }
         else if (haveTruthClass && !isTruthSignal && tight && iso)
         {
             fillReco(trigShort, "h_pT_reco_fake_0");
+            fillReco(trigShort, "h_ppg12_fig37_input_fake_pT_0");
         }
     }
 }
@@ -18956,10 +21966,10 @@ TH1I* RecoilJets::getOrBookNIsoTightPhoCandHist(const std::string& trig, int ptI
 
   dir->cd();
 
-  // Integer multiplicity: 0..10
-  auto* h = RJMCWeighting::RJNewTH1I(name.c_str(),
-                     (name + ";N_{#gamma}^{iso+tight} candidates;Entries").c_str(),
-                     11, -0.5, 10.5);
+  // Integer multiplicity diagnostic: raw events, not a PPG12 weighted yield.
+  auto* h = RJMCWeighting::RJNewRawTH1I(name.c_str(),
+                                        (name + ";N_{#gamma}^{iso+tight} candidates;Entries").c_str(),
+                                        11, -0.5, 10.5);
   if (!h)
   {
     LOG(1, CLR_YELLOW, "  [getOrBookNIsoTightPhoCandHist] new TH1I failed for \"" << name << '"');
@@ -19096,6 +22106,427 @@ TH1* RecoilJets::getOrBookSigABCDLeakageHist(const std::string& trig, int ptIdx,
 //  - Naming:  <base>_<rKey> + suffixForBins(ptIdx,centIdx)
 //  - Pure jet QA uses ptIdx = -1 (centrality-only suffix in AuAu)
 // ============================================================================
+
+bool RecoilJets::fillPPG12InclusiveJetTruthSpectrumQA(PHCompositeNode* topNode)
+{
+  if (!m_isSim || m_isAuAu) return false;
+
+  const PPG12InclusiveJetSlice slice = ppg12InclusiveJetSliceFromContext(Outfile);
+  if (slice == PPG12InclusiveJetSlice::kNone) return false;
+
+  double stitchLo = -999.0;
+  double stitchHi = -999.0;
+  if (!ppg12InclusiveJetSliceWindow(slice, stitchLo, stitchHi)) return false;
+
+  JetContainer* truthJetsR04 = nullptr;
+  std::string truthJetsNode = "cached";
+  if (topNode)
+  {
+    if (auto* truth = findNode::getClass<PHG4TruthInfoContainer>(topNode, "G4TruthInfo"))
+    {
+      m_truthInfo = truth;
+      m_truthVz = std::numeric_limits<double>::quiet_NaN();
+      m_truthVzMB = std::numeric_limits<double>::quiet_NaN();
+
+      const int primaryvtxid = truth->GetPrimaryVertexIndex();
+      if (const PHG4VtxPoint* vtx = truth->GetVtx(primaryvtxid))
+      {
+        const double z = vtx->get_z();
+        if (std::isfinite(z)) m_truthVz = z;
+      }
+
+      auto vtxRange = truth->GetPrimaryVtxRange();
+      for (auto vit = vtxRange.first; vit != vtxRange.second; ++vit)
+      {
+        if (vit->first == primaryvtxid) continue;
+        const PHG4VtxPoint* vtxMB = vit->second;
+        if (!vtxMB) continue;
+        const double mbz = vtxMB->get_z();
+        if (std::isfinite(mbz))
+        {
+          m_truthVzMB = mbz;
+          break;
+        }
+      }
+    }
+
+    auto trimLocal = [](std::string s) -> std::string
+    {
+      const char* ws = " \t\r\n";
+      const auto first = s.find_first_not_of(ws);
+      if (first == std::string::npos) return {};
+      const auto last = s.find_last_not_of(ws);
+      return s.substr(first, last - first + 1);
+    };
+
+    const char* tnEnvRaw = std::getenv("RJ_TRUTH_JETS_NODE");
+    const std::string tnEnv = tnEnvRaw ? trimLocal(std::string(tnEnvRaw)) : std::string{};
+    std::vector<std::string> candidates;
+    if (!tnEnv.empty())
+    {
+      const std::string placeholder = "{rKey}";
+      if (tnEnv.find(placeholder) != std::string::npos)
+      {
+        std::string expanded = tnEnv;
+        expanded.replace(expanded.find(placeholder), placeholder.size(), "r04");
+        candidates.push_back(expanded);
+      }
+      else
+      {
+        candidates.push_back(tnEnv);
+        if (tnEnv.find("_r04") == std::string::npos) candidates.push_back(tnEnv + "_r04");
+      }
+    }
+    candidates.push_back("AntiKt_Truth_r04");
+    candidates.push_back("AntiKt_TruthFromParticles_r04");
+
+    for (const auto& node : candidates)
+    {
+      if (node.empty()) continue;
+      if (auto* tj = findNode::getClass<JetContainer>(topNode, node))
+      {
+        truthJetsR04 = tj;
+        truthJetsNode = node;
+        break;
+      }
+    }
+  }
+  else
+  {
+    auto itR04 = m_truthJetsByRKey.find("r04");
+    if (itR04 != m_truthJetsByRKey.end()) truthJetsR04 = itR04->second;
+    if (auto itNode = m_truthJetsNodeByRKey.find("r04"); itNode != m_truthJetsNodeByRKey.end())
+    {
+      truthJetsNode = itNode->second.empty() ? "cached" : itNode->second;
+    }
+  }
+
+  const bool haveR04Container = (truthJetsR04 != nullptr);
+
+  double fig6VertexWeight = 1.0;
+  bool fig6WeightOK = true;
+  if (m_vertexReweightOn)
+  {
+    if (!m_vertexReweightH)
+    {
+      LOG(0, CLR_RED,
+          "[PPG12_FIG6_CONTRACT][FATAL] vertex reweight requested but h_w_iterative is not loaded"
+          << " | sample=" << ppg12InclusiveJetSliceName(slice)
+          << " | period=" << m_ppg12PeriodKey
+          << " | file=" << m_vertexReweightFile);
+      fig6WeightOK = false;
+    }
+    else
+    {
+      if (!std::isfinite(m_truthVz))
+      {
+        LOG(0, CLR_RED,
+            "[PPG12_FIG6_CONTRACT][FATAL] truth-vertex reweight requested but hard truth z is not finite"
+            << " | sample=" << ppg12InclusiveJetSliceName(slice)
+            << " | period=" << m_ppg12PeriodKey);
+        fig6WeightOK = false;
+      }
+      else
+      {
+        fig6VertexWeight *= ppg12TruthVertexWeight(m_vertexReweightH, m_truthVz);
+      }
+      if (fig6WeightOK && m_ppg12PhotonYieldDoubleInteraction)
+      {
+        if (m_ppg12PeriodStrictDoubleMB &&
+            (!std::isfinite(m_truthVzMB) || m_truthVzMB <= kPPG12TruthVtxSentinelThreshold))
+        {
+          LOG(1, CLR_RED,
+              "    [PPG12_FIG6_CONTRACT][REJECT] double-interaction PPG12 SIM event lacks a usable "
+              "MB-overlay truth vertex for the second w(z) factor"
+              << " | truthVz=" << m_truthVz
+              << " | truthVzMB=" << m_truthVzMB
+              << " | period=" << m_ppg12PeriodKey);
+          fig6WeightOK = false;
+        }
+        else
+        {
+          fig6VertexWeight *= ppg12TruthVertexWeight(m_vertexReweightH, m_truthVzMB);
+        }
+      }
+    }
+  }
+
+  if (!fig6WeightOK || !std::isfinite(fig6VertexWeight) || fig6VertexWeight < 0.0)
+  {
+    return true;
+  }
+
+  double maxTruthJetPtR04 = -1.0;
+  if (haveR04Container)
+  {
+    for (const Jet* tj : *truthJetsR04)
+    {
+      if (!tj) continue;
+      const double pt = tj->get_pt();
+      if (std::isfinite(pt) && pt > maxTruthJetPtR04) maxTruthJetPtR04 = pt;
+    }
+  }
+
+  const bool haveTruthJet = (maxTruthJetPtR04 >= 0.0);
+  const bool passWindow = haveTruthJet &&
+                          ppg12WindowContains(maxTruthJetPtR04, stitchLo, stitchHi);
+  const double xsecPb = ppg12InclusiveJetSliceXsecPb(slice);
+  const double sliceWeight = (kPPG12Jet50CrossPb > 0.0) ? (xsecPb / kPPG12Jet50CrossPb) : 0.0;
+  if (sliceWeight <= 0.0 || !std::isfinite(sliceWeight)) return false;
+  const double lumiFactor = m_ppg12PeriodUseLumiWeight ? m_ppg12PeriodLumiWeight : 1.0;
+  const double mixFactor = m_ppg12PhotonYieldMixWeight;
+  PPG12SimWeight::Factors fig6Factors;
+  if (!PPG12SimWeight::Build(sliceWeight,
+                             fig6VertexWeight,
+                             mixFactor,
+                             lumiFactor,
+                             fig6Factors))
+  {
+    LOG(0, CLR_RED,
+        "[PPG12_FIG6_CONTRACT][FATAL] invalid canonical SIM weight factors"
+        << " | slice=" << sliceWeight
+        << " | vertex=" << fig6VertexWeight
+        << " | mix=" << mixFactor
+        << " | period=" << lumiFactor);
+    return true;
+  }
+
+  if (m_ppg12Fig6EventCanaryEnabled)
+  {
+    const double currentWeight = fig6Factors.vertex * fig6Factors.mix * fig6Factors.period;
+    const double hardVertexWeight =
+        (m_vertexReweightOn && m_vertexReweightH && std::isfinite(m_truthVz))
+        ? ppg12TruthVertexWeight(m_vertexReweightH, m_truthVz)
+        : 1.0;
+    const double mbVertexWeight =
+        (m_ppg12PhotonYieldDoubleInteraction &&
+         m_vertexReweightOn && m_vertexReweightH &&
+         std::isfinite(m_truthVzMB) && m_truthVzMB > kPPG12TruthVtxSentinelThreshold)
+        ? ppg12TruthVertexWeight(m_vertexReweightH, m_truthVzMB)
+        : 1.0;
+    const double combinedVertexWeight = hardVertexWeight * mbVertexWeight;
+    const double ppg12FormulaWeight = fig6Factors.final;
+    const double finalFillWeight = fig6Factors.final;
+
+    ++m_ppg12Fig6CanaryEventsSeen;
+    if (haveTruthJet) ++m_ppg12Fig6CanaryValidTruthJets;
+    if (passWindow)
+    {
+      ++m_ppg12Fig6CanaryOwnedWindowEvents;
+      ++m_ppg12Fig6CanaryRawOwnedEntries;
+      m_ppg12Fig6CanaryWeightedOwnedIntegral += finalFillWeight;
+    }
+    m_ppg12Fig6CanarySumXsecFactor += sliceWeight;
+    m_ppg12Fig6CanarySumLumiFactor += lumiFactor;
+    m_ppg12Fig6CanarySumMixFactor += mixFactor;
+    m_ppg12Fig6CanarySumVertexWeight += combinedVertexWeight;
+    m_ppg12Fig6CanarySumFinalFillWeight += (passWindow ? finalFillWeight : 0.0);
+
+    auto envFirstNonEmpty = [](std::initializer_list<const char*> keys,
+                               const std::string& fallback) -> std::string
+    {
+      for (const char* key : keys)
+      {
+        const char* raw = std::getenv(key);
+        if (raw && raw[0] != '\0') return std::string(raw);
+      }
+      return fallback;
+    };
+    auto csv = [](const std::string& value) -> std::string
+    {
+      std::string out = "\"";
+      for (char c : value)
+      {
+        if (c == '"') out += "\"\"";
+        else out += c;
+      }
+      out += "\"";
+      return out;
+    };
+    auto writeNum = [&](double value)
+    {
+      if (std::isfinite(value))
+      {
+        m_ppg12Fig6EventCanaryOut << std::setprecision(17) << value;
+      }
+    };
+    auto reasonFor = [&](const char* target, bool shouldFill) -> std::string
+    {
+      if (shouldFill) return "filled";
+      if (!haveR04Container) return "missing_r04_truth_jet_container";
+      if (!haveTruthJet) return "no_valid_truth_jet";
+      const std::string targetName(target);
+      if (targetName == "kept" && !passWindow) return "outside_owned_window";
+      if (targetName == "rejected" && passWindow) return "inside_owned_window";
+      return "not_selected_for_target";
+    };
+    auto writeTargetRow = [&](const char* target, bool shouldFill)
+    {
+      if (!m_ppg12Fig6EventCanaryOut.is_open()) return;
+      if (m_ppg12Fig6EventCanaryMaxRows > 0 &&
+          m_ppg12Fig6EventCanaryRowsWritten >= m_ppg12Fig6EventCanaryMaxRows)
+      {
+        return;
+      }
+      const std::string inputPath = envFirstNonEmpty(
+          {"RJ_PPG12_FIG6_EVENT_CANARY_INPUT", "RJ_CURRENT_INPUT_FILE",
+           "RJ_INPUT_FILE", "INPUT_FILE", "DST_FILE"},
+          truthJetsNode.empty() ? (Outfile.empty() ? std::string("unset") : Outfile) : truthJetsNode);
+      const int rawFillCount = shouldFill ? 1 : 0;
+      const double rowFinalWeight = shouldFill ? finalFillWeight : 0.0;
+      const double rowRatio =
+          (std::isfinite(ppg12FormulaWeight) && ppg12FormulaWeight != 0.0)
+          ? (rowFinalWeight / ppg12FormulaWeight)
+          : std::numeric_limits<double>::quiet_NaN();
+
+      m_ppg12Fig6EventCanaryOut
+          << csv(ppg12InclusiveJetSliceName(slice)) << ','
+          << csv(inputPath) << ','
+          << csv(m_ppg12PeriodKey) << ','
+          << csv(m_ppg12PhotonYieldDoubleInteraction ? "DI" : "SI") << ','
+          << event_count << ',';
+      writeNum(maxTruthJetPtR04); m_ppg12Fig6EventCanaryOut << ',';
+      writeNum(stitchLo); m_ppg12Fig6EventCanaryOut << ',';
+      writeNum(stitchHi); m_ppg12Fig6EventCanaryOut << ','
+          << (passWindow ? 1 : 0) << ','
+          << csv("h_ppInclusiveJetStitch_ppg12Fig6EventWeighted_r04_maxTruthJetPt") << ','
+          << csv(target) << ','
+          << rawFillCount << ',';
+      writeNum(xsecPb); m_ppg12Fig6EventCanaryOut << ',';
+      writeNum(kPPG12Jet50CrossPb); m_ppg12Fig6EventCanaryOut << ',';
+      writeNum(sliceWeight); m_ppg12Fig6EventCanaryOut << ',';
+      writeNum(lumiFactor); m_ppg12Fig6EventCanaryOut << ',';
+      writeNum(mixFactor); m_ppg12Fig6EventCanaryOut << ',';
+      writeNum(m_truthVz); m_ppg12Fig6EventCanaryOut << ',';
+      if (m_ppg12PhotonYieldDoubleInteraction) writeNum(m_truthVzMB);
+      m_ppg12Fig6EventCanaryOut << ',';
+      writeNum(hardVertexWeight); m_ppg12Fig6EventCanaryOut << ',';
+      if (m_ppg12PhotonYieldDoubleInteraction) writeNum(mbVertexWeight);
+      m_ppg12Fig6EventCanaryOut << ',';
+      writeNum(currentWeight); m_ppg12Fig6EventCanaryOut << ',';
+      writeNum(rowFinalWeight); m_ppg12Fig6EventCanaryOut << ',';
+      writeNum(ppg12FormulaWeight); m_ppg12Fig6EventCanaryOut << ',';
+      writeNum(rowRatio); m_ppg12Fig6EventCanaryOut << ','
+          << csv(reasonFor(target, shouldFill)) << '\n';
+      ++m_ppg12Fig6EventCanaryRowsWritten;
+    };
+
+    writeTargetRow("all", haveTruthJet);
+    writeTargetRow("kept", passWindow);
+    writeTargetRow("rejected", haveTruthJet && !passWindow);
+  }
+
+  if (!haveR04Container) return true;
+
+  constexpr const char* kTrig = "SIM";
+  HistMap& H = qaHistogramsByTrigger[kTrig];
+
+  if (!out || !out->IsOpen()) return true;
+  TDirectory* prevDir = gDirectory;
+  TDirectory* dir = out->GetDirectory(kTrig);
+  if (!dir) dir = out->mkdir(kTrig);
+  if (!dir)
+  {
+    if (prevDir) prevDir->cd();
+    return true;
+  }
+  dir->cd();
+
+  auto bookWeighted1F = [&](const std::string& name,
+                            const std::string& title,
+                            int nbins,
+                            double xmin,
+                            double xmax) -> TH1F*
+  {
+    if (auto it = H.find(name); it != H.end())
+    {
+      return dynamic_cast<TH1F*>(it->second);
+    }
+    auto* h = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), nbins, xmin, xmax);
+    if (!h) return nullptr;
+    h->Sumw2();
+    h->SetDirectory(dir);
+    H[name] = h;
+    return h;
+  };
+
+  auto bookMetadata = [&](const std::string& name,
+                          const std::string& title) -> TH1F*
+  {
+    if (auto it = H.find(name); it != H.end())
+    {
+      return dynamic_cast<TH1F*>(it->second);
+    }
+    auto* h = new TH1F(name.c_str(), title.c_str(), 12, 0.5, 12.5);
+    if (!h) return nullptr;
+    h->SetDirectory(dir);
+    H[name] = h;
+    h->GetXaxis()->SetBinLabel(1, "events_seen_raw");
+    h->GetXaxis()->SetBinLabel(2, "window_low_GeV");
+    h->GetXaxis()->SetBinLabel(3, "window_high_GeV");
+    h->GetXaxis()->SetBinLabel(4, "upper_edge_inclusive");
+    h->GetXaxis()->SetBinLabel(5, "bin_width_GeV");
+    h->GetXaxis()->SetBinLabel(6, "xsec_pb");
+    h->GetXaxis()->SetBinLabel(7, "xsec_over_jet50");
+    h->GetXaxis()->SetBinLabel(8, "sample_bin");
+    h->GetXaxis()->SetBinLabel(9, "truth_def_code");
+    h->GetXaxis()->SetBinLabel(10, "includes_current_weight");
+    h->GetXaxis()->SetBinLabel(11, "includes_slice_weight");
+    h->GetXaxis()->SetBinLabel(12, "value_mode_code");
+    return h;
+  };
+
+  constexpr int kPPG12Fig6JetPtBins = 100;
+  constexpr double kPPG12Fig6JetPtMin = 0.0;
+  constexpr double kPPG12Fig6JetPtMax = 100.0;
+  constexpr double kPPG12Fig6BinWidth = (kPPG12Fig6JetPtMax - kPPG12Fig6JetPtMin) /
+                                        static_cast<double>(kPPG12Fig6JetPtBins);
+
+  auto fillHist = [&](const std::string& suffix, const bool shouldFill)
+  {
+    auto* h = bookWeighted1F(
+        std::string("h_ppInclusiveJetStitch_ppg12Fig6EventWeighted_r04_maxTruthJetPt_") + suffix,
+        std::string("h_ppInclusiveJetStitch_ppg12Fig6EventWeighted_r04_maxTruthJetPt_") + suffix +
+            ";max R=0.4 truth jet p_{T} [GeV];PPG12 weighted counts",
+        kPPG12Fig6JetPtBins,
+        kPPG12Fig6JetPtMin,
+        kPPG12Fig6JetPtMax);
+    if (!h || !shouldFill) return;
+    h->Fill(maxTruthJetPtR04);
+    bumpHistFill(kTrig, h->GetName());
+  };
+
+  const double savedWeight = RJMCWeighting::CurrentWeight();
+  const int savedLaneComponentCode = RJMCWeighting::CurrentLaneComponentCode();
+  RJMCWeighting::CurrentLaneComponentCode() = m_ppg12PhotonYieldDoubleInteraction ? 4 : 3;
+  RJMCWeighting::CurrentWeight() = fig6Factors.final;
+  fillHist("all", haveTruthJet);
+  fillHist("kept", passWindow);
+  fillHist("rejected", haveTruthJet && !passWindow);
+  RJMCWeighting::CurrentWeight() = savedWeight;
+  RJMCWeighting::CurrentLaneComponentCode() = savedLaneComponentCode;
+
+  if (auto* hMeta = bookMetadata("h_ppInclusiveJetStitch_ppg12Fig6EventWeighted_metadata",
+                                 "h_ppInclusiveJetStitch_ppg12Fig6EventWeighted_metadata;metadata;value"))
+  {
+    hMeta->Fill(1.0);
+    hMeta->SetBinContent(2, stitchLo);
+    hMeta->SetBinContent(3, stitchHi);
+    hMeta->SetBinContent(4, 1.0);
+    hMeta->SetBinContent(5, kPPG12Fig6BinWidth);
+    hMeta->SetBinContent(6, xsecPb);
+    hMeta->SetBinContent(7, sliceWeight);
+    hMeta->SetBinContent(8, static_cast<double>(ppg12InclusiveJetSliceBin(slice)));
+    hMeta->SetBinContent(9, 20.0);
+    hMeta->SetBinContent(10, 1.0);
+    hMeta->SetBinContent(11, 1.0);
+    hMeta->SetBinContent(12, 2.0);
+    bumpHistFill(kTrig, hMeta->GetName());
+  }
+
+  if (prevDir) prevDir->cd();
+  return true;
+}
 
 TH1I* RecoilJets::getOrBookJetQA1I(const std::string& trig,
                                   const std::string& base,
@@ -19787,12 +23218,63 @@ TH2F* RecoilJets::getOrBookPPG12TableQAHist(const std::string& trig,
     }
     dir->cd();
 
+    const PPG12TableQA2DXAxisDef xAxis = ppg12TableQA2DXAxis(varKey);
     const std::string title =
         std::string("PPG12_TABLE_QA_V1;") + def->axis + ";E_{T}^{iso} [GeV]";
     auto* h = RJMCWeighting::RJNewTH2F(name.c_str(), title.c_str(),
-                                       def->nbins, def->xmin, def->xmax,
+                                       xAxis.nbins, xAxis.xmin, xAxis.xmax,
                                        200, -10.0, 30.0);
     if (h) H[name] = h;
+    if (prevDir) prevDir->cd();
+    return h;
+}
+
+TH2D* RecoilJets::getOrBookPPG12TimingHist(const std::string& trig,
+                                           const std::string& name,
+                                           const std::string& title,
+                                           int xBins, double xMin, double xMax,
+                                           int yBins, double yMin, double yMax)
+{
+    if (!m_ppg12TableQAEnabled) return nullptr;
+    if (trig.empty() || name.empty() || xBins <= 0 || yBins <= 0 ||
+        !(xMin < xMax) || !(yMin < yMax))
+    {
+        LOG(2, CLR_YELLOW, "  [getOrBookPPG12TimingHist] invalid key/bin request");
+        return nullptr;
+    }
+
+    auto& H = qaHistogramsByTrigger[trig];
+    if (auto it = H.find(name); it != H.end())
+    {
+        if (auto* h = dynamic_cast<TH2D*>(it->second)) return h;
+        LOG(2, CLR_YELLOW, "    [getOrBookPPG12TimingHist] replacing non-TH2D object \"" << name << '"');
+        H.erase(it);
+    }
+    if (!out || !out->IsOpen())
+    {
+        LOG(1, CLR_YELLOW, "  [getOrBookPPG12TimingHist] output TFile invalid/null");
+        return nullptr;
+    }
+
+    TDirectory* const prevDir = gDirectory;
+    TDirectory* dir = out->GetDirectory(trig.c_str());
+    if (!dir) dir = out->mkdir(trig.c_str());
+    if (!dir)
+    {
+        LOG(1, CLR_YELLOW, "  [getOrBookPPG12TimingHist] failed to create/access directory \"" << trig << "\"");
+        if (prevDir) prevDir->cd();
+        return nullptr;
+    }
+    dir->cd();
+
+    auto* h = RJMCWeighting::RJNewTH2D(name.c_str(), title.c_str(),
+                                       xBins, xMin, xMax,
+                                       yBins, yMin, yMax);
+    if (h)
+    {
+        h->Sumw2();
+        H[name] = h;
+    }
     if (prevDir) prevDir->cd();
     return h;
 }
@@ -19966,14 +23448,16 @@ void RecoilJets::fillPPG12Fig13E11E33(const std::vector<std::string>& activeTrig
                                       const SSVars& v,
                                       double eisoEt,
                                       const std::string& sampleKey,
-                                      int cutIdx)
+                                      int cutIdx,
+                                      double ptForBinning)
 {
     if (!m_ppg12Fig13ParityQA) return;
     if (sampleKey.empty()) return;
     if (!std::isfinite(v.pt_gamma) || !std::isfinite(v.e11_over_e33)) return;
     if (!std::isfinite(eisoEt) || eisoEt > 1e8) return;
 
-    const std::vector<std::string> ptTokens = ppg12TableQAPtTokens(v.pt_gamma);
+    const double tokenPt = std::isfinite(ptForBinning) ? ptForBinning : v.pt_gamma;
+    const std::vector<std::string> ptTokens = ppg12TableQAPtTokens(tokenPt);
     if (ptTokens.empty()) return;
 
     for (const auto& trigShort : activeTrig)
@@ -19998,7 +23482,8 @@ void RecoilJets::fillPPG12Fig13E11E33(const std::vector<std::string>& activeTrig
 void RecoilJets::fillPPG12IsoStackQA(const std::vector<std::string>& activeTrig,
                                      double ptGamma,
                                      double eisoEt,
-                                     RecoilJets::TightTag tightTag)
+                                     RecoilJets::TightTag tightTag,
+                                     double weight)
 {
     if (!m_ppg12PhotonYieldEnabled || m_isAuAu) return;
     if (activeTrig.empty()) return;
@@ -20026,7 +23511,58 @@ void RecoilJets::fillPPG12IsoStackQA(const std::vector<std::string>& activeTrig,
         if (trigShort.empty()) continue;
         if (auto* h = getOrBookPPG12IsoStackHist(trigShort, tightness, ptIdx))
         {
-            h->Fill(eisoEt);
+            h->Fill(eisoEt, weight);
+            bumpHistFill(trigShort, h->GetName());
+        }
+    }
+}
+
+
+double RecoilJets::ppg12DataTriggerEfficiencyWeight(double recoEt) const
+{
+    if (m_isSim || m_isAuAu || !m_ppg12PhotonYieldEnabled) return 1.0;
+    if (!std::isfinite(recoEt)) return 0.0;
+
+    // PPG12 efficiencytool/config_bdt_nom.yaml and
+    // RecoEffCalculator_TTreeReader.C use this bit-30 Gumbel-CDF correction
+    // for data yield/isolation histograms. Keep it local to those explicit
+    // RecoEff-style families so raw counters and TableQA remain unweighted.
+    constexpr double p0 = 1.0;
+    constexpr double mu = -2.04;
+    constexpr double beta = 3.33;
+    const double efficiency = p0 * std::exp(-std::exp(-(recoEt - mu) / beta));
+    if (!std::isfinite(efficiency) || efficiency <= 1e-6) return 0.0;
+    return 1.0 / efficiency;
+}
+
+
+void RecoilJets::fillPPG12DataTriggerEfficiencyAudit(
+    const std::vector<std::string>& activeTrig,
+    double recoEt,
+    double correctionWeight)
+{
+    if (m_isSim || m_isAuAu || !m_ppg12PhotonYieldEnabled) return;
+    if (!std::isfinite(recoEt) || !std::isfinite(correctionWeight) || correctionWeight <= 0.0) return;
+
+    static const std::vector<double> correctionBins = []()
+    {
+        std::vector<double> bins;
+        bins.reserve(201);
+        for (int i = 0; i <= 200; ++i) bins.push_back(0.5 + 0.01 * i);
+        return bins;
+    }();
+
+    for (const auto& trigShort : activeTrig)
+    {
+        if (trigShort.empty()) continue;
+        if (auto* h = getOrBookPPG12PhotonYield1D(
+                trigShort,
+                "h_ppg12_data_trigger_efficiency_correction",
+                correctionBins,
+                "1/#epsilon_{L1,bit30}(E_{T}^{reco})",
+                "raw candidate count"))
+        {
+            h->Fill(correctionWeight);
             bumpHistFill(trigShort, h->GetName());
         }
     }
@@ -20069,14 +23605,16 @@ void RecoilJets::fillPPG12TableQA(const std::vector<std::string>& activeTrig,
                                   double eisoEt,
                                   int centIdx,
                                   int cutIdx,
-                                  double rowWeight)
+                                  double rowWeight,
+                                  double ptForBinning)
 {
     (void) centIdx;
     if (!m_ppg12TableQAEnabled) return;
     bookPPG12TableQASchema(activeTrig);
     if (!std::isfinite(eisoEt) || eisoEt > 1e8) return;
 
-    const std::vector<std::string> ptTokens = ppg12TableQAPtTokens(v.pt_gamma);
+    const double tokenPt = std::isfinite(ptForBinning) ? ptForBinning : v.pt_gamma;
+    const std::vector<std::string> ptTokens = ppg12TableQAPtTokens(tokenPt);
     if (ptTokens.empty()) return;
 
     const double wr = (std::isfinite(v.wphi_cogx) && std::isfinite(v.weta_cogx) &&
@@ -20120,6 +23658,176 @@ void RecoilJets::fillPPG12TableQA(const std::vector<std::string>& activeTrig,
                     h->Fill(value, eisoEt, rowWeight);
                     bumpHistFill(trigShort, h->GetName());
                 }
+            }
+        }
+    }
+}
+
+bool RecoilJets::computePPG12ClusterMbdTiming(const SSVars& v,
+                                              double& clusterMbdDeltaT,
+                                              double& clusterTime,
+                                              double& mbdTime) const
+{
+    clusterMbdDeltaT = std::numeric_limits<double>::quiet_NaN();
+    clusterTime = std::numeric_limits<double>::quiet_NaN();
+    mbdTime = std::numeric_limits<double>::quiet_NaN();
+
+    if (m_isSim || m_isAuAu) return false;
+    if (!m_mbdout || m_mbdout->isValid() == 0) return false;
+    if (m_mbdout->get_npmt(0) < 1 || m_mbdout->get_npmt(1) < 1) return false;
+    if (!std::isfinite(v.mean_time)) return false;
+
+    const double rawMbdT0 = static_cast<double>(m_mbdout->get_t0());
+    if (!std::isfinite(rawMbdT0)) return false;
+
+    mbdTime = rawMbdT0 - ppg12TableQAMbdT0OffsetForRun(currentRunNumber());
+    clusterTime = v.mean_time * m_ppg12TableQANPBTagTimeSampleNs;
+    clusterMbdDeltaT = clusterTime - mbdTime;
+
+    return std::isfinite(clusterTime) &&
+           std::isfinite(mbdTime) &&
+           std::isfinite(clusterMbdDeltaT);
+}
+
+bool RecoilJets::passPPG12Fig14NpbMbdTimingSelection(const SSVars& v,
+                                                     double phi) const
+{
+    if (!std::isfinite(v.weta_cogx) || v.weta_cogx < m_ppg12Fig14NPBMbdWetaMin) return false;
+    if (!std::isfinite(phi)) return false;
+
+    // PPG12 efficiencytool/plot_cluster_time.C defines the MBD-timing NPB
+    // selection as !otherside_jet && weta_cogx >= 0.6. The otherside flag is
+    // any reconstructed jet with |Delta phi(cluster, jet)| > pi/2, with no
+    // jet-pT threshold in that flag.
+    for (const auto& [rKey, jets] : m_jets)
+    {
+        (void) rKey;
+        if (!jets) continue;
+        for (auto it = jets->begin(); it != jets->end(); ++it)
+        {
+            const Jet* jet = *it;
+            if (!jet) continue;
+            const double jetPhi = jet->get_phi();
+            if (!std::isfinite(jetPhi)) continue;
+            const double dphi = std::fabs(TVector2::Phi_mpi_pi(phi - jetPhi));
+            if (dphi > M_PI / 2.0) return false;
+        }
+    }
+
+    return true;
+}
+
+void RecoilJets::fillPPG12Fig14Fig15TimingQA(const std::vector<std::string>& activeTrig,
+                                             const SSVars& v,
+                                             double eta,
+                                             double phi,
+                                             double ptForBinning,
+                                             double rowWeight)
+{
+    if (!m_ppg12TableQAEnabled) return;
+    if (m_isSim || m_isAuAu) return;
+    if (activeTrig.empty()) return;
+
+    const double tokenPt = std::isfinite(ptForBinning) ? ptForBinning : v.pt_gamma;
+    if (!std::isfinite(tokenPt) || !std::isfinite(eta)) return;
+
+    double clusterMbdDeltaT = std::numeric_limits<double>::quiet_NaN();
+    double clusterTime = std::numeric_limits<double>::quiet_NaN();
+    double mbdTime = std::numeric_limits<double>::quiet_NaN();
+    if (!computePPG12ClusterMbdTiming(v, clusterMbdDeltaT, clusterTime, mbdTime)) return;
+
+    const double w = std::isfinite(rowWeight) ? rowWeight : 1.0;
+    const bool fillFig14 = (tokenPt > 10.0);
+    const bool fillFig14Npb = fillFig14 && passPPG12Fig14NpbMbdTimingSelection(v, phi);
+    const std::vector<std::string> ptTokens = ppg12TableQAPtTokens(tokenPt);
+
+    auto ptBinTitle = [](const std::string& token) -> std::string
+    {
+        if (token == "0") return "10 < p_{T} < 14 GeV";
+        if (token == "1") return "14 < p_{T} < 18 GeV";
+        if (token == "2") return "18 < p_{T} < 22 GeV";
+        if (token == "3") return "22 < p_{T} < 28 GeV";
+        if (token == "4") return "28 < p_{T} < 30 GeV";
+        return "";
+    };
+
+    for (const auto& trigShort : activeTrig)
+    {
+        if (trigShort.empty()) continue;
+
+        if (fillFig14)
+        {
+            if (auto* h = getOrBookPPG12TimingHist(
+                    trigShort,
+                    "h_all_delta_t_mbd_vs_eta",
+                    "Cluster-MBD Time vs Eta (All Clusters, pT>10 GeV);Cluster #eta;Cluster-MBD Time (ns)",
+                    50, -1.0, 1.0,
+                    160, -40.0, 40.0))
+            {
+                h->Fill(eta, clusterMbdDeltaT, w);
+                bumpHistFill(trigShort, h->GetName());
+            }
+            if (auto* h = getOrBookPPG12TimingHist(
+                    trigShort,
+                    "h_all_cluster_t_vs_eta",
+                    "Cluster Time vs Eta (All Clusters, pT>10 GeV);Cluster #eta;Cluster Time (ns)",
+                    50, -1.0, 1.0,
+                    160, -40.0, 40.0))
+            {
+                h->Fill(eta, clusterTime, w);
+                bumpHistFill(trigShort, h->GetName());
+            }
+        }
+
+        if (fillFig14Npb)
+        {
+            if (auto* h = getOrBookPPG12TimingHist(
+                    trigShort,
+                    "h_npb_delta_t_mbd_vs_eta",
+                    "Cluster-MBD Time vs Eta (NPB Selection, pT>10 GeV);Cluster #eta;Cluster-MBD Time (ns)",
+                    50, -1.0, 1.0,
+                    160, -40.0, 40.0))
+            {
+                h->Fill(eta, clusterMbdDeltaT, w);
+                bumpHistFill(trigShort, h->GetName());
+            }
+            if (auto* h = getOrBookPPG12TimingHist(
+                    trigShort,
+                    "h_npb_cluster_t_vs_eta",
+                    "Cluster Time vs Eta (NPB Selection, pT>10 GeV);Cluster #eta;Cluster Time (ns)",
+                    50, -1.0, 1.0,
+                    160, -40.0, 40.0))
+            {
+                h->Fill(eta, clusterTime, w);
+                bumpHistFill(trigShort, h->GetName());
+            }
+        }
+
+        if (!std::isfinite(v.npb_score)) continue;
+        if (std::fabs(eta) >= 0.7) continue;
+        for (const std::string& ptToken : ptTokens)
+        {
+            if (ptToken != "0" && ptToken != "1" && ptToken != "2" &&
+                ptToken != "3" && ptToken != "4")
+            {
+                continue;
+            }
+            const std::string ptTitle = ptBinTitle(ptToken);
+            if (ptTitle.empty()) continue;
+            const std::string name = "h_npb_score_vs_time_eta0_pt" + ptToken;
+            const std::string title =
+                "NPB Score vs Cluster-MBD Time -0.7 < eta < 0.7, " +
+                ptTitle +
+                ";Cluster-MBD Time [ns];NPB Score";
+            if (auto* h = getOrBookPPG12TimingHist(
+                    trigShort,
+                    name,
+                    title,
+                    40, -20.0, 20.0,
+                    100, 0.0, 1.0))
+            {
+                h->Fill(clusterMbdDeltaT, v.npb_score, w);
+                bumpHistFill(trigShort, h->GetName());
             }
         }
     }
@@ -20180,7 +23888,7 @@ bool RecoilJets::isPPG12TableQADataNPBTaggedCluster(const SSVars& v,
     const double rawMbdT0 = static_cast<double>(m_mbdout->get_t0());
     if (!std::isfinite(rawMbdT0)) return false;
 
-    const int runNumber = m_evtHeader ? m_evtHeader->get_RunNumber() : 0;
+    const int runNumber = currentRunNumber();
     mbdTime = rawMbdT0 - ppg12TableQAMbdT0OffsetForRun(runNumber);
     const double clusterTime = v.mean_time * m_ppg12TableQANPBTagTimeSampleNs;
     if (!std::isfinite(clusterTime) || !std::isfinite(mbdTime)) return false;

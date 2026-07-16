@@ -27,6 +27,16 @@
 
 namespace
 {
+constexpr double kPPG12DefaultEfficiency = 0.80;
+constexpr double kPPG12SideGapGeV = 0.8;
+constexpr double kPPG12R40DefaultA = 0.490;
+constexpr double kPPG12R40DefaultB = 0.037;
+
+bool IsPPG12DefaultEfficiency(double eff)
+{
+    return std::fabs(eff - kPPG12DefaultEfficiency) < 1e-9;
+}
+
 struct PtIsoHist
 {
     std::string name;
@@ -180,15 +190,18 @@ void WriteCoefficients(const std::string& outDir,
             csv << coneLabel << "," << f.eff << ","
                 << f.aGeV << "," << f.bPerGeV << ","
                 << f.aErr << "," << f.bErr << ","
-                << f.nPoints << ",1.0," << (std::fabs(f.eff - 0.90) < 1e-9 ? "true" : "false") << "\n";
+                << f.nPoints << "," << kPPG12SideGapGeV << ","
+                << (IsPPG12DefaultEfficiency(f.eff) ? "true" : "false") << "\n";
         }
     }
     {
         std::ofstream js(jsonPath);
         js << "{\n";
         js << "  \"cone\": \"" << coneLabel << "\",\n";
-        js << "  \"sideGapGeV\": 1.0,\n";
-        js << "  \"productionDefaultEfficiency\": 0.90,\n";
+        js << "  \"sideGapGeV\": " << kPPG12SideGapGeV << ",\n";
+        js << "  \"productionDefaultEfficiency\": " << kPPG12DefaultEfficiency << ",\n";
+        js << "  \"ppg12R40DefaultA\": " << kPPG12R40DefaultA << ",\n";
+        js << "  \"ppg12R40DefaultB\": " << kPPG12R40DefaultB << ",\n";
         js << "  \"fitModel\": \"thrReco(pT) = aGeV + bPerGeV * pT\",\n";
         js << "  \"inputs\": [\n";
         for (std::size_t i = 0; i < inputs.size(); ++i)
@@ -208,7 +221,7 @@ void WriteCoefficients(const std::string& outDir,
                << ", \"aErr\": " << f.aErr
                << ", \"bErr\": " << f.bErr
                << ", \"nPoints\": " << f.nPoints
-               << ", \"productionDefault\": " << (std::fabs(f.eff - 0.90) < 1e-9 ? "true" : "false")
+               << ", \"productionDefault\": " << (IsPPG12DefaultEfficiency(f.eff) ? "true" : "false")
                << "}" << (i + 1 < fits.size() ? "," : "") << "\n";
         }
         js << "  ]\n";
@@ -278,6 +291,12 @@ std::vector<FitResult> MakeConeFit(const std::string& coneLabel,
     g90.Fit(&f90, "Q0");
     g80.Fit(&f80, "Q0");
     g70.Fit(&f70, "Q0");
+    TF1 fPPG12R40(("f_ppg12_r40_default_" + coneLabel).c_str(),
+                  "[0]+[1]*x", fitXLo, fitXHi);
+    fPPG12R40.SetParameters(kPPG12R40DefaultA, kPPG12R40DefaultB);
+    fPPG12R40.SetLineColor(kBlack);
+    fPPG12R40.SetLineStyle(2);
+    fPPG12R40.SetLineWidth(3);
 
     std::vector<FitResult> fits = {
         {0.70, f70.GetParameter(0), f70.GetParameter(1), f70.GetParError(0), f70.GetParError(1), g70.GetN()},
@@ -293,6 +312,11 @@ std::vector<FitResult> MakeConeFit(const std::string& coneLabel,
     c.SetTicks(1, 1);
 
     const double pad = (std::isfinite(yMin) && std::isfinite(yMax) && yMax > yMin) ? 0.25 * (yMax - yMin) : 0.5;
+    if (coneLabel == "r40")
+    {
+        yMin = std::min(yMin, fPPG12R40.Eval(fitXLo));
+        yMax = std::max(yMax, fPPG12R40.Eval(fitXHi));
+    }
     TH1F frame(("hFr_" + coneLabel).c_str(), "", 100, fitXLo, fitXHi);
     frame.SetDirectory(nullptr);
     frame.SetStats(false);
@@ -313,6 +337,7 @@ std::vector<FitResult> MakeConeFit(const std::string& coneLabel,
     f90.Draw("SAME");
     f80.Draw("SAME");
     f70.Draw("SAME");
+    if (coneLabel == "r40") fPPG12R40.Draw("SAME");
 
     TLatex info;
     info.SetNDC(true);
@@ -325,6 +350,10 @@ std::vector<FitResult> MakeConeFit(const std::string& coneLabel,
     info.DrawLatex(0.17, 0.78, TString::Format("90%%: E_{T}^{iso} = %.3f + %.4f E_{T}", f90.GetParameter(0), f90.GetParameter(1)).Data());
     info.DrawLatex(0.17, 0.73, TString::Format("80%%: E_{T}^{iso} = %.3f + %.4f E_{T}", f80.GetParameter(0), f80.GetParameter(1)).Data());
     info.DrawLatex(0.17, 0.68, TString::Format("70%%: E_{T}^{iso} = %.3f + %.4f E_{T}", f70.GetParameter(0), f70.GetParameter(1)).Data());
+    if (coneLabel == "r40")
+    {
+        info.DrawLatex(0.17, 0.63, "PPG12 target 80%: 0.490 + 0.0370 E_{T}");
+    }
 
     TLatex sph;
     sph.SetNDC(true);
@@ -365,11 +394,11 @@ void MakePPSlidingIsoRDepFits(const char* inputDir = "dataOutput/ppSlidingIsoFit
 
     std::ofstream prov(std::string(outDir) + "/provenance.txt");
     prov << "Task: pp R-dependent sliding isolation fits for non-embedded PhotonJet5+10+20 SIM\n";
-    prov << "Source: canonical pp SIM ALL files with jetMinPt5_7pi_8_vz60 and fixedIso2GeV, separately for isoR30 and isoR40\n";
+    prov << "Source: inputDir argument. The default inputDir is a legacy fixedIso2GeV smoke-test source; for PPG12 parity pass the next RJ_PPG12_PHOTON_YIELD=1 R0.4 pp SIM outputs explicitly.\n";
     prov << "Histogram discovery regex: ^h_EisoReco_truthSigMatched_pT_([0-9]+)_([0-9]+)$ inside SIM directory\n";
     prov << "Stitch weights: photon sample cross section divided by cnt_SIM event count; constants from AnalyzeRecoilJets.h\n";
     prov << "Fit model: reco isolation threshold = aGeV + bPerGeV * photon ET\n";
-    prov << "Production default: 90% signal-retention fit for each cone. sideGapGeV kept at 1.0 unless explicitly changed.\n";
+    prov << "PPG12 current nominal target for R=0.4: 80% signal-retention fit, Eiso < 0.490 + 0.037*pT, sideGapGeV=0.8.\n";
     prov << "\nR30 inputs:\n";
     for (const auto& p : r30Inputs) prov << "  " << p << "\n";
     prov << "\nR40 inputs:\n";

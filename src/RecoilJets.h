@@ -62,6 +62,7 @@
 #include <bitset>
 #include <cstdint>
 #include <cmath>
+#include <fstream>
 #include <iomanip>
 #include <limits>
 #include <map>
@@ -417,11 +418,6 @@ public:
   void setUnfoldJetPtBins(const std::vector<double>& bins)         { m_unfoldJetPtBins = bins; }
   void setUnfoldXJBins(const std::vector<double>& bins)            { m_unfoldXJBins = bins; }
   void setPPG12PhotonYieldEnabled(bool on = true)                  { m_ppg12PhotonYieldEnabled = on; }
-  void setPPG12PhotonYieldUseTruthVertexInPPSim(bool on = true)    { m_ppg12PhotonYieldUseTruthVertexInPPSim = on; }
-  void setPPG12PhotonYieldUseTruthVertexForRecoObjectsInPPSim(bool on = true)
-  {
-      m_ppg12PhotonYieldUseTruthVertexForRecoObjectsInPPSim = on;
-  }
   void setPPG12PhotonYieldApplyBinning(bool on = true)             { m_ppg12PhotonYieldApplyBinning = on; }
   void setPPG12Fig8ClusterNode(const std::string& node)            { m_ppg12Fig8ClusterNode = node; }
   void usePPG12PhotonYieldBinning()
@@ -732,19 +728,81 @@ private:
 
 
     // Isolation helpers
+    struct PPG12EisoConeMemberAudit
+    {
+      std::uint64_t key = 0;
+      double energy = std::numeric_limits<double>::quiet_NaN();
+      double eta = std::numeric_limits<double>::quiet_NaN();
+      double phi = std::numeric_limits<double>::quiet_NaN();
+      double et = std::numeric_limits<double>::quiet_NaN();
+      double dEta = std::numeric_limits<double>::quiet_NaN();
+      double dPhi = std::numeric_limits<double>::quiet_NaN();
+      double dR = std::numeric_limits<double>::quiet_NaN();
+    };
+    struct PPG12EisoPathAudit
+    {
+      double storedRaw = std::numeric_limits<double>::quiet_NaN();
+      double legacyPositiveOnlyRaw = std::numeric_limits<double>::quiet_NaN();
+      double storedTopoSumEt = std::numeric_limits<double>::quiet_NaN();
+      double storedPositiveOnlyTopoSumEt = std::numeric_limits<double>::quiet_NaN();
+      double storedValid = std::numeric_limits<double>::quiet_NaN();
+      double storedVertexZ = std::numeric_limits<double>::quiet_NaN();
+      double expectedVertexZ = std::numeric_limits<double>::quiet_NaN();
+      double isoAxisEta = std::numeric_limits<double>::quiet_NaN();
+      double isoAxisPhi = std::numeric_limits<double>::quiet_NaN();
+      double recomputedTopoSumEt = std::numeric_limits<double>::quiet_NaN();
+      double recomputedPositiveOnlyTopoSumEt = std::numeric_limits<double>::quiet_NaN();
+      double recomputedRaw = std::numeric_limits<double>::quiet_NaN();
+      double finalRaw = std::numeric_limits<double>::quiet_NaN();
+      double candidateEt = std::numeric_limits<double>::quiet_NaN();
+      long long topoNodeCount = 0;
+      long long inConeMemberCount = 0;
+      bool vertexCompatible = false;
+      bool storedUsable = false;
+      bool storedAccepted = false;
+      bool storedRejected = false;
+      bool recomputeFallbackUsed = false;
+      bool vertexMismatchRejected = false;
+      bool recoVertexUsedForEiso = false;
+      int pathCode = 0;  // 0=invalid, 1=stored, 2=recomputed
+      std::vector<PPG12EisoConeMemberAudit> coneMembers;
+    };
     double eiso(const RawCluster* clus, PHCompositeNode* topNode) const;
-    double ppg12PhotonYieldRawEiso(const RawCluster* clus, PHCompositeNode* topNode) const;
+    double ppg12PhotonYieldRawEiso(const RawCluster* clus, PHCompositeNode* topNode);
+    double ppg12PhotonYieldRawEisoDetailed(const RawCluster* clus,
+                                           PHCompositeNode* topNode,
+                                           PPG12EisoPathAudit* audit);
     double ppg12PhotonYieldEiso(double eisoEt) const;
     double ppg12PhotonYieldClusterEtForCuts(double ptGamma, int candidateIndex) const;
+    double ppg12PhotonYieldClusterEtForResponse(double recoEt,
+                                                double truthPt,
+                                                int candidateIndex) const;
     bool ppg12PhotonYieldTowerMasked(const PhotonClusterv1* pho) const;
     double ppg12PhotonYieldKinematicVertexZ() const;
     bool ppg12PhotonYieldInResponseWindow(double recoPt, double truthPt) const;
+    double ppg12Fig36TruthPriorWeight(double truthPt) const;
     bool loadPPG12PhotonYieldTowerMask();
+    int currentRunNumber() const;
     bool ppg12PeriodRunContains(int runNumber) const;
     void fillPPG12VertexContractQA(const std::vector<std::string>& activeTrig,
                                    bool preVzCut);
-  bool   isIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const;
-  bool   isNonIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode) const;
+    void recordPPG12EisoVertexContractAudit(const PPG12EisoPathAudit& audit);
+    bool configurePPG12SimEventWeight(double sliceFactor, int laneCode);
+    void fillPPG12SimWeightAudit();
+    void finalizePPG12SimWeightAudit();
+    void recordPPG12EisoPathCanary(const PPG12EisoPathAudit& audit,
+                                   int candidateIndex,
+                                   double recoEt,
+                                   double eta,
+                                   double phi,
+                                   bool isTruthSignal,
+                                   const SSVars& vars,
+                                   double correctedEiso,
+                                   double isoThreshold,
+                                   double nonIsoLower,
+                                   TightTag tightTag);
+  bool   isIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode);
+  bool   isNonIsolated(const RawCluster* clus, double et_gamma, PHCompositeNode* topNode);
 
     // Unified truth-MC signal definition for "isolated prompt photon" (SIM only)
     // Definition
@@ -902,6 +960,7 @@ private:
                                       const std::string& xAxisTitle,
                                       const std::string& yAxisTitle);
   TH1I* getOrBookPPG12Fig8AuditHist(const std::string& trig);
+  TH1I* getOrBookPPG12EisoVertexContractAuditHist(const std::string& trig);
   TH1F* getOrBookPPG12VertexQA1D(const std::string& trig,
                                  const std::string& name,
                                  const std::string& title,
@@ -910,6 +969,8 @@ private:
                                  double xmax);
   TH1I* getOrBookPPG12VertexQAAuditHist(const std::string& trig);
   TH1D* getOrBookPPG12PeriodContractValues(const std::string& trig);
+  void fillPPG12Fig81DataHDReferenceVertexQA(PHCompositeNode* topNode);
+  void fillPPG12Fig81SlimtreeVertexQA(PHCompositeNode* topNode);
   void bookPPG12PhotonYieldSchema(const std::vector<std::string>& activeTrig);
   void fillPPG12Fig8ResponseTargets(const std::vector<std::string>& activeTrig,
                                     CaloRawClusterEval& clustereval,
@@ -924,6 +985,7 @@ private:
                                      bool fillInclusive = true);
   void fillPPG12PhotonYieldTightAndABCD(const std::vector<std::string>& activeTrig,
                                         double ptGamma,
+                                        double responsePtGamma,
                                         double truthPt,
                                         TightTag tightTag,
                                         bool iso,
@@ -973,6 +1035,11 @@ private:
                                   const std::string& ptToken,
                                   const std::string& centToken,
                                   int cutIdx);
+  TH2D* getOrBookPPG12TimingHist(const std::string& trig,
+                                 const std::string& name,
+                                 const std::string& title,
+                                 int xBins, double xMin, double xMax,
+                                 int yBins, double yMin, double yMax);
   TH1F* getOrBookPPG12Fig13E11E33Hist(const std::string& trig,
                                       const std::string& sampleKey,
                                       const std::string& ptToken,
@@ -984,22 +1051,62 @@ private:
   TH1F* getOrBookPPG12IsoStackHist(const std::string& trig,
                                    const std::string& tightness,
                                    int ptIdx);
+  TH2F* getOrBookPPG12Fig11ETIsoHist(const std::string& trig,
+                                     const std::string& sampleKey);
+  TH1D* getOrBookPPG12Fig11AuditHist(const std::string& trig);
+  int findPPG12Fig24RecoPtBin(double recoEt) const;
+  std::string ppg12Fig24RecoPtSuffix(int ptIdx) const;
+  TH2F* getOrBookPPG12Fig24ETIsoHist(const std::string& trig,
+                                     const std::string& name);
+  TH1F* getOrBookPPG12Fig24IsoHist(const std::string& trig,
+                                   int ptIdx);
+  TH1D* getOrBookPPG12Fig24AuditHist(const std::string& trig);
+  void fillPPG12Fig11SBDiagnostic(const std::vector<std::string>& activeTrig,
+                                  const SSVars& v,
+                                  double eta,
+                                  double recoEtForBinning,
+                                  double rawTopoEisoEt,
+                                  bool ppPhotonSignalContext,
+                                  bool isPPG12Signal,
+                                  double photonSampleWeight,
+                                  bool ppInclusiveJetContext,
+                                  bool ppInclusiveJetPassR04,
+                                  double inclusiveJetSampleWeight);
   void fillPPG12Fig13E11E33(const std::vector<std::string>& activeTrig,
                             const SSVars& v,
                             double eisoEt,
                             const std::string& sampleKey,
-                            int cutIdx);
+                            int cutIdx,
+                            double ptForBinning = std::numeric_limits<double>::quiet_NaN());
   void fillPPG12IsoStackQA(const std::vector<std::string>& activeTrig,
                            double ptGamma,
                            double eisoEt,
-                           TightTag tightTag);
+                           TightTag tightTag,
+                           double weight = 1.0);
+  double ppg12DataTriggerEfficiencyWeight(double recoEt) const;
+  void fillPPG12DataTriggerEfficiencyAudit(const std::vector<std::string>& activeTrig,
+                                           double recoEt,
+                                           double correctionWeight);
   void bookPPG12TableQASchema(const std::vector<std::string>& activeTrig);
   void fillPPG12TableQA(const std::vector<std::string>& activeTrig,
                         const SSVars& v,
                         double eisoEt,
                         int centIdx,
                         int cutIdx,
-                        double rowWeight = 1.0);
+                        double rowWeight = 1.0,
+                        double ptForBinning = std::numeric_limits<double>::quiet_NaN());
+  bool computePPG12ClusterMbdTiming(const SSVars& v,
+                                    double& clusterMbdDeltaT,
+                                    double& clusterTime,
+                                    double& mbdTime) const;
+  bool passPPG12Fig14NpbMbdTimingSelection(const SSVars& v,
+                                           double phi) const;
+  void fillPPG12Fig14Fig15TimingQA(const std::vector<std::string>& activeTrig,
+                                   const SSVars& v,
+                                   double eta,
+                                   double phi,
+                                   double ptForBinning = std::numeric_limits<double>::quiet_NaN(),
+                                   double rowWeight = 1.0);
   double ppg12TableQABDTScore(const SSVars& v) const;
   bool isPPG12TableQADataNPBTaggedCluster(const SSVars& v,
                                           double phi,
@@ -1071,6 +1178,27 @@ private:
   TH2F* getOrBookUnfoldResponsePhoPtGammaPPG12Obj    (const std::string& trig, int centIdx);
   TH1F* getOrBookUnfoldRecoPhoFakesPtGammaPPG12Obj   (const std::string& trig, int centIdx);
   TH1F* getOrBookUnfoldTruthPhoMissesPtGammaPPG12Obj (const std::string& trig, int centIdx);
+
+  // Explicit Fig.37-style response inputs using the xJgamma leading-photon tag.
+  // These mirror the existing photon-only unfolding bookkeeping, but with stable
+  // names for downstream PPG12 iteration-stability reproduction checks.
+  TH1F* getOrBookPPG12Fig37LeadTagInput1D(const std::string& trig,
+                                          const std::string& name,
+                                          const std::vector<double>& bins,
+                                          const std::string& xAxisTitle,
+                                          const std::string& yAxisTitle);
+  TH2F* getOrBookPPG12Fig37LeadTagResponse2D(const std::string& trig,
+                                             const std::string& name);
+  void fillPPG12Fig37LeadTagInput1D(const std::vector<std::string>& activeTrig,
+                                    const std::string& name,
+                                    const std::vector<double>& bins,
+                                    const std::string& xAxisTitle,
+                                    const std::string& yAxisTitle,
+                                    double value);
+  void fillPPG12Fig37LeadTagResponse(const std::vector<std::string>& activeTrig,
+                                     const std::string& name,
+                                     double truthPt,
+                                     double recoPt);
 
   // unfolding QA helpers (SIM only): explicit matched distributions + type-split fakes/misses
   TH2F* getOrBookUnfoldTruthMatchedPtXJIncl      (const std::string& trig, const std::string& rKey, int centIdx);
@@ -1246,6 +1374,7 @@ private:
   void fillInclusiveJetQA(const std::vector<std::string>& activeTrig,
                           int centIdx,
                           const std::string& rKey);
+  bool fillPPG12InclusiveJetTruthSpectrumQA(PHCompositeNode* topNode = nullptr);
 
   void fillSelectedJetQA(const std::vector<std::string>& activeTrig,
                          int ptIdx, int centIdx,
@@ -1299,6 +1428,14 @@ private:
   TH1*        m_vertexReweightH = nullptr;
   double      m_mcVertexWeight = 1.0;
   double      m_mcEventWeight = 1.0;
+  bool        m_ppg12SimWeightActive = false;
+  int         m_ppg12SimWeightLaneCode = 0;  // 1=photon+jet, 2=inclusive-jet
+  int         m_ppg12SimWeightLaneComponentCode = 0;
+  double      m_ppg12SimWeightFactorSlice = 1.0;
+  double      m_ppg12SimWeightFactorVertex = 1.0;
+  double      m_ppg12SimWeightFactorMix = 1.0;
+  double      m_ppg12SimWeightFactorPeriod = 1.0;
+  double      m_ppg12SimWeightFactorFinal = 1.0;
 
   // pp PhotonJet5/10/20 stitching diagnostics.  These are intentionally
   // parallel to the nominal event weight so a debug production can compare
@@ -1332,13 +1469,13 @@ private:
     std::string m_tightPhotonNode = "PHOTONCLUSTER_CEMC";
     bool m_explicitPhotonIDVariants = false;
     double m_npbCut = 0.5;
-    double m_tightBDTMinIntercept = 0.8333333333333334;
-    double m_tightBDTMinSlope = -0.003333333333333336;
+    double m_tightBDTMinIntercept = 0.815625;
+    double m_tightBDTMinSlope = -0.0015625;
     double m_tightBDTMax = 1.0;
     double m_nonTightBDTMinIntercept = 0.7333333333333333;
     double m_nonTightBDTMinSlope = -0.01333333333333333;
-    double m_nonTightBDTMaxIntercept = 0.6666666666666666;
-    double m_nonTightBDTMaxSlope = 0.003333333333333336;
+    double m_nonTightBDTMaxIntercept = 0.684375;
+    double m_nonTightBDTMaxSlope = 0.0015625;
 
     double m_phoid_tight_w_lo           = 0.0;
     double m_phoid_tight_w_hi_intercept = 0.15;
@@ -1370,12 +1507,11 @@ private:
   bool        m_analysisConfigStamped  = false;
 
 
-  // Generic/default isolation WP. PPG12 photon-yield pp mode is not allowed
-  // to rely on these defaults; Init() requires the current PPG12 contract:
+  // Generic/default isolation WP. PPG12 photon-yield pp mode requires:
   // sliding R=0.4, Eiso < 0.490 + 0.037*pT, non-iso gap=0.8.
-  double m_isoA      = 1.08128;
-  double m_isoB      = 0.0299107;
-  double m_isoGap    = 1.0;
+  double m_isoA      = 0.490;
+  double m_isoB      = 0.037;
+  double m_isoGap    = 0.8;
   double m_isoFixed  = 2.0;          // used ONLY when m_isSlidingIso==false (RECO)
   double m_truthIsoMaxGeV = 4.0;     // TRUTH isolation max (independent of sliding/fixed mode)
   double m_isoConeR  = 0.3;
@@ -1537,6 +1673,7 @@ private:
   bool m_ppg12TableQAEnabled = false;
   bool m_ppg12TableQANPBDataTaggingEnabled = false;
   bool m_ppg12Fig7TriggerDiagnostic = false;
+  bool m_ppg12Fig11SBDiagnostic = false;
   bool m_ppg12Fig13Bit30Diagnostic = false;
   bool m_ppg12Fig13ParityQA = false;
   double m_ppg12TableQANPBTagTimeSampleNs = 17.6;
@@ -1544,14 +1681,15 @@ private:
   double m_ppg12TableQANPBWetaMin = 0.4;
   double m_ppg12TableQANPBAwayJetPtMin = 5.0;
   double m_ppg12TableQANPBAwayJetDPhiMin = 1.5707963267948966;
+  double m_ppg12Fig14NPBMbdWetaMin = 0.6;
+  double m_ppg12TableQAMcIsoScale = 1.2;
+  double m_ppg12TableQAMcIsoShift = 0.2;
   std::string m_ppg12TableQAMbdT0CorrectionFile;
   std::map<int, double> m_ppg12TableQAMbdT0Correction;
   std::set<std::string> m_ppg12TableQASchemaBookedTriggers;
   bool m_ppg12PhotonYieldEnabled = false;
   bool m_ppg12PhotonYieldUseTopoIso = true;
   bool m_ppg12PhotonYieldApplyTowerMask = true;
-  bool m_ppg12PhotonYieldUseTruthVertexInPPSim = false;
-  bool m_ppg12PhotonYieldUseTruthVertexForRecoObjectsInPPSim = false;
   bool m_ppg12PhotonYieldExcludeCandidateTopoCluster = false;
   bool m_ppg12PhotonYieldDoubleInteraction = false;
   bool m_ppg12PhotonYieldDiagFeatures = false;
@@ -1570,7 +1708,6 @@ private:
   std::string m_ppg12PeriodLabel = "unset";
   std::string m_ppg12PeriodExpectedVertexFile;
   TH2* m_ppg12PhotonYieldTowerMask = nullptr;
-  double m_ppg12PhotonYieldClusterERes = 0.04;
   double m_ppg12PhotonYieldMcIsoScale = 1.2;
   double m_ppg12PhotonYieldMcIsoShift = 0.1;
   double m_ppg12PhotonYieldMixWeight = 1.0;
@@ -1582,6 +1719,37 @@ private:
   double m_ppg12PeriodFDouble = -1.0;
   double m_ppg12PeriodFSingle = -1.0;
   double m_ppg12PeriodClosureZCut = -1.0;
+  bool m_ppg12Fig6EventCanaryEnabled = false;
+  bool m_ppg12Fig6FilledThisEvent = false;
+  long long m_ppg12Fig6EventCanaryMaxRows = 6000;
+  long long m_ppg12Fig6EventCanaryRowsWritten = 0;
+  std::string m_ppg12Fig6EventCanaryPath;
+  std::string m_ppg12Fig6EventCanarySummaryPath;
+  std::ofstream m_ppg12Fig6EventCanaryOut;
+  bool m_ppg12EisoPathCanaryEnabled = false;
+  long long m_ppg12EisoPathCanaryMaxRows = 5000;
+  long long m_ppg12EisoPathCanaryRowsWritten = 0;
+  double m_ppg12EisoPathCanaryMinEt = 10.0;
+  double m_ppg12EisoPathCanaryMaxEt = 36.0;
+  std::string m_ppg12EisoPathCanaryPath;
+  std::ofstream m_ppg12EisoPathCanaryOut;
+  long long m_ppg12EisoConeMemberCanaryMaxRows = 100000;
+  long long m_ppg12EisoConeMemberCanaryRowsWritten = 0;
+  std::string m_ppg12EisoConeMemberCanaryPath;
+  std::ofstream m_ppg12EisoConeMemberCanaryOut;
+  std::string m_ppg12EisoVertexSource = "unset";
+  long long m_ppg12Fig6CanaryEventsSeen = 0;
+  long long m_ppg12Fig6CanaryValidTruthJets = 0;
+  long long m_ppg12Fig6CanaryOwnedWindowEvents = 0;
+  long long m_ppg12Fig6CanaryRawOwnedEntries = 0;
+  double m_ppg12Fig6CanaryWeightedOwnedIntegral = 0.0;
+  double m_ppg12Fig6CanarySumXsecFactor = 0.0;
+  double m_ppg12Fig6CanarySumLumiFactor = 0.0;
+  double m_ppg12Fig6CanarySumMixFactor = 0.0;
+  double m_ppg12Fig6CanarySumVertexWeight = 0.0;
+  double m_ppg12Fig6CanarySumFinalFillWeight = 0.0;
+  double m_ppg12Fig6CanaryIANSuffixIntegral = std::numeric_limits<double>::quiet_NaN();
+  double m_ppg12Fig6CanaryTruePeriodIntegral = std::numeric_limits<double>::quiet_NaN();
   std::set<std::string> m_ppg12PhotonYieldSchemaBookedTriggers;
   std::vector<double> m_ppg12PhotonYieldRecoPtBins =
       {10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 32, 36};

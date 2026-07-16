@@ -11,6 +11,72 @@ common_utilities:
   - scripts/slides/common/slide_symmetry_audit.py
   - scripts/slides/common/post_render_slide_audit.py
 generators:
+  - id: make_auau_embedded_truthiso_centrality_slides
+    status: canonical
+    group: "auau_bdt_truth_isolation"
+    campaign: "auau_embedded_truth_isolation_diagnostics"
+    slide_key: "auau_embedded_truthiso_centrality_comparisons"
+    canonical_path: "scripts/slides/auau_bdt/truth_isolation/make_auau_embedded_truthiso_centrality_slides.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: "AuAu embedded photon direct/fragmentation truth-isolation and isolated truth-pT centrality-summary PNGs, plus CSV/JSON provenance products"
+    default_output_folder: dataOutput/auau/embedded_truthiso_the88a_20260709/slides/
+    last_known_png: dataOutput/auau/embedded_truthiso_the88a_20260709/slides/auau_truthiso_centrality_slides_montage.png
+  - id: make_the96_isolation_centrality_distribution_slides
+    status: canonical
+    group: "isolation_working_points"
+    campaign: "auau_isolation_baseline5pct"
+    slide_key: "THE96_baseline_isolation_centrality_distribution_overlays"
+    canonical_path: "scripts/slides/auau_isolation/make_the96_isolation_centrality_distribution_slides.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: "Completed Photon12+20 ROOT with R=0.3/R=0.4 truth-matched isolation histograms in 5% centrality and native 15-35 GeV pT bins; CLI labels support baseline and PHOSUB variants without output collisions"
+    default_output_folder: dataOutput/auau/isolation_baseline5pct_the96_20260709/baseline_nominal_15to35_centrality_overlays/
+    last_known_png: dataOutput/auau/isolation_baseline5pct_the96_20260709/baseline_nominal_15to35_centrality_overlays/auau_r03_baseline_isolation_centrality_overlay_slide.png
+  - id: make_the96_r03_baseline_isolation_fit_slides
+    status: canonical
+    group: "isolation_working_points"
+    campaign: "auau_isolation_baseline5pct"
+    slide_key: "THE96_r03_baseline_isolation_fit_diagnostics"
+    canonical_path: "scripts/slides/auau_isolation/make_the96_r03_baseline_isolation_fit_slides.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "none"
+    expected_inputs: "THE-96 R=0.3 baseline nominal 15-35 cutoff-point, flat-fit, and linear-fit CSVs under dataOutput/auau/isolation_baseline5pct_the96_20260709/r03_baseline_nominal_15to35/"
+    default_output_folder: dataOutput/auau/isolation_baseline5pct_the96_20260709/r03_baseline_nominal_15to35/slide_candidates/
+    last_known_png: dataOutput/auau/isolation_baseline5pct_the96_20260709/r03_baseline_nominal_15to35/slide_candidates/auau_r03_baseline_isolation_pt_flat_fits_slide.png
+  - id: make_the96_r04_baseline_isolation_fit_slides
+    status: canonical
+    group: "isolation_working_points"
+    campaign: "auau_isolation_baseline5pct"
+    slide_key: "THE96_r04_baseline_isolation_fit_diagnostics"
+    canonical_path: "scripts/slides/auau_isolation/make_the96_r03_baseline_isolation_fit_slides.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "shared_generator_use_--cone_R40"
+    expected_inputs: "THE-96 R=0.4 baseline nominal 15-35 cutoff-point, flat-fit, and linear-fit CSVs under dataOutput/auau/isolation_baseline5pct_the96_20260709/r04_baseline_nominal_15to35/"
+    default_output_folder: dataOutput/auau/isolation_baseline5pct_the96_20260709/r04_baseline_nominal_15to35/slide_candidates/
+    last_known_png: dataOutput/auau/isolation_baseline5pct_the96_20260709/r04_baseline_nominal_15to35/slide_candidates/auau_r04_baseline_isolation_pt_flat_fits_slide.png
+  - id: make_the96_r03_topocluster_isolation_fit_slides
+    status: canonical
+    group: "isolation_working_points"
+    campaign: "auau_isolation_baseline5pct"
+    slide_key: "THE96_r03_topocluster_isolation_fit_diagnostics"
+    canonical_path: "scripts/slides/auau_isolation/make_the96_r03_baseline_isolation_fit_slides.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "shared_generator_use_--cone_R30_--algorithm_topocluster"
+    expected_inputs: "THE-96 R=0.3 topocluster nominal 15-35 cutoff-point, flat-fit, and linear-fit CSVs under dataOutput/auau/isolation_baseline5pct_the96_20260709/r03_topocluster_nominal_15to35/"
+    default_output_folder: dataOutput/auau/isolation_baseline5pct_the96_20260709/r03_topocluster_nominal_15to35/slide_candidates/
+    last_known_png: dataOutput/auau/isolation_baseline5pct_the96_20260709/r03_topocluster_nominal_15to35/slide_candidates/auau_r03_topocluster_isolation_pt_flat_fits_slide.png
+  - id: make_the96_r03_baseline_expanded_isolation_fit_slides
+    status: canonical
+    group: "isolation_working_points"
+    campaign: "auau_isolation_baseline5pct"
+    slide_key: "THE96_r03_baseline_expanded_5to40_isolation_fit_diagnostics"
+    canonical_path: "scripts/slides/auau_isolation/make_the96_r03_baseline_isolation_fit_slides.py"
+    historical_compatibility_path: null
+    compatibility_path_status: "shared_generator_use_--cone_R30_--algorithm_baseline_--pt-scheme_expanded"
+    expected_inputs: "THE-96 R=0.3 baseline expanded 5-40 cutoff-point, flat-fit, and linear-fit CSVs under dataOutput/auau/isolation_baseline5pct_the96_20260709/r03_baseline_expanded_5to40/"
+    default_output_folder: dataOutput/auau/isolation_baseline5pct_the96_20260709/r03_baseline_expanded_5to40/slide_candidates/
+    last_known_png: dataOutput/auau/isolation_baseline5pct_the96_20260709/r03_baseline_expanded_5to40/slide_candidates/auau_r03_baseline_isolation_pt_flat_fits_slide.png
   - id: make_the79_training_window_problem_slide
     status: canonical
     group: "model_selection"
@@ -1089,3 +1155,14 @@ generators:
     expected_inputs: see script CLI/defaults and adjacent workstream evidence
     default_output_folder: dataOutput/slide_assets/working_point/make_scaled_trigger_cent_slide_candidate/
     last_known_png: null
+  - id: make_purity_correction_contract_slide
+    status: canonical
+    group: "the85_xjgamma_unfolding"
+    campaign: "auau_photon_analysis_closure"
+    slide_key: "the87_purity_correction_regionC_contract"
+    canonical_path: "scripts/slides/the85_xjgamma_unfolding/make_purity_correction_contract_slide.mjs"
+    historical_compatibility_path: null
+    compatibility_path_status: "canonical_only"
+    expected_inputs: "Current RecoilJets event-leading xJ-purity ABCD counter contract, leakage fractions, and Region-C recoil-template subtraction equations; no ROOT data are plotted."
+    default_output_folder: dataOutput/the85_auau_xjgamma_unfolding_push/purity_correction_contract/
+    last_known_png: dataOutput/the85_auau_xjgamma_unfolding_push/purity_correction_contract/slide_purity_correction_regionC_contract_v1.png

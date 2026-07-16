@@ -50,13 +50,13 @@ npb_cut: 0.5
 npb_features: [cluster_Et, cluster_Eta, vertexz, e11_over_e33, e32_over_e35, e11_over_e22, e11_over_e13, e11_over_e15, e11_over_e17, e11_over_e31, e11_over_e51, e11_over_e71, e22_over_e33, e22_over_e35, e22_over_e37, e22_over_e53, cluster_weta_cogx, cluster_wphi_cogx, cluster_et1, cluster_et2, cluster_et3, cluster_et4, cluster_w32, cluster_w52, cluster_w72]
 
 tight_bdt_model_file: /sphenix/user/shuhangli/ppg12/FunWithxgboost/binned_models/model_base_v3E_split_single_tmva.root
-tight_bdt_min_intercept: 0.8333333333333334
-tight_bdt_min_slope: -0.003333333333333336
+tight_bdt_min_intercept: 0.815625
+tight_bdt_min_slope: -0.0015625
 tight_bdt_max: 1.0
 nontight_bdt_min_intercept: 0.7333333333333333
 nontight_bdt_min_slope: -0.01333333333333333
-nontight_bdt_max_intercept: 0.6666666666666666
-nontight_bdt_max_slope: 0.003333333333333336
+nontight_bdt_max_intercept: 0.684375
+nontight_bdt_max_slope: 0.0015625
 tight_bdt_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35]
 
 auau_tight_bdt_expanded_model_dir: /gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/tight_expanded_20260509_152604
@@ -72,15 +72,16 @@ auau_tight_bdt_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vert
 auau_tight_bdt_centINDcontrol_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35]
 auau_tight_bdt_centAsFeat_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35, centrality]
 auau_tight_bdt_centAsFeat3x3_features: [cluster_Et, cluster_weta33_cogx, cluster_wphi33_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35, centrality]
-# THE-57 baseline AuAu BDT (14-feat) = baseV3E(11) + weta33/wphi33 + centrality.
+# THE-101 canonical AuAu BDT (14-feat) = baseV3E(11) + weta33/wphi33 + centrality.
+# Embedded training events pass MinimumBiasInfo::isAuAuMinimumBias(); no low-calo event veto is applied.
 # Order is the CANONICAL trainer order (PPG12_TIGHT_FEATURES_BASE_AND_3X3_WIDTHS + centrality);
 # the exported TMVA model is positional, so this order is load-bearing. Do NOT reorder.
 # Verified by scripts/os/validation/feature_order_coherence_check.py.
 auau_tight_bdt_centAsFeatBase3x3_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, cluster_weta33_cogx, cluster_wphi33_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35, centrality]
 auau_tight_bdt_centDep_features: [cluster_Et, cluster_weta_cogx, cluster_wphi_cogx, vertexz, cluster_Eta, e11_over_e33, cluster_et1, cluster_et2, cluster_et3, cluster_et4, e32_over_e35]
 
-auau_tight_bdt_centInputBase3x3_model_file: /sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/the57_models/a1_withcut_20260615_stagedcache_streamreduce/auau_tight_bdt_centAsFeatBase3x3_pt15to35_tmva.root
-auau_tight_bdt_working_point_entries: ["auauCentInputBase3x3BDT|centlinear|0.53471108|0.0012284143|15|35|1"]
+auau_tight_bdt_centInputBase3x3_model_file: /sphenix/user/patsfan753/forBlair/auauBDTdefault/auau_tight_bdt_centAsFeatBase3x3_pt15to35_tmva.root
+auau_tight_bdt_working_point_entries: ["auauCentInputBase3x3BDT|centlinear|0.5378806890|0.0011122896|15|35|1"]
 
 auau_tight_bdt_centInput3x3_model_file: /gpfs/mnt/gpfs02/sphenix/user/patsfan753/thesisAnalysis/bdt_models/tight_expanded_20260509_152604/auau_tight_bdt_centAsFeat3x3_pt5to40_tmva.root
 

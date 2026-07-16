@@ -90,6 +90,8 @@ class PhotonClusterv1;
 class Jet;
 class MbdPmtContainer;
 class MbdOut;
+class MbdGeom;
+class EpdGeom;
 
 // g4eval: used for truth↔reco association of EMCal clusters
 class CaloRawClusterEval;
@@ -422,6 +424,8 @@ public:
     void enablePi0Analysis(bool on = true) { m_doPi0Analysis = on; }
 
     void setCentEdges(const std::vector<int>& edges)     { m_centEdges = edges; }
+    std::uint64_t validCentralityObservedEvents() const { return m_validCentralityObservedEvents; }
+    std::uint64_t invalidCentralityObservedEvents() const { return m_invalidCentralityObservedEvents; }
 
     void setVertexReweighting(bool on,
                               const std::string& filePath,
@@ -815,6 +819,10 @@ private:
     void fillTruthSigABCDLeakageCounters(PHCompositeNode* topNode,
                                          const std::vector<std::string>& activeTrig,
                                          const int centIdx);
+
+    void fillAuAuEmbeddedTruthIsolationDiagnostics(
+        PHCompositeNode* topNode,
+        const std::vector<std::string>& activeTrig);
     
     void processCandidates(PHCompositeNode* topNode, const std::vector<std::string>& activeTrig);
     void fillPi0MassVsPtHistograms(const std::string& trig, RawClusterContainer* clusterContainer, bool useCorr);
@@ -1173,6 +1181,35 @@ private:
                           int cutIdx,
                           double rowWeight = 1.0);
     double ppg12TableQABDTScore(const SSVars& v) const;
+
+    TH3F* getOrBookAuAuDualViewScoreIsoSurface(const std::string& trig,
+                                               int centIdx,
+                                               const std::string& category);
+    void fillAuAuDualViewScoreIsoSurface(const std::vector<std::string>& activeTrig,
+                                         const SSVars& v,
+                                         double eisoEt,
+                                         int centIdx,
+                                         const std::string& category);
+
+    TH2F* getOrBookAuAuFig25CorrelationSurface(const std::string& trig,
+                                                int centIdx,
+                                                const std::string& axisKey);
+    void fillAuAuFig25CorrelationSurfaces(const std::vector<std::string>& activeTrig,
+                                          const SSVars& v,
+                                          double eisoEt,
+                                          int centIdx,
+                                          bool isBackground);
+
+    // Opt-in embedded-simulation diagnostics for the low-calorimeter-energy
+    // centrality band. PMT objects are filled before the optional embedded
+    // MinimumBiasInfo gate; downstream physics output may then reject failures.
+    void bookMbdPmtLowCaloDiagnostics();
+    void fillMbdPmtLowCaloDiagnostics(const std::vector<std::string>& activeTrig,
+                                      double emcalEnergy,
+                                      double ihcalEnergy,
+                                      double ohcalEnergy,
+                                      double totalCaloEnergy);
+    bool buildSepdChannelMapForDiagnostics();
     
     // Physics outputs (already radius-tagged in your .cc)
     TH1F* getOrBookXJHist(const std::string& trig,
@@ -1468,6 +1505,8 @@ private:
     int m_centBin = -1;                 // 0..99 (Au+Au), or -1 in pp
     double m_centPercent = -1.0;        // event centrality percentile (float, used for reweighting)
     std::vector<int> m_centEdges;       // centrality bin edges, e.g. {0,10,20,...,100}
+    std::uint64_t m_validCentralityObservedEvents = 0;
+    std::uint64_t m_invalidCentralityObservedEvents = 0;
 
     // Event-level calorimeter sums cached once per accepted event.
     float m_eventCaloCemcEnergy = 0.0f;
@@ -1638,13 +1677,13 @@ private:
     mutable bool m_auauTightLogRegModelInitAttempted = false;
     mutable AuAuTightBDTMLPStackModel m_auauTightLogRegModel;
 
-    double m_tightBDTMinIntercept = 0.8333333333333334;
-    double m_tightBDTMinSlope = -0.003333333333333336;
+    double m_tightBDTMinIntercept = 0.815625;
+    double m_tightBDTMinSlope = -0.0015625;
     double m_tightBDTMax = 1.0;
     double m_nonTightBDTMinIntercept = 0.7333333333333333;
     double m_nonTightBDTMinSlope = -0.01333333333333333;
-    double m_nonTightBDTMaxIntercept = 0.6666666666666666;
-    double m_nonTightBDTMaxSlope = 0.003333333333333336;
+    double m_nonTightBDTMaxIntercept = 0.684375;
+    double m_nonTightBDTMaxSlope = 0.0015625;
     
     double m_phoid_tight_w_lo           = 0.0;
     double m_phoid_tight_w_hi_intercept = 0.15;
@@ -1685,6 +1724,7 @@ private:
     double m_isoConeR  = 0.3;
     double m_isoTowMin = 0.0;
     bool   m_isSlidingIso = true;
+    bool   m_useTopoClusterIsolationForEiso = false;
     std::vector<IsoView> m_internalIsoViews;
     std::string m_activeIsoViewSuffix;
     
@@ -1741,6 +1781,12 @@ private:
     std::map<std::string, CaloBundle> m_calo;
     MbdPmtContainer* m_mbdpmts = nullptr;
     MbdOut* m_mbdout = nullptr;
+    MbdGeom* m_mbdgeom = nullptr;
+    TowerInfoContainer* m_sepdTowers = nullptr;
+    EpdGeom* m_epdgeom = nullptr;
+    std::vector<unsigned int> m_sepdDiagnosticKeys;
+    bool m_sepdDiagnosticMapAttempted = false;
+    bool m_sepdDiagnosticMapReady = false;
     
     // -------------------------------------------------------------------------
     // parallel jet containers by radius key
@@ -1851,6 +1897,13 @@ private:
     double m_auauNPBTagTimeSampleNs = 17.6;
     double m_auauNPBMbdT0Offset = 0.0;
     bool m_ppg12TableQAEnabled = false;
+    bool m_auauDualViewDiagnosticsEnabled = false;
+    bool m_auauFig25CorrelationDiagnosticsEnabled = false;
+    bool m_mbdPmtLowCaloDiagnosticsEnabled = false;
+    bool m_requireEmbeddedMinBiasClassifier = false;
+    // -1: not evaluated, 0: node missing, 1: classifier fail, 2: classifier pass.
+    int m_embeddedMinBiasDecision = -1;
+    bool m_mbdPmtGeometryFilled = false;
     std::set<std::string> m_ppg12TableQASchemaBookedTriggers;
 
     int m_bdtTrain_run = 0;
@@ -1858,6 +1911,7 @@ private:
     int m_bdtTrain_is_signal = 0;
     int m_bdtTrain_pt_bin = -1;
     int m_bdtTrain_cent_bin = -1;
+    int m_bdtTrain_minbias_decision = -1;
     float m_bdtTrain_pt = 0.0f;
     float m_bdtTrain_eta = 0.0f;
     float m_bdtTrain_phi = 0.0f;

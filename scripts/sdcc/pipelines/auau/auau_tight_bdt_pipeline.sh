@@ -14,6 +14,23 @@ VALIDATE_SCRIPT="${RJ_AUAU_TIGHT_BDT_VALIDATE_SCRIPT:-${RJ_REPO_BASE}/scripts/ml
 ML_PYTHON="${RJ_ML_PYTHON:-${ML_PYTHON:-python3}}"
 NOTIFY_EMAILS="${RJ_NOTIFY_EMAILS:-just0131@gmail.com}"
 
+# Canonical AuAu training uses only embedded events accepted by the offline
+# MinimumBiasClassifier. Controls may opt out only with an explicit second
+# switch so an unrestricted extraction cannot silently become the baseline.
+require_embedded_minbias="${RJ_AUAU_TIGHT_BDT_REQUIRE_EMBEDDED_MINBIAS:-1}"
+case "${require_embedded_minbias,,}" in
+  1|true|yes|on) require_embedded_minbias=1 ;;
+  0|false|no|off) require_embedded_minbias=0 ;;
+  *) printf '[auauTightBDT][ERR] invalid RJ_AUAU_TIGHT_BDT_REQUIRE_EMBEDDED_MINBIAS=%q\n' "$require_embedded_minbias" >&2; exit 2 ;;
+esac
+if [[ "$require_embedded_minbias" == "0" &&
+      "${RJ_AUAU_TIGHT_BDT_ALLOW_UNRESTRICTED_EMBEDDED_CONTROL:-0}" != "1" ]]; then
+  printf '[auauTightBDT][ERR] canonical extraction requires MinimumBiasClassifier pass; set RJ_AUAU_TIGHT_BDT_ALLOW_UNRESTRICTED_EMBEDDED_CONTROL=1 only for a labeled control\n' >&2
+  exit 2
+fi
+export RJ_AUAU_TIGHT_BDT_REQUIRE_EMBEDDED_MINBIAS="$require_embedded_minbias"
+export RJ_REQUIRE_EMBEDDED_MINBIAS_CLASSIFIER="$require_embedded_minbias"
+
 DEFAULT_SIGNAL_SAMPLES=(run28_embeddedPhoton12 run28_embeddedPhoton20)
 DEFAULT_BACKGROUND_SAMPLES=(run28_embeddedJet12 run28_embeddedJet20 run28_embeddedJet30 run28_embeddedJet40)
 SIGNAL_SAMPLES=("${DEFAULT_SIGNAL_SAMPLES[@]}")
@@ -37,6 +54,11 @@ say() { printf '\033[1;36m[auauTightBDT]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[auauTightBDT][WARN]\033[0m %s\n' "$*" >&2; }
 err() { printf '\033[1;31m[auauTightBDT][ERR]\033[0m %s\n' "$*" >&2; }
 die() { err "$*"; exit 2; }
+
+require_codex_submission_provenance() {
+  [[ -n "${RJ_CODEX_CHAT_NAME:-}" ]] || die "Condor submission requires RJ_CODEX_CHAT_NAME"
+  [[ -n "${RJ_CODEX_THREAD_ID:-}" ]] || die "Condor submission requires RJ_CODEX_THREAD_ID"
+}
 
 join_by_comma() {
   local IFS=,
@@ -255,6 +277,8 @@ make_training_yaml() {
   {
     echo
     echo "# auau_tight_bdt_pipeline.sh extraction overrides"
+    echo "# Canonical embedded training requires MinimumBiasClassifier pass."
+    echo "setMinBiasClassifer: true"
     echo "preselection: reference"
     echo "tight: reference"
     echo "nonTight: reference"
@@ -292,6 +316,9 @@ validate_training_tree() {
   local manifest="$1"
   local report="$2"
   if [[ "${RJ_AUAU_BDT_SKIP_TRAINING_TREE_VALIDATE:-0}" == "1" ]]; then
+    if [[ "$require_embedded_minbias" == "1" ]]; then
+      die "Canonical MinimumBiasClassifier training may not skip training-tree validation. Use a fresh validated extraction, or label an unrestricted control with RJ_AUAU_TIGHT_BDT_REQUIRE_EMBEDDED_MINBIAS=0 and RJ_AUAU_TIGHT_BDT_ALLOW_UNRESTRICTED_EMBEDDED_CONTROL=1."
+    fi
     mkdir -p "$(dirname "$report")"
     setup_ml_python_env
     "$ML_PYTHON" - "$manifest" "$report" <<'PY'
@@ -325,6 +352,9 @@ rows = []
 total = 0
 signal = 0
 background = 0
+minbias_pass = 0
+minbias_nonpass = 0
+missing_minbias_branch = 0
 try:
     import uproot
 except Exception as exc:
@@ -352,23 +382,44 @@ for idx, path in enumerate(paths, 1):
         n_background = int((labels == 0).sum())
         signal += n_signal
         background += n_background
+        require_minbias = os.environ.get("RJ_AUAU_TIGHT_BDT_REQUIRE_EMBEDDED_MINBIAS", "1") == "1"
+        if require_minbias:
+            if "minimum_bias_classifier_decision" not in tree.keys():
+                missing_minbias_branch += 1
+                decisions = None
+            else:
+                decisions = tree["minimum_bias_classifier_decision"].array(library="np")
+                minbias_pass += int((decisions == 2).sum())
+                minbias_nonpass += int((decisions != 2).sum())
+        else:
+            decisions = None
         sample_class = "signal" if "/signal/" in str(path) else ("background" if "/background/" in str(path) else "unknown")
         rows.append({
             "file": str(path),
             "entries": n,
             "class": sample_class,
             "signal_entries": n_signal,
-            "background_entries": n_background
+            "background_entries": n_background,
+            "minimum_bias_pass_entries": int((decisions == 2).sum()) if decisions is not None else None,
+            "minimum_bias_nonpass_entries": int((decisions != 2).sum()) if decisions is not None else None,
+            "missing_minimum_bias_branch": require_minbias and decisions is None
         })
-status = "PASS" if total > 0 and signal > 0 and background > 0 and all(not r.get("missing_tree") and not r.get("missing_is_signal") for r in rows) else "FAIL"
+require_minbias = os.environ.get("RJ_AUAU_TIGHT_BDT_REQUIRE_EMBEDDED_MINBIAS", "1") == "1"
+base_ok = total > 0 and signal > 0 and background > 0 and all(not r.get("missing_tree") and not r.get("missing_is_signal") for r in rows)
+minbias_ok = (not require_minbias) or (missing_minbias_branch == 0 and minbias_nonpass == 0 and minbias_pass == total)
+status = "PASS" if base_ok and minbias_ok else "FAIL"
 report.write_text(json.dumps({
     "status": status,
+    "require_embedded_minimum_bias_classifier": require_minbias,
     "total_entries": total,
     "signal_entries": signal,
     "background_entries": background,
+    "minimum_bias_pass_entries": minbias_pass,
+    "minimum_bias_nonpass_entries": minbias_nonpass,
+    "missing_minimum_bias_branch_files": missing_minbias_branch,
     "files": rows
 }, indent=2, sort_keys=True) + "\n")
-print(f"[OK] training tree validation: status={status} entries={total} signal={signal} background={background} files={len(paths)}")
+print(f"[OK] training tree validation: status={status} entries={total} signal={signal} background={background} minbias_pass={minbias_pass} minbias_nonpass={minbias_nonpass} missing_minbias_branch={missing_minbias_branch} files={len(paths)}")
 sys.exit(0 if status == "PASS" else 3)
 PY
 }
@@ -448,6 +499,7 @@ run_local_test() {
     RJ_MACRO_PATH="$TRAIN_MACRO" \
     RJ_AUAU_BDT_EXTRACT_ONLY=1 \
     RJ_AUAU_BDT_TRAINING_TREE=1 \
+    RJ_REQUIRE_EMBEDDED_MINBIAS_CLASSIFIER="$require_embedded_minbias" \
     RJ_DISABLE_ID_FANOUT=1 \
     RJ_DISABLE_ISO_CONE_INTERNALIZATION=1 \
     RJ_DISABLE_JET_PT_INTERNALIZATION=1 \
@@ -507,16 +559,17 @@ run_condor_extract() {
     local master="${manifest_dir}/${sample}_5col.list"
     build_sample_master "$sample" "$master"
     local split_prefix="${sub_root}/${sample}_grp_"
-    rm -f "${split_prefix}"*
-    split -l "$group_size" -d -a 5 "$master" "$split_prefix"
+    find "$sub_root" -maxdepth 1 -type f -name "$(basename "$split_prefix")*" -delete
+    if (( max_jobs_per_sample > 0 )); then
+      head -n "$((group_size * max_jobs_per_sample))" "$master" |
+        split -l "$group_size" -d -a 5 - "$split_prefix"
+    else
+      split -l "$group_size" -d -a 5 "$master" "$split_prefix"
+    fi
     local queued=0
     for raw in "${split_prefix}"*; do
       [[ -s "$raw" ]] || { rm -f "$raw"; continue; }
       queued=$((queued + 1))
-      if (( max_jobs_per_sample > 0 && queued > max_jobs_per_sample )); then
-        rm -f "$raw"
-        continue
-      fi
       chunk_idx=$((chunk_idx + 1))
       local chunk="${raw}.list"
       mv "$raw" "$chunk"
@@ -535,6 +588,10 @@ run_condor_extract() {
   if [[ "${RJ_AUAU_TIGHT_BDT_TOLERATE_ROOT_ABORT_WITH_OUTPUT:-0}" == "1" ]]; then
     allow_nonzero_with_output=1
   fi
+  local force_status="${RJ_FORCE_CALO_TOWER_STATUS_FOR_EMBEDDED:-0}"
+  local event_calo_require_isgood="${RJ_EVENT_CALO_REQUIRE_ISGOOD:-1}"
+  local status_audit="${RJ_CALO_STATUS_AUDIT:-0}"
+  local status_input_prefix="${RJ_CALO_TOWER_STATUS_INPUT_PREFIX:-}"
   cat > "$sub" <<EOF
 universe = vanilla
 executable = /usr/bin/bash
@@ -544,7 +601,7 @@ error = ${sub_root}/extract_\$(Cluster)_\$(Process).err
 log = ${sub_root}/extract_\$(Cluster).log
 request_memory = ${reqmem}
 notification = Never
-environment = "RJ_CONFIG_YAML=${yaml} RJ_MACRO_PATH=${TRAIN_MACRO} RJ_AUAU_BDT_EXTRACT_ONLY=1 RJ_AUAU_BDT_TRAINING_TREE=1 RJ_DISABLE_ID_FANOUT=1 RJ_DISABLE_ISO_CONE_INTERNALIZATION=1 RJ_DISABLE_JET_PT_INTERNALIZATION=1 RJ_DISABLE_DPHI_INTERNALIZATION=1 RJ_PROFILE_JOB=1 RJ_ALLOW_NONZERO_WITH_ROOT_OUTPUT=${allow_nonzero_with_output}"
+environment = "RJ_CONFIG_YAML=${yaml} RJ_MACRO_PATH=${TRAIN_MACRO} RJ_AUAU_BDT_EXTRACT_ONLY=1 RJ_AUAU_BDT_TRAINING_TREE=1 RJ_REQUIRE_EMBEDDED_MINBIAS_CLASSIFIER=${require_embedded_minbias} RJ_AUAU_TIGHT_BDT_REQUIRE_EMBEDDED_MINBIAS=${require_embedded_minbias} RJ_DISABLE_ID_FANOUT=1 RJ_DISABLE_ISO_CONE_INTERNALIZATION=1 RJ_DISABLE_JET_PT_INTERNALIZATION=1 RJ_DISABLE_DPHI_INTERNALIZATION=1 RJ_PROFILE_JOB=1 RJ_ALLOW_NONZERO_WITH_ROOT_OUTPUT=${allow_nonzero_with_output} RJ_FORCE_CALO_TOWER_STATUS_FOR_EMBEDDED=${force_status} RJ_EVENT_CALO_REQUIRE_ISGOOD=${event_calo_require_isgood} RJ_CALO_STATUS_AUDIT=${status_audit} RJ_CALO_TOWER_STATUS_INPUT_PREFIX=${status_input_prefix}"
 queue sample,chunk,dataset,nevents,chunkidx,dest from ${args_file}
 EOF
 
@@ -605,6 +662,9 @@ total = 0
 signal = 0
 background = 0
 missing = 0
+minbias_pass = 0
+minbias_nonpass = 0
+missing_minbias_branch = 0
 for raw in manifest.read_text().splitlines():
     path = raw.strip()
     if not path:
@@ -625,9 +685,15 @@ for raw in manifest.read_text().splitlines():
                 continue
             signal += int((labels == 1).sum())
             background += int((labels == 0).sum())
+            if "minimum_bias_classifier_decision" not in tree.keys():
+                missing_minbias_branch += 1
+            else:
+                decisions = tree["minimum_bias_classifier_decision"].array(library="np")
+                minbias_pass += int((decisions == 2).sum())
+                minbias_nonpass += int((decisions != 2).sum())
     except Exception as exc:
         print(f"ROOT_OPEN_FAILED {path} {exc}")
-print(f"TREE_ENTRIES {total} SIGNAL_ENTRIES {signal} BACKGROUND_ENTRIES {background} MISSING_TREE_FILES {missing}")
+print(f"TREE_ENTRIES {total} SIGNAL_ENTRIES {signal} BACKGROUND_ENTRIES {background} MISSING_TREE_FILES {missing} MINBIAS_PASS_ENTRIES {minbias_pass} MINBIAS_NONPASS_ENTRIES {minbias_nonpass} MISSING_MINBIAS_BRANCH_FILES {missing_minbias_branch}")
 PY
 )
   tree_entries=\$(printf '%s\n' "\$validation_note" | awk '/TREE_ENTRIES/ {print \$2; exit}')
@@ -636,6 +702,12 @@ PY
   background_entries=\$(printf '%s\n' "\$validation_note" | awk '/TREE_ENTRIES/ {for (i=1; i<=NF; ++i) if (\$i=="BACKGROUND_ENTRIES") {print \$(i+1); exit}}')
   signal_entries="\${signal_entries:-0}"
   background_entries="\${background_entries:-0}"
+  minbias_pass_entries=\$(printf '%s\n' "\$validation_note" | awk '/TREE_ENTRIES/ {for (i=1; i<=NF; ++i) if (\$i=="MINBIAS_PASS_ENTRIES") {print \$(i+1); exit}}')
+  minbias_nonpass_entries=\$(printf '%s\n' "\$validation_note" | awk '/TREE_ENTRIES/ {for (i=1; i<=NF; ++i) if (\$i=="MINBIAS_NONPASS_ENTRIES") {print \$(i+1); exit}}')
+  missing_minbias_branch_files=\$(printf '%s\n' "\$validation_note" | awk '/TREE_ENTRIES/ {for (i=1; i<=NF; ++i) if (\$i=="MISSING_MINBIAS_BRANCH_FILES") {print \$(i+1); exit}}')
+  minbias_pass_entries="\${minbias_pass_entries:-0}"
+  minbias_nonpass_entries="\${minbias_nonpass_entries:-0}"
+  missing_minbias_branch_files="\${missing_minbias_branch_files:-0}"
 fi
 status=READY
 expected_signal_samples=${#SIGNAL_SAMPLES[@]}
@@ -643,6 +715,7 @@ expected_background_samples=${#BACKGROUND_SAMPLES[@]}
 if [[ "\$nroots" == "0" || "\$tree_entries" == "0" || "\$nroots" != "\$expected_roots" ]]; then status=CHECK; fi
 if [[ "\$expected_signal_samples" != "0" && "\${signal_entries:-0}" == "0" ]]; then status=CHECK; fi
 if [[ "\$expected_background_samples" != "0" && "\${background_entries:-0}" == "0" ]]; then status=CHECK; fi
+if [[ "${require_embedded_minbias}" == "1" && ("\${minbias_pass_entries:-0}" != "\$tree_entries" || "\${minbias_nonpass_entries:-0}" != "0" || "\${missing_minbias_branch_files:-0}" != "0") ]]; then status=CHECK; fi
 summary="${report_dir}/final_summary.txt"
 {
   echo "RECOILJETS_STAGE_EMAIL_V1"
@@ -656,6 +729,10 @@ summary="${report_dir}/final_summary.txt"
   echo "tree_entries=\${tree_entries}"
   echo "signal_entries=\${signal_entries:-0}"
   echo "background_entries=\${background_entries:-0}"
+  echo "require_embedded_minimum_bias_classifier=${require_embedded_minbias}"
+  echo "minimum_bias_pass_entries=\${minbias_pass_entries:-0}"
+  echo "minimum_bias_nonpass_entries=\${minbias_nonpass_entries:-0}"
+  echo "missing_minimum_bias_branch_files=\${missing_minbias_branch_files:-0}"
   echo "expected_signal_samples=\${expected_signal_samples}"
   echo "expected_background_samples=\${expected_background_samples}"
   if [[ -n "\${validation_note:-}" ]]; then
@@ -3437,19 +3514,19 @@ main() {
   case "$mode" in
     -h|--help|help) usage ;;
     localTest|local) run_local_test "$@" ;;
-    smokeTest) run_condor_extract "smokeTest" "$@" ;;
-    condorExtract|condorDoAll) run_condor_extract "condorExtract" "$@" ;;
+    smokeTest) require_codex_submission_provenance; run_condor_extract "smokeTest" "$@" ;;
+    condorExtract|condorDoAll) require_codex_submission_provenance; run_condor_extract "condorExtract" "$@" ;;
     trainFromExtraction) train_from_extraction "$@" ;;
     trainCentInput3x3FromExtraction) train_cent_input_3x3_from_extraction "$@" ;;
     trainWidthStudyPt1530FromExtraction) train_width_study_pt1530_from_extraction "$@" ;;
     trainWidthStudyWindowsFromExtraction) train_width_study_windows_from_extraction "$@" ;;
     trainEtFineCentStudyFromExtraction) train_etfine_centstudy_from_extraction "$@" ;;
     trainExpandedFromExtraction) train_expanded_from_extraction "$@" ;;
-    trainExpandedFromExtractionCondor) train_expanded_from_extraction_condor "$@" ;;
+    trainExpandedFromExtractionCondor) require_codex_submission_provenance; train_expanded_from_extraction_condor "$@" ;;
     finalizeExpandedTraining) finalize_expanded_training "$@" ;;
     applyCheck|smokeTestApplyExisting) apply_check "$@" ;;
     validateOnSim|validateSim|simValidation) validate_on_sim "$@" ;;
-    validateOnSimCondor|condorValidateOnSim|validateSimCondor|validateEtFineCentStudyOnSimCondor) validate_on_sim_condor "$@" ;;
+    validateOnSimCondor|condorValidateOnSim|validateSimCondor|validateEtFineCentStudyOnSimCondor) require_codex_submission_provenance; validate_on_sim_condor "$@" ;;
     deriveWorkingPointsFromValidation|deriveWPFromValidation) derive_working_points_from_validation "$@" ;;
     generateWorkingPointConfig|generateTargetWPConfig) generate_working_point_config "$@" ;;
     *) usage; die "Unknown mode: $mode" ;;

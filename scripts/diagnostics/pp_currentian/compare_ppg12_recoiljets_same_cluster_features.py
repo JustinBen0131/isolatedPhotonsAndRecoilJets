@@ -80,9 +80,9 @@ def selected_ppg12_model(smeared_et: float) -> str:
 
 
 def ppg12_thresholds(et: float) -> tuple[float, float, float]:
-    tight_min = 0.8333333333333334 - 0.003333333333333336 * et
+    tight_min = 0.815625 - 0.0015625 * et
     nt_min = 0.7333333333333333 - 0.01333333333333333 * et
-    nt_max = 0.6666666666666666 + 0.003333333333333336 * et
+    nt_max = 0.684375 + 0.0015625 * et
     return tight_min, nt_min, nt_max
 
 

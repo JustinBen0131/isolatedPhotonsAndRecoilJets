@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Build the current AuAu table-QA E11/E33 data/MC overlay slide."""
+"""Build common-contract AuAu/pp photon-ID stage-flow matrices.
+
+The renderer is shared by slide and manuscript outputs so the pp reference is
+not redrawn through a second, drifting implementation. Missing AuAu data
+histograms are rendered as explicit non-data slots; available simulation is
+never substituted for data.
+"""
 
 from __future__ import annotations
 
@@ -35,25 +41,83 @@ DEFAULT_INTERIM_DATA_CACHE = (
     / "interim_complete_runs/the42_b002_interim_complete_run_shower_shape_hists.json"
 )
 
-PP_CAMPAIGN = REPO / "dataOutput/ppg12TableQA/THE42_ppg12_tableqa_v1_basev3e_20260611"
-PP_ROOT_DIR = PP_CAMPAIGN / "merged_roots"
-PP_INCLUSIVE_CACHE = PP_CAMPAIGN / "inclusive_sample_hist_cache/the42_ppg12_tableqa_v1_inclusive_sample_projectx_hists.json"
 PP_PLOTTER_PATH = REPO / "scripts/plotting/pp_currentian/make_the42_ppg12_tableqa_v1_tables.py"
-PP_DATA_ROOT = PP_ROOT_DIR / "RecoilJets_pp_ALL_preselectionNewPPG12_tightNewPPG12_nonTightNewPPG12.root"
-PP_SIGNAL_ROOT = PP_ROOT_DIR / "RecoilJets_photonjet5plus10plus20_MERGED.root"
-PP_TOPDIR_DATA = "Photon_4_GeV_plus_MBD_NS_geq_1"
+
+
+def registered_root(sample_key: str) -> tuple[Path, Path]:
+    pointer = REPO / "dataOutput/current_recoiljets_artifacts/current" / sample_key / "current.json"
+    payload = json.loads(pointer.read_text())
+    roots = payload.get("root_paths", [])
+    if len(roots) != 1:
+        raise RuntimeError(f"Expected one registered ROOT in {pointer}, found {len(roots)}")
+    return Path(roots[0]), pointer
+
+
+PP_DATA_ROOT, PP_DATA_POINTER = registered_root("pp_data_merged")
+PP_SIGNAL_ROOT, PP_SIGNAL_POINTER = registered_root("pp_sim_photonjet_merged")
+PP_INCLUSIVE_ROOT, PP_INCLUSIVE_POINTER = registered_root("pp_sim_inclusivejet_merged")
+PP_TOPDIR_DATA = "PPG12_scaledtrigger30"
 
 DEFAULT_OUTDIR = REPO / "dataOutput/ppg12TableQA/THE42_current_auau_tableqa_20260614/e11_overlay_slide"
 VAR = "e11_to_e33"
 PT_TOKEN = "1535"
 PT_LABEL = r"$15<E_T<35$ GeV"
 VARIABLE_CONFIG = {
+    "weta_cogx": {
+        "axis": r"$w_{\eta}^{\mathrm{COGX}}$",
+        "slug": "weta_cogx",
+        "title": r"$w_{\eta}^{\mathrm{COGX}}$ shower-shape overlay: AuAu centrality and pp reference",
+        "lead": "Rows show AuAu centrality bins and the pp reference; columns follow the photon-ID selection flow.",
+        "takeaway": "The width evolution tests whether the selection retains the same compact-shower ordering across occupancy and collision system.",
+    },
+    "wphi_cogx": {
+        "axis": r"$w_{\phi}^{\mathrm{COGX}}$",
+        "slug": "wphi_cogx",
+        "title": r"$w_{\phi}^{\mathrm{COGX}}$ shower-shape overlay: AuAu centrality and pp reference",
+        "lead": "Rows show AuAu centrality bins and the pp reference; columns follow the photon-ID selection flow.",
+        "takeaway": "The azimuthal width provides the complementary lateral-shape check to the pseudorapidity width.",
+    },
     "e11_to_e33": {
         "axis": r"$E_{11}/E_{33}$",
         "slug": "e11_to_e33",
-        "title": r"$E_{11}/E_{33}$ shower-shape overlay: current AuAu table-QA data with matched MC",
+        "title": r"$E_{11}/E_{33}$ shower-shape overlay: AuAu centrality and pp reference",
         "lead": "Rows show AuAu centrality bins and the validated pp reference; columns follow the photon-ID selection flow.",
         "takeaway": "The tight-ID column should move the data toward the signal-like shower-shape region while retaining a coherent inclusive-MC comparison.",
+    },
+    "et1": {
+        "axis": r"$\mathrm{et1}$",
+        "slug": "et1",
+        "title": r"$\mathrm{et1}$ energy-sharing overlay: AuAu centrality and pp reference",
+        "lead": "Rows show AuAu centrality bins and the pp reference; columns follow the photon-ID selection flow.",
+        "takeaway": "The first ordered energy-sharing input checks whether the same shower-core partition is populated in data and simulation.",
+    },
+    "et2": {
+        "axis": r"$\mathrm{et2}$",
+        "slug": "et2",
+        "title": r"$\mathrm{et2}$ energy-sharing overlay: AuAu centrality and pp reference",
+        "lead": "Rows show AuAu centrality bins and the pp reference; columns follow the photon-ID selection flow.",
+        "takeaway": "The second ordered energy-sharing input tests a complementary component of the cluster topology.",
+    },
+    "et3": {
+        "axis": r"$\mathrm{et3}$",
+        "slug": "et3",
+        "title": r"$\mathrm{et3}$ energy-sharing overlay: AuAu centrality and pp reference",
+        "lead": "Rows show AuAu centrality bins and the pp reference; columns follow the photon-ID selection flow.",
+        "takeaway": "The third ordered energy-sharing input tests whether broader shower energy is modeled consistently.",
+    },
+    "et4": {
+        "axis": r"$\mathrm{et4}$",
+        "slug": "et4",
+        "title": r"$\mathrm{et4}$ energy-sharing overlay: AuAu centrality and pp reference",
+        "lead": "Rows show AuAu centrality bins and the pp reference; columns follow the photon-ID selection flow.",
+        "takeaway": "The fourth ordered energy-sharing input is especially sensitive to small outlying components of the cluster energy pattern.",
+    },
+    "e32_to_e35": {
+        "axis": r"$E_{3\times2}/E_{3\times5}$",
+        "slug": "e32_to_e35",
+        "title": r"$E_{3\times2}/E_{3\times5}$ containment overlay: AuAu centrality and pp reference",
+        "lead": "Rows show AuAu centrality bins and the pp reference; columns follow the photon-ID selection flow.",
+        "takeaway": "The elongated-core containment ratio tests compactness in a geometry complementary to $E_{11}/E_{33}$.",
     },
     "bdt": {
         "axis": "BDT score",
@@ -226,7 +290,8 @@ def load_tableqa_arrays(
         h.SetDirectory(0)
     finally:
         f.Close()
-    return hist_to_arrays(h, source=paths[0], rebin=4)
+    xlim, rebin = load_pp_plotter().ppg12_axis_settings(VAR)
+    return hist_to_arrays(h, source=paths[0], xlim=xlim, rebin=rebin)
 
 
 def load_interim_cache(path: Path) -> dict:
@@ -236,13 +301,19 @@ def load_interim_cache(path: Path) -> dict:
     return payload
 
 
-def load_cache_arrays(cache: dict, cache_path: Path, cent: str, stage: str) -> Arrays:
-    item = cache["hists"][VAR][cent][stage]
+def load_cache_arrays(cache: dict, cache_path: Path, cent: str, stage: str) -> Arrays | None:
+    variable_payload = cache.get("hists", {}).get(VAR)
+    if variable_payload is None:
+        return None
+    item = variable_payload.get(cent, {}).get(stage)
+    if item is None:
+        return None
     x = np.asarray(item["x"], dtype=float)
     y = np.asarray(item["y"], dtype=float)
     e = np.asarray(item["e"], dtype=float)
-    x, y, e = rebin_arrays(x, y, e, 4)
-    mask = np.isfinite(x) & np.isfinite(y) & np.isfinite(e) & (x >= 0.0) & (x <= 1.0)
+    xlim, rebin = load_pp_plotter().ppg12_axis_settings(VAR)
+    x, y, e = rebin_arrays(x, y, e, rebin)
+    mask = np.isfinite(x) & np.isfinite(y) & np.isfinite(e) & (x >= xlim[0]) & (x <= xlim[1])
     x, y, e = x[mask], y[mask], e[mask]
     integral = float(np.sum(y))
     if integral > 0:
@@ -265,18 +336,19 @@ def load_pp_arrays(stage: str, *, npb_display_coarsen: int = 1, include_npb: boo
     files = {
         "data": plotter.open_root(PP_DATA_ROOT),
         "signal_mc": plotter.open_root(PP_SIGNAL_ROOT),
+        "inclusive_mc": plotter.open_root(PP_INCLUSIVE_ROOT),
     }
-    inclusive_cache = plotter.load_inclusive_cache(PP_INCLUSIVE_CACHE, use_stitched_inclusive=False)
     xlim, rebin = plotter.ppg12_axis_settings(VAR)
 
     out: dict[str, Arrays] = {}
     data = plotter.norm_arrays(plotter.get_hist(files["data"], PP_TOPDIR_DATA, VAR, PT_TOKEN, stage), rebin, xlim)
     sig = plotter.norm_arrays(plotter.get_hist(files["signal_mc"], "SIM", VAR, PT_TOKEN, stage), rebin, xlim)
-    inc_payload = plotter.cache_hist(inclusive_cache, "current_ian_jet8to40", VAR, PT_TOKEN, stage)
-    inc = plotter.norm_payload(inc_payload, rebin, xlim)
+    inc = plotter.norm_arrays(plotter.get_hist(files["inclusive_mc"], "SIM", VAR, PT_TOKEN, stage), rebin, xlim)
+    if data is None or sig is None or inc is None:
+        raise RuntimeError(f"Missing registered pp histogram for {VAR}, {stage}")
     out["Data"] = Arrays(*data, integral=float(np.sum(data[1])), source=f"{PP_DATA_ROOT}:{stage}")
     out["Signal MC"] = Arrays(*sig, integral=float(np.sum(sig[1])), source=f"{PP_SIGNAL_ROOT}:{stage}")
-    out["Inclusive MC"] = Arrays(*inc, integral=float(np.sum(inc[1])), source=f"{PP_INCLUSIVE_CACHE}:current_ian_jet8to40:{stage}")
+    out["Inclusive MC"] = Arrays(*inc, integral=float(np.sum(inc[1])), source=f"{PP_INCLUSIVE_ROOT}:{stage}")
     if include_npb and stage == "cut0":
         npb_hist = plotter.get_hist(files["data"], PP_TOPDIR_DATA, VAR, PT_TOKEN, "cut4")
         npb_raw_entries = float(npb_hist.GetEntries())
@@ -287,6 +359,8 @@ def load_pp_arrays(stage: str, *, npb_display_coarsen: int = 1, include_npb: boo
             integral=npb_raw_entries,
             source=f"{PP_DATA_ROOT}:cut4 raw-sideband-shape; display_coarsen={npb_display_coarsen}",
         )
+    for root_file in files.values():
+        root_file.Close()
     return out
 
 
@@ -342,11 +416,53 @@ def draw_arrow_text(fig, x: float, y: float, text: str) -> None:
     fig.text(x + 0.021, y, text, fontsize=14.2, color="#172033", ha="left", va="top")
 
 
+def draw_missing_data_slot(ax, *, row_label: str, stage_label: str) -> None:
+    """Render an unmistakable non-data slot when the bounded cache lacks a variable."""
+    ax.set_facecolor("#FFF9ED")
+    for spine in ax.spines.values():
+        spine.set_color("#C47A14")
+        spine.set_linewidth(1.15)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.text(
+        0.5,
+        0.59,
+        "AUAU DATA SLOT",
+        transform=ax.transAxes,
+        ha="center",
+        va="center",
+        fontsize=8.4,
+        fontweight="bold",
+        color="#A65C00",
+    )
+    ax.text(
+        0.5,
+        0.38,
+        "No common-contract data histogram\nin the bounded cache",
+        transform=ax.transAxes,
+        ha="center",
+        va="center",
+        fontsize=6.7,
+        color="#6B4A1D",
+        linespacing=1.15,
+    )
+    ax.text(
+        0.5,
+        0.14,
+        f"{row_label}; {stage_label}",
+        transform=ax.transAxes,
+        ha="center",
+        va="center",
+        fontsize=6.2,
+        color="#6B4A1D",
+    )
+
+
 def render(args: argparse.Namespace) -> dict:
     global VAR
     VAR = args.var
     var_cfg = VARIABLE_CONFIG[VAR]
-    include_npb = bool(args.include_npb_sideband and VAR == "e11_to_e33")
+    include_npb = bool(args.include_npb_sideband and VAR != "bdt")
     setup_style()
     outdir = args.outdir
     outdir.mkdir(parents=True, exist_ok=True)
@@ -369,9 +485,14 @@ def render(args: argparse.Namespace) -> dict:
     inclusive_index = build_index(inclusive_root)
     data_trigger_regex = re.compile(args.data_trigger_regex) if args.data_trigger_regex else None
 
-    fig, axes = plt.subplots(4, 3, figsize=slide_figsize(), constrained_layout=False)
+    manuscript_layout = args.layout == "manuscript"
+    fig_size = (7.35, 8.7) if manuscript_layout else slide_figsize()
+    fig, axes = plt.subplots(4, 3, figsize=fig_size, constrained_layout=False)
     fig.patch.set_facecolor("white")
-    fig.subplots_adjust(left=0.070, right=0.990, top=0.720, bottom=0.070, wspace=0.120, hspace=0.220)
+    if manuscript_layout:
+        fig.subplots_adjust(left=0.105, right=0.985, top=0.875, bottom=0.065, wspace=0.135, hspace=0.215)
+    else:
+        fig.subplots_adjust(left=0.070, right=0.990, top=0.720, bottom=0.070, wspace=0.120, hspace=0.220)
 
     manifest: dict = {
         "schema": "CURRENT_AUAU_TABLEQA_OVERLAY_SLIDE_V2",
@@ -385,8 +506,11 @@ def render(args: argparse.Namespace) -> dict:
         "inclusive_root": str(inclusive_root),
         "pp_reference": {
             "data": str(PP_DATA_ROOT),
+            "data_pointer": str(PP_DATA_POINTER),
             "signal": str(PP_SIGNAL_ROOT),
-            "inclusive_sample_cache": str(PP_INCLUSIVE_CACHE),
+            "signal_pointer": str(PP_SIGNAL_POINTER),
+            "inclusive": str(PP_INCLUSIVE_ROOT),
+            "inclusive_pointer": str(PP_INCLUSIVE_POINTER),
         },
         "npb_sideband_note": (
             "Green is raw cut4 NPB-tagged data in both pp and AuAu. "
@@ -396,7 +520,9 @@ def render(args: argparse.Namespace) -> dict:
         ),
         "npb_display_coarsen": args.npb_display_coarsen,
         "include_npb_sideband": include_npb,
+        "layout": args.layout,
         "curves": [],
+        "missing_data_slots": [],
     }
 
     rows = CENTRALITIES + [("pp", "pp reference")]
@@ -412,6 +538,26 @@ def render(args: argparse.Namespace) -> dict:
                     if data_cache is not None
                     else load_tableqa_arrays(data_root, data_index, cent_key, stage, path_regex=data_trigger_regex)
                 )
+                if data is None:
+                    draw_missing_data_slot(ax, row_label=row_label, stage_label=stage_label)
+                    if row == 0:
+                        ax.set_title(
+                            stage_label,
+                            fontsize=10.2 if manuscript_layout else 14.7,
+                            fontweight="bold",
+                            pad=5,
+                            color="#173B63",
+                        )
+                    if col == 0:
+                        ax.set_ylabel(
+                            row_label.replace(" ", "\n", 1),
+                            fontsize=8.4 if manuscript_layout else 10.4,
+                            labelpad=7,
+                        )
+                    manifest["missing_data_slots"].append(
+                        {"row": row_label, "stage": stage, "reason": f"{VAR} absent from bounded AuAu data cache"}
+                    )
+                    continue
                 curves = {
                     "Data": data,
                     "Signal MC": load_tableqa_arrays(signal_root, signal_index, cent_key, stage),
@@ -423,8 +569,9 @@ def render(args: argparse.Namespace) -> dict:
                         if data_cache is not None
                         else load_tableqa_arrays(data_root, data_index, cent_key, "cut4", path_regex=data_trigger_regex)
                     )
-                    npb = coarsen_arrays(npb, args.npb_display_coarsen)
-                    curves["NPB-tagged data"] = npb
+                    if npb is not None:
+                        npb = coarsen_arrays(npb, args.npb_display_coarsen)
+                        curves["NPB-tagged data"] = npb
             for sample in ("Data", "Signal MC", "Inclusive MC"):
                 arr = curves.get(sample)
                 if arr is None:
@@ -472,25 +619,35 @@ def render(args: argparse.Namespace) -> dict:
                         fontweight="bold",
                         bbox={"boxstyle": "round,pad=0.16", "facecolor": "white", "edgecolor": "none", "alpha": 0.78},
                     )
-            ax.set_xlim(0.0, 1.0)
+            xlim, _ = load_pp_plotter().ppg12_axis_settings(VAR)
+            ax.set_xlim(*xlim)
             ax.set_ylim(0.0, max(0.025, ymax * 1.16))
             if VAR == "bdt" and cent_key in CENTRALITY_MIDPOINTS:
                 wp80 = WP80_INTERCEPT + WP80_SLOPE * CENTRALITY_MIDPOINTS[cent_key]
                 ax.axvline(wp80, color="#4B5563", lw=1.05, ls=(0, (3.2, 2.6)), alpha=0.72, zorder=0)
             ax.grid(True, axis="y", color="#E5E7EB", lw=0.52, alpha=0.78)
-            ax.tick_params(labelsize=7.8, pad=1, direction="in", top=True, right=True)
+            ax.tick_params(labelsize=6.4 if manuscript_layout else 7.8, pad=1, direction="in", top=True, right=True)
             if col == 0:
-                ax.set_ylabel(row_label.replace(" ", "\n", 1), fontsize=10.4, labelpad=8)
+                ax.set_ylabel(row_label.replace(" ", "\n", 1), fontsize=8.4 if manuscript_layout else 10.4, labelpad=7)
                 add_sphenix_label(ax, system="pp" if cent_key == "pp" else "AuAu")
             if row == 0:
-                ax.set_title(stage_label, fontsize=14.7, fontweight="bold", pad=6, color="#173B63")
+                ax.set_title(stage_label, fontsize=10.2 if manuscript_layout else 14.7, fontweight="bold", pad=5, color="#173B63")
             if row == 3:
-                ax.set_xlabel(var_cfg["axis"], fontsize=10.7, labelpad=1)
+                ax.set_xlabel(var_cfg["axis"], fontsize=8.3 if manuscript_layout else 10.7, labelpad=1)
             else:
                 ax.tick_params(labelbottom=False)
 
     title = var_cfg["title"]
-    fig.text(0.055, 0.955, title, fontsize=23.8, fontweight="bold", ha="left", va="top", color="#111827")
+    fig.text(
+        0.105 if manuscript_layout else 0.055,
+        0.975 if manuscript_layout else 0.955,
+        title,
+        fontsize=13.2 if manuscript_layout else 23.8,
+        fontweight="bold",
+        ha="left",
+        va="top",
+        color="#111827",
+    )
     if data_cache is not None:
         meta = data_cache.get("metadata", {})
         data_line = (
@@ -499,8 +656,19 @@ def render(args: argparse.Namespace) -> dict:
         )
     else:
         data_line = var_cfg["lead"]
-    draw_arrow_text(fig, 0.058, 0.895, data_line)
-    if include_npb:
+    if manuscript_layout:
+        fig.text(
+            0.105,
+            0.952,
+            "Historical diagnostic: common 15--35 GeV table-QA contract; unit-area shapes",
+            fontsize=8.0,
+            ha="left",
+            va="top",
+            color="#4B5563",
+        )
+    else:
+        draw_arrow_text(fig, 0.058, 0.895, data_line)
+    if include_npb and not manuscript_layout:
         draw_arrow_text(
             fig,
             0.058,
@@ -513,7 +681,7 @@ def render(args: argparse.Namespace) -> dict:
             0.818,
             "The green height is compressed into a diagnostic strip, so sparse AuAu sidebands do not look like high-stat unit-area shapes.",
         )
-    else:
+    elif not manuscript_layout:
         draw_arrow_text(fig, 0.058, 0.855, var_cfg["takeaway"])
         if VAR == "bdt":
             draw_arrow_text(
@@ -544,9 +712,24 @@ def render(args: argparse.Namespace) -> dict:
             label="NPB-tagged sideband strip",
             )
         )
-    fig.legend(handles=handles, loc="upper right", bbox_to_anchor=(0.985, 0.800), frameon=False, ncol=4, fontsize=9.2, handlelength=1.6, columnspacing=1.0)
+    if manuscript_layout:
+        fig.legend(
+            handles=handles,
+            loc="upper right",
+            bbox_to_anchor=(0.985, 0.925),
+            frameon=False,
+            ncol=4,
+            fontsize=6.8,
+            handlelength=1.4,
+            columnspacing=0.8,
+        )
+    else:
+        fig.legend(handles=handles, loc="upper right", bbox_to_anchor=(0.985, 0.800), frameon=False, ncol=4, fontsize=9.2, handlelength=1.6, columnspacing=1.0)
 
-    out_stem = "current_auau_tableqa_e11_to_e33_data_mc_overlay_slide" if VAR == "e11_to_e33" else f"current_auau_tableqa_{var_cfg['slug']}_data_mc_overlay_slide"
+    if manuscript_layout:
+        out_stem = f"auau_pp_{var_cfg['slug']}_stage_matrix_historical"
+    else:
+        out_stem = "current_auau_tableqa_e11_to_e33_data_mc_overlay_slide" if VAR == "e11_to_e33" else f"current_auau_tableqa_{var_cfg['slug']}_data_mc_overlay_slide"
     out_png = outdir / f"{out_stem}.png"
     out_manifest = outdir / f"{out_stem}_manifest.json"
     out_script = outdir / f"{out_stem}_speaker_script.md"
@@ -581,6 +764,8 @@ def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT)
     ap.add_argument("--var", choices=sorted(VARIABLE_CONFIG), default="e11_to_e33")
+    ap.add_argument("--all-basev3e-shapes", action="store_true")
+    ap.add_argument("--layout", choices=("slide", "manuscript"), default="slide")
     ap.add_argument("--data-cache", type=Path, default=None)
     ap.add_argument("--use-default-interim-cache", action="store_true")
     ap.add_argument("--signal-root", type=Path, default=DEFAULT_SIGNAL_ROOT)
@@ -610,9 +795,17 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
-    outputs = render(parse_args())
-    for value in outputs.values():
-        print(value)
+    args = parse_args()
+    variables = (
+        ["weta_cogx", "wphi_cogx", "e11_to_e33", "et1", "et2", "et3", "et4", "e32_to_e35"]
+        if args.all_basev3e_shapes
+        else [args.var]
+    )
+    for variable in variables:
+        args.var = variable
+        outputs = render(args)
+        for value in outputs.values():
+            print(value)
     return 0
 
 

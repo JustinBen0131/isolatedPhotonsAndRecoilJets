@@ -250,7 +250,9 @@ inline constexpr double kSigmaPhoton5_pb  = 146359.3;
 inline constexpr double kSigmaPhoton10_pb = 6944.675;
 inline constexpr double kSigmaPhoton20_pb = 130.4461;
 inline constexpr double kSigmaInclusiveJet5_pb  = 1.3878e8;
-inline constexpr double kSigmaInclusiveJet8_pb  = 1.3013e7;
+// PPG12 IAN / efficiencytool/CrossSectionWeights.h nominal value.
+// The older local/wiki value 1.3013e7 shifts only the Jet8 stitch slice.
+inline constexpr double kSigmaInclusiveJet8_pb  = 1.15e7;
 inline constexpr double kSigmaInclusiveJet12_pb = 1.4903e6;
 inline constexpr double kSigmaInclusiveJet20_pb = 6.2623e4;
 inline constexpr double kSigmaInclusiveJet30_pb = 2.5298e3;

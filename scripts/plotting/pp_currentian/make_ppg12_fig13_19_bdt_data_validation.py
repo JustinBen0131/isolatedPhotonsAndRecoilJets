@@ -14,6 +14,7 @@ input provenance and calibration choices.
 
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import math
@@ -24,7 +25,6 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import numpy as np
 from PIL import Image
-import uproot
 
 from make_ppg12_datathief_validation_overlays import (
     DATATHIEF_JAR,
@@ -50,7 +50,7 @@ CURRENT_FULL_PP = (
     / "RecoilJets_pp_ALL_jetMinPtScan_dphiScan_vz60_isoR40_isSliding_"
     "preselectionNewPPG12_tightNewPPG12_nonTightNewPPG12.root"
 )
-CURRENT_DIR = "Photon_4_GeV_plus_MBD_NS_geq_1"
+CURRENT_DIR = "PPG12_scaledtrigger30"
 
 
 @dataclass(frozen=True)
@@ -210,6 +210,7 @@ def load_sdcc_projection(spec: PanelSpec) -> dict[str, np.ndarray]:
         "raw": np.asarray(p["raw"], dtype=float),
         "raw_errors": np.asarray(p["raw_errors"], dtype=float),
         "source_root": payload["source_root"],
+        "source_integral_0to1": float(p.get("source_integral_0to1", 0.0)),
     }
 
 
@@ -374,6 +375,8 @@ def plot_overlay(
     ratio_ylim: tuple[float, float],
     stable_threshold: float,
     manifest: dict[str, object],
+    stats_text: str | None = None,
+    annotation_label: str | None = None,
 ) -> None:
     setup_style()
     fig, (ax, rax) = plt.subplots(
@@ -385,15 +388,16 @@ def plot_overlay(
         gridspec_kw={"height_ratios": [3.35, 1.0], "hspace": 0.05},
     )
     ax.errorbar(ref_x, ref_y, yerr=ref_err, fmt="o", color="black", ms=4.2, lw=1.0, label="PPG12 SDCC ROOT data", zorder=3)
+    is_datathief = "DataThief" in cmp_label
     ax.errorbar(
         cmp_x,
         cmp_y,
         yerr=cmp_err,
         fmt="s",
-        color="#d62728" if "DataThief" in cmp_label else "#1f77b4",
-        markerfacecolor="none" if "DataThief" in cmp_label else "#9ecae1",
+        color="#d62728" if is_datathief else "#1f77b4",
+        markerfacecolor="none",
         markeredgewidth=1.2,
-        ms=4.0,
+        ms=4.6,
         lw=1.0,
         label=cmp_label,
         zorder=4,
@@ -401,11 +405,29 @@ def plot_overlay(
     sphinx_label(ax)
     ax.text(0.05, 0.84, r"$p{+}p\ \sqrt{s}=200$ GeV", transform=ax.transAxes, fontsize=15, ha="left")
     ax.text(0.05, 0.77, r"$|\eta^\gamma| < 0.7$", transform=ax.transAxes, fontsize=15, ha="left")
-    ax.text(0.05, 0.70, spec.ian_label, transform=ax.transAxes, fontsize=13, ha="left")
+    ax.text(0.05, 0.70, annotation_label or spec.ian_label, transform=ax.transAxes, fontsize=13, ha="left")
     ax.set_ylabel("normalized counts", fontsize=17)
     ax.set_xlim(0.0, 1.0)
     ax.set_ylim(0.0, spec.y_max)
-    ax.legend(loc="upper right", frameon=False, fontsize=13, handlelength=1.5, borderpad=0.2, labelspacing=0.35)
+    ax.legend(
+        loc="upper right",
+        frameon=False,
+        fontsize=16.0,
+        handlelength=1.5,
+        borderaxespad=0.35,
+        labelspacing=0.55,
+    )
+    if stats_text:
+        ax.text(
+            0.590,
+            0.790,
+            stats_text,
+            transform=ax.transAxes,
+            fontsize=15.0,
+            va="top",
+            ha="left",
+            linespacing=1.55,
+        )
     ax.tick_params(labelsize=14, top=True, right=True)
     ax.minorticks_on()
 
@@ -414,25 +436,27 @@ def plot_overlay(
     ratio_err = None
     if cmp_err is not None:
         ratio_err = np.divide(cmp_err, ref_interp, out=np.full_like(cmp_err, np.nan), where=ref_interp > 0)
+    plot_mask = np.isfinite(ratio) & (ref_interp > 0)
     stable = np.isfinite(ratio) & (ref_interp > stable_threshold)
     if ratio_err is None:
-        rax.plot(cmp_x[stable], ratio[stable], "o", color="#d62728" if "DataThief" in cmp_label else "#1f77b4", ms=4.2)
+        rax.plot(cmp_x[plot_mask], ratio[plot_mask], "o", color="#d62728" if "DataThief" in cmp_label else "#1f77b4", ms=4.2)
     else:
-        rax.errorbar(cmp_x[stable], ratio[stable], yerr=ratio_err[stable], fmt="o", color="#1f77b4", ms=4.0, lw=1.0)
+        rax.errorbar(cmp_x[plot_mask], ratio[plot_mask], yerr=ratio_err[plot_mask], fmt="o", color="#1f77b4", ms=4.0, lw=1.0)
     rax.axhline(1.0, color="0.35", ls="--", lw=1.0)
     rax.set_ylabel(ratio_label, fontsize=15)
     rax.set_xlabel("bdt", fontsize=17)
     rax.set_ylim(*ratio_ylim)
     rax.tick_params(labelsize=14, top=True, right=True)
     rax.minorticks_on()
-    fig.tight_layout()
-    fig.savefig(out)
+    fig.subplots_adjust(left=0.115, right=0.985, top=0.985, bottom=0.075, hspace=0.05)
+    fig.savefig(out, bbox_inches="tight", pad_inches=0.02)
     plt.close(fig)
 
     stable_ratio = ratio[stable]
     manifest.update(
         {
             "artifact": str(out),
+            "ratio_plot_bin_count": int(plot_mask.sum()),
             "stable_threshold_on_reference": stable_threshold,
             "stable_ratio_count": int(stable.sum()),
             "stable_mean_ratio": float(np.nanmean(stable_ratio)) if stable_ratio.size else None,
@@ -464,7 +488,60 @@ def rebin_counts_to_edges(src_values: np.ndarray, src_edges: np.ndarray, dst_edg
     return out, np.sqrt(err2)
 
 
+def infer_count_from_normalized_errors(values: np.ndarray, errors: np.ndarray) -> float:
+    counts = [
+        (float(y) / float(err)) ** 2
+        for y, err in zip(values, errors)
+        if y > 0 and err > 0
+    ]
+    return float(sum(counts))
+
+
+def current_projection_exact(root_path: Path, hist_name: str, dst_edges: np.ndarray) -> dict[str, np.ndarray | float]:
+    import ROOT
+
+    root_file = ROOT.TFile.Open(str(root_path))
+    if not root_file or root_file.IsZombie():
+        raise RuntimeError(f"Could not open current ROOT: {root_path}")
+    hist = root_file.Get(hist_name)
+    if not hist:
+        root_file.Close()
+        raise RuntimeError(f"Missing exact current histogram: {hist_name}")
+
+    nbins = hist.GetNbinsX()
+    counts = np.asarray([float(hist.GetBinContent(i)) for i in range(1, nbins + 1)], dtype=float)
+    edges = np.asarray(
+        [float(hist.GetXaxis().GetBinLowEdge(i)) for i in range(1, nbins + 1)]
+        + [float(hist.GetXaxis().GetBinUpEdge(nbins))],
+        dtype=float,
+    )
+    underflow = float(hist.GetBinContent(0))
+    overflow = float(hist.GetBinContent(nbins + 1))
+    root_file.Close()
+
+    raw, rawerr = rebin_counts_to_edges(counts, edges, dst_edges)
+    total = float(np.sum(raw))
+    vals = raw / total if total > 0 else raw
+    errs = rawerr / total if total > 0 else rawerr
+    centers = 0.5 * (dst_edges[:-1] + dst_edges[1:])
+    return {
+        "centers": centers,
+        "values": vals,
+        "errors": errs,
+        "raw": raw,
+        "raw_errors": rawerr,
+        "total_0to1": total,
+        "source_integrals": {hist_name: float(np.sum(counts))},
+        "source_edges_low": float(edges[0]),
+        "source_edges_high": float(edges[-1]),
+        "underflow": underflow,
+        "overflow": overflow,
+    }
+
+
 def current_projection(spec: PanelSpec, dst_edges: np.ndarray) -> dict[str, np.ndarray | float]:
+    import uproot
+
     f = uproot.open(CURRENT_FULL_PP)
     counts = None
     edges = None
@@ -548,10 +625,9 @@ def write_current_overlay(spec: PanelSpec, sdcc: dict[str, np.ndarray]) -> None:
         "current_rebinned_integral_0to1": cur["total_0to1"],
         "current_source_axis": [cur["source_edges_low"], cur["source_edges_high"]],
         "important_caveat": (
-            "Current overlay uses the completed full-pp BDT-score QA histograms in "
-            "Photon_4_GeV_plus_MBD_NS_geq_1. This is the current default pp output "
-            "available locally, but it is not the exact PPG12_scaledtrigger30 table-QA "
-            "object requested for the next pp pass."
+            "Current overlay uses the canonical PPG12 pp-data trigger namespace "
+            "PPG12_scaledtrigger30, filled from direct GL1 ScaledVector bit 30. "
+            "The similarly named TriggerAnalyzer directory is diagnostic only."
         ),
     }
     plot_overlay(
@@ -571,16 +647,107 @@ def write_current_overlay(spec: PanelSpec, sdcc: dict[str, np.ndarray]) -> None:
     )
 
 
+def write_exact_current_overlay(args: argparse.Namespace) -> None:
+    spec = next(s for s in PANELS if s.tag == args.panel)
+    sdcc = load_sdcc_projection(spec)
+    cur = current_projection_exact(args.current_root, args.current_hist, sdcc["edges"])
+
+    ref_x = sdcc["centers"]
+    ref_y = sdcc["values"]
+    ref_err = sdcc["errors"]
+    cur_x = cur["centers"]
+    cur_y = cur["values"]
+    cur_err = cur["errors"]
+    if len(cur_x) != len(ref_x) or not np.allclose(cur_x, ref_x, atol=1e-6):
+        raise RuntimeError("Current and PPG12 BDT bin centers do not match")
+
+    ref_interp = np.interp(cur_x, ref_x, ref_y, left=np.nan, right=np.nan)
+    ratio = np.divide(cur_y, ref_interp, out=np.full_like(cur_y, np.nan), where=ref_interp > 0)
+    stable_threshold = max(0.0025, 0.01 * spec.y_max)
+    stable = np.isfinite(ratio) & (ref_interp > stable_threshold)
+    stable_ratio = ratio[stable]
+    max_abs_ratio_minus_one = float(np.nanmax(np.abs(stable_ratio - 1.0))) if stable_ratio.size else float("nan")
+    max_ratio_x = float(cur_x[stable][int(np.nanargmax(np.abs(stable_ratio - 1.0)))]) if stable_ratio.size else float("nan")
+    ppg12_entries = infer_count_from_normalized_errors(ref_y, ref_err)
+    stats_text = (
+        f"PPG12 SDCC N_eff={ppg12_entries:.0f}\n"
+        f"July 1 final pp N={cur['total_0to1']:.0f}\n"
+        rf"max $|R-1|$ = {100.0 * max_abs_ratio_minus_one:.1f}%"
+        f"\nnear bdt = {max_ratio_x:.2f}"
+    )
+
+    manifest = {
+        "comparison": "PPG12 SDCC ROOT data projection vs July 1 final combined pp TableQA BDT object",
+        "panel": spec.title,
+        "ppg12_sdcc_json": str(SDCC_JSON),
+        "ppg12_sdcc_root": sdcc["source_root"],
+        "ppg12_sdcc_hist": spec.sdcc_hist,
+        "ppg12_sdcc_effective_entries_from_errors": ppg12_entries,
+        "current_root": str(args.current_root),
+        "current_directory": CURRENT_DIR,
+        "current_histograms": [args.current_hist],
+        "current_source_integrals": cur["source_integrals"],
+        "current_rebinned_integral_0to1": cur["total_0to1"],
+        "current_underflow": cur["underflow"],
+        "current_overflow": cur["overflow"],
+        "current_source_axis": [cur["source_edges_low"], cur["source_edges_high"]],
+        "stable_threshold_on_reference": stable_threshold,
+        "stable_ratio_count": int(stable.sum()),
+        "stable_mean_ratio": float(np.nanmean(stable_ratio)) if stable_ratio.size else None,
+        "stable_mean_abs_ratio_minus_one": float(np.nanmean(np.abs(stable_ratio - 1.0))) if stable_ratio.size else None,
+        "stable_max_abs_ratio_minus_one": max_abs_ratio_minus_one,
+        "stable_max_abs_ratio_minus_one_bdt_center": max_ratio_x,
+        "note": "Current points are from the final hierarchical July 1 combined pp ROOT, using the exact PPG12 TableQA 22<pT<28 GeV no-NPB BDT object, rebinned to the PPG12 Fig.13/19 50-bin 0-1 grid.",
+    }
+    plot_overlay(
+        spec=spec,
+        out=args.output,
+        ref_x=ref_x,
+        ref_y=ref_y,
+        ref_err=ref_err,
+        cmp_x=cur_x,
+        cmp_y=cur_y,
+        cmp_err=cur_err,
+        cmp_label=args.current_legend,
+        ratio_label="Current / PPG12",
+        ratio_ylim=args.ratio_ylim,
+        stable_threshold=stable_threshold,
+        manifest=manifest,
+        stats_text=stats_text,
+        annotation_label="22 < pT < 28 GeV, no NPB cut" if spec.tag == "bdt_no_npb_22_28" else None,
+    )
+
+
+def parse_args() -> argparse.Namespace:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--panel", choices=[p.tag for p in PANELS], default="bdt_no_npb_22_28")
+    ap.add_argument("--current-root", type=Path, default=CURRENT_FULL_PP)
+    ap.add_argument("--current-hist", default=None)
+    ap.add_argument("--current-legend", default="July 1 final pp data")
+    ap.add_argument("--output", type=Path, default=OUTDIR / "ppg12_sdcc_vs_current_default_fullpp_bdt_no_npb_22_28_data_overlay_slidefit_772x998.png")
+    ap.add_argument("--skip-reference", action="store_true")
+    ap.add_argument("--ratio-ymin", type=float, default=0.0)
+    ap.add_argument("--ratio-ymax", type=float, default=4.5)
+    args = ap.parse_args()
+    args.ratio_ylim = (args.ratio_ymin, args.ratio_ymax)
+    return args
+
+
 def main() -> None:
+    args = parse_args()
     OUTDIR.mkdir(parents=True, exist_ok=True)
     if not SDCC_JSON.exists():
         write_sdcc_json_from_raw()
     else:
         # Keep JSON synchronized with the raw SDCC readback if present.
         write_sdcc_json_from_raw()
+    if args.current_hist:
+        write_exact_current_overlay(args)
+        return
     for spec in PANELS:
         sdcc = load_sdcc_projection(spec)
-        write_reference_validation(spec, sdcc)
+        if not args.skip_reference:
+            write_reference_validation(spec, sdcc)
         write_current_overlay(spec, sdcc)
 
 

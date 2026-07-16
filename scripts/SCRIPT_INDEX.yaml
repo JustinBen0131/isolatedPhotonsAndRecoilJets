@@ -357,6 +357,16 @@ entries:
         sdcc_canonical: "scripts/diagnostics/pp_shuhang/audit_pp_basev3e_shuhang_equivalence.py"
         sdcc_compat: "scripts/diagnostics/audit_pp_basev3e_shuhang_equivalence.py"
         upload_target: "scripts/diagnostics/pp_shuhang/audit_pp_basev3e_shuhang_equivalence.py"
+  - id: audit_the97_pp_data_eiso_boundary
+    canonical_path: "scripts/diagnostics/pp_currentian/audit_the97_pp_data_eiso_boundary.py"
+    category: "diagnostic"
+    domain: "diagnostics/pp_currentian"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
   - id: compare_pp_currentian_insitu_stitch_contract
     canonical_path: "scripts/diagnostics/pp_shuhang/compare_pp_currentian_insitu_stitch_contract.py"
     category: "diagnostic"
@@ -1131,6 +1141,16 @@ entries:
       []
   - id: make_auau_final_id_efficiency_overlays
     canonical_path: "scripts/plotting/efficiency/make_auau_final_id_efficiency_overlays.py"
+    category: "plotting"
+    domain: "plotting/efficiency"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: make_the96_auau_isolation_efficiency_fits
+    canonical_path: "scripts/plotting/efficiency/make_the96_auau_isolation_efficiency_fits.py"
     category: "plotting"
     domain: "plotting/efficiency"
     status: "canonical_source"
@@ -2916,6 +2936,26 @@ entries:
     canonical_path: "scripts/os/claude/overnight_findings_check.py"
     category: "os_control_plane"
     domain: "os/claude"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: overleaf_git_bridge
+    canonical_path: "scripts/os/ian/overleaf_git_bridge.py"
+    category: "os_control_plane"
+    domain: "os/ian"
+    status: "canonical_source"
+    sdcc_transfer: false
+    aliases:
+      []
+    transfer_mappings:
+      []
+  - id: test_overleaf_git_bridge
+    canonical_path: "scripts/os/ian/test_overleaf_git_bridge.py"
+    category: "test"
+    domain: "os/ian"
     status: "canonical_source"
     sdcc_transfer: false
     aliases:

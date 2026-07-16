@@ -362,6 +362,22 @@ fmt_h() {
   awk -v s="${1:-0}" 'BEGIN { printf "%.2f", (s / 3600.0); }'
 }
 
+ratio_micro() {
+  local n="${1:-0}"
+  local d="${2:-0}"
+  if (( d > 0 )); then
+    # Six decimal places with the same nearest-value rounding as printf %.6f.
+    printf '%s' "$(( (n * 1000000 + d / 2) / d ))"
+  else
+    printf '0'
+  fi
+}
+
+fmt_micro() {
+  local micro="${1:-0}"
+  printf '%d.%06d' "$(( micro / 1000000 ))" "$(( micro % 1000000 ))"
+}
+
 yn() {
   if [[ "${1:-0}" -ne 0 ]]; then
     printf 'Y'
@@ -572,12 +588,17 @@ find_best_list_file() {
   local r8="$2"
   local -a existing=()
   local -a nonempty=()
+  local -a candidates=(
+    "${dir}/dst_${PREFIX_STEM}-${r8}.list"
+    "${dir}/${PREFIX}-${r8}.list"
+    "${dir}/${PREFIX}_${DATASET}_${TAG}-${r8}.list"
+  )
   local c
 
-  while IFS= read -r c; do
+  for c in "${candidates[@]}"; do
     [[ -e "$c" ]] && existing+=("$c")
     [[ -s "$c" ]] && nonempty+=("$c")
-  done < <(list_candidates_for_run "$dir" "$r8")
+  done
 
   if (( ${#nonempty[@]} > 1 )) && (( VERBOSE > 0 )); then
     warn "multiple non-empty list candidates for run ${r8} in ${dir}; using ${nonempty[0]}"
@@ -617,9 +638,24 @@ normalize_list() {
 read_list_into_array() {
   local f="$1"
   local -n out="$2"
+  local -A seen=()
+  local line first
+
   out=()
   [[ -n "$f" && -f "$f" ]] || return 0
-  mapfile -t out < <(normalize_list "$f")
+
+  # This path runs after the large file-result maps are populated.  Keep it
+  # in-process so per-run list parsing does not fork and copy those maps.
+  while IFS= read -r line || [[ -n "${line:-}" ]]; do
+    line="${line%%#*}"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [[ -n "$line" ]] || continue
+    first="${line%%[[:space:]]*}"
+    [[ -n "$first" && -z "${seen[$first]:-}" ]] || continue
+    seen["$first"]=1
+    out+=("$first")
+  done < "$f"
 }
 
 ########################################
@@ -1485,11 +1521,18 @@ collect_count_results() {
 
     while IFS=$'\t' read -r status entries ref_raw ref_live ref_scaled tree path; do
       [[ -n "${path:-}" ]] || continue
+      # Keep the existing numeric contract, but avoid five command substitutions
+      # per row.  This pass ingests O(5e5) rows, so subshell creation dominates
+      # the elapsed time without adding validation coverage.
+      [[ "${entries:-}" =~ ^-?[0-9]+([.][0-9]+)?$ ]] || entries=0
+      [[ "${ref_raw:-}" =~ ^-?[0-9]+([.][0-9]+)?$ ]] || ref_raw=0
+      [[ "${ref_live:-}" =~ ^-?[0-9]+([.][0-9]+)?$ ]] || ref_live=0
+      [[ "${ref_scaled:-}" =~ ^-?[0-9]+([.][0-9]+)?$ ]] || ref_scaled=0
       FILE_STATUS["$path"]="$status"
-      FILE_ENTRIES["$path"]="$(num_or_zero "${entries:-0}")"
-      FILE_REF_RAW_EVT["$path"]="$(num_or_zero "${ref_raw:-0}")"
-      FILE_REF_LIVE_EVT["$path"]="$(num_or_zero "${ref_live:-0}")"
-      FILE_REF_SCALED_EVT["$path"]="$(num_or_zero "${ref_scaled:-0}")"
+      FILE_ENTRIES["$path"]="$entries"
+      FILE_REF_RAW_EVT["$path"]="$ref_raw"
+      FILE_REF_LIVE_EVT["$path"]="$ref_live"
+      FILE_REF_SCALED_EVT["$path"]="$ref_scaled"
       FILE_TREE["$path"]="$tree"
       ((rows_this_tsv+=1))
       ((total_result_rows+=1))
@@ -1581,6 +1624,15 @@ declare -A RUN_APPROX_LIVE_REPR=()
 declare -A RUN_STATUS=()
 declare -A RUN_NOTES=()
 
+# The reference-trigger counters are invariant across the list comparison.
+# Load them once for the GRL instead of opening two psql sessions per run.
+declare -A PREFETCH_REF_MENU_PRESENT=()
+declare -A PREFETCH_REF_NAME=()
+declare -A PREFETCH_REF_ACTIVE=()
+declare -A PREFETCH_REF_RAW=()
+declare -A PREFETCH_REF_LIVE=()
+declare -A PREFETCH_REF_SCALED=()
+
 TOT_EXPECTED_SEG=0
 TOT_CURRENT_SEG=0
 TOT_PRESENT_SEG=0
@@ -1630,6 +1682,70 @@ RUNS_NO_EXPECTED=0
 RUNS_WITH_CURRENT_ZERO_REF_RAW=0
 RUNS_WITH_CURRENT_ZERO_REF_LIVE=0
 RUNS_WITH_CURRENT_ZERO_REF_SCALED=0
+
+load_reference_trigger_stats_for_runs() {
+  local -a values=()
+  local r8
+  for r8 in "${RUN_ORDER[@]}"; do
+    values+=("($((10#$r8)))")
+  done
+
+  local values_sql
+  values_sql="$(IFS=,; printf '%s' "${values[*]}")"
+  local query="
+    WITH requested(runnumber) AS (VALUES ${values_sql})
+    SELECT
+      LPAD(q.runnumber::text, 8, '0'),
+      COALESCE((
+        SELECT t.triggername
+        FROM gl1_triggernames t
+        WHERE t.index=${REF_TRIG_BIT}
+          AND q.runnumber BETWEEN t.runnumber AND t.runnumber_last
+        ORDER BY t.runnumber DESC
+        LIMIT 1
+      ), ''),
+      COALESCE(MAX(CASE WHEN s.scaled != -1 THEN 1 ELSE 0 END), 0),
+      COALESCE(SUM(CASE WHEN s.raw    > 0 THEN s.raw    ELSE 0 END), 0),
+      COALESCE(SUM(CASE WHEN s.live   > 0 THEN s.live   ELSE 0 END), 0),
+      COALESCE(SUM(CASE WHEN s.scaled > 0 THEN s.scaled ELSE 0 END), 0)
+    FROM requested q
+    LEFT JOIN gl1_scalers s
+      ON s.runnumber=q.runnumber
+     AND s.index=${REF_TRIG_BIT}
+    GROUP BY q.runnumber
+    ORDER BY q.runnumber;"
+
+  PREFETCH_REF_MENU_PRESENT=()
+  PREFETCH_REF_NAME=()
+  PREFETCH_REF_ACTIVE=()
+  PREFETCH_REF_RAW=()
+  PREFETCH_REF_LIVE=()
+  PREFETCH_REF_SCALED=()
+
+  local name active raw live scaled
+  local fetched=0
+  while IFS=$'\t' read -r r8 name active raw live scaled; do
+    [[ -n "${r8:-}" ]] || continue
+    [[ "${active:-}" =~ ^-?[0-9]+([.][0-9]+)?$ ]] || active=0
+    [[ "${raw:-}" =~ ^-?[0-9]+([.][0-9]+)?$ ]] || raw=0
+    [[ "${live:-}" =~ ^-?[0-9]+([.][0-9]+)?$ ]] || live=0
+    [[ "${scaled:-}" =~ ^-?[0-9]+([.][0-9]+)?$ ]] || scaled=0
+    if [[ -n "${name:-}" ]]; then
+      PREFETCH_REF_MENU_PRESENT["$r8"]=1
+    else
+      PREFETCH_REF_MENU_PRESENT["$r8"]=0
+    fi
+    PREFETCH_REF_NAME["$r8"]="$name"
+    PREFETCH_REF_ACTIVE["$r8"]="$active"
+    PREFETCH_REF_RAW["$r8"]="$raw"
+    PREFETCH_REF_LIVE["$r8"]="$live"
+    PREFETCH_REF_SCALED["$r8"]="$scaled"
+    ((fetched+=1))
+  done < <(sql "$query")
+
+  (( fetched == ${#RUN_ORDER[@]} )) || fatal "reference-trigger batch query returned ${fetched} rows for ${#RUN_ORDER[@]} GRL runs"
+  note "Loaded reference-trigger DAQ counters: $(fmt_num "${fetched}") runs in one query"
+}
 
 audit_runs() {
   section "Step 4/5 — Run-by-run audit (DB-backed expectation vs current lists vs collected count results)"
@@ -1758,22 +1874,20 @@ audit_runs() {
     if (( expected_seg > 0 && present_seg == 0 )); then (( RUNS_ZERO_PRESENT += 1 )); fi
     if (( extra_seg > 0 )); then (( RUNS_WITH_EXTRA += 1 )); fi
 
-    local seg_avail_frac entry_avail_frac
-    seg_avail_frac="$(awk -v n="${present_seg}" -v d="${expected_seg}" 'BEGIN{ if (d > 0) printf "%.6f", n / d; else print "0"; }')"
-    entry_avail_frac="$(awk -v n="${present_evt}" -v d="${expected_evt}" 'BEGIN{ if (d > 0) printf "%.6f", n / d; else print "0"; }')"
+    local seg_avail_micro entry_avail_micro
+    seg_avail_micro="$(ratio_micro "${present_seg}" "${expected_seg}")"
+    entry_avail_micro="$(ratio_micro "${present_evt}" "${expected_evt}")"
 
-    RUN_SEG_AVAIL_FRAC["$r8"]="$seg_avail_frac"
-    RUN_ENTRY_AVAIL_FRAC["$r8"]="$entry_avail_frac"
+    RUN_SEG_AVAIL_FRAC["$r8"]="$(fmt_micro "${seg_avail_micro}")"
+    RUN_ENTRY_AVAIL_FRAC["$r8"]="$(fmt_micro "${entry_avail_micro}")"
 
-    local ref_menu_present ref_name ref_active ref_raw ref_live ref_scaled
-    IFS=$'\t' read -r ref_menu_present ref_name ref_active ref_raw ref_live ref_scaled < <(read_reference_trigger_stats "$run")
-
-    RUN_REF_MENU_PRESENT["$r8"]="$(num_or_zero "${ref_menu_present:-0}")"
-    RUN_REF_NAME["$r8"]="$ref_name"
-    RUN_REF_ACTIVE["$r8"]="$(num_or_zero "${ref_active:-0}")"
-    RUN_REF_RAW["$r8"]="$(num_or_zero "${ref_raw:-0}")"
-    RUN_REF_LIVE["$r8"]="$(num_or_zero "${ref_live:-0}")"
-    RUN_REF_SCALED["$r8"]="$(num_or_zero "${ref_scaled:-0}")"
+    RUN_REF_MENU_PRESENT["$r8"]="${PREFETCH_REF_MENU_PRESENT[$r8]:-0}"
+    RUN_REF_NAME["$r8"]="${PREFETCH_REF_NAME[$r8]:-}"
+    RUN_REF_ACTIVE["$r8"]="${PREFETCH_REF_ACTIVE[$r8]:-0}"
+    RUN_REF_RAW["$r8"]="${PREFETCH_REF_RAW[$r8]:-0}"
+    RUN_REF_LIVE["$r8"]="${PREFETCH_REF_LIVE[$r8]:-0}"
+    RUN_REF_SCALED["$r8"]="${PREFETCH_REF_SCALED[$r8]:-0}"
+    local ref_name="${RUN_REF_NAME[$r8]}"
 
     TOT_REF_RAW_ALL=$(( TOT_REF_RAW_ALL + RUN_REF_RAW["$r8"] ))
     TOT_REF_LIVE_ALL=$(( TOT_REF_LIVE_ALL + RUN_REF_LIVE["$r8"] ))
@@ -1794,24 +1908,24 @@ audit_runs() {
       if (( RUN_REF_ACTIVE["$r8"] != 0 )); then (( TOT_REF_ACTIVE_RUNS_COMPLETE += 1 )); fi
     fi
 
-    local approx_scaled_repr approx_live_repr
-    approx_scaled_repr="$(awk -v f="${entry_avail_frac}" -v x="${RUN_REF_SCALED[$r8]}" 'BEGIN{ printf "%.6f", f * x; }')"
-    approx_live_repr="$(awk -v f="${entry_avail_frac}" -v x="${RUN_REF_LIVE[$r8]}" 'BEGIN{ printf "%.6f", f * x; }')"
+    local approx_scaled_micro approx_live_micro
+    approx_scaled_micro=$(( entry_avail_micro * RUN_REF_SCALED["$r8"] ))
+    approx_live_micro=$(( entry_avail_micro * RUN_REF_LIVE["$r8"] ))
 
-    RUN_APPROX_SCALED_REPR["$r8"]="$approx_scaled_repr"
-    RUN_APPROX_LIVE_REPR["$r8"]="$approx_live_repr"
+    RUN_APPROX_SCALED_REPR["$r8"]="$(fmt_micro "${approx_scaled_micro}")"
+    RUN_APPROX_LIVE_REPR["$r8"]="$(fmt_micro "${approx_live_micro}")"
 
-    TOT_APPROX_SCALED_REPR_ALL="$(awk -v a="${TOT_APPROX_SCALED_REPR_ALL}" -v b="${approx_scaled_repr}" 'BEGIN{ printf "%.6f", a + b; }')"
-    TOT_APPROX_LIVE_REPR_ALL="$(awk -v a="${TOT_APPROX_LIVE_REPR_ALL}" -v b="${approx_live_repr}" 'BEGIN{ printf "%.6f", a + b; }')"
+    TOT_APPROX_SCALED_REPR_ALL=$(( TOT_APPROX_SCALED_REPR_ALL + approx_scaled_micro ))
+    TOT_APPROX_LIVE_REPR_ALL=$(( TOT_APPROX_LIVE_REPR_ALL + approx_live_micro ))
 
     if (( current_seg > 0 )); then
-      TOT_APPROX_SCALED_REPR_CURRENT="$(awk -v a="${TOT_APPROX_SCALED_REPR_CURRENT}" -v b="${approx_scaled_repr}" 'BEGIN{ printf "%.6f", a + b; }')"
-      TOT_APPROX_LIVE_REPR_CURRENT="$(awk -v a="${TOT_APPROX_LIVE_REPR_CURRENT}" -v b="${approx_live_repr}" 'BEGIN{ printf "%.6f", a + b; }')"
+      TOT_APPROX_SCALED_REPR_CURRENT=$(( TOT_APPROX_SCALED_REPR_CURRENT + approx_scaled_micro ))
+      TOT_APPROX_LIVE_REPR_CURRENT=$(( TOT_APPROX_LIVE_REPR_CURRENT + approx_live_micro ))
     fi
 
     if (( expected_seg > 0 && missing_seg == 0 && extra_seg == 0 )); then
-      TOT_APPROX_SCALED_REPR_COMPLETE="$(awk -v a="${TOT_APPROX_SCALED_REPR_COMPLETE}" -v b="${approx_scaled_repr}" 'BEGIN{ printf "%.6f", a + b; }')"
-      TOT_APPROX_LIVE_REPR_COMPLETE="$(awk -v a="${TOT_APPROX_LIVE_REPR_COMPLETE}" -v b="${approx_live_repr}" 'BEGIN{ printf "%.6f", a + b; }')"
+      TOT_APPROX_SCALED_REPR_COMPLETE=$(( TOT_APPROX_SCALED_REPR_COMPLETE + approx_scaled_micro ))
+      TOT_APPROX_LIVE_REPR_COMPLETE=$(( TOT_APPROX_LIVE_REPR_COMPLETE + approx_live_micro ))
     fi
 
     local notes=""
@@ -1821,7 +1935,7 @@ audit_runs() {
     if [[ -n "$current_list" && ! -s "$current_list" ]]; then append_note notes "EMPTY_CURRENT_LIST"; fi
 
     if [[ -n "$ref_name" ]]; then
-      if [[ "$(normalize_name "$ref_name")" != "$(normalize_name "$REF_TRIG_NAME")" ]]; then
+      if [[ "$ref_name" != "$REF_TRIG_NAME" ]] && [[ "$(normalize_name "$ref_name")" != "$(normalize_name "$REF_TRIG_NAME")" ]]; then
         append_note notes "REFBIT${REF_TRIG_BIT}_NAME_MISMATCH"
       fi
     else
@@ -1861,6 +1975,13 @@ audit_runs() {
       fi
     fi
   done
+
+  TOT_APPROX_SCALED_REPR_ALL="$(fmt_micro "${TOT_APPROX_SCALED_REPR_ALL}")"
+  TOT_APPROX_LIVE_REPR_ALL="$(fmt_micro "${TOT_APPROX_LIVE_REPR_ALL}")"
+  TOT_APPROX_SCALED_REPR_CURRENT="$(fmt_micro "${TOT_APPROX_SCALED_REPR_CURRENT}")"
+  TOT_APPROX_LIVE_REPR_CURRENT="$(fmt_micro "${TOT_APPROX_LIVE_REPR_CURRENT}")"
+  TOT_APPROX_SCALED_REPR_COMPLETE="$(fmt_micro "${TOT_APPROX_SCALED_REPR_COMPLETE}")"
+  TOT_APPROX_LIVE_REPR_COMPLETE="$(fmt_micro "${TOT_APPROX_LIVE_REPR_COMPLETE}")"
 
   good "Per-run audit completed"
 }
@@ -2270,6 +2391,7 @@ main() {
   collect_count_results
   note "Beginning run-by-run audit against current lists and DAQ counters"
 
+  load_reference_trigger_stats_for_runs
   audit_runs
   note "Writing cached second-pass state for fast third-pass iteration"
 

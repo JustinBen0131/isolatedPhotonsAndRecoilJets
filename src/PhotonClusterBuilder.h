@@ -97,6 +97,12 @@ class PhotonClusterBuilder : public SubsysReco
   double deltaR(double eta1, double phi1, double eta2, double phi2);
   float calculate_layer_et(float seed_eta, float seed_phi, float radius, TowerInfoContainer* towerContainer, RawTowerGeomContainer* geomContainer, RawTowerDefs::CalorimeterId calo_id, float vertex_z);
   float calculate_ppg12_topocluster_raw_eiso(float seed_eta, float seed_phi, float candidate_et, float& topo_sum_et);
+  float calculate_ppg12_topocluster_raw_eiso_for_radius(float seed_eta,
+                                                         float seed_phi,
+                                                         float candidate_et,
+                                                         float radius,
+                                                         float& topo_sum_et,
+                                                         float* positive_only_sum_et = nullptr);
   void load_cemc_bad_tower_mask();
   bool is_cemc_tower_good(TowerInfo* tower, unsigned int tower_key) const;
     bool m_do_bdt{false};

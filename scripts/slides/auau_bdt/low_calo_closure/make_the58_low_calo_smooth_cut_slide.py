@@ -17,6 +17,7 @@ Raw event counts (not normalized). x-axis every panel: log10 E_calo.
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 
@@ -63,9 +64,9 @@ def smooth(y, w=3):
     return np.convolve(y, np.ones(w) / w, mode="same")
 
 
-def build():
-    OUTDIR.mkdir(parents=True, exist_ok=True)
-    hist = json.loads(HIST_JSON.read_text())
+def build(hist_json: Path = HIST_JSON, outdir: Path = OUTDIR, png: Path = PNG, manifest_path: Path = MANIFEST):
+    outdir.mkdir(parents=True, exist_ok=True)
+    hist = json.loads(hist_json.read_text())
     edges = np.asarray(hist["energy_edges"], dtype="float64")
     centers = 0.5 * (edges[:-1] + edges[1:])
     panels = hist["panels"]
@@ -287,18 +288,24 @@ def build():
            rf"{'+' if a0>=0 else '-'}{abs(a0):.2f}$")
     fig.text(0.818, 0.719, eqn, fontsize=15.0, color=INK, ha="center", va="center", zorder=8)
 
-    fig.savefig(PNG, dpi=200, facecolor="white")
+    fig.savefig(png, dpi=200, facecolor="white")
     plt.close(fig)
-    MANIFEST.write_text(json.dumps(dict(
-        png=str(PNG), method="valley_anchor_smooth_fit", artifact=ARTIFACT, degree=FIT_DEGREE,
+    manifest_path.write_text(json.dumps(dict(
+        png=str(png), source_hist_json=str(hist_json), method="valley_anchor_smooth_fit", artifact=ARTIFACT, degree=FIT_DEGREE,
         coef=[float(x) for x in coef], total=tot_all, removed=rem_all, removed_frac=rem_all / tot_all,
         per_bin=[dict(lo=r["lo"], hi=r["hi"], thr=float(r["thr"]), sep=bool(r["sep"]), frac=float(r["frac"])) for r in rebuilt],
     ), indent=2))
-    print(f"wrote {PNG}")
+    print(f"wrote {png}")
     print(f"overall removed {comma(rem_all)}/{comma(tot_all)} = {100*rem_all/tot_all:.2f}%")
     print(f"separable (cut) bins: {len(central)}; merged bins: {len(periph)}")
     print(f"T(c) coef: {[float(x) for x in coef]}")
 
 
 if __name__ == "__main__":
-    build()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--hist-json", type=Path, default=HIST_JSON)
+    parser.add_argument("--outdir", type=Path, default=OUTDIR)
+    parser.add_argument("--png", type=Path, default=PNG)
+    parser.add_argument("--manifest", type=Path, default=MANIFEST)
+    args = parser.parse_args()
+    build(args.hist_json, args.outdir, args.png, args.manifest)

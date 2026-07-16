@@ -99,7 +99,8 @@ it defaults to the corrected Fig. 19 NPB overlay PNG/JSON/LOG set.
 selectedRootFiles pulls an explicit list of ROOT files from a known RecoilJets
 output directory. It is intended for narrow diagnostics of partial or staged
 outputs; it refuses wildcards, absolute file arguments, traversal, and
-non-RecoilJets output roots.
+non-approved output roots. The exact read-only PPG12 efficiencytool results
+directory is also allowed for parity-reference ROOT pulls.
 
 ppPhotonMLCompact pulls selected compact PNG/JSON/CSV/TXT/LOG artifacts from
 an explicit ppPhotonMLPipeline directory such as validation/insitu_stitching or
@@ -1418,7 +1419,8 @@ download_selected_root_files() {
     /sphenix/tg/tg01/bulk/jbennett/thesisAna/auau/*|\
     /sphenix/tg/tg01/bulk/jbennett/thesisAna/recoiljets/*|\
     /sphenix/tg/tg01/bulk/jbennett/thesisAnaSmoke/*|\
-    /sphenix/u/patsfan753/scratch/thesisAnalysis/runs/recoiljets/current/*)
+    /sphenix/u/patsfan753/scratch/thesisAnalysis/runs/recoiljets/current/*|\
+    /sphenix/user/shuhangli/ppg12/efficiencytool/results)
       ;;
     /sphenix/user/patsfan753/thesisAnalysis/bdt_models/THE32_lowcalo_upstreamcut_*|\
     /sphenix/u/patsfan753/scratch/thesisAnalysis/bdt_models/THE32_lowcalo_upstreamcut_*)

@@ -32,7 +32,7 @@ DEFAULT_DATA_ROOT = (
 DEFAULT_SIGNAL_ROOT = DEFAULT_BASE / "merged_roots/RecoilJets_photonjet5plus10plus20_MERGED.root"
 DEFAULT_OUTDIR = DEFAULT_BASE / "purity_current_pp"
 
-TRIGGER_DIR = "Photon_4_GeV_plus_MBD_NS_geq_1"
+TRIGGER_DIR = "PPG12_scaledtrigger30"
 SIM_DIR = "SIM"
 ISO_TOKEN = "isoR40_fixedIso2GeV"
 
