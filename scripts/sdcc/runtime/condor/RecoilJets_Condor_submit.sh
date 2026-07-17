@@ -318,7 +318,12 @@ EXE=""
 LOG_DIR="${BASE}/log"
 OUT_DIR="${BASE}/stdout"
 ERR_DIR="${BASE}/error"
-SUB_DIR="${BASE}/condor_sub"
+# Allow independent submit-file namespaces when one campaign is intentionally
+# distributed across multiple schedds.  The default remains unchanged for all
+# existing callers; a campaign may set RJ_CONDOR_SUB_DIR per submit host to
+# prevent concurrent submitters from removing or overwriting one another's
+# transient .sub/.args files.
+SUB_DIR="${RJ_CONDOR_SUB_DIR:-${BASE}/condor_sub}"
 CLEANUP_HELPER="${BASE}/scripts/recoiljets_cleanup.sh"
 
 # Golden lists provided by you
@@ -608,7 +613,10 @@ PY
   say "  snapshot dir : ${snap_dir}"
   say "  frozen exe   : ${BULK_FROZEN_EXE}"
   say "  frozen macro : ${BULK_FROZEN_MACRO}"
-  [[ "$mode" == "auau" ]] && say "  AuAu library : ${auau_library_source}"
+  if [[ "$mode" == "auau" ]]; then
+    say "  AuAu library : ${auau_library_source}"
+  fi
+  return 0
 }
 
 cleanup_bulk_snapshots_for_tag() {
@@ -3326,6 +3334,81 @@ validate_sim_clean_list_paths() {
   fi
 }
 
+# Fail closed when a Run-28 PPG12 simulation lane's interaction-mode flags,
+# sample identity, and staged source paths disagree.  DI is not defined by an
+# environment flag alone: it requires a *_double sample backed by the
+# js_pp200_signal_dual G4Hits, truth-jet, and global streams.  Conversely, an
+# SI lane must not silently consume those dual-interaction streams.
+validate_ppg12_sim_source_contract() {
+  local sample="${SIM_SAMPLE:-}"
+  local list="${SIM_CLEAN_LIST:-}"
+
+  [[ "$sample" =~ ^run28_(photonjet(5|10|20)|jet(5|8|12|20|30|40))(_double)?$ ]] || return 0
+
+  local contract_requested=0
+  env_truthy "${RJ_PPG12_PHOTON_YIELD:-0}" && contract_requested=1
+  env_truthy "${RJ_PPG12_PHOTON_YIELD_DOUBLE:-0}" && contract_requested=1
+  env_truthy "${RJ_PPG12_PERIOD_STRICT_DI:-0}" && contract_requested=1
+  env_truthy "${RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4:-0}" && contract_requested=1
+  env_truthy "${RJ_PPG12_PPSIM_G4_ONLY:-0}" && contract_requested=1
+  (( contract_requested )) || return 0
+
+  [[ -s "$list" ]] || {
+    err "PPG12 SIM source contract: cleaned five-column list is missing or empty: ${list:-<unset>}"
+    return 98
+  }
+
+  local sample_is_double=0
+  [[ "$sample" == *_double ]] && sample_is_double=1
+
+  local flag_double=0 flag_strict_di=0 flag_rebuild=0 flag_g4_only=0
+  env_truthy "${RJ_PPG12_PHOTON_YIELD_DOUBLE:-0}" && flag_double=1
+  env_truthy "${RJ_PPG12_PERIOD_STRICT_DI:-0}" && flag_strict_di=1
+  env_truthy "${RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4:-0}" && flag_rebuild=1
+  env_truthy "${RJ_PPG12_PPSIM_G4_ONLY:-0}" && flag_g4_only=1
+
+  if (( sample_is_double )); then
+    if (( ! flag_double || ! flag_strict_di || ! flag_rebuild || ! flag_g4_only )); then
+      err "PPG12 DI source contract: sample=${sample} requires RJ_PPG12_PHOTON_YIELD_DOUBLE=1, RJ_PPG12_PERIOD_STRICT_DI=1, RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4=1, and RJ_PPG12_PPSIM_G4_ONLY=1."
+      return 98
+    fi
+    if ! awk -F '\t' '
+      BEGIN { bad=0 }
+      NF != 5 ||
+      $2 !~ /\/js_pp200_signal_dual\/g4hits\// ||
+      $3 !~ /\/js_pp200_signal_dual\/nopileup\/jets\// ||
+      $4 !~ /\/js_pp200_signal_dual\/nopileup\/global\// {
+        if (bad < 5) {
+          printf "PPG12 DI source mismatch at row %d: G4Hits=%s DST_JETS=%s DST_GLOBAL=%s\n", NR, $2, $3, $4 > "/dev/stderr"
+        }
+        bad++
+      }
+      END { exit bad == 0 ? 0 : 1 }
+    ' "$list"; then
+      err "PPG12 DI source contract: refusing sample=${sample}; every row must use js_pp200_signal_dual G4Hits, truth-jet, and global streams."
+      return 98
+    fi
+  else
+    if (( flag_double || flag_strict_di || flag_rebuild || flag_g4_only )); then
+      err "PPG12 SI source contract: sample=${sample} is unsuffixed but one or more DI-only flags are enabled; use the matching *_double sample or disable the DI-only flags."
+      return 98
+    fi
+    if ! awk -F '\t' '
+      BEGIN { bad=0 }
+      NF != 5 ||
+      $2 ~ /\/js_pp200_signal_dual\// ||
+      $3 ~ /\/js_pp200_signal_dual\// ||
+      $4 ~ /\/js_pp200_signal_dual\// { bad=1; exit }
+      END { exit bad == 0 ? 0 : 1 }
+    ' "$list"; then
+      err "PPG12 SI source contract: refusing sample=${sample}; an SI sample must not consume js_pp200_signal_dual streams."
+      return 98
+    fi
+  fi
+
+  say "    [sim_init] PPG12 interaction/source contract passed: sample=${sample} mode=$([[ $sample_is_double -eq 1 ]] && printf DI || printf SI) rows=$(wc -l < "$list" | tr -d ' ')" >&2
+}
+
 # Initializes paths for isSim mode and prepares a cleaned master list.
 sim_init() {
   SIM_DIR="${SIM_ROOT}/${SIM_SAMPLE}"
@@ -3414,6 +3497,7 @@ sim_init() {
     [[ "${ACTION:-}" != "CHECKJOBS" ]] && say "    [sim_init] validating SIM input paths before submission…" >&2
     validate_sim_clean_list_paths "$SIM_CLEAN_LIST" "$allow_none_lists"
   fi
+  validate_ppg12_sim_source_contract
 
   SIM_OUT_DIR="${DEST_BASE}/${SIM_SAMPLE}"
   [[ "${ACTION:-}" != "CHECKJOBS" ]] && mkdir -p "$SIM_OUT_DIR"
@@ -6649,6 +6733,9 @@ SUB
       need_cmd condor_submit
     fi
     doall_stamp="$(date +%Y%m%d_%H%M%S)"
+    if [[ -n "${RJ_SUBMISSION_NAMESPACE:-}" ]]; then
+      doall_stamp="${doall_stamp}_$(printf '%s' "$RJ_SUBMISSION_NAMESPACE" | tr -c 'A-Za-z0-9_.-' '_')"
+    fi
     SIM_YAML_OVERRIDE_DIR="${SIM_YAML_OVERRIDE_DIR}/${TAG}_condorDoAll_${doall_stamp}"
     mkdir -p "$SIM_YAML_OVERRIDE_DIR"
     say "SIM YAML/fanout artifact dir: ${SIM_YAML_OVERRIDE_DIR}"
