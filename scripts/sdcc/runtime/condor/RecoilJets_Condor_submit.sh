@@ -440,6 +440,7 @@ create_pipeline_snapshot() {
   local auau_library_source="${RJ_AUAU_LIBRARY_OVERRIDE:-${user_root}/thesisAnalysis_auau/install/lib/libRecoilJetsAuAu.so}"
   local calo_reco_library_source="${RJ_CALO_RECO_LIBRARY_OVERRIDE:-${user_root}/thesisAnalysis/install/lib/libcalo_reco.so}"
   local photon_cluster_builder_header_source="${RJ_PHOTON_CLUSTER_BUILDER_HEADER_OVERRIDE:-${user_root}/thesisAnalysis/install/include/caloreco/PhotonClusterBuilder.h}"
+  local photon_cluster_builder_library_source="${RJ_PHOTON_CLUSTER_BUILDER_LIBRARY_OVERRIDE:-}"
 
   local live_wrapper=""
   local live_macro=""
@@ -480,6 +481,14 @@ create_pipeline_snapshot() {
     exit 2
   fi
   cp -f "$photon_cluster_builder_header_source" "$snap_photon_cluster_builder_header"
+  if [[ -n "$photon_cluster_builder_library_source" ]]; then
+    if [[ ! -r "$photon_cluster_builder_library_source" ]]; then
+      err "PhotonClusterBuilder override library is missing: ${photon_cluster_builder_library_source}"
+      exit 2
+    fi
+    cp -f "$photon_cluster_builder_library_source" \
+      "$snap_lib_dir/libphoton_cluster_builder_override.so"
+  fi
 
   if [[ "$mode" != "auau" ]] && env_truthy "${RJ_FORCE_RELEASE_CORE_LIBS:-0}"; then
     use_release_core_libs=1

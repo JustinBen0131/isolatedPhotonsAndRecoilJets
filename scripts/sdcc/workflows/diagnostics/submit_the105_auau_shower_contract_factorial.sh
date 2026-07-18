@@ -21,16 +21,16 @@ mode="${1:-print}"
 campaign_tag="${RJ_THE105_CAMPAIGN_TAG:-the105_auau_shower_contract_factorial_canary_20260717_2155}"
 yaml="${RJ_THE105_CONFIG_YAML:-${repo_root}/macros/analysis_config_the88_bounded_sideband_default_bdt.yaml}"
 build_root="${RJ_THE105_BUILD_ROOT:-${repo_root}/.recoiljets_tmp/the105_shower_contract_build_20260717}"
-calo_build="${build_root}/caloreco_build"
-calo_install="${build_root}/caloreco_install"
+photon_builder_build="${build_root}/photon_builder_build"
+photon_builder_install="${build_root}/photon_builder_install"
 auau_build="${build_root}/auau_build"
 auau_install="${build_root}/auau_install"
-calo_library="${RJ_THE105_CALO_LIBRARY:-${calo_install}/lib/libcalo_reco.so}"
-calo_header="${RJ_THE105_CALO_HEADER:-${calo_install}/include/caloreco/PhotonClusterBuilder.h}"
+calo_library="${RJ_THE105_CALO_LIBRARY:-/sphenix/u/${USER:-patsfan753}/thesisAnalysis/install/lib/libcalo_reco.so}"
+photon_builder_library="${RJ_THE105_PHOTON_BUILDER_LIBRARY:-${photon_builder_install}/lib/libphoton_cluster_builder_override.so}"
+calo_header="${RJ_THE105_CALO_HEADER:-${photon_builder_install}/include/caloreco/PhotonClusterBuilder.h}"
 auau_library="${RJ_THE105_AUAU_LIBRARY:-${auau_install}/lib/libRecoilJetsAuAu.so}"
 evidence_dir="${RJ_THE105_EVIDENCE_DIR:-${repo_root}/evidence/qa/the105_auau_shower_contract_factorial_20260717}"
 canary_root="${RJ_THE105_CANARY_ROOT:-$(rj_recoiljets_bulk_root)/smoke/auau_shower_contract/${campaign_tag}}"
-rawcluster_guard_patch="${repo_root}/scripts/sdcc/workflows/diagnostics/the105_skip_invalid_rawcluster_tower_coordinates.patch"
 
 data_group="${RJ_THE105_DATA_GROUP_SIZE:-5}"
 data_runs="${RJ_THE105_DATA_RUNS:-3}"
@@ -54,7 +54,7 @@ Usage: submit_the105_auau_shower_contract_factorial.sh MODE
 
 Modes:
   print            Print the frozen three-arm diagnostic contract.
-  build-isolated   Build campaign-local libcalo_reco and libRecoilJetsAuAu.
+  build-isolated   Build a PhotonClusterBuilder-only override and libRecoilJetsAuAu.
   canary-dryrun    Expand the exact bounded submission without submitting.
   canary-submit    Submit the three variants on matched bounded inputs.
   status           Report matching queue rows and output ROOT coverage.
@@ -68,7 +68,8 @@ EOF
 require_inputs() {
   rj_validate_campaign_tag "$campaign_tag" || exit 2
   [[ -s "$yaml" ]] || die "Missing analysis config: ${yaml}"
-  [[ -s "$calo_library" ]] || die "Missing isolated CaloReco library: ${calo_library}. Run build-isolated first."
+  [[ -s "$calo_library" ]] || die "Missing known-good CaloReco library: ${calo_library}."
+  [[ -s "$photon_builder_library" ]] || die "Missing PhotonClusterBuilder override: ${photon_builder_library}. Run build-isolated first."
   [[ -s "$calo_header" ]] || die "Missing isolated PhotonClusterBuilder header: ${calo_header}. Run build-isolated first."
   [[ -s "$auau_library" ]] || die "Missing isolated AuAu library: ${auau_library}. Run build-isolated first."
   [[ -x ./RecoilJets_Condor_submit.sh ]] || die "Missing RecoilJets_Condor_submit.sh"
@@ -118,7 +119,6 @@ write_manifest() {
     scripts/sdcc/runtime/condor/RecoilJets_Condor_submit.sh
     scripts/sdcc/workflows/diagnostics/submit_the105_auau_shower_contract_factorial.sh
     scripts/sdcc/workflows/diagnostics/the105_preserve_invalid_shower_shapes.patch
-    scripts/sdcc/workflows/diagnostics/the105_skip_invalid_rawcluster_tower_coordinates.patch
   )
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "${source_files[@]}" > "${evidence_dir}/source_files.sha256"
@@ -145,6 +145,7 @@ automatic_merge=disabled
 canonical_replacement=forbidden
 canary_root=${canary_root}
 isolated_calo_library=${calo_library}
+isolated_photon_builder_override=${photon_builder_library}
 isolated_auau_library=${auau_library}
 EOF
 }
@@ -164,13 +165,6 @@ build_component() {
   reset_build_dir "$build_dir"
   reset_build_dir "$install_dir"
   cp -a "${source_dir}/." "$build_dir/"
-  if [[ "$label" == "caloreco" ]]; then
-    [[ -s "$rawcluster_guard_patch" ]] || die "Missing campaign-local RawCluster guard patch: ${rawcluster_guard_patch}"
-    (
-      cd "$build_dir"
-      patch --batch --forward -p1 < "$rawcluster_guard_patch"
-    )
-  fi
   rm -rf "${build_dir}/autom4te.cache" "${build_dir}/.deps"
   rm -f "${build_dir}/config.status" "${build_dir}/config.log" \
         "${build_dir}/Makefile" "${build_dir}/libtool" "${build_dir}/stamp-h1"
@@ -180,6 +174,42 @@ build_component() {
     make -j"${RJ_THE105_BUILD_JOBS:-4}"
     make install
   ) 2>&1 | tee "${evidence_dir}/${label}_build.log"
+}
+
+build_photon_builder_override() {
+  local source_dir="${repo_root}/coresoftware_local/offline/packages/CaloReco"
+  local source_cc="${source_dir}/PhotonClusterBuilder.cc"
+  local source_h="${source_dir}/PhotonClusterBuilder.h"
+  [[ -s "$source_cc" && -s "$source_h" ]] || \
+    die "Missing PhotonClusterBuilder source under ${source_dir}"
+
+  reset_build_dir "$photon_builder_build"
+  reset_build_dir "$photon_builder_install"
+  mkdir -p "${photon_builder_install}/lib" \
+           "${photon_builder_install}/include/caloreco"
+  cp -f "$source_cc" "$source_h" "$photon_builder_build/"
+
+  local -a link_libs=(
+    -lmbd_io -lcalo_io -lcdbobjects -lCLHEP -lffamodules
+    -lffarawobjects -lgsl -lgslcblas -lglobalvertex_io -lsph_onnx
+    -lphg4hit -lphparameter_io -lphool -lSubsysReco -lTMVA -lTMVAUtils
+  )
+  (
+    cd "$photon_builder_build"
+    g++ -std=c++17 -O2 -g -fPIC -shared -Wl,-z,defs \
+      -I. \
+      -I/sphenix/u/${USER:-patsfan753}/thesisAnalysis/install/include \
+      -isystem "${OFFLINE_MAIN}/include" \
+      -isystem "${ROOTSYS}/include" \
+      PhotonClusterBuilder.cc \
+      -L/sphenix/u/${USER:-patsfan753}/thesisAnalysis/install/lib \
+      -L"${OFFLINE_MAIN}/lib64" -L"${OFFLINE_MAIN}/lib" \
+      "${link_libs[@]}" $(root-config --libs) \
+      -Wl,-soname,libphoton_cluster_builder_override.so \
+      -o "${photon_builder_install}/lib/libphoton_cluster_builder_override.so"
+    cp -f PhotonClusterBuilder.h \
+      "${photon_builder_install}/include/caloreco/PhotonClusterBuilder.h"
+  ) 2>&1 | tee "${evidence_dir}/photon_builder_override_build.log"
 }
 
 build_isolated() {
@@ -192,17 +222,13 @@ build_isolated() {
   source /opt/sphenix/core/bin/sphenix_setup.sh -n
   source /opt/sphenix/core/bin/setup_local.sh /sphenix/u/patsfan753/thesisAnalysis/install
   set -u
-  build_component \
-    "${repo_root}/coresoftware_local/offline/packages/CaloReco" \
-    "$calo_build" "$calo_install" caloreco
-  set +u
-  source /opt/sphenix/core/bin/setup_local.sh "$calo_install"
-  set -u
+  build_photon_builder_override
   build_component "${repo_root}/src_AuAu" "$auau_build" "$auau_install" recoiljets_auau
-  [[ -s "$calo_library" ]] || die "CaloReco build did not produce ${calo_library}"
-  [[ -s "$calo_header" ]] || die "CaloReco build did not install ${calo_header}"
+  [[ -s "$calo_library" ]] || die "Known-good CaloReco library is missing: ${calo_library}"
+  [[ -s "$photon_builder_library" ]] || die "PhotonClusterBuilder override build did not produce ${photon_builder_library}"
+  [[ -s "$calo_header" ]] || die "PhotonClusterBuilder override did not install ${calo_header}"
   [[ -s "$auau_library" ]] || die "AuAu build did not produce ${auau_library}"
-  sha256sum "$calo_library" "$calo_header" "$auau_library" | tee "${evidence_dir}/isolated_runtime.sha256"
+  sha256sum "$calo_library" "$photon_builder_library" "$calo_header" "$auau_library" | tee "${evidence_dir}/isolated_runtime.sha256"
 }
 
 common_env() {
@@ -210,6 +236,7 @@ common_env() {
   printf '%s\n' \
     "RJ_CONFIG_YAML=${yaml}" \
     "RJ_CALO_RECO_LIBRARY_OVERRIDE=${calo_library}" \
+    "RJ_PHOTON_CLUSTER_BUILDER_LIBRARY_OVERRIDE=${photon_builder_library}" \
     "RJ_PHOTON_CLUSTER_BUILDER_HEADER_OVERRIDE=${calo_header}" \
     "RJ_AUAU_LIBRARY_OVERRIDE=${auau_library}" \
     "RJ_SUBMIT_EXTRA_ENV=RJ_REQUIRE_EMBEDDED_MINBIAS_CLASSIFIER=1;RJ_AUAU_SHOWER_SHAPE_DIAGNOSTIC_VARIANT=${variant};RJ_AUAU_PHOTON_CANDIDATE_SKIM=1;RJ_AUAU_PHOTON_CANDIDATE_SKIM_MAX_ENTRIES=0" \
