@@ -37,9 +37,9 @@ data_runs="${RJ_THE105_DATA_RUNS:-3}"
 data_events="${RJ_THE105_DATA_EVENTS:-20000}"
 sim_group="${RJ_THE105_SIM_GROUP_SIZE:-5}"
 sim_events="${RJ_THE105_SIM_EVENTS:-20000}"
-data_memory="${RJ_THE105_DATA_MEMORY:-12000MB}"
-sim_memory="${RJ_THE105_SIM_MEMORY:-12000MB}"
-memory_retry_cap_mb="${RJ_THE105_MEMORY_RETRY_CAP_MB:-16000}"
+data_memory="${RJ_THE105_DATA_MEMORY:-16000MB}"
+sim_memory="${RJ_THE105_SIM_MEMORY:-16000MB}"
+memory_retry_cap_mb="${RJ_THE105_MEMORY_RETRY_CAP_MB:-20000}"
 allow_existing="${RJ_THE105_ALLOW_EXISTING:-0}"
 
 variants=(historical towerinfo70 canonical)
