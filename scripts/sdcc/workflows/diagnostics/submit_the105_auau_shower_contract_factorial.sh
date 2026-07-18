@@ -46,6 +46,9 @@ allow_existing="${RJ_THE105_ALLOW_EXISTING:-0}"
 runtime_trace="${RJ_THE105_RUNTIME_TRACE:-0}"
 [[ "$runtime_trace" == "0" || "$runtime_trace" == "1" ]] || \
   die "RJ_THE105_RUNTIME_TRACE must be 0 or 1, got: ${runtime_trace}"
+runtime_trace_verbosity="${RJ_THE105_RUNTIME_TRACE_VERBOSITY:-1}"
+[[ "$runtime_trace_verbosity" =~ ^[0-9]+$ ]] || \
+  die "RJ_THE105_RUNTIME_TRACE_VERBOSITY must be a non-negative integer, got: ${runtime_trace_verbosity}"
 [[ "$sim_sample_rows" =~ ^[0-9]+$ && "$sim_sample_rows" -gt 0 ]] || \
   die "RJ_THE105_SIM_SAMPLE_ROWS must be a positive integer, got: ${sim_sample_rows}"
 [[ "$sim_group" =~ ^[0-9]+$ && "$sim_group" -gt 0 ]] || \
@@ -345,7 +348,7 @@ common_env() {
   local variant="$1"
   local trace_suffix=""
   if [[ "$runtime_trace" == "1" ]]; then
-    trace_suffix=";RJ_VERBOSITY=1;RJ_F4A_VERBOSE=1;RJ_STEP_EVENTS=1"
+    trace_suffix=";RJ_VERBOSITY=${runtime_trace_verbosity};RJ_F4A_VERBOSE=1;RJ_STEP_EVENTS=1"
   fi
   printf '%s\n' \
     "RJ_CONFIG_YAML=${yaml}" \
