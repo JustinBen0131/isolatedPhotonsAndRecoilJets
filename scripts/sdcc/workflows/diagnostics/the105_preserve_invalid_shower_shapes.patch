@@ -1,0 +1,66 @@
+diff --git a/src_AuAu/RecoilJets_AuAu.cc b/src_AuAu/RecoilJets_AuAu.cc
+--- a/src_AuAu/RecoilJets_AuAu.cc
++++ b/src_AuAu/RecoilJets_AuAu.cc
+@@ -4066,32 +4066,36 @@ void RecoilJets::fillAuAuPhotonCandidateSkimTree(PHCompositeNode* topNode,
+   m_phoSkim_event_calo_ihcal_energy = finiteFloat(m_eventCaloIhcalEnergy);
+   m_phoSkim_event_calo_ohcal_energy = finiteFloat(m_eventCaloOhcalEnergy);
+   m_phoSkim_event_calo_total_energy = finiteFloat(m_eventCaloTotalEnergy);
+-  m_phoSkim_weta = finiteFloat(v.weta_cogx);
+-  m_phoSkim_wphi = finiteFloat(v.wphi_cogx);
+-  m_phoSkim_weta33 = finiteFloat(v.weta33_cogx);
+-  m_phoSkim_wphi33 = finiteFloat(v.wphi33_cogx);
+-  m_phoSkim_weta35 = finiteFloat(v.weta35_cogx);
+-  m_phoSkim_wphi53 = finiteFloat(v.wphi53_cogx);
+-  m_phoSkim_et1 = finiteFloat(v.et1);
+-  m_phoSkim_et2 = finiteFloat(v.et2);
+-  m_phoSkim_et3 = finiteFloat(v.et3);
+-  m_phoSkim_et4 = finiteFloat(v.et4);
+-  m_phoSkim_e11e33 = finiteFloat(v.e11_over_e33);
+-  m_phoSkim_e32e35 = finiteFloat(v.e32_over_e35);
+-  m_phoSkim_e11e22 = finiteFloat(v.e11_over_e22);
+-  m_phoSkim_e11e13 = finiteFloat(v.e11_over_e13);
+-  m_phoSkim_e11e15 = finiteFloat(v.e11_over_e15);
+-  m_phoSkim_e11e17 = finiteFloat(v.e11_over_e17);
+-  m_phoSkim_e11e31 = finiteFloat(v.e11_over_e31);
+-  m_phoSkim_e11e51 = finiteFloat(v.e11_over_e51);
+-  m_phoSkim_e11e71 = finiteFloat(v.e11_over_e71);
+-  m_phoSkim_e22e33 = finiteFloat(v.e22_over_e33);
+-  m_phoSkim_e22e35 = finiteFloat(v.e22_over_e35);
+-  m_phoSkim_e22e37 = finiteFloat(v.e22_over_e37);
+-  m_phoSkim_e22e53 = finiteFloat(v.e22_over_e53);
+-  m_phoSkim_w32 = finiteFloat(v.w32);
+-  m_phoSkim_w52 = finiteFloat(v.w52);
+-  m_phoSkim_w72 = finiteFloat(v.w72);
++  // Keep invalid shower-shape values distinct from genuine algorithmic zeroes.
++  // This compact tree is diagnostic evidence; coercing NaN/Inf to zero would
++  // make the boundary-population audit intrinsically ambiguous.
++  const float invalidShape = std::numeric_limits<float>::quiet_NaN();
++  m_phoSkim_weta = finiteFloat(v.weta_cogx, invalidShape);
++  m_phoSkim_wphi = finiteFloat(v.wphi_cogx, invalidShape);
++  m_phoSkim_weta33 = finiteFloat(v.weta33_cogx, invalidShape);
++  m_phoSkim_wphi33 = finiteFloat(v.wphi33_cogx, invalidShape);
++  m_phoSkim_weta35 = finiteFloat(v.weta35_cogx, invalidShape);
++  m_phoSkim_wphi53 = finiteFloat(v.wphi53_cogx, invalidShape);
++  m_phoSkim_et1 = finiteFloat(v.et1, invalidShape);
++  m_phoSkim_et2 = finiteFloat(v.et2, invalidShape);
++  m_phoSkim_et3 = finiteFloat(v.et3, invalidShape);
++  m_phoSkim_et4 = finiteFloat(v.et4, invalidShape);
++  m_phoSkim_e11e33 = finiteFloat(v.e11_over_e33, invalidShape);
++  m_phoSkim_e32e35 = finiteFloat(v.e32_over_e35, invalidShape);
++  m_phoSkim_e11e22 = finiteFloat(v.e11_over_e22, invalidShape);
++  m_phoSkim_e11e13 = finiteFloat(v.e11_over_e13, invalidShape);
++  m_phoSkim_e11e15 = finiteFloat(v.e11_over_e15, invalidShape);
++  m_phoSkim_e11e17 = finiteFloat(v.e11_over_e17, invalidShape);
++  m_phoSkim_e11e31 = finiteFloat(v.e11_over_e31, invalidShape);
++  m_phoSkim_e11e51 = finiteFloat(v.e11_over_e51, invalidShape);
++  m_phoSkim_e11e71 = finiteFloat(v.e11_over_e71, invalidShape);
++  m_phoSkim_e22e33 = finiteFloat(v.e22_over_e33, invalidShape);
++  m_phoSkim_e22e35 = finiteFloat(v.e22_over_e35, invalidShape);
++  m_phoSkim_e22e37 = finiteFloat(v.e22_over_e37, invalidShape);
++  m_phoSkim_e22e53 = finiteFloat(v.e22_over_e53, invalidShape);
++  m_phoSkim_w32 = finiteFloat(v.w32, invalidShape);
++  m_phoSkim_w52 = finiteFloat(v.w52, invalidShape);
++  m_phoSkim_w72 = finiteFloat(v.w72, invalidShape);
+   m_phoSkim_mean_time = finiteFloat(v.mean_time, -999.0f);
+   m_phoSkim_eiso = finiteFloat(eisoVal);
+   m_phoSkim_eiso_r30 = finiteFloat(eisoR30);

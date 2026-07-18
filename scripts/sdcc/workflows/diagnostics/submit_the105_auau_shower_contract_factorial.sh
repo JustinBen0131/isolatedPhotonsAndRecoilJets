@@ -108,6 +108,7 @@ write_manifest() {
     src_AuAu/RecoilJets_AuAu.h
     scripts/sdcc/runtime/condor/RecoilJets_Condor_submit.sh
     scripts/sdcc/workflows/diagnostics/submit_the105_auau_shower_contract_factorial.sh
+    scripts/sdcc/workflows/diagnostics/the105_preserve_invalid_shower_shapes.patch
   )
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "${source_files[@]}" > "${evidence_dir}/source_files.sha256"

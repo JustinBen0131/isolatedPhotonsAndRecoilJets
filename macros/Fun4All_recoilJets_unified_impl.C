@@ -7318,6 +7318,8 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             se->run(nEvents);
         }
         
+        // RecoilJets AuAu centrality counters do not exist in the pp class.
+#if defined(RJ_UNIFIED_ANALYSIS_AUAU)
         std::uint64_t centralityValidTotal = 0;
         std::uint64_t centralityInvalidSkippedTotal = 0;
         if (isAuAuData)
@@ -7345,6 +7347,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                       << " invalid_skipped=" << centralityInvalidSkippedTotal
                       << " action=invalid_events_audited_and_skipped" << std::endl;
         }
+#endif
 
         if (vlevel > 0) std::cout << "[INFO] Calling se->End() …" << std::endl;
         se->End();
