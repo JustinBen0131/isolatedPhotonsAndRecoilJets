@@ -84,6 +84,14 @@ assert_fresh() {
 
 write_manifest() {
   mkdir -p "$evidence_dir"
+  local photon_builder_cc="src/PhotonClusterBuilder.cc"
+  local photon_builder_h="src/PhotonClusterBuilder.h"
+  if [[ ! -s "$photon_builder_cc" || ! -s "$photon_builder_h" ]]; then
+    photon_builder_cc="coresoftware_local/offline/packages/CaloReco/PhotonClusterBuilder.cc"
+    photon_builder_h="coresoftware_local/offline/packages/CaloReco/PhotonClusterBuilder.h"
+  fi
+  [[ -s "$photon_builder_cc" ]] || die "Missing mapped PhotonClusterBuilder source: ${photon_builder_cc}"
+  [[ -s "$photon_builder_h" ]] || die "Missing mapped PhotonClusterBuilder header: ${photon_builder_h}"
   {
     printf 'variant\tpopulation\treconstruction_source\ttower_floor_gev\tselection_stages\n'
     printf 'historical\tdata\tTowerInfo grid plus historical local chi2/CDB mask\t0.070\tbefore,after_NCB_preselection,after_tight\n'
@@ -102,8 +110,8 @@ write_manifest() {
   } > "${evidence_dir}/campaign_manifest.txt"
   local -a source_files=(
     macros/Fun4All_recoilJets_unified_impl.C
-    src/PhotonClusterBuilder.cc
-    src/PhotonClusterBuilder.h
+    "$photon_builder_cc"
+    "$photon_builder_h"
     src_AuAu/RecoilJets_AuAu.cc
     src_AuAu/RecoilJets_AuAu.h
     scripts/sdcc/runtime/condor/RecoilJets_Condor_submit.sh
