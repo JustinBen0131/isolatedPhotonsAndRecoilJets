@@ -43,23 +43,115 @@ export HOME="/sphenix/u/${LOGNAME}"
 
 # sPHENIX offline setup (system + local area for custom libs)
 MYINSTALL="/sphenix/u/${USER}/thesisAnalysis/install"
+PPG12_ARCHIVED_OFFLINE_MAIN="/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.541"
+ppg12_archived_di_lane=0
+case "$run8" in
+  run28_jet8_double|run28_jet12_double|run28_jet20_double|run28_jet30_double|run28_jet40_double)
+    [[ "$dataset_raw" == "isSimInclusive" ]] && ppg12_archived_di_lane=1
+    ;;
+  run28_jet5_double)
+    if [[ "$dataset_raw" == "isSimInclusive" ]]; then
+      echo "[FATAL] run28_jet5_double is outside the canonical archived-DI inclusive replacement contract."
+      exit 98
+    fi
+    ;;
+esac
 
-# Disable 'nounset' while sourcing env scripts; they may read unset vars (e.g. PGHOST)
-set +u
-source /opt/sphenix/core/bin/sphenix_setup.sh -n
-if [[ -d "$MYINSTALL" ]]; then
-  # do not fail if local area is not present; macro has R__LOAD_LIBRARY with absolute path
-  source /opt/sphenix/core/bin/setup_local.sh "$MYINSTALL" || true
+if (( ppg12_archived_di_lane )); then
+  archived_runtime_manifest="${RJ_PPG12_DI_RUNTIME_MANIFEST:-}"
+  archived_runtime_manifest_sha256="${RJ_PPG12_DI_RUNTIME_MANIFEST_SHA256:-}"
+  archived_period="${RJ_PPG12_PERIOD:-}"
+  [[ "$archived_period" =~ ^(0mrad|1p5mrad)$ ]] || {
+    echo "[FATAL] Archived PPG12 DI runtime requires RJ_PPG12_PERIOD=0mrad or 1p5mrad; got '${archived_period:-<unset>}'."
+    exit 98
+  }
+
+  # Condor uses getenv=True. Remove inherited values that could widen or
+  # redirect this branch, then pin the accepted archived production contract.
+  unset RJ_PPG12_DI_ARCHIVED_RECO_CHAIN RJ_TRUTH_JETS_MODE
+  unset RJ_PPG12_DI_ARCHIVED_RELEASE RJ_PPG12_DI_RUNTIME_MANIFEST
+  unset RJ_PPG12_DI_RUNTIME_MANIFEST_SHA256
+  unset RJ_PPG12_DI_ARCHIVED_EXPECT_PEDESTAL RJ_PPG12_PEDESTAL_OVERRIDE
+  unset RJ_PPG12_PERIOD_ALLOW_ALL_SIM RJ_PPG12_PHOTON_YIELD_DOUBLE
+  unset RJ_PPG12_PERIOD_ALLOW_MIX_OVERRIDE RJ_PPG12_PERIOD_ALLOW_VERTEX_FILE_OVERRIDE
+  unset RJ_PPG12_PERIOD_USE_LUMI_WEIGHT RJ_PPG12_PHOTON_YIELD_MIX_WEIGHT
+  unset RJ_PPG12_CROSSING_PERIOD RJ_PP_VERTEX_REWEIGHT_FILE RJ_PP_VERTEX_REWEIGHT_HIST
+  unset RJ_PPG12_PERIOD_STRICT_DI RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4
+  unset RJ_PPG12_PPSIM_G4_ONLY RJ_SIM_ALLOW_NONE_LISTS
+  unset RJ_FORCE_RELEASE_CORE_LIBS RJ_RELEASE_CORE_LIB_DIR
+  unset RJ_RELEASE_CORE_LIB64_DIR RJ_FORCE_RELEASE_CALO_IO
+  unset RJ_RELEASE_CALO_IO_PATH RJ_SNAPSHOT_LIB_DIR
+  unset RJ_SIM_SAMPLE RJ_EMBEDDED_INCLUSIVE_JET_SAMPLE
+  unset LD_PRELOAD LD_LIBRARY_PATH ROOT_INCLUDE_PATH
+  export RJ_PPG12_DI_ARCHIVED_RECO_CHAIN=1
+  export RJ_TRUTH_JETS_MODE=DST
+  export RJ_PPG12_DI_ARCHIVED_RELEASE="$PPG12_ARCHIVED_OFFLINE_MAIN"
+  export RJ_PPG12_PERIOD_ALLOW_ALL_SIM=0
+  export RJ_PPG12_PERIOD_ALLOW_MIX_OVERRIDE=0
+  export RJ_PPG12_PERIOD_ALLOW_VERTEX_FILE_OVERRIDE=0
+  export RJ_PPG12_PERIOD_USE_LUMI_WEIGHT=1
+  export RJ_PPG12_PERIOD="$archived_period"
+  export RJ_PPG12_PHOTON_YIELD_DOUBLE=1
+  export RJ_PPG12_PERIOD_STRICT_DI=1
+  export RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4=1
+  export RJ_PPG12_PPSIM_G4_ONLY=1
+  export RJ_SIM_ALLOW_NONE_LISTS=1
+  export RJ_SIM_SAMPLE="$run8"
+  export RJ_EMBEDDED_INCLUSIVE_JET_SAMPLE="$run8"
+  export RJ_PPG12_DI_RUNTIME_MANIFEST="$archived_runtime_manifest"
+  export RJ_PPG12_DI_RUNTIME_MANIFEST_SHA256="$archived_runtime_manifest_sha256"
+  archived_wrapper_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+  MACRO="${archived_wrapper_dir}/Fun4All_recoilJets.C"
+  export RJ_MACRO_PATH="$MACRO"
+
+  [[ "$archived_runtime_manifest" == /* && -s "$archived_runtime_manifest" ]] || {
+    echo "[FATAL] Archived PPG12 DI runtime manifest is missing or not absolute: ${archived_runtime_manifest:-<unset>}"
+    exit 96
+  }
+  [[ "$archived_runtime_manifest_sha256" =~ ^[0-9a-f]{64}$ ]] || {
+    echo "[FATAL] Archived PPG12 DI runtime-manifest digest is invalid."
+    exit 96
+  }
+  command -v sha256sum >/dev/null 2>&1 || {
+    echo "[FATAL] sha256sum is required to verify the archived PPG12 DI runtime."
+    exit 96
+  }
+  actual_runtime_manifest_sha256="$(sha256sum "$archived_runtime_manifest" | awk '{print $1}')"
+  [[ "$actual_runtime_manifest_sha256" == "$archived_runtime_manifest_sha256" ]] || {
+    echo "[FATAL] Archived PPG12 DI runtime-manifest digest mismatch."
+    exit 96
+  }
+  (
+    cd "$(dirname "$archived_runtime_manifest")"
+    sha256sum -c "$(basename "$archived_runtime_manifest")"
+  ) || {
+    echo "[FATAL] Archived PPG12 DI runtime snapshot failed hash verification."
+    exit 96
+  }
+
+  # Source only the fixed historical release in this branch.
+  set +u
+  source /opt/sphenix/core/bin/sphenix_setup.sh -n ana.541
+  set -u
+  [[ "${OFFLINE_MAIN:-}" == "$PPG12_ARCHIVED_OFFLINE_MAIN" ]] || {
+    echo "[FATAL] Archived PPG12 DI runtime resolved OFFLINE_MAIN='${OFFLINE_MAIN:-<unset>}', expected '${PPG12_ARCHIVED_OFFLINE_MAIN}'."
+    exit 96
+  }
+else
+  # Existing runtime for every non-archived lane remains unchanged.
+  set +u
+  source /opt/sphenix/core/bin/sphenix_setup.sh -n
+  if [[ -d "$MYINSTALL" ]]; then
+    source /opt/sphenix/core/bin/setup_local.sh "$MYINSTALL" || true
+  fi
+  if [[ -d "${MYINSTALL}/lib" ]]; then
+    export LD_LIBRARY_PATH="${MYINSTALL}/lib:${LD_LIBRARY_PATH:-}"
+  fi
+  if [[ -d "${MYINSTALL}/include" ]]; then
+    export ROOT_INCLUDE_PATH="${MYINSTALL}/include:${ROOT_INCLUDE_PATH:-}"
+  fi
+  set -u
 fi
-if [[ -d "${MYINSTALL}/lib" ]]; then
-  # setup_local can leave an older user install ahead of this campaign install.
-  # Keep DT_NEEDED dependencies bound to the same rebuilt library stack.
-  export LD_LIBRARY_PATH="${MYINSTALL}/lib:${LD_LIBRARY_PATH:-}"
-fi
-if [[ -d "${MYINSTALL}/include" ]]; then
-  export ROOT_INCLUDE_PATH="${MYINSTALL}/include:${ROOT_INCLUDE_PATH:-}"
-fi
-set -u
 
 # ------------------------ Dataset routing ------------------
 # Normalize dataset and set defaults:
@@ -216,6 +308,27 @@ fi
 if [[ ! -s "$chunk_list" ]]; then
   echo "[FATAL] Chunk list is empty: $chunk_list"
   exit 4
+fi
+if (( ppg12_archived_di_lane )); then
+  sample_slice="${run8#run28_}"
+  sample_slice="${sample_slice%_double}"
+  if ! awk -F '\t' \
+    -v g4="/js_pp200_signal_dual/g4hits/run0028/${sample_slice}/" \
+    -v jets="/js_pp200_signal_dual/nopileup/jets/run0028/${sample_slice}/" \
+    -v global="/js_pp200_signal_dual/nopileup/global/run0028/${sample_slice}/" '
+    BEGIN { bad=0 }
+    NF != 5 || $1 != "NONE" || index($2, g4) == 0 ||
+    index($3, jets) == 0 || index($4, global) == 0 || $5 != "NONE" {
+      if (bad < 5) {
+        printf "Archived PPG12 DI row %d mismatch: CALO=%s G4Hits=%s DST_JETS=%s DST_GLOBAL=%s MBD=%s\n", NR, $1, $2, $3, $4, $5 > "/dev/stderr"
+      }
+      bad++
+    }
+    END { exit bad == 0 ? 0 : 1 }
+  ' "$chunk_list"; then
+    echo "[FATAL] Archived PPG12 DI worker requires CALO/MBD=NONE and exact run-28 ${sample_slice} dual G4Hits, truth-jet, and global sources."
+    exit 98
+  fi
 fi
 
 # ------------------------ Run ROOT macro -------------------
@@ -380,7 +493,7 @@ emit_profile_summary() {
     fanout_output_roots="$(awk -F'|' 'NF && $1 !~ /^#/ && $1 != "" {seen[$1]=1} END{for(k in seen)c++; print c+0}' "$RJ_ID_FANOUT_FILE" 2>/dev/null || echo 0)"
   fi
 
-  echo "RECOILJETS_JOB_PROFILE_V1 stage=${profile_stage} label=${profile_label} dataset=${dataset} analysis_tag=${analysis_tag} run=${run8} chunk=${chunk_tag} input_files=${input_files} nevents=${nevents} cluster_id=${cluster_id} exit_code=${exit_code} elapsed_seconds=${elapsed} max_rss_kb=${max_rss_kb} user_cpu_s=${user_cpu_s} system_cpu_s=${system_cpu_s} cpu_percent=${cpu_percent} major_page_faults=${major_faults} minor_page_faults=${minor_faults} voluntary_context_switches=${voluntary_cs} involuntary_context_switches=${involuntary_cs} fs_inputs=${fs_inputs} fs_outputs=${fs_outputs} output_files=${output_files} output_bytes=${output_bytes} request_memory_mb=${RJ_REQUEST_MEMORY_MB:-unknown} fanout_view_count=${fanout_view_count} fanout_output_roots=${fanout_output_roots} macro=${MACRO} config=${RJ_CONFIG_YAML:-unset}"
+  echo "RECOILJETS_JOB_PROFILE_V1 stage=${profile_stage} label=${profile_label} dataset=${dataset} analysis_tag=${analysis_tag} run=${run8} chunk=${chunk_tag} input_files=${input_files} nevents=${nevents} cluster_id=${cluster_id} exit_code=${exit_code} elapsed_seconds=${elapsed} max_rss_kb=${max_rss_kb} user_cpu_s=${user_cpu_s} system_cpu_s=${system_cpu_s} cpu_percent=${cpu_percent} major_page_faults=${major_faults} minor_page_faults=${minor_faults} voluntary_context_switches=${voluntary_cs} involuntary_context_switches=${involuntary_cs} fs_inputs=${fs_inputs} fs_outputs=${fs_outputs} output_files=${output_files} output_bytes=${output_bytes} request_memory_mb=${RJ_REQUEST_MEMORY_MB:-unknown} fanout_view_count=${fanout_view_count} fanout_output_roots=${fanout_output_roots} archived_chain=${RJ_PPG12_DI_ARCHIVED_RECO_CHAIN:-0} truth_jets_mode=${RJ_TRUTH_JETS_MODE:-unset} release=${RJ_PPG12_DI_ARCHIVED_RELEASE:-${OFFLINE_MAIN:-unset}} sample=${RJ_SIM_SAMPLE:-$run8} runtime_manifest_sha256=${RJ_PPG12_DI_RUNTIME_MANIFEST_SHA256:-unset} macro=${MACRO} config=${RJ_CONFIG_YAML:-unset}"
   if [[ -s "$profile_file" ]]; then
     sed 's/^/[time-v] /' "$profile_file"
   fi
