@@ -5514,12 +5514,55 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     // pp retains the PPG12 70 MeV cell floor; AuAu uses a zero configured cell
     // floor. The RawCluster towermap remains diagnostic-only and must never be
     // selected implicitly from the dataset type.
-    constexpr bool useCoreGoodTowerInfoShapes = true;
-    constexpr bool useRawClusterTowermapForCEMCShapes = false;
     constexpr float kPPG12PPCEMCShapeTowerMinGeV = 0.070f;
     constexpr float kAuAuCEMCShapeTowerMinGeV = 0.0f;
-    const float canonicalCEMCShapeTowerMinGeV =
+    std::string cemcShowerShapeDiagnosticVariant = "canonical";
+    if (const char* raw = std::getenv("RJ_AUAU_SHOWER_SHAPE_DIAGNOSTIC_VARIANT"))
+    {
+        cemcShowerShapeDiagnosticVariant = detail::trim(std::string(raw));
+        std::transform(cemcShowerShapeDiagnosticVariant.begin(),
+                       cemcShowerShapeDiagnosticVariant.end(),
+                       cemcShowerShapeDiagnosticVariant.begin(),
+                       [](unsigned char c){ return std::tolower(c); });
+    }
+    if (cemcShowerShapeDiagnosticVariant != "canonical" &&
+        cemcShowerShapeDiagnosticVariant != "towerinfo70" &&
+        cemcShowerShapeDiagnosticVariant != "historical")
+    {
+        detail::bail(
+            "RJ_AUAU_SHOWER_SHAPE_DIAGNOSTIC_VARIANT must be one of "
+            "canonical, towerinfo70, or historical; received \"" +
+            cemcShowerShapeDiagnosticVariant + "\"");
+    }
+    if (!isAuAuLike && cemcShowerShapeDiagnosticVariant != "canonical")
+    {
+        detail::bail(
+            "RJ_AUAU_SHOWER_SHAPE_DIAGNOSTIC_VARIANT=" +
+            cemcShowerShapeDiagnosticVariant +
+            " is an AuAu-only diagnostic and cannot modify the pp contract");
+    }
+
+    bool useCoreGoodTowerInfoShapes = true;
+    bool useRawClusterTowermapForCEMCShapes = false;
+    float resolvedCEMCShapeTowerMinGeV =
         isAuAuLike ? kAuAuCEMCShapeTowerMinGeV : kPPG12PPCEMCShapeTowerMinGeV;
+    std::string resolvedCEMCShapeEnergySource = "towerinfo_full_good_grid";
+    std::string resolvedCEMCShapeTowerAcceptance = "towerinfo_get_isgood";
+
+    if (isAuAuLike && cemcShowerShapeDiagnosticVariant == "towerinfo70")
+    {
+        resolvedCEMCShapeTowerMinGeV = kPPG12PPCEMCShapeTowerMinGeV;
+    }
+    else if (isAuAuLike && cemcShowerShapeDiagnosticVariant == "historical")
+    {
+        resolvedCEMCShapeTowerMinGeV = kPPG12PPCEMCShapeTowerMinGeV;
+        if (isSimEmbedded)
+        {
+            useRawClusterTowermapForCEMCShapes = true;
+            resolvedCEMCShapeEnergySource = "raw_cluster_towermap_diagnostic";
+            resolvedCEMCShapeTowerAcceptance = "raw_cluster_towermap_membership";
+        }
+    }
     const bool requestedPPG12TruthVertexForReco =
         ppg12PhotonYieldPPSim &&
         (env_truthy_local("RJ_PPG12_PHOTON_YIELD_TRUTH_VERTEX") ||
@@ -5599,7 +5642,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         builder->set_input_cluster_node(photonInputClusterNode);
         builder->set_output_photon_node(outNode);
         builder->set_ET_threshold(static_cast<float>(minPhotonEt));
-        builder->set_shower_shape_min_tower_energy(canonicalCEMCShapeTowerMinGeV);
+        builder->set_shower_shape_min_tower_energy(resolvedCEMCShapeTowerMinGeV);
         builder->set_iso_min_tower_energy(photonBuilderIsoTowerMin);
         builder->set_use_ppg12_pp_iso_axis(useSamePhotonBDTScores);
         builder->set_use_ppg12_pp_sim_truth_vertex(false);
@@ -6275,10 +6318,11 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         << " | ppg12RecoVertex="
         << (ppg12PhotonYieldPPSim ? "GlobalVertexMap::MBD" : "default reco")
         << " | ppg12TruthVertexRole=SI/DI weight only"
-        << " | cemcShapeEnergySource=towerinfo_full_good_grid"
-        << " | shapeTowerAcceptance=towerinfo_get_isgood"
-        << " | rawTowermapCEMCShapes=false"
-        << " | shapeTowerMinEGeV=" << canonicalCEMCShapeTowerMinGeV
+        << " | cemcShapeDiagnosticVariant=" << cemcShowerShapeDiagnosticVariant
+        << " | cemcShapeEnergySource=" << resolvedCEMCShapeEnergySource
+        << " | shapeTowerAcceptance=" << resolvedCEMCShapeTowerAcceptance
+        << " | rawTowermapCEMCShapes=" << (useRawClusterTowermapForCEMCShapes ? "true" : "false")
+        << " | shapeTowerMinEGeV=" << resolvedCEMCShapeTowerMinGeV
         << " | isAuAuLike=" << (isAuAuLike ? "true" : "false")
         << " | isSimEmbedded=" << (isSimEmbedded ? "true" : "false")
         << " | photonBuilderIsAuAu=" << (photonBuilderIsAuAu ? "true" : "false")
@@ -6824,16 +6868,19 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     std::string stampedYaml = idfanout::YAMLForEntry(cfg.yamlText, idEntry);
     idfanout::ReplaceOrAppendScalar(stampedYaml,
                                     "cemc_shower_shape_energy_source",
-                                    "towerinfo_full_good_grid");
+                                    resolvedCEMCShapeEnergySource);
     idfanout::ReplaceOrAppendScalar(stampedYaml,
                                     "cemc_shower_shape_raw_cluster_towermap",
-                                    "false");
+                                    useRawClusterTowermapForCEMCShapes ? "true" : "false");
     idfanout::ReplaceOrAppendScalar(stampedYaml,
                                     "cemc_shower_shape_tower_acceptance",
-                                    "towerinfo_get_isgood");
+                                    resolvedCEMCShapeTowerAcceptance);
     idfanout::ReplaceOrAppendScalar(stampedYaml,
                                     "cemc_shower_shape_tower_min_energy_gev",
-                                    detail::fmt(canonicalCEMCShapeTowerMinGeV, 3));
+                                    detail::fmt(resolvedCEMCShapeTowerMinGeV, 3));
+    idfanout::ReplaceOrAppendScalar(stampedYaml,
+                                    "cemc_shower_shape_diagnostic_variant",
+                                    cemcShowerShapeDiagnosticVariant);
     if (const char* jetPtRaw = std::getenv("RJ_INTERNAL_JET_PT_MINS"))
     {
         const char* disableRaw = std::getenv("RJ_DISABLE_JET_PT_INTERNALIZATION");

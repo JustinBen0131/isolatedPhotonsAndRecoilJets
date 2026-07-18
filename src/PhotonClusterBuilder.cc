@@ -369,9 +369,11 @@ int PhotonClusterBuilder::InitRun(PHCompositeNode* topNode)
                       ? "raw_cluster_towermap_diagnostic"
                       : "towerinfo_full_good_grid")
                 << " shapeTowerAcceptance="
-                << (m_use_ppg12_pp_sim_towerinfo_shapes
-                      ? "towerinfo_get_isgood"
-                      : "local_chi2_cdb_mask")
+                << (m_use_raw_cluster_towermap_for_cemc_shapes
+                      ? "raw_cluster_towermap_membership"
+                      : (m_use_ppg12_pp_sim_towerinfo_shapes
+                           ? "towerinfo_get_isgood"
+                           : "local_chi2_cdb_mask"))
                 << " rawTowermapCEMCShapes=" << (m_use_raw_cluster_towermap_for_cemc_shapes ? "true" : "false")
                 << " ppIsoAxis=" << (m_use_ppg12_pp_iso_axis ? "cogTower" : "cluster")
                 << " ppg12PPSimTruthVertex=" << (m_use_ppg12_pp_sim_truth_vertex ? "true" : "false")
