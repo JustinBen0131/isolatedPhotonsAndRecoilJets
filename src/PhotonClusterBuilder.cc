@@ -66,6 +66,43 @@ namespace
     }
   }
 
+  bool valid_calo_tower_indices(RawTowerDefs::CalorimeterId calo_id,
+                                int ieta,
+                                int iphi)
+  {
+    const bool is_cemc = calo_id == RawTowerDefs::CalorimeterId::CEMC;
+    const int eta_bins = is_cemc ? 96 : 24;
+    const int phi_bins = is_cemc ? 256 : 64;
+    return ieta >= 0 && ieta < eta_bins && iphi >= 0 && iphi < phi_bins;
+  }
+
+  void report_invalid_tower_indices(const char* context,
+                                    RawTowerDefs::CalorimeterId calo_id,
+                                    unsigned int channel,
+                                    unsigned int tower_key,
+                                    int ieta,
+                                    int iphi,
+                                    int verbosity)
+  {
+    if (verbosity < 1)
+    {
+      return;
+    }
+    static unsigned int reports = 0;
+    if (reports++ >= 20)
+    {
+      return;
+    }
+    std::cerr << "[PhotonClusterBuilder][INVALID_TOWER_COORD] context=" << context
+              << " calo_id=" << static_cast<int>(calo_id)
+              << " channel=" << channel
+              << " tower_key=" << tower_key
+              << " ieta=" << ieta
+              << " iphi=" << iphi
+              << " action=skip"
+              << std::endl;
+  }
+
   std::string lower_env_value(const char* name)
   {
     const char* value = std::getenv(name);
@@ -1308,6 +1345,18 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
         RawTowerDefs::keytype tower_key = tower_iter.first;
         int ieta = RawTowerDefs::decode_index1(tower_key);
         int iphi = RawTowerDefs::decode_index2(tower_key);
+
+        if (!valid_calo_tower_indices(RawTowerDefs::CalorimeterId::CEMC, ieta, iphi))
+        {
+            report_invalid_tower_indices("cluster_towermap",
+                                         RawTowerDefs::CalorimeterId::CEMC,
+                                         std::numeric_limits<unsigned int>::max(),
+                                         static_cast<unsigned int>(tower_key),
+                                         ieta,
+                                         iphi,
+                                         Verbosity());
+            continue;
+        }
         
         
         unsigned int towerinfokey = TowerInfoDefs::encode_emcal(ieta, iphi);
@@ -1381,6 +1430,18 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
                 
                 int ieta = RawTowerDefs::decode_index1(tower_key);
                 int iphi = RawTowerDefs::decode_index2(tower_key);
+
+                if (!valid_calo_tower_indices(RawTowerDefs::CalorimeterId::CEMC, ieta, iphi))
+                {
+                    report_invalid_tower_indices("cluster_towermap_debug",
+                                                 RawTowerDefs::CalorimeterId::CEMC,
+                                                 std::numeric_limits<unsigned int>::max(),
+                                                 static_cast<unsigned int>(tower_key),
+                                                 ieta,
+                                                 iphi,
+                                                 Verbosity());
+                    continue;
+                }
                 
                 unsigned int towerinfokey = TowerInfoDefs::encode_emcal(ieta, iphi);
                 TowerInfo* towerinfo = m_emc_tower_container->get_tower_at_key(towerinfokey);
@@ -1964,6 +2025,18 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
             const unsigned int towerkey = towerContainer->encode_key(channel);
             const int ieta = towerContainer->getTowerEtaBin(towerkey);
             const int iphi = towerContainer->getTowerPhiBin(towerkey);
+
+            if (!valid_calo_tower_indices(calo_id, ieta, iphi))
+            {
+                report_invalid_tower_indices("signed_layer_iso",
+                                             calo_id,
+                                             channel,
+                                             towerkey,
+                                             ieta,
+                                             iphi,
+                                             Verbosity());
+                continue;
+            }
             
             const RawTowerDefs::keytype geom_key = RawTowerDefs::encode_towerid(calo_id, ieta, iphi);
             RawTowerGeom* tower_geom = geomContainer->get_tower_geometry(geom_key);
@@ -2154,6 +2227,18 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
                 RawTowerDefs::keytype tower_key = it.first;
                 int ieta = RawTowerDefs::decode_index1(tower_key);
                 int iphi = RawTowerDefs::decode_index2(tower_key);
+
+                if (!valid_calo_tower_indices(RawTowerDefs::CalorimeterId::CEMC, ieta, iphi))
+                {
+                    report_invalid_tower_indices("negative_iso_cluster_towermap",
+                                                 RawTowerDefs::CalorimeterId::CEMC,
+                                                 std::numeric_limits<unsigned int>::max(),
+                                                 static_cast<unsigned int>(tower_key),
+                                                 ieta,
+                                                 iphi,
+                                                 Verbosity());
+                    continue;
+                }
                 
                 unsigned int towerinfokey = TowerInfoDefs::encode_emcal(ieta, iphi);
                 TowerInfo* ti = m_emc_tower_container ? m_emc_tower_container->get_tower_at_key(towerinfokey) : nullptr;
@@ -2239,6 +2324,18 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
                     const unsigned int tkey = m_emc_tower_container->encode_key(ch);
                     const int ieta = m_emc_tower_container->getTowerEtaBin(tkey);
                     const int iphi = m_emc_tower_container->getTowerPhiBin(tkey);
+
+                    if (!valid_calo_tower_indices(RawTowerDefs::CalorimeterId::CEMC, ieta, iphi))
+                    {
+                        report_invalid_tower_indices("negative_iso_cone_audit",
+                                                     RawTowerDefs::CalorimeterId::CEMC,
+                                                     ch,
+                                                     tkey,
+                                                     ieta,
+                                                     iphi,
+                                                     Verbosity());
+                        continue;
+                    }
                     
                     RawTowerDefs::keytype geom_key =
                     RawTowerDefs::encode_towerid(RawTowerDefs::CalorimeterId::CEMC, ieta, iphi);
@@ -2433,7 +2530,21 @@ std::vector<int> PhotonClusterBuilder::find_closest_hcal_tower(float eta, float 
     int ieta = towerContainer->getTowerEtaBin(towerkey);
     int iphi = towerContainer->getTowerPhiBin(towerkey);
 
-    RawTowerDefs::keytype key = RawTowerDefs::encode_towerid(isihcal ? RawTowerDefs::CalorimeterId::HCALIN : RawTowerDefs::CalorimeterId::HCALOUT, ieta, iphi);
+    const auto calo_id = isihcal ? RawTowerDefs::CalorimeterId::HCALIN
+                                 : RawTowerDefs::CalorimeterId::HCALOUT;
+    if (!valid_calo_tower_indices(calo_id, ieta, iphi))
+    {
+      report_invalid_tower_indices("closest_hcal_tower",
+                                   calo_id,
+                                   channel,
+                                   towerkey,
+                                   ieta,
+                                   iphi,
+                                   Verbosity());
+      continue;
+    }
+
+    RawTowerDefs::keytype key = RawTowerDefs::encode_towerid(calo_id, ieta, iphi);
     RawTowerGeom* tower_geom = geom->get_tower_geometry(key);
     if (!tower_geom)
     {
@@ -2529,6 +2640,18 @@ float PhotonClusterBuilder::calculate_layer_et(float seed_eta, float seed_phi, f
 
     int ieta = towerContainer->getTowerEtaBin(towerkey);
     int iphi = towerContainer->getTowerPhiBin(towerkey);
+
+    if (!valid_calo_tower_indices(calo_id, ieta, iphi))
+    {
+      report_invalid_tower_indices("layer_et",
+                                   calo_id,
+                                   channel,
+                                   towerkey,
+                                   ieta,
+                                   iphi,
+                                   Verbosity());
+      continue;
+    }
 
     RawTowerDefs::keytype geom_key = RawTowerDefs::encode_towerid(calo_id, ieta, iphi);
     RawTowerGeom* tower_geom = geomContainer->get_tower_geometry(geom_key);
