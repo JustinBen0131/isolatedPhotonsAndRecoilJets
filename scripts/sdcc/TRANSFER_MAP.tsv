@@ -135,3 +135,4 @@ src_AuAu/configure.ac	src_AuAu/configure.ac	src_AuAu/configure.ac		src_AuAu/conf
 src_AuAu/Makefile.am	src_AuAu/Makefile.am	src_AuAu/Makefile.am		src_AuAu/Makefile.am	compat_or_canonical
 src_AuAu/RecoilJets_AuAu.cc	src_AuAu/RecoilJets_AuAu.cc	src_AuAu/RecoilJets_AuAu.cc		src_AuAu/RecoilJets_AuAu.cc	compat_or_canonical
 src_AuAu/RecoilJets_AuAu.h	src_AuAu/RecoilJets_AuAu.h	src_AuAu/RecoilJets_AuAu.h		src_AuAu/RecoilJets_AuAu.h	compat_or_canonical
+scripts/sdcc/workflows/diagnostics/submit_the105_auau_shower_contract_factorial.sh	scripts/sdcc/workflows/diagnostics/submit_the105_auau_shower_contract_factorial.sh	scripts/sdcc/workflows/diagnostics/submit_the105_auau_shower_contract_factorial.sh		scripts/sdcc/workflows/diagnostics/submit_the105_auau_shower_contract_factorial.sh	canonical

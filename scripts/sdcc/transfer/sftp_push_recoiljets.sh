@@ -145,6 +145,7 @@ LOCAL_FILES=(
   "src_AuAu/Makefile.am"
   "src_AuAu/RecoilJets_AuAu.cc"
   "src_AuAu/RecoilJets_AuAu.h"
+  "scripts/sdcc/workflows/diagnostics/submit_the105_auau_shower_contract_factorial.sh"
 )
 
 REMOTE_FILES=(
@@ -284,6 +285,7 @@ REMOTE_FILES=(
   "src_AuAu/Makefile.am"
   "src_AuAu/RecoilJets_AuAu.cc"
   "src_AuAu/RecoilJets_AuAu.h"
+  "scripts/sdcc/workflows/diagnostics/submit_the105_auau_shower_contract_factorial.sh"
 )
 
 GROUP_CONDOR=(
@@ -371,6 +373,7 @@ GROUP_SCRIPTS=(
   "scripts/diagnostics/auau_bdt/validate_the102_fig25_root.py"
   "scripts/sdcc/workflows/diagnostics/submit_the104_canonical_minbias_isolation_slides.sh"
   "scripts/diagnostics/auau_bdt/validate_the104_isolation_root.py"
+  "scripts/sdcc/workflows/diagnostics/submit_the105_auau_shower_contract_factorial.sh"
   "scripts/sdcc/workflows/stacking/submit_auau_stacked_bdt_mlp_calibrator.sh"
   "scripts/sdcc/workflows/stacking/submit_auau_stacked_bdt_mlp_full_feature_chain.sh"
   "scripts/sdcc/workflows/stacking/submit_auau_stacked_bdt_mlp_sweep.sh"

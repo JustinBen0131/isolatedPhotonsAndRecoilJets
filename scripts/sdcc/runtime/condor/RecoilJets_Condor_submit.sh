@@ -438,6 +438,8 @@ create_pipeline_snapshot() {
   local snap_lib_dir="${snap_dir}/lib"
   local user_root="/sphenix/u/${USER:-$(id -u -n)}"
   local auau_library_source="${RJ_AUAU_LIBRARY_OVERRIDE:-${user_root}/thesisAnalysis_auau/install/lib/libRecoilJetsAuAu.so}"
+  local calo_reco_library_source="${RJ_CALO_RECO_LIBRARY_OVERRIDE:-${user_root}/thesisAnalysis/install/lib/libcalo_reco.so}"
+  local photon_cluster_builder_header_source="${RJ_PHOTON_CLUSTER_BUILDER_HEADER_OVERRIDE:-${user_root}/thesisAnalysis/install/include/caloreco/PhotonClusterBuilder.h}"
 
   local live_wrapper=""
   local live_macro=""
@@ -448,6 +450,7 @@ create_pipeline_snapshot() {
   local snap_calo="${snap_dir}/Calo_Calib.C"
   local snap_pp_header="${snap_dir}/RecoilJets.h"
   local snap_auau_header="${snap_dir}/RecoilJets_AuAu.h"
+  local snap_photon_cluster_builder_header="${snap_dir}/PhotonClusterBuilder.h"
   local use_release_core_libs=0
   local release_core_lib_dir="${RJ_RELEASE_CORE_LIB_DIR:-/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.558/lib}"
   local release_core_lib64_dir="${RJ_RELEASE_CORE_LIB64_DIR:-/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.558/lib64}"
@@ -472,6 +475,11 @@ create_pipeline_snapshot() {
   cp -f "${BASE}/macros/Calo_Calib.C" "$snap_calo"
   cp -f "${BASE}/src/RecoilJets.h" "$snap_pp_header"
   cp -f "${BASE}/src_AuAu/RecoilJets_AuAu.h" "$snap_auau_header"
+  if [[ ! -r "$photon_cluster_builder_header_source" ]]; then
+    err "PhotonClusterBuilder snapshot header is missing: ${photon_cluster_builder_header_source}"
+    exit 2
+  fi
+  cp -f "$photon_cluster_builder_header_source" "$snap_photon_cluster_builder_header"
 
   if [[ "$mode" != "auau" ]] && env_truthy "${RJ_FORCE_RELEASE_CORE_LIBS:-0}"; then
     use_release_core_libs=1
@@ -483,7 +491,11 @@ create_pipeline_snapshot() {
     done
     say "RJ_FORCE_RELEASE_CORE_LIBS=1: using release CaloReco/ClusterIso/JetBase instead of private core library snapshots."
   else
-    cp -f "${user_root}/thesisAnalysis/install/lib/libcalo_reco.so" "$snap_lib_dir/"
+    if [[ ! -r "$calo_reco_library_source" ]]; then
+      err "CaloReco snapshot library is missing: ${calo_reco_library_source}"
+      exit 2
+    fi
+    cp -f "$calo_reco_library_source" "$snap_lib_dir/libcalo_reco.so"
     cp -f "${user_root}/thesisAnalysis/install/lib/libcalo_io.so" "$snap_lib_dir/"
     cp -f "${user_root}/thesisAnalysis/install/lib/libclusteriso.so" "$snap_lib_dir/"
     cp -f "${user_root}/thesisAnalysis/install/lib/libjetbase.so" "$snap_lib_dir/"
@@ -499,6 +511,9 @@ create_pipeline_snapshot() {
   # Copy companion ROOT PCM dictionaries so R__LOAD_LIBRARY doesn't spew missing-PCM errors
   cp -f "${user_root}/thesisAnalysis/install/lib/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
   cp -f "${user_root}/thesisAnalysis_auau/install/lib/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
+  if [[ -n "${RJ_CALO_RECO_LIBRARY_OVERRIDE:-}" ]]; then
+    cp -f "$(dirname "$calo_reco_library_source")/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
+  fi
 
   # Preserve dynamic-loader identity inside the frozen snapshot.  The copied
   # files are the bare linker names, but their DT_NEEDED entries request the
@@ -521,6 +536,7 @@ create_pipeline_snapshot() {
   sed -i "s|#include \"/sphenix/u/patsfan753/scratch/thesisAnalysis/macros/Calo_Calib.C\"|#include \"${snap_calo}\"|" "$snap_impl"
   sed -i "s|#include \"/sphenix/u/patsfan753/scratch/thesisAnalysis/src/RecoilJets.h\"|#include \"${snap_pp_header}\"|" "$snap_impl"
   sed -i "s|#include \"/sphenix/u/patsfan753/scratch/thesisAnalysis/src_AuAu/RecoilJets_AuAu.h\"|#include \"${snap_auau_header}\"|" "$snap_impl"
+  sed -i "s|#include \"/sphenix/u/patsfan753/thesisAnalysis/install/include/caloreco/PhotonClusterBuilder.h\"|#include \"${snap_photon_cluster_builder_header}\"|" "$snap_impl"
 
   if (( use_release_core_libs )); then
     sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)|R__LOAD_LIBRARY(libcalo_reco.so)|" "$snap_impl"
