@@ -4,6 +4,7 @@
 #include <fun4all/Fun4AllServer.h>
 #include <phool/getClass.h>
 #include <phool/recoConsts.h>
+#include <phool/THE106Observation.h>
 #include <jetbase/JetContainer.h>
 #include <jetbase/Jet.h>
 #include <array>
@@ -3688,6 +3689,18 @@ void RecoilJets::initAuAuBDTTrainingTree()
   add("run", &m_bdtTrain_run, "run/I");
   add("evt", &m_bdtTrain_evt, "evt/L");
   add("is_signal", &m_bdtTrain_is_signal, "is_signal/I");
+  add("truth_match_found", &m_bdtTrain_truth_match_found, "truth_match_found/I");
+  add("truth_photon_class", &m_bdtTrain_truth_photon_class, "truth_photon_class/I");
+  add("truth_is_prompt", &m_bdtTrain_truth_is_prompt, "truth_is_prompt/I");
+  add("truth_iso_et", &m_bdtTrain_truth_iso_et, "truth_iso_et/F");
+  add("truth_iso_pass", &m_bdtTrain_truth_iso_pass, "truth_iso_pass/I");
+  add("cluster_truth_track_id", &m_bdtTrain_cluster_truth_track_id, "cluster_truth_track_id/I");
+  add("cluster_truth_pid", &m_bdtTrain_cluster_truth_pid, "cluster_truth_pid/I");
+  add("cluster_truth_barcode", &m_bdtTrain_cluster_truth_barcode, "cluster_truth_barcode/I");
+  add("source_role", &m_bdtTrain_source_role, "source_role/I");
+  add("source_sample_code", &m_bdtTrain_source_sample_code, "source_sample_code/I");
+  add("ppg12_source_role_label", &m_bdtTrain_ppg12_source_role_label,
+      "ppg12_source_role_label/I");
   add("pt_bin", &m_bdtTrain_pt_bin, "pt_bin/I");
   add("cent_bin", &m_bdtTrain_cent_bin, "cent_bin/I");
   add("minimum_bias_classifier_decision", &m_bdtTrain_minbias_decision,
@@ -3762,7 +3775,17 @@ void RecoilJets::fillAuAuBDTTrainingTree(const SSVars& v,
                                  double mbdTime,
                                  bool hasAwayJet,
                                  double eisoR30,
-                                 double eisoR40)
+                                 double eisoR40,
+                                 int truthMatchFound,
+                                 int truthPhotonClass,
+                                 double truthIsoEt,
+                                 int truthIsoPass,
+                                 int clusterTruthTrackId,
+                                 int clusterTruthPid,
+                                 int clusterTruthBarcode,
+                                 int sourceRole,
+                                 int sourceSampleCode,
+                                 int ppg12SourceRoleLabel)
 {
   if (!m_auauBDTTrainingTreeEnabled) return;
   if (!m_auauBDTTrainingTree) initAuAuBDTTrainingTree();
@@ -3778,6 +3801,20 @@ void RecoilJets::fillAuAuBDTTrainingTree(const SSVars& v,
   m_bdtTrain_run = (m_evtHeader ? m_evtHeader->get_RunNumber() : 0);
   m_bdtTrain_evt = event_count;
   m_bdtTrain_is_signal = isSignal ? 1 : 0;
+  m_bdtTrain_truth_match_found = truthMatchFound;
+  m_bdtTrain_truth_photon_class = truthPhotonClass;
+  m_bdtTrain_truth_is_prompt =
+      (truthPhotonClass == 1 || truthPhotonClass == 2) ? 1 :
+      (truthPhotonClass >= 0 ? 0 : -1);
+  m_bdtTrain_truth_iso_et = std::isfinite(truthIsoEt)
+      ? static_cast<float>(truthIsoEt) : -999.0f;
+  m_bdtTrain_truth_iso_pass = truthIsoPass;
+  m_bdtTrain_cluster_truth_track_id = clusterTruthTrackId;
+  m_bdtTrain_cluster_truth_pid = clusterTruthPid;
+  m_bdtTrain_cluster_truth_barcode = clusterTruthBarcode;
+  m_bdtTrain_source_role = sourceRole;
+  m_bdtTrain_source_sample_code = sourceSampleCode;
+  m_bdtTrain_ppg12_source_role_label = ppg12SourceRoleLabel;
   m_bdtTrain_pt_bin = ptIdx;
   m_bdtTrain_cent_bin = centIdx;
   m_bdtTrain_minbias_decision = m_embeddedMinBiasDecision;
@@ -5137,15 +5174,41 @@ double RecoilJets::predictAuAuTightBDTScore(const PhotonClusterv1* pho, const SS
 
   std::vector<float> x;
   x.reserve(m_auauTightBDTFeatures.size());
-  for (const auto& feature : m_auauTightBDTFeatures)
+  for (std::size_t featureIndex = 0;
+       featureIndex < m_auauTightBDTFeatures.size(); ++featureIndex)
   {
+    const auto& feature = m_auauTightBDTFeatures[featureIndex];
     const double val = auauTightBDTFeatureValue(feature, pho, v);
-    if (!std::isfinite(val)) return std::numeric_limits<double>::quiet_NaN();
+    if (!std::isfinite(val))
+    {
+      the106::c0h2::emitScoreObservation(
+          the106::c0h2::ScoreStatus::feature_nonfinite,
+          x.data(), x.size(), m_auauTightBDTFeatures.data(),
+          m_auauTightBDTModelFile.c_str(), scoreMode.c_str(),
+          false, 0.0F, featureIndex);
+      return std::numeric_limits<double>::quiet_NaN();
+    }
     x.push_back(static_cast<float>(val));
   }
   const auto y = model->Compute(x);
-  if (y.empty() || !std::isfinite(y[0])) return std::numeric_limits<double>::quiet_NaN();
-  return static_cast<double>(y[0]);
+  if (y.empty())
+  {
+    the106::c0h2::emitScoreObservation(
+        the106::c0h2::ScoreStatus::output_empty,
+        x.data(), x.size(), m_auauTightBDTFeatures.data(),
+        m_auauTightBDTModelFile.c_str(), scoreMode.c_str(),
+        false, 0.0F, 0);
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+  const float score = y[0];
+  the106::c0h2::emitScoreObservation(
+      std::isfinite(score) ? the106::c0h2::ScoreStatus::valid
+                           : the106::c0h2::ScoreStatus::output_nonfinite,
+      x.data(), x.size(), m_auauTightBDTFeatures.data(),
+      m_auauTightBDTModelFile.c_str(), scoreMode.c_str(),
+      true, score, 0);
+  if (!std::isfinite(score)) return std::numeric_limits<double>::quiet_NaN();
+  return static_cast<double>(score);
 }
 
 bool RecoilJets::initAuAuTightMLPModelIfNeeded() const
@@ -12672,6 +12735,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
             HepMC::GenEvent* evtHepMC_SS = nullptr;
             bool haveCaloEval_SS = false;
             std::unique_ptr<CaloRawClusterEval> clustereval_SS;
+            TruthSignalPhotonMap truthPhotonByTrackId_SS;
             TruthSignalPhotonMap truthSignalByTrackId_SS;
 
             if (m_isSim && !m_auauCandidateSkimOnly)
@@ -12706,7 +12770,16 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
 
                 if (evtHepMC_SS)
                 {
-                    truthSignalByTrackId_SS = buildPPG12TruthSignalPhotonMap(evtHepMC_SS);
+                    truthPhotonByTrackId_SS = buildPPG12TruthPhotonMap(evtHepMC_SS);
+                    for (const auto& item : truthPhotonByTrackId_SS)
+                    {
+                        const TruthSignalPhotonInfo& info = item.second;
+                        if ((info.photonClass == 1 || info.photonClass == 2) &&
+                            info.truthIsoPass)
+                        {
+                            truthSignalByTrackId_SS[item.first] = info;
+                        }
+                    }
                 }
             }
 
@@ -12871,7 +12944,43 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 }
 
                 // 1) Build shower-shape inputs (for preselection and tightness)
-                const SSVars v = makeSSFromPhoton(pho, pt_gamma);
+                const SSVars v = [&]()
+                {
+                    if (!the106::c0h2::scoreObservationEnabled())
+                    {
+                        return makeSSFromPhoton(pho, pt_gamma);
+                    }
+
+                    const EventHeader* observedEventHeader =
+                        findNode::getClass<EventHeader>(topNode, "EventHeader");
+                    the106::c0h2::CandidateContext context = {};
+                    context.pair = the106::c0h2::currentFrameworkPairToken();
+                    context.delivered_event_ordinal =
+                        event_count > 0 ? static_cast<std::uint64_t>(event_count) : 0U;
+                    context.run_valid = observedEventHeader != nullptr;
+                    context.run_number = observedEventHeader
+                        ? static_cast<std::int64_t>(observedEventHeader->get_RunNumber()) : 0;
+                    context.event_valid = observedEventHeader != nullptr;
+                    context.event_number = observedEventHeader
+                        ? static_cast<std::int64_t>(observedEventHeader->get_EvtSequence()) : 0;
+                    context.container_key = static_cast<std::uint64_t>(pit->first);
+                    context.cluster_id = static_cast<std::uint64_t>(pho->get_id());
+                    context.producer_encounter_ordinal = static_cast<std::uint64_t>(iPho);
+                    std::string observedModuleName;
+                    try
+                    {
+                        observedModuleName = Name();
+                    }
+                    catch (...)
+                    {
+                        // Observation metadata is nonsemantic.  Allocation failure
+                        // must not escape into or alter the authoritative path.
+                    }
+                    context.module_name = observedModuleName.empty()
+                        ? nullptr : observedModuleName.c_str();
+                    the106::c0h2::ScopedCandidateContext observationContext(context);
+                    return makeSSFromPhoton(pho, pt_gamma);
+                }();
                 if (doCanonical) ++m_bk.pho_reached_pre_iso;
 
                 // ------------------------------------------------------------------
@@ -13017,6 +13126,18 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 int bdtTrainClusterTruthPid = 0;
                 int bdtTrainClusterTruthBarcode = -1;
                 float bdtTrainEContrib = std::numeric_limits<float>::quiet_NaN();
+                int bdtTrainTruthMatchFound = -1;
+                int bdtTrainTruthPhotonClass = -1;
+                double bdtTrainTruthIsoEt = std::numeric_limits<double>::quiet_NaN();
+                int bdtTrainTruthIsoPass = -1;
+                const int bdtTrainPhotonSampleCode = embeddedPhotonSampleCodeFromContext(Outfile);
+                const int bdtTrainJetSampleCode = embeddedInclusiveJetSampleCodeFromContext(Outfile);
+                const int bdtTrainSourceRole = bdtTrainPhotonSampleCode != 0 ? 1 :
+                                               (bdtTrainJetSampleCode != 0 ? 2 : 0);
+                const int bdtTrainSourceSampleCode = bdtTrainPhotonSampleCode != 0
+                                                       ? bdtTrainPhotonSampleCode
+                                                       : bdtTrainJetSampleCode;
+                int bdtTrainPPG12SourceRoleLabel = -1;
                 if (doCanonical && m_isSim && !m_auauCandidateSkimOnly)
                 {
                     bool isSig_incl = false;
@@ -13035,9 +13156,32 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                             bdtTrainClusterTruthPid = primary->get_pid();
                             bdtTrainClusterTruthBarcode = primary->get_barcode();
                             bdtTrainEContrib = clustereval_SS->get_energy_contribution(rc_nc, primary);
+                            const auto truthFound = truthPhotonByTrackId_SS.find(bdtTrainClusterTruthTrackId);
+                            bdtTrainTruthMatchFound = (truthFound != truthPhotonByTrackId_SS.end()) ? 1 : 0;
+                            bdtTrainTruthPhotonClass = 0;
+                            bdtTrainTruthIsoPass = 0;
+                            if (truthFound != truthPhotonByTrackId_SS.end())
+                            {
+                                bdtTrainTruthPhotonClass = truthFound->second.photonClass;
+                                bdtTrainTruthIsoEt = truthFound->second.isoEt;
+                                bdtTrainTruthIsoPass = truthFound->second.truthIsoPass ? 1 : 0;
+                            }
+                        }
+                        else
+                        {
+                            bdtTrainTruthMatchFound = 0;
+                            bdtTrainTruthPhotonClass = 0;
+                            bdtTrainTruthIsoPass = 0;
                         }
                         bdtTrainHaveLabel = true;
                         bdtTrainIsSignal = isSig_incl;
+
+                        const bool isPromptTruth =
+                            (bdtTrainTruthPhotonClass == 1 || bdtTrainTruthPhotonClass == 2);
+                        if (bdtTrainSourceRole == 1 && isPromptTruth)
+                            bdtTrainPPG12SourceRoleLabel = 1;
+                        else if (bdtTrainSourceRole == 2 && !isPromptTruth)
+                            bdtTrainPPG12SourceRoleLabel = 0;
                     }
                     if (m_auauBDTExtractOnly && !bdtTrainHaveLabel &&
                         m_isSimEmbedded &&
@@ -13092,7 +13236,17 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                                             std::numeric_limits<double>::quiet_NaN(),
                                             false,
                                             eiso_et_r30,
-                                            eiso_et_r40);
+                                            eiso_et_r40,
+                                            bdtTrainTruthMatchFound,
+                                            bdtTrainTruthPhotonClass,
+                                            bdtTrainTruthIsoEt,
+                                            bdtTrainTruthIsoPass,
+                                            bdtTrainClusterTruthTrackId,
+                                            bdtTrainClusterTruthPid,
+                                            bdtTrainClusterTruthBarcode,
+                                            bdtTrainSourceRole,
+                                            bdtTrainSourceSampleCode,
+                                            bdtTrainPPG12SourceRoleLabel);
                 }
                 else if (doCanonical && !m_isSim && m_auauBDTNPBDataTaggingEnabled && bdtTrainPassCommonGate)
                 {
@@ -15555,11 +15709,15 @@ bool RecoilJets::isNonIsolated(const RawCluster* clus, double et_gamma, PHCompos
 // -----------------------------------------------------------------------------
 // Unified truth-MC signal definition: isolated prompt photon (CaloAna-matching)
 // -----------------------------------------------------------------------------
-bool RecoilJets::isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
-                                                   const HepMC::GenParticle* pho,
-                                                   double& isoEt) const
+bool RecoilJets::classifyTruthPhotonCandidate(const HepMC::GenEvent* evt,
+                                              const HepMC::GenParticle* pho,
+                                              int& photonClass,
+                                              double& isoEt,
+                                              const PHG4Particle*& truthPho) const
 {
+    photonClass = 0;
     isoEt = std::numeric_limits<double>::quiet_NaN();
+    truthPho = nullptr;
     if (!evt || !pho) return false;
 
     constexpr double kTruthEtaAbsMax = 0.7;
@@ -15567,7 +15725,6 @@ bool RecoilJets::isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
     // truth isolation parameters
     const double kIsoConeR  = m_isoConeR;
     constexpr double kMergerDR  = 0.001;
-    const double kIsoMaxGeV = m_truthIsoMaxGeV;
 
     // Photon requirement. The embedded G4 primary-particle match below enforces
     // the same truth-particle source used by Blair/Shuhang's tree isolation.
@@ -15617,8 +15774,6 @@ bool RecoilJets::isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
     if (!has_out_photon) return false;
 
     // direct photon:1, fragmentation photon:2, decayed photon:3, can't identify:0
-    int photonclass = 0;
-
     // direct photon 2->2: both incoming/outgoing are partons+photon (|pdg|<=22)
     if (incoming_particles.size() == 2 && outgoing_particles.size() == 2)
     {
@@ -15630,7 +15785,7 @@ bool RecoilJets::isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
         if (std::abs(in0) <= 22 && std::abs(in1) <= 22 &&
             std::abs(out0) <= 22 && std::abs(out1) <= 22)
         {
-            photonclass = 1;
+            photonClass = 1;
         }
     }
     // fragmentation / decay: one incoming
@@ -15648,19 +15803,16 @@ bool RecoilJets::isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
             }
             if (has_inpid_out)
             {
-                photonclass = 2;
+                photonClass = 2;
             }
         }
 
         // decayed photon: incoming |pid| > 37 (CaloAna sets this after frag check)
         if (std::abs(inpid) > 37)
         {
-            photonclass = 3;
+            photonClass = 3;
         }
     }
-
-    // Accept only direct OR fragmentation (prompt definition used by CaloAna for signal)
-    if (!(photonclass == 1 || photonclass == 2)) return false;
 
     // -------------------------------------------------------------------------
     // 2) Truth isolation: Blair/Shuhang CaloAna truth-iso method
@@ -15673,7 +15825,6 @@ bool RecoilJets::isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
     // -------------------------------------------------------------------------
     if (!m_truthInfo) return false;
 
-    const PHG4Particle* truthPho = nullptr;
     {
         auto primaryRange = m_truthInfo->GetPrimaryParticleRange();
         for (auto truth_itr = primaryRange.first; truth_itr != primaryRange.second; ++truth_itr)
@@ -15696,6 +15847,16 @@ bool RecoilJets::isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
     const double phiPho = p1.Phi();
     if (!std::isfinite(etaPho) || !std::isfinite(phiPho)) return false;
     if (std::fabs(etaPho) >= kTruthEtaAbsMax) return false;
+
+    // THE-107 keeps truth class and truth isolation as independent fields.
+    // Isolation can affect only the nominal direct/fragmentation signal label;
+    // non-prompt photons are background (or discarded by the PPG12 source-role
+    // contract) regardless of their cone activity.  Avoid the O(N_primary)
+    // cone scan for those photons while retaining their truth match/class.
+    if (photonClass != 1 && photonClass != 2)
+    {
+        return true;
+    }
 
     double isoSumEt  = 0.0;
     double clusterEt = 0.0;
@@ -15721,35 +15882,35 @@ bool RecoilJets::isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
     isoEt = isoSumEt - clusterEt;
     if (!std::isfinite(isoEt)) return false;
 
-    return (isoEt < kIsoMaxGeV);
+    return true;
+}
+
+bool RecoilJets::isTruthPromptIsolatedSignalPhoton(const HepMC::GenEvent* evt,
+                                                   const HepMC::GenParticle* pho,
+                                                   double& isoEt) const
+{
+  int photonClass = 0;
+  const PHG4Particle* truthPho = nullptr;
+  if (!classifyTruthPhotonCandidate(evt, pho, photonClass, isoEt, truthPho)) return false;
+  return (photonClass == 1 || photonClass == 2) &&
+         std::isfinite(isoEt) && isoEt < m_truthIsoMaxGeV;
 }
 
 RecoilJets::TruthSignalPhotonMap
-RecoilJets::buildPPG12TruthSignalPhotonMap(const HepMC::GenEvent* evt) const
+RecoilJets::buildPPG12TruthPhotonMap(const HepMC::GenEvent* evt) const
 {
-  TruthSignalPhotonMap truthSignalByTrackId;
-  if (!evt || !m_truthInfo) return truthSignalByTrackId;
+  TruthSignalPhotonMap truthPhotonByTrackId;
+  if (!evt || !m_truthInfo) return truthPhotonByTrackId;
 
   for (auto it = evt->particles_begin(); it != evt->particles_end(); ++it)
   {
     const HepMC::GenParticle* p = *it;
-    if (!p) continue;
+    if (!p || p->pdg_id() != 22) continue;
 
+    int photonClass = 0;
     double isoEt = std::numeric_limits<double>::quiet_NaN();
-    if (!isTruthPromptIsolatedSignalPhoton(evt, p, isoEt)) continue;
-
     const PHG4Particle* g4Pho = nullptr;
-    auto primaryRange = m_truthInfo->GetPrimaryParticleRange();
-    for (auto truth_itr = primaryRange.first; truth_itr != primaryRange.second; ++truth_itr)
-    {
-      const PHG4Particle* truth = truth_itr->second;
-      if (!truth) continue;
-      if (m_truthInfo->isEmbeded(truth->get_track_id()) < 1) continue;
-      if (truth->get_pid() != 22) continue;
-      if (truth->get_barcode() != p->barcode()) continue;
-      g4Pho = truth;
-      break;
-    }
+    if (!classifyTruthPhotonCandidate(evt, p, photonClass, isoEt, g4Pho)) continue;
     if (!g4Pho) continue;
 
     TruthSignalPhotonInfo info;
@@ -15759,17 +15920,34 @@ RecoilJets::buildPPG12TruthSignalPhotonMap(const HepMC::GenEvent* evt) const
     info.eta = p->momentum().pseudoRapidity();
     info.phi = TVector2::Phi_mpi_pi(p->momentum().phi());
     info.isoEt = isoEt;
+    info.photonClass = photonClass;
+    info.truthIsoPass = std::isfinite(isoEt) && isoEt < m_truthIsoMaxGeV;
     info.hep = p;
     info.g4 = g4Pho;
 
     if (!std::isfinite(info.pt) || !std::isfinite(info.eta) ||
         !std::isfinite(info.phi) || info.pt <= 0.0) continue;
 
-    auto existing = truthSignalByTrackId.find(info.trackId);
-    if (existing == truthSignalByTrackId.end() || info.pt > existing->second.pt)
+    auto existing = truthPhotonByTrackId.find(info.trackId);
+    if (existing == truthPhotonByTrackId.end() || info.pt > existing->second.pt)
     {
-      truthSignalByTrackId[info.trackId] = info;
+      truthPhotonByTrackId[info.trackId] = info;
     }
+  }
+
+  return truthPhotonByTrackId;
+}
+
+RecoilJets::TruthSignalPhotonMap
+RecoilJets::buildPPG12TruthSignalPhotonMap(const HepMC::GenEvent* evt) const
+{
+  TruthSignalPhotonMap truthSignalByTrackId;
+  const TruthSignalPhotonMap truthPhotonByTrackId = buildPPG12TruthPhotonMap(evt);
+  for (const auto& item : truthPhotonByTrackId)
+  {
+    const TruthSignalPhotonInfo& info = item.second;
+    if ((info.photonClass == 1 || info.photonClass == 2) && info.truthIsoPass)
+      truthSignalByTrackId[item.first] = info;
   }
 
   return truthSignalByTrackId;
