@@ -41,6 +41,9 @@ data_memory="${RJ_THE105_DATA_MEMORY:-12000MB}"
 sim_memory="${RJ_THE105_SIM_MEMORY:-12000MB}"
 memory_retry_cap_mb="${RJ_THE105_MEMORY_RETRY_CAP_MB:-16000}"
 allow_existing="${RJ_THE105_ALLOW_EXISTING:-0}"
+runtime_trace="${RJ_THE105_RUNTIME_TRACE:-0}"
+[[ "$runtime_trace" == "0" || "$runtime_trace" == "1" ]] || \
+  die "RJ_THE105_RUNTIME_TRACE must be 0 or 1, got: ${runtime_trace}"
 
 variants=(historical towerinfo70 canonical)
 signal_samples=(run28_embeddedPhoton12 run28_embeddedPhoton20)
@@ -266,13 +269,17 @@ build_isolated() {
 
 common_env() {
   local variant="$1"
+  local trace_suffix=""
+  if [[ "$runtime_trace" == "1" ]]; then
+    trace_suffix=";RJ_VERBOSITY=1;RJ_F4A_VERBOSE=1;RJ_STEP_EVENTS=1"
+  fi
   printf '%s\n' \
     "RJ_CONFIG_YAML=${yaml}" \
     "RJ_CALO_RECO_LIBRARY_OVERRIDE=${calo_library}" \
     "RJ_PHOTON_CLUSTER_BUILDER_LIBRARY_OVERRIDE=${photon_builder_library}" \
     "RJ_PHOTON_CLUSTER_BUILDER_HEADER_OVERRIDE=${calo_header}" \
     "RJ_AUAU_LIBRARY_OVERRIDE=${auau_library}" \
-    "RJ_SUBMIT_EXTRA_ENV=RJ_REQUIRE_EMBEDDED_MINBIAS_CLASSIFIER=1;RJ_AUAU_SHOWER_SHAPE_DIAGNOSTIC_VARIANT=${variant};RJ_AUAU_CANDIDATE_SKIM_ONLY=1;RJ_AUAU_BDT_EXTRACT_ONLY=1;RJ_AUAU_PHOTON_CANDIDATE_SKIM=1;RJ_AUAU_PHOTON_CANDIDATE_SKIM_MAX_ENTRIES=0" \
+    "RJ_SUBMIT_EXTRA_ENV=RJ_REQUIRE_EMBEDDED_MINBIAS_CLASSIFIER=1;RJ_AUAU_SHOWER_SHAPE_DIAGNOSTIC_VARIANT=${variant};RJ_AUAU_CANDIDATE_SKIM_ONLY=1;RJ_AUAU_BDT_EXTRACT_ONLY=1;RJ_AUAU_PHOTON_CANDIDATE_SKIM=1;RJ_AUAU_PHOTON_CANDIDATE_SKIM_MAX_ENTRIES=0${trace_suffix}" \
     "RJ_ID_FANOUT_MAX_ROWS=1" \
     "RJ_PHOTON_ID_ROW_MATCH=preselectionNewPPG12_tightAuAuCentInputBase3x3BDT_nonTightAuAuBDTSideband" \
     "RJ_AUTO_MERGE=0" \
