@@ -2987,11 +2987,21 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
       parseAuAuTightLogRegWorkingPointEntries(envToStringList("RJ_AUAU_TIGHT_LOGREG_WORKING_POINT_ENTRIES", {}));
     }
     m_auauBDTExtractOnly = envToBool("RJ_AUAU_BDT_EXTRACT_ONLY", m_auauBDTExtractOnly);
+    m_auauCandidateSkimOnly = envToBool("RJ_AUAU_CANDIDATE_SKIM_ONLY", false);
     m_auauBDTTrainingTreeEnabled = envToBool("RJ_AUAU_BDT_TRAINING_TREE", false);
-    if (m_auauBDTExtractOnly) m_auauBDTTrainingTreeEnabled = true;
     m_auauBDTTrainingTreeMaxEntries = envToLL("RJ_AUAU_BDT_TRAINING_TREE_MAX_ENTRIES", 0);
     m_auauPhotonCandidateSkimEnabled = envToBool("RJ_AUAU_PHOTON_CANDIDATE_SKIM", false);
     m_auauPhotonCandidateSkimMaxEntries = envToLL("RJ_AUAU_PHOTON_CANDIDATE_SKIM_MAX_ENTRIES", 0);
+    if (m_auauCandidateSkimOnly)
+    {
+      m_auauBDTExtractOnly = true;
+      m_auauBDTTrainingTreeEnabled = false;
+      m_auauPhotonCandidateSkimEnabled = true;
+    }
+    else if (m_auauBDTExtractOnly)
+    {
+      m_auauBDTTrainingTreeEnabled = true;
+    }
     m_auauBDTNPBDataTaggingEnabled = envToBool("RJ_AUAU_BDT_NPB_DATA_TAGGING", false);
     m_auauNPBTagDeltaTCut = envToDouble("RJ_AUAU_NPB_TAG_DELTA_T_CUT", -7.0);
   m_the44PythiaAutopsyEnabled = envToBool("RJ_THE44_PYTHIA_AUTOPSY", m_the44PythiaAutopsyEnabled);
@@ -3466,6 +3476,7 @@ int RecoilJets::Init(PHCompositeNode* topNode)
     return raw ? std::string(raw) : def;
   };
   m_auauBDTExtractOnly = initEnvBool("RJ_AUAU_BDT_EXTRACT_ONLY", m_auauBDTExtractOnly);
+  m_auauCandidateSkimOnly = initEnvBool("RJ_AUAU_CANDIDATE_SKIM_ONLY", m_auauCandidateSkimOnly);
   m_auauPhotonCandidateSkimEnabled = initEnvBool("RJ_AUAU_PHOTON_CANDIDATE_SKIM", m_auauPhotonCandidateSkimEnabled);
   m_auauPhotonCandidateSkimMaxEntries = initEnvLL("RJ_AUAU_PHOTON_CANDIDATE_SKIM_MAX_ENTRIES", m_auauPhotonCandidateSkimMaxEntries);
   m_auauNonTightBDTSidebandMode = normalizeAuAuNonTightBDTSidebandMode(
@@ -3496,7 +3507,19 @@ int RecoilJets::Init(PHCompositeNode* topNode)
   m_the44PythiaAutopsyParticleCone = initEnvDouble("RJ_THE44_PYTHIA_AUTOPSY_PARTICLE_CONE", m_the44PythiaAutopsyParticleCone);
   m_the44PythiaAutopsyParticleMinPt = initEnvDouble("RJ_THE44_PYTHIA_AUTOPSY_PARTICLE_MIN_PT", m_the44PythiaAutopsyParticleMinPt);
   m_the44PythiaAutopsyMaxParticles = static_cast<int>(initEnvLL("RJ_THE44_PYTHIA_AUTOPSY_MAX_PARTICLES", m_the44PythiaAutopsyMaxParticles));
-  if (m_auauBDTExtractOnly)
+  if (m_auauCandidateSkimOnly)
+  {
+    m_auauBDTExtractOnly = true;
+    m_auauBDTTrainingTreeEnabled = false;
+    m_auauPhotonCandidateSkimEnabled = true;
+    m_internalIsoViews.clear();
+    m_activeIsoViewSuffix.clear();
+    LOG(1, CLR_MAGENTA,
+        "[Init] RJ_AUAU_CANDIDATE_SKIM_ONLY=1: writing reconstructed "
+        "AuAuPhotonCandidateSkim rows only; truth matching, training tree, and "
+        "normal histogram booking/filling disabled for this module");
+  }
+  else if (m_auauBDTExtractOnly)
   {
     m_auauBDTTrainingTreeEnabled = true;
     m_internalIsoViews.clear();
@@ -12651,7 +12674,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
             std::unique_ptr<CaloRawClusterEval> clustereval_SS;
             TruthSignalPhotonMap truthSignalByTrackId_SS;
 
-            if (m_isSim)
+            if (m_isSim && !m_auauCandidateSkimOnly)
             {
                 PHHepMCGenEventMap* hepmcmap_SS = findNode::getClass<PHHepMCGenEventMap>(topNode, "PHHepMCGenEventMap");
                 PHHepMCGenEvent*    hepmc_SS    = nullptr;
@@ -12991,7 +13014,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 int bdtTrainClusterTruthPid = 0;
                 int bdtTrainClusterTruthBarcode = -1;
                 float bdtTrainEContrib = std::numeric_limits<float>::quiet_NaN();
-                if (doCanonical && m_isSim)
+                if (doCanonical && m_isSim && !m_auauCandidateSkimOnly)
                 {
                     bool isSig_incl = false;
                     if (evtHepMC_SS && clustereval_SS && haveCaloEval_SS)
@@ -13056,7 +13079,8 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 const bool bdtTrainPassCommonGate =
                     (!m_auauBDTExtractOnly || passesPhotonPreselection(v));
 
-                if (doCanonical && bdtTrainHaveLabel && bdtTrainPassCommonGate)
+                if (m_auauBDTTrainingTreeEnabled &&
+                    doCanonical && bdtTrainHaveLabel && bdtTrainPassCommonGate)
                 {
                     fillAuAuBDTTrainingTree(v, eta, phi, eiso_et, ptIdx, centIdx,
                                             bdtTrainIsSignal,

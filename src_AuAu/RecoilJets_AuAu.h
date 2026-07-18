@@ -1886,6 +1886,7 @@ private:
 
     bool m_auauBDTTrainingTreeEnabled = false;
     bool m_auauBDTExtractOnly = false;
+    bool m_auauCandidateSkimOnly = false;
     long long m_auauBDTTrainingTreeMaxEntries = 0;
     long long m_auauBDTTrainingTreeEntries = 0;
     TTree* m_auauBDTTrainingTree = nullptr;

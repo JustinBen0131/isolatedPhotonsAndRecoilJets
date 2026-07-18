@@ -108,7 +108,7 @@ write_manifest() {
     printf 'config=%s\n' "$yaml"
     printf 'data_contract=first_%s_resolved_GRL_runs_groupSize_%s_up_to_%s_events_each\n' "$data_runs" "$data_group" "$data_events"
     printf 'sim_contract=first_group_of_%s_paired_rows_per_sample_up_to_%s_events\n' "$sim_group" "$sim_events"
-    printf 'analysis_mode=bdt_extract_only_plus_candidate_skim_no_production_histogram_booking\n'
+    printf 'analysis_mode=candidate_skim_only_no_truth_matching_no_training_tree_no_production_histogram_booking\n'
     printf 'candidate_contract=15<=ET<35,abs_eta<0.7,one_skim_row_per_candidate\n'
     printf 'normalization_contract=full_finite_candidate_denominator_with_zero_underflow_overflow_reported_separately\n'
   } > "${evidence_dir}/campaign_manifest.txt"
@@ -141,7 +141,7 @@ signal_samples=${signal_samples[*]}
 inclusive_samples=${inclusive_samples[*]}
 sim=first ${sim_group} paired rows/sample, <=${sim_events} events/job
 stages=before preselection; after complete NCB preselection; after frozen tight ID
-analysis_mode=extraction-only candidate skim; production histogram suite disabled
+analysis_mode=candidate-skim-only; truth matching, training tree, and production histogram suite disabled
 candidate_skim=enabled, one row per candidate
 maximum_jobs=$(( ${#variants[@]} * (data_runs + ${#signal_samples[@]} + ${#inclusive_samples[@]}) ))
 automatic_merge=disabled
@@ -242,7 +242,7 @@ common_env() {
     "RJ_PHOTON_CLUSTER_BUILDER_LIBRARY_OVERRIDE=${photon_builder_library}" \
     "RJ_PHOTON_CLUSTER_BUILDER_HEADER_OVERRIDE=${calo_header}" \
     "RJ_AUAU_LIBRARY_OVERRIDE=${auau_library}" \
-    "RJ_SUBMIT_EXTRA_ENV=RJ_REQUIRE_EMBEDDED_MINBIAS_CLASSIFIER=1;RJ_AUAU_SHOWER_SHAPE_DIAGNOSTIC_VARIANT=${variant};RJ_AUAU_BDT_EXTRACT_ONLY=1;RJ_AUAU_PHOTON_CANDIDATE_SKIM=1;RJ_AUAU_PHOTON_CANDIDATE_SKIM_MAX_ENTRIES=0" \
+    "RJ_SUBMIT_EXTRA_ENV=RJ_REQUIRE_EMBEDDED_MINBIAS_CLASSIFIER=1;RJ_AUAU_SHOWER_SHAPE_DIAGNOSTIC_VARIANT=${variant};RJ_AUAU_CANDIDATE_SKIM_ONLY=1;RJ_AUAU_BDT_EXTRACT_ONLY=1;RJ_AUAU_PHOTON_CANDIDATE_SKIM=1;RJ_AUAU_PHOTON_CANDIDATE_SKIM_MAX_ENTRIES=0" \
     "RJ_ID_FANOUT_MAX_ROWS=1" \
     "RJ_PHOTON_ID_ROW_MATCH=preselectionNewPPG12_tightAuAuCentInputBase3x3BDT_nonTightAuAuBDTSideband" \
     "RJ_AUTO_MERGE=0" \
