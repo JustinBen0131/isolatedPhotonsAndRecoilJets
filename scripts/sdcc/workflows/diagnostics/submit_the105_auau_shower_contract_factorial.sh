@@ -86,10 +86,10 @@ write_manifest() {
   mkdir -p "$evidence_dir"
   {
     printf 'variant\tpopulation\treconstruction_source\ttower_floor_gev\tselection_stages\n'
-    printf 'historical\tdata\tTowerInfo full good grid\t0.070\tbefore,after_NCB_preselection,after_tight\n'
+    printf 'historical\tdata\tTowerInfo grid plus historical local chi2/CDB mask\t0.070\tbefore,after_NCB_preselection,after_tight\n'
     printf 'historical\tembedded\tRawCluster towermap membership\t0.070\tbefore,after_NCB_preselection,after_tight\n'
-    printf 'towerinfo70\tall\tTowerInfo full good grid\t0.070\tbefore,after_NCB_preselection,after_tight\n'
-    printf 'canonical\tall\tTowerInfo full good grid\t0.000\tbefore,after_NCB_preselection,after_tight\n'
+    printf 'towerinfo70\tall\tTowerInfo full grid with get_isGood acceptance\t0.070\tbefore,after_NCB_preselection,after_tight\n'
+    printf 'canonical\tall\tTowerInfo full grid with get_isGood acceptance\t0.000\tbefore,after_NCB_preselection,after_tight\n'
   } > "${evidence_dir}/campaign_contract.tsv"
   {
     printf 'campaign_tag=%s\n' "$campaign_tag"

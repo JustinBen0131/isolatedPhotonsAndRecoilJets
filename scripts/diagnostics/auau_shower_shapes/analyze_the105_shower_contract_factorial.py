@@ -3,9 +3,10 @@
 
 The three reconstruction arms are deliberately factorized:
 
-  historical  : data TowerInfo+70 MeV; embedded RawCluster+70 MeV
-  towerinfo70 : all populations TowerInfo+70 MeV
-  canonical   : all populations TowerInfo+0 MeV
+  historical  : exact prior AuAu routing at 70 MeV (data TowerInfo plus the
+                local chi2/CDB mask; embedding RawCluster-owned cells)
+  towerinfo70 : all populations complete TowerInfo/get_isGood at 70 MeV
+  canonical   : all populations complete TowerInfo/get_isGood at 0 MeV
 
 The script reads one diagnostic candidate row per reconstructed photon and
 compares the same three selection stages: before preselection, after the full
@@ -20,6 +21,7 @@ import csv
 import hashlib
 import json
 import math
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -100,9 +102,9 @@ COLORS = {
 }
 LINESTYLES = {"historical": "-", "towerinfo70": "--", "canonical": "-"}
 LABELS = {
-    "historical": "Historical routing, 70 MeV",
-    "towerinfo70": "TowerInfo, 70 MeV",
-    "canonical": "TowerInfo, 0 MeV",
+    "historical": "Historical route/mask, 70 MeV",
+    "towerinfo70": "TowerInfo/get_isGood, 70 MeV",
+    "canonical": "TowerInfo/get_isGood, 0 MeV",
 }
 POP_LABELS = {
     "data": "Au+Au data",
@@ -130,6 +132,61 @@ def config_text(root_file: uproot.ReadOnlyDirectory) -> str:
             return str(obj.member("fString"))
         except Exception:
             return ""
+
+
+def config_scalar(config: str, key: str) -> str:
+    pattern = re.compile(rf"^\s*{re.escape(key)}\s*:\s*(.*?)\s*(?:#.*)?$")
+    for line in config.splitlines():
+        match = pattern.match(line)
+        if match:
+            return match.group(1).strip().strip("'\"")
+    return ""
+
+
+def expected_contract(variant: str, population: str) -> dict[str, object]:
+    if variant == "historical" and population == "data":
+        return {
+            "source": "towerinfo_full_good_grid",
+            "raw": "false",
+            "acceptance": "towerinfo_get_isgood_plus_local_chi2_cdb_mask",
+            "floor": 0.070,
+        }
+    if variant == "historical":
+        return {
+            "source": "raw_cluster_towermap_diagnostic",
+            "raw": "true",
+            "acceptance": "raw_cluster_towermap_membership",
+            "floor": 0.070,
+        }
+    return {
+        "source": "towerinfo_full_good_grid",
+        "raw": "false",
+        "acceptance": "towerinfo_get_isgood",
+        "floor": 0.070 if variant == "towerinfo70" else 0.0,
+    }
+
+
+def contract_stamp(config: str, variant: str, population: str) -> tuple[bool, dict[str, object]]:
+    observed: dict[str, object] = {
+        "variant": config_scalar(config, "cemc_shower_shape_diagnostic_variant"),
+        "source": config_scalar(config, "cemc_shower_shape_energy_source"),
+        "raw": config_scalar(config, "cemc_shower_shape_raw_cluster_towermap").lower(),
+        "acceptance": config_scalar(config, "cemc_shower_shape_tower_acceptance"),
+        "floor": config_scalar(config, "cemc_shower_shape_tower_min_energy_gev"),
+    }
+    expected = expected_contract(variant, population)
+    try:
+        floor_ok = math.isclose(float(observed["floor"]), float(expected["floor"]), abs_tol=1.0e-9)
+    except (TypeError, ValueError):
+        floor_ok = False
+    ok = (
+        observed["variant"] == variant
+        and observed["source"] == expected["source"]
+        and observed["raw"] == expected["raw"]
+        and observed["acceptance"] == expected["acceptance"]
+        and floor_ok
+    )
+    return ok, observed
 
 
 def stage_mask(frame: pd.DataFrame, stage: str) -> np.ndarray:
@@ -197,16 +254,14 @@ def discover_and_load(
             "size": path.stat().st_size,
             "sha256": sha256(path),
             "tree_entries": 0,
-            "variant_stamp_ok": False,
+            "contract_stamp_ok": False,
         }
         try:
             with uproot.open(path) as root_file:
                 cfg = config_text(root_file)
-                row["variant_stamp_ok"] = (
-                    f"cemc_shower_shape_diagnostic_variant: {variant}" in cfg
-                    or f"cemc_shower_shape_diagnostic_variant: '{variant}'" in cfg
-                    or f'cemc_shower_shape_diagnostic_variant: "{variant}"' in cfg
-                )
+                row["contract_stamp_ok"], observed = contract_stamp(cfg, variant, population)
+                for key, value in observed.items():
+                    row[f"observed_{key}"] = value
                 if "AuAuPhotonCandidateSkim" not in root_file:
                     failures.append(f"missing AuAuPhotonCandidateSkim: {path}")
                     input_rows.append(row)
@@ -411,7 +466,7 @@ def render_ratio_matrix(
     fig, axes = plt.subplots(3, 3, figsize=(15.6, 10.5), sharex=True, constrained_layout=False)
     fig.subplots_adjust(top=0.84, bottom=0.09, left=0.09, right=0.985, hspace=0.22, wspace=0.20)
     contrasts = (
-        ("towerinfo70", "historical", "TowerInfo70 / historical", "#D55E00"),
+        ("towerinfo70", "historical", "TowerInfo/get_isGood 70 / historical", "#D55E00"),
         ("canonical", "towerinfo70", "TowerInfo0 / TowerInfo70", "#0072B2"),
     )
     for row, population in enumerate(POPULATIONS):
@@ -451,7 +506,7 @@ def render_ratio_matrix(
         fontweight="bold",
         color="#14213D",
     )
-    fig.text(0.09, 0.925, "Source effect at fixed 70 MeV; threshold effect at fixed TowerInfo source", fontsize=12, color="#314E6E")
+    fig.text(0.09, 0.925, "Historical routing/acceptance effect at fixed 70 MeV; threshold effect at fixed TowerInfo/get_isGood routing", fontsize=12, color="#314E6E")
     fig.text(0.09, 0.018, "sPHENIX Internal", fontsize=11.5, fontweight="bold")
     path = output_dir / f"the105_{variable.slug}_{cent_key}_factorial_ratios.png"
     fig.savefig(path, dpi=220, facecolor="white")
@@ -466,7 +521,7 @@ def compute_migrations(
     rows: list[dict[str, object]] = []
     delta_rows: list[dict[str, object]] = []
     comparisons = (
-        ("historical", "towerinfo70", "source_at_70mev"),
+        ("historical", "towerinfo70", "historical_routing_at_70mev"),
         ("towerinfo70", "canonical", "floor_at_towerinfo"),
         ("historical", "canonical", "combined_historical_to_canonical"),
     )
@@ -556,26 +611,6 @@ def compute_migrations(
                         }
                     )
 
-        # Historical and TowerInfo70 must be identical in data by construction.
-        if population == "data":
-            left = frames[("historical", "data")]
-            right = frames[("towerinfo70", "data")]
-            check = left.merge(right, on=key_cols, how="inner", suffixes=("_historical", "_towerinfo70"))
-            checksum_overlap = len(check) / max(len(left), len(right), 1)
-            if checksum_overlap < 0.999999:
-                failures.append(f"data historical/TowerInfo70 checksum overlap is {checksum_overlap:.8f}")
-            for variable in VARIABLES:
-                a = check[f"{variable.branch}_historical"].to_numpy(dtype=float)
-                b = check[f"{variable.branch}_towerinfo70"].to_numpy(dtype=float)
-                finite = np.isfinite(a) & np.isfinite(b)
-                if np.any(np.abs(a[finite] - b[finite]) > 1.0e-7):
-                    failures.append(f"data source-control checksum changed {variable.branch}")
-            for branch in ("preselection_pass", "baseline_bdt_tight"):
-                if not np.array_equal(
-                    check[f"{branch}_historical"].to_numpy(),
-                    check[f"{branch}_towerinfo70"].to_numpy(),
-                ):
-                    failures.append(f"data source-control checksum changed {branch}")
     return pd.DataFrame(rows), pd.DataFrame(delta_rows)
 
 
@@ -640,8 +675,8 @@ def main() -> int:
             )
 
     for row in input_rows:
-        if not row.get("variant_stamp_ok", False):
-            failures.append(f"missing or incorrect variant stamp: {row['path']}")
+        if not row.get("contract_stamp_ok", False):
+            failures.append(f"missing or incorrect shower-contract stamp: {row['path']}")
 
     boundary, acceptance = compute_metrics(frames)
     migrations, deltas = compute_migrations(frames, failures)
@@ -672,7 +707,7 @@ def main() -> int:
         "failures": failures,
         "plots": plots,
         "interpretation_contract": {
-            "towerinfo70_over_historical": "energy-source effect at fixed 70 MeV; data is an exact control checksum",
+            "towerinfo70_over_historical": "complete historical routing/acceptance effect at fixed 70 MeV",
             "canonical_over_towerinfo70": "tower-floor effect at fixed complete good-TowerInfo source",
             "after_tight": "frozen old-model diagnostic; not retrained-model performance",
             "normalization": "continuous nonzero visible bins divided by the full stage candidate weight",

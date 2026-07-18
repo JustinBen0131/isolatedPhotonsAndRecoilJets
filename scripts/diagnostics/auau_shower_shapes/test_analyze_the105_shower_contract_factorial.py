@@ -83,10 +83,29 @@ def fixture_arrays(variant: str, population: str, rows: int = 72) -> dict[str, n
 
 def write_fixture(path: Path, variant: str, population: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    if variant == "historical" and population == "data":
+        source = "towerinfo_full_good_grid"
+        raw = "false"
+        acceptance = "towerinfo_get_isgood_plus_local_chi2_cdb_mask"
+        floor = 0.070
+    elif variant == "historical":
+        source = "raw_cluster_towermap_diagnostic"
+        raw = "true"
+        acceptance = "raw_cluster_towermap_membership"
+        floor = 0.070
+    else:
+        source = "towerinfo_full_good_grid"
+        raw = "false"
+        acceptance = "towerinfo_get_isgood"
+        floor = 0.070 if variant == "towerinfo70" else 0.0
     with uproot.recreate(path) as root_file:
         root_file["analysis_config_yaml"] = (
             "analysis_config:\n"
             f"  cemc_shower_shape_diagnostic_variant: {variant}\n"
+            f"  cemc_shower_shape_energy_source: {source}\n"
+            f"  cemc_shower_shape_raw_cluster_towermap: {raw}\n"
+            f"  cemc_shower_shape_tower_acceptance: {acceptance}\n"
+            f"  cemc_shower_shape_tower_min_energy_gev: {floor:.3f}\n"
         )
         root_file["AuAuPhotonCandidateSkim"] = fixture_arrays(variant, population)
 

@@ -5556,6 +5556,14 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     else if (isAuAuLike && cemcShowerShapeDiagnosticVariant == "historical")
     {
         resolvedCEMCShapeTowerMinGeV = kPPG12PPCEMCShapeTowerMinGeV;
+        // Reproduce the complete pre-repair AuAu route. Data used the full
+        // TowerInfo grid followed by the analysis-local chi2/CDB mask, while
+        // embedding read only RawCluster-owned cells. The 70 MeV floor was
+        // common to both. This is diagnostic-only and cannot become the
+        // default because canonical remains the fail-closed value above.
+        useCoreGoodTowerInfoShapes = false;
+        resolvedCEMCShapeTowerAcceptance =
+            "towerinfo_get_isgood_plus_local_chi2_cdb_mask";
         if (isSimEmbedded)
         {
             useRawClusterTowermapForCEMCShapes = true;
