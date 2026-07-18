@@ -3740,6 +3740,23 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     const bool listHasJets   = all_nonempty(filesJets);
     const bool listHasGlobal = all_nonempty(filesGlobal);
     const bool listHasMbd    = all_nonempty(filesMbd);
+    const std::string simSampleLower = env_lower("RJ_SIM_SAMPLE");
+    const bool candidateSkimNeedsPhotonStitchTruth =
+        auauCandidateSkimOnly && isSimEmbedded &&
+        simSampleLower.find("embeddedphoton") != std::string::npos;
+    const bool candidateSkimNeedsInclusiveStitchTruth =
+        auauCandidateSkimOnly && isSimEmbedded &&
+        !candidateSkimNeedsPhotonStitchTruth &&
+        simSampleLower.find("embeddedjet") != std::string::npos;
+    if (auauCandidateSkimOnly && isSimEmbedded &&
+        !candidateSkimNeedsPhotonStitchTruth &&
+        !candidateSkimNeedsInclusiveStitchTruth)
+    {
+        detail::bail(
+            "RJ_AUAU_CANDIDATE_SKIM_ONLY=1 on embedded simulation requires "
+            "RJ_SIM_SAMPLE to identify an embeddedPhoton or embeddedJet sample; "
+            "the generator-slice ownership gate must not be silently bypassed.");
+    }
     const bool isRun24PPData = !isSim && !isPPrun25 && !isAuAuRequested;
     const bool usePPG12PPDataPair =
         isRun24PPData &&
@@ -3853,14 +3870,28 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     if (auauCandidateSkimOnly)
     {
         // The bounded shower-contract diagnostic consumes reconstructed
-        // calorimeter candidates only.  Do not register or rebuild truth-jet
-        // inputs: opening the embedded G4/truth streams can dominate memory
-        // before the first event even though RecoilJets never reads them in
-        // candidate-skim mode.  This is strictly environment-gated and leaves
-        // the production truth contract unchanged.
-        useDSTTruthJets = false;
+        // calorimeter candidates, but embedded sample ownership is still a
+        // physics gate inside RecoilJets.  Retain only the truth lane needed
+        // by that gate: G4/HepMC for Photon12/20, or DST truth jets for
+        // Jet12/20/30/40.  Do not rebuild any alternate truth-jet collection.
+        // This remains strictly environment-gated and leaves production
+        // steering unchanged.
+        useDSTTruthJets = candidateSkimNeedsInclusiveStitchTruth;
         buildTruthJetsFromParticles = false;
         buildTruthJetsAsAltNode = false;
+
+        if (candidateSkimNeedsPhotonStitchTruth && !listHasG4)
+        {
+            detail::bail(
+                "Embedded-photon candidate skim requires the G4/HepMC input "
+                "lane for the Photon12/20 generator-slice ownership gate.");
+        }
+        if (candidateSkimNeedsInclusiveStitchTruth && !listHasJets)
+        {
+            detail::bail(
+                "Embedded-inclusive candidate skim requires the DST_JETS input "
+                "lane for the Jet12/20/30/40 truth-jet ownership gate.");
+        }
     }
     
     if (usePPG12PPSimRebuildCaloFromG4)
@@ -4150,7 +4181,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         bool requireG4 = false;
         if (const char* env = std::getenv("RJ_REQUIRE_G4")) requireG4 = (std::atoi(env) != 0);
         
-        if (listHasG4 && !auauCandidateSkimOnly)
+        if (listHasG4 && (!auauCandidateSkimOnly || candidateSkimNeedsPhotonStitchTruth))
         {
             auto* inG4 = isSimEmbedded
             ? static_cast<Fun4AllInputManager*>(new Fun4AllNoSyncDstInputManager("DST_G4HITS_IN"))
@@ -4161,8 +4192,8 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         else if (listHasG4 && auauCandidateSkimOnly)
         {
             std::cout << "[INFO] RJ_AUAU_CANDIDATE_SKIM_ONLY=1: "
-                      << "skipping the unused G4Hits input stream; reconstructed "
-                      << "candidate rows retain the matched CALO/GLOBAL/MBD inputs.\n";
+                      << "skipping the G4Hits input stream for the embedded-inclusive "
+                      << "lane; truth-jet ownership is supplied by DST_JETS.\n";
         }
         else
         {
@@ -4200,7 +4231,8 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         if (verbose)
             std::cout << "[INFO] isSim: registered input managers (Calo + Global"
             << (listHasMbd ? " + MBD_EPD" : " (no MBD_EPD)")
-            << ((listHasG4 && !auauCandidateSkimOnly) ? " + G4" : " (no G4)") << ")\n";
+            << ((listHasG4 && (!auauCandidateSkimOnly || candidateSkimNeedsPhotonStitchTruth))
+                    ? " + G4" : " (no G4)") << ")\n";
     }
     
     
