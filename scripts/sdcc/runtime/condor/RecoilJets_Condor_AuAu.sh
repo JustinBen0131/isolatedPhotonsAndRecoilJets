@@ -69,13 +69,17 @@ if [[ -d "$snapshot_lib_dir" ]]; then
 fi
 
 # A bounded diagnostic may replace only PhotonClusterBuilder while retaining
-# the validated CaloReco library for tower calibration and clustering.  Delay
-# LD_PRELOAD until ROOT starts so shell utilities never load the plugin.
-root_preload=()
+# the validated CaloReco library for tower calibration and clustering.  Load
+# the override from an initial ROOT expression, before the steering macro is
+# parsed.  Using process-level LD_PRELOAD here initializes ROOT-dependent
+# sPHENIX libraries before ROOT itself and can produce unbounded startup memory.
+root_loader_args=()
 photon_builder_override="${snapshot_lib_dir}/libphoton_cluster_builder_override.so"
 if [[ -r "$photon_builder_override" ]]; then
-  root_preload=(env "LD_PRELOAD=${photon_builder_override}${LD_PRELOAD:+:${LD_PRELOAD}}")
-  echo "[INFO] PhotonClusterBuilder-only preload: ${photon_builder_override}"
+  photon_builder_override_root="${photon_builder_override//\\/\\\\}"
+  photon_builder_override_root="${photon_builder_override_root//\"/\\\"}"
+  root_loader_args=(-e "if (gSystem->Load(\"${photon_builder_override_root}\") < 0) gSystem->Exit(86);")
+  echo "[INFO] PhotonClusterBuilder-only ROOT load: ${photon_builder_override}"
 fi
 
 # ------------------------ Dataset routing ------------------
@@ -439,9 +443,9 @@ echo "[INFO] Running ROOT:"
 echo "root -b -q -l \"${MACRO}(${nevents}, \\\"${chunk_list}\\\", \\\"${out_root}\\\", false)\""
 start_heartbeat
 if [[ "$profile_enabled" == "1" || "$profile_enabled" == "true" || "$profile_enabled" == "TRUE" ]] && command -v /usr/bin/time >/dev/null 2>&1; then
-  /usr/bin/time -v -o "$profile_file" "${root_preload[@]}" root -b -q -l "${MACRO}(${nevents}, \"${chunk_list}\", \"${out_root}\", false)" 2> >(tee "$root_stderr_file" >&2)
+  /usr/bin/time -v -o "$profile_file" root -b -q -l "${root_loader_args[@]}" "${MACRO}(${nevents}, \"${chunk_list}\", \"${out_root}\", false)" 2> >(tee "$root_stderr_file" >&2)
 else
-  "${root_preload[@]}" root -b -q -l "${MACRO}(${nevents}, \"${chunk_list}\", \"${out_root}\", false)" 2> >(tee "$root_stderr_file" >&2)
+  root -b -q -l "${root_loader_args[@]}" "${MACRO}(${nevents}, \"${chunk_list}\", \"${out_root}\", false)" 2> >(tee "$root_stderr_file" >&2)
 fi
 rc=$?
 stop_heartbeat
