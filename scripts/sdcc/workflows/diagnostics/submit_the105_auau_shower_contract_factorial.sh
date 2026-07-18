@@ -35,8 +35,10 @@ canary_root="${RJ_THE105_CANARY_ROOT:-$(rj_recoiljets_bulk_root)/smoke/auau_show
 data_group="${RJ_THE105_DATA_GROUP_SIZE:-5}"
 data_runs="${RJ_THE105_DATA_RUNS:-3}"
 data_events="${RJ_THE105_DATA_EVENTS:-20000}"
-sim_group="${RJ_THE105_SIM_GROUP_SIZE:-5}"
+sim_sample_rows="${RJ_THE105_SIM_SAMPLE_ROWS:-100}"
+sim_group="${RJ_THE105_SIM_GROUP_SIZE:-${sim_sample_rows}}"
 sim_events="${RJ_THE105_SIM_EVENTS:-20000}"
+sampled_list_root="${RJ_THE105_SAMPLED_LIST_ROOT:-${repo_root}/.recoiljets_tmp/the105_shower_contract_sampled_lists/${campaign_tag}}"
 data_memory="${RJ_THE105_DATA_MEMORY:-12000MB}"
 sim_memory="${RJ_THE105_SIM_MEMORY:-12000MB}"
 memory_retry_cap_mb="${RJ_THE105_MEMORY_RETRY_CAP_MB:-16000}"
@@ -44,6 +46,12 @@ allow_existing="${RJ_THE105_ALLOW_EXISTING:-0}"
 runtime_trace="${RJ_THE105_RUNTIME_TRACE:-0}"
 [[ "$runtime_trace" == "0" || "$runtime_trace" == "1" ]] || \
   die "RJ_THE105_RUNTIME_TRACE must be 0 or 1, got: ${runtime_trace}"
+[[ "$sim_sample_rows" =~ ^[0-9]+$ && "$sim_sample_rows" -gt 0 ]] || \
+  die "RJ_THE105_SIM_SAMPLE_ROWS must be a positive integer, got: ${sim_sample_rows}"
+[[ "$sim_group" =~ ^[0-9]+$ && "$sim_group" -gt 0 ]] || \
+  die "RJ_THE105_SIM_GROUP_SIZE must be a positive integer, got: ${sim_group}"
+[[ "$sim_group" == "$sim_sample_rows" ]] || \
+  die "Diagnostic stratification requires RJ_THE105_SIM_GROUP_SIZE (${sim_group}) to equal RJ_THE105_SIM_SAMPLE_ROWS (${sim_sample_rows})"
 
 variants=(historical towerinfo70 canonical)
 signal_samples=(run28_embeddedPhoton12 run28_embeddedPhoton20)
@@ -104,6 +112,70 @@ assert_fresh() {
   fi
 }
 
+prepare_stratified_sim_lists() {
+  local -a samples=("${signal_samples[@]}" "${inclusive_samples[@]}")
+  (( ${#samples[@]} > 0 )) || return 0
+
+  case "$sampled_list_root" in
+    "${repo_root}/.recoiljets_tmp/"*) ;;
+    *) die "Refusing sampled-list output outside ${repo_root}/.recoiljets_tmp: ${sampled_list_root}" ;;
+  esac
+
+  local sample source_dir target_dir reference_file total_rows file file_rows
+  local -a matched_files=(
+    DST_CALO_CLUSTER.matched.list
+    G4Hits.matched.list
+    DST_JETS.matched.list
+    DST_GLOBAL.matched.list
+    DST_MBD_EPD.matched.list
+  )
+
+  mkdir -p "$sampled_list_root"
+  : > "${sampled_list_root}/sampled_row_indices.tsv"
+  printf 'sample\tsource_rows\tsampled_rows\trow_index\n' \
+    >> "${sampled_list_root}/sampled_row_indices.tsv"
+
+  for sample in "${samples[@]}"; do
+    source_dir="${repo_root}/simListFiles/${sample}"
+    target_dir="${sampled_list_root}/${sample}"
+    reference_file="${source_dir}/G4Hits.matched.list"
+    [[ -s "$reference_file" ]] || die "Missing canonical matched list: ${reference_file}"
+    total_rows="$(wc -l < "$reference_file" | tr -d ' ')"
+    (( sim_sample_rows <= total_rows )) || \
+      die "Requested ${sim_sample_rows} sampled rows from ${sample}, but only ${total_rows} exist"
+    mkdir -p "$target_dir"
+
+    awk -v sample="$sample" -v n="$total_rows" -v k="$sim_sample_rows" '
+      BEGIN {
+        for (i = 0; i < k; ++i) {
+          row = int((i + 0.5) * n / k) + 1;
+          printf "%s\t%d\t%d\t%d\n", sample, n, k, row;
+        }
+      }
+    ' >> "${sampled_list_root}/sampled_row_indices.tsv"
+
+    for file in "${matched_files[@]}"; do
+      [[ -s "${source_dir}/${file}" ]] || die "Missing canonical matched list: ${source_dir}/${file}"
+      file_rows="$(wc -l < "${source_dir}/${file}" | tr -d ' ')"
+      [[ "$file_rows" == "$total_rows" ]] || \
+        die "Matched-list row mismatch for ${sample}/${file}: ${file_rows} vs ${total_rows}"
+      awk -v n="$total_rows" -v k="$sim_sample_rows" '
+        BEGIN {
+          for (i = 0; i < k; ++i) {
+            row = int((i + 0.5) * n / k) + 1;
+            keep[row] = 1;
+          }
+        }
+        keep[FNR]
+      ' "${source_dir}/${file}" > "${target_dir}/${file}"
+      [[ "$(wc -l < "${target_dir}/${file}" | tr -d ' ')" == "$sim_sample_rows" ]] || \
+        die "Failed to materialize ${sim_sample_rows} rows for ${sample}/${file}"
+    done
+  done
+
+  say "Prepared ${sim_sample_rows} evenly spaced matched rows/sample under ${sampled_list_root}"
+}
+
 write_manifest() {
   mkdir -p "$evidence_dir"
   local photon_builder_cc="src/PhotonClusterBuilder.cc"
@@ -134,7 +206,9 @@ write_manifest() {
     else
       printf 'data_contract=disabled\n'
     fi
-    printf 'sim_contract=first_group_of_%s_paired_rows_per_sample_up_to_%s_events\n' "$sim_group" "$sim_events"
+    printf 'sim_contract=%s_evenly_spaced_paired_rows_per_sample_one_group_up_to_%s_events\n' "$sim_sample_rows" "$sim_events"
+    printf 'sim_sampled_list_root=%s\n' "$sampled_list_root"
+    printf 'sim_sampled_row_index_manifest=%s\n' "${sampled_list_root}/sampled_row_indices.tsv"
     printf 'analysis_mode=candidate_skim_only_no_truth_matching_no_training_tree_no_production_histogram_booking\n'
     printf 'candidate_contract=15<=ET<35,abs_eta<0.7,one_skim_row_per_candidate\n'
     printf 'normalization_contract=full_finite_candidate_denominator_with_zero_underflow_overflow_reported_separately\n'
@@ -172,7 +246,7 @@ variants=${variants[*]}
 data=${data_description}
 signal_samples=${signal_samples[*]-}
 inclusive_samples=${inclusive_samples[*]-}
-sim=first ${sim_group} paired rows/sample, <=${sim_events} events/job
+sim=${sim_sample_rows} evenly spaced paired rows/sample, one ${sim_group}-row group, <=${sim_events} events/job
 stages=before preselection; after complete NCB preselection; after frozen tight ID
 analysis_mode=candidate-skim-only; truth matching, training tree, and production histogram suite disabled
 candidate_skim=enabled, one row per candidate
@@ -281,6 +355,7 @@ common_env() {
     "RJ_AUAU_LIBRARY_OVERRIDE=${auau_library}" \
     "RJ_SUBMIT_EXTRA_ENV=RJ_REQUIRE_EMBEDDED_MINBIAS_CLASSIFIER=1;RJ_AUAU_SHOWER_SHAPE_DIAGNOSTIC_VARIANT=${variant};RJ_AUAU_CANDIDATE_SKIM_ONLY=1;RJ_AUAU_BDT_EXTRACT_ONLY=1;RJ_AUAU_PHOTON_CANDIDATE_SKIM=1;RJ_AUAU_PHOTON_CANDIDATE_SKIM_MAX_ENTRIES=0${trace_suffix}" \
     "RJ_ID_FANOUT_MAX_ROWS=1" \
+    "RJ_SIM_ROOT_OVERRIDE=${sampled_list_root}" \
     "RJ_PHOTON_ID_ROW_MATCH=preselectionNewPPG12_tightAuAuCentInputBase3x3BDT_nonTightAuAuBDTSideband" \
     "RJ_AUTO_MERGE=0" \
     "RJ_AUTO_MEMORY_RETRY_CAP_MB=${memory_retry_cap_mb}" \
@@ -342,6 +417,7 @@ run_canary() {
   local dryrun="$1"
   require_inputs
   assert_fresh
+  prepare_stratified_sim_lists
   write_manifest
   mkdir -p "$evidence_dir"
   exec > >(tee -a "${evidence_dir}/canary_${dryrun}.log") 2>&1

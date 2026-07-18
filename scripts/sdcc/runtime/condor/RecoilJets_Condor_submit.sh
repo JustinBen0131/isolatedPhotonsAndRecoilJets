@@ -380,7 +380,7 @@ TRIGGER_BIT=""      # optional: filter runs by GL1 scaledown bit (e.g., TRIGGER=
 #   col3 = DST_JETS        (truth jets DST)
 #   col4 = DST_GLOBAL      (GlobalVertexMap lives here)
 #   col5 = DST_MBD_EPD     (MBD inputs; needed for reco MBD vertex)
-SIM_ROOT="${BASE}/simListFiles"
+SIM_ROOT="${RJ_SIM_ROOT_OVERRIDE:-${BASE}/simListFiles}"
 SIM_SAMPLE_DEFAULT="run28_photonjet10"
 SIM_SAMPLE="${SIM_SAMPLE_DEFAULT}"
 
