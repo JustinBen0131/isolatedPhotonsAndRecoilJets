@@ -364,6 +364,14 @@ int PhotonClusterBuilder::InitRun(PHCompositeNode* topNode)
                 << " output=" << m_output_photon_node
                 << " ETthr=" << m_min_cluster_et
                 << " shapeTowerMinE=" << m_shape_min_tower_E
+                << " cemcShapeEnergySource="
+                << (m_use_raw_cluster_towermap_for_cemc_shapes
+                      ? "raw_cluster_towermap_diagnostic"
+                      : "towerinfo_full_good_grid")
+                << " shapeTowerAcceptance="
+                << (m_use_ppg12_pp_sim_towerinfo_shapes
+                      ? "towerinfo_get_isgood"
+                      : "local_chi2_cdb_mask")
                 << " rawTowermapCEMCShapes=" << (m_use_raw_cluster_towermap_for_cemc_shapes ? "true" : "false")
                 << " ppIsoAxis=" << (m_use_ppg12_pp_iso_axis ? "cogTower" : "cluster")
                 << " ppg12PPSimTruthVertex=" << (m_use_ppg12_pp_sim_truth_vertex ? "true" : "false")
@@ -490,10 +498,12 @@ bool PhotonClusterBuilder::is_cemc_tower_good(TowerInfo* tower, unsigned int tow
     return false;
   }
 
-  // PPG12 Fig.29 SIM trees used only TowerInfo::get_isGood() when forming
-  // CEMC shower-shape moments. Keep the stricter local chi2/CDB masking out
-  // of this pp-only parity path independently of the vertex convention.
-  if (m_use_ppg12_pp_sim_towerinfo_shapes && !m_is_auau)
+  // Core PhotonClusterBuilder and the PPG12 reference use only
+  // TowerInfo::get_isGood() when forming the full CEMC shower-shape grid.
+  // The AuAu status/calibration chain is responsible for setting that flag;
+  // do not apply a second analysis-local chi2/CDB rejection in the canonical
+  // data/embedding comparison.
+  if (m_use_ppg12_pp_sim_towerinfo_shapes)
   {
     return true;
   }
@@ -1446,12 +1456,11 @@ bool PhotonClusterBuilder::calculate_shower_shapes(RawCluster* rc, PhotonCluster
             TowerInfo* towerinfo = m_emc_tower_container->get_tower_at_key(towerinfokey);
             float energy = 0.0F;
             bool use_energy = false;
+            // Canonical data/MC uses the complete TowerInfo grid. RawCluster
+            // energy is reachable only through the explicit diagnostic setter.
             const bool use_raw_towermap_for_cemc_shapes =
                 m_input_cluster_node == "CLUSTERINFO_CEMC" &&
-                (m_use_raw_cluster_towermap_for_cemc_shapes ||
-                 (!m_is_auau &&
-                  !m_use_ppg12_pp_sim_truth_vertex &&
-                  !m_use_ppg12_pp_sim_towerinfo_shapes));
+                m_use_raw_cluster_towermap_for_cemc_shapes;
             if (use_raw_towermap_for_cemc_shapes)
             {
                 const RawTowerDefs::keytype raw_key =

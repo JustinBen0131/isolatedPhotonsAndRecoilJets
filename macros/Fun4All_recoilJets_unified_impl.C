@@ -5509,9 +5509,17 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     const bool ppg12PhotonYieldPPSim =
         env_truthy_local("RJ_PPG12_PHOTON_YIELD") &&
         isSim && !isAuAuLike;
-    const bool usePPG12PPTowerInfoShapes =
-        env_truthy_local("RJ_PPG12_PHOTON_YIELD") &&
-        !isAuAuLike;
+    // Canonical CEMC shower-shape contract. All systems and sample types use
+    // the complete TowerInfo 7x7 grid with TowerInfo::get_isGood() acceptance.
+    // pp retains the PPG12 70 MeV cell floor; AuAu uses a zero configured cell
+    // floor. The RawCluster towermap remains diagnostic-only and must never be
+    // selected implicitly from the dataset type.
+    constexpr bool useCoreGoodTowerInfoShapes = true;
+    constexpr bool useRawClusterTowermapForCEMCShapes = false;
+    constexpr float kPPG12PPCEMCShapeTowerMinGeV = 0.070f;
+    constexpr float kAuAuCEMCShapeTowerMinGeV = 0.0f;
+    const float canonicalCEMCShapeTowerMinGeV =
+        isAuAuLike ? kAuAuCEMCShapeTowerMinGeV : kPPG12PPCEMCShapeTowerMinGeV;
     const bool requestedPPG12TruthVertexForReco =
         ppg12PhotonYieldPPSim &&
         (env_truthy_local("RJ_PPG12_PHOTON_YIELD_TRUTH_VERTEX") ||
@@ -5591,22 +5599,24 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         builder->set_input_cluster_node(photonInputClusterNode);
         builder->set_output_photon_node(outNode);
         builder->set_ET_threshold(static_cast<float>(minPhotonEt));
+        builder->set_shower_shape_min_tower_energy(canonicalCEMCShapeTowerMinGeV);
         builder->set_iso_min_tower_energy(photonBuilderIsoTowerMin);
         builder->set_use_ppg12_pp_iso_axis(useSamePhotonBDTScores);
         builder->set_use_ppg12_pp_sim_truth_vertex(false);
         builder->set_use_ppg12_pp_sim_global_mbd_vertex(ppg12PhotonYieldPPSim);
-        // CaloAna24 forms the PPG12 7x7 shower-shape inputs from the complete
-        // TowerInfo grid for both data and SIM.  Do not fall back to the raw
-        // cluster towermap for pp data: that omits non-owned neighboring cells
-        // and changes the NPB/tight-BDT inputs for non-isolated candidates.
-        builder->set_use_ppg12_pp_sim_towerinfo_shapes(usePPG12PPTowerInfoShapes);
+        // The complete TowerInfo grid defines the reconstructed shower-shape
+        // inputs in pp and AuAu. AuAu detector-status differences enter through
+        // TowerInfo::get_isGood(); do not add a second local mask or switch
+        // embedding to RawCluster-associated towers.
+        builder->set_use_ppg12_pp_sim_towerinfo_shapes(useCoreGoodTowerInfoShapes);
         builder->set_use_ppg12_topocluster_isolation(usePPG12PhotonYieldTopoIso);
         builder->set_ppg12_topocluster_node("TOPOCLUSTER_ALLCALO");
         builder->set_ppg12_topocluster_iso_radius(0.4f);
         builder->set_ppg12_topocluster_exclude_candidate(ppg12ExcludeCandidateTopo);
         builder->set_skip_ppg12_edge_clusters(useSamePhotonBDTScores);
         builder->set_enable_ss_3x3_moments(isAuAuLike);
-        builder->set_use_raw_cluster_towermap_for_cemc_shapes(isSimEmbedded);
+        builder->set_use_raw_cluster_towermap_for_cemc_shapes(
+            useRawClusterTowermapForCEMCShapes);
         
         builder->set_use_vz_cut(cfg.use_vz_cut);
         builder->set_vz_cut_cm(photonBuilderVzCutCm);
@@ -6265,7 +6275,10 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         << " | ppg12RecoVertex="
         << (ppg12PhotonYieldPPSim ? "GlobalVertexMap::MBD" : "default reco")
         << " | ppg12TruthVertexRole=SI/DI weight only"
-        << " | ppg12TowerInfoShapes=" << (usePPG12PPTowerInfoShapes ? "true" : "false")
+        << " | cemcShapeEnergySource=towerinfo_full_good_grid"
+        << " | shapeTowerAcceptance=towerinfo_get_isgood"
+        << " | rawTowermapCEMCShapes=false"
+        << " | shapeTowerMinEGeV=" << canonicalCEMCShapeTowerMinGeV
         << " | isAuAuLike=" << (isAuAuLike ? "true" : "false")
         << " | isSimEmbedded=" << (isSimEmbedded ? "true" : "false")
         << " | photonBuilderIsAuAu=" << (photonBuilderIsAuAu ? "true" : "false")
@@ -6809,6 +6822,18 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     
     recoilJets->enablePi0Analysis(cfg.doPi0Analysis);
     std::string stampedYaml = idfanout::YAMLForEntry(cfg.yamlText, idEntry);
+    idfanout::ReplaceOrAppendScalar(stampedYaml,
+                                    "cemc_shower_shape_energy_source",
+                                    "towerinfo_full_good_grid");
+    idfanout::ReplaceOrAppendScalar(stampedYaml,
+                                    "cemc_shower_shape_raw_cluster_towermap",
+                                    "false");
+    idfanout::ReplaceOrAppendScalar(stampedYaml,
+                                    "cemc_shower_shape_tower_acceptance",
+                                    "towerinfo_get_isgood");
+    idfanout::ReplaceOrAppendScalar(stampedYaml,
+                                    "cemc_shower_shape_tower_min_energy_gev",
+                                    detail::fmt(canonicalCEMCShapeTowerMinGeV, 3));
     if (const char* jetPtRaw = std::getenv("RJ_INTERNAL_JET_PT_MINS"))
     {
         const char* disableRaw = std::getenv("RJ_DISABLE_JET_PT_INTERNALIZATION");

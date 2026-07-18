@@ -13878,11 +13878,16 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                         fill1("e32e35", v.e32_over_e35);
                     };
 
-                    for (const auto& trigShort : activeTrig)
+                    // These templates do not depend on the internal isolation
+                    // view. Fill once per candidate on the canonical view.
+                    if (doCanonical)
                     {
-                        fillSSPPG12(trigShort, "pre");
-                        if (tightTag == TightTag::kTight) fillSSPPG12(trigShort, "tight");
-                        else if (tightTag == TightTag::kNonTight) fillSSPPG12(trigShort, "nonTight");
+                        for (const auto& trigShort : activeTrig)
+                        {
+                            fillSSPPG12(trigShort, "pre");
+                            if (tightTag == TightTag::kTight) fillSSPPG12(trigShort, "tight");
+                            else if (tightTag == TightTag::kNonTight) fillSSPPG12(trigShort, "nonTight");
+                        }
                     }
                 }
 
