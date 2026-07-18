@@ -30,6 +30,7 @@ calo_header="${RJ_THE105_CALO_HEADER:-${calo_install}/include/caloreco/PhotonClu
 auau_library="${RJ_THE105_AUAU_LIBRARY:-${auau_install}/lib/libRecoilJetsAuAu.so}"
 evidence_dir="${RJ_THE105_EVIDENCE_DIR:-${repo_root}/evidence/qa/the105_auau_shower_contract_factorial_20260717}"
 canary_root="${RJ_THE105_CANARY_ROOT:-$(rj_recoiljets_bulk_root)/smoke/auau_shower_contract/${campaign_tag}}"
+rawcluster_guard_patch="${repo_root}/scripts/sdcc/workflows/diagnostics/the105_skip_invalid_rawcluster_tower_coordinates.patch"
 
 data_group="${RJ_THE105_DATA_GROUP_SIZE:-5}"
 data_runs="${RJ_THE105_DATA_RUNS:-3}"
@@ -117,6 +118,7 @@ write_manifest() {
     scripts/sdcc/runtime/condor/RecoilJets_Condor_submit.sh
     scripts/sdcc/workflows/diagnostics/submit_the105_auau_shower_contract_factorial.sh
     scripts/sdcc/workflows/diagnostics/the105_preserve_invalid_shower_shapes.patch
+    scripts/sdcc/workflows/diagnostics/the105_skip_invalid_rawcluster_tower_coordinates.patch
   )
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "${source_files[@]}" > "${evidence_dir}/source_files.sha256"
@@ -162,6 +164,13 @@ build_component() {
   reset_build_dir "$build_dir"
   reset_build_dir "$install_dir"
   cp -a "${source_dir}/." "$build_dir/"
+  if [[ "$label" == "caloreco" ]]; then
+    [[ -s "$rawcluster_guard_patch" ]] || die "Missing campaign-local RawCluster guard patch: ${rawcluster_guard_patch}"
+    (
+      cd "$build_dir"
+      patch --batch --forward -p1 < "$rawcluster_guard_patch"
+    )
+  fi
   rm -rf "${build_dir}/autom4te.cache" "${build_dir}/.deps"
   rm -f "${build_dir}/config.status" "${build_dir}/config.log" \
         "${build_dir}/Makefile" "${build_dir}/libtool" "${build_dir}/stamp-h1"
