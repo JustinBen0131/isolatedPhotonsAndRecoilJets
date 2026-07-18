@@ -83,6 +83,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-metadata", type=Path, required=True)
     parser.add_argument("--extraction-audit", type=Path, required=True)
     parser.add_argument("--json-out", type=Path, required=True)
+    parser.add_argument(
+        "--model-role",
+        choices=("corrected_candidate", "historical_baseline"),
+        default="corrected_candidate",
+        help=(
+            "Provenance role for the evaluated model. Both roles use the same "
+            "corrected extraction matrix and identical numerical WP method."
+        ),
+    )
     parser.add_argument("--chunk-size", type=int, default=500_000)
     return parser.parse_args()
 
@@ -103,13 +112,29 @@ def main() -> None:
 
     core = load_core()
     payload = core.derive_payload(args)
+    role_labels = {
+        "corrected_candidate": {
+            "status": "DERIVED_NOT_PROMOTED",
+            "model_label": (
+                "14-feature Au+Au BDT retrained after shower-contract repair"
+            ),
+        },
+        "historical_baseline": {
+            "status": "HISTORICAL_DIAGNOSTIC_NOT_PROMOTED",
+            "model_label": (
+                "historical 14-feature Au+Au BDT evaluated on corrected rows"
+            ),
+        },
+    }
+    role = role_labels[args.model_role]
     payload.update(
         {
             "schema": "CORRECTED_AUAU_SHOWER_CONTRACT_WEIGHTED_WP_V1",
-            "status": "DERIVED_NOT_PROMOTED",
+            "status": role["status"],
+            "model_role": args.model_role,
             "model_identity": EXPECTED_PRODUCT,
             "source_label": "corrected Au+Au shower-contract full training matrix",
-            "model_label": "14-feature Au+Au BDT retrained after shower-contract repair",
+            "model_label": role["model_label"],
             "training_inputs": (
                 "baseV3E plus weta33/wphi33 and centrality; calibrated full good-"
                 "TowerInfo 7x7 shower grid; zero-GeV Au+Au shower-cell floor; "
