@@ -34,6 +34,7 @@ canary_root="${RJ_THE105_CANARY_ROOT:-$(rj_recoiljets_bulk_root)/smoke/auau_show
 
 data_group="${RJ_THE105_DATA_GROUP_SIZE:-5}"
 data_runs="${RJ_THE105_DATA_RUNS:-3}"
+data_max_jobs="${RJ_THE105_DATA_MAX_JOBS:-${data_runs}}"
 data_events="${RJ_THE105_DATA_EVENTS:-20000}"
 sim_sample_rows="${RJ_THE105_SIM_SAMPLE_ROWS:-100}"
 sim_group="${RJ_THE105_SIM_GROUP_SIZE:-${sim_sample_rows}}"
@@ -55,6 +56,10 @@ runtime_trace_verbosity="${RJ_THE105_RUNTIME_TRACE_VERBOSITY:-1}"
   die "RJ_THE105_SIM_GROUP_SIZE must be a positive integer, got: ${sim_group}"
 [[ "$sim_group" == "$sim_sample_rows" ]] || \
   die "Diagnostic stratification requires RJ_THE105_SIM_GROUP_SIZE (${sim_group}) to equal RJ_THE105_SIM_SAMPLE_ROWS (${sim_sample_rows})"
+[[ "$data_runs" =~ ^[0-9]+$ && "$data_runs" -gt 0 ]] || \
+  die "RJ_THE105_DATA_RUNS must be a positive integer, got: ${data_runs}"
+[[ "$data_max_jobs" =~ ^[0-9]+$ && "$data_max_jobs" -gt 0 ]] || \
+  die "RJ_THE105_DATA_MAX_JOBS must be a positive integer, got: ${data_max_jobs}"
 
 variants=(historical towerinfo70 canonical)
 signal_samples=(run28_embeddedPhoton12 run28_embeddedPhoton20)
@@ -205,7 +210,9 @@ write_manifest() {
     printf 'signal_samples=%s\n' "${signal_samples[*]:-none}"
     printf 'inclusive_samples=%s\n' "${inclusive_samples[*]:-none}"
     if [[ "$include_data" == "1" ]]; then
-      printf 'data_contract=first_%s_resolved_GRL_runs_groupSize_%s_up_to_%s_events_each\n' "$data_runs" "$data_group" "$data_events"
+      printf 'data_contract=%s_largest_stat_GRL_run_pool_groupSize_%s_global_job_cap_%s_up_to_%s_events_each\n' \
+        "$data_runs" "$data_group" "$data_max_jobs" "$data_events"
+      printf 'data_sampling_note=job_cap_is_applied_across_groups_in_run_list_order_and_does_not_guarantee_one_job_per_selected_run\n'
     else
       printf 'data_contract=disabled\n'
     fi
@@ -238,8 +245,8 @@ print_contract() {
   local data_jobs=0
   local data_description="disabled"
   if [[ "$include_data" == "1" ]]; then
-    data_jobs="$data_runs"
-    data_description="first ${data_runs} resolved GRL runs, groupSize ${data_group}, <=${data_events} events/job"
+    data_jobs="$data_max_jobs"
+    data_description="${data_runs}-run largest-statistics pool, groupSize ${data_group}, global cap ${data_max_jobs} jobs in run-list order, <=${data_events} events/job"
   fi
   cat <<EOF
 RECOILJETS_THE105_AUAU_SHOWER_CONTRACT_FACTORIAL_V1
@@ -386,7 +393,7 @@ submit_variant() {
       "RJ_REQUEST_MEMORY=${data_memory}" \
       "RJ_SMOKE_OUTPUT_BASE=${variant_root}/data" \
       "RJ_SMOKE_DATA_RUNS=${data_runs}" \
-      "RJ_SMOKE_DATA_MAX_JOBS=${data_runs}" \
+      "RJ_SMOKE_DATA_MAX_JOBS=${data_max_jobs}" \
       "RJ_SMOKE_DATA_NEVENTS=${data_events}" \
       ./RecoilJets_Condor_submit.sh isAuAu condor smokeTest groupSize "$data_group"
   fi
