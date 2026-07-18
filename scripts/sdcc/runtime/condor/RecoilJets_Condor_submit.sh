@@ -1899,6 +1899,10 @@ submit_or_collect_condor() {
     say "Added Condor submit to orchestration DAG: node=${node} sub=${dag_sub}"
     return 0
   fi
+  if dag_dryrun_enabled; then
+    say "DRYRUN: validated Condor submit file without submission: ${sub}"
+    return 0
+  fi
   need_cmd condor_submit
   condor_submit "$sub"
 }
@@ -4152,8 +4156,13 @@ workflow_check() {
 submit_condor() {
   local source="$1"
   local first_chunk="${2:-}"
+  local direct_max_jobs="${RJ_DIRECT_MAX_JOBS:-0}"
 
   [[ -s "$source" ]] || { err "Run source not found or empty: $source"; exit 5; }
+  [[ "$direct_max_jobs" =~ ^[0-9]+$ ]] || {
+    err "RJ_DIRECT_MAX_JOBS must be a non-negative integer, got '${direct_max_jobs}'"
+    exit 2
+  }
   if ppg12_pp_strict_list_coverage_enabled; then
     validate_ppg12_pp_list_coverage "$source" || exit 88
   fi
@@ -4270,6 +4279,17 @@ SUB
       (( submit_trace )) && say "    firstChunk enabled -> submitting 1 group for run ${r8}"
     fi
 
+    if (( direct_max_jobs > 0 )); then
+      local remaining_jobs=$(( direct_max_jobs - queued ))
+      if (( remaining_jobs <= 0 )); then
+        break
+      fi
+      if (( ${#groups[@]} > remaining_jobs )); then
+        say "Capping direct DATA group list: ${#groups[@]} -> ${remaining_jobs} jobs (RJ_DIRECT_MAX_JOBS=${direct_max_jobs})"
+        groups=( "${groups[@]:0:remaining_jobs}" )
+      fi
+    fi
+
     local gidx=0
     for glist in "${groups[@]}"; do
       (( gidx+=1 ))
@@ -4277,6 +4297,11 @@ SUB
              "$r8" "$glist" "$DATASET" "$direct_nevents" "$gidx" "$DEST_BASE" >> "$args_file"
       (( queued+=1 ))
     done
+
+    if (( direct_max_jobs > 0 && queued >= direct_max_jobs )); then
+      say "Reached direct DATA job cap: ${queued}/${direct_max_jobs}"
+      break
+    fi
 
   done < "$source"
 
@@ -7142,6 +7167,7 @@ SUB
         export RJ_GOLDEN_OVERRIDE="$smoke_selected_runs"
         export RJ_PROFILE_JOB=1
         export RJ_DIRECT_NEVENTS="${RJ_SMOKE_DATA_NEVENTS:-3000}"
+        export RJ_DIRECT_MAX_JOBS="${RJ_SMOKE_DATA_MAX_JOBS:-0}"
         export RJ_JOB_HEARTBEAT_SECONDS="${RJ_JOB_HEARTBEAT_SECONDS:-${RJ_SMOKE_JOB_HEARTBEAT_SECONDS:-120}}"
         export RJ_PROFILE_STAGE="${RJ_PROFILE_STAGE:-directSmoke}"
         export RJ_PROFILE_LABEL="${RJ_PROFILE_LABEL:-${TAG}_smokeTest}"
@@ -7153,6 +7179,7 @@ SUB
         say "  output base   : ${RJ_DEST_BASE_OVERRIDE}"
         say "  merge output  : ${RJ_MERGE_OUT_BASE_OVERRIDE}"
         say "  groupSize     : ${GROUP_SIZE}"
+        say "  max jobs      : ${RJ_DIRECT_MAX_JOBS} (0 means all chunks in selected runs)"
         say "  nEvents/job   : ${RJ_DIRECT_NEVENTS} (0 means full worker input)"
         say "  request mem   : ${RJ_REQUEST_MEMORY}"
         say "  engine        : direct RecoilJets fanout; pool replay is not used"

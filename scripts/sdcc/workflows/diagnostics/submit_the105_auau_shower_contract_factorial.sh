@@ -230,6 +230,7 @@ submit_variant() {
     "RJ_REQUEST_MEMORY=${data_memory}" \
     "RJ_SMOKE_OUTPUT_BASE=${variant_root}/data" \
     "RJ_SMOKE_DATA_RUNS=${data_runs}" \
+    "RJ_SMOKE_DATA_MAX_JOBS=${data_runs}" \
     "RJ_SMOKE_DATA_NEVENTS=${data_events}" \
     ./RecoilJets_Condor_submit.sh isAuAu condor smokeTest groupSize "$data_group"
 
