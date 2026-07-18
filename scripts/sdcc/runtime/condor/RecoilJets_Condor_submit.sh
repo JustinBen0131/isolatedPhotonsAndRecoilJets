@@ -535,6 +535,10 @@ create_pipeline_snapshot() {
       [[ -f "$snap_so" ]] || continue
       soname="$(readelf -d "$snap_so" 2>/dev/null | awk -F'[][]' '/SONAME/ {print $2; exit}' || true)"
       [[ -n "$soname" ]] || continue
+      # If the SONAME already is the copied filename, creating the link would
+      # replace the real file with a self-referential symlink.  Only add an
+      # alias when the loader name is genuinely different.
+      [[ "$soname" == "$(basename "$snap_so")" ]] && continue
       ln -sfn "$(basename "$snap_so")" "${snap_lib_dir}/${soname}"
     done
   else
