@@ -3849,6 +3849,19 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         buildTruthJetsFromParticles = !listHasJets;
         buildTruthJetsAsAltNode = false;
     }
+
+    if (auauCandidateSkimOnly)
+    {
+        // The bounded shower-contract diagnostic consumes reconstructed
+        // calorimeter candidates only.  Do not register or rebuild truth-jet
+        // inputs: opening the embedded G4/truth streams can dominate memory
+        // before the first event even though RecoilJets never reads them in
+        // candidate-skim mode.  This is strictly environment-gated and leaves
+        // the production truth contract unchanged.
+        useDSTTruthJets = false;
+        buildTruthJetsFromParticles = false;
+        buildTruthJetsAsAltNode = false;
+    }
     
     if (usePPG12PPSimRebuildCaloFromG4)
     {
@@ -4137,7 +4150,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         bool requireG4 = false;
         if (const char* env = std::getenv("RJ_REQUIRE_G4")) requireG4 = (std::atoi(env) != 0);
         
-        if (listHasG4)
+        if (listHasG4 && !auauCandidateSkimOnly)
         {
             auto* inG4 = isSimEmbedded
             ? static_cast<Fun4AllInputManager*>(new Fun4AllNoSyncDstInputManager("DST_G4HITS_IN"))
@@ -4145,9 +4158,15 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             for (const auto& f : filesG4) inG4->AddFile(f);
             se->registerInputManager(inG4);
         }
+        else if (listHasG4 && auauCandidateSkimOnly)
+        {
+            std::cout << "[INFO] RJ_AUAU_CANDIDATE_SKIM_ONLY=1: "
+                      << "skipping the unused G4Hits input stream; reconstructed "
+                      << "candidate rows retain the matched CALO/GLOBAL/MBD inputs.\n";
+        }
         else
         {
-            if (requireG4)
+            if (requireG4 && !auauCandidateSkimOnly)
             {
                 detail::bail("RJ_REQUIRE_G4=1 but no G4Hits stream was provided in the input list.");
             }
@@ -4181,7 +4200,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         if (verbose)
             std::cout << "[INFO] isSim: registered input managers (Calo + Global"
             << (listHasMbd ? " + MBD_EPD" : " (no MBD_EPD)")
-            << (listHasG4 ? " + G4" : " (no G4)") << ")\n";
+            << ((listHasG4 && !auauCandidateSkimOnly) ? " + G4" : " (no G4)") << ")\n";
     }
     
     
