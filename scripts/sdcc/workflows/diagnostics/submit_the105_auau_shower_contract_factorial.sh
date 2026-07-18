@@ -196,7 +196,7 @@ build_photon_builder_override() {
   )
   (
     cd "$photon_builder_build"
-    g++ -std=c++17 -O2 -g -fPIC -shared -Wl,-z,defs \
+    g++ -std=c++20 -O2 -g -fPIC -shared -Wl,-z,defs \
       -I. \
       -I/sphenix/u/${USER:-patsfan753}/thesisAnalysis/install/include \
       -isystem "${OFFLINE_MAIN}/include" \
