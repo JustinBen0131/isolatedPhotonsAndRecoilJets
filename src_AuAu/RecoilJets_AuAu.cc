@@ -12322,7 +12322,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
 
     // Fixed-R truth-only diagnostics are independent of the active reco
     // isolation view and are therefore filled once in the canonical view.
-    if (m_isSimEmbedded && doCanonical)
+    if (m_isSimEmbedded && doCanonical && !m_auauCandidateSkimOnly)
     {
         fillAuAuEmbeddedTruthIsolationDiagnostics(topNode, activeTrig);
     }
@@ -12347,7 +12347,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
     // Output histograms (under /SIM/):
     //   h_sigABCD_MC_pT_lo_hi[_cent_lo_hi]  (TH1I, bins: 1=A, 2=B, 3=C, 4=D)
     // ==========================================================================
-    if (m_isSim && m_photons)
+    if (m_isSim && m_photons && !m_auauCandidateSkimOnly)
     {
         fillTruthSigABCDLeakageCounters(topNode, activeTrig, centIdx);
     }
@@ -12370,7 +12370,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
     // Then fill:
     //   (tPt, xJt=tj1Pt/tPt, aT=tj2Pt/tPt)
     // ==========================================================================
-    if (m_isSim && doCanonical)
+    if (m_isSim && doCanonical && !m_auauCandidateSkimOnly)
     {
         const int effCentIdx_truth = (m_isAuAu ? centIdx : -1);
 
@@ -12865,7 +12865,10 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     leadAnyPhiGamma = phi_gamma;
                 }
 
-                fillPureIsolationQA(topNode, activeTrig, pho, rc, ptIdx, centIdx, pt_gamma);
+                if (!m_auauCandidateSkimOnly)
+                {
+                    fillPureIsolationQA(topNode, activeTrig, pho, rc, ptIdx, centIdx, pt_gamma);
+                }
 
                 // 1) Build shower-shape inputs (for preselection and tightness)
                 const SSVars v = makeSSFromPhoton(pho, pt_gamma);
@@ -14153,6 +14156,21 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
 
                 continue;
             } // photon loop
+
+            // The bounded shower-contract diagnostic ends at the candidate
+            // row.  Recoil matching, JES/unfolding objects, and event-level jet
+            // summaries are outside its contract and can dominate memory even
+            // for a one-event canary.
+            if (m_auauCandidateSkimOnly)
+            {
+                if (Verbosity() >= 4)
+                {
+                    LOG(4, CLR_BLUE,
+                        "    [processCandidates] candidate-skim-only: completed "
+                        << nPho << " photon candidates; skipping recoil/JES work");
+                }
+                return;
+            }
 
             // ------------------------------------------------------------------
             // Event-level photon-side diagnostic:

@@ -3054,6 +3054,13 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         if (v == "0" || v == "false" || v == "no" || v == "off") return false;
         return def;
     };
+
+    // A bounded shower-contract diagnostic needs the ordinary Au+Au
+    // calorimeter and photon-candidate reconstruction, but it does not need
+    // final recoil jets or rebuilt truth jets.  Keep this strictly
+    // environment-gated so production steering remains unchanged.
+    const bool auauCandidateSkimOnly =
+        env_bool_local("RJ_AUAU_CANDIDATE_SKIM_ONLY", false);
     
     //--------------------------------------------------------------------
     // 1.  Parse the file list & determine run / segment
@@ -4739,7 +4746,15 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         // ------------------------------------------------------------------
         int jetcalV = 0;
         if (const char* env = std::getenv("RJ_JETCALIB_VERBOSITY")) jetcalV = std::atoi(env);
-        
+
+        if (auauCandidateSkimOnly && vlevel > 0)
+        {
+            std::cout << "[THE-105 candidate skim] retaining AuAu tower subtraction "
+                      << "for the photon builder; final reconstructed jets and "
+                      << "JetCalib are disabled" << std::endl;
+        }
+
+        if (!auauCandidateSkimOnly)
         for (const auto& radKey : activeJetRKeys)
         {
             int D = 0;
@@ -4913,7 +4928,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     // ---------------------- Truth jets -----------------------------------------
     // If useDSTTruthJets==true: they already exist from DST_JETS_IN.
     // If buildTruthJetsFromParticles==true: build them from TRUTH particles here.
-    if (isSim && buildTruthJetsFromParticles)
+    if (isSim && buildTruthJetsFromParticles && !auauCandidateSkimOnly)
     {
         if (vlevel > 0)
         {
@@ -4958,7 +4973,9 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     }
     else if (isSim && useDSTTruthJets && vlevel > 0)
     {
-        std::cout << "[INFO] (isSim) truth jets: using nodes from DST_JETS (no TruthJetInput reco)\n";
+        std::cout << "[INFO] (isSim) truth jets: using nodes from DST_JETS (no TruthJetInput reco)"
+                  << (auauCandidateSkimOnly ? " [candidate-skim mode]" : "")
+                  << "\n";
     }
     
     
