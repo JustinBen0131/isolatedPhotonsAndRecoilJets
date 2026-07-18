@@ -37,8 +37,9 @@ data_runs="${RJ_THE105_DATA_RUNS:-3}"
 data_events="${RJ_THE105_DATA_EVENTS:-20000}"
 sim_group="${RJ_THE105_SIM_GROUP_SIZE:-5}"
 sim_events="${RJ_THE105_SIM_EVENTS:-20000}"
-data_memory="${RJ_THE105_DATA_MEMORY:-6500MB}"
-sim_memory="${RJ_THE105_SIM_MEMORY:-7500MB}"
+data_memory="${RJ_THE105_DATA_MEMORY:-12000MB}"
+sim_memory="${RJ_THE105_SIM_MEMORY:-12000MB}"
+memory_retry_cap_mb="${RJ_THE105_MEMORY_RETRY_CAP_MB:-16000}"
 allow_existing="${RJ_THE105_ALLOW_EXISTING:-0}"
 
 variants=(historical towerinfo70 canonical)
@@ -243,6 +244,7 @@ common_env() {
     "RJ_ID_FANOUT_MAX_ROWS=1" \
     "RJ_PHOTON_ID_ROW_MATCH=preselectionNewPPG12_tightAuAuCentInputBase3x3BDT_nonTightAuAuBDTSideband" \
     "RJ_AUTO_MERGE=0" \
+    "RJ_AUTO_MEMORY_RETRY_CAP_MB=${memory_retry_cap_mb}" \
     "RJ_REQUIRE_NON_TINY_OUTPUT=1" \
     "RJ_MIN_OUTPUT_BYTES=50000" \
     "RJ_PROFILE_JOB=1" \
