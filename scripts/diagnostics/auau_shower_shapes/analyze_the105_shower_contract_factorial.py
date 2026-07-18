@@ -469,6 +469,11 @@ def render_ratio_matrix(
         ("towerinfo70", "historical", "TowerInfo/get_isGood 70 / historical", "#D55E00"),
         ("canonical", "towerinfo70", "TowerInfo0 / TowerInfo70", "#0072B2"),
     )
+    # Suppress ratios formed only from negligible weighted tail content.  The
+    # full boundary/underflow/overflow accounting remains available in the
+    # companion CSV; this threshold is a plotting legibility requirement, not
+    # a physics selection.
+    minimum_visible_bin_fraction = 5.0e-4
     for row, population in enumerate(POPULATIONS):
         for col, (stage, stage_label) in enumerate(STAGES):
             ax = axes[row, col]
@@ -481,12 +486,16 @@ def render_ratio_matrix(
                 num, edges = cached[numerator]
                 den, _ = cached[denominator]
                 ratio = np.full_like(num, np.nan, dtype=float)
-                np.divide(num, den, out=ratio, where=den > 0)
+                supported = (num >= minimum_visible_bin_fraction) & (den >= minimum_visible_bin_fraction)
+                np.divide(num, den, out=ratio, where=supported)
                 centers = 0.5 * (edges[:-1] + edges[1:])
                 ax.plot(centers, ratio, marker="o", markersize=2.4, linewidth=1.25, color=color, label=label)
             ax.axhline(1.0, color="#6B7280", linewidth=1.0, linestyle="--")
             ax.set_xlim(variable.xmin, variable.xmax)
-            ax.set_ylim(0.45, 1.55)
+            ax.set_yscale("log")
+            ax.set_ylim(0.2, 5.0)
+            ax.set_yticks((0.25, 0.5, 1.0, 2.0, 4.0))
+            ax.set_yticklabels(("0.25", "0.5", "1", "2", "4"))
             ax.grid(axis="y", color="#D7DEE8", linewidth=0.6, alpha=0.8)
             ax.tick_params(direction="in", top=True, right=True, labelsize=10)
             if row == 0:
@@ -508,6 +517,14 @@ def render_ratio_matrix(
     )
     fig.text(0.09, 0.925, "Historical routing/acceptance effect at fixed 70 MeV; threshold effect at fixed TowerInfo/get_isGood routing", fontsize=12, color="#314E6E")
     fig.text(0.09, 0.018, "sPHENIX Internal", fontsize=11.5, fontweight="bold")
+    fig.text(
+        0.985,
+        0.018,
+        r"Ratios are shown only where both variants contribute at least $5\times10^{-4}$ of the full stage weight to the bin.",
+        fontsize=8.8,
+        ha="right",
+        color="#4B5563",
+    )
     path = output_dir / f"the105_{variable.slug}_{cent_key}_factorial_ratios.png"
     fig.savefig(path, dpi=220, facecolor="white")
     plt.close(fig)
