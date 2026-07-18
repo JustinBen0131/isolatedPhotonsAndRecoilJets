@@ -13101,6 +13101,47 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
 
                 if (m_auauBDTExtractOnly)
                 {
+                    // THE-105 shower-contract diagnostics reuse the established
+                    // extraction-only path to avoid booking the full production
+                    // histogram suite.  Preserve one row for every candidate,
+                    // including candidates that fail the complete preselection,
+                    // and evaluate the frozen tight classifier without changing
+                    // the selection contract.
+                    if (fillPhotonCandidateSkimThisView)
+                    {
+                        double isoAForSkim = 0.0;
+                        double isoBForSkim = 0.0;
+                        double isoGapForSkim = 0.0;
+                        getIsoParams(centIdx, isoAForSkim, isoBForSkim, isoGapForSkim);
+                        const double thrIsoForSkim =
+                            m_isSlidingIso ? (isoAForSkim + isoBForSkim * pt_gamma)
+                                           : m_isoFixed;
+                        const double thrNonIsoForSkim = thrIsoForSkim + isoGapForSkim;
+                        const bool validIsoForSkim =
+                            std::isfinite(eiso_et) && eiso_et < 1e8;
+                        const bool skimIso = validIsoForSkim && eiso_et < thrIsoForSkim;
+                        const bool skimNonIso =
+                            validIsoForSkim && eiso_et > thrNonIsoForSkim;
+                        const TightTag skimTightTag = classifyPhotonTightness(v);
+
+                        fillAuAuPhotonCandidateSkimTree(
+                            topNode, pho, activeTrig, v, eta, phi,
+                            eiso_et, eiso_et_r30, eiso_et_r40,
+                            ptIdx, centIdx,
+                            skimTightTag != TightTag::kPreselectionFail,
+                            skimTightTag,
+                            skimIso,
+                            skimNonIso,
+                            thrIsoForSkim,
+                            thrNonIsoForSkim,
+                            isoGapForSkim,
+                            bdtTrainHaveLabel,
+                            bdtTrainIsSignal,
+                            bdtTrainClusterTruthTrackId,
+                            bdtTrainClusterTruthPid,
+                            bdtTrainClusterTruthBarcode,
+                            bdtTrainEContrib);
+                    }
                     continue;
                 }
 
