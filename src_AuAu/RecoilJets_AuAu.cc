@@ -4,7 +4,6 @@
 #include <fun4all/Fun4AllServer.h>
 #include <phool/getClass.h>
 #include <phool/recoConsts.h>
-#include <phool/THE106Observation.h>
 #include <jetbase/JetContainer.h>
 #include <jetbase/Jet.h>
 #include <array>
@@ -5174,41 +5173,15 @@ double RecoilJets::predictAuAuTightBDTScore(const PhotonClusterv1* pho, const SS
 
   std::vector<float> x;
   x.reserve(m_auauTightBDTFeatures.size());
-  for (std::size_t featureIndex = 0;
-       featureIndex < m_auauTightBDTFeatures.size(); ++featureIndex)
+  for (const auto& feature : m_auauTightBDTFeatures)
   {
-    const auto& feature = m_auauTightBDTFeatures[featureIndex];
     const double val = auauTightBDTFeatureValue(feature, pho, v);
-    if (!std::isfinite(val))
-    {
-      the106::c0h2::emitScoreObservation(
-          the106::c0h2::ScoreStatus::feature_nonfinite,
-          x.data(), x.size(), m_auauTightBDTFeatures.data(),
-          m_auauTightBDTModelFile.c_str(), scoreMode.c_str(),
-          false, 0.0F, featureIndex);
-      return std::numeric_limits<double>::quiet_NaN();
-    }
+    if (!std::isfinite(val)) return std::numeric_limits<double>::quiet_NaN();
     x.push_back(static_cast<float>(val));
   }
   const auto y = model->Compute(x);
-  if (y.empty())
-  {
-    the106::c0h2::emitScoreObservation(
-        the106::c0h2::ScoreStatus::output_empty,
-        x.data(), x.size(), m_auauTightBDTFeatures.data(),
-        m_auauTightBDTModelFile.c_str(), scoreMode.c_str(),
-        false, 0.0F, 0);
-    return std::numeric_limits<double>::quiet_NaN();
-  }
-  const float score = y[0];
-  the106::c0h2::emitScoreObservation(
-      std::isfinite(score) ? the106::c0h2::ScoreStatus::valid
-                           : the106::c0h2::ScoreStatus::output_nonfinite,
-      x.data(), x.size(), m_auauTightBDTFeatures.data(),
-      m_auauTightBDTModelFile.c_str(), scoreMode.c_str(),
-      true, score, 0);
-  if (!std::isfinite(score)) return std::numeric_limits<double>::quiet_NaN();
-  return static_cast<double>(score);
+  if (y.empty() || !std::isfinite(y[0])) return std::numeric_limits<double>::quiet_NaN();
+  return static_cast<double>(y[0]);
 }
 
 bool RecoilJets::initAuAuTightMLPModelIfNeeded() const
@@ -12944,43 +12917,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 }
 
                 // 1) Build shower-shape inputs (for preselection and tightness)
-                const SSVars v = [&]()
-                {
-                    if (!the106::c0h2::scoreObservationEnabled())
-                    {
-                        return makeSSFromPhoton(pho, pt_gamma);
-                    }
-
-                    const EventHeader* observedEventHeader =
-                        findNode::getClass<EventHeader>(topNode, "EventHeader");
-                    the106::c0h2::CandidateContext context = {};
-                    context.pair = the106::c0h2::currentFrameworkPairToken();
-                    context.delivered_event_ordinal =
-                        event_count > 0 ? static_cast<std::uint64_t>(event_count) : 0U;
-                    context.run_valid = observedEventHeader != nullptr;
-                    context.run_number = observedEventHeader
-                        ? static_cast<std::int64_t>(observedEventHeader->get_RunNumber()) : 0;
-                    context.event_valid = observedEventHeader != nullptr;
-                    context.event_number = observedEventHeader
-                        ? static_cast<std::int64_t>(observedEventHeader->get_EvtSequence()) : 0;
-                    context.container_key = static_cast<std::uint64_t>(pit->first);
-                    context.cluster_id = static_cast<std::uint64_t>(pho->get_id());
-                    context.producer_encounter_ordinal = static_cast<std::uint64_t>(iPho);
-                    std::string observedModuleName;
-                    try
-                    {
-                        observedModuleName = Name();
-                    }
-                    catch (...)
-                    {
-                        // Observation metadata is nonsemantic.  Allocation failure
-                        // must not escape into or alter the authoritative path.
-                    }
-                    context.module_name = observedModuleName.empty()
-                        ? nullptr : observedModuleName.c_str();
-                    the106::c0h2::ScopedCandidateContext observationContext(context);
-                    return makeSSFromPhoton(pho, pt_gamma);
-                }();
+                const SSVars v = makeSSFromPhoton(pho, pt_gamma);
                 if (doCanonical) ++m_bk.pho_reached_pre_iso;
 
                 // ------------------------------------------------------------------
