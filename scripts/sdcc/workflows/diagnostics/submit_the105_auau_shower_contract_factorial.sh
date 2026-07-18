@@ -93,13 +93,27 @@ write_manifest() {
   } > "${evidence_dir}/campaign_contract.tsv"
   {
     printf 'campaign_tag=%s\n' "$campaign_tag"
-    printf 'source_commit=%s\n' "$(git rev-parse HEAD 2>/dev/null || printf unknown)"
+    printf 'source_checkout_head=%s\n' "$(git rev-parse HEAD 2>/dev/null || printf unknown)"
     printf 'config=%s\n' "$yaml"
     printf 'data_contract=first_%s_resolved_GRL_runs_groupSize_%s_up_to_%s_events_each\n' "$data_runs" "$data_group" "$data_events"
     printf 'sim_contract=first_group_of_%s_paired_rows_per_sample_up_to_%s_events\n' "$sim_group" "$sim_events"
     printf 'candidate_contract=15<=ET<35,abs_eta<0.7,one_skim_row_per_candidate\n'
     printf 'normalization_contract=full_finite_candidate_denominator_with_zero_underflow_overflow_reported_separately\n'
   } > "${evidence_dir}/campaign_manifest.txt"
+  local -a source_files=(
+    macros/Fun4All_recoilJets_unified_impl.C
+    src/PhotonClusterBuilder.cc
+    src/PhotonClusterBuilder.h
+    src_AuAu/RecoilJets_AuAu.cc
+    src_AuAu/RecoilJets_AuAu.h
+    scripts/sdcc/runtime/condor/RecoilJets_Condor_submit.sh
+    scripts/sdcc/workflows/diagnostics/submit_the105_auau_shower_contract_factorial.sh
+  )
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "${source_files[@]}" > "${evidence_dir}/source_files.sha256"
+  else
+    shasum -a 256 "${source_files[@]}" > "${evidence_dir}/source_files.sha256"
+  fi
 }
 
 print_contract() {
