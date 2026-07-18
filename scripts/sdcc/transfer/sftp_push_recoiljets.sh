@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-LOCAL_BASE="/Users/patsfan753/Desktop/ThesisAnalysis"
+LOCAL_BASE="${RJ_SFTP_LOCAL_BASE:-/Users/patsfan753/Desktop/ThesisAnalysis}"
 REMOTE_BASE="/sphenix/u/patsfan753/scratch/thesisAnalysis"
 REMOTE_HOST="${RJ_SFTP_REMOTE_HOST:-patsfan753@sftp.sdcc.bnl.gov}"
 REMOTE_TRANSPORT="${RJ_SFTP_TRANSPORT:-sftp}"
@@ -424,6 +424,8 @@ Uploads selected known files from the local Mac checkout to the SDCC analysis
 checkout via interactive sftp. No password is stored; sftp prompts normally.
 Upload mode prints the overwrite preview and then starts sftp directly; it does
 not ask for an extra y/N confirmation.
+Set RJ_SFTP_LOCAL_BASE to an absolute clean worktree path when a focused branch
+must be deployed without reading files from the default live checkout.
 If the SFTP endpoint rejects the available key but the SDCC SSH gateway works,
 set RJ_SFTP_TRANSPORT=ssh-tar. That transport still uses this mapped-file
 allowlist and path validation, then streams an exact tar payload through the
