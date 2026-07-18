@@ -45,6 +45,22 @@ allow_existing="${RJ_THE105_ALLOW_EXISTING:-0}"
 variants=(historical towerinfo70 canonical)
 signal_samples=(run28_embeddedPhoton12 run28_embeddedPhoton20)
 inclusive_samples=(run28_embeddedJet12 run28_embeddedJet20 run28_embeddedJet30 run28_embeddedJet40)
+if [[ "${RJ_THE105_VARIANTS+x}" == "x" ]]; then
+  variants=()
+  [[ -n "$RJ_THE105_VARIANTS" ]] && read -r -a variants <<< "$RJ_THE105_VARIANTS"
+fi
+if [[ "${RJ_THE105_SIGNAL_SAMPLES+x}" == "x" ]]; then
+  signal_samples=()
+  [[ -n "$RJ_THE105_SIGNAL_SAMPLES" ]] && read -r -a signal_samples <<< "$RJ_THE105_SIGNAL_SAMPLES"
+fi
+if [[ "${RJ_THE105_INCLUSIVE_SAMPLES+x}" == "x" ]]; then
+  inclusive_samples=()
+  [[ -n "$RJ_THE105_INCLUSIVE_SAMPLES" ]] && read -r -a inclusive_samples <<< "$RJ_THE105_INCLUSIVE_SAMPLES"
+fi
+include_data="${RJ_THE105_INCLUDE_DATA:-1}"
+[[ "$include_data" == "0" || "$include_data" == "1" ]] || \
+  die "RJ_THE105_INCLUDE_DATA must be 0 or 1, got: ${include_data}"
+(( ${#variants[@]} > 0 )) || die "RJ_THE105_VARIANTS selected zero variants"
 
 export RJ_CODEX_CHAT_NAME="${RJ_CODEX_CHAT_NAME:-THE-105 | AuAu Shower-Contract Factorial Canary}"
 export RJ_CODEX_THREAD_ID="${RJ_CODEX_THREAD_ID:-019f4c73-f704-78f0-9731-19e9cc9560c3}"
@@ -106,7 +122,15 @@ write_manifest() {
     printf 'campaign_tag=%s\n' "$campaign_tag"
     printf 'source_checkout_head=%s\n' "$(git rev-parse HEAD 2>/dev/null || printf unknown)"
     printf 'config=%s\n' "$yaml"
-    printf 'data_contract=first_%s_resolved_GRL_runs_groupSize_%s_up_to_%s_events_each\n' "$data_runs" "$data_group" "$data_events"
+    printf 'variants=%s\n' "${variants[*]}"
+    printf 'include_data=%s\n' "$include_data"
+    printf 'signal_samples=%s\n' "${signal_samples[*]:-none}"
+    printf 'inclusive_samples=%s\n' "${inclusive_samples[*]:-none}"
+    if [[ "$include_data" == "1" ]]; then
+      printf 'data_contract=first_%s_resolved_GRL_runs_groupSize_%s_up_to_%s_events_each\n' "$data_runs" "$data_group" "$data_events"
+    else
+      printf 'data_contract=disabled\n'
+    fi
     printf 'sim_contract=first_group_of_%s_paired_rows_per_sample_up_to_%s_events\n' "$sim_group" "$sim_events"
     printf 'analysis_mode=candidate_skim_only_no_truth_matching_no_training_tree_no_production_histogram_booking\n'
     printf 'candidate_contract=15<=ET<35,abs_eta<0.7,one_skim_row_per_candidate\n'
@@ -131,19 +155,25 @@ write_manifest() {
 
 print_contract() {
   write_manifest
+  local data_jobs=0
+  local data_description="disabled"
+  if [[ "$include_data" == "1" ]]; then
+    data_jobs="$data_runs"
+    data_description="first ${data_runs} resolved GRL runs, groupSize ${data_group}, <=${data_events} events/job"
+  fi
   cat <<EOF
 RECOILJETS_THE105_AUAU_SHOWER_CONTRACT_FACTORIAL_V1
 campaign_tag=${campaign_tag}
 config=${yaml}
 variants=${variants[*]}
-data=first ${data_runs} resolved GRL runs, groupSize ${data_group}, <=${data_events} events/job
-signal_samples=${signal_samples[*]}
-inclusive_samples=${inclusive_samples[*]}
+data=${data_description}
+signal_samples=${signal_samples[*]-}
+inclusive_samples=${inclusive_samples[*]-}
 sim=first ${sim_group} paired rows/sample, <=${sim_events} events/job
 stages=before preselection; after complete NCB preselection; after frozen tight ID
 analysis_mode=candidate-skim-only; truth matching, training tree, and production histogram suite disabled
 candidate_skim=enabled, one row per candidate
-maximum_jobs=$(( ${#variants[@]} * (data_runs + ${#signal_samples[@]} + ${#inclusive_samples[@]}) ))
+maximum_jobs=$(( ${#variants[@]} * (data_jobs + ${#signal_samples[@]} + ${#inclusive_samples[@]}) ))
 automatic_merge=disabled
 canonical_replacement=forbidden
 canary_root=${canary_root}
@@ -264,15 +294,17 @@ submit_variant() {
   local -a env_args
   mapfile -t env_args < <(common_env "$variant")
 
-  say "Expanding ${variant}/data"
-  env "${env_args[@]}" \
-    "RJ_DAG_DRYRUN=${dryrun}" \
-    "RJ_REQUEST_MEMORY=${data_memory}" \
-    "RJ_SMOKE_OUTPUT_BASE=${variant_root}/data" \
-    "RJ_SMOKE_DATA_RUNS=${data_runs}" \
-    "RJ_SMOKE_DATA_MAX_JOBS=${data_runs}" \
-    "RJ_SMOKE_DATA_NEVENTS=${data_events}" \
-    ./RecoilJets_Condor_submit.sh isAuAu condor smokeTest groupSize "$data_group"
+  if [[ "$include_data" == "1" ]]; then
+    say "Expanding ${variant}/data"
+    env "${env_args[@]}" \
+      "RJ_DAG_DRYRUN=${dryrun}" \
+      "RJ_REQUEST_MEMORY=${data_memory}" \
+      "RJ_SMOKE_OUTPUT_BASE=${variant_root}/data" \
+      "RJ_SMOKE_DATA_RUNS=${data_runs}" \
+      "RJ_SMOKE_DATA_MAX_JOBS=${data_runs}" \
+      "RJ_SMOKE_DATA_NEVENTS=${data_events}" \
+      ./RecoilJets_Condor_submit.sh isAuAu condor smokeTest groupSize "$data_group"
+  fi
 
   local sample
   for sample in "${signal_samples[@]}"; do
