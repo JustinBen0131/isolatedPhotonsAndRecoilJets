@@ -58,6 +58,37 @@ def training_contract(metadata: dict) -> dict:
     split = metadata["split"]
     closure = metadata["ppg12_exact_closure"]
     weighting = closure["weighting"]
+    # THE-101's trainer used these executable defaults but its older metadata
+    # did not serialize all of them.  The corrected trainer records them
+    # explicitly.  Normalize the two metadata generations before testing the
+    # frozen training contract so the gate measures parameter values rather
+    # than provenance verbosity.
+    raw_xgboost = metadata["xgboost"]
+    xgboost_defaults = {
+        "objective": "binary:logistic",
+        "eval_metric": ["auc", "logloss"],
+        "random_state": 13,
+        "n_jobs": 1,
+    }
+    xgboost_keys = (
+        "n_estimators",
+        "max_depth",
+        "learning_rate",
+        "subsample",
+        "colsample_bytree",
+        "reg_alpha",
+        "reg_lambda",
+        "grow_policy",
+        "max_bin",
+        "tree_method",
+        "objective",
+        "eval_metric",
+        "random_state",
+        "n_jobs",
+    )
+    normalized_xgboost = {
+        key: raw_xgboost.get(key, xgboost_defaults.get(key)) for key in xgboost_keys
+    }
     return {
         "campaign": metadata["campaign"],
         "product": metadata["product"],
@@ -66,11 +97,13 @@ def training_contract(metadata: dict) -> dict:
         "label_branch": metadata["label_branch"],
         "task": metadata["task"],
         "weight_mode": metadata["weight_mode"],
-        "xgboost": metadata["xgboost"],
+        "xgboost": normalized_xgboost,
         "background_subsampling": metadata["background_subsampling"],
         "majority_class_optimization": metadata["majority_class_optimization"],
         "split_mode": split["mode"],
         "test_fraction_requested": split["test_fraction_requested"],
+        "split_random_seed": split.get("random_seed", 13),
+        "split_stratified_by_class": split.get("stratified_by_class", True),
         "source_samples": closure["sample_validation"]["observed_samples"],
         "weighting_policy": {
             key: weighting[key]
