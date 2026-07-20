@@ -1044,6 +1044,11 @@ build_submit_extra_env_fragment() {
   extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_FIG7_TRIGGER_DIAGNOSTIC)"
   extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_FIG13_BIT30_DIAGNOSTIC)"
   if (( sim_dataset )); then
+    extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_CLOSURE_CANARY)"
+    extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_CLOSURE_CANARY_ID)"
+    extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PPSIM_REPLAY_SEEDS)"
+    extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PPSIM_EXPECT_PEDESTAL_SEQUENCE)"
+    extra="$(append_submit_extra_env_var "$extra" RJ_DISABLE_JES_CDB_AUDIT)"
     extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4)"
     extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PPSIM_G4_ONLY)"
     extra="$(append_submit_extra_env_var "$extra" RJ_SIM_ALLOW_NONE_LISTS)"
@@ -3272,6 +3277,10 @@ sim_path_validation_requested() {
 }
 
 sim_requires_global_lane() {
+  # The deterministic stitched-purity closure canary reproduces the preserved
+  # executable graphs exactly.  Neither SI nor DI registers DST_GLOBAL; the
+  # vertex inputs are reconstructed inside the SI graph and absent for DI.
+  env_truthy "${RJ_PPG12_CLOSURE_CANARY:-0}" && return 1
   env_truthy "${RJ_REQUIRE_SIM_GLOBAL:-0}" && return 0
   env_truthy "${RJ_PPG12_PHOTON_YIELD:-0}" && return 0
   env_truthy "${RJ_PPG12_TABLE_QA:-0}" && return 0
@@ -3334,6 +3343,91 @@ validate_sim_clean_list_paths() {
   fi
 }
 
+# The historical replay controls belong only to the bounded stitched-purity
+# executable-oracle canary.  Ordinary pp production, historical replay, and
+# every Au+Au mode must continue to use their natural RNG/pedestal contract.
+validate_ppg12_closure_canary_controls() {
+  local sample="${SIM_SAMPLE:-}"
+  local closure_canary=0
+  env_truthy "${RJ_PPG12_CLOSURE_CANARY:-0}" && closure_canary=1
+
+  local inherited_extra=";${RJ_SUBMIT_EXTRA_ENV:-};"
+  case "$inherited_extra" in
+    *';RJ_PPG12_CLOSURE_CANARY='*|*';RJ_PPG12_CLOSURE_CANARY_ID='*|\
+    *';RJ_PPG12_PPSIM_REPLAY_SEEDS='*|*';RJ_PPG12_PPSIM_EXPECT_PEDESTAL_SEQUENCE='*|\
+    *';RJ_PPG12_PPSIM_FIXED_RANDOMSEED='*|*';RJ_PPG12_PPSIM_FIXED_PEDESTAL_SEQUENCE='*)
+      err "PPG12 closure controls must be explicit submit-shell variables, not inherited through RJ_SUBMIT_EXTRA_ENV."
+      return 98
+      ;;
+  esac
+
+  local replay_seeds_set=0 expected_pedestal_set=0
+  [[ -n "${RJ_PPG12_PPSIM_REPLAY_SEEDS+x}" ]] && replay_seeds_set=1
+  [[ -n "${RJ_PPG12_PPSIM_EXPECT_PEDESTAL_SEQUENCE+x}" ]] && expected_pedestal_set=1
+
+  if (( ! closure_canary )); then
+    if (( replay_seeds_set || expected_pedestal_set )); then
+      err "PPG12 historical replay controls are closure-canary-only; set RJ_PPG12_CLOSURE_CANARY=1 or remove both replay controls."
+      return 98
+    fi
+    return 0
+  fi
+
+  case "$inherited_extra" in
+    *';RANDOMSEED='*|*';RJ_PPG12_PEDESTAL_OVERRIDE='*|\
+    *';RJ_PPG12_DI_ARCHIVED_EXPECT_PEDESTAL='*|*';RJ_DISABLE_JES_CDB_AUDIT='*|\
+    *';RJ_REQUIRE_SIM_GLOBAL='*)
+      err "PPG12 closure canary rejects RNG, pedestal, and JES controls inherited through RJ_SUBMIT_EXTRA_ENV."
+      return 98
+      ;;
+  esac
+
+  [[ "$sample" =~ ^run28_(photonjet(5|10|20)|jet(8|12|20|30|40))(_double)?$ ]] || {
+    err "PPG12 closure canary is restricted to the frozen Run-28 pp stitched-purity lanes; sample=${sample:-<unset>}."
+    return 98
+  }
+  if ! env_truthy "${RJ_PPG12_PHOTON_YIELD:-0}"; then
+    err "PPG12 closure canary requires RJ_PPG12_PHOTON_YIELD=1."
+    return 98
+  fi
+  if env_truthy "${RJ_REQUIRE_SIM_GLOBAL:-0}"; then
+    err "PPG12 closure canary forbids RJ_REQUIRE_SIM_GLOBAL; the preserved executable graph has no DST_GLOBAL lane."
+    return 98
+  fi
+  if [[ -n "${RJ_PPG12_PPSIM_FIXED_RANDOMSEED+x}" || \
+        -n "${RJ_PPG12_PPSIM_FIXED_PEDESTAL_SEQUENCE+x}" ]]; then
+    err "PPG12 closure canary forbids the disproven synthetic fixed-seed controls; use the exact historical FIFO replay controls."
+    return 98
+  fi
+  if (( ! replay_seeds_set || ! expected_pedestal_set )); then
+    err "PPG12 closure canary requires RJ_PPG12_PPSIM_REPLAY_SEEDS and RJ_PPG12_PPSIM_EXPECT_PEDESTAL_SEQUENCE."
+    return 98
+  fi
+  [[ "${RJ_PPG12_PPSIM_REPLAY_SEEDS:-}" == "2991264730,4256268992,2394322166,874466025,2240380304" ]] || {
+    err "PPG12 closure canary requires the exact five-seed historical FIFO replay sequence."
+    return 98
+  }
+  [[ "${RJ_PPG12_PPSIM_EXPECT_PEDESTAL_SEQUENCE:-}" == "534" ]] || {
+    err "PPG12 closure canary requires the replayed pedestal sequence 534; got ${RJ_PPG12_PPSIM_EXPECT_PEDESTAL_SEQUENCE:-<unset>}."
+    return 98
+  }
+  if ! env_truthy "${RJ_DISABLE_JES_CDB_AUDIT:-0}"; then
+    err "PPG12 closure canary requires RJ_DISABLE_JES_CDB_AUDIT=1 so no pre-graph JES CDB lookup is introduced."
+    return 98
+  fi
+
+  local canary_id="${RJ_PPG12_CLOSURE_CANARY_ID:-}"
+  if [[ -z "$canary_id" || ${#canary_id} -gt 128 || ! "$canary_id" =~ ^[A-Za-z0-9_.:-]+$ ]]; then
+    err "PPG12 closure canary requires a safe nonempty RJ_PPG12_CLOSURE_CANARY_ID (letters, digits, dot, underscore, colon, or hyphen; max 128 characters)."
+    return 98
+  fi
+  if [[ -n "${RANDOMSEED+x}" || -n "${RJ_PPG12_PEDESTAL_OVERRIDE+x}" || \
+        -n "${RJ_PPG12_DI_ARCHIVED_EXPECT_PEDESTAL+x}" ]]; then
+    err "PPG12 closure canary rejects RANDOMSEED, RJ_PPG12_PEDESTAL_OVERRIDE, and RJ_PPG12_DI_ARCHIVED_EXPECT_PEDESTAL; use only the historical replay controls."
+    return 98
+  fi
+}
+
 # Fail closed when a Run-28 PPG12 simulation lane's interaction-mode flags,
 # sample identity, and staged source paths disagree.  DI is not defined by an
 # environment flag alone: it requires a *_double sample backed by the
@@ -3344,6 +3438,10 @@ validate_ppg12_sim_source_contract() {
   local list="${SIM_CLEAN_LIST:-}"
 
   [[ "$sample" =~ ^run28_(photonjet(5|10|20)|jet(5|8|12|20|30|40))(_double)?$ ]] || return 0
+  validate_ppg12_closure_canary_controls || return $?
+
+  local closure_canary=0
+  env_truthy "${RJ_PPG12_CLOSURE_CANARY:-0}" && closure_canary=1
 
   local contract_requested=0
   env_truthy "${RJ_PPG12_PHOTON_YIELD:-0}" && contract_requested=1
@@ -3366,6 +3464,58 @@ validate_ppg12_sim_source_contract() {
   env_truthy "${RJ_PPG12_PERIOD_STRICT_DI:-0}" && flag_strict_di=1
   env_truthy "${RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4:-0}" && flag_rebuild=1
   env_truthy "${RJ_PPG12_PPSIM_G4_ONLY:-0}" && flag_g4_only=1
+
+  if (( closure_canary )); then
+    if (( sample_is_double )); then
+      if (( ! flag_double || ! flag_strict_di || ! flag_rebuild || ! flag_g4_only )); then
+        err "PPG12 closure DI graph requires double=1, strict_DI=1, rebuild=1, and g4_only=1 for sample=${sample}."
+        return 98
+      fi
+      if ! awk -F '\t' '
+        BEGIN { bad=0 }
+        NF != 5 ||
+        $1 != "NONE" ||
+        $2 !~ /\/js_pp200_signal_dual\/g4hits\// ||
+        $3 !~ /\/js_pp200_signal_dual\/nopileup\/jets\// ||
+        $4 != "NONE" ||
+        $5 != "NONE" {
+          if (bad < 5) {
+            printf "PPG12 closure DI graph mismatch row %d: calo=%s g4=%s truthjet=%s global=%s mbd=%s\n", NR, $1, $2, $3, $4, $5 > "/dev/stderr"
+          }
+          bad++
+        }
+        END { exit bad == 0 ? 0 : 1 }
+      ' "$list"; then
+        err "PPG12 closure DI graph must be exactly NONE,g4,truthjet,NONE,NONE with dual-interaction G4/truth-jet sources."
+        return 98
+      fi
+    else
+      if (( flag_double || flag_strict_di || ! flag_rebuild || ! flag_g4_only )); then
+        err "PPG12 closure SI graph requires double=0, strict_DI=0, rebuild=1, and g4_only=1 for sample=${sample}."
+        return 98
+      fi
+      if ! awk -F '\t' '
+        BEGIN { bad=0 }
+        NF != 5 ||
+        $1 != "NONE" ||
+        $2 !~ /\/js_pp200_signal\/g4hits\// ||
+        $3 !~ /\/js_pp200_signal\/nopileup\/jets\// ||
+        $4 != "NONE" ||
+        $5 != "NONE" {
+          if (bad < 5) {
+            printf "PPG12 closure SI graph mismatch row %d: calo=%s g4=%s truthjet=%s global=%s mbd=%s\n", NR, $1, $2, $3, $4, $5 > "/dev/stderr"
+          }
+          bad++
+        }
+        END { exit bad == 0 ? 0 : 1 }
+      ' "$list"; then
+        err "PPG12 closure SI graph must be exactly NONE,g4,truthjet,NONE,NONE with single-interaction G4/truth-jet sources."
+        return 98
+      fi
+    fi
+    say "    [sim_init] exact PPG12 closure graph passed: id=${RJ_PPG12_CLOSURE_CANARY_ID} sample=${sample} mode=$([[ $sample_is_double -eq 1 ]] && printf DI || printf SI) rng=historical_fifo_replay_v2 pedestal=534" >&2
+    return 0
+  fi
 
   if (( sample_is_double )); then
     if (( ! flag_double || ! flag_strict_di || ! flag_rebuild || ! flag_g4_only )); then
@@ -3409,6 +3559,388 @@ validate_ppg12_sim_source_contract() {
   say "    [sim_init] PPG12 interaction/source contract passed: sample=${sample} mode=$([[ $sample_is_double -eq 1 ]] && printf DI || printf SI) rows=$(wc -l < "$list" | tr -d ' ')" >&2
 }
 
+# Canonical JSON hash of
+# agent_context/analysis_contracts/ppg12_stitched_purity_closure.yaml.  This
+# intentionally couples broad Run-28 pp-SIM production to the reviewed local
+# closure contract.  A contract edit therefore requires a deliberate
+# submitter update and a new admission; an old admission cannot drift forward.
+PPG12_STITCHED_PURITY_CONTRACT_SHA256="da2313590c78ae9e125ad47947b37e8a45a587238e55bb977fe36d4cdd32fd98"
+
+ppg12_sha256_file() {
+  local path="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$path" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$path" | awk '{print $1}'
+  else
+    python3 - "$path" <<'PY'
+import hashlib
+import sys
+
+h = hashlib.sha256()
+with open(sys.argv[1], "rb") as handle:
+    for block in iter(lambda: handle.read(1024 * 1024), b""):
+        h.update(block)
+print(h.hexdigest())
+PY
+  fi
+}
+
+# Fail closed before any broad Run-28 pp photon+jet or inclusive-jet
+# submission.  A deliberately bounded admission canary is the sole manifest
+# exemption: exactly one five-file group per lane, isolated output namespace,
+# and no automatic merge.  Production must bind the exact passing admission,
+# current source list, current YAML, and every frozen physics-contract hash.
+validate_ppg12_stitched_purity_admission() {
+  local sample="${SIM_SAMPLE:-}"
+  local list="${SIM_CLEAN_LIST:-}"
+  local yaml
+
+  case "${ACTION:-}" in
+    condorDoAll|condorDoAllDirect) ;;
+    *) return 0 ;;
+  esac
+  [[ "$sample" =~ ^run28_(photonjet(5|10|20)|jet(8|12|20|30|40))(_double)?$ ]] || return 0
+
+  if env_truthy "${RJ_PPG12_CLOSURE_CANARY:-0}"; then
+    if [[ "${GROUP_SIZE_EXPLICIT:-0}" -ne 1 || "${GROUP_SIZE:-0}" -ne 5 || \
+          "${MAX_JOBS_EXPLICIT:-0}" -ne 1 || "${MAX_JOBS:-0}" -ne 1 ]]; then
+      err "PPG12 closure admission canary requires explicit groupSize 5 and maxJobs 1."
+      return 99
+    fi
+    if auto_merge_enabled; then
+      err "PPG12 closure admission canary requires RJ_AUTO_MERGE=0."
+      return 99
+    fi
+    if [[ -z "${RJ_PPG12_CLOSURE_CANARY_ID:-}" || -z "${RJ_SUBMISSION_NAMESPACE:-}" || -z "${RJ_DEST_BASE_OVERRIDE:-}" ]]; then
+      err "PPG12 closure admission canary requires RJ_PPG12_CLOSURE_CANARY_ID, RJ_SUBMISSION_NAMESPACE, and an isolated RJ_DEST_BASE_OVERRIDE."
+      return 99
+    fi
+    if [[ ! "${RJ_SUBMISSION_NAMESPACE}" =~ ^[A-Za-z0-9_.-]+$ || ${#RJ_SUBMISSION_NAMESPACE} -gt 160 ]]; then
+      err "PPG12 closure admission canary requires a safe bounded RJ_SUBMISSION_NAMESPACE."
+      return 99
+    fi
+    case "${RJ_DEST_BASE_OVERRIDE}" in
+      /sphenix/*|/tmp/*) ;;
+      *)
+        err "PPG12 closure admission canary output must be an absolute isolated /sphenix or /tmp path."
+        return 99
+        ;;
+    esac
+    if [[ -e "${RJ_DEST_BASE_OVERRIDE}" ]]; then
+      err "PPG12 closure admission canary output already exists; use a fresh isolated path: ${RJ_DEST_BASE_OVERRIDE}"
+      return 99
+    fi
+    say "    [sim_init] bounded PPG12 stitched-purity admission canary passed: id=${RJ_PPG12_CLOSURE_CANARY_ID} sample=${sample} groupSize=5 maxJobs=1 autoMerge=off rng=historical_fifo_replay_v2 pedestal=534 jesCdbAudit=off" >&2
+    return 0
+  fi
+
+  if auto_merge_enabled; then
+    err "PPG12 stitched-purity production requires RJ_AUTO_MERGE=0; merging is permitted only after the complete production audit."
+    return 99
+  fi
+
+  local admission="${RJ_PPG12_CLOSURE_ADMISSION_MANIFEST:-}"
+  local expected_admission_sha="${RJ_PPG12_CLOSURE_ADMISSION_SHA256:-}"
+  [[ -s "$admission" ]] || {
+    err "PPG12 stitched-purity production is blocked: set RJ_PPG12_CLOSURE_ADMISSION_MANIFEST to a passing admission_manifest.json."
+    return 99
+  }
+  [[ "$expected_admission_sha" =~ ^[0-9a-fA-F]{64}$ ]] || {
+    err "PPG12 stitched-purity production is blocked: RJ_PPG12_CLOSURE_ADMISSION_SHA256 is required."
+    return 99
+  }
+  local actual_admission_sha
+  actual_admission_sha="$(ppg12_sha256_file "$admission")"
+  local actual_admission_sha_lower expected_admission_sha_lower
+  actual_admission_sha_lower="$(printf '%s' "$actual_admission_sha" | tr '[:upper:]' '[:lower:]')"
+  expected_admission_sha_lower="$(printf '%s' "$expected_admission_sha" | tr '[:upper:]' '[:lower:]')"
+  [[ "$actual_admission_sha_lower" == "$expected_admission_sha_lower" ]] || {
+    err "PPG12 stitched-purity admission file hash changed: expected=${expected_admission_sha} actual=${actual_admission_sha}."
+    return 99
+  }
+
+  [[ -s "$list" ]] || { err "PPG12 stitched-purity source list is missing: ${list:-<unset>}"; return 99; }
+  yaml="$(sim_yaml_master_path)"
+  [[ -s "$yaml" ]] || { err "PPG12 stitched-purity YAML is missing: ${yaml:-<unset>}"; return 99; }
+
+  local list_sha yaml_sha interaction family sample_key period lane_id
+  list_sha="$(ppg12_sha256_file "$list")"
+  yaml_sha="$(ppg12_sha256_file "$yaml")"
+  interaction="si"
+  [[ "$sample" == *_double ]] && interaction="di"
+  period="${RJ_PPG12_PERIOD:-}"
+  case "$period" in
+    0mrad|1p5mrad) ;;
+    *) err "PPG12 stitched-purity production requires RJ_PPG12_PERIOD=0mrad or 1p5mrad."; return 99 ;;
+  esac
+  sample_key="${sample#run28_}"
+  sample_key="${sample_key%_double}"
+  if [[ "$sample_key" == photonjet* ]]; then
+    family="photon"
+    sample_key="photon${sample_key#photonjet}"
+  else
+    family="inclusive"
+  fi
+  lane_id="${family}:${sample_key}:${period}:${interaction}"
+
+  if ! env \
+    PPG12_ADMISSION_PATH="$admission" \
+    PPG12_LANE_ID="$lane_id" \
+    PPG12_LIST_SHA256="$list_sha" \
+    PPG12_YAML_SHA256="$yaml_sha" \
+    PPG12_CONTRACT_SHA256="$PPG12_STITCHED_PURITY_CONTRACT_SHA256" \
+    python3 - <<'PY'
+import json
+import hashlib
+import os
+import re
+import sys
+from pathlib import Path
+
+hex64 = re.compile(r"^[0-9a-f]{64}$")
+
+PROVENANCE_FIELDS = (
+    "implementation_sha256", "source_set_sha256", "config_contract_sha256",
+    "model_set_sha256", "reconstruction_contract_sha256",
+    "ownership_contract_sha256", "weights_contract_sha256",
+    "estimator_contract_sha256",
+)
+LANE_FIELDS = (
+    "source_list_sha256", "config_sha256", "reconstruction_sha256",
+    "model_set_sha256", "ownership_sha256", "weight_sha256",
+    "external_scale",
+)
+
+def fail(message: str) -> None:
+    print(f"ERROR: PPG12 stitched-purity admission rejected: {message}", file=sys.stderr)
+    raise SystemExit(99)
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+def payload_sha256(payload: object) -> str:
+    encoded = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+def read_json(path: Path, label: str) -> dict:
+    try:
+        with path.open() as handle:
+            payload = json.load(handle)
+    except Exception as exc:
+        fail(f"cannot read {label} JSON {path}: {exc}")
+    if not isinstance(payload, dict):
+        fail(f"{label} must contain a JSON object: {path}")
+    return payload
+
+def resolve_path(owner: Path, raw_path: object, label: str) -> Path:
+    if not isinstance(raw_path, str) or not raw_path:
+        fail(f"{label} path is missing")
+    linked = Path(raw_path).expanduser()
+    if not linked.is_absolute():
+        linked = owner.parent / linked
+    try:
+        return linked.resolve(strict=True)
+    except (FileNotFoundError, OSError) as exc:
+        fail(f"{label} path cannot be resolved: {linked}: {exc}")
+
+def resolve_link(owner: Path, link: object, label: str):
+    if not isinstance(link, dict):
+        fail(f"{label} link is missing")
+    expected_sha = link.get("sha256")
+    if not isinstance(expected_sha, str) or not hex64.fullmatch(expected_sha):
+        fail(f"{label} link has an invalid SHA-256")
+    linked = resolve_path(owner, link.get("path"), label)
+    actual_sha = file_sha256(linked)
+    if actual_sha != expected_sha:
+        fail(
+            f"{label} hash drift: path={linked} expected={expected_sha} "
+            f"actual={actual_sha}"
+        )
+    return linked, read_json(linked, label)
+
+def frozen_snapshot(manifest: dict, label: str) -> dict:
+    provenance = manifest.get("provenance")
+    rows = manifest.get("lanes")
+    if not isinstance(provenance, dict) or not isinstance(rows, list):
+        fail(f"linked {label} manifest lacks provenance or lanes")
+    frozen_lanes = {}
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict) or not isinstance(row.get("lane_id"), str):
+            fail(f"linked {label} manifest has invalid lane {index}")
+        lane_id = row["lane_id"]
+        if lane_id in frozen_lanes:
+            fail(f"linked {label} manifest duplicates lane {lane_id}")
+        frozen_lanes[lane_id] = {field: row.get(field) for field in LANE_FIELDS}
+    return {
+        "provenance": {field: provenance.get(field) for field in PROVENANCE_FIELDS},
+        "lanes": dict(sorted(frozen_lanes.items())),
+        "abcd_population": manifest.get("abcd_population"),
+        "external_scale": manifest.get("external_scale"),
+        "random_seed": manifest.get("random_seed"),
+        "toy_count": manifest.get("toy_count"),
+    }
+
+path = Path(os.environ["PPG12_ADMISSION_PATH"]).expanduser().resolve()
+admission = read_json(path, "admission manifest")
+
+if admission.get("schema") != "ppg12-stitched-purity-admission/v1" or admission.get("status") != "PASS":
+    fail("manifest is not a passing v1 admission")
+if admission.get("contract_sha256") != os.environ["PPG12_CONTRACT_SHA256"]:
+    fail("admission was emitted under a different closure contract")
+
+# A pass-shaped admission JSON is not sufficient.  Resolve every artifact the
+# real closure gate bound, verify its bytes, and require the admission's frozen
+# snapshots to be reproducible from those exact manifests.
+reference_path, reference_manifest = resolve_link(
+    path, admission.get("reference_manifest"), "admission reference_manifest"
+)
+candidate_path, candidate_manifest = resolve_link(
+    path, admission.get("candidate_manifest"), "admission candidate_manifest"
+)
+merge_path, merge_audit = resolve_link(
+    path, admission.get("merge_audit"), "admission merge_audit"
+)
+if reference_manifest.get("schema") != "ppg12-stitched-purity-manifest/v1" or reference_manifest.get("role") != "reference":
+    fail("linked reference manifest has the wrong schema or role")
+if candidate_manifest.get("schema") != "ppg12-stitched-purity-manifest/v1" or candidate_manifest.get("role") not in ("candidate", "production"):
+    fail("linked candidate manifest has the wrong schema or role")
+if admission.get("reference_frozen") != frozen_snapshot(reference_manifest, "reference"):
+    fail("reference_frozen does not match the linked reference manifest")
+if admission.get("candidate_frozen") != frozen_snapshot(candidate_manifest, "candidate"):
+    fail("candidate_frozen does not match the linked candidate manifest")
+
+if merge_audit.get("schema") != "ppg12-stitched-purity-merge-audit/v1":
+    fail("linked merge audit has the wrong schema")
+merge_candidate_path, _ = resolve_link(
+    merge_path, merge_audit.get("candidate_manifest"),
+    "merge-audit candidate_manifest",
+)
+if merge_candidate_path != candidate_path:
+    fail("linked merge audit is bound to a different candidate manifest")
+audits = merge_audit.get("audits")
+if not isinstance(audits, list) or not audits:
+    fail("linked merge audit has no audited merge families")
+for index, audit in enumerate(audits):
+    if not isinstance(audit, dict) or str(audit.get("status", "")).upper() != "PASS" or audit.get("failures") not in ([], None):
+        fail(f"linked merge audit family {index} is not passing")
+
+gate_report_path = path.parent / "gate_report.json"
+gate_report = read_json(gate_report_path, "admission gate report")
+expected_gate_sha = admission.get("gate_report_payload_sha256")
+if not isinstance(expected_gate_sha, str) or not hex64.fullmatch(expected_gate_sha):
+    fail("admission gate_report_payload_sha256 is invalid")
+actual_gate_sha = payload_sha256(gate_report)
+if actual_gate_sha != expected_gate_sha:
+    fail(
+        "admission gate-report payload hash drift: "
+        f"expected={expected_gate_sha} actual={actual_gate_sha}"
+    )
+if (
+    gate_report.get("schema") != "ppg12-stitched-purity-gate-report/v1"
+    or gate_report.get("mode") != "admit"
+    or gate_report.get("status") != "PASS"
+    or gate_report.get("failure_count") != 0
+    or gate_report.get("failures") != []
+):
+    fail("linked admission gate report is not a zero-failure admit PASS")
+report_contract = gate_report.get("contract")
+if not isinstance(report_contract, dict) or report_contract.get("sha256") != os.environ["PPG12_CONTRACT_SHA256"]:
+    fail("linked admission gate report has a stale closure contract")
+if resolve_path(gate_report_path, gate_report.get("reference_manifest"), "gate-report reference_manifest") != reference_path:
+    fail("admission gate report references a different reference manifest")
+if resolve_path(gate_report_path, gate_report.get("candidate_manifest"), "gate-report candidate_manifest") != candidate_path:
+    fail("admission gate report references a different candidate manifest")
+
+expected_lanes = {
+    f"inclusive:jet{sample}:{period}:{interaction}"
+    for sample in (8, 12, 20, 30, 40)
+    for period in ("0mrad", "1p5mrad")
+    for interaction in ("si", "di")
+} | {
+    f"photon:photon{sample}:{period}:{interaction}"
+    for sample in (5, 10, 20)
+    for period in ("0mrad", "1p5mrad")
+    for interaction in ("si", "di")
+}
+
+reference = admission.get("reference_frozen")
+if not isinstance(reference, dict) or not isinstance(reference.get("lanes"), dict):
+    fail("reference_frozen is missing")
+if set(reference["lanes"]) != expected_lanes:
+    fail("reference admission does not contain the exact 32-lane contract")
+
+candidate = admission.get("candidate_frozen")
+if not isinstance(candidate, dict):
+    fail("candidate_frozen is missing")
+if candidate.get("abcd_population") != "unsuffixed":
+    fail("candidate admission does not use unsuffixed inclusive A/B/C/D")
+if candidate.get("external_scale") != 1.0:
+    fail("candidate admission uses a forbidden global normalization")
+if candidate.get("random_seed") != 42 or candidate.get("toy_count") != 20000:
+    fail("candidate admission does not use seed 42 and 20000 toys")
+
+lanes = candidate.get("lanes")
+if not isinstance(lanes, dict) or set(lanes) != expected_lanes:
+    missing = sorted(expected_lanes - set(lanes or {})) if isinstance(lanes, dict) else sorted(expected_lanes)
+    extra = sorted(set(lanes or {}) - expected_lanes) if isinstance(lanes, dict) else []
+    fail(f"admission lane set is not the exact 32-lane contract; missing={missing} extra={extra}")
+
+for lane_name, lane in lanes.items():
+    if not isinstance(lane, dict) or lane.get("external_scale") != 1.0:
+        fail(f"lane {lane_name} has a forbidden external scale")
+    for field in (
+        "source_list_sha256", "config_sha256", "reconstruction_sha256",
+        "model_set_sha256", "ownership_sha256", "weight_sha256",
+    ):
+        value = lane.get(field)
+        if not isinstance(value, str) or not hex64.fullmatch(value):
+            fail(f"lane {lane_name} has invalid {field}")
+
+lane_id = os.environ["PPG12_LANE_ID"]
+lane = lanes.get(lane_id)
+if lane is None:
+    fail(f"current lane is absent: {lane_id}")
+if lane["source_list_sha256"] != os.environ["PPG12_LIST_SHA256"]:
+    fail(f"source-list hash drift for {lane_id}")
+if lane["config_sha256"] != os.environ["PPG12_YAML_SHA256"]:
+    fail(f"configuration hash drift for {lane_id}")
+
+provenance = candidate.get("provenance")
+env_fields = {
+    "implementation_sha256": "RJ_PPG12_CLOSURE_IMPLEMENTATION_SHA256",
+    "source_set_sha256": "RJ_PPG12_CLOSURE_SOURCE_SET_SHA256",
+    "config_contract_sha256": "RJ_PPG12_CLOSURE_CONFIG_CONTRACT_SHA256",
+    "model_set_sha256": "RJ_PPG12_CLOSURE_MODEL_SET_SHA256",
+    "reconstruction_contract_sha256": "RJ_PPG12_CLOSURE_RECONSTRUCTION_CONTRACT_SHA256",
+    "ownership_contract_sha256": "RJ_PPG12_CLOSURE_OWNERSHIP_CONTRACT_SHA256",
+    "weights_contract_sha256": "RJ_PPG12_CLOSURE_WEIGHTS_CONTRACT_SHA256",
+    "estimator_contract_sha256": "RJ_PPG12_CLOSURE_ESTIMATOR_CONTRACT_SHA256",
+}
+if not isinstance(provenance, dict):
+    fail("candidate provenance is missing")
+for field, env_name in env_fields.items():
+    frozen = provenance.get(field)
+    current = os.environ.get(env_name, "").lower()
+    if not isinstance(frozen, str) or not hex64.fullmatch(frozen):
+        fail(f"candidate provenance has invalid {field}")
+    if current != frozen:
+        fail(f"{env_name} is missing or does not match admitted {field}")
+
+print(f"PPG12_STITCHED_PURITY_ADMISSION_PASS lane={lane_id}")
+PY
+  then
+    return 99
+  fi
+  say "    [sim_init] PPG12 stitched-purity production admission passed: lane=${lane_id} admission_sha256=${actual_admission_sha}" >&2
+}
+
 # Initializes paths for isSim mode and prepares a cleaned master list.
 sim_init() {
   SIM_DIR="${SIM_ROOT}/${SIM_SAMPLE}"
@@ -3428,7 +3960,9 @@ sim_init() {
   local glob="${SIM_DIR}/DST_GLOBAL.matched.list"
   local mbd="${SIM_DIR}/DST_MBD_EPD.matched.list"
   local allow_none_lists=0
-  if env_truthy "${RJ_SIM_ALLOW_NONE_LISTS:-0}" || env_truthy "${RJ_PPG12_PPSIM_G4_ONLY:-0}"; then
+  if env_truthy "${RJ_PPG12_CLOSURE_CANARY:-0}" \
+    || env_truthy "${RJ_SIM_ALLOW_NONE_LISTS:-0}" \
+    || env_truthy "${RJ_PPG12_PPSIM_G4_ONLY:-0}"; then
     allow_none_lists=1
   fi
 
@@ -3446,6 +3980,16 @@ sim_init() {
     mkdir -p "$(dirname "$out")"
     awk -v n="${_ninput}" 'BEGIN{for(i=0;i<n;i++) print "NONE"}' > "$out"
   }
+  if env_truthy "${RJ_PPG12_CLOSURE_CANARY:-0}"; then
+    # Freeze the five-column executable-oracle graph independently of which
+    # optional matched lists happen to be present in the sample directory.
+    make_none_sim_list "$_none_glob"
+    glob="$_none_glob"
+    make_none_sim_list "$_none_calo"
+    make_none_sim_list "$_none_mbd"
+    calo="$_none_calo"
+    mbd="$_none_mbd"
+  fi
   if [[ ! -s "$calo" ]]; then
     if (( allow_none_lists )); then
       make_none_sim_list "$_none_calo"
@@ -3498,6 +4042,7 @@ sim_init() {
     validate_sim_clean_list_paths "$SIM_CLEAN_LIST" "$allow_none_lists"
   fi
   validate_ppg12_sim_source_contract
+  validate_ppg12_stitched_purity_admission
 
   SIM_OUT_DIR="${DEST_BASE}/${SIM_SAMPLE}"
   [[ "${ACTION:-}" != "CHECKJOBS" ]] && mkdir -p "$SIM_OUT_DIR"
