@@ -3564,7 +3564,7 @@ validate_ppg12_sim_source_contract() {
 # intentionally couples broad Run-28 pp-SIM production to the reviewed local
 # closure contract.  A contract edit therefore requires a deliberate
 # submitter update and a new admission; an old admission cannot drift forward.
-PPG12_STITCHED_PURITY_CONTRACT_SHA256="da2313590c78ae9e125ad47947b37e8a45a587238e55bb977fe36d4cdd32fd98"
+PPG12_STITCHED_PURITY_CONTRACT_SHA256="4a20986cf1c80f7e1dc27ae2d40d7cb93e82d2b41845797d73819cb03dcb9791"
 
 ppg12_sha256_file() {
   local path="$1"
@@ -3642,12 +3642,17 @@ validate_ppg12_stitched_purity_admission() {
 
   local admission="${RJ_PPG12_CLOSURE_ADMISSION_MANIFEST:-}"
   local expected_admission_sha="${RJ_PPG12_CLOSURE_ADMISSION_SHA256:-}"
+  local runtime_manifest="${RJ_PPG12_CLOSURE_RUNTIME_MANIFEST:-}"
   [[ -s "$admission" ]] || {
     err "PPG12 stitched-purity production is blocked: set RJ_PPG12_CLOSURE_ADMISSION_MANIFEST to a passing admission_manifest.json."
     return 99
   }
   [[ "$expected_admission_sha" =~ ^[0-9a-fA-F]{64}$ ]] || {
     err "PPG12 stitched-purity production is blocked: RJ_PPG12_CLOSURE_ADMISSION_SHA256 is required."
+    return 99
+  }
+  [[ -s "$runtime_manifest" ]] || {
+    err "PPG12 stitched-purity production is blocked: RJ_PPG12_CLOSURE_RUNTIME_MANIFEST must name the source-locked executed-runtime manifest."
     return 99
   }
   local actual_admission_sha
@@ -3689,6 +3694,8 @@ validate_ppg12_stitched_purity_admission() {
     PPG12_LANE_ID="$lane_id" \
     PPG12_LIST_SHA256="$list_sha" \
     PPG12_YAML_SHA256="$yaml_sha" \
+    PPG12_YAML_PATH="$yaml" \
+    PPG12_RUNTIME_MANIFEST_PATH="$runtime_manifest" \
     PPG12_CONTRACT_SHA256="$PPG12_STITCHED_PURITY_CONTRACT_SHA256" \
     python3 - <<'PY'
 import json
@@ -3709,8 +3716,38 @@ PROVENANCE_FIELDS = (
 LANE_FIELDS = (
     "source_list_sha256", "config_sha256", "reconstruction_sha256",
     "model_set_sha256", "ownership_sha256", "weight_sha256",
+    "estimator_sha256",
     "external_scale",
 )
+RUNTIME_ROLE_GROUPS = {
+    "config_sha256": (
+        "lane_config", "ppg_apply_bdt_config", "ppg_recoeff_canonical_config",
+    ),
+    "reconstruction_sha256": (
+        "recoil_macro", "recoil_impl", "libRecoilJets.so", "libCaloAna24.so",
+        "libcalo_reco.so", "libclusteriso.so", "libjetbase.so",
+        "PhotonClusterBuilder.h",
+    ),
+    "model_set_sha256": (
+        "ppg_apply_model_base_E", "ppg_apply_model_base_v3E",
+        "ppg_apply_npb_model",
+    ),
+    "ownership_sha256": ("recoil_impl", "libRecoilJets.so"),
+    "weight_sha256": (
+        "recoil_impl", "ppg_recoeff_cross_section_header",
+        "ppg_recoeff_truth_vertex_header", "ppg_recoeff_canonical_config",
+    ),
+    "estimator_sha256": (
+        "ppg_apply_bdt_macro", "ppg_recoeff_source_macro",
+        "ppg_recoeff_macro", "ppg_calculate_photon_yield",
+    ),
+}
+RUNTIME_REQUIRED_VALUES = {
+    "schema_version": 1,
+    "runtime_profile": "new.17",
+    "isolated_build": True,
+    "estimator_revision": "29f8223bd9b36dffab07961b597afa94185bbdf1",
+}
 
 def fail(message: str) -> None:
     print(f"ERROR: PPG12 stitched-purity admission rejected: {message}", file=sys.stderr)
@@ -3750,7 +3787,7 @@ def resolve_path(owner: Path, raw_path: object, label: str) -> Path:
     except (FileNotFoundError, OSError) as exc:
         fail(f"{label} path cannot be resolved: {linked}: {exc}")
 
-def resolve_link(owner: Path, link: object, label: str):
+def resolve_file_link(owner: Path, link: object, label: str):
     if not isinstance(link, dict):
         fail(f"{label} link is missing")
     expected_sha = link.get("sha256")
@@ -3763,7 +3800,68 @@ def resolve_link(owner: Path, link: object, label: str):
             f"{label} hash drift: path={linked} expected={expected_sha} "
             f"actual={actual_sha}"
         )
+    return linked, actual_sha
+
+def resolve_link(owner: Path, link: object, label: str):
+    linked, _ = resolve_file_link(owner, link, label)
     return linked, read_json(linked, label)
+
+def runtime_contract(runtime_path: Path, config_path: Path):
+    runtime = read_json(runtime_path, "executed runtime manifest")
+    for field, expected in RUNTIME_REQUIRED_VALUES.items():
+        if runtime.get(field) != expected:
+            fail(
+                f"executed runtime manifest {field} drift: "
+                f"expected={expected!r} observed={runtime.get(field)!r}"
+            )
+    receipt_path = resolve_path(
+        runtime_path, runtime.get("build_receipt"), "runtime build receipt"
+    )
+    receipt_sha = runtime.get("build_receipt_sha256")
+    if not isinstance(receipt_sha, str) or not hex64.fullmatch(receipt_sha):
+        fail("executed runtime manifest has an invalid build-receipt SHA-256")
+    if file_sha256(receipt_path) != receipt_sha:
+        fail("executed runtime build receipt hash drift")
+    raw_files = runtime.get("files")
+    if not isinstance(raw_files, list) or not raw_files:
+        fail("executed runtime manifest file list is empty")
+    by_role = {}
+    observed_paths = set()
+    for index, row in enumerate(raw_files):
+        role = row.get("role") if isinstance(row, dict) else None
+        if not isinstance(role, str) or not role or role in by_role:
+            fail(f"executed runtime manifest role {index} is missing or duplicated")
+        linked, actual_sha = resolve_file_link(
+            runtime_path, row, f"executed runtime role {role}"
+        )
+        if str(linked) in observed_paths:
+            fail(f"executed runtime aliases one physical file under role {role}")
+        observed_paths.add(str(linked))
+        by_role[role] = {"role": role, "path": str(linked), "sha256": actual_sha}
+    if "lane_config" in by_role:
+        fail("executed runtime manifest may not override the submitted lane config")
+    by_role["lane_config"] = {
+        "role": "lane_config", "path": str(config_path),
+        "sha256": file_sha256(config_path),
+    }
+    source_sets = {}
+    field_hashes = {}
+    for field, roles in sorted(RUNTIME_ROLE_GROUPS.items()):
+        missing = sorted(set(roles) - set(by_role))
+        if missing:
+            fail(f"executed runtime lacks roles required for {field}: {missing}")
+        files = [by_role[role] for role in sorted(roles)]
+        portable = [
+            {"role": row["role"], "sha256": row["sha256"]} for row in files
+        ]
+        set_sha = payload_sha256(portable)
+        source_sets[field] = {
+            "roles": sorted(roles),
+            "files": files,
+            "portable_role_set_sha256": set_sha,
+        }
+        field_hashes[field] = set_sha
+    return runtime, receipt_path, receipt_sha, source_sets, field_hashes
 
 def frozen_snapshot(manifest: dict, label: str) -> dict:
     provenance = manifest.get("provenance")
@@ -3815,6 +3913,41 @@ if admission.get("reference_frozen") != frozen_snapshot(reference_manifest, "ref
     fail("reference_frozen does not match the linked reference manifest")
 if admission.get("candidate_frozen") != frozen_snapshot(candidate_manifest, "candidate"):
     fail("candidate_frozen does not match the linked candidate manifest")
+
+# Recompute every frozen provenance source set from the current files.  Broad
+# admission must never trust caller-supplied hash strings that can simply be
+# copied from an old admission after implementation/model/contract drift.
+assembly = candidate_manifest.get("assembly")
+if not isinstance(assembly, dict):
+    fail("linked candidate manifest lacks canonical assembly evidence")
+provenance_path, provenance_payload = resolve_link(
+    candidate_path, assembly.get("provenance"), "candidate provenance"
+)
+source_sets = provenance_payload.get("source_sets")
+manifest_provenance = candidate_manifest.get("provenance")
+if not isinstance(source_sets, dict) or not isinstance(manifest_provenance, dict):
+    fail("candidate provenance lacks hash-bound source sets")
+if set(source_sets) != set(PROVENANCE_FIELDS):
+    fail("candidate provenance source-set coverage is not exact")
+for field in PROVENANCE_FIELDS:
+    source_set = source_sets.get(field)
+    files = source_set.get("files") if isinstance(source_set, dict) else None
+    if not isinstance(files, list) or not files:
+        fail(f"candidate provenance source set is empty: {field}")
+    normalized = []
+    for index, link in enumerate(files):
+        linked, actual_sha = resolve_file_link(
+            provenance_path, link, f"candidate provenance {field} file {index}"
+        )
+        normalized.append({"path": str(linked), "sha256": actual_sha})
+    normalized.sort(key=lambda row: row["path"])
+    if len({row["path"] for row in normalized}) != len(normalized):
+        fail(f"candidate provenance source set duplicates a file: {field}")
+    current_set_sha = payload_sha256(normalized)
+    if source_set.get("set_sha256") != current_set_sha:
+        fail(f"candidate provenance source-set hash drift: {field}")
+    if manifest_provenance.get(field) != current_set_sha:
+        fail(f"candidate manifest provenance drift: {field}")
 
 if merge_audit.get("schema") != "ppg12-stitched-purity-merge-audit/v1":
     fail("linked merge audit has the wrong schema")
@@ -3898,6 +4031,7 @@ for lane_name, lane in lanes.items():
     for field in (
         "source_list_sha256", "config_sha256", "reconstruction_sha256",
         "model_set_sha256", "ownership_sha256", "weight_sha256",
+        "estimator_sha256",
     ):
         value = lane.get(field)
         if not isinstance(value, str) or not hex64.fullmatch(value):
@@ -3909,29 +4043,76 @@ if lane is None:
     fail(f"current lane is absent: {lane_id}")
 if lane["source_list_sha256"] != os.environ["PPG12_LIST_SHA256"]:
     fail(f"source-list hash drift for {lane_id}")
-if lane["config_sha256"] != os.environ["PPG12_YAML_SHA256"]:
-    fail(f"configuration hash drift for {lane_id}")
 
-provenance = candidate.get("provenance")
-env_fields = {
-    "implementation_sha256": "RJ_PPG12_CLOSURE_IMPLEMENTATION_SHA256",
-    "source_set_sha256": "RJ_PPG12_CLOSURE_SOURCE_SET_SHA256",
-    "config_contract_sha256": "RJ_PPG12_CLOSURE_CONFIG_CONTRACT_SHA256",
-    "model_set_sha256": "RJ_PPG12_CLOSURE_MODEL_SET_SHA256",
-    "reconstruction_contract_sha256": "RJ_PPG12_CLOSURE_RECONSTRUCTION_CONTRACT_SHA256",
-    "ownership_contract_sha256": "RJ_PPG12_CLOSURE_OWNERSHIP_CONTRACT_SHA256",
-    "weights_contract_sha256": "RJ_PPG12_CLOSURE_WEIGHTS_CONTRACT_SHA256",
-    "estimator_contract_sha256": "RJ_PPG12_CLOSURE_ESTIMATOR_CONTRACT_SHA256",
-}
-if not isinstance(provenance, dict):
-    fail("candidate provenance is missing")
-for field, env_name in env_fields.items():
-    frozen = provenance.get(field)
-    current = os.environ.get(env_name, "").lower()
-    if not isinstance(frozen, str) or not hex64.fullmatch(frozen):
-        fail(f"candidate provenance has invalid {field}")
-    if current != frozen:
-        fail(f"{env_name} is missing or does not match admitted {field}")
+config_path = Path(os.environ["PPG12_YAML_PATH"]).expanduser().resolve()
+if file_sha256(config_path) != os.environ["PPG12_YAML_SHA256"]:
+    fail(f"submitted configuration bytes changed during admission for {lane_id}")
+runtime_path = Path(os.environ["PPG12_RUNTIME_MANIFEST_PATH"]).expanduser().resolve()
+runtime_payload, receipt_path, receipt_sha, runtime_source_sets, runtime_hashes = (
+    runtime_contract(runtime_path, config_path)
+)
+for field, current_hash in runtime_hashes.items():
+    if lane.get(field) != current_hash:
+        fail(f"executed runtime contract drift for {lane_id}: {field}")
+
+# Re-hash the current lane's canonical extraction and require it to bind the
+# same source list, submitted config, and role-labelled executed runtime.  The
+# caller cannot replace these hashes with arbitrary environment strings.
+raw_lane_links = assembly.get("lanes")
+if not isinstance(raw_lane_links, list):
+    fail("candidate manifest assembly lane links are missing")
+raw_lane_link = next(
+    (row for row in raw_lane_links if isinstance(row, dict) and row.get("lane_id") == lane_id),
+    None,
+)
+raw_lane_path, raw_lane = resolve_link(
+    candidate_path, raw_lane_link, f"candidate raw lane {lane_id}"
+)
+extraction = raw_lane.get("extraction")
+evidence = extraction.get("evidence") if isinstance(extraction, dict) else None
+if not isinstance(evidence, dict) or set(evidence) != {"source_list", "event_set", "config"}:
+    fail(f"candidate raw lane lacks extraction evidence: {lane_id}")
+source_path, source_sha = resolve_file_link(
+    raw_lane_path, evidence.get("source_list"),
+    f"candidate lane {lane_id} evidence source_list",
+)
+if source_sha != os.environ["PPG12_LIST_SHA256"] or raw_lane.get("source_list_sha256") != source_sha:
+    fail(f"candidate lane source-list evidence drift for {lane_id}")
+_, event_sha = resolve_file_link(
+    raw_lane_path, evidence.get("event_set"),
+    f"candidate lane {lane_id} evidence event_set",
+)
+if raw_lane.get("event_set_sha256") != event_sha:
+    fail(f"candidate lane event-set evidence drift for {lane_id}")
+admitted_config_path, admitted_config_sha = resolve_file_link(
+    raw_lane_path, evidence.get("config"),
+    f"candidate lane {lane_id} evidence config",
+)
+if admitted_config_path != config_path or admitted_config_sha != os.environ["PPG12_YAML_SHA256"]:
+    fail(f"candidate lane submitted-config evidence drift for {lane_id}")
+
+runtime_evidence = extraction.get("runtime_evidence")
+if not isinstance(runtime_evidence, dict):
+    fail(f"candidate raw lane lacks runtime evidence: {lane_id}")
+admitted_runtime_path, admitted_runtime_sha = resolve_file_link(
+    raw_lane_path, runtime_evidence.get("manifest"),
+    f"candidate lane {lane_id} runtime manifest",
+)
+if admitted_runtime_path != runtime_path or admitted_runtime_sha != file_sha256(runtime_path):
+    fail(f"candidate lane executed-runtime manifest drift for {lane_id}")
+admitted_receipt_path, admitted_receipt_sha = resolve_file_link(
+    raw_lane_path, runtime_evidence.get("build_receipt"),
+    f"candidate lane {lane_id} runtime build receipt",
+)
+if admitted_receipt_path != receipt_path or admitted_receipt_sha != receipt_sha:
+    fail(f"candidate lane runtime build-receipt drift for {lane_id}")
+if runtime_evidence.get("manifest_payload_sha256") != payload_sha256(runtime_payload):
+    fail(f"candidate lane runtime-manifest payload hash drift for {lane_id}")
+if extraction.get("runtime_source_sets") != runtime_source_sets:
+    fail(f"candidate lane role-labelled runtime source sets drift for {lane_id}")
+for field, current_hash in runtime_hashes.items():
+    if raw_lane.get(field) != current_hash or lane.get(field) != current_hash:
+        fail(f"candidate lane runtime field drift for {lane_id}: {field}")
 
 print(f"PPG12_STITCHED_PURITY_ADMISSION_PASS lane={lane_id}")
 PY

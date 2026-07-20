@@ -993,6 +993,56 @@ namespace
     return value <= hi;
   }
 
+  inline std::pair<JetContainer*, std::string>
+  ppg12FindTruthJetsR04(PHCompositeNode* topNode)
+  {
+    if (!topNode) return {nullptr, {}};
+
+    auto trim = [](std::string value) -> std::string
+    {
+      const char* whitespace = " \t\r\n";
+      const auto first = value.find_first_not_of(whitespace);
+      if (first == std::string::npos) return {};
+      const auto last = value.find_last_not_of(whitespace);
+      return value.substr(first, last - first + 1);
+    };
+
+    const char* truthNodeEnvRaw = std::getenv("RJ_TRUTH_JETS_NODE");
+    const std::string truthNodeEnv =
+        truthNodeEnvRaw ? trim(std::string(truthNodeEnvRaw)) : std::string{};
+    std::vector<std::string> candidates;
+    if (!truthNodeEnv.empty())
+    {
+      const std::string placeholder = "{rKey}";
+      if (truthNodeEnv.find(placeholder) != std::string::npos)
+      {
+        std::string expanded = truthNodeEnv;
+        expanded.replace(expanded.find(placeholder), placeholder.size(), "r04");
+        candidates.push_back(expanded);
+      }
+      else
+      {
+        candidates.push_back(truthNodeEnv);
+        if (truthNodeEnv.find("_r04") == std::string::npos)
+        {
+          candidates.push_back(truthNodeEnv + "_r04");
+        }
+      }
+    }
+    candidates.push_back("AntiKt_Truth_r04");
+    candidates.push_back("AntiKt_TruthFromParticles_r04");
+
+    for (const auto& node : candidates)
+    {
+      if (node.empty()) continue;
+      if (auto* truthJets = findNode::getClass<JetContainer>(topNode, node))
+      {
+        return {truthJets, node};
+      }
+    }
+    return {nullptr, {}};
+  }
+
   inline double ppg12InclusiveJetClusterEtUpper(const PPG12InclusiveJetSlice slice)
   {
     if (const char* raw = std::getenv("RJ_PP_INCLUSIVE_CLUSTER_ET_MAX_OVERRIDE"))
@@ -3280,6 +3330,7 @@ void RecoilJets::initPPPhotonIDTrainingTree()
   add("cent_bin", &m_bdtTrain_cent_bin, "cent_bin/I");
   add("cluster_Et", &m_bdtTrain_pt, "cluster_Et/F");
   add("cluster_Et_score_input", &m_bdtTrain_score_input_et, "cluster_Et_score_input/F");
+  add("ppg12_response_Et", &m_bdtTrain_response_et, "ppg12_response_Et/F");
   add("cluster_Eta", &m_bdtTrain_eta, "cluster_Eta/F");
   add("cluster_Phi", &m_bdtTrain_phi, "cluster_Phi/F");
   add("centrality", &m_bdtTrain_cent, "centrality/F");
@@ -3295,6 +3346,18 @@ void RecoilJets::initPPPhotonIDTrainingTree()
   add("ppg12_is_noniso", &m_bdtTrain_ppg12_is_noniso, "ppg12_is_noniso/I");
   add("ppg12_common_pass", &m_bdtTrain_ppg12_common_pass, "ppg12_common_pass/I");
   add("ppg12_tight_tag", &m_bdtTrain_ppg12_tight_tag, "ppg12_tight_tag/I");
+  add("ppg12_logical_abcd_region", &m_bdtTrain_ppg12_logical_abcd_region,
+      "ppg12_logical_abcd_region/I");
+  add("ppg12_analysis_window_pass", &m_bdtTrain_ppg12_analysis_window_pass,
+      "ppg12_analysis_window_pass/I");
+  add("ppg12_response_window_pass", &m_bdtTrain_ppg12_response_window_pass,
+      "ppg12_response_window_pass/I");
+  add("ppg12_signal_fill_A", &m_bdtTrain_ppg12_signal_fill_a, "ppg12_signal_fill_A/I");
+  add("ppg12_signal_fill_B", &m_bdtTrain_ppg12_signal_fill_b, "ppg12_signal_fill_B/I");
+  add("ppg12_signal_fill_C", &m_bdtTrain_ppg12_signal_fill_c, "ppg12_signal_fill_C/I");
+  add("ppg12_signal_fill_D", &m_bdtTrain_ppg12_signal_fill_d, "ppg12_signal_fill_D/I");
+  add("ppg12_signal_fill_multiplicity", &m_bdtTrain_ppg12_signal_fill_multiplicity,
+      "ppg12_signal_fill_multiplicity/I");
   add("ppg12_sample_bin", &m_bdtTrain_ppg12_sample_bin, "ppg12_sample_bin/I");
   add("ppg12_xsec_pb", &m_bdtTrain_ppg12_xsec_pb, "ppg12_xsec_pb/F");
   add("ppg12_xsec_weight", &m_bdtTrain_ppg12_xsec_weight, "ppg12_xsec_weight/F");
@@ -3304,7 +3367,17 @@ void RecoilJets::initPPPhotonIDTrainingTree()
   add("ppg12_truth_window_pass_r04", &m_bdtTrain_ppg12_truth_window_pass_r04, "ppg12_truth_window_pass_r04/I");
   add("truth_track_id", &m_bdtTrain_truth_track_id, "truth_track_id/I");
   add("truth_barcode", &m_bdtTrain_truth_barcode, "truth_barcode/I");
+  add("ppg12_truth_class", &m_bdtTrain_truth_class, "ppg12_truth_class/I");
   add("truth_energy_contribution", &m_bdtTrain_truth_energy_contribution, "truth_energy_contribution/F");
+  add("ppg12_weight_lane_code", &m_bdtTrain_ppg12_weight_lane_code,
+      "ppg12_weight_lane_code/I");
+  add("ppg12_weight_component_code", &m_bdtTrain_ppg12_weight_component_code,
+      "ppg12_weight_component_code/I");
+  add("ppg12_weight_slice", &m_bdtTrain_ppg12_weight_slice, "ppg12_weight_slice/F");
+  add("ppg12_weight_vertex", &m_bdtTrain_ppg12_weight_vertex, "ppg12_weight_vertex/F");
+  add("ppg12_weight_mix", &m_bdtTrain_ppg12_weight_mix, "ppg12_weight_mix/F");
+  add("ppg12_weight_period", &m_bdtTrain_ppg12_weight_period, "ppg12_weight_period/F");
+  add("ppg12_weight_final", &m_bdtTrain_ppg12_weight_final, "ppg12_weight_final/F");
   add("cluster_weta_cogx", &m_bdtTrain_weta, "cluster_weta_cogx/F");
   add("cluster_wphi_cogx", &m_bdtTrain_wphi, "cluster_wphi_cogx/F");
   add("cluster_weta33_cogx", &m_bdtTrain_weta33, "cluster_weta33_cogx/F");
@@ -3357,6 +3430,7 @@ void RecoilJets::fillPPPhotonIDTrainingTree(const SSVars& v,
                                             double phi,
                                             int clusterIndex,
                                             double scoreInputEt,
+                                            double responseEt,
                                             double eiso,
                                             double ppg12RawEiso,
                                             double ppg12RecoEiso,
@@ -3368,6 +3442,15 @@ void RecoilJets::fillPPPhotonIDTrainingTree(const SSVars& v,
                                             int ppg12TightTag,
                                             int ptIdx,
                                             bool isSignal,
+                                            int truthClass,
+                                            int ppg12AnalysisWindowPass,
+                                            int ppg12ResponseWindowPass,
+                                            int ppg12LogicalABCDRegion,
+                                            int ppg12SignalFillA,
+                                            int ppg12SignalFillB,
+                                            int ppg12SignalFillC,
+                                            int ppg12SignalFillD,
+                                            int ppg12SignalFillMultiplicity,
                                             int truthTrackId,
                                             int truthBarcode,
                                             float truthEnergyContribution,
@@ -3399,6 +3482,7 @@ void RecoilJets::fillPPPhotonIDTrainingTree(const SSVars& v,
   m_bdtTrain_cent_bin = -1;
   m_bdtTrain_pt = featureValue(v.pt_gamma);
   m_bdtTrain_score_input_et = featureValue(scoreInputEt);
+  m_bdtTrain_response_et = featureValue(responseEt);
   m_bdtTrain_eta = featureValue(eta);
   m_bdtTrain_phi = featureValue(phi);
   m_bdtTrain_cent = -1.0f;
@@ -3415,6 +3499,14 @@ void RecoilJets::fillPPPhotonIDTrainingTree(const SSVars& v,
   m_bdtTrain_ppg12_is_noniso = ppg12NonIso ? 1 : 0;
   m_bdtTrain_ppg12_common_pass = ppg12CommonPass ? 1 : 0;
   m_bdtTrain_ppg12_tight_tag = ppg12TightTag;
+  m_bdtTrain_ppg12_logical_abcd_region = ppg12LogicalABCDRegion;
+  m_bdtTrain_ppg12_analysis_window_pass = ppg12AnalysisWindowPass;
+  m_bdtTrain_ppg12_response_window_pass = ppg12ResponseWindowPass;
+  m_bdtTrain_ppg12_signal_fill_a = ppg12SignalFillA;
+  m_bdtTrain_ppg12_signal_fill_b = ppg12SignalFillB;
+  m_bdtTrain_ppg12_signal_fill_c = ppg12SignalFillC;
+  m_bdtTrain_ppg12_signal_fill_d = ppg12SignalFillD;
+  m_bdtTrain_ppg12_signal_fill_multiplicity = ppg12SignalFillMultiplicity;
   m_bdtTrain_ppg12_sample_bin = ppg12SampleBin;
   m_bdtTrain_ppg12_xsec_pb = featureValue(ppg12XsecPb);
   m_bdtTrain_ppg12_xsec_weight = featureValue(ppg12XsecWeight);
@@ -3424,8 +3516,16 @@ void RecoilJets::fillPPPhotonIDTrainingTree(const SSVars& v,
   m_bdtTrain_ppg12_truth_window_pass_r04 = ppg12TruthWindowPassR04;
   m_bdtTrain_truth_track_id = truthTrackId;
   m_bdtTrain_truth_barcode = truthBarcode;
+  m_bdtTrain_truth_class = truthClass;
   m_bdtTrain_truth_energy_contribution =
       std::isfinite(truthEnergyContribution) ? truthEnergyContribution : -999.0f;
+  m_bdtTrain_ppg12_weight_lane_code = m_ppg12SimWeightLaneCode;
+  m_bdtTrain_ppg12_weight_component_code = m_ppg12SimWeightLaneComponentCode;
+  m_bdtTrain_ppg12_weight_slice = featureValue(m_ppg12SimWeightFactorSlice);
+  m_bdtTrain_ppg12_weight_vertex = featureValue(m_ppg12SimWeightFactorVertex);
+  m_bdtTrain_ppg12_weight_mix = featureValue(m_ppg12SimWeightFactorMix);
+  m_bdtTrain_ppg12_weight_period = featureValue(m_ppg12SimWeightFactorPeriod);
+  m_bdtTrain_ppg12_weight_final = featureValue(m_ppg12SimWeightFactorFinal);
 
   m_bdtTrain_weta = featureValue(v.weta_cogx);
   m_bdtTrain_wphi = featureValue(v.wphi_cogx);
@@ -4825,6 +4925,71 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
       !m_ppg12Fig6FilledThisEvent)
   {
     m_ppg12Fig6FilledThisEvent = fillPPG12InclusiveJetTruthSpectrumQA();
+  }
+
+  // PPG12 inclusive-jet production assigns each event to exactly one source
+  // sample using the maximum truth anti-kT R=0.4 jet pT.  This is an event
+  // ownership contract, not a histogram-specific cut: reject out-of-window
+  // events here so every downstream physics consumer (photon ID, isolation,
+  // ABCD/purity, recoil jets, and xJgamma) sees the same stitched population.
+  //
+  // The all/kept/rejected Fig. 6 audit above deliberately runs before this
+  // decision.  Historical PPG12 BDT row extraction is the one documented
+  // exception: RJ_PP_PHOTONID_EXTRACT_ONLY preserves its ungated candidate
+  // population while still storing the ownership decision on each row.
+  const PPG12InclusiveJetSlice ppInclusivePhysicsSlice =
+      (m_isSim && !m_isAuAu)
+          ? ppg12InclusiveJetSliceFromContext(Outfile)
+          : PPG12InclusiveJetSlice::kNone;
+  if (ppInclusivePhysicsSlice != PPG12InclusiveJetSlice::kNone &&
+      !m_ppPhotonIDExtractOnly)
+  {
+    double ownershipLo = std::numeric_limits<double>::quiet_NaN();
+    double ownershipHi = std::numeric_limits<double>::quiet_NaN();
+    const bool haveOwnershipWindow =
+        ppg12InclusiveJetSliceWindow(ppInclusivePhysicsSlice,
+                                     ownershipLo,
+                                     ownershipHi);
+
+    JetContainer* ownershipTruthJetsR04 = nullptr;
+    if (auto itR04 = m_truthJetsByRKey.find("r04");
+        itR04 != m_truthJetsByRKey.end())
+    {
+      ownershipTruthJetsR04 = itR04->second;
+    }
+    if (!ownershipTruthJetsR04)
+    {
+      ownershipTruthJetsR04 = ppg12FindTruthJetsR04(topNode).first;
+    }
+
+    double maxTruthJetPtR04 = -1.0;
+    if (ownershipTruthJetsR04)
+    {
+      for (const Jet* truthJet : *ownershipTruthJetsR04)
+      {
+        if (!truthJet) continue;
+        const double truthJetPt = truthJet->get_pt();
+        if (std::isfinite(truthJetPt) && truthJetPt > maxTruthJetPtR04)
+        {
+          maxTruthJetPtR04 = truthJetPt;
+        }
+      }
+    }
+
+    const bool haveTruthJetR04 = (maxTruthJetPtR04 >= 0.0);
+    const bool passInclusivePhysicsOwnership =
+        haveOwnershipWindow && haveTruthJetR04 &&
+        ppg12WindowContains(maxTruthJetPtR04, ownershipLo, ownershipHi);
+    if (!passInclusivePhysicsOwnership)
+    {
+      LOG(5, CLR_YELLOW,
+          "    [PPG12_INCLUSIVE_OWNERSHIP] reject event before physics fills"
+          << " | sample=" << ppg12InclusiveJetSliceName(ppInclusivePhysicsSlice)
+          << " | maxTruthJetPtR04=" << maxTruthJetPtR04
+          << " | window=[" << ownershipLo << "," << ownershipHi << "]"
+          << " | haveR04=" << (haveTruthJetR04 ? "true" : "false"));
+      return Fun4AllReturnCodes::ABORTEVENT;
+    }
   }
 
   // Strict PPG12 IAN Fig. 5 source-stage diagnostic. This is intentionally
@@ -11206,6 +11371,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
 
                 bool isPPG12Signal = false;
                 double ppg12SignalTruthPt = std::numeric_limits<double>::quiet_NaN();
+                int ppg12SignalTruthClass = -999;
                 int truthTrackId = -1;
                 int truthBarcode = -1;
                 float truthEContrib = std::numeric_limits<float>::lowest();
@@ -11223,6 +11389,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     {
                         truthBarcode = matchedTruth.barcode;
                         ppg12SignalTruthPt = matchedTruth.pt;
+                        ppg12SignalTruthClass = matchedTruth.photonClass;
                     }
                 }
 
@@ -11476,6 +11643,49 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
 
                     if (keepTrainingRow)
                     {
+                        // The executable uses calibrated, unsmeared ET for the
+                        // model route, thresholds, tag, and ABCD cell.  The
+                        // resolution correction is a response-only value and
+                        // is recorded separately so it cannot silently feed
+                        // back into classification.
+                        const double ppg12ResponseEt = isPPG12Signal
+                            ? ppg12PhotonYieldClusterEtForResponse(
+                                  pt_gamma, ppg12SignalTruthPt, iPho)
+                            : pt_gamma;
+                        const int ppg12AnalysisWindowPass = isPPG12Signal
+                            ? (ppg12PhotonYieldInResponseWindow(
+                                   pt_gamma, ppg12SignalTruthPt) ? 1 : 0)
+                            : -1;
+                        const int ppg12ResponseWindowPass = isPPG12Signal
+                            ? (ppg12PhotonYieldInResponseWindow(
+                                   ppg12ResponseEt, ppg12SignalTruthPt) ? 1 : 0)
+                            : -1;
+                        int ppg12LogicalABCDRegion = 0;
+                        if (ppg12YieldIso && ppg12YieldTag == TightTag::kTight)
+                            ppg12LogicalABCDRegion = 1;
+                        else if (ppg12YieldNonIso && ppg12YieldTag == TightTag::kTight)
+                            ppg12LogicalABCDRegion = 2;
+                        else if (ppg12YieldIso && ppg12YieldTag == TightTag::kNonTight)
+                            ppg12LogicalABCDRegion = 3;
+                        else if (ppg12YieldNonIso && ppg12YieldTag == TightTag::kNonTight)
+                            ppg12LogicalABCDRegion = 4;
+
+                        // Signal leakage follows the preserved PPG12
+                        // asymmetry: A is accepted only in the unsmeared
+                        // truth/reco analysis window, while B/C/D are binned
+                        // by reconstructed ET without that additional veto.
+                        const int ppg12SignalFillA =
+                            (isPPG12Signal && ppg12LogicalABCDRegion == 1 &&
+                             ppg12AnalysisWindowPass == 1) ? 1 : 0;
+                        const int ppg12SignalFillB =
+                            (isPPG12Signal && ppg12LogicalABCDRegion == 2) ? 1 : 0;
+                        const int ppg12SignalFillC =
+                            (isPPG12Signal && ppg12LogicalABCDRegion == 3) ? 1 : 0;
+                        const int ppg12SignalFillD =
+                            (isPPG12Signal && ppg12LogicalABCDRegion == 4) ? 1 : 0;
+                        const int ppg12SignalFillMultiplicity =
+                            ppg12SignalFillA + ppg12SignalFillB +
+                            ppg12SignalFillC + ppg12SignalFillD;
                         const double ppXsecPb = ppInclusiveJetContext
                             ? ppg12InclusiveJetSliceXsecPb(ppInclusiveJetSlice)
                             : -999.0;
@@ -11487,6 +11697,7 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                                                    phi,
                                                    iPho,
                                                    ppg12ScoreInputEt,
+                                                   ppg12ResponseEt,
                                                    ppg12ParityEisoEt,
                                                    ppg12YieldRawEisoEt,
                                                    ppg12YieldEisoEt,
@@ -11498,6 +11709,15 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                                                    static_cast<int>(ppg12YieldTag),
                                                    ptIdx,
                                                    isPPG12Signal,
+                                                   ppg12SignalTruthClass,
+                                                   ppg12AnalysisWindowPass,
+                                                   ppg12ResponseWindowPass,
+                                                   ppg12LogicalABCDRegion,
+                                                   ppg12SignalFillA,
+                                                   ppg12SignalFillB,
+                                                   ppg12SignalFillC,
+                                                   ppg12SignalFillD,
+                                                   ppg12SignalFillMultiplicity,
                                                    truthTrackId,
                                                    truthBarcode,
                                                    truthEContrib,
@@ -22150,46 +22370,9 @@ bool RecoilJets::fillPPG12InclusiveJetTruthSpectrumQA(PHCompositeNode* topNode)
       }
     }
 
-    auto trimLocal = [](std::string s) -> std::string
-    {
-      const char* ws = " \t\r\n";
-      const auto first = s.find_first_not_of(ws);
-      if (first == std::string::npos) return {};
-      const auto last = s.find_last_not_of(ws);
-      return s.substr(first, last - first + 1);
-    };
-
-    const char* tnEnvRaw = std::getenv("RJ_TRUTH_JETS_NODE");
-    const std::string tnEnv = tnEnvRaw ? trimLocal(std::string(tnEnvRaw)) : std::string{};
-    std::vector<std::string> candidates;
-    if (!tnEnv.empty())
-    {
-      const std::string placeholder = "{rKey}";
-      if (tnEnv.find(placeholder) != std::string::npos)
-      {
-        std::string expanded = tnEnv;
-        expanded.replace(expanded.find(placeholder), placeholder.size(), "r04");
-        candidates.push_back(expanded);
-      }
-      else
-      {
-        candidates.push_back(tnEnv);
-        if (tnEnv.find("_r04") == std::string::npos) candidates.push_back(tnEnv + "_r04");
-      }
-    }
-    candidates.push_back("AntiKt_Truth_r04");
-    candidates.push_back("AntiKt_TruthFromParticles_r04");
-
-    for (const auto& node : candidates)
-    {
-      if (node.empty()) continue;
-      if (auto* tj = findNode::getClass<JetContainer>(topNode, node))
-      {
-        truthJetsR04 = tj;
-        truthJetsNode = node;
-        break;
-      }
-    }
+    const auto truthJetLookup = ppg12FindTruthJetsR04(topNode);
+    truthJetsR04 = truthJetLookup.first;
+    if (!truthJetLookup.second.empty()) truthJetsNode = truthJetLookup.second;
   }
   else
   {

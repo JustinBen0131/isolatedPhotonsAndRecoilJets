@@ -16,10 +16,11 @@ usage() {
   cat <<'EOF'
 Usage:
   build_ppg12_oracle_new17_runtime.sh --output-dir ABS [--jobs N] \
-    [--photon-source-dir ABS] [--ppg-repo ABS] [--ppg-revision SHA]
+    [--photon-source-dir ABS] [--ppg-repo ABS] [--ppg-revision SHA] \
+    [--estimator-revision SHA]
   build_ppg12_oracle_new17_runtime.sh --build --token TOKEN \
     --output-dir ABS [--jobs N] [--photon-source-dir ABS] \
-    [--ppg-repo ABS] [--ppg-revision SHA]
+    [--ppg-repo ABS] [--ppg-revision SHA] [--estimator-revision SHA]
 
 Default mode prints the immutable build contract and authorization token.
 --build performs the foreground build only when TOKEN exactly matches that
@@ -42,6 +43,36 @@ ppg_repo="${repo_root}/ppg12codeGit"
 # production.  The working tree is deliberately ignored: git-show exports the
 # committed source into the sealed build root.
 ppg_revision="1c0ff86bf0ebabfba63a1abc4512cbe59fe48e31"
+# Reconstruction and the downstream estimator have distinct historical
+# contracts.  Never source the estimator from the older reconstruction
+# revision or from the mutable checkout.
+estimator_revision="29f8223bd9b36dffab07961b597afa94185bbdf1"
+yaml_cpp_library="/sphenix/u/shuhang98/install/lib64/libyaml-cpp.so"
+roounfold_library="/sphenix/user/egm2153/calib_study/JetValidation/analysis/roounfold/libRooUnfold.so"
+roounfold_include_dir="/sphenix/user/egm2153/calib_study/JetValidation/analysis/roounfold/src"
+vertex_scan_data_file="/sphenix/user/shuhangli/ppg12/efficiencytool/results/data_histo_bdt_nom_vtxscan.root"
+mbd_correction_file="/sphenix/user/shuhangli/ppg12/efficiencytool/MbdOut.corr"
+apply_model_dir="/sphenix/user/shuhangli/ppg12/FunWithxgboost/binned_models"
+apply_npb_model="/sphenix/user/shuhangli/ppg12/FunWithxgboost/npb_models/npb_score_split_tmva.root"
+apply_model_names=(base base_vr base_v0 base_v1 base_v2 base_v3 base_E base_v0E base_v1E base_v2E base_v3E)
+expected_apply_bdt_sha256="bd6e7c5bc9858ddad9bc835552d818c00290bb7de3f5036f44d8bf4804734366"
+expected_apply_config_sha256="b8d1bc359a647cc913f213777fc42958b532b30c37a63bb318680130eb6e321b"
+expected_recoeff_sha256="e9b25fdb6dd8a6bfbbad029cb90aaddc9489fdf2846c630ea63c8c41ac771eee"
+expected_recoeff_config_sha256="42b7be1628843d5b7607ab988ffb58c6d019d8ade01b3c4d528611498db95732"
+expected_apply_model_hashes=(
+  "0ec432081df6bd5cbdc68c948c4c325331bc0220834b4720429c2049c86880e1"
+  "8b70b9bda2430fa7147694ebb8f51de72122ee525a8b5b59dca0d50c4c86000f"
+  "d71acf56911f4648baecf17c9bd567fbfa6f646e31ce20300ea1801fe77f15d4"
+  "56f59bb0d80f47726cf425423169bd6556f15353c0b2204e3124d84f9d3c579f"
+  "d863f545a2d9d8557243ddea38a3a3165c83c11d756eb65e1e998e90d68c75bf"
+  "3a722fb2c16f0120d62e74710963187f8d2efad9b0868ea411cff33055052393"
+  "7e2d5ed9d1216ab30b92a137482a5bfa111d78e86d4f5a459179c38bc7993997"
+  "6a302d7ebece4f5a592a38edb8de934ebb3a2935fdedff4d7bf012d54c7870dd"
+  "b75c9e3c3c4a6e6333c79567b8de0faacf8ece6591e085813be974af6f0571e9"
+  "c5a14d44b3655516692b012f15f2f84419f1acba70479d23c82421b6eeb49f27"
+  "7679e634260402fb3815b2733767182690eec7587f9e09bffc307a05d00d59df"
+)
+expected_apply_npb_sha256="d6086dadac534013cda15cdfb69c1683776d3456d9e439903589653e8ac19eab"
 
 while (($#)); do
   case "$1" in
@@ -52,6 +83,14 @@ while (($#)); do
     --photon-source-dir) [[ $# -ge 2 ]] || die "--photon-source-dir requires a value"; photon_source_dir="$2"; shift 2 ;;
     --ppg-repo) [[ $# -ge 2 ]] || die "--ppg-repo requires a value"; ppg_repo="$2"; shift 2 ;;
     --ppg-revision) [[ $# -ge 2 ]] || die "--ppg-revision requires a value"; ppg_revision="$2"; shift 2 ;;
+    --estimator-revision) [[ $# -ge 2 ]] || die "--estimator-revision requires a value"; estimator_revision="$2"; shift 2 ;;
+    --yaml-cpp-library) [[ $# -ge 2 ]] || die "--yaml-cpp-library requires a value"; yaml_cpp_library="$2"; shift 2 ;;
+    --roounfold-library) [[ $# -ge 2 ]] || die "--roounfold-library requires a value"; roounfold_library="$2"; shift 2 ;;
+    --roounfold-include-dir) [[ $# -ge 2 ]] || die "--roounfold-include-dir requires a value"; roounfold_include_dir="$2"; shift 2 ;;
+    --vertex-scan-data-file) [[ $# -ge 2 ]] || die "--vertex-scan-data-file requires a value"; vertex_scan_data_file="$2"; shift 2 ;;
+    --mbd-correction-file) [[ $# -ge 2 ]] || die "--mbd-correction-file requires a value"; mbd_correction_file="$2"; shift 2 ;;
+    --apply-model-dir) [[ $# -ge 2 ]] || die "--apply-model-dir requires a value"; apply_model_dir="$2"; shift 2 ;;
+    --apply-npb-model) [[ $# -ge 2 ]] || die "--apply-npb-model requires a value"; apply_npb_model="$2"; shift 2 ;;
     --jobs) [[ $# -ge 2 ]] || die "--jobs requires a value"; jobs="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown argument: $1" ;;
@@ -74,10 +113,15 @@ esac
 [[ "$ppg_repo" == /* && -d "$ppg_repo/.git" ]] || \
   die "--ppg-repo must be an existing absolute Git checkout: $ppg_repo"
 [[ "$ppg_revision" =~ ^[0-9a-f]{40}$ ]] || die "--ppg-revision must be a full commit SHA"
+[[ "$estimator_revision" =~ ^[0-9a-f]{40}$ ]] || \
+  die "--estimator-revision must be a full commit SHA"
 ppg_repo_real="$(cd "$ppg_repo" && pwd -P)"
 git_safe=(-c "safe.directory=${ppg_repo_real}")
 git "${git_safe[@]}" -C "$ppg_repo_real" cat-file -e "${ppg_revision}^{commit}" 2>/dev/null || \
   die "--ppg-revision is not present in --ppg-repo: $ppg_revision"
+git "${git_safe[@]}" -C "$ppg_repo_real" cat-file -e \
+  "${estimator_revision}^{commit}" 2>/dev/null || \
+  die "--estimator-revision is not present in --ppg-repo: $estimator_revision"
 ppg_source_names=(configure.ac Makefile.am autogen.sh CaloAna24.cc CaloAna24.h)
 for source_name in "${ppg_source_names[@]}"; do
   git "${git_safe[@]}" -C "$ppg_repo_real" cat-file -e \
@@ -85,11 +129,31 @@ for source_name in "${ppg_source_names[@]}"; do
     die "PPG12 source revision lacks anatreemaker/source/${source_name}"
 done
 
+estimator_source_names=(
+  RecoEffCalculator_TTreeReader.C
+  CrossSectionWeights.h
+  TruthVertexReweightLoader.h
+  config_bdt_nom.yaml
+  CalculatePhotonYield.C
+)
+for source_name in "${estimator_source_names[@]}"; do
+  git "${git_safe[@]}" -C "$ppg_repo_real" cat-file -e \
+    "${estimator_revision}:efficiencytool/${source_name}" 2>/dev/null || \
+    die "estimator revision lacks efficiencytool/${source_name}"
+done
+apply_stage_source_names=(apply_BDT.C config_nom.yaml)
+for source_name in "${apply_stage_source_names[@]}"; do
+  git "${git_safe[@]}" -C "$ppg_repo_real" cat-file -e \
+    "${estimator_revision}:FunWithxgboost/${source_name}" 2>/dev/null || \
+    die "estimator revision lacks FunWithxgboost/${source_name}"
+done
+
 canonical_photon_cc="${photon_source_dir}/PhotonClusterBuilder.cc"
 canonical_photon_h="${photon_source_dir}/PhotonClusterBuilder.h"
 recoil_source="${repo_root}/src"
 macro_wrapper_source="${repo_root}/macros/Fun4All_recoilJets.C"
 macro_impl_source="${repo_root}/macros/Fun4All_recoilJets_unified_impl.C"
+trace_instrumenter="${repo_root}/scripts/diagnostics/pp_currentian/instrument_ppg12_recoeff_trace.py"
 
 contract_inputs=(
   "$canonical_photon_cc"
@@ -102,10 +166,17 @@ contract_inputs=(
   "${recoil_source}/PPG12SimWeight.h"
   "$macro_wrapper_source"
   "$macro_impl_source"
+  "$trace_instrumenter"
   "$setup_script"
 )
 for input in "${contract_inputs[@]}"; do
   [[ "$input" == /* && -f "$input" && -s "$input" ]] || die "missing contract input: $input"
+done
+for external in "$yaml_cpp_library" "$roounfold_library" \
+  "$roounfold_include_dir" "$vertex_scan_data_file" "$mbd_correction_file" \
+  "$apply_model_dir" "$apply_npb_model"; do
+  [[ "$external" == /* && "$external" != *$'\n'* && "$external" != *$'\r'* ]] || \
+    die "estimator runtime asset path must be absolute and single-line: $external"
 done
 
 sha256_file() {
@@ -121,6 +192,54 @@ with Path(sys.argv[1]).open("rb") as stream:
 print(h.hexdigest())
 PY
 }
+
+sha256_optional() {
+  if [[ -f "$1" && -s "$1" ]]; then
+    sha256_file "$1"
+  elif [[ -d "$1" ]]; then
+    python3 - "$1" <<'PY'
+from pathlib import Path
+import hashlib
+import sys
+
+root = Path(sys.argv[1])
+h = hashlib.sha256()
+for path in sorted(item for item in root.rglob("*") if item.is_file()):
+    h.update(str(path.relative_to(root)).encode())
+    h.update(b"\0")
+    h.update(hashlib.sha256(path.read_bytes()).digest())
+print("tree:" + h.hexdigest())
+PY
+  else
+    printf 'missing-at-plan\n'
+  fi
+}
+
+git_blob_sha256() {
+  git "${git_safe[@]}" -C "$ppg_repo_real" show "$1" \
+    | python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())'
+}
+
+[[ "$(git_blob_sha256 "${estimator_revision}:efficiencytool/RecoEffCalculator_TTreeReader.C")" == \
+  "$expected_recoeff_sha256" ]] || die "canonical RecoEff source hash differs from 29f contract"
+[[ "$(git_blob_sha256 "${estimator_revision}:efficiencytool/config_bdt_nom.yaml")" == \
+  "$expected_recoeff_config_sha256" ]] || die "canonical RecoEff config hash differs from 29f contract"
+[[ "$(git_blob_sha256 "${estimator_revision}:FunWithxgboost/apply_BDT.C")" == \
+  "$expected_apply_bdt_sha256" ]] || die "canonical apply_BDT source hash differs from 29f contract"
+[[ "$(git_blob_sha256 "${estimator_revision}:FunWithxgboost/config_nom.yaml")" == \
+  "$expected_apply_config_sha256" ]] || die "canonical apply_BDT config hash differs from 29f contract"
+if [[ -f "$apply_npb_model" && -s "$apply_npb_model" ]]; then
+  [[ "$(sha256_file "$apply_npb_model")" == "$expected_apply_npb_sha256" ]] || \
+    die "canonical split NPB model hash differs"
+fi
+for model_index in "${!apply_model_names[@]}"; do
+  model_name="${apply_model_names[$model_index]}"
+  model_path="${apply_model_dir}/model_${model_name}_split_single_tmva.root"
+  if [[ -f "$model_path" && -s "$model_path" ]]; then
+    [[ "$(sha256_file "$model_path")" == "${expected_apply_model_hashes[$model_index]}" ]] || \
+      die "canonical split model hash differs: $model_name"
+  fi
+done
 
 contract_token="$({
   printf '%s\n' \
@@ -138,6 +257,35 @@ contract_token="$({
         | python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())'
     )"
   done
+  printf 'estimator_revision=%s\n' "$estimator_revision"
+  printf 'expected_recoeff_sha256=%s\n' "$expected_recoeff_sha256"
+  printf 'expected_recoeff_config_sha256=%s\n' "$expected_recoeff_config_sha256"
+  printf 'expected_apply_bdt_sha256=%s\n' "$expected_apply_bdt_sha256"
+  printf 'expected_apply_config_sha256=%s\n' "$expected_apply_config_sha256"
+  for model_index in "${!apply_model_names[@]}"; do
+    printf 'expected_apply_model=%s sha256=%s\n' \
+      "${apply_model_names[$model_index]}" "${expected_apply_model_hashes[$model_index]}"
+  done
+  printf 'expected_apply_npb_sha256=%s\n' "$expected_apply_npb_sha256"
+  for source_name in "${estimator_source_names[@]}"; do
+    printf 'estimator_source=%s sha256=%s\n' "$source_name" "$(
+      git "${git_safe[@]}" -C "$ppg_repo_real" show \
+        "${estimator_revision}:efficiencytool/${source_name}" \
+        | python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())'
+    )"
+  done
+  for source_name in "${apply_stage_source_names[@]}"; do
+    printf 'apply_stage_source=%s sha256=%s\n' "$source_name" "$(
+      git "${git_safe[@]}" -C "$ppg_repo_real" show \
+        "${estimator_revision}:FunWithxgboost/${source_name}" \
+        | python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())'
+    )"
+  done
+  for external in "$yaml_cpp_library" "$roounfold_library" \
+    "$roounfold_include_dir" "$vertex_scan_data_file" "$mbd_correction_file" \
+    "$apply_model_dir" "$apply_npb_model"; do
+    printf 'estimator_asset=%s sha256=%s\n' "$external" "$(sha256_optional "$external")"
+  done
   for input in "${contract_inputs[@]}"; do
     printf 'input=%s sha256=%s\n' "$input" "$(sha256_file "$input")"
   done
@@ -151,6 +299,8 @@ PPG12_ORACLE_NEW17_BUILD_PLAN
   OFFLINE_MAIN: ${expected_offline}
   build: source-locked libCaloAna24.so plus libRecoilJets.so with renamed PPG12-oracle photon builder
   ppg_source_revision: ${ppg_revision}
+  estimator_revision: ${estimator_revision}
+  estimator: exact RecoEff/config/yield sources plus dual uninstrumented/instrumented execution
   release copies: exact new.17 libcalo_reco.so, libclusteriso.so, libjetbase.so (cp -L)
   macro staging: PP wrapper/implementation with exact-count path rewrites
   validation: forbidden-route scan, readelf, ldd, and ROOT load/header smoke
@@ -180,7 +330,15 @@ if [[ "${clean_env:-0}" != 1 ]]; then
       --build --token "$provided_token" --output-dir "$output_dir" \
       --setup-script "$setup_script" --jobs "$jobs" \
       --photon-source-dir "$photon_source_dir" \
-      --ppg-repo "$ppg_repo_real" --ppg-revision "$ppg_revision"
+      --ppg-repo "$ppg_repo_real" --ppg-revision "$ppg_revision" \
+      --estimator-revision "$estimator_revision" \
+      --yaml-cpp-library "$yaml_cpp_library" \
+      --roounfold-library "$roounfold_library" \
+      --roounfold-include-dir "$roounfold_include_dir" \
+      --vertex-scan-data-file "$vertex_scan_data_file" \
+      --mbd-correction-file "$mbd_correction_file" \
+      --apply-model-dir "$apply_model_dir" \
+      --apply-npb-model "$apply_npb_model"
 fi
 
 umask 077
@@ -201,6 +359,27 @@ set -e
 
 for command_name in python3 make aclocal automake autoconf libtoolize root root-config readelf ldd cmp git awk; do
   command -v "$command_name" >/dev/null 2>&1 || die "required build command is unavailable: $command_name"
+done
+for estimator_asset in "$yaml_cpp_library" "$roounfold_library" \
+  "$vertex_scan_data_file" "$mbd_correction_file" "$apply_npb_model"; do
+  [[ -f "$estimator_asset" && -s "$estimator_asset" ]] || \
+    die "estimator runtime asset is missing or empty: $estimator_asset"
+done
+for model_index in "${!apply_model_names[@]}"; do
+  model_name="${apply_model_names[$model_index]}"
+  model_path="${apply_model_dir}/model_${model_name}_split_single_tmva.root"
+  [[ -f "$model_path" && -s "$model_path" ]] || \
+    die "apply_BDT split model is missing or empty: $model_path"
+  [[ "$(sha256_file "$model_path")" == "${expected_apply_model_hashes[$model_index]}" ]] || \
+    die "apply_BDT split model hash differs: $model_name"
+done
+[[ "$(sha256_file "$apply_npb_model")" == "$expected_apply_npb_sha256" ]] || \
+  die "apply_BDT split NPB model hash differs"
+[[ -d "$roounfold_include_dir" ]] || \
+  die "RooUnfold include directory is missing: $roounfold_include_dir"
+for header in RooUnfoldResponse.h RooUnfoldBayes.h; do
+  [[ -f "${roounfold_include_dir}/${header}" && -s "${roounfold_include_dir}/${header}" ]] || \
+    die "RooUnfold header is missing: ${roounfold_include_dir}/${header}"
 done
 
 forbidden_routes() {
@@ -247,16 +426,67 @@ runtime_root="${output_dir}/runtime"
 log_root="${output_dir}/logs"
 recoil_stage="${stage_root}/RecoilJets"
 ppg_stage="${stage_root}/PPG12CaloAna24"
+estimator_stage="${stage_root}/PPG12Estimator"
 mkdir -p "$stage_root" "$build_root/recoiljets" "$build_root/ppg12" \
   "$recoil_stage" "$install_root" "$runtime_root/lib" "$runtime_root/include/caloreco" \
-  "$runtime_root/include/caloana" "$runtime_root/macros" "$log_root" "$ppg_stage"
+  "$runtime_root/include/caloana" "$runtime_root/macros" "$log_root" "$ppg_stage" \
+  "$estimator_stage" "$runtime_root/estimator/source" \
+  "$runtime_root/estimator/macros" "$runtime_root/estimator/include" \
+  "$runtime_root/estimator/config" "$runtime_root/estimator/data" \
+  "$runtime_root/estimator/apply" "$runtime_root/estimator/apply/binned_models" \
+  "$runtime_root/estimator/apply/npb_models"
 
 for source_name in "${ppg_source_names[@]}"; do
   git "${git_safe[@]}" -C "$ppg_repo_real" show \
     "${ppg_revision}:anatreemaker/source/${source_name}" \
     > "${ppg_stage}/${source_name}"
 done
+for source_name in "${apply_stage_source_names[@]}"; do
+  git "${git_safe[@]}" -C "$ppg_repo_real" show \
+    "${estimator_revision}:FunWithxgboost/${source_name}" \
+    > "${runtime_root}/estimator/apply/${source_name}"
+done
+for model_name in "${apply_model_names[@]}"; do
+  source_model="${apply_model_dir}/model_${model_name}_split_single_tmva.root"
+  target_model="${runtime_root}/estimator/apply/binned_models/model_${model_name}_split_single_tmva.root"
+  cp -f "$source_model" "$target_model"
+  cmp -s "$source_model" "$target_model" || \
+    die "staged apply_BDT model differs from source: $model_name"
+done
+cp -f "$apply_npb_model" \
+  "${runtime_root}/estimator/apply/npb_models/npb_score_split_tmva.root"
+cmp -s "$apply_npb_model" \
+  "${runtime_root}/estimator/apply/npb_models/npb_score_split_tmva.root" || \
+  die "staged apply_BDT NPB model differs from source"
 chmod 700 "${ppg_stage}/autogen.sh"
+
+# Export estimator sources from their own canonical revision.  The mutable
+# checkout and the older CaloAna reconstruction revision are never consulted.
+for source_name in "${estimator_source_names[@]}"; do
+  git "${git_safe[@]}" -C "$ppg_repo_real" show \
+    "${estimator_revision}:efficiencytool/${source_name}" \
+    > "${estimator_stage}/${source_name}"
+done
+cp -f "${estimator_stage}/RecoEffCalculator_TTreeReader.C" \
+  "${runtime_root}/estimator/source/RecoEffCalculator_TTreeReader.C"
+cp -f "${estimator_stage}/CalculatePhotonYield.C" \
+  "${runtime_root}/estimator/source/CalculatePhotonYield.C"
+cp -f "${estimator_stage}/CrossSectionWeights.h" \
+  "${runtime_root}/estimator/include/CrossSectionWeights.h"
+cp -f "${estimator_stage}/TruthVertexReweightLoader.h" \
+  "${runtime_root}/estimator/include/TruthVertexReweightLoader.h"
+cp -f "${estimator_stage}/config_bdt_nom.yaml" \
+  "${runtime_root}/estimator/config/config_bdt_nom.yaml"
+cp -L "$yaml_cpp_library" "${runtime_root}/lib/libyaml-cpp.so"
+cp -L "$roounfold_library" "${runtime_root}/lib/libRooUnfold.so"
+cp -f "${roounfold_include_dir}/RooUnfoldResponse.h" \
+  "${runtime_root}/estimator/include/RooUnfoldResponse.h"
+cp -f "${roounfold_include_dir}/RooUnfoldBayes.h" \
+  "${runtime_root}/estimator/include/RooUnfoldBayes.h"
+cp -f "$vertex_scan_data_file" \
+  "${runtime_root}/estimator/data/data_histo_bdt_nom_vtxscan.root"
+cp -f "$mbd_correction_file" \
+  "${runtime_root}/estimator/data/MbdOut.corr"
 
 for source_name in configure.ac Makefile.am autogen.sh RecoilJets.cc RecoilJets.h PPG12SimWeight.h; do
   cp -f "${recoil_source}/${source_name}" "${recoil_stage}/${source_name}"
@@ -313,6 +543,22 @@ if observed != expected:
 path.write_text(pattern.sub(new, text))
 PY
 }
+
+recoeff_macro="${runtime_root}/estimator/macros/RecoEffCalculator_TTreeReader.C"
+recoeff_trace_macro="${runtime_root}/estimator/macros/RecoEffCalculator_TTreeReader_trace.C"
+recoeff_trace_receipt="${runtime_root}/estimator/recoeff_trace_transform_receipt.json"
+cp -f "${estimator_stage}/RecoEffCalculator_TTreeReader.C" "$recoeff_macro"
+replace_exact "$recoeff_macro" 1 \
+  '/sphenix/u/shuhang98/install/lib64/libyaml-cpp.so' \
+  "${runtime_root}/lib/libyaml-cpp.so"
+replace_exact "$recoeff_macro" 1 \
+  '/sphenix/user/shuhangli/ppg12/efficiencytool/MbdOut.corr' \
+  "${runtime_root}/estimator/data/MbdOut.corr"
+python3 "$trace_instrumenter" \
+  --input "$recoeff_macro" \
+  --output "$recoeff_trace_macro" \
+  --receipt "$recoeff_trace_receipt" \
+  --source-revision "$estimator_revision"
 
 # Rebuild the preserved PPG12 source against the same current new.17 headers
 # and libraries used by the candidate.  The archived June binary is retained
@@ -430,6 +676,10 @@ cmp -s "$release_clusteriso" "${runtime_root}/lib/libclusteriso.so" || \
   die "copied libclusteriso differs from exact new.17 source"
 cmp -s "$release_jetbase" "${runtime_root}/lib/libjetbase.so" || \
   die "copied libjetbase differs from exact new.17 source"
+cmp -s "$yaml_cpp_library" "${runtime_root}/lib/libyaml-cpp.so" || \
+  die "copied libyaml-cpp differs from sealed estimator source"
+cmp -s "$roounfold_library" "${runtime_root}/lib/libRooUnfold.so" || \
+  die "copied libRooUnfold differs from sealed estimator source"
 cp -f "${recoil_stage}/PPG12OraclePhotonClusterBuilder.h" \
   "${runtime_root}/include/caloana/PPG12OraclePhotonClusterBuilder.h"
 # The paired-oracle manifest retains its established role/path.  This file's
@@ -505,7 +755,9 @@ for runtime_lib in \
   "${runtime_root}/lib/libcalo_reco.so" \
   "${runtime_root}/lib/libRecoilJets.so" \
   "${runtime_root}/lib/libclusteriso.so" \
-  "${runtime_root}/lib/libjetbase.so"; do
+  "${runtime_root}/lib/libjetbase.so" \
+  "${runtime_root}/lib/libyaml-cpp.so" \
+  "${runtime_root}/lib/libRooUnfold.so"; do
   basename_noext="$(basename "$runtime_lib" .so)"
   readelf -d "$runtime_lib" >"${log_root}/readelf_${basename_noext}.txt" 2>&1 || \
     die "readelf failed for $runtime_lib"
@@ -533,7 +785,9 @@ void smoke_new17_runtime()
     "${runtime_root}/lib/libcalo_reco.so",
     "${runtime_root}/lib/libclusteriso.so",
     "${runtime_root}/lib/libjetbase.so",
-    "${runtime_root}/lib/libRecoilJets.so"
+    "${runtime_root}/lib/libRecoilJets.so",
+    "${runtime_root}/lib/libyaml-cpp.so",
+    "${runtime_root}/lib/libRooUnfold.so"
   };
   for (const char *library : libraries)
   {
@@ -554,8 +808,8 @@ EOF
   tail -n 80 "${log_root}/root_smoke.log" >&2 || true
   die "ROOT load/header smoke failed"
 }
-[[ "$(grep -c '^PPG12_ORACLE_ROOT_LOAD ' "${log_root}/root_smoke.log")" -eq 5 ]] || \
-  die "ROOT smoke did not load all five runtime libraries"
+[[ "$(grep -c '^PPG12_ORACLE_ROOT_LOAD ' "${log_root}/root_smoke.log")" -eq 7 ]] || \
+  die "ROOT smoke did not load all seven runtime libraries"
 
 forbidden_routes || die "build contaminated the active shell with a forbidden route"
 
@@ -570,7 +824,23 @@ python3 - \
   "${ppg_stage}/configure.ac" "${ppg_stage}/Makefile.am" \
   "${recoil_source}/RecoilJets.cc" "${recoil_source}/RecoilJets.h" \
   "$macro_wrapper_source" "$macro_impl_source" \
-  "$release_calo" "$release_clusteriso" "$release_jetbase" "$log_root" <<'PY'
+  "$release_calo" "$release_clusteriso" "$release_jetbase" "$log_root" \
+  "$estimator_revision" \
+  "${runtime_root}/estimator/source/RecoEffCalculator_TTreeReader.C" \
+  "${runtime_root}/estimator/include/CrossSectionWeights.h" \
+  "${runtime_root}/estimator/include/TruthVertexReweightLoader.h" \
+  "${runtime_root}/estimator/config/config_bdt_nom.yaml" \
+  "${runtime_root}/estimator/source/CalculatePhotonYield.C" \
+  "${runtime_root}/estimator/apply/apply_BDT.C" \
+  "${runtime_root}/estimator/apply/config_nom.yaml" \
+  "$recoeff_macro" "$recoeff_trace_macro" "$recoeff_trace_receipt" \
+  "$trace_instrumenter" \
+  "${runtime_root}/lib/libyaml-cpp.so" \
+  "${runtime_root}/lib/libRooUnfold.so" \
+  "${runtime_root}/estimator/include/RooUnfoldResponse.h" \
+  "${runtime_root}/estimator/include/RooUnfoldBayes.h" \
+  "${runtime_root}/estimator/data/data_histo_bdt_nom_vtxscan.root" \
+  "${runtime_root}/estimator/data/MbdOut.corr" <<'PY'
 from pathlib import Path
 import hashlib
 import json
@@ -583,6 +853,12 @@ import sys
     jobs, sealed_link_dirs, photon_cc, photon_h, ppg_repo, ppg_revision,
     ppg_cc, ppg_h, ppg_configure, ppg_makefile, recoil_cc, recoil_h, macro, impl,
     calo_source, clusteriso_source, jetbase_source, log_root,
+    estimator_revision, recoeff_source, cross_section_header,
+    truth_vertex_header, estimator_config, calculate_yield_source,
+    apply_bdt_source, apply_config_source,
+    recoeff_macro, recoeff_trace_macro, trace_receipt, trace_instrumenter,
+    yaml_cpp, roounfold, roounfold_response_header, roounfold_bayes_header,
+    vertex_scan_data, mbd_correction,
 ) = sys.argv[1:]
 
 def digest(path: str | Path) -> str:
@@ -597,7 +873,26 @@ source_paths = [
     photon_cc, photon_h, ppg_cc, ppg_h, ppg_configure, ppg_makefile,
     recoil_cc, recoil_h, macro, impl,
     calo_source, clusteriso_source, jetbase_source, calo_calib,
+    recoeff_source, cross_section_header, truth_vertex_header,
+    estimator_config, calculate_yield_source, recoeff_macro,
+    apply_bdt_source, apply_config_source,
+    recoeff_trace_macro, trace_receipt, trace_instrumenter, yaml_cpp,
+    roounfold, roounfold_response_header, roounfold_bayes_header,
+    vertex_scan_data, mbd_correction,
 ]
+apply_root = Path(apply_bdt_source).parent
+apply_model_names = (
+    "base", "base_vr", "base_v0", "base_v1", "base_v2", "base_v3",
+    "base_E", "base_v0E", "base_v1E", "base_v2E", "base_v3E",
+)
+apply_models = [
+    apply_root / "binned_models" / f"model_{name}_split_single_tmva.root"
+    for name in apply_model_names
+]
+apply_models.append(apply_root / "npb_models" / "npb_score_split_tmva.root")
+if len(apply_models) != 12 or any(not path.is_file() for path in apply_models):
+    raise SystemExit("sealed apply_BDT stage does not contain exactly 11 split models plus NPB")
+source_paths.extend(str(path) for path in apply_models)
 log_paths = sorted(str(path) for path in Path(log_root).iterdir() if path.is_file())
 data = {
     "schema_version": 1,
@@ -618,6 +913,56 @@ data = {
         "subtree": "anatreemaker/source",
         "working_tree_ignored": True,
         "rebuilt_against_common_runtime": True,
+    },
+    "ppg12_estimator": {
+        "revision": estimator_revision,
+        "subtree": "efficiencytool",
+        "working_tree_ignored": True,
+        "reconstruction_revision_is_distinct": True,
+        "canonical_source": {
+            "path": recoeff_source,
+            "sha256": digest(recoeff_source),
+        },
+        "staged_uninstrumented_macro": {
+            "path": recoeff_macro,
+            "sha256": digest(recoeff_macro),
+            "scientific_expression_changes": False,
+            "sealed_path_rewrites_only": True,
+        },
+        "instrumented_macro": {
+            "path": recoeff_trace_macro,
+            "sha256": digest(recoeff_trace_macro),
+            "transform_receipt": trace_receipt,
+            "transform_receipt_sha256": digest(trace_receipt),
+            "candidate_trace_side_channel_only": True,
+            "requires_exact_root_equivalence": True,
+        },
+        "canonical_config": {
+            "path": estimator_config,
+            "sha256": digest(estimator_config),
+        },
+        "calculate_photon_yield": {
+            "path": calculate_yield_source,
+            "sha256": digest(calculate_yield_source),
+        },
+        "apply_bdt_stage": {
+            "revision": estimator_revision,
+            "working_tree_ignored": True,
+            "macro": {"path": apply_bdt_source, "sha256": digest(apply_bdt_source)},
+            "config": {"path": apply_config_source, "sha256": digest(apply_config_source)},
+            "scored_root_shared_by_both_recoeff_runs": True,
+            "model_assets": [
+                {"path": str(path), "sha256": digest(path)} for path in apply_models
+            ],
+        },
+        "runtime_assets": [
+            {"path": path, "sha256": digest(path)}
+            for path in (
+                cross_section_header, truth_vertex_header, yaml_cpp, roounfold,
+                roounfold_response_header, roounfold_bayes_header,
+                vertex_scan_data, mbd_correction,
+            )
+        ],
     },
     "custom_photon_builder": {
         "class": "PPG12OraclePhotonClusterBuilder",
@@ -658,6 +1003,8 @@ data = {
         "custom_builder_renamed": True,
         "archived_ppg12_binary_reused": False,
         "ppg12_source_locked_rebuild": True,
+        "estimator_revision_separate_from_reconstruction": True,
+        "estimator_trace_requires_exact_root_equivalence": True,
     },
     "validation": {
         "forbidden_route_scan": "pass",
@@ -677,7 +1024,22 @@ python3 - "$runtime_manifest" "$build_receipt" "$expected_offline" \
   "${runtime_root}/lib/libcalo_reco.so" \
   "${runtime_root}/lib/libclusteriso.so" \
   "${runtime_root}/lib/libjetbase.so" \
-  "${runtime_root}/include/caloreco/PhotonClusterBuilder.h" <<'PY'
+  "${runtime_root}/include/caloreco/PhotonClusterBuilder.h" \
+  "$estimator_revision" \
+  "${runtime_root}/estimator/source/RecoEffCalculator_TTreeReader.C" \
+  "$recoeff_macro" "$recoeff_trace_macro" "$recoeff_trace_receipt" \
+  "${runtime_root}/estimator/include/CrossSectionWeights.h" \
+  "${runtime_root}/estimator/include/TruthVertexReweightLoader.h" \
+  "${runtime_root}/estimator/config/config_bdt_nom.yaml" \
+  "${runtime_root}/estimator/source/CalculatePhotonYield.C" \
+  "${runtime_root}/estimator/apply/apply_BDT.C" \
+  "${runtime_root}/estimator/apply/config_nom.yaml" \
+  "${runtime_root}/lib/libyaml-cpp.so" \
+  "${runtime_root}/lib/libRooUnfold.so" \
+  "${runtime_root}/estimator/include/RooUnfoldResponse.h" \
+  "${runtime_root}/estimator/include/RooUnfoldBayes.h" \
+  "${runtime_root}/estimator/data/data_histo_bdt_nom_vtxscan.root" \
+  "${runtime_root}/estimator/data/MbdOut.corr" <<'PY'
 from pathlib import Path
 import hashlib
 import json
@@ -686,6 +1048,10 @@ import sys
 (
     manifest, receipt, offline_main, macro, impl, recoil, ppg, calo,
     clusteriso, jetbase, photon_header,
+    estimator_revision, recoeff_source, recoeff_macro, recoeff_trace_macro,
+    trace_receipt, cross_section_header, truth_vertex_header, estimator_config,
+    calculate_yield, apply_bdt, apply_config, yaml_cpp, roounfold, roounfold_response_header,
+    roounfold_bayes_header, vertex_scan_data, mbd_correction,
 ) = sys.argv[1:]
 
 def digest(path: str) -> str:
@@ -704,12 +1070,39 @@ roles = [
     ("libclusteriso.so", clusteriso),
     ("libjetbase.so", jetbase),
     ("PhotonClusterBuilder.h", photon_header),
+    ("ppg_recoeff_source_macro", recoeff_source),
+    ("ppg_recoeff_macro", recoeff_macro),
+    ("ppg_recoeff_trace_macro", recoeff_trace_macro),
+    ("ppg_recoeff_trace_transform_receipt", trace_receipt),
+    ("ppg_recoeff_cross_section_header", cross_section_header),
+    ("ppg_recoeff_truth_vertex_header", truth_vertex_header),
+    ("ppg_recoeff_canonical_config", estimator_config),
+    ("ppg_calculate_photon_yield", calculate_yield),
+    ("ppg_apply_bdt_macro", apply_bdt),
+    ("ppg_apply_bdt_config", apply_config),
+    ("ppg_recoeff_yaml_cpp", yaml_cpp),
+    ("ppg_recoeff_roounfold", roounfold),
+    ("ppg_recoeff_roounfold_response_header", roounfold_response_header),
+    ("ppg_recoeff_roounfold_bayes_header", roounfold_bayes_header),
+    ("ppg_recoeff_vertex_scan_data", vertex_scan_data),
+    ("ppg_recoeff_mbd_correction", mbd_correction),
 ]
+apply_root = Path(apply_bdt).parent
+model_names = (
+    "base", "base_vr", "base_v0", "base_v1", "base_v2", "base_v3",
+    "base_E", "base_v0E", "base_v1E", "base_v2E", "base_v3E",
+)
+roles.extend(
+    (f"ppg_apply_model_{name}", str(apply_root / "binned_models" / f"model_{name}_split_single_tmva.root"))
+    for name in model_names
+)
+roles.append(("ppg_apply_npb_model", str(apply_root / "npb_models" / "npb_score_split_tmva.root")))
 data = {
     "schema_version": 1,
     "runtime_profile": "new.17",
     "offline_main": offline_main,
     "isolated_build": True,
+    "estimator_revision": estimator_revision,
     "build_receipt": receipt,
     "build_receipt_sha256": digest(receipt),
     "files": [

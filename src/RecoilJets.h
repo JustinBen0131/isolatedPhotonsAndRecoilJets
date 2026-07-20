@@ -672,6 +672,7 @@ private:
                                   double phi,
                                   int clusterIndex,
                                   double scoreInputEt,
+                                  double responseEt,
                                   double eiso,
                                   double ppg12RawEiso,
                                   double ppg12RecoEiso,
@@ -683,6 +684,15 @@ private:
                                   int ppg12TightTag,
                                   int ptIdx,
                                   bool isSignal,
+                                  int truthClass,
+                                  int ppg12AnalysisWindowPass,
+                                  int ppg12ResponseWindowPass,
+                                  int ppg12LogicalABCDRegion,
+                                  int ppg12SignalFillA,
+                                  int ppg12SignalFillB,
+                                  int ppg12SignalFillC,
+                                  int ppg12SignalFillD,
+                                  int ppg12SignalFillMultiplicity,
                                   int truthTrackId,
                                   int truthBarcode,
                                   float truthEnergyContribution,
@@ -1765,6 +1775,7 @@ private:
   int m_bdtTrain_cent_bin = -1;
   float m_bdtTrain_pt = 0.0f;
   float m_bdtTrain_score_input_et = 0.0f;
+  float m_bdtTrain_response_et = 0.0f;
   float m_bdtTrain_eta = 0.0f;
   float m_bdtTrain_phi = 0.0f;
   float m_bdtTrain_cent = -1.0f;
@@ -1780,6 +1791,14 @@ private:
   int m_bdtTrain_ppg12_is_noniso = 0;
   int m_bdtTrain_ppg12_common_pass = 0;
   int m_bdtTrain_ppg12_tight_tag = -1;
+  int m_bdtTrain_ppg12_logical_abcd_region = 0;
+  int m_bdtTrain_ppg12_analysis_window_pass = -1;
+  int m_bdtTrain_ppg12_response_window_pass = -1;
+  int m_bdtTrain_ppg12_signal_fill_a = 0;
+  int m_bdtTrain_ppg12_signal_fill_b = 0;
+  int m_bdtTrain_ppg12_signal_fill_c = 0;
+  int m_bdtTrain_ppg12_signal_fill_d = 0;
+  int m_bdtTrain_ppg12_signal_fill_multiplicity = 0;
   int m_bdtTrain_ppg12_sample_bin = 0;
   float m_bdtTrain_ppg12_xsec_pb = -999.0f;
   float m_bdtTrain_ppg12_xsec_weight = 1.0f;
@@ -1789,7 +1808,15 @@ private:
   int m_bdtTrain_ppg12_truth_window_pass_r04 = -1;
   int m_bdtTrain_truth_track_id = -1;
   int m_bdtTrain_truth_barcode = -1;
+  int m_bdtTrain_truth_class = -999;
   float m_bdtTrain_truth_energy_contribution = -999.0f;
+  int m_bdtTrain_ppg12_weight_lane_code = 0;
+  int m_bdtTrain_ppg12_weight_component_code = 0;
+  float m_bdtTrain_ppg12_weight_slice = 1.0f;
+  float m_bdtTrain_ppg12_weight_vertex = 1.0f;
+  float m_bdtTrain_ppg12_weight_mix = 1.0f;
+  float m_bdtTrain_ppg12_weight_period = 1.0f;
+  float m_bdtTrain_ppg12_weight_final = 1.0f;
   float m_bdtTrain_weta = 0.0f;
   float m_bdtTrain_wphi = 0.0f;
   float m_bdtTrain_weta33 = 0.0f;
