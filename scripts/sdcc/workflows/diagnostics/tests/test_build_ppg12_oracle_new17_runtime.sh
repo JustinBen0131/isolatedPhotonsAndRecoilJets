@@ -242,8 +242,12 @@ for invariant in \
   'RooUnfoldParms.h' \
   'RooUnfoldSvd.h' \
   'RooUnfoldTUnfold.h' \
-  'R__LOAD_LIBRARY(${runtime_root}/lib/libRooUnfold.so)' \
   '#include <TUnfold.h>' \
+  '#include <TROOT.h>' \
+  'smoke_body_macro="${build_root}/smoke_new17_runtime_body.C"' \
+  'gSystem->Load(library)' \
+  'gROOT->LoadMacro("${smoke_body_macro}")' \
+  'gROOT->ProcessLine("smoke_new17_runtime_body();", &error)' \
   'RooUnfoldResponse response(' \
   '(const TH1 *)&measured, (const TH1 *)&truth, &migration,' \
   'if (response.UseOverflowStatus())' \
@@ -284,30 +288,55 @@ if hashlib.sha256(derived).hexdigest() != (
     "f5a12905952a0f49a7521868935e7868eca7cf8de1facae12c26e0dd9b712891"
 ):
     raise SystemExit("canonical RooUnfold compatibility derivative drifted")
-smoke = re.search(
+loader_match = re.search(
     r'cat > "\$smoke_macro" <<EOF\n(?P<body>.*?)\nEOF\n\(',
     builder,
     flags=re.DOTALL,
 )
-if not smoke:
+body_match = re.search(
+    r'cat > "\$smoke_body_macro" <<EOF\n(?P<body>.*?)\nEOF\n\nsmoke_macro=',
+    builder,
+    flags=re.DOTALL,
+)
+if not loader_match:
     raise SystemExit("cannot locate ROOT runtime smoke body")
-body = smoke.group("body")
+if not body_match:
+    raise SystemExit("cannot locate separately generated ROOT smoke body macro")
+loader = loader_match.group("body")
+body = body_match.group("body")
+if "R__LOAD_LIBRARY" in loader or "R__LOAD_LIBRARY" in body:
+    raise SystemExit("ROOT smoke retains compile-time R__LOAD_LIBRARY ordering ambiguity")
 for required in (
     "#include <TUnfold.h>",
+    "#include <TSystem.h>",
+    "#include <TROOT.h>",
+    "gSystem->Load(library)",
+    'gROOT->LoadMacro("${smoke_body_macro}")',
+    'gROOT->ProcessLine("smoke_new17_runtime_body();", &error)',
+):
+    if required not in loader:
+        raise SystemExit(f"ROOT smoke loader omits required contract: {required}")
+if loader.index("#include <TUnfold.h>") > loader.index("gSystem->Load(library)"):
+    raise SystemExit("ROOT smoke loader loads a library before declaring TUnfold")
+if loader.index("gSystem->Load(library)") > loader.index(
+    'gROOT->LoadMacro("${smoke_body_macro}")'
+):
+    raise SystemExit("ROOT smoke loader loads its body before sealed libraries")
+for forbidden in ("#include <RooUnfoldResponse.h>", "#include <RooUnfoldBayes.h>"):
+    if forbidden in loader:
+        raise SystemExit(f"ROOT smoke loader prematurely parses estimator header: {forbidden}")
+for required in (
+    "#include <caloana/PPG12OraclePhotonClusterBuilder.h>",
+    "#include <yaml-cpp/yaml.h>",
     "#include <RooUnfoldResponse.h>",
     "#include <RooUnfoldBayes.h>",
+    "RooUnfoldResponse response(",
+    "response.UseOverflowStatus()",
+    "RooUnfoldBayes bayes(",
+    "PPG12_ORACLE_ROOUNFOLD_API_SMOKE_PASS default_overflow=0",
 ):
     if required not in body:
-        raise SystemExit(f"ROOT smoke omits required executable header: {required}")
-for downstream in (
-    "R__LOAD_LIBRARY(${runtime_root}/lib/libRooUnfold.so)",
-    "#include <RooUnfoldResponse.h>",
-    "#include <RooUnfoldBayes.h>",
-):
-    if body.index("#include <TUnfold.h>") > body.index(downstream):
-        raise SystemExit(
-            f"ROOT smoke places the TUnfold prerequisite after {downstream}"
-        )
+        raise SystemExit(f"ROOT smoke body omits required contract: {required}")
 for forbidden in (
     "#include <RooUnfoldTUnfold.h>",
     "#include <RooUnfoldBinByBin.h>",
@@ -315,8 +344,6 @@ for forbidden in (
 ):
     if forbidden in body:
         raise SystemExit(f"ROOT smoke contains unused/incompatible API: {forbidden}")
-if "response.UseOverflowStatus()" not in body:
-    raise SystemExit("ROOT smoke does not prove default overflow=false")
 PY
 
 if grep -Fq 'build_root}/caloreco' "$builder"; then

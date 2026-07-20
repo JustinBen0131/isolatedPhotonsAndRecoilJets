@@ -1283,10 +1283,8 @@ for runtime_lib in \
   fi
 done
 
-smoke_macro="${build_root}/smoke_new17_runtime.C"
-cat > "$smoke_macro" <<EOF
-#include <TUnfold.h>
-R__LOAD_LIBRARY(${runtime_root}/lib/libRooUnfold.so)
+smoke_body_macro="${build_root}/smoke_new17_runtime_body.C"
+cat > "$smoke_body_macro" <<EOF
 #include <caloana/PPG12OraclePhotonClusterBuilder.h>
 #include <yaml-cpp/yaml.h>
 #include <RooUnfoldResponse.h>
@@ -1295,24 +1293,8 @@ R__LOAD_LIBRARY(${runtime_root}/lib/libRooUnfold.so)
 #include <TH2D.h>
 #include <TSystem.h>
 #include <iostream>
-void smoke_new17_runtime()
+void smoke_new17_runtime_body()
 {
-  const char *libraries[] = {
-    "${runtime_root}/lib/libCaloAna24.so",
-    "${runtime_root}/lib/libcalo_reco.so",
-    "${runtime_root}/lib/libclusteriso.so",
-    "${runtime_root}/lib/libjetbase.so",
-    "${runtime_root}/lib/libRecoilJets.so",
-    "${runtime_root}/lib/libyaml-cpp.so",
-    "${runtime_root}/lib/libRooUnfold.so"
-  };
-  for (const char *library : libraries)
-  {
-    const int status = gSystem->Load(library);
-    std::cout << "PPG12_ORACLE_ROOT_LOAD path=" << library
-              << " status=" << status << std::endl;
-    if (status < 0) gSystem->Exit(91);
-  }
   PPG12OraclePhotonClusterBuilder *builder = nullptr;
   if (builder != nullptr) gSystem->Exit(92);
   const YAML::Node yaml_header_smoke = YAML::Load("ppg12_oracle_smoke: 17");
@@ -1336,6 +1318,46 @@ void smoke_new17_runtime()
     &response, &measured, 1, false, "ppg12_oracle_bayes", "");
   (void)bayes;
   std::cout << "PPG12_ORACLE_ROOUNFOLD_API_SMOKE_PASS default_overflow=0" << std::endl;
+}
+EOF
+
+smoke_macro="${build_root}/smoke_new17_runtime.C"
+cat > "$smoke_macro" <<EOF
+#include <TUnfold.h>
+#include <TInterpreter.h>
+#include <TROOT.h>
+#include <TSystem.h>
+#include <iostream>
+void smoke_new17_runtime()
+{
+  const char *libraries[] = {
+    "${runtime_root}/lib/libCaloAna24.so",
+    "${runtime_root}/lib/libcalo_reco.so",
+    "${runtime_root}/lib/libclusteriso.so",
+    "${runtime_root}/lib/libjetbase.so",
+    "${runtime_root}/lib/libRecoilJets.so",
+    "${runtime_root}/lib/libyaml-cpp.so",
+    "${runtime_root}/lib/libRooUnfold.so"
+  };
+  for (const char *library : libraries)
+  {
+    const int status = gSystem->Load(library);
+    std::cout << "PPG12_ORACLE_ROOT_LOAD path=" << library
+              << " status=" << status << std::endl;
+    if (status < 0) gSystem->Exit(91);
+  }
+  if (gROOT->LoadMacro("${smoke_body_macro}") < 0)
+  {
+    std::cerr << "PPG12_ORACLE_SMOKE_BODY_LOAD_FAILED" << std::endl;
+    gSystem->Exit(95);
+  }
+  Int_t error = TInterpreter::kNoError;
+  gROOT->ProcessLine("smoke_new17_runtime_body();", &error);
+  if (error != TInterpreter::kNoError)
+  {
+    std::cerr << "PPG12_ORACLE_SMOKE_BODY_EXECUTION_FAILED" << std::endl;
+    gSystem->Exit(96);
+  }
 }
 EOF
 (
