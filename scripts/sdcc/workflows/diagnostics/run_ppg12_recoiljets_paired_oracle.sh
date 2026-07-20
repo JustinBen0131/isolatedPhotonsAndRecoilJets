@@ -25,7 +25,6 @@ npb_model="/sphenix/user/shuhangli/ppg12/FunWithxgboost/npb_models/npb_score_spl
 tower_mask="/sphenix/user/shuhangli/ppg12/efficiencytool/tower_masks_bdt_nom.root"
 recoil_runtime_manifest=""
 recoil_config=""
-reco_seed=42
 
 usage() {
   cat <<'EOF'
@@ -33,14 +32,13 @@ Usage:
   run_ppg12_recoiljets_paired_oracle.sh [--run --token TOKEN] \
     --output-dir ABS --g4-full-list ABS --truthjet-full-list ABS \
     --apply-config ABS --recoil-runtime-manifest ABS --recoil-config ABS \
-    [--reco-seed INTEGER] \
     [path overrides]
 
 Default mode is a non-mutating plan.  The only supported lane is Photon5,
-1p5mrad, SI, first five source rows.  The reconstruction seed is explicit and
-hash-bound; it is independent of the downstream estimator-toy seed 42.  --run
-executes in the foreground only and requires the exact token emitted by plan
-mode.
+1p5mrad, SI, first five source rows.  Both executables replay the exact five
+PHRandomSeed values captured in historical PPG12 OutDir0; this reconstruction
+contract is independent of downstream estimator-toy seed 42.  --run executes
+in the foreground only and requires the exact token emitted by plan mode.
 EOF
 }
 
@@ -67,20 +65,15 @@ while (($#)); do
     --tower-mask) tower_mask="$2"; shift 2 ;;
     --recoil-runtime-manifest) recoil_runtime_manifest="$2"; shift 2 ;;
     --recoil-config) recoil_config="$2"; shift 2 ;;
-    --reco-seed) reco_seed="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
 done
 
-[[ "$reco_seed" =~ ^[0-9]+$ ]] || die "--reco-seed must be a positive integer"
-(( reco_seed >= 1 && reco_seed <= 2147483647 )) || \
-  die "--reco-seed must be in [1, 2147483647]"
-
 auditor="${repo_root}/scripts/diagnostics/pp_currentian/audit_ppg12_recoiljets_paired_oracle.py"
 [[ -f "$auditor" && -s "$auditor" ]] || die "RNG-contract auditor is missing: $auditor"
 read -r first_ph_seed pedestal_seed pedestal_sequence ph_seed_sequence < <(
-  python3 "$auditor" rng-contract --seed "$reco_seed"
+  python3 "$auditor" rng-contract
 )
 [[ -n "$first_ph_seed" && -n "$pedestal_seed" && -n "$pedestal_sequence" && \
    -n "$ph_seed_sequence" ]] || die "failed to derive reconstruction RNG contract"
@@ -108,10 +101,10 @@ done
 
 contract_token="$({
   printf '%s\n' \
-    'schema_version=1' \
+    'schema_version=2' \
     'lane=Photon5:1p5mrad:SI' \
     'rows=5' \
-    "seed=${reco_seed}" \
+    'rng_mode=historical_fifo_replay_v2' \
     "first_ph_seed=${first_ph_seed}" \
     "pedestal_seed=${pedestal_seed}" \
     "pedestal=${pedestal_sequence}" \
@@ -130,7 +123,7 @@ PPG12_PAIRED_ORACLE_PLAN
   rows: first five run-28 G4Hits + DST_TRUTH_JET identities
   source_graph: NONE,g4,truthjet,NONE,NONE
   runtime: new.17 for both executables
-  RNG: recoConsts RANDOMSEED=${reco_seed}; first PH seed=${first_ph_seed}; pedestal=${pedestal_sequence}
+  RNG: historical FIFO replay; five PH seeds=${ph_seed_sequence}; pedestal=${pedestal_sequence}
   PPG12: frozen libCaloAna24 SHA-256 ff2dc9e1d34d9f31f67b7d089408e6333a0115b8fef98ce179fc2de1f2c829b8
   RecoilJets: isolated new.17 runtime manifest required
   execution: foreground only; no Condor; no merge; no current-pointer mutation
@@ -145,12 +138,11 @@ fi
 
 [[ "$provided_token" == "$contract_token" ]] || die "run token does not match this exact contract"
 [[ ! -e "$output_dir" ]] || die "output path already exists: $output_dir"
-[[ -z "${RANDOMSEED+x}" ]] || die "refusing inherited shell RANDOMSEED; the wrapper owns the recorded reconstruction seed"
+[[ -z "${RANDOMSEED+x}" ]] || die "refusing inherited shell RANDOMSEED; historical replay requires it absent"
 
 export RJ_PPG12_PAIRED_ORACLE_RUN_TOKEN="$contract_token"
 exec "$worker" \
   "$contract_token" "$repo_root" "$output_dir" "$setup_script" \
   "$ppg_macro" "$ppg_lib" "$g4_full_list" "$truthjet_full_list" \
   "$apply_bdt" "$apply_config" "$base_e_model" "$base_v3e_model" \
-  "$npb_model" "$tower_mask" "$recoil_runtime_manifest" "$recoil_config" \
-  "$reco_seed"
+  "$npb_model" "$tower_mask" "$recoil_runtime_manifest" "$recoil_config"

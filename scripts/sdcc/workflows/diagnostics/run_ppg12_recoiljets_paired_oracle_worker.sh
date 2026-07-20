@@ -10,7 +10,7 @@ die() {
   exit 2
 }
 
-[[ $# -eq 17 ]] || die "internal argument-count mismatch"
+[[ $# -eq 16 ]] || die "internal argument-count mismatch"
 
 expected_token="$1"
 repo_root="$2"
@@ -28,13 +28,10 @@ npb_model="${13}"
 tower_mask="${14}"
 recoil_runtime_manifest="${15}"
 recoil_config="${16}"
-reco_seed="${17}"
 
 [[ "${RJ_PPG12_PAIRED_ORACLE_RUN_TOKEN:-}" == "$expected_token" ]] || \
   die "missing exact authorization token from plan/run driver"
 [[ "$expected_token" == ppg12-oracle:* ]] || die "malformed authorization token"
-[[ "$reco_seed" =~ ^[0-9]+$ ]] || die "invalid reconstruction seed"
-(( reco_seed >= 1 && reco_seed <= 2147483647 )) || die "reconstruction seed out of range"
 [[ -z "${RANDOMSEED+x}" ]] || die "inherited shell RANDOMSEED is forbidden"
 [[ "$output_dir" == /* && ! -e "$output_dir" ]] || \
   die "output directory must be absolute and absent: $output_dir"
@@ -118,7 +115,7 @@ base_ld_library_path="${LD_LIBRARY_PATH:-}"
 base_root_include_path="${ROOT_INCLUDE_PATH:-}"
 
 read -r first_ph_seed pedestal_seed pedestal_sequence ph_seed_sequence < <(
-  python3 "$auditor" rng-contract --seed "$reco_seed"
+  python3 "$auditor" rng-contract
 )
 [[ -n "$first_ph_seed" && -n "$pedestal_seed" && -n "$pedestal_sequence" && \
    -n "$ph_seed_sequence" ]] || die "failed to derive reconstruction RNG contract"
@@ -201,7 +198,7 @@ python3 - \
   "$recoil_runtime_manifest" "$recoil_macro" "$recoil_config" \
   "$ppg_wrapper" "$recoil_wrapper" "$comparator" "$ppg_log" \
   "$recoil_log" "$ppg_raw_root" "$ppg_scored_root" "$recoil_root" \
-  "$candidate_csv" "$expected_token" "$reco_seed" "$first_ph_seed" \
+  "$candidate_csv" "$expected_token" "$first_ph_seed" \
   "$pedestal_seed" "$pedestal_sequence" "$ph_seed_sequence" <<'PY'
 from pathlib import Path
 import hashlib
@@ -213,7 +210,7 @@ import sys
     truth_slice, combined, apply_bdt, apply_config, base_e, base_v3e, npb,
     mask, recoil_manifest, recoil_macro, recoil_config, ppg_wrapper,
     recoil_wrapper, comparator, ppg_log, recoil_log, ppg_raw, ppg_scored,
-    recoil_root, candidate_csv, token, reco_seed, first_ph_seed,
+    recoil_root, candidate_csv, token, first_ph_seed,
     pedestal_seed, pedestal_sequence, ph_seed_sequence,
 ) = sys.argv[1:]
 
@@ -250,19 +247,22 @@ paths = {
     "candidate_csv": candidate_csv,
 }
 data = {
-    "schema_version": 1,
+    "schema_version": 2,
     "authorization_token": token,
     "lane": {
         "sample": "Photon5", "period": "1p5mrad", "interaction": "SI",
-        "rows": 5, "seed": int(reco_seed),
+        "rows": 5,
     },
     "rng": {
-        "reco_seed": int(reco_seed),
+        "mode": "historical_fifo_replay_v2",
+        "reco_consts_randomseed": "absent",
         "ph_seed_sequence": [int(value) for value in ph_seed_sequence.split(",")],
         "first_ph_seed": int(first_ph_seed),
         "pedestal_seed": int(pedestal_seed),
         "pedestal_sequence": int(pedestal_sequence),
         "pedestal_file": f"pedestal-54256-0{int(pedestal_sequence):04d}.root",
+        "source_log": "/sphenix/user/shuhangli/ppg12/anatreemaker/macro_maketree/sim/run28/photon5/condorout/OutDir0/test.out",
+        "source_log_call_count": 5,
     },
     "runtime": {
         "profile": "new.17",
@@ -295,12 +295,12 @@ ln -s "$jetbase_lib" "${recoil_lib_view}/libjetbase.so"
 
 ppg_runner="${runtime_dir}/run_ppg12.C"
 python3 - "$ppg_runner" "$ppg_macro" "$ppg_wrapper" "$g4_slice" \
-  "$truthjet_slice" "$ppg_raw_root" "$calo_macro_dir" "$reco_seed" <<'PY'
+  "$truthjet_slice" "$ppg_raw_root" "$calo_macro_dir" <<'PY'
 from pathlib import Path
 import json
 import sys
-runner, macro, wrapper, g4, truth, output, calo_macro_dir, reco_seed = sys.argv[1:]
-call = f"Fun4All_ppg12_fixed_seed_oracle({int(reco_seed)},{json.dumps(g4)},{json.dumps(truth)},{json.dumps(output)})"
+runner, macro, wrapper, g4, truth, output, calo_macro_dir = sys.argv[1:]
+call = f"Fun4All_ppg12_fixed_seed_oracle({json.dumps(g4)},{json.dumps(truth)},{json.dumps(output)})"
 Path(runner).write_text(f'''{{
   Int_t error = 0;
   gROOT->SetMacroPath((std::string({json.dumps(calo_macro_dir + ':')}) + gROOT->GetMacroPath()).c_str());
@@ -344,12 +344,12 @@ PY
 
 recoil_runner="${runtime_dir}/run_recoiljets.C"
 python3 - "$recoil_runner" "$recoil_macro" "$recoil_wrapper" \
-  "$combined_list" "$recoil_root" "$calo_macro_dir" "$reco_seed" <<'PY'
+  "$combined_list" "$recoil_root" "$calo_macro_dir" <<'PY'
 from pathlib import Path
 import json
 import sys
-runner, macro, wrapper, combined, output, calo_macro_dir, reco_seed = sys.argv[1:]
-call = f"Fun4All_recoiljets_fixed_seed_oracle({int(reco_seed)},{json.dumps(combined)},{json.dumps(output)})"
+runner, macro, wrapper, combined, output, calo_macro_dir = sys.argv[1:]
+call = f"Fun4All_recoiljets_fixed_seed_oracle({json.dumps(combined)},{json.dumps(output)})"
 Path(runner).write_text(f'''{{
   Int_t error = 0;
   gROOT->SetMacroPath((std::string({json.dumps(calo_macro_dir + ':')}) + gROOT->GetMacroPath()).c_str());
@@ -374,8 +374,10 @@ PY
   export RJ_SIM_SAMPLE=run28_photonjet5
   export RJ_PPG12_CLOSURE_CANARY=1
   export RJ_PPG12_CLOSURE_CANARY_ID=photon:photon5:1p5mrad:si:pairedoracle
-  export RJ_PPG12_PPSIM_FIXED_RANDOMSEED="$reco_seed"
-  export RJ_PPG12_PPSIM_FIXED_PEDESTAL_SEQUENCE="$pedestal_sequence"
+  export RJ_PPG12_PPSIM_REPLAY_SEEDS="$ph_seed_sequence"
+  export RJ_PPG12_PPSIM_EXPECT_PEDESTAL_SEQUENCE="$pedestal_sequence"
+  unset RJ_PPG12_PPSIM_FIXED_RANDOMSEED
+  unset RJ_PPG12_PPSIM_FIXED_PEDESTAL_SEQUENCE
   export RJ_PPG12_PHOTON_YIELD=1
   export RJ_PPG12_PHOTON_YIELD_DOUBLE=0
   export RJ_PPG12_PHOTON_YIELD_CLUSTER_ERES=0.04

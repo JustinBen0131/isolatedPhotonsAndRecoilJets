@@ -8,6 +8,7 @@
 #include <TSystem.h>
 
 #include <cstdlib>
+#include <array>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -27,15 +28,27 @@ void Fun4All_run_sim(
 
 namespace ppg12_paired_oracle
 {
-void require_seed_contract(const int seed)
+constexpr std::array<unsigned int, 5> kHistoricalSeeds = {
+    2991264730U,
+    4256268992U,
+    2394322166U,
+    874466025U,
+    2240380304U};
+constexpr unsigned int kHistoricalPedestalSequence = 534U;
+
+void load_historical_seed_contract()
 {
   recoConsts *rc = recoConsts::instance();
-  if (rc->FlagExist("RANDOMSEED") && rc->get_IntFlag("RANDOMSEED") != seed)
+  if (rc->FlagExist("RANDOMSEED"))
   {
-    throw std::runtime_error("conflicting recoConsts RANDOMSEED in PPG12 oracle process");
+    throw std::runtime_error(
+        "historical PPG12 replay forbids recoConsts RANDOMSEED");
   }
-  rc->set_IntFlag("RANDOMSEED", seed);
   PHRandomSeed::Verbosity(1);
+  for (const unsigned int seed : kHistoricalSeeds)
+  {
+    PHRandomSeed::LoadSeed(seed);
+  }
 }
 
 void emit_runtime_fingerprint(const char *side)
@@ -60,14 +73,18 @@ void emit_runtime_fingerprint(const char *side)
 }  // namespace ppg12_paired_oracle
 
 void Fun4All_ppg12_fixed_seed_oracle(
-    const int seed = 42,
     const std::string &g4List = "g4hits_first5.list",
     const std::string &truthJetList = "dst_truth_jet_first5.list",
     const std::string &outputFile = "output_sim.root")
 {
-  ppg12_paired_oracle::require_seed_contract(seed);
+  ppg12_paired_oracle::load_historical_seed_contract();
   ppg12_paired_oracle::emit_runtime_fingerprint("ppg12");
-  std::cout << "ORACLE_SEED_CONTRACT side=ppg12 rc_seed=" << seed << std::endl;
+  std::cout
+      << "ORACLE_SEED_CONTRACT side=ppg12 mode=historical_fifo_replay_v2"
+      << " rc_randomseed=absent"
+      << " ph_seed_sequence=2991264730,4256268992,2394322166,874466025,2240380304"
+      << " pedestal_sequence="
+      << ppg12_paired_oracle::kHistoricalPedestalSequence << std::endl;
   std::cout << "ORACLE_SOURCE_GRAPH side=ppg12 columns=NONE,g4,truthjet,NONE,NONE"
             << std::endl;
 

@@ -47,6 +47,7 @@
 #include <calotrigger/MinimumBiasClassifier.h>
 #include <ffamodules/FlagHandler.h>
 #include <ffamodules/CDBInterface.h>
+#include <fun4allutils/TimerStats.h>
 #include <clusteriso/ClusterIso.h>
 #include <calotrigger/TriggerRunInfoReco.h>
 #include <calobase/RawTowerGeomContainer_Cylinderv1.h>
@@ -3054,7 +3055,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         if (v == "0" || v == "false" || v == "no" || v == "off") return false;
         return def;
     };
-    
+
     //--------------------------------------------------------------------
     // 1.  Parse the file list & determine run / segment
     //--------------------------------------------------------------------
@@ -3537,15 +3538,116 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         isSim && !isSimEmbedded &&
         env_truthy_local("RJ_PPG12_PHOTON_YIELD") &&
         env_truthy_local("RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4");
+    const bool ppg12ClosureCanary =
+        env_truthy_local("RJ_PPG12_CLOSURE_CANARY");
+    const std::string ppg12ClosureCanaryId =
+        std::getenv("RJ_PPG12_CLOSURE_CANARY_ID")
+            ? detail::trim(std::string(std::getenv("RJ_PPG12_CLOSURE_CANARY_ID")))
+            : std::string();
+    const std::string ppg12HistoricalSeedSequence =
+        "2991264730,4256268992,2394322166,874466025,2240380304";
+    const int ppg12ExpectedPedestalSequence = 534;
+    const std::string ppg12ReplaySeedSequence =
+        std::getenv("RJ_PPG12_PPSIM_REPLAY_SEEDS")
+            ? detail::trim(std::string(std::getenv("RJ_PPG12_PPSIM_REPLAY_SEEDS")))
+            : std::string();
+    const std::string ppg12ExpectedPedestalToken =
+        std::getenv("RJ_PPG12_PPSIM_EXPECT_PEDESTAL_SEQUENCE")
+            ? detail::trim(std::string(
+                  std::getenv("RJ_PPG12_PPSIM_EXPECT_PEDESTAL_SEQUENCE")))
+            : std::string();
+    int ppg12NaturalPedestalSequence = -1;
+    std::string ppg12PedestalFileForProvenance;
+
+    if ((!ppg12ReplaySeedSequence.empty() ||
+         !ppg12ExpectedPedestalToken.empty()) &&
+        !ppg12ClosureCanary)
+    {
+        detail::bail(
+            "PPG12 historical RNG replay controls are valid only with "
+            "RJ_PPG12_CLOSURE_CANARY=1");
+    }
+    if (ppg12ClosureCanary)
+    {
+        const bool safeCanaryId =
+            !ppg12ClosureCanaryId.empty() &&
+            ppg12ClosureCanaryId.size() <= 128 &&
+            ppg12ClosureCanaryId.find_first_not_of(
+                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.:-") ==
+                std::string::npos;
+        if (!safeCanaryId)
+            detail::bail("RJ_PPG12_CLOSURE_CANARY_ID is missing or unsafe");
+        if (!isSim || isSimEmbedded || isAuAuRequested ||
+            !usePPG12PPSimRebuildCaloFromG4 ||
+            !env_truthy_local("RJ_PPG12_PPSIM_G4_ONLY"))
+        {
+            detail::bail(
+                "PPG12 closure RNG controls require the pp-only PPG12 exact "
+                "G4-only rebuild path");
+        }
+        if (std::getenv("RJ_PPG12_PPSIM_FIXED_RANDOMSEED") ||
+            std::getenv("RJ_PPG12_PPSIM_FIXED_PEDESTAL_SEQUENCE"))
+        {
+            detail::bail(
+                "synthetic fixed-seed controls are forbidden in the historical replay");
+        }
+        if (ppg12ReplaySeedSequence != ppg12HistoricalSeedSequence ||
+            ppg12ExpectedPedestalToken !=
+                std::to_string(ppg12ExpectedPedestalSequence))
+        {
+            detail::bail(
+                "PPG12 closure canary requires the exact historical five-seed "
+                "FIFO replay and pedestal sequence 534");
+        }
+        if (!env_truthy_local("RJ_DISABLE_JES_CDB_AUDIT"))
+        {
+            detail::bail(
+                "PPG12 closure canary requires RJ_DISABLE_JES_CDB_AUDIT=1");
+        }
+        for (const char* forbidden : {
+                 "RJ_CDB_GLOBALTAG",
+                 "RJ_CDB_TIMESTAMP",
+                 "RJ_TRUTH_JETS_MODE",
+                 "RJ_DETAILED_CEMC_GEOM",
+                 "RJ_CALO_INPUT_MODE",
+                 "RJ_CALO_CLUSTER_NODE"})
+        {
+            if (std::getenv(forbidden))
+            {
+                detail::bail(
+                    std::string("PPG12 closure canary forbids inherited override ") +
+                    forbidden);
+            }
+        }
+        if (std::getenv("RJ_PPG12_PEDESTAL_OVERRIDE") ||
+            std::getenv("RJ_PPG12_DI_ARCHIVED_EXPECT_PEDESTAL"))
+        {
+            detail::bail(
+                "generic or archived pedestal controls cannot be combined with the closure oracle");
+        }
+        if (rc->FlagExist("RANDOMSEED"))
+        {
+            detail::bail(
+                "historical PPG12 seed replay requires recoConsts RANDOMSEED to be absent");
+        }
+        PHRandomSeed::Verbosity(1);
+        std::cout << "[PPG12_CLOSURE_RNG] canary_id=" << ppg12ClosureCanaryId
+                  << " mode=historical_fifo_replay_v2"
+                  << " replay_sequence=" << ppg12ReplaySeedSequence
+                  << " RANDOMSEED_absent=1" << std::endl;
+    }
 
     // CDB_GLOBALTAG is REQUIRED for any CDBInterface::getUrl() call.
     // The PPG12 pp-SIM G4 rebuild macro uses MDC2; keep the normal analysis
     // default untouched outside that gated diagnostic/parity path.
     std::string gtag = usePPG12PPSimRebuildCaloFromG4 ? "MDC2" : "newcdbtag";
-    if (const char* envGT = std::getenv("RJ_CDB_GLOBALTAG"))
+    if (!ppg12ClosureCanary)
     {
-        std::string tmp = detail::trim(std::string(envGT));
-        if (!tmp.empty()) gtag = tmp;
+        if (const char* envGT = std::getenv("RJ_CDB_GLOBALTAG"))
+        {
+            std::string tmp = detail::trim(std::string(envGT));
+            if (!tmp.empty()) gtag = tmp;
+        }
     }
     rc->set_StringFlag("CDB_GLOBALTAG", gtag);
     
@@ -3580,11 +3682,19 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             : 47289ULL;  // keep your old working SIM timestamp
     }
     
-    if (const char* ts = std::getenv("RJ_CDB_TIMESTAMP"))
+    if (!ppg12ClosureCanary)
     {
-        char* end = nullptr;
-        unsigned long long tmp = std::strtoull(ts, &end, 10);
-        if (end != ts && tmp > 0ULL) cdbts = tmp;
+        if (const char* ts = std::getenv("RJ_CDB_TIMESTAMP"))
+        {
+            char* end = nullptr;
+            unsigned long long tmp = std::strtoull(ts, &end, 10);
+            if (end != ts && tmp > 0ULL) cdbts = tmp;
+        }
+    }
+    else if (run != 28 || cdbts != 28ULL)
+    {
+        detail::bail(
+            "PPG12 closure canary requires Run-28 input identity and TIMESTAMP=28");
     }
     
     rc->set_uint64Flag("TIMESTAMP", cdbts);
@@ -3622,8 +3732,14 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     }
     
     
-    auto* flag = new FlagHandler();
-    se->registerSubsystem(flag);
+    // The preserved PPG12 executable registers FlagHandler immediately after
+    // InputInit/InputRegister.  Defer it only for the exact closure canary;
+    // every ordinary pp/AuAu path keeps the established registration point.
+    if (!ppg12ClosureCanary)
+    {
+        auto* flag = new FlagHandler();
+        se->registerSubsystem(flag);
+    }
     
     // ------------------------------------------------------------------
     // Decide how to source truth jets in SIM:
@@ -3785,7 +3901,15 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             detail::bail(
                 "RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4=1 requires the PPG12 SIM input stack "
                 "lanes 1=DST_CALO_CLUSTER and 3=DST_MBD_EPD in addition to lanes 0=G4Hits and 4=DST_JETS. "
-                "Set RJ_PPG12_PPSIM_G4_ONLY=1 for the PPG12 DI_NEW double samples that intentionally provide only G4Hits + DST_JETS.");
+                "Set RJ_PPG12_PPSIM_G4_ONLY=1 for the live executable PPG12 "
+                "SI/DI contract that intentionally provides only G4Hits + DST_JETS.");
+        }
+        if (ppg12ClosureCanary &&
+            (!usePPG12PPSimG4OnlyInput || listHasCalo || listHasGlobal || listHasMbd))
+        {
+            detail::bail(
+                "The executable PPG12 closure oracle requires exactly G4Hits + "
+                "DST_TRUTH_JET inputs; CALO, GLOBAL, and MBD lanes must be NONE");
         }
     }
 
@@ -3889,8 +4013,14 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         if (usePPG12PPSimAuxInputs && listHasCalo) INPUTREADHITS::listfile[1] = caloList;
         if (usePPG12PPSimAuxInputs && listHasMbd) INPUTREADHITS::listfile[3] = mbdList;
         INPUTREADHITS::listfile[4] = jetsList;
-        if (usePPG12PPSimG4OnlyInput)
+        if (ppg12ClosureCanary)
         {
+            // The executable oracle includes the Calo_Calib status chain.
+            unsetenv("RJ_SKIP_CALO_TOWER_STATUS");
+        }
+        else if (usePPG12PPSimG4OnlyInput)
+        {
+            // Preserve the pre-existing non-canary G4-rebuild behavior.
             setenv("RJ_SKIP_CALO_TOWER_STATUS", "1", 1);
         }
         else
@@ -3899,81 +4029,104 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         }
         InputInit();
         InputRegister();
-        Enable::MBDRECO = false;
-        if (verbose || vlevel > 0)
+
+        if (ppg12ClosureCanary)
         {
-            std::cout << "[PPG12_PPSIM_REBUILD_CALO_FROM_G4] skipping helper Mbd_Reco() in the G4 input stack; "
-                      << (usePPG12PPSimG4OnlyInput
-                              ? "G4-only input has no standalone MBD DST lane; manual MbdReco will run on the G4 stack"
-                              : "four-lane input follows the visible PPG12 macro: DST_CALO_CLUSTER + DST_MBD_EPD with manual MbdReco before Process_Calo_Calib")
-                      << std::endl;
-        }
-        if (usePPG12PPSimG4OnlyInput)
-        {
+            // Exact live PPG12 graph for both SI and DI:
+            // InputRegister -> FlagHandler -> Mbd_Reco helper ->
+            // GlobalVertexReco -> RunSettings/towers -> InputManagers.
+            auto* ppg12Flag = new FlagHandler();
+            se->registerSubsystem(ppg12Flag);
+
+            Enable::MBDRECO = true;
+            Mbd_Reco();
+
             if (vlevel > 0)
             {
-                std::cout << "[PPG12_PPSIM_REBUILD_CALO_FROM_G4] registering early MbdDigitization + MbdReco + GlobalVertexReco "
-                          << "immediately after InputRegister() to match the PPG12 double-interaction macro"
+                std::cout << "[PPG12_PPSIM_REBUILD_CALO_FROM_G4] registering "
+                          << "Mbd_Reco() + GlobalVertexReco after InputRegister() "
+                          << "to match the live PPG12 SI/DI executable graph"
                           << std::endl;
             }
-            std::unique_ptr<MbdDigitization> mbddigi = std::make_unique<MbdDigitization>();
-            se->registerSubsystem(mbddigi.release());
-
-            std::unique_ptr<MbdReco> mbdreco = std::make_unique<MbdReco>();
-            se->registerSubsystem(mbdreco.release());
-
             std::unique_ptr<GlobalVertexReco> gvertex = std::make_unique<GlobalVertexReco>();
+            gvertex->Verbosity(0);
             se->registerSubsystem(gvertex.release());
-        }
-        else
-        {
-            if (vlevel > 0)
-            {
-                std::cout << "[PPG12_PPSIM_REBUILD_CALO_FROM_G4] registering MbdReco + GlobalVertexReco "
-                          << "before Process_Calo_Calib for four-lane Fig.11-compatible input"
-                          << std::endl;
-            }
-            std::unique_ptr<MbdReco> mbdreco = std::make_unique<MbdReco>();
-            se->registerSubsystem(mbdreco.release());
 
-            std::unique_ptr<GlobalVertexReco> gvertex = std::make_unique<GlobalVertexReco>();
-            se->registerSubsystem(gvertex.release());
-        }
-        if (usePPG12PPSimG4OnlyInput)
-        {
             RunSettings(28);
             Enable::CEMC_TOWERINFO = true;
             Enable::HCALIN_TOWERINFO = true;
             Enable::HCALOUT_TOWERINFO = true;
-            if (usePPG12Fig11G4OnlyRebuild)
-            {
-                CEMC_Cells();
-                HCALInner_Cells();
-                HCALOuter_Cells();
-            }
             CEMC_Towers();
             HCALInner_Towers();
             HCALOuter_Towers();
-            if (usePPG12Fig11G4OnlyRebuild)
-            {
-                auto* clusterBuilder = new RawClusterBuilderTemplate("EmcRawClusterBuilderTemplate");
-                clusterBuilder->Detector("CEMC");
-                clusterBuilder->set_threshold_energy(0.070);
-                std::string emcProf = getenv("CALIBRATIONROOT");
-                emcProf += "/EmcProfile/CEMCprof_Thresh30MeV.root";
-                clusterBuilder->LoadProfile(emcProf);
-                clusterBuilder->set_UseTowerInfo(1);
-                se->registerSubsystem(clusterBuilder);
 
-                if (verbose || vlevel > 0)
+            auto* timerStats = new TimerStats();
+            timerStats->OutFileName("jobtime.root");
+            se->registerSubsystem(timerStats);
+        }
+        else
+        {
+            Enable::MBDRECO = false;
+            if (usePPG12PPSimG4OnlyInput)
+            {
+                if (vlevel > 0)
                 {
-                    std::cout << "[PPG12_FIG11_SB][G4_ONLY_REBUILD] registered single CEMC cluster builder "
-                              << "after G4 helper tower/status/calib chain; Process_Calo_Calib will be skipped "
-                              << "to avoid duplicate TOWERINFO_CALIB_* nodes" << std::endl;
+                    std::cout << "[PPG12_PPSIM_REBUILD_CALO_FROM_G4] registering early "
+                              << "MbdDigitization + MbdReco + GlobalVertexReco "
+                              << "for the non-canary G4-only rebuild" << std::endl;
+                }
+                std::unique_ptr<MbdDigitization> mbddigi =
+                    std::make_unique<MbdDigitization>();
+                se->registerSubsystem(mbddigi.release());
+            }
+
+            if (!usePPG12PPSimG4OnlyInput && vlevel > 0)
+            {
+                std::cout << "[PPG12_PPSIM_REBUILD_CALO_FROM_G4] registering "
+                          << "MbdReco + GlobalVertexReco before Process_Calo_Calib "
+                          << "for four-lane Fig.11-compatible input" << std::endl;
+            }
+
+            std::unique_ptr<MbdReco> mbdreco = std::make_unique<MbdReco>();
+            se->registerSubsystem(mbdreco.release());
+
+            std::unique_ptr<GlobalVertexReco> gvertex = std::make_unique<GlobalVertexReco>();
+            se->registerSubsystem(gvertex.release());
+
+            if (usePPG12PPSimG4OnlyInput)
+            {
+                RunSettings(28);
+                Enable::CEMC_TOWERINFO = true;
+                Enable::HCALIN_TOWERINFO = true;
+                Enable::HCALOUT_TOWERINFO = true;
+                if (usePPG12Fig11G4OnlyRebuild)
+                {
+                    CEMC_Cells();
+                    HCALInner_Cells();
+                    HCALOuter_Cells();
+                }
+                CEMC_Towers();
+                HCALInner_Towers();
+                HCALOuter_Towers();
+
+                if (usePPG12Fig11G4OnlyRebuild)
+                {
+                    auto* clusterBuilder =
+                        new RawClusterBuilderTemplate("EmcRawClusterBuilderTemplate");
+                    clusterBuilder->Detector("CEMC");
+                    clusterBuilder->set_threshold_energy(0.070);
+                    const char* calibrationRoot = std::getenv("CALIBRATIONROOT");
+                    if (!calibrationRoot || !std::string(calibrationRoot).size())
+                        detail::bail("CALIBRATIONROOT is required for the PPG12 cluster builder");
+                    clusterBuilder->LoadProfile(
+                        std::string(calibrationRoot) +
+                        "/EmcProfile/CEMCprof_Thresh30MeV.root");
+                    clusterBuilder->set_UseTowerInfo(1);
+                    se->registerSubsystem(clusterBuilder);
                 }
             }
         }
-        else if (verbose || vlevel > 0)
+        if (!usePPG12PPSimG4OnlyInput && (verbose || vlevel > 0))
         {
             std::cout << "[PPG12_FIG11_SB][FOUR_LANE] using DST_CALO_CLUSTER + DST_MBD_EPD inputs; "
                       << "not registering the G4 waveform/tower helper stack. Process_Calo_Calib() will match the visible PPG12 macro."
@@ -3983,13 +4136,36 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 
         TRandom3 randGen;
         randGen.SetSeed(PHRandomSeed());
-        const int sequence = randGen.Integer(3260);
+        // Preserve the executable PPG12 random-call graph.  In the exact
+        // closure oracle an external wrapper preloads the five seeds captured
+        // in historical OutDir0, so the natural result must itself be 00534;
+        // no pedestal identity is substituted.
+        const int naturalSequence = randGen.Integer(3260);
+        const int sequence = naturalSequence;
+        ppg12NaturalPedestalSequence = naturalSequence;
+        if (ppg12ClosureCanary &&
+            naturalSequence != ppg12ExpectedPedestalSequence)
+        {
+            detail::bail(
+                "historical PPG12 seed replay did not reproduce pedestal sequence 534");
+        }
         std::ostringstream pedName;
         pedName << "pedestal-54256-0" << std::setw(4) << std::setfill('0') << sequence << ".root";
+        ppg12PedestalFileForProvenance = pedName.str();
         auto* pedIn = new Fun4AllNoSyncDstInputManager("DST2");
         pedIn->AddFile(pedName.str());
         pedIn->Repeat();
         se->registerInputManager(pedIn);
+
+        if (ppg12ClosureCanary)
+        {
+            std::cout << "[PPG12_CLOSURE_PEDESTAL] canary_id="
+                      << ppg12ClosureCanaryId
+                      << " natural_sequence=" << naturalSequence
+                      << " chosen_sequence=" << sequence
+                      << " logical_file=" << pedName.str()
+                      << " phrandomseed_call_consumed=1" << std::endl;
+        }
 
         if (verbose || vlevel > 0)
         {
@@ -4029,7 +4205,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                 "RJ_PPG12_FIG11_SB_DIAGNOSTIC=1 with RJ_PPG12_PPSIM_G4_ONLY=1 "
                 "must use the PPG12-style G4 rebuild stack. Set "
                 "RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4=1 so the macro runs "
-                "Input::READHITS/InputRegister, MbdReco, GlobalVertexReco, "
+                "Input::READHITS/InputRegister, Mbd_Reco, GlobalVertexReco, "
                 "and the calo reconstruction path instead of the legacy "
                 "prebuilt-G4 shortcut. To debug the old shortcut explicitly, "
                 "set RJ_ALLOW_LEGACY_PPG12_PPSIM_PREBUILT_G4_ONLY=1.");
@@ -4038,7 +4214,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         if (usePPG12PPSimPrebuiltG4OnlyInput)
         {
             // Legacy diagnostic-only path.  PPG12 production macros rebuild
-            // from G4Hits with Input::READHITS/InputRegister, MbdReco,
+            // from G4Hits with Input::READHITS/InputRegister, Mbd_Reco,
             // GlobalVertexReco, and the calo reconstruction chain; keep this
             // shortcut opt-in so it cannot become the canonical parity path.
             if (!listHasG4 || !listHasJets)
@@ -4238,36 +4414,39 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     // So we ALWAYS create the legacy node (TOWERGEOM_CEMC), and optionally
     // also create the detailed node (TOWERGEOM_CEMC_DETAILED).
     //
-    bool useDetailedCemcGeom = true;  // keep your current behavior by default
-    if (const char* env = std::getenv("RJ_DETAILED_CEMC_GEOM"))
+    if (!ppg12ClosureCanary)
     {
-        useDetailedCemcGeom = (std::atoi(env) != 0);
-    }
-    
-    // Always publish the legacy/simple CEMC geometry node: TOWERGEOM_CEMC
-    {
-        auto* geomCemcLegacy = new CaloGeomMapping("Geom_CEMC");
-        geomCemcLegacy->set_detector_name("CEMC");
-        geomCemcLegacy->set_UseDetailedGeometry(false);
-        se->registerSubsystem(geomCemcLegacy);
-    }
-    
-    // Optionally publish the detailed CEMC geometry node: TOWERGEOM_CEMC_DETAILED
-    if (useDetailedCemcGeom)
-    {
-        auto* geomCemcDetailed = new CaloGeomMapping("Geom_CEMC_DETAILED");
-        geomCemcDetailed->set_detector_name("CEMC");
-        geomCemcDetailed->set_UseDetailedGeometry(true);
-        se->registerSubsystem(geomCemcDetailed);
-    }
-    
-    // HCAL nodes (detailed not supported; CaloGeomMapping will fall back internally)
-    for (const std::string& det : {"HCALIN","HCALOUT"})
-    {
-        auto* geom = new CaloGeomMapping(("Geom_" + det).c_str());
-        geom->set_detector_name(det);
-        geom->set_UseDetailedGeometry(true);
-        se->registerSubsystem(geom);
+        bool useDetailedCemcGeom = true;  // keep ordinary production behavior
+        if (const char* env = std::getenv("RJ_DETAILED_CEMC_GEOM"))
+        {
+            useDetailedCemcGeom = (std::atoi(env) != 0);
+        }
+
+        // Always publish the legacy/simple CEMC geometry node: TOWERGEOM_CEMC
+        {
+            auto* geomCemcLegacy = new CaloGeomMapping("Geom_CEMC");
+            geomCemcLegacy->set_detector_name("CEMC");
+            geomCemcLegacy->set_UseDetailedGeometry(false);
+            se->registerSubsystem(geomCemcLegacy);
+        }
+
+        // Optionally publish the detailed CEMC geometry node.
+        if (useDetailedCemcGeom)
+        {
+            auto* geomCemcDetailed = new CaloGeomMapping("Geom_CEMC_DETAILED");
+            geomCemcDetailed->set_detector_name("CEMC");
+            geomCemcDetailed->set_UseDetailedGeometry(true);
+            se->registerSubsystem(geomCemcDetailed);
+        }
+
+        // HCAL nodes (detailed not supported; mapping falls back internally).
+        for (const std::string& det : {"HCALIN","HCALOUT"})
+        {
+            auto* geom = new CaloGeomMapping(("Geom_" + det).c_str());
+            geom->set_detector_name(det);
+            geom->set_UseDetailedGeometry(true);
+            se->registerSubsystem(geom);
+        }
     }
     
     
@@ -4287,14 +4466,44 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         if (vlevel > 0)
         {
             std::cout << "[PPG12_PPSIM_REBUILD_CALO_FROM_G4] "
-                      << (usePPG12Fig11G4OnlyRebuild
-                              ? "skipping Process_Calo_Calib(); Fig.11 G4-only path already registered the G4 helper tower/status/calib chain and CEMC cluster builder\n"
-                              : "running Process_Calo_Calib() on the PPG12 four-lane input stack for pp SIM parity diagnostics\n");
+                      << ((ppg12ClosureCanary || !usePPG12Fig11G4OnlyRebuild)
+                              ? "running Process_Calo_Calib() after the PPG12 input/pedestal stack\n"
+                              : "skipping Process_Calo_Calib(); the non-canary Fig.11 G4-only path already registered its tower and cluster stack\n");
         }
 #if RJ_HAS_SPHENIX_G4_INPUT_MACROS
-        if (!usePPG12Fig11G4OnlyRebuild)
+        if (ppg12ClosureCanary || !usePPG12Fig11G4OnlyRebuild)
         {
             Process_Calo_Calib();
+        }
+
+        // Only the exact executable-oracle branch adds the preserved
+        // post-calibration no-split collection.  Ordinary G4-rebuild jobs
+        // retain their pre-canary reconstruction graph.
+        if (ppg12ClosureCanary)
+        {
+            auto* noSplitBuilder =
+                new RawClusterBuilderTemplate("EmcRawClusterBuilderTemplate_PPG12OracleNoSplit");
+            noSplitBuilder->Detector("CEMC");
+            noSplitBuilder->set_threshold_energy(0.070);
+            const char* calibrationRoot = std::getenv("CALIBRATIONROOT");
+            if (!calibrationRoot || !std::string(calibrationRoot).size())
+                detail::bail("CALIBRATIONROOT is required for the PPG12 no-split cluster builder");
+            const std::string emcProfile =
+                std::string(calibrationRoot) +
+                "/EmcProfile/CEMCprof_Thresh30MeV.root";
+            noSplitBuilder->LoadProfile(emcProfile);
+            noSplitBuilder->setSubclusterSplitting(false);
+            noSplitBuilder->setOutputClusterNodeName("CLUSTERINFO_CEMC_NO_SPLIT");
+            noSplitBuilder->set_UseTowerInfo(1);
+            noSplitBuilder->Verbosity(0);
+            se->registerSubsystem(noSplitBuilder);
+
+            if (verbose || vlevel > 0)
+            {
+                std::cout << "[PPG12_PPSIM_REBUILD_CALO_FROM_G4] registered "
+                          << "post-calibration no-split TowerInfo cluster builder "
+                          << "node=CLUSTERINFO_CEMC_NO_SPLIT" << std::endl;
+            }
         }
 #else
         detail::bail(
@@ -5509,9 +5718,64 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     const bool ppg12PhotonYieldPPSim =
         env_truthy_local("RJ_PPG12_PHOTON_YIELD") &&
         isSim && !isAuAuLike;
-    const bool usePPG12PPTowerInfoShapes =
-        env_truthy_local("RJ_PPG12_PHOTON_YIELD") &&
-        !isAuAuLike;
+    // Canonical CEMC shower-shape contract (all systems and sample types):
+    // build the 7x7 grid from the complete good-TowerInfo grid.  The pp
+    // core/PPG12 contract accepts TowerInfo cells through get_isGood() only;
+    // Au+Au-specific status/calibration is already encoded in that flag, so no
+    // second analysis-local chi2/CDB mask is applied to the shower grid. pp
+    // retains the PPG12 70 MeV cell floor; Au+Au uses a zero configured cell
+    // floor. Data and embedded simulation must share both settings. The RawCluster
+    // towermap remains a PhotonClusterBuilder diagnostic API only and is never
+    // selected implicitly by the unified production path.
+    constexpr float kPPG12PPCEMCShapeTowerMinGeV = 0.070f;
+    constexpr float kAuAuCEMCShapeTowerMinGeV = 0.0f;
+    std::string cemcShowerShapeDiagnosticVariant = "canonical";
+    if (const char* raw = std::getenv("RJ_AUAU_SHOWER_SHAPE_DIAGNOSTIC_VARIANT"))
+    {
+        cemcShowerShapeDiagnosticVariant = detail::trim(std::string(raw));
+        std::transform(cemcShowerShapeDiagnosticVariant.begin(),
+                       cemcShowerShapeDiagnosticVariant.end(),
+                       cemcShowerShapeDiagnosticVariant.begin(),
+                       [](unsigned char c){ return std::tolower(c); });
+    }
+    if (cemcShowerShapeDiagnosticVariant != "canonical" &&
+        cemcShowerShapeDiagnosticVariant != "towerinfo70" &&
+        cemcShowerShapeDiagnosticVariant != "historical")
+    {
+        detail::bail(
+            "RJ_AUAU_SHOWER_SHAPE_DIAGNOSTIC_VARIANT must be one of "
+            "canonical, towerinfo70, or historical; received \"" +
+            cemcShowerShapeDiagnosticVariant + "\"");
+    }
+    if (!isAuAuLike && cemcShowerShapeDiagnosticVariant != "canonical")
+    {
+        detail::bail(
+            "RJ_AUAU_SHOWER_SHAPE_DIAGNOSTIC_VARIANT=" +
+            cemcShowerShapeDiagnosticVariant +
+            " is an AuAu-only diagnostic and cannot modify the pp contract");
+    }
+
+    bool useCoreGoodTowerInfoShapes = true;
+    bool useRawClusterTowermapForCEMCShapes = false;
+    float resolvedCEMCShapeTowerMinGeV =
+        isAuAuLike ? kAuAuCEMCShapeTowerMinGeV : kPPG12PPCEMCShapeTowerMinGeV;
+    std::string resolvedCEMCShapeEnergySource = "towerinfo_full_good_grid";
+    std::string resolvedCEMCShapeTowerAcceptance = "towerinfo_get_isgood";
+
+    if (isAuAuLike && cemcShowerShapeDiagnosticVariant == "towerinfo70")
+    {
+        resolvedCEMCShapeTowerMinGeV = kPPG12PPCEMCShapeTowerMinGeV;
+    }
+    else if (isAuAuLike && cemcShowerShapeDiagnosticVariant == "historical")
+    {
+        resolvedCEMCShapeTowerMinGeV = kPPG12PPCEMCShapeTowerMinGeV;
+        if (isSimEmbedded)
+        {
+            useRawClusterTowermapForCEMCShapes = true;
+            resolvedCEMCShapeEnergySource = "raw_cluster_towermap_diagnostic";
+            resolvedCEMCShapeTowerAcceptance = "raw_cluster_towermap_membership";
+        }
+    }
     const bool requestedPPG12TruthVertexForReco =
         ppg12PhotonYieldPPSim &&
         (env_truthy_local("RJ_PPG12_PHOTON_YIELD_TRUTH_VERTEX") ||
@@ -5591,22 +5855,26 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         builder->set_input_cluster_node(photonInputClusterNode);
         builder->set_output_photon_node(outNode);
         builder->set_ET_threshold(static_cast<float>(minPhotonEt));
+        builder->set_shower_shape_min_tower_energy(resolvedCEMCShapeTowerMinGeV);
         builder->set_iso_min_tower_energy(photonBuilderIsoTowerMin);
         builder->set_use_ppg12_pp_iso_axis(useSamePhotonBDTScores);
         builder->set_use_ppg12_pp_sim_truth_vertex(false);
         builder->set_use_ppg12_pp_sim_global_mbd_vertex(ppg12PhotonYieldPPSim);
-        // CaloAna24 forms the PPG12 7x7 shower-shape inputs from the complete
-        // TowerInfo grid for both data and SIM.  Do not fall back to the raw
-        // cluster towermap for pp data: that omits non-owned neighboring cells
-        // and changes the NPB/tight-BDT inputs for non-isolated candidates.
-        builder->set_use_ppg12_pp_sim_towerinfo_shapes(usePPG12PPTowerInfoShapes);
+        // CaloAna24/core PhotonClusterBuilder forms the 7x7 shower-shape inputs
+        // from the complete good-TowerInfo grid.  Apply that energy-source
+        // contract to pp and Au+Au, data and simulation.  In particular, do
+        // not let embedded Au+Au silently fall back to the RawCluster towermap:
+        // that would give training/response samples different BDT inputs from
+        // data reconstructed with the same nominal selection.
+        builder->set_use_ppg12_pp_sim_towerinfo_shapes(useCoreGoodTowerInfoShapes);
         builder->set_use_ppg12_topocluster_isolation(usePPG12PhotonYieldTopoIso);
         builder->set_ppg12_topocluster_node("TOPOCLUSTER_ALLCALO");
         builder->set_ppg12_topocluster_iso_radius(0.4f);
         builder->set_ppg12_topocluster_exclude_candidate(ppg12ExcludeCandidateTopo);
         builder->set_skip_ppg12_edge_clusters(useSamePhotonBDTScores);
         builder->set_enable_ss_3x3_moments(isAuAuLike);
-        builder->set_use_raw_cluster_towermap_for_cemc_shapes(isSimEmbedded);
+        builder->set_use_raw_cluster_towermap_for_cemc_shapes(
+            useRawClusterTowermapForCEMCShapes);
         
         builder->set_use_vz_cut(cfg.use_vz_cut);
         builder->set_vz_cut_cm(photonBuilderVzCutCm);
@@ -6265,7 +6533,11 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         << " | ppg12RecoVertex="
         << (ppg12PhotonYieldPPSim ? "GlobalVertexMap::MBD" : "default reco")
         << " | ppg12TruthVertexRole=SI/DI weight only"
-        << " | ppg12TowerInfoShapes=" << (usePPG12PPTowerInfoShapes ? "true" : "false")
+        << " | cemcShapeDiagnosticVariant=" << cemcShowerShapeDiagnosticVariant
+        << " | cemcShapeEnergySource=" << resolvedCEMCShapeEnergySource
+        << " | shapeTowerAcceptance=" << resolvedCEMCShapeTowerAcceptance
+        << " | rawTowermapCEMCShapes=" << (useRawClusterTowermapForCEMCShapes ? "true" : "false")
+        << " | shapeTowerMinEGeV=" << resolvedCEMCShapeTowerMinGeV
         << " | isAuAuLike=" << (isAuAuLike ? "true" : "false")
         << " | isSimEmbedded=" << (isSimEmbedded ? "true" : "false")
         << " | photonBuilderIsAuAu=" << (photonBuilderIsAuAu ? "true" : "false")
@@ -6809,6 +7081,54 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     
     recoilJets->enablePi0Analysis(cfg.doPi0Analysis);
     std::string stampedYaml = idfanout::YAMLForEntry(cfg.yamlText, idEntry);
+    idfanout::ReplaceOrAppendScalar(stampedYaml,
+                                    "cemc_shower_shape_energy_source",
+                                    resolvedCEMCShapeEnergySource);
+    idfanout::ReplaceOrAppendScalar(stampedYaml,
+                                    "cemc_shower_shape_raw_cluster_towermap",
+                                    useRawClusterTowermapForCEMCShapes ? "true" : "false");
+    idfanout::ReplaceOrAppendScalar(stampedYaml,
+                                    "cemc_shower_shape_tower_acceptance",
+                                    resolvedCEMCShapeTowerAcceptance);
+    idfanout::ReplaceOrAppendScalar(stampedYaml,
+                                    "cemc_shower_shape_tower_min_energy_gev",
+                                    detail::fmt(resolvedCEMCShapeTowerMinGeV, 3));
+    idfanout::ReplaceOrAppendScalar(stampedYaml,
+                                    "cemc_shower_shape_diagnostic_variant",
+                                    cemcShowerShapeDiagnosticVariant);
+    if (ppg12ClosureCanary)
+    {
+        idfanout::ReplaceOrAppendScalar(stampedYaml,
+                                        "ppg12_closure_canary", "true");
+        idfanout::ReplaceOrAppendScalar(stampedYaml,
+                                        "ppg12_closure_canary_id",
+                                        ppg12ClosureCanaryId);
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "ppg12_closure_rng_contract",
+            "historical_phrandomseed_fifo_replay_v2");
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "ppg12_closure_randomseed", "absent");
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "ppg12_closure_seed_replay_sequence",
+            ppg12ReplaySeedSequence);
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "ppg12_closure_pedestal_sequence",
+            std::to_string(ppg12NaturalPedestalSequence));
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "ppg12_closure_pedestal_expected_sequence",
+            std::to_string(ppg12ExpectedPedestalSequence));
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "ppg12_closure_pedestal_file",
+            ppg12PedestalFileForProvenance);
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "ppg12_closure_pedestal_natural_sequence",
+            std::to_string(ppg12NaturalPedestalSequence));
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "ppg12_closure_phrandomseed_call_consumed", "true");
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "ppg12_closure_rebuild_input_mode",
+            usePPG12PPSimG4OnlyInput ? "g4_only" : "four_lane");
+    }
     if (const char* jetPtRaw = std::getenv("RJ_INTERNAL_JET_PT_MINS"))
     {
         const char* disableRaw = std::getenv("RJ_DISABLE_JET_PT_INTERNALIZATION");
@@ -7161,7 +7481,8 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 
     if (env_truthy_local("RJ_PPG12_FIG8_BUILD_NOSPLIT") &&
         env_truthy_local("RJ_PPG12_PHOTON_YIELD") &&
-        isSim && !isAuAuLike)
+        isSim && !isAuAuLike &&
+        !ppg12ClosureCanary)
     {
         auto* ppg12Fig8NoSplitBuilder =
             new RawClusterBuilderTemplate("EmcRawClusterBuilderTemplate_PPG12Fig8NoSplit");
@@ -7238,6 +7559,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             se->run(nEvents);
         }
         
+#if defined(RJ_UNIFIED_ANALYSIS_AUAU)
         std::uint64_t centralityValidTotal = 0;
         std::uint64_t centralityInvalidSkippedTotal = 0;
         if (isAuAuData)
@@ -7265,6 +7587,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                       << " invalid_skipped=" << centralityInvalidSkippedTotal
                       << " action=invalid_events_audited_and_skipped" << std::endl;
         }
+#endif
 
         if (vlevel > 0) std::cout << "[INFO] Calling se->End() …" << std::endl;
         se->End();

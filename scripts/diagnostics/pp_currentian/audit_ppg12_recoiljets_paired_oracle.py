@@ -2,10 +2,10 @@
 """Fail-closed checks for the one-lane PPG12/RecoilJets paired oracle.
 
 The supported contract is intentionally narrow: Photon5, 1.5 mrad, SI,
-five source rows, one explicitly recorded reconstruction seed, and the
-G4Hits + truth-jet source graph used by the live preserved executable.  This
-utility never submits work or changes a current-artifact pointer.  Estimator
-toy seed 42 is a separate downstream contract.
+five source rows, the exact five-value historical PHRandomSeed sequence, and
+the G4Hits + truth-jet source graph used by the live preserved executable.
+This utility never submits work or changes a current-artifact pointer.
+Estimator toy seed 42 is a separate downstream contract.
 """
 
 from __future__ import annotations
@@ -23,13 +23,26 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 EXPECTED_LANE = {
     "sample": "Photon5",
     "period": "1p5mrad",
     "interaction": "SI",
     "rows": 5,
 }
+HISTORICAL_PH_SEED_SEQUENCE = [
+    2991264730,
+    4256268992,
+    2394322166,
+    874466025,
+    2240380304,
+]
+HISTORICAL_PEDESTAL_SEQUENCE = 534
+HISTORICAL_PEDESTAL_FILE = "pedestal-54256-00534.root"
+HISTORICAL_RNG_SOURCE = (
+    "/sphenix/user/shuhangli/ppg12/anatreemaker/macro_maketree/sim/"
+    "run28/photon5/condorout/OutDir0/test.out"
+)
 EXPECTED_RUNTIME_PROFILE = "new.17"
 EXPECTED_OFFLINE_MAIN = (
     "/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/"
@@ -131,19 +144,17 @@ class RootTRandom3:
         return int(maximum * (value * (1.0 / 4294967296.0)))
 
 
-def reconstruction_rng_contract(seed: int) -> dict[str, Any]:
-    if not 1 <= seed <= 0x7FFFFFFF:
-        raise AuditFailure("reconstruction seed must be in [1, 2147483647]")
-    stream = RootTRandom3(seed)
-    ph_seeds = [stream.integer(0xFFFFFFFF) + 1 for _ in range(5)]
-    pedestal = RootTRandom3(ph_seeds[1]).integer(3260)
+def historical_rng_contract() -> dict[str, Any]:
     return {
-        "reco_seed": seed,
-        "ph_seed_sequence": ph_seeds,
-        "first_ph_seed": ph_seeds[0],
-        "pedestal_seed": ph_seeds[1],
-        "pedestal_sequence": pedestal,
-        "pedestal_file": f"pedestal-54256-0{pedestal:04d}.root",
+        "mode": "historical_fifo_replay_v2",
+        "reco_consts_randomseed": "absent",
+        "ph_seed_sequence": HISTORICAL_PH_SEED_SEQUENCE,
+        "first_ph_seed": HISTORICAL_PH_SEED_SEQUENCE[0],
+        "pedestal_seed": HISTORICAL_PH_SEED_SEQUENCE[1],
+        "pedestal_sequence": HISTORICAL_PEDESTAL_SEQUENCE,
+        "pedestal_file": HISTORICAL_PEDESTAL_FILE,
+        "source_log": HISTORICAL_RNG_SOURCE,
+        "source_log_call_count": 5,
     }
 
 
@@ -334,17 +345,18 @@ def validate_ldd(library: Path, expected_offline: str) -> None:
 def validate_contract(contract_path: Path, run_ldd: bool = True) -> dict[str, Any]:
     contract = load_json(contract_path)
     if contract.get("schema_version") != SCHEMA_VERSION:
-        raise AuditFailure("paired-oracle contract schema_version must be 1")
+        raise AuditFailure("paired-oracle contract schema_version must be 2")
     lane = contract.get("lane")
     if not isinstance(lane, dict):
         raise AuditFailure("paired-oracle lane contract must be an object")
     for key, expected in EXPECTED_LANE.items():
         if lane.get(key) != expected:
             raise AuditFailure(f"unsupported lane contract: {lane}")
-    seed = lane.get("seed")
-    if not isinstance(seed, int):
-        raise AuditFailure("paired-oracle lane seed must be an integer")
-    expected_rng = reconstruction_rng_contract(seed)
+    if "seed" in lane:
+        raise AuditFailure(
+            "historical replay must not contain a synthetic reconstruction seed"
+        )
+    expected_rng = historical_rng_contract()
     if contract.get("rng") != expected_rng:
         raise AuditFailure("paired-oracle RNG metadata is not derived from its seed")
     runtime = contract.get("runtime", {})
@@ -436,9 +448,11 @@ def ph_seed_sequence(log_text: str) -> list[int]:
         int(value)
         for value in re.findall(r"PHRandomSeed::GetSeed\(\) seed:\s*(\d+)", log_text)
     ]
-    if len(values) < 5:
-        raise AuditFailure("log contains fewer than five PHRandomSeed records")
-    return values[:5]
+    if len(values) != 5:
+        raise AuditFailure(
+            f"historical replay requires exactly five PHRandomSeed records; got {len(values)}"
+        )
+    return values
 
 
 def actual_pedestal(log_text: str) -> str:
@@ -487,8 +501,16 @@ def validate_log(
     if runtime.get("offline_main") != EXPECTED_OFFLINE_MAIN:
         raise AuditFailure(f"{side} log reports the wrong OFFLINE_MAIN")
     seed_line = parse_keyed_line(text, "ORACLE_SEED_CONTRACT", side)
-    if seed_line.get("rc_seed") != str(rng["reco_seed"]):
-        raise AuditFailure(f"{side} log reports the wrong reconstruction seed")
+    if seed_line.get("mode") != rng["mode"]:
+        raise AuditFailure(f"{side} log reports the wrong RNG replay mode")
+    if seed_line.get("rc_randomseed") != "absent":
+        raise AuditFailure(f"{side} replay unexpectedly sets recoConsts RANDOMSEED")
+    if seed_line.get("ph_seed_sequence") != ",".join(
+        str(value) for value in rng["ph_seed_sequence"]
+    ):
+        raise AuditFailure(f"{side} wrapper reports the wrong replay sequence")
+    if seed_line.get("pedestal_sequence") != str(rng["pedestal_sequence"]):
+        raise AuditFailure(f"{side} wrapper reports the wrong pedestal sequence")
     if ph_seed_sequence(text) != rng["ph_seed_sequence"]:
         raise AuditFailure(f"{side} PHRandomSeed call sequence differs from contract")
     if actual_pedestal(text) != rng["pedestal_file"]:
@@ -688,9 +710,11 @@ def main() -> int:
     args = parser.parse_args()
     try:
         if args.phase == "rng-contract":
-            if args.seed is None:
-                raise AuditFailure("rng-contract requires --seed")
-            rng = reconstruction_rng_contract(args.seed)
+            if args.seed is not None:
+                raise AuditFailure(
+                    "historical rng-contract forbids a synthetic --seed"
+                )
+            rng = historical_rng_contract()
             print(
                 rng["first_ph_seed"],
                 rng["pedestal_seed"],
