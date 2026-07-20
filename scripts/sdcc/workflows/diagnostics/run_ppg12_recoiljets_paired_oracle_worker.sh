@@ -1442,6 +1442,7 @@ output.write_text(f'''#include <TFile.h>
   if ({expected_entries} >= 0 && tree->GetEntries() != {expected_entries}) gSystem->Exit(94);
   std::cout << "PPG12_RAW_REUSE_AUDIT mode={mode} entries="
             << tree->GetEntries() << std::endl;
+  gSystem->Exit(0);
 }}
 ''')
 PY

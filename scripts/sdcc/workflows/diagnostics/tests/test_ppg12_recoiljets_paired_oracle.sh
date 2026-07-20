@@ -25,6 +25,7 @@ for invariant in \
   'failure_stage="recoiljets_reconstruction"' \
   'failure_stage="candidate_comparison"' \
   'failure_stage="postrun_audit"' \
+  'gSystem->Exit(0);' \
   'calo_calib="${calo_macro_dir}/Calo_Calib.C"' \
   'gROOT->SetMacroPath((std::string(' \
   'export ROOT_INCLUDE_PATH="${calo_macro_dir}:${base_root_include_path}"' \
