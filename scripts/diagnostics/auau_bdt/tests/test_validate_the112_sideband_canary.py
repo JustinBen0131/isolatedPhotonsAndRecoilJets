@@ -32,6 +32,45 @@ def complete_keys(sample_kind: str) -> list[str]:
 
 
 class CanaryValidatorSchemaTest(unittest.TestCase):
+    @staticmethod
+    def config_payload(cone_r: str, internal_views: str | None = None) -> dict[str, str]:
+        views = internal_views or validator.EXPECTED_INTERNAL_ISO_VIEWS
+        return {
+            "analysis_config_yaml": (
+                "isSlidingIso: true\n"
+                "isSlidingAndFixed: false\n"
+                "fixedGeV: 0.0\n"
+                f"coneR: {cone_r}\n"
+                f"internal_iso_cone_views: '{views}'\n"
+                "isolation_wp:\n"
+                "  truthIsoGeV: 4.0\n"
+            )
+        }
+
+    def test_stamped_nominal_scalar_cone_requires_exact_internal_views(self) -> None:
+        failures: list[str] = []
+        report = validator.validate_embedded_config(
+            self.config_payload("0.4"), "stamped", failures
+        )
+        self.assertFalse(failures)
+        self.assertEqual(report["coneR"], 0.4)
+
+        failures = []
+        validator.validate_embedded_config(
+            self.config_payload("0.4", "isoR40_isSliding:0.40:true:0.0"),
+            "missing-r30",
+            failures,
+        )
+        self.assertTrue(any("internal_iso_cone_views" in failure for failure in failures))
+        self.assertTrue(any("coneR" in failure for failure in failures))
+
+    def test_source_ordered_cone_list_remains_valid(self) -> None:
+        failures: list[str] = []
+        validator.validate_embedded_config(
+            self.config_payload("[0.40, 0.30]"), "source", failures
+        )
+        self.assertFalse(failures)
+
     def test_simulation_inventory_requires_truth_background(self) -> None:
         keys = complete_keys("inclusive")
         failures: list[str] = []

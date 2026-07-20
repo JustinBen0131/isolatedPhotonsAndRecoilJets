@@ -214,13 +214,31 @@ def validate_embedded_config(
         failures,
     )
     try:
-        cone_values = tuple(float(value) for value in cone_r) if isinstance(cone_r, list) else ()
+        if isinstance(cone_r, list):
+            cone_values = tuple(float(value) for value in cone_r)
+        elif isinstance(cone_r, (int, float)) and not isinstance(cone_r, bool):
+            # The source campaign YAML carries the ordered [0.4, 0.3] list.
+            # The Condor matrix expander stamps the nominal outer lane as the
+            # scalar 0.4 while preserving both exact diagnostic views in
+            # internal_iso_cone_views.  Accept that stamped representation,
+            # but never a scalar robustness-only or fixed-isolation lane.
+            cone_values = (float(cone_r),) if internal_views == EXPECTED_INTERNAL_ISO_VIEWS else ()
+        else:
+            cone_values = ()
     except (TypeError, ValueError):
         cone_values = ()
-    require(
+    cone_contract_ok = (
         len(cone_values) == len(EXPECTED_CONE_RADII)
-        and np.allclose(cone_values, EXPECTED_CONE_RADII, rtol=0.0, atol=1e-12),
-        f"{label}: coneR must be ordered R=0.4 nominal then R=0.3 robustness, observed {cone_r!r}",
+        and np.allclose(cone_values, EXPECTED_CONE_RADII, rtol=0.0, atol=1e-12)
+    ) or (
+        len(cone_values) == 1
+        and np.isclose(cone_values[0], EXPECTED_CONE_RADII[0], rtol=0.0, atol=1e-12)
+        and internal_views == EXPECTED_INTERNAL_ISO_VIEWS
+    )
+    require(
+        cone_contract_ok,
+        f"{label}: coneR must be ordered [0.4, 0.3], or stamped nominal 0.4 with the exact "
+        f"ordered internal-view contract; observed {cone_r!r}",
         failures,
     )
     truth_is_four = (
