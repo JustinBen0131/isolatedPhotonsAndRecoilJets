@@ -118,6 +118,122 @@ grep -Fq 'stage=synthetic_apply_stage' "${explicit_exit_out}/worker_failure.log"
 grep -Fq 'exit_status=7' "${explicit_exit_out}/worker_failure.log"
 [[ ! -e "${explicit_exit_out}/.worker_stderr.spool" ]]
 
+# Runtime roles are executable only while their manifest hash still matches.
+# This specifically prevents ROOT from falling back to a stale external
+# RooUnfold dictionary after the sealed PCM changes or disappears.
+role_harness="${tmp}/manifest-role-path-harness.sh"
+python3 - "$worker" "$role_harness" <<'PY'
+from pathlib import Path
+import sys
+
+worker, output = map(Path, sys.argv[1:])
+text = worker.read_text()
+start = text.index('manifest_role_path() {')
+end = text.index('\n}\n\nrecoeff_period_role=', start) + 3
+output.write_text(
+    '#!/usr/bin/env bash\nset -euo pipefail\n'
+    + text[start:end]
+    + '\nrecoil_runtime_manifest="$1"\nmanifest_role_path "$2"\n'
+)
+output.chmod(0o755)
+PY
+role_dir="${tmp}/role-runtime/lib"
+role_manifest="${tmp}/role-runtime/runtime_manifest.json"
+mkdir -p "$role_dir"
+printf 'sealed RooUnfold library\n' > "${role_dir}/libRooUnfold.so"
+printf 'sealed RooUnfold dictionary\n' > "${role_dir}/RooUnfoldDict_rdict.pcm"
+python3 - "$role_manifest" "${role_dir}/libRooUnfold.so" \
+  "${role_dir}/RooUnfoldDict_rdict.pcm" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import sys
+
+manifest = Path(sys.argv[1])
+paths = [Path(value).resolve() for value in sys.argv[2:]]
+roles = ("ppg_recoeff_roounfold", "ppg_recoeff_roounfold_pcm")
+manifest.write_text(json.dumps({
+    "files": [
+        {
+            "role": role,
+            "path": str(path),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+        for role, path in zip(roles, paths)
+    ]
+}) + "\n")
+PY
+[[ "$($role_harness "$role_manifest" ppg_recoeff_roounfold_pcm)" == \
+  "${role_dir}/RooUnfoldDict_rdict.pcm" ]]
+printf 'dictionary drift\n' >> "${role_dir}/RooUnfoldDict_rdict.pcm"
+if "$role_harness" "$role_manifest" ppg_recoeff_roounfold_pcm \
+    >"${tmp}/role-drift.out" 2>"${tmp}/role-drift.err"; then
+  echo "drifted RooUnfold PCM unexpectedly passed manifest validation" >&2
+  exit 1
+fi
+grep -Fq 'hash drifted' "${tmp}/role-drift.err"
+
+# A manifest may be internally recomputed around substituted bytes.  The
+# execution worker must independently reject that payload against the pinned
+# historical RooUnfold library digest before ROOT can load it.
+pin_harness="${tmp}/roounfold-library-pin-harness.sh"
+python3 - "$worker" "$pin_harness" <<'PY'
+from pathlib import Path
+import sys
+
+worker, output = map(Path, sys.argv[1:])
+text = worker.read_text()
+constant = next(
+    line for line in text.splitlines()
+    if line.startswith("expected_roounfold_library_sha256=")
+)
+die_start = text.index('die() {')
+die_end = text.index('\n}\n\n[[ $#', die_start) + 3
+hash_start = text.index('sha256_file() {')
+hash_end = text.index('\npreserve_reused_ppg_evidence() {', hash_start)
+output.write_text(
+    '#!/usr/bin/env bash\nset -euo pipefail\n'
+    + text[die_start:die_end]
+    + constant + '\n'
+    + text[hash_start:hash_end]
+    + '\nvalidate_pinned_roounfold_library "$1"\n'
+)
+output.chmod(0o755)
+PY
+substituted_library="${role_dir}/libRooUnfold.so"
+printf 'internally consistent but substituted RooUnfold library\n' \
+  > "$substituted_library"
+python3 - "$role_manifest" "$substituted_library" \
+  "${role_dir}/RooUnfoldDict_rdict.pcm" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import sys
+
+manifest = Path(sys.argv[1])
+paths = [Path(value).resolve() for value in sys.argv[2:]]
+roles = ("ppg_recoeff_roounfold", "ppg_recoeff_roounfold_pcm")
+manifest.write_text(json.dumps({
+    "files": [
+        {
+            "role": role,
+            "path": str(path),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+        for role, path in zip(roles, paths)
+    ]
+}) + "\n")
+PY
+[[ "$($role_harness "$role_manifest" ppg_recoeff_roounfold)" == \
+  "$substituted_library" ]]
+if "$pin_harness" "$substituted_library" \
+    >"${tmp}/library-pin.out" 2>"${tmp}/library-pin.err"; then
+  echo "recomputed manifest blessed a substituted RooUnfold library" >&2
+  exit 1
+fi
+grep -Fq 'sealed RooUnfold library differs from pinned historical digest' \
+  "${tmp}/library-pin.err"
+
 # Raw reuse must preserve the full producer log byte-for-byte.  The receipt
 # binds both copies of the raw ROOT, both copies of the log, and the exact
 # source contract so the later postrun log audit remains truthful.
@@ -234,6 +350,20 @@ for invariant in \
   'input.TestBit(TFile::kRecovered)' \
   'ppg_recoeff_truth_vertex_reweight' \
   'ppg_recoeff_yaml_cpp_header_tree_receipt' \
+  'ppg_recoeff_roounfold_pcm' \
+  'ppg_recoeff_roounfold_header_tree_receipt' \
+  'expected_roounfold_library_sha256="d135771391ae250bcb64c0889571825abe9924649485890e7a9c64648ee99062"' \
+  'expected_roounfold_pcm_sha256="2d91962a7b42acf246c7a80339eee71ca2f7e6df18ef76051d24a83bc61d4244"' \
+  'expected_roounfold_header_tree_sha256="ea9b923a8f6bc57b28027b7183b10e87246810c326208b1e36bf2b4b7491a458"' \
+  'validate_pinned_roounfold_library "$recoeff_roounfold"' \
+  'sealed RooUnfold library differs from pinned historical digest' \
+  'sealed RooUnfold PCM differs from pinned historical digest' \
+  'sealed RooUnfold header tree differs from pinned digest' \
+  'RooUnfold header inventory differs from exact nine-file contract' \
+  'runtime manifest role {role} hash drifted' \
+  'sealed RooUnfold library and PCM are not co-located' \
+  'gSystem->Load({json.dumps(roounfold)})' \
+  'ROOT_INCLUDE_PATH="${recoeff_roounfold_include_root}:${recoeff_include_root}:${recoeff_yaml_cpp_include_root}:${base_root_include_path}"' \
   'export ROOT_INCLUDE_PATH="${recoeff_yaml_cpp_include_root}:${base_root_include_path}"' \
   '--out-json "$aggregate_report"'; do
   grep -Fq -- "$invariant" "$worker" || {

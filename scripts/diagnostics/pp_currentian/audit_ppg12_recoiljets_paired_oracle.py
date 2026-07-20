@@ -54,6 +54,26 @@ EXPECTED_OFFLINE_MAIN = (
 )
 EXPECTED_PPG_SOURCE_REVISION = "1c0ff86bf0ebabfba63a1abc4512cbe59fe48e31"
 EXPECTED_ESTIMATOR_REVISION = "29f8223bd9b36dffab07961b597afa94185bbdf1"
+EXPECTED_ROOUNFOLD_LIBRARY_HASH = (
+    "d135771391ae250bcb64c0889571825abe9924649485890e7a9c64648ee99062"
+)
+EXPECTED_ROOUNFOLD_PCM_HASH = (
+    "2d91962a7b42acf246c7a80339eee71ca2f7e6df18ef76051d24a83bc61d4244"
+)
+EXPECTED_ROOUNFOLD_HEADER_TREE_HASH = (
+    "ea9b923a8f6bc57b28027b7183b10e87246810c326208b1e36bf2b4b7491a458"
+)
+EXPECTED_ROOUNFOLD_HEADERS = (
+    "RooUnfold.h",
+    "RooUnfoldResponse.h",
+    "RooUnfoldBayes.h",
+    "RooUnfoldBinByBin.h",
+    "RooUnfoldErrors.h",
+    "RooUnfoldInvert.h",
+    "RooUnfoldParms.h",
+    "RooUnfoldSvd.h",
+    "RooUnfoldTUnfold.h",
+)
 EXPECTED_RECOEFF_SOURCE_HASH = "e9b25fdb6dd8a6bfbbad029cb90aaddc9489fdf2846c630ea63c8c41ac771eee"
 EXPECTED_RECOEFF_CONFIG_HASH = "42b7be1628843d5b7607ab988ffb58c6d019d8ade01b3c4d528611498db95732"
 EXPECTED_RECOEFF_PERIOD_CONFIG_HASHES = {
@@ -123,6 +143,8 @@ REQUIRED_RECOIL_ROLES = {
     "ppg_recoeff_yaml_cpp",
     "ppg_recoeff_yaml_cpp_header_tree_receipt",
     "ppg_recoeff_roounfold",
+    "ppg_recoeff_roounfold_pcm",
+    "ppg_recoeff_roounfold_header_tree_receipt",
     "ppg_recoeff_roounfold_response_header",
     "ppg_recoeff_roounfold_bayes_header",
     "ppg_recoeff_vertex_scan_data",
@@ -377,6 +399,51 @@ def validate_yaml_cpp_header_receipt(path: Path) -> Path:
     if tree_digest.hexdigest() != data.get("tree_sha256"):
         raise AuditFailure("sealed yaml-cpp header-tree digest drifted")
     return include_root.resolve()
+
+
+def validate_roounfold_header_receipt(
+    path: Path,
+    expected_tree_hash: str = EXPECTED_ROOUNFOLD_HEADER_TREE_HASH,
+) -> dict[str, Path]:
+    data = load_json(path)
+    if (
+        data.get("schema_version") != 1
+        or data.get("role") != "ppg_recoeff_roounfold_header_tree"
+    ):
+        raise AuditFailure("invalid RooUnfold header-tree receipt")
+    include_root = Path(str(data.get("include_root", "")))
+    if not include_root.is_absolute() or not include_root.is_dir():
+        raise AuditFailure("RooUnfold receipt has an invalid include root")
+    rows = data.get("files")
+    if not isinstance(rows, list):
+        raise AuditFailure("RooUnfold receipt has no header inventory")
+    names = tuple(
+        str(row.get("relative_path", "")) if isinstance(row, dict) else ""
+        for row in rows
+    )
+    if names != EXPECTED_ROOUNFOLD_HEADERS or len(set(names)) != len(names):
+        raise AuditFailure("RooUnfold receipt differs from the exact nine-header inventory")
+    headers: dict[str, Path] = {}
+    tree_digest = hashlib.sha256()
+    for row, name in zip(rows, names):
+        expected = str(row.get("sha256", ""))
+        if not re.fullmatch(r"[0-9a-f]{64}", expected):
+            raise AuditFailure(f"RooUnfold receipt has an invalid digest for {name}")
+        header = require_file(str(include_root / name), f"sealed RooUnfold header {name}")
+        if header.resolve().parent != include_root.resolve():
+            raise AuditFailure(f"sealed RooUnfold header escapes its include root: {name}")
+        observed = sha256(header)
+        if observed != expected:
+            raise AuditFailure(f"sealed RooUnfold header drifted: {name}")
+        headers[name] = header
+        tree_digest.update(name.encode())
+        tree_digest.update(b"\0")
+        tree_digest.update(bytes.fromhex(observed))
+    if data.get("tree_sha256") != expected_tree_hash:
+        raise AuditFailure("sealed RooUnfold header tree differs from pinned digest")
+    if tree_digest.hexdigest() != data.get("tree_sha256"):
+        raise AuditFailure("sealed RooUnfold header-tree digest drifted")
+    return headers
 
 
 def require_file(path_value: str, label: str) -> Path:
@@ -687,6 +754,73 @@ def validate_source_locked_ppg_import(
         raise AuditFailure("binary-import receipt library digest differs from runtime")
 
 
+def validate_roounfold_runtime(
+    estimator: dict[str, Any],
+    by_role: dict[str, Path],
+    expected_library_hash: str = EXPECTED_ROOUNFOLD_LIBRARY_HASH,
+    expected_pcm_hash: str = EXPECTED_ROOUNFOLD_PCM_HASH,
+    expected_header_tree_hash: str = EXPECTED_ROOUNFOLD_HEADER_TREE_HASH,
+) -> None:
+    """Require the historical RooUnfold ELF and its matching sealed dictionary.
+
+    ROOT discovers ``RooUnfoldDict_rdict.pcm`` relative to ``libRooUnfold.so``.
+    Merely hashing the shared library is therefore insufficient: a missing PCM
+    lets ROOT fall back to an unrelated external dictionary.  The runtime pair
+    is accepted only when it is co-located, individually hashed in the receipt,
+    and the library matches the frozen historical binary.
+    """
+
+    library = by_role.get("ppg_recoeff_roounfold")
+    pcm = by_role.get("ppg_recoeff_roounfold_pcm")
+    header_receipt = by_role.get("ppg_recoeff_roounfold_header_tree_receipt")
+    if library is None or pcm is None or header_receipt is None:
+        raise AuditFailure("RooUnfold runtime lacks the sealed library/PCM/header-tree payload")
+    require_hash(library, expected_library_hash, "historical RooUnfold library")
+    require_hash(pcm, expected_pcm_hash, "historical RooUnfold PCM")
+    if pcm.name != "RooUnfoldDict_rdict.pcm":
+        raise AuditFailure("sealed RooUnfold PCM has the wrong basename")
+    if pcm.resolve().parent != library.resolve().parent:
+        raise AuditFailure("sealed RooUnfold library and PCM are not co-located")
+    headers = validate_roounfold_header_receipt(
+        header_receipt, expected_header_tree_hash
+    )
+    for role, name in (
+        ("ppg_recoeff_roounfold_response_header", "RooUnfoldResponse.h"),
+        ("ppg_recoeff_roounfold_bayes_header", "RooUnfoldBayes.h"),
+    ):
+        role_path = by_role.get(role)
+        if role_path is None or role_path.resolve() != headers[name].resolve():
+            raise AuditFailure(f"RooUnfold manifest role {role} differs from header tree")
+
+    assets = estimator.get("runtime_assets")
+    if not isinstance(assets, list):
+        raise AuditFailure("runtime receipt lacks estimator runtime assets")
+    recorded: dict[Path, str] = {}
+    for item in assets:
+        if not isinstance(item, dict):
+            raise AuditFailure("runtime receipt contains malformed runtime-asset metadata")
+        asset_path = Path(str(item.get("path", "")))
+        asset_hash = str(item.get("sha256", ""))
+        if not asset_path.is_absolute() or not re.fullmatch(r"[0-9a-f]{64}", asset_hash):
+            raise AuditFailure("runtime receipt contains invalid runtime-asset metadata")
+        resolved = asset_path.resolve()
+        if resolved in recorded:
+            raise AuditFailure("runtime receipt duplicates one runtime asset")
+        recorded[resolved] = asset_hash
+    required_assets = [
+        ("library", library),
+        ("PCM", pcm),
+        ("header-tree receipt", header_receipt),
+        *((f"header {name}", path) for name, path in headers.items()),
+    ]
+    for label, asset in required_assets:
+        resolved = asset.resolve()
+        if resolved not in recorded:
+            raise AuditFailure(f"runtime receipt omits the RooUnfold {label}")
+        if recorded[resolved] != sha256(asset):
+            raise AuditFailure(f"runtime receipt RooUnfold {label} digest differs")
+
+
 def validate_recoil_manifest(path: Path, expected_offline: str) -> dict[str, Path]:
     data = load_json(path)
     if data.get("schema_version") != 1:
@@ -762,6 +896,7 @@ def validate_recoil_manifest(path: Path, expected_offline: str) -> dict[str, Pat
     missing = sorted(REQUIRED_RECOIL_ROLES - set(by_role))
     if missing:
         raise AuditFailure(f"Recoil runtime manifest lacks required roles: {missing}")
+    validate_roounfold_runtime(estimator, by_role)
     if ppg_binary_mode == PPG_BINARY_IMPORT:
         validate_source_locked_ppg_import(receipt, by_role, expected_offline)
     elif PPG_IMPORT_ROLES & set(by_role):

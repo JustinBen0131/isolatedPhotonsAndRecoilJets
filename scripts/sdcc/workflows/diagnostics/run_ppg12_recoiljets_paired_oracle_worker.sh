@@ -33,6 +33,9 @@ recoil_runtime_manifest="${18}"
 recoil_config="${19}"
 reuse_ppg_raw_root="${20}"
 reuse_ppg_raw_contract="${21}"
+expected_roounfold_library_sha256="d135771391ae250bcb64c0889571825abe9924649485890e7a9c64648ee99062"
+expected_roounfold_pcm_sha256="2d91962a7b42acf246c7a80339eee71ca2f7e6df18ef76051d24a83bc61d4244"
+expected_roounfold_header_tree_sha256="ea9b923a8f6bc57b28027b7183b10e87246810c326208b1e36bf2b4b7491a458"
 
 case "$sample" in Photon5|Photon10|Photon20) ;; *) die "unsupported sample: $sample" ;; esac
 case "$period" in
@@ -73,7 +76,9 @@ fi
 manifest_role_path() {
   python3 - "$recoil_runtime_manifest" "$1" <<'PY'
 from pathlib import Path
+import hashlib
 import json
+import re
 import sys
 
 manifest = Path(sys.argv[1])
@@ -83,15 +88,22 @@ try:
 except (OSError, json.JSONDecodeError) as exc:
     raise SystemExit(f"cannot read runtime manifest {manifest}: {exc}")
 matches = [
-    str(item.get("path", ""))
+    item
     for item in data.get("files", [])
-    if item.get("role") == role
+    if isinstance(item, dict) and item.get("role") == role
 ]
 if len(matches) != 1:
     raise SystemExit(f"runtime manifest role {role} has {len(matches)} matches")
-path = Path(matches[0])
+row = matches[0]
+path = Path(str(row.get("path", "")))
 if not path.is_absolute() or not path.is_file() or path.stat().st_size <= 0:
     raise SystemExit(f"runtime manifest role {role} is not an absolute nonempty file: {path}")
+expected = str(row.get("sha256", ""))
+if not re.fullmatch(r"[0-9a-f]{64}", expected):
+    raise SystemExit(f"runtime manifest role {role} has an invalid sha256")
+actual = hashlib.sha256(path.read_bytes()).hexdigest()
+if actual != expected:
+    raise SystemExit(f"runtime manifest role {role} hash drifted")
 print(path)
 PY
 }
@@ -153,6 +165,12 @@ import hashlib
 import sys
 print(hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest())
 PY
+}
+
+validate_pinned_roounfold_library() {
+  local library="$1"
+  [[ "$(sha256_file "$library")" == "$expected_roounfold_library_sha256" ]] || \
+    die "sealed RooUnfold library differs from pinned historical digest"
 }
 
 preserve_reused_ppg_evidence() {
@@ -686,6 +704,8 @@ print(include_root.resolve())
 PY
 )" || die "failed to validate sealed yaml-cpp header tree"
 recoeff_roounfold="$(manifest_role_path ppg_recoeff_roounfold)"
+recoeff_roounfold_pcm="$(manifest_role_path ppg_recoeff_roounfold_pcm)"
+recoeff_roounfold_header_receipt="$(manifest_role_path ppg_recoeff_roounfold_header_tree_receipt)"
 recoeff_roounfold_response_header="$(manifest_role_path ppg_recoeff_roounfold_response_header)"
 recoeff_roounfold_bayes_header="$(manifest_role_path ppg_recoeff_roounfold_bayes_header)"
 recoeff_vertex_scan_data="$(manifest_role_path ppg_recoeff_vertex_scan_data)"
@@ -696,6 +716,82 @@ sealed_base_e_model="$(manifest_role_path ppg_apply_model_base_E)"
 sealed_base_v3e_model="$(manifest_role_path ppg_apply_model_base_v3E)"
 sealed_npb_model="$(manifest_role_path ppg_apply_npb_model)"
 recoeff_include_root="$(dirname "$recoeff_cross_section_header")"
+validate_pinned_roounfold_library "$recoeff_roounfold"
+[[ "$(basename "$recoeff_roounfold_pcm")" == RooUnfoldDict_rdict.pcm ]] || \
+  die "sealed RooUnfold PCM has the wrong basename"
+[[ "$(sha256_file "$recoeff_roounfold_pcm")" == "$expected_roounfold_pcm_sha256" ]] || \
+  die "sealed RooUnfold PCM differs from pinned historical digest"
+[[ "$(cd "$(dirname "$recoeff_roounfold")" && pwd -P)" == \
+   "$(cd "$(dirname "$recoeff_roounfold_pcm")" && pwd -P)" ]] || \
+  die "sealed RooUnfold library and PCM are not co-located"
+recoeff_roounfold_include_root="$(python3 - "$recoeff_roounfold_header_receipt" \
+  "$recoeff_roounfold_response_header" "$recoeff_roounfold_bayes_header" \
+  "$expected_roounfold_header_tree_sha256" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import re
+import sys
+
+receipt, response_role, bayes_role = map(Path, sys.argv[1:4])
+expected_tree_digest = sys.argv[4]
+try:
+    data = json.loads(receipt.read_text())
+except (OSError, json.JSONDecodeError) as exc:
+    raise SystemExit(f"cannot read RooUnfold header receipt: {exc}")
+expected_names = (
+    "RooUnfold.h",
+    "RooUnfoldResponse.h",
+    "RooUnfoldBayes.h",
+    "RooUnfoldBinByBin.h",
+    "RooUnfoldErrors.h",
+    "RooUnfoldInvert.h",
+    "RooUnfoldParms.h",
+    "RooUnfoldSvd.h",
+    "RooUnfoldTUnfold.h",
+)
+if data.get("schema_version") != 1 or data.get("role") != "ppg_recoeff_roounfold_header_tree":
+    raise SystemExit("invalid RooUnfold header-tree receipt")
+include_root = Path(str(data.get("include_root", "")))
+rows = data.get("files")
+if not include_root.is_absolute() or not include_root.is_dir() or not isinstance(rows, list):
+    raise SystemExit("invalid RooUnfold header-tree root or inventory")
+names = tuple(
+    str(row.get("relative_path", "")) if isinstance(row, dict) else ""
+    for row in rows
+)
+if names != expected_names or len(set(names)) != len(names):
+    raise SystemExit("RooUnfold header inventory differs from exact nine-file contract")
+tree_digest = hashlib.sha256()
+paths = {}
+for row, name in zip(rows, names):
+    header = include_root / name
+    digest = str(row.get("sha256", ""))
+    if (
+        not header.is_file()
+        or header.stat().st_size <= 0
+        or header.resolve().parent != include_root.resolve()
+        or not re.fullmatch(r"[0-9a-f]{64}", digest)
+    ):
+        raise SystemExit(f"invalid sealed RooUnfold header metadata: {name}")
+    observed = hashlib.sha256(header.read_bytes()).hexdigest()
+    if observed != digest:
+        raise SystemExit(f"sealed RooUnfold header drifted: {name}")
+    paths[name] = header.resolve()
+    tree_digest.update(name.encode())
+    tree_digest.update(b"\0")
+    tree_digest.update(bytes.fromhex(observed))
+if data.get("tree_sha256") != expected_tree_digest:
+    raise SystemExit("sealed RooUnfold header tree differs from pinned digest")
+if tree_digest.hexdigest() != data.get("tree_sha256"):
+    raise SystemExit("sealed RooUnfold header-tree digest drifted")
+if response_role.resolve() != paths["RooUnfoldResponse.h"]:
+    raise SystemExit("sealed RooUnfoldResponse role differs from header tree")
+if bayes_role.resolve() != paths["RooUnfoldBayes.h"]:
+    raise SystemExit("sealed RooUnfoldBayes role differs from header tree")
+print(include_root.resolve())
+PY
+)" || die "failed to validate sealed RooUnfold header tree"
 
 # The public driver keeps the three historical asset arguments for backward
 # compatibility.  Execution is allowed only when they are byte-identical to
@@ -844,7 +940,8 @@ python3 - \
   "$recoeff_truth_vertex_reweight" "$recoeff_yaml_cpp_header_receipt" \
   "$baseline_recoeff_config" "$trace_recoeff_config" \
   "$recoeff_cross_section_header" "$recoeff_truth_vertex_header" \
-  "$recoeff_yaml_cpp" "$recoeff_roounfold" \
+  "$recoeff_yaml_cpp" "$recoeff_roounfold" "$recoeff_roounfold_pcm" \
+  "$recoeff_roounfold_header_receipt" \
   "$recoeff_roounfold_response_header" "$recoeff_roounfold_bayes_header" \
   "$recoeff_vertex_scan_data" "$recoeff_mbd_correction" \
   "$baseline_recoeff_log" "$trace_recoeff_log" \
@@ -873,7 +970,8 @@ import sys
     recoeff_source, recoeff_macro, recoeff_trace_macro, recoeff_trace_receipt,
     recoeff_canonical_config, recoeff_period_config, recoeff_truth_vertex_reweight,
     recoeff_yaml_cpp_header_receipt, baseline_recoeff_config, trace_recoeff_config,
-    cross_section_header, truth_vertex_header, yaml_cpp, roounfold,
+    cross_section_header, truth_vertex_header, yaml_cpp, roounfold, roounfold_pcm,
+    roounfold_header_receipt,
     roounfold_response_header, roounfold_bayes_header, vertex_scan_data,
     mbd_correction, baseline_recoeff_log, trace_recoeff_log,
     baseline_scan_log, trace_scan_log, baseline_eff_root, trace_eff_root,
@@ -931,6 +1029,8 @@ paths = {
     "ppg_recoeff_truth_vertex_header": truth_vertex_header,
     "ppg_recoeff_yaml_cpp": yaml_cpp,
     "ppg_recoeff_roounfold": roounfold,
+    "ppg_recoeff_roounfold_pcm": roounfold_pcm,
+    "ppg_recoeff_roounfold_header_tree_receipt": roounfold_header_receipt,
     "ppg_recoeff_roounfold_response_header": roounfold_response_header,
     "ppg_recoeff_roounfold_bayes_header": roounfold_bayes_header,
     "ppg_recoeff_vertex_scan_data": vertex_scan_data,
@@ -1573,16 +1673,17 @@ run_recoeff() {
   local analysis_runner="${runtime_dir}/run_recoeff_${label}.C"
 
   python3 - "$scan_runner" "$analysis_runner" "$macro" "$config" \
-    "$vtxscan_root" "$oracle_sample" <<'PY'
+    "$vtxscan_root" "$oracle_sample" "$recoeff_roounfold" <<'PY'
 from pathlib import Path
 import json
 import sys
 
-scan_runner, analysis_runner, macro, config, vtxscan, sample = sys.argv[1:]
+scan_runner, analysis_runner, macro, config, vtxscan, sample, roounfold = sys.argv[1:]
 
 def runner(call: str) -> str:
     return f'''{{
   Int_t error = 0;
+  if (gSystem->Load({json.dumps(roounfold)}) < 0) throw std::runtime_error("sealed RooUnfold load failed");
   if (gROOT->LoadMacro({json.dumps(macro)}) < 0) throw std::runtime_error("RecoEff macro load failed");
   gROOT->ProcessLine({json.dumps(call)}, &error);
   if (error != TInterpreter::kNoError) throw std::runtime_error("RecoEff call failed");
@@ -1600,7 +1701,7 @@ PY
   (
     cd "$layout"
     export LD_LIBRARY_PATH="$(dirname "$recoeff_yaml_cpp"):$(dirname "$recoeff_roounfold"):${base_ld_library_path}"
-    export ROOT_INCLUDE_PATH="${recoeff_include_root}:${recoeff_yaml_cpp_include_root}:${base_root_include_path}"
+    export ROOT_INCLUDE_PATH="${recoeff_roounfold_include_root}:${recoeff_include_root}:${recoeff_yaml_cpp_include_root}:${base_root_include_path}"
     unset RJ_PPG12_EXEC_TRACE_CSV RJ_PPG12_EXEC_RESPONSE_TRACE_CSV
     root -l -b -q "$scan_runner"
   ) 2>&1 | tee "$scan_log"
@@ -1611,7 +1712,7 @@ PY
   (
     cd "$layout"
     export LD_LIBRARY_PATH="$(dirname "$recoeff_yaml_cpp"):$(dirname "$recoeff_roounfold"):${base_ld_library_path}"
-    export ROOT_INCLUDE_PATH="${recoeff_include_root}:${recoeff_yaml_cpp_include_root}:${base_root_include_path}"
+    export ROOT_INCLUDE_PATH="${recoeff_roounfold_include_root}:${recoeff_include_root}:${recoeff_yaml_cpp_include_root}:${base_root_include_path}"
     if [[ "$trace_mode" == 1 ]]; then
       export RJ_PPG12_EXEC_TRACE_CSV="$ppg_candidate_trace"
       export RJ_PPG12_EXEC_RESPONSE_TRACE_CSV="$ppg_response_trace"

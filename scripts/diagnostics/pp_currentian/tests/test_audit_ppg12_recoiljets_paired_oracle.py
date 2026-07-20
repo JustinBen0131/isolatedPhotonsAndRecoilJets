@@ -180,6 +180,67 @@ def source_import_fixture(root: Path) -> tuple[dict, dict[str, Path]]:
     return receipt, by_role
 
 
+def roounfold_runtime_fixture(
+    root: Path, *, relocate_pcm: bool = False
+) -> tuple[dict, dict[str, Path], str, str, str, Path]:
+    libdir = root / "runtime" / "lib"
+    include_root = root / "runtime" / "estimator" / "include"
+    libdir.mkdir(parents=True)
+    include_root.mkdir(parents=True)
+    library = libdir / "libRooUnfold.so"
+    pcm_root = root / "external" if relocate_pcm else libdir
+    pcm_root.mkdir(parents=True, exist_ok=True)
+    pcm = pcm_root / "RooUnfoldDict_rdict.pcm"
+    library.write_bytes(b"synthetic historical RooUnfold library\n")
+    pcm.write_bytes(b"matching synthetic RooUnfold dictionary\n")
+    rows = []
+    tree_digest = hashlib.sha256()
+    for name in AUDIT.EXPECTED_ROOUNFOLD_HEADERS:
+        header = include_root / name
+        header.write_text(f"// sealed historical {name}\n")
+        digest = AUDIT.sha256(header)
+        rows.append({"relative_path": name, "sha256": digest})
+        tree_digest.update(name.encode())
+        tree_digest.update(b"\0")
+        tree_digest.update(bytes.fromhex(digest))
+    receipt = root / "runtime" / "estimator" / "roounfold_header_tree_receipt.json"
+    receipt.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "role": "ppg_recoeff_roounfold_header_tree",
+                "include_root": str(include_root),
+                "tree_sha256": tree_digest.hexdigest(),
+                "files": rows,
+            }
+        )
+        + "\n"
+    )
+    assets = [library, pcm, receipt] + [
+        include_root / name for name in AUDIT.EXPECTED_ROOUNFOLD_HEADERS
+    ]
+    estimator = {
+        "runtime_assets": [
+            {"path": str(path), "sha256": AUDIT.sha256(path)} for path in assets
+        ]
+    }
+    by_role = {
+        "ppg_recoeff_roounfold": library,
+        "ppg_recoeff_roounfold_pcm": pcm,
+        "ppg_recoeff_roounfold_header_tree_receipt": receipt,
+        "ppg_recoeff_roounfold_response_header": include_root / "RooUnfoldResponse.h",
+        "ppg_recoeff_roounfold_bayes_header": include_root / "RooUnfoldBayes.h",
+    }
+    return (
+        estimator,
+        by_role,
+        AUDIT.sha256(library),
+        AUDIT.sha256(pcm),
+        tree_digest.hexdigest(),
+        include_root,
+    )
+
+
 class TestFirstDivergenceAudit(unittest.TestCase):
     def test_source_locked_binary_import_provenance_passes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -252,6 +313,84 @@ class TestFirstDivergenceAudit(unittest.TestCase):
             (tree / "yaml.h").write_text("// drifted yaml umbrella\n")
             with self.assertRaisesRegex(AUDIT.AuditFailure, "header drifted"):
                 AUDIT.validate_yaml_cpp_header_receipt(receipt)
+
+    def test_roounfold_runtime_requires_hashed_colocated_pcm(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            estimator, by_role, lib_hash, pcm_hash, tree_hash, _ = \
+                roounfold_runtime_fixture(Path(tmp))
+            AUDIT.validate_roounfold_runtime(
+                estimator, by_role, lib_hash, pcm_hash, tree_hash
+            )
+
+            by_role["ppg_recoeff_roounfold_pcm"].write_bytes(b"drifted dictionary\n")
+            with self.assertRaisesRegex(AUDIT.AuditFailure, "PCM.*hash mismatch"):
+                AUDIT.validate_roounfold_runtime(
+                    estimator, by_role, lib_hash, pcm_hash, tree_hash
+                )
+
+    def test_roounfold_runtime_rejects_non_colocated_pcm(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            estimator, by_role, lib_hash, pcm_hash, tree_hash, _ = roounfold_runtime_fixture(
+                Path(tmp), relocate_pcm=True
+            )
+            with self.assertRaisesRegex(AUDIT.AuditFailure, "not co-located"):
+                AUDIT.validate_roounfold_runtime(
+                    estimator, by_role, lib_hash, pcm_hash, tree_hash
+                )
+
+    def test_roounfold_runtime_rejects_header_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            estimator, by_role, lib_hash, pcm_hash, tree_hash, include_root = \
+                roounfold_runtime_fixture(Path(tmp))
+            (include_root / "RooUnfold.h").write_text("// modern fallback header\n")
+            with self.assertRaisesRegex(AUDIT.AuditFailure, "header drifted"):
+                AUDIT.validate_roounfold_runtime(
+                    estimator, by_role, lib_hash, pcm_hash, tree_hash
+                )
+
+    def test_roounfold_runtime_rejects_recomputed_substitute_pcm(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            estimator, by_role, lib_hash, pcm_hash, tree_hash, _ = \
+                roounfold_runtime_fixture(Path(tmp))
+            pcm = by_role["ppg_recoeff_roounfold_pcm"]
+            pcm.write_bytes(b"internally consistent but substituted PCM\n")
+            for row in estimator["runtime_assets"]:
+                if Path(row["path"]).resolve() == pcm.resolve():
+                    row["sha256"] = AUDIT.sha256(pcm)
+            with self.assertRaisesRegex(AUDIT.AuditFailure, "PCM.*hash mismatch"):
+                AUDIT.validate_roounfold_runtime(
+                    estimator, by_role, lib_hash, pcm_hash, tree_hash
+                )
+
+    def test_roounfold_runtime_rejects_recomputed_substitute_header_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            estimator, by_role, lib_hash, pcm_hash, tree_hash, include_root = \
+                roounfold_runtime_fixture(Path(tmp))
+            receipt = by_role["ppg_recoeff_roounfold_header_tree_receipt"]
+            (include_root / "RooUnfold.h").write_text(
+                "// internally consistent but substituted RooUnfold.h\n"
+            )
+            data = json.loads(receipt.read_text())
+            digest = hashlib.sha256()
+            for row in data["files"]:
+                header = include_root / row["relative_path"]
+                row["sha256"] = AUDIT.sha256(header)
+                digest.update(row["relative_path"].encode())
+                digest.update(b"\0")
+                digest.update(bytes.fromhex(row["sha256"]))
+            data["tree_sha256"] = digest.hexdigest()
+            receipt.write_text(json.dumps(data) + "\n")
+            for row in estimator["runtime_assets"]:
+                path = Path(row["path"])
+                if path.resolve() in {
+                    receipt.resolve(),
+                    (include_root / "RooUnfold.h").resolve(),
+                }:
+                    row["sha256"] = AUDIT.sha256(path)
+            with self.assertRaisesRegex(AUDIT.AuditFailure, "pinned digest"):
+                AUDIT.validate_roounfold_runtime(
+                    estimator, by_role, lib_hash, pcm_hash, tree_hash
+                )
 
     def analyze(
         self, row: dict[str, str], *, expected_lane_id: str | None = None

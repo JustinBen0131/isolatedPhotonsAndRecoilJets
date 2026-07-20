@@ -23,6 +23,8 @@ grep -q 'runtime: new.17' <<<"$plan" || fail "new.17 contract missing"
 grep -q 'source-locked libCaloAna24.so plus libRecoilJets.so with renamed PPG12-oracle photon builder' <<<"$plan" || fail "build contract missing"
 grep -q 'ppg_binary_mode: source_locked_rebuild' <<<"$plan" || fail "default source-rebuild mode missing"
 grep -q 'ppg_source_revision: 1c0ff86bf0ebabfba63a1abc4512cbe59fe48e31' <<<"$plan" || fail "PPG12 source revision missing"
+grep -q 'RooUnfold: exact historical lib=d135771391ae250bcb64c0889571825abe9924649485890e7a9c64648ee99062 pcm=2d91962a7b42acf246c7a80339eee71ca2f7e6df18ef76051d24a83bc61d4244 headers=ea9b923a8f6bc57b28027b7183b10e87246810c326208b1e36bf2b4b7491a458' <<<"$plan" || \
+  fail "pinned RooUnfold library/PCM/header-tree contract missing"
 grep -q 'exact new.17 libcalo_reco.so, libclusteriso.so, libjetbase.so (cp -L)' <<<"$plan" || fail "release-copy contract missing"
 token="$(sed -n 's/^  token: //p' <<<"$plan")"
 [[ "$token" =~ ^ppg12-new17:[0-9a-f]{64}$ ]] || fail "plan token is malformed"
@@ -37,6 +39,27 @@ override_plan="$(bash "$builder" --output-dir "$output" --setup-script /usr/bin/
 override_token="$(sed -n 's/^  token: //p' <<<"$override_plan")"
 [[ "$override_token" != "$token" ]] || fail "photon-source override did not change the sealed token"
 [[ ! -e "$output" ]] || fail "override plan mode mutated the output path"
+
+pcm_override="${tmp}/RooUnfoldDict_rdict.pcm"
+printf 'synthetic RooUnfold dictionary token fixture\n' > "$pcm_override"
+if bash "$builder" --output-dir "$output" --setup-script /usr/bin/true \
+    --jobs 2 --roounfold-pcm "$pcm_override" >/dev/null 2>&1; then
+  fail "substituted RooUnfold PCM override was accepted"
+fi
+[[ ! -e "$output" ]] || fail "PCM override plan mode mutated the output path"
+
+header_override="${tmp}/roounfold_headers"
+mkdir "$header_override"
+for header in RooUnfold.h RooUnfoldResponse.h RooUnfoldBayes.h \
+  RooUnfoldBinByBin.h RooUnfoldErrors.h RooUnfoldInvert.h RooUnfoldParms.h \
+  RooUnfoldSvd.h RooUnfoldTUnfold.h; do
+  printf '// substituted historical header: %s\n' "$header" > "${header_override}/${header}"
+done
+if bash "$builder" --output-dir "$output" --setup-script /usr/bin/true \
+    --jobs 2 --roounfold-include-dir "$header_override" >/dev/null 2>&1; then
+  fail "substituted RooUnfold header-tree override was accepted"
+fi
+[[ ! -e "$output" ]] || fail "header override plan mode mutated the output path"
 
 origin_root="${tmp}/origin_runtime"
 origin_receipt="${origin_root}/build_receipt.json"
@@ -186,6 +209,9 @@ for invariant in \
   'expected_apply_bdt_sha256="bd6e7c5bc9858ddad9bc835552d818c00290bb7de3f5036f44d8bf4804734366"' \
   'expected_apply_config_sha256="b8d1bc359a647cc913f213777fc42958b532b30c37a63bb318680130eb6e321b"' \
   'expected_apply_npb_sha256="d6086dadac534013cda15cdfb69c1683776d3456d9e439903589653e8ac19eab"' \
+  'expected_roounfold_library_sha256="d135771391ae250bcb64c0889571825abe9924649485890e7a9c64648ee99062"' \
+  'expected_roounfold_pcm_sha256="2d91962a7b42acf246c7a80339eee71ca2f7e6df18ef76051d24a83bc61d4244"' \
+  'expected_roounfold_header_tree_sha256="ea9b923a8f6bc57b28027b7183b10e87246810c326208b1e36bf2b4b7491a458"' \
   'apply_model_names=(base base_vr base_v0 base_v1 base_v2 base_v3 base_E base_v0E base_v1E base_v2E base_v3E)' \
   '(f"ppg_apply_model_{name}"' \
   'ppg_apply_npb_model' \
@@ -194,6 +220,24 @@ for invariant in \
   'ppg_recoeff_truth_vertex_reweight_0mrad' \
   'ppg_recoeff_truth_vertex_reweight_1p5mrad' \
   'ppg_recoeff_yaml_cpp_header_tree_receipt' \
+  'roounfold_pcm="${roounfold_root}/tmp/linuxx8664gcc/RooUnfoldDict_rdict.pcm"' \
+  'cp -f "$roounfold_pcm" "${runtime_root}/lib/RooUnfoldDict_rdict.pcm"' \
+  'cmp -s "$roounfold_pcm" "${runtime_root}/lib/RooUnfoldDict_rdict.pcm"' \
+  'ppg_recoeff_roounfold_pcm' \
+  'ppg_recoeff_roounfold_header_tree_receipt' \
+  'roounfold_header_receipt="${runtime_root}/estimator/roounfold_header_tree_receipt.json"' \
+  'RooUnfoldBinByBin.h' \
+  'RooUnfoldErrors.h' \
+  'RooUnfoldInvert.h' \
+  'RooUnfoldParms.h' \
+  'RooUnfoldSvd.h' \
+  'RooUnfoldTUnfold.h' \
+  'R__LOAD_LIBRARY(${runtime_root}/lib/libRooUnfold.so)' \
+  'RooUnfoldResponse response(' \
+  '(const TH1 *)&measured, (const TH1 *)&truth, &migration,' \
+  'RooUnfoldBayes bayes(' \
+  'PPG12_ORACLE_ROOUNFOLD_API_SMOKE_PASS' \
+  'TCling::(LoadPCM|RegisterModule|AutoParse)' \
   'yaml_cpp_include_dir="/sphenix/u/shuhang98/install/include"' \
   'staged yaml-cpp header tree differs from source' \
   '#include <yaml-cpp/yaml.h>' \
