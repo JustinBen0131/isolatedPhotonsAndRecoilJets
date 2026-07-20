@@ -904,8 +904,12 @@ void smoke_new17_runtime()
   }
   PPG12OraclePhotonClusterBuilder *builder = nullptr;
   if (builder != nullptr) gSystem->Exit(92);
-  YAML::Node yaml_header_smoke;
-  if (yaml_header_smoke.IsDefined()) gSystem->Exit(93);
+  const YAML::Node yaml_header_smoke = YAML::Load("ppg12_oracle_smoke: 17");
+  if (!yaml_header_smoke["ppg12_oracle_smoke"] ||
+      yaml_header_smoke["ppg12_oracle_smoke"].as<int>() != 17)
+  {
+    gSystem->Exit(93);
+  }
 }
 EOF
 (

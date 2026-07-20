@@ -118,6 +118,8 @@ for invariant in \
   'yaml_cpp_include_dir="/sphenix/u/shuhang98/install/include"' \
   'staged yaml-cpp header tree differs from source' \
   '#include <yaml-cpp/yaml.h>' \
+  'YAML::Load("ppg12_oracle_smoke: 17")' \
+  'yaml_header_smoke["ppg12_oracle_smoke"].as<int>() != 17' \
   '"period_configs": {' \
   'apply_BDT split model hash differs'; do
   grep -Fq "$invariant" "$builder" || fail "missing source/model hash invariant: $invariant"
