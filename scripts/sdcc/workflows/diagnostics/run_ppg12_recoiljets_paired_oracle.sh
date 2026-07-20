@@ -136,6 +136,85 @@ for ((index = 0; index < ${#required_keys[@]}; ++index)); do
   [[ "$value" != *$'\n'* && "$value" != *$'\r'* ]] || die "unsafe newline in $key"
 done
 
+# The caller-facing PPG12 paths are assertions about the intended canonical
+# assets; execution itself is source-locked to the copies sealed by the
+# runtime builder.  Resolve those copies before constructing the plan token so
+# the authorized paths, worker arguments, and contract receipt are identical.
+# The byte comparisons retain the caller assertion and fail closed if either
+# provenance chain drifts.
+manifest_role_path() {
+  python3 - "$recoil_runtime_manifest" "$1" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+manifest = Path(sys.argv[1])
+role = sys.argv[2]
+try:
+    data = json.loads(manifest.read_text())
+except (OSError, json.JSONDecodeError) as exc:
+    raise SystemExit(f"cannot read runtime manifest {manifest}: {exc}")
+matches = [
+    str(item.get("path", ""))
+    for item in data.get("files", [])
+    if item.get("role") == role
+]
+if len(matches) != 1:
+    raise SystemExit(f"runtime manifest role {role} has {len(matches)} matches")
+path = Path(matches[0])
+if not path.is_absolute() or not path.is_file() or path.stat().st_size <= 0:
+    raise SystemExit(f"runtime manifest role {role} is not an absolute nonempty file: {path}")
+print(path)
+PY
+}
+
+asserted_apply_bdt="$apply_bdt"
+asserted_apply_config="$apply_config"
+asserted_base_e_model="$base_e_model"
+asserted_base_v3e_model="$base_v3e_model"
+asserted_npb_model="$npb_model"
+sealed_apply_bdt="$(manifest_role_path ppg_apply_bdt_macro)" || \
+  die "failed to resolve sealed apply_BDT macro"
+sealed_apply_config="$(manifest_role_path ppg_apply_bdt_config)" || \
+  die "failed to resolve sealed apply_BDT config"
+sealed_base_e_model="$(manifest_role_path ppg_apply_model_base_E)" || \
+  die "failed to resolve sealed base_E model"
+sealed_base_v3e_model="$(manifest_role_path ppg_apply_model_base_v3E)" || \
+  die "failed to resolve sealed base_v3E model"
+sealed_npb_model="$(manifest_role_path ppg_apply_npb_model)" || \
+  die "failed to resolve sealed NPB model"
+
+asserted_asset_roles=(apply_bdt apply_config base_e_model base_v3e_model npb_model)
+asserted_asset_paths=(
+  "$asserted_apply_bdt" "$asserted_apply_config" "$asserted_base_e_model"
+  "$asserted_base_v3e_model" "$asserted_npb_model"
+)
+sealed_asset_paths=(
+  "$sealed_apply_bdt" "$sealed_apply_config" "$sealed_base_e_model"
+  "$sealed_base_v3e_model" "$sealed_npb_model"
+)
+for ((index = 0; index < ${#asserted_asset_roles[@]}; ++index)); do
+  role="${asserted_asset_roles[$index]}"
+  asserted="${asserted_asset_paths[$index]}"
+  sealed="${sealed_asset_paths[$index]}"
+  [[ -f "$asserted" && -s "$asserted" ]] || \
+    die "caller assertion for $role is missing or empty: $asserted"
+  cmp -s "$asserted" "$sealed" || \
+    die "caller assertion for $role differs from sealed source-locked runtime"
+done
+
+apply_bdt="$sealed_apply_bdt"
+apply_config="$sealed_apply_config"
+base_e_model="$sealed_base_e_model"
+base_v3e_model="$sealed_base_v3e_model"
+npb_model="$sealed_npb_model"
+required_values=(
+  "$output_dir" "$setup_script" "$ppg_macro" "$g4_full_list"
+  "$truthjet_full_list" "$apply_bdt" "$apply_config" "$base_e_model"
+  "$base_v3e_model" "$npb_model" "$tower_mask" "$recoil_runtime_manifest"
+  "$recoil_config"
+)
+
 token_file_keys=(
   setup_script ppg_macro g4_full_list truthjet_full_list apply_bdt
   apply_config base_e_model base_v3e_model npb_model tower_mask
