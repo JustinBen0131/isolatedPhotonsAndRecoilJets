@@ -7,6 +7,7 @@ import csv
 import hashlib
 import importlib.util
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -241,6 +242,118 @@ def roounfold_runtime_fixture(
     )
 
 
+def recoeff_roounfold_compatibility_fixture(
+    root: Path,
+) -> tuple[dict, dict[str, Path], Path]:
+    repo = MODULE_PATH.parents[3] / "ppg12codeGit"
+    source_bytes = subprocess.check_output(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "show",
+            f"{AUDIT.EXPECTED_ESTIMATOR_REVISION}:efficiencytool/RecoEffCalculator_TTreeReader.C",
+        ]
+    )
+    source = root / "runtime" / "estimator" / "source" / "RecoEffCalculator_TTreeReader.C"
+    compat = (
+        root
+        / "runtime"
+        / "estimator"
+        / "macros"
+        / "RecoEffCalculator_TTreeReader_roounfold_compat.C"
+    )
+    receipt = (
+        root
+        / "runtime"
+        / "estimator"
+        / "recoeff_roounfold_compat_transform_receipt.json"
+    )
+    source.parent.mkdir(parents=True)
+    compat.parent.mkdir(parents=True)
+    yaml_cpp = root / "runtime" / "lib" / "libyaml-cpp.so"
+    mbd_correction = root / "runtime" / "estimator" / "data" / "MbdOut.corr"
+    baseline = compat.parent / "RecoEffCalculator_TTreeReader.C"
+    yaml_cpp.parent.mkdir(parents=True)
+    mbd_correction.parent.mkdir(parents=True)
+    yaml_cpp.write_bytes(b"sealed yaml-cpp test library\n")
+    mbd_correction.write_bytes(b"sealed MBD correction test payload\n")
+    source.write_bytes(source_bytes)
+    needle = AUDIT.RECOEFF_ROOUNFOLD_COMPAT_NEEDLE.encode()
+    replacement = AUDIT.RECOEFF_ROOUNFOLD_COMPAT_REPLACEMENT.encode()
+    if source_bytes.count(needle) != 1:
+        raise AssertionError("test fixture canonical constructor needle drifted")
+    compat.write_bytes(source_bytes.replace(needle, replacement))
+    baseline_text = compat.read_text()
+    for old, target in (
+        (
+            "/sphenix/u/shuhang98/install/lib64/libyaml-cpp.so",
+            yaml_cpp,
+        ),
+        (
+            "/sphenix/user/shuhangli/ppg12/efficiencytool/MbdOut.corr",
+            mbd_correction,
+        ),
+    ):
+        if baseline_text.count(old) != 1:
+            raise AssertionError(f"test fixture path rewrite drifted: {old}")
+        baseline_text = baseline_text.replace(old, str(target))
+    baseline.write_text(baseline_text)
+    payload = {
+        "schema_version": 1,
+        "transform": "ppg12_recoeff_roounfold_constructor_compat_v1",
+        "source_revision": AUDIT.EXPECTED_ESTIMATOR_REVISION,
+        "input_path": str(source.resolve()),
+        "input_sha256": AUDIT.sha256(source),
+        "output_path": str(compat.resolve()),
+        "output_sha256": AUDIT.sha256(compat),
+        "operation": {
+            "label": "remove_unsupported_explicit_false_constructor_argument",
+            "expected_count": 1,
+            "observed_count": 1,
+            "needle": AUDIT.RECOEFF_ROOUNFOLD_COMPAT_NEEDLE,
+            "replacement": AUDIT.RECOEFF_ROOUNFOLD_COMPAT_REPLACEMENT,
+        },
+        "historical_roounfold_contract": {
+            "library_sha256": AUDIT.EXPECTED_ROOUNFOLD_LIBRARY_HASH,
+            "pcm_sha256": AUDIT.EXPECTED_ROOUNFOLD_PCM_HASH,
+            "header_tree_sha256": AUDIT.EXPECTED_ROOUNFOLD_HEADER_TREE_HASH,
+            "available_constructor": (
+                "RooUnfoldResponse(const TH1*,const TH1*,const TH2*,"
+                "const char*,const char*)"
+            ),
+            "runtime_smoke_requires_default_overflow_false": True,
+        },
+        "canonical_source_unchanged": True,
+        "constructor_default_overflow_equals_explicit_false": True,
+        "selection_or_fill_expression_replaced": False,
+        "purity_estimator_expression_replaced": False,
+        "response_object_setup_only": True,
+    }
+    receipt.write_text(json.dumps(payload, sort_keys=True) + "\n")
+    metadata = {
+        "roounfold_compatibility_macro": {
+            "path": str(compat.resolve()),
+            "sha256": AUDIT.sha256(compat),
+            "transform_receipt": str(receipt.resolve()),
+            "transform_receipt_sha256": AUDIT.sha256(receipt),
+            "canonical_source_unchanged": True,
+            "constructor_default_overflow_equals_explicit_false": True,
+            "selection_or_fill_expression_replaced": False,
+            "purity_estimator_expression_replaced": False,
+        }
+    }
+    roles = {
+        "ppg_recoeff_source_macro": source,
+        "ppg_recoeff_roounfold_compat_macro": compat,
+        "ppg_recoeff_roounfold_compat_transform_receipt": receipt,
+        "ppg_recoeff_macro": baseline,
+        "ppg_recoeff_yaml_cpp": yaml_cpp,
+        "ppg_recoeff_mbd_correction": mbd_correction,
+    }
+    return metadata, roles, receipt
+
+
 class TestFirstDivergenceAudit(unittest.TestCase):
     def test_source_locked_binary_import_provenance_passes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -391,6 +504,66 @@ class TestFirstDivergenceAudit(unittest.TestCase):
                 AUDIT.validate_roounfold_runtime(
                     estimator, by_role, lib_hash, pcm_hash, tree_hash
                 )
+
+    def test_recoeff_roounfold_compatibility_rederives_exactly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            estimator, by_role, _ = recoeff_roounfold_compatibility_fixture(Path(tmp))
+            AUDIT.validate_recoeff_roounfold_compatibility(estimator, by_role)
+            AUDIT.validate_recoeff_executable_baseline(by_role)
+
+    def test_recoeff_executable_baseline_rejects_rehashed_scientific_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            _, by_role, _ = recoeff_roounfold_compatibility_fixture(Path(tmp))
+            baseline = by_role["ppg_recoeff_macro"]
+            text = baseline.read_text()
+            old = (
+                "float tight_bdt_min_et = tight_bdt_min_slope * "
+                "cluster_Et[icluster] + tight_bdt_min_intercept;"
+            )
+            new = old[:-1] + " + 0.01;"
+            self.assertEqual(text.count(old), 1)
+            baseline.write_text(text.replace(old, new))
+            forged_manifest_hash = AUDIT.sha256(baseline)
+            self.assertEqual(forged_manifest_hash, AUDIT.sha256(baseline))
+            with self.assertRaisesRegex(
+                AUDIT.AuditFailure, "baseline cannot be re-derived"
+            ):
+                AUDIT.validate_recoeff_executable_baseline(by_role)
+
+    def test_recoeff_roounfold_compatibility_rejects_macro_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            estimator, by_role, _ = recoeff_roounfold_compatibility_fixture(Path(tmp))
+            compat = by_role["ppg_recoeff_roounfold_compat_macro"]
+            compat.write_text(compat.read_text() + "// substituted\n")
+            estimator["roounfold_compatibility_macro"]["sha256"] = AUDIT.sha256(compat)
+            with self.assertRaisesRegex(
+                AUDIT.AuditFailure, "compatibility macro"
+            ):
+                AUDIT.validate_recoeff_roounfold_compatibility(estimator, by_role)
+
+    def test_recoeff_roounfold_compatibility_rejects_recomputed_count(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            estimator, by_role, receipt = recoeff_roounfold_compatibility_fixture(Path(tmp))
+            payload = json.loads(receipt.read_text())
+            payload["operation"]["observed_count"] = 2
+            receipt.write_text(json.dumps(payload, sort_keys=True) + "\n")
+            estimator["roounfold_compatibility_macro"][
+                "transform_receipt_sha256"
+            ] = AUDIT.sha256(receipt)
+            with self.assertRaisesRegex(AUDIT.AuditFailure, "not exact-once"):
+                AUDIT.validate_recoeff_roounfold_compatibility(estimator, by_role)
+
+    def test_recoeff_roounfold_compatibility_rejects_semantic_widening(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            estimator, by_role, receipt = recoeff_roounfold_compatibility_fixture(Path(tmp))
+            payload = json.loads(receipt.read_text())
+            payload["selection_or_fill_expression_replaced"] = True
+            receipt.write_text(json.dumps(payload, sort_keys=True) + "\n")
+            estimator["roounfold_compatibility_macro"][
+                "transform_receipt_sha256"
+            ] = AUDIT.sha256(receipt)
+            with self.assertRaisesRegex(AUDIT.AuditFailure, "forbidden semantics"):
+                AUDIT.validate_recoeff_roounfold_compatibility(estimator, by_role)
 
     def analyze(
         self, row: dict[str, str], *, expected_lane_id: str | None = None

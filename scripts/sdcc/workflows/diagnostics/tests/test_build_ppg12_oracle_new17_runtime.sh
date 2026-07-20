@@ -201,6 +201,9 @@ for invariant in \
 done
 for invariant in \
   'expected_recoeff_sha256="e9b25fdb6dd8a6bfbbad029cb90aaddc9489fdf2846c630ea63c8c41ac771eee"' \
+  'expected_recoeff_roounfold_compat_sha256="f5a12905952a0f49a7521868935e7868eca7cf8de1facae12c26e0dd9b712891"' \
+  'recoeff_roounfold_compat_needle=' \
+  'recoeff_roounfold_compat_replacement=' \
   'expected_recoeff_config_sha256="42b7be1628843d5b7607ab988ffb58c6d019d8ade01b3c4d528611498db95732"' \
   'expected_recoeff_period_config_0mrad_sha256="3995033c8867f4b0e21d5ebc025d36395185671da474fceec128b20db7218be2"' \
   'expected_recoeff_period_config_1p5mrad_sha256="6d2e4cc691e2fdd49271486ef193055704da00bcbd6b50ced76fcdd99cd050b8"' \
@@ -224,6 +227,13 @@ for invariant in \
   'cp -f "$roounfold_pcm" "${runtime_root}/lib/RooUnfoldDict_rdict.pcm"' \
   'cmp -s "$roounfold_pcm" "${runtime_root}/lib/RooUnfoldDict_rdict.pcm"' \
   'ppg_recoeff_roounfold_pcm' \
+  'ppg_recoeff_roounfold_compat_macro' \
+  'ppg_recoeff_roounfold_compat_transform_receipt' \
+  'ppg12_recoeff_roounfold_constructor_compat_v1' \
+  'remove_unsupported_explicit_false_constructor_argument' \
+  'constructor_default_overflow_equals_explicit_false' \
+  'selection_or_fill_expression_replaced' \
+  'purity_estimator_expression_replaced' \
   'ppg_recoeff_roounfold_header_tree_receipt' \
   'roounfold_header_receipt="${runtime_root}/estimator/roounfold_header_tree_receipt.json"' \
   'RooUnfoldBinByBin.h' \
@@ -235,8 +245,9 @@ for invariant in \
   'R__LOAD_LIBRARY(${runtime_root}/lib/libRooUnfold.so)' \
   'RooUnfoldResponse response(' \
   '(const TH1 *)&measured, (const TH1 *)&truth, &migration,' \
+  'if (response.UseOverflowStatus())' \
   'RooUnfoldBayes bayes(' \
-  'PPG12_ORACLE_ROOUNFOLD_API_SMOKE_PASS' \
+  'PPG12_ORACLE_ROOUNFOLD_API_SMOKE_PASS default_overflow=0' \
   'TCling::(LoadPCM|RegisterModule|AutoParse)' \
   'yaml_cpp_include_dir="/sphenix/u/shuhang98/install/include"' \
   'staged yaml-cpp header tree differs from source' \
@@ -249,6 +260,50 @@ for invariant in \
 done
 grep -Fq -- '-lg4eval \' "$builder" || \
   fail "staged oracle link does not include release libg4eval"
+
+python3 - "$builder" "$repo_root/ppg12codeGit" <<'PY'
+from pathlib import Path
+import hashlib
+import re
+import subprocess
+import sys
+
+builder = Path(sys.argv[1]).read_text()
+repo = sys.argv[2]
+source = subprocess.check_output([
+    "git", "-C", repo, "show",
+    "29f8223bd9b36dffab07961b597afa94185bbdf1:efficiencytool/RecoEffCalculator_TTreeReader.C",
+])
+needle = b', Form("response_matrix_full_%d", ieta), "", false));'
+replacement = b', Form("response_matrix_full_%d", ieta), ""));'
+if source.count(needle) != 1:
+    raise SystemExit("canonical RooUnfold compatibility needle is not exact-once")
+derived = source.replace(needle, replacement)
+if hashlib.sha256(derived).hexdigest() != (
+    "f5a12905952a0f49a7521868935e7868eca7cf8de1facae12c26e0dd9b712891"
+):
+    raise SystemExit("canonical RooUnfold compatibility derivative drifted")
+smoke = re.search(
+    r'cat > "\$smoke_macro" <<EOF\n(?P<body>.*?)\nEOF\n\(',
+    builder,
+    flags=re.DOTALL,
+)
+if not smoke:
+    raise SystemExit("cannot locate ROOT runtime smoke body")
+body = smoke.group("body")
+for required in ("#include <RooUnfoldResponse.h>", "#include <RooUnfoldBayes.h>"):
+    if required not in body:
+        raise SystemExit(f"ROOT smoke omits required executable header: {required}")
+for forbidden in (
+    "#include <RooUnfoldTUnfold.h>",
+    "#include <RooUnfoldBinByBin.h>",
+    '"ppg12_oracle_response", "", false',
+):
+    if forbidden in body:
+        raise SystemExit(f"ROOT smoke contains unused/incompatible API: {forbidden}")
+if "response.UseOverflowStatus()" not in body:
+    raise SystemExit("ROOT smoke does not prove default overflow=false")
+PY
 
 if grep -Fq 'build_root}/caloreco' "$builder"; then
   fail "builder still rebuilds the full local CaloReco package"

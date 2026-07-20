@@ -351,6 +351,17 @@ for invariant in \
   'ppg_recoeff_truth_vertex_reweight' \
   'ppg_recoeff_yaml_cpp_header_tree_receipt' \
   'ppg_recoeff_roounfold_pcm' \
+  'ppg_recoeff_roounfold_compat_macro' \
+  'ppg_recoeff_roounfold_compat_transform_receipt' \
+  'expected_recoeff_roounfold_compat_sha256="f5a12905952a0f49a7521868935e7868eca7cf8de1facae12c26e0dd9b712891"' \
+  'ppg12_recoeff_roounfold_constructor_compat_v1' \
+  'remove_unsupported_explicit_false_constructor_argument' \
+  'RooUnfold compatibility macro cannot be re-derived exactly' \
+  'executable RecoEff baseline cannot be re-derived from the pinned' \
+  'executable RecoEff path rewrite is not exact-once' \
+  'runtime_smoke_requires_default_overflow_false' \
+  'selection_or_fill_expression_replaced' \
+  'purity_estimator_expression_replaced' \
   'ppg_recoeff_roounfold_header_tree_receipt' \
   'expected_roounfold_library_sha256="d135771391ae250bcb64c0889571825abe9924649485890e7a9c64648ee99062"' \
   'expected_roounfold_pcm_sha256="2d91962a7b42acf246c7a80339eee71ca2f7e6df18ef76051d24a83bc61d4244"' \

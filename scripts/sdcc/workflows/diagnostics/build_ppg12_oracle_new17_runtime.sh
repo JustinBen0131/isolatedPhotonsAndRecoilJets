@@ -101,6 +101,9 @@ apply_model_names=(base base_vr base_v0 base_v1 base_v2 base_v3 base_E base_v0E 
 expected_apply_bdt_sha256="bd6e7c5bc9858ddad9bc835552d818c00290bb7de3f5036f44d8bf4804734366"
 expected_apply_config_sha256="b8d1bc359a647cc913f213777fc42958b532b30c37a63bb318680130eb6e321b"
 expected_recoeff_sha256="e9b25fdb6dd8a6bfbbad029cb90aaddc9489fdf2846c630ea63c8c41ac771eee"
+expected_recoeff_roounfold_compat_sha256="f5a12905952a0f49a7521868935e7868eca7cf8de1facae12c26e0dd9b712891"
+recoeff_roounfold_compat_needle=', Form("response_matrix_full_%d", ieta), "", false));'
+recoeff_roounfold_compat_replacement=', Form("response_matrix_full_%d", ieta), ""));'
 expected_recoeff_config_sha256="42b7be1628843d5b7607ab988ffb58c6d019d8ade01b3c4d528611498db95732"
 expected_recoeff_period_config_0mrad_sha256="3995033c8867f4b0e21d5ebc025d36395185671da474fceec128b20db7218be2"
 expected_recoeff_period_config_1p5mrad_sha256="6d2e4cc691e2fdd49271486ef193055704da00bcbd6b50ced76fcdd99cd050b8"
@@ -484,6 +487,12 @@ contract_token="$({
   done
   printf 'estimator_revision=%s\n' "$estimator_revision"
   printf 'expected_recoeff_sha256=%s\n' "$expected_recoeff_sha256"
+  printf 'expected_recoeff_roounfold_compat_sha256=%s\n' \
+    "$expected_recoeff_roounfold_compat_sha256"
+  printf 'recoeff_roounfold_compat_needle=%s\n' \
+    "$recoeff_roounfold_compat_needle"
+  printf 'recoeff_roounfold_compat_replacement=%s\n' \
+    "$recoeff_roounfold_compat_replacement"
   printf 'expected_recoeff_config_sha256=%s\n' "$expected_recoeff_config_sha256"
   printf 'expected_recoeff_period_config_0mrad_sha256=%s\n' \
     "$expected_recoeff_period_config_0mrad_sha256"
@@ -547,7 +556,7 @@ PPG12_ORACLE_NEW17_BUILD_PLAN
   ppg_origin_manifest_sha256: ${ppg_origin_manifest_sha256:-not-applicable}
   ppg_origin_library_sha256: ${ppg_origin_library_sha256:-not-applicable}
   estimator_revision: ${estimator_revision}
-  estimator: exact RecoEff/config/yield sources plus dual uninstrumented/instrumented execution
+  estimator: immutable RecoEff source plus one hash-bound RooUnfold API compatibility derivative and dual uninstrumented/instrumented execution
   RooUnfold: exact historical lib=${expected_roounfold_library_sha256} pcm=${expected_roounfold_pcm_sha256} headers=${expected_roounfold_header_tree_sha256}
   release copies: exact new.17 libcalo_reco.so, libclusteriso.so, libjetbase.so (cp -L)
   macro staging: PP wrapper/implementation with exact-count path rewrites
@@ -939,10 +948,87 @@ path.write_text(pattern.sub(new, text))
 PY
 }
 
+recoeff_compat_macro="${runtime_root}/estimator/macros/RecoEffCalculator_TTreeReader_roounfold_compat.C"
+recoeff_compat_receipt="${runtime_root}/estimator/recoeff_roounfold_compat_transform_receipt.json"
 recoeff_macro="${runtime_root}/estimator/macros/RecoEffCalculator_TTreeReader.C"
 recoeff_trace_macro="${runtime_root}/estimator/macros/RecoEffCalculator_TTreeReader_trace.C"
 recoeff_trace_receipt="${runtime_root}/estimator/recoeff_trace_transform_receipt.json"
-cp -f "${estimator_stage}/RecoEffCalculator_TTreeReader.C" "$recoeff_macro"
+python3 - \
+  "${estimator_stage}/RecoEffCalculator_TTreeReader.C" \
+  "$recoeff_compat_macro" "$recoeff_compat_receipt" \
+  "$estimator_revision" "$expected_recoeff_sha256" \
+  "$expected_recoeff_roounfold_compat_sha256" \
+  "$recoeff_roounfold_compat_needle" \
+  "$recoeff_roounfold_compat_replacement" \
+  "$expected_roounfold_library_sha256" "$expected_roounfold_pcm_sha256" \
+  "$expected_roounfold_header_tree_sha256" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import sys
+
+(
+    source_path, output_path, receipt_path, source_revision,
+    expected_source_sha256, expected_output_sha256, needle, replacement,
+    roounfold_library_sha256, roounfold_pcm_sha256,
+    roounfold_header_tree_sha256,
+) = sys.argv[1:]
+source = Path(source_path).resolve()
+output = Path(output_path).resolve()
+receipt = Path(receipt_path).resolve()
+
+def digest_bytes(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
+
+raw = source.read_bytes()
+if digest_bytes(raw) != expected_source_sha256:
+    raise SystemExit("canonical RecoEff source drifted before compatibility transform")
+needle_bytes = needle.encode()
+replacement_bytes = replacement.encode()
+observed = raw.count(needle_bytes)
+if observed != 1:
+    raise SystemExit(
+        "RooUnfold constructor compatibility needle must occur exactly once; "
+        f"observed={observed}"
+    )
+derived = raw.replace(needle_bytes, replacement_bytes)
+if digest_bytes(derived) != expected_output_sha256:
+    raise SystemExit("RooUnfold compatibility derivative differs from pinned digest")
+output.write_bytes(derived)
+data = {
+    "schema_version": 1,
+    "transform": "ppg12_recoeff_roounfold_constructor_compat_v1",
+    "source_revision": source_revision,
+    "input_path": str(source),
+    "input_sha256": digest_bytes(raw),
+    "output_path": str(output),
+    "output_sha256": digest_bytes(derived),
+    "operation": {
+        "label": "remove_unsupported_explicit_false_constructor_argument",
+        "expected_count": 1,
+        "observed_count": observed,
+        "needle": needle,
+        "replacement": replacement,
+    },
+    "historical_roounfold_contract": {
+        "library_sha256": roounfold_library_sha256,
+        "pcm_sha256": roounfold_pcm_sha256,
+        "header_tree_sha256": roounfold_header_tree_sha256,
+        "available_constructor": (
+            "RooUnfoldResponse(const TH1*,const TH1*,const TH2*,"
+            "const char*,const char*)"
+        ),
+        "runtime_smoke_requires_default_overflow_false": True,
+    },
+    "canonical_source_unchanged": True,
+    "constructor_default_overflow_equals_explicit_false": True,
+    "selection_or_fill_expression_replaced": False,
+    "purity_estimator_expression_replaced": False,
+    "response_object_setup_only": True,
+}
+receipt.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+PY
+cp -f "$recoeff_compat_macro" "$recoeff_macro"
 replace_exact "$recoeff_macro" 1 \
   '/sphenix/u/shuhang98/install/lib64/libyaml-cpp.so' \
   "${runtime_root}/lib/libyaml-cpp.so"
@@ -1202,15 +1288,8 @@ cat > "$smoke_macro" <<EOF
 R__LOAD_LIBRARY(${runtime_root}/lib/libRooUnfold.so)
 #include <caloana/PPG12OraclePhotonClusterBuilder.h>
 #include <yaml-cpp/yaml.h>
-#include <RooUnfold.h>
 #include <RooUnfoldResponse.h>
 #include <RooUnfoldBayes.h>
-#include <RooUnfoldBinByBin.h>
-#include <RooUnfoldErrors.h>
-#include <RooUnfoldInvert.h>
-#include <RooUnfoldParms.h>
-#include <RooUnfoldSvd.h>
-#include <RooUnfoldTUnfold.h>
 #include <TH1D.h>
 #include <TH2D.h>
 #include <TSystem.h>
@@ -1246,11 +1325,16 @@ void smoke_new17_runtime()
   TH2D migration("ppg12_oracle_migration", "", 2, 0.0, 2.0, 2, 0.0, 2.0);
   RooUnfoldResponse response(
     (const TH1 *)&measured, (const TH1 *)&truth, &migration,
-    "ppg12_oracle_response", "", false);
+    "ppg12_oracle_response", "");
+  if (response.UseOverflowStatus())
+  {
+    std::cerr << "PPG12_ORACLE_ROOUNFOLD_DEFAULT_OVERFLOW_MISMATCH" << std::endl;
+    gSystem->Exit(94);
+  }
   RooUnfoldBayes bayes(
     &response, &measured, 1, false, "ppg12_oracle_bayes", "");
   (void)bayes;
-  std::cout << "PPG12_ORACLE_ROOUNFOLD_API_SMOKE_PASS" << std::endl;
+  std::cout << "PPG12_ORACLE_ROOUNFOLD_API_SMOKE_PASS default_overflow=0" << std::endl;
 }
 EOF
 (
@@ -1263,7 +1347,8 @@ EOF
 }
 [[ "$(grep -c '^PPG12_ORACLE_ROOT_LOAD ' "${log_root}/root_smoke.log")" -eq 7 ]] || \
   die "ROOT smoke did not load all seven runtime libraries"
-grep -Fxq 'PPG12_ORACLE_ROOUNFOLD_API_SMOKE_PASS' "${log_root}/root_smoke.log" || \
+grep -Fxq 'PPG12_ORACLE_ROOUNFOLD_API_SMOKE_PASS default_overflow=0' \
+  "${log_root}/root_smoke.log" || \
   die "ROOT smoke did not compile and instantiate the historical RooUnfold API"
 if grep -E 'TCling::(LoadPCM|RegisterModule|AutoParse)|Failed to load PCM|fatal error:|no matching constructor|redefinition of|cannot open shared object' \
     "${log_root}/root_smoke.log" >/dev/null; then
@@ -1297,6 +1382,7 @@ python3 - \
   "${runtime_root}/estimator/source/CalculatePhotonYield.C" \
   "${runtime_root}/estimator/apply/apply_BDT.C" \
   "${runtime_root}/estimator/apply/config_nom.yaml" \
+  "$recoeff_compat_macro" "$recoeff_compat_receipt" \
   "$recoeff_macro" "$recoeff_trace_macro" "$recoeff_trace_receipt" \
   "$trace_instrumenter" \
   "${runtime_root}/lib/libyaml-cpp.so" \
@@ -1329,6 +1415,7 @@ import sys
     truth_vertex_header, estimator_config, estimator_config_0mrad,
     estimator_config_1p5mrad, calculate_yield_source,
     apply_bdt_source, apply_config_source,
+    recoeff_compat_macro, recoeff_compat_receipt,
     recoeff_macro, recoeff_trace_macro, trace_receipt, trace_instrumenter,
     yaml_cpp, yaml_cpp_header_receipt, roounfold, roounfold_pcm,
     roounfold_header_receipt, roounfold_response_header, roounfold_bayes_header,
@@ -1361,7 +1448,8 @@ source_paths = [
     calo_source, clusteriso_source, jetbase_source, calo_calib,
     recoeff_source, cross_section_header, truth_vertex_header,
     estimator_config, estimator_config_0mrad, estimator_config_1p5mrad,
-    calculate_yield_source, recoeff_macro,
+    calculate_yield_source, recoeff_compat_macro, recoeff_compat_receipt,
+    recoeff_macro,
     apply_bdt_source, apply_config_source,
     recoeff_trace_macro, trace_receipt, trace_instrumenter, yaml_cpp,
     yaml_cpp_header_receipt, roounfold, roounfold_pcm, roounfold_header_receipt,
@@ -1433,11 +1521,21 @@ data = {
             "path": recoeff_source,
             "sha256": digest(recoeff_source),
         },
+        "roounfold_compatibility_macro": {
+            "path": recoeff_compat_macro,
+            "sha256": digest(recoeff_compat_macro),
+            "transform_receipt": recoeff_compat_receipt,
+            "transform_receipt_sha256": digest(recoeff_compat_receipt),
+            "canonical_source_unchanged": True,
+            "constructor_default_overflow_equals_explicit_false": True,
+            "selection_or_fill_expression_replaced": False,
+            "purity_estimator_expression_replaced": False,
+        },
         "staged_uninstrumented_macro": {
             "path": recoeff_macro,
             "sha256": digest(recoeff_macro),
             "scientific_expression_changes": False,
-            "sealed_path_rewrites_only": True,
+            "sealed_path_rewrites_plus_roounfold_api_compatibility": True,
         },
         "instrumented_macro": {
             "path": recoeff_trace_macro,
@@ -1540,6 +1638,8 @@ data = {
         "ppg12_source_locked_rebuild": ppg_binary_mode == "source_locked_rebuild",
         "ppg12_source_locked_binary_import": ppg_binary_mode == "source_locked_runtime_import",
         "estimator_revision_separate_from_reconstruction": True,
+        "estimator_roounfold_api_compatibility_exact_once": True,
+        "estimator_canonical_source_preserved": True,
         "estimator_trace_requires_exact_root_equivalence": True,
     },
     "validation": {
@@ -1563,6 +1663,7 @@ python3 - "$runtime_manifest" "$build_receipt" "$expected_offline" \
   "${runtime_root}/include/caloreco/PhotonClusterBuilder.h" \
   "$estimator_revision" \
   "${runtime_root}/estimator/source/RecoEffCalculator_TTreeReader.C" \
+  "$recoeff_compat_macro" "$recoeff_compat_receipt" \
   "$recoeff_macro" "$recoeff_trace_macro" "$recoeff_trace_receipt" \
   "${runtime_root}/estimator/include/CrossSectionWeights.h" \
   "${runtime_root}/estimator/include/TruthVertexReweightLoader.h" \
@@ -1592,7 +1693,8 @@ import sys
 (
     manifest, receipt, offline_main, macro, impl, recoil, ppg, calo,
     clusteriso, jetbase, photon_header,
-    estimator_revision, recoeff_source, recoeff_macro, recoeff_trace_macro,
+    estimator_revision, recoeff_source, recoeff_compat_macro,
+    recoeff_compat_receipt, recoeff_macro, recoeff_trace_macro,
     trace_receipt, cross_section_header, truth_vertex_header, estimator_config,
     estimator_config_0mrad, estimator_config_1p5mrad, calculate_yield,
     apply_bdt, apply_config, yaml_cpp, yaml_cpp_header_receipt, roounfold,
@@ -1619,6 +1721,8 @@ roles = [
     ("libjetbase.so", jetbase),
     ("PhotonClusterBuilder.h", photon_header),
     ("ppg_recoeff_source_macro", recoeff_source),
+    ("ppg_recoeff_roounfold_compat_macro", recoeff_compat_macro),
+    ("ppg_recoeff_roounfold_compat_transform_receipt", recoeff_compat_receipt),
     ("ppg_recoeff_macro", recoeff_macro),
     ("ppg_recoeff_trace_macro", recoeff_trace_macro),
     ("ppg_recoeff_trace_transform_receipt", trace_receipt),

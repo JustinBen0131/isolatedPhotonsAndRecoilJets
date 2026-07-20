@@ -36,6 +36,11 @@ reuse_ppg_raw_contract="${21}"
 expected_roounfold_library_sha256="d135771391ae250bcb64c0889571825abe9924649485890e7a9c64648ee99062"
 expected_roounfold_pcm_sha256="2d91962a7b42acf246c7a80339eee71ca2f7e6df18ef76051d24a83bc61d4244"
 expected_roounfold_header_tree_sha256="ea9b923a8f6bc57b28027b7183b10e87246810c326208b1e36bf2b4b7491a458"
+expected_recoeff_source_sha256="e9b25fdb6dd8a6bfbbad029cb90aaddc9489fdf2846c630ea63c8c41ac771eee"
+expected_recoeff_roounfold_compat_sha256="f5a12905952a0f49a7521868935e7868eca7cf8de1facae12c26e0dd9b712891"
+expected_estimator_revision="29f8223bd9b36dffab07961b597afa94185bbdf1"
+recoeff_roounfold_compat_needle=', Form("response_matrix_full_%d", ieta), "", false));'
+recoeff_roounfold_compat_replacement=', Form("response_matrix_full_%d", ieta), ""));'
 
 case "$sample" in Photon5|Photon10|Photon20) ;; *) die "unsupported sample: $sample" ;; esac
 case "$period" in
@@ -653,6 +658,8 @@ photon_builder_include_root="$(dirname "$(dirname "$photon_builder_header")")"
 recoeff_macro="$(manifest_role_path ppg_recoeff_macro)"
 recoeff_trace_macro="$(manifest_role_path ppg_recoeff_trace_macro)"
 recoeff_source_macro="$(manifest_role_path ppg_recoeff_source_macro)"
+recoeff_compat_macro="$(manifest_role_path ppg_recoeff_roounfold_compat_macro)"
+recoeff_compat_receipt="$(manifest_role_path ppg_recoeff_roounfold_compat_transform_receipt)"
 recoeff_trace_receipt="$(manifest_role_path ppg_recoeff_trace_transform_receipt)"
 recoeff_cross_section_header="$(manifest_role_path ppg_recoeff_cross_section_header)"
 recoeff_truth_vertex_header="$(manifest_role_path ppg_recoeff_truth_vertex_header)"
@@ -710,6 +717,137 @@ recoeff_roounfold_response_header="$(manifest_role_path ppg_recoeff_roounfold_re
 recoeff_roounfold_bayes_header="$(manifest_role_path ppg_recoeff_roounfold_bayes_header)"
 recoeff_vertex_scan_data="$(manifest_role_path ppg_recoeff_vertex_scan_data)"
 recoeff_mbd_correction="$(manifest_role_path ppg_recoeff_mbd_correction)"
+
+python3 - "$recoeff_source_macro" "$recoeff_compat_macro" \
+  "$recoeff_compat_receipt" "$recoeff_macro" "$recoeff_yaml_cpp" \
+  "$recoeff_mbd_correction" "$expected_estimator_revision" \
+  "$expected_recoeff_source_sha256" \
+  "$expected_recoeff_roounfold_compat_sha256" \
+  "$recoeff_roounfold_compat_needle" \
+  "$recoeff_roounfold_compat_replacement" \
+  "$expected_roounfold_library_sha256" "$expected_roounfold_pcm_sha256" \
+  "$expected_roounfold_header_tree_sha256" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import sys
+
+(
+    source_raw, compat_raw, receipt_raw, baseline_raw, yaml_cpp_raw,
+    mbd_correction_raw, expected_revision,
+    expected_source_hash, expected_compat_hash, needle, replacement,
+    expected_library_hash, expected_pcm_hash, expected_header_tree_hash,
+) = sys.argv[1:]
+source = Path(source_raw).resolve()
+compat = Path(compat_raw).resolve()
+receipt = Path(receipt_raw).resolve()
+baseline = Path(baseline_raw).resolve()
+yaml_cpp = Path(yaml_cpp_raw).resolve()
+mbd_correction = Path(mbd_correction_raw).resolve()
+
+def digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+if digest(source) != expected_source_hash:
+    raise SystemExit("canonical RecoEff source differs from pinned digest")
+if digest(compat) != expected_compat_hash:
+    raise SystemExit("RooUnfold compatibility macro differs from pinned digest")
+data = json.loads(receipt.read_text())
+if data.get("schema_version") != 1:
+    raise SystemExit("invalid RooUnfold compatibility receipt schema")
+if data.get("transform") != "ppg12_recoeff_roounfold_constructor_compat_v1":
+    raise SystemExit("unexpected RooUnfold compatibility transform")
+if data.get("source_revision") != expected_revision:
+    raise SystemExit("RooUnfold compatibility transform uses the wrong source revision")
+if Path(str(data.get("input_path", ""))).resolve() != source:
+    raise SystemExit("RooUnfold compatibility input path differs from source role")
+if data.get("input_sha256") != expected_source_hash:
+    raise SystemExit("RooUnfold compatibility input digest differs")
+if Path(str(data.get("output_path", ""))).resolve() != compat:
+    raise SystemExit("RooUnfold compatibility output path differs from macro role")
+if data.get("output_sha256") != expected_compat_hash:
+    raise SystemExit("RooUnfold compatibility output digest differs")
+operation = data.get("operation", {})
+if not isinstance(operation, dict):
+    raise SystemExit("RooUnfold compatibility receipt lacks its operation")
+if operation.get("label") != "remove_unsupported_explicit_false_constructor_argument":
+    raise SystemExit("RooUnfold compatibility operation label differs")
+if operation.get("expected_count") != 1 or operation.get("observed_count") != 1:
+    raise SystemExit("RooUnfold compatibility operation is not exact-once")
+if operation.get("needle") != needle or operation.get("replacement") != replacement:
+    raise SystemExit("RooUnfold compatibility operation text differs")
+derived = source.read_bytes().replace(needle.encode(), replacement.encode())
+if source.read_bytes().count(needle.encode()) != 1 or derived != compat.read_bytes():
+    raise SystemExit("RooUnfold compatibility macro cannot be re-derived exactly")
+runtime = data.get("historical_roounfold_contract", {})
+if not isinstance(runtime, dict):
+    raise SystemExit("RooUnfold compatibility receipt lacks runtime contract")
+for key, expected in (
+    ("library_sha256", expected_library_hash),
+    ("pcm_sha256", expected_pcm_hash),
+    ("header_tree_sha256", expected_header_tree_hash),
+):
+    if runtime.get(key) != expected:
+        raise SystemExit(f"RooUnfold compatibility {key} differs")
+if runtime.get("runtime_smoke_requires_default_overflow_false") is not True:
+    raise SystemExit("RooUnfold compatibility does not require overflow-default smoke")
+for key in (
+    "canonical_source_unchanged",
+    "constructor_default_overflow_equals_explicit_false",
+    "response_object_setup_only",
+):
+    if data.get(key) is not True:
+        raise SystemExit(f"RooUnfold compatibility invariant is false: {key}")
+for key in (
+    "selection_or_fill_expression_replaced",
+    "purity_estimator_expression_replaced",
+):
+    if data.get(key) is not False:
+        raise SystemExit(f"RooUnfold compatibility altered forbidden semantics: {key}")
+
+if compat.parent.name != "macros" or compat.parent.parent.name != "estimator":
+    raise SystemExit("RooUnfold compatibility macro has an unexpected runtime layout")
+runtime_root = compat.parent.parent.parent
+expected_layout = {
+    "baseline": compat.parent / "RecoEffCalculator_TTreeReader.C",
+    "yaml_cpp": runtime_root / "lib" / "libyaml-cpp.so",
+    "mbd_correction": runtime_root / "estimator" / "data" / "MbdOut.corr",
+}
+actual_layout = {
+    "baseline": baseline,
+    "yaml_cpp": yaml_cpp,
+    "mbd_correction": mbd_correction,
+}
+for role, expected in expected_layout.items():
+    if actual_layout[role].resolve() != expected.resolve():
+        raise SystemExit(f"executable RecoEff runtime layout differs for {role}")
+text = compat.read_text()
+path_rewrites = (
+    (
+        "/sphenix/u/shuhang98/install/lib64/libyaml-cpp.so",
+        str(yaml_cpp),
+        "yaml_cpp",
+    ),
+    (
+        "/sphenix/user/shuhangli/ppg12/efficiencytool/MbdOut.corr",
+        str(mbd_correction),
+        "mbd_correction",
+    ),
+)
+for old, new, label in path_rewrites:
+    observed = text.count(old)
+    if observed != 1:
+        raise SystemExit(
+            "executable RecoEff path rewrite is not exact-once: "
+            f"role={label} observed={observed}"
+        )
+    text = text.replace(old, new)
+if text.encode() != baseline.read_bytes():
+    raise SystemExit(
+        "executable RecoEff baseline cannot be re-derived from the pinned "
+        "compatibility macro and two allowed path rewrites"
+    )
+PY
 sealed_apply_bdt="$(manifest_role_path ppg_apply_bdt_macro)"
 sealed_apply_config="$(manifest_role_path ppg_apply_bdt_config)"
 sealed_base_e_model="$(manifest_role_path ppg_apply_model_base_E)"
@@ -935,8 +1073,9 @@ python3 - \
   "$recoil_log" "$ppg_raw_root" "$ppg_scored_root" "$recoil_root" \
   "$candidate_csv" "$expected_token" "$first_ph_seed" \
   "$pedestal_seed" "$pedestal_sequence" "$ph_seed_sequence" \
-  "$recoeff_source_macro" "$recoeff_macro" "$recoeff_trace_macro" \
-  "$recoeff_trace_receipt" "$recoeff_canonical_config" "$recoeff_period_config" \
+  "$recoeff_source_macro" "$recoeff_compat_macro" "$recoeff_compat_receipt" \
+  "$recoeff_macro" "$recoeff_trace_macro" "$recoeff_trace_receipt" \
+  "$recoeff_canonical_config" "$recoeff_period_config" \
   "$recoeff_truth_vertex_reweight" "$recoeff_yaml_cpp_header_receipt" \
   "$baseline_recoeff_config" "$trace_recoeff_config" \
   "$recoeff_cross_section_header" "$recoeff_truth_vertex_header" \
@@ -967,7 +1106,8 @@ import sys
     recoil_wrapper, comparator, auditor, ppg_log, recoil_log, ppg_raw, ppg_scored,
     recoil_root, candidate_csv, token, first_ph_seed,
     pedestal_seed, pedestal_sequence, ph_seed_sequence,
-    recoeff_source, recoeff_macro, recoeff_trace_macro, recoeff_trace_receipt,
+    recoeff_source, recoeff_compat_macro, recoeff_compat_receipt,
+    recoeff_macro, recoeff_trace_macro, recoeff_trace_receipt,
     recoeff_canonical_config, recoeff_period_config, recoeff_truth_vertex_reweight,
     recoeff_yaml_cpp_header_receipt, baseline_recoeff_config, trace_recoeff_config,
     cross_section_header, truth_vertex_header, yaml_cpp, roounfold, roounfold_pcm,
@@ -1016,6 +1156,8 @@ paths = {
     "recoil_root": recoil_root,
     "candidate_csv": candidate_csv,
     "ppg_recoeff_source_macro": recoeff_source,
+    "ppg_recoeff_roounfold_compat_macro": recoeff_compat_macro,
+    "ppg_recoeff_roounfold_compat_transform_receipt": recoeff_compat_receipt,
     "ppg_recoeff_macro": recoeff_macro,
     "ppg_recoeff_trace_macro": recoeff_trace_macro,
     "ppg_recoeff_trace_transform_receipt": recoeff_trace_receipt,
@@ -1873,6 +2015,7 @@ python3 "$aggregate_extractor" \
   --runtime-manifest "$paired_runtime_manifest" \
   --asset apply_bdt_stage_evidence="$apply_evidence" \
   --asset estimator_source="$recoeff_source_macro" \
+  --asset estimator_roounfold_compatibility="$recoeff_compat_receipt" \
   --asset estimator_trace_transform="$recoeff_trace_receipt" \
   --out-json "$aggregate_report"
 
