@@ -2,6 +2,11 @@ version: 2026-06-01
 purpose: Canonical index for non-slide executable helpers under scripts/.
 stage5_note: Parent aliases are hard contracts only; use canonical_path or scripts/bin/thesis-script first.
 entries:
+  - id: build_ppg12_paired_source_manifest
+    group: "data_prep/manifests"
+    canonical_path: "scripts/data_prep/manifests/build_ppg12_paired_source_manifest.py"
+    aliases:
+      []
   - id: build_auau_model_inventory
     group: "data_prep/manifests"
     canonical_path: "scripts/data_prep/manifests/build_auau_model_inventory.py"
@@ -786,6 +791,11 @@ entries:
   - id: submit_the8_corrected_baseline_diagnostic_expansion
     group: "sdcc/workflows/diagnostics"
     canonical_path: "scripts/sdcc/workflows/diagnostics/submit_the8_corrected_baseline_diagnostic_expansion.sh"
+    aliases:
+      []
+  - id: ppg12_paired_oracle_condor_fanout
+    group: "sdcc/workflows/diagnostics"
+    canonical_path: "scripts/sdcc/workflows/diagnostics/ppg12_paired_oracle_condor_fanout.py"
     aliases:
       []
   - id: submit_inclusive_stitch_xsec_scan
