@@ -3497,6 +3497,83 @@ int RecoilJets::Init(PHCompositeNode* topNode)
     initEnvBool("RJ_MBD_PMT_LOW_CALO_DIAGNOSTICS", m_mbdPmtLowCaloDiagnosticsEnabled);
   m_requireEmbeddedMinBiasClassifier =
     initEnvBool("RJ_REQUIRE_EMBEDDED_MINBIAS_CLASSIFIER", m_requireEmbeddedMinBiasClassifier);
+  const bool allowFixedRecoIsoViews =
+    initEnvBool("RJ_ALLOW_FIXED_RECO_ISO_VIEWS", false);
+
+  // Physics hard stop: reconstructed Au+Au isolation is the centrality-
+  // dependent sliding definition.  R=0.4 is canonical and, when an internal
+  // robustness view is requested, R=0.3 is the only allowed second view.
+  // The 4 GeV truth-isolation label is independent of this reconstructed
+  // contract.  The explicit environment opt-in exists only for a separately
+  // authorized diagnostic and is never set by nominal production.
+  if (m_isAuAu && !allowFixedRecoIsoViews)
+  {
+    if (!m_isSlidingIso)
+    {
+      LOG(0, CLR_RED,
+          "[Init][FATAL] AuAu reconstructed isolation must be centrality-dependent sliding; "
+          "fixed reconstructed isolation requires explicit authorization");
+      return Fun4AllReturnCodes::ABORTRUN;
+    }
+
+    if (m_internalIsoViews.empty())
+    {
+      if (std::fabs(m_isoConeR - 0.40) >= 0.015)
+      {
+        LOG(0, CLR_RED,
+            "[Init][FATAL] canonical single-view AuAu isolation must use sliding R=0.4");
+        return Fun4AllReturnCodes::ABORTRUN;
+      }
+      if (m_centIsoWPsR40.empty())
+      {
+        LOG(0, CLR_RED,
+            "[Init][FATAL] canonical AuAu R=0.4 sliding isolation has no cone-specific centrality working point");
+        return Fun4AllReturnCodes::ABORTRUN;
+      }
+    }
+    else
+    {
+      const auto& nominal = m_internalIsoViews.front();
+      const bool nominalOK = nominal.label == "isoR40_isSliding" &&
+                             nominal.isSliding &&
+                             std::fabs(nominal.coneR - 0.40) < 0.015 &&
+                             std::fabs(nominal.fixedGeV) < 1e-12;
+      if (!nominalOK || m_internalIsoViews.size() > 2)
+      {
+        LOG(0, CLR_RED,
+            "[Init][FATAL] AuAu internal isolation views must start with "
+            "isoR40_isSliding:0.40:true:0.0 and contain at most the R=0.3 robustness view");
+        return Fun4AllReturnCodes::ABORTRUN;
+      }
+      if (m_centIsoWPsR40.empty())
+      {
+        LOG(0, CLR_RED,
+            "[Init][FATAL] canonical AuAu R=0.4 sliding isolation has no cone-specific centrality working point");
+        return Fun4AllReturnCodes::ABORTRUN;
+      }
+      if (m_internalIsoViews.size() == 2)
+      {
+        const auto& robustness = m_internalIsoViews[1];
+        const bool robustnessOK = robustness.label == "isoR30_isSliding" &&
+                                  robustness.isSliding &&
+                                  std::fabs(robustness.coneR - 0.30) < 0.015 &&
+                                  std::fabs(robustness.fixedGeV) < 1e-12;
+        if (!robustnessOK)
+        {
+          LOG(0, CLR_RED,
+              "[Init][FATAL] optional AuAu robustness view must be "
+              "isoR30_isSliding:0.30:true:0.0");
+          return Fun4AllReturnCodes::ABORTRUN;
+        }
+        if (m_centIsoWPsR30.empty())
+        {
+          LOG(0, CLR_RED,
+              "[Init][FATAL] AuAu R=0.3 robustness view has no cone-specific centrality working point");
+          return Fun4AllReturnCodes::ABORTRUN;
+        }
+      }
+    }
+  }
   m_the44PythiaAutopsyEnabled = initEnvBool("RJ_THE44_PYTHIA_AUTOPSY", m_the44PythiaAutopsyEnabled);
   m_the44PythiaAutopsyMaxEntries = initEnvLL("RJ_THE44_PYTHIA_AUTOPSY_MAX_ENTRIES", m_the44PythiaAutopsyMaxEntries);
   m_the44PythiaAutopsyHighBDTMin = initEnvDouble("RJ_THE44_PYTHIA_AUTOPSY_HIGH_BDT_MIN", m_the44PythiaAutopsyHighBDTMin);
@@ -4061,29 +4138,23 @@ void RecoilJets::fillAuAuPhotonCandidateSkimTree(PHCompositeNode* topNode,
     if (sampleCode == 0) sampleCode = embeddedInclusiveJetSampleCodeFromContext(Outfile);
   }
 
-  // Fixed THE-101 classifier-pass AuAu baseline photon-ID contract.
-  // This is the simulation-derived default WP80 line, not a skim-side retune.
-  constexpr double kDefaultAuAuBDTWP80Intercept = 0.5378806890;
-  constexpr double kDefaultAuAuBDTWP80Slope = 0.0011122896;
-  constexpr double kDefaultAuAuBDTWP80PtMin = 15.0;
-  constexpr double kDefaultAuAuBDTWP80PtMax = 35.0;
-
+  // The skim is a diagnostic view of the active configured classifier.  It
+  // must never carry a second hard-coded working point: doing so would label
+  // rows with a stale threshold after a model/WP promotion.
   double baselineScore = v.auau_tight_bdt_score;
   if ((!std::isfinite(baselineScore) || baselineScore <= -1.5) && pho)
   {
     baselineScore = predictAuAuTightBDTScore(pho, v);
   }
-  const double baselineThreshold = (std::isfinite(m_centPercent)
-                                    ? kDefaultAuAuBDTWP80Intercept + kDefaultAuAuBDTWP80Slope * m_centPercent
-                                    : std::numeric_limits<double>::quiet_NaN());
-  const bool baselineInPt = std::isfinite(v.pt_gamma) &&
-                            v.pt_gamma >= kDefaultAuAuBDTWP80PtMin &&
-                            v.pt_gamma < kDefaultAuAuBDTWP80PtMax;
+  const double baselineThreshold = configuredAuAuTightBDTMin(v.pt_gamma);
+  const double baselineMaxScore = configuredAuAuTightBDTMax(v.pt_gamma);
+  const bool baselineInPt = std::isfinite(baselineThreshold) &&
+                            std::isfinite(baselineMaxScore);
   const bool baselineTight = preselectionPass &&
                              baselineInPt &&
                              std::isfinite(baselineScore) &&
-                             std::isfinite(baselineThreshold) &&
-                             baselineScore > baselineThreshold;
+                             baselineScore > baselineThreshold &&
+                             baselineScore < baselineMaxScore;
   const bool baselineNonTight = preselectionPass &&
                                 baselineInPt &&
                                 std::isfinite(baselineScore) &&
@@ -8142,6 +8213,13 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
 
         m_centPercent = eventCentralityPercent;
         m_centBin = static_cast<int>(eventCentralityPercent);
+        if (findCentBin(m_centBin) < 0)
+        {
+            LOG(4, CLR_YELLOW,
+                "    centrality outside configured AuAu analysis range – ABORTEVENT"
+                << " | centrality=" << m_centPercent);
+            return Fun4AllReturnCodes::ABORTEVENT;
+        }
         LOG(5, CLR_GREEN, "    centrality = " << m_centPercent << '%');
     }
     else
@@ -13075,7 +13153,12 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                                                        ? bdtTrainPhotonSampleCode
                                                        : bdtTrainJetSampleCode;
                 int bdtTrainPPG12SourceRoleLabel = -1;
-                if (doCanonical && m_isSim && !m_auauCandidateSkimOnly)
+                // Truth matching is independent of the active reconstructed
+                // isolation cone.  Populate it for each internal cone view so
+                // the cone-separated THE-112 diagnostic surfaces carry the
+                // same prompt/truth-isolated classification in R=0.3 and
+                // R=0.4.  Tree writing remains gated to doCanonical below.
+                if (m_isSim && !m_auauCandidateSkimOnly)
                 {
                     bool isSig_incl = false;
                     if (evtHepMC_SS && clustereval_SS && haveCaloEval_SS)
@@ -13957,6 +14040,28 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
 
 				fillAuAuDualViewScoreIsoSurface(activeTrig, v, eiso_et,
 				                                        effCentIdx_SS, "all");
+                if (m_isSim &&
+                    (bdtTrainTruthPhotonClass == 1 || bdtTrainTruthPhotonClass == 2))
+                {
+                    fillAuAuDualViewScoreIsoSurface(activeTrig, v, eiso_et,
+                                                    effCentIdx_SS, "truthPrompt");
+                    if (bdtTrainTruthIsoPass == 1)
+                    {
+                        fillAuAuDualViewScoreIsoSurface(activeTrig, v, eiso_et,
+                                                        effCentIdx_SS, "truthSignal");
+                    }
+                }
+                // THE-111 uses the PPG12 source-role label contract: only
+                // non-prompt candidates from embedded inclusive-jet sources
+                // are background. Prompt candidates in jet-source samples
+                // and non-prompt candidates in photon-source samples are
+                // cross-role rows and must not enter the background closure
+                // surface used to rank the non-tight control region.
+                if (m_isSim && bdtTrainPPG12SourceRoleLabel == 0)
+                {
+                    fillAuAuDualViewScoreIsoSurface(activeTrig, v, eiso_et,
+                                                    effCentIdx_SS, "truthBackground");
+                }
 
                 if (haveAuditSample && doCanonical)
                 {
@@ -13994,23 +14099,12 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                     if (!m_isSim) mcSuffix = "";
                     else
                     {
-                        bool isSig = false;
-                        if (evtHepMC_SS && clustereval_SS && haveCaloEval_SS)
-                        {
-                            TruthSignalPhotonInfo matchedTruth;
-                            int clusterTruthTrackId = -1;
-                            float eContrib = std::numeric_limits<float>::lowest();
-						    isSig = classifyRecoPhotonWithPPG12TruthTrack(rc, *clustereval_SS,
-						                                                  truthSignalByTrackId_SS,
-						                                                  matchedTruth,
-						                                                  clusterTruthTrackId,
-						                                                  eContrib);
-						    if (isSig)
-						    {
-						        fillAuAuDualViewScoreIsoSurface(activeTrig, v, eiso_et,
-						                                                effCentIdx_SS, "truthSignal");
-						    }
-						}
+                        // Reuse the cone-independent truth classification
+                        // above.  Re-evaluating the same cluster here once per
+                        // internal isolation view was redundant and could make
+                        // the diagnostic categories drift from the training
+                        // provenance fields.
+                        const bool isSig = bdtTrainHaveLabel && bdtTrainIsSignal;
                         mcSuffix = (isSig ? "_sig" : "_bkg");
                         fillAuAuFig25CorrelationSurfaces(activeTrig, v, eiso_et,
                                                          effCentIdx_SS, !isSig);
@@ -16132,6 +16226,16 @@ void RecoilJets::getIsoParams(int centIdx, double& outA, double& outB, double& o
       outA   = (*wps)[centIdx].aGeV;
       outB   = (*wps)[centIdx].bPerGeV;
       outGap = (*wps)[centIdx].sideGapGeV;
+    }
+    else if (m_isAuAu)
+    {
+      // Never substitute the generic pT-dependent isolation coefficients for
+      // an Au+Au event outside the configured centrality contract or for a
+      // missing cone-specific working point.  Callers reject non-finite
+      // thresholds, and process_event rejects out-of-range centrality first.
+      outA = std::numeric_limits<double>::quiet_NaN();
+      outB = std::numeric_limits<double>::quiet_NaN();
+      outGap = std::numeric_limits<double>::quiet_NaN();
     }
     else
     {
@@ -21865,13 +21969,16 @@ TH3F* RecoilJets::getOrBookAuAuDualViewScoreIsoSurface(const std::string& trig,
                                                         const std::string& category)
 {
   if (!m_auauDualViewDiagnosticsEnabled || trig.empty() || centIdx < 0) return nullptr;
-  if (category != "all" && category != "truthSignal") return nullptr;
+  if (category != "all" && category != "truthPrompt" &&
+      category != "truthSignal" && category != "truthBackground") return nullptr;
 
-  const std::string base = "h3_auauDualView_scoreMinusT80_vs_Eiso_vs_pT_" + category;
-  // This focused diagnostic is defined at fixed R=0.3. Keep the object name
-  // independent of whichever internal isolation view happens to be active
-  // while the merge-stable schema is prebooked.
-  const std::string name = base + "_isoR30" + suffixForBins(-1, centIdx);
+  // V2 fixes the historical dual-view diagnostic, whose hard-coded _isoR30
+  // name mixed different internal views into one object.  The complete active
+  // view label (cone plus fixed/sliding definition) is now part of the
+  // merge-stable object name.  A 0.01-wide score axis supports the finite
+  // THE-112 sideband grid without interpolation.
+  const std::string base = "h3_auauSidebandScanV2_scoreMinusT80_vs_EisoMinusCut_vs_pT_" + category;
+  const std::string name = withIsoViewSuffix(base) + suffixForBins(-1, centIdx);
 
   auto& H = qaHistogramsByTrigger[trig];
   if (auto it = H.find(name); it != H.end())
@@ -21892,9 +21999,9 @@ TH3F* RecoilJets::getOrBookAuAuDualViewScoreIsoSurface(const std::string& trig,
   dir->cd();
 
   const std::string title =
-    name + ";BDT score - T_{80}(centrality);E_{T}^{iso,reco} [GeV];p_{T}^{#gamma,reco} [GeV]";
+    name + ";BDT score - T_{80}(centrality);E_{T}^{iso,reco}-E_{T,cut}^{iso} [GeV];p_{T}^{#gamma,reco} [GeV]";
   auto* h = RJMCWeighting::RJNewTH3F(name.c_str(), title.c_str(),
-                                     65, -0.8, 0.5,
+                                     130, -0.8, 0.5,
                                      160, -20.0, 60.0,
                                      static_cast<int>(m_gammaPtBins.size()) - 1,
                                      m_gammaPtBins.data());
@@ -21915,23 +22022,39 @@ void RecoilJets::fillAuAuDualViewScoreIsoSurface(const std::vector<std::string>&
                                                   const std::string& category)
 {
   if (!m_auauDualViewDiagnosticsEnabled || m_nonTightVariant != "auauBDTSideband") return;
-  if (!auauTightBDTMode(m_tightVariant) || !fillConeThisView()) return;
+  if (!auauTightBDTMode(m_tightVariant) || !m_isSlidingIso) return;
 
   const double score = v.auau_tight_bdt_score;
   const double threshold = configuredAuAuTightBDTMin(v.pt_gamma);
+  double isoA = 0.0;
+  double isoB = 0.0;
+  double isoGap = 0.0;
+  getIsoParams(centIdx, isoA, isoB, isoGap);
+  (void)isoGap;  // The surface stores the continuous coordinate; ranking applies the configured gap.
+  const double isoThreshold = isoA + isoB * v.pt_gamma;
   if (!std::isfinite(score) || !std::isfinite(threshold) ||
-      !std::isfinite(eisoEt) || eisoEt >= 1e8 ||
+      !std::isfinite(eisoEt) || eisoEt >= 1e8 || !std::isfinite(isoThreshold) ||
       !std::isfinite(v.pt_gamma) || centIdx < 0)
   {
     return;
   }
 
   const double scoreDelta = score - threshold;
+  const double isolationDelta = eisoEt - isoThreshold;
   for (const auto& trigShort : activeTrig)
   {
+    // Keep a merge-stable simulation schema even when a sparse canary has no
+    // prompt or truth-isolated entry in one centrality/view cell.  Data files
+    // intentionally retain only the audience-neutral `all` surface.
+    if (category == "all" && m_isSim)
+    {
+      (void)getOrBookAuAuDualViewScoreIsoSurface(trigShort, centIdx, "truthPrompt");
+      (void)getOrBookAuAuDualViewScoreIsoSurface(trigShort, centIdx, "truthSignal");
+      (void)getOrBookAuAuDualViewScoreIsoSurface(trigShort, centIdx, "truthBackground");
+    }
     if (auto* h = getOrBookAuAuDualViewScoreIsoSurface(trigShort, centIdx, category))
     {
-      h->Fill(scoreDelta, eisoEt, v.pt_gamma);
+      h->Fill(scoreDelta, isolationDelta, v.pt_gamma);
       bumpHistFill(trigShort, h->GetName());
     }
   }
@@ -21946,10 +22069,12 @@ TH2F* RecoilJets::getOrBookAuAuFig25CorrelationSurface(const std::string& trig,
   if (axisKey != "e11e33" && axisKey != "bdtScore") return nullptr;
 
   const std::string base = "h2_auauFig25_" + axisKey + "_vs_Eiso_background_pT15to35";
-  // This diagnostic is defined only for the fixed R=0.3 view. Use the
-  // explicit suffix during both prebooking and filling so sparse jobs retain
-  // the same schema as populated jobs.
-  const std::string name = base + "_isoR30" + suffixForBins(-1, centIdx);
+  // Future Au+Au correlation diagnostics follow the canonical reconstructed-
+  // isolation contract: centrality-dependent sliding R=0.4. Use an explicit
+  // suffix during prebooking and filling so sparse jobs retain the same schema
+  // as populated jobs. Historical fixed-R=0.3 ROOTs remain historical inputs;
+  // they are not regenerated by this path.
+  const std::string name = base + "_isoR40_isSliding" + suffixForBins(-1, centIdx);
 
   auto& H = qaHistogramsByTrigger[trig];
   if (auto it = H.find(name); it != H.end())
@@ -21993,10 +22118,10 @@ void RecoilJets::fillAuAuFig25CorrelationSurfaces(const std::vector<std::string>
   if (!m_auauFig25CorrelationDiagnosticsEnabled || !isBackground || !m_isSimEmbedded) return;
   if (embeddedInclusiveJetSampleCodeFromContext(Outfile) == 0) return;
   if (m_nonTightVariant != "auauBDTSideband" || !auauTightBDTMode(m_tightVariant) ||
-      !fillConeThisView()) return;
-  // Match the PPG12 diagnostic definition and fill exactly one internal view:
-  // the fixed-isolation representative for R = 0.3.
-  if (static_cast<int>(std::lround(100.0 * m_isoConeR)) != 30) return;
+      !fillConeThisView() || !m_isSlidingIso) return;
+  // Fill exactly the canonical reconstructed-isolation view. R=0.3 remains a
+  // separately named robustness view in the THE-112 continuous surfaces.
+  if (static_cast<int>(std::lround(100.0 * m_isoConeR)) != 40) return;
   if (!std::isfinite(v.pt_gamma) || v.pt_gamma < 15.0 || v.pt_gamma >= 35.0 || centIdx < 0) return;
   if (!std::isfinite(eisoEt) || eisoEt >= 1e8) return;
 

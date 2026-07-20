@@ -156,6 +156,10 @@ LOCAL_FILES=(
   "scripts/sdcc/workflows/diagnostics/submit_the105_auau_shower_contract_factorial.sh"
   "scripts/sdcc/workflows/diagnostics/the105_preserve_invalid_shower_shapes.patch"
   "scripts/sdcc/workflows/diagnostics/the105_skip_invalid_rawcluster_tower_coordinates.patch"
+  "macros/analysis_config_the112_auau_combined_bdt_triplet.yaml"
+  "scripts/sdcc/workflows/diagnostics/submit_the112_auau_sideband_campaign.sh"
+  "scripts/diagnostics/auau_bdt/rank_the112_sideband_scan.py"
+  "scripts/diagnostics/auau_bdt/validate_the112_sideband_canary.py"
 )
 
 REMOTE_FILES=(
@@ -306,6 +310,10 @@ REMOTE_FILES=(
   "scripts/sdcc/workflows/diagnostics/submit_the105_auau_shower_contract_factorial.sh"
   "scripts/sdcc/workflows/diagnostics/the105_preserve_invalid_shower_shapes.patch"
   "scripts/sdcc/workflows/diagnostics/the105_skip_invalid_rawcluster_tower_coordinates.patch"
+  "macros/analysis_config_the112_auau_combined_bdt_triplet.yaml"
+  "scripts/sdcc/workflows/diagnostics/submit_the112_auau_sideband_campaign.sh"
+  "scripts/diagnostics/auau_bdt/rank_the112_sideband_scan.py"
+  "scripts/diagnostics/auau_bdt/validate_the112_sideband_canary.py"
 )
 
 GROUP_CONDOR=(
@@ -336,6 +344,7 @@ GROUP_MACROS=(
   "macros/analysis_config_the42_wp80_centlinear_ss_overlay.yaml"
   "macros/analysis_config_the79_phenix_like_raa_pp_ppg12.yaml"
   "macros/analysis_config_the79_phenix_like_raa_auau_bdt98_wp80.yaml"
+  "macros/analysis_config_the112_auau_combined_bdt_triplet.yaml"
   "macros/Calo_Calib.C"
   "macros/Fun4All_recoilJets.C"
   "macros/Fun4All_recoilJets_AuAu.C"
@@ -396,6 +405,9 @@ GROUP_SCRIPTS=(
   "scripts/sdcc/workflows/diagnostics/submit_the105_auau_shower_contract_factorial.sh"
   "scripts/sdcc/workflows/diagnostics/the105_preserve_invalid_shower_shapes.patch"
   "scripts/sdcc/workflows/diagnostics/the105_skip_invalid_rawcluster_tower_coordinates.patch"
+  "scripts/sdcc/workflows/diagnostics/submit_the112_auau_sideband_campaign.sh"
+  "scripts/diagnostics/auau_bdt/rank_the112_sideband_scan.py"
+  "scripts/diagnostics/auau_bdt/validate_the112_sideband_canary.py"
   "scripts/sdcc/workflows/stacking/submit_auau_stacked_bdt_mlp_calibrator.sh"
   "scripts/sdcc/workflows/stacking/submit_auau_stacked_bdt_mlp_full_feature_chain.sh"
   "scripts/sdcc/workflows/stacking/submit_auau_stacked_bdt_mlp_sweep.sh"

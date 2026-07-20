@@ -68,7 +68,8 @@
 #   • Production sweeps use the legacy RecoilJets histogram engine with direct
 #     photon-ID fanout inside each Fun4All DST pass. Isolation cone/mode are
 #     internal histogram views by default, so current one-UE productions submit
-#     15 final cfg ROOT files while each file contains 4 iso/cone views.
+#     15 final cfg ROOT files while each file contains its configured iso/cone
+#     views. Au+Au defaults to sliding R=0.4 plus sliding R=0.3 only.
 #     jet_pt_min and back_to_back_dphi_min_pi_fraction are also internal recoil
 #     histogram scans by default, so they do not force repeated DST passes.
 #     vz_cut_cm is collapsed by dataset default unless RJ_VZ_SCAN_ALL=1
@@ -1085,6 +1086,10 @@ build_submit_extra_env_fragment() {
     extra="$(append_submit_extra_env_var "$extra" RJ_PP_VERTEX_REWEIGHT_HIST)"
   fi
   extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PP_DATA_PAIRED)"
+  # A fixed reconstructed AuAu-isolation study is a guarded opt-in. If the
+  # submit-side contract accepts that opt-in, propagate the same flag to the
+  # worker so the C++ hard stop evaluates the identical authorization state.
+  extra="$(append_submit_extra_env_var "$extra" RJ_ALLOW_FIXED_RECO_ISO_VIEWS)"
   [[ -n "$extra" && "$extra" != \;* ]] && extra=";${extra}"
   printf '%s' "$extra"
 }
@@ -1501,6 +1506,38 @@ iso_view_fixed_label() {
 
 iso_view_env_fragment() {
   iso_view_internal_enabled || return 0
+  local override="${RJ_INTERNAL_ISO_VIEWS_OVERRIDE:-}"
+  if [[ -n "$(trim_ws "$override")" ]]; then
+    case "${TAG:-}" in
+      auau|oo|simembedded|simembeddedinclusive)
+        case "${RJ_ALLOW_FIXED_RECO_ISO_VIEWS:-0}" in
+          1|true|TRUE|yes|YES|on|ON) ;;
+          *)
+            case "$override" in
+              "isoR40_isSliding:0.40:true:0.0"|\
+              "isoR40_isSliding:0.40:true:0.0,isoR30_isSliding:0.30:true:0.0") ;;
+              *) die "AuAu isolation override must be canonical sliding R=0.4, optionally followed by sliding R=0.3; fixed/extra/mislabeled views require explicit RJ_ALLOW_FIXED_RECO_ISO_VIEWS=1 authorization" ;;
+            esac
+            ;;
+        esac
+        ;;
+    esac
+    printf ';RJ_INTERNAL_ISO_VIEWS=%s' "$override"
+    return 0
+  fi
+
+  # Canonical Au+Au reconstruction always uses the centrality-dependent
+  # sliding isolation.  R=0.4 is the first/canonical view and R=0.3 is a
+  # robustness view.  A fixed reconstructed-isolation study must use the
+  # guarded explicit override above.  This does not alter the independent
+  # fixed E_T^iso,truth < 4 GeV truth-label definition.
+  case "${TAG:-}" in
+    auau|oo|simembedded|simembeddedinclusive)
+      printf ';RJ_INTERNAL_ISO_VIEWS=isoR40_isSliding:0.40:true:0.0,isoR30_isSliding:0.30:true:0.0'
+      return 0
+      ;;
+  esac
+
   local fixed fixed_label
   fixed="$(iso_view_fixed_value_for_tag)"
   fixed_label="$(iso_view_fixed_label "$fixed")"
@@ -2503,6 +2540,28 @@ build_iso_modes() {
   _both="$(trim_ws "$_both")"
   _slide="$(trim_ws "$_slide")"
 
+  case "${TAG:-}" in
+    auau|oo|simembedded|simembeddedinclusive)
+      case "${RJ_ALLOW_FIXED_RECO_ISO_VIEWS:-0}" in
+        1|true|TRUE|yes|YES|on|ON) ;;
+        *)
+          [[ "$_slide" == "true" ]] || {
+            err "AuAu reconstructed isolation must be centrality-dependent sliding (isSlidingIso: true)";
+            exit 76;
+          }
+          [[ "$_both" != "true" ]] || {
+            err "Fixed reconstructed AuAu isolation views are disabled unless RJ_ALLOW_FIXED_RECO_ISO_VIEWS=1 is explicitly authorized";
+            exit 76;
+          }
+          if (( ${#_fixeds[@]} != 1 )) || [[ ! "$(trim_ws "${_fixeds[0]}")" =~ ^[+-]?0+([.]0+)?$ ]]; then
+            err "AuAu sliding-only configs must stamp fixedGeV: 0.0 as an inert compatibility sentinel";
+            exit 76;
+          fi
+          ;;
+      esac
+      ;;
+  esac
+
   if ppg12_photon_yield_enabled; then
     _both="false"
     _slide="true"
@@ -2527,8 +2586,20 @@ build_iso_modes() {
       iso_tags+=( "${selection_tag}" )
       iso_base_tags+=( "isoViewScan" )
       iso_selection_tags+=( "${selection_tag}" )
-      iso_sliding+=( "false" )
-      iso_fixed+=( "${_fixed_internal}" )
+      case "${TAG:-}" in
+        auau|oo|simembedded|simembeddedinclusive)
+          # The stamped base row must match the canonical view even though the
+          # internal loop later evaluates the R=0.4/R=0.3 sliding pair.
+          # Single-view training and pre-loop code intentionally see this
+          # sliding contract as well.
+          iso_sliding+=( "true" )
+          iso_fixed+=( "0.0" )
+          ;;
+        *)
+          iso_sliding+=( "false" )
+          iso_fixed+=( "${_fixed_internal}" )
+          ;;
+      esac
       iso_preselection+=( "${_pre_norm}" )
       iso_tight+=( "${_tight_norm}" )
       iso_nonTight+=( "${_nonTight_norm}" )
@@ -3663,7 +3734,7 @@ check_jobs_sim() {
   say_vz_selection_summary "$master_yaml" "${sim_vzs[@]}"
   if iso_view_internal_enabled; then
     say "  coneR                             : [${sim_view_cones[*]}]  (${#sim_view_cones[@]} internal iso/cone view values; submit scalar=${sim_cones[*]})"
-    say "  iso/cone views                    : pp uses fixedIso2GeV+sliding; AuAu-like uses fixedIso4GeV+sliding, each for R=0.30 and R=0.40"
+    say "  iso/cone views                    : $(iso_view_env_value)"
   else
     say "  coneR                             : [${sim_cones[*]}]  (${#sim_cones[@]} values)"
   fi
@@ -3674,7 +3745,7 @@ check_jobs_sim() {
     else
       say "  photon-ID fanout shards           : ${iso_submit_n} upstream shard(s), cap=${RJ_ID_FANOUT_MAX_ROWS:-15} cfg outputs/pass"
       say "  photon-ID cfg outputs             : ${#iso_tags[@]} final cfg ROOT file(s)"
-      iso_view_internal_enabled && say "  final ROOT layout                  : ${#iso_tags[@]} cfg file(s); each contains 4 suffixed iso/cone histogram views"
+      iso_view_internal_enabled && say "  final ROOT layout                  : ${#iso_tags[@]} cfg file(s); each contains the configured suffixed iso/cone histogram views"
     fi
   else
     say "  photon-ID modes submitted         : ${iso_submit_n} independent cfg tag(s) (fanout disabled)"
@@ -3741,7 +3812,7 @@ check_jobs_sim() {
 
   say "${BOLD}Final ROOT output cfg tags written by those upstream passes:${RST}"
   if iso_view_internal_enabled; then
-    say "  Layout: one cfg ROOT file per photon-ID triplet; each file contains 4 suffixed iso/cone views:"
+    say "  Layout: one cfg ROOT file per photon-ID triplet; each file contains the configured suffixed iso/cone views:"
     say "          $(iso_view_env_value)"
   elif iso_cone_fanout_enabled; then
     say "  Layout: one cfg ROOT file per cone × iso × photon-ID output."
@@ -3966,7 +4037,7 @@ check_jobs_all() {
   say_vz_selection_summary "$data_yaml_src" "${ck_vzs[@]}"
   if iso_view_internal_enabled; then
     say "  coneR                : [${ck_view_cones[*]}]  (${#ck_view_cones[@]} internal iso/cone view values; submit scalar=${ck_cones[*]})"
-    say "  iso/cone views       : pp uses fixedIso2GeV+sliding; AuAu-like uses fixedIso4GeV+sliding, each for R=0.30 and R=0.40"
+    say "  iso/cone views       : $(iso_view_env_value)"
   else
     say "  coneR                : [${ck_cones[*]}]  (${#ck_cones[@]} values)"
   fi
@@ -3977,7 +4048,7 @@ check_jobs_all() {
     else
       say "  photon-ID fanout     : ${iso_submit_n} upstream shard(s), cap=${RJ_ID_FANOUT_MAX_ROWS:-15} cfg outputs/pass"
       say "  photon-ID cfg outputs: ${#iso_tags[@]} final cfg ROOT file(s)"
-      iso_view_internal_enabled && say "  final ROOT layout     : ${#iso_tags[@]} cfg file(s); each contains 4 suffixed iso/cone histogram views"
+      iso_view_internal_enabled && say "  final ROOT layout     : ${#iso_tags[@]} cfg file(s); each contains the configured suffixed iso/cone histogram views"
     fi
   else
     say "  photon-ID cfgs       : ${iso_submit_n} independent cfg tag(s) (fanout disabled)"
@@ -4038,7 +4109,7 @@ check_jobs_all() {
 
   say "${BOLD}Final ROOT output cfg tags written by those upstream passes:${RST}"
   if iso_view_internal_enabled; then
-    say "  Layout: one cfg ROOT file per photon-ID triplet; each file contains 4 suffixed iso/cone views:"
+    say "  Layout: one cfg ROOT file per photon-ID triplet; each file contains the configured suffixed iso/cone views:"
     say "          $(iso_view_env_value)"
   elif iso_cone_fanout_enabled; then
     say "  Layout: one cfg ROOT file per cone × iso × photon-ID output."
@@ -6202,7 +6273,10 @@ case "$ACTION" in
               say "  wrapper args  : sample=${SIM_SAMPLE} dataset=${DATASET} mode=LOCAL nevents=${nevt} chunk=1 dest=${DEST_BASE}"
               say "Invoking wrapper locally…"
 
-              RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" RJ_INTERNAL_ISO_VIEWS="$(iso_view_env_value)" bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
+              RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" \
+                RJ_INTERNAL_ISO_VIEWS="$(iso_view_env_value)" \
+                RJ_ALLOW_FIXED_RECO_ISO_VIEWS="${RJ_ALLOW_FIXED_RECO_ISO_VIEWS:-0}" \
+                bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
               echo
             else
               local_file_idx=0
@@ -6230,7 +6304,10 @@ case "$ACTION" in
                 say "  wrapper args  : sample=${SIM_SAMPLE} dataset=${DATASET} mode=LOCAL nevents=${nevt} chunk=${local_file_idx} dest=${DEST_BASE}"
                 say "Invoking wrapper locally…"
 
-                RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" RJ_INTERNAL_ISO_VIEWS="$(iso_view_env_value)" bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt" "$local_file_idx" NONE "$DEST_BASE"
+                RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" \
+                  RJ_INTERNAL_ISO_VIEWS="$(iso_view_env_value)" \
+                  RJ_ALLOW_FIXED_RECO_ISO_VIEWS="${RJ_ALLOW_FIXED_RECO_ISO_VIEWS:-0}" \
+                  bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt" "$local_file_idx" NONE "$DEST_BASE"
                 echo
               done < <(head -n "$sim_local_nfiles" "$SIM_CLEAN_LIST")
             fi
@@ -6331,6 +6408,7 @@ case "$ACTION" in
         RJ_DATASET="$DATASET" RJ_VERBOSITY="$RJV" \
         RJ_CONFIG_YAML="$yaml_override" \
         RJ_INTERNAL_ISO_VIEWS="$(iso_view_env_value)" \
+        RJ_ALLOW_FIXED_RECO_ISO_VIEWS="${RJ_ALLOW_FIXED_RECO_ISO_VIEWS:-0}" \
         RJ_CRASH_BACKTRACE="$RJ_CRASH_BACKTRACE_LOCAL" \
         RJ_F4A_VERBOSE="$RJ_F4A_VERBOSE_LOCAL" \
         RJ_STEP_EVENTS="$RJ_STEP_EVENTS_LOCAL" \

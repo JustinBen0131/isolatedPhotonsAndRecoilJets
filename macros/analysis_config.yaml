@@ -485,8 +485,10 @@ doPi0Analysis: false
 # explicit histogram views:
 #   pp-like    : isoR30_fixedIso2GeV, isoR40_fixedIso2GeV,
 #                isoR30_isSliding,    isoR40_isSliding
-#   AuAu-like  : isoR30_fixedIso4GeV, isoR40_fixedIso4GeV,
-#                isoR30_isSliding,    isoR40_isSliding
+#   AuAu-like  : legacy description only. Current AuAu production is guarded
+#                by the dataset-specific submitter/runtime contract and uses
+#                sliding R=0.4 plus sliding R=0.3; fixed reconstructed AuAu
+#                isolation requires explicit authorization.
 # The submitter passes those views through RJ_INTERNAL_ISO_VIEWS, and the same
 # RecoilJets/RecoilJets_AuAu histogram machinery fills each view with suffixed
 # names. Direct validation modes keep the old one-scalar-cfg-per-pass behavior.
@@ -501,10 +503,9 @@ doPi0Analysis: false
 isSlidingIso: false
 isSlidingAndFixed: true
 
-# Available fixed-isolation values. Optimized production currently uses the
-# dataset-family default inside the internal views: pp-like uses fixedIso2GeV;
-# AuAu-like and embedded uses fixedIso4GeV. Override/validation modes may still
-# use scalar YAML values directly.
+# Available fixed-isolation values. Optimized production uses the pp-family
+# fixedIso2GeV reference; AuAu-like jobs are overridden by the guarded
+# sliding-only dataset contract before execution.
 fixedGeV: [2.0, 4.0]
 
 # Available isolation cone radii scanned internally in optimized production.
