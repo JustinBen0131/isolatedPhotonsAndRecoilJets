@@ -234,7 +234,10 @@ verify_pairing_inventory() {
   require_sha256 "$pairing_report" "$pairing_report_sha256" "AuAu pairing report"
   local run_count pair_count
   run_count="$(find "$pair_list_dir" -maxdepth 1 -type f -name 'dst_auau_jet_pair-*.list' | wc -l | tr -d ' ')"
-  pair_count="$(find "$pair_list_dir" -maxdepth 1 -type f -name 'dst_auau_jet_pair-*.list' -print0 | xargs -0 awk 'NF >= 2 {n++} END {print n+0}')"
+  # xargs may split the 2,776 lists across multiple awk invocations when the
+  # expanded argument vector exceeds ARG_MAX.  Sum every batch result before
+  # comparing it with the frozen paired-row count.
+  pair_count="$(find "$pair_list_dir" -maxdepth 1 -type f -name 'dst_auau_jet_pair-*.list' -print0 | xargs -0 awk 'NF >= 2 {n++} END {print n+0}' | awk '{total += $1} END {print total+0}')"
   [[ "$run_count" == "$expected_data_runs" ]] || \
     die "AuAu paired run-list count mismatch: expected ${expected_data_runs}, observed ${run_count}"
   [[ "$pair_count" == "$expected_data_pairs" ]] || \
