@@ -35,7 +35,11 @@ reuse_ppg_raw_root="${20}"
 reuse_ppg_raw_contract="${21}"
 
 case "$sample" in Photon5|Photon10|Photon20) ;; *) die "unsupported sample: $sample" ;; esac
-case "$period" in 0mrad|1p5mrad) ;; *) die "unsupported period: $period" ;; esac
+case "$period" in
+  0mrad) recoeff_var_type_suffix="0rad" ;;
+  1p5mrad) recoeff_var_type_suffix="1p5mrad" ;;
+  *) die "unsupported period: $period" ;;
+esac
 case "$interaction" in SI|DI) ;; *) die "unsupported interaction: $interaction" ;; esac
 sample_lower="$(printf '%s' "$sample" | tr '[:upper:]' '[:lower:]')"
 interaction_lower="$(printf '%s' "$interaction" | tr '[:upper:]' '[:lower:]')"
@@ -66,29 +70,70 @@ else
   die "raw PPG12 reuse requires both source and contract"
 fi
 
+manifest_role_path() {
+  python3 - "$recoil_runtime_manifest" "$1" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+manifest = Path(sys.argv[1])
+role = sys.argv[2]
+try:
+    data = json.loads(manifest.read_text())
+except (OSError, json.JSONDecodeError) as exc:
+    raise SystemExit(f"cannot read runtime manifest {manifest}: {exc}")
+matches = [
+    str(item.get("path", ""))
+    for item in data.get("files", [])
+    if item.get("role") == role
+]
+if len(matches) != 1:
+    raise SystemExit(f"runtime manifest role {role} has {len(matches)} matches")
+path = Path(matches[0])
+if not path.is_absolute() or not path.is_file() or path.stat().st_size <= 0:
+    raise SystemExit(f"runtime manifest role {role} is not an absolute nonempty file: {path}")
+print(path)
+PY
+}
+
+recoeff_period_role="ppg_recoeff_period_config_${period}"
+recoeff_period_config="$(manifest_role_path "$recoeff_period_role")" || \
+  die "failed to resolve sealed ${period} RecoEff config"
+recoeff_truth_vertex_role="ppg_recoeff_truth_vertex_reweight_${period}"
+recoeff_truth_vertex_reweight="$(manifest_role_path "$recoeff_truth_vertex_role")" || \
+  die "failed to resolve sealed ${period} truth-vertex reweight ROOT"
+recoeff_yaml_cpp_header_receipt="$(manifest_role_path ppg_recoeff_yaml_cpp_header_tree_receipt)" || \
+  die "failed to resolve sealed yaml-cpp header-tree receipt"
+
 required_keys=(
   output_dir setup_script ppg_macro g4_full_list truthjet_full_list
   apply_bdt apply_config base_e_model base_v3e_model npb_model tower_mask
-  recoil_runtime_manifest recoil_config
+  recoil_runtime_manifest recoil_config ppg_recoeff_period_config
+  ppg_recoeff_truth_vertex_reweight
+  ppg_recoeff_yaml_cpp_header_tree_receipt
 )
 required_values=(
   "$output_dir" "$setup_script" "$ppg_macro" "$g4_full_list"
   "$truthjet_full_list" "$apply_bdt" "$apply_config" "$base_e_model"
   "$base_v3e_model" "$npb_model" "$tower_mask" "$recoil_runtime_manifest"
-  "$recoil_config"
+  "$recoil_config" "$recoeff_period_config" "$recoeff_truth_vertex_reweight"
+  "$recoeff_yaml_cpp_header_receipt"
 )
 token_file_keys=(
   setup_script ppg_macro g4_full_list truthjet_full_list apply_bdt
   apply_config base_e_model base_v3e_model npb_model tower_mask
   recoil_runtime_manifest recoil_config driver_script worker_script
   ppg_wrapper recoil_wrapper comparator auditor aggregate_extractor
+  ppg_recoeff_period_config ppg_recoeff_truth_vertex_reweight
+  ppg_recoeff_yaml_cpp_header_tree_receipt
 )
 token_file_values=(
   "$setup_script" "$ppg_macro" "$g4_full_list" "$truthjet_full_list"
   "$apply_bdt" "$apply_config" "$base_e_model" "$base_v3e_model"
   "$npb_model" "$tower_mask" "$recoil_runtime_manifest" "$recoil_config"
   "$driver_script" "$worker_self" "$ppg_wrapper" "$recoil_wrapper"
-  "$comparator" "$auditor" "$aggregate_extractor"
+  "$comparator" "$auditor" "$aggregate_extractor" "$recoeff_period_config"
+  "$recoeff_truth_vertex_reweight" "$recoeff_yaml_cpp_header_receipt"
 )
 if [[ "$reuse_mode" == exact_contract_bound ]]; then
   token_file_keys+=(reuse_ppg_raw_root reuse_ppg_raw_contract)
@@ -167,7 +212,8 @@ for path in \
   "$setup_script" "$ppg_macro" "$g4_full_list" \
   "$truthjet_full_list" "$apply_bdt" "$apply_config" "$base_e_model" \
   "$base_v3e_model" "$npb_model" "$tower_mask" \
-  "$recoil_runtime_manifest" "$recoil_config" "$ppg_wrapper" \
+  "$recoil_runtime_manifest" "$recoil_config" "$recoeff_period_config" \
+  "$recoeff_truth_vertex_reweight" "$recoeff_yaml_cpp_header_receipt" "$ppg_wrapper" \
   "$recoil_wrapper" "$auditor" "$comparator" "$aggregate_extractor"; do
   [[ "$path" == /* && -f "$path" && -s "$path" ]] || die "missing input: $path"
 done
@@ -195,6 +241,88 @@ trace_layout="${recoeff_dir}/trace"
 mkdir -p "$input_dir" "$runtime_dir" "$ppg_dir" "$recoil_dir" "$report_dir" \
   "$baseline_layout/input/${oracle_sample}" "$baseline_layout/output" \
   "$trace_layout/input/${oracle_sample}" "$trace_layout/output"
+
+# Collapse both source-locked period role families to the exact config and
+# truth-vertex weight ROOT executed by this lane.  Downstream closure evidence
+# hashes this selected manifest, so a 0mrad/1p5mrad swap cannot hide behind a
+# static source manifest that contains both periods.
+paired_runtime_manifest="${runtime_dir}/paired_runtime_manifest.json"
+python3 - "$recoil_runtime_manifest" "$paired_runtime_manifest" "$period" \
+  "$recoeff_period_config" "$recoeff_truth_vertex_reweight" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import re
+import sys
+
+source_path, output_path, period, selected_config_path, selected_vertex_path = sys.argv[1:]
+source = json.loads(Path(source_path).read_text())
+files = source.get("files")
+if not isinstance(files, list):
+    raise SystemExit("source runtime manifest files must be a list")
+period_role_families = {
+    "ppg_recoeff_period_config": {
+        "0mrad": "ppg_recoeff_period_config_0mrad",
+        "1p5mrad": "ppg_recoeff_period_config_1p5mrad",
+    },
+    "ppg_recoeff_truth_vertex_reweight": {
+        "0mrad": "ppg_recoeff_truth_vertex_reweight_0mrad",
+        "1p5mrad": "ppg_recoeff_truth_vertex_reweight_1p5mrad",
+    },
+}
+if period not in {"0mrad", "1p5mrad"}:
+    raise SystemExit(f"unsupported selected period: {period}")
+by_role = {}
+seen_paths = set()
+for row in files:
+    if not isinstance(row, dict) or not isinstance(row.get("role"), str):
+        raise SystemExit("source runtime manifest contains malformed file metadata")
+    role = row["role"]
+    if role in by_role:
+        raise SystemExit(f"source runtime manifest duplicates role {role}")
+    by_role[role] = row
+for family in period_role_families.values():
+    for role in family.values():
+        if role not in by_role:
+            raise SystemExit(f"source runtime manifest lacks period role {role}")
+selected_paths = {
+    "ppg_recoeff_period_config": selected_config_path,
+    "ppg_recoeff_truth_vertex_reweight": selected_vertex_path,
+}
+selected_rows = []
+for selected_role, selected_path in selected_paths.items():
+    source_role = period_role_families[selected_role][period]
+    selected = dict(by_role[source_role])
+    if Path(str(selected.get("path", ""))).resolve() != Path(selected_path).resolve():
+        raise SystemExit(f"selected {selected_role} path differs from resolved runtime role")
+    actual = hashlib.sha256(Path(selected_path).read_bytes()).hexdigest()
+    if selected.get("sha256") != actual:
+        raise SystemExit(f"selected {selected_role} digest differs from source runtime manifest")
+    selected["role"] = selected_role
+    selected_rows.append(selected)
+period_roles = {
+    role
+    for family in period_role_families.values()
+    for role in family.values()
+}
+selected_files = [
+    dict(row) for row in files if row.get("role") not in period_roles
+]
+selected_files.extend(selected_rows)
+for row in selected_files:
+    path = str(Path(str(row.get("path", ""))).resolve())
+    if path in seen_paths:
+        raise SystemExit(f"selected runtime manifest aliases physical path {path}")
+    seen_paths.add(path)
+output = dict(source)
+output["selected_period"] = period
+output["source_runtime_manifest"] = {
+    "path": str(Path(source_path).resolve()),
+    "sha256": hashlib.sha256(Path(source_path).read_bytes()).hexdigest(),
+}
+output["files"] = sorted(selected_files, key=lambda row: row["role"])
+Path(output_path).write_text(json.dumps(output, indent=2, sort_keys=True) + "\n")
+PY
 
 # Remove inherited custom-release routing before sourcing the one common
 # runtime.  Keep only the minimal operating-system path needed to run the
@@ -234,12 +362,21 @@ read -r first_ph_seed pedestal_seed pedestal_sequence ph_seed_sequence < <(
 g4_slice="${input_dir}/g4hits_first5.list"
 truthjet_slice="${input_dir}/dst_truth_jet_first5.list"
 combined_list="${input_dir}/recoil_first5.list"
+source_pair_receipt="${input_dir}/source_pair_receipt.json"
 python3 - "$g4_full_list" "$truthjet_full_list" "$g4_slice" \
-  "$truthjet_slice" "$combined_list" <<'PY'
+  "$truthjet_slice" "$combined_list" "$source_pair_receipt" "$sample" \
+  "$interaction" <<'PY'
 from pathlib import Path
+import hashlib
+import json
+import re
 import sys
 
-g4_full, truth_full, g4_out, truth_out, combined_out = map(Path, sys.argv[1:])
+g4_full, truth_full, g4_out, truth_out, combined_out, receipt = map(
+    Path, sys.argv[1:7]
+)
+sample = sys.argv[7]
+interaction = sys.argv[8]
 
 def rows(path: Path) -> list[str]:
     return [
@@ -252,25 +389,75 @@ g4 = rows(g4_full)[:5]
 truth = rows(truth_full)[:5]
 if len(g4) != 5 or len(truth) != 5:
     raise SystemExit("source lists do not contain five non-comment rows")
+if len(set(g4)) != 5 or len(set(truth)) != 5:
+    raise SystemExit("source lists contain duplicate first-five rows")
+
+sample_number = sample.removeprefix("Photon")
+if sample_number not in {"5", "10", "20"}:
+    raise SystemExit(f"unsupported photon source sample: {sample}")
+if interaction not in {"SI", "DI"}:
+    raise SystemExit(f"unsupported interaction mode: {interaction}")
+identity_stem = (
+    f"PhotonJet{sample_number}"
+    if interaction == "SI"
+    else f"PhotonJet{sample_number}_pythia8_Detroit"
+)
+identity_pattern = re.compile(
+    rf"{re.escape(identity_stem)}-\d{{10}}-\d{{6}}\.root"
+)
+
+def normalized_identity(value: str, prefix: str, label: str) -> str:
+    basename = Path(value).name
+    if not basename.startswith(prefix):
+        raise SystemExit(
+            f"{label} basename does not start with exact recognized prefix {prefix}: {basename}"
+        )
+    identity = basename[len(prefix):]
+    if identity_pattern.fullmatch(identity) is None:
+        raise SystemExit(f"{label} basename has unexpected sample/run/segment identity: {basename}")
+    return identity
+
+identities = []
+canonical_rows = []
+for index, (g4_row, truth_row) in enumerate(zip(g4, truth), start=1):
+    g4_identity = normalized_identity(g4_row, "G4Hits_pythia8_", f"G4 row {index}")
+    truth_identity = normalized_identity(
+        truth_row, "DST_TRUTH_JET_pythia8_", f"truth row {index}"
+    )
+    if g4_identity != truth_identity:
+        raise SystemExit(f"row {index} G4/truth identity mismatch")
+    identities.append(g4_identity)
+    canonical_rows.append(f"{g4_row}\t{truth_row}\t{g4_identity}")
+if len(set(identities)) != 5:
+    raise SystemExit("source pair identities are not unique")
+pair_hash = hashlib.sha256(("\n".join(canonical_rows) + "\n").encode()).hexdigest()
 g4_out.write_text("\n".join(g4) + "\n")
 truth_out.write_text("\n".join(truth) + "\n")
 combined_out.write_text(
     "\n".join(f"NONE {left} {right} NONE NONE" for left, right in zip(g4, truth))
     + "\n"
 )
+receipt.write_text(
+    json.dumps(
+        {
+            "schema_version": 1,
+            "normalization": {
+                "g4_prefix": "G4Hits_pythia8_",
+                "truthjet_prefix": "DST_TRUTH_JET_pythia8_",
+                "basename_only": True,
+            },
+            "sample": sample,
+            "interaction": interaction,
+            "row_count": 5,
+            "identities": identities,
+            "pair_identity_sha256": pair_hash,
+        },
+        indent=2,
+        sort_keys=True,
+    )
+    + "\n"
+)
 PY
-
-manifest_role_path() {
-  python3 - "$recoil_runtime_manifest" "$1" <<'PY'
-import json
-import sys
-data = json.load(open(sys.argv[1]))
-matches = [str(item.get("path", "")) for item in data.get("files", []) if item.get("role") == sys.argv[2]]
-if len(matches) != 1:
-    raise SystemExit(f"runtime manifest role {sys.argv[2]} has {len(matches)} matches")
-print(matches[0])
-PY
-}
 
 recoil_macro="$(manifest_role_path recoil_macro)"
 recoil_lib="$(manifest_role_path libRecoilJets.so)"
@@ -288,6 +475,51 @@ recoeff_cross_section_header="$(manifest_role_path ppg_recoeff_cross_section_hea
 recoeff_truth_vertex_header="$(manifest_role_path ppg_recoeff_truth_vertex_header)"
 recoeff_canonical_config="$(manifest_role_path ppg_recoeff_canonical_config)"
 recoeff_yaml_cpp="$(manifest_role_path ppg_recoeff_yaml_cpp)"
+recoeff_yaml_cpp_header_receipt="$(manifest_role_path ppg_recoeff_yaml_cpp_header_tree_receipt)"
+recoeff_yaml_cpp_include_root="$(python3 - "$recoeff_yaml_cpp_header_receipt" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import sys
+
+receipt_path = Path(sys.argv[1])
+data = json.loads(receipt_path.read_text())
+if data.get("schema_version") != 1 or data.get("role") != "ppg_recoeff_yaml_cpp_header_tree":
+    raise SystemExit("invalid sealed yaml-cpp header-tree receipt")
+include_root = Path(str(data.get("include_root", "")))
+tree = Path(str(data.get("staged_tree", "")))
+if not include_root.is_absolute() or tree.resolve() != (include_root / "yaml-cpp").resolve():
+    raise SystemExit("yaml-cpp receipt has inconsistent include root")
+rows = data.get("files")
+if not isinstance(rows, list) or not rows:
+    raise SystemExit("yaml-cpp receipt has no header inventory")
+expected = {}
+for row in rows:
+    relative = str(row.get("relative_path", "")) if isinstance(row, dict) else ""
+    digest = str(row.get("sha256", "")) if isinstance(row, dict) else ""
+    if not relative or len(digest) != 64 or relative in expected:
+        raise SystemExit("yaml-cpp receipt contains malformed header metadata")
+    expected[relative] = digest
+actual_paths = sorted(path for path in tree.rglob("*") if path.is_file())
+actual = {str(path.relative_to(tree)): path for path in actual_paths}
+if set(actual) != set(expected) or "yaml.h" not in actual:
+    raise SystemExit("sealed yaml-cpp header-tree membership drifted")
+tree_digest = hashlib.sha256()
+for relative in sorted(actual):
+    path = actual[relative]
+    if tree.resolve() not in path.resolve().parents:
+        raise SystemExit("sealed yaml-cpp header escapes its tree")
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    if digest != expected[relative]:
+        raise SystemExit(f"sealed yaml-cpp header drifted: {relative}")
+    tree_digest.update(relative.encode())
+    tree_digest.update(b"\0")
+    tree_digest.update(bytes.fromhex(digest))
+if tree_digest.hexdigest() != data.get("tree_sha256"):
+    raise SystemExit("sealed yaml-cpp header-tree digest drifted")
+print(include_root.resolve())
+PY
+)" || die "failed to validate sealed yaml-cpp header tree"
 recoeff_roounfold="$(manifest_role_path ppg_recoeff_roounfold)"
 recoeff_roounfold_response_header="$(manifest_role_path ppg_recoeff_roounfold_response_header)"
 recoeff_roounfold_bayes_header="$(manifest_role_path ppg_recoeff_roounfold_bayes_header)"
@@ -381,18 +613,26 @@ for layout in "$baseline_layout" "$trace_layout"; do
   ln -s "$ppg_scored_root" "${layout}/input/${oracle_sample}/bdt_split.root"
   ln -s "$recoeff_vertex_scan_data" "${layout}/input/data_histo_bdt_nom_vtxscan.root"
   ln -s "$tower_mask" "${layout}/input/tower_masks_bdt_nom.root"
+  ln -s "$recoeff_truth_vertex_reweight" \
+    "${layout}/input/truth_vertex_reweight.root"
 done
 
 # Produce two byte-identical, relocatable estimator configs.  Their only
-# changes from the source-locked canonical file are sealed I/O paths and the
+# changes from the source-locked period file are sealed I/O paths and the
 # unique output suffix; all scientific analysis keys remain byte-for-byte.
-python3 - "$recoeff_canonical_config" "$baseline_recoeff_config" \
-  "$trace_recoeff_config" <<'PY'
+python3 - "$recoeff_period_config" "$baseline_recoeff_config" \
+  "$trace_recoeff_config" "$recoeff_var_type_suffix" "$period" <<'PY'
 from pathlib import Path
 import sys
 
-source, baseline, trace = map(Path, sys.argv[1:])
+source, baseline, trace = map(Path, sys.argv[1:4])
+config_suffix = sys.argv[4]
+period = sys.argv[5]
 text = source.read_text()
+truth_vertex_source = (
+    "/sphenix/user/shuhangli/ppg12/efficiencytool/"
+    f"truth_vertex_reweight/output/{period}/reweight.root"
+)
 rewrites = (
     ('photon_jet_file_root_dir: "/sphenix/user/shuhangli/ppg12/FunWithxgboost/"',
      'photon_jet_file_root_dir: "input/"'),
@@ -402,11 +642,13 @@ rewrites = (
      'response_outfile: "output/MC_response"'),
     ('data_outfile: "/sphenix/user/shuhangli/ppg12/efficiencytool/results/data_histo"',
      'data_outfile: "output/data_histo"'),
-    ('var_type: "bdt_nom"', 'var_type: "paired_oracle"'),
+    (f'var_type: "bdt_nom_{config_suffix}"', 'var_type: "paired_oracle"'),
     ('vertex_scan_data_file: ""',
      'vertex_scan_data_file: "input/data_histo_bdt_nom_vtxscan.root"'),
     ('tower_mask_file: "/sphenix/user/shuhangli/ppg12/efficiencytool/tower_masks_bdt_nom.root"',
      'tower_mask_file: "input/tower_masks_bdt_nom.root"'),
+    (f'truth_vertex_reweight_file: "{truth_vertex_source}"',
+     'truth_vertex_reweight_file: "input/truth_vertex_reweight.root"'),
 )
 for old, new in rewrites:
     observed = text.count(old)
@@ -423,15 +665,16 @@ python3 - \
   "$contract" "$lane_id" "$sample" "$period" "$interaction" \
   "$setup_script" "$calo_calib" "$ppg_macro" "$ppg_lib" \
   "$g4_full_list" "$truthjet_full_list" "$g4_slice" "$truthjet_slice" \
-  "$combined_list" "$apply_bdt" "$apply_config" "$base_e_model" \
+  "$combined_list" "$source_pair_receipt" "$apply_bdt" "$apply_config" "$base_e_model" \
   "$base_v3e_model" "$npb_model" "$tower_mask" \
-  "$recoil_runtime_manifest" "$recoil_macro" "$recoil_config" \
+  "$recoil_runtime_manifest" "$paired_runtime_manifest" "$recoil_macro" "$recoil_config" \
   "$ppg_wrapper" "$recoil_wrapper" "$comparator" "$auditor" "$ppg_log" \
   "$recoil_log" "$ppg_raw_root" "$ppg_scored_root" "$recoil_root" \
   "$candidate_csv" "$expected_token" "$first_ph_seed" \
   "$pedestal_seed" "$pedestal_sequence" "$ph_seed_sequence" \
   "$recoeff_source_macro" "$recoeff_macro" "$recoeff_trace_macro" \
-  "$recoeff_trace_receipt" "$recoeff_canonical_config" \
+  "$recoeff_trace_receipt" "$recoeff_canonical_config" "$recoeff_period_config" \
+  "$recoeff_truth_vertex_reweight" "$recoeff_yaml_cpp_header_receipt" \
   "$baseline_recoeff_config" "$trace_recoeff_config" \
   "$recoeff_cross_section_header" "$recoeff_truth_vertex_header" \
   "$recoeff_yaml_cpp" "$recoeff_roounfold" \
@@ -454,13 +697,15 @@ import sys
 (
     contract, lane_id, sample, period, interaction,
     setup, calo, ppg_macro, ppg_lib, g4_full, truth_full, g4_slice,
-    truth_slice, combined, apply_bdt, apply_config, base_e, base_v3e, npb,
-    mask, recoil_manifest, recoil_macro, recoil_config, ppg_wrapper,
+    truth_slice, combined, source_pair_receipt, apply_bdt, apply_config, base_e,
+    base_v3e, npb, mask, recoil_manifest, paired_runtime_manifest, recoil_macro,
+    recoil_config, ppg_wrapper,
     recoil_wrapper, comparator, auditor, ppg_log, recoil_log, ppg_raw, ppg_scored,
     recoil_root, candidate_csv, token, first_ph_seed,
     pedestal_seed, pedestal_sequence, ph_seed_sequence,
     recoeff_source, recoeff_macro, recoeff_trace_macro, recoeff_trace_receipt,
-    recoeff_canonical_config, baseline_recoeff_config, trace_recoeff_config,
+    recoeff_canonical_config, recoeff_period_config, recoeff_truth_vertex_reweight,
+    recoeff_yaml_cpp_header_receipt, baseline_recoeff_config, trace_recoeff_config,
     cross_section_header, truth_vertex_header, yaml_cpp, roounfold,
     roounfold_response_header, roounfold_bayes_header, vertex_scan_data,
     mbd_correction, baseline_recoeff_log, trace_recoeff_log,
@@ -484,6 +729,7 @@ paths = {
     "g4_slice": g4_slice,
     "truthjet_slice": truth_slice,
     "combined_list": combined,
+    "source_pair_receipt": source_pair_receipt,
     "apply_bdt": apply_bdt,
     "apply_config": apply_config,
     "base_e_model": base_e,
@@ -491,6 +737,7 @@ paths = {
     "npb_model": npb,
     "tower_mask": mask,
     "recoil_runtime_manifest": recoil_manifest,
+    "paired_runtime_manifest": paired_runtime_manifest,
     "recoil_macro": recoil_macro,
     "recoil_config": recoil_config,
     "ppg_wrapper": ppg_wrapper,
@@ -508,6 +755,9 @@ paths = {
     "ppg_recoeff_trace_macro": recoeff_trace_macro,
     "ppg_recoeff_trace_transform_receipt": recoeff_trace_receipt,
     "ppg_recoeff_canonical_config": recoeff_canonical_config,
+    "ppg_recoeff_period_config": recoeff_period_config,
+    "ppg_recoeff_truth_vertex_reweight": recoeff_truth_vertex_reweight,
+    "ppg_recoeff_yaml_cpp_header_tree_receipt": recoeff_yaml_cpp_header_receipt,
     "ppg_recoeff_baseline_config": baseline_recoeff_config,
     "ppg_recoeff_trace_config": trace_recoeff_config,
     "ppg_recoeff_cross_section_header": cross_section_header,
@@ -557,12 +807,52 @@ token_bound_paths = {
     "comparator": comparator,
     "auditor": auditor,
     "aggregate_extractor": aggregate_extractor,
+    "ppg_recoeff_period_config": recoeff_period_config,
+    "ppg_recoeff_truth_vertex_reweight": recoeff_truth_vertex_reweight,
+    "ppg_recoeff_yaml_cpp_header_tree_receipt": recoeff_yaml_cpp_header_receipt,
 }
 if reuse_mode == "exact_contract_bound":
     token_bound_paths.update({
         "reuse_ppg_raw_root": reuse_raw_root,
         "reuse_ppg_raw_contract": reuse_raw_contract,
     })
+lane_data = {
+    "lane_id": lane_id, "sample": sample, "period": period,
+    "interaction": interaction, "rows": 5,
+}
+rng_data = {
+    "mode": "historical_fifo_replay_v2",
+    "reco_consts_randomseed": "absent",
+    "ph_seed_sequence": [int(value) for value in ph_seed_sequence.split(",")],
+    "first_ph_seed": int(first_ph_seed),
+    "pedestal_seed": int(pedestal_seed),
+    "pedestal_sequence": int(pedestal_sequence),
+    "pedestal_file": f"pedestal-54256-0{int(pedestal_sequence):04d}.root",
+    "source_log": "/sphenix/user/shuhangli/ppg12/anatreemaker/macro_maketree/sim/run28/photon5/condorout/OutDir0/test.out",
+    "source_log_call_count": 5,
+}
+runtime_data = {
+    "profile": "new.17",
+    "offline_main": "/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_new/new.17",
+    "actual_offline_main": "/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_new/new.17",
+}
+source_pairs_data = json.loads(Path(source_pair_receipt).read_text())
+raw_reconstruction_roles = (
+    "setup_script", "calo_calib", "ppg_macro", "ppg_caloana24",
+    "ppg_wrapper", "g4_full_list", "truthjet_full_list", "g4_slice",
+    "truthjet_slice", "source_pair_receipt",
+)
+raw_reconstruction_dependencies = {
+    "schema_version": 1,
+    "lane": lane_data,
+    "rng": rng_data,
+    "runtime": runtime_data,
+    "source_pairs": source_pairs_data,
+    "files": {
+        role: {"path": paths[role], "sha256": digest(paths[role])}
+        for role in raw_reconstruction_roles
+    },
+}
 data = {
     "schema_version": 3,
     "authorization_token": token,
@@ -584,36 +874,24 @@ data = {
             },
         },
     },
-    "lane": {
-        "lane_id": lane_id, "sample": sample, "period": period,
-        "interaction": interaction, "rows": 5,
-    },
-    "rng": {
-        "mode": "historical_fifo_replay_v2",
-        "reco_consts_randomseed": "absent",
-        "ph_seed_sequence": [int(value) for value in ph_seed_sequence.split(",")],
-        "first_ph_seed": int(first_ph_seed),
-        "pedestal_seed": int(pedestal_seed),
-        "pedestal_sequence": int(pedestal_sequence),
-        "pedestal_file": f"pedestal-54256-0{int(pedestal_sequence):04d}.root",
-        "source_log": "/sphenix/user/shuhangli/ppg12/anatreemaker/macro_maketree/sim/run28/photon5/condorout/OutDir0/test.out",
-        "source_log_call_count": 5,
-    },
-    "runtime": {
-        "profile": "new.17",
-        "offline_main": "/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_new/new.17",
-        "actual_offline_main": "/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_new/new.17",
-    },
+    "lane": lane_data,
+    "rng": rng_data,
+    "runtime": runtime_data,
     "runtime_hashes": {
         role: digest(paths[role])
         for role in (
             "setup_script", "calo_calib", "recoil_config", "ppg_wrapper",
             "recoil_wrapper", "comparator",
             "auditor", "aggregate_extractor",
+            "source_pair_receipt", "paired_runtime_manifest",
+            "ppg_recoeff_period_config", "ppg_recoeff_truth_vertex_reweight",
+            "ppg_recoeff_yaml_cpp_header_tree_receipt",
             "ppg_recoeff_baseline_config", "ppg_recoeff_trace_config",
             "apply_bdt_runtime_config",
         )
     },
+    "source_pairs": source_pairs_data,
+    "raw_reconstruction_dependencies": raw_reconstruction_dependencies,
     "paths": paths,
 }
 Path(contract).write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
@@ -632,24 +910,23 @@ ln -s "$clusteriso_lib" "${recoil_lib_view}/libclusteriso.so"
 ln -s "$jetbase_lib" "${recoil_lib_view}/libjetbase.so"
 
 if [[ "$reuse_mode" == exact_contract_bound ]]; then
-  python3 - "$reuse_ppg_raw_contract" "$reuse_ppg_raw_root" \
-    "$g4_slice" "$truthjet_slice" "$recoil_runtime_manifest" \
-    "$ppg_macro" "$ppg_wrapper" "$setup_script" "$g4_full_list" \
-    "$truthjet_full_list" "$worker_self" "$lane_id" "$sample" "$period" \
-    "$interaction" <<'PY'
+  reuse_validation_mode="$(python3 - "$reuse_ppg_raw_contract" "$reuse_ppg_raw_root" \
+    "$g4_slice" "$truthjet_slice" "$ppg_macro" "$ppg_wrapper" \
+    "$setup_script" "$g4_full_list" "$truthjet_full_list" "$lane_id" \
+    "$sample" "$period" "$interaction" "$ppg_lib" "$calo_calib" \
+    "$source_pair_receipt" <<'PY'
 from pathlib import Path
 import hashlib
 import json
+import re
 import sys
 
-(
-    contract_path, raw_root, g4_slice, truth_slice, runtime_manifest, ppg_macro,
-    ppg_wrapper, setup_script, g4_full, truth_full, worker_script,
-    lane_id, sample, period, interaction,
-) = map(Path, sys.argv[1:])
-lane_id, sample, period, interaction = map(
-    str, (lane_id, sample, period, interaction)
+contract_path, raw_root, g4_slice, truth_slice = map(Path, sys.argv[1:5])
+ppg_macro, ppg_wrapper, setup_script, g4_full, truth_full = map(
+    Path, sys.argv[5:10]
 )
+lane_id, sample, period, interaction = sys.argv[10:14]
+ppg_lib, calo_calib, source_pair_receipt = map(Path, sys.argv[14:17])
 data = json.loads(contract_path.read_text())
 authorization = data.get("authorization", {})
 if authorization.get("token_schema_version") != 3:
@@ -677,14 +954,41 @@ token_file_roles = [
     "driver_script", "worker_script", "ppg_wrapper", "recoil_wrapper",
     "comparator", "auditor", "aggregate_extractor",
 ]
+prior_paths = data.get("paths", {})
+has_period_path = bool(prior_paths.get("ppg_recoeff_period_config"))
+has_period_token = "ppg_recoeff_period_config" in token_files
+if has_period_path != has_period_token:
+    raise SystemExit("reuse contract has an incomplete period-config token binding")
+if has_period_path:
+    required_path_roles.append("ppg_recoeff_period_config")
+    token_file_roles.append("ppg_recoeff_period_config")
+has_vertex_path = bool(prior_paths.get("ppg_recoeff_truth_vertex_reweight"))
+has_vertex_token = "ppg_recoeff_truth_vertex_reweight" in token_files
+if has_vertex_path != has_vertex_token:
+    raise SystemExit("reuse contract has an incomplete truth-vertex-weight token binding")
+if has_vertex_path:
+    required_path_roles.append("ppg_recoeff_truth_vertex_reweight")
+    token_file_roles.append("ppg_recoeff_truth_vertex_reweight")
+has_yaml_headers_path = bool(
+    prior_paths.get("ppg_recoeff_yaml_cpp_header_tree_receipt")
+)
+has_yaml_headers_token = (
+    "ppg_recoeff_yaml_cpp_header_tree_receipt" in token_files
+)
+if has_yaml_headers_path != has_yaml_headers_token:
+    raise SystemExit("reuse contract has an incomplete yaml-cpp-header token binding")
+if has_yaml_headers_path:
+    required_path_roles.append("ppg_recoeff_yaml_cpp_header_tree_receipt")
+    token_file_roles.append("ppg_recoeff_yaml_cpp_header_tree_receipt")
 prior_reuse = authorization.get("raw_ppg12_reuse", {})
 prior_reuse_mode = prior_reuse.get("mode")
 if prior_reuse_mode not in {"disabled", "exact_contract_bound"}:
     raise SystemExit("reuse contract records an invalid prior raw-reuse mode")
 if prior_reuse_mode == "exact_contract_bound":
     token_file_roles.extend(["reuse_ppg_raw_root", "reuse_ppg_raw_contract"])
+if set(token_files) != set(token_file_roles):
+    raise SystemExit("reuse contract token-bound role set is not a recognized schema-3 variant")
 
-prior_paths = data.get("paths", {})
 prior_output_dir = str(contract_path.parent.resolve())
 required_values = {"output_dir": prior_output_dir}
 for role in required_path_roles[1:]:
@@ -741,8 +1045,36 @@ if runtime.get("profile") != "new.17" or runtime.get("actual_offline_main") != (
 paths = data.get("paths", {})
 
 run_state = contract_path.parent / "RUN_STATE"
-if not run_state.is_file() or run_state.read_text().strip() != "PASS":
-    raise SystemExit("reuse contract does not belong to a completed PASS run")
+if not run_state.is_file():
+    raise SystemExit("reuse contract has no RUN_STATE")
+run_state_value = run_state.read_text().strip()
+legacy_failed_apply = run_state_value == "FAILED"
+if run_state_value not in {"PASS", "FAILED"}:
+    raise SystemExit("reuse contract has an inadmissible RUN_STATE")
+if legacy_failed_apply:
+    expected_legacy_sha256 = (
+        "32adf2501ba593c24f380c55e89b072a07dbfea45391d5ed4c796c0bafe358ec"
+    )
+    if raw_root.stat().st_size != 7701676 or hashlib.sha256(
+        raw_root.read_bytes()
+    ).hexdigest() != expected_legacy_sha256:
+        raise SystemExit("FAILED-run reuse is limited to the known attempt6 raw ROOT")
+    ppg_log = Path(str(paths.get("ppg_log", "")))
+    if not ppg_log.is_file() or re.search(
+        r"(?im)^.*(?:Fun4AllServer::run|processed|event).*\b5000\b.*$",
+        ppg_log.read_text(errors="replace"),
+    ) is None:
+        raise SystemExit("known FAILED-run reuse lacks the 5000-event completion log")
+    apply_log = contract_path.parent / "ppg12" / "apply_bdt.log"
+    apply_text = apply_log.read_text(errors="replace") if apply_log.is_file() else ""
+    if "yaml-cpp/yaml.h" not in apply_text or not any(
+        marker in apply_text for marker in ("file not found", "No such file or directory")
+    ):
+        raise SystemExit("FAILED-run reuse is not the known missing-yaml-header failure")
+    if Path(str(paths.get("ppg_scored_root", ""))).exists() or Path(
+        str(paths.get("apply_bdt_stage_evidence", ""))
+    ).exists():
+        raise SystemExit("FAILED-run reuse unexpectedly contains downstream apply_BDT output")
 
 def rows(path: Path) -> list[str]:
     return [
@@ -758,15 +1090,7 @@ for key, current in (("g4_slice", g4_slice), ("truthjet_slice", truth_slice)):
 def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
-for key, current in (
-    ("setup_script", setup_script),
-    ("g4_full_list", g4_full),
-    ("truthjet_full_list", truth_full),
-    ("recoil_runtime_manifest", runtime_manifest),
-    ("ppg_macro", ppg_macro),
-    ("ppg_wrapper", ppg_wrapper),
-    ("worker_script", worker_script),
-):
+def recorded_token_digest(key: str) -> str:
     item = token_files.get(key, {})
     if not isinstance(item, dict):
         raise SystemExit(f"reuse contract lacks token-bound {key}")
@@ -774,23 +1098,189 @@ for key, current in (
     recorded = str(item.get("sha256", ""))
     if not previous.is_file() or digest(previous) != recorded:
         raise SystemExit(f"reuse contract recorded {key} no longer matches its source")
+    return recorded
+
+# Only inputs that can affect the raw CaloAna24 reconstruction are compared
+# here.  Estimator configs, apply_BDT assets, RecoilJets code, and this worker
+# may change without forcing the expensive raw PPG12 stage to run again.
+for key, current in (
+    ("setup_script", setup_script),
+    ("g4_full_list", g4_full),
+    ("truthjet_full_list", truth_full),
+    ("ppg_macro", ppg_macro),
+    ("ppg_wrapper", ppg_wrapper),
+):
+    recorded = recorded_token_digest(key)
     if not current.is_file() or digest(current) != recorded:
         raise SystemExit(f"reuse contract {key} differs from current reconstruction asset")
+
+runtime_hashes = data.get("runtime_hashes", {})
+prior_calo = Path(str(paths.get("calo_calib", "")))
+prior_calo_hash = str(runtime_hashes.get("calo_calib", ""))
+if (
+    not prior_calo.is_file()
+    or digest(prior_calo) != prior_calo_hash
+    or not calo_calib.is_file()
+    or digest(calo_calib) != prior_calo_hash
+):
+    raise SystemExit("reuse contract calo_calib differs from current reconstruction asset")
+
+prior_runtime_manifest = Path(str(paths.get("recoil_runtime_manifest", "")))
+prior_runtime_manifest_hash = recorded_token_digest("recoil_runtime_manifest")
+if digest(prior_runtime_manifest) != prior_runtime_manifest_hash:
+    raise SystemExit("reuse contract runtime manifest no longer matches its token")
+manifest_data = json.loads(prior_runtime_manifest.read_text())
+ppg_rows = [
+    row for row in manifest_data.get("files", [])
+    if isinstance(row, dict) and row.get("role") == "libCaloAna24.so"
+]
+if len(ppg_rows) != 1:
+    raise SystemExit("reuse runtime manifest lacks one source-locked libCaloAna24.so")
+prior_ppg_lib = Path(str(ppg_rows[0].get("path", "")))
+prior_ppg_lib_hash = str(ppg_rows[0].get("sha256", ""))
+if (
+    not prior_ppg_lib.is_file()
+    or digest(prior_ppg_lib) != prior_ppg_lib_hash
+    or not ppg_lib.is_file()
+    or digest(ppg_lib) != prior_ppg_lib_hash
+):
+    raise SystemExit("reuse contract libCaloAna24.so differs from current reconstruction asset")
+
+def source_pair_evidence(g4_rows: list[str], truth_rows: list[str]) -> dict:
+    import re
+
+    if len(g4_rows) != 5 or len(truth_rows) != 5:
+        raise SystemExit("raw reconstruction reuse requires exactly five source pairs")
+    sample_number = sample.removeprefix("Photon")
+    stem = (
+        f"PhotonJet{sample_number}"
+        if interaction == "SI"
+        else f"PhotonJet{sample_number}_pythia8_Detroit"
+    )
+    pattern = re.compile(rf"{re.escape(stem)}-\d{{10}}-\d{{6}}\.root")
+    identities = []
+    canonical_rows = []
+    for index, (g4_value, truth_value) in enumerate(
+        zip(g4_rows, truth_rows), start=1
+    ):
+        g4_name = Path(g4_value).name
+        truth_name = Path(truth_value).name
+        g4_prefix = "G4Hits_pythia8_"
+        truth_prefix = "DST_TRUTH_JET_pythia8_"
+        if not g4_name.startswith(g4_prefix) or not truth_name.startswith(truth_prefix):
+            raise SystemExit(f"reuse source pair {index} has an unrecognized prefix")
+        g4_identity = g4_name[len(g4_prefix):]
+        truth_identity = truth_name[len(truth_prefix):]
+        if (
+            g4_identity != truth_identity
+            or pattern.fullmatch(g4_identity) is None
+        ):
+            raise SystemExit(f"reuse source pair {index} has a cross-mode identity mismatch")
+        identities.append(g4_identity)
+        canonical_rows.append(f"{g4_value}\t{truth_value}\t{g4_identity}")
+    if len(set(identities)) != 5:
+        raise SystemExit("reuse source pairs are not unique")
+    return {
+        "schema_version": 1,
+        "normalization": {
+            "g4_prefix": "G4Hits_pythia8_",
+            "truthjet_prefix": "DST_TRUTH_JET_pythia8_",
+            "basename_only": True,
+        },
+        "sample": sample,
+        "interaction": interaction,
+        "row_count": 5,
+        "identities": identities,
+        "pair_identity_sha256": hashlib.sha256(
+            ("\n".join(canonical_rows) + "\n").encode()
+        ).hexdigest(),
+    }
+
+prior_source_pairs = source_pair_evidence(rows(Path(str(paths["g4_slice"]))), rows(Path(str(paths["truthjet_slice"]))))
+current_source_pairs = source_pair_evidence(rows(g4_slice), rows(truth_slice))
+if prior_source_pairs != current_source_pairs:
+    raise SystemExit("reuse source-pair identities differ from current reconstruction inputs")
+if json.loads(source_pair_receipt.read_text()) != current_source_pairs:
+    raise SystemExit("current source-pair receipt differs from exact reconstruction inputs")
+
+prior_raw_dependencies = data.get("raw_reconstruction_dependencies")
+if prior_raw_dependencies is not None:
+    if prior_raw_dependencies.get("schema_version") != 1:
+        raise SystemExit("reuse contract raw-reconstruction dependency schema differs")
+    if prior_raw_dependencies.get("lane") != lane:
+        raise SystemExit("reuse contract raw-reconstruction lane differs")
+    if prior_raw_dependencies.get("rng") != rng:
+        raise SystemExit("reuse contract raw-reconstruction RNG differs")
+    if prior_raw_dependencies.get("runtime") != runtime:
+        raise SystemExit("reuse contract raw-reconstruction runtime differs")
+    if prior_raw_dependencies.get("source_pairs") != prior_source_pairs:
+        raise SystemExit("reuse contract raw-reconstruction source receipt differs")
+    dependency_files = prior_raw_dependencies.get("files", {})
+    expected_dependency_roles = {
+        "setup_script", "calo_calib", "ppg_macro", "ppg_caloana24",
+        "ppg_wrapper", "g4_full_list", "truthjet_full_list", "g4_slice",
+        "truthjet_slice", "source_pair_receipt",
+    }
+    if set(dependency_files) != expected_dependency_roles:
+        raise SystemExit("reuse contract raw-reconstruction role set differs")
+    for role, metadata in dependency_files.items():
+        prior_path = Path(str(metadata.get("path", "")))
+        recorded_hash = str(metadata.get("sha256", ""))
+        if not prior_path.is_file() or digest(prior_path) != recorded_hash:
+            raise SystemExit(
+                f"reuse contract raw-reconstruction dependency changed: {role}"
+            )
 if raw_root.name != "caloana.root":
     raise SystemExit("reuse source is not the executable CaloAna24 caloana.root artifact")
 recorded_raw = Path(str(paths.get("ppg_raw_root", "")))
 if recorded_raw.resolve() != raw_root.resolve():
     raise SystemExit("reuse source path differs from the prior schema-3 contract")
 apply_evidence = Path(str(paths.get("apply_bdt_stage_evidence", "")))
-if not apply_evidence.is_file():
-    raise SystemExit("reuse contract lacks completed apply_BDT evidence for the raw input")
-apply_data = json.loads(apply_evidence.read_text())
-raw_input = apply_data.get("input", {})
-if Path(str(raw_input.get("path", ""))).resolve() != raw_root.resolve():
-    raise SystemExit("reuse source differs from the prior apply_BDT input")
-if str(raw_input.get("sha256", "")) != digest(raw_root):
-    raise SystemExit("reuse source hash differs from the prior apply_BDT input hash")
+if not legacy_failed_apply:
+    if not apply_evidence.is_file():
+        raise SystemExit("reuse contract lacks completed apply_BDT evidence for the raw input")
+    apply_data = json.loads(apply_evidence.read_text())
+    raw_input = apply_data.get("input", {})
+    if Path(str(raw_input.get("path", ""))).resolve() != raw_root.resolve():
+        raise SystemExit("reuse source differs from the prior apply_BDT input")
+    if str(raw_input.get("sha256", "")) != digest(raw_root):
+        raise SystemExit("reuse source hash differs from the prior apply_BDT input hash")
+print("legacy_failed_apply" if legacy_failed_apply else "completed_pass")
 PY
+  )" || die "raw PPG12 reuse contract validation failed"
+  reuse_root_audit="${runtime_dir}/audit_reused_ppg12_raw.C"
+  python3 - "$reuse_root_audit" "$reuse_ppg_raw_root" \
+    "$reuse_validation_mode" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+output, raw_root = map(Path, sys.argv[1:3])
+mode = sys.argv[3]
+expected_entries = 4993 if mode == "legacy_failed_apply" else -1
+output.write_text(f'''#include <TFile.h>
+#include <TTree.h>
+#include <TSystem.h>
+#include <iostream>
+{{
+  TFile input({json.dumps(str(raw_root))}, "READ");
+  if (input.IsZombie() || input.TestBit(TFile::kRecovered)) gSystem->Exit(91);
+  const char *required[] = {{"slimtree", "sim_cross_counting", "tracking_radiograph"}};
+  for (const char *name : required)
+    if (!input.GetListOfKeys()->FindObject(name)) gSystem->Exit(92);
+  TTree *tree = dynamic_cast<TTree *>(input.Get("slimtree"));
+  if (!tree || tree->GetEntries() <= 0) gSystem->Exit(93);
+  if ({expected_entries} >= 0 && tree->GetEntries() != {expected_entries}) gSystem->Exit(94);
+  std::cout << "PPG12_RAW_REUSE_AUDIT mode={mode} entries="
+            << tree->GetEntries() << std::endl;
+}}
+''')
+PY
+  root -l -b -q "$reuse_root_audit" \
+    >"${runtime_dir}/audit_reused_ppg12_raw.log" 2>&1 || {
+    tail -n 80 "${runtime_dir}/audit_reused_ppg12_raw.log" >&2 || true
+    die "raw PPG12 reuse ROOT structure audit failed"
+  }
   cp -p "$reuse_ppg_raw_root" "$ppg_raw_root"
   [[ "$(sha256_file "$ppg_raw_root")" == "$(sha256_file "$reuse_ppg_raw_root")" ]] || \
     die "copied PPG12 raw reuse source differs from its token-bound input"
@@ -826,14 +1316,16 @@ fi
   die "PPG12 executable did not write its exact cwd-local caloana.root"
 
 apply_runner="${runtime_dir}/apply_ppg12_bdt.C"
-python3 - "$apply_runner" "$apply_bdt" "$apply_runtime_config" "$ppg_raw_root" <<'PY'
+python3 - "$apply_runner" "$apply_bdt" "$apply_runtime_config" "$ppg_raw_root" \
+  "$recoeff_yaml_cpp" <<'PY'
 from pathlib import Path
 import json
 import sys
-runner, macro, config, root_path = sys.argv[1:]
+runner, macro, config, root_path, yaml_cpp = sys.argv[1:]
 call = f"apply_BDT({json.dumps(config)},\"data\",{json.dumps(root_path)})"
 Path(runner).write_text(f'''{{
   Int_t error = 0;
+  if (gSystem->Load({json.dumps(yaml_cpp)}) < 0) throw std::runtime_error("sealed yaml-cpp load failed");
   if (gROOT->LoadMacro({json.dumps(macro)}) < 0) throw std::runtime_error("apply_BDT load failed");
   gROOT->ProcessLine({json.dumps(call)}, &error);
   if (error != TInterpreter::kNoError) throw std::runtime_error("apply_BDT call failed");
@@ -842,7 +1334,8 @@ Path(runner).write_text(f'''{{
 PY
 (
   cd "$(dirname "$apply_bdt")"
-  export LD_LIBRARY_PATH="${ppg_lib_view}:${base_ld_library_path}"
+  export LD_LIBRARY_PATH="$(dirname "$recoeff_yaml_cpp"):${ppg_lib_view}:${base_ld_library_path}"
+  export ROOT_INCLUDE_PATH="${recoeff_yaml_cpp_include_root}:${base_root_include_path}"
   root -l -b -q "$apply_runner"
 ) 2>&1 | tee "$apply_log"
 [[ -s "$ppg_scored_root" ]] || die "apply_BDT did not write expected scored ROOT"
@@ -925,7 +1418,7 @@ PY
   (
     cd "$layout"
     export LD_LIBRARY_PATH="$(dirname "$recoeff_yaml_cpp"):$(dirname "$recoeff_roounfold"):${base_ld_library_path}"
-    export ROOT_INCLUDE_PATH="${recoeff_include_root}:${base_root_include_path}"
+    export ROOT_INCLUDE_PATH="${recoeff_include_root}:${recoeff_yaml_cpp_include_root}:${base_root_include_path}"
     unset RJ_PPG12_EXEC_TRACE_CSV RJ_PPG12_EXEC_RESPONSE_TRACE_CSV
     root -l -b -q "$scan_runner"
   ) 2>&1 | tee "$scan_log"
@@ -934,7 +1427,7 @@ PY
   (
     cd "$layout"
     export LD_LIBRARY_PATH="$(dirname "$recoeff_yaml_cpp"):$(dirname "$recoeff_roounfold"):${base_ld_library_path}"
-    export ROOT_INCLUDE_PATH="${recoeff_include_root}:${base_root_include_path}"
+    export ROOT_INCLUDE_PATH="${recoeff_include_root}:${recoeff_yaml_cpp_include_root}:${base_root_include_path}"
     if [[ "$trace_mode" == 1 ]]; then
       export RJ_PPG12_EXEC_TRACE_CSV="$ppg_candidate_trace"
       export RJ_PPG12_EXEC_RESPONSE_TRACE_CSV="$ppg_response_trace"
@@ -967,7 +1460,7 @@ python3 "$aggregate_extractor" \
   --instrumented-root "$trace_eff_root" \
   --baseline-response-root "$baseline_response_root" \
   --instrumented-response-root "$trace_response_root" \
-  --runtime-manifest "$recoil_runtime_manifest" \
+  --runtime-manifest "$paired_runtime_manifest" \
   --root-equivalence-only \
   --out-json "$root_equivalence_report"
 
@@ -1081,7 +1574,7 @@ python3 "$aggregate_extractor" \
   --candidate-csv "$candidate_csv" \
   --lane-id "$lane_id" \
   --runtime-contract "$contract" \
-  --runtime-manifest "$recoil_runtime_manifest" \
+  --runtime-manifest "$paired_runtime_manifest" \
   --asset apply_bdt_stage_evidence="$apply_evidence" \
   --asset estimator_source="$recoeff_source_macro" \
   --asset estimator_trace_transform="$recoeff_trace_receipt" \

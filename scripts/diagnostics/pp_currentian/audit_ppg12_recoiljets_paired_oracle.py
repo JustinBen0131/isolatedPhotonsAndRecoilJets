@@ -26,6 +26,7 @@ from typing import Any, Iterable
 SCHEMA_VERSION = 3
 VALID_SAMPLES = {"Photon5", "Photon10", "Photon20"}
 VALID_PERIODS = {"0mrad", "1p5mrad"}
+PERIOD_CONFIG_VAR_SUFFIX = {"0mrad": "0rad", "1p5mrad": "1p5mrad"}
 VALID_INTERACTIONS = {"SI", "DI"}
 LEGACY_PINNED_LANE = {
     "sample": "Photon5",
@@ -55,6 +56,14 @@ EXPECTED_PPG_SOURCE_REVISION = "1c0ff86bf0ebabfba63a1abc4512cbe59fe48e31"
 EXPECTED_ESTIMATOR_REVISION = "29f8223bd9b36dffab07961b597afa94185bbdf1"
 EXPECTED_RECOEFF_SOURCE_HASH = "e9b25fdb6dd8a6bfbbad029cb90aaddc9489fdf2846c630ea63c8c41ac771eee"
 EXPECTED_RECOEFF_CONFIG_HASH = "42b7be1628843d5b7607ab988ffb58c6d019d8ade01b3c4d528611498db95732"
+EXPECTED_RECOEFF_PERIOD_CONFIG_HASHES = {
+    "0mrad": "3995033c8867f4b0e21d5ebc025d36395185671da474fceec128b20db7218be2",
+    "1p5mrad": "6d2e4cc691e2fdd49271486ef193055704da00bcbd6b50ced76fcdd99cd050b8",
+}
+EXPECTED_TRUTH_VERTEX_REWEIGHT_HASHES = {
+    "0mrad": "4c2a50fa2dd4fe6e3f8b823454f19753367876edabc9fe48164447a0d07be6b9",
+    "1p5mrad": "1429442b2cce368bcc4b4fd613f706f27b9c194f1e835d800238e059c0804d4d",
+}
 EXPECTED_HASHES = {
     "ppg_macro": "95f12ffa8e283dec5add217200b9c36a8c2084459daa4efb59d3fe2a2c21ab3c",
     "g4_full_list": "47978eac14253516d5dbcbfb9381372c49c80879eddae420b4e65de087d7bbd1",
@@ -104,10 +113,15 @@ REQUIRED_RECOIL_ROLES = {
     "ppg_recoeff_cross_section_header",
     "ppg_recoeff_truth_vertex_header",
     "ppg_recoeff_canonical_config",
+    "ppg_recoeff_period_config_0mrad",
+    "ppg_recoeff_period_config_1p5mrad",
+    "ppg_recoeff_truth_vertex_reweight_0mrad",
+    "ppg_recoeff_truth_vertex_reweight_1p5mrad",
     "ppg_calculate_photon_yield",
     "ppg_apply_bdt_macro",
     "ppg_apply_bdt_config",
     "ppg_recoeff_yaml_cpp",
+    "ppg_recoeff_yaml_cpp_header_tree_receipt",
     "ppg_recoeff_roounfold",
     "ppg_recoeff_roounfold_response_header",
     "ppg_recoeff_roounfold_bayes_header",
@@ -204,7 +218,19 @@ def historical_rng_contract() -> dict[str, Any]:
         "pedestal_file": HISTORICAL_PEDESTAL_FILE,
         "source_log": HISTORICAL_RNG_SOURCE,
         "source_log_call_count": 5,
-    }
+}
+RAW_RECONSTRUCTION_FILE_ROLES = (
+    "setup_script",
+    "calo_calib",
+    "ppg_macro",
+    "ppg_caloana24",
+    "ppg_wrapper",
+    "g4_full_list",
+    "truthjet_full_list",
+    "g4_slice",
+    "truthjet_slice",
+    "source_pair_receipt",
+)
 
 
 def lane_id_from_contract(lane: dict[str, Any]) -> str:
@@ -238,7 +264,9 @@ def validate_authorization_token(
         "output_dir", "setup_script", "ppg_macro", "g4_full_list",
         "truthjet_full_list", "apply_bdt", "apply_config", "base_e_model",
         "base_v3e_model", "npb_model", "tower_mask",
-        "recoil_runtime_manifest", "recoil_config",
+        "recoil_runtime_manifest", "recoil_config", "ppg_recoeff_period_config",
+        "ppg_recoeff_truth_vertex_reweight",
+        "ppg_recoeff_yaml_cpp_header_tree_receipt",
     )
     required_values = {"output_dir": str(contract_path.parent)}
     for role in required_path_roles[1:]:
@@ -296,6 +324,55 @@ def load_json(path: Path) -> dict[str, Any]:
     return data
 
 
+def validate_yaml_cpp_header_receipt(path: Path) -> Path:
+    data = load_json(path)
+    if (
+        data.get("schema_version") != 1
+        or data.get("role") != "ppg_recoeff_yaml_cpp_header_tree"
+    ):
+        raise AuditFailure("invalid yaml-cpp header-tree receipt")
+    include_root = Path(str(data.get("include_root", "")))
+    tree = Path(str(data.get("staged_tree", "")))
+    if not include_root.is_absolute() or tree.resolve() != (
+        include_root / "yaml-cpp"
+    ).resolve():
+        raise AuditFailure("yaml-cpp receipt has inconsistent include root")
+    rows = data.get("files")
+    if not isinstance(rows, list) or not rows:
+        raise AuditFailure("yaml-cpp receipt has no header inventory")
+    expected: dict[str, str] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            raise AuditFailure("yaml-cpp receipt contains malformed header metadata")
+        relative = str(row.get("relative_path", ""))
+        digest = str(row.get("sha256", ""))
+        if (
+            not relative
+            or not re.fullmatch(r"[0-9a-f]{64}", digest)
+            or relative in expected
+        ):
+            raise AuditFailure("yaml-cpp receipt contains malformed header metadata")
+        expected[relative] = digest
+    actual_paths = sorted(item for item in tree.rglob("*") if item.is_file())
+    actual = {str(item.relative_to(tree)): item for item in actual_paths}
+    if set(actual) != set(expected) or "yaml.h" not in actual:
+        raise AuditFailure("sealed yaml-cpp header-tree membership drifted")
+    tree_digest = hashlib.sha256()
+    for relative in sorted(actual):
+        header = actual[relative]
+        if tree.resolve() not in header.resolve().parents:
+            raise AuditFailure("sealed yaml-cpp header escapes its tree")
+        observed = sha256(header)
+        if observed != expected[relative]:
+            raise AuditFailure(f"sealed yaml-cpp header drifted: {relative}")
+        tree_digest.update(relative.encode())
+        tree_digest.update(b"\0")
+        tree_digest.update(bytes.fromhex(observed))
+    if tree_digest.hexdigest() != data.get("tree_sha256"):
+        raise AuditFailure("sealed yaml-cpp header-tree digest drifted")
+    return include_root.resolve()
+
+
 def require_file(path_value: str, label: str) -> Path:
     if not path_value:
         raise AuditFailure(f"missing path for {label}")
@@ -333,7 +410,47 @@ def source_identity(value: str) -> tuple[str, str]:
     return match.group(1), match.group(2)
 
 
-def validate_source_graph(g4_slice: Path, truth_slice: Path, combined: Path) -> None:
+def normalized_source_identity(
+    value: str,
+    prefix: str,
+    sample: str,
+    interaction: str,
+) -> str:
+    basename = Path(value).name
+    if not basename.startswith(prefix):
+        raise AuditFailure(
+            f"source basename does not start with exact recognized prefix {prefix}: {basename}"
+        )
+    sample_number = sample.removeprefix("Photon")
+    if sample_number not in {"5", "10", "20"}:
+        raise AuditFailure(f"unsupported photon source sample: {sample}")
+    if interaction not in {"SI", "DI"}:
+        raise AuditFailure(f"unsupported interaction mode: {interaction}")
+    identity_stem = (
+        f"PhotonJet{sample_number}"
+        if interaction == "SI"
+        else f"PhotonJet{sample_number}_pythia8_Detroit"
+    )
+    identity = basename[len(prefix):]
+    if re.fullmatch(
+        rf"{re.escape(identity_stem)}-\d{{10}}-\d{{6}}\.root",
+        identity,
+    ) is None:
+        raise AuditFailure(
+            f"source basename has unexpected sample/run/segment identity: {basename}"
+        )
+    return identity
+
+
+def validate_source_graph(
+    g4_slice: Path,
+    truth_slice: Path,
+    combined: Path,
+    *,
+    sample: str,
+    interaction: str,
+    source_pair_receipt: Path | None = None,
+) -> dict[str, Any]:
     g4_rows = noncomment_rows(g4_slice)
     truth_rows = noncomment_rows(truth_slice)
     combined_rows = noncomment_rows(combined)
@@ -343,11 +460,21 @@ def validate_source_graph(g4_slice: Path, truth_slice: Path, combined: Path) -> 
         )
     if len(set(g4_rows)) != 5 or len(set(truth_rows)) != 5:
         raise AuditFailure("source slices contain duplicate rows")
+    identities: list[str] = []
+    canonical_rows: list[str] = []
     for index, (g4, truth, line) in enumerate(
         zip(g4_rows, truth_rows, combined_rows), start=1
     ):
-        if source_identity(g4) != source_identity(truth):
+        g4_identity = normalized_source_identity(
+            g4, "G4Hits_pythia8_", sample, interaction
+        )
+        truth_identity = normalized_source_identity(
+            truth, "DST_TRUTH_JET_pythia8_", sample, interaction
+        )
+        if g4_identity != truth_identity:
             raise AuditFailure(f"row {index} G4/truth-jet identity mismatch")
+        identities.append(g4_identity)
+        canonical_rows.append(f"{g4}\t{truth}\t{g4_identity}")
         fields = line.split()
         if len(fields) != 5:
             raise AuditFailure(f"combined row {index} does not have exactly five columns")
@@ -356,6 +483,72 @@ def validate_source_graph(g4_slice: Path, truth_slice: Path, combined: Path) -> 
             raise AuditFailure(
                 f"combined row {index} violates exact oracle graph; expected {expected}, got {fields}"
             )
+    if len(set(identities)) != 5:
+        raise AuditFailure("source pair identities are not unique")
+    evidence = {
+        "schema_version": 1,
+        "normalization": {
+            "g4_prefix": "G4Hits_pythia8_",
+            "truthjet_prefix": "DST_TRUTH_JET_pythia8_",
+            "basename_only": True,
+        },
+        "sample": sample,
+        "interaction": interaction,
+        "row_count": 5,
+        "identities": identities,
+        "pair_identity_sha256": hashlib.sha256(
+            ("\n".join(canonical_rows) + "\n").encode()
+        ).hexdigest(),
+    }
+    if source_pair_receipt is not None:
+        observed = load_json(source_pair_receipt)
+        if observed != evidence:
+            raise AuditFailure("source-pair receipt differs from recomputed exact identities")
+    return evidence
+
+
+def raw_reconstruction_dependency_receipt(
+    paths: dict[str, Any],
+    lane: dict[str, Any],
+    rng: dict[str, Any],
+    runtime: dict[str, Any],
+    source_pairs: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "lane": lane,
+        "rng": rng,
+        "runtime": runtime,
+        "source_pairs": source_pairs,
+        "files": {
+            role: {
+                "path": str(paths.get(role, "")),
+                "sha256": sha256(
+                    require_file(
+                        paths.get(role, ""), f"raw reconstruction dependency {role}"
+                    )
+                ),
+            }
+            for role in RAW_RECONSTRUCTION_FILE_ROLES
+        },
+    }
+
+
+def validate_raw_reconstruction_dependency_receipt(
+    recorded: Any,
+    paths: dict[str, Any],
+    lane: dict[str, Any],
+    rng: dict[str, Any],
+    runtime: dict[str, Any],
+    source_pairs: dict[str, Any],
+) -> None:
+    expected = raw_reconstruction_dependency_receipt(
+        paths, lane, rng, runtime, source_pairs
+    )
+    if recorded != expected:
+        raise AuditFailure(
+            "raw reconstruction dependency receipt differs from exact executable inputs"
+        )
 
 
 def validate_frozen_macro_graph(path: Path) -> None:
@@ -469,6 +662,9 @@ def validate_recoil_manifest(path: Path, expected_offline: str) -> dict[str, Pat
     baseline_meta = estimator.get("staged_uninstrumented_macro", {})
     trace_meta = estimator.get("instrumented_macro", {})
     config_meta = estimator.get("canonical_config", {})
+    period_config_meta = estimator.get("period_configs", {})
+    truth_vertex_meta = estimator.get("truth_vertex_reweights", {})
+    yaml_header_meta = estimator.get("yaml_cpp_header_tree_receipt", {})
     yield_meta = estimator.get("calculate_photon_yield", {})
     for label, metadata, role in (
         ("canonical estimator source", source_meta, "ppg_recoeff_source_macro"),
@@ -483,6 +679,44 @@ def validate_recoil_manifest(path: Path, expected_offline: str) -> dict[str, Pat
             raise AuditFailure(f"runtime receipt {label} path differs from manifest role")
         if str(metadata.get("sha256", "")) != sha256(by_role[role]):
             raise AuditFailure(f"runtime receipt {label} digest differs from manifest role")
+    if not isinstance(period_config_meta, dict) or set(period_config_meta) != set(
+        EXPECTED_RECOEFF_PERIOD_CONFIG_HASHES
+    ):
+        raise AuditFailure("runtime receipt lacks the exact two period estimator configs")
+    for period, expected_hash in EXPECTED_RECOEFF_PERIOD_CONFIG_HASHES.items():
+        role = f"ppg_recoeff_period_config_{period}"
+        metadata = period_config_meta[period]
+        if not isinstance(metadata, dict):
+            raise AuditFailure(f"runtime receipt period config is malformed: {period}")
+        if Path(str(metadata.get("path", ""))).resolve() != by_role[role].resolve():
+            raise AuditFailure(f"runtime receipt {period} config path differs from manifest role")
+        if str(metadata.get("sha256", "")) != expected_hash:
+            raise AuditFailure(f"runtime receipt {period} config digest differs")
+        require_hash(by_role[role], expected_hash, f"canonical {period} RecoEff config")
+    if not isinstance(truth_vertex_meta, dict) or set(truth_vertex_meta) != set(
+        EXPECTED_TRUTH_VERTEX_REWEIGHT_HASHES
+    ):
+        raise AuditFailure("runtime receipt lacks the exact two truth-vertex weight ROOTs")
+    for period, expected_hash in EXPECTED_TRUTH_VERTEX_REWEIGHT_HASHES.items():
+        role = f"ppg_recoeff_truth_vertex_reweight_{period}"
+        metadata = truth_vertex_meta[period]
+        if not isinstance(metadata, dict):
+            raise AuditFailure(f"runtime receipt truth-vertex weight is malformed: {period}")
+        if Path(str(metadata.get("path", ""))).resolve() != by_role[role].resolve():
+            raise AuditFailure(
+                f"runtime receipt {period} truth-vertex weight path differs from manifest role"
+            )
+        if str(metadata.get("sha256", "")) != expected_hash:
+            raise AuditFailure(f"runtime receipt {period} truth-vertex weight digest differs")
+        require_hash(by_role[role], expected_hash, f"canonical {period} truth-vertex weight")
+    yaml_header_role = by_role["ppg_recoeff_yaml_cpp_header_tree_receipt"]
+    if not isinstance(yaml_header_meta, dict):
+        raise AuditFailure("runtime receipt lacks yaml-cpp header-tree metadata")
+    if Path(str(yaml_header_meta.get("path", ""))).resolve() != yaml_header_role.resolve():
+        raise AuditFailure("runtime receipt yaml-cpp header-tree path differs from manifest role")
+    if str(yaml_header_meta.get("sha256", "")) != sha256(yaml_header_role):
+        raise AuditFailure("runtime receipt yaml-cpp header-tree digest differs")
+    validate_yaml_cpp_header_receipt(yaml_header_role)
     apply_meta = estimator.get("apply_bdt_stage", {})
     if not isinstance(apply_meta, dict):
         raise AuditFailure("runtime receipt lacks source-locked apply_BDT metadata")
@@ -582,6 +816,97 @@ def validate_recoil_manifest(path: Path, expected_offline: str) -> dict[str, Pat
     return by_role
 
 
+def validate_selected_runtime_manifest(
+    path: Path,
+    source_path: Path,
+    period: str,
+    source_files: dict[str, Path],
+) -> dict[str, Path]:
+    data = load_json(path)
+    if data.get("schema_version") != 1:
+        raise AuditFailure("selected runtime manifest schema_version must be 1")
+    if data.get("selected_period") != period:
+        raise AuditFailure("selected runtime manifest period differs from lane")
+    source_link = data.get("source_runtime_manifest")
+    if not isinstance(source_link, dict):
+        raise AuditFailure("selected runtime manifest lacks source-manifest receipt")
+    if Path(str(source_link.get("path", ""))).resolve() != source_path.resolve():
+        raise AuditFailure("selected runtime source-manifest path differs")
+    if str(source_link.get("sha256", "")) != sha256(source_path):
+        raise AuditFailure("selected runtime source-manifest digest differs")
+    for field in (
+        "runtime_profile",
+        "offline_main",
+        "isolated_build",
+        "estimator_revision",
+        "build_receipt",
+        "build_receipt_sha256",
+    ):
+        if data.get(field) != load_json(source_path).get(field):
+            raise AuditFailure(f"selected runtime manifest changed source field {field}")
+
+    rows = data.get("files")
+    if not isinstance(rows, list):
+        raise AuditFailure("selected runtime manifest files must be a list")
+    by_role: dict[str, Path] = {}
+    seen_paths: set[Path] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            raise AuditFailure("selected runtime manifest contains malformed file metadata")
+        role = str(row.get("role", ""))
+        if role in by_role:
+            raise AuditFailure(f"selected runtime manifest duplicates role {role}")
+        file_path = require_file(str(row.get("path", "")), f"selected runtime {role}")
+        require_hash(file_path, str(row.get("sha256", "")), f"selected runtime {role}")
+        resolved = file_path.resolve()
+        if resolved in seen_paths:
+            raise AuditFailure("selected runtime manifest aliases one physical file")
+        seen_paths.add(resolved)
+        by_role[role] = file_path
+
+    period_config_roles = {
+        f"ppg_recoeff_period_config_{value}"
+        for value in EXPECTED_RECOEFF_PERIOD_CONFIG_HASHES
+    }
+    truth_vertex_roles = {
+        f"ppg_recoeff_truth_vertex_reweight_{value}"
+        for value in EXPECTED_TRUTH_VERTEX_REWEIGHT_HASHES
+    }
+    period_roles = period_config_roles | truth_vertex_roles
+    selected_roles = {
+        "ppg_recoeff_period_config",
+        "ppg_recoeff_truth_vertex_reweight",
+    }
+    expected_roles = (set(source_files) - period_roles) | selected_roles
+    if set(by_role) != expected_roles:
+        raise AuditFailure("selected runtime manifest role set differs from exact projection")
+    for role in set(source_files) - period_roles:
+        if by_role[role].resolve() != source_files[role].resolve():
+            raise AuditFailure(f"selected runtime manifest changed source role {role}")
+    expected_period_path = source_files[f"ppg_recoeff_period_config_{period}"]
+    if by_role["ppg_recoeff_period_config"].resolve() != expected_period_path.resolve():
+        raise AuditFailure("selected runtime manifest chose the wrong period config")
+    require_hash(
+        by_role["ppg_recoeff_period_config"],
+        EXPECTED_RECOEFF_PERIOD_CONFIG_HASHES[period],
+        "selected period RecoEff config",
+    )
+    expected_vertex_path = source_files[
+        f"ppg_recoeff_truth_vertex_reweight_{period}"
+    ]
+    if (
+        by_role["ppg_recoeff_truth_vertex_reweight"].resolve()
+        != expected_vertex_path.resolve()
+    ):
+        raise AuditFailure("selected runtime manifest chose the wrong truth-vertex weight")
+    require_hash(
+        by_role["ppg_recoeff_truth_vertex_reweight"],
+        EXPECTED_TRUTH_VERTEX_REWEIGHT_HASHES[period],
+        "selected period truth-vertex weight",
+    )
+    return by_role
+
+
 def validate_ldd(library: Path, expected_offline: str) -> None:
     proc = subprocess.run(
         ["ldd", str(library)], text=True, capture_output=True, check=False
@@ -640,7 +965,9 @@ def validate_contract(contract_path: Path, run_ldd: bool = True) -> dict[str, An
         "apply_bdt", "apply_config", "base_e_model", "base_v3e_model",
         "npb_model", "tower_mask", "recoil_runtime_manifest", "recoil_config",
         "driver_script", "worker_script", "ppg_wrapper", "recoil_wrapper",
-        "comparator", "auditor", "aggregate_extractor",
+        "comparator", "auditor", "aggregate_extractor", "ppg_recoeff_period_config",
+        "ppg_recoeff_truth_vertex_reweight",
+        "ppg_recoeff_yaml_cpp_header_tree_receipt",
     }
     reuse = authorization.get("raw_ppg12_reuse", {})
     if not isinstance(reuse, dict) or reuse.get("mode") not in {
@@ -699,7 +1026,19 @@ def validate_contract(contract_path: Path, run_ldd: bool = True) -> dict[str, An
         raise AuditFailure(
             "source slice is not the frozen run-28 segments 000000--000004"
         )
-    validate_source_graph(g4_slice, truth_slice, combined)
+    source_pair_receipt = require_file(
+        paths.get("source_pair_receipt", ""), "source-pair receipt"
+    )
+    source_pair_evidence = validate_source_graph(
+        g4_slice,
+        truth_slice,
+        combined,
+        sample=str(lane["sample"]),
+        interaction=str(lane["interaction"]),
+        source_pair_receipt=source_pair_receipt,
+    )
+    if contract.get("source_pairs") != source_pair_evidence:
+        raise AuditFailure("contract source-pair evidence differs from exact source rows")
 
     for role in (
         "apply_bdt",
@@ -716,6 +1055,46 @@ def validate_contract(contract_path: Path, run_ldd: bool = True) -> dict[str, An
         paths.get("recoil_runtime_manifest", ""), "Recoil runtime manifest"
     )
     recoil_files = validate_recoil_manifest(recoil_manifest, EXPECTED_OFFLINE_MAIN)
+    selected_manifest = require_file(
+        paths.get("paired_runtime_manifest", ""), "selected paired runtime manifest"
+    )
+    selected_files = validate_selected_runtime_manifest(
+        selected_manifest,
+        recoil_manifest,
+        str(lane["period"]),
+        recoil_files,
+    )
+    selected_period_config = require_file(
+        paths.get("ppg_recoeff_period_config", ""), "selected period RecoEff config"
+    )
+    if (
+        selected_period_config.resolve()
+        != selected_files["ppg_recoeff_period_config"].resolve()
+    ):
+        raise AuditFailure("contract selected period config differs from paired runtime manifest")
+    selected_truth_vertex_reweight = require_file(
+        paths.get("ppg_recoeff_truth_vertex_reweight", ""),
+        "selected period truth-vertex weight",
+    )
+    if (
+        selected_truth_vertex_reweight.resolve()
+        != selected_files["ppg_recoeff_truth_vertex_reweight"].resolve()
+    ):
+        raise AuditFailure(
+            "contract selected truth-vertex weight differs from paired runtime manifest"
+        )
+    selected_yaml_header_receipt = require_file(
+        paths.get("ppg_recoeff_yaml_cpp_header_tree_receipt", ""),
+        "selected yaml-cpp header-tree receipt",
+    )
+    if (
+        selected_yaml_header_receipt.resolve()
+        != selected_files["ppg_recoeff_yaml_cpp_header_tree_receipt"].resolve()
+    ):
+        raise AuditFailure(
+            "contract yaml-cpp header-tree receipt differs from paired runtime manifest"
+        )
+    validate_yaml_cpp_header_receipt(selected_yaml_header_receipt)
     if Path(paths["apply_bdt"]).resolve() != recoil_files["ppg_apply_bdt_macro"].resolve():
         raise AuditFailure("contract apply_BDT macro differs from sealed runtime role")
     if Path(paths["apply_config"]).resolve() != recoil_files["ppg_apply_bdt_config"].resolve():
@@ -750,7 +1129,7 @@ def validate_contract(contract_path: Path, run_ldd: bool = True) -> dict[str, An
     )
     if baseline_config.read_bytes() != trace_config.read_bytes():
         raise AuditFailure("baseline and instrumented RecoEff configs differ")
-    expected_config = canonical_recoeff_config.read_text()
+    expected_config = selected_period_config.read_text()
     for old, new in (
         ('photon_jet_file_root_dir: "/sphenix/user/shuhangli/ppg12/FunWithxgboost/"',
          'photon_jet_file_root_dir: "input/"'),
@@ -760,17 +1139,31 @@ def validate_contract(contract_path: Path, run_ldd: bool = True) -> dict[str, An
          'response_outfile: "output/MC_response"'),
         ('data_outfile: "/sphenix/user/shuhangli/ppg12/efficiencytool/results/data_histo"',
          'data_outfile: "output/data_histo"'),
-        ('var_type: "bdt_nom"', 'var_type: "paired_oracle"'),
+        (
+            f'var_type: "bdt_nom_{PERIOD_CONFIG_VAR_SUFFIX[lane["period"]]}"',
+            'var_type: "paired_oracle"',
+        ),
         ('vertex_scan_data_file: ""',
          'vertex_scan_data_file: "input/data_histo_bdt_nom_vtxscan.root"'),
         ('tower_mask_file: "/sphenix/user/shuhangli/ppg12/efficiencytool/tower_masks_bdt_nom.root"',
          'tower_mask_file: "input/tower_masks_bdt_nom.root"'),
+        (
+            "/sphenix/user/shuhangli/ppg12/efficiencytool/"
+            f"truth_vertex_reweight/output/{lane['period']}/reweight.root",
+            "input/truth_vertex_reweight.root",
+        ),
     ):
         if expected_config.count(old) != 1:
             raise AuditFailure(f"canonical RecoEff config rewrite marker changed: {old}")
         expected_config = expected_config.replace(old, new)
     if baseline_config.read_text() != expected_config:
         raise AuditFailure("RecoEff runtime config contains non-path scientific changes")
+    for config in (baseline_config, trace_config):
+        linked_weight = config.parent / "input" / "truth_vertex_reweight.root"
+        if not linked_weight.is_file():
+            raise AuditFailure(f"RecoEff runtime lacks truth-vertex weight link: {linked_weight}")
+        if linked_weight.resolve() != selected_truth_vertex_reweight.resolve():
+            raise AuditFailure("RecoEff runtime links the wrong period truth-vertex weight")
     ppg_lib = require_file(paths.get("ppg_caloana24", ""), "source-locked libCaloAna24")
     if recoil_files["libCaloAna24.so"].resolve() != ppg_lib.resolve():
         raise AuditFailure("contract PPG12 library differs from isolated runtime manifest")
@@ -788,6 +1181,14 @@ def validate_contract(contract_path: Path, run_ldd: bool = True) -> dict[str, An
             validate_ldd(recoil_files[role], EXPECTED_OFFLINE_MAIN)
 
     calo_calib = require_file(paths.get("calo_calib", ""), "resolved Calo_Calib.C")
+    validate_raw_reconstruction_dependency_receipt(
+        contract.get("raw_reconstruction_dependencies"),
+        paths,
+        lane,
+        expected_rng,
+        runtime,
+        source_pair_evidence,
+    )
     runtime_hashes = contract.get("runtime_hashes", {})
     for role, file_path in (
         ("setup_script", require_file(paths.get("setup_script", ""), "setup script")),
@@ -798,6 +1199,11 @@ def validate_contract(contract_path: Path, run_ldd: bool = True) -> dict[str, An
         ("comparator", require_file(paths.get("comparator", ""), "oracle comparator")),
         ("auditor", require_file(paths.get("auditor", ""), "oracle auditor")),
         ("aggregate_extractor", require_file(paths.get("aggregate_extractor", ""), "aggregate extractor")),
+        ("source_pair_receipt", source_pair_receipt),
+        ("paired_runtime_manifest", selected_manifest),
+        ("ppg_recoeff_period_config", selected_period_config),
+        ("ppg_recoeff_truth_vertex_reweight", selected_truth_vertex_reweight),
+        ("ppg_recoeff_yaml_cpp_header_tree_receipt", selected_yaml_header_receipt),
         ("ppg_recoeff_baseline_config", baseline_config),
         ("ppg_recoeff_trace_config", trace_config),
         ("apply_bdt_runtime_config", apply_runtime_config),
@@ -1024,6 +1430,10 @@ def analyze_candidate_report(
 ) -> dict[str, Any]:
     with path.open(newline="") as stream:
         rows = list(csv.DictReader(stream))
+    expected_component_code = (
+        2 if expected_lane_id is not None and expected_lane_id.endswith(":di") else 1
+    )
+    expected_component_label = "DI" if expected_component_code == 2 else "SI"
     stage_counts = {
         stage: {"evaluated": 0, "failed": 0}
         for stage in FIRST_DIVERGENCE_STAGE_ORDER
@@ -1354,10 +1764,13 @@ def analyze_candidate_report(
                     fail(stage, index, row, "rj_weight_lane_code",
                          "paired photon oracle must use photon+jet lane code 1",
                          observed=row.get("rj_weight_lane_code"), reference=1)
-                elif as_int(row, "rj_weight_component_code") != 1:
+                elif as_int(row, "rj_weight_component_code") != expected_component_code:
                     fail(stage, index, row, "rj_weight_component_code",
-                         "paired SI oracle must use SI photon component code 1",
-                         observed=row.get("rj_weight_component_code"), reference=1)
+                         f"paired {expected_component_label} oracle must use "
+                         f"{expected_component_label} photon component code "
+                         f"{expected_component_code}",
+                         observed=row.get("rj_weight_component_code"),
+                         reference=expected_component_code)
                 else:
                     final = as_float(row, "rj_weight_final")
                     tolerance = max(1.0e-6, 1.0e-6 * abs(final))

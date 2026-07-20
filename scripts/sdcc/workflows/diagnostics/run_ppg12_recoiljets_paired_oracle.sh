@@ -183,6 +183,14 @@ sealed_base_v3e_model="$(manifest_role_path ppg_apply_model_base_v3E)" || \
   die "failed to resolve sealed base_v3E model"
 sealed_npb_model="$(manifest_role_path ppg_apply_npb_model)" || \
   die "failed to resolve sealed NPB model"
+recoeff_period_role="ppg_recoeff_period_config_${period}"
+recoeff_period_config="$(manifest_role_path "$recoeff_period_role")" || \
+  die "failed to resolve sealed ${period} RecoEff config"
+recoeff_truth_vertex_role="ppg_recoeff_truth_vertex_reweight_${period}"
+recoeff_truth_vertex_reweight="$(manifest_role_path "$recoeff_truth_vertex_role")" || \
+  die "failed to resolve sealed ${period} truth-vertex reweight ROOT"
+recoeff_yaml_cpp_header_receipt="$(manifest_role_path ppg_recoeff_yaml_cpp_header_tree_receipt)" || \
+  die "failed to resolve sealed yaml-cpp header-tree receipt"
 
 asserted_asset_roles=(apply_bdt apply_config base_e_model base_v3e_model npb_model)
 asserted_asset_paths=(
@@ -208,11 +216,16 @@ apply_config="$sealed_apply_config"
 base_e_model="$sealed_base_e_model"
 base_v3e_model="$sealed_base_v3e_model"
 npb_model="$sealed_npb_model"
+required_keys+=(
+  ppg_recoeff_period_config ppg_recoeff_truth_vertex_reweight
+  ppg_recoeff_yaml_cpp_header_tree_receipt
+)
 required_values=(
   "$output_dir" "$setup_script" "$ppg_macro" "$g4_full_list"
   "$truthjet_full_list" "$apply_bdt" "$apply_config" "$base_e_model"
   "$base_v3e_model" "$npb_model" "$tower_mask" "$recoil_runtime_manifest"
-  "$recoil_config"
+  "$recoil_config" "$recoeff_period_config" "$recoeff_truth_vertex_reweight"
+  "$recoeff_yaml_cpp_header_receipt"
 )
 
 token_file_keys=(
@@ -220,13 +233,16 @@ token_file_keys=(
   apply_config base_e_model base_v3e_model npb_model tower_mask
   recoil_runtime_manifest recoil_config driver_script worker_script
   ppg_wrapper recoil_wrapper comparator auditor aggregate_extractor
+  ppg_recoeff_period_config ppg_recoeff_truth_vertex_reweight
+  ppg_recoeff_yaml_cpp_header_tree_receipt
 )
 token_file_values=(
   "$setup_script" "$ppg_macro" "$g4_full_list" "$truthjet_full_list"
   "$apply_bdt" "$apply_config" "$base_e_model" "$base_v3e_model"
   "$npb_model" "$tower_mask" "$recoil_runtime_manifest" "$recoil_config"
   "$driver_self" "$worker" "$ppg_wrapper" "$recoil_wrapper" "$comparator"
-  "$auditor" "$aggregate_extractor"
+  "$auditor" "$aggregate_extractor" "$recoeff_period_config"
+  "$recoeff_truth_vertex_reweight" "$recoeff_yaml_cpp_header_receipt"
 )
 if [[ "$reuse_mode" == exact_contract_bound ]]; then
   token_file_keys+=(reuse_ppg_raw_root reuse_ppg_raw_contract)
@@ -282,6 +298,9 @@ PPG12_PAIRED_ORACLE_PLAN
   runtime: new.17 for both executables
   RNG: historical FIFO replay; five PH seeds=${ph_seed_sequence}; pedestal=${pedestal_sequence}
   PPG12 + RecoilJets: one source-locked isolated new.17 runtime manifest required
+  PPG12 estimator config: ${recoeff_period_role} (${recoeff_period_config})
+  PPG12 truth-vertex weights: ${recoeff_truth_vertex_role} (${recoeff_truth_vertex_reweight})
+  yaml-cpp headers: sealed tree receipt (${recoeff_yaml_cpp_header_receipt})
   raw PPG12 reuse: ${reuse_mode}${reuse_ppg_raw_root:+ (${reuse_ppg_raw_root})}
   execution: foreground only; no Condor; no merge; no current-pointer mutation
   output_dir: ${output_dir}

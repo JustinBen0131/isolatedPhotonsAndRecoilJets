@@ -17,10 +17,13 @@ usage() {
 Usage:
   build_ppg12_oracle_new17_runtime.sh --output-dir ABS [--jobs N] \
     [--photon-source-dir ABS] [--ppg-repo ABS] [--ppg-revision SHA] \
-    [--estimator-revision SHA]
+    [--estimator-revision SHA] [--truth-vertex-reweight-0mrad ABS] \
+    [--truth-vertex-reweight-1p5mrad ABS] [--yaml-cpp-include-dir ABS]
   build_ppg12_oracle_new17_runtime.sh --build --token TOKEN \
     --output-dir ABS [--jobs N] [--photon-source-dir ABS] \
-    [--ppg-repo ABS] [--ppg-revision SHA] [--estimator-revision SHA]
+    [--ppg-repo ABS] [--ppg-revision SHA] [--estimator-revision SHA] \
+    [--truth-vertex-reweight-0mrad ABS] \
+    [--truth-vertex-reweight-1p5mrad ABS] [--yaml-cpp-include-dir ABS]
 
 Default mode prints the immutable build contract and authorization token.
 --build performs the foreground build only when TOKEN exactly matches that
@@ -48,10 +51,13 @@ ppg_revision="1c0ff86bf0ebabfba63a1abc4512cbe59fe48e31"
 # revision or from the mutable checkout.
 estimator_revision="29f8223bd9b36dffab07961b597afa94185bbdf1"
 yaml_cpp_library="/sphenix/u/shuhang98/install/lib64/libyaml-cpp.so"
+yaml_cpp_include_dir="/sphenix/u/shuhang98/install/include"
 roounfold_library="/sphenix/user/egm2153/calib_study/JetValidation/analysis/roounfold/libRooUnfold.so"
 roounfold_include_dir="/sphenix/user/egm2153/calib_study/JetValidation/analysis/roounfold/src"
 vertex_scan_data_file="/sphenix/user/shuhangli/ppg12/efficiencytool/results/data_histo_bdt_nom_vtxscan.root"
 mbd_correction_file="/sphenix/user/shuhangli/ppg12/efficiencytool/MbdOut.corr"
+truth_vertex_reweight_0mrad="/sphenix/user/shuhangli/ppg12/efficiencytool/truth_vertex_reweight/output/0mrad/reweight.root"
+truth_vertex_reweight_1p5mrad="/sphenix/user/shuhangli/ppg12/efficiencytool/truth_vertex_reweight/output/1p5mrad/reweight.root"
 apply_model_dir="/sphenix/user/shuhangli/ppg12/FunWithxgboost/binned_models"
 apply_npb_model="/sphenix/user/shuhangli/ppg12/FunWithxgboost/npb_models/npb_score_split_tmva.root"
 apply_model_names=(base base_vr base_v0 base_v1 base_v2 base_v3 base_E base_v0E base_v1E base_v2E base_v3E)
@@ -59,6 +65,10 @@ expected_apply_bdt_sha256="bd6e7c5bc9858ddad9bc835552d818c00290bb7de3f5036f44d8b
 expected_apply_config_sha256="b8d1bc359a647cc913f213777fc42958b532b30c37a63bb318680130eb6e321b"
 expected_recoeff_sha256="e9b25fdb6dd8a6bfbbad029cb90aaddc9489fdf2846c630ea63c8c41ac771eee"
 expected_recoeff_config_sha256="42b7be1628843d5b7607ab988ffb58c6d019d8ade01b3c4d528611498db95732"
+expected_recoeff_period_config_0mrad_sha256="3995033c8867f4b0e21d5ebc025d36395185671da474fceec128b20db7218be2"
+expected_recoeff_period_config_1p5mrad_sha256="6d2e4cc691e2fdd49271486ef193055704da00bcbd6b50ced76fcdd99cd050b8"
+expected_truth_vertex_reweight_0mrad_sha256="4c2a50fa2dd4fe6e3f8b823454f19753367876edabc9fe48164447a0d07be6b9"
+expected_truth_vertex_reweight_1p5mrad_sha256="1429442b2cce368bcc4b4fd613f706f27b9c194f1e835d800238e059c0804d4d"
 expected_apply_model_hashes=(
   "0ec432081df6bd5cbdc68c948c4c325331bc0220834b4720429c2049c86880e1"
   "8b70b9bda2430fa7147694ebb8f51de72122ee525a8b5b59dca0d50c4c86000f"
@@ -85,10 +95,13 @@ while (($#)); do
     --ppg-revision) [[ $# -ge 2 ]] || die "--ppg-revision requires a value"; ppg_revision="$2"; shift 2 ;;
     --estimator-revision) [[ $# -ge 2 ]] || die "--estimator-revision requires a value"; estimator_revision="$2"; shift 2 ;;
     --yaml-cpp-library) [[ $# -ge 2 ]] || die "--yaml-cpp-library requires a value"; yaml_cpp_library="$2"; shift 2 ;;
+    --yaml-cpp-include-dir) [[ $# -ge 2 ]] || die "--yaml-cpp-include-dir requires a value"; yaml_cpp_include_dir="$2"; shift 2 ;;
     --roounfold-library) [[ $# -ge 2 ]] || die "--roounfold-library requires a value"; roounfold_library="$2"; shift 2 ;;
     --roounfold-include-dir) [[ $# -ge 2 ]] || die "--roounfold-include-dir requires a value"; roounfold_include_dir="$2"; shift 2 ;;
     --vertex-scan-data-file) [[ $# -ge 2 ]] || die "--vertex-scan-data-file requires a value"; vertex_scan_data_file="$2"; shift 2 ;;
     --mbd-correction-file) [[ $# -ge 2 ]] || die "--mbd-correction-file requires a value"; mbd_correction_file="$2"; shift 2 ;;
+    --truth-vertex-reweight-0mrad) [[ $# -ge 2 ]] || die "--truth-vertex-reweight-0mrad requires a value"; truth_vertex_reweight_0mrad="$2"; shift 2 ;;
+    --truth-vertex-reweight-1p5mrad) [[ $# -ge 2 ]] || die "--truth-vertex-reweight-1p5mrad requires a value"; truth_vertex_reweight_1p5mrad="$2"; shift 2 ;;
     --apply-model-dir) [[ $# -ge 2 ]] || die "--apply-model-dir requires a value"; apply_model_dir="$2"; shift 2 ;;
     --apply-npb-model) [[ $# -ge 2 ]] || die "--apply-npb-model requires a value"; apply_npb_model="$2"; shift 2 ;;
     --jobs) [[ $# -ge 2 ]] || die "--jobs requires a value"; jobs="$2"; shift 2 ;;
@@ -134,6 +147,8 @@ estimator_source_names=(
   CrossSectionWeights.h
   TruthVertexReweightLoader.h
   config_bdt_nom.yaml
+  config_bdt_nom_0rad.yaml
+  config_bdt_nom_1p5mrad.yaml
   CalculatePhotonYield.C
 )
 for source_name in "${estimator_source_names[@]}"; do
@@ -172,8 +187,9 @@ contract_inputs=(
 for input in "${contract_inputs[@]}"; do
   [[ "$input" == /* && -f "$input" && -s "$input" ]] || die "missing contract input: $input"
 done
-for external in "$yaml_cpp_library" "$roounfold_library" \
+for external in "$yaml_cpp_library" "$yaml_cpp_include_dir" "$roounfold_library" \
   "$roounfold_include_dir" "$vertex_scan_data_file" "$mbd_correction_file" \
+  "$truth_vertex_reweight_0mrad" "$truth_vertex_reweight_1p5mrad" \
   "$apply_model_dir" "$apply_npb_model"; do
   [[ "$external" == /* && "$external" != *$'\n'* && "$external" != *$'\r'* ]] || \
     die "estimator runtime asset path must be absolute and single-line: $external"
@@ -224,6 +240,12 @@ git_blob_sha256() {
   "$expected_recoeff_sha256" ]] || die "canonical RecoEff source hash differs from 29f contract"
 [[ "$(git_blob_sha256 "${estimator_revision}:efficiencytool/config_bdt_nom.yaml")" == \
   "$expected_recoeff_config_sha256" ]] || die "canonical RecoEff config hash differs from 29f contract"
+[[ "$(git_blob_sha256 "${estimator_revision}:efficiencytool/config_bdt_nom_0rad.yaml")" == \
+  "$expected_recoeff_period_config_0mrad_sha256" ]] || \
+  die "canonical 0mrad RecoEff config hash differs from 29f contract"
+[[ "$(git_blob_sha256 "${estimator_revision}:efficiencytool/config_bdt_nom_1p5mrad.yaml")" == \
+  "$expected_recoeff_period_config_1p5mrad_sha256" ]] || \
+  die "canonical 1p5mrad RecoEff config hash differs from 29f contract"
 [[ "$(git_blob_sha256 "${estimator_revision}:FunWithxgboost/apply_BDT.C")" == \
   "$expected_apply_bdt_sha256" ]] || die "canonical apply_BDT source hash differs from 29f contract"
 [[ "$(git_blob_sha256 "${estimator_revision}:FunWithxgboost/config_nom.yaml")" == \
@@ -260,6 +282,14 @@ contract_token="$({
   printf 'estimator_revision=%s\n' "$estimator_revision"
   printf 'expected_recoeff_sha256=%s\n' "$expected_recoeff_sha256"
   printf 'expected_recoeff_config_sha256=%s\n' "$expected_recoeff_config_sha256"
+  printf 'expected_recoeff_period_config_0mrad_sha256=%s\n' \
+    "$expected_recoeff_period_config_0mrad_sha256"
+  printf 'expected_recoeff_period_config_1p5mrad_sha256=%s\n' \
+    "$expected_recoeff_period_config_1p5mrad_sha256"
+  printf 'expected_truth_vertex_reweight_0mrad_sha256=%s\n' \
+    "$expected_truth_vertex_reweight_0mrad_sha256"
+  printf 'expected_truth_vertex_reweight_1p5mrad_sha256=%s\n' \
+    "$expected_truth_vertex_reweight_1p5mrad_sha256"
   printf 'expected_apply_bdt_sha256=%s\n' "$expected_apply_bdt_sha256"
   printf 'expected_apply_config_sha256=%s\n' "$expected_apply_config_sha256"
   for model_index in "${!apply_model_names[@]}"; do
@@ -281,8 +311,9 @@ contract_token="$({
         | python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())'
     )"
   done
-  for external in "$yaml_cpp_library" "$roounfold_library" \
+  for external in "$yaml_cpp_library" "${yaml_cpp_include_dir}/yaml-cpp" "$roounfold_library" \
     "$roounfold_include_dir" "$vertex_scan_data_file" "$mbd_correction_file" \
+    "$truth_vertex_reweight_0mrad" "$truth_vertex_reweight_1p5mrad" \
     "$apply_model_dir" "$apply_npb_model"; do
     printf 'estimator_asset=%s sha256=%s\n' "$external" "$(sha256_optional "$external")"
   done
@@ -333,10 +364,13 @@ if [[ "${clean_env:-0}" != 1 ]]; then
       --ppg-repo "$ppg_repo_real" --ppg-revision "$ppg_revision" \
       --estimator-revision "$estimator_revision" \
       --yaml-cpp-library "$yaml_cpp_library" \
+      --yaml-cpp-include-dir "$yaml_cpp_include_dir" \
       --roounfold-library "$roounfold_library" \
       --roounfold-include-dir "$roounfold_include_dir" \
       --vertex-scan-data-file "$vertex_scan_data_file" \
       --mbd-correction-file "$mbd_correction_file" \
+      --truth-vertex-reweight-0mrad "$truth_vertex_reweight_0mrad" \
+      --truth-vertex-reweight-1p5mrad "$truth_vertex_reweight_1p5mrad" \
       --apply-model-dir "$apply_model_dir" \
       --apply-npb-model "$apply_npb_model"
 fi
@@ -361,10 +395,23 @@ for command_name in python3 make aclocal automake autoconf libtoolize root root-
   command -v "$command_name" >/dev/null 2>&1 || die "required build command is unavailable: $command_name"
 done
 for estimator_asset in "$yaml_cpp_library" "$roounfold_library" \
-  "$vertex_scan_data_file" "$mbd_correction_file" "$apply_npb_model"; do
+  "$vertex_scan_data_file" "$mbd_correction_file" \
+  "$truth_vertex_reweight_0mrad" "$truth_vertex_reweight_1p5mrad" \
+  "$apply_npb_model"; do
   [[ -f "$estimator_asset" && -s "$estimator_asset" ]] || \
     die "estimator runtime asset is missing or empty: $estimator_asset"
 done
+[[ -d "${yaml_cpp_include_dir}/yaml-cpp" ]] || \
+  die "yaml-cpp header tree is missing: ${yaml_cpp_include_dir}/yaml-cpp"
+[[ -f "${yaml_cpp_include_dir}/yaml-cpp/yaml.h" && \
+   -s "${yaml_cpp_include_dir}/yaml-cpp/yaml.h" ]] || \
+  die "yaml-cpp umbrella header is missing: ${yaml_cpp_include_dir}/yaml-cpp/yaml.h"
+[[ "$(sha256_file "$truth_vertex_reweight_0mrad")" == \
+  "$expected_truth_vertex_reweight_0mrad_sha256" ]] || \
+  die "canonical 0mrad truth-vertex reweight ROOT hash differs"
+[[ "$(sha256_file "$truth_vertex_reweight_1p5mrad")" == \
+  "$expected_truth_vertex_reweight_1p5mrad_sha256" ]] || \
+  die "canonical 1p5mrad truth-vertex reweight ROOT hash differs"
 for model_index in "${!apply_model_names[@]}"; do
   model_name="${apply_model_names[$model_index]}"
   model_path="${apply_model_dir}/model_${model_name}_split_single_tmva.root"
@@ -477,7 +524,55 @@ cp -f "${estimator_stage}/TruthVertexReweightLoader.h" \
   "${runtime_root}/estimator/include/TruthVertexReweightLoader.h"
 cp -f "${estimator_stage}/config_bdt_nom.yaml" \
   "${runtime_root}/estimator/config/config_bdt_nom.yaml"
+cp -f "${estimator_stage}/config_bdt_nom_0rad.yaml" \
+  "${runtime_root}/estimator/config/config_bdt_nom_0rad.yaml"
+cp -f "${estimator_stage}/config_bdt_nom_1p5mrad.yaml" \
+  "${runtime_root}/estimator/config/config_bdt_nom_1p5mrad.yaml"
 cp -L "$yaml_cpp_library" "${runtime_root}/lib/libyaml-cpp.so"
+cp -R "${yaml_cpp_include_dir}/yaml-cpp" "${runtime_root}/estimator/include/"
+source_yaml_tree_sha256="$(sha256_optional "${yaml_cpp_include_dir}/yaml-cpp")"
+staged_yaml_tree_sha256="$(sha256_optional "${runtime_root}/estimator/include/yaml-cpp")"
+[[ "$source_yaml_tree_sha256" == "$staged_yaml_tree_sha256" ]] || \
+  die "staged yaml-cpp header tree differs from source"
+yaml_cpp_header_receipt="${runtime_root}/estimator/yaml_cpp_header_tree_receipt.json"
+python3 - "${yaml_cpp_include_dir}/yaml-cpp" \
+  "${runtime_root}/estimator/include/yaml-cpp" "$yaml_cpp_header_receipt" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import sys
+
+source, staged, receipt = map(Path, sys.argv[1:])
+
+def inventory(root: Path) -> tuple[str, list[dict[str, str]]]:
+    rows = []
+    digest = hashlib.sha256()
+    for path in sorted(item for item in root.rglob("*") if item.is_file()):
+        relative = str(path.relative_to(root))
+        file_digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        rows.append({"relative_path": relative, "sha256": file_digest})
+        digest.update(relative.encode())
+        digest.update(b"\0")
+        digest.update(bytes.fromhex(file_digest))
+    if not rows or not (root / "yaml.h").is_file():
+        raise SystemExit("yaml-cpp header inventory is empty or lacks yaml.h")
+    return digest.hexdigest(), rows
+
+source_digest, source_rows = inventory(source)
+staged_digest, staged_rows = inventory(staged)
+if source_rows != staged_rows or source_digest != staged_digest:
+    raise SystemExit("sealed yaml-cpp header inventory differs from source")
+payload = {
+    "schema_version": 1,
+    "role": "ppg_recoeff_yaml_cpp_header_tree",
+    "source_root": str(source.resolve()),
+    "include_root": str(staged.parent.resolve()),
+    "staged_tree": str(staged.resolve()),
+    "tree_sha256": staged_digest,
+    "files": staged_rows,
+}
+receipt.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+PY
 cp -L "$roounfold_library" "${runtime_root}/lib/libRooUnfold.so"
 cp -f "${roounfold_include_dir}/RooUnfoldResponse.h" \
   "${runtime_root}/estimator/include/RooUnfoldResponse.h"
@@ -487,6 +582,16 @@ cp -f "$vertex_scan_data_file" \
   "${runtime_root}/estimator/data/data_histo_bdt_nom_vtxscan.root"
 cp -f "$mbd_correction_file" \
   "${runtime_root}/estimator/data/MbdOut.corr"
+cp -f "$truth_vertex_reweight_0mrad" \
+  "${runtime_root}/estimator/data/truth_vertex_reweight_0mrad.root"
+cmp -s "$truth_vertex_reweight_0mrad" \
+  "${runtime_root}/estimator/data/truth_vertex_reweight_0mrad.root" || \
+  die "staged 0mrad truth-vertex reweight ROOT differs from source"
+cp -f "$truth_vertex_reweight_1p5mrad" \
+  "${runtime_root}/estimator/data/truth_vertex_reweight_1p5mrad.root"
+cmp -s "$truth_vertex_reweight_1p5mrad" \
+  "${runtime_root}/estimator/data/truth_vertex_reweight_1p5mrad.root" || \
+  die "staged 1p5mrad truth-vertex reweight ROOT differs from source"
 
 for source_name in configure.ac Makefile.am autogen.sh RecoilJets.cc RecoilJets.h PPG12SimWeight.h; do
   cp -f "${recoil_source}/${source_name}" "${recoil_stage}/${source_name}"
@@ -776,6 +881,7 @@ done
 smoke_macro="${build_root}/smoke_new17_runtime.C"
 cat > "$smoke_macro" <<EOF
 #include <caloana/PPG12OraclePhotonClusterBuilder.h>
+#include <yaml-cpp/yaml.h>
 #include <TSystem.h>
 #include <iostream>
 void smoke_new17_runtime()
@@ -798,11 +904,13 @@ void smoke_new17_runtime()
   }
   PPG12OraclePhotonClusterBuilder *builder = nullptr;
   if (builder != nullptr) gSystem->Exit(92);
+  YAML::Node yaml_header_smoke;
+  if (yaml_header_smoke.IsDefined()) gSystem->Exit(93);
 }
 EOF
 (
   export LD_LIBRARY_PATH="$runtime_ld"
-  export ROOT_INCLUDE_PATH="${runtime_root}/include:${base_root_include_path}"
+  export ROOT_INCLUDE_PATH="${runtime_root}/include:${runtime_root}/estimator/include:${base_root_include_path}"
   root -l -b -q "${smoke_macro}"
 ) >"${log_root}/root_smoke.log" 2>&1 || {
   tail -n 80 "${log_root}/root_smoke.log" >&2 || true
@@ -830,17 +938,22 @@ python3 - \
   "${runtime_root}/estimator/include/CrossSectionWeights.h" \
   "${runtime_root}/estimator/include/TruthVertexReweightLoader.h" \
   "${runtime_root}/estimator/config/config_bdt_nom.yaml" \
+  "${runtime_root}/estimator/config/config_bdt_nom_0rad.yaml" \
+  "${runtime_root}/estimator/config/config_bdt_nom_1p5mrad.yaml" \
   "${runtime_root}/estimator/source/CalculatePhotonYield.C" \
   "${runtime_root}/estimator/apply/apply_BDT.C" \
   "${runtime_root}/estimator/apply/config_nom.yaml" \
   "$recoeff_macro" "$recoeff_trace_macro" "$recoeff_trace_receipt" \
   "$trace_instrumenter" \
   "${runtime_root}/lib/libyaml-cpp.so" \
+  "$yaml_cpp_header_receipt" \
   "${runtime_root}/lib/libRooUnfold.so" \
   "${runtime_root}/estimator/include/RooUnfoldResponse.h" \
   "${runtime_root}/estimator/include/RooUnfoldBayes.h" \
   "${runtime_root}/estimator/data/data_histo_bdt_nom_vtxscan.root" \
-  "${runtime_root}/estimator/data/MbdOut.corr" <<'PY'
+  "${runtime_root}/estimator/data/MbdOut.corr" \
+  "${runtime_root}/estimator/data/truth_vertex_reweight_0mrad.root" \
+  "${runtime_root}/estimator/data/truth_vertex_reweight_1p5mrad.root" <<'PY'
 from pathlib import Path
 import hashlib
 import json
@@ -854,11 +967,14 @@ import sys
     ppg_cc, ppg_h, ppg_configure, ppg_makefile, recoil_cc, recoil_h, macro, impl,
     calo_source, clusteriso_source, jetbase_source, log_root,
     estimator_revision, recoeff_source, cross_section_header,
-    truth_vertex_header, estimator_config, calculate_yield_source,
+    truth_vertex_header, estimator_config, estimator_config_0mrad,
+    estimator_config_1p5mrad, calculate_yield_source,
     apply_bdt_source, apply_config_source,
     recoeff_macro, recoeff_trace_macro, trace_receipt, trace_instrumenter,
-    yaml_cpp, roounfold, roounfold_response_header, roounfold_bayes_header,
-    vertex_scan_data, mbd_correction,
+    yaml_cpp, yaml_cpp_header_receipt, roounfold, roounfold_response_header,
+    roounfold_bayes_header,
+    vertex_scan_data, mbd_correction, truth_vertex_reweight_0mrad,
+    truth_vertex_reweight_1p5mrad,
 ) = sys.argv[1:]
 
 def digest(path: str | Path) -> str:
@@ -874,11 +990,14 @@ source_paths = [
     recoil_cc, recoil_h, macro, impl,
     calo_source, clusteriso_source, jetbase_source, calo_calib,
     recoeff_source, cross_section_header, truth_vertex_header,
-    estimator_config, calculate_yield_source, recoeff_macro,
+    estimator_config, estimator_config_0mrad, estimator_config_1p5mrad,
+    calculate_yield_source, recoeff_macro,
     apply_bdt_source, apply_config_source,
     recoeff_trace_macro, trace_receipt, trace_instrumenter, yaml_cpp,
-    roounfold, roounfold_response_header, roounfold_bayes_header,
-    vertex_scan_data, mbd_correction,
+    yaml_cpp_header_receipt, roounfold, roounfold_response_header,
+    roounfold_bayes_header,
+    vertex_scan_data, mbd_correction, truth_vertex_reweight_0mrad,
+    truth_vertex_reweight_1p5mrad,
 ]
 apply_root = Path(apply_bdt_source).parent
 apply_model_names = (
@@ -941,6 +1060,26 @@ data = {
             "path": estimator_config,
             "sha256": digest(estimator_config),
         },
+        "period_configs": {
+            "0mrad": {
+                "path": estimator_config_0mrad,
+                "sha256": digest(estimator_config_0mrad),
+            },
+            "1p5mrad": {
+                "path": estimator_config_1p5mrad,
+                "sha256": digest(estimator_config_1p5mrad),
+            },
+        },
+        "truth_vertex_reweights": {
+            "0mrad": {
+                "path": truth_vertex_reweight_0mrad,
+                "sha256": digest(truth_vertex_reweight_0mrad),
+            },
+            "1p5mrad": {
+                "path": truth_vertex_reweight_1p5mrad,
+                "sha256": digest(truth_vertex_reweight_1p5mrad),
+            },
+        },
         "calculate_photon_yield": {
             "path": calculate_yield_source,
             "sha256": digest(calculate_yield_source),
@@ -955,10 +1094,15 @@ data = {
                 {"path": str(path), "sha256": digest(path)} for path in apply_models
             ],
         },
+        "yaml_cpp_header_tree_receipt": {
+            "path": yaml_cpp_header_receipt,
+            "sha256": digest(yaml_cpp_header_receipt),
+        },
         "runtime_assets": [
             {"path": path, "sha256": digest(path)}
             for path in (
-                cross_section_header, truth_vertex_header, yaml_cpp, roounfold,
+                cross_section_header, truth_vertex_header, yaml_cpp,
+                yaml_cpp_header_receipt, roounfold,
                 roounfold_response_header, roounfold_bayes_header,
                 vertex_scan_data, mbd_correction,
             )
@@ -1031,15 +1175,20 @@ python3 - "$runtime_manifest" "$build_receipt" "$expected_offline" \
   "${runtime_root}/estimator/include/CrossSectionWeights.h" \
   "${runtime_root}/estimator/include/TruthVertexReweightLoader.h" \
   "${runtime_root}/estimator/config/config_bdt_nom.yaml" \
+  "${runtime_root}/estimator/config/config_bdt_nom_0rad.yaml" \
+  "${runtime_root}/estimator/config/config_bdt_nom_1p5mrad.yaml" \
   "${runtime_root}/estimator/source/CalculatePhotonYield.C" \
   "${runtime_root}/estimator/apply/apply_BDT.C" \
   "${runtime_root}/estimator/apply/config_nom.yaml" \
   "${runtime_root}/lib/libyaml-cpp.so" \
+  "$yaml_cpp_header_receipt" \
   "${runtime_root}/lib/libRooUnfold.so" \
   "${runtime_root}/estimator/include/RooUnfoldResponse.h" \
   "${runtime_root}/estimator/include/RooUnfoldBayes.h" \
   "${runtime_root}/estimator/data/data_histo_bdt_nom_vtxscan.root" \
-  "${runtime_root}/estimator/data/MbdOut.corr" <<'PY'
+  "${runtime_root}/estimator/data/MbdOut.corr" \
+  "${runtime_root}/estimator/data/truth_vertex_reweight_0mrad.root" \
+  "${runtime_root}/estimator/data/truth_vertex_reweight_1p5mrad.root" <<'PY'
 from pathlib import Path
 import hashlib
 import json
@@ -1050,8 +1199,11 @@ import sys
     clusteriso, jetbase, photon_header,
     estimator_revision, recoeff_source, recoeff_macro, recoeff_trace_macro,
     trace_receipt, cross_section_header, truth_vertex_header, estimator_config,
-    calculate_yield, apply_bdt, apply_config, yaml_cpp, roounfold, roounfold_response_header,
+    estimator_config_0mrad, estimator_config_1p5mrad, calculate_yield,
+    apply_bdt, apply_config, yaml_cpp, yaml_cpp_header_receipt, roounfold,
+    roounfold_response_header,
     roounfold_bayes_header, vertex_scan_data, mbd_correction,
+    truth_vertex_reweight_0mrad, truth_vertex_reweight_1p5mrad,
 ) = sys.argv[1:]
 
 def digest(path: str) -> str:
@@ -1077,15 +1229,20 @@ roles = [
     ("ppg_recoeff_cross_section_header", cross_section_header),
     ("ppg_recoeff_truth_vertex_header", truth_vertex_header),
     ("ppg_recoeff_canonical_config", estimator_config),
+    ("ppg_recoeff_period_config_0mrad", estimator_config_0mrad),
+    ("ppg_recoeff_period_config_1p5mrad", estimator_config_1p5mrad),
     ("ppg_calculate_photon_yield", calculate_yield),
     ("ppg_apply_bdt_macro", apply_bdt),
     ("ppg_apply_bdt_config", apply_config),
     ("ppg_recoeff_yaml_cpp", yaml_cpp),
+    ("ppg_recoeff_yaml_cpp_header_tree_receipt", yaml_cpp_header_receipt),
     ("ppg_recoeff_roounfold", roounfold),
     ("ppg_recoeff_roounfold_response_header", roounfold_response_header),
     ("ppg_recoeff_roounfold_bayes_header", roounfold_bayes_header),
     ("ppg_recoeff_vertex_scan_data", vertex_scan_data),
     ("ppg_recoeff_mbd_correction", mbd_correction),
+    ("ppg_recoeff_truth_vertex_reweight_0mrad", truth_vertex_reweight_0mrad),
+    ("ppg_recoeff_truth_vertex_reweight_1p5mrad", truth_vertex_reweight_1p5mrad),
 ]
 apply_root = Path(apply_bdt).parent
 model_names = (

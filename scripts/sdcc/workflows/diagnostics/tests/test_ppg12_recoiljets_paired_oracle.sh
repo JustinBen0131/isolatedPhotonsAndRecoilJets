@@ -34,6 +34,13 @@ for invariant in \
   'reuse contract predates content-bound schema 3 and is scientifically inadmissible' \
   'reuse contract authorization token does not replay exactly' \
   'reuse source hash differs from the prior apply_BDT input hash' \
+  'FAILED-run reuse is limited to the known attempt6 raw ROOT' \
+  'known FAILED-run reuse lacks the 5000-event completion log' \
+  'FAILED-run reuse is not the known missing-yaml-header failure' \
+  'input.TestBit(TFile::kRecovered)' \
+  'ppg_recoeff_truth_vertex_reweight' \
+  'ppg_recoeff_yaml_cpp_header_tree_receipt' \
+  'export ROOT_INCLUDE_PATH="${recoeff_yaml_cpp_include_root}:${base_root_include_path}"' \
   '--out-json "$aggregate_report"'; do
   grep -Fq -- "$invariant" "$worker" || {
     echo "missing executable-estimator invariant: $invariant" >&2
@@ -70,6 +77,12 @@ cp "${tmp}/config_nom.yaml" "${sealed_dir}/config_nom.yaml"
 cp "${tmp}/base_E.root" "${sealed_dir}/model_base_E.root"
 cp "${tmp}/base_v3E.root" "${sealed_dir}/model_base_v3E.root"
 cp "${tmp}/npb.root" "${sealed_dir}/npb_score.root"
+printf 'period estimator config: 0mrad\n' > "${sealed_dir}/config_bdt_nom_0rad.yaml"
+printf 'period estimator config: 1p5mrad\n' > "${sealed_dir}/config_bdt_nom_1p5mrad.yaml"
+printf 'sealed truth-vertex weights: 0mrad\n' > "${sealed_dir}/truth_vertex_reweight_0mrad.root"
+printf 'sealed truth-vertex weights: 1p5mrad\n' > "${sealed_dir}/truth_vertex_reweight_1p5mrad.root"
+printf '{"schema_version":1,"role":"ppg_recoeff_yaml_cpp_header_tree"}\n' \
+  > "${sealed_dir}/yaml_cpp_header_tree_receipt.json"
 python3 - "${tmp}/recoil_runtime.json" "$sealed_dir" <<'PY'
 from pathlib import Path
 import json
@@ -83,6 +96,11 @@ roles = {
     "ppg_apply_model_base_E": sealed / "model_base_E.root",
     "ppg_apply_model_base_v3E": sealed / "model_base_v3E.root",
     "ppg_apply_npb_model": sealed / "npb_score.root",
+    "ppg_recoeff_period_config_0mrad": sealed / "config_bdt_nom_0rad.yaml",
+    "ppg_recoeff_period_config_1p5mrad": sealed / "config_bdt_nom_1p5mrad.yaml",
+    "ppg_recoeff_truth_vertex_reweight_0mrad": sealed / "truth_vertex_reweight_0mrad.root",
+    "ppg_recoeff_truth_vertex_reweight_1p5mrad": sealed / "truth_vertex_reweight_1p5mrad.root",
+    "ppg_recoeff_yaml_cpp_header_tree_receipt": sealed / "yaml_cpp_header_tree_receipt.json",
 }
 manifest.write_text(
     json.dumps(
@@ -120,6 +138,8 @@ grep -Fq 'lane_id: photon:photon5:1p5mrad:si' <<<"$plan"
 grep -Fq 'source_graph: NONE,g4,truthjet,NONE,NONE' <<<"$plan"
 grep -Fq 'RNG: historical FIFO replay; five PH seeds=2991264730,4256268992,2394322166,874466025,2240380304; pedestal=534' <<<"$plan"
 grep -Fq 'PPG12 + RecoilJets: one source-locked isolated new.17 runtime manifest required' <<<"$plan"
+grep -Fq "PPG12 estimator config: ppg_recoeff_period_config_1p5mrad (${sealed_dir}/config_bdt_nom_1p5mrad.yaml)" <<<"$plan"
+grep -Fq "PPG12 truth-vertex weights: ppg_recoeff_truth_vertex_reweight_1p5mrad (${sealed_dir}/truth_vertex_reweight_1p5mrad.root)" <<<"$plan"
 grep -Fq 'execution: foreground only; no Condor; no merge' <<<"$plan"
 token="$(sed -n 's/^  run_token: //p' <<<"$plan")"
 [[ "$token" =~ ^ppg12-oracle:[0-9a-f]{64}$ ]]
@@ -178,6 +198,9 @@ paths = {
     "tower_mask": str(tmp / "mask.root"),
     "recoil_runtime_manifest": str(tmp / "recoil_runtime.json"),
     "recoil_config": str(tmp / "recoil_config.yaml"),
+    "ppg_recoeff_period_config": str(sealed / "config_bdt_nom_1p5mrad.yaml"),
+    "ppg_recoeff_truth_vertex_reweight": str(sealed / "truth_vertex_reweight_1p5mrad.root"),
+    "ppg_recoeff_yaml_cpp_header_tree_receipt": str(sealed / "yaml_cpp_header_tree_receipt.json"),
 }
 token_paths = {
     **paths,
@@ -240,6 +263,8 @@ done
 di_plan="$($driver "${di_args[@]}")"
 grep -Fq 'lane: Photon20 | 0mrad | DI' <<<"$di_plan"
 grep -Fq 'lane_id: photon:photon20:0mrad:di' <<<"$di_plan"
+grep -Fq "PPG12 estimator config: ppg_recoeff_period_config_0mrad (${sealed_dir}/config_bdt_nom_0rad.yaml)" <<<"$di_plan"
+grep -Fq "PPG12 truth-vertex weights: ppg_recoeff_truth_vertex_reweight_0mrad (${sealed_dir}/truth_vertex_reweight_0mrad.root)" <<<"$di_plan"
 di_token="$(sed -n 's/^  run_token: //p' <<<"$di_plan")"
 [[ "$di_token" =~ ^ppg12-oracle:[0-9a-f]{64}$ ]]
 [[ "$di_token" != "$token" ]]
@@ -264,6 +289,20 @@ if "$driver" --run --token "$token" "${common_args[@]}" \
 fi
 grep -Fq 'run token does not match' "${tmp}/stale-content.err"
 printf 'token-bound test asset: recoil_config.yaml\n' > "${tmp}/recoil_config.yaml"
+
+printf 'mutated after plan\n' >> "${sealed_dir}/truth_vertex_reweight_1p5mrad.root"
+mutated_vertex_plan="$($driver "${common_args[@]}")"
+mutated_vertex_token="$(sed -n 's/^  run_token: //p' <<<"$mutated_vertex_plan")"
+[[ "$mutated_vertex_token" =~ ^ppg12-oracle:[0-9a-f]{64}$ ]]
+[[ "$mutated_vertex_token" != "$token" ]]
+if "$driver" --run --token "$token" "${common_args[@]}" \
+    >"${tmp}/stale-vertex.out" 2>"${tmp}/stale-vertex.err"; then
+  echo "truth-vertex-weight-stale token unexpectedly passed" >&2
+  exit 1
+fi
+grep -Fq 'run token does not match' "${tmp}/stale-vertex.err"
+printf 'sealed truth-vertex weights: 1p5mrad\n' \
+  > "${sealed_dir}/truth_vertex_reweight_1p5mrad.root"
 
 reuse_raw="${tmp}/caloana.root"
 reuse_contract="${tmp}/prior_contract.json"
@@ -360,7 +399,11 @@ combined.write_text(
     )
     + "\n"
 )
-module.validate_source_graph(g4, truth, combined)
+si_evidence = module.validate_source_graph(
+    g4, truth, combined, sample="Photon5", interaction="SI"
+)
+assert si_evidence["sample"] == "Photon5"
+assert si_evidence["interaction"] == "SI"
 
 bad = tmp / "four-stream.list"
 bad.write_text(
@@ -371,11 +414,50 @@ bad.write_text(
     + "\n"
 )
 try:
-    module.validate_source_graph(g4, truth, bad)
+    module.validate_source_graph(
+        g4, truth, bad, sample="Photon5", interaction="SI"
+    )
 except module.AuditFailure as exc:
     assert "exact oracle graph" in str(exc)
 else:
     raise AssertionError("four-stream source graph unexpectedly passed")
+
+di_g4 = tmp / "di-g4.list"
+di_truth = tmp / "di-truth.list"
+di_combined = tmp / "di-combined.list"
+di_g4_rows = [
+    f"/source/G4Hits_pythia8_PhotonJet20_pythia8_Detroit-0000000028-{i:06d}.root"
+    for i in range(5)
+]
+di_truth_rows = [
+    f"/source/DST_TRUTH_JET_pythia8_PhotonJet20_pythia8_Detroit-0000000028-{i:06d}.root"
+    for i in range(5)
+]
+di_g4.write_text("\n".join(di_g4_rows) + "\n")
+di_truth.write_text("\n".join(di_truth_rows) + "\n")
+di_combined.write_text(
+    "\n".join(
+        f"NONE {left} {right} NONE NONE"
+        for left, right in zip(di_g4_rows, di_truth_rows)
+    )
+    + "\n"
+)
+di_evidence = module.validate_source_graph(
+    di_g4, di_truth, di_combined, sample="Photon20", interaction="DI"
+)
+assert di_evidence["interaction"] == "DI"
+for wrong_mode, left, right, combined_path, sample in (
+    ("DI", g4, truth, combined, "Photon5"),
+    ("SI", di_g4, di_truth, di_combined, "Photon20"),
+):
+    try:
+        module.validate_source_graph(
+            left, right, combined_path, sample=sample, interaction=wrong_mode
+        )
+    except module.AuditFailure as exc:
+        assert "unexpected sample/run/segment identity" in str(exc)
+    else:
+        raise AssertionError(f"{wrong_mode} accepted the opposite source identity mode")
 
 macro = tmp / "Fun4All_run_sim.C"
 macro.write_text(

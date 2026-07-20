@@ -3564,7 +3564,7 @@ validate_ppg12_sim_source_contract() {
 # intentionally couples broad Run-28 pp-SIM production to the reviewed local
 # closure contract.  A contract edit therefore requires a deliberate
 # submitter update and a new admission; an old admission cannot drift forward.
-PPG12_STITCHED_PURITY_CONTRACT_SHA256="4a20986cf1c80f7e1dc27ae2d40d7cb93e82d2b41845797d73819cb03dcb9791"
+PPG12_STITCHED_PURITY_CONTRACT_SHA256="a59bdb9d50f798885f53002f4d4945c8a94193c60d21f45d501360300ff12b14"
 
 ppg12_sha256_file() {
   local path="$1"
@@ -3721,7 +3721,7 @@ LANE_FIELDS = (
 )
 RUNTIME_ROLE_GROUPS = {
     "config_sha256": (
-        "lane_config", "ppg_apply_bdt_config", "ppg_recoeff_canonical_config",
+        "lane_config", "ppg_apply_bdt_config", "ppg_recoeff_period_config",
     ),
     "reconstruction_sha256": (
         "recoil_macro", "recoil_impl", "libRecoilJets.so", "libCaloAna24.so",
@@ -3735,10 +3735,12 @@ RUNTIME_ROLE_GROUPS = {
     "ownership_sha256": ("recoil_impl", "libRecoilJets.so"),
     "weight_sha256": (
         "recoil_impl", "ppg_recoeff_cross_section_header",
-        "ppg_recoeff_truth_vertex_header", "ppg_recoeff_canonical_config",
+        "ppg_recoeff_truth_vertex_header", "ppg_recoeff_period_config",
+        "ppg_recoeff_truth_vertex_reweight",
     ),
     "estimator_sha256": (
-        "ppg_apply_bdt_macro", "ppg_recoeff_source_macro",
+        "ppg_apply_bdt_macro", "ppg_recoeff_yaml_cpp_header_tree_receipt",
+        "ppg_recoeff_source_macro",
         "ppg_recoeff_macro", "ppg_calculate_photon_yield",
     ),
 }

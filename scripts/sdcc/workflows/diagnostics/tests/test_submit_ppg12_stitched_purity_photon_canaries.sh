@@ -4,301 +4,207 @@ IFS=$'\n\t'
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 driver="$(cd "${script_dir}/.." && pwd -P)/submit_ppg12_stitched_purity_photon_canaries.sh"
-repo_root="$(cd "${script_dir}/../../../../.." && pwd -P)"
-
-tmp="$(mktemp -d "${TMPDIR:-/tmp}/ppg12-photon-canary-test.XXXXXX")"
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/ppg12-paired-12-test.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
-
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
-pass() { printf 'PASS: %s\n' "$*"; }
 
-mock_submitter="${tmp}/mock_submitter.sh"
-cat > "$mock_submitter" <<'EOF'
+mkdir -p "$tmp/assets" "$tmp/lane"
+for name in setup apply_bdt apply_config base_e base_v3e npb mask runtime_manifest recoil_config; do
+  printf 'asset %s\n' "$name" > "$tmp/assets/$name"
+done
+for photon in 5 10 20; do
+  for interaction in si di; do
+    slug="photon${photon}_${interaction}"
+    if [[ "$interaction" == si ]]; then
+      interaction_upper=SI
+    else
+      interaction_upper=DI
+    fi
+    {
+      printf 'INPUTREADHITS::listfile[0] = "g4.list";\n'
+      printf 'INPUTREADHITS::listfile[4] = "truth.list";\n'
+      if [[ "$interaction" == di ]]; then
+        printf 'TruthJetInput *truth = new TruthJetInput(Jet::PARTICLE);\n'
+        printf 'truth->add_embedding_flag(2);\n'
+      fi
+    } > "$tmp/lane/${slug}.C"
+    : > "$tmp/lane/${slug}_g4.list"
+    : > "$tmp/lane/${slug}_truth.list"
+    for index in 0 1 2 3 4; do
+      identity="pythia8_PhotonJet${photon}_${interaction_upper}_${index}.root"
+      printf '/source/G4Hits_%s\n' "$identity" >> "$tmp/lane/${slug}_g4.list"
+      printf '/source/DST_TRUTH_JET_%s\n' "$identity" >> "$tmp/lane/${slug}_truth.list"
+    done
+  done
+done
+
+source_manifest="$tmp/source.json"
+python3 - "$source_manifest" "$tmp" <<'PY'
+import json, sys
+from pathlib import Path
+out, base = Path(sys.argv[1]), Path(sys.argv[2])
+lanes=[]
+for photon in (5,10,20):
+  for period in ("0mrad","1p5mrad"):
+    for interaction in ("si","di"):
+      slug=f"photon{photon}_{interaction}"
+      lanes.append({
+        "lane_id":f"photon:photon{photon}:{period}:{interaction}",
+        "sample":f"Photon{photon}","period":period,"interaction":interaction.upper(),
+        "ppg_macro":str(base/"lane"/(slug+".C")),
+        "g4_full_list":str(base/"lane"/(slug+"_g4.list")),
+        "truthjet_full_list":str(base/"lane"/(slug+"_truth.list")),
+      })
+doc={"schema":"ppg12-paired-source-manifest/v1","common":{
+  "setup_script":str(base/"assets/setup"),"apply_bdt":str(base/"assets/apply_bdt"),
+  "apply_config":str(base/"assets/apply_config"),"base_e_model":str(base/"assets/base_e"),
+  "base_v3e_model":str(base/"assets/base_v3e"),"npb_model":str(base/"assets/npb"),
+  "tower_mask":str(base/"assets/mask"),"recoil_runtime_manifest":str(base/"assets/runtime_manifest"),
+  "recoil_config":str(base/"assets/recoil_config")},"lanes":lanes}
+out.write_text(json.dumps(doc,indent=2)+"\n")
+PY
+
+mock="$tmp/mock_paired_driver.sh"
+cat > "$mock" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-{
-  printf 'CALL\t'
-  printf '%q ' "$@"
-  printf '\n'
-  for key in \
-    RJ_CONFIG_YAML RJ_DEST_BASE_OVERRIDE RJ_SUBMISSION_NAMESPACE \
-    RJ_PPG12_CLOSURE_CANARY RJ_PPG12_CLOSURE_CANARY_ID \
-    RJ_PPG12_PPSIM_REPLAY_SEEDS RJ_PPG12_PPSIM_EXPECT_PEDESTAL_SEQUENCE \
-    RJ_DISABLE_JES_CDB_AUDIT RJ_REQUIRE_SIM_GLOBAL \
-    RJ_PPG12_PHOTON_YIELD RJ_PPG12_PHOTON_YIELD_CLUSTER_ERES \
-    RJ_PPG12_PERIOD RJ_PPG12_CROSSING_PERIOD \
-    RJ_PPG12_PERIOD_USE_LUMI_WEIGHT RJ_PPG12_PERIOD_ALLOW_ALL_SIM \
-    RJ_PPG12_PERIOD_ALLOW_MIX_OVERRIDE RJ_PPG12_PERIOD_ALLOW_VERTEX_FILE_OVERRIDE \
-    RJ_PPG12_TABLE_QA RJ_PPG12_TABLE_QA_NPB_DATA_TAGGING \
-    RJ_PPG12_FIG13_PARITY_QA RJ_PPG12_FIG11_SB_DIAGNOSTIC \
-    RJ_PP_PHOTONID_TRAINING_TREE RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES \
-    RJ_PP_PHOTONID_SOURCE_ROLE RJ_PP_PHOTONID_PPG12_FILTER \
-    RJ_PP_PHOTONID_REQUIRE_PRESELECTION RJ_PHOTON_ID_ROW_MATCH \
-    RJ_DISABLE_ID_FANOUT RJ_ID_FANOUT_MAX_ROWS RJ_DISABLE_JET_PT_INTERNALIZATION \
-    RJ_DISABLE_DPHI_INTERNALIZATION RJ_DIRECT_DST_DOALL RJ_DIRECT_NEVENTS \
-    RJ_VALIDATE_SIM_INPUT_MAX_LINES \
-    RJ_INTERNAL_JET_PT_MINS RJ_INTERNAL_DPHI_PI_FRACTIONS RJ_REQUEST_MEMORY_MB \
-    RJ_AUTO_MERGE RJ_REQUIRE_NON_TINY_OUTPUT RJ_MIN_OUTPUT_BYTES \
-    RJ_FAIL_ON_MISSING_CALO_INPUT \
-    RJ_SIM_SIGNAL_SAMPLE_SET RJ_PPG12_PHOTON_YIELD_DOUBLE \
-    RJ_PPG12_PERIOD_STRICT_DI RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4 \
-    RJ_PPG12_PPSIM_G4_ONLY RJ_SIM_ALLOW_NONE_LISTS \
-    RJ_CODEX_CHAT_NAME RJ_CODEX_THREAD_ID
-  do
-    if [[ -n "${!key+x}" ]]; then
-      printf 'ENV\t%s\t%s\n' "$key" "${!key}"
-    else
-      printf 'ABSENT\t%s\n' "$key"
-    fi
-  done
-  printf 'END\n'
-} >> "$MOCK_CALL_LOG"
-EOF
-chmod +x "$mock_submitter"
-
-campaign="ppg12_photon_canary_unit"
-evidence="${tmp}/evidence"
-output_root="${tmp}/output"
-common_env=(
-  "RJ_PPG12_PHOTON_CANARY_CAMPAIGN_TAG=${campaign}"
-  "RJ_PPG12_PHOTON_CANARY_EVIDENCE_DIR=${evidence}"
-  "RJ_PPG12_PHOTON_CANARY_OUTPUT_ROOT=${output_root}"
-  "RJ_PPG12_PHOTON_CANARY_SUBMITTER=${mock_submitter}"
-  "RJ_PPG12_PHOTON_CANARY_CONFIG_YAML=${repo_root}/macros/analysis_config.yaml"
-)
-
-# Default invocation is a non-mutating plan and must not call the submitter.
-env "${common_env[@]}" MOCK_CALL_LOG="${tmp}/calls.log" "$driver" > "${tmp}/plan.out"
-[[ ! -e "${tmp}/calls.log" ]] || fail "plan mode invoked the canonical submitter"
-[[ -s "${evidence}/photon_canary_plan.json" ]] || fail "plan JSON was not emitted"
-
-python3 - "${evidence}/photon_canary_plan.json" <<'PY'
-import json
-import sys
-
-with open(sys.argv[1]) as stream:
-    doc = json.load(stream)
-
-assert doc["schema"] == "ppg12-stitched-purity-photon-canary-plan/v4"
-assert doc["status"] == "PLANNED"
-assert doc["bounded_contract"]["lane_count"] == 12
-assert doc["bounded_contract"]["group_size"] == 5
-assert doc["bounded_contract"]["max_jobs_per_lane"] == 1
-assert doc["bounded_contract"]["input_path_validation_rows"] == 5
-assert doc["bounded_contract"]["automatic_merge"] is False
-assert doc["bounded_contract"]["candidate_tree_max_entries"] == 0
-assert doc["bounded_contract"]["photon_id_row"] == ["newPPG12"] * 3
-assert doc["bounded_contract"]["classification_energy"] == "unsmeared_calibrated_et"
-assert doc["bounded_contract"]["legacy_multiplicative_cluster_smearing"] == "disabled"
-assert doc["bounded_contract"]["response_smearing"] == "ppg12_additive_response_only"
-assert doc["bounded_contract"]["rebuild_calo_from_g4"] == "all lanes"
-assert doc["bounded_contract"]["g4_only"] == "all lanes"
-assert doc["bounded_contract"]["rng_contract"] == "historical_fifo_replay_v2"
-assert doc["bounded_contract"]["replay_seed_sequence"] == [
-    2991264730, 4256268992, 2394322166, 874466025, 2240380304
-]
-assert doc["bounded_contract"]["expected_pedestal_sequence"] == 534
-assert doc["bounded_contract"]["estimator_random_seed"] == 42
-assert doc["bounded_contract"]["estimator_toy_count"] == 20000
-assert doc["bounded_contract"]["jes_cdb_audit_disabled"] is True
-assert doc["bounded_contract"]["random_seed_policy"] == (
-    "identical_historical_fifo_replay_for_both_executables_v2"
-)
-assert doc["bounded_contract"]["si_five_column_input_graph"] == [
-    "NONE", "G4Hits", "DST_TRUTH_JET", "NONE", "NONE"
-]
-assert doc["bounded_contract"]["di_five_column_input_graph"] == [
-    "NONE", "G4Hits", "DST_TRUTH_JET", "NONE", "NONE"
-]
-assert doc["bounded_contract"]["si_registered_input_graph"] == [
-    "G4Hits", "DST_TRUTH_JET"
-]
-assert doc["bounded_contract"]["di_registered_input_graph"] == [
-    "G4Hits", "DST_TRUTH_JET"
-]
-assert doc["bounded_contract"]["dst_global_registered"] is False
-
-lanes = doc["lanes"]
-assert len(lanes) == 12
-assert len({lane["lane_id"] for lane in lanes}) == 12
-assert len({lane["output_base"] for lane in lanes}) == 12
-assert len({lane["submission_namespace"] for lane in lanes}) == 12
-assert {lane["sample_key"] for lane in lanes} == {"photon5", "photon10", "photon20"}
-assert {lane["period"] for lane in lanes} == {"0mrad", "1p5mrad"}
-assert {lane["interaction"] for lane in lanes} == {"si", "di"}
-for lane in lanes:
-    suffix = "_double" if lane["interaction"] == "di" else ""
-    number = lane["sample_key"].removeprefix("photon")
-    assert lane["recoil_sample"] == f"run28_photonjet{number}{suffix}"
-    assert lane["ppg12_oracle_root"].endswith(f"/photon{number}{suffix}/bdt_split.root")
-    assert lane["ppg12_tree"] == "slimtree"
-    assert lane["recoil_tree"] == "AuAuPhotonIDTrainingTree"
-    assert lane["replay_seed_sequence"] == [
-        2991264730, 4256268992, 2394322166, 874466025, 2240380304
-    ]
-    assert lane["expected_pedestal_sequence"] == 534
-    assert lane["jes_cdb_audit_disabled"] is True
-    assert lane["five_column_input_graph"] == [
-        "NONE", "G4Hits", "DST_TRUTH_JET", "NONE", "NONE"
-    ]
-    if lane["interaction"] == "di":
-        assert lane["source_contract"] == (
-            "run28_double_none_g4_truthjet_none_none_g4_only_rebuild"
-        )
-        assert lane["registered_input_graph"] == ["G4Hits", "DST_TRUTH_JET"]
-    else:
-        assert lane["source_contract"] == (
-            "run28_single_interaction_none_g4_truthjet_none_none_g4_only_rebuild"
-        )
-        assert lane["registered_input_graph"] == ["G4Hits", "DST_TRUTH_JET"]
-    assert lane["dst_global_registered"] is False
-    assert lane["submit_argv"] == [
-        "isSim", "condorDoAllDirect", "groupSize", "5", "maxJobs", "1",
-        f"SAMPLE={lane['recoil_sample']}",
-    ]
-PY
-pass "plan emits exact 12-lane oracle mapping without submission"
-
-# Submission needs both independent approvals: --submit and exact token.
-if env "${common_env[@]}" MOCK_CALL_LOG="${tmp}/calls.log" \
-  RJ_CODEX_CHAT_NAME=test RJ_CODEX_THREAD_ID=test \
-  "$driver" --token "SUBMIT_${campaign}" > "${tmp}/missing-submit.out" 2>&1; then
-  fail "submit succeeded without --submit"
-fi
-if env "${common_env[@]}" MOCK_CALL_LOG="${tmp}/calls.log" \
-  RJ_CODEX_CHAT_NAME=test RJ_CODEX_THREAD_ID=test \
-  "$driver" --submit --token WRONG > "${tmp}/bad-token.out" 2>&1; then
-  fail "submit succeeded with the wrong token"
-fi
-[[ ! -e "${tmp}/calls.log" ]] || fail "failed authorization reached the submitter"
-pass "submission authorization fails closed"
-
-# Every deterministic/legacy control is driver-owned and must fail closed if
-# inherited from the caller, even when the inherited value happens to match.
-for conflict in \
-  RANDOMSEED=7 \
-  RJ_PPG12_CLOSURE_CANARY=1 \
-  RJ_PPG12_CLOSURE_CANARY_ID=stale \
-  RJ_PPG12_PPSIM_REPLAY_SEEDS=1,2,3,4,5 \
-  RJ_PPG12_PPSIM_EXPECT_PEDESTAL_SEQUENCE=1 \
-  RJ_PPG12_PPSIM_FIXED_RANDOMSEED=42 \
-  RJ_PPG12_PPSIM_FIXED_PEDESTAL_SEQUENCE=1482 \
-  RJ_DISABLE_JES_CDB_AUDIT=1 \
-  RJ_REQUIRE_SIM_GLOBAL=1 \
-  RJ_PPG12_PEDESTAL_OVERRIDE=pedestal.root \
-  RJ_PPG12_DI_ARCHIVED_EXPECT_PEDESTAL=pedestal.root
-do
-  key="${conflict%%=*}"
-  if env "${common_env[@]}" MOCK_CALL_LOG="${tmp}/calls.log" "$conflict" \
-    "$driver" plan > "${tmp}/conflict.out" 2>&1; then
-    fail "plan accepted inherited control ${key}"
-  fi
-  grep -Fq "$key" "${tmp}/conflict.out" || fail "conflict rejection did not name ${key}"
+mode=plan token="" lane="" sample="" period="" interaction="" output=""
+while (($#)); do
+  case "$1" in
+    --run) mode=run; shift;; --token) token="$2"; shift 2;;
+    --lane-id) lane="$2"; shift 2;; --sample) sample="$2"; shift 2;;
+    --period) period="$2"; shift 2;; --interaction) interaction="$2"; shift 2;;
+    --output-dir) output="$2"; shift 2;; *) shift 2;;
+  esac
 done
-if env "${common_env[@]}" MOCK_CALL_LOG="${tmp}/calls.log" \
-  RJ_SUBMIT_EXTRA_ENV='RJ_PPG12_PPSIM_REPLAY_SEEDS=1,2,3,4,5' \
-  "$driver" plan > "${tmp}/extra-conflict.out" 2>&1; then
-  fail "plan accepted a driver-owned control through RJ_SUBMIT_EXTRA_ENV"
+digest="$(printf '%s' "$lane|$sample|$period|$interaction|$output" | shasum -a 256 | awk '{print $1}')"
+expected="ppg12-oracle:$digest"
+if [[ "$mode" == plan ]]; then
+  printf '  lane: %s | %s | %s\n  lane_id: %s\n  run_token: %s\n' "$sample" "$period" "$interaction" "$lane" "$expected"
+  exit 0
 fi
-grep -Fq 'RJ_PPG12_PPSIM_REPLAY_SEEDS' "${tmp}/extra-conflict.out" || \
-  fail "RJ_SUBMIT_EXTRA_ENV rejection did not name the conflicting control"
-pass "inherited deterministic and legacy controls are rejected"
+[[ "$token" == "$expected" ]]
+mkdir -p "$output/comparison"
+contract="$output/paired_oracle_contract.json"
+printf '{"schema_version":3,"lane":{"lane_id":"%s","sample":"%s","period":"%s","interaction":"%s","rows":5}}\n' "$lane" "$sample" "$period" "$interaction" > "$contract"
+contract_hash="$(shasum -a 256 "$contract" | awk '{print $1}')"
+candidate="$output/comparison/paired_oracle_candidates.csv"
+printf 'lane_id,runtime_contract_sha256,candidate_identity,match_status,ppg12_tag_evidence_source\n%s,%s,%s,matched,preserved_ppg12_executable\n' "$lane" "$contract_hash" "$lane:candidate" > "$candidate"
+candidate_hash="$(shasum -a 256 "$candidate" | awk '{print $1}')"
+printf '{"schema_version":1,"evidence_source":"preserved_ppg12_executable_aggregate","status":"PASS","mode":"full","lane_identity":{"lane_id":"%s","runtime_contract_sha256":"%s"},"provenance":{"runtime_contract":{"path":"%s","sha256":"%s"},"candidate_csv":{"path":"%s","sha256":"%s"}}}\n' "$lane" "$contract_hash" "$contract" "$contract_hash" "$candidate" "$candidate_hash" > "$output/comparison/executable_aggregate.json"
+printf 'PASS\n' > "$output/RUN_STATE"
+EOF
+chmod +x "$mock"
 
-call_log="${tmp}/calls.log"
-env "${common_env[@]}" MOCK_CALL_LOG="$call_log" \
-  RJ_CODEX_CHAT_NAME='THE-97 | unit test' RJ_CODEX_THREAD_ID='unit-thread' \
-  "$driver" --submit --token "SUBMIT_${campaign}" > "${tmp}/submit.out"
+campaign=paired12_unit
+evidence="$tmp/evidence"
+output="$tmp/output"
+env_args=(
+  "RJ_PPG12_PAIRED_SOURCE_MANIFEST=$source_manifest"
+  "RJ_PPG12_PAIRED_ORACLE_DRIVER=$mock"
+  "RJ_PPG12_PHOTON_CANARY_CAMPAIGN_TAG=$campaign"
+  "RJ_PPG12_PHOTON_CANARY_EVIDENCE_DIR=$evidence"
+  "RJ_PPG12_PHOTON_CANARY_OUTPUT_ROOT=$output"
+)
 
-[[ "$(grep -c '^CALL' "$call_log")" -eq 12 ]] || fail "expected exactly 12 submitter calls"
-[[ "$(grep -c '^END' "$call_log")" -eq 12 ]] || fail "submitter call records are incomplete"
-[[ "$(wc -l < "${evidence}/submission_receipts.tsv" | tr -d ' ')" -eq 13 ]] || fail "receipt table is not 12 lanes plus header"
-
-python3 - "$call_log" <<'PY'
-import sys
-
-blocks = []
-current = None
-for raw in open(sys.argv[1]):
-    line = raw.rstrip("\n")
-    if line.startswith("CALL\t"):
-        current = {"call": line.split("\t", 1)[1], "env": {}, "absent": set()}
-    elif line == "END":
-        blocks.append(current)
-        current = None
-    elif line.startswith("ENV\t"):
-        _, key, value = line.split("\t", 2)
-        current["env"][key] = value
-    elif line.startswith("ABSENT\t"):
-        current["absent"].add(line.split("\t", 1)[1])
-
-assert len(blocks) == 12
-seen = set()
-for block in blocks:
-    call = block["call"]
-    env = block["env"]
-    assert call.startswith("isSim condorDoAllDirect groupSize 5 maxJobs 1 SAMPLE=run28_photonjet")
-    sample = call.split("SAMPLE=", 1)[1].strip()
-    period = env["RJ_PPG12_PERIOD"]
-    interaction = "di" if sample.endswith("_double") else "si"
-    seen.add((sample, period, interaction))
-    assert env["RJ_PPG12_CROSSING_PERIOD"] == period
-    assert env["RJ_PPG12_CLOSURE_CANARY"] == "1"
-    assert env["RJ_PPG12_CLOSURE_CANARY_ID"] == (
-        f"photon:photon{sample.split('photonjet', 1)[1].removesuffix('_double')}:{period}:{interaction}"
-    )
-    assert env["RJ_PPG12_PPSIM_REPLAY_SEEDS"] == (
-        "2991264730,4256268992,2394322166,874466025,2240380304"
-    )
-    assert env["RJ_PPG12_PPSIM_EXPECT_PEDESTAL_SEQUENCE"] == "534"
-    assert env["RJ_DISABLE_JES_CDB_AUDIT"] == "1"
-    assert "RJ_REQUIRE_SIM_GLOBAL" in block["absent"]
-    assert env["RJ_PPG12_PHOTON_YIELD"] == "1"
-    assert "RJ_PPG12_PHOTON_YIELD_CLUSTER_ERES" in block["absent"]
-    assert env["RJ_PPG12_TABLE_QA"] == "1"
-    assert env["RJ_PPG12_TABLE_QA_NPB_DATA_TAGGING"] == "1"
-    assert env["RJ_PPG12_FIG13_PARITY_QA"] == "1"
-    assert env["RJ_PPG12_FIG11_SB_DIAGNOSTIC"] == "1"
-    assert env["RJ_PP_PHOTONID_TRAINING_TREE"] == "1"
-    assert env["RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES"] == "0"
-    assert env["RJ_PHOTON_ID_ROW_MATCH"] == "newPPG12|newPPG12|newPPG12"
-    assert env["RJ_AUTO_MERGE"] == "0"
-    assert env["RJ_INTERNAL_JET_PT_MINS"] == "5.0,7.0,10.0,12.0"
-    assert env["RJ_INTERNAL_DPHI_PI_FRACTIONS"] == "0.5,0.875"
-    assert env["RJ_REQUEST_MEMORY_MB"] == "6000"
-    assert env["RJ_DIRECT_NEVENTS"] == "0"
-    assert env["RJ_VALIDATE_SIM_INPUT_MAX_LINES"] == "5"
-    assert env["RJ_DISABLE_ID_FANOUT"] == "1"
-    assert env["RJ_CODEX_CHAT_NAME"] == "THE-97 | unit test"
-    assert env["RJ_CODEX_THREAD_ID"] == "unit-thread"
-    assert env["RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4"] == "1"
-    assert env["RJ_PPG12_PPSIM_G4_ONLY"] == "1"
-    assert env["RJ_SIM_ALLOW_NONE_LISTS"] == "1"
-    assert env["RJ_FAIL_ON_MISSING_CALO_INPUT"] == "0"
-    if interaction == "di":
-        assert env["RJ_PPG12_PHOTON_YIELD_DOUBLE"] == "1"
-        assert env["RJ_PPG12_PERIOD_STRICT_DI"] == "1"
-        assert env["RJ_SIM_SIGNAL_SAMPLE_SET"] == "ppg12_double"
-    else:
-        assert env["RJ_PPG12_PHOTON_YIELD_DOUBLE"] == "0"
-        for key in (
-            "RJ_PPG12_PERIOD_STRICT_DI",
-            "RJ_SIM_SIGNAL_SAMPLE_SET",
-        ):
-            assert key in block["absent"]
-
-assert len(seen) == 12
+env "${env_args[@]}" "$driver" > "$tmp/plan.out"
+plan="$evidence/photon_canary_plan.json"
+python3 - "$plan" <<'PY'
+import json,sys
+d=json.load(open(sys.argv[1]))
+assert d["schema"]=="ppg12-stitched-purity-photon-canary-plan/v5"
+assert d["bounded_contract"]["execution"]=="foreground_source_locked_paired_executable"
+assert d["bounded_contract"]["python_shadow_admissible"] is False
+assert d["bounded_contract"]["archived_ppg12_root_admissible"] is False
+assert len(d["lanes"])==12 and len({x["lane_id"] for x in d["lanes"]})==12
+assert len({x["output_base"] for x in d["lanes"]})==12
+assert all(x["execution"]=="source_locked_paired_executable" for x in d["lanes"])
+assert all("ppg12_oracle_root" not in x for x in d["lanes"])
+assert d["source_validator"]["path"].endswith("ppg12_paired_oracle_condor_fanout.py")
 PY
-pass "authorized submit calls canonical submitter once per exact lane"
+token="$(sed -n 's/^run_token=//p' "$tmp/plan.out")"
+[[ "$token" =~ ^RUN_PPG12_PAIRED_[0-9a-f]{64}$ ]] || fail "invalid plan token"
 
-# A reused output namespace must stop before the first submitter call.
-rm -f "$call_log"
-mkdir -p "$output_root"
-if env "${common_env[@]}" MOCK_CALL_LOG="$call_log" \
-  RJ_CODEX_CHAT_NAME=test RJ_CODEX_THREAD_ID=test \
-  "$driver" --submit --token "SUBMIT_${campaign}" > "${tmp}/reuse.out" 2>&1; then
-  fail "submit accepted an existing output namespace"
+# Raw cardinality must be checked before lane IDs can be collapsed into a
+# dictionary: a 13th duplicate row is never an admissible 12-lane manifest.
+duplicate_manifest="$tmp/source_13_row_duplicate.json"
+python3 - "$source_manifest" "$duplicate_manifest" <<'PY'
+import json, sys
+source, target = sys.argv[1:]
+doc = json.load(open(source))
+doc["lanes"].append(dict(doc["lanes"][0]))
+with open(target, "w") as stream:
+    json.dump(doc, stream, indent=2, sort_keys=True)
+    stream.write("\n")
+PY
+if env \
+  "RJ_PPG12_PAIRED_SOURCE_MANIFEST=$duplicate_manifest" \
+  "RJ_PPG12_PAIRED_ORACLE_DRIVER=$mock" \
+  "RJ_PPG12_PHOTON_CANARY_CAMPAIGN_TAG=${campaign}_duplicate" \
+  "RJ_PPG12_PHOTON_CANARY_EVIDENCE_DIR=$tmp/evidence_duplicate" \
+  "RJ_PPG12_PHOTON_CANARY_OUTPUT_ROOT=$tmp/output_duplicate" \
+  "$driver" >"$tmp/duplicate.out" 2>"$tmp/duplicate.err"; then
+  fail "13-row duplicate source manifest was accepted"
 fi
-[[ ! -e "$call_log" ]] || fail "existing-output rejection reached the submitter"
-pass "existing output namespace is rejected before mutation"
+grep -q 'exactly 12 raw canonical lane rows; observed=13' "$tmp/duplicate.err" || \
+  fail "13-row rejection did not report raw cardinality"
+[[ ! -s "$tmp/evidence_duplicate/photon_canary_plan.json" ]] || \
+  fail "13-row duplicate emitted a foreground plan"
 
-printf 'ALL TESTS PASSED\n'
+# With cardinality held at twelve, duplicate IDs must still fail before
+# mapping construction rather than silently replacing a missing lane.
+duplicate_id_manifest="$tmp/source_12_row_duplicate_id.json"
+python3 - "$source_manifest" "$duplicate_id_manifest" <<'PY'
+import json, sys
+source, target = sys.argv[1:]
+doc = json.load(open(source))
+doc["lanes"][-1] = dict(doc["lanes"][0])
+with open(target, "w") as stream:
+    json.dump(doc, stream, indent=2, sort_keys=True)
+    stream.write("\n")
+PY
+if env \
+  "RJ_PPG12_PAIRED_SOURCE_MANIFEST=$duplicate_id_manifest" \
+  "RJ_PPG12_PAIRED_ORACLE_DRIVER=$mock" \
+  "RJ_PPG12_PHOTON_CANARY_CAMPAIGN_TAG=${campaign}_duplicate_id" \
+  "RJ_PPG12_PHOTON_CANARY_EVIDENCE_DIR=$tmp/evidence_duplicate_id" \
+  "RJ_PPG12_PHOTON_CANARY_OUTPUT_ROOT=$tmp/output_duplicate_id" \
+  "$driver" >"$tmp/duplicate_id.out" 2>"$tmp/duplicate_id.err"; then
+  fail "12-row duplicate lane ID source manifest was accepted"
+fi
+grep -q 'duplicates raw lane_id values' "$tmp/duplicate_id.err" || \
+  fail "duplicate lane-ID rejection did not precede mapping"
+
+if env "${env_args[@]}" "$driver" --submit --token WRONG >"$tmp/wrong" 2>&1; then
+  fail "wrong token executed"
+fi
+[[ ! -e "$output" ]] || fail "wrong token mutated output"
+
+env "${env_args[@]}" "$driver" --submit --token "$token" > "$tmp/run.out"
+receipt="$evidence/paired_execution_receipts.tsv"
+python3 - "$receipt" <<'PY'
+import csv,sys
+rows=list(csv.DictReader(open(sys.argv[1]),delimiter="\t"))
+assert len(rows)==12 and len({x["lane_id"] for x in rows})==12
+for key in ("output_base","runtime_contract","runtime_contract_sha256","candidate_csv","candidate_csv_sha256","executable_aggregate","executable_aggregate_sha256"):
+  assert len({x[key] for x in rows})==12
+assert all(x["status"]=="PASS" for x in rows)
+PY
+
+rm -rf "$output"
+python3 - "$tmp/lane/photon5_si_g4.list" "$tmp/lane/photon5_si_truth.list" <<'PY'
+import sys
+from pathlib import Path
+g4, truth = map(Path, sys.argv[1:])
+g4_rows = g4.read_text().splitlines()
+truth_rows = truth.read_text().splitlines()
+g4_rows[-1] = "/source/G4Hits_pythia8_PhotonJet5_SI_CHANGED.root"
+truth_rows[-1] = "/source/DST_TRUTH_JET_pythia8_PhotonJet5_SI_CHANGED.root"
+g4.write_text("\n".join(g4_rows) + "\n")
+truth.write_text("\n".join(truth_rows) + "\n")
+PY
+env "${env_args[@]}" "$driver" > "$tmp/changed-plan.out"
+changed="$(sed -n 's/^run_token=//p' "$tmp/changed-plan.out")"
+[[ "$changed" != "$token" ]] || fail "source mutation did not invalidate token"
+
+printf 'PPG12_PAIRED_12_TEST_PASS\n'
