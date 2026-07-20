@@ -52,7 +52,13 @@ expected_data_pairs=492280
 
 ranker="${RJ_THE112_RANKER:-${repo_root}/scripts/diagnostics/auau_bdt/rank_the112_sideband_scan.py}"
 canary_validator="${RJ_THE112_CANARY_VALIDATOR:-${repo_root}/scripts/diagnostics/auau_bdt/validate_the112_sideband_canary.py}"
-submitter="${RJ_THE112_SUBMITTER:-${repo_root}/scripts/sdcc/runtime/condor/RecoilJets_Condor_submit.sh}"
+# The mapped SDCC upload contract installs the protected hard runtime entrypoint
+# at the checkout root.  Local worktrees retain the canonical source path.
+default_submitter="${repo_root}/RecoilJets_Condor_submit.sh"
+if [[ ! -f "$default_submitter" ]]; then
+  default_submitter="${repo_root}/scripts/sdcc/runtime/condor/RecoilJets_Condor_submit.sh"
+fi
+submitter="${RJ_THE112_SUBMITTER:-$default_submitter}"
 analysis_python="${RJ_THE112_PYTHON:-${RJ_ML_PYTHON:-/sphenix/u/patsfan753/.venvs/thesis-ml/bin/python}}"
 expected_iso_views="isoR40_isSliding:0.40:true:0.0,isoR30_isSliding:0.30:true:0.0"
 historical_data="${RJ_THE112_HISTORICAL_DATA_ROOT:-/sphenix/u/patsfan753/scratch/thesisAnalysis/runs/recoiljets/current/the100_auau_dualview_20260714/auau/RecoilJets_auau_ALL_preselectionNewPPG12_tightAuAuCentInputBase3x3BDT_nonTightAuAuBDTSideband_baseVariant.root}"
