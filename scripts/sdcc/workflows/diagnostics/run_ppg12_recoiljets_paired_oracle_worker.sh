@@ -10,24 +10,23 @@ die() {
   exit 2
 }
 
-[[ $# -eq 16 ]] || die "internal argument-count mismatch"
+[[ $# -eq 15 ]] || die "internal argument-count mismatch"
 
 expected_token="$1"
 repo_root="$2"
 output_dir="$3"
 setup_script="$4"
 ppg_macro="$5"
-ppg_lib="$6"
-g4_full_list="$7"
-truthjet_full_list="$8"
-apply_bdt="$9"
-apply_config="${10}"
-base_e_model="${11}"
-base_v3e_model="${12}"
-npb_model="${13}"
-tower_mask="${14}"
-recoil_runtime_manifest="${15}"
-recoil_config="${16}"
+g4_full_list="$6"
+truthjet_full_list="$7"
+apply_bdt="$8"
+apply_config="$9"
+base_e_model="${10}"
+base_v3e_model="${11}"
+npb_model="${12}"
+tower_mask="${13}"
+recoil_runtime_manifest="${14}"
+recoil_config="${15}"
 
 [[ "${RJ_PPG12_PAIRED_ORACLE_RUN_TOKEN:-}" == "$expected_token" ]] || \
   die "missing exact authorization token from plan/run driver"
@@ -58,7 +57,7 @@ auditor="${repo_root}/scripts/diagnostics/pp_currentian/audit_ppg12_recoiljets_p
 comparator="${repo_root}/scripts/diagnostics/pp_currentian/compare_ppg12_recoiljets_same_cluster_features.py"
 
 for path in \
-  "$setup_script" "$ppg_macro" "$ppg_lib" "$g4_full_list" \
+  "$setup_script" "$ppg_macro" "$g4_full_list" \
   "$truthjet_full_list" "$apply_bdt" "$apply_config" "$base_e_model" \
   "$base_v3e_model" "$npb_model" "$tower_mask" \
   "$recoil_runtime_manifest" "$recoil_config" "$ppg_wrapper" \
@@ -163,6 +162,7 @@ PY
 
 recoil_macro="$(manifest_role_path recoil_macro)"
 recoil_lib="$(manifest_role_path libRecoilJets.so)"
+ppg_lib="$(manifest_role_path libCaloAna24.so)"
 calo_reco_lib="$(manifest_role_path libcalo_reco.so)"
 clusteriso_lib="$(manifest_role_path libclusteriso.so)"
 jetbase_lib="$(manifest_role_path libjetbase.so)"

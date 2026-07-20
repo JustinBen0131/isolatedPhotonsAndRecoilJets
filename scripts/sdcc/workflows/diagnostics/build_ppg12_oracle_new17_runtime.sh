@@ -16,9 +16,10 @@ usage() {
   cat <<'EOF'
 Usage:
   build_ppg12_oracle_new17_runtime.sh --output-dir ABS [--jobs N] \
-    [--photon-source-dir ABS]
+    [--photon-source-dir ABS] [--ppg-repo ABS] [--ppg-revision SHA]
   build_ppg12_oracle_new17_runtime.sh --build --token TOKEN \
-    --output-dir ABS [--jobs N] [--photon-source-dir ABS]
+    --output-dir ABS [--jobs N] [--photon-source-dir ABS] \
+    [--ppg-repo ABS] [--ppg-revision SHA]
 
 Default mode prints the immutable build contract and authorization token.
 --build performs the foreground build only when TOKEN exactly matches that
@@ -36,6 +37,11 @@ output_dir=""
 setup_script="/opt/sphenix/core/bin/sphenix_setup.sh"
 jobs=4
 photon_source_dir="${repo_root}/src"
+ppg_repo="${repo_root}/ppg12codeGit"
+# This is the last CaloAna24 source revision before the archived June PPG12
+# production.  The working tree is deliberately ignored: git-show exports the
+# committed source into the sealed build root.
+ppg_revision="1c0ff86bf0ebabfba63a1abc4512cbe59fe48e31"
 
 while (($#)); do
   case "$1" in
@@ -44,6 +50,8 @@ while (($#)); do
     --output-dir) [[ $# -ge 2 ]] || die "--output-dir requires a value"; output_dir="$2"; shift 2 ;;
     --setup-script) [[ $# -ge 2 ]] || die "--setup-script requires a value"; setup_script="$2"; shift 2 ;;
     --photon-source-dir) [[ $# -ge 2 ]] || die "--photon-source-dir requires a value"; photon_source_dir="$2"; shift 2 ;;
+    --ppg-repo) [[ $# -ge 2 ]] || die "--ppg-repo requires a value"; ppg_repo="$2"; shift 2 ;;
+    --ppg-revision) [[ $# -ge 2 ]] || die "--ppg-revision requires a value"; ppg_revision="$2"; shift 2 ;;
     --jobs) [[ $# -ge 2 ]] || die "--jobs requires a value"; jobs="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown argument: $1" ;;
@@ -63,6 +71,19 @@ esac
   die "setup script is missing or empty: $setup_script"
 [[ "$photon_source_dir" == /* && -d "$photon_source_dir" ]] || \
   die "--photon-source-dir must be an existing absolute directory: $photon_source_dir"
+[[ "$ppg_repo" == /* && -d "$ppg_repo/.git" ]] || \
+  die "--ppg-repo must be an existing absolute Git checkout: $ppg_repo"
+[[ "$ppg_revision" =~ ^[0-9a-f]{40}$ ]] || die "--ppg-revision must be a full commit SHA"
+ppg_repo_real="$(cd "$ppg_repo" && pwd -P)"
+git_safe=(-c "safe.directory=${ppg_repo_real}")
+git "${git_safe[@]}" -C "$ppg_repo_real" cat-file -e "${ppg_revision}^{commit}" 2>/dev/null || \
+  die "--ppg-revision is not present in --ppg-repo: $ppg_revision"
+ppg_source_names=(configure.ac Makefile.am autogen.sh CaloAna24.cc CaloAna24.h)
+for source_name in "${ppg_source_names[@]}"; do
+  git "${git_safe[@]}" -C "$ppg_repo_real" cat-file -e \
+    "${ppg_revision}:anatreemaker/source/${source_name}" 2>/dev/null || \
+    die "PPG12 source revision lacks anatreemaker/source/${source_name}"
+done
 
 canonical_photon_cc="${photon_source_dir}/PhotonClusterBuilder.cc"
 canonical_photon_h="${photon_source_dir}/PhotonClusterBuilder.h"
@@ -109,6 +130,14 @@ contract_token="$({
     "offline_main=${expected_offline}" \
     "output_dir=${output_dir}" \
     "jobs=${jobs}"
+  printf 'ppg_repo=%s\nppg_revision=%s\n' "$ppg_repo_real" "$ppg_revision"
+  for source_name in "${ppg_source_names[@]}"; do
+    printf 'ppg_source=%s sha256=%s\n' "$source_name" "$(
+      git "${git_safe[@]}" -C "$ppg_repo_real" show \
+        "${ppg_revision}:anatreemaker/source/${source_name}" \
+        | python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())'
+    )"
+  done
   for input in "${contract_inputs[@]}"; do
     printf 'input=%s sha256=%s\n' "$input" "$(sha256_file "$input")"
   done
@@ -120,7 +149,8 @@ PPG12_ORACLE_NEW17_BUILD_PLAN
   output_root: ${output_dir}
   runtime: new.17
   OFFLINE_MAIN: ${expected_offline}
-  build: libRecoilJets.so with renamed PPG12-oracle photon builder
+  build: source-locked libCaloAna24.so plus libRecoilJets.so with renamed PPG12-oracle photon builder
+  ppg_source_revision: ${ppg_revision}
   release copies: exact new.17 libcalo_reco.so, libclusteriso.so, libjetbase.so (cp -L)
   macro staging: PP wrapper/implementation with exact-count path rewrites
   validation: forbidden-route scan, readelf, ldd, and ROOT load/header smoke
@@ -149,7 +179,8 @@ if [[ "${clean_env:-0}" != 1 ]]; then
     /bin/bash --noprofile --norc "$self" \
       --build --token "$provided_token" --output-dir "$output_dir" \
       --setup-script "$setup_script" --jobs "$jobs" \
-      --photon-source-dir "$photon_source_dir"
+      --photon-source-dir "$photon_source_dir" \
+      --ppg-repo "$ppg_repo_real" --ppg-revision "$ppg_revision"
 fi
 
 umask 077
@@ -168,7 +199,7 @@ set -e
 [[ "${OFFLINE_MAIN:-}" == "$expected_offline" ]] || \
   die "setup resolved unexpected OFFLINE_MAIN: ${OFFLINE_MAIN:-<unset>}"
 
-for command_name in python3 make aclocal automake autoconf libtoolize root root-config readelf ldd cmp; do
+for command_name in python3 make aclocal automake autoconf libtoolize root root-config readelf ldd cmp git awk; do
   command -v "$command_name" >/dev/null 2>&1 || die "required build command is unavailable: $command_name"
 done
 
@@ -215,9 +246,17 @@ install_root="${output_dir}/install"
 runtime_root="${output_dir}/runtime"
 log_root="${output_dir}/logs"
 recoil_stage="${stage_root}/RecoilJets"
-mkdir -p "$stage_root" "$build_root/recoiljets" \
+ppg_stage="${stage_root}/PPG12CaloAna24"
+mkdir -p "$stage_root" "$build_root/recoiljets" "$build_root/ppg12" \
   "$recoil_stage" "$install_root" "$runtime_root/lib" "$runtime_root/include/caloreco" \
-  "$runtime_root/include/caloana" "$runtime_root/macros" "$log_root"
+  "$runtime_root/include/caloana" "$runtime_root/macros" "$log_root" "$ppg_stage"
+
+for source_name in "${ppg_source_names[@]}"; do
+  git "${git_safe[@]}" -C "$ppg_repo_real" show \
+    "${ppg_revision}:anatreemaker/source/${source_name}" \
+    > "${ppg_stage}/${source_name}"
+done
+chmod 700 "${ppg_stage}/autogen.sh"
 
 for source_name in configure.ac Makefile.am autogen.sh RecoilJets.cc RecoilJets.h PPG12SimWeight.h; do
   cp -f "${recoil_source}/${source_name}" "${recoil_stage}/${source_name}"
@@ -273,6 +312,31 @@ if observed != expected:
     )
 path.write_text(pattern.sub(new, text))
 PY
+}
+
+# Rebuild the preserved PPG12 source against the same current new.17 headers
+# and libraries used by the candidate.  The archived June binary is retained
+# only as historical evidence: loading it against today's mutable new.17
+# aborts on valid event-2 tower keys before the scientific comparison begins.
+replace_exact "${ppg_stage}/configure.ac" 1 \
+  'CXXFLAGS="$CXXFLAGS -Wall -Werror"' \
+  'CXXFLAGS="$CXXFLAGS -Wall -Wno-error"'
+replace_exact "${ppg_stage}/Makefile.am" 1 \
+  $'-lcalotrigger_io \\ ' \
+  $'-lcalotrigger_io \\'
+
+(
+  cd "${build_root}/ppg12"
+  export LD_LIBRARY_PATH="${install_root}/lib:${base_ld_library_path}"
+  export ROOT_INCLUDE_PATH="${install_root}/include:${base_root_include_path}"
+  export CPPFLAGS="-I${install_root}/include"
+  export LDFLAGS="-L${install_root}/lib${release_ldflags}"
+  /bin/bash "${ppg_stage}/autogen.sh" --prefix="$install_root"
+  make -j "$jobs"
+  make install
+) >"${log_root}/ppg12_build.log" 2>&1 || {
+  tail -n 80 "${log_root}/ppg12_build.log" >&2 || true
+  die "isolated source-locked libCaloAna24 build failed"
 }
 
 # These rewrites touch staged copies only.  The oracle builder is renamed so
@@ -350,11 +414,13 @@ resolve_release_lib() {
 }
 
 built_recoil="$(resolve_installed_lib libRecoilJets.so)"
+built_ppg="$(resolve_installed_lib libCaloAna24.so)"
 release_calo="$(resolve_release_lib libcalo_reco.so)"
 release_clusteriso="$(resolve_release_lib libclusteriso.so)"
 release_jetbase="$(resolve_release_lib libjetbase.so)"
 
 cp -L "$release_calo" "${runtime_root}/lib/libcalo_reco.so"
+cp -L "$built_ppg" "${runtime_root}/lib/libCaloAna24.so"
 cp -L "$built_recoil" "${runtime_root}/lib/libRecoilJets.so"
 cp -L "$release_clusteriso" "${runtime_root}/lib/libclusteriso.so"
 cp -L "$release_jetbase" "${runtime_root}/lib/libjetbase.so"
@@ -435,6 +501,7 @@ done
 
 runtime_ld="${runtime_root}/lib:${base_ld_library_path}"
 for runtime_lib in \
+  "${runtime_root}/lib/libCaloAna24.so" \
   "${runtime_root}/lib/libcalo_reco.so" \
   "${runtime_root}/lib/libRecoilJets.so" \
   "${runtime_root}/lib/libclusteriso.so" \
@@ -462,6 +529,7 @@ cat > "$smoke_macro" <<EOF
 void smoke_new17_runtime()
 {
   const char *libraries[] = {
+    "${runtime_root}/lib/libCaloAna24.so",
     "${runtime_root}/lib/libcalo_reco.so",
     "${runtime_root}/lib/libclusteriso.so",
     "${runtime_root}/lib/libjetbase.so",
@@ -486,8 +554,8 @@ EOF
   tail -n 80 "${log_root}/root_smoke.log" >&2 || true
   die "ROOT load/header smoke failed"
 }
-[[ "$(grep -c '^PPG12_ORACLE_ROOT_LOAD ' "${log_root}/root_smoke.log")" -eq 4 ]] || \
-  die "ROOT smoke did not load all four runtime libraries"
+[[ "$(grep -c '^PPG12_ORACLE_ROOT_LOAD ' "${log_root}/root_smoke.log")" -eq 5 ]] || \
+  die "ROOT smoke did not load all five runtime libraries"
 
 forbidden_routes || die "build contaminated the active shell with a forbidden route"
 
@@ -497,6 +565,9 @@ python3 - \
   "$build_receipt" "$output_dir" "$install_root" "$runtime_root" \
   "$expected_offline" "$calo_calib" "$jobs" "$sealed_link_dirs" \
   "$canonical_photon_cc" "$canonical_photon_h" \
+  "$ppg_repo_real" "$ppg_revision" \
+  "${ppg_stage}/CaloAna24.cc" "${ppg_stage}/CaloAna24.h" \
+  "${ppg_stage}/configure.ac" "${ppg_stage}/Makefile.am" \
   "${recoil_source}/RecoilJets.cc" "${recoil_source}/RecoilJets.h" \
   "$macro_wrapper_source" "$macro_impl_source" \
   "$release_calo" "$release_clusteriso" "$release_jetbase" "$log_root" <<'PY'
@@ -509,7 +580,8 @@ import sys
 
 (
     receipt, output_root, install_root, runtime_root, offline_main, calo_calib,
-    jobs, sealed_link_dirs, photon_cc, photon_h, recoil_cc, recoil_h, macro, impl,
+    jobs, sealed_link_dirs, photon_cc, photon_h, ppg_repo, ppg_revision,
+    ppg_cc, ppg_h, ppg_configure, ppg_makefile, recoil_cc, recoil_h, macro, impl,
     calo_source, clusteriso_source, jetbase_source, log_root,
 ) = sys.argv[1:]
 
@@ -522,7 +594,8 @@ def digest(path: str | Path) -> str:
     return h.hexdigest()
 
 source_paths = [
-    photon_cc, photon_h, recoil_cc, recoil_h, macro, impl,
+    photon_cc, photon_h, ppg_cc, ppg_h, ppg_configure, ppg_makefile,
+    recoil_cc, recoil_h, macro, impl,
     calo_source, clusteriso_source, jetbase_source, calo_calib,
 ]
 log_paths = sorted(str(path) for path in Path(log_root).iterdir() if path.is_file())
@@ -539,6 +612,13 @@ data = {
     "sealed_link_directories": sealed_link_dirs.split(":"),
     "platform": platform.platform(),
     "calo_calib": {"path": calo_calib, "sha256": digest(calo_calib)},
+    "ppg12_source": {
+        "repository": ppg_repo,
+        "revision": ppg_revision,
+        "subtree": "anatreemaker/source",
+        "working_tree_ignored": True,
+        "rebuilt_against_common_runtime": True,
+    },
     "custom_photon_builder": {
         "class": "PPG12OraclePhotonClusterBuilder",
         "compiled_into": "libRecoilJets.so",
@@ -576,6 +656,8 @@ data = {
         "contained_recoiljets_tmp_paths_allowed": True,
         "full_calo_reco_rebuild": False,
         "custom_builder_renamed": True,
+        "archived_ppg12_binary_reused": False,
+        "ppg12_source_locked_rebuild": True,
     },
     "validation": {
         "forbidden_route_scan": "pass",
@@ -591,6 +673,7 @@ PY
 python3 - "$runtime_manifest" "$build_receipt" "$expected_offline" \
   "$runtime_wrapper" "$runtime_impl" \
   "${runtime_root}/lib/libRecoilJets.so" \
+  "${runtime_root}/lib/libCaloAna24.so" \
   "${runtime_root}/lib/libcalo_reco.so" \
   "${runtime_root}/lib/libclusteriso.so" \
   "${runtime_root}/lib/libjetbase.so" \
@@ -601,7 +684,7 @@ import json
 import sys
 
 (
-    manifest, receipt, offline_main, macro, impl, recoil, calo,
+    manifest, receipt, offline_main, macro, impl, recoil, ppg, calo,
     clusteriso, jetbase, photon_header,
 ) = sys.argv[1:]
 
@@ -616,6 +699,7 @@ roles = [
     ("recoil_macro", macro),
     ("recoil_impl", impl),
     ("libRecoilJets.so", recoil),
+    ("libCaloAna24.so", ppg),
     ("libcalo_reco.so", calo),
     ("libclusteriso.so", clusteriso),
     ("libjetbase.so", jetbase),

@@ -48,9 +48,9 @@ EXPECTED_OFFLINE_MAIN = (
     "/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/"
     "release/release_new/new.17"
 )
+EXPECTED_PPG_SOURCE_REVISION = "1c0ff86bf0ebabfba63a1abc4512cbe59fe48e31"
 EXPECTED_HASHES = {
     "ppg_macro": "95f12ffa8e283dec5add217200b9c36a8c2084459daa4efb59d3fe2a2c21ab3c",
-    "ppg_caloana24": "ff2dc9e1d34d9f31f67b7d089408e6333a0115b8fef98ce179fc2de1f2c829b8",
     "g4_full_list": "47978eac14253516d5dbcbfb9381372c49c80879eddae420b4e65de087d7bbd1",
     "truthjet_full_list": "dacbd05167f31109786a7eb38cea89bd33c28432fb97ea2af3bddedbf627ea3e",
     "apply_bdt": "bd6e7c5bc9858ddad9bc835552d818c00290bb7de3f5036f44d8bf4804734366",
@@ -72,6 +72,7 @@ REQUIRED_RECOIL_ROLES = {
     "recoil_macro",
     "recoil_impl",
     "libRecoilJets.so",
+    "libCaloAna24.so",
     "libcalo_reco.so",
     "libclusteriso.so",
     "libjetbase.so",
@@ -285,6 +286,23 @@ def validate_recoil_manifest(path: Path, expected_offline: str) -> dict[str, Pat
     if not re.fullmatch(r"[0-9a-f]{64}", receipt_digest):
         raise AuditFailure("Recoil runtime manifest lacks build_receipt_sha256")
     require_hash(build_receipt, receipt_digest, "Recoil build receipt")
+    receipt = load_json(build_receipt)
+    ppg_source = receipt.get("ppg12_source", {})
+    if not isinstance(ppg_source, dict):
+        raise AuditFailure("runtime receipt lacks source-locked PPG12 provenance")
+    if ppg_source.get("revision") != EXPECTED_PPG_SOURCE_REVISION:
+        raise AuditFailure("runtime receipt uses the wrong PPG12 source revision")
+    if ppg_source.get("working_tree_ignored") is not True:
+        raise AuditFailure("runtime receipt does not exclude mutable PPG12 working-tree edits")
+    if ppg_source.get("rebuilt_against_common_runtime") is not True:
+        raise AuditFailure("runtime receipt does not rebuild PPG12 against the common runtime")
+    rewrites = receipt.get("staged_rewrites", {})
+    if not isinstance(rewrites, dict):
+        raise AuditFailure("runtime receipt lacks staged-rewrite provenance")
+    if rewrites.get("archived_ppg12_binary_reused") is not False:
+        raise AuditFailure("runtime receipt reuses the ABI-incompatible archived PPG12 binary")
+    if rewrites.get("ppg12_source_locked_rebuild") is not True:
+        raise AuditFailure("runtime receipt lacks the source-locked PPG12 rebuild gate")
     isolated_root = build_receipt.parent
     files = data.get("files")
     if not isinstance(files, list):
@@ -371,8 +389,6 @@ def validate_contract(contract_path: Path, run_ldd: bool = True) -> dict[str, An
     ppg_macro = require_file(paths.get("ppg_macro", ""), "preserved PPG12 macro")
     require_hash(ppg_macro, EXPECTED_HASHES["ppg_macro"], "preserved PPG12 macro")
     validate_frozen_macro_graph(ppg_macro)
-    ppg_lib = require_file(paths.get("ppg_caloana24", ""), "frozen libCaloAna24")
-    require_hash(ppg_lib, EXPECTED_HASHES["ppg_caloana24"], "frozen libCaloAna24")
     g4_full = require_file(paths.get("g4_full_list", ""), "G4 full list")
     truth_full = require_file(paths.get("truthjet_full_list", ""), "truth-jet full list")
     require_hash(g4_full, EXPECTED_HASHES["g4_full_list"], "G4 full list")
@@ -413,6 +429,9 @@ def validate_contract(contract_path: Path, run_ldd: bool = True) -> dict[str, An
         paths.get("recoil_runtime_manifest", ""), "Recoil runtime manifest"
     )
     recoil_files = validate_recoil_manifest(recoil_manifest, EXPECTED_OFFLINE_MAIN)
+    ppg_lib = require_file(paths.get("ppg_caloana24", ""), "source-locked libCaloAna24")
+    if recoil_files["libCaloAna24.so"].resolve() != ppg_lib.resolve():
+        raise AuditFailure("contract PPG12 library differs from isolated runtime manifest")
     recoil_macro = require_file(paths.get("recoil_macro", ""), "Recoil oracle macro")
     if recoil_files["recoil_macro"].resolve() != recoil_macro.resolve():
         raise AuditFailure("contract Recoil macro differs from isolated runtime manifest")
@@ -529,11 +548,11 @@ def validate_log(
             raise AuditFailure(f"{side} loaded mixed release {other}")
 
     if side == "ppg12":
+        assert manifest_files is not None
         dynamic = parse_keyed_line(text, "ORACLE_DYNAMIC_LIBRARY", side)
         lib_path = require_file(dynamic.get("path", ""), "loaded libCaloAna24")
-        require_hash(
-            lib_path, EXPECTED_HASHES["ppg_caloana24"], "loaded libCaloAna24"
-        )
+        if sha256(lib_path) != sha256(manifest_files["libCaloAna24.so"]):
+            raise AuditFailure("loaded libCaloAna24 differs from isolated runtime manifest")
     else:
         assert manifest_files is not None
         for role in (
@@ -667,7 +686,9 @@ def validate_postrun(contract_path: Path) -> int:
     )
     calo_calib = Path(paths["calo_calib"])
     rng = contract["rng"]
-    validate_log(Path(paths["ppg_log"]), "ppg12", calo_calib, rng)
+    validate_log(
+        Path(paths["ppg_log"]), "ppg12", calo_calib, rng, recoil_files
+    )
     validate_log(
         Path(paths["recoil_log"]), "recoiljets", calo_calib, rng, recoil_files
     )

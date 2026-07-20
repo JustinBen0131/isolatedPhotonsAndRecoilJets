@@ -14,7 +14,6 @@ provided_token=""
 output_dir=""
 setup_script="/opt/sphenix/core/bin/sphenix_setup.sh"
 ppg_macro="/sphenix/user/shuhangli/ppg12/anatreemaker/macro_maketree/sim/run28/photon5/Fun4All_run_sim.C"
-ppg_lib="/sphenix/u/shuhang98/install/lib/libCaloAna24.so"
 g4_full_list=""
 truthjet_full_list=""
 apply_bdt="/sphenix/user/shuhangli/ppg12/FunWithxgboost/apply_BDT.C"
@@ -54,7 +53,6 @@ while (($#)); do
     --output-dir) output_dir="$2"; shift 2 ;;
     --setup-script) setup_script="$2"; shift 2 ;;
     --ppg-macro) ppg_macro="$2"; shift 2 ;;
-    --ppg-lib) ppg_lib="$2"; shift 2 ;;
     --g4-full-list) g4_full_list="$2"; shift 2 ;;
     --truthjet-full-list) truthjet_full_list="$2"; shift 2 ;;
     --apply-bdt) apply_bdt="$2"; shift 2 ;;
@@ -81,12 +79,12 @@ read -r first_ph_seed pedestal_seed pedestal_sequence ph_seed_sequence < <(
 [[ -x "$worker" ]] || die "worker is missing or not executable: $worker"
 
 required_keys=(
-  output_dir setup_script ppg_macro ppg_lib g4_full_list truthjet_full_list
+  output_dir setup_script ppg_macro g4_full_list truthjet_full_list
   apply_bdt apply_config base_e_model base_v3e_model npb_model tower_mask
   recoil_runtime_manifest recoil_config
 )
 required_values=(
-  "$output_dir" "$setup_script" "$ppg_macro" "$ppg_lib" "$g4_full_list"
+  "$output_dir" "$setup_script" "$ppg_macro" "$g4_full_list"
   "$truthjet_full_list" "$apply_bdt" "$apply_config" "$base_e_model"
   "$base_v3e_model" "$npb_model" "$tower_mask" "$recoil_runtime_manifest"
   "$recoil_config"
@@ -124,8 +122,7 @@ PPG12_PAIRED_ORACLE_PLAN
   source_graph: NONE,g4,truthjet,NONE,NONE
   runtime: new.17 for both executables
   RNG: historical FIFO replay; five PH seeds=${ph_seed_sequence}; pedestal=${pedestal_sequence}
-  PPG12: frozen libCaloAna24 SHA-256 ff2dc9e1d34d9f31f67b7d089408e6333a0115b8fef98ce179fc2de1f2c829b8
-  RecoilJets: isolated new.17 runtime manifest required
+  PPG12 + RecoilJets: one source-locked isolated new.17 runtime manifest required
   execution: foreground only; no Condor; no merge; no current-pointer mutation
   output_dir: ${output_dir}
   run_token: ${contract_token}
@@ -143,6 +140,6 @@ fi
 export RJ_PPG12_PAIRED_ORACLE_RUN_TOKEN="$contract_token"
 exec "$worker" \
   "$contract_token" "$repo_root" "$output_dir" "$setup_script" \
-  "$ppg_macro" "$ppg_lib" "$g4_full_list" "$truthjet_full_list" \
+  "$ppg_macro" "$g4_full_list" "$truthjet_full_list" \
   "$apply_bdt" "$apply_config" "$base_e_model" "$base_v3e_model" \
   "$npb_model" "$tower_mask" "$recoil_runtime_manifest" "$recoil_config"
