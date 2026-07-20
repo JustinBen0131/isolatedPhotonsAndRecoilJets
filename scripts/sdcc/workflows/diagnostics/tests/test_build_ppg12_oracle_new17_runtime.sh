@@ -299,8 +299,15 @@ for required in (
 ):
     if required not in body:
         raise SystemExit(f"ROOT smoke omits required executable header: {required}")
-if body.index("#include <TUnfold.h>") > body.index("#include <RooUnfoldResponse.h>"):
-    raise SystemExit("ROOT smoke loads RooUnfold before the TUnfold prerequisite")
+for downstream in (
+    "R__LOAD_LIBRARY(${runtime_root}/lib/libRooUnfold.so)",
+    "#include <RooUnfoldResponse.h>",
+    "#include <RooUnfoldBayes.h>",
+):
+    if body.index("#include <TUnfold.h>") > body.index(downstream):
+        raise SystemExit(
+            f"ROOT smoke places the TUnfold prerequisite after {downstream}"
+        )
 for forbidden in (
     "#include <RooUnfoldTUnfold.h>",
     "#include <RooUnfoldBinByBin.h>",

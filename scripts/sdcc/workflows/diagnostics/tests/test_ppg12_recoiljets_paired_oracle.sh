@@ -1000,4 +1000,24 @@ if grep -Fq 'export RJ_PPG12_PHOTON_YIELD_CLUSTER_ERES=0.04' "$worker"; then
   exit 1
 fi
 
+python3 - "$worker" <<'PY'
+from pathlib import Path
+import sys
+
+text = Path(sys.argv[1]).read_text()
+start = text.index("def runner(call: str) -> str:")
+end = text.index("Path(scan_runner).write_text", start)
+runner = text[start:end]
+prerequisite = "#include <TUnfold.h>"
+library_load = "gSystem->Load({json.dumps(roounfold)})"
+macro_load = "gROOT->LoadMacro({json.dumps(macro)})"
+for required in (prerequisite, library_load, macro_load):
+    if runner.count(required) != 1:
+        raise SystemExit(f"generated RecoEff runner occurrence drifted: {required}")
+if not runner.index(prerequisite) < runner.index(library_load) < runner.index(macro_load):
+    raise SystemExit(
+        "generated RecoEff runner does not load TUnfold before RooUnfold and RecoEff"
+    )
+PY
+
 printf 'PPG12_PAIRED_ORACLE_TEST_PASS\n'
