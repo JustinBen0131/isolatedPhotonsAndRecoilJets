@@ -295,8 +295,9 @@ class SidebandRankerTest(unittest.TestCase):
                             array[band[0], isolated[-1], 0] = counts["C"]
                             array[band[0], nonisolated[0], 0] = counts["D"]
                             if schema == "v2":
+                                trigger = "DATA_TRIGGER" if sample == "data" else "SIM"
                                 name = (
-                                    f"ALL/{ranker.V2_TOKEN}{category}_{view}_{centrality}"
+                                    f"{trigger}/{ranker.V2_TOKEN}{category}_{view}_{centrality}"
                                 )
                             else:
                                 name = (
@@ -335,11 +336,28 @@ class SidebandRankerTest(unittest.TestCase):
                     "--min-neff",
                     "1",
                 ]
+                if schema == "v2":
+                    args.extend(
+                        [
+                            "--data-trigger",
+                            "DATA_TRIGGER",
+                            "--simulation-trigger",
+                            "SIM",
+                        ]
+                    )
                 with contextlib.redirect_stdout(io.StringIO()):
                     self.assertEqual(ranker.main(args), 0)
                 payload = json.loads(output_json.read_text())
                 self.assertTrue(output_csv.is_file())
                 if schema == "v2":
+                    self.assertEqual(
+                        payload["scan_contract"]["triggers"],
+                        {
+                            "data": "DATA_TRIGGER",
+                            "signal": "SIM",
+                            "inclusive": "SIM",
+                        },
+                    )
                     self.assertIsNotNone(payload["best_candidate"])
                     self.assertEqual(payload["canonical_eligible_candidate_count"], 1)
                     self.assertEqual(

@@ -893,7 +893,24 @@ def build_parser() -> argparse.ArgumentParser:
         default="auto",
         help="auto, legacy/the100, or v2/the112",
     )
-    parser.add_argument("--trigger", default="ALL")
+    parser.add_argument(
+        "--trigger",
+        default=None,
+        help=(
+            "Shared trigger directory for all inputs (backward-compatible). "
+            "Defaults to ALL unless lane-specific triggers are supplied."
+        ),
+    )
+    parser.add_argument(
+        "--data-trigger",
+        default=None,
+        help="Data trigger directory; overrides --trigger for the data input.",
+    )
+    parser.add_argument(
+        "--simulation-trigger",
+        default=None,
+        help="Simulation trigger directory; overrides --trigger for signal and inclusive inputs.",
+    )
     parser.add_argument("--legacy-iso-cut", type=float, default=4.0)
     parser.add_argument("--isolation-gap", type=float, default=0.0)
     parser.add_argument(
@@ -958,11 +975,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.gaps is None
         else _parse_predeclared_subset(args.gaps, allowed_gaps, f"{schema} gaps")
     )
+    shared_trigger = args.trigger or "ALL"
+    triggers = {
+        "data": args.data_trigger or shared_trigger,
+        "signal": args.simulation_trigger or shared_trigger,
+        "inclusive": args.simulation_trigger or shared_trigger,
+    }
     loaded = {
         label: load_surfaces(
             path,
             schema,
-            args.trigger,
+            triggers[label],
             args.allow_poisson_variance_fallback,
         )
         for label, path in paths.items()
@@ -1026,7 +1049,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             for label, path in paths.items()
         },
         "scan_contract": {
-            "trigger": args.trigger,
+            "trigger": (
+                shared_trigger if len(set(triggers.values())) == 1 else None
+            ),
+            "triggers": triggers,
             "gaps": list(gaps),
             "lower_widths": list(widths),
             "injected_purities": list(injected_purities),

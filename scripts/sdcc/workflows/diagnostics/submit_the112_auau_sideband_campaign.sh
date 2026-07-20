@@ -109,6 +109,9 @@ Read-only / local build modes:
       Rank the exact three THE-100 bounded ROOTs with the common ranker.
   rank-scan-canary DATA_ROOT SIGNAL_ROOT INCLUSIVE_ROOT
       Rank matched THE-112 V2 continuous surfaces; no submission.
+  bind-comparison-band MIN_OFFSET MAX_OFFSET RANKING_JSON
+      Freeze one blinded bounded lane for dual-fanout comparison while retaining
+      the full finite-score complement as the nominal/control definition.
   validate-canary STAMPED_YAML BOUNDED_ROOT COMPLEMENT_ROOT SAMPLE_KIND OUTPUT_JSON
       Audit the sliding-R40 canonical view, sliding-R30 robustness view, and
       ROOT namespaces.
@@ -600,6 +603,8 @@ run_ranker() {
     --data "$data_root" \
     --signal "$signal_root" \
     --inclusive "$inclusive_root" \
+    --data-trigger MBD_NS_geq_2_vtx_lt_150 \
+    --simulation-trigger SIM \
     --output-json "${evidence_dir}/${stem}.json" \
     --output-csv "${evidence_dir}/${stem}.csv" \
     "${schema_args[@]}" \
@@ -1052,6 +1057,7 @@ binding_payload = {
         "eligible_for_nominal_selection": True,
     },
 }
+
 tmp_binding = binding_path.with_suffix(binding_path.suffix + ".tmp")
 tmp_binding.write_text(json.dumps(binding_payload, indent=2, sort_keys=True) + "\n")
 tmp_binding.replace(binding_path)
@@ -1059,6 +1065,134 @@ PY
   validate_config_contract "$generated" >&2
   require_file "$binding" "confirmation candidate binding" >&2
   printf '%s\n' "$generated"
+}
+
+bind_comparison_band() {
+  [[ $# -eq 3 ]] || die "bind-comparison-band requires MIN_OFFSET MAX_OFFSET RANKING_JSON"
+  local min_offset="$1" max_offset="$2" ranking_json="$3"
+  require_file "$ranking_json" "ranked sideband JSON"
+  local slug generated freeze_json
+  slug="$(printf '%s_%s' "$min_offset" "$max_offset" | tr -- '-.' 'mp')"
+  generated="${evidence_dir}/generated/analysis_config_the112_comparison_${slug}.yaml"
+  freeze_json="${generated%.yaml}.freeze.json"
+  mkdir -p "$(dirname "$generated")"
+  python3 - "$scan_yaml" "$generated" "$freeze_json" "$min_offset" "$max_offset" \
+    "$ranking_json" "$model_sha256" "$pairing_report_sha256" <<'PY'
+import hashlib
+import json
+import pathlib
+import re
+import sys
+from decimal import Decimal, InvalidOperation
+
+source = pathlib.Path(sys.argv[1])
+output = pathlib.Path(sys.argv[2])
+freeze_path = pathlib.Path(sys.argv[3])
+lo_raw, hi_raw = sys.argv[4:6]
+ranking = pathlib.Path(sys.argv[6])
+model_sha, pairing_sha = sys.argv[7:9]
+try:
+    lo = Decimal(lo_raw)
+    hi = Decimal(hi_raw)
+except InvalidOperation as exc:
+    raise SystemExit(f"invalid comparison offsets: {lo_raw}, {hi_raw}") from exc
+if not (lo < hi < Decimal("0")):
+    raise SystemExit(f"comparison offsets must satisfy min < max < 0; received {lo}, {hi}")
+ranking_payload = json.loads(ranking.read_text())
+if ranking_payload.get("schema") != "THE112_AUAU_SIDEBAND_RANKING_V1":
+    raise SystemExit("comparison binding requires the THE-112 ranking schema")
+if ranking_payload.get("input_schema") != "v2" or ranking_payload.get("status") != "ranked":
+    raise SystemExit("comparison binding requires a completed corrected-V2 ranking packet")
+blinding = ranking_payload.get("blinding_contract", {})
+if any(
+    blinding.get(key) is not False
+    for key in (
+        "real_data_recoil_histograms_read",
+        "real_data_xjgamma_histograms_read",
+        "unfolded_results_read",
+    )
+):
+    raise SystemExit("comparison band was not selected under the frozen blinding contract")
+matches = []
+for candidate in ranking_payload.get("candidates", []):
+    window = candidate.get("window", {})
+    try:
+        offsets = (
+            Decimal(str(window.get("lower_offset"))),
+            Decimal(str(window.get("upper_offset"))),
+        )
+    except InvalidOperation:
+        continue
+    if offsets == (lo, hi):
+        matches.append(candidate)
+if len(matches) != 1:
+    raise SystemExit(f"comparison offsets [{lo}, {hi}] matched {len(matches)} candidates; expected one")
+candidate = matches[0]
+text = source.read_text()
+text, n_lo = re.subn(
+    r'(?m)^auau_nontight_bdt_relative_min_offset:\s*[^\n]+$',
+    f'auau_nontight_bdt_relative_min_offset: {lo_raw}',
+    text,
+)
+text, n_hi = re.subn(
+    r'(?m)^auau_nontight_bdt_relative_max_offset:\s*[^\n]+$',
+    f'auau_nontight_bdt_relative_max_offset: {hi_raw}',
+    text,
+)
+if (n_lo, n_hi) != (1, 1):
+    raise SystemExit(f"failed to replace exactly one offset pair: min={n_lo} max={n_hi}")
+ranking_sha = hashlib.sha256(ranking.read_bytes()).hexdigest()
+header = (
+    "# GENERATED THE-112 BLINDED DUAL-FANOUT COMPARISON CONFIG; do not hand edit.\n"
+    "# The full finite-score complement remains the nominal/control lane.\n"
+    f"# ranking_json: {ranking}\n"
+    f"# ranking_sha256: {ranking_sha}\n"
+    f"# comparison_candidate_rank: {candidate.get('rank')}\n"
+    f"# comparison_candidate_key: {candidate.get('window', {}).get('key')}\n"
+    f"# frozen_comparison_offsets: [{lo_raw}, {hi_raw}]\n"
+)
+config_bytes = (header + text).encode()
+tmp_output = output.with_suffix(output.suffix + ".tmp")
+tmp_output.write_bytes(config_bytes)
+tmp_output.replace(output)
+payload = {
+    "schema": "THE112_AUAU_SIDEBAND_PRODUCTION_FREEZE_V1",
+    "status": "FROZEN_DUAL_FANOUT_COMPARISON",
+    "production_permission": "dual_fanout_comparison_only",
+    "full_complement_retained": True,
+    "nominal_control_lane": "finite_score_complement",
+    "bounded_lane_role": "blinded_comparison_pending_full_stat_validation",
+    "selection_frozen_before_recoil_result_inspection": True,
+    "canonical_iso_view": "isoR40_isSliding",
+    "robustness_iso_view": "isoR30_isSliding",
+    "config": str(output),
+    "config_sha256": hashlib.sha256(config_bytes).hexdigest(),
+    "model_sha256": model_sha,
+    "pairing_report_sha256": pairing_sha,
+    "selected_offsets": {"min_offset": str(lo), "max_offset": str(hi)},
+    "selected_candidate_key": candidate.get("window", {}).get("key"),
+    "ranking_packet": {"path": str(ranking), "sha256": ranking_sha},
+    "ranking_candidate": {
+        "rank": candidate.get("rank"),
+        "key": candidate.get("window", {}).get("key"),
+        "passes_all_nominal_gates": candidate.get("passes_gates"),
+        "gate_failures": candidate.get("gate_failures", []),
+        "summary": candidate.get("summary", {}),
+    },
+    "discovery_limitations": [
+        "discovery simulation contains Photon12 and Jet12 only",
+        "upper photon-pT bins lack inclusive-background support",
+        "bounded lane is not promoted as canonical by this packet",
+        "full-stat validation must occur before any bounded-lane promotion",
+    ],
+}
+tmp_freeze = freeze_path.with_suffix(freeze_path.suffix + ".tmp")
+tmp_freeze.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+tmp_freeze.replace(freeze_path)
+print(json.dumps({"config": str(output), "freeze_json": str(freeze_path)}, indent=2))
+PY
+  validate_config_contract "$generated" >&2
+  require_file "$freeze_json" "dual-fanout comparison freeze JSON" >&2
 }
 
 require_frozen_production_contract() {
@@ -1088,8 +1222,9 @@ expected = {
     "pairing_report_sha256": pairing_sha,
     "canonical_iso_view": "isoR40_isSliding",
 }
-if payload.get("status") != "FROZEN":
-    raise SystemExit("sideband freeze JSON must have exact status FROZEN")
+status = payload.get("status")
+if status not in {"FROZEN", "FROZEN_DUAL_FANOUT_COMPARISON"}:
+    raise SystemExit("sideband freeze JSON has an unsupported status")
 for key, value in expected.items():
     if payload.get(key) != value:
         raise SystemExit(
@@ -1159,53 +1294,69 @@ for candidate in ranking.get("candidates", []):
 if len(matching) != 1:
     raise SystemExit(f"ranking_packet contains {len(matching)} exact selected candidates; expected one")
 candidate = matching[0]
-if (
-    candidate.get("eligible_for_nominal_selection") is not True
-    or candidate.get("passes_gates") is not True
-    or candidate.get("gate_failures")
-):
-    raise SystemExit("frozen candidate is not an eligible gate-passing ranking candidate")
 candidate_key = candidate.get("window", {}).get("key")
-
-validation_specs = payload.get("confirmation_validation_packets")
-if not isinstance(validation_specs, dict):
-    raise SystemExit("freeze JSON must bind confirmation_validation_packets")
-for sample_kind in ("data", "signal", "inclusive"):
-    _, report = load_bound_packet(
-        validation_specs.get(sample_kind),
-        f"confirmation_validation_packets.{sample_kind}",
-    )
-    if report.get("schema") != "THE112_AUAU_SIDEBAND_CANARY_VALIDATION_V1":
-        raise SystemExit(f"{sample_kind} confirmation packet has the wrong schema")
-    if report.get("status") != "PASS" or report.get("sample_kind") != sample_kind:
-        raise SystemExit(f"{sample_kind} confirmation packet is not an exact PASS for its lane")
-    if report.get("failures"):
-        raise SystemExit(f"{sample_kind} confirmation packet contains failures")
-    launcher_binding = report.get("launcher_binding")
-    if not isinstance(launcher_binding, dict) or launcher_binding.get("schema") != "THE112_CONFIRMATION_VALIDATION_BINDING_V1":
-        raise SystemExit(f"{sample_kind} confirmation packet lacks its launcher binding")
-    if launcher_binding.get("ranking_sha256") != ranking_sha:
-        raise SystemExit(f"{sample_kind} confirmation packet was not validated against the frozen ranking packet")
-    if launcher_binding.get("ranking_candidate_key") != candidate_key:
-        raise SystemExit(f"{sample_kind} confirmation packet candidate key does not match the frozen selection")
-    bound_offsets = launcher_binding.get("selected_offsets", {})
-    try:
-        bound_pair = (
-            Decimal(str(bound_offsets["min_offset"])),
-            Decimal(str(bound_offsets["max_offset"])),
+if status == "FROZEN":
+    if (
+        candidate.get("eligible_for_nominal_selection") is not True
+        or candidate.get("passes_gates") is not True
+        or candidate.get("gate_failures")
+    ):
+        raise SystemExit("frozen candidate is not an eligible gate-passing ranking candidate")
+    validation_specs = payload.get("confirmation_validation_packets")
+    if not isinstance(validation_specs, dict):
+        raise SystemExit("freeze JSON must bind confirmation_validation_packets")
+    for sample_kind in ("data", "signal", "inclusive"):
+        _, report = load_bound_packet(
+            validation_specs.get(sample_kind),
+            f"confirmation_validation_packets.{sample_kind}",
         )
-    except (KeyError, InvalidOperation) as exc:
-        raise SystemExit(f"{sample_kind} confirmation packet has invalid bound offsets") from exc
-    if bound_pair != (selected_lo, selected_hi):
-        raise SystemExit(f"{sample_kind} confirmation packet offsets do not match the frozen selection")
-    audit_path = pathlib.Path(str(launcher_binding.get("stamped_yaml_audit", "")))
-    if not audit_path.is_file():
-        raise SystemExit(f"{sample_kind} stamped-YAML audit packet is missing")
-    if hashlib.sha256(audit_path.read_bytes()).hexdigest() != launcher_binding.get("stamped_yaml_audit_sha256"):
-        raise SystemExit(f"{sample_kind} stamped-YAML audit SHA256 mismatch")
-    audit = json.loads(audit_path.read_text())
-    if audit.get("status") != "PASS":
-        raise SystemExit(f"{sample_kind} stamped-YAML audit is not PASS")
+        if report.get("schema") != "THE112_AUAU_SIDEBAND_CANARY_VALIDATION_V1":
+            raise SystemExit(f"{sample_kind} confirmation packet has the wrong schema")
+        if report.get("status") != "PASS" or report.get("sample_kind") != sample_kind:
+            raise SystemExit(f"{sample_kind} confirmation packet is not an exact PASS for its lane")
+        if report.get("failures"):
+            raise SystemExit(f"{sample_kind} confirmation packet contains failures")
+        launcher_binding = report.get("launcher_binding")
+        if not isinstance(launcher_binding, dict) or launcher_binding.get("schema") != "THE112_CONFIRMATION_VALIDATION_BINDING_V1":
+            raise SystemExit(f"{sample_kind} confirmation packet lacks its launcher binding")
+        if launcher_binding.get("ranking_sha256") != ranking_sha:
+            raise SystemExit(f"{sample_kind} confirmation packet was not validated against the frozen ranking packet")
+        if launcher_binding.get("ranking_candidate_key") != candidate_key:
+            raise SystemExit(f"{sample_kind} confirmation packet candidate key does not match the frozen selection")
+        bound_offsets = launcher_binding.get("selected_offsets", {})
+        try:
+            bound_pair = (
+                Decimal(str(bound_offsets["min_offset"])),
+                Decimal(str(bound_offsets["max_offset"])),
+            )
+        except (KeyError, InvalidOperation) as exc:
+            raise SystemExit(f"{sample_kind} confirmation packet has invalid bound offsets") from exc
+        if bound_pair != (selected_lo, selected_hi):
+            raise SystemExit(f"{sample_kind} confirmation packet offsets do not match the frozen selection")
+        audit_path = pathlib.Path(str(launcher_binding.get("stamped_yaml_audit", "")))
+        if not audit_path.is_file():
+            raise SystemExit(f"{sample_kind} stamped-YAML audit packet is missing")
+        if hashlib.sha256(audit_path.read_bytes()).hexdigest() != launcher_binding.get("stamped_yaml_audit_sha256"):
+            raise SystemExit(f"{sample_kind} stamped-YAML audit SHA256 mismatch")
+        audit = json.loads(audit_path.read_text())
+        if audit.get("status") != "PASS":
+            raise SystemExit(f"{sample_kind} stamped-YAML audit is not PASS")
+else:
+    required_comparison = {
+        "production_permission": "dual_fanout_comparison_only",
+        "full_complement_retained": True,
+        "nominal_control_lane": "finite_score_complement",
+        "bounded_lane_role": "blinded_comparison_pending_full_stat_validation",
+        "selection_frozen_before_recoil_result_inspection": True,
+    }
+    for key, value in required_comparison.items():
+        if payload.get(key) != value:
+            raise SystemExit(
+                f"dual-fanout comparison freeze mismatch for {key}: "
+                f"expected {value!r}, observed {payload.get(key)!r}"
+            )
+    if payload.get("selected_candidate_key") != candidate_key:
+        raise SystemExit("comparison freeze candidate key does not match ranking packet")
 print("THE112_SIDEBAND_FREEZE_CONTRACT_PASS", file=sys.stderr)
 PY
   printf '%s\n' "$config"
@@ -1328,6 +1479,7 @@ case "$mode" in
   build-isolated) build_isolated ;;
   historical-scan) historical_scan ;;
   rank-scan-canary) shift; rank_scan_canary "$@" ;;
+  bind-comparison-band) shift; bind_comparison_band "$@" ;;
   validate-canary) shift; validate_canary "$@" ;;
   smoke-canary-submit) submit_transport_smoke "transport_smoke" "$scan_yaml" "$smoke_canary_root" ;;
   scan-canary-submit) submit_discovery_canary "scan_discovery" "$scan_yaml" "$scan_canary_root" ;;
