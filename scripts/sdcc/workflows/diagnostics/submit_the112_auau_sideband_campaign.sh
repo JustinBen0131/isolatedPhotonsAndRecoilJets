@@ -81,6 +81,7 @@ data_memory="${RJ_THE112_DATA_MEMORY:-6000MB}"
 sim_memory="${RJ_THE112_SIM_MEMORY:-7000MB}"
 smoke_events="${RJ_THE112_SMOKE_EVENTS:-20000}"
 smoke_data_runs="${RJ_THE112_SMOKE_DATA_RUNS:-3}"
+smoke_data_jobs="${RJ_THE112_SMOKE_DATA_JOBS:-3}"
 discovery_events="${RJ_THE112_DISCOVERY_EVENTS:-20000}"
 discovery_data_identities="${RJ_THE112_DISCOVERY_DATA_IDENTITIES:-384}"
 discovery_data_strata="${RJ_THE112_DISCOVERY_DATA_STRATA:-16}"
@@ -160,13 +161,14 @@ require_submission_provenance() {
 }
 
 validate_canary_dimensions() {
-  python3 - "$smoke_data_runs" "$smoke_events" "$discovery_data_identities" \
+  python3 - "$smoke_data_runs" "$smoke_data_jobs" "$smoke_events" "$discovery_data_identities" \
       "$discovery_data_strata" "$discovery_signal_jobs" \
       "$discovery_inclusive_jobs" "$discovery_events" <<'PY'
 import sys
 
 names = (
     "smoke_data_runs",
+    "smoke_data_jobs",
     "smoke_events",
     "discovery_data_identities",
     "discovery_data_strata",
@@ -180,6 +182,8 @@ except ValueError as exc:
     raise SystemExit(f"THE-112 canary dimensions must be integers: {exc}") from exc
 if values["smoke_data_runs"] != 3:
     raise SystemExit("THE-112 transport smoke is fixed to exactly three data runs")
+if values["smoke_data_jobs"] != 3:
+    raise SystemExit("THE-112 transport smoke is fixed to exactly three data jobs")
 if values["smoke_events"] <= 0 or values["discovery_events"] <= 0:
     raise SystemExit("THE-112 canary event caps must be positive")
 if values["discovery_data_identities"] < 384:
@@ -285,7 +289,7 @@ pairing_report_sha256=${pairing_report_sha256}
 signal_samples=run28_embeddedPhoton12,run28_embeddedPhoton20
 inclusive_samples=run28_embeddedJet12,run28_embeddedJet20,run28_embeddedJet30,run28_embeddedJet40
 scan_grid=lower_widths{0.16,0.20,0.24,0.28,0.32,0.40};gaps{0.02,0.03,0.04,0.05,0.06,0.08}
-transport_smoke=data(${smoke_data_runs} runs),Photon12(1 job),Jet12(1 job);not ranking eligible
+transport_smoke=data(${smoke_data_runs} runs capped at ${smoke_data_jobs} jobs),Photon12(1 job),Jet12(1 job);not ranking eligible
 discovery_canary=data(${discovery_data_identities} paired identities across ${discovery_data_strata} run strata),Photon12(${discovery_signal_jobs} jobs),Jet12(${discovery_inclusive_jobs} jobs)
 canonical_reco_isolation=centrality-dependent sliding R=0.4, EisoCut=7.57-0.0658*c
 robustness_reco_isolation=centrality-dependent sliding R=0.3, EisoCut=5.97-0.0507*c
@@ -734,11 +738,12 @@ submit_transport_smoke() {
     "data:${output_root}/data" "signal:Photon12:${output_root}/signal" \
     "inclusive:Jet12:${output_root}/inclusive"
 
-  say "Submitting non-ranking transport smoke: ${smoke_data_runs} data runs, one Photon12 job, one Jet12 job"
+  say "Submitting non-ranking transport smoke: ${smoke_data_runs} data runs capped at ${smoke_data_jobs} jobs, one Photon12 job, one Jet12 job"
   env "${env_args[@]}" \
     "RJ_REQUEST_MEMORY=${data_memory}" \
     "RJ_SMOKE_OUTPUT_BASE=${output_root}/data" \
     "RJ_SMOKE_DATA_RUNS=${smoke_data_runs}" \
+    "RJ_SMOKE_DATA_MAX_JOBS=${smoke_data_jobs}" \
     "RJ_SMOKE_DATA_NEVENTS=${smoke_events}" \
     "$submitter" isAuAu condor smokeTest groupSize 1
   record_submission_lane "$role" data "${output_root}/data"
