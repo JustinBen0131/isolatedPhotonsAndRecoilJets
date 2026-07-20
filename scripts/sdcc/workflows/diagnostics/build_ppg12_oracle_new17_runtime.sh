@@ -17,17 +17,24 @@ usage() {
 Usage:
   build_ppg12_oracle_new17_runtime.sh --output-dir ABS [--jobs N] \
     [--photon-source-dir ABS] [--ppg-repo ABS] [--ppg-revision SHA] \
+    [--ppg-source-runtime-manifest ABS] \
     [--estimator-revision SHA] [--truth-vertex-reweight-0mrad ABS] \
     [--truth-vertex-reweight-1p5mrad ABS] [--yaml-cpp-include-dir ABS]
   build_ppg12_oracle_new17_runtime.sh --build --token TOKEN \
     --output-dir ABS [--jobs N] [--photon-source-dir ABS] \
     [--ppg-repo ABS] [--ppg-revision SHA] [--estimator-revision SHA] \
+    [--ppg-source-runtime-manifest ABS] \
     [--truth-vertex-reweight-0mrad ABS] \
     [--truth-vertex-reweight-1p5mrad ABS] [--yaml-cpp-include-dir ABS]
 
 Default mode prints the immutable build contract and authorization token.
 --build performs the foreground build only when TOKEN exactly matches that
 contract.  ABS must be a new path below REPO/.recoiljets_tmp or /tmp.
+
+--ppg-source-runtime-manifest imports the exact source-locked libCaloAna24.so
+from a previously sealed new.17 runtime.  It does not permit the archived June
+binary: the origin manifest and receipt must prove the same source revision and
+common-runtime rebuild contract accepted by the default build mode.
 EOF
 }
 
@@ -46,6 +53,13 @@ ppg_repo="${repo_root}/ppg12codeGit"
 # production.  The working tree is deliberately ignored: git-show exports the
 # committed source into the sealed build root.
 ppg_revision="1c0ff86bf0ebabfba63a1abc4512cbe59fe48e31"
+ppg_source_runtime_manifest=""
+ppg_binary_mode="source_locked_rebuild"
+ppg_origin_build_receipt=""
+ppg_origin_library=""
+ppg_origin_manifest_sha256=""
+ppg_origin_receipt_sha256=""
+ppg_origin_library_sha256=""
 # Reconstruction and the downstream estimator have distinct historical
 # contracts.  Never source the estimator from the older reconstruction
 # revision or from the mutable checkout.
@@ -93,6 +107,7 @@ while (($#)); do
     --photon-source-dir) [[ $# -ge 2 ]] || die "--photon-source-dir requires a value"; photon_source_dir="$2"; shift 2 ;;
     --ppg-repo) [[ $# -ge 2 ]] || die "--ppg-repo requires a value"; ppg_repo="$2"; shift 2 ;;
     --ppg-revision) [[ $# -ge 2 ]] || die "--ppg-revision requires a value"; ppg_revision="$2"; shift 2 ;;
+    --ppg-source-runtime-manifest) [[ $# -ge 2 ]] || die "--ppg-source-runtime-manifest requires a value"; ppg_source_runtime_manifest="$2"; ppg_binary_mode="source_locked_runtime_import"; shift 2 ;;
     --estimator-revision) [[ $# -ge 2 ]] || die "--estimator-revision requires a value"; estimator_revision="$2"; shift 2 ;;
     --yaml-cpp-library) [[ $# -ge 2 ]] || die "--yaml-cpp-library requires a value"; yaml_cpp_library="$2"; shift 2 ;;
     --yaml-cpp-include-dir) [[ $# -ge 2 ]] || die "--yaml-cpp-include-dir requires a value"; yaml_cpp_include_dir="$2"; shift 2 ;;
@@ -128,6 +143,15 @@ esac
 [[ "$ppg_revision" =~ ^[0-9a-f]{40}$ ]] || die "--ppg-revision must be a full commit SHA"
 [[ "$estimator_revision" =~ ^[0-9a-f]{40}$ ]] || \
   die "--estimator-revision must be a full commit SHA"
+if [[ -n "$ppg_source_runtime_manifest" ]]; then
+  [[ "$ppg_source_runtime_manifest" == /* && \
+     "$ppg_source_runtime_manifest" != *$'\n'* && \
+     "$ppg_source_runtime_manifest" != *$'\r'* && \
+     "$ppg_source_runtime_manifest" != *$'\t'* ]] || \
+    die "--ppg-source-runtime-manifest must be an absolute single-line path"
+  [[ -f "$ppg_source_runtime_manifest" && -s "$ppg_source_runtime_manifest" ]] || \
+    die "source runtime manifest is missing or empty: $ppg_source_runtime_manifest"
+fi
 ppg_repo_real="$(cd "$ppg_repo" && pwd -P)"
 git_safe=(-c "safe.directory=${ppg_repo_real}")
 git "${git_safe[@]}" -C "$ppg_repo_real" cat-file -e "${ppg_revision}^{commit}" 2>/dev/null || \
@@ -263,6 +287,104 @@ for model_index in "${!apply_model_names[@]}"; do
   fi
 done
 
+if [[ "$ppg_binary_mode" == source_locked_runtime_import ]]; then
+  ppg_import_fields="$(python3 - "$ppg_source_runtime_manifest" \
+    "$expected_offline" "$ppg_revision" "$estimator_revision" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import re
+import sys
+
+manifest_path = Path(sys.argv[1]).resolve()
+expected_offline, expected_revision, expected_estimator = sys.argv[2:]
+
+def digest(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            h.update(block)
+    return h.hexdigest()
+
+def load(path: Path, label: str) -> dict:
+    try:
+        value = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"invalid {label}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise SystemExit(f"{label} must be a JSON object")
+    return value
+
+manifest = load(manifest_path, "source runtime manifest")
+for field, expected in (
+    ("schema_version", 1),
+    ("runtime_profile", "new.17"),
+    ("offline_main", expected_offline),
+    ("isolated_build", True),
+    ("estimator_revision", expected_estimator),
+):
+    if manifest.get(field) != expected:
+        raise SystemExit(
+            f"source runtime manifest {field} differs: "
+            f"expected {expected!r}, observed {manifest.get(field)!r}"
+        )
+
+receipt_path = Path(str(manifest.get("build_receipt", "")))
+receipt_sha = str(manifest.get("build_receipt_sha256", ""))
+if not receipt_path.is_absolute() or not receipt_path.is_file():
+    raise SystemExit("source runtime build receipt is missing")
+if not re.fullmatch(r"[0-9a-f]{64}", receipt_sha) or digest(receipt_path) != receipt_sha:
+    raise SystemExit("source runtime build receipt hash differs")
+receipt = load(receipt_path, "source runtime build receipt")
+source = receipt.get("ppg12_source")
+rewrites = receipt.get("staged_rewrites")
+if not isinstance(source, dict) or not isinstance(rewrites, dict):
+    raise SystemExit("source runtime receipt lacks PPG12 provenance")
+if source.get("revision") != expected_revision:
+    raise SystemExit("source runtime receipt uses the wrong PPG12 source revision")
+if source.get("working_tree_ignored") is not True:
+    raise SystemExit("source runtime receipt does not exclude mutable PPG12 edits")
+if source.get("rebuilt_against_common_runtime") is not True:
+    raise SystemExit("source runtime receipt was not rebuilt against the common runtime")
+if rewrites.get("archived_ppg12_binary_reused") is not False:
+    raise SystemExit("source runtime receipt uses the ABI-incompatible archived binary")
+if rewrites.get("ppg12_source_locked_rebuild") is not True:
+    raise SystemExit("source runtime receipt lacks a source-locked PPG12 rebuild")
+
+rows = [
+    row for row in manifest.get("files", [])
+    if isinstance(row, dict) and row.get("role") == "libCaloAna24.so"
+]
+if len(rows) != 1:
+    raise SystemExit("source runtime manifest must contain exactly one libCaloAna24.so role")
+library_path = Path(str(rows[0].get("path", "")))
+library_sha = str(rows[0].get("sha256", ""))
+if not library_path.is_absolute() or not library_path.is_file():
+    raise SystemExit("source runtime libCaloAna24.so is missing")
+if not re.fullmatch(r"[0-9a-f]{64}", library_sha) or digest(library_path) != library_sha:
+    raise SystemExit("source runtime libCaloAna24.so hash differs")
+for path in (manifest_path, receipt_path, library_path):
+    if any(character in str(path) for character in ("\n", "\r", "\t")):
+        raise SystemExit("source runtime provenance path is not single-line")
+print("\t".join((
+    str(receipt_path.resolve()),
+    str(library_path.resolve()),
+    digest(manifest_path),
+    receipt_sha,
+    library_sha,
+)))
+PY
+)" || die "source-locked PPG12 runtime import validation failed"
+  IFS=$'\t' read -r ppg_origin_build_receipt ppg_origin_library \
+    ppg_origin_manifest_sha256 ppg_origin_receipt_sha256 \
+    ppg_origin_library_sha256 <<<"$ppg_import_fields"
+  [[ -n "$ppg_origin_build_receipt" && -n "$ppg_origin_library" && \
+     "$ppg_origin_manifest_sha256" =~ ^[0-9a-f]{64}$ && \
+     "$ppg_origin_receipt_sha256" =~ ^[0-9a-f]{64}$ && \
+     "$ppg_origin_library_sha256" =~ ^[0-9a-f]{64}$ ]] || \
+    die "source-locked PPG12 runtime import metadata is malformed"
+fi
+
 contract_token="$({
   printf '%s\n' \
     'schema_version=1' \
@@ -272,6 +394,15 @@ contract_token="$({
     "output_dir=${output_dir}" \
     "jobs=${jobs}"
   printf 'ppg_repo=%s\nppg_revision=%s\n' "$ppg_repo_real" "$ppg_revision"
+  printf 'ppg_binary_mode=%s\n' "$ppg_binary_mode"
+  if [[ "$ppg_binary_mode" == source_locked_runtime_import ]]; then
+    printf 'ppg_origin_manifest=%s sha256=%s\n' \
+      "$ppg_source_runtime_manifest" "$ppg_origin_manifest_sha256"
+    printf 'ppg_origin_receipt=%s sha256=%s\n' \
+      "$ppg_origin_build_receipt" "$ppg_origin_receipt_sha256"
+    printf 'ppg_origin_library=%s sha256=%s\n' \
+      "$ppg_origin_library" "$ppg_origin_library_sha256"
+  fi
   for source_name in "${ppg_source_names[@]}"; do
     printf 'ppg_source=%s sha256=%s\n' "$source_name" "$(
       git "${git_safe[@]}" -C "$ppg_repo_real" show \
@@ -323,13 +454,21 @@ contract_token="$({
 } | python3 -c 'import hashlib,sys; print("ppg12-new17:" + hashlib.sha256(sys.stdin.buffer.read()).hexdigest())')"
 
 if [[ "$mode" == plan ]]; then
+  if [[ "$ppg_binary_mode" == source_locked_runtime_import ]]; then
+    ppg_build_description="exact source-locked libCaloAna24.so import plus fresh libRecoilJets.so"
+  else
+    ppg_build_description="source-locked libCaloAna24.so plus libRecoilJets.so with renamed PPG12-oracle photon builder"
+  fi
   cat <<EOF
 PPG12_ORACLE_NEW17_BUILD_PLAN
   output_root: ${output_dir}
   runtime: new.17
   OFFLINE_MAIN: ${expected_offline}
-  build: source-locked libCaloAna24.so plus libRecoilJets.so with renamed PPG12-oracle photon builder
+  build: ${ppg_build_description}
+  ppg_binary_mode: ${ppg_binary_mode}
   ppg_source_revision: ${ppg_revision}
+  ppg_origin_manifest_sha256: ${ppg_origin_manifest_sha256:-not-applicable}
+  ppg_origin_library_sha256: ${ppg_origin_library_sha256:-not-applicable}
   estimator_revision: ${estimator_revision}
   estimator: exact RecoEff/config/yield sources plus dual uninstrumented/instrumented execution
   release copies: exact new.17 libcalo_reco.so, libclusteriso.so, libjetbase.so (cp -L)
@@ -350,6 +489,26 @@ fi
 # environment before sourcing the one supported release.
 if [[ "${clean_env:-0}" != 1 ]]; then
   self="${script_dir}/$(basename "${BASH_SOURCE[0]}")"
+  reexec_args=(
+    --build --token "$provided_token" --output-dir "$output_dir"
+    --setup-script "$setup_script" --jobs "$jobs"
+    --photon-source-dir "$photon_source_dir"
+    --ppg-repo "$ppg_repo_real" --ppg-revision "$ppg_revision"
+    --estimator-revision "$estimator_revision"
+    --yaml-cpp-library "$yaml_cpp_library"
+    --yaml-cpp-include-dir "$yaml_cpp_include_dir"
+    --roounfold-library "$roounfold_library"
+    --roounfold-include-dir "$roounfold_include_dir"
+    --vertex-scan-data-file "$vertex_scan_data_file"
+    --mbd-correction-file "$mbd_correction_file"
+    --truth-vertex-reweight-0mrad "$truth_vertex_reweight_0mrad"
+    --truth-vertex-reweight-1p5mrad "$truth_vertex_reweight_1p5mrad"
+    --apply-model-dir "$apply_model_dir"
+    --apply-npb-model "$apply_npb_model"
+  )
+  if [[ "$ppg_binary_mode" == source_locked_runtime_import ]]; then
+    reexec_args+=(--ppg-source-runtime-manifest "$ppg_source_runtime_manifest")
+  fi
   exec /usr/bin/env -i \
     HOME="${HOME:-/tmp}" \
     USER="${USER:-unknown}" \
@@ -357,22 +516,7 @@ if [[ "${clean_env:-0}" != 1 ]]; then
     SHELL=/bin/bash \
     PATH=/usr/bin:/bin:/usr/sbin:/sbin \
     RJ_PPG12_ORACLE_NEW17_CLEAN_ENV=1 \
-    /bin/bash --noprofile --norc "$self" \
-      --build --token "$provided_token" --output-dir "$output_dir" \
-      --setup-script "$setup_script" --jobs "$jobs" \
-      --photon-source-dir "$photon_source_dir" \
-      --ppg-repo "$ppg_repo_real" --ppg-revision "$ppg_revision" \
-      --estimator-revision "$estimator_revision" \
-      --yaml-cpp-library "$yaml_cpp_library" \
-      --yaml-cpp-include-dir "$yaml_cpp_include_dir" \
-      --roounfold-library "$roounfold_library" \
-      --roounfold-include-dir "$roounfold_include_dir" \
-      --vertex-scan-data-file "$vertex_scan_data_file" \
-      --mbd-correction-file "$mbd_correction_file" \
-      --truth-vertex-reweight-0mrad "$truth_vertex_reweight_0mrad" \
-      --truth-vertex-reweight-1p5mrad "$truth_vertex_reweight_1p5mrad" \
-      --apply-model-dir "$apply_model_dir" \
-      --apply-npb-model "$apply_npb_model"
+    /bin/bash --noprofile --norc "$self" "${reexec_args[@]}"
 fi
 
 umask 077
@@ -481,7 +625,7 @@ mkdir -p "$stage_root" "$build_root/recoiljets" "$build_root/ppg12" \
   "$runtime_root/estimator/macros" "$runtime_root/estimator/include" \
   "$runtime_root/estimator/config" "$runtime_root/estimator/data" \
   "$runtime_root/estimator/apply" "$runtime_root/estimator/apply/binned_models" \
-  "$runtime_root/estimator/apply/npb_models"
+  "$runtime_root/estimator/apply/npb_models" "$runtime_root/provenance"
 
 for source_name in "${ppg_source_names[@]}"; do
   git "${git_safe[@]}" -C "$ppg_repo_real" show \
@@ -665,30 +809,36 @@ python3 "$trace_instrumenter" \
   --receipt "$recoeff_trace_receipt" \
   --source-revision "$estimator_revision"
 
-# Rebuild the preserved PPG12 source against the same current new.17 headers
-# and libraries used by the candidate.  The archived June binary is retained
-# only as historical evidence: loading it against today's mutable new.17
-# aborts on valid event-2 tower keys before the scientific comparison begins.
-replace_exact "${ppg_stage}/configure.ac" 1 \
-  'CXXFLAGS="$CXXFLAGS -Wall -Werror"' \
-  'CXXFLAGS="$CXXFLAGS -Wall -Wno-error"'
-replace_exact "${ppg_stage}/Makefile.am" 1 \
-  $'-lcalotrigger_io \\ ' \
-  $'-lcalotrigger_io \\'
+# Default mode rebuilds the preserved PPG12 source against the same current
+# new.17 headers and libraries used by the candidate.  Import mode instead
+# carries forward one exact source-locked binary from a sealed runtime whose
+# manifest and receipt were verified before the authorization token was made.
+if [[ "$ppg_binary_mode" == source_locked_rebuild ]]; then
+  replace_exact "${ppg_stage}/configure.ac" 1 \
+    'CXXFLAGS="$CXXFLAGS -Wall -Werror"' \
+    'CXXFLAGS="$CXXFLAGS -Wall -Wno-error"'
+  replace_exact "${ppg_stage}/Makefile.am" 1 \
+    $'-lcalotrigger_io \\ ' \
+    $'-lcalotrigger_io \\'
 
-(
-  cd "${build_root}/ppg12"
-  export LD_LIBRARY_PATH="${install_root}/lib:${base_ld_library_path}"
-  export ROOT_INCLUDE_PATH="${install_root}/include:${base_root_include_path}"
-  export CPPFLAGS="-I${install_root}/include"
-  export LDFLAGS="-L${install_root}/lib${release_ldflags}"
-  /bin/bash "${ppg_stage}/autogen.sh" --prefix="$install_root"
-  make -j "$jobs"
-  make install
-) >"${log_root}/ppg12_build.log" 2>&1 || {
-  tail -n 80 "${log_root}/ppg12_build.log" >&2 || true
-  die "isolated source-locked libCaloAna24 build failed"
-}
+  (
+    cd "${build_root}/ppg12"
+    export LD_LIBRARY_PATH="${install_root}/lib:${base_ld_library_path}"
+    export ROOT_INCLUDE_PATH="${install_root}/include:${base_root_include_path}"
+    export CPPFLAGS="-I${install_root}/include"
+    export LDFLAGS="-L${install_root}/lib${release_ldflags}"
+    /bin/bash "${ppg_stage}/autogen.sh" --prefix="$install_root"
+    make -j "$jobs"
+    make install
+  ) >"${log_root}/ppg12_build.log" 2>&1 || {
+    tail -n 80 "${log_root}/ppg12_build.log" >&2 || true
+    die "isolated source-locked libCaloAna24 build failed"
+  }
+else
+  printf 'PPG12 source-locked runtime import manifest=%s library_sha256=%s\n' \
+    "$ppg_source_runtime_manifest" "$ppg_origin_library_sha256" \
+    >"${log_root}/ppg12_binary_import.log"
+fi
 
 # These rewrites touch staged copies only.  The oracle builder is renamed so
 # it can coexist with exact release libcalo_reco without an ODR/symbol
@@ -765,7 +915,11 @@ resolve_release_lib() {
 }
 
 built_recoil="$(resolve_installed_lib libRecoilJets.so)"
-built_ppg="$(resolve_installed_lib libCaloAna24.so)"
+if [[ "$ppg_binary_mode" == source_locked_runtime_import ]]; then
+  built_ppg="$ppg_origin_library"
+else
+  built_ppg="$(resolve_installed_lib libCaloAna24.so)"
+fi
 release_calo="$(resolve_release_lib libcalo_reco.so)"
 release_clusteriso="$(resolve_release_lib libclusteriso.so)"
 release_jetbase="$(resolve_release_lib libjetbase.so)"
@@ -777,6 +931,8 @@ cp -L "$release_clusteriso" "${runtime_root}/lib/libclusteriso.so"
 cp -L "$release_jetbase" "${runtime_root}/lib/libjetbase.so"
 cmp -s "$release_calo" "${runtime_root}/lib/libcalo_reco.so" || \
   die "copied libcalo_reco differs from exact new.17 source"
+cmp -s "$built_ppg" "${runtime_root}/lib/libCaloAna24.so" || \
+  die "copied libCaloAna24 differs from the selected source-locked binary"
 cmp -s "$release_clusteriso" "${runtime_root}/lib/libclusteriso.so" || \
   die "copied libclusteriso differs from exact new.17 source"
 cmp -s "$release_jetbase" "${runtime_root}/lib/libjetbase.so" || \
@@ -785,6 +941,21 @@ cmp -s "$yaml_cpp_library" "${runtime_root}/lib/libyaml-cpp.so" || \
   die "copied libyaml-cpp differs from sealed estimator source"
 cmp -s "$roounfold_library" "${runtime_root}/lib/libRooUnfold.so" || \
   die "copied libRooUnfold differs from sealed estimator source"
+ppg_provenance_manifest=""
+ppg_provenance_receipt=""
+if [[ "$ppg_binary_mode" == source_locked_runtime_import ]]; then
+  ppg_provenance_manifest="${runtime_root}/provenance/ppg_source_runtime_manifest.json"
+  ppg_provenance_receipt="${runtime_root}/provenance/ppg_source_build_receipt.json"
+  cp -f "$ppg_source_runtime_manifest" "$ppg_provenance_manifest"
+  cp -f "$ppg_origin_build_receipt" "$ppg_provenance_receipt"
+  [[ "$(sha256_file "$ppg_provenance_manifest")" == "$ppg_origin_manifest_sha256" ]] || \
+    die "copied source runtime manifest hash differs"
+  [[ "$(sha256_file "$ppg_provenance_receipt")" == "$ppg_origin_receipt_sha256" ]] || \
+    die "copied source runtime receipt hash differs"
+  [[ "$(sha256_file "${runtime_root}/lib/libCaloAna24.so")" == \
+     "$ppg_origin_library_sha256" ]] || \
+    die "imported libCaloAna24 hash differs after staging"
+fi
 cp -f "${recoil_stage}/PPG12OraclePhotonClusterBuilder.h" \
   "${runtime_root}/include/caloana/PPG12OraclePhotonClusterBuilder.h"
 # The paired-oracle manifest retains its established role/path.  This file's
@@ -931,7 +1102,10 @@ python3 - \
   "$build_receipt" "$output_dir" "$install_root" "$runtime_root" \
   "$expected_offline" "$calo_calib" "$jobs" "$sealed_link_dirs" \
   "$canonical_photon_cc" "$canonical_photon_h" \
-  "$ppg_repo_real" "$ppg_revision" \
+  "$ppg_repo_real" "$ppg_revision" "$ppg_binary_mode" \
+  "$ppg_provenance_manifest" "$ppg_origin_manifest_sha256" \
+  "$ppg_provenance_receipt" "$ppg_origin_receipt_sha256" \
+  "$ppg_origin_library_sha256" \
   "${ppg_stage}/CaloAna24.cc" "${ppg_stage}/CaloAna24.h" \
   "${ppg_stage}/configure.ac" "${ppg_stage}/Makefile.am" \
   "${recoil_source}/RecoilJets.cc" "${recoil_source}/RecoilJets.h" \
@@ -968,6 +1142,9 @@ import sys
 (
     receipt, output_root, install_root, runtime_root, offline_main, calo_calib,
     jobs, sealed_link_dirs, photon_cc, photon_h, ppg_repo, ppg_revision,
+    ppg_binary_mode, ppg_provenance_manifest, ppg_origin_manifest_sha256,
+    ppg_provenance_receipt, ppg_origin_receipt_sha256,
+    ppg_origin_library_sha256,
     ppg_cc, ppg_h, ppg_configure, ppg_makefile, recoil_cc, recoil_h, macro, impl,
     calo_source, clusteriso_source, jetbase_source, log_root,
     estimator_revision, recoeff_source, cross_section_header,
@@ -1016,7 +1193,25 @@ apply_models.append(apply_root / "npb_models" / "npb_score_split_tmva.root")
 if len(apply_models) != 12 or any(not path.is_file() for path in apply_models):
     raise SystemExit("sealed apply_BDT stage does not contain exactly 11 split models plus NPB")
 source_paths.extend(str(path) for path in apply_models)
+if ppg_binary_mode not in ("source_locked_rebuild", "source_locked_runtime_import"):
+    raise SystemExit(f"unsupported PPG12 binary mode: {ppg_binary_mode}")
+if ppg_binary_mode == "source_locked_runtime_import":
+    source_paths.extend((ppg_provenance_manifest, ppg_provenance_receipt))
 log_paths = sorted(str(path) for path in Path(log_root).iterdir() if path.is_file())
+source_runtime_import = None
+if ppg_binary_mode == "source_locked_runtime_import":
+    source_runtime_import = {
+        "runtime_manifest": {
+            "path": ppg_provenance_manifest,
+            "sha256": ppg_origin_manifest_sha256,
+        },
+        "build_receipt": {
+            "path": ppg_provenance_receipt,
+            "sha256": ppg_origin_receipt_sha256,
+        },
+        "library_sha256": ppg_origin_library_sha256,
+        "immutable_provenance_documents": True,
+    }
 data = {
     "schema_version": 1,
     "purpose": "ppg12_paired_oracle_recoil_runtime",
@@ -1036,6 +1231,9 @@ data = {
         "subtree": "anatreemaker/source",
         "working_tree_ignored": True,
         "rebuilt_against_common_runtime": True,
+        "binary_mode": ppg_binary_mode,
+        "rebuilt_in_this_runtime": ppg_binary_mode == "source_locked_rebuild",
+        "source_runtime_import": source_runtime_import,
     },
     "ppg12_estimator": {
         "revision": estimator_revision,
@@ -1150,7 +1348,8 @@ data = {
         "full_calo_reco_rebuild": False,
         "custom_builder_renamed": True,
         "archived_ppg12_binary_reused": False,
-        "ppg12_source_locked_rebuild": True,
+        "ppg12_source_locked_rebuild": ppg_binary_mode == "source_locked_rebuild",
+        "ppg12_source_locked_binary_import": ppg_binary_mode == "source_locked_runtime_import",
         "estimator_revision_separate_from_reconstruction": True,
         "estimator_trace_requires_exact_root_equivalence": True,
     },
@@ -1192,7 +1391,8 @@ python3 - "$runtime_manifest" "$build_receipt" "$expected_offline" \
   "${runtime_root}/estimator/data/data_histo_bdt_nom_vtxscan.root" \
   "${runtime_root}/estimator/data/MbdOut.corr" \
   "${runtime_root}/estimator/data/truth_vertex_reweight_0mrad.root" \
-  "${runtime_root}/estimator/data/truth_vertex_reweight_1p5mrad.root" <<'PY'
+  "${runtime_root}/estimator/data/truth_vertex_reweight_1p5mrad.root" \
+  "$ppg_provenance_manifest" "$ppg_provenance_receipt" <<'PY'
 from pathlib import Path
 import hashlib
 import json
@@ -1208,6 +1408,7 @@ import sys
     roounfold_response_header,
     roounfold_bayes_header, vertex_scan_data, mbd_correction,
     truth_vertex_reweight_0mrad, truth_vertex_reweight_1p5mrad,
+    ppg_provenance_manifest, ppg_provenance_receipt,
 ) = sys.argv[1:]
 
 def digest(path: str) -> str:
@@ -1258,6 +1459,13 @@ roles.extend(
     for name in model_names
 )
 roles.append(("ppg_apply_npb_model", str(apply_root / "npb_models" / "npb_score_split_tmva.root")))
+if ppg_provenance_manifest or ppg_provenance_receipt:
+    if not ppg_provenance_manifest or not ppg_provenance_receipt:
+        raise SystemExit("source-runtime provenance roles must be supplied together")
+    roles.extend((
+        ("ppg_source_runtime_manifest", ppg_provenance_manifest),
+        ("ppg_source_build_receipt", ppg_provenance_receipt),
+    ))
 data = {
     "schema_version": 1,
     "runtime_profile": "new.17",

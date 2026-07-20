@@ -21,6 +21,7 @@ plan="$(bash "$builder" --output-dir "$output" --setup-script /usr/bin/true --jo
 grep -q '^PPG12_ORACLE_NEW17_BUILD_PLAN$' <<<"$plan" || fail "plan marker missing"
 grep -q 'runtime: new.17' <<<"$plan" || fail "new.17 contract missing"
 grep -q 'source-locked libCaloAna24.so plus libRecoilJets.so with renamed PPG12-oracle photon builder' <<<"$plan" || fail "build contract missing"
+grep -q 'ppg_binary_mode: source_locked_rebuild' <<<"$plan" || fail "default source-rebuild mode missing"
 grep -q 'ppg_source_revision: 1c0ff86bf0ebabfba63a1abc4512cbe59fe48e31' <<<"$plan" || fail "PPG12 source revision missing"
 grep -q 'exact new.17 libcalo_reco.so, libclusteriso.so, libjetbase.so (cp -L)' <<<"$plan" || fail "release-copy contract missing"
 token="$(sed -n 's/^  token: //p' <<<"$plan")"
@@ -36,6 +37,79 @@ override_plan="$(bash "$builder" --output-dir "$output" --setup-script /usr/bin/
 override_token="$(sed -n 's/^  token: //p' <<<"$override_plan")"
 [[ "$override_token" != "$token" ]] || fail "photon-source override did not change the sealed token"
 [[ ! -e "$output" ]] || fail "override plan mode mutated the output path"
+
+origin_root="${tmp}/origin_runtime"
+origin_receipt="${origin_root}/build_receipt.json"
+origin_library="${origin_root}/runtime/lib/libCaloAna24.so"
+origin_manifest="${origin_root}/runtime_manifest.json"
+mkdir -p "$(dirname "$origin_library")"
+python3 - "$origin_receipt" "$origin_library" "$origin_manifest" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import sys
+
+receipt_path, library_path, manifest_path = map(Path, sys.argv[1:])
+library_path.write_bytes(b"sealed-attempt12-libCaloAna24-test-fixture\n")
+receipt = {
+    "schema_version": 1,
+    "runtime_profile": "new.17",
+    "offline_main": (
+        "/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/"
+        "release/release_new/new.17"
+    ),
+    "ppg12_source": {
+        "revision": "1c0ff86bf0ebabfba63a1abc4512cbe59fe48e31",
+        "working_tree_ignored": True,
+        "rebuilt_against_common_runtime": True,
+    },
+    "staged_rewrites": {
+        "archived_ppg12_binary_reused": False,
+        "ppg12_source_locked_rebuild": True,
+    },
+}
+receipt_path.write_text(json.dumps(receipt, sort_keys=True) + "\n")
+digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+manifest = {
+    "schema_version": 1,
+    "runtime_profile": "new.17",
+    "offline_main": receipt["offline_main"],
+    "isolated_build": True,
+    "estimator_revision": "29f8223bd9b36dffab07961b597afa94185bbdf1",
+    "build_receipt": str(receipt_path.resolve()),
+    "build_receipt_sha256": digest(receipt_path),
+    "files": [{
+        "role": "libCaloAna24.so",
+        "path": str(library_path.resolve()),
+        "sha256": digest(library_path),
+    }],
+}
+manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n")
+PY
+origin_library_sha="$(python3 - "$origin_library" <<'PY'
+from pathlib import Path
+import hashlib
+import sys
+print(hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest())
+PY
+)"
+import_plan="$(bash "$builder" --output-dir "$output" --setup-script /usr/bin/true \
+  --jobs 2 --ppg-source-runtime-manifest "$origin_manifest")"
+grep -q 'ppg_binary_mode: source_locked_runtime_import' <<<"$import_plan" || \
+  fail "source-locked binary-import mode missing"
+grep -q "ppg_origin_library_sha256: ${origin_library_sha}" <<<"$import_plan" || \
+  fail "origin library digest missing from import plan"
+import_token="$(sed -n 's/^  token: //p' <<<"$import_plan")"
+[[ "$import_token" =~ ^ppg12-new17:[0-9a-f]{64}$ ]] || fail "import token is malformed"
+[[ "$import_token" != "$token" ]] || fail "binary import did not change the sealed token"
+[[ ! -e "$output" ]] || fail "import plan mode mutated the output path"
+
+printf 'tamper\n' >> "$origin_library"
+if bash "$builder" --output-dir "$output" --setup-script /usr/bin/true \
+    --ppg-source-runtime-manifest "$origin_manifest" >/dev/null 2>&1; then
+  fail "tampered origin library was accepted"
+fi
+[[ ! -e "$output" ]] || fail "rejected import plan mutated the output path"
 
 if bash "$builder" --build --token ppg12-new17:wrong --output-dir "$output" \
     --setup-script /usr/bin/true --jobs 2 >/dev/null 2>&1; then
@@ -72,7 +146,12 @@ for invariant in \
   'built_ppg="$(resolve_installed_lib libCaloAna24.so)"' \
   '"${runtime_root}/lib/libCaloAna24.so"' \
   '"archived_ppg12_binary_reused": False' \
-  '"ppg12_source_locked_rebuild": True' \
+  '"ppg12_source_locked_rebuild": ppg_binary_mode == "source_locked_rebuild"' \
+  '"ppg12_source_locked_binary_import": ppg_binary_mode == "source_locked_runtime_import"' \
+  'reexec_args+=(--ppg-source-runtime-manifest "$ppg_source_runtime_manifest")' \
+  'cmp -s "$built_ppg" "${runtime_root}/lib/libCaloAna24.so"' \
+  'ppg_source_runtime_manifest' \
+  'ppg_source_build_receipt' \
   'source "$setup_script" -n new.17' \
   'root_libdir="$(root-config --libdir)"' \
   'for link_dir in "${OFFLINE_MAIN}/lib" "${OFFLINE_MAIN}/lib64" "$root_libdir"' \

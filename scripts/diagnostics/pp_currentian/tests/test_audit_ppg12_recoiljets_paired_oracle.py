@@ -108,7 +108,107 @@ def passing_row() -> dict[str, str]:
     return row
 
 
+def source_import_fixture(root: Path) -> tuple[dict, dict[str, Path]]:
+    current_library = root / "runtime" / "lib" / "libCaloAna24.so"
+    provenance = root / "runtime" / "provenance"
+    provenance.mkdir(parents=True)
+    current_library.parent.mkdir(parents=True, exist_ok=True)
+    current_library.write_bytes(b"exact sealed Attempt-12 binary\n")
+    origin_receipt_path = provenance / "ppg_source_build_receipt.json"
+    origin_manifest_path = provenance / "ppg_source_runtime_manifest.json"
+    origin_receipt = {
+        "schema_version": 1,
+        "ppg12_source": {
+            "revision": AUDIT.EXPECTED_PPG_SOURCE_REVISION,
+            "working_tree_ignored": True,
+            "rebuilt_against_common_runtime": True,
+        },
+        "staged_rewrites": {
+            "archived_ppg12_binary_reused": False,
+            "ppg12_source_locked_rebuild": True,
+        },
+    }
+    origin_receipt_path.write_text(json.dumps(origin_receipt, sort_keys=True) + "\n")
+    origin_manifest = {
+        "schema_version": 1,
+        "runtime_profile": AUDIT.EXPECTED_RUNTIME_PROFILE,
+        "offline_main": AUDIT.EXPECTED_OFFLINE_MAIN,
+        "isolated_build": True,
+        "estimator_revision": AUDIT.EXPECTED_ESTIMATOR_REVISION,
+        # Immutable origin documents preserve their old absolute paths.  The
+        # copied roles and hashes, not those historical paths, are authoritative.
+        "build_receipt": "/retired/origin/build_receipt.json",
+        "build_receipt_sha256": AUDIT.sha256(origin_receipt_path),
+        "files": [{
+            "role": "libCaloAna24.so",
+            "path": "/retired/origin/runtime/lib/libCaloAna24.so",
+            "sha256": AUDIT.sha256(current_library),
+        }],
+    }
+    origin_manifest_path.write_text(json.dumps(origin_manifest, sort_keys=True) + "\n")
+    by_role = {
+        "libCaloAna24.so": current_library,
+        "ppg_source_runtime_manifest": origin_manifest_path,
+        "ppg_source_build_receipt": origin_receipt_path,
+    }
+    receipt = {
+        "ppg12_source": {
+            "revision": AUDIT.EXPECTED_PPG_SOURCE_REVISION,
+            "working_tree_ignored": True,
+            "rebuilt_against_common_runtime": True,
+            "binary_mode": AUDIT.PPG_BINARY_IMPORT,
+            "rebuilt_in_this_runtime": False,
+            "source_runtime_import": {
+                "runtime_manifest": {
+                    "path": str(origin_manifest_path),
+                    "sha256": AUDIT.sha256(origin_manifest_path),
+                },
+                "build_receipt": {
+                    "path": str(origin_receipt_path),
+                    "sha256": AUDIT.sha256(origin_receipt_path),
+                },
+                "library_sha256": AUDIT.sha256(current_library),
+                "immutable_provenance_documents": True,
+            },
+        },
+        "staged_rewrites": {
+            "archived_ppg12_binary_reused": False,
+            "ppg12_source_locked_rebuild": False,
+            "ppg12_source_locked_binary_import": True,
+        },
+    }
+    return receipt, by_role
+
+
 class TestFirstDivergenceAudit(unittest.TestCase):
+    def test_source_locked_binary_import_provenance_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            receipt, by_role = source_import_fixture(Path(tmp))
+            self.assertEqual(
+                AUDIT.validate_ppg_binary_mode(receipt), AUDIT.PPG_BINARY_IMPORT
+            )
+            AUDIT.validate_source_locked_ppg_import(
+                receipt, by_role, AUDIT.EXPECTED_OFFLINE_MAIN
+            )
+
+    def test_source_locked_binary_import_rejects_library_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            receipt, by_role = source_import_fixture(Path(tmp))
+            by_role["libCaloAna24.so"].write_bytes(b"different binary\n")
+            with self.assertRaisesRegex(
+                AUDIT.AuditFailure, "differs from the sealed origin binary"
+            ):
+                AUDIT.validate_source_locked_ppg_import(
+                    receipt, by_role, AUDIT.EXPECTED_OFFLINE_MAIN
+                )
+
+    def test_source_locked_binary_import_rejects_ambiguous_mode_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            receipt, _ = source_import_fixture(Path(tmp))
+            receipt["staged_rewrites"]["ppg12_source_locked_rebuild"] = True
+            with self.assertRaisesRegex(AUDIT.AuditFailure, "ambiguous"):
+                AUDIT.validate_ppg_binary_mode(receipt)
+
     def test_period_labels_map_to_preserved_config_suffixes(self) -> None:
         self.assertEqual(
             AUDIT.PERIOD_CONFIG_VAR_SUFFIX,

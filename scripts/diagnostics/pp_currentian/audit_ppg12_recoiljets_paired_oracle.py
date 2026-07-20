@@ -140,6 +140,12 @@ EXPECTED_TRACE_OPERATIONS = (
     "candidate_trace_emit",
     "response_trace_emit",
 )
+PPG_BINARY_REBUILD = "source_locked_rebuild"
+PPG_BINARY_IMPORT = "source_locked_runtime_import"
+PPG_IMPORT_ROLES = {
+    "ppg_source_runtime_manifest",
+    "ppg_source_build_receipt",
+}
 
 
 class AuditFailure(RuntimeError):
@@ -581,6 +587,106 @@ def is_below(path: Path, root: Path) -> bool:
         return False
 
 
+def validate_ppg_binary_mode(receipt: dict[str, Any]) -> str:
+    ppg_source = receipt.get("ppg12_source", {})
+    rewrites = receipt.get("staged_rewrites", {})
+    if not isinstance(ppg_source, dict) or not isinstance(rewrites, dict):
+        raise AuditFailure("runtime receipt lacks source-locked PPG12 provenance")
+    # Receipts made before binary-import support are source rebuilds.  Keeping
+    # that interpretation preserves the established sealed-runtime contract.
+    mode = str(ppg_source.get("binary_mode", PPG_BINARY_REBUILD))
+    if mode not in {PPG_BINARY_REBUILD, PPG_BINARY_IMPORT}:
+        raise AuditFailure(f"runtime receipt has unsupported PPG12 binary mode: {mode}")
+    rebuild = rewrites.get("ppg12_source_locked_rebuild") is True
+    imported = rewrites.get("ppg12_source_locked_binary_import") is True
+    if mode == PPG_BINARY_REBUILD:
+        if not rebuild or imported:
+            raise AuditFailure("runtime receipt has ambiguous PPG12 source-rebuild gates")
+        if ppg_source.get("rebuilt_in_this_runtime", True) is not True:
+            raise AuditFailure("runtime receipt denies its declared PPG12 source rebuild")
+        if ppg_source.get("source_runtime_import") not in (None, {}):
+            raise AuditFailure("source-rebuild receipt unexpectedly contains import provenance")
+    else:
+        if rebuild or not imported:
+            raise AuditFailure("runtime receipt has ambiguous PPG12 binary-import gates")
+        if ppg_source.get("rebuilt_in_this_runtime") is not False:
+            raise AuditFailure("binary-import receipt claims a local PPG12 rebuild")
+        if not isinstance(ppg_source.get("source_runtime_import"), dict):
+            raise AuditFailure("binary-import receipt lacks immutable origin provenance")
+    return mode
+
+
+def validate_source_locked_ppg_import(
+    receipt: dict[str, Any], by_role: dict[str, Path], expected_offline: str
+) -> None:
+    missing = sorted(PPG_IMPORT_ROLES - set(by_role))
+    if missing:
+        raise AuditFailure(f"binary-import runtime lacks provenance roles: {missing}")
+    ppg_source = receipt["ppg12_source"]
+    metadata = ppg_source.get("source_runtime_import", {})
+    manifest_meta = metadata.get("runtime_manifest", {})
+    receipt_meta = metadata.get("build_receipt", {})
+    for label, item, role in (
+        ("origin runtime manifest", manifest_meta, "ppg_source_runtime_manifest"),
+        ("origin build receipt", receipt_meta, "ppg_source_build_receipt"),
+    ):
+        if not isinstance(item, dict):
+            raise AuditFailure(f"binary-import receipt lacks {label} metadata")
+        if Path(str(item.get("path", ""))).resolve() != by_role[role].resolve():
+            raise AuditFailure(f"binary-import {label} path differs from manifest role")
+        if str(item.get("sha256", "")) != sha256(by_role[role]):
+            raise AuditFailure(f"binary-import {label} digest differs from manifest role")
+    if metadata.get("immutable_provenance_documents") is not True:
+        raise AuditFailure("binary-import provenance documents are not declared immutable")
+
+    origin_manifest_path = by_role["ppg_source_runtime_manifest"]
+    origin_receipt_path = by_role["ppg_source_build_receipt"]
+    origin_manifest = load_json(origin_manifest_path)
+    for field, expected in (
+        ("schema_version", 1),
+        ("runtime_profile", EXPECTED_RUNTIME_PROFILE),
+        ("offline_main", expected_offline),
+        ("isolated_build", True),
+        ("estimator_revision", EXPECTED_ESTIMATOR_REVISION),
+    ):
+        if origin_manifest.get(field) != expected:
+            raise AuditFailure(f"origin runtime manifest changed field {field}")
+    if origin_manifest.get("build_receipt_sha256") != sha256(origin_receipt_path):
+        raise AuditFailure("origin runtime manifest build-receipt digest differs")
+
+    origin_receipt = load_json(origin_receipt_path)
+    origin_source = origin_receipt.get("ppg12_source", {})
+    origin_rewrites = origin_receipt.get("staged_rewrites", {})
+    if not isinstance(origin_source, dict) or not isinstance(origin_rewrites, dict):
+        raise AuditFailure("origin build receipt lacks source-rebuild provenance")
+    if origin_source.get("revision") != EXPECTED_PPG_SOURCE_REVISION:
+        raise AuditFailure("origin build receipt uses the wrong PPG12 source revision")
+    if origin_source.get("working_tree_ignored") is not True:
+        raise AuditFailure("origin build receipt admits mutable PPG12 source edits")
+    if origin_source.get("rebuilt_against_common_runtime") is not True:
+        raise AuditFailure("origin PPG12 binary was not rebuilt against the common runtime")
+    if origin_rewrites.get("archived_ppg12_binary_reused") is not False:
+        raise AuditFailure("origin receipt reused the ABI-incompatible archived binary")
+    if origin_rewrites.get("ppg12_source_locked_rebuild") is not True:
+        raise AuditFailure("origin receipt lacks a source-locked PPG12 rebuild")
+
+    library_rows = [
+        item
+        for item in origin_manifest.get("files", [])
+        if isinstance(item, dict) and item.get("role") == "libCaloAna24.so"
+    ]
+    if len(library_rows) != 1:
+        raise AuditFailure("origin runtime manifest must contain one libCaloAna24.so role")
+    origin_library_digest = str(library_rows[0].get("sha256", ""))
+    if not re.fullmatch(r"[0-9a-f]{64}", origin_library_digest):
+        raise AuditFailure("origin runtime manifest has an invalid libCaloAna24 digest")
+    current_library_digest = sha256(by_role["libCaloAna24.so"])
+    if origin_library_digest != current_library_digest:
+        raise AuditFailure("imported libCaloAna24 differs from the sealed origin binary")
+    if metadata.get("library_sha256") != current_library_digest:
+        raise AuditFailure("binary-import receipt library digest differs from runtime")
+
+
 def validate_recoil_manifest(path: Path, expected_offline: str) -> dict[str, Path]:
     data = load_json(path)
     if data.get("schema_version") != 1:
@@ -615,8 +721,7 @@ def validate_recoil_manifest(path: Path, expected_offline: str) -> dict[str, Pat
         raise AuditFailure("runtime receipt lacks staged-rewrite provenance")
     if rewrites.get("archived_ppg12_binary_reused") is not False:
         raise AuditFailure("runtime receipt reuses the ABI-incompatible archived PPG12 binary")
-    if rewrites.get("ppg12_source_locked_rebuild") is not True:
-        raise AuditFailure("runtime receipt lacks the source-locked PPG12 rebuild gate")
+    ppg_binary_mode = validate_ppg_binary_mode(receipt)
     estimator = receipt.get("ppg12_estimator", {})
     if not isinstance(estimator, dict):
         raise AuditFailure("runtime receipt lacks preserved estimator provenance")
@@ -657,6 +762,10 @@ def validate_recoil_manifest(path: Path, expected_offline: str) -> dict[str, Pat
     missing = sorted(REQUIRED_RECOIL_ROLES - set(by_role))
     if missing:
         raise AuditFailure(f"Recoil runtime manifest lacks required roles: {missing}")
+    if ppg_binary_mode == PPG_BINARY_IMPORT:
+        validate_source_locked_ppg_import(receipt, by_role, expected_offline)
+    elif PPG_IMPORT_ROLES & set(by_role):
+        raise AuditFailure("source-rebuild runtime unexpectedly contains import provenance roles")
 
     source_meta = estimator.get("canonical_source", {})
     baseline_meta = estimator.get("staged_uninstrumented_macro", {})
