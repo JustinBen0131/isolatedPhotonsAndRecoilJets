@@ -1288,6 +1288,7 @@ cat > "$smoke_macro" <<EOF
 R__LOAD_LIBRARY(${runtime_root}/lib/libRooUnfold.so)
 #include <caloana/PPG12OraclePhotonClusterBuilder.h>
 #include <yaml-cpp/yaml.h>
+#include <TUnfold.h>
 #include <RooUnfoldResponse.h>
 #include <RooUnfoldBayes.h>
 #include <TH1D.h>

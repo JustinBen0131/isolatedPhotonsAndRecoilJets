@@ -243,6 +243,7 @@ for invariant in \
   'RooUnfoldSvd.h' \
   'RooUnfoldTUnfold.h' \
   'R__LOAD_LIBRARY(${runtime_root}/lib/libRooUnfold.so)' \
+  '#include <TUnfold.h>' \
   'RooUnfoldResponse response(' \
   '(const TH1 *)&measured, (const TH1 *)&truth, &migration,' \
   'if (response.UseOverflowStatus())' \
@@ -291,9 +292,15 @@ smoke = re.search(
 if not smoke:
     raise SystemExit("cannot locate ROOT runtime smoke body")
 body = smoke.group("body")
-for required in ("#include <RooUnfoldResponse.h>", "#include <RooUnfoldBayes.h>"):
+for required in (
+    "#include <TUnfold.h>",
+    "#include <RooUnfoldResponse.h>",
+    "#include <RooUnfoldBayes.h>",
+):
     if required not in body:
         raise SystemExit(f"ROOT smoke omits required executable header: {required}")
+if body.index("#include <TUnfold.h>") > body.index("#include <RooUnfoldResponse.h>"):
+    raise SystemExit("ROOT smoke loads RooUnfold before the TUnfold prerequisite")
 for forbidden in (
     "#include <RooUnfoldTUnfold.h>",
     "#include <RooUnfoldBinByBin.h>",

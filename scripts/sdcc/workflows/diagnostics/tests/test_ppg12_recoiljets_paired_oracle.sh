@@ -373,6 +373,7 @@ for invariant in \
   'RooUnfold header inventory differs from exact nine-file contract' \
   'runtime manifest role {role} hash drifted' \
   'sealed RooUnfold library and PCM are not co-located' \
+  "return f'''#include <TUnfold.h>" \
   'gSystem->Load({json.dumps(roounfold)})' \
   'ROOT_INCLUDE_PATH="${recoeff_roounfold_include_root}:${recoeff_include_root}:${recoeff_yaml_cpp_include_root}:${base_root_include_path}"' \
   'export ROOT_INCLUDE_PATH="${recoeff_yaml_cpp_include_root}:${base_root_include_path}"' \
