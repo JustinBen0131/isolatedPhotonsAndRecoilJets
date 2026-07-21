@@ -19,6 +19,7 @@ pp_ref="/sphenix/user/shuhangli/ppg12/FunWithxgboost/binned_models/model_base_v3
 auau_model="/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/the111_models/the111_combined_corrected_shower_ppg12_labels_20260719_1618/combined/auau_tight_bdt_centAsFeatBase3x3_pt15to35_tmva.root"
 schema_sha="$(sha256sum src/RJReplayFoundationV1.h | awk '{print $1}')"
 semantic_sha="97402b8d1e51e11082015ffbd920a346d19fc3c43ae189bf6367df49939f5c6a"
+photon_capture_et_min="${RJ_THE119_PHOTON_CAPTURE_ET_MIN:-5.0}"
 code_commit="${RJ_THE119_CODE_COMMIT:-$(git rev-parse HEAD)}"
 code_sha="${RJ_THE119_CODE_SHA256:-$(
   sha256sum \
@@ -60,6 +61,8 @@ require_inputs(){
   [[ "$(sha256sum "$auau_model" | awk '{print $1}')" == "d50c69ec98558cb80730ab45fe6801d4accbcf2221c482af91e8899cede1c925" ]] || die "THE-111 model hash drift"
   [[ "$code_commit" =~ ^[0-9a-f]{40}$ ]] || die "campaign code commit must be a 40-character Git object id"
   [[ "$code_sha" =~ ^[0-9a-f]{64}$ ]] || die "replay code identity must be a 64-character SHA-256"
+  [[ "$photon_capture_et_min" =~ ^([0-9]+([.][0-9]*)?|[.][0-9]+)$ ]] || die "photon capture threshold must be numeric"
+  awk -v x="$photon_capture_et_min" 'BEGIN { exit !(x >= 0.0 && x < 15.0) }' || die "photon capture threshold must satisfy 0 <= ET < 15 GeV"
 }
 
 common_extra(){
@@ -68,7 +71,7 @@ common_extra(){
   [[ "$arm" == writer ]] && enabled=1
   local source_sha
   source_sha="$(sha "${tag}|${lane}|${dataset}|${sample}|accepted-canary-source-v1")"
-  printf '%s' "RJ_REPLAY_FOUNDATION_V1=${enabled};RJ_REPLAY_FOUNDATION_CANARY=1;RJ_REPLAY_LANE=${lane};RJ_REPLAY_DATASET=${dataset};RJ_REPLAY_SAMPLE=${sample};RJ_REPLAY_SOURCE_MANIFEST_SHA256=${source_sha};RJ_REPLAY_SCHEMA_SHA256=${schema_sha};RJ_REPLAY_SEMANTIC_SHA256=${semantic_sha};RJ_REPLAY_SOURCE_SHA256=${source_sha};RJ_REPLAY_MODEL_SHA256=${model_sha};RJ_REPLAY_CONFIG_SHA256=$(sha256sum "$cfg" | awk '{print $1}');RJ_REPLAY_CODE_SHA256=${code_sha}"
+  printf '%s' "RJ_REPLAY_FOUNDATION_V1=${enabled};RJ_REPLAY_FOUNDATION_CANARY=1;RJ_REPLAY_PHOTON_CAPTURE_ET_MIN=${photon_capture_et_min};RJ_REPLAY_LANE=${lane};RJ_REPLAY_DATASET=${dataset};RJ_REPLAY_SAMPLE=${sample};RJ_REPLAY_SOURCE_MANIFEST_SHA256=${source_sha};RJ_REPLAY_SCHEMA_SHA256=${schema_sha};RJ_REPLAY_SEMANTIC_SHA256=${semantic_sha};RJ_REPLAY_SOURCE_SHA256=${source_sha};RJ_REPLAY_MODEL_SHA256=${model_sha};RJ_REPLAY_CONFIG_SHA256=$(sha256sum "$cfg" | awk '{print $1}');RJ_REPLAY_CODE_SHA256=${code_sha}"
 }
 
 pp_extra(){
@@ -127,8 +130,8 @@ preflight(){
   bash -n "$0" scripts/sdcc/runtime/condor/RecoilJets_Condor.sh scripts/sdcc/runtime/condor/RecoilJets_Condor_AuAu.sh
   mkdir -p "$evidence"
   {
-    printf 'tag=%s\nbase=%s\ncode_commit=%s\ncode_sha256=%s\nschema_sha=%s\nsemantic_sha=%s\nonly_keys=%s\n' \
-      "$tag" "$base" "$code_commit" "$code_sha" "$schema_sha" "$semantic_sha" "$only_keys"
+    printf 'tag=%s\nbase=%s\ncode_commit=%s\ncode_sha256=%s\nschema_sha=%s\nsemantic_sha=%s\nphoton_capture_et_min_gev=%s\nonly_keys=%s\n' \
+      "$tag" "$base" "$code_commit" "$code_sha" "$schema_sha" "$semantic_sha" "$photon_capture_et_min" "$only_keys"
     sha256sum "$pp_cfg" "$auau_cfg" "$pp_lib" "$auau_lib" "$pp_model" "$pp_ref" "$auau_model"
   } > "$evidence/preflight_receipt.txt"
   say "PREFLIGHT_PASS evidence=$evidence/preflight_receipt.txt"

@@ -5780,6 +5780,30 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             minPhotonEt = *itMin;
         }
     }
+    // Replay-foundation capture is deliberately wider than the reader-facing
+    // reporting bins.  Keep this as an explicit, fail-closed runtime contract
+    // so a 15 GeV JES3/reporting edge cannot silently erase the lower response
+    // guard population before RJPhotonCandidateV1 is written.  Direct and
+    // writer canary arms receive the same value and therefore remain a valid
+    // scientific-neutrality pair.
+    if (const char* raw = std::getenv("RJ_REPLAY_PHOTON_CAPTURE_ET_MIN"))
+    {
+        try
+        {
+            const double requested = std::stod(detail::trim(std::string(raw)));
+            if (!std::isfinite(requested) || requested < 0.0 || requested >= 15.0)
+            {
+                detail::bail(
+                    "RJ_REPLAY_PHOTON_CAPTURE_ET_MIN must be finite, nonnegative, and below the 15 GeV reporting boundary");
+            }
+            minPhotonEt = requested;
+        }
+        catch (const std::exception&)
+        {
+            detail::bail(
+                "RJ_REPLAY_PHOTON_CAPTURE_ET_MIN must parse as a finite numeric threshold");
+        }
+    }
     
     const bool useSamePhotonBDTScores = true;
     const bool usePPG12PPIsoTowerFloor = !isAuAuLike;
