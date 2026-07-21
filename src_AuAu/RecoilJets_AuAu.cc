@@ -7519,6 +7519,14 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode,int termina
         auto* towers=findNode::getClass<TowerInfoContainer>(topNode,"TOWERINFO_CALIB_CEMC");const int centerEta=static_cast<int>(std::lround(photon->get_shower_shape_parameter("ppg12_shape_center_ieta"))),centerPhi=static_cast<int>(std::lround(photon->get_shower_shape_parameter("ppg12_shape_center_iphi")));
         if(towers&&centerEta>=0&&centerEta<96&&centerPhi>=0)for(int de=-3;de<=3;++de)for(int dp=-3;dp<=3;++dp){ShowerCellRow cell;cell.candidate_id=candidate.id;cell.local_eta_index=de;cell.local_phi_index=dp;const int ie=centerEta+de,ip=(centerPhi+dp+256)%256;cell.tower_key=TowerInfoDefs::encode_emcal(ie,ip);TowerInfo* tower=(ie>=0&&ie<96)?towers->get_tower_at_key(static_cast<unsigned int>(cell.tower_key)):nullptr;cell.calibrated_energy=tower?tower->get_energy():std::numeric_limits<double>::quiet_NaN();cell.is_good=tower&&tower->get_isGood();cell.is_zero=tower&&cell.calibrated_energy==0.0;cell.is_negative=tower&&cell.calibrated_energy<0.0;cell.is_nonfinite=!tower||!std::isfinite(cell.calibrated_energy);cell.seed_state=de==0&&dp==0;cell.denominator_membership=cell.is_good&&std::isfinite(cell.calibrated_energy)&&cell.calibrated_energy>0.0;bundle.shower_cells.push_back(cell);}
         for(double radius:{0.3,0.4}){IsolationWitnessRow witness;witness.candidate_id=candidate.id;witness.isolation_id=makeIdentity(candidate.id.hex()+"|standard_sub1|R"+std::to_string(radius));witness.radius=radius;witness.subtraction_method=2;witness.reconstructed_or_truth=0;witness.cone_sum=eisoForCone(photon,radius);witness.threshold=radius<0.35?(5.97-0.0507*m_centBin):(7.57-0.0658*m_centBin);witness.pass_state=std::isfinite(witness.cone_sum)&&witness.cone_sum<witness.threshold;bundle.isolation_witnesses.push_back(witness);}
+        // PhotonClusterBuilder's registered Au+Au isolation contract uses the
+        // PPG12 COG-tower axis, not the reconstructed cluster axis.  Persist
+        // constituent offsets about that same axis so replayed R=0.3/R=0.4
+        // cones reproduce the runtime witnesses exactly.
+        const double storedIsoEta=photon->get_shower_shape_parameter("ppg12_iso_axis_eta");
+        const double storedIsoPhi=photon->get_shower_shape_parameter("ppg12_iso_axis_phi");
+        const double isoEta=std::isfinite(storedIsoEta)?storedIsoEta:eta;
+        const double isoPhi=std::isfinite(storedIsoPhi)?storedIsoPhi:phi;
         struct CaloNode{std::string raw_towers,sub1_towers;const char* geom;RawTowerDefs::CalorimeterId id;int code,eta_bins,phi_bins;};
         const CaloNode nodes[]={
           {towerPrefix+"_CEMC_RETOWER",towerPrefix+"_CEMC_RETOWER_SUB1","TOWERGEOM_HCALIN",RawTowerDefs::CalorimeterId::HCALIN,0,24,64},
@@ -7561,7 +7569,7 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode,int termina
             const double r=std::hypot(geom->get_center_x(),geom->get_center_y());
             if(!(r>0)){row.quality_state=-3;bundle.isolation_constituents.push_back(row);continue;}
             const double te=std::asinh((std::sinh(geom->get_eta())*r-m_vz)/r),tp=geom->get_phi();
-            const double de=te-eta,dp=TVector2::Phi_mpi_pi(tp-phi),dr=std::hypot(de,dp);
+            const double de=te-isoEta,dp=TVector2::Phi_mpi_pi(tp-isoPhi),dr=std::hypot(de,dp);
             if(!std::isfinite(dr)||dr>=0.4)continue;
             row.delta_eta=de;row.delta_phi=dp;row.delta_r=dr;
             row.calibrated_energy=rawTower->get_energy()/std::cosh(te);
