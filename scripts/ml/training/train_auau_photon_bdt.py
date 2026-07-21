@@ -57,6 +57,22 @@ PPG12_EXACT_SAMPLE_ALIASES = (
 GLOBAL_EVENT_KEY_COLUMNS = ["source_sample", "input_file_index", "run", "evt"]
 GLOBAL_CANDIDATE_KEY_COLUMNS = GLOBAL_EVENT_KEY_COLUMNS + ["input_tree_entry"]
 TRAINING_IDENTITY_OPTIONAL_COLUMNS = ["run", "evt", "global_event_key"]
+LABEL_CONTRACTS = (
+    "extracted-is-signal",
+    "nominal-isolated-prompt",
+    "ppg12-source-role",
+)
+LABEL_CONTRACT_COLUMNS = [
+    "is_signal",
+    "truth_match_found",
+    "truth_photon_class",
+    "truth_is_prompt",
+    "truth_iso_et",
+    "truth_iso_pass",
+    "source_role",
+    "source_sample_code",
+    "ppg12_source_role_label",
+]
 EVENT_QUALITY_DIRECT_COLUMNS = ["centrality", "event_calo_log10_total_energy_plus1"]
 EVENT_QUALITY_COMPONENT_COLUMNS = [
     "event_calo_cemc_energy",
@@ -617,6 +633,165 @@ def infer_source_sample(path: Path) -> str:
     return "unknown"
 
 
+def apply_training_label_contract(frame, contract: str, outdir: Path | None = None):
+    """Audit and apply one of the two THE-107 candidate-label contracts.
+
+    The extraction keeps truth class, truth isolation, and source role as
+    independent fields.  The nominal lane must reproduce the pre-existing
+    isolated-prompt label exactly.  The PPG12-equivalent lane keeps prompt
+    candidates only from photon-source samples and non-prompt candidates only
+    from inclusive-jet samples; truth isolation is deliberately ignored.
+    """
+    import numpy as np
+
+    if contract not in LABEL_CONTRACTS:
+        raise SystemExit(f"Unknown label contract {contract!r}; choices={LABEL_CONTRACTS}")
+    if contract == "extracted-is-signal":
+        if "is_signal" not in frame.columns:
+            raise SystemExit("Extracted-label training requires the is_signal branch")
+        labels = frame["is_signal"].to_numpy(dtype="int32", copy=False)
+        if np.any(~np.isin(labels, [0, 1])):
+            raise SystemExit("Extracted is_signal contains values outside {0,1}")
+        report = {
+            "schema": "AUAU_BDT_EXTRACTED_LABEL_CONTRACT_V1",
+            "contract": contract,
+            "rows_input": int(len(frame)),
+            "rows_kept": int(len(frame)),
+            "rows_discarded": 0,
+            "signal_rows_kept": int((labels == 1).sum()),
+            "background_rows_kept": int((labels == 0).sum()),
+            "truth_isolation_used_by_label": None,
+            "source_role_used_by_label": None,
+            "note": (
+                "Compatibility mode: train from the extracted is_signal branch without "
+                "requiring THE-107 truth/source audit fields."
+            ),
+        }
+        if outdir is not None:
+            outdir.mkdir(parents=True, exist_ok=True)
+            path = outdir / "label_contract_audit.json"
+            path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+            print(f"[OK] wrote label-contract audit: {path}", flush=True)
+        return frame, report
+    missing = [name for name in LABEL_CONTRACT_COLUMNS if name not in frame.columns]
+    if missing:
+        raise SystemExit(
+            "THE-107 label construction requires a fresh extraction with independent truth/source fields; "
+            "missing: " + ", ".join(missing)
+        )
+    if "source_sample" not in frame.columns:
+        raise SystemExit("THE-107 label construction requires source_sample provenance")
+
+    source = frame["source_sample"].astype(str).to_numpy(dtype=object, copy=False)
+    inferred_role = np.zeros(len(frame), dtype="int32")
+    inferred_role[np.char.find(source.astype(str), "embeddedPhoton") >= 0] = 1
+    inferred_role[np.char.find(source.astype(str), "embeddedJet") >= 0] = 2
+    if np.any(inferred_role == 0):
+        unknown = sorted(set(source[inferred_role == 0].tolist()))
+        raise SystemExit(f"THE-107 label contract found unknown source_sample values: {unknown}")
+
+    extracted_role = frame["source_role"].to_numpy(dtype="int32", copy=False)
+    role_mismatch = extracted_role != inferred_role
+    if np.any(role_mismatch):
+        raise SystemExit(
+            "THE-107 extracted source_role disagrees with file provenance for "
+            f"{int(role_mismatch.sum())} rows"
+        )
+
+    photon_class = frame["truth_photon_class"].to_numpy(dtype="int32", copy=False)
+    if np.any(~np.isin(photon_class, [0, 1, 2, 3])):
+        values = sorted(set(photon_class[~np.isin(photon_class, [0, 1, 2, 3])].tolist()))
+        raise SystemExit(f"THE-107 extraction has unresolved truth_photon_class values: {values}")
+    prompt_from_class = np.isin(photon_class, [1, 2])
+    prompt_branch = frame["truth_is_prompt"].to_numpy(dtype="int32", copy=False)
+    if np.any(prompt_branch != prompt_from_class.astype("int32")):
+        raise SystemExit("THE-107 truth_is_prompt branch disagrees with truth_photon_class")
+
+    truth_iso_pass = frame["truth_iso_pass"].to_numpy(dtype="int32", copy=False)
+    if np.any(~np.isin(truth_iso_pass, [0, 1])):
+        raise SystemExit("THE-107 truth_iso_pass contains values outside {0,1}")
+    nominal_extracted = frame["is_signal"].to_numpy(dtype="int32", copy=False)
+    nominal_expected = prompt_from_class & (truth_iso_pass == 1)
+    nominal_mismatch = nominal_extracted != nominal_expected.astype("int32")
+    if np.any(nominal_mismatch):
+        raise SystemExit(
+            "THE-107 nominal-label closure failed: is_signal differs from "
+            f"truth_is_prompt && truth_iso_pass for {int(nominal_mismatch.sum())} rows"
+        )
+
+    ppg12_label = np.full(len(frame), -1, dtype="int32")
+    ppg12_label[(inferred_role == 1) & prompt_from_class] = 1
+    ppg12_label[(inferred_role == 2) & ~prompt_from_class] = 0
+    extracted_ppg12 = frame["ppg12_source_role_label"].to_numpy(dtype="int32", copy=False)
+    contract_mismatch = extracted_ppg12 != ppg12_label
+    if np.any(contract_mismatch):
+        raise SystemExit(
+            "THE-107 extracted ppg12_source_role_label disagrees with recomputation for "
+            f"{int(contract_mismatch.sum())} rows"
+        )
+
+    inventory = []
+    for sample in sorted(set(source.tolist())):
+        sample_mask = source == sample
+        inventory.append(
+            {
+                "source_sample": sample,
+                "rows_input": int(sample_mask.sum()),
+                "nominal_signal": int(np.sum(sample_mask & (nominal_extracted == 1))),
+                "nominal_background": int(np.sum(sample_mask & (nominal_extracted == 0))),
+                "prompt_direct_or_fragmentation": int(np.sum(sample_mask & prompt_from_class)),
+                "truth_isolated_prompt": int(np.sum(sample_mask & nominal_expected)),
+                "ppg12_signal_kept": int(np.sum(sample_mask & (ppg12_label == 1))),
+                "ppg12_background_kept": int(np.sum(sample_mask & (ppg12_label == 0))),
+                "ppg12_discarded": int(np.sum(sample_mask & (ppg12_label < 0))),
+            }
+        )
+
+    report = {
+        "schema": "THE107_AUAU_BDT_LABEL_CONTRACT_AUDIT_V1",
+        "contract": contract,
+        "rows_input": int(len(frame)),
+        "nominal_label_closure_mismatches": int(nominal_mismatch.sum()),
+        "source_role_closure_mismatches": int(role_mismatch.sum()),
+        "ppg12_label_closure_mismatches": int(contract_mismatch.sum()),
+        "truth_isolation_used_by_label": contract == "nominal-isolated-prompt",
+        "source_role_used_by_label": contract == "ppg12-source-role",
+        "inventory": inventory,
+    }
+
+    result = frame.copy()
+    result["nominal_is_signal"] = nominal_extracted
+    if contract == "ppg12-source-role":
+        keep = ppg12_label >= 0
+        result = result.loc[keep].copy()
+        result["is_signal"] = ppg12_label[keep]
+        # A cached PPG12-exact weight was computed from the nominal Au+Au
+        # labels and population.  It is invalid after source-role filtering
+        # and relabeling, even when every stored value is finite and positive.
+        # Remove it here so the ordinary weighting path must recompute class,
+        # eta, and E_T weights globally for the variant contract.
+        if PPG12_EXACT_WEIGHT_COLUMN in result.columns:
+            result = result.drop(columns=[PPG12_EXACT_WEIGHT_COLUMN])
+            report["discarded_stale_precomputed_weight"] = True
+        else:
+            report["discarded_stale_precomputed_weight"] = False
+        report["rows_kept"] = int(keep.sum())
+        report["rows_discarded"] = int((~keep).sum())
+    else:
+        report["discarded_stale_precomputed_weight"] = False
+        report["rows_kept"] = int(len(result))
+        report["rows_discarded"] = 0
+    report["signal_rows_kept"] = int((result["is_signal"].to_numpy(dtype="int32") == 1).sum())
+    report["background_rows_kept"] = int((result["is_signal"].to_numpy(dtype="int32") == 0).sum())
+
+    if outdir is not None:
+        outdir.mkdir(parents=True, exist_ok=True)
+        path = outdir / "label_contract_audit.json"
+        path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+        print(f"[OK] wrote label-contract audit: {path}", flush=True)
+    return result, report
+
+
 def expand_input_paths(items: list[Path]) -> list[Path]:
     paths: list[Path] = []
     for item in items:
@@ -648,6 +823,17 @@ def file_sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def file_provenance(path: Path) -> dict:
+    """Return immutable byte-level provenance for a training cache."""
+
+    stat = path.stat()
+    return {
+        "path": str(path),
+        "sha256": file_sha256(path),
+        "size_bytes": int(stat.st_size),
+    }
 
 
 def load_low_calo_cut(path: Path) -> dict:
@@ -1276,7 +1462,7 @@ def load_frame(
             flush=True,
         )
     for col in optional_columns:
-        if col not in frame.columns:
+        if col not in frame.columns and col != PPG12_EXACT_WEIGHT_COLUMN:
             frame[col] = 1.0
     return frame, sorted(seen_optional)
 
@@ -1322,7 +1508,7 @@ def load_or_build_frame(
         if missing:
             raise SystemExit(f"Training cache {cache_file} is missing required columns: {', '.join(missing)}")
         for col in optional_columns:
-            if col not in frame.columns:
+            if col not in frame.columns and col != PPG12_EXACT_WEIGHT_COLUMN:
                 frame[col] = 1.0
         return frame, ["cache"], True
 
@@ -2240,6 +2426,7 @@ def event_level_train_test_split(frame, x, y, weights, args, metadata: dict):
 
     report = {
         "mode": "event50",
+        "random_seed": seed,
         "event_key_columns": event_key_columns,
         "file_qualified_event_key": event_key_columns == GLOBAL_EVENT_KEY_COLUMNS,
         "unique_events": int(len(unique_keys)),
@@ -2260,6 +2447,63 @@ def event_level_train_test_split(frame, x, y, weights, args, metadata: dict):
         weights[test_mask],
         report,
     )
+
+
+def write_holdout_score_cache(
+    path: Path,
+    frame,
+    holdout_indices,
+    x_holdout,
+    y_holdout,
+    w_holdout,
+    score_holdout,
+    features: list[str],
+) -> None:
+    """Persist the exact held-out rows used by one trained model.
+
+    The cache is deliberately compact but retains the independent THE-107
+    truth/source fields, candidate identity, ordered feature matrix, training
+    weights, and Python XGBoost score.  This makes paired-label validation and
+    Python/TMVA runtime parity reproducible without reconstructing the random
+    row split after training.
+    """
+    import numpy as np
+
+    indices = np.asarray(holdout_indices, dtype="int64")
+    selected = frame.iloc[indices]
+    payload = {
+        "features": np.asarray(features, dtype=object),
+        "x": np.asarray(x_holdout, dtype="float32"),
+        "is_signal": np.asarray(y_holdout, dtype="int8"),
+        "training_weight": np.asarray(w_holdout, dtype="float64"),
+        "score_xgboost": np.asarray(score_holdout, dtype="float32"),
+        "frame_row_index": indices,
+    }
+    audit_columns = [
+        "centrality",
+        "cluster_Et",
+        "cluster_Eta",
+        "truth_match_found",
+        "truth_photon_class",
+        "truth_is_prompt",
+        "truth_iso_et",
+        "truth_iso_pass",
+        "source_role",
+        "source_sample_code",
+        "ppg12_source_role_label",
+        "nominal_is_signal",
+        "source_sample",
+        "input_file_index",
+        "input_tree_entry",
+        "run",
+        "evt",
+    ]
+    for column in audit_columns:
+        if column in selected.columns:
+            payload[column] = selected[column].to_numpy()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(path, **payload)
+    print(f"[OK] wrote exact holdout score cache: {path}", flush=True)
 
 
 def train_one(frame, features: list[str], label_branch: str, output: Path, metadata: dict, args) -> dict | None:
@@ -2319,17 +2563,27 @@ def train_one(frame, features: list[str], label_branch: str, output: Path, metad
     weights, weight_report = compute_weights(frame, label_branch, args)
 
     split_mode = str(getattr(args, "split_mode", "row"))
+    holdout_indices = None
     if split_mode == "event50":
         x_train, x_test, y_train, y_test, w_train, w_test, split_report = event_level_train_test_split(
             frame, x, y, weights, args, metadata
         )
     else:
         stratify = y if min(n_sig, n_bkg) >= 2 else None
-        x_train, x_test, y_train, y_test, w_train, w_test = train_test_split(
-            x, y, weights, test_size=args.test_size, random_state=args.random_seed, stratify=stratify
+        row_indices = np.arange(len(frame), dtype="int64")
+        x_train, x_test, y_train, y_test, w_train, w_test, _train_indices, holdout_indices = train_test_split(
+            x,
+            y,
+            weights,
+            row_indices,
+            test_size=args.test_size,
+            random_state=args.random_seed,
+            stratify=stratify,
         )
         split_report = {
             "mode": "row",
+            "random_seed": int(args.random_seed),
+            "stratified_by_class": stratify is not None,
             "test_fraction_requested": float(args.test_size),
             "train_rows": int(len(y_train)),
             "test_rows": int(len(y_test)),
@@ -2362,6 +2616,20 @@ def train_one(frame, features: list[str], label_branch: str, output: Path, metad
 
     train_pred = model.predict_proba(x_train)[:, 1]
     holdout_pred = model.predict_proba(x_test)[:, 1]
+
+    holdout_cache = None
+    if holdout_indices is not None:
+        holdout_cache = output.with_suffix(".holdout.npz")
+        write_holdout_score_cache(
+            holdout_cache,
+            frame,
+            holdout_indices,
+            x_test,
+            y_test,
+            w_test,
+            holdout_pred,
+            features,
+        )
 
     def safe_auc(y_true, pred, weight) -> float:
         return float(roc_auc_score(y_true, pred, sample_weight=weight)) if len(np.unique(y_true)) == 2 else math.nan
@@ -2470,6 +2738,7 @@ def train_one(frame, features: list[str], label_branch: str, output: Path, metad
         "n_background": n_bkg,
         "auc": auc,
         "training_history_csv": str(history_path),
+        "holdout_score_cache": str(holdout_cache) if holdout_cache is not None else None,
         "overfit_diagnostics": {
             "schema": "AUAU_BDT_OVERFIT_DIAGNOSTICS_V1",
             "train_auc": train_auc,
@@ -2501,6 +2770,9 @@ def train_one(frame, features: list[str], label_branch: str, output: Path, metad
             "grow_policy": args.grow_policy,
             "max_bin": args.max_bin,
             "n_jobs": args.n_jobs,
+            "objective": "binary:logistic",
+            "eval_metric": ["auc", "logloss"],
+            "random_state": int(args.random_seed),
         },
         "background_subsampling": subsample_report,
         "majority_class_optimization": majority_cap_report,
@@ -3687,6 +3959,11 @@ def run_campaign(args) -> int:
             expand_required_columns(
                 [feature for spec in specs for feature in spec["features"]]
                 + ["centrality", "cluster_Et", "cluster_Eta", label_branch]
+                + (
+                    LABEL_CONTRACT_COLUMNS
+                    if args.task == "tight" and args.label_contract != "extracted-is-signal"
+                    else []
+                )
                 + split_columns
                 + event_quality_required
             )
@@ -3724,6 +4001,15 @@ def run_campaign(args) -> int:
         max_load_rows=int(args.max_load_rows or 0),
         load_sample_seed=int(args.load_sample_seed or args.random_seed or 42),
     )
+    cache_input_provenance = None
+    cache_was_rewritten = False
+    if args.cache_file is not None and args.cache_file.is_file():
+        cache_input_provenance = file_provenance(args.cache_file)
+    label_contract_report = None
+    if args.task == "tight":
+        frame, label_contract_report = apply_training_label_contract(
+            frame, args.label_contract, args.outdir
+        )
     event_quality_report = {"enabled": False}
     if event_quality_enabled:
         audit_output = args.event_quality_audit_output
@@ -3765,11 +4051,13 @@ def run_campaign(args) -> int:
                         "source_sample",
                         "input_file_index",
                         "input_tree_entry",
+                        "nominal_is_signal",
                     ]
                     + TRAINING_IDENTITY_OPTIONAL_COLUMNS
                 )
             )
             save_frame_cache(frame, args.cache_file, cache_cols)
+            cache_was_rewritten = True
             print(f"[OK] wrote upstream-filtered training cache: {args.cache_file}", flush=True)
         if args.event_quality_audit_only:
             planned_path.parent.mkdir(parents=True, exist_ok=True)
@@ -3817,17 +4105,24 @@ def run_campaign(args) -> int:
                             "input_file_index",
                             "input_tree_entry",
                             PPG12_EXACT_WEIGHT_COLUMN,
+                            "nominal_is_signal",
                         ]
                         + TRAINING_IDENTITY_OPTIONAL_COLUMNS
                         + split_columns
                     )
                 )
                 save_frame_cache(frame, args.cache_file, cache_cols)
+                cache_was_rewritten = True
                 print(f"[OK] updated training cache with PPG12-exact weights: {args.cache_file}", flush=True)
 
     if args.cache_only:
         write_registry(planned_path, specs, [], args, "CACHE_READY")
         return 0
+
+    cache_final_provenance = cache_input_provenance
+    if args.cache_file is not None and args.cache_file.is_file():
+        if cache_was_rewritten or cache_final_provenance is None:
+            cache_final_provenance = file_provenance(args.cache_file)
 
     common_metadata = {
         "task": args.task,
@@ -3836,8 +4131,11 @@ def run_campaign(args) -> int:
         "optional_branches_seen": optional_seen,
         "loaded_from_cache": from_cache,
         "cache_file": str(args.cache_file) if args.cache_file else None,
+        "cache_input_provenance": cache_input_provenance,
+        "cache_final_provenance": cache_final_provenance,
         "python": sys.version,
         "label_branch": label_branch,
+        "label_contract": label_contract_report,
         "weight_mode": args.weight_mode,
         "ppg12_exact_closure": ppg12_exact_closure,
         "event_quality_filter": event_quality_report,
@@ -3882,6 +4180,17 @@ def main() -> int:
     parser.add_argument("--tight-mode", choices=TIGHT_MODES, default="legacy",
                         help="Tight-BDT training product. centAsFeat3x3 is the centrality-input model with 3x3 shower-width moments.")
     parser.add_argument("--label-branch", default=None)
+    parser.add_argument(
+        "--label-contract",
+        choices=LABEL_CONTRACTS,
+        default="extracted-is-signal",
+        help=(
+            "Candidate-label construction. extracted-is-signal preserves compatibility with "
+            "pre-THE-107 matrices; nominal-isolated-prompt audits and reproduces the existing "
+            "Au+Au label; ppg12-source-role keeps prompt rows only from embedded photon "
+            "sources and non-prompt rows only from embedded inclusive-jet sources."
+        ),
+    )
     parser.add_argument(
         "--missing-label-value",
         type=int,
@@ -4071,7 +4380,19 @@ def main() -> int:
     split_columns = ["run", "evt"] if args.split_mode == "event50" else []
     event_quality_enabled = args.event_quality_cut_json is not None
     event_quality_required = EVENT_QUALITY_DIRECT_COLUMNS + EVENT_QUALITY_COMPONENT_COLUMNS + ["run", "evt"] if event_quality_enabled else []
-    required_columns = sorted(set(features + [label_branch, "centrality"] + split_columns + event_quality_required))
+    required_columns = sorted(
+        set(
+            features
+            + [label_branch, "centrality"]
+            + (
+                LABEL_CONTRACT_COLUMNS
+                if args.task == "tight" and args.label_contract != "extracted-is-signal"
+                else []
+            )
+            + split_columns
+            + event_quality_required
+        )
+    )
     optional_columns = [PPG12_EXACT_WEIGHT_COLUMN] if args.weight_mode == "ppg12-exact" else [args.weight_branch]
     frame, optional_seen = load_frame(
         paths,
@@ -4088,6 +4409,11 @@ def main() -> int:
     )
 
     args.outdir.mkdir(parents=True, exist_ok=True)
+    label_contract_report = None
+    if args.task == "tight":
+        frame, label_contract_report = apply_training_label_contract(
+            frame, args.label_contract, args.outdir
+        )
     event_quality_report = {"enabled": False}
     if event_quality_enabled:
         audit_output = args.event_quality_audit_output or (args.outdir / "event_quality_filter_audit.json")
@@ -4134,6 +4460,7 @@ def main() -> int:
         "optional_branches_seen": optional_seen,
         "python": sys.version,
         "tight_mode": args.tight_mode if args.task == "tight" else None,
+        "label_contract": label_contract_report,
         "weight_mode": args.weight_mode,
         "ppg12_exact_closure": ppg12_exact_closure,
         "event_quality_filter": event_quality_report,
