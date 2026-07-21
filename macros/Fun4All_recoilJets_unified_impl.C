@@ -3911,7 +3911,10 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     // double-interaction contract.  Keep the current RecoilJets binary and
     // release ABI, but reproduce the proven archived subsystem order:
     // G4Hits + DST truth jets, MBD/vertex reconstruction, standard tower
-    // helpers, and Process_Calo_Calib with CaloTowerStatus enabled.
+    // helpers, and Process_Calo_Calib with CaloTowerStatus enabled.  The
+    // current G4 helper publishes TOWERINFO_* rather than the legacy TOWERS_*
+    // nodes used by the deployed release, so status and calibration are
+    // explicitly routed to the equivalent current node family below.
     const bool requestPPG12ArchivedDIG4OnlyReco =
         env_truthy_local("RJ_PPG12_DI_ARCHIVED_RECO_CHAIN");
     if (requestPPG12ArchivedDIG4OnlyReco && !usePPG12PPSimG4OnlyInput)
@@ -4176,6 +4179,11 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         {
             // Preserve the pre-existing non-canary G4-rebuild behavior.
             setenv("RJ_SKIP_CALO_TOWER_STATUS", "1", 1);
+        }
+        else if (usePPG12ArchivedDIG4OnlyReco)
+        {
+            unsetenv("RJ_SKIP_CALO_TOWER_STATUS");
+            setenv("RJ_CALO_TOWER_STATUS_INPUT_PREFIX", "TOWERINFO_", 1);
         }
         else
         {

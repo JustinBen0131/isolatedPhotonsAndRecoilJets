@@ -324,16 +324,28 @@ void Process_Calo_Calib()
   std::cout << "Calibrating EMCal" << std::endl;
   CaloTowerCalib *calibEMC = new CaloTowerCalib("CEMCCALIB");
   calibEMC->set_detector_type(CaloTowerDefs::CEMC);
+  if (useStatusInputPrefix)
+  {
+    calibEMC->set_inputNodePrefix(statusInputPrefix);
+  }
   se->registerSubsystem(calibEMC);
 
   std::cout << "Calibrating OHcal" << std::endl;
   CaloTowerCalib *calibOHCal = new CaloTowerCalib("HCALOUT");
   calibOHCal->set_detector_type(CaloTowerDefs::HCALOUT);
+  if (useStatusInputPrefix)
+  {
+    calibOHCal->set_inputNodePrefix(statusInputPrefix);
+  }
   se->registerSubsystem(calibOHCal);
 
   std::cout << "Calibrating IHcal" << std::endl;
   CaloTowerCalib *calibIHCal = new CaloTowerCalib("HCALIN");
   calibIHCal->set_detector_type(CaloTowerDefs::HCALIN);
+  if (useStatusInputPrefix)
+  {
+    calibIHCal->set_inputNodePrefix(statusInputPrefix);
+  }
   se->registerSubsystem(calibIHCal);
 
   if ((!isSimEmbedded || forceEmbeddedCaloTowerStatus) && auditCalibTowerStatus)
