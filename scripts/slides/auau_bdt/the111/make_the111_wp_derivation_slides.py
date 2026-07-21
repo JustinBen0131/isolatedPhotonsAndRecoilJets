@@ -195,16 +195,20 @@ def draw_wp_legend(
     markersize: float = 5.1,
     linewidth: float = 1.6,
     columnspacing: float = 1.55,
+    ncol: int = 3,
+    order: tuple[str, ...] | None = None,
 ) -> None:
+    # Legend-only ordering. WP_ORDER stays the plotting/draw order; matplotlib
+    # fills legend columns top-to-bottom, so `order` is column-major.
     handles = [
         Line2D([0], [0], marker=WP_MARKERS[wp], color=WP_COLORS[wp], lw=linewidth, markersize=markersize, label=f"{wp}  {int(100 * {'WP90': .9, 'WP80': .8, 'WP70': .7}[wp])}%")
-        for wp in WP_ORDER
+        for wp in (order or WP_ORDER)
     ]
     fig.legend(
         handles=handles,
         loc="center",
         bbox_to_anchor=(x, y),
-        ncol=3,
+        ncol=ncol,
         frameon=False,
         fontsize=fontsize,
         handletextpad=0.45,
@@ -218,24 +222,82 @@ def render_slide11(payload: dict) -> list[dict]:
         fig,
         "Flat fits define one BDT threshold per centrality interval",
         r"Corrected 14-feature Au+Au candidate: eight $E_T^{\gamma}$ points in $15\leq E_T^{\gamma}<35$ GeV are compressed to one threshold per centrality interval.",
-        plain_detail=CLEAN_LAYOUT,
-        detail_fontsize=16.4 if CLEAN_LAYOUT else 14.6,
+        # Clean layout drops the shaded panel and adopts slide 12's blue
+        # arrowhead subtitle convention rather than a bare line.
+        boxed_detail=not CLEAN_LAYOUT,
+        detail_fontsize=18.5 if CLEAN_LAYOUT else 14.6,
+        title_fontsize=28.0 if CLEAN_LAYOUT else 27.0,
+        detail_y=0.859 if CLEAN_LAYOUT else 0.870,
     )
     if CLEAN_LAYOUT:
         # Larger panel type to match the enlarged axes.
         plt.rcParams.update({"axes.labelsize": 18.5, "xtick.labelsize": 15.0, "ytick.labelsize": 15.0})
-        draw_wp_legend(fig, 0.760, 0.795, fontsize=18.0, markersize=9.0, linewidth=2.7, columnspacing=2.1)
-        # The scatter about each constant fit runs 12-89x the per-point
-        # statistical error (median 29x), so the residual E_T structure is real
-        # and the flat fit is stated as interim rather than as a description.
-        fig.text(0.052, 0.795, r"$E_T^{\gamma}$ dependence is still under study; flat fits interpolate one threshold per centrality for now.", fontsize=14.6, color=MUTED, va="center")
-        # Four over three, bottom row centred on the same column pitch.
+        # Second arrowhead bullet.  The scatter about each constant fit runs
+        # 12-89x the per-point statistical error (median 29x), so the residual
+        # E_T structure is real and the flat fit is stated as interim.
+        fig.text(0.058, 0.800, "▶", ha="left", va="center", fontsize=14.5, color=BLUE_BULLET, fontfamily="DejaVu Sans")
+        fig.text(
+            0.079,
+            0.800,
+            r"$E_T^{\gamma}$ dependence is still under study; flat fits interpolate one threshold per centrality for now.",
+            fontsize=18.5,
+            color=INK,
+            va="center",
+        )
+        # Four over three, bottom row LEFT-ALIGNED with the top row so the
+        # first column is flush; the freed bottom-right cell holds the legend.
         panel_w, panel_h = 0.207, 0.285
         top_y, bottom_y = 0.445, 0.085
         top_x = [0.050, 0.281, 0.512, 0.743]
-        bottom_x = [0.1655, 0.3965, 0.6275]
+        bottom_x = [0.050, 0.281, 0.512]
         positions = [(x, top_y) for x in top_x] + [(x, bottom_y) for x in bottom_x]
         title_fs, marker_s = 17.5, 5.6
+
+        # Legend panel in the vacated bottom-right cell: outline only, no fill.
+        key_x0, key_y0, key_w, key_h = 0.743, 0.172, 0.207, 0.153
+        fig.add_artist(
+            FancyBboxPatch(
+                (key_x0, key_y0),
+                key_w,
+                key_h,
+                transform=fig.transFigure,
+                boxstyle="round,pad=0.004,rounding_size=0.006",
+                facecolor="none",
+                edgecolor="#c3cfdd",
+                linewidth=1.25,
+            )
+        )
+        fig.text(
+            key_x0 + key_w / 2.0,
+            key_y0 + key_h - 0.030,
+            "Working point",
+            ha="center",
+            va="center",
+            fontsize=17.0,
+            weight="bold",
+            color=INK,
+        )
+        fig.text(
+            key_x0 + key_w / 2.0,
+            key_y0 + key_h - 0.062,
+            "(target signal efficiency)",
+            ha="center",
+            va="center",
+            fontsize=13.8,
+            color=MUTED,
+        )
+        draw_wp_legend(
+            fig,
+            key_x0 + key_w / 2.0,
+            key_y0 + 0.048,
+            fontsize=14.0,
+            markersize=8.0,
+            linewidth=2.4,
+            columnspacing=1.0,
+            ncol=2,
+            # Column-major: WP70 top-left, WP90 beneath it, WP80 top-right.
+            order=("WP70", "WP90", "WP80"),
+        )
     else:
         draw_wp_legend(fig, 0.758, 0.789)
         fig.text(0.052, 0.788, "Points show fixed signal-efficiency thresholds; lines are inverse-variance weighted constant fits.", fontsize=12.1, color=MUTED)
@@ -322,11 +384,21 @@ def render_slide12(payload: dict) -> list[dict]:
     title_and_band(
         fig,
         "Centrality-dependent WP80 candidate threshold",
-        r"Seven WP80 thresholds from $15\leq E_T^{\gamma}<35$ GeV are interpolated versus centrality to define one frozen candidate surface.",
+        "Seven WP80 thresholds are interpolated versus centrality to define a tight BDT cut that maintains ~80% signal efficiency.",
         title_fontsize=30.5,
-        detail_fontsize=18.8,
+        detail_fontsize=17.5,
         boxed_detail=False,
-        detail_y=0.842,
+        detail_y=0.859,
+    )
+    # Second arrowhead bullet, matching the slide 10/11 two-bullet header.
+    fig.text(0.058, 0.809, "▶", ha="left", va="center", fontsize=14.5, color=BLUE_BULLET, fontfamily="DejaVu Sans")
+    fig.text(
+        0.079,
+        0.809,
+        "See previous JSTG slides: same method as the Au+Au isolated/non-isolated definition, applied to the BDT score.",
+        fontsize=17.5,
+        color=INK,
+        va="center",
     )
     fits = {row["wp_label"]: row for row in payload["continuous_fits"]}
     x_line = np.linspace(0.0, 80.0, 401)
@@ -366,29 +438,28 @@ def render_slide12(payload: dict) -> list[dict]:
     decorate(ax)
     ax.legend(loc="upper left", ncol=2, fontsize=9.5, frameon=True, framealpha=0.95, edgecolor="#d3dce8", borderpad=0.55, labelspacing=0.45)
 
-    add_box(fig, (0.695, 0.462, 0.255, 0.303), face="#eefbf4", edge="#65b98c", lw=1.25)
-    fig.text(0.716, 0.726, "Candidate tight selection", fontsize=16.2, color=INK, weight="bold")
-    fig.text(0.716, 0.677, "WP80 centrality surface", fontsize=12.7, color=MUTED)
+    # Outline-only card spanning the same vertical extent as the plot axes
+    # (0.240-0.765), with the interpolation-check card removed and the text
+    # redistributed over the reclaimed height.
+    add_box(fig, (0.695, 0.240, 0.255, 0.525), face="none", edge="#65b98c", lw=1.4)
+    fig.text(0.716, 0.715, "Candidate tight selection", fontsize=19.0, color=INK, weight="bold")
+    fig.text(0.716, 0.665, "Centrality-dependent BDT cut,", fontsize=14.8, color=MUTED)
+    fig.text(0.716, 0.632, "nominally 80% target efficiency", fontsize=14.8, color=MUTED)
     # The source/notes retain the full coefficients; the audience-facing card
     # uses a readable rounded display without crowding the right boundary.
-    fig.text(0.716, 0.627, r"$T_{80}^{\rm cand}(c)=0.5544+0.001550\,c$", fontsize=15.1, color="#16885d", weight="bold")
-    fig.text(0.716, 0.571, r"Training range:  $15\leq E_T^{\gamma}<35$ GeV", fontsize=12.6, color=INK)
-    fig.text(0.716, 0.529, r"Tight selection:  score $>T_{80}^{\rm cand}(c)$", fontsize=12.6, color=INK)
-    fig.text(0.716, 0.484, "Defined from simulation; data application is separate.", fontsize=10.8, color=MUTED)
-
-    wp80 = fits["WP80"]
-    add_box(fig, (0.695, 0.258, 0.255, 0.160), face="#fbfcfe", edge="#d5dee9", lw=1.0)
-    fig.text(0.716, 0.378, "WP80 interpolation check", fontsize=16.0, color=INK, weight="bold")
-    fig.text(0.716, 0.326, "RMS residual", fontsize=13.6, color=INK)
-    fig.text(0.928, 0.326, f"{wp80['rms_residual']:.5f}", fontsize=13.6, color=INK, ha="right")
-    fig.text(0.716, 0.280, "Maximum residual", fontsize=13.6, color=INK)
-    fig.text(0.928, 0.280, f"{wp80['max_abs_residual']:.5f}", fontsize=13.6, color=INK, ha="right")
+    fig.text(0.716, 0.566, r"$T_{80}^{\rm cand}(c)=0.5544+0.001550\,c$", fontsize=15.6, color="#16885d", weight="bold")
+    fig.text(0.716, 0.492, r"Training range:  $15\leq E_T^{\gamma}<35$ GeV", fontsize=15.0, color=INK)
+    fig.text(0.716, 0.432, r"Tight selection:  score $>T_{80}^{\rm cand}(c)$", fontsize=15.0, color=INK)
+    # Provenance: the thresholds are fixed signal-efficiency quantiles taken on
+    # the THE-111 candidate-row holdout of the embedded prompt-photon sample.
+    fig.text(0.716, 0.340, "Points measured on held-out", fontsize=13.2, color=MUTED)
+    fig.text(0.716, 0.302, "embedded signal MC.", fontsize=13.2, color=MUTED)
 
     add_box(fig, (0.075, 0.040, 0.875, 0.085), face="#f8fafc", edge="#d5dee9", lw=0.9, radius=0.003)
     fig.text(
         0.512,
         0.094,
-        "This centrality-dependent WP80 surface defines the candidate BDT cut.",
+        "Current non-tight region is the complement of tight; defining a bounded sideband is active analysis work.",
         fontsize=16.4,
         color=INK,
         weight="bold",
@@ -397,7 +468,7 @@ def render_slide12(payload: dict) -> list[dict]:
     fig.text(
         0.512,
         0.060,
-        "The non-tight sideband is being tuned using BDT–isolation interdependence; work in progress.",
+        "The complement admits prompt leakage and strains the tight/isolation independence assumed for the ABCD background.",
         fontsize=15.8,
         color=MUTED,
         ha="center",
@@ -512,6 +583,11 @@ def main() -> None:
         help="render only slide 11; leaves slide 12, CSV, notes, and manifest untouched",
     )
     parser.add_argument(
+        "--slide12-only",
+        action="store_true",
+        help="render only slide 12; leaves slide 11, CSV, notes, and manifest untouched",
+    )
+    parser.add_argument(
         "--clean-layout",
         action="store_true",
         help="slide 11 audience layout: no header panel, no threshold table, larger symmetric panels, larger legend",
@@ -537,6 +613,10 @@ def main() -> None:
         raise SystemExit("THE-111 payload does not have expected 8×7×3 working-point coverage")
     OUTDIR.mkdir(parents=True, exist_ok=True)
     configure()
+    if args.slide12_only:
+        render_slide12(payload)
+        print(SLIDE12_CLEANED)
+        return
     layout11 = render_slide11(payload)
     if args.slide11_only:
         print(SLIDE11)

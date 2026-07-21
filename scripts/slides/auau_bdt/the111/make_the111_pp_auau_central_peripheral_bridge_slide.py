@@ -60,6 +60,8 @@ CENTRAL_FILL = "#fff6f4"
 PERIPHERAL_EDGE = "#2f8f68"
 PERIPHERAL_FILL = "#f2faf5"
 ACCENT = "#2474b8"
+# Shared JSTG subtitle-arrowhead convention (THE-111 slides 11/12).
+BLUE_BULLET = "#2468A8"
 PP_AUC_EXPECTED = 0.934245502817205
 
 # Text drawn after the italic bold "sPHENIX" tag on every plotted canvas.
@@ -216,8 +218,8 @@ def make_slide(pp: dict[str, object], auau: list[dict[str, object]]) -> None:
     fig.text(
         0.050,
         0.936,
-        "Peripheral Au+Au recovers two-thirds of the central-to-pp ranking gap",
-        fontsize=27.0,
+        "Au+Au vs pp photon BDT: 0–20% and 50–80% simulation validation",
+        fontsize=29.5,
         weight="bold",
         color=INK,
         va="top",
@@ -235,23 +237,37 @@ def make_slide(pp: dict[str, object], auau: list[dict[str, object]]) -> None:
             linewidth=1.05,
         )
         fig.add_artist(ribbon)
-    fig.text(
-        0.071,
-        0.866,
-        "Unified calibrated-tower shower shapes + PPG12 source-role labels",
-        fontsize=17.0,
-        weight="bold",
-        color=INK,
-        va="center",
-    )
-    fig.text(
-        0.071,
-        0.842,
-        "Native score shapes are shown for context; ROC/AUC is the cross-system ranking comparison.",
-        fontsize=14.2,
-        color=MUTED,
-        va="center",
-    )
+    # Two arrowhead bullets, centred in the band between the title ink and the
+    # legend, using the shared JSTG convention (THE-111 slides 11/12).
+    bullets = [
+        (
+            0.858,
+            r"Au+Au is pp's 11 baseV3E features + $w_{\eta|\phi}^{3\times3}$ + centrality",
+        ),
+        (
+            0.8055,
+            r"Both pp/Au+Au trained using personal analysis code, 15–35 GeV, $|\eta|<0.7$ (not PPG12 BDT)",
+        ),
+    ]
+    for bullet_y, bullet_text in bullets:
+        fig.text(
+            0.050,
+            bullet_y,
+            "▶",
+            fontsize=15.0,
+            color=BLUE_BULLET,
+            ha="left",
+            va="center",
+            fontfamily="DejaVu Sans",
+        )
+        fig.text(
+            0.071,
+            bullet_y,
+            bullet_text,
+            fontsize=17.5,
+            color=INK,
+            va="center",
+        )
 
     legend = [
         Line2D([0], [0], color=SIGNAL, lw=3.0, ls="-", label="pp signal"),
@@ -262,7 +278,7 @@ def make_slide(pp: dict[str, object], auau: list[dict[str, object]]) -> None:
     fig.legend(
         handles=legend,
         loc="upper center",
-        bbox_to_anchor=(0.535, 0.818),
+        bbox_to_anchor=(0.535, 0.792),
         ncol=4,
         frameon=False,
         fontsize=14.4,
@@ -288,11 +304,15 @@ def make_slide(pp: dict[str, object], auau: list[dict[str, object]]) -> None:
                 zorder=-10,
             )
         )
+        # Title band holds the label alone; the AUC / WP80 numbers already
+        # appear in the ROC legend and gap box below.  Band shortened and the
+        # label enlarged, centred with a small even buffer top and bottom.
+        band_y0, band_h = 0.674, 0.062
         fig.add_artist(
             FancyBboxPatch(
-                (x, 0.665),
+                (x, band_y0),
                 0.425,
-                0.071,
+                band_h,
                 transform=fig.transFigure,
                 boxstyle="round,pad=0.009,rounding_size=0.006",
                 facecolor=fill,
@@ -301,13 +321,13 @@ def make_slide(pp: dict[str, object], auau: list[dict[str, object]]) -> None:
                 zorder=-9,
             )
         )
-        fig.text(x + 0.020, 0.713, f"{block['label']} {label} vs pp", fontsize=17.7, weight="bold", color=INK, va="center")
         fig.text(
             x + 0.020,
-            0.683,
-            f"AUC {block['auc']:.3f}   |   WP80 background acceptance {100.0 * block['wp80_background_acceptance']:.1f}%",
-            fontsize=13.6,
-            color=MUTED,
+            band_y0 + band_h / 2.0,
+            f"{block['label']} {label} vs pp",
+            fontsize=21.5,
+            weight="bold",
+            color=INK,
             va="center",
         )
 
@@ -355,7 +375,7 @@ def make_slide(pp: dict[str, object], auau: list[dict[str, object]]) -> None:
     roc_axes[0].text(
         0.965,
         0.075,
-        f"AUC gap to pp: {central_gap:.3f}\ncentral environment",
+        f"AUC gap to pp: {central_gap:.3f}",
         transform=roc_axes[0].transAxes,
         ha="right",
         va="bottom",
