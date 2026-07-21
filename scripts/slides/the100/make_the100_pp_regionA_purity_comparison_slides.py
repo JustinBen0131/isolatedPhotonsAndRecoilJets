@@ -269,8 +269,10 @@ def draw_slide(
         1,
         left=0.090,
         right=0.972,
-        top=0.805,
-        bottom=0.145,
+        # Lowered from 0.805 now that the caption moved up under the title, and
+        # extended to the bottom margin the caption used to occupy.
+        top=0.780,
+        bottom=0.088,
         hspace=0.28,
         height_ratios=(0.95, 1.05),
     )
@@ -283,9 +285,29 @@ def draw_slide(
         f"{cent_label.replace('--', '–')} Au+Au and p+p: Region-A yield and photon purity",
         ha="left",
         va="top",
-        fontsize=30.5,
+        fontsize=34.5,
         fontweight="bold",
         color=INK,
+    )
+    # Shared JSTG subtitle-arrowhead convention: DejaVu Sans "▶" in #2468A8
+    # with a 0.021-figure-width hanging indent.
+    fig.text(0.054, 0.862, "▶", ha="left", va="center", fontsize=15.0, color="#2468A8", fontfamily="DejaVu Sans")
+    # Deck convention: bold "Label:" then regular body.  The body is placed one
+    # space after the label's measured right edge so the two read as one line.
+    subtitle_label = fig.text(
+        0.075, 0.862, "Top panel:", fontsize=20.0, color=INK, ha="left", va="center", fontweight="bold"
+    )
+    fig.canvas.draw()
+    label_right = subtitle_label.get_window_extent(renderer=fig.canvas.get_renderer()).x1
+    body_x = fig.transFigure.inverted().transform((label_right, 0))[0] + 0.006
+    fig.text(
+        body_x,
+        0.862,
+        r"counts divided by $E_T$ bin width only; compare the purity curves, not the yield offset.",
+        fontsize=20.0,
+        color=INK,
+        ha="left",
+        va="center",
     )
 
     errorbar(
@@ -323,7 +345,7 @@ def draw_slide(
     ax_yield.set_title("Raw tight-and-isolated Region-A candidates", fontsize=19.0, fontweight="bold", pad=9, color=INK)
     ax_yield.grid(True, which="major", color=GRID, linewidth=0.9, alpha=0.90)
     ax_yield.grid(True, which="minor", axis="y", color="#E8EEF5", linewidth=0.55, alpha=0.65)
-    ax_yield.legend(loc="upper right", frameon=False, fontsize=14.0, handlelength=1.2)
+    ax_yield.legend(loc="upper right", frameon=False, fontsize=20.0, handlelength=1.5, handletextpad=0.6, labelspacing=0.55)
     ax_yield.text(0.018, 0.625, r"$\it{\bf{sPHENIX}}$ Internal", transform=ax_yield.transAxes, ha="left", va="top", fontsize=14.0)
     ax_yield.text(0.018, 0.515, r"$\sqrt{s_{NN}}=200$ GeV", transform=ax_yield.transAxes, ha="left", va="top", fontsize=12.7, color=MUTED)
     plt.setp(ax_yield.get_xticklabels(), visible=False)
@@ -396,29 +418,22 @@ def draw_slide(
     # Keep clear headroom above the purity points so the two-column legend
     # remains visually separate from the plotted measurements.
     purity_high = max(1.10, max(all_high) + 0.05)
-    ax_purity.set_ylim(max(-0.35, purity_low), min(1.45, purity_high))
+    # Headroom to 1.60.  The highest drawn purity point is 0.9402 including its
+    # error bar (pp corrected, 24-26 GeV); at 1.42 the enlarged two-row legend
+    # came within a few pixels of it, so the axis is opened further.
+    ax_purity.set_ylim(max(-0.35, purity_low), 1.60)
     ax_purity.set_xlim(14.2, 35.8)
     ax_purity.set_ylabel("Photon purity", fontsize=17.0)
     ax_purity.set_xlabel(r"reconstructed photon $E_T$ [GeV]", fontsize=17.0, labelpad=8)
     ax_purity.set_title("Raw and signal-leakage-corrected ABCD purity", fontsize=19.0, fontweight="bold", pad=9, color=INK)
     ax_purity.grid(True, which="major", color=GRID, linewidth=0.9, alpha=0.90)
     ax_purity.axhline(1.0, color="#A8B3C1", linestyle=(0, (4, 4)), linewidth=1.0, zorder=0)
-    ax_purity.legend(loc="upper left", bbox_to_anchor=(0.015, 0.985), ncol=2, frameon=False, fontsize=13.2, handlelength=1.2, columnspacing=1.7)
+    ax_purity.legend(loc="upper left", bbox_to_anchor=(0.015, 0.985), ncol=2, frameon=False, fontsize=20.0, handlelength=1.5, columnspacing=2.4, handletextpad=0.6, labelspacing=0.55)
     for ax in (ax_yield, ax_purity):
         ax.tick_params(which="both", labelsize=13.0, length=6)
         ax.tick_params(which="minor", length=3)
         ax.minorticks_on()
 
-    fig.text(0.052, 0.065, r"$\blacktriangleright$", fontsize=15.0, color=INK, ha="left", va="center")
-    fig.text(
-        0.076,
-        0.065,
-        r"Counts use each system's native $E_T$ bins and are not exposure normalized; compare the purity curves directly.",
-        fontsize=15.0,
-        color=INK,
-        ha="left",
-        va="center",
-    )
     fig.savefig(output, dpi=160, facecolor="white")
     plt.close(fig)
     return output

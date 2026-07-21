@@ -10,6 +10,7 @@ histograms as the nominal Au+Au selection.
 from __future__ import annotations
 
 import hashlib
+import argparse
 import json
 from pathlib import Path
 
@@ -23,6 +24,11 @@ from matplotlib.patches import FancyBboxPatch, Rectangle
 REPO = Path(__file__).resolve().parents[3]
 OUTDIR = REPO / "dataOutput/slides/the45_jstg_20260720/the100_complement_isolation_templates"
 PNG = OUTDIR / "the100_complement_isolation_template_comparison_pp_current_auau_sliding.png"
+# Left edge of the Au+Au panels.  Au+Au isolation runs negative from
+# underlying-event subtraction; the 0.1% left quantile reaches -16.2 GeV in
+# 0-20% signal MC, so -18 contains every component.  Pass --auau-xmin -2 to
+# reproduce the original crop.
+AUAU_XMIN = -18.0
 MANIFEST = OUTDIR / "the100_complement_isolation_template_comparison_manifest.json"
 SPEAKER = OUTDIR / "the100_complement_isolation_template_comparison_speaker_script.md"
 LAYOUT = OUTDIR / "the100_complement_isolation_template_comparison_layout_nodes.json"
@@ -48,7 +54,7 @@ DATA_TOP = "MBD_NS_geq_2_vtx_lt_150"
 SIM_TOP = "SIM"
 PP_BINS = ("16_18", "18_20", "20_22", "22_24", "24_26", "26_35")
 AUAU_BINS = ("15_17", "17_19", "19_21", "21_23", "23_26", "26_35")
-CENTRALITIES = (("0_20", "0--20%"), ("20_50", "20--50%"), ("50_80", "50--80%"))
+CENTRALITIES = (("0_20", "0–20%"), ("20_50", "20–50%"), ("50_80", "50–80%"))
 
 INK = "#142235"
 MUTED = "#52657A"
@@ -194,21 +200,38 @@ def draw_panel(ax: plt.Axes, result: dict[str, np.ndarray | float], title: str, 
     draw_band(ax, edges, bkg, bkg + signal, BLUE_FILL, BLUE_EDGE, "Signal MC")
     ax.errorbar(centres, tight, yerr=errors, fmt="o", color=BLACK, ecolor=BLACK, markersize=3.8, markeredgecolor="white", markeredgewidth=0.45, elinewidth=0.85, zorder=5, label="tight-photon data")
     ymax = max(float(np.max(tight + errors)), float(np.max(bkg + signal)))
-    ax.set_xlim(-2, 15)
+    # pp has almost no UE subtraction, so it keeps the tight -2 GeV left edge.
+    ax.set_xlim(-2 if pp else AUAU_XMIN, 15)
     ax.set_ylim(0, ymax * 1.24)
     ax.set_title(title, fontsize=17.0, fontweight="bold", pad=7, color=INK)
     ax.set_xlabel(r"$E_T^{\mathrm{iso,reco}}\;[\mathrm{GeV}]$", fontsize=12.5)
     ax.tick_params(which="both", direction="in", top=True, right=True, labelsize=10.5, length=5)
     ax.tick_params(which="minor", length=2.6)
     ax.minorticks_on()
-    ax.text(0.94, 0.92, r"$\it{\bf{sPHENIX}}$ Internal", transform=ax.transAxes, ha="right", va="top", fontsize=11.0)
-    ax.text(0.94, 0.82, collision, transform=ax.transAxes, ha="right", va="top", fontsize=10.0)
-    ax.text(0.94, 0.73, pt, transform=ax.transAxes, ha="right", va="top", fontsize=10.0)
+    # pp keeps the right-hand stamp; Au+Au moves it to the empty top-left so it
+    # clears the now-centred distribution, and tightens the line spacing.
     if pp:
+        ax.text(0.94, 0.92, r"$\it{\bf{sPHENIX}}$ Internal", transform=ax.transAxes, ha="right", va="top", fontsize=11.0)
+        ax.text(0.94, 0.82, collision, transform=ax.transAxes, ha="right", va="top", fontsize=10.0)
+        ax.text(0.94, 0.73, pt, transform=ax.transAxes, ha="right", va="top", fontsize=10.0)
         ax.text(0.94, 0.64, r"$|\eta^\gamma|<0.7$", transform=ax.transAxes, ha="right", va="top", fontsize=10.0)
+    else:
+        ax.text(0.035, 0.945, r"$\it{\bf{sPHENIX}}$ Internal", transform=ax.transAxes, ha="left", va="top", fontsize=10.5)
+        ax.text(0.035, 0.877, collision, transform=ax.transAxes, ha="left", va="top", fontsize=9.4)
+        ax.text(0.035, 0.815, pt, transform=ax.transAxes, ha="left", va="top", fontsize=9.4)
 
 
 def main() -> int:
+    global AUAU_XMIN, PNG
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--auau-xmin", type=float, default=-18.0,
+                        help="Left edge of the AuAu panels; use -14 to show the full UE-subtraction tail.")
+    parser.add_argument("--variant-suffix", default="",
+                        help="Suffix appended to the output filenames, e.g. '_fulltail'.")
+    args = parser.parse_args()
+    AUAU_XMIN = args.auau_xmin
+    if args.variant_suffix:
+        PNG = PNG.with_name(f"{PNG.stem}{args.variant_suffix}{PNG.suffix}")
     OUTDIR.mkdir(parents=True, exist_ok=True)
     pp_data = current_root("pp_data_merged")
     pp_signal = current_root("pp_sim_photonjet_merged")
@@ -221,21 +244,25 @@ def main() -> int:
     plt.rcParams.update({"font.family": "serif", "font.serif": ["Times New Roman", "Times", "DejaVu Serif"], "mathtext.fontset": "dejavuserif", "axes.linewidth": 1.15})
     fig = plt.figure(figsize=(16, 9), dpi=160)
     fig.patch.set_facecolor("white")
-    fig.text(0.050, 0.953, "Isolation comparisons in p+p and Au+Au", ha="left", va="top", fontsize=31.0, fontweight="bold", color=INK)
-    fig.text(0.051, 0.884, "Tail-normalized data control and prompt-photon simulation across p+p and Au+Au centrality.", ha="left", va="top", fontsize=17.0, color=INK)
-    fig.legend(handles=[Line2D([0],[0], marker="o", color=BLACK, markerfacecolor=BLACK, linestyle="", label="Tight-photon data"), Rectangle((0,0),1,1, facecolor=RED_FILL, edgecolor=RED_EDGE, label="Non-tight data control"), Rectangle((0,0),1,1, facecolor=BLUE_FILL, edgecolor=BLUE_EDGE, label="Signal MC")], loc="upper center", bbox_to_anchor=(0.50,0.838), ncol=3, frameon=False, fontsize=15.0, handlelength=1.45, columnspacing=2.2)
+    fig.text(0.050, 0.953, "Isolation comparisons in p+p and Au+Au", ha="left", va="top", fontsize=34.5, fontweight="bold", color=INK)
+    # Shared JSTG subtitle-arrowhead convention: DejaVu Sans "#2468A8" arrowhead
+    # with a 0.021-figure-width hanging indent.
+    # Centred between the title's ink bottom and the legend's ink top.
+    fig.text(0.052, 0.857, "▶", ha="left", va="center", fontsize=15.5, color="#2468A8", fontfamily="DejaVu Sans")
+    fig.text(0.073, 0.857, "Tail-normalized data control and prompt-photon simulation across p+p and Au+Au centrality.", ha="left", va="center", fontsize=20.0, color=INK)
+    fig.legend(handles=[Line2D([0],[0], marker="o", color=BLACK, markerfacecolor=BLACK, linestyle="", label="Tight-photon data"), Rectangle((0,0),1,1, facecolor=RED_FILL, edgecolor=RED_EDGE, label="Non-tight data control"), Rectangle((0,0),1,1, facecolor=BLUE_FILL, edgecolor=BLUE_EDGE, label="Signal MC")], loc="upper center", bbox_to_anchor=(0.50,0.836), ncol=3, frameon=False, fontsize=20.0, handlelength=1.7, columnspacing=3.0, handletextpad=0.7)
     axes = fig.subplots(1, 4, gridspec_kw={"left":0.060,"right":0.982,"bottom":0.245,"top":0.735,"wspace":0.28})
     draw_panel(axes[0], pp, r"$p{+}p$", r"$p{+}p\;\sqrt{s}=200\;\mathrm{GeV}$", r"$16<E_T^\gamma<35\;\mathrm{GeV}$", pp=True)
     for ax, (label, result, _) in zip(axes[1:], auau):
         draw_panel(ax, result, f"Au+Au {label}", r"$\mathrm{Au+Au}\;\sqrt{s_{NN}}=200\;\mathrm{GeV}$", r"$15<E_T^\gamma<35\;\mathrm{GeV}$")
     axes[0].set_ylabel("Counts / Bin Width", fontsize=14.0)
-    fig.text(0.050, 0.155, r"$\blacktriangleright$", fontsize=15.4, color=INK)
-    fig.text(0.072, 0.155, "Prompt-photon simulation: Photon5+10+20 in p+p; embedded Photon12+20 in Au+Au.", fontsize=16.0, color=INK)
-    fig.text(0.050, 0.084, r"$\blacktriangleright$", fontsize=15.4, color=INK)
-    fig.text(0.072, 0.084, "Canonical Au+Au isolation:", fontsize=16.0, color=INK, fontweight="bold")
-    equation_box = FancyBboxPatch((0.333, 0.043), 0.620, 0.074, boxstyle="round,pad=0.008,rounding_size=0.008", transform=fig.transFigure, facecolor="#F8FBFF", edgecolor="#9CB8D8", linewidth=1.05)
-    fig.patches.append(equation_box)
-    fig.text(0.643, 0.080, r"$E_T^{\mathrm{iso}}(R=0.4)<\left(7.57-0.0658\,c\right)\ \mathrm{GeV},\qquad c=\mathrm{centrality\ percentile}$", ha="center", va="center", fontsize=16.7, color=INK)
+    # Data specification: no bullet, centred, above the boxed cut definition.
+    # Centred in the band between the panel x-axis titles (ink ends at NDC
+    # 0.193) and the cut definition below.
+    fig.text(0.500, 0.168, "Prompt-photon simulation: Photon5+10+20 in p+p; embedded Photon12+20 in Au+Au.", ha="center", va="center", fontsize=18.5, color=INK)
+    # Cut label and equation kept, drawn without the surrounding panel.
+    fig.text(0.500, 0.106, "Au+Au sliding isolation cut:", ha="center", va="center", fontsize=17.0, color=INK, fontweight="bold")
+    fig.text(0.500, 0.052, r"$E_T^{\mathrm{iso}}(R=0.4)<\left(7.57-0.0658\,c\right)\ \mathrm{GeV},\qquad c=\mathrm{centrality\ percentile}$", ha="center", va="center", fontsize=16.7, color=INK)
     fig.savefig(PNG, dpi=160)
     plt.close(fig)
 
