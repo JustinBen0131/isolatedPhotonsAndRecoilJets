@@ -13,6 +13,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import uproot
 import xgboost as xgb
 from sklearn.metrics import roc_auc_score
 
@@ -42,6 +43,7 @@ BACKGROUND_SOURCES = {"run28_jet8", "run28_jet12", "run28_jet20", "run28_jet30"}
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cache", type=Path, required=True)
+    parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--candidate-registry", type=Path, required=True)
     parser.add_argument("--control-registry", type=Path, required=True)
     parser.add_argument("--outdir", type=Path, required=True)
@@ -55,6 +57,92 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--surface-max-residual", type=float, default=0.025)
     parser.add_argument("--surface-max-efficiency-error", type=float, default=0.02)
     return parser.parse_args()
+
+
+def manifest_domain_audit(
+    manifest: Path,
+    observed_sources: set[str],
+    pt_low: float,
+    pt_high: float,
+) -> dict:
+    """Prove source coverage without requiring zero-support sources in the cache.
+
+    The frozen pp manifest contains Jet8, but its reconstructed-candidate
+    ownership ends below the 15 GeV model boundary.  The capped training cache
+    therefore need not contain Jet8 rows.  Any expected source absent from the
+    in-domain cache is scanned directly and is accepted only when it has zero
+    rows in the certified model domain.
+    """
+    expected = SIGNAL_SOURCES | BACKGROUND_SOURCES
+    paths_by_source: dict[str, list[Path]] = {source: [] for source in expected}
+    unmatched_paths: list[str] = []
+    for raw in manifest.read_text().splitlines():
+        raw = raw.strip()
+        if not raw or raw.startswith("#"):
+            continue
+        matches = [source for source in expected if f"/{source}/" in raw]
+        if len(matches) != 1:
+            unmatched_paths.append(raw)
+            continue
+        paths_by_source[matches[0]].append(Path(raw))
+
+    manifest_sources = {source for source, paths in paths_by_source.items() if paths}
+    missing_from_cache = sorted(expected.difference(observed_sources))
+    absent_source_scans: dict[str, dict] = {}
+    for source in missing_from_cache:
+        files_scanned = 0
+        trees_scanned = 0
+        rows_scanned = 0
+        in_domain_rows = 0
+        errors: list[str] = []
+        for path in paths_by_source[source]:
+            files_scanned += 1
+            try:
+                with uproot.open(path) as root_file:
+                    if "AuAuPhotonIDTrainingTree" not in root_file:
+                        errors.append(f"missing tree: {path}")
+                        continue
+                    tree = root_file["AuAuPhotonIDTrainingTree"]
+                    if "cluster_Et" not in tree.keys():
+                        errors.append(f"missing cluster_Et: {path}")
+                        continue
+                    et = tree["cluster_Et"].array(library="np")
+                    trees_scanned += 1
+                    rows_scanned += int(len(et))
+                    in_domain_rows += int(np.sum((et >= pt_low) & (et < pt_high)))
+            except Exception as exc:  # preserve exact first-bad path in packet
+                errors.append(f"{path}: {type(exc).__name__}: {exc}")
+        absent_source_scans[source] = {
+            "files_declared": len(paths_by_source[source]),
+            "files_scanned": files_scanned,
+            "trees_scanned": trees_scanned,
+            "rows_scanned": rows_scanned,
+            "in_domain_rows": in_domain_rows,
+            "errors": errors,
+            "status": (
+                "PROVEN_ZERO_IN_DOMAIN"
+                if files_scanned > 0 and trees_scanned > 0 and not errors and in_domain_rows == 0
+                else "FAIL"
+            ),
+        }
+
+    return {
+        "manifest": str(manifest),
+        "manifest_sources": sorted(manifest_sources),
+        "manifest_file_counts": {
+            source: len(paths_by_source[source]) for source in sorted(expected)
+        },
+        "unmatched_paths": unmatched_paths,
+        "missing_from_in_domain_cache": missing_from_cache,
+        "absent_source_scans": absent_source_scans,
+        "status": (
+            "PASS"
+            if manifest_sources == expected
+            and not unmatched_paths
+            and all(scan["status"] == "PROVEN_ZERO_IN_DOMAIN" for scan in absent_source_scans.values())
+            else "FAIL"
+        ),
+    }
 
 
 def sha256(path: Path) -> str:
@@ -181,10 +269,17 @@ def main() -> None:
     observed_sources = set(source.tolist())
     wrong_signal = int(np.sum((labels == 1) & ~np.isin(source, sorted(SIGNAL_SOURCES))))
     wrong_background = int(np.sum((labels == 0) & ~np.isin(source, sorted(BACKGROUND_SOURCES))))
+    manifest_audit = manifest_domain_audit(
+        args.manifest,
+        observed_sources,
+        float(candidate["pt_range"][0]),
+        float(candidate["pt_range"][1]),
+    )
     source_gate = (
-        observed_sources == (SIGNAL_SOURCES | BACKGROUND_SOURCES)
+        observed_sources.issubset(SIGNAL_SOURCES | BACKGROUND_SOURCES)
         and wrong_signal == 0
         and wrong_background == 0
+        and manifest_audit["status"] == "PASS"
     )
 
     train_mask, test_mask, split = event_masks(frame, str(candidate["model_id"]), seed=42)
@@ -318,6 +413,7 @@ def main() -> None:
             "observed_sources": sorted(observed_sources),
             "wrong_signal_rows": wrong_signal,
             "wrong_background_rows": wrong_background,
+            "manifest_domain_audit": manifest_audit,
         },
         "split": split,
         "performance": {
