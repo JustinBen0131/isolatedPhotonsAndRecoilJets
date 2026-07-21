@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import re
 import sys
 from dataclasses import dataclass
@@ -22,7 +23,10 @@ import numpy as np
 
 
 THIS_FILE = Path(__file__).resolve()
-REPO = next((p for p in THIS_FILE.parents if (p / "AGENTS.md").exists()), THIS_FILE.parents[4])
+REPO = Path(os.environ["THESIS_ANALYSIS_REPO"]).resolve() if os.environ.get("THESIS_ANALYSIS_REPO") else next(
+    (p for p in THIS_FILE.parents if (p / "AGENTS.md").exists() or (p / ".git").exists()),
+    THIS_FILE.parents[4],
+)
 SCRIPTS_DIR = REPO / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.append(str(SCRIPTS_DIR))
@@ -122,9 +126,9 @@ VARIABLE_CONFIG = {
     "bdt": {
         "axis": "BDT score",
         "slug": "bdt_score",
-        "title": "BDT-score separation overlay: current AuAu default BDT data with matched MC",
+        "title": "Photon-ID score separation through the selection flow",
         "lead": "Rows show AuAu centrality bins and the pp reference; columns follow the photon-ID selection flow.",
-        "takeaway": "Signal MC should concentrate at higher score than inclusive MC; data should sit between the two without pathological pileups.",
+        "takeaway": "The production 14-feature AuAu classifier orders embedded prompt photons above inclusive-jet background while data retain the expected mixed composition.",
     },
 }
 
@@ -143,8 +147,8 @@ CENTRALITY_MIDPOINTS = {
     "cent20_50": 35.0,
     "cent50_80": 65.0,
 }
-WP80_INTERCEPT = 0.53471108
-WP80_SLOPE = 0.0012284143
+DEFAULT_WP80_INTERCEPT = 0.53471108
+DEFAULT_WP80_SLOPE = 0.0012284143
 SAMPLE_COLORS = {
     "Data": "#111827",
     "Signal MC": "#C22F2F",
@@ -523,6 +527,13 @@ def render(args: argparse.Namespace) -> dict:
         "layout": args.layout,
         "curves": [],
         "missing_data_slots": [],
+        "wp80": {
+            "intercept": args.wp80_intercept,
+            "slope": args.wp80_slope,
+            "centrality_coordinate": "percentile midpoint",
+            "applies_to": "AuAu rows only",
+            "contract": args.auau_model_contract,
+        },
     }
 
     rows = CENTRALITIES + [("pp", "pp reference")]
@@ -623,7 +634,7 @@ def render(args: argparse.Namespace) -> dict:
             ax.set_xlim(*xlim)
             ax.set_ylim(0.0, max(0.025, ymax * 1.16))
             if VAR == "bdt" and cent_key in CENTRALITY_MIDPOINTS:
-                wp80 = WP80_INTERCEPT + WP80_SLOPE * CENTRALITY_MIDPOINTS[cent_key]
+                wp80 = args.wp80_intercept + args.wp80_slope * CENTRALITY_MIDPOINTS[cent_key]
                 ax.axvline(wp80, color="#4B5563", lw=1.05, ls=(0, (3.2, 2.6)), alpha=0.72, zorder=0)
             ax.grid(True, axis="y", color="#E5E7EB", lw=0.52, alpha=0.78)
             ax.tick_params(labelsize=6.4 if manuscript_layout else 7.8, pad=1, direction="in", top=True, right=True)
@@ -688,7 +699,7 @@ def render(args: argparse.Namespace) -> dict:
                 fig,
                 0.058,
                 0.818,
-                "AuAu uses the new 14-feature default BDT/WP80 production; the pp row is a PPG12/baseV3E reference-score shape, not a shared score calibration.",
+                "AuAu uses the completed matched-triplet BDT/WP80 contract; the pp baseV3E row is a reference shape, not a shared score calibration.",
             )
 
     handles = [
@@ -739,6 +750,11 @@ def render(args: argparse.Namespace) -> dict:
     manifest["png"] = str(out_png)
     manifest["speaker_script"] = str(out_script)
     out_manifest.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    data_provenance_sentence = (
+        "This rendered version uses the bounded interim completed-run data subset recorded in the manifest."
+        if data_cache is not None
+        else "This rendered version uses the complete merged AuAu data ROOT recorded in the manifest."
+    )
     out_script.write_text(
         "\n".join(
             [
@@ -749,7 +765,7 @@ def render(args: argparse.Namespace) -> dict:
                 "The columns show the selection flow: before preselection, after preselection, and after the tight BDT ID.",
                 "The bottom row is the validated pp reference using the repaired table-QA plotting path, so the audience can compare the AuAu behavior against the known pp photon-ID pattern.",
                 "The green curve is omitted for the BDT-score slide." if not include_npb else "The green curve is the raw cut4 NPB-tagged data sideband in both systems. It is compressed into a diagnostic strip and does not share the unit-area y-scale of the data/MC shape overlays.",
-                "This rendered version uses the interim completed-run data subset if a data cache is recorded in the manifest. The final merged data ROOT can be substituted without changing the slide layout.",
+                data_provenance_sentence,
                 "",
                 var_cfg["takeaway"],
                 f"All curves are normalized within the plotted {var_cfg['axis']} range, so this is a shape comparison rather than a yield comparison.",
@@ -771,6 +787,13 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--signal-root", type=Path, default=DEFAULT_SIGNAL_ROOT)
     ap.add_argument("--inclusive-root", type=Path, default=DEFAULT_INCLUSIVE_ROOT)
     ap.add_argument("--outdir", type=Path, default=DEFAULT_OUTDIR)
+    ap.add_argument("--wp80-intercept", type=float, default=DEFAULT_WP80_INTERCEPT)
+    ap.add_argument("--wp80-slope", type=float, default=DEFAULT_WP80_SLOPE)
+    ap.add_argument(
+        "--auau-model-contract",
+        default="THE-88 historical 14-feature production BDT with its matching centrality-dependent WP80",
+        help="Provenance-only description of the AuAu score and WP80 contract.",
+    )
     ap.add_argument(
         "--data-trigger-regex",
         default=r"photon_12_plus_MBD_NS_geq_2_vtx_lt_150/",
