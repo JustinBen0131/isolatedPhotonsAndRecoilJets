@@ -7536,14 +7536,22 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode,int termina
             TowerInfo* rawTower=rawContainer->get_tower_at_channel(ch);
             TowerInfo* sub1Tower=sub1Container->get_tower_at_channel(ch);
             if(!rawTower||!sub1Tower)continue;
-            const unsigned int encoded=sub1Container->encode_key(ch);
-            const int ie=sub1Container->getTowerEtaBin(encoded),ip=sub1Container->getTowerPhiBin(encoded);
+            // These three SUB1 nodes are all stored on the HCal 24x64
+            // channel grid.  Some persisted TowerInfo containers have an
+            // unset detector ID, so their virtual encode_key() returns the
+            // 0xffffffff sentinel even though the channel payload is valid.
+            // Use the detector-explicit mapping required by the registered
+            // geometry contract instead of consulting that transient ID.
+            const unsigned int encoded=TowerInfoDefs::encode_hcal(ch);
+            const int ie=static_cast<int>(TowerInfoDefs::getCaloTowerEtaBin(encoded));
+            const int ip=static_cast<int>(TowerInfoDefs::getCaloTowerPhiBin(encoded));
             IsolationConstituentRow row;row.candidate_id=candidate.id;
             row.constituent_id=makeIdentity(candidate.id.hex()+"|standard_sub1_tower|"+std::to_string(node.code)+"|"+std::to_string(ch));
             row.subsystem=node.code;row.raw_energy=rawTower->get_energy();
             row.delta_eta=std::numeric_limits<double>::quiet_NaN();row.delta_phi=std::numeric_limits<double>::quiet_NaN();row.delta_r=std::numeric_limits<double>::quiet_NaN();
             row.calibrated_energy=std::numeric_limits<double>::quiet_NaN();row.sub1_energy=std::numeric_limits<double>::quiet_NaN();row.phosub_residual=std::numeric_limits<double>::quiet_NaN();
-            row.mask_state=(rawTower->get_isGood()&&sub1Tower->get_isGood())?0:1;row.candidate_removal_state=0;
+            const bool rawGood=rawTower->get_isGood(),sub1Good=sub1Tower->get_isGood();
+            row.mask_state=(rawGood?0:1)|(sub1Good?0:2);row.candidate_removal_state=0;
             if(ie<0||ie>=node.eta_bins||ip<0||ip>=node.phi_bins)
             {
               row.quality_state=-2;bundle.isolation_constituents.push_back(row);continue;
@@ -7558,7 +7566,10 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode,int termina
             row.delta_eta=de;row.delta_phi=dp;row.delta_r=dr;
             row.calibrated_energy=rawTower->get_energy()/std::cosh(te);
             row.sub1_energy=sub1Tower->get_energy()/std::cosh(te);
-            row.quality_state=(rawTower->get_isGood()&&sub1Tower->get_isGood())?1:0;
+            // PhotonClusterBuilder::calculate_layer_et selects on the SUB1
+            // container's isGood bit.  Raw quality remains independently
+            // available in mask_state but must not alter the replay sum.
+            row.quality_state=sub1Good?1:0;
             row.candidate_removal_state=node.code==0&&dr<0.02;
             bundle.isolation_constituents.push_back(row);
           }
@@ -7583,7 +7594,10 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode,int termina
           else return;
           auto* towers=findNode::getClass<TowerInfoContainer>(topNode,towerNode);auto* geometry=findNode::getClass<RawTowerGeomContainer>(topNode,geometryNode);
           if(!towers||!geometry||channel>=towers->size())return;TowerInfo* tower=towers->get_tower_at_channel(channel);if(!tower)return;
-          const unsigned int key=towers->encode_key(channel);const int ie=towers->getTowerEtaBin(key),ip=towers->getTowerPhiBin(key);
+          const bool isCemc=calorimeter==RawTowerDefs::CalorimeterId::CEMC;
+          const unsigned int key=isCemc?TowerInfoDefs::encode_emcal(channel):TowerInfoDefs::encode_hcal(channel);
+          const int ie=static_cast<int>(TowerInfoDefs::getCaloTowerEtaBin(key));
+          const int ip=static_cast<int>(TowerInfoDefs::getCaloTowerPhiBin(key));
           JetConstituentRow row;row.jet_id=parent.id;row.constituent_ordinal=constituentOrdinal++;row.subsystem=subsystem;
           row.constituent_id=makeIdentity(parent.id.hex()+"|constituent|"+std::to_string(static_cast<int>(source))+"|"+std::to_string(channel));
           row.energy=tower->get_energy();row.eta=std::numeric_limits<double>::quiet_NaN();row.phi=std::numeric_limits<double>::quiet_NaN();
