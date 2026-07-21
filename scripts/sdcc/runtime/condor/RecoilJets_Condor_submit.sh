@@ -3712,6 +3712,30 @@ validate_ppg12_stitched_purity_admission() {
   esac
   [[ "$sample" =~ ^run28_(photonjet(5|10|20)|jet(8|12|20|30|40))(_double)?$ ]] || return 0
 
+  # THE-119 exercises the general replay-foundation writer on exactly one
+  # isolated source group.  It is not a PPG12 stitched-purity production and
+  # must not inherit that campaign's historical-RNG admission packet.  Keep
+  # this exemption fail-closed and bounded so it cannot open broad running.
+  if env_truthy "${RJ_REPLAY_FOUNDATION_CANARY:-0}"; then
+    if [[ "${GROUP_SIZE_EXPLICIT:-0}" -ne 1 || "${GROUP_SIZE:-0}" -ne 1 ||
+          "${MAX_JOBS_EXPLICIT:-0}" -ne 1 || "${MAX_JOBS:-0}" -ne 1 ]]; then
+      err "Replay-foundation canary requires explicit groupSize 1 and maxJobs 1."
+      return 99
+    fi
+    if auto_merge_enabled; then
+      err "Replay-foundation canary requires RJ_AUTO_MERGE=0."
+      return 99
+    fi
+    if [[ -z "${RJ_REPLAY_LANE:-}" ||
+          ! "${RJ_REPLAY_SCHEMA_SHA256:-}" =~ ^[0-9a-fA-F]{64}$ ||
+          ! "${RJ_DEST_BASE_OVERRIDE:-}" =~ ^/sphenix/.*/replay_foundation/ ]]; then
+      err "Replay-foundation canary requires a lane, schema hash, and isolated replay_foundation output path."
+      return 99
+    fi
+    say "    [sim_init] bounded replay-foundation canary admitted: lane=${RJ_REPLAY_LANE} sample=${sample} groupSize=1 maxJobs=1 autoMerge=off" >&2
+    return 0
+  fi
+
   if env_truthy "${RJ_PPG12_CLOSURE_CANARY:-0}"; then
     if [[ "${GROUP_SIZE_EXPLICIT:-0}" -ne 1 || "${GROUP_SIZE:-0}" -ne 5 || \
           "${MAX_JOBS_EXPLICIT:-0}" -ne 1 || "${MAX_JOBS:-0}" -ne 1 ]]; then
