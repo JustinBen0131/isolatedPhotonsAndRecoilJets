@@ -5083,25 +5083,62 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode, int termin
         const char* geometryNode = nullptr;
         RawTowerDefs::CalorimeterId calorimeter = RawTowerDefs::CalorimeterId::CEMC;
         int subsystem = -1;
-        if (source == Jet::CEMC_TOWERINFO || source == Jet::CEMC_TOWERINFO_RETOWER)
-        { towerNode="TOWERINFO_CALIB_CEMC"; geometryNode="TOWERGEOM_CEMC"; calorimeter=RawTowerDefs::CalorimeterId::CEMC; subsystem=0; }
+        const std::string configuredPrefix = RJReplayRuntimeV1::env("RJ_TOWERINFO_PREFIX");
+        const std::string towerPrefix = configuredPrefix.empty() ? "TOWERINFO_CALIB" : configuredPrefix;
+        std::string resolvedTowerNode;
+        if (source == Jet::CEMC_TOWERINFO)
+        { resolvedTowerNode=towerPrefix+"_CEMC"; geometryNode="TOWERGEOM_CEMC"; calorimeter=RawTowerDefs::CalorimeterId::CEMC; subsystem=0; }
+        else if (source == Jet::CEMC_TOWERINFO_RETOWER)
+        { resolvedTowerNode=towerPrefix+"_CEMC_RETOWER"; geometryNode="TOWERGEOM_HCALIN"; calorimeter=RawTowerDefs::CalorimeterId::HCALIN; subsystem=0; }
+        else if (source == Jet::CEMC_TOWERINFO_SUB1)
+        { resolvedTowerNode=towerPrefix+"_CEMC_RETOWER_SUB1"; geometryNode="TOWERGEOM_HCALIN"; calorimeter=RawTowerDefs::CalorimeterId::HCALIN; subsystem=0; }
         else if (source == Jet::HCALIN_TOWERINFO)
-        { towerNode="TOWERINFO_CALIB_HCALIN"; geometryNode="TOWERGEOM_HCALIN"; calorimeter=RawTowerDefs::CalorimeterId::HCALIN; subsystem=1; }
+        { resolvedTowerNode=towerPrefix+"_HCALIN"; geometryNode="TOWERGEOM_HCALIN"; calorimeter=RawTowerDefs::CalorimeterId::HCALIN; subsystem=1; }
+        else if (source == Jet::HCALIN_TOWERINFO_SUB1)
+        { resolvedTowerNode=towerPrefix+"_HCALIN_SUB1"; geometryNode="TOWERGEOM_HCALIN"; calorimeter=RawTowerDefs::CalorimeterId::HCALIN; subsystem=1; }
         else if (source == Jet::HCALOUT_TOWERINFO)
-        { towerNode="TOWERINFO_CALIB_HCALOUT"; geometryNode="TOWERGEOM_HCALOUT"; calorimeter=RawTowerDefs::CalorimeterId::HCALOUT; subsystem=2; }
+        { resolvedTowerNode=towerPrefix+"_HCALOUT"; geometryNode="TOWERGEOM_HCALOUT"; calorimeter=RawTowerDefs::CalorimeterId::HCALOUT; subsystem=2; }
+        else if (source == Jet::HCALOUT_TOWERINFO_SUB1)
+        { resolvedTowerNode=towerPrefix+"_HCALOUT_SUB1"; geometryNode="TOWERGEOM_HCALOUT"; calorimeter=RawTowerDefs::CalorimeterId::HCALOUT; subsystem=2; }
         else return;
+        towerNode=resolvedTowerNode.c_str();
         auto* towers=findNode::getClass<TowerInfoContainer>(topNode,towerNode);
         auto* geometry=findNode::getClass<RawTowerGeomContainer>(topNode,geometryNode);
         if(!towers||!geometry||channel>=towers->size())return;
         TowerInfo* tower=towers->get_tower_at_channel(channel);if(!tower)return;
         const unsigned int key=towers->encode_key(channel);
         const int ie=towers->getTowerEtaBin(key),ip=towers->getTowerPhiBin(key);
-        RawTowerGeom* geom=geometry->get_tower_geometry(RawTowerDefs::encode_towerid(calorimeter,ie,ip));if(!geom)return;
-        const double radius=std::hypot(geom->get_center_x(),geom->get_center_y());if(!(radius>0))return;
-        const double eta=std::asinh((std::sinh(geom->get_eta())*radius-m_vz)/radius);
         JetConstituentRow row;row.jet_id=parent.id;row.constituent_ordinal=constituentOrdinal++;row.subsystem=subsystem;
         row.constituent_id=makeIdentity(parent.id.hex()+"|constituent|"+std::to_string(static_cast<int>(source))+"|"+std::to_string(channel));
-        row.energy=tower->get_energy();row.eta=eta;row.phi=geom->get_phi();row.quality_state=tower->get_isGood();
+        row.energy=tower->get_energy();
+        row.eta=std::numeric_limits<double>::quiet_NaN();
+        row.phi=std::numeric_limits<double>::quiet_NaN();
+        const bool isCemc = calorimeter==RawTowerDefs::CalorimeterId::CEMC;
+        const int etaBins=isCemc?96:24, phiBins=isCemc?256:64;
+        if(ie<0||ie>=etaBins||ip<0||ip>=phiBins)
+        {
+          // Preserve the constituent and its energy, but never pass a TowerInfo
+          // sentinel (commonly 65535) into RawTowerDefs::encode_towerid.
+          row.quality_state=-2;
+          bundle.jet_constituents.push_back(row);
+          return;
+        }
+        RawTowerGeom* geom=geometry->get_tower_geometry(RawTowerDefs::encode_towerid(calorimeter,ie,ip));
+        if(!geom)
+        {
+          row.quality_state=-1;
+          bundle.jet_constituents.push_back(row);
+          return;
+        }
+        const double radius=std::hypot(geom->get_center_x(),geom->get_center_y());
+        if(!(radius>0))
+        {
+          row.quality_state=-3;
+          bundle.jet_constituents.push_back(row);
+          return;
+        }
+        row.eta=std::asinh((std::sinh(geom->get_eta())*radius-m_vz)/radius);
+        row.phi=geom->get_phi();row.quality_state=tower->get_isGood();
         bundle.jet_constituents.push_back(row);
       };
       Jet* mutableJet=const_cast<Jet*>(jet);Jet::TYPE_comp_vec& components=mutableJet->get_comp_vec();
