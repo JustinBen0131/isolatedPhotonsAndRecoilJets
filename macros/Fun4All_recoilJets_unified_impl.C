@@ -3912,9 +3912,9 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     // release ABI, but reproduce the proven archived subsystem order:
     // G4Hits + DST truth jets, MBD/vertex reconstruction, standard tower
     // helpers, and Process_Calo_Calib with CaloTowerStatus enabled.  The
-    // current G4 helper publishes TOWERINFO_* rather than the legacy TOWERS_*
-    // nodes used by the deployed release, so status and calibration are
-    // explicitly routed to the equivalent current node family below.
+    // current run-28 helper publishes the raw simulated calorimeter containers
+    // as TOWERS_*; Process_Calo_Calib then copies their calibrated/status state
+    // into TOWERINFO_CALIB_*, matching the proven current-ABI canary.
     const bool requestPPG12ArchivedDIG4OnlyReco =
         env_truthy_local("RJ_PPG12_DI_ARCHIVED_RECO_CHAIN");
     if (requestPPG12ArchivedDIG4OnlyReco && !usePPG12PPSimG4OnlyInput)
@@ -4173,6 +4173,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         {
             // The executable oracle includes the Calo_Calib status chain.
             unsetenv("RJ_SKIP_CALO_TOWER_STATUS");
+            unsetenv("RJ_CALO_TOWER_STATUS_INPUT_PREFIX");
         }
         else if (usePPG12PPSimG4OnlyInput &&
                  !usePPG12ArchivedDIG4OnlyReco)
@@ -4183,7 +4184,10 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         else if (usePPG12ArchivedDIG4OnlyReco)
         {
             unsetenv("RJ_SKIP_CALO_TOWER_STATUS");
-            setenv("RJ_CALO_TOWER_STATUS_INPUT_PREFIX", "TOWERINFO_", 1);
+            // CEMC_Towers/HCAL*_Towers publish TOWERS_* in this G4 waveform
+            // graph.  Fail closed against a stale external prefix override;
+            // CaloTowerStatus and CaloTowerCalib must consume those nodes.
+            unsetenv("RJ_CALO_TOWER_STATUS_INPUT_PREFIX");
         }
         else
         {
