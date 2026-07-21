@@ -184,6 +184,7 @@ LOCAL_FILES=(
   "src/Makefile.am"
   "src/autogen.sh"
   "src/RJReplayFoundationV1.h"
+  "src/RJReplayRuntimeV1.h"
 )
 
 REMOTE_FILES=(
@@ -362,6 +363,7 @@ REMOTE_FILES=(
   "src/Makefile.am"
   "src/autogen.sh"
   "src/RJReplayFoundationV1.h"
+  "src/RJReplayRuntimeV1.h"
 )
 
 GROUP_CONDOR=(

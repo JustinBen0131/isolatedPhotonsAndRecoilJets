@@ -195,7 +195,9 @@ class Writer
     TDirectory* saved=gDirectory; m_dir->cd();
     for(TTree* tree:m_trees) if(!tree||tree->Write("",TObject::kOverwrite)<=0){ if(saved)saved->cd(); return fail(error,"tree write failure"); }
     TNamed complete("rj_replay_complete","1"); complete.Write("rj_replay_complete",TObject::kOverwrite);
-    if(saved)saved->cd(); m_finished=true; return true;
+    if(saved) saved->cd();
+    m_finished=true;
+    return true;
   }
 
  private:

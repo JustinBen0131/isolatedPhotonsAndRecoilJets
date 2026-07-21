@@ -41,7 +41,8 @@ libRecoilJets_la_LIBADD = \
   -lfun4all \
   -lg4dst \
   -lg4detectors_io \
-  -lphg4hit
+  -lphg4hit \
+  -lg4eval
 
 # Avoid undefined symbols with libtool; give a basic version-info
 libRecoilJets_la_LDFLAGS = -no-undefined -version-info 0:0:0
@@ -49,7 +50,8 @@ libRecoilJets_la_LDFLAGS = -no-undefined -version-info 0:0:0
 # Install public headers
 pkginclude_HEADERS = \
   RecoilJets.h \
-  RJReplayFoundationV1.h
+  RJReplayFoundationV1.h \
+  RJReplayRuntimeV1.h
 
 # --------------------------------------------------------------------
 # Small link test against the lib we build here
@@ -70,4 +72,3 @@ testexternals.C:
 # Clean extras
 clean-local:
 	rm -f testexternals.C
-
