@@ -3056,6 +3056,13 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         return def;
     };
 
+    // A bounded shower-contract diagnostic needs the ordinary Au+Au
+    // calorimeter and photon-candidate reconstruction, but it does not need
+    // final recoil jets or rebuilt truth jets.  Keep this strictly
+    // environment-gated so production steering remains unchanged.
+    const bool auauCandidateSkimOnly =
+        env_bool_local("RJ_AUAU_CANDIDATE_SKIM_ONLY", false);
+
     //--------------------------------------------------------------------
     // 1.  Parse the file list & determine run / segment
     //--------------------------------------------------------------------
@@ -3849,6 +3856,23 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     const bool listHasJets   = all_nonempty(filesJets);
     const bool listHasGlobal = all_nonempty(filesGlobal);
     const bool listHasMbd    = all_nonempty(filesMbd);
+    const std::string simSampleLower = env_lower("RJ_SIM_SAMPLE");
+    const bool candidateSkimNeedsPhotonStitchTruth =
+        auauCandidateSkimOnly && isSimEmbedded &&
+        simSampleLower.find("embeddedphoton") != std::string::npos;
+    const bool candidateSkimNeedsInclusiveStitchTruth =
+        auauCandidateSkimOnly && isSimEmbedded &&
+        !candidateSkimNeedsPhotonStitchTruth &&
+        simSampleLower.find("embeddedjet") != std::string::npos;
+    if (auauCandidateSkimOnly && isSimEmbedded &&
+        !candidateSkimNeedsPhotonStitchTruth &&
+        !candidateSkimNeedsInclusiveStitchTruth)
+    {
+        detail::bail(
+            "RJ_AUAU_CANDIDATE_SKIM_ONLY=1 on embedded simulation requires "
+            "RJ_SIM_SAMPLE to identify an embeddedPhoton or embeddedJet sample; "
+            "the generator-slice ownership gate must not be silently bypassed.");
+    }
     const bool isRun24PPData = !isSim && !isPPrun25 && !isAuAuRequested;
     const bool usePPG12PPDataPair =
         isRun24PPData &&
@@ -3883,9 +3907,111 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     const bool usePPG12PPSimG4OnlyInput =
         usePPG12PPSimRebuildCaloFromG4 &&
         env_truthy_local("RJ_PPG12_PPSIM_G4_ONLY");
+    // Production-gated reconstruction arm for the deployed PPG12
+    // double-interaction contract.  Keep the current RecoilJets binary and
+    // release ABI, but reproduce the proven archived subsystem order:
+    // G4Hits + DST truth jets, MBD/vertex reconstruction, standard tower
+    // helpers, and Process_Calo_Calib with CaloTowerStatus enabled.
+    const bool requestPPG12ArchivedDIG4OnlyReco =
+        env_truthy_local("RJ_PPG12_DI_ARCHIVED_RECO_CHAIN");
+    if (requestPPG12ArchivedDIG4OnlyReco && !usePPG12PPSimG4OnlyInput)
+    {
+        detail::bail(
+            "RJ_PPG12_DI_ARCHIVED_RECO_CHAIN=1 requires both "
+            "RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4=1 and "
+            "RJ_PPG12_PPSIM_G4_ONLY=1");
+    }
+    const bool usePPG12ArchivedDIG4OnlyReco =
+        requestPPG12ArchivedDIG4OnlyReco && usePPG12PPSimG4OnlyInput;
+
+    if (usePPG12ArchivedDIG4OnlyReco)
+    {
+        rc->set_IntFlag("RUNNUMBER", run);
+        const std::string simSample = env_lower("RJ_SIM_SAMPLE");
+        const std::string embeddedSample =
+            env_lower("RJ_EMBEDDED_INCLUSIVE_JET_SAMPLE");
+        const std::string archivedTruthMode =
+            env_lower("RJ_TRUTH_JETS_MODE", "auto");
+        const std::vector<std::string> allowedSamples = {
+            "run28_jet8_double", "run28_jet12_double",
+            "run28_jet20_double", "run28_jet30_double",
+            "run28_jet40_double"};
+        const bool run28DoubleSample =
+            std::find(allowedSamples.begin(), allowedSamples.end(), simSample) !=
+            allowedSamples.end();
+        const std::string sampleSlice = run28DoubleSample
+            ? simSample.substr(std::string("run28_").size(),
+                               simSample.size() - std::string("run28_").size() -
+                                   std::string("_double").size())
+            : std::string();
+        auto all_paths_contain = [](const std::vector<std::string>& paths,
+                                    const std::string& token) -> bool
+        {
+            if (paths.empty()) return false;
+            for (const auto& path : paths)
+            {
+                if (path.empty() || path.find(token) == std::string::npos)
+                    return false;
+            }
+            return true;
+        };
+
+        if (datasetToken != "issiminclusive")
+        {
+            detail::bail(
+                "RJ_PPG12_DI_ARCHIVED_RECO_CHAIN=1 is restricted to "
+                "RJ_DATASET=isSimInclusive");
+        }
+        if (!run28DoubleSample || embeddedSample != simSample)
+        {
+            detail::bail(
+                "RJ_PPG12_DI_ARCHIVED_RECO_CHAIN=1 requires matching "
+                "run28_jet{8,12,20,30,40}_double sample identities");
+        }
+        if (archivedTruthMode != "dst")
+        {
+            detail::bail(
+                "RJ_PPG12_DI_ARCHIVED_RECO_CHAIN=1 requires "
+                "RJ_TRUTH_JETS_MODE=DST");
+        }
+        if (!env_truthy_local("RJ_PPG12_PHOTON_YIELD_DOUBLE") ||
+            !env_truthy_local("RJ_PPG12_PERIOD_STRICT_DI") ||
+            env_truthy_local("RJ_PPG12_PERIOD_ALLOW_ALL_SIM"))
+        {
+            detail::bail(
+                "RJ_PPG12_DI_ARCHIVED_RECO_CHAIN=1 requires the strict "
+                "double-interaction period contract");
+        }
+        if (run != 28 || rc->get_IntFlag("RUNNUMBER") != 28 ||
+            rc->get_uint64Flag("TIMESTAMP") != 28ULL || gtag != "MDC2")
+        {
+            detail::bail(
+                "RJ_PPG12_DI_ARCHIVED_RECO_CHAIN=1 requires the run-28 MDC2 "
+                "CDB contract");
+        }
+        if (listHasCalo || listHasGlobal || listHasMbd ||
+            !listHasG4 || !listHasJets)
+        {
+            detail::bail(
+                "RJ_PPG12_DI_ARCHIVED_RECO_CHAIN=1 requires exactly "
+                "NONE,G4Hits,DST_JETS,NONE,NONE input rows");
+        }
+        if (!all_paths_contain(
+                filesG4, "/js_pp200_signal_dual/g4hits/run0028/" +
+                             sampleSlice + "/") ||
+            !all_paths_contain(
+                filesJets, "/js_pp200_signal_dual/nopileup/jets/run0028/" +
+                               sampleSlice + "/"))
+        {
+            detail::bail(
+                "RJ_PPG12_DI_ARCHIVED_RECO_CHAIN=1 requires matching "
+                "run-28 dual-interaction G4Hits and truth-jet sources");
+        }
+    }
     const bool usePPG12Fig11G4OnlyRebuild =
         usePPG12PPSimG4OnlyInput &&
-        env_truthy_local("RJ_PPG12_FIG11_SB_DIAGNOSTIC");
+        env_truthy_local("RJ_PPG12_FIG11_SB_DIAGNOSTIC") &&
+        !usePPG12ArchivedDIG4OnlyReco;
 
     if (usePPG12PPSimRebuildCaloFromG4)
     {
@@ -3966,6 +4092,33 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         buildTruthJetsFromParticles = !listHasJets;
         buildTruthJetsAsAltNode = false;
     }
+
+    if (auauCandidateSkimOnly)
+    {
+        // The bounded shower-contract diagnostic consumes reconstructed
+        // calorimeter candidates, but embedded sample ownership is still a
+        // physics gate inside RecoilJets.  Retain only the truth lane needed
+        // by that gate: G4/HepMC for Photon12/20, or DST truth jets for
+        // Jet12/20/30/40.  Do not rebuild any alternate truth-jet collection.
+        // This remains strictly environment-gated and leaves production
+        // steering unchanged.
+        useDSTTruthJets = candidateSkimNeedsInclusiveStitchTruth;
+        buildTruthJetsFromParticles = false;
+        buildTruthJetsAsAltNode = false;
+
+        if (candidateSkimNeedsPhotonStitchTruth && !listHasG4)
+        {
+            detail::bail(
+                "Embedded-photon candidate skim requires the G4/HepMC input "
+                "lane for the Photon12/20 generator-slice ownership gate.");
+        }
+        if (candidateSkimNeedsInclusiveStitchTruth && !listHasJets)
+        {
+            detail::bail(
+                "Embedded-inclusive candidate skim requires the DST_JETS input "
+                "lane for the Jet12/20/30/40 truth-jet ownership gate.");
+        }
+    }
     
     if (usePPG12PPSimRebuildCaloFromG4)
     {
@@ -4018,7 +4171,8 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             // The executable oracle includes the Calo_Calib status chain.
             unsetenv("RJ_SKIP_CALO_TOWER_STATUS");
         }
-        else if (usePPG12PPSimG4OnlyInput)
+        else if (usePPG12PPSimG4OnlyInput &&
+                 !usePPG12ArchivedDIG4OnlyReco)
         {
             // Preserve the pre-existing non-canary G4-rebuild behavior.
             setenv("RJ_SKIP_CALO_TOWER_STATUS", "1", 1);
@@ -4306,7 +4460,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         bool requireG4 = false;
         if (const char* env = std::getenv("RJ_REQUIRE_G4")) requireG4 = (std::atoi(env) != 0);
         
-        if (listHasG4)
+        if (listHasG4 && (!auauCandidateSkimOnly || candidateSkimNeedsPhotonStitchTruth))
         {
             auto* inG4 = isSimEmbedded
             ? static_cast<Fun4AllInputManager*>(new Fun4AllNoSyncDstInputManager("DST_G4HITS_IN"))
@@ -4314,9 +4468,15 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             for (const auto& f : filesG4) inG4->AddFile(f);
             se->registerInputManager(inG4);
         }
+        else if (listHasG4 && auauCandidateSkimOnly)
+        {
+            std::cout << "[INFO] RJ_AUAU_CANDIDATE_SKIM_ONLY=1: "
+                      << "skipping the G4Hits input stream for the embedded-inclusive "
+                      << "lane; truth-jet ownership is supplied by DST_JETS.\n";
+        }
         else
         {
-            if (requireG4)
+            if (requireG4 && !auauCandidateSkimOnly)
             {
                 detail::bail("RJ_REQUIRE_G4=1 but no G4Hits stream was provided in the input list.");
             }
@@ -4350,7 +4510,8 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         if (verbose)
             std::cout << "[INFO] isSim: registered input managers (Calo + Global"
             << (listHasMbd ? " + MBD_EPD" : " (no MBD_EPD)")
-            << (listHasG4 ? " + G4" : " (no G4)") << ")\n";
+            << ((listHasG4 && (!auauCandidateSkimOnly || candidateSkimNeedsPhotonStitchTruth))
+                    ? " + G4" : " (no G4)") << ")\n";
     }
     
     
@@ -4422,6 +4583,10 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             useDetailedCemcGeom = (std::atoi(env) != 0);
         }
 
+    // The deployed PPG12 run-28 DI chain lets Process_Calo_Calib publish its
+    // own geometry.  Registering the unified helpers first changes that graph.
+    if (!usePPG12ArchivedDIG4OnlyReco)
+    {
         // Always publish the legacy/simple CEMC geometry node: TOWERGEOM_CEMC
         {
             auto* geomCemcLegacy = new CaloGeomMapping("Geom_CEMC");
@@ -4448,6 +4613,12 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             se->registerSubsystem(geom);
         }
     }
+    else if (verbose || vlevel > 0)
+    {
+        std::cout << "[PPG12_DI_ARCHIVED_RECO] Process_Calo_Calib owns the "
+                  << "deployed run-28 geometry contract\n";
+        }
+    }
     
     
     // ------------------------------------------------------------------
@@ -4467,7 +4638,9 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         {
             std::cout << "[PPG12_PPSIM_REBUILD_CALO_FROM_G4] "
                       << ((ppg12ClosureCanary || !usePPG12Fig11G4OnlyRebuild)
-                              ? "running Process_Calo_Calib() after the PPG12 input/pedestal stack\n"
+                              ? (usePPG12ArchivedDIG4OnlyReco
+                                     ? "running Process_Calo_Calib() on the deployed PPG12 DI graph\n"
+                                     : "running Process_Calo_Calib() after the PPG12 input/pedestal stack\n")
                               : "skipping Process_Calo_Calib(); the non-canary Fig.11 G4-only path already registered its tower and cluster stack\n");
         }
 #if RJ_HAS_SPHENIX_G4_INPUT_MACROS
@@ -4948,7 +5121,15 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         // ------------------------------------------------------------------
         int jetcalV = 0;
         if (const char* env = std::getenv("RJ_JETCALIB_VERBOSITY")) jetcalV = std::atoi(env);
-        
+
+        if (auauCandidateSkimOnly && vlevel > 0)
+        {
+            std::cout << "[THE-105 candidate skim] retaining AuAu tower subtraction "
+                      << "for the photon builder; final reconstructed jets and "
+                      << "JetCalib are disabled" << std::endl;
+        }
+
+        if (!auauCandidateSkimOnly)
         for (const auto& radKey : activeJetRKeys)
         {
             int D = 0;
@@ -5122,7 +5303,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     // ---------------------- Truth jets -----------------------------------------
     // If useDSTTruthJets==true: they already exist from DST_JETS_IN.
     // If buildTruthJetsFromParticles==true: build them from TRUTH particles here.
-    if (isSim && buildTruthJetsFromParticles)
+    if (isSim && buildTruthJetsFromParticles && !auauCandidateSkimOnly)
     {
         if (vlevel > 0)
         {
@@ -5167,7 +5348,9 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     }
     else if (isSim && useDSTTruthJets && vlevel > 0)
     {
-        std::cout << "[INFO] (isSim) truth jets: using nodes from DST_JETS (no TruthJetInput reco)\n";
+        std::cout << "[INFO] (isSim) truth jets: using nodes from DST_JETS (no TruthJetInput reco)"
+                  << (auauCandidateSkimOnly ? " [candidate-skim mode]" : "")
+                  << "\n";
     }
     
     
@@ -5769,6 +5952,14 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     else if (isAuAuLike && cemcShowerShapeDiagnosticVariant == "historical")
     {
         resolvedCEMCShapeTowerMinGeV = kPPG12PPCEMCShapeTowerMinGeV;
+        // Reproduce the complete pre-repair AuAu route. Data used the full
+        // TowerInfo grid followed by the analysis-local chi2/CDB mask, while
+        // embedding read only RawCluster-owned cells. The 70 MeV floor was
+        // common to both. This is diagnostic-only and cannot become the
+        // default because canonical remains the fail-closed value above.
+        useCoreGoodTowerInfoShapes = false;
+        resolvedCEMCShapeTowerAcceptance =
+            "towerinfo_get_isgood_plus_local_chi2_cdb_mask";
         if (isSimEmbedded)
         {
             useRawClusterTowermapForCEMCShapes = true;
@@ -6003,6 +6194,48 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                                                cfg.tight_bdt_model_file,
                                                cfg.tight_bdt_features,
                                                7.0f);
+
+            // Deployed PPG12 keeps both score branches in the SlimTree, then
+            // uses the once-smeared reconstructed ET only to choose the branch:
+            // base_v3E for 8 <= ET < 35 GeV and base_E otherwise.  Evaluate
+            // both models here from the original reconstructed feature row;
+            // RecoilJets performs the route after materializing that ET.
+            if (ppg12PhotonYieldPPSim)
+            {
+                std::string baseEModelFile = cfg.tight_bdt_model_file;
+                const std::string baseV3EToken = "base_v3E";
+                const std::size_t modelTokenPos = baseEModelFile.find(baseV3EToken);
+                if (modelTokenPos == std::string::npos)
+                {
+                    detail::bail(
+                        "PPG12 pp-SIM photon-yield mode requires a base_v3E "
+                        "tight_bdt_model_file so the deployed base_E fallback "
+                        "path can be resolved; received " + baseEModelFile);
+                }
+                baseEModelFile.replace(modelTokenPos, baseV3EToken.size(), "base_E");
+                const std::vector<std::string> baseEFeatures = {
+                    "cluster_Et", "vertexz", "cluster_Eta", "e11_over_e33",
+                    "cluster_et1", "cluster_et2", "cluster_et3", "cluster_et4"};
+                photonBuilder->add_named_bdt_score("tight_bdt_score_base_e",
+                                                   baseEModelFile,
+                                                   baseEFeatures);
+            }
+
+            // The replay foundation keeps the campaign classifier and the
+            // historical PPG12 classifier as distinct model evaluations on
+            // the identical loose candidate.  The reference model is never
+            // allowed to drive the nominal tight selection.
+            if (!isAuAuLike)
+            {
+                const char* referenceModel = std::getenv("RJ_REPLAY_REFERENCE_MODEL_FILE");
+                if (referenceModel && *referenceModel)
+                {
+                    photonBuilder->add_named_bdt_score("ppg12_reference_bdt_score",
+                                                       referenceModel,
+                                                       cfg.tight_bdt_features,
+                                                       7.0f);
+                }
+            }
         }
         else
         {
@@ -7096,6 +7329,23 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     idfanout::ReplaceOrAppendScalar(stampedYaml,
                                     "cemc_shower_shape_diagnostic_variant",
                                     cemcShowerShapeDiagnosticVariant);
+    idfanout::ReplaceOrAppendScalar(stampedYaml,
+                                    "ppg12_di_archived_reco_chain",
+                                    usePPG12ArchivedDIG4OnlyReco ? "true" : "false");
+    if (usePPG12ArchivedDIG4OnlyReco)
+    {
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "ppg12_di_reconstruction_graph",
+            "deployed_run28_g4hits_truthjets_current_release_abi");
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "ppg12_di_sim_sample", env_lower("RJ_SIM_SAMPLE"));
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "ppg12_di_truth_jets_mode",
+            env_lower("RJ_TRUTH_JETS_MODE", "auto"));
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "ppg12_di_pedestal_file",
+            ppg12PedestalFileForProvenance);
+    }
     if (ppg12ClosureCanary)
     {
         idfanout::ReplaceOrAppendScalar(stampedYaml,
@@ -7559,6 +7809,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             se->run(nEvents);
         }
         
+        // RecoilJets AuAu centrality counters do not exist in the pp class.
 #if defined(RJ_UNIFIED_ANALYSIS_AUAU)
         std::uint64_t centralityValidTotal = 0;
         std::uint64_t centralityInvalidSkippedTotal = 0;
