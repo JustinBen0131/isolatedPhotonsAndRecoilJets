@@ -191,6 +191,7 @@ REMOTE_FILES=(
   "scripts/sdcc/pipelines/auau/auau_tight_logreg_pipeline.sh"
   "scripts/sdcc/pipelines/auau/auau_tight_mlp_pipeline.sh"
   "scripts/sdcc/pipelines/pp/pp_photon_ml_pipeline.sh"
+  "scripts/sdcc/workflows/training/submit_the116_pp_bdt_15to35.sh"
   "scripts/data_prep/manifests/build_currentian_fast_manifests.py"
   "scripts/diagnostics/pp_shuhang/compare_pp_currentian_insitu_stitch_contract.py"
   "scripts/slides/pp_currentian/stitching/make_pp_currentian_insitu_contract_stitch_slides.py"
