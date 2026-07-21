@@ -48,7 +48,8 @@ libRecoilJets_la_LDFLAGS = -no-undefined -version-info 0:0:0
 
 # Install public headers
 pkginclude_HEADERS = \
-  RecoilJets.h
+  RecoilJets.h \
+  RJReplayFoundationV1.h
 
 # --------------------------------------------------------------------
 # Small link test against the lib we build here
@@ -69,5 +70,4 @@ testexternals.C:
 # Clean extras
 clean-local:
 	rm -f testexternals.C
-
 

@@ -173,3 +173,4 @@ macros/diagnostics/pp_currentian/Fun4All_recoiljets_fixed_seed_oracle.C	macros/d
 src/configure.ac	src/configure.ac	src/configure.ac		src/configure.ac	canonical
 src/Makefile.am	src/Makefile.am	src/Makefile.am		src/Makefile.am	canonical
 src/autogen.sh	src/autogen.sh	src/autogen.sh		src/autogen.sh	canonical
+src/RJReplayFoundationV1.h	src/RJReplayFoundationV1.h	src/RJReplayFoundationV1.h		src/RJReplayFoundationV1.h	canonical
