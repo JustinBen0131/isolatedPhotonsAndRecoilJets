@@ -7517,9 +7517,52 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode,int termina
         auto* towers=findNode::getClass<TowerInfoContainer>(topNode,"TOWERINFO_CALIB_CEMC");const int centerEta=static_cast<int>(std::lround(photon->get_shower_shape_parameter("ppg12_shape_center_ieta"))),centerPhi=static_cast<int>(std::lround(photon->get_shower_shape_parameter("ppg12_shape_center_iphi")));
         if(towers&&centerEta>=0&&centerEta<96&&centerPhi>=0)for(int de=-3;de<=3;++de)for(int dp=-3;dp<=3;++dp){ShowerCellRow cell;cell.candidate_id=candidate.id;cell.local_eta_index=de;cell.local_phi_index=dp;const int ie=centerEta+de,ip=(centerPhi+dp+256)%256;cell.tower_key=TowerInfoDefs::encode_emcal(ie,ip);TowerInfo* tower=(ie>=0&&ie<96)?towers->get_tower_at_key(static_cast<unsigned int>(cell.tower_key)):nullptr;cell.calibrated_energy=tower?tower->get_energy():std::numeric_limits<double>::quiet_NaN();cell.is_good=tower&&tower->get_isGood();cell.is_zero=tower&&cell.calibrated_energy==0.0;cell.is_negative=tower&&cell.calibrated_energy<0.0;cell.is_nonfinite=!tower||!std::isfinite(cell.calibrated_energy);cell.seed_state=de==0&&dp==0;cell.denominator_membership=cell.is_good&&std::isfinite(cell.calibrated_energy)&&cell.calibrated_energy>0.0;bundle.shower_cells.push_back(cell);}
         for(double radius:{0.3,0.4}){IsolationWitnessRow witness;witness.candidate_id=candidate.id;witness.isolation_id=makeIdentity(candidate.id.hex()+"|standard_sub1|R"+std::to_string(radius));witness.radius=radius;witness.subtraction_method=2;witness.reconstructed_or_truth=0;witness.cone_sum=eisoForCone(photon,radius);witness.threshold=radius<0.35?(5.97-0.0507*m_centBin):(7.57-0.0658*m_centBin);witness.pass_state=std::isfinite(witness.cone_sum)&&witness.cone_sum<witness.threshold;bundle.isolation_witnesses.push_back(witness);}
-        struct CaloNode{const char* towers;const char* geom;RawTowerDefs::CalorimeterId id;int code;};
-        const CaloNode nodes[]={{"TOWERINFO_CALIB_CEMC","TOWERGEOM_CEMC",RawTowerDefs::CalorimeterId::CEMC,0},{"TOWERINFO_CALIB_HCALIN","TOWERGEOM_HCALIN",RawTowerDefs::CalorimeterId::HCALIN,1},{"TOWERINFO_CALIB_HCALOUT","TOWERGEOM_HCALOUT",RawTowerDefs::CalorimeterId::HCALOUT,2}};
-        for(const auto& node:nodes){auto* tc=findNode::getClass<TowerInfoContainer>(topNode,node.towers);auto* gc=findNode::getClass<RawTowerGeomContainer>(topNode,node.geom);if(!tc||!gc)continue;for(unsigned int ch=0;ch<tc->size();++ch){TowerInfo* tower=tc->get_tower_at_channel(ch);if(!tower)continue;const unsigned int encoded=tc->encode_key(ch);const int ie=tc->getTowerEtaBin(encoded),ip=tc->getTowerPhiBin(encoded);RawTowerGeom* geom=gc->get_tower_geometry(RawTowerDefs::encode_towerid(node.id,ie,ip));if(!geom)continue;const double r=std::hypot(geom->get_center_x(),geom->get_center_y());if(!(r>0))continue;const double te=std::asinh((std::sinh(geom->get_eta())*r-m_vz)/r),tp=geom->get_phi(),de=te-eta,dp=TVector2::Phi_mpi_pi(tp-phi),dr=std::hypot(de,dp);if(!std::isfinite(dr)||dr>=0.4)continue;IsolationConstituentRow row;row.candidate_id=candidate.id;row.constituent_id=makeIdentity(candidate.id.hex()+"|tower|"+std::to_string(node.code)+"|"+std::to_string(ch));row.delta_eta=de;row.delta_phi=dp;row.delta_r=dr;row.subsystem=node.code;row.raw_energy=tower->get_energy();row.calibrated_energy=tower->get_energy()/std::cosh(te);row.sub1_energy=photon->get_shower_shape_parameter(node.code==0?"iso_04_emcal":(node.code==1?"iso_04_hcalin":"iso_04_hcalout"));row.phosub_residual=photon->get_shower_shape_parameter(node.code==0?"phosub_iso_04_emcal":(node.code==1?"phosub_iso_04_hcalin":"phosub_iso_04_hcalout"));row.quality_state=tower->get_isGood();row.mask_state=tower->get_isGood()?0:1;row.candidate_removal_state=node.code==0&&dr<0.02;bundle.isolation_constituents.push_back(row);}}
+        const std::string configuredPrefix=RJReplayRuntimeV1::env("RJ_TOWERINFO_PREFIX");
+        const std::string towerPrefix=configuredPrefix.empty()?"TOWERINFO_CALIB":configuredPrefix;
+        struct CaloNode{std::string raw_towers,sub1_towers;const char* geom;RawTowerDefs::CalorimeterId id;int code,eta_bins,phi_bins;};
+        const CaloNode nodes[]={
+          {towerPrefix+"_CEMC_RETOWER",towerPrefix+"_CEMC_RETOWER_SUB1","TOWERGEOM_HCALIN",RawTowerDefs::CalorimeterId::HCALIN,0,24,64},
+          {towerPrefix+"_HCALIN",towerPrefix+"_HCALIN_SUB1","TOWERGEOM_HCALIN",RawTowerDefs::CalorimeterId::HCALIN,1,24,64},
+          {towerPrefix+"_HCALOUT",towerPrefix+"_HCALOUT_SUB1","TOWERGEOM_HCALOUT",RawTowerDefs::CalorimeterId::HCALOUT,2,24,64}};
+        for(const auto& node:nodes)
+        {
+          auto* rawContainer=findNode::getClass<TowerInfoContainer>(topNode,node.raw_towers);
+          auto* sub1Container=findNode::getClass<TowerInfoContainer>(topNode,node.sub1_towers);
+          auto* geometry=findNode::getClass<RawTowerGeomContainer>(topNode,node.geom);
+          if(!rawContainer||!sub1Container||!geometry)continue;
+          const unsigned int channelCount=std::min(rawContainer->size(),sub1Container->size());
+          for(unsigned int ch=0;ch<channelCount;++ch)
+          {
+            TowerInfo* rawTower=rawContainer->get_tower_at_channel(ch);
+            TowerInfo* sub1Tower=sub1Container->get_tower_at_channel(ch);
+            if(!rawTower||!sub1Tower)continue;
+            const unsigned int encoded=sub1Container->encode_key(ch);
+            const int ie=sub1Container->getTowerEtaBin(encoded),ip=sub1Container->getTowerPhiBin(encoded);
+            IsolationConstituentRow row;row.candidate_id=candidate.id;
+            row.constituent_id=makeIdentity(candidate.id.hex()+"|standard_sub1_tower|"+std::to_string(node.code)+"|"+std::to_string(ch));
+            row.subsystem=node.code;row.raw_energy=rawTower->get_energy();
+            row.delta_eta=std::numeric_limits<double>::quiet_NaN();row.delta_phi=std::numeric_limits<double>::quiet_NaN();row.delta_r=std::numeric_limits<double>::quiet_NaN();
+            row.calibrated_energy=std::numeric_limits<double>::quiet_NaN();row.sub1_energy=std::numeric_limits<double>::quiet_NaN();row.phosub_residual=std::numeric_limits<double>::quiet_NaN();
+            row.mask_state=(rawTower->get_isGood()&&sub1Tower->get_isGood())?0:1;row.candidate_removal_state=0;
+            if(ie<0||ie>=node.eta_bins||ip<0||ip>=node.phi_bins)
+            {
+              row.quality_state=-2;bundle.isolation_constituents.push_back(row);continue;
+            }
+            RawTowerGeom* geom=geometry->get_tower_geometry(RawTowerDefs::encode_towerid(node.id,ie,ip));
+            if(!geom){row.quality_state=-1;bundle.isolation_constituents.push_back(row);continue;}
+            const double r=std::hypot(geom->get_center_x(),geom->get_center_y());
+            if(!(r>0)){row.quality_state=-3;bundle.isolation_constituents.push_back(row);continue;}
+            const double te=std::asinh((std::sinh(geom->get_eta())*r-m_vz)/r),tp=geom->get_phi();
+            const double de=te-eta,dp=TVector2::Phi_mpi_pi(tp-phi),dr=std::hypot(de,dp);
+            if(!std::isfinite(dr)||dr>=0.4)continue;
+            row.delta_eta=de;row.delta_phi=dp;row.delta_r=dr;
+            row.calibrated_energy=rawTower->get_energy()/std::cosh(te);
+            row.sub1_energy=sub1Tower->get_energy()/std::cosh(te);
+            row.quality_state=(rawTower->get_isGood()&&sub1Tower->get_isGood())?1:0;
+            row.candidate_removal_state=node.code==0&&dr<0.02;
+            bundle.isolation_constituents.push_back(row);
+          }
+        }
       }
       auto appendJetConstituents=[&](const Jet* jet,const JetRow& parent)
       {
@@ -7527,20 +7570,29 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode,int termina
         int constituentOrdinal=0;
         auto append=[&](Jet::SRC source,unsigned int channel)
         {
-          const char* towerNode=nullptr;const char* geometryNode=nullptr;
+          std::string towerNode;const char* geometryNode=nullptr;
           RawTowerDefs::CalorimeterId calorimeter=RawTowerDefs::CalorimeterId::CEMC;int subsystem=-1;
-          if(source==Jet::CEMC_TOWERINFO||source==Jet::CEMC_TOWERINFO_RETOWER){towerNode="TOWERINFO_CALIB_CEMC";geometryNode="TOWERGEOM_CEMC";calorimeter=RawTowerDefs::CalorimeterId::CEMC;subsystem=0;}
-          else if(source==Jet::HCALIN_TOWERINFO){towerNode="TOWERINFO_CALIB_HCALIN";geometryNode="TOWERGEOM_HCALIN";calorimeter=RawTowerDefs::CalorimeterId::HCALIN;subsystem=1;}
-          else if(source==Jet::HCALOUT_TOWERINFO){towerNode="TOWERINFO_CALIB_HCALOUT";geometryNode="TOWERGEOM_HCALOUT";calorimeter=RawTowerDefs::CalorimeterId::HCALOUT;subsystem=2;}
+          int etaBins=0,phiBins=0;
+          if(source==Jet::CEMC_TOWERINFO){towerNode=towerPrefix+"_CEMC";geometryNode="TOWERGEOM_CEMC";calorimeter=RawTowerDefs::CalorimeterId::CEMC;subsystem=0;etaBins=96;phiBins=256;}
+          else if(source==Jet::CEMC_TOWERINFO_RETOWER){towerNode=towerPrefix+"_CEMC_RETOWER";geometryNode="TOWERGEOM_HCALIN";calorimeter=RawTowerDefs::CalorimeterId::HCALIN;subsystem=0;etaBins=24;phiBins=64;}
+          else if(source==Jet::CEMC_TOWERINFO_SUB1){towerNode=towerPrefix+"_CEMC_RETOWER_SUB1";geometryNode="TOWERGEOM_HCALIN";calorimeter=RawTowerDefs::CalorimeterId::HCALIN;subsystem=0;etaBins=24;phiBins=64;}
+          else if(source==Jet::HCALIN_TOWERINFO){towerNode=towerPrefix+"_HCALIN";geometryNode="TOWERGEOM_HCALIN";calorimeter=RawTowerDefs::CalorimeterId::HCALIN;subsystem=1;etaBins=24;phiBins=64;}
+          else if(source==Jet::HCALIN_TOWERINFO_SUB1){towerNode=towerPrefix+"_HCALIN_SUB1";geometryNode="TOWERGEOM_HCALIN";calorimeter=RawTowerDefs::CalorimeterId::HCALIN;subsystem=1;etaBins=24;phiBins=64;}
+          else if(source==Jet::HCALOUT_TOWERINFO){towerNode=towerPrefix+"_HCALOUT";geometryNode="TOWERGEOM_HCALOUT";calorimeter=RawTowerDefs::CalorimeterId::HCALOUT;subsystem=2;etaBins=24;phiBins=64;}
+          else if(source==Jet::HCALOUT_TOWERINFO_SUB1){towerNode=towerPrefix+"_HCALOUT_SUB1";geometryNode="TOWERGEOM_HCALOUT";calorimeter=RawTowerDefs::CalorimeterId::HCALOUT;subsystem=2;etaBins=24;phiBins=64;}
           else return;
           auto* towers=findNode::getClass<TowerInfoContainer>(topNode,towerNode);auto* geometry=findNode::getClass<RawTowerGeomContainer>(topNode,geometryNode);
           if(!towers||!geometry||channel>=towers->size())return;TowerInfo* tower=towers->get_tower_at_channel(channel);if(!tower)return;
           const unsigned int key=towers->encode_key(channel);const int ie=towers->getTowerEtaBin(key),ip=towers->getTowerPhiBin(key);
-          RawTowerGeom* geom=geometry->get_tower_geometry(RawTowerDefs::encode_towerid(calorimeter,ie,ip));if(!geom)return;
-          const double radius=std::hypot(geom->get_center_x(),geom->get_center_y());if(!(radius>0))return;
           JetConstituentRow row;row.jet_id=parent.id;row.constituent_ordinal=constituentOrdinal++;row.subsystem=subsystem;
           row.constituent_id=makeIdentity(parent.id.hex()+"|constituent|"+std::to_string(static_cast<int>(source))+"|"+std::to_string(channel));
-          row.energy=tower->get_energy();row.eta=std::asinh((std::sinh(geom->get_eta())*radius-m_vz)/radius);row.phi=geom->get_phi();row.quality_state=tower->get_isGood();bundle.jet_constituents.push_back(row);
+          row.energy=tower->get_energy();row.eta=std::numeric_limits<double>::quiet_NaN();row.phi=std::numeric_limits<double>::quiet_NaN();
+          if(ie<0||ie>=etaBins||ip<0||ip>=phiBins){row.quality_state=-2;bundle.jet_constituents.push_back(row);return;}
+          RawTowerGeom* geom=geometry->get_tower_geometry(RawTowerDefs::encode_towerid(calorimeter,ie,ip));
+          if(!geom){row.quality_state=-1;bundle.jet_constituents.push_back(row);return;}
+          const double radius=std::hypot(geom->get_center_x(),geom->get_center_y());
+          if(!(radius>0)){row.quality_state=-3;bundle.jet_constituents.push_back(row);return;}
+          row.eta=std::asinh((std::sinh(geom->get_eta())*radius-m_vz)/radius);row.phi=geom->get_phi();row.quality_state=tower->get_isGood();bundle.jet_constituents.push_back(row);
         };
         Jet* mutableJet=const_cast<Jet*>(jet);Jet::TYPE_comp_vec& components=mutableJet->get_comp_vec();
         if(!components.empty())for(const auto& component:components)append(component.first,component.second);
