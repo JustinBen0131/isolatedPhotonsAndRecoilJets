@@ -27,6 +27,7 @@ code_sha="${RJ_THE119_CODE_SHA256:-$(
     macros/Fun4All_recoilJets_unified_impl.C \
   | sha256sum | awk '{print $1}'
 )}"
+only_keys="${RJ_THE119_ONLY_KEYS:-}"
 
 export RJ_CODEX_CHAT_NAME="THE-114+THE-119 | pp/AuAu Replay Foundation"
 export RJ_CODEX_THREAD_ID="019f80b5-dc56-7330-9ee7-56ef417547dc"
@@ -34,6 +35,12 @@ export RJ_CODEX_THREAD_ID="019f80b5-dc56-7330-9ee7-56ef417547dc"
 say(){ printf '[THE119] %s\n' "$*"; }
 die(){ printf '[THE119][ERROR] %s\n' "$*" >&2; exit 2; }
 sha(){ printf '%s' "$1" | sha256sum | awk '{print $1}'; }
+
+want_row(){
+  local arm="$1" lane="$2" sample="$3"
+  [[ -z "$only_keys" ]] && return 0
+  [[ ",${only_keys}," == *",${arm}:${lane}:${sample},"* ]]
+}
 
 require_inputs(){
   [[ -x ./RecoilJets_Condor_submit.sh ]] || die "missing submitter"
@@ -77,6 +84,10 @@ assert_fresh(){
 
 submit_pp(){
   local lane="$1" dataset="$2" sample="$3" arm="$4"
+  if ! want_row "$arm" "$lane" "$sample"; then
+    say "SKIP ${arm}:${lane}:${sample} (not in RJ_THE119_ONLY_KEYS)"
+    return 0
+  fi
   local out="$base/$arm/$lane/$sample"
   env RJ_CONFIG_YAML="$pp_cfg" RJ_PP_LIBRARY_OVERRIDE="$pp_lib" RJ_AUTO_MERGE=0 \
     RJ_REQUEST_MEMORY=8000MB \
@@ -89,6 +100,10 @@ submit_pp(){
 
 submit_auau(){
   local lane="$1" dataset="$2" sample="$3" arm="$4"
+  if ! want_row "$arm" "$lane" "$sample"; then
+    say "SKIP ${arm}:${lane}:${sample} (not in RJ_THE119_ONLY_KEYS)"
+    return 0
+  fi
   local out="$base/$arm/$lane/$sample"
   env RJ_CONFIG_YAML="$auau_cfg" RJ_AUAU_LIBRARY_OVERRIDE="$auau_lib" RJ_AUTO_MERGE=0 \
     RJ_REQUEST_MEMORY=8000MB \
@@ -106,8 +121,8 @@ preflight(){
   bash -n "$0" scripts/sdcc/runtime/condor/RecoilJets_Condor.sh scripts/sdcc/runtime/condor/RecoilJets_Condor_AuAu.sh
   mkdir -p "$evidence"
   {
-    printf 'tag=%s\nbase=%s\ncode_commit=%s\ncode_sha256=%s\nschema_sha=%s\nsemantic_sha=%s\n' \
-      "$tag" "$base" "$code_commit" "$code_sha" "$schema_sha" "$semantic_sha"
+    printf 'tag=%s\nbase=%s\ncode_commit=%s\ncode_sha256=%s\nschema_sha=%s\nsemantic_sha=%s\nonly_keys=%s\n' \
+      "$tag" "$base" "$code_commit" "$code_sha" "$schema_sha" "$semantic_sha" "$only_keys"
     sha256sum "$pp_cfg" "$auau_cfg" "$pp_lib" "$auau_lib" "$pp_model" "$pp_ref" "$auau_model"
   } > "$evidence/preflight_receipt.txt"
   say "PREFLIGHT_PASS evidence=$evidence/preflight_receipt.txt"
