@@ -58,7 +58,8 @@ PHOTON_ID_ROW_MATCH="${RJ_PHOTON_ID_ROW_MATCH:-preselectionReference_tightRefere
 PPG12_BASE_V1E_FEATURES="cluster_Et,cluster_weta_cogx,vertexz,cluster_Eta,e11_over_e33,cluster_et1,cluster_et2,cluster_et3,cluster_et4"
 PPG12_BASE_V3E_FEATURES="cluster_Et,cluster_weta_cogx,cluster_wphi_cogx,vertexz,cluster_Eta,e11_over_e33,cluster_et1,cluster_et2,cluster_et3,cluster_et4,e32_over_e35"
 PPG12_PT_BINS="6,10,15,20,25,35"
-PPG12_CURRENT_IAN_TRAIN_PT_BINS="5,10,14,18,22,35"
+PPG12_CURRENT_IAN_TRAIN_PT_BINS="${RJ_PP_CURRENT_IAN_TRAIN_PT_BINS:-5,10,14,18,22,35}"
+PPG12_CURRENT_IAN_VALIDATION_PT_RANGE="${RJ_PP_CURRENT_IAN_VALIDATION_PT_RANGE:-5:35}"
 PP_BDT_MAX_LOAD_ROWS_PER_CLASS="${PP_BDT_MAX_LOAD_ROWS_PER_CLASS:-2000000}"
 PP_MLP_MAX_LOAD_ROWS_PER_CLASS="${PP_MLP_MAX_LOAD_ROWS_PER_CLASS:-1500000}"
 PP_VALIDATION_MAX_LOAD_ROWS_PER_CLASS="${PP_VALIDATION_MAX_LOAD_ROWS_PER_CLASS:-1000000}"
@@ -147,6 +148,8 @@ Important variables
   RJ_PP_PHOTON_ML_DEST_ROOT=$REMOTE_DEST_ROOT
   MANIFEST=$MANIFEST
   ROOT_DIR=<directory with extracted ROOT files> for buildManifest
+  RJ_PP_CURRENT_IAN_TRAIN_PT_BINS=$PPG12_CURRENT_IAN_TRAIN_PT_BINS
+  RJ_PP_CURRENT_IAN_VALIDATION_PT_RANGE=$PPG12_CURRENT_IAN_VALIDATION_PT_RANGE
   RJ_DO_RUN=1 is required for condorExtract submissions.
 EOF
 }
@@ -214,6 +217,8 @@ write_currentian_metadata() {
   "background_training_samples": ${train_jet_samples_json},
   "full_inclusive_validation_samples": ${full_inclusive_samples_json},
   "features_ppg12_base_v3E_noIso": "${PPG12_BASE_V3E_FEATURES}",
+  "training_pt_bins": "${PPG12_CURRENT_IAN_TRAIN_PT_BINS}",
+  "validation_pt_range": "${PPG12_CURRENT_IAN_VALIDATION_PT_RANGE}",
   "weight_mode": "ppg12-exact",
   "split_mode": "event50",
   "train_test_split": "deterministic event-level 50/50 using source_sample/run/evt",
@@ -793,7 +798,7 @@ validate_currentian_bdt() {
     --outdir "$CURRENT_IAN_VALIDATION_OUTDIR" \
     --kind bdt \
     --bdt-registry "${CURRENT_IAN_BDT_OUTDIR}/model_registry.json" \
-    --pt-range 5:35 \
+    --pt-range "$PPG12_CURRENT_IAN_VALIDATION_PT_RANGE" \
     --centrality-range=-1:0 \
     --pt-bins "$PPG12_CURRENT_IAN_TRAIN_PT_BINS" \
     --max-load-rows-per-class "$PP_VALIDATION_MAX_LOAD_ROWS_PER_CLASS" \
