@@ -17,7 +17,7 @@ pp_ref="/sphenix/user/shuhangli/ppg12/FunWithxgboost/binned_models/model_base_v3
 auau_model="/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/the111_models/the111_combined_corrected_shower_ppg12_labels_20260719_1618/combined/auau_tight_bdt_centAsFeatBase3x3_pt15to35_tmva.root"
 schema_sha="$(sha256sum src/RJReplayFoundationV1.h | awk '{print $1}')"
 semantic_sha="97402b8d1e51e11082015ffbd920a346d19fc3c43ae189bf6367df49939f5c6a"
-code_sha="$(git rev-parse HEAD)"
+code_sha="${RJ_THE119_CODE_SHA:-ad9aa7aff3dd56c3255dc55146ce3a791e954054}"
 
 export RJ_CODEX_CHAT_NAME="THE-114+THE-119 | pp/AuAu Replay Foundation"
 export RJ_CODEX_THREAD_ID="019f80b5-dc56-7330-9ee7-56ef417547dc"
