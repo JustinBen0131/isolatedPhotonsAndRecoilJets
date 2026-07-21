@@ -12,6 +12,8 @@ pp_cfg="${RJ_THE119_PP_CONFIG:-${repo_root}/macros/analysis_config_the119_pp_rep
 auau_cfg="${RJ_THE119_AUAU_CONFIG:-${repo_root}/macros/analysis_config_the112_auau_combined_bdt_triplet.yaml}"
 pp_lib="${RJ_THE119_PP_LIBRARY:-/sphenix/u/patsfan753/scratch/thesisAnalysis/.recoiljets_tmp/the118_replay_runtime_build_20260720/install_pp/lib/libRecoilJets.so}"
 auau_lib="${RJ_THE119_AUAU_LIBRARY:-/sphenix/u/patsfan753/scratch/thesisAnalysis/.recoiljets_tmp/the118_replay_runtime_build_20260720/install_auau/lib/libRecoilJetsAuAu.so}"
+pp_lib_sha="${RJ_THE119_PP_LIBRARY_SHA256:-58ac460753344844309cc3ff6bf408d049e49c944a4be28d03a9797e3edcb364}"
+auau_lib_sha="${RJ_THE119_AUAU_LIBRARY_SHA256:-42f1a860b4f76ace51baa79e0c1413ac3a8fa42664e868c831d5044079e53019}"
 pp_model="/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/the116_models/the116_pp_matched_basev3e_15to35_20260720/models/bdt_ppg12_basev3e_15to35/pp_tight_bdt_ppg12_base_v3E_bdt_noIso_tmva.root"
 pp_ref="/sphenix/user/shuhangli/ppg12/FunWithxgboost/binned_models/model_base_v3E_split_single_tmva.root"
 auau_model="/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/the111_models/the111_combined_corrected_shower_ppg12_labels_20260719_1618/combined/auau_tight_bdt_centAsFeatBase3x3_pt15to35_tmva.root"
@@ -22,6 +24,8 @@ code_sha="${RJ_THE119_CODE_SHA256:-$(
   sha256sum \
     src/RecoilJets.cc \
     src/RecoilJets.h \
+    src_AuAu/RecoilJets_AuAu.cc \
+    src_AuAu/RecoilJets_AuAu.h \
     src/RJReplayFoundationV1.h \
     src/RJReplayRuntimeV1.h \
     macros/Fun4All_recoilJets_unified_impl.C \
@@ -47,8 +51,10 @@ require_inputs(){
   for f in "$pp_cfg" "$auau_cfg" "$pp_lib" "$auau_lib" "$pp_model" "$pp_ref" "$auau_model"; do
     [[ -s "$f" ]] || die "missing required input: $f"
   done
-  [[ "$(sha256sum "$pp_lib" | awk '{print $1}')" == "58ac460753344844309cc3ff6bf408d049e49c944a4be28d03a9797e3edcb364" ]] || die "p+p library hash drift"
-  [[ "$(sha256sum "$auau_lib" | awk '{print $1}')" == "42f1a860b4f76ace51baa79e0c1413ac3a8fa42664e868c831d5044079e53019" ]] || die "Au+Au library hash drift"
+  [[ "$pp_lib_sha" =~ ^[0-9a-f]{64}$ ]] || die "expected p+p library identity must be a 64-character SHA-256"
+  [[ "$auau_lib_sha" =~ ^[0-9a-f]{64}$ ]] || die "expected Au+Au library identity must be a 64-character SHA-256"
+  [[ "$(sha256sum "$pp_lib" | awk '{print $1}')" == "$pp_lib_sha" ]] || die "p+p library hash drift"
+  [[ "$(sha256sum "$auau_lib" | awk '{print $1}')" == "$auau_lib_sha" ]] || die "Au+Au library hash drift"
   [[ "$(sha256sum "$pp_model" | awk '{print $1}')" == "228d4cb73f7dc945a613c5a604add71a372b7540c2dc8c630b533d215bb17b30" ]] || die "THE-116 model hash drift"
   [[ "$(sha256sum "$pp_ref" | awk '{print $1}')" == "7679e634260402fb3815b2733767182690eec7587f9e09bffc307a05d00d59df" ]] || die "PPG12 model hash drift"
   [[ "$(sha256sum "$auau_model" | awk '{print $1}')" == "d50c69ec98558cb80730ab45fe6801d4accbcf2221c482af91e8899cede1c925" ]] || die "THE-111 model hash drift"
