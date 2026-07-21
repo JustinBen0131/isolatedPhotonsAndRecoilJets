@@ -68,6 +68,7 @@ submit_pp(){
   local lane="$1" dataset="$2" sample="$3" arm="$4"
   local out="$base/$arm/$lane/$sample"
   env RJ_CONFIG_YAML="$pp_cfg" RJ_PP_LIBRARY_OVERRIDE="$pp_lib" RJ_AUTO_MERGE=0 \
+    RJ_REQUEST_MEMORY=6000MB \
     RJ_REPLAY_FOUNDATION_CANARY=1 RJ_REPLAY_LANE="$lane" RJ_REPLAY_SCHEMA_SHA256="$schema_sha" \
     RJ_REQUIRE_NON_TINY_OUTPUT=1 RJ_MIN_OUTPUT_BYTES=50000 RJ_PROFILE_JOB=1 \
     RJ_JOB_HEARTBEAT_SECONDS=120 RJ_SMOKE_OUTPUT_BASE="$out" RJ_SMOKE_SIM_NEVENTS=3000 \
@@ -79,6 +80,7 @@ submit_auau(){
   local lane="$1" dataset="$2" sample="$3" arm="$4"
   local out="$base/$arm/$lane/$sample"
   env RJ_CONFIG_YAML="$auau_cfg" RJ_AUAU_LIBRARY_OVERRIDE="$auau_lib" RJ_AUTO_MERGE=0 \
+    RJ_REQUEST_MEMORY=6000MB \
     RJ_REPLAY_FOUNDATION_CANARY=1 RJ_REPLAY_LANE="$lane" RJ_REPLAY_SCHEMA_SHA256="$schema_sha" \
     RJ_REQUIRE_NON_TINY_OUTPUT=1 RJ_MIN_OUTPUT_BYTES=50000 RJ_PROFILE_JOB=1 \
     RJ_JOB_HEARTBEAT_SECONDS=120 RJ_SMOKE_OUTPUT_BASE="$out" RJ_SMOKE_SIM_NEVENTS=3000 \
