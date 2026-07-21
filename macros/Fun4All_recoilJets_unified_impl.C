@@ -6083,7 +6083,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             // historical PPG12 classifier as distinct model evaluations on
             // the identical loose candidate.  The reference model is never
             // allowed to drive the nominal tight selection.
-            if (!isAuAu)
+            if (!isAuAuLike)
             {
                 const char* referenceModel = std::getenv("RJ_REPLAY_REFERENCE_MODEL_FILE");
                 if (referenceModel && *referenceModel)
