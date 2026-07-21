@@ -214,6 +214,22 @@ case "$dataset_raw" in
 esac
 export RJ_SIM_SAMPLE="$run8"
 
+# Replay-foundation source identity is derived on the worker from the exact
+# staged chunk, never from a submit-time placeholder shared by many shards.
+if [[ "${RJ_REPLAY_FOUNDATION_V1:-0}" == "1" ]]; then
+  export RJ_REPLAY_DATASET="${RJ_REPLAY_DATASET:-$dataset}"
+  export RJ_REPLAY_SAMPLE="${RJ_REPLAY_SAMPLE:-$run8}"
+  export RJ_REPLAY_SEGMENT="${RJ_REPLAY_SEGMENT:-$chunk_idx}"
+  if [[ "$run8" =~ ([0-9]{5,8}) ]]; then
+    export RJ_REPLAY_RUN="${RJ_REPLAY_RUN:-${BASH_REMATCH[1]}}"
+  fi
+  if command -v sha256sum >/dev/null 2>&1 && [[ -s "$chunk_list" ]]; then
+    _rj_replay_chunk_sha="$(sha256sum "$chunk_list" | awk '{print $1}')"
+    export RJ_REPLAY_INPUT_URI_SHA256="${RJ_REPLAY_INPUT_URI_SHA256:-$_rj_replay_chunk_sha}"
+    export RJ_REPLAY_INPUT_FILE_SHA256="${RJ_REPLAY_INPUT_FILE_SHA256:-$_rj_replay_chunk_sha}"
+  fi
+fi
+
 if [[ "$dataset" == "isSim" ]]; then
   # For pp photon+jet production run8 is the slice label passed by the submitter
   # (PhotonJet5, PhotonJet10, PhotonJet20). RecoilJets uses this to apply the

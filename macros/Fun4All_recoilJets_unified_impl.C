@@ -6079,6 +6079,21 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
                                                cfg.tight_bdt_model_file,
                                                cfg.tight_bdt_features,
                                                7.0f);
+            // The replay foundation keeps the campaign classifier and the
+            // historical PPG12 classifier as distinct model evaluations on
+            // the identical loose candidate.  The reference model is never
+            // allowed to drive the nominal tight selection.
+            if (!isAuAu)
+            {
+                const char* referenceModel = std::getenv("RJ_REPLAY_REFERENCE_MODEL_FILE");
+                if (referenceModel && *referenceModel)
+                {
+                    photonBuilder->add_named_bdt_score("ppg12_reference_bdt_score",
+                                                       referenceModel,
+                                                       cfg.tight_bdt_features,
+                                                       7.0f);
+                }
+            }
         }
         else
         {

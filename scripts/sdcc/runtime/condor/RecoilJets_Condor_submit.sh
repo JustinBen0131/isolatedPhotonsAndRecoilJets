@@ -438,6 +438,7 @@ create_pipeline_snapshot() {
   local snap_dir="${SNAPSHOT_ROOT}/${TAG}_${stamp}"
   local snap_lib_dir="${snap_dir}/lib"
   local user_root="/sphenix/u/${USER:-$(id -u -n)}"
+  local pp_library_source="${RJ_PP_LIBRARY_OVERRIDE:-${user_root}/thesisAnalysis/install/lib/libRecoilJets.so}"
   local auau_library_source="${RJ_AUAU_LIBRARY_OVERRIDE:-${user_root}/thesisAnalysis_auau/install/lib/libRecoilJetsAuAu.so}"
   local calo_reco_library_source="${RJ_CALO_RECO_LIBRARY_OVERRIDE:-${user_root}/thesisAnalysis/install/lib/libcalo_reco.so}"
   local photon_cluster_builder_header_source="${RJ_PHOTON_CLUSTER_BUILDER_HEADER_OVERRIDE:-${user_root}/thesisAnalysis/install/include/caloreco/PhotonClusterBuilder.h}"
@@ -510,7 +511,12 @@ create_pipeline_snapshot() {
     cp -f "${user_root}/thesisAnalysis/install/lib/libclusteriso.so" "$snap_lib_dir/"
     cp -f "${user_root}/thesisAnalysis/install/lib/libjetbase.so" "$snap_lib_dir/"
   fi
-  [[ -f "${user_root}/thesisAnalysis/install/lib/libRecoilJets.so" ]] && cp -f "${user_root}/thesisAnalysis/install/lib/libRecoilJets.so" "$snap_lib_dir/"
+  if [[ -f "$pp_library_source" ]]; then
+    cp -f "$pp_library_source" "$snap_lib_dir/libRecoilJets.so"
+  elif [[ "$mode" != "auau" ]]; then
+    err "p+p snapshot library is missing: ${pp_library_source}"
+    exit 2
+  fi
   if [[ -f "$auau_library_source" ]]; then
     cp -f "$auau_library_source" "$snap_lib_dir/libRecoilJetsAuAu.so"
   elif [[ "$mode" == "auau" ]]; then
