@@ -660,17 +660,51 @@ PY
     exit 2
   fi
 
-  # Copy companion ROOT PCM dictionaries so R__LOAD_LIBRARY resolves the
-  # dictionary payload beside the frozen libraries.  The archived PPG12 DI
-  # support libraries were built against ana.541; without the matching
-  # ana.541 PCMs ROOT aborts in static initialization before the event loop.
+  # Copy only the ROOT PCM dictionaries defined by the archived libphg4hit.
+  # The PPG12 DI support libraries were built against ana.541, so omitting
+  # these PCMs prevents ROOT from loading libphg4hit.  Copying every ana.541
+  # PCM is also invalid: it makes Cling discover dictionaries whose matching
+  # libraries are not in this bounded snapshot and breaks macro materialization.
   if (( use_ppg12_archived_runtime )); then
-    cp -f "${release_core_lib_dir}/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
-    cp -f "${release_core_lib64_dir}/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
-    compgen -G "${snap_lib_dir}/*_rdict.pcm" >/dev/null || {
-      err "Archived PPG12 DI runtime did not stage any ana.541 ROOT PCM dictionaries"
+    local -a archived_ppg12_di_pcm_allowlist=(
+      EicEventHeader_Dict_rdict.pcm
+      EicEventHeaderv1_Dict_rdict.pcm
+      PHG4EventHeader_Dict_rdict.pcm
+      PHG4EventHeaderv1_Dict_rdict.pcm
+      PHG4HitContainer_Dict_rdict.pcm
+      PHG4HitEval_Dict_rdict.pcm
+      PHG4Hit_Dict_rdict.pcm
+      PHG4Hitv1_Dict_rdict.pcm
+      PHG4InEvent_Dict_rdict.pcm
+      PHG4Particle_Dict_rdict.pcm
+      PHG4Particlev1_Dict_rdict.pcm
+      PHG4Particlev2_Dict_rdict.pcm
+      PHG4Particlev3_Dict_rdict.pcm
+      PHG4Shower_Dict_rdict.pcm
+      PHG4Showerv1_Dict_rdict.pcm
+      PHG4TruthInfoContainer_Dict_rdict.pcm
+      PHG4VtxPoint_Dict_rdict.pcm
+      PHG4VtxPointv1_Dict_rdict.pcm
+      PHG4VtxPointv2_Dict_rdict.pcm
+    )
+    local archived_pcm_name
+    local archived_pcm_source
+    for archived_pcm_name in "${archived_ppg12_di_pcm_allowlist[@]}"; do
+      archived_pcm_source=""
+      if [[ -r "${release_core_lib_dir}/${archived_pcm_name}" ]]; then
+        archived_pcm_source="${release_core_lib_dir}/${archived_pcm_name}"
+      elif [[ -r "${release_core_lib64_dir}/${archived_pcm_name}" ]]; then
+        archived_pcm_source="${release_core_lib64_dir}/${archived_pcm_name}"
+      else
+        err "Archived PPG12 DI runtime is missing required libphg4hit PCM: ${archived_pcm_name}"
+        exit 2
+      fi
+      cp -f "$archived_pcm_source" "${snap_lib_dir}/${archived_pcm_name}"
+    done
+    if [[ "$(find "$snap_lib_dir" -maxdepth 1 -type f -name '*_rdict.pcm' | wc -l)" -ne "${#archived_ppg12_di_pcm_allowlist[@]}" ]]; then
+      err "Archived PPG12 DI runtime staged an unexpected ROOT PCM inventory"
       exit 2
-    }
+    fi
   else
     cp -f "${user_root}/thesisAnalysis/install/lib/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
     cp -f "${user_root}/thesisAnalysis_auau/install/lib/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
