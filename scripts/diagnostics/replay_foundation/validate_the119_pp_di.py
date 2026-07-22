@@ -310,6 +310,7 @@ def validate_writer(
     if entries["RJWeightComponentV1"] != entries["RJEventV1"]:
         fail(errors, "event/weight population mismatch")
     weight_targets: set[tuple[int, int]] = set()
+    zero_vertex_weight_rows = 0
     for weight in weights:
         target = identity(weight, "target_id")
         if target not in event_ids or target in weight_targets:
@@ -327,8 +328,17 @@ def validate_writer(
             float(weight.exposure_weight),
             float(weight.final_weight),
         ]
-        if any(not math.isfinite(value) or value <= 0.0 for value in values):
-            fail(errors, "weight contains a nonfinite or nonpositive component")
+        if any(not math.isfinite(value) for value in values):
+            fail(errors, "weight contains a nonfinite component")
+        if any(value <= 0.0 for value in (values[0], values[1], values[3], values[4], values[5])):
+            fail(errors, "weight contains a nonpositive normalization component")
+        # The frozen PPG12 truth-vertex contract assigns zero support outside
+        # its histogram domain.  Such an event is retained with an exactly
+        # zero final weight; negative vertex/final weights remain forbidden.
+        if values[2] < 0.0 or values[6] < 0.0:
+            fail(errors, "weight contains a negative vertex or final component")
+        if values[2] == 0.0:
+            zero_vertex_weight_rows += 1
         if values[0] != values[1] or values[4] != values[5]:
             fail(errors, "weight witness duplication does not close")
         product = values[0] * values[2] * values[3] * values[4]
@@ -344,6 +354,7 @@ def validate_writer(
         "below15_model_rows": below15_rows,
         "validated_candidate_model_rows": validated_candidate_rows,
         "weight_once_rows": len(weight_targets),
+        "zero_vertex_weight_rows": zero_vertex_weight_rows,
     }
 
 
