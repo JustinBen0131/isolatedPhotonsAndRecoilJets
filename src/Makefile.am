@@ -45,13 +45,14 @@ libRecoilJets_la_LIBADD = \
   -lg4eval
 
 # Avoid undefined symbols with libtool; give a basic version-info
-libRecoilJets_la_LDFLAGS = -no-undefined -version-info 0:0:0
+libRecoilJets_la_LDFLAGS = $(AM_LDFLAGS) $(LDFLAGS) -no-undefined -version-info 0:0:0
 
 # Install public headers
 pkginclude_HEADERS = \
   RecoilJets.h \
   RJReplayFoundationV1.h \
-  RJReplayRuntimeV1.h
+  RJReplayRuntimeV1.h \
+  RJShowerFactorialV1.h
 
 # --------------------------------------------------------------------
 # Small link test against the lib we build here

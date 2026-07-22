@@ -14,6 +14,7 @@ TABLES = {
     "RJPhotonCandidateV1": 1,
     "RJModelEvaluationV1": 1,
     "RJShowerCellV1": 1,
+    "RJShowerFeatureViewV1": 1,
     "RJIsolationConstituentV1": 1,
     "RJIsolationWitnessV1": 1,
     "RJJetV1": 1,
@@ -29,7 +30,9 @@ TABLES = {
 REQUIRED_BRANCHES = {
     "RJEventV1": {"event_id_hi", "event_id_lo", "source_occurrence_id_hi", "candidate_count", "recoil_count"},
     "RJPhotonCandidateV1": {"candidate_id_hi", "event_id_hi", "cluster_et", "ordered_features", "below15_retention_state"},
-    "RJModelEvaluationV1": {"candidate_id_hi", "model_id_hi", "raw_score", "applicability_state", "wp80", "delta_wp80"},
+    "RJModelEvaluationV1": {"candidate_id_hi", "model_id_hi", "shower_definition_id", "shower_semantic_sha256", "raw_score", "applicability_state", "wp80", "delta_wp80"},
+    "RJShowerCellV1": {"candidate_id_hi", "local_eta_index", "local_phi_index", "tower_eta_index", "tower_phi_index", "rawcluster_owned", "rawcluster_map_value", "rawcluster_value_present", "floor0_membership", "floor70_membership", "grid_membership_bitmask"},
+    "RJShowerFeatureViewV1": {"candidate_id_hi", "definition_id_hi", "definition_name", "semantic_sha256", "ordered_features", "floor_gev", "raw_center_eta", "raw_center_phi", "center_eta_index", "center_phi_index", "weta_cogx", "wphi_cogx", "finite_feature_state"},
     "RJIsolationWitnessV1": {"radius", "subtraction_method", "reconstructed_or_truth", "cone_sum", "threshold"},
     "RJRecoTruthLinkV1": {"reco_type", "reco_id_hi", "truth_type", "truth_id_hi", "link_class"},
 }

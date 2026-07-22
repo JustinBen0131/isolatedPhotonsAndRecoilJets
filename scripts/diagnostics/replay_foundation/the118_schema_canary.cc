@@ -50,20 +50,42 @@ int main(int argc, char** argv)
   candidate.id=candidateId; candidate.event_id=eventId; candidate.encounter_ordinal=0;
   candidate.rank_keys={18.0,0.1,0.2}; candidate.cluster_et=18; candidate.eta=0.1; candidate.phi=0.2;
   candidate.ordered_features=std::vector<float>(11,0.5F); candidate.preselection_bitmask=7;
+  candidate.shower_definition_views={"H70"};
   candidate.finite_feature_state=1; candidate.below15_retention_state=0;
   if(!writer.fill(candidate,&error)) return 4;
 
   ModelEvaluationRow model;
   model.candidate_id=candidateId; model.model_id=modelId; model.model_sha256=h;
+  model.shower_definition_id="H70"; model.shower_semantic_sha256=h;
   model.ordered_input_witnesses=candidate.ordered_features; model.raw_score=0.7; model.finite_score=1;
   model.applicability_state=static_cast<int>(ModelApplicability::VALIDATED_DOMAIN);
   model.wp70=0.8; model.wp80=0.6; model.wp90=0.4; model.delta_wp70=-0.1; model.delta_wp80=0.1; model.delta_wp90=0.3;
   if(!writer.fill(model,&error)) return 5;
 
   ShowerCellRow cell;
-  cell.candidate_id=candidateId; cell.local_eta_index=0; cell.local_phi_index=0; cell.tower_key=11;
-  cell.calibrated_energy=2.0; cell.is_good=1; cell.seed_state=1; cell.denominator_membership=1;
+  cell.candidate_id=candidateId; cell.local_eta_index=0; cell.local_phi_index=0;
+  cell.tower_eta_index=48; cell.tower_phi_index=128; cell.tower_key=11;
+  cell.calibrated_energy=2.0; cell.rawcluster_map_value=1.9; cell.is_good=1; cell.seed_state=1;
+  cell.denominator_membership=1; cell.rawcluster_owned=1; cell.rawcluster_value_present=1;
+  cell.floor0_membership=1; cell.floor70_membership=1; cell.grid_membership_bitmask=3;
   if(!writer.fill(cell,&error)) return 6;
+
+  ShowerFeatureViewRow view;
+  view.candidate_id=candidateId; view.definition_id=makeIdentity("shower-definition|H70");
+  view.definition_name="H70"; view.semantic_sha256=h; view.ordered_features=candidate.ordered_features;
+  view.floor_gev=0.070; view.cog_eta=3.25; view.cog_phi=2.75;
+  view.raw_center_eta=48.75; view.raw_center_phi=128.25;
+  view.center_eta_index=48; view.center_phi_index=128;
+  view.e11=2.0; view.e33=2.0; view.e32=2.0; view.e35=2.0;
+  view.e11_over_e33=1.0; view.e32_over_e35=1.0;
+  view.weta_cogx=0.1; view.wphi_cogx=0.2; view.weta33_cogx=0.1; view.wphi33_cogx=0.2;
+  view.native_et1=2.0; view.native_et2=2.0; view.native_et3=2.0; view.native_et4=2.0;
+  view.moment_eta_numerator=0.2; view.moment_phi_numerator=0.4; view.moment_denominator=2.0;
+  view.moment33_eta_numerator=0.2; view.moment33_phi_numerator=0.4; view.moment33_denominator=2.0;
+  view.energy_source=0; view.rectangular_membership=0; view.moment_membership=1;
+  view.finite_feature_state=1; view.good_cell_count=1; view.owned_cell_count=1;
+  view.active_sum_cell_count=1; view.active_moment_cell_count=1;
+  if(!writer.fill(view,&error)) return 25;
 
   IsolationConstituentRow iso;
   iso.candidate_id=candidateId; iso.constituent_id=makeIdentity(candidateId.hex()+"|iso|0");
@@ -151,6 +173,8 @@ int main(int argc, char** argv)
   EventRow orphan=event; orphan.id=makeIdentity("orphan-event"); orphan.source_id=makeIdentity("missing-source");
   if(writer.fill(orphan,&error)) return 21;
   if(writer.fill(candidate,&error)) return 22; // duplicate candidate
+  if(writer.fill(cell,&error)) return 26; // duplicate candidate/local-cell key
+  if(writer.fill(view,&error)) return 27; // duplicate candidate/definition key
   RecoTruthLinkRow invalid=photonLink; invalid.id=makeIdentity("invalid-link"); invalid.truth_id=makeIdentity("missing-truth");
   if(writer.fill(invalid,&error)) return 23;
 

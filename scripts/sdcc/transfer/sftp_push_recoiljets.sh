@@ -19,6 +19,8 @@ LOCAL_FILES=(
   "scripts/sdcc/workflows/training/submit_the116_pp_bdt_15to35.sh"
   "scripts/sdcc/workflows/training/submit_the116_pp_bdt_exact_holdout_validation.sh"
   "scripts/sdcc/workflows/diagnostics/submit_the119_replay_foundation_canaries.sh"
+  "scripts/sdcc/workflows/diagnostics/submit_the134_shower_factorial_canaries.sh"
+  "scripts/diagnostics/replay_foundation/validate_the134_shower_factorial.py"
   "scripts/ml/validation/validate_the116_pp_bdt.py"
   "scripts/data_prep/manifests/build_currentian_fast_manifests.py"
   "scripts/diagnostics/pp_shuhang/compare_pp_currentian_insitu_stitch_contract.py"
@@ -188,6 +190,7 @@ LOCAL_FILES=(
   "src/autogen.sh"
   "src/RJReplayFoundationV1.h"
   "src/RJReplayRuntimeV1.h"
+  "src/RJShowerFactorialV1.h"
 )
 
 REMOTE_FILES=(
@@ -201,6 +204,8 @@ REMOTE_FILES=(
   "scripts/sdcc/workflows/training/submit_the116_pp_bdt_15to35.sh"
   "scripts/sdcc/workflows/training/submit_the116_pp_bdt_exact_holdout_validation.sh"
   "scripts/sdcc/workflows/diagnostics/submit_the119_replay_foundation_canaries.sh"
+  "scripts/sdcc/workflows/diagnostics/submit_the134_shower_factorial_canaries.sh"
+  "scripts/diagnostics/replay_foundation/validate_the134_shower_factorial.py"
   "scripts/ml/validation/validate_the116_pp_bdt.py"
   "scripts/data_prep/manifests/build_currentian_fast_manifests.py"
   "scripts/diagnostics/pp_shuhang/compare_pp_currentian_insitu_stitch_contract.py"
@@ -370,6 +375,7 @@ REMOTE_FILES=(
   "src/autogen.sh"
   "src/RJReplayFoundationV1.h"
   "src/RJReplayRuntimeV1.h"
+  "src/RJShowerFactorialV1.h"
 )
 
 GROUP_CONDOR=(
@@ -835,6 +841,9 @@ add_group() {
       add_local_rel "src/RecoilJets.cc"
       add_local_rel "src/RecoilJets.h"
       add_local_rel "src/PPG12SimWeight.h"
+      add_local_rel "src/RJReplayFoundationV1.h"
+      add_local_rel "src/RJReplayRuntimeV1.h"
+      add_local_rel "src/RJShowerFactorialV1.h"
       add_local_rel "src_AuAu/RecoilJets_AuAu.cc"
       add_local_rel "src_AuAu/RecoilJets_AuAu.h"
       add_local_rel "src_AuAu/THE106ObservationDisabled.h"

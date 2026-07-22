@@ -23,11 +23,17 @@ pp_di_photon_builder_lib="${RJ_THE119_PP_DI_PHOTON_BUILDER_LIBRARY:-${pp_di_phot
 pp_di_photon_builder_header="${RJ_THE119_PP_DI_PHOTON_BUILDER_HEADER:-${pp_di_photon_builder_root}/include/caloreco/PhotonClusterBuilder.h}"
 pp_di_photon_builder_lib_sha="${RJ_THE119_PP_DI_PHOTON_BUILDER_LIBRARY_SHA256:-5d4eca4abdaa274d308856e050d19b17e02bc62652a03dda6f0ea95719b9147e}"
 pp_di_photon_builder_header_sha="${RJ_THE119_PP_DI_PHOTON_BUILDER_HEADER_SHA256:-255fb1b4b9a0fdb9b0ee4709483ac30a04ee8dd2813f99e6afc3914e5cd1e20f}"
-pp_model="/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/the116_models/the116_pp_matched_basev3e_15to35_20260720/models/bdt_ppg12_basev3e_15to35/pp_tight_bdt_ppg12_base_v3E_bdt_noIso_tmva.root"
-pp_ref="/sphenix/user/shuhangli/ppg12/FunWithxgboost/binned_models/model_base_v3E_split_single_tmva.root"
-auau_model="/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/the111_models/the111_combined_corrected_shower_ppg12_labels_20260719_1618/combined/auau_tight_bdt_centAsFeatBase3x3_pt15to35_tmva.root"
+pp_model="${RJ_THE119_PP_MODEL:-/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/the116_models/the116_pp_matched_basev3e_15to35_20260720/models/bdt_ppg12_basev3e_15to35/pp_tight_bdt_ppg12_base_v3E_bdt_noIso_tmva.root}"
+pp_model_sha="${RJ_THE119_PP_MODEL_SHA256:-228d4cb73f7dc945a613c5a604add71a372b7540c2dc8c630b533d215bb17b30}"
+pp_model_shower_definition="${RJ_THE119_PP_MODEL_SHOWER_DEFINITION:-H70}"
+pp_ref="${RJ_THE119_PP_REFERENCE_MODEL:-/sphenix/user/shuhangli/ppg12/FunWithxgboost/binned_models/model_base_v3E_split_single_tmva.root}"
+pp_ref_sha="${RJ_THE119_PP_REFERENCE_MODEL_SHA256:-7679e634260402fb3815b2733767182690eec7587f9e09bffc307a05d00d59df}"
+pp_ref_shower_definition="${RJ_THE119_PP_REFERENCE_MODEL_SHOWER_DEFINITION:-H70}"
+auau_model="${RJ_THE119_AUAU_MODEL:-/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/the111_models/the111_combined_corrected_shower_ppg12_labels_20260719_1618/combined/auau_tight_bdt_centAsFeatBase3x3_pt15to35_tmva.root}"
+auau_model_sha="${RJ_THE119_AUAU_MODEL_SHA256:-d50c69ec98558cb80730ab45fe6801d4accbcf2221c482af91e8899cede1c925}"
+auau_model_shower_definition="${RJ_THE119_AUAU_MODEL_SHOWER_DEFINITION:-H0}"
 schema_sha="$(sha256sum src/RJReplayFoundationV1.h | awk '{print $1}')"
-semantic_sha="97402b8d1e51e11082015ffbd920a346d19fc3c43ae189bf6367df49939f5c6a"
+semantic_sha="${RJ_THE119_SEMANTIC_SHA256:-97402b8d1e51e11082015ffbd920a346d19fc3c43ae189bf6367df49939f5c6a}"
 photon_capture_et_min="${RJ_THE119_PHOTON_CAPTURE_ET_MIN:-5.0}"
 jet_constituent_pt_min="${RJ_THE119_JET_CONSTITUENT_PT_MIN:-5.0}"
 canary_nevents="${RJ_THE119_NEVENTS:-3000}"
@@ -48,6 +54,7 @@ code_sha="${RJ_THE119_CODE_SHA256:-$(
     src_AuAu/THE106ObservationDisabled.h \
     src/RJReplayFoundationV1.h \
     src/RJReplayRuntimeV1.h \
+    src/RJShowerFactorialV1.h \
     macros/Fun4All_recoilJets_unified_impl.C \
   | sha256sum | awk '{print $1}'
 )}"
@@ -84,9 +91,16 @@ require_inputs(){
   [[ "$auau_lib_sha" =~ ^[0-9a-f]{64}$ ]] || die "expected Au+Au library identity must be a 64-character SHA-256"
   [[ "$(sha256sum "$pp_lib" | awk '{print $1}')" == "$pp_lib_sha" ]] || die "p+p library hash drift"
   [[ "$(sha256sum "$auau_lib" | awk '{print $1}')" == "$auau_lib_sha" ]] || die "Au+Au library hash drift"
-  [[ "$(sha256sum "$pp_model" | awk '{print $1}')" == "228d4cb73f7dc945a613c5a604add71a372b7540c2dc8c630b533d215bb17b30" ]] || die "THE-116 model hash drift"
-  [[ "$(sha256sum "$pp_ref" | awk '{print $1}')" == "7679e634260402fb3815b2733767182690eec7587f9e09bffc307a05d00d59df" ]] || die "PPG12 model hash drift"
-  [[ "$(sha256sum "$auau_model" | awk '{print $1}')" == "d50c69ec98558cb80730ab45fe6801d4accbcf2221c482af91e8899cede1c925" ]] || die "THE-111 model hash drift"
+  [[ "$pp_model_sha" =~ ^[0-9a-f]{64}$ ]] || die "p+p model identity must be a SHA-256"
+  [[ "$pp_ref_sha" =~ ^[0-9a-f]{64}$ ]] || die "p+p reference-model identity must be a SHA-256"
+  [[ "$auau_model_sha" =~ ^[0-9a-f]{64}$ ]] || die "Au+Au model identity must be a SHA-256"
+  [[ "$(sha256sum "$pp_model" | awk '{print $1}')" == "$pp_model_sha" ]] || die "p+p model hash drift"
+  [[ "$(sha256sum "$pp_ref" | awk '{print $1}')" == "$pp_ref_sha" ]] || die "p+p reference model hash drift"
+  [[ "$(sha256sum "$auau_model" | awk '{print $1}')" == "$auau_model_sha" ]] || die "Au+Au model hash drift"
+  local definition
+  for definition in "$pp_model_shower_definition" "$pp_ref_shower_definition" "$auau_model_shower_definition"; do
+    case "$definition" in H70|H0|G70|G0|O70|O0|R70) ;; *) die "unknown shower-definition identity: $definition" ;; esac
+  done
   [[ "$code_commit" =~ ^[0-9a-f]{40}$ ]] || die "campaign code commit must be a 40-character Git object id"
   [[ "$code_sha" =~ ^[0-9a-f]{64}$ ]] || die "replay code identity must be a 64-character SHA-256"
   [[ "$photon_capture_et_min" =~ ^([0-9]+([.][0-9]*)?|[.][0-9]+)$ ]] || die "photon capture threshold must be numeric"
@@ -140,14 +154,14 @@ common_extra(){
 
 pp_extra(){
   local lane="$1" dataset="$2" sample="$3" arm="$4"
-  printf '%s;%s' "$(common_extra "$lane" "$dataset" "$sample" "$arm" "$pp_cfg" 228d4cb73f7dc945a613c5a604add71a372b7540c2dc8c630b533d215bb17b30)" \
-    "RJ_REPLAY_MODEL_SCORE_NAME=tight_bdt_score;RJ_REPLAY_REFERENCE_MODEL_FILE=${pp_ref};RJ_REPLAY_REFERENCE_MODEL_SHA256=7679e634260402fb3815b2733767182690eec7587f9e09bffc307a05d00d59df;RJ_REPLAY_REFERENCE_SCORE_NAME=ppg12_reference_bdt_score;RJ_REPLAY_WP70_BINS=0.79682856798172,0.766527533531189,0.764809787273407,0.7529897093772888,0.7708977460861206,0.8068315982818604,0.8892104029655457,0.972591757774353;RJ_REPLAY_WP80_BINS=0.7195994257926941,0.682415783405304,0.6793394684791565,0.6720289587974548,0.6960929036140442,0.7344872951507568,0.8287723064422607,0.9486955404281616;RJ_REPLAY_WP90_BINS=0.5593066215515137,0.5007686018943787,0.5124438405036926,0.5229008793830872,0.5534335374832153,0.5945547223091125,0.6987603902816772,0.8794801831245422;RJ_PPG12_TABLE_QA=${pp_direct_witness_qa};RJ_PPG12_TABLE_QA_NPB_DATA_TAGGING=0;RJ_REPLAY_FOUNDATION_CAPTURE_WITNESS_QA=${pp_capture_witness_qa}"
+  printf '%s;%s' "$(common_extra "$lane" "$dataset" "$sample" "$arm" "$pp_cfg" "$pp_model_sha")" \
+    "RJ_REPLAY_MODEL_SCORE_NAME=tight_bdt_score;RJ_REPLAY_MODEL_SHOWER_DEFINITION=${pp_model_shower_definition};RJ_REPLAY_REFERENCE_MODEL_FILE=${pp_ref};RJ_REPLAY_REFERENCE_MODEL_SHA256=${pp_ref_sha};RJ_REPLAY_REFERENCE_MODEL_SHOWER_DEFINITION=${pp_ref_shower_definition};RJ_REPLAY_REFERENCE_SCORE_NAME=ppg12_reference_bdt_score;RJ_REPLAY_WP70_BINS=0.79682856798172,0.766527533531189,0.764809787273407,0.7529897093772888,0.7708977460861206,0.8068315982818604,0.8892104029655457,0.972591757774353;RJ_REPLAY_WP80_BINS=0.7195994257926941,0.682415783405304,0.6793394684791565,0.6720289587974548,0.6960929036140442,0.7344872951507568,0.8287723064422607,0.9486955404281616;RJ_REPLAY_WP90_BINS=0.5593066215515137,0.5007686018943787,0.5124438405036926,0.5229008793830872,0.5534335374832153,0.5945547223091125,0.6987603902816772,0.8794801831245422;RJ_PPG12_TABLE_QA=${pp_direct_witness_qa};RJ_PPG12_TABLE_QA_NPB_DATA_TAGGING=0;RJ_REPLAY_FOUNDATION_CAPTURE_WITNESS_QA=${pp_capture_witness_qa}"
 }
 
 auau_extra(){
   local lane="$1" dataset="$2" sample="$3" arm="$4"
-  printf '%s;%s' "$(common_extra "$lane" "$dataset" "$sample" "$arm" "$auau_cfg" d50c69ec98558cb80730ab45fe6801d4accbcf2221c482af91e8899cede1c925)" \
-    "RJ_REPLAY_MODEL_SCORE_NAME=auau_tight_bdt_score;RJ_REPLAY_WP70_INTERCEPT=0.6529177794;RJ_REPLAY_WP70_SLOPE=0.0013378442;RJ_REPLAY_WP80_INTERCEPT=0.5544148693;RJ_REPLAY_WP80_SLOPE=0.0015499421;RJ_REPLAY_WP90_INTERCEPT=0.4046618113;RJ_REPLAY_WP90_SLOPE=0.0014896756"
+  printf '%s;%s' "$(common_extra "$lane" "$dataset" "$sample" "$arm" "$auau_cfg" "$auau_model_sha")" \
+    "RJ_REPLAY_MODEL_SCORE_NAME=auau_tight_bdt_score;RJ_REPLAY_MODEL_SHOWER_DEFINITION=${auau_model_shower_definition};RJ_REPLAY_WP70_INTERCEPT=0.6529177794;RJ_REPLAY_WP70_SLOPE=0.0013378442;RJ_REPLAY_WP80_INTERCEPT=0.5544148693;RJ_REPLAY_WP80_SLOPE=0.0015499421;RJ_REPLAY_WP90_INTERCEPT=0.4046618113;RJ_REPLAY_WP90_SLOPE=0.0014896756"
 }
 
 assert_fresh(){
@@ -249,8 +263,8 @@ preflight(){
   bash -n "$0" scripts/sdcc/runtime/condor/RecoilJets_Condor.sh scripts/sdcc/runtime/condor/RecoilJets_Condor_AuAu.sh
   mkdir -p "$evidence"
   {
-    printf 'tag=%s\nbase=%s\ncode_commit=%s\ncode_sha256=%s\nschema_sha=%s\nsemantic_sha=%s\nphoton_capture_et_min_gev=%s\njet_constituent_pt_min_gev=%s\ncanary_nevents=%s\nreplay_trace=%s\npp_direct_witness_qa=%s\npp_witness_profile=%s\npp_witness_only_keys=%s\nonly_keys=%s\nsource_sha_override=%s\n' \
-      "$tag" "$base" "$code_commit" "$code_sha" "$schema_sha" "$semantic_sha" "$photon_capture_et_min" "$jet_constituent_pt_min" "$canary_nevents" "$replay_trace" "$pp_direct_witness_qa" "$pp_witness_profile" "$pp_witness_only_keys" "$only_keys" "$source_sha_override"
+    printf 'tag=%s\nbase=%s\ncode_commit=%s\ncode_sha256=%s\nschema_sha=%s\nsemantic_sha=%s\npp_model_shower_definition=%s\npp_reference_model_shower_definition=%s\nauau_model_shower_definition=%s\nphoton_capture_et_min_gev=%s\njet_constituent_pt_min_gev=%s\ncanary_nevents=%s\nreplay_trace=%s\npp_direct_witness_qa=%s\npp_witness_profile=%s\npp_witness_only_keys=%s\nonly_keys=%s\nsource_sha_override=%s\n' \
+      "$tag" "$base" "$code_commit" "$code_sha" "$schema_sha" "$semantic_sha" "$pp_model_shower_definition" "$pp_ref_shower_definition" "$auau_model_shower_definition" "$photon_capture_et_min" "$jet_constituent_pt_min" "$canary_nevents" "$replay_trace" "$pp_direct_witness_qa" "$pp_witness_profile" "$pp_witness_only_keys" "$only_keys" "$source_sha_override"
     sha256sum "$pp_cfg" "$auau_cfg" "$pp_lib" "$auau_lib" "$pp_model" "$pp_ref" "$auau_model"
     if [[ "$pp_witness_profile" == period_si_di ]]; then
       sha256sum "$pp_di_lib" "$pp_di_canary_manifest" \

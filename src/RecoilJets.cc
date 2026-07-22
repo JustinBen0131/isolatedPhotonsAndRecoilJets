@@ -1,6 +1,7 @@
 #include "RecoilJets.h"
 #include "PPG12SimWeight.h"
 #include "RJReplayRuntimeV1.h"
+#include "RJShowerFactorialV1.h"
 //––– Fun4All / PHOOL -------------------------------------------------------
 #include <fun4all/Fun4AllReturnCodes.h>
 #include <fun4all/Fun4AllServer.h>
@@ -79,6 +80,7 @@
 #include <map>
 #include <memory>
 #include <regex>
+#include <set>
 #include <tuple>
 
 #ifdef _OPENMP
@@ -4999,6 +5001,27 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode, int termin
       const double eta = photon->get_shower_shape_parameter("cluster_eta");
       const double phi = photon->get_shower_shape_parameter("cluster_phi");
       if (!std::isfinite(pt)||!std::isfinite(eta)||!std::isfinite(phi)||pt<5.0||pt>=40.0||std::fabs(eta)>=0.7) continue;
+      struct FactorialShapeState
+      {
+        bool valid=false;
+        double raw_eta=std::numeric_limits<double>::quiet_NaN();
+        double raw_phi=std::numeric_limits<double>::quiet_NaN();
+        std::array<double,4> native_et{{std::numeric_limits<double>::quiet_NaN(),std::numeric_limits<double>::quiet_NaN(),std::numeric_limits<double>::quiet_NaN(),std::numeric_limits<double>::quiet_NaN()}};
+      };
+      auto factorialShape=[&](double floor)
+      {
+        FactorialShapeState result;
+        const auto values=photon->get_shower_shapes(floor);
+        if(values.size()<6)return result;
+        result.raw_eta=static_cast<double>(values[4])+0.5;
+        result.raw_phi=static_cast<double>(values[5])+0.5;
+        for(std::size_t i=0;i<4;++i)result.native_et[i]=values[i];
+        result.valid=std::isfinite(result.raw_eta)&&std::isfinite(result.raw_phi)&&
+            std::all_of(result.native_et.begin(),result.native_et.end(),[](double item){return std::isfinite(item);});
+        return result;
+      };
+      const auto shape0=factorialShape(0.0);
+      const auto shape70=factorialShape(0.070);
       const SSVars v = makeSSFromPhoton(photon,pt);
       PhotonCandidateRow candidate;
       candidate.id = makeIdentity(bundle.event.id.hex()+"|candidate|"+std::to_string(ordinal)+"|"+std::to_string(it->first));
@@ -5013,6 +5036,8 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode, int termin
         static_cast<float>(v.et1), static_cast<float>(v.et2),
         static_cast<float>(v.et3), static_cast<float>(v.et4),
         static_cast<float>(v.e32_over_e35)};
+      if(shape70.valid)candidate.shower_definition_views={"H70","G70","O70","R70"};
+      if(shape0.valid)candidate.shower_definition_views.insert(candidate.shower_definition_views.end(),{"H0","G0","O0"});
       candidate.finite_feature_state = std::all_of(candidate.ordered_features.begin(),candidate.ordered_features.end(),[](double x){return std::isfinite(x);}) ? 1:0;
       candidate.below15_retention_state = pt<15.0 ? 1:0;
       candidate.preselection_bitmask = 1ULL|2ULL|4ULL|(candidate.finite_feature_state?8ULL:0ULL);
@@ -5025,6 +5050,12 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode, int termin
         if (hash.empty()) return;
         ModelEvaluationRow model;
         model.candidate_id=candidate.id; model.model_id=makeIdentity(hash); model.model_sha256=hash;
+        model.shower_definition_id=RJReplayRuntimeV1::env(isReference?"RJ_REPLAY_REFERENCE_MODEL_SHOWER_DEFINITION":"RJ_REPLAY_MODEL_SHOWER_DEFINITION");
+        if(!model.shower_definition_id.empty())
+        {
+          try{model.shower_semantic_sha256=RJShowerFactorialV1::semanticSha256(RJShowerFactorialV1::definition(model.shower_definition_id));}
+          catch(const std::exception&){model.shower_semantic_sha256.clear();}
+        }
         model.ordered_input_witnesses.assign(candidate.ordered_features.begin(),candidate.ordered_features.end());
         model.raw_score=photon->get_shower_shape_parameter(scoreName);
         model.finite_score=std::isfinite(model.raw_score) ? 1:0;
@@ -5042,22 +5073,64 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode, int termin
       appendModel(referenceHash,referenceScoreName,true);
       replayMark("candidate_models_built");
 
-      const int centerEta=static_cast<int>(std::lround(photon->get_shower_shape_parameter("ppg12_shape_center_ieta")));
-      const int centerPhi=static_cast<int>(std::lround(photon->get_shower_shape_parameter("ppg12_shape_center_iphi")));
       auto* cemcTowers=findNode::getClass<TowerInfoContainer>(topNode,"TOWERINFO_CALIB_CEMC");
-      if (cemcTowers && centerEta>=0 && centerEta<96 && centerPhi>=0)
+      std::vector<ShowerCellRow> candidateCells;
+      if (cemcTowers && (shape0.valid||shape70.valid))
       {
-        for(int de=-3;de<=3;++de) for(int dp=-3;dp<=3;++dp)
+        std::map<std::pair<int,int>,int> gridCells;
+        auto addGrid=[&](const FactorialShapeState& state,int bit)
         {
-          ShowerCellRow cell; cell.candidate_id=candidate.id; cell.local_eta_index=de; cell.local_phi_index=dp;
-          const int ie=centerEta+de, ip=(centerPhi+dp+256)%256;
+          if(!state.valid)return;
+          const int centerEta=static_cast<int>(std::floor(state.raw_eta));
+          int centerPhi=static_cast<int>(std::floor(state.raw_phi));
+          while(centerPhi<0)centerPhi+=256;
+          while(centerPhi>=256)centerPhi-=256;
+          for(int de=-3;de<=3;++de)for(int dp=-3;dp<=3;++dp)
+          {
+            const int towerEta=centerEta+de;
+            const int towerPhi=(centerPhi+dp+256)%256;
+            if(towerEta<0||towerEta>=96)continue;
+            gridCells[{towerEta,towerPhi}]|=bit;
+          }
+        };
+        addGrid(shape0,1);addGrid(shape70,2);
+        const auto& rawTowerMap=photon->get_towermap();
+        const int nominalCenterEta=static_cast<int>(std::floor(shape70.valid?shape70.raw_eta:shape0.raw_eta));
+        int nominalCenterPhi=static_cast<int>(std::floor(shape70.valid?shape70.raw_phi:shape0.raw_phi));
+        while(nominalCenterPhi<0)nominalCenterPhi+=256;
+        while(nominalCenterPhi>=256)nominalCenterPhi-=256;
+        for(const auto& item:gridCells)
+        {
+          const int ie=item.first.first,ip=item.first.second;
+          ShowerCellRow cell;cell.candidate_id=candidate.id;
+          cell.tower_eta_index=ie;cell.tower_phi_index=ip;
+          cell.local_eta_index=ie-nominalCenterEta;
+          int dphi=ip-nominalCenterPhi;
+          while(dphi<-128)dphi+=256;
+          while(dphi>127)dphi-=256;
+          cell.local_phi_index=dphi;cell.grid_membership_bitmask=item.second;
           cell.tower_key=TowerInfoDefs::encode_emcal(ie,ip);
-          TowerInfo* tower=(ie>=0&&ie<96)?cemcTowers->get_tower_at_key(static_cast<unsigned int>(cell.tower_key)):nullptr;
+          TowerInfo* tower=cemcTowers->get_tower_at_key(static_cast<unsigned int>(cell.tower_key));
           cell.calibrated_energy=tower?tower->get_energy():std::numeric_limits<double>::quiet_NaN();
           cell.is_good=tower&&tower->get_isGood(); cell.is_zero=tower&&cell.calibrated_energy==0.0;
           cell.is_negative=tower&&cell.calibrated_energy<0.0; cell.is_nonfinite=!tower||!std::isfinite(cell.calibrated_energy);
-          cell.seed_state=(de==0&&dp==0); cell.denominator_membership=cell.is_good&&std::isfinite(cell.calibrated_energy)&&cell.calibrated_energy>0.0;
-          bundle.shower_cells.push_back(cell);
+          cell.seed_state=(ie==nominalCenterEta&&ip==nominalCenterPhi);
+          cell.denominator_membership=cell.is_good&&std::isfinite(cell.calibrated_energy)&&cell.calibrated_energy>0.0;
+          cell.floor0_membership=cell.denominator_membership;
+          cell.floor70_membership=cell.is_good&&std::isfinite(cell.calibrated_energy)&&cell.calibrated_energy>0.070;
+          const auto rawKey=RawTowerDefs::encode_towerid(RawTowerDefs::CalorimeterId::CEMC,ie,ip);
+          const auto rawIt=rawTowerMap.find(rawKey);
+          cell.rawcluster_owned=rawIt!=rawTowerMap.end();cell.rawcluster_value_present=cell.rawcluster_owned;
+          if(rawIt!=rawTowerMap.end())cell.rawcluster_map_value=rawIt->second;
+          candidateCells.push_back(cell);bundle.shower_cells.push_back(cell);
+        }
+        for(const auto& def:RJShowerFactorialV1::definitions())
+        {
+          const auto& state=def.floor_gev==0.0?shape0:shape70;
+          if(!state.valid)continue;
+          auto view=RJShowerFactorialV1::buildView(candidate.id,def,candidateCells,state.raw_eta,state.raw_phi,state.native_et);
+          view.ordered_features=RJShowerFactorialV1::modelFeatures(view,pt,m_vz,eta,-1.0,false);
+          bundle.shower_feature_views.push_back(std::move(view));
         }
       }
 

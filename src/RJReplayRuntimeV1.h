@@ -39,6 +39,7 @@ struct EventBundle
   std::vector<PhotonCandidateRow> candidates;
   std::vector<ModelEvaluationRow> models;
   std::vector<ShowerCellRow> shower_cells;
+  std::vector<ShowerFeatureViewRow> shower_feature_views;
   std::vector<IsolationConstituentRow> isolation_constituents;
   std::vector<IsolationWitnessRow> isolation_witnesses;
   std::vector<JetRow> jets;
@@ -81,6 +82,7 @@ class Runtime
                   << " candidates=" << bundle.candidates.size()
                   << " models=" << bundle.models.size()
                   << " shower_cells=" << bundle.shower_cells.size()
+                  << " shower_feature_views=" << bundle.shower_feature_views.size()
                   << " iso_constituents=" << bundle.isolation_constituents.size()
                   << " iso_witnesses=" << bundle.isolation_witnesses.size()
                   << " jets=" << bundle.jets.size()
@@ -103,6 +105,8 @@ class Runtime
     mark("after_model_fill");
     for (const auto& row : bundle.shower_cells) if (!m_writer.fill(row, error)) return false;
     mark("after_shower_fill");
+    for (const auto& row : bundle.shower_feature_views) if (!m_writer.fill(row, error)) return false;
+    mark("after_shower_feature_view_fill");
     for (const auto& row : bundle.isolation_constituents) if (!m_writer.fill(row, error)) return false;
     mark("after_iso_constituent_fill");
     for (const auto& row : bundle.isolation_witnesses) if (!m_writer.fill(row, error)) return false;
