@@ -7556,6 +7556,26 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode,int termina
         if(!components.empty())for(const auto& component:components)append(component.first,component.second);
         else for(auto it=jet->begin_comp();it!=jet->end_comp();++it)append(it->first,it->second);
       };
+      // RJJetV1 quality bit 0 records ownership of a retained constituent
+      // payload.  Keep every jet and every pair in the foundation while
+      // applying the same storage-only boundary certified in the p+p writer.
+      constexpr std::uint64_t kJetConstituentPayloadRetained=1ULL<<0;
+      double jetConstituentPtMin=5.0;
+      const std::string configuredJetConstituentPtMin=RJReplayRuntimeV1::env("RJ_REPLAY_JET_CONSTITUENT_PT_MIN");
+      if(!configuredJetConstituentPtMin.empty())
+      {
+        try{jetConstituentPtMin=std::stod(configuredJetConstituentPtMin);}
+        catch(const std::exception&)
+        {
+          LOG(0,CLR_RED,"RJ_REPLAY_FOUNDATION_FATAL invalid RJ_REPLAY_JET_CONSTITUENT_PT_MIN="<<configuredJetConstituentPtMin);
+          m_replayWriteFailed=true;return;
+        }
+      }
+      if(!std::isfinite(jetConstituentPtMin)||jetConstituentPtMin<0.0||jetConstituentPtMin>=15.0)
+      {
+        LOG(0,CLR_RED,"RJ_REPLAY_FOUNDATION_FATAL RJ_REPLAY_JET_CONSTITUENT_PT_MIN must satisfy 0 <= pT < 15 GeV");
+        m_replayWriteFailed=true;return;
+      }
       std::vector<JetMatchObject> recoJetKinematics;
       for(const auto& item:m_jets)
       {
@@ -7563,7 +7583,9 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode,int termina
         for(const Jet* jet:*item.second)
         {
           if(!jet||!std::isfinite(jet->get_pt())||jet->get_pt()<0.0||jet->get_pt()>=60.0)continue;
-          JetRow row;row.id=makeIdentity(bundle.event.id.hex()+"|jet|"+rkey+"|"+std::to_string(ord));row.event_id=bundle.event.id;row.algorithm="antikt";row.radius=radius;row.input_identity="towerinfo";row.subtraction_identity="SUB1";row.raw_pt=jet->get_pt();row.corrected_pt=jet->get_pt();row.eta=jet->get_eta();row.phi=jet->get_phi();row.deterministic_order=ord++;bundle.jets.push_back(row);recoJetKinematics.push_back({row.id,row.corrected_pt,row.eta,row.phi,row.radius});appendJetConstituents(jet,row);
+          JetRow row;row.id=makeIdentity(bundle.event.id.hex()+"|jet|"+rkey+"|"+std::to_string(ord));row.event_id=bundle.event.id;row.algorithm="antikt";row.radius=radius;row.input_identity="towerinfo";row.subtraction_identity="SUB1";row.raw_pt=jet->get_pt();row.corrected_pt=jet->get_pt();row.eta=jet->get_eta();row.phi=jet->get_phi();row.deterministic_order=ord++;
+          const bool retainConstituents=row.corrected_pt>=jetConstituentPtMin;if(retainConstituents)row.quality_bitmask|=kJetConstituentPayloadRetained;
+          bundle.jets.push_back(row);recoJetKinematics.push_back({row.id,row.corrected_pt,row.eta,row.phi,row.radius});if(retainConstituents)appendJetConstituents(jet,row);
           for(const auto& cand:recoKinematics){PhotonJetPairRow pair;pair.id=makeIdentity(cand.first.hex()+"|"+row.id.hex());pair.event_id=bundle.event.id;pair.candidate_id=cand.first;pair.jet_id=row.id;pair.delta_phi=std::fabs(TVector2::Phi_mpi_pi(row.phi-cand.second[2]));pair.xjgamma=cand.second[0]>0?row.corrected_pt/cand.second[0]:std::numeric_limits<double>::quiet_NaN();pair.recoil_state=pair.delta_phi>=7.0*M_PI/8.0;pair.jet_rank=row.deterministic_order;bundle.pairs.push_back(pair);}
         }
       }
