@@ -4921,6 +4921,14 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode, int termin
 
   using namespace RJReplayFoundationV1;
   RJReplayRuntimeV1::EventBundle bundle;
+  const bool replayTrace = RJReplayRuntimeV1::envEnabled("RJ_REPLAY_TRACE");
+  auto replayMark = [&](const char* stage)
+  {
+    if (replayTrace)
+      std::cerr << "RJ_REPLAY_BUILD_TRACE event=" << event_count
+                << " stage=" << stage << std::endl;
+  };
+  replayMark("begin");
   const std::string eventKey = RJReplayRuntimeV1::env("RJ_REPLAY_LANE") + "|" +
       RJReplayRuntimeV1::env("RJ_REPLAY_SAMPLE") + "|" +
       std::to_string(RJReplayRuntimeV1::envInt("RJ_REPLAY_RUN", static_cast<int>(currentRunNumber()))) + "|" +
@@ -4999,6 +5007,7 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode, int termin
       candidate.preselection_bitmask = 1ULL|2ULL|4ULL|(candidate.finite_feature_state?8ULL:0ULL);
       bundle.candidates.push_back(candidate);
       recoKinematics.push_back({candidate.id,{pt,eta,phi}});
+      replayMark("candidate_retained");
 
       auto appendModel = [&](const std::string& hash,const std::string& scoreName,bool isReference)
       {
@@ -5020,6 +5029,7 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode, int termin
       };
       appendModel(modelHash,modelScoreName,false);
       appendModel(referenceHash,referenceScoreName,true);
+      replayMark("candidate_models_built");
 
       const int centerEta=static_cast<int>(std::lround(photon->get_shower_shape_parameter("ppg12_shape_center_ieta")));
       const int centerPhi=static_cast<int>(std::lround(photon->get_shower_shape_parameter("ppg12_shape_center_iphi")));
@@ -5052,6 +5062,7 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode, int termin
       }
       if (m_ppg12TopoClusters)
       {
+        replayMark("pp_topocluster_loop_begin");
         const CLHEP::Hep3Vector vertex(0.0,0.0,m_vz);
         const auto topoRange=m_ppg12TopoClusters->getClusters();
         int topoOrdinal=0;
@@ -5070,8 +5081,11 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode, int termin
           row.quality_state=std::isfinite(row.calibrated_energy); row.mask_state=0; row.candidate_removal_state=dR<0.02;
           bundle.isolation_constituents.push_back(row);
         }
+        replayMark("pp_topocluster_loop_complete");
       }
     }
+
+    replayMark("candidate_loop_complete");
 
     auto appendJetConstituents = [&](const Jet* jet, const JetRow& parent)
     {
@@ -5168,6 +5182,7 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode, int termin
         }
       }
     }
+    replayMark("jet_loop_complete");
 
     if(m_isSim)
     {
@@ -5198,6 +5213,7 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode, int termin
       {RecoTruthLinkRow link;link.id=makeIdentity(truth.first.hex()+"|miss");link.reco_type=static_cast<int>(RecoTruthType::NONE);link.truth_type=static_cast<int>(RecoTruthType::PHOTON);link.truth_id=truth.first;link.link_class=static_cast<int>(LinkClass::TRUTH_MISS);bundle.links.push_back(link);}
       for(const auto& item:m_truthJetsByRKey){if(!item.second)continue;const std::string& rkey=item.first;const double radius=(rkey.size()>=3&&rkey[0]=='r')?std::stod(rkey.substr(1))/10.0:0.0;int ord=0;for(const Jet* jet:*item.second){if(!jet||!std::isfinite(jet->get_pt())||jet->get_pt()<0.0||jet->get_pt()>=60.0)continue;TruthJetRow row;row.id=makeIdentity(bundle.event.id.hex()+"|truthJet|"+rkey+"|"+std::to_string(ord++));row.event_id=bundle.event.id;row.algorithm="antikt";row.radius=radius;row.pt=jet->get_pt();row.eta=jet->get_eta();row.phi=jet->get_phi();row.ownership_state="source_owned";row.reporting_guard_state=row.pt<5?1:(row.pt>=35?2:0);bundle.truth_jets.push_back(row);}}
     }
+    replayMark("truth_loop_complete");
   }
 
   bundle.event.candidate_count=static_cast<int>(bundle.candidates.size());
@@ -5217,11 +5233,13 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode, int termin
   bundle.weights.push_back(eventWeight);
 
   std::string error;
+  replayMark("runtime_write_begin");
   if(!m_replayRuntime->write(bundle,&error))
   {
     m_replayWriteFailed=true;
     LOG(0,CLR_RED,"[ReplayFoundationV1][FATAL] event transaction failed: "<<error);
   }
+  replayMark("runtime_write_complete");
 }
 
 int RecoilJets::process_event(PHCompositeNode* topNode)

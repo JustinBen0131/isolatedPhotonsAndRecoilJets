@@ -4,6 +4,7 @@
 #include "RJReplayFoundationV1.h"
 
 #include <cstdlib>
+#include <iostream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -70,21 +71,58 @@ class Runtime
 
   bool write(EventBundle& bundle, std::string* error = nullptr)
   {
+    const bool trace = envEnabled("RJ_REPLAY_TRACE");
+    auto mark = [&](const char* stage)
+    {
+      if (trace)
+      {
+        std::cerr << "RJ_REPLAY_TRACE event=" << bundle.event.event_sequence
+                  << " stage=" << stage
+                  << " candidates=" << bundle.candidates.size()
+                  << " models=" << bundle.models.size()
+                  << " shower_cells=" << bundle.shower_cells.size()
+                  << " iso_constituents=" << bundle.isolation_constituents.size()
+                  << " iso_witnesses=" << bundle.isolation_witnesses.size()
+                  << " jets=" << bundle.jets.size()
+                  << " jet_constituents=" << bundle.jet_constituents.size()
+                  << " pairs=" << bundle.pairs.size()
+                  << " truth_photons=" << bundle.truth_photons.size()
+                  << " truth_jets=" << bundle.truth_jets.size()
+                  << " links=" << bundle.links.size()
+                  << std::endl;
+      }
+    };
+
     if (bundle.event.source_id.isNull()) bundle.event.source_id = m_source_id;
+    mark("before_event_fill");
     if (!m_writer.fill(bundle.event, error)) return false;
+    mark("after_event_fill");
     for (const auto& row : bundle.candidates) if (!m_writer.fill(row, error)) return false;
+    mark("after_candidate_fill");
     for (const auto& row : bundle.models) if (!m_writer.fill(row, error)) return false;
+    mark("after_model_fill");
     for (const auto& row : bundle.shower_cells) if (!m_writer.fill(row, error)) return false;
+    mark("after_shower_fill");
     for (const auto& row : bundle.isolation_constituents) if (!m_writer.fill(row, error)) return false;
+    mark("after_iso_constituent_fill");
     for (const auto& row : bundle.isolation_witnesses) if (!m_writer.fill(row, error)) return false;
+    mark("after_iso_witness_fill");
     for (const auto& row : bundle.jets) if (!m_writer.fill(row, error)) return false;
+    mark("after_jet_fill");
     for (const auto& row : bundle.jet_constituents) if (!m_writer.fill(row, error)) return false;
+    mark("after_jet_constituent_fill");
     for (const auto& row : bundle.pairs) if (!m_writer.fill(row, error)) return false;
+    mark("after_pair_fill");
     for (const auto& row : bundle.truth_photons) if (!m_writer.fill(row, error)) return false;
+    mark("after_truth_photon_fill");
     for (const auto& row : bundle.truth_jets) if (!m_writer.fill(row, error)) return false;
+    mark("after_truth_jet_fill");
     for (const auto& row : bundle.links) if (!m_writer.fill(row, error)) return false;
+    mark("after_link_fill");
     for (const auto& row : bundle.weights) if (!m_writer.fill(row, error)) return false;
+    mark("after_weight_fill");
     for (const auto& row : bundle.snapshots) if (!m_writer.fill(row, error)) return false;
+    mark("complete");
     return true;
   }
 
