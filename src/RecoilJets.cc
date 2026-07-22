@@ -5387,6 +5387,35 @@ void RecoilJets::fillReplayFoundationCaptureWitness()
       "h_the119_capture_diagnostic_ppg12_bdt_score_vs_et",
       "THE-119 PPG12-reference raw score diagnostic;E_{T}^{candidate} [GeV];Raw BDT score",
       350, 5.0, 40.0, 250, 0.0, 1.0);
+  auto* hTopoRawR03 = book2(
+      "h_the119_capture_diagnostic_topocluster_raw_eiso_r03_vs_et",
+      "THE-119 p+p topocluster isolation witness, R=0.3;E_{T}^{candidate} [GeV];E_{T}^{iso,raw}(R=0.3) [GeV]",
+      350, 5.0, 40.0, 400, -10.0, 30.0);
+  auto* hTopoRawR04 = book2(
+      "h_the119_capture_diagnostic_topocluster_raw_eiso_r04_vs_et",
+      "THE-119 p+p topocluster isolation witness, R=0.4;E_{T}^{candidate} [GeV];E_{T}^{iso,raw}(R=0.4) [GeV]",
+      350, 5.0, 40.0, 400, -10.0, 30.0);
+  auto* hTopoAnnulus = book2(
+      "h_the119_capture_diagnostic_topocluster_raw_eiso_annulus_r03_r04_vs_et",
+      "THE-119 p+p topocluster isolation annulus witness;E_{T}^{candidate} [GeV];E_{T}^{iso,raw}(R=0.4)-E_{T}^{iso,raw}(R=0.3) [GeV]",
+      350, 5.0, 40.0, 400, -10.0, 30.0);
+  auto* hTopoR04Delta = book2(
+      "h_the119_capture_diagnostic_topocluster_r04_delta_nominal_threshold_vs_et",
+      "THE-119 p+p nominal R=0.4 isolation-threshold witness;E_{T}^{candidate} [GeV];E_{T}^{iso,raw}-(0.490+0.037E_{T}^{candidate}) [GeV]",
+      350, 5.0, 40.0, 400, -20.0, 20.0);
+  auto* hTopoR04State = book2(
+      "h_the119_capture_diagnostic_topocluster_r04_nominal_state_vs_et",
+      "THE-119 p+p nominal R=0.4 isolation state;E_{T}^{candidate} [GeV];State",
+      350, 5.0, 40.0, 3, -0.5, 2.5);
+  hTopoR04State->GetYaxis()->SetBinLabel(1, "invalid");
+  hTopoR04State->GetYaxis()->SetBinLabel(2, "finite fail");
+  hTopoR04State->GetYaxis()->SetBinLabel(3, "finite pass");
+  auto* hTopoR03Finite = book2(
+      "h_the119_capture_diagnostic_topocluster_r03_finite_state_vs_et",
+      "THE-119 p+p R=0.3 isolation finite-state witness;E_{T}^{candidate} [GeV];State",
+      350, 5.0, 40.0, 2, -0.5, 1.5);
+  hTopoR03Finite->GetYaxis()->SetBinLabel(1, "invalid");
+  hTopoR03Finite->GetYaxis()->SetBinLabel(2, "finite");
 
   int retained = 0;
   const auto range = m_photons->getClusters();
@@ -5420,6 +5449,28 @@ void RecoilJets::fillReplayFoundationCaptureWitness()
     const double referenceScore =
         photon->get_shower_shape_parameter("ppg12_reference_bdt_score");
     if (std::isfinite(referenceScore)) hReferenceScore->Fill(et, referenceScore);
+
+    const double topoRawR03 =
+        photon->get_shower_shape_parameter("ppg12_topo_raw_eiso_03");
+    const double topoRawR04 =
+        photon->get_shower_shape_parameter("ppg12_topo_raw_eiso_04");
+    const bool finiteR03 = std::isfinite(topoRawR03);
+    const bool finiteR04 = std::isfinite(topoRawR04);
+    hTopoR03Finite->Fill(et, finiteR03 ? 1.0 : 0.0);
+    if (finiteR03) hTopoRawR03->Fill(et, topoRawR03);
+    if (finiteR04)
+    {
+      const double nominalThreshold = 0.490 + 0.037 * et;
+      hTopoRawR04->Fill(et, topoRawR04);
+      hTopoR04Delta->Fill(et, topoRawR04 - nominalThreshold);
+      hTopoR04State->Fill(et, topoRawR04 < nominalThreshold ? 2.0 : 1.0);
+    }
+    else
+    {
+      hTopoR04State->Fill(et, 0.0);
+    }
+    if (finiteR03 && finiteR04)
+      hTopoAnnulus->Fill(et, topoRawR04 - topoRawR03);
   }
   hCount->Fill(retained);
 }
