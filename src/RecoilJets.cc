@@ -2281,7 +2281,8 @@ bool RecoilJets::fetchNodes(PHCompositeNode* top)
       m_tightVariant == "newPPG12" ||
       m_ppg12TableQAEnabled ||
       wantsPPG12PPSimYieldScores ||
-      m_replayFoundationEnabled;
+      m_replayFoundationEnabled ||
+      m_replayFoundationCaptureWitnessEnabled;
     if (wantsTightScore)
     {
       if (m_tightPhotonNode == "PHOTONCLUSTER_CEMC") m_photons_tightbdt = m_photons;
@@ -2747,6 +2748,9 @@ int RecoilJets::Init(PHCompositeNode* topNode)
   m_ppg12Fig13ParityQA = requestedPPG12Fig13ParityQA || m_ppg12Fig13Bit30Diagnostic;
 
   m_ppg12TableQAEnabled = envFlag("RJ_PPG12_TABLE_QA", false);
+  m_replayFoundationCaptureWitnessEnabled =
+      (m_isSim && !m_isAuAu &&
+       envFlag("RJ_REPLAY_FOUNDATION_CAPTURE_WITNESS_QA", false));
   m_ppg12TableQANPBDataTaggingEnabled =
       envFlag("RJ_PPG12_TABLE_QA_NPB_DATA_TAGGING",
               m_ppg12TableQAEnabled || m_ppg12Fig13ParityQA);
@@ -2779,6 +2783,13 @@ int RecoilJets::Init(PHCompositeNode* topNode)
                                     + std::to_string(m_ppg12TableQAMcIsoScale)
                                     + "*Eiso+"
                                     + std::to_string(m_ppg12TableQAMcIsoShift) : ""));
+  }
+  if (m_replayFoundationCaptureWitnessEnabled)
+  {
+    LOG(1, CLR_MAGENTA,
+        "[Init] RJ_REPLAY_FOUNDATION_CAPTURE_WITNESS_QA=1: writing a "
+        "selection-neutral loose-capture diagnostic; nominal histograms, "
+        "source ownership, WP state, and photon tags are unchanged");
   }
 
   if (m_ppg12Fig7TriggerDiagnostic)
@@ -5271,6 +5282,148 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode, int termin
   replayMark("runtime_write_complete");
 }
 
+void RecoilJets::fillReplayFoundationCaptureWitness()
+{
+  if (!m_replayFoundationCaptureWitnessEnabled || !m_photons) return;
+
+  // This directory is intentionally not a nominal trigger or analysis view.
+  // It proves that direct and writer arms see the same loose detector
+  // candidates, including diagnostic-only candidates below 15 GeV.
+  static const std::string kWitnessDir = "REPLAY_FOUNDATION_CAPTURE_DIAGNOSTIC";
+  HistMap& H = qaHistogramsByTrigger[kWitnessDir];
+
+  auto book1 = [&](const std::string& name,
+                   const std::string& title,
+                   int bins, double lo, double hi) -> TH1F*
+  {
+    auto it = H.find(name);
+    if (it != H.end()) return dynamic_cast<TH1F*>(it->second);
+    auto* hist = RJMCWeighting::RJNewTH1F(name.c_str(), title.c_str(), bins, lo, hi);
+    hist->SetDirectory(nullptr);
+    H[name] = hist;
+    return hist;
+  };
+  auto book2 = [&](const std::string& name,
+                   const std::string& title,
+                   int xBins, double xLo, double xHi,
+                   int yBins, double yLo, double yHi) -> TH2F*
+  {
+    auto it = H.find(name);
+    if (it != H.end()) return dynamic_cast<TH2F*>(it->second);
+    auto* hist = RJMCWeighting::RJNewTH2F(
+        name.c_str(), title.c_str(), xBins, xLo, xHi, yBins, yLo, yHi);
+    hist->SetDirectory(nullptr);
+    H[name] = hist;
+    return hist;
+  };
+
+  auto* hCount = book1(
+      "h_the119_capture_diagnostic_candidate_count_per_event",
+      "THE-119 loose-capture candidates per delivered event;N_{candidate};Events",
+      128, -0.5, 127.5);
+  auto* hEt = book1(
+      "h_the119_capture_diagnostic_cluster_et",
+      "THE-119 loose-capture candidate E_{T};E_{T}^{candidate} [GeV];Candidates",
+      350, 5.0, 40.0);
+  auto* hEta = book1(
+      "h_the119_capture_diagnostic_cluster_eta",
+      "THE-119 loose-capture candidate #eta;#eta^{candidate};Candidates",
+      280, -0.7, 0.7);
+  auto* hPhi = book1(
+      "h_the119_capture_diagnostic_cluster_phi",
+      "THE-119 loose-capture candidate #phi;#phi^{candidate};Candidates",
+      256, -M_PI, M_PI);
+  auto* hDomain = book2(
+      "h_the119_capture_diagnostic_model_domain_state_vs_et",
+      "THE-119 model-domain witness;E_{T}^{candidate} [GeV];Domain state",
+      350, 5.0, 40.0, 3, 0.5, 3.5);
+  hDomain->GetYaxis()->SetBinLabel(1, "diagnostic below 15");
+  hDomain->GetYaxis()->SetBinLabel(2, "validated 15-35");
+  hDomain->GetYaxis()->SetBinLabel(3, "diagnostic above 35");
+  auto* hNonfinite = book2(
+      "h_the119_capture_diagnostic_nonfinite_feature_vs_et",
+      "THE-119 nonfinite ordered-feature witness;E_{T}^{candidate} [GeV];Feature index",
+      350, 5.0, 40.0, 11, -0.5, 10.5);
+
+  struct FeatureSpec
+  {
+    const char* name;
+    const char* axis;
+    int bins;
+    double lo;
+    double hi;
+  };
+  static const std::array<FeatureSpec,11> specs{{
+      {"cluster_et", "E_{T}^{candidate} [GeV]", 350, 5.0, 40.0},
+      {"weta_cogx", "w_{#eta}^{COGX}", 240, 0.0, 1.2},
+      {"wphi_cogx", "w_{#phi}^{COGX}", 240, 0.0, 1.2},
+      {"vertex_z", "v_{z} [cm]", 240, -60.0, 60.0},
+      {"cluster_eta", "#eta^{candidate}", 280, -0.7, 0.7},
+      {"e11_over_e33", "E_{11}/E_{33}", 240, -0.2, 1.2},
+      {"cluster_et1", "e_{T1}", 240, -0.2, 1.2},
+      {"cluster_et2", "e_{T2}", 240, -0.2, 1.2},
+      {"cluster_et3", "e_{T3}", 240, -0.2, 1.2},
+      {"cluster_et4", "e_{T4}", 240, -0.2, 1.2},
+      {"e32_over_e35", "E_{32}/E_{35}", 240, -0.2, 1.2}
+  }};
+
+  std::array<TH2F*,11> featureHists{};
+  for (std::size_t i = 0; i < specs.size(); ++i)
+  {
+    const auto& spec = specs[i];
+    const std::string name =
+        std::string("h_the119_capture_diagnostic_") + spec.name + "_vs_et";
+    const std::string title =
+        std::string("THE-119 loose-capture ") + spec.axis +
+        ";E_{T}^{candidate} [GeV];" + spec.axis;
+    featureHists[i] = book2(name, title, 350, 5.0, 40.0,
+                            spec.bins, spec.lo, spec.hi);
+  }
+  auto* hMatchedScore = book2(
+      "h_the119_capture_diagnostic_matched_bdt_score_vs_et",
+      "THE-119 matched-model raw score diagnostic;E_{T}^{candidate} [GeV];Raw BDT score",
+      350, 5.0, 40.0, 250, 0.0, 1.0);
+  auto* hReferenceScore = book2(
+      "h_the119_capture_diagnostic_ppg12_bdt_score_vs_et",
+      "THE-119 PPG12-reference raw score diagnostic;E_{T}^{candidate} [GeV];Raw BDT score",
+      350, 5.0, 40.0, 250, 0.0, 1.0);
+
+  int retained = 0;
+  const auto range = m_photons->getClusters();
+  for (auto it = range.first; it != range.second; ++it)
+  {
+    const auto* photon = dynamic_cast<const PhotonClusterv1*>(it->second);
+    if (!photon) continue;
+    const double et = photon->get_shower_shape_parameter("cluster_pt");
+    const double eta = photon->get_shower_shape_parameter("cluster_eta");
+    const double phi = photon->get_shower_shape_parameter("cluster_phi");
+    if (!std::isfinite(et) || !std::isfinite(eta) || !std::isfinite(phi) ||
+        et < 5.0 || et >= 40.0 || std::fabs(eta) >= 0.7)
+      continue;
+
+    const SSVars v = makeSSFromPhoton(photon, et);
+    const std::array<double,11> values{{
+        et, v.weta_cogx, v.wphi_cogx, m_vz, eta, v.e11_over_e33,
+        v.et1, v.et2, v.et3, v.et4, v.e32_over_e35
+    }};
+    ++retained;
+    hEt->Fill(et);
+    hEta->Fill(eta);
+    hPhi->Fill(phi);
+    hDomain->Fill(et, et < 15.0 ? 1.0 : (et < 35.0 ? 2.0 : 3.0));
+    for (std::size_t i = 0; i < values.size(); ++i)
+    {
+      if (std::isfinite(values[i])) featureHists[i]->Fill(et, values[i]);
+      else hNonfinite->Fill(et, static_cast<double>(i));
+    }
+    if (std::isfinite(v.tight_bdt_score)) hMatchedScore->Fill(et, v.tight_bdt_score);
+    const double referenceScore =
+        photon->get_shower_shape_parameter("ppg12_reference_bdt_score");
+    if (std::isfinite(referenceScore)) hReferenceScore->Fill(et, referenceScore);
+  }
+  hCount->Fill(retained);
+}
+
 int RecoilJets::process_event(PHCompositeNode* topNode)
 {
   m_replayNodesReady = false;
@@ -5322,6 +5475,7 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     return Fun4AllReturnCodes::ABORTEVENT;
   }
   m_replayNodesReady = true;
+  fillReplayFoundationCaptureWitness();
 
   // PPG12 Fig.81 data h_D reference contract. This must be filled before
   // firstEventCuts()/vz60 and before cluster requirements: PPG12's
@@ -6470,6 +6624,9 @@ int RecoilJets::End(PHCompositeNode*)
         (key.rfind("h1d_", 0) == 0 || key.rfind("h2d_", 0) == 0) &&
         key.find("_eta0_pt") != std::string::npos &&
         key.find("_cut") != std::string::npos;
+	      const bool keepEmptyReplayCaptureWitnessHist =
+	        m_replayFoundationCaptureWitnessEnabled &&
+	        key.rfind("h_the119_capture_diagnostic_", 0) == 0;
 	      const bool keepEmptyPPG12PhotonYieldHist =
 	        m_ppg12PhotonYieldEnabled &&
 	        (key == "h_all_cluster_0" ||
@@ -6520,6 +6677,7 @@ int RecoilJets::End(PHCompositeNode*)
       if (h->GetEntries() == 0 &&
           !keepEmptyStitchParityHist &&
           !keepEmptyPPG12TableQAHist &&
+          !keepEmptyReplayCaptureWitnessHist &&
           !keepEmptyPPG12PhotonYieldHist)
       {
         if (Verbosity() > 1)

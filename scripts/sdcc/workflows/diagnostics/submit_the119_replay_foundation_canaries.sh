@@ -23,12 +23,12 @@ photon_capture_et_min="${RJ_THE119_PHOTON_CAPTURE_ET_MIN:-5.0}"
 jet_constituent_pt_min="${RJ_THE119_JET_CONSTITUENT_PT_MIN:-5.0}"
 canary_nevents="${RJ_THE119_NEVENTS:-3000}"
 replay_trace="${RJ_THE119_REPLAY_TRACE:-0}"
-# Selection-neutral canary instrumentation.  Without this existing QA path,
-# the p+p inclusive direct arm contains only three sparse bookkeeping
-# histograms and cannot serve as the frozen >=50 kB scientific-output witness.
-# Apply it identically to direct and writer arms so histogram/Sumw2 neutrality
-# remains exact; candidate and tag selection are unchanged.
-pp_direct_witness_qa="${RJ_THE119_PP_DIRECT_WITNESS_QA:-1}"
+# Selection-neutral canary instrumentation. The replay-capture witness is
+# applied identically to direct and writer arms and is independent of PPG12
+# stitched ownership, nominal histograms, model tags, and photon selections.
+# Legacy PPG12 table QA remains available only as an explicit control.
+pp_direct_witness_qa="${RJ_THE119_PP_DIRECT_WITNESS_QA:-0}"
+pp_capture_witness_qa="${RJ_THE119_PP_CAPTURE_WITNESS_QA:-1}"
 code_commit="${RJ_THE119_CODE_COMMIT:-$(git rev-parse HEAD)}"
 code_sha="${RJ_THE119_CODE_SHA256:-$(
   sha256sum \
@@ -77,6 +77,7 @@ require_inputs(){
   [[ "$canary_nevents" =~ ^[1-9][0-9]*$ ]] || die "canary event count must be a positive integer"
   [[ "$replay_trace" == 0 || "$replay_trace" == 1 ]] || die "RJ_THE119_REPLAY_TRACE must be 0 or 1"
   [[ "$pp_direct_witness_qa" == 0 || "$pp_direct_witness_qa" == 1 ]] || die "RJ_THE119_PP_DIRECT_WITNESS_QA must be 0 or 1"
+  [[ "$pp_capture_witness_qa" == 0 || "$pp_capture_witness_qa" == 1 ]] || die "RJ_THE119_PP_CAPTURE_WITNESS_QA must be 0 or 1"
 }
 
 common_extra(){
@@ -91,7 +92,7 @@ common_extra(){
 pp_extra(){
   local lane="$1" dataset="$2" sample="$3" arm="$4"
   printf '%s;%s' "$(common_extra "$lane" "$dataset" "$sample" "$arm" "$pp_cfg" 228d4cb73f7dc945a613c5a604add71a372b7540c2dc8c630b533d215bb17b30)" \
-    "RJ_REPLAY_MODEL_SCORE_NAME=tight_bdt_score;RJ_REPLAY_REFERENCE_MODEL_FILE=${pp_ref};RJ_REPLAY_REFERENCE_MODEL_SHA256=7679e634260402fb3815b2733767182690eec7587f9e09bffc307a05d00d59df;RJ_REPLAY_REFERENCE_SCORE_NAME=ppg12_reference_bdt_score;RJ_REPLAY_WP70_BINS=0.79682856798172,0.766527533531189,0.764809787273407,0.7529897093772888,0.7708977460861206,0.8068315982818604,0.8892104029655457,0.972591757774353;RJ_REPLAY_WP80_BINS=0.7195994257926941,0.682415783405304,0.6793394684791565,0.6720289587974548,0.6960929036140442,0.7344872951507568,0.8287723064422607,0.9486955404281616;RJ_REPLAY_WP90_BINS=0.5593066215515137,0.5007686018943787,0.5124438405036926,0.5229008793830872,0.5534335374832153,0.5945547223091125,0.6987603902816772,0.8794801831245422;RJ_PPG12_TABLE_QA=${pp_direct_witness_qa};RJ_PPG12_TABLE_QA_NPB_DATA_TAGGING=0"
+    "RJ_REPLAY_MODEL_SCORE_NAME=tight_bdt_score;RJ_REPLAY_REFERENCE_MODEL_FILE=${pp_ref};RJ_REPLAY_REFERENCE_MODEL_SHA256=7679e634260402fb3815b2733767182690eec7587f9e09bffc307a05d00d59df;RJ_REPLAY_REFERENCE_SCORE_NAME=ppg12_reference_bdt_score;RJ_REPLAY_WP70_BINS=0.79682856798172,0.766527533531189,0.764809787273407,0.7529897093772888,0.7708977460861206,0.8068315982818604,0.8892104029655457,0.972591757774353;RJ_REPLAY_WP80_BINS=0.7195994257926941,0.682415783405304,0.6793394684791565,0.6720289587974548,0.6960929036140442,0.7344872951507568,0.8287723064422607,0.9486955404281616;RJ_REPLAY_WP90_BINS=0.5593066215515137,0.5007686018943787,0.5124438405036926,0.5229008793830872,0.5534335374832153,0.5945547223091125,0.6987603902816772,0.8794801831245422;RJ_PPG12_TABLE_QA=${pp_direct_witness_qa};RJ_PPG12_TABLE_QA_NPB_DATA_TAGGING=0;RJ_REPLAY_FOUNDATION_CAPTURE_WITNESS_QA=${pp_capture_witness_qa}"
 }
 
 auau_extra(){

@@ -585,6 +585,7 @@ private:
   bool firstEventCuts(PHCompositeNode* topNode, std::vector<std::string>& activeTrig);
   void fillPPG12Fig7TriggerQA(PHCompositeNode* topNode);
   void createHistos_Data();
+  void fillReplayFoundationCaptureWitness();
 
   void fillUnfoldResponseMatrixAndTruthDistributions(
             const std::vector<std::string>& activeTrig,
@@ -1685,6 +1686,9 @@ private:
   std::string m_ppPhotonIDSourceRole = "auto";  // auto, signal, background, all
 
   bool m_ppg12TableQAEnabled = false;
+  // THE-119 canary-only, selection-neutral witness for the loose replay
+  // capture population. It never sets a tag or source-ownership decision.
+  bool m_replayFoundationCaptureWitnessEnabled = false;
   bool m_ppg12TableQANPBDataTaggingEnabled = false;
   bool m_ppg12Fig7TriggerDiagnostic = false;
   bool m_ppg12Fig11SBDiagnostic = false;
