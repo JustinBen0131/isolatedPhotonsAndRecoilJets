@@ -27,7 +27,7 @@ fi
 # One source witness per detector lane, each with a direct and writer arm.  The
 # completed THE-119 matrix remains the base replay-infrastructure certificate;
 # this bounded matrix certifies only the new multi-view shower payload.
-only_keys="$({
+default_only_keys="$({
   for arm in direct writer; do
     printf '%s\n' \
       "${arm}:pp_data:pp_data" \
@@ -38,6 +38,7 @@ only_keys="$({
       "${arm}:auau_inclusive_embedded:run28_embeddedJet12"
   done
 } | paste -sd, -)"
+only_keys="${RJ_THE134_ONLY_KEYS:-$default_only_keys}"
 
 export RJ_CODEX_CHAT_NAME="THE-114+THE-134 | pp/AuAu H70 Production Gate"
 export RJ_CODEX_THREAD_ID="019f80b5-dc56-7330-9ee7-56ef417547dc"
