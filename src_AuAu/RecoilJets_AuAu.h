@@ -88,7 +88,6 @@ class GlobalVertex;
 class RawCluster;
 class PhotonClusterv1;
 class Jet;
-namespace RJReplayRuntimeV1 { class Runtime; }
 class MbdPmtContainer;
 class MbdOut;
 class MbdGeom;
@@ -1485,8 +1484,6 @@ private:
     // -------------------------------------------------------------------------
     void processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                                             const std::vector<std::string>& activeTrig);
-    bool initReplayFoundation();
-    void writeReplayFoundationEvent(PHCompositeNode* topNode, int terminalStatus);
     void fillIsoSSTagCounters(const std::string& trig,
                               const RawCluster* clus,
                               const SSVars& v,
@@ -1907,7 +1904,6 @@ private:
 
     bool m_auauBDTTrainingTreeEnabled = false;
     bool m_auauBDTExtractOnly = false;
-    bool m_auauCandidateSkimOnly = false;
     long long m_auauBDTTrainingTreeMaxEntries = 0;
     long long m_auauBDTTrainingTreeEntries = 0;
     TTree* m_auauBDTTrainingTree = nullptr;
@@ -2233,11 +2229,6 @@ private:
     
     // Per-trigger slice counters printed in End()
     std::map<std::string, std::map<std::string, CatStat>> m_catByTrig;
-
-    bool m_replayFoundationEnabled = false;
-    bool m_replayNodesReady = false;
-    bool m_replayWriteFailed = false;
-    std::unique_ptr<RJReplayRuntimeV1::Runtime> m_replayRuntime;
 };
 
 #endif // RECOILJETS_AuAu_H

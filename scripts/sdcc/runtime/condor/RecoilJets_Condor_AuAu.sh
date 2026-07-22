@@ -134,22 +134,6 @@ case "$dataset_raw" in
 esac
 export RJ_SIM_SAMPLE="$run8"
 
-# Replay-foundation source identity is derived on the worker from the exact
-# staged chunk, never from a submit-time placeholder shared by many shards.
-if [[ "${RJ_REPLAY_FOUNDATION_V1:-0}" == "1" ]]; then
-  export RJ_REPLAY_DATASET="${RJ_REPLAY_DATASET:-$dataset}"
-  export RJ_REPLAY_SAMPLE="${RJ_REPLAY_SAMPLE:-$run8}"
-  export RJ_REPLAY_SEGMENT="${RJ_REPLAY_SEGMENT:-$chunk_idx}"
-  if [[ "$run8" =~ ([0-9]{5,8}) ]]; then
-    export RJ_REPLAY_RUN="${RJ_REPLAY_RUN:-${BASH_REMATCH[1]}}"
-  fi
-  if command -v sha256sum >/dev/null 2>&1 && [[ -s "$chunk_list" ]]; then
-    _rj_replay_chunk_sha="$(sha256sum "$chunk_list" | awk '{print $1}')"
-    export RJ_REPLAY_INPUT_URI_SHA256="${RJ_REPLAY_INPUT_URI_SHA256:-$_rj_replay_chunk_sha}"
-    export RJ_REPLAY_INPUT_FILE_SHA256="${RJ_REPLAY_INPUT_FILE_SHA256:-$_rj_replay_chunk_sha}"
-  fi
-fi
-
 # Destination base (if not supplied as arg 8)
 if [[ -z "$dest_base" ]]; then
   if [[ "$analysis_tag" == "isSimEmbedded" || "$analysis_tag" == "isSimEmbeddedInclusive" ]]; then
@@ -299,7 +283,11 @@ for key in keys:
         has_histogram = True
 
 tf.Close()
-sys.exit(0 if (has_config or (has_directory and has_histogram)) else 1)
+# A metadata-only ROOT is not a usable physics artifact.  Require the embedded
+# configuration *and* at least one histogram under an analysis directory.
+# The previous OR accepted a file containing only analysis_config_yaml, which
+# allowed zero-content fanout outputs to pass the small-ROOT fallback gate.
+sys.exit(0 if (has_config and has_directory and has_histogram) else 1)
 PY
 }
 

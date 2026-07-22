@@ -87,8 +87,8 @@ class PhotonClusterBuilder : public SubsysReco
     //   <prefix>_CEMC_RETOWER_SUB1, <prefix>_HCALIN_SUB1, <prefix>_HCALOUT_SUB1
     void set_tower_node_prefix(const std::string& p) { m_tower_node_prefix = p; }
     const std::string& get_tower_node_prefix() const { return m_tower_node_prefix; }
-    // Diagnostic-only alternative to the complete TowerInfo shower grid.
-    // Unified production must leave this false.
+    // Diagnostic-only alternative to the canonical complete good-TowerInfo
+    // CEMC shower-shape grid. Unified production must leave this false.
     void set_use_raw_cluster_towermap_for_cemc_shapes(bool use) { m_use_raw_cluster_towermap_for_cemc_shapes = use; }
 
  private:
