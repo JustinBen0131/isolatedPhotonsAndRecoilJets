@@ -3743,20 +3743,23 @@ validate_sim_clean_list_paths() {
   fi
 }
 
-# The historical replay controls belong only to the bounded stitched-purity
-# executable-oracle canary.  Ordinary pp production, historical replay, and
-# every Au+Au mode must continue to use their natural RNG/pedestal contract.
+# Historical replay controls belong only to one explicitly typed bounded
+# canary: either the stitched-purity closure oracle or the replay-foundation
+# DI-neutrality witness. Ordinary production and every Au+Au mode retain their
+# natural RNG/pedestal contract.
 validate_ppg12_closure_canary_controls() {
   local sample="${SIM_SAMPLE:-}"
-  local closure_canary=0
+  local closure_canary=0 di_neutrality_canary=0
   env_truthy "${RJ_PPG12_CLOSURE_CANARY:-0}" && closure_canary=1
+  env_truthy "${RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY:-0}" && di_neutrality_canary=1
 
   local inherited_extra=";${RJ_SUBMIT_EXTRA_ENV:-};"
   case "$inherited_extra" in
     *';RJ_PPG12_CLOSURE_CANARY='*|*';RJ_PPG12_CLOSURE_CANARY_ID='*|\
+    *';RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY='*|*';RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY_ID='*|\
     *';RJ_PPG12_PPSIM_REPLAY_SEEDS='*|*';RJ_PPG12_PPSIM_EXPECT_PEDESTAL_SEQUENCE='*|\
     *';RJ_PPG12_PPSIM_FIXED_RANDOMSEED='*|*';RJ_PPG12_PPSIM_FIXED_PEDESTAL_SEQUENCE='*)
-      err "PPG12 closure controls must be explicit submit-shell variables, not inherited through RJ_SUBMIT_EXTRA_ENV."
+      err "PPG12 historical canary controls must be explicit submit-shell variables, not inherited through RJ_SUBMIT_EXTRA_ENV."
       return 98
       ;;
   esac
@@ -3765,9 +3768,52 @@ validate_ppg12_closure_canary_controls() {
   [[ -n "${RJ_PPG12_PPSIM_REPLAY_SEEDS+x}" ]] && replay_seeds_set=1
   [[ -n "${RJ_PPG12_PPSIM_EXPECT_PEDESTAL_SEQUENCE+x}" ]] && expected_pedestal_set=1
 
-  if (( ! closure_canary )); then
+  if (( closure_canary && di_neutrality_canary )); then
+    err "PPG12 closure and replay-foundation DI-neutrality canaries are mutually exclusive."
+    return 98
+  fi
+
+  if (( ! closure_canary && ! di_neutrality_canary )); then
     if (( replay_seeds_set || expected_pedestal_set )); then
-      err "PPG12 historical replay controls are closure-canary-only; set RJ_PPG12_CLOSURE_CANARY=1 or remove both replay controls."
+      err "PPG12 historical replay controls require an explicit closure or replay-foundation DI-neutrality canary."
+      return 98
+    fi
+    return 0
+  fi
+
+  if (( di_neutrality_canary )); then
+    [[ "$sample" =~ ^run28_(photonjet(5|10|20)|jet(8|12|20|30|40))_double$ ]] || {
+      err "Replay-foundation DI-neutrality canary is restricted to frozen Run-28 double-interaction pp lanes; sample=${sample:-<unset>}."
+      return 98
+    }
+    if ! env_truthy "${RJ_REPLAY_FOUNDATION_CANARY:-0}" ||
+       ! env_truthy "${RJ_PPG12_PHOTON_YIELD:-0}" ||
+       ! env_truthy "${RJ_PPG12_PHOTON_YIELD_DOUBLE:-0}" ||
+       ! env_truthy "${RJ_PPG12_PERIOD_STRICT_DI:-0}" ||
+       ! env_truthy "${RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4:-0}" ||
+       ! env_truthy "${RJ_PPG12_PPSIM_G4_ONLY:-0}"; then
+      err "Replay-foundation DI-neutrality canary requires the pp archived-DI G4 rebuild canary path."
+      return 98
+    fi
+    if [[ -n "${RJ_PPG12_PPSIM_FIXED_RANDOMSEED+x}" ||
+          -n "${RJ_PPG12_PPSIM_FIXED_PEDESTAL_SEQUENCE+x}" ]]; then
+      err "Replay-foundation DI-neutrality canary forbids synthetic fixed-seed controls."
+      return 98
+    fi
+    if (( ! replay_seeds_set || ! expected_pedestal_set )) ||
+       [[ "${RJ_PPG12_PPSIM_REPLAY_SEEDS:-}" != "2991264730,4256268992,2394322166,874466025,2240380304" ]] ||
+       [[ "${RJ_PPG12_PPSIM_EXPECT_PEDESTAL_SEQUENCE:-}" != "534" ]]; then
+      err "Replay-foundation DI-neutrality canary requires the exact historical five-seed FIFO and pedestal sequence 534."
+      return 98
+    fi
+    local di_canary_id="${RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY_ID:-}"
+    if [[ -z "$di_canary_id" || ${#di_canary_id} -gt 128 || ! "$di_canary_id" =~ ^[A-Za-z0-9_.:-]+$ ]]; then
+      err "Replay-foundation DI-neutrality canary requires a safe nonempty canary ID."
+      return 98
+    fi
+    if [[ -n "${RANDOMSEED+x}" || -n "${RJ_PPG12_PEDESTAL_OVERRIDE+x}" ||
+          -n "${RJ_PPG12_DI_ARCHIVED_EXPECT_PEDESTAL+x}" ]]; then
+      err "Replay-foundation DI-neutrality canary rejects RANDOMSEED and pedestal overrides."
       return 98
     fi
     return 0
