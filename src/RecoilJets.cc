@@ -5198,6 +5198,7 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode, int termin
       return;
     }
 
+    std::vector<JetMatchObject> recoJetKinematics;
     for (const auto& item : m_jets)
     {
       const std::string& rkey=item.first; JetContainer* container=item.second; if(!container) continue;
@@ -5212,6 +5213,7 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode, int termin
         const bool retainConstituents = row.corrected_pt >= jetConstituentPtMin;
         if (retainConstituents) row.quality_bitmask |= kJetConstituentPayloadRetained;
         bundle.jets.push_back(row);
+        recoJetKinematics.push_back({row.id,row.corrected_pt,row.eta,row.phi,row.radius});
         if (retainConstituents) appendJetConstituents(jet,row);
         for(const auto& cand:recoKinematics)
         {
@@ -5251,7 +5253,10 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode, int termin
       }
       for(const auto& truth:truthPhotonKinematics) if(!matchedTruth.count(truth.first.hex()))
       {RecoTruthLinkRow link;link.id=makeIdentity(truth.first.hex()+"|miss");link.reco_type=static_cast<int>(RecoTruthType::NONE);link.truth_type=static_cast<int>(RecoTruthType::PHOTON);link.truth_id=truth.first;link.link_class=static_cast<int>(LinkClass::TRUTH_MISS);bundle.links.push_back(link);}
-      for(const auto& item:m_truthJetsByRKey){if(!item.second)continue;const std::string& rkey=item.first;const double radius=(rkey.size()>=3&&rkey[0]=='r')?std::stod(rkey.substr(1))/10.0:0.0;int ord=0;for(const Jet* jet:*item.second){if(!jet||!std::isfinite(jet->get_pt())||jet->get_pt()<0.0||jet->get_pt()>=60.0)continue;TruthJetRow row;row.id=makeIdentity(bundle.event.id.hex()+"|truthJet|"+rkey+"|"+std::to_string(ord++));row.event_id=bundle.event.id;row.algorithm="antikt";row.radius=radius;row.pt=jet->get_pt();row.eta=jet->get_eta();row.phi=jet->get_phi();row.ownership_state="source_owned";row.reporting_guard_state=row.pt<5?1:(row.pt>=35?2:0);bundle.truth_jets.push_back(row);}}
+      std::vector<JetMatchObject> truthJetKinematics;
+      for(const auto& item:m_truthJetsByRKey){if(!item.second)continue;const std::string& rkey=item.first;const double radius=(rkey.size()>=3&&rkey[0]=='r')?std::stod(rkey.substr(1))/10.0:0.0;int ord=0;for(const Jet* jet:*item.second){if(!jet||!std::isfinite(jet->get_pt())||jet->get_pt()<0.0||jet->get_pt()>=60.0)continue;TruthJetRow row;row.id=makeIdentity(bundle.event.id.hex()+"|truthJet|"+rkey+"|"+std::to_string(ord++));row.event_id=bundle.event.id;row.algorithm="antikt";row.radius=radius;row.pt=jet->get_pt();row.eta=jet->get_eta();row.phi=jet->get_phi();row.ownership_state="source_owned";row.reporting_guard_state=row.pt<5?1:(row.pt>=35?2:0);bundle.truth_jets.push_back(row);truthJetKinematics.push_back({row.id,row.pt,row.eta,row.phi,row.radius});}}
+      const auto jetLinks=buildDeterministicJetLinks(recoJetKinematics,truthJetKinematics,0.3);
+      bundle.links.insert(bundle.links.end(),jetLinks.begin(),jetLinks.end());
     }
     replayMark("truth_loop_complete");
   }

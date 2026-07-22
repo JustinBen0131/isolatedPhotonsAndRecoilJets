@@ -11,7 +11,9 @@
 #include <TTree.h>
 #include <Compression.h>
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <iomanip>
@@ -119,7 +121,7 @@ inline Identity128 makeIdentity(const std::string& canonicalInput)
 }
 
 enum class ModelApplicability : std::int32_t { VALIDATED_DOMAIN=0, DIAGNOSTIC_EXTRAPOLATION=1, MODEL_NOT_APPLICABLE=2, INPUT_INVALID=3 };
-enum class LinkClass : std::int32_t { MATCH=0, RECO_FAKE=1, TRUTH_MISS=2, WRONG_PHOTON=3, WRONG_RECOIL=4 };
+enum class LinkClass : std::int32_t { MATCH=0, RECO_FAKE=1, TRUTH_MISS=2, WRONG_PHOTON=3, WRONG_RECOIL=4, MATCH_CANDIDATE=5 };
 enum class RecoTruthType : std::int32_t { NONE=0, PHOTON=1, JET=2 };
 
 struct SourceOccurrenceRow { Identity128 id; std::string lane,dataset,sample,period,si_di_role,ownership_state,input_uri_hash,input_file_sha256,source_manifest_sha256; std::int32_t run=0,segment=0; };
@@ -137,6 +139,118 @@ struct TruthJetRow { Identity128 id,event_id; std::string algorithm,ownership_st
 struct RecoTruthLinkRow { Identity128 id,reco_id,truth_id; std::int32_t reco_type=0,truth_type=0,link_class=0; double match_metric=std::numeric_limits<double>::quiet_NaN(); };
 struct WeightComponentRow { Identity128 target_id; std::string component_type; double slice_weight=1,cross_section_weight=1,vertex_weight=1,si_di_weight=1,period_weight=1,exposure_weight=1,final_weight=1; std::int32_t application_count=0; };
 struct EventDisplaySnapshotRow { Identity128 id,event_id; std::string selection_reason,quota_class,serialized_payload_hash; };
+
+// Selection-neutral jet matching shared by the p+p and Au+Au replay writers.
+// Every same-radius edge inside the frozen candidate gate is retained as a
+// MATCH_CANDIDATE row.  MATCH/RECO_FAKE/TRUTH_MISS rows then form an exact,
+// disjoint final partition.  Candidate rows are diagnostics and are excluded
+// from that partition.
+struct JetMatchObject
+{
+  Identity128 id;
+  double pt=0,eta=0,phi=0,radius=0;
+};
+
+inline std::vector<RecoTruthLinkRow> buildDeterministicJetLinks(
+    const std::vector<JetMatchObject>& reco,
+    const std::vector<JetMatchObject>& truth,
+    double deltaRMax)
+{
+  if (!std::isfinite(deltaRMax) || deltaRMax <= 0.0)
+    throw std::invalid_argument("jet match deltaR must be finite and positive");
+
+  struct Candidate
+  {
+    std::size_t recoIndex=0,truthIndex=0;
+    double deltaR=0;
+  };
+  std::vector<Candidate> candidates;
+  std::vector<double> nearestReco(reco.size(),std::numeric_limits<double>::quiet_NaN());
+  std::vector<double> nearestTruth(truth.size(),std::numeric_limits<double>::quiet_NaN());
+  auto identityLess=[](const Identity128& a,const Identity128& b)
+  { return a.hi<b.hi || (a.hi==b.hi && a.lo<b.lo); };
+  auto updateNearest=[](double& current,double value)
+  { if(!std::isfinite(current)||value<current) current=value; };
+  auto wrappedDeltaPhi=[](double a,double b)
+  { return std::atan2(std::sin(a-b),std::cos(a-b)); };
+
+  for(std::size_t ir=0;ir<reco.size();++ir)
+  {
+    if(reco[ir].id.isNull()||!std::isfinite(reco[ir].eta)||!std::isfinite(reco[ir].phi))continue;
+    for(std::size_t it=0;it<truth.size();++it)
+    {
+      if(truth[it].id.isNull()||!std::isfinite(truth[it].eta)||!std::isfinite(truth[it].phi))continue;
+      if(std::fabs(reco[ir].radius-truth[it].radius)>1.0e-6)continue;
+      const double dr=std::hypot(reco[ir].eta-truth[it].eta,
+                                 wrappedDeltaPhi(reco[ir].phi,truth[it].phi));
+      if(!std::isfinite(dr))continue;
+      updateNearest(nearestReco[ir],dr);
+      updateNearest(nearestTruth[it],dr);
+      if(dr<deltaRMax)candidates.push_back({ir,it,dr});
+    }
+  }
+  std::sort(candidates.begin(),candidates.end(),[&](const Candidate& a,const Candidate& b)
+  {
+    if(a.deltaR!=b.deltaR)return a.deltaR<b.deltaR;
+    if(reco[a.recoIndex].pt!=reco[b.recoIndex].pt)
+      return reco[a.recoIndex].pt>reco[b.recoIndex].pt;
+    if(reco[a.recoIndex].id!=reco[b.recoIndex].id)
+      return identityLess(reco[a.recoIndex].id,reco[b.recoIndex].id);
+    return identityLess(truth[a.truthIndex].id,truth[b.truthIndex].id);
+  });
+
+  std::vector<RecoTruthLinkRow> links;
+  links.reserve(candidates.size()+reco.size()+truth.size());
+  for(const Candidate& edge:candidates)
+  {
+    RecoTruthLinkRow row;
+    row.id=makeIdentity(reco[edge.recoIndex].id.hex()+"|"+
+                        truth[edge.truthIndex].id.hex()+"|jet_match_candidate");
+    row.reco_type=static_cast<int>(RecoTruthType::JET);
+    row.reco_id=reco[edge.recoIndex].id;
+    row.truth_type=static_cast<int>(RecoTruthType::JET);
+    row.truth_id=truth[edge.truthIndex].id;
+    row.match_metric=edge.deltaR;
+    row.link_class=static_cast<int>(LinkClass::MATCH_CANDIDATE);
+    links.push_back(row);
+  }
+
+  std::unordered_set<Identity128,IdentityHash> matchedReco,matchedTruth;
+  for(const Candidate& edge:candidates)
+  {
+    const auto& recoObject=reco[edge.recoIndex];
+    const auto& truthObject=truth[edge.truthIndex];
+    if(matchedReco.count(recoObject.id)||matchedTruth.count(truthObject.id))continue;
+    matchedReco.insert(recoObject.id);matchedTruth.insert(truthObject.id);
+    RecoTruthLinkRow row;
+    row.id=makeIdentity(recoObject.id.hex()+"|"+truthObject.id.hex()+"|jet_match");
+    row.reco_type=static_cast<int>(RecoTruthType::JET);row.reco_id=recoObject.id;
+    row.truth_type=static_cast<int>(RecoTruthType::JET);row.truth_id=truthObject.id;
+    row.match_metric=edge.deltaR;row.link_class=static_cast<int>(LinkClass::MATCH);
+    links.push_back(row);
+  }
+  for(std::size_t ir=0;ir<reco.size();++ir)
+  {
+    if(matchedReco.count(reco[ir].id))continue;
+    RecoTruthLinkRow row;
+    row.id=makeIdentity(reco[ir].id.hex()+"|jet_fake");
+    row.reco_type=static_cast<int>(RecoTruthType::JET);row.reco_id=reco[ir].id;
+    row.truth_type=static_cast<int>(RecoTruthType::NONE);
+    row.match_metric=nearestReco[ir];row.link_class=static_cast<int>(LinkClass::RECO_FAKE);
+    links.push_back(row);
+  }
+  for(std::size_t it=0;it<truth.size();++it)
+  {
+    if(matchedTruth.count(truth[it].id))continue;
+    RecoTruthLinkRow row;
+    row.id=makeIdentity(truth[it].id.hex()+"|jet_miss");
+    row.reco_type=static_cast<int>(RecoTruthType::NONE);
+    row.truth_type=static_cast<int>(RecoTruthType::JET);row.truth_id=truth[it].id;
+    row.match_metric=nearestTruth[it];row.link_class=static_cast<int>(LinkClass::TRUTH_MISS);
+    links.push_back(row);
+  }
+  return links;
+}
 
 struct Metadata
 {

@@ -1,4 +1,5 @@
 #include "RecoilJets_AuAu.h"
+#include "../src/RJReplayRuntimeV1.h"
 //––– Fun4All / PHOOL -------------------------------------------------------
 #include <fun4all/Fun4AllReturnCodes.h>
 #include <fun4all/Fun4AllServer.h>
@@ -3543,6 +3544,7 @@ int RecoilJets::Init(PHCompositeNode* topNode)
   /* 0.  book-keeping & QA histograms --------------------------------- */
   out = new TFile(Outfile.c_str(), "RECREATE");
   LOG(1, CLR_GREEN, "[Init] opened output file: " << Outfile);
+  if (!initReplayFoundation()) return Fun4AllReturnCodes::ABORTRUN;
 
   trigAna = new TriggerAnalyzer();
   if (!m_auauBDTExtractOnly)
@@ -7385,8 +7387,194 @@ bool RecoilJets::firstEventCuts(PHCompositeNode* topNode,
 
 
 
+bool RecoilJets::initReplayFoundation()
+{
+    m_replayFoundationEnabled = RJReplayRuntimeV1::envEnabled("RJ_REPLAY_FOUNDATION_V1");
+    if (!m_replayFoundationEnabled) return true;
+    const std::string lane=RJReplayRuntimeV1::env("RJ_REPLAY_LANE");
+    const std::string dataset=RJReplayRuntimeV1::env("RJ_REPLAY_DATASET");
+    const std::string sample=RJReplayRuntimeV1::env("RJ_REPLAY_SAMPLE");
+    const std::string manifestHash=RJReplayRuntimeV1::env("RJ_REPLAY_SOURCE_MANIFEST_SHA256");
+    if(lane.empty()||dataset.empty()||sample.empty()||manifestHash.empty())
+    { LOG(0,CLR_RED,"[ReplayFoundationV1][FATAL] lane, dataset, sample, and source-manifest hash are required"); return false; }
+    RJReplayFoundationV1::SourceOccurrenceRow source;
+    source.lane=lane;source.dataset=dataset;source.sample=sample;source.period=RJReplayRuntimeV1::env("RJ_REPLAY_PERIOD");
+    source.si_di_role=RJReplayRuntimeV1::env("RJ_REPLAY_SI_DI_ROLE");source.ownership_state=RJReplayRuntimeV1::env("RJ_REPLAY_OWNERSHIP_STATE");
+    source.run=RJReplayRuntimeV1::envInt("RJ_REPLAY_RUN",0);source.segment=RJReplayRuntimeV1::envInt("RJ_REPLAY_SEGMENT",0);
+    source.input_uri_hash=RJReplayRuntimeV1::env("RJ_REPLAY_INPUT_URI_SHA256");source.input_file_sha256=RJReplayRuntimeV1::env("RJ_REPLAY_INPUT_FILE_SHA256");source.source_manifest_sha256=manifestHash;
+    source.id=RJReplayFoundationV1::makeIdentity(lane+"|"+dataset+"|"+sample+"|"+source.period+"|"+std::to_string(source.run)+"|"+std::to_string(source.segment)+"|"+source.input_uri_hash+"|"+source.input_file_sha256+"|"+manifestHash);
+    m_replayRuntime=std::make_unique<RJReplayRuntimeV1::Runtime>();std::string error;
+    if(!m_replayRuntime->initialize(out,source,&error)){LOG(0,CLR_RED,"[ReplayFoundationV1][FATAL] initialization failed: "<<error);m_replayRuntime.reset();return false;}
+    LOG(1,CLR_GREEN,"[ReplayFoundationV1] enabled for lane="<<lane<<" sample="<<sample);return true;
+}
+
+void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode,int terminalStatus)
+{
+    if(!m_replayFoundationEnabled||!m_replayRuntime||m_replayWriteFailed)return;
+    using namespace RJReplayFoundationV1;
+    RJReplayRuntimeV1::EventBundle bundle;
+    const int run=RJReplayRuntimeV1::envInt("RJ_REPLAY_RUN",m_evtHeader?m_evtHeader->get_RunNumber():0);
+    const std::string eventKey=RJReplayRuntimeV1::env("RJ_REPLAY_LANE")+"|"+RJReplayRuntimeV1::env("RJ_REPLAY_SAMPLE")+"|"+std::to_string(run)+"|"+std::to_string(RJReplayRuntimeV1::envInt("RJ_REPLAY_SEGMENT",0))+"|"+std::to_string(event_count);
+    bundle.event.id=makeIdentity(eventKey);bundle.event.run=run;bundle.event.event_sequence=event_count;bundle.event.vertex_z=m_vz;bundle.event.centrality=m_centBin;bundle.event.event_weight=m_mcEventWeight;bundle.event.terminal_status=terminalStatus;
+    if(auto* gl1=findNode::getClass<Gl1Packet>(topNode,"GL1Packet"))bundle.event.trigger_bits=static_cast<std::uint64_t>(gl1->getTriggerVector());
+    else if(auto* gl1=findNode::getClass<Gl1Packet>(topNode,"14001"))bundle.event.trigger_bits=static_cast<std::uint64_t>(gl1->getTriggerVector());
+    std::vector<std::pair<Identity128,std::array<double,3>>> recoKinematics;
+    if(m_replayNodesReady&&m_photons)
+    {
+      const std::string modelHash=RJReplayRuntimeV1::env("RJ_REPLAY_MODEL_SHA256");
+      const std::string scoreName=RJReplayRuntimeV1::env("RJ_REPLAY_MODEL_SCORE_NAME").empty()?"auau_tight_bdt_score":RJReplayRuntimeV1::env("RJ_REPLAY_MODEL_SCORE_NAME");
+      auto envDouble=[](const char* key,double fallback){const std::string value=RJReplayRuntimeV1::env(key);if(value.empty())return fallback;try{return std::stod(value);}catch(...){return fallback;}};
+      const double wp70a=envDouble("RJ_REPLAY_WP70_INTERCEPT",std::numeric_limits<double>::quiet_NaN()),wp70b=envDouble("RJ_REPLAY_WP70_SLOPE",std::numeric_limits<double>::quiet_NaN());
+      const double wp80a=envDouble("RJ_REPLAY_WP80_INTERCEPT",0.5544148693),wp80b=envDouble("RJ_REPLAY_WP80_SLOPE",0.0015499421);
+      const double wp90a=envDouble("RJ_REPLAY_WP90_INTERCEPT",std::numeric_limits<double>::quiet_NaN()),wp90b=envDouble("RJ_REPLAY_WP90_SLOPE",std::numeric_limits<double>::quiet_NaN());
+      const std::string configuredPrefix=RJReplayRuntimeV1::env("RJ_TOWERINFO_PREFIX");
+      const std::string towerPrefix=configuredPrefix.empty()?"TOWERINFO_CALIB":configuredPrefix;
+      const auto range=m_photons->getClusters();int ordinal=0;
+      for(auto it=range.first;it!=range.second;++it,++ordinal)
+      {
+        const auto* photon=dynamic_cast<const PhotonClusterv1*>(it->second);if(!photon)continue;
+        const double pt=photon->get_shower_shape_parameter("cluster_pt"),eta=photon->get_shower_shape_parameter("cluster_eta"),phi=photon->get_shower_shape_parameter("cluster_phi");
+        if(!std::isfinite(pt)||!std::isfinite(eta)||!std::isfinite(phi)||pt<5.0||pt>=40.0||std::fabs(eta)>=0.7)continue;
+        const SSVars v=makeSSFromPhoton(photon,pt);PhotonCandidateRow candidate;
+        candidate.id=makeIdentity(bundle.event.id.hex()+"|candidate|"+std::to_string(ordinal)+"|"+std::to_string(it->first));candidate.event_id=bundle.event.id;candidate.encounter_ordinal=ordinal;candidate.rank_keys={pt,-std::fabs(eta),static_cast<double>(ordinal)};candidate.cluster_et=pt;candidate.eta=eta;candidate.phi=phi;
+        candidate.ordered_features={static_cast<float>(pt),static_cast<float>(v.weta_cogx),static_cast<float>(v.wphi_cogx),static_cast<float>(m_vz),static_cast<float>(eta),static_cast<float>(v.e11_over_e33),static_cast<float>(v.et1),static_cast<float>(v.et2),static_cast<float>(v.et3),static_cast<float>(v.et4),static_cast<float>(v.e32_over_e35),static_cast<float>(m_centBin),static_cast<float>(v.weta33_cogx),static_cast<float>(v.wphi33_cogx)};
+        candidate.finite_feature_state=std::all_of(candidate.ordered_features.begin(),candidate.ordered_features.end(),[](float x){return std::isfinite(x);})?1:0;candidate.below15_retention_state=pt<15.0;candidate.preselection_bitmask=1ULL|2ULL|4ULL|(candidate.finite_feature_state?8ULL:0ULL);bundle.candidates.push_back(candidate);recoKinematics.push_back({candidate.id,{pt,eta,phi}});
+        if(!modelHash.empty())
+        {
+          ModelEvaluationRow model;model.candidate_id=candidate.id;model.model_id=makeIdentity(modelHash);model.model_sha256=modelHash;model.ordered_input_witnesses=candidate.ordered_features;model.raw_score=photon->get_shower_shape_parameter(scoreName);model.finite_score=std::isfinite(model.raw_score);model.applicability_state=!candidate.finite_feature_state?static_cast<int>(ModelApplicability::INPUT_INVALID):(pt>=15.0&&pt<35.0&&m_centBin>=0&&m_centBin<80?static_cast<int>(ModelApplicability::VALIDATED_DOMAIN):static_cast<int>(ModelApplicability::DIAGNOSTIC_EXTRAPOLATION));
+          if(model.applicability_state==static_cast<int>(ModelApplicability::VALIDATED_DOMAIN)){model.wp70=wp70a+wp70b*m_centBin;model.wp80=wp80a+wp80b*m_centBin;model.wp90=wp90a+wp90b*m_centBin;model.delta_wp70=model.raw_score-model.wp70;model.delta_wp80=model.raw_score-model.wp80;model.delta_wp90=model.raw_score-model.wp90;}bundle.models.push_back(model);
+        }
+        auto* towers=findNode::getClass<TowerInfoContainer>(topNode,"TOWERINFO_CALIB_CEMC");const int centerEta=static_cast<int>(std::lround(photon->get_shower_shape_parameter("ppg12_shape_center_ieta"))),centerPhi=static_cast<int>(std::lround(photon->get_shower_shape_parameter("ppg12_shape_center_iphi")));
+        if(towers&&centerEta>=0&&centerEta<96&&centerPhi>=0)for(int de=-3;de<=3;++de)for(int dp=-3;dp<=3;++dp){ShowerCellRow cell;cell.candidate_id=candidate.id;cell.local_eta_index=de;cell.local_phi_index=dp;const int ie=centerEta+de,ip=(centerPhi+dp+256)%256;cell.tower_key=TowerInfoDefs::encode_emcal(ie,ip);TowerInfo* tower=(ie>=0&&ie<96)?towers->get_tower_at_key(static_cast<unsigned int>(cell.tower_key)):nullptr;cell.calibrated_energy=tower?tower->get_energy():std::numeric_limits<double>::quiet_NaN();cell.is_good=tower&&tower->get_isGood();cell.is_zero=tower&&cell.calibrated_energy==0.0;cell.is_negative=tower&&cell.calibrated_energy<0.0;cell.is_nonfinite=!tower||!std::isfinite(cell.calibrated_energy);cell.seed_state=de==0&&dp==0;cell.denominator_membership=cell.is_good&&std::isfinite(cell.calibrated_energy)&&cell.calibrated_energy>0.0;bundle.shower_cells.push_back(cell);}
+        for(double radius:{0.3,0.4}){IsolationWitnessRow witness;witness.candidate_id=candidate.id;witness.isolation_id=makeIdentity(candidate.id.hex()+"|standard_sub1|R"+std::to_string(radius));witness.radius=radius;witness.subtraction_method=2;witness.reconstructed_or_truth=0;witness.cone_sum=eisoForCone(photon,radius);witness.threshold=radius<0.35?(5.97-0.0507*m_centBin):(7.57-0.0658*m_centBin);witness.pass_state=std::isfinite(witness.cone_sum)&&witness.cone_sum<witness.threshold;bundle.isolation_witnesses.push_back(witness);}
+        // PhotonClusterBuilder's registered Au+Au isolation contract uses the
+        // PPG12 COG-tower axis, not the reconstructed cluster axis.  Persist
+        // constituent offsets about that same axis so replayed R=0.3/R=0.4
+        // cones reproduce the runtime witnesses exactly.
+        const double storedIsoEta=photon->get_shower_shape_parameter("ppg12_iso_axis_eta");
+        const double storedIsoPhi=photon->get_shower_shape_parameter("ppg12_iso_axis_phi");
+        const double isoEta=std::isfinite(storedIsoEta)?storedIsoEta:eta;
+        const double isoPhi=std::isfinite(storedIsoPhi)?storedIsoPhi:phi;
+        struct CaloNode{std::string raw_towers,sub1_towers;const char* geom;RawTowerDefs::CalorimeterId id;int code,eta_bins,phi_bins;};
+        const CaloNode nodes[]={
+          {towerPrefix+"_CEMC_RETOWER",towerPrefix+"_CEMC_RETOWER_SUB1","TOWERGEOM_HCALIN",RawTowerDefs::CalorimeterId::HCALIN,0,24,64},
+          {towerPrefix+"_HCALIN",towerPrefix+"_HCALIN_SUB1","TOWERGEOM_HCALIN",RawTowerDefs::CalorimeterId::HCALIN,1,24,64},
+          {towerPrefix+"_HCALOUT",towerPrefix+"_HCALOUT_SUB1","TOWERGEOM_HCALOUT",RawTowerDefs::CalorimeterId::HCALOUT,2,24,64}};
+        for(const auto& node:nodes)
+        {
+          auto* rawContainer=findNode::getClass<TowerInfoContainer>(topNode,node.raw_towers);
+          auto* sub1Container=findNode::getClass<TowerInfoContainer>(topNode,node.sub1_towers);
+          auto* geometry=findNode::getClass<RawTowerGeomContainer>(topNode,node.geom);
+          if(!rawContainer||!sub1Container||!geometry)continue;
+          const unsigned int channelCount=std::min(rawContainer->size(),sub1Container->size());
+          for(unsigned int ch=0;ch<channelCount;++ch)
+          {
+            TowerInfo* rawTower=rawContainer->get_tower_at_channel(ch);
+            TowerInfo* sub1Tower=sub1Container->get_tower_at_channel(ch);
+            if(!rawTower||!sub1Tower)continue;
+            // These three SUB1 nodes are all stored on the HCal 24x64
+            // channel grid.  Some persisted TowerInfo containers have an
+            // unset detector ID, so their virtual encode_key() returns the
+            // 0xffffffff sentinel even though the channel payload is valid.
+            // Use the detector-explicit mapping required by the registered
+            // geometry contract instead of consulting that transient ID.
+            const unsigned int encoded=TowerInfoDefs::encode_hcal(ch);
+            const int ie=static_cast<int>(TowerInfoDefs::getCaloTowerEtaBin(encoded));
+            const int ip=static_cast<int>(TowerInfoDefs::getCaloTowerPhiBin(encoded));
+            IsolationConstituentRow row;row.candidate_id=candidate.id;
+            row.constituent_id=makeIdentity(candidate.id.hex()+"|standard_sub1_tower|"+std::to_string(node.code)+"|"+std::to_string(ch));
+            row.subsystem=node.code;row.raw_energy=rawTower->get_energy();
+            row.delta_eta=std::numeric_limits<double>::quiet_NaN();row.delta_phi=std::numeric_limits<double>::quiet_NaN();row.delta_r=std::numeric_limits<double>::quiet_NaN();
+            row.calibrated_energy=std::numeric_limits<double>::quiet_NaN();row.sub1_energy=std::numeric_limits<double>::quiet_NaN();row.phosub_residual=std::numeric_limits<double>::quiet_NaN();
+            const bool rawGood=rawTower->get_isGood(),sub1Good=sub1Tower->get_isGood();
+            row.mask_state=(rawGood?0:1)|(sub1Good?0:2);row.candidate_removal_state=0;
+            if(ie<0||ie>=node.eta_bins||ip<0||ip>=node.phi_bins)
+            {
+              row.quality_state=-2;bundle.isolation_constituents.push_back(row);continue;
+            }
+            RawTowerGeom* geom=geometry->get_tower_geometry(RawTowerDefs::encode_towerid(node.id,ie,ip));
+            if(!geom){row.quality_state=-1;bundle.isolation_constituents.push_back(row);continue;}
+            const double r=std::hypot(geom->get_center_x(),geom->get_center_y());
+            if(!(r>0)){row.quality_state=-3;bundle.isolation_constituents.push_back(row);continue;}
+            const double te=std::asinh((std::sinh(geom->get_eta())*r-m_vz)/r),tp=geom->get_phi();
+            const double de=te-isoEta,dp=TVector2::Phi_mpi_pi(tp-isoPhi),dr=std::hypot(de,dp);
+            if(!std::isfinite(dr)||dr>=0.4)continue;
+            row.delta_eta=de;row.delta_phi=dp;row.delta_r=dr;
+            row.calibrated_energy=rawTower->get_energy()/std::cosh(te);
+            row.sub1_energy=sub1Tower->get_energy()/std::cosh(te);
+            // PhotonClusterBuilder::calculate_layer_et selects on the SUB1
+            // container's isGood bit.  Raw quality remains independently
+            // available in mask_state but must not alter the replay sum.
+            row.quality_state=sub1Good?1:0;
+            row.candidate_removal_state=node.code==0&&dr<0.02;
+            bundle.isolation_constituents.push_back(row);
+          }
+        }
+      }
+      auto appendJetConstituents=[&](const Jet* jet,const JetRow& parent)
+      {
+        if(!jet)return;
+        int constituentOrdinal=0;
+        auto append=[&](Jet::SRC source,unsigned int channel)
+        {
+          std::string towerNode;const char* geometryNode=nullptr;
+          RawTowerDefs::CalorimeterId calorimeter=RawTowerDefs::CalorimeterId::CEMC;int subsystem=-1;
+          int etaBins=0,phiBins=0;
+          if(source==Jet::CEMC_TOWERINFO){towerNode=towerPrefix+"_CEMC";geometryNode="TOWERGEOM_CEMC";calorimeter=RawTowerDefs::CalorimeterId::CEMC;subsystem=0;etaBins=96;phiBins=256;}
+          else if(source==Jet::CEMC_TOWERINFO_RETOWER){towerNode=towerPrefix+"_CEMC_RETOWER";geometryNode="TOWERGEOM_HCALIN";calorimeter=RawTowerDefs::CalorimeterId::HCALIN;subsystem=0;etaBins=24;phiBins=64;}
+          else if(source==Jet::CEMC_TOWERINFO_SUB1){towerNode=towerPrefix+"_CEMC_RETOWER_SUB1";geometryNode="TOWERGEOM_HCALIN";calorimeter=RawTowerDefs::CalorimeterId::HCALIN;subsystem=0;etaBins=24;phiBins=64;}
+          else if(source==Jet::HCALIN_TOWERINFO){towerNode=towerPrefix+"_HCALIN";geometryNode="TOWERGEOM_HCALIN";calorimeter=RawTowerDefs::CalorimeterId::HCALIN;subsystem=1;etaBins=24;phiBins=64;}
+          else if(source==Jet::HCALIN_TOWERINFO_SUB1){towerNode=towerPrefix+"_HCALIN_SUB1";geometryNode="TOWERGEOM_HCALIN";calorimeter=RawTowerDefs::CalorimeterId::HCALIN;subsystem=1;etaBins=24;phiBins=64;}
+          else if(source==Jet::HCALOUT_TOWERINFO){towerNode=towerPrefix+"_HCALOUT";geometryNode="TOWERGEOM_HCALOUT";calorimeter=RawTowerDefs::CalorimeterId::HCALOUT;subsystem=2;etaBins=24;phiBins=64;}
+          else if(source==Jet::HCALOUT_TOWERINFO_SUB1){towerNode=towerPrefix+"_HCALOUT_SUB1";geometryNode="TOWERGEOM_HCALOUT";calorimeter=RawTowerDefs::CalorimeterId::HCALOUT;subsystem=2;etaBins=24;phiBins=64;}
+          else return;
+          auto* towers=findNode::getClass<TowerInfoContainer>(topNode,towerNode);auto* geometry=findNode::getClass<RawTowerGeomContainer>(topNode,geometryNode);
+          if(!towers||!geometry||channel>=towers->size())return;TowerInfo* tower=towers->get_tower_at_channel(channel);if(!tower)return;
+          const bool isCemc=calorimeter==RawTowerDefs::CalorimeterId::CEMC;
+          const unsigned int key=isCemc?TowerInfoDefs::encode_emcal(channel):TowerInfoDefs::encode_hcal(channel);
+          const int ie=static_cast<int>(TowerInfoDefs::getCaloTowerEtaBin(key));
+          const int ip=static_cast<int>(TowerInfoDefs::getCaloTowerPhiBin(key));
+          JetConstituentRow row;row.jet_id=parent.id;row.constituent_ordinal=constituentOrdinal++;row.subsystem=subsystem;
+          row.constituent_id=makeIdentity(parent.id.hex()+"|constituent|"+std::to_string(static_cast<int>(source))+"|"+std::to_string(channel));
+          row.energy=tower->get_energy();row.eta=std::numeric_limits<double>::quiet_NaN();row.phi=std::numeric_limits<double>::quiet_NaN();
+          if(ie<0||ie>=etaBins||ip<0||ip>=phiBins){row.quality_state=-2;bundle.jet_constituents.push_back(row);return;}
+          RawTowerGeom* geom=geometry->get_tower_geometry(RawTowerDefs::encode_towerid(calorimeter,ie,ip));
+          if(!geom){row.quality_state=-1;bundle.jet_constituents.push_back(row);return;}
+          const double radius=std::hypot(geom->get_center_x(),geom->get_center_y());
+          if(!(radius>0)){row.quality_state=-3;bundle.jet_constituents.push_back(row);return;}
+          row.eta=std::asinh((std::sinh(geom->get_eta())*radius-m_vz)/radius);row.phi=geom->get_phi();row.quality_state=tower->get_isGood();bundle.jet_constituents.push_back(row);
+        };
+        Jet* mutableJet=const_cast<Jet*>(jet);Jet::TYPE_comp_vec& components=mutableJet->get_comp_vec();
+        if(!components.empty())for(const auto& component:components)append(component.first,component.second);
+        else for(auto it=jet->begin_comp();it!=jet->end_comp();++it)append(it->first,it->second);
+      };
+      std::vector<JetMatchObject> recoJetKinematics;
+      for(const auto& item:m_jets)
+      {
+        if(!item.second)continue;const std::string& rkey=item.first;const double radius=(rkey.size()>=3&&rkey[0]=='r')?std::stod(rkey.substr(1))/10.0:0.0;int ord=0;
+        for(const Jet* jet:*item.second)
+        {
+          if(!jet||!std::isfinite(jet->get_pt())||jet->get_pt()<0.0||jet->get_pt()>=60.0)continue;
+          JetRow row;row.id=makeIdentity(bundle.event.id.hex()+"|jet|"+rkey+"|"+std::to_string(ord));row.event_id=bundle.event.id;row.algorithm="antikt";row.radius=radius;row.input_identity="towerinfo";row.subtraction_identity="SUB1";row.raw_pt=jet->get_pt();row.corrected_pt=jet->get_pt();row.eta=jet->get_eta();row.phi=jet->get_phi();row.deterministic_order=ord++;bundle.jets.push_back(row);recoJetKinematics.push_back({row.id,row.corrected_pt,row.eta,row.phi,row.radius});appendJetConstituents(jet,row);
+          for(const auto& cand:recoKinematics){PhotonJetPairRow pair;pair.id=makeIdentity(cand.first.hex()+"|"+row.id.hex());pair.event_id=bundle.event.id;pair.candidate_id=cand.first;pair.jet_id=row.id;pair.delta_phi=std::fabs(TVector2::Phi_mpi_pi(row.phi-cand.second[2]));pair.xjgamma=cand.second[0]>0?row.corrected_pt/cand.second[0]:std::numeric_limits<double>::quiet_NaN();pair.recoil_state=pair.delta_phi>=7.0*M_PI/8.0;pair.jet_rank=row.deterministic_order;bundle.pairs.push_back(pair);}
+        }
+      }
+      if(m_isSim){std::vector<std::pair<Identity128,std::array<double,3>>> truthKinematics;if(m_truthInfo){const auto tr=m_truthInfo->GetPrimaryParticleRange();int ord=0;for(auto it=tr.first;it!=tr.second;++it){const PHG4Particle* p=it->second;if(!p||p->get_pid()!=22)continue;const double pt=std::hypot(p->get_px(),p->get_py()),eta=std::asinh(p->get_pz()/std::max(pt,1e-12)),phi=std::atan2(p->get_py(),p->get_px());if(!std::isfinite(pt)||pt<12.0||pt>=40.0||std::fabs(eta)>=0.9)continue;TruthPhotonRow row;row.id=makeIdentity(bundle.event.id.hex()+"|truthPhoton|"+std::to_string(ord++));row.event_id=bundle.event.id;row.pt=pt;row.eta=eta;row.phi=phi;row.truth_isolation_witness=std::numeric_limits<double>::quiet_NaN();row.reporting_guard_state=pt<15?1:(pt>=35?2:0);bundle.truth_photons.push_back(row);truthKinematics.push_back({row.id,{pt,eta,phi}});}}std::unordered_set<std::string> matched;for(const auto& reco:recoKinematics){double best=0.1;Identity128 bestId;for(const auto& truth:truthKinematics){const double dr=std::hypot(reco.second[1]-truth.second[1],TVector2::Phi_mpi_pi(reco.second[2]-truth.second[2]));if(dr<best){best=dr;bestId=truth.first;}}RecoTruthLinkRow link;link.id=makeIdentity(reco.first.hex()+"|truthlink");link.reco_type=static_cast<int>(RecoTruthType::PHOTON);link.reco_id=reco.first;link.match_metric=best;if(bestId.isNull()){link.truth_type=static_cast<int>(RecoTruthType::NONE);link.link_class=static_cast<int>(LinkClass::RECO_FAKE);}else{link.truth_type=static_cast<int>(RecoTruthType::PHOTON);link.truth_id=bestId;link.link_class=static_cast<int>(LinkClass::MATCH);matched.insert(bestId.hex());}bundle.links.push_back(link);}for(const auto& truth:truthKinematics)if(!matched.count(truth.first.hex())){RecoTruthLinkRow link;link.id=makeIdentity(truth.first.hex()+"|miss");link.reco_type=static_cast<int>(RecoTruthType::NONE);link.truth_type=static_cast<int>(RecoTruthType::PHOTON);link.truth_id=truth.first;link.link_class=static_cast<int>(LinkClass::TRUTH_MISS);bundle.links.push_back(link);}std::vector<JetMatchObject> truthJetKinematics;for(const auto& item:m_truthJetsByRKey){if(!item.second)continue;const std::string& rkey=item.first;const double radius=(rkey.size()>=3&&rkey[0]=='r')?std::stod(rkey.substr(1))/10.0:0.0;int ord=0;for(const Jet* jet:*item.second){if(!jet||!std::isfinite(jet->get_pt())||jet->get_pt()<0.0||jet->get_pt()>=60.0)continue;TruthJetRow row;row.id=makeIdentity(bundle.event.id.hex()+"|truthJet|"+rkey+"|"+std::to_string(ord++));row.event_id=bundle.event.id;row.algorithm="antikt";row.radius=radius;row.pt=jet->get_pt();row.eta=jet->get_eta();row.phi=jet->get_phi();row.ownership_state="source_owned";row.reporting_guard_state=row.pt<5?1:(row.pt>=35?2:0);bundle.truth_jets.push_back(row);truthJetKinematics.push_back({row.id,row.pt,row.eta,row.phi,row.radius});}}const auto jetLinks=buildDeterministicJetLinks(recoJetKinematics,truthJetKinematics,0.3);bundle.links.insert(bundle.links.end(),jetLinks.begin(),jetLinks.end());}
+    }
+    bundle.event.candidate_count=static_cast<int>(bundle.candidates.size());bundle.event.tag_count=static_cast<int>(std::count_if(bundle.models.begin(),bundle.models.end(),[](const ModelEvaluationRow& row){return std::isfinite(row.wp80)&&std::isfinite(row.raw_score)&&row.raw_score>row.wp80;}));bundle.event.recoil_count=static_cast<int>(std::count_if(bundle.pairs.begin(),bundle.pairs.end(),[](const PhotonJetPairRow& row){return row.recoil_state!=0;}));WeightComponentRow weight;weight.target_id=bundle.event.id;weight.component_type="event";weight.vertex_weight=m_mcVertexWeight;weight.exposure_weight=m_mcCentralityWeight;weight.final_weight=m_mcEventWeight;weight.application_count=1;bundle.weights.push_back(weight);
+    std::string error;if(!m_replayRuntime->write(bundle,&error)){m_replayWriteFailed=true;LOG(0,CLR_RED,"[ReplayFoundationV1][FATAL] event transaction failed: "<<error);}
+}
+
+
 int RecoilJets::process_event(PHCompositeNode* topNode)
 {
+    m_replayNodesReady = false;
+    m_lastReject = EventReject::None;
+    auto replayScope = RJReplayRuntimeV1::onScopeExit([this, topNode]()
+    {
+      if (m_replayFoundationEnabled)
+        writeReplayFoundationEvent(topNode, static_cast<int>(m_lastReject));
+    });
     /* ------------------------------------------------------------------ */
     /* 0) Banner & counter                                                */
     /* ------------------------------------------------------------------ */
@@ -7421,6 +7609,7 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
             Fun4AllReturnCodes::ABORTEVENT, "mandatory_nodes_missing");
         return Fun4AllReturnCodes::ABORTEVENT;
     }
+    m_replayNodesReady = true;
 
     // THE-106 C0-R diagnostic identity must not depend on the optional
     // event-display payload.  Observe the authoritative EventHeader node only
@@ -9557,6 +9746,16 @@ int RecoilJets::End(PHCompositeNode*)
       TObjString yamlObj(m_analysisConfigYAMLText.c_str());
       yamlObj.Write("analysis_config_yaml", TObject::kOverwrite);
       m_analysisConfigStamped = true;
+    }
+
+    if (m_replayFoundationEnabled && m_replayRuntime)
+    {
+      std::string replayError;
+      if (!m_replayRuntime->finish(&replayError))
+      {
+        warn("ReplayFoundationV1 finish failed: " + replayError);
+        return Fun4AllReturnCodes::ABORTRUN;
+      }
     }
 
     try

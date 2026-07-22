@@ -21,7 +21,7 @@ TABLES = {
     "RJPhotonJetPairV1": 1,
     "RJTruthPhotonV1": 1,
     "RJTruthJetV1": 1,
-    "RJRecoTruthLinkV1": 2,
+    "RJRecoTruthLinkV1": 3,
     "RJWeightComponentV1": 1,
     "RJEventDisplaySnapshotV1": 1,
 }
@@ -72,6 +72,13 @@ def main() -> int:
         observed = f"{int(src['source_occurrence_id_hi'][0]):016x}{int(src['source_occurrence_id_lo'][0]):016x}"
         if observed != expected:
             failures.append(f"identity_sha256:{observed}!={expected}")
+
+        links = base["RJRecoTruthLinkV1"].arrays(
+            ["reco_type", "truth_type", "link_class"], library="np"
+        )
+        classes = sorted(int(value) for value in links["link_class"])
+        if classes != [0, 0, 5]:
+            failures.append(f"link_classes:{classes}!=[0,0,5]")
 
         compression = str(root.file.compression)
         if "ZSTD" not in compression.upper():

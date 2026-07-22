@@ -112,32 +112,52 @@ int main(int argc, char** argv)
   photonLink.match_metric=0.01; photonLink.link_class=static_cast<int>(LinkClass::MATCH);
   if(!writer.fill(photonLink,&error)) return 14;
 
-  RecoTruthLinkRow miss;
-  miss.id=makeIdentity(truthJetId.hex()+"|miss"); miss.reco_type=static_cast<int>(RecoTruthType::NONE);
-  miss.truth_type=static_cast<int>(RecoTruthType::JET); miss.truth_id=truthJetId;
-  miss.link_class=static_cast<int>(LinkClass::TRUTH_MISS);
-  if(!writer.fill(miss,&error)) return 15;
+  const auto jetLinks=buildDeterministicJetLinks(
+      {{jetId,jet.corrected_pt,jet.eta,jet.phi,jet.radius}},
+      {{truthJetId,truthJet.pt,truthJet.eta,truthJet.phi,truthJet.radius}},0.3);
+  if(jetLinks.size()!=2 ||
+     jetLinks[0].link_class!=static_cast<int>(LinkClass::MATCH_CANDIDATE) ||
+     jetLinks[1].link_class!=static_cast<int>(LinkClass::MATCH)) return 15;
+  for(const auto& link:jetLinks) if(!writer.fill(link,&error)) return 15;
+
+  // Deterministic one-to-many/many-to-one stress: the lower-dR edge wins;
+  // the remaining reco and truth objects form explicit fake/miss rows while
+  // every viable edge remains retained as MATCH_CANDIDATE.
+  const auto r0=makeIdentity("jet-match-r0"),r1=makeIdentity("jet-match-r1");
+  const auto t0=makeIdentity("jet-match-t0"),t1=makeIdentity("jet-match-t1");
+  const auto stress=buildDeterministicJetLinks(
+      {{r0,12.0,0.00,0.00,0.4},{r1,20.0,0.02,0.00,0.4}},
+      {{t0,11.0,0.01,0.00,0.4},{t1,10.0,1.00,1.00,0.4}},0.3);
+  int candidates=0,matches=0,fakes=0,misses=0;
+  for(const auto& link:stress)
+  {
+    candidates+=link.link_class==static_cast<int>(LinkClass::MATCH_CANDIDATE);
+    matches+=link.link_class==static_cast<int>(LinkClass::MATCH);
+    fakes+=link.link_class==static_cast<int>(LinkClass::RECO_FAKE);
+    misses+=link.link_class==static_cast<int>(LinkClass::TRUTH_MISS);
+  }
+  if(candidates!=2||matches!=1||fakes!=1||misses!=1) return 18;
 
   WeightComponentRow weight;
   weight.target_id=eventId; weight.component_type="event_final"; weight.final_weight=1; weight.application_count=1;
-  if(!writer.fill(weight,&error)) return 16;
+  if(!writer.fill(weight,&error)) return 19;
 
   EventDisplaySnapshotRow snapshot;
   snapshot.id=makeIdentity(eventId.hex()+"|snapshot|0"); snapshot.event_id=eventId;
   snapshot.selection_reason="synthetic"; snapshot.quota_class="bounded"; snapshot.serialized_payload_hash=h;
-  if(!writer.fill(snapshot,&error)) return 17;
+  if(!writer.fill(snapshot,&error)) return 20;
 
   // Negative fixtures must fail closed without changing the valid population.
   EventRow orphan=event; orphan.id=makeIdentity("orphan-event"); orphan.source_id=makeIdentity("missing-source");
-  if(writer.fill(orphan,&error)) return 20;
-  if(writer.fill(candidate,&error)) return 21; // duplicate candidate
+  if(writer.fill(orphan,&error)) return 21;
+  if(writer.fill(candidate,&error)) return 22; // duplicate candidate
   RecoTruthLinkRow invalid=photonLink; invalid.id=makeIdentity("invalid-link"); invalid.truth_id=makeIdentity("missing-truth");
-  if(writer.fill(invalid,&error)) return 22;
+  if(writer.fill(invalid,&error)) return 23;
 
   if(!writer.finish(&error))
   {
     std::cerr << error << '\n';
-    return 23;
+    return 24;
   }
   output.Close();
   std::cout << "THE118_SCHEMA_CANARY_PASS\n";
