@@ -158,6 +158,7 @@ LOCAL_FILES=(
   "src_AuAu/Makefile.am"
   "src_AuAu/RecoilJets_AuAu.cc"
   "src_AuAu/RecoilJets_AuAu.h"
+  "src_AuAu/THE106ObservationDisabled.h"
   "scripts/sdcc/workflows/diagnostics/submit_the105_auau_shower_contract_factorial.sh"
   "scripts/sdcc/workflows/diagnostics/the105_preserve_invalid_shower_shapes.patch"
   "scripts/sdcc/workflows/diagnostics/the105_skip_invalid_rawcluster_tower_coordinates.patch"
@@ -339,6 +340,7 @@ REMOTE_FILES=(
   "src_AuAu/Makefile.am"
   "src_AuAu/RecoilJets_AuAu.cc"
   "src_AuAu/RecoilJets_AuAu.h"
+  "src_AuAu/THE106ObservationDisabled.h"
   "scripts/sdcc/workflows/diagnostics/submit_the105_auau_shower_contract_factorial.sh"
   "scripts/sdcc/workflows/diagnostics/the105_preserve_invalid_shower_shapes.patch"
   "scripts/sdcc/workflows/diagnostics/the105_skip_invalid_rawcluster_tower_coordinates.patch"
@@ -835,6 +837,7 @@ add_group() {
       add_local_rel "src/PPG12SimWeight.h"
       add_local_rel "src_AuAu/RecoilJets_AuAu.cc"
       add_local_rel "src_AuAu/RecoilJets_AuAu.h"
+      add_local_rel "src_AuAu/THE106ObservationDisabled.h"
       add_group condor
       add_group macros
       add_group scripts

@@ -5,7 +5,15 @@
 #include <fun4all/Fun4AllServer.h>
 #include <phool/getClass.h>
 #include <phool/recoConsts.h>
+#if __has_include(<phool/THE106Observation.h>)
 #include <phool/THE106Observation.h>
+#else
+// THE-117 certifies that the authoritative direct path builds and runs without
+// the optional THE-106 observer runtime.  Keep the instrumentation call sites
+// source-compatible, but compile them to strict no-ops when the patched PHOOL
+// header is not part of the active release.
+#include "THE106ObservationDisabled.h"
+#endif
 #include <jetbase/JetContainer.h>
 #include <jetbase/Jet.h>
 #include <array>
