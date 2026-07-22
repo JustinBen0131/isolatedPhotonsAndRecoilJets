@@ -660,8 +660,18 @@ PY
     exit 2
   fi
 
-  # Copy companion ROOT PCM dictionaries so R__LOAD_LIBRARY doesn't spew missing-PCM errors
-  if (( ! use_ppg12_archived_runtime )); then
+  # Copy companion ROOT PCM dictionaries so R__LOAD_LIBRARY resolves the
+  # dictionary payload beside the frozen libraries.  The archived PPG12 DI
+  # support libraries were built against ana.541; without the matching
+  # ana.541 PCMs ROOT aborts in static initialization before the event loop.
+  if (( use_ppg12_archived_runtime )); then
+    cp -f "${release_core_lib_dir}/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
+    cp -f "${release_core_lib64_dir}/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
+    compgen -G "${snap_lib_dir}/*_rdict.pcm" >/dev/null || {
+      err "Archived PPG12 DI runtime did not stage any ana.541 ROOT PCM dictionaries"
+      exit 2
+    }
+  else
     cp -f "${user_root}/thesisAnalysis/install/lib/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
     cp -f "${user_root}/thesisAnalysis_auau/install/lib/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
     if [[ -n "${RJ_CALO_RECO_LIBRARY_OVERRIDE:-}" ]]; then
@@ -802,6 +812,10 @@ PY
         lib/libg4testbench.so.0 \
         include/calowaveformsim/CaloWaveformSim.h \
         > "$runtime_manifest"
+      find lib -maxdepth 1 -type f -name '*_rdict.pcm' -print0 \
+        | sort -z \
+        | xargs -0 -r sha256sum \
+        >> "$runtime_manifest"
     )
     [[ -s "$runtime_manifest" ]] || {
       err "Archived PPG12 DI runtime manifest was not created: ${runtime_manifest}"
