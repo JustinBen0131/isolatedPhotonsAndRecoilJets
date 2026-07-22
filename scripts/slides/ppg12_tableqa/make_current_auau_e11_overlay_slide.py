@@ -12,7 +12,6 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
-import os
 import re
 import sys
 from dataclasses import dataclass
@@ -20,13 +19,11 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.patches import FancyBboxPatch
 
 
 THIS_FILE = Path(__file__).resolve()
-REPO = Path(os.environ["THESIS_ANALYSIS_REPO"]).resolve() if os.environ.get("THESIS_ANALYSIS_REPO") else next(
-    (p for p in THIS_FILE.parents if (p / "AGENTS.md").exists() or (p / ".git").exists()),
-    THIS_FILE.parents[4],
-)
+REPO = next((p for p in THIS_FILE.parents if (p / "AGENTS.md").exists()), THIS_FILE.parents[4])
 SCRIPTS_DIR = REPO / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.append(str(SCRIPTS_DIR))
@@ -46,6 +43,20 @@ DEFAULT_INTERIM_DATA_CACHE = (
 )
 
 PP_PLOTTER_PATH = REPO / "scripts/plotting/pp_currentian/make_the42_ppg12_tableqa_v1_tables.py"
+# June pp inclusive sample-set cache, restored for historical reproduction.
+PP_INCLUSIVE_CACHE_JUNE = (
+    REPO
+    / "dataOutput/ppg12TableQA/THE42_ppg12_tableqa_v1_basev3e_20260611"
+    / "inclusive_sample_hist_cache/the42_ppg12_tableqa_v1_inclusive_sample_projectx_hists.json"
+)
+# Historical-reproduction switches, set from --repro-june.
+REPRO_JUNE = False
+# Bullet type size; raised for the audience layout.
+AUDIENCE_BULLET_SIZE = 14.2
+# Audience bullet y positions, centred between each title's measured ink
+# bottom and the legend box top (y=266 px).  The E11 mathtext subscripts sit
+# ~20 px lower than the plain BDT title, so the two need separate values.
+AUDIENCE_BULLET_Y = {"bdt": (0.901, 0.858), "e11_to_e33": (0.891, 0.852)}
 
 
 def registered_root(sample_key: str) -> tuple[Path, Path]:
@@ -126,9 +137,9 @@ VARIABLE_CONFIG = {
     "bdt": {
         "axis": "BDT score",
         "slug": "bdt_score",
-        "title": "Photon-ID score separation through the selection flow",
+        "title": "BDT-score separation overlay: current AuAu default BDT data with matched MC",
         "lead": "Rows show AuAu centrality bins and the pp reference; columns follow the photon-ID selection flow.",
-        "takeaway": "The production 14-feature AuAu classifier orders embedded prompt photons above inclusive-jet background while data retain the expected mixed composition.",
+        "takeaway": "Signal MC should concentrate at higher score than inclusive MC; data should sit between the two without pathological pileups.",
     },
 }
 
@@ -147,8 +158,8 @@ CENTRALITY_MIDPOINTS = {
     "cent20_50": 35.0,
     "cent50_80": 65.0,
 }
-DEFAULT_WP80_INTERCEPT = 0.53471108
-DEFAULT_WP80_SLOPE = 0.0012284143
+WP80_INTERCEPT = 0.53471108
+WP80_SLOPE = 0.0012284143
 SAMPLE_COLORS = {
     "Data": "#111827",
     "Signal MC": "#C22F2F",
@@ -295,6 +306,10 @@ def load_tableqa_arrays(
     finally:
         f.Close()
     xlim, rebin = load_pp_plotter().ppg12_axis_settings(VAR)
+    if REPRO_JUNE:
+        # Commit 66c8fdec swapped a fixed rebin=4 for the per-variable value
+        # (2 for bdt).  Restore the original binning for historical slides.
+        rebin = 4
     return hist_to_arrays(h, source=paths[0], xlim=xlim, rebin=rebin)
 
 
@@ -347,12 +362,18 @@ def load_pp_arrays(stage: str, *, npb_display_coarsen: int = 1, include_npb: boo
     out: dict[str, Arrays] = {}
     data = plotter.norm_arrays(plotter.get_hist(files["data"], PP_TOPDIR_DATA, VAR, PT_TOKEN, stage), rebin, xlim)
     sig = plotter.norm_arrays(plotter.get_hist(files["signal_mc"], "SIM", VAR, PT_TOKEN, stage), rebin, xlim)
-    inc = plotter.norm_arrays(plotter.get_hist(files["inclusive_mc"], "SIM", VAR, PT_TOKEN, stage), rebin, xlim)
+    if REPRO_JUNE:
+        inclusive_cache = plotter.load_inclusive_cache(PP_INCLUSIVE_CACHE_JUNE, use_stitched_inclusive=False)
+        inc = plotter.norm_payload(plotter.cache_hist(inclusive_cache, "current_ian_jet8to40", VAR, PT_TOKEN, stage), rebin, xlim)
+        inc_source = f"{PP_INCLUSIVE_CACHE_JUNE}:current_ian_jet8to40"
+    else:
+        inc = plotter.norm_arrays(plotter.get_hist(files["inclusive_mc"], "SIM", VAR, PT_TOKEN, stage), rebin, xlim)
+        inc_source = str(PP_INCLUSIVE_ROOT)
     if data is None or sig is None or inc is None:
         raise RuntimeError(f"Missing registered pp histogram for {VAR}, {stage}")
     out["Data"] = Arrays(*data, integral=float(np.sum(data[1])), source=f"{PP_DATA_ROOT}:{stage}")
     out["Signal MC"] = Arrays(*sig, integral=float(np.sum(sig[1])), source=f"{PP_SIGNAL_ROOT}:{stage}")
-    out["Inclusive MC"] = Arrays(*inc, integral=float(np.sum(inc[1])), source=f"{PP_INCLUSIVE_ROOT}:{stage}")
+    out["Inclusive MC"] = Arrays(*inc, integral=float(np.sum(inc[1])), source=f"{inc_source}:{stage}")
     if include_npb and stage == "cut0":
         npb_hist = plotter.get_hist(files["data"], PP_TOPDIR_DATA, VAR, PT_TOKEN, "cut4")
         npb_raw_entries = float(npb_hist.GetEntries())
@@ -416,8 +437,8 @@ def add_sphenix_label(ax, *, system: str) -> None:
 
 
 def draw_arrow_text(fig, x: float, y: float, text: str) -> None:
-    fig.text(x, y, "▶", fontsize=14.5, color="#2468A8", ha="left", va="top", fontfamily="DejaVu Sans")
-    fig.text(x + 0.021, y, text, fontsize=14.2, color="#172033", ha="left", va="top")
+    fig.text(x, y, "▶", fontsize=16.5, color="#2468A8", ha="left", va="top", fontfamily="DejaVu Sans")
+    fig.text(x + 0.021, y, text, fontsize=AUDIENCE_BULLET_SIZE, color="#172033", ha="left", va="top")
 
 
 def draw_missing_data_slot(ax, *, row_label: str, stage_label: str) -> None:
@@ -489,14 +510,30 @@ def render(args: argparse.Namespace) -> dict:
     inclusive_index = build_index(inclusive_root)
     data_trigger_regex = re.compile(args.data_trigger_regex) if args.data_trigger_regex else None
 
+    global PP_DATA_ROOT, PP_SIGNAL_ROOT, PP_INCLUSIVE_ROOT, PP_TOPDIR_DATA, REPRO_JUNE
+    REPRO_JUNE = bool(getattr(args, "repro_june", False))
+    if getattr(args, "pp_data_root", None):
+        PP_DATA_ROOT = args.pp_data_root
+    if getattr(args, "pp_signal_root", None):
+        PP_SIGNAL_ROOT = args.pp_signal_root
+    if getattr(args, "pp_inclusive_root", None):
+        PP_INCLUSIVE_ROOT = args.pp_inclusive_root
+    if getattr(args, "pp_topdir_data", None):
+        PP_TOPDIR_DATA = args.pp_topdir_data
     manuscript_layout = args.layout == "manuscript"
+    audience = bool(getattr(args, "audience_layout", False)) and not manuscript_layout
+    global AUDIENCE_BULLET_SIZE
+    AUDIENCE_BULLET_SIZE = 17.5 if audience else 14.2
     fig_size = (7.35, 8.7) if manuscript_layout else slide_figsize()
     fig, axes = plt.subplots(4, 3, figsize=fig_size, constrained_layout=False)
     fig.patch.set_facecolor("white")
     if manuscript_layout:
         fig.subplots_adjust(left=0.105, right=0.985, top=0.875, bottom=0.065, wspace=0.135, hspace=0.215)
     else:
-        fig.subplots_adjust(left=0.070, right=0.990, top=0.720, bottom=0.070, wspace=0.120, hspace=0.220)
+        if audience:
+            fig.subplots_adjust(left=0.148, right=0.988, top=0.686, bottom=0.078, wspace=0.120, hspace=0.235)
+        else:
+            fig.subplots_adjust(left=0.070, right=0.990, top=0.720, bottom=0.070, wspace=0.120, hspace=0.220)
 
     manifest: dict = {
         "schema": "CURRENT_AUAU_TABLEQA_OVERLAY_SLIDE_V2",
@@ -527,13 +564,6 @@ def render(args: argparse.Namespace) -> dict:
         "layout": args.layout,
         "curves": [],
         "missing_data_slots": [],
-        "wp80": {
-            "intercept": args.wp80_intercept,
-            "slope": args.wp80_slope,
-            "centrality_coordinate": "percentile midpoint",
-            "applies_to": "AuAu rows only",
-            "contract": args.auau_model_contract,
-        },
     }
 
     rows = CENTRALITIES + [("pp", "pp reference")]
@@ -617,13 +647,14 @@ def render(args: argparse.Namespace) -> dict:
             if include_npb and stage == "cut0":
                 npb = curves.get("NPB-tagged data")
                 if npb is not None:
-                    note = "cut4 NPB: N=0" if npb.integral <= 0 else f"cut4 NPB: N={npb.integral:.0f}"
+                    # npb.integral holds raw GetEntries(), not the drawn curve area.
+                    note = f"NPB-tagged data count: {max(npb.integral, 0.0):.0f}"
                     ax.text(
-                        0.975,
+                        0.025,
                         0.905,
                         note,
                         transform=ax.transAxes,
-                        ha="right",
+                        ha="left",
                         va="top",
                         fontsize=10.2,
                         color=SAMPLE_COLORS["NPB-tagged data"],
@@ -633,27 +664,68 @@ def render(args: argparse.Namespace) -> dict:
             xlim, _ = load_pp_plotter().ppg12_axis_settings(VAR)
             ax.set_xlim(*xlim)
             ax.set_ylim(0.0, max(0.025, ymax * 1.16))
-            if VAR == "bdt" and cent_key in CENTRALITY_MIDPOINTS:
-                wp80 = args.wp80_intercept + args.wp80_slope * CENTRALITY_MIDPOINTS[cent_key]
+            if VAR == "bdt" and cent_key in CENTRALITY_MIDPOINTS and not audience:
+                wp80 = WP80_INTERCEPT + WP80_SLOPE * CENTRALITY_MIDPOINTS[cent_key]
                 ax.axvline(wp80, color="#4B5563", lw=1.05, ls=(0, (3.2, 2.6)), alpha=0.72, zorder=0)
             ax.grid(True, axis="y", color="#E5E7EB", lw=0.52, alpha=0.78)
-            ax.tick_params(labelsize=6.4 if manuscript_layout else 7.8, pad=1, direction="in", top=True, right=True)
-            if col == 0:
+            ax.tick_params(labelsize=6.4 if manuscript_layout else (10.2 if audience else 7.8), pad=1, direction="in", top=True, right=True)
+            if col == 0 and not audience:
                 ax.set_ylabel(row_label.replace(" ", "\n", 1), fontsize=8.4 if manuscript_layout else 10.4, labelpad=7)
                 add_sphenix_label(ax, system="pp" if cent_key == "pp" else "AuAu")
             if row == 0:
-                ax.set_title(stage_label, fontsize=10.2 if manuscript_layout else 14.7, fontweight="bold", pad=5, color="#173B63")
+                ax.set_title(stage_label, fontsize=10.2 if manuscript_layout else (19.0 if audience else 14.7), fontweight="bold", pad=8, color="#173B63")
             if row == 3:
-                ax.set_xlabel(var_cfg["axis"], fontsize=8.3 if manuscript_layout else 10.7, labelpad=1)
+                ax.set_xlabel(var_cfg["axis"], fontsize=8.3 if manuscript_layout else (14.0 if audience else 10.7), labelpad=3)
             else:
                 ax.tick_params(labelbottom=False)
 
+    if audience:
+        # Horizontal row headers in a light band on the left, vertically centred
+        # on each row of axes.  Replaces the small rotated y-axis labels.
+        AUDIENCE_ROW_LABELS = {
+            "cent0_20": "Au+Au\n0\u201320%",
+            "cent20_50": "Au+Au\n20\u201350%",
+            "cent50_80": "Au+Au\n50\u201380%",
+            "pp": "pp\nreference",
+        }
+        for row, (cent_key, _row_label) in enumerate(rows):
+            box = axes[row, 0].get_position()
+            mid = box.y0 + box.height / 2.0
+            fig.add_artist(
+                FancyBboxPatch(
+                    (0.030, box.y0 + 0.006),
+                    0.101,
+                    box.height - 0.012,
+                    transform=fig.transFigure,
+                    boxstyle="round,pad=0.004,rounding_size=0.006",
+                    facecolor="#f3f7fb",
+                    edgecolor="#c3cfdd",
+                    linewidth=1.15,
+                    zorder=-5,
+                )
+            )
+            fig.text(
+                0.0805,
+                mid,
+                AUDIENCE_ROW_LABELS.get(cent_key, cent_key),
+                ha="center",
+                va="center",
+                fontsize=17.5,
+                fontweight="bold",
+                color="#173B63",
+                linespacing=1.25,
+            )
+
     title = var_cfg["title"]
+    if audience and VAR == "bdt":
+        title = "BDT-score separation overlay, pp vs Au+Au"
+    elif audience and VAR == "e11_to_e33":
+        title = r"$E_{11}/E_{33}$ shower-shape overlay, pp vs Au+Au"
     fig.text(
         0.105 if manuscript_layout else 0.055,
         0.975 if manuscript_layout else 0.955,
         title,
-        fontsize=13.2 if manuscript_layout else 23.8,
+        fontsize=13.2 if manuscript_layout else (30.0 if audience else 23.8),
         fontweight="bold",
         ha="left",
         va="top",
@@ -678,8 +750,17 @@ def render(args: argparse.Namespace) -> dict:
             color="#4B5563",
         )
     else:
-        draw_arrow_text(fig, 0.058, 0.895, data_line)
-    if include_npb and not manuscript_layout:
+        draw_arrow_text(fig, 0.058, AUDIENCE_BULLET_Y.get(VAR, (0.891, 0.852))[0] if audience else 0.895, data_line)
+    if include_npb and audience:
+        # Audience layout mirrors the BDT slide: two bullets, the NPB notes
+        # condensed into one line at the same sizes and spacing.
+        draw_arrow_text(
+            fig,
+            0.058,
+            AUDIENCE_BULLET_Y.get(VAR, (0.891, 0.852))[1],
+            "Green is the raw NPB-tagged data sideband, drawn as a compressed strip; counts printed per panel.",
+        )
+    elif include_npb and not manuscript_layout:
         draw_arrow_text(
             fig,
             0.058,
@@ -693,13 +774,16 @@ def render(args: argparse.Namespace) -> dict:
             "The green height is compressed into a diagnostic strip, so sparse AuAu sidebands do not look like high-stat unit-area shapes.",
         )
     elif not manuscript_layout:
-        draw_arrow_text(fig, 0.058, 0.855, var_cfg["takeaway"])
+        if not audience:
+            draw_arrow_text(fig, 0.058, 0.855, var_cfg["takeaway"])
         if VAR == "bdt":
             draw_arrow_text(
                 fig,
                 0.058,
-                0.818,
-                "AuAu uses the completed matched-triplet BDT/WP80 contract; the pp baseV3E row is a reference shape, not a shared score calibration.",
+                AUDIENCE_BULLET_Y.get(VAR, (0.891, 0.852))[1] if audience else 0.818,
+                "Au+Au uses the 14-feature default BDT; the pp row is a PPG12/baseV3E reference shape, not a shared calibration."
+                if audience
+                else "AuAu uses the new 14-feature default BDT/WP80 production; the pp row is a PPG12/baseV3E reference-score shape, not a shared score calibration.",
             )
 
     handles = [
@@ -707,7 +791,7 @@ def render(args: argparse.Namespace) -> dict:
         plt.Line2D([0], [0], color=SAMPLE_COLORS["Inclusive MC"], lw=2.4, label="Inclusive MC"),
         plt.Line2D([0], [0], color=SAMPLE_COLORS["Data"], marker="o", markersize=6.5, lw=0, markerfacecolor=SAMPLE_COLORS["Data"], markeredgecolor="white", label="Data"),
     ]
-    if VAR == "bdt":
+    if VAR == "bdt" and not audience:
         handles.append(plt.Line2D([0], [0], color="#4B5563", lw=1.2, ls=(0, (3.2, 2.6)), label="AuAu WP80"))
     if include_npb:
         handles.append(
@@ -734,6 +818,22 @@ def render(args: argparse.Namespace) -> dict:
             handlelength=1.4,
             columnspacing=0.8,
         )
+    elif audience:
+        fig.legend(
+            handles=handles,
+            loc="upper center",
+            bbox_to_anchor=(0.545, 0.815),
+            ncol=4 if include_npb else 3,
+            frameon=True,
+            fancybox=True,
+            framealpha=1.0,
+            edgecolor="#c3cfdd",
+            facecolor="white",
+            borderpad=0.55,
+            fontsize=14.5 if include_npb else 15.5,
+            handlelength=1.8,
+            columnspacing=2.6,
+        )
     else:
         fig.legend(handles=handles, loc="upper right", bbox_to_anchor=(0.985, 0.800), frameon=False, ncol=4, fontsize=9.2, handlelength=1.6, columnspacing=1.0)
 
@@ -750,11 +850,6 @@ def render(args: argparse.Namespace) -> dict:
     manifest["png"] = str(out_png)
     manifest["speaker_script"] = str(out_script)
     out_manifest.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
-    data_provenance_sentence = (
-        "This rendered version uses the bounded interim completed-run data subset recorded in the manifest."
-        if data_cache is not None
-        else "This rendered version uses the complete merged AuAu data ROOT recorded in the manifest."
-    )
     out_script.write_text(
         "\n".join(
             [
@@ -765,7 +860,7 @@ def render(args: argparse.Namespace) -> dict:
                 "The columns show the selection flow: before preselection, after preselection, and after the tight BDT ID.",
                 "The bottom row is the validated pp reference using the repaired table-QA plotting path, so the audience can compare the AuAu behavior against the known pp photon-ID pattern.",
                 "The green curve is omitted for the BDT-score slide." if not include_npb else "The green curve is the raw cut4 NPB-tagged data sideband in both systems. It is compressed into a diagnostic strip and does not share the unit-area y-scale of the data/MC shape overlays.",
-                data_provenance_sentence,
+                "This rendered version uses the interim completed-run data subset if a data cache is recorded in the manifest. The final merged data ROOT can be substituted without changing the slide layout.",
                 "",
                 var_cfg["takeaway"],
                 f"All curves are normalized within the plotted {var_cfg['axis']} range, so this is a shape comparison rather than a yield comparison.",
@@ -782,18 +877,26 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--var", choices=sorted(VARIABLE_CONFIG), default="e11_to_e33")
     ap.add_argument("--all-basev3e-shapes", action="store_true")
     ap.add_argument("--layout", choices=("slide", "manuscript"), default="slide")
+    ap.add_argument(
+        "--audience-layout",
+        action="store_true",
+        help="Presentation-only cleanup: drop WP80 lines and per-panel annotation, horizontal row headers, boxed centred legend.",
+    )
     ap.add_argument("--data-cache", type=Path, default=None)
     ap.add_argument("--use-default-interim-cache", action="store_true")
     ap.add_argument("--signal-root", type=Path, default=DEFAULT_SIGNAL_ROOT)
     ap.add_argument("--inclusive-root", type=Path, default=DEFAULT_INCLUSIVE_ROOT)
     ap.add_argument("--outdir", type=Path, default=DEFAULT_OUTDIR)
-    ap.add_argument("--wp80-intercept", type=float, default=DEFAULT_WP80_INTERCEPT)
-    ap.add_argument("--wp80-slope", type=float, default=DEFAULT_WP80_SLOPE)
-    ap.add_argument(
-        "--auau-model-contract",
-        default="THE-88 historical 14-feature production BDT with its matching centrality-dependent WP80",
-        help="Provenance-only description of the AuAu score and WP80 contract.",
-    )
+    # Registry pointers for the pp reference have moved to newer productions.
+    # These overrides let a historical slide be re-rendered against the exact
+    # pp roots its manifest recorded; defaults keep the registry behaviour.
+    ap.add_argument("--pp-data-root", type=Path, default=None)
+    ap.add_argument("--pp-signal-root", type=Path, default=None)
+    ap.add_argument("--pp-inclusive-root", type=Path, default=None)
+    ap.add_argument("--repro-june", action="store_true",
+                    help="Reproduce the June rendering: fixed AuAu rebin=4 and the cached jet8to40 pp inclusive set.")
+    ap.add_argument("--pp-topdir-data", default=None,
+                    help="pp data trigger namespace; historical slides used Photon_4_GeV_plus_MBD_NS_geq_1.")
     ap.add_argument(
         "--data-trigger-regex",
         default=r"photon_12_plus_MBD_NS_geq_2_vtx_lt_150/",
