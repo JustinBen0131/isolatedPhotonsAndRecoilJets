@@ -18,6 +18,11 @@ pp_di_lib_sha="${RJ_THE119_PP_DI_LIBRARY_SHA256:-fdc03d9fc3aa24e16c561a698e5e54b
 auau_lib_sha="${RJ_THE119_AUAU_LIBRARY_SHA256:-42f1a860b4f76ace51baa79e0c1413ac3a8fa42664e868c831d5044079e53019}"
 pp_di_canary_manifest="${RJ_THE119_PP_DI_CANARY_MANIFEST:-/sphenix/u/patsfan753/scratch/thesisAnalysis/.recoiljets_tmp/ppg12_di_full_group_canary_20260718/runs/full_group_jet20_grp001_20260718T0736Z/manifest/canary_manifest.json}"
 pp_di_canary_manifest_sha="${RJ_THE119_PP_DI_CANARY_MANIFEST_SHA256:-e18d86f4f1c96f7fccd618c4f36eb148bd3277c69af8e1b148b4f370ccb1a901}"
+pp_di_photon_builder_root="${RJ_THE119_PP_DI_PHOTON_BUILDER_ROOT:-/sphenix/u/patsfan753/scratch/thesisAnalysis/.recoiljets_tmp/the119_pp_di_photon_builder_ana541_20260722_v1/install}"
+pp_di_photon_builder_lib="${RJ_THE119_PP_DI_PHOTON_BUILDER_LIBRARY:-${pp_di_photon_builder_root}/lib/libphoton_cluster_builder_override.so}"
+pp_di_photon_builder_header="${RJ_THE119_PP_DI_PHOTON_BUILDER_HEADER:-${pp_di_photon_builder_root}/include/caloreco/PhotonClusterBuilder.h}"
+pp_di_photon_builder_lib_sha="${RJ_THE119_PP_DI_PHOTON_BUILDER_LIBRARY_SHA256:-5d4eca4abdaa274d308856e050d19b17e02bc62652a03dda6f0ea95719b9147e}"
+pp_di_photon_builder_header_sha="${RJ_THE119_PP_DI_PHOTON_BUILDER_HEADER_SHA256:-255fb1b4b9a0fdb9b0ee4709483ac30a04ee8dd2813f99e6afc3914e5cd1e20f}"
 pp_model="/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/the116_models/the116_pp_matched_basev3e_15to35_20260720/models/bdt_ppg12_basev3e_15to35/pp_tight_bdt_ppg12_base_v3E_bdt_noIso_tmva.root"
 pp_ref="/sphenix/user/shuhangli/ppg12/FunWithxgboost/binned_models/model_base_v3E_split_single_tmva.root"
 auau_model="/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/the111_models/the111_combined_corrected_shower_ppg12_labels_20260719_1618/combined/auau_tight_bdt_centAsFeatBase3x3_pt15to35_tmva.root"
@@ -99,6 +104,10 @@ require_inputs(){
     [[ "$(sha256sum "$pp_di_lib" | awk '{print $1}')" == "$pp_di_lib_sha" ]] || die "ana.541 p+p replay library hash drift"
     [[ -s "$pp_di_canary_manifest" ]] || die "missing accepted archived-DI canary manifest: $pp_di_canary_manifest"
     [[ "$(sha256sum "$pp_di_canary_manifest" | awk '{print $1}')" == "$pp_di_canary_manifest_sha" ]] || die "accepted archived-DI canary manifest hash drift"
+    [[ -s "$pp_di_photon_builder_lib" ]] || die "missing ana.541 PhotonClusterBuilder override: $pp_di_photon_builder_lib"
+    [[ -s "$pp_di_photon_builder_header" ]] || die "missing ana.541 PhotonClusterBuilder header: $pp_di_photon_builder_header"
+    [[ "$(sha256sum "$pp_di_photon_builder_lib" | awk '{print $1}')" == "$pp_di_photon_builder_lib_sha" ]] || die "ana.541 PhotonClusterBuilder override hash drift"
+    [[ "$(sha256sum "$pp_di_photon_builder_header" | awk '{print $1}')" == "$pp_di_photon_builder_header_sha" ]] || die "ana.541 PhotonClusterBuilder header hash drift"
     if [[ -n "$pp_witness_only_keys" ]]; then
       local key
       local valid=",direct:pp_data_0mrad,direct:pp_data_1p5mrad,direct:run28_photonjet5_si_0mrad,direct:run28_photonjet20_di_1p5mrad,direct:run28_jet8_di_0mrad,direct:run28_jet40_si_1p5mrad,writer:pp_data_0mrad,writer:pp_data_1p5mrad,writer:run28_photonjet5_si_0mrad,writer:run28_photonjet20_di_1p5mrad,writer:run28_jet8_di_0mrad,writer:run28_jet40_si_1p5mrad,"
@@ -181,6 +190,7 @@ submit_pp_witness(){
     contract_env+=(RJ_PPG12_PP_DATA_PAIRED=1 RJ_PPG12_PERIOD_FILTER_DATA=1)
   elif [[ "$interaction" == di ]]; then
     contract_env+=(
+      RJ_PPG12_PHOTON_YIELD=1
       RJ_PPG12_PHOTON_YIELD_DOUBLE=1
       RJ_PPG12_PERIOD_STRICT_DI=1
       RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4=1
@@ -193,6 +203,8 @@ submit_pp_witness(){
     contract_env+=(
       RJ_PPG12_DI_ARCHIVED_CANARY_MANIFEST="$pp_di_canary_manifest"
       RJ_PPG12_DI_ARCHIVED_CANARY_MANIFEST_SHA256="$pp_di_canary_manifest_sha"
+      RJ_PHOTON_CLUSTER_BUILDER_LIBRARY_OVERRIDE="$pp_di_photon_builder_lib"
+      RJ_PHOTON_CLUSTER_BUILDER_HEADER_OVERRIDE="$pp_di_photon_builder_header"
       RJ_FORCE_RELEASE_CORE_LIBS=1
       RJ_RELEASE_CORE_LIB_DIR=/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.541/lib
       RJ_RELEASE_CORE_LIB64_DIR=/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.541/lib64
@@ -236,7 +248,8 @@ preflight(){
       "$tag" "$base" "$code_commit" "$code_sha" "$schema_sha" "$semantic_sha" "$photon_capture_et_min" "$jet_constituent_pt_min" "$canary_nevents" "$replay_trace" "$pp_direct_witness_qa" "$pp_witness_profile" "$pp_witness_only_keys" "$only_keys" "$source_sha_override"
     sha256sum "$pp_cfg" "$auau_cfg" "$pp_lib" "$auau_lib" "$pp_model" "$pp_ref" "$auau_model"
     if [[ "$pp_witness_profile" == period_si_di ]]; then
-      sha256sum "$pp_di_lib" "$pp_di_canary_manifest"
+      sha256sum "$pp_di_lib" "$pp_di_canary_manifest" \
+        "$pp_di_photon_builder_lib" "$pp_di_photon_builder_header"
     fi
   } > "$evidence/preflight_receipt.txt"
   say "PREFLIGHT_PASS evidence=$evidence/preflight_receipt.txt"

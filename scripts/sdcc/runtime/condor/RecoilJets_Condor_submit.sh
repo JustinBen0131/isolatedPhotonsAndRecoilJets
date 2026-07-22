@@ -1215,6 +1215,7 @@ finalize_ppg12_archived_di_submit_env() {
     RJ_PPG12_PERIOD_ALLOW_MIX_OVERRIDE \
     RJ_PPG12_PERIOD_ALLOW_VERTEX_FILE_OVERRIDE \
     RJ_PPG12_PERIOD_USE_LUMI_WEIGHT \
+    RJ_PPG12_PHOTON_YIELD \
     RJ_PPG12_PHOTON_YIELD_DOUBLE \
     RJ_PPG12_PERIOD_STRICT_DI \
     RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4 \
@@ -1243,6 +1244,7 @@ finalize_ppg12_archived_di_submit_env() {
   extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_PERIOD_ALLOW_MIX_OVERRIDE 0)"
   extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_PERIOD_ALLOW_VERTEX_FILE_OVERRIDE 0)"
   extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_PERIOD_USE_LUMI_WEIGHT 1)"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_PHOTON_YIELD 1)"
   extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_PHOTON_YIELD_DOUBLE 1)"
   extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_PERIOD_STRICT_DI 1)"
   extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4 1)"

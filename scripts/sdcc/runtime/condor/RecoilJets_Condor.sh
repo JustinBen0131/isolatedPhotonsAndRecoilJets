@@ -93,7 +93,8 @@ if (( ppg12_archived_di_lane )); then
   unset RJ_PPG12_DI_ARCHIVED_RELEASE RJ_PPG12_DI_RUNTIME_MANIFEST
   unset RJ_PPG12_DI_RUNTIME_MANIFEST_SHA256
   unset RJ_PPG12_DI_ARCHIVED_EXPECT_PEDESTAL RJ_PPG12_PEDESTAL_OVERRIDE
-  unset RJ_PPG12_PERIOD_ALLOW_ALL_SIM RJ_PPG12_PHOTON_YIELD_DOUBLE
+  unset RJ_PPG12_PERIOD_ALLOW_ALL_SIM RJ_PPG12_PHOTON_YIELD
+  unset RJ_PPG12_PHOTON_YIELD_DOUBLE
   unset RJ_PPG12_PERIOD_ALLOW_MIX_OVERRIDE RJ_PPG12_PERIOD_ALLOW_VERTEX_FILE_OVERRIDE
   unset RJ_PPG12_PERIOD_USE_LUMI_WEIGHT RJ_PPG12_PHOTON_YIELD_MIX_WEIGHT
   unset RJ_PPG12_CROSSING_PERIOD RJ_PP_VERTEX_REWEIGHT_FILE RJ_PP_VERTEX_REWEIGHT_HIST
@@ -112,6 +113,7 @@ if (( ppg12_archived_di_lane )); then
   export RJ_PPG12_PERIOD_ALLOW_VERTEX_FILE_OVERRIDE=0
   export RJ_PPG12_PERIOD_USE_LUMI_WEIGHT=1
   export RJ_PPG12_PERIOD="$archived_period"
+  export RJ_PPG12_PHOTON_YIELD=1
   export RJ_PPG12_PHOTON_YIELD_DOUBLE=1
   export RJ_PPG12_PERIOD_STRICT_DI=1
   export RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4=1
@@ -172,6 +174,23 @@ else
     export ROOT_INCLUDE_PATH="${MYINSTALL}/include:${ROOT_INCLUDE_PATH:-}"
   fi
   set -u
+fi
+
+# Some frozen release lanes intentionally pair an archived detector runtime
+# with the current campaign PhotonClusterBuilder interface.  If the submitter
+# staged the narrowly scoped builder override, load it in ROOT before the
+# steering macro is parsed.  This mirrors the already validated Au+Au worker
+# mechanism and avoids process-level LD_PRELOAD, which can initialize ROOT
+# libraries before ROOT itself.
+root_loader_args=()
+wrapper_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+snapshot_lib_dir="${RJ_SNAPSHOT_LIB_DIR:-${wrapper_dir}/lib}"
+photon_builder_override="${snapshot_lib_dir}/libphoton_cluster_builder_override.so"
+if [[ -r "$photon_builder_override" ]]; then
+  photon_builder_override_root="${photon_builder_override//\\/\\\\}"
+  photon_builder_override_root="${photon_builder_override_root//\"/\\\"}"
+  root_loader_args=(-e "if (gSystem->Load(\"${photon_builder_override_root}\") < 0) gSystem->Exit(86);")
+  echo "[INFO] PhotonClusterBuilder-only ROOT load: ${photon_builder_override}"
 fi
 
 # ------------------------ Dataset routing ------------------
@@ -559,9 +578,9 @@ echo "[INFO] Running ROOT:"
 echo "root -b -q -l \"${MACRO}(${nevents}, \\\"${chunk_list}\\\", \\\"${out_root}\\\", false)\""
 start_heartbeat
 if [[ "$profile_enabled" == "1" || "$profile_enabled" == "true" || "$profile_enabled" == "TRUE" ]] && command -v /usr/bin/time >/dev/null 2>&1; then
-  /usr/bin/time -v -o "$profile_file" "${root_invoke_prefix[@]}" root -b -q -l "${MACRO}(${nevents}, \"${chunk_list}\", \"${out_root}\", false)"
+  /usr/bin/time -v -o "$profile_file" "${root_invoke_prefix[@]}" root -b -q -l "${root_loader_args[@]}" "${MACRO}(${nevents}, \"${chunk_list}\", \"${out_root}\", false)"
 else
-  "${root_invoke_prefix[@]}" root -b -q -l "${MACRO}(${nevents}, \"${chunk_list}\", \"${out_root}\", false)"
+  "${root_invoke_prefix[@]}" root -b -q -l "${root_loader_args[@]}" "${MACRO}(${nevents}, \"${chunk_list}\", \"${out_root}\", false)"
 fi
 rc=$?
 stop_heartbeat
