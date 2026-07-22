@@ -24,6 +24,24 @@ chunk_idx="${6:-0}"                 # informational; not used for naming
 _ignored2="${7:-}"                  # keep slot for compatibility (NONE)
 dest_base="${8:-}"                  # If empty, we derive from dataset
 
+validate_archived_ppg12_di_chunk_list() {
+  local list="$1"
+  local sample_slice="$2"
+  awk -F '\t' \
+    -v g4="/js_pp200_signal_dual/g4hits/run0028/${sample_slice}/" \
+    -v jets="/js_pp200_signal_dual/nopileup/jets/run0028/${sample_slice}/" '
+    BEGIN { bad=0 }
+    NF != 5 || $1 != "NONE" || index($2, g4) == 0 ||
+    index($3, jets) == 0 || $4 != "NONE" || $5 != "NONE" {
+      if (bad < 5) {
+        printf "Archived PPG12 DI row %d mismatch: CALO=%s G4Hits=%s DST_JETS=%s DST_GLOBAL=%s MBD=%s\n", NR, $1, $2, $3, $4, $5 > "/dev/stderr"
+      }
+      bad++
+    }
+    END { exit bad == 0 ? 0 : 1 }
+  ' "$list"
+}
+
 # ------------------------ Fixed paths ----------------------
 BASE="/sphenix/u/patsfan753/scratch/thesisAnalysis"
 MACRO="${RJ_MACRO_PATH:-${BASE}/macros/Fun4All_recoilJets.C}"
@@ -46,6 +64,9 @@ MYINSTALL="/sphenix/u/${USER}/thesisAnalysis/install"
 PPG12_ARCHIVED_OFFLINE_MAIN="/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.541"
 ppg12_archived_di_lane=0
 case "$run8" in
+  run28_photonjet5_double|run28_photonjet10_double|run28_photonjet20_double)
+    [[ "$dataset_raw" == "isSim" ]] && ppg12_archived_di_lane=1
+    ;;
   run28_jet8_double|run28_jet12_double|run28_jet20_double|run28_jet30_double|run28_jet40_double)
     [[ "$dataset_raw" == "isSimInclusive" ]] && ppg12_archived_di_lane=1
     ;;
@@ -328,21 +349,8 @@ fi
 if (( ppg12_archived_di_lane )); then
   sample_slice="${run8#run28_}"
   sample_slice="${sample_slice%_double}"
-  if ! awk -F '\t' \
-    -v g4="/js_pp200_signal_dual/g4hits/run0028/${sample_slice}/" \
-    -v jets="/js_pp200_signal_dual/nopileup/jets/run0028/${sample_slice}/" \
-    -v global="/js_pp200_signal_dual/nopileup/global/run0028/${sample_slice}/" '
-    BEGIN { bad=0 }
-    NF != 5 || $1 != "NONE" || index($2, g4) == 0 ||
-    index($3, jets) == 0 || index($4, global) == 0 || $5 != "NONE" {
-      if (bad < 5) {
-        printf "Archived PPG12 DI row %d mismatch: CALO=%s G4Hits=%s DST_JETS=%s DST_GLOBAL=%s MBD=%s\n", NR, $1, $2, $3, $4, $5 > "/dev/stderr"
-      }
-      bad++
-    }
-    END { exit bad == 0 ? 0 : 1 }
-  ' "$chunk_list"; then
-    echo "[FATAL] Archived PPG12 DI worker requires CALO/MBD=NONE and exact run-28 ${sample_slice} dual G4Hits, truth-jet, and global sources."
+  if ! validate_archived_ppg12_di_chunk_list "$chunk_list" "$sample_slice"; then
+    echo "[FATAL] Archived PPG12 DI worker requires the exact G4-only graph: CALO/GLOBAL/MBD=NONE plus run-28 ${sample_slice} dual G4Hits and truth-jet sources."
     exit 98
   fi
 fi

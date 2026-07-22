@@ -436,18 +436,25 @@ BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST_SHA256=""
 
 ppg12_archived_di_sample() {
   case "${1:-}" in
+    run28_photonjet5_double|run28_photonjet10_double|run28_photonjet20_double|\
     run28_jet8_double|run28_jet12_double|run28_jet20_double|run28_jet30_double|run28_jet40_double) return 0 ;;
   esac
   return 1
 }
 
 ppg12_archived_di_lane() {
-  [[ "${1:-${DATASET:-}}" == "isSimInclusive" ]] || return 1
+  case "${1:-${DATASET:-}}" in
+    isSim|isSimInclusive) ;;
+    *) return 1 ;;
+  esac
   ppg12_archived_di_sample "${2:-${SIM_SAMPLE:-}}"
 }
 
 ppg12_archived_di_campaign_requested() {
-  [[ "${DATASET:-}" == "isSimInclusive" ]] || return 1
+  case "${DATASET:-}" in
+    isSim|isSimInclusive) ;;
+    *) return 1 ;;
+  esac
   [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 1 ]] || return 1
   ppg12_archived_di_sample "${SIM_SAMPLE:-}"
 }
@@ -3623,6 +3630,7 @@ sim_requires_global_lane() {
   # executable graphs exactly.  Neither SI nor DI registers DST_GLOBAL; the
   # vertex inputs are reconstructed inside the SI graph and absent for DI.
   env_truthy "${RJ_PPG12_CLOSURE_CANARY:-0}" && return 1
+  ppg12_archived_di_campaign_requested && return 1
   env_truthy "${RJ_REQUIRE_SIM_GLOBAL:-0}" && return 0
   env_truthy "${RJ_PPG12_PHOTON_YIELD:-0}" && return 0
   env_truthy "${RJ_PPG12_TABLE_QA:-0}" && return 0
@@ -3784,6 +3792,8 @@ validate_ppg12_sim_source_contract() {
 
   local closure_canary=0
   env_truthy "${RJ_PPG12_CLOSURE_CANARY:-0}" && closure_canary=1
+  local archived_di=0
+  ppg12_archived_di_campaign_requested && archived_di=1
 
   local contract_requested=0
   env_truthy "${RJ_PPG12_PHOTON_YIELD:-0}" && contract_requested=1
@@ -3864,7 +3874,26 @@ validate_ppg12_sim_source_contract() {
       err "PPG12 DI source contract: sample=${sample} requires RJ_PPG12_PHOTON_YIELD_DOUBLE=1, RJ_PPG12_PERIOD_STRICT_DI=1, RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4=1, and RJ_PPG12_PPSIM_G4_ONLY=1."
       return 98
     fi
-    if ! awk -F '\t' '
+    if (( archived_di )); then
+      if ! awk -F '\t' '
+        BEGIN { bad=0 }
+        NF != 5 ||
+        $1 != "NONE" ||
+        $2 !~ /\/js_pp200_signal_dual\/g4hits\// ||
+        $3 !~ /\/js_pp200_signal_dual\/nopileup\/jets\// ||
+        $4 != "NONE" ||
+        $5 != "NONE" {
+          if (bad < 5) {
+            printf "PPG12 archived DI graph mismatch row %d: CALO=%s G4Hits=%s DST_JETS=%s DST_GLOBAL=%s MBD=%s\n", NR, $1, $2, $3, $4, $5 > "/dev/stderr"
+          }
+          bad++
+        }
+        END { exit bad == 0 ? 0 : 1 }
+      ' "$list"; then
+        err "PPG12 archived DI source contract requires exactly NONE,G4Hits,DST_JETS,NONE,NONE with dual-interaction G4/truth-jet sources."
+        return 98
+      fi
+    elif ! awk -F '\t' '
       BEGIN { bad=0 }
       NF != 5 ||
       $2 !~ /\/js_pp200_signal_dual\/g4hits\// ||
@@ -4537,6 +4566,17 @@ sim_init() {
     make_none_sim_list "$_none_calo"
     make_none_sim_list "$_none_mbd"
     calo="$_none_calo"
+    mbd="$_none_mbd"
+  fi
+  if ppg12_archived_di_campaign_requested; then
+    # The hash-bound ana.541 DI runtime reconstructs detector inputs from the
+    # dual-interaction G4 stream. Its accepted graph has no prebuilt CALO,
+    # GLOBAL, or MBD lanes.
+    make_none_sim_list "$_none_calo"
+    make_none_sim_list "$_none_glob"
+    make_none_sim_list "$_none_mbd"
+    calo="$_none_calo"
+    glob="$_none_glob"
     mbd="$_none_mbd"
   fi
   if [[ ! -s "$calo" ]]; then
@@ -5431,6 +5471,50 @@ select_largest_stat_data_runs() {
   fi
   rm -f "$ranked" "$ranked_top"
   [[ -s "$out_file" ]]
+}
+
+select_explicit_stat_data_run() {
+  local requested="${1:?requested data run required}"
+  local out_file="${2:?output run list required}"
+  local stats_file="${3:-}"
+  [[ "$requested" =~ ^[0-9]+$ ]] || {
+    err "RJ_SMOKE_DATA_RUN must be numeric, got '${requested}'"
+    return 2
+  }
+  local requested8
+  requested8="$(run8 "$requested")"
+  local found=0 rn r8 src nfiles
+  while IFS= read -r rn; do
+    [[ -z "$rn" || "$rn" =~ ^# ]] && continue
+    r8="$(run8 "$rn")"
+    [[ "$r8" == "$requested8" ]] || continue
+    if [[ -n "${TRIGGER_BIT}" ]] && ! is_trigger_active "$r8" "$TRIGGER_BIT"; then
+      err "Explicit smoke run ${r8} is outside the active trigger contract."
+      return 2
+    fi
+    src="${LIST_DIR}/${LIST_PREFIX}-${r8}.list"
+    [[ -s "$src" ]] || {
+      err "Explicit smoke run ${r8} has no nonempty paired input list: ${src}"
+      return 2
+    }
+    nfiles="$(grep -Evc '^[[:space:]]*($|#)' "$src" 2>/dev/null || echo 0)"
+    [[ "$nfiles" =~ ^[0-9]+$ && "$nfiles" -gt 0 ]] || {
+      err "Explicit smoke run ${r8} has no usable paired input rows."
+      return 2
+    }
+    mkdir -p "$(dirname "$out_file")"
+    printf '%s\n' "$r8" > "$out_file"
+    if [[ -n "$stats_file" ]]; then
+      mkdir -p "$(dirname "$stats_file")"
+      printf 'run=%s input_files=%d explicit=1\n' "$r8" "$nfiles" > "$stats_file"
+    fi
+    found=1
+    break
+  done < "$GOLDEN"
+  (( found == 1 )) || {
+    err "Explicit smoke run ${requested8} is absent from the accepted golden run list ${GOLDEN}."
+    return 2
+  }
 }
 
 # ------------------------ AuAu embedded BDT training helpers --------------------------
@@ -8241,7 +8325,11 @@ SUB
         smoke_run_count="${RJ_SMOKE_DATA_RUNS:-10}"
         smoke_selected_runs="${SUB_DIR}/${TAG}_directSmoke_${smoke_stamp}_runs.list"
         smoke_selected_stats="${SUB_DIR}/${TAG}_directSmoke_${smoke_stamp}_run_stats.txt"
-        select_largest_stat_data_runs "$smoke_run_count" "$smoke_selected_runs" "$smoke_selected_stats" || { err "smokeTest could not select DATA runs from ${GOLDEN}"; exit 99; }
+        if [[ -n "${RJ_SMOKE_DATA_RUN:-}" ]]; then
+          select_explicit_stat_data_run "$RJ_SMOKE_DATA_RUN" "$smoke_selected_runs" "$smoke_selected_stats" || { err "smokeTest could not select explicit DATA run ${RJ_SMOKE_DATA_RUN} from ${GOLDEN}"; exit 99; }
+        else
+          select_largest_stat_data_runs "$smoke_run_count" "$smoke_selected_runs" "$smoke_selected_stats" || { err "smokeTest could not select DATA runs from ${GOLDEN}"; exit 99; }
+        fi
         smoke_out_base="${RJ_SMOKE_OUTPUT_BASE:-/sphenix/tg/tg01/bulk/jbennett/thesisAnaSmoke/${TAG}_smokeTest_${smoke_stamp}}"
         export RJ_DEST_BASE_OVERRIDE="$smoke_out_base"
         export RJ_MERGE_OUT_BASE_OVERRIDE="${RJ_MERGE_OUT_BASE_OVERRIDE:-${BASE}/outputSmoke/${TAG}_smokeTest_${smoke_stamp}}"
@@ -8254,7 +8342,11 @@ SUB
         export RJ_PROFILE_LABEL="${RJ_PROFILE_LABEL:-${TAG}_smokeTest}"
         say "${BOLD}DATA direct-fanout smokeTest requested${RST}"
         say "  dataset       : ${DATASET}"
-        say "  selected runs : ${smoke_run_count} largest-statistics golden runs"
+        if [[ -n "${RJ_SMOKE_DATA_RUN:-}" ]]; then
+          say "  selected runs : exact accepted run $(run8 "$RJ_SMOKE_DATA_RUN")"
+        else
+          say "  selected runs : ${smoke_run_count} largest-statistics golden runs"
+        fi
         say "  run list      : ${smoke_selected_runs}"
         say "  run stats     : ${smoke_selected_stats}"
         say "  output base   : ${RJ_DEST_BASE_OVERRIDE}"

@@ -49,6 +49,7 @@ code_sha="${RJ_THE119_CODE_SHA256:-$(
 only_keys="${RJ_THE119_ONLY_KEYS:-}"
 source_sha_override="${RJ_THE119_SOURCE_SHA256_OVERRIDE:-}"
 pp_witness_profile="${RJ_THE119_PP_WITNESS_PROFILE:-}"
+pp_witness_only_keys="${RJ_THE119_PP_WITNESS_ONLY_KEYS:-}"
 
 export RJ_CODEX_CHAT_NAME="THE-114+THE-119 | pp/AuAu Replay Foundation"
 export RJ_CODEX_THREAD_ID="019f80b5-dc56-7330-9ee7-56ef417547dc"
@@ -61,6 +62,12 @@ want_row(){
   local arm="$1" lane="$2" sample="$3"
   [[ -z "$only_keys" ]] && return 0
   [[ ",${only_keys}," == *",${arm}:${lane}:${sample},"* ]]
+}
+
+want_pp_witness_row(){
+  local arm="$1" sample="$2"
+  [[ -z "$pp_witness_only_keys" ]] && return 0
+  [[ ",${pp_witness_only_keys}," == *",${arm}:${sample},"* ]]
 }
 
 require_inputs(){
@@ -92,6 +99,16 @@ require_inputs(){
     [[ "$(sha256sum "$pp_di_lib" | awk '{print $1}')" == "$pp_di_lib_sha" ]] || die "ana.541 p+p replay library hash drift"
     [[ -s "$pp_di_canary_manifest" ]] || die "missing accepted archived-DI canary manifest: $pp_di_canary_manifest"
     [[ "$(sha256sum "$pp_di_canary_manifest" | awk '{print $1}')" == "$pp_di_canary_manifest_sha" ]] || die "accepted archived-DI canary manifest hash drift"
+    if [[ -n "$pp_witness_only_keys" ]]; then
+      local key
+      local valid=",direct:pp_data_0mrad,direct:pp_data_1p5mrad,direct:run28_photonjet5_si_0mrad,direct:run28_photonjet20_di_1p5mrad,direct:run28_jet8_di_0mrad,direct:run28_jet40_si_1p5mrad,writer:pp_data_0mrad,writer:pp_data_1p5mrad,writer:run28_photonjet5_si_0mrad,writer:run28_photonjet20_di_1p5mrad,writer:run28_jet8_di_0mrad,writer:run28_jet40_si_1p5mrad,"
+      local old_ifs="$IFS"
+      IFS=','
+      for key in $pp_witness_only_keys; do
+        [[ -n "$key" && "$valid" == *",${key},"* ]] || die "invalid RJ_THE119_PP_WITNESS_ONLY_KEYS row: ${key:-<empty>}"
+      done
+      IFS="$old_ifs"
+    fi
   fi
   if [[ -n "$source_sha_override" ]]; then
     [[ "$source_sha_override" =~ ^[0-9a-f]{64}$ ]] || die "RJ_THE119_SOURCE_SHA256_OVERRIDE must be a 64-character SHA-256"
@@ -148,6 +165,10 @@ submit_pp(){
 submit_pp_witness(){
   local lane="$1" dataset="$2" source_sample="$3" row_sample="$4" period="$5" interaction="$6" arm="$7"
   local out="$base/$arm/$lane/$row_sample"
+  if ! want_pp_witness_row "$arm" "$row_sample"; then
+    say "SKIP ${arm}:${row_sample} (not in RJ_THE119_PP_WITNESS_ONLY_KEYS)"
+    return 0
+  fi
   local library="$pp_lib"
   local -a contract_env=(
     RJ_PPG12_PERIOD="$period"
@@ -167,7 +188,7 @@ submit_pp_witness(){
       RJ_SIM_ALLOW_NONE_LISTS=1
     )
   fi
-  if [[ "$dataset" == isSimInclusive && "$interaction" == di ]]; then
+  if [[ "$interaction" == di ]]; then
     library="$pp_di_lib"
     contract_env+=(
       RJ_PPG12_DI_ARCHIVED_CANARY_MANIFEST="$pp_di_canary_manifest"
@@ -183,7 +204,7 @@ submit_pp_witness(){
     RJ_REPLAY_FOUNDATION_CANARY=1 RJ_REPLAY_LANE="$lane" RJ_REPLAY_SCHEMA_SHA256="$schema_sha" \
     RJ_REQUIRE_NON_TINY_OUTPUT=1 RJ_MIN_OUTPUT_BYTES=50000 RJ_PROFILE_JOB=1 \
     RJ_JOB_HEARTBEAT_SECONDS=120 RJ_SMOKE_OUTPUT_BASE="$out" RJ_SMOKE_SIM_NEVENTS="$canary_nevents" \
-    RJ_SMOKE_DATA_RUNS=1 RJ_SMOKE_DATA_MAX_JOBS=1 RJ_SMOKE_DATA_NEVENTS="$canary_nevents" \
+    RJ_SMOKE_DATA_RUNS=1 RJ_SMOKE_DATA_RUN="$([[ "$dataset" == isPP && "$period" == 0mrad ]] && printf 47289 || { [[ "$dataset" == isPP ]] && printf 51274 || true; })" RJ_SMOKE_DATA_MAX_JOBS=1 RJ_SMOKE_DATA_NEVENTS="$canary_nevents" \
     RJ_SUBMIT_EXTRA_ENV="$(pp_extra "$lane" "$dataset" "$row_sample" "$arm")" \
     ./RecoilJets_Condor_submit.sh "$dataset" $([[ "$dataset" == isPP ]] && printf 'condor smokeTest groupSize 1' || printf 'condorDoAllSmoke groupSize 1 maxJobs 1 SAMPLE=%s' "$source_sample")
 }
@@ -211,8 +232,8 @@ preflight(){
   bash -n "$0" scripts/sdcc/runtime/condor/RecoilJets_Condor.sh scripts/sdcc/runtime/condor/RecoilJets_Condor_AuAu.sh
   mkdir -p "$evidence"
   {
-    printf 'tag=%s\nbase=%s\ncode_commit=%s\ncode_sha256=%s\nschema_sha=%s\nsemantic_sha=%s\nphoton_capture_et_min_gev=%s\njet_constituent_pt_min_gev=%s\ncanary_nevents=%s\nreplay_trace=%s\npp_direct_witness_qa=%s\npp_witness_profile=%s\nonly_keys=%s\nsource_sha_override=%s\n' \
-      "$tag" "$base" "$code_commit" "$code_sha" "$schema_sha" "$semantic_sha" "$photon_capture_et_min" "$jet_constituent_pt_min" "$canary_nevents" "$replay_trace" "$pp_direct_witness_qa" "$pp_witness_profile" "$only_keys" "$source_sha_override"
+    printf 'tag=%s\nbase=%s\ncode_commit=%s\ncode_sha256=%s\nschema_sha=%s\nsemantic_sha=%s\nphoton_capture_et_min_gev=%s\njet_constituent_pt_min_gev=%s\ncanary_nevents=%s\nreplay_trace=%s\npp_direct_witness_qa=%s\npp_witness_profile=%s\npp_witness_only_keys=%s\nonly_keys=%s\nsource_sha_override=%s\n' \
+      "$tag" "$base" "$code_commit" "$code_sha" "$schema_sha" "$semantic_sha" "$photon_capture_et_min" "$jet_constituent_pt_min" "$canary_nevents" "$replay_trace" "$pp_direct_witness_qa" "$pp_witness_profile" "$pp_witness_only_keys" "$only_keys" "$source_sha_override"
     sha256sum "$pp_cfg" "$auau_cfg" "$pp_lib" "$auau_lib" "$pp_model" "$pp_ref" "$auau_model"
     if [[ "$pp_witness_profile" == period_si_di ]]; then
       sha256sum "$pp_di_lib" "$pp_di_canary_manifest"
