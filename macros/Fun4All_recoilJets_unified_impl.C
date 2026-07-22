@@ -5897,11 +5897,21 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     const bool useAuAuTopoClusterIsoCalibration =
         isAuAuLike &&
         env_truthy_local("RJ_AUAU_BUILD_TOPOCLUSTER_ISOLATION");
+    // The replay writer requires the same p+p topocluster population used by
+    // the nominal R=0.4 isolation contract.  Enable it for writer jobs and for
+    // their writer-disabled direct controls; otherwise fetchNodes() correctly
+    // fails closed on a missing TOPOCLUSTER_ALLCALO node before any candidate,
+    // jet, truth, or response rows can be retained.
+    const bool useReplayFoundationPPTopoIso =
+        !isAuAuLike &&
+        (env_truthy_local("RJ_REPLAY_FOUNDATION_V1") ||
+         env_truthy_local("RJ_REPLAY_FOUNDATION_CANARY"));
     const bool usePPG12PhotonYieldTopoIso =
         (env_truthy_local("RJ_PPG12_PHOTON_YIELD") &&
          !isAuAuLike &&
          env_bool_local("RJ_PPG12_PHOTON_YIELD_TOPO_ISO", true)) ||
-        useAuAuTopoClusterIsoCalibration;
+        useAuAuTopoClusterIsoCalibration ||
+        useReplayFoundationPPTopoIso;
     const bool ppg12ExcludeCandidateTopo =
         (ppg12PhotonYieldPPSim &&
          env_bool_local("RJ_PPG12_PHOTON_YIELD_EXCLUDE_CANDIDATE_TOPO", false)) ||
