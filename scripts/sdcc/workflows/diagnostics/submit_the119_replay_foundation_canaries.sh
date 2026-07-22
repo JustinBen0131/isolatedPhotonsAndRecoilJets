@@ -36,6 +36,7 @@ code_sha="${RJ_THE119_CODE_SHA256:-$(
     src/RecoilJets.h \
     src_AuAu/RecoilJets_AuAu.cc \
     src_AuAu/RecoilJets_AuAu.h \
+    src_AuAu/THE106ObservationDisabled.h \
     src/RJReplayFoundationV1.h \
     src/RJReplayRuntimeV1.h \
     macros/Fun4All_recoilJets_unified_impl.C \
