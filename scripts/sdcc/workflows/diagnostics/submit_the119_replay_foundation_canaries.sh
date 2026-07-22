@@ -11,9 +11,13 @@ evidence="${RJ_THE119_EVIDENCE_ROOT:-/sphenix/u/patsfan753/scratch/thesisAnalysi
 pp_cfg="${RJ_THE119_PP_CONFIG:-${repo_root}/macros/analysis_config_the119_pp_replay_foundation.yaml}"
 auau_cfg="${RJ_THE119_AUAU_CONFIG:-${repo_root}/macros/analysis_config_the112_auau_combined_bdt_triplet.yaml}"
 pp_lib="${RJ_THE119_PP_LIBRARY:-/sphenix/u/patsfan753/scratch/thesisAnalysis/.recoiljets_tmp/the118_replay_runtime_build_20260720/install_pp/lib/libRecoilJets.so}"
+pp_di_lib="${RJ_THE119_PP_DI_LIBRARY:-/sphenix/u/patsfan753/scratch/thesisAnalysis/.recoiljets_tmp/the119_pp_di_ana541_build_20260722_v1/install/lib/libRecoilJets.so}"
 auau_lib="${RJ_THE119_AUAU_LIBRARY:-/sphenix/u/patsfan753/scratch/thesisAnalysis/.recoiljets_tmp/the118_replay_runtime_build_20260720/install_auau/lib/libRecoilJetsAuAu.so}"
 pp_lib_sha="${RJ_THE119_PP_LIBRARY_SHA256:-58ac460753344844309cc3ff6bf408d049e49c944a4be28d03a9797e3edcb364}"
+pp_di_lib_sha="${RJ_THE119_PP_DI_LIBRARY_SHA256:-fdc03d9fc3aa24e16c561a698e5e54b805f400e0084062a10c6de6c5ba449d9f}"
 auau_lib_sha="${RJ_THE119_AUAU_LIBRARY_SHA256:-42f1a860b4f76ace51baa79e0c1413ac3a8fa42664e868c831d5044079e53019}"
+pp_di_canary_manifest="${RJ_THE119_PP_DI_CANARY_MANIFEST:-/sphenix/u/patsfan753/scratch/thesisAnalysis/.recoiljets_tmp/ppg12_di_full_group_canary_20260718/runs/full_group_jet20_grp001_20260718T0736Z/manifest/canary_manifest.json}"
+pp_di_canary_manifest_sha="${RJ_THE119_PP_DI_CANARY_MANIFEST_SHA256:-e18d86f4f1c96f7fccd618c4f36eb148bd3277c69af8e1b148b4f370ccb1a901}"
 pp_model="/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/the116_models/the116_pp_matched_basev3e_15to35_20260720/models/bdt_ppg12_basev3e_15to35/pp_tight_bdt_ppg12_base_v3E_bdt_noIso_tmva.root"
 pp_ref="/sphenix/user/shuhangli/ppg12/FunWithxgboost/binned_models/model_base_v3E_split_single_tmva.root"
 auau_model="/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/the111_models/the111_combined_corrected_shower_ppg12_labels_20260719_1618/combined/auau_tight_bdt_centAsFeatBase3x3_pt15to35_tmva.root"
@@ -44,6 +48,7 @@ code_sha="${RJ_THE119_CODE_SHA256:-$(
 )}"
 only_keys="${RJ_THE119_ONLY_KEYS:-}"
 source_sha_override="${RJ_THE119_SOURCE_SHA256_OVERRIDE:-}"
+pp_witness_profile="${RJ_THE119_PP_WITNESS_PROFILE:-}"
 
 export RJ_CODEX_CHAT_NAME="THE-114+THE-119 | pp/AuAu Replay Foundation"
 export RJ_CODEX_THREAD_ID="019f80b5-dc56-7330-9ee7-56ef417547dc"
@@ -80,6 +85,14 @@ require_inputs(){
   [[ "$replay_trace" == 0 || "$replay_trace" == 1 ]] || die "RJ_THE119_REPLAY_TRACE must be 0 or 1"
   [[ "$pp_direct_witness_qa" == 0 || "$pp_direct_witness_qa" == 1 ]] || die "RJ_THE119_PP_DIRECT_WITNESS_QA must be 0 or 1"
   [[ "$pp_capture_witness_qa" == 0 || "$pp_capture_witness_qa" == 1 ]] || die "RJ_THE119_PP_CAPTURE_WITNESS_QA must be 0 or 1"
+  [[ -z "$pp_witness_profile" || "$pp_witness_profile" == period_si_di ]] || die "RJ_THE119_PP_WITNESS_PROFILE must be empty or period_si_di"
+  if [[ "$pp_witness_profile" == period_si_di ]]; then
+    [[ -s "$pp_di_lib" ]] || die "missing ana.541 p+p replay library: $pp_di_lib"
+    [[ "$pp_di_lib_sha" =~ ^[0-9a-f]{64}$ ]] || die "ana.541 p+p library identity must be a SHA-256"
+    [[ "$(sha256sum "$pp_di_lib" | awk '{print $1}')" == "$pp_di_lib_sha" ]] || die "ana.541 p+p replay library hash drift"
+    [[ -s "$pp_di_canary_manifest" ]] || die "missing accepted archived-DI canary manifest: $pp_di_canary_manifest"
+    [[ "$(sha256sum "$pp_di_canary_manifest" | awk '{print $1}')" == "$pp_di_canary_manifest_sha" ]] || die "accepted archived-DI canary manifest hash drift"
+  fi
   if [[ -n "$source_sha_override" ]]; then
     [[ "$source_sha_override" =~ ^[0-9a-f]{64}$ ]] || die "RJ_THE119_SOURCE_SHA256_OVERRIDE must be a 64-character SHA-256"
     [[ -n "$only_keys" ]] || die "RJ_THE119_SOURCE_SHA256_OVERRIDE requires a bounded RJ_THE119_ONLY_KEYS selection"
@@ -132,6 +145,49 @@ submit_pp(){
     ./RecoilJets_Condor_submit.sh "$dataset" $([[ "$dataset" == isPP ]] && printf 'condor smokeTest groupSize 1' || printf 'condorDoAllSmoke groupSize 1 maxJobs 1 SAMPLE=%s' "$sample")
 }
 
+submit_pp_witness(){
+  local lane="$1" dataset="$2" source_sample="$3" row_sample="$4" period="$5" interaction="$6" arm="$7"
+  local out="$base/$arm/$lane/$row_sample"
+  local library="$pp_lib"
+  local -a contract_env=(
+    RJ_PPG12_PERIOD="$period"
+    RJ_PPG12_PERIOD_USE_LUMI_WEIGHT=1
+    RJ_PPG12_PERIOD_ALLOW_ALL_SIM=0
+    RJ_PPG12_PERIOD_ALLOW_MIX_OVERRIDE=0
+    RJ_PPG12_PERIOD_ALLOW_VERTEX_FILE_OVERRIDE=0
+  )
+  if [[ "$dataset" == isPP ]]; then
+    contract_env+=(RJ_PPG12_PP_DATA_PAIRED=1 RJ_PPG12_PERIOD_FILTER_DATA=1)
+  elif [[ "$interaction" == di ]]; then
+    contract_env+=(
+      RJ_PPG12_PHOTON_YIELD_DOUBLE=1
+      RJ_PPG12_PERIOD_STRICT_DI=1
+      RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4=1
+      RJ_PPG12_PPSIM_G4_ONLY=1
+      RJ_SIM_ALLOW_NONE_LISTS=1
+    )
+  fi
+  if [[ "$dataset" == isSimInclusive && "$interaction" == di ]]; then
+    library="$pp_di_lib"
+    contract_env+=(
+      RJ_PPG12_DI_ARCHIVED_CANARY_MANIFEST="$pp_di_canary_manifest"
+      RJ_PPG12_DI_ARCHIVED_CANARY_MANIFEST_SHA256="$pp_di_canary_manifest_sha"
+      RJ_FORCE_RELEASE_CORE_LIBS=1
+      RJ_RELEASE_CORE_LIB_DIR=/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.541/lib
+      RJ_RELEASE_CORE_LIB64_DIR=/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.541/lib64
+    )
+  fi
+  env "${contract_env[@]}" \
+    RJ_CONFIG_YAML="$pp_cfg" RJ_PP_LIBRARY_OVERRIDE="$library" RJ_AUTO_MERGE=0 \
+    RJ_REQUEST_MEMORY=8000MB \
+    RJ_REPLAY_FOUNDATION_CANARY=1 RJ_REPLAY_LANE="$lane" RJ_REPLAY_SCHEMA_SHA256="$schema_sha" \
+    RJ_REQUIRE_NON_TINY_OUTPUT=1 RJ_MIN_OUTPUT_BYTES=50000 RJ_PROFILE_JOB=1 \
+    RJ_JOB_HEARTBEAT_SECONDS=120 RJ_SMOKE_OUTPUT_BASE="$out" RJ_SMOKE_SIM_NEVENTS="$canary_nevents" \
+    RJ_SMOKE_DATA_RUNS=1 RJ_SMOKE_DATA_MAX_JOBS=1 RJ_SMOKE_DATA_NEVENTS="$canary_nevents" \
+    RJ_SUBMIT_EXTRA_ENV="$(pp_extra "$lane" "$dataset" "$row_sample" "$arm")" \
+    ./RecoilJets_Condor_submit.sh "$dataset" $([[ "$dataset" == isPP ]] && printf 'condor smokeTest groupSize 1' || printf 'condorDoAllSmoke groupSize 1 maxJobs 1 SAMPLE=%s' "$source_sample")
+}
+
 submit_auau(){
   local lane="$1" dataset="$2" sample="$3" arm="$4"
   if ! want_row "$arm" "$lane" "$sample"; then
@@ -155,9 +211,12 @@ preflight(){
   bash -n "$0" scripts/sdcc/runtime/condor/RecoilJets_Condor.sh scripts/sdcc/runtime/condor/RecoilJets_Condor_AuAu.sh
   mkdir -p "$evidence"
   {
-    printf 'tag=%s\nbase=%s\ncode_commit=%s\ncode_sha256=%s\nschema_sha=%s\nsemantic_sha=%s\nphoton_capture_et_min_gev=%s\njet_constituent_pt_min_gev=%s\ncanary_nevents=%s\nreplay_trace=%s\npp_direct_witness_qa=%s\nonly_keys=%s\nsource_sha_override=%s\n' \
-      "$tag" "$base" "$code_commit" "$code_sha" "$schema_sha" "$semantic_sha" "$photon_capture_et_min" "$jet_constituent_pt_min" "$canary_nevents" "$replay_trace" "$pp_direct_witness_qa" "$only_keys" "$source_sha_override"
+    printf 'tag=%s\nbase=%s\ncode_commit=%s\ncode_sha256=%s\nschema_sha=%s\nsemantic_sha=%s\nphoton_capture_et_min_gev=%s\njet_constituent_pt_min_gev=%s\ncanary_nevents=%s\nreplay_trace=%s\npp_direct_witness_qa=%s\npp_witness_profile=%s\nonly_keys=%s\nsource_sha_override=%s\n' \
+      "$tag" "$base" "$code_commit" "$code_sha" "$schema_sha" "$semantic_sha" "$photon_capture_et_min" "$jet_constituent_pt_min" "$canary_nevents" "$replay_trace" "$pp_direct_witness_qa" "$pp_witness_profile" "$only_keys" "$source_sha_override"
     sha256sum "$pp_cfg" "$auau_cfg" "$pp_lib" "$auau_lib" "$pp_model" "$pp_ref" "$auau_model"
+    if [[ "$pp_witness_profile" == period_si_di ]]; then
+      sha256sum "$pp_di_lib" "$pp_di_canary_manifest"
+    fi
   } > "$evidence/preflight_receipt.txt"
   say "PREFLIGHT_PASS evidence=$evidence/preflight_receipt.txt"
 }
@@ -167,6 +226,19 @@ submit(){
   assert_fresh
   mkdir -p "$evidence"
   exec > >(tee -a "$evidence/submission.log") 2>&1
+  if [[ "$pp_witness_profile" == period_si_di ]]; then
+    [[ -z "$only_keys" ]] || die "period_si_di profile owns its exact row matrix and rejects RJ_THE119_ONLY_KEYS"
+    for arm in direct writer; do
+      submit_pp_witness pp_data isPP pp_data pp_data_0mrad 0mrad data "$arm"
+      submit_pp_witness pp_data isPP pp_data pp_data_1p5mrad 1p5mrad data "$arm"
+      submit_pp_witness pp_photon_sim isSim run28_photonjet5 run28_photonjet5_si_0mrad 0mrad si "$arm"
+      submit_pp_witness pp_photon_sim isSim run28_photonjet20_double run28_photonjet20_di_1p5mrad 1p5mrad di "$arm"
+      submit_pp_witness pp_inclusive_sim isSimInclusive run28_jet8_double run28_jet8_di_0mrad 0mrad di "$arm"
+      submit_pp_witness pp_inclusive_sim isSimInclusive run28_jet40 run28_jet40_si_1p5mrad 1p5mrad si "$arm"
+    done
+    condor_q "${USER:-patsfan753}" -af ClusterId ProcId JobStatus Args | grep -F "$base" | tee "$evidence/initial_queue.tsv" || true
+    return 0
+  fi
   for arm in direct writer; do
     submit_pp pp_data isPP pp_data "$arm"
     submit_pp pp_photon_sim isSim run28_photonjet5 "$arm"

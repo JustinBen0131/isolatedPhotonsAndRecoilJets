@@ -430,6 +430,73 @@ SIM_CFG_TAG=""
 SNAPSHOT_ROOT="${BASE}/condor_snapshots"
 BULK_FROZEN_EXE=""
 BULK_FROZEN_MACRO=""
+PPG12_ARCHIVED_OFFLINE_MAIN="/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.541"
+BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST=""
+BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST_SHA256=""
+
+ppg12_archived_di_sample() {
+  case "${1:-}" in
+    run28_jet8_double|run28_jet12_double|run28_jet20_double|run28_jet30_double|run28_jet40_double) return 0 ;;
+  esac
+  return 1
+}
+
+ppg12_archived_di_lane() {
+  [[ "${1:-${DATASET:-}}" == "isSimInclusive" ]] || return 1
+  ppg12_archived_di_sample "${2:-${SIM_SAMPLE:-}}"
+}
+
+ppg12_archived_di_campaign_requested() {
+  [[ "${DATASET:-}" == "isSimInclusive" ]] || return 1
+  [[ "${SIM_SAMPLE_EXPLICIT:-0}" -eq 1 ]] || return 1
+  ppg12_archived_di_sample "${SIM_SAMPLE:-}"
+}
+
+validate_ppg12_archived_canary_manifest() {
+  local manifest="${1:?accepted full-group canary manifest required}"
+  local expected_sha="${2:?accepted full-group canary manifest SHA-256 required}"
+  [[ "$manifest" == /* && -s "$manifest" ]] || {
+    err "Archived PPG12 DI production requires an absolute readable accepted-canary manifest."
+    return 96
+  }
+  [[ "$expected_sha" =~ ^[0-9a-f]{64}$ ]] || {
+    err "Archived PPG12 DI accepted-canary manifest SHA-256 is invalid."
+    return 96
+  }
+  [[ "$(sha256sum "$manifest" | awk '{print $1}')" == "$expected_sha" ]] || {
+    err "Archived PPG12 DI accepted-canary manifest hash drift."
+    return 96
+  }
+  python3 - "$manifest" "$PPG12_ARCHIVED_OFFLINE_MAIN" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1]).resolve()
+expected_offline = sys.argv[2]
+data = json.loads(path.read_text(encoding="utf-8"))
+software = data.get("software", {})
+contract = data.get("contract", {})
+comparison = contract.get("comparison", {})
+strict = contract.get("strict_post_audit", {})
+if data.get("status") != "full_group_root_and_comparator_gates_passed":
+    raise SystemExit("accepted canary status is not the full-group production gate")
+if software.get("offline_main") != expected_offline:
+    raise SystemExit("accepted canary does not bind the fixed ana.541 release")
+if contract.get("mode") != "full_group" or contract.get("dataset") != "isSimInclusive":
+    raise SystemExit("accepted canary is not an inclusive full-group result")
+if contract.get("sample") != "run28_jet20_double" or contract.get("truth_jets_mode") != "DST":
+    raise SystemExit("accepted canary sample/truth contract drift")
+if contract.get("expected_processed_events") != 5000 or contract.get("full_group_rows") != 5:
+    raise SystemExit("accepted canary event/source coverage drift")
+if strict.get("status") != "passed":
+    raise SystemExit("accepted canary strict post-audit is not passed")
+status = str(comparison.get("physics_closure_status", ""))
+ac_status = str(comparison.get("A_C", {}).get("physics_status", ""))
+if "A_C_closed" not in status and not ac_status.startswith("closed_"):
+    raise SystemExit("accepted canary lacks A/C physics closure")
+PY
+}
 
 create_pipeline_snapshot() {
   local mode="$1"   # pp | auau
@@ -455,8 +522,21 @@ create_pipeline_snapshot() {
   local snap_auau_header="${snap_dir}/RecoilJets_AuAu.h"
   local snap_photon_cluster_builder_header="${snap_dir}/PhotonClusterBuilder.h"
   local use_release_core_libs=0
+  local use_ppg12_archived_runtime=0
+  local ppg12_canary_manifest=""
+  local ppg12_canary_manifest_sha256=""
   local release_core_lib_dir="${RJ_RELEASE_CORE_LIB_DIR:-/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.558/lib}"
   local release_core_lib64_dir="${RJ_RELEASE_CORE_LIB64_DIR:-/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.558/lib64}"
+
+  if [[ "$mode" == "pp" ]] && ppg12_archived_di_campaign_requested; then
+    use_ppg12_archived_runtime=1
+    use_release_core_libs=1
+    release_core_lib_dir="${PPG12_ARCHIVED_OFFLINE_MAIN}/lib"
+    release_core_lib64_dir="${PPG12_ARCHIVED_OFFLINE_MAIN}/lib64"
+    ppg12_canary_manifest="${RJ_PPG12_DI_ARCHIVED_CANARY_MANIFEST:-}"
+    ppg12_canary_manifest_sha256="${RJ_PPG12_DI_ARCHIVED_CANARY_MANIFEST_SHA256:-}"
+    validate_ppg12_archived_canary_manifest "$ppg12_canary_manifest" "$ppg12_canary_manifest_sha256" || return $?
+  fi
 
   mkdir -p "$snap_dir" "$snap_lib_dir"
 
@@ -492,9 +572,58 @@ create_pipeline_snapshot() {
       "$snap_lib_dir/libphoton_cluster_builder_override.so"
   fi
 
-  if [[ "$mode" != "auau" ]] && env_truthy "${RJ_FORCE_RELEASE_CORE_LIBS:-0}"; then
+  if (( use_ppg12_archived_runtime )); then
+    # Reuse only the detector-support payload proven by the accepted full-group
+    # canary. Current campaign macro/library/schema/model bytes remain current.
+    python3 - "$ppg12_canary_manifest" "$snap_dir" "$snap_lib_dir" <<'PY'
+from hashlib import sha256
+import json
+from pathlib import Path
+import shutil
+import sys
+
+manifest = Path(sys.argv[1]).resolve()
+snap_dir = Path(sys.argv[2]).resolve()
+snap_lib = Path(sys.argv[3]).resolve()
+data = json.loads(manifest.read_text(encoding="utf-8"))
+artifacts = [row for row in data.get("artifacts", []) if isinstance(row, dict)]
+required = {
+    "/source/ppg12_runtime/lib/libCaloWaveformSim.so.0.0.0": snap_lib / "libCaloWaveformSim.so.0.0.0",
+    "/source/ppg12_runtime/lib/libphg4hit.so.0.0.0": snap_lib / "libphg4hit.so.0.0.0",
+    "/source/ppg12_runtime/lib/libg4testbench.so.0.0.0": snap_lib / "libg4testbench.so.0.0.0",
+    "/source/ppg12_runtime/include/calowaveformsim/CaloWaveformSim.h": snap_dir / "include/calowaveformsim/CaloWaveformSim.h",
+}
+
+def digest(path: Path) -> str:
+    h = sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+            h.update(block)
+    return h.hexdigest()
+
+for suffix, destination in required.items():
+    rows = [row for row in artifacts if str(row.get("path", "")).endswith(suffix)]
+    if len(rows) != 1:
+        raise SystemExit(f"accepted canary does not uniquely record {suffix}")
+    source = Path(str(rows[0]["path"])).resolve()
+    expected = str(rows[0].get("sha256", ""))
+    if not source.is_file() or len(expected) != 64 or digest(source) != expected:
+        raise SystemExit(f"accepted support artifact is missing or hash-drifted: {source}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+
+for stem in ("libCaloWaveformSim", "libphg4hit", "libg4testbench"):
+    (snap_lib / f"{stem}.so.0").symlink_to(f"{stem}.so.0.0.0")
+    (snap_lib / f"{stem}.so").symlink_to(f"{stem}.so.0.0.0")
+PY
+  fi
+
+  if [[ "$mode" != "auau" ]] && { (( use_ppg12_archived_runtime )) || env_truthy "${RJ_FORCE_RELEASE_CORE_LIBS:-0}"; }; then
     use_release_core_libs=1
-    for release_core_so in libcalo_reco.so libclusteriso.so libjetbase.so; do
+    local release_core_so
+    local -a required_release_core=(libcalo_reco.so libclusteriso.so libjetbase.so)
+    (( use_ppg12_archived_runtime )) && required_release_core+=(libcalo_io.so)
+    for release_core_so in "${required_release_core[@]}"; do
       if [[ ! -r "${release_core_lib_dir}/${release_core_so}" && ! -r "${release_core_lib64_dir}/${release_core_so}" ]]; then
         err "RJ_FORCE_RELEASE_CORE_LIBS requested, but ${release_core_so} is not readable in ${release_core_lib_dir} or ${release_core_lib64_dir}"
         exit 2
@@ -525,10 +654,12 @@ create_pipeline_snapshot() {
   fi
 
   # Copy companion ROOT PCM dictionaries so R__LOAD_LIBRARY doesn't spew missing-PCM errors
-  cp -f "${user_root}/thesisAnalysis/install/lib/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
-  cp -f "${user_root}/thesisAnalysis_auau/install/lib/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
-  if [[ -n "${RJ_CALO_RECO_LIBRARY_OVERRIDE:-}" ]]; then
-    cp -f "$(dirname "$calo_reco_library_source")/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
+  if (( ! use_ppg12_archived_runtime )); then
+    cp -f "${user_root}/thesisAnalysis/install/lib/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
+    cp -f "${user_root}/thesisAnalysis_auau/install/lib/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
+    if [[ -n "${RJ_CALO_RECO_LIBRARY_OVERRIDE:-}" ]]; then
+      cp -f "$(dirname "$calo_reco_library_source")/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
+    fi
   fi
 
   # Preserve dynamic-loader identity inside the frozen snapshot.  The copied
@@ -538,7 +669,7 @@ create_pipeline_snapshot() {
   # opens the snapshot copy, duplicating ROOT dictionaries in one process.
   if command -v readelf >/dev/null 2>&1; then
     local snap_so soname
-    for snap_so in "${snap_lib_dir}"/lib*.so; do
+    for snap_so in "${snap_lib_dir}"/lib*.so*; do
       [[ -f "$snap_so" ]] || continue
       soname="$(readelf -d "$snap_so" 2>/dev/null | awk -F'[][]' '/SONAME/ {print $2; exit}' || true)"
       [[ -n "$soname" ]] || continue
@@ -616,14 +747,14 @@ if [[ -d \"$snapshot_lib_dir\" ]]; then
   echo \"[INFO] Snapshot lib prepended: $snapshot_lib_dir\"
 fi
 if [[ -d \"$wrapper_dir\" ]]; then
-  export ROOT_INCLUDE_PATH=\"$wrapper_dir:${{ROOT_INCLUDE_PATH:-}}\"
+  export ROOT_INCLUDE_PATH=\"$wrapper_dir:$wrapper_dir/include:${{ROOT_INCLUDE_PATH:-}}\"
 fi
 
 """
     text = text.replace(marker, block + marker, 1)
 elif "ROOT_INCLUDE_PATH=\"$wrapper_dir" not in text:
     block = """if [[ -d "$wrapper_dir" ]]; then
-  export ROOT_INCLUDE_PATH="$wrapper_dir:${ROOT_INCLUDE_PATH:-}"
+  export ROOT_INCLUDE_PATH="$wrapper_dir:$wrapper_dir/include:${ROOT_INCLUDE_PATH:-}"
 fi
 
 """
@@ -640,6 +771,40 @@ PY
   if ! grep -Eq '^[[:space:]]*rc=125([[:space:]]|$)' "$snap_wrapper"; then
     err "Frozen wrapper lacks the rc sentinel required to prevent rc-unbound holds: ${snap_wrapper}"
     exit 2
+  fi
+
+  if (( use_ppg12_archived_runtime )); then
+    local accepted_manifest_copy="${snap_dir}/accepted_full_group_canary_manifest.json"
+    local runtime_manifest="${snap_dir}/ppg12_archived_runtime_manifest.sha256"
+    cp -f "$ppg12_canary_manifest" "$accepted_manifest_copy"
+    (
+      cd "$snap_dir"
+      sha256sum \
+        accepted_full_group_canary_manifest.json \
+        RecoilJets_Condor.sh \
+        Fun4All_recoilJets.C \
+        Fun4All_recoilJets_unified_impl.C \
+        Calo_Calib.C \
+        RecoilJets.h \
+        lib/libRecoilJets.so \
+        lib/libCaloWaveformSim.so.0.0.0 \
+        lib/libCaloWaveformSim.so.0 \
+        lib/libphg4hit.so.0.0.0 \
+        lib/libphg4hit.so.0 \
+        lib/libg4testbench.so.0.0.0 \
+        lib/libg4testbench.so.0 \
+        include/calowaveformsim/CaloWaveformSim.h \
+        > "$runtime_manifest"
+    )
+    [[ -s "$runtime_manifest" ]] || {
+      err "Archived PPG12 DI runtime manifest was not created: ${runtime_manifest}"
+      return 96
+    }
+    BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST="$runtime_manifest"
+    BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST_SHA256="$(sha256sum "$runtime_manifest" | awk '{print $1}')"
+  else
+    BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST=""
+    BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST_SHA256=""
   fi
 
   BULK_FROZEN_EXE="$snap_wrapper"
@@ -967,6 +1132,70 @@ remove_submit_extra_env_var() {
   printf '%s' "$out"
 }
 
+append_submit_extra_env_literal() {
+  local extra="$1"
+  local key="$2"
+  local value="$3"
+  printf '%s' "${extra:+${extra};}${key}=${value}"
+}
+
+finalize_ppg12_archived_di_submit_env() {
+  local extra="$1"
+  local dataset="${2:-${DATASET:-}}"
+  local sample="${3:-${SIM_SAMPLE:-}}"
+  local key
+
+  extra="$(remove_submit_extra_env_var "$extra" RJ_PPG12_DI_ARCHIVED_RECO_CHAIN)"
+  if ! ppg12_archived_di_lane "$dataset" "$sample"; then
+    append_submit_extra_env_literal "$extra" RJ_PPG12_DI_ARCHIVED_RECO_CHAIN 0
+    return 0
+  fi
+
+  for key in \
+    RJ_TRUTH_JETS_MODE \
+    RJ_PPG12_DI_ARCHIVED_RELEASE \
+    RJ_PPG12_DI_RUNTIME_MANIFEST \
+    RJ_PPG12_DI_RUNTIME_MANIFEST_SHA256 \
+    RJ_PPG12_PERIOD_ALLOW_ALL_SIM \
+    RJ_PPG12_PERIOD_ALLOW_MIX_OVERRIDE \
+    RJ_PPG12_PERIOD_ALLOW_VERTEX_FILE_OVERRIDE \
+    RJ_PPG12_PERIOD_USE_LUMI_WEIGHT \
+    RJ_PPG12_PHOTON_YIELD_DOUBLE \
+    RJ_PPG12_PERIOD_STRICT_DI \
+    RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4 \
+    RJ_PPG12_PPSIM_G4_ONLY \
+    RJ_SIM_ALLOW_NONE_LISTS; do
+    extra="$(remove_submit_extra_env_var "$extra" "$key")"
+  done
+
+  [[ -n "$BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST" &&
+     "$BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST" == /* &&
+     -s "$BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST" ]] || {
+    err "Archived PPG12 DI submission has no immutable runtime manifest from create_pipeline_snapshot."
+    return 96
+  }
+  [[ "$BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+    err "Archived PPG12 DI submission has no valid runtime-manifest digest."
+    return 96
+  }
+
+  extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_DI_ARCHIVED_RECO_CHAIN 1)"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_TRUTH_JETS_MODE DST)"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_DI_ARCHIVED_RELEASE "$PPG12_ARCHIVED_OFFLINE_MAIN")"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_DI_RUNTIME_MANIFEST "$BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST")"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_DI_RUNTIME_MANIFEST_SHA256 "$BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST_SHA256")"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_PERIOD_ALLOW_ALL_SIM 0)"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_PERIOD_ALLOW_MIX_OVERRIDE 0)"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_PERIOD_ALLOW_VERTEX_FILE_OVERRIDE 0)"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_PERIOD_USE_LUMI_WEIGHT 1)"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_PHOTON_YIELD_DOUBLE 1)"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_PERIOD_STRICT_DI 1)"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4 1)"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_PPG12_PPSIM_G4_ONLY 1)"
+  extra="$(append_submit_extra_env_literal "$extra" RJ_SIM_ALLOW_NONE_LISTS 1)"
+  printf '%s' "$extra"
+}
+
 submit_extra_env_var_is_truthy() {
   local extra="$1"
   local key="$2"
@@ -1101,6 +1330,9 @@ build_submit_extra_env_fragment() {
   # submit-side contract accepts that opt-in, propagate the same flag to the
   # worker so the C++ hard stop evaluates the identical authorization state.
   extra="$(append_submit_extra_env_var "$extra" RJ_ALLOW_FIXED_RECO_ISO_VIEWS)"
+  if (( sim_dataset )); then
+    extra="$(finalize_ppg12_archived_di_submit_env "$extra" "${DATASET:-}" "${SIM_SAMPLE:-}")" || return $?
+  fi
   [[ -n "$extra" && "$extra" != \;* ]] && extra=";${extra}"
   printf '%s' "$extra"
 }
