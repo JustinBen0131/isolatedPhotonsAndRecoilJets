@@ -242,10 +242,13 @@ for invariant in \
   'RooUnfoldParms.h' \
   'RooUnfoldSvd.h' \
   'RooUnfoldTUnfold.h' \
-  '#include <TUnfold.h>' \
+  'gInterpreter->Declare("#include <TUnfold.h>")' \
   '#include <TROOT.h>' \
   'smoke_body_macro="${build_root}/smoke_new17_runtime_body.C"' \
   'gSystem->Load(library)' \
+  'gSystem->Load(roounfold_library)' \
+  'gInterpreter->Declare("#include <RooUnfoldResponse.h>")' \
+  'gInterpreter->Declare("#include <RooUnfoldBayes.h>")' \
   'gROOT->LoadMacro("${smoke_body_macro}")' \
   'gROOT->ProcessLine("smoke_new17_runtime_body();", &error)' \
   'RooUnfoldResponse response(' \
@@ -307,29 +310,36 @@ body = body_match.group("body")
 if "R__LOAD_LIBRARY" in loader or "R__LOAD_LIBRARY" in body:
     raise SystemExit("ROOT smoke retains compile-time R__LOAD_LIBRARY ordering ambiguity")
 for required in (
-    "#include <TUnfold.h>",
     "#include <TSystem.h>",
     "#include <TROOT.h>",
+    'gInterpreter->Declare("#include <TUnfold.h>")',
+    "gSystem->Load(roounfold_library)",
+    'gInterpreter->Declare("#include <RooUnfoldResponse.h>")',
+    'gInterpreter->Declare("#include <RooUnfoldBayes.h>")',
     "gSystem->Load(library)",
     'gROOT->LoadMacro("${smoke_body_macro}")',
     'gROOT->ProcessLine("smoke_new17_runtime_body();", &error)',
 ):
     if required not in loader:
         raise SystemExit(f"ROOT smoke loader omits required contract: {required}")
-if loader.index("#include <TUnfold.h>") > loader.index("gSystem->Load(library)"):
-    raise SystemExit("ROOT smoke loader loads a library before declaring TUnfold")
-if loader.index("gSystem->Load(library)") > loader.index(
-    'gROOT->LoadMacro("${smoke_body_macro}")'
+ordered = (
+    'gInterpreter->Declare("#include <TUnfold.h>")',
+    "gSystem->Load(roounfold_library)",
+    'gInterpreter->Declare("#include <RooUnfoldResponse.h>")',
+    'gInterpreter->Declare("#include <RooUnfoldBayes.h>")',
+    "gSystem->Load(library)",
+    'gROOT->LoadMacro("${smoke_body_macro}")',
+)
+if [loader.index(item) for item in ordered] != sorted(
+    loader.index(item) for item in ordered
 ):
-    raise SystemExit("ROOT smoke loader loads its body before sealed libraries")
+    raise SystemExit("ROOT smoke loader transaction order differs from the proven sequence")
 for forbidden in ("#include <RooUnfoldResponse.h>", "#include <RooUnfoldBayes.h>"):
-    if forbidden in loader:
-        raise SystemExit(f"ROOT smoke loader prematurely parses estimator header: {forbidden}")
+    if loader.count(forbidden) != 1:
+        raise SystemExit(f"ROOT smoke loader declaration count drifted: {forbidden}")
 for required in (
     "#include <caloana/PPG12OraclePhotonClusterBuilder.h>",
     "#include <yaml-cpp/yaml.h>",
-    "#include <RooUnfoldResponse.h>",
-    "#include <RooUnfoldBayes.h>",
     "RooUnfoldResponse response(",
     "response.UseOverflowStatus()",
     "RooUnfoldBayes bayes(",
@@ -337,6 +347,9 @@ for required in (
 ):
     if required not in body:
         raise SystemExit(f"ROOT smoke body omits required contract: {required}")
+for forbidden in ("#include <RooUnfoldResponse.h>", "#include <RooUnfoldBayes.h>"):
+    if forbidden in body:
+        raise SystemExit(f"ROOT smoke body reopens a sealed declaration: {forbidden}")
 for forbidden in (
     "#include <RooUnfoldTUnfold.h>",
     "#include <RooUnfoldBinByBin.h>",

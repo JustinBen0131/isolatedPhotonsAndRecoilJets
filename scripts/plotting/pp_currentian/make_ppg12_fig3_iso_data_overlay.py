@@ -428,7 +428,7 @@ def draw_overlay(
 
     stats_text = (
         f"PPG12 N = {sdcc.raw_integral:.1f}\n"
-        f"Current raw N = {current.raw_integral:.0f}\n"
+        f"This analysis N = {current.raw_integral:.0f}\n"
         f"Area norm. factor = {normalization_scale:.3f}\n"
         f"main max |R-1| = {ratios['main_max_abs_deviation_percent']:.1f}%\n"
         f"near $E_T^{{iso}}$ = {ratios['main_max_deviation_center']:.2g} GeV"
@@ -472,7 +472,7 @@ def draw_overlay(
     else:
         rax.set_ylim(0.5, 1.5)
     rax.set_xlabel(r"$E_T^{\mathrm{iso,reco}}\ \mathrm{[GeV]}$", fontsize=22, loc="right")
-    rax.set_ylabel("Current / PPG12", fontsize=16)
+    rax.set_ylabel("This analysis / PPG12", fontsize=16)
     rax.tick_params(axis="both", which="both", direction="in", top=True, right=True, labelsize=16, length=7)
     rax.tick_params(axis="both", which="minor", length=4)
     rax.xaxis.set_minor_locator(AutoMinorLocator(5))

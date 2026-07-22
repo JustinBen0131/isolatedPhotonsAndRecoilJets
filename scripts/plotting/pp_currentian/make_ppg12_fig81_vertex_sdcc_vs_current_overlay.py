@@ -57,22 +57,22 @@ PERIODS = {
 
 HIST_FAMILIES = {
     "hD_reference_contract": {
-        "label": "THE-93 current h_D contract",
+        "label": "This analysis",
         "note": "RecoilJets PPG12_scaledtrigger30/h_ppg12_fig81_data_reco_z_hD_reference_contract_{period}",
         "hist_template": "PPG12_scaledtrigger30/h_ppg12_fig81_data_reco_z_hD_reference_contract_{period}",
     },
     "slimtree_contract": {
-        "label": "THE-93 legacy post-vz slimtree proxy",
+        "label": "Current full-stat legacy post-vz slimtree proxy",
         "note": "RecoilJets PPG12_scaledtrigger30/h_ppg12_fig81_data_reco_z_slimtree_contract_{period}",
         "hist_template": "PPG12_scaledtrigger30/h_ppg12_fig81_data_reco_z_slimtree_contract_{period}",
     },
     "vtxqa_pre_vzcut": {
-        "label": "THE-93 current bit30 pre-vzcut QA",
+        "label": "Current full-stat bit30 pre-vzcut QA",
         "note": "RecoilJets PPG12_scaledtrigger30/h_ppg12_vtxqa_data_reco_z_triggered_{period}_pre_vzcut",
         "hist_template": "PPG12_scaledtrigger30/h_ppg12_vtxqa_data_reco_z_triggered_{period}_pre_vzcut",
     },
     "vtxqa_post_vzcut": {
-        "label": "THE-93 current bit30 post-vzcut QA",
+        "label": "Current full-stat bit30 post-vzcut QA",
         "note": "RecoilJets PPG12_scaledtrigger30/h_ppg12_vtxqa_data_reco_z_triggered_{period}_post_vzcut",
         "hist_template": "PPG12_scaledtrigger30/h_ppg12_vtxqa_data_reco_z_triggered_{period}_post_vzcut",
     },
@@ -207,7 +207,7 @@ def draw_panel(
         color="black",
         mfc="white",
         mec="black",
-        label="PPG12 SDCC current h_D",
+        label="PPG12 reference",
     )
     ax_top.errorbar(
         centers,
@@ -229,14 +229,7 @@ def draw_panel(
     ax_top.text(0.06, 0.91, cfg["title"], transform=ax_top.transAxes, fontsize=10)
     ax_top.text(0.06, 0.82, r"$\it{\bf{sPHENIX}}$ Internal", transform=ax_top.transAxes, fontsize=8.5)
     ax_top.text(0.06, 0.74, r"$p+p$ $\sqrt{s}=200$ GeV", transform=ax_top.transAxes, fontsize=8.5)
-    ax_top.text(0.06, 0.66, f"trigger bit 30; {family_key}", transform=ax_top.transAxes, fontsize=7.8)
-    ax_top.text(
-        0.53,
-        0.57,
-        f"PPG12 N={ppg12['integral']:.0f}\nTHE-93 N={current['integral']:.0f}\nraw N ratio={current['integral']/ppg12['integral']:.3f}",
-        transform=ax_top.transAxes,
-        fontsize=8.5,
-    )
+    ax_top.text(0.06, 0.66, "Photon-4-GeV trigger; before vertex selection", transform=ax_top.transAxes, fontsize=7.8)
     ax_top.legend(loc="upper right", frameon=False, fontsize=8)
 
     ax_bot.axhline(1.0, color="0.35", lw=0.9, ls="--")
@@ -245,7 +238,7 @@ def draw_panel(
     ax_bot.set_ylim(0.0, 6.2)
     ax_bot.grid(True, alpha=0.25)
     ax_bot.set_xlabel(r"$z_{\rm reco}$ (cm)")
-    ax_bot.set_ylabel("Current / PPG12")
+    ax_bot.set_ylabel("This analysis / PPG12")
 
     return {
         "period": period,
@@ -308,16 +301,12 @@ def main() -> None:
             )
 
     axes[0, 0].set_ylabel("shape-normalized events")
-    axes[1, 0].set_ylabel("Current / PPG12")
+    axes[1, 0].set_ylabel("This analysis / PPG12")
     for ax in axes.ravel():
         ax.tick_params(direction="in", top=True, right=True)
 
-    fig.suptitle(
-        f"PPG12 Fig.81 data reco vertex: current SDCC reference vs THE-93 output ({args.current_family})",
-        y=0.985,
-        fontsize=13,
-    )
-    stem = f"fig81_data_reco_vertex_sdcc_current_vs_the93_{args.current_family}_ratio"
+    fig.suptitle("Reconstructed-vertex consistency", y=0.985, fontsize=15, fontweight="bold")
+    stem = f"fig81_data_reco_vertex_sdcc_vs_current_fullstat_{args.current_family}_ratio"
     png = out_dir / f"{stem}.png"
     csv = out_dir / f"{stem}.csv"
     manifest = out_dir / f"{stem}_manifest.json"
@@ -326,11 +315,11 @@ def main() -> None:
     manifest.write_text(
         json.dumps(
             {
-                "artifact": f"PPG12 Fig.81 vertex overlay using current SDCC reweight.root h_D and THE-93 {args.current_family} hists",
+                "artifact": f"PPG12 Fig.81 vertex overlay using current SDCC reweight.root h_D and current full-stat {args.current_family} hists",
                 "current_root": str(current_root),
                 "current_artifact_pointer": str(CURRENT_JSON),
                 "reference_json": str(args.reference_json),
-                "ratio_definition": "shape-normalized THE-93 / shape-normalized PPG12 current h_D",
+                "ratio_definition": "shape-normalized current output / shape-normalized PPG12 current h_D",
                 "ppg12_reference_note": "SDCC truth_vertex_reweight/output/{period}/reweight.root:h_D, not local reweight.root.*_backup",
                 "current_family": args.current_family,
                 "current_note": family["note"],

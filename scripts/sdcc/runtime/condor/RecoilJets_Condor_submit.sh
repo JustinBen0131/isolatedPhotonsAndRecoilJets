@@ -68,7 +68,8 @@
 #   • Production sweeps use the legacy RecoilJets histogram engine with direct
 #     photon-ID fanout inside each Fun4All DST pass. Isolation cone/mode are
 #     internal histogram views by default, so current one-UE productions submit
-#     15 final cfg ROOT files while each file contains 4 iso/cone views.
+#     15 final cfg ROOT files while each file contains its configured iso/cone
+#     views. Au+Au defaults to sliding R=0.4 plus sliding R=0.3 only.
 #     jet_pt_min and back_to_back_dphi_min_pi_fraction are also internal recoil
 #     histogram scans by default, so they do not force repeated DST passes.
 #     vz_cut_cm is collapsed by dataset default unless RJ_VZ_SCAN_ALL=1
@@ -380,7 +381,7 @@ TRIGGER_BIT=""      # optional: filter runs by GL1 scaledown bit (e.g., TRIGGER=
 #   col3 = DST_JETS        (truth jets DST)
 #   col4 = DST_GLOBAL      (GlobalVertexMap lives here)
 #   col5 = DST_MBD_EPD     (MBD inputs; needed for reco MBD vertex)
-SIM_ROOT="${BASE}/simListFiles"
+SIM_ROOT="${RJ_SIM_ROOT_OVERRIDE:-${BASE}/simListFiles}"
 SIM_SAMPLE_DEFAULT="run28_photonjet10"
 SIM_SAMPLE="${SIM_SAMPLE_DEFAULT}"
 
@@ -437,7 +438,11 @@ create_pipeline_snapshot() {
   local snap_dir="${SNAPSHOT_ROOT}/${TAG}_${stamp}"
   local snap_lib_dir="${snap_dir}/lib"
   local user_root="/sphenix/u/${USER:-$(id -u -n)}"
+  local pp_library_source="${RJ_PP_LIBRARY_OVERRIDE:-${user_root}/thesisAnalysis/install/lib/libRecoilJets.so}"
   local auau_library_source="${RJ_AUAU_LIBRARY_OVERRIDE:-${user_root}/thesisAnalysis_auau/install/lib/libRecoilJetsAuAu.so}"
+  local calo_reco_library_source="${RJ_CALO_RECO_LIBRARY_OVERRIDE:-${user_root}/thesisAnalysis/install/lib/libcalo_reco.so}"
+  local photon_cluster_builder_header_source="${RJ_PHOTON_CLUSTER_BUILDER_HEADER_OVERRIDE:-${user_root}/thesisAnalysis/install/include/caloreco/PhotonClusterBuilder.h}"
+  local photon_cluster_builder_library_source="${RJ_PHOTON_CLUSTER_BUILDER_LIBRARY_OVERRIDE:-}"
 
   local live_wrapper=""
   local live_macro=""
@@ -448,6 +453,7 @@ create_pipeline_snapshot() {
   local snap_calo="${snap_dir}/Calo_Calib.C"
   local snap_pp_header="${snap_dir}/RecoilJets.h"
   local snap_auau_header="${snap_dir}/RecoilJets_AuAu.h"
+  local snap_photon_cluster_builder_header="${snap_dir}/PhotonClusterBuilder.h"
   local use_release_core_libs=0
   local release_core_lib_dir="${RJ_RELEASE_CORE_LIB_DIR:-/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.558/lib}"
   local release_core_lib64_dir="${RJ_RELEASE_CORE_LIB64_DIR:-/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.558/lib64}"
@@ -472,6 +478,19 @@ create_pipeline_snapshot() {
   cp -f "${BASE}/macros/Calo_Calib.C" "$snap_calo"
   cp -f "${BASE}/src/RecoilJets.h" "$snap_pp_header"
   cp -f "${BASE}/src_AuAu/RecoilJets_AuAu.h" "$snap_auau_header"
+  if [[ ! -r "$photon_cluster_builder_header_source" ]]; then
+    err "PhotonClusterBuilder snapshot header is missing: ${photon_cluster_builder_header_source}"
+    exit 2
+  fi
+  cp -f "$photon_cluster_builder_header_source" "$snap_photon_cluster_builder_header"
+  if [[ -n "$photon_cluster_builder_library_source" ]]; then
+    if [[ ! -r "$photon_cluster_builder_library_source" ]]; then
+      err "PhotonClusterBuilder override library is missing: ${photon_cluster_builder_library_source}"
+      exit 2
+    fi
+    cp -f "$photon_cluster_builder_library_source" \
+      "$snap_lib_dir/libphoton_cluster_builder_override.so"
+  fi
 
   if [[ "$mode" != "auau" ]] && env_truthy "${RJ_FORCE_RELEASE_CORE_LIBS:-0}"; then
     use_release_core_libs=1
@@ -483,12 +502,21 @@ create_pipeline_snapshot() {
     done
     say "RJ_FORCE_RELEASE_CORE_LIBS=1: using release CaloReco/ClusterIso/JetBase instead of private core library snapshots."
   else
-    cp -f "${user_root}/thesisAnalysis/install/lib/libcalo_reco.so" "$snap_lib_dir/"
+    if [[ ! -r "$calo_reco_library_source" ]]; then
+      err "CaloReco snapshot library is missing: ${calo_reco_library_source}"
+      exit 2
+    fi
+    cp -f "$calo_reco_library_source" "$snap_lib_dir/libcalo_reco.so"
     cp -f "${user_root}/thesisAnalysis/install/lib/libcalo_io.so" "$snap_lib_dir/"
     cp -f "${user_root}/thesisAnalysis/install/lib/libclusteriso.so" "$snap_lib_dir/"
     cp -f "${user_root}/thesisAnalysis/install/lib/libjetbase.so" "$snap_lib_dir/"
   fi
-  [[ -f "${user_root}/thesisAnalysis/install/lib/libRecoilJets.so" ]] && cp -f "${user_root}/thesisAnalysis/install/lib/libRecoilJets.so" "$snap_lib_dir/"
+  if [[ -f "$pp_library_source" ]]; then
+    cp -f "$pp_library_source" "$snap_lib_dir/libRecoilJets.so"
+  elif [[ "$mode" != "auau" ]]; then
+    err "p+p snapshot library is missing: ${pp_library_source}"
+    exit 2
+  fi
   if [[ -f "$auau_library_source" ]]; then
     cp -f "$auau_library_source" "$snap_lib_dir/libRecoilJetsAuAu.so"
   elif [[ "$mode" == "auau" ]]; then
@@ -499,6 +527,9 @@ create_pipeline_snapshot() {
   # Copy companion ROOT PCM dictionaries so R__LOAD_LIBRARY doesn't spew missing-PCM errors
   cp -f "${user_root}/thesisAnalysis/install/lib/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
   cp -f "${user_root}/thesisAnalysis_auau/install/lib/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
+  if [[ -n "${RJ_CALO_RECO_LIBRARY_OVERRIDE:-}" ]]; then
+    cp -f "$(dirname "$calo_reco_library_source")/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
+  fi
 
   # Preserve dynamic-loader identity inside the frozen snapshot.  The copied
   # files are the bare linker names, but their DT_NEEDED entries request the
@@ -511,6 +542,10 @@ create_pipeline_snapshot() {
       [[ -f "$snap_so" ]] || continue
       soname="$(readelf -d "$snap_so" 2>/dev/null | awk -F'[][]' '/SONAME/ {print $2; exit}' || true)"
       [[ -n "$soname" ]] || continue
+      # If the SONAME already is the copied filename, creating the link would
+      # replace the real file with a self-referential symlink. Only add an
+      # alias when the loader name is genuinely different.
+      [[ "$soname" == "$(basename "$snap_so")" ]] && continue
       ln -sfn "$(basename "$snap_so")" "${snap_lib_dir}/${soname}"
     done
   else
@@ -521,6 +556,7 @@ create_pipeline_snapshot() {
   sed -i "s|#include \"/sphenix/u/patsfan753/scratch/thesisAnalysis/macros/Calo_Calib.C\"|#include \"${snap_calo}\"|" "$snap_impl"
   sed -i "s|#include \"/sphenix/u/patsfan753/scratch/thesisAnalysis/src/RecoilJets.h\"|#include \"${snap_pp_header}\"|" "$snap_impl"
   sed -i "s|#include \"/sphenix/u/patsfan753/scratch/thesisAnalysis/src_AuAu/RecoilJets_AuAu.h\"|#include \"${snap_auau_header}\"|" "$snap_impl"
+  sed -i "s|#include \"/sphenix/u/patsfan753/thesisAnalysis/install/include/caloreco/PhotonClusterBuilder.h\"|#include \"${snap_photon_cluster_builder_header}\"|" "$snap_impl"
 
   if (( use_release_core_libs )); then
     sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)|R__LOAD_LIBRARY(libcalo_reco.so)|" "$snap_impl"
@@ -1046,6 +1082,8 @@ build_submit_extra_env_fragment() {
   if (( sim_dataset )); then
     extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_CLOSURE_CANARY)"
     extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_CLOSURE_CANARY_ID)"
+    extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_DIRECT_SMEAR_REPAIR)"
+    extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PHOTON_YIELD_ET_SMEAR)"
     extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PPSIM_REPLAY_SEEDS)"
     extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PPSIM_EXPECT_PEDESTAL_SEQUENCE)"
     extra="$(append_submit_extra_env_var "$extra" RJ_DISABLE_JES_CDB_AUDIT)"
@@ -1061,6 +1099,10 @@ build_submit_extra_env_fragment() {
     extra="$(append_submit_extra_env_var "$extra" RJ_PP_VERTEX_REWEIGHT_HIST)"
   fi
   extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PP_DATA_PAIRED)"
+  # A fixed reconstructed AuAu-isolation study is a guarded opt-in. If the
+  # submit-side contract accepts that opt-in, propagate the same flag to the
+  # worker so the C++ hard stop evaluates the identical authorization state.
+  extra="$(append_submit_extra_env_var "$extra" RJ_ALLOW_FIXED_RECO_ISO_VIEWS)"
   [[ -n "$extra" && "$extra" != \;* ]] && extra=";${extra}"
   printf '%s' "$extra"
 }
@@ -1477,6 +1519,35 @@ iso_view_fixed_label() {
 
 iso_view_env_fragment() {
   iso_view_internal_enabled || return 0
+  local override="${RJ_INTERNAL_ISO_VIEWS_OVERRIDE:-}"
+  if [[ -n "$(trim_ws "$override")" ]]; then
+    case "${TAG:-}" in
+      auau|oo|simembedded|simembeddedinclusive)
+        case "${RJ_ALLOW_FIXED_RECO_ISO_VIEWS:-0}" in
+          1|true|TRUE|yes|YES|on|ON) ;;
+          *)
+            case "$override" in
+              "isoR40_isSliding:0.40:true:0.0"|\
+              "isoR40_isSliding:0.40:true:0.0,isoR30_isSliding:0.30:true:0.0") ;;
+              *) die "AuAu isolation override must be canonical sliding R=0.4, optionally followed by sliding R=0.3; fixed/extra/mislabeled views require explicit RJ_ALLOW_FIXED_RECO_ISO_VIEWS=1 authorization" ;;
+            esac
+            ;;
+        esac
+        ;;
+    esac
+    printf ';RJ_INTERNAL_ISO_VIEWS=%s' "$override"
+    return 0
+  fi
+
+  # Canonical Au+Au reconstruction always uses centrality-dependent sliding
+  # isolation. R=0.4 is canonical and R=0.3 is the robustness view.
+  case "${TAG:-}" in
+    auau|oo|simembedded|simembeddedinclusive)
+      printf ';RJ_INTERNAL_ISO_VIEWS=isoR40_isSliding:0.40:true:0.0,isoR30_isSliding:0.30:true:0.0'
+      return 0
+      ;;
+  esac
+
   local fixed fixed_label
   fixed="$(iso_view_fixed_value_for_tag)"
   fixed_label="$(iso_view_fixed_label "$fixed")"
@@ -1886,6 +1957,10 @@ submit_or_collect_condor() {
     printf 'JOB %s %s\n' "$node" "$dag_sub" >> "$RJ_COLLECT_DAG_FILE"
     RJ_DAG_COLLECTED_NODES+=( "$node" )
     say "Added Condor submit to orchestration DAG: node=${node} sub=${dag_sub}"
+    return 0
+  fi
+  if dag_dryrun_enabled; then
+    say "DRYRUN: validated Condor submit file without submission: ${sub}"
     return 0
   fi
   need_cmd condor_submit
@@ -2475,6 +2550,28 @@ build_iso_modes() {
   _both="$(trim_ws "$_both")"
   _slide="$(trim_ws "$_slide")"
 
+  case "${TAG:-}" in
+    auau|oo|simembedded|simembeddedinclusive)
+      case "${RJ_ALLOW_FIXED_RECO_ISO_VIEWS:-0}" in
+        1|true|TRUE|yes|YES|on|ON) ;;
+        *)
+          [[ "$_slide" == "true" ]] || {
+            err "AuAu reconstructed isolation must be centrality-dependent sliding (isSlidingIso: true)"
+            exit 76
+          }
+          [[ "$_both" != "true" ]] || {
+            err "Fixed reconstructed AuAu isolation views are disabled unless RJ_ALLOW_FIXED_RECO_ISO_VIEWS=1 is explicitly authorized"
+            exit 76
+          }
+          if (( ${#_fixeds[@]} != 1 )) || [[ ! "$(trim_ws "${_fixeds[0]}")" =~ ^[+-]?0+([.]0+)?$ ]]; then
+            err "AuAu sliding-only configs must stamp fixedGeV: 0.0 as an inert compatibility sentinel"
+            exit 76
+          fi
+          ;;
+      esac
+      ;;
+  esac
+
   if ppg12_photon_yield_enabled; then
     _both="false"
     _slide="true"
@@ -2499,8 +2596,18 @@ build_iso_modes() {
       iso_tags+=( "${selection_tag}" )
       iso_base_tags+=( "isoViewScan" )
       iso_selection_tags+=( "${selection_tag}" )
-      iso_sliding+=( "false" )
-      iso_fixed+=( "${_fixed_internal}" )
+      case "${TAG:-}" in
+        auau|oo|simembedded|simembeddedinclusive)
+          # The stamped base row must match the canonical view even though the
+          # internal loop later evaluates the R=0.4/R=0.3 sliding pair.
+          iso_sliding+=( "true" )
+          iso_fixed+=( "0.0" )
+          ;;
+        *)
+          iso_sliding+=( "false" )
+          iso_fixed+=( "${_fixed_internal}" )
+          ;;
+      esac
       iso_preselection+=( "${_pre_norm}" )
       iso_tight+=( "${_tight_norm}" )
       iso_nonTight+=( "${_nonTight_norm}" )
@@ -3281,6 +3388,7 @@ sim_requires_global_lane() {
   # executable graphs exactly.  Neither SI nor DI registers DST_GLOBAL; the
   # vertex inputs are reconstructed inside the SI graph and absent for DI.
   env_truthy "${RJ_PPG12_CLOSURE_CANARY:-0}" && return 1
+  env_truthy "${RJ_PPG12_DIRECT_SMEAR_REPAIR:-0}" && return 1
   env_truthy "${RJ_REQUIRE_SIM_GLOBAL:-0}" && return 0
   env_truthy "${RJ_PPG12_PHOTON_YIELD:-0}" && return 0
   env_truthy "${RJ_PPG12_TABLE_QA:-0}" && return 0
@@ -3442,6 +3550,8 @@ validate_ppg12_sim_source_contract() {
 
   local closure_canary=0
   env_truthy "${RJ_PPG12_CLOSURE_CANARY:-0}" && closure_canary=1
+  local direct_smear_repair=0
+  env_truthy "${RJ_PPG12_DIRECT_SMEAR_REPAIR:-0}" && direct_smear_repair=1
 
   local contract_requested=0
   env_truthy "${RJ_PPG12_PHOTON_YIELD:-0}" && contract_requested=1
@@ -3465,7 +3575,7 @@ validate_ppg12_sim_source_contract() {
   env_truthy "${RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4:-0}" && flag_rebuild=1
   env_truthy "${RJ_PPG12_PPSIM_G4_ONLY:-0}" && flag_g4_only=1
 
-  if (( closure_canary )); then
+  if (( closure_canary || direct_smear_repair )); then
     if (( sample_is_double )); then
       if (( ! flag_double || ! flag_strict_di || ! flag_rebuild || ! flag_g4_only )); then
         err "PPG12 closure DI graph requires double=1, strict_DI=1, rebuild=1, and g4_only=1 for sample=${sample}."
@@ -3513,7 +3623,11 @@ validate_ppg12_sim_source_contract() {
         return 98
       fi
     fi
-    say "    [sim_init] exact PPG12 closure graph passed: id=${RJ_PPG12_CLOSURE_CANARY_ID} sample=${sample} mode=$([[ $sample_is_double -eq 1 ]] && printf DI || printf SI) rng=historical_fifo_replay_v2 pedestal=534" >&2
+    if (( closure_canary )); then
+      say "    [sim_init] exact PPG12 closure graph passed: id=${RJ_PPG12_CLOSURE_CANARY_ID} sample=${sample} mode=$([[ $sample_is_double -eq 1 ]] && printf DI || printf SI) rng=historical_fifo_replay_v2 pedestal=534" >&2
+    else
+      say "    [sim_init] exact deployed PPG12 production graph passed: sample=${sample} mode=$([[ $sample_is_double -eq 1 ]] && printf DI || printf SI)" >&2
+    fi
     return 0
   fi
 
@@ -3564,7 +3678,11 @@ validate_ppg12_sim_source_contract() {
 # intentionally couples broad Run-28 pp-SIM production to the reviewed local
 # closure contract.  A contract edit therefore requires a deliberate
 # submitter update and a new admission; an old admission cannot drift forward.
-PPG12_STITCHED_PURITY_CONTRACT_SHA256="a59bdb9d50f798885f53002f4d4945c8a94193c60d21f45d501360300ff12b14"
+PPG12_STITCHED_PURITY_CONTRACT_SHA256="a31596dd3cbd486c1f8bec5d0cb48e0c829f9f3cf7063b424b9d35d8a89f0e48"
+PPG12_DIRECT_REPAIR_EXPECTED_RECOIL_CC_SHA256="7de9760ee3b0eda45c2b5d0110ff360f00839c90bb3e4752bb51f830533f824e"
+PPG12_DIRECT_REPAIR_EXPECTED_RECOIL_H_SHA256="5276b37055391c6e61d66ba1f89a4d72cf5317c856281fbbec6f9abfb77fd351"
+PPG12_DIRECT_REPAIR_EXPECTED_MACRO_SHA256="ab4162e91d100b7599229e71a301f696310fc9941499fd2d46dc27409de79854"
+PPG12_DIRECT_REPAIR_EXPECTED_LIB_SHA256="20f132a3e0c868e9b1b6bc885e238ebc47603fd0c5e60b734ce4a4782fa71108"
 
 ppg12_sha256_file() {
   local path="$1"
@@ -3602,6 +3720,29 @@ validate_ppg12_stitched_purity_admission() {
   esac
   [[ "$sample" =~ ^run28_(photonjet(5|10|20)|jet(8|12|20|30|40))(_double)?$ ]] || return 0
 
+  # THE-119 exercises the general replay-foundation writer on exactly one
+  # isolated source group. It is not a PPG12 stitched-purity production and
+  # must not inherit that campaign's historical-RNG admission packet.
+  if env_truthy "${RJ_REPLAY_FOUNDATION_CANARY:-0}"; then
+    if [[ "${GROUP_SIZE_EXPLICIT:-0}" -ne 1 || "${GROUP_SIZE:-0}" -ne 1 ||
+          "${MAX_JOBS_EXPLICIT:-0}" -ne 1 || "${MAX_JOBS:-0}" -ne 1 ]]; then
+      err "Replay-foundation canary requires explicit groupSize 1 and maxJobs 1."
+      return 99
+    fi
+    if auto_merge_enabled; then
+      err "Replay-foundation canary requires RJ_AUTO_MERGE=0."
+      return 99
+    fi
+    if [[ -z "${RJ_REPLAY_LANE:-}" ||
+          ! "${RJ_REPLAY_SCHEMA_SHA256:-}" =~ ^[0-9a-fA-F]{64}$ ||
+          ! "${RJ_DEST_BASE_OVERRIDE:-}" =~ ^/sphenix/.*/replay_foundation/ ]]; then
+      err "Replay-foundation canary requires a lane, schema hash, and isolated replay_foundation output path."
+      return 99
+    fi
+    say "    [sim_init] bounded replay-foundation canary admitted: lane=${RJ_REPLAY_LANE} sample=${sample} groupSize=1 maxJobs=1 autoMerge=off" >&2
+    return 0
+  fi
+
   if env_truthy "${RJ_PPG12_CLOSURE_CANARY:-0}"; then
     if [[ "${GROUP_SIZE_EXPLICIT:-0}" -ne 1 || "${GROUP_SIZE:-0}" -ne 5 || \
           "${MAX_JOBS_EXPLICIT:-0}" -ne 1 || "${MAX_JOBS:-0}" -ne 1 ]]; then
@@ -3638,6 +3779,58 @@ validate_ppg12_stitched_purity_admission() {
   if auto_merge_enabled; then
     err "PPG12 stitched-purity production requires RJ_AUTO_MERGE=0; merging is permitted only after the complete production audit."
     return 99
+  fi
+
+  # Justin explicitly authorized one direct full-stat replacement on
+  # 2026-07-21 after the deployed PPG12 in-place simulation-ET transform was
+  # recovered exactly. This exception does not assert closure and cannot
+  # authorize merge or promotion. Every other broad pp-SIM submission still
+  # requires admission_manifest.json.
+  if env_truthy "${RJ_PPG12_DIRECT_SMEAR_REPAIR:-0}"; then
+    local namespace="${RJ_SUBMISSION_NAMESPACE:-}"
+    local destination="${RJ_DEST_BASE_OVERRIDE:-}"
+    local runtime_lib="${RJ_PPG12_DIRECT_REPAIR_LIBRECOILJETS_PATH:-}"
+    [[ "$namespace" =~ ^the97_ppg12_deployed_smear_full_[0-9]{8}_[0-9]{4}_v[0-9]+$ ]] || {
+      err "THE-97 direct repair requires a fresh canonical RJ_SUBMISSION_NAMESPACE."
+      return 99
+    }
+    [[ "$destination" == /* && "$destination" == *"/$namespace"* ]] || {
+      err "THE-97 direct repair destination must be absolute and contain the exact namespace."
+      return 99
+    }
+    [[ "${RJ_PPG12_PHOTON_YIELD_ET_SMEAR:-}" == "1" ]] || {
+      err "THE-97 direct repair requires explicit RJ_PPG12_PHOTON_YIELD_ET_SMEAR=1."
+      return 99
+    }
+    [[ "${RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4:-}" == "1" && \
+       "${RJ_PPG12_PPSIM_G4_ONLY:-}" == "1" && \
+       "${RJ_PPG12_PHOTON_YIELD:-}" == "1" ]] || {
+      err "THE-97 direct repair requires the exact deployed PPG12 G4-only photon-yield graph."
+      return 99
+    }
+    [[ "$runtime_lib" == /* && -s "$runtime_lib" ]] || {
+      err "THE-97 direct repair requires an absolute non-empty RJ_PPG12_DIRECT_REPAIR_LIBRECOILJETS_PATH."
+      return 99
+    }
+    local checked_path expected_hash actual_hash
+    while IFS=$'\t' read -r checked_path expected_hash; do
+      [[ -s "$checked_path" ]] || {
+        err "THE-97 direct repair hash input is missing: $checked_path"
+        return 99
+      }
+      actual_hash="$(ppg12_sha256_file "$checked_path")"
+      [[ "$actual_hash" == "$expected_hash" ]] || {
+        err "THE-97 direct repair hash drift: path=$checked_path expected=$expected_hash actual=$actual_hash"
+        return 99
+      }
+    done <<EOF
+${BASE}/src/RecoilJets.cc	${PPG12_DIRECT_REPAIR_EXPECTED_RECOIL_CC_SHA256}
+${BASE}/src/RecoilJets.h	${PPG12_DIRECT_REPAIR_EXPECTED_RECOIL_H_SHA256}
+${BASE}/macros/Fun4All_recoilJets_unified_impl.C	${PPG12_DIRECT_REPAIR_EXPECTED_MACRO_SHA256}
+${runtime_lib}	${PPG12_DIRECT_REPAIR_EXPECTED_LIB_SHA256}
+EOF
+    say "    [sim_init] THE-97 direct deployed-smear repair authorized: namespace=${namespace} sample=${sample} merge=blocked hashes=exact" >&2
+    return 0
   fi
 
   local admission="${RJ_PPG12_CLOSURE_ADMISSION_MANIFEST:-}"
@@ -4163,7 +4356,8 @@ sim_init() {
     mkdir -p "$(dirname "$out")"
     awk -v n="${_ninput}" 'BEGIN{for(i=0;i<n;i++) print "NONE"}' > "$out"
   }
-  if env_truthy "${RJ_PPG12_CLOSURE_CANARY:-0}"; then
+  if env_truthy "${RJ_PPG12_CLOSURE_CANARY:-0}" \
+    || env_truthy "${RJ_PPG12_DIRECT_SMEAR_REPAIR:-0}"; then
     # Freeze the five-column executable-oracle graph independently of which
     # optional matched lists happen to be present in the sample directory.
     make_none_sim_list "$_none_glob"
@@ -4358,7 +4552,7 @@ check_jobs_sim() {
   say_vz_selection_summary "$master_yaml" "${sim_vzs[@]}"
   if iso_view_internal_enabled; then
     say "  coneR                             : [${sim_view_cones[*]}]  (${#sim_view_cones[@]} internal iso/cone view values; submit scalar=${sim_cones[*]})"
-    say "  iso/cone views                    : pp uses fixedIso2GeV+sliding; AuAu-like uses fixedIso4GeV+sliding, each for R=0.30 and R=0.40"
+    say "  iso/cone views                    : $(iso_view_env_value)"
   else
     say "  coneR                             : [${sim_cones[*]}]  (${#sim_cones[@]} values)"
   fi
@@ -4369,7 +4563,7 @@ check_jobs_sim() {
     else
       say "  photon-ID fanout shards           : ${iso_submit_n} upstream shard(s), cap=${RJ_ID_FANOUT_MAX_ROWS:-15} cfg outputs/pass"
       say "  photon-ID cfg outputs             : ${#iso_tags[@]} final cfg ROOT file(s)"
-      iso_view_internal_enabled && say "  final ROOT layout                  : ${#iso_tags[@]} cfg file(s); each contains 4 suffixed iso/cone histogram views"
+      iso_view_internal_enabled && say "  final ROOT layout                  : ${#iso_tags[@]} cfg file(s); each contains the configured suffixed iso/cone histogram views"
     fi
   else
     say "  photon-ID modes submitted         : ${iso_submit_n} independent cfg tag(s) (fanout disabled)"
@@ -4436,7 +4630,7 @@ check_jobs_sim() {
 
   say "${BOLD}Final ROOT output cfg tags written by those upstream passes:${RST}"
   if iso_view_internal_enabled; then
-    say "  Layout: one cfg ROOT file per photon-ID triplet; each file contains 4 suffixed iso/cone views:"
+    say "  Layout: one cfg ROOT file per photon-ID triplet; each file contains the configured suffixed iso/cone views:"
     say "          $(iso_view_env_value)"
   elif iso_cone_fanout_enabled; then
     say "  Layout: one cfg ROOT file per cone × iso × photon-ID output."
@@ -4661,7 +4855,7 @@ check_jobs_all() {
   say_vz_selection_summary "$data_yaml_src" "${ck_vzs[@]}"
   if iso_view_internal_enabled; then
     say "  coneR                : [${ck_view_cones[*]}]  (${#ck_view_cones[@]} internal iso/cone view values; submit scalar=${ck_cones[*]})"
-    say "  iso/cone views       : pp uses fixedIso2GeV+sliding; AuAu-like uses fixedIso4GeV+sliding, each for R=0.30 and R=0.40"
+    say "  iso/cone views       : $(iso_view_env_value)"
   else
     say "  coneR                : [${ck_cones[*]}]  (${#ck_cones[@]} values)"
   fi
@@ -4672,7 +4866,7 @@ check_jobs_all() {
     else
       say "  photon-ID fanout     : ${iso_submit_n} upstream shard(s), cap=${RJ_ID_FANOUT_MAX_ROWS:-15} cfg outputs/pass"
       say "  photon-ID cfg outputs: ${#iso_tags[@]} final cfg ROOT file(s)"
-      iso_view_internal_enabled && say "  final ROOT layout     : ${#iso_tags[@]} cfg file(s); each contains 4 suffixed iso/cone histogram views"
+      iso_view_internal_enabled && say "  final ROOT layout     : ${#iso_tags[@]} cfg file(s); each contains the configured suffixed iso/cone histogram views"
     fi
   else
     say "  photon-ID cfgs       : ${iso_submit_n} independent cfg tag(s) (fanout disabled)"
@@ -4733,7 +4927,7 @@ check_jobs_all() {
 
   say "${BOLD}Final ROOT output cfg tags written by those upstream passes:${RST}"
   if iso_view_internal_enabled; then
-    say "  Layout: one cfg ROOT file per photon-ID triplet; each file contains 4 suffixed iso/cone views:"
+    say "  Layout: one cfg ROOT file per photon-ID triplet; each file contains the configured suffixed iso/cone views:"
     say "          $(iso_view_env_value)"
   elif iso_cone_fanout_enabled; then
     say "  Layout: one cfg ROOT file per cone × iso × photon-ID output."
@@ -4864,8 +5058,13 @@ workflow_check() {
 submit_condor() {
   local source="$1"
   local first_chunk="${2:-}"
+  local direct_max_jobs="${RJ_DIRECT_MAX_JOBS:-0}"
 
   [[ -s "$source" ]] || { err "Run source not found or empty: $source"; exit 5; }
+  [[ "$direct_max_jobs" =~ ^[0-9]+$ ]] || {
+    err "RJ_DIRECT_MAX_JOBS must be a non-negative integer, got '${direct_max_jobs}'"
+    exit 2
+  }
   if ppg12_pp_strict_list_coverage_enabled; then
     validate_ppg12_pp_list_coverage "$source" || exit 88
   fi
@@ -4982,6 +5181,17 @@ SUB
       (( submit_trace )) && say "    firstChunk enabled -> submitting 1 group for run ${r8}"
     fi
 
+    if (( direct_max_jobs > 0 )); then
+      local remaining_jobs=$(( direct_max_jobs - queued ))
+      if (( remaining_jobs <= 0 )); then
+        break
+      fi
+      if (( ${#groups[@]} > remaining_jobs )); then
+        say "Capping direct DATA group list: ${#groups[@]} -> ${remaining_jobs} jobs (RJ_DIRECT_MAX_JOBS=${direct_max_jobs})"
+        groups=( "${groups[@]:0:remaining_jobs}" )
+      fi
+    fi
+
     local gidx=0
     for glist in "${groups[@]}"; do
       (( gidx+=1 ))
@@ -4989,6 +5199,11 @@ SUB
              "$r8" "$glist" "$DATASET" "$direct_nevents" "$gidx" "$DEST_BASE" >> "$args_file"
       (( queued+=1 ))
     done
+
+    if (( direct_max_jobs > 0 && queued >= direct_max_jobs )); then
+      say "Reached direct DATA job cap: ${queued}/${direct_max_jobs}"
+      break
+    fi
 
   done < "$source"
 
@@ -6876,7 +7091,10 @@ case "$ACTION" in
               say "  wrapper args  : sample=${SIM_SAMPLE} dataset=${DATASET} mode=LOCAL nevents=${nevt} chunk=1 dest=${DEST_BASE}"
               say "Invoking wrapper locally…"
 
-              RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" RJ_INTERNAL_ISO_VIEWS="$(iso_view_env_value)" bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
+              RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" \
+                RJ_INTERNAL_ISO_VIEWS="$(iso_view_env_value)" \
+                RJ_ALLOW_FIXED_RECO_ISO_VIEWS="${RJ_ALLOW_FIXED_RECO_ISO_VIEWS:-0}" \
+                bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt" 1 NONE "$DEST_BASE"
               echo
             else
               local_file_idx=0
@@ -6904,7 +7122,10 @@ case "$ACTION" in
                 say "  wrapper args  : sample=${SIM_SAMPLE} dataset=${DATASET} mode=LOCAL nevents=${nevt} chunk=${local_file_idx} dest=${DEST_BASE}"
                 say "Invoking wrapper locally…"
 
-                RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" RJ_INTERNAL_ISO_VIEWS="$(iso_view_env_value)" bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt" "$local_file_idx" NONE "$DEST_BASE"
+                RJ_VERBOSITY="$RJV" RJ_CONFIG_YAML="$yaml_override" \
+                  RJ_INTERNAL_ISO_VIEWS="$(iso_view_env_value)" \
+                  RJ_ALLOW_FIXED_RECO_ISO_VIEWS="${RJ_ALLOW_FIXED_RECO_ISO_VIEWS:-0}" \
+                  bash "$EXE" "$SIM_SAMPLE" "$tmp" "$DATASET" LOCAL "$nevt" "$local_file_idx" NONE "$DEST_BASE"
                 echo
               done < <(head -n "$sim_local_nfiles" "$SIM_CLEAN_LIST")
             fi
@@ -7005,6 +7226,7 @@ case "$ACTION" in
         RJ_DATASET="$DATASET" RJ_VERBOSITY="$RJV" \
         RJ_CONFIG_YAML="$yaml_override" \
         RJ_INTERNAL_ISO_VIEWS="$(iso_view_env_value)" \
+        RJ_ALLOW_FIXED_RECO_ISO_VIEWS="${RJ_ALLOW_FIXED_RECO_ISO_VIEWS:-0}" \
         RJ_CRASH_BACKTRACE="$RJ_CRASH_BACKTRACE_LOCAL" \
         RJ_F4A_VERBOSE="$RJ_F4A_VERBOSE_LOCAL" \
         RJ_STEP_EVENTS="$RJ_STEP_EVENTS_LOCAL" \
@@ -7854,6 +8076,7 @@ SUB
         export RJ_GOLDEN_OVERRIDE="$smoke_selected_runs"
         export RJ_PROFILE_JOB=1
         export RJ_DIRECT_NEVENTS="${RJ_SMOKE_DATA_NEVENTS:-3000}"
+        export RJ_DIRECT_MAX_JOBS="${RJ_SMOKE_DATA_MAX_JOBS:-0}"
         export RJ_JOB_HEARTBEAT_SECONDS="${RJ_JOB_HEARTBEAT_SECONDS:-${RJ_SMOKE_JOB_HEARTBEAT_SECONDS:-120}}"
         export RJ_PROFILE_STAGE="${RJ_PROFILE_STAGE:-directSmoke}"
         export RJ_PROFILE_LABEL="${RJ_PROFILE_LABEL:-${TAG}_smokeTest}"
@@ -7865,6 +8088,7 @@ SUB
         say "  output base   : ${RJ_DEST_BASE_OVERRIDE}"
         say "  merge output  : ${RJ_MERGE_OUT_BASE_OVERRIDE}"
         say "  groupSize     : ${GROUP_SIZE}"
+        say "  max jobs      : ${RJ_DIRECT_MAX_JOBS} (0 means all chunks in selected runs)"
         say "  nEvents/job   : ${RJ_DIRECT_NEVENTS} (0 means full worker input)"
         say "  request mem   : ${RJ_REQUEST_MEMORY}"
         say "  engine        : direct RecoilJets fanout; pool replay is not used"

@@ -278,7 +278,20 @@ def write_csv(path: Path, ppg12: dict[str, list[dict[str, float]]], current: dic
                 )
 
 
-def draw(path: Path, ppg12: dict[str, list[dict[str, float]]], current: dict[str, list[dict[str, float]]]) -> dict[str, dict[str, float]]:
+def draw(
+    path: Path,
+    ppg12: dict[str, list[dict[str, float]]],
+    current: dict[str, list[dict[str, float]]],
+    *,
+    pixel_width: int = 1544,
+    pixel_height: int = 1996,
+    dpi: int = 200,
+) -> dict[str, dict[str, float]]:
+    font_scale = max(0.55, min(1.0, pixel_width / 1544.0, pixel_height / 1996.0))
+
+    def fs(value: float) -> float:
+        return value * font_scale
+
     plt.rcParams.update(
         {
             "font.family": "serif",
@@ -296,8 +309,8 @@ def draw(path: Path, ppg12: dict[str, list[dict[str, float]]], current: dict[str
     fig, (ax, rax) = plt.subplots(
         2,
         1,
-        figsize=(7.72, 9.98),
-        dpi=200,
+        figsize=(pixel_width / dpi, pixel_height / dpi),
+        dpi=dpi,
         sharex=True,
         gridspec_kw={"height_ratios": [3.25, 1.0], "hspace": 0.04},
     )
@@ -370,14 +383,14 @@ def draw(path: Path, ppg12: dict[str, list[dict[str, float]]], current: dict[str
 
     ax.set_xlim(PLOT_XMIN, PLOT_XMAX)
     ax.set_ylim(0.0, 1.15)
-    ax.set_ylabel("Efficiency", fontsize=19)
+    ax.set_ylabel("Efficiency", fontsize=fs(19))
     ax.minorticks_on()
-    ax.tick_params(which="both", top=True, right=True, labelsize=13)
-    ax.text(0.055, 0.935, "sPHENIX", transform=ax.transAxes, fontsize=16.5, fontstyle="italic", fontweight="bold")
-    ax.text(0.270, 0.935, "Internal", transform=ax.transAxes, fontsize=16.5)
-    ax.text(0.055, 0.865, r"$p$+$p$ $\sqrt{s}=200$ GeV", transform=ax.transAxes, fontsize=14.0)
-    ax.text(0.735, 0.935, "PYTHIA8", transform=ax.transAxes, fontsize=16.5)
-    ax.text(0.735, 0.865, r"$|\eta^\gamma|<0.7$", transform=ax.transAxes, fontsize=14.0)
+    ax.tick_params(which="both", top=True, right=True, labelsize=fs(13))
+    ax.text(0.055, 0.935, "sPHENIX", transform=ax.transAxes, fontsize=fs(16.5), fontstyle="italic", fontweight="bold")
+    ax.text(0.300, 0.935, "Internal", transform=ax.transAxes, fontsize=fs(16.5))
+    ax.text(0.055, 0.865, r"$p$+$p$ $\sqrt{s}=200$ GeV", transform=ax.transAxes, fontsize=fs(14.0))
+    ax.text(0.735, 0.935, "PYTHIA8", transform=ax.transAxes, fontsize=fs(16.5))
+    ax.text(0.735, 0.865, r"$|\eta^\gamma|<0.7$", transform=ax.transAxes, fontsize=fs(14.0))
     shape_handles = [
         Line2D([0], [0], marker="o", color="0.15", mfc="white", mec="0.15", mew=1.45, lw=0, ms=6.0, label="PPG12 SDCC source"),
         Line2D([0], [0], marker="o", color="0.15", mfc="0.15", mec="0.15", lw=0, ms=5.0, label="Current output"),
@@ -387,17 +400,17 @@ def draw(path: Path, ppg12: dict[str, list[dict[str, float]]], current: dict[str
         for _stage, label, color, _marker in CURVES
     ]
     leg1 = ax.legend(handles=shape_handles, loc="lower left", bbox_to_anchor=(0.035, 0.235),
-                     frameon=False, fontsize=12.0, handlelength=1.0, labelspacing=0.5, borderpad=0.2)
+                     frameon=False, fontsize=fs(12.0), handlelength=1.0, labelspacing=0.5, borderpad=0.2)
     ax.add_artist(leg1)
     ax.legend(handles=curve_handles, loc="lower left", bbox_to_anchor=(0.035, 0.045),
-              frameon=False, fontsize=12.0, handlelength=1.0, labelspacing=0.55, borderpad=0.2)
+              frameon=False, fontsize=fs(12.0), handlelength=1.0, labelspacing=0.55, borderpad=0.2)
 
     rax.axhline(1.0, color="0.45", lw=1.0, ls=(0, (4, 4)))
     rax.set_ylim(0.55, 1.45)
-    rax.set_ylabel("Current / PPG12", fontsize=13.5)
-    rax.set_xlabel(r"$E_{\mathrm{T}}^{\gamma,\mathrm{truth}}$ [GeV]", fontsize=17)
+    rax.set_ylabel("Current / PPG12", fontsize=fs(13.5))
+    rax.set_xlabel(r"$E_{\mathrm{T}}^{\gamma,\mathrm{truth}}$ [GeV]", fontsize=fs(17))
     rax.minorticks_on()
-    rax.tick_params(which="both", top=True, right=True, labelsize=12)
+    rax.tick_params(which="both", top=True, right=True, labelsize=fs(12))
     fig.subplots_adjust(left=0.145, right=0.97, top=0.98, bottom=0.09)
     fig.savefig(path)
     plt.close(fig)
@@ -416,6 +429,9 @@ def main() -> None:
     parser.add_argument("--current-source-sha256", default=None)
     parser.add_argument("--status-label", default="current production comparison")
     parser.add_argument("--production-artifact-exception", default=None)
+    parser.add_argument("--pixel-width", type=int, default=1544)
+    parser.add_argument("--pixel-height", type=int, default=1996)
+    parser.add_argument("--dpi", type=int, default=200)
     args = parser.parse_args()
 
     current_csv_sha256 = None
@@ -440,7 +456,14 @@ def main() -> None:
     ppg12 = read_ppg12(args.ppg12_csv)
     current = read_current_csv(args.current_csv, ppg12) if args.current_csv else read_current(Path(current_root), ppg12)
     write_csv(out_csv, ppg12, current)
-    summary = draw(out_png, ppg12, current)
+    summary = draw(
+        out_png,
+        ppg12,
+        current,
+        pixel_width=args.pixel_width,
+        pixel_height=args.pixel_height,
+        dpi=args.dpi,
+    )
     out_manifest.write_text(
         json.dumps(
             {
@@ -469,6 +492,11 @@ def main() -> None:
                 "current_statistical_errors": "Weighted-binomial subset errors using denominator effective entries; magenta product propagated as in the PPG12 macro.",
                 "ratio_panel": "Current output / PPG12 SDCC source",
                 "ratio_summary": summary,
+                "pixel_dimensions": {
+                    "width": args.pixel_width,
+                    "height": args.pixel_height,
+                    "dpi": args.dpi,
+                },
             },
             indent=2,
             sort_keys=True,

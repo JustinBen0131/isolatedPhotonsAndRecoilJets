@@ -90,13 +90,22 @@ def configure() -> None:
 
 def annotate(ax: plt.Axes, subtitle: str, *, compact_top: bool = False) -> None:
     if compact_top:
-        y_internal, y_system, y_eta, y_subtitle = 0.220, 0.170, 0.120, 0.050
+        y_internal, y_system, y_eta, y_subtitle = 0.245, 0.190, 0.140, 0.085
     else:
         y_internal, y_system, y_eta, y_subtitle = 0.965, 0.895, 0.835, 0.775
     ax.text(0.025, y_internal, r"$\bf{\it{sPHENIX}}$ Internal", transform=ax.transAxes, va="top", ha="left", fontsize=13)
     ax.text(0.025, y_system, r"$p+p\ \sqrt{s}=200\ \mathrm{GeV}$", transform=ax.transAxes, va="top", ha="left")
     ax.text(0.025, y_eta, r"$|\eta^\gamma|<0.7$", transform=ax.transAxes, va="top", ha="left")
-    ax.text(0.025, y_subtitle, subtitle, transform=ax.transAxes, va="top", ha="left", fontsize=10.5)
+    ax.text(
+        0.025,
+        y_subtitle,
+        subtitle,
+        transform=ax.transAxes,
+        va="top",
+        ha="left",
+        fontsize=9.4 if compact_top else 10.5,
+        linespacing=1.18,
+    )
 
 
 def write_csv(path: Path, rows: list[dict[str, float | int | str]]) -> None:
@@ -185,13 +194,17 @@ def abcd_products(rows: list[dict[str, float]], outdir: Path) -> tuple[Path, Pat
         r = np.array([item["current_over_ppg12"] for item in vals])
         re = np.array([item["current_over_ppg12_error"] for item in vals])
         ax.errorbar(x - 0.12, p, xerr=xe, yerr=pe, fmt=marker, ms=5.2, mfc="white", mec=color, ecolor=color, color=color, capsize=0, linestyle="none", label=f"PPG12 {region}: {label}")
-        ax.errorbar(x + 0.12, c, xerr=xe, yerr=ce, fmt=marker, ms=5.2, mfc=color, mec=color, ecolor=color, color=color, capsize=0, linestyle="none", label=f"Current {region}: {label}")
+        ax.errorbar(x + 0.12, c, xerr=xe, yerr=ce, fmt=marker, ms=5.2, mfc=color, mec=color, ecolor=color, color=color, capsize=0, linestyle="none", label=f"This analysis {region}: {label}")
         ratio_ax.errorbar(x, r, xerr=xe, yerr=re, fmt=marker, ms=5.2, mfc=color, mec=color, ecolor=color, color=color, capsize=0, linestyle="none", label=region)
     positive = [item[key] for item in derived for key in ("ppg12_count", "current_count") if item[key] > 0]
     ax.set_yscale("log")
     ax.set_ylim(max(1e-3, min(positive) / 3), max(positive) * 6)
     ax.set_ylabel("Event-preweighted signal count")
-    annotate(ax, "Corrected-SI full-stat candidate (SI+DI), no rescaling", compact_top=True)
+    annotate(
+        ax,
+        "Photon+jet signal simulation: Photon5+10+20, SI + DI",
+        compact_top=True,
+    )
     ax.legend(loc="upper center", bbox_to_anchor=(0.66, 0.99), ncol=2, fontsize=8.8, columnspacing=0.9, handletextpad=0.4)
     ax.tick_params(labelbottom=False)
     finite_ratio = [item["current_over_ppg12"] for item in derived if math.isfinite(item["current_over_ppg12"])]
@@ -199,14 +212,16 @@ def abcd_products(rows: list[dict[str, float]], outdir: Path) -> tuple[Path, Pat
     span = max(0.15, hi - lo)
     ratio_ax.set_ylim(max(0, lo - 0.25 * span), hi + 0.25 * span)
     ratio_ax.axhline(1.0, color="0.45", linewidth=1.0, linestyle="--")
-    ratio_ax.set_ylabel("Current / PPG12")
+    ratio_ax.set_ylabel("This analysis / PPG12")
     ratio_ax.set_xlabel(r"$E_T^{\gamma,\mathrm{rec}}$ [GeV]")
     ratio_ax.set_xlim(10, 36)
     fig.subplots_adjust(left=0.13, right=0.98, top=0.98, bottom=0.11)
     png = outdir / "corrected_si_candidate_signal_abcd_counts_ppg12_overlay_ratio.png"
     fig.savefig(png, dpi=180)
+    labeled_png = outdir / "figure23_photonjet_signal_simulation_ppg12_vs_this_analysis.png"
+    fig.savefig(labeled_png, dpi=180)
     plt.close(fig)
-    return png, csv_path, {"ratio_min": lo, "ratio_max": hi}
+    return labeled_png, csv_path, {"ratio_min": lo, "ratio_max": hi}
 
 
 def main() -> None:

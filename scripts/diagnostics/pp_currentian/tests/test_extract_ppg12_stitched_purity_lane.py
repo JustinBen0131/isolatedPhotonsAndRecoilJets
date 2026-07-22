@@ -18,6 +18,10 @@ MODULE_PATH = (
     REPO
     / "scripts/diagnostics/pp_currentian/extract_ppg12_stitched_purity_lane.py"
 )
+EXECUTION_PATH = (
+    REPO
+    / "scripts/diagnostics/pp_currentian/produce_ppg12_stitched_purity_execution_contract.py"
+)
 CONTRACT_PATH = (
     REPO / "agent_context/analysis_contracts/ppg12_stitched_purity_closure.yaml"
 )
@@ -27,6 +31,12 @@ SPEC = importlib.util.spec_from_file_location(
 assert SPEC and SPEC.loader
 EXTRACTOR = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(EXTRACTOR)
+EXECUTION_SPEC = importlib.util.spec_from_file_location(
+    "produce_ppg12_stitched_purity_execution_contract", EXECUTION_PATH
+)
+assert EXECUTION_SPEC and EXECUTION_SPEC.loader
+EXECUTION = importlib.util.module_from_spec(EXECUTION_SPEC)
+EXECUTION_SPEC.loader.exec_module(EXECUTION)
 CONTRACT = json.loads(CONTRACT_PATH.read_text())
 
 
@@ -67,10 +77,15 @@ class LaneExtractorTest(unittest.TestCase):
         self.root_file = self.root / "lane.root"
         self.root_file.write_bytes(b"synthetic-root-bound-by-hash" + b"x" * 60_000)
         self.evidence_files: dict[str, Path] = {}
+        self.event_rows = [
+            f"NONE /x/js_pp200_signal/g4hits/file{index}.root "
+            f"/x/js_pp200_signal/nopileup/jets/file{index}.root NONE NONE"
+            for index in range(1, 6)
+        ]
         for name in EXTRACTOR.EVIDENCE_KEYS:
             path = self.root / f"{name}.evidence"
             if name in {"source_list", "event_set"}:
-                path.write_text("row1\nrow2\nrow3\nrow4\nrow5\n")
+                path.write_text("\n".join(self.event_rows) + "\n")
             else:
                 path.write_text(f"exact {name} evidence\n")
             self.evidence_files[name] = path
@@ -109,6 +124,7 @@ class LaneExtractorTest(unittest.TestCase):
         self.parity_path.write_text("event,candidate,route,tag,abcd\n1,2,baseV3E,tight,A\n")
         self.metadata_path = self.root / "lane_input.json"
         self.fill_path = self.root / "fills.json"
+        self.execution_path = self.root / "execution_contract.json"
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -143,7 +159,7 @@ class LaneExtractorTest(unittest.TestCase):
         sample = sample or ("jet8" if family == "inclusive" else "photon5")
         include_parity = family == "photon" if include_parity is None else include_parity
         lane_id = f"{family}:{sample}:0mrad:si"
-        event_rows = ["row1", "row2", "row3", "row4", "row5"]
+        event_rows = list(self.event_rows)
         groups = EXTRACTOR._canonical_groups(lane_id, event_rows, 5)
         reader = self.make_reader(family)
         fills = {
@@ -162,6 +178,25 @@ class LaneExtractorTest(unittest.TestCase):
             "observables": fills,
         }
         write_json(self.fill_path, fill_payload)
+        environment = EXECUTION._expected_environment(
+            {
+                "lane_id": lane_id,
+                "family": family,
+                "sample": sample,
+                "period": "0mrad",
+                "interaction": "si",
+            },
+            CONTRACT,
+        )
+        write_json(
+            self.execution_path,
+            EXECUTION._build_receipt(
+                lane_id,
+                self.evidence_files["source_list"],
+                environment,
+                CONTRACT_PATH,
+            ),
+        )
         metadata: dict[str, object] = {
             "schema": "ppg12-stitched-purity-lane-input/v1",
             "lane_id": lane_id,
@@ -186,6 +221,10 @@ class LaneExtractorTest(unittest.TestCase):
             "runtime_manifest": {
                 "path": str(self.runtime_manifest),
                 "sha256": file_sha256(self.runtime_manifest),
+            },
+            "execution_contract": {
+                "path": str(self.execution_path),
+                "sha256": file_sha256(self.execution_path),
             },
             "fill_evidence": {
                 "path": str(self.fill_path),
@@ -268,7 +307,11 @@ class LaneExtractorTest(unittest.TestCase):
 
     def test_additional_complete_group_is_accepted_and_hash_bound(self) -> None:
         metadata, _, reader = self.make_inputs()
-        event_rows = [f"row{index}" for index in range(1, 11)]
+        event_rows = [
+            f"NONE /x/js_pp200_signal/g4hits/file{index}.root "
+            f"/x/js_pp200_signal/nopileup/jets/file{index}.root NONE NONE"
+            for index in range(1, 11)
+        ]
         self.evidence_files["source_list"].write_text("\n".join(event_rows) + "\n")
         metadata["evidence"]["source_list"] = {
             "path": str(self.evidence_files["source_list"]),
@@ -278,6 +321,29 @@ class LaneExtractorTest(unittest.TestCase):
         metadata["evidence"]["event_set"] = {
             "path": str(self.evidence_files["event_set"]),
             "sha256": file_sha256(self.evidence_files["event_set"]),
+        }
+        environment = EXECUTION._expected_environment(
+            {
+                "lane_id": metadata["lane_id"],
+                "family": metadata["family"],
+                "sample": metadata["sample"],
+                "period": metadata["period"],
+                "interaction": metadata["interaction"],
+            },
+            CONTRACT,
+        )
+        write_json(
+            self.execution_path,
+            EXECUTION._build_receipt(
+                metadata["lane_id"],
+                self.evidence_files["source_list"],
+                environment,
+                CONTRACT_PATH,
+            ),
+        )
+        metadata["execution_contract"] = {
+            "path": str(self.execution_path),
+            "sha256": file_sha256(self.execution_path),
         }
         groups = EXTRACTOR._canonical_groups(metadata["lane_id"], event_rows, 5)
         component_links = []
@@ -348,12 +414,13 @@ class LaneExtractorTest(unittest.TestCase):
 
     def test_event_set_must_be_exact_ordered_source_list_slice(self) -> None:
         metadata, _, reader = self.make_inputs()
-        self.evidence_files["event_set"].write_text("row2\nrow1\nrow3\nrow4\nrow5\n")
+        reordered = [self.event_rows[1], self.event_rows[0], *self.event_rows[2:]]
+        self.evidence_files["event_set"].write_text("\n".join(reordered) + "\n")
         metadata["evidence"]["event_set"] = {
             "path": str(self.evidence_files["event_set"]),
             "sha256": file_sha256(self.evidence_files["event_set"]),
         }
-        event_rows = ["row2", "row1", "row3", "row4", "row5"]
+        event_rows = reordered
         groups = EXTRACTOR._canonical_groups(metadata["lane_id"], event_rows, 5)
         metadata["groups"] = groups
         metadata["group_set_sha256"] = EXTRACTOR._payload_sha256(groups)

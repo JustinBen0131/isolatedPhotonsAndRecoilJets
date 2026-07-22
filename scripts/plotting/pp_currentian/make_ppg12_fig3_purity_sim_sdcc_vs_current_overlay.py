@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import math
 from dataclasses import dataclass
@@ -38,8 +39,8 @@ DEFAULT_PHOTON_JSON = (
 )
 DEFAULT_OUTDIR = (
     REPO
-    / "dataOutput/ppg12Parity/the97_ppg12_final_parity_full_20260709_2230"
-    / "fig3_purity_sim"
+    / "dataOutput/ppg12Parity/the97_ppg12_si_contract_restore_full_20260715_1420"
+    / "ian_current_sim_refresh_20260716/inclusive_purity_unsuffixed_fix"
 )
 
 SERIES = (
@@ -77,6 +78,14 @@ def resolve_current_root(pointer: Path) -> Path:
     if not path.exists():
         raise FileNotFoundError(path)
     return path
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def require_hist(directory: ROOT.TDirectory, name: str) -> ROOT.TH1:
@@ -217,11 +226,12 @@ def current_points(
     if not inclusive or not photon:
         raise RuntimeError("missing SIM directory in current inclusive or photon ROOT")
 
-    # PPG12's isMC=true closure uses an inclusive-jet MC-as-data side.  In
-    # RecoilJets the mutually exclusive signal and notmatch histograms are the
-    # canonical one-for-one truth-class partition of that population.  The
-    # unsuffixed histograms are retained only as a QA/display family because
-    # they are not the union of the two truth classes in current outputs.
+    # PPG12's isMC=true closure consumes the unsuffixed inclusive-jet A/B/C/D
+    # histograms as its MC-as-data side.  RecoilJets also stores signal and
+    # notmatch histograms, but its independently truth-anchored signal path is
+    # not a one-candidate partition of the unsuffixed population.  Therefore
+    # signal+notmatch is a diagnostic construction, not the PPG12-equivalent
+    # A/B/C/D input.
     unsuffixed_names = {
         "a": "h_tight_iso_cluster_0", "b": "h_tight_noniso_cluster_0",
         "c": "h_nontight_iso_cluster_0", "d": "h_nontight_noniso_cluster_0",
@@ -395,7 +405,8 @@ def make_graph(points: list[Point], name: str, color: int, marker: int, x_shift:
     return graph
 
 
-def render(reference: dict[str, list[Point]], current: dict[str, list[Point]], output: Path) -> dict[str, list[Point]]:
+def render(reference: dict[str, list[Point]], current: dict[str, list[Point]], output: Path,
+           abcd_population: str, current_status_label: str) -> dict[str, list[Point]]:
     ROOT.gStyle.SetOptStat(0)
     ROOT.gStyle.SetOptTitle(0)
     ROOT.gStyle.SetPadTickX(1)
@@ -442,6 +453,10 @@ def render(reference: dict[str, list[Point]], current: dict[str, list[Point]], o
     text.DrawLatex(0.16, 0.82, "#it{p}+#it{p}  #sqrt{#it{s}} = 200 GeV")
     text.DrawLatex(0.16, 0.77, "PYTHIA8 inclusive MC")
     text.DrawLatex(0.16, 0.72, "bdt_nom")
+    if abcd_population == "unsuffixed":
+        text.SetTextSize(0.029)
+        text.DrawLatex(0.55, 0.87, "Current A--D: unsuffixed PPG12 family")
+        text.DrawLatex(0.55, 0.83, current_status_label)
 
     series_legend = ROOT.TLegend(0.15, 0.10, 0.60, 0.29)
     series_legend.SetBorderSize(0); series_legend.SetFillStyle(0); series_legend.SetTextFont(42); series_legend.SetTextSize(0.032)
@@ -452,11 +467,24 @@ def render(reference: dict[str, list[Point]], current: dict[str, list[Point]], o
     source_legend = ROOT.TLegend(0.55, 0.10, 0.94, 0.23)
     source_legend.SetBorderSize(0); source_legend.SetFillStyle(0); source_legend.SetTextFont(42); source_legend.SetTextSize(0.032)
     source_legend.AddEntry(ref_graphs["raw"], "PPG12 SDCC (open)", "p")
-    source_legend.AddEntry(cur_graphs["raw"], "Current output (filled)", "p")
+    current_label = (
+        "Current unsuffixed A--D (filled)"
+        if abcd_population == "unsuffixed"
+        else "Current classed diagnostic (filled)"
+    )
+    source_legend.AddEntry(cur_graphs["raw"], current_label, "p")
     source_legend.Draw(); top.RedrawAxis()
 
-    ratio_values = [p.y for rows in ratios.values() for p in rows if math.isfinite(p.y) and p.y > 0.0]
-    low = min(ratio_values + [1.0]); high = max(ratio_values + [1.0]); span = max(high - low, 0.2)
+    ratio_points_finite = [
+        p
+        for rows in ratios.values()
+        for p in rows
+        if math.isfinite(p.y) and p.y > 0.0
+    ]
+    ratio_lows = [p.y - p.ey_low for p in ratio_points_finite]
+    ratio_highs = [p.y + p.ey_high for p in ratio_points_finite]
+    low = min(ratio_lows + [1.0]); high = max(ratio_highs + [1.0])
+    span = max(high - low, 0.2)
     ratio_min = max(0.0, math.floor((low - 0.10 * span) * 10.0) / 10.0)
     ratio_max = math.ceil((high + 0.10 * span) * 10.0) / 10.0
     bot.cd()
@@ -478,7 +506,8 @@ def render(reference: dict[str, list[Point]], current: dict[str, list[Point]], o
 def write_table(path: Path, reference: dict[str, list[Point]], current: dict[str, list[Point]], ratios: dict[str, list[Point]]) -> None:
     fields = ["series", "x_gev", "ppg12_sdcc", "ppg12_error_low", "ppg12_error_high", "current", "current_error", "sdcc_over_current", "ratio_error_low", "ratio_error_high"]
     with path.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields); writer.writeheader()
+        writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
+        writer.writeheader()
         for spec in SERIES:
             key = spec["key"]
             ratio_by_x = {round(p.x, 6): p for p in ratios[key]}
@@ -496,8 +525,24 @@ def main() -> None:
     parser.add_argument(
         "--current-abcd-population",
         choices=("classed", "unsuffixed"),
-        default="classed",
-        help="classed=signal+notmatch in every ABCD region (canonical); unsuffixed=legacy QA/display family",
+        default="unsuffixed",
+        help="unsuffixed=PPG12-equivalent A/B/C/D input (default); classed=signal+notmatch diagnostic",
+    )
+    parser.add_argument(
+        "--current-status-label",
+        default="Pre-ownership-gate inclusive output",
+        help="Short production-status label drawn on the figure",
+    )
+    parser.add_argument(
+        "--production-limitation",
+        default=(
+            "The July 16 inclusive ROOT applies the reconstructed-cluster ET caps "
+            "but predates enforcement of the PPG12 maximum-truth-R=0.4-jet ownership "
+            "decision on all final photon-yield physics fills. This figure is the "
+            "correct estimator reconstruction from the available output, not final "
+            "inclusive-sample parity."
+        ),
+        help="Production caveat recorded in the output manifest",
     )
     args = parser.parse_args()
 
@@ -507,15 +552,24 @@ def main() -> None:
     current, current_counts = current_points(
         current_root, photon_root, args.current_abcd_population
     )
-    stem = "ppg12_ian_fig3_purity_sim_sdcc_vs_current_overlay_ratio"
-    if args.current_abcd_population == "unsuffixed":
-        stem += "_legacy_unsuffixed_abcd"
+    stem = "ppg12_ian_fig3_purity_sim_sdcc_vs_current"
+    stem += (
+        "_unsuffixed_abcd_overlay_ratio"
+        if args.current_abcd_population == "unsuffixed"
+        else "_classed_diagnostic_overlay_ratio"
+    )
     png = args.outdir / f"{stem}.png"
     csv_path = args.outdir / f"{stem}_points.csv"
     counts_path = args.outdir / f"{stem}_current_counts.json"
     manifest_path = args.outdir / f"{stem}_manifest.json"
     args.outdir.mkdir(parents=True, exist_ok=True)
-    ratios = render(reference, current, png)
+    ratios = render(
+        reference,
+        current,
+        png,
+        args.current_abcd_population,
+        args.current_status_label,
+    )
     write_table(csv_path, reference, current, ratios)
     counts_path.write_text(json.dumps(current_counts, indent=2) + "\n")
     manifest = {
@@ -526,26 +580,30 @@ def main() -> None:
         "ppg12_reference_objects": {spec["key"]: spec["reference"] for spec in SERIES},
         "inclusive_artifact_pointer": str(args.current_json),
         "inclusive_root": str(current_root),
+        "inclusive_root_sha256": sha256(current_root),
         "photon_artifact_pointer": str(args.photon_json),
         "photon_root": str(photon_root),
+        "photon_root_sha256": sha256(photon_root),
         "top_panel": "PPG12 SDCC open markers and current inclusive-SIM filled markers for truth, raw ABCD, and signal-leakage-corrected purity",
         "bottom_panel": "PPG12 SDCC / current output for all three purity definitions",
         "current_abcd_population": args.current_abcd_population,
         "raw_definition": (
-            "PPG12 effective-Poisson toy result using mutually exclusive current "
-            "inclusive (signal + notmatch) counts in every ABCD region"
+            "Diagnostic PPG12 effective-Poisson toy result using current "
+            "inclusive signal+notmatch counts in every ABCD region"
             if args.current_abcd_population == "classed"
-            else "legacy diagnostic using current unsuffixed inclusive A/B/C/D; not canonical because this family is not signal+notmatch"
+            else "PPG12 effective-Poisson toy result using the current unsuffixed inclusive A/B/C/D histograms consumed by CalculatePhotonYield.C"
         ),
         "corrected_definition": "PPG12 effective-Poisson A/B/C/D toys plus Gaussian cB/cC/cD throws; photon+jet signal templates define cB/cC/cD",
         "truth_definition": "A_signal / (A_signal + A_notmatch)",
         "current_mc_population_mapping": (
-            "Canonical current MC closure: inclusive-jet signal+notmatch supplies "
-            "the mutually exclusive MC-as-data population in A/B/C/D and photon+jet "
-            "signal templates supply cB/cC/cD. Truth uses the same classed A population."
+            "Diagnostic only: inclusive-jet signal+notmatch supplies the MC-as-data "
+            "population in A/B/C/D. This is not the PPG12-equivalent input because "
+            "the RecoilJets truth-anchored signal path is not a one-candidate "
+            "partition of the unsuffixed population."
             if args.current_abcd_population == "classed"
-            else "Legacy diagnostic: unsuffixed inclusive A/B/C/D supplies the MC-as-data side while truth uses signal+notmatch; populations are not one-for-one."
+            else "PPG12-equivalent estimator input: unsuffixed inclusive A/B/C/D supplies the MC-as-data side; the separately displayed truth purity remains signal/(signal+notmatch)."
         ),
+        "known_production_limitation": args.production_limitation,
         "uncertainty_note": "Raw/corrected errors exactly follow the PPG12 20,000 effective-Poisson toy procedure, Gaussian leakage-fraction throws, the [-1,2] toy histogram, and the PPG12 Gaussian-fit estimator. Truth error is the independent weighted signal/notmatch ratio propagation.",
     }
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")

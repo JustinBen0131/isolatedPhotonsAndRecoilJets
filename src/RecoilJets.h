@@ -66,6 +66,7 @@
 #include <iomanip>
 #include <limits>
 #include <map>
+#include <memory>
 #include <set>
 #include <sstream>
 #include <string>
@@ -92,6 +93,8 @@ class GlobalVertex;
 class RawCluster;
 class PhotonClusterv1;
 class Jet;
+class TRandom3;
+namespace RJReplayRuntimeV1 { class Runtime; }
 
 // g4eval: used for truth↔reco association of EMCal clusters
 class CaloRawClusterEval;
@@ -223,6 +226,7 @@ public:
       double cluster_prob   = std::numeric_limits<double>::quiet_NaN();
       double npb_score      = std::numeric_limits<double>::quiet_NaN();
       double tight_bdt_score = std::numeric_limits<double>::quiet_NaN();
+      double tight_bdt_score_base_e = std::numeric_limits<double>::quiet_NaN();
       double ppg12_shape_n_owned = std::numeric_limits<double>::quiet_NaN();
       double ppg12_shape_owned_e = std::numeric_limits<double>::quiet_NaN();
       double ppg12_shape_all_e = std::numeric_limits<double>::quiet_NaN();
@@ -783,6 +787,7 @@ private:
                                            PHCompositeNode* topNode,
                                            PPG12EisoPathAudit* audit);
     double ppg12PhotonYieldEiso(double eisoEt) const;
+    bool preparePPG12PhotonYieldClusterEtCache();
     double ppg12PhotonYieldClusterEtForCuts(double ptGamma, int candidateIndex) const;
     double ppg12PhotonYieldClusterEtForResponse(double recoEt,
                                                 double truthPt,
@@ -1395,8 +1400,10 @@ private:
   // -------------------------------------------------------------------------
   // SS + Iso category accounting
   // -------------------------------------------------------------------------
-  void processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
-                                          const std::vector<std::string>& activeTrig);
+    void processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
+                                            const std::vector<std::string>& activeTrig);
+    bool initReplayFoundation();
+    void writeReplayFoundationEvent(PHCompositeNode* topNode, int terminalStatus);
   void fillIsoSSTagCounters(const std::string& trig,
                             const RawCluster* clus,
                             const SSVars& v,
@@ -1704,6 +1711,7 @@ private:
   bool m_ppg12PhotonYieldDoubleInteraction = false;
   bool m_ppg12PhotonYieldDiagFeatures = false;
   bool m_ppg12PhotonYieldApplyBinning = false;
+  bool m_ppg12PhotonYieldEtSmearEnabled = false;
   bool m_ppg12Fig8UseFallbackClusterNode = true;
   bool m_ppg12PeriodContractEnabled = false;
   bool m_ppg12PeriodUseLumiWeight = true;
@@ -1718,6 +1726,9 @@ private:
   std::string m_ppg12PeriodLabel = "unset";
   std::string m_ppg12PeriodExpectedVertexFile;
   TH2* m_ppg12PhotonYieldTowerMask = nullptr;
+  TRandom3* m_ppg12PhotonYieldEtSmearRng = nullptr;
+  std::vector<double> m_ppg12PhotonYieldEtForCutsCache;
+  long long m_ppg12PhotonYieldEtForCutsCacheEvent = -1;
   double m_ppg12PhotonYieldMcIsoScale = 1.2;
   double m_ppg12PhotonYieldMcIsoShift = 0.1;
   double m_ppg12PhotonYieldMixWeight = 1.0;
@@ -1886,6 +1897,11 @@ private:
 
   // Per-trigger slice counters printed in End()
   std::map<std::string, std::map<std::string, CatStat>> m_catByTrig;
+
+  bool m_replayFoundationEnabled = false;
+  bool m_replayNodesReady = false;
+  bool m_replayWriteFailed = false;
+  std::unique_ptr<RJReplayRuntimeV1::Runtime> m_replayRuntime;
 };
 
 #endif // RECOILJETS_H

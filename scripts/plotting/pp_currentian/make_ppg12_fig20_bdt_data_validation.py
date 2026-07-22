@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Overlay PPG12 Fig.20 SDCC BDT data with the final July 1 pp output."""
+"""Overlay PPG12 Fig.20 SDCC BDT data with a registered pp output."""
 
 from __future__ import annotations
 
@@ -29,6 +29,7 @@ OUTDIR = REPO / f"dataOutput/ppg12Parity/{CAMPAIGN}/data_bdt_fig20"
 CURRENT_DIR = "PPG12_scaledtrigger30"
 CURRENT_HIST = f"{CURRENT_DIR}/h2d_bdt_eta0_pt0_cut2"
 SDCC_HIST = "h2d_bdt_eta0_pt0_cut2"
+CURRENT_LABEL = "This analysis"
 
 
 def setup_style() -> None:
@@ -188,7 +189,7 @@ def draw_overlay(sdcc: dict[str, np.ndarray | float | str], current: dict[str, n
     max_x = summary["stable_max_abs_ratio_minus_one_bdt_center"]
     stats_text = (
         f"PPG12 SDCC N={sdcc['raw_integral']:.0f}\n"
-        f"July 1 final pp N={current['total_0to1']:.0f}\n"
+        f"This analysis N={current['total_0to1']:.0f}\n"
         + (rf"max $|R-1|$ = {100.0 * float(max_dev):.1f}%" if max_dev is not None else r"max $|R-1|$ = n/a")
         + (f"\nnear bdt = {float(max_x):.2f}" if max_x is not None else "")
     )
@@ -212,7 +213,7 @@ def draw_overlay(sdcc: dict[str, np.ndarray | float | str], current: dict[str, n
         markeredgewidth=1.2,
         ms=4.6,
         lw=1.0,
-        label="July 1 final pp data",
+        label=CURRENT_LABEL,
         zorder=4,
     )
 
@@ -223,8 +224,9 @@ def draw_overlay(sdcc: dict[str, np.ndarray | float | str], current: dict[str, n
     ax.text(0.05, 0.70, r"$10 < p_T < 14$ GeV, w/ tight cut", transform=ax.transAxes, fontsize=13, ha="left")
     ax.set_ylabel("normalized counts", fontsize=17)
     ax.set_xlim(0.0, 1.0)
-    ax.set_ylim(0.0, 0.285)
-    ax.yaxis.set_major_locator(FixedLocator(np.arange(0.0, 0.2501, 0.05)))
+    ymax = 1.12 * max(float(np.nanmax(ref_y + ref_err)), float(np.nanmax(cur_y + cur_err)))
+    ax.set_ylim(0.0, ymax)
+    ax.yaxis.set_major_locator(MultipleLocator(0.05))
     ax.yaxis.set_minor_locator(MultipleLocator(0.01))
     ax.yaxis.set_major_formatter(FuncFormatter(rootish_tick))
     ax.legend(loc="upper right", frameon=False, fontsize=16.0, handlelength=1.5, borderaxespad=0.35, labelspacing=0.55)
@@ -238,7 +240,7 @@ def draw_overlay(sdcc: dict[str, np.ndarray | float | str], current: dict[str, n
     plot_mask = np.isfinite(ratio) & (ref_interp > 0)
     rax.errorbar(cur_x[plot_mask], ratio[plot_mask], yerr=ratio_err[plot_mask], fmt="o", color="#1f77b4", ms=4.0, lw=1.0)
     rax.axhline(1.0, color="0.35", ls="--", lw=1.0)
-    rax.set_ylabel("Current / PPG12", fontsize=15)
+    rax.set_ylabel("This analysis / PPG12", fontsize=15)
     rax.set_xlabel("bdt", fontsize=17)
     rax.set_ylim(*ratio_ylim)
     rax.xaxis.set_major_locator(FixedLocator(np.arange(0.0, 1.0001, 0.2)))
@@ -253,7 +255,7 @@ def draw_overlay(sdcc: dict[str, np.ndarray | float | str], current: dict[str, n
 
     return {
         "artifact": str(out),
-        "comparison": "PPG12 Fig.20 SDCC ROOT data projection vs July 1 final combined pp TableQA BDT tight TH2 projection",
+        "comparison": "PPG12 Fig.20 SDCC ROOT data projection vs current registered full-stat pp TableQA BDT tight TH2 projection",
         "campaign": CAMPAIGN,
         "ppg12_sdcc_json": str(SDCC_JSON),
         "ppg12_sdcc_root": sdcc["source_root"],
@@ -278,6 +280,9 @@ def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--ratio-ymin", type=float, default=0.0)
     ap.add_argument("--ratio-ymax", type=float, default=4.5)
+    ap.add_argument("--current-root", type=Path, default=CURRENT_ROOT)
+    ap.add_argument("--current-label", default=CURRENT_LABEL)
+    ap.add_argument("--campaign-tag", default=CAMPAIGN)
     ap.add_argument(
         "--output",
         type=Path,
@@ -287,7 +292,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    global CURRENT_ROOT, CURRENT_LABEL, CAMPAIGN
     args = parse_args()
+    CURRENT_ROOT = args.current_root.resolve()
+    CURRENT_LABEL = args.current_label
+    CAMPAIGN = args.campaign_tag
     OUTDIR.mkdir(parents=True, exist_ok=True)
     sdcc = load_sdcc()
     current = load_current(sdcc["edges"])

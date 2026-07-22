@@ -30,6 +30,10 @@ RUNNER_PATH = (
 EXTRACTOR_PATH = (
     REPO / "scripts/diagnostics/pp_currentian/extract_ppg12_stitched_purity_lane.py"
 )
+EXECUTION_PATH = (
+    REPO
+    / "scripts/diagnostics/pp_currentian/produce_ppg12_stitched_purity_execution_contract.py"
+)
 CONTRACT_PATH = (
     REPO / "agent_context/analysis_contracts/ppg12_stitched_purity_closure.yaml"
 )
@@ -47,6 +51,7 @@ ASSEMBLER = load_module("assemble_ppg12_stitched_purity_manifest", ASSEMBLER_PAT
 GATE = load_module("ppg12_stitched_purity_closure_gate_for_assembler", GATE_PATH)
 RUNNER = load_module("ppg12_photon_oracle_runner_for_assembler", RUNNER_PATH)
 EXTRACTOR = load_module("ppg12_lane_extractor_for_assembler", EXTRACTOR_PATH)
+EXECUTION = load_module("ppg12_execution_contract_for_assembler", EXECUTION_PATH)
 CONTRACT = json.loads(CONTRACT_PATH.read_text())
 
 
@@ -412,12 +417,19 @@ class ManifestAssemblerTest(unittest.TestCase):
             lane_evidence_dir = self.root / "lane_evidence" / lane_id.replace(":", "_")
             lane_evidence_dir.mkdir(parents=True, exist_ok=True)
             evidence_links: dict[str, dict[str, str]] = {}
+            namespace = (
+                "js_pp200_signal_dual" if interaction == "di" else "js_pp200_signal"
+            )
+            event_rows = [
+                f"NONE /x/{namespace}/g4hits/{lane_id.replace(':', '_')}_{row}.root "
+                f"/x/{namespace}/nopileup/jets/{lane_id.replace(':', '_')}_{row}.root "
+                "NONE NONE"
+                for row in range(5)
+            ]
             for evidence_name in sorted(ASSEMBLER.LANE_EVIDENCE_KEYS):
                 evidence_path = lane_evidence_dir / f"{evidence_name}.txt"
                 if evidence_name in {"source_list", "event_set"}:
-                    evidence_path.write_text(
-                        "\n".join(f"{lane_id}:source-{row}" for row in range(5)) + "\n"
-                    )
+                    evidence_path.write_text("\n".join(event_rows) + "\n")
                 else:
                     evidence_path.write_text(f"{lane_id}:{evidence_name}\n")
                 evidence_links[evidence_name] = {
@@ -534,12 +546,7 @@ class ManifestAssemblerTest(unittest.TestCase):
                 },
             )
             sidecar_path = lane_evidence_dir / "input_sidecar.json"
-            write_json(
-                sidecar_path,
-                {"schema": "ppg12-stitched-purity-lane-input/v1", "lane_id": lane_id},
-            )
             root_link = {"path": str(root_path), "sha256": file_sha256(root_path)}
-            event_rows = [f"{lane_id}:source-{row}" for row in range(5)]
             groups = EXTRACTOR._canonical_groups(lane_id, event_rows, 5)
             group_set_sha256 = EXTRACTOR._payload_sha256(groups)
             runtime_evidence, runtime_source_sets, runtime_hashes = (
@@ -549,6 +556,58 @@ class ManifestAssemblerTest(unittest.TestCase):
                     evidence_links["config"],
                     CONTRACT,
                 )
+            )
+            environment = EXECUTION._expected_environment(
+                {
+                    "lane_id": lane_id,
+                    "family": family,
+                    "sample": sample,
+                    "period": period,
+                    "interaction": interaction,
+                },
+                CONTRACT,
+            )
+            execution_path = lane_evidence_dir / "execution_contract.json"
+            execution_payload = EXECUTION._build_receipt(
+                lane_id,
+                Path(evidence_links["source_list"]["path"]),
+                environment,
+                CONTRACT_PATH,
+            )
+            write_json(execution_path, execution_payload)
+            execution_link = {
+                "path": str(execution_path),
+                "sha256": file_sha256(execution_path),
+            }
+            write_json(
+                sidecar_path,
+                {
+                    "schema": "ppg12-stitched-purity-lane-input/v1",
+                    "lane_id": lane_id,
+                    "family": family,
+                    "sample": sample,
+                    "period": period,
+                    "interaction": interaction,
+                    "group_count": 1,
+                    "group_size": 5,
+                    "group_index_start": 0,
+                    "event_set_row_count": 5,
+                    "groups": groups,
+                    "group_set_sha256": group_set_sha256,
+                    "group_input_sidecars": [],
+                    "external_scale": 1.0,
+                    "abcd_population": "unsuffixed",
+                    "object_prefix": "SIM",
+                    "root": root_link,
+                    "evidence": evidence_links,
+                    "runtime_manifest": runtime_manifest_link,
+                    "execution_contract": execution_link,
+                    "fill_evidence": {
+                        "path": str(fill_path),
+                        "sha256": file_sha256(fill_path),
+                    },
+                    "candidate_parity_evidence": candidate_links,
+                },
             )
             extraction = {
                 "schema": "ppg12-stitched-purity-lane-extraction/v1",
@@ -568,6 +627,8 @@ class ManifestAssemblerTest(unittest.TestCase):
                 "evidence": evidence_links,
                 "runtime_evidence": runtime_evidence,
                 "runtime_source_sets": runtime_source_sets,
+                "execution_contract": execution_link,
+                "execution_contract_payload": execution_payload,
                 "candidate_parity_evidence": candidate_links,
                 "groups": groups,
                 "group_set_sha256": group_set_sha256,
@@ -605,6 +666,9 @@ class ManifestAssemblerTest(unittest.TestCase):
             for evidence_name, field in ASSEMBLER.LANE_DIRECT_EVIDENCE_TO_FIELD.items():
                 payload[field] = evidence_links[evidence_name]["sha256"]
             payload.update(runtime_hashes)
+            payload["execution_contract_sha256"] = execution_payload[
+                "semantic_contract_sha256"
+            ]
             path = self.lane_dir / f"lane_{index:02d}.json"
             write_json(path, payload)
             self.lane_paths.append(path)

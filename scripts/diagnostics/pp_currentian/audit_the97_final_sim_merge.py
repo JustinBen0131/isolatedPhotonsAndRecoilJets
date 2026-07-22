@@ -4,11 +4,27 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 from pathlib import Path
 
 import ROOT
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def payload_sha256(payload: object) -> str:
+    encoded = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def open_root(path: str):
@@ -33,6 +49,7 @@ def collect_histograms(directory, prefix: str = "") -> dict[str, object]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--family", choices=("inclusive", "photon"), required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--input", action="append", required=True, dest="inputs")
     parser.add_argument("--json", dest="json_path")
@@ -126,11 +143,34 @@ def main() -> int:
     if not config_present:
         failures.append("analysis_config_yaml absent")
 
+    output_path = Path(args.output).resolve()
+    input_paths = [Path(path).resolve() for path in args.inputs]
+    input_links = [
+        {"path": str(path), "sha256": file_sha256(path)}
+        for path in input_paths
+    ]
+    root_validation = [
+        {
+            "path": str(path),
+            "sha256": file_sha256(path),
+            "zombie": False,
+            "recovered": False,
+        }
+        for path in [output_path, *input_paths]
+    ]
     report = {
+        "schema": "ppg12-stitched-purity-family-merge-summary/v2",
+        "family": args.family,
         "status": "PASS" if not failures else "FAIL",
-        "output": args.output,
-        "inputs_fixed_order": args.inputs,
-        "output_bytes": Path(args.output).stat().st_size,
+        "output": str(output_path),
+        "output_artifact": {
+            "path": str(output_path),
+            "sha256": file_sha256(output_path),
+        },
+        "inputs_fixed_order": [str(path) for path in input_paths],
+        "input_links": input_links,
+        "input_set_sha256": payload_sha256(input_links),
+        "output_bytes": output_path.stat().st_size,
         "histograms": len(output_hists),
         "compared_cells": compared_cells,
         "compared_sumw2_cells": compared_sumw2,
@@ -138,8 +178,14 @@ def main() -> int:
         "max_sumw2_delta": max_sumw2_delta,
         "analysis_config_yaml_present": config_present,
         "required_object_family_tokens": token_presence,
+        "root_validation": root_validation,
+        "auditor": {
+            "path": str(Path(__file__).resolve()),
+            "sha256": file_sha256(Path(__file__).resolve()),
+        },
         "failures": failures,
     }
+    report["verification_payload_sha256"] = payload_sha256(report)
     rendered = json.dumps(report, indent=2, sort_keys=True)
     print(rendered)
     if args.json_path:

@@ -1287,8 +1287,6 @@ smoke_body_macro="${build_root}/smoke_new17_runtime_body.C"
 cat > "$smoke_body_macro" <<EOF
 #include <caloana/PPG12OraclePhotonClusterBuilder.h>
 #include <yaml-cpp/yaml.h>
-#include <RooUnfoldResponse.h>
-#include <RooUnfoldBayes.h>
 #include <TH1D.h>
 #include <TH2D.h>
 #include <TSystem.h>
@@ -1323,21 +1321,43 @@ EOF
 
 smoke_macro="${build_root}/smoke_new17_runtime.C"
 cat > "$smoke_macro" <<EOF
-#include <TUnfold.h>
 #include <TInterpreter.h>
 #include <TROOT.h>
 #include <TSystem.h>
 #include <iostream>
 void smoke_new17_runtime()
 {
+  const bool tunfold_declared =
+    gInterpreter->Declare("#include <TUnfold.h>");
+  std::cout << "PPG12_ORACLE_ROOUNFOLD_DECLARE header=TUnfold.h status="
+            << tunfold_declared << std::endl;
+  if (!tunfold_declared) gSystem->Exit(99);
+
+  const char *roounfold_library =
+    "${runtime_root}/lib/libRooUnfold.so";
+  const int roounfold_status = gSystem->Load(roounfold_library);
+  std::cout << "PPG12_ORACLE_ROOT_LOAD path=" << roounfold_library
+            << " status=" << roounfold_status << std::endl;
+  if (roounfold_status < 0) gSystem->Exit(91);
+
+  const bool response_declared =
+    gInterpreter->Declare("#include <RooUnfoldResponse.h>");
+  std::cout << "PPG12_ORACLE_ROOUNFOLD_DECLARE header=RooUnfoldResponse.h status="
+            << response_declared << std::endl;
+  if (!response_declared) gSystem->Exit(97);
+  const bool bayes_declared =
+    gInterpreter->Declare("#include <RooUnfoldBayes.h>");
+  std::cout << "PPG12_ORACLE_ROOUNFOLD_DECLARE header=RooUnfoldBayes.h status="
+            << bayes_declared << std::endl;
+  if (!bayes_declared) gSystem->Exit(98);
+
   const char *libraries[] = {
     "${runtime_root}/lib/libCaloAna24.so",
     "${runtime_root}/lib/libcalo_reco.so",
     "${runtime_root}/lib/libclusteriso.so",
     "${runtime_root}/lib/libjetbase.so",
     "${runtime_root}/lib/libRecoilJets.so",
-    "${runtime_root}/lib/libyaml-cpp.so",
-    "${runtime_root}/lib/libRooUnfold.so"
+    "${runtime_root}/lib/libyaml-cpp.so"
   };
   for (const char *library : libraries)
   {
@@ -1370,6 +1390,15 @@ EOF
 }
 [[ "$(grep -c '^PPG12_ORACLE_ROOT_LOAD ' "${log_root}/root_smoke.log")" -eq 7 ]] || \
   die "ROOT smoke did not load all seven runtime libraries"
+grep -Fxq 'PPG12_ORACLE_ROOUNFOLD_DECLARE header=RooUnfoldResponse.h status=1' \
+  "${log_root}/root_smoke.log" || \
+  die "ROOT smoke did not declare RooUnfoldResponse in its own transaction"
+grep -Fxq 'PPG12_ORACLE_ROOUNFOLD_DECLARE header=TUnfold.h status=1' \
+  "${log_root}/root_smoke.log" || \
+  die "ROOT smoke did not declare TUnfold in its own transaction"
+grep -Fxq 'PPG12_ORACLE_ROOUNFOLD_DECLARE header=RooUnfoldBayes.h status=1' \
+  "${log_root}/root_smoke.log" || \
+  die "ROOT smoke did not declare RooUnfoldBayes in its own transaction"
 grep -Fxq 'PPG12_ORACLE_ROOUNFOLD_API_SMOKE_PASS default_overflow=0' \
   "${log_root}/root_smoke.log" || \
   die "ROOT smoke did not compile and instantiate the historical RooUnfold API"

@@ -82,6 +82,9 @@ LOCAL_FILES=(
   "scripts/ml/working_points/make_auau_logreg_target_wp_config.py"
   "scripts/ml/working_points/make_auau_mlp_target_wp_config.py"
   "scripts/ml/working_points/derive_the57_full_weighted_wp80.py"
+  "scripts/ml/working_points/derive_the107_paired_wp.py"
+  "scripts/ml/validation/audit_the107_auau_bdt_extraction.py"
+  "scripts/ml/validation/compare_the107_auau_bdt_label_contracts.py"
   "scripts/sdcc/runtime/condor/RecoilJets_Condor_AuAu.sh"
   "scripts/sdcc/runtime/condor/RecoilJets_Condor_submit.sh"
   "scripts/sdcc/runtime/condor/RecoilJets_Condor.sh"
@@ -241,6 +244,9 @@ REMOTE_FILES=(
   "scripts/ml/working_points/make_auau_logreg_target_wp_config.py"
   "scripts/ml/working_points/make_auau_mlp_target_wp_config.py"
   "scripts/ml/working_points/derive_the57_full_weighted_wp80.py"
+  "scripts/ml/working_points/derive_the107_paired_wp.py"
+  "scripts/ml/validation/audit_the107_auau_bdt_extraction.py"
+  "scripts/ml/validation/compare_the107_auau_bdt_label_contracts.py"
   "RecoilJets_Condor_AuAu.sh"
   "RecoilJets_Condor_submit.sh"
   "RecoilJets_Condor.sh"
@@ -451,6 +457,7 @@ GROUP_SCRIPTS=(
   "scripts/ml/validation/validate_auau_tight_bdt_on_sim.py"
   "scripts/ml/validation/validate_auau_tight_logreg_on_sim.py"
   "scripts/ml/validation/validate_auau_tight_mlp_on_sim.py"
+  "scripts/diagnostics/pp_currentian/run_ppg12_photon_oracle_canary_audit.py"
 )
 
 usage() {

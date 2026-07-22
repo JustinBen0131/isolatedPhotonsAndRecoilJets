@@ -77,12 +77,12 @@ class PanelSpec:
 PANELS: tuple[PanelSpec, ...] = (
     PanelSpec(
         tag="bdt_no_npb_22_28",
-        title="BDT, 22 < pT < 28 GeV, no NPB cut",
+        title="BDT, 22 < pT < 28 GeV, before NCB preselection",
         page_image=OUTDIR / "ian_v4_page-021.png",
         page_label="PPG12 IAN v4 page 21 / Fig. 13 BDT panel",
         sdcc_hist="h2d_bdt_eta0_pt3_cut0",
         source_hist_label="h2d_bdt_eta0_pt3_cut0",
-        ian_label="22 < pT < 28 GeV, w/o nbkg cut",
+        ian_label="22 < pT < 28 GeV, before NCB preselection",
         crop_box=(1600, 480, 2385, 995),
         x_left_abs=1659.0,
         x_right_abs=2339.0,
@@ -100,12 +100,12 @@ PANELS: tuple[PanelSpec, ...] = (
     ),
     PanelSpec(
         tag="bdt_with_npb_18_22",
-        title="BDT, 18 < pT < 22 GeV, with NPB/preselection",
+        title="BDT, 18 < pT < 22 GeV, after NCB preselection",
         page_image=OUTDIR / "ian_v4_page-025.png",
         page_label="PPG12 IAN v4 page 25 / Fig. 19 BDT panel",
         sdcc_hist="h2d_bdt_eta0_pt2_cut1",
         source_hist_label="h2d_bdt_eta0_pt2_cut1",
-        ian_label="18 < pT < 22 GeV, w/ nbkg cut",
+        ian_label="18 < pT < 22 GeV, after NCB preselection",
         crop_box=(1600, 490, 2385, 1085),
         x_left_abs=1659.0,
         x_right_abs=2339.0,
@@ -508,15 +508,28 @@ def current_projection_exact(root_path: Path, hist_name: str, dst_edges: np.ndar
         root_file.Close()
         raise RuntimeError(f"Missing exact current histogram: {hist_name}")
 
-    nbins = hist.GetNbinsX()
-    counts = np.asarray([float(hist.GetBinContent(i)) for i in range(1, nbins + 1)], dtype=float)
+    source_class = hist.ClassName()
+    if hist.InheritsFrom("TH2"):
+        projected = hist.ProjectionX(
+            f"{hist.GetName()}_px_for_current_overlay",
+            1,
+            hist.GetNbinsY(),
+            "e",
+        )
+        projected.SetDirectory(0)
+        hist_for_x = projected
+    else:
+        hist_for_x = hist
+
+    nbins = hist_for_x.GetNbinsX()
+    counts = np.asarray([float(hist_for_x.GetBinContent(i)) for i in range(1, nbins + 1)], dtype=float)
     edges = np.asarray(
-        [float(hist.GetXaxis().GetBinLowEdge(i)) for i in range(1, nbins + 1)]
-        + [float(hist.GetXaxis().GetBinUpEdge(nbins))],
+        [float(hist_for_x.GetXaxis().GetBinLowEdge(i)) for i in range(1, nbins + 1)]
+        + [float(hist_for_x.GetXaxis().GetBinUpEdge(nbins))],
         dtype=float,
     )
-    underflow = float(hist.GetBinContent(0))
-    overflow = float(hist.GetBinContent(nbins + 1))
+    underflow = float(hist_for_x.GetBinContent(0))
+    overflow = float(hist_for_x.GetBinContent(nbins + 1))
     root_file.Close()
 
     raw, rawerr = rebin_counts_to_edges(counts, edges, dst_edges)
@@ -536,13 +549,18 @@ def current_projection_exact(root_path: Path, hist_name: str, dst_edges: np.ndar
         "source_edges_high": float(edges[-1]),
         "underflow": underflow,
         "overflow": overflow,
+        "source_class": source_class,
     }
 
 
-def current_projection(spec: PanelSpec, dst_edges: np.ndarray) -> dict[str, np.ndarray | float]:
+def current_projection(
+    spec: PanelSpec,
+    dst_edges: np.ndarray,
+    current_root: Path = CURRENT_FULL_PP,
+) -> dict[str, np.ndarray | float]:
     import uproot
 
-    f = uproot.open(CURRENT_FULL_PP)
+    f = uproot.open(current_root)
     counts = None
     edges = None
     integral_inputs: dict[str, float] = {}
@@ -609,8 +627,12 @@ def write_reference_validation(spec: PanelSpec, sdcc: dict[str, np.ndarray]) -> 
     )
 
 
-def write_current_overlay(spec: PanelSpec, sdcc: dict[str, np.ndarray]) -> None:
-    cur = current_projection(spec, sdcc["edges"])
+def write_current_overlay(
+    spec: PanelSpec,
+    sdcc: dict[str, np.ndarray],
+    current_root: Path = CURRENT_FULL_PP,
+) -> None:
+    cur = current_projection(spec, sdcc["edges"], current_root)
     out = OUTDIR / f"ppg12_sdcc_vs_current_default_fullpp_{spec.tag}_data_overlay_slidefit_772x998.png"
     manifest = {
         "comparison": "PPG12 SDCC ROOT data projection vs current completed full-pp PhotonClusterBuilder/RecoilJets BDT-score QA",
@@ -618,7 +640,7 @@ def write_current_overlay(spec: PanelSpec, sdcc: dict[str, np.ndarray]) -> None:
         "ppg12_sdcc_json": str(SDCC_JSON),
         "ppg12_sdcc_root": sdcc["source_root"],
         "ppg12_sdcc_hist": spec.sdcc_hist,
-        "current_full_pp_root": str(CURRENT_FULL_PP),
+        "current_full_pp_root": str(current_root),
         "current_directory": CURRENT_DIR,
         "current_histograms": list(spec.current_hists),
         "current_source_integrals": cur["source_integrals"],
@@ -671,13 +693,13 @@ def write_exact_current_overlay(args: argparse.Namespace) -> None:
     ppg12_entries = infer_count_from_normalized_errors(ref_y, ref_err)
     stats_text = (
         f"PPG12 SDCC N_eff={ppg12_entries:.0f}\n"
-        f"July 1 final pp N={cur['total_0to1']:.0f}\n"
+        f"This analysis N={cur['total_0to1']:.0f}\n"
         rf"max $|R-1|$ = {100.0 * max_abs_ratio_minus_one:.1f}%"
         f"\nnear bdt = {max_ratio_x:.2f}"
     )
 
     manifest = {
-        "comparison": "PPG12 SDCC ROOT data projection vs July 1 final combined pp TableQA BDT object",
+        "comparison": "PPG12 SDCC ROOT data projection vs current registered full-stat pp TableQA BDT object",
         "panel": spec.title,
         "ppg12_sdcc_json": str(SDCC_JSON),
         "ppg12_sdcc_root": sdcc["source_root"],
@@ -697,7 +719,7 @@ def write_exact_current_overlay(args: argparse.Namespace) -> None:
         "stable_mean_abs_ratio_minus_one": float(np.nanmean(np.abs(stable_ratio - 1.0))) if stable_ratio.size else None,
         "stable_max_abs_ratio_minus_one": max_abs_ratio_minus_one,
         "stable_max_abs_ratio_minus_one_bdt_center": max_ratio_x,
-        "note": "Current points are from the final hierarchical July 1 combined pp ROOT, using the exact PPG12 TableQA 22<pT<28 GeV no-NPB BDT object, rebinned to the PPG12 Fig.13/19 50-bin 0-1 grid.",
+        "note": "Current points are from the supplied registered pp ROOT, using the exact PPG12 TableQA BDT object for the selected panel, rebinned to the PPG12 50-bin 0-1 grid.",
     }
     plot_overlay(
         spec=spec,
@@ -709,12 +731,16 @@ def write_exact_current_overlay(args: argparse.Namespace) -> None:
         cmp_y=cur_y,
         cmp_err=cur_err,
         cmp_label=args.current_legend,
-        ratio_label="Current / PPG12",
+        ratio_label="This analysis / PPG12",
         ratio_ylim=args.ratio_ylim,
         stable_threshold=stable_threshold,
         manifest=manifest,
         stats_text=stats_text,
-        annotation_label="22 < pT < 28 GeV, no NPB cut" if spec.tag == "bdt_no_npb_22_28" else None,
+        annotation_label=(
+            "22 < pT < 28 GeV, before NCB preselection"
+            if spec.tag == "bdt_no_npb_22_28"
+            else None
+        ),
     )
 
 
@@ -748,7 +774,7 @@ def main() -> None:
         sdcc = load_sdcc_projection(spec)
         if not args.skip_reference:
             write_reference_validation(spec, sdcc)
-        write_current_overlay(spec, sdcc)
+        write_current_overlay(spec, sdcc, args.current_root)
 
 
 if __name__ == "__main__":

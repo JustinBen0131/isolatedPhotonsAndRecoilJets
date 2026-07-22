@@ -315,6 +315,9 @@ cp "$gate_report" "${gate_report}.valid"
 
 clear_gate_env() {
   unset RJ_PPG12_CLOSURE_CANARY RJ_PPG12_CLOSURE_CANARY_ID
+  unset RJ_PPG12_DIRECT_SMEAR_REPAIR RJ_PPG12_DIRECT_REPAIR_LIBRECOILJETS_PATH
+  unset RJ_PPG12_PHOTON_YIELD_ET_SMEAR RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4
+  unset RJ_PPG12_PPSIM_G4_ONLY RJ_PPG12_PHOTON_YIELD
   unset RJ_PPG12_CLOSURE_ADMISSION_MANIFEST RJ_PPG12_CLOSURE_ADMISSION_SHA256
   unset RJ_PPG12_CLOSURE_RUNTIME_MANIFEST
   unset RJ_PPG12_CLOSURE_IMPLEMENTATION_SHA256 RJ_PPG12_CLOSURE_SOURCE_SET_SHA256
@@ -387,6 +390,50 @@ clear_gate_env
 set_common
 expect_fail 'broad production without admission is blocked'
 
+# The one explicitly authorized 2026-07-21 direct-repair campaign may bypass
+# admission only when its isolated namespace, deployed graph, and every source
+# and runtime hash are exact. Override the production pins with deterministic
+# test fixtures so this remains a hermetic unit test.
+direct_base="${tmpdir}/direct-base"
+direct_runtime="${tmpdir}/direct-runtime/libRecoilJets.so"
+mkdir -p "${direct_base}/src" "${direct_base}/macros" "$(dirname "$direct_runtime")"
+printf 'recoil cc\n' > "${direct_base}/src/RecoilJets.cc"
+printf 'recoil h\n' > "${direct_base}/src/RecoilJets.h"
+printf 'macro\n' > "${direct_base}/macros/Fun4All_recoilJets_unified_impl.C"
+printf 'runtime\n' > "$direct_runtime"
+BASE="$direct_base"
+PPG12_DIRECT_REPAIR_EXPECTED_RECOIL_CC_SHA256="$(ppg12_sha256_file "${direct_base}/src/RecoilJets.cc")"
+PPG12_DIRECT_REPAIR_EXPECTED_RECOIL_H_SHA256="$(ppg12_sha256_file "${direct_base}/src/RecoilJets.h")"
+PPG12_DIRECT_REPAIR_EXPECTED_MACRO_SHA256="$(ppg12_sha256_file "${direct_base}/macros/Fun4All_recoilJets_unified_impl.C")"
+PPG12_DIRECT_REPAIR_EXPECTED_LIB_SHA256="$(ppg12_sha256_file "$direct_runtime")"
+
+clear_gate_env
+set_common
+MAX_JOBS=0
+MAX_JOBS_EXPLICIT=0
+RJ_PPG12_DIRECT_SMEAR_REPAIR=1
+RJ_SUBMISSION_NAMESPACE=the97_ppg12_deployed_smear_full_20260721_1430_v1
+RJ_DEST_BASE_OVERRIDE="${tmpdir}/${RJ_SUBMISSION_NAMESPACE}/outputs"
+RJ_PPG12_PHOTON_YIELD_ET_SMEAR=1
+RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4=1
+RJ_PPG12_PPSIM_G4_ONLY=1
+RJ_PPG12_PHOTON_YIELD=1
+RJ_PPG12_DIRECT_REPAIR_LIBRECOILJETS_PATH="$direct_runtime"
+expect_pass 'exact hash-pinned direct deployed-smear repair permits full production'
+
+unset RJ_PPG12_PHOTON_YIELD_ET_SMEAR
+expect_fail 'direct repair without explicit ET smearing is blocked'
+RJ_PPG12_PHOTON_YIELD_ET_SMEAR=1
+
+printf 'drift\n' >> "${direct_base}/src/RecoilJets.cc"
+expect_fail 'direct repair source hash drift is blocked'
+printf 'recoil cc\n' > "${direct_base}/src/RecoilJets.cc"
+
+RJ_SUBMISSION_NAMESPACE=unscoped-repair
+expect_fail 'direct repair outside its canonical namespace is blocked'
+
+clear_gate_env
+set_common
 RJ_PPG12_CLOSURE_ADMISSION_MANIFEST="$admission"
 RJ_PPG12_CLOSURE_ADMISSION_SHA256="$(ppg12_sha256_file "$admission")"
 RJ_PPG12_CLOSURE_RUNTIME_MANIFEST="$runtime_manifest"

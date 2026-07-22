@@ -38,6 +38,7 @@ Input sidecar schema (paths may be relative to the sidecar)::
       "config": {"path": "...", "sha256": "..."}
     },
     "runtime_manifest": {"path": "runtime_manifest.json", "sha256": "..."},
+    "execution_contract": {"path": "execution_contract.json", "sha256": "..."},
     "fill_evidence": {"path": "fills.json", "sha256": "..."},
     "candidate_parity_evidence": [
       {"role": "candidate_rows", "path": "...", "sha256": "..."}
@@ -63,6 +64,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import math
 import re
@@ -186,6 +188,26 @@ def _contract(path: Path) -> dict[str, Any]:
     if payload.get("schema") != "ppg12-stitched-purity-closure-contract/v1":
         raise ExtractionError("unsupported closure contract schema")
     return payload
+
+
+def _execution_contract_module(contract: dict[str, Any]) -> Any:
+    raw_path = contract.get("canonical_tools", {}).get("execution_contract_producer")
+    if not isinstance(raw_path, str) or not raw_path:
+        raise ExtractionError("closure contract lacks execution_contract_producer")
+    path = (REPO / raw_path).resolve()
+    spec = importlib.util.spec_from_file_location(
+        "ppg12_stitched_purity_execution_contract", path
+    )
+    if spec is None or spec.loader is None:
+        raise ExtractionError(f"cannot load execution-contract producer: {path}")
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    except Exception as exc:
+        raise ExtractionError(
+            f"cannot import execution-contract producer {path}: {exc}"
+        ) from exc
+    return module
 
 
 def _lane_id(family: str, sample: str, period: str, interaction: str) -> str:
@@ -675,6 +697,22 @@ def extract_lane(
         groups,
         group_size,
     )
+    execution_link = _validate_link(
+        metadata.get("execution_contract"),
+        metadata_path.parent,
+        "execution_contract",
+    )
+    try:
+        execution_payload, execution_contract_sha256 = (
+            _execution_contract_module(contract).validate_receipt(
+                Path(execution_link["path"]),
+                lane_id,
+                normalized_evidence["source_list"],
+                contract_path.resolve(),
+            )
+        )
+    except Exception as exc:
+        raise ExtractionError(f"invalid lane execution contract: {exc}") from exc
     raw_group_sidecars = metadata.get("group_input_sidecars")
     group_sidecars: list[dict[str, Any]] = []
     if group_count == 1:
@@ -830,6 +868,8 @@ def extract_lane(
             "evidence": normalized_evidence,
             "runtime_evidence": runtime_evidence,
             "runtime_source_sets": runtime_source_sets,
+            "execution_contract": execution_link,
+            "execution_contract_payload": execution_payload,
             "candidate_parity_evidence": candidate_links,
             "groups": groups,
             "group_set_sha256": group_set_sha256,
@@ -841,6 +881,7 @@ def extract_lane(
     for evidence_name, field_name in DIRECT_HASH_FIELD_BY_EVIDENCE.items():
         output[field_name] = normalized_evidence[evidence_name]["sha256"]
     output.update(runtime_field_hashes)
+    output["execution_contract_sha256"] = execution_contract_sha256
     if candidate_links:
         output["candidate_parity_evidence"] = candidate_links
     return output

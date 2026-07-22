@@ -483,6 +483,29 @@ def _validate_lane_extraction(
         if lane_payload.get(field) != runtime_hashes.get(field):
             raise AssemblyError(f"{lane_id}.{field} is not derived from executed runtime roles")
 
+    execution_link = _validate_file_link(
+        payload.get("execution_contract"),
+        lane_path.parent,
+        f"{lane_id}.execution_contract",
+    )
+    try:
+        execution_payload, execution_contract_sha256 = (
+            extractor._execution_contract_module(contract).validate_receipt(
+                Path(execution_link["path"]),
+                lane_id,
+                normalized_evidence["source_list"],
+                DEFAULT_CONTRACT,
+            )
+        )
+    except Exception as exc:
+        raise AssemblyError(f"{lane_id} execution contract is invalid: {exc}") from exc
+    if payload.get("execution_contract_payload") != execution_payload:
+        raise AssemblyError(f"{lane_id} execution-contract payload drifted")
+    if lane_payload.get("execution_contract_sha256") != execution_contract_sha256:
+        raise AssemblyError(
+            f"{lane_id}.execution_contract_sha256 is not derived from the executed graph"
+        )
+
     raw_candidate_links = payload.get("candidate_parity_evidence")
     if not isinstance(raw_candidate_links, list):
         raise AssemblyError(f"{lane_id}.candidate_parity_evidence must be a list")
@@ -616,6 +639,8 @@ def _validate_lane_extraction(
         "evidence": normalized_evidence,
         "runtime_evidence": runtime_evidence,
         "runtime_source_sets": runtime_source_sets,
+        "execution_contract": execution_link,
+        "execution_contract_payload": execution_payload,
         "candidate_parity_evidence": candidate_links,
         "groups": canonical_groups,
         "group_set_sha256": group_set_sha256,
@@ -847,6 +872,7 @@ def _canonical_group_extracts(
         "ownership_sha256",
         "weight_sha256",
         "estimator_sha256",
+        "execution_contract_sha256",
     )
     group_rows: list[dict[str, Any]] = []
     for lane in sorted(lanes, key=lambda row: row["lane_id"]):
@@ -1821,6 +1847,97 @@ def _command_lane_index(args: argparse.Namespace) -> None:
     )
 
 
+def _unique_file_links(rows: Iterable[dict[str, Any]]) -> list[dict[str, str]]:
+    indexed: dict[str, dict[str, str]] = {}
+    for row in rows:
+        path = row.get("path")
+        sha256 = row.get("sha256")
+        if not isinstance(path, str) or not isinstance(sha256, str):
+            raise AssemblyError("provenance source row lacks path or sha256")
+        normalized = {"path": str(Path(path).resolve()), "sha256": sha256}
+        current = indexed.get(normalized["path"])
+        if current is not None and current != normalized:
+            raise AssemblyError(
+                f"one provenance path has conflicting hashes: {normalized['path']}"
+            )
+        indexed[normalized["path"]] = normalized
+    return [indexed[path] for path in sorted(indexed)]
+
+
+def _command_provenance(args: argparse.Namespace) -> None:
+    """Derive canonical frozen provenance from all 32 validated lane extracts."""
+    contract_path = Path(args.contract).resolve()
+    contract = _read_contract(contract_path)
+    output = Path(args.output).resolve()
+    _prepare_output(output)
+    links = _load_lane_links(
+        index_path=Path(args.lane_index).resolve() if args.lane_index else None,
+        lane_paths=[Path(item).resolve() for item in args.lane_json],
+        contract=contract,
+    )
+    lanes, _, _ = _load_and_validate_lanes(
+        links, contract, require_merge_input=False
+    )
+
+    implementation_rows: list[dict[str, Any]] = [
+        {"path": str(contract_path), "sha256": _file_sha256(contract_path)}
+    ]
+    for key, raw_path in sorted(contract["canonical_tools"].items()):
+        path = (REPO / raw_path).resolve()
+        if not path.is_file():
+            raise AssemblyError(f"canonical provenance tool is missing ({key}): {path}")
+        implementation_rows.append(
+            {"path": str(path), "sha256": _file_sha256(path)}
+        )
+
+    field_rows: dict[str, list[dict[str, Any]]] = {
+        "implementation_sha256": implementation_rows,
+        "source_set_sha256": [],
+        "config_contract_sha256": [],
+        "model_set_sha256": [],
+        "reconstruction_contract_sha256": [],
+        "ownership_contract_sha256": [],
+        "weights_contract_sha256": [],
+        "estimator_contract_sha256": [],
+    }
+    runtime_to_provenance = {
+        "config_sha256": "config_contract_sha256",
+        "model_set_sha256": "model_set_sha256",
+        "reconstruction_sha256": "reconstruction_contract_sha256",
+        "ownership_sha256": "ownership_contract_sha256",
+        "weight_sha256": "weights_contract_sha256",
+        "estimator_sha256": "estimator_contract_sha256",
+    }
+    for lane in lanes:
+        extraction = lane["extraction"]
+        field_rows["source_set_sha256"].extend(
+            extraction["evidence"][name]
+            for name in ("source_list", "event_set")
+        )
+        execution_link = extraction["execution_contract"]
+        field_rows["config_contract_sha256"].append(execution_link)
+        field_rows["reconstruction_contract_sha256"].append(execution_link)
+        runtime_sets = extraction["runtime_source_sets"]
+        for runtime_field, provenance_field in runtime_to_provenance.items():
+            field_rows[provenance_field].extend(runtime_sets[runtime_field]["files"])
+
+    source_sets: dict[str, Any] = {}
+    provenance: dict[str, str] = {}
+    for field in contract["frozen_provenance_fields"]:
+        files = _unique_file_links(field_rows[field])
+        if not files:
+            raise AssemblyError(f"canonical provenance source set is empty: {field}")
+        set_sha256 = _payload_sha256(files)
+        source_sets[field] = {"files": files, "set_sha256": set_sha256}
+        provenance[field] = set_sha256
+    _write_json(
+        output,
+        {
+            "schema": "ppg12-stitched-purity-provenance/v1",
+            "provenance": provenance,
+            "source_sets": source_sets,
+        },
+    )
 def _command_coverage_evidence(args: argparse.Namespace) -> None:
     contract = _read_contract(Path(args.contract).resolve())
     output = Path(args.output).resolve()
@@ -2227,6 +2344,80 @@ def _command_merge_audit(args: argparse.Namespace) -> None:
     )
 
 
+def _command_merge_evidence(args: argparse.Namespace) -> None:
+    """Generate both ROOT-native family summaries and the 32-lane audit."""
+    contract = _read_contract(Path(args.contract).resolve())
+    manifest_path = Path(args.candidate_manifest).resolve()
+    manifest = _load_manifest_for_assembly(
+        manifest_path, contract, {"candidate", "production"}
+    )
+    output = Path(args.output).resolve()
+    _prepare_output(output)
+    evidence_dir = Path(args.evidence_dir).resolve()
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    artifact_paths = {
+        "inclusive": Path(args.inclusive_artifact).resolve(),
+        "photon": Path(args.photon_artifact).resolve(),
+    }
+    auditor = (REPO / contract["canonical_tools"]["merge_auditor"]).resolve()
+    required_tokens = contract.get("merge_required_object_family_tokens")
+    if not isinstance(required_tokens, dict) or set(required_tokens) != {
+        "inclusive",
+        "photon",
+    }:
+        raise AssemblyError("closure contract lacks exact merge object-family tokens")
+
+    summaries: dict[str, Path] = {}
+    for family in ("inclusive", "photon"):
+        artifact = artifact_paths[family]
+        if not artifact.is_file():
+            raise AssemblyError(f"missing {family} merged artifact: {artifact}")
+        lane_inputs = [
+            lane["merge_input"]["path"]
+            for lane in sorted(
+                (row for row in manifest["lanes"] if row["family"] == family),
+                key=lambda row: row["lane_id"],
+            )
+        ]
+        summary = evidence_dir / f"{family}_merge_summary.json"
+        command = [
+            str(_root_capable_python()),
+            str(auditor),
+            "--family",
+            family,
+            "--output",
+            str(artifact),
+            "--json",
+            str(summary),
+        ]
+        for lane_input in lane_inputs:
+            command.extend(["--input", lane_input])
+        tokens = required_tokens[family]
+        if (
+            not isinstance(tokens, list)
+            or not tokens
+            or any(not isinstance(token, str) or not token for token in tokens)
+        ):
+            raise AssemblyError(f"invalid required merge tokens for {family}")
+        for token in tokens:
+            command.extend(["--required-token", token])
+        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+        if completed.returncode != 0 or not summary.is_file():
+            raise AssemblyError(
+                f"{family} ROOT-native merge audit failed: "
+                f"{completed.stderr.strip() or completed.stdout.strip()}"
+            )
+        summaries[family] = summary
+
+    _command_merge_audit(
+        argparse.Namespace(
+            contract=args.contract,
+            candidate_manifest=str(manifest_path),
+            inclusive_summary=str(summaries["inclusive"]),
+            photon_summary=str(summaries["photon"]),
+            output=str(output),
+        )
+    )
 def verify_merge_audit_evidence(
     path: Path,
     candidate_manifest_path: Path,
@@ -2557,6 +2748,12 @@ def _parser() -> argparse.ArgumentParser:
     lane_index.add_argument("--lane-json", action="append", required=True)
     lane_index.add_argument("--output", required=True)
 
+    provenance = commands.add_parser("provenance")
+    provenance_lanes = provenance.add_mutually_exclusive_group(required=True)
+    provenance_lanes.add_argument("--lane-index")
+    provenance_lanes.add_argument("--lane-json", action="append")
+    provenance.add_argument("--output", required=True)
+
     coverage = commands.add_parser("coverage-evidence")
     coverage_lanes = coverage.add_mutually_exclusive_group(required=True)
     coverage_lanes.add_argument("--lane-index")
@@ -2580,6 +2777,13 @@ def _parser() -> argparse.ArgumentParser:
     merge.add_argument("--photon-summary", required=True)
     merge.add_argument("--output", required=True)
 
+    merge_evidence = commands.add_parser("merge-evidence")
+    merge_evidence.add_argument("--candidate-manifest", required=True)
+    merge_evidence.add_argument("--inclusive-artifact", required=True)
+    merge_evidence.add_argument("--photon-artifact", required=True)
+    merge_evidence.add_argument("--evidence-dir", required=True)
+    merge_evidence.add_argument("--output", required=True)
+
     production = commands.add_parser("production-wrapper")
     production.add_argument("--admission-manifest", required=True)
     production.add_argument("--reference-manifest", required=True)
@@ -2597,17 +2801,21 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "lane-index":
             _command_lane_index(args)
-        elif args.command in {"coverage-evidence", "manifest"}:
+        elif args.command in {"provenance", "coverage-evidence", "manifest"}:
             # argparse returns a single value for an optional action=append
             # option only when it was used; normalize it for the loader.
             if args.lane_json is None:
                 args.lane_json = []
-            if args.command == "coverage-evidence":
+            if args.command == "provenance":
+                _command_provenance(args)
+            elif args.command == "coverage-evidence":
                 _command_coverage_evidence(args)
             else:
                 _command_manifest(args)
         elif args.command == "merge-audit":
             _command_merge_audit(args)
+        elif args.command == "merge-evidence":
+            _command_merge_evidence(args)
         else:
             _command_production_wrapper(args)
     except (AssemblyError, OSError, ValueError) as exc:

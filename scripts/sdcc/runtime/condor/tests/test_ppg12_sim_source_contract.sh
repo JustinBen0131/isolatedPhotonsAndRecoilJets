@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../.." && pwd)"
 submitter="${repo_root}/scripts/sdcc/runtime/condor/RecoilJets_Condor_submit.sh"
+worker="${repo_root}/scripts/sdcc/runtime/condor/RecoilJets_Condor.sh"
 tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/ppg12-source-contract.XXXXXX")"
 trap 'rm -rf "$tmpdir"' EXIT
 
@@ -19,6 +20,7 @@ env_truthy() {
 # top-level command dispatcher.
 eval "$(sed -n '/^validate_ppg12_closure_canary_controls() {/,/^}/p' "$submitter")"
 eval "$(sed -n '/^validate_ppg12_sim_source_contract() {/,/^}/p' "$submitter")"
+eval "$(sed -n '/^validate_archived_ppg12_di_chunk_list() {/,/^}/p' "$worker")"
 
 single_list="${tmpdir}/single.list"
 closure_single_list="${tmpdir}/closure_single.list"
@@ -54,6 +56,30 @@ printf '%s\t%s\t%s\t%s\t%s\n' \
   NONE \
   NONE > "$closure_dual_list"
 
+worker_dual_list="${tmpdir}/worker_dual.list"
+worker_dual_with_global_list="${tmpdir}/worker_dual_with_global.list"
+printf '%s\t%s\t%s\t%s\t%s\n' \
+  NONE \
+  /sphenix/sim/js_pp200_signal_dual/g4hits/run0028/jet12/G4Hits_a.root \
+  /sphenix/sim/js_pp200_signal_dual/nopileup/jets/run0028/jet12/DST_TRUTH_JET_a.root \
+  NONE \
+  NONE > "$worker_dual_list"
+printf '%s\t%s\t%s\t%s\t%s\n' \
+  NONE \
+  /sphenix/sim/js_pp200_signal_dual/g4hits/run0028/jet12/G4Hits_a.root \
+  /sphenix/sim/js_pp200_signal_dual/nopileup/jets/run0028/jet12/DST_TRUTH_JET_a.root \
+  /sphenix/sim/js_pp200_signal_dual/nopileup/global/run0028/jet12/DST_GLOBAL_a.root \
+  NONE > "$worker_dual_with_global_list"
+
+validate_archived_ppg12_di_chunk_list "$worker_dual_list" jet12 >/dev/null 2>&1 || {
+  printf 'FAIL archived DI worker rejected the frozen G4-only source graph\n' >&2
+  exit 1
+}
+if validate_archived_ppg12_di_chunk_list "$worker_dual_with_global_list" jet12 >/dev/null 2>&1; then
+  printf 'FAIL archived DI worker accepted a forbidden prebuilt global lane\n' >&2
+  exit 1
+fi
+
 cp "$dual_list" "$mixed_list"
 printf '%s\t%s\t%s\t%s\t%s\n' \
   NONE \
@@ -67,6 +93,7 @@ clear_flags() {
   unset RJ_PPG12_PERIOD_STRICT_DI RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4
   unset RJ_PPG12_PPSIM_G4_ONLY
   unset RJ_PPG12_CLOSURE_CANARY RJ_PPG12_CLOSURE_CANARY_ID
+  unset RJ_PPG12_DIRECT_SMEAR_REPAIR
   unset RJ_PPG12_PPSIM_REPLAY_SEEDS
   unset RJ_PPG12_PPSIM_EXPECT_PEDESTAL_SEQUENCE
   unset RJ_PPG12_PPSIM_FIXED_RANDOMSEED
@@ -142,6 +169,29 @@ RJ_PPG12_PPSIM_REPLAY_SEEDS='2991264730,4256268992,2394322166,874466025,22403803
 RJ_PPG12_PPSIM_EXPECT_PEDESTAL_SEQUENCE=534
 RJ_DISABLE_JES_CDB_AUDIT=1
 expect_pass 'closure DI uses only dual-interaction G4Hits and truth-jet inputs'
+
+clear_flags
+SIM_SAMPLE=run28_photonjet10
+SIM_CLEAN_LIST="$closure_single_list"
+RJ_PPG12_PHOTON_YIELD=1
+RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4=1
+RJ_PPG12_PPSIM_G4_ONLY=1
+RJ_PPG12_DIRECT_SMEAR_REPAIR=1
+expect_pass 'direct repair SI uses the exact deployed G4-only source graph'
+
+clear_flags
+SIM_SAMPLE=run28_photonjet10_double
+SIM_CLEAN_LIST="$closure_dual_list"
+RJ_PPG12_PHOTON_YIELD=1
+RJ_PPG12_PHOTON_YIELD_DOUBLE=1
+RJ_PPG12_PERIOD_STRICT_DI=1
+RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4=1
+RJ_PPG12_PPSIM_G4_ONLY=1
+RJ_PPG12_DIRECT_SMEAR_REPAIR=1
+expect_pass 'direct repair DI uses the exact deployed dual G4-only source graph'
+
+SIM_CLEAN_LIST="$dual_list"
+expect_fail 'direct repair rejects a prebuilt global lane'
 
 clear_flags
 SIM_SAMPLE=run28_photonjet10
@@ -258,6 +308,11 @@ unset RJ_PPG12_CLOSURE_CANARY RJ_PPG12_CLOSURE_CANARY_ID
 unset RJ_PPG12_PPSIM_REPLAY_SEEDS RJ_PPG12_PPSIM_EXPECT_PEDESTAL_SEQUENCE
 if ! sim_requires_global_lane; then
   printf 'FAIL ordinary PPG12 photon-yield production no longer requires DST_GLOBAL\n' >&2
+  exit 1
+fi
+RJ_PPG12_DIRECT_SMEAR_REPAIR=1
+if sim_requires_global_lane; then
+  printf 'FAIL direct deployed-smear repair incorrectly requires DST_GLOBAL\n' >&2
   exit 1
 fi
 

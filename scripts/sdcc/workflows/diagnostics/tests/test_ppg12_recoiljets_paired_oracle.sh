@@ -373,8 +373,11 @@ for invariant in \
   'RooUnfold header inventory differs from exact nine-file contract' \
   'runtime manifest role {role} hash drifted' \
   'sealed RooUnfold library and PCM are not co-located' \
-  "return f'''#include <TUnfold.h>" \
+  "return f'''#include <TInterpreter.h>" \
+  'gInterpreter->Declare("#include <TUnfold.h>")' \
   'gSystem->Load({json.dumps(roounfold)})' \
+  'gInterpreter->Declare("#include <RooUnfoldResponse.h>")' \
+  'gInterpreter->Declare("#include <RooUnfoldBayes.h>")' \
   'ROOT_INCLUDE_PATH="${recoeff_roounfold_include_root}:${recoeff_include_root}:${recoeff_yaml_cpp_include_root}:${base_root_include_path}"' \
   'export ROOT_INCLUDE_PATH="${recoeff_yaml_cpp_include_root}:${base_root_include_path}"' \
   '--out-json "$aggregate_report"'; do
@@ -1008,15 +1011,30 @@ text = Path(sys.argv[1]).read_text()
 start = text.index("def runner(call: str) -> str:")
 end = text.index("Path(scan_runner).write_text", start)
 runner = text[start:end]
-prerequisite = "#include <TUnfold.h>"
+prerequisite = 'gInterpreter->Declare("#include <TUnfold.h>")'
 library_load = "gSystem->Load({json.dumps(roounfold)})"
+response_declare = 'gInterpreter->Declare("#include <RooUnfoldResponse.h>")'
+bayes_declare = 'gInterpreter->Declare("#include <RooUnfoldBayes.h>")'
 macro_load = "gROOT->LoadMacro({json.dumps(macro)})"
-for required in (prerequisite, library_load, macro_load):
+for required in (
+    prerequisite,
+    library_load,
+    response_declare,
+    bayes_declare,
+    macro_load,
+):
     if runner.count(required) != 1:
         raise SystemExit(f"generated RecoEff runner occurrence drifted: {required}")
-if not runner.index(prerequisite) < runner.index(library_load) < runner.index(macro_load):
+if not (
+    runner.index(prerequisite)
+    < runner.index(library_load)
+    < runner.index(response_declare)
+    < runner.index(bayes_declare)
+    < runner.index(macro_load)
+):
     raise SystemExit(
-        "generated RecoEff runner does not load TUnfold before RooUnfold and RecoEff"
+        "generated RecoEff runner does not commit TUnfold, Response, and Bayes "
+        "before loading RecoEff"
     )
 PY
 

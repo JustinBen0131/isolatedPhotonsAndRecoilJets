@@ -239,19 +239,20 @@ def draw(
     legend.Draw()
 
     coverage = 100.0 * args.partial_completed / args.partial_expected
-    partial = ROOT.TLatex()
-    partial.SetNDC(True)
-    partial.SetTextFont(42)
-    partial.SetTextColor(ROOT.kRed + 1)
-    partial.SetTextSize(0.027)
-    partial.SetTextAlign(11)
-    partial.DrawLatex(0.56, 0.452, "PRELIMINARY")
-    partial.DrawLatex(0.56, 0.416, f"PARTIAL-COVERAGE: {coverage:.3f}%")
-    partial.DrawLatex(0.56, 0.380, f"{args.partial_completed:,} / {args.partial_expected:,} files")
+    coverage_note = ROOT.TLatex()
+    coverage_note.SetNDC(True)
+    coverage_note.SetTextFont(42)
+    coverage_note.SetTextSize(0.027)
+    coverage_note.SetTextAlign(11)
+    if args.partial_completed != args.partial_expected:
+        coverage_note.SetTextColor(ROOT.kRed + 1)
+        coverage_note.DrawLatex(0.56, 0.452, "PRELIMINARY")
+        coverage_note.DrawLatex(0.56, 0.416, f"PARTIAL-COVERAGE: {coverage:.3f}%")
+        coverage_note.DrawLatex(0.56, 0.380, f"{args.partial_completed:,} / {args.partial_expected:,} files")
 
     out_png.parent.mkdir(parents=True, exist_ok=True)
     canvas.SaveAs(str(out_png))
-    _ = stack, legend, latex, partial
+    _ = stack, legend, latex, coverage_note
 
 
 def write_csv(path: Path, tight: ROOT.TH1, nontight: ROOT.TH1, signal_mc: ROOT.TH1) -> None:
@@ -322,7 +323,11 @@ def main() -> int:
     coverage = 100.0 * args.partial_completed / args.partial_expected
     manifest = {
         "artifact": "THE97 current-output reproduction of PPG12 paper Fig. 3 isolation template",
-        "status": "PRELIMINARY PARTIAL-COVERAGE",
+        "status": (
+            "FULL_STAT_CURRENT"
+            if args.partial_completed == args.partial_expected
+            else "PRELIMINARY PARTIAL-COVERAGE"
+        ),
         "campaign": args.campaign_tag,
         "coverage": {
             "completed_files": args.partial_completed,

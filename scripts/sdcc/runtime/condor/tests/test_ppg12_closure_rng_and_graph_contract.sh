@@ -4,13 +4,15 @@ set -Eeuo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 repo_root="$(cd "${script_dir}/../../../../.." && pwd -P)"
 macro="${repo_root}/macros/Fun4All_recoilJets_unified_impl.C"
+calib_macro="${repo_root}/macros/Calo_Calib.C"
 
-python3 - "$macro" <<'PY'
+python3 - "$macro" "$calib_macro" <<'PY'
 from pathlib import Path
 import sys
 
 path = Path(sys.argv[1])
 text = path.read_text()
+calib_text = Path(sys.argv[2]).read_text()
 
 required = (
     'RJ_PPG12_CLOSURE_CANARY',
@@ -65,6 +67,14 @@ assert prefix_positions[-1] < block.index('if (ppg12ClosureCanary)', block.index
 assert tail_positions == sorted(tail_positions)
 assert 'setenv("RJ_SKIP_CALO_TOWER_STATUS"' not in closure
 assert 'if (!ppg12ClosureCanary)' in text
+assert 'setenv("RJ_CALO_TOWER_STATUS_INPUT_PREFIX", "TOWERINFO_", 1);' not in text
+archived_prefix_guard = '''else if (usePPG12ArchivedDIG4OnlyReco)
+        {
+            unsetenv("RJ_SKIP_CALO_TOWER_STATUS");'''
+archived_prefix_start = text.index(archived_prefix_guard)
+archived_prefix_end = text.index('\n        else\n', archived_prefix_start)
+assert 'unsetenv("RJ_CALO_TOWER_STATUS_INPUT_PREFIX");' in text[archived_prefix_start:archived_prefix_end]
+assert calib_text.count('set_inputNodePrefix(statusInputPrefix);') == 6
 
 calib_start = text.index('if (usePPG12PPSimRebuildCaloFromG4)\n    {', end)
 calib_end = text.index('\n    else if (isSim && caloInputMode == "simdst")', calib_start)

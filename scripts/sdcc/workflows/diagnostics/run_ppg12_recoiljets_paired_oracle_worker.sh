@@ -1823,10 +1823,13 @@ import sys
 scan_runner, analysis_runner, macro, config, vtxscan, sample, roounfold = sys.argv[1:]
 
 def runner(call: str) -> str:
-    return f'''#include <TUnfold.h>
+    return f'''#include <TInterpreter.h>
 {{
   Int_t error = 0;
+  if (!gInterpreter->Declare("#include <TUnfold.h>")) throw std::runtime_error("sealed TUnfold declaration failed");
   if (gSystem->Load({json.dumps(roounfold)}) < 0) throw std::runtime_error("sealed RooUnfold load failed");
+  if (!gInterpreter->Declare("#include <RooUnfoldResponse.h>")) throw std::runtime_error("sealed RooUnfoldResponse declaration failed");
+  if (!gInterpreter->Declare("#include <RooUnfoldBayes.h>")) throw std::runtime_error("sealed RooUnfoldBayes declaration failed");
   if (gROOT->LoadMacro({json.dumps(macro)}) < 0) throw std::runtime_error("RecoEff macro load failed");
   gROOT->ProcessLine({json.dumps(call)}, &error);
   if (error != TInterpreter::kNoError) throw std::runtime_error("RecoEff call failed");
