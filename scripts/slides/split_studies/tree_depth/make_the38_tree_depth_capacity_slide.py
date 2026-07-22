@@ -258,38 +258,20 @@ def plot_gap_panel(ax, depths, auc_gap, logloss_gap, baseline_depth):
     add_depth_regions(ax, depths, baseline_depth)
     width = 0.34
     x = depths.astype(float)
-    ax.bar(x - width / 2, auc_gap, width=width, color=COLORS["auc_gap"], label="AUC gap")
-    ax.bar(x + width / 2, logloss_gap, width=width, color=COLORS["logloss_gap"], label="Logloss gap")
+    ax.bar(x - width / 2, auc_gap, width=width, color=COLORS["auc_gap"], label="AUC:  train − holdout")
+    ax.bar(x + width / 2, logloss_gap, width=width, color=COLORS["logloss_gap"], label="Log-loss:  holdout − train")
     ax.axhline(0.0, color="#9aa7b8", linewidth=1.0)
-    ax.set_title("Train-holdout gaps show overfit risk", fontsize=17.0, fontweight="bold", pad=10, color=COLORS["ink"])
+    ax.set_title("Training advantage over unseen holdout   —   larger positive values = greater overfitting", fontsize=17.0, fontweight="bold", pad=10, color=COLORS["ink"])
     ax.set_xlabel("", fontsize=14.3)
-    ax.set_ylabel("Gap size", fontsize=14.3)
+    ax.set_ylabel("Training advantage", fontsize=14.3)
     ax.set_xticks(depths)
     ax.set_ylim(*padded_limits(np.concatenate([auc_gap, logloss_gap]), min_pad=0.0008))
-    ax.legend(frameon=False, fontsize=14.0, loc="upper right", bbox_to_anchor=(0.985, 1.36), ncol=2)
+    # Keep the legend inside the axes. The old bbox_to_anchor=(0.985, 1.36)
+    # floated it above the frame, straight through the panel title.  The
+    # low-depth end of this panel has near-zero bars, so upper-left is clear.
+    # Single column keeps the legend clear of the baseline-depth dashed line.
+    ax.legend(frameon=False, fontsize=13.5, loc="upper left", ncol=1, labelspacing=0.35, handlelength=1.5)
     style_axis(ax)
-    for xx, yy in zip(x - width / 2, auc_gap):
-        offset = 0.00030 if yy >= 0 else -0.00022
-        ax.text(
-            xx,
-            yy + offset,
-            f"{yy:.4f}",
-            ha="center",
-            va="bottom" if yy >= 0 else "top",
-            fontsize=10.8,
-            color=COLORS["auc_gap"],
-        )
-    for xx, yy in zip(x + width / 2, logloss_gap):
-        offset = 0.00030 if yy >= 0 else -0.00022
-        ax.text(
-            xx,
-            yy + offset,
-            f"{yy:.4f}",
-            ha="center",
-            va="bottom" if yy >= 0 else "top",
-            fontsize=10.8,
-            color=COLORS["logloss_gap"],
-        )
 
 
 def add_reading_boxes(fig) -> None:
@@ -301,8 +283,8 @@ def add_reading_boxes(fig) -> None:
             0.128,
             COLORS["low"],
             "#9fc8ad",
-            "Underfit cue",
-            "Train and holdout are both weak, and the gap can still be small.",
+            "Too shallow",
+            "Training and holdout performance are both weak.",
         ),
         (
             0.367,
@@ -311,8 +293,8 @@ def add_reading_boxes(fig) -> None:
             0.128,
             COLORS["mid"],
             "#9eb5d8",
-            "Useful capacity cue",
-            "Holdout improves or peaks while the train-holdout gap stays controlled.",
+            "Useful range",
+            "Holdout performance improves while the train–holdout differences remain small.",
         ),
         (
             0.680,
@@ -321,8 +303,8 @@ def add_reading_boxes(fig) -> None:
             0.128,
             COLORS["high"],
             "#d9b45c",
-            "Overfit cue",
-            "Train keeps improving while holdout stalls or worsens, so the gaps open.",
+            "Too deep",
+            "Training keeps improving, but holdout stalls and the differences grow.",
         ),
     ]
     for x, y, w, h, face, edge, title, body in boxes:
@@ -370,14 +352,39 @@ def render_slide(metrics: list[DepthMetric], args: argparse.Namespace) -> Path:
     fig = plt.figure(figsize=slide_figsize(SLIDE_DPI), dpi=SLIDE_DPI)
     fig.text(0.050, 0.925, args.title, fontsize=args.title_font_size, fontweight="bold", color=COLORS["ink"], ha="left", va="center")
     if args.subtitle:
-        fig.text(0.050, 0.882, args.subtitle, fontsize=15.2, color=COLORS["muted"], ha="left", va="center")
+        # Shared JSTG subtitle-arrowhead convention (THE-111 slides 11/12):
+        # DejaVu Sans "#2468A8" arrowhead with a 0.021 figure-width indent.
+        # Measured on rendered ink at 2560x1440: title ink ends at y=127 and
+        # the panel titles start at y=257, so this centres the subtitle in that
+        # band with ~44 px of clearance on each side.
+        subtitle_y = 0.866
+        fig.text(
+            0.050,
+            subtitle_y,
+            "▶",
+            fontsize=15.0,
+            color="#2468A8",
+            ha="left",
+            va="center",
+            fontfamily="DejaVu Sans",
+        )
+        fig.text(0.050 + 0.021, subtitle_y, args.subtitle, fontsize=16.5, color=COLORS["muted"], ha="left", va="center")
     right_note = args.right_note if args.right_note is not None else f"Fixed split: 90/10 row holdout\nCurrent baseline: max depth = {args.baseline_depth}"
     if right_note:
-        fig.text(0.950, 0.932, right_note, fontsize=12.6, color=COLORS["muted"], ha="right", va="top", linespacing=1.20)
+        note_artist = fig.text(0.950, 0.936, right_note, fontsize=15.5, color=COLORS["muted"], ha="right", va="top", linespacing=1.28)
+        # Outline-only card around the note so it reads as part of the same
+        # box family as the panels, without a fill competing with the title.
+        fig.canvas.draw()
+        extent = note_artist.get_window_extent(renderer=fig.canvas.get_renderer())
+        inverse = fig.transFigure.inverted()
+        x0, y0 = inverse.transform((extent.x0, extent.y0))
+        x1, y1 = inverse.transform((extent.x1, extent.y1))
+        add_card(fig, (x0, y0, x1 - x0, y1 - y0), face="none")
 
-    add_card(fig, (0.045, 0.462, 0.430, 0.373))
-    add_card(fig, (0.525, 0.462, 0.430, 0.373))
-    add_card(fig, (0.045, 0.195, 0.910, 0.218))
+    if not args.no_panel_cards:
+        add_card(fig, (0.045, 0.462, 0.430, 0.373))
+        add_card(fig, (0.525, 0.462, 0.430, 0.373))
+        add_card(fig, (0.045, 0.195, 0.910, 0.218))
 
     ax_auc = fig.add_axes([0.086, 0.515, 0.348, 0.265])
     ax_log = fig.add_axes([0.566, 0.515, 0.348, 0.265])
@@ -405,7 +412,6 @@ def render_slide(metrics: list[DepthMetric], args: argparse.Namespace) -> Path:
     )
     plot_gap_panel(ax_gap, depths, auc_gap, logloss_gap, args.baseline_depth)
 
-    fig.text(0.050, 0.431, best_capacity_sentence(metrics), fontsize=15.2, color=COLORS["ink"], ha="left", va="center")
     add_reading_boxes(fig)
 
     out_png.parent.mkdir(parents=True, exist_ok=True)
@@ -524,6 +530,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--title-font-size", type=float, default=29.0)
     parser.add_argument("--subtitle", default=DEFAULT_SUBTITLE)
     parser.add_argument("--right-note", default=None)
+    parser.add_argument("--no-panel-cards", action="store_true", help="Drop the rounded backdrop cards behind the AUC, Logloss, and gap panels.")
     parser.add_argument("--baseline-depth", type=int, default=4)
     parser.add_argument("--model-id", default=MODEL_ID)
     parser.add_argument("--require-sample", action="append", default=["run28_embeddedJet40"])

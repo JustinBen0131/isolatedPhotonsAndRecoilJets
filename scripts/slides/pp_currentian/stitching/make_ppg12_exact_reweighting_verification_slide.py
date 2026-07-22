@@ -27,13 +27,18 @@ BASE = REPO / "dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_
 OUT_DIR = REPO / "dataOutput/auauMLDiagnosticRuns/global_etcent_inclusive3_sixpack_20260516_135439/slideReady/ppg12_exact_reweight_bdt"
 OUT = OUT_DIR / "ppg12_exact_et_eta_reweighting_verification_slide.png"
 SUBTITLE = "PPG12-style training weights are applied before routed E_T training; physics and stitching weights stay out of the training."
-CONTEXT_LABEL = ""
 ET_XMIN = 5.0
 ET_XMAX = 35.0
 
 FONT_DIR = Path("/System/Library/Fonts/Supplemental")
 FONT_REG = FONT_DIR / "Times New Roman.ttf"
 FONT_BOLD = FONT_DIR / "Times New Roman Bold.ttf"
+# Shared JSTG subtitle-arrowhead convention (THE-111 slides 11/12): literal
+# DejaVu Sans "▶" in #2468A8 with a 0.021-figure-width hanging indent
+# (0.021 * 2560 = 54 px on this canvas).
+DEJAVU_SANS = Path("/Users/patsfan753/Desktop/analysis/env/fonts/DejaVuSans.ttf")
+BLUE_BULLET = "#2468A8"
+BULLET_INDENT_PX = 54
 
 INK = "#0F172A"
 MUTED = "#475569"
@@ -359,12 +364,11 @@ def draw_title_with_et(draw: ImageDraw.ImageDraw) -> None:
 
 
 def main() -> None:
-    global BASE, OUT_DIR, OUT, SUBTITLE, CONTEXT_LABEL, ET_XMIN, ET_XMAX
+    global BASE, OUT_DIR, OUT, SUBTITLE, ET_XMIN, ET_XMAX
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", type=Path, default=BASE, help="Directory with ppg12_exact_* metadata/CSV inputs.")
     parser.add_argument("--out", type=Path, default=OUT, help="Output slide-sized PNG path.")
     parser.add_argument("--subtitle", default=SUBTITLE, help="Subtitle text below the title.")
-    parser.add_argument("--context-label", default=CONTEXT_LABEL, help="Optional context label drawn near the title.")
     parser.add_argument("--et-xmin", type=float, default=ET_XMIN, help="Lower E_T axis bound for the E_T panels.")
     parser.add_argument("--et-xmax", type=float, default=ET_XMAX, help="Upper E_T axis bound for the E_T panels.")
     args = parser.parse_args()
@@ -372,7 +376,6 @@ def main() -> None:
     OUT = args.out
     OUT_DIR = OUT.parent
     SUBTITLE = args.subtitle
-    CONTEXT_LABEL = args.context_label
     ET_XMIN = args.et_xmin
     ET_XMAX = args.et_xmax
 
@@ -394,18 +397,35 @@ def main() -> None:
     draw = ImageDraw.Draw(slide)
 
     draw_title_with_et(draw)
+    # Centre the subtitle in the band between the title's baseline box and the
+    # top of the chip row (y=206) so the spacing above and below it matches.
+    subtitle_font = font(38)
+    CHIP_ROW_TOP = 206
+    # Balance on rendered ink, not font metrics: the title's lowest ink is its
+    # subscript "T", and the subtitle's is the descender of its own subscript.
+    title_ink_bottom = max(
+        48 + font(70, True).getbbox("/eta-reweighting Au+Au, Embedded Sim")[3],
+        87 + font(43, True).getbbox("T")[3],
+    )
+    sub_box = subtitle_font.getbbox(SUBTITLE.replace("E_T", "E"))
+    sub_ink_top = sub_box[1]
+    sub_ink_bottom = max(
+        sub_box[3],
+        subtitle_font.size * 0.48 + font(max(12, int(subtitle_font.size * 0.62))).getbbox("T")[3],
+    )
+    subtitle_y = int(round((CHIP_ROW_TOP + title_ink_bottom - sub_ink_top - sub_ink_bottom) / 2))
+    sub_h = sub_ink_bottom - sub_ink_top
+    arrow_font = ImageFont.truetype(str(DEJAVU_SANS), 34)
+    arr_box = arrow_font.getbbox("▶")
+    arrow_y = int(subtitle_y + sub_ink_top + (sub_h - (arr_box[3] - arr_box[1])) / 2 - arr_box[1])
+    draw.text((80, arrow_y), "▶", font=arrow_font, fill=BLUE_BULLET)
     draw_math_text(
         draw,
-        (80, 134),
+        (80 + BULLET_INDENT_PX, subtitle_y),
         SUBTITLE,
-        font(32),
+        subtitle_font,
         fill=MUTED,
     )
-    if CONTEXT_LABEL:
-        label_font = font(28, True)
-        label_w = text_width(draw, CONTEXT_LABEL, label_font) + 50
-        draw.rounded_rectangle((2480 - label_w, 62, 2480, 114), radius=18, fill="#F8FAFC", outline="#CBD5E1", width=2)
-        draw.text((2505 - label_w, 75), CONTEXT_LABEL, font=label_font, fill="#334155")
 
     draw_chip(draw, (80, 214, 575, 306), "1", "equal total signal and background weight")
     draw_chip(draw, (600, 214, 1095, 306), "2", "flatten eta separately for each truth class")
@@ -414,9 +434,21 @@ def main() -> None:
     draw.text((1692, 228), "Do not mix training weights with physics weights", font=font(31, True), fill="#9A3412")
     draw.text((1692, 274), "No event, cross-section, stitching, vertex, or centrality weights.", font=font(26), fill="#9A3412")
 
+    # With the four summary boxes removed, the 2x2 panel grid takes the full
+    # body of the slide.  Equal column widths (was 1135 left vs 1200 right) and
+    # equal row heights, on a shared 66 px gutter.
+    COL_LEFT, COL_RIGHT, GUTTER = 80, 2480, 66
+    col_w = (COL_RIGHT - COL_LEFT - GUTTER) // 2
+    x0a, x1a = COL_LEFT, COL_LEFT + col_w
+    x0b, x1b = COL_LEFT + col_w + GUTTER, COL_RIGHT
+    ROW_TOP, ROW_BOTTOM, ROW_GAP = 360, 1380, 60
+    row_h = (ROW_BOTTOM - ROW_TOP - ROW_GAP) // 2
+    y0a, y1a = ROW_TOP, ROW_TOP + row_h
+    y0b, y1b = ROW_TOP + row_h + ROW_GAP, ROW_BOTTOM
+
     draw_density_plot(
         draw,
-        (80, 360, 1215, 760),
+        (x0a, y0a, x1a, y1a),
         et_data,
         "raw",
         "Before weighting: E_T populations are not comparable",
@@ -428,7 +460,7 @@ def main() -> None:
     )
     draw_ratio_plot(
         draw,
-        (1280, 360, 2480, 760),
+        (x0b, y0a, x1b, y1a),
         et_data,
         "After weighting: E_T signal/background ratio",
         (ET_XMIN, ET_XMAX),
@@ -437,7 +469,7 @@ def main() -> None:
     )
     draw_density_plot(
         draw,
-        (80, 820, 1215, 1190),
+        (x0a, y0b, x1a, y1b),
         eta_data,
         "raw",
         "Before weighting: eta populations are also adjusted",
@@ -449,29 +481,12 @@ def main() -> None:
     )
     draw_ratio_plot(
         draw,
-        (1280, 820, 2480, 1190),
+        (x0b, y0b, x1b, y1b),
         eta_data,
         "After weighting: eta signal/background ratio",
         (-0.7, 0.7),
         "cluster eta",
         eta_dev,
-    )
-
-    draw_metric(draw, (80, 1238, 560, 1380), f"{imbalance:.2f}%", "residual total S/B weight imbalance", GREEN)
-    et_range_label = f"largest E_T closure deviation over {ET_XMIN:g}-{ET_XMAX:g} GeV"
-    draw_metric(draw, (590, 1238, 1070, 1380), f"{et_dev:.1f}%", et_range_label, PURPLE)
-    draw_metric(draw, (1100, 1238, 1580, 1380), f"{eta_dev:.1f}%", "largest eta closure deviation over |eta| < 0.7", PURPLE)
-
-    draw.rounded_rectangle((1610, 1238, 2480, 1380), radius=24, fill="#ECFDF5", outline="#A7F3D0", width=2)
-    draw.text((1644, 1264), "Main readout", font=font(31, True), fill="#065F46")
-    draw_wrapped(
-        draw,
-        "After reweighting, the BDT comparison is not dominated by the raw E_T/eta population difference.",
-        (1644, 1312),
-        780,
-        font(25),
-        fill="#064E3B",
-        line_gap=3,
     )
 
     slide.convert("RGB").save(OUT, quality=95)

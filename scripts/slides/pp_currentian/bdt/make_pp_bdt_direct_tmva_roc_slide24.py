@@ -193,7 +193,7 @@ def main() -> None:
     ax.text(
         0.965,
         0.878,
-        r"$p{+}p$ $\sqrt{s}=200$ GeV" "\n" r"$|\eta|<0.7$, $22<E_T<28$ GeV",
+        r"Pythia $\sqrt{s}=200$ GeV" "\n" r"$|\eta|<0.7$, $22<E_T<28$ GeV",
         transform=ax.transAxes,
         ha="right",
         va="top",

@@ -38,6 +38,10 @@ HIST_PASS = "SIM/h3_pmtDiag_totalCaloEnergyVsMbdCharge_mbPass"
 INK = "#111827"
 MUTED = "#475569"
 ACCENT = "#b42318"
+# Shared JSTG subtitle-arrowhead convention (THE-111 slides 11/12): literal
+# DejaVu Sans "▶" in #2468A8 with a 0.021-figure-width hanging indent.
+BLUE_BULLET = "#2468A8"
+BULLET_INDENT = 0.021
 KBIRD = LinearSegmentedColormap.from_list(
     "root_kbird_like",
     [
@@ -148,6 +152,7 @@ def draw_panel(
     norm: LogNorm,
     title: str,
     right_aligned_internal_label: bool = False,
+    internal_label: bool = True,
 ) -> matplotlib.collections.QuadMesh:
     mesh = ax.pcolormesh(
         centrality_edges,
@@ -163,7 +168,8 @@ def draw_panel(
     ax.set_title(title, fontsize=25, fontweight="bold", pad=16, color=INK)
     ax.set_xlabel("Centrality percentile [%]", fontsize=22, labelpad=10)
     ax.tick_params(axis="both", which="major", labelsize=18)
-    add_internal_label(ax, right_aligned=right_aligned_internal_label)
+    if internal_label:
+        add_internal_label(ax, right_aligned=right_aligned_internal_label)
     return mesh
 
 
@@ -298,15 +304,27 @@ def main() -> int:
     fig.text(
         0.043,
         0.955,
-        "Minimum-bias classification removes the low-energy band",
+        "BDT training in Au+Au: pre-training cut in simulation",
         ha="left",
         va="top",
         fontsize=38,
         fontweight="bold",
         color=INK,
     )
+    # Blue arrowhead marks the sample line; the requirement line below sits
+    # flush with the title and the arrow, with no marker of its own.
     fig.text(
         0.043,
+        0.875,
+        "▶",
+        ha="left",
+        va="center",
+        fontsize=18,
+        color=BLUE_BULLET,
+        fontfamily="DejaVu Sans",
+    )
+    fig.text(
+        0.043 + BULLET_INDENT,
         0.875,
         sample_line,
         ha="left",
@@ -314,19 +332,12 @@ def main() -> int:
         fontsize=20.5,
         color=MUTED,
     )
-    fig.text(
-        0.047,
-        0.838,
-        "▸",
-        ha="left",
-        va="center",
-        fontsize=24,
-        color=ACCENT,
-        fontfamily="DejaVu Sans",
-    )
-    fig.text(
-        0.068,
-        0.838,
+    # Sample line sits at 0.875; drop the requirement line a little further
+    # below it for breathing room without moving the line above.
+    requirement_y = 0.826
+    requirement_label = fig.text(
+        0.043,
+        requirement_y,
         "Simulation requirement:",
         ha="left",
         va="center",
@@ -334,9 +345,14 @@ def main() -> int:
         fontweight="bold",
         color=INK,
     )
+    # Place the sentence one space after the bold label's measured right edge
+    # so the two read as a single line at any font size.
+    fig.canvas.draw()
+    label_right = requirement_label.get_window_extent(renderer=fig.canvas.get_renderer()).x1
+    space = fig.transFigure.inverted().transform((label_right, 0))[0] + 0.007
     fig.text(
-        0.285,
-        0.838,
+        space,
+        requirement_y,
         "Keep events when MinimumBiasInfo::isAuAuMinimumBias() returns true.",
         ha="left",
         va="center",
@@ -344,7 +360,10 @@ def main() -> int:
         color=INK,
     )
 
-    left = fig.add_axes([0.072, 0.100, 0.393, 0.650])
+    # Left edge pulled in from 0.072 so the rotated y-axis title clears the
+    # canvas edge; width trimmed to keep the right edge (and the gap to the
+    # second panel) where it was.
+    left = fig.add_axes([0.088, 0.100, 0.377, 0.650])
     right = fig.add_axes([0.510, 0.100, 0.375, 0.650])
     cax = fig.add_axes([0.902, 0.100, 0.014, 0.650])
 
@@ -355,6 +374,11 @@ def main() -> int:
         energy_edges,
         norm,
         "Before: no classifier requirement",
+        # One sPHENIX Internal / beam-energy stamp per slide is enough, and it
+        # reads cleanly on the right panel's light corner.  The left panel's
+        # white-on-dark stroked variant also rendered a stroke artifact across
+        # the bold-italic "sPHENIX" mathtext.
+        internal_label=False,
     )
     draw_panel(
         right,
@@ -365,7 +389,7 @@ def main() -> int:
         "After: classifier pass",
         right_aligned_internal_label=True,
     )
-    left.set_ylabel(r"$E_{calo}^{total}$ [GeV]", fontsize=22, labelpad=12)
+    left.set_ylabel(r"$E_{calo}^{total}$ [GeV]", fontsize=22, labelpad=2)
     right.tick_params(labelleft=False)
     colorbar = fig.colorbar(mesh, cax=cax)
     colorbar.set_label("Weighted event count / bin", fontsize=17, labelpad=8)

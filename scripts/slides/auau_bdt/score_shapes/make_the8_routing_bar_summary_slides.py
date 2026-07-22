@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import sys
@@ -46,6 +47,7 @@ PANEL_FILL = "#fbfdff"
 BASELINE_FILL = "#ffffff"
 BASELINE_EDGE = "#ef4444"
 BASELINE_TEXT = "#991b1b"
+HIGHLIGHT_YELLOW = "#FDF287"
 
 ROUTES = [
     ("cent3", "C3", "#7c3aed"),
@@ -335,14 +337,21 @@ def add_color_legend(
     )
 
 
-def style_axis(ax: plt.Axes, title: str, ylabel: str | None = None) -> None:
+def style_axis(
+    ax: plt.Axes,
+    title: str,
+    ylabel: str | None = None,
+    *,
+    title_size: float = 14.6,
+    tick_size: float = 11.0,
+) -> None:
     ax.set_facecolor(PANEL_FILL)
-    ax.set_title(title, loc="left", fontsize=14.6, fontweight="bold", pad=7, color=INK)
+    ax.set_title(title, loc="left", fontsize=title_size, fontweight="bold", pad=7, color=INK)
     if ylabel:
         ax.set_ylabel(ylabel, fontsize=12.8, color=INK)
     ax.axhline(0.0, color="#334155", lw=1.0, zorder=2)
     ax.grid(axis="y", color=GRID, linewidth=1.0, zorder=1)
-    ax.tick_params(axis="both", labelsize=11.0, colors=INK)
+    ax.tick_params(axis="both", labelsize=tick_size, colors=INK)
     for spine in ax.spines.values():
         spine.set_edgecolor(EDGE)
         spine.set_linewidth(1.0)
@@ -400,8 +409,11 @@ def draw_grouped_bars(
     xtick_size: float = 11.0,
     xtick_weight: str = "normal",
     xlabel: str | None = None,
+    title_size: float = 14.6,
+    tick_size: float = 11.0,
+    xlabel_size: float = 13.5,
 ) -> None:
-    style_axis(ax, title, ylabel if show_ylabel else None)
+    style_axis(ax, title, ylabel if show_ylabel else None, title_size=title_size, tick_size=tick_size)
     x = np.arange(len(labels))
     n = len(routes)
     width = min(0.78 / n, 0.16)
@@ -451,7 +463,7 @@ def draw_grouped_bars(
     else:
         ax.set_xticklabels([])
     if xlabel:
-        ax.set_xlabel(xlabel, fontsize=13.5, fontweight="bold", color=INK, labelpad=7)
+        ax.set_xlabel(xlabel, fontsize=xlabel_size, fontweight="bold", color=INK, labelpad=7)
     if legend:
         ax.legend(
             loc="upper left",
@@ -755,6 +767,129 @@ def et_0_20_three_metric_slide(payload: dict) -> Path:
     )
 
 
+def _text_width_frac(fig: plt.Figure, text: str, size: float, weight: str = "normal") -> float:
+    """Measure rendered text width as a fraction of figure width."""
+    probe = fig.text(0, -1, text, fontsize=size, family=FONT, fontweight=weight)
+    fig.canvas.draw()
+    width = probe.get_window_extent(renderer=fig.canvas.get_renderer()).width / fig.bbox.width
+    probe.remove()
+    return float(width)
+
+
+def add_audience_route_key(fig: plt.Figure, nodes: list, y: float, *, size: float = 15.5) -> None:
+    """Centred single-row legend using the compact C3/C7/ET shorthand.
+
+    Widths are measured from rendered glyphs, so swatches never collide with
+    the neighbouring label.  Route order and colours are untouched.
+    """
+    entries = [(r, f"{short} ({ROUTE_BDT_COUNTS[r]} BDTs)", c) for r, short, c in ROUTES]
+    swatch_w, text_pad, gap = 0.020, 0.007, 0.030
+    widths = [_text_width_frac(fig, lab, size) for _r, lab, _c in entries]
+    total = sum(swatch_w + text_pad + w for w in widths) + gap * (len(entries) - 1)
+    x = (1.0 - total) / 2.0
+    for (route, label, color), w in zip(entries, widths):
+        fig.patches.append(
+            Rectangle((x, y - 0.010), swatch_w, 0.019, transform=fig.transFigure,
+                      facecolor=color, edgecolor="none", zorder=20)
+        )
+        add_text(fig, nodes, f"legend {route}", x + swatch_w + text_pad, y, label, size=size)
+        x += swatch_w + text_pad + w + gap
+
+
+def et_0_20_three_metric_audience_slide(payload: dict) -> Path:
+    """Audience restyle of the 0-20% routed-BDT slide. Presentation only."""
+    configure_fonts()
+    fig = plt.figure(figsize=slide_figsize(), dpi=SLIDE_DPI, facecolor="white")
+    nodes: list[tuple[str, object, float, str, dict]] = []
+
+    title_text = "Au+Au BDT design choice: global vs routed models in 0–20% centrality"
+    title_size = 33.0
+    while title_size > 18.0 and _text_width_frac(fig, title_text, title_size, "bold") > 0.920:
+        title_size -= 0.5
+    add_text(fig, nodes, "title", 0.040, 0.945, title_text, size=title_size,
+             role="title", weight="bold", title_anchor=True)
+
+    fig.text(0.040, 0.888, "▶", fontsize=15.0, color="#2468A8", ha="left",
+             va="center", fontfamily="DejaVu Sans")
+    add_text(fig, nodes, "subtitle", 0.061, 0.888,
+             r"Finer $E_T\times$centrality routing improves all three metrics; one global BDT remains nominal for simplicity",
+             size=17.5, color=MUTED, colon_style_exception=True)
+
+    # Reference line: centred, red outline, no fill; "Reference:" bold.
+    ref_size = 15.0
+    ref_bold, ref_rest = "Reference:", r" global BDT — 0–80%, $15 \leq E_T < 35$ GeV"
+    w_bold = _text_width_frac(fig, ref_bold, ref_size, "bold")
+    w_rest = _text_width_frac(fig, ref_rest, ref_size)
+    ref_y = 0.827
+    ref_x0 = 0.5 - (w_bold + w_rest) / 2.0
+    rounded_box(fig, ref_x0 - 0.012, ref_y - 0.021, w_bold + w_rest + 0.024, 0.042,
+                face="none", edge=BASELINE_EDGE, lw=1.35, radius=0.004, zorder=5)
+    add_text(fig, nodes, "reference label", ref_x0, ref_y, ref_bold, size=ref_size,
+             weight="bold", colon_style_exception=True)
+    add_text(fig, nodes, "reference value", ref_x0 + w_bold, ref_y, ref_rest,
+             size=ref_size, color=MUTED, colon_style_exception=True)
+
+    add_audience_route_key(fig, nodes, 0.768)
+    add_text(fig, nodes, "routing notation", 0.5, 0.726,
+             "C3 = {0–20, 20–50, 50–80%}    C7 = {0–10, 10–20, …, 60–80%}    $E_T$ = x-axis cluster-$E_T$ bin",
+             size=13.5, color=MUTED, ha="center", colon_style_exception=True)
+
+    cells = cell_lookup(payload)
+    labels = [l for l in group_labels(payload, "et_coarse_cent") if l.endswith("0-20%")]
+    et_labels = [l.split(" × ", 1)[0] for l in labels]
+    positions = [
+        [0.108, 0.500, 0.842, 0.163],
+        [0.108, 0.292, 0.842, 0.163],
+        [0.108, 0.084, 0.842, 0.163],
+    ]
+    panel_titles = {
+        "auc": r"AUC improvement $\times10^{3}$",
+        "wp80_inclusive_fake": "Background acceptance reduction at WP80 [percentage points]",
+        "logloss": r"Log-loss reduction $\times10^{3}$",
+    }
+    for idx, (pos, metric) in enumerate(zip(positions, ["auc", "wp80_inclusive_fake", "logloss"])):
+        ax = fig.add_axes(pos)
+        vals = np.zeros((len(ROUTES), len(labels)), dtype="float64")
+        for i, (route, _rl, _c) in enumerate(ROUTES):
+            for j, label in enumerate(labels):
+                vals[i, j] = benefit(cells, "et_coarse_cent", label, route, metric)
+        draw_grouped_bars(
+            ax, et_labels, vals, routes=ROUTES, title=panel_titles[metric],
+            ylabel=METRICS[metric]["axis"], value_labels=False, legend=False, rotate=0,
+            show_xticklabels=idx == 2, show_ylabel=False, force_zero_floor=True,
+            emphasize_bins=True, xtick_size=15.0, xtick_weight="bold",
+            xlabel=r"Cluster $E_T$ bin [GeV]" if idx == 2 else None,
+            title_size=17.0, tick_size=13.2, xlabel_size=16.0,
+        )
+
+    # Rotated spanning label on the left, reading like a shared y-axis title.
+    span_lo, span_hi = positions[2][1], positions[0][1] + positions[0][3]
+    span_mid = (span_lo + span_hi) / 2.0
+    label_size = 13.5
+    label_text = "Positive values = improvement wrt reference"
+    # Rotated 90 deg: the measured *width* fraction spans figure *height*, so
+    # rescale by the 2560x1440 aspect before sizing the highlight.
+    label_len = _text_width_frac(fig, label_text, label_size, "bold") * (2560.0 / 1440.0)
+    # Yellow highlighter behind bold black text, matching the deck's callout style.
+    highlight_x, highlight_w = 0.029, 0.012
+    rounded_box(fig, highlight_x, span_mid - label_len / 2.0 - 0.002, highlight_w, label_len + 0.004,
+                face=HIGHLIGHT_YELLOW, edge=HIGHLIGHT_YELLOW, lw=0.8, radius=0.002, zorder=5)
+    artist = fig.text(highlight_x + highlight_w / 2.0, span_mid, label_text,
+                      fontsize=label_size, family=FONT, color=INK, fontweight="bold",
+                      ha="center", va="center", rotation=90, zorder=20)
+    nodes.append(("spanning improvement label", artist, label_size, "audience",
+                  {"colon_style_exception": True}))
+
+    return save_slide(
+        fig, nodes,
+        OUT_DIR / "the8_routing_bar_0_20_et_auc_fake_logloss_v2_audience.png",
+        payload,
+        extra={"slide_role": "0_20_et_auc_fake_logloss_audience",
+               "group_kind": "et_coarse_cent", "centrality": "0-20%",
+               "presentation_only": True},
+    )
+
+
 def et_coarse_cent_auc_rows_slide(payload: dict) -> Path:
     configure_fonts()
     fig = plt.figure(figsize=slide_figsize(), dpi=SLIDE_DPI, facecolor="white")
@@ -911,6 +1046,15 @@ def render_all() -> list[Path]:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--only-audience-0-20", action="store_true",
+                        help="Render only the audience restyle; leaves all other outputs untouched.")
+    args = parser.parse_args()
+    if args.only_audience_0_20:
+        payload = json.loads(PAYLOAD.read_text())
+        OUT_DIR.mkdir(parents=True, exist_ok=True)
+        print(et_0_20_three_metric_audience_slide(payload))
+        return
     for output in render_all():
         print(output)
 

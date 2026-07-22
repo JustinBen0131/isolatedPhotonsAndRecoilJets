@@ -29,6 +29,13 @@ except ModuleNotFoundError:
 REPO = Path(__file__).resolve().parents[4]
 OUT = REPO / "dataOutput/slides/wp_gammajets_6_3_26/ppg12_overlay_story_20260603"
 RAW = OUT / "raw_assets"
+# Live generator output for the same-row ROC panel, produced by
+# scripts/slides/pp_currentian/bdt/make_pp_bdt_direct_tmva_roc_slide24.py.
+SAME_ROW_ROC_SOURCE = (
+    REPO
+    / "dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_finalShuhang_20260526_2115"
+    / "slide_assets/pp_basev3e_bdt_roc_direct_tmva_slide24_candidate.png"
+)
 SUMMARY = (
     REPO
     / "dataOutput/ppPhotonMLPipeline/ppg12_basev3E_currentIAN_truthWindowOverlayFix_20260528_1305"
@@ -41,6 +48,12 @@ FONT_DIR = Path("/System/Library/Fonts/Supplemental")
 TIMES = FONT_DIR / "Times New Roman.ttf"
 TIMES_BOLD = FONT_DIR / "Times New Roman Bold.ttf"
 TIMES_ITALIC = FONT_DIR / "Times New Roman Italic.ttf"
+# Shared JSTG subtitle-arrowhead convention, matching the THE-111 slide 11/12
+# generator: a literal DejaVu Sans "▶" in #2468A8 with a 0.021-figure-width
+# hanging indent (0.021 * 2560 = 54 px on this canvas).
+DEJAVU_SANS = Path("/Users/patsfan753/Desktop/analysis/env/fonts/DejaVuSans.ttf")
+BLUE_BULLET = (36, 104, 168)
+BULLET_INDENT_PX = 54
 
 INK = (18, 24, 38)
 MUTED = (76, 83, 101)
@@ -129,10 +142,32 @@ def draw_textbox(
     return y
 
 
-def draw_title(draw: ImageDraw.ImageDraw, title: str, subtitle: str | None = None) -> None:
+def draw_title(
+    draw: ImageDraw.ImageDraw,
+    title: str,
+    subtitle: str | None = None,
+    *,
+    bullet: bool = False,
+) -> None:
     draw.text((105, 52), title, font=F["title"], fill=INK)
-    if subtitle:
+    if not subtitle:
+        return
+    if not bullet:
         draw.text((109, 140), subtitle, font=F["subtitle"], fill=MUTED)
+        return
+    # Slide 11/12 convention.  The arrowhead sits flush with the title's left
+    # edge (x=105), and the whole subtitle line is centred in the band between
+    # the title ink bottom (135) and the top of the panel label bars (218).
+    sub_font = font(41)
+    arrow_font = ImageFont.truetype(str(DEJAVU_SANS), 35)
+    TITLE_INK_BOTTOM, LABEL_BAR_TOP = 135, 218
+    sub_top, sub_bottom = sub_font.getbbox("Ag")[1], sub_font.getbbox("Ag")[3]
+    sub_h = sub_bottom - sub_top
+    sub_y = TITLE_INK_BOTTOM + (LABEL_BAR_TOP - TITLE_INK_BOTTOM - sub_h) / 2.0 - sub_top
+    arr_top, arr_bottom = arrow_font.getbbox("▶")[1], arrow_font.getbbox("▶")[3]
+    arrow_y = sub_y + ((sub_top + sub_bottom) - (arr_top + arr_bottom)) / 2
+    draw.text((108, arrow_y), "▶", font=arrow_font, fill=BLUE_BULLET)
+    draw.text((108 + BULLET_INDENT_PX, sub_y), subtitle, font=sub_font, fill=MUTED)
 
 
 def shadow_paste(base: Image.Image, img: Image.Image, box: tuple[int, int, int, int], *, radius: int = 18) -> None:
@@ -203,6 +238,25 @@ def crop_old_slide42_rhs() -> Image.Image:
     # Plot-only crop from the old slide-42 RHS. Do not include the old
     # blue slide header; slide-level labels are redrawn by this builder.
     return img.crop((845, 183, 1420, 875))
+
+
+def same_row_roc_panel() -> Image.Image:
+    """Crop the ROC axes out of the regenerated slide-24 same-row ROC figure.
+
+    This panel used to be a crop of `old_deck_slide40.png`, a screenshot of an
+    older deck, which baked the "p+p" label in as pixels.  Sourcing it from the
+    live generator output instead keeps the panel identical in content while
+    picking up the corrected "Pythia" label, at full render resolution.
+
+    The generator lays the ROC axes out at figure coords [0.060, 0.150, 0.535,
+    0.685] on a 2560x1440 canvas.  The crop below spans that box plus the tick
+    labels and x-axis title, matching what the old screenshot crop showed, and
+    excludes the y-axis title exactly as the screenshot did.
+    """
+    img = Image.open(SAME_ROW_ROC_SOURCE).convert("RGB")
+    if img.size != (2560, 1440):
+        raise SystemExit(f"Unexpected ROC source size {img.size}; expected (2560, 1440)")
+    return img.crop((92, 222, 1566, 1322))
 
 
 def clean_slide_thumb(name: str) -> Image.Image:
@@ -567,14 +621,14 @@ def slide4_same_row_summary() -> Path:
     draw = ImageDraw.Draw(im)
     draw_title(
         draw,
-        "Same-row audits quantify the model-level agreement",
+        "Training Infrastructure Audit vs PPG12 BDT",
         "With common candidate rows and plotting conditions, the independent models give similar discrimination.",
+        bullet=True,
     )
 
     s39 = clean_slide_thumb("old_deck_slide39.png")
-    s40 = clean_slide_thumb("old_deck_slide40.png")
     p1 = padded_image(s39.crop((30, 116, 1032, 835)), left=10, top=10, right=10, bottom=16)
-    p2 = padded_image(s40.crop((64, 145, 970, 838)), left=10, top=10, right=10, bottom=16)
+    p2 = padded_image(same_row_roc_panel(), left=10, top=10, right=10, bottom=16)
     label_bar(draw, (120, 218, 1160, 276), "Score correlation: same candidates", LIGHT_BLUE)
     label_bar(draw, (1400, 218, 2440, 276), "ROC closure: similar discrimination", LIGHT_GREEN)
     shadow_paste(im, p1, (95, 305, 1215, 1015), radius=18)
