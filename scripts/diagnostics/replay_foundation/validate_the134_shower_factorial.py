@@ -57,6 +57,7 @@ def semantic_text(name: str) -> str:
         f"|floor_gev={'0.070000' if floor > 0 else '0.000000'}"
         "|grid=7x7|tower_quality=TowerInfo_get_isGood_only"
         "|center_excluded_from_cogx_numerator=1"
+        "|numeric=float32_PhotonClusterBuilder_row_major"
     )
 
 
@@ -74,14 +75,24 @@ def view_from_cells(name: str, row: dict[str, Any], cells: list[dict[str, Any]])
     energy_source, sum_membership, moment_membership, floor = DEFINITIONS[name]
     center_eta = int(row["center_eta_index"])
     center_phi = int(row["center_phi_index"])
-    cog_eta = 3.0 + (float(row["raw_center_eta"]) % 1.0 - 0.5)
-    cog_phi = 3.0 + (float(row["raw_center_phi"]) % 1.0 - 0.5)
+    raw_center_eta = np.float32(row["raw_center_eta"])
+    raw_center_phi = np.float32(row["raw_center_phi"])
+    cog_eta = np.float32(3.0) + np.float32(
+        raw_center_eta - np.floor(raw_center_eta) - np.float32(0.5)
+    )
+    cog_phi = np.float32(3.0) + np.float32(
+        raw_center_phi - np.floor(raw_center_phi) - np.float32(0.5)
+    )
     sign_phi = 1 if cog_phi > 3.0 else -1
     out = {
-        "e11": 0.0, "e33": 0.0, "e32": 0.0, "e35": 0.0,
-        "moment_eta_numerator": 0.0, "moment_phi_numerator": 0.0,
-        "moment_denominator": 0.0, "moment33_eta_numerator": 0.0,
-        "moment33_phi_numerator": 0.0, "moment33_denominator": 0.0,
+        "e11": np.float32(0.0), "e33": np.float32(0.0),
+        "e32": np.float32(0.0), "e35": np.float32(0.0),
+        "moment_eta_numerator": np.float32(0.0),
+        "moment_phi_numerator": np.float32(0.0),
+        "moment_denominator": np.float32(0.0),
+        "moment33_eta_numerator": np.float32(0.0),
+        "moment33_phi_numerator": np.float32(0.0),
+        "moment33_denominator": np.float32(0.0),
         "good_cell_count": 0, "owned_cell_count": 0,
         "active_sum_cell_count": 0, "active_moment_cell_count": 0,
         "exact_zero_count": 0, "negative_count": 0, "nonfinite_count": 0,
@@ -102,14 +113,14 @@ def view_from_cells(name: str, row: dict[str, Any], cells: list[dict[str, Any]])
         out["negative_count"] += int(cell["is_good"] != 0 and cell["is_negative"] != 0)
         out["nonfinite_count"] += int(cell["is_nonfinite"] != 0)
         if energy_source == 0:
-            energy = float(cell["calibrated_energy"])
-            selected = int(cell["is_good"]) != 0 and math.isfinite(energy) and energy > floor
+            energy = np.float32(cell["calibrated_energy"])
+            selected = int(cell["is_good"]) != 0 and np.isfinite(energy) and energy > np.float32(floor)
         else:
-            energy = float(cell["rawcluster_map_value"])
+            energy = np.float32(cell["rawcluster_map_value"])
             selected = (
                 int(cell["rawcluster_owned"]) != 0
                 and int(cell["rawcluster_value_present"]) != 0
-                and math.isfinite(energy) and energy > floor
+                and np.isfinite(energy) and energy > np.float32(floor)
             )
         if not selected:
             continue
@@ -120,31 +131,40 @@ def view_from_cells(name: str, row: dict[str, Any], cells: list[dict[str, Any]])
         if sum_member:
             out["active_sum_cell_count"] += 1
             if i == 3 and j == 3:
-                out["e11"] += energy
+                out["e11"] = np.float32(out["e11"] + energy)
             if di <= 1 and dj <= 1:
-                out["e33"] += energy
+                out["e33"] = np.float32(out["e33"] + energy)
             if di <= 1 and (j == 3 or j == 3 + sign_phi):
-                out["e32"] += energy
+                out["e32"] = np.float32(out["e32"] + energy)
             if di <= 1 and dj <= 2:
-                out["e35"] += energy
+                out["e35"] = np.float32(out["e35"] + energy)
         if moment_member:
             out["active_moment_cell_count"] += 1
-            deta, dphi = i - cog_eta, j - cog_phi
-            out["moment_denominator"] += energy
+            deta = np.float32(i) - cog_eta
+            dphi = np.float32(j) - cog_phi
+            out["moment_denominator"] = np.float32(out["moment_denominator"] + energy)
             if i != 3 or j != 3:
-                out["moment_eta_numerator"] += energy * deta * deta
-                out["moment_phi_numerator"] += energy * dphi * dphi
+                out["moment_eta_numerator"] = np.float32(
+                    out["moment_eta_numerator"] + np.float32(np.float32(energy * deta) * deta)
+                )
+                out["moment_phi_numerator"] = np.float32(
+                    out["moment_phi_numerator"] + np.float32(np.float32(energy * dphi) * dphi)
+                )
             if di <= 1 and dj <= 1:
-                out["moment33_denominator"] += energy
+                out["moment33_denominator"] = np.float32(out["moment33_denominator"] + energy)
                 if i != 3 or j != 3:
-                    out["moment33_eta_numerator"] += energy * deta * deta
-                    out["moment33_phi_numerator"] += energy * dphi * dphi
-    out["e11_over_e33"] = out["e11"] / out["e33"] if out["e33"] > 0 else math.nan
-    out["e32_over_e35"] = out["e32"] / out["e35"] if out["e35"] > 0 else math.nan
-    out["weta_cogx"] = out["moment_eta_numerator"] / out["moment_denominator"] if out["moment_denominator"] > 0 else math.nan
-    out["wphi_cogx"] = out["moment_phi_numerator"] / out["moment_denominator"] if out["moment_denominator"] > 0 else math.nan
-    out["weta33_cogx"] = out["moment33_eta_numerator"] / out["moment33_denominator"] if out["moment33_denominator"] > 0 else math.nan
-    out["wphi33_cogx"] = out["moment33_phi_numerator"] / out["moment33_denominator"] if out["moment33_denominator"] > 0 else math.nan
+                    out["moment33_eta_numerator"] = np.float32(
+                        out["moment33_eta_numerator"] + np.float32(np.float32(energy * deta) * deta)
+                    )
+                    out["moment33_phi_numerator"] = np.float32(
+                        out["moment33_phi_numerator"] + np.float32(np.float32(energy * dphi) * dphi)
+                    )
+    out["e11_over_e33"] = np.float32(out["e11"] / out["e33"]) if out["e33"] > 0 else math.nan
+    out["e32_over_e35"] = np.float32(out["e32"] / out["e35"]) if out["e35"] > 0 else math.nan
+    out["weta_cogx"] = np.float32(out["moment_eta_numerator"] / out["moment_denominator"]) if out["moment_denominator"] > 0 else math.nan
+    out["wphi_cogx"] = np.float32(out["moment_phi_numerator"] / out["moment_denominator"]) if out["moment_denominator"] > 0 else math.nan
+    out["weta33_cogx"] = np.float32(out["moment33_eta_numerator"] / out["moment33_denominator"]) if out["moment33_denominator"] > 0 else math.nan
+    out["wphi33_cogx"] = np.float32(out["moment33_phi_numerator"] / out["moment33_denominator"]) if out["moment33_denominator"] > 0 else math.nan
     return out
 
 

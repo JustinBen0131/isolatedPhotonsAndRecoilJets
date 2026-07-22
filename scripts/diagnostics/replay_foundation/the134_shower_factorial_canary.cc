@@ -125,6 +125,39 @@ int main()
     for(const auto& item:views)
       require(item.second.finite_feature_state==1,"nonfinite factorial view: "+item.first);
 
+    // Regression from the first real Photon20 canary mismatch.  The
+    // authoritative PhotonClusterBuilder accumulates these terms in float32
+    // row-major order.  Double accumulation changes wphi_cogx by 7.99e-6 and
+    // is not an exact model-input replay even though it is numerically close.
+    const Identity128 precisionCandidate=makeIdentity("THE134|float32-regression|candidate");
+    std::vector<ShowerCellRow> precisionCells;
+    for(int de=-3;de<=3;++de)for(int dp=-3;dp<=3;++dp)
+      precisionCells.push_back(cell(precisionCandidate,61+de,64+dp,0.0,false,0.0,1));
+    auto setPrecisionCell=[&](int eta,int phi,float energy)
+    {
+      for(auto& row:precisionCells)if(row.tower_eta_index==eta&&row.tower_phi_index==phi)
+      {
+        row=cell(precisionCandidate,eta,phi,energy,true,energy,1);
+        return;
+      }
+      throw std::runtime_error("float32 regression tower is outside retained grid");
+    };
+    setPrecisionCell(60,63,0.09513379633426666F);
+    setPrecisionCell(61,62,0.6544426083564758F);
+    setPrecisionCell(61,63,0.8515732884407043F);
+    setPrecisionCell(61,64,3.8511412143707275F);
+    setPrecisionCell(61,65,0.07497962564229965F);
+    setPrecisionCell(62,62,8.815872192382812F);
+    setPrecisionCell(62,63,3.3401453495025635F);
+    setPrecisionCell(62,64,2.131049633026123F);
+    setPrecisionCell(63,63,0.10414200276136398F);
+    const auto precisionView=buildView(
+        precisionCandidate,definition("H70"),precisionCells,
+        static_cast<double>(61.83404541015625F),
+        static_cast<double>(64.3939323425293F),native70);
+    require(static_cast<float>(precisionView.wphi_cogx)==1.8874231576919556F,
+            "H70 wphi_cogx does not preserve PhotonClusterBuilder float32 arithmetic");
+
     std::cout<<"THE134_SHOWER_FACTORIAL_CANARY_PASS"
              <<" cells="<<cells.size()<<" views="<<views.size()
              <<" h70_hash="<<views.at("H70").semantic_sha256<<std::endl;

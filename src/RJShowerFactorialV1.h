@@ -52,7 +52,8 @@ inline std::string semanticText(const Definition& value)
       "|sums=" + std::to_string(static_cast<int>(value.rectangular_membership)) +
       "|moments=" + std::to_string(static_cast<int>(value.moment_membership)) +
       "|floor_gev=" + (value.floor_gev > 0.0 ? "0.070000" : "0.000000") +
-      "|grid=7x7|tower_quality=TowerInfo_get_isGood_only|center_excluded_from_cogx_numerator=1";
+      "|grid=7x7|tower_quality=TowerInfo_get_isGood_only|center_excluded_from_cogx_numerator=1" +
+      "|numeric=float32_PhotonClusterBuilder_row_major";
 }
 
 inline std::string semanticSha256(const Definition& value)
@@ -67,16 +68,17 @@ inline bool member(const ShowerCellRow& cell, Membership membership)
 
 inline bool selectedEnergy(const ShowerCellRow& cell,
                            const Definition& value,
-                           double& energy)
+                           float& energy)
 {
   if (value.energy_source == EnergySource::CALIBRATED_TOWERINFO)
   {
-    energy = cell.calibrated_energy;
-    return cell.is_good != 0 && std::isfinite(energy) && energy > value.floor_gev;
+    energy = static_cast<float>(cell.calibrated_energy);
+    return cell.is_good != 0 && std::isfinite(energy) &&
+        energy > static_cast<float>(value.floor_gev);
   }
-  energy = cell.rawcluster_map_value;
+  energy = static_cast<float>(cell.rawcluster_map_value);
   return cell.rawcluster_owned != 0 && cell.rawcluster_value_present != 0 &&
-      std::isfinite(energy) && energy > value.floor_gev;
+      std::isfinite(energy) && energy > static_cast<float>(value.floor_gev);
 }
 
 inline ShowerFeatureViewRow buildView(const Identity128& candidateId,
@@ -94,8 +96,12 @@ inline ShowerFeatureViewRow buildView(const Identity128& candidateId,
   int centerPhi=static_cast<int>(std::floor(rawCenterPhi));
   while (centerPhi<0) centerPhi+=256;
   while (centerPhi>=256) centerPhi-=256;
-  const double cogEtaLocal=3.0+(rawCenterEta-std::floor(rawCenterEta)-0.5);
-  const double cogPhiLocal=3.0+(rawCenterPhi-std::floor(rawCenterPhi)-0.5);
+  const float rawCenterEtaF=static_cast<float>(rawCenterEta);
+  const float rawCenterPhiF=static_cast<float>(rawCenterPhi);
+  const float cogEtaLocal=3.0F+
+      (rawCenterEtaF-static_cast<float>(std::floor(rawCenterEtaF))-0.5F);
+  const float cogPhiLocal=3.0F+
+      (rawCenterPhiF-static_cast<float>(std::floor(rawCenterPhiF))-0.5F);
   auto deltaPhiIndex=[](int towerPhi,int referencePhi)
   {
     int delta=towerPhi-referencePhi;
@@ -123,6 +129,9 @@ inline ShowerFeatureViewRow buildView(const Identity128& candidateId,
   row.native_et3=nativeEt[2]; row.native_et4=nativeEt[3];
 
   const int signPhi=cogPhiLocal>3.0?1:-1;
+  float e11=0.0F,e33=0.0F,e32=0.0F,e35=0.0F;
+  float momentEtaNumerator=0.0F,momentPhiNumerator=0.0F,momentDenominator=0.0F;
+  float moment33EtaNumerator=0.0F,moment33PhiNumerator=0.0F,moment33Denominator=0.0F;
   for (const auto& cell : cells)
   {
     if (cell.candidate_id != candidateId) continue;
@@ -135,7 +144,7 @@ inline ShowerFeatureViewRow buildView(const Identity128& candidateId,
     row.negative_count += cell.is_good != 0 && cell.is_negative != 0;
     row.nonfinite_count += cell.is_nonfinite != 0;
 
-    double energy=std::numeric_limits<double>::quiet_NaN();
+    float energy=std::numeric_limits<float>::quiet_NaN();
     if (!selectedEnergy(cell,value,energy)) continue;
     const bool sumMember=member(cell,value.rectangular_membership);
     const bool momentMember=member(cell,value.moment_membership);
@@ -143,45 +152,52 @@ inline ShowerFeatureViewRow buildView(const Identity128& candidateId,
     if (sumMember)
     {
       ++row.active_sum_cell_count;
-      if (i==3&&j==3) row.e11+=energy;
-      if (di<=1&&dj<=1) row.e33+=energy;
-      if (di<=1&&(j==3||j==3+signPhi)) row.e32+=energy;
-      if (di<=1&&dj<=2) row.e35+=energy;
+      if (i==3&&j==3) e11+=energy;
+      if (di<=1&&dj<=1) e33+=energy;
+      if (di<=1&&(j==3||j==3+signPhi)) e32+=energy;
+      if (di<=1&&dj<=2) e35+=energy;
     }
     if (momentMember)
     {
       ++row.active_moment_cell_count;
-      const double deta=static_cast<double>(i)-cogEtaLocal;
-      const double dphi=static_cast<double>(j)-cogPhiLocal;
-      row.moment_denominator+=energy;
+      const float deta=static_cast<float>(i)-cogEtaLocal;
+      const float dphi=static_cast<float>(j)-cogPhiLocal;
+      momentDenominator+=energy;
       if (i!=3||j!=3)
       {
-        row.moment_eta_numerator+=energy*deta*deta;
-        row.moment_phi_numerator+=energy*dphi*dphi;
+        momentEtaNumerator+=energy*deta*deta;
+        momentPhiNumerator+=energy*dphi*dphi;
       }
       if (di<=1&&dj<=1)
       {
-        row.moment33_denominator+=energy;
+        moment33Denominator+=energy;
         if (i!=3||j!=3)
         {
-          row.moment33_eta_numerator+=energy*deta*deta;
-          row.moment33_phi_numerator+=energy*dphi*dphi;
+          moment33EtaNumerator+=energy*deta*deta;
+          moment33PhiNumerator+=energy*dphi*dphi;
         }
       }
     }
   }
 
-  if (row.e33>0.0) row.e11_over_e33=row.e11/row.e33;
-  if (row.e35>0.0) row.e32_over_e35=row.e32/row.e35;
-  if (row.moment_denominator>0.0)
+  row.e11=e11; row.e33=e33; row.e32=e32; row.e35=e35;
+  row.moment_eta_numerator=momentEtaNumerator;
+  row.moment_phi_numerator=momentPhiNumerator;
+  row.moment_denominator=momentDenominator;
+  row.moment33_eta_numerator=moment33EtaNumerator;
+  row.moment33_phi_numerator=moment33PhiNumerator;
+  row.moment33_denominator=moment33Denominator;
+  if (e33>0.0F) row.e11_over_e33=e11/e33;
+  if (e35>0.0F) row.e32_over_e35=e32/e35;
+  if (momentDenominator>0.0F)
   {
-    row.weta_cogx=row.moment_eta_numerator/row.moment_denominator;
-    row.wphi_cogx=row.moment_phi_numerator/row.moment_denominator;
+    row.weta_cogx=momentEtaNumerator/momentDenominator;
+    row.wphi_cogx=momentPhiNumerator/momentDenominator;
   }
-  if (row.moment33_denominator>0.0)
+  if (moment33Denominator>0.0F)
   {
-    row.weta33_cogx=row.moment33_eta_numerator/row.moment33_denominator;
-    row.wphi33_cogx=row.moment33_phi_numerator/row.moment33_denominator;
+    row.weta33_cogx=moment33EtaNumerator/moment33Denominator;
+    row.wphi33_cogx=moment33PhiNumerator/moment33Denominator;
   }
   row.finite_feature_state=
       std::isfinite(row.weta_cogx)&&std::isfinite(row.wphi_cogx)&&
