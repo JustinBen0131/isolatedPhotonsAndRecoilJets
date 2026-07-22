@@ -3547,9 +3547,16 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         env_truthy_local("RJ_PPG12_PPSIM_REBUILD_CALO_FROM_G4");
     const bool ppg12ClosureCanary =
         env_truthy_local("RJ_PPG12_CLOSURE_CANARY");
+    const bool ppg12DINeutralityCanary =
+        env_truthy_local("RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY");
     const std::string ppg12ClosureCanaryId =
         std::getenv("RJ_PPG12_CLOSURE_CANARY_ID")
             ? detail::trim(std::string(std::getenv("RJ_PPG12_CLOSURE_CANARY_ID")))
+            : std::string();
+    const std::string ppg12DINeutralityCanaryId =
+        std::getenv("RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY_ID")
+            ? detail::trim(std::string(std::getenv(
+                  "RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY_ID")))
             : std::string();
     const std::string ppg12HistoricalSeedSequence =
         "2991264730,4256268992,2394322166,874466025,2240380304";
@@ -3568,11 +3575,55 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 
     if ((!ppg12ReplaySeedSequence.empty() ||
          !ppg12ExpectedPedestalToken.empty()) &&
-        !ppg12ClosureCanary)
+        !ppg12ClosureCanary && !ppg12DINeutralityCanary)
     {
         detail::bail(
-            "PPG12 historical RNG replay controls are valid only with "
-            "RJ_PPG12_CLOSURE_CANARY=1");
+            "PPG12 historical RNG replay controls require the exact closure "
+            "or replay-foundation DI-neutrality canary");
+    }
+    if (ppg12ClosureCanary && ppg12DINeutralityCanary)
+        detail::bail("PPG12 closure and DI-neutrality canaries are mutually exclusive");
+    if (ppg12DINeutralityCanary)
+    {
+        const bool safeCanaryId =
+            !ppg12DINeutralityCanaryId.empty() &&
+            ppg12DINeutralityCanaryId.size() <= 128 &&
+            ppg12DINeutralityCanaryId.find_first_not_of(
+                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.:-") ==
+                std::string::npos;
+        if (!safeCanaryId)
+            detail::bail("replay-foundation DI-neutrality canary ID is missing or unsafe");
+        if (!env_truthy_local("RJ_REPLAY_FOUNDATION_CANARY") ||
+            !isSim || isSimEmbedded || isAuAuRequested ||
+            !usePPG12PPSimRebuildCaloFromG4 ||
+            !env_truthy_local("RJ_PPG12_PPSIM_G4_ONLY") ||
+            !env_truthy_local("RJ_PPG12_PHOTON_YIELD_DOUBLE") ||
+            !env_truthy_local("RJ_PPG12_PERIOD_STRICT_DI"))
+        {
+            detail::bail(
+                "replay-foundation DI-neutrality RNG controls require the "
+                "pp-only archived double-interaction G4 rebuild canary path");
+        }
+        if (ppg12ReplaySeedSequence != ppg12HistoricalSeedSequence ||
+            ppg12ExpectedPedestalToken !=
+                std::to_string(ppg12ExpectedPedestalSequence))
+        {
+            detail::bail(
+                "replay-foundation DI-neutrality canary requires the exact "
+                "historical five-seed FIFO and pedestal sequence 534");
+        }
+        if (rc->FlagExist("RANDOMSEED"))
+            detail::bail("DI-neutrality canary forbids recoConsts RANDOMSEED");
+        PHRandomSeed::Verbosity(1);
+        for (const unsigned int seed : {
+                 2991264730U, 4256268992U, 2394322166U,
+                 874466025U, 2240380304U})
+            PHRandomSeed::LoadSeed(seed);
+        std::cout << "[REPLAY_FOUNDATION_DI_NEUTRALITY_RNG] canary_id="
+                  << ppg12DINeutralityCanaryId
+                  << " mode=historical_fifo_replay_v2"
+                  << " replay_sequence=" << ppg12ReplaySeedSequence
+                  << " RANDOMSEED_absent=1" << std::endl;
     }
     if (ppg12ClosureCanary)
     {
@@ -4194,7 +4245,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         const int naturalSequence = randGen.Integer(3260);
         const int sequence = naturalSequence;
         ppg12NaturalPedestalSequence = naturalSequence;
-        if (ppg12ClosureCanary &&
+        if ((ppg12ClosureCanary || ppg12DINeutralityCanary) &&
             naturalSequence != ppg12ExpectedPedestalSequence)
         {
             detail::bail(
@@ -7253,6 +7304,23 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         idfanout::ReplaceOrAppendScalar(
             stampedYaml, "ppg12_closure_rebuild_input_mode",
             usePPG12PPSimG4OnlyInput ? "g4_only" : "four_lane");
+    }
+    if (ppg12DINeutralityCanary)
+    {
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "replay_foundation_di_neutrality_canary", "true");
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "replay_foundation_di_neutrality_canary_id",
+            ppg12DINeutralityCanaryId);
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "replay_foundation_di_neutrality_rng_contract",
+            "historical_phrandomseed_fifo_replay_v2");
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "replay_foundation_di_neutrality_seed_sequence",
+            ppg12ReplaySeedSequence);
+        idfanout::ReplaceOrAppendScalar(
+            stampedYaml, "replay_foundation_di_neutrality_pedestal_sequence",
+            std::to_string(ppg12NaturalPedestalSequence));
     }
     if (const char* jetPtRaw = std::getenv("RJ_INTERNAL_JET_PT_MINS"))
     {

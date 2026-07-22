@@ -29,6 +29,11 @@ required = (
     'ppg12_closure_rng_contract',
     'ppg12_closure_pedestal_natural_sequence',
     'ppg12_closure_phrandomseed_call_consumed',
+    'RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY',
+    'RJ_REPLAY_FOUNDATION_DI_NEUTRALITY_CANARY_ID',
+    'replay-foundation DI-neutrality canary requires the exact ',
+    'PHRandomSeed::LoadSeed(seed);',
+    'replay_foundation_di_neutrality_rng_contract',
 )
 missing = [token for token in required if token not in text]
 assert not missing, f"missing closure RNG/provenance tokens: {missing}"

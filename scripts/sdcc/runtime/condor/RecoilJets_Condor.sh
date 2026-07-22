@@ -259,8 +259,21 @@ export RJ_SIM_SAMPLE="$run8"
 if [[ "${RJ_REPLAY_FOUNDATION_V1:-0}" == "1" ]]; then
   export RJ_REPLAY_DATASET="${RJ_REPLAY_DATASET:-$dataset}"
   export RJ_REPLAY_SAMPLE="${RJ_REPLAY_SAMPLE:-$run8}"
+  export RJ_REPLAY_PERIOD="${RJ_REPLAY_PERIOD:-${RJ_PPG12_PERIOD:-}}"
+  if [[ -z "${RJ_REPLAY_SI_DI_ROLE:-}" ]]; then
+    if [[ "$dataset" == "isPP" ]]; then
+      export RJ_REPLAY_SI_DI_ROLE=DATA
+    elif [[ "$run8" == *_double ]]; then
+      export RJ_REPLAY_SI_DI_ROLE=DI
+    else
+      export RJ_REPLAY_SI_DI_ROLE=SI
+    fi
+  fi
+  export RJ_REPLAY_OWNERSHIP_STATE="${RJ_REPLAY_OWNERSHIP_STATE:-source_owned}"
   export RJ_REPLAY_SEGMENT="${RJ_REPLAY_SEGMENT:-$chunk_idx}"
-  if [[ "$run8" =~ ([0-9]{5,8}) ]]; then
+  if [[ "$run8" =~ ^run([0-9]+)_ ]]; then
+    export RJ_REPLAY_RUN="${RJ_REPLAY_RUN:-${BASH_REMATCH[1]}}"
+  elif [[ "$run8" =~ ([0-9]{5,8}) ]]; then
     export RJ_REPLAY_RUN="${RJ_REPLAY_RUN:-${BASH_REMATCH[1]}}"
   fi
   if command -v sha256sum >/dev/null 2>&1 && [[ -s "$chunk_list" ]]; then
