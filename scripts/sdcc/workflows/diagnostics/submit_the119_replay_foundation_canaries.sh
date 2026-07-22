@@ -43,6 +43,7 @@ code_sha="${RJ_THE119_CODE_SHA256:-$(
   | sha256sum | awk '{print $1}'
 )}"
 only_keys="${RJ_THE119_ONLY_KEYS:-}"
+source_sha_override="${RJ_THE119_SOURCE_SHA256_OVERRIDE:-}"
 
 export RJ_CODEX_CHAT_NAME="THE-114+THE-119 | pp/AuAu Replay Foundation"
 export RJ_CODEX_THREAD_ID="019f80b5-dc56-7330-9ee7-56ef417547dc"
@@ -79,6 +80,10 @@ require_inputs(){
   [[ "$replay_trace" == 0 || "$replay_trace" == 1 ]] || die "RJ_THE119_REPLAY_TRACE must be 0 or 1"
   [[ "$pp_direct_witness_qa" == 0 || "$pp_direct_witness_qa" == 1 ]] || die "RJ_THE119_PP_DIRECT_WITNESS_QA must be 0 or 1"
   [[ "$pp_capture_witness_qa" == 0 || "$pp_capture_witness_qa" == 1 ]] || die "RJ_THE119_PP_CAPTURE_WITNESS_QA must be 0 or 1"
+  if [[ -n "$source_sha_override" ]]; then
+    [[ "$source_sha_override" =~ ^[0-9a-f]{64}$ ]] || die "RJ_THE119_SOURCE_SHA256_OVERRIDE must be a 64-character SHA-256"
+    [[ -n "$only_keys" ]] || die "RJ_THE119_SOURCE_SHA256_OVERRIDE requires a bounded RJ_THE119_ONLY_KEYS selection"
+  fi
 }
 
 common_extra(){
@@ -86,7 +91,11 @@ common_extra(){
   local enabled=0
   [[ "$arm" == writer ]] && enabled=1
   local source_sha
-  source_sha="$(sha "${tag}|${lane}|${dataset}|${sample}|accepted-canary-source-v1")"
+  if [[ -n "$source_sha_override" ]]; then
+    source_sha="$source_sha_override"
+  else
+    source_sha="$(sha "${tag}|${lane}|${dataset}|${sample}|accepted-canary-source-v1")"
+  fi
   printf '%s' "RJ_REPLAY_FOUNDATION_V1=${enabled};RJ_REPLAY_FOUNDATION_CANARY=1;RJ_REPLAY_TRACE=${replay_trace};RJ_REPLAY_PHOTON_CAPTURE_ET_MIN=${photon_capture_et_min};RJ_REPLAY_JET_CONSTITUENT_PT_MIN=${jet_constituent_pt_min};RJ_REPLAY_LANE=${lane};RJ_REPLAY_DATASET=${dataset};RJ_REPLAY_SAMPLE=${sample};RJ_REPLAY_SOURCE_MANIFEST_SHA256=${source_sha};RJ_REPLAY_SCHEMA_SHA256=${schema_sha};RJ_REPLAY_SEMANTIC_SHA256=${semantic_sha};RJ_REPLAY_SOURCE_SHA256=${source_sha};RJ_REPLAY_MODEL_SHA256=${model_sha};RJ_REPLAY_CONFIG_SHA256=$(sha256sum "$cfg" | awk '{print $1}');RJ_REPLAY_CODE_SHA256=${code_sha}"
 }
 
@@ -146,8 +155,8 @@ preflight(){
   bash -n "$0" scripts/sdcc/runtime/condor/RecoilJets_Condor.sh scripts/sdcc/runtime/condor/RecoilJets_Condor_AuAu.sh
   mkdir -p "$evidence"
   {
-    printf 'tag=%s\nbase=%s\ncode_commit=%s\ncode_sha256=%s\nschema_sha=%s\nsemantic_sha=%s\nphoton_capture_et_min_gev=%s\njet_constituent_pt_min_gev=%s\ncanary_nevents=%s\nreplay_trace=%s\npp_direct_witness_qa=%s\nonly_keys=%s\n' \
-      "$tag" "$base" "$code_commit" "$code_sha" "$schema_sha" "$semantic_sha" "$photon_capture_et_min" "$jet_constituent_pt_min" "$canary_nevents" "$replay_trace" "$pp_direct_witness_qa" "$only_keys"
+    printf 'tag=%s\nbase=%s\ncode_commit=%s\ncode_sha256=%s\nschema_sha=%s\nsemantic_sha=%s\nphoton_capture_et_min_gev=%s\njet_constituent_pt_min_gev=%s\ncanary_nevents=%s\nreplay_trace=%s\npp_direct_witness_qa=%s\nonly_keys=%s\nsource_sha_override=%s\n' \
+      "$tag" "$base" "$code_commit" "$code_sha" "$schema_sha" "$semantic_sha" "$photon_capture_et_min" "$jet_constituent_pt_min" "$canary_nevents" "$replay_trace" "$pp_direct_witness_qa" "$only_keys" "$source_sha_override"
     sha256sum "$pp_cfg" "$auau_cfg" "$pp_lib" "$auau_lib" "$pp_model" "$pp_ref" "$auau_model"
   } > "$evidence/preflight_receipt.txt"
   say "PREFLIGHT_PASS evidence=$evidence/preflight_receipt.txt"
