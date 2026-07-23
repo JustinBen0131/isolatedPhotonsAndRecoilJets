@@ -629,16 +629,52 @@ validate_one_five_file_tuple() {
   ' "$path" || die "${row_id} staged chunk must contain exactly one nonempty five-column input tuple"
 }
 
+validate_five_field_fanout_contract() {
+  local row_id="$1" fanout_file="$2" materialized_config="$3" expected_cone="$4"
+  local cone_count materialized_cone
+  [[ -s "$fanout_file" ]] || {
+    die "${row_id} materialized fanout contract is missing: ${fanout_file}"
+    return 2
+  }
+  awk -F '|' '
+    /^[[:space:]]*($|#)/ { next }
+    {
+      rows += 1
+      if (NF != 5) bad = 1
+      for (column = 1; column <= NF; ++column)
+        if ($column == "") bad = 1
+    }
+    END { exit (bad || rows != 1) }
+  ' "$fanout_file" || {
+    die "${row_id} fanout contract must contain exactly one nonempty five-field ID row"
+    return 2
+  }
+  [[ -s "$materialized_config" ]] || {
+    die "${row_id} descriptor-bound materialized config is missing: ${materialized_config}"
+    return 2
+  }
+  cone_count="$(grep -Ec '^[[:space:]]*coneR[[:space:]]*:' "$materialized_config" || true)"
+  [[ "$cone_count" == 1 ]] || {
+    die "${row_id} materialized config must contain exactly one coneR authority"
+    return 2
+  }
+  materialized_cone="$(yaml_value "$materialized_config" coneR)"
+  [[ "$materialized_cone" == "$expected_cone" || "$materialized_cone" == "0.4" ]] || {
+    die "${row_id} materialized config does not carry the nominal R=${expected_cone} extraction cone"
+    return 2
+  }
+}
+
 # Verify the exact dry-materialized unit that will be submitted.  This is the
 # pre-submission ownership proof: one descriptor, one argument row, one
 # fanout row, one RecoilJets instance, and one multiview sidecar assignment.
 # The tab-separated return value is consumed verbatim by submit_row.
 verify_materialized_row_contract() {
   local row_id="$1" system="$2" dataset="$3" sample="$4" row_output="$5" sidecar="$6" row_submit="$7"
-  local -a sub_files=() fanout_files=() sidecar_values=() id_file_values=() id_dirs_values=()
+  local -a sub_files=() sidecar_values=() id_file_values=() id_dirs_values=() materialized_config_values=()
   local submit_file args_file args_line chunk_list chunk_sha fanout_file fanout_sha fanout_line
   local arg_sample arg_chunk arg_dataset arg_cluster arg_events arg_index arg_none arg_dest arg_extra
-  local fan_dest fan_cfg fan_pre fan_tight fan_non fan_cone fan_sliding fan_fixed
+  local fan_dest fan_cfg fan_pre fan_tight fan_non materialized_config materialized_config_sha
   local chunk_tag analysis_tag analysis_root owner_count queue_count value
   local frozen_executable snapshot_dir snapshot_header snapshot_header_sha
   local snapshot_calo snapshot_calo_sha snapshot_analysis snapshot_analysis_sha expected_analysis_sha
@@ -701,17 +737,20 @@ verify_materialized_row_contract() {
     < <(descriptor_env_values "$submit_file" RJ_ID_FANOUT_DIRS_FILE)
   [[ "${#id_file_values[@]}" == 1 && "${#id_dirs_values[@]}" == 1 && "${id_file_values[0]}" == "${id_dirs_values[0]}" ]] ||
     die "${row_id} descriptor must bind one identical fanout file/dirs contract"
+  while IFS= read -r value; do materialized_config_values+=( "$value" ); done \
+    < <(descriptor_env_values "$submit_file" RJ_CONFIG_YAML)
+  [[ "${#materialized_config_values[@]}" == 1 ]] ||
+    die "${row_id} descriptor must bind exactly one materialized RJ_CONFIG_YAML"
+  materialized_config="${materialized_config_values[0]}"
   fanout_file="${id_file_values[0]}"
-  [[ -s "$fanout_file" ]] || die "${row_id} materialized fanout contract is missing: ${fanout_file}"
-  [[ "$(grep -Evc '^[[:space:]]*($|#)' "$fanout_file")" == 1 ]] ||
-    die "${row_id} fanout contract must contain exactly one RecoilJets row"
+  validate_five_field_fanout_contract "$row_id" "$fanout_file" "$materialized_config" "$extraction_cone_r"
   fanout_line="$(grep -Ev '^[[:space:]]*($|#)' "$fanout_file")"
-  IFS='|' read -r fan_dest fan_cfg fan_pre fan_tight fan_non fan_cone fan_sliding fan_fixed <<< "$fanout_line"
+  IFS='|' read -r fan_dest fan_cfg fan_pre fan_tight fan_non <<< "$fanout_line"
   [[ -n "$fan_dest" && -n "$fan_cfg" && -n "$fan_pre" && -n "$fan_tight" && -n "$fan_non" ]] ||
     die "${row_id} fanout row is incomplete"
   [[ "$fan_dest" == "$row_output/"* ]] || die "${row_id} fanout destination escapes its owned output namespace"
-  [[ "${fan_cone:-}" == "$extraction_cone_r" || "${fan_cone:-}" == "0.4" ]] ||
-    die "${row_id} fanout row does not carry the nominal R=${extraction_cone_r} extraction cone"
+  materialized_config_sha="$(sha_file "$materialized_config")"
+  require_sha "${row_id} materialized config" "$materialized_config_sha"
   owner_count=$(( ${#sub_files[@]} * $(wc -l < "$args_file" | tr -d ' ') * $(grep -Evc '^[[:space:]]*($|#)' "$fanout_file") * ${#sidecar_values[@]} ))
   [[ "$owner_count" == 1 ]] || die "${row_id} multiview sidecar owner multiplicity is ${owner_count}, expected 1"
 
@@ -721,11 +760,12 @@ verify_materialized_row_contract() {
   analysis_root="${fan_dest}/${sample}/RecoilJets_${analysis_tag}_${fan_cfg}_${chunk_tag}.root"
   fanout_sha="$(sha_file "$fanout_file")"
   require_sha "${row_id} fanout contract" "$fanout_sha"
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     "$submit_file" "$args_file" "$chunk_list" "$chunk_sha" \
     "$fanout_file" "$fanout_sha" "$analysis_root" "$owner_count" \
     "$snapshot_dir" "$snapshot_header" "$snapshot_header_sha" \
-    "$snapshot_calo" "$snapshot_calo_sha" "$snapshot_analysis" "$snapshot_analysis_sha"
+    "$snapshot_calo" "$snapshot_calo_sha" "$snapshot_analysis" "$snapshot_analysis_sha" \
+    "$materialized_config" "$materialized_config_sha"
 }
 
 submit_row() {
@@ -733,7 +773,7 @@ submit_row() {
   local config row_output sidecar row_submit library extra row_log materialize_log cluster proc cluster_proc
   local contract submit_file args_file chunk_list chunk_sha fanout_file fanout_sha analysis_root owner_count
   local snapshot_dir snapshot_header snapshot_header_sha snapshot_calo snapshot_calo_sha
-  local snapshot_analysis snapshot_analysis_sha
+  local snapshot_analysis snapshot_analysis_sha materialized_config materialized_config_sha
   local log_template out_template err_template log_path out_path err_path submitted_args expected_args args_sha
   local -a materialize_contract_env=(
     RJ_REPLAY_FOUNDATION_CANARY=1
@@ -800,7 +840,7 @@ submit_row() {
   contract="$(verify_materialized_row_contract "$row_id" "$system" "$dataset" "$sample" "$row_output" "$sidecar" "$row_submit")"
   IFS=$'\t' read -r submit_file args_file chunk_list chunk_sha fanout_file fanout_sha analysis_root owner_count \
     snapshot_dir snapshot_header snapshot_header_sha snapshot_calo snapshot_calo_sha \
-    snapshot_analysis snapshot_analysis_sha <<< "$contract"
+    snapshot_analysis snapshot_analysis_sha materialized_config materialized_config_sha <<< "$contract"
 
   command -v condor_submit >/dev/null 2>&1 || die "condor_submit is required after successful dry materialization"
   say "SUBMIT row=${row_id} descriptor=${submit_file} analysis_root=${analysis_root}"
@@ -838,12 +878,13 @@ submit_row() {
   log_path="$(resolve_condor_template "$log_template" "$cluster" "$proc")"
   out_path="$(resolve_condor_template "$out_template" "$cluster" "$proc")"
   err_path="$(resolve_condor_template "$err_template" "$cluster" "$proc")"
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     "$row_id" "$cluster_proc" "$submit_file" "$args_file" "$chunk_list" "$chunk_sha" \
     "$fanout_file" "$fanout_sha" "$log_path" "$out_path" "$err_path" \
     "$analysis_root" "$sidecar" "$owner_count" "$args_sha" \
     "$snapshot_dir" "$snapshot_header" "$snapshot_header_sha" \
     "$snapshot_calo" "$snapshot_calo_sha" "$snapshot_analysis" "$snapshot_analysis_sha" \
+    "$materialized_config" "$materialized_config_sha" \
     >> "$submission_receipt"
   write_source_provenance
 }
@@ -894,7 +935,7 @@ submit_all() {
   preflight
   mkdir -p "$evidence_root" "$submit_root"
   printf 'row_id\tcluster_proc\tsubmit_log\tsubmitted_at_utc\n' > "$submission_journal"
-  printf 'row_id\tcluster_proc\tsubmit_file\targs_file\tstaged_chunk_list\tstaged_chunk_sha256\tfanout_contract_file\tfanout_contract_sha256\tcondor_log\tcondor_stdout\tcondor_stderr\tanalysis_output_root\tmultiview_sidecar\tsidecar_owner_count\tsubmitted_args_sha256\tsnapshot_dir\tsnapshot_builder_header\tsnapshot_builder_header_sha256\tsnapshot_calo_reco_library\tsnapshot_calo_reco_library_sha256\tsnapshot_analysis_library\tsnapshot_analysis_library_sha256\n' > "$submission_receipt"
+  printf 'row_id\tcluster_proc\tsubmit_file\targs_file\tstaged_chunk_list\tstaged_chunk_sha256\tfanout_contract_file\tfanout_contract_sha256\tcondor_log\tcondor_stdout\tcondor_stderr\tanalysis_output_root\tmultiview_sidecar\tsidecar_owner_count\tsubmitted_args_sha256\tsnapshot_dir\tsnapshot_builder_header\tsnapshot_builder_header_sha256\tsnapshot_calo_reco_library\tsnapshot_calo_reco_library_sha256\tsnapshot_analysis_library\tsnapshot_analysis_library_sha256\tmaterialized_config\tmaterialized_config_sha256\n' > "$submission_receipt"
   while IFS='|' read -r row_id system lane dataset sample role mb_gate row_match; do
     submit_row "$row_id" "$system" "$lane" "$dataset" "$sample" "$role" "$mb_gate" "$row_match"
   done < <(emit_matrix)
@@ -1047,6 +1088,14 @@ for receipt in receipts:
             raise ValueError("smoke row asserted full training authority")
         if receipt["sidecar_owner_count"] != "1":
             raise ValueError("sidecar owner multiplicity is not exactly one")
+        materialized_config = Path(receipt["materialized_config"]).resolve()
+        materialized_config_sha = receipt["materialized_config_sha256"]
+        if not materialized_config.is_file():
+            raise ValueError(f"missing descriptor-bound materialized config:{materialized_config}")
+        if not HEX64.fullmatch(materialized_config_sha):
+            raise ValueError("materialized config receipt SHA-256 is malformed")
+        if file_sha256(materialized_config) != materialized_config_sha:
+            raise ValueError(f"materialized config hash drift:{materialized_config}")
         snapshot_dir = Path(receipt["snapshot_dir"]).resolve()
         snapshot_authorities = (
             (
