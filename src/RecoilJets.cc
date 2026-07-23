@@ -1,5 +1,6 @@
 #include "RecoilJets.h"
 #include "PPG12SimWeight.h"
+#include "RJPhotonTrainingViewV1.h"
 #include "RJReplayRuntimeV1.h"
 #include "RJShowerFactorialV1.h"
 //––– Fun4All / PHOOL -------------------------------------------------------
@@ -3587,6 +3588,55 @@ void RecoilJets::fillPPPhotonIDTrainingTree(const SSVars& v,
 
   m_ppPhotonIDTrainingTree->Fill();
   ++m_ppPhotonIDTrainingTreeEntries;
+
+  if (m_photonTrainingViewRuntime)
+  {
+    RJPhotonTrainingViewV1::Label label;
+    label.cluster_index = clusterIndex;
+    label.training_label = isSignal ? 1 : 0;
+    label.is_signal = isSignal ? 1 : 0;
+    label.label_authority = "PPG12_SOURCE_ROLE";
+    label.truth_match_found = truthTrackId >= 0 ? 1 : 0;
+    label.truth_photon_class = truthClass;
+    label.truth_is_prompt =
+        (truthClass == 1 || truthClass == 2) ? 1 : (truthClass >= 0 ? 0 : -1);
+    label.cluster_truth_track_id = truthTrackId;
+    label.cluster_truth_barcode = truthBarcode;
+    label.truth_energy_contribution = truthEnergyContribution;
+    label.source_role = isSignal ? 1 : 2;
+    // The legacy PPG12 branch stores a compact ordinal in
+    // ppg12_sample_bin.  The normalized source identity instead owns the
+    // physical generator threshold (Photon5/10/20 or Jet8/12/20/30).
+    label.source_sample_code = m_photonTrainingViewRuntime->sourceSampleCode();
+    label.ppg12_source_role_label = isSignal ? 1 : 0;
+    label.ppg12_analysis_window_pass = ppg12AnalysisWindowPass;
+    label.ppg12_response_window_pass = ppg12ResponseWindowPass;
+    label.ppg12_truth_window_pass_r04 = ppg12TruthWindowPassR04;
+    label.ppg12_sample_bin = ppg12SampleBin;
+    label.ppg12_xsec_pb = ppg12XsecPb;
+    label.ppg12_xsec_weight = ppg12XsecWeight;
+    label.ppg12_window_low = ppg12WindowLow;
+    label.ppg12_window_high = ppg12WindowHigh;
+    label.max_truth_jet_pt_r04 = maxTruthJetPtR04;
+    label.weight_slice = m_ppg12SimWeightFactorSlice;
+    // Match the accepted replay ledger: cross_section and exposure are
+    // provenance aliases, while the physical slice and period factors are
+    // applied exactly once when reconstructing the final weight.
+    label.weight_cross_section = m_ppg12SimWeightFactorSlice;
+    label.weight_vertex = m_ppg12SimWeightFactorVertex;
+    label.weight_si_di = m_ppg12SimWeightFactorMix;
+    label.weight_period = m_ppg12SimWeightFactorPeriod;
+    label.weight_exposure = m_ppg12SimWeightFactorPeriod;
+    label.weight_final = m_ppg12SimWeightFactorFinal;
+    label.weight_application_count = 1;
+    std::string trainingError;
+    if (!m_photonTrainingViewRuntime->recordLabel(
+            event_count,clusterIndex,label,&trainingError))
+    {
+      m_replayWriteFailed = true;
+      LOG(0, CLR_RED, "[RJPhotonTrainingViewV1][FATAL] label capture failed: " << trainingError);
+    }
+  }
 }
 
 
@@ -4887,6 +4937,13 @@ void RecoilJets::fillPPG12Fig7TriggerQA(PHCompositeNode* topNode)
 bool RecoilJets::initReplayFoundation()
 {
   m_replayFoundationEnabled = RJReplayRuntimeV1::envEnabled("RJ_REPLAY_FOUNDATION_V1");
+  const bool multiviewTrainingEnabled =
+      RJReplayRuntimeV1::envEnabled("RJ_THE134_MULTIVIEW_TRAINING_V1");
+  if (multiviewTrainingEnabled && !m_replayFoundationEnabled)
+  {
+    LOG(0, CLR_RED, "[RJPhotonTrainingViewV1][FATAL] the multiview training artifact requires RJ_REPLAY_FOUNDATION_V1=1");
+    return false;
+  }
   if (!m_replayFoundationEnabled) return true;
 
   const std::string lane = RJReplayRuntimeV1::env("RJ_REPLAY_LANE");
@@ -4923,6 +4980,33 @@ bool RecoilJets::initReplayFoundation()
     LOG(0, CLR_RED, "[ReplayFoundationV1][FATAL] initialization failed: " << error);
     m_replayRuntime.reset();
     return false;
+  }
+  if (multiviewTrainingEnabled)
+  {
+    if (!m_ppPhotonIDTrainingTreeEnabled || m_isAuAu)
+    {
+      LOG(0, CLR_RED, "[RJPhotonTrainingViewV1][FATAL] p+p multiview extraction requires the legacy p+p photon-ID training tree");
+      return false;
+    }
+    const std::string trainingPath =
+        RJReplayRuntimeV1::env("RJ_THE134_MULTIVIEW_TRAINING_FILE");
+    if (trainingPath.empty() || trainingPath == Outfile)
+    {
+      LOG(0, CLR_RED, "[RJPhotonTrainingViewV1][FATAL] RJ_THE134_MULTIVIEW_TRAINING_FILE must name a separate ROOT artifact");
+      return false;
+    }
+    m_photonTrainingViewRuntime =
+        std::make_unique<RJPhotonTrainingViewV1::Runtime>();
+    if (!m_photonTrainingViewRuntime->initialize(
+            trainingPath,RJPhotonTrainingViewV1::kSystemPP,source,
+            RJReplayRuntimeV1::env("RJ_REPLAY_CONFIG_SHA256"),
+            RJReplayRuntimeV1::env("RJ_REPLAY_CODE_SHA256"),&error))
+    {
+      LOG(0, CLR_RED, "[RJPhotonTrainingViewV1][FATAL] initialization failed: " << error);
+      m_photonTrainingViewRuntime.reset();
+      return false;
+    }
+    LOG(1, CLR_GREEN, "[RJPhotonTrainingViewV1] enabled at " << trainingPath);
   }
   LOG(1, CLR_GREEN, "[ReplayFoundationV1] enabled for lane=" << lane << " sample=" << sample);
   return true;
@@ -5029,13 +5113,19 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode, int termin
       candidate.encounter_ordinal = ordinal;
       candidate.rank_keys = {pt,-std::fabs(eta),static_cast<double>(ordinal)};
       candidate.cluster_et=pt; candidate.eta=eta; candidate.phi=phi;
-      candidate.ordered_features = {
-        static_cast<float>(pt), static_cast<float>(v.weta_cogx),
-        static_cast<float>(v.wphi_cogx), static_cast<float>(m_vz),
-        static_cast<float>(eta), static_cast<float>(v.e11_over_e33),
-        static_cast<float>(v.et1), static_cast<float>(v.et2),
-        static_cast<float>(v.et3), static_cast<float>(v.et4),
-        static_cast<float>(v.e32_over_e35)};
+      ShowerFeatureViewRow runtimeFeatureView;
+      runtimeFeatureView.weta_cogx=v.weta_cogx;
+      runtimeFeatureView.wphi_cogx=v.wphi_cogx;
+      runtimeFeatureView.weta33_cogx=v.weta33_cogx;
+      runtimeFeatureView.wphi33_cogx=v.wphi33_cogx;
+      runtimeFeatureView.e11_over_e33=v.e11_over_e33;
+      runtimeFeatureView.native_et1=v.et1;
+      runtimeFeatureView.native_et2=v.et2;
+      runtimeFeatureView.native_et3=v.et3;
+      runtimeFeatureView.native_et4=v.et4;
+      runtimeFeatureView.e32_over_e35=v.e32_over_e35;
+      candidate.ordered_features=RJShowerFactorialV1::modelFeatures(
+          runtimeFeatureView,pt,m_vz,eta,-1.0,false);
       if(shape70.valid)candidate.shower_definition_views={"H70","G70","O70","R70"};
       if(shape0.valid)candidate.shower_definition_views.insert(candidate.shower_definition_views.end(),{"H0","G0","O0"});
       candidate.finite_feature_state = std::all_of(candidate.ordered_features.begin(),candidate.ordered_features.end(),[](double x){return std::isfinite(x);}) ? 1:0;
@@ -5075,6 +5165,7 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode, int termin
 
       auto* cemcTowers=findNode::getClass<TowerInfoContainer>(topNode,"TOWERINFO_CALIB_CEMC");
       std::vector<ShowerCellRow> candidateCells;
+      std::vector<ShowerFeatureViewRow> candidateViews;
       if (cemcTowers && (shape0.valid||shape70.valid))
       {
         std::map<std::pair<int,int>,int> gridCells;
@@ -5095,6 +5186,22 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode, int termin
         };
         addGrid(shape0,1);addGrid(shape70,2);
         const auto& rawTowerMap=photon->get_towermap();
+        // RawClusterv1::get_shower_shapes derives its maximum tower,
+        // thresholded denominator, centroid, and native et1-et4 from the
+        // complete RawCluster TowerMap, not only the 7x7 rectangular-sum
+        // neighborhood.  Retain every owned map cell so an offline validator
+        // can reproduce that authority independently.  A zero grid bit means
+        // the cell is provenance-only for native-shape replay; buildView()
+        // still excludes it from the frozen 7x7 sums and moments.
+        for(const auto& rawItem:rawTowerMap)
+        {
+          const int rawEta=RawTowerDefs::decode_index1(rawItem.first);
+          int rawPhi=RawTowerDefs::decode_index2(rawItem.first);
+          while(rawPhi<0)rawPhi+=256;
+          while(rawPhi>=256)rawPhi-=256;
+          if(rawEta<0||rawEta>=96)continue;
+          gridCells.try_emplace({rawEta,rawPhi},0);
+        }
         const int nominalCenterEta=static_cast<int>(std::floor(shape70.valid?shape70.raw_eta:shape0.raw_eta));
         int nominalCenterPhi=static_cast<int>(std::floor(shape70.valid?shape70.raw_phi:shape0.raw_phi));
         while(nominalCenterPhi<0)nominalCenterPhi+=256;
@@ -5130,7 +5237,32 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode, int termin
           if(!state.valid)continue;
           auto view=RJShowerFactorialV1::buildView(candidate.id,def,candidateCells,state.raw_eta,state.raw_phi,state.native_et);
           view.ordered_features=RJShowerFactorialV1::modelFeatures(view,pt,m_vz,eta,-1.0,false);
+          candidateViews.push_back(view);
           bundle.shower_feature_views.push_back(std::move(view));
+        }
+      }
+
+      if (m_photonTrainingViewRuntime)
+      {
+        RJPhotonTrainingViewV1::CandidateContext context;
+        context.event_id=bundle.event.id;
+        context.candidate_id=candidate.id;
+        context.run=bundle.event.run;
+        context.event_sequence=bundle.event.event_sequence;
+        context.encounter_ordinal=candidate.encounter_ordinal;
+        context.cluster_map_key=static_cast<std::uint64_t>(it->first);
+        context.cluster_et=pt;
+        context.eta=eta;
+        context.phi=phi;
+        context.vertex_z=m_vz;
+        context.centrality=-1.0;
+        context.event_weight=m_mcEventWeight;
+        std::string trainingError;
+        if(!m_photonTrainingViewRuntime->appendCandidate(context,candidateViews,&trainingError))
+        {
+          m_replayWriteFailed=true;
+          LOG(0,CLR_RED,"[RJPhotonTrainingViewV1][FATAL] candidate capture failed: "<<trainingError);
+          return;
         }
       }
 
@@ -5351,6 +5483,13 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode, int termin
   bundle.weights.push_back(eventWeight);
 
   std::string error;
+  if(m_photonTrainingViewRuntime &&
+     !m_photonTrainingViewRuntime->finishEvent(bundle.event.event_sequence,&error))
+  {
+    m_replayWriteFailed=true;
+    LOG(0,CLR_RED,"[RJPhotonTrainingViewV1][FATAL] event transaction failed: "<<error);
+    return;
+  }
   replayMark("runtime_write_begin");
   if(!m_replayRuntime->write(bundle,&error))
   {
@@ -7582,12 +7721,35 @@ int RecoilJets::End(PHCompositeNode*)
         m_analysisConfigStamped = true;
       }
 
+      // A failed ReplayFoundation event transaction invalidates every
+      // candidate sidecar derived from this job.  Fail before either writer
+      // can stamp a terminal completion marker; Condor must observe a nonzero
+      // run result and no partially valid training artifact may be certified.
+      if (m_replayWriteFailed)
+      {
+        warn("ReplayFoundationV1 event transaction failed; refusing to finalize replay or photon-training artifacts");
+        return Fun4AllReturnCodes::ABORTRUN;
+      }
+
       if (m_replayFoundationEnabled && m_replayRuntime)
       {
         std::string replayError;
         if (!m_replayRuntime->finish(&replayError))
         {
           warn("ReplayFoundationV1 finish failed: " + replayError);
+          return Fun4AllReturnCodes::ABORTRUN;
+        }
+      }
+
+      // The labeled sidecar is downstream of the authoritative replay
+      // transaction.  Finalize it only after the main replay artifact has
+      // successfully written its own terminal completion state.
+      if (m_photonTrainingViewRuntime)
+      {
+        std::string trainingError;
+        if (!m_photonTrainingViewRuntime->finish(&trainingError))
+        {
+          warn("RJPhotonTrainingViewV1 finish failed: " + trainingError);
           return Fun4AllReturnCodes::ABORTRUN;
         }
       }

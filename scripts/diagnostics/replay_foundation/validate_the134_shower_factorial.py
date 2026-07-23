@@ -40,6 +40,17 @@ DEFINITIONS: dict[str, tuple[int, int, int, float]] = {
     "R70": (1, 1, 1, 0.070),
 }
 
+FROZEN_MINIMUM_WRITER_BYTES = 50_000
+# Retained feature vectors and the independent reconstruction are both
+# float32 PhotonClusterBuilder arithmetic.  Their contract is exact; unlike
+# TMVA scoring and Au+Au isolation, no nonzero feature tolerance is authorized.
+FROZEN_MAX_FEATURE_TOLERANCE = 0.0
+FROZEN_MAX_SCORE_TOLERANCE = 2.0e-7
+
+
+def valid_sha256(value: str) -> bool:
+    return len(value) == 64 and all(character in "0123456789abcdef" for character in value)
+
 
 def text(value: Any) -> str:
     return value.decode() if isinstance(value, bytes) else str(value)
@@ -71,12 +82,157 @@ def close(left: float, right: float, tolerance: float) -> bool:
     return math.isclose(left, right, rel_tol=0.0, abs_tol=tolerance)
 
 
-def view_from_cells(name: str, row: dict[str, Any], cells: list[dict[str, Any]]) -> dict[str, Any]:
+def _f32_add(left: np.float32, right: np.float32) -> np.float32:
+    """Spell out one C++ ``float`` addition for the independent oracle."""
+
+    return np.float32(np.float32(left) + np.float32(right))
+
+
+def _f32_sub(left: np.float32, right: np.float32) -> np.float32:
+    """Spell out one C++ ``float`` subtraction for the independent oracle."""
+
+    return np.float32(np.float32(left) - np.float32(right))
+
+
+def native_rawcluster_shape_from_cells(
+    floor: float, cells: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Replay ``RawClusterv1::get_shower_shapes`` from retained map cells.
+
+    The source implementation iterates the ordered ``RawCluster::TowerMap``
+    and performs every accumulation in ``float``.  The replay rows carry
+    absolute eta/phi indices and the original map value, so sorting by those
+    indices reproduces the RawTowerDefs key order for CEMC.
+    """
+
+    owned = sorted(
+        (
+            cell
+            for cell in cells
+            if int(cell["rawcluster_owned"]) != 0
+            and int(cell["rawcluster_value_present"]) != 0
+        ),
+        key=lambda cell: (int(cell["tower_eta_index"]), int(cell["tower_phi_index"])),
+    )
+    maximum_energy = np.float32(0.0)
+    maximum_eta: int | None = None
+    maximum_phi: int | None = None
+    for cell in owned:
+        energy = np.float32(cell["rawcluster_map_value"])
+        if energy > maximum_energy:
+            maximum_energy = energy
+            maximum_eta = int(cell["tower_eta_index"])
+            maximum_phi = int(cell["tower_phi_index"])
+    if maximum_eta is None or maximum_phi is None:
+        return {"valid": False}
+
+    threshold = np.float32(floor)
+    total_energy = np.float32(0.0)
+    delta_eta_numerator = np.float32(0.0)
+    delta_phi_numerator = np.float32(0.0)
+
+    def wrapped_delta_phi(tower_phi: int, reference_phi: int) -> np.float32:
+        delta = np.float32(tower_phi - reference_phi)
+        wrapped = np.float32(256.0) - np.abs(delta)
+        if np.abs(wrapped) < np.abs(delta):
+            return np.float32(-wrapped if delta > 0 else wrapped)
+        return delta
+
+    for cell in owned:
+        energy = np.float32(cell["rawcluster_map_value"])
+        if not energy > threshold:
+            continue
+        delta_eta = np.float32(int(cell["tower_eta_index"]) - maximum_eta)
+        delta_phi = wrapped_delta_phi(int(cell["tower_phi_index"]), maximum_phi)
+        total_energy = _f32_add(total_energy, energy)
+        delta_eta_numerator = _f32_add(
+            delta_eta_numerator, np.float32(energy * delta_eta)
+        )
+        delta_phi_numerator = _f32_add(
+            delta_phi_numerator, np.float32(energy * delta_phi)
+        )
+    if not np.isfinite(total_energy) or not total_energy > np.float32(0.0):
+        return {"valid": False}
+
+    delta_eta_mean = np.float32(delta_eta_numerator / total_energy)
+    delta_phi_mean = np.float32(delta_phi_numerator / total_energy)
+    local_center_eta = math.floor(float(_f32_add(delta_eta_mean, np.float32(0.5))))
+    local_center_phi = math.floor(float(_f32_add(delta_phi_mean, np.float32(0.5))))
+    eta_shift = -1 if _f32_sub(delta_eta_mean, np.float32(local_center_eta)) < 0 else 1
+    phi_shift = -1 if _f32_sub(delta_phi_mean, np.float32(local_center_phi)) < 0 else 1
+    eta1 = maximum_eta + local_center_eta
+    eta2 = eta1 + eta_shift
+    phi1 = (maximum_phi + local_center_phi) % 256
+    phi2 = (maximum_phi + local_center_phi + phi_shift) % 256
+    energy_by_coordinate = {
+        (int(cell["tower_eta_index"]), int(cell["tower_phi_index"])): np.float32(
+            cell["rawcluster_map_value"]
+        )
+        for cell in owned
+    }
+
+    def selected_energy(eta_index: int, phi_index: int) -> np.float32:
+        energy = energy_by_coordinate.get((eta_index, phi_index), np.float32(0.0))
+        return energy if energy > threshold else np.float32(0.0)
+
+    e1 = selected_energy(eta1, phi1)
+    e2 = selected_energy(eta1, phi2)
+    e3 = selected_energy(eta2, phi2)
+    e4 = selected_energy(eta2, phi1)
+    numerator1 = _f32_add(_f32_add(_f32_add(e1, e2), e3), e4)
+    numerator2 = _f32_sub(_f32_sub(_f32_add(e1, e2), e3), e4)
+    numerator3 = _f32_add(_f32_sub(_f32_sub(e1, e2), e3), e4)
+    raw_shape_eta = _f32_add(delta_eta_mean, np.float32(maximum_eta))
+    raw_shape_phi = _f32_add(delta_phi_mean, np.float32(maximum_phi))
+    raw_center_eta = float(raw_shape_eta) + 0.5
+    raw_center_phi = float(raw_shape_phi) + 0.5
+    return {
+        "valid": True,
+        "raw_center_eta": raw_center_eta,
+        "raw_center_phi": raw_center_phi,
+        "center_eta_index": int(math.floor(raw_center_eta)),
+        "center_phi_index": int(math.floor(raw_center_phi)) % 256,
+        "native_et1": np.float32(numerator1 / total_energy),
+        "native_et2": np.float32(numerator2 / total_energy),
+        "native_et3": np.float32(numerator3 / total_energy),
+        "native_et4": np.float32(e3 / total_energy),
+    }
+
+
+def native_et_replay_mismatch(
+    row: dict[str, Any], rebuilt: dict[str, Any], tolerance: float
+) -> bool:
+    """Return true when stored native shape values drift from cell replay."""
+
+    return (not rebuilt.get("valid", False)) or any(
+        not close(float(row[f"native_et{index}"]), float(rebuilt[f"native_et{index}"]), tolerance)
+        for index in range(1, 5)
+    )
+
+
+def valid_grid_or_owned_provenance(cell: dict[str, Any]) -> bool:
+    """Accept 7x7 members or complete owned-map provenance outside the grid."""
+
+    bitmask = int(cell["grid_membership_bitmask"])
+    if bitmask < 0 or bitmask > 3:
+        return False
+    if bitmask != 0:
+        return True
+    return (
+        int(cell["rawcluster_owned"]) != 0
+        and int(cell["rawcluster_value_present"]) != 0
+    )
+
+
+def view_from_cells(name: str, cells: list[dict[str, Any]]) -> dict[str, Any]:
     energy_source, sum_membership, moment_membership, floor = DEFINITIONS[name]
-    center_eta = int(row["center_eta_index"])
-    center_phi = int(row["center_phi_index"])
-    raw_center_eta = np.float32(row["raw_center_eta"])
-    raw_center_phi = np.float32(row["raw_center_phi"])
+    native_shape = native_rawcluster_shape_from_cells(floor, cells)
+    if not native_shape.get("valid", False):
+        return native_shape
+    center_eta = int(native_shape["center_eta_index"])
+    center_phi = int(native_shape["center_phi_index"])
+    raw_center_eta = np.float32(native_shape["raw_center_eta"])
+    raw_center_phi = np.float32(native_shape["raw_center_phi"])
     cog_eta = np.float32(3.0) + np.float32(
         raw_center_eta - np.floor(raw_center_eta) - np.float32(0.5)
     )
@@ -85,6 +241,7 @@ def view_from_cells(name: str, row: dict[str, Any], cells: list[dict[str, Any]])
     )
     sign_phi = 1 if cog_phi > 3.0 else -1
     out = {
+        **native_shape,
         "e11": np.float32(0.0), "e33": np.float32(0.0),
         "e32": np.float32(0.0), "e35": np.float32(0.0),
         "moment_eta_numerator": np.float32(0.0),
@@ -180,6 +337,7 @@ def rows_by_candidate(tree: Any, branches: list[str]) -> dict[tuple[int, int], l
 def validate_writer(
     label: str, system: str, active_definition: str, path: Path,
     expected: dict[str, str], models: dict[str, tuple[Path, str]],
+    expected_model_shas: set[str],
     minimum_bytes: int, feature_tolerance: float, score_tolerance: float,
 ) -> dict[str, Any]:
     failures: list[str] = []
@@ -221,11 +379,15 @@ def validate_writer(
         event_arrays = replay["RJEventV1"].arrays(
             ["event_id_hi", "event_id_lo", "vertex_z", "centrality"], library="np"
         )
-        events = {
-            identity(event_arrays["event_id_hi"][i], event_arrays["event_id_lo"][i]): (
+        events: dict[tuple[int, int], tuple[float, float]] = {}
+        for i in range(len(event_arrays["vertex_z"])):
+            key = identity(event_arrays["event_id_hi"][i], event_arrays["event_id_lo"][i])
+            if key in events:
+                failures.append("duplicate_event_identity")
+                continue
+            events[key] = (
                 float(event_arrays["vertex_z"][i]), float(event_arrays["centrality"][i])
-            ) for i in range(len(event_arrays["vertex_z"]))
-        }
+            )
         candidate_arrays = replay["RJPhotonCandidateV1"].arrays(
             ["candidate_id_hi", "candidate_id_lo", "event_id_hi", "event_id_lo",
              "cluster_et", "eta", "ordered_features", "shower_definition_views"], library="np"
@@ -233,12 +395,24 @@ def validate_writer(
         candidates: dict[tuple[int, int], dict[str, Any]] = {}
         for i in range(len(candidate_arrays["cluster_et"])):
             key = identity(candidate_arrays["candidate_id_hi"][i], candidate_arrays["candidate_id_lo"][i])
+            if key in candidates:
+                failures.append("duplicate_candidate_identity")
+                continue
+            candidate_view_names = [
+                text(value) for value in candidate_arrays["shower_definition_views"][i]
+            ]
+            if (
+                len(candidate_view_names) != len(DEFINITIONS)
+                or len(set(candidate_view_names)) != len(candidate_view_names)
+                or set(candidate_view_names) != set(DEFINITIONS)
+            ):
+                failures.append("candidate_declared_view_inventory_mismatch")
             candidates[key] = {
                 "event": identity(candidate_arrays["event_id_hi"][i], candidate_arrays["event_id_lo"][i]),
                 "et": float(candidate_arrays["cluster_et"][i]),
                 "eta": float(candidate_arrays["eta"][i]),
                 "features": np.asarray(candidate_arrays["ordered_features"][i], dtype=np.float32),
-                "views": {text(value) for value in candidate_arrays["shower_definition_views"][i]},
+                "views": set(candidate_view_names),
             }
 
         cell_branches = [
@@ -261,6 +435,12 @@ def validate_writer(
             "finite_feature_state",
         ]
         view_rows = rows_by_candidate(replay["RJShowerFeatureViewV1"], view_branches)
+        orphan_cell_candidates = set(cell_rows).difference(candidates)
+        orphan_view_candidates = set(view_rows).difference(candidates)
+        if orphan_cell_candidates:
+            failures.append("shower_cell_candidate_foreign_key_missing")
+        if orphan_view_candidates:
+            failures.append("shower_view_candidate_foreign_key_missing")
         scalar_fields = [
             "e11", "e33", "e32", "e35", "e11_over_e33", "e32_over_e35",
             "weta_cogx", "wphi_cogx", "weta33_cogx", "wphi33_cogx",
@@ -277,8 +457,14 @@ def validate_writer(
         view_lookup: dict[tuple[tuple[int, int], str], np.ndarray] = {}
         for key, candidate in candidates.items():
             candidate_views = view_rows.get(key, [])
-            names_for_candidate = {text(row["definition_name"]) for row in candidate_views}
-            if candidate["views"] != set(DEFINITIONS) or names_for_candidate != set(DEFINITIONS):
+            names_in_order = [text(row["definition_name"]) for row in candidate_views]
+            names_for_candidate = set(names_in_order)
+            if (
+                candidate["views"] != set(DEFINITIONS)
+                or names_for_candidate != set(DEFINITIONS)
+                or len(candidate_views) != len(DEFINITIONS)
+                or len(names_in_order) != len(names_for_candidate)
+            ):
                 bad_view_sets += 1
             coordinate_keys = [
                 (int(row["tower_eta_index"]), int(row["tower_phi_index"])) for row in cell_rows.get(key, [])
@@ -287,8 +473,14 @@ def validate_writer(
                 failures.append("duplicate_absolute_tower_identity")
             if any(not (0 <= eta < 96 and 0 <= phi < 256) for eta, phi in coordinate_keys):
                 failures.append("absolute_tower_coordinate_out_of_range")
-            if any(int(row["grid_membership_bitmask"]) <= 0 for row in cell_rows.get(key, [])):
-                failures.append("missing_grid_membership")
+            if any(
+                not valid_grid_or_owned_provenance(row)
+                for row in cell_rows.get(key, [])
+            ):
+                failures.append("invalid_grid_or_owned_provenance_membership")
+            if candidate["event"] not in events:
+                failures.append("candidate_event_foreign_key_missing")
+                continue
             vertex_z, centrality = events[candidate["event"]]
             for row in candidate_views:
                 name = text(row["definition_name"])
@@ -300,21 +492,54 @@ def validate_writer(
                     int(row["energy_source"]) != expected_energy
                     or int(row["rectangular_membership"]) != expected_sum
                     or int(row["moment_membership"]) != expected_moment
-                    or not close(float(row["floor_gev"]), expected_floor, 1.0e-15)
+                    or not close(float(row["floor_gev"]), expected_floor, 0.0)
                 ):
                     replay_mismatches += 1
-                rebuilt = view_from_cells(name, row, cell_rows.get(key, []))
+                rebuilt = view_from_cells(name, cell_rows.get(key, []))
+                if not rebuilt.get("valid", False):
+                    replay_mismatches += 1
+                    continue
+                replay_mismatches += int(
+                    not close(
+                        float(row["raw_center_eta"]),
+                        float(rebuilt["raw_center_eta"]),
+                        feature_tolerance,
+                    )
+                )
+                replay_mismatches += int(
+                    not close(
+                        float(row["raw_center_phi"]),
+                        float(rebuilt["raw_center_phi"]),
+                        feature_tolerance,
+                    )
+                )
+                replay_mismatches += int(
+                    int(row["center_eta_index"]) != int(rebuilt["center_eta_index"])
+                )
+                replay_mismatches += int(
+                    int(row["center_phi_index"]) != int(rebuilt["center_phi_index"])
+                )
+                replay_mismatches += int(
+                    native_et_replay_mismatch(row, rebuilt, feature_tolerance)
+                )
                 replay_mismatches += sum(
-                    not close(float(row[field]), float(rebuilt[field]), 2.0e-12) for field in scalar_fields
+                    not close(float(row[field]), float(rebuilt[field]), 0.0) for field in scalar_fields
                 )
                 replay_mismatches += sum(int(row[field]) != int(rebuilt[field]) for field in count_fields)
-                native = [float(row[f"native_et{i}"]) for i in range(1, 5)]
-                expected_features = [
-                    candidate["et"], rebuilt["weta_cogx"], rebuilt["wphi_cogx"], vertex_z,
-                    candidate["eta"], rebuilt["e11_over_e33"], *native, rebuilt["e32_over_e35"],
-                ]
+                native = [float(rebuilt[f"native_et{i}"]) for i in range(1, 5)]
                 if system == "auau":
-                    expected_features += [centrality, rebuilt["weta33_cogx"], rebuilt["wphi33_cogx"]]
+                    expected_features = [
+                        candidate["et"], rebuilt["weta_cogx"], rebuilt["wphi_cogx"],
+                        rebuilt["weta33_cogx"], rebuilt["wphi33_cogx"], vertex_z,
+                        candidate["eta"], rebuilt["e11_over_e33"], *native,
+                        rebuilt["e32_over_e35"], centrality,
+                    ]
+                else:
+                    expected_features = [
+                        candidate["et"], rebuilt["weta_cogx"], rebuilt["wphi_cogx"], vertex_z,
+                        candidate["eta"], rebuilt["e11_over_e33"], *native,
+                        rebuilt["e32_over_e35"],
+                    ]
                 observed_features = np.asarray(row["ordered_features"], dtype=np.float32)
                 expected_features_np = np.asarray(expected_features, dtype=np.float32)
                 if observed_features.shape != expected_features_np.shape or not np.allclose(
@@ -350,6 +575,7 @@ def validate_writer(
         model_arrays = replay["RJModelEvaluationV1"].arrays(model_branches, library="np")
         score_inputs: dict[str, list[np.ndarray]] = defaultdict(list)
         score_observed: dict[str, list[float]] = defaultdict(list)
+        observed_declared_models: set[str] = set()
         bad_model_semantics = 0
         bad_model_inputs = 0
         bad_below15 = 0
@@ -357,9 +583,13 @@ def validate_writer(
             key = identity(model_arrays["candidate_id_hi"][i], model_arrays["candidate_id_lo"][i])
             model_sha = text(model_arrays["model_sha256"][i])
             definition_name = text(model_arrays["shower_definition_id"][i])
+            if key not in candidates:
+                failures.append("model_candidate_foreign_key_missing")
+                continue
             if model_sha not in models or models[model_sha][1] != definition_name:
                 bad_model_semantics += 1
                 continue
+            observed_declared_models.add(model_sha)
             if text(model_arrays["shower_semantic_sha256"][i]) != semantic_sha(definition_name):
                 bad_model_semantics += 1
             expected_input = view_lookup.get((key, definition_name))
@@ -392,11 +622,20 @@ def validate_writer(
     try:
         import ROOT  # type: ignore
         score_report: dict[str, Any] = {}
-        for model_sha, inputs in score_inputs.items():
+        report["expected_model_sha256s"] = sorted(expected_model_shas)
+        report["observed_model_sha256s"] = sorted(observed_declared_models)
+        if observed_declared_models != expected_model_shas:
+            failures.append("system_model_sha_inventory_mismatch")
+        for model_sha in sorted(expected_model_shas):
+            inputs = score_inputs.get(model_sha, [])
             matrix = np.ascontiguousarray(np.asarray(inputs, dtype=np.float32))
+            observed = np.asarray(score_observed[model_sha], dtype=np.float64)
+            if not len(inputs) or not len(observed):
+                score_report[model_sha] = {"rows": 0, "max_abs_difference": math.nan}
+                failures.append("runtime_tmva_zero_parity_rows")
+                continue
             runtime = ROOT.TMVA.Experimental.RBDT("myBDT", str(models[model_sha][0]))
             recomputed = np.asarray(runtime.Compute(matrix), dtype=np.float64).reshape(-1)
-            observed = np.asarray(score_observed[model_sha], dtype=np.float64)
             difference = np.abs(recomputed - observed)
             max_abs = float(np.max(difference)) if len(difference) else math.nan
             score_report[model_sha] = {"rows": len(observed), "max_abs_difference": max_abs}
@@ -415,24 +654,57 @@ def validate_writer(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pair", action="append", nargs=5, metavar=("LABEL", "SYSTEM", "ACTIVE_DEF", "DIRECT", "WRITER"), required=True)
-    parser.add_argument("--model", action="append", nargs=3, metavar=("SHA256", "TMVA_ROOT", "DEFINITION"), required=True)
+    parser.add_argument(
+        "--model", action="append", nargs=4,
+        metavar=("SYSTEM", "SHA256", "TMVA_ROOT", "DEFINITION"), required=True,
+        help="declare each exact system-scoped runtime model expected in its writer",
+    )
     parser.add_argument("--expected-code", required=True)
     parser.add_argument("--expected-schema", required=True)
     parser.add_argument("--expected-semantic", required=True)
     parser.add_argument("--minimum-bytes", type=int, default=50_000)
-    parser.add_argument("--feature-tolerance", type=float, default=2.0e-6)
+    parser.add_argument("--feature-tolerance", type=float, default=0.0)
     parser.add_argument("--score-tolerance", type=float, default=2.0e-7)
     parser.add_argument("--output-json", type=Path)
     args = parser.parse_args()
+    for label, value in (
+        ("--expected-code", args.expected_code),
+        ("--expected-schema", args.expected_schema),
+        ("--expected-semantic", args.expected_semantic),
+    ):
+        if not valid_sha256(value):
+            raise SystemExit(f"{label} must be an exact lowercase SHA-256")
+    if args.minimum_bytes < FROZEN_MINIMUM_WRITER_BYTES:
+        raise SystemExit(
+            f"--minimum-bytes cannot be lower than the frozen {FROZEN_MINIMUM_WRITER_BYTES}-byte gate"
+        )
+    if not 0.0 <= args.feature_tolerance <= FROZEN_MAX_FEATURE_TOLERANCE:
+        raise SystemExit(
+            "--feature-tolerance must be nonnegative and cannot exceed the frozen "
+            f"{FROZEN_MAX_FEATURE_TOLERANCE:.1e} gate"
+        )
+    if not 0.0 <= args.score_tolerance <= FROZEN_MAX_SCORE_TOLERANCE:
+        raise SystemExit(
+            "--score-tolerance must be nonnegative and cannot exceed the frozen "
+            f"{FROZEN_MAX_SCORE_TOLERANCE:.1e} gate"
+        )
     model_map: dict[str, tuple[Path, str]] = {}
-    for sha, path, definition_name in args.model:
+    system_model_shas: dict[str, set[str]] = {"pp": set(), "auau": set()}
+    for system, sha, path, definition_name in args.model:
+        if system not in system_model_shas:
+            raise SystemExit(f"unknown model system: {system}")
+        if not valid_sha256(sha):
+            raise SystemExit(f"model SHA-256 is malformed: {sha}")
         model_path = Path(path)
         actual = hashlib.sha256(model_path.read_bytes()).hexdigest()
         if actual != sha:
             raise SystemExit(f"model hash mismatch: {model_path}: {actual} != {sha}")
         if definition_name not in DEFINITIONS:
             raise SystemExit(f"unknown model shower definition: {definition_name}")
+        if sha in model_map:
+            raise SystemExit(f"duplicate declared model SHA-256: {sha}")
         model_map[sha] = (model_path, definition_name)
+        system_model_shas[system].add(sha)
     metadata = {
         "code_sha256": args.expected_code,
         "schema_sha256": args.expected_schema,
@@ -443,9 +715,12 @@ def main() -> int:
     for label, system, active_definition, direct, writer in args.pair:
         if system not in ("pp", "auau") or active_definition not in DEFINITIONS:
             raise SystemExit(f"invalid pair contract: {label} {system} {active_definition}")
+        if not system_model_shas[system]:
+            raise SystemExit(f"no exact runtime model declared for pair system: {system}")
         pairs.append(compare_histograms(label, Path(direct), Path(writer)))
         writers.append(validate_writer(
             label, system, active_definition, Path(writer), metadata, model_map,
+            system_model_shas[system],
             args.minimum_bytes, args.feature_tolerance, args.score_tolerance,
         ))
     total_writer_bytes = sum(item["size_bytes"] for item in writers)

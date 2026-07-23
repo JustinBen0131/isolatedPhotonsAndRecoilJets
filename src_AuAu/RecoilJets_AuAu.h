@@ -89,6 +89,7 @@ class RawCluster;
 class PhotonClusterv1;
 class Jet;
 namespace RJReplayRuntimeV1 { class Runtime; }
+namespace RJPhotonTrainingViewV1 { class Runtime; }
 class MbdPmtContainer;
 class MbdOut;
 class MbdGeom;
@@ -908,6 +909,7 @@ private:
     void fillAuAuBDTTrainingTree(const SSVars& v,
                                  double eta,
                                  double phi,
+                                 int clusterIndex,
                                  double eiso,
                                  int ptIdx,
                                  int centIdx,
@@ -926,6 +928,7 @@ private:
                                  int clusterTruthTrackId = -1,
                                  int clusterTruthPid = 0,
                                  int clusterTruthBarcode = -1,
+                                 float truthEnergyContribution = std::numeric_limits<float>::quiet_NaN(),
                                  int sourceRole = 0,
                                  int sourceSampleCode = 0,
                                  int ppg12SourceRoleLabel = -1);
@@ -2237,6 +2240,7 @@ private:
     bool m_replayNodesReady = false;
     bool m_replayWriteFailed = false;
     std::unique_ptr<RJReplayRuntimeV1::Runtime> m_replayRuntime;
+    std::unique_ptr<RJPhotonTrainingViewV1::Runtime> m_photonTrainingViewRuntime;
 };
 
 #endif // RECOILJETS_AuAu_H

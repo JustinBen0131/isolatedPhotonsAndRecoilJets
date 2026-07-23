@@ -8,10 +8,10 @@ data for exact offline replay.
 Run the synthetic contract gate with the analysis ROOT runtime:
 
 ```bash
-clang++ $(/Users/patsfan753/Desktop/analysis/env/bin/root-config --cflags) \
+clang++ $(root-config --cflags) \
   -std=c++20 -Wall -Wextra -Werror \
   scripts/diagnostics/replay_foundation/the118_schema_canary.cc \
-  $(/Users/patsfan753/Desktop/analysis/env/bin/root-config --libs) \
+  $(root-config --libs) \
   -o /tmp/the118_schema_canary
 
 /tmp/the118_schema_canary /tmp/the118_schema.root
@@ -30,10 +30,14 @@ physics lane.
 ## THE-134 shower-definition factorial gate
 
 The H70 production gate stores a union of the H0/H70-centered absolute CEMC
-tower neighborhoods and reconstructs seven typed definitions (`H70`, `H0`,
-`G70`, `G0`, `O70`, `O0`, and `R70`) for every retained loose photon.  The
-nominal analysis definition is H70; the other definitions are controls and do
-not alter the 15--35 GeV reporting or validated-model domain.
+tower neighborhoods plus every RawCluster-owned tower needed to reproduce the
+native shower denominator, centroid, and `et1`--`et4`.  Cells outside the 7x7
+union carry a zero grid-membership bit and are replay provenance only; they do
+not enter the frozen rectangular sums or moments.  The payload reconstructs
+seven typed definitions (`H70`, `H0`, `G70`, `G0`, `O70`, `O0`, and `R70`) for
+every retained loose photon.  The nominal analysis definition is H70; the
+other definitions are controls and do not alter the 15--35 GeV reporting or
+validated-model domain.
 
 Run the controlled center/phi-seam contract test locally:
 
@@ -54,3 +58,33 @@ independently rebuilds every view from absolute tower rows, verifies active
 model/view identity and TMVA score parity, and requires direct/writer histogram
 and `Sumw2` neutrality.  Passing this bounded gate is required before any
 THE-121/THE-122 broad submission.
+
+### Opt-in labeled multiview extraction
+
+`RJPhotonTrainingViewV1.h` joins each accepted legacy photon-training label to
+all seven retained shower definitions without changing
+`AuAuPhotonIDTrainingTree` or the 16-tree replay inventory.  It is fail-closed
+and writes a separate ROOT artifact only when all three settings are explicit:
+
+```text
+RJ_REPLAY_FOUNDATION_V1=1
+RJ_THE134_MULTIVIEW_TRAINING_V1=1
+RJ_THE134_MULTIVIEW_TRAINING_FILE=/separate/path/training_views.root
+```
+
+The corresponding legacy p+p or Au+Au training-tree mode must also be active.
+The artifact records source/event/candidate/definition identities, exact
+ordered pp11 or AuAu14 features, source-role labels, truth provenance, and a
+weight-component ledger.  It never owns a working-point or tag decision;
+below-15 rows are diagnostic with null WP/tag state.  Run its local schema and
+default-inventory gate with:
+
+```bash
+clang++ $(/Users/patsfan753/Desktop/analysis/env/bin/root-config --cflags) \
+  -std=c++20 -Wall -Wextra -Werror \
+  scripts/diagnostics/replay_foundation/the134_multiview_training_canary.cc \
+  $(/Users/patsfan753/Desktop/analysis/env/bin/root-config --libs) \
+  -o /tmp/the134_multiview_training_canary
+/tmp/the134_multiview_training_canary \
+  /tmp/the134_default_replay.root /tmp/the134_pp_views.root /tmp/the134_auau_views.root
+```

@@ -94,6 +94,7 @@ class RawCluster;
 class PhotonClusterv1;
 class Jet;
 namespace RJReplayRuntimeV1 { class Runtime; }
+namespace RJPhotonTrainingViewV1 { class Runtime; }
 
 // g4eval: used for truth↔reco association of EMCal clusters
 class CaloRawClusterEval;
@@ -1899,6 +1900,7 @@ private:
   bool m_replayNodesReady = false;
   bool m_replayWriteFailed = false;
   std::unique_ptr<RJReplayRuntimeV1::Runtime> m_replayRuntime;
+  std::unique_ptr<RJPhotonTrainingViewV1::Runtime> m_photonTrainingViewRuntime;
 };
 
 #endif // RECOILJETS_H

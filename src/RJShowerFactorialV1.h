@@ -214,20 +214,27 @@ inline std::vector<float> modelFeatures(const ShowerFeatureViewRow& row,
                                         double centrality,
                                         bool isAuAu)
 {
-  std::vector<float> result{
+  if (isAuAu)
+  {
+    // Canonical 14-feature Au+Au order.  Keep the 3x3 widths adjacent to
+    // their cog widths and centrality last; this is the load-bearing model
+    // input contract, not an internal convenience ordering.
+    return {
+        static_cast<float>(photonEt),static_cast<float>(row.weta_cogx),
+        static_cast<float>(row.wphi_cogx),static_cast<float>(row.weta33_cogx),
+        static_cast<float>(row.wphi33_cogx),static_cast<float>(vertexZ),
+        static_cast<float>(eta),static_cast<float>(row.e11_over_e33),
+        static_cast<float>(row.native_et1),static_cast<float>(row.native_et2),
+        static_cast<float>(row.native_et3),static_cast<float>(row.native_et4),
+        static_cast<float>(row.e32_over_e35),static_cast<float>(centrality)};
+  }
+  return {
       static_cast<float>(photonEt),static_cast<float>(row.weta_cogx),
       static_cast<float>(row.wphi_cogx),static_cast<float>(vertexZ),
       static_cast<float>(eta),static_cast<float>(row.e11_over_e33),
       static_cast<float>(row.native_et1),static_cast<float>(row.native_et2),
       static_cast<float>(row.native_et3),static_cast<float>(row.native_et4),
       static_cast<float>(row.e32_over_e35)};
-  if (isAuAu)
-  {
-    result.push_back(static_cast<float>(centrality));
-    result.push_back(static_cast<float>(row.weta33_cogx));
-    result.push_back(static_cast<float>(row.wphi33_cogx));
-  }
-  return result;
 }
 } // namespace RJShowerFactorialV1
 

@@ -122,6 +122,27 @@ int main()
             "raw-map and calibrated ownership views are indistinguishable");
     require(modelFeatures(views.at("H70"),20.0,3.0,0.1,30.0,false).size()==11,
             "pp feature order is not 11");
+    const auto canonicalAuAuFeatures=modelFeatures(
+        views.at("H70"),20.0,3.0,0.1,30.0,true);
+    const std::array<float,14> expectedAuAuFeatures{{
+        20.0F,
+        static_cast<float>(views.at("H70").weta_cogx),
+        static_cast<float>(views.at("H70").wphi_cogx),
+        static_cast<float>(views.at("H70").weta33_cogx),
+        static_cast<float>(views.at("H70").wphi33_cogx),
+        3.0F,0.1F,
+        static_cast<float>(views.at("H70").e11_over_e33),
+        static_cast<float>(views.at("H70").native_et1),
+        static_cast<float>(views.at("H70").native_et2),
+        static_cast<float>(views.at("H70").native_et3),
+        static_cast<float>(views.at("H70").native_et4),
+        static_cast<float>(views.at("H70").e32_over_e35),
+        30.0F}};
+    require(canonicalAuAuFeatures.size()==expectedAuAuFeatures.size(),
+            "AuAu feature order is not 14");
+    require(std::equal(canonicalAuAuFeatures.begin(),canonicalAuAuFeatures.end(),
+                       expectedAuAuFeatures.begin()),
+            "AuAu canonical feature order drifted: 3x3 widths must follow cog widths and centrality must be last");
     for(const auto& item:views)
       require(item.second.finite_feature_state==1,"nonfinite factorial view: "+item.first);
 

@@ -13,7 +13,7 @@ TABLES = {
     "RJEventV1": 1,
     "RJPhotonCandidateV1": 1,
     "RJModelEvaluationV1": 1,
-    "RJShowerCellV1": 1,
+    "RJShowerCellV1": 2,
     "RJShowerFeatureViewV1": 1,
     "RJIsolationConstituentV1": 1,
     "RJIsolationWitnessV1": 1,

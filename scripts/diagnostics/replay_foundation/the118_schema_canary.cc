@@ -70,6 +70,20 @@ int main(int argc, char** argv)
   cell.floor0_membership=1; cell.floor70_membership=1; cell.grid_membership_bitmask=3;
   if(!writer.fill(cell,&error)) return 6;
 
+  ShowerCellRow ownedProvenance=cell;
+  ownedProvenance.local_eta_index=4; ownedProvenance.local_phi_index=0;
+  ownedProvenance.tower_eta_index=52; ownedProvenance.tower_phi_index=128;
+  ownedProvenance.tower_key=12; ownedProvenance.seed_state=0;
+  ownedProvenance.grid_membership_bitmask=0;
+  if(!writer.fill(ownedProvenance,&error)) return 28;
+
+  ShowerCellRow invalidUnownedProvenance=ownedProvenance;
+  invalidUnownedProvenance.tower_eta_index=53;
+  invalidUnownedProvenance.tower_key=13;
+  invalidUnownedProvenance.rawcluster_owned=0;
+  invalidUnownedProvenance.rawcluster_value_present=0;
+  if(writer.fill(invalidUnownedProvenance,&error)) return 29;
+
   ShowerFeatureViewRow view;
   view.candidate_id=candidateId; view.definition_id=makeIdentity("shower-definition|H70");
   view.definition_name="H70"; view.semantic_sha256=h; view.ordered_features=candidate.ordered_features;

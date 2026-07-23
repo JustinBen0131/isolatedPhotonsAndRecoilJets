@@ -51,6 +51,7 @@ libRecoilJets_la_LDFLAGS = $(AM_LDFLAGS) $(LDFLAGS) -no-undefined -version-info 
 pkginclude_HEADERS = \
   RecoilJets.h \
   RJReplayFoundationV1.h \
+  RJPhotonTrainingViewV1.h \
   RJReplayRuntimeV1.h \
   RJShowerFactorialV1.h
 

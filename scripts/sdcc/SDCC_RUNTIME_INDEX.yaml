@@ -40,6 +40,46 @@ entries:
     canonical_path: "scripts/sdcc/workflows/diagnostics/submit_the102_auau_fig25_correlations.sh"
     domain: "sdcc/workflows/diagnostics"
     hard_aliases: []
+  - id: submit_the134_multiview_extraction_smoke
+    canonical_path: "scripts/sdcc/workflows/diagnostics/submit_the134_multiview_extraction_smoke.sh"
+    domain: "sdcc/workflows/diagnostics"
+    hard_aliases: []
+  - id: the134_h70_contract
+    canonical_path: "scripts/ml/contracts/the134_h70_contract.py"
+    domain: "ml/contracts"
+    hard_aliases: []
+  - id: prepare_the134_h70_matrix
+    canonical_path: "scripts/ml/training/prepare_the134_h70_matrix.py"
+    domain: "ml/training"
+    hard_aliases: []
+  - id: run_the134_h70_model
+    canonical_path: "scripts/ml/training/run_the134_h70_model.py"
+    domain: "ml/training"
+    hard_aliases: []
+  - id: audit_the134_model_reuse
+    canonical_path: "scripts/ml/validation/audit_the134_model_reuse.py"
+    domain: "ml/validation"
+    hard_aliases: []
+  - id: materialize_the134_h70_holdout
+    canonical_path: "scripts/ml/validation/materialize_the134_h70_holdout.py"
+    domain: "ml/validation"
+    hard_aliases: []
+  - id: validate_the134_h70_model
+    canonical_path: "scripts/ml/validation/validate_the134_h70_model.py"
+    domain: "ml/validation"
+    hard_aliases: []
+  - id: build_the134_h70_model_registry
+    canonical_path: "scripts/ml/validation/build_the134_h70_model_registry.py"
+    domain: "ml/validation"
+    hard_aliases: []
+  - id: materialize_the134_h70_wp_sample
+    canonical_path: "scripts/ml/working_points/materialize_the134_h70_wp_sample.py"
+    domain: "ml/working_points"
+    hard_aliases: []
+  - id: derive_the134_h70_wp
+    canonical_path: "scripts/ml/working_points/derive_the134_h70_wp.py"
+    domain: "ml/working_points"
+    hard_aliases: []
   - id: mergedownloadedrecoiljetssim
     canonical_path: "scripts/sdcc/local_merge/root/MergeDownloadedRecoilJetsSim.C"
     domain: "sdcc/local_merge/root"

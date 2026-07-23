@@ -46,6 +46,17 @@ scripts/diagnostics/auau_bdt/validate_the102_fig25_root.py	scripts/diagnostics/a
 scripts/sdcc/workflows/diagnostics/submit_the104_canonical_minbias_isolation_slides.sh	scripts/sdcc/workflows/diagnostics/submit_the104_canonical_minbias_isolation_slides.sh	scripts/sdcc/workflows/diagnostics/submit_the104_canonical_minbias_isolation_slides.sh		scripts/sdcc/workflows/diagnostics/submit_the104_canonical_minbias_isolation_slides.sh	canonical
 scripts/sdcc/workflows/diagnostics/submit_the119_replay_foundation_canaries.sh	scripts/sdcc/workflows/diagnostics/submit_the119_replay_foundation_canaries.sh	scripts/sdcc/workflows/diagnostics/submit_the119_replay_foundation_canaries.sh		scripts/sdcc/workflows/diagnostics/submit_the119_replay_foundation_canaries.sh	canonical
 scripts/sdcc/workflows/diagnostics/submit_the134_shower_factorial_canaries.sh	scripts/sdcc/workflows/diagnostics/submit_the134_shower_factorial_canaries.sh	scripts/sdcc/workflows/diagnostics/submit_the134_shower_factorial_canaries.sh		scripts/sdcc/workflows/diagnostics/submit_the134_shower_factorial_canaries.sh	canonical
+scripts/sdcc/workflows/diagnostics/submit_the134_multiview_extraction_smoke.sh	scripts/sdcc/workflows/diagnostics/submit_the134_multiview_extraction_smoke.sh	scripts/sdcc/workflows/diagnostics/submit_the134_multiview_extraction_smoke.sh		scripts/sdcc/workflows/diagnostics/submit_the134_multiview_extraction_smoke.sh	canonical
+scripts/ml/contracts/__init__.py	scripts/ml/contracts/__init__.py	scripts/ml/contracts/__init__.py		scripts/ml/contracts/__init__.py	canonical
+scripts/ml/contracts/the134_h70_contract.py	scripts/ml/contracts/the134_h70_contract.py	scripts/ml/contracts/the134_h70_contract.py		scripts/ml/contracts/the134_h70_contract.py	canonical
+scripts/ml/training/prepare_the134_h70_matrix.py	scripts/ml/training/prepare_the134_h70_matrix.py	scripts/ml/training/prepare_the134_h70_matrix.py		scripts/ml/training/prepare_the134_h70_matrix.py	canonical
+scripts/ml/training/run_the134_h70_model.py	scripts/ml/training/run_the134_h70_model.py	scripts/ml/training/run_the134_h70_model.py		scripts/ml/training/run_the134_h70_model.py	canonical
+scripts/ml/validation/audit_the134_model_reuse.py	scripts/ml/validation/audit_the134_model_reuse.py	scripts/ml/validation/audit_the134_model_reuse.py		scripts/ml/validation/audit_the134_model_reuse.py	canonical
+scripts/ml/validation/materialize_the134_h70_holdout.py	scripts/ml/validation/materialize_the134_h70_holdout.py	scripts/ml/validation/materialize_the134_h70_holdout.py		scripts/ml/validation/materialize_the134_h70_holdout.py	canonical
+scripts/ml/validation/validate_the134_h70_model.py	scripts/ml/validation/validate_the134_h70_model.py	scripts/ml/validation/validate_the134_h70_model.py		scripts/ml/validation/validate_the134_h70_model.py	canonical
+scripts/ml/validation/build_the134_h70_model_registry.py	scripts/ml/validation/build_the134_h70_model_registry.py	scripts/ml/validation/build_the134_h70_model_registry.py		scripts/ml/validation/build_the134_h70_model_registry.py	canonical
+scripts/ml/working_points/materialize_the134_h70_wp_sample.py	scripts/ml/working_points/materialize_the134_h70_wp_sample.py	scripts/ml/working_points/materialize_the134_h70_wp_sample.py		scripts/ml/working_points/materialize_the134_h70_wp_sample.py	canonical
+scripts/ml/working_points/derive_the134_h70_wp.py	scripts/ml/working_points/derive_the134_h70_wp.py	scripts/ml/working_points/derive_the134_h70_wp.py		scripts/ml/working_points/derive_the134_h70_wp.py	canonical
 scripts/diagnostics/replay_foundation/validate_the134_shower_factorial.py	scripts/diagnostics/replay_foundation/validate_the134_shower_factorial.py	scripts/diagnostics/replay_foundation/validate_the134_shower_factorial.py		scripts/diagnostics/replay_foundation/validate_the134_shower_factorial.py	canonical
 scripts/diagnostics/replay_foundation/validate_the119_jet_response.py	scripts/diagnostics/replay_foundation/validate_the119_jet_response.py	scripts/diagnostics/replay_foundation/validate_the119_jet_response.py		scripts/diagnostics/replay_foundation/validate_the119_jet_response.py	canonical
 scripts/diagnostics/auau_bdt/validate_the104_isolation_root.py	scripts/diagnostics/auau_bdt/validate_the104_isolation_root.py	scripts/diagnostics/auau_bdt/validate_the104_isolation_root.py		scripts/diagnostics/auau_bdt/validate_the104_isolation_root.py	canonical
@@ -138,6 +149,9 @@ coresoftware_local/offline/packages/CaloBase/RawTowerDefs.h	coresoftware_local/o
 src/RecoilJets.cc	src/RecoilJets.cc	src/RecoilJets.cc		src/RecoilJets.cc	compat_or_canonical
 src/RecoilJets.h	src/RecoilJets.h	src/RecoilJets.h		src/RecoilJets.h	compat_or_canonical
 src/PPG12SimWeight.h	src/PPG12SimWeight.h	src/PPG12SimWeight.h		src/PPG12SimWeight.h	compat_or_canonical
+macros/analysis_config_the119_pp_replay_foundation.yaml	macros/analysis_config_the119_pp_replay_foundation.yaml	macros/analysis_config_the119_pp_replay_foundation.yaml		macros/analysis_config_the119_pp_replay_foundation.yaml	canonical
+macros/analysis_config_the112_auau_combined_bdt_triplet.yaml	macros/analysis_config_the112_auau_combined_bdt_triplet.yaml	macros/analysis_config_the112_auau_combined_bdt_triplet.yaml		macros/analysis_config_the112_auau_combined_bdt_triplet.yaml	canonical
+src_AuAu/autogen.sh	src_AuAu/autogen.sh	src_AuAu/autogen.sh		src_AuAu/autogen.sh	canonical
 src_AuAu/configure.ac	src_AuAu/configure.ac	src_AuAu/configure.ac		src_AuAu/configure.ac	compat_or_canonical
 src_AuAu/Makefile.am	src_AuAu/Makefile.am	src_AuAu/Makefile.am		src_AuAu/Makefile.am	compat_or_canonical
 src_AuAu/RecoilJets_AuAu.cc	src_AuAu/RecoilJets_AuAu.cc	src_AuAu/RecoilJets_AuAu.cc		src_AuAu/RecoilJets_AuAu.cc	compat_or_canonical
@@ -162,6 +176,7 @@ macros/diagnostics/pp_currentian/Fun4All_ppg12_fixed_seed_oracle.C	macros/diagno
 macros/diagnostics/pp_currentian/Fun4All_recoiljets_fixed_seed_oracle.C	macros/diagnostics/pp_currentian/Fun4All_recoiljets_fixed_seed_oracle.C	macros/diagnostics/pp_currentian/Fun4All_recoiljets_fixed_seed_oracle.C		macros/diagnostics/pp_currentian/Fun4All_recoiljets_fixed_seed_oracle.C	canonical
 src/configure.ac	src/configure.ac	src/configure.ac		src/configure.ac	canonical
 src/Makefile.am	src/Makefile.am	src/Makefile.am		src/Makefile.am	canonical
+src/RJPhotonTrainingViewV1.h	src/RJPhotonTrainingViewV1.h	src/RJPhotonTrainingViewV1.h		src/RJPhotonTrainingViewV1.h	canonical
 src/RJReplayFoundationV1.h	src/RJReplayFoundationV1.h	src/RJReplayFoundationV1.h		src/RJReplayFoundationV1.h	canonical
 src/RJReplayRuntimeV1.h	src/RJReplayRuntimeV1.h	src/RJReplayRuntimeV1.h		src/RJReplayRuntimeV1.h	canonical
 src/RJShowerFactorialV1.h	src/RJShowerFactorialV1.h	src/RJShowerFactorialV1.h		src/RJShowerFactorialV1.h	canonical
