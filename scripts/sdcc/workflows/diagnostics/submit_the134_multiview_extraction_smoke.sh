@@ -159,7 +159,7 @@ for label, path, expected in (
 
 receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
 source = json.loads(source_path.read_text(encoding="utf-8"))
-if receipt.get("schema") != "THE134_ANA560_CALORECO_BUILD_RECEIPT_V2":
+if receipt.get("schema") != "THE134_ANA560_CALORECO_BUILD_RECEIPT_V3":
     raise SystemExit("CaloReco build receipt schema differs")
 if receipt.get("status") != "PASS":
     raise SystemExit("CaloReco build receipt is not PASS")
@@ -184,7 +184,7 @@ if (
     or abi.get("soname") != "libcalo_reco.so.0"
     or abi.get("soname_expected") != "libcalo_reco.so.0"
     or abi.get("needed_exact_match") is not True
-    or abi.get("rpath_runpath_absent") is not True
+    or abi.get("rpath_runpath_exact_match") is not True
     or abi.get("removed_symbols", {}).get("count") != 0
 ):
     raise SystemExit("CaloReco ABI/SONAME receipt contract differs")

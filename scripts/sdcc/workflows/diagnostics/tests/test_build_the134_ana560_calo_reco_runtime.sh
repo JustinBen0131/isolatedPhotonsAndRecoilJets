@@ -214,6 +214,16 @@ Dynamic section at offset 0:
  0x0000000000000001 (NEEDED)             Shared library: [libfake_dep.so]
  0x000000000000000e (SONAME)             Library soname: [libcalo_reco.so.0]
 OUT
+  path_tag=RUNPATH
+  path_value=/frozen/ana560/platform
+  if [[ "\$library" != *"/release/"* ]]; then
+    case "\$library" in
+      *rpath_tag_failure*) path_tag=RPATH ;;
+      *rpath_failure*) path_value=/mutable/candidate-only ;;
+    esac
+  fi
+  printf ' 0x000000000000001d (%s) Library path: [%s]\n' \
+    "\$path_tag" "\$path_value"
 fi
 EOF
 
@@ -716,7 +726,7 @@ import sys
 receipt_path = Path(sys.argv[1])
 source_manifest_path = Path(sys.argv[2])
 payload = json.loads(receipt_path.read_text(encoding="utf-8"))
-assert payload["schema"] == "THE134_ANA560_CALORECO_BUILD_RECEIPT_V2"
+assert payload["schema"] == "THE134_ANA560_CALORECO_BUILD_RECEIPT_V3"
 assert payload["status"] == "PASS"
 assert payload["build"]["coresoftware_commit"] == (
     "cba274033b5560e32600cdeaa7676b6ab4a6c971"
@@ -771,7 +781,14 @@ assert payload["abi"]["removed_symbols"]["count"] == 0
 assert payload["abi"]["removed_dynsym_metadata"]["count"] == 0
 assert payload["abi"]["added_symbols"]["count"] == 29
 assert payload["abi"]["needed_exact_match"] is True
-assert payload["abi"]["rpath_runpath_absent"] is True
+assert payload["abi"]["rpath_runpath_absent"] is False
+assert payload["abi"]["rpath_runpath_exact_match"] is True
+assert payload["abi"]["rpath_runpath"]["baseline"]["entries"] == [
+    "RUNPATH|/frozen/ana560/platform"
+]
+assert payload["abi"]["rpath_runpath"]["candidate"]["entries"] == [
+    "RUNPATH|/frozen/ana560/platform"
+]
 assert payload["abi"]["version_inventory_exact_match"] is True
 assert payload["abi"]["baseline"]["version_inventory"]["entries"] == [
     "THE134_FAKE_ABI_1"
@@ -874,6 +891,45 @@ grep -Fq '_ZTHE134UnexpectedExportv T' \
   fail "ABI-addition first-bad evidence is missing"
 [[ ! -e "${abi_addition_failure}/build_receipt.json" ]] || \
   fail "unallowlisted ABI-addition build emitted runtime authority"
+
+# A candidate RUNPATH value drift must fail exact parity with the pinned baseline.
+rpath_failure="${tmp}/rpath_failure"
+rpath_plan="$(
+  bash "$builder" --output-root "$rpath_failure" "${common_args[@]}"
+)"
+rpath_token="$(sed -n 's/^  build_token: //p' <<<"$rpath_plan")"
+if bash "$builder" --build --token "$rpath_token" \
+    --output-root "$rpath_failure" "${common_args[@]}" >/dev/null 2>&1; then
+  fail "candidate with a baseline-divergent RUNPATH was accepted"
+fi
+grep -Fqx 'RUNPATH|/mutable/candidate-only' \
+  "${rpath_failure}/evidence/candidate_rpath_runpath.txt" || \
+  fail "RUNPATH-negative candidate evidence is missing"
+grep -Fqx 'RUNPATH|/frozen/ana560/platform' \
+  "${rpath_failure}/evidence/baseline_rpath_runpath.txt" || \
+  fail "RUNPATH-negative baseline evidence is missing"
+[[ ! -e "${rpath_failure}/build_receipt.json" ]] || \
+  fail "RUNPATH-negative build emitted runtime authority"
+
+# A candidate tag change (RUNPATH to RPATH) must also fail exact parity.
+rpath_tag_failure="${tmp}/rpath_tag_failure"
+rpath_tag_plan="$(
+  bash "$builder" --output-root "$rpath_tag_failure" "${common_args[@]}"
+)"
+rpath_tag_token="$(sed -n 's/^  build_token: //p' <<<"$rpath_tag_plan")"
+if bash "$builder" --build \
+    --token "$rpath_tag_token" --output-root "$rpath_tag_failure" \
+    "${common_args[@]}" >/dev/null 2>&1; then
+  fail "candidate with a baseline-divergent dynamic-path tag was accepted"
+fi
+grep -Fqx 'RPATH|/frozen/ana560/platform' \
+  "${rpath_tag_failure}/evidence/candidate_rpath_runpath.txt" || \
+  fail "RPATH-tag negative candidate evidence is missing"
+grep -Fqx 'RUNPATH|/frozen/ana560/platform' \
+  "${rpath_tag_failure}/evidence/baseline_rpath_runpath.txt" || \
+  fail "RPATH-tag negative baseline evidence is missing"
+[[ ! -e "${rpath_tag_failure}/build_receipt.json" ]] || \
+  fail "RPATH-tag negative build emitted runtime authority"
 
 # A provider probe failure must also stop receipt materialization.
 provider_failure="${tmp}/provider_failure"
@@ -978,7 +1034,7 @@ for invariant in \
   'THE134_TOWERINFO_ROLE_SIZE_MATRIX_PASS' \
   'if (rc != 0)' \
   'THE134_ROOT_LOAD_PROVIDER_PASS' \
-  'THE134_ANA560_CALORECO_BUILD_RECEIPT_V2' \
+  'THE134_ANA560_CALORECO_BUILD_RECEIPT_V3' \
   '"status": "PASS"' \
   'chmod -R a-w "$output_root"'; do
   grep -Fq -- "$invariant" "$production_builder" || \

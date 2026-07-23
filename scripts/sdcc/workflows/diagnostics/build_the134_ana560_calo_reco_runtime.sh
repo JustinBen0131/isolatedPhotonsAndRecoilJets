@@ -17,7 +17,7 @@ umask 022
 
 readonly SCHEMA_VERSION="THE134_ANA560_CALORECO_BUILD_CONTRACT_V2"
 readonly SOURCE_SCHEMA="THE134_ANA560_CALORECO_SOURCE_MANIFEST_V2"
-readonly RECEIPT_SCHEMA="THE134_ANA560_CALORECO_BUILD_RECEIPT_V2"
+readonly RECEIPT_SCHEMA="THE134_ANA560_CALORECO_BUILD_RECEIPT_V3"
 readonly MAPPING_PATCH_ID="THE134_RAWCLUSTERBUILDERTOPO_DETECTOR_EXPLICIT_CHANNEL_MAP_V1"
 readonly ROLE_SIZE_GUARD_ID="THE134_RAWCLUSTERBUILDERTOPO_TOWERINFO_ROLE_SIZE_GUARD_V1"
 readonly ABI_ADDITIONS_PROVENANCE_SHA256="5d4eca4abdaa274d308856e050d19b17e02bc62652a03dda6f0ea95719b9147e"
@@ -1117,6 +1117,16 @@ sed -n 's/.*(NEEDED).*\[\([^]]*\)\].*/\1/p' \
 sed -n 's/.*(NEEDED).*\[\([^]]*\)\].*/\1/p' \
   "${evidence_root}/candidate_readelf_dynamic.txt" | LC_ALL=C sort -u \
   >"${evidence_root}/candidate_needed.txt"
+normalize_rpath_runpath_inventory() {
+  sed -n -E \
+    's/.*\((RPATH|RUNPATH)\).*\[([^]]*)\].*/\1|\2/p' "$1"
+}
+normalize_rpath_runpath_inventory \
+  "${evidence_root}/baseline_readelf_dynamic.txt" \
+  >"${evidence_root}/baseline_rpath_runpath.txt"
+normalize_rpath_runpath_inventory \
+  "${evidence_root}/candidate_readelf_dynamic.txt" \
+  >"${evidence_root}/candidate_rpath_runpath.txt"
 
 [[ "$(wc -l <"${evidence_root}/baseline_soname.txt")" == "1" ]]
 [[ "$(wc -l <"${evidence_root}/candidate_soname.txt")" == "1" ]]
@@ -1124,10 +1134,8 @@ sed -n 's/.*(NEEDED).*\[\([^]]*\)\].*/\1/p' \
 [[ "$(cat "${evidence_root}/candidate_soname.txt")" == "$expected_soname" ]]
 cmp -s "${evidence_root}/baseline_needed.txt" \
   "${evidence_root}/candidate_needed.txt"
-if grep -Eq '\((RPATH|RUNPATH)\)' \
-    "${evidence_root}/candidate_readelf_dynamic.txt"; then
-  exit 20
-fi
+cmp -s "${evidence_root}/baseline_rpath_runpath.txt" \
+  "${evidence_root}/candidate_rpath_runpath.txt"
 
 find "$(dirname "$baseline_library")" -maxdepth 1 \
   \( -name 'libcalo_reco*.pcm' -o -name 'libcalo_reco*.rootmap' \) \
@@ -1601,6 +1609,8 @@ python3 - "$receipt" "$RECEIPT_SCHEMA" "$source_manifest" \
   "${output_root}/evidence/abi_removed_symbols.txt" \
   "${output_root}/evidence/baseline_needed.txt" \
   "${output_root}/evidence/candidate_needed.txt" \
+  "${output_root}/evidence/baseline_rpath_runpath.txt" \
+  "${output_root}/evidence/candidate_rpath_runpath.txt" \
   "${output_root}/evidence/baseline_dictionary_inventory.txt" \
   "${output_root}/evidence/candidate_dictionary_inventory.txt" \
   "${output_root}/evidence/candidate_readelf_dynamic.txt" \
@@ -1675,6 +1685,8 @@ import sys
     removed_symbols_arg,
     baseline_needed_arg,
     candidate_needed_arg,
+    baseline_rpath_runpath_arg,
+    candidate_rpath_runpath_arg,
     baseline_dictionary_arg,
     candidate_dictionary_arg,
     readelf_arg,
@@ -1855,6 +1867,26 @@ payload = {
             },
         },
         "needed_exact_match": lines(baseline_needed_arg) == lines(candidate_needed_arg),
+        "rpath_runpath": {
+            "baseline": {
+                **file_receipt(
+                    baseline_rpath_runpath_arg,
+                    display_path="evidence/baseline_rpath_runpath.txt",
+                ),
+                "entries": lines(baseline_rpath_runpath_arg),
+            },
+            "candidate": {
+                **file_receipt(
+                    candidate_rpath_runpath_arg,
+                    display_path="evidence/candidate_rpath_runpath.txt",
+                ),
+                "entries": lines(candidate_rpath_runpath_arg),
+            },
+        },
+        "rpath_runpath_exact_match": (
+            lines(baseline_rpath_runpath_arg)
+            == lines(candidate_rpath_runpath_arg)
+        ),
         "removed_symbols": {
             **file_receipt(
                 removed_symbols_arg,
@@ -1869,9 +1901,7 @@ payload = {
             ),
             "count": len(lines(removed_dynsym_metadata_arg)),
         },
-        "rpath_runpath_absent": not bool(
-            re.search(r"\((?:RPATH|RUNPATH)\)", readelf_text)
-        ),
+        "rpath_runpath_absent": not bool(lines(candidate_rpath_runpath_arg)),
         "soname": soname_matches[0] if len(soname_matches) == 1 else None,
         "soname_expected": expected_soname,
         "status": "PASS",
@@ -2071,8 +2101,8 @@ if payload["abi"]["soname"] != expected_soname:
     raise SystemExit("receipt SONAME closure failed")
 if not payload["abi"]["needed_exact_match"]:
     raise SystemExit("receipt NEEDED closure failed")
-if not payload["abi"]["rpath_runpath_absent"]:
-    raise SystemExit("receipt RPATH/RUNPATH closure failed")
+if not payload["abi"]["rpath_runpath_exact_match"]:
+    raise SystemExit("receipt RPATH/RUNPATH baseline closure failed")
 if payload["abi"]["removed_symbols"]["count"] != 0:
     raise SystemExit("receipt ABI removal closure failed")
 if payload["abi"]["removed_dynsym_metadata"]["count"] != 0:
