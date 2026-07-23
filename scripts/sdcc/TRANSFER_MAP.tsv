@@ -180,4 +180,7 @@ src/RJPhotonTrainingViewV1.h	src/RJPhotonTrainingViewV1.h	src/RJPhotonTrainingVi
 src/RJReplayFoundationV1.h	src/RJReplayFoundationV1.h	src/RJReplayFoundationV1.h		src/RJReplayFoundationV1.h	canonical
 src/RJReplayRuntimeV1.h	src/RJReplayRuntimeV1.h	src/RJReplayRuntimeV1.h		src/RJReplayRuntimeV1.h	canonical
 src/RJShowerFactorialV1.h	src/RJShowerFactorialV1.h	src/RJShowerFactorialV1.h		src/RJShowerFactorialV1.h	canonical
+scripts/diagnostics/replay_foundation/the118_schema_canary.cc	scripts/diagnostics/replay_foundation/the118_schema_canary.cc	scripts/diagnostics/replay_foundation/the118_schema_canary.cc		scripts/diagnostics/replay_foundation/the118_schema_canary.cc	canonical
+scripts/diagnostics/replay_foundation/the134_shower_factorial_canary.cc	scripts/diagnostics/replay_foundation/the134_shower_factorial_canary.cc	scripts/diagnostics/replay_foundation/the134_shower_factorial_canary.cc		scripts/diagnostics/replay_foundation/the134_shower_factorial_canary.cc	canonical
+scripts/diagnostics/replay_foundation/the134_multiview_training_canary.cc	scripts/diagnostics/replay_foundation/the134_multiview_training_canary.cc	scripts/diagnostics/replay_foundation/the134_multiview_training_canary.cc		scripts/diagnostics/replay_foundation/the134_multiview_training_canary.cc	canonical
 src/autogen.sh	src/autogen.sh	src/autogen.sh		src/autogen.sh	canonical
