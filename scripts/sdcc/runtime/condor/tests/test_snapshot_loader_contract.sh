@@ -239,6 +239,7 @@ release_jetbase="$tmp/release/lib64/libjetbase.so"
 release_calo_io_sha="$(test_sha256 "$release_calo_io")"
 release_clusteriso_sha="$(test_sha256 "$release_clusteriso")"
 release_jetbase_sha="$(test_sha256 "$release_jetbase")"
+release_clusteriso_alternate_sha="$(test_sha256 "$tmp/release/lib/libclusteriso_alternate.so")"
 cat > "$tmp/bin/ldd" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -259,14 +260,11 @@ if [[ "$(basename "$target")" == "libRecoilJets.so" ]]; then
         'libcalo_io.so.0 => /opt/alien/libcalo_io.so.0 (0x1)'
     else
       printf 'libcalo_io.so.0 => %s/libcalo_io.so (0x1)\n' "$release_lib"
-      if [[ "${FAKE_RELEASE_PROVIDER_SWAP:-0}" == "1" ]]; then
-        printf 'libclusteriso.so.0 => %s/../lib/libclusteriso_alternate.so (0x1)\n' "$release_lib"
-      else
-        printf 'libclusteriso.so.0 => %s/libclusteriso.so (0x1)\n' "$release_lib"
-      fi
-      printf 'libjetbase.so.0 => %s/libjetbase.so (0x1)\n' "$release_lib"
     fi
   fi
+elif [[ "$(basename "$target")" == "libcalo_reco.so" && \
+        "${FAKE_RELEASE_PROVIDER_SWAP:-0}" == "1" ]]; then
+  printf 'libclusteriso.so.0 => %s/../lib/libclusteriso_alternate.so (0x1)\n' "$release_lib"
 else
   printf '%s\n' 'libc.so.6 => /lib64/libc.so.6 (0x2)'
 fi
@@ -318,6 +316,9 @@ assert receipt["providers"]["libclusteriso.so"]["realpath"] == str(Path(sys.argv
 assert receipt["providers"]["libclusteriso.so"]["observed_resolutions"] == [
     str(Path(sys.argv[2]).resolve())
 ]
+report = Path(sys.argv[1]).parent / receipt["ldd_report"]["path"]
+report_text = report.read_text()
+assert f"@@TARGET {Path(sys.argv[2])}\n" in report_text
 PY
 rm "$tmp/snapshot/libcalo_reco.so.0"
 if RJ_PINNED_RELEASE_CALO_IO_PATH="$release_calo_io" \
@@ -397,6 +398,23 @@ if RJ_PINNED_RELEASE_CALO_IO_PATH="$release_calo_io" \
 fi
 grep -Fq 'declared release companion hash drift' "$tmp/provider-hash.stderr"
 
+if RJ_PINNED_RELEASE_CALO_IO_PATH="$release_calo_io" \
+  RJ_PINNED_RELEASE_CALO_IO_SHA256="$release_calo_io_sha" \
+  RJ_PINNED_RELEASE_CLUSTERISO_PATH="$tmp/release/lib/libclusteriso_alternate.so" \
+  RJ_PINNED_RELEASE_CLUSTERISO_SHA256="$release_clusteriso_alternate_sha" \
+  RJ_PINNED_RELEASE_JETBASE_PATH="$release_jetbase" \
+  RJ_PINNED_RELEASE_JETBASE_SHA256="$release_jetbase_sha" \
+  FAKE_RELEASE_LIB="$tmp/release/lib64" PATH="$tmp/bin:$PATH" \
+  validate_snapshot_loader_closure \
+    "$tmp/snapshot" pp 1 "$tmp/release/lib64" "$tmp/release/lib" 1 \
+    >"$tmp/wrong-declared-provider.stdout" \
+    2>"$tmp/wrong-declared-provider.stderr"; then
+  printf 'FAIL wrong declared companion provider was accepted\n' >&2
+  exit 1
+fi
+grep -Fq 'selected provider was not observed in frozen-target dependency closure: libclusteriso.so' \
+  "$tmp/wrong-declared-provider.stderr"
+
 mkdir -p "$tmp/seal/lib"
 printf 'sealed-analysis\n' > "$tmp/seal/lib/libRecoilJets.so"
 ln -s libRecoilJets.so "$tmp/seal/lib/libRecoilJets.so.0"
@@ -457,4 +475,4 @@ bash -n "$tmp/pp.sh"
 bash -n "$tmp/old_false_positive.sh"
 bash -n "$tmp/auau.sh"
 
-printf 'PASS snapshot_loader_contract mutations=19 receipts=2 soname_aliases=1 linux_symlink_fixture=1\n'
+printf 'PASS snapshot_loader_contract mutations=20 receipts=2 soname_aliases=1 linux_symlink_fixture=1 direct_companion_targets=3\n'

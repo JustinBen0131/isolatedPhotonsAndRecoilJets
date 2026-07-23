@@ -919,6 +919,15 @@ validate_snapshot_loader_closure() {
         return 2
       }
     done
+    # These companions are loaded explicitly by the frozen Fun4All macro and
+    # therefore need not appear in any staged library's DT_NEEDED closure.
+    # Inspect the exact declared providers directly so loader health and
+    # provider identity are still proven without manufacturing a dependency.
+    targets+=(
+      "$expected_calo_io"
+      "$expected_clusteriso"
+      "$expected_jetbase"
+    )
   fi
   if [[ -n "$receipt" ]]; then
     [[ "$receipt" == /* && ! -e "$receipt" ]] || {
@@ -1011,6 +1020,29 @@ for raw in report.read_text(errors="replace").splitlines():
     line = raw.strip()
     if line.startswith("@@TARGET "):
         targets += 1
+        target_text = line.removeprefix("@@TARGET ")
+        target_path = Path(target_text)
+        try:
+            target_real = target_path.resolve(strict=True)
+        except (FileNotFoundError, RuntimeError):
+            failures.append(f"missing inspected loader target: {target_text}")
+            continue
+        target_family = next(
+            (
+                candidate
+                for candidate in local_core
+                if target_path.name == candidate
+                or target_path.name.startswith(candidate + ".")
+            ),
+            None,
+        )
+        if target_family is not None:
+            observed[target_family].add(str(target_real))
+            expected = expected_real.get(target_family)
+            if pinned_calo_reco and expected is not None and target_real != expected:
+                failures.append(
+                    f"single-provider target mismatch: {target_text}; expected {expected}"
+                )
         continue
     if "=> not found" in line:
         failures.append(f"unresolved dependency: {line}")
