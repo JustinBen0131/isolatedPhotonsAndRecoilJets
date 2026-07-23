@@ -615,6 +615,20 @@ analysis_tag_for_dataset() {
   esac
 }
 
+validate_one_five_file_tuple() {
+  local row_id="$1" path="$2"
+  awk -F '\t' '
+    /^[[:space:]]*($|#)/ { next }
+    {
+      rows += 1
+      if (NF != 5) bad = 1
+      for (column = 1; column <= NF; ++column)
+        if ($column == "") bad = 1
+    }
+    END { exit (bad || rows != 1) }
+  ' "$path" || die "${row_id} staged chunk must contain exactly one nonempty five-column input tuple"
+}
+
 # Verify the exact dry-materialized unit that will be submitted.  This is the
 # pre-submission ownership proof: one descriptor, one argument row, one
 # fanout row, one RecoilJets instance, and one multiview sidecar assignment.
@@ -673,8 +687,7 @@ verify_materialized_row_contract() {
   [[ "$arg_dest" == "$row_output/"* ]] || die "${row_id} argument destination escapes its owned output namespace"
   chunk_list="$arg_chunk"
   [[ -s "$chunk_list" ]] || die "${row_id} staged chunk list is missing: ${chunk_list}"
-  [[ "$(grep -Evc '^[[:space:]]*($|#)' "$chunk_list")" == 5 ]] ||
-    die "${row_id} staged chunk must contain one exact five-file input tuple"
+  validate_one_five_file_tuple "$row_id" "$chunk_list"
   chunk_sha="$(sha_file "$chunk_list")"
   require_sha "${row_id} staged chunk" "$chunk_sha"
 
