@@ -7,11 +7,30 @@ controller="${repo_root}/scripts/sdcc/workflows/diagnostics/submit_the134_multiv
 bash -n "$controller"
 
 tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/the134-tuple-contract.XXXXXX")"
-trap 'rm -rf "$tmpdir"' EXIT
+trap 'chmod -R u+w "$tmpdir" 2>/dev/null || true; rm -rf "$tmpdir"' EXIT
 die() { return 2; }
+sha_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+require_sha() {
+  local _name="$1" value="$2"
+  [[ "$value" =~ ^[0-9a-f]{64}$ ]] || return 2
+}
 eval "$(sed -n '/^validate_one_five_file_tuple()/,/^}/p' "$controller")"
 eval "$(sed -n '/^yaml_value()/,/^}/p' "$controller")"
 eval "$(sed -n '/^validate_five_field_fanout_contract()/,/^}/p' "$controller")"
+eval "$(
+  sed -n '/^verify_materialization_attempt_seal()/,/^submit_row()/p' \
+    "$controller" | sed '$d'
+)"
+eval "$(
+  sed -n '/^write_runtime_authority_manifest()/,/^require_inputs_and_hashes()/p' \
+    "$controller" | sed '$d'
+)"
 
 printf '/calo\t/g4\t/jets\t/global\t/mbd\n' > "${tmpdir}/valid-pp.list"
 validate_one_five_file_tuple unit pp "${tmpdir}/valid-pp.list"
@@ -94,11 +113,142 @@ if validate_five_field_fanout_contract unit "${tmpdir}/valid.fanout" "${tmpdir}/
   exit 1
 fi
 
-python3 - "$controller" <<'PY'
+# The production controller's die helper exits.  Run negative attempt-state
+# transitions in subshells so the test can assert those exact hard failures.
+die() { printf 'EXPECTED_ATTEMPT_REJECTION: %s\n' "$*" >&2; exit 2; }
+
+runtime_root="${tmpdir}/runtime-authority"
+mkdir -p "$runtime_root"
+runtime_authority_manifest="${runtime_root}/authority.json"
+runtime_authority_fingerprint="${runtime_authority_manifest}.sha256"
+frozen_sha="$(printf 'a%.0s' {1..64})"
+calo_reco_build_receipt="/frozen/build_receipt.json"
+RJ_THE134_CALO_RECO_BUILD_RECEIPT_SHA256="$frozen_sha"
+calo_reco_source_manifest="/frozen/source_manifest.json"
+RJ_THE134_CALO_RECO_SOURCE_MANIFEST_SHA256="$frozen_sha"
+calo_reco_library="/frozen/libcalo_reco.so"
+RJ_THE134_CALO_RECO_LIBRARY_SHA256="$frozen_sha"
+release_core_lib_dir="/release/lib"
+release_core_lib64_dir="/release/lib64"
+release_calo_io="/release/lib64/libcalo_io.so"
+RJ_THE134_RELEASE_CALO_IO_SHA256="$frozen_sha"
+release_clusteriso="/release/lib64/libclusteriso.so"
+RJ_THE134_RELEASE_CLUSTERISO_SHA256="$frozen_sha"
+release_jetbase="/release/lib64/libjetbase.so"
+RJ_THE134_RELEASE_JETBASE_SHA256="$frozen_sha"
+pinned_release_name="ana.560"
+pinned_offline_main="/release/ana.560"
+pinned_calo_reco_soname="libcalo_reco.so.0"
+
+write_runtime_authority_manifest ensure
+write_runtime_authority_manifest verify
+chmod a-w "$runtime_authority_manifest" "$runtime_authority_fingerprint" "$runtime_root"
+write_runtime_authority_manifest ensure
+chmod u+w "$runtime_root" "$runtime_authority_manifest" "$runtime_authority_fingerprint"
+python3 - "$runtime_authority_manifest" <<'PY'
 from pathlib import Path
+import json
 import sys
 
-expansion = 'env "${materialize_contract_env[@]}"'
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text())
+payload["status"] = "DRIFT"
+path.write_text(json.dumps(payload, sort_keys=True) + "\n")
+PY
+if ( write_runtime_authority_manifest ensure ) \
+  >"${tmpdir}/runtime-drift.stdout" 2>"${tmpdir}/runtime-drift.stderr"; then
+  printf 'runtime-authority content drift was accepted\n' >&2
+  exit 1
+fi
+grep -Fq 'existing runtime authority manifest differs' \
+  "${tmpdir}/runtime-drift.stderr"
+
+split_root="${tmpdir}/runtime-authority-split"
+mkdir -p "$split_root"
+runtime_authority_manifest="${split_root}/authority.json"
+runtime_authority_fingerprint="${runtime_authority_manifest}.sha256"
+printf '{}\n' > "$runtime_authority_manifest"
+if ( write_runtime_authority_manifest ensure ) \
+  >"${tmpdir}/runtime-split.stdout" 2>"${tmpdir}/runtime-split.stderr"; then
+  printf 'incomplete runtime-authority manifest/fingerprint pair was accepted\n' >&2
+  exit 1
+fi
+grep -Fq 'runtime-authority manifest/fingerprint pair is incomplete' \
+  "${tmpdir}/runtime-split.stderr"
+
+attempt_base="${tmpdir}/attempt-reuse"
+selection="$(select_materialization_attempt "$attempt_base")"
+IFS=$'\t' read -r disposition attempt_dir <<< "$selection"
+[[ "$disposition" == new && "$(basename "$attempt_dir")" == attempt_01 ]] || {
+  printf 'first materialization attempt was not attempt_01\n' >&2
+  exit 1
+}
+printf 'descriptor\n' > "${attempt_dir}/unit.sub"
+seal_materialization_attempt "$attempt_dir" $'contract\tvalue'
+selection="$(select_materialization_attempt "$attempt_base")"
+IFS=$'\t' read -r disposition reused_dir <<< "$selection"
+[[ "$disposition" == reuse && "$reused_dir" == "$attempt_dir" ]] || {
+  printf 'sealed materialization attempt was not reused exactly\n' >&2
+  exit 1
+}
+[[ "$(find "$attempt_base" -type f -name '*.sub' | wc -l | tr -d ' ')" == 1 ]] || {
+  printf 'exact reuse duplicated a materialized submit descriptor\n' >&2
+  exit 1
+}
+
+chmod u+w "${attempt_dir}/unit.sub"
+if ( verify_materialization_attempt_seal "$attempt_dir" ) \
+  2>"${tmpdir}/writable-attempt.stderr"; then
+  printf 'writable materialization mutation was accepted\n' >&2
+  exit 1
+fi
+grep -Fq 'materialization attempt contains writable state' \
+  "${tmpdir}/writable-attempt.stderr"
+chmod a-w "${attempt_dir}/unit.sub"
+verify_materialization_attempt_seal "$attempt_dir"
+
+incomplete_base="${tmpdir}/attempt-incomplete"
+mkdir -p "${incomplete_base}/attempt_01"
+selection="$(select_materialization_attempt "$incomplete_base")"
+IFS=$'\t' read -r disposition attempt_dir <<< "$selection"
+[[ "$disposition" == new && "$(basename "$attempt_dir")" == attempt_02 ]] || {
+  printf 'an incomplete attempt was overwritten instead of preserved\n' >&2
+  exit 1
+}
+printf 'descriptor\n' > "${attempt_dir}/unit.sub"
+seal_materialization_attempt "$attempt_dir" $'contract\trepaired'
+selection="$(select_materialization_attempt "$incomplete_base")"
+IFS=$'\t' read -r disposition reused_dir <<< "$selection"
+[[ "$disposition" == reuse && "$reused_dir" == "$attempt_dir" ]] || {
+  printf 'sealed replacement was not reused with its older incomplete evidence preserved\n' >&2
+  exit 1
+}
+
+exhausted_base="${tmpdir}/attempt-exhausted"
+mkdir -p "${exhausted_base}/attempt_01" "${exhausted_base}/attempt_02" "${exhausted_base}/attempt_03"
+if ( select_materialization_attempt "$exhausted_base" ) >/dev/null 2>&1; then
+  printf 'three incomplete materialization attempts did not exhaust the retry budget\n' >&2
+  exit 1
+fi
+
+mixed_base="${tmpdir}/attempt-mixed"
+selection="$(select_materialization_attempt "$mixed_base")"
+IFS=$'\t' read -r _disposition mixed_attempt <<< "$selection"
+printf 'descriptor\n' > "${mixed_attempt}/unit.sub"
+seal_materialization_attempt "$mixed_attempt" $'contract\tmixed'
+chmod u+w "$mixed_base"
+mkdir "${mixed_base}/attempt_02"
+if ( select_materialization_attempt "$mixed_base" ) >/dev/null 2>&1; then
+  printf 'sealed and incomplete attempts were accepted together\n' >&2
+  exit 1
+fi
+
+python3 - "$controller" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+expansion = '"${materialize_contract_env[@]}"'
 source = Path(sys.argv[1]).read_text()
 
 def validate(text: str) -> None:
@@ -107,6 +257,17 @@ def validate(text: str) -> None:
         'RJ_REPLAY_FOUNDATION_CANARY=1',
         'RJ_REPLAY_LANE="$lane"',
         'RJ_REPLAY_SCHEMA_SHA256="$RJ_THE134_REPLAY_SCHEMA_SHA256"',
+        'RJ_PINNED_CALO_RECO_RELEASE_COMPANIONS=1',
+        'RJ_PINNED_CALO_RECO_SONAME="$pinned_calo_reco_soname"',
+        'RJ_PINNED_RELEASE_NAME="$pinned_release_name"',
+        'RJ_PINNED_OFFLINE_MAIN="$pinned_offline_main"',
+        'RJ_PINNED_RELEASE_CALO_IO_PATH="$release_calo_io"',
+        'RJ_PINNED_RELEASE_CLUSTERISO_PATH="$release_clusteriso"',
+        'RJ_PINNED_RELEASE_JETBASE_PATH="$release_jetbase"',
+        'RJ_RELEASE_CORE_LIB_DIR="$release_core_lib_dir"',
+        'RJ_RELEASE_CORE_LIB64_DIR="$release_core_lib64_dir"',
+        'RJ_CONDOR_SEALED_ENVIRONMENT=1',
+        'env -u RJ_FORCE_RELEASE_CORE_LIBS -u RJ_FORCE_RELEASE_CALO_IO -u RJ_RELEASE_CALO_IO_PATH',
     )
     for token in required:
         if token not in text:
@@ -133,10 +294,100 @@ def validate(text: str) -> None:
         'Au+Au descriptor must authorize only its typed optional MBD list',
         'RJ_SIM_ALLOW_NONE_LISTS=0',
         'RJ_SIM_ALLOW_NONE_LISTS=1',
+        'sealed_getenv="$(condor_field "$submit_file" getenv)"',
+        '"$sealed_getenv" == False',
+        'descriptor must disable submit-host environment inheritance',
     )
     for token in receipt_contract:
         if token not in text:
             raise ValueError(f"missing materialized-config receipt protection: {token}")
+    single_provider_contract = (
+        'readonly pinned_offline_main="/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.560"',
+        '"$release_core_lib_dir" == "${pinned_offline_main}/lib"',
+        '"$release_core_lib64_dir" == "${pinned_offline_main}/lib64"',
+        'resolve_release_companion RELEASE_CALO_IO libcalo_io.so',
+        'resolve_release_companion RELEASE_CLUSTERISO libclusteriso.so',
+        'resolve_release_companion RELEASE_JETBASE libjetbase.so',
+        'validate_calo_reco_build_authority',
+        'THE134_ANA560_CALORECO_BUILD_RECEIPT_V2',
+        'THE134_ANA560_CALORECO_SOURCE_MANIFEST_V2',
+        'readonly pinned_calo_reco_soname="libcalo_reco.so.0"',
+        'snapshotted CaloReco SONAME alias does not resolve to its one provider',
+        'RJ_THE134_CALO_RECO_BUILD_RECEIPT_SHA256',
+        'RJ_THE134_CALO_RECO_SOURCE_MANIFEST_SHA256',
+        'controller environment must not inherit RJ_FORCE_RELEASE_CORE_LIBS',
+        'controller environment must not inherit RJ_FORCE_RELEASE_CALO_IO',
+        'controller environment must not inherit RJ_RELEASE_CALO_IO_PATH',
+        'snapshot illegally duplicates release-owned',
+        'frozen executor lacks the exact ana.560 loader suffix',
+        'frozen executor lacks the exact ${pinned_release_name} runtime witness',
+        'Calo_Calib macro does not load the same snapshotted CaloReco provider',
+        'verify_sealed_snapshot_receipts',
+        'snapshot_loader_receipt_sha256',
+        'snapshot_manifest_sha256',
+        'snapshot symlink must be relative',
+        'snapshot symlink parent is writable',
+        'snapshot symlink target is writable',
+        'writable frozen snapshot root survived seal',
+        'write_runtime_authority_manifest ensure',
+        'write_runtime_authority_manifest verify',
+        'runtime-authority manifest/fingerprint pair is incomplete',
+        'existing runtime authority manifest differs from current frozen authority',
+        'verify_materialization_attempt_seal',
+        'select_materialization_attempt',
+        'seal_materialization_attempt',
+        'materialization retry budget exhausted with three preserved incomplete attempts',
+        'sealed materialization contract differs from exact readback',
+        'resume ana.560 release-companion authority differs from frozen manifest',
+        "NF != 46 {exit 1}",
+        "NF != 28 {exit 1}",
+    )
+    for token in single_provider_contract:
+        if token not in text:
+            raise ValueError(f"missing single-provider protection: {token}")
+    if text.count('RJ_PINNED_CALO_RECO_RELEASE_COMPANIONS=1') != 2:
+        raise ValueError("single-provider mode must guard exactly the p+p and Au+Au materializers")
+    if text.count('RJ_PINNED_CALO_RECO_SONAME="$pinned_calo_reco_soname"') != 2:
+        raise ValueError("CaloReco SONAME authority must guard both materializers")
+    if text.count('RJ_CONDOR_SEALED_ENVIRONMENT=1') != 2:
+        raise ValueError("sealed Condor environment mode must guard both materializers")
+    if text.count(
+        'env -u RJ_FORCE_RELEASE_CORE_LIBS -u RJ_FORCE_RELEASE_CALO_IO '
+        '-u RJ_RELEASE_CALO_IO_PATH'
+    ) != 2:
+        raise ValueError("stale runtime overrides must be stripped at both materializers")
+    if text.count("\n  validate_calo_reco_build_authority\n") != 1:
+        raise ValueError("CaloReco build authority must be invoked exactly once in preflight")
+    submit_all_block = text.split("submit_all() {", 1)[1].split(
+        "resume_submit() {", 1
+    )[0]
+    if not re.search(
+        r"submit_all\(\) \{\n  preflight\n  assert_fresh_submission\n",
+        "submit_all() {" + submit_all_block,
+    ):
+        raise ValueError("submit must perform idempotent preflight before freshness checks")
+
+    manifest_block = text.split("write_submission_manifest() {", 1)[1].split(
+        "write_runtime_authority_manifest() {", 1
+    )[0]
+    row_formats = re.findall(r"printf '([^']*%s[^']*)'", manifest_block)
+    row_format = next((value for value in row_formats if value.count("%s") == 44), None)
+    if row_format is None:
+        raise ValueError("submission-manifest row format was not found")
+    if row_format.count(r"\t") != 45:
+        raise ValueError("46-field manifest format must contain 44 substitutions and 2 literals")
+
+    receipt_block = text.split("submit_row() {", 1)[1].split(
+        "assert_fresh_submission() {", 1
+    )[0]
+    receipt_formats = re.findall(r"printf '([^']*%s[^']*)'", receipt_block)
+    receipt_format = next(
+        (value for value in receipt_formats if value.count("%s") == 28), None
+    )
+    if receipt_format is None:
+        raise ValueError("submission-receipt row format was not found")
+    if receipt_format.count(r"\t") != 27:
+        raise ValueError("submission receipt format must contain exactly 28 fields")
 
 validate(source)
 
@@ -149,5 +400,57 @@ except ValueError:
 else:
     raise SystemExit("one-call-site mutation was not rejected")
 
-print("THE134_SUBMITTER_CANARY_IDENTITY_WIRING_PASS guarded_calls=2 mutation_rejected=1 tuple_mutations=3 fanout_mutations=8")
+mutated = source.replace('RJ_PINNED_CALO_RECO_RELEASE_COMPANIONS=1', '', 1)
+try:
+    validate(mutated)
+except ValueError:
+    pass
+else:
+    raise SystemExit("single-provider mutation was not rejected")
+
+mutated = source.replace("NF != 46 {exit 1}", "NF != 45 {exit 1}", 1)
+try:
+    validate(mutated)
+except ValueError:
+    pass
+else:
+    raise SystemExit("46-field manifest mutation was not rejected")
+
+mutated = source.replace(
+    "\n  validate_calo_reco_build_authority\n",
+    "\n  :\n",
+    1,
+)
+try:
+    validate(mutated)
+except ValueError:
+    pass
+else:
+    raise SystemExit("CaloReco build-authority mutation was not rejected")
+
+mutated = source.replace('RJ_CONDOR_SEALED_ENVIRONMENT=1', '', 1)
+try:
+    validate(mutated)
+except ValueError:
+    pass
+else:
+    raise SystemExit("sealed Condor environment mutation was not rejected")
+
+mutated = source.replace('write_runtime_authority_manifest ensure', '', 1)
+try:
+    validate(mutated)
+except ValueError:
+    pass
+else:
+    raise SystemExit("runtime-authority ensure mutation was not rejected")
+
+mutated = source.replace('"$sealed_getenv" == False', '"$sealed_getenv" == True', 1)
+try:
+    validate(mutated)
+except ValueError:
+    pass
+else:
+    raise SystemExit("descriptor getenv mutation was not rejected")
+
+print("THE134_SUBMITTER_CANARY_IDENTITY_WIRING_PASS guarded_calls=2 mutations_rejected=7 tuple_mutations=3 fanout_mutations=8 runtime_authority_transitions=5 materialization_state_transitions=6")
 PY

@@ -25,6 +25,13 @@ auau_executor="${RJ_THE134_AUAU_EXECUTOR:-${repo_root}/RecoilJets_Condor_AuAu.sh
 photon_cluster_header="${RJ_THE134_PHOTON_CLUSTER_HEADER:-${repo_root}/coresoftware_local/offline/packages/CaloBase/PhotonClusterv1.h}"
 photon_cluster_builder_header="${RJ_THE134_PHOTON_CLUSTER_BUILDER_HEADER:-}"
 calo_reco_library="${RJ_THE134_CALO_RECO_LIBRARY:-}"
+calo_reco_build_receipt="${RJ_THE134_CALO_RECO_BUILD_RECEIPT:-}"
+calo_reco_source_manifest="${RJ_THE134_CALO_RECO_SOURCE_MANIFEST:-}"
+release_core_lib_dir="${RJ_THE134_RELEASE_CORE_LIB_DIR:-}"
+release_core_lib64_dir="${RJ_THE134_RELEASE_CORE_LIB64_DIR:-}"
+release_calo_io="${RJ_THE134_RELEASE_CALO_IO:-}"
+release_clusteriso="${RJ_THE134_RELEASE_CLUSTERISO:-}"
+release_jetbase="${RJ_THE134_RELEASE_JETBASE:-}"
 pp_config="${RJ_THE134_PP_CONFIG:-${repo_root}/macros/analysis_config_the119_pp_replay_foundation.yaml}"
 auau_config="${RJ_THE134_AUAU_CONFIG:-${repo_root}/macros/analysis_config_the112_auau_combined_bdt_triplet.yaml}"
 pp_library="${RJ_THE134_PP_LIBRARY:-}"
@@ -43,8 +50,14 @@ source_provenance_json="${evidence_root}/source_provenance.json"
 pp_source_provenance_json="${evidence_root}/pp_source_provenance.json"
 auau_source_provenance_json="${evidence_root}/auau_source_provenance.json"
 root_health_join_certificate="${evidence_root}/root_health_identity_join_certificate.json"
+runtime_authority_manifest="${evidence_root}/runtime_authority_manifest.json"
+runtime_authority_fingerprint="${runtime_authority_manifest}.sha256"
 validator="${RJ_THE134_MATRIX_PREPARER:-${repo_root}/scripts/ml/training/prepare_the134_h70_matrix.py}"
 
+readonly pinned_release_name="ana.560"
+readonly pinned_offline_main="/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.560"
+readonly pinned_coresoftware_commit="cba274033b5560e32600cdeaa7676b6ab4a6c971"
+readonly pinned_calo_reco_soname="libcalo_reco.so.0"
 readonly nominal_et_min="15.0"
 readonly nominal_et_max="35.0"
 readonly capture_et_min="5.0"
@@ -79,6 +92,150 @@ require_file_hash() {
   [[ -s "$path" ]] || die "missing ${label} input: ${path}"
   actual="$(sha_file "$path")"
   [[ "$actual" == "$expected" ]] || die "${label} hash drift: expected=${expected} actual=${actual} path=${path}"
+}
+
+resolve_release_companion() {
+  local label="$1" name="$2" path="$3" expected="$4" selected=""
+  [[ -n "$path" ]] || die "RJ_THE134_${label} is required"
+  if [[ -r "${release_core_lib64_dir}/${name}" ]]; then
+    selected="$(cd "$(dirname "${release_core_lib64_dir}/${name}")" && pwd -P)/$(basename "${release_core_lib64_dir}/${name}")"
+  elif [[ -r "${release_core_lib_dir}/${name}" ]]; then
+    selected="$(cd "$(dirname "${release_core_lib_dir}/${name}")" && pwd -P)/$(basename "${release_core_lib_dir}/${name}")"
+  else
+    die "pinned ana.560 release companion is missing: ${name}"
+  fi
+  path="$(cd "$(dirname "$path")" && pwd -P)/$(basename "$path")"
+  [[ "$path" == "$selected" ]] ||
+    die "${label} path does not match loader-order selection: declared=${path} selected=${selected}"
+  require_file_hash "$label" "$path" "$expected"
+  printf '%s\n' "$selected"
+}
+
+validate_calo_reco_build_authority() {
+  python3 - \
+    "$calo_reco_build_receipt" "$RJ_THE134_CALO_RECO_BUILD_RECEIPT_SHA256" \
+    "$calo_reco_source_manifest" "$RJ_THE134_CALO_RECO_SOURCE_MANIFEST_SHA256" \
+    "$calo_reco_library" "$RJ_THE134_CALO_RECO_LIBRARY_SHA256" \
+    "$photon_cluster_builder_header" "$RJ_THE134_PHOTON_CLUSTER_BUILDER_HEADER_SHA256" \
+    "$pinned_offline_main" "$pinned_release_name" "$pinned_coresoftware_commit" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import sys
+
+(
+    receipt_arg,
+    receipt_sha,
+    source_arg,
+    source_sha,
+    library_arg,
+    library_sha,
+    header_arg,
+    header_sha,
+    offline_main,
+    release_name,
+    expected_commit,
+) = sys.argv[1:]
+receipt_path = Path(receipt_arg).resolve(strict=True)
+source_path = Path(source_arg).resolve(strict=True)
+library_path = Path(library_arg).resolve(strict=True)
+header_path = Path(header_arg).resolve(strict=True)
+
+def digest(path: Path) -> str:
+    value = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+            value.update(block)
+    return value.hexdigest()
+
+for label, path, expected in (
+    ("build receipt", receipt_path, receipt_sha),
+    ("source manifest", source_path, source_sha),
+    ("CaloReco library", library_path, library_sha),
+    ("PhotonClusterBuilder header", header_path, header_sha),
+):
+    if len(expected) != 64 or digest(path) != expected:
+        raise SystemExit(f"{label} hash drift")
+
+receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+source = json.loads(source_path.read_text(encoding="utf-8"))
+if receipt.get("schema") != "THE134_ANA560_CALORECO_BUILD_RECEIPT_V2":
+    raise SystemExit("CaloReco build receipt schema differs")
+if receipt.get("status") != "PASS":
+    raise SystemExit("CaloReco build receipt is not PASS")
+if source.get("schema") != "THE134_ANA560_CALORECO_SOURCE_MANIFEST_V2":
+    raise SystemExit("CaloReco source manifest schema differs")
+if receipt.get("runtime", {}).get("release") != release_name:
+    raise SystemExit("CaloReco receipt release differs")
+if receipt.get("runtime", {}).get("offline_main") != offline_main:
+    raise SystemExit("CaloReco receipt OFFLINE_MAIN differs")
+if receipt.get("build", {}).get("coresoftware_commit") != expected_commit:
+    raise SystemExit("CaloReco receipt coresoftware commit differs")
+if source.get("coresoftware", {}).get("commit") != expected_commit:
+    raise SystemExit("CaloReco source-manifest commit differs")
+if receipt.get("artifact", {}).get("sha256") != library_sha:
+    raise SystemExit("CaloReco receipt library digest differs")
+artifact = receipt_path.parent / str(receipt.get("artifact", {}).get("library", ""))
+if artifact.resolve(strict=True) != library_path:
+    raise SystemExit("CaloReco receipt library path does not resolve to the declared provider")
+abi = receipt.get("abi", {})
+if (
+    abi.get("status") != "PASS"
+    or abi.get("soname") != "libcalo_reco.so.0"
+    or abi.get("soname_expected") != "libcalo_reco.so.0"
+    or abi.get("needed_exact_match") is not True
+    or abi.get("rpath_runpath_absent") is not True
+    or abi.get("removed_symbols", {}).get("count") != 0
+):
+    raise SystemExit("CaloReco ABI/SONAME receipt contract differs")
+for loader_name in ("libcalo_reco.so", "libcalo_reco.so.0"):
+    loader_path = receipt_path.parent / "install/lib" / loader_name
+    if not loader_path.is_symlink() or loader_path.resolve(strict=True) != library_path:
+        raise SystemExit(f"CaloReco builder loader alias differs: {loader_name}")
+receipt_source = receipt.get("source_manifest", {})
+if receipt_source.get("sha256") != source_sha:
+    raise SystemExit("CaloReco receipt/source-manifest digest cross-link differs")
+if (receipt_path.parent / str(receipt_source.get("path", ""))).resolve(strict=True) != source_path:
+    raise SystemExit("CaloReco receipt/source-manifest path cross-link differs")
+single = receipt.get("single_provider", {})
+provider_probe = single.get("provider_probe", {})
+if (
+    single.get("photon_cluster_builder_process_event_definitions") != 1
+    or single.get("raw_cluster_builder_topo_process_event_definitions") != 1
+    or single.get("forbidden_standalone_provider_count") != 0
+    or single.get("other_installed_shared_objects") != []
+    or provider_probe.get("status") != "PASS"
+    or provider_probe.get("preload_provider_count") != 0
+    or provider_probe.get("provider_count") != 1
+    or Path(str(provider_probe.get("provider_realpath", ""))).resolve(strict=True)
+    != library_path
+):
+    raise SystemExit("CaloReco receipt does not prove one complete provider")
+runtime = receipt.get("runtime", {})
+root_load = runtime.get("root_load", {})
+if (
+    runtime.get("ldd_not_found") is not False
+    or runtime.get("mutable_user_dependency") is not False
+    or root_load.get("status") != "PASS"
+    or root_load.get("load_return_code") != 0
+    or root_load.get("preload_provider_count") != 0
+    or root_load.get("provider_count") != 1
+    or Path(str(root_load.get("provider_realpath", ""))).resolve(strict=True)
+    != library_path
+):
+    raise SystemExit("CaloReco runtime provider proof differs")
+mapping = receipt.get("mapping_patch", {})
+if (
+    mapping.get("id")
+    != "THE134_RAWCLUSTERBUILDERTOPO_DETECTOR_EXPLICIT_CHANNEL_MAP_V1"
+    or mapping.get("scientific_controls_changed") != []
+):
+    raise SystemExit("CaloReco mapping authority differs")
+if source.get("mapping_patch", {}).get("changed_scientific_controls") != []:
+    raise SystemExit("CaloReco source manifest changes scientific controls")
+if source.get("overlay", {}).get("PhotonClusterBuilder.h", {}).get("staged_sha256") != header_sha:
+    raise SystemExit("CaloReco source/header overlay cross-link differs")
+PY
 }
 
 # row_id|system|lane|dataset|sample|role|minimum_bias_gate|photon_id_row_match
@@ -323,6 +480,11 @@ RecoilJets_Condor_AuAu.sh|${auau_executor}
 external/PhotonClusterv1.h|${photon_cluster_header}
 external/PhotonClusterBuilder.h|${photon_cluster_builder_header}
 external/libcalo_reco.so|${calo_reco_library}
+external/calo_reco_build_receipt.json|${calo_reco_build_receipt}
+external/calo_reco_source_manifest.json|${calo_reco_source_manifest}
+external/ana.560/libcalo_io.so|${release_calo_io}
+external/ana.560/libclusteriso.so|${release_clusteriso}
+external/ana.560/libjetbase.so|${release_jetbase}
 scripts/sdcc/workflows/diagnostics/submit_the134_multiview_extraction_smoke.sh|scripts/sdcc/workflows/diagnostics/submit_the134_multiview_extraction_smoke.sh
 EOF
 }
@@ -344,7 +506,7 @@ write_submission_manifest() {
   local tmp row_id system lane dataset sample role mb_gate row_match source_sha tuple_sha tuple_count
   local config config_sha library library_sha model model_sha sidecar row_output row_submit
   tmp="${submission_manifest}.tmp.$$"
-  printf 'row_id\tsystem\tlane\tdataset\tsample\tsource_role\tminimum_bias_gate\tinput_files\tinput_jobs\tsource_manifest_sha256\tfirst_input_tuple_sha256\tresolved_config\tresolved_config_sha256\tlibrary\tlibrary_sha256\tmodel\tmodel_sha256\tcode_sha256\treplay_schema_sha256\ttraining_schema_sha256\tsemantic_sha256\tnominal_et_min_gev\tnominal_et_max_gev_exclusive\tloose_capture_et_min_gev\tlegacy_training_tree_max_entries\tevent_limit_per_job\tanalysis_output_namespace\tmultiview_sidecar\tsubmit_namespace\tscheduler_log_dir\tscheduler_stdout_dir\tscheduler_stderr_dir\texecutable_input_tuple_count\tfull_training_authority\tphoton_cluster_builder_header\tphoton_cluster_builder_header_sha256\tcalo_reco_library\tcalo_reco_library_sha256\n' > "$tmp"
+  printf 'row_id\tsystem\tlane\tdataset\tsample\tsource_role\tminimum_bias_gate\tinput_files\tinput_jobs\tsource_manifest_sha256\tfirst_input_tuple_sha256\tresolved_config\tresolved_config_sha256\tlibrary\tlibrary_sha256\tmodel\tmodel_sha256\tcode_sha256\treplay_schema_sha256\ttraining_schema_sha256\tsemantic_sha256\tnominal_et_min_gev\tnominal_et_max_gev_exclusive\tloose_capture_et_min_gev\tlegacy_training_tree_max_entries\tevent_limit_per_job\tanalysis_output_namespace\tmultiview_sidecar\tsubmit_namespace\tscheduler_log_dir\tscheduler_stdout_dir\tscheduler_stderr_dir\texecutable_input_tuple_count\tfull_training_authority\tphoton_cluster_builder_header\tphoton_cluster_builder_header_sha256\tcalo_reco_library\tcalo_reco_library_sha256\trelease_core_lib_dir\trelease_core_lib64_dir\trelease_calo_io\trelease_calo_io_sha256\trelease_clusteriso\trelease_clusteriso_sha256\trelease_jetbase\trelease_jetbase_sha256\n' > "$tmp"
   while IFS='|' read -r row_id system lane dataset sample role mb_gate row_match; do
     source_sha="$(observed_source_field "$row_id" 2)"
     tuple_sha="$(observed_source_field "$row_id" 3)"
@@ -368,7 +530,7 @@ write_submission_manifest() {
     sidecar="${row_output}/${sample}/RJPhotonTrainingViewV1.root"
     row_submit="${submit_root}/${row_id}"
     [[ "$tuple_count" =~ ^[1-9][0-9]*$ ]] || die "${row_id} executable tuple count is invalid"
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t1\t1\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t1\t1\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
       "$row_id" "$system" "$lane" "$dataset" "$sample" "$role" "$mb_gate" \
       "$source_sha" "$tuple_sha" "$config" "$config_sha" "$library" "$library_sha" \
       "$model" "$model_sha" "$code_sha" "$replay_schema_sha" "$training_schema_sha" "$semantic_sha" \
@@ -379,10 +541,16 @@ write_submission_manifest() {
       '/sphenix/u/patsfan753/scratch/thesisAnalysis/error' \
       "$tuple_count" "$full_training_authority" \
       "$photon_cluster_builder_header" "$RJ_THE134_PHOTON_CLUSTER_BUILDER_HEADER_SHA256" \
-      "$calo_reco_library" "$RJ_THE134_CALO_RECO_LIBRARY_SHA256" >> "$tmp"
+      "$calo_reco_library" "$RJ_THE134_CALO_RECO_LIBRARY_SHA256" \
+      "$release_core_lib_dir" "$release_core_lib64_dir" \
+      "$release_calo_io" "$RJ_THE134_RELEASE_CALO_IO_SHA256" \
+      "$release_clusteriso" "$RJ_THE134_RELEASE_CLUSTERISO_SHA256" \
+      "$release_jetbase" "$RJ_THE134_RELEASE_JETBASE_SHA256" >> "$tmp"
   done < <(emit_matrix)
   mv "$tmp" "$submission_manifest"
   [[ "$(wc -l < "$submission_manifest" | tr -d ' ')" == 14 ]] || die "submission manifest row closure failed"
+  awk -F'\t' 'NF != 46 {exit 1}' "$submission_manifest" ||
+    die "submission manifest must contain exactly 46 tab-separated fields on every row"
   [[ "$(tail -n +2 "$submission_manifest" | cut -f1 | sort -u | wc -l | tr -d ' ')" == 13 ]] || die "submission manifest contains duplicate row identities"
   [[ "$(tail -n +2 "$submission_manifest" | cut -f34 | sort -u)" == "$full_training_authority" ]] ||
     die "smoke manifest must remain full_training_authority=0"
@@ -393,6 +561,114 @@ write_submission_manifest() {
   awk -F'\t' 'NR>1 && $2=="auau" {print $28}' "$submission_manifest" > "${evidence_root}/auau_multiview_sidecars.list"
   [[ "$(wc -l < "${evidence_root}/pp_multiview_sidecars.list" | tr -d ' ')" == 7 ]] || die "p+p sidecar manifest closure failed"
   [[ "$(wc -l < "${evidence_root}/auau_multiview_sidecars.list" | tr -d ' ')" == 6 ]] || die "Au+Au sidecar manifest closure failed"
+}
+
+write_runtime_authority_manifest() {
+  local action="${1:-ensure}"
+  [[ "$action" == ensure || "$action" == verify ]] ||
+    die "runtime-authority action must be ensure or verify"
+  if [[ "$action" == ensure ]]; then
+    if [[ -e "$runtime_authority_manifest" && ! -e "$runtime_authority_fingerprint" ]] ||
+       [[ ! -e "$runtime_authority_manifest" && -e "$runtime_authority_fingerprint" ]]; then
+      die "runtime-authority manifest/fingerprint pair is incomplete"
+    fi
+  fi
+  python3 - "$runtime_authority_manifest" "$action" \
+    "$calo_reco_build_receipt" "$RJ_THE134_CALO_RECO_BUILD_RECEIPT_SHA256" \
+    "$calo_reco_source_manifest" "$RJ_THE134_CALO_RECO_SOURCE_MANIFEST_SHA256" \
+    "$calo_reco_library" "$RJ_THE134_CALO_RECO_LIBRARY_SHA256" \
+    "$release_core_lib_dir" "$release_core_lib64_dir" \
+    "$release_calo_io" "$RJ_THE134_RELEASE_CALO_IO_SHA256" \
+    "$release_clusteriso" "$RJ_THE134_RELEASE_CLUSTERISO_SHA256" \
+    "$release_jetbase" "$RJ_THE134_RELEASE_JETBASE_SHA256" \
+    "$pinned_release_name" "$pinned_offline_main" \
+    "$pinned_calo_reco_soname" <<'PY'
+from pathlib import Path
+import json
+import os
+import sys
+
+(
+    destination_arg,
+    action,
+    build_receipt,
+    build_receipt_sha,
+    source_manifest,
+    source_manifest_sha,
+    calo_reco,
+    calo_reco_sha,
+    release_lib,
+    release_lib64,
+    calo_io,
+    calo_io_sha,
+    clusteriso,
+    clusteriso_sha,
+    jetbase,
+    jetbase_sha,
+    release_name,
+    offline_main,
+    calo_reco_soname,
+) = sys.argv[1:]
+destination = Path(destination_arg)
+payload = {
+    "calo_reco": {
+        "build_receipt": build_receipt,
+        "build_receipt_sha256": build_receipt_sha,
+        "library": calo_reco,
+        "library_sha256": calo_reco_sha,
+        "soname": calo_reco_soname,
+        "source_manifest": source_manifest,
+        "source_manifest_sha256": source_manifest_sha,
+    },
+    "release": {
+        "lib": release_lib,
+        "lib64": release_lib64,
+        "name": release_name,
+        "offline_main": offline_main,
+        "providers": {
+            "libcalo_io.so": {"path": calo_io, "sha256": calo_io_sha},
+            "libclusteriso.so": {"path": clusteriso, "sha256": clusteriso_sha},
+            "libjetbase.so": {"path": jetbase, "sha256": jetbase_sha},
+        },
+    },
+    "schema": "THE134_SINGLE_PROVIDER_RUNTIME_AUTHORITY_V1",
+    "status": "PASS",
+}
+if action == "ensure":
+    if destination.exists():
+        observed = json.loads(destination.read_text(encoding="utf-8"))
+        if observed != payload:
+            raise SystemExit(
+                "existing runtime authority manifest differs from current frozen authority"
+            )
+    else:
+        temporary = destination.with_name(destination.name + f".tmp.{os.getpid()}")
+        temporary.write_text(
+            json.dumps(payload, indent=2, sort_keys=True, separators=(",", ": ")) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, destination)
+elif action == "verify":
+    observed = json.loads(destination.read_text(encoding="utf-8"))
+    if observed != payload:
+        raise SystemExit("runtime authority manifest differs from current frozen authority")
+else:
+    raise SystemExit(f"unsupported runtime authority action: {action}")
+PY
+  if [[ "$action" == ensure ]]; then
+    if [[ -e "$runtime_authority_fingerprint" ]]; then
+      [[ -s "$runtime_authority_fingerprint" &&
+         "$(sha_file "$runtime_authority_manifest")" == "$(cat "$runtime_authority_fingerprint")" ]] ||
+        die "existing runtime-authority fingerprint differs"
+    else
+      sha_file "$runtime_authority_manifest" > "$runtime_authority_fingerprint"
+    fi
+  else
+    [[ -s "$runtime_authority_fingerprint" ]] ||
+      die "runtime-authority fingerprint is missing"
+    [[ "$(sha_file "$runtime_authority_manifest")" == "$(cat "$runtime_authority_fingerprint")" ]] ||
+      die "runtime-authority manifest fingerprint drift blocks resume"
+  fi
 }
 
 require_inputs_and_hashes() {
@@ -409,12 +685,28 @@ require_inputs_and_hashes() {
   [[ -n "$source_hash_manifest" ]] || die "RJ_THE134_SOURCE_HASH_MANIFEST is required"
   [[ -n "$photon_cluster_builder_header" ]] || die "RJ_THE134_PHOTON_CLUSTER_BUILDER_HEADER is required"
   [[ -n "$calo_reco_library" ]] || die "RJ_THE134_CALO_RECO_LIBRARY is required"
+  [[ -n "$calo_reco_build_receipt" ]] || die "RJ_THE134_CALO_RECO_BUILD_RECEIPT is required"
+  [[ -n "$calo_reco_source_manifest" ]] || die "RJ_THE134_CALO_RECO_SOURCE_MANIFEST is required"
+  [[ -d "$release_core_lib_dir" && -d "$release_core_lib64_dir" ]] ||
+    die "the exact ana.560 release lib/lib64 directories are required"
+  release_core_lib_dir="$(cd "$release_core_lib_dir" && pwd -P)"
+  release_core_lib64_dir="$(cd "$release_core_lib64_dir" && pwd -P)"
+  [[ "$release_core_lib_dir" == "${pinned_offline_main}/lib" ]] ||
+    die "RJ_THE134_RELEASE_CORE_LIB_DIR must be exactly ${pinned_offline_main}/lib"
+  [[ "$release_core_lib64_dir" == "${pinned_offline_main}/lib64" ]] ||
+    die "RJ_THE134_RELEASE_CORE_LIB64_DIR must be exactly ${pinned_offline_main}/lib64"
   [[ -z "${RJ_THE134_MULTIVIEW_TRAINING_FILE:-}" ]] ||
     die "controller environment must not pre-own RJ_THE134_MULTIVIEW_TRAINING_FILE"
   [[ -z "${RJ_ID_FANOUT_FILE:-}" && -z "${RJ_ID_FANOUT_DIRS_FILE:-}" ]] ||
     die "controller environment must not carry a pre-existing fanout owner"
   [[ -z "${RJ_PHOTON_CLUSTER_BUILDER_LIBRARY_OVERRIDE:-}" ]] ||
     die "a separate PhotonClusterBuilder override library is forbidden; the pinned CaloReco library is authoritative"
+  [[ -z "${RJ_FORCE_RELEASE_CORE_LIBS:-}" ]] ||
+    die "controller environment must not inherit RJ_FORCE_RELEASE_CORE_LIBS"
+  [[ -z "${RJ_FORCE_RELEASE_CALO_IO:-}" ]] ||
+    die "controller environment must not inherit RJ_FORCE_RELEASE_CALO_IO"
+  [[ -z "${RJ_RELEASE_CALO_IO_PATH:-}" ]] ||
+    die "controller environment must not inherit RJ_RELEASE_CALO_IO_PATH"
 
   : "${RJ_THE134_PP_LIBRARY_SHA256:?set frozen p+p library SHA-256}"
   : "${RJ_THE134_AUAU_LIBRARY_SHA256:?set frozen Au+Au library SHA-256}"
@@ -430,6 +722,11 @@ require_inputs_and_hashes() {
   : "${RJ_THE134_PHOTON_CLUSTER_HEADER_SHA256:?set frozen PhotonClusterv1 header SHA-256}"
   : "${RJ_THE134_PHOTON_CLUSTER_BUILDER_HEADER_SHA256:?set frozen PhotonClusterBuilder header SHA-256}"
   : "${RJ_THE134_CALO_RECO_LIBRARY_SHA256:?set frozen CaloReco library SHA-256}"
+  : "${RJ_THE134_CALO_RECO_BUILD_RECEIPT_SHA256:?set frozen CaloReco build-receipt SHA-256}"
+  : "${RJ_THE134_CALO_RECO_SOURCE_MANIFEST_SHA256:?set frozen CaloReco source-manifest SHA-256}"
+  : "${RJ_THE134_RELEASE_CALO_IO_SHA256:?set frozen ana.560 libcalo_io SHA-256}"
+  : "${RJ_THE134_RELEASE_CLUSTERISO_SHA256:?set frozen ana.560 libclusteriso SHA-256}"
+  : "${RJ_THE134_RELEASE_JETBASE_SHA256:?set frozen ana.560 libjetbase SHA-256}"
 
   require_file_hash "p+p library" "$pp_library" "$RJ_THE134_PP_LIBRARY_SHA256"
   require_file_hash "Au+Au library" "$auau_library" "$RJ_THE134_AUAU_LIBRARY_SHA256"
@@ -440,6 +737,21 @@ require_inputs_and_hashes() {
   require_file_hash "PhotonClusterv1 build header" "$photon_cluster_header" "$RJ_THE134_PHOTON_CLUSTER_HEADER_SHA256"
   require_file_hash "PhotonClusterBuilder build header" "$photon_cluster_builder_header" "$RJ_THE134_PHOTON_CLUSTER_BUILDER_HEADER_SHA256"
   require_file_hash "CaloReco runtime library" "$calo_reco_library" "$RJ_THE134_CALO_RECO_LIBRARY_SHA256"
+  require_file_hash "CaloReco build receipt" "$calo_reco_build_receipt" "$RJ_THE134_CALO_RECO_BUILD_RECEIPT_SHA256"
+  require_file_hash "CaloReco source manifest" "$calo_reco_source_manifest" "$RJ_THE134_CALO_RECO_SOURCE_MANIFEST_SHA256"
+  release_calo_io="$(
+    resolve_release_companion RELEASE_CALO_IO libcalo_io.so \
+      "$release_calo_io" "$RJ_THE134_RELEASE_CALO_IO_SHA256"
+  )"
+  release_clusteriso="$(
+    resolve_release_companion RELEASE_CLUSTERISO libclusteriso.so \
+      "$release_clusteriso" "$RJ_THE134_RELEASE_CLUSTERISO_SHA256"
+  )"
+  release_jetbase="$(
+    resolve_release_companion RELEASE_JETBASE libjetbase.so \
+      "$release_jetbase" "$RJ_THE134_RELEASE_JETBASE_SHA256"
+  )"
+  validate_calo_reco_build_authority
 
   pp_yaml_model="$(yaml_value "$pp_config" tight_bdt_model_file)"
   auau_yaml_model="$(yaml_value "$auau_config" auau_tight_bdt_centInputBase3x3_model_file)"
@@ -455,7 +767,10 @@ require_inputs_and_hashes() {
   [[ "$actual_training_schema" == "$RJ_THE134_TRAINING_SCHEMA_SHA256" ]] || die "training-schema hash drift"
   [[ "$actual_semantic" == "$RJ_THE134_SEMANTIC_SHA256" ]] || die "aggregate semantic hash drift"
 
-  printf '%s\t%s\t%s\t%s\n' "$actual_code" "$actual_replay_schema" "$actual_training_schema" "$actual_semantic"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$actual_code" "$actual_replay_schema" "$actual_training_schema" "$actual_semantic" \
+    "$release_core_lib_dir" "$release_core_lib64_dir" \
+    "$release_calo_io" "$release_clusteriso" "$release_jetbase"
 }
 
 preflight() {
@@ -463,13 +778,18 @@ preflight() {
   [[ ! -e "$submission_journal" && ! -e "$submission_receipt" ]] ||
     die "submission evidence already exists; use status or validate instead of rewriting preflight state"
   hashes="$(require_inputs_and_hashes)"
-  IFS=$'\t' read -r code_sha replay_schema_sha training_schema_sha semantic_sha <<< "$hashes"
+  IFS=$'\t' read -r code_sha replay_schema_sha training_schema_sha semantic_sha \
+    release_core_lib_dir release_core_lib64_dir release_calo_io release_clusteriso release_jetbase <<< "$hashes"
   mkdir -p "$evidence_root"
   prepare_resolved_configs
   verify_single_owner_resolved_contract
   write_and_verify_source_hashes "$RJ_THE134_SOURCE_HASH_MANIFEST_SHA256"
   write_submission_manifest "$code_sha" "$replay_schema_sha" "$training_schema_sha" "$semantic_sha"
-  bash -n "$0" "$submitter" "$pp_executor" "$auau_executor"
+  write_runtime_authority_manifest ensure
+  bash -n "$0"
+  bash -n "$submitter"
+  bash -n "$pp_executor"
+  bash -n "$auau_executor"
   say "PREFLIGHT_PASS rows=13 manifest=${submission_manifest} fingerprint=$(cat "$duplicate_fingerprint")"
 }
 
@@ -616,6 +936,149 @@ analysis_tag_for_dataset() {
   esac
 }
 
+verify_sealed_snapshot_receipts() {
+  local snapshot_dir="$1" loader_receipt="$2" snapshot_manifest="$3" expected_mode="$4"
+  python3 - \
+    "$snapshot_dir" "$loader_receipt" "$snapshot_manifest" "$expected_mode" \
+    "$pinned_calo_reco_soname" \
+    "$calo_reco_library" "$RJ_THE134_CALO_RECO_LIBRARY_SHA256" \
+    "$release_core_lib_dir" "$release_core_lib64_dir" \
+    "$release_calo_io" "$RJ_THE134_RELEASE_CALO_IO_SHA256" \
+    "$release_clusteriso" "$RJ_THE134_RELEASE_CLUSTERISO_SHA256" \
+    "$release_jetbase" "$RJ_THE134_RELEASE_JETBASE_SHA256" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import os
+import sys
+
+(
+    snapshot_arg,
+    loader_arg,
+    manifest_arg,
+    expected_mode,
+    expected_calo_soname,
+    _calo_source,
+    calo_sha,
+    release_lib,
+    release_lib64,
+    calo_io,
+    calo_io_sha,
+    clusteriso,
+    clusteriso_sha,
+    jetbase,
+    jetbase_sha,
+) = sys.argv[1:]
+snapshot = Path(snapshot_arg).resolve(strict=True)
+loader_path = Path(loader_arg).resolve(strict=True)
+manifest_path = Path(manifest_arg).resolve(strict=True)
+if snapshot not in loader_path.parents or snapshot not in manifest_path.parents:
+    raise SystemExit("snapshot receipt or manifest escaped the frozen snapshot")
+if snapshot.stat().st_mode & 0o222:
+    raise SystemExit(f"writable frozen snapshot root survived seal: {snapshot}")
+for evidence_path in (loader_path, manifest_path):
+    if evidence_path.stat().st_mode & 0o222:
+        raise SystemExit(f"writable snapshot evidence survived seal: {evidence_path}")
+
+def digest(path: Path) -> str:
+    value = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+            value.update(block)
+    return value.hexdigest()
+
+loader = json.loads(loader_path.read_text(encoding="utf-8"))
+if (
+    loader.get("schema") != "RJ_SNAPSHOT_LOADER_RECEIPT_V1"
+    or loader.get("status") != "PASS"
+    or loader.get("pinned_calo_reco_release_companions") is not True
+    or loader.get("mode") != expected_mode
+):
+    raise SystemExit("snapshot loader receipt contract differs")
+if loader.get("release_roots") != [release_lib64, release_lib]:
+    raise SystemExit("snapshot loader receipt release roots differ")
+providers = loader.get("providers", {})
+calo_api = snapshot / "lib/libcalo_reco.so"
+calo_soname = snapshot / "lib" / expected_calo_soname
+if (
+    not calo_api.is_file()
+    or not calo_soname.is_symlink()
+    or calo_soname.readlink().as_posix() != "libcalo_reco.so"
+    or calo_soname.resolve(strict=True) != calo_api.resolve(strict=True)
+):
+    raise SystemExit("snapshot CaloReco API/SONAME alias closure differs")
+expected = {
+    "libcalo_reco.so": (calo_api.resolve(strict=True), calo_sha),
+    "libcalo_io.so": (Path(calo_io).resolve(strict=True), calo_io_sha),
+    "libclusteriso.so": (Path(clusteriso).resolve(strict=True), clusteriso_sha),
+    "libjetbase.so": (Path(jetbase).resolve(strict=True), jetbase_sha),
+}
+for family, (path, expected_sha) in expected.items():
+    provider = providers.get(family, {})
+    if (
+        provider.get("realpath") != str(path)
+        or provider.get("sha256") != expected_sha
+        or provider.get("observed_resolutions") != [str(path)]
+    ):
+        raise SystemExit(f"snapshot loader provider authority differs: {family}")
+    if digest(path) != expected_sha:
+        raise SystemExit(f"snapshot loader provider hash drift: {family}")
+
+manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+if (
+    manifest.get("schema") != "RJ_FROZEN_SNAPSHOT_MANIFEST_V1"
+    or manifest.get("status") != "PASS"
+    or manifest.get("root") != str(snapshot)
+):
+    raise SystemExit("snapshot manifest contract differs")
+observed = []
+for path in sorted(snapshot.rglob("*"), key=lambda item: item.relative_to(snapshot).as_posix()):
+    if path == manifest_path:
+        continue
+    relative = path.relative_to(snapshot).as_posix()
+    if path.is_symlink():
+        target = os.readlink(path)
+        if os.path.isabs(target):
+            raise SystemExit(f"snapshot symlink must be relative: {relative}")
+        resolved = path.resolve(strict=True)
+        if snapshot not in resolved.parents:
+            raise SystemExit(f"snapshot symlink escaped: {relative}")
+        if path.parent.stat().st_mode & 0o222:
+            raise SystemExit(f"snapshot symlink parent is writable: {relative}")
+        if resolved.stat().st_mode & 0o222:
+            raise SystemExit(f"snapshot symlink target is writable: {relative}")
+        observed.append(
+            {
+                "path": relative,
+                "sha256": digest(resolved),
+                "symlink_target": target,
+                "type": "symlink",
+            }
+        )
+    elif path.is_file():
+        if path.lstat().st_mode & 0o222:
+            raise SystemExit(f"writable artifact survived snapshot seal: {relative}")
+        observed.append(
+            {
+                "path": relative,
+                "sha256": digest(path),
+                "size": path.stat().st_size,
+                "type": "file",
+            }
+        )
+    elif path.is_dir():
+        if path.lstat().st_mode & 0o222:
+            raise SystemExit(f"writable directory survived snapshot seal: {relative}")
+        observed.append({"path": relative, "type": "directory"})
+    else:
+        raise SystemExit(f"unsupported snapshot artifact: {relative}")
+if manifest.get("entries") != observed:
+    raise SystemExit("complete snapshot inventory/hash closure differs")
+if manifest_path.lstat().st_mode & 0o222:
+    raise SystemExit("snapshot manifest itself is writable")
+PY
+}
+
 validate_one_five_file_tuple() {
   local row_id="$1" system="$2" path="$3"
   awk -F '\t' -v tuple_system="$system" '
@@ -684,17 +1147,30 @@ verify_materialized_row_contract() {
   local chunk_tag analysis_tag analysis_root owner_count queue_count value
   local frozen_executable snapshot_dir snapshot_header snapshot_header_sha
   local snapshot_calo snapshot_calo_sha snapshot_analysis snapshot_analysis_sha expected_analysis_sha
+  local snapshot_calo_soname
+  local snapshot_impl snapshot_calo_macro expected_loader_suffix companion
+  local snapshot_loader_receipt snapshot_loader_receipt_sha snapshot_manifest snapshot_manifest_sha
+  local sealed_getenv
 
   while IFS= read -r value; do sub_files+=( "$value" ); done \
     < <(find "$row_submit" -maxdepth 1 -type f -name '*.sub' -print | sort)
   [[ "${#sub_files[@]}" == 1 ]] || die "${row_id} must dry-materialize exactly one submit descriptor, observed=${#sub_files[@]}"
   submit_file="${sub_files[0]}"
+  sealed_getenv="$(condor_field "$submit_file" getenv)"
+  [[ "$sealed_getenv" == False ]] ||
+    die "${row_id} descriptor must disable submit-host environment inheritance"
   frozen_executable="$(condor_field "$submit_file" executable)"
   [[ -s "$frozen_executable" ]] ||
     die "${row_id} descriptor does not bind a readable frozen executable"
   snapshot_dir="$(cd "$(dirname "$frozen_executable")" && pwd -P)"
   snapshot_header="${snapshot_dir}/PhotonClusterBuilder.h"
   snapshot_calo="${snapshot_dir}/lib/libcalo_reco.so"
+  snapshot_calo_soname="${snapshot_dir}/lib/${pinned_calo_reco_soname}"
+  snapshot_impl="${snapshot_dir}/Fun4All_recoilJets_unified_impl.C"
+  snapshot_calo_macro="${snapshot_dir}/Calo_Calib.C"
+  snapshot_loader_receipt="${snapshot_dir}/snapshot_loader_receipt.json"
+  snapshot_manifest="${snapshot_dir}/snapshot_manifest.json"
+  expected_loader_suffix="snapshot_loader_suffix=\":${release_core_lib64_dir}:${release_core_lib_dir}\""
   if [[ "$system" == pp ]]; then
     snapshot_analysis="${snapshot_dir}/lib/libRecoilJets.so"
     expected_analysis_sha="$RJ_THE134_PP_LIBRARY_SHA256"
@@ -706,13 +1182,39 @@ verify_materialized_row_contract() {
     "$snapshot_header" "$RJ_THE134_PHOTON_CLUSTER_BUILDER_HEADER_SHA256"
   require_file_hash "${row_id} snapshotted CaloReco library" \
     "$snapshot_calo" "$RJ_THE134_CALO_RECO_LIBRARY_SHA256"
+  [[ -L "$snapshot_calo_soname" &&
+     "$(readlink "$snapshot_calo_soname")" == "libcalo_reco.so" &&
+     "$snapshot_calo_soname" -ef "$snapshot_calo" ]] ||
+    die "${row_id} snapshotted CaloReco SONAME alias does not resolve to its one provider"
+  require_file_hash "${row_id} snapshotted CaloReco SONAME alias" \
+    "$snapshot_calo_soname" "$RJ_THE134_CALO_RECO_LIBRARY_SHA256"
   require_file_hash "${row_id} snapshotted analysis library" \
     "$snapshot_analysis" "$expected_analysis_sha"
   [[ ! -e "${snapshot_dir}/lib/libphoton_cluster_builder_override.so" ]] ||
     die "${row_id} snapshot contains an undeclared PhotonClusterBuilder override library"
+  for companion in libcalo_io.so libclusteriso.so libjetbase.so; do
+    [[ ! -e "${snapshot_dir}/lib/${companion}" ]] ||
+      die "${row_id} snapshot illegally duplicates release-owned ${companion}"
+  done
+  [[ "$(grep -Fxc "$expected_loader_suffix" "$frozen_executable" || true)" == 1 ]] ||
+    die "${row_id} frozen executor lacks the exact ana.560 loader suffix"
+  [[ "$(grep -Ec '^[[:space:]]*# RJ_PINNED_SPHENIX_RELEASE_V1[[:space:]]*$' "$frozen_executable" || true)" == 1 &&
+     "$(grep -Ec "^[[:space:]]*source /opt/sphenix/core/bin/sphenix_setup\\.sh -n ${pinned_release_name}[[:space:]]*$" "$frozen_executable" || true)" == 1 &&
+     "$(grep -Fc "$pinned_offline_main" "$frozen_executable" || true)" -ge 2 ]] ||
+    die "${row_id} frozen executor lacks the exact ${pinned_release_name} runtime witness"
+  [[ "$(grep -Fxc "R__LOAD_LIBRARY(${snapshot_calo})" "$snapshot_calo_macro" || true)" == 1 ]] ||
+    die "${row_id} Calo_Calib macro does not load the same snapshotted CaloReco provider"
+  for companion in libclusteriso.so libjetbase.so; do
+    [[ "$(grep -Fxc "R__LOAD_LIBRARY(${companion})" "$snapshot_impl" || true)" == 1 ]] ||
+      die "${row_id} unified macro does not bind ${companion} exactly once through ana.560"
+  done
   snapshot_header_sha="$(sha_file "$snapshot_header")"
   snapshot_calo_sha="$(sha_file "$snapshot_calo")"
   snapshot_analysis_sha="$(sha_file "$snapshot_analysis")"
+  verify_sealed_snapshot_receipts \
+    "$snapshot_dir" "$snapshot_loader_receipt" "$snapshot_manifest" "$system"
+  snapshot_loader_receipt_sha="$(sha_file "$snapshot_loader_receipt")"
+  snapshot_manifest_sha="$(sha_file "$snapshot_manifest")"
   args_file="${submit_file%.sub}.args"
   [[ -s "$args_file" && "$(wc -l < "$args_file" | tr -d ' ')" == 1 ]] ||
     die "${row_id} must dry-materialize exactly one argument row"
@@ -775,20 +1277,170 @@ verify_materialized_row_contract() {
   analysis_root="${fan_dest}/${sample}/RecoilJets_${analysis_tag}_${fan_cfg}_${chunk_tag}.root"
   fanout_sha="$(sha_file "$fanout_file")"
   require_sha "${row_id} fanout contract" "$fanout_sha"
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     "$submit_file" "$args_file" "$chunk_list" "$chunk_sha" \
     "$fanout_file" "$fanout_sha" "$analysis_root" "$owner_count" \
     "$snapshot_dir" "$snapshot_header" "$snapshot_header_sha" \
     "$snapshot_calo" "$snapshot_calo_sha" "$snapshot_analysis" "$snapshot_analysis_sha" \
-    "$materialized_config" "$materialized_config_sha"
+    "$materialized_config" "$materialized_config_sha" \
+    "$snapshot_loader_receipt" "$snapshot_loader_receipt_sha" \
+    "$snapshot_manifest" "$snapshot_manifest_sha"
+}
+
+verify_materialization_attempt_seal() {
+  local attempt_dir="${1:?materialization attempt directory required}"
+  local contract_file="${attempt_dir}/materialization_contract.tsv"
+  local fingerprint_file="${contract_file}.sha256"
+  local expected actual
+
+  [[ -d "$attempt_dir" && ! -L "$attempt_dir" ]] ||
+    die "materialization attempt is not a real directory: ${attempt_dir}"
+  [[ -f "$contract_file" && ! -L "$contract_file" && -s "$contract_file" ]] ||
+    die "materialization attempt contract is missing or unsafe: ${contract_file}"
+  [[ -f "$fingerprint_file" && ! -L "$fingerprint_file" && -s "$fingerprint_file" ]] ||
+    die "materialization attempt fingerprint is missing or unsafe: ${fingerprint_file}"
+  [[ "$(wc -l < "$fingerprint_file" | tr -d ' ')" == 1 ]] ||
+    die "materialization attempt fingerprint must contain exactly one row"
+  expected="$(cat "$fingerprint_file")"
+  require_sha "materialization attempt fingerprint" "$expected"
+  actual="$(sha_file "$contract_file")"
+  [[ "$actual" == "$expected" ]] ||
+    die "materialization attempt contract fingerprint drift: ${attempt_dir}"
+
+  python3 - "$attempt_dir" <<'PY'
+from pathlib import Path
+import os
+import stat
+import sys
+
+root = Path(sys.argv[1]).resolve(strict=True)
+
+def assert_sealed(path: Path) -> None:
+    mode = path.lstat().st_mode
+    if stat.S_ISLNK(mode):
+        target_text = os.readlink(path)
+        target = Path(target_text)
+        if target.is_absolute():
+            raise SystemExit(f"materialization symlink must be relative: {path}")
+        resolved = (path.parent / target).resolve(strict=True)
+        try:
+            resolved.relative_to(root)
+        except ValueError as exc:
+            raise SystemExit(
+                f"materialization symlink escapes attempt root: {path} -> {target_text}"
+            ) from exc
+        parent_mode = path.parent.stat().st_mode
+        target_mode = resolved.stat().st_mode
+        if parent_mode & 0o222:
+            raise SystemExit(f"materialization symlink parent is writable: {path.parent}")
+        if target_mode & 0o222:
+            raise SystemExit(f"materialization symlink target is writable: {resolved}")
+        return
+    if not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
+        raise SystemExit(f"materialization attempt contains a special file: {path}")
+    if mode & 0o222:
+        raise SystemExit(f"materialization attempt contains writable state: {path}")
+
+assert_sealed(root)
+for candidate in root.rglob("*"):
+    assert_sealed(candidate)
+PY
+}
+
+select_materialization_attempt() {
+  local row_submit_root="${1:?row submit root required}"
+  local entry name suffix contract_file fingerprint_file
+  local completed="" completed_suffix="" incomplete_suffixes=""
+
+  mkdir -p "$row_submit_root"
+  [[ -d "$row_submit_root" && ! -L "$row_submit_root" ]] ||
+    die "row submit root is not a real directory: ${row_submit_root}"
+
+  while IFS= read -r -d '' entry; do
+    name="$(basename "$entry")"
+    case "$name" in
+      attempt_01|attempt_02|attempt_03) ;;
+      *) die "unexpected row-materialization artifact blocks retry: ${entry}" ;;
+    esac
+    [[ -d "$entry" && ! -L "$entry" ]] ||
+      die "materialization attempt is not a real directory: ${entry}"
+    contract_file="${entry}/materialization_contract.tsv"
+    fingerprint_file="${contract_file}.sha256"
+    if [[ -e "$contract_file" || -e "$fingerprint_file" ]]; then
+      [[ -e "$contract_file" && -e "$fingerprint_file" ]] ||
+        die "materialization attempt has an incomplete seal receipt: ${entry}"
+      verify_materialization_attempt_seal "$entry"
+      [[ -z "$completed" ]] ||
+        die "multiple sealed materialization attempts block exact reuse: ${row_submit_root}"
+      completed="$entry"
+      completed_suffix="${name#attempt_}"
+    else
+      incomplete_suffixes="${incomplete_suffixes} ${name#attempt_}"
+    fi
+  done < <(find "$row_submit_root" -mindepth 1 -maxdepth 1 -print0)
+
+  if [[ -n "$completed" ]]; then
+    for suffix in $incomplete_suffixes; do
+      (( 10#$suffix < 10#$completed_suffix )) ||
+        die "an incomplete materialization attempt is newer than the sealed authority: ${row_submit_root}/attempt_${suffix}"
+    done
+    printf 'reuse\t%s\n' "$completed"
+    return 0
+  fi
+
+  for suffix in 01 02 03; do
+    entry="${row_submit_root}/attempt_${suffix}"
+    if [[ ! -e "$entry" && ! -L "$entry" ]]; then
+      mkdir "$entry"
+      printf 'new\t%s\n' "$entry"
+      return 0
+    fi
+  done
+  die "materialization retry budget exhausted with three preserved incomplete attempts: ${row_submit_root}"
+}
+
+seal_materialization_attempt() {
+  local attempt_dir="${1:?materialization attempt directory required}"
+  local contract="${2:?materialization contract required}"
+  local contract_file="${attempt_dir}/materialization_contract.tsv"
+  local fingerprint_file="${contract_file}.sha256"
+
+  [[ "$contract" != *$'\n'* ]] ||
+    die "materialization contract must be one logical row"
+  [[ ! -e "$contract_file" && ! -L "$contract_file" &&
+     ! -e "$fingerprint_file" && ! -L "$fingerprint_file" ]] ||
+    die "materialization attempt seal already exists: ${attempt_dir}"
+  printf '%s\n' "$contract" > "$contract_file"
+  sha_file "$contract_file" > "$fingerprint_file"
+  python3 - "$attempt_dir" <<'PY'
+from pathlib import Path
+import os
+import stat
+import sys
+
+root = Path(sys.argv[1]).resolve(strict=True)
+for dirpath, dirnames, filenames in os.walk(root, topdown=False, followlinks=False):
+    parent = Path(dirpath)
+    for name in filenames + dirnames:
+        path = parent / name
+        mode = path.lstat().st_mode
+        if stat.S_ISLNK(mode):
+            continue
+        os.chmod(path, stat.S_IMODE(mode) & ~0o222)
+root_mode = root.lstat().st_mode
+os.chmod(root, stat.S_IMODE(root_mode) & ~0o222)
+PY
+  verify_materialization_attempt_seal "$attempt_dir"
 }
 
 submit_row() {
   local row_id="$1" system="$2" lane="$3" dataset="$4" sample="$5" role="$6" _mb_gate="$7" row_match="$8"
-  local config row_output sidecar row_submit library extra row_log materialize_log cluster proc cluster_proc
+  local config row_output sidecar row_submit_root row_submit library extra row_log materialize_log cluster proc cluster_proc
+  local materialization_selection materialization_disposition stored_contract
   local contract submit_file args_file chunk_list chunk_sha fanout_file fanout_sha analysis_root owner_count
   local snapshot_dir snapshot_header snapshot_header_sha snapshot_calo snapshot_calo_sha
   local snapshot_analysis snapshot_analysis_sha materialized_config materialized_config_sha
+  local snapshot_loader_receipt snapshot_loader_receipt_sha snapshot_manifest snapshot_manifest_sha
   local log_template out_template err_template log_path out_path err_path submitted_args expected_args args_sha
   local -a materialize_contract_env=(
     RJ_REPLAY_FOUNDATION_CANARY=1
@@ -798,66 +1450,110 @@ submit_row() {
   config="$(manifest_field "$row_id" 12)"
   row_output="$(manifest_field "$row_id" 27)"
   sidecar="$(manifest_field "$row_id" 28)"
-  row_submit="$(manifest_field "$row_id" 29)"
+  row_submit_root="$(manifest_field "$row_id" 29)"
   if [[ "$system" == pp ]]; then library="$pp_library"; else library="$auau_library"; fi
   extra="$(common_extra_env "$row_id" "$system" "$lane" "$dataset" "$sample" "$role");$(system_extra_env "$system" "$role")"
-  mkdir -p "$row_submit" "$(dirname "$sidecar")"
-  materialize_log="${evidence_root}/materialize_${row_id}.log"
+  materialization_selection="$(select_materialization_attempt "$row_submit_root")"
+  IFS=$'\t' read -r materialization_disposition row_submit <<< "$materialization_selection"
+  [[ "$materialization_disposition" == new || "$materialization_disposition" == reuse ]] ||
+    die "${row_id} materialization selection returned an invalid disposition"
+  [[ -n "$row_submit" ]] || die "${row_id} materialization selection returned no attempt directory"
+  mkdir -p "$(dirname "$sidecar")"
+  materialize_log="${evidence_root}/materialize_${row_id}_$(basename "$row_submit").log"
   row_log="${evidence_root}/submit_${row_id}.log"
 
-  say "MATERIALIZE row=${row_id} dataset=${dataset} sample=${sample} role=${role}"
-  if [[ "$system" == pp ]]; then
-    env "${materialize_contract_env[@]}" \
-      RJ_CODEX_CHAT_NAME="$RJ_CODEX_CHAT_NAME" RJ_CODEX_THREAD_ID="$RJ_CODEX_THREAD_ID" \
-      RJ_SIM_ROOT_OVERRIDE="$sim_root" RJ_CONFIG_YAML="$config" RJ_PP_LIBRARY_OVERRIDE="$library" \
-      RJ_PHOTON_CLUSTER_BUILDER_HEADER_OVERRIDE="$photon_cluster_builder_header" \
-      RJ_CALO_RECO_LIBRARY_OVERRIDE="$calo_reco_library" \
-      RJ_PHOTON_CLUSTER_BUILDER_LIBRARY_OVERRIDE= \
-      RJ_SIM_ALLOW_NONE_LISTS=0 \
-      RJ_PP_PHOTONID_EXTRACT_ONLY=1 RJ_PP_PHOTONID_TRAINING_TREE=1 \
-      RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES="$legacy_tree_max_entries" \
-      RJ_PP_PHOTONID_SOURCE_ROLE="$role" RJ_PP_PHOTONID_PPG12_FILTER=1 \
-      RJ_PP_PHOTONID_REQUIRE_PRESELECTION=0 \
-      RJ_DAG_DRYRUN=1 \
-      RJ_AUTO_MERGE=0 RJ_STAGE_EMAIL_MODE=none RJ_CLEAN_OUTPUT_BASE=0 \
-      RJ_REQUEST_MEMORY=8000MB RJ_REQUIRE_NON_TINY_OUTPUT=1 RJ_MIN_OUTPUT_BYTES=50000 \
-      RJ_FAIL_ON_MISSING_CALO_INPUT=1 RJ_VALIDATE_SIM_INPUT_PATHS=1 RJ_VALIDATE_SIM_INPUT_MAX_LINES=1 \
-      RJ_PROFILE_JOB=1 RJ_JOB_HEARTBEAT_SECONDS=120 RJ_PROFILE_LABEL="${tag}_${row_id}" \
-      RJ_SMOKE_OUTPUT_BASE="$row_output" RJ_SMOKE_SIM_NEVENTS="$event_limit_per_job" \
-      RJ_SUBMISSION_NAMESPACE="$row_id" RJ_CONDOR_SUB_DIR="$row_submit" \
-      RJ_PHOTON_ID_ROW_MATCH="$row_match" RJ_ID_FANOUT_MAX_ROWS=1 \
-      RJ_SUBMIT_EXTRA_ENV="$extra" \
-      "$submitter" "$dataset" condorDoAllSmoke groupSize 1 maxJobs 1 "SAMPLE=${sample}" \
-      2>&1 | tee "$materialize_log"
+  if [[ "$materialization_disposition" == reuse ]]; then
+    say "MATERIALIZE_REUSE row=${row_id} attempt=$(basename "$row_submit")"
+    verify_materialization_attempt_seal "$row_submit"
+    stored_contract="$(cat "${row_submit}/materialization_contract.tsv")"
+    contract="$(verify_materialized_row_contract "$row_id" "$system" "$dataset" "$sample" "$row_output" "$sidecar" "$row_submit")"
+    [[ "$contract" == "$stored_contract" ]] ||
+      die "${row_id} sealed materialization contract differs from exact readback"
   else
-    env "${materialize_contract_env[@]}" \
-      RJ_CODEX_CHAT_NAME="$RJ_CODEX_CHAT_NAME" RJ_CODEX_THREAD_ID="$RJ_CODEX_THREAD_ID" \
-      RJ_SIM_ROOT_OVERRIDE="$sim_root" RJ_CONFIG_YAML="$config" RJ_AUAU_LIBRARY_OVERRIDE="$library" \
-      RJ_PHOTON_CLUSTER_BUILDER_HEADER_OVERRIDE="$photon_cluster_builder_header" \
-      RJ_CALO_RECO_LIBRARY_OVERRIDE="$calo_reco_library" \
-      RJ_PHOTON_CLUSTER_BUILDER_LIBRARY_OVERRIDE= \
-      RJ_SIM_ALLOW_NONE_LISTS=1 \
-      RJ_DAG_DRYRUN=1 \
-      RJ_AUTO_MERGE=0 RJ_STAGE_EMAIL_MODE=none RJ_CLEAN_OUTPUT_BASE=0 \
-      RJ_REQUEST_MEMORY=8000MB RJ_REQUIRE_NON_TINY_OUTPUT=1 RJ_MIN_OUTPUT_BYTES=50000 \
-      RJ_FAIL_ON_MISSING_CALO_INPUT=1 RJ_VALIDATE_SIM_INPUT_PATHS=1 RJ_VALIDATE_SIM_INPUT_MAX_LINES=1 \
-      RJ_PROFILE_JOB=1 RJ_JOB_HEARTBEAT_SECONDS=120 RJ_PROFILE_LABEL="${tag}_${row_id}" \
-      RJ_SMOKE_OUTPUT_BASE="$row_output" RJ_SMOKE_SIM_NEVENTS="$event_limit_per_job" \
-      RJ_SUBMISSION_NAMESPACE="$row_id" RJ_CONDOR_SUB_DIR="$row_submit" \
-      RJ_PHOTON_ID_ROW_MATCH="$row_match" RJ_ID_FANOUT_MAX_ROWS=1 \
-      RJ_SUBMIT_EXTRA_ENV="$extra" \
-      "$submitter" "$dataset" condorDoAllSmoke groupSize 1 maxJobs 1 "SAMPLE=${sample}" \
-      2>&1 | tee "$materialize_log"
-  fi
+    say "MATERIALIZE row=${row_id} dataset=${dataset} sample=${sample} role=${role} attempt=$(basename "$row_submit")"
+    if [[ "$system" == pp ]]; then
+      env -u RJ_FORCE_RELEASE_CORE_LIBS -u RJ_FORCE_RELEASE_CALO_IO -u RJ_RELEASE_CALO_IO_PATH \
+        "${materialize_contract_env[@]}" \
+        RJ_CONDOR_SEALED_ENVIRONMENT=1 \
+        RJ_CODEX_CHAT_NAME="$RJ_CODEX_CHAT_NAME" RJ_CODEX_THREAD_ID="$RJ_CODEX_THREAD_ID" \
+        RJ_SIM_ROOT_OVERRIDE="$sim_root" RJ_CONFIG_YAML="$config" RJ_PP_LIBRARY_OVERRIDE="$library" \
+        RJ_PHOTON_CLUSTER_BUILDER_HEADER_OVERRIDE="$photon_cluster_builder_header" \
+        RJ_CALO_RECO_LIBRARY_OVERRIDE="$calo_reco_library" \
+        RJ_PHOTON_CLUSTER_BUILDER_LIBRARY_OVERRIDE= \
+        RJ_PINNED_CALO_RECO_RELEASE_COMPANIONS=1 \
+        RJ_PINNED_CALO_RECO_SONAME="$pinned_calo_reco_soname" \
+        RJ_PINNED_RELEASE_NAME="$pinned_release_name" \
+        RJ_PINNED_OFFLINE_MAIN="$pinned_offline_main" \
+        RJ_PINNED_RELEASE_CALO_IO_PATH="$release_calo_io" \
+        RJ_PINNED_RELEASE_CALO_IO_SHA256="$RJ_THE134_RELEASE_CALO_IO_SHA256" \
+        RJ_PINNED_RELEASE_CLUSTERISO_PATH="$release_clusteriso" \
+        RJ_PINNED_RELEASE_CLUSTERISO_SHA256="$RJ_THE134_RELEASE_CLUSTERISO_SHA256" \
+        RJ_PINNED_RELEASE_JETBASE_PATH="$release_jetbase" \
+        RJ_PINNED_RELEASE_JETBASE_SHA256="$RJ_THE134_RELEASE_JETBASE_SHA256" \
+        RJ_RELEASE_CORE_LIB_DIR="$release_core_lib_dir" \
+        RJ_RELEASE_CORE_LIB64_DIR="$release_core_lib64_dir" \
+        RJ_SIM_ALLOW_NONE_LISTS=0 \
+        RJ_PP_PHOTONID_EXTRACT_ONLY=1 RJ_PP_PHOTONID_TRAINING_TREE=1 \
+        RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES="$legacy_tree_max_entries" \
+        RJ_PP_PHOTONID_SOURCE_ROLE="$role" RJ_PP_PHOTONID_PPG12_FILTER=1 \
+        RJ_PP_PHOTONID_REQUIRE_PRESELECTION=0 \
+        RJ_DAG_DRYRUN=1 \
+        RJ_AUTO_MERGE=0 RJ_STAGE_EMAIL_MODE=none RJ_CLEAN_OUTPUT_BASE=0 \
+        RJ_REQUEST_MEMORY=8000MB RJ_REQUIRE_NON_TINY_OUTPUT=1 RJ_MIN_OUTPUT_BYTES=50000 \
+        RJ_FAIL_ON_MISSING_CALO_INPUT=1 RJ_VALIDATE_SIM_INPUT_PATHS=1 RJ_VALIDATE_SIM_INPUT_MAX_LINES=1 \
+        RJ_PROFILE_JOB=1 RJ_JOB_HEARTBEAT_SECONDS=120 RJ_PROFILE_LABEL="${tag}_${row_id}" \
+        RJ_SMOKE_OUTPUT_BASE="$row_output" RJ_SMOKE_SIM_NEVENTS="$event_limit_per_job" \
+        RJ_SUBMISSION_NAMESPACE="$row_id" RJ_CONDOR_SUB_DIR="$row_submit" \
+        RJ_PHOTON_ID_ROW_MATCH="$row_match" RJ_ID_FANOUT_MAX_ROWS=1 \
+        RJ_SUBMIT_EXTRA_ENV="$extra" \
+        "$submitter" "$dataset" condorDoAllSmoke groupSize 1 maxJobs 1 "SAMPLE=${sample}" \
+        2>&1 | tee "$materialize_log"
+    else
+      env -u RJ_FORCE_RELEASE_CORE_LIBS -u RJ_FORCE_RELEASE_CALO_IO -u RJ_RELEASE_CALO_IO_PATH \
+        "${materialize_contract_env[@]}" \
+        RJ_CONDOR_SEALED_ENVIRONMENT=1 \
+        RJ_CODEX_CHAT_NAME="$RJ_CODEX_CHAT_NAME" RJ_CODEX_THREAD_ID="$RJ_CODEX_THREAD_ID" \
+        RJ_SIM_ROOT_OVERRIDE="$sim_root" RJ_CONFIG_YAML="$config" RJ_AUAU_LIBRARY_OVERRIDE="$library" \
+        RJ_PHOTON_CLUSTER_BUILDER_HEADER_OVERRIDE="$photon_cluster_builder_header" \
+        RJ_CALO_RECO_LIBRARY_OVERRIDE="$calo_reco_library" \
+        RJ_PHOTON_CLUSTER_BUILDER_LIBRARY_OVERRIDE= \
+        RJ_PINNED_CALO_RECO_RELEASE_COMPANIONS=1 \
+        RJ_PINNED_CALO_RECO_SONAME="$pinned_calo_reco_soname" \
+        RJ_PINNED_RELEASE_NAME="$pinned_release_name" \
+        RJ_PINNED_OFFLINE_MAIN="$pinned_offline_main" \
+        RJ_PINNED_RELEASE_CALO_IO_PATH="$release_calo_io" \
+        RJ_PINNED_RELEASE_CALO_IO_SHA256="$RJ_THE134_RELEASE_CALO_IO_SHA256" \
+        RJ_PINNED_RELEASE_CLUSTERISO_PATH="$release_clusteriso" \
+        RJ_PINNED_RELEASE_CLUSTERISO_SHA256="$RJ_THE134_RELEASE_CLUSTERISO_SHA256" \
+        RJ_PINNED_RELEASE_JETBASE_PATH="$release_jetbase" \
+        RJ_PINNED_RELEASE_JETBASE_SHA256="$RJ_THE134_RELEASE_JETBASE_SHA256" \
+        RJ_RELEASE_CORE_LIB_DIR="$release_core_lib_dir" \
+        RJ_RELEASE_CORE_LIB64_DIR="$release_core_lib64_dir" \
+        RJ_SIM_ALLOW_NONE_LISTS=1 \
+        RJ_DAG_DRYRUN=1 \
+        RJ_AUTO_MERGE=0 RJ_STAGE_EMAIL_MODE=none RJ_CLEAN_OUTPUT_BASE=0 \
+        RJ_REQUEST_MEMORY=8000MB RJ_REQUIRE_NON_TINY_OUTPUT=1 RJ_MIN_OUTPUT_BYTES=50000 \
+        RJ_FAIL_ON_MISSING_CALO_INPUT=1 RJ_VALIDATE_SIM_INPUT_PATHS=1 RJ_VALIDATE_SIM_INPUT_MAX_LINES=1 \
+        RJ_PROFILE_JOB=1 RJ_JOB_HEARTBEAT_SECONDS=120 RJ_PROFILE_LABEL="${tag}_${row_id}" \
+        RJ_SMOKE_OUTPUT_BASE="$row_output" RJ_SMOKE_SIM_NEVENTS="$event_limit_per_job" \
+        RJ_SUBMISSION_NAMESPACE="$row_id" RJ_CONDOR_SUB_DIR="$row_submit" \
+        RJ_PHOTON_ID_ROW_MATCH="$row_match" RJ_ID_FANOUT_MAX_ROWS=1 \
+        RJ_SUBMIT_EXTRA_ENV="$extra" \
+        "$submitter" "$dataset" condorDoAllSmoke groupSize 1 maxJobs 1 "SAMPLE=${sample}" \
+        2>&1 | tee "$materialize_log"
+    fi
 
-  grep -F 'RECOILJETS_SMOKETEST_DRYRUN_V1' "$materialize_log" >/dev/null ||
-    die "${row_id} submitter did not attest dry materialization"
-  ! grep -Eq '[0-9]+ job\(s\) submitted to cluster [0-9]+' "$materialize_log" ||
-    die "${row_id} dry materialization unexpectedly submitted a Condor job"
-  contract="$(verify_materialized_row_contract "$row_id" "$system" "$dataset" "$sample" "$row_output" "$sidecar" "$row_submit")"
+    grep -F 'RECOILJETS_SMOKETEST_DRYRUN_V1' "$materialize_log" >/dev/null ||
+      die "${row_id} submitter did not attest dry materialization"
+    ! grep -Eq '[0-9]+ job\(s\) submitted to cluster [0-9]+' "$materialize_log" ||
+      die "${row_id} dry materialization unexpectedly submitted a Condor job"
+    contract="$(verify_materialized_row_contract "$row_id" "$system" "$dataset" "$sample" "$row_output" "$sidecar" "$row_submit")"
+    seal_materialization_attempt "$row_submit" "$contract"
+  fi
   IFS=$'\t' read -r submit_file args_file chunk_list chunk_sha fanout_file fanout_sha analysis_root owner_count \
     snapshot_dir snapshot_header snapshot_header_sha snapshot_calo snapshot_calo_sha \
-    snapshot_analysis snapshot_analysis_sha materialized_config materialized_config_sha <<< "$contract"
+    snapshot_analysis snapshot_analysis_sha materialized_config materialized_config_sha \
+    snapshot_loader_receipt snapshot_loader_receipt_sha snapshot_manifest snapshot_manifest_sha <<< "$contract"
 
   command -v condor_submit >/dev/null 2>&1 || die "condor_submit is required after successful dry materialization"
   say "SUBMIT row=${row_id} descriptor=${submit_file} analysis_root=${analysis_root}"
@@ -884,6 +1580,7 @@ submit_row() {
 
   # Re-run the same evidence check after submission.  A drift here is a
   # preserved hard failure; the durable journal prevents duplicate recovery.
+  verify_materialization_attempt_seal "$row_submit"
   [[ "$(verify_materialized_row_contract "$row_id" "$system" "$dataset" "$sample" "$row_output" "$sidecar" "$row_submit")" == "$contract" ]] ||
     die "${row_id} descriptor/args/fanout ownership evidence drifted after submission"
 
@@ -895,13 +1592,15 @@ submit_row() {
   log_path="$(resolve_condor_template "$log_template" "$cluster" "$proc")"
   out_path="$(resolve_condor_template "$out_template" "$cluster" "$proc")"
   err_path="$(resolve_condor_template "$err_template" "$cluster" "$proc")"
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     "$row_id" "$cluster_proc" "$submit_file" "$args_file" "$chunk_list" "$chunk_sha" \
     "$fanout_file" "$fanout_sha" "$log_path" "$out_path" "$err_path" \
     "$analysis_root" "$sidecar" "$owner_count" "$args_sha" \
     "$snapshot_dir" "$snapshot_header" "$snapshot_header_sha" \
     "$snapshot_calo" "$snapshot_calo_sha" "$snapshot_analysis" "$snapshot_analysis_sha" \
     "$materialized_config" "$materialized_config_sha" \
+    "$snapshot_loader_receipt" "$snapshot_loader_receipt_sha" \
+    "$snapshot_manifest" "$snapshot_manifest_sha" \
     >> "$submission_receipt"
   write_source_provenance
 }
@@ -926,7 +1625,8 @@ table_has_row() {
 verify_resume_contract() {
   local hashes code_sha replay_schema_sha training_schema_sha semantic_sha manifest_hash
   hashes="$(require_inputs_and_hashes)"
-  IFS=$'\t' read -r code_sha replay_schema_sha training_schema_sha semantic_sha <<< "$hashes"
+  IFS=$'\t' read -r code_sha replay_schema_sha training_schema_sha semantic_sha \
+    release_core_lib_dir release_core_lib64_dir release_calo_io release_clusteriso release_jetbase <<< "$hashes"
   write_and_verify_source_hashes "$RJ_THE134_SOURCE_HASH_MANIFEST_SHA256"
   manifest_hash="$(sha_file "$submission_manifest")"
   [[ "$manifest_hash" == "$(cat "$duplicate_fingerprint")" ]] ||
@@ -945,18 +1645,30 @@ verify_resume_contract() {
   [[ "$(manifest_field pp_signal_photon5 37)" == "$calo_reco_library" &&
      "$(manifest_field pp_signal_photon5 38)" == "$RJ_THE134_CALO_RECO_LIBRARY_SHA256" ]] ||
     die "resume CaloReco runtime authority differs from frozen manifest"
+  [[ "$(manifest_field pp_signal_photon5 39)" == "$release_core_lib_dir" &&
+     "$(manifest_field pp_signal_photon5 40)" == "$release_core_lib64_dir" &&
+     "$(manifest_field pp_signal_photon5 41)" == "$release_calo_io" &&
+     "$(manifest_field pp_signal_photon5 42)" == "$RJ_THE134_RELEASE_CALO_IO_SHA256" &&
+     "$(manifest_field pp_signal_photon5 43)" == "$release_clusteriso" &&
+     "$(manifest_field pp_signal_photon5 44)" == "$RJ_THE134_RELEASE_CLUSTERISO_SHA256" &&
+     "$(manifest_field pp_signal_photon5 45)" == "$release_jetbase" &&
+     "$(manifest_field pp_signal_photon5 46)" == "$RJ_THE134_RELEASE_JETBASE_SHA256" ]] ||
+    die "resume ana.560 release-companion authority differs from frozen manifest"
+  write_runtime_authority_manifest verify
 }
 
 submit_all() {
-  assert_fresh_submission
   preflight
+  assert_fresh_submission
   mkdir -p "$evidence_root" "$submit_root"
   printf 'row_id\tcluster_proc\tsubmit_log\tsubmitted_at_utc\n' > "$submission_journal"
-  printf 'row_id\tcluster_proc\tsubmit_file\targs_file\tstaged_chunk_list\tstaged_chunk_sha256\tfanout_contract_file\tfanout_contract_sha256\tcondor_log\tcondor_stdout\tcondor_stderr\tanalysis_output_root\tmultiview_sidecar\tsidecar_owner_count\tsubmitted_args_sha256\tsnapshot_dir\tsnapshot_builder_header\tsnapshot_builder_header_sha256\tsnapshot_calo_reco_library\tsnapshot_calo_reco_library_sha256\tsnapshot_analysis_library\tsnapshot_analysis_library_sha256\tmaterialized_config\tmaterialized_config_sha256\n' > "$submission_receipt"
+  printf 'row_id\tcluster_proc\tsubmit_file\targs_file\tstaged_chunk_list\tstaged_chunk_sha256\tfanout_contract_file\tfanout_contract_sha256\tcondor_log\tcondor_stdout\tcondor_stderr\tanalysis_output_root\tmultiview_sidecar\tsidecar_owner_count\tsubmitted_args_sha256\tsnapshot_dir\tsnapshot_builder_header\tsnapshot_builder_header_sha256\tsnapshot_calo_reco_library\tsnapshot_calo_reco_library_sha256\tsnapshot_analysis_library\tsnapshot_analysis_library_sha256\tmaterialized_config\tmaterialized_config_sha256\tsnapshot_loader_receipt\tsnapshot_loader_receipt_sha256\tsnapshot_manifest\tsnapshot_manifest_sha256\n' > "$submission_receipt"
   while IFS='|' read -r row_id system lane dataset sample role mb_gate row_match; do
     submit_row "$row_id" "$system" "$lane" "$dataset" "$sample" "$role" "$mb_gate" "$row_match"
   done < <(emit_matrix)
   [[ "$(wc -l < "$submission_receipt" | tr -d ' ')" == 14 ]] || die "submission receipt is incomplete"
+  awk -F'\t' 'NF != 28 {exit 1}' "$submission_receipt" ||
+    die "submission receipt must contain exactly 28 tab-separated fields on every row"
   [[ "$(wc -l < "$submission_journal" | tr -d ' ')" == 14 ]] || die "submission journal is incomplete"
   python3 - "$source_provenance_json" <<'PY'
 import json
@@ -987,6 +1699,8 @@ resume_submit() {
     submit_row "$row_id" "$system" "$lane" "$dataset" "$sample" "$role" "$mb_gate" "$row_match"
   done < <(emit_matrix)
   [[ "$(wc -l < "$submission_receipt" | tr -d ' ')" == 14 ]] || die "resumed submission receipt is incomplete"
+  awk -F'\t' 'NF != 28 {exit 1}' "$submission_receipt" ||
+    die "resumed submission receipt must contain exactly 28 tab-separated fields on every row"
   [[ "$(wc -l < "$submission_journal" | tr -d ' ')" == 14 ]] || die "resumed submission journal is incomplete"
   say "RESUME_SUBMISSION_PASS rows=13 receipt=${submission_receipt}"
 }
@@ -1014,7 +1728,8 @@ status() {
 
 validate_root_health_and_joins() {
   command -v python3 >/dev/null 2>&1 || die "python3 is required for ROOT health and identity validation"
-  python3 - "$submission_receipt" "$submission_manifest" "$root_health_join_certificate" <<'PY'
+  python3 - "$submission_receipt" "$submission_manifest" \
+    "$root_health_join_certificate" "$pinned_calo_reco_soname" <<'PY'
 import csv
 import hashlib
 import json
@@ -1029,7 +1744,8 @@ try:
 except Exception as exc:  # pragma: no cover - remote environment contract
     raise SystemExit(f"PyROOT is required for non-zombie/non-recovered validation: {exc}")
 
-receipt_path, manifest_path, certificate_path = map(Path, sys.argv[1:])
+receipt_path, manifest_path, certificate_path = map(Path, sys.argv[1:4])
+expected_calo_soname = sys.argv[4]
 with manifest_path.open(newline="") as stream:
     manifests = {row["row_id"]: row for row in csv.DictReader(stream, delimiter="\t")}
 with receipt_path.open(newline="") as stream:
@@ -1091,6 +1807,133 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def verify_frozen_snapshot_receipts(
+    receipt: dict[str, str], manifest_row: dict[str, str], snapshot_dir: Path
+) -> tuple[str, str]:
+    loader_path = Path(receipt["snapshot_loader_receipt"]).resolve()
+    snapshot_manifest_path = Path(receipt["snapshot_manifest"]).resolve()
+    for label, path, receipt_sha in (
+        ("snapshot loader receipt", loader_path, receipt["snapshot_loader_receipt_sha256"]),
+        ("snapshot manifest", snapshot_manifest_path, receipt["snapshot_manifest_sha256"]),
+    ):
+        if not path.is_file() or snapshot_dir not in path.parents:
+            raise ValueError(f"missing or out-of-snapshot {label}:{path}")
+        if path.stat().st_mode & 0o222:
+            raise ValueError(f"writable {label} survived snapshot seal:{path}")
+        if not HEX64.fullmatch(receipt_sha) or file_sha256(path) != receipt_sha:
+            raise ValueError(f"{label} hash drift:{path}")
+
+    loader = json.loads(loader_path.read_text(encoding="utf-8"))
+    if (
+        loader.get("schema") != "RJ_SNAPSHOT_LOADER_RECEIPT_V1"
+        or loader.get("status") != "PASS"
+        or loader.get("pinned_calo_reco_release_companions") is not True
+        or loader.get("mode") != manifest_row["system"]
+    ):
+        raise ValueError("snapshot loader receipt contract differs")
+    if loader.get("release_roots") != [
+        manifest_row["release_core_lib64_dir"],
+        manifest_row["release_core_lib_dir"],
+    ]:
+        raise ValueError("snapshot loader receipt release roots differ")
+    expected_providers = {
+        "libcalo_reco.so": (
+            (snapshot_dir / "lib/libcalo_reco.so").resolve(strict=True),
+            manifest_row["calo_reco_library_sha256"],
+        ),
+        "libcalo_io.so": (
+            Path(manifest_row["release_calo_io"]).resolve(strict=True),
+            manifest_row["release_calo_io_sha256"],
+        ),
+        "libclusteriso.so": (
+            Path(manifest_row["release_clusteriso"]).resolve(strict=True),
+            manifest_row["release_clusteriso_sha256"],
+        ),
+        "libjetbase.so": (
+            Path(manifest_row["release_jetbase"]).resolve(strict=True),
+            manifest_row["release_jetbase_sha256"],
+        ),
+    }
+    calo_api = snapshot_dir / "lib/libcalo_reco.so"
+    calo_soname = snapshot_dir / "lib" / expected_calo_soname
+    if (
+        not calo_api.is_file()
+        or not calo_soname.is_symlink()
+        or calo_soname.readlink().as_posix() != "libcalo_reco.so"
+        or calo_soname.resolve(strict=True) != calo_api.resolve(strict=True)
+    ):
+        raise ValueError("snapshot CaloReco API/SONAME alias closure differs")
+    providers = loader.get("providers", {})
+    for family, (path, expected_sha) in expected_providers.items():
+        provider = providers.get(family, {})
+        if (
+            provider.get("realpath") != str(path)
+            or provider.get("sha256") != expected_sha
+            or provider.get("observed_resolutions") != [str(path)]
+            or file_sha256(path) != expected_sha
+        ):
+            raise ValueError(f"snapshot loader provider authority differs:{family}")
+
+    snapshot_manifest = json.loads(
+        snapshot_manifest_path.read_text(encoding="utf-8")
+    )
+    if (
+        snapshot_manifest.get("schema") != "RJ_FROZEN_SNAPSHOT_MANIFEST_V1"
+        or snapshot_manifest.get("status") != "PASS"
+        or snapshot_manifest.get("root") != str(snapshot_dir)
+    ):
+        raise ValueError("snapshot manifest contract differs")
+    if snapshot_dir.stat().st_mode & 0o222:
+        raise ValueError(f"writable frozen snapshot root survived seal:{snapshot_dir}")
+    observed: list[dict[str, object]] = []
+    for path in sorted(
+        snapshot_dir.rglob("*"),
+        key=lambda item: item.relative_to(snapshot_dir).as_posix(),
+    ):
+        if path == snapshot_manifest_path:
+            continue
+        relative = path.relative_to(snapshot_dir).as_posix()
+        if path.is_symlink():
+            target = os.readlink(path)
+            if os.path.isabs(target):
+                raise ValueError(f"snapshot symlink must be relative:{relative}")
+            resolved = path.resolve(strict=True)
+            if snapshot_dir not in resolved.parents:
+                raise ValueError(f"snapshot symlink escaped:{relative}")
+            if path.parent.stat().st_mode & 0o222:
+                raise ValueError(f"snapshot symlink parent is writable:{relative}")
+            if resolved.stat().st_mode & 0o222:
+                raise ValueError(f"snapshot symlink target is writable:{relative}")
+            observed.append(
+                {
+                    "path": relative,
+                    "sha256": file_sha256(resolved),
+                    "symlink_target": target,
+                    "type": "symlink",
+                }
+            )
+        elif path.is_file():
+            if path.lstat().st_mode & 0o222:
+                raise ValueError(f"writable artifact survived snapshot seal:{relative}")
+            observed.append(
+                {
+                    "path": relative,
+                    "sha256": file_sha256(path),
+                    "size": path.stat().st_size,
+                    "type": "file",
+                }
+            )
+        elif path.is_dir():
+            if path.lstat().st_mode & 0o222:
+                raise ValueError(f"writable directory survived snapshot seal:{relative}")
+            observed.append({"path": relative, "type": "directory"})
+        else:
+            raise ValueError(f"unsupported snapshot artifact:{relative}")
+    if snapshot_manifest.get("entries") != observed:
+        raise ValueError("complete snapshot inventory/hash closure differs")
+    return receipt["snapshot_loader_receipt_sha256"], receipt["snapshot_manifest_sha256"]
+
+
 failures: list[str] = []
 reports: list[dict[str, object]] = []
 seen_analysis: set[str] = set()
@@ -1141,6 +1984,9 @@ for receipt in receipts:
                 raise ValueError(f"snapshotted {label} hash drift:{path}")
         if (snapshot_dir / "lib/libphoton_cluster_builder_override.so").exists():
             raise ValueError("undeclared PhotonClusterBuilder override library is present")
+        loader_receipt_sha, snapshot_manifest_sha = verify_frozen_snapshot_receipts(
+            receipt, manifest, snapshot_dir
+        )
         analysis_text = receipt["analysis_output_root"]
         sidecar_text = receipt["multiview_sidecar"]
         if analysis_text in seen_analysis or sidecar_text in seen_sidecars:
@@ -1271,6 +2117,8 @@ for receipt in receipts:
                 "sidecar_entries": entry_count,
                 "sidecar_candidates": len(candidate_definitions),
                 "joined_sidecar_rows": joined_rows,
+                "snapshot_loader_receipt_sha256": loader_receipt_sha,
+                "snapshot_manifest_sha256": snapshot_manifest_sha,
                 "full_training_authority": 0,
             }
         )

@@ -430,6 +430,10 @@ SIM_CFG_TAG=""
 SNAPSHOT_ROOT="${BASE}/condor_snapshots"
 BULK_FROZEN_EXE=""
 BULK_FROZEN_MACRO=""
+BULK_FROZEN_SNAPSHOT_LOADER_RECEIPT=""
+BULK_FROZEN_SNAPSHOT_LOADER_RECEIPT_SHA256=""
+BULK_FROZEN_SNAPSHOT_MANIFEST=""
+BULK_FROZEN_SNAPSHOT_MANIFEST_SHA256=""
 PPG12_ARCHIVED_OFFLINE_MAIN="/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.541"
 BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST=""
 BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST_SHA256=""
@@ -609,6 +613,135 @@ wrapper.write_text(text)
 PY
 }
 
+pin_frozen_snapshot_release() {
+  local wrapper="${1:?frozen wrapper required}"
+  local release_name="${2:?release name required}"
+  local offline_main="${3:?offline prefix required}"
+  python3 - "$wrapper" "$release_name" "$offline_main" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+wrapper = Path(sys.argv[1])
+release_name = sys.argv[2]
+offline_main = sys.argv[3]
+text = wrapper.read_text()
+marker = "# RJ_PINNED_SPHENIX_RELEASE_V1"
+setup = "source /opt/sphenix/core/bin/sphenix_setup.sh -n"
+setup_re = re.compile(
+    r"^(?P<indent>[ \t]*)source /opt/sphenix/core/bin/sphenix_setup\.sh -n[ \t]*$",
+    re.MULTILINE,
+)
+matches = list(setup_re.finditer(text))
+if text.count(marker) != 0:
+    raise SystemExit(f"frozen wrapper already has a pinned-release marker: {wrapper}")
+if len(matches) != 1:
+    raise SystemExit(
+        f"frozen wrapper must have exactly one unversioned setup call, got "
+        f"{len(matches)}: {wrapper}"
+    )
+indent = matches[0].group("indent")
+replacement = f"""{indent}{marker}
+{indent}unset LD_PRELOAD
+{indent}{setup} {release_name}
+{indent}if [[ "${{OFFLINE_MAIN:-}}" != "{offline_main}" ]]; then
+{indent}  echo "[FATAL] Frozen snapshot resolved OFFLINE_MAIN='${{OFFLINE_MAIN:-<unset>}}', expected '{offline_main}'."
+{indent}  exit 96
+{indent}fi"""
+text = text[: matches[0].start()] + replacement + text[matches[0].end() :]
+wrapper.write_text(text)
+PY
+}
+
+condor_getenv_directive() {
+  case "${RJ_CONDOR_SEALED_ENVIRONMENT:-0}" in
+    0|false|FALSE|no|NO|'')
+      printf 'True\n'
+      ;;
+    1|true|TRUE|yes|YES)
+      printf 'False\n'
+      ;;
+    *)
+      err "RJ_CONDOR_SEALED_ENVIRONMENT must be 0 or 1"
+      return 2
+      ;;
+  esac
+}
+
+snapshot_sha256_file() {
+  local path="${1:?snapshot artifact required}"
+  python3 - "$path" <<'PY'
+from pathlib import Path
+import hashlib
+import sys
+
+value = hashlib.sha256()
+with Path(sys.argv[1]).open("rb") as stream:
+    for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+        value.update(block)
+print(value.hexdigest())
+PY
+}
+
+stage_snapshot_soname_aliases() {
+  local snap_lib_dir="${1:?snapshot library directory required}"
+  local pinned_calo_reco="${2:-0}"
+  local expected_calo_reco_soname="${3:-}"
+  local snap_so soname alias_path target_name
+
+  if ! command -v readelf >/dev/null 2>&1; then
+    if [[ "$pinned_calo_reco" == "1" ]]; then
+      err "Pinned CaloReco snapshot requires readelf to prove and stage its SONAME"
+      return 2
+    fi
+    warn "readelf not available; snapshot SONAME links were not generated"
+    return 0
+  fi
+
+  for snap_so in "${snap_lib_dir}"/lib*.so*; do
+    [[ -f "$snap_so" && ! -L "$snap_so" ]] || continue
+    soname="$(readelf -d "$snap_so" 2>/dev/null | awk -F'[][]' '/SONAME/ {print $2; exit}' || true)"
+    [[ -n "$soname" ]] || continue
+    [[ "$soname" == "$(basename "$soname")" && "$soname" == lib*.so* ]] || {
+      err "Snapshot ELF declares an unsafe SONAME: ${snap_so} => ${soname}"
+      return 2
+    }
+    target_name="$(basename "$snap_so")"
+    [[ "$soname" == "$target_name" ]] && continue
+    alias_path="${snap_lib_dir}/${soname}"
+    if [[ -e "$alias_path" || -L "$alias_path" ]]; then
+      [[ -L "$alias_path" &&
+         "$(readlink "$alias_path")" == "$target_name" &&
+         "$alias_path" -ef "$snap_so" ]] || {
+        err "Snapshot SONAME alias collides with a different provider: ${alias_path}"
+        return 2
+      }
+    else
+      ln -s "$target_name" "$alias_path"
+    fi
+  done
+
+  if [[ "$pinned_calo_reco" == "1" ]]; then
+    [[ "$expected_calo_reco_soname" =~ ^libcalo_reco\.so(\.[0-9]+)+$ ]] || {
+      err "Pinned CaloReco requires an explicit versioned SONAME contract"
+      return 2
+    }
+    snap_so="${snap_lib_dir}/libcalo_reco.so"
+    soname="$(readelf -d "$snap_so" 2>/dev/null | awk -F'[][]' '/SONAME/ {print $2; exit}' || true)"
+    [[ "$soname" == "$expected_calo_reco_soname" ]] || {
+      err "Pinned CaloReco SONAME differs: observed=${soname:-<unset>} expected=${expected_calo_reco_soname}"
+      return 2
+    }
+    alias_path="${snap_lib_dir}/${expected_calo_reco_soname}"
+    [[ -L "$alias_path" &&
+       "$(readlink "$alias_path")" == "libcalo_reco.so" &&
+       "$alias_path" -ef "$snap_so" ]] || {
+      err "Pinned CaloReco SONAME alias does not resolve to the one snapshot provider"
+      return 2
+    }
+  fi
+}
+
 validate_frozen_snapshot_wrapper_contract() {
   local wrapper="${1:?frozen wrapper required}"
   local marker="# RJ_SNAPSHOT_LIBRARY_PREPEND_V1"
@@ -652,14 +785,91 @@ validate_frozen_snapshot_wrapper_contract() {
   return 0
 }
 
+write_and_seal_snapshot_manifest() {
+  local snap_dir="${1:?snapshot directory required}"
+  local manifest="${snap_dir}/snapshot_manifest.json"
+  python3 - "$snap_dir" "$manifest" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import os
+import sys
+
+root = Path(sys.argv[1]).resolve()
+manifest = Path(sys.argv[2])
+if not root.is_dir() or manifest.exists():
+    raise SystemExit(f"snapshot manifest precondition failed: {root}")
+
+entries = []
+for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
+    relative = path.relative_to(root).as_posix()
+    stat_result = path.lstat()
+    if path.is_symlink():
+        target = os.readlink(path)
+        if os.path.isabs(target):
+            raise SystemExit(f"snapshot symlink must be relative: {relative} -> {target}")
+        resolved = path.resolve(strict=True)
+        if root not in resolved.parents:
+            raise SystemExit(f"snapshot symlink escapes its root: {relative} -> {target}")
+        digest = hashlib.sha256(resolved.read_bytes()).hexdigest()
+        entries.append(
+            {
+                "path": relative,
+                "sha256": digest,
+                "symlink_target": target,
+                "type": "symlink",
+            }
+        )
+    elif path.is_file():
+        entries.append(
+            {
+                "path": relative,
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                "size": stat_result.st_size,
+                "type": "file",
+            }
+        )
+    elif path.is_dir():
+        entries.append({"path": relative, "type": "directory"})
+    else:
+        raise SystemExit(f"unsupported snapshot artifact type: {relative}")
+
+payload = {
+    "entries": entries,
+    "root": str(root),
+    "schema": "RJ_FROZEN_SNAPSHOT_MANIFEST_V1",
+    "status": "PASS",
+}
+manifest.write_text(
+    json.dumps(payload, indent=2, sort_keys=True, separators=(",", ": ")) + "\n",
+    encoding="utf-8",
+)
+PY
+  chmod -R a-w "$snap_dir"
+  [[ -s "$manifest" ]] || {
+    err "Frozen snapshot manifest was not created: ${manifest}"
+    return 2
+  }
+  BULK_FROZEN_SNAPSHOT_MANIFEST="$manifest"
+  BULK_FROZEN_SNAPSHOT_MANIFEST_SHA256="$(snapshot_sha256_file "$manifest")"
+}
+
 validate_snapshot_loader_closure() {
   local snap_lib_dir="${1:?snapshot lib directory required}"
   local mode="${2:?snapshot mode required}"
   local use_release_core="${3:?release-core flag required}"
   local release_core_lib64="${4:?release lib64 directory required}"
   local release_core_lib="${5:?release lib directory required}"
+  local pinned_calo_reco="${6:-0}"
+  local receipt="${7:-}"
   local release_prefix=""
-  local report target
+  local report target report_is_temporary=1
+  local expected_calo_io="${RJ_PINNED_RELEASE_CALO_IO_PATH:-}"
+  local expected_calo_io_sha="${RJ_PINNED_RELEASE_CALO_IO_SHA256:-}"
+  local expected_clusteriso="${RJ_PINNED_RELEASE_CLUSTERISO_PATH:-}"
+  local expected_clusteriso_sha="${RJ_PINNED_RELEASE_CLUSTERISO_SHA256:-}"
+  local expected_jetbase="${RJ_PINNED_RELEASE_JETBASE_PATH:-}"
+  local expected_jetbase_sha="${RJ_PINNED_RELEASE_JETBASE_SHA256:-}"
   local -a targets=()
 
   command -v ldd >/dev/null 2>&1 || {
@@ -693,27 +903,71 @@ validate_snapshot_loader_closure() {
   if [[ "$use_release_core" == "1" ]]; then
     release_prefix=":${release_core_lib64}:${release_core_lib}"
   fi
-  report="$(mktemp "${TMPDIR:-/tmp}/rj_snapshot_ldd.XXXXXX")"
+  if [[ "$pinned_calo_reco" == "1" ]]; then
+    local expected_path expected_sha
+    for expected_path in \
+      "$expected_calo_io" "$expected_clusteriso" "$expected_jetbase"; do
+      [[ "$expected_path" == /* && -f "$expected_path" && -s "$expected_path" ]] || {
+        err "Pinned release companion is missing or not absolute: ${expected_path:-<unset>}"
+        return 2
+      }
+    done
+    for expected_sha in \
+      "$expected_calo_io_sha" "$expected_clusteriso_sha" "$expected_jetbase_sha"; do
+      [[ "$expected_sha" =~ ^[0-9a-f]{64}$ ]] || {
+        err "Pinned release companion has an invalid SHA-256: ${expected_sha:-<unset>}"
+        return 2
+      }
+    done
+  fi
+  if [[ -n "$receipt" ]]; then
+    [[ "$receipt" == /* && ! -e "$receipt" ]] || {
+      err "Snapshot loader receipt must be a fresh absolute path: ${receipt}"
+      return 2
+    }
+    report="${receipt%.json}.ldd.txt"
+    [[ ! -e "$report" ]] || {
+      err "Snapshot loader report already exists: ${report}"
+      return 2
+    }
+    report_is_temporary=0
+  else
+    report="$(mktemp "${TMPDIR:-/tmp}/rj_snapshot_ldd.XXXXXX")"
+  fi
   for target in "${targets[@]}"; do
     printf '@@TARGET %s\n' "$target" >> "$report"
     if ! LD_LIBRARY_PATH="${snap_lib_dir}${release_prefix}:${LD_LIBRARY_PATH:-}" \
       ldd "$target" >> "$report" 2>&1; then
       err "ldd failed for frozen snapshot target: ${target}"
-      rm -f "$report"
+      (( report_is_temporary )) && rm -f "$report"
       return 2
     fi
   done
 
-  if ! python3 - "$report" "$snap_lib_dir" "$use_release_core" \
-    "$release_core_lib64" "$release_core_lib" <<'PY'
+  if ! python3 - "$report" "$mode" "$snap_lib_dir" "$use_release_core" \
+    "$release_core_lib64" "$release_core_lib" "$pinned_calo_reco" "$receipt" \
+    "$expected_calo_io" "$expected_calo_io_sha" \
+    "$expected_clusteriso" "$expected_clusteriso_sha" \
+    "$expected_jetbase" "$expected_jetbase_sha" <<'PY'
 from pathlib import Path
+import hashlib
+import json
 import re
 import sys
 
 report = Path(sys.argv[1])
-snapshot = Path(sys.argv[2]).resolve()
-use_release = sys.argv[3] == "1"
-release_roots = (Path(sys.argv[4]).resolve(), Path(sys.argv[5]).resolve())
+mode = sys.argv[2]
+snapshot = Path(sys.argv[3]).resolve()
+use_release = sys.argv[4] == "1"
+release_roots = (Path(sys.argv[5]).resolve(), Path(sys.argv[6]).resolve())
+pinned_calo_reco = sys.argv[7] == "1"
+receipt = Path(sys.argv[8]) if sys.argv[8] else None
+expected_args = sys.argv[9:]
+expected_companions = {
+    "libcalo_io.so": (Path(expected_args[0]), expected_args[1]),
+    "libclusteriso.so": (Path(expected_args[2]), expected_args[3]),
+    "libjetbase.so": (Path(expected_args[4]), expected_args[5]),
+}
 staged_names = {entry.name for entry in snapshot.iterdir()}
 staged_families = {
     name.split(".so", 1)[0] + ".so" for name in staged_names if ".so" in name
@@ -721,6 +975,14 @@ staged_families = {
 local_core = ("libcalo_reco.so", "libcalo_io.so", "libclusteriso.so", "libjetbase.so")
 targets = 0
 failures = []
+observed: dict[str, set[str]] = {family: set() for family in local_core}
+
+def digest(path: Path) -> str:
+    value = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+            value.update(block)
+    return value.hexdigest()
 
 def beneath(path: Path, root: Path) -> bool:
     try:
@@ -728,6 +990,22 @@ def beneath(path: Path, root: Path) -> bool:
         return True
     except ValueError:
         return False
+
+expected_real: dict[str, Path] = {
+    "libcalo_reco.so": (snapshot / "libcalo_reco.so").resolve(),
+}
+if pinned_calo_reco:
+    for family, (declared, expected_sha) in expected_companions.items():
+        try:
+            real = declared.resolve(strict=True)
+        except (FileNotFoundError, RuntimeError):
+            failures.append(f"missing declared release companion: {family} => {declared}")
+            continue
+        expected_real[family] = real
+        if not any(beneath(real, root) for root in release_roots):
+            failures.append(f"declared release companion escaped pinned release: {family} => {real}")
+        elif digest(real) != expected_sha:
+            failures.append(f"declared release companion hash drift: {family} => {real}")
 
 for raw in report.read_text(errors="replace").splitlines():
     line = raw.strip()
@@ -742,32 +1020,95 @@ for raw in report.read_text(errors="replace").splitlines():
         continue
     name, resolved_text = match.groups()
     resolved = Path(resolved_text).resolve()
+    family = next(
+        (
+            candidate
+            for candidate in local_core
+            if name == candidate or name.startswith(candidate + ".")
+        ),
+        None,
+    )
+    if family is not None:
+        observed[family].add(str(resolved))
     if re.match(
         r"^/sphenix/(?:u|user)/[^/]+/"
         r"(?:(?:thesisAnalysis|thesisAnalysis_auau)/)?install/lib(?:64)?/",
         resolved_text,
     ):
         failures.append(f"mutable private install dependency: {name} => {resolved_text}")
-    family = name.split(".so", 1)[0] + ".so" if ".so" in name else name
-    if (name in staged_names or family in staged_families) and not beneath(resolved, snapshot):
+    staged_family = name.split(".so", 1)[0] + ".so" if ".so" in name else name
+    if (name in staged_names or staged_family in staged_families) and not beneath(resolved, snapshot):
         failures.append(f"staged dependency escaped snapshot: {name} => {resolved_text}")
-    if use_release and name.startswith(local_core) and not any(
-        beneath(resolved, root) for root in release_roots
-    ):
-        failures.append(f"release-core dependency escaped pinned release: {name} => {resolved_text}")
+    if use_release and family is not None:
+        if pinned_calo_reco:
+            expected = expected_real.get(family)
+            if expected is not None and resolved != expected:
+                failures.append(
+                    f"single-provider resolution mismatch: {name} => {resolved_text}; "
+                    f"expected {expected}"
+                )
+        elif not any(beneath(resolved, root) for root in release_roots):
+            failures.append(
+                f"release companion escaped pinned release: {name} => {resolved_text}"
+            )
 
 if targets == 0:
     failures.append("no frozen loader targets were inspected")
+if pinned_calo_reco:
+    for family in local_core:
+        if not observed[family]:
+            failures.append(
+                f"selected provider was not observed in frozen-target dependency closure: {family}"
+            )
 if failures:
     raise SystemExit("\n".join(failures))
+
+if receipt is not None:
+    providers = {}
+    for family in local_core:
+        real = expected_real.get(family)
+        if real is None:
+            raise SystemExit(f"no selected provider was recorded for {family}")
+        providers[family] = {
+            "observed_resolutions": sorted(observed[family]),
+            "realpath": str(real),
+            "sha256": digest(real),
+        }
+        if family in expected_companions:
+            providers[family]["declared_path"] = str(expected_companions[family][0])
+    payload = {
+        "ldd_report": {
+            "path": report.name,
+            "sha256": digest(report),
+        },
+        "mode": mode,
+        "pinned_calo_reco_release_companions": pinned_calo_reco,
+        "providers": providers,
+        "release_roots": [str(root) for root in release_roots],
+        "schema": "RJ_SNAPSHOT_LOADER_RECEIPT_V1",
+        "snapshot_lib": str(snapshot),
+        "status": "PASS",
+        "targets_inspected": targets,
+    }
+    receipt.write_text(
+        json.dumps(payload, indent=2, sort_keys=True, separators=(",", ": ")) + "\n",
+        encoding="utf-8",
+    )
 PY
   then
     err "Frozen snapshot dynamic-loader closure failed; inspect ${report}"
     cat "$report" >&2
-    rm -f "$report"
+    (( report_is_temporary )) && rm -f "$report"
     return 2
   fi
-  rm -f "$report"
+  if (( report_is_temporary )); then
+    rm -f "$report"
+  else
+    [[ -s "$receipt" ]] || {
+      err "Frozen snapshot loader receipt was not created: ${receipt}"
+      return 2
+    }
+  fi
   return 0
 }
 
@@ -795,11 +1136,16 @@ create_pipeline_snapshot() {
   local snap_auau_header="${snap_dir}/RecoilJets_AuAu.h"
   local snap_photon_cluster_builder_header="${snap_dir}/PhotonClusterBuilder.h"
   local use_release_core_libs=0
+  local use_pinned_calo_reco_release_companions=0
   local use_ppg12_archived_runtime=0
   local ppg12_canary_manifest=""
   local ppg12_canary_manifest_sha256=""
   local release_core_lib_dir="${RJ_RELEASE_CORE_LIB_DIR:-/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.558/lib}"
   local release_core_lib64_dir="${RJ_RELEASE_CORE_LIB64_DIR:-/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.558/lib64}"
+  local pinned_release_name="${RJ_PINNED_RELEASE_NAME:-}"
+  local pinned_offline_main="${RJ_PINNED_OFFLINE_MAIN:-}"
+  local pinned_calo_reco_soname="${RJ_PINNED_CALO_RECO_SONAME:-}"
+  local snapshot_loader_receipt="${snap_dir}/snapshot_loader_receipt.json"
 
   if [[ "$mode" == "pp" ]] && ppg12_archived_di_campaign_requested; then
     use_ppg12_archived_runtime=1
@@ -809,6 +1155,40 @@ create_pipeline_snapshot() {
     ppg12_canary_manifest="${RJ_PPG12_DI_ARCHIVED_CANARY_MANIFEST:-}"
     ppg12_canary_manifest_sha256="${RJ_PPG12_DI_ARCHIVED_CANARY_MANIFEST_SHA256:-}"
     validate_ppg12_archived_canary_manifest "$ppg12_canary_manifest" "$ppg12_canary_manifest_sha256" || return $?
+  fi
+
+  if env_truthy "${RJ_PINNED_CALO_RECO_RELEASE_COMPANIONS:-0}"; then
+    (( use_ppg12_archived_runtime == 0 )) || {
+      err "RJ_PINNED_CALO_RECO_RELEASE_COMPANIONS cannot be combined with the archived PPG12 runtime"
+      return 2
+    }
+    ! env_truthy "${RJ_FORCE_RELEASE_CORE_LIBS:-0}" || {
+      err "pinned CaloReco plus release companions is mutually exclusive with RJ_FORCE_RELEASE_CORE_LIBS"
+      return 2
+    }
+    [[ ! "${RJ_FORCE_RELEASE_CALO_IO:-0}" =~ ^(1|true|TRUE|yes|YES|on|ON)$ ]] || {
+      err "pinned CaloReco plus release companions supersedes RJ_FORCE_RELEASE_CALO_IO"
+      return 2
+    }
+    use_pinned_calo_reco_release_companions=1
+    use_release_core_libs=1
+    [[ "$pinned_release_name" =~ ^ana\.[0-9]+$ ]] || {
+      err "Pinned CaloReco mode requires RJ_PINNED_RELEASE_NAME=ana.NNN"
+      return 2
+    }
+    [[ "$pinned_offline_main" == /*/release/release_ana/"$pinned_release_name" ]] || {
+      err "Pinned CaloReco mode requires one exact RJ_PINNED_OFFLINE_MAIN release prefix"
+      return 2
+    }
+    [[ "$pinned_calo_reco_soname" =~ ^libcalo_reco\.so(\.[0-9]+)+$ ]] || {
+      err "Pinned CaloReco mode requires RJ_PINNED_CALO_RECO_SONAME"
+      return 2
+    }
+    [[ "$(cd "$release_core_lib_dir" && pwd -P)" == "${pinned_offline_main}/lib" &&
+       "$(cd "$release_core_lib64_dir" && pwd -P)" == "${pinned_offline_main}/lib64" ]] || {
+      err "Pinned release companion directories do not match RJ_PINNED_OFFLINE_MAIN"
+      return 2
+    }
   fi
 
   mkdir -p "$snap_dir" "$snap_lib_dir"
@@ -831,6 +1211,10 @@ create_pipeline_snapshot() {
   cp -f "${BASE}/macros/Calo_Calib.C" "$snap_calo"
   cp -f "${BASE}/src/RecoilJets.h" "$snap_pp_header"
   cp -f "${BASE}/src_AuAu/RecoilJets_AuAu.h" "$snap_auau_header"
+  if (( use_pinned_calo_reco_release_companions )); then
+    pin_frozen_snapshot_release \
+      "$snap_wrapper" "$pinned_release_name" "$pinned_offline_main" || return $?
+  fi
   if [[ ! -r "$photon_cluster_builder_header_source" ]]; then
     err "PhotonClusterBuilder snapshot header is missing: ${photon_cluster_builder_header_source}"
     exit 2
@@ -891,7 +1275,22 @@ for stem in ("libCaloWaveformSim", "libphg4hit", "libg4testbench"):
 PY
   fi
 
-  if [[ "$mode" != "auau" ]] && { (( use_ppg12_archived_runtime )) || env_truthy "${RJ_FORCE_RELEASE_CORE_LIBS:-0}"; }; then
+  if (( use_pinned_calo_reco_release_companions )); then
+    local pinned_companion_so
+    local -a pinned_release_companions=(libcalo_io.so libclusteriso.so libjetbase.so)
+    [[ -r "$calo_reco_library_source" ]] || {
+      err "Pinned CaloReco runtime library is missing: ${calo_reco_library_source}"
+      return 2
+    }
+    for pinned_companion_so in "${pinned_release_companions[@]}"; do
+      if [[ ! -r "${release_core_lib_dir}/${pinned_companion_so}" && ! -r "${release_core_lib64_dir}/${pinned_companion_so}" ]]; then
+        err "Pinned CaloReco runtime requires ${pinned_companion_so} in ${release_core_lib_dir} or ${release_core_lib64_dir}"
+        return 2
+      fi
+    done
+    cp -f "$calo_reco_library_source" "$snap_lib_dir/libcalo_reco.so"
+    say "RJ_PINNED_CALO_RECO_RELEASE_COMPANIONS=1: snapshotting one custom CaloReco and pinning companion libraries to the declared release."
+  elif [[ "$mode" != "auau" ]] && { (( use_ppg12_archived_runtime )) || env_truthy "${RJ_FORCE_RELEASE_CORE_LIBS:-0}"; }; then
     use_release_core_libs=1
     local release_core_so
     local -a required_release_core=(libcalo_reco.so libclusteriso.so libjetbase.so)
@@ -971,6 +1370,13 @@ PY
       err "Archived PPG12 DI runtime staged an unexpected ROOT PCM inventory"
       exit 2
     fi
+  elif (( use_pinned_calo_reco_release_companions )); then
+    # In the single-provider mode, copy dictionaries only from the three
+    # immutable campaign build roots.  Never admit mutable private-install
+    # dictionaries alongside release-owned CaloReco companions.
+    cp -f "$(dirname "$pp_library_source")/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
+    cp -f "$(dirname "$auau_library_source")/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
+    cp -f "$(dirname "$calo_reco_library_source")/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
   else
     cp -f "${user_root}/thesisAnalysis/install/lib/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
     cp -f "${user_root}/thesisAnalysis_auau/install/lib/"*_rdict.pcm "$snap_lib_dir/" 2>/dev/null || true
@@ -979,26 +1385,14 @@ PY
     fi
   fi
 
-  # Preserve dynamic-loader identity inside the frozen snapshot.  The copied
-  # files are the bare linker names, but their DT_NEEDED entries request the
-  # SONAMEs (for example libcalo_io.so.0).  Without these links, dependent
-  # libraries can bind to a different user/CVMFS copy while R__LOAD_LIBRARY
-  # opens the snapshot copy, duplicating ROOT dictionaries in one process.
-  if command -v readelf >/dev/null 2>&1; then
-    local snap_so soname
-    for snap_so in "${snap_lib_dir}"/lib*.so*; do
-      [[ -f "$snap_so" ]] || continue
-      soname="$(readelf -d "$snap_so" 2>/dev/null | awk -F'[][]' '/SONAME/ {print $2; exit}' || true)"
-      [[ -n "$soname" ]] || continue
-      # If the SONAME already is the copied filename, creating the link would
-      # replace the real file with a self-referential symlink.  Only add an
-      # alias when the loader name is genuinely different.
-      [[ "$soname" == "$(basename "$snap_so")" ]] && continue
-      ln -sfn "$(basename "$snap_so")" "${snap_lib_dir}/${soname}"
-    done
-  else
-    warn "readelf not available; snapshot SONAME links were not generated"
-  fi
+  # Preserve dynamic-loader identity inside the frozen snapshot. The copied
+  # files are bare linker names, while dependent ELFs request their SONAMEs.
+  # Pinned CaloReco fails closed unless its exact versioned loader alias is a
+  # symlink to the one snapshotted inode.
+  stage_snapshot_soname_aliases \
+    "$snap_lib_dir" \
+    "$use_pinned_calo_reco_release_companions" \
+    "$pinned_calo_reco_soname" || return $?
 
   sed -i "s|#include \"/sphenix/u/patsfan753/scratch/thesisAnalysis/macros/Fun4All_recoilJets_unified_impl.C\"|#include \"${snap_impl}\"|" "$snap_macro"
   sed -i "s|#include \"/sphenix/u/patsfan753/scratch/thesisAnalysis/macros/Calo_Calib.C\"|#include \"${snap_calo}\"|" "$snap_impl"
@@ -1006,7 +1400,12 @@ PY
   sed -i "s|#include \"/sphenix/u/patsfan753/scratch/thesisAnalysis/src_AuAu/RecoilJets_AuAu.h\"|#include \"${snap_auau_header}\"|" "$snap_impl"
   sed -i "s|#include \"/sphenix/u/patsfan753/thesisAnalysis/install/include/caloreco/PhotonClusterBuilder.h\"|#include \"${snap_photon_cluster_builder_header}\"|" "$snap_impl"
 
-  if (( use_release_core_libs )); then
+  if (( use_pinned_calo_reco_release_companions )); then
+    sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)|R__LOAD_LIBRARY(${snap_lib_dir}/libcalo_reco.so)|" "$snap_impl"
+    sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_io.so)|R__LOAD_LIBRARY(libcalo_io.so)|" "$snap_impl"
+    sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libclusteriso.so)|R__LOAD_LIBRARY(libclusteriso.so)|" "$snap_impl"
+    sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libjetbase.so)|R__LOAD_LIBRARY(libjetbase.so)|" "$snap_impl"
+  elif (( use_release_core_libs )); then
     sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)|R__LOAD_LIBRARY(libcalo_reco.so)|" "$snap_impl"
     sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_io.so)|R__LOAD_LIBRARY(libcalo_io.so)|" "$snap_impl"
     sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libclusteriso.so)|R__LOAD_LIBRARY(libclusteriso.so)|" "$snap_impl"
@@ -1019,7 +1418,9 @@ PY
   fi
   sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libRecoilJets.so)|R__LOAD_LIBRARY(${snap_lib_dir}/libRecoilJets.so)|" "$snap_impl"
   sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis_auau/install/lib/libRecoilJetsAuAu.so)|R__LOAD_LIBRARY(${snap_lib_dir}/libRecoilJetsAuAu.so)|" "$snap_impl"
-  if (( use_release_core_libs )); then
+  if (( use_pinned_calo_reco_release_companions )); then
+    sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)|R__LOAD_LIBRARY(${snap_lib_dir}/libcalo_reco.so)|" "$snap_calo"
+  elif (( use_release_core_libs )); then
     sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)|R__LOAD_LIBRARY(libcalo_reco.so)|" "$snap_calo"
   else
     sed -i "s|R__LOAD_LIBRARY(/sphenix/u/patsfan753/thesisAnalysis/install/lib/libcalo_reco.so)|R__LOAD_LIBRARY(${snap_lib_dir}/libcalo_reco.so)|" "$snap_calo"
@@ -1052,12 +1453,35 @@ PY
     exit 2
   fi
   validate_frozen_snapshot_wrapper_contract "$snap_wrapper" || return $?
+  if (( use_pinned_calo_reco_release_companions )); then
+    [[ "$(grep -Ec '^[[:space:]]*# RJ_PINNED_SPHENIX_RELEASE_V1[[:space:]]*$' "$snap_wrapper" || true)" == 1 &&
+       "$(grep -Ec "^[[:space:]]*source /opt/sphenix/core/bin/sphenix_setup\\.sh -n ${pinned_release_name}[[:space:]]*$" "$snap_wrapper" || true)" == 1 &&
+       "$(grep -Fc "$pinned_offline_main" "$snap_wrapper" || true)" -ge 2 ]] || {
+      err "Frozen wrapper lacks the exact pinned ${pinned_release_name} runtime witness"
+      return 2
+    }
+  fi
   validate_snapshot_loader_closure \
     "$snap_lib_dir" \
     "$mode" \
     "$use_release_core_libs" \
     "$release_core_lib64_dir" \
-    "$release_core_lib_dir" || return $?
+    "$release_core_lib_dir" \
+    "$use_pinned_calo_reco_release_companions" \
+    "$(
+      if (( use_pinned_calo_reco_release_companions )); then
+        printf '%s' "$snapshot_loader_receipt"
+      fi
+    )" || return $?
+  if (( use_pinned_calo_reco_release_companions )); then
+    BULK_FROZEN_SNAPSHOT_LOADER_RECEIPT="$snapshot_loader_receipt"
+    BULK_FROZEN_SNAPSHOT_LOADER_RECEIPT_SHA256="$(
+      snapshot_sha256_file "$snapshot_loader_receipt"
+    )"
+  else
+    BULK_FROZEN_SNAPSHOT_LOADER_RECEIPT=""
+    BULK_FROZEN_SNAPSHOT_LOADER_RECEIPT_SHA256=""
+  fi
 
   if (( use_ppg12_archived_runtime )); then
     local accepted_manifest_copy="${snap_dir}/accepted_full_group_canary_manifest.json"
@@ -1097,6 +1521,7 @@ PY
     BULK_PPG12_ARCHIVED_RUNTIME_MANIFEST_SHA256=""
   fi
 
+  write_and_seal_snapshot_manifest "$snap_dir" || return $?
   BULK_FROZEN_EXE="$snap_wrapper"
   BULK_FROZEN_MACRO="$snap_macro"
 
@@ -8405,7 +8830,7 @@ SUB
 universe      = vanilla
 executable    = ${exe_for_sub}
 initialdir    = ${BASE}
-getenv        = True
+getenv        = $(condor_getenv_directive)
 log           = ${LOG_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).log
 output        = ${OUT_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).out
 error         = ${ERR_DIR}/${SIM_JOB_PREFIX}.job.\$(Cluster).\$(Process).err
