@@ -3,9 +3,12 @@
 # Contract: exact predeclared additions from the immutable accepted
 # libphoton_cluster_builder_override.so (SHA-256
 # 5d4eca4abdaa274d308856e050d19b17e02bc62652a03dda6f0ea95719b9147e)
-# minus the exact ana.560 libcalo_reco.so.0 baseline. Format is the normalized
-# "SYMBOL TYPE" output of nm -D --defined-only --format=posix. A real candidate
-# that adds or removes any other symbol must stop rather than rebaseline.
+# minus the exact ana.560 libcalo_reco.so.0 baseline, plus the exact weak inline
+# TowerInfoContainer::get_detectorid() symbol materialized by the ana.560
+# detector-role guard against the separately pinned TowerInfoContainer.h.
+# Format is the normalized "SYMBOL TYPE" output of
+# nm -D --defined-only --format=posix. A real candidate that adds or removes
+# any other symbol must stop rather than rebaseline.
 # `_ZN18TowerInfoContainer10encode_keyEj W` is deliberately excluded from the
 # prior override delta: the detector-explicit RawClusterBuilderTopo correction
 # removes every generic container-selected encode_key call in that mechanism.
@@ -27,6 +30,7 @@ _ZN20PhotonClusterBuilder47calculate_ppg12_topocluster_raw_eiso_for_radiusEffffR
 _ZN9__gnu_cxx12__to_xstringINSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEEcEET_PFiPT0_mPKS8_P13__va_list_tagEmSB_z W
 _ZNK12MbdVertexMap4sizeEv W
 _ZNK15GlobalVertexMap4sizeEv W
+_ZNK18TowerInfoContainer14get_detectoridEv W
 _ZNK20PhotonClusterBuilder18is_cemc_tower_goodEP9TowerInfoj T
 _ZNK20PhotonClusterBuilder19make_audit_snapshotEv T
 _ZNKSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEE6substrEmm W

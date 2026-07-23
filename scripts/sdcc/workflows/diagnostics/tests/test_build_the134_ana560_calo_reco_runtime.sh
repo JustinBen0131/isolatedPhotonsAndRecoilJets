@@ -738,6 +738,22 @@ assert payload["abi"]["status"] == "PASS"
 assert payload["abi"]["baseline"]["library"]["sha256"] == sys.argv[3]
 assert payload["abi"]["additions_allowlist"]["expected_sha256"] == sys.argv[4]
 assert payload["abi"]["additions_allowlist"]["provenance"] == {
+    "ana560_role_guard_inline_additions": [
+        {
+            "authority": {
+                "path": (
+                    payload["mapping_patch"]["authority"]
+                    ["TowerInfoContainer.h"]["path"]
+                ),
+                "sha256": sys.argv[6],
+            },
+            "reason": (
+                "detector-role guard ODR-uses the pinned ana.560 "
+                "TowerInfoContainer::get_detectorid() inline method"
+            ),
+            "symbol": "_ZNK18TowerInfoContainer14get_detectoridEv W",
+        }
+    ],
     "immutable_prior_override_sha256": (
         "5d4eca4abdaa274d308856e050d19b17e02bc62652a03dda6f0ea95719b9147e"
     ),
@@ -753,7 +769,7 @@ assert payload["abi"]["additions_allowlist"]["provenance"] == {
 }
 assert payload["abi"]["removed_symbols"]["count"] == 0
 assert payload["abi"]["removed_dynsym_metadata"]["count"] == 0
-assert payload["abi"]["added_symbols"]["count"] == 28
+assert payload["abi"]["added_symbols"]["count"] == 29
 assert payload["abi"]["needed_exact_match"] is True
 assert payload["abi"]["rpath_runpath_absent"] is True
 assert payload["abi"]["version_inventory_exact_match"] is True

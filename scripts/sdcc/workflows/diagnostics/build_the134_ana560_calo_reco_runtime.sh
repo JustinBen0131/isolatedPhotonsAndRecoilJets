@@ -22,7 +22,8 @@ readonly MAPPING_PATCH_ID="THE134_RAWCLUSTERBUILDERTOPO_DETECTOR_EXPLICIT_CHANNE
 readonly ROLE_SIZE_GUARD_ID="THE134_RAWCLUSTERBUILDERTOPO_TOWERINFO_ROLE_SIZE_GUARD_V1"
 readonly ABI_ADDITIONS_PROVENANCE_SHA256="5d4eca4abdaa274d308856e050d19b17e02bc62652a03dda6f0ea95719b9147e"
 readonly ABI_INTENTIONAL_EXCLUSION="_ZN18TowerInfoContainer10encode_keyEj W"
-readonly ABI_ADDITIONS_ALLOWLIST_SHA256="79893ca13eb5ba68b33246ce4d6be16568f2e144d91a23128b59aa64b682fbb1"
+readonly ABI_ROLE_GUARD_INLINE_ADDITION="_ZNK18TowerInfoContainer14get_detectoridEv W"
+readonly ABI_ADDITIONS_ALLOWLIST_SHA256="700974da06ab8268fcbc750564a72f1db4eb3fcfdb8e351130d71ea1ce963ed8"
 readonly EXPECTED_SONAME="libcalo_reco.so.0"
 readonly EXPECTED_CORESOFTWARE_COMMIT="cba274033b5560e32600cdeaa7676b6ab4a6c971"
 readonly EXPECTED_SETUP_SCRIPT="/opt/sphenix/core/bin/sphenix_setup.sh"
@@ -416,6 +417,7 @@ contract_sha256() {
     "$baseline_calo_reco" "$baseline_calo_reco_sha256" \
     "$abi_additions_allowlist" "$abi_additions_allowlist_sha256" \
     "$ABI_ADDITIONS_PROVENANCE_SHA256" "$ABI_INTENTIONAL_EXCLUSION" \
+    "$ABI_ROLE_GUARD_INLINE_ADDITION" \
     "$towerinfo_defs_header" "$towerinfo_defs_header_sha256" \
     "$towerinfo_container_header" "$towerinfo_container_header_sha256" \
     "$towerinfo_containerv1_header" "$towerinfo_containerv1_header_sha256" \
@@ -1582,6 +1584,7 @@ python3 - "$receipt" "$RECEIPT_SCHEMA" "$source_manifest" \
   "$install_root" "$baseline_calo_reco" "$baseline_calo_reco_sha256" \
   "$abi_additions_allowlist" "$abi_additions_allowlist_sha256" \
   "$ABI_ADDITIONS_PROVENANCE_SHA256" "$ABI_INTENTIONAL_EXCLUSION" \
+  "$ABI_ROLE_GUARD_INLINE_ADDITION" \
   "$towerinfo_defs_header" "$towerinfo_defs_header_sha256" \
   "$towerinfo_container_header" "$towerinfo_container_header_sha256" \
   "$towerinfo_containerv1_header" "$towerinfo_containerv1_header_sha256" \
@@ -1651,6 +1654,7 @@ import sys
     abi_allowlist_sha,
     abi_additions_provenance_sha,
     abi_intentional_exclusion,
+    abi_role_guard_inline_addition,
     towerinfo_defs_arg,
     towerinfo_defs_sha,
     towerinfo_container_arg,
@@ -1747,6 +1751,19 @@ payload = {
                 "immutable_prior_override_sha256": (
                     abi_additions_provenance_sha
                 ),
+                "ana560_role_guard_inline_additions": [
+                    {
+                        "authority": {
+                            "path": towerinfo_container_arg,
+                            "sha256": towerinfo_container_sha,
+                        },
+                        "reason": (
+                            "detector-role guard ODR-uses the pinned ana.560 "
+                            "TowerInfoContainer::get_detectorid() inline method"
+                        ),
+                        "symbol": abi_role_guard_inline_addition,
+                    }
+                ],
                 "intentional_exclusions": [
                     {
                         "reason": (
