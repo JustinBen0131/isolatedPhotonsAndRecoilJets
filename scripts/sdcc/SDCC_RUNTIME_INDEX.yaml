@@ -110,6 +110,10 @@ entries:
     domain: "sdcc/runtime/audit"
     hard_aliases:
       []
+  - id: launch_supervised_remote_phase
+    canonical_path: "scripts/sdcc/runtime/control/launch_supervised_remote_phase.sh"
+    domain: "sdcc/runtime/control"
+    hard_aliases: []
   - id: checkout_hygiene_probe
     canonical_path: "scripts/sdcc/runtime/audit/checkout_hygiene_probe.py"
     domain: "sdcc/runtime/audit"
