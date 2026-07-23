@@ -206,7 +206,7 @@ verify_single_owner_resolved_contract() {
 }
 
 source_hashes_for_sample() {
-  local sample="$1" sample_root="${sim_root}/${sample}"
+  local row_id="$1" system="$2" sample="$3" sample_root="${sim_root}/${sample}"
   local -a names=(
     DST_CALO_CLUSTER.matched.list
     G4Hits.matched.list
@@ -269,16 +269,17 @@ source_hashes_for_sample() {
   ')"
   [[ -n "$first_tuple" ]] || die "could not resolve the first executable five-file tuple for ${sample}"
   [[ "$(awk -F'\t' '{print NF}' <<< "$first_tuple")" == 5 ]] || die "first executable tuple is not five columns for ${sample}"
+  validate_one_five_file_tuple "$row_id" "$system" <(printf '%s\n' "$first_tuple")
   tuple_sha="$(printf '%s\n' "$first_tuple" | sha256_cmd | awk '{print $1}')"
   printf '%s\t%s\t%s\n' "$manifest_sha" "$tuple_sha" "$executable_count"
 }
 
 emit_source_hash_manifest() {
-  local row_id sample hashes
+  local row_id system sample hashes
   validate_matrix
   printf 'row_id\tsource_manifest_sha256\tfirst_input_tuple_sha256\texecutable_tuple_count\n'
-  while IFS='|' read -r row_id _system _lane _dataset sample _role _mb_gate _row_match; do
-    hashes="$(source_hashes_for_sample "$sample")"
+  while IFS='|' read -r row_id system _lane _dataset sample _role _mb_gate _row_match; do
+    hashes="$(source_hashes_for_sample "$row_id" "$system" "$sample")"
     printf '%s\t%s\n' "$row_id" "$hashes"
   done < <(emit_matrix)
 }
@@ -561,10 +562,10 @@ system_extra_env() {
   local system="$1" role="$2"
   if [[ "$system" == pp ]]; then
     printf '%s' \
-      "RJ_PP_PHOTONID_EXTRACT_ONLY=1;RJ_PP_PHOTONID_TRAINING_TREE=1;RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES=${legacy_tree_max_entries};RJ_PP_PHOTONID_SOURCE_ROLE=${role};RJ_PP_PHOTONID_PPG12_FILTER=1;RJ_PP_PHOTONID_REQUIRE_PRESELECTION=0"
+      "RJ_PP_PHOTONID_EXTRACT_ONLY=1;RJ_PP_PHOTONID_TRAINING_TREE=1;RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES=${legacy_tree_max_entries};RJ_PP_PHOTONID_SOURCE_ROLE=${role};RJ_PP_PHOTONID_PPG12_FILTER=1;RJ_PP_PHOTONID_REQUIRE_PRESELECTION=0;RJ_SIM_ALLOW_NONE_LISTS=0"
   else
     printf '%s' \
-      "RJ_AUAU_BDT_EXTRACT_ONLY=1;RJ_AUAU_BDT_TRAINING_TREE=1;RJ_AUAU_BDT_TRAINING_TREE_MAX_ENTRIES=${legacy_tree_max_entries};RJ_AUAU_BDT_NPB_DATA_TAGGING=0;RJ_REQUIRE_EMBEDDED_MINBIAS_CLASSIFIER=1;RJ_AUAU_BUILD_TOPOCLUSTER_ISOLATION=0;RJ_AUAU_USE_TOPOCLUSTER_ISOLATION=0"
+      "RJ_AUAU_BDT_EXTRACT_ONLY=1;RJ_AUAU_BDT_TRAINING_TREE=1;RJ_AUAU_BDT_TRAINING_TREE_MAX_ENTRIES=${legacy_tree_max_entries};RJ_AUAU_BDT_NPB_DATA_TAGGING=0;RJ_REQUIRE_EMBEDDED_MINBIAS_CLASSIFIER=1;RJ_AUAU_BUILD_TOPOCLUSTER_ISOLATION=0;RJ_AUAU_USE_TOPOCLUSTER_ISOLATION=0;RJ_SIM_ALLOW_NONE_LISTS=1"
   fi
 }
 
@@ -616,17 +617,22 @@ analysis_tag_for_dataset() {
 }
 
 validate_one_five_file_tuple() {
-  local row_id="$1" path="$2"
-  awk -F '\t' '
+  local row_id="$1" system="$2" path="$3"
+  awk -F '\t' -v tuple_system="$system" '
     /^[[:space:]]*($|#)/ { next }
     {
       rows += 1
       if (NF != 5) bad = 1
-      for (column = 1; column <= NF; ++column)
+      for (column = 1; column <= NF; ++column) {
         if ($column == "") bad = 1
+        if (tuple_system == "pp" && ($column == "NONE" || substr($column, 1, 1) != "/")) bad = 1
+        if (tuple_system == "auau" && column <= 4 && ($column == "NONE" || substr($column, 1, 1) != "/")) bad = 1
+      }
+      if (tuple_system == "auau" && $5 != "NONE") bad = 1
+      if (tuple_system != "pp" && tuple_system != "auau") bad = 1
     }
     END { exit (bad || rows != 1) }
-  ' "$path" || die "${row_id} staged chunk must contain exactly one nonempty five-column input tuple"
+  ' "$path" || die "${row_id} staged chunk violates the typed ${system} five-column input contract"
 }
 
 validate_five_field_fanout_contract() {
@@ -671,7 +677,7 @@ validate_five_field_fanout_contract() {
 # The tab-separated return value is consumed verbatim by submit_row.
 verify_materialized_row_contract() {
   local row_id="$1" system="$2" dataset="$3" sample="$4" row_output="$5" sidecar="$6" row_submit="$7"
-  local -a sub_files=() sidecar_values=() id_file_values=() id_dirs_values=() materialized_config_values=()
+  local -a sub_files=() sidecar_values=() id_file_values=() id_dirs_values=() materialized_config_values=() allow_none_values=()
   local submit_file args_file args_line chunk_list chunk_sha fanout_file fanout_sha fanout_line
   local arg_sample arg_chunk arg_dataset arg_cluster arg_events arg_index arg_none arg_dest arg_extra
   local fan_dest fan_cfg fan_pre fan_tight fan_non materialized_config materialized_config_sha
@@ -723,7 +729,7 @@ verify_materialized_row_contract() {
   [[ "$arg_dest" == "$row_output/"* ]] || die "${row_id} argument destination escapes its owned output namespace"
   chunk_list="$arg_chunk"
   [[ -s "$chunk_list" ]] || die "${row_id} staged chunk list is missing: ${chunk_list}"
-  validate_one_five_file_tuple "$row_id" "$chunk_list"
+  validate_one_five_file_tuple "$row_id" "$system" "$chunk_list"
   chunk_sha="$(sha_file "$chunk_list")"
   require_sha "${row_id} staged chunk" "$chunk_sha"
 
@@ -742,6 +748,15 @@ verify_materialized_row_contract() {
   [[ "${#materialized_config_values[@]}" == 1 ]] ||
     die "${row_id} descriptor must bind exactly one materialized RJ_CONFIG_YAML"
   materialized_config="${materialized_config_values[0]}"
+  while IFS= read -r value; do allow_none_values+=( "$value" ); done \
+    < <(descriptor_env_values "$submit_file" RJ_SIM_ALLOW_NONE_LISTS)
+  [[ "${#allow_none_values[@]}" == 1 ]] ||
+    die "${row_id} descriptor must bind exactly one typed RJ_SIM_ALLOW_NONE_LISTS value"
+  if [[ "$system" == pp ]]; then
+    [[ "${allow_none_values[0]}" == 0 ]] || die "${row_id} p+p descriptor must reject NONE lists"
+  else
+    [[ "${allow_none_values[0]}" == 1 ]] || die "${row_id} Au+Au descriptor must authorize only its typed optional MBD list"
+  fi
   fanout_file="${id_file_values[0]}"
   validate_five_field_fanout_contract "$row_id" "$fanout_file" "$materialized_config" "$extraction_cone_r"
   fanout_line="$(grep -Ev '^[[:space:]]*($|#)' "$fanout_file")"
@@ -798,6 +813,7 @@ submit_row() {
       RJ_PHOTON_CLUSTER_BUILDER_HEADER_OVERRIDE="$photon_cluster_builder_header" \
       RJ_CALO_RECO_LIBRARY_OVERRIDE="$calo_reco_library" \
       RJ_PHOTON_CLUSTER_BUILDER_LIBRARY_OVERRIDE= \
+      RJ_SIM_ALLOW_NONE_LISTS=0 \
       RJ_PP_PHOTONID_EXTRACT_ONLY=1 RJ_PP_PHOTONID_TRAINING_TREE=1 \
       RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES="$legacy_tree_max_entries" \
       RJ_PP_PHOTONID_SOURCE_ROLE="$role" RJ_PP_PHOTONID_PPG12_FILTER=1 \
@@ -820,6 +836,7 @@ submit_row() {
       RJ_PHOTON_CLUSTER_BUILDER_HEADER_OVERRIDE="$photon_cluster_builder_header" \
       RJ_CALO_RECO_LIBRARY_OVERRIDE="$calo_reco_library" \
       RJ_PHOTON_CLUSTER_BUILDER_LIBRARY_OVERRIDE= \
+      RJ_SIM_ALLOW_NONE_LISTS=1 \
       RJ_DAG_DRYRUN=1 \
       RJ_AUTO_MERGE=0 RJ_STAGE_EMAIL_MODE=none RJ_CLEAN_OUTPUT_BASE=0 \
       RJ_REQUEST_MEMORY=8000MB RJ_REQUIRE_NON_TINY_OUTPUT=1 RJ_MIN_OUTPUT_BYTES=50000 \

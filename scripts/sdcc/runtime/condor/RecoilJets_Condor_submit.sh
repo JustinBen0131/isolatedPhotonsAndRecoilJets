@@ -505,6 +505,272 @@ if "A_C_closed" not in status and not ac_status.startswith("closed_"):
 PY
 }
 
+normalize_frozen_snapshot_wrapper() {
+  local wrapper="${1:?frozen wrapper required}"
+  local release_prefix="${2:-}"
+  python3 - "$wrapper" "$release_prefix" <<'PY'
+from pathlib import Path
+import sys
+
+wrapper = Path(sys.argv[1])
+release_prefix = sys.argv[2]
+text = wrapper.read_text()
+
+marker = "# RJ_SNAPSHOT_LIBRARY_PREPEND_V1"
+canonical_export = (
+    '  export LD_LIBRARY_PATH="${snapshot_lib_dir}${snapshot_loader_suffix}:'
+    '${LD_LIBRARY_PATH:-}"'
+)
+legacy_export = '  export LD_LIBRARY_PATH="${snapshot_lib_dir}:${LD_LIBRARY_PATH:-}"'
+suffix_prefix = 'snapshot_loader_suffix='
+dataset_anchor = "# ------------------------ Dataset routing"
+loader_anchors = (
+    "# Some frozen release lanes intentionally pair",
+    "# A bounded diagnostic may replace",
+    dataset_anchor,
+)
+root_include = (
+    '  export ROOT_INCLUDE_PATH="$wrapper_dir:$wrapper_dir/include:'
+    '${ROOT_INCLUDE_PATH:-}"'
+)
+
+if dataset_anchor not in text:
+    raise SystemExit(f"snapshot wrapper insertion anchor not found in {wrapper}")
+if text.count(marker) > 1:
+    raise SystemExit(f"snapshot wrapper has duplicate prepend markers: {wrapper}")
+if text.count(canonical_export) > 1 or text.count(legacy_export) > 1:
+    raise SystemExit(f"snapshot wrapper has duplicate LD_LIBRARY_PATH prepends: {wrapper}")
+
+suffix_literal = release_prefix.replace("\\", "\\\\").replace('"', '\\"')
+suffix_line = f'snapshot_loader_suffix="{suffix_literal}"'
+
+if text.count(marker) == 1 and text.count(canonical_export) == 1:
+    suffix_rows = [
+        row for row in text.splitlines() if row.startswith(suffix_prefix)
+    ]
+    if len(suffix_rows) != 1:
+        raise SystemExit(
+            f"snapshot wrapper marker/export lacks one loader suffix: {wrapper}"
+        )
+    text = text.replace(suffix_rows[0], suffix_line, 1)
+elif text.count(marker) == 0 and text.count(legacy_export) == 1:
+    # Normalize the already-correct legacy Au+Au prepend rather than adding a
+    # second one. The stable marker lets later preflight distinguish a real
+    # prepend from an unrelated snapshot_lib_dir assignment.
+    text = text.replace(
+        legacy_export,
+        f"{suffix_line}\n{marker}\n{canonical_export}",
+        1,
+    )
+elif (
+    text.count(marker) == 0
+    and text.count(canonical_export) == 0
+    and text.count(legacy_export) == 0
+):
+    # This is the old p+p false-positive shape: snapshot_lib_dir may already
+    # exist solely for the optional builder override, but there is no loader
+    # prepend. Install the complete contract before any loader/dataset logic.
+    insert_at = min(
+        (text.index(anchor) for anchor in loader_anchors if anchor in text),
+        default=-1,
+    )
+    if insert_at < 0:
+        raise SystemExit(f"snapshot wrapper loader anchor not found in {wrapper}")
+    block = f"""# Frozen Condor snapshots carry a sibling lib/ directory with copied local
+# analysis libraries. Put it first so DT_NEEDED SONAME lookups and explicit
+# ROOT loads resolve to the same immutable snapshot.
+wrapper_dir="$(cd "$(dirname "${{BASH_SOURCE[0]}}")" && pwd -P)"
+snapshot_lib_dir="${{RJ_SNAPSHOT_LIB_DIR:-${{wrapper_dir}}/lib}}"
+{suffix_line}
+{marker}
+if [[ -d "$snapshot_lib_dir" ]]; then
+{canonical_export}
+  echo "[INFO] Snapshot lib prepended: $snapshot_lib_dir"
+fi
+
+"""
+    text = text[:insert_at] + block + text[insert_at:]
+else:
+    raise SystemExit(
+        f"snapshot wrapper has an incomplete prepend marker/export contract: {wrapper}"
+    )
+
+if text.count(root_include) == 0:
+    root_block = f"""if [[ -d "$wrapper_dir" ]]; then
+{root_include}
+fi
+
+"""
+    text = text.replace(dataset_anchor, root_block + dataset_anchor, 1)
+elif text.count(root_include) != 1:
+    raise SystemExit(f"snapshot wrapper has duplicate ROOT include prepends: {wrapper}")
+
+wrapper.write_text(text)
+PY
+}
+
+validate_frozen_snapshot_wrapper_contract() {
+  local wrapper="${1:?frozen wrapper required}"
+  local marker="# RJ_SNAPSHOT_LIBRARY_PREPEND_V1"
+  local export_line='  export LD_LIBRARY_PATH="${snapshot_lib_dir}${snapshot_loader_suffix}:${LD_LIBRARY_PATH:-}"'
+  local marker_count export_count suffix_count suffix_line marker_line export_line_number loader_line dataset_line boundary_line
+
+  marker_count="$(grep -Fxc "$marker" "$wrapper" || true)"
+  export_count="$(grep -Fxc "$export_line" "$wrapper" || true)"
+  suffix_count="$(grep -Ec '^snapshot_loader_suffix="[^"]*"$' "$wrapper" || true)"
+  if [[ "$marker_count" -ne 1 || "$export_count" -ne 1 || "$suffix_count" -ne 1 ]]; then
+    err "Frozen wrapper must contain exactly one marked snapshot-library prepend: ${wrapper}"
+    return 2
+  fi
+
+  suffix_line="$(grep -nE '^snapshot_loader_suffix="[^"]*"$' "$wrapper" | cut -d: -f1)"
+  marker_line="$(grep -Fn "$marker" "$wrapper" | cut -d: -f1)"
+  export_line_number="$(grep -Fn "$export_line" "$wrapper" | cut -d: -f1)"
+  dataset_line="$(grep -Fn '# ------------------------ Dataset routing' "$wrapper" | cut -d: -f1)"
+  if [[ -z "$dataset_line" ]]; then
+    err "Frozen wrapper lacks the dataset-routing boundary: ${wrapper}"
+    return 2
+  fi
+  loader_line="$(
+    grep -nE \
+      '^# (Some frozen release lanes intentionally pair|A bounded diagnostic may replace)' \
+      "$wrapper" | head -n 1 | cut -d: -f1 || true
+  )"
+  boundary_line="${loader_line:-$dataset_line}"
+  if ! [[ "$suffix_line" -lt "$marker_line" &&
+          "$marker_line" -lt "$export_line_number" &&
+          "$export_line_number" -lt "$boundary_line" &&
+          "$export_line_number" -lt "$dataset_line" ]]; then
+    err "Frozen wrapper loader order must be suffix < marker < export < ROOT loader < dataset routing: ${wrapper}"
+    return 2
+  fi
+
+  if ! grep -Fq 'echo "[INFO] Snapshot lib prepended: ' "$wrapper"; then
+    err "Frozen wrapper lacks the stable snapshot-library runtime witness: ${wrapper}"
+    return 2
+  fi
+  return 0
+}
+
+validate_snapshot_loader_closure() {
+  local snap_lib_dir="${1:?snapshot lib directory required}"
+  local mode="${2:?snapshot mode required}"
+  local use_release_core="${3:?release-core flag required}"
+  local release_core_lib64="${4:?release lib64 directory required}"
+  local release_core_lib="${5:?release lib directory required}"
+  local release_prefix=""
+  local report target
+  local -a targets=()
+
+  command -v ldd >/dev/null 2>&1 || {
+    err "ldd is required for frozen snapshot loader preflight"
+    return 2
+  }
+  [[ -d "$snap_lib_dir" ]] || {
+    err "Frozen snapshot library directory is missing: ${snap_lib_dir}"
+    return 2
+  }
+
+  if [[ "$mode" == "auau" ]]; then
+    targets+=("${snap_lib_dir}/libRecoilJetsAuAu.so")
+  else
+    targets+=("${snap_lib_dir}/libRecoilJets.so")
+  fi
+  for target in \
+    "${snap_lib_dir}/libcalo_reco.so" \
+    "${snap_lib_dir}/libcalo_io.so" \
+    "${snap_lib_dir}/libclusteriso.so" \
+    "${snap_lib_dir}/libjetbase.so"; do
+    [[ -f "$target" ]] && targets+=("$target")
+  done
+  for target in "${targets[@]}"; do
+    [[ -f "$target" ]] || {
+      err "Frozen snapshot loader target is missing: ${target}"
+      return 2
+    }
+  done
+
+  if [[ "$use_release_core" == "1" ]]; then
+    release_prefix=":${release_core_lib64}:${release_core_lib}"
+  fi
+  report="$(mktemp "${TMPDIR:-/tmp}/rj_snapshot_ldd.XXXXXX")"
+  for target in "${targets[@]}"; do
+    printf '@@TARGET %s\n' "$target" >> "$report"
+    if ! LD_LIBRARY_PATH="${snap_lib_dir}${release_prefix}:${LD_LIBRARY_PATH:-}" \
+      ldd "$target" >> "$report" 2>&1; then
+      err "ldd failed for frozen snapshot target: ${target}"
+      rm -f "$report"
+      return 2
+    fi
+  done
+
+  if ! python3 - "$report" "$snap_lib_dir" "$use_release_core" \
+    "$release_core_lib64" "$release_core_lib" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+report = Path(sys.argv[1])
+snapshot = Path(sys.argv[2]).resolve()
+use_release = sys.argv[3] == "1"
+release_roots = (Path(sys.argv[4]).resolve(), Path(sys.argv[5]).resolve())
+staged_names = {entry.name for entry in snapshot.iterdir()}
+staged_families = {
+    name.split(".so", 1)[0] + ".so" for name in staged_names if ".so" in name
+}
+local_core = ("libcalo_reco.so", "libcalo_io.so", "libclusteriso.so", "libjetbase.so")
+targets = 0
+failures = []
+
+def beneath(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+for raw in report.read_text(errors="replace").splitlines():
+    line = raw.strip()
+    if line.startswith("@@TARGET "):
+        targets += 1
+        continue
+    if "=> not found" in line:
+        failures.append(f"unresolved dependency: {line}")
+        continue
+    match = re.match(r"(\S+)\s+=>\s+(\S+)\s+", line)
+    if not match:
+        continue
+    name, resolved_text = match.groups()
+    resolved = Path(resolved_text).resolve()
+    if re.match(
+        r"^/sphenix/(?:u|user)/[^/]+/"
+        r"(?:(?:thesisAnalysis|thesisAnalysis_auau)/)?install/lib(?:64)?/",
+        resolved_text,
+    ):
+        failures.append(f"mutable private install dependency: {name} => {resolved_text}")
+    family = name.split(".so", 1)[0] + ".so" if ".so" in name else name
+    if (name in staged_names or family in staged_families) and not beneath(resolved, snapshot):
+        failures.append(f"staged dependency escaped snapshot: {name} => {resolved_text}")
+    if use_release and name.startswith(local_core) and not any(
+        beneath(resolved, root) for root in release_roots
+    ):
+        failures.append(f"release-core dependency escaped pinned release: {name} => {resolved_text}")
+
+if targets == 0:
+    failures.append("no frozen loader targets were inspected")
+if failures:
+    raise SystemExit("\n".join(failures))
+PY
+  then
+    err "Frozen snapshot dynamic-loader closure failed; inspect ${report}"
+    cat "$report" >&2
+    rm -f "$report"
+    return 2
+  fi
+  rm -f "$report"
+  return 0
+}
+
 create_pipeline_snapshot() {
   local mode="$1"   # pp | auau
   local stamp="$2"
@@ -770,49 +1036,11 @@ PY
     sed -i "s|R__LOAD_LIBRARY(${snap_lib_dir}/libcalo_io.so)|R__LOAD_LIBRARY(${release_calo_io})|" "$snap_impl"
   fi
 
-  python3 - "$snap_wrapper" "$snap_lib_dir" "$snap_dir" "$use_release_core_libs" "$release_core_lib64_dir" "$release_core_lib_dir" <<'PY'
-from pathlib import Path
-import sys
-
-wrapper = Path(sys.argv[1])
-snap_lib = sys.argv[2]
-snap_dir = sys.argv[3]
-use_release_core = sys.argv[4] == "1"
-release_core_lib64 = sys.argv[5]
-release_core_lib = sys.argv[6]
-text = wrapper.read_text()
-marker = "# ------------------------ Dataset routing"
-release_prefix = f":{release_core_lib64}:{release_core_lib}" if use_release_core else ""
-
-if marker not in text:
-    raise SystemExit(f"snapshot wrapper insertion anchor not found in {wrapper}")
-
-if "snapshot_lib_dir=" not in text:
-    block = f"""# Frozen Condor snapshots carry a sibling lib/ directory with copied local
-# analysis libraries. Put it first so DT_NEEDED SONAME lookups and explicit
-# ROOT loads resolve to the same snapshot copy.
-wrapper_dir=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd -P)\"
-snapshot_lib_dir=\"${{RJ_SNAPSHOT_LIB_DIR:-${{wrapper_dir}}/lib}}\"
-if [[ -d \"$snapshot_lib_dir\" ]]; then
-  export LD_LIBRARY_PATH=\"$snapshot_lib_dir{release_prefix}:${{LD_LIBRARY_PATH:-}}\"
-  echo \"[INFO] Snapshot lib prepended: $snapshot_lib_dir\"
-fi
-if [[ -d \"$wrapper_dir\" ]]; then
-  export ROOT_INCLUDE_PATH=\"$wrapper_dir:$wrapper_dir/include:${{ROOT_INCLUDE_PATH:-}}\"
-fi
-
-"""
-    text = text.replace(marker, block + marker, 1)
-elif "ROOT_INCLUDE_PATH=\"$wrapper_dir" not in text:
-    block = """if [[ -d "$wrapper_dir" ]]; then
-  export ROOT_INCLUDE_PATH="$wrapper_dir:$wrapper_dir/include:${ROOT_INCLUDE_PATH:-}"
-fi
-
-"""
-    text = text.replace(marker, block + marker, 1)
-
-wrapper.write_text(text)
-PY
+  local release_prefix=""
+  if (( use_release_core_libs )); then
+    release_prefix=":${release_core_lib64_dir}:${release_core_lib_dir}"
+  fi
+  normalize_frozen_snapshot_wrapper "$snap_wrapper" "$release_prefix"
 
   chmod +x "$snap_wrapper"
   if ! bash -n "$snap_wrapper"; then
@@ -823,6 +1051,13 @@ PY
     err "Frozen wrapper lacks the rc sentinel required to prevent rc-unbound holds: ${snap_wrapper}"
     exit 2
   fi
+  validate_frozen_snapshot_wrapper_contract "$snap_wrapper" || return $?
+  validate_snapshot_loader_closure \
+    "$snap_lib_dir" \
+    "$mode" \
+    "$use_release_core_libs" \
+    "$release_core_lib64_dir" \
+    "$release_core_lib_dir" || return $?
 
   if (( use_ppg12_archived_runtime )); then
     local accepted_manifest_copy="${snap_dir}/accepted_full_group_canary_manifest.json"

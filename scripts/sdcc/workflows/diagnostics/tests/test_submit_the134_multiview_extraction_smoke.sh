@@ -13,23 +13,42 @@ eval "$(sed -n '/^validate_one_five_file_tuple()/,/^}/p' "$controller")"
 eval "$(sed -n '/^yaml_value()/,/^}/p' "$controller")"
 eval "$(sed -n '/^validate_five_field_fanout_contract()/,/^}/p' "$controller")"
 
-printf 'calo\tg4\tjets\tglobal\tmbd\n' > "${tmpdir}/valid.list"
-validate_one_five_file_tuple unit "${tmpdir}/valid.list"
+printf '/calo\t/g4\t/jets\t/global\t/mbd\n' > "${tmpdir}/valid-pp.list"
+validate_one_five_file_tuple unit pp "${tmpdir}/valid-pp.list"
+
+printf '/calo\t/g4\t/jets\t/global\tNONE\n' > "${tmpdir}/valid-auau.list"
+validate_one_five_file_tuple unit auau "${tmpdir}/valid-auau.list"
+
+if validate_one_five_file_tuple unit pp "${tmpdir}/valid-auau.list"; then
+  printf 'Au+Au NONE tuple leaked into p+p authorization\n' >&2
+  exit 1
+fi
+
+if validate_one_five_file_tuple unit auau "${tmpdir}/valid-pp.list"; then
+  printf 'real Au+Au column-five path was not rejected\n' >&2
+  exit 1
+fi
+
+printf '/calo\t/g4\tNONE\t/global\tNONE\n' > "${tmpdir}/bad-auau-none-column.list"
+if validate_one_five_file_tuple unit auau "${tmpdir}/bad-auau-none-column.list"; then
+  printf 'Au+Au NONE outside column five was not rejected\n' >&2
+  exit 1
+fi
 
 printf 'calo\tg4\tjets\tglobal\n' > "${tmpdir}/four-columns.list"
-if validate_one_five_file_tuple unit "${tmpdir}/four-columns.list"; then
+if validate_one_five_file_tuple unit pp "${tmpdir}/four-columns.list"; then
   printf 'four-column tuple was not rejected\n' >&2
   exit 1
 fi
 
 printf 'calo\tg4\tjets\tglobal\tmbd\ncalo2\tg42\tjets2\tglobal2\tmbd2\n' > "${tmpdir}/two-rows.list"
-if validate_one_five_file_tuple unit "${tmpdir}/two-rows.list"; then
+if validate_one_five_file_tuple unit pp "${tmpdir}/two-rows.list"; then
   printf 'two-row tuple ownership was not rejected\n' >&2
   exit 1
 fi
 
 printf 'calo\tg4\t\tglobal\tmbd\n' > "${tmpdir}/empty-column.list"
-if validate_one_five_file_tuple unit "${tmpdir}/empty-column.list"; then
+if validate_one_five_file_tuple unit pp "${tmpdir}/empty-column.list"; then
   printf 'empty tuple column was not rejected\n' >&2
   exit 1
 fi
@@ -109,6 +128,11 @@ def validate(text: str) -> None:
         '"${#materialized_config_values[@]}" == 1',
         'materialized_config_sha256',
         'file_sha256(materialized_config) != materialized_config_sha',
+        'descriptor_env_values "$submit_file" RJ_SIM_ALLOW_NONE_LISTS',
+        'p+p descriptor must reject NONE lists',
+        'Au+Au descriptor must authorize only its typed optional MBD list',
+        'RJ_SIM_ALLOW_NONE_LISTS=0',
+        'RJ_SIM_ALLOW_NONE_LISTS=1',
     )
     for token in receipt_contract:
         if token not in text:
