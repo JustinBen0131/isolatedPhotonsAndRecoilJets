@@ -33,6 +33,9 @@ namespace RJPhotonTrainingViewV1
 using RJReplayFoundationV1::Identity128;
 using RJReplayFoundationV1::ModelApplicability;
 using RJReplayFoundationV1::PhotonCandidateRow;
+using RJReplayFoundationV1::SerializedIdentity128;
+using RJReplayFoundationV1::SerializedInt64;
+using RJReplayFoundationV1::SerializedUInt64;
 using RJReplayFoundationV1::ShowerFeatureViewRow;
 using RJReplayFoundationV1::SourceOccurrenceRow;
 using RJReplayFoundationV1::makeIdentity;
@@ -494,6 +497,7 @@ class Runtime
       if (row.event_sequence != eventSequence)
         return fail(error, "training-view event buffer contains a cross-event row");
       m_row = row;
+      syncSerializedRow();
       if (m_tree->Fill() <= 0) return fail(error, "training-view tree fill failed");
       ++m_entries;
     }
@@ -635,12 +639,51 @@ class Runtime
     metadata.Write(name, TObject::kOverwrite);
   }
 
-  static void idBranches(TTree* tree, const char* prefix, Identity128* id)
+  static SerializedUInt64 serialize(std::uint64_t value)
+  {
+    return static_cast<SerializedUInt64>(value);
+  }
+
+  static SerializedInt64 serialize(std::int64_t value)
+  {
+    return static_cast<SerializedInt64>(value);
+  }
+
+  static void serialize(SerializedIdentity128& output, const Identity128& input)
+  {
+    output.hi = serialize(input.hi);
+    output.lo = serialize(input.lo);
+  }
+
+  void syncSerializedRow()
+  {
+    serialize(m_serializedId, m_row.id);
+    serialize(m_serializedSourceId, m_row.source_id);
+    serialize(m_serializedEventId, m_row.event_id);
+    serialize(m_serializedCandidateId, m_row.candidate_id);
+    serialize(m_serializedDefinitionId, m_row.definition_id);
+    m_serializedEventSequence = serialize(m_row.event_sequence);
+    m_serializedClusterMapKey = serialize(m_row.cluster_map_key);
+  }
+
+  static void unsigned64(TTree* tree, const char* name, SerializedUInt64* address)
+  {
+    const std::string leaf = std::string(name) + "/l";
+    tree->Branch(name, address, leaf.c_str());
+  }
+
+  static void signed64(TTree* tree, const char* name, SerializedInt64* address)
+  {
+    const std::string leaf = std::string(name) + "/L";
+    tree->Branch(name, address, leaf.c_str());
+  }
+
+  static void idBranches(TTree* tree, const char* prefix, SerializedIdentity128* id)
   {
     const std::string hi = std::string(prefix) + "_hi";
     const std::string lo = std::string(prefix) + "_lo";
-    tree->Branch(hi.c_str(), &id->hi, (hi + "/l").c_str());
-    tree->Branch(lo.c_str(), &id->lo, (lo + "/l").c_str());
+    unsigned64(tree, hi.c_str(), &id->hi);
+    unsigned64(tree, lo.c_str(), &id->lo);
   }
 
   template <class T>
@@ -661,11 +704,11 @@ class Runtime
     m_tree = new TTree(kTreeName, "Labeled photon-ID rows by shower-definition view");
     m_tree->SetDirectory(m_file.get());
     m_tree->SetAutoFlush(-5000000);
-    idBranches(m_tree, "training_view_id", &m_row.id);
-    idBranches(m_tree, "source_occurrence_id", &m_row.source_id);
-    idBranches(m_tree, "event_id", &m_row.event_id);
-    idBranches(m_tree, "candidate_id", &m_row.candidate_id);
-    idBranches(m_tree, "definition_id", &m_row.definition_id);
+    idBranches(m_tree, "training_view_id", &m_serializedId);
+    idBranches(m_tree, "source_occurrence_id", &m_serializedSourceId);
+    idBranches(m_tree, "event_id", &m_serializedEventId);
+    idBranches(m_tree, "candidate_id", &m_serializedCandidateId);
+    idBranches(m_tree, "definition_id", &m_serializedDefinitionId);
     text(m_tree, "definition_name", &m_row.definition_name);
     text(m_tree, "shower_semantic_sha256", &m_row.shower_semantic_sha256);
     text(m_tree, "feature_contract_sha256", &m_row.feature_contract_sha256);
@@ -685,9 +728,9 @@ class Runtime
     scalar(m_tree, "source_run", &m_row.source_run, "I");
     scalar(m_tree, "source_segment", &m_row.source_segment, "I");
     scalar(m_tree, "run", &m_row.run, "I");
-    scalar(m_tree, "event_sequence", &m_row.event_sequence, "L");
+    signed64(m_tree, "event_sequence", &m_serializedEventSequence);
     scalar(m_tree, "encounter_ordinal", &m_row.encounter_ordinal, "I");
-    scalar(m_tree, "cluster_map_key", &m_row.cluster_map_key, "l");
+    unsigned64(m_tree, "cluster_map_key", &m_serializedClusterMapKey);
     scalar(m_tree, "cluster_index", &m_row.cluster_index, "I");
     scalar(m_tree, "cluster_Et", &m_row.cluster_et, "D");
     scalar(m_tree, "cluster_Eta", &m_row.eta, "D");
@@ -740,6 +783,13 @@ class Runtime
   std::unique_ptr<TFile> m_file;
   TTree* m_tree = nullptr;
   Row m_row;
+  SerializedIdentity128 m_serializedId;
+  SerializedIdentity128 m_serializedSourceId;
+  SerializedIdentity128 m_serializedEventId;
+  SerializedIdentity128 m_serializedCandidateId;
+  SerializedIdentity128 m_serializedDefinitionId;
+  SerializedInt64 m_serializedEventSequence = 0;
+  SerializedUInt64 m_serializedClusterMapKey = 0;
   int m_systemCode = 0;
   SourceOccurrenceRow m_source;
   std::string m_configSha256, m_codeSha256;

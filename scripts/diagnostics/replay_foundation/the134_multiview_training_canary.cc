@@ -3,6 +3,7 @@
 #include <TDirectory.h>
 #include <TFile.h>
 #include <TKey.h>
+#include <TLeaf.h>
 #include <TTree.h>
 
 #include <cmath>
@@ -19,9 +20,30 @@ namespace
 {
 using namespace RJReplayFoundationV1;
 
+constexpr std::int64_t kSerializedTrainingEventSequence=0x6123456789abcdefLL;
+constexpr std::uint64_t kSerializedTrainingClusterMapKey=0xf123456789abcdefULL;
+
 void require(bool state,const std::string& message)
 {
   if(!state)throw std::runtime_error(message);
+}
+
+template<class T>
+void bindExact(TTree* tree,const char* branch,T* address)
+{
+  const int status=tree->SetBranchAddress(branch,address);
+  require(status==TTree::kMatch,
+          std::string("branch address did not bind exactly: ")+branch+
+          " status="+std::to_string(status));
+}
+
+void requireLeafType(TTree* tree,const char* branch,const char* expected)
+{
+  auto* leaf=tree->GetLeaf(branch);
+  require(leaf!=nullptr,std::string("branch leaf is missing: ")+branch);
+  require(std::string(leaf->GetTypeName())==expected,
+          std::string("branch leaf type changed: ")+branch+" expected="+expected+
+          " actual="+leaf->GetTypeName());
 }
 
 SourceOccurrenceRow source(const std::string& lane,
@@ -85,10 +107,42 @@ std::vector<ShowerFeatureViewRow> views(const Identity128& candidateId)
 void validateDefaultReplayInventory(const std::string& path)
 {
   const std::string hash(64,'b');
+  constexpr std::uint64_t sourceHi=0xf123456789abcdefULL;
+  constexpr std::uint64_t sourceLo=0xe23456789abcdef0ULL;
+  constexpr std::uint64_t eventHi=0xd3456789abcdef01ULL;
+  constexpr std::uint64_t eventLo=0xc456789abcdef012ULL;
+  constexpr std::uint64_t candidateHi=0xb56789abcdef0123ULL;
+  constexpr std::uint64_t candidateLo=0xa6789abcdef01234ULL;
+  constexpr std::int64_t eventSequence=0x6123456789abcdefLL;
+  constexpr std::uint64_t triggerBits=0xf76543210abcdef0ULL;
+  constexpr std::uint64_t preselectionBits=0xe6543210abcdef01ULL;
+  constexpr std::uint64_t towerKey=0xd543210abcdef012ULL;
+  constexpr std::uint64_t qualityBits=0xc43210abcdef0123ULL;
   {
     TFile output(path.c_str(),"RECREATE");
     Writer writer;std::string error;
     require(writer.initialize(&output,Metadata{hash,hash,hash,hash,hash,hash},&error),error);
+    auto sourceRow=source("pp_data","serialized_round_trip");
+    sourceRow.id={sourceHi,sourceLo};
+    require(writer.fill(sourceRow,&error),error);
+    EventRow eventRow;
+    eventRow.id={eventHi,eventLo};eventRow.source_id=sourceRow.id;
+    eventRow.run=sourceRow.run;eventRow.event_sequence=eventSequence;
+    eventRow.trigger_bits=triggerBits;eventRow.candidate_count=1;eventRow.recoil_count=1;
+    require(writer.fill(eventRow,&error),error);
+    PhotonCandidateRow candidateRow;
+    candidateRow.id={candidateHi,candidateLo};candidateRow.event_id=eventRow.id;
+    candidateRow.preselection_bitmask=preselectionBits;
+    require(writer.fill(candidateRow,&error),error);
+    ShowerCellRow showerRow;
+    showerRow.candidate_id=candidateRow.id;showerRow.tower_eta_index=1;
+    showerRow.tower_phi_index=2;showerRow.tower_key=towerKey;
+    showerRow.grid_membership_bitmask=1;
+    require(writer.fill(showerRow,&error),error);
+    JetRow jetRow;
+    jetRow.id={0x9876543210abcdefULL,0x876543210abcdef0ULL};
+    jetRow.event_id=eventRow.id;jetRow.quality_bitmask=qualityBits;
+    require(writer.fill(jetRow,&error),error);
     require(writer.finish(&error),error);
     output.Write("",TObject::kOverwrite);
   }
@@ -103,14 +157,81 @@ void validateDefaultReplayInventory(const std::string& path)
   require(treeCount==16,"default ReplayFoundationV1 inventory is not exactly 16 trees");
   require(input.Get(RJPhotonTrainingViewV1::kTreeName)==nullptr,
           "opt-in training tree leaked into the default replay artifact");
+
+  auto* sourceTree=dynamic_cast<TTree*>(directory->Get("RJSourceOccurrenceV1"));
+  auto* eventTree=dynamic_cast<TTree*>(directory->Get("RJEventV1"));
+  auto* candidateTree=dynamic_cast<TTree*>(directory->Get("RJPhotonCandidateV1"));
+  auto* showerTree=dynamic_cast<TTree*>(directory->Get("RJShowerCellV1"));
+  auto* jetTree=dynamic_cast<TTree*>(directory->Get("RJJetV1"));
+  require(sourceTree&&eventTree&&candidateTree&&showerTree&&jetTree,
+          "serialized replay witness tree is missing");
+  SerializedUInt64 readSourceHi=0,readSourceLo=0,readEventHi=0,readEventLo=0;
+  SerializedUInt64 readEventSourceHi=0,readEventSourceLo=0,readTriggerBits=0;
+  SerializedUInt64 readCandidateHi=0,readCandidateLo=0,readCandidateEventHi=0;
+  SerializedUInt64 readCandidateEventLo=0,readPreselectionBits=0;
+  SerializedUInt64 readShowerCandidateHi=0,readShowerCandidateLo=0,readTowerKey=0;
+  SerializedUInt64 readJetHi=0,readJetLo=0,readJetEventHi=0,readJetEventLo=0;
+  SerializedUInt64 readQualityBits=0;
+  SerializedInt64 readEventSequence=0;
+  bindExact(sourceTree,"source_occurrence_id_hi",&readSourceHi);
+  bindExact(sourceTree,"source_occurrence_id_lo",&readSourceLo);
+  bindExact(eventTree,"event_id_hi",&readEventHi);
+  bindExact(eventTree,"event_id_lo",&readEventLo);
+  bindExact(eventTree,"source_occurrence_id_hi",&readEventSourceHi);
+  bindExact(eventTree,"source_occurrence_id_lo",&readEventSourceLo);
+  bindExact(eventTree,"event_sequence",&readEventSequence);
+  bindExact(eventTree,"trigger_bits",&readTriggerBits);
+  bindExact(candidateTree,"candidate_id_hi",&readCandidateHi);
+  bindExact(candidateTree,"candidate_id_lo",&readCandidateLo);
+  bindExact(candidateTree,"event_id_hi",&readCandidateEventHi);
+  bindExact(candidateTree,"event_id_lo",&readCandidateEventLo);
+  bindExact(candidateTree,"preselection_bitmask",&readPreselectionBits);
+  bindExact(showerTree,"candidate_id_hi",&readShowerCandidateHi);
+  bindExact(showerTree,"candidate_id_lo",&readShowerCandidateLo);
+  bindExact(showerTree,"tower_key",&readTowerKey);
+  bindExact(jetTree,"jet_id_hi",&readJetHi);
+  bindExact(jetTree,"jet_id_lo",&readJetLo);
+  bindExact(jetTree,"event_id_hi",&readJetEventHi);
+  bindExact(jetTree,"event_id_lo",&readJetEventLo);
+  bindExact(jetTree,"quality_bitmask",&readQualityBits);
+  for(const auto& branch:{"source_occurrence_id_hi","source_occurrence_id_lo"})
+    requireLeafType(sourceTree,branch,"ULong64_t");
+  for(const auto& branch:{"event_id_hi","event_id_lo","source_occurrence_id_hi",
+                          "source_occurrence_id_lo","trigger_bits"})
+    requireLeafType(eventTree,branch,"ULong64_t");
+  requireLeafType(eventTree,"event_sequence","Long64_t");
+  for(const auto& branch:{"candidate_id_hi","candidate_id_lo","event_id_hi",
+                          "event_id_lo","preselection_bitmask"})
+    requireLeafType(candidateTree,branch,"ULong64_t");
+  for(const auto& branch:{"candidate_id_hi","candidate_id_lo","tower_key"})
+    requireLeafType(showerTree,branch,"ULong64_t");
+  for(const auto& branch:{"jet_id_hi","jet_id_lo","event_id_hi","event_id_lo",
+                          "quality_bitmask"})
+    requireLeafType(jetTree,branch,"ULong64_t");
+  require(sourceTree->GetEntry(0)>0&&eventTree->GetEntry(0)>0&&
+          candidateTree->GetEntry(0)>0&&showerTree->GetEntry(0)>0&&
+          jetTree->GetEntry(0)>0,
+          "serialized replay witness entry could not be read");
+  require(readSourceHi==sourceHi&&readSourceLo==sourceLo&&
+          readEventHi==eventHi&&readEventLo==eventLo&&
+          readEventSourceHi==sourceHi&&readEventSourceLo==sourceLo&&
+          readEventSequence==eventSequence&&readTriggerBits==triggerBits&&
+          readCandidateHi==candidateHi&&readCandidateLo==candidateLo&&
+          readCandidateEventHi==eventHi&&readCandidateEventLo==eventLo&&
+          readPreselectionBits==preselectionBits&&
+          readShowerCandidateHi==candidateHi&&readShowerCandidateLo==candidateLo&&
+          readTowerKey==towerKey&&readJetEventHi==eventHi&&readJetEventLo==eventLo&&
+          readQualityBits==qualityBits&&(readJetHi&0x8000000000000000ULL)!=0,
+          "serialized replay 64-bit high-bit round trip changed");
 }
 
 void writeTrainingArtifact(const std::string& path,int systemCode,double et,double centrality,int labelValue)
 {
   const std::string hash(64,'c');
   const auto sourceRow=source(systemCode==RJPhotonTrainingViewV1::kSystemPP?"pp_sim":"auau_embed");
-  const auto eventId=RJPhotonTrainingViewV1::eventIdentity(sourceRow,sourceRow.run,3);
-  constexpr std::uint64_t clusterMapKey=17;
+  const auto eventId=RJPhotonTrainingViewV1::eventIdentity(
+      sourceRow,sourceRow.run,kSerializedTrainingEventSequence);
+  constexpr std::uint64_t clusterMapKey=kSerializedTrainingClusterMapKey;
   const auto candidateId=makeIdentity(eventId.hex()+"|candidate|0|"+std::to_string(clusterMapKey));
   RJPhotonTrainingViewV1::Runtime runtime;std::string error;
   require(runtime.initialize(path,systemCode,sourceRow,hash,hash,&error),error);
@@ -130,10 +251,11 @@ void writeTrainingArtifact(const std::string& path,int systemCode,double et,doub
     label.weight_vertex=1.25;label.weight_exposure=0.8;
     label.weight_final=1.0;
   }
-  require(runtime.recordLabel(3,0,label,&error),error);
+  require(runtime.recordLabel(kSerializedTrainingEventSequence,0,label,&error),error);
   RJPhotonTrainingViewV1::CandidateContext candidate;
   candidate.event_id=eventId;candidate.candidate_id=candidateId;candidate.run=7;
-  candidate.event_sequence=3;candidate.encounter_ordinal=0;candidate.cluster_et=et;
+  candidate.event_sequence=kSerializedTrainingEventSequence;
+  candidate.encounter_ordinal=0;candidate.cluster_et=et;
   candidate.cluster_map_key=clusterMapKey;
   candidate.eta=0.1;candidate.phi=0.2;candidate.vertex_z=2.5;
   candidate.centrality=centrality;candidate.event_weight=1.0;
@@ -150,9 +272,95 @@ void writeTrainingArtifact(const std::string& path,int systemCode,double et,doub
     }
   }
   require(runtime.appendCandidate(candidate,candidateViews,&error),error);
-  require(runtime.finishEvent(3,&error),error);
+  require(runtime.finishEvent(kSerializedTrainingEventSequence,&error),error);
   require(runtime.entries()==7,"training runtime did not buffer exactly seven rows");
   require(runtime.finish(&error),error);
+}
+
+void validateConcurrentArtifactTeardown(const std::string& replayPath,
+                                        const std::string& trainingPath)
+{
+  const std::string hash(64,'9');
+  const auto sourceRow=source("pp_sim","concurrent_teardown");
+  constexpr std::int64_t eventSequence=27;
+  constexpr std::uint64_t clusterMapKey=0xfedcba9876543210ULL;
+  const auto eventId=RJPhotonTrainingViewV1::eventIdentity(
+      sourceRow,sourceRow.run,eventSequence);
+  const auto candidateId=makeIdentity(
+      eventId.hex()+"|candidate|0|"+std::to_string(clusterMapKey));
+  {
+    TFile replayFile(replayPath.c_str(),"RECREATE");
+    Writer replayWriter;
+    RJPhotonTrainingViewV1::Runtime trainingWriter;
+    std::string error;
+    require(replayWriter.initialize(
+                &replayFile,Metadata{hash,hash,hash,hash,hash,hash},&error),error);
+    require(replayWriter.fill(sourceRow,&error),error);
+    require(trainingWriter.initialize(
+                trainingPath,RJPhotonTrainingViewV1::kSystemPP,
+                sourceRow,hash,hash,&error),error);
+    RJPhotonTrainingViewV1::Label label;
+    label.cluster_index=0;label.training_label=1;label.is_signal=1;
+    label.label_authority="PPG12_SOURCE_ROLE";label.source_role=1;
+    label.ppg12_source_role_label=1;label.weight_application_count=1;
+    require(trainingWriter.recordLabel(eventSequence,0,label,&error),error);
+    EventRow eventRow;
+    eventRow.id=eventId;eventRow.source_id=sourceRow.id;
+    eventRow.run=sourceRow.run;eventRow.event_sequence=eventSequence;
+    eventRow.candidate_count=1;
+    require(replayWriter.fill(eventRow,&error),error);
+    PhotonCandidateRow replayCandidate;
+    replayCandidate.id=candidateId;replayCandidate.event_id=eventId;
+    replayCandidate.encounter_ordinal=0;replayCandidate.cluster_et=20.0;
+    require(replayWriter.fill(replayCandidate,&error),error);
+    RJPhotonTrainingViewV1::CandidateContext trainingCandidate;
+    trainingCandidate.event_id=eventId;trainingCandidate.candidate_id=candidateId;
+    trainingCandidate.run=sourceRow.run;trainingCandidate.event_sequence=eventSequence;
+    trainingCandidate.encounter_ordinal=0;trainingCandidate.cluster_map_key=clusterMapKey;
+    trainingCandidate.cluster_et=20.0;trainingCandidate.eta=0.1;
+    trainingCandidate.phi=0.2;trainingCandidate.vertex_z=1.5;
+    auto candidateViews=views(candidateId);
+    for(auto& view:candidateViews)
+    {
+      view.weta33_cogx=std::numeric_limits<double>::quiet_NaN();
+      view.wphi33_cogx=std::numeric_limits<double>::quiet_NaN();
+      view.finite_feature_state=0;
+    }
+    require(trainingWriter.appendCandidate(
+                trainingCandidate,candidateViews,&error),error);
+    require(trainingWriter.finishEvent(eventSequence,&error),error);
+    // Production finalizes the authoritative replay transaction first, then
+    // the opt-in training sidecar, and closes the main TFile last.
+    require(replayWriter.finish(&error),error);
+    require(trainingWriter.finish(&error),error);
+    replayFile.cd();
+    require(replayFile.Write("",TObject::kOverwrite)>0,
+            "concurrent replay artifact write failed");
+    replayFile.Close();
+  }
+  TFile replayInput(replayPath.c_str(),"READ");
+  TFile trainingInput(trainingPath.c_str(),"READ");
+  require(replayInput.IsOpen()&&!replayInput.IsZombie()&&
+          !replayInput.TestBit(TFile::kRecovered),
+          "concurrent replay artifact is unhealthy or recovered");
+  require(trainingInput.IsOpen()&&!trainingInput.IsZombie()&&
+          !trainingInput.TestBit(TFile::kRecovered),
+          "concurrent training artifact is unhealthy or recovered");
+  auto* replayDirectory=replayInput.GetDirectory("ReplayFoundationV1");
+  require(replayDirectory!=nullptr&&
+          replayDirectory->Get("rj_replay_complete")!=nullptr,
+          "concurrent replay completion inventory is missing");
+  int replayTreeCount=0;
+  TIter next(replayDirectory->GetListOfKeys());
+  while(auto* key=dynamic_cast<TKey*>(next()))
+    if(std::string(key->GetClassName())=="TTree")++replayTreeCount;
+  require(replayTreeCount==16,
+          "concurrent replay artifact does not have exactly 16 trees");
+  auto* trainingTree=dynamic_cast<TTree*>(
+      trainingInput.Get(RJPhotonTrainingViewV1::kTreeName));
+  require(trainingTree!=nullptr&&trainingTree->GetEntries()==7&&
+          trainingInput.Get("rj_photon_training_complete")!=nullptr,
+          "concurrent training artifact inventory is incomplete");
 }
 
 void rejectCandidateIdentityMutation(const std::string& path)
@@ -319,46 +527,56 @@ void validateTrainingArtifact(const std::string& path,int expectedFeatureCount,
   std::vector<float>* features=nullptr;
   int featureCount=0,finite=0,system=0,domain=0,below15=0,nominal=0,wp=0,tag=0;
   int trainingLabel=0,weightApplicationCount=0;
-  std::uint64_t clusterMapKey=0;
+  SerializedUInt64 clusterMapKey=0;
+  SerializedInt64 eventSequence=0;
   double centrality=0.0,eventWeight=0.0,weightSlice=0.0,weightCrossSection=0.0;
   double weightVertex=0.0,weightSiDi=0.0,weightPeriod=0.0;
   double weightExposure=0.0,weightFinal=0.0;
-  std::uint64_t trainingHi=0,trainingLo=0,sourceHi=0,sourceLo=0;
-  std::uint64_t eventHi=0,eventLo=0,candidateHi=0,candidateLo=0,definitionHi=0,definitionLo=0;
-  tree->SetBranchAddress("definition_name",&definition);
-  tree->SetBranchAddress("shower_semantic_sha256",&showerSemantic);
-  tree->SetBranchAddress("feature_contract_sha256",&featureContract);
-  tree->SetBranchAddress("ordered_features",&features);
-  tree->SetBranchAddress("feature_count",&featureCount);
-  tree->SetBranchAddress("finite_feature_state",&finite);
-  tree->SetBranchAddress("system_code",&system);
-  tree->SetBranchAddress("model_domain_state",&domain);
-  tree->SetBranchAddress("below15_retention_state",&below15);
-  tree->SetBranchAddress("nominal_training_eligible",&nominal);
-  tree->SetBranchAddress("working_point_state",&wp);
-  tree->SetBranchAddress("tag_state",&tag);
-  tree->SetBranchAddress("training_label",&trainingLabel);
-  tree->SetBranchAddress("weight_application_count",&weightApplicationCount);
-  tree->SetBranchAddress("weight_slice",&weightSlice);
-  tree->SetBranchAddress("weight_cross_section",&weightCrossSection);
-  tree->SetBranchAddress("weight_vertex",&weightVertex);
-  tree->SetBranchAddress("weight_si_di",&weightSiDi);
-  tree->SetBranchAddress("weight_period",&weightPeriod);
-  tree->SetBranchAddress("weight_exposure",&weightExposure);
-  tree->SetBranchAddress("weight_final",&weightFinal);
-  tree->SetBranchAddress("cluster_map_key",&clusterMapKey);
-  tree->SetBranchAddress("centrality",&centrality);
-  tree->SetBranchAddress("event_weight",&eventWeight);
-  tree->SetBranchAddress("training_view_id_hi",&trainingHi);
-  tree->SetBranchAddress("training_view_id_lo",&trainingLo);
-  tree->SetBranchAddress("source_occurrence_id_hi",&sourceHi);
-  tree->SetBranchAddress("source_occurrence_id_lo",&sourceLo);
-  tree->SetBranchAddress("event_id_hi",&eventHi);
-  tree->SetBranchAddress("event_id_lo",&eventLo);
-  tree->SetBranchAddress("candidate_id_hi",&candidateHi);
-  tree->SetBranchAddress("candidate_id_lo",&candidateLo);
-  tree->SetBranchAddress("definition_id_hi",&definitionHi);
-  tree->SetBranchAddress("definition_id_lo",&definitionLo);
+  SerializedUInt64 trainingHi=0,trainingLo=0,sourceHi=0,sourceLo=0;
+  SerializedUInt64 eventHi=0,eventLo=0,candidateHi=0,candidateLo=0;
+  SerializedUInt64 definitionHi=0,definitionLo=0;
+  bindExact(tree,"definition_name",&definition);
+  bindExact(tree,"shower_semantic_sha256",&showerSemantic);
+  bindExact(tree,"feature_contract_sha256",&featureContract);
+  bindExact(tree,"ordered_features",&features);
+  bindExact(tree,"feature_count",&featureCount);
+  bindExact(tree,"finite_feature_state",&finite);
+  bindExact(tree,"system_code",&system);
+  bindExact(tree,"model_domain_state",&domain);
+  bindExact(tree,"below15_retention_state",&below15);
+  bindExact(tree,"nominal_training_eligible",&nominal);
+  bindExact(tree,"working_point_state",&wp);
+  bindExact(tree,"tag_state",&tag);
+  bindExact(tree,"training_label",&trainingLabel);
+  bindExact(tree,"weight_application_count",&weightApplicationCount);
+  bindExact(tree,"weight_slice",&weightSlice);
+  bindExact(tree,"weight_cross_section",&weightCrossSection);
+  bindExact(tree,"weight_vertex",&weightVertex);
+  bindExact(tree,"weight_si_di",&weightSiDi);
+  bindExact(tree,"weight_period",&weightPeriod);
+  bindExact(tree,"weight_exposure",&weightExposure);
+  bindExact(tree,"weight_final",&weightFinal);
+  bindExact(tree,"event_sequence",&eventSequence);
+  bindExact(tree,"cluster_map_key",&clusterMapKey);
+  bindExact(tree,"centrality",&centrality);
+  bindExact(tree,"event_weight",&eventWeight);
+  bindExact(tree,"training_view_id_hi",&trainingHi);
+  bindExact(tree,"training_view_id_lo",&trainingLo);
+  bindExact(tree,"source_occurrence_id_hi",&sourceHi);
+  bindExact(tree,"source_occurrence_id_lo",&sourceLo);
+  bindExact(tree,"event_id_hi",&eventHi);
+  bindExact(tree,"event_id_lo",&eventLo);
+  bindExact(tree,"candidate_id_hi",&candidateHi);
+  bindExact(tree,"candidate_id_lo",&candidateLo);
+  bindExact(tree,"definition_id_hi",&definitionHi);
+  bindExact(tree,"definition_id_lo",&definitionLo);
+  for(const auto& branch:{"training_view_id_hi","training_view_id_lo",
+                          "source_occurrence_id_hi","source_occurrence_id_lo",
+                          "event_id_hi","event_id_lo","candidate_id_hi",
+                          "candidate_id_lo","definition_id_hi","definition_id_lo",
+                          "cluster_map_key"})
+    requireLeafType(tree,branch,"ULong64_t");
+  requireLeafType(tree,"event_sequence","Long64_t");
   std::set<std::string> definitions;
   std::set<std::pair<std::uint64_t,std::uint64_t>> trainingIds;
   std::pair<std::uint64_t,std::uint64_t> expectedSource{0,0};
@@ -404,6 +622,10 @@ void validateTrainingArtifact(const std::string& path,int expectedFeatureCount,
     require((trainingHi|trainingLo)!=0&&(sourceHi|sourceLo)!=0&&(eventHi|eventLo)!=0&&
             (candidateHi|candidateLo)!=0&&(definitionHi|definitionLo)!=0,
             "source/event/candidate/definition/training identity is null");
+    require(eventSequence==kSerializedTrainingEventSequence&&
+            clusterMapKey==kSerializedTrainingClusterMapKey&&
+            (clusterMapKey&0x8000000000000000ULL)!=0,
+            "training-view signed/unsigned 64-bit high-bit round trip changed");
     const auto rebuiltCandidate=makeIdentity(
         Identity128{eventHi,eventLo}.hex()+"|candidate|0|"+std::to_string(clusterMapKey));
     require(rebuiltCandidate==Identity128{candidateHi,candidateLo},
@@ -441,6 +663,11 @@ int main(int argc,char** argv)
   try
   {
     validateDefaultReplayInventory(argv[1]);
+    const std::string concurrentReplayPath=std::string(argv[1])+".concurrent.root";
+    const std::string concurrentTrainingPath=std::string(argv[1])+".concurrent_training.root";
+    validateConcurrentArtifactTeardown(concurrentReplayPath,concurrentTrainingPath);
+    std::remove(concurrentReplayPath.c_str());
+    std::remove(concurrentTrainingPath.c_str());
     writeTrainingArtifact(argv[2],RJPhotonTrainingViewV1::kSystemPP,20.0,-1.0,1);
     validateTrainingArtifact(argv[2],11,static_cast<int>(ModelApplicability::VALIDATED_DOMAIN),0,1,-1.0,RJPhotonTrainingViewV1::kSystemPP,1);
     writeTrainingArtifact(argv[3],RJPhotonTrainingViewV1::kSystemAuAu,12.0,30.25,-1);
