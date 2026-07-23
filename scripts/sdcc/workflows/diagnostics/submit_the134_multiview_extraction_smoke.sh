@@ -722,6 +722,11 @@ submit_row() {
   local snapshot_dir snapshot_header snapshot_header_sha snapshot_calo snapshot_calo_sha
   local snapshot_analysis snapshot_analysis_sha
   local log_template out_template err_template log_path out_path err_path submitted_args expected_args args_sha
+  local -a materialize_contract_env=(
+    RJ_REPLAY_FOUNDATION_CANARY=1
+    RJ_REPLAY_LANE="$lane"
+    RJ_REPLAY_SCHEMA_SHA256="$RJ_THE134_REPLAY_SCHEMA_SHA256"
+  )
   config="$(manifest_field "$row_id" 12)"
   row_output="$(manifest_field "$row_id" 27)"
   sidecar="$(manifest_field "$row_id" 28)"
@@ -734,7 +739,7 @@ submit_row() {
 
   say "MATERIALIZE row=${row_id} dataset=${dataset} sample=${sample} role=${role}"
   if [[ "$system" == pp ]]; then
-    env \
+    env "${materialize_contract_env[@]}" \
       RJ_CODEX_CHAT_NAME="$RJ_CODEX_CHAT_NAME" RJ_CODEX_THREAD_ID="$RJ_CODEX_THREAD_ID" \
       RJ_SIM_ROOT_OVERRIDE="$sim_root" RJ_CONFIG_YAML="$config" RJ_PP_LIBRARY_OVERRIDE="$library" \
       RJ_PHOTON_CLUSTER_BUILDER_HEADER_OVERRIDE="$photon_cluster_builder_header" \
@@ -756,7 +761,7 @@ submit_row() {
       "$submitter" "$dataset" condorDoAllSmoke groupSize 1 maxJobs 1 "SAMPLE=${sample}" \
       2>&1 | tee "$materialize_log"
   else
-    env \
+    env "${materialize_contract_env[@]}" \
       RJ_CODEX_CHAT_NAME="$RJ_CODEX_CHAT_NAME" RJ_CODEX_THREAD_ID="$RJ_CODEX_THREAD_ID" \
       RJ_SIM_ROOT_OVERRIDE="$sim_root" RJ_CONFIG_YAML="$config" RJ_AUAU_LIBRARY_OVERRIDE="$library" \
       RJ_PHOTON_CLUSTER_BUILDER_HEADER_OVERRIDE="$photon_cluster_builder_header" \
