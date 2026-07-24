@@ -82,7 +82,7 @@ source_provenance_json="${evidence_root}/source_provenance.json"
 pp_source_provenance_json="${evidence_root}/pp_source_provenance.json"
 auau_source_provenance_json="${evidence_root}/auau_source_provenance.json"
 if (( capacity_mode )); then
-  root_health_join_certificate="${evidence_root}/root_health_identity_join_certificate_capacity_v3.json"
+  root_health_join_certificate="${evidence_root}/root_health_identity_join_certificate_capacity_v4.json"
 else
   root_health_join_certificate="${evidence_root}/root_health_identity_join_certificate.json"
 fi
@@ -2852,6 +2852,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import sys
 
 (
@@ -2993,14 +2994,32 @@ if record != expected_record:
     raise SystemExit(
         "capacity source provenance differs from the immutable manifest/receipt"
     )
+source_execution = report.get("source_execution_contract")
+run_match = re.match(r"^run([0-9]+)_", manifest["sample"])
+if (
+    not isinstance(source_execution, dict)
+    or run_match is None
+    or source_execution.get("run") != int(run_match.group(1))
+    or not isinstance(source_execution.get("chunk_index"), int)
+    or source_execution.get("chunk_index", -1) < 0
+    or source_execution.get("args_file")
+    != str(Path(receipt["args_file"]).resolve(strict=True))
+    or source_execution.get("staged_chunk_list")
+    != str(Path(receipt["staged_chunk_list"]).resolve(strict=True))
+    or source_execution.get("submitted_args_sha256")
+    != receipt["submitted_args_sha256"]
+):
+    raise SystemExit(
+        "capacity source execution contract differs from the sealed root/receipt authority"
+    )
 source_contract = report.get("source_contract")
 expected_source_contract = {
     "lane": manifest["lane"],
     "dataset": manifest["dataset"],
     "sample": manifest["sample"],
     "period": expected_pp_period if expected_system == "pp" else "AUAU_RUN24",
-    "run": 0,
-    "segment": 0,
+    "run": source_execution["run"],
+    "segment": source_execution["chunk_index"],
     "si_di_role": "SI" if expected_system == "pp" else "EMBEDDED",
     "ownership_state": "source_role_frozen",
     "input_uri_hash": receipt["staged_chunk_sha256"],
@@ -3098,6 +3117,7 @@ payload = {
     "source_occurrence_count": 1,
     "source_occurrence_id_hex": source_occurrence_id_hex,
     "source_identity_canonical_sha256": source_identity_canonical_sha256,
+    "source_execution_contract": source_execution,
     "execution_group_size": 7,
     "source_occurrences_per_output": 1,
     "class_balance_state": "NOT_APPLICABLE_CAPACITY_NON_TRAINING",
@@ -3330,6 +3350,8 @@ for expected_system, expected_row_id, audit_path in expected_audits:
         or audit.get("row_id") != expected_row_id
         or audit.get("population_state") != root_report.get("population_state")
         or audit.get("source_contract") != root_report.get("source_contract")
+        or audit.get("source_execution_contract")
+        != root_report.get("source_execution_contract")
         or audit.get("source_occurrence_id_hex")
         != root_report.get("source_occurrence_id_hex")
         or audit.get("source_identity_canonical_sha256")

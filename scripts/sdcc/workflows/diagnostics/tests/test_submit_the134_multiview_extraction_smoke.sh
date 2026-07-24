@@ -231,7 +231,13 @@ lane = "background"
 dataset = "run28" if system == "pp" else "run28auau"
 period = "0mrad" if system == "pp" else "AUAU_RUN24"
 role = "SI" if system == "pp" else "EMBEDDED"
-chunk_sha = "b" * 64
+chunk_path = base / "chunk.list"
+chunk_path.write_text("fixture input tuple\n")
+chunk_sha = hashlib.sha256(chunk_path.read_bytes()).hexdigest()
+args_path = base / "job.args"
+args_line = f"{sample} {chunk_path} {dataset} 123 0 1 NONE {base / 'output'}"
+args_path.write_text(args_line + "\n")
+submitted_args_sha = hashlib.sha256(f"0 {args_line}\n".encode()).hexdigest()
 manifest_sha = "c" * 64
 config_sha = "d" * 64
 code_sha = "e" * 64
@@ -240,8 +246,8 @@ source_contract = {
     "dataset": dataset,
     "sample": sample,
     "period": period,
-    "run": 0,
-    "segment": 0,
+    "run": 28,
+    "segment": 1,
     "si_di_role": role,
     "ownership_state": "source_role_frozen",
     "input_uri_hash": chunk_sha,
@@ -281,6 +287,13 @@ report = {
     "sidecar_candidates": candidates,
     "joined_sidecar_rows": entries,
     "source_contract": source_contract,
+    "source_execution_contract": {
+        "args_file": str(args_path.resolve()),
+        "chunk_index": 1,
+        "run": 28,
+        "staged_chunk_list": str(chunk_path.resolve()),
+        "submitted_args_sha256": submitted_args_sha,
+    },
     "source_occurrence_id_hex": source_id,
     "source_identity_canonical_sha256": identity_sha,
 }
@@ -315,12 +328,16 @@ with (base / "manifest.tsv").open("w", newline="") as stream:
 with (base / "receipt.tsv").open("w", newline="") as stream:
     writer = csv.DictWriter(stream, fieldnames=[
         "row_id", "multiview_sidecar", "staged_chunk_sha256",
+        "args_file", "staged_chunk_list", "submitted_args_sha256",
     ], delimiter="\t")
     writer.writeheader()
     writer.writerow({
         "row_id": row_id,
         "multiview_sidecar": str(sidecar),
         "staged_chunk_sha256": chunk_sha,
+        "args_file": str(args_path),
+        "staged_chunk_list": str(chunk_path),
+        "submitted_args_sha256": submitted_args_sha,
     })
 (base / "provenance.json").write_text(json.dumps({
     "schema": "THE134_SOURCE_PROVENANCE_V1",
@@ -350,7 +367,7 @@ pp_period=0mrad
 
 empty_fixture="${tmpdir}/capacity-empty"
 make_capacity_audit_fixture \
-  "$empty_fixture" VALID_EMPTY pp pp_background_jet8 Jet8
+  "$empty_fixture" VALID_EMPTY pp pp_background_jet8 run28_jet8
 root_health_join_certificate="${empty_fixture}/root.json"
 submission_receipt="${empty_fixture}/receipt.tsv"
 submission_manifest="${empty_fixture}/manifest.tsv"
@@ -389,7 +406,7 @@ fi
 
 populated_fixture="${tmpdir}/capacity-populated"
 make_capacity_audit_fixture \
-  "$populated_fixture" POPULATED auau auau_background_jet12 Jet12
+  "$populated_fixture" POPULATED auau auau_background_jet12 run28_embeddedJet12
 root_health_join_certificate="${populated_fixture}/root.json"
 submission_receipt="${populated_fixture}/receipt.tsv"
 submission_manifest="${populated_fixture}/manifest.tsv"
@@ -792,11 +809,12 @@ def validate(text: str) -> None:
         'RJ_THE134_CAPACITY_RUNTIME_AUTHORITY_SHA256',
         'validate_capacity_postrun_authority',
         'write_runtime_authority_manifest verify',
-        'root_health_identity_join_certificate_capacity_v3.json',
+        'root_health_identity_join_certificate_capacity_v4.json',
         '"validation_authority": validation_authority',
         'submitted argument identity differs from the sealed receipt',
         'source sample lacks the frozen run prefix',
         '"source_execution_contract": source_execution',
+        'capacity source execution contract differs from the sealed root/receipt authority',
         'capacity validation forbids an alternate matrix-preparer path',
         '"file_validator": {',
         '"schema": "THE134_CAPACITY_MULTIVIEW_MATRIX_AUDIT_V1"',
