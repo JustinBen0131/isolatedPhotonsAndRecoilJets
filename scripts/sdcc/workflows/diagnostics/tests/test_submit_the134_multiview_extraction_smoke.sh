@@ -5,8 +5,8 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../.." && pwd -P)"
 controller="${repo_root}/scripts/sdcc/workflows/diagnostics/submit_the134_multiview_extraction_smoke.sh"
 
 bash -n "$controller"
-if grep -Eq '^[[:space:]]*say(\(\))?[[:space:]]' "$controller"; then
-  printf 'forbidden macOS text-to-speech command name in controller: %s\n' "$controller" >&2
+if grep -Eq '(^|[^[:alnum:]_])(/usr/bin/)?(say|afplay)([^[:alnum:]_]|$)|osascript|NSSound' "$controller"; then
+  printf 'forbidden local audio command in controller: %s\n' "$controller" >&2
   exit 1
 fi
 
