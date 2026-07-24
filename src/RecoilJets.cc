@@ -6622,6 +6622,182 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
     const double sliceFactor = ppPhotonSliceContext
         ? (ppg12PhotonSliceXsecPb(ppPhotonSlice) / kPPG12Photon20CrossPb)
         : (ppg12InclusiveJetSliceXsecPb(ppInclusiveJetSliceForWeight) / kPPG12Jet50CrossPb);
+
+    // THE-134 V13 diagnostic-only pre-weight truth-label observer.
+    //
+    // The V12 foreground diagnostic intentionally ran without the canonical
+    // PPG12 yield/period-weight contract, so accepted PhotonJet20 stitch
+    // events stopped at configurePPG12SimEventWeight() before reaching
+    // processCandidates().  When explicitly requested, inspect the current
+    // photon container here using the same truth-map and cluster-truth-track
+    // classifier used by processCandidates().  This observer is read-only:
+    // it does not fill ROOT objects, mutate candidate state, or bypass the
+    // unchanged weight gate below.
+    const bool the134TruthLabelDiagnostic =
+        RJReplayRuntimeV1::envEnabled(
+            "RJ_THE134_TRUTH_LABEL_PREWEIGHT_DIAGNOSTIC_V1");
+    if (the134TruthLabelDiagnostic &&
+        ppPhotonSliceContext &&
+        ppPhotonSlice == PPG12PhotonSlice::kPhoton20)
+    {
+      PHHepMCGenEventMap* hepmcmap =
+          findNode::getClass<PHHepMCGenEventMap>(topNode, "PHHepMCGenEventMap");
+      PHHepMCGenEvent* selectedHepMC = nullptr;
+      int selectedMapKey = std::numeric_limits<int>::min();
+      int selectedEmbeddingId = std::numeric_limits<int>::min();
+      std::size_t hepmcMapSize = 0;
+
+      if (hepmcmap)
+      {
+        hepmcMapSize = hepmcmap->size();
+        selectedHepMC = hepmcmap->get(0);
+        if (selectedHepMC)
+        {
+          selectedMapKey = 0;
+        }
+        else
+        {
+          selectedHepMC = hepmcmap->get(1);
+          if (selectedHepMC)
+          {
+            selectedMapKey = 1;
+          }
+        }
+        if (!selectedHepMC && !hepmcmap->empty())
+        {
+          selectedMapKey = hepmcmap->begin()->first;
+          selectedHepMC = hepmcmap->begin()->second;
+        }
+        if (selectedHepMC)
+        {
+          selectedEmbeddingId = selectedHepMC->get_embedding_id();
+        }
+      }
+
+      HepMC::GenEvent* selectedEvent =
+          selectedHepMC ? selectedHepMC->getEvent() : nullptr;
+
+      std::unique_ptr<CaloRawClusterEval> clustereval(
+          new CaloRawClusterEval(topNode, "CEMC"));
+      clustereval->set_usetowerinfo(true);
+      clustereval->next_event(topNode);
+      if (!clustereval->has_reduced_node_pointers())
+      {
+        clustereval->set_usetowerinfo(false);
+        clustereval->next_event(topNode);
+      }
+      const bool haveCaloEval = clustereval->has_reduced_node_pointers();
+
+      TruthSignalPhotonMap truthSignalByTrackId;
+      if (m_ppg12PhotonYieldEnabled)
+      {
+        truthSignalByTrackId = buildPPG12TruthSignalPhotonMap(topNode);
+      }
+      else if (selectedEvent)
+      {
+        truthSignalByTrackId = buildPPG12TruthSignalPhotonMap(selectedEvent);
+      }
+
+      std::size_t candidateCount = 0;
+      if (m_photons)
+      {
+        const auto range = m_photons->getClusters();
+        for (auto it = range.first; it != range.second; ++it)
+        {
+          ++candidateCount;
+        }
+      }
+
+      std::cout
+          << "THE134_PPG12_TRUTH_LABEL_PREWEIGHT_DIAG_V1"
+          << " stage=PRE_WEIGHT_GATE"
+          << " record=EVENT_CONTEXT"
+          << " event=" << event_count
+          << " sample=" << ppg12PhotonSliceName(ppPhotonSlice)
+          << " lane_code=" << laneCode
+          << " photon_yield_enabled=" << (m_ppg12PhotonYieldEnabled ? 1 : 0)
+          << " period_contract_enabled=" << (m_ppg12PeriodContractEnabled ? 1 : 0)
+          << " weight_gate_bypass=0"
+          << " photon_container_present=" << (m_photons ? 1 : 0)
+          << " candidate_count=" << candidateCount
+          << " hepmc_map_size=" << hepmcMapSize
+          << " selected_map_key=" << selectedMapKey
+          << " selected_embedding_id=" << selectedEmbeddingId
+          << " hepmc_event_present=" << (selectedEvent ? 1 : 0)
+          << " calo_eval_present=" << (haveCaloEval ? 1 : 0)
+          << " strict_signal_map_size=" << truthSignalByTrackId.size()
+          << std::endl;
+
+      if (m_photons)
+      {
+        const auto range = m_photons->getClusters();
+        int candidateIndex = 0;
+        for (auto it = range.first; it != range.second; ++it, ++candidateIndex)
+        {
+          const RawCluster* rc = it->second;
+          const auto* photon = dynamic_cast<const PhotonClusterv1*>(rc);
+          const double recoEt = photon
+              ? photon->get_shower_shape_parameter("cluster_pt")
+              : std::numeric_limits<double>::quiet_NaN();
+
+          TruthSignalPhotonInfo matchedTruth;
+          int truthTrackId = -1;
+          float truthEContrib = std::numeric_limits<float>::lowest();
+          bool isPPG12Signal = false;
+          if (haveCaloEval && rc)
+          {
+            isPPG12Signal =
+                classifyRecoPhotonWithPPG12TruthTrack(rc,
+                                                      *clustereval,
+                                                      truthSignalByTrackId,
+                                                      matchedTruth,
+                                                      truthTrackId,
+                                                      truthEContrib);
+          }
+
+          const char* reason = "CALO_EVAL_UNAVAILABLE";
+          if (!rc)
+          {
+            reason = "NULL_CLUSTER";
+          }
+          else if (haveCaloEval)
+          {
+            if (truthSignalByTrackId.empty())
+            {
+              reason = "EMPTY_SIGNAL_MAP";
+            }
+            else if (truthEContrib == std::numeric_limits<float>::lowest())
+            {
+              reason = "NO_MAX_PRIMARY";
+            }
+            else if (isPPG12Signal)
+            {
+              reason = "MATCH";
+            }
+            else
+            {
+              reason = "PRIMARY_NOT_IN_MAP";
+            }
+          }
+
+          std::ostringstream diagnosticLine;
+          diagnosticLine
+              << "THE134_PPG12_TRUTH_LABEL_PREWEIGHT_DIAG_V1"
+              << " stage=PRE_WEIGHT_GATE"
+              << " record=CANDIDATE"
+              << " event=" << event_count
+              << " candidate_index=" << candidateIndex
+              << " reco_et=" << std::setprecision(17) << recoEt
+              << " reason=" << reason
+              << " truth_track_id=" << truthTrackId
+              << " truth_energy_contribution=" << truthEContrib
+              << " strict_signal_map_size=" << truthSignalByTrackId.size();
+          std::cout << diagnosticLine.str() << std::endl;
+        }
+      }
+    }
+    // End THE-134 V13 diagnostic-only pre-weight truth-label observer.
+
     if (!configurePPG12SimEventWeight(sliceFactor, laneCode))
     {
       return Fun4AllReturnCodes::ABORTEVENT;
