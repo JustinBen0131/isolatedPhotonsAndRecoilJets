@@ -120,7 +120,7 @@ else
 fi
 readonly training_schema_text='RJ_PHOTON_TRAINING_VIEW_V1|tree=RJPhotonTrainingViewV1|identity=source,event,candidate,definition|source_stable_inputs=lane,dataset,sample,period,run,segment,input_uri,input_file,manifest|event_stable_inputs=lane,sample,run,segment,event_sequence|candidate_stable_inputs=event,encounter_ordinal,cluster_map_key|features=ordered+contract|labels=truth+source+npb|weights=component-ledger|domain=15to35'
 
-say() { printf '[THE134-EXTRACT] %s\n' "$*"; }
+log_line() { printf '[THE134-EXTRACT] %s\n' "$*"; }
 die() { printf '[THE134-EXTRACT][ERROR] %s\n' "$*" >&2; exit 2; }
 sha256_cmd() {
   if command -v sha256sum >/dev/null 2>&1; then
@@ -1021,9 +1021,9 @@ preflight() {
   bash -n "$pp_executor"
   bash -n "$auau_executor"
   if (( capacity_mode )); then
-    say "CAPACITY_PREFLIGHT_PASS selected_rows=${execution_row_count} group_size=${execution_group_size} full_manifest_rows=13 manifest=${submission_manifest} fingerprint=$(cat "$duplicate_fingerprint")"
+    log_line "CAPACITY_PREFLIGHT_PASS selected_rows=${execution_row_count} group_size=${execution_group_size} full_manifest_rows=13 manifest=${submission_manifest} fingerprint=$(cat "$duplicate_fingerprint")"
   else
-    say "PREFLIGHT_PASS rows=13 manifest=${submission_manifest} fingerprint=$(cat "$duplicate_fingerprint")"
+    log_line "PREFLIGHT_PASS rows=13 manifest=${submission_manifest} fingerprint=$(cat "$duplicate_fingerprint")"
   fi
 }
 
@@ -1800,14 +1800,14 @@ submit_row() {
   row_log="${evidence_root}/submit_${row_id}.log"
 
   if [[ "$materialization_disposition" == reuse ]]; then
-    say "MATERIALIZE_REUSE row=${row_id} attempt=$(basename "$row_submit")"
+    log_line "MATERIALIZE_REUSE row=${row_id} attempt=$(basename "$row_submit")"
     verify_materialization_attempt_seal "$row_submit"
     stored_contract="$(cat "${row_submit}/materialization_contract.tsv")"
     contract="$(verify_materialized_row_contract "$row_id" "$system" "$dataset" "$sample" "$row_output" "$sidecar" "$row_submit")"
     [[ "$contract" == "$stored_contract" ]] ||
       die "${row_id} sealed materialization contract differs from exact readback"
   else
-    say "MATERIALIZE row=${row_id} dataset=${dataset} sample=${sample} role=${role} attempt=$(basename "$row_submit")"
+    log_line "MATERIALIZE row=${row_id} dataset=${dataset} sample=${sample} role=${role} attempt=$(basename "$row_submit")"
     if [[ "$system" == pp ]]; then
       env -u RJ_FORCE_RELEASE_CORE_LIBS -u RJ_FORCE_RELEASE_CALO_IO -u RJ_RELEASE_CALO_IO_PATH \
         -u RJ_PPG12_CROSSING_PERIOD -u RJ_PPG12_PHOTON_YIELD_MIX_WEIGHT \
@@ -1905,7 +1905,7 @@ submit_row() {
     snapshot_loader_receipt snapshot_loader_receipt_sha snapshot_manifest snapshot_manifest_sha <<< "$contract"
 
   command -v condor_submit >/dev/null 2>&1 || die "condor_submit is required after successful dry materialization"
-  say "SUBMIT row=${row_id} descriptor=${submit_file} analysis_root=${analysis_root}"
+  log_line "SUBMIT row=${row_id} descriptor=${submit_file} analysis_root=${analysis_root}"
   env -u RJ_DAG_DRYRUN -u RJ_THE134_MULTIVIEW_TRAINING_FILE \
     -u RJ_ID_FANOUT_FILE -u RJ_ID_FANOUT_DIRS_FILE \
     condor_submit "$submit_file" 2>&1 | tee "$row_log"
@@ -2028,7 +2028,7 @@ payload = json.load(open(sys.argv[1]))
 assert payload["schema"] == "THE134_SOURCE_PROVENANCE_V1"
 assert len(payload["inputs"]) == int(sys.argv[2])
 PY
-  say "SUBMISSION_PASS rows=${execution_row_count} group_size=${execution_group_size} capacity_mode=${capacity_mode} receipt=${submission_receipt}"
+  log_line "SUBMISSION_PASS rows=${execution_row_count} group_size=${execution_group_size} capacity_mode=${capacity_mode} receipt=${submission_receipt}"
 }
 
 resume_submit() {
@@ -2040,7 +2040,7 @@ resume_submit() {
     if table_has_row "$submission_journal" "$row_id"; then
       table_has_row "$submission_receipt" "$row_id" ||
         die "${row_id} has a submitted cluster but an incomplete receipt; preserve evidence and recover manually without resubmission"
-      say "RESUME_SKIP already_submitted=${row_id} cluster=$(awk -F'\t' -v row="$row_id" '$1==row {print $2}' "$submission_journal")"
+      log_line "RESUME_SKIP already_submitted=${row_id} cluster=$(awk -F'\t' -v row="$row_id" '$1==row {print $2}' "$submission_journal")"
       continue
     fi
     row_log="${evidence_root}/submit_${row_id}.log"
@@ -2055,14 +2055,14 @@ resume_submit() {
     die "resumed submission receipt must contain exactly 28 tab-separated fields on every row"
   [[ "$(wc -l < "$submission_journal" | tr -d ' ')" == "$((execution_row_count + 1))" ]] ||
     die "resumed submission journal is incomplete"
-  say "RESUME_SUBMISSION_PASS rows=${execution_row_count} group_size=${execution_group_size} receipt=${submission_receipt}"
+  log_line "RESUME_SUBMISSION_PASS rows=${execution_row_count} group_size=${execution_group_size} receipt=${submission_receipt}"
 }
 
 status() {
   [[ -s "$submission_manifest" ]] || die "preflight manifest is missing: ${submission_manifest}"
-  say "manifest=${submission_manifest} fingerprint=$(cat "$duplicate_fingerprint")"
+  log_line "manifest=${submission_manifest} fingerprint=$(cat "$duplicate_fingerprint")"
   if [[ ! -s "$submission_journal" ]]; then
-    say "no submission journal; no owned Condor row is declared"
+    log_line "no submission journal; no owned Condor row is declared"
     return 0
   fi
   while IFS=$'\t' read -r row_id cluster_proc _submit_log _submitted_at; do
@@ -3190,7 +3190,7 @@ PY
 
   case "$audit_state" in
     CAPACITY_AUDITED)
-      say "CAPACITY_MULTIVIEW_AUDIT_PASS row=${row_id} system=${system} matrix_materialized=0 full_training_authority=0 audit=${audit_out}"
+      log_line "CAPACITY_MULTIVIEW_AUDIT_PASS row=${row_id} system=${system} matrix_materialized=0 full_training_authority=0 audit=${audit_out}"
       ;;
     *)
       die "unexpected capacity audit state for ${row_id}: ${audit_state}"
@@ -3638,9 +3638,9 @@ PY
 
   write_capacity_resource_certificate
   if (( capacity_mode )); then
-    say "CAPACITY_VALIDATION_PASS selected_rows=${execution_row_count} group_size=${execution_group_size} full_training_authority=0 capacity_certificate=${capacity_resource_certificate} root_join_certificate=${root_health_join_certificate}"
+    log_line "CAPACITY_VALIDATION_PASS selected_rows=${execution_row_count} group_size=${execution_group_size} full_training_authority=0 capacity_certificate=${capacity_resource_certificate} root_join_certificate=${root_health_join_certificate}"
   else
-    say "SMOKE_VALIDATION_PASS source_categories=13 full_training_authority=0 root_join_certificate=${root_health_join_certificate} pp_audit=${evidence_root}/pp_h70_source_complete_smoke_audit.json auau_audit=${evidence_root}/auau_h70_source_complete_smoke_audit.json"
+    log_line "SMOKE_VALIDATION_PASS source_categories=13 full_training_authority=0 root_join_certificate=${root_health_join_certificate} pp_audit=${evidence_root}/pp_h70_source_complete_smoke_audit.json auau_audit=${evidence_root}/auau_h70_source_complete_smoke_audit.json"
   fi
 }
 

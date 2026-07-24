@@ -5,13 +5,18 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../.." && pwd -P)"
 controller="${repo_root}/scripts/sdcc/workflows/diagnostics/submit_the134_multiview_extraction_smoke.sh"
 
 bash -n "$controller"
+if grep -Eq '^[[:space:]]*say(\(\))?[[:space:]]' "$controller"; then
+  printf 'forbidden macOS text-to-speech command name in controller: %s\n' "$controller" >&2
+  exit 1
+fi
 
 tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/the134-tuple-contract.XXXXXX")"
 trap 'chmod -R u+w "$tmpdir" 2>/dev/null || true; rm -rf "$tmpdir"' EXIT
 die() { return 2; }
 # Extracted controller helpers call the controller's text logger. Keep that
-# logger local to the test so macOS never resolves `say` to text-to-speech.
-say() { :; }
+# logger local to the test and use a name that cannot resolve to a macOS
+# text-to-speech command.
+log_line() { :; }
 sha_file() {
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$1" | awk '{print $1}'
