@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import importlib.util
 import json
@@ -44,6 +45,20 @@ def values_for_key(payload: object, expected_key: str) -> list[object]:
         for value in payload:
             values.extend(values_for_key(value, expected_key))
     return values
+
+
+def synthetic_tuples(count: int) -> list[dict[str, object]]:
+    return [
+        {
+            "tuple_index": index,
+            "physical_line": index + 1,
+            "inputs": {
+                role: f"/inputs/synthetic/{role}/file_{index:06d}.root"
+                for role in resolver.LIST_ROLES
+            },
+        }
+        for index in range(count)
+    ]
 
 
 class ResolverFixture:
@@ -198,12 +213,13 @@ class ResolverFixture:
                     "system": row["system"],
                     "sample": row["sample"],
                     "input_lists": input_lists,
-                    "expected_input_count": 2,
-                    "expected_occurrence_count": 2,
+                    "tuple_count": 2,
                     "tuple_records_sha256": tuple_records_sha,
                     "full_source_manifest_sha256": canonical_sha256(
                         source_semantic_payload
                     ),
+                    "first_tuple_sha256": canonical_sha256(tuples[0]),
+                    "last_tuple_sha256": canonical_sha256(tuples[-1]),
                 }
             )
         payload = {
@@ -378,8 +394,25 @@ class TestFullExtractionResolver(unittest.TestCase):
                 all(
                     row["input_contract"]["group_size"] == 7
                     and row["input_contract"]["expected_job_count"] == 1
-                    and row["input_contract"]["expected_output_count"] == 1
-                    and row["input_contract"]["tuple_count"] == 2
+                    and row["input_contract"]["expected_chunk_count"] == 1
+                    and row["input_contract"]["expected_output_pair_count"] == 1
+                    and row["input_contract"][
+                        "expected_analysis_output_count"
+                    ]
+                    == 1
+                    and row["input_contract"][
+                        "expected_sidecar_output_count"
+                    ]
+                    == 1
+                    and row["input_contract"][
+                        "expected_source_occurrence_count"
+                    ]
+                    == 1
+                    and row["input_contract"][
+                        "source_occurrences_per_output_pair"
+                    ]
+                    == 1
+                    and row["input_contract"]["source_tuple_count"] == 2
                     for row in rows
                 )
             )
@@ -392,21 +425,38 @@ class TestFullExtractionResolver(unittest.TestCase):
                     for row in rows
                 )
             )
+            partition = plan["execution_partition"]
             self.assertEqual(
-                plan["execution_partition"],
-                {
-                    "schema": "THE134_FULL_EXTRACTION_PARTITION_CONTRACT_V1",
-                    "group_size": 7,
-                    "tuple_count": 26,
-                    "expected_job_count": 13,
-                    "expected_output_count": 13,
-                    "basis": (
-                        "existing_submitter_canonical_default_seven_files_per_job"
-                    ),
-                    "capacity_canary_required_before_submission": True,
-                    "capacity_authority_earned": False,
-                },
+                partition["schema"],
+                "THE134_FULL_EXTRACTION_PARTITION_CONTRACT_V2",
             )
+            self.assertEqual(partition["group_size"], 7)
+            self.assertEqual(partition["source_tuple_count"], 26)
+            self.assertEqual(partition["expected_chunk_count"], 13)
+            self.assertEqual(partition["expected_job_count"], 13)
+            self.assertEqual(partition["expected_output_pair_count"], 13)
+            self.assertEqual(partition["expected_analysis_output_count"], 13)
+            self.assertEqual(partition["expected_sidecar_output_count"], 13)
+            self.assertEqual(
+                partition["expected_physical_root_artifact_count"], 26
+            )
+            self.assertEqual(
+                partition["expected_source_occurrence_count"], 13
+            )
+            self.assertEqual(
+                partition["source_occurrences_per_output_pair"], 1
+            )
+            self.assertEqual(
+                partition["partition_artifact"]["record_count"], 13
+            )
+            self.assertEqual(
+                partition["partition_artifact"]["sha256"],
+                sha256_file(first / "the134_full_extraction_partition.jsonl"),
+            )
+            self.assertTrue(
+                partition["capacity_canary_required_before_submission"]
+            )
+            self.assertFalse(partition["capacity_authority_earned"])
             self.assertTrue(
                 all(
                     "$(Cluster).$(Process).root"
@@ -499,12 +549,175 @@ class TestFullExtractionResolver(unittest.TestCase):
             )
             self.assertEqual(
                 (
+                    first / "the134_full_extraction_partition.jsonl"
+                ).read_bytes(),
+                (
+                    second / "the134_full_extraction_partition.jsonl"
+                ).read_bytes(),
+            )
+            self.assertEqual(
+                (
                     first / "the134_full_extraction_plan.json"
                 ).read_bytes(),
                 (
                     second / "the134_full_extraction_plan.json"
                 ).read_bytes(),
             )
+
+    def test_partition_boundaries_and_real_projection_are_exact(self) -> None:
+        expected = {
+            1: (1, 1),
+            7: (1, 7),
+            8: (2, 1),
+            14: (2, 7),
+        }
+        for tuple_count, (chunk_count, tail_count) in expected.items():
+            with self.subTest(tuple_count=tuple_count):
+                tuples = synthetic_tuples(tuple_count)
+                summary, chunks = resolver.build_source_partition(
+                    "synthetic_row",
+                    tuples,
+                    full_source_manifest_sha256="a" * 64,
+                )
+                self.assertEqual(summary["source_tuple_count"], tuple_count)
+                self.assertEqual(summary["expected_chunk_count"], chunk_count)
+                self.assertEqual(summary["expected_job_count"], chunk_count)
+                self.assertEqual(
+                    summary["expected_output_pair_count"], chunk_count
+                )
+                self.assertEqual(
+                    summary["expected_source_occurrence_count"], chunk_count
+                )
+                self.assertEqual(summary["tail_tuple_count"], tail_count)
+                self.assertEqual(
+                    sum(chunk["tuple_count"] for chunk in chunks),
+                    tuple_count,
+                )
+                resolver.validate_source_partition(summary, chunks, tuples)
+
+        source_tuple_counts = [10_000] * 12 + [9_998]
+        self.assertEqual(sum(source_tuple_counts), 129_998)
+        self.assertEqual(
+            sum(
+                (tuple_count + resolver.GROUP_SIZE - 1)
+                // resolver.GROUP_SIZE
+                for tuple_count in source_tuple_counts
+            ),
+            18_577,
+        )
+        self.assertEqual(10_000 % resolver.GROUP_SIZE, 4)
+        self.assertEqual(9_998 % resolver.GROUP_SIZE, 2)
+
+    def test_partition_mutations_are_rejected(self) -> None:
+        tuples = synthetic_tuples(8)
+        summary, chunks = resolver.build_source_partition(
+            "synthetic_row",
+            tuples,
+            full_source_manifest_sha256="b" * 64,
+        )
+        mutations = []
+
+        duplicate_member = copy.deepcopy(chunks)
+        duplicate_member[1]["tuple_input_sha256s"][0] = duplicate_member[0][
+            "tuple_input_sha256s"
+        ][0]
+        mutations.append(duplicate_member)
+
+        omitted_member = copy.deepcopy(chunks)
+        omitted_member[0]["tuple_input_sha256s"].pop()
+        mutations.append(omitted_member)
+
+        reordered_member = copy.deepcopy(chunks)
+        reordered_member[0]["tuple_input_sha256s"][0:2] = reversed(
+            reordered_member[0]["tuple_input_sha256s"][0:2]
+        )
+        mutations.append(reordered_member)
+
+        gapped_bounds = copy.deepcopy(chunks)
+        gapped_bounds[1]["tuple_index_start"] = 8
+        mutations.append(gapped_bounds)
+
+        wrong_segment = copy.deepcopy(chunks)
+        wrong_segment[1]["segment"] = 1
+        mutations.append(wrong_segment)
+
+        extra_chunk_field = copy.deepcopy(chunks)
+        extra_chunk_field[0]["unexpected"] = "not allowed"
+        mutations.append(extra_chunk_field)
+
+        for index, mutated_chunks in enumerate(mutations):
+            with self.subTest(mutation=index):
+                with self.assertRaises(resolver.ControllerError):
+                    resolver.validate_source_partition(
+                        copy.deepcopy(summary),
+                        mutated_chunks,
+                        tuples,
+                    )
+
+        mutated_tuples = synthetic_tuples(8)
+        mutated_tuples[3]["inputs"]["jets"] = "/inputs/drift/jets.root"
+        with self.assertRaises(resolver.ControllerError):
+            resolver.validate_source_partition(
+                copy.deepcopy(summary),
+                copy.deepcopy(chunks),
+                mutated_tuples,
+            )
+
+        source = {"row_id": "synthetic_row", "_chunks": chunks}
+        global_chunks = []
+        for global_index, chunk in enumerate(chunks):
+            record = {**chunk, "global_chunk_index": global_index}
+            record["execution_chunk_sha256"] = canonical_sha256(record)
+            global_chunks.append(record)
+        resolver.validate_ordered_partition_chunks(global_chunks, [source])
+        for mutated_global in (
+            list(reversed(copy.deepcopy(global_chunks))),
+            copy.deepcopy(global_chunks[:-1]),
+        ):
+            with self.assertRaises(resolver.ControllerError):
+                resolver.validate_ordered_partition_chunks(
+                    mutated_global, [source]
+                )
+        bad_global_digest = copy.deepcopy(global_chunks)
+        bad_global_digest[0]["execution_chunk_sha256"] = "0" * 64
+        with self.assertRaises(resolver.ControllerError):
+            resolver.validate_ordered_partition_chunks(
+                bad_global_digest, [source]
+            )
+        extra_global_field = copy.deepcopy(global_chunks)
+        extra_global_field[0]["unexpected"] = "not allowed"
+        with self.assertRaises(resolver.ControllerError):
+            resolver.validate_ordered_partition_chunks(
+                extra_global_field, [source]
+            )
+        extra_summary_field = copy.deepcopy(summary)
+        extra_summary_field["unexpected"] = "not allowed"
+        with self.assertRaises(resolver.ControllerError):
+            resolver.validate_source_partition(
+                extra_summary_field,
+                copy.deepcopy(chunks),
+                tuples,
+            )
+
+    def test_v2_source_rejects_ambiguous_execution_count_aliases(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture = ResolverFixture(root / "fixture")
+            payload = json.loads(fixture.sources.read_text())
+            payload["rows"][0]["expected_input_count"] = 2
+            payload["rows"][0]["expected_occurrence_count"] = 2
+            fixture.sources.write_text(
+                json.dumps(payload, indent=2, sort_keys=True) + "\n"
+            )
+            out_dir = root / "resolved"
+            result = self.run_command(
+                fixture.command(out_dir), expected_returncode=2
+            )
+            self.assertIn(
+                "V2 source authority contains ambiguous execution-count aliases",
+                result.stderr,
+            )
+            self.assertFalse(out_dir.exists())
 
     def test_preflight_authority_mutations_are_rejected(self) -> None:
         valid = {
@@ -782,6 +995,8 @@ class TestFullExtractionResolver(unittest.TestCase):
             second["full_source_manifest_sha256"] = canonical_sha256(
                 second_semantic
             )
+            second["first_tuple_sha256"] = canonical_sha256(tuples[0])
+            second["last_tuple_sha256"] = canonical_sha256(tuples[-1])
             fixture.sources.write_text(
                 json.dumps(payload, indent=2, sort_keys=True) + "\n"
             )

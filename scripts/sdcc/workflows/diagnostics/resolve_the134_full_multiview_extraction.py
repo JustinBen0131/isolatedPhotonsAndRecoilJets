@@ -56,13 +56,57 @@ BUNDLE_SCHEMA = "THE134_FULL_EXTRACTION_IMMUTABLE_BUNDLE_V1"
 MATERIALIZATION_SCHEMA = (
     "THE134_IMMUTABLE_BUILD_BUNDLE_MATERIALIZATION_V1"
 )
-SOURCE_SCHEMA = "THE134_FULL_EXTRACTION_SOURCE_AUTHORITY_V1"
-PLAN_SCHEMA = "THE134_FULL_MULTIVIEW_EXTRACTION_PLAN_V1"
-ROW_SCHEMA = "THE134_FULL_MULTIVIEW_EXTRACTION_ROW_V1"
-RECEIPT_SCHEMA = "THE134_FULL_MULTIVIEW_EXTRACTION_PREFLIGHT_RECEIPT_V1"
+SOURCE_SCHEMA = "THE134_FULL_EXTRACTION_SOURCE_AUTHORITY_V2"
+PLAN_SCHEMA = "THE134_FULL_MULTIVIEW_EXTRACTION_PLAN_V2"
+ROW_SCHEMA = "THE134_FULL_MULTIVIEW_EXTRACTION_ROW_V2"
+RECEIPT_SCHEMA = "THE134_FULL_MULTIVIEW_EXTRACTION_PREFLIGHT_RECEIPT_V2"
 DUPLICATE_SCHEMA = "THE134_FULL_MULTIVIEW_EXTRACTION_DUPLICATE_CONTRACT_V1"
-EXECUTION_SCHEMA = "THE134_FULL_MULTIVIEW_EXTRACTION_EXECUTION_CONTRACT_V1"
-PARTITION_SCHEMA = "THE134_FULL_EXTRACTION_PARTITION_CONTRACT_V1"
+EXECUTION_SCHEMA = "THE134_FULL_MULTIVIEW_EXTRACTION_EXECUTION_CONTRACT_V2"
+PARTITION_SCHEMA = "THE134_FULL_EXTRACTION_PARTITION_CONTRACT_V2"
+ROW_PARTITION_SCHEMA = "THE134_FULL_EXTRACTION_ROW_PARTITION_V1"
+CHUNK_SCHEMA = "THE134_FULL_EXTRACTION_CHUNK_V1"
+CHUNK_KEYS = frozenset(
+    {
+        "schema",
+        "row_id",
+        "full_source_manifest_sha256",
+        "group_size",
+        "chunk_index",
+        "segment",
+        "tuple_index_start",
+        "tuple_index_end_exclusive",
+        "tuple_count",
+        "physical_lines",
+        "tuple_input_sha256s",
+        "tuple_records_sha256",
+        "chunk_fingerprint_sha256",
+    }
+)
+ROW_PARTITION_KEYS = frozenset(
+    {
+        "schema",
+        "row_id",
+        "full_source_manifest_sha256",
+        "group_size",
+        "source_tuple_count",
+        "expected_chunk_count",
+        "expected_job_count",
+        "expected_output_pair_count",
+        "expected_analysis_output_count",
+        "expected_sidecar_output_count",
+        "expected_source_occurrence_count",
+        "source_occurrences_per_output_pair",
+        "tail_tuple_count",
+        "first_chunk_sha256",
+        "last_chunk_sha256",
+        "chunk_fingerprints",
+        "chunk_records_sha256",
+        "partition_sha256",
+    }
+)
+EXECUTION_CHUNK_KEYS = CHUNK_KEYS | frozenset(
+    {"global_chunk_index", "execution_chunk_sha256"}
+)
 TRAINING_SOURCE_SCHEMA = "THE134_PP_TRAINING_PERIOD_SI_CONTRACT_V1"
 CLOSURE_BOUNDARY_SCHEMA = "THE134_FULL_TRAINING_CLOSURE_WITNESS_BOUNDARY_V1"
 
@@ -266,6 +310,204 @@ def canonical_json_bytes(payload: Any) -> bytes:
 
 def canonical_sha256(payload: Any) -> str:
     return hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
+
+
+def build_source_partition(
+    row_id: str,
+    tuples: list[dict[str, Any]],
+    *,
+    full_source_manifest_sha256: str,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Build the exact ordered seven-tuple execution partition for one row."""
+
+    expected_indices = list(range(len(tuples)))
+    observed_indices = [record.get("tuple_index") for record in tuples]
+    if observed_indices != expected_indices:
+        raise ControllerError(
+            f"{row_id} tuple indices are not the exact ordered range"
+        )
+    chunks: list[dict[str, Any]] = []
+    for chunk_index, start in enumerate(range(0, len(tuples), GROUP_SIZE)):
+        stop = min(start + GROUP_SIZE, len(tuples))
+        members = tuples[start:stop]
+        record = {
+            "schema": CHUNK_SCHEMA,
+            "row_id": row_id,
+            "full_source_manifest_sha256": full_source_manifest_sha256,
+            "group_size": GROUP_SIZE,
+            "chunk_index": chunk_index,
+            "segment": chunk_index + 1,
+            "tuple_index_start": start,
+            "tuple_index_end_exclusive": stop,
+            "tuple_count": len(members),
+            "physical_lines": [member["physical_line"] for member in members],
+            "tuple_input_sha256s": [
+                canonical_sha256(member["inputs"]) for member in members
+            ],
+            "tuple_records_sha256": canonical_sha256(members),
+        }
+        record["chunk_fingerprint_sha256"] = canonical_sha256(record)
+        chunks.append(record)
+
+    chunk_count = len(chunks)
+    partition_payload = {
+        "schema": ROW_PARTITION_SCHEMA,
+        "row_id": row_id,
+        "full_source_manifest_sha256": full_source_manifest_sha256,
+        "group_size": GROUP_SIZE,
+        "source_tuple_count": len(tuples),
+        "expected_chunk_count": chunk_count,
+        "expected_job_count": chunk_count,
+        "expected_output_pair_count": chunk_count,
+        "expected_analysis_output_count": chunk_count,
+        "expected_sidecar_output_count": chunk_count,
+        "expected_source_occurrence_count": chunk_count,
+        "source_occurrences_per_output_pair": 1,
+        "tail_tuple_count": chunks[-1]["tuple_count"],
+        "first_chunk_sha256": chunks[0]["chunk_fingerprint_sha256"],
+        "last_chunk_sha256": chunks[-1]["chunk_fingerprint_sha256"],
+        "chunk_fingerprints": [
+            record["chunk_fingerprint_sha256"] for record in chunks
+        ],
+    }
+    summary = {
+        **partition_payload,
+        "chunk_records_sha256": canonical_sha256(chunks),
+        "partition_sha256": canonical_sha256(partition_payload),
+    }
+    validate_source_partition(summary, chunks, tuples)
+    return summary, chunks
+
+
+def validate_source_partition(
+    summary: dict[str, Any],
+    chunks: list[dict[str, Any]],
+    tuples: list[dict[str, Any]],
+) -> None:
+    """Reject gaps, overlaps, reordering, count drift, and digest drift."""
+
+    row_id = str(summary.get("row_id", ""))
+    if set(summary) != ROW_PARTITION_KEYS:
+        raise ControllerError("row partition field inventory differs")
+    if summary.get("schema") != ROW_PARTITION_SCHEMA or not row_id:
+        raise ControllerError("row partition schema or row identity differs")
+    source_manifest_sha256 = require_sha256(
+        f"{row_id} partition full_source_manifest_sha256",
+        summary.get("full_source_manifest_sha256", ""),
+    )
+    expected_chunk_count = (len(tuples) + GROUP_SIZE - 1) // GROUP_SIZE
+    count_fields = {
+        "expected_chunk_count": expected_chunk_count,
+        "expected_job_count": expected_chunk_count,
+        "expected_output_pair_count": expected_chunk_count,
+        "expected_analysis_output_count": expected_chunk_count,
+        "expected_sidecar_output_count": expected_chunk_count,
+        "expected_source_occurrence_count": expected_chunk_count,
+    }
+    if summary.get("group_size") != GROUP_SIZE:
+        raise ControllerError(f"{row_id} partition group_size differs")
+    if summary.get("source_tuple_count") != len(tuples):
+        raise ControllerError(f"{row_id} partition source-tuple count differs")
+    for field, expected in count_fields.items():
+        if summary.get(field) != expected:
+            raise ControllerError(f"{row_id} partition {field} differs")
+    if summary.get("source_occurrences_per_output_pair") != 1:
+        raise ControllerError(
+            f"{row_id} must have one source occurrence per output pair"
+        )
+    if len(chunks) != expected_chunk_count:
+        raise ControllerError(f"{row_id} partition chunk count differs")
+
+    flattened_tuple_sha256s: list[str] = []
+    expected_start = 0
+    for chunk_index, chunk in enumerate(chunks):
+        if set(chunk) != CHUNK_KEYS:
+            raise ControllerError(f"{row_id} chunk field inventory differs")
+        if chunk.get("schema") != CHUNK_SCHEMA:
+            raise ControllerError(f"{row_id} chunk schema differs")
+        if chunk.get("row_id") != row_id:
+            raise ControllerError(f"{row_id} chunk row identity differs")
+        if chunk.get("full_source_manifest_sha256") != source_manifest_sha256:
+            raise ControllerError(f"{row_id} chunk source-manifest binding differs")
+        start = chunk.get("tuple_index_start")
+        stop = chunk.get("tuple_index_end_exclusive")
+        if (
+            chunk.get("group_size") != GROUP_SIZE
+            or chunk.get("chunk_index") != chunk_index
+            or chunk.get("segment") != chunk_index + 1
+            or start != expected_start
+            or not isinstance(stop, int)
+            or stop <= start
+            or stop > len(tuples)
+        ):
+            raise ControllerError(
+                f"{row_id} chunk ordering or tuple bounds differ"
+            )
+        expected_members = tuples[start:stop]
+        expected_count = len(expected_members)
+        if expected_count > GROUP_SIZE or (
+            chunk_index + 1 < expected_chunk_count
+            and expected_count != GROUP_SIZE
+        ):
+            raise ControllerError(f"{row_id} chunk size contract differs")
+        if chunk.get("tuple_count") != expected_count:
+            raise ControllerError(f"{row_id} chunk tuple count differs")
+        expected_physical_lines = [
+            member["physical_line"] for member in expected_members
+        ]
+        expected_tuple_sha256s = [
+            canonical_sha256(member["inputs"]) for member in expected_members
+        ]
+        if chunk.get("physical_lines") != expected_physical_lines:
+            raise ControllerError(f"{row_id} chunk physical-line mapping differs")
+        if chunk.get("tuple_input_sha256s") != expected_tuple_sha256s:
+            raise ControllerError(f"{row_id} chunk tuple identity mapping differs")
+        if chunk.get("tuple_records_sha256") != canonical_sha256(
+            expected_members
+        ):
+            raise ControllerError(f"{row_id} chunk tuple-record digest differs")
+        fingerprint_payload = {
+            key: value
+            for key, value in chunk.items()
+            if key != "chunk_fingerprint_sha256"
+        }
+        if chunk.get("chunk_fingerprint_sha256") != canonical_sha256(
+            fingerprint_payload
+        ):
+            raise ControllerError(f"{row_id} chunk fingerprint differs")
+        flattened_tuple_sha256s.extend(expected_tuple_sha256s)
+        expected_start = stop
+
+    expected_tuple_sha256s = [
+        canonical_sha256(record["inputs"]) for record in tuples
+    ]
+    if (
+        expected_start != len(tuples)
+        or flattened_tuple_sha256s != expected_tuple_sha256s
+    ):
+        raise ControllerError(
+            f"{row_id} chunk partition is not exact ordered tuple coverage"
+        )
+    chunk_fingerprints = [
+        chunk["chunk_fingerprint_sha256"] for chunk in chunks
+    ]
+    partition_payload = {
+        key: value
+        for key, value in summary.items()
+        if key not in {"chunk_records_sha256", "partition_sha256"}
+    }
+    if summary.get("chunk_fingerprints") != chunk_fingerprints:
+        raise ControllerError(f"{row_id} chunk fingerprint inventory differs")
+    if summary.get("tail_tuple_count") != chunks[-1]["tuple_count"]:
+        raise ControllerError(f"{row_id} partition tail tuple count differs")
+    if summary.get("first_chunk_sha256") != chunk_fingerprints[0]:
+        raise ControllerError(f"{row_id} first chunk digest differs")
+    if summary.get("last_chunk_sha256") != chunk_fingerprints[-1]:
+        raise ControllerError(f"{row_id} last chunk digest differs")
+    if summary.get("chunk_records_sha256") != canonical_sha256(chunks):
+        raise ControllerError(f"{row_id} chunk-record inventory digest differs")
+    if summary.get("partition_sha256") != canonical_sha256(partition_payload):
+        raise ControllerError(f"{row_id} row-partition digest differs")
 
 
 def training_period_si_contract(pp_period: str) -> dict[str, str]:
@@ -824,18 +1066,19 @@ def inspect_source_entry(
     }
     full_source_manifest_sha = canonical_sha256(source_semantic_payload)
     if require_positive_int(
-        f"{expected_row['row_id']} expected_input_count",
-        raw.get("expected_input_count", 0),
+        f"{expected_row['row_id']} tuple_count",
+        raw.get("tuple_count", 0),
     ) != len(tuples):
         raise ControllerError(
-            f"{expected_row['row_id']} expected_input_count differs from tuples"
+            f"{expected_row['row_id']} source tuple_count differs from tuples"
         )
-    if require_positive_int(
-        f"{expected_row['row_id']} expected_occurrence_count",
-        raw.get("expected_occurrence_count", 0),
-    ) != len(tuples):
+    if any(
+        field in raw
+        for field in ("expected_input_count", "expected_occurrence_count")
+    ):
         raise ControllerError(
-            f"{expected_row['row_id']} expected_occurrence_count differs from tuples"
+            f"{expected_row['row_id']} V2 source authority contains "
+            "ambiguous execution-count aliases"
         )
     if require_sha256(
         f"{expected_row['row_id']} tuple_records_sha256",
@@ -851,6 +1094,27 @@ def inspect_source_entry(
         raise ControllerError(
             f"{expected_row['row_id']} full-source manifest authority differs"
         )
+    first_tuple_sha = canonical_sha256(tuples[0])
+    last_tuple_sha = canonical_sha256(tuples[-1])
+    if require_sha256(
+        f"{expected_row['row_id']} first_tuple_sha256",
+        raw.get("first_tuple_sha256", ""),
+    ) != first_tuple_sha:
+        raise ControllerError(
+            f"{expected_row['row_id']} first-tuple authority differs"
+        )
+    if require_sha256(
+        f"{expected_row['row_id']} last_tuple_sha256",
+        raw.get("last_tuple_sha256", ""),
+    ) != last_tuple_sha:
+        raise ControllerError(
+            f"{expected_row['row_id']} last-tuple authority differs"
+        )
+    partition, chunks = build_source_partition(
+        expected_row["row_id"],
+        tuples,
+        full_source_manifest_sha256=full_source_manifest_sha,
+    )
     return {
         "row_id": expected_row["row_id"],
         "system": expected_row["system"],
@@ -859,12 +1123,12 @@ def inspect_source_entry(
         "tuple_count": len(tuples),
         "tuple_records_sha256": tuple_records_sha,
         "full_source_manifest_sha256": full_source_manifest_sha,
-        "expected_input_count": len(tuples),
-        "expected_occurrence_count": len(tuples),
-        "first_tuple_sha256": canonical_sha256(tuples[0]),
-        "last_tuple_sha256": canonical_sha256(tuples[-1]),
+        "first_tuple_sha256": first_tuple_sha,
+        "last_tuple_sha256": last_tuple_sha,
+        "partition_contract": partition,
         "sim_list_root": str(sample_root.parent),
         "_tuple_input_sha256s": tuple_input_sha256s,
+        "_chunks": chunks,
     }
 
 
@@ -1051,6 +1315,8 @@ def build_descriptors(
     output_root: str,
     evidence_root: str,
     submit_root: str,
+    partition_artifact_name: str,
+    partition_artifact_sha256: str,
     bundle: dict[str, Any],
     sources: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -1158,16 +1424,36 @@ def build_descriptors(
             "input_contract": {
                 "group_size": GROUP_SIZE,
                 "event_limit_per_job": EVENT_LIMIT_PER_JOB,
-                "tuple_count": source["tuple_count"],
-                "expected_job_count": (
-                    source["tuple_count"] + GROUP_SIZE - 1
-                )
-                // GROUP_SIZE,
-                "expected_output_count": (
-                    source["tuple_count"] + GROUP_SIZE - 1
-                )
-                // GROUP_SIZE,
-                "expected_occurrence_count": source["expected_occurrence_count"],
+                "source_tuple_count": source["tuple_count"],
+                "expected_chunk_count": source["partition_contract"][
+                    "expected_chunk_count"
+                ],
+                "expected_job_count": source["partition_contract"][
+                    "expected_job_count"
+                ],
+                "expected_output_pair_count": source["partition_contract"][
+                    "expected_output_pair_count"
+                ],
+                "expected_analysis_output_count": source[
+                    "partition_contract"
+                ]["expected_analysis_output_count"],
+                "expected_sidecar_output_count": source[
+                    "partition_contract"
+                ]["expected_sidecar_output_count"],
+                "expected_source_occurrence_count": source[
+                    "partition_contract"
+                ]["expected_source_occurrence_count"],
+                "source_occurrences_per_output_pair": source[
+                    "partition_contract"
+                ]["source_occurrences_per_output_pair"],
+                "row_partition_sha256": source["partition_contract"][
+                    "partition_sha256"
+                ],
+                "chunk_records_sha256": source["partition_contract"][
+                    "chunk_records_sha256"
+                ],
+                "partition_artifact_name": partition_artifact_name,
+                "partition_artifact_sha256": partition_artifact_sha256,
                 "full_source_manifest_sha256": source[
                     "full_source_manifest_sha256"
                 ],
@@ -1219,6 +1505,11 @@ def build_descriptors(
                 "required_execution_inputs": [
                     "RJ_CODEX_CHAT_NAME",
                     "RJ_CODEX_THREAD_ID",
+                ],
+                "partition_artifact_name": partition_artifact_name,
+                "partition_artifact_sha256": partition_artifact_sha256,
+                "row_partition_sha256": source["partition_contract"][
+                    "partition_sha256"
                 ],
                 "analysis_output_namespace": analysis_namespace,
                 "multiview_sidecar_template": sidecar_template,
@@ -1284,6 +1575,141 @@ def duplicate_contract(
     }
 
 
+def ordered_partition_chunks(
+    sources: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    expected_row_ids = [row["row_id"] for row in inventory_rows()]
+    observed_row_ids = [source["row_id"] for source in sources]
+    if observed_row_ids != expected_row_ids:
+        raise ControllerError("partition source row order differs")
+    chunks: list[dict[str, Any]] = []
+    global_chunk_index = 0
+    for source in sources:
+        row_chunks = source.get("_chunks")
+        if not isinstance(row_chunks, list):
+            raise ControllerError(
+                f"{source['row_id']} partition chunks are unavailable"
+            )
+        for chunk in row_chunks:
+            record = {
+                **chunk,
+                "global_chunk_index": global_chunk_index,
+            }
+            record["execution_chunk_sha256"] = canonical_sha256(record)
+            chunks.append(record)
+            global_chunk_index += 1
+    validate_ordered_partition_chunks(chunks, sources)
+    return chunks
+
+
+def validate_ordered_partition_chunks(
+    chunks: list[dict[str, Any]],
+    sources: list[dict[str, Any]],
+) -> None:
+    expected: list[tuple[str, dict[str, Any]]] = [
+        (source["row_id"], chunk)
+        for source in sources
+        for chunk in source["_chunks"]
+    ]
+    if len(chunks) != len(expected):
+        raise ControllerError("global partition chunk count differs")
+    for global_index, (observed, (row_id, source_chunk)) in enumerate(
+        zip(chunks, expected)
+    ):
+        if set(observed) != EXECUTION_CHUNK_KEYS:
+            raise ControllerError(
+                f"{row_id} global partition field inventory differs"
+            )
+        if observed.get("global_chunk_index") != global_index:
+            raise ControllerError("global partition chunk index differs")
+        for field, value in source_chunk.items():
+            if observed.get(field) != value:
+                raise ControllerError(
+                    f"{row_id} global partition chunk payload differs"
+                )
+        fingerprint_payload = {
+            key: value
+            for key, value in observed.items()
+            if key != "execution_chunk_sha256"
+        }
+        if observed.get("execution_chunk_sha256") != canonical_sha256(
+            fingerprint_payload
+        ):
+            raise ControllerError(
+                f"{row_id} global execution-chunk digest differs"
+            )
+
+
+def aggregate_partition_contract(
+    sources: list[dict[str, Any]],
+    *,
+    partition_artifact_name: str,
+    partition_artifact_sha256: str,
+) -> dict[str, Any]:
+    rows = [source["partition_contract"] for source in sources]
+    source_tuple_count = sum(row["source_tuple_count"] for row in rows)
+    expected_chunk_count = sum(row["expected_chunk_count"] for row in rows)
+    expected_job_count = sum(row["expected_job_count"] for row in rows)
+    expected_output_pair_count = sum(
+        row["expected_output_pair_count"] for row in rows
+    )
+    expected_analysis_output_count = sum(
+        row["expected_analysis_output_count"] for row in rows
+    )
+    expected_sidecar_output_count = sum(
+        row["expected_sidecar_output_count"] for row in rows
+    )
+    expected_source_occurrence_count = sum(
+        row["expected_source_occurrence_count"] for row in rows
+    )
+    equal_execution_counts = {
+        expected_chunk_count,
+        expected_job_count,
+        expected_output_pair_count,
+        expected_analysis_output_count,
+        expected_sidecar_output_count,
+        expected_source_occurrence_count,
+    }
+    if len(equal_execution_counts) != 1:
+        raise ControllerError(
+            "aggregate chunk/job/output/source-occurrence counts differ"
+        )
+    partition_sha256 = require_sha256(
+        "partition artifact SHA-256", partition_artifact_sha256
+    )
+    return {
+        "schema": PARTITION_SCHEMA,
+        "group_size": GROUP_SIZE,
+        "source_tuple_count": source_tuple_count,
+        "expected_chunk_count": expected_chunk_count,
+        "expected_job_count": expected_job_count,
+        "expected_output_pair_count": expected_output_pair_count,
+        "expected_analysis_output_count": expected_analysis_output_count,
+        "expected_sidecar_output_count": expected_sidecar_output_count,
+        "expected_physical_root_artifact_count": (
+            expected_analysis_output_count + expected_sidecar_output_count
+        ),
+        "expected_source_occurrence_count": (
+            expected_source_occurrence_count
+        ),
+        "source_occurrences_per_output_pair": 1,
+        "row_partition_records_sha256": canonical_sha256(rows),
+        "row_partition_sha256s": [
+            row["partition_sha256"] for row in rows
+        ],
+        "partition_artifact": {
+            "name": partition_artifact_name,
+            "sha256": partition_sha256,
+            "record_count": expected_chunk_count,
+        },
+        "basis": (
+            "ordered_disjoint_seven_tuple_partition_one_execution_per_chunk"
+        ),
+        "capacity_canary_required_before_submission": True,
+        "capacity_authority_earned": False,
+    }
+
+
 def write_json(path: Path, payload: Any) -> None:
     path.write_text(
         json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=True) + "\n",
@@ -1320,6 +1746,25 @@ def write_preflight_outputs(
         training_source_contract_sha256 = canonical_sha256(
             training_source_contract
         )
+        partition_path = temporary / "the134_full_extraction_partition.jsonl"
+        partition_chunks = ordered_partition_chunks(sources)
+        with partition_path.open("w", encoding="utf-8") as stream:
+            for chunk in partition_chunks:
+                stream.write(
+                    json.dumps(
+                        chunk,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        ensure_ascii=True,
+                    )
+                    + "\n"
+                )
+        partition_artifact_sha256 = sha256_file(partition_path)
+        execution_partition = aggregate_partition_contract(
+            sources,
+            partition_artifact_name=partition_path.name,
+            partition_artifact_sha256=partition_artifact_sha256,
+        )
         descriptors = build_descriptors(
             tag=tag,
             pp_period=pp_period,
@@ -1327,6 +1772,8 @@ def write_preflight_outputs(
             output_root=output_root,
             evidence_root=evidence_root,
             submit_root=submit_root,
+            partition_artifact_name=partition_path.name,
+            partition_artifact_sha256=partition_artifact_sha256,
             bundle=bundle,
             sources=sources,
         )
@@ -1349,6 +1796,10 @@ def write_preflight_outputs(
                 "bundle_manifest_sha256": bundle_file_sha256,
                 "source_manifest_sha256": source_file_sha256,
                 "duplicate_fingerprint_sha256": duplicate_fingerprint,
+                "partition_artifact_sha256": partition_artifact_sha256,
+                "execution_partition_sha256": canonical_sha256(
+                    execution_partition
+                ),
                 "row_fingerprints": [
                     descriptor["row_fingerprint_sha256"]
                     for descriptor in descriptors
@@ -1384,27 +1835,7 @@ def write_preflight_outputs(
                 "auau_background": 4,
                 "pp_jet40_excluded_as_diagnostic_only": True,
             },
-            "execution_partition": {
-                "schema": PARTITION_SCHEMA,
-                "group_size": GROUP_SIZE,
-                "tuple_count": sum(
-                    descriptor["input_contract"]["tuple_count"]
-                    for descriptor in descriptors
-                ),
-                "expected_job_count": sum(
-                    descriptor["input_contract"]["expected_job_count"]
-                    for descriptor in descriptors
-                ),
-                "expected_output_count": sum(
-                    descriptor["input_contract"]["expected_output_count"]
-                    for descriptor in descriptors
-                ),
-                "basis": (
-                    "existing_submitter_canonical_default_seven_files_per_job"
-                ),
-                "capacity_canary_required_before_submission": True,
-                "capacity_authority_earned": False,
-            },
+            "execution_partition": execution_partition,
             "input_manifests": {
                 "materialization": {
                     "path": str(materialization_path),
@@ -1489,6 +1920,11 @@ def write_preflight_outputs(
                     "name": duplicate_path.name,
                     "sha256": sha256_file(duplicate_path),
                 },
+                "partition": {
+                    "name": partition_path.name,
+                    "sha256": partition_artifact_sha256,
+                    "record_count": len(partition_chunks),
+                },
             },
         }
         validate_preflight_authority_payload(plan, label="plan")
@@ -1510,6 +1946,7 @@ def write_preflight_outputs(
             "execution_partition_sha256": canonical_sha256(
                 plan["execution_partition"]
             ),
+            "partition_artifact_sha256": partition_artifact_sha256,
             "duplicate_fingerprint_sha256": duplicate_fingerprint,
             "execution_fingerprint_sha256": execution_fingerprint,
         }

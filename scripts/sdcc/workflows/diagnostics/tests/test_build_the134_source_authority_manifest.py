@@ -51,6 +51,14 @@ class SourceAuthorityManifestTests(unittest.TestCase):
         self.assertEqual(first["authority_state"], builder.AUTHORITY_STATE)
         self.assertEqual(first["row_count"], 13)
         self.assertEqual(len(first["rows"]), 13)
+        self.assertTrue(
+            all(
+                row["tuple_count"] == 1
+                and "expected_input_count" not in row
+                and "expected_occurrence_count" not in row
+                for row in first["rows"]
+            )
+        )
         self.assertEqual(
             first["global_five_tuple_check"],
             {
@@ -90,6 +98,26 @@ class SourceAuthorityManifestTests(unittest.TestCase):
         expected = hashlib.sha256(manifest.read_bytes()).hexdigest()
         observed = builder.load_manifest(manifest, expected)
         self.assertEqual(observed, payload)
+
+    def test_historical_v1_readback_is_explicit_and_non_executable(self) -> None:
+        payload = builder.build_manifest(self.sim_root, "0mrad")
+        legacy = copy.deepcopy(payload)
+        legacy["schema"] = builder.SOURCE_SCHEMA_V1
+        for row in legacy["rows"]:
+            row["expected_input_count"] = row["tuple_count"]
+            row["expected_occurrence_count"] = row["tuple_count"]
+        manifest = self.root / "source_authority_v1.json"
+        builder.atomic_write_json(manifest, legacy)
+        expected = hashlib.sha256(manifest.read_bytes()).hexdigest()
+        observed = builder.load_manifest(manifest, expected)
+        self.assertEqual(observed["schema"], builder.SOURCE_SCHEMA_V1)
+
+        mutated = copy.deepcopy(legacy)
+        mutated["rows"][0]["expected_occurrence_count"] += 1
+        with self.assertRaisesRegex(
+            builder.ManifestError, "V1 tuple-count aliases differ"
+        ):
+            builder.validate_manifest_payload(mutated, rehash=False)
 
     def test_mutable_source_path_drift_is_rejected(self) -> None:
         payload = builder.build_manifest(self.sim_root, "0mrad")

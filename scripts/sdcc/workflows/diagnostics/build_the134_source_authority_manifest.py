@@ -16,6 +16,7 @@ drift therefore fails before submission.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -35,8 +36,10 @@ from scripts.ml.contracts.the134_h70_contract import (  # noqa: E402
 )
 
 
-SOURCE_SCHEMA = "THE134_FULL_EXTRACTION_SOURCE_AUTHORITY_V1"
-READBACK_SCHEMA = "THE134_FULL_EXTRACTION_SOURCE_AUTHORITY_READBACK_V1"
+SOURCE_SCHEMA_V1 = "THE134_FULL_EXTRACTION_SOURCE_AUTHORITY_V1"
+SOURCE_SCHEMA = "THE134_FULL_EXTRACTION_SOURCE_AUTHORITY_V2"
+SUPPORTED_SOURCE_SCHEMAS = (SOURCE_SCHEMA_V1, SOURCE_SCHEMA)
+READBACK_SCHEMA = "THE134_FULL_EXTRACTION_SOURCE_AUTHORITY_READBACK_V2"
 AUTHORITY_STATE = "MEASURED_CANDIDATE_NOT_SCIENTIFIC_AUTHORITY"
 SOURCE_OWNERSHIP_STATE = "source_role_frozen"
 AUAU_PERIOD = "AUAU_RUN24"
@@ -418,8 +421,6 @@ def inspect_source_row(
         "full_source_manifest_sha256": canonical_sha256(
             resolver_semantic_payload
         ),
-        "expected_input_count": len(tuples),
-        "expected_occurrence_count": len(tuples),
         "first_tuple_sha256": canonical_sha256(tuples[0]),
         "last_tuple_sha256": canonical_sha256(tuples[-1]),
         "_tuple_input_sha256s": tuple_input_sha256s,
@@ -562,7 +563,11 @@ def validate_manifest_payload(
             f"missing={sorted(required_top - set(payload))} "
             f"extra={sorted(set(payload) - required_top)}"
         )
-    if payload["schema"] != SOURCE_SCHEMA or payload["status"] != "PASS":
+    source_schema = str(payload["schema"])
+    if (
+        source_schema not in SUPPORTED_SOURCE_SCHEMAS
+        or payload["status"] != "PASS"
+    ):
         raise ManifestError("source manifest schema/status is invalid")
     if payload["authority_state"] != AUTHORITY_STATE:
         raise ManifestError("source manifest cannot grant scientific authority")
@@ -631,6 +636,32 @@ def validate_manifest_payload(
             raise ManifestError(f"{frozen['row_id']} SI/embedded role differs")
         if observed.get("source_ownership_state") != SOURCE_OWNERSHIP_STATE:
             raise ManifestError(f"{frozen['row_id']} ownership state differs")
+        if source_schema == SOURCE_SCHEMA_V1:
+            try:
+                legacy_input_count = int(observed["expected_input_count"])
+                legacy_occurrence_count = int(
+                    observed["expected_occurrence_count"]
+                )
+                tuple_count = int(observed["tuple_count"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ManifestError(
+                    f"{frozen['row_id']} V1 tuple-count aliases are invalid"
+                ) from exc
+            if (
+                legacy_input_count != tuple_count
+                or legacy_occurrence_count != tuple_count
+            ):
+                raise ManifestError(
+                    f"{frozen['row_id']} V1 tuple-count aliases differ"
+                )
+        elif any(
+            field in observed
+            for field in ("expected_input_count", "expected_occurrence_count")
+        ):
+            raise ManifestError(
+                f"{frozen['row_id']} V2 source authority contains "
+                "ambiguous execution-count aliases"
+            )
         records = observed.get("input_lists")
         if not isinstance(records, list) or [
             record.get("role") for record in records if isinstance(record, dict)
@@ -691,7 +722,13 @@ def validate_manifest_payload(
         rebuilt = build_manifest(
             Path(str(payload["sim_list_root"])), authority["pp_period"]
         )
-        if canonical_json_bytes(rebuilt) != canonical_json_bytes(dict(payload)):
+        comparable = copy.deepcopy(dict(payload))
+        if source_schema == SOURCE_SCHEMA_V1:
+            comparable["schema"] = SOURCE_SCHEMA
+            for row in comparable["rows"]:
+                row.pop("expected_input_count", None)
+                row.pop("expected_occurrence_count", None)
+        if canonical_json_bytes(rebuilt) != canonical_json_bytes(comparable):
             raise ManifestError(
                 "source manifest current-path rebuild differs from frozen payload"
             )
@@ -768,6 +805,7 @@ def main() -> int:
                 "authority_state": AUTHORITY_STATE,
                 "manifest": str(args.manifest),
                 "manifest_sha256": args.expected_sha256,
+                "verified_source_schema": payload["schema"],
                 "row_count": 13,
                 "source_rows_rehashed": 13,
                 "manifest_semantic_sha256": payload[
