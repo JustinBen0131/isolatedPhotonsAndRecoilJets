@@ -36,6 +36,7 @@ eval "$(
 )"
 eval "$(sed -n '/^yaml_value()/,/^}/p' "$controller")"
 eval "$(sed -n '/^validate_five_field_fanout_contract()/,/^}/p' "$controller")"
+eval "$(sed -n '/^validate_snapshot_macro_provider()/,/^}/p' "$controller")"
 eval "$(
   sed -n '/^condor_field()/,/^analysis_tag_for_dataset()/p' \
     "$controller" | sed '$d'
@@ -253,6 +254,43 @@ fi
 printf '%s\n' 'coneR: 0.40' > "${tmpdir}/valid.yaml"
 printf '%s\n' 'dest|cfg|pre|tight|nonTight' > "${tmpdir}/valid.fanout"
 validate_five_field_fanout_contract unit "${tmpdir}/valid.fanout" "${tmpdir}/valid.yaml" 0.40
+
+mkdir -p "${tmpdir}/physical-snapshot/lib"
+printf 'provider\n' > "${tmpdir}/physical-snapshot/lib/libcalo_reco.so"
+ln -s "${tmpdir}/physical-snapshot" "${tmpdir}/logical-snapshot"
+printf 'R__LOAD_LIBRARY(%s)\n' \
+  "${tmpdir}/logical-snapshot/lib/libcalo_reco.so" \
+  > "${tmpdir}/valid-calo-macro.C"
+validate_snapshot_macro_provider \
+  unit "${tmpdir}/valid-calo-macro.C" \
+  "${tmpdir}/physical-snapshot/lib/libcalo_reco.so"
+
+printf 'provider\n' > "${tmpdir}/foreign-libcalo_reco.so"
+if validate_snapshot_macro_provider \
+  unit "${tmpdir}/valid-calo-macro.C" \
+  "${tmpdir}/foreign-libcalo_reco.so" >/dev/null 2>&1; then
+  printf 'same-byte foreign CaloReco provider was accepted as the snapshot provider\n' >&2
+  exit 1
+fi
+
+printf 'R__LOAD_LIBRARY(%s)\nR__LOAD_LIBRARY(%s)\n' \
+  "${tmpdir}/logical-snapshot/lib/libcalo_reco.so" \
+  "${tmpdir}/physical-snapshot/lib/libcalo_reco.so" \
+  > "${tmpdir}/duplicate-calo-macro.C"
+if validate_snapshot_macro_provider \
+  unit "${tmpdir}/duplicate-calo-macro.C" \
+  "${tmpdir}/physical-snapshot/lib/libcalo_reco.so" >/dev/null 2>&1; then
+  printf 'duplicate CaloReco macro providers were accepted\n' >&2
+  exit 1
+fi
+
+printf 'R__LOAD_LIBRARY(libcalo_reco.so)\n' > "${tmpdir}/relative-calo-macro.C"
+if validate_snapshot_macro_provider \
+  unit "${tmpdir}/relative-calo-macro.C" \
+  "${tmpdir}/physical-snapshot/lib/libcalo_reco.so" >/dev/null 2>&1; then
+  printf 'relative CaloReco macro provider was accepted\n' >&2
+  exit 1
+fi
 
 fanout_mutations=(
   'dest|cfg|pre|tight'
@@ -532,6 +570,8 @@ def validate(text: str) -> None:
         'snapshot illegally duplicates release-owned',
         'frozen executor lacks the exact ana.560 loader suffix',
         'frozen executor lacks the exact ${pinned_release_name} runtime witness',
+        'validate_snapshot_macro_provider',
+        'Calo_Calib macro must load exactly one absolute snapshotted CaloReco provider',
         'Calo_Calib macro does not load the same snapshotted CaloReco provider',
         'verify_sealed_snapshot_receipts',
         'snapshot_loader_receipt_sha256',

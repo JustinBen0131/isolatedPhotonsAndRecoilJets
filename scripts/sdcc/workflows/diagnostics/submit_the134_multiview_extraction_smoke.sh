@@ -1379,6 +1379,36 @@ validate_five_field_fanout_contract() {
   }
 }
 
+validate_snapshot_macro_provider() {
+  local row_id="$1" macro="$2" expected_provider="$3" value
+  local -a declared_providers=()
+  [[ -s "$macro" ]] || {
+    die "${row_id} Calo_Calib macro is missing: ${macro}"
+    return 2
+  }
+  [[ -s "$expected_provider" ]] || {
+    die "${row_id} expected snapshotted CaloReco provider is missing: ${expected_provider}"
+    return 2
+  }
+  while IFS= read -r value; do
+    declared_providers+=( "$value" )
+  done < <(
+    sed -n -E \
+      's@^[[:space:]]*R__LOAD_LIBRARY\(([^)]*/libcalo_reco\.so(\.0(\.0\.0)?)?)\)[[:space:]]*$@\1@p' \
+      "$macro"
+  )
+  [[ "${#declared_providers[@]}" == 1 &&
+     "${declared_providers[0]}" == /* &&
+     -s "${declared_providers[0]}" ]] || {
+    die "${row_id} Calo_Calib macro must load exactly one absolute snapshotted CaloReco provider"
+    return 2
+  }
+  [[ "${declared_providers[0]}" -ef "$expected_provider" ]] || {
+    die "${row_id} Calo_Calib macro does not load the same snapshotted CaloReco provider"
+    return 2
+  }
+}
+
 # Verify the exact dry-materialized unit that will be submitted.  This is the
 # pre-submission ownership proof: one descriptor, one argument row, one
 # fanout row, one RecoilJets instance, and one multiview sidecar assignment.
@@ -1447,8 +1477,8 @@ verify_materialized_row_contract() {
      "$(grep -Ec "^[[:space:]]*source /opt/sphenix/core/bin/sphenix_setup\\.sh -n ${pinned_release_name}[[:space:]]*$" "$frozen_executable" || true)" == 1 &&
      "$(grep -Fc "$pinned_offline_main" "$frozen_executable" || true)" -ge 2 ]] ||
     die "${row_id} frozen executor lacks the exact ${pinned_release_name} runtime witness"
-  [[ "$(grep -Fxc "R__LOAD_LIBRARY(${snapshot_calo})" "$snapshot_calo_macro" || true)" == 1 ]] ||
-    die "${row_id} Calo_Calib macro does not load the same snapshotted CaloReco provider"
+  validate_snapshot_macro_provider \
+    "$row_id" "$snapshot_calo_macro" "$snapshot_calo"
   for companion in libclusteriso.so libjetbase.so; do
     [[ "$(grep -Fxc "R__LOAD_LIBRARY(${companion})" "$snapshot_impl" || true)" == 1 ]] ||
       die "${row_id} unified macro does not bind ${companion} exactly once through ana.560"
