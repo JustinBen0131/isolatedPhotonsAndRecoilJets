@@ -88,3 +88,12 @@ clang++ $(/Users/patsfan753/Desktop/analysis/env/bin/root-config --cflags) \
 /tmp/the134_multiview_training_canary \
   /tmp/the134_default_replay.root /tmp/the134_pp_views.root /tmp/the134_auau_views.root
 ```
+
+For a populated p+p extraction sidecar, run
+`validate_the134_training_sidecar.py` with the exact expected source and hash
+identity.  It implements
+`RJ_ARTIFACT_HEALTH_PROFILE_V1 / photon_training_multiview_v1`: sidecar byte
+size is diagnostic-only, while ROOT health, exact key and branch inventories,
+completion, stable identities, seven-view population, feature finiteness,
+weight-once closure, and model-domain safety are mandatory.  This does not
+change the separate 50 kB gate for analysis/writer replay ROOT outputs.
