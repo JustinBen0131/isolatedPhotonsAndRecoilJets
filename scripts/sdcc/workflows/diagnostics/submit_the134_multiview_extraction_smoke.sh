@@ -2113,6 +2113,20 @@ EXPECTED_REPLAY_TREES = {
 }
 EXPECTED_DEFINITIONS = {"H70", "H0", "G70", "G0", "O70", "O0", "R70"}
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
+ANALYSIS_MINIMUM_BYTES = 50_000
+SIDECAR_GROSS_TRUNCATION_FLOOR_BYTES = 4_096
+ANALYSIS_HEALTH_PROFILE = {
+    "name": "analysis_writer_root_v1",
+    "minimum_bytes": ANALYSIS_MINIMUM_BYTES,
+    "minimum_bytes_mode": "hard_gate",
+}
+SIDECAR_HEALTH_PROFILE = {
+    "schema": "RJ_ARTIFACT_HEALTH_PROFILE_V1",
+    "name": "photon_training_multiview_v1",
+    "gross_truncation_floor_bytes": SIDECAR_GROSS_TRUNCATION_FLOOR_BYTES,
+    "minimum_bytes_mode": "diagnostic_only",
+    "structural_authority": True,
+}
 
 
 def identity(row, prefix: str) -> tuple[int, int]:
@@ -2126,12 +2140,14 @@ def named_title(directory, name: str) -> str:
     return str(obj.GetTitle())
 
 
-def open_healthy(path: Path):
+def open_healthy(path: Path, *, minimum_bytes: int, artifact_class: str):
     if not path.is_file():
         raise ValueError(f"missing ROOT:{path}")
     size = path.stat().st_size
-    if size < 50_000:
-        raise ValueError(f"ROOT below 50000 bytes:{path}:{size}")
+    if size < minimum_bytes:
+        raise ValueError(
+            f"{artifact_class} ROOT below {minimum_bytes} bytes:{path}:{size}"
+        )
     root_file = ROOT.TFile.Open(str(path), "READ")
     if not root_file or not root_file.IsOpen() or root_file.IsZombie():
         raise ValueError(f"unreadable or zombie ROOT:{path}")
@@ -2338,7 +2354,11 @@ for receipt in receipts:
         analysis_path = Path(analysis_text)
         sidecar_path = Path(sidecar_text)
 
-        analysis, analysis_size = open_healthy(analysis_path)
+        analysis, analysis_size = open_healthy(
+            analysis_path,
+            minimum_bytes=ANALYSIS_MINIMUM_BYTES,
+            artifact_class="analysis",
+        )
         replay = analysis.GetDirectory("ReplayFoundationV1")
         if not replay:
             raise ValueError("missing ReplayFoundationV1 directory")
@@ -2397,7 +2417,16 @@ for receipt in receipts:
                 raise ValueError("duplicate candidate identity or orphan event foreign key")
             candidate_to_event[candidate_id] = event_id
 
-        sidecar, sidecar_size = open_healthy(sidecar_path)
+        sidecar, sidecar_size = open_healthy(
+            sidecar_path,
+            minimum_bytes=0,
+            artifact_class="photon_training_multiview_v1",
+        )
+        sidecar_size_diagnostic = (
+            f"gross_truncation:{sidecar_size}<{SIDECAR_GROSS_TRUNCATION_FLOOR_BYTES}"
+            if sidecar_size < SIDECAR_GROSS_TRUNCATION_FLOOR_BYTES
+            else ""
+        )
         sidecar_trees = {
             str(key.GetName())
             for key in sidecar.GetListOfKeys()
@@ -2460,6 +2489,7 @@ for receipt in receipts:
                 "analysis_bytes": analysis_size,
                 "sidecar": sidecar_text,
                 "sidecar_bytes": sidecar_size,
+                "sidecar_size_diagnostic": sidecar_size_diagnostic,
                 "replay_tree_count": len(observed_trees),
                 "replay_sources": len(source_ids),
                 "replay_events": len(event_to_source),
@@ -2500,6 +2530,8 @@ payload = {
     "full_training_authority": 0,
     "execution_group_size": expected_group_size,
     "source_occurrences_per_output": expected_source_count,
+    "analysis_health_profile": ANALYSIS_HEALTH_PROFILE,
+    "sidecar_health_profile": SIDECAR_HEALTH_PROFILE,
     "capacity_authority_earned": bool(capacity_mode and not failures),
     "row_count": len(reports),
     "rows": reports,
@@ -2563,6 +2595,20 @@ if (
     or root_certificate.get("capacity_authority_earned") is not True
     or int(root_certificate.get("execution_group_size", -1)) != 7
     or int(root_certificate.get("source_occurrences_per_output", -1)) != 1
+    or root_certificate.get("analysis_health_profile")
+    != {
+        "name": "analysis_writer_root_v1",
+        "minimum_bytes": 50000,
+        "minimum_bytes_mode": "hard_gate",
+    }
+    or root_certificate.get("sidecar_health_profile")
+    != {
+        "schema": "RJ_ARTIFACT_HEALTH_PROFILE_V1",
+        "name": "photon_training_multiview_v1",
+        "gross_truncation_floor_bytes": 4096,
+        "minimum_bytes_mode": "diagnostic_only",
+        "structural_authority": True,
+    }
     or int(root_certificate.get("row_count", -1)) != 2
 ):
     raise SystemExit("ROOT/identity capacity certificate is not PASS")
