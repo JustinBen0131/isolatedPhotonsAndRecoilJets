@@ -20,8 +20,20 @@ require_sha() {
   local _name="$1" value="$2"
   [[ "$value" =~ ^[0-9a-f]{64}$ ]] || return 2
 }
-eval "$(sed -n '/^validate_one_five_file_tuple()/,/^}/p' "$controller")"
+require_file_hash() {
+  local _label="$1" path="$2" expected="$3"
+  require_sha "$_label" "$expected"
+  [[ -s "$path" && "$(sha_file "$path")" == "$expected" ]]
+}
+eval "$(
+  sed -n '/^validate_five_file_tuple_count()/,/^validate_five_field_fanout_contract()/p' \
+    "$controller" | sed '$d'
+)"
 eval "$(sed -n '/^validate_pp_sim_weight_contract()/,/^}/p' "$controller")"
+eval "$(
+  sed -n '/^validate_capacity_preflight_contract()/,/^yaml_value()/p' \
+    "$controller" | sed '$d'
+)"
 eval "$(sed -n '/^yaml_value()/,/^}/p' "$controller")"
 eval "$(sed -n '/^validate_five_field_fanout_contract()/,/^}/p' "$controller")"
 eval "$(
@@ -45,6 +57,111 @@ for invalid_pp_period in "" run28 1.5mrad; do
     exit 1
   fi
 done
+
+capacity_mode=1
+capacity_canary_id=the134_capacity_fixture
+capacity_pp_row=pp_background_jet8
+capacity_auau_row=auau_background_jet12
+output_root=/sphenix/tg/example/replay_foundation/the134_capacity_fixture
+evidence_root=/sphenix/u/example/evidence/qa/the134_capacity_fixture
+submit_root=/sphenix/u/example/condor/the134_capacity_fixture
+capacity_full_plan="${tmpdir}/capacity_plan.json"
+capacity_preflight_receipt="${tmpdir}/capacity_receipt.json"
+python3 - "$capacity_full_plan" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+path = Path(sys.argv[1])
+payload = {
+    "campaign": {
+        "output_root": "/sphenix/tg/example/training/the134_full_fixture",
+        "submit_root": "/sphenix/u/example/condor/the134_full_fixture",
+    },
+    "execution_partition": {
+        "capacity_authority_earned": False,
+        "capacity_canary_required_before_submission": True,
+        "group_size": 7,
+        "schema": "THE134_FULL_EXTRACTION_PARTITION_CONTRACT_V1",
+    },
+    "execution_state": "PREFLIGHT_ONLY_NO_CONDOR_MUTATION",
+    "full_training_authority": 0,
+    "input_manifests": {
+        "bundle": {"sha256": "b" * 64},
+        "materialization": {
+            "readback": "PASS_SYMLINK_FREE_READONLY_CONTENT_EXACT",
+            "sha256": "c" * 64,
+        },
+    },
+    "rows": [
+        {
+            "full_training_authority": 0,
+            "input_contract": {"group_size": 7},
+            "row_id": "pp_background_jet8",
+            "sample": "run28_jet8",
+            "system": "pp",
+        },
+        {
+            "full_training_authority": 0,
+            "input_contract": {"group_size": 7},
+            "row_id": "auau_background_jet12",
+            "sample": "run28_embeddedJet12",
+            "system": "auau",
+        },
+    ],
+    "schema": "THE134_FULL_MULTIVIEW_EXTRACTION_PLAN_V1",
+    "status": "PREFLIGHT_PASS",
+    "submission_performed": False,
+}
+path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+PY
+capacity_full_plan_sha="$(sha_file "$capacity_full_plan")"
+python3 - "$capacity_preflight_receipt" "$capacity_full_plan_sha" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+path = Path(sys.argv[1])
+payload = {
+    "artifacts": {"plan": {"sha256": sys.argv[2]}},
+    "authority_state": "PREFLIGHT_RESOLVED_NOT_EARNED",
+    "bundle_manifest_sha256": "b" * 64,
+    "execution_partition_sha256": "a" * 64,
+    "full_training_authority": 0,
+    "materialization_receipt_sha256": "c" * 64,
+    "schema": "THE134_FULL_MULTIVIEW_EXTRACTION_PREFLIGHT_RECEIPT_V1",
+    "status": "PASS",
+    "submission_performed": False,
+}
+path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+PY
+capacity_preflight_receipt_sha="$(sha_file "$capacity_preflight_receipt")"
+validate_capacity_preflight_contract
+python3 - "$capacity_full_plan" <<'PY'
+from pathlib import Path
+import json
+import sys
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text())
+payload["execution_partition"]["group_size"] = 6
+path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+PY
+capacity_full_plan_sha="$(sha_file "$capacity_full_plan")"
+python3 - "$capacity_preflight_receipt" "$capacity_full_plan_sha" <<'PY'
+from pathlib import Path
+import json
+import sys
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text())
+payload["artifacts"]["plan"]["sha256"] = sys.argv[2]
+path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+PY
+capacity_preflight_receipt_sha="$(sha_file "$capacity_preflight_receipt")"
+if ( validate_capacity_preflight_contract ) >/dev/null 2>&1; then
+  printf 'semantic group-size drift was accepted by the capacity preflight contract\n' >&2
+  exit 1
+fi
+capacity_mode=0
 
 printf '%s\n%s\n' \
   'getenv = False' \
@@ -107,6 +224,23 @@ fi
 printf 'calo\tg4\tjets\tglobal\tmbd\ncalo2\tg42\tjets2\tglobal2\tmbd2\n' > "${tmpdir}/two-rows.list"
 if validate_one_five_file_tuple unit pp "${tmpdir}/two-rows.list"; then
   printf 'two-row tuple ownership was not rejected\n' >&2
+  exit 1
+fi
+
+: > "${tmpdir}/valid-seven-pp.list"
+for index in 1 2 3 4 5 6 7; do
+  printf '/calo%s\t/g4%s\t/jets%s\t/global%s\t/mbd%s\n' \
+    "$index" "$index" "$index" "$index" "$index" \
+    >> "${tmpdir}/valid-seven-pp.list"
+done
+validate_five_file_tuple_count unit pp "${tmpdir}/valid-seven-pp.list" 7
+if validate_five_file_tuple_count unit pp "${tmpdir}/valid-seven-pp.list" 1; then
+  printf 'seven-row capacity chunk leaked into one-row smoke authority\n' >&2
+  exit 1
+fi
+head -n 6 "${tmpdir}/valid-seven-pp.list" > "${tmpdir}/six-pp.list"
+if validate_five_file_tuple_count unit pp "${tmpdir}/six-pp.list" 7; then
+  printf 'six-row chunk was accepted as a group-of-seven capacity witness\n' >&2
   exit 1
 fi
 
@@ -312,6 +446,11 @@ def validate(text: str) -> None:
     required = (
         'local -a materialize_contract_env=(',
         'RJ_REPLAY_FOUNDATION_CANARY=1',
+        'RJ_REPLAY_FOUNDATION_CAPACITY_CANARY=1',
+        'RJ_REPLAY_FOUNDATION_CAPACITY_CANARY_ID="$capacity_canary_id"',
+        'RJ_REPLAY_FOUNDATION_EXECUTION_PARTITION_SHA256',
+        'capacity-preflight|capacity-submit|capacity-resume-submit|capacity-status|capacity-validate',
+        '"$submitter" "$dataset" condorDoAllSmoke groupSize "$execution_group_size" maxJobs 1',
         'RJ_REPLAY_LANE="$lane"',
         'RJ_REPLAY_SCHEMA_SHA256="$RJ_THE134_REPLAY_SCHEMA_SHA256"',
         'validate_pp_sim_weight_contract "$pp_period"',
@@ -447,11 +586,11 @@ def validate(text: str) -> None:
         "write_runtime_authority_manifest() {", 1
     )[0]
     row_formats = re.findall(r"printf '([^']*%s[^']*)'", manifest_block)
-    row_format = next((value for value in row_formats if value.count("%s") == 44), None)
+    row_format = next((value for value in row_formats if value.count("%s") == 45), None)
     if row_format is None:
         raise ValueError("submission-manifest row format was not found")
     if row_format.count(r"\t") != 45:
-        raise ValueError("46-field manifest format must contain 44 substitutions and 2 literals")
+        raise ValueError("46-field manifest format must contain 45 substitutions and 1 literal")
 
     receipt_block = text.split("submit_row() {", 1)[1].split(
         "assert_fresh_submission() {", 1

@@ -3,6 +3,8 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../.." && pwd -P)"
 submitter="${repo_root}/scripts/sdcc/runtime/condor/RecoilJets_Condor_submit.sh"
+tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/replay-capacity-admission.XXXXXX")"
+trap 'rm -rf "$tmpdir"' EXIT
 
 err() { printf 'ERROR: %s\n' "$*" >&2; }
 say() { printf '%s\n' "$*"; }
@@ -13,12 +15,26 @@ auto_merge_enabled() {
   case "${RJ_AUTO_MERGE:-1}" in 0|false|FALSE|no|NO|off|OFF) return 1 ;; esac
   return 0
 }
+ppg12_sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
 
 # Load only the admission function. The replay-foundation branch returns
 # before the production-admission Python validator and its private contracts.
 eval "$(sed -n '/^validate_ppg12_stitched_purity_admission()/,/^# Initializes paths for isSim mode/p' "$submitter" | sed '$d')"
 
 reset_contract() {
+  unset RJ_REPLAY_FOUNDATION_CAPACITY_CANARY
+  unset RJ_REPLAY_FOUNDATION_CAPACITY_CANARY_ID
+  unset RJ_REPLAY_FOUNDATION_CAPACITY_PREFLIGHT_RECEIPT
+  unset RJ_REPLAY_FOUNDATION_CAPACITY_PREFLIGHT_RECEIPT_SHA256
+  unset RJ_REPLAY_FOUNDATION_EXECUTION_PARTITION_SHA256
+  unset RJ_REPLAY_FOUNDATION_BUNDLE_RECEIPT_SHA256
+  unset RJ_REPLAY_FOUNDATION_MATERIALIZATION_RECEIPT_SHA256
   ACTION=condorDoAll
   SIM_SAMPLE=run28_jet8
   GROUP_SIZE=1
@@ -30,6 +46,21 @@ reset_contract() {
   RJ_REPLAY_LANE=pp_inclusive_jet8
   RJ_REPLAY_SCHEMA_SHA256=3d32edd4b1a093994c4d70ba7b4480532cc727dc45b05f4ee327aa2797e98a1c
   RJ_DEST_BASE_OVERRIDE=/sphenix/tg/tg01/bulk/example/replay_foundation/the134-test
+}
+
+reset_capacity_contract() {
+  reset_contract
+  GROUP_SIZE=7
+  RJ_REPLAY_FOUNDATION_CAPACITY_CANARY=1
+  RJ_REPLAY_FOUNDATION_CAPACITY_CANARY_ID=the134_partition_capacity_v1
+  RJ_REPLAY_FOUNDATION_CAPACITY_PREFLIGHT_RECEIPT="${tmpdir}/capacity_preflight_receipt.json"
+  printf '{"status":"PASS"}\n' > "$RJ_REPLAY_FOUNDATION_CAPACITY_PREFLIGHT_RECEIPT"
+  RJ_REPLAY_FOUNDATION_CAPACITY_PREFLIGHT_RECEIPT_SHA256="$(
+    ppg12_sha256_file "$RJ_REPLAY_FOUNDATION_CAPACITY_PREFLIGHT_RECEIPT"
+  )"
+  RJ_REPLAY_FOUNDATION_EXECUTION_PARTITION_SHA256="$(printf 'a%.0s' {1..64})"
+  RJ_REPLAY_FOUNDATION_BUNDLE_RECEIPT_SHA256="$(printf 'b%.0s' {1..64})"
+  RJ_REPLAY_FOUNDATION_MATERIALIZATION_RECEIPT_SHA256="$(printf 'c%.0s' {1..64})"
 }
 
 expect_pass() {
@@ -69,4 +100,21 @@ reset_contract
 RJ_DEST_BASE_OVERRIDE=/sphenix/tg/tg01/bulk/example/not_replay/the134-test
 expect_fail 'non-replay output namespace is rejected'
 
-printf 'PASS replay_foundation_canary_admission mutations=6\n'
+reset_capacity_contract
+expect_pass 'exact bounded group-of-seven capacity canary'
+GROUP_SIZE=1
+expect_fail 'capacity canary group-size narrowing is rejected'
+reset_capacity_contract
+MAX_JOBS=2
+expect_fail 'capacity canary multiple jobs are rejected'
+reset_capacity_contract
+unset RJ_REPLAY_FOUNDATION_CAPACITY_CANARY_ID
+expect_fail 'capacity canary missing identity is rejected'
+reset_capacity_contract
+RJ_REPLAY_FOUNDATION_EXECUTION_PARTITION_SHA256=not-a-sha
+expect_fail 'capacity canary malformed partition identity is rejected'
+reset_capacity_contract
+printf '{"status":"DRIFT"}\n' > "$RJ_REPLAY_FOUNDATION_CAPACITY_PREFLIGHT_RECEIPT"
+expect_fail 'capacity canary preflight receipt drift is rejected'
+
+printf 'PASS replay_foundation_canary_admission ordinary_mutations=6 capacity_mutations=5\n'

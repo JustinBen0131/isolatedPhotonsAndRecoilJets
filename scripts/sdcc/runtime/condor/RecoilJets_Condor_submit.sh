@@ -4766,8 +4766,40 @@ validate_ppg12_stitched_purity_admission() {
   # must not inherit that campaign's historical-RNG admission packet.  Keep
   # this exemption fail-closed and bounded so it cannot open broad running.
   if env_truthy "${RJ_REPLAY_FOUNDATION_CANARY:-0}"; then
-    if [[ "${GROUP_SIZE_EXPLICIT:-0}" -ne 1 || "${GROUP_SIZE:-0}" -ne 1 ||
-          "${MAX_JOBS_EXPLICIT:-0}" -ne 1 || "${MAX_JOBS:-0}" -ne 1 ]]; then
+    local replay_capacity_canary=0
+    env_truthy "${RJ_REPLAY_FOUNDATION_CAPACITY_CANARY:-0}" &&
+      replay_capacity_canary=1
+    if (( replay_capacity_canary )); then
+      if [[ "${GROUP_SIZE_EXPLICIT:-0}" -ne 1 || "${GROUP_SIZE:-0}" -ne 7 ||
+            "${MAX_JOBS_EXPLICIT:-0}" -ne 1 || "${MAX_JOBS:-0}" -ne 1 ]]; then
+        err "Replay-foundation capacity canary requires explicit groupSize 7 and maxJobs 1."
+        return 99
+      fi
+      local capacity_id="${RJ_REPLAY_FOUNDATION_CAPACITY_CANARY_ID:-}"
+      local capacity_receipt="${RJ_REPLAY_FOUNDATION_CAPACITY_PREFLIGHT_RECEIPT:-}"
+      local capacity_receipt_sha="${RJ_REPLAY_FOUNDATION_CAPACITY_PREFLIGHT_RECEIPT_SHA256:-}"
+      local execution_partition_sha="${RJ_REPLAY_FOUNDATION_EXECUTION_PARTITION_SHA256:-}"
+      local bundle_receipt_sha="${RJ_REPLAY_FOUNDATION_BUNDLE_RECEIPT_SHA256:-}"
+      local materialization_receipt_sha="${RJ_REPLAY_FOUNDATION_MATERIALIZATION_RECEIPT_SHA256:-}"
+      if [[ -z "$capacity_id" || ${#capacity_id} -gt 128 ||
+            ! "$capacity_id" =~ ^[A-Za-z0-9_.:-]+$ ]]; then
+        err "Replay-foundation capacity canary requires a safe nonempty capacity ID."
+        return 99
+      fi
+      if [[ ! -s "$capacity_receipt" ||
+            ! "$capacity_receipt_sha" =~ ^[0-9a-f]{64}$ ||
+            "$(ppg12_sha256_file "$capacity_receipt")" != "$capacity_receipt_sha" ]]; then
+        err "Replay-foundation capacity canary requires an exact SHA-pinned preflight receipt."
+        return 99
+      fi
+      if [[ ! "$execution_partition_sha" =~ ^[0-9a-f]{64}$ ||
+            ! "$bundle_receipt_sha" =~ ^[0-9a-f]{64}$ ||
+            ! "$materialization_receipt_sha" =~ ^[0-9a-f]{64}$ ]]; then
+        err "Replay-foundation capacity canary requires frozen execution-partition, bundle, and materialization SHA-256 identities."
+        return 99
+      fi
+    elif [[ "${GROUP_SIZE_EXPLICIT:-0}" -ne 1 || "${GROUP_SIZE:-0}" -ne 1 ||
+            "${MAX_JOBS_EXPLICIT:-0}" -ne 1 || "${MAX_JOBS:-0}" -ne 1 ]]; then
       err "Replay-foundation canary requires explicit groupSize 1 and maxJobs 1."
       return 99
     fi
@@ -4781,7 +4813,11 @@ validate_ppg12_stitched_purity_admission() {
       err "Replay-foundation canary requires a lane, schema hash, and isolated replay_foundation output path."
       return 99
     fi
-    say "    [sim_init] bounded replay-foundation canary admitted: lane=${RJ_REPLAY_LANE} sample=${sample} groupSize=1 maxJobs=1 autoMerge=off" >&2
+    if (( replay_capacity_canary )); then
+      say "    [sim_init] bounded replay-foundation capacity canary admitted: id=${capacity_id} lane=${RJ_REPLAY_LANE} sample=${sample} groupSize=7 maxJobs=1 autoMerge=off partition=${execution_partition_sha}" >&2
+    else
+      say "    [sim_init] bounded replay-foundation canary admitted: lane=${RJ_REPLAY_LANE} sample=${sample} groupSize=1 maxJobs=1 autoMerge=off" >&2
+    fi
     return 0
   fi
 

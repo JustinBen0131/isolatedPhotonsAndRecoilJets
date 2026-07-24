@@ -5,19 +5,32 @@ set -euo pipefail
 # explicitly selected p+p period/SI component plus the frozen Au+Au sources.
 #
 # This is a narrow controller over the established RecoilJets Condor executor.
-# It owns exactly one input tuple and one Condor proc for each frozen training
-# source.  It never submits data, p+p Jet40, a direct arm, a merge, or a model
-# training job.  The caller must select exactly 0mrad or 1p5mrad through
-# RJ_THE134_PP_PERIOD; the other period requires a distinct tag/execution, and
-# DI remains the separately typed archived-source path.  `inventory` is
-# read-only and emits the exact frozen-source manifest to stdout; submission
-# remains an explicit `submit` action.
+# Ordinary smoke mode owns exactly one input tuple and one Condor proc for each
+# frozen training source.  Capacity mode owns exactly one seven-tuple proc for
+# the fixed p+p Jet8 and Au+Au embedded-Jet12 capacity witnesses.  It never
+# submits data, p+p Jet40, a direct arm, a merge, or a model training job.  The
+# caller must select exactly 0mrad or 1p5mrad through RJ_THE134_PP_PERIOD; the
+# other period requires a distinct tag/execution, and DI remains the separately
+# typed archived-source path.  `inventory` is read-only and emits the exact
+# frozen-source manifest to stdout; submission remains an explicit action.
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd -P)"
 cd "$repo_root"
 
-mode="${1:-preflight}"
-tag="${RJ_THE134_EXTRACTION_TAG:-the134_h70_multiview_extraction_smoke_20260722_v1}"
+requested_mode="${1:-preflight}"
+capacity_mode=0
+mode="$requested_mode"
+case "$requested_mode" in
+  capacity-preflight|capacity-submit|capacity-resume-submit|capacity-status|capacity-validate)
+    capacity_mode=1
+    mode="${requested_mode#capacity-}"
+    ;;
+esac
+if (( capacity_mode )); then
+  tag="${RJ_THE134_EXTRACTION_TAG:-the134_h70_partition_capacity_canary_20260724_v1}"
+else
+  tag="${RJ_THE134_EXTRACTION_TAG:-the134_h70_multiview_extraction_smoke_20260722_v1}"
+fi
 output_root="${RJ_THE134_EXTRACTION_OUTPUT_ROOT:-/sphenix/tg/tg01/bulk/jbennett/thesisAna/recoiljets/smoke/replay_foundation/${tag}}"
 evidence_root="${RJ_THE134_EXTRACTION_EVIDENCE_ROOT:-/sphenix/u/patsfan753/scratch/thesisAnalysis/evidence/qa/${tag}}"
 submit_root="${RJ_THE134_EXTRACTION_SUBMIT_ROOT:-/sphenix/u/patsfan753/scratch/thesisAnalysis/condor_sub/${tag}}"
@@ -44,6 +57,11 @@ pp_model="${RJ_THE134_PP_MODEL:-/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining
 auau_model="${RJ_THE134_AUAU_MODEL:-/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/the111_models/the111_combined_corrected_shower_ppg12_labels_20260719_1618/combined/auau_tight_bdt_centAsFeatBase3x3_pt15to35_tmva.root}"
 source_hash_manifest="${RJ_THE134_SOURCE_HASH_MANIFEST:-}"
 pp_period="${RJ_THE134_PP_PERIOD:-}"
+capacity_canary_id="${RJ_THE134_CAPACITY_CANARY_ID:-}"
+capacity_preflight_receipt="${RJ_THE134_CAPACITY_PREFLIGHT_RECEIPT:-}"
+capacity_preflight_receipt_sha="${RJ_THE134_CAPACITY_PREFLIGHT_RECEIPT_SHA256:-}"
+capacity_full_plan="${RJ_THE134_CAPACITY_FULL_PLAN:-}"
+capacity_full_plan_sha="${RJ_THE134_CAPACITY_FULL_PLAN_SHA256:-}"
 
 resolved_config_root="${evidence_root}/resolved_configs"
 observed_source_hashes="${evidence_root}/observed_source_hashes.tsv"
@@ -55,6 +73,7 @@ source_provenance_json="${evidence_root}/source_provenance.json"
 pp_source_provenance_json="${evidence_root}/pp_source_provenance.json"
 auau_source_provenance_json="${evidence_root}/auau_source_provenance.json"
 root_health_join_certificate="${evidence_root}/root_health_identity_join_certificate.json"
+capacity_resource_certificate="${evidence_root}/capacity_resource_certificate.json"
 runtime_authority_manifest="${evidence_root}/runtime_authority_manifest.json"
 runtime_authority_fingerprint="${runtime_authority_manifest}.sha256"
 validator="${RJ_THE134_MATRIX_PREPARER:-${repo_root}/scripts/ml/training/prepare_the134_h70_matrix.py}"
@@ -70,6 +89,17 @@ readonly legacy_tree_max_entries="0"
 readonly event_limit_per_job="0"
 readonly full_training_authority="0"
 readonly extraction_cone_r="0.40"
+readonly ordinary_group_size="1"
+readonly capacity_group_size="7"
+readonly capacity_pp_row="pp_background_jet8"
+readonly capacity_auau_row="auau_background_jet12"
+if (( capacity_mode )); then
+  readonly execution_group_size="$capacity_group_size"
+  readonly execution_row_count="2"
+else
+  readonly execution_group_size="$ordinary_group_size"
+  readonly execution_row_count="13"
+fi
 readonly training_schema_text='RJ_PHOTON_TRAINING_VIEW_V1|tree=RJPhotonTrainingViewV1|identity=source,event,candidate,definition|source_stable_inputs=lane,dataset,sample,period,run,segment,input_uri,input_file,manifest|event_stable_inputs=lane,sample,run,segment,event_sequence|candidate_stable_inputs=event,encounter_ordinal,cluster_map_key|features=ordered+contract|labels=truth+source+npb|weights=component-ledger|domain=15to35'
 
 say() { printf '[THE134-EXTRACT] %s\n' "$*"; }
@@ -272,6 +302,16 @@ emit_matrix() {
     'auau_background_jet40|auau|auau_inclusive_embedded|isSimEmbeddedInclusive|run28_embeddedJet40|background|required_pass|auauBDTSideband'
 }
 
+emit_execution_matrix() {
+  if (( capacity_mode )); then
+    emit_matrix | awk -F'|' \
+      -v pp="$capacity_pp_row" -v auau="$capacity_auau_row" \
+      '$1==pp || $1==auau'
+  else
+    emit_matrix
+  fi
+}
+
 validate_matrix() {
   local rows unique_rows unique_samples
   rows="$(emit_matrix | wc -l | tr -d ' ')"
@@ -292,6 +332,131 @@ validate_matrix() {
     die "Au+Au background source closure failed"
   [[ "$(emit_matrix | awk -F'|' '$2=="auau" && $7!="required_pass" {n++} END{print n+0}')" == 0 ]] ||
     die "every Au+Au source must require the MinimumBias classifier"
+  [[ "$(emit_execution_matrix | wc -l | tr -d ' ')" == "$execution_row_count" ]] ||
+    die "execution matrix row count differs from the selected mode"
+  if (( capacity_mode )); then
+    [[ "$(emit_execution_matrix | awk -F'|' '$1=="pp_background_jet8" && $2=="pp" && $5=="run28_jet8" {n++} END{print n+0}')" == 1 ]] ||
+      die "capacity matrix must contain exactly the frozen p+p Jet8 witness"
+    [[ "$(emit_execution_matrix | awk -F'|' '$1=="auau_background_jet12" && $2=="auau" && $5=="run28_embeddedJet12" {n++} END{print n+0}')" == 1 ]] ||
+      die "capacity matrix must contain exactly the frozen Au+Au embedded-Jet12 witness"
+  fi
+}
+
+validate_capacity_preflight_contract() {
+  (( capacity_mode )) || return 0
+  [[ -n "$capacity_canary_id" && ${#capacity_canary_id} -le 128 &&
+     "$capacity_canary_id" =~ ^[A-Za-z0-9_.:-]+$ ]] ||
+    die "capacity mode requires a safe RJ_THE134_CAPACITY_CANARY_ID"
+  require_file_hash "capacity preflight receipt" \
+    "$capacity_preflight_receipt" "$capacity_preflight_receipt_sha"
+  require_file_hash "capacity full extraction plan" \
+    "$capacity_full_plan" "$capacity_full_plan_sha"
+  [[ "$output_root" =~ ^/sphenix/.*/replay_foundation/[A-Za-z0-9_.-]+$ ]] ||
+    die "capacity output root must be a fresh isolated replay_foundation namespace"
+  [[ "$evidence_root" =~ ^/sphenix/u/.*/evidence/qa/[A-Za-z0-9_.-]+$ ]] ||
+    die "capacity evidence root must be a fresh isolated QA namespace"
+  [[ "$submit_root" =~ ^/sphenix/u/.*/(condor|condor_sub)/[A-Za-z0-9_.-]+$ ]] ||
+    die "capacity submit root must be a fresh isolated Condor namespace"
+  python3 - \
+    "$capacity_preflight_receipt" "$capacity_full_plan" \
+    "$capacity_preflight_receipt_sha" "$capacity_full_plan_sha" \
+    "$capacity_pp_row" "$capacity_auau_row" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import re
+import sys
+
+receipt_path, plan_path = map(Path, sys.argv[1:3])
+receipt_sha, plan_sha, pp_row, auau_row = sys.argv[3:]
+hex64 = re.compile(r"^[0-9a-f]{64}$")
+
+def digest(path: Path) -> str:
+    value = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+            value.update(block)
+    return value.hexdigest()
+
+if digest(receipt_path) != receipt_sha or digest(plan_path) != plan_sha:
+    raise SystemExit("capacity preflight input hash drift")
+receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+plan = json.loads(plan_path.read_text(encoding="utf-8"))
+if (
+    receipt.get("schema")
+    != "THE134_FULL_MULTIVIEW_EXTRACTION_PREFLIGHT_RECEIPT_V1"
+    or receipt.get("status") != "PASS"
+    or receipt.get("submission_performed") is not False
+    or receipt.get("authority_state") != "PREFLIGHT_RESOLVED_NOT_EARNED"
+    or int(receipt.get("full_training_authority", -1)) != 0
+):
+    raise SystemExit("capacity preflight receipt does not represent frozen pre-submit authority")
+if (
+    plan.get("schema") != "THE134_FULL_MULTIVIEW_EXTRACTION_PLAN_V1"
+    or plan.get("status") != "PREFLIGHT_PASS"
+    or plan.get("submission_performed") is not False
+    or plan.get("execution_state") != "PREFLIGHT_ONLY_NO_CONDOR_MUTATION"
+):
+    raise SystemExit("capacity full extraction plan is not a frozen preflight plan")
+if receipt.get("artifacts", {}).get("plan", {}).get("sha256") != plan_sha:
+    raise SystemExit("capacity preflight receipt does not bind the exact full plan")
+partition = plan.get("execution_partition", {})
+if (
+    partition.get("schema") != "THE134_FULL_EXTRACTION_PARTITION_CONTRACT_V1"
+    or int(partition.get("group_size", -1)) != 7
+    or partition.get("capacity_canary_required_before_submission") is not True
+    or partition.get("capacity_authority_earned") is not False
+):
+    raise SystemExit("capacity execution partition is not the frozen group-of-seven pre-gate")
+for key in (
+    "bundle_manifest_sha256",
+    "materialization_receipt_sha256",
+    "execution_partition_sha256",
+):
+    if not hex64.fullmatch(str(receipt.get(key, ""))):
+        raise SystemExit(f"capacity receipt has malformed identity: {key}")
+if receipt.get("bundle_manifest_sha256") != plan.get("input_manifests", {}).get("bundle", {}).get("sha256"):
+    raise SystemExit("capacity bundle receipt identity differs between receipt and plan")
+if receipt.get("materialization_receipt_sha256") != plan.get("input_manifests", {}).get("materialization", {}).get("sha256"):
+    raise SystemExit("capacity materialization identity differs between receipt and plan")
+if plan.get("input_manifests", {}).get("materialization", {}).get("readback") != "PASS_SYMLINK_FREE_READONLY_CONTENT_EXACT":
+    raise SystemExit("capacity plan lacks the exact immutable-bundle readback authority")
+for namespace_key in ("output_root", "submit_root"):
+    namespace = Path(str(plan.get("campaign", {}).get(namespace_key, "")))
+    if not namespace.is_absolute() or namespace.exists():
+        raise SystemExit(
+            f"capacity gate requires an unmaterialized full-production namespace: "
+            f"{namespace_key}={namespace}"
+        )
+rows = {str(row.get("row_id")): row for row in plan.get("rows", [])}
+expected = {
+    pp_row: ("pp", "run28_jet8"),
+    auau_row: ("auau", "run28_embeddedJet12"),
+}
+for row_id, (system, sample) in expected.items():
+    row = rows.get(row_id)
+    if (
+        row is None
+        or row.get("system") != system
+        or row.get("sample") != sample
+        or int(row.get("input_contract", {}).get("group_size", -1)) != 7
+        or int(row.get("full_training_authority", -1)) != 0
+    ):
+        raise SystemExit(f"capacity witness row differs from frozen full plan: {row_id}")
+PY
+}
+
+capacity_receipt_value() {
+  local key="$1"
+  python3 - "$capacity_preflight_receipt" "$key" <<'PY'
+import json
+import sys
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+value = payload.get(sys.argv[2], "")
+if not isinstance(value, str):
+    raise SystemExit(f"capacity receipt field is not text: {sys.argv[2]}")
+print(value)
+PY
 }
 
 yaml_value() {
@@ -546,8 +711,9 @@ write_submission_manifest() {
     sidecar="${row_output}/${sample}/RJPhotonTrainingViewV1.root"
     row_submit="${submit_root}/${row_id}"
     [[ "$tuple_count" =~ ^[1-9][0-9]*$ ]] || die "${row_id} executable tuple count is invalid"
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t1\t1\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t1\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
       "$row_id" "$system" "$lane" "$dataset" "$sample" "$role" "$mb_gate" \
+      "$execution_group_size" \
       "$source_sha" "$tuple_sha" "$config" "$config_sha" "$library" "$library_sha" \
       "$model" "$model_sha" "$code_sha" "$replay_schema_sha" "$training_schema_sha" "$semantic_sha" \
       "$nominal_et_min" "$nominal_et_max" "$capture_et_min" "$legacy_tree_max_entries" "$event_limit_per_job" \
@@ -573,10 +739,26 @@ write_submission_manifest() {
   [[ "$(tail -n +2 "$submission_manifest" | cut -f28 | sort -u | wc -l | tr -d ' ')" == 13 ]] ||
     die "every source row must own a unique multiview sidecar path"
   sha_file "$submission_manifest" > "$duplicate_fingerprint"
-  awk -F'\t' 'NR>1 && $2=="pp" {print $28}' "$submission_manifest" > "${evidence_root}/pp_multiview_sidecars.list"
-  awk -F'\t' 'NR>1 && $2=="auau" {print $28}' "$submission_manifest" > "${evidence_root}/auau_multiview_sidecars.list"
-  [[ "$(wc -l < "${evidence_root}/pp_multiview_sidecars.list" | tr -d ' ')" == 7 ]] || die "p+p sidecar manifest closure failed"
-  [[ "$(wc -l < "${evidence_root}/auau_multiview_sidecars.list" | tr -d ' ')" == 6 ]] || die "Au+Au sidecar manifest closure failed"
+  : > "${evidence_root}/pp_multiview_sidecars.list"
+  : > "${evidence_root}/auau_multiview_sidecars.list"
+  while IFS='|' read -r row_id system _lane _dataset _sample _role _mb_gate _row_match; do
+    if [[ "$system" == pp ]]; then
+      manifest_field "$row_id" 28 >> "${evidence_root}/pp_multiview_sidecars.list"
+    else
+      manifest_field "$row_id" 28 >> "${evidence_root}/auau_multiview_sidecars.list"
+    fi
+  done < <(emit_execution_matrix)
+  if (( capacity_mode )); then
+    [[ "$(wc -l < "${evidence_root}/pp_multiview_sidecars.list" | tr -d ' ')" == 1 ]] ||
+      die "capacity p+p sidecar manifest closure failed"
+    [[ "$(wc -l < "${evidence_root}/auau_multiview_sidecars.list" | tr -d ' ')" == 1 ]] ||
+      die "capacity Au+Au sidecar manifest closure failed"
+  else
+    [[ "$(wc -l < "${evidence_root}/pp_multiview_sidecars.list" | tr -d ' ')" == 7 ]] ||
+      die "p+p sidecar manifest closure failed"
+    [[ "$(wc -l < "${evidence_root}/auau_multiview_sidecars.list" | tr -d ' ')" == 6 ]] ||
+      die "Au+Au sidecar manifest closure failed"
+  fi
 }
 
 write_runtime_authority_manifest() {
@@ -704,6 +886,7 @@ require_inputs_and_hashes() {
   local pp_yaml_model auau_yaml_model
   validate_matrix
   validate_pp_sim_weight_contract "$pp_period"
+  validate_capacity_preflight_contract
   [[ -x "$submitter" ]] || die "RecoilJets submitter is not executable: ${submitter}"
   [[ -x "$pp_executor" ]] || die "p+p RecoilJets executor is not executable: ${pp_executor}"
   [[ -x "$auau_executor" ]] || die "Au+Au RecoilJets executor is not executable: ${auau_executor}"
@@ -819,7 +1002,11 @@ preflight() {
   bash -n "$submitter"
   bash -n "$pp_executor"
   bash -n "$auau_executor"
-  say "PREFLIGHT_PASS rows=13 manifest=${submission_manifest} fingerprint=$(cat "$duplicate_fingerprint")"
+  if (( capacity_mode )); then
+    say "CAPACITY_PREFLIGHT_PASS selected_rows=${execution_row_count} group_size=${execution_group_size} full_manifest_rows=13 manifest=${submission_manifest} fingerprint=$(cat "$duplicate_fingerprint")"
+  else
+    say "PREFLIGHT_PASS rows=13 manifest=${submission_manifest} fingerprint=$(cat "$duplicate_fingerprint")"
+  fi
 }
 
 manifest_field() {
@@ -903,8 +1090,12 @@ common_extra_env() {
     si_di_role=EMBEDDED
     period=AUAU_RUN24
   fi
-  printf '%s' \
-    "RJ_REPLAY_FOUNDATION_V1=1;RJ_REPLAY_FOUNDATION_CANARY=1;RJ_REPLAY_TRACE=0;RJ_REPLAY_LANE=${lane};RJ_REPLAY_DATASET=${dataset};RJ_REPLAY_SAMPLE=${sample};RJ_REPLAY_PERIOD=${period};RJ_REPLAY_SI_DI_ROLE=${si_di_role};RJ_REPLAY_OWNERSHIP_STATE=source_role_frozen;RJ_REPLAY_SOURCE_MANIFEST_SHA256=${source_sha};RJ_REPLAY_SOURCE_SHA256=${source_sha};RJ_REPLAY_MODEL_SHA256=${model_sha};RJ_REPLAY_MODEL_SCORE_NAME=${model_score};RJ_REPLAY_MODEL_SHOWER_DEFINITION=${shower_definition};RJ_REPLAY_CONFIG_SHA256=${config_sha};RJ_REPLAY_CODE_SHA256=${RJ_THE134_CODE_SHA256};RJ_REPLAY_SCHEMA_SHA256=${RJ_THE134_REPLAY_SCHEMA_SHA256};RJ_REPLAY_SEMANTIC_SHA256=${RJ_THE134_SEMANTIC_SHA256};RJ_REPLAY_PHOTON_CAPTURE_ET_MIN=${capture_et_min};RJ_REPLAY_JET_CONSTITUENT_PT_MIN=${capture_et_min};RJ_THE134_MULTIVIEW_TRAINING_V1=1;RJ_THE134_MULTIVIEW_TRAINING_FILE=${sidecar};RJ_THE134_EXPECTED_SOURCE_ROLE=${role}"
+  local extra
+  extra="RJ_REPLAY_FOUNDATION_V1=1;RJ_REPLAY_FOUNDATION_CANARY=1;RJ_REPLAY_TRACE=0;RJ_REPLAY_LANE=${lane};RJ_REPLAY_DATASET=${dataset};RJ_REPLAY_SAMPLE=${sample};RJ_REPLAY_PERIOD=${period};RJ_REPLAY_SI_DI_ROLE=${si_di_role};RJ_REPLAY_OWNERSHIP_STATE=source_role_frozen;RJ_REPLAY_SOURCE_MANIFEST_SHA256=${source_sha};RJ_REPLAY_SOURCE_SHA256=${source_sha};RJ_REPLAY_MODEL_SHA256=${model_sha};RJ_REPLAY_MODEL_SCORE_NAME=${model_score};RJ_REPLAY_MODEL_SHOWER_DEFINITION=${shower_definition};RJ_REPLAY_CONFIG_SHA256=${config_sha};RJ_REPLAY_CODE_SHA256=${RJ_THE134_CODE_SHA256};RJ_REPLAY_SCHEMA_SHA256=${RJ_THE134_REPLAY_SCHEMA_SHA256};RJ_REPLAY_SEMANTIC_SHA256=${RJ_THE134_SEMANTIC_SHA256};RJ_REPLAY_PHOTON_CAPTURE_ET_MIN=${capture_et_min};RJ_REPLAY_JET_CONSTITUENT_PT_MIN=${capture_et_min};RJ_THE134_MULTIVIEW_TRAINING_V1=1;RJ_THE134_MULTIVIEW_TRAINING_FILE=${sidecar};RJ_THE134_EXPECTED_SOURCE_ROLE=${role}"
+  if (( capacity_mode )); then
+    extra="${extra};RJ_REPLAY_FOUNDATION_CAPACITY_CANARY=1;RJ_REPLAY_FOUNDATION_CAPACITY_CANARY_ID=${capacity_canary_id};RJ_REPLAY_FOUNDATION_CAPACITY_PREFLIGHT_RECEIPT=${capacity_preflight_receipt};RJ_REPLAY_FOUNDATION_CAPACITY_PREFLIGHT_RECEIPT_SHA256=${capacity_preflight_receipt_sha};RJ_REPLAY_FOUNDATION_EXECUTION_PARTITION_SHA256=$(capacity_receipt_value execution_partition_sha256);RJ_REPLAY_FOUNDATION_BUNDLE_RECEIPT_SHA256=$(capacity_receipt_value bundle_manifest_sha256);RJ_REPLAY_FOUNDATION_MATERIALIZATION_RECEIPT_SHA256=$(capacity_receipt_value materialization_receipt_sha256)"
+  fi
+  printf '%s' "$extra"
 }
 
 system_extra_env() {
@@ -1126,9 +1317,11 @@ if manifest_path.lstat().st_mode & 0o222:
 PY
 }
 
-validate_one_five_file_tuple() {
-  local row_id="$1" system="$2" path="$3"
-  awk -F '\t' -v tuple_system="$system" '
+validate_five_file_tuple_count() {
+  local row_id="$1" system="$2" path="$3" expected_rows="$4"
+  [[ "$expected_rows" =~ ^[1-9][0-9]*$ ]] ||
+    die "${row_id} expected staged tuple count must be a positive integer"
+  awk -F '\t' -v tuple_system="$system" -v expected_rows="$expected_rows" '
     /^[[:space:]]*($|#)/ { next }
     {
       rows += 1
@@ -1141,8 +1334,13 @@ validate_one_five_file_tuple() {
       if (tuple_system == "auau" && $5 != "NONE") bad = 1
       if (tuple_system != "pp" && tuple_system != "auau") bad = 1
     }
-    END { exit (bad || rows != 1) }
-  ' "$path" || die "${row_id} staged chunk violates the typed ${system} five-column input contract"
+    END { exit (bad || rows != expected_rows) }
+  ' "$path" ||
+    die "${row_id} staged chunk violates the typed ${system} five-column ${expected_rows}-tuple contract"
+}
+
+validate_one_five_file_tuple() {
+  validate_five_file_tuple_count "$1" "$2" "$3" 1
 }
 
 validate_five_field_fanout_contract() {
@@ -1274,11 +1472,12 @@ verify_materialized_row_contract() {
   [[ "$arg_sample" == "$sample" && "$arg_dataset" == "$dataset" ]] ||
     die "${row_id} materialized sample/dataset drift"
   [[ "$arg_cluster" == '$(Cluster)' && "$arg_events" == "$event_limit_per_job" && "$arg_index" == 1 && "$arg_none" == NONE ]] ||
-    die "${row_id} argument row violates the one-proc smoke contract"
+    die "${row_id} argument row violates the one-proc group-${execution_group_size} contract"
   [[ "$arg_dest" == "$row_output/"* ]] || die "${row_id} argument destination escapes its owned output namespace"
   chunk_list="$arg_chunk"
   [[ -s "$chunk_list" ]] || die "${row_id} staged chunk list is missing: ${chunk_list}"
-  validate_one_five_file_tuple "$row_id" "$system" "$chunk_list"
+  validate_five_file_tuple_count \
+    "$row_id" "$system" "$chunk_list" "$execution_group_size"
   chunk_sha="$(sha_file "$chunk_list")"
   require_sha "${row_id} staged chunk" "$chunk_sha"
 
@@ -1301,6 +1500,28 @@ verify_materialized_row_contract() {
     < <(descriptor_env_values "$submit_file" RJ_SIM_ALLOW_NONE_LISTS)
   [[ "${#allow_none_values[@]}" == 1 ]] ||
     die "${row_id} descriptor must bind exactly one typed RJ_SIM_ALLOW_NONE_LISTS value"
+  if (( capacity_mode )); then
+    require_descriptor_env_exact "$row_id" "$submit_file" \
+      RJ_REPLAY_FOUNDATION_CAPACITY_CANARY 1
+    require_descriptor_env_exact "$row_id" "$submit_file" \
+      RJ_REPLAY_FOUNDATION_CAPACITY_CANARY_ID "$capacity_canary_id"
+    require_descriptor_env_exact "$row_id" "$submit_file" \
+      RJ_REPLAY_FOUNDATION_CAPACITY_PREFLIGHT_RECEIPT "$capacity_preflight_receipt"
+    require_descriptor_env_exact "$row_id" "$submit_file" \
+      RJ_REPLAY_FOUNDATION_CAPACITY_PREFLIGHT_RECEIPT_SHA256 "$capacity_preflight_receipt_sha"
+    require_descriptor_env_exact "$row_id" "$submit_file" \
+      RJ_REPLAY_FOUNDATION_EXECUTION_PARTITION_SHA256 \
+      "$(capacity_receipt_value execution_partition_sha256)"
+    require_descriptor_env_exact "$row_id" "$submit_file" \
+      RJ_REPLAY_FOUNDATION_BUNDLE_RECEIPT_SHA256 \
+      "$(capacity_receipt_value bundle_manifest_sha256)"
+    require_descriptor_env_exact "$row_id" "$submit_file" \
+      RJ_REPLAY_FOUNDATION_MATERIALIZATION_RECEIPT_SHA256 \
+      "$(capacity_receipt_value materialization_receipt_sha256)"
+  else
+    require_descriptor_env_absent "$row_id" "$submit_file" \
+      RJ_REPLAY_FOUNDATION_CAPACITY_CANARY
+  fi
   if [[ "$system" == pp ]]; then
     [[ "${allow_none_values[0]}" == 0 ]] || die "${row_id} p+p descriptor must reject NONE lists"
     require_descriptor_env_exact "$row_id" "$submit_file" RJ_PPG12_PHOTON_YIELD 1
@@ -1504,6 +1725,17 @@ submit_row() {
     RJ_REPLAY_LANE="$lane"
     RJ_REPLAY_SCHEMA_SHA256="$RJ_THE134_REPLAY_SCHEMA_SHA256"
   )
+  if (( capacity_mode )); then
+    materialize_contract_env+=(
+      RJ_REPLAY_FOUNDATION_CAPACITY_CANARY=1
+      RJ_REPLAY_FOUNDATION_CAPACITY_CANARY_ID="$capacity_canary_id"
+      RJ_REPLAY_FOUNDATION_CAPACITY_PREFLIGHT_RECEIPT="$capacity_preflight_receipt"
+      RJ_REPLAY_FOUNDATION_CAPACITY_PREFLIGHT_RECEIPT_SHA256="$capacity_preflight_receipt_sha"
+      RJ_REPLAY_FOUNDATION_EXECUTION_PARTITION_SHA256="$(capacity_receipt_value execution_partition_sha256)"
+      RJ_REPLAY_FOUNDATION_BUNDLE_RECEIPT_SHA256="$(capacity_receipt_value bundle_manifest_sha256)"
+      RJ_REPLAY_FOUNDATION_MATERIALIZATION_RECEIPT_SHA256="$(capacity_receipt_value materialization_receipt_sha256)"
+    )
+  fi
   config="$(manifest_field "$row_id" 12)"
   row_output="$(manifest_field "$row_id" 27)"
   sidecar="$(manifest_field "$row_id" 28)"
@@ -1575,7 +1807,7 @@ submit_row() {
         RJ_SUBMISSION_NAMESPACE="$row_id" RJ_CONDOR_SUB_DIR="$row_submit" \
         RJ_PHOTON_ID_ROW_MATCH="$row_match" RJ_ID_FANOUT_MAX_ROWS=1 \
         RJ_SUBMIT_EXTRA_ENV="$extra" \
-        "$submitter" "$dataset" condorDoAllSmoke groupSize 1 maxJobs 1 "SAMPLE=${sample}" \
+        "$submitter" "$dataset" condorDoAllSmoke groupSize "$execution_group_size" maxJobs 1 "SAMPLE=${sample}" \
         2>&1 | tee "$materialize_log"
     else
       env -u RJ_FORCE_RELEASE_CORE_LIBS -u RJ_FORCE_RELEASE_CALO_IO -u RJ_RELEASE_CALO_IO_PATH \
@@ -1608,7 +1840,7 @@ submit_row() {
         RJ_SUBMISSION_NAMESPACE="$row_id" RJ_CONDOR_SUB_DIR="$row_submit" \
         RJ_PHOTON_ID_ROW_MATCH="$row_match" RJ_ID_FANOUT_MAX_ROWS=1 \
         RJ_SUBMIT_EXTRA_ENV="$extra" \
-        "$submitter" "$dataset" condorDoAllSmoke groupSize 1 maxJobs 1 "SAMPLE=${sample}" \
+        "$submitter" "$dataset" condorDoAllSmoke groupSize "$execution_group_size" maxJobs 1 "SAMPLE=${sample}" \
         2>&1 | tee "$materialize_log"
     fi
 
@@ -1734,19 +1966,21 @@ submit_all() {
   printf 'row_id\tcluster_proc\tsubmit_file\targs_file\tstaged_chunk_list\tstaged_chunk_sha256\tfanout_contract_file\tfanout_contract_sha256\tcondor_log\tcondor_stdout\tcondor_stderr\tanalysis_output_root\tmultiview_sidecar\tsidecar_owner_count\tsubmitted_args_sha256\tsnapshot_dir\tsnapshot_builder_header\tsnapshot_builder_header_sha256\tsnapshot_calo_reco_library\tsnapshot_calo_reco_library_sha256\tsnapshot_analysis_library\tsnapshot_analysis_library_sha256\tmaterialized_config\tmaterialized_config_sha256\tsnapshot_loader_receipt\tsnapshot_loader_receipt_sha256\tsnapshot_manifest\tsnapshot_manifest_sha256\n' > "$submission_receipt"
   while IFS='|' read -r row_id system lane dataset sample role mb_gate row_match; do
     submit_row "$row_id" "$system" "$lane" "$dataset" "$sample" "$role" "$mb_gate" "$row_match"
-  done < <(emit_matrix)
-  [[ "$(wc -l < "$submission_receipt" | tr -d ' ')" == 14 ]] || die "submission receipt is incomplete"
+  done < <(emit_execution_matrix)
+  [[ "$(wc -l < "$submission_receipt" | tr -d ' ')" == "$((execution_row_count + 1))" ]] ||
+    die "submission receipt is incomplete"
   awk -F'\t' 'NF != 28 {exit 1}' "$submission_receipt" ||
     die "submission receipt must contain exactly 28 tab-separated fields on every row"
-  [[ "$(wc -l < "$submission_journal" | tr -d ' ')" == 14 ]] || die "submission journal is incomplete"
-  python3 - "$source_provenance_json" <<'PY'
+  [[ "$(wc -l < "$submission_journal" | tr -d ' ')" == "$((execution_row_count + 1))" ]] ||
+    die "submission journal is incomplete"
+  python3 - "$source_provenance_json" "$execution_row_count" <<'PY'
 import json
 import sys
 payload = json.load(open(sys.argv[1]))
 assert payload["schema"] == "THE134_SOURCE_PROVENANCE_V1"
-assert len(payload["inputs"]) == 13
+assert len(payload["inputs"]) == int(sys.argv[2])
 PY
-  say "SUBMISSION_PASS rows=13 receipt=${submission_receipt}"
+  say "SUBMISSION_PASS rows=${execution_row_count} group_size=${execution_group_size} capacity_mode=${capacity_mode} receipt=${submission_receipt}"
 }
 
 resume_submit() {
@@ -1766,12 +2000,14 @@ resume_submit() {
       die "${row_id} has an unjournaled successful submit log; manual cluster recovery is required before resume"
     fi
     submit_row "$row_id" "$system" "$lane" "$dataset" "$sample" "$role" "$mb_gate" "$row_match"
-  done < <(emit_matrix)
-  [[ "$(wc -l < "$submission_receipt" | tr -d ' ')" == 14 ]] || die "resumed submission receipt is incomplete"
+  done < <(emit_execution_matrix)
+  [[ "$(wc -l < "$submission_receipt" | tr -d ' ')" == "$((execution_row_count + 1))" ]] ||
+    die "resumed submission receipt is incomplete"
   awk -F'\t' 'NF != 28 {exit 1}' "$submission_receipt" ||
     die "resumed submission receipt must contain exactly 28 tab-separated fields on every row"
-  [[ "$(wc -l < "$submission_journal" | tr -d ' ')" == 14 ]] || die "resumed submission journal is incomplete"
-  say "RESUME_SUBMISSION_PASS rows=13 receipt=${submission_receipt}"
+  [[ "$(wc -l < "$submission_journal" | tr -d ' ')" == "$((execution_row_count + 1))" ]] ||
+    die "resumed submission journal is incomplete"
+  say "RESUME_SUBMISSION_PASS rows=${execution_row_count} group_size=${execution_group_size} receipt=${submission_receipt}"
 }
 
 status() {
@@ -1798,7 +2034,8 @@ status() {
 validate_root_health_and_joins() {
   command -v python3 >/dev/null 2>&1 || die "python3 is required for ROOT health and identity validation"
   python3 - "$submission_receipt" "$submission_manifest" \
-    "$root_health_join_certificate" "$pinned_calo_reco_soname" <<'PY'
+    "$root_health_join_certificate" "$pinned_calo_reco_soname" \
+    "$execution_row_count" "$execution_group_size" "$capacity_mode" <<'PY'
 import csv
 import hashlib
 import json
@@ -1815,6 +2052,9 @@ except Exception as exc:  # pragma: no cover - remote environment contract
 
 receipt_path, manifest_path, certificate_path = map(Path, sys.argv[1:4])
 expected_calo_soname = sys.argv[4]
+expected_receipt_count = int(sys.argv[5])
+expected_source_count = int(sys.argv[6])
+capacity_mode = bool(int(sys.argv[7]))
 with manifest_path.open(newline="") as stream:
     manifests = {row["row_id"]: row for row in csv.DictReader(stream, delimiter="\t")}
 with receipt_path.open(newline="") as stream:
@@ -2098,11 +2338,17 @@ for receipt in receipts:
         source_tree = replay.Get("RJSourceOccurrenceV1")
         event_tree = replay.Get("RJEventV1")
         candidate_tree = replay.Get("RJPhotonCandidateV1")
-        if int(source_tree.GetEntries()) != 1:
-            raise ValueError(f"expected exactly one replay source row, observed={int(source_tree.GetEntries())}")
+        if int(source_tree.GetEntries()) != expected_source_count:
+            raise ValueError(
+                "replay source-row population differs from the execution group: "
+                f"expected={expected_source_count} observed={int(source_tree.GetEntries())}"
+            )
         source_ids = {identity(row, "source_occurrence_id") for row in source_tree}
-        if len(source_ids) != 1:
-            raise ValueError(f"expected exactly one replay source occurrence, observed={len(source_ids)}")
+        if len(source_ids) != expected_source_count:
+            raise ValueError(
+                "replay source identities differ from the execution group: "
+                f"expected={expected_source_count} observed={len(source_ids)}"
+            )
         event_to_source: dict[tuple[int, int], tuple[int, int]] = {}
         for row in event_tree:
             event_id = identity(row, "event_id")
@@ -2171,6 +2417,8 @@ for receipt in receipts:
                 )
         if joined_rows != 7 * len(candidate_definitions):
             raise ValueError("sidecar seven-view population closure failed")
+        if capacity_mode and not candidate_definitions:
+            raise ValueError("capacity witness contains no retained photon candidates")
 
         report.update(
             {
@@ -2198,14 +2446,27 @@ for receipt in receipts:
         report.update({"status": "FAIL", "failure": str(exc)})
     reports.append(report)
 
-if len(receipts) != 13 or len(manifests) != 13:
-    failures.append(f"row_closure:receipts={len(receipts)} manifests={len(manifests)}")
+if len(receipts) != expected_receipt_count or len(manifests) != 13:
+    failures.append(
+        "row_closure:"
+        f"receipts={len(receipts)}/{expected_receipt_count} manifests={len(manifests)}/13"
+    )
+if capacity_mode and {row.get("row_id") for row in receipts} != {
+    "pp_background_jet8",
+    "auau_background_jet12",
+}:
+    failures.append(
+        "capacity_selected_rows:"
+        f"{sorted(str(row.get('row_id')) for row in receipts)}"
+    )
 
 payload = {
     "schema": "THE134_SMOKE_ROOT_HEALTH_IDENTITY_JOIN_V1",
     "status": "PASS" if not failures else "FAIL",
-    "scope": "smoke",
+    "scope": "capacity" if capacity_mode else "smoke",
     "full_training_authority": 0,
+    "execution_group_size": expected_source_count,
+    "capacity_authority_earned": bool(capacity_mode and not failures),
     "row_count": len(reports),
     "rows": reports,
     "failures": failures,
@@ -2218,13 +2479,179 @@ raise SystemExit(0 if not failures else 1)
 PY
 }
 
+write_capacity_resource_certificate() {
+  (( capacity_mode )) || return 0
+  python3 - \
+    "$submission_journal" "$root_health_join_certificate" \
+    "$capacity_resource_certificate" "$capacity_preflight_receipt" \
+    "$capacity_preflight_receipt_sha" "$capacity_full_plan" \
+    "$capacity_full_plan_sha" "$capacity_canary_id" <<'PY'
+from pathlib import Path
+import csv
+import hashlib
+import json
+import os
+import subprocess
+import sys
+
+(
+    journal_arg,
+    root_certificate_arg,
+    destination_arg,
+    preflight_receipt_arg,
+    preflight_receipt_sha,
+    full_plan_arg,
+    full_plan_sha,
+    capacity_id,
+) = sys.argv[1:]
+journal_path = Path(journal_arg)
+root_certificate_path = Path(root_certificate_arg)
+destination = Path(destination_arg)
+preflight_receipt_path = Path(preflight_receipt_arg)
+full_plan_path = Path(full_plan_arg)
+
+def digest(path: Path) -> str:
+    value = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+            value.update(block)
+    return value.hexdigest()
+
+if digest(preflight_receipt_path) != preflight_receipt_sha:
+    raise SystemExit("capacity preflight receipt drifted before resource certification")
+if digest(full_plan_path) != full_plan_sha:
+    raise SystemExit("capacity full plan drifted before resource certification")
+preflight = json.loads(preflight_receipt_path.read_text(encoding="utf-8"))
+root_certificate = json.loads(root_certificate_path.read_text(encoding="utf-8"))
+if (
+    root_certificate.get("status") != "PASS"
+    or root_certificate.get("scope") != "capacity"
+    or root_certificate.get("capacity_authority_earned") is not True
+    or int(root_certificate.get("execution_group_size", -1)) != 7
+    or int(root_certificate.get("row_count", -1)) != 2
+):
+    raise SystemExit("ROOT/identity capacity certificate is not PASS")
+
+with journal_path.open(newline="") as stream:
+    journal_rows = list(csv.DictReader(stream, delimiter="\t"))
+if len(journal_rows) != 2:
+    raise SystemExit(f"capacity journal must contain exactly two rows: {len(journal_rows)}")
+
+reports = []
+for row in journal_rows:
+    cluster_proc = row["cluster_proc"]
+    completed = subprocess.run(
+        ["condor_history", cluster_proc, "-limit", "1", "-json"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        raise SystemExit(
+            f"condor_history failed for {cluster_proc}: {completed.stderr.strip()}"
+        )
+    ads = json.loads(completed.stdout or "[]")
+    if len(ads) != 1:
+        raise SystemExit(
+            f"capacity history must contain exactly one ClassAd for {cluster_proc}"
+        )
+    ad = ads[0]
+    expected_cluster, expected_proc = map(int, cluster_proc.split(".", 1))
+    if int(ad.get("ClusterId", -1)) != expected_cluster or int(ad.get("ProcId", -1)) != expected_proc:
+        raise SystemExit(f"capacity history identity mismatch: {cluster_proc}")
+    job_status = int(ad.get("JobStatus", -1))
+    exit_code = int(ad.get("ExitCode", -1))
+    starts = int(ad.get("NumJobStarts", -1))
+    holds = int(ad.get("NumHolds", 0))
+    request_memory_mb = int(ad.get("RequestMemory", -1))
+    memory_usage_mb = int(ad.get("MemoryUsage", -1))
+    resident_set_kb = int(ad.get("ResidentSetSize_RAW", ad.get("ResidentSetSize", -1)))
+    wall_seconds = float(ad.get("RemoteWallClockTime", -1.0))
+    if job_status != 4 or exit_code != 0:
+        raise SystemExit(
+            f"capacity terminal state failed: {cluster_proc} status={job_status} exit={exit_code}"
+        )
+    if starts != 1 or holds != 0:
+        raise SystemExit(
+            f"capacity execution was retried or held: {cluster_proc} starts={starts} holds={holds}"
+        )
+    if request_memory_mb != 8000:
+        raise SystemExit(
+            f"capacity RequestMemory drift: {cluster_proc} request={request_memory_mb}"
+        )
+    if memory_usage_mb <= 0 or memory_usage_mb > request_memory_mb:
+        raise SystemExit(
+            f"capacity memory usage exceeds its frozen request: {cluster_proc} "
+            f"usage={memory_usage_mb} request={request_memory_mb}"
+        )
+    if resident_set_kb <= 0 or wall_seconds <= 0:
+        raise SystemExit(
+            f"capacity runtime metrics are incomplete: {cluster_proc} "
+            f"rss_kb={resident_set_kb} wall={wall_seconds}"
+        )
+    reports.append(
+        {
+            "cluster_proc": cluster_proc,
+            "exit_code": exit_code,
+            "job_status": job_status,
+            "memory_usage_mb": memory_usage_mb,
+            "num_holds": holds,
+            "num_job_starts": starts,
+            "remote_wall_clock_seconds": wall_seconds,
+            "request_memory_mb": request_memory_mb,
+            "resident_set_size_kb": resident_set_kb,
+            "row_id": row["row_id"],
+        }
+    )
+
+payload = {
+    "bundle_manifest_sha256": preflight["bundle_manifest_sha256"],
+    "capacity_authority_earned": True,
+    "capacity_canary_id": capacity_id,
+    "execution_group_size": 7,
+    "execution_partition_sha256": preflight["execution_partition_sha256"],
+    "full_plan": str(full_plan_path.resolve()),
+    "full_plan_sha256": full_plan_sha,
+    "full_training_authority": 0,
+    "materialization_receipt_sha256": preflight["materialization_receipt_sha256"],
+    "preflight_receipt": str(preflight_receipt_path.resolve()),
+    "preflight_receipt_sha256": preflight_receipt_sha,
+    "root_health_identity_join_certificate": str(root_certificate_path.resolve()),
+    "root_health_identity_join_certificate_sha256": digest(root_certificate_path),
+    "rows": reports,
+    "schema": "THE134_GROUP7_PARTITION_CAPACITY_CERTIFICATE_V1",
+    "selected_rows": ["pp_background_jet8", "auau_background_jet12"],
+    "status": "PASS",
+    "submission_performed": True,
+}
+temporary = destination.with_name(destination.name + f".tmp.{os.getpid()}")
+temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+os.replace(temporary, destination)
+os.chmod(destination, 0o444)
+print(
+    json.dumps(
+        {
+            "status": "PASS",
+            "capacity_authority_earned": True,
+            "rows": len(reports),
+            "certificate": str(destination),
+            "certificate_sha256": digest(destination),
+        },
+        sort_keys=True,
+    )
+)
+PY
+}
+
 validate_outputs() {
   local row_id cluster_proc queue_state history_state job_status exit_code
   [[ -s "$validator" ]] || die "THE-134 matrix preparer is missing: ${validator}"
-  [[ -s "$submission_journal" && "$(wc -l < "$submission_journal" | tr -d ' ')" == 14 ]] ||
-    die "complete 13-row submission journal is required"
-  [[ -s "$submission_receipt" && "$(wc -l < "$submission_receipt" | tr -d ' ')" == 14 ]] ||
-    die "complete 13-row submission receipt is required"
+  [[ -s "$submission_journal" &&
+     "$(wc -l < "$submission_journal" | tr -d ' ')" == "$((execution_row_count + 1))" ]] ||
+    die "complete ${execution_row_count}-row submission journal is required"
+  [[ -s "$submission_receipt" &&
+     "$(wc -l < "$submission_receipt" | tr -d ' ')" == "$((execution_row_count + 1))" ]] ||
+    die "complete ${execution_row_count}-row submission receipt is required"
   [[ -s "$pp_source_provenance_json" && -s "$auau_source_provenance_json" ]] ||
     die "system-specific source provenance is incomplete"
 
@@ -2266,7 +2693,12 @@ for path in sys.argv[1:]:
         raise SystemExit(f"smoke audit attempted to assert full training authority: {path}")
 PY
 
-  say "SMOKE_VALIDATION_PASS source_categories=13 full_training_authority=0 root_join_certificate=${root_health_join_certificate} pp_audit=${evidence_root}/pp_h70_source_complete_smoke_audit.json auau_audit=${evidence_root}/auau_h70_source_complete_smoke_audit.json"
+  write_capacity_resource_certificate
+  if (( capacity_mode )); then
+    say "CAPACITY_VALIDATION_PASS selected_rows=${execution_row_count} group_size=${execution_group_size} full_training_authority=0 capacity_certificate=${capacity_resource_certificate} root_join_certificate=${root_health_join_certificate}"
+  else
+    say "SMOKE_VALIDATION_PASS source_categories=13 full_training_authority=0 root_join_certificate=${root_health_join_certificate} pp_audit=${evidence_root}/pp_h70_source_complete_smoke_audit.json auau_audit=${evidence_root}/auau_h70_source_complete_smoke_audit.json"
+  fi
 }
 
 case "$mode" in
@@ -2276,5 +2708,5 @@ case "$mode" in
   resume-submit) resume_submit ;;
   status) status ;;
   validate) validate_outputs ;;
-  *) die "usage: $0 inventory|preflight|submit|resume-submit|status|validate" ;;
+  *) die "usage: $0 inventory|preflight|submit|resume-submit|status|validate|capacity-preflight|capacity-submit|capacity-resume-submit|capacity-status|capacity-validate" ;;
 esac
