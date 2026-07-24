@@ -12008,6 +12008,11 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
             bool haveCaloEval_SS = false;
             std::unique_ptr<CaloRawClusterEval> clustereval_SS;
             TruthSignalPhotonMap truthSignalByTrackId_SS;
+            const bool the134TruthLabelDiagnostic =
+                RJReplayRuntimeV1::envEnabled("RJ_THE134_TRUTH_LABEL_DIAGNOSTIC_V1");
+            int hepmcMapKey_SS = std::numeric_limits<int>::min();
+            int hepmcEmbeddingId_SS = std::numeric_limits<int>::min();
+            std::size_t hepmcMapSize_SS = 0;
 
             if (m_isSim)
             {
@@ -12016,10 +12021,30 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
 
                 if (hepmcmap_SS)
                 {
+                    hepmcMapSize_SS = hepmcmap_SS->size();
                     hepmc_SS = hepmcmap_SS->get(0);
-                    if (!hepmc_SS) hepmc_SS = hepmcmap_SS->get(1);
-                    if (!hepmc_SS && !hepmcmap_SS->empty()) hepmc_SS = hepmcmap_SS->begin()->second;
-                    if (hepmc_SS) evtHepMC_SS = hepmc_SS->getEvent();
+                    if (hepmc_SS)
+                    {
+                        hepmcMapKey_SS = 0;
+                    }
+                    else
+                    {
+                        hepmc_SS = hepmcmap_SS->get(1);
+                        if (hepmc_SS)
+                        {
+                            hepmcMapKey_SS = 1;
+                        }
+                    }
+                    if (!hepmc_SS && !hepmcmap_SS->empty())
+                    {
+                        hepmcMapKey_SS = hepmcmap_SS->begin()->first;
+                        hepmc_SS = hepmcmap_SS->begin()->second;
+                    }
+                    if (hepmc_SS)
+                    {
+                        hepmcEmbeddingId_SS = hepmc_SS->get_embedding_id();
+                        evtHepMC_SS = hepmc_SS->getEvent();
+                    }
                 }
 
                 clustereval_SS.reset(new CaloRawClusterEval(topNode, "CEMC"));
@@ -12046,6 +12071,21 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                 else if (evtHepMC_SS)
                 {
                     truthSignalByTrackId_SS = buildPPG12TruthSignalPhotonMap(evtHepMC_SS);
+                }
+
+                if (the134TruthLabelDiagnostic && !m_isAuAu && doCanonical)
+                {
+                    std::cout
+                        << "THE134_PPG12_TRUTH_LABEL_DIAG_V1"
+                        << " stage=EVENT_CONTEXT"
+                        << " event=" << event_count
+                        << " hepmc_map_size=" << hepmcMapSize_SS
+                        << " selected_map_key=" << hepmcMapKey_SS
+                        << " selected_embedding_id=" << hepmcEmbeddingId_SS
+                        << " hepmc_event_present=" << (evtHepMC_SS ? 1 : 0)
+                        << " calo_eval_present=" << (haveCaloEval_SS ? 1 : 0)
+                        << " strict_signal_map_size=" << truthSignalByTrackId_SS.size()
+                        << std::endl;
                 }
             }
 
@@ -12263,6 +12303,43 @@ void RecoilJets::processCandidatesForCurrentIsoView(PHCompositeNode* topNode,
                         ppg12SignalTruthPt = matchedTruth.pt;
                         ppg12SignalTruthClass = matchedTruth.photonClass;
                     }
+                }
+
+                if (the134TruthLabelDiagnostic && m_isSim && !m_isAuAu && doCanonical)
+                {
+                    const char* reason = "CALO_EVAL_UNAVAILABLE";
+                    if (haveCaloEval_SS && clustereval_SS)
+                    {
+                        if (truthSignalByTrackId_SS.empty())
+                        {
+                            reason = "EMPTY_SIGNAL_MAP";
+                        }
+                        else if (truthEContrib == std::numeric_limits<float>::lowest())
+                        {
+                            reason = "NO_MAX_PRIMARY";
+                        }
+                        else if (isPPG12Signal)
+                        {
+                            reason = "MATCH";
+                        }
+                        else
+                        {
+                            reason = "PRIMARY_NOT_IN_MAP";
+                        }
+                    }
+
+                    std::ostringstream diagnosticLine;
+                    diagnosticLine
+                        << "THE134_PPG12_TRUTH_LABEL_DIAG_V1"
+                        << " stage=CANDIDATE"
+                        << " event=" << event_count
+                        << " candidate_index=" << iPho
+                        << " reco_et=" << std::setprecision(17) << pt_gamma
+                        << " reason=" << reason
+                        << " truth_track_id=" << truthTrackId
+                        << " truth_energy_contribution=" << truthEContrib
+                        << " strict_signal_map_size=" << truthSignalByTrackId_SS.size();
+                    std::cout << diagnosticLine.str() << std::endl;
                 }
 
                 bool keepPPG12TableQARow = true;
