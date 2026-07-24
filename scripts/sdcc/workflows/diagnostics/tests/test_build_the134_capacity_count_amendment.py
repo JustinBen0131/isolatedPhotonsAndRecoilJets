@@ -46,6 +46,96 @@ class CapacityCountAmendmentTests(unittest.TestCase):
             "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         }
 
+    def test_immutable_authority_preserves_lexical_materialization_alias(
+        self,
+    ) -> None:
+        physical_root = self.root / "physical"
+        physical_root.mkdir()
+        stable_alias = self.root / "stable_alias"
+        stable_alias.symlink_to(physical_root, target_is_directory=True)
+
+        bundle_path = physical_root / "resolver_bundle_receipt.json"
+        bundle_path.write_text("{}\n", encoding="utf-8")
+        materialization_path = (
+            physical_root
+            / f"the134_bundle_sha256_{'a' * 64}"
+            / "metadata"
+            / "materialization_receipt.json"
+        )
+        materialization_path.parent.mkdir(parents=True)
+        materialization_path.write_text("{}\n", encoding="utf-8")
+
+        bundle_alias = stable_alias / bundle_path.name
+        materialization_alias = (
+            stable_alias
+            / materialization_path.relative_to(physical_root)
+        )
+        bundle_artifact = {
+            **self.artifact(bundle_alias),
+            "resolved_path": str(bundle_path.resolve(strict=True)),
+            "size_bytes": bundle_path.stat().st_size,
+        }
+        materialization_artifact = {
+            **self.artifact(materialization_alias),
+            "resolved_path": str(materialization_path.resolve(strict=True)),
+            "size_bytes": materialization_path.stat().st_size,
+        }
+        bundle = {
+            "artifact_by_role": {},
+            "bundle_identity_sha256": "a" * 64,
+            "semantic_fingerprint_sha256": "b" * 64,
+            "public_commit": "c" * 40,
+            "code_sha256": "d" * 64,
+            "replay_schema_sha256": "e" * 64,
+            "training_schema_sha256": "f" * 64,
+            "semantic_sha256": "1" * 64,
+            "runtime": {},
+        }
+        materialization = {
+            "digest_named_bundle_path": str(
+                materialization_alias.parent.parent
+            ),
+            "artifact_count": 0,
+            "total_artifact_bytes": 0,
+            "readback": "PASS_SYMLINK_FREE_READONLY_CONTENT_EXACT",
+        }
+        with (
+            mock.patch.object(
+                amendment,
+                "load_json_artifact",
+                side_effect=[
+                    ({}, bundle_artifact),
+                    ({}, materialization_artifact),
+                ],
+            ),
+            mock.patch.object(
+                amendment.resolver,
+                "validate_bundle",
+                return_value=bundle,
+            ),
+            mock.patch.object(
+                amendment.resolver,
+                "validate_materialization_binding",
+                return_value=materialization,
+            ) as binding,
+        ):
+            observed = amendment.validate_immutable_authority(
+                {
+                    "bundle_manifest": {},
+                    "materialization_receipt": {},
+                }
+            )
+
+        self.assertEqual(observed["status"], "PASS")
+        self.assertEqual(
+            binding.call_args.kwargs["materialization_path"],
+            materialization_alias,
+        )
+        self.assertEqual(
+            binding.call_args.kwargs["bundle_path"],
+            bundle_path.resolve(strict=True),
+        )
+
     def make_source_manifests(
         self,
     ) -> tuple[dict[str, object], dict[str, object]]:

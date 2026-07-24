@@ -1049,9 +1049,7 @@ def validate_immutable_authority(
     try:
         materialization = resolver.validate_materialization_binding(
             materialization_payload,
-            materialization_path=Path(
-                materialization_artifact["path"]
-            ).resolve(strict=True),
+            materialization_path=Path(materialization_artifact["path"]),
             bundle_path=Path(bundle_artifact["path"]).resolve(strict=True),
             bundle_file_sha256=bundle_artifact["sha256"],
             bundle=bundle,
