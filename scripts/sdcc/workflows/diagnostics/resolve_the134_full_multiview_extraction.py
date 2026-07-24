@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -38,7 +39,23 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
 
+HERE = Path(__file__).resolve().parent
+MATERIALIZER_PATH = HERE / "materialize_the134_immutable_bundle.py"
+MATERIALIZER_SPEC = importlib.util.spec_from_file_location(
+    "the134_immutable_bundle_materializer", MATERIALIZER_PATH
+)
+if MATERIALIZER_SPEC is None or MATERIALIZER_SPEC.loader is None:
+    raise RuntimeError(
+        f"cannot load immutable-bundle materializer: {MATERIALIZER_PATH}"
+    )
+bundle_materializer = importlib.util.module_from_spec(MATERIALIZER_SPEC)
+MATERIALIZER_SPEC.loader.exec_module(bundle_materializer)
+
+
 BUNDLE_SCHEMA = "THE134_FULL_EXTRACTION_IMMUTABLE_BUNDLE_V1"
+MATERIALIZATION_SCHEMA = (
+    "THE134_IMMUTABLE_BUILD_BUNDLE_MATERIALIZATION_V1"
+)
 SOURCE_SCHEMA = "THE134_FULL_EXTRACTION_SOURCE_AUTHORITY_V1"
 PLAN_SCHEMA = "THE134_FULL_MULTIVIEW_EXTRACTION_PLAN_V1"
 ROW_SCHEMA = "THE134_FULL_MULTIVIEW_EXTRACTION_ROW_V1"
@@ -458,6 +475,13 @@ def validate_bundle(payload: dict[str, Any]) -> dict[str, Any]:
             "semantic_sha256",
         )
     }
+    bundle_identity = require_sha256(
+        "bundle identity", payload.get("bundle_identity_sha256", "")
+    )
+    if payload.get("semantic_fingerprint_sha256") != bundle_identity:
+        raise ControllerError(
+            "bundle semantic fingerprint differs from bundle identity"
+        )
     runtime = payload.get("runtime")
     if not isinstance(runtime, dict):
         raise ControllerError("bundle runtime contract must be an object")
@@ -539,6 +563,7 @@ def validate_bundle(payload: dict[str, Any]) -> dict[str, Any]:
         "schema": BUNDLE_SCHEMA,
         "status": "PASS",
         "public_commit": public_commit,
+        "bundle_identity_sha256": bundle_identity,
         **hashes,
         "runtime": {
             "release": release,
@@ -570,6 +595,77 @@ def validate_bundle(payload: dict[str, Any]) -> dict[str, Any]:
                 ],
             }
         ),
+    }
+
+
+def validate_materialization_binding(
+    payload: dict[str, Any],
+    *,
+    materialization_path: Path,
+    bundle_path: Path,
+    bundle_file_sha256: str,
+    bundle: dict[str, Any],
+) -> dict[str, Any]:
+    """Prove the resolver receipt belongs to one rehashed materialized bundle."""
+
+    if payload.get("schema") != MATERIALIZATION_SCHEMA:
+        raise ControllerError(
+            f"materialization schema must be {MATERIALIZATION_SCHEMA}"
+        )
+    try:
+        validated = bundle_materializer.validate_materialization_payload(
+            payload,
+            materialization_receipt_path=materialization_path,
+            rehash=True,
+        )
+    except bundle_materializer.MaterializationError as exc:
+        raise ControllerError(
+            f"immutable bundle materialization is invalid: {exc}"
+        ) from exc
+
+    bound_bundle_path = Path(
+        str(validated["resolver_bundle_receipt"])
+    ).resolve(strict=True)
+    if bound_bundle_path != bundle_path:
+        raise ControllerError(
+            "materialization receipt is not bound to the supplied resolver "
+            f"bundle receipt: materialized={bound_bundle_path} "
+            f"supplied={bundle_path}"
+        )
+    bound_bundle_sha256 = require_sha256(
+        "materialization resolver bundle receipt",
+        validated["resolver_bundle_receipt_sha256"],
+    )
+    if bound_bundle_sha256 != bundle_file_sha256:
+        raise ControllerError(
+            "materialization resolver bundle receipt hash differs: "
+            f"materialized={bound_bundle_sha256} supplied={bundle_file_sha256}"
+        )
+    if str(validated["public_commit"]) != bundle["public_commit"]:
+        raise ControllerError(
+            "materialization public commit differs from resolver bundle"
+        )
+    bundle_identity = require_sha256(
+        "materialization bundle identity",
+        validated["bundle_identity_sha256"],
+    )
+    if bundle_identity != bundle["bundle_identity_sha256"]:
+        raise ControllerError(
+            "materialization bundle identity differs from resolver bundle"
+        )
+    return {
+        "schema": MATERIALIZATION_SCHEMA,
+        "status": "PASS",
+        "materialization_receipt": str(materialization_path),
+        "resolver_bundle_receipt": str(bound_bundle_path),
+        "resolver_bundle_receipt_sha256": bound_bundle_sha256,
+        "bundle_identity_sha256": bundle_identity,
+        "digest_named_bundle_path": str(
+            validated["digest_named_bundle_path"]
+        ),
+        "artifact_count": int(validated["artifact_count"]),
+        "total_artifact_bytes": int(validated["total_artifact_bytes"]),
+        "readback": "PASS_SYMLINK_FREE_READONLY_CONTENT_EXACT",
     }
 
 
@@ -815,6 +911,36 @@ def validate_source_manifest(payload: dict[str, Any]) -> list[dict[str, Any]]:
             "duplicate five-file source tuples exist across THE-134 rows"
         )
     return observed
+
+
+def validate_source_period_authority(
+    payload: dict[str, Any], *, pp_period: str
+) -> dict[str, str]:
+    authority = payload.get("authority")
+    if not isinstance(authority, dict):
+        raise ControllerError(
+            "source-authority manifest must contain an authority object"
+        )
+    frozen_period = require_safe_text(
+        "source-authority pp_period", authority.get("pp_period", "")
+    )
+    if frozen_period != pp_period:
+        raise ControllerError(
+            "requested p+p period differs from frozen source authority: "
+            f"requested={pp_period} frozen={frozen_period}"
+        )
+    frozen_si_di_role = require_safe_text(
+        "source-authority pp_si_di_role",
+        authority.get("pp_si_di_role", ""),
+    )
+    if frozen_si_di_role != "SI":
+        raise ControllerError(
+            "source-authority pp_si_di_role must remain SI"
+        )
+    return {
+        "pp_period": frozen_period,
+        "pp_si_di_role": frozen_si_di_role,
+    }
 
 
 def artifact_for_system(
@@ -1161,6 +1287,9 @@ def write_json(path: Path, payload: Any) -> None:
 def write_preflight_outputs(
     *,
     out_dir: Path,
+    materialization_path: Path,
+    materialization_file_sha256: str,
+    materialization: dict[str, Any],
     bundle_path: Path,
     bundle_file_sha256: str,
     source_path: Path,
@@ -1207,6 +1336,11 @@ def write_preflight_outputs(
                 "output_root": output_root,
                 "evidence_root": evidence_root,
                 "submit_root": submit_root,
+                "materialization_receipt_sha256": (
+                    materialization_file_sha256
+                ),
+                "bundle_manifest_sha256": bundle_file_sha256,
+                "source_manifest_sha256": source_file_sha256,
                 "duplicate_fingerprint_sha256": duplicate_fingerprint,
                 "row_fingerprints": [
                     descriptor["row_fingerprint_sha256"]
@@ -1244,6 +1378,17 @@ def write_preflight_outputs(
                 "pp_jet40_excluded_as_diagnostic_only": True,
             },
             "input_manifests": {
+                "materialization": {
+                    "path": str(materialization_path),
+                    "sha256": materialization_file_sha256,
+                    "bundle_identity_sha256": materialization[
+                        "bundle_identity_sha256"
+                    ],
+                    "digest_named_bundle_path": materialization[
+                        "digest_named_bundle_path"
+                    ],
+                    "readback": materialization["readback"],
+                },
                 "bundle": {
                     "path": str(bundle_path),
                     "sha256": bundle_file_sha256,
@@ -1294,6 +1439,9 @@ def write_preflight_outputs(
                 plan["closure_witness_boundary"]
             ),
             "bundle_manifest_sha256": bundle_file_sha256,
+            "materialization_receipt_sha256": (
+                materialization_file_sha256
+            ),
             "source_manifest_sha256": source_file_sha256,
             "duplicate_fingerprint_sha256": duplicate_fingerprint,
             "execution_fingerprint_sha256": execution_fingerprint,
@@ -1325,6 +1473,9 @@ def write_preflight_outputs(
             "authority_state": PREFLIGHT_AUTHORITY_STATE,
             "submission_performed": False,
             "out_dir": str(out_dir),
+            "materialization_receipt_sha256": (
+                materialization_file_sha256
+            ),
             "duplicate_fingerprint_sha256": duplicate_fingerprint,
             "execution_fingerprint_sha256": execution_fingerprint,
         }
@@ -1347,6 +1498,10 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     )
     preflight.add_argument("--bundle-manifest", type=Path, required=True)
     preflight.add_argument("--bundle-sha256", required=True)
+    preflight.add_argument(
+        "--materialization-receipt", type=Path, required=True
+    )
+    preflight.add_argument("--materialization-receipt-sha256", required=True)
     preflight.add_argument("--source-manifest", type=Path, required=True)
     preflight.add_argument("--source-manifest-sha256", required=True)
     preflight.add_argument("--tag", required=True)
@@ -1402,6 +1557,12 @@ def run_preflight(args: argparse.Namespace) -> int:
                 f"{label} basename must equal the exact campaign tag: {args.tag}"
             )
     bundle_path = args.bundle_manifest.resolve(strict=True)
+    materialization_path = args.materialization_receipt.absolute()
+    if not materialization_path.is_file():
+        raise ControllerError(
+            "immutable bundle materialization receipt is missing: "
+            f"{materialization_path}"
+        )
     source_path = args.source_manifest.resolve(strict=True)
     bundle_payload = load_pinned_json(
         bundle_path, args.bundle_sha256, "immutable bundle manifest"
@@ -1410,9 +1571,27 @@ def run_preflight(args: argparse.Namespace) -> int:
         source_path, args.source_manifest_sha256, "source-authority manifest"
     )
     bundle = validate_bundle(bundle_payload)
+    materialization_payload = load_pinned_json(
+        materialization_path,
+        args.materialization_receipt_sha256,
+        "immutable bundle materialization receipt",
+    )
+    materialization = validate_materialization_binding(
+        materialization_payload,
+        materialization_path=materialization_path,
+        bundle_path=bundle_path,
+        bundle_file_sha256=args.bundle_sha256,
+        bundle=bundle,
+    )
+    validate_source_period_authority(
+        source_payload, pp_period=args.pp_period
+    )
     sources = validate_source_manifest(source_payload)
     result = write_preflight_outputs(
         out_dir=args.out_dir,
+        materialization_path=materialization_path,
+        materialization_file_sha256=args.materialization_receipt_sha256,
+        materialization=materialization,
         bundle_path=bundle_path,
         bundle_file_sha256=args.bundle_sha256,
         source_path=source_path,

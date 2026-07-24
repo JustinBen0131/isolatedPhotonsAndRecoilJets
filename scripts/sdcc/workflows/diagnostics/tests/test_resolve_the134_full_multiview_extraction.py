@@ -58,7 +58,9 @@ class ResolverFixture:
         self.release_lib64 = self.artifacts / "release_lib64"
         self.release_lib.mkdir()
         self.release_lib64.mkdir()
-        self.bundle = root / "bundle.json"
+        self.bundle_inventory = root / "bundle_inventory.json"
+        self.bundle = root / "unmaterialized_bundle_placeholder.json"
+        self.materialization = root / "materialization_placeholder.json"
         self.sources = root / "sources.json"
         self.write_bundle()
         self.write_sources()
@@ -78,14 +80,31 @@ class ResolverFixture:
                     "size_bytes": path.stat().st_size,
                 }
             )
-        payload = {
-            "schema": resolver.BUNDLE_SCHEMA,
-            "status": "PASS",
+        by_role = {record["role"]: record for record in records}
+        declared_hash = by_role["code_manifest"]["sha256"]
+        dependencies = []
+        for role in sorted(
+            resolver.bundle_materializer.builder.REQUIRED_DEPENDENCY_PROVIDER_ROLES
+        ):
+            if role.startswith("pp_"):
+                consumers = ["pp_executor"]
+            elif role.startswith("auau_"):
+                consumers = ["auau_executor"]
+            else:
+                consumers = ["pp_executor", "auau_executor"]
+            dependencies.append(
+                {
+                    "provider_role": role,
+                    "consumer_roles": consumers,
+                    "kind": "runtime_or_contract",
+                    "required": True,
+                    "sha256": by_role[role]["sha256"],
+                }
+            )
+        spec = {
+            "schema": resolver.bundle_materializer.builder.SPEC_SCHEMA,
             "public_commit": "a" * 40,
-            "code_sha256": "b" * 64,
-            "replay_schema_sha256": "c" * 64,
-            "training_schema_sha256": "d" * 64,
-            "semantic_sha256": "e" * 64,
+            "bundle_parent": str(self.root / "immutable_bundles"),
             "runtime": {
                 "release": "ana.560",
                 "offline_main": "/cvmfs/sphenix/example/ana.560",
@@ -94,12 +113,30 @@ class ResolverFixture:
                 "release_core_lib_dir": str(self.release_lib),
                 "release_core_lib64_dir": str(self.release_lib64),
             },
+            "declared_hashes": {
+                name: declared_hash
+                for name in resolver.bundle_materializer.builder.DECLARED_HASH_NAMES
+            },
             "artifacts": records,
+            "dependencies": dependencies,
+            "hash_bindings": [
+                {
+                    "name": name,
+                    "artifact_role": "code_manifest",
+                    "mode": "artifact_sha256",
+                }
+                for name in resolver.bundle_materializer.builder.DECLARED_HASH_NAMES
+            ],
         }
-        self.bundle.write_text(
-            json.dumps(payload, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
+        receipt = resolver.bundle_materializer.builder.build_receipt(spec)
+        resolver.bundle_materializer.builder.atomic_write_json(
+            self.bundle_inventory, receipt
         )
+        materialized = resolver.bundle_materializer.materialize(
+            self.bundle_inventory, sha256_file(self.bundle_inventory)
+        )
+        self.bundle = Path(materialized["resolver_bundle_receipt"])
+        self.materialization = Path(materialized["materialization_receipt"])
 
     def write_sources(self) -> None:
         rows = []
@@ -172,6 +209,10 @@ class ResolverFixture:
         payload = {
             "schema": resolver.SOURCE_SCHEMA,
             "status": "PASS",
+            "authority": {
+                "pp_period": "0mrad",
+                "pp_si_di_role": "SI",
+            },
             "rows": rows,
         }
         self.sources.write_text(
@@ -188,6 +229,10 @@ class ResolverFixture:
             str(self.bundle),
             "--bundle-sha256",
             sha256_file(self.bundle),
+            "--materialization-receipt",
+            str(self.materialization),
+            "--materialization-receipt-sha256",
+            sha256_file(self.materialization),
             "--source-manifest",
             str(self.sources),
             "--source-manifest-sha256",
@@ -303,6 +348,18 @@ class TestFullExtractionResolver(unittest.TestCase):
                 {"PREFLIGHT_RESOLVED_NOT_EARNED"},
             )
             self.assertFalse(receipt["submission_performed"])
+            self.assertEqual(
+                plan["input_manifests"]["materialization"]["sha256"],
+                sha256_file(fixture.materialization),
+            )
+            self.assertEqual(
+                plan["input_manifests"]["materialization"]["readback"],
+                "PASS_SYMLINK_FREE_READONLY_CONTENT_EXACT",
+            )
+            self.assertEqual(
+                receipt["materialization_receipt_sha256"],
+                sha256_file(fixture.materialization),
+            )
             self.assertEqual(len(rows), 13)
             self.assertTrue(
                 all(
@@ -463,6 +520,11 @@ class TestFullExtractionResolver(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             fixture = ResolverFixture(root / "fixture")
+            source_payload = json.loads(fixture.sources.read_text())
+            source_payload["authority"]["pp_period"] = "1p5mrad"
+            fixture.sources.write_text(
+                json.dumps(source_payload, indent=2, sort_keys=True) + "\n"
+            )
             out_dir = root / "resolved"
             self.run_command(fixture.command(out_dir, period="1p5mrad"))
             plan = json.loads(
@@ -505,18 +567,90 @@ class TestFullExtractionResolver(unittest.TestCase):
             self.assertIn("immutable bundle manifest hash drift", result.stderr)
             self.assertFalse(out_dir.exists())
 
-    def test_bundle_artifact_mutation_is_rejected(self) -> None:
+    def test_materialized_bundle_artifact_mutation_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             fixture = ResolverFixture(root / "fixture")
             payload = json.loads(fixture.bundle.read_text())
             mutated = Path(payload["artifacts"][0]["path"])
+            mutated.chmod(0o644)
             mutated.write_text(mutated.read_text() + "drift\n")
             out_dir = root / "resolved"
             result = self.run_command(
                 fixture.command(out_dir), expected_returncode=2
             )
             self.assertIn("bundle artifact hash drift", result.stderr)
+            self.assertFalse(out_dir.exists())
+
+    def test_materialization_hash_drift_is_rejected_without_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture = ResolverFixture(root / "fixture")
+            out_dir = root / "resolved"
+            command = fixture.command(out_dir)
+            command[
+                command.index("--materialization-receipt-sha256") + 1
+            ] = "0" * 64
+            result = self.run_command(command, expected_returncode=2)
+            self.assertIn(
+                "immutable bundle materialization receipt hash drift",
+                result.stderr,
+            )
+            self.assertFalse(out_dir.exists())
+
+    def test_materialization_must_bind_supplied_resolver_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            first = ResolverFixture(root / "first")
+            second = ResolverFixture(root / "second")
+            out_dir = root / "resolved"
+            command = second.command(out_dir)
+            command[command.index("--materialization-receipt") + 1] = str(
+                first.materialization
+            )
+            command[
+                command.index("--materialization-receipt-sha256") + 1
+            ] = sha256_file(first.materialization)
+            result = self.run_command(command, expected_returncode=2)
+            self.assertIn(
+                "materialization receipt is not bound to the supplied "
+                "resolver bundle receipt",
+                result.stderr,
+            )
+            self.assertFalse(out_dir.exists())
+
+    def test_requested_period_must_match_source_authority(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture = ResolverFixture(root / "fixture")
+            out_dir = root / "resolved"
+            result = self.run_command(
+                fixture.command(out_dir, period="1p5mrad"),
+                expected_returncode=2,
+            )
+            self.assertIn(
+                "requested p+p period differs from frozen source authority",
+                result.stderr,
+            )
+            self.assertFalse(out_dir.exists())
+
+    def test_source_authority_must_remain_si(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture = ResolverFixture(root / "fixture")
+            source_payload = json.loads(fixture.sources.read_text())
+            source_payload["authority"]["pp_si_di_role"] = "DI"
+            fixture.sources.write_text(
+                json.dumps(source_payload, indent=2, sort_keys=True) + "\n"
+            )
+            out_dir = root / "resolved"
+            result = self.run_command(
+                fixture.command(out_dir), expected_returncode=2
+            )
+            self.assertIn(
+                "source-authority pp_si_di_role must remain SI",
+                result.stderr,
+            )
             self.assertFalse(out_dir.exists())
 
     def test_source_row_omission_is_rejected(self) -> None:
