@@ -91,6 +91,7 @@ readonly full_training_authority="0"
 readonly extraction_cone_r="0.40"
 readonly ordinary_group_size="1"
 readonly capacity_group_size="7"
+readonly source_occurrences_per_output="1"
 readonly capacity_pp_row="pp_background_jet8"
 readonly capacity_auau_row="auau_background_jet12"
 if (( capacity_mode )); then
@@ -2065,7 +2066,8 @@ validate_root_health_and_joins() {
   command -v python3 >/dev/null 2>&1 || die "python3 is required for ROOT health and identity validation"
   python3 - "$submission_receipt" "$submission_manifest" \
     "$root_health_join_certificate" "$pinned_calo_reco_soname" \
-    "$execution_row_count" "$execution_group_size" "$capacity_mode" <<'PY'
+    "$execution_row_count" "$execution_group_size" \
+    "$source_occurrences_per_output" "$capacity_mode" <<'PY'
 import csv
 import hashlib
 import json
@@ -2083,8 +2085,9 @@ except Exception as exc:  # pragma: no cover - remote environment contract
 receipt_path, manifest_path, certificate_path = map(Path, sys.argv[1:4])
 expected_calo_soname = sys.argv[4]
 expected_receipt_count = int(sys.argv[5])
-expected_source_count = int(sys.argv[6])
-capacity_mode = bool(int(sys.argv[7]))
+expected_group_size = int(sys.argv[6])
+expected_source_count = int(sys.argv[7])
+capacity_mode = bool(int(sys.argv[8]))
 with manifest_path.open(newline="") as stream:
     manifests = {row["row_id"]: row for row in csv.DictReader(stream, delimiter="\t")}
 with receipt_path.open(newline="") as stream:
@@ -2370,13 +2373,13 @@ for receipt in receipts:
         candidate_tree = replay.Get("RJPhotonCandidateV1")
         if int(source_tree.GetEntries()) != expected_source_count:
             raise ValueError(
-                "replay source-row population differs from the execution group: "
+                "replay source-row population differs from the per-output contract: "
                 f"expected={expected_source_count} observed={int(source_tree.GetEntries())}"
             )
         source_ids = {identity(row, "source_occurrence_id") for row in source_tree}
         if len(source_ids) != expected_source_count:
             raise ValueError(
-                "replay source identities differ from the execution group: "
+                "replay source identities differ from the per-output contract: "
                 f"expected={expected_source_count} observed={len(source_ids)}"
             )
         event_to_source: dict[tuple[int, int], tuple[int, int]] = {}
@@ -2495,7 +2498,8 @@ payload = {
     "status": "PASS" if not failures else "FAIL",
     "scope": "capacity" if capacity_mode else "smoke",
     "full_training_authority": 0,
-    "execution_group_size": expected_source_count,
+    "execution_group_size": expected_group_size,
+    "source_occurrences_per_output": expected_source_count,
     "capacity_authority_earned": bool(capacity_mode and not failures),
     "row_count": len(reports),
     "rows": reports,
@@ -2558,6 +2562,7 @@ if (
     or root_certificate.get("scope") != "capacity"
     or root_certificate.get("capacity_authority_earned") is not True
     or int(root_certificate.get("execution_group_size", -1)) != 7
+    or int(root_certificate.get("source_occurrences_per_output", -1)) != 1
     or int(root_certificate.get("row_count", -1)) != 2
 ):
     raise SystemExit("ROOT/identity capacity certificate is not PASS")
