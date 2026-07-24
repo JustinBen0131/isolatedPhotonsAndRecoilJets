@@ -52,6 +52,10 @@ entries:
     canonical_path: "scripts/sdcc/workflows/diagnostics/build_the134_source_authority_manifest.py"
     domain: "sdcc/workflows/diagnostics"
     hard_aliases: []
+  - id: build_the134_capacity_count_amendment
+    canonical_path: "scripts/sdcc/workflows/diagnostics/build_the134_capacity_count_amendment.py"
+    domain: "sdcc/workflows/diagnostics"
+    hard_aliases: []
   - id: build_the134_immutable_bundle_receipt
     canonical_path: "scripts/sdcc/workflows/diagnostics/build_the134_immutable_bundle_receipt.py"
     domain: "sdcc/workflows/diagnostics"
