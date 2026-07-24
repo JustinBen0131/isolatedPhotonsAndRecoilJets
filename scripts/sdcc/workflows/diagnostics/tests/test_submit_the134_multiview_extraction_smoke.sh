@@ -826,6 +826,10 @@ def validate(text: str) -> None:
         'validator.validate_file_arrays(',
         'existing capacity audit differs; preserve it before retry',
         'existing capacity resource certificate differs; preserve it before retry',
+        'def resolve_classad_memory_usage_mb',
+        '/Expr(((ResidentSetSize + 1023) / 1024))/',
+        '"EVALUATED_FROM_RESIDENT_SET_SIZE_KB"',
+        '"memory_usage_resolution": memory_usage_resolution',
         '"multiview_audits": audit_reports',
         '"$capacity_pp_multiview_audit" "$capacity_auau_multiview_audit"',
         'RJ_REPLAY_LANE="$lane"',
@@ -849,6 +853,30 @@ def validate(text: str) -> None:
     for token in required:
         if token not in text:
             raise ValueError(f"missing submit-shell replay-canary identity: {token}")
+    helper_start = text.index("def resolve_classad_memory_usage_mb")
+    helper_end = text.index("\n\nreports = []", helper_start)
+    namespace = {}
+    exec(text[helper_start:helper_end], namespace)
+    resolve_memory = namespace["resolve_classad_memory_usage_mb"]
+    expression = "/Expr(((ResidentSetSize + 1023) / 1024))/"
+    if resolve_memory(
+        {"MemoryUsage": expression, "ResidentSetSize": 1_250_000}
+    ) != (1221, "EVALUATED_FROM_RESIDENT_SET_SIZE_KB"):
+        raise ValueError("Condor expression-valued MemoryUsage resolution drifted")
+    if resolve_memory(
+        {"MemoryUsage": 1221, "ResidentSetSize": 1_250_000}
+    ) != (1221, "NUMERIC_CLASSAD"):
+        raise ValueError("numeric MemoryUsage resolution drifted")
+    for invalid in (
+        {"MemoryUsage": "/Expr(0)/", "ResidentSetSize": 1_250_000},
+        {"MemoryUsage": expression, "ResidentSetSize": 0},
+    ):
+        try:
+            resolve_memory(invalid)
+        except ValueError:
+            pass
+        else:
+            raise ValueError(f"invalid MemoryUsage fixture was accepted: {invalid}")
     if text.count(expansion) != 2:
         raise ValueError(
             "the shared submit-shell replay-canary identity must guard exactly "

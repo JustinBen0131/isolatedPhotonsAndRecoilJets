@@ -3422,6 +3422,41 @@ with journal_path.open(newline="") as stream:
 if len(journal_rows) != 2:
     raise SystemExit(f"capacity journal must contain exactly two rows: {len(journal_rows)}")
 
+
+def resolve_classad_memory_usage_mb(ad: dict[str, object]) -> tuple[int, str]:
+    """Resolve Condor's evaluated or serialized MemoryUsage ClassAd."""
+    expression = "/Expr(((ResidentSetSize + 1023) / 1024))/"
+    value = ad.get("MemoryUsage")
+    if isinstance(value, bool):
+        raise ValueError("capacity MemoryUsage must not be boolean")
+    if isinstance(value, int):
+        if value <= 0:
+            raise ValueError("capacity MemoryUsage must be positive")
+        return value, "NUMERIC_CLASSAD"
+    if isinstance(value, float):
+        if not value.is_integer() or value <= 0:
+            raise ValueError("capacity MemoryUsage must be a positive integer")
+        return int(value), "NUMERIC_CLASSAD"
+    if value != expression:
+        raise ValueError(f"unsupported capacity MemoryUsage ClassAd: {value!r}")
+    resident_set_size = ad.get("ResidentSetSize")
+    if (
+        isinstance(resident_set_size, bool)
+        or not isinstance(resident_set_size, (int, float))
+        or int(resident_set_size) != resident_set_size
+        or resident_set_size <= 0
+    ):
+        raise ValueError(
+            "capacity MemoryUsage expression lacks a positive integer "
+            "ResidentSetSize"
+        )
+    resident_set_size_kb = int(resident_set_size)
+    return (
+        (resident_set_size_kb + 1023) // 1024,
+        "EVALUATED_FROM_RESIDENT_SET_SIZE_KB",
+    )
+
+
 reports = []
 for row in journal_rows:
     cluster_proc = row["cluster_proc"]
@@ -3449,7 +3484,7 @@ for row in journal_rows:
     starts = int(ad.get("NumJobStarts", -1))
     holds = int(ad.get("NumHolds", 0))
     request_memory_mb = int(ad.get("RequestMemory", -1))
-    memory_usage_mb = int(ad.get("MemoryUsage", -1))
+    memory_usage_mb, memory_usage_resolution = resolve_classad_memory_usage_mb(ad)
     resident_set_kb = int(ad.get("ResidentSetSize_RAW", ad.get("ResidentSetSize", -1)))
     wall_seconds = float(ad.get("RemoteWallClockTime", -1.0))
     if job_status != 4 or exit_code != 0:
@@ -3480,6 +3515,7 @@ for row in journal_rows:
             "exit_code": exit_code,
             "job_status": job_status,
             "memory_usage_mb": memory_usage_mb,
+            "memory_usage_resolution": memory_usage_resolution,
             "num_holds": holds,
             "num_job_starts": starts,
             "remote_wall_clock_seconds": wall_seconds,
