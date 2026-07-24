@@ -62,6 +62,7 @@ ROW_SCHEMA = "THE134_FULL_MULTIVIEW_EXTRACTION_ROW_V1"
 RECEIPT_SCHEMA = "THE134_FULL_MULTIVIEW_EXTRACTION_PREFLIGHT_RECEIPT_V1"
 DUPLICATE_SCHEMA = "THE134_FULL_MULTIVIEW_EXTRACTION_DUPLICATE_CONTRACT_V1"
 EXECUTION_SCHEMA = "THE134_FULL_MULTIVIEW_EXTRACTION_EXECUTION_CONTRACT_V1"
+PARTITION_SCHEMA = "THE134_FULL_EXTRACTION_PARTITION_CONTRACT_V1"
 TRAINING_SOURCE_SCHEMA = "THE134_PP_TRAINING_PERIOD_SI_CONTRACT_V1"
 CLOSURE_BOUNDARY_SCHEMA = "THE134_FULL_TRAINING_CLOSURE_WITNESS_BOUNDARY_V1"
 
@@ -75,7 +76,7 @@ CAPTURE_ET_MIN_GEV = 5.0
 EXTRACTION_CONE_R = 0.4
 LEGACY_TRAINING_TREE_MAX_ENTRIES = 0
 EVENT_LIMIT_PER_JOB = 0
-GROUP_SIZE = 1
+GROUP_SIZE = 7
 REQUEST_MEMORY_MB = 8000
 SHOWER_VIEWS = ("H70", "H0", "G70", "G0", "O70", "O0", "R70")
 LIST_ROLES = ("calo_cluster", "g4hits", "jets", "global", "mbd_epd")
@@ -1158,8 +1159,14 @@ def build_descriptors(
                 "group_size": GROUP_SIZE,
                 "event_limit_per_job": EVENT_LIMIT_PER_JOB,
                 "tuple_count": source["tuple_count"],
-                "expected_job_count": source["tuple_count"],
-                "expected_output_count": source["tuple_count"],
+                "expected_job_count": (
+                    source["tuple_count"] + GROUP_SIZE - 1
+                )
+                // GROUP_SIZE,
+                "expected_output_count": (
+                    source["tuple_count"] + GROUP_SIZE - 1
+                )
+                // GROUP_SIZE,
                 "expected_occurrence_count": source["expected_occurrence_count"],
                 "full_source_manifest_sha256": source[
                     "full_source_manifest_sha256"
@@ -1377,6 +1384,27 @@ def write_preflight_outputs(
                 "auau_background": 4,
                 "pp_jet40_excluded_as_diagnostic_only": True,
             },
+            "execution_partition": {
+                "schema": PARTITION_SCHEMA,
+                "group_size": GROUP_SIZE,
+                "tuple_count": sum(
+                    descriptor["input_contract"]["tuple_count"]
+                    for descriptor in descriptors
+                ),
+                "expected_job_count": sum(
+                    descriptor["input_contract"]["expected_job_count"]
+                    for descriptor in descriptors
+                ),
+                "expected_output_count": sum(
+                    descriptor["input_contract"]["expected_output_count"]
+                    for descriptor in descriptors
+                ),
+                "basis": (
+                    "existing_submitter_canonical_default_seven_files_per_job"
+                ),
+                "capacity_canary_required_before_submission": True,
+                "capacity_authority_earned": False,
+            },
             "input_manifests": {
                 "materialization": {
                     "path": str(materialization_path),
@@ -1438,6 +1466,9 @@ def write_preflight_outputs(
             "closure_witness_boundary_sha256": canonical_sha256(
                 plan["closure_witness_boundary"]
             ),
+            "execution_partition_sha256": canonical_sha256(
+                plan["execution_partition"]
+            ),
             "bundle_manifest_sha256": bundle_file_sha256,
             "materialization_receipt_sha256": (
                 materialization_file_sha256
@@ -1475,6 +1506,9 @@ def write_preflight_outputs(
             "out_dir": str(out_dir),
             "materialization_receipt_sha256": (
                 materialization_file_sha256
+            ),
+            "execution_partition_sha256": canonical_sha256(
+                plan["execution_partition"]
             ),
             "duplicate_fingerprint_sha256": duplicate_fingerprint,
             "execution_fingerprint_sha256": execution_fingerprint,

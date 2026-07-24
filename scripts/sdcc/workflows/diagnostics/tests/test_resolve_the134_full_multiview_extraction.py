@@ -360,6 +360,10 @@ class TestFullExtractionResolver(unittest.TestCase):
                 receipt["materialization_receipt_sha256"],
                 sha256_file(fixture.materialization),
             )
+            self.assertEqual(
+                receipt["execution_partition_sha256"],
+                canonical_sha256(plan["execution_partition"]),
+            )
             self.assertEqual(len(rows), 13)
             self.assertTrue(
                 all(
@@ -372,7 +376,9 @@ class TestFullExtractionResolver(unittest.TestCase):
             )
             self.assertTrue(
                 all(
-                    row["input_contract"]["expected_job_count"] == 2
+                    row["input_contract"]["group_size"] == 7
+                    and row["input_contract"]["expected_job_count"] == 1
+                    and row["input_contract"]["expected_output_count"] == 1
                     and row["input_contract"]["tuple_count"] == 2
                     for row in rows
                 )
@@ -381,8 +387,25 @@ class TestFullExtractionResolver(unittest.TestCase):
                 all(
                     row["execution_contract"]["existing_submitter_argv"][2]
                     == "condorDoAll"
+                    and row["execution_contract"]["existing_submitter_argv"][4]
+                    == "7"
                     for row in rows
                 )
+            )
+            self.assertEqual(
+                plan["execution_partition"],
+                {
+                    "schema": "THE134_FULL_EXTRACTION_PARTITION_CONTRACT_V1",
+                    "group_size": 7,
+                    "tuple_count": 26,
+                    "expected_job_count": 13,
+                    "expected_output_count": 13,
+                    "basis": (
+                        "existing_submitter_canonical_default_seven_files_per_job"
+                    ),
+                    "capacity_canary_required_before_submission": True,
+                    "capacity_authority_earned": False,
+                },
             )
             self.assertTrue(
                 all(
