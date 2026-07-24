@@ -2479,8 +2479,9 @@ for receipt in receipts:
                 )
         if joined_rows != 7 * len(candidate_definitions):
             raise ValueError("sidecar seven-view population closure failed")
-        if capacity_mode and not candidate_definitions:
-            raise ValueError("capacity witness contains no retained photon candidates")
+        population_state = (
+            "POPULATED" if candidate_definitions else "VALID_EMPTY"
+        )
 
         report.update(
             {
@@ -2497,6 +2498,7 @@ for receipt in receipts:
                 "sidecar_entries": entry_count,
                 "sidecar_candidates": len(candidate_definitions),
                 "joined_sidecar_rows": joined_rows,
+                "population_state": population_state,
                 "snapshot_loader_receipt_sha256": loader_receipt_sha,
                 "snapshot_manifest_sha256": snapshot_manifest_sha,
                 "full_training_authority": 0,
@@ -2522,6 +2524,20 @@ if capacity_mode and {row.get("row_id") for row in receipts} != {
         "capacity_selected_rows:"
         f"{sorted(str(row.get('row_id')) for row in receipts)}"
     )
+populated_rows = sorted(
+    str(report["row_id"])
+    for report in reports
+    if report.get("status") == "PASS"
+    and report.get("population_state") == "POPULATED"
+)
+valid_empty_rows = sorted(
+    str(report["row_id"])
+    for report in reports
+    if report.get("status") == "PASS"
+    and report.get("population_state") == "VALID_EMPTY"
+)
+if capacity_mode and not populated_rows:
+    failures.append("capacity_population_witness:no populated selected row")
 
 payload = {
     "schema": "THE134_SMOKE_ROOT_HEALTH_IDENTITY_JOIN_V1",
@@ -2530,6 +2546,10 @@ payload = {
     "full_training_authority": 0,
     "execution_group_size": expected_group_size,
     "source_occurrences_per_output": expected_source_count,
+    "populated_rows": populated_rows,
+    "valid_empty_rows": valid_empty_rows,
+    "populated_row_count": len(populated_rows),
+    "valid_empty_row_count": len(valid_empty_rows),
     "analysis_health_profile": ANALYSIS_HEALTH_PROFILE,
     "sidecar_health_profile": SIDECAR_HEALTH_PROFILE,
     "capacity_authority_earned": bool(capacity_mode and not failures),
@@ -2595,6 +2615,10 @@ if (
     or root_certificate.get("capacity_authority_earned") is not True
     or int(root_certificate.get("execution_group_size", -1)) != 7
     or int(root_certificate.get("source_occurrences_per_output", -1)) != 1
+    or int(root_certificate.get("populated_row_count", -1)) < 1
+    or int(root_certificate.get("populated_row_count", -1))
+    + int(root_certificate.get("valid_empty_row_count", -1))
+    != int(root_certificate.get("row_count", -1))
     or root_certificate.get("analysis_health_profile")
     != {
         "name": "analysis_writer_root_v1",
