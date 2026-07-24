@@ -9,6 +9,9 @@ bash -n "$controller"
 tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/the134-tuple-contract.XXXXXX")"
 trap 'chmod -R u+w "$tmpdir" 2>/dev/null || true; rm -rf "$tmpdir"' EXIT
 die() { return 2; }
+# Extracted controller helpers call the controller's text logger. Keep that
+# logger local to the test so macOS never resolves `say` to text-to-speech.
+say() { :; }
 sha_file() {
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$1" | awk '{print $1}'
@@ -789,8 +792,11 @@ def validate(text: str) -> None:
         'RJ_THE134_CAPACITY_RUNTIME_AUTHORITY_SHA256',
         'validate_capacity_postrun_authority',
         'write_runtime_authority_manifest verify',
-        'root_health_identity_join_certificate_capacity_v2.json',
+        'root_health_identity_join_certificate_capacity_v3.json',
         '"validation_authority": validation_authority',
+        'submitted argument identity differs from the sealed receipt',
+        'source sample lacks the frozen run prefix',
+        '"source_execution_contract": source_execution',
         'capacity validation forbids an alternate matrix-preparer path',
         '"file_validator": {',
         '"schema": "THE134_CAPACITY_MULTIVIEW_MATRIX_AUDIT_V1"',

@@ -82,7 +82,7 @@ source_provenance_json="${evidence_root}/source_provenance.json"
 pp_source_provenance_json="${evidence_root}/pp_source_provenance.json"
 auau_source_provenance_json="${evidence_root}/auau_source_provenance.json"
 if (( capacity_mode )); then
-  root_health_join_certificate="${evidence_root}/root_health_identity_join_certificate_capacity_v2.json"
+  root_health_join_certificate="${evidence_root}/root_health_identity_join_certificate_capacity_v3.json"
 else
   root_health_join_certificate="${evidence_root}/root_health_identity_join_certificate.json"
 fi
@@ -2134,6 +2134,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -2234,6 +2235,66 @@ def file_sha256(path: Path) -> str:
         for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def expected_source_execution(
+    receipt: dict[str, str], manifest: dict[str, str]
+) -> dict[str, object]:
+    raw_args_path = Path(receipt["args_file"])
+    raw_chunk_path = Path(receipt["staged_chunk_list"])
+    if raw_args_path.is_symlink() or raw_chunk_path.is_symlink():
+        raise ValueError("submitted args and staged chunk must not be symlinks")
+    args_path = raw_args_path.resolve(strict=True)
+    chunk_path = raw_chunk_path.resolve(strict=True)
+    args_lines = args_path.read_text(encoding="utf-8").splitlines()
+    if len(args_lines) != 1:
+        raise ValueError("submitted args file must contain exactly one row")
+    cluster_proc = receipt["cluster_proc"].split(".")
+    if len(cluster_proc) != 2 or not all(part.isdigit() for part in cluster_proc):
+        raise ValueError(f"invalid receipt cluster/proc identity:{receipt['cluster_proc']}")
+    cluster, proc = cluster_proc
+    resolved_args = (
+        args_lines[0]
+        .replace("$(Cluster)", cluster)
+        .replace("$(Process)", proc)
+    )
+    submitted_args = f"{proc} {resolved_args}\n".encode("utf-8")
+    if (
+        not HEX64.fullmatch(receipt["submitted_args_sha256"])
+        or hashlib.sha256(submitted_args).hexdigest()
+        != receipt["submitted_args_sha256"]
+    ):
+        raise ValueError("submitted argument identity differs from the sealed receipt")
+    tokens = shlex.split(resolved_args)
+    if len(tokens) != 8:
+        raise ValueError(f"submitted argument cardinality differs:{len(tokens)}")
+    sample, chunk, dataset, submitted_cluster, nevents, chunk_index, sentinel, _ = tokens
+    if (
+        sample != manifest["sample"]
+        or dataset != manifest["dataset"]
+        or submitted_cluster != cluster
+        or nevents != "0"
+        or sentinel != "NONE"
+        or not chunk_index.isdigit()
+    ):
+        raise ValueError("submitted execution contract differs from manifest/receipt")
+    if Path(chunk).resolve(strict=True) != chunk_path:
+        raise ValueError("submitted chunk path differs from the sealed receipt")
+    if (
+        not HEX64.fullmatch(receipt["staged_chunk_sha256"])
+        or file_sha256(chunk_path) != receipt["staged_chunk_sha256"]
+    ):
+        raise ValueError("staged chunk hash differs from the sealed receipt")
+    run_match = re.match(r"^run([0-9]+)_", sample)
+    if run_match is None:
+        raise ValueError(f"source sample lacks the frozen run prefix:{sample}")
+    return {
+        "args_file": str(args_path),
+        "chunk_index": int(chunk_index),
+        "run": int(run_match.group(1)),
+        "staged_chunk_list": str(chunk_path),
+        "submitted_args_sha256": receipt["submitted_args_sha256"],
+    }
 
 
 if capacity_mode:
@@ -2487,13 +2548,14 @@ for receipt in receipts:
                 f"expected={expected_source_count} observed={len(source_ids)}"
             )
         source_row = source_rows[0]
+        source_execution = expected_source_execution(receipt, manifest)
         expected_source_contract = {
             "lane": manifest["lane"],
             "dataset": manifest["dataset"],
             "sample": manifest["sample"],
             "period": expected_pp_period if manifest["system"] == "pp" else "AUAU_RUN24",
-            "run": 0,
-            "segment": 0,
+            "run": source_execution["run"],
+            "segment": source_execution["chunk_index"],
             "si_di_role": "SI" if manifest["system"] == "pp" else "EMBEDDED",
             "ownership_state": "source_role_frozen",
             "input_uri_hash": receipt["staged_chunk_sha256"],
@@ -2642,6 +2704,7 @@ for receipt in receipts:
                 "replay_tree_count": len(observed_trees),
                 "replay_sources": len(source_ids),
                 "source_contract": observed_source_contract,
+                "source_execution_contract": source_execution,
                 "source_identity_canonical_sha256": source_identity_sha256,
                 "source_occurrence_id_hex": (
                     f"{observed_source_identity[0]:016x}"
