@@ -82,13 +82,13 @@ source_provenance_json="${evidence_root}/source_provenance.json"
 pp_source_provenance_json="${evidence_root}/pp_source_provenance.json"
 auau_source_provenance_json="${evidence_root}/auau_source_provenance.json"
 if (( capacity_mode )); then
-  root_health_join_certificate="${evidence_root}/root_health_identity_join_certificate_capacity_v4.json"
+  root_health_join_certificate="${evidence_root}/root_health_identity_join_certificate_capacity_v5.json"
 else
   root_health_join_certificate="${evidence_root}/root_health_identity_join_certificate.json"
 fi
 capacity_resource_certificate="${evidence_root}/capacity_resource_certificate.json"
-capacity_pp_multiview_audit="${evidence_root}/pp_capacity_multiview_audit.json"
-capacity_auau_multiview_audit="${evidence_root}/auau_capacity_multiview_audit.json"
+capacity_pp_multiview_audit="${evidence_root}/pp_capacity_multiview_audit_v2.json"
+capacity_auau_multiview_audit="${evidence_root}/auau_capacity_multiview_audit_v2.json"
 runtime_authority_manifest="${evidence_root}/runtime_authority_manifest.json"
 runtime_authority_fingerprint="${runtime_authority_manifest}.sha256"
 canonical_validator="${repo_root}/scripts/ml/training/prepare_the134_h70_matrix.py"
