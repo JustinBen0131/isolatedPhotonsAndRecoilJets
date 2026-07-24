@@ -49,6 +49,10 @@ eval "$(
   sed -n '/^write_runtime_authority_manifest()/,/^require_inputs_and_hashes()/p' \
     "$controller" | sed '$d'
 )"
+eval "$(
+  sed -n '/^validate_system_matrix_or_capacity_audit()/,/^write_capacity_resource_certificate()/p' \
+    "$controller" | sed '$d'
+)"
 
 validate_pp_sim_weight_contract 0mrad
 validate_pp_sim_weight_contract 1p5mrad
@@ -162,6 +166,267 @@ if ( validate_capacity_preflight_contract ) >/dev/null 2>&1; then
   printf 'semantic group-size drift was accepted by the capacity preflight contract\n' >&2
   exit 1
 fi
+
+fake_validator="${tmpdir}/prepare_the134_h70_matrix.py"
+fake_contract="${tmpdir}/the134_h70_contract.py"
+cat > "$fake_validator" <<'PY'
+from pathlib import Path
+
+TREE_NAME = "RJPhotonTrainingViewV1"
+CORE_BRANCHES = ("definition_name",)
+
+
+def read_tree(path: Path, _tree_name: str):
+    state, source_id = path.read_text().strip().split("|", 1)
+    populated = state == "POPULATED"
+    arrays = {
+        "definition_name": ["H70"] * (7 if populated else 0),
+        "_source_id": source_id,
+    }
+    metadata = {
+        "tree_num_entries": len(arrays["definition_name"]),
+        "schema_sha256": "1" * 64,
+        "pp_feature_contract_sha256": "2" * 64,
+        "auau_feature_contract_sha256": "3" * 64,
+    }
+    return arrays, ["definition_name"], metadata
+
+
+def validate_artifact_metadata(_metadata, _arrays, *, external):
+    return []
+
+
+def validate_file_arrays(arrays, *, system, source, view_name):
+    return [], [], {
+        "status": "PASS",
+        "rows": len(arrays["definition_name"]),
+        "candidates": 1,
+        "selected_view": view_name,
+        "selected_view_rows": 1,
+        "selected_view_training_rows": 1,
+        "definition_counts": {"H70": 1},
+        "source": source,
+        "source_occurrence_ids": [arrays["_source_id"]],
+        "failures": [],
+    }
+PY
+printf 'fixture contract\n' > "$fake_contract"
+
+make_capacity_audit_fixture() {
+  local base="$1" state="$2" system="$3" row_id="$4" sample="$5"
+  mkdir -p "$base"
+  python3 - "$base" "$state" "$system" "$row_id" "$sample" <<'PY'
+from pathlib import Path
+import csv
+import hashlib
+import json
+import sys
+
+base = Path(sys.argv[1])
+state, system, row_id, sample = sys.argv[2:]
+lane = "background"
+dataset = "run28" if system == "pp" else "run28auau"
+period = "0mrad" if system == "pp" else "AUAU_RUN24"
+role = "SI" if system == "pp" else "EMBEDDED"
+chunk_sha = "b" * 64
+manifest_sha = "c" * 64
+config_sha = "d" * 64
+code_sha = "e" * 64
+source_contract = {
+    "lane": lane,
+    "dataset": dataset,
+    "sample": sample,
+    "period": period,
+    "run": 0,
+    "segment": 0,
+    "si_di_role": role,
+    "ownership_state": "source_role_frozen",
+    "input_uri_hash": chunk_sha,
+    "input_file_sha256": chunk_sha,
+    "source_manifest_sha256": manifest_sha,
+}
+canonical = "|".join(
+    str(source_contract[field])
+    for field in (
+        "lane",
+        "dataset",
+        "sample",
+        "period",
+        "run",
+        "segment",
+        "input_uri_hash",
+        "input_file_sha256",
+        "source_manifest_sha256",
+    )
+)
+identity_sha = hashlib.sha256(canonical.encode()).hexdigest()
+source_id = identity_sha[:32] if identity_sha[:32] != "0" * 32 else "0" * 31 + "1"
+sidecar = base / "sidecar.root"
+sidecar.write_text(f"{state}|{source_id}")
+sidecar_sha = hashlib.sha256(sidecar.read_bytes()).hexdigest()
+entries = 7 if state == "POPULATED" else 0
+candidates = 1 if state == "POPULATED" else 0
+report = {
+    "row_id": row_id,
+    "status": "PASS",
+    "population_state": state,
+    "replay_sources": 1,
+    "sidecar": str(sidecar),
+    "sidecar_bytes": sidecar.stat().st_size,
+    "sidecar_sha256": sidecar_sha,
+    "sidecar_entries": entries,
+    "sidecar_candidates": candidates,
+    "joined_sidecar_rows": entries,
+    "source_contract": source_contract,
+    "source_occurrence_id_hex": source_id,
+    "source_identity_canonical_sha256": identity_sha,
+}
+(base / "root.json").write_text(json.dumps({
+    "schema": "THE134_SMOKE_ROOT_HEALTH_IDENTITY_JOIN_V1",
+    "status": "PASS",
+    "scope": "capacity",
+    "capacity_authority_earned": True,
+    "full_training_authority": 0,
+    "execution_group_size": 7,
+    "source_occurrences_per_output": 1,
+    "rows": [report],
+}, indent=2, sort_keys=True) + "\n")
+with (base / "manifest.tsv").open("w", newline="") as stream:
+    writer = csv.DictWriter(stream, fieldnames=[
+        "row_id", "system", "full_training_authority", "lane", "dataset",
+        "sample", "source_manifest_sha256", "resolved_config_sha256",
+        "code_sha256",
+    ], delimiter="\t")
+    writer.writeheader()
+    writer.writerow({
+        "row_id": row_id,
+        "system": system,
+        "full_training_authority": "0",
+        "lane": lane,
+        "dataset": dataset,
+        "sample": sample,
+        "source_manifest_sha256": manifest_sha,
+        "resolved_config_sha256": config_sha,
+        "code_sha256": code_sha,
+    })
+with (base / "receipt.tsv").open("w", newline="") as stream:
+    writer = csv.DictWriter(stream, fieldnames=[
+        "row_id", "multiview_sidecar", "staged_chunk_sha256",
+    ], delimiter="\t")
+    writer.writeheader()
+    writer.writerow({
+        "row_id": row_id,
+        "multiview_sidecar": str(sidecar),
+        "staged_chunk_sha256": chunk_sha,
+    })
+(base / "provenance.json").write_text(json.dumps({
+    "schema": "THE134_SOURCE_PROVENANCE_V1",
+    "inputs": [{
+        "path": str(sidecar),
+        "row_id": row_id,
+        "system": system,
+        "source_sample": sample,
+        "input_uri_sha256": chunk_sha,
+        "input_file_sha256": chunk_sha,
+        "source_manifest_sha256": manifest_sha,
+        "config_sha256": config_sha,
+        "code_sha256": code_sha,
+    }],
+}, indent=2, sort_keys=True) + "\n")
+(base / "sidecars.list").write_text(str(sidecar) + "\n")
+PY
+}
+
+capacity_mode=1
+canonical_validator="$fake_validator"
+validator="$fake_validator"
+canonical_validator_contract="$fake_contract"
+capacity_file_validator_sha="$(sha_file "$fake_validator")"
+capacity_contract_validator_sha="$(sha_file "$fake_contract")"
+pp_period=0mrad
+
+empty_fixture="${tmpdir}/capacity-empty"
+make_capacity_audit_fixture \
+  "$empty_fixture" VALID_EMPTY pp pp_background_jet8 Jet8
+root_health_join_certificate="${empty_fixture}/root.json"
+submission_receipt="${empty_fixture}/receipt.tsv"
+submission_manifest="${empty_fixture}/manifest.tsv"
+validate_system_matrix_or_capacity_audit \
+  pp pp_background_jet8 "${empty_fixture}/sidecars.list" \
+  "${empty_fixture}/provenance.json" "${empty_fixture}/matrix.npz" \
+  "${empty_fixture}/audit.json"
+python3 - "${empty_fixture}/audit.json" <<'PY'
+import json
+import sys
+audit = json.load(open(sys.argv[1]))
+assert audit["status"] == "PASS"
+assert audit["scope"] == "capacity"
+assert audit["population_state"] == "VALID_EMPTY"
+assert audit["matrix_materialized"] is False
+assert audit["file_report"]["source_occurrence_ids"] == []
+assert audit["file_report"]["source_occurrence_binding"] == "PAIRED_REPLAY_SOURCE_ROW"
+PY
+chmod u+w "${empty_fixture}/audit.json"
+python3 - "${empty_fixture}/audit.json" <<'PY'
+from pathlib import Path
+import json
+import sys
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text())
+payload["status"] = "FAIL"
+path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+PY
+if ( validate_system_matrix_or_capacity_audit \
+  pp pp_background_jet8 "${empty_fixture}/sidecars.list" \
+  "${empty_fixture}/provenance.json" "${empty_fixture}/matrix.npz" \
+  "${empty_fixture}/audit.json" ) >/dev/null 2>&1; then
+  printf 'differing existing capacity audit was overwritten\n' >&2
+  exit 1
+fi
+
+populated_fixture="${tmpdir}/capacity-populated"
+make_capacity_audit_fixture \
+  "$populated_fixture" POPULATED auau auau_background_jet12 Jet12
+root_health_join_certificate="${populated_fixture}/root.json"
+submission_receipt="${populated_fixture}/receipt.tsv"
+submission_manifest="${populated_fixture}/manifest.tsv"
+validate_system_matrix_or_capacity_audit \
+  auau auau_background_jet12 "${populated_fixture}/sidecars.list" \
+  "${populated_fixture}/provenance.json" "${populated_fixture}/matrix.npz" \
+  "${populated_fixture}/audit.json"
+python3 - "${populated_fixture}/audit.json" <<'PY'
+import json
+import sys
+audit = json.load(open(sys.argv[1]))
+assert audit["status"] == "PASS"
+assert audit["population_state"] == "POPULATED"
+assert audit["file_report"]["rows"] == 7
+assert audit["file_report"]["source_occurrence_ids"] == [
+    audit["source_occurrence_id_hex"]
+]
+PY
+cp "${populated_fixture}/sidecar.root" "${populated_fixture}/sidecar.original"
+python3 - "${populated_fixture}/sidecar.root" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+text = path.read_text()
+path.write_text(("X" if text[0] != "X" else "Y") + text[1:])
+assert len(path.read_text()) == len(text)
+PY
+if ( validate_system_matrix_or_capacity_audit \
+  auau auau_background_jet12 "${populated_fixture}/sidecars.list" \
+  "${populated_fixture}/provenance.json" "${populated_fixture}/matrix.npz" \
+  "${populated_fixture}/audit.json" ) >/dev/null 2>&1; then
+  printf 'same-size post-audit sidecar mutation was accepted\n' >&2
+  exit 1
+fi
+cp "${populated_fixture}/sidecar.original" "${populated_fixture}/sidecar.root"
+validate_system_matrix_or_capacity_audit \
+  auau auau_background_jet12 "${populated_fixture}/sidecars.list" \
+  "${populated_fixture}/provenance.json" "${populated_fixture}/matrix.npz" \
+  "${populated_fixture}/audit.json"
+
 capacity_mode=0
 
 printf '%s\n%s\n' \
@@ -509,6 +774,36 @@ def validate(text: str) -> None:
         '"capacity_population_witness:no populated selected row"',
         'root_certificate.get("populated_row_count", -1)',
         'root_certificate.get("valid_empty_row_count", -1)',
+        '"source_identity_canonical_sha256": source_identity_sha256',
+        '"source_occurrence_id_hex": (',
+        '"analysis_sha256": file_sha256(analysis_path)',
+        '"sidecar_sha256": file_sha256(sidecar_path)',
+        'validate_system_matrix_or_capacity_audit',
+        'RJ_THE134_CAPACITY_FILE_VALIDATOR_SHA256',
+        'RJ_THE134_CAPACITY_CONTRACT_VALIDATOR_SHA256',
+        'RJ_THE134_CAPACITY_CONTROLLER_SHA256',
+        'RJ_THE134_CAPACITY_VALIDATION_COMMIT',
+        'RJ_THE134_CAPACITY_SUBMISSION_MANIFEST_SHA256',
+        'RJ_THE134_CAPACITY_SUBMISSION_RECEIPT_SHA256',
+        'RJ_THE134_CAPACITY_SUBMISSION_JOURNAL_SHA256',
+        'RJ_THE134_CAPACITY_RUNTIME_AUTHORITY_SHA256',
+        'validate_capacity_postrun_authority',
+        'write_runtime_authority_manifest verify',
+        'root_health_identity_join_certificate_capacity_v2.json',
+        '"validation_authority": validation_authority',
+        'capacity validation forbids an alternate matrix-preparer path',
+        '"file_validator": {',
+        '"schema": "THE134_CAPACITY_MULTIVIEW_MATRIX_AUDIT_V1"',
+        '"scope": "capacity"',
+        '"class_balance_state": "NOT_APPLICABLE_CAPACITY_NON_TRAINING"',
+        '"training_matrix_authority_earned": False',
+        '"matrix_materialized": False',
+        'validator.validate_artifact_metadata(',
+        'validator.validate_file_arrays(',
+        'existing capacity audit differs; preserve it before retry',
+        'existing capacity resource certificate differs; preserve it before retry',
+        '"multiview_audits": audit_reports',
+        '"$capacity_pp_multiview_audit" "$capacity_auau_multiview_audit"',
         'RJ_REPLAY_LANE="$lane"',
         'RJ_REPLAY_SCHEMA_SHA256="$RJ_THE134_REPLAY_SCHEMA_SHA256"',
         'validate_pp_sim_weight_contract "$pp_period"',
@@ -761,6 +1056,30 @@ else:
     raise SystemExit("descriptor getenv mutation was not rejected")
 
 mutated = source.replace(
+    '"schema": "THE134_CAPACITY_MULTIVIEW_MATRIX_AUDIT_V1"',
+    '"schema": "THE134_FACTORIAL_VIEW_TRAINING_MATRIX_AUDIT_V1"',
+    1,
+)
+try:
+    validate(mutated)
+except ValueError:
+    pass
+else:
+    raise SystemExit("capacity-only audit schema mutation was not rejected")
+
+mutated = source.replace(
+    '"matrix_materialized": False',
+    '"matrix_materialized": True',
+    1,
+)
+try:
+    validate(mutated)
+except ValueError:
+    pass
+else:
+    raise SystemExit("capacity matrix-materialization mutation was not rejected")
+
+mutated = source.replace(
     'RJ_PPG12_PHOTON_YIELD=1 \\\n',
     '',
     1,
@@ -808,5 +1127,5 @@ except ValueError:
 else:
     raise SystemExit("automatic SI vertex-weight authority mutation was not rejected")
 
-print("THE134_SUBMITTER_CANARY_IDENTITY_WIRING_PASS guarded_calls=2 mutations_rejected=9 tuple_mutations=3 fanout_mutations=8 pp_period_mutations=3 descriptor_weight_mutations=2 science_authority_mutations=2 runtime_authority_transitions=6 materialization_state_transitions=6")
+print("THE134_SUBMITTER_CANARY_IDENTITY_WIRING_PASS guarded_calls=2 mutations_rejected=11 tuple_mutations=3 fanout_mutations=8 pp_period_mutations=3 descriptor_weight_mutations=2 science_authority_mutations=2 runtime_authority_transitions=6 materialization_state_transitions=6")
 PY

@@ -16,6 +16,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd -P)"
 cd "$repo_root"
+controller_path="${repo_root}/scripts/sdcc/workflows/diagnostics/submit_the134_multiview_extraction_smoke.sh"
 
 requested_mode="${1:-preflight}"
 capacity_mode=0
@@ -62,6 +63,14 @@ capacity_preflight_receipt="${RJ_THE134_CAPACITY_PREFLIGHT_RECEIPT:-}"
 capacity_preflight_receipt_sha="${RJ_THE134_CAPACITY_PREFLIGHT_RECEIPT_SHA256:-}"
 capacity_full_plan="${RJ_THE134_CAPACITY_FULL_PLAN:-}"
 capacity_full_plan_sha="${RJ_THE134_CAPACITY_FULL_PLAN_SHA256:-}"
+capacity_file_validator_sha="${RJ_THE134_CAPACITY_FILE_VALIDATOR_SHA256:-}"
+capacity_contract_validator_sha="${RJ_THE134_CAPACITY_CONTRACT_VALIDATOR_SHA256:-}"
+capacity_controller_sha="${RJ_THE134_CAPACITY_CONTROLLER_SHA256:-}"
+capacity_validation_commit="${RJ_THE134_CAPACITY_VALIDATION_COMMIT:-}"
+capacity_submission_manifest_sha="${RJ_THE134_CAPACITY_SUBMISSION_MANIFEST_SHA256:-}"
+capacity_submission_receipt_sha="${RJ_THE134_CAPACITY_SUBMISSION_RECEIPT_SHA256:-}"
+capacity_submission_journal_sha="${RJ_THE134_CAPACITY_SUBMISSION_JOURNAL_SHA256:-}"
+capacity_runtime_authority_sha="${RJ_THE134_CAPACITY_RUNTIME_AUTHORITY_SHA256:-}"
 
 resolved_config_root="${evidence_root}/resolved_configs"
 observed_source_hashes="${evidence_root}/observed_source_hashes.tsv"
@@ -72,11 +81,19 @@ submission_receipt="${evidence_root}/submission_receipt.tsv"
 source_provenance_json="${evidence_root}/source_provenance.json"
 pp_source_provenance_json="${evidence_root}/pp_source_provenance.json"
 auau_source_provenance_json="${evidence_root}/auau_source_provenance.json"
-root_health_join_certificate="${evidence_root}/root_health_identity_join_certificate.json"
+if (( capacity_mode )); then
+  root_health_join_certificate="${evidence_root}/root_health_identity_join_certificate_capacity_v2.json"
+else
+  root_health_join_certificate="${evidence_root}/root_health_identity_join_certificate.json"
+fi
 capacity_resource_certificate="${evidence_root}/capacity_resource_certificate.json"
+capacity_pp_multiview_audit="${evidence_root}/pp_capacity_multiview_audit.json"
+capacity_auau_multiview_audit="${evidence_root}/auau_capacity_multiview_audit.json"
 runtime_authority_manifest="${evidence_root}/runtime_authority_manifest.json"
 runtime_authority_fingerprint="${runtime_authority_manifest}.sha256"
-validator="${RJ_THE134_MATRIX_PREPARER:-${repo_root}/scripts/ml/training/prepare_the134_h70_matrix.py}"
+canonical_validator="${repo_root}/scripts/ml/training/prepare_the134_h70_matrix.py"
+canonical_validator_contract="${repo_root}/scripts/ml/contracts/the134_h70_contract.py"
+validator="${RJ_THE134_MATRIX_PREPARER:-${canonical_validator}}"
 
 readonly pinned_release_name="ana.560"
 readonly pinned_offline_main="/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.560"
@@ -2062,12 +2079,56 @@ status() {
   find "$output_root" -type f \( -name '*.root' -o -name '*.log' -o -name '*.json' \) -printf '%s\t%p\n' 2>/dev/null | sort -k2 || true
 }
 
+validate_capacity_postrun_authority() {
+  (( capacity_mode )) || return 0
+  require_sha "capacity controller" "$capacity_controller_sha"
+  require_sha "capacity file-level validator" "$capacity_file_validator_sha"
+  require_sha "capacity file-level contract" "$capacity_contract_validator_sha"
+  require_sha "capacity submission manifest" "$capacity_submission_manifest_sha"
+  require_sha "capacity submission receipt" "$capacity_submission_receipt_sha"
+  require_sha "capacity submission journal" "$capacity_submission_journal_sha"
+  require_sha "capacity runtime authority" "$capacity_runtime_authority_sha"
+  [[ "$capacity_validation_commit" =~ ^[0-9a-f]{40}$ ]] ||
+    die "RJ_THE134_CAPACITY_VALIDATION_COMMIT must be a 40-character Git commit"
+  [[ "$validator" == "$canonical_validator" ]] ||
+    die "capacity validation forbids an alternate matrix-preparer path: ${validator}"
+  require_file_hash "capacity controller" "$controller_path" "$capacity_controller_sha"
+  require_file_hash \
+    "capacity file-level validator" "$validator" "$capacity_file_validator_sha"
+  require_file_hash \
+    "capacity file-level contract" "$canonical_validator_contract" \
+    "$capacity_contract_validator_sha"
+  require_file_hash \
+    "capacity submission manifest" "$submission_manifest" \
+    "$capacity_submission_manifest_sha"
+  require_file_hash \
+    "capacity submission receipt" "$submission_receipt" \
+    "$capacity_submission_receipt_sha"
+  require_file_hash \
+    "capacity submission journal" "$submission_journal" \
+    "$capacity_submission_journal_sha"
+  [[ -s "$duplicate_fingerprint" &&
+     "$(tr -d '\n' < "$duplicate_fingerprint")" == "$capacity_submission_manifest_sha" ]] ||
+    die "capacity submission-manifest fingerprint differs from frozen authority"
+  write_runtime_authority_manifest verify
+  require_file_hash \
+    "capacity runtime authority" "$runtime_authority_manifest" \
+    "$capacity_runtime_authority_sha"
+  [[ -s "$runtime_authority_fingerprint" &&
+     "$(tr -d '\n' < "$runtime_authority_fingerprint")" == "$capacity_runtime_authority_sha" ]] ||
+    die "capacity runtime-authority fingerprint differs from frozen authority"
+}
+
 validate_root_health_and_joins() {
   command -v python3 >/dev/null 2>&1 || die "python3 is required for ROOT health and identity validation"
   python3 - "$submission_receipt" "$submission_manifest" \
     "$root_health_join_certificate" "$pinned_calo_reco_soname" \
     "$execution_row_count" "$execution_group_size" \
-    "$source_occurrences_per_output" "$capacity_mode" <<'PY'
+    "$source_occurrences_per_output" "$capacity_mode" "$pp_period" \
+    "$controller_path" "$capacity_controller_sha" "$capacity_validation_commit" \
+    "$capacity_submission_manifest_sha" "$capacity_submission_receipt_sha" \
+    "$submission_journal" "$capacity_submission_journal_sha" \
+    "$runtime_authority_manifest" "$capacity_runtime_authority_sha" <<'PY'
 import csv
 import hashlib
 import json
@@ -2088,6 +2149,16 @@ expected_receipt_count = int(sys.argv[5])
 expected_group_size = int(sys.argv[6])
 expected_source_count = int(sys.argv[7])
 capacity_mode = bool(int(sys.argv[8]))
+expected_pp_period = sys.argv[9]
+controller_path = Path(sys.argv[10])
+controller_sha256 = sys.argv[11]
+validation_commit = sys.argv[12]
+submission_manifest_sha256 = sys.argv[13]
+submission_receipt_sha256 = sys.argv[14]
+submission_journal_path = Path(sys.argv[15])
+submission_journal_sha256 = sys.argv[16]
+runtime_authority_path = Path(sys.argv[17])
+runtime_authority_sha256 = sys.argv[18]
 with manifest_path.open(newline="") as stream:
     manifests = {row["row_id"]: row for row in csv.DictReader(stream, delimiter="\t")}
 with receipt_path.open(newline="") as stream:
@@ -2163,6 +2234,18 @@ def file_sha256(path: Path) -> str:
         for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+if capacity_mode:
+    for label, path, expected_sha in (
+        ("validation controller", controller_path, controller_sha256),
+        ("submission manifest", manifest_path, submission_manifest_sha256),
+        ("submission receipt", receipt_path, submission_receipt_sha256),
+        ("submission journal", submission_journal_path, submission_journal_sha256),
+        ("runtime authority", runtime_authority_path, runtime_authority_sha256),
+    ):
+        if not path.is_file() or file_sha256(path) != expected_sha:
+            raise SystemExit(f"{label} drifted before ROOT validation: {path}")
 
 
 def verify_frozen_snapshot_receipts(
@@ -2396,11 +2479,74 @@ for receipt in receipts:
                 "replay source-row population differs from the per-output contract: "
                 f"expected={expected_source_count} observed={int(source_tree.GetEntries())}"
             )
-        source_ids = {identity(row, "source_occurrence_id") for row in source_tree}
+        source_rows = list(source_tree)
+        source_ids = {identity(row, "source_occurrence_id") for row in source_rows}
         if len(source_ids) != expected_source_count:
             raise ValueError(
                 "replay source identities differ from the per-output contract: "
                 f"expected={expected_source_count} observed={len(source_ids)}"
+            )
+        source_row = source_rows[0]
+        expected_source_contract = {
+            "lane": manifest["lane"],
+            "dataset": manifest["dataset"],
+            "sample": manifest["sample"],
+            "period": expected_pp_period if manifest["system"] == "pp" else "AUAU_RUN24",
+            "run": 0,
+            "segment": 0,
+            "si_di_role": "SI" if manifest["system"] == "pp" else "EMBEDDED",
+            "ownership_state": "source_role_frozen",
+            "input_uri_hash": receipt["staged_chunk_sha256"],
+            "input_file_sha256": receipt["staged_chunk_sha256"],
+            "source_manifest_sha256": manifest["source_manifest_sha256"],
+        }
+        observed_source_contract = {
+            "lane": str(source_row.lane),
+            "dataset": str(source_row.dataset),
+            "sample": str(source_row.sample),
+            "period": str(source_row.period),
+            "run": int(source_row.run),
+            "segment": int(source_row.segment),
+            "si_di_role": str(source_row.si_di_role),
+            "ownership_state": str(source_row.ownership_state),
+            "input_uri_hash": str(source_row.input_uri_hash),
+            "input_file_sha256": str(source_row.input_file_sha256),
+            "source_manifest_sha256": str(source_row.source_manifest_sha256),
+        }
+        if observed_source_contract != expected_source_contract:
+            raise ValueError(
+                "replay source-row contract differs from the immutable "
+                f"manifest/receipt: observed={observed_source_contract} "
+                f"expected={expected_source_contract}"
+            )
+        canonical_source_identity = "|".join(
+            str(expected_source_contract[field])
+            for field in (
+                "lane",
+                "dataset",
+                "sample",
+                "period",
+                "run",
+                "segment",
+                "input_uri_hash",
+                "input_file_sha256",
+                "source_manifest_sha256",
+            )
+        )
+        source_identity_sha256 = hashlib.sha256(
+            canonical_source_identity.encode("utf-8")
+        ).hexdigest()
+        expected_source_identity = (
+            int(source_identity_sha256[:16], 16),
+            int(source_identity_sha256[16:32], 16),
+        )
+        if expected_source_identity == (0, 0):
+            expected_source_identity = (0, 1)
+        observed_source_identity = identity(source_row, "source_occurrence_id")
+        if observed_source_identity != expected_source_identity:
+            raise ValueError(
+                "replay source identity differs from its canonical source contract: "
+                f"observed={observed_source_identity} expected={expected_source_identity}"
             )
         event_to_source: dict[tuple[int, int], tuple[int, int]] = {}
         for row in event_tree:
@@ -2488,11 +2634,19 @@ for receipt in receipts:
                 "status": "PASS",
                 "analysis_output_root": analysis_text,
                 "analysis_bytes": analysis_size,
+                "analysis_sha256": file_sha256(analysis_path),
                 "sidecar": sidecar_text,
                 "sidecar_bytes": sidecar_size,
+                "sidecar_sha256": file_sha256(sidecar_path),
                 "sidecar_size_diagnostic": sidecar_size_diagnostic,
                 "replay_tree_count": len(observed_trees),
                 "replay_sources": len(source_ids),
+                "source_contract": observed_source_contract,
+                "source_identity_canonical_sha256": source_identity_sha256,
+                "source_occurrence_id_hex": (
+                    f"{observed_source_identity[0]:016x}"
+                    f"{observed_source_identity[1]:016x}"
+                ),
                 "replay_events": len(event_to_source),
                 "replay_candidates": len(candidate_to_event),
                 "sidecar_entries": entry_count,
@@ -2553,16 +2707,412 @@ payload = {
     "analysis_health_profile": ANALYSIS_HEALTH_PROFILE,
     "sidecar_health_profile": SIDECAR_HEALTH_PROFILE,
     "capacity_authority_earned": bool(capacity_mode and not failures),
+    "validation_authority": ({
+        "controller": {
+            "path": str(controller_path.resolve()),
+            "sha256": controller_sha256,
+            "validation_commit": validation_commit,
+        },
+        "submission_manifest": {
+            "path": str(manifest_path.resolve()),
+            "sha256": submission_manifest_sha256,
+        },
+        "submission_receipt": {
+            "path": str(receipt_path.resolve()),
+            "sha256": submission_receipt_sha256,
+        },
+        "submission_journal": {
+            "path": str(submission_journal_path.resolve()),
+            "sha256": submission_journal_sha256,
+        },
+        "runtime_authority": {
+            "path": str(runtime_authority_path.resolve()),
+            "sha256": runtime_authority_sha256,
+        },
+    } if capacity_mode else {}),
     "row_count": len(reports),
     "rows": reports,
     "failures": failures,
 }
-temporary = certificate_path.with_name(certificate_path.name + f".tmp.{os.getpid()}")
-temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
-os.replace(temporary, certificate_path)
+serialized = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+if certificate_path.is_symlink():
+    raise SystemExit(f"ROOT/identity certificate path must not be a symlink: {certificate_path}")
+if certificate_path.exists():
+    if certificate_path.read_text(encoding="utf-8") != serialized:
+        raise SystemExit(
+            f"existing ROOT/identity certificate differs; preserve it before retry: {certificate_path}"
+        )
+else:
+    temporary = certificate_path.with_name(
+        certificate_path.name + f".tmp.{os.getpid()}"
+    )
+    temporary.write_text(serialized)
+    os.replace(temporary, certificate_path)
+os.chmod(certificate_path, 0o444)
 print(json.dumps({"status": payload["status"], "rows": len(reports), "failures": failures}))
 raise SystemExit(0 if not failures else 1)
 PY
+}
+
+validate_system_matrix_or_capacity_audit() {
+  local system="$1" row_id="$2" sidecar_list="$3" source_provenance="$4"
+  local matrix_out="$5" audit_out="$6"
+  if (( ! capacity_mode )); then
+    python3 "$validator" \
+      --system "$system" --view H70 --scope smoke \
+      --input "@${sidecar_list}" \
+      --source-provenance-json "$source_provenance" \
+      --matrix-out "$matrix_out" \
+      --audit-out "$audit_out"
+    return 0
+  fi
+
+  [[ "$validator" == "$canonical_validator" ]] ||
+    die "capacity validation forbids an alternate matrix-preparer path: ${validator}"
+  require_file_hash \
+    "capacity file-level validator" "$validator" "$capacity_file_validator_sha"
+  require_file_hash \
+    "capacity file-level contract" "$canonical_validator_contract" \
+    "$capacity_contract_validator_sha"
+
+  local audit_state
+  audit_state="$(
+    python3 - "$validator" "$capacity_file_validator_sha" \
+      "$canonical_validator_contract" "$capacity_contract_validator_sha" \
+      "$pp_period" \
+      "$root_health_join_certificate" "$submission_receipt" \
+      "$submission_manifest" "$source_provenance" "$sidecar_list" \
+      "$matrix_out" "$audit_out" "$system" "$row_id" <<'PY'
+from pathlib import Path
+import csv
+import hashlib
+import importlib.util
+import json
+import os
+import sys
+
+(
+    validator_arg,
+    validator_sha256,
+    validator_contract_arg,
+    validator_contract_sha256,
+    expected_pp_period,
+    root_certificate_arg,
+    receipt_arg,
+    manifest_arg,
+    provenance_arg,
+    sidecar_list_arg,
+    matrix_arg,
+    audit_arg,
+    expected_system,
+    expected_row_id,
+) = sys.argv[1:]
+validator_path = Path(validator_arg)
+validator_contract_path = Path(validator_contract_arg)
+root_certificate_path = Path(root_certificate_arg)
+receipt_path = Path(receipt_arg)
+manifest_path = Path(manifest_arg)
+provenance_path = Path(provenance_arg)
+sidecar_list_path = Path(sidecar_list_arg)
+matrix_path = Path(matrix_arg)
+audit_path = Path(audit_arg)
+
+
+def load_validator(path: Path):
+    spec = importlib.util.spec_from_file_location("the134_capacity_file_validator", path)
+    if spec is None or spec.loader is None:
+        raise SystemExit(f"cannot load THE-134 file validator: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def digest(path: Path) -> str:
+    value = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+            value.update(block)
+    return value.hexdigest()
+
+
+root_certificate = json.loads(root_certificate_path.read_text(encoding="utf-8"))
+if digest(validator_path) != validator_sha256:
+    raise SystemExit("capacity file-level validator hash differs from frozen authority")
+if digest(validator_contract_path) != validator_contract_sha256:
+    raise SystemExit(
+        "capacity file-level contract hash differs from frozen authority"
+    )
+if (
+    root_certificate.get("schema") != "THE134_SMOKE_ROOT_HEALTH_IDENTITY_JOIN_V1"
+    or root_certificate.get("status") != "PASS"
+    or root_certificate.get("scope") != "capacity"
+    or root_certificate.get("capacity_authority_earned") is not True
+    or int(root_certificate.get("full_training_authority", -1)) != 0
+    or int(root_certificate.get("execution_group_size", -1)) != 7
+    or int(root_certificate.get("source_occurrences_per_output", -1)) != 1
+):
+    raise SystemExit("capacity root/identity certificate is not valid")
+reports = [
+    row
+    for row in root_certificate.get("rows", [])
+    if row.get("row_id") == expected_row_id
+]
+if len(reports) != 1:
+    raise SystemExit(f"capacity root report is not unique for {expected_row_id}")
+report = reports[0]
+population_state = report.get("population_state")
+if (
+    population_state not in {"POPULATED", "VALID_EMPTY"}
+    or report.get("status") != "PASS"
+    or int(report.get("replay_sources", -1)) != 1
+):
+    raise SystemExit(
+        f"capacity row is neither populated nor certified valid-empty: {expected_row_id}"
+    )
+if matrix_path.exists():
+    raise SystemExit(
+        f"capacity validation must not materialize a training matrix: {matrix_path}"
+    )
+
+with receipt_path.open(newline="") as stream:
+    receipts = [
+        row for row in csv.DictReader(stream, delimiter="\t")
+        if row["row_id"] == expected_row_id
+    ]
+with manifest_path.open(newline="") as stream:
+    manifests = [
+        row for row in csv.DictReader(stream, delimiter="\t")
+        if row["row_id"] == expected_row_id
+    ]
+if len(receipts) != 1 or len(manifests) != 1:
+    raise SystemExit(f"manifest/receipt row is not unique: {expected_row_id}")
+receipt = receipts[0]
+manifest = manifests[0]
+if (
+    manifest["system"] != expected_system
+    or manifest["full_training_authority"] != "0"
+    or receipt["multiview_sidecar"] != report.get("sidecar")
+):
+    raise SystemExit("capacity manifest/receipt identity differs")
+
+listed_sidecars = [
+    line.strip()
+    for line in sidecar_list_path.read_text(encoding="utf-8").splitlines()
+    if line.strip() and not line.lstrip().startswith("#")
+]
+if listed_sidecars != [receipt["multiview_sidecar"]]:
+    raise SystemExit("capacity sidecar list differs from its exact receipt")
+sidecar_path = Path(receipt["multiview_sidecar"])
+if (
+    not sidecar_path.is_file()
+    or sidecar_path.stat().st_size != int(report.get("sidecar_bytes", -1))
+    or digest(sidecar_path) != report.get("sidecar_sha256")
+):
+    raise SystemExit("capacity sidecar size/hash/path drifted after ROOT validation")
+
+provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+records = provenance.get("inputs", [])
+if provenance.get("schema") != "THE134_SOURCE_PROVENANCE_V1" or len(records) != 1:
+    raise SystemExit("capacity source provenance is not an exact one-row contract")
+record = records[0]
+expected_record = {
+    "path": receipt["multiview_sidecar"],
+    "row_id": expected_row_id,
+    "system": expected_system,
+    "source_sample": manifest["sample"],
+    "input_uri_sha256": receipt["staged_chunk_sha256"],
+    "input_file_sha256": receipt["staged_chunk_sha256"],
+    "source_manifest_sha256": manifest["source_manifest_sha256"],
+    "config_sha256": manifest["resolved_config_sha256"],
+    "code_sha256": manifest["code_sha256"],
+}
+if record != expected_record:
+    raise SystemExit(
+        "capacity source provenance differs from the immutable manifest/receipt"
+    )
+source_contract = report.get("source_contract")
+expected_source_contract = {
+    "lane": manifest["lane"],
+    "dataset": manifest["dataset"],
+    "sample": manifest["sample"],
+    "period": expected_pp_period if expected_system == "pp" else "AUAU_RUN24",
+    "run": 0,
+    "segment": 0,
+    "si_di_role": "SI" if expected_system == "pp" else "EMBEDDED",
+    "ownership_state": "source_role_frozen",
+    "input_uri_hash": receipt["staged_chunk_sha256"],
+    "input_file_sha256": receipt["staged_chunk_sha256"],
+    "source_manifest_sha256": manifest["source_manifest_sha256"],
+}
+if source_contract != expected_source_contract:
+    raise SystemExit("capacity replay source contract is incomplete or differs")
+source_occurrence_id_hex = report.get("source_occurrence_id_hex")
+source_identity_canonical_sha256 = report.get("source_identity_canonical_sha256")
+expected_source_occurrence_id_hex = source_identity_canonical_sha256[:32] if (
+    isinstance(source_identity_canonical_sha256, str)
+    and source_identity_canonical_sha256[:32] != "0" * 32
+) else ("0" * 31 + "1")
+if (
+    not isinstance(source_occurrence_id_hex, str)
+    or len(source_occurrence_id_hex) != 32
+    or not isinstance(source_identity_canonical_sha256, str)
+    or len(source_identity_canonical_sha256) != 64
+    or source_occurrence_id_hex != expected_source_occurrence_id_hex
+):
+    raise SystemExit("capacity source identity binding is incomplete or differs")
+
+validator = load_validator(validator_path)
+arrays, branch_names, metadata = validator.read_tree(
+    sidecar_path, validator.TREE_NAME
+)
+if set(branch_names) != set(validator.CORE_BRANCHES):
+    raise SystemExit("capacity sidecar branch inventory differs from the frozen schema")
+metadata_failures = validator.validate_artifact_metadata(
+    metadata,
+    arrays,
+    external=record if population_state == "POPULATED" else None,
+)
+if metadata_failures:
+    raise SystemExit(
+        "capacity sidecar metadata validation failed: "
+        + "; ".join(metadata_failures)
+    )
+
+file_report = {
+    "status": "PASS",
+    "rows": 0,
+    "candidates": 0,
+    "selected_view": "H70",
+    "selected_view_rows": 0,
+    "selected_view_training_rows": 0,
+    "definition_counts": {},
+    "source": manifest["sample"],
+    "source_occurrence_ids": [],
+    "source_occurrence_binding": "PAIRED_REPLAY_SOURCE_ROW",
+    "failures": [],
+}
+if population_state == "POPULATED":
+    _selected, _vectors, file_report = validator.validate_file_arrays(
+        arrays,
+        system=expected_system,
+        source=manifest["sample"],
+        view_name="H70",
+    )
+    if (
+        file_report.get("status") != "PASS"
+        or file_report.get("failures")
+        or file_report.get("source_occurrence_ids") != [source_occurrence_id_hex]
+        or int(file_report.get("rows", -1)) != int(report.get("sidecar_entries", -2))
+        or int(file_report.get("candidates", -1))
+        != int(report.get("sidecar_candidates", -2))
+    ):
+        raise SystemExit(
+            "capacity populated sidecar file-level validation failed: "
+            + json.dumps(file_report, sort_keys=True)
+        )
+else:
+    if (
+        int(metadata.get("tree_num_entries", -1)) != 0
+        or int(report.get("sidecar_entries", -1)) != 0
+        or int(report.get("sidecar_candidates", -1)) != 0
+        or int(report.get("joined_sidecar_rows", -1)) != 0
+    ):
+        raise SystemExit("capacity valid-empty population is not exactly empty")
+
+payload = {
+    "schema": "THE134_CAPACITY_MULTIVIEW_MATRIX_AUDIT_V1",
+    "status": "PASS",
+    "scope": "capacity",
+    "authority_state": "CAPACITY_NON_TRAINING_ONLY",
+    "full_training_authority": 0,
+    "training_matrix_authority_earned": False,
+    "matrix_materialized": False,
+    "matrix_out": str(matrix_path),
+    "system": expected_system,
+    "row_id": expected_row_id,
+    "population_state": population_state,
+    "selected_rows": int(file_report.get("selected_view_training_rows", 0)),
+    "source_occurrence_count": 1,
+    "source_occurrence_id_hex": source_occurrence_id_hex,
+    "source_identity_canonical_sha256": source_identity_canonical_sha256,
+    "execution_group_size": 7,
+    "source_occurrences_per_output": 1,
+    "class_balance_state": "NOT_APPLICABLE_CAPACITY_NON_TRAINING",
+    "file_validator": {
+        "path": str(validator_path.resolve()),
+        "sha256": validator_sha256,
+        "contract_path": str(validator_contract_path.resolve()),
+        "contract_sha256": validator_contract_sha256,
+    },
+    "checks": {
+        "exact_branch_inventory": True,
+        "exact_manifest_receipt_source_binding": True,
+        "file_level_semantics": True,
+        "matrix_absent": True,
+        "root_identity_join_binding": True,
+        "sidecar_content_hash_binding": True,
+    },
+    "failures": [],
+    "sidecar": {
+        "path": str(sidecar_path),
+        "sha256": report["sidecar_sha256"],
+        "size_bytes": sidecar_path.stat().st_size,
+        "entries": int(report["sidecar_entries"]),
+        "candidates": int(report["sidecar_candidates"]),
+        "tree": validator.TREE_NAME,
+        "branch_count": len(branch_names),
+        "schema_sha256": metadata["schema_sha256"],
+        "pp_feature_contract_sha256": metadata["pp_feature_contract_sha256"],
+        "auau_feature_contract_sha256": metadata["auau_feature_contract_sha256"],
+    },
+    "file_report": file_report,
+    "source_contract": source_contract,
+    "source_provenance": {
+        "path": str(provenance_path.resolve()),
+        "sha256": digest(provenance_path),
+        "record": record,
+    },
+    "submission_manifest": {
+        "path": str(manifest_path.resolve()),
+        "sha256": digest(manifest_path),
+    },
+    "submission_receipt": {
+        "path": str(receipt_path.resolve()),
+        "sha256": digest(receipt_path),
+    },
+    "root_health_identity_join_certificate": {
+        "path": str(root_certificate_path.resolve()),
+        "sha256": digest(root_certificate_path),
+        "schema": root_certificate["schema"],
+        "status": root_certificate["status"],
+        "scope": root_certificate["scope"],
+    },
+}
+serialized = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+if audit_path.is_symlink():
+    raise SystemExit(f"capacity audit path must not be a symlink: {audit_path}")
+if audit_path.exists():
+    if audit_path.read_text(encoding="utf-8") != serialized:
+        raise SystemExit(
+            f"existing capacity audit differs; preserve it before retry: {audit_path}"
+        )
+else:
+    temporary = audit_path.with_name(audit_path.name + f".tmp.{os.getpid()}")
+    temporary.write_text(serialized)
+    os.replace(temporary, audit_path)
+os.chmod(audit_path, 0o444)
+print("CAPACITY_AUDITED")
+PY
+  )"
+
+  case "$audit_state" in
+    CAPACITY_AUDITED)
+      say "CAPACITY_MULTIVIEW_AUDIT_PASS row=${row_id} system=${system} matrix_materialized=0 full_training_authority=0 audit=${audit_out}"
+      ;;
+    *)
+      die "unexpected capacity audit state for ${row_id}: ${audit_state}"
+      ;;
+  esac
 }
 
 write_capacity_resource_certificate() {
@@ -2571,12 +3121,14 @@ write_capacity_resource_certificate() {
     "$submission_journal" "$root_health_join_certificate" \
     "$capacity_resource_certificate" "$capacity_preflight_receipt" \
     "$capacity_preflight_receipt_sha" "$capacity_full_plan" \
-    "$capacity_full_plan_sha" "$capacity_canary_id" <<'PY'
+    "$capacity_full_plan_sha" "$capacity_canary_id" \
+    "$capacity_pp_multiview_audit" "$capacity_auau_multiview_audit" <<'PY'
 from pathlib import Path
 import csv
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -2589,12 +3141,16 @@ import sys
     full_plan_arg,
     full_plan_sha,
     capacity_id,
+    pp_audit_arg,
+    auau_audit_arg,
 ) = sys.argv[1:]
 journal_path = Path(journal_arg)
 root_certificate_path = Path(root_certificate_arg)
 destination = Path(destination_arg)
 preflight_receipt_path = Path(preflight_receipt_arg)
 full_plan_path = Path(full_plan_arg)
+pp_audit_path = Path(pp_audit_arg)
+auau_audit_path = Path(auau_audit_arg)
 
 def digest(path: Path) -> str:
     value = hashlib.sha256()
@@ -2636,6 +3192,145 @@ if (
     or int(root_certificate.get("row_count", -1)) != 2
 ):
     raise SystemExit("ROOT/identity capacity certificate is not PASS")
+
+validation_authority = root_certificate.get("validation_authority", {})
+controller_authority = validation_authority.get("controller", {})
+if not re.fullmatch(
+    r"[0-9a-f]{40}", str(controller_authority.get("validation_commit", ""))
+):
+    raise SystemExit("capacity validation commit is malformed")
+for label in (
+    "controller",
+    "submission_manifest",
+    "submission_receipt",
+    "submission_journal",
+    "runtime_authority",
+):
+    authority = validation_authority.get(label, {})
+    path = Path(str(authority.get("path", "")))
+    if (
+        not path.is_file()
+        or digest(path) != authority.get("sha256")
+    ):
+        raise SystemExit(f"capacity validation authority drifted: {label}")
+
+root_reports = {
+    row.get("row_id"): row for row in root_certificate.get("rows", [])
+}
+for row_id, report in root_reports.items():
+    analysis_path = Path(str(report.get("analysis_output_root", "")))
+    sidecar_path = Path(str(report.get("sidecar", "")))
+    if (
+        not analysis_path.is_file()
+        or not sidecar_path.is_file()
+        or digest(analysis_path) != report.get("analysis_sha256")
+        or digest(sidecar_path) != report.get("sidecar_sha256")
+    ):
+        raise SystemExit(
+            f"capacity ROOT bytes drifted after health validation: {row_id}"
+        )
+expected_audits = (
+    ("pp", "pp_background_jet8", pp_audit_path),
+    ("auau", "auau_background_jet12", auau_audit_path),
+)
+audit_reports = []
+for expected_system, expected_row_id, audit_path in expected_audits:
+    if not audit_path.is_file():
+        raise SystemExit(f"missing capacity multiview audit: {audit_path}")
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    root_report = root_reports.get(expected_row_id, {})
+    root_binding = audit.get("root_health_identity_join_certificate", {})
+    sidecar = audit.get("sidecar", {})
+    file_report = audit.get("file_report", {})
+    file_validator = audit.get("file_validator", {})
+    file_validator_path = Path(str(file_validator.get("path", "")))
+    validator_contract_path = Path(str(file_validator.get("contract_path", "")))
+    expected_matrix_path = audit_path.parent / (
+        f"{expected_system}_h70_source_complete_smoke_matrix.npz"
+    )
+    if (
+        audit.get("schema") != "THE134_CAPACITY_MULTIVIEW_MATRIX_AUDIT_V1"
+        or audit.get("status") != "PASS"
+        or audit.get("scope") != "capacity"
+        or audit.get("authority_state") != "CAPACITY_NON_TRAINING_ONLY"
+        or int(audit.get("full_training_authority", -1)) != 0
+        or audit.get("training_matrix_authority_earned") is not False
+        or audit.get("matrix_materialized") is not False
+        or audit.get("matrix_out") != str(expected_matrix_path)
+        or expected_matrix_path.exists()
+        or audit.get("class_balance_state")
+        != "NOT_APPLICABLE_CAPACITY_NON_TRAINING"
+        or audit.get("failures") != []
+        or not audit.get("checks")
+        or not all(audit["checks"].values())
+        or audit.get("system") != expected_system
+        or audit.get("row_id") != expected_row_id
+        or audit.get("population_state") != root_report.get("population_state")
+        or audit.get("source_contract") != root_report.get("source_contract")
+        or audit.get("source_occurrence_id_hex")
+        != root_report.get("source_occurrence_id_hex")
+        or audit.get("source_identity_canonical_sha256")
+        != root_report.get("source_identity_canonical_sha256")
+        or sidecar.get("path") != root_report.get("sidecar")
+        or sidecar.get("sha256") != root_report.get("sidecar_sha256")
+        or digest(Path(str(sidecar.get("path", "")))) != sidecar.get("sha256")
+        or int(sidecar.get("size_bytes", -1))
+        != int(root_report.get("sidecar_bytes", -2))
+        or int(sidecar.get("entries", -1))
+        != int(root_report.get("sidecar_entries", -2))
+        or int(sidecar.get("candidates", -1))
+        != int(root_report.get("sidecar_candidates", -2))
+        or root_binding.get("path") != str(root_certificate_path.resolve())
+        or root_binding.get("sha256") != digest(root_certificate_path)
+        or file_report.get("status") != "PASS"
+        or file_report.get("failures") != []
+        or not file_validator_path.is_file()
+        or digest(file_validator_path) != file_validator.get("sha256")
+        or not validator_contract_path.is_file()
+        or digest(validator_contract_path)
+        != file_validator.get("contract_sha256")
+    ):
+        raise SystemExit(f"capacity multiview audit differs: {audit_path}")
+    if audit.get("population_state") == "VALID_EMPTY" and (
+        int(sidecar.get("entries", -1)) != 0
+        or int(sidecar.get("candidates", -1)) != 0
+        or int(file_report.get("rows", -1)) != 0
+        or file_report.get("source_occurrence_ids") != []
+        or file_report.get("source_occurrence_binding")
+        != "PAIRED_REPLAY_SOURCE_ROW"
+    ):
+        raise SystemExit(f"valid-empty capacity audit is not empty: {audit_path}")
+    if audit.get("population_state") == "POPULATED" and (
+        int(sidecar.get("entries", 0)) <= 0
+        or int(sidecar.get("candidates", 0)) <= 0
+        or int(file_report.get("rows", 0)) <= 0
+        or file_report.get("source_occurrence_ids")
+        != [audit.get("source_occurrence_id_hex")]
+    ):
+        raise SystemExit(f"populated capacity audit lacks population: {audit_path}")
+    audit_reports.append(
+        {
+            "audit": str(audit_path.resolve()),
+            "audit_sha256": digest(audit_path),
+            "file_validator_sha256": file_validator["sha256"],
+            "file_validator_contract_sha256": file_validator["contract_sha256"],
+            "population_state": audit["population_state"],
+            "row_id": expected_row_id,
+            "sidecar_sha256": sidecar["sha256"],
+            "source_occurrence_id_hex": audit["source_occurrence_id_hex"],
+            "system": expected_system,
+        }
+    )
+if not any(
+    audit["population_state"] == "POPULATED" for audit in audit_reports
+):
+    raise SystemExit("capacity multiview audits contain no populated row")
+if len({audit["file_validator_sha256"] for audit in audit_reports}) != 1:
+    raise SystemExit("capacity multiview audits used different file validators")
+if len(
+    {audit["file_validator_contract_sha256"] for audit in audit_reports}
+) != 1:
+    raise SystemExit("capacity multiview audits used different validator contracts")
 
 with journal_path.open(newline="") as stream:
     journal_rows = list(csv.DictReader(stream, delimiter="\t"))
@@ -2714,11 +3409,13 @@ payload = {
     "capacity_authority_earned": True,
     "capacity_canary_id": capacity_id,
     "execution_group_size": 7,
+    "source_occurrences_per_output": 1,
     "execution_partition_sha256": preflight["execution_partition_sha256"],
     "full_plan": str(full_plan_path.resolve()),
     "full_plan_sha256": full_plan_sha,
     "full_training_authority": 0,
     "materialization_receipt_sha256": preflight["materialization_receipt_sha256"],
+    "multiview_audits": audit_reports,
     "preflight_receipt": str(preflight_receipt_path.resolve()),
     "preflight_receipt_sha256": preflight_receipt_sha,
     "root_health_identity_join_certificate": str(root_certificate_path.resolve()),
@@ -2728,10 +3425,22 @@ payload = {
     "selected_rows": ["pp_background_jet8", "auau_background_jet12"],
     "status": "PASS",
     "submission_performed": True,
+    "validation_authority": validation_authority,
 }
-temporary = destination.with_name(destination.name + f".tmp.{os.getpid()}")
-temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
-os.replace(temporary, destination)
+serialized = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+if destination.is_symlink():
+    raise SystemExit(
+        f"capacity resource certificate path must not be a symlink: {destination}"
+    )
+if destination.exists():
+    if destination.read_text(encoding="utf-8") != serialized:
+        raise SystemExit(
+            f"existing capacity resource certificate differs; preserve it before retry: {destination}"
+        )
+else:
+    temporary = destination.with_name(destination.name + f".tmp.{os.getpid()}")
+    temporary.write_text(serialized)
+    os.replace(temporary, destination)
 os.chmod(destination, 0o444)
 print(
     json.dumps(
@@ -2750,6 +3459,7 @@ PY
 
 validate_outputs() {
   local row_id cluster_proc queue_state history_state job_status exit_code
+  local pp_audit_out auau_audit_out
   [[ -s "$validator" ]] || die "THE-134 matrix preparer is missing: ${validator}"
   [[ -s "$submission_journal" &&
      "$(wc -l < "$submission_journal" | tr -d ' ')" == "$((execution_row_count + 1))" ]] ||
@@ -2759,6 +3469,8 @@ validate_outputs() {
     die "complete ${execution_row_count}-row submission receipt is required"
   [[ -s "$pp_source_provenance_json" && -s "$auau_source_provenance_json" ]] ||
     die "system-specific source provenance is incomplete"
+
+  validate_capacity_postrun_authority
 
   while IFS=$'\t' read -r row_id cluster_proc _submit_log _submitted_at; do
     [[ "$row_id" == row_id ]] && continue
@@ -2772,22 +3484,26 @@ validate_outputs() {
 
   validate_root_health_and_joins
 
-  python3 "$validator" \
-    --system pp --view H70 --scope smoke \
-    --input "@${evidence_root}/pp_multiview_sidecars.list" \
-    --source-provenance-json "$pp_source_provenance_json" \
-    --matrix-out "${evidence_root}/pp_h70_source_complete_smoke_matrix.npz" \
-    --audit-out "${evidence_root}/pp_h70_source_complete_smoke_audit.json"
-  python3 "$validator" \
-    --system auau --view H70 --scope smoke \
-    --input "@${evidence_root}/auau_multiview_sidecars.list" \
-    --source-provenance-json "$auau_source_provenance_json" \
-    --matrix-out "${evidence_root}/auau_h70_source_complete_smoke_matrix.npz" \
-    --audit-out "${evidence_root}/auau_h70_source_complete_smoke_audit.json"
+  if (( capacity_mode )); then
+    pp_audit_out="$capacity_pp_multiview_audit"
+    auau_audit_out="$capacity_auau_multiview_audit"
+  else
+    pp_audit_out="${evidence_root}/pp_h70_source_complete_smoke_audit.json"
+    auau_audit_out="${evidence_root}/auau_h70_source_complete_smoke_audit.json"
+  fi
+  validate_system_matrix_or_capacity_audit \
+    pp "$capacity_pp_row" "${evidence_root}/pp_multiview_sidecars.list" \
+    "$pp_source_provenance_json" \
+    "${evidence_root}/pp_h70_source_complete_smoke_matrix.npz" \
+    "$pp_audit_out"
+  validate_system_matrix_or_capacity_audit \
+    auau "$capacity_auau_row" "${evidence_root}/auau_multiview_sidecars.list" \
+    "$auau_source_provenance_json" \
+    "${evidence_root}/auau_h70_source_complete_smoke_matrix.npz" \
+    "$auau_audit_out"
 
-  python3 - \
-    "${evidence_root}/pp_h70_source_complete_smoke_audit.json" \
-    "${evidence_root}/auau_h70_source_complete_smoke_audit.json" <<'PY'
+  if (( ! capacity_mode )); then
+    python3 - "$pp_audit_out" "$auau_audit_out" <<'PY'
 import json
 import sys
 for path in sys.argv[1:]:
@@ -2797,6 +3513,7 @@ for path in sys.argv[1:]:
     if payload.get("scope") != "smoke" or int(payload.get("full_training_authority", -1)) != 0:
         raise SystemExit(f"smoke audit attempted to assert full training authority: {path}")
 PY
+  fi
 
   write_capacity_resource_certificate
   if (( capacity_mode )); then
