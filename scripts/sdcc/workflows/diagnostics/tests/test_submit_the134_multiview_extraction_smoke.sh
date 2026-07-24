@@ -21,8 +21,13 @@ require_sha() {
   [[ "$value" =~ ^[0-9a-f]{64}$ ]] || return 2
 }
 eval "$(sed -n '/^validate_one_five_file_tuple()/,/^}/p' "$controller")"
+eval "$(sed -n '/^validate_pp_sim_weight_contract()/,/^}/p' "$controller")"
 eval "$(sed -n '/^yaml_value()/,/^}/p' "$controller")"
 eval "$(sed -n '/^validate_five_field_fanout_contract()/,/^}/p' "$controller")"
+eval "$(
+  sed -n '/^condor_field()/,/^analysis_tag_for_dataset()/p' \
+    "$controller" | sed '$d'
+)"
 eval "$(
   sed -n '/^verify_materialization_attempt_seal()/,/^submit_row()/p' \
     "$controller" | sed '$d'
@@ -31,6 +36,45 @@ eval "$(
   sed -n '/^write_runtime_authority_manifest()/,/^require_inputs_and_hashes()/p' \
     "$controller" | sed '$d'
 )"
+
+validate_pp_sim_weight_contract 0mrad
+validate_pp_sim_weight_contract 1p5mrad
+for invalid_pp_period in "" run28 1.5mrad; do
+  if ( validate_pp_sim_weight_contract "$invalid_pp_period" ) >/dev/null 2>&1; then
+    printf 'invalid p+p period authority was accepted: %s\n' "${invalid_pp_period:-<empty>}" >&2
+    exit 1
+  fi
+done
+
+printf '%s\n%s\n' \
+  'getenv = False' \
+  'environment = RJ_PPG12_PHOTON_YIELD=1;RJ_PPG12_PHOTON_YIELD_DOUBLE=0;RJ_PPG12_PERIOD=0mrad;RJ_PPG12_PERIOD_USE_LUMI_WEIGHT=1;RJ_PPG12_PERIOD_STRICT_DI=0;RJ_PPG12_PERIOD_ALLOW_ALL_SIM=0;RJ_PPG12_PERIOD_ALLOW_MIX_OVERRIDE=0;RJ_PPG12_PERIOD_ALLOW_VERTEX_FILE_OVERRIDE=0' \
+  > "${tmpdir}/valid-pp-weight.sub"
+[[ "$(condor_field "${tmpdir}/valid-pp-weight.sub" getenv)" == False ]] || {
+  printf 'sealed descriptor getenv=False was not recovered exactly\n' >&2
+  exit 1
+}
+require_descriptor_env_exact unit "${tmpdir}/valid-pp-weight.sub" RJ_PPG12_PHOTON_YIELD 1
+require_descriptor_env_exact unit "${tmpdir}/valid-pp-weight.sub" RJ_PPG12_PHOTON_YIELD_DOUBLE 0
+require_descriptor_env_exact unit "${tmpdir}/valid-pp-weight.sub" RJ_PPG12_PERIOD 0mrad
+require_descriptor_env_absent unit "${tmpdir}/valid-pp-weight.sub" RJ_PPG12_PHOTON_YIELD_MIX_WEIGHT
+require_descriptor_env_absent unit "${tmpdir}/valid-pp-weight.sub" RJ_PP_VERTEX_REWEIGHT_FILE
+
+sed 's/RJ_PPG12_PERIOD=0mrad/RJ_PPG12_PERIOD=0mrad;RJ_PPG12_PERIOD=1p5mrad/' \
+  "${tmpdir}/valid-pp-weight.sub" > "${tmpdir}/duplicate-pp-period.sub"
+if ( require_descriptor_env_exact unit "${tmpdir}/duplicate-pp-period.sub" RJ_PPG12_PERIOD 0mrad ) \
+  >/dev/null 2>&1; then
+  printf 'duplicate p+p period authority was accepted in the descriptor\n' >&2
+  exit 1
+fi
+
+sed 's/$/;RJ_PPG12_PHOTON_YIELD_MIX_WEIGHT=0.776/' \
+  "${tmpdir}/valid-pp-weight.sub" > "${tmpdir}/manual-pp-mix.sub"
+if ( require_descriptor_env_absent unit "${tmpdir}/manual-pp-mix.sub" RJ_PPG12_PHOTON_YIELD_MIX_WEIGHT ) \
+  >/dev/null 2>&1; then
+  printf 'manual p+p mix-weight override was accepted in the descriptor\n' >&2
+  exit 1
+fi
 
 printf '/calo\t/g4\t/jets\t/global\t/mbd\n' > "${tmpdir}/valid-pp.list"
 validate_one_five_file_tuple unit pp "${tmpdir}/valid-pp.list"
@@ -139,9 +183,17 @@ RJ_THE134_RELEASE_JETBASE_SHA256="$frozen_sha"
 pinned_release_name="ana.560"
 pinned_offline_main="/release/ana.560"
 pinned_calo_reco_soname="libcalo_reco.so.0"
+pp_period="0mrad"
 
 write_runtime_authority_manifest ensure
 write_runtime_authority_manifest verify
+pp_period="1p5mrad"
+if ( write_runtime_authority_manifest verify ) \
+  >"${tmpdir}/runtime-period-drift.stdout" 2>"${tmpdir}/runtime-period-drift.stderr"; then
+  printf 'p+p period drift was accepted by the frozen runtime authority\n' >&2
+  exit 1
+fi
+pp_period="0mrad"
 chmod a-w "$runtime_authority_manifest" "$runtime_authority_fingerprint" "$runtime_root"
 write_runtime_authority_manifest ensure
 chmod u+w "$runtime_root" "$runtime_authority_manifest" "$runtime_authority_fingerprint"
@@ -243,13 +295,18 @@ if ( select_materialization_attempt "$mixed_base" ) >/dev/null 2>&1; then
   exit 1
 fi
 
-python3 - "$controller" <<'PY'
+python3 - \
+  "$controller" \
+  "${repo_root}/src/RecoilJets.cc" \
+  "${repo_root}/scripts/sdcc/runtime/condor/RecoilJets_Condor_submit.sh" <<'PY'
 from pathlib import Path
 import re
 import sys
 
 expansion = '"${materialize_contract_env[@]}"'
 source = Path(sys.argv[1]).read_text()
+analysis_source = Path(sys.argv[2]).read_text()
+submitter_source = Path(sys.argv[3]).read_text()
 
 def validate(text: str) -> None:
     required = (
@@ -257,6 +314,10 @@ def validate(text: str) -> None:
         'RJ_REPLAY_FOUNDATION_CANARY=1',
         'RJ_REPLAY_LANE="$lane"',
         'RJ_REPLAY_SCHEMA_SHA256="$RJ_THE134_REPLAY_SCHEMA_SHA256"',
+        'validate_pp_sim_weight_contract "$pp_period"',
+        'period="$pp_period"',
+        'RJ_PPG12_PHOTON_YIELD=1',
+        'RJ_PPG12_PERIOD="$pp_period"',
         'RJ_PINNED_CALO_RECO_RELEASE_COMPANIONS=1',
         'RJ_PINNED_CALO_RECO_SONAME="$pinned_calo_reco_soname"',
         'RJ_PINNED_RELEASE_NAME="$pinned_release_name"',
@@ -297,6 +358,16 @@ def validate(text: str) -> None:
         'sealed_getenv="$(condor_field "$submit_file" getenv)"',
         '"$sealed_getenv" == False',
         'descriptor must disable submit-host environment inheritance',
+        'require_descriptor_env_exact "$row_id" "$submit_file" RJ_PPG12_PHOTON_YIELD 1',
+        'require_descriptor_env_exact "$row_id" "$submit_file" RJ_PPG12_PHOTON_YIELD_DOUBLE 0',
+        'require_descriptor_env_exact "$row_id" "$submit_file" RJ_PPG12_PERIOD "$pp_period"',
+        'require_descriptor_env_exact "$row_id" "$submit_file" RJ_PPG12_PERIOD_USE_LUMI_WEIGHT 1',
+        'require_descriptor_env_exact "$row_id" "$submit_file" RJ_PPG12_PERIOD_STRICT_DI 0',
+        'require_descriptor_env_exact "$row_id" "$submit_file" RJ_PPG12_PERIOD_ALLOW_ALL_SIM 0',
+        'require_descriptor_env_exact "$row_id" "$submit_file" RJ_PPG12_PERIOD_ALLOW_MIX_OVERRIDE 0',
+        'require_descriptor_env_exact "$row_id" "$submit_file" RJ_PPG12_PERIOD_ALLOW_VERTEX_FILE_OVERRIDE 0',
+        'require_descriptor_env_absent "$row_id" "$submit_file" RJ_PPG12_PHOTON_YIELD_MIX_WEIGHT',
+        'require_descriptor_env_absent "$row_id" "$submit_file" RJ_PP_VERTEX_REWEIGHT_FILE',
     )
     for token in receipt_contract:
         if token not in text:
@@ -334,6 +405,10 @@ def validate(text: str) -> None:
         'write_runtime_authority_manifest verify',
         'runtime-authority manifest/fingerprint pair is incomplete',
         'existing runtime authority manifest differs from current frozen authority',
+        '"schema": "THE134_SINGLE_PROVIDER_RUNTIME_AUTHORITY_V2"',
+        '"interaction": "SI"',
+        '"mix_weight": "period_auto"',
+        '"vertex_reweight": "period_auto"',
         'verify_materialization_attempt_seal',
         'select_materialization_attempt',
         'seal_materialization_attempt',
@@ -390,7 +465,40 @@ def validate(text: str) -> None:
     if receipt_format.count(r"\t") != 27:
         raise ValueError("submission receipt format must contain exactly 28 fields")
 
+def validate_si_auto_weight_authority(analysis_text: str, submitter_text: str) -> None:
+    analysis_contract = (
+        'const bool mixWeightExplicit = (std::getenv("RJ_PPG12_PHOTON_YIELD_MIX_WEIGHT") != nullptr);',
+        'const bool vertexFileExplicit = (std::getenv("RJ_PP_VERTEX_REWEIGHT_FILE") != nullptr);',
+        'm_ppg12PhotonYieldDoubleInteraction ? m_ppg12PeriodFDouble : m_ppg12PeriodFSingle;',
+        'if (!mixWeightExplicit)',
+        'm_ppg12PhotonYieldMixWeight = expectedMix;',
+        'm_ppg12PeriodMixWeightAuto = true;',
+        'if (!vertexFileExplicit)',
+        'm_vertexReweightFile = m_ppg12PeriodExpectedVertexFile;',
+        'm_vertexReweightOn = true;',
+        'm_ppg12PeriodVertexFileAuto = true;',
+        '!m_ppg12PeriodContractEnabled ||',
+        '!m_ppg12PeriodUseLumiWeight ||',
+        '!m_vertexReweightOn ||',
+        '!m_vertexReweightH)',
+    )
+    for token in analysis_contract:
+        if token not in analysis_text:
+            raise ValueError(f"missing ordinary SI automatic-weight authority: {token}")
+    submitter_contract = (
+        'extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PHOTON_YIELD)"',
+        'extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PERIOD)"',
+        'extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PERIOD_USE_LUMI_WEIGHT)"',
+        'extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PERIOD_ALLOW_MIX_OVERRIDE)"',
+        'extra="$(append_submit_extra_env_var "$extra" RJ_PPG12_PERIOD_ALLOW_VERTEX_FILE_OVERRIDE)"',
+        'extra="$(append_submit_extra_env_var "$extra" RJ_PP_VERTEX_REWEIGHT_FILE)"',
+    )
+    for token in submitter_contract:
+        if token not in submitter_text:
+            raise ValueError(f"missing submitter propagation authority: {token}")
+
 validate(source)
+validate_si_auto_weight_authority(analysis_source, submitter_source)
 
 # Deliberately mutate one call site and prove this validator rejects the drift.
 mutated = source.replace(expansion, "env", 1)
@@ -453,5 +561,53 @@ except ValueError:
 else:
     raise SystemExit("descriptor getenv mutation was not rejected")
 
-print("THE134_SUBMITTER_CANARY_IDENTITY_WIRING_PASS guarded_calls=2 mutations_rejected=7 tuple_mutations=3 fanout_mutations=8 runtime_authority_transitions=5 materialization_state_transitions=6")
+mutated = source.replace(
+    'RJ_PPG12_PHOTON_YIELD=1 \\\n',
+    '',
+    1,
+)
+try:
+    validate(mutated)
+except ValueError:
+    pass
+else:
+    raise SystemExit("p+p photon-yield weight-contract mutation was not rejected")
+
+mutated = source.replace(
+    'RJ_PPG12_PERIOD="$pp_period" \\\n',
+    '',
+    1,
+)
+try:
+    validate(mutated)
+except ValueError:
+    pass
+else:
+    raise SystemExit("p+p period weight-contract mutation was not rejected")
+
+mutated_analysis = analysis_source.replace(
+    'm_ppg12PeriodMixWeightAuto = true;',
+    'm_ppg12PeriodMixWeightAuto = false;',
+    1,
+)
+try:
+    validate_si_auto_weight_authority(mutated_analysis, submitter_source)
+except ValueError:
+    pass
+else:
+    raise SystemExit("automatic SI mix-weight authority mutation was not rejected")
+
+mutated_analysis = analysis_source.replace(
+    'm_ppg12PeriodVertexFileAuto = true;',
+    'm_ppg12PeriodVertexFileAuto = false;',
+    1,
+)
+try:
+    validate_si_auto_weight_authority(mutated_analysis, submitter_source)
+except ValueError:
+    pass
+else:
+    raise SystemExit("automatic SI vertex-weight authority mutation was not rejected")
+
+print("THE134_SUBMITTER_CANARY_IDENTITY_WIRING_PASS guarded_calls=2 mutations_rejected=9 tuple_mutations=3 fanout_mutations=8 pp_period_mutations=3 descriptor_weight_mutations=2 science_authority_mutations=2 runtime_authority_transitions=6 materialization_state_transitions=6")
 PY

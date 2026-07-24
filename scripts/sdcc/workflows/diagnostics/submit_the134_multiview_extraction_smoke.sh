@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Source-complete, writer-only THE-134 multi-view extraction smoke.
+# Source-complete, writer-only THE-134 multi-view extraction smoke for one
+# explicitly selected p+p period/SI component plus the frozen Au+Au sources.
 #
 # This is a narrow controller over the established RecoilJets Condor executor.
 # It owns exactly one input tuple and one Condor proc for each frozen training
 # source.  It never submits data, p+p Jet40, a direct arm, a merge, or a model
-# training job.  `inventory` is read-only and emits the exact frozen-source
-# manifest to stdout; submission remains an explicit `submit` action.
+# training job.  The caller must select exactly 0mrad or 1p5mrad through
+# RJ_THE134_PP_PERIOD; the other period requires a distinct tag/execution, and
+# DI remains the separately typed archived-source path.  `inventory` is
+# read-only and emits the exact frozen-source manifest to stdout; submission
+# remains an explicit `submit` action.
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd -P)"
 cd "$repo_root"
@@ -39,6 +43,7 @@ auau_library="${RJ_THE134_AUAU_LIBRARY:-}"
 pp_model="${RJ_THE134_PP_MODEL:-/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/the116_models/the116_pp_matched_basev3e_15to35_20260720/models/bdt_ppg12_basev3e_15to35/pp_tight_bdt_ppg12_base_v3E_bdt_noIso_tmva.root}"
 auau_model="${RJ_THE134_AUAU_MODEL:-/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/the111_models/the111_combined_corrected_shower_ppg12_labels_20260719_1618/combined/auau_tight_bdt_centAsFeatBase3x3_pt15to35_tmva.root}"
 source_hash_manifest="${RJ_THE134_SOURCE_HASH_MANIFEST:-}"
+pp_period="${RJ_THE134_PP_PERIOD:-}"
 
 resolved_config_root="${evidence_root}/resolved_configs"
 observed_source_hashes="${evidence_root}/observed_source_hashes.tsv"
@@ -92,6 +97,17 @@ require_file_hash() {
   [[ -s "$path" ]] || die "missing ${label} input: ${path}"
   actual="$(sha_file "$path")"
   [[ "$actual" == "$expected" ]] || die "${label} hash drift: expected=${expected} actual=${actual} path=${path}"
+}
+
+validate_pp_sim_weight_contract() {
+  local period="${1:-}"
+  case "$period" in
+    0mrad|1p5mrad) ;;
+    *)
+      die "RJ_THE134_PP_PERIOD must be exactly 0mrad or 1p5mrad; one tagged smoke cannot mix period-specific p+p SIM weights"
+      return 2
+      ;;
+  esac
 }
 
 resolve_release_companion() {
@@ -573,7 +589,7 @@ write_runtime_authority_manifest() {
       die "runtime-authority manifest/fingerprint pair is incomplete"
     fi
   fi
-  python3 - "$runtime_authority_manifest" "$action" \
+  if ! python3 - "$runtime_authority_manifest" "$action" \
     "$calo_reco_build_receipt" "$RJ_THE134_CALO_RECO_BUILD_RECEIPT_SHA256" \
     "$calo_reco_source_manifest" "$RJ_THE134_CALO_RECO_SOURCE_MANIFEST_SHA256" \
     "$calo_reco_library" "$RJ_THE134_CALO_RECO_LIBRARY_SHA256" \
@@ -582,7 +598,7 @@ write_runtime_authority_manifest() {
     "$release_clusteriso" "$RJ_THE134_RELEASE_CLUSTERISO_SHA256" \
     "$release_jetbase" "$RJ_THE134_RELEASE_JETBASE_SHA256" \
     "$pinned_release_name" "$pinned_offline_main" \
-    "$pinned_calo_reco_soname" <<'PY'
+    "$pinned_calo_reco_soname" "$pp_period" <<'PY'
 from pathlib import Path
 import json
 import os
@@ -608,6 +624,7 @@ import sys
     release_name,
     offline_main,
     calo_reco_soname,
+    pp_period,
 ) = sys.argv[1:]
 destination = Path(destination_arg)
 payload = {
@@ -631,7 +648,14 @@ payload = {
             "libjetbase.so": {"path": jetbase, "sha256": jetbase_sha},
         },
     },
-    "schema": "THE134_SINGLE_PROVIDER_RUNTIME_AUTHORITY_V1",
+    "pp_sim_weight_contract": {
+        "interaction": "SI",
+        "mix_weight": "period_auto",
+        "period": pp_period,
+        "period_lumi_weight": True,
+        "vertex_reweight": "period_auto",
+    },
+    "schema": "THE134_SINGLE_PROVIDER_RUNTIME_AUTHORITY_V2",
     "status": "PASS",
 }
 if action == "ensure":
@@ -655,6 +679,10 @@ elif action == "verify":
 else:
     raise SystemExit(f"unsupported runtime authority action: {action}")
 PY
+  then
+    die "runtime authority manifest does not match the current frozen provider and p+p weight contract"
+    return 2
+  fi
   if [[ "$action" == ensure ]]; then
     if [[ -e "$runtime_authority_fingerprint" ]]; then
       [[ -s "$runtime_authority_fingerprint" &&
@@ -675,6 +703,7 @@ require_inputs_and_hashes() {
   local actual_code actual_replay_schema actual_training_schema actual_semantic
   local pp_yaml_model auau_yaml_model
   validate_matrix
+  validate_pp_sim_weight_contract "$pp_period"
   [[ -x "$submitter" ]] || die "RecoilJets submitter is not executable: ${submitter}"
   [[ -x "$pp_executor" ]] || die "p+p RecoilJets executor is not executable: ${pp_executor}"
   [[ -x "$auau_executor" ]] || die "Au+Au RecoilJets executor is not executable: ${auau_executor}"
@@ -867,7 +896,7 @@ common_extra_env() {
     model_score=tight_bdt_score
     shower_definition=H70
     si_di_role=SI
-    period=run28
+    period="$pp_period"
   else
     model_score=auau_tight_bdt_score
     shower_definition=H0
@@ -925,6 +954,24 @@ descriptor_env_values() {
       }
     }
   '
+}
+
+require_descriptor_env_exact() {
+  local row_id="$1" path="$2" key="$3" expected="$4" value
+  local -a values=()
+  while IFS= read -r value; do values+=( "$value" ); done \
+    < <(descriptor_env_values "$path" "$key")
+  [[ "${#values[@]}" == 1 && "${values[0]}" == "$expected" ]] ||
+    die "${row_id} descriptor must bind ${key}=${expected} exactly once"
+}
+
+require_descriptor_env_absent() {
+  local row_id="$1" path="$2" key="$3" value
+  local -a values=()
+  while IFS= read -r value; do values+=( "$value" ); done \
+    < <(descriptor_env_values "$path" "$key")
+  [[ "${#values[@]}" == 0 ]] ||
+    die "${row_id} descriptor must leave ${key} unset for frozen automatic authority"
 }
 
 analysis_tag_for_dataset() {
@@ -1256,6 +1303,16 @@ verify_materialized_row_contract() {
     die "${row_id} descriptor must bind exactly one typed RJ_SIM_ALLOW_NONE_LISTS value"
   if [[ "$system" == pp ]]; then
     [[ "${allow_none_values[0]}" == 0 ]] || die "${row_id} p+p descriptor must reject NONE lists"
+    require_descriptor_env_exact "$row_id" "$submit_file" RJ_PPG12_PHOTON_YIELD 1
+    require_descriptor_env_exact "$row_id" "$submit_file" RJ_PPG12_PHOTON_YIELD_DOUBLE 0
+    require_descriptor_env_exact "$row_id" "$submit_file" RJ_PPG12_PERIOD "$pp_period"
+    require_descriptor_env_exact "$row_id" "$submit_file" RJ_PPG12_PERIOD_USE_LUMI_WEIGHT 1
+    require_descriptor_env_exact "$row_id" "$submit_file" RJ_PPG12_PERIOD_STRICT_DI 0
+    require_descriptor_env_exact "$row_id" "$submit_file" RJ_PPG12_PERIOD_ALLOW_ALL_SIM 0
+    require_descriptor_env_exact "$row_id" "$submit_file" RJ_PPG12_PERIOD_ALLOW_MIX_OVERRIDE 0
+    require_descriptor_env_exact "$row_id" "$submit_file" RJ_PPG12_PERIOD_ALLOW_VERTEX_FILE_OVERRIDE 0
+    require_descriptor_env_absent "$row_id" "$submit_file" RJ_PPG12_PHOTON_YIELD_MIX_WEIGHT
+    require_descriptor_env_absent "$row_id" "$submit_file" RJ_PP_VERTEX_REWEIGHT_FILE
   else
     [[ "${allow_none_values[0]}" == 1 ]] || die "${row_id} Au+Au descriptor must authorize only its typed optional MBD list"
   fi
@@ -1473,6 +1530,10 @@ submit_row() {
     say "MATERIALIZE row=${row_id} dataset=${dataset} sample=${sample} role=${role} attempt=$(basename "$row_submit")"
     if [[ "$system" == pp ]]; then
       env -u RJ_FORCE_RELEASE_CORE_LIBS -u RJ_FORCE_RELEASE_CALO_IO -u RJ_RELEASE_CALO_IO_PATH \
+        -u RJ_PPG12_CROSSING_PERIOD -u RJ_PPG12_PHOTON_YIELD_MIX_WEIGHT \
+        -u RJ_PP_VERTEX_REWEIGHT_FILE -u RJ_PPG12_PHOTON_YIELD_TRUTH_VERTEX \
+        -u RJ_PPG12_PHOTON_YIELD_BUILDER_TRUTH_VERTEX \
+        -u RJ_PPG12_PHOTON_YIELD_RECO_TRUTH_VERTEX \
         "${materialize_contract_env[@]}" \
         RJ_CONDOR_SEALED_ENVIRONMENT=1 \
         RJ_CODEX_CHAT_NAME="$RJ_CODEX_CHAT_NAME" RJ_CODEX_THREAD_ID="$RJ_CODEX_THREAD_ID" \
@@ -1493,6 +1554,14 @@ submit_row() {
         RJ_RELEASE_CORE_LIB_DIR="$release_core_lib_dir" \
         RJ_RELEASE_CORE_LIB64_DIR="$release_core_lib64_dir" \
         RJ_SIM_ALLOW_NONE_LISTS=0 \
+        RJ_PPG12_PHOTON_YIELD=1 \
+        RJ_PPG12_PHOTON_YIELD_DOUBLE=0 \
+        RJ_PPG12_PERIOD="$pp_period" \
+        RJ_PPG12_PERIOD_USE_LUMI_WEIGHT=1 \
+        RJ_PPG12_PERIOD_STRICT_DI=0 \
+        RJ_PPG12_PERIOD_ALLOW_ALL_SIM=0 \
+        RJ_PPG12_PERIOD_ALLOW_MIX_OVERRIDE=0 \
+        RJ_PPG12_PERIOD_ALLOW_VERTEX_FILE_OVERRIDE=0 \
         RJ_PP_PHOTONID_EXTRACT_ONLY=1 RJ_PP_PHOTONID_TRAINING_TREE=1 \
         RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES="$legacy_tree_max_entries" \
         RJ_PP_PHOTONID_SOURCE_ROLE="$role" RJ_PP_PHOTONID_PPG12_FILTER=1 \
