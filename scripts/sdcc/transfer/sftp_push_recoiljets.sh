@@ -1083,7 +1083,7 @@ run_ssh_tar_upload() {
     cp -p "$(real_abs_path "$src")" "$dst"
   done
 
-  (cd "$stage_dir" && tar -cf "$tar_file" .)
+  (cd "$stage_dir" && COPYFILE_DISABLE=1 tar -cf "$tar_file" .)
 
   if [[ -z "${SSH_AUTH_SOCK:-}" ]] && command -v launchctl >/dev/null 2>&1; then
     export SSH_AUTH_SOCK="$(launchctl getenv SSH_AUTH_SOCK 2>/dev/null || true)"
