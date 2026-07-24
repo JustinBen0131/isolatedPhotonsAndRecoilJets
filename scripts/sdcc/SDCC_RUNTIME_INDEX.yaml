@@ -56,6 +56,10 @@ entries:
     canonical_path: "scripts/sdcc/workflows/diagnostics/build_the134_immutable_bundle_receipt.py"
     domain: "sdcc/workflows/diagnostics"
     hard_aliases: []
+  - id: materialize_the134_immutable_bundle
+    canonical_path: "scripts/sdcc/workflows/diagnostics/materialize_the134_immutable_bundle.py"
+    domain: "sdcc/workflows/diagnostics"
+    hard_aliases: []
   - id: the134_h70_contract
     canonical_path: "scripts/ml/contracts/the134_h70_contract.py"
     domain: "ml/contracts"
