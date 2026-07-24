@@ -571,6 +571,70 @@ class TestFullExtractionResolver(unittest.TestCase):
             self.assertIn("partial five-file tuple", result.stderr)
             self.assertFalse(out_dir.exists())
 
+    def test_cross_source_duplicate_tuple_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture = ResolverFixture(root / "fixture")
+            payload = json.loads(fixture.sources.read_text())
+            first = payload["rows"][0]
+            second = payload["rows"][1]
+            for first_record, second_record in zip(
+                first["input_lists"], second["input_lists"]
+            ):
+                first_path = Path(first_record["path"])
+                second_path = Path(second_record["path"])
+                second_path.write_bytes(first_path.read_bytes())
+                second_record["sha256"] = sha256_file(second_path)
+                second_record["line_count"] = first_record["line_count"]
+                second_record["executable_count"] = first_record[
+                    "executable_count"
+                ]
+            lines_by_role = {
+                record["role"]: Path(record["path"]).read_text().splitlines()
+                for record in second["input_lists"]
+            }
+            tuples = []
+            for physical_index in (0, 2):
+                tuples.append(
+                    {
+                        "tuple_index": len(tuples),
+                        "physical_line": physical_index + 1,
+                        "inputs": {
+                            role: lines_by_role[role][physical_index]
+                            for role in resolver.LIST_ROLES
+                        },
+                    }
+                )
+            second["tuple_records_sha256"] = canonical_sha256(tuples)
+            second_semantic = {
+                "row_id": second["row_id"],
+                "system": second["system"],
+                "sample": second["sample"],
+                "lists": [
+                    {
+                        "role": record["role"],
+                        "sha256": record["sha256"],
+                        "line_count": record["line_count"],
+                        "executable_count": record["executable_count"],
+                    }
+                    for record in second["input_lists"]
+                ],
+                "tuple_count": 2,
+                "tuple_records_sha256": second["tuple_records_sha256"],
+            }
+            second["full_source_manifest_sha256"] = canonical_sha256(
+                second_semantic
+            )
+            fixture.sources.write_text(
+                json.dumps(payload, indent=2, sort_keys=True) + "\n"
+            )
+            out_dir = root / "resolved"
+            result = self.run_command(
+                fixture.command(out_dir), expected_returncode=2
+            )
+            self.assertIn("duplicate five-file source tuples", result.stderr)
+            self.assertFalse(out_dir.exists())
+
     def test_cli_has_no_submit_action(self) -> None:
         result = self.run_command(
             [sys.executable, str(CONTROLLER), "submit"],

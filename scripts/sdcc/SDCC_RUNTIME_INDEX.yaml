@@ -44,6 +44,18 @@ entries:
     canonical_path: "scripts/sdcc/workflows/diagnostics/submit_the134_multiview_extraction_smoke.sh"
     domain: "sdcc/workflows/diagnostics"
     hard_aliases: []
+  - id: resolve_the134_full_multiview_extraction
+    canonical_path: "scripts/sdcc/workflows/diagnostics/resolve_the134_full_multiview_extraction.py"
+    domain: "sdcc/workflows/diagnostics"
+    hard_aliases: []
+  - id: build_the134_source_authority_manifest
+    canonical_path: "scripts/sdcc/workflows/diagnostics/build_the134_source_authority_manifest.py"
+    domain: "sdcc/workflows/diagnostics"
+    hard_aliases: []
+  - id: build_the134_immutable_bundle_receipt
+    canonical_path: "scripts/sdcc/workflows/diagnostics/build_the134_immutable_bundle_receipt.py"
+    domain: "sdcc/workflows/diagnostics"
+    hard_aliases: []
   - id: the134_h70_contract
     canonical_path: "scripts/ml/contracts/the134_h70_contract.py"
     domain: "ml/contracts"
@@ -68,8 +80,24 @@ entries:
     canonical_path: "scripts/ml/validation/validate_the134_h70_model.py"
     domain: "ml/validation"
     hard_aliases: []
+  - id: validate_the134_training_sidecar
+    canonical_path: "scripts/diagnostics/replay_foundation/validate_the134_training_sidecar.py"
+    domain: "diagnostics/replay_foundation"
+    hard_aliases: []
   - id: build_the134_h70_model_registry
     canonical_path: "scripts/ml/validation/build_the134_h70_model_registry.py"
+    domain: "ml/validation"
+    hard_aliases: []
+  - id: build_the134_science_freeze_certificate
+    canonical_path: "scripts/ml/validation/build_the134_science_freeze_certificate.py"
+    domain: "ml/validation"
+    hard_aliases: []
+  - id: project_the134_storage_quota
+    canonical_path: "scripts/ml/validation/project_the134_storage_quota.py"
+    domain: "ml/validation"
+    hard_aliases: []
+  - id: the134_aggregate_contract
+    canonical_path: "scripts/ml/validation/the134_aggregate_contract.py"
     domain: "ml/validation"
     hard_aliases: []
   - id: materialize_the134_h70_wp_sample

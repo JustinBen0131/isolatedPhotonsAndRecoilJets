@@ -705,6 +705,9 @@ def inspect_source_entry(
         )
 
     tuple_records_sha = canonical_sha256(tuples)
+    tuple_input_sha256s = [
+        canonical_sha256(record["inputs"]) for record in tuples
+    ]
     normalized_lists = [by_role[role] for role in LIST_ROLES]
     source_semantic_payload = {
         "row_id": expected_row["row_id"],
@@ -764,6 +767,7 @@ def inspect_source_entry(
         "first_tuple_sha256": canonical_sha256(tuples[0]),
         "last_tuple_sha256": canonical_sha256(tuples[-1]),
         "sim_list_root": str(sample_root.parent),
+        "_tuple_input_sha256s": tuple_input_sha256s,
     }
 
 
@@ -800,6 +804,15 @@ def validate_source_manifest(payload: dict[str, Any]) -> list[dict[str, Any]]:
     if len(sim_roots) != 1:
         raise ControllerError(
             f"source-authority rows do not share one RJ_SIM_ROOT_OVERRIDE: {sorted(sim_roots)}"
+        )
+    all_tuple_identities = [
+        identity
+        for record in observed
+        for identity in record.pop("_tuple_input_sha256s")
+    ]
+    if len(all_tuple_identities) != len(set(all_tuple_identities)):
+        raise ControllerError(
+            "duplicate five-file source tuples exist across THE-134 rows"
         )
     return observed
 
