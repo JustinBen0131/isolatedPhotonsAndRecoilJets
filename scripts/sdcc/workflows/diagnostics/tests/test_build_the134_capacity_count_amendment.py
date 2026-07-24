@@ -46,6 +46,123 @@ class CapacityCountAmendmentTests(unittest.TestCase):
             "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         }
 
+    def test_submitted_args_hash_reconstructs_condor_classad_bytes(
+        self,
+    ) -> None:
+        args_path = self.root / "row.args"
+        args_path.write_text(
+            "sample /tmp/chunk.list dataset $(Cluster) 0 1 NONE "
+            "/tmp/output_$(Process)_$(ClusterId)_$(ProcId).root\n",
+            encoding="utf-8",
+        )
+        expected = hashlib.sha256(
+            b"0 sample /tmp/chunk.list dataset 5616584 0 1 NONE "
+            b"/tmp/output_0_5616584_0.root\n"
+        ).hexdigest()
+        self.assertEqual(
+            amendment.submitted_args_sha256_from_template(
+                "pp_background_jet8",
+                args_path,
+                "5616584.0",
+            ),
+            expected,
+        )
+        self.assertNotEqual(self.file_sha256(args_path), expected)
+
+    def test_submitted_args_hash_rejects_malformed_identity_and_rows(
+        self,
+    ) -> None:
+        args_path = self.root / "row.args"
+        args_path.write_text(
+            "sample /tmp/chunk.list dataset $(Cluster) 0 1 NONE "
+            "/tmp/output_$(Process).root\n",
+            encoding="utf-8",
+        )
+        for cluster_proc in (
+            "0.0",
+            "5616584",
+            "5616584.-1",
+            "5616584.1",
+            "5616584.0.0",
+            " 5616584.0",
+        ):
+            with self.subTest(cluster_proc=cluster_proc):
+                with self.assertRaises(amendment.AmendmentError):
+                    amendment.submitted_args_sha256_from_template(
+                        "pp_background_jet8",
+                        args_path,
+                        cluster_proc,
+                    )
+
+        for contents in (
+            "",
+            "first\nsecond\n",
+            "first\n\n",
+        ):
+            with self.subTest(contents=contents):
+                args_path.write_text(contents, encoding="utf-8")
+                with self.assertRaisesRegex(
+                    amendment.AmendmentError,
+                    "exactly one argument row",
+                ):
+                    amendment.submitted_args_sha256_from_template(
+                        "pp_background_jet8",
+                        args_path,
+                        "5616584.0",
+                    )
+
+        for contents in (
+            "sample chunk dataset 5616584 0 1 NONE output\n",
+            "sample chunk dataset $(Cluster) 1 1 NONE output\n",
+            "sample chunk dataset $(Cluster) 0 2 NONE output\n",
+            "sample chunk dataset $(Cluster) 0 1 NOT_NONE output\n",
+            "sample chunk dataset $(Cluster) 0 1 NONE\n",
+            "sample chunk dataset $(Cluster) 0 1 NONE output extra\n",
+        ):
+            with self.subTest(contract_contents=contents):
+                args_path.write_text(contents, encoding="utf-8")
+                with self.assertRaisesRegex(
+                    amendment.AmendmentError,
+                    "one-proc group-7 capacity contract",
+                ):
+                    amendment.submitted_args_sha256_from_template(
+                        "pp_background_jet8",
+                        args_path,
+                        "5616584.0",
+                    )
+
+    def test_submitted_args_hash_changes_on_template_or_cluster_drift(
+        self,
+    ) -> None:
+        args_path = self.root / "row.args"
+        args_path.write_text(
+            "sample /tmp/chunk.list dataset $(Cluster) 0 1 NONE "
+            "/tmp/output_$(Process).root\n",
+            encoding="utf-8",
+        )
+        baseline = amendment.submitted_args_sha256_from_template(
+            "pp_background_jet8",
+            args_path,
+            "5616584.0",
+        )
+        changed_cluster = amendment.submitted_args_sha256_from_template(
+            "pp_background_jet8",
+            args_path,
+            "5616585.0",
+        )
+        args_path.write_text(
+            "sample /tmp/other.list dataset $(Cluster) 0 1 NONE "
+            "/tmp/output_$(Process).root\n",
+            encoding="utf-8",
+        )
+        changed_template = amendment.submitted_args_sha256_from_template(
+            "pp_background_jet8",
+            args_path,
+            "5616584.0",
+        )
+        self.assertNotEqual(baseline, changed_cluster)
+        self.assertNotEqual(baseline, changed_template)
+
     def test_immutable_authority_preserves_lexical_materialization_alias(
         self,
     ) -> None:

@@ -30,6 +30,7 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import stat
 import sys
 from pathlib import Path
@@ -683,6 +684,63 @@ def sha256_file(path: Path) -> str:
         for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def submitted_args_sha256_from_template(
+    label: str,
+    args_path: Path,
+    cluster_proc: object,
+) -> str:
+    """Reconstruct the submitter's exact ``condor_q -af ProcId Args`` bytes."""
+
+    cluster_proc_text = require_nonempty_text(
+        f"{label}.cluster_proc", cluster_proc
+    )
+    if not CLUSTER_PROC_RE.fullmatch(cluster_proc_text):
+        raise AmendmentError(
+            f"{label}.cluster_proc must be one canonical cluster.proc identity"
+        )
+    try:
+        args_lines = args_path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError) as exc:
+        raise AmendmentError(
+            f"{label}.args_file cannot be read as UTF-8: {args_path}"
+        ) from exc
+    if len(args_lines) != 1:
+        raise AmendmentError(
+            f"{label}.args_file must contain exactly one argument row"
+        )
+    cluster, proc = cluster_proc_text.split(".", 1)
+    if proc != "0":
+        raise AmendmentError(
+            f"{label}.cluster_proc must identify the sole submitted proc 0"
+        )
+    try:
+        template_fields = shlex.split(args_lines[0])
+    except ValueError as exc:
+        raise AmendmentError(
+            f"{label}.args_file is not one valid argument row"
+        ) from exc
+    if (
+        len(template_fields) != 8
+        or template_fields[3] != "$(Cluster)"
+        or template_fields[4] != "0"
+        or template_fields[5] != "1"
+        or template_fields[6] != "NONE"
+    ):
+        raise AmendmentError(
+            f"{label}.args_file violates the one-proc group-{GROUP_SIZE} "
+            "capacity contract"
+        )
+    resolved_args = (
+        args_lines[0]
+        .replace("$(Cluster)", cluster)
+        .replace("$(ClusterId)", cluster)
+        .replace("$(Process)", proc)
+        .replace("$(ProcId)", proc)
+    )
+    submitted_args = f"{proc} {resolved_args}\n".encode("utf-8")
+    return hashlib.sha256(submitted_args).hexdigest()
 
 
 def require_exact_keys(
@@ -4675,7 +4733,21 @@ def validate_capacity_evidence(
             f"{row_id}.source_execution.args_file",
             source_execution.get("args_file"),
         )
-        submitted_args_sha256 = sha256_file(args_path)
+        receipt_cluster_proc = require_nonempty_text(
+            f"{row_id}.receipt.cluster_proc",
+            receipt_row.get("cluster_proc"),
+        )
+        resource_cluster_proc = require_nonempty_text(
+            f"{row_id}.resource.cluster_proc",
+            resource_by_id[row_id].get("cluster_proc"),
+        )
+        if receipt_cluster_proc != resource_cluster_proc:
+            raise AmendmentError(f"{row_id} args/cluster binding differs")
+        submitted_args_sha256 = submitted_args_sha256_from_template(
+            row_id,
+            args_path,
+            receipt_cluster_proc,
+        )
         if (
             require_sha256(
                 f"{row_id}.source_execution.submitted_args_sha256",
@@ -4687,8 +4759,6 @@ def validate_capacity_evidence(
                 receipt_row.get("submitted_args_sha256"),
             )
             != submitted_args_sha256
-            or receipt_row.get("cluster_proc")
-            != resource_by_id[row_id].get("cluster_proc")
         ):
             raise AmendmentError(f"{row_id} args/cluster binding differs")
         require_same_resolved_file(
