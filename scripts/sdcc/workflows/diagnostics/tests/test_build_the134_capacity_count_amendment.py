@@ -737,6 +737,20 @@ class CapacityCountAmendmentTests(unittest.TestCase):
         self.assertEqual(observed, expected)
         self.assertEqual(chunk["chunk_index"], 0)
         self.assertEqual(chunk["segment"], 1)
+        raw_first_tuple_sha256 = hashlib.sha256(
+            expected.partition(b"\n")[0] + b"\n"
+        ).hexdigest()
+        semantic_first_tuple_sha256 = (
+            amendment.resolver.canonical_sha256(tuples[0])
+        )
+        self.assertEqual(
+            amendment.first_tuple_tsv_sha256(observed),
+            raw_first_tuple_sha256,
+        )
+        self.assertNotEqual(
+            raw_first_tuple_sha256,
+            semantic_first_tuple_sha256,
+        )
 
     def test_source_identity_matches_controller_contract(self) -> None:
         contract = {
@@ -1104,6 +1118,30 @@ class CapacityCountAmendmentTests(unittest.TestCase):
             path = self.root / field
             path.write_bytes(field.encode("utf-8"))
             runtime_paths[field] = path
+        first_tuple_inputs = {
+            role: f"/{role}/input.root"
+            for role in amendment.resolver.LIST_ROLES
+        }
+        raw_first_tuple_sha256 = hashlib.sha256(
+            (
+                "\t".join(
+                    first_tuple_inputs[role]
+                    for role in amendment.resolver.LIST_ROLES
+                )
+                + "\n"
+            ).encode("utf-8")
+        ).hexdigest()
+        semantic_first_tuple_sha256 = amendment.resolver.canonical_sha256(
+            {
+                "tuple_index": 0,
+                "physical_line": 1,
+                "inputs": first_tuple_inputs,
+            }
+        )
+        self.assertNotEqual(
+            raw_first_tuple_sha256,
+            semantic_first_tuple_sha256,
+        )
         row = {
             field: "value"
             for field in amendment.SUBMISSION_MANIFEST_FIELDS
@@ -1120,7 +1158,7 @@ class CapacityCountAmendmentTests(unittest.TestCase):
                 "input_files": "7",
                 "input_jobs": "1",
                 "source_manifest_sha256": "2" * 64,
-                "first_input_tuple_sha256": "6" * 64,
+                "first_input_tuple_sha256": raw_first_tuple_sha256,
                 "resolved_config": str(runtime_config),
                 "resolved_config_sha256": self.file_sha256(runtime_config),
                 "code_sha256": "4" * 64,
@@ -1215,8 +1253,9 @@ class CapacityCountAmendmentTests(unittest.TestCase):
             corrected_semantics=semantics,
             corrected_source={
                 "tuple_count": 10_000,
-                "first_tuple_sha256": "6" * 64,
+                "first_tuple_sha256": semantic_first_tuple_sha256,
             },
+            expected_first_input_tuple_sha256=raw_first_tuple_sha256,
             immutable=immutable,
             runtime_authority=runtime_authority,
         )
@@ -1228,6 +1267,25 @@ class CapacityCountAmendmentTests(unittest.TestCase):
             binding["runtime_config"]["sha256"],
             semantics["base_config_sha256"],
         )
+        with self.assertRaisesRegex(
+            amendment.AmendmentError,
+            "first-tuple authority differs",
+        ):
+            amendment.validate_submission_manifest_record(
+                "pp_background_jet8",
+                row,
+                source_contract=source_contract,
+                corrected_semantics=semantics,
+                corrected_source={
+                    "tuple_count": 10_000,
+                    "first_tuple_sha256": semantic_first_tuple_sha256,
+                },
+                expected_first_input_tuple_sha256=(
+                    semantic_first_tuple_sha256
+                ),
+                immutable=immutable,
+                runtime_authority=runtime_authority,
+            )
         copied_library = self.root / "copied-analysis-library.so"
         copied_library.write_bytes(runtime_paths["library"].read_bytes())
         row_with_copied_library = copy.deepcopy(row)
@@ -1245,8 +1303,9 @@ class CapacityCountAmendmentTests(unittest.TestCase):
                 corrected_semantics=semantics,
                 corrected_source={
                     "tuple_count": 10_000,
-                    "first_tuple_sha256": "6" * 64,
+                    "first_tuple_sha256": semantic_first_tuple_sha256,
                 },
+                expected_first_input_tuple_sha256=raw_first_tuple_sha256,
                 immutable=immutable,
                 runtime_authority=runtime_authority,
             )
@@ -1261,8 +1320,9 @@ class CapacityCountAmendmentTests(unittest.TestCase):
                 corrected_semantics=semantics,
                 corrected_source={
                     "tuple_count": 10_000,
-                    "first_tuple_sha256": "6" * 64,
+                    "first_tuple_sha256": semantic_first_tuple_sha256,
                 },
+                expected_first_input_tuple_sha256=raw_first_tuple_sha256,
                 immutable=immutable,
                 runtime_authority=runtime_authority,
             )

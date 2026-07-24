@@ -3643,6 +3643,19 @@ def materialize_first_chunk_bytes(
     return ("\n".join(output_lines) + "\n").encode("utf-8"), chunk
 
 
+def first_tuple_tsv_sha256(chunk_bytes: bytes) -> str:
+    first_line, separator, _remainder = chunk_bytes.partition(b"\n")
+    if (
+        separator != b"\n"
+        or not first_line
+        or first_line.count(b"\t") != len(resolver.LIST_ROLES) - 1
+    ):
+        raise AmendmentError(
+            "corrected first tuple is not one LF-terminated five-column row"
+        )
+    return hashlib.sha256(first_line + separator).hexdigest()
+
+
 def canonical_source_identity_sha256(
     source_contract: Mapping[str, Any],
 ) -> str:
@@ -3769,6 +3782,7 @@ def validate_submission_manifest_record(
     source_contract: Mapping[str, Any],
     corrected_semantics: Mapping[str, Any],
     corrected_source: Mapping[str, Any],
+    expected_first_input_tuple_sha256: str,
     immutable: Mapping[str, Any],
     runtime_authority: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -3814,10 +3828,13 @@ def validate_submission_manifest_record(
             "sha256": manifest_row.get("resolved_config_sha256"),
         },
     )
-    if (
-        manifest_row.get("first_input_tuple_sha256")
-        != corrected_source.get("first_tuple_sha256")
-    ):
+    expected_first_input_tuple_sha256 = require_sha256(
+        f"{row_id}.expected_first_input_tuple_sha256",
+        expected_first_input_tuple_sha256,
+    )
+    if manifest_row.get(
+        "first_input_tuple_sha256"
+    ) != expected_first_input_tuple_sha256:
         raise AmendmentError(
             f"{row_id} submission manifest first-tuple authority differs"
         )
@@ -4547,6 +4564,12 @@ def validate_capacity_evidence(
             raise AmendmentError(f"{row_id} source occurrence ID differs")
 
         corrected_source = corrected_by_id[row_id]
+        expected_chunk_bytes, corrected_chunk = materialize_first_chunk_bytes(
+            corrected_source
+        )
+        expected_first_input_tuple_sha256 = first_tuple_tsv_sha256(
+            expected_chunk_bytes
+        )
         submission_manifest_row = manifest_by_id[row_id]
         submission_manifest_binding = validate_submission_manifest_record(
             row_id,
@@ -4554,6 +4577,9 @@ def validate_capacity_evidence(
             source_contract=source_contract,
             corrected_semantics=corrected_semantics,
             corrected_source=corrected_source,
+            expected_first_input_tuple_sha256=(
+                expected_first_input_tuple_sha256
+            ),
             immutable=immutable,
             runtime_authority=runtime_authority_binding,
         )
@@ -4608,9 +4634,6 @@ def validate_capacity_evidence(
             raise AmendmentError(
                 f"{row_id} root/snapshot receipt authority differs"
             )
-        expected_chunk_bytes, corrected_chunk = materialize_first_chunk_bytes(
-            corrected_source
-        )
         staged_path = require_absolute_file(
             f"{row_id}.staged_chunk_list",
             source_execution.get("staged_chunk_list"),
