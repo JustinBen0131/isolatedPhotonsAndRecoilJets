@@ -25,6 +25,7 @@
 #include <TDirectory.h>
 #include <TSystem.h>
 #include <TMath.h>
+#include <TNamed.h>
 #include <TH2Poly.h>
 #include <TKey.h>
 #include <TObjString.h>
@@ -7438,8 +7439,19 @@ bool RecoilJets::initReplayFoundation()
 {
     m_replayFoundationEnabled = RJReplayRuntimeV1::envEnabled("RJ_REPLAY_FOUNDATION_V1");
     const bool multiviewTrainingEnabled=RJReplayRuntimeV1::envEnabled("RJ_THE134_MULTIVIEW_TRAINING_V1");
+    m_the134MultiviewSidecarOnly=RJReplayRuntimeV1::envEnabled("RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1");
     if(multiviewTrainingEnabled&&!m_replayFoundationEnabled)
     { LOG(0,CLR_RED,"[RJPhotonTrainingViewV1][FATAL] the multiview training artifact requires RJ_REPLAY_FOUNDATION_V1=1"); return false; }
+    if(m_the134MultiviewSidecarOnly&&
+       (!m_replayFoundationEnabled||!multiviewTrainingEnabled||
+        !m_auauBDTExtractOnly||!m_auauBDTTrainingTreeEnabled||!m_isAuAu))
+    {
+      LOG(0,CLR_RED,
+          "[RJPhotonTrainingViewV1][FATAL] "
+          "RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1=1 requires Au+Au replay, "
+          "multiview training, extract-only mode, and the legacy training tree");
+      return false;
+    }
     if (!m_replayFoundationEnabled) return true;
     const std::string lane=RJReplayRuntimeV1::env("RJ_REPLAY_LANE");
     const std::string dataset=RJReplayRuntimeV1::env("RJ_REPLAY_DATASET");
@@ -7454,7 +7466,10 @@ bool RecoilJets::initReplayFoundation()
     source.input_uri_hash=RJReplayRuntimeV1::env("RJ_REPLAY_INPUT_URI_SHA256");source.input_file_sha256=RJReplayRuntimeV1::env("RJ_REPLAY_INPUT_FILE_SHA256");source.source_manifest_sha256=manifestHash;
     source.id=RJReplayFoundationV1::makeIdentity(lane+"|"+dataset+"|"+sample+"|"+source.period+"|"+std::to_string(source.run)+"|"+std::to_string(source.segment)+"|"+source.input_uri_hash+"|"+source.input_file_sha256+"|"+manifestHash);
     m_replayRuntime=std::make_unique<RJReplayRuntimeV1::Runtime>();std::string error;
-    if(!m_replayRuntime->initialize(out,source,&error)){LOG(0,CLR_RED,"[ReplayFoundationV1][FATAL] initialization failed: "<<error);m_replayRuntime.reset();return false;}
+    const bool replayInitialized=m_the134MultiviewSidecarOnly
+      ?m_replayRuntime->initialize(out,source,RJReplayFoundationV1::WriterMode::VALIDATE_ONLY,&error)
+      :m_replayRuntime->initialize(out,source,&error);
+    if(!replayInitialized){LOG(0,CLR_RED,"[ReplayFoundationV1][FATAL] initialization failed: "<<error);m_replayRuntime.reset();return false;}
     if(multiviewTrainingEnabled)
     {
       if(!m_auauBDTTrainingTreeEnabled)
@@ -9957,6 +9972,39 @@ int RecoilJets::End(PHCompositeNode*)
       {
         warn("RJPhotonTrainingViewV1 finish failed: " + trainingError);
         return Fun4AllReturnCodes::ABORTRUN;
+      }
+    }
+
+    if (m_the134MultiviewSidecarOnly)
+    {
+      out->cd();
+      const auto& replayMetadata = m_replayRuntime->metadata();
+      const std::pair<std::string,std::string> markers[] = {
+          {"rj_the134_multiview_sidecar_only_v1","1"},
+          {"rj_replay_transaction_state","CONSTRUCTED_AND_VALIDATED"},
+          {"rj_replay_serialization_state","DISABLED"},
+          {"rj_replay_cache_applicability","NOT_APPLICABLE"},
+          {"rj_replay_schema_sha256",
+           replayMetadata.schema_sha256},
+          {"rj_replay_semantic_sha256",
+           replayMetadata.semantic_sha256},
+          {"rj_replay_source_sha256",
+           replayMetadata.source_sha256},
+          {"rj_replay_model_sha256",
+           replayMetadata.model_sha256},
+          {"rj_replay_config_sha256",
+           replayMetadata.config_sha256},
+          {"rj_replay_code_sha256",
+           replayMetadata.code_sha256}};
+      for (const auto& marker : markers)
+      {
+        TNamed value(marker.first.c_str(),marker.second.c_str());
+        if (value.Write(marker.first.c_str(),TObject::kOverwrite) <= 0)
+        {
+          warn("THE-134 sidecar-only marker write failed: " +
+               std::string(marker.first));
+          return Fun4AllReturnCodes::ABORTRUN;
+        }
       }
     }
 

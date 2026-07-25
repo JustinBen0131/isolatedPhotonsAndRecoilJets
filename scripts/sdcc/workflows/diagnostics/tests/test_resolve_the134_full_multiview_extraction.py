@@ -20,6 +20,13 @@ SPEC = importlib.util.spec_from_file_location("the134_full_resolver", CONTROLLER
 assert SPEC is not None and SPEC.loader is not None
 resolver = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(resolver)
+AMENDMENT = HERE.parents[1] / "build_the134_capacity_count_amendment.py"
+AMENDMENT_SPEC = importlib.util.spec_from_file_location(
+    "the134_capacity_count_amendment", AMENDMENT
+)
+assert AMENDMENT_SPEC is not None and AMENDMENT_SPEC.loader is not None
+amendment = importlib.util.module_from_spec(AMENDMENT_SPEC)
+AMENDMENT_SPEC.loader.exec_module(amendment)
 
 
 def sha256_file(path: Path) -> str:
@@ -328,6 +335,12 @@ class TestFullExtractionResolver(unittest.TestCase):
             command_result = json.loads(first_result.stdout)
             plan = json.loads((first / "the134_full_extraction_plan.json").read_text())
             receipt = json.loads((first / "preflight_receipt.json").read_text())
+            self.assertEqual(
+                frozenset(plan), amendment.CORRECTED_PLAN_KEYS
+            )
+            self.assertEqual(
+                frozenset(receipt), amendment.CORRECTED_RECEIPT_KEYS
+            )
             rows = [
                 json.loads(line)
                 for line in (
@@ -466,6 +479,46 @@ class TestFullExtractionResolver(unittest.TestCase):
             )
             pp_rows = [row for row in rows if row["system"] == "pp"]
             auau_rows = [row for row in rows if row["system"] == "auau"]
+            sidecar_only_profile = {
+                "schema": (
+                    "THE134_MULTIVIEW_SIDECAR_ONLY_ARTIFACT_PROFILE_V1"
+                ),
+                "artifact_profile": "THE134_MULTIVIEW_SIDECAR_ONLY_V1",
+                "analysis_root_role": (
+                    "ANALYSIS_AND_LEGACY_TRAINING_WITH_VALIDATION_MARKERS"
+                ),
+                "training_sidecar_role": "RJPhotonTrainingViewV1",
+                "replay_transaction": "CONSTRUCTED_AND_VALIDATED",
+                "replay_serialization": "DISABLED",
+                "cache_replay_applicability": "NOT_APPLICABLE",
+                "top_level_identity_markers": {
+                    "rj_replay_schema_sha256": "RJ_REPLAY_SCHEMA_SHA256",
+                    "rj_replay_semantic_sha256": (
+                        "RJ_REPLAY_SEMANTIC_SHA256"
+                    ),
+                    "rj_replay_source_sha256": "RJ_REPLAY_SOURCE_SHA256",
+                    "rj_replay_model_sha256": "RJ_REPLAY_MODEL_SHA256",
+                    "rj_replay_config_sha256": "RJ_REPLAY_CONFIG_SHA256",
+                    "rj_replay_code_sha256": "RJ_REPLAY_CODE_SHA256",
+                },
+                "full_training_authority": 0,
+            }
+            self.assertEqual(plan["artifact_profile"], sidecar_only_profile)
+            self.assertEqual(
+                receipt["artifact_profile_sha256"],
+                canonical_sha256(sidecar_only_profile),
+            )
+            self.assertTrue(
+                all(
+                    row["execution_contract"]["artifact_profile"]
+                    == sidecar_only_profile
+                    and row["execution_contract"]["worker_environment"][
+                        "RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1"
+                    ]
+                    == "1"
+                    for row in rows
+                )
+            )
             training_contract = plan["training_period_si_contract"]
             self.assertEqual(
                 training_contract,
@@ -511,6 +564,33 @@ class TestFullExtractionResolver(unittest.TestCase):
                     for row in auau_rows
                 )
             )
+            frozen_auau_controls = {
+                "RJ_AUAU_BDT_EXTRACT_ONLY": "1",
+                "RJ_AUAU_BDT_TRAINING_TREE": "1",
+                "RJ_AUAU_BDT_TRAINING_TREE_MAX_ENTRIES": "0",
+                "RJ_AUAU_BDT_NPB_DATA_TAGGING": "0",
+                "RJ_REQUIRE_EMBEDDED_MINBIAS_CLASSIFIER": "1",
+                "RJ_AUAU_BUILD_TOPOCLUSTER_ISOLATION": "0",
+                "RJ_AUAU_USE_TOPOCLUSTER_ISOLATION": "0",
+                "RJ_SIM_ALLOW_NONE_LISTS": "1",
+            }
+            for row in auau_rows:
+                worker_environment = row["execution_contract"][
+                    "worker_environment"
+                ]
+                self.assertEqual(
+                    {
+                        key: worker_environment.get(key)
+                        for key in frozen_auau_controls
+                    },
+                    frozen_auau_controls,
+                )
+                self.assertEqual(
+                    row["execution_contract"]["materialization_environment"][
+                        "RJ_SUBMIT_EXTRA_ENV"
+                    ],
+                    resolver.serialized_environment(worker_environment),
+                )
             self.assertEqual(
                 plan["closure_witness_boundary"],
                 {
@@ -750,6 +830,99 @@ class TestFullExtractionResolver(unittest.TestCase):
                 with self.assertRaisesRegex(resolver.ControllerError, message):
                     resolver.validate_preflight_authority_payload(
                         mutated, label="fixture"
+                    )
+
+    def test_frozen_auau_runtime_controls_reject_missing_or_changed_values(
+        self,
+    ) -> None:
+        valid = {
+            "RJ_AUAU_BDT_EXTRACT_ONLY": "1",
+            "RJ_AUAU_BDT_TRAINING_TREE": "1",
+            "RJ_AUAU_BDT_TRAINING_TREE_MAX_ENTRIES": "0",
+            "RJ_AUAU_BDT_NPB_DATA_TAGGING": "0",
+            "RJ_REQUIRE_EMBEDDED_MINBIAS_CLASSIFIER": "1",
+            "RJ_AUAU_BUILD_TOPOCLUSTER_ISOLATION": "0",
+            "RJ_AUAU_USE_TOPOCLUSTER_ISOLATION": "0",
+            "RJ_SIM_ALLOW_NONE_LISTS": "1",
+        }
+        resolver.validate_frozen_auau_runtime_environment(valid)
+        for key in valid:
+            with self.subTest(key=key, mutation="missing"):
+                missing = dict(valid)
+                del missing[key]
+                with self.assertRaisesRegex(
+                    resolver.ControllerError,
+                    rf"runtime control {key} must remain",
+                ):
+                    resolver.validate_frozen_auau_runtime_environment(missing)
+            with self.subTest(key=key, mutation="changed"):
+                changed = dict(valid)
+                changed[key] = "0" if valid[key] == "1" else "1"
+                with self.assertRaisesRegex(
+                    resolver.ControllerError,
+                    rf"runtime control {key} must remain",
+                ):
+                    resolver.validate_frozen_auau_runtime_environment(changed)
+
+    def test_sidecar_only_contract_rejects_flag_or_profile_mutations(
+        self,
+    ) -> None:
+        environment = {"RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1": "1"}
+        profile = {
+            "schema": "THE134_MULTIVIEW_SIDECAR_ONLY_ARTIFACT_PROFILE_V1",
+            "artifact_profile": "THE134_MULTIVIEW_SIDECAR_ONLY_V1",
+            "analysis_root_role": (
+                "ANALYSIS_AND_LEGACY_TRAINING_WITH_VALIDATION_MARKERS"
+            ),
+            "training_sidecar_role": "RJPhotonTrainingViewV1",
+            "replay_transaction": "CONSTRUCTED_AND_VALIDATED",
+            "replay_serialization": "DISABLED",
+            "cache_replay_applicability": "NOT_APPLICABLE",
+            "top_level_identity_markers": {
+                "rj_replay_schema_sha256": "RJ_REPLAY_SCHEMA_SHA256",
+                "rj_replay_semantic_sha256": "RJ_REPLAY_SEMANTIC_SHA256",
+                "rj_replay_source_sha256": "RJ_REPLAY_SOURCE_SHA256",
+                "rj_replay_model_sha256": "RJ_REPLAY_MODEL_SHA256",
+                "rj_replay_config_sha256": "RJ_REPLAY_CONFIG_SHA256",
+                "rj_replay_code_sha256": "RJ_REPLAY_CODE_SHA256",
+            },
+            "full_training_authority": 0,
+        }
+        resolver.validate_sidecar_only_contract(environment, profile)
+        for mutated_environment in ({}, {
+            "RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1": "0"
+        }):
+            with self.assertRaisesRegex(
+                resolver.ControllerError,
+                "RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1 must remain",
+            ):
+                resolver.validate_sidecar_only_contract(
+                    mutated_environment, profile
+                )
+        for key in profile:
+            with self.subTest(key=key, mutation="missing"):
+                missing = dict(profile)
+                del missing[key]
+                with self.assertRaisesRegex(
+                    resolver.ControllerError,
+                    "artifact profile differs",
+                ):
+                    resolver.validate_sidecar_only_contract(
+                        environment, missing
+                    )
+            with self.subTest(key=key, mutation="changed"):
+                changed = dict(profile)
+                changed[key] = (
+                    1
+                    if isinstance(changed[key], int)
+                    else f"{changed[key]}_DRIFT"
+                )
+                with self.assertRaisesRegex(
+                    resolver.ControllerError,
+                    "artifact profile differs",
+                ):
+                    resolver.validate_sidecar_only_contract(
+                        environment, changed
                     )
 
     def test_explicit_pp_period_si_contract_controls_every_pp_row(self) -> None:

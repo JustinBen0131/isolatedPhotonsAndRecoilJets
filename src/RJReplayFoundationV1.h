@@ -300,6 +300,12 @@ struct Metadata
   std::string schema_sha256,semantic_sha256,source_sha256,model_sha256,config_sha256,code_sha256;
 };
 
+enum class WriterMode
+{
+  SERIALIZE,
+  VALIDATE_ONLY
+};
+
 class Writer
 {
  public:
@@ -309,11 +315,18 @@ class Writer
 
   bool initialize(TFile* file, const Metadata& metadata, std::string* error=nullptr)
   {
+    return initialize(file,metadata,WriterMode::SERIALIZE,error);
+  }
+
+  bool initialize(TFile* file, const Metadata& metadata, WriterMode mode, std::string* error=nullptr)
+  {
     if (!file || !file->IsOpen()) return fail(error,"output file is not open");
     if (!validMetadata(metadata)) return fail(error,"metadata hashes must be 64 lowercase hexadecimal characters");
-    m_file=file; m_metadata=metadata;
+    if(mode!=WriterMode::SERIALIZE&&mode!=WriterMode::VALIDATE_ONLY)return fail(error,"unsupported writer mode");
+    m_file=file; m_metadata=metadata; m_mode=mode;
     m_file->SetCompressionAlgorithm(static_cast<int>(ROOT::RCompressionSetting::EAlgorithm::kZSTD));
     m_file->SetCompressionLevel(5);
+    if(m_mode==WriterMode::VALIDATE_ONLY){m_initialized=true;return true;}
     TDirectory* saved=gDirectory;
     m_dir=m_file->GetDirectory("ReplayFoundationV1");
     if (!m_dir) m_dir=m_file->mkdir("ReplayFoundationV1");
@@ -330,26 +343,27 @@ class Writer
     return true;
   }
 
-  bool fill(const SourceOccurrenceRow& r,std::string* e=nullptr){ if(!ready(e)||r.id.isNull()||!insert(m_sourceIds,r.id))return fail(e,"invalid or duplicate source identity"); m_source=r; serialize(m_sourceId,r.id); m_tSource->Fill(); return true; }
-  bool fill(const EventRow& r,std::string* e=nullptr){ if(!ready(e)||r.id.isNull()||!contains(m_sourceIds,r.source_id)||!insert(m_eventIds,r.id))return fail(e,"event foreign key or identity failure"); m_event=r; serialize(m_eventId,r.id); serialize(m_eventSourceId,r.source_id); m_eventSequence=serialize(r.event_sequence); m_eventTriggerBits=serialize(r.trigger_bits); m_tEvent->Fill(); return true; }
-  bool fill(const PhotonCandidateRow& r,std::string* e=nullptr){ if(!ready(e)||r.id.isNull()||!contains(m_eventIds,r.event_id)||!insert(m_candidateIds,r.id))return fail(e,"candidate foreign key or identity failure"); m_candidate=r; serialize(m_candidateId,r.id); serialize(m_candidateEventId,r.event_id); m_candidatePreselectionBitmask=serialize(r.preselection_bitmask); m_tCandidate->Fill(); return true; }
-  bool fill(const ModelEvaluationRow& r,std::string* e=nullptr){ if(!ready(e)||r.model_id.isNull()||r.shower_definition_id.empty()||!validHex64(r.shower_semantic_sha256)||!contains(m_candidateIds,r.candidate_id)||!insert(m_modelEvalIds,makeIdentity(r.candidate_id.hex()+"|"+r.model_id.hex())))return fail(e,"model evaluation shower semantics, foreign key, or duplicate failure"); m_model=r; serialize(m_modelCandidateId,r.candidate_id); serialize(m_modelId,r.model_id); m_tModel->Fill(); return true; }
-  bool fill(const ShowerCellRow& r,std::string* e=nullptr){ const auto key=makeIdentity(r.candidate_id.hex()+"|cell|"+std::to_string(r.tower_key)); const bool gridOrOwnedProvenance=(r.grid_membership_bitmask>0&&r.grid_membership_bitmask<=3)||(r.grid_membership_bitmask==0&&r.rawcluster_owned!=0&&r.rawcluster_value_present!=0); if(!ready(e)||r.tower_eta_index<0||r.tower_eta_index>=96||r.tower_phi_index<0||r.tower_phi_index>=256||!gridOrOwnedProvenance||!contains(m_candidateIds,r.candidate_id)||!insert(m_showerCellIds,key))return fail(e,"shower-cell tower identity, grid-or-owned provenance, candidate foreign key, or duplicate failure"); m_shower=r; serialize(m_showerCandidateId,r.candidate_id); m_showerTowerKey=serialize(r.tower_key); m_tShower->Fill(); return true; }
-  bool fill(const ShowerFeatureViewRow& r,std::string* e=nullptr){ const auto key=makeIdentity(r.candidate_id.hex()+"|view|"+r.definition_id.hex()); if(!ready(e)||r.definition_id.isNull()||r.definition_name.empty()||!validHex64(r.semantic_sha256)||r.center_eta_index<0||r.center_eta_index>=96||r.center_phi_index<0||r.center_phi_index>=256||!std::isfinite(r.raw_center_eta)||!std::isfinite(r.raw_center_phi)||!contains(m_candidateIds,r.candidate_id)||!insert(m_showerViewIds,key))return fail(e,"shower-feature-view identity, center, semantic hash, foreign key, or duplicate failure"); m_showerView=r; serialize(m_showerViewCandidateId,r.candidate_id); serialize(m_showerViewDefinitionId,r.definition_id); m_tShowerView->Fill(); return true; }
-  bool fill(const IsolationConstituentRow& r,std::string* e=nullptr){ if(!ready(e)||r.constituent_id.isNull()||!contains(m_candidateIds,r.candidate_id))return fail(e,"isolation constituent foreign key failure"); m_isoConstituent=r; serialize(m_isoConstituentCandidateId,r.candidate_id); serialize(m_isoConstituentId,r.constituent_id); m_tIsoConstituent->Fill(); return true; }
-  bool fill(const IsolationWitnessRow& r,std::string* e=nullptr){ if(!ready(e)||r.isolation_id.isNull()||!contains(m_candidateIds,r.candidate_id))return fail(e,"isolation witness foreign key failure"); m_isoWitness=r; serialize(m_isoWitnessCandidateId,r.candidate_id); serialize(m_isoWitnessId,r.isolation_id); m_tIsoWitness->Fill(); return true; }
-  bool fill(const JetRow& r,std::string* e=nullptr){ if(!ready(e)||r.id.isNull()||!contains(m_eventIds,r.event_id)||!insert(m_jetIds,r.id))return fail(e,"jet foreign key or identity failure"); m_jet=r; serialize(m_jetId,r.id); serialize(m_jetEventId,r.event_id); m_jetQualityBitmask=serialize(r.quality_bitmask); m_tJet->Fill(); return true; }
-  bool fill(const JetConstituentRow& r,std::string* e=nullptr){ if(!ready(e)||r.constituent_id.isNull()||!contains(m_jetIds,r.jet_id))return fail(e,"jet constituent foreign key failure"); m_jetConstituent=r; serialize(m_jetConstituentJetId,r.jet_id); serialize(m_jetConstituentId,r.constituent_id); m_tJetConstituent->Fill(); return true; }
-  bool fill(const PhotonJetPairRow& r,std::string* e=nullptr){ if(!ready(e)||r.id.isNull()||!contains(m_eventIds,r.event_id)||!contains(m_candidateIds,r.candidate_id)||!contains(m_jetIds,r.jet_id)||!insert(m_pairIds,r.id))return fail(e,"pair foreign key or identity failure"); m_pair=r; serialize(m_pairId,r.id); serialize(m_pairEventId,r.event_id); serialize(m_pairCandidateId,r.candidate_id); serialize(m_pairJetId,r.jet_id); m_tPair->Fill(); return true; }
-  bool fill(const TruthPhotonRow& r,std::string* e=nullptr){ if(!ready(e)||r.id.isNull()||!contains(m_eventIds,r.event_id)||!insert(m_truthPhotonIds,r.id))return fail(e,"truth photon foreign key or identity failure"); m_truthPhoton=r; serialize(m_truthPhotonId,r.id); serialize(m_truthPhotonEventId,r.event_id); m_tTruthPhoton->Fill(); return true; }
-  bool fill(const TruthJetRow& r,std::string* e=nullptr){ if(!ready(e)||r.id.isNull()||!contains(m_eventIds,r.event_id)||!insert(m_truthJetIds,r.id))return fail(e,"truth jet foreign key or identity failure"); m_truthJet=r; serialize(m_truthJetId,r.id); serialize(m_truthJetEventId,r.event_id); m_tTruthJet->Fill(); return true; }
-  bool fill(const RecoTruthLinkRow& r,std::string* e=nullptr){ if(!ready(e)||r.id.isNull()||!validRecoTruthLink(r)||!insert(m_linkIds,r.id))return fail(e,"reco-truth link identity/type/foreign-key failure"); m_link=r; serialize(m_linkId,r.id); serialize(m_linkRecoId,r.reco_id); serialize(m_linkTruthId,r.truth_id); m_tLink->Fill(); return true; }
-  bool fill(const WeightComponentRow& r,std::string* e=nullptr){ if(!ready(e)||r.target_id.isNull()||r.component_type.empty()||r.application_count<0)return fail(e,"weight component identity/type/count failure"); m_weight=r; serialize(m_weightTargetId,r.target_id); m_tWeight->Fill(); return true; }
-  bool fill(const EventDisplaySnapshotRow& r,std::string* e=nullptr){ if(!ready(e)||r.id.isNull()||!contains(m_eventIds,r.event_id)||!insert(m_snapshotIds,r.id))return fail(e,"snapshot foreign key or identity failure"); m_snapshot=r; serialize(m_snapshotId,r.id); serialize(m_snapshotEventId,r.event_id); m_tSnapshot->Fill(); return true; }
+  bool fill(const SourceOccurrenceRow& r,std::string* e=nullptr){ if(!ready(e)||r.id.isNull()||!insert(m_sourceIds,r.id))return fail(e,"invalid or duplicate source identity"); if(validationOnly())return true; m_source=r; serialize(m_sourceId,r.id); m_tSource->Fill(); return true; }
+  bool fill(const EventRow& r,std::string* e=nullptr){ if(!ready(e)||r.id.isNull()||!contains(m_sourceIds,r.source_id)||!insert(m_eventIds,r.id))return fail(e,"event foreign key or identity failure"); if(validationOnly())return true; m_event=r; serialize(m_eventId,r.id); serialize(m_eventSourceId,r.source_id); m_eventSequence=serialize(r.event_sequence); m_eventTriggerBits=serialize(r.trigger_bits); m_tEvent->Fill(); return true; }
+  bool fill(const PhotonCandidateRow& r,std::string* e=nullptr){ if(!ready(e)||r.id.isNull()||!contains(m_eventIds,r.event_id)||!insert(m_candidateIds,r.id))return fail(e,"candidate foreign key or identity failure"); if(validationOnly())return true; m_candidate=r; serialize(m_candidateId,r.id); serialize(m_candidateEventId,r.event_id); m_candidatePreselectionBitmask=serialize(r.preselection_bitmask); m_tCandidate->Fill(); return true; }
+  bool fill(const ModelEvaluationRow& r,std::string* e=nullptr){ if(!ready(e)||r.model_id.isNull()||r.shower_definition_id.empty()||!validHex64(r.shower_semantic_sha256)||!contains(m_candidateIds,r.candidate_id)||!insert(m_modelEvalIds,makeIdentity(r.candidate_id.hex()+"|"+r.model_id.hex())))return fail(e,"model evaluation shower semantics, foreign key, or duplicate failure"); if(validationOnly())return true; m_model=r; serialize(m_modelCandidateId,r.candidate_id); serialize(m_modelId,r.model_id); m_tModel->Fill(); return true; }
+  bool fill(const ShowerCellRow& r,std::string* e=nullptr){ const auto key=makeIdentity(r.candidate_id.hex()+"|cell|"+std::to_string(r.tower_key)); const bool gridOrOwnedProvenance=(r.grid_membership_bitmask>0&&r.grid_membership_bitmask<=3)||(r.grid_membership_bitmask==0&&r.rawcluster_owned!=0&&r.rawcluster_value_present!=0); if(!ready(e)||r.tower_eta_index<0||r.tower_eta_index>=96||r.tower_phi_index<0||r.tower_phi_index>=256||!gridOrOwnedProvenance||!contains(m_candidateIds,r.candidate_id)||!insert(m_showerCellIds,key))return fail(e,"shower-cell tower identity, grid-or-owned provenance, candidate foreign key, or duplicate failure"); if(validationOnly())return true; m_shower=r; serialize(m_showerCandidateId,r.candidate_id); m_showerTowerKey=serialize(r.tower_key); m_tShower->Fill(); return true; }
+  bool fill(const ShowerFeatureViewRow& r,std::string* e=nullptr){ const auto key=makeIdentity(r.candidate_id.hex()+"|view|"+r.definition_id.hex()); if(!ready(e)||r.definition_id.isNull()||r.definition_name.empty()||!validHex64(r.semantic_sha256)||r.center_eta_index<0||r.center_eta_index>=96||r.center_phi_index<0||r.center_phi_index>=256||!std::isfinite(r.raw_center_eta)||!std::isfinite(r.raw_center_phi)||!contains(m_candidateIds,r.candidate_id)||!insert(m_showerViewIds,key))return fail(e,"shower-feature-view identity, center, semantic hash, foreign key, or duplicate failure"); if(validationOnly())return true; m_showerView=r; serialize(m_showerViewCandidateId,r.candidate_id); serialize(m_showerViewDefinitionId,r.definition_id); m_tShowerView->Fill(); return true; }
+  bool fill(const IsolationConstituentRow& r,std::string* e=nullptr){ if(!ready(e)||r.constituent_id.isNull()||!contains(m_candidateIds,r.candidate_id))return fail(e,"isolation constituent foreign key failure"); if(validationOnly())return true; m_isoConstituent=r; serialize(m_isoConstituentCandidateId,r.candidate_id); serialize(m_isoConstituentId,r.constituent_id); m_tIsoConstituent->Fill(); return true; }
+  bool fill(const IsolationWitnessRow& r,std::string* e=nullptr){ if(!ready(e)||r.isolation_id.isNull()||!contains(m_candidateIds,r.candidate_id))return fail(e,"isolation witness foreign key failure"); if(validationOnly())return true; m_isoWitness=r; serialize(m_isoWitnessCandidateId,r.candidate_id); serialize(m_isoWitnessId,r.isolation_id); m_tIsoWitness->Fill(); return true; }
+  bool fill(const JetRow& r,std::string* e=nullptr){ if(!ready(e)||r.id.isNull()||!contains(m_eventIds,r.event_id)||!insert(m_jetIds,r.id))return fail(e,"jet foreign key or identity failure"); if(validationOnly())return true; m_jet=r; serialize(m_jetId,r.id); serialize(m_jetEventId,r.event_id); m_jetQualityBitmask=serialize(r.quality_bitmask); m_tJet->Fill(); return true; }
+  bool fill(const JetConstituentRow& r,std::string* e=nullptr){ if(!ready(e)||r.constituent_id.isNull()||!contains(m_jetIds,r.jet_id))return fail(e,"jet constituent foreign key failure"); if(validationOnly())return true; m_jetConstituent=r; serialize(m_jetConstituentJetId,r.jet_id); serialize(m_jetConstituentId,r.constituent_id); m_tJetConstituent->Fill(); return true; }
+  bool fill(const PhotonJetPairRow& r,std::string* e=nullptr){ if(!ready(e)||r.id.isNull()||!contains(m_eventIds,r.event_id)||!contains(m_candidateIds,r.candidate_id)||!contains(m_jetIds,r.jet_id)||!insert(m_pairIds,r.id))return fail(e,"pair foreign key or identity failure"); if(validationOnly())return true; m_pair=r; serialize(m_pairId,r.id); serialize(m_pairEventId,r.event_id); serialize(m_pairCandidateId,r.candidate_id); serialize(m_pairJetId,r.jet_id); m_tPair->Fill(); return true; }
+  bool fill(const TruthPhotonRow& r,std::string* e=nullptr){ if(!ready(e)||r.id.isNull()||!contains(m_eventIds,r.event_id)||!insert(m_truthPhotonIds,r.id))return fail(e,"truth photon foreign key or identity failure"); if(validationOnly())return true; m_truthPhoton=r; serialize(m_truthPhotonId,r.id); serialize(m_truthPhotonEventId,r.event_id); m_tTruthPhoton->Fill(); return true; }
+  bool fill(const TruthJetRow& r,std::string* e=nullptr){ if(!ready(e)||r.id.isNull()||!contains(m_eventIds,r.event_id)||!insert(m_truthJetIds,r.id))return fail(e,"truth jet foreign key or identity failure"); if(validationOnly())return true; m_truthJet=r; serialize(m_truthJetId,r.id); serialize(m_truthJetEventId,r.event_id); m_tTruthJet->Fill(); return true; }
+  bool fill(const RecoTruthLinkRow& r,std::string* e=nullptr){ if(!ready(e)||r.id.isNull()||!validRecoTruthLink(r)||!insert(m_linkIds,r.id))return fail(e,"reco-truth link identity/type/foreign-key failure"); if(validationOnly())return true; m_link=r; serialize(m_linkId,r.id); serialize(m_linkRecoId,r.reco_id); serialize(m_linkTruthId,r.truth_id); m_tLink->Fill(); return true; }
+  bool fill(const WeightComponentRow& r,std::string* e=nullptr){ if(!ready(e)||r.target_id.isNull()||r.component_type.empty()||r.application_count<0)return fail(e,"weight component identity/type/count failure"); if(validationOnly())return true; m_weight=r; serialize(m_weightTargetId,r.target_id); m_tWeight->Fill(); return true; }
+  bool fill(const EventDisplaySnapshotRow& r,std::string* e=nullptr){ if(!ready(e)||r.id.isNull()||!contains(m_eventIds,r.event_id)||!insert(m_snapshotIds,r.id))return fail(e,"snapshot foreign key or identity failure"); if(validationOnly())return true; m_snapshot=r; serialize(m_snapshotId,r.id); serialize(m_snapshotEventId,r.event_id); m_tSnapshot->Fill(); return true; }
 
   bool finish(std::string* error=nullptr)
   {
     if(!ready(error)) return false;
+    if(validationOnly()){m_finished=true;return true;}
     TDirectory* saved=gDirectory; m_dir->cd();
     for(TTree* tree:m_trees) if(!tree||tree->Write("",TObject::kOverwrite)<=0){ if(saved)saved->cd(); return fail(error,"tree write failure"); }
     TNamed complete("rj_replay_complete","1"); complete.Write("rj_replay_complete",TObject::kOverwrite);
@@ -358,9 +372,12 @@ class Writer
     return true;
   }
 
+  const Metadata& metadata() const { return m_metadata; }
+
  private:
   static bool fail(std::string* error,const std::string& message){ if(error)*error=message; return false; }
   bool ready(std::string* e) const { return m_initialized&&!m_finished?true:fail(e,"writer is not active"); }
+  bool validationOnly() const { return m_mode==WriterMode::VALIDATE_ONLY; }
   static bool validHex64(const std::string& s){ if(s.size()!=64)return false; for(char c:s)if(!((c>='0'&&c<='9')||(c>='a'&&c<='f')))return false; return true; }
   static bool validMetadata(const Metadata& m){ return validHex64(m.schema_sha256)&&validHex64(m.semantic_sha256)&&validHex64(m.source_sha256)&&validHex64(m.model_sha256)&&validHex64(m.config_sha256)&&validHex64(m.code_sha256); }
   static bool insert(std::unordered_set<Identity128,IdentityHash>& s,const Identity128& id){ return s.insert(id).second; }
@@ -410,7 +427,7 @@ class Writer
     return rt!=RecoTruthType::NONE&&tt!=RecoTruthType::NONE;
   }
 
-  TFile* m_file=nullptr; TDirectory* m_dir=nullptr; bool m_initialized=false,m_finished=false; Metadata m_metadata;
+  TFile* m_file=nullptr; TDirectory* m_dir=nullptr; bool m_initialized=false,m_finished=false; WriterMode m_mode=WriterMode::SERIALIZE; Metadata m_metadata;
   std::vector<TTree*> m_trees;
   TTree *m_tSource=nullptr,*m_tEvent=nullptr,*m_tCandidate=nullptr,*m_tModel=nullptr,*m_tShower=nullptr,*m_tShowerView=nullptr,*m_tIsoConstituent=nullptr,*m_tIsoWitness=nullptr,*m_tJet=nullptr,*m_tJetConstituent=nullptr,*m_tPair=nullptr,*m_tTruthPhoton=nullptr,*m_tTruthJet=nullptr,*m_tLink=nullptr,*m_tWeight=nullptr,*m_tSnapshot=nullptr;
   SourceOccurrenceRow m_source; EventRow m_event; PhotonCandidateRow m_candidate; ModelEvaluationRow m_model; ShowerCellRow m_shower; ShowerFeatureViewRow m_showerView; IsolationConstituentRow m_isoConstituent; IsolationWitnessRow m_isoWitness; JetRow m_jet; JetConstituentRow m_jetConstituent; PhotonJetPairRow m_pair; TruthPhotonRow m_truthPhoton; TruthJetRow m_truthJet; RecoTruthLinkRow m_link; WeightComponentRow m_weight; EventDisplaySnapshotRow m_snapshot;

@@ -1899,6 +1899,7 @@ private:
   bool m_replayFoundationEnabled = false;
   bool m_replayNodesReady = false;
   bool m_replayWriteFailed = false;
+  bool m_the134MultiviewSidecarOnly = false;
   std::unique_ptr<RJReplayRuntimeV1::Runtime> m_replayRuntime;
   std::unique_ptr<RJPhotonTrainingViewV1::Runtime> m_photonTrainingViewRuntime;
 };

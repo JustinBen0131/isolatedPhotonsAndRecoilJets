@@ -57,6 +57,14 @@ class Runtime
  public:
   bool initialize(TFile* file, const SourceOccurrenceRow& source, std::string* error = nullptr)
   {
+    return initialize(file,source,WriterMode::SERIALIZE,error);
+  }
+
+  bool initialize(TFile* file,
+                  const SourceOccurrenceRow& source,
+                  WriterMode mode,
+                  std::string* error = nullptr)
+  {
     Metadata metadata;
     metadata.schema_sha256 = env("RJ_REPLAY_SCHEMA_SHA256");
     metadata.semantic_sha256 = env("RJ_REPLAY_SEMANTIC_SHA256");
@@ -64,7 +72,7 @@ class Runtime
     metadata.model_sha256 = env("RJ_REPLAY_MODEL_SHA256");
     metadata.config_sha256 = env("RJ_REPLAY_CONFIG_SHA256");
     metadata.code_sha256 = env("RJ_REPLAY_CODE_SHA256");
-    if (!m_writer.initialize(file, metadata, error)) return false;
+    if (!m_writer.initialize(file, metadata, mode, error)) return false;
     if (!m_writer.fill(source, error)) return false;
     m_source_id = source.id;
     return true;
@@ -131,6 +139,8 @@ class Runtime
   }
 
   bool finish(std::string* error = nullptr) { return m_writer.finish(error); }
+
+  const Metadata& metadata() const { return m_writer.metadata(); }
 
  private:
   Writer m_writer;

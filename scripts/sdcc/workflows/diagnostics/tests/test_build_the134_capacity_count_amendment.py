@@ -923,6 +923,46 @@ class CapacityCountAmendmentTests(unittest.TestCase):
                 ):
                     amendment.require_preflight_authority("plan", mutated)
 
+    def test_corrected_sidecar_only_artifact_profile_is_cross_bound(self) -> None:
+        profile = copy.deepcopy(
+            amendment.resolver.SIDECAR_ONLY_ARTIFACT_PROFILE
+        )
+        plan = {"artifact_profile": profile}
+        receipt = {
+            "artifact_profile_sha256": amendment.resolver.canonical_sha256(
+                profile
+            )
+        }
+        amendment.validate_corrected_artifact_profile(plan, receipt)
+        self.assertEqual(
+            amendment.CORRECTED_PLAN_KEYS - amendment.LEGACY_PLAN_KEYS,
+            {"artifact_profile"},
+        )
+        self.assertEqual(
+            amendment.CORRECTED_RECEIPT_KEYS
+            - amendment.LEGACY_RECEIPT_KEYS,
+            {"artifact_profile_sha256"},
+        )
+
+        for key in profile:
+            with self.subTest(key=key):
+                mutated_plan = copy.deepcopy(plan)
+                del mutated_plan["artifact_profile"][key]
+                with self.assertRaisesRegex(
+                    amendment.AmendmentError, "artifact profile differs"
+                ):
+                    amendment.validate_corrected_artifact_profile(
+                        mutated_plan, receipt
+                    )
+
+        with self.assertRaisesRegex(
+            amendment.AmendmentError,
+            "artifact-profile SHA-256 differs",
+        ):
+            amendment.validate_corrected_artifact_profile(
+                plan, {"artifact_profile_sha256": "0" * 64}
+            )
+
     def test_capacity_audit_non_training_authority_is_exact(self) -> None:
         audit_path = self.root / "pp_capacity_audit.json"
         audit_path.write_text("{}\n", encoding="utf-8")

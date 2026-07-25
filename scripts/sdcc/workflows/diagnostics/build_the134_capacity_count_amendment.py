@@ -220,8 +220,10 @@ LEGACY_RECEIPT_KEYS = frozenset(
         "artifacts",
     }
 )
-CORRECTED_PLAN_KEYS = LEGACY_PLAN_KEYS
-CORRECTED_RECEIPT_KEYS = LEGACY_RECEIPT_KEYS
+CORRECTED_PLAN_KEYS = LEGACY_PLAN_KEYS | frozenset({"artifact_profile"})
+CORRECTED_RECEIPT_KEYS = LEGACY_RECEIPT_KEYS | frozenset(
+    {"artifact_profile_sha256"}
+)
 LEGACY_RECEIPT_ARTIFACT_KEYS = frozenset(
     {"plan", "rows", "duplicate_fingerprint"}
 )
@@ -1780,6 +1782,28 @@ def canonical_jsonl_bytes(records: Sequence[Mapping[str, Any]]) -> bytes:
     return b"".join(canonical_json_bytes(record) for record in records)
 
 
+def validate_corrected_artifact_profile(
+    plan: Mapping[str, Any],
+    receipt: Mapping[str, Any],
+) -> None:
+    profile = require_mapping(
+        "corrected plan.artifact_profile", plan.get("artifact_profile")
+    )
+    if profile != resolver.SIDECAR_ONLY_ARTIFACT_PROFILE:
+        raise AmendmentError(
+            "corrected plan sidecar-only artifact profile differs"
+        )
+    expected_sha256 = resolver.canonical_sha256(profile)
+    observed_sha256 = require_sha256(
+        "corrected receipt artifact-profile SHA-256",
+        receipt.get("artifact_profile_sha256"),
+    )
+    if observed_sha256 != expected_sha256:
+        raise AmendmentError(
+            "corrected receipt artifact-profile SHA-256 differs"
+        )
+
+
 def validate_corrected_preflight(
     plan: Mapping[str, Any],
     receipt: Mapping[str, Any],
@@ -1808,6 +1832,7 @@ def validate_corrected_preflight(
         raise AmendmentError("corrected receipt schema/status differs")
     require_preflight_authority("corrected plan", plan)
     require_preflight_authority("corrected receipt", receipt)
+    validate_corrected_artifact_profile(plan, receipt)
     require_exact_int("corrected receipt row_count", receipt.get("row_count"), 13)
     if source_manifest.get("schema") != CORRECTED_SOURCE_SCHEMA:
         raise AmendmentError("corrected source schema differs")

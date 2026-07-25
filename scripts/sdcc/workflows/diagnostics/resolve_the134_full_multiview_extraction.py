@@ -123,6 +123,36 @@ EVENT_LIMIT_PER_JOB = 0
 GROUP_SIZE = 7
 REQUEST_MEMORY_MB = 8000
 SHOWER_VIEWS = ("H70", "H0", "G70", "G0", "O70", "O0", "R70")
+FROZEN_AUAU_FULL_EXTRACTION_CONTROLS = {
+    "RJ_AUAU_BDT_EXTRACT_ONLY": "1",
+    "RJ_AUAU_BDT_TRAINING_TREE": "1",
+    "RJ_AUAU_BDT_TRAINING_TREE_MAX_ENTRIES": "0",
+    "RJ_AUAU_BDT_NPB_DATA_TAGGING": "0",
+    "RJ_REQUIRE_EMBEDDED_MINBIAS_CLASSIFIER": "1",
+    "RJ_AUAU_BUILD_TOPOCLUSTER_ISOLATION": "0",
+    "RJ_AUAU_USE_TOPOCLUSTER_ISOLATION": "0",
+    "RJ_SIM_ALLOW_NONE_LISTS": "1",
+}
+SIDECAR_ONLY_ARTIFACT_PROFILE = {
+    "schema": "THE134_MULTIVIEW_SIDECAR_ONLY_ARTIFACT_PROFILE_V1",
+    "artifact_profile": "THE134_MULTIVIEW_SIDECAR_ONLY_V1",
+    "analysis_root_role": (
+        "ANALYSIS_AND_LEGACY_TRAINING_WITH_VALIDATION_MARKERS"
+    ),
+    "training_sidecar_role": "RJPhotonTrainingViewV1",
+    "replay_transaction": "CONSTRUCTED_AND_VALIDATED",
+    "replay_serialization": "DISABLED",
+    "cache_replay_applicability": "NOT_APPLICABLE",
+    "top_level_identity_markers": {
+        "rj_replay_schema_sha256": "RJ_REPLAY_SCHEMA_SHA256",
+        "rj_replay_semantic_sha256": "RJ_REPLAY_SEMANTIC_SHA256",
+        "rj_replay_source_sha256": "RJ_REPLAY_SOURCE_SHA256",
+        "rj_replay_model_sha256": "RJ_REPLAY_MODEL_SHA256",
+        "rj_replay_config_sha256": "RJ_REPLAY_CONFIG_SHA256",
+        "rj_replay_code_sha256": "RJ_REPLAY_CODE_SHA256",
+    },
+    "full_training_authority": 0,
+}
 LIST_ROLES = ("calo_cluster", "g4hits", "jets", "global", "mbd_epd")
 LIST_FILENAMES = {
     "calo_cluster": "DST_CALO_CLUSTER.matched.list",
@@ -1215,6 +1245,33 @@ def artifact_for_system(
     return artifacts[role]
 
 
+def validate_frozen_auau_runtime_environment(
+    environment: dict[str, str],
+) -> None:
+    for key, expected_value in FROZEN_AUAU_FULL_EXTRACTION_CONTROLS.items():
+        actual_value = environment.get(key)
+        if actual_value != expected_value:
+            raise ControllerError(
+                "Au+Au full-extraction runtime control "
+                f"{key} must remain {expected_value!r}; got {actual_value!r}"
+            )
+
+
+def validate_sidecar_only_contract(
+    environment: dict[str, str],
+    artifact_profile: dict[str, Any],
+) -> None:
+    if environment.get("RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1") != "1":
+        raise ControllerError(
+            "RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1 must remain '1'"
+        )
+    if artifact_profile != SIDECAR_ONLY_ARTIFACT_PROFILE:
+        raise ControllerError(
+            "THE-134 sidecar-only artifact profile differs from the frozen "
+            "validation-only contract"
+        )
+
+
 def runtime_environment(
     row: dict[str, str],
     *,
@@ -1255,6 +1312,7 @@ def runtime_environment(
         "RJ_REPLAY_JET_CONSTITUENT_PT_MIN": str(CAPTURE_ET_MIN_GEV),
         "RJ_THE134_MULTIVIEW_TRAINING_V1": "1",
         "RJ_THE134_MULTIVIEW_TRAINING_FILE": sidecar_template,
+        "RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1": "1",
         "RJ_THE134_EXPECTED_SOURCE_ROLE": row["source_role"],
         "RJ_ID_FANOUT_MAX_ROWS": "1",
         "RJ_AUTO_MERGE": "0",
@@ -1292,7 +1350,11 @@ def runtime_environment(
             }
         )
     else:
-        environment["RJ_SIM_ALLOW_NONE_LISTS"] = "1"
+        environment.update(FROZEN_AUAU_FULL_EXTRACTION_CONTROLS)
+        validate_frozen_auau_runtime_environment(environment)
+    validate_sidecar_only_contract(
+        environment, dict(SIDECAR_ONLY_ARTIFACT_PROFILE)
+    )
     return dict(sorted(environment.items()))
 
 
@@ -1339,6 +1401,8 @@ def build_descriptors(
             source=source,
             sidecar_template=sidecar_template,
         )
+        artifact_profile = dict(SIDECAR_ONLY_ARTIFACT_PROFILE)
+        validate_sidecar_only_contract(worker_environment, artifact_profile)
         materialization_environment = {
             "RJ_DAG_DRYRUN": "1",
             "RJ_CONDOR_SEALED_ENVIRONMENT": "1",
@@ -1515,6 +1579,7 @@ def build_descriptors(
                 "multiview_sidecar_template": sidecar_template,
                 "submit_namespace": f"{submit_root}/{row['row_id']}",
                 "evidence_namespace": f"{evidence_root}/{row['row_id']}",
+                "artifact_profile": artifact_profile,
                 "materialization_environment": dict(
                     sorted(materialization_environment.items())
                 ),
@@ -1826,6 +1891,7 @@ def write_preflight_outputs(
                 "full_training_authority": PREFLIGHT_FULL_TRAINING_AUTHORITY,
                 "authority_state": PREFLIGHT_AUTHORITY_STATE,
             },
+            "artifact_profile": dict(SIDECAR_ONLY_ARTIFACT_PROFILE),
             "closure_witness_boundary": closure_witness_boundary(),
             "source_family_closure": {
                 "row_count": len(descriptors),
@@ -1891,6 +1957,9 @@ def write_preflight_outputs(
             "requested_scope": REQUESTED_SCOPE,
             "full_training_authority": PREFLIGHT_FULL_TRAINING_AUTHORITY,
             "authority_state": PREFLIGHT_AUTHORITY_STATE,
+            "artifact_profile_sha256": canonical_sha256(
+                plan["artifact_profile"]
+            ),
             "training_period_si_contract_sha256": (
                 training_source_contract_sha256
             ),
