@@ -62,6 +62,8 @@ export HOME="/sphenix/u/${LOGNAME}"
 # sPHENIX offline setup (system + local area for custom libs)
 MYINSTALL="/sphenix/u/${USER}/thesisAnalysis/install"
 PPG12_ARCHIVED_OFFLINE_MAIN="/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.541"
+runtime_expected_release_name=""
+runtime_expected_offline_main=""
 ppg12_archived_di_lane=0
 case "$run8" in
   run28_photonjet5_double|run28_photonjet10_double|run28_photonjet20_double)
@@ -79,6 +81,8 @@ case "$run8" in
 esac
 
 if (( ppg12_archived_di_lane )); then
+  runtime_expected_release_name="ana.541"
+  runtime_expected_offline_main="$PPG12_ARCHIVED_OFFLINE_MAIN"
   archived_runtime_manifest="${RJ_PPG12_DI_RUNTIME_MANIFEST:-}"
   archived_runtime_manifest_sha256="${RJ_PPG12_DI_RUNTIME_MANIFEST_SHA256:-}"
   archived_period="${RJ_PPG12_PERIOD:-}"
@@ -161,9 +165,30 @@ if (( ppg12_archived_di_lane )); then
     exit 96
   }
 else
-  # Existing runtime for every non-archived lane remains unchanged.
+  # Ordinary lanes retain the existing unversioned setup unless a campaign
+  # explicitly declares an immutable release pair.  A declaration is
+  # all-or-nothing and is verified again after local-prefix setup so a mutable
+  # login environment cannot silently change the runtime beneath a frozen
+  # analysis library.
+  runtime_expected_release_name="${RJ_PINNED_RELEASE_NAME:-}"
+  runtime_expected_offline_main="${RJ_PINNED_OFFLINE_MAIN:-}"
+  if [[ -n "$runtime_expected_release_name" || -n "$runtime_expected_offline_main" ]]; then
+    [[ "$runtime_expected_release_name" =~ ^ana\.[0-9]+$ ]] || {
+      echo "[FATAL] RJ_PINNED_RELEASE_NAME must be ana.NNN when a runtime release is declared."
+      exit 96
+    }
+    [[ "$runtime_expected_offline_main" == /*/release/release_ana/"$runtime_expected_release_name" ]] || {
+      echo "[FATAL] RJ_PINNED_OFFLINE_MAIN must be the exact prefix for ${runtime_expected_release_name}."
+      exit 96
+    }
+  fi
   set +u
-  source /opt/sphenix/core/bin/sphenix_setup.sh -n
+  if [[ -n "$runtime_expected_release_name" ]]; then
+    unset LD_PRELOAD
+    source /opt/sphenix/core/bin/sphenix_setup.sh -n "$runtime_expected_release_name"
+  else
+    source /opt/sphenix/core/bin/sphenix_setup.sh -n
+  fi
   if [[ -d "$MYINSTALL" ]]; then
     source /opt/sphenix/core/bin/setup_local.sh "$MYINSTALL" || true
   fi
@@ -175,6 +200,26 @@ else
   fi
   set -u
 fi
+
+runtime_resolved_offline_main="${OFFLINE_MAIN:-}"
+[[ -n "$runtime_resolved_offline_main" ]] || {
+  echo "[FATAL] sPHENIX runtime setup did not resolve OFFLINE_MAIN."
+  exit 96
+}
+runtime_resolved_release_name="${runtime_resolved_offline_main##*/}"
+if [[ -n "$runtime_expected_release_name" ]]; then
+  [[ "$runtime_resolved_release_name" == "$runtime_expected_release_name" &&
+     "$runtime_resolved_offline_main" == "$runtime_expected_offline_main" ]] || {
+    echo "[FATAL] Runtime release mismatch: resolved '${runtime_resolved_offline_main}', expected '${runtime_expected_offline_main}'."
+    exit 96
+  }
+  runtime_expected_release_profile="$runtime_expected_release_name"
+  runtime_expected_offline_profile="$runtime_expected_offline_main"
+else
+  runtime_expected_release_profile="UNPINNED"
+  runtime_expected_offline_profile="UNPINNED"
+fi
+echo "RECOILJETS_RUNTIME_PROFILE_V1 expected_release=${runtime_expected_release_profile} resolved_release=${runtime_resolved_release_name} expected_offline_main=${runtime_expected_offline_profile} resolved_offline_main=${runtime_resolved_offline_main} status=PASS"
 
 # Some frozen release lanes intentionally pair an archived detector runtime
 # with the current campaign PhotonClusterBuilder interface.  If the submitter

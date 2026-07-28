@@ -183,6 +183,37 @@ namespace detail
     throw std::runtime_error(oss.str());
   }
 
+  /// Preserve the two terminal Fun4All return codes even in quiet Condor
+  /// mode. ScopedSilence redirects the C++ iostream buffers only; the narrow
+  /// C stderr record remains visible without restoring ordinary batch chatter.
+  inline void enforce_fun4all_status(const char* path,
+                                     const int runRc,
+                                     const int endRc)
+  {
+    const bool ok =
+      runRc == Fun4AllReturnCodes::EVENT_OK &&
+      endRc == Fun4AllReturnCodes::EVENT_OK;
+    std::fprintf(
+      stderr,
+      "RECOILJETS_FUN4ALL_STATUS_V1 path=%s run_rc=%d end_rc=%d status=%s\n",
+      path,
+      runRc,
+      endRc,
+      ok ? "PASS" : "FAIL");
+    std::fflush(stderr);
+    if (ok) return;
+
+    std::fprintf(
+      stderr,
+      "[FATAL] Fun4All_recoilJets status failure: path=%s run_rc=%d end_rc=%d\n",
+      path,
+      runRc,
+      endRc);
+    std::fflush(stderr);
+    if (gSystem) gSystem->Exit(90);
+    throw std::runtime_error("Fun4All returned a nonzero terminal status");
+  }
+
   /// Trim whitespace from both ends (for robust list-file parsing)
   inline std::string trim(std::string s)
   {
@@ -4836,9 +4867,10 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         try
         {
             if (vlevel > 0) std::cout << "[INFO] Starting scaled-trigger-only event loop ..." << std::endl;
-            se->run(nEvents);
+            const int runRc = se->run(nEvents);
             if (vlevel > 0) std::cout << "[INFO] Calling se->End() ..." << std::endl;
-            se->End();
+            const int endRc = se->End();
+            detail::enforce_fun4all_status("scaled-trigger-only", runRc, endRc);
             if (vlevel > 0) std::cout << "[INFO] Finished scaled-trigger-only job." << std::endl;
         }
         catch (const std::exception& e)
@@ -7736,6 +7768,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             const char* env = std::getenv("RJ_STEP_EVENTS");
             return (env && std::atoi(env) != 0);
         })();
+        int runRc = Fun4AllReturnCodes::EVENT_OK;
         
         if (stepEvents && nEvents > 0)
         {
@@ -7743,13 +7776,14 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             {
                 std::cout << "[RUN] >>> event " << (ievt + 1) << "/" << nEvents << std::endl;
                 const int rc = se->run(1);
+                runRc = rc;
                 std::cout << "[RUN] <<< event " << (ievt + 1) << "/" << nEvents << "  rc=" << rc << std::endl;
                 if (rc != 0) break;
             }
         }
         else
         {
-            se->run(nEvents);
+            runRc = se->run(nEvents);
         }
         
         // RecoilJets AuAu centrality counters do not exist in the pp class.
@@ -7784,7 +7818,8 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 #endif
 
         if (vlevel > 0) std::cout << "[INFO] Calling se->End() …" << std::endl;
-        se->End();
+        const int endRc = se->End();
+        detail::enforce_fun4all_status("analysis", runRc, endRc);
         if (vlevel > 0) std::cout << "[INFO] Finished successfully." << std::endl;
     }
     catch (const std::exception& e)
