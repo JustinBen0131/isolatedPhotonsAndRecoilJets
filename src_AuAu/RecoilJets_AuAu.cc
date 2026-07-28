@@ -3501,6 +3501,83 @@ int RecoilJets::Init(PHCompositeNode* topNode)
     initEnvBool("RJ_MBD_PMT_LOW_CALO_DIAGNOSTICS", m_mbdPmtLowCaloDiagnosticsEnabled);
   m_requireEmbeddedMinBiasClassifier =
     initEnvBool("RJ_REQUIRE_EMBEDDED_MINBIAS_CLASSIFIER", m_requireEmbeddedMinBiasClassifier);
+  const bool allowFixedRecoIsoViews =
+    initEnvBool("RJ_ALLOW_FIXED_RECO_ISO_VIEWS", false);
+
+  // Physics hard stop: reconstructed Au+Au isolation is the centrality-
+  // dependent sliding definition.  R=0.4 is canonical and, when an internal
+  // robustness view is requested, R=0.3 is the only allowed second view.
+  // The 4 GeV truth-isolation label is independent of this reconstructed
+  // contract.  The explicit environment opt-in exists only for a separately
+  // authorized diagnostic and is never set by nominal production.
+  if (m_isAuAu && !allowFixedRecoIsoViews)
+  {
+    if (!m_isSlidingIso)
+    {
+      LOG(0, CLR_RED,
+          "[Init][FATAL] AuAu reconstructed isolation must be centrality-dependent sliding; "
+          "fixed reconstructed isolation requires explicit authorization");
+      return Fun4AllReturnCodes::ABORTRUN;
+    }
+
+    if (m_internalIsoViews.empty())
+    {
+      if (std::fabs(m_isoConeR - 0.40) >= 0.015)
+      {
+        LOG(0, CLR_RED,
+            "[Init][FATAL] canonical single-view AuAu isolation must use sliding R=0.4");
+        return Fun4AllReturnCodes::ABORTRUN;
+      }
+      if (m_centIsoWPsR40.empty())
+      {
+        LOG(0, CLR_RED,
+            "[Init][FATAL] canonical AuAu R=0.4 sliding isolation has no cone-specific centrality working point");
+        return Fun4AllReturnCodes::ABORTRUN;
+      }
+    }
+    else
+    {
+      const auto& nominal = m_internalIsoViews.front();
+      const bool nominalOK = nominal.label == "isoR40_isSliding" &&
+                             nominal.isSliding &&
+                             std::fabs(nominal.coneR - 0.40) < 0.015 &&
+                             std::fabs(nominal.fixedGeV) < 1e-12;
+      if (!nominalOK || m_internalIsoViews.size() > 2)
+      {
+        LOG(0, CLR_RED,
+            "[Init][FATAL] AuAu internal isolation views must start with "
+            "isoR40_isSliding:0.40:true:0.0 and contain at most the R=0.3 robustness view");
+        return Fun4AllReturnCodes::ABORTRUN;
+      }
+      if (m_centIsoWPsR40.empty())
+      {
+        LOG(0, CLR_RED,
+            "[Init][FATAL] canonical AuAu R=0.4 sliding isolation has no cone-specific centrality working point");
+        return Fun4AllReturnCodes::ABORTRUN;
+      }
+      if (m_internalIsoViews.size() == 2)
+      {
+        const auto& robustness = m_internalIsoViews[1];
+        const bool robustnessOK = robustness.label == "isoR30_isSliding" &&
+                                  robustness.isSliding &&
+                                  std::fabs(robustness.coneR - 0.30) < 0.015 &&
+                                  std::fabs(robustness.fixedGeV) < 1e-12;
+        if (!robustnessOK)
+        {
+          LOG(0, CLR_RED,
+              "[Init][FATAL] optional AuAu robustness view must be "
+              "isoR30_isSliding:0.30:true:0.0");
+          return Fun4AllReturnCodes::ABORTRUN;
+        }
+        if (m_centIsoWPsR30.empty())
+        {
+          LOG(0, CLR_RED,
+              "[Init][FATAL] AuAu R=0.3 robustness view has no cone-specific centrality working point");
+          return Fun4AllReturnCodes::ABORTRUN;
+        }
+      }
+    }
+  }
   m_the44PythiaAutopsyEnabled = initEnvBool("RJ_THE44_PYTHIA_AUTOPSY", m_the44PythiaAutopsyEnabled);
   m_the44PythiaAutopsyMaxEntries = initEnvLL("RJ_THE44_PYTHIA_AUTOPSY_MAX_ENTRIES", m_the44PythiaAutopsyMaxEntries);
   m_the44PythiaAutopsyHighBDTMin = initEnvDouble("RJ_THE44_PYTHIA_AUTOPSY_HIGH_BDT_MIN", m_the44PythiaAutopsyHighBDTMin);
@@ -8567,6 +8644,13 @@ int RecoilJets::process_event(PHCompositeNode* topNode)
 
         m_centPercent = eventCentralityPercent;
         m_centBin = static_cast<int>(eventCentralityPercent);
+        if (findCentBin(m_centBin) < 0)
+        {
+            LOG(4, CLR_YELLOW,
+                "    centrality outside configured AuAu analysis range – ABORTEVENT"
+                << " | centrality=" << m_centPercent);
+            return Fun4AllReturnCodes::ABORTEVENT;
+        }
         LOG(5, CLR_GREEN, "    centrality = " << m_centPercent << '%');
     }
     else
