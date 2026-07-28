@@ -62,11 +62,17 @@ only_keys="${RJ_THE119_ONLY_KEYS:-}"
 source_sha_override="${RJ_THE119_SOURCE_SHA256_OVERRIDE:-}"
 pp_witness_profile="${RJ_THE119_PP_WITNESS_PROFILE:-}"
 pp_witness_only_keys="${RJ_THE119_PP_WITNESS_ONLY_KEYS:-}"
+extra_common_template="${RJ_THE119_EXTRA_ENV_TEMPLATE:-}"
+extra_pp_template="${RJ_THE119_PP_EXTRA_ENV_TEMPLATE:-}"
+extra_auau_template="${RJ_THE119_AUAU_EXTRA_ENV_TEMPLATE:-}"
+writer_extra_common_template="${RJ_THE119_WRITER_EXTRA_ENV_TEMPLATE:-}"
+writer_extra_pp_template="${RJ_THE119_PP_WRITER_EXTRA_ENV_TEMPLATE:-}"
+writer_extra_auau_template="${RJ_THE119_AUAU_WRITER_EXTRA_ENV_TEMPLATE:-}"
 
 export RJ_CODEX_CHAT_NAME="THE-114+THE-119 | pp/AuAu Replay Foundation"
 export RJ_CODEX_THREAD_ID="019f80b5-dc56-7330-9ee7-56ef417547dc"
 
-say(){ printf '[THE119] %s\n' "$*"; }
+log_line(){ printf '[THE119] %s\n' "$*"; }
 die(){ printf '[THE119][ERROR] %s\n' "$*" >&2; exit 2; }
 sha(){ printf '%s' "$1" | sha256sum | awk '{print $1}'; }
 
@@ -80,6 +86,90 @@ want_pp_witness_row(){
   local arm="$1" sample="$2"
   [[ -z "$pp_witness_only_keys" ]] && return 0
   [[ ",${pp_witness_only_keys}," == *",${arm}:${sample},"* ]]
+}
+
+validate_writer_extra_template(){
+  local label="$1" template="$2" rendered field key
+  local seen_keys="|"
+  if [[ "$template" == *$'\n'* || "$template" == *$'\r'* ]]; then
+    die "${label} writer environment template must be one line"
+    return 2
+  fi
+  rendered="${template//__OUTPUT__//sphenix/u/example/the134_writer}"
+  if [[ "$rendered" == *"__"* ]]; then
+    die "${label} writer environment template contains an unsupported placeholder"
+    return 2
+  fi
+  [[ -z "$rendered" ]] && return 0
+  local old_ifs="$IFS"
+  IFS=';'
+  for field in $rendered; do
+    if ! [[ "$field" =~ ^([A-Z][A-Z0-9_]*)=([^[:space:];]+)$ ]]; then
+      die "${label} writer environment template has an invalid field: ${field:-<empty>}"
+      IFS="$old_ifs"
+      return 2
+    fi
+    key="${BASH_REMATCH[1]}"
+    if [[ "$seen_keys" == *"|${key}|"* ]]; then
+      die "${label} writer environment template duplicates ${key}"
+      IFS="$old_ifs"
+      return 2
+    fi
+    seen_keys="${seen_keys}${key}|"
+  done
+  IFS="$old_ifs"
+}
+
+render_writer_extra(){
+  local system="$1" arm="$2" output="$3"
+  local system_template combined rendered
+  [[ "$arm" == writer ]] || return 0
+  if [[ "$output" == *[[:space:]\;]* ]]; then
+    die "writer output path cannot be serialized into the Condor environment"
+    return 2
+  fi
+  case "$system" in
+    pp) system_template="$writer_extra_pp_template" ;;
+    auau) system_template="$writer_extra_auau_template" ;;
+    *)
+      die "unknown writer-extra system: $system"
+      return 2
+      ;;
+  esac
+  combined="$writer_extra_common_template"
+  if [[ -n "$system_template" ]]; then
+    [[ -z "$combined" ]] || combined="${combined};"
+    combined="${combined}${system_template}"
+  fi
+  validate_writer_extra_template "${system} combined" "$combined" || return $?
+  rendered="${combined//__OUTPUT__/$output}"
+  printf '%s' "$rendered"
+}
+
+render_arm_extra(){
+  local system="$1" arm="$2" output="$3"
+  local system_template combined writer_extra rendered
+  case "$system" in
+    pp) system_template="$extra_pp_template" ;;
+    auau) system_template="$extra_auau_template" ;;
+    *)
+      die "unknown extra-environment system: $system"
+      return 2
+      ;;
+  esac
+  combined="$extra_common_template"
+  if [[ -n "$system_template" ]]; then
+    [[ -z "$combined" ]] || combined="${combined};"
+    combined="${combined}${system_template}"
+  fi
+  writer_extra="$(render_writer_extra "$system" "$arm" "$output")" || return $?
+  if [[ -n "$writer_extra" ]]; then
+    [[ -z "$combined" ]] || combined="${combined};"
+    combined="${combined}${writer_extra}"
+  fi
+  validate_writer_extra_template "${system} ${arm} combined" "$combined" || return $?
+  rendered="${combined//__OUTPUT__/$output}"
+  printf '%s' "$rendered"
 }
 
 require_inputs(){
@@ -137,6 +227,16 @@ require_inputs(){
     [[ "$source_sha_override" =~ ^[0-9a-f]{64}$ ]] || die "RJ_THE119_SOURCE_SHA256_OVERRIDE must be a 64-character SHA-256"
     [[ -n "$only_keys" ]] || die "RJ_THE119_SOURCE_SHA256_OVERRIDE requires a bounded RJ_THE119_ONLY_KEYS selection"
   fi
+  validate_writer_extra_template common "$extra_common_template"
+  validate_writer_extra_template pp "$extra_pp_template"
+  validate_writer_extra_template auau "$extra_auau_template"
+  validate_writer_extra_template common "$writer_extra_common_template"
+  validate_writer_extra_template pp "$writer_extra_pp_template"
+  validate_writer_extra_template auau "$writer_extra_auau_template"
+  if [[ -n "$extra_common_template$extra_pp_template$extra_auau_template$writer_extra_common_template$writer_extra_pp_template$writer_extra_auau_template" ]]; then
+    [[ -n "$only_keys" ]] ||
+      die "environment extensions require a bounded RJ_THE119_ONLY_KEYS selection"
+  fi
 }
 
 common_extra(){
@@ -153,15 +253,25 @@ common_extra(){
 }
 
 pp_extra(){
-  local lane="$1" dataset="$2" sample="$3" arm="$4"
-  printf '%s;%s' "$(common_extra "$lane" "$dataset" "$sample" "$arm" "$pp_cfg" "$pp_model_sha")" \
-    "RJ_REPLAY_MODEL_SCORE_NAME=tight_bdt_score;RJ_REPLAY_MODEL_SHOWER_DEFINITION=${pp_model_shower_definition};RJ_REPLAY_REFERENCE_MODEL_FILE=${pp_ref};RJ_REPLAY_REFERENCE_MODEL_SHA256=${pp_ref_sha};RJ_REPLAY_REFERENCE_MODEL_SHOWER_DEFINITION=${pp_ref_shower_definition};RJ_REPLAY_REFERENCE_SCORE_NAME=ppg12_reference_bdt_score;RJ_REPLAY_WP70_BINS=0.79682856798172,0.766527533531189,0.764809787273407,0.7529897093772888,0.7708977460861206,0.8068315982818604,0.8892104029655457,0.972591757774353;RJ_REPLAY_WP80_BINS=0.7195994257926941,0.682415783405304,0.6793394684791565,0.6720289587974548,0.6960929036140442,0.7344872951507568,0.8287723064422607,0.9486955404281616;RJ_REPLAY_WP90_BINS=0.5593066215515137,0.5007686018943787,0.5124438405036926,0.5229008793830872,0.5534335374832153,0.5945547223091125,0.6987603902816772,0.8794801831245422;RJ_PPG12_TABLE_QA=${pp_direct_witness_qa};RJ_PPG12_TABLE_QA_NPB_DATA_TAGGING=0;RJ_REPLAY_FOUNDATION_CAPTURE_WITNESS_QA=${pp_capture_witness_qa}"
+  local lane="$1" dataset="$2" sample="$3" arm="$4" output="$5"
+  local extra
+  extra="$(common_extra "$lane" "$dataset" "$sample" "$arm" "$pp_cfg" "$pp_model_sha");RJ_REPLAY_MODEL_SCORE_NAME=tight_bdt_score;RJ_REPLAY_MODEL_SHOWER_DEFINITION=${pp_model_shower_definition};RJ_REPLAY_REFERENCE_MODEL_FILE=${pp_ref};RJ_REPLAY_REFERENCE_MODEL_SHA256=${pp_ref_sha};RJ_REPLAY_REFERENCE_MODEL_SHOWER_DEFINITION=${pp_ref_shower_definition};RJ_REPLAY_REFERENCE_SCORE_NAME=ppg12_reference_bdt_score;RJ_REPLAY_WP70_BINS=0.79682856798172,0.766527533531189,0.764809787273407,0.7529897093772888,0.7708977460861206,0.8068315982818604,0.8892104029655457,0.972591757774353;RJ_REPLAY_WP80_BINS=0.7195994257926941,0.682415783405304,0.6793394684791565,0.6720289587974548,0.6960929036140442,0.7344872951507568,0.8287723064422607,0.9486955404281616;RJ_REPLAY_WP90_BINS=0.5593066215515137,0.5007686018943787,0.5124438405036926,0.5229008793830872,0.5534335374832153,0.5945547223091125,0.6987603902816772,0.8794801831245422;RJ_PPG12_TABLE_QA=${pp_direct_witness_qa};RJ_PPG12_TABLE_QA_NPB_DATA_TAGGING=0;RJ_REPLAY_FOUNDATION_CAPTURE_WITNESS_QA=${pp_capture_witness_qa}"
+  local arm_extra
+  arm_extra="$(render_arm_extra pp "$arm" "$output")"
+  [[ -z "$arm_extra" ]] || extra="${extra};${arm_extra}"
+  validate_writer_extra_template "pp final environment" "$extra"
+  printf '%s' "$extra"
 }
 
 auau_extra(){
-  local lane="$1" dataset="$2" sample="$3" arm="$4"
-  printf '%s;%s' "$(common_extra "$lane" "$dataset" "$sample" "$arm" "$auau_cfg" "$auau_model_sha")" \
-    "RJ_REPLAY_MODEL_SCORE_NAME=auau_tight_bdt_score;RJ_REPLAY_MODEL_SHOWER_DEFINITION=${auau_model_shower_definition};RJ_REPLAY_WP70_INTERCEPT=0.6529177794;RJ_REPLAY_WP70_SLOPE=0.0013378442;RJ_REPLAY_WP80_INTERCEPT=0.5544148693;RJ_REPLAY_WP80_SLOPE=0.0015499421;RJ_REPLAY_WP90_INTERCEPT=0.4046618113;RJ_REPLAY_WP90_SLOPE=0.0014896756"
+  local lane="$1" dataset="$2" sample="$3" arm="$4" output="$5"
+  local extra
+  extra="$(common_extra "$lane" "$dataset" "$sample" "$arm" "$auau_cfg" "$auau_model_sha");RJ_REPLAY_MODEL_SCORE_NAME=auau_tight_bdt_score;RJ_REPLAY_MODEL_SHOWER_DEFINITION=${auau_model_shower_definition};RJ_REPLAY_WP70_INTERCEPT=0.6529177794;RJ_REPLAY_WP70_SLOPE=0.0013378442;RJ_REPLAY_WP80_INTERCEPT=0.5544148693;RJ_REPLAY_WP80_SLOPE=0.0015499421;RJ_REPLAY_WP90_INTERCEPT=0.4046618113;RJ_REPLAY_WP90_SLOPE=0.0014896756"
+  local arm_extra
+  arm_extra="$(render_arm_extra auau "$arm" "$output")"
+  [[ -z "$arm_extra" ]] || extra="${extra};${arm_extra}"
+  validate_writer_extra_template "auau final environment" "$extra"
+  printf '%s' "$extra"
 }
 
 assert_fresh(){
@@ -172,7 +282,7 @@ assert_fresh(){
 submit_pp(){
   local lane="$1" dataset="$2" sample="$3" arm="$4"
   if ! want_row "$arm" "$lane" "$sample"; then
-    say "SKIP ${arm}:${lane}:${sample} (not in RJ_THE119_ONLY_KEYS)"
+    log_line "SKIP ${arm}:${lane}:${sample} (not in RJ_THE119_ONLY_KEYS)"
     return 0
   fi
   local out="$base/$arm/$lane/$sample"
@@ -181,7 +291,7 @@ submit_pp(){
     RJ_REPLAY_FOUNDATION_CANARY=1 RJ_REPLAY_LANE="$lane" RJ_REPLAY_SCHEMA_SHA256="$schema_sha" \
     RJ_REQUIRE_NON_TINY_OUTPUT=1 RJ_MIN_OUTPUT_BYTES=50000 RJ_PROFILE_JOB=1 \
     RJ_JOB_HEARTBEAT_SECONDS=120 RJ_SMOKE_OUTPUT_BASE="$out" RJ_SMOKE_SIM_NEVENTS="$canary_nevents" \
-    RJ_SMOKE_DATA_RUNS=1 RJ_SMOKE_DATA_MAX_JOBS=1 RJ_SMOKE_DATA_NEVENTS="$canary_nevents" RJ_SUBMIT_EXTRA_ENV="$(pp_extra "$lane" "$dataset" "$sample" "$arm")" \
+    RJ_SMOKE_DATA_RUNS=1 RJ_SMOKE_DATA_MAX_JOBS=1 RJ_SMOKE_DATA_NEVENTS="$canary_nevents" RJ_SUBMIT_EXTRA_ENV="$(pp_extra "$lane" "$dataset" "$sample" "$arm" "$out")" \
     ./RecoilJets_Condor_submit.sh "$dataset" $([[ "$dataset" == isPP ]] && printf 'condor smokeTest groupSize 1' || printf 'condorDoAllSmoke groupSize 1 maxJobs 1 SAMPLE=%s' "$sample")
 }
 
@@ -189,7 +299,7 @@ submit_pp_witness(){
   local lane="$1" dataset="$2" source_sample="$3" row_sample="$4" period="$5" interaction="$6" arm="$7"
   local out="$base/$arm/$lane/$row_sample"
   if ! want_pp_witness_row "$arm" "$row_sample"; then
-    say "SKIP ${arm}:${row_sample} (not in RJ_THE119_PP_WITNESS_ONLY_KEYS)"
+    log_line "SKIP ${arm}:${row_sample} (not in RJ_THE119_PP_WITNESS_ONLY_KEYS)"
     return 0
   fi
   local library="$pp_lib"
@@ -236,14 +346,14 @@ submit_pp_witness(){
     RJ_REQUIRE_NON_TINY_OUTPUT=1 RJ_MIN_OUTPUT_BYTES=50000 RJ_PROFILE_JOB=1 \
     RJ_JOB_HEARTBEAT_SECONDS=120 RJ_SMOKE_OUTPUT_BASE="$out" RJ_SMOKE_SIM_NEVENTS="$canary_nevents" \
     RJ_SMOKE_DATA_RUNS=1 RJ_SMOKE_DATA_RUN="$([[ "$dataset" == isPP && "$period" == 0mrad ]] && printf 47289 || { [[ "$dataset" == isPP ]] && printf 51274 || true; })" RJ_SMOKE_DATA_MAX_JOBS=1 RJ_SMOKE_DATA_NEVENTS="$canary_nevents" \
-    RJ_SUBMIT_EXTRA_ENV="$(pp_extra "$lane" "$dataset" "$row_sample" "$arm")" \
+    RJ_SUBMIT_EXTRA_ENV="$(pp_extra "$lane" "$dataset" "$row_sample" "$arm" "$out")" \
     ./RecoilJets_Condor_submit.sh "$dataset" $([[ "$dataset" == isPP ]] && printf 'condor smokeTest groupSize 1' || printf 'condorDoAllSmoke groupSize 1 maxJobs 1 SAMPLE=%s' "$source_sample")
 }
 
 submit_auau(){
   local lane="$1" dataset="$2" sample="$3" arm="$4"
   if ! want_row "$arm" "$lane" "$sample"; then
-    say "SKIP ${arm}:${lane}:${sample} (not in RJ_THE119_ONLY_KEYS)"
+    log_line "SKIP ${arm}:${lane}:${sample} (not in RJ_THE119_ONLY_KEYS)"
     return 0
   fi
   local out="$base/$arm/$lane/$sample"
@@ -254,7 +364,7 @@ submit_auau(){
     RJ_JOB_HEARTBEAT_SECONDS=120 RJ_SMOKE_OUTPUT_BASE="$out" RJ_SMOKE_SIM_NEVENTS="$canary_nevents" \
     RJ_SMOKE_DATA_RUNS=1 RJ_SMOKE_DATA_MAX_JOBS=1 RJ_SMOKE_DATA_NEVENTS="$canary_nevents" RJ_INTERNAL_FIXED_ISO_GEV_AUAU=4.0 \
     RJ_AUAU_BUILD_TOPOCLUSTER_ISOLATION=0 RJ_AUAU_USE_TOPOCLUSTER_ISOLATION=0 \
-    RJ_SUBMIT_EXTRA_ENV="$(auau_extra "$lane" "$dataset" "$sample" "$arm")" \
+    RJ_SUBMIT_EXTRA_ENV="$(auau_extra "$lane" "$dataset" "$sample" "$arm" "$out")" \
     ./RecoilJets_Condor_submit.sh "$dataset" $([[ "$dataset" == isAuAu ]] && printf 'condor smokeTest groupSize 1' || printf 'condorDoAllSmoke groupSize 1 maxJobs 1 SAMPLE=%s' "$sample")
 }
 
@@ -263,15 +373,15 @@ preflight(){
   bash -n "$0" scripts/sdcc/runtime/condor/RecoilJets_Condor.sh scripts/sdcc/runtime/condor/RecoilJets_Condor_AuAu.sh
   mkdir -p "$evidence"
   {
-    printf 'tag=%s\nbase=%s\ncode_commit=%s\ncode_sha256=%s\nschema_sha=%s\nsemantic_sha=%s\npp_model_shower_definition=%s\npp_reference_model_shower_definition=%s\nauau_model_shower_definition=%s\nphoton_capture_et_min_gev=%s\njet_constituent_pt_min_gev=%s\ncanary_nevents=%s\nreplay_trace=%s\npp_direct_witness_qa=%s\npp_witness_profile=%s\npp_witness_only_keys=%s\nonly_keys=%s\nsource_sha_override=%s\n' \
-      "$tag" "$base" "$code_commit" "$code_sha" "$schema_sha" "$semantic_sha" "$pp_model_shower_definition" "$pp_ref_shower_definition" "$auau_model_shower_definition" "$photon_capture_et_min" "$jet_constituent_pt_min" "$canary_nevents" "$replay_trace" "$pp_direct_witness_qa" "$pp_witness_profile" "$pp_witness_only_keys" "$only_keys" "$source_sha_override"
+    printf 'tag=%s\nbase=%s\ncode_commit=%s\ncode_sha256=%s\nschema_sha=%s\nsemantic_sha=%s\npp_model_shower_definition=%s\npp_reference_model_shower_definition=%s\nauau_model_shower_definition=%s\nphoton_capture_et_min_gev=%s\njet_constituent_pt_min_gev=%s\ncanary_nevents=%s\nreplay_trace=%s\npp_direct_witness_qa=%s\npp_witness_profile=%s\npp_witness_only_keys=%s\nonly_keys=%s\nsource_sha_override=%s\nextra_common_template=%s\nextra_pp_template=%s\nextra_auau_template=%s\nwriter_extra_common_template=%s\nwriter_extra_pp_template=%s\nwriter_extra_auau_template=%s\n' \
+      "$tag" "$base" "$code_commit" "$code_sha" "$schema_sha" "$semantic_sha" "$pp_model_shower_definition" "$pp_ref_shower_definition" "$auau_model_shower_definition" "$photon_capture_et_min" "$jet_constituent_pt_min" "$canary_nevents" "$replay_trace" "$pp_direct_witness_qa" "$pp_witness_profile" "$pp_witness_only_keys" "$only_keys" "$source_sha_override" "$extra_common_template" "$extra_pp_template" "$extra_auau_template" "$writer_extra_common_template" "$writer_extra_pp_template" "$writer_extra_auau_template"
     sha256sum "$pp_cfg" "$auau_cfg" "$pp_lib" "$auau_lib" "$pp_model" "$pp_ref" "$auau_model"
     if [[ "$pp_witness_profile" == period_si_di ]]; then
       sha256sum "$pp_di_lib" "$pp_di_canary_manifest" \
         "$pp_di_photon_builder_lib" "$pp_di_photon_builder_header"
     fi
   } > "$evidence/preflight_receipt.txt"
-  say "PREFLIGHT_PASS evidence=$evidence/preflight_receipt.txt"
+  log_line "PREFLIGHT_PASS evidence=$evidence/preflight_receipt.txt"
 }
 
 submit(){
