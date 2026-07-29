@@ -27,6 +27,18 @@ AMENDMENT_SPEC = importlib.util.spec_from_file_location(
 assert AMENDMENT_SPEC is not None and AMENDMENT_SPEC.loader is not None
 amendment = importlib.util.module_from_spec(AMENDMENT_SPEC)
 AMENDMENT_SPEC.loader.exec_module(amendment)
+SOURCE_BUILDER = (
+    HERE.parents[1] / "build_the134_source_authority_manifest.py"
+)
+SOURCE_BUILDER_SPEC = importlib.util.spec_from_file_location(
+    "the134_source_authority_builder", SOURCE_BUILDER
+)
+assert (
+    SOURCE_BUILDER_SPEC is not None
+    and SOURCE_BUILDER_SPEC.loader is not None
+)
+source_builder = importlib.util.module_from_spec(SOURCE_BUILDER_SPEC)
+SOURCE_BUILDER_SPEC.loader.exec_module(source_builder)
 
 
 def sha256_file(path: Path) -> str:
@@ -233,8 +245,21 @@ class ResolverFixture:
             "schema": resolver.SOURCE_SCHEMA,
             "status": "PASS",
             "authority": {
+                "scope": resolver.SOURCE_AUTHORITY_SCOPE,
+                "row_count": resolver.SOURCE_AUTHORITY_ROW_COUNT,
                 "pp_period": "0mrad",
                 "pp_si_di_role": "SI",
+                "auau_period": resolver.SOURCE_AUTHORITY_AUAU_PERIOD,
+                "auau_si_di_role": (
+                    resolver.SOURCE_AUTHORITY_AUAU_SI_DI_ROLE
+                ),
+                "source_ownership_state": (
+                    resolver.SOURCE_AUTHORITY_OWNERSHIP_STATE
+                ),
+                "diagnostic_sources_excluded": list(
+                    resolver.SOURCE_AUTHORITY_DIAGNOSTIC_EXCLUSIONS
+                ),
+                "scientific_completion_granted": False,
             },
             "rows": rows,
         }
@@ -322,6 +347,28 @@ class TestFullExtractionResolver(unittest.TestCase):
             },
         )
         self.assertNotIn("run28_jet40", samples)
+
+    def test_canonical_source_builder_output_is_consumed_directly(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture = ResolverFixture(root / "fixture")
+            canonical_sources = source_builder.build_manifest(
+                fixture.lists, "0mrad"
+            )
+            source_builder.atomic_write_json(
+                fixture.sources, canonical_sources
+            )
+            out_dir = root / "resolved"
+            result = self.run_command(fixture.command(out_dir))
+            payload = json.loads(result.stdout)
+            plan = json.loads(
+                (out_dir / "the134_full_extraction_plan.json").read_text()
+            )
+            self.assertEqual(payload["row_count"], 13)
+            self.assertEqual(
+                plan["input_manifests"]["sources"]["sha256"],
+                sha256_file(fixture.sources),
+            )
 
     def test_preflight_is_deterministic_typed_and_non_submitting(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1058,6 +1105,25 @@ class TestFullExtractionResolver(unittest.TestCase):
             )
             self.assertIn(
                 "source-authority pp_si_di_role must remain SI",
+                result.stderr,
+            )
+            self.assertFalse(out_dir.exists())
+
+    def test_source_authority_full_v2_inventory_is_required(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture = ResolverFixture(root / "fixture")
+            source_payload = json.loads(fixture.sources.read_text())
+            source_payload["authority"]["diagnostic_sources_excluded"] = []
+            fixture.sources.write_text(
+                json.dumps(source_payload, indent=2, sort_keys=True) + "\n"
+            )
+            out_dir = root / "resolved"
+            result = self.run_command(
+                fixture.command(out_dir), expected_returncode=2
+            )
+            self.assertIn(
+                "source-authority V2 field inventory differs",
                 result.stderr,
             )
             self.assertFalse(out_dir.exists())

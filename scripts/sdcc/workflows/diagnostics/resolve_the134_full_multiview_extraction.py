@@ -57,6 +57,12 @@ MATERIALIZATION_SCHEMA = (
     "THE134_IMMUTABLE_BUILD_BUNDLE_MATERIALIZATION_V1"
 )
 SOURCE_SCHEMA = "THE134_FULL_EXTRACTION_SOURCE_AUTHORITY_V2"
+SOURCE_AUTHORITY_SCOPE = "THE134_FULL_13_ROW_TRAINING_EXTRACTION"
+SOURCE_AUTHORITY_ROW_COUNT = 13
+SOURCE_AUTHORITY_AUAU_PERIOD = "AUAU_RUN24"
+SOURCE_AUTHORITY_AUAU_SI_DI_ROLE = "EMBEDDED"
+SOURCE_AUTHORITY_OWNERSHIP_STATE = "source_role_frozen"
+SOURCE_AUTHORITY_DIAGNOSTIC_EXCLUSIONS = ("run28_jet40",)
 PLAN_SCHEMA = "THE134_FULL_MULTIVIEW_EXTRACTION_PLAN_V2"
 ROW_SCHEMA = "THE134_FULL_MULTIVIEW_EXTRACTION_ROW_V2"
 RECEIPT_SCHEMA = "THE134_FULL_MULTIVIEW_EXTRACTION_PREFLIGHT_RECEIPT_V2"
@@ -1231,6 +1237,24 @@ def validate_source_period_authority(
     if frozen_si_di_role != "SI":
         raise ControllerError(
             "source-authority pp_si_di_role must remain SI"
+        )
+    expected_authority = {
+        "scope": SOURCE_AUTHORITY_SCOPE,
+        "row_count": SOURCE_AUTHORITY_ROW_COUNT,
+        "pp_period": frozen_period,
+        "pp_si_di_role": frozen_si_di_role,
+        "auau_period": SOURCE_AUTHORITY_AUAU_PERIOD,
+        "auau_si_di_role": SOURCE_AUTHORITY_AUAU_SI_DI_ROLE,
+        "source_ownership_state": SOURCE_AUTHORITY_OWNERSHIP_STATE,
+        "diagnostic_sources_excluded": list(
+            SOURCE_AUTHORITY_DIAGNOSTIC_EXCLUSIONS
+        ),
+        "scientific_completion_granted": False,
+    }
+    if authority != expected_authority:
+        raise ControllerError(
+            "source-authority V2 field inventory differs from the canonical "
+            "13-row builder contract"
         )
     return {
         "pp_period": frozen_period,

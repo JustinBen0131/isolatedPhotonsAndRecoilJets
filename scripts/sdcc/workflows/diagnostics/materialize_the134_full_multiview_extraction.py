@@ -1337,15 +1337,20 @@ def validate_plan_and_evidence(args: argparse.Namespace) -> dict[str, Any]:
         or source_payload.get("status") != "PASS"
     ):
         raise ControllerError("source authority schema/status differs")
-    source_authority = require_mapping(
-        source_payload.get("authority"), "source authority"
-    )
-    training_period = require_mapping(
+    training_contract = require_mapping(
         plan.get("training_period_si_contract"), "training period"
-    ).get("period")
+    )
+    training_period = str(training_contract.get("period", ""))
+    try:
+        source_authority = resolver.validate_source_period_authority(
+            source_payload,
+            pp_period=training_period,
+        )
+    except resolver.ControllerError as exc:
+        raise ControllerError(str(exc)) from exc
     if source_authority != {
         "pp_period": training_period,
-        "pp_si_di_role": "SI",
+        "pp_si_di_role": training_contract.get("si_di_role"),
     }:
         raise ControllerError("source period/SI authority differs")
     if (

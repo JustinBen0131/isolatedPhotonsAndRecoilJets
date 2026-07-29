@@ -104,6 +104,7 @@ class FullControllerFixture:
         self.baseline_plan = copy.deepcopy(self.plan)
         self.baseline_budget = json.loads(self.budget_path.read_text())
         self.baseline_materialization = copy.deepcopy(self.materialization)
+        self.baseline_sources = copy.deepcopy(self.sources)
 
     def make_bundle(self) -> tuple[dict, dict[str, dict], dict]:
         materializer = resolver.bundle_materializer
@@ -317,7 +318,23 @@ class FullControllerFixture:
         sources = {
             "schema": resolver.SOURCE_SCHEMA,
             "status": "PASS",
-            "authority": {"pp_period": "0mrad", "pp_si_di_role": "SI"},
+            "authority": {
+                "scope": resolver.SOURCE_AUTHORITY_SCOPE,
+                "row_count": resolver.SOURCE_AUTHORITY_ROW_COUNT,
+                "pp_period": "0mrad",
+                "pp_si_di_role": "SI",
+                "auau_period": resolver.SOURCE_AUTHORITY_AUAU_PERIOD,
+                "auau_si_di_role": (
+                    resolver.SOURCE_AUTHORITY_AUAU_SI_DI_ROLE
+                ),
+                "source_ownership_state": (
+                    resolver.SOURCE_AUTHORITY_OWNERSHIP_STATE
+                ),
+                "diagnostic_sources_excluded": list(
+                    resolver.SOURCE_AUTHORITY_DIAGNOSTIC_EXCLUSIONS
+                ),
+                "scientific_completion_granted": False,
+            },
             "rows": [source_rows[row["row_id"]] for row in inventory],
         }
         return sources, source_rows, chunks, row_partition_data
@@ -992,6 +1009,7 @@ class FullControllerFixture:
         self.materialization_path.chmod(0o644)
         write_json(self.materialization_path, self.baseline_materialization)
         self.materialization_path.chmod(0o444)
+        write_json(self.source_path, self.baseline_sources)
         self.plan = copy.deepcopy(self.baseline_plan)
         self.write_plan_and_receipt()
         write_json(self.budget_path, self.baseline_budget)
@@ -1247,6 +1265,25 @@ class FullControllerTests(unittest.TestCase):
         self.repin_mutated_plan()
         with self.assertRaisesRegex(
             controller.ControllerError, "full_training_authority"
+        ):
+            self.validate()
+
+    def test_source_authority_builder_contract_drift_is_rejected(self) -> None:
+        sources = json.loads(self.fixture.source_path.read_text())
+        sources["authority"]["source_ownership_state"] = "ambiguous"
+        self.fixture.source_path.write_text(
+            json.dumps(sources, indent=2, sort_keys=True) + "\n"
+        )
+        self.fixture.plan["input_manifests"]["sources"]["sha256"] = sha(
+            self.fixture.source_path
+        )
+        self.fixture.plan["execution_fingerprint_sha256"] = (
+            self.fixture.execution_fingerprint(self.fixture.plan)
+        )
+        self.repin_mutated_plan()
+        with self.assertRaisesRegex(
+            controller.ControllerError,
+            "source-authority V2 field inventory differs",
         ):
             self.validate()
 
