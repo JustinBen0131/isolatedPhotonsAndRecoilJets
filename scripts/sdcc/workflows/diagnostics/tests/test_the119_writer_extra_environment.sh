@@ -117,12 +117,12 @@ printf '%s\n' \
   'set -euo pipefail' \
   'case "${TEST_EXPECTED_PHOTON_YIELD}" in' \
   '  1)' \
-  '    [[ "${RJ_PPG12_PHOTON_YIELD-}" == 1 ]]' \
-  '    [[ "${RJ_SUBMIT_EXTRA_ENV}" == *";RJ_PPG12_PHOTON_YIELD=1;"* ]]' \
+  '    [[ "${RJ_PPG12_PHOTON_YIELD-}" == 1 ]] || exit 1' \
+  '    [[ "${RJ_SUBMIT_EXTRA_ENV}" == *";RJ_PPG12_PHOTON_YIELD=1;"* ]] || exit 1' \
   '    ;;' \
   '  absent)' \
-  '    [[ "${RJ_PPG12_PHOTON_YIELD-}" == 0 ]]' \
-  '    [[ "${RJ_SUBMIT_EXTRA_ENV}" != *"RJ_PPG12_PHOTON_YIELD="* ]]' \
+  '    [[ "${RJ_PPG12_PHOTON_YIELD-}" == 0 ]] || exit 1' \
+  '    [[ "${RJ_SUBMIT_EXTRA_ENV}" != *"RJ_PPG12_PHOTON_YIELD="* ]] || exit 1' \
   '    ;;' \
   '  *) exit 2 ;;' \
   'esac' \
@@ -143,10 +143,16 @@ canary_nevents=1
 )
 (
   cd "$submit_fixture"
-  unset RJ_PPG12_PHOTON_YIELD
+  export RJ_PPG12_PHOTON_YIELD=1
   fixture_extra='SYSTEM=pp;OTHER=ok'
   export TEST_EXPECTED_PHOTON_YIELD=absent
   submit_pp pp_inclusive_sim isSimInclusive run28_jet8 direct
+)
+(
+  cd "$submit_fixture"
+  fixture_extra='SYSTEM=pp;RJ_PPG12_PHOTON_YIELD=1;OTHER=ok'
+  export TEST_EXPECTED_PHOTON_YIELD=1
+  submit_pp pp_inclusive_sim isSimInclusive run28_jet8 writer
 )
 
 provider_fixture="${tmpdir}/provider.bin"

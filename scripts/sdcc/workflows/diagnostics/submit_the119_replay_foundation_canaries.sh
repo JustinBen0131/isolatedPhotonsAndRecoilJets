@@ -377,10 +377,10 @@ submit_pp(){
   local out="$base/$arm/$lane/$sample"
   local final_extra ppg12_photon_yield=0
   final_extra="$(pp_extra "$lane" "$dataset" "$sample" "$arm" "$out")"
-  if ppg12_photon_yield="$(
+  if ! ppg12_photon_yield="$(
     environment_template_value "$final_extra" RJ_PPG12_PHOTON_YIELD
   )"; then
-    :
+    ppg12_photon_yield=0
   fi
   env RJ_PPG12_PHOTON_YIELD="$ppg12_photon_yield" \
     RJ_CONFIG_YAML="$pp_cfg" RJ_PP_LIBRARY_OVERRIDE="$pp_lib" RJ_AUTO_MERGE=0 \
