@@ -122,6 +122,152 @@ require_env_unset_or_exact() {
     { echo "[THE134][ERROR] inherited ${name} conflicts with the frozen p+p replacement runtime" >&2; return 2; }
 }
 
+validate_pp_replacement_calo_reco_authority() {
+  local build_receipt="$1"
+  local build_receipt_sha="$2"
+  local source_manifest="$3"
+  local source_manifest_sha="$4"
+  local calo_reco_library="$5"
+  local calo_reco_sha="$6"
+  local builder_header="$7"
+  local builder_header_sha="$8"
+  local release_name="$9"
+  local offline_main="${10}"
+  local expected_coresoftware_commit="${11}"
+
+  require_file_hash "CaloReco build receipt" "$build_receipt" "$build_receipt_sha" || return $?
+  require_file_hash "CaloReco source manifest" "$source_manifest" "$source_manifest_sha" || return $?
+  python3 - \
+    "$build_receipt" "$source_manifest" \
+    "$calo_reco_library" "$calo_reco_sha" \
+    "$builder_header" "$builder_header_sha" \
+    "$release_name" "$offline_main" "$expected_coresoftware_commit" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import sys
+
+(
+    receipt_arg,
+    source_arg,
+    library_arg,
+    library_sha,
+    header_arg,
+    header_sha,
+    release_name,
+    offline_main,
+    expected_commit,
+) = sys.argv[1:]
+receipt_path = Path(receipt_arg).resolve(strict=True)
+source_path = Path(source_arg).resolve(strict=True)
+library_path = Path(library_arg).resolve(strict=True)
+header_path = Path(header_arg).resolve(strict=True)
+
+def digest(path: Path) -> str:
+    value = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+            value.update(block)
+    return value.hexdigest()
+
+if digest(library_path) != library_sha or digest(header_path) != header_sha:
+    raise SystemExit("CaloReco provider/header hash drift")
+
+receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+source = json.loads(source_path.read_text(encoding="utf-8"))
+if (
+    receipt.get("schema") != "THE134_ANA560_CALORECO_BUILD_RECEIPT_V3"
+    or receipt.get("status") != "PASS"
+):
+    raise SystemExit("CaloReco build receipt authority differs")
+if source.get("schema") != "THE134_ANA560_CALORECO_SOURCE_MANIFEST_V2":
+    raise SystemExit("CaloReco source manifest authority differs")
+if (
+    receipt.get("runtime", {}).get("release") != release_name
+    or receipt.get("runtime", {}).get("offline_main") != offline_main
+    or receipt.get("build", {}).get("coresoftware_commit") != expected_commit
+    or source.get("coresoftware", {}).get("commit") != expected_commit
+):
+    raise SystemExit("CaloReco release/source authority differs")
+if receipt.get("artifact", {}).get("sha256") != library_sha:
+    raise SystemExit("CaloReco receipt library digest differs")
+receipt_artifact = (
+    receipt_path.parent / str(receipt.get("artifact", {}).get("library", ""))
+).resolve(strict=True)
+if receipt_artifact != library_path or digest(receipt_artifact) != library_sha:
+    raise SystemExit("CaloReco receipt does not bind the staged provider")
+receipt_source = receipt.get("source_manifest", {})
+if receipt_source.get("sha256") != digest(source_path):
+    raise SystemExit("CaloReco receipt/source-manifest digest cross-link differs")
+if (
+    receipt_path.parent / str(receipt_source.get("path", ""))
+).resolve(strict=True) != source_path:
+    raise SystemExit("CaloReco receipt/source-manifest path cross-link differs")
+
+abi = receipt.get("abi", {})
+if (
+    abi.get("status") != "PASS"
+    or abi.get("soname") != "libcalo_reco.so.0"
+    or abi.get("soname_expected") != "libcalo_reco.so.0"
+    or abi.get("needed_exact_match") is not True
+    or abi.get("rpath_runpath_exact_match") is not True
+    or abi.get("removed_symbols", {}).get("count") != 0
+):
+    raise SystemExit("CaloReco ABI/SONAME authority differs")
+for loader_name in ("libcalo_reco.so", "libcalo_reco.so.0"):
+    loader_path = receipt_path.parent / "install/lib" / loader_name
+    if not loader_path.is_symlink() or loader_path.resolve(strict=True) != library_path:
+        raise SystemExit(f"CaloReco loader alias differs: {loader_name}")
+
+single = receipt.get("single_provider", {})
+provider_probe = single.get("provider_probe", {})
+if (
+    single.get("photon_cluster_builder_process_event_definitions") != 1
+    or single.get("raw_cluster_builder_topo_process_event_definitions") != 1
+    or single.get("forbidden_standalone_provider_count") != 0
+    or single.get("other_installed_shared_objects") != []
+    or provider_probe.get("status") != "PASS"
+    or provider_probe.get("preload_provider_count") != 0
+    or provider_probe.get("provider_count") != 1
+):
+    raise SystemExit("CaloReco receipt does not prove one complete provider")
+recorded_probe = str(provider_probe.get("provider_realpath", ""))
+if not recorded_probe or Path(recorded_probe).name != library_path.name:
+    raise SystemExit("CaloReco provider-probe provenance is incomplete")
+
+runtime = receipt.get("runtime", {})
+root_load = runtime.get("root_load", {})
+if (
+    runtime.get("ldd_not_found") is not False
+    or runtime.get("mutable_user_dependency") is not False
+    or root_load.get("status") != "PASS"
+    or root_load.get("load_return_code") != 0
+    or root_load.get("preload_provider_count") != 0
+    or root_load.get("provider_count") != 1
+):
+    raise SystemExit("CaloReco runtime provider authority differs")
+recorded_runtime = str(root_load.get("provider_realpath", ""))
+if not recorded_runtime or Path(recorded_runtime).name != library_path.name:
+    raise SystemExit("CaloReco runtime-proof provenance is incomplete")
+
+mapping = receipt.get("mapping_patch", {})
+if (
+    mapping.get("id")
+    != "THE134_RAWCLUSTERBUILDERTOPO_DETECTOR_EXPLICIT_CHANNEL_MAP_V1"
+    or mapping.get("scientific_controls_changed") != []
+    or source.get("mapping_patch", {}).get("changed_scientific_controls") != []
+):
+    raise SystemExit("CaloReco mapping/scientific authority differs")
+if (
+    source.get("overlay", {})
+    .get("PhotonClusterBuilder.h", {})
+    .get("staged_sha256")
+    != header_sha
+):
+    raise SystemExit("CaloReco source/header authority differs")
+PY
+}
+
 configure_pp_replacement_runtime_provider() {
   local calo_reco_library="$1"
   local calo_reco_sha="$2"
@@ -138,6 +284,10 @@ configure_pp_replacement_runtime_provider() {
   local jetbase="${13}"
   local jetbase_sha="${14}"
   local soname="${15}"
+  local build_receipt="${16}"
+  local build_receipt_sha="${17}"
+  local source_manifest="${18}"
+  local source_manifest_sha="${19}"
 
   [[ "$release_name" == ana.560 ]] ||
     { echo "[THE134][ERROR] p+p replacement runtime must remain pinned to ana.560" >&2; return 2; }
@@ -158,6 +308,13 @@ configure_pp_replacement_runtime_provider() {
   require_file_hash "ana.560 libcalo_io" "$calo_io" "$calo_io_sha" || return $?
   require_file_hash "ana.560 libclusteriso" "$clusteriso" "$clusteriso_sha" || return $?
   require_file_hash "ana.560 libjetbase" "$jetbase" "$jetbase_sha" || return $?
+  validate_pp_replacement_calo_reco_authority \
+    "$build_receipt" "$build_receipt_sha" \
+    "$source_manifest" "$source_manifest_sha" \
+    "$calo_reco_library" "$calo_reco_sha" \
+    "$builder_header" "$builder_header_sha" \
+    "$release_name" "$offline_main" \
+    cba274033b5560e32600cdeaa7676b6ab4a6c971 || return $?
 
   require_env_unset_or_exact RJ_PP_LIBRARY_OVERRIDE "$pp_library" || return $?
   require_env_unset_or_exact RJ_AUAU_LIBRARY_OVERRIDE "$auau_library" || return $?
@@ -172,6 +329,10 @@ configure_pp_replacement_runtime_provider() {
   require_env_unset_or_exact RJ_RELEASE_CORE_LIB64_DIR "$release_lib64" || return $?
   require_env_unset_or_exact RJ_FORCE_RELEASE_CORE_LIBS 0 || return $?
   require_env_unset_or_exact RJ_FORCE_RELEASE_CALO_IO 0 || return $?
+  require_env_unset_or_exact RJ_PINNED_CALO_RECO_BUILD_RECEIPT "$build_receipt" || return $?
+  require_env_unset_or_exact RJ_PINNED_CALO_RECO_BUILD_RECEIPT_SHA256 "$build_receipt_sha" || return $?
+  require_env_unset_or_exact RJ_PINNED_CALO_RECO_SOURCE_MANIFEST "$source_manifest" || return $?
+  require_env_unset_or_exact RJ_PINNED_CALO_RECO_SOURCE_MANIFEST_SHA256 "$source_manifest_sha" || return $?
 
   export RJ_PP_LIBRARY_OVERRIDE="$pp_library"
   export RJ_AUAU_LIBRARY_OVERRIDE="$auau_library"
@@ -194,6 +355,10 @@ configure_pp_replacement_runtime_provider() {
   export RJ_RELEASE_CORE_LIB64_DIR="$release_lib64"
   export RJ_FORCE_RELEASE_CORE_LIBS=0
   export RJ_FORCE_RELEASE_CALO_IO=0
+  export RJ_PINNED_CALO_RECO_BUILD_RECEIPT="$build_receipt"
+  export RJ_PINNED_CALO_RECO_BUILD_RECEIPT_SHA256="$build_receipt_sha"
+  export RJ_PINNED_CALO_RECO_SOURCE_MANIFEST="$source_manifest"
+  export RJ_PINNED_CALO_RECO_SOURCE_MANIFEST_SHA256="$source_manifest_sha"
 }
 
 if (( sidecar_pp_replacement_mode )); then
@@ -213,12 +378,27 @@ auau_library="${RJ_THE134_AUAU_LIBRARY:-${build_root}/install/auau/lib/libRecoil
 if (( sidecar_pp_replacement_mode )); then
   : "${RJ_THE134_CALO_RECO_LIBRARY_SHA256:?set the frozen CaloReco library SHA-256}"
   : "${RJ_THE134_PHOTON_CLUSTER_BUILDER_HEADER_SHA256:?set the frozen PhotonClusterBuilder header SHA-256}"
+  : "${RJ_THE134_CALO_RECO_BUILD_RECEIPT_SHA256:?set the frozen CaloReco build-receipt SHA-256}"
+  : "${RJ_THE134_CALO_RECO_SOURCE_MANIFEST_SHA256:?set the frozen CaloReco source-manifest SHA-256}"
+  readonly replacement_expected_calo_reco_sha=b32e89b3b43efa57dc825f7e0b81f126b8886fe5b83c2f9337524432539b755b
+  readonly replacement_expected_builder_header_sha=255fb1b4b9a0fdb9b0ee4709483ac30a04ee8dd2813f99e6afc3914e5cd1e20f
+  readonly replacement_expected_calo_reco_build_receipt_sha=ff397bfe281105454ac70b9f308efa960c81a29f3cba6903cf1aa650d4c41f0c
+  readonly replacement_expected_calo_reco_source_manifest_sha=9dc58e9c0a6dc5ccc42d0baf86cb04ed17b4a0b6e5ba390b7745b1332cf8ade4
+  [[ "$RJ_THE134_CALO_RECO_LIBRARY_SHA256" == "$replacement_expected_calo_reco_sha" ]] ||
+    { echo "[THE134][ERROR] p+p replacement CaloReco provider is not the certified R5 authority" >&2; exit 2; }
+  [[ "$RJ_THE134_PHOTON_CLUSTER_BUILDER_HEADER_SHA256" == "$replacement_expected_builder_header_sha" ]] ||
+    { echo "[THE134][ERROR] p+p replacement PhotonClusterBuilder header is not the certified R5 authority" >&2; exit 2; }
+  [[ "$RJ_THE134_CALO_RECO_BUILD_RECEIPT_SHA256" == "$replacement_expected_calo_reco_build_receipt_sha" ]] ||
+    { echo "[THE134][ERROR] p+p replacement CaloReco build receipt is not the certified R5 authority" >&2; exit 2; }
+  [[ "$RJ_THE134_CALO_RECO_SOURCE_MANIFEST_SHA256" == "$replacement_expected_calo_reco_source_manifest_sha" ]] ||
+    { echo "[THE134][ERROR] p+p replacement CaloReco source manifest is not the certified R5 authority" >&2; exit 2; }
   readonly replacement_release_name=ana.560
   readonly replacement_offline_main=/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.560
   readonly replacement_release_lib="${replacement_offline_main}/lib"
   readonly replacement_release_lib64="${replacement_offline_main}/lib64"
+  readonly replacement_calo_reco_authority="${build_root}/evidence/external/calo_reco_authority"
   configure_pp_replacement_runtime_provider \
-    "${build_root}/evidence/external/libcalo_reco.so" \
+    "${replacement_calo_reco_authority}/install/lib/libcalo_reco.so.0.0.0" \
     "$RJ_THE134_CALO_RECO_LIBRARY_SHA256" \
     "${build_root}/evidence/external/PhotonClusterBuilder.h" \
     "$RJ_THE134_PHOTON_CLUSTER_BUILDER_HEADER_SHA256" \
@@ -232,7 +412,11 @@ if (( sidecar_pp_replacement_mode )); then
     807a50cb16ba85d9d0232c06bf2ab9b369b38f3c3626554de9827cdd80225bd2 \
     "${replacement_release_lib}/libjetbase.so" \
     d992f11a1e6a1ccb1d74c6e09da79114c9e9742fd2f9cf5a3bc284c8aec9d507 \
-    libcalo_reco.so.0
+    libcalo_reco.so.0 \
+    "${replacement_calo_reco_authority}/build_receipt.json" \
+    "$RJ_THE134_CALO_RECO_BUILD_RECEIPT_SHA256" \
+    "${replacement_calo_reco_authority}/source_manifest.json" \
+    "$RJ_THE134_CALO_RECO_SOURCE_MANIFEST_SHA256"
 fi
 
 factorial_semantic_sha="$({

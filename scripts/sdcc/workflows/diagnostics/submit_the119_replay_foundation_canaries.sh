@@ -85,6 +85,10 @@ pinned_clusteriso="${RJ_PINNED_RELEASE_CLUSTERISO_PATH:-}"
 pinned_clusteriso_sha="${RJ_PINNED_RELEASE_CLUSTERISO_SHA256:-}"
 pinned_jetbase="${RJ_PINNED_RELEASE_JETBASE_PATH:-}"
 pinned_jetbase_sha="${RJ_PINNED_RELEASE_JETBASE_SHA256:-}"
+pinned_calo_reco_build_receipt="${RJ_PINNED_CALO_RECO_BUILD_RECEIPT:-}"
+pinned_calo_reco_build_receipt_sha="${RJ_PINNED_CALO_RECO_BUILD_RECEIPT_SHA256:-}"
+pinned_calo_reco_source_manifest="${RJ_PINNED_CALO_RECO_SOURCE_MANIFEST:-}"
+pinned_calo_reco_source_manifest_sha="${RJ_PINNED_CALO_RECO_SOURCE_MANIFEST_SHA256:-}"
 
 export RJ_CODEX_CHAT_NAME="THE-114+THE-119 | pp/AuAu Replay Foundation"
 export RJ_CODEX_THREAD_ID="019f80b5-dc56-7330-9ee7-56ef417547dc"
@@ -253,6 +257,8 @@ $pinned_builder_header	$pinned_builder_header_sha
 $pinned_calo_io	$pinned_calo_io_sha
 $pinned_clusteriso	$pinned_clusteriso_sha
 $pinned_jetbase	$pinned_jetbase_sha
+$pinned_calo_reco_build_receipt	$pinned_calo_reco_build_receipt_sha
+$pinned_calo_reco_source_manifest	$pinned_calo_reco_source_manifest_sha
 EOF
   [[ "$pinned_calo_io" == "${pinned_release_lib}/libcalo_io.so" &&
      "$pinned_clusteriso" == "${pinned_release_lib}/libclusteriso.so" &&
@@ -470,8 +476,8 @@ preflight(){
   bash -n "$0" scripts/sdcc/runtime/condor/RecoilJets_Condor.sh scripts/sdcc/runtime/condor/RecoilJets_Condor_AuAu.sh
   mkdir -p "$evidence"
   {
-    printf 'tag=%s\nbase=%s\ncode_commit=%s\ncode_sha256=%s\nschema_sha=%s\nsemantic_sha=%s\npp_model_shower_definition=%s\npp_reference_model_shower_definition=%s\nauau_model_shower_definition=%s\nphoton_capture_et_min_gev=%s\njet_constituent_pt_min_gev=%s\ncanary_nevents=%s\nreplay_trace=%s\npp_direct_witness_qa=%s\npp_witness_profile=%s\npp_witness_only_keys=%s\nonly_keys=%s\nsource_sha_override=%s\nextra_common_template=%s\nextra_pp_template=%s\nextra_auau_template=%s\nwriter_extra_common_template=%s\nwriter_extra_pp_template=%s\nwriter_extra_auau_template=%s\npinned_calo_reco_mode=%s\npinned_calo_reco_soname=%s\npinned_release_name=%s\npinned_offline_main=%s\npinned_release_lib=%s\npinned_release_lib64=%s\npinned_calo_reco_sha256=%s\npinned_builder_header_sha256=%s\npinned_calo_io_sha256=%s\npinned_clusteriso_sha256=%s\npinned_jetbase_sha256=%s\n' \
-      "$tag" "$base" "$code_commit" "$code_sha" "$schema_sha" "$semantic_sha" "$pp_model_shower_definition" "$pp_ref_shower_definition" "$auau_model_shower_definition" "$photon_capture_et_min" "$jet_constituent_pt_min" "$canary_nevents" "$replay_trace" "$pp_direct_witness_qa" "$pp_witness_profile" "$pp_witness_only_keys" "$only_keys" "$source_sha_override" "$extra_common_template" "$extra_pp_template" "$extra_auau_template" "$writer_extra_common_template" "$writer_extra_pp_template" "$writer_extra_auau_template" "$pinned_calo_reco_mode" "$pinned_calo_reco_soname" "$pinned_release_name" "$pinned_offline_main" "$pinned_release_lib" "$pinned_release_lib64" "$pinned_calo_reco_sha" "$pinned_builder_header_sha" "$pinned_calo_io_sha" "$pinned_clusteriso_sha" "$pinned_jetbase_sha"
+    printf 'tag=%s\nbase=%s\ncode_commit=%s\ncode_sha256=%s\nschema_sha=%s\nsemantic_sha=%s\npp_model_shower_definition=%s\npp_reference_model_shower_definition=%s\nauau_model_shower_definition=%s\nphoton_capture_et_min_gev=%s\njet_constituent_pt_min_gev=%s\ncanary_nevents=%s\nreplay_trace=%s\npp_direct_witness_qa=%s\npp_witness_profile=%s\npp_witness_only_keys=%s\nonly_keys=%s\nsource_sha_override=%s\nextra_common_template=%s\nextra_pp_template=%s\nextra_auau_template=%s\nwriter_extra_common_template=%s\nwriter_extra_pp_template=%s\nwriter_extra_auau_template=%s\npinned_calo_reco_mode=%s\npinned_calo_reco_soname=%s\npinned_release_name=%s\npinned_offline_main=%s\npinned_release_lib=%s\npinned_release_lib64=%s\npinned_calo_reco_sha256=%s\npinned_builder_header_sha256=%s\npinned_calo_io_sha256=%s\npinned_clusteriso_sha256=%s\npinned_jetbase_sha256=%s\npinned_calo_reco_build_receipt_sha256=%s\npinned_calo_reco_source_manifest_sha256=%s\n' \
+      "$tag" "$base" "$code_commit" "$code_sha" "$schema_sha" "$semantic_sha" "$pp_model_shower_definition" "$pp_ref_shower_definition" "$auau_model_shower_definition" "$photon_capture_et_min" "$jet_constituent_pt_min" "$canary_nevents" "$replay_trace" "$pp_direct_witness_qa" "$pp_witness_profile" "$pp_witness_only_keys" "$only_keys" "$source_sha_override" "$extra_common_template" "$extra_pp_template" "$extra_auau_template" "$writer_extra_common_template" "$writer_extra_pp_template" "$writer_extra_auau_template" "$pinned_calo_reco_mode" "$pinned_calo_reco_soname" "$pinned_release_name" "$pinned_offline_main" "$pinned_release_lib" "$pinned_release_lib64" "$pinned_calo_reco_sha" "$pinned_builder_header_sha" "$pinned_calo_io_sha" "$pinned_clusteriso_sha" "$pinned_jetbase_sha" "$pinned_calo_reco_build_receipt_sha" "$pinned_calo_reco_source_manifest_sha"
     sha256sum "$pp_cfg" "$auau_cfg" "$pp_lib" "$auau_lib" "$pp_model" "$pp_ref" "$auau_model"
     if [[ "$pinned_calo_reco_mode" == 1 ]]; then
       sha256sum \
@@ -479,7 +485,9 @@ preflight(){
         "$pinned_builder_header" \
         "$pinned_calo_io" \
         "$pinned_clusteriso" \
-        "$pinned_jetbase"
+        "$pinned_jetbase" \
+        "$pinned_calo_reco_build_receipt" \
+        "$pinned_calo_reco_source_manifest"
     fi
     if [[ "$pp_witness_profile" == period_si_di ]]; then
       sha256sum "$pp_di_lib" "$pp_di_canary_manifest" \

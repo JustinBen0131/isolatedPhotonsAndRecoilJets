@@ -77,6 +77,12 @@ for required in \
   'RJ_PINNED_CALO_RECO_SONAME="$soname"' \
   'RJ_PINNED_CALO_RECO_SHA256="$calo_reco_sha"' \
   'RJ_PINNED_PHOTON_CLUSTER_BUILDER_HEADER_SHA256="$builder_header_sha"' \
+  'RJ_PINNED_CALO_RECO_BUILD_RECEIPT_SHA256="$build_receipt_sha"' \
+  'RJ_PINNED_CALO_RECO_SOURCE_MANIFEST_SHA256="$source_manifest_sha"' \
+  'replacement_expected_calo_reco_sha=b32e89b3b43efa57dc825f7e0b81f126b8886fe5b83c2f9337524432539b755b' \
+  'replacement_expected_builder_header_sha=255fb1b4b9a0fdb9b0ee4709483ac30a04ee8dd2813f99e6afc3914e5cd1e20f' \
+  'replacement_expected_calo_reco_build_receipt_sha=ff397bfe281105454ac70b9f308efa960c81a29f3cba6903cf1aa650d4c41f0c' \
+  'replacement_expected_calo_reco_source_manifest_sha=9dc58e9c0a6dc5ccc42d0baf86cb04ed17b4a0b6e5ba390b7745b1332cf8ade4' \
   'RJ_AUAU_LIBRARY_OVERRIDE="$auau_library"' \
   'readonly replacement_release_name=ana.560' \
   'readonly replacement_offline_main=/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.560' \
@@ -107,6 +113,7 @@ eval "$(sed -n '/^require_sha256()/,/^}/p' "$wrapper")"
 eval "$(sed -n '/^sha256_file()/,/^}/p' "$wrapper")"
 eval "$(sed -n '/^require_file_hash()/,/^}/p' "$wrapper")"
 eval "$(sed -n '/^require_env_unset_or_exact()/,/^}/p' "$wrapper")"
+eval "$(sed -n '/^validate_pp_replacement_calo_reco_authority()/,/^}/p' "$wrapper")"
 eval "$(sed -n '/^configure_pp_replacement_runtime_provider()/,/^}/p' "$wrapper")"
 eval "$(sed -n '/^validate_terminal_rows()/,/^}/p' "$wrapper")"
 
@@ -172,7 +179,10 @@ provider_root="${tmpdir}/release/release_ana/ana.560"
 mkdir -p "${provider_root}/lib" "${provider_root}/lib64"
 pp_lib="${tmpdir}/libRecoilJets.so"
 auau_lib="${tmpdir}/libRecoilJetsAuAu.so"
-pinned_calo_reco_library="${tmpdir}/libcalo_reco.so"
+calo_authority="${tmpdir}/calo-authority"
+mkdir -p "${calo_authority}/install/lib"
+pinned_calo_reco_library="${calo_authority}/install/lib/libcalo_reco.so.0.0.0"
+original_proof_library="${tmpdir}/original-r5/install/lib/libcalo_reco.so.0.0.0"
 pinned_builder_header="${tmpdir}/PhotonClusterBuilder.h"
 pinned_calo_io="${provider_root}/lib/libcalo_io.so"
 pinned_clusteriso="${provider_root}/lib/libclusteriso.so"
@@ -183,8 +193,88 @@ for provider in \
   "$pinned_jetbase"; do
   printf 'provider=%s\n' "$(basename "$provider")" > "$provider"
 done
+ln -s libcalo_reco.so.0.0.0 "${calo_authority}/install/lib/libcalo_reco.so"
+ln -s libcalo_reco.so.0.0.0 "${calo_authority}/install/lib/libcalo_reco.so.0"
 pp_library="$pp_lib"
 auau_library="$auau_lib"
+pinned_builder_header_sha="$(sha256_file "$pinned_builder_header")"
+pinned_calo_reco_sha="$(sha256_file "$pinned_calo_reco_library")"
+cat > "${calo_authority}/source_manifest.json" <<JSON
+{
+  "schema": "THE134_ANA560_CALORECO_SOURCE_MANIFEST_V2",
+  "coresoftware": {
+    "commit": "cba274033b5560e32600cdeaa7676b6ab4a6c971"
+  },
+  "mapping_patch": {
+    "changed_scientific_controls": []
+  },
+  "overlay": {
+    "PhotonClusterBuilder.h": {
+      "staged_sha256": "${pinned_builder_header_sha}"
+    }
+  }
+}
+JSON
+pinned_calo_reco_source_manifest="${calo_authority}/source_manifest.json"
+pinned_calo_reco_source_manifest_sha="$(sha256_file "$pinned_calo_reco_source_manifest")"
+cat > "${calo_authority}/build_receipt.json" <<JSON
+{
+  "schema": "THE134_ANA560_CALORECO_BUILD_RECEIPT_V3",
+  "status": "PASS",
+  "runtime": {
+    "release": "ana.560",
+    "offline_main": "${provider_root}",
+    "ldd_not_found": false,
+    "mutable_user_dependency": false,
+    "root_load": {
+      "status": "PASS",
+      "load_return_code": 0,
+      "preload_provider_count": 0,
+      "provider_count": 1,
+      "provider_realpath": "${original_proof_library}"
+    }
+  },
+  "build": {
+    "coresoftware_commit": "cba274033b5560e32600cdeaa7676b6ab4a6c971"
+  },
+  "artifact": {
+    "sha256": "${pinned_calo_reco_sha}",
+    "library": "install/lib/libcalo_reco.so.0.0.0"
+  },
+  "source_manifest": {
+    "sha256": "${pinned_calo_reco_source_manifest_sha}",
+    "path": "source_manifest.json"
+  },
+  "abi": {
+    "status": "PASS",
+    "soname": "libcalo_reco.so.0",
+    "soname_expected": "libcalo_reco.so.0",
+    "needed_exact_match": true,
+    "rpath_runpath_exact_match": true,
+    "removed_symbols": {
+      "count": 0
+    }
+  },
+  "single_provider": {
+    "photon_cluster_builder_process_event_definitions": 1,
+    "raw_cluster_builder_topo_process_event_definitions": 1,
+    "forbidden_standalone_provider_count": 0,
+    "other_installed_shared_objects": [],
+    "provider_probe": {
+      "status": "PASS",
+      "preload_provider_count": 0,
+      "provider_count": 1,
+      "provider_realpath": "${original_proof_library}"
+    }
+  },
+  "mapping_patch": {
+    "id": "THE134_RAWCLUSTERBUILDERTOPO_DETECTOR_EXPLICIT_CHANNEL_MAP_V1",
+    "scientific_controls_changed": []
+  }
+}
+JSON
+pinned_calo_reco_build_receipt="${calo_authority}/build_receipt.json"
+pinned_calo_reco_build_receipt_sha="$(sha256_file "$pinned_calo_reco_build_receipt")"
 unset \
   RJ_PP_LIBRARY_OVERRIDE \
   RJ_AUAU_LIBRARY_OVERRIDE \
@@ -206,15 +296,21 @@ unset \
   RJ_RELEASE_CORE_LIB_DIR \
   RJ_RELEASE_CORE_LIB64_DIR \
   RJ_FORCE_RELEASE_CORE_LIBS \
-  RJ_FORCE_RELEASE_CALO_IO
+  RJ_FORCE_RELEASE_CALO_IO \
+  RJ_PINNED_CALO_RECO_BUILD_RECEIPT \
+  RJ_PINNED_CALO_RECO_BUILD_RECEIPT_SHA256 \
+  RJ_PINNED_CALO_RECO_SOURCE_MANIFEST \
+  RJ_PINNED_CALO_RECO_SOURCE_MANIFEST_SHA256
 configure_pp_replacement_runtime_provider \
-  "$pinned_calo_reco_library" "$(sha256_file "$pinned_calo_reco_library")" \
-  "$pinned_builder_header" "$(sha256_file "$pinned_builder_header")" \
+  "$pinned_calo_reco_library" "$pinned_calo_reco_sha" \
+  "$pinned_builder_header" "$pinned_builder_header_sha" \
   ana.560 "$provider_root" "${provider_root}/lib" "${provider_root}/lib64" \
   "$pinned_calo_io" "$(sha256_file "$pinned_calo_io")" \
   "$pinned_clusteriso" "$(sha256_file "$pinned_clusteriso")" \
   "$pinned_jetbase" "$(sha256_file "$pinned_jetbase")" \
-  libcalo_reco.so.0
+  libcalo_reco.so.0 \
+  "$pinned_calo_reco_build_receipt" "$pinned_calo_reco_build_receipt_sha" \
+  "$pinned_calo_reco_source_manifest" "$pinned_calo_reco_source_manifest_sha"
 child_provider_environment="$(env)"
 for inherited in \
   "RJ_PP_LIBRARY_OVERRIDE=${pp_lib}" \
@@ -232,7 +328,11 @@ for inherited in \
   "RJ_RELEASE_CORE_LIB_DIR=${provider_root}/lib" \
   "RJ_RELEASE_CORE_LIB64_DIR=${provider_root}/lib64" \
   'RJ_FORCE_RELEASE_CORE_LIBS=0' \
-  'RJ_FORCE_RELEASE_CALO_IO=0'; do
+  'RJ_FORCE_RELEASE_CALO_IO=0' \
+  "RJ_PINNED_CALO_RECO_BUILD_RECEIPT=${pinned_calo_reco_build_receipt}" \
+  "RJ_PINNED_CALO_RECO_BUILD_RECEIPT_SHA256=${pinned_calo_reco_build_receipt_sha}" \
+  "RJ_PINNED_CALO_RECO_SOURCE_MANIFEST=${pinned_calo_reco_source_manifest}" \
+  "RJ_PINNED_CALO_RECO_SOURCE_MANIFEST_SHA256=${pinned_calo_reco_source_manifest_sha}"; do
   grep -Fx -- "$inherited" <<< "$child_provider_environment" >/dev/null ||
     { printf 'configured provider field was not inherited: %s\n' "$inherited" >&2; exit 1; }
 done
@@ -248,6 +348,10 @@ pinned_release_name="$RJ_PINNED_RELEASE_NAME"
 pinned_offline_main="$RJ_PINNED_OFFLINE_MAIN"
 pinned_release_lib="$RJ_RELEASE_CORE_LIB_DIR"
 pinned_release_lib64="$RJ_RELEASE_CORE_LIB64_DIR"
+pinned_calo_reco_build_receipt="$RJ_PINNED_CALO_RECO_BUILD_RECEIPT"
+pinned_calo_reco_build_receipt_sha="$RJ_PINNED_CALO_RECO_BUILD_RECEIPT_SHA256"
+pinned_calo_reco_source_manifest="$RJ_PINNED_CALO_RECO_SOURCE_MANIFEST"
+pinned_calo_reco_source_manifest_sha="$RJ_PINNED_CALO_RECO_SOURCE_MANIFEST_SHA256"
 validate_pinned_runtime_provider
 
 valid_calo_sha="$pinned_calo_reco_sha"
@@ -273,6 +377,42 @@ if ( validate_pinned_runtime_provider ) >/dev/null 2>&1; then
 fi
 pinned_clusteriso="$wrong_clusteriso"
 pinned_clusteriso_sha="$(sha256_file "$pinned_clusteriso")"
+valid_receipt_sha="$pinned_calo_reco_build_receipt_sha"
+pinned_calo_reco_build_receipt_sha=0000000000000000000000000000000000000000000000000000000000000000
+if ( validate_pinned_runtime_provider ) >/dev/null 2>&1; then
+  printf 'wrong CaloReco build-receipt hash was accepted\n' >&2
+  exit 1
+fi
+pinned_calo_reco_build_receipt_sha="$valid_receipt_sha"
+valid_source_sha="$pinned_calo_reco_source_manifest_sha"
+pinned_calo_reco_source_manifest_sha=0000000000000000000000000000000000000000000000000000000000000000
+if ( validate_pinned_runtime_provider ) >/dev/null 2>&1; then
+  printf 'wrong CaloReco source-manifest hash was accepted\n' >&2
+  exit 1
+fi
+pinned_calo_reco_source_manifest_sha="$valid_source_sha"
+cp "$pinned_calo_reco_build_receipt" "${calo_authority}/mutable_receipt.json"
+python3 - "${calo_authority}/mutable_receipt.json" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+payload = json.loads(path.read_text(encoding="utf-8"))
+payload["runtime"]["mutable_user_dependency"] = True
+path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
+if ( validate_pp_replacement_calo_reco_authority \
+  "${calo_authority}/mutable_receipt.json" \
+  "$(sha256_file "${calo_authority}/mutable_receipt.json")" \
+  "$pinned_calo_reco_source_manifest" "$pinned_calo_reco_source_manifest_sha" \
+  "$pinned_calo_reco_library" "$pinned_calo_reco_sha" \
+  "$pinned_builder_header" "$pinned_builder_header_sha" \
+  ana.560 "$provider_root" cba274033b5560e32600cdeaa7676b6ab4a6c971 ) \
+  >/dev/null 2>&1; then
+  printf 'mutable CaloReco runtime authority was accepted\n' >&2
+  exit 1
+fi
 unset RJ_AUAU_LIBRARY_OVERRIDE
 require_env_unset_or_exact RJ_AUAU_LIBRARY_OVERRIDE /frozen/auau.so
 RJ_AUAU_LIBRARY_OVERRIDE=/mutable/default/auau.so
