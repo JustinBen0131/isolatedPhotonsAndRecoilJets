@@ -12,6 +12,7 @@ import tempfile
 import unittest
 from decimal import Decimal
 from pathlib import Path
+from typing import Callable
 from unittest import mock
 
 
@@ -40,6 +41,16 @@ class PreExtractionStorageTests(unittest.TestCase):
             side_effect=lambda payload: dict(payload),
         )
         self.amendment_validator = self.amendment_validator_patch.start()
+        # These focused projector fixtures intentionally model only the
+        # storage-chain surface.  Exact 18,577-job serializer replay is covered
+        # end-to-end by the controller-budget builder tests using the full
+        # resolver/materializer fixture.
+        self.exact_replay_patch = mock.patch.object(
+            projector,
+            "verify_exact_controller_derivation",
+            return_value=None,
+        )
+        self.exact_replay = self.exact_replay_patch.start()
         bulk_parent = self.root / "bulk"
         submit_parent = self.root / "submit"
         evidence_parent = self.root / "evidence"
@@ -75,6 +86,7 @@ class PreExtractionStorageTests(unittest.TestCase):
             ),
         }
         self.plan = {
+            "schema": projector.resolver.PLAN_SCHEMA,
             "campaign": {
                 "output_root": str(bulk_parent / "the134"),
                 "submit_root": str(submit_parent / "the134"),
@@ -91,12 +103,49 @@ class PreExtractionStorageTests(unittest.TestCase):
             "materialization_receipt": self.write_binding_artifact(
                 "materialization"
             ),
-            "execution_partition_sha256": "7" * 64,
-            "partition_artifact_sha256": "8" * 64,
         }
+        self.source_authority = self.write_source_authority()
+        self.partition_artifact = self.write_binding_artifact("partition")
+        self.plan.update(
+            {
+                "input_manifests": {
+                    "sources": {
+                        "path": self.source_authority["path"],
+                        "sha256": self.source_authority["sha256"],
+                    }
+                },
+                "execution_partition": {
+                    "expected_job_count": projector.EXPECTED_JOBS,
+                    "partition_artifact": {
+                        "name": Path(self.partition_artifact["path"]).name,
+                        "sha256": self.partition_artifact["sha256"],
+                    },
+                },
+                "duplicate_fingerprint_sha256": "7" * 64,
+                "execution_fingerprint_sha256": "8" * 64,
+            }
+        )
+        self.bindings["execution_partition_sha256"] = (
+            projector.resolver.canonical_sha256(
+                self.plan["execution_partition"]
+            )
+        )
+        self.bindings["partition_artifact_sha256"] = (
+            self.partition_artifact["sha256"]
+        )
+        plan_path = Path(self.bindings["plan"]["path"])
+        plan_path.write_bytes(projector.canonical_json_bytes(self.plan))
+        self.bindings["plan"].update(
+            {
+                "sha256": projector.file_sha256(plan_path),
+                "size_bytes": plan_path.stat().st_size,
+            }
+        )
         self.controller_budget = self.write_controller_budget()
+        self.controller_derivation = self.write_controller_derivation()
 
     def tearDown(self) -> None:
+        self.exact_replay_patch.stop()
         self.amendment_validator_patch.stop()
         self.temporary.cleanup()
 
@@ -178,6 +227,19 @@ class PreExtractionStorageTests(unittest.TestCase):
             "size_bytes": path.stat().st_size,
         }
 
+    def write_source_authority(self) -> dict:
+        path = self.root / "source_authority.json"
+        payload = {
+            "schema": projector.resolver.SOURCE_SCHEMA,
+            "status": "PASS",
+        }
+        path.write_bytes(projector.canonical_json_bytes(payload))
+        return {
+            "path": str(path),
+            "sha256": projector.file_sha256(path),
+            "size_bytes": path.stat().st_size,
+        }
+
     @staticmethod
     def witness(
         row_id: str, system: str, analysis_size: int, sidecar_size: int
@@ -216,15 +278,155 @@ class PreExtractionStorageTests(unittest.TestCase):
             "expected_job_count": projector.EXPECTED_JOBS,
             "storage_budget": {
                 "fixed_bytes": 1_000,
-                "fixed_inodes": 10,
+                "fixed_inodes": 4,
                 "bytes_per_job": 2_000,
-                "inodes_per_job": 4,
+                "inodes_per_job": 1,
             },
             "full_training_authority": 0,
             "full_extraction_authority": False,
         }
         path.write_text(json.dumps(payload, sort_keys=True) + "\n")
         return {"path": str(path), "sha256": projector.file_sha256(path)}
+
+    def write_controller_derivation(
+        self,
+        *,
+        path: Path | None = None,
+        mutation: Callable[[dict], None] | None = None,
+        reseal: bool = True,
+    ) -> dict:
+        output = path or (self.root / "controller_budget_derivation.json")
+        budget_path = Path(self.controller_budget["path"])
+        budget_size = budget_path.stat().st_size
+        job_exact_bytes = 20_000_000
+        payload = {
+            "schema": projector.CONTROLLER_DERIVATION_SCHEMA,
+            "status": projector.CONTROLLER_DERIVATION_STATUS,
+            "submission_performed": False,
+            "authority": {
+                "state": "NON_SUBMITTING_CONTROLLER_STORAGE_INPUT_ONLY",
+                "full_training_authority": 0,
+                "full_extraction_authority": False,
+                "science_freeze_authority": False,
+                "broad_production_authority": False,
+                "canonical_promotion": False,
+            },
+            "serializer": {
+                "path": str(projector.CONTROLLER_SERIALIZER_PATH),
+                "sha256": projector.file_sha256(
+                    projector.CONTROLLER_SERIALIZER_PATH
+                ),
+                "row_function": "staged_row",
+                "job_function": "staged_job",
+                "manifest_function": "build_staged_artifacts",
+            },
+            "inputs": {
+                "plan": dict(self.bindings["plan"]),
+                "preflight_receipt": dict(
+                    self.bindings["preflight_receipt"]
+                ),
+                "immutable_bundle": dict(self.bindings["bundle_manifest"]),
+                "immutable_materialization": dict(
+                    self.bindings["materialization_receipt"]
+                ),
+                "source_authority": dict(self.source_authority),
+                "source_partition": dict(self.partition_artifact),
+                "duplicate_fingerprint_sha256": self.plan[
+                    "duplicate_fingerprint_sha256"
+                ],
+                "execution_fingerprint_sha256": self.plan[
+                    "execution_fingerprint_sha256"
+                ],
+            },
+            "measurements": {
+                "row_record_count": projector.EXPECTED_ROW_COUNT,
+                "row_manifest_bytes": 400,
+                "job_record_count": projector.EXPECTED_JOBS,
+                "job_manifest_exact_bytes": job_exact_bytes,
+                "job_record_min_bytes": 1_000,
+                "job_record_max_bytes": 2_000,
+                "job_record_ceiling_bytes": (
+                    projector.EXPECTED_JOBS * 2_000
+                ),
+                "submit_description_bytes": 200,
+                "manifest_envelope_bytes": 400,
+                "exact_envelope_total_bytes": job_exact_bytes + 1_000,
+                "exact_envelope_total_inodes": 4,
+                "fixed_point_iterations": 2,
+            },
+            "budget_derivation": {
+                "fixed_bytes": {
+                    "value": 1_000,
+                    "basis": (
+                        "exact row manifest + exact submit description + "
+                        "maximum-width future-binding materialization manifest"
+                    ),
+                },
+                "fixed_inodes": {
+                    "value": 4,
+                    "basis": "exact dry-materialization fixed artifact inventory",
+                },
+                "bytes_per_job": {
+                    "value": 2_000,
+                    "basis": (
+                        "maximum exact staged_job canonical JSON record bytes"
+                    ),
+                },
+                "inodes_per_job": {
+                    "value": 1,
+                    "basis": (
+                        "conservative one logical controller record per job"
+                    ),
+                },
+                "expected_job_count": {
+                    "value": projector.EXPECTED_JOBS,
+                    "basis": "validated resolver partition record count",
+                },
+                "projected_bytes": (
+                    1_000 + projector.EXPECTED_JOBS * 2_000
+                ),
+                "projected_inodes": 4 + projector.EXPECTED_JOBS,
+            },
+            "future_bindings": {
+                "budget_output_path": str(budget_path),
+                "storage_certificate_path": str(
+                    self.root / "future_storage_certificate.json"
+                ),
+                "artifact_size_width_ceiling": (
+                    projector.CONTROLLER_ARTIFACT_SIZE_WIDTH_CEILING
+                ),
+            },
+            "budget_receipt": {
+                "path": str(budget_path),
+                "sha256": self.controller_budget["sha256"],
+                "size_bytes": budget_size,
+            },
+            "boundaries": [
+                "No Condor submission or job control.",
+                "No output, evidence, or submit namespace creation.",
+                (
+                    "No scientific, model, working-point, production, "
+                    "or CANONICAL authority."
+                ),
+            ],
+        }
+        if reseal:
+            if mutation is not None:
+                mutation(payload)
+            payload["derivation_semantic_sha256"] = (
+                projector.semantic_sha256(payload)
+            )
+        else:
+            payload["derivation_semantic_sha256"] = (
+                projector.semantic_sha256(payload)
+            )
+            if mutation is not None:
+                mutation(payload)
+        output.write_bytes(projector.canonical_json_bytes(payload))
+        return {
+            "path": str(output),
+            "sha256": projector.file_sha256(output),
+        }
 
     def envelopes(self) -> list[dict]:
         records = []
@@ -265,6 +467,9 @@ class PreExtractionStorageTests(unittest.TestCase):
             **projector.AUTHORITY_FIELDS,
             "bindings": {},
             "controller_dry_materialization_budget": self.controller_budget,
+            "controller_dry_materialization_derivation": (
+                self.controller_derivation
+            ),
             "retry_reserve": {"numerator": 1, "denominator": 10},
             "row_envelopes": self.envelopes(),
         }
@@ -850,6 +1055,91 @@ class PreExtractionStorageTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], projector.BLOCKED_STATUS)
         self.assertIn("CONTROLLER_BUDGET_MISSING", result["blocker_codes"])
+
+    def test_controller_derivation_is_mandatory(self) -> None:
+        spec = self.measurement_spec()
+        spec["controller_dry_materialization_derivation"] = None
+        result = projector.build_storage_manifest_from_validated(
+            spec,
+            plan=self.plan,
+            rows=self.rows,
+            witnesses=self.witnesses,
+            bindings=self.bindings,
+        )
+        self.assertEqual(result["status"], projector.BLOCKED_STATUS)
+        self.assertIn(
+            "CONTROLLER_DERIVATION_MISSING", result["blocker_codes"]
+        )
+
+    def test_stale_plan_derivation_is_rejected(self) -> None:
+        spec = self.measurement_spec()
+        spec["controller_dry_materialization_derivation"] = (
+            self.write_controller_derivation(
+                path=self.root / "stale_plan_derivation.json",
+                mutation=lambda payload: payload["inputs"]["plan"].update(
+                    {"sha256": "6" * 64}
+                ),
+            )
+        )
+        with self.assertRaisesRegex(
+            projector.ProjectionError,
+            "plan.*SHA-256|plan.*revalidated chain",
+        ):
+            projector.build_storage_manifest_from_validated(
+                spec,
+                plan=self.plan,
+                rows=self.rows,
+                witnesses=self.witnesses,
+                bindings=self.bindings,
+            )
+
+    def test_unsealed_derivation_mutation_is_rejected(self) -> None:
+        spec = self.measurement_spec()
+        spec["controller_dry_materialization_derivation"] = (
+            self.write_controller_derivation(
+                path=self.root / "mutated_derivation.json",
+                mutation=lambda payload: payload["measurements"].update(
+                    {
+                        "job_manifest_exact_bytes": (
+                            payload["measurements"][
+                                "job_manifest_exact_bytes"
+                            ]
+                            + 1
+                        )
+                    }
+                ),
+                reseal=False,
+            )
+        )
+        with self.assertRaisesRegex(projector.ProjectionError, "semantic"):
+            projector.build_storage_manifest_from_validated(
+                spec,
+                plan=self.plan,
+                rows=self.rows,
+                witnesses=self.witnesses,
+                bindings=self.bindings,
+            )
+
+    def test_resealed_serializer_mutation_is_rejected(self) -> None:
+        spec = self.measurement_spec()
+        spec["controller_dry_materialization_derivation"] = (
+            self.write_controller_derivation(
+                path=self.root / "mutated_serializer_derivation.json",
+                mutation=lambda payload: payload["serializer"].update(
+                    {"sha256": "5" * 64}
+                ),
+            )
+        )
+        with self.assertRaisesRegex(
+            projector.ProjectionError, "serializer differs"
+        ):
+            projector.build_storage_manifest_from_validated(
+                spec,
+                plan=self.plan,
+                rows=self.rows,
+                witnesses=self.witnesses,
+                bindings=self.bindings,
+            )
 
     def test_lustre_authority_signals_are_independently_fail_closed(self) -> None:
         bracketed = (

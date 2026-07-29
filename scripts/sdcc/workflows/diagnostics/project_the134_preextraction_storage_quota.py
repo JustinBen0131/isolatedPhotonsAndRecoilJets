@@ -42,6 +42,9 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 HERE = Path(__file__).resolve().parent
 RESOLVER_PATH = HERE / "resolve_the134_full_multiview_extraction.py"
 AMENDMENT_PATH = HERE / "build_the134_capacity_count_amendment.py"
+CAPACITY_BINDING_PATH = (
+    HERE / "build_the134_capacity_partition_binding.py"
+)
 
 
 def _load_local_module(name: str, path: Path) -> Any:
@@ -57,6 +60,9 @@ resolver = _load_local_module("the134_preextraction_resolver", RESOLVER_PATH)
 amendment_tool = _load_local_module(
     "the134_preextraction_count_amendment", AMENDMENT_PATH
 )
+capacity_binding_tool = _load_local_module(
+    "the134_preextraction_capacity_binding", CAPACITY_BINDING_PATH
+)
 
 
 MEASUREMENT_SPEC_SCHEMA = (
@@ -71,6 +77,17 @@ STORAGE_CERTIFICATE_SCHEMA = (
 CONTROLLER_BUDGET_SCHEMA = (
     "THE134_FULL_EXTRACTION_CONTROLLER_DRY_MATERIALIZATION_BUDGET_V1"
 )
+CONTROLLER_DERIVATION_SCHEMA = (
+    "THE134_FULL_EXTRACTION_CONTROLLER_DRY_MATERIALIZATION_BUDGET_DERIVATION_V1"
+)
+CONTROLLER_DERIVATION_STATUS = "PASS_EXACT_SERIALIZER_MEASUREMENT"
+CONTROLLER_SERIALIZER_PATH = (
+    HERE / "materialize_the134_full_multiview_extraction.py"
+)
+CONTROLLER_BUDGET_BUILDER_PATH = (
+    HERE / "build_the134_controller_dry_materialization_budget.py"
+)
+CONTROLLER_ARTIFACT_SIZE_WIDTH_CEILING = 9_999_999_999_999_999_999
 GATE = "PRE_P5A_SOURCE_EXTRACTION_STORAGE_ADMISSION"
 AUTHORITY_STATE = "NON_SUBMITTING_EXTRACTION_STORAGE_INPUT_ONLY"
 
@@ -174,6 +191,7 @@ BLOCKER_ORDER = (
     "ROW_ENVELOPE_MISSING",
     "CAPACITY_WITNESS_NOT_STORAGE_CEILING",
     "CONTROLLER_BUDGET_MISSING",
+    "CONTROLLER_DERIVATION_MISSING",
     "ARTIFACT_CLASS_MISSING",
     "QUOTA_DOMAIN_UNBOUND",
     "QUOTA_SNAPSHOT_STALE",
@@ -553,15 +571,66 @@ def validate_amendment_readback(
         raise ProjectionError("capacity-count amendment readback differs")
 
 
+def validate_capacity_binding_readback(
+    payload: Mapping[str, Any],
+    *,
+    binding_artifact: Mapping[str, Any],
+    binding: Mapping[str, Any],
+) -> None:
+    require_exact_keys(
+        payload,
+        {
+            "schema",
+            "status",
+            "authority_state",
+            "binding",
+            "binding_sha256",
+            "binding_semantic_sha256",
+            "all_evidence_rehashed",
+            "byte_exact_rebuild",
+            "legacy_evidence_consumed",
+            "submission_performed",
+            "full_training_authority",
+            "full_extraction_authority",
+        },
+        "capacity partition binding readback",
+    )
+    binding_path = Path(str(binding_artifact.get("path", ""))).absolute()
+    readback_path = Path(str(payload.get("binding", ""))).absolute()
+    if (
+        payload.get("schema") != capacity_binding_tool.READBACK_SCHEMA
+        or payload.get("status") != "PASS"
+        or payload.get("authority_state")
+        != capacity_binding_tool.AUTHORITY_STATE
+        or readback_path != binding_path
+        or payload.get("binding_sha256") != binding_artifact.get("sha256")
+        or payload.get("binding_semantic_sha256")
+        != binding.get("binding_semantic_sha256")
+        or payload.get("all_evidence_rehashed") is not True
+        or payload.get("byte_exact_rebuild") is not True
+        or payload.get("legacy_evidence_consumed") is not False
+        or payload.get("submission_performed") is not False
+        or payload.get("full_training_authority") != 0
+        or payload.get("full_extraction_authority") is not False
+    ):
+        raise ProjectionError("capacity partition binding readback differs")
+
+
 def derive_capacity_witnesses(
     amendment: Mapping[str, Any],
 ) -> dict[str, dict[str, Any]]:
-    capacity_rows = require_sequence(
-        require_mapping(
+    if amendment.get("schema") == capacity_binding_tool.BINDING_SCHEMA:
+        binding = require_mapping(
+            amendment.get("capacity_binding"),
+            "capacity binding.capacity_binding",
+        )
+    else:
+        binding = require_mapping(
             amendment.get("capacity_to_partition_binding"),
             "amendment.capacity_to_partition_binding",
-        ).get("selected_rows"),
-        "amendment capacity rows",
+        )
+    capacity_rows = require_sequence(
+        binding.get("selected_rows"), "capacity binding selected rows"
     )
     witnesses: dict[str, dict[str, Any]] = {}
     for raw in capacity_rows:
@@ -633,26 +702,50 @@ def load_revalidated_amendment_chain(
     dict[str, dict[str, Any]],
 ]:
     amendment, amendment_artifact = load_artifact(
-        amendment_ref,
-        "capacity-count amendment",
-        expected_schema=amendment_tool.AMENDMENT_SCHEMA,
+        amendment_ref, "capacity evidence binding"
     )
-    try:
-        amendment = amendment_tool.validate_amendment_payload(amendment)
-    except Exception as exc:
+    schema = amendment.get("schema")
+    if schema == amendment_tool.AMENDMENT_SCHEMA:
+        try:
+            amendment = amendment_tool.validate_amendment_payload(amendment)
+        except Exception as exc:
+            raise ProjectionError(
+                f"capacity-count amendment validation failed: {exc}"
+            ) from exc
+        readback, readback_artifact = load_artifact(
+            readback_ref,
+            "capacity-count amendment readback",
+            expected_schema=amendment_tool.READBACK_SCHEMA,
+        )
+        validate_amendment_readback(
+            readback,
+            amendment_artifact=amendment_artifact,
+            amendment=amendment,
+        )
+    elif schema == capacity_binding_tool.BINDING_SCHEMA:
+        try:
+            amendment = capacity_binding_tool.validate_binding_payload(
+                amendment
+            )
+        except Exception as exc:
+            raise ProjectionError(
+                f"capacity partition binding validation failed: {exc}"
+            ) from exc
+        readback, readback_artifact = load_artifact(
+            readback_ref,
+            "capacity partition binding readback",
+            expected_schema=capacity_binding_tool.READBACK_SCHEMA,
+        )
+        validate_capacity_binding_readback(
+            readback,
+            binding_artifact=amendment_artifact,
+            binding=amendment,
+        )
+    else:
         raise ProjectionError(
-            f"capacity-count amendment validation failed: {exc}"
-        ) from exc
-    readback, readback_artifact = load_artifact(
-        readback_ref,
-        "capacity-count amendment readback",
-        expected_schema=amendment_tool.READBACK_SCHEMA,
-    )
-    validate_amendment_readback(
-        readback,
-        amendment_artifact=amendment_artifact,
-        amendment=amendment,
-    )
+            "capacity evidence binding schema is neither the preserved "
+            "legacy amendment nor the current partition binding"
+        )
     return (
         amendment,
         amendment_artifact,
@@ -711,13 +804,18 @@ def validate_chain(
         bindings["materialization_receipt"], "materialization receipt"
     )
 
+    is_current_binding = (
+        amendment.get("schema") == capacity_binding_tool.BINDING_SCHEMA
+    )
     corrected = require_mapping(
-        amendment.get("corrected_preflight"),
-        "amendment.corrected_preflight",
+        amendment.get("preflight")
+        if is_current_binding
+        else amendment.get("corrected_preflight"),
+        "capacity binding preflight",
     )
     immutable = require_mapping(
         amendment.get("immutable_authority"),
-        "amendment.immutable_authority",
+        "capacity binding immutable_authority",
     )
     expected_bindings = {
         "plan": plan_artifact["sha256"],
@@ -740,24 +838,63 @@ def validate_chain(
         if record.get("sha256") != expected_sha:
             blockers.append("PLAN_BINDING_DRIFT")
 
-    count = require_mapping(
-        amendment.get("count_correction"), "amendment.count_correction"
-    )
-    exact_count_values = {
-        "group_size": EXPECTED_GROUP_SIZE,
-        "source_tuple_count": EXPECTED_SOURCE_TUPLES,
-        "corrected_chunk_count": EXPECTED_JOBS,
-        "corrected_job_count": EXPECTED_JOBS,
-        "corrected_output_pair_count": EXPECTED_OUTPUT_PAIRS,
-        "corrected_analysis_output_count": EXPECTED_ANALYSIS_OUTPUTS,
-        "corrected_sidecar_output_count": EXPECTED_SIDECAR_OUTPUTS,
-        "physical_root_artifact_count": EXPECTED_ROOT_ARTIFACTS,
-        "corrected_source_occurrence_count": EXPECTED_SOURCE_OCCURRENCES,
-        "source_occurrences_per_output_pair": 1,
-    }
+    if is_current_binding:
+        count = require_mapping(
+            amendment.get("count_contract"),
+            "capacity binding count_contract",
+        )
+        exact_count_values = {
+            "row_count": EXPECTED_ROW_COUNT,
+            "group_size": EXPECTED_GROUP_SIZE,
+            "source_tuple_count": EXPECTED_SOURCE_TUPLES,
+            "expected_chunk_count": EXPECTED_JOBS,
+            "expected_job_count": EXPECTED_JOBS,
+            "expected_output_pair_count": EXPECTED_OUTPUT_PAIRS,
+            "expected_analysis_output_count": EXPECTED_ANALYSIS_OUTPUTS,
+            "expected_sidecar_output_count": EXPECTED_SIDECAR_OUTPUTS,
+            "expected_physical_root_artifact_count": EXPECTED_ROOT_ARTIFACTS,
+            "expected_source_occurrence_count": EXPECTED_SOURCE_OCCURRENCES,
+            "source_occurrences_per_output_pair": 1,
+            "request_memory_mb": EXPECTED_REQUEST_MEMORY_MB,
+        }
+    else:
+        count = require_mapping(
+            amendment.get("count_correction"),
+            "amendment.count_correction",
+        )
+        exact_count_values = {
+            "group_size": EXPECTED_GROUP_SIZE,
+            "source_tuple_count": EXPECTED_SOURCE_TUPLES,
+            "corrected_chunk_count": EXPECTED_JOBS,
+            "corrected_job_count": EXPECTED_JOBS,
+            "corrected_output_pair_count": EXPECTED_OUTPUT_PAIRS,
+            "corrected_analysis_output_count": EXPECTED_ANALYSIS_OUTPUTS,
+            "corrected_sidecar_output_count": EXPECTED_SIDECAR_OUTPUTS,
+            "physical_root_artifact_count": EXPECTED_ROOT_ARTIFACTS,
+            "corrected_source_occurrence_count": EXPECTED_SOURCE_OCCURRENCES,
+            "source_occurrences_per_output_pair": 1,
+        }
     if any(count.get(key) != value for key, value in exact_count_values.items()):
         blockers.append("COUNT_CONTRACT_DRIFT")
 
+    capacity_partition = (
+        require_mapping(
+            amendment.get("capacity_binding"),
+            "capacity binding.capacity_binding",
+        )
+        if is_current_binding
+        else None
+    )
+    if capacity_partition is not None and (
+        capacity_partition.get("execution_partition_sha256")
+        != corrected.get("execution_partition_sha256")
+        or capacity_partition.get("partition_artifact_sha256")
+        != require_mapping(
+            corrected.get("partition"),
+            "capacity binding preflight partition",
+        ).get("sha256")
+    ):
+        blockers.append("PLAN_BINDING_DRIFT")
     bindings_out = {
         "plan": plan_artifact,
         "preflight_receipt": preflight_artifact,
@@ -766,15 +903,23 @@ def validate_chain(
         "bundle_manifest": bundle_artifact,
         "materialization_receipt": materialization_artifact,
         "execution_partition_sha256": require_sha256(
-            corrected.get("execution_partition_sha256"),
-            "amendment execution_partition_sha256",
+            (
+                capacity_partition.get("execution_partition_sha256")
+                if capacity_partition is not None
+                else corrected.get("execution_partition_sha256")
+            ),
+            "capacity binding execution_partition_sha256",
         ),
         "partition_artifact_sha256": require_sha256(
-            require_mapping(
-                corrected.get("partition"),
-                "amendment corrected partition",
-            ).get("sha256"),
-            "amendment partition SHA-256",
+            (
+                capacity_partition.get("partition_artifact_sha256")
+                if capacity_partition is not None
+                else require_mapping(
+                    corrected.get("partition"),
+                    "amendment corrected partition",
+                ).get("sha256")
+            ),
+            "capacity binding partition SHA-256",
         ),
     }
     return plan, rows, witnesses, bindings_out, ordered_blockers(blockers)
@@ -846,6 +991,448 @@ def validate_controller_budget(
             + EXPECTED_JOBS * normalized["inodes_per_job"]
         ),
     }, []
+
+
+def _require_matching_artifact(
+    value: object,
+    expected: Mapping[str, Any],
+    label: str,
+) -> dict[str, Any]:
+    observed = validate_materialized_artifact_record(value, label)
+    expected_path = Path(str(expected.get("path", "")))
+    if (
+        Path(observed["path"]) != expected_path
+        or observed["sha256"] != expected.get("sha256")
+        or (
+            "size_bytes" in expected
+            and observed["size_bytes"] != expected.get("size_bytes")
+        )
+    ):
+        raise ProjectionError(f"{label} differs from revalidated chain")
+    return observed
+
+
+def validate_controller_derivation(
+    value: object,
+    *,
+    controller: Mapping[str, Any] | None,
+    plan: Mapping[str, Any],
+    bindings: Mapping[str, Any],
+) -> tuple[dict[str, Any] | None, list[str]]:
+    if value is None:
+        return None, ["CONTROLLER_DERIVATION_MISSING"]
+    if controller is None:
+        return None, ["CONTROLLER_BUDGET_MISSING"]
+    try:
+        payload, artifact = load_artifact(
+            value,
+            "controller dry-materialization derivation",
+            expected_schema=CONTROLLER_DERIVATION_SCHEMA,
+        )
+    except ProjectionError as exc:
+        if "cannot read artifact" in str(exc):
+            return None, ["CONTROLLER_DERIVATION_MISSING"]
+        raise
+    require_exact_keys(
+        payload,
+        {
+            "schema",
+            "status",
+            "submission_performed",
+            "authority",
+            "serializer",
+            "inputs",
+            "measurements",
+            "budget_derivation",
+            "future_bindings",
+            "budget_receipt",
+            "boundaries",
+            "derivation_semantic_sha256",
+        },
+        "controller derivation",
+    )
+    verify_semantic_receipt(
+        payload,
+        "derivation_semantic_sha256",
+        "controller derivation",
+    )
+    authority = require_mapping(
+        payload.get("authority"), "controller derivation authority"
+    )
+    if (
+        payload.get("status") != CONTROLLER_DERIVATION_STATUS
+        or payload.get("submission_performed") is not False
+        or authority
+        != {
+            "state": "NON_SUBMITTING_CONTROLLER_STORAGE_INPUT_ONLY",
+            "full_training_authority": 0,
+            "full_extraction_authority": False,
+            "science_freeze_authority": False,
+            "broad_production_authority": False,
+            "canonical_promotion": False,
+        }
+    ):
+        raise ProjectionError("controller derivation authority/status differs")
+
+    receipt = require_mapping(
+        controller.get("receipt"), "normalized controller budget receipt"
+    )
+    _require_matching_artifact(
+        payload.get("budget_receipt"),
+        receipt,
+        "controller derivation budget receipt",
+    )
+
+    serializer = require_mapping(
+        payload.get("serializer"), "controller derivation serializer"
+    )
+    require_exact_keys(
+        serializer,
+        {"path", "sha256", "row_function", "job_function", "manifest_function"},
+        "controller derivation serializer",
+    )
+    serializer_path = CONTROLLER_SERIALIZER_PATH.absolute()
+    if (
+        Path(str(serializer.get("path", ""))) != serializer_path
+        or serializer.get("sha256") != file_sha256(serializer_path)
+        or serializer.get("row_function") != "staged_row"
+        or serializer.get("job_function") != "staged_job"
+        or serializer.get("manifest_function") != "build_staged_artifacts"
+    ):
+        raise ProjectionError("controller derivation serializer differs")
+
+    inputs = require_mapping(
+        payload.get("inputs"), "controller derivation inputs"
+    )
+    require_exact_keys(
+        inputs,
+        {
+            "plan",
+            "preflight_receipt",
+            "immutable_bundle",
+            "immutable_materialization",
+            "source_authority",
+            "source_partition",
+            "duplicate_fingerprint_sha256",
+            "execution_fingerprint_sha256",
+        },
+        "controller derivation inputs",
+    )
+    for derivation_key, binding_key in (
+        ("plan", "plan"),
+        ("preflight_receipt", "preflight_receipt"),
+        ("immutable_bundle", "bundle_manifest"),
+        ("immutable_materialization", "materialization_receipt"),
+    ):
+        expected = require_mapping(
+            bindings.get(binding_key), f"revalidated {binding_key} binding"
+        )
+        _require_matching_artifact(
+            inputs.get(derivation_key),
+            expected,
+            f"controller derivation {derivation_key}",
+        )
+
+    plan_inputs = require_mapping(
+        plan.get("input_manifests"), "revalidated plan input manifests"
+    )
+    source_ref = require_mapping(
+        plan_inputs.get("sources"), "revalidated plan source authority"
+    )
+    source_payload, source_artifact = load_artifact(
+        {
+            "path": source_ref.get("path"),
+            "sha256": source_ref.get("sha256"),
+        },
+        "revalidated plan source authority",
+    )
+    if (
+        source_payload.get("schema") != resolver.SOURCE_SCHEMA
+        or source_payload.get("status") != "PASS"
+    ):
+        raise ProjectionError("revalidated plan source authority differs")
+    _require_matching_artifact(
+        inputs.get("source_authority"),
+        source_artifact,
+        "controller derivation source authority",
+    )
+
+    partition_record = _require_matching_artifact(
+        inputs.get("source_partition"),
+        require_mapping(
+            inputs.get("source_partition"),
+            "controller derivation partition",
+        ),
+        "controller derivation source partition",
+    )
+    plan_artifact = require_mapping(
+        bindings.get("plan"), "revalidated plan binding"
+    )
+    partition_contract = require_mapping(
+        plan.get("execution_partition"), "revalidated execution partition"
+    )
+    plan_partition = require_mapping(
+        partition_contract.get("partition_artifact"),
+        "revalidated plan partition artifact",
+    )
+    expected_partition_path = (
+        Path(str(plan_artifact.get("path", ""))).absolute().parent
+        / str(plan_partition.get("name", ""))
+    )
+    if (
+        Path(partition_record["path"]) != expected_partition_path
+        or partition_record["sha256"]
+        != bindings.get("partition_artifact_sha256")
+        or partition_record["sha256"] != plan_partition.get("sha256")
+        or partition_contract.get("expected_job_count") != EXPECTED_JOBS
+        or resolver.canonical_sha256(partition_contract)
+        != bindings.get("execution_partition_sha256")
+    ):
+        raise ProjectionError("controller derivation source partition differs")
+
+    if (
+        inputs.get("duplicate_fingerprint_sha256")
+        != plan.get("duplicate_fingerprint_sha256")
+        or inputs.get("execution_fingerprint_sha256")
+        != plan.get("execution_fingerprint_sha256")
+    ):
+        raise ProjectionError("controller derivation plan fingerprints differ")
+    require_sha256(
+        inputs.get("duplicate_fingerprint_sha256"),
+        "controller derivation duplicate fingerprint",
+    )
+    require_sha256(
+        inputs.get("execution_fingerprint_sha256"),
+        "controller derivation execution fingerprint",
+    )
+
+    measurements = require_mapping(
+        payload.get("measurements"), "controller derivation measurements"
+    )
+    require_exact_keys(
+        measurements,
+        {
+            "row_record_count",
+            "row_manifest_bytes",
+            "job_record_count",
+            "job_manifest_exact_bytes",
+            "job_record_min_bytes",
+            "job_record_max_bytes",
+            "job_record_ceiling_bytes",
+            "submit_description_bytes",
+            "manifest_envelope_bytes",
+            "exact_envelope_total_bytes",
+            "exact_envelope_total_inodes",
+            "fixed_point_iterations",
+        },
+        "controller derivation measurements",
+    )
+    numeric = {
+        key: require_nonnegative_int(
+            measurements.get(key), f"controller derivation measurements.{key}"
+        )
+        for key in measurements
+    }
+    if (
+        numeric["row_record_count"] != EXPECTED_ROW_COUNT
+        or numeric["job_record_count"] != EXPECTED_JOBS
+        or numeric["job_record_max_bytes"] != controller["bytes_per_job"]
+        or numeric["job_record_min_bytes"] <= 0
+        or numeric["job_record_min_bytes"] > numeric["job_record_max_bytes"]
+        or numeric["job_record_ceiling_bytes"]
+        != EXPECTED_JOBS * controller["bytes_per_job"]
+        or numeric["job_manifest_exact_bytes"]
+        > numeric["job_record_ceiling_bytes"]
+        or numeric["fixed_point_iterations"] <= 0
+        or numeric["fixed_point_iterations"] > 32
+        or numeric["exact_envelope_total_inodes"] != 4
+    ):
+        raise ProjectionError("controller derivation measurements differ")
+
+    derived = require_mapping(
+        payload.get("budget_derivation"), "controller budget derivation"
+    )
+    require_exact_keys(
+        derived,
+        {
+            "fixed_bytes",
+            "fixed_inodes",
+            "bytes_per_job",
+            "inodes_per_job",
+            "expected_job_count",
+            "projected_bytes",
+            "projected_inodes",
+        },
+        "controller budget derivation",
+    )
+    bases = {
+        "fixed_bytes": (
+            "exact row manifest + exact submit description + "
+            "maximum-width future-binding materialization manifest"
+        ),
+        "fixed_inodes": "exact dry-materialization fixed artifact inventory",
+        "bytes_per_job": "maximum exact staged_job canonical JSON record bytes",
+        "inodes_per_job": "conservative one logical controller record per job",
+        "expected_job_count": "validated resolver partition record count",
+    }
+    expected_values = {
+        "fixed_bytes": controller["fixed_bytes"],
+        "fixed_inodes": controller["fixed_inodes"],
+        "bytes_per_job": controller["bytes_per_job"],
+        "inodes_per_job": controller["inodes_per_job"],
+        "expected_job_count": EXPECTED_JOBS,
+    }
+    for key, expected_value in expected_values.items():
+        record = require_mapping(derived.get(key), f"controller derivation {key}")
+        require_exact_keys(record, {"value", "basis"}, f"controller derivation {key}")
+        if record.get("value") != expected_value or record.get("basis") != bases[key]:
+            raise ProjectionError(f"controller derivation {key} differs")
+    if (
+        derived.get("projected_bytes") != controller["projected_bytes"]
+        or derived.get("projected_inodes") != controller["projected_inodes"]
+        or controller["fixed_bytes"]
+        != (
+            numeric["row_manifest_bytes"]
+            + numeric["submit_description_bytes"]
+            + numeric["manifest_envelope_bytes"]
+        )
+        or numeric["exact_envelope_total_bytes"]
+        != numeric["job_manifest_exact_bytes"] + controller["fixed_bytes"]
+        or numeric["exact_envelope_total_bytes"] > controller["projected_bytes"]
+        or numeric["exact_envelope_total_inodes"] > controller["projected_inodes"]
+    ):
+        raise ProjectionError("controller derivation arithmetic differs")
+
+    future = require_mapping(
+        payload.get("future_bindings"), "controller derivation future bindings"
+    )
+    require_exact_keys(
+        future,
+        {
+            "budget_output_path",
+            "storage_certificate_path",
+            "artifact_size_width_ceiling",
+        },
+        "controller derivation future bindings",
+    )
+    storage_path = Path(str(future.get("storage_certificate_path", "")))
+    if (
+        Path(str(future.get("budget_output_path", "")))
+        != Path(str(receipt.get("path", "")))
+        or not storage_path.is_absolute()
+        or future.get("artifact_size_width_ceiling")
+        != CONTROLLER_ARTIFACT_SIZE_WIDTH_CEILING
+    ):
+        raise ProjectionError("controller derivation future bindings differ")
+    if payload.get("boundaries") != [
+        "No Condor submission or job control.",
+        "No output, evidence, or submit namespace creation.",
+        "No scientific, model, working-point, production, or CANONICAL authority.",
+    ]:
+        raise ProjectionError("controller derivation boundaries differ")
+    verify_exact_controller_derivation(
+        payload,
+        controller=controller,
+        plan=plan,
+        bindings=bindings,
+    )
+    return artifact, []
+
+
+def verify_exact_controller_derivation(
+    payload: Mapping[str, Any],
+    *,
+    controller: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    bindings: Mapping[str, Any],
+) -> None:
+    """Replay the exact production serializers and reject self-authored claims.
+
+    The strict budget and its derivation are produced together, so arithmetic
+    consistency and a semantic seal alone cannot establish that the claimed
+    measurements came from the current serializers.  Reopen the pinned input
+    chain with the dedicated non-submitting builder, execute all 18,577 exact
+    staged-job serializations plus the fixed-point manifest envelope, and
+    require byte-for-byte equality with both receipts.
+    """
+
+    builder = _load_local_module(
+        "the134_controller_budget_revalidator",
+        CONTROLLER_BUDGET_BUILDER_PATH,
+    )
+    plan_binding = require_mapping(
+        bindings.get("plan"), "revalidated plan binding"
+    )
+    preflight_binding = require_mapping(
+        bindings.get("preflight_receipt"),
+        "revalidated preflight receipt binding",
+    )
+    try:
+        replay_plan, replay_plan_artifact = builder.load_pinned_json(
+            Path(str(plan_binding.get("path", ""))),
+            str(plan_binding.get("sha256", "")),
+            "revalidated extraction plan",
+        )
+        replay_receipt, replay_receipt_artifact = builder.load_pinned_json(
+            Path(str(preflight_binding.get("path", ""))),
+            str(preflight_binding.get("sha256", "")),
+            "revalidated resolver preflight receipt",
+        )
+        if replay_plan != dict(plan):
+            raise ProjectionError(
+                "controller derivation replay plan differs from validated plan"
+            )
+        context = builder.validate_input_chain(
+            plan=replay_plan,
+            plan_path=Path(str(plan_binding["path"])),
+            plan_artifact=replay_plan_artifact,
+            receipt=replay_receipt,
+            receipt_artifact=replay_receipt_artifact,
+        )
+        future = require_mapping(
+            payload.get("future_bindings"),
+            "controller derivation future bindings",
+        )
+        expected_budget, expected_derivation = builder.derive_budget(
+            context,
+            budget_output=Path(
+                str(
+                    require_mapping(
+                        controller.get("receipt"),
+                        "normalized controller budget receipt",
+                    )["path"]
+                )
+            ),
+            future_storage_certificate=Path(
+                str(future["storage_certificate_path"])
+            ),
+        )
+    except ProjectionError:
+        raise
+    except (builder.BudgetError, FileNotFoundError) as exc:
+        raise ProjectionError(
+            f"controller derivation exact serializer replay failed: {exc}"
+        ) from exc
+
+    controller_receipt = require_mapping(
+        controller.get("receipt"), "normalized controller budget receipt"
+    )
+    observed_budget, _ = load_artifact(
+        {
+            "path": controller_receipt.get("path"),
+            "sha256": controller_receipt.get("sha256"),
+        },
+        "controller budget exact serializer replay",
+        expected_schema=CONTROLLER_BUDGET_SCHEMA,
+    )
+    if observed_budget != expected_budget:
+        raise ProjectionError(
+            "controller budget differs from exact serializer replay"
+        )
+    if dict(payload) != expected_derivation:
+        raise ProjectionError(
+            "controller derivation differs from exact serializer replay"
+        )
 
 
 def normalize_row_envelopes(
@@ -996,6 +1583,13 @@ def build_storage_manifest_from_validated(
         spec.get("controller_dry_materialization_budget")
     )
     blockers.extend(controller_blockers)
+    controller_derivation, derivation_blockers = validate_controller_derivation(
+        spec.get("controller_dry_materialization_derivation"),
+        controller=controller,
+        plan=plan,
+        bindings=bindings,
+    )
+    blockers.extend(derivation_blockers)
     retry = require_mapping(spec.get("retry_reserve"), "retry_reserve")
     require_exact_keys(retry, {"numerator", "denominator"}, "retry_reserve")
     retry_numerator = require_positive_int(
@@ -1081,6 +1675,7 @@ def build_storage_manifest_from_validated(
             ],
             "row_envelopes": normalized_rows,
             "controller_dry_materialization_budget": controller,
+            "controller_dry_materialization_derivation": controller_derivation,
             "retry_reserve": {
                 "numerator": retry_numerator,
                 "denominator": retry_denominator,
@@ -1118,6 +1713,7 @@ def build_storage_manifest(spec_path: Path) -> dict[str, Any]:
             *AUTHORITY_FIELDS,
             "bindings",
             "controller_dry_materialization_budget",
+            "controller_dry_materialization_derivation",
             "retry_reserve",
             "row_envelopes",
         },
@@ -1834,6 +2430,29 @@ def validate_measurement_derivation(
         or controller.get("projected_inodes") != controller_inodes
     ):
         raise ProjectionError("measurement controller arithmetic differs")
+    plan_payload, _ = load_artifact(
+        {
+            "path": validated_binding_records["plan"]["path"],
+            "sha256": validated_binding_records["plan"]["sha256"],
+        },
+        "measurement derivation plan",
+        expected_schema=resolver.PLAN_SCHEMA,
+    )
+    derivation_record = validate_materialized_artifact_record(
+        measurement.get("controller_dry_materialization_derivation"),
+        "measurement controller derivation receipt",
+    )
+    revalidated_derivation, derivation_blockers = validate_controller_derivation(
+        {
+            "path": derivation_record["path"],
+            "sha256": derivation_record["sha256"],
+        },
+        controller=controller,
+        plan=plan_payload,
+        bindings=bindings,
+    )
+    if derivation_blockers or revalidated_derivation != derivation_record:
+        raise ProjectionError("measurement controller derivation differs")
 
     for domain, totals in derived_totals.items():
         totals["retry_reserve_bytes"] = ceil_ratio(
@@ -1929,6 +2548,7 @@ def validate_storage_manifest(payload: Mapping[str, Any]) -> dict[str, Any]:
             "capacity_witnesses",
             "row_envelopes",
             "controller_dry_materialization_budget",
+            "controller_dry_materialization_derivation",
             "retry_reserve",
             "storage_domain_roots",
             "storage_domain_totals",

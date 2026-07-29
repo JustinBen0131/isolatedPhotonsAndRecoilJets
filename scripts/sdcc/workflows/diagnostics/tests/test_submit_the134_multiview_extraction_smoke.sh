@@ -95,7 +95,7 @@ payload = {
         "capacity_authority_earned": False,
         "capacity_canary_required_before_submission": True,
         "group_size": 7,
-        "schema": "THE134_FULL_EXTRACTION_PARTITION_CONTRACT_V1",
+        "schema": "THE134_FULL_EXTRACTION_PARTITION_CONTRACT_V2",
     },
     "execution_state": "PREFLIGHT_ONLY_NO_CONDOR_MUTATION",
     "full_training_authority": 0,
@@ -122,7 +122,7 @@ payload = {
             "system": "auau",
         },
     ],
-    "schema": "THE134_FULL_MULTIVIEW_EXTRACTION_PLAN_V1",
+    "schema": "THE134_FULL_MULTIVIEW_EXTRACTION_PLAN_V2",
     "status": "PREFLIGHT_PASS",
     "submission_performed": False,
 }
@@ -142,7 +142,7 @@ payload = {
     "execution_partition_sha256": "a" * 64,
     "full_training_authority": 0,
     "materialization_receipt_sha256": "c" * 64,
-    "schema": "THE134_FULL_MULTIVIEW_EXTRACTION_PREFLIGHT_RECEIPT_V1",
+    "schema": "THE134_FULL_MULTIVIEW_EXTRACTION_PREFLIGHT_RECEIPT_V2",
     "status": "PASS",
     "submission_performed": False,
 }
@@ -150,12 +150,89 @@ path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 PY
 capacity_preflight_receipt_sha="$(sha_file "$capacity_preflight_receipt")"
 validate_capacity_preflight_contract
+python3 - "$capacity_preflight_receipt" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text())
+payload["schema"] = "THE134_FULL_MULTIVIEW_EXTRACTION_PREFLIGHT_RECEIPT_V1"
+path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+PY
+capacity_preflight_receipt_sha="$(sha_file "$capacity_preflight_receipt")"
+if ( validate_capacity_preflight_contract ) >/dev/null 2>&1; then
+  printf 'hybrid V1 receipt plus V2 plan/partition was accepted\n' >&2
+  exit 1
+fi
+python3 - "$capacity_full_plan" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text())
+payload["schema"] = "THE134_FULL_MULTIVIEW_EXTRACTION_PLAN_V1"
+payload["execution_partition"]["schema"] = (
+    "THE134_FULL_EXTRACTION_PARTITION_CONTRACT_V1"
+)
+path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+PY
+capacity_full_plan_sha="$(sha_file "$capacity_full_plan")"
+python3 - "$capacity_preflight_receipt" "$capacity_full_plan_sha" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text())
+payload["artifacts"]["plan"]["sha256"] = sys.argv[2]
+path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+PY
+capacity_preflight_receipt_sha="$(sha_file "$capacity_preflight_receipt")"
+validate_capacity_preflight_contract
+python3 - "$capacity_full_plan" "$capacity_preflight_receipt" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+plan_path = Path(sys.argv[1])
+receipt_path = Path(sys.argv[2])
+plan = json.loads(plan_path.read_text())
+receipt = json.loads(receipt_path.read_text())
+plan["schema"] = "THE134_FULL_MULTIVIEW_EXTRACTION_PLAN_V2"
+plan["execution_partition"]["schema"] = (
+    "THE134_FULL_EXTRACTION_PARTITION_CONTRACT_V1"
+)
+plan_path.write_text(json.dumps(plan, indent=2, sort_keys=True) + "\n")
+receipt["schema"] = "THE134_FULL_MULTIVIEW_EXTRACTION_PREFLIGHT_RECEIPT_V2"
+receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+PY
+capacity_full_plan_sha="$(sha_file "$capacity_full_plan")"
+python3 - "$capacity_preflight_receipt" "$capacity_full_plan_sha" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text())
+payload["artifacts"]["plan"]["sha256"] = sys.argv[2]
+path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+PY
+capacity_preflight_receipt_sha="$(sha_file "$capacity_preflight_receipt")"
+if ( validate_capacity_preflight_contract ) >/dev/null 2>&1; then
+  printf 'hybrid V2 plan plus V1 partition was accepted\n' >&2
+  exit 1
+fi
 python3 - "$capacity_full_plan" <<'PY'
 from pathlib import Path
 import json
 import sys
 path = Path(sys.argv[1])
 payload = json.loads(path.read_text())
+payload["execution_partition"]["schema"] = (
+    "THE134_FULL_EXTRACTION_PARTITION_CONTRACT_V2"
+)
 payload["execution_partition"]["group_size"] = 6
 path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 PY
@@ -174,6 +251,18 @@ if ( validate_capacity_preflight_contract ) >/dev/null 2>&1; then
   printf 'semantic group-size drift was accepted by the capacity preflight contract\n' >&2
   exit 1
 fi
+
+for required_fail_closed_text in \
+  'validate_capacity_preflight_contract ||' \
+  'validate_calo_reco_build_authority ||' \
+  'if ! hashes="$(require_inputs_and_hashes)"; then'
+do
+  if ! grep -F "$required_fail_closed_text" "$controller" >/dev/null; then
+    printf 'missing fail-closed input-authority propagation: %s\n' \
+      "$required_fail_closed_text" >&2
+    exit 1
+  fi
+done
 
 fake_validator="${tmpdir}/prepare_the134_h70_matrix.py"
 fake_contract="${tmpdir}/the134_h70_contract.py"
@@ -985,7 +1074,7 @@ def validate(text: str) -> None:
         '-u RJ_RELEASE_CALO_IO_PATH'
     ) != 2:
         raise ValueError("stale runtime overrides must be stripped at both materializers")
-    if text.count("\n  validate_calo_reco_build_authority\n") != 1:
+    if text.count("\n  validate_calo_reco_build_authority ||\n") != 1:
         raise ValueError("CaloReco build authority must be invoked exactly once in preflight")
     submit_all_block = text.split("submit_all() {", 1)[1].split(
         "resume_submit() {", 1
@@ -1079,8 +1168,8 @@ else:
     raise SystemExit("46-field manifest mutation was not rejected")
 
 mutated = source.replace(
-    "\n  validate_calo_reco_build_authority\n",
-    "\n  :\n",
+    "\n  validate_calo_reco_build_authority ||\n",
+    "\n  : ||\n",
     1,
 )
 try:

@@ -400,9 +400,20 @@ if digest(receipt_path) != receipt_sha or digest(plan_path) != plan_sha:
     raise SystemExit("capacity preflight input hash drift")
 receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
 plan = json.loads(plan_path.read_text(encoding="utf-8"))
+schema_contracts = {
+    "THE134_FULL_MULTIVIEW_EXTRACTION_PREFLIGHT_RECEIPT_V1": (
+        "THE134_FULL_MULTIVIEW_EXTRACTION_PLAN_V1",
+        "THE134_FULL_EXTRACTION_PARTITION_CONTRACT_V1",
+    ),
+    "THE134_FULL_MULTIVIEW_EXTRACTION_PREFLIGHT_RECEIPT_V2": (
+        "THE134_FULL_MULTIVIEW_EXTRACTION_PLAN_V2",
+        "THE134_FULL_EXTRACTION_PARTITION_CONTRACT_V2",
+    ),
+}
+receipt_schema = receipt.get("schema")
+schema_contract = schema_contracts.get(receipt_schema)
 if (
-    receipt.get("schema")
-    != "THE134_FULL_MULTIVIEW_EXTRACTION_PREFLIGHT_RECEIPT_V1"
+    schema_contract is None
     or receipt.get("status") != "PASS"
     or receipt.get("submission_performed") is not False
     or receipt.get("authority_state") != "PREFLIGHT_RESOLVED_NOT_EARNED"
@@ -410,7 +421,7 @@ if (
 ):
     raise SystemExit("capacity preflight receipt does not represent frozen pre-submit authority")
 if (
-    plan.get("schema") != "THE134_FULL_MULTIVIEW_EXTRACTION_PLAN_V1"
+    plan.get("schema") != schema_contract[0]
     or plan.get("status") != "PREFLIGHT_PASS"
     or plan.get("submission_performed") is not False
     or plan.get("execution_state") != "PREFLIGHT_ONLY_NO_CONDOR_MUTATION"
@@ -420,7 +431,7 @@ if receipt.get("artifacts", {}).get("plan", {}).get("sha256") != plan_sha:
     raise SystemExit("capacity preflight receipt does not bind the exact full plan")
 partition = plan.get("execution_partition", {})
 if (
-    partition.get("schema") != "THE134_FULL_EXTRACTION_PARTITION_CONTRACT_V1"
+    partition.get("schema") != schema_contract[1]
     or int(partition.get("group_size", -1)) != 7
     or partition.get("capacity_canary_required_before_submission") is not True
     or partition.get("capacity_authority_earned") is not False
@@ -902,9 +913,11 @@ PY
 require_inputs_and_hashes() {
   local actual_code actual_replay_schema actual_training_schema actual_semantic
   local pp_yaml_model auau_yaml_model
-  validate_matrix
-  validate_pp_sim_weight_contract "$pp_period"
-  validate_capacity_preflight_contract
+  validate_matrix || die "frozen source matrix validation failed"
+  validate_pp_sim_weight_contract "$pp_period" ||
+    die "p+p period and simulation-weight contract validation failed"
+  validate_capacity_preflight_contract ||
+    die "capacity preflight authority validation failed"
   [[ -x "$submitter" ]] || die "RecoilJets submitter is not executable: ${submitter}"
   [[ -x "$pp_executor" ]] || die "p+p RecoilJets executor is not executable: ${pp_executor}"
   [[ -x "$auau_executor" ]] || die "Au+Au RecoilJets executor is not executable: ${auau_executor}"
@@ -972,26 +985,33 @@ require_inputs_and_hashes() {
   release_calo_io="$(
     resolve_release_companion RELEASE_CALO_IO libcalo_io.so \
       "$release_calo_io" "$RJ_THE134_RELEASE_CALO_IO_SHA256"
-  )"
+  )" || die "pinned CaloIO provider validation failed"
   release_clusteriso="$(
     resolve_release_companion RELEASE_CLUSTERISO libclusteriso.so \
       "$release_clusteriso" "$RJ_THE134_RELEASE_CLUSTERISO_SHA256"
-  )"
+  )" || die "pinned cluster-isolation provider validation failed"
   release_jetbase="$(
     resolve_release_companion RELEASE_JETBASE libjetbase.so \
       "$release_jetbase" "$RJ_THE134_RELEASE_JETBASE_SHA256"
-  )"
-  validate_calo_reco_build_authority
+  )" || die "pinned jet-base provider validation failed"
+  validate_calo_reco_build_authority ||
+    die "CaloReco build/provider authority validation failed"
 
-  pp_yaml_model="$(yaml_value "$pp_config" tight_bdt_model_file)"
-  auau_yaml_model="$(yaml_value "$auau_config" auau_tight_bdt_centInputBase3x3_model_file)"
+  pp_yaml_model="$(yaml_value "$pp_config" tight_bdt_model_file)" ||
+    die "p+p model path could not be resolved from the frozen configuration"
+  auau_yaml_model="$(yaml_value "$auau_config" auau_tight_bdt_centInputBase3x3_model_file)" ||
+    die "Au+Au model path could not be resolved from the frozen configuration"
   [[ "$pp_yaml_model" == "$pp_model" ]] || die "p+p config/model path mismatch: config=${pp_yaml_model} frozen=${pp_model}"
   [[ "$auau_yaml_model" == "$auau_model" ]] || die "Au+Au config/model path mismatch: config=${auau_yaml_model} frozen=${auau_model}"
 
-  actual_code="$(compute_code_sha)"
-  actual_replay_schema="$(sha_file src/RJReplayFoundationV1.h)"
-  actual_training_schema="$(sha_text "$training_schema_text")"
-  actual_semantic="$(compute_semantic_sha)"
+  actual_code="$(compute_code_sha)" ||
+    die "aggregate code identity could not be recomputed"
+  actual_replay_schema="$(sha_file src/RJReplayFoundationV1.h)" ||
+    die "replay schema identity could not be recomputed"
+  actual_training_schema="$(sha_text "$training_schema_text")" ||
+    die "training schema identity could not be recomputed"
+  actual_semantic="$(compute_semantic_sha)" ||
+    die "aggregate semantic identity could not be recomputed"
   [[ "$actual_code" == "$RJ_THE134_CODE_SHA256" ]] || die "aggregate code hash drift: expected=${RJ_THE134_CODE_SHA256} actual=${actual_code}"
   [[ "$actual_replay_schema" == "$RJ_THE134_REPLAY_SCHEMA_SHA256" ]] || die "replay-schema hash drift"
   [[ "$actual_training_schema" == "$RJ_THE134_TRAINING_SCHEMA_SHA256" ]] || die "training-schema hash drift"
@@ -1007,7 +1027,9 @@ preflight() {
   local hashes code_sha replay_schema_sha training_schema_sha semantic_sha
   [[ ! -e "$submission_journal" && ! -e "$submission_receipt" ]] ||
     die "submission evidence already exists; use status or validate instead of rewriting preflight state"
-  hashes="$(require_inputs_and_hashes)"
+  if ! hashes="$(require_inputs_and_hashes)"; then
+    die "input authority validation failed; preflight evidence was not authorized"
+  fi
   IFS=$'\t' read -r code_sha replay_schema_sha training_schema_sha semantic_sha \
     release_core_lib_dir release_core_lib64_dir release_calo_io release_clusteriso release_jetbase <<< "$hashes"
   mkdir -p "$evidence_root"
@@ -1973,7 +1995,9 @@ table_has_row() {
 
 verify_resume_contract() {
   local hashes code_sha replay_schema_sha training_schema_sha semantic_sha manifest_hash
-  hashes="$(require_inputs_and_hashes)"
+  if ! hashes="$(require_inputs_and_hashes)"; then
+    die "input authority validation failed; submission materialization was not authorized"
+  fi
   IFS=$'\t' read -r code_sha replay_schema_sha training_schema_sha semantic_sha \
     release_core_lib_dir release_core_lib64_dir release_calo_io release_clusteriso release_jetbase <<< "$hashes"
   write_and_verify_source_hashes "$RJ_THE134_SOURCE_HASH_MANIFEST_SHA256"

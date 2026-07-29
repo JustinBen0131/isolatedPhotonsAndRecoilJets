@@ -42,6 +42,18 @@ assert (
 )
 amendment_test_module = importlib.util.module_from_spec(AMENDMENT_TEST_SPEC)
 AMENDMENT_TEST_SPEC.loader.exec_module(amendment_test_module)
+BUDGET_BUILDER_PATH = (
+    HERE.parent / "build_the134_controller_dry_materialization_budget.py"
+)
+BUDGET_BUILDER_SPEC = importlib.util.spec_from_file_location(
+    "the134_controller_budget_fixture_builder", BUDGET_BUILDER_PATH
+)
+assert (
+    BUDGET_BUILDER_SPEC is not None
+    and BUDGET_BUILDER_SPEC.loader is not None
+)
+budget_builder = importlib.util.module_from_spec(BUDGET_BUILDER_SPEC)
+BUDGET_BUILDER_SPEC.loader.exec_module(budget_builder)
 
 
 def write_json(path: Path, payload: object) -> None:
@@ -81,6 +93,9 @@ class FullControllerFixture:
         self.plan_path = root / "the134_full_extraction_plan.json"
         self.receipt_path = root / "preflight_receipt.json"
         self.budget_path = root / "controller_budget.json"
+        self.controller_derivation_path = (
+            root / "controller_budget_derivation.json"
+        )
         self.storage_manifest_path = root / "storage_manifest.json"
         self.quota_snapshot_path = root / "quota_snapshot.json"
         self.storage_certificate_path = root / "storage_certificate.json"
@@ -99,10 +114,13 @@ class FullControllerFixture:
         self.write_partition()
         self.plan = self.make_plan()
         self.write_plan_and_receipt()
-        self.write_budget(fixed_bytes=250_000_000, bytes_per_job=1)
+        self.write_exact_budget_and_derivation()
         self.rebuild_storage_evidence()
         self.baseline_plan = copy.deepcopy(self.plan)
         self.baseline_budget = json.loads(self.budget_path.read_text())
+        self.baseline_controller_derivation = json.loads(
+            self.controller_derivation_path.read_text()
+        )
         self.baseline_materialization = copy.deepcopy(self.materialization)
         self.baseline_sources = copy.deepcopy(self.sources)
 
@@ -759,6 +777,32 @@ class FullControllerFixture:
         }
         write_json(self.budget_path, payload)
 
+    def write_exact_budget_and_derivation(self) -> None:
+        plan, plan_artifact = budget_builder.load_pinned_json(
+            self.plan_path,
+            sha(self.plan_path),
+            "fixture extraction plan",
+        )
+        receipt, receipt_artifact = budget_builder.load_pinned_json(
+            self.receipt_path,
+            sha(self.receipt_path),
+            "fixture preflight receipt",
+        )
+        context = budget_builder.validate_input_chain(
+            plan=plan,
+            plan_path=self.plan_path,
+            plan_artifact=plan_artifact,
+            receipt=receipt,
+            receipt_artifact=receipt_artifact,
+        )
+        budget, derivation = budget_builder.derive_budget(
+            context,
+            budget_output=self.budget_path,
+            future_storage_certificate=self.storage_certificate_path,
+        )
+        write_json(self.controller_derivation_path, derivation)
+        write_json(self.budget_path, budget)
+
     @staticmethod
     def repin_amendment_record(record: dict, path: Path) -> dict:
         updated = copy.deepcopy(record)
@@ -874,6 +918,10 @@ class FullControllerFixture:
             budget_ref
         )
         assert normalized_budget is not None and not blockers
+        derivation_ref = {
+            "path": str(self.controller_derivation_path),
+            "sha256": sha(self.controller_derivation_path),
+        }
         bindings = {
             "plan": {
                 "path": str(self.plan_path),
@@ -960,6 +1008,7 @@ class FullControllerFixture:
             )
         spec = {
             "controller_dry_materialization_budget": budget_ref,
+            "controller_dry_materialization_derivation": derivation_ref,
             "retry_reserve": {"numerator": 1, "denominator": 10},
             "row_envelopes": envelopes,
         }
@@ -1013,6 +1062,10 @@ class FullControllerFixture:
         self.plan = copy.deepcopy(self.baseline_plan)
         self.write_plan_and_receipt()
         write_json(self.budget_path, self.baseline_budget)
+        write_json(
+            self.controller_derivation_path,
+            self.baseline_controller_derivation,
+        )
         self.rebuild_storage_evidence()
 
     def args(
@@ -1163,47 +1216,26 @@ class FullControllerTests(unittest.TestCase):
         context = self.validate()
         artifacts = controller.build_staged_artifacts(context)
         required = sum(len(data) for data in artifacts.values())
-        for _ in range(8):
-            fixed = required - controller.EXPECTED_JOB_COUNT
-            self.assertGreaterEqual(fixed, 0)
-            self.fixture.write_budget(fixed_bytes=fixed, bytes_per_job=1)
-            self.fixture.rebuild_storage_evidence()
-            candidate = controller.validate_plan_and_evidence(
-                self.fixture.args(self.staging_root)
-            )
-            candidate_required = sum(
-                len(data)
-                for data in controller.build_staged_artifacts(
-                    candidate
-                ).values()
-            )
-            if candidate_required == required:
-                break
-            required = candidate_required
-        else:
-            self.fail("exact controller byte budget did not converge")
-        exact = controller.validate_plan_and_evidence(
-            self.fixture.args(self.staging_root)
-        )
-        exact_artifacts = controller.build_staged_artifacts(exact)
+        exact_budget = {
+            "projected_bytes": required,
+            "projected_inodes": len(artifacts),
+        }
         self.assertEqual(
             controller.enforce_controller_budget(
-                exact_artifacts, exact["budget"]
+                artifacts, exact_budget
             )[0],
             required,
         )
 
-        self.fixture.write_budget(fixed_bytes=fixed - 1, bytes_per_job=1)
-        self.fixture.rebuild_storage_evidence()
-        one_short = controller.validate_plan_and_evidence(
-            self.fixture.args(self.staging_root)
-        )
         with self.assertRaisesRegex(
             controller.ControllerError, "exceeds certified bytes"
         ):
             controller.enforce_controller_budget(
-                controller.build_staged_artifacts(one_short),
-                one_short["budget"],
+                artifacts,
+                {
+                    "projected_bytes": required - 1,
+                    "projected_inodes": len(artifacts),
+                },
             )
 
     def test_existing_output_or_submit_namespace_is_rejected(self) -> None:
