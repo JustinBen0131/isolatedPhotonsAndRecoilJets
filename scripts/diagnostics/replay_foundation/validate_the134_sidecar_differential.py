@@ -22,7 +22,7 @@ import os
 import re
 import shlex
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
 import numpy as np
@@ -310,9 +310,9 @@ def parse_terminal_gate_receipt(
             raise ValidationError(
                 "p+p bound initial queue arguments are malformed"
             ) from exc
-        expected_role_tokens = {
+        expected_role_roots = {
             role: {
-                (
+                PurePosixPath(
                     f"{queue_root.rstrip('/')}/{role}/"
                     f"{PP_ROWS[0]['lane']}/{PP_ROWS[0]['sample']}"
                 )
@@ -320,12 +320,18 @@ def parse_terminal_gate_receipt(
             }
             for role in ("direct", "writer")
         }
-        token_matches = [
-            (index, role)
-            for index, token in enumerate(arg_tokens)
-            for role, expected_tokens in expected_role_tokens.items()
-            if token in expected_tokens
-        ]
+        token_matches = []
+        for index, token in enumerate(arg_tokens):
+            token_path = PurePosixPath(token)
+            if not token_path.is_absolute() or ".." in token_path.parts:
+                continue
+            for role, expected_roots in expected_role_roots.items():
+                if any(
+                    token_path == expected_root
+                    or token_path.is_relative_to(expected_root)
+                    for expected_root in expected_roots
+                ):
+                    token_matches.append((index, role))
         if (
             len(token_matches) != 1
             or token_matches[0][0] != len(arg_tokens) - 1

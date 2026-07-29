@@ -106,9 +106,11 @@ class SidecarDifferentialComparatorTest(unittest.TestCase):
         initial_queue.write_text(
             (
                 f"1001 0 2 --output {output_root.resolve()}/"
-                "direct/pp_inclusive_sim/run28_jet8\n"
+                "direct/pp_inclusive_sim/run28_jet8/"
+                "jetMinPtScan_dphiScan_fixture\n"
                 f"1002 0 2 --output {output_root.resolve()}/"
-                "writer/pp_inclusive_sim/run28_jet8\n"
+                "writer/pp_inclusive_sim/run28_jet8/"
+                "jetMinPtScan_dphiScan_fixture\n"
             ),
             encoding="utf-8",
         )
@@ -709,6 +711,30 @@ class SidecarDifferentialComparatorTest(unittest.TestCase):
 
         exact_root = Path(fields["base"]).resolve()
         queue_path = self.root / "initial_queue.tsv"
+        queue_path.write_text(
+            (
+                f"1001 0 2 --output {exact_root}/direct/pp_inclusive_sim/"
+                "run28_jet8\n"
+                f"1002 0 2 --output {exact_root}/writer/pp_inclusive_sim/"
+                "run28_jet8\n"
+            ),
+            encoding="utf-8",
+        )
+        exact_root_receipt = copy.deepcopy(valid)
+        exact_root_receipt["initial_queue_tsv_sha256"] = validator.sha256_file(
+            queue_path
+        )
+        terminal_path.write_text(
+            json.dumps(exact_root_receipt, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        parsed = validator.parse_terminal_gate_receipt(
+            terminal_path,
+            preflight=preflight,
+            output_root=Path(fields["base"]),
+        )
+        self.assertEqual(parsed["roles"], ["direct", "writer"])
+
         queue_mutations = (
             (
                 f"1001 0 2 --output {exact_root}/direct/pp_inclusive_sim/"
@@ -728,6 +754,12 @@ class SidecarDifferentialComparatorTest(unittest.TestCase):
                 "run28_jet8\n"
                 f"1002 0 2 --output {exact_root}/writer/pp_inclusive_sim/"
                 "run28_jet8\n"
+            ),
+            (
+                f"1001 0 2 --output {exact_root}/direct/pp_inclusive_sim/"
+                "run28_jet8/../run28_jet8/config\n"
+                f"1002 0 2 --output {exact_root}/writer/pp_inclusive_sim/"
+                "run28_jet8/../run28_jet8/config\n"
             ),
         )
         for queue_text in queue_mutations:
