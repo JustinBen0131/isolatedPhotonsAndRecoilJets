@@ -239,7 +239,11 @@ cat > "${calo_authority}/build_receipt.json" <<JSON
   },
   "artifact": {
     "sha256": "${pinned_calo_reco_sha}",
-    "library": "install/lib/libcalo_reco.so.0.0.0"
+    "library": "install/lib/libcalo_reco.so.0.0.0",
+    "symlinks": {
+      "install/lib/libcalo_reco.so": "libcalo_reco.so.0.0.0",
+      "install/lib/libcalo_reco.so.0": "libcalo_reco.so.0.0.0"
+    }
   },
   "source_manifest": {
     "sha256": "${pinned_calo_reco_source_manifest_sha}",
@@ -391,6 +395,18 @@ if ( validate_pinned_runtime_provider ) >/dev/null 2>&1; then
   exit 1
 fi
 pinned_calo_reco_source_manifest_sha="$valid_source_sha"
+ln -sfn libcalo_reco.so.0 "${calo_authority}/install/lib/libcalo_reco.so"
+if ( validate_pp_replacement_calo_reco_authority \
+  "$pinned_calo_reco_build_receipt" "$pinned_calo_reco_build_receipt_sha" \
+  "$pinned_calo_reco_source_manifest" "$pinned_calo_reco_source_manifest_sha" \
+  "$pinned_calo_reco_library" "$pinned_calo_reco_sha" \
+  "$pinned_builder_header" "$pinned_builder_header_sha" \
+  ana.560 "$provider_root" cba274033b5560e32600cdeaa7676b6ab4a6c971 ) \
+  >/dev/null 2>&1; then
+  printf 'receipt-inconsistent CaloReco loader alias was accepted\n' >&2
+  exit 1
+fi
+ln -sfn libcalo_reco.so.0.0.0 "${calo_authority}/install/lib/libcalo_reco.so"
 cp "$pinned_calo_reco_build_receipt" "${calo_authority}/mutable_receipt.json"
 python3 - "${calo_authority}/mutable_receipt.json" <<'PY'
 import json

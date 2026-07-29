@@ -145,6 +145,7 @@ validate_pp_replacement_calo_reco_authority() {
 from pathlib import Path
 import hashlib
 import json
+import os
 import sys
 
 (
@@ -214,9 +215,18 @@ if (
     or abi.get("removed_symbols", {}).get("count") != 0
 ):
     raise SystemExit("CaloReco ABI/SONAME authority differs")
+receipt_symlinks = receipt.get("artifact", {}).get("symlinks", {})
 for loader_name in ("libcalo_reco.so", "libcalo_reco.so.0"):
     loader_path = receipt_path.parent / "install/lib" / loader_name
-    if not loader_path.is_symlink() or loader_path.resolve(strict=True) != library_path:
+    receipt_key = f"install/lib/{loader_name}"
+    expected_link_text = receipt_symlinks.get(receipt_key)
+    if (
+        not isinstance(expected_link_text, str)
+        or not expected_link_text
+        or not loader_path.is_symlink()
+        or os.readlink(loader_path) != expected_link_text
+        or loader_path.resolve(strict=True) != library_path
+    ):
         raise SystemExit(f"CaloReco loader alias differs: {loader_name}")
 
 single = receipt.get("single_provider", {})
