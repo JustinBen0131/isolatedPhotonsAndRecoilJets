@@ -18,6 +18,7 @@ die() {
   exit 2
 }
 eval "$(sed -n '/^validate_writer_extra_template(){/,/^}/p' "$controller")"
+eval "$(sed -n '/^environment_template_value(){/,/^}/p' "$controller")"
 eval "$(sed -n '/^render_writer_extra(){/,/^}/p' "$controller")"
 eval "$(sed -n '/^render_arm_extra(){/,/^}/p' "$controller")"
 eval "$(sed -n '/^sha_file(){/,/^}/p' "$controller")"
@@ -36,6 +37,14 @@ writer_extra_auau_template='WRITER_SYSTEM=auau'
   'SHARED=1;SYSTEM=auau;A=1;B=/tmp/auau/sidecar.root;WRITER_SYSTEM=auau' ]]
 [[ "$(render_arm_extra pp direct /tmp/direct)" == \
   'SHARED=1;SYSTEM=pp' ]]
+[[ "$(environment_template_value \
+  'SYSTEM=pp;RJ_PPG12_PHOTON_YIELD=1;OTHER=ok' \
+  RJ_PPG12_PHOTON_YIELD)" == 1 ]]
+if environment_template_value \
+  'SYSTEM=auau;OTHER=ok' RJ_PPG12_PHOTON_YIELD >/dev/null; then
+  printf 'missing p+p photon-yield materialization flag was fabricated\n' >&2
+  exit 1
+fi
 
 if ( validate_writer_extra_template invalid 'A=1;A=2' ) >/dev/null 2>&1; then
   printf 'duplicate writer environment keys were accepted\n' >&2
@@ -82,12 +91,15 @@ for required in \
   'submit(){' \
   '  preflight' \
   '  assert_fresh' \
+  'environment_template_value "$final_extra" RJ_PPG12_PHOTON_YIELD' \
+  'env RJ_PPG12_PHOTON_YIELD="$ppg12_photon_yield"' \
   'exec scripts/sdcc/workflows/diagnostics/submit_the119_replay_foundation_canaries.sh "$mode"'; do
   grep -F -- "$required" "$controller" "$wrapper" >/dev/null
 done
 
 tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/the134-sidecar-selector.XXXXXX")"
 trap 'rm -rf "$tmpdir"' EXIT
+eval "$(sed -n '/^submit_pp(){/,/^}/p' "$controller")"
 eval "$(sed -n '/^require_replacement_namespaces()/,/^}/p' "$wrapper")"
 eval "$(sed -n '/^build_sidecar_only_keys()/,/^}/p' "$wrapper")"
 eval "$(sed -n '/^require_exact_sidecar_keys()/,/^}/p' "$wrapper")"
@@ -97,6 +109,45 @@ eval "$(sed -n '/^require_file_hash()/,/^}/p' "$wrapper")"
 eval "$(sed -n '/^require_env_unset_or_exact()/,/^}/p' "$wrapper")"
 eval "$(sed -n '/^configure_pp_replacement_runtime_provider()/,/^}/p' "$wrapper")"
 eval "$(sed -n '/^validate_terminal_rows()/,/^}/p' "$wrapper")"
+
+submit_fixture="${tmpdir}/submit-fixture"
+mkdir -p "$submit_fixture"
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'set -euo pipefail' \
+  'case "${TEST_EXPECTED_PHOTON_YIELD}" in' \
+  '  1)' \
+  '    [[ "${RJ_PPG12_PHOTON_YIELD-}" == 1 ]]' \
+  '    [[ "${RJ_SUBMIT_EXTRA_ENV}" == *";RJ_PPG12_PHOTON_YIELD=1;"* ]]' \
+  '    ;;' \
+  '  absent)' \
+  '    [[ "${RJ_PPG12_PHOTON_YIELD-}" == 0 ]]' \
+  '    [[ "${RJ_SUBMIT_EXTRA_ENV}" != *"RJ_PPG12_PHOTON_YIELD="* ]]' \
+  '    ;;' \
+  '  *) exit 2 ;;' \
+  'esac' \
+  > "${submit_fixture}/RecoilJets_Condor_submit.sh"
+chmod +x "${submit_fixture}/RecoilJets_Condor_submit.sh"
+want_row() { return 0; }
+pp_extra() { printf '%s' "$fixture_extra"; }
+base="${tmpdir}/output"
+pp_cfg="${tmpdir}/analysis_config.yaml"
+pp_lib="${tmpdir}/libRecoilJets.so"
+schema_sha=0000000000000000000000000000000000000000000000000000000000000000
+canary_nevents=1
+(
+  cd "$submit_fixture"
+  fixture_extra='SYSTEM=pp;RJ_PPG12_PHOTON_YIELD=1;OTHER=ok'
+  export TEST_EXPECTED_PHOTON_YIELD=1
+  submit_pp pp_inclusive_sim isSimInclusive run28_jet8 direct
+)
+(
+  cd "$submit_fixture"
+  unset RJ_PPG12_PHOTON_YIELD
+  fixture_extra='SYSTEM=pp;OTHER=ok'
+  export TEST_EXPECTED_PHOTON_YIELD=absent
+  submit_pp pp_inclusive_sim isSimInclusive run28_jet8 direct
+)
 
 provider_fixture="${tmpdir}/provider.bin"
 printf 'provider-fixture\n' > "$provider_fixture"

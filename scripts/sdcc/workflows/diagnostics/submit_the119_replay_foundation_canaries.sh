@@ -146,6 +146,22 @@ validate_writer_extra_template(){
   IFS="$old_ifs"
 }
 
+environment_template_value(){
+  local template="$1" requested_key="$2" field key value
+  local old_ifs="$IFS"
+  IFS=';'
+  for field in $template; do
+    key="${field%%=*}"
+    [[ "$key" == "$requested_key" ]] || continue
+    value="${field#*=}"
+    IFS="$old_ifs"
+    printf '%s' "$value"
+    return 0
+  done
+  IFS="$old_ifs"
+  return 1
+}
+
 render_writer_extra(){
   local system="$1" arm="$2" output="$3"
   local system_template combined rendered
@@ -359,12 +375,20 @@ submit_pp(){
     return 0
   fi
   local out="$base/$arm/$lane/$sample"
-  env RJ_CONFIG_YAML="$pp_cfg" RJ_PP_LIBRARY_OVERRIDE="$pp_lib" RJ_AUTO_MERGE=0 \
+  local final_extra ppg12_photon_yield=0
+  final_extra="$(pp_extra "$lane" "$dataset" "$sample" "$arm" "$out")"
+  if ppg12_photon_yield="$(
+    environment_template_value "$final_extra" RJ_PPG12_PHOTON_YIELD
+  )"; then
+    :
+  fi
+  env RJ_PPG12_PHOTON_YIELD="$ppg12_photon_yield" \
+    RJ_CONFIG_YAML="$pp_cfg" RJ_PP_LIBRARY_OVERRIDE="$pp_lib" RJ_AUTO_MERGE=0 \
     RJ_REQUEST_MEMORY=8000MB \
     RJ_REPLAY_FOUNDATION_CANARY=1 RJ_REPLAY_LANE="$lane" RJ_REPLAY_SCHEMA_SHA256="$schema_sha" \
     RJ_REQUIRE_NON_TINY_OUTPUT=1 RJ_MIN_OUTPUT_BYTES=50000 RJ_PROFILE_JOB=1 \
     RJ_JOB_HEARTBEAT_SECONDS=120 RJ_SMOKE_OUTPUT_BASE="$out" RJ_SMOKE_SIM_NEVENTS="$canary_nevents" \
-    RJ_SMOKE_DATA_RUNS=1 RJ_SMOKE_DATA_MAX_JOBS=1 RJ_SMOKE_DATA_NEVENTS="$canary_nevents" RJ_SUBMIT_EXTRA_ENV="$(pp_extra "$lane" "$dataset" "$sample" "$arm" "$out")" \
+    RJ_SMOKE_DATA_RUNS=1 RJ_SMOKE_DATA_MAX_JOBS=1 RJ_SMOKE_DATA_NEVENTS="$canary_nevents" RJ_SUBMIT_EXTRA_ENV="$final_extra" \
     ./RecoilJets_Condor_submit.sh "$dataset" $([[ "$dataset" == isPP ]] && printf 'condor smokeTest groupSize 1' || printf 'condorDoAllSmoke groupSize 1 maxJobs 1 SAMPLE=%s' "$sample")
 }
 
