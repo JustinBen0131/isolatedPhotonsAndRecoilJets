@@ -15,11 +15,13 @@ fi
 
 die() {
   printf 'fixture failure: %s\n' "$*" >&2
-  return 2
+  exit 2
 }
 eval "$(sed -n '/^validate_writer_extra_template(){/,/^}/p' "$controller")"
 eval "$(sed -n '/^render_writer_extra(){/,/^}/p' "$controller")"
 eval "$(sed -n '/^render_arm_extra(){/,/^}/p' "$controller")"
+eval "$(sed -n '/^sha_file(){/,/^}/p' "$controller")"
+eval "$(sed -n '/^validate_pinned_runtime_provider(){/,/^}/p' "$controller")"
 
 extra_common_template='SHARED=1'
 extra_pp_template='SYSTEM=pp'
@@ -62,8 +64,26 @@ for required in \
   'for arm in direct writer' \
   '${arm}:pp_inclusive_sim:run28_jet8' \
   '${arm}:auau_inclusive_embedded:run28_embeddedJet12' \
+  'RJ_PINNED_CALO_RECO_RELEASE_COMPANIONS=1' \
+  'RJ_PINNED_CALO_RECO_SONAME="$soname"' \
+  'RJ_PINNED_CALO_RECO_SHA256="$calo_reco_sha"' \
+  'RJ_PINNED_PHOTON_CLUSTER_BUILDER_HEADER_SHA256="$builder_header_sha"' \
+  'RJ_AUAU_LIBRARY_OVERRIDE="$auau_library"' \
+  'readonly replacement_release_name=ana.560' \
+  'readonly replacement_offline_main=/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.560' \
+  '8810cdfcdb1302a06567d3cf0744c12f8a9b53ae28355e8cc26b0e81d0621685' \
+  '807a50cb16ba85d9d0232c06bf2ab9b369b38f3c3626554de9827cdd80225bd2' \
+  'd992f11a1e6a1ccb1d74c6e09da79114c9e9742fd2f9cf5a3bc284c8aec9d507' \
+  'STANDALONE_PP_REPLACEMENT_PREFLIGHT_CONSUMES_NAMESPACE' \
   '--terminal-gate-receipt "$RJ_THE119_EVIDENCE_ROOT/terminal_gate_receipt.json"'; do
   grep -F -- "$required" "$wrapper" >/dev/null
+done
+for required in \
+  'submit(){' \
+  '  preflight' \
+  '  assert_fresh' \
+  'exec scripts/sdcc/workflows/diagnostics/submit_the119_replay_foundation_canaries.sh "$mode"'; do
+  grep -F -- "$required" "$controller" "$wrapper" >/dev/null
 done
 
 tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/the134-sidecar-selector.XXXXXX")"
@@ -71,7 +91,140 @@ trap 'rm -rf "$tmpdir"' EXIT
 eval "$(sed -n '/^require_replacement_namespaces()/,/^}/p' "$wrapper")"
 eval "$(sed -n '/^build_sidecar_only_keys()/,/^}/p' "$wrapper")"
 eval "$(sed -n '/^require_exact_sidecar_keys()/,/^}/p' "$wrapper")"
+eval "$(sed -n '/^require_sha256()/,/^}/p' "$wrapper")"
+eval "$(sed -n '/^sha256_file()/,/^}/p' "$wrapper")"
+eval "$(sed -n '/^require_file_hash()/,/^}/p' "$wrapper")"
+eval "$(sed -n '/^require_env_unset_or_exact()/,/^}/p' "$wrapper")"
+eval "$(sed -n '/^configure_pp_replacement_runtime_provider()/,/^}/p' "$wrapper")"
 eval "$(sed -n '/^validate_terminal_rows()/,/^}/p' "$wrapper")"
+
+provider_fixture="${tmpdir}/provider.bin"
+printf 'provider-fixture\n' > "$provider_fixture"
+provider_fixture_sha="$(sha256_file "$provider_fixture")"
+require_sha256 fixture "$provider_fixture_sha"
+require_file_hash fixture "$provider_fixture" "$provider_fixture_sha"
+if ( require_file_hash fixture "$provider_fixture" \
+  0000000000000000000000000000000000000000000000000000000000000000 ) \
+  >/dev/null 2>&1; then
+  printf 'pinned provider hash drift was accepted\n' >&2
+  exit 1
+fi
+unset RJ_AUAU_LIBRARY_OVERRIDE
+
+provider_root="${tmpdir}/release/release_ana/ana.560"
+mkdir -p "${provider_root}/lib" "${provider_root}/lib64"
+pp_lib="${tmpdir}/libRecoilJets.so"
+auau_lib="${tmpdir}/libRecoilJetsAuAu.so"
+pinned_calo_reco_library="${tmpdir}/libcalo_reco.so"
+pinned_builder_header="${tmpdir}/PhotonClusterBuilder.h"
+pinned_calo_io="${provider_root}/lib/libcalo_io.so"
+pinned_clusteriso="${provider_root}/lib/libclusteriso.so"
+pinned_jetbase="${provider_root}/lib/libjetbase.so"
+for provider in \
+  "$pp_lib" "$auau_lib" "$pinned_calo_reco_library" \
+  "$pinned_builder_header" "$pinned_calo_io" "$pinned_clusteriso" \
+  "$pinned_jetbase"; do
+  printf 'provider=%s\n' "$(basename "$provider")" > "$provider"
+done
+pp_library="$pp_lib"
+auau_library="$auau_lib"
+unset \
+  RJ_PP_LIBRARY_OVERRIDE \
+  RJ_AUAU_LIBRARY_OVERRIDE \
+  RJ_CALO_RECO_LIBRARY_OVERRIDE \
+  RJ_PHOTON_CLUSTER_BUILDER_HEADER_OVERRIDE \
+  RJ_PHOTON_CLUSTER_BUILDER_LIBRARY_OVERRIDE \
+  RJ_PINNED_CALO_RECO_RELEASE_COMPANIONS \
+  RJ_PINNED_CALO_RECO_SONAME \
+  RJ_PINNED_CALO_RECO_SHA256 \
+  RJ_PINNED_PHOTON_CLUSTER_BUILDER_HEADER_SHA256 \
+  RJ_PINNED_RELEASE_NAME \
+  RJ_PINNED_OFFLINE_MAIN \
+  RJ_PINNED_RELEASE_CALO_IO_PATH \
+  RJ_PINNED_RELEASE_CALO_IO_SHA256 \
+  RJ_PINNED_RELEASE_CLUSTERISO_PATH \
+  RJ_PINNED_RELEASE_CLUSTERISO_SHA256 \
+  RJ_PINNED_RELEASE_JETBASE_PATH \
+  RJ_PINNED_RELEASE_JETBASE_SHA256 \
+  RJ_RELEASE_CORE_LIB_DIR \
+  RJ_RELEASE_CORE_LIB64_DIR \
+  RJ_FORCE_RELEASE_CORE_LIBS \
+  RJ_FORCE_RELEASE_CALO_IO
+configure_pp_replacement_runtime_provider \
+  "$pinned_calo_reco_library" "$(sha256_file "$pinned_calo_reco_library")" \
+  "$pinned_builder_header" "$(sha256_file "$pinned_builder_header")" \
+  ana.560 "$provider_root" "${provider_root}/lib" "${provider_root}/lib64" \
+  "$pinned_calo_io" "$(sha256_file "$pinned_calo_io")" \
+  "$pinned_clusteriso" "$(sha256_file "$pinned_clusteriso")" \
+  "$pinned_jetbase" "$(sha256_file "$pinned_jetbase")" \
+  libcalo_reco.so.0
+child_provider_environment="$(env)"
+for inherited in \
+  "RJ_PP_LIBRARY_OVERRIDE=${pp_lib}" \
+  "RJ_AUAU_LIBRARY_OVERRIDE=${auau_lib}" \
+  "RJ_CALO_RECO_LIBRARY_OVERRIDE=${pinned_calo_reco_library}" \
+  "RJ_PHOTON_CLUSTER_BUILDER_HEADER_OVERRIDE=${pinned_builder_header}" \
+  'RJ_PHOTON_CLUSTER_BUILDER_LIBRARY_OVERRIDE=' \
+  'RJ_PINNED_CALO_RECO_RELEASE_COMPANIONS=1' \
+  'RJ_PINNED_CALO_RECO_SONAME=libcalo_reco.so.0' \
+  'RJ_PINNED_RELEASE_NAME=ana.560' \
+  "RJ_PINNED_OFFLINE_MAIN=${provider_root}" \
+  "RJ_PINNED_RELEASE_CALO_IO_PATH=${pinned_calo_io}" \
+  "RJ_PINNED_RELEASE_CLUSTERISO_PATH=${pinned_clusteriso}" \
+  "RJ_PINNED_RELEASE_JETBASE_PATH=${pinned_jetbase}" \
+  "RJ_RELEASE_CORE_LIB_DIR=${provider_root}/lib" \
+  "RJ_RELEASE_CORE_LIB64_DIR=${provider_root}/lib64" \
+  'RJ_FORCE_RELEASE_CORE_LIBS=0' \
+  'RJ_FORCE_RELEASE_CALO_IO=0'; do
+  grep -Fx -- "$inherited" <<< "$child_provider_environment" >/dev/null ||
+    { printf 'configured provider field was not inherited: %s\n' "$inherited" >&2; exit 1; }
+done
+pinned_calo_reco_mode=1
+pinned_calo_reco_sha="$RJ_PINNED_CALO_RECO_SHA256"
+pinned_builder_header_sha="$RJ_PINNED_PHOTON_CLUSTER_BUILDER_HEADER_SHA256"
+pinned_calo_io_sha="$RJ_PINNED_RELEASE_CALO_IO_SHA256"
+pinned_clusteriso_sha="$RJ_PINNED_RELEASE_CLUSTERISO_SHA256"
+pinned_jetbase_sha="$RJ_PINNED_RELEASE_JETBASE_SHA256"
+pinned_builder_library="$RJ_PHOTON_CLUSTER_BUILDER_LIBRARY_OVERRIDE"
+pinned_calo_reco_soname="$RJ_PINNED_CALO_RECO_SONAME"
+pinned_release_name="$RJ_PINNED_RELEASE_NAME"
+pinned_offline_main="$RJ_PINNED_OFFLINE_MAIN"
+pinned_release_lib="$RJ_RELEASE_CORE_LIB_DIR"
+pinned_release_lib64="$RJ_RELEASE_CORE_LIB64_DIR"
+validate_pinned_runtime_provider
+
+valid_calo_sha="$pinned_calo_reco_sha"
+pinned_calo_reco_sha=0000000000000000000000000000000000000000000000000000000000000000
+if ( validate_pinned_runtime_provider ) >/dev/null 2>&1; then
+  printf 'wrong pinned CaloReco hash was accepted\n' >&2
+  exit 1
+fi
+pinned_calo_reco_sha="$valid_calo_sha"
+RJ_AUAU_LIBRARY_OVERRIDE="${tmpdir}/mutable-default-auau.so"
+if ( validate_pinned_runtime_provider ) >/dev/null 2>&1; then
+  printf 'wrong AuAu snapshot companion was accepted by the runtime preflight\n' >&2
+  exit 1
+fi
+RJ_AUAU_LIBRARY_OVERRIDE="$auau_lib"
+wrong_clusteriso="$pinned_clusteriso"
+pinned_clusteriso="${provider_root}/lib64/libclusteriso.so"
+cp "$wrong_clusteriso" "$pinned_clusteriso"
+pinned_clusteriso_sha="$(sha256_file "$pinned_clusteriso")"
+if ( validate_pinned_runtime_provider ) >/dev/null 2>&1; then
+  printf 'wrong release companion path was accepted\n' >&2
+  exit 1
+fi
+pinned_clusteriso="$wrong_clusteriso"
+pinned_clusteriso_sha="$(sha256_file "$pinned_clusteriso")"
+unset RJ_AUAU_LIBRARY_OVERRIDE
+require_env_unset_or_exact RJ_AUAU_LIBRARY_OVERRIDE /frozen/auau.so
+RJ_AUAU_LIBRARY_OVERRIDE=/mutable/default/auau.so
+if ( require_env_unset_or_exact RJ_AUAU_LIBRARY_OVERRIDE /frozen/auau.so ) \
+  >/dev/null 2>&1; then
+  printf 'mutable AuAu snapshot companion was accepted\n' >&2
+  exit 1
+fi
+unset RJ_AUAU_LIBRARY_OVERRIDE
 
 replacement_keys="$(build_sidecar_only_keys 0 | paste -sd, -)"
 [[ "$replacement_keys" == \

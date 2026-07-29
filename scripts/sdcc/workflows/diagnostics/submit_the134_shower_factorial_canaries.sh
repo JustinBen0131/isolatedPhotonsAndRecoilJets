@@ -20,6 +20,12 @@ case "$requested_mode" in
     ;;
 esac
 
+if (( sidecar_pp_replacement_mode )) && [[ "$mode" == preflight ]]; then
+  printf '%s\n' \
+    '[THE134] STANDALONE_PP_REPLACEMENT_PREFLIGHT_CONSUMES_NAMESPACE: this non-submitting check owns its evidence tag; use sidecar-pp-replacement-submit directly with a different fresh tag for the supported atomic preflight+submit path.' \
+    >&2
+fi
+
 require_replacement_namespaces() {
   local operation="$1"
   : "${RJ_THE134_TAG:?set a fresh explicit RJ_THE134_TAG for the p+p replacement pair}"
@@ -76,6 +82,120 @@ require_exact_sidecar_keys() {
     { echo "[THE134][ERROR] ${label} owns exactly its frozen row set" >&2; return 2; }
 }
 
+require_sha256() {
+  local label="$1"
+  local value="$2"
+  [[ "$value" =~ ^[0-9a-f]{64}$ ]] ||
+    { echo "[THE134][ERROR] ${label} must be a lowercase 64-character SHA-256" >&2; return 2; }
+}
+
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    echo "[THE134][ERROR] sha256sum or shasum -a 256 is required" >&2
+    return 2
+  fi
+}
+
+require_file_hash() {
+  local label="$1"
+  local path="$2"
+  local expected="$3"
+  local actual
+  require_sha256 "$label" "$expected" || return $?
+  [[ -s "$path" ]] ||
+    { echo "[THE134][ERROR] missing ${label}: ${path}" >&2; return 2; }
+  actual="$(sha256_file "$path")" ||
+    { echo "[THE134][ERROR] could not hash ${label}: ${path}" >&2; return 2; }
+  [[ "$actual" == "$expected" ]] ||
+    { echo "[THE134][ERROR] ${label} hash drift: expected=${expected} actual=${actual}" >&2; return 2; }
+}
+
+require_env_unset_or_exact() {
+  local name="$1"
+  local expected="$2"
+  local observed="${!name-}"
+  [[ -z "$observed" || "$observed" == "$expected" ]] ||
+    { echo "[THE134][ERROR] inherited ${name} conflicts with the frozen p+p replacement runtime" >&2; return 2; }
+}
+
+configure_pp_replacement_runtime_provider() {
+  local calo_reco_library="$1"
+  local calo_reco_sha="$2"
+  local builder_header="$3"
+  local builder_header_sha="$4"
+  local release_name="$5"
+  local offline_main="$6"
+  local release_lib="$7"
+  local release_lib64="$8"
+  local calo_io="$9"
+  local calo_io_sha="${10}"
+  local clusteriso="${11}"
+  local clusteriso_sha="${12}"
+  local jetbase="${13}"
+  local jetbase_sha="${14}"
+  local soname="${15}"
+
+  [[ "$release_name" == ana.560 ]] ||
+    { echo "[THE134][ERROR] p+p replacement runtime must remain pinned to ana.560" >&2; return 2; }
+  [[ "$offline_main" == */release/release_ana/"$release_name" ]] ||
+    { echo "[THE134][ERROR] p+p replacement offline prefix does not match ${release_name}" >&2; return 2; }
+  [[ "$release_lib" == "${offline_main}/lib" &&
+     "$release_lib64" == "${offline_main}/lib64" ]] ||
+    { echo "[THE134][ERROR] p+p replacement release companion directories escaped ${offline_main}" >&2; return 2; }
+  [[ "$calo_io" == "${release_lib}/libcalo_io.so" &&
+     "$clusteriso" == "${release_lib}/libclusteriso.so" &&
+     "$jetbase" == "${release_lib}/libjetbase.so" ]] ||
+    { echo "[THE134][ERROR] p+p replacement release companions are not the exact ana.560 providers" >&2; return 2; }
+  [[ "$soname" == libcalo_reco.so.0 ]] ||
+    { echo "[THE134][ERROR] p+p replacement CaloReco SONAME must be libcalo_reco.so.0" >&2; return 2; }
+
+  require_file_hash "pinned CaloReco library" "$calo_reco_library" "$calo_reco_sha" || return $?
+  require_file_hash "pinned PhotonClusterBuilder header" "$builder_header" "$builder_header_sha" || return $?
+  require_file_hash "ana.560 libcalo_io" "$calo_io" "$calo_io_sha" || return $?
+  require_file_hash "ana.560 libclusteriso" "$clusteriso" "$clusteriso_sha" || return $?
+  require_file_hash "ana.560 libjetbase" "$jetbase" "$jetbase_sha" || return $?
+
+  require_env_unset_or_exact RJ_PP_LIBRARY_OVERRIDE "$pp_library" || return $?
+  require_env_unset_or_exact RJ_AUAU_LIBRARY_OVERRIDE "$auau_library" || return $?
+  require_env_unset_or_exact RJ_CALO_RECO_LIBRARY_OVERRIDE "$calo_reco_library" || return $?
+  require_env_unset_or_exact RJ_PHOTON_CLUSTER_BUILDER_HEADER_OVERRIDE "$builder_header" || return $?
+  require_env_unset_or_exact RJ_PHOTON_CLUSTER_BUILDER_LIBRARY_OVERRIDE "" || return $?
+  require_env_unset_or_exact RJ_PINNED_CALO_RECO_RELEASE_COMPANIONS 1 || return $?
+  require_env_unset_or_exact RJ_PINNED_CALO_RECO_SONAME "$soname" || return $?
+  require_env_unset_or_exact RJ_PINNED_RELEASE_NAME "$release_name" || return $?
+  require_env_unset_or_exact RJ_PINNED_OFFLINE_MAIN "$offline_main" || return $?
+  require_env_unset_or_exact RJ_RELEASE_CORE_LIB_DIR "$release_lib" || return $?
+  require_env_unset_or_exact RJ_RELEASE_CORE_LIB64_DIR "$release_lib64" || return $?
+  require_env_unset_or_exact RJ_FORCE_RELEASE_CORE_LIBS 0 || return $?
+  require_env_unset_or_exact RJ_FORCE_RELEASE_CALO_IO 0 || return $?
+
+  export RJ_PP_LIBRARY_OVERRIDE="$pp_library"
+  export RJ_AUAU_LIBRARY_OVERRIDE="$auau_library"
+  export RJ_CALO_RECO_LIBRARY_OVERRIDE="$calo_reco_library"
+  export RJ_PHOTON_CLUSTER_BUILDER_HEADER_OVERRIDE="$builder_header"
+  export RJ_PHOTON_CLUSTER_BUILDER_LIBRARY_OVERRIDE=
+  export RJ_PINNED_CALO_RECO_RELEASE_COMPANIONS=1
+  export RJ_PINNED_CALO_RECO_SONAME="$soname"
+  export RJ_PINNED_CALO_RECO_SHA256="$calo_reco_sha"
+  export RJ_PINNED_PHOTON_CLUSTER_BUILDER_HEADER_SHA256="$builder_header_sha"
+  export RJ_PINNED_RELEASE_NAME="$release_name"
+  export RJ_PINNED_OFFLINE_MAIN="$offline_main"
+  export RJ_PINNED_RELEASE_CALO_IO_PATH="$calo_io"
+  export RJ_PINNED_RELEASE_CALO_IO_SHA256="$calo_io_sha"
+  export RJ_PINNED_RELEASE_CLUSTERISO_PATH="$clusteriso"
+  export RJ_PINNED_RELEASE_CLUSTERISO_SHA256="$clusteriso_sha"
+  export RJ_PINNED_RELEASE_JETBASE_PATH="$jetbase"
+  export RJ_PINNED_RELEASE_JETBASE_SHA256="$jetbase_sha"
+  export RJ_RELEASE_CORE_LIB_DIR="$release_lib"
+  export RJ_RELEASE_CORE_LIB64_DIR="$release_lib64"
+  export RJ_FORCE_RELEASE_CORE_LIBS=0
+  export RJ_FORCE_RELEASE_CALO_IO=0
+}
+
 if (( sidecar_pp_replacement_mode )); then
   require_replacement_namespaces "$mode"
   tag="$RJ_THE134_TAG"
@@ -89,6 +209,31 @@ pp_library="${RJ_THE134_PP_LIBRARY:-${build_root}/install/pp/lib/libRecoilJets.s
 auau_library="${RJ_THE134_AUAU_LIBRARY:-${build_root}/install/auau/lib/libRecoilJetsAuAu.so}"
 : "${RJ_THE134_PP_LIBRARY_SHA256:?set the frozen p+p library SHA-256}"
 : "${RJ_THE134_AUAU_LIBRARY_SHA256:?set the frozen Au+Au library SHA-256}"
+
+if (( sidecar_pp_replacement_mode )); then
+  : "${RJ_THE134_CALO_RECO_LIBRARY_SHA256:?set the frozen CaloReco library SHA-256}"
+  : "${RJ_THE134_PHOTON_CLUSTER_BUILDER_HEADER_SHA256:?set the frozen PhotonClusterBuilder header SHA-256}"
+  readonly replacement_release_name=ana.560
+  readonly replacement_offline_main=/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/release/release_ana/ana.560
+  readonly replacement_release_lib="${replacement_offline_main}/lib"
+  readonly replacement_release_lib64="${replacement_offline_main}/lib64"
+  configure_pp_replacement_runtime_provider \
+    "${build_root}/evidence/external/libcalo_reco.so" \
+    "$RJ_THE134_CALO_RECO_LIBRARY_SHA256" \
+    "${build_root}/evidence/external/PhotonClusterBuilder.h" \
+    "$RJ_THE134_PHOTON_CLUSTER_BUILDER_HEADER_SHA256" \
+    "$replacement_release_name" \
+    "$replacement_offline_main" \
+    "$replacement_release_lib" \
+    "$replacement_release_lib64" \
+    "${replacement_release_lib}/libcalo_io.so" \
+    8810cdfcdb1302a06567d3cf0744c12f8a9b53ae28355e8cc26b0e81d0621685 \
+    "${replacement_release_lib}/libclusteriso.so" \
+    807a50cb16ba85d9d0232c06bf2ab9b369b38f3c3626554de9827cdd80225bd2 \
+    "${replacement_release_lib}/libjetbase.so" \
+    d992f11a1e6a1ccb1d74c6e09da79114c9e9742fd2f9cf5a3bc284c8aec9d507 \
+    libcalo_reco.so.0
+fi
 
 factorial_semantic_sha="$({
   sha256sum \

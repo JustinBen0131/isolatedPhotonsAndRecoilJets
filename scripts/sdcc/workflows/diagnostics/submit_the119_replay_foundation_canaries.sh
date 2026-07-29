@@ -68,6 +68,23 @@ extra_auau_template="${RJ_THE119_AUAU_EXTRA_ENV_TEMPLATE:-}"
 writer_extra_common_template="${RJ_THE119_WRITER_EXTRA_ENV_TEMPLATE:-}"
 writer_extra_pp_template="${RJ_THE119_PP_WRITER_EXTRA_ENV_TEMPLATE:-}"
 writer_extra_auau_template="${RJ_THE119_AUAU_WRITER_EXTRA_ENV_TEMPLATE:-}"
+pinned_calo_reco_mode="${RJ_PINNED_CALO_RECO_RELEASE_COMPANIONS:-0}"
+pinned_calo_reco_library="${RJ_CALO_RECO_LIBRARY_OVERRIDE:-}"
+pinned_calo_reco_sha="${RJ_PINNED_CALO_RECO_SHA256:-}"
+pinned_builder_header="${RJ_PHOTON_CLUSTER_BUILDER_HEADER_OVERRIDE:-}"
+pinned_builder_header_sha="${RJ_PINNED_PHOTON_CLUSTER_BUILDER_HEADER_SHA256:-}"
+pinned_builder_library="${RJ_PHOTON_CLUSTER_BUILDER_LIBRARY_OVERRIDE:-}"
+pinned_calo_reco_soname="${RJ_PINNED_CALO_RECO_SONAME:-}"
+pinned_release_name="${RJ_PINNED_RELEASE_NAME:-}"
+pinned_offline_main="${RJ_PINNED_OFFLINE_MAIN:-}"
+pinned_release_lib="${RJ_RELEASE_CORE_LIB_DIR:-}"
+pinned_release_lib64="${RJ_RELEASE_CORE_LIB64_DIR:-}"
+pinned_calo_io="${RJ_PINNED_RELEASE_CALO_IO_PATH:-}"
+pinned_calo_io_sha="${RJ_PINNED_RELEASE_CALO_IO_SHA256:-}"
+pinned_clusteriso="${RJ_PINNED_RELEASE_CLUSTERISO_PATH:-}"
+pinned_clusteriso_sha="${RJ_PINNED_RELEASE_CLUSTERISO_SHA256:-}"
+pinned_jetbase="${RJ_PINNED_RELEASE_JETBASE_PATH:-}"
+pinned_jetbase_sha="${RJ_PINNED_RELEASE_JETBASE_SHA256:-}"
 
 export RJ_CODEX_CHAT_NAME="THE-114+THE-119 | pp/AuAu Replay Foundation"
 export RJ_CODEX_THREAD_ID="019f80b5-dc56-7330-9ee7-56ef417547dc"
@@ -75,6 +92,15 @@ export RJ_CODEX_THREAD_ID="019f80b5-dc56-7330-9ee7-56ef417547dc"
 log_line(){ printf '[THE119] %s\n' "$*"; }
 die(){ printf '[THE119][ERROR] %s\n' "$*" >&2; exit 2; }
 sha(){ printf '%s' "$1" | sha256sum | awk '{print $1}'; }
+sha_file(){
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    die "sha256sum or shasum -a 256 is required"
+  fi
+}
 
 want_row(){
   local arm="$1" lane="$2" sample="$3"
@@ -172,6 +198,52 @@ render_arm_extra(){
   printf '%s' "$rendered"
 }
 
+validate_pinned_runtime_provider(){
+  [[ "$pinned_calo_reco_mode" == 0 || "$pinned_calo_reco_mode" == 1 ]] ||
+    die "RJ_PINNED_CALO_RECO_RELEASE_COMPANIONS must be exactly 0 or 1"
+  [[ "$pinned_calo_reco_mode" == 1 ]] || return 0
+
+  [[ "$pinned_release_name" == ana.560 ]] ||
+    die "bounded p+p replacement runtime must remain pinned to ana.560"
+  [[ "$pinned_offline_main" == */release/release_ana/"$pinned_release_name" ]] ||
+    die "pinned offline prefix does not match ${pinned_release_name}"
+  [[ "$pinned_release_lib" == "${pinned_offline_main}/lib" &&
+     "$pinned_release_lib64" == "${pinned_offline_main}/lib64" ]] ||
+    die "pinned release companion directories escaped ${pinned_offline_main}"
+  [[ "$pinned_calo_reco_soname" == libcalo_reco.so.0 ]] ||
+    die "pinned CaloReco SONAME must be libcalo_reco.so.0"
+  [[ -z "$pinned_builder_library" ]] ||
+    die "pinned CaloReco mode forbids a second PhotonClusterBuilder library override"
+  [[ "${RJ_FORCE_RELEASE_CORE_LIBS:-0}" == 0 &&
+     "${RJ_FORCE_RELEASE_CALO_IO:-0}" == 0 ]] ||
+    die "pinned CaloReco mode forbids force-release provider switches"
+  [[ "${RJ_PP_LIBRARY_OVERRIDE:-}" == "$pp_lib" ]] ||
+    die "pinned p+p snapshot library differs from the frozen p+p canary library"
+  [[ "${RJ_AUAU_LIBRARY_OVERRIDE:-}" == "$auau_lib" ]] ||
+    die "pinned p+p snapshot companion differs from the frozen Au+Au canary library"
+
+  local pinned_path pinned_expected pinned_actual
+  while IFS=$'\t' read -r pinned_path pinned_expected; do
+    [[ "$pinned_expected" =~ ^[0-9a-f]{64}$ ]] ||
+      die "pinned provider identity must be a lowercase 64-character SHA-256"
+    [[ -s "$pinned_path" ]] ||
+      die "missing pinned runtime provider: $pinned_path"
+    pinned_actual="$(sha_file "$pinned_path")"
+    [[ "$pinned_actual" == "$pinned_expected" ]] ||
+      die "pinned runtime provider hash drift: expected=${pinned_expected} actual=${pinned_actual} path=${pinned_path}"
+  done <<EOF
+$pinned_calo_reco_library	$pinned_calo_reco_sha
+$pinned_builder_header	$pinned_builder_header_sha
+$pinned_calo_io	$pinned_calo_io_sha
+$pinned_clusteriso	$pinned_clusteriso_sha
+$pinned_jetbase	$pinned_jetbase_sha
+EOF
+  [[ "$pinned_calo_io" == "${pinned_release_lib}/libcalo_io.so" &&
+     "$pinned_clusteriso" == "${pinned_release_lib}/libclusteriso.so" &&
+     "$pinned_jetbase" == "${pinned_release_lib}/libjetbase.so" ]] ||
+    die "declared release companion paths are not the exact pinned providers"
+}
+
 require_inputs(){
   [[ -x ./RecoilJets_Condor_submit.sh ]] || die "missing submitter"
   for f in "$pp_cfg" "$auau_cfg" "$pp_lib" "$auau_lib" "$pp_model" "$pp_ref" "$auau_model"; do
@@ -202,6 +274,7 @@ require_inputs(){
   [[ "$pp_direct_witness_qa" == 0 || "$pp_direct_witness_qa" == 1 ]] || die "RJ_THE119_PP_DIRECT_WITNESS_QA must be 0 or 1"
   [[ "$pp_capture_witness_qa" == 0 || "$pp_capture_witness_qa" == 1 ]] || die "RJ_THE119_PP_CAPTURE_WITNESS_QA must be 0 or 1"
   [[ -z "$pp_witness_profile" || "$pp_witness_profile" == period_si_di ]] || die "RJ_THE119_PP_WITNESS_PROFILE must be empty or period_si_di"
+  validate_pinned_runtime_provider
   if [[ "$pp_witness_profile" == period_si_di ]]; then
     [[ -s "$pp_di_lib" ]] || die "missing ana.541 p+p replay library: $pp_di_lib"
     [[ "$pp_di_lib_sha" =~ ^[0-9a-f]{64}$ ]] || die "ana.541 p+p library identity must be a SHA-256"
@@ -373,9 +446,17 @@ preflight(){
   bash -n "$0" scripts/sdcc/runtime/condor/RecoilJets_Condor.sh scripts/sdcc/runtime/condor/RecoilJets_Condor_AuAu.sh
   mkdir -p "$evidence"
   {
-    printf 'tag=%s\nbase=%s\ncode_commit=%s\ncode_sha256=%s\nschema_sha=%s\nsemantic_sha=%s\npp_model_shower_definition=%s\npp_reference_model_shower_definition=%s\nauau_model_shower_definition=%s\nphoton_capture_et_min_gev=%s\njet_constituent_pt_min_gev=%s\ncanary_nevents=%s\nreplay_trace=%s\npp_direct_witness_qa=%s\npp_witness_profile=%s\npp_witness_only_keys=%s\nonly_keys=%s\nsource_sha_override=%s\nextra_common_template=%s\nextra_pp_template=%s\nextra_auau_template=%s\nwriter_extra_common_template=%s\nwriter_extra_pp_template=%s\nwriter_extra_auau_template=%s\n' \
-      "$tag" "$base" "$code_commit" "$code_sha" "$schema_sha" "$semantic_sha" "$pp_model_shower_definition" "$pp_ref_shower_definition" "$auau_model_shower_definition" "$photon_capture_et_min" "$jet_constituent_pt_min" "$canary_nevents" "$replay_trace" "$pp_direct_witness_qa" "$pp_witness_profile" "$pp_witness_only_keys" "$only_keys" "$source_sha_override" "$extra_common_template" "$extra_pp_template" "$extra_auau_template" "$writer_extra_common_template" "$writer_extra_pp_template" "$writer_extra_auau_template"
+    printf 'tag=%s\nbase=%s\ncode_commit=%s\ncode_sha256=%s\nschema_sha=%s\nsemantic_sha=%s\npp_model_shower_definition=%s\npp_reference_model_shower_definition=%s\nauau_model_shower_definition=%s\nphoton_capture_et_min_gev=%s\njet_constituent_pt_min_gev=%s\ncanary_nevents=%s\nreplay_trace=%s\npp_direct_witness_qa=%s\npp_witness_profile=%s\npp_witness_only_keys=%s\nonly_keys=%s\nsource_sha_override=%s\nextra_common_template=%s\nextra_pp_template=%s\nextra_auau_template=%s\nwriter_extra_common_template=%s\nwriter_extra_pp_template=%s\nwriter_extra_auau_template=%s\npinned_calo_reco_mode=%s\npinned_calo_reco_soname=%s\npinned_release_name=%s\npinned_offline_main=%s\npinned_release_lib=%s\npinned_release_lib64=%s\npinned_calo_reco_sha256=%s\npinned_builder_header_sha256=%s\npinned_calo_io_sha256=%s\npinned_clusteriso_sha256=%s\npinned_jetbase_sha256=%s\n' \
+      "$tag" "$base" "$code_commit" "$code_sha" "$schema_sha" "$semantic_sha" "$pp_model_shower_definition" "$pp_ref_shower_definition" "$auau_model_shower_definition" "$photon_capture_et_min" "$jet_constituent_pt_min" "$canary_nevents" "$replay_trace" "$pp_direct_witness_qa" "$pp_witness_profile" "$pp_witness_only_keys" "$only_keys" "$source_sha_override" "$extra_common_template" "$extra_pp_template" "$extra_auau_template" "$writer_extra_common_template" "$writer_extra_pp_template" "$writer_extra_auau_template" "$pinned_calo_reco_mode" "$pinned_calo_reco_soname" "$pinned_release_name" "$pinned_offline_main" "$pinned_release_lib" "$pinned_release_lib64" "$pinned_calo_reco_sha" "$pinned_builder_header_sha" "$pinned_calo_io_sha" "$pinned_clusteriso_sha" "$pinned_jetbase_sha"
     sha256sum "$pp_cfg" "$auau_cfg" "$pp_lib" "$auau_lib" "$pp_model" "$pp_ref" "$auau_model"
+    if [[ "$pinned_calo_reco_mode" == 1 ]]; then
+      sha256sum \
+        "$pinned_calo_reco_library" \
+        "$pinned_builder_header" \
+        "$pinned_calo_io" \
+        "$pinned_clusteriso" \
+        "$pinned_jetbase"
+    fi
     if [[ "$pp_witness_profile" == period_si_di ]]; then
       sha256sum "$pp_di_lib" "$pp_di_canary_manifest" \
         "$pp_di_photon_builder_lib" "$pp_di_photon_builder_header"
