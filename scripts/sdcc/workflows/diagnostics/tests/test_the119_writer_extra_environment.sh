@@ -521,8 +521,8 @@ sidecar_pp_replacement_mode=1
 condor_q() { return 0; }
 condor_history() { printf '%s\n' '4 0'; }
 printf '%s\n' \
-  "1001 0 2 --output ${RJ_THE119_OUTPUT_ROOT}/direct/pp_inclusive_sim/run28_jet8" \
-  "1002 0 2 --output ${RJ_THE119_OUTPUT_ROOT}/writer/pp_inclusive_sim/run28_jet8" \
+  "1001 0 2 --output ${RJ_THE119_OUTPUT_ROOT}/direct/pp_inclusive_sim/run28_jet8/jetMinPtScan_fixture" \
+  "1002 0 2 --output ${RJ_THE119_OUTPUT_ROOT}/writer/pp_inclusive_sim/run28_jet8/jetMinPtScan_fixture" \
   > "${RJ_THE119_EVIDENCE_ROOT}/initial_queue.tsv"
 validate_terminal_rows
 terminal_receipt="${RJ_THE119_EVIDENCE_ROOT}/terminal_gate_receipt.json"
@@ -575,6 +575,14 @@ printf '%s\n' \
   > "${RJ_THE119_EVIDENCE_ROOT}/initial_queue.tsv"
 if ( validate_terminal_rows ) >/dev/null 2>&1; then
   printf 'suffixed replacement output paths were accepted\n' >&2
+  exit 1
+fi
+printf '%s\n' \
+  "1001 0 2 --output ${RJ_THE119_OUTPUT_ROOT}/direct/pp_inclusive_sim/run28_jet8/../../escape" \
+  "1002 0 2 --output ${RJ_THE119_OUTPUT_ROOT}/writer/pp_inclusive_sim/run28_jet8/../../escape" \
+  > "${RJ_THE119_EVIDENCE_ROOT}/initial_queue.tsv"
+if ( validate_terminal_rows ) >/dev/null 2>&1; then
+  printf 'traversing replacement output paths were accepted\n' >&2
   exit 1
 fi
 printf '%s\n' \

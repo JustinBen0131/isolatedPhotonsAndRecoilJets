@@ -537,6 +537,7 @@ validate_terminal_rows() {
         python3 - "$RJ_THE119_OUTPUT_ROOT" "$_args" <<'PY'
 import shlex
 import sys
+from pathlib import PurePosixPath
 
 base = sys.argv[1].rstrip("/")
 tokens = shlex.split(sys.argv[2])
@@ -544,12 +545,18 @@ candidates = [
     ("direct", f"{base}/direct/pp_inclusive_sim/run28_jet8"),
     ("writer", f"{base}/writer/pp_inclusive_sim/run28_jet8"),
 ]
-matches = [
-    (index, role)
-    for index, token in enumerate(tokens)
-    for role, expected in candidates
-    if token == expected
-]
+
+matches = []
+for index, token in enumerate(tokens):
+    token_path = PurePosixPath(token)
+    if not token_path.is_absolute() or ".." in token_path.parts:
+        continue
+    for role, expected in candidates:
+        try:
+            token_path.relative_to(PurePosixPath(expected))
+        except ValueError:
+            continue
+        matches.append((index, role))
 if len(matches) != 1 or matches[0][0] != len(tokens) - 1:
     raise SystemExit(2)
 print(matches[0][1])
