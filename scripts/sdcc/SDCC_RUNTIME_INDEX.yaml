@@ -64,6 +64,10 @@ entries:
     canonical_path: "scripts/sdcc/workflows/diagnostics/materialize_the134_immutable_bundle.py"
     domain: "sdcc/workflows/diagnostics"
     hard_aliases: []
+  - id: the134_full_extraction_controller
+    canonical_path: "scripts/sdcc/workflows/diagnostics/the134_full_extraction_controller.py"
+    domain: "sdcc/workflows/diagnostics"
+    hard_aliases: []
   - id: the134_h70_contract
     canonical_path: "scripts/ml/contracts/the134_h70_contract.py"
     domain: "ml/contracts"
@@ -94,6 +98,14 @@ entries:
     hard_aliases: []
   - id: build_the134_h70_model_registry
     canonical_path: "scripts/ml/validation/build_the134_h70_model_registry.py"
+    domain: "ml/validation"
+    hard_aliases: []
+  - id: build_the134_source_complete_replay_certificates
+    canonical_path: "scripts/ml/validation/build_the134_source_complete_replay_certificates.py"
+    domain: "ml/validation"
+    hard_aliases: []
+  - id: assemble_the134_science_freeze_manifest
+    canonical_path: "scripts/ml/validation/assemble_the134_science_freeze_manifest.py"
     domain: "ml/validation"
     hard_aliases: []
   - id: build_the134_science_freeze_certificate

@@ -289,7 +289,278 @@ def synthetic_root_metadata(arrays: dict[str, np.ndarray]) -> dict[str, object]:
     }
 
 
+def synthetic_source_provenance_record(
+    path: Path,
+    *,
+    row_id: str = "pp_run28_photonjet20_000001",
+    system: str = "pp",
+    source: str = "run28_photonjet20",
+) -> dict[str, str]:
+    return {
+        "path": str(path),
+        "row_id": row_id,
+        "system": system,
+        "source_sample": source,
+        "source_occurrence_id_hex": "0" * 31 + "1",
+        "input_uri_sha256": "1" * 64,
+        "input_file_sha256": "1" * 64,
+        "source_manifest_sha256": "3" * 64,
+        "config_sha256": "4" * 64,
+        "code_sha256": "5" * 64,
+        "training_view_root_sha256": "6" * 64,
+    }
+
+
 class ContractTests(unittest.TestCase):
+    def test_valid_empty_input_uses_external_occurrence_without_rows(self):
+        arrays = {
+            name: values[:0]
+            for name, values in synthetic_arrays("pp").items()
+        }
+        metadata = synthetic_root_metadata(arrays)
+        path = Path("/frozen/digest/valid-empty.root")
+        record = synthetic_source_provenance_record(path)
+        record.update(
+            {
+                "source_manifest_sha256": "a" * 64,
+                "config_sha256": "d" * 64,
+                "code_sha256": "e" * 64,
+            }
+        )
+        selected, vectors, report = prepare.validate_matrix_input(
+            arrays,
+            metadata,
+            system="pp",
+            source="run28_photonjet20",
+            view_name="H70",
+            external=record,
+        )
+        self.assertEqual(report["status"], "PASS")
+        self.assertEqual(report["population_state"], "VALID_EMPTY")
+        self.assertEqual(
+            report["source_occurrence_ids"],
+            [record["source_occurrence_id_hex"]],
+        )
+        self.assertEqual(selected.size, 0)
+        self.assertEqual(vectors, [])
+
+    def test_nonempty_input_binds_rows_to_external_occurrence(self):
+        arrays = synthetic_arrays("pp")
+        arrays["input_file_sha256"][:] = "b" * 64
+        source_id = contract.identity128_from_text(
+            "|".join(
+                [
+                    "TRAINING",
+                    "SYNTHETIC",
+                    "run28_photonjet20",
+                    "RUN28",
+                    "1",
+                    "0",
+                    "b" * 64,
+                    "b" * 64,
+                    "a" * 64,
+                ]
+            )
+        )
+        arrays["source_occurrence_id_hi"][:] = source_id[0]
+        arrays["source_occurrence_id_lo"][:] = source_id[1]
+        metadata = synthetic_root_metadata(arrays)
+        record = synthetic_source_provenance_record(
+            Path("/frozen/digest/populated.root")
+        )
+        record.update(
+            {
+                "source_occurrence_id_hex": contract.identity128_hex(source_id),
+                "input_uri_sha256": "b" * 64,
+                "input_file_sha256": "b" * 64,
+                "source_manifest_sha256": "a" * 64,
+                "config_sha256": "d" * 64,
+                "code_sha256": "e" * 64,
+            }
+        )
+        _selected, _vectors, report = prepare.validate_matrix_input(
+            arrays,
+            metadata,
+            system="pp",
+            source="run28_photonjet20",
+            view_name="H70",
+            external=record,
+        )
+        self.assertEqual(report["status"], "PASS")
+        bad_record = dict(record)
+        bad_record["source_occurrence_id_hex"] = "f" * 32
+        _selected, _vectors, bad = prepare.validate_matrix_input(
+            arrays,
+            metadata,
+            system="pp",
+            source="run28_photonjet20",
+            view_name="H70",
+            external=bad_record,
+        )
+        self.assertEqual(bad["status"], "FAIL")
+        self.assertIn(
+            "external/row source occurrence identity mismatch",
+            bad["failures"],
+        )
+
+    def test_source_input_record_hash_binds_occurrence_identity(self):
+        record = synthetic_source_provenance_record(
+            Path("/frozen/digest/hash.root")
+        )
+        first = prepare.source_input_records_sha256([record])
+        record["source_occurrence_id_hex"] = "f" * 32
+        second = prepare.source_input_records_sha256([record])
+        self.assertNotEqual(first, second)
+
+    def test_valid_empty_occurrence_counts_toward_exact_source_closure(self):
+        system = "pp"
+        paths = []
+        path_sources = []
+        provenance = {}
+        authority = {}
+        reports = []
+        selected_rows = {}
+        for index, source in enumerate(contract.expected_sources(system)):
+            path = Path(f"/frozen/{source}/{index}.root")
+            occurrence = f"{index + 1:032x}"
+            record = synthetic_source_provenance_record(
+                path,
+                row_id=f"{source}_{index:06d}",
+                system=system,
+                source=source,
+            )
+            record["source_occurrence_id_hex"] = occurrence
+            record["source_manifest_sha256"] = f"{index + 1:064x}"
+            paths.append(path)
+            path_sources.append(source)
+            provenance[str(path)] = record
+            reports.append(
+                {
+                    "status": "PASS",
+                    "population_state": (
+                        "VALID_EMPTY" if index == 0 else "POPULATED"
+                    ),
+                    "source": source,
+                    "source_occurrence_ids": [occurrence],
+                }
+            )
+            selected_rows[source] = 0 if index == 0 else 1
+            authority[source] = {
+                "state": (
+                    "SOURCE_COMPLETE_ZERO_IN_DOMAIN"
+                    if index == 0
+                    else "SOURCE_COMPLETE"
+                ),
+                "full_source_manifest_sha256": record[
+                    "source_manifest_sha256"
+                ],
+                "expected_input_count": 1,
+                "expected_occurrence_count": 1,
+                "input_records_sha256": prepare.source_input_records_sha256(
+                    [record]
+                ),
+            }
+        closure = prepare.build_source_population_closure(
+            system=system,
+            paths=paths,
+            path_sources=path_sources,
+            external_provenance=provenance,
+            source_coverage_authority=authority,
+            file_reports=reports,
+            selected_rows_by_source=selected_rows,
+        )
+        self.assertEqual(closure["status"], "PASS")
+        first_source = contract.expected_sources(system)[0]
+        self.assertEqual(
+            closure["sources"][first_source]["observed_occurrence_count"],
+            1,
+        )
+
+    def test_explicit_provenance_routes_opaque_path_without_token_inference(self):
+        path = Path("/frozen/digest/0123456789abcdef.root")
+        record = synthetic_source_provenance_record(path)
+        with mock.patch.object(
+            prepare,
+            "source_from_path",
+            side_effect=AssertionError("path inference must not run"),
+        ):
+            sources, failures = prepare.resolve_path_sources(
+                [path], "pp", {str(path): record}
+            )
+        self.assertEqual(sources, ["run28_photonjet20"])
+        self.assertEqual(failures, [])
+
+    def test_explicit_provenance_rejects_wrong_system_without_fallback(self):
+        path = Path("/frozen/digest/0123456789abcdef.root")
+        record = synthetic_source_provenance_record(
+            path,
+            row_id="auau_run28_embeddedPhoton12_000001",
+            system="auau",
+            source="run28_embeddedPhoton12",
+        )
+        with mock.patch.object(
+            prepare,
+            "source_from_path",
+            side_effect=AssertionError("path inference must not run"),
+        ):
+            with self.assertRaisesRegex(SystemExit, "system mismatch"):
+                prepare.resolve_path_sources([path], "pp", {str(path): record})
+
+    def test_source_provenance_manifest_rejects_unsafe_hash_and_duplicate_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = Path("/frozen/digest/first.root")
+            manifest = root / "provenance.json"
+            payload = {
+                "schema": "THE134_SOURCE_PROVENANCE_V1",
+                "inputs": [synthetic_source_provenance_record(first)],
+                "source_coverage_authority": {},
+            }
+            manifest.write_text(json.dumps(payload))
+            indexed, coverage = prepare.load_source_provenance(manifest)
+            self.assertEqual(
+                indexed[str(first)]["source_sample"], "run28_photonjet20"
+            )
+            self.assertEqual(coverage, {})
+
+            payload["inputs"][0]["path"] = "/frozen/../escape.root"
+            manifest.write_text(json.dumps(payload))
+            with self.assertRaisesRegex(SystemExit, "not canonical absolute"):
+                prepare.load_source_provenance(manifest)
+
+            payload["inputs"] = [synthetic_source_provenance_record(first)]
+            payload["inputs"][0]["code_sha256"] = "not-a-hash"
+            manifest.write_text(json.dumps(payload))
+            with self.assertRaisesRegex(SystemExit, "code_sha256 is not SHA-256"):
+                prepare.load_source_provenance(manifest)
+
+            payload["inputs"] = [synthetic_source_provenance_record(first)]
+            payload["inputs"][0]["source_occurrence_id_hex"] = "A" * 32
+            manifest.write_text(json.dumps(payload))
+            with self.assertRaisesRegex(
+                SystemExit, "source_occurrence_id_hex is invalid"
+            ):
+                prepare.load_source_provenance(manifest)
+
+            payload["inputs"] = [
+                synthetic_source_provenance_record(first),
+                synthetic_source_provenance_record(
+                    first,
+                    row_id="pp_run28_photonjet20_000002",
+                ),
+            ]
+            manifest.write_text(json.dumps(payload))
+            with self.assertRaisesRegex(
+                SystemExit, "duplicate source provenance path"
+            ):
+                prepare.load_source_provenance(manifest)
+
+    def test_legacy_smoke_without_manifest_retains_path_source_resolution(self):
+        path = Path("/frozen/run28_photonjet20/input.root")
+        sources, failures = prepare.resolve_path_sources([path], "pp", {})
+        self.assertEqual(sources, ["run28_photonjet20"])
+        self.assertEqual(failures, [])
+
     def test_h70_semantic_hash_matches_frozen_cpp_contract(self):
         self.assertEqual(
             contract.shower_semantic_sha256(),

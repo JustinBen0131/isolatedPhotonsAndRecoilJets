@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -45,7 +46,6 @@ from the134_h70_contract import (  # noqa: E402
     sha256_file,
     shower_semantic_text,
     shower_semantic_sha256,
-    source_input_records_sha256,
     source_from_path,
     training_schema_sha256,
 )
@@ -63,6 +63,48 @@ ROOT_METADATA_KEYS = (
     "rj_photon_training_complete",
     "rj_photon_training_entries",
 )
+
+SOURCE_PROVENANCE_HASH_FIELDS = (
+    "input_uri_sha256",
+    "input_file_sha256",
+    "source_manifest_sha256",
+    "config_sha256",
+    "code_sha256",
+    "training_view_root_sha256",
+)
+
+SOURCE_INPUT_RECORD_FIELDS = (
+    "path",
+    "system",
+    "source_sample",
+    "source_occurrence_id_hex",
+    "input_uri_sha256",
+    "input_file_sha256",
+    "source_manifest_sha256",
+    "config_sha256",
+    "code_sha256",
+    "training_view_root_sha256",
+)
+
+IDENTITY128_HEX_RE = re.compile(r"^[0-9a-f]{32}$")
+
+
+def source_input_records_sha256(records: Iterable[dict]) -> str:
+    """Hash the exact source-input set, including valid-empty occurrence IDs."""
+
+    normalized = [
+        {
+            field: str(record.get(field, ""))
+            for field in SOURCE_INPUT_RECORD_FIELDS
+        }
+        for record in records
+    ]
+    normalized.sort(
+        key=lambda record: tuple(
+            record[field] for field in SOURCE_INPUT_RECORD_FIELDS
+        )
+    )
+    return canonical_json_sha256(normalized)
 
 
 def parse_args() -> argparse.Namespace:
@@ -138,6 +180,17 @@ def _identity_pairs(arrays: dict[str, np.ndarray], prefix: str) -> list[tuple[in
     )
 
 
+def _exact_provenance_path(value: object) -> str:
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise SystemExit("source provenance path must be a nonempty exact string")
+    if "\x00" in value or "\n" in value or "\r" in value:
+        raise SystemExit("source provenance path contains forbidden characters")
+    parsed = Path(value)
+    if not parsed.is_absolute() or ".." in parsed.parts or str(parsed) != value:
+        raise SystemExit(f"source provenance path is not canonical absolute: {value}")
+    return value
+
+
 def load_source_provenance(path: Path | None) -> tuple[dict[str, dict], dict[str, dict]]:
     if path is None:
         return {}, {}
@@ -153,14 +206,85 @@ def load_source_provenance(path: Path | None) -> tuple[dict[str, dict], dict[str
     for record in records:
         if not isinstance(record, dict) or not record.get("path"):
             raise SystemExit("source provenance contains a malformed input record")
-        key = str(Path(str(record["path"])))
+        key = _exact_provenance_path(record["path"])
         if key in indexed:
             raise SystemExit(f"duplicate source provenance path: {key}")
+        row_id = record.get("row_id")
+        if not isinstance(row_id, str) or not row_id or row_id != row_id.strip():
+            raise SystemExit(f"source provenance row_id is malformed for {key}")
+        system = record.get("system")
+        source = record.get("source_sample")
+        if system not in SYSTEM_CODES:
+            raise SystemExit(f"source provenance system is invalid for {key}")
+        if source not in expected_sources(system, include_diagnostic=True):
+            raise SystemExit(
+                f"source provenance source_sample is invalid for {key}: {source}"
+            )
+        occurrence = record.get("source_occurrence_id_hex")
+        if (
+            not isinstance(occurrence, str)
+            or IDENTITY128_HEX_RE.fullmatch(occurrence) is None
+        ):
+            raise SystemExit(
+                f"source provenance source_occurrence_id_hex is invalid for {key}"
+            )
+        for name in SOURCE_PROVENANCE_HASH_FIELDS:
+            if not is_sha256(record.get(name, "")):
+                raise SystemExit(f"source provenance {name} is not SHA-256 for {key}")
+        if record["input_uri_sha256"] != record["input_file_sha256"]:
+            raise SystemExit(
+                f"source provenance staged input hashes disagree for {key}"
+            )
         indexed[key] = record
     coverage = payload.get("source_coverage_authority", {})
     if not isinstance(coverage, dict):
         raise SystemExit("source_coverage_authority must be an object")
     return indexed, coverage
+
+
+def resolve_path_sources(
+    paths: list[Path],
+    system: str,
+    external_provenance: dict[str, dict],
+) -> tuple[list[str], list[str]]:
+    """Resolve source identity without weakening explicit provenance authority."""
+
+    if external_provenance:
+        expected_path_set = {str(path) for path in paths}
+        observed_path_set = set(external_provenance)
+        if expected_path_set != observed_path_set:
+            raise SystemExit(
+                "source provenance/input path mismatch: "
+                f"missing={sorted(expected_path_set - observed_path_set)} "
+                f"extra={sorted(observed_path_set - expected_path_set)}"
+            )
+        sources: list[str] = []
+        for path in paths:
+            record = external_provenance[str(path)]
+            if record.get("system") != system:
+                raise SystemExit(
+                    f"source provenance system mismatch for {path}: "
+                    f"{record.get('system')} != {system}"
+                )
+            source = record.get("source_sample")
+            if source not in expected_sources(system, include_diagnostic=True):
+                raise SystemExit(
+                    f"source provenance source mismatch for {path}: {source}"
+                )
+            sources.append(str(source))
+        return sources, []
+
+    sources = []
+    failures = []
+    for path in paths:
+        try:
+            sources.append(
+                source_from_path(path, system, include_diagnostic=True)
+            )
+        except ValueError as exc:
+            failures.append(str(exc))
+            sources.append("UNRESOLVED")
+    return sources, failures
 
 
 def validate_artifact_metadata(
@@ -211,11 +335,80 @@ def validate_artifact_metadata(
                 continue
             if name in metadata and str(metadata[name]) != expected_value:
                 failures.append(f"external/ROOT metadata {name} mismatch")
-            if name in arrays:
+            if name in arrays and observed_entries > 0:
                 row_values = {_text(item) for item in arrays[name]}
                 if row_values != {expected_value}:
                     failures.append(f"external/row {name} mismatch")
     return failures
+
+
+def validate_matrix_input(
+    arrays: dict[str, np.ndarray],
+    metadata: dict[str, str | int],
+    *,
+    system: str,
+    source: str,
+    view_name: str,
+    external: dict | None,
+) -> tuple[np.ndarray, list[list[float]], dict]:
+    """Validate one input, preserving externally attested valid-empty shards."""
+
+    metadata_failures = validate_artifact_metadata(
+        metadata,
+        arrays,
+        external=external,
+    )
+    observed_entries = len(arrays.get("definition_name", []))
+    if observed_entries == 0:
+        failures = list(metadata_failures)
+        occurrence = external.get("source_occurrence_id_hex") if external else None
+        if (
+            not isinstance(occurrence, str)
+            or IDENTITY128_HEX_RE.fullmatch(occurrence) is None
+        ):
+            failures.append(
+                "valid-empty input requires exact external source occurrence identity"
+            )
+            occurrence_ids: list[str] = []
+        else:
+            occurrence_ids = [occurrence]
+        report = {
+            "status": "PASS" if not failures else "FAIL",
+            "population_state": "VALID_EMPTY",
+            "rows": 0,
+            "candidates": 0,
+            "selected_view": view_name,
+            "selected_view_rows": 0,
+            "selected_view_training_rows": 0,
+            "selected_view_input_invalid_rows": 0,
+            "discarded_selected_view_label_minus_one_rows": 0,
+            "below15_selected_view_rows": 0,
+            "below15_selected_view_eligible_rows": 0,
+            "out_of_domain_selected_view_rows": 0,
+            "out_of_domain_selected_view_eligible_rows": 0,
+            "definition_counts": {},
+            "source": source,
+            "source_occurrence_ids": occurrence_ids,
+            "expected_label": expected_label(system, source),
+            "failures": failures,
+        }
+        return np.zeros(0, dtype=bool), [], report
+
+    selected, vectors, report = validate_file_arrays(
+        arrays,
+        system=system,
+        source=source,
+        view_name=view_name,
+    )
+    failures = metadata_failures + list(report["failures"])
+    if external is not None:
+        expected_occurrence = external.get("source_occurrence_id_hex")
+        if report.get("source_occurrence_ids") != [expected_occurrence]:
+            failures.append("external/row source occurrence identity mismatch")
+    report["population_state"] = "POPULATED"
+    report["failures"] = failures
+    report["status"] = "PASS" if not failures else "FAIL"
+    return selected, vectors, report
 
 
 def validate_file_arrays(
@@ -948,23 +1141,9 @@ def main() -> int:
         args.source_provenance_json
     )
     paths = expand_paths(args.input)
-    if external_provenance:
-        expected_path_set = {str(path) for path in paths}
-        observed_path_set = set(external_provenance)
-        if expected_path_set != observed_path_set:
-            raise SystemExit(
-                "source provenance/input path mismatch: "
-                f"missing={sorted(expected_path_set - observed_path_set)} "
-                f"extra={sorted(observed_path_set - expected_path_set)}"
-            )
-    path_sources: list[str] = []
-    source_failures: list[str] = []
-    for path in paths:
-        try:
-            path_sources.append(source_from_path(path, args.system, include_diagnostic=True))
-        except ValueError as exc:
-            source_failures.append(str(exc))
-            path_sources.append("UNRESOLVED")
+    path_sources, source_failures = resolve_path_sources(
+        paths, args.system, external_provenance
+    )
     observed_manifest_sources = set(path_sources) - {"UNRESOLVED"}
     required_sources = set(expected_sources(args.system))
     if args.scope == "full" and observed_manifest_sources != required_sources:
@@ -998,16 +1177,14 @@ def main() -> int:
                         "external provenance/output ROOT SHA-256 mismatch"
                     )
             arrays, branches, metadata = read_tree(path, args.tree)
-            metadata_failures = validate_artifact_metadata(
-                metadata,
+            selected, vectors, validation = validate_matrix_input(
                 arrays,
-                external=external_provenance.get(str(path)) if external_provenance else None,
+                metadata,
+                system=args.system,
+                source=source,
+                view_name=args.view,
+                external=external_record,
             )
-            selected, vectors, validation = validate_file_arrays(
-                arrays, system=args.system, source=source, view_name=args.view
-            )
-            validation["failures"] = metadata_failures + validation["failures"]
-            validation["status"] = "PASS" if not validation["failures"] else "FAIL"
             report.update(validation)
             report["branches"] = branches
             report["root_metadata"] = metadata

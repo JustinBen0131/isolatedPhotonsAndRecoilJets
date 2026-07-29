@@ -9,12 +9,15 @@ THE-134 factorial-view tooling uses one shared contract in
 The supported sequence is:
 
 ```text
-prepare_the134_h70_matrix.py
+the134_full_extraction_controller.py
+  -> prepare_the134_h70_matrix.py
   -> run_the134_h70_model.py
   -> materialize_the134_h70_holdout.py
   -> validate_the134_h70_model.py
   -> derive_the134_h70_wp.py
   -> build_the134_h70_model_registry.py
+  -> build_the134_source_complete_replay_certificates.py
+  -> assemble_the134_science_freeze_manifest.py
   -> build_the134_science_freeze_certificate.py
   -> project_the134_storage_quota.py
 ```
@@ -27,6 +30,12 @@ runtime artifact/dependency inventory. The non-submitting
 `resolve_the134_full_multiview_extraction.py` accepts only those two pinned
 receipts and produces the exact row descriptors; none of these preflight
 surfaces grants scientific completion or production authority.
+
+`the134_full_extraction_controller.py` is the guarded remote execution surface.
+It reconstructs the frozen resolver and materializer inputs, seals each
+submission attempt, binds every terminal proc to its exact staged chunk, and
+emits the source-complete logical aggregate only after the duplicate, quota,
+immutable-bundle, job, artifact, provenance, and exact-input-once gates pass.
 
 The extraction executor then requires one row-specific
 `THE134_SOURCE_PROVENANCE_V1` JSON derived from the resolved authority. It pins
@@ -73,6 +82,14 @@ system/view replay certificates. Every replay certificate must carry the
 complete system-specific source inventory with direct, writer, and cache
 witnesses. Missing views, systems, sources, hashes, exact working points, or
 closure gates fail closed.
+
+`build_the134_source_complete_replay_certificates.py` independently rehashes
+all seven source registries and all source/view validation receipts before
+emitting the fourteen replay certificates.
+`assemble_the134_science_freeze_manifest.py` then binds those certificates to
+the seven exact paired model registries. These two deterministic builders are
+the only supported bridge from source-complete extraction/model evidence to
+the aggregate science-freeze certificate.
 
 `project_the134_storage_quota.py` binds the aggregate science certificate to
 source-complete byte projections. It budgets the direct-reference histogram
