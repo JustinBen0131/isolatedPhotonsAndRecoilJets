@@ -89,7 +89,7 @@ source_provenance_json="${evidence_root}/source_provenance.json"
 pp_source_provenance_json="${evidence_root}/pp_source_provenance.json"
 auau_source_provenance_json="${evidence_root}/auau_source_provenance.json"
 if (( capacity_mode )); then
-  root_health_join_certificate="${evidence_root}/root_health_identity_join_certificate_capacity_v6.json"
+  root_health_join_certificate="${evidence_root}/root_health_identity_join_certificate_capacity_v7.json"
 else
   root_health_join_certificate="${evidence_root}/root_health_identity_join_certificate.json"
 fi

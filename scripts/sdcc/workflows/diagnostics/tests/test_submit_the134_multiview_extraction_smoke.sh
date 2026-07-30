@@ -25,7 +25,7 @@ grep -Fq '"analysis_artifact_state": "EPHEMERAL_VALIDATED_NOT_RETAINED"' "$contr
 grep -Fq '"analysis_artifact_state": "DURABLE_VALIDATED"' "$controller"
 grep -Fq '"full_extraction_plan": {' "$controller"
 grep -Fq 'analysis_path.exists()' "$controller"
-grep -Fq 'root_health_identity_join_certificate_capacity_v6.json' "$controller"
+grep -Fq 'root_health_identity_join_certificate_capacity_v7.json' "$controller"
 
 invalid_fast_log="${TMPDIR:-/tmp}/the134_invalid_fast_extraction.$$"
 if RJ_THE134_FAST_EXTRACTION_V1=2 "$controller" inventory >"$invalid_fast_log" 2>&1; then
@@ -1238,7 +1238,7 @@ def validate(text: str) -> None:
         'RJ_THE134_CAPACITY_RUNTIME_AUTHORITY_SHA256',
         'validate_capacity_postrun_authority',
         'write_runtime_authority_manifest verify',
-        'root_health_identity_join_certificate_capacity_v6.json',
+        'root_health_identity_join_certificate_capacity_v7.json',
         'required_ephemeral_profile.items()',
         'expected_artifact_profile.items()',
         'pp_capacity_multiview_audit_v2.json',
