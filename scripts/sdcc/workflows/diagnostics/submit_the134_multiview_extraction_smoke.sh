@@ -77,6 +77,7 @@ capacity_submission_manifest_sha="${RJ_THE134_CAPACITY_SUBMISSION_MANIFEST_SHA25
 capacity_submission_receipt_sha="${RJ_THE134_CAPACITY_SUBMISSION_RECEIPT_SHA256:-}"
 capacity_submission_journal_sha="${RJ_THE134_CAPACITY_SUBMISSION_JOURNAL_SHA256:-}"
 capacity_runtime_authority_sha="${RJ_THE134_CAPACITY_RUNTIME_AUTHORITY_SHA256:-}"
+fast_extraction_mode="${RJ_THE134_FAST_EXTRACTION_V1:-0}"
 
 resolved_config_root="${evidence_root}/resolved_configs"
 observed_source_hashes="${evidence_root}/observed_source_hashes.tsv"
@@ -144,6 +145,10 @@ readonly training_schema_text='RJ_PHOTON_TRAINING_VIEW_V1|tree=RJPhotonTrainingV
 
 log_line() { printf '[THE134-EXTRACT] %s\n' "$*"; }
 die() { printf '[THE134-EXTRACT][ERROR] %s\n' "$*" >&2; exit 2; }
+case "$fast_extraction_mode" in
+  0|1) ;;
+  *) die "RJ_THE134_FAST_EXTRACTION_V1 must be exactly 0 or 1" ;;
+esac
 sha256_cmd() {
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$@"
@@ -1228,6 +1233,9 @@ common_extra_env() {
   fi
   local extra
   extra="RJ_REPLAY_FOUNDATION_V1=1;RJ_REPLAY_FOUNDATION_CANARY=1;RJ_REPLAY_TRACE=0;RJ_REPLAY_LANE=${lane};RJ_REPLAY_DATASET=${dataset};RJ_REPLAY_SAMPLE=${sample};RJ_REPLAY_PERIOD=${period};RJ_REPLAY_SI_DI_ROLE=${si_di_role};RJ_REPLAY_OWNERSHIP_STATE=source_role_frozen;RJ_REPLAY_SOURCE_MANIFEST_SHA256=${source_sha};RJ_REPLAY_SOURCE_SHA256=${source_sha};RJ_REPLAY_MODEL_SHA256=${model_sha};RJ_REPLAY_MODEL_SCORE_NAME=${model_score};RJ_REPLAY_MODEL_SHOWER_DEFINITION=${shower_definition};RJ_REPLAY_CONFIG_SHA256=${config_sha};RJ_REPLAY_CODE_SHA256=${RJ_THE134_CODE_SHA256};RJ_REPLAY_SCHEMA_SHA256=${RJ_THE134_REPLAY_SCHEMA_SHA256};RJ_REPLAY_SEMANTIC_SHA256=${RJ_THE134_SEMANTIC_SHA256};RJ_REPLAY_PHOTON_CAPTURE_ET_MIN=${capture_et_min};RJ_REPLAY_JET_CONSTITUENT_PT_MIN=${capture_et_min};RJ_THE134_MULTIVIEW_TRAINING_V1=1;RJ_THE134_MULTIVIEW_TRAINING_FILE=${sidecar};RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1=1;RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT=1;RJ_THE134_EXPECTED_SOURCE_ROLE=${role}"
+  if [[ "$fast_extraction_mode" == 1 ]]; then
+    extra="${extra};RJ_THE134_FAST_EXTRACTION_V1=1"
+  fi
   if (( capacity_mode )); then
     extra="${extra};RJ_REPLAY_FOUNDATION_CAPACITY_CANARY=1;RJ_REPLAY_FOUNDATION_CAPACITY_CANARY_ID=${capacity_canary_id};RJ_REPLAY_FOUNDATION_CAPACITY_PREFLIGHT_RECEIPT=${capacity_preflight_receipt};RJ_REPLAY_FOUNDATION_CAPACITY_PREFLIGHT_RECEIPT_SHA256=${capacity_preflight_receipt_sha};RJ_REPLAY_FOUNDATION_EXECUTION_PARTITION_SHA256=$(capacity_receipt_value execution_partition_sha256);RJ_REPLAY_FOUNDATION_BUNDLE_RECEIPT_SHA256=$(capacity_receipt_value bundle_manifest_sha256);RJ_REPLAY_FOUNDATION_MATERIALIZATION_RECEIPT_SHA256=$(capacity_receipt_value materialization_receipt_sha256)"
   fi

@@ -15,6 +15,17 @@ grep -Fq 'capacity repair matrix must contain exactly its selected frozen witnes
 grep -Fq 'full capacity mode must not name a preserved partner campaign' "$controller"
 grep -Fq 'RJ_THE134_MULTIVIEW_TRAINING_FILE=${sidecar};RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1=1;RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT=1;RJ_THE134_EXPECTED_SOURCE_ROLE=${role}' "$controller"
 grep -Fq 'sidecar="${row_output}/training_views/${sample}/RJPhotonTrainingViewV1.root"' "$controller"
+grep -Fq 'fast_extraction_mode="${RJ_THE134_FAST_EXTRACTION_V1:-0}"' "$controller"
+grep -Fq 'RJ_THE134_FAST_EXTRACTION_V1 must be exactly 0 or 1' "$controller"
+grep -Fq 'extra="${extra};RJ_THE134_FAST_EXTRACTION_V1=1"' "$controller"
+
+invalid_fast_log="${TMPDIR:-/tmp}/the134_invalid_fast_extraction.$$"
+if RJ_THE134_FAST_EXTRACTION_V1=2 "$controller" inventory >"$invalid_fast_log" 2>&1; then
+  printf 'invalid fast-extraction mode was accepted\n' >&2
+  exit 1
+fi
+grep -Fq 'RJ_THE134_FAST_EXTRACTION_V1 must be exactly 0 or 1' "$invalid_fast_log"
+rm -f "$invalid_fast_log"
 python3 - "$controller" <<'PY'
 from pathlib import Path
 import sys
@@ -135,6 +146,40 @@ eval "$(
   sed -n '/^validate_system_matrix_or_capacity_audit()/,/^write_capacity_resource_certificate()/p' \
     "$controller" | sed '$d'
 )"
+(
+  eval "$(
+    sed -n '/^common_extra_env()/,/^system_extra_env()/p' \
+      "$controller" | sed '$d'
+  )"
+  manifest_field() {
+    case "$2" in
+      10) printf '%064d\n' 1 ;;
+      12) printf '/tmp/config.yaml\n' ;;
+      13) printf '%064d\n' 2 ;;
+      17) printf '%064d\n' 3 ;;
+      28) printf '/sphenix/tg/example/training_views/Jet8/RJPhotonTrainingViewV1.root\n' ;;
+      *) return 2 ;;
+    esac
+  }
+  pp_period=0mrad
+  capture_et_min=5.0
+  capacity_mode=0
+  RJ_THE134_CODE_SHA256="$(printf '%064d' 4)"
+  RJ_THE134_REPLAY_SCHEMA_SHA256="$(printf '%064d' 5)"
+  RJ_THE134_SEMANTIC_SHA256="$(printf '%064d' 6)"
+  fast_extraction_mode=0
+  ordinary_extra="$(common_extra_env pp_background_jet8 pp pp_inclusive_sim Jet8 Jet8 BACKGROUND)"
+  if [[ "$ordinary_extra" == *RJ_THE134_FAST_EXTRACTION_V1=* ]]; then
+    printf 'fast-extraction flag leaked into the default capacity environment\n' >&2
+    exit 1
+  fi
+  fast_extraction_mode=1
+  fast_extra="$(common_extra_env pp_background_jet8 pp pp_inclusive_sim Jet8 Jet8 BACKGROUND)"
+  [[ "$fast_extra" == *';RJ_THE134_FAST_EXTRACTION_V1=1'* ]] || {
+    printf 'fast-extraction flag was not propagated into the candidate environment\n' >&2
+    exit 1
+  }
+)
 
 validate_pp_sim_weight_contract 0mrad
 validate_pp_sim_weight_contract 1p5mrad
