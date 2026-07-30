@@ -5,6 +5,46 @@ used by the THE-114 campaign.  The direct RecoilJets histograms remain the
 authoritative detector execution; these tables are selection-neutral companion
 data for exact offline replay.
 
+## Direct-histogram replay obligation
+
+`contracts/direct_histogram_replay_obligation_v1.schema.json` and
+`validate_direct_histogram_replay_obligations.py` make replay completeness a
+fail-closed production gate.  The direct ROOT inventory is discovered from the
+file itself; the inventory command deliberately does not invent analysis
+recipes.  A separately reviewed registry must bind every TH1/TH2/TH3/TProfile
+key to its exact normalized-tree inputs, selection, fill, ordering, tie,
+weight-once, flow, response, and consumer contracts.
+
+Validation requires 100% key coverage, `REPLAY_EXACT`/`EXACT` semantics, and
+the complete equality surface: ROOT key/class/title/axes, entries,
+contributors, contents, errors, variances, raw `Sumw2`, and underflow/overflow.
+There is no exemption or `DST_REQUIRED` escape hatch for a declared direct
+histogram.  The offline replay process must run without access to direct
+histogram contents; only its completed ROOT output is given to the comparator.
+
+```bash
+python3 scripts/diagnostics/replay_foundation/validate_direct_histogram_replay_obligations.py \
+  inventory \
+  --direct /path/to/direct.root \
+  --artifact-id pp_data_direct \
+  --system pp \
+  --lane data \
+  --output /path/to/direct_inventory.json
+
+python3 scripts/diagnostics/replay_foundation/validate_direct_histogram_replay_obligations.py \
+  validate \
+  --inventory /path/to/direct_inventory.json \
+  --registry /path/to/direct_replay_obligations.json \
+  --output /path/to/obligation_certificate.json
+
+python3 scripts/diagnostics/replay_foundation/validate_direct_histogram_replay_obligations.py \
+  compare \
+  --registry /path/to/direct_replay_obligations.json \
+  --direct /path/to/direct.root \
+  --replay /path/to/ttree_only_replay.root \
+  --output /path/to/replay_equality_certificate.json
+```
+
 Run the synthetic contract gate with the analysis ROOT runtime:
 
 ```bash
