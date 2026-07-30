@@ -325,8 +325,26 @@ namespace detail
         const auto& inputManagers = syncManager->GetInputManagers();
         witness.registeredInputManagers =
           static_cast<int>(inputManagers.size());
+        int inputManagerIndex = 0;
         for (const auto* inputManager : inputManagers)
         {
+          const bool isPermittedRepeating =
+            inputManager == permittedRepeatingManager;
+          const bool isOpen = inputManager && inputManager->IsOpen();
+          const bool fileListEmpty =
+            inputManager && inputManager->FileListEmpty();
+          std::fprintf(
+            stderr,
+            "RECOILJETS_FUN4ALL_INPUT_STATUS_V1"
+            " path=%s index=%d name=%s repeating=%d"
+            " open=%d file_list_empty=%d\n",
+            path,
+            inputManagerIndex,
+            inputManager ? inputManager->Name().c_str() : "<null>",
+            isPermittedRepeating ? 1 : 0,
+            isOpen ? 1 : 0,
+            fileListEmpty ? 1 : 0);
+          ++inputManagerIndex;
           if (inputManager == permittedRepeatingManager)
           {
             ++witness.permittedRepeatingManagerMatches;
@@ -337,16 +355,15 @@ namespace detail
           {
             continue;
           }
-          if (inputManager->IsOpen())
+          if (isOpen)
           {
             ++witness.openOrdinaryInputManagers;
           }
-          if (!inputManager->FileListEmpty())
+          if (!fileListEmpty)
           {
             ++witness.nonemptyOrdinaryFileLists;
           }
-          if (!inputManager->IsOpen() &&
-              inputManager->FileListEmpty())
+          if (!isOpen && fileListEmpty)
           {
             ++witness.exhaustedOrdinaryInputManagers;
           }

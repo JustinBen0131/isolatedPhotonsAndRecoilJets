@@ -10,6 +10,7 @@ grep -Fq '#include <fun4all/Fun4AllSyncManager.h>' "$macro"
 grep -Fq 'Fun4AllInputManager* permittedRepeatingPedestalInputManager = nullptr;' "$macro"
 grep -Fq 'permittedRepeatingPedestalInputManager = pedIn;' "$macro"
 grep -Fq 'RECOILJETS_FUN4ALL_STATUS_V2' "$macro"
+grep -Fq 'RECOILJETS_FUN4ALL_INPUT_STATUS_V1' "$macro"
 [[ "$(grep -Fc -- '->Repeat();' "$macro")" == 1 ]]
 
 sed -n \
@@ -177,17 +178,23 @@ constexpr int EVENT_OK = 0;
 class Fun4AllInputManager
 {
  public:
-  Fun4AllInputManager(const bool open, const bool empty)
+  Fun4AllInputManager(
+      const bool open,
+      const bool empty,
+      const std::string& name = "FIXTURE_INPUT")
     : m_open(open)
     , m_empty(empty)
+    , m_name(name)
   {
   }
   bool IsOpen() const { return m_open; }
   bool FileListEmpty() const { return m_empty; }
+  const std::string& Name() const { return m_name; }
 
  private:
   bool m_open = false;
   bool m_empty = true;
+  std::string m_name;
 };
 
 class Fun4AllSyncManager
