@@ -21,7 +21,10 @@ plan="$(bash "$builder" --output-dir "$output" --setup-script /usr/bin/true --jo
 grep -q '^PPG12_ORACLE_NEW17_BUILD_PLAN$' <<<"$plan" || fail "plan marker missing"
 grep -q 'runtime: new.17' <<<"$plan" || fail "new.17 contract missing"
 grep -q 'source-locked libCaloAna24.so plus libRecoilJets.so with renamed PPG12-oracle photon builder' <<<"$plan" || fail "build contract missing"
+grep -q 'ppg_binary_mode: source_locked_rebuild' <<<"$plan" || fail "default source-rebuild mode missing"
 grep -q 'ppg_source_revision: 1c0ff86bf0ebabfba63a1abc4512cbe59fe48e31' <<<"$plan" || fail "PPG12 source revision missing"
+grep -q 'RooUnfold: exact historical lib=d135771391ae250bcb64c0889571825abe9924649485890e7a9c64648ee99062 pcm=2d91962a7b42acf246c7a80339eee71ca2f7e6df18ef76051d24a83bc61d4244 headers=ea9b923a8f6bc57b28027b7183b10e87246810c326208b1e36bf2b4b7491a458' <<<"$plan" || \
+  fail "pinned RooUnfold library/PCM/header-tree contract missing"
 grep -q 'exact new.17 libcalo_reco.so, libclusteriso.so, libjetbase.so (cp -L)' <<<"$plan" || fail "release-copy contract missing"
 token="$(sed -n 's/^  token: //p' <<<"$plan")"
 [[ "$token" =~ ^ppg12-new17:[0-9a-f]{64}$ ]] || fail "plan token is malformed"
@@ -36,6 +39,100 @@ override_plan="$(bash "$builder" --output-dir "$output" --setup-script /usr/bin/
 override_token="$(sed -n 's/^  token: //p' <<<"$override_plan")"
 [[ "$override_token" != "$token" ]] || fail "photon-source override did not change the sealed token"
 [[ ! -e "$output" ]] || fail "override plan mode mutated the output path"
+
+pcm_override="${tmp}/RooUnfoldDict_rdict.pcm"
+printf 'synthetic RooUnfold dictionary token fixture\n' > "$pcm_override"
+if bash "$builder" --output-dir "$output" --setup-script /usr/bin/true \
+    --jobs 2 --roounfold-pcm "$pcm_override" >/dev/null 2>&1; then
+  fail "substituted RooUnfold PCM override was accepted"
+fi
+[[ ! -e "$output" ]] || fail "PCM override plan mode mutated the output path"
+
+header_override="${tmp}/roounfold_headers"
+mkdir "$header_override"
+for header in RooUnfold.h RooUnfoldResponse.h RooUnfoldBayes.h \
+  RooUnfoldBinByBin.h RooUnfoldErrors.h RooUnfoldInvert.h RooUnfoldParms.h \
+  RooUnfoldSvd.h RooUnfoldTUnfold.h; do
+  printf '// substituted historical header: %s\n' "$header" > "${header_override}/${header}"
+done
+if bash "$builder" --output-dir "$output" --setup-script /usr/bin/true \
+    --jobs 2 --roounfold-include-dir "$header_override" >/dev/null 2>&1; then
+  fail "substituted RooUnfold header-tree override was accepted"
+fi
+[[ ! -e "$output" ]] || fail "header override plan mode mutated the output path"
+
+origin_root="${tmp}/origin_runtime"
+origin_receipt="${origin_root}/build_receipt.json"
+origin_library="${origin_root}/runtime/lib/libCaloAna24.so"
+origin_manifest="${origin_root}/runtime_manifest.json"
+mkdir -p "$(dirname "$origin_library")"
+python3 - "$origin_receipt" "$origin_library" "$origin_manifest" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import sys
+
+receipt_path, library_path, manifest_path = map(Path, sys.argv[1:])
+library_path.write_bytes(b"sealed-attempt12-libCaloAna24-test-fixture\n")
+receipt = {
+    "schema_version": 1,
+    "runtime_profile": "new.17",
+    "offline_main": (
+        "/cvmfs/sphenix.sdcc.bnl.gov/alma9.2-gcc-14.2.0/"
+        "release/release_new/new.17"
+    ),
+    "ppg12_source": {
+        "revision": "1c0ff86bf0ebabfba63a1abc4512cbe59fe48e31",
+        "working_tree_ignored": True,
+        "rebuilt_against_common_runtime": True,
+    },
+    "staged_rewrites": {
+        "archived_ppg12_binary_reused": False,
+        "ppg12_source_locked_rebuild": True,
+    },
+}
+receipt_path.write_text(json.dumps(receipt, sort_keys=True) + "\n")
+digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+manifest = {
+    "schema_version": 1,
+    "runtime_profile": "new.17",
+    "offline_main": receipt["offline_main"],
+    "isolated_build": True,
+    "estimator_revision": "29f8223bd9b36dffab07961b597afa94185bbdf1",
+    "build_receipt": str(receipt_path.resolve()),
+    "build_receipt_sha256": digest(receipt_path),
+    "files": [{
+        "role": "libCaloAna24.so",
+        "path": str(library_path.resolve()),
+        "sha256": digest(library_path),
+    }],
+}
+manifest_path.write_text(json.dumps(manifest, sort_keys=True) + "\n")
+PY
+origin_library_sha="$(python3 - "$origin_library" <<'PY'
+from pathlib import Path
+import hashlib
+import sys
+print(hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest())
+PY
+)"
+import_plan="$(bash "$builder" --output-dir "$output" --setup-script /usr/bin/true \
+  --jobs 2 --ppg-source-runtime-manifest "$origin_manifest")"
+grep -q 'ppg_binary_mode: source_locked_runtime_import' <<<"$import_plan" || \
+  fail "source-locked binary-import mode missing"
+grep -q "ppg_origin_library_sha256: ${origin_library_sha}" <<<"$import_plan" || \
+  fail "origin library digest missing from import plan"
+import_token="$(sed -n 's/^  token: //p' <<<"$import_plan")"
+[[ "$import_token" =~ ^ppg12-new17:[0-9a-f]{64}$ ]] || fail "import token is malformed"
+[[ "$import_token" != "$token" ]] || fail "binary import did not change the sealed token"
+[[ ! -e "$output" ]] || fail "import plan mode mutated the output path"
+
+printf 'tamper\n' >> "$origin_library"
+if bash "$builder" --output-dir "$output" --setup-script /usr/bin/true \
+    --ppg-source-runtime-manifest "$origin_manifest" >/dev/null 2>&1; then
+  fail "tampered origin library was accepted"
+fi
+[[ ! -e "$output" ]] || fail "rejected import plan mutated the output path"
 
 if bash "$builder" --build --token ppg12-new17:wrong --output-dir "$output" \
     --setup-script /usr/bin/true --jobs 2 >/dev/null 2>&1; then
@@ -72,7 +169,12 @@ for invariant in \
   'built_ppg="$(resolve_installed_lib libCaloAna24.so)"' \
   '"${runtime_root}/lib/libCaloAna24.so"' \
   '"archived_ppg12_binary_reused": False' \
-  '"ppg12_source_locked_rebuild": True' \
+  '"ppg12_source_locked_rebuild": ppg_binary_mode == "source_locked_rebuild"' \
+  '"ppg12_source_locked_binary_import": ppg_binary_mode == "source_locked_runtime_import"' \
+  'reexec_args+=(--ppg-source-runtime-manifest "$ppg_source_runtime_manifest")' \
+  'cmp -s "$built_ppg" "${runtime_root}/lib/libCaloAna24.so"' \
+  'ppg_source_runtime_manifest' \
+  'ppg_source_build_receipt' \
   'source "$setup_script" -n new.17' \
   'root_libdir="$(root-config --libdir)"' \
   'for link_dir in "${OFFLINE_MAIN}/lib" "${OFFLINE_MAIN}/lib64" "$root_libdir"' \
@@ -99,6 +201,9 @@ for invariant in \
 done
 for invariant in \
   'expected_recoeff_sha256="e9b25fdb6dd8a6bfbbad029cb90aaddc9489fdf2846c630ea63c8c41ac771eee"' \
+  'expected_recoeff_roounfold_compat_sha256="f5a12905952a0f49a7521868935e7868eca7cf8de1facae12c26e0dd9b712891"' \
+  'recoeff_roounfold_compat_needle=' \
+  'recoeff_roounfold_compat_replacement=' \
   'expected_recoeff_config_sha256="42b7be1628843d5b7607ab988ffb58c6d019d8ade01b3c4d528611498db95732"' \
   'expected_recoeff_period_config_0mrad_sha256="3995033c8867f4b0e21d5ebc025d36395185671da474fceec128b20db7218be2"' \
   'expected_recoeff_period_config_1p5mrad_sha256="6d2e4cc691e2fdd49271486ef193055704da00bcbd6b50ced76fcdd99cd050b8"' \
@@ -107,6 +212,9 @@ for invariant in \
   'expected_apply_bdt_sha256="bd6e7c5bc9858ddad9bc835552d818c00290bb7de3f5036f44d8bf4804734366"' \
   'expected_apply_config_sha256="b8d1bc359a647cc913f213777fc42958b532b30c37a63bb318680130eb6e321b"' \
   'expected_apply_npb_sha256="d6086dadac534013cda15cdfb69c1683776d3456d9e439903589653e8ac19eab"' \
+  'expected_roounfold_library_sha256="d135771391ae250bcb64c0889571825abe9924649485890e7a9c64648ee99062"' \
+  'expected_roounfold_pcm_sha256="2d91962a7b42acf246c7a80339eee71ca2f7e6df18ef76051d24a83bc61d4244"' \
+  'expected_roounfold_header_tree_sha256="ea9b923a8f6bc57b28027b7183b10e87246810c326208b1e36bf2b4b7491a458"' \
   'apply_model_names=(base base_vr base_v0 base_v1 base_v2 base_v3 base_E base_v0E base_v1E base_v2E base_v3E)' \
   '(f"ppg_apply_model_{name}"' \
   'ppg_apply_npb_model' \
@@ -115,6 +223,37 @@ for invariant in \
   'ppg_recoeff_truth_vertex_reweight_0mrad' \
   'ppg_recoeff_truth_vertex_reweight_1p5mrad' \
   'ppg_recoeff_yaml_cpp_header_tree_receipt' \
+  'roounfold_pcm="${roounfold_root}/tmp/linuxx8664gcc/RooUnfoldDict_rdict.pcm"' \
+  'cp -f "$roounfold_pcm" "${runtime_root}/lib/RooUnfoldDict_rdict.pcm"' \
+  'cmp -s "$roounfold_pcm" "${runtime_root}/lib/RooUnfoldDict_rdict.pcm"' \
+  'ppg_recoeff_roounfold_pcm' \
+  'ppg_recoeff_roounfold_compat_macro' \
+  'ppg_recoeff_roounfold_compat_transform_receipt' \
+  'ppg12_recoeff_roounfold_constructor_compat_v1' \
+  'remove_unsupported_explicit_false_constructor_argument' \
+  'constructor_default_overflow_equals_explicit_false' \
+  'selection_or_fill_expression_replaced' \
+  'purity_estimator_expression_replaced' \
+  'ppg_recoeff_roounfold_header_tree_receipt' \
+  'roounfold_header_receipt="${runtime_root}/estimator/roounfold_header_tree_receipt.json"' \
+  'RooUnfoldBinByBin.h' \
+  'RooUnfoldErrors.h' \
+  'RooUnfoldInvert.h' \
+  'RooUnfoldParms.h' \
+  'RooUnfoldSvd.h' \
+  'RooUnfoldTUnfold.h' \
+  '#include <TUnfold.h>' \
+  '#include <TROOT.h>' \
+  'smoke_body_macro="${build_root}/smoke_new17_runtime_body.C"' \
+  'gSystem->Load(library)' \
+  'gROOT->LoadMacro("${smoke_body_macro}")' \
+  'gROOT->ProcessLine("smoke_new17_runtime_body();", &error)' \
+  'RooUnfoldResponse response(' \
+  '(const TH1 *)&measured, (const TH1 *)&truth, &migration,' \
+  'if (response.UseOverflowStatus())' \
+  'RooUnfoldBayes bayes(' \
+  'PPG12_ORACLE_ROOUNFOLD_API_SMOKE_PASS default_overflow=0' \
+  'TCling::(LoadPCM|RegisterModule|AutoParse)' \
   'yaml_cpp_include_dir="/sphenix/u/shuhang98/install/include"' \
   'staged yaml-cpp header tree differs from source' \
   '#include <yaml-cpp/yaml.h>' \
@@ -126,6 +265,86 @@ for invariant in \
 done
 grep -Fq -- '-lg4eval \' "$builder" || \
   fail "staged oracle link does not include release libg4eval"
+
+python3 - "$builder" "$repo_root/ppg12codeGit" <<'PY'
+from pathlib import Path
+import hashlib
+import re
+import subprocess
+import sys
+
+builder = Path(sys.argv[1]).read_text()
+repo = sys.argv[2]
+source = subprocess.check_output([
+    "git", "-C", repo, "show",
+    "29f8223bd9b36dffab07961b597afa94185bbdf1:efficiencytool/RecoEffCalculator_TTreeReader.C",
+])
+needle = b', Form("response_matrix_full_%d", ieta), "", false));'
+replacement = b', Form("response_matrix_full_%d", ieta), ""));'
+if source.count(needle) != 1:
+    raise SystemExit("canonical RooUnfold compatibility needle is not exact-once")
+derived = source.replace(needle, replacement)
+if hashlib.sha256(derived).hexdigest() != (
+    "f5a12905952a0f49a7521868935e7868eca7cf8de1facae12c26e0dd9b712891"
+):
+    raise SystemExit("canonical RooUnfold compatibility derivative drifted")
+loader_match = re.search(
+    r'cat > "\$smoke_macro" <<EOF\n(?P<body>.*?)\nEOF\n\(',
+    builder,
+    flags=re.DOTALL,
+)
+body_match = re.search(
+    r'cat > "\$smoke_body_macro" <<EOF\n(?P<body>.*?)\nEOF\n\nsmoke_macro=',
+    builder,
+    flags=re.DOTALL,
+)
+if not loader_match:
+    raise SystemExit("cannot locate ROOT runtime smoke body")
+if not body_match:
+    raise SystemExit("cannot locate separately generated ROOT smoke body macro")
+loader = loader_match.group("body")
+body = body_match.group("body")
+if "R__LOAD_LIBRARY" in loader or "R__LOAD_LIBRARY" in body:
+    raise SystemExit("ROOT smoke retains compile-time R__LOAD_LIBRARY ordering ambiguity")
+for required in (
+    "#include <TUnfold.h>",
+    "#include <TSystem.h>",
+    "#include <TROOT.h>",
+    "gSystem->Load(library)",
+    'gROOT->LoadMacro("${smoke_body_macro}")',
+    'gROOT->ProcessLine("smoke_new17_runtime_body();", &error)',
+):
+    if required not in loader:
+        raise SystemExit(f"ROOT smoke loader omits required contract: {required}")
+if loader.index("#include <TUnfold.h>") > loader.index("gSystem->Load(library)"):
+    raise SystemExit("ROOT smoke loader loads a library before declaring TUnfold")
+if loader.index("gSystem->Load(library)") > loader.index(
+    'gROOT->LoadMacro("${smoke_body_macro}")'
+):
+    raise SystemExit("ROOT smoke loader loads its body before sealed libraries")
+for forbidden in ("#include <RooUnfoldResponse.h>", "#include <RooUnfoldBayes.h>"):
+    if forbidden in loader:
+        raise SystemExit(f"ROOT smoke loader prematurely parses estimator header: {forbidden}")
+for required in (
+    "#include <caloana/PPG12OraclePhotonClusterBuilder.h>",
+    "#include <yaml-cpp/yaml.h>",
+    "#include <RooUnfoldResponse.h>",
+    "#include <RooUnfoldBayes.h>",
+    "RooUnfoldResponse response(",
+    "response.UseOverflowStatus()",
+    "RooUnfoldBayes bayes(",
+    "PPG12_ORACLE_ROOUNFOLD_API_SMOKE_PASS default_overflow=0",
+):
+    if required not in body:
+        raise SystemExit(f"ROOT smoke body omits required contract: {required}")
+for forbidden in (
+    "#include <RooUnfoldTUnfold.h>",
+    "#include <RooUnfoldBinByBin.h>",
+    '"ppg12_oracle_response", "", false',
+):
+    if forbidden in body:
+        raise SystemExit(f"ROOT smoke contains unused/incompatible API: {forbidden}")
+PY
 
 if grep -Fq 'build_root}/caloreco' "$builder"; then
   fail "builder still rebuilds the full local CaloReco package"

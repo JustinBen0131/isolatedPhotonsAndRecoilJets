@@ -3,7 +3,7 @@
 # This script is intentionally not a submitter and contains no merge/promotion
 # path.  It writes only below a new, explicitly authorized output directory.
 
-set -euo pipefail
+set -Eeuo pipefail
 
 die() {
   printf 'PPG12_PAIRED_ORACLE_WORKER_FAIL: %s\n' "$*" >&2
@@ -33,6 +33,14 @@ recoil_runtime_manifest="${18}"
 recoil_config="${19}"
 reuse_ppg_raw_root="${20}"
 reuse_ppg_raw_contract="${21}"
+expected_roounfold_library_sha256="d135771391ae250bcb64c0889571825abe9924649485890e7a9c64648ee99062"
+expected_roounfold_pcm_sha256="2d91962a7b42acf246c7a80339eee71ca2f7e6df18ef76051d24a83bc61d4244"
+expected_roounfold_header_tree_sha256="ea9b923a8f6bc57b28027b7183b10e87246810c326208b1e36bf2b4b7491a458"
+expected_recoeff_source_sha256="e9b25fdb6dd8a6bfbbad029cb90aaddc9489fdf2846c630ea63c8c41ac771eee"
+expected_recoeff_roounfold_compat_sha256="f5a12905952a0f49a7521868935e7868eca7cf8de1facae12c26e0dd9b712891"
+expected_estimator_revision="29f8223bd9b36dffab07961b597afa94185bbdf1"
+recoeff_roounfold_compat_needle=', Form("response_matrix_full_%d", ieta), "", false));'
+recoeff_roounfold_compat_replacement=', Form("response_matrix_full_%d", ieta), ""));'
 
 case "$sample" in Photon5|Photon10|Photon20) ;; *) die "unsupported sample: $sample" ;; esac
 case "$period" in
@@ -73,7 +81,9 @@ fi
 manifest_role_path() {
   python3 - "$recoil_runtime_manifest" "$1" <<'PY'
 from pathlib import Path
+import hashlib
 import json
+import re
 import sys
 
 manifest = Path(sys.argv[1])
@@ -83,15 +93,22 @@ try:
 except (OSError, json.JSONDecodeError) as exc:
     raise SystemExit(f"cannot read runtime manifest {manifest}: {exc}")
 matches = [
-    str(item.get("path", ""))
+    item
     for item in data.get("files", [])
-    if item.get("role") == role
+    if isinstance(item, dict) and item.get("role") == role
 ]
 if len(matches) != 1:
     raise SystemExit(f"runtime manifest role {role} has {len(matches)} matches")
-path = Path(matches[0])
+row = matches[0]
+path = Path(str(row.get("path", "")))
 if not path.is_absolute() or not path.is_file() or path.stat().st_size <= 0:
     raise SystemExit(f"runtime manifest role {role} is not an absolute nonempty file: {path}")
+expected = str(row.get("sha256", ""))
+if not re.fullmatch(r"[0-9a-f]{64}", expected):
+    raise SystemExit(f"runtime manifest role {role} has an invalid sha256")
+actual = hashlib.sha256(path.read_bytes()).hexdigest()
+if actual != expected:
+    raise SystemExit(f"runtime manifest role {role} hash drifted")
 print(path)
 PY
 }
@@ -152,6 +169,99 @@ from pathlib import Path
 import hashlib
 import sys
 print(hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest())
+PY
+}
+
+validate_pinned_roounfold_library() {
+  local library="$1"
+  [[ "$(sha256_file "$library")" == "$expected_roounfold_library_sha256" ]] || \
+    die "sealed RooUnfold library differs from pinned historical digest"
+}
+
+preserve_reused_ppg_evidence() {
+  local source_contract="$1"
+  local source_raw_root="$2"
+  local copied_raw_root="$3"
+  local copied_ppg_log="$4"
+  local receipt="$5"
+  python3 - "$source_contract" "$source_raw_root" "$copied_raw_root" \
+    "$copied_ppg_log" "$receipt" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import os
+import shutil
+import sys
+
+source_contract, source_raw, copied_raw, copied_log, receipt = map(
+    Path, sys.argv[1:]
+)
+
+def digest(path: Path) -> str:
+    value = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            value.update(block)
+    return value.hexdigest()
+
+try:
+    contract = json.loads(source_contract.read_text())
+except (OSError, json.JSONDecodeError) as exc:
+    raise SystemExit(f"cannot read reused PPG12 contract: {exc}")
+source_log = Path(str(contract.get("paths", {}).get("ppg_log", "")))
+for label, path in (
+    ("source contract", source_contract),
+    ("source raw ROOT", source_raw),
+    ("copied raw ROOT", copied_raw),
+    ("source PPG12 log", source_log),
+):
+    if not path.is_absolute() or not path.is_file() or path.stat().st_size <= 0:
+        raise SystemExit(f"reused PPG12 {label} is not an absolute nonempty file: {path}")
+
+source_raw_hash = digest(source_raw)
+copied_raw_hash = digest(copied_raw)
+if copied_raw_hash != source_raw_hash:
+    raise SystemExit("copied PPG12 raw ROOT differs from its reuse source")
+
+copied_log.parent.mkdir(parents=True, exist_ok=True)
+log_tmp = copied_log.with_name(f".{copied_log.name}.tmp.{os.getpid()}")
+receipt_tmp = receipt.with_name(f".{receipt.name}.tmp.{os.getpid()}")
+try:
+    shutil.copy2(source_log, log_tmp)
+    os.replace(log_tmp, copied_log)
+    source_log_hash = digest(source_log)
+    copied_log_hash = digest(copied_log)
+    if copied_log_hash != source_log_hash:
+        raise SystemExit("copied PPG12 reconstruction log differs from its reuse source")
+    evidence = {
+        "schema_version": 1,
+        "mode": "exact_contract_bound",
+        "source_contract": {
+            "path": str(source_contract),
+            "sha256": digest(source_contract),
+        },
+        "source_raw_root": {
+            "path": str(source_raw),
+            "sha256": source_raw_hash,
+        },
+        "copied_raw_root": {
+            "path": str(copied_raw),
+            "sha256": copied_raw_hash,
+        },
+        "source_ppg_log": {
+            "path": str(source_log),
+            "sha256": source_log_hash,
+        },
+        "copied_ppg_log": {
+            "path": str(copied_log),
+            "sha256": copied_log_hash,
+        },
+    }
+    receipt_tmp.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n")
+    os.replace(receipt_tmp, receipt)
+finally:
+    log_tmp.unlink(missing_ok=True)
+    receipt_tmp.unlink(missing_ok=True)
 PY
 }
 
@@ -221,13 +331,87 @@ done
 umask 077
 mkdir -p "$output_dir"
 state_file="${output_dir}/RUN_STATE"
+failure_report="${output_dir}/worker_failure.log"
+failure_stderr_spool="${output_dir}/.worker_stderr.spool"
+failure_stderr_fifo="${output_dir}/.worker_stderr.pipe"
+failure_stage="worker_initialization"
+failure_stage_log=""
+failure_exit_status=""
+failure_line=0
+failure_command=""
 printf 'RUNNING\n' > "$state_file"
 completed=0
+
+capture_worker_error() {
+  local status="$1"
+  local line="$2"
+  local command="$3"
+  failure_exit_status="$status"
+  failure_line="$line"
+  # BASH_COMMAND is source text rather than expanded argument values.  Bound it
+  # anyway so a malformed compound command cannot make the receipt unbounded.
+  failure_command="${command:0:2048}"
+}
+
+bounded_log_tail() {
+  local path="$1"
+  [[ -f "$path" ]] || return 0
+  # Bound by both lines and bytes.  The byte cap is applied last so the final
+  # receipt stays small even when one diagnostic line is unusually long.
+  tail -n 160 -- "$path" 2>/dev/null | tail -c 32768 || true
+}
+
 finish_state() {
+  local status=$?
+  local report_tmp="${failure_report}.tmp.$$"
+  trap - ERR EXIT
   if [[ $completed -eq 0 ]]; then
     printf 'FAILED\n' > "$state_file"
+    # Restore the original stderr before waiting for the capture tee.  Closing
+    # fd 2 is what delivers EOF to the FIFO, guaranteeing the spool is flushed
+    # before its bounded tail is copied into the durable failure receipt.
+    exec 2>&9
+    exec 9>&-
+    wait "$failure_tee_pid" || true
+    {
+      printf 'PPG12_PAIRED_ORACLE_WORKER_FAILURE_V1\n'
+      printf 'stage=%s\n' "$failure_stage"
+      printf 'exit_status=%s\n' "${failure_exit_status:-$status}"
+      printf 'line=%s\n' "$failure_line"
+      printf 'command='
+      printf '%q\n' "$failure_command"
+      printf 'stage_log=%s\n' "${failure_stage_log:-NONE}"
+      printf 'stderr_tail_begin\n'
+      bounded_log_tail "$failure_stderr_spool"
+      printf '\nstderr_tail_end\n'
+      if [[ -n "$failure_stage_log" && -f "$failure_stage_log" ]]; then
+        printf 'stage_log_tail_begin\n'
+        bounded_log_tail "$failure_stage_log"
+        printf '\nstage_log_tail_end\n'
+      fi
+    } > "$report_tmp"
+    mv -f "$report_tmp" "$failure_report"
+  else
+    exec 2>&9
+    exec 9>&-
+    wait "$failure_tee_pid" || true
+    rm -f "$failure_report"
   fi
+  rm -f "$failure_stderr_spool" "$failure_stderr_fifo" "$report_tmp"
+  exit "$status"
 }
+
+# Preserve the worker's stderr in the foreground while keeping a temporary
+# local spool for the bounded failure receipt.  The spool is removed on every
+# ordinary success/failure exit and is never part of scientific evidence.
+rm -f "$failure_stderr_spool" "$failure_stderr_fifo" "$failure_report"
+mkfifo "$failure_stderr_fifo"
+exec 9>&2
+tee "$failure_stderr_spool" < "$failure_stderr_fifo" >&9 &
+failure_tee_pid=$!
+exec 2> "$failure_stderr_fifo"
+rm -f "$failure_stderr_fifo"
+trap 'capture_worker_error "$?" "$LINENO" "$BASH_COMMAND"' ERR
 trap finish_state EXIT
 
 input_dir="${output_dir}/inputs"
@@ -247,6 +431,7 @@ mkdir -p "$input_dir" "$runtime_dir" "$ppg_dir" "$recoil_dir" "$report_dir" \
 # hashes this selected manifest, so a 0mrad/1p5mrad swap cannot hide behind a
 # static source manifest that contains both periods.
 paired_runtime_manifest="${runtime_dir}/paired_runtime_manifest.json"
+failure_stage="runtime_manifest_selection"
 python3 - "$recoil_runtime_manifest" "$paired_runtime_manifest" "$period" \
   "$recoeff_period_config" "$recoeff_truth_vertex_reweight" <<'PY'
 from pathlib import Path
@@ -328,6 +513,7 @@ PY
 # runtime.  Keep only the minimal operating-system path needed to run the
 # setup script; ordinary SDCC login shells can otherwise retain ana.560 and a
 # user install even when OFFLINE_MAIN is later changed to new.17.
+failure_stage="new17_runtime_setup"
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 unset OFFLINE_MAIN MYINSTALL ROOT_INCLUDE_PATH LD_LIBRARY_PATH PYTHONPATH \
   CMAKE_PREFIX_PATH CPATH CPLUS_INCLUDE_PATH LIBRARY_PATH PKG_CONFIG_PATH
@@ -363,6 +549,7 @@ g4_slice="${input_dir}/g4hits_first5.list"
 truthjet_slice="${input_dir}/dst_truth_jet_first5.list"
 combined_list="${input_dir}/recoil_first5.list"
 source_pair_receipt="${input_dir}/source_pair_receipt.json"
+failure_stage="source_pair_materialization"
 python3 - "$g4_full_list" "$truthjet_full_list" "$g4_slice" \
   "$truthjet_slice" "$combined_list" "$source_pair_receipt" "$sample" \
   "$interaction" <<'PY'
@@ -459,6 +646,7 @@ receipt.write_text(
 )
 PY
 
+failure_stage="runtime_asset_resolution"
 recoil_macro="$(manifest_role_path recoil_macro)"
 recoil_lib="$(manifest_role_path libRecoilJets.so)"
 ppg_lib="$(manifest_role_path libCaloAna24.so)"
@@ -470,6 +658,8 @@ photon_builder_include_root="$(dirname "$(dirname "$photon_builder_header")")"
 recoeff_macro="$(manifest_role_path ppg_recoeff_macro)"
 recoeff_trace_macro="$(manifest_role_path ppg_recoeff_trace_macro)"
 recoeff_source_macro="$(manifest_role_path ppg_recoeff_source_macro)"
+recoeff_compat_macro="$(manifest_role_path ppg_recoeff_roounfold_compat_macro)"
+recoeff_compat_receipt="$(manifest_role_path ppg_recoeff_roounfold_compat_transform_receipt)"
 recoeff_trace_receipt="$(manifest_role_path ppg_recoeff_trace_transform_receipt)"
 recoeff_cross_section_header="$(manifest_role_path ppg_recoeff_cross_section_header)"
 recoeff_truth_vertex_header="$(manifest_role_path ppg_recoeff_truth_vertex_header)"
@@ -521,16 +711,225 @@ print(include_root.resolve())
 PY
 )" || die "failed to validate sealed yaml-cpp header tree"
 recoeff_roounfold="$(manifest_role_path ppg_recoeff_roounfold)"
+recoeff_roounfold_pcm="$(manifest_role_path ppg_recoeff_roounfold_pcm)"
+recoeff_roounfold_header_receipt="$(manifest_role_path ppg_recoeff_roounfold_header_tree_receipt)"
 recoeff_roounfold_response_header="$(manifest_role_path ppg_recoeff_roounfold_response_header)"
 recoeff_roounfold_bayes_header="$(manifest_role_path ppg_recoeff_roounfold_bayes_header)"
 recoeff_vertex_scan_data="$(manifest_role_path ppg_recoeff_vertex_scan_data)"
 recoeff_mbd_correction="$(manifest_role_path ppg_recoeff_mbd_correction)"
+
+python3 - "$recoeff_source_macro" "$recoeff_compat_macro" \
+  "$recoeff_compat_receipt" "$recoeff_macro" "$recoeff_yaml_cpp" \
+  "$recoeff_mbd_correction" "$expected_estimator_revision" \
+  "$expected_recoeff_source_sha256" \
+  "$expected_recoeff_roounfold_compat_sha256" \
+  "$recoeff_roounfold_compat_needle" \
+  "$recoeff_roounfold_compat_replacement" \
+  "$expected_roounfold_library_sha256" "$expected_roounfold_pcm_sha256" \
+  "$expected_roounfold_header_tree_sha256" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import sys
+
+(
+    source_raw, compat_raw, receipt_raw, baseline_raw, yaml_cpp_raw,
+    mbd_correction_raw, expected_revision,
+    expected_source_hash, expected_compat_hash, needle, replacement,
+    expected_library_hash, expected_pcm_hash, expected_header_tree_hash,
+) = sys.argv[1:]
+source = Path(source_raw).resolve()
+compat = Path(compat_raw).resolve()
+receipt = Path(receipt_raw).resolve()
+baseline = Path(baseline_raw).resolve()
+yaml_cpp = Path(yaml_cpp_raw).resolve()
+mbd_correction = Path(mbd_correction_raw).resolve()
+
+def digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+if digest(source) != expected_source_hash:
+    raise SystemExit("canonical RecoEff source differs from pinned digest")
+if digest(compat) != expected_compat_hash:
+    raise SystemExit("RooUnfold compatibility macro differs from pinned digest")
+data = json.loads(receipt.read_text())
+if data.get("schema_version") != 1:
+    raise SystemExit("invalid RooUnfold compatibility receipt schema")
+if data.get("transform") != "ppg12_recoeff_roounfold_constructor_compat_v1":
+    raise SystemExit("unexpected RooUnfold compatibility transform")
+if data.get("source_revision") != expected_revision:
+    raise SystemExit("RooUnfold compatibility transform uses the wrong source revision")
+if Path(str(data.get("input_path", ""))).resolve() != source:
+    raise SystemExit("RooUnfold compatibility input path differs from source role")
+if data.get("input_sha256") != expected_source_hash:
+    raise SystemExit("RooUnfold compatibility input digest differs")
+if Path(str(data.get("output_path", ""))).resolve() != compat:
+    raise SystemExit("RooUnfold compatibility output path differs from macro role")
+if data.get("output_sha256") != expected_compat_hash:
+    raise SystemExit("RooUnfold compatibility output digest differs")
+operation = data.get("operation", {})
+if not isinstance(operation, dict):
+    raise SystemExit("RooUnfold compatibility receipt lacks its operation")
+if operation.get("label") != "remove_unsupported_explicit_false_constructor_argument":
+    raise SystemExit("RooUnfold compatibility operation label differs")
+if operation.get("expected_count") != 1 or operation.get("observed_count") != 1:
+    raise SystemExit("RooUnfold compatibility operation is not exact-once")
+if operation.get("needle") != needle or operation.get("replacement") != replacement:
+    raise SystemExit("RooUnfold compatibility operation text differs")
+derived = source.read_bytes().replace(needle.encode(), replacement.encode())
+if source.read_bytes().count(needle.encode()) != 1 or derived != compat.read_bytes():
+    raise SystemExit("RooUnfold compatibility macro cannot be re-derived exactly")
+runtime = data.get("historical_roounfold_contract", {})
+if not isinstance(runtime, dict):
+    raise SystemExit("RooUnfold compatibility receipt lacks runtime contract")
+for key, expected in (
+    ("library_sha256", expected_library_hash),
+    ("pcm_sha256", expected_pcm_hash),
+    ("header_tree_sha256", expected_header_tree_hash),
+):
+    if runtime.get(key) != expected:
+        raise SystemExit(f"RooUnfold compatibility {key} differs")
+if runtime.get("runtime_smoke_requires_default_overflow_false") is not True:
+    raise SystemExit("RooUnfold compatibility does not require overflow-default smoke")
+for key in (
+    "canonical_source_unchanged",
+    "constructor_default_overflow_equals_explicit_false",
+    "response_object_setup_only",
+):
+    if data.get(key) is not True:
+        raise SystemExit(f"RooUnfold compatibility invariant is false: {key}")
+for key in (
+    "selection_or_fill_expression_replaced",
+    "purity_estimator_expression_replaced",
+):
+    if data.get(key) is not False:
+        raise SystemExit(f"RooUnfold compatibility altered forbidden semantics: {key}")
+
+if compat.parent.name != "macros" or compat.parent.parent.name != "estimator":
+    raise SystemExit("RooUnfold compatibility macro has an unexpected runtime layout")
+runtime_root = compat.parent.parent.parent
+expected_layout = {
+    "baseline": compat.parent / "RecoEffCalculator_TTreeReader.C",
+    "yaml_cpp": runtime_root / "lib" / "libyaml-cpp.so",
+    "mbd_correction": runtime_root / "estimator" / "data" / "MbdOut.corr",
+}
+actual_layout = {
+    "baseline": baseline,
+    "yaml_cpp": yaml_cpp,
+    "mbd_correction": mbd_correction,
+}
+for role, expected in expected_layout.items():
+    if actual_layout[role].resolve() != expected.resolve():
+        raise SystemExit(f"executable RecoEff runtime layout differs for {role}")
+text = compat.read_text()
+path_rewrites = (
+    (
+        "/sphenix/u/shuhang98/install/lib64/libyaml-cpp.so",
+        str(yaml_cpp),
+        "yaml_cpp",
+    ),
+    (
+        "/sphenix/user/shuhangli/ppg12/efficiencytool/MbdOut.corr",
+        str(mbd_correction),
+        "mbd_correction",
+    ),
+)
+for old, new, label in path_rewrites:
+    observed = text.count(old)
+    if observed != 1:
+        raise SystemExit(
+            "executable RecoEff path rewrite is not exact-once: "
+            f"role={label} observed={observed}"
+        )
+    text = text.replace(old, new)
+if text.encode() != baseline.read_bytes():
+    raise SystemExit(
+        "executable RecoEff baseline cannot be re-derived from the pinned "
+        "compatibility macro and two allowed path rewrites"
+    )
+PY
 sealed_apply_bdt="$(manifest_role_path ppg_apply_bdt_macro)"
 sealed_apply_config="$(manifest_role_path ppg_apply_bdt_config)"
 sealed_base_e_model="$(manifest_role_path ppg_apply_model_base_E)"
 sealed_base_v3e_model="$(manifest_role_path ppg_apply_model_base_v3E)"
 sealed_npb_model="$(manifest_role_path ppg_apply_npb_model)"
 recoeff_include_root="$(dirname "$recoeff_cross_section_header")"
+validate_pinned_roounfold_library "$recoeff_roounfold"
+[[ "$(basename "$recoeff_roounfold_pcm")" == RooUnfoldDict_rdict.pcm ]] || \
+  die "sealed RooUnfold PCM has the wrong basename"
+[[ "$(sha256_file "$recoeff_roounfold_pcm")" == "$expected_roounfold_pcm_sha256" ]] || \
+  die "sealed RooUnfold PCM differs from pinned historical digest"
+[[ "$(cd "$(dirname "$recoeff_roounfold")" && pwd -P)" == \
+   "$(cd "$(dirname "$recoeff_roounfold_pcm")" && pwd -P)" ]] || \
+  die "sealed RooUnfold library and PCM are not co-located"
+recoeff_roounfold_include_root="$(python3 - "$recoeff_roounfold_header_receipt" \
+  "$recoeff_roounfold_response_header" "$recoeff_roounfold_bayes_header" \
+  "$expected_roounfold_header_tree_sha256" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import re
+import sys
+
+receipt, response_role, bayes_role = map(Path, sys.argv[1:4])
+expected_tree_digest = sys.argv[4]
+try:
+    data = json.loads(receipt.read_text())
+except (OSError, json.JSONDecodeError) as exc:
+    raise SystemExit(f"cannot read RooUnfold header receipt: {exc}")
+expected_names = (
+    "RooUnfold.h",
+    "RooUnfoldResponse.h",
+    "RooUnfoldBayes.h",
+    "RooUnfoldBinByBin.h",
+    "RooUnfoldErrors.h",
+    "RooUnfoldInvert.h",
+    "RooUnfoldParms.h",
+    "RooUnfoldSvd.h",
+    "RooUnfoldTUnfold.h",
+)
+if data.get("schema_version") != 1 or data.get("role") != "ppg_recoeff_roounfold_header_tree":
+    raise SystemExit("invalid RooUnfold header-tree receipt")
+include_root = Path(str(data.get("include_root", "")))
+rows = data.get("files")
+if not include_root.is_absolute() or not include_root.is_dir() or not isinstance(rows, list):
+    raise SystemExit("invalid RooUnfold header-tree root or inventory")
+names = tuple(
+    str(row.get("relative_path", "")) if isinstance(row, dict) else ""
+    for row in rows
+)
+if names != expected_names or len(set(names)) != len(names):
+    raise SystemExit("RooUnfold header inventory differs from exact nine-file contract")
+tree_digest = hashlib.sha256()
+paths = {}
+for row, name in zip(rows, names):
+    header = include_root / name
+    digest = str(row.get("sha256", ""))
+    if (
+        not header.is_file()
+        or header.stat().st_size <= 0
+        or header.resolve().parent != include_root.resolve()
+        or not re.fullmatch(r"[0-9a-f]{64}", digest)
+    ):
+        raise SystemExit(f"invalid sealed RooUnfold header metadata: {name}")
+    observed = hashlib.sha256(header.read_bytes()).hexdigest()
+    if observed != digest:
+        raise SystemExit(f"sealed RooUnfold header drifted: {name}")
+    paths[name] = header.resolve()
+    tree_digest.update(name.encode())
+    tree_digest.update(b"\0")
+    tree_digest.update(bytes.fromhex(observed))
+if data.get("tree_sha256") != expected_tree_digest:
+    raise SystemExit("sealed RooUnfold header tree differs from pinned digest")
+if tree_digest.hexdigest() != data.get("tree_sha256"):
+    raise SystemExit("sealed RooUnfold header-tree digest drifted")
+if response_role.resolve() != paths["RooUnfoldResponse.h"]:
+    raise SystemExit("sealed RooUnfoldResponse role differs from header tree")
+if bayes_role.resolve() != paths["RooUnfoldBayes.h"]:
+    raise SystemExit("sealed RooUnfoldBayes role differs from header tree")
+print(include_root.resolve())
+PY
+)" || die "failed to validate sealed RooUnfold header tree"
 
 # The public driver keeps the three historical asset arguments for backward
 # compatibility.  Execution is allowed only when they are byte-identical to
@@ -594,6 +993,7 @@ summary_csv="${report_dir}/paired_oracle_summary.csv"
 candidate_csv="${report_dir}/paired_oracle_candidates.csv"
 contract="${output_dir}/paired_oracle_contract.json"
 
+failure_stage="estimator_config_materialization"
 python3 - "$apply_config" "$apply_runtime_config" <<'PY'
 from pathlib import Path
 import sys
@@ -661,6 +1061,7 @@ if baseline.read_bytes() != trace.read_bytes():
     raise SystemExit("baseline and trace estimator configs differ")
 PY
 
+failure_stage="contract_materialization"
 python3 - \
   "$contract" "$lane_id" "$sample" "$period" "$interaction" \
   "$setup_script" "$calo_calib" "$ppg_macro" "$ppg_lib" \
@@ -672,12 +1073,14 @@ python3 - \
   "$recoil_log" "$ppg_raw_root" "$ppg_scored_root" "$recoil_root" \
   "$candidate_csv" "$expected_token" "$first_ph_seed" \
   "$pedestal_seed" "$pedestal_sequence" "$ph_seed_sequence" \
-  "$recoeff_source_macro" "$recoeff_macro" "$recoeff_trace_macro" \
-  "$recoeff_trace_receipt" "$recoeff_canonical_config" "$recoeff_period_config" \
+  "$recoeff_source_macro" "$recoeff_compat_macro" "$recoeff_compat_receipt" \
+  "$recoeff_macro" "$recoeff_trace_macro" "$recoeff_trace_receipt" \
+  "$recoeff_canonical_config" "$recoeff_period_config" \
   "$recoeff_truth_vertex_reweight" "$recoeff_yaml_cpp_header_receipt" \
   "$baseline_recoeff_config" "$trace_recoeff_config" \
   "$recoeff_cross_section_header" "$recoeff_truth_vertex_header" \
-  "$recoeff_yaml_cpp" "$recoeff_roounfold" \
+  "$recoeff_yaml_cpp" "$recoeff_roounfold" "$recoeff_roounfold_pcm" \
+  "$recoeff_roounfold_header_receipt" \
   "$recoeff_roounfold_response_header" "$recoeff_roounfold_bayes_header" \
   "$recoeff_vertex_scan_data" "$recoeff_mbd_correction" \
   "$baseline_recoeff_log" "$trace_recoeff_log" \
@@ -703,10 +1106,12 @@ import sys
     recoil_wrapper, comparator, auditor, ppg_log, recoil_log, ppg_raw, ppg_scored,
     recoil_root, candidate_csv, token, first_ph_seed,
     pedestal_seed, pedestal_sequence, ph_seed_sequence,
-    recoeff_source, recoeff_macro, recoeff_trace_macro, recoeff_trace_receipt,
+    recoeff_source, recoeff_compat_macro, recoeff_compat_receipt,
+    recoeff_macro, recoeff_trace_macro, recoeff_trace_receipt,
     recoeff_canonical_config, recoeff_period_config, recoeff_truth_vertex_reweight,
     recoeff_yaml_cpp_header_receipt, baseline_recoeff_config, trace_recoeff_config,
-    cross_section_header, truth_vertex_header, yaml_cpp, roounfold,
+    cross_section_header, truth_vertex_header, yaml_cpp, roounfold, roounfold_pcm,
+    roounfold_header_receipt,
     roounfold_response_header, roounfold_bayes_header, vertex_scan_data,
     mbd_correction, baseline_recoeff_log, trace_recoeff_log,
     baseline_scan_log, trace_scan_log, baseline_eff_root, trace_eff_root,
@@ -751,6 +1156,8 @@ paths = {
     "recoil_root": recoil_root,
     "candidate_csv": candidate_csv,
     "ppg_recoeff_source_macro": recoeff_source,
+    "ppg_recoeff_roounfold_compat_macro": recoeff_compat_macro,
+    "ppg_recoeff_roounfold_compat_transform_receipt": recoeff_compat_receipt,
     "ppg_recoeff_macro": recoeff_macro,
     "ppg_recoeff_trace_macro": recoeff_trace_macro,
     "ppg_recoeff_trace_transform_receipt": recoeff_trace_receipt,
@@ -764,6 +1171,8 @@ paths = {
     "ppg_recoeff_truth_vertex_header": truth_vertex_header,
     "ppg_recoeff_yaml_cpp": yaml_cpp,
     "ppg_recoeff_roounfold": roounfold,
+    "ppg_recoeff_roounfold_pcm": roounfold_pcm,
+    "ppg_recoeff_roounfold_header_tree_receipt": roounfold_header_receipt,
     "ppg_recoeff_roounfold_response_header": roounfold_response_header,
     "ppg_recoeff_roounfold_bayes_header": roounfold_bayes_header,
     "ppg_recoeff_vertex_scan_data": vertex_scan_data,
@@ -897,6 +1306,7 @@ data = {
 Path(contract).write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
 PY
 
+failure_stage="contract_preflight_audit"
 python3 "$auditor" preflight --contract "$contract"
 
 # Use symlink-only library views so neither side inherits a broad user install.
@@ -910,6 +1320,7 @@ ln -s "$clusteriso_lib" "${recoil_lib_view}/libclusteriso.so"
 ln -s "$jetbase_lib" "${recoil_lib_view}/libjetbase.so"
 
 if [[ "$reuse_mode" == exact_contract_bound ]]; then
+  failure_stage="ppg12_raw_reuse_validation"
   reuse_validation_mode="$(python3 - "$reuse_ppg_raw_contract" "$reuse_ppg_raw_root" \
     "$g4_slice" "$truthjet_slice" "$ppg_macro" "$ppg_wrapper" \
     "$setup_script" "$g4_full_list" "$truthjet_full_list" "$lane_id" \
@@ -1273,19 +1684,28 @@ output.write_text(f'''#include <TFile.h>
   if ({expected_entries} >= 0 && tree->GetEntries() != {expected_entries}) gSystem->Exit(94);
   std::cout << "PPG12_RAW_REUSE_AUDIT mode={mode} entries="
             << tree->GetEntries() << std::endl;
+  gSystem->Exit(0);
 }}
 ''')
 PY
+  failure_stage="ppg12_raw_reuse_root_audit"
+  failure_stage_log="${runtime_dir}/audit_reused_ppg12_raw.log"
   root -l -b -q "$reuse_root_audit" \
-    >"${runtime_dir}/audit_reused_ppg12_raw.log" 2>&1 || {
-    tail -n 80 "${runtime_dir}/audit_reused_ppg12_raw.log" >&2 || true
+    >"$failure_stage_log" 2>&1 || {
+    tail -n 80 "$failure_stage_log" >&2 || true
     die "raw PPG12 reuse ROOT structure audit failed"
   }
   cp -p "$reuse_ppg_raw_root" "$ppg_raw_root"
   [[ "$(sha256_file "$ppg_raw_root")" == "$(sha256_file "$reuse_ppg_raw_root")" ]] || \
     die "copied PPG12 raw reuse source differs from its token-bound input"
-  printf 'REUSED token-bound raw CaloAna24 source %s\n' "$reuse_ppg_raw_root" > "$ppg_log"
+  reuse_evidence_receipt="${runtime_dir}/ppg12_raw_reuse_receipt.json"
+  preserve_reused_ppg_evidence \
+    "$reuse_ppg_raw_contract" "$reuse_ppg_raw_root" "$ppg_raw_root" \
+    "$ppg_log" "$reuse_evidence_receipt" || \
+    die "failed to preserve exact reused PPG12 reconstruction evidence"
 else
+  failure_stage="ppg12_raw_reconstruction"
+  failure_stage_log="$ppg_log"
   ppg_runner="${runtime_dir}/run_ppg12.C"
   python3 - "$ppg_runner" "$ppg_macro" "$ppg_wrapper" "$g4_slice" \
     "$truthjet_slice" "$ppg_raw_root" "$calo_macro_dir" <<'PY'
@@ -1315,6 +1735,8 @@ fi
 [[ -s "$ppg_raw_root" ]] || \
   die "PPG12 executable did not write its exact cwd-local caloana.root"
 
+failure_stage="ppg12_apply_bdt"
+failure_stage_log="$apply_log"
 apply_runner="${runtime_dir}/apply_ppg12_bdt.C"
 python3 - "$apply_runner" "$apply_bdt" "$apply_runtime_config" "$ppg_raw_root" \
   "$recoeff_yaml_cpp" <<'PY'
@@ -1393,16 +1815,18 @@ run_recoeff() {
   local analysis_runner="${runtime_dir}/run_recoeff_${label}.C"
 
   python3 - "$scan_runner" "$analysis_runner" "$macro" "$config" \
-    "$vtxscan_root" "$oracle_sample" <<'PY'
+    "$vtxscan_root" "$oracle_sample" "$recoeff_roounfold" <<'PY'
 from pathlib import Path
 import json
 import sys
 
-scan_runner, analysis_runner, macro, config, vtxscan, sample = sys.argv[1:]
+scan_runner, analysis_runner, macro, config, vtxscan, sample, roounfold = sys.argv[1:]
 
 def runner(call: str) -> str:
-    return f'''{{
+    return f'''#include <TUnfold.h>
+{{
   Int_t error = 0;
+  if (gSystem->Load({json.dumps(roounfold)}) < 0) throw std::runtime_error("sealed RooUnfold load failed");
   if (gROOT->LoadMacro({json.dumps(macro)}) < 0) throw std::runtime_error("RecoEff macro load failed");
   gROOT->ProcessLine({json.dumps(call)}, &error);
   if (error != TInterpreter::kNoError) throw std::runtime_error("RecoEff call failed");
@@ -1415,19 +1839,23 @@ Path(scan_runner).write_text(runner(scan_call))
 Path(analysis_runner).write_text(runner(analysis_call))
 PY
 
+  failure_stage="ppg12_recoeff_${label}_vertex_scan"
+  failure_stage_log="$scan_log"
   (
     cd "$layout"
     export LD_LIBRARY_PATH="$(dirname "$recoeff_yaml_cpp"):$(dirname "$recoeff_roounfold"):${base_ld_library_path}"
-    export ROOT_INCLUDE_PATH="${recoeff_include_root}:${recoeff_yaml_cpp_include_root}:${base_root_include_path}"
+    export ROOT_INCLUDE_PATH="${recoeff_roounfold_include_root}:${recoeff_include_root}:${recoeff_yaml_cpp_include_root}:${base_root_include_path}"
     unset RJ_PPG12_EXEC_TRACE_CSV RJ_PPG12_EXEC_RESPONSE_TRACE_CSV
     root -l -b -q "$scan_runner"
   ) 2>&1 | tee "$scan_log"
   [[ -s "$vtxscan_root" ]] || die "$label RecoEff vertex scan is missing"
 
+  failure_stage="ppg12_recoeff_${label}_analysis"
+  failure_stage_log="$analysis_log"
   (
     cd "$layout"
     export LD_LIBRARY_PATH="$(dirname "$recoeff_yaml_cpp"):$(dirname "$recoeff_roounfold"):${base_ld_library_path}"
-    export ROOT_INCLUDE_PATH="${recoeff_include_root}:${recoeff_yaml_cpp_include_root}:${base_root_include_path}"
+    export ROOT_INCLUDE_PATH="${recoeff_roounfold_include_root}:${recoeff_include_root}:${recoeff_yaml_cpp_include_root}:${base_root_include_path}"
     if [[ "$trace_mode" == 1 ]]; then
       export RJ_PPG12_EXEC_TRACE_CSV="$ppg_candidate_trace"
       export RJ_PPG12_EXEC_RESPONSE_TRACE_CSV="$ppg_response_trace"
@@ -1442,9 +1870,13 @@ PY
 # byte-identical config.  The first is scientifically unmodified; the second
 # adds only the candidate/response side channels.  Exact ROOT payload equality
 # is checked by the aggregate extractor before the candidate trace is trusted.
+failure_stage="ppg12_recoeff_baseline"
+failure_stage_log="$baseline_recoeff_log"
 run_recoeff baseline "$baseline_layout" "$recoeff_macro" \
   "$baseline_recoeff_config" "$baseline_recoeff_scan_log" \
   "$baseline_recoeff_log" "$baseline_vtxscan_root" 0
+failure_stage="ppg12_recoeff_trace"
+failure_stage_log="$trace_recoeff_log"
 run_recoeff trace "$trace_layout" "$recoeff_trace_macro" \
   "$trace_recoeff_config" "$trace_recoeff_scan_log" \
   "$trace_recoeff_log" "$trace_vtxscan_root" 1
@@ -1455,6 +1887,8 @@ for required in "$baseline_eff_root" "$trace_eff_root" \
   [[ -s "$required" ]] || die "RecoEff executable evidence is missing: $required"
 done
 
+failure_stage="ppg12_recoeff_root_equivalence"
+failure_stage_log=""
 python3 "$aggregate_extractor" \
   --baseline-root "$baseline_eff_root" \
   --instrumented-root "$trace_eff_root" \
@@ -1464,6 +1898,8 @@ python3 "$aggregate_extractor" \
   --root-equivalence-only \
   --out-json "$root_equivalence_report"
 
+failure_stage="recoiljets_reconstruction"
+failure_stage_log="$recoil_log"
 recoil_runner="${runtime_dir}/run_recoiljets.C"
 python3 - "$recoil_runner" "$recoil_macro" "$recoil_wrapper" \
   "$combined_list" "$recoil_root" "$calo_macro_dir" <<'PY'
@@ -1548,6 +1984,8 @@ PY
 ) 2>&1 | tee "$recoil_log"
 [[ -s "$recoil_root" ]] || die "RecoilJets executable did not write output ROOT"
 
+failure_stage="candidate_comparison"
+failure_stage_log=""
 python3 "$comparator" \
   --rj-root "$recoil_root" \
   --ppg12-root "$ppg_scored_root" \
@@ -1564,6 +2002,7 @@ python3 "$comparator" \
   --out-csv "$summary_csv" \
   --out-candidates-csv "$candidate_csv"
 
+failure_stage="executable_aggregate_extraction"
 python3 "$aggregate_extractor" \
   --baseline-root "$baseline_eff_root" \
   --instrumented-root "$trace_eff_root" \
@@ -1577,12 +2016,14 @@ python3 "$aggregate_extractor" \
   --runtime-manifest "$paired_runtime_manifest" \
   --asset apply_bdt_stage_evidence="$apply_evidence" \
   --asset estimator_source="$recoeff_source_macro" \
+  --asset estimator_roounfold_compatibility="$recoeff_compat_receipt" \
   --asset estimator_trace_transform="$recoeff_trace_receipt" \
   --out-json "$aggregate_report"
 
+failure_stage="postrun_audit"
 python3 "$auditor" postrun --contract "$contract"
 printf 'PASS\n' > "$state_file"
 completed=1
-trap - EXIT
+failure_stage="complete"
 printf 'PPG12_PAIRED_ORACLE_PASS output=%s contract=%s report=%s\n' \
   "$output_dir" "$contract" "$report_md"

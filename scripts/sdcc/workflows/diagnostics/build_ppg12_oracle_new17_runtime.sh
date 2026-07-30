@@ -17,17 +17,28 @@ usage() {
 Usage:
   build_ppg12_oracle_new17_runtime.sh --output-dir ABS [--jobs N] \
     [--photon-source-dir ABS] [--ppg-repo ABS] [--ppg-revision SHA] \
+    [--ppg-source-runtime-manifest ABS] \
     [--estimator-revision SHA] [--truth-vertex-reweight-0mrad ABS] \
-    [--truth-vertex-reweight-1p5mrad ABS] [--yaml-cpp-include-dir ABS]
+    [--truth-vertex-reweight-1p5mrad ABS] [--yaml-cpp-include-dir ABS] \
+    [--roounfold-library ABS] [--roounfold-include-dir ABS] \
+    [--roounfold-pcm ABS]
   build_ppg12_oracle_new17_runtime.sh --build --token TOKEN \
     --output-dir ABS [--jobs N] [--photon-source-dir ABS] \
     [--ppg-repo ABS] [--ppg-revision SHA] [--estimator-revision SHA] \
+    [--ppg-source-runtime-manifest ABS] \
     [--truth-vertex-reweight-0mrad ABS] \
-    [--truth-vertex-reweight-1p5mrad ABS] [--yaml-cpp-include-dir ABS]
+    [--truth-vertex-reweight-1p5mrad ABS] [--yaml-cpp-include-dir ABS] \
+    [--roounfold-library ABS] [--roounfold-include-dir ABS] \
+    [--roounfold-pcm ABS]
 
 Default mode prints the immutable build contract and authorization token.
 --build performs the foreground build only when TOKEN exactly matches that
 contract.  ABS must be a new path below REPO/.recoiljets_tmp or /tmp.
+
+--ppg-source-runtime-manifest imports the exact source-locked libCaloAna24.so
+from a previously sealed new.17 runtime.  It does not permit the archived June
+binary: the origin manifest and receipt must prove the same source revision and
+common-runtime rebuild contract accepted by the default build mode.
 EOF
 }
 
@@ -46,14 +57,40 @@ ppg_repo="${repo_root}/ppg12codeGit"
 # production.  The working tree is deliberately ignored: git-show exports the
 # committed source into the sealed build root.
 ppg_revision="1c0ff86bf0ebabfba63a1abc4512cbe59fe48e31"
+ppg_source_runtime_manifest=""
+ppg_binary_mode="source_locked_rebuild"
+ppg_origin_build_receipt=""
+ppg_origin_library=""
+ppg_origin_manifest_sha256=""
+ppg_origin_receipt_sha256=""
+ppg_origin_library_sha256=""
 # Reconstruction and the downstream estimator have distinct historical
 # contracts.  Never source the estimator from the older reconstruction
 # revision or from the mutable checkout.
 estimator_revision="29f8223bd9b36dffab07961b597afa94185bbdf1"
 yaml_cpp_library="/sphenix/u/shuhang98/install/lib64/libyaml-cpp.so"
 yaml_cpp_include_dir="/sphenix/u/shuhang98/install/include"
-roounfold_library="/sphenix/user/egm2153/calib_study/JetValidation/analysis/roounfold/libRooUnfold.so"
-roounfold_include_dir="/sphenix/user/egm2153/calib_study/JetValidation/analysis/roounfold/src"
+roounfold_root="/sphenix/user/egm2153/calib_study/analysis/UE_in_pp/analysis/roounfold"
+roounfold_library="${roounfold_root}/libRooUnfold.so"
+roounfold_include_dir="${roounfold_root}/src"
+roounfold_pcm="${roounfold_root}/tmp/linuxx8664gcc/RooUnfoldDict_rdict.pcm"
+expected_roounfold_library_sha256="d135771391ae250bcb64c0889571825abe9924649485890e7a9c64648ee99062"
+expected_roounfold_pcm_sha256="2d91962a7b42acf246c7a80339eee71ca2f7e6df18ef76051d24a83bc61d4244"
+expected_roounfold_header_tree_sha256="ea9b923a8f6bc57b28027b7183b10e87246810c326208b1e36bf2b4b7491a458"
+roounfold_headers=(
+  RooUnfold.h
+  RooUnfoldResponse.h
+  RooUnfoldBayes.h
+  RooUnfoldBinByBin.h
+  RooUnfoldErrors.h
+  RooUnfoldInvert.h
+  RooUnfoldParms.h
+  RooUnfoldSvd.h
+  RooUnfoldTUnfold.h
+)
+roounfold_library_overridden=0
+roounfold_include_dir_overridden=0
+roounfold_pcm_overridden=0
 vertex_scan_data_file="/sphenix/user/shuhangli/ppg12/efficiencytool/results/data_histo_bdt_nom_vtxscan.root"
 mbd_correction_file="/sphenix/user/shuhangli/ppg12/efficiencytool/MbdOut.corr"
 truth_vertex_reweight_0mrad="/sphenix/user/shuhangli/ppg12/efficiencytool/truth_vertex_reweight/output/0mrad/reweight.root"
@@ -64,6 +101,9 @@ apply_model_names=(base base_vr base_v0 base_v1 base_v2 base_v3 base_E base_v0E 
 expected_apply_bdt_sha256="bd6e7c5bc9858ddad9bc835552d818c00290bb7de3f5036f44d8bf4804734366"
 expected_apply_config_sha256="b8d1bc359a647cc913f213777fc42958b532b30c37a63bb318680130eb6e321b"
 expected_recoeff_sha256="e9b25fdb6dd8a6bfbbad029cb90aaddc9489fdf2846c630ea63c8c41ac771eee"
+expected_recoeff_roounfold_compat_sha256="f5a12905952a0f49a7521868935e7868eca7cf8de1facae12c26e0dd9b712891"
+recoeff_roounfold_compat_needle=', Form("response_matrix_full_%d", ieta), "", false));'
+recoeff_roounfold_compat_replacement=', Form("response_matrix_full_%d", ieta), ""));'
 expected_recoeff_config_sha256="42b7be1628843d5b7607ab988ffb58c6d019d8ade01b3c4d528611498db95732"
 expected_recoeff_period_config_0mrad_sha256="3995033c8867f4b0e21d5ebc025d36395185671da474fceec128b20db7218be2"
 expected_recoeff_period_config_1p5mrad_sha256="6d2e4cc691e2fdd49271486ef193055704da00bcbd6b50ced76fcdd99cd050b8"
@@ -93,11 +133,13 @@ while (($#)); do
     --photon-source-dir) [[ $# -ge 2 ]] || die "--photon-source-dir requires a value"; photon_source_dir="$2"; shift 2 ;;
     --ppg-repo) [[ $# -ge 2 ]] || die "--ppg-repo requires a value"; ppg_repo="$2"; shift 2 ;;
     --ppg-revision) [[ $# -ge 2 ]] || die "--ppg-revision requires a value"; ppg_revision="$2"; shift 2 ;;
+    --ppg-source-runtime-manifest) [[ $# -ge 2 ]] || die "--ppg-source-runtime-manifest requires a value"; ppg_source_runtime_manifest="$2"; ppg_binary_mode="source_locked_runtime_import"; shift 2 ;;
     --estimator-revision) [[ $# -ge 2 ]] || die "--estimator-revision requires a value"; estimator_revision="$2"; shift 2 ;;
     --yaml-cpp-library) [[ $# -ge 2 ]] || die "--yaml-cpp-library requires a value"; yaml_cpp_library="$2"; shift 2 ;;
     --yaml-cpp-include-dir) [[ $# -ge 2 ]] || die "--yaml-cpp-include-dir requires a value"; yaml_cpp_include_dir="$2"; shift 2 ;;
-    --roounfold-library) [[ $# -ge 2 ]] || die "--roounfold-library requires a value"; roounfold_library="$2"; shift 2 ;;
-    --roounfold-include-dir) [[ $# -ge 2 ]] || die "--roounfold-include-dir requires a value"; roounfold_include_dir="$2"; shift 2 ;;
+    --roounfold-library) [[ $# -ge 2 ]] || die "--roounfold-library requires a value"; roounfold_library="$2"; roounfold_library_overridden=1; shift 2 ;;
+    --roounfold-include-dir) [[ $# -ge 2 ]] || die "--roounfold-include-dir requires a value"; roounfold_include_dir="$2"; roounfold_include_dir_overridden=1; shift 2 ;;
+    --roounfold-pcm) [[ $# -ge 2 ]] || die "--roounfold-pcm requires a value"; roounfold_pcm="$2"; roounfold_pcm_overridden=1; shift 2 ;;
     --vertex-scan-data-file) [[ $# -ge 2 ]] || die "--vertex-scan-data-file requires a value"; vertex_scan_data_file="$2"; shift 2 ;;
     --mbd-correction-file) [[ $# -ge 2 ]] || die "--mbd-correction-file requires a value"; mbd_correction_file="$2"; shift 2 ;;
     --truth-vertex-reweight-0mrad) [[ $# -ge 2 ]] || die "--truth-vertex-reweight-0mrad requires a value"; truth_vertex_reweight_0mrad="$2"; shift 2 ;;
@@ -128,6 +170,15 @@ esac
 [[ "$ppg_revision" =~ ^[0-9a-f]{40}$ ]] || die "--ppg-revision must be a full commit SHA"
 [[ "$estimator_revision" =~ ^[0-9a-f]{40}$ ]] || \
   die "--estimator-revision must be a full commit SHA"
+if [[ -n "$ppg_source_runtime_manifest" ]]; then
+  [[ "$ppg_source_runtime_manifest" == /* && \
+     "$ppg_source_runtime_manifest" != *$'\n'* && \
+     "$ppg_source_runtime_manifest" != *$'\r'* && \
+     "$ppg_source_runtime_manifest" != *$'\t'* ]] || \
+    die "--ppg-source-runtime-manifest must be an absolute single-line path"
+  [[ -f "$ppg_source_runtime_manifest" && -s "$ppg_source_runtime_manifest" ]] || \
+    die "source runtime manifest is missing or empty: $ppg_source_runtime_manifest"
+fi
 ppg_repo_real="$(cd "$ppg_repo" && pwd -P)"
 git_safe=(-c "safe.directory=${ppg_repo_real}")
 git "${git_safe[@]}" -C "$ppg_repo_real" cat-file -e "${ppg_revision}^{commit}" 2>/dev/null || \
@@ -188,13 +239,13 @@ for input in "${contract_inputs[@]}"; do
   [[ "$input" == /* && -f "$input" && -s "$input" ]] || die "missing contract input: $input"
 done
 for external in "$yaml_cpp_library" "$yaml_cpp_include_dir" "$roounfold_library" \
+  "$roounfold_pcm" \
   "$roounfold_include_dir" "$vertex_scan_data_file" "$mbd_correction_file" \
   "$truth_vertex_reweight_0mrad" "$truth_vertex_reweight_1p5mrad" \
   "$apply_model_dir" "$apply_npb_model"; do
   [[ "$external" == /* && "$external" != *$'\n'* && "$external" != *$'\r'* ]] || \
     die "estimator runtime asset path must be absolute and single-line: $external"
 done
-
 sha256_file() {
   python3 - "$1" <<'PY'
 from pathlib import Path
@@ -208,6 +259,54 @@ with Path(sys.argv[1]).open("rb") as stream:
 print(h.hexdigest())
 PY
 }
+
+roounfold_header_tree_sha256() {
+  python3 - "$1" "${roounfold_headers[@]}" <<'PY'
+from pathlib import Path
+import hashlib
+import sys
+
+root = Path(sys.argv[1])
+names = sys.argv[2:]
+digest = hashlib.sha256()
+for name in names:
+    path = root / name
+    if not path.is_file() or path.stat().st_size <= 0:
+        raise SystemExit(f"historical RooUnfold header is missing or empty: {path}")
+    observed = hashlib.sha256(path.read_bytes()).hexdigest()
+    digest.update(name.encode())
+    digest.update(b"\0")
+    digest.update(bytes.fromhex(observed))
+print(digest.hexdigest())
+PY
+}
+
+if [[ "$roounfold_library_overridden" == 1 ]]; then
+  [[ -f "$roounfold_library" && -s "$roounfold_library" ]] || \
+    die "overridden RooUnfold library is missing or empty"
+fi
+if [[ "$roounfold_pcm_overridden" == 1 ]]; then
+  [[ -f "$roounfold_pcm" && -s "$roounfold_pcm" ]] || \
+    die "overridden RooUnfold PCM is missing or empty"
+fi
+if [[ "$roounfold_include_dir_overridden" == 1 ]]; then
+  [[ -d "$roounfold_include_dir" ]] || \
+    die "overridden RooUnfold include directory is missing"
+fi
+
+if [[ -f "$roounfold_library" && -s "$roounfold_library" ]]; then
+  [[ "$(sha256_file "$roounfold_library")" == "$expected_roounfold_library_sha256" ]] || \
+    die "historical RooUnfold library hash differs"
+fi
+if [[ -f "$roounfold_pcm" && -s "$roounfold_pcm" ]]; then
+  [[ "$(sha256_file "$roounfold_pcm")" == "$expected_roounfold_pcm_sha256" ]] || \
+    die "historical RooUnfold PCM hash differs"
+fi
+if [[ -d "$roounfold_include_dir" ]]; then
+  [[ "$(roounfold_header_tree_sha256 "$roounfold_include_dir")" == \
+     "$expected_roounfold_header_tree_sha256" ]] || \
+    die "historical RooUnfold header-tree hash differs"
+fi
 
 sha256_optional() {
   if [[ -f "$1" && -s "$1" ]]; then
@@ -263,6 +362,104 @@ for model_index in "${!apply_model_names[@]}"; do
   fi
 done
 
+if [[ "$ppg_binary_mode" == source_locked_runtime_import ]]; then
+  ppg_import_fields="$(python3 - "$ppg_source_runtime_manifest" \
+    "$expected_offline" "$ppg_revision" "$estimator_revision" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import re
+import sys
+
+manifest_path = Path(sys.argv[1]).resolve()
+expected_offline, expected_revision, expected_estimator = sys.argv[2:]
+
+def digest(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            h.update(block)
+    return h.hexdigest()
+
+def load(path: Path, label: str) -> dict:
+    try:
+        value = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"invalid {label}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise SystemExit(f"{label} must be a JSON object")
+    return value
+
+manifest = load(manifest_path, "source runtime manifest")
+for field, expected in (
+    ("schema_version", 1),
+    ("runtime_profile", "new.17"),
+    ("offline_main", expected_offline),
+    ("isolated_build", True),
+    ("estimator_revision", expected_estimator),
+):
+    if manifest.get(field) != expected:
+        raise SystemExit(
+            f"source runtime manifest {field} differs: "
+            f"expected {expected!r}, observed {manifest.get(field)!r}"
+        )
+
+receipt_path = Path(str(manifest.get("build_receipt", "")))
+receipt_sha = str(manifest.get("build_receipt_sha256", ""))
+if not receipt_path.is_absolute() or not receipt_path.is_file():
+    raise SystemExit("source runtime build receipt is missing")
+if not re.fullmatch(r"[0-9a-f]{64}", receipt_sha) or digest(receipt_path) != receipt_sha:
+    raise SystemExit("source runtime build receipt hash differs")
+receipt = load(receipt_path, "source runtime build receipt")
+source = receipt.get("ppg12_source")
+rewrites = receipt.get("staged_rewrites")
+if not isinstance(source, dict) or not isinstance(rewrites, dict):
+    raise SystemExit("source runtime receipt lacks PPG12 provenance")
+if source.get("revision") != expected_revision:
+    raise SystemExit("source runtime receipt uses the wrong PPG12 source revision")
+if source.get("working_tree_ignored") is not True:
+    raise SystemExit("source runtime receipt does not exclude mutable PPG12 edits")
+if source.get("rebuilt_against_common_runtime") is not True:
+    raise SystemExit("source runtime receipt was not rebuilt against the common runtime")
+if rewrites.get("archived_ppg12_binary_reused") is not False:
+    raise SystemExit("source runtime receipt uses the ABI-incompatible archived binary")
+if rewrites.get("ppg12_source_locked_rebuild") is not True:
+    raise SystemExit("source runtime receipt lacks a source-locked PPG12 rebuild")
+
+rows = [
+    row for row in manifest.get("files", [])
+    if isinstance(row, dict) and row.get("role") == "libCaloAna24.so"
+]
+if len(rows) != 1:
+    raise SystemExit("source runtime manifest must contain exactly one libCaloAna24.so role")
+library_path = Path(str(rows[0].get("path", "")))
+library_sha = str(rows[0].get("sha256", ""))
+if not library_path.is_absolute() or not library_path.is_file():
+    raise SystemExit("source runtime libCaloAna24.so is missing")
+if not re.fullmatch(r"[0-9a-f]{64}", library_sha) or digest(library_path) != library_sha:
+    raise SystemExit("source runtime libCaloAna24.so hash differs")
+for path in (manifest_path, receipt_path, library_path):
+    if any(character in str(path) for character in ("\n", "\r", "\t")):
+        raise SystemExit("source runtime provenance path is not single-line")
+print("\t".join((
+    str(receipt_path.resolve()),
+    str(library_path.resolve()),
+    digest(manifest_path),
+    receipt_sha,
+    library_sha,
+)))
+PY
+)" || die "source-locked PPG12 runtime import validation failed"
+  IFS=$'\t' read -r ppg_origin_build_receipt ppg_origin_library \
+    ppg_origin_manifest_sha256 ppg_origin_receipt_sha256 \
+    ppg_origin_library_sha256 <<<"$ppg_import_fields"
+  [[ -n "$ppg_origin_build_receipt" && -n "$ppg_origin_library" && \
+     "$ppg_origin_manifest_sha256" =~ ^[0-9a-f]{64}$ && \
+     "$ppg_origin_receipt_sha256" =~ ^[0-9a-f]{64}$ && \
+     "$ppg_origin_library_sha256" =~ ^[0-9a-f]{64}$ ]] || \
+    die "source-locked PPG12 runtime import metadata is malformed"
+fi
+
 contract_token="$({
   printf '%s\n' \
     'schema_version=1' \
@@ -272,6 +469,15 @@ contract_token="$({
     "output_dir=${output_dir}" \
     "jobs=${jobs}"
   printf 'ppg_repo=%s\nppg_revision=%s\n' "$ppg_repo_real" "$ppg_revision"
+  printf 'ppg_binary_mode=%s\n' "$ppg_binary_mode"
+  if [[ "$ppg_binary_mode" == source_locked_runtime_import ]]; then
+    printf 'ppg_origin_manifest=%s sha256=%s\n' \
+      "$ppg_source_runtime_manifest" "$ppg_origin_manifest_sha256"
+    printf 'ppg_origin_receipt=%s sha256=%s\n' \
+      "$ppg_origin_build_receipt" "$ppg_origin_receipt_sha256"
+    printf 'ppg_origin_library=%s sha256=%s\n' \
+      "$ppg_origin_library" "$ppg_origin_library_sha256"
+  fi
   for source_name in "${ppg_source_names[@]}"; do
     printf 'ppg_source=%s sha256=%s\n' "$source_name" "$(
       git "${git_safe[@]}" -C "$ppg_repo_real" show \
@@ -281,6 +487,12 @@ contract_token="$({
   done
   printf 'estimator_revision=%s\n' "$estimator_revision"
   printf 'expected_recoeff_sha256=%s\n' "$expected_recoeff_sha256"
+  printf 'expected_recoeff_roounfold_compat_sha256=%s\n' \
+    "$expected_recoeff_roounfold_compat_sha256"
+  printf 'recoeff_roounfold_compat_needle=%s\n' \
+    "$recoeff_roounfold_compat_needle"
+  printf 'recoeff_roounfold_compat_replacement=%s\n' \
+    "$recoeff_roounfold_compat_replacement"
   printf 'expected_recoeff_config_sha256=%s\n' "$expected_recoeff_config_sha256"
   printf 'expected_recoeff_period_config_0mrad_sha256=%s\n' \
     "$expected_recoeff_period_config_0mrad_sha256"
@@ -297,6 +509,10 @@ contract_token="$({
       "${apply_model_names[$model_index]}" "${expected_apply_model_hashes[$model_index]}"
   done
   printf 'expected_apply_npb_sha256=%s\n' "$expected_apply_npb_sha256"
+  printf 'expected_roounfold_library_sha256=%s\n' "$expected_roounfold_library_sha256"
+  printf 'expected_roounfold_pcm_sha256=%s\n' "$expected_roounfold_pcm_sha256"
+  printf 'expected_roounfold_header_tree_sha256=%s\n' \
+    "$expected_roounfold_header_tree_sha256"
   for source_name in "${estimator_source_names[@]}"; do
     printf 'estimator_source=%s sha256=%s\n' "$source_name" "$(
       git "${git_safe[@]}" -C "$ppg_repo_real" show \
@@ -312,6 +528,7 @@ contract_token="$({
     )"
   done
   for external in "$yaml_cpp_library" "${yaml_cpp_include_dir}/yaml-cpp" "$roounfold_library" \
+    "$roounfold_pcm" \
     "$roounfold_include_dir" "$vertex_scan_data_file" "$mbd_correction_file" \
     "$truth_vertex_reweight_0mrad" "$truth_vertex_reweight_1p5mrad" \
     "$apply_model_dir" "$apply_npb_model"; do
@@ -323,15 +540,24 @@ contract_token="$({
 } | python3 -c 'import hashlib,sys; print("ppg12-new17:" + hashlib.sha256(sys.stdin.buffer.read()).hexdigest())')"
 
 if [[ "$mode" == plan ]]; then
+  if [[ "$ppg_binary_mode" == source_locked_runtime_import ]]; then
+    ppg_build_description="exact source-locked libCaloAna24.so import plus fresh libRecoilJets.so"
+  else
+    ppg_build_description="source-locked libCaloAna24.so plus libRecoilJets.so with renamed PPG12-oracle photon builder"
+  fi
   cat <<EOF
 PPG12_ORACLE_NEW17_BUILD_PLAN
   output_root: ${output_dir}
   runtime: new.17
   OFFLINE_MAIN: ${expected_offline}
-  build: source-locked libCaloAna24.so plus libRecoilJets.so with renamed PPG12-oracle photon builder
+  build: ${ppg_build_description}
+  ppg_binary_mode: ${ppg_binary_mode}
   ppg_source_revision: ${ppg_revision}
+  ppg_origin_manifest_sha256: ${ppg_origin_manifest_sha256:-not-applicable}
+  ppg_origin_library_sha256: ${ppg_origin_library_sha256:-not-applicable}
   estimator_revision: ${estimator_revision}
-  estimator: exact RecoEff/config/yield sources plus dual uninstrumented/instrumented execution
+  estimator: immutable RecoEff source plus one hash-bound RooUnfold API compatibility derivative and dual uninstrumented/instrumented execution
+  RooUnfold: exact historical lib=${expected_roounfold_library_sha256} pcm=${expected_roounfold_pcm_sha256} headers=${expected_roounfold_header_tree_sha256}
   release copies: exact new.17 libcalo_reco.so, libclusteriso.so, libjetbase.so (cp -L)
   macro staging: PP wrapper/implementation with exact-count path rewrites
   validation: forbidden-route scan, readelf, ldd, and ROOT load/header smoke
@@ -350,6 +576,27 @@ fi
 # environment before sourcing the one supported release.
 if [[ "${clean_env:-0}" != 1 ]]; then
   self="${script_dir}/$(basename "${BASH_SOURCE[0]}")"
+  reexec_args=(
+    --build --token "$provided_token" --output-dir "$output_dir"
+    --setup-script "$setup_script" --jobs "$jobs"
+    --photon-source-dir "$photon_source_dir"
+    --ppg-repo "$ppg_repo_real" --ppg-revision "$ppg_revision"
+    --estimator-revision "$estimator_revision"
+    --yaml-cpp-library "$yaml_cpp_library"
+    --yaml-cpp-include-dir "$yaml_cpp_include_dir"
+    --roounfold-library "$roounfold_library"
+    --roounfold-include-dir "$roounfold_include_dir"
+    --roounfold-pcm "$roounfold_pcm"
+    --vertex-scan-data-file "$vertex_scan_data_file"
+    --mbd-correction-file "$mbd_correction_file"
+    --truth-vertex-reweight-0mrad "$truth_vertex_reweight_0mrad"
+    --truth-vertex-reweight-1p5mrad "$truth_vertex_reweight_1p5mrad"
+    --apply-model-dir "$apply_model_dir"
+    --apply-npb-model "$apply_npb_model"
+  )
+  if [[ "$ppg_binary_mode" == source_locked_runtime_import ]]; then
+    reexec_args+=(--ppg-source-runtime-manifest "$ppg_source_runtime_manifest")
+  fi
   exec /usr/bin/env -i \
     HOME="${HOME:-/tmp}" \
     USER="${USER:-unknown}" \
@@ -357,22 +604,7 @@ if [[ "${clean_env:-0}" != 1 ]]; then
     SHELL=/bin/bash \
     PATH=/usr/bin:/bin:/usr/sbin:/sbin \
     RJ_PPG12_ORACLE_NEW17_CLEAN_ENV=1 \
-    /bin/bash --noprofile --norc "$self" \
-      --build --token "$provided_token" --output-dir "$output_dir" \
-      --setup-script "$setup_script" --jobs "$jobs" \
-      --photon-source-dir "$photon_source_dir" \
-      --ppg-repo "$ppg_repo_real" --ppg-revision "$ppg_revision" \
-      --estimator-revision "$estimator_revision" \
-      --yaml-cpp-library "$yaml_cpp_library" \
-      --yaml-cpp-include-dir "$yaml_cpp_include_dir" \
-      --roounfold-library "$roounfold_library" \
-      --roounfold-include-dir "$roounfold_include_dir" \
-      --vertex-scan-data-file "$vertex_scan_data_file" \
-      --mbd-correction-file "$mbd_correction_file" \
-      --truth-vertex-reweight-0mrad "$truth_vertex_reweight_0mrad" \
-      --truth-vertex-reweight-1p5mrad "$truth_vertex_reweight_1p5mrad" \
-      --apply-model-dir "$apply_model_dir" \
-      --apply-npb-model "$apply_npb_model"
+    /bin/bash --noprofile --norc "$self" "${reexec_args[@]}"
 fi
 
 umask 077
@@ -394,13 +626,19 @@ set -e
 for command_name in python3 make aclocal automake autoconf libtoolize root root-config readelf ldd cmp git awk; do
   command -v "$command_name" >/dev/null 2>&1 || die "required build command is unavailable: $command_name"
 done
-for estimator_asset in "$yaml_cpp_library" "$roounfold_library" \
+for estimator_asset in "$yaml_cpp_library" "$roounfold_library" "$roounfold_pcm" \
   "$vertex_scan_data_file" "$mbd_correction_file" \
   "$truth_vertex_reweight_0mrad" "$truth_vertex_reweight_1p5mrad" \
   "$apply_npb_model"; do
   [[ -f "$estimator_asset" && -s "$estimator_asset" ]] || \
     die "estimator runtime asset is missing or empty: $estimator_asset"
 done
+[[ "$(sha256_file "$roounfold_library")" == "$expected_roounfold_library_sha256" ]] || \
+  die "historical RooUnfold library hash differs"
+[[ "$(sha256_file "$roounfold_pcm")" == "$expected_roounfold_pcm_sha256" ]] || \
+  die "historical RooUnfold PCM hash differs"
+[[ "$(basename "$roounfold_pcm")" == RooUnfoldDict_rdict.pcm ]] || \
+  die "RooUnfold PCM must be named RooUnfoldDict_rdict.pcm"
 [[ -d "${yaml_cpp_include_dir}/yaml-cpp" ]] || \
   die "yaml-cpp header tree is missing: ${yaml_cpp_include_dir}/yaml-cpp"
 [[ -f "${yaml_cpp_include_dir}/yaml-cpp/yaml.h" && \
@@ -424,10 +662,13 @@ done
   die "apply_BDT split NPB model hash differs"
 [[ -d "$roounfold_include_dir" ]] || \
   die "RooUnfold include directory is missing: $roounfold_include_dir"
-for header in RooUnfoldResponse.h RooUnfoldBayes.h; do
+for header in "${roounfold_headers[@]}"; do
   [[ -f "${roounfold_include_dir}/${header}" && -s "${roounfold_include_dir}/${header}" ]] || \
     die "RooUnfold header is missing: ${roounfold_include_dir}/${header}"
 done
+[[ "$(roounfold_header_tree_sha256 "$roounfold_include_dir")" == \
+   "$expected_roounfold_header_tree_sha256" ]] || \
+  die "historical RooUnfold header-tree hash differs"
 
 forbidden_routes() {
   local value="${PATH:-}:${LD_LIBRARY_PATH:-}:${ROOT_INCLUDE_PATH:-}:${PYTHONPATH:-}:${CMAKE_PREFIX_PATH:-}:${CPATH:-}:${CPLUS_INCLUDE_PATH:-}:${LIBRARY_PATH:-}:${PKG_CONFIG_PATH:-}"
@@ -481,7 +722,7 @@ mkdir -p "$stage_root" "$build_root/recoiljets" "$build_root/ppg12" \
   "$runtime_root/estimator/macros" "$runtime_root/estimator/include" \
   "$runtime_root/estimator/config" "$runtime_root/estimator/data" \
   "$runtime_root/estimator/apply" "$runtime_root/estimator/apply/binned_models" \
-  "$runtime_root/estimator/apply/npb_models"
+  "$runtime_root/estimator/apply/npb_models" "$runtime_root/provenance"
 
 for source_name in "${ppg_source_names[@]}"; do
   git "${git_safe[@]}" -C "$ppg_repo_real" show \
@@ -574,10 +815,68 @@ payload = {
 receipt.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 PY
 cp -L "$roounfold_library" "${runtime_root}/lib/libRooUnfold.so"
-cp -f "${roounfold_include_dir}/RooUnfoldResponse.h" \
-  "${runtime_root}/estimator/include/RooUnfoldResponse.h"
-cp -f "${roounfold_include_dir}/RooUnfoldBayes.h" \
-  "${runtime_root}/estimator/include/RooUnfoldBayes.h"
+cp -f "$roounfold_pcm" "${runtime_root}/lib/RooUnfoldDict_rdict.pcm"
+for header in "${roounfold_headers[@]}"; do
+  cp -f "${roounfold_include_dir}/${header}" \
+    "${runtime_root}/estimator/include/${header}"
+  cmp -s "${roounfold_include_dir}/${header}" \
+    "${runtime_root}/estimator/include/${header}" || \
+    die "staged historical RooUnfold header differs from source: ${header}"
+done
+roounfold_header_receipt="${runtime_root}/estimator/roounfold_header_tree_receipt.json"
+python3 - "$roounfold_include_dir" "${runtime_root}/estimator/include" \
+  "$roounfold_header_receipt" "$expected_roounfold_header_tree_sha256" \
+  "${roounfold_headers[@]}" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import sys
+
+source = Path(sys.argv[1]).resolve()
+include_root = Path(sys.argv[2]).resolve()
+receipt = Path(sys.argv[3])
+expected_tree_digest = sys.argv[4]
+names = sys.argv[5:]
+expected = [
+    "RooUnfold.h",
+    "RooUnfoldResponse.h",
+    "RooUnfoldBayes.h",
+    "RooUnfoldBinByBin.h",
+    "RooUnfoldErrors.h",
+    "RooUnfoldInvert.h",
+    "RooUnfoldParms.h",
+    "RooUnfoldSvd.h",
+    "RooUnfoldTUnfold.h",
+]
+if names != expected or len(set(names)) != len(expected):
+    raise SystemExit("historical RooUnfold header contract differs from exact nine-file order")
+rows = []
+tree_digest = hashlib.sha256()
+for name in names:
+    source_path = source / name
+    staged_path = include_root / name
+    if not source_path.is_file() or not staged_path.is_file():
+        raise SystemExit(f"historical RooUnfold header is missing: {name}")
+    source_digest = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    staged_digest = hashlib.sha256(staged_path.read_bytes()).hexdigest()
+    if source_digest != staged_digest:
+        raise SystemExit(f"historical RooUnfold header changed while staging: {name}")
+    rows.append({"relative_path": name, "sha256": staged_digest})
+    tree_digest.update(name.encode())
+    tree_digest.update(b"\0")
+    tree_digest.update(bytes.fromhex(staged_digest))
+payload = {
+    "schema_version": 1,
+    "role": "ppg_recoeff_roounfold_header_tree",
+    "source_root": str(source),
+    "include_root": str(include_root),
+    "tree_sha256": tree_digest.hexdigest(),
+    "files": rows,
+}
+if payload["tree_sha256"] != expected_tree_digest:
+    raise SystemExit("historical RooUnfold header tree differs from pinned digest")
+receipt.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+PY
 cp -f "$vertex_scan_data_file" \
   "${runtime_root}/estimator/data/data_histo_bdt_nom_vtxscan.root"
 cp -f "$mbd_correction_file" \
@@ -649,10 +948,87 @@ path.write_text(pattern.sub(new, text))
 PY
 }
 
+recoeff_compat_macro="${runtime_root}/estimator/macros/RecoEffCalculator_TTreeReader_roounfold_compat.C"
+recoeff_compat_receipt="${runtime_root}/estimator/recoeff_roounfold_compat_transform_receipt.json"
 recoeff_macro="${runtime_root}/estimator/macros/RecoEffCalculator_TTreeReader.C"
 recoeff_trace_macro="${runtime_root}/estimator/macros/RecoEffCalculator_TTreeReader_trace.C"
 recoeff_trace_receipt="${runtime_root}/estimator/recoeff_trace_transform_receipt.json"
-cp -f "${estimator_stage}/RecoEffCalculator_TTreeReader.C" "$recoeff_macro"
+python3 - \
+  "${estimator_stage}/RecoEffCalculator_TTreeReader.C" \
+  "$recoeff_compat_macro" "$recoeff_compat_receipt" \
+  "$estimator_revision" "$expected_recoeff_sha256" \
+  "$expected_recoeff_roounfold_compat_sha256" \
+  "$recoeff_roounfold_compat_needle" \
+  "$recoeff_roounfold_compat_replacement" \
+  "$expected_roounfold_library_sha256" "$expected_roounfold_pcm_sha256" \
+  "$expected_roounfold_header_tree_sha256" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import sys
+
+(
+    source_path, output_path, receipt_path, source_revision,
+    expected_source_sha256, expected_output_sha256, needle, replacement,
+    roounfold_library_sha256, roounfold_pcm_sha256,
+    roounfold_header_tree_sha256,
+) = sys.argv[1:]
+source = Path(source_path).resolve()
+output = Path(output_path).resolve()
+receipt = Path(receipt_path).resolve()
+
+def digest_bytes(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
+
+raw = source.read_bytes()
+if digest_bytes(raw) != expected_source_sha256:
+    raise SystemExit("canonical RecoEff source drifted before compatibility transform")
+needle_bytes = needle.encode()
+replacement_bytes = replacement.encode()
+observed = raw.count(needle_bytes)
+if observed != 1:
+    raise SystemExit(
+        "RooUnfold constructor compatibility needle must occur exactly once; "
+        f"observed={observed}"
+    )
+derived = raw.replace(needle_bytes, replacement_bytes)
+if digest_bytes(derived) != expected_output_sha256:
+    raise SystemExit("RooUnfold compatibility derivative differs from pinned digest")
+output.write_bytes(derived)
+data = {
+    "schema_version": 1,
+    "transform": "ppg12_recoeff_roounfold_constructor_compat_v1",
+    "source_revision": source_revision,
+    "input_path": str(source),
+    "input_sha256": digest_bytes(raw),
+    "output_path": str(output),
+    "output_sha256": digest_bytes(derived),
+    "operation": {
+        "label": "remove_unsupported_explicit_false_constructor_argument",
+        "expected_count": 1,
+        "observed_count": observed,
+        "needle": needle,
+        "replacement": replacement,
+    },
+    "historical_roounfold_contract": {
+        "library_sha256": roounfold_library_sha256,
+        "pcm_sha256": roounfold_pcm_sha256,
+        "header_tree_sha256": roounfold_header_tree_sha256,
+        "available_constructor": (
+            "RooUnfoldResponse(const TH1*,const TH1*,const TH2*,"
+            "const char*,const char*)"
+        ),
+        "runtime_smoke_requires_default_overflow_false": True,
+    },
+    "canonical_source_unchanged": True,
+    "constructor_default_overflow_equals_explicit_false": True,
+    "selection_or_fill_expression_replaced": False,
+    "purity_estimator_expression_replaced": False,
+    "response_object_setup_only": True,
+}
+receipt.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+PY
+cp -f "$recoeff_compat_macro" "$recoeff_macro"
 replace_exact "$recoeff_macro" 1 \
   '/sphenix/u/shuhang98/install/lib64/libyaml-cpp.so' \
   "${runtime_root}/lib/libyaml-cpp.so"
@@ -665,30 +1041,36 @@ python3 "$trace_instrumenter" \
   --receipt "$recoeff_trace_receipt" \
   --source-revision "$estimator_revision"
 
-# Rebuild the preserved PPG12 source against the same current new.17 headers
-# and libraries used by the candidate.  The archived June binary is retained
-# only as historical evidence: loading it against today's mutable new.17
-# aborts on valid event-2 tower keys before the scientific comparison begins.
-replace_exact "${ppg_stage}/configure.ac" 1 \
-  'CXXFLAGS="$CXXFLAGS -Wall -Werror"' \
-  'CXXFLAGS="$CXXFLAGS -Wall -Wno-error"'
-replace_exact "${ppg_stage}/Makefile.am" 1 \
-  $'-lcalotrigger_io \\ ' \
-  $'-lcalotrigger_io \\'
+# Default mode rebuilds the preserved PPG12 source against the same current
+# new.17 headers and libraries used by the candidate.  Import mode instead
+# carries forward one exact source-locked binary from a sealed runtime whose
+# manifest and receipt were verified before the authorization token was made.
+if [[ "$ppg_binary_mode" == source_locked_rebuild ]]; then
+  replace_exact "${ppg_stage}/configure.ac" 1 \
+    'CXXFLAGS="$CXXFLAGS -Wall -Werror"' \
+    'CXXFLAGS="$CXXFLAGS -Wall -Wno-error"'
+  replace_exact "${ppg_stage}/Makefile.am" 1 \
+    $'-lcalotrigger_io \\ ' \
+    $'-lcalotrigger_io \\'
 
-(
-  cd "${build_root}/ppg12"
-  export LD_LIBRARY_PATH="${install_root}/lib:${base_ld_library_path}"
-  export ROOT_INCLUDE_PATH="${install_root}/include:${base_root_include_path}"
-  export CPPFLAGS="-I${install_root}/include"
-  export LDFLAGS="-L${install_root}/lib${release_ldflags}"
-  /bin/bash "${ppg_stage}/autogen.sh" --prefix="$install_root"
-  make -j "$jobs"
-  make install
-) >"${log_root}/ppg12_build.log" 2>&1 || {
-  tail -n 80 "${log_root}/ppg12_build.log" >&2 || true
-  die "isolated source-locked libCaloAna24 build failed"
-}
+  (
+    cd "${build_root}/ppg12"
+    export LD_LIBRARY_PATH="${install_root}/lib:${base_ld_library_path}"
+    export ROOT_INCLUDE_PATH="${install_root}/include:${base_root_include_path}"
+    export CPPFLAGS="-I${install_root}/include"
+    export LDFLAGS="-L${install_root}/lib${release_ldflags}"
+    /bin/bash "${ppg_stage}/autogen.sh" --prefix="$install_root"
+    make -j "$jobs"
+    make install
+  ) >"${log_root}/ppg12_build.log" 2>&1 || {
+    tail -n 80 "${log_root}/ppg12_build.log" >&2 || true
+    die "isolated source-locked libCaloAna24 build failed"
+  }
+else
+  printf 'PPG12 source-locked runtime import manifest=%s library_sha256=%s\n' \
+    "$ppg_source_runtime_manifest" "$ppg_origin_library_sha256" \
+    >"${log_root}/ppg12_binary_import.log"
+fi
 
 # These rewrites touch staged copies only.  The oracle builder is renamed so
 # it can coexist with exact release libcalo_reco without an ODR/symbol
@@ -765,7 +1147,11 @@ resolve_release_lib() {
 }
 
 built_recoil="$(resolve_installed_lib libRecoilJets.so)"
-built_ppg="$(resolve_installed_lib libCaloAna24.so)"
+if [[ "$ppg_binary_mode" == source_locked_runtime_import ]]; then
+  built_ppg="$ppg_origin_library"
+else
+  built_ppg="$(resolve_installed_lib libCaloAna24.so)"
+fi
 release_calo="$(resolve_release_lib libcalo_reco.so)"
 release_clusteriso="$(resolve_release_lib libclusteriso.so)"
 release_jetbase="$(resolve_release_lib libjetbase.so)"
@@ -777,6 +1163,8 @@ cp -L "$release_clusteriso" "${runtime_root}/lib/libclusteriso.so"
 cp -L "$release_jetbase" "${runtime_root}/lib/libjetbase.so"
 cmp -s "$release_calo" "${runtime_root}/lib/libcalo_reco.so" || \
   die "copied libcalo_reco differs from exact new.17 source"
+cmp -s "$built_ppg" "${runtime_root}/lib/libCaloAna24.so" || \
+  die "copied libCaloAna24 differs from the selected source-locked binary"
 cmp -s "$release_clusteriso" "${runtime_root}/lib/libclusteriso.so" || \
   die "copied libclusteriso differs from exact new.17 source"
 cmp -s "$release_jetbase" "${runtime_root}/lib/libjetbase.so" || \
@@ -785,6 +1173,23 @@ cmp -s "$yaml_cpp_library" "${runtime_root}/lib/libyaml-cpp.so" || \
   die "copied libyaml-cpp differs from sealed estimator source"
 cmp -s "$roounfold_library" "${runtime_root}/lib/libRooUnfold.so" || \
   die "copied libRooUnfold differs from sealed estimator source"
+cmp -s "$roounfold_pcm" "${runtime_root}/lib/RooUnfoldDict_rdict.pcm" || \
+  die "copied RooUnfold dictionary PCM differs from sealed estimator source"
+ppg_provenance_manifest=""
+ppg_provenance_receipt=""
+if [[ "$ppg_binary_mode" == source_locked_runtime_import ]]; then
+  ppg_provenance_manifest="${runtime_root}/provenance/ppg_source_runtime_manifest.json"
+  ppg_provenance_receipt="${runtime_root}/provenance/ppg_source_build_receipt.json"
+  cp -f "$ppg_source_runtime_manifest" "$ppg_provenance_manifest"
+  cp -f "$ppg_origin_build_receipt" "$ppg_provenance_receipt"
+  [[ "$(sha256_file "$ppg_provenance_manifest")" == "$ppg_origin_manifest_sha256" ]] || \
+    die "copied source runtime manifest hash differs"
+  [[ "$(sha256_file "$ppg_provenance_receipt")" == "$ppg_origin_receipt_sha256" ]] || \
+    die "copied source runtime receipt hash differs"
+  [[ "$(sha256_file "${runtime_root}/lib/libCaloAna24.so")" == \
+     "$ppg_origin_library_sha256" ]] || \
+    die "imported libCaloAna24 hash differs after staging"
+fi
 cp -f "${recoil_stage}/PPG12OraclePhotonClusterBuilder.h" \
   "${runtime_root}/include/caloana/PPG12OraclePhotonClusterBuilder.h"
 # The paired-oracle manifest retains its established role/path.  This file's
@@ -878,10 +1283,49 @@ for runtime_lib in \
   fi
 done
 
-smoke_macro="${build_root}/smoke_new17_runtime.C"
-cat > "$smoke_macro" <<EOF
+smoke_body_macro="${build_root}/smoke_new17_runtime_body.C"
+cat > "$smoke_body_macro" <<EOF
 #include <caloana/PPG12OraclePhotonClusterBuilder.h>
 #include <yaml-cpp/yaml.h>
+#include <RooUnfoldResponse.h>
+#include <RooUnfoldBayes.h>
+#include <TH1D.h>
+#include <TH2D.h>
+#include <TSystem.h>
+#include <iostream>
+void smoke_new17_runtime_body()
+{
+  PPG12OraclePhotonClusterBuilder *builder = nullptr;
+  if (builder != nullptr) gSystem->Exit(92);
+  const YAML::Node yaml_header_smoke = YAML::Load("ppg12_oracle_smoke: 17");
+  if (!yaml_header_smoke["ppg12_oracle_smoke"] ||
+      yaml_header_smoke["ppg12_oracle_smoke"].as<int>() != 17)
+  {
+    gSystem->Exit(93);
+  }
+  TH1D measured("ppg12_oracle_measured", "", 2, 0.0, 2.0);
+  TH1D truth("ppg12_oracle_truth", "", 2, 0.0, 2.0);
+  TH2D migration("ppg12_oracle_migration", "", 2, 0.0, 2.0, 2, 0.0, 2.0);
+  RooUnfoldResponse response(
+    (const TH1 *)&measured, (const TH1 *)&truth, &migration,
+    "ppg12_oracle_response", "");
+  if (response.UseOverflowStatus())
+  {
+    std::cerr << "PPG12_ORACLE_ROOUNFOLD_DEFAULT_OVERFLOW_MISMATCH" << std::endl;
+    gSystem->Exit(94);
+  }
+  RooUnfoldBayes bayes(
+    &response, &measured, 1, false, "ppg12_oracle_bayes", "");
+  (void)bayes;
+  std::cout << "PPG12_ORACLE_ROOUNFOLD_API_SMOKE_PASS default_overflow=0" << std::endl;
+}
+EOF
+
+smoke_macro="${build_root}/smoke_new17_runtime.C"
+cat > "$smoke_macro" <<EOF
+#include <TUnfold.h>
+#include <TInterpreter.h>
+#include <TROOT.h>
 #include <TSystem.h>
 #include <iostream>
 void smoke_new17_runtime()
@@ -902,13 +1346,17 @@ void smoke_new17_runtime()
               << " status=" << status << std::endl;
     if (status < 0) gSystem->Exit(91);
   }
-  PPG12OraclePhotonClusterBuilder *builder = nullptr;
-  if (builder != nullptr) gSystem->Exit(92);
-  const YAML::Node yaml_header_smoke = YAML::Load("ppg12_oracle_smoke: 17");
-  if (!yaml_header_smoke["ppg12_oracle_smoke"] ||
-      yaml_header_smoke["ppg12_oracle_smoke"].as<int>() != 17)
+  if (gROOT->LoadMacro("${smoke_body_macro}") < 0)
   {
-    gSystem->Exit(93);
+    std::cerr << "PPG12_ORACLE_SMOKE_BODY_LOAD_FAILED" << std::endl;
+    gSystem->Exit(95);
+  }
+  Int_t error = TInterpreter::kNoError;
+  gROOT->ProcessLine("smoke_new17_runtime_body();", &error);
+  if (error != TInterpreter::kNoError)
+  {
+    std::cerr << "PPG12_ORACLE_SMOKE_BODY_EXECUTION_FAILED" << std::endl;
+    gSystem->Exit(96);
   }
 }
 EOF
@@ -922,6 +1370,13 @@ EOF
 }
 [[ "$(grep -c '^PPG12_ORACLE_ROOT_LOAD ' "${log_root}/root_smoke.log")" -eq 7 ]] || \
   die "ROOT smoke did not load all seven runtime libraries"
+grep -Fxq 'PPG12_ORACLE_ROOUNFOLD_API_SMOKE_PASS default_overflow=0' \
+  "${log_root}/root_smoke.log" || \
+  die "ROOT smoke did not compile and instantiate the historical RooUnfold API"
+if grep -E 'TCling::(LoadPCM|RegisterModule|AutoParse)|Failed to load PCM|fatal error:|no matching constructor|redefinition of|cannot open shared object' \
+    "${log_root}/root_smoke.log" >/dev/null; then
+  die "ROOT smoke exposed a PCM, autoparse, header, or RooUnfold API fallback error"
+fi
 
 forbidden_routes || die "build contaminated the active shell with a forbidden route"
 
@@ -931,7 +1386,10 @@ python3 - \
   "$build_receipt" "$output_dir" "$install_root" "$runtime_root" \
   "$expected_offline" "$calo_calib" "$jobs" "$sealed_link_dirs" \
   "$canonical_photon_cc" "$canonical_photon_h" \
-  "$ppg_repo_real" "$ppg_revision" \
+  "$ppg_repo_real" "$ppg_revision" "$ppg_binary_mode" \
+  "$ppg_provenance_manifest" "$ppg_origin_manifest_sha256" \
+  "$ppg_provenance_receipt" "$ppg_origin_receipt_sha256" \
+  "$ppg_origin_library_sha256" \
   "${ppg_stage}/CaloAna24.cc" "${ppg_stage}/CaloAna24.h" \
   "${ppg_stage}/configure.ac" "${ppg_stage}/Makefile.am" \
   "${recoil_source}/RecoilJets.cc" "${recoil_source}/RecoilJets.h" \
@@ -947,11 +1405,14 @@ python3 - \
   "${runtime_root}/estimator/source/CalculatePhotonYield.C" \
   "${runtime_root}/estimator/apply/apply_BDT.C" \
   "${runtime_root}/estimator/apply/config_nom.yaml" \
+  "$recoeff_compat_macro" "$recoeff_compat_receipt" \
   "$recoeff_macro" "$recoeff_trace_macro" "$recoeff_trace_receipt" \
   "$trace_instrumenter" \
   "${runtime_root}/lib/libyaml-cpp.so" \
   "$yaml_cpp_header_receipt" \
   "${runtime_root}/lib/libRooUnfold.so" \
+  "${runtime_root}/lib/RooUnfoldDict_rdict.pcm" \
+  "$roounfold_header_receipt" \
   "${runtime_root}/estimator/include/RooUnfoldResponse.h" \
   "${runtime_root}/estimator/include/RooUnfoldBayes.h" \
   "${runtime_root}/estimator/data/data_histo_bdt_nom_vtxscan.root" \
@@ -968,15 +1429,19 @@ import sys
 (
     receipt, output_root, install_root, runtime_root, offline_main, calo_calib,
     jobs, sealed_link_dirs, photon_cc, photon_h, ppg_repo, ppg_revision,
+    ppg_binary_mode, ppg_provenance_manifest, ppg_origin_manifest_sha256,
+    ppg_provenance_receipt, ppg_origin_receipt_sha256,
+    ppg_origin_library_sha256,
     ppg_cc, ppg_h, ppg_configure, ppg_makefile, recoil_cc, recoil_h, macro, impl,
     calo_source, clusteriso_source, jetbase_source, log_root,
     estimator_revision, recoeff_source, cross_section_header,
     truth_vertex_header, estimator_config, estimator_config_0mrad,
     estimator_config_1p5mrad, calculate_yield_source,
     apply_bdt_source, apply_config_source,
+    recoeff_compat_macro, recoeff_compat_receipt,
     recoeff_macro, recoeff_trace_macro, trace_receipt, trace_instrumenter,
-    yaml_cpp, yaml_cpp_header_receipt, roounfold, roounfold_response_header,
-    roounfold_bayes_header,
+    yaml_cpp, yaml_cpp_header_receipt, roounfold, roounfold_pcm,
+    roounfold_header_receipt, roounfold_response_header, roounfold_bayes_header,
     vertex_scan_data, mbd_correction, truth_vertex_reweight_0mrad,
     truth_vertex_reweight_1p5mrad,
 ) = sys.argv[1:]
@@ -989,20 +1454,32 @@ def digest(path: str | Path) -> str:
             h.update(block)
     return h.hexdigest()
 
+roounfold_header_data = json.loads(Path(roounfold_header_receipt).read_text())
+roounfold_headers = [
+    str(Path(str(roounfold_header_data["include_root"])) / str(row["relative_path"]))
+    for row in roounfold_header_data.get("files", [])
+    if isinstance(row, dict)
+]
+if len(roounfold_headers) != 9:
+    raise SystemExit("sealed RooUnfold header receipt does not contain exactly nine headers")
+if roounfold_response_header not in roounfold_headers or roounfold_bayes_header not in roounfold_headers:
+    raise SystemExit("sealed RooUnfold Response/Bayes roles differ from header receipt")
+
 source_paths = [
     photon_cc, photon_h, ppg_cc, ppg_h, ppg_configure, ppg_makefile,
     recoil_cc, recoil_h, macro, impl,
     calo_source, clusteriso_source, jetbase_source, calo_calib,
     recoeff_source, cross_section_header, truth_vertex_header,
     estimator_config, estimator_config_0mrad, estimator_config_1p5mrad,
-    calculate_yield_source, recoeff_macro,
+    calculate_yield_source, recoeff_compat_macro, recoeff_compat_receipt,
+    recoeff_macro,
     apply_bdt_source, apply_config_source,
     recoeff_trace_macro, trace_receipt, trace_instrumenter, yaml_cpp,
-    yaml_cpp_header_receipt, roounfold, roounfold_response_header,
-    roounfold_bayes_header,
+    yaml_cpp_header_receipt, roounfold, roounfold_pcm, roounfold_header_receipt,
     vertex_scan_data, mbd_correction, truth_vertex_reweight_0mrad,
     truth_vertex_reweight_1p5mrad,
 ]
+source_paths.extend(roounfold_headers)
 apply_root = Path(apply_bdt_source).parent
 apply_model_names = (
     "base", "base_vr", "base_v0", "base_v1", "base_v2", "base_v3",
@@ -1016,7 +1493,25 @@ apply_models.append(apply_root / "npb_models" / "npb_score_split_tmva.root")
 if len(apply_models) != 12 or any(not path.is_file() for path in apply_models):
     raise SystemExit("sealed apply_BDT stage does not contain exactly 11 split models plus NPB")
 source_paths.extend(str(path) for path in apply_models)
+if ppg_binary_mode not in ("source_locked_rebuild", "source_locked_runtime_import"):
+    raise SystemExit(f"unsupported PPG12 binary mode: {ppg_binary_mode}")
+if ppg_binary_mode == "source_locked_runtime_import":
+    source_paths.extend((ppg_provenance_manifest, ppg_provenance_receipt))
 log_paths = sorted(str(path) for path in Path(log_root).iterdir() if path.is_file())
+source_runtime_import = None
+if ppg_binary_mode == "source_locked_runtime_import":
+    source_runtime_import = {
+        "runtime_manifest": {
+            "path": ppg_provenance_manifest,
+            "sha256": ppg_origin_manifest_sha256,
+        },
+        "build_receipt": {
+            "path": ppg_provenance_receipt,
+            "sha256": ppg_origin_receipt_sha256,
+        },
+        "library_sha256": ppg_origin_library_sha256,
+        "immutable_provenance_documents": True,
+    }
 data = {
     "schema_version": 1,
     "purpose": "ppg12_paired_oracle_recoil_runtime",
@@ -1036,6 +1531,9 @@ data = {
         "subtree": "anatreemaker/source",
         "working_tree_ignored": True,
         "rebuilt_against_common_runtime": True,
+        "binary_mode": ppg_binary_mode,
+        "rebuilt_in_this_runtime": ppg_binary_mode == "source_locked_rebuild",
+        "source_runtime_import": source_runtime_import,
     },
     "ppg12_estimator": {
         "revision": estimator_revision,
@@ -1046,11 +1544,21 @@ data = {
             "path": recoeff_source,
             "sha256": digest(recoeff_source),
         },
+        "roounfold_compatibility_macro": {
+            "path": recoeff_compat_macro,
+            "sha256": digest(recoeff_compat_macro),
+            "transform_receipt": recoeff_compat_receipt,
+            "transform_receipt_sha256": digest(recoeff_compat_receipt),
+            "canonical_source_unchanged": True,
+            "constructor_default_overflow_equals_explicit_false": True,
+            "selection_or_fill_expression_replaced": False,
+            "purity_estimator_expression_replaced": False,
+        },
         "staged_uninstrumented_macro": {
             "path": recoeff_macro,
             "sha256": digest(recoeff_macro),
             "scientific_expression_changes": False,
-            "sealed_path_rewrites_only": True,
+            "sealed_path_rewrites_plus_roounfold_api_compatibility": True,
         },
         "instrumented_macro": {
             "path": recoeff_trace_macro,
@@ -1106,8 +1614,8 @@ data = {
             {"path": path, "sha256": digest(path)}
             for path in (
                 cross_section_header, truth_vertex_header, yaml_cpp,
-                yaml_cpp_header_receipt, roounfold,
-                roounfold_response_header, roounfold_bayes_header,
+                yaml_cpp_header_receipt, roounfold, roounfold_pcm,
+                roounfold_header_receipt, *roounfold_headers,
                 vertex_scan_data, mbd_correction,
             )
         ],
@@ -1150,8 +1658,11 @@ data = {
         "full_calo_reco_rebuild": False,
         "custom_builder_renamed": True,
         "archived_ppg12_binary_reused": False,
-        "ppg12_source_locked_rebuild": True,
+        "ppg12_source_locked_rebuild": ppg_binary_mode == "source_locked_rebuild",
+        "ppg12_source_locked_binary_import": ppg_binary_mode == "source_locked_runtime_import",
         "estimator_revision_separate_from_reconstruction": True,
+        "estimator_roounfold_api_compatibility_exact_once": True,
+        "estimator_canonical_source_preserved": True,
         "estimator_trace_requires_exact_root_equivalence": True,
     },
     "validation": {
@@ -1175,6 +1686,7 @@ python3 - "$runtime_manifest" "$build_receipt" "$expected_offline" \
   "${runtime_root}/include/caloreco/PhotonClusterBuilder.h" \
   "$estimator_revision" \
   "${runtime_root}/estimator/source/RecoEffCalculator_TTreeReader.C" \
+  "$recoeff_compat_macro" "$recoeff_compat_receipt" \
   "$recoeff_macro" "$recoeff_trace_macro" "$recoeff_trace_receipt" \
   "${runtime_root}/estimator/include/CrossSectionWeights.h" \
   "${runtime_root}/estimator/include/TruthVertexReweightLoader.h" \
@@ -1187,12 +1699,15 @@ python3 - "$runtime_manifest" "$build_receipt" "$expected_offline" \
   "${runtime_root}/lib/libyaml-cpp.so" \
   "$yaml_cpp_header_receipt" \
   "${runtime_root}/lib/libRooUnfold.so" \
+  "${runtime_root}/lib/RooUnfoldDict_rdict.pcm" \
+  "$roounfold_header_receipt" \
   "${runtime_root}/estimator/include/RooUnfoldResponse.h" \
   "${runtime_root}/estimator/include/RooUnfoldBayes.h" \
   "${runtime_root}/estimator/data/data_histo_bdt_nom_vtxscan.root" \
   "${runtime_root}/estimator/data/MbdOut.corr" \
   "${runtime_root}/estimator/data/truth_vertex_reweight_0mrad.root" \
-  "${runtime_root}/estimator/data/truth_vertex_reweight_1p5mrad.root" <<'PY'
+  "${runtime_root}/estimator/data/truth_vertex_reweight_1p5mrad.root" \
+  "$ppg_provenance_manifest" "$ppg_provenance_receipt" <<'PY'
 from pathlib import Path
 import hashlib
 import json
@@ -1201,13 +1716,15 @@ import sys
 (
     manifest, receipt, offline_main, macro, impl, recoil, ppg, calo,
     clusteriso, jetbase, photon_header,
-    estimator_revision, recoeff_source, recoeff_macro, recoeff_trace_macro,
+    estimator_revision, recoeff_source, recoeff_compat_macro,
+    recoeff_compat_receipt, recoeff_macro, recoeff_trace_macro,
     trace_receipt, cross_section_header, truth_vertex_header, estimator_config,
     estimator_config_0mrad, estimator_config_1p5mrad, calculate_yield,
     apply_bdt, apply_config, yaml_cpp, yaml_cpp_header_receipt, roounfold,
-    roounfold_response_header,
+    roounfold_pcm, roounfold_header_receipt, roounfold_response_header,
     roounfold_bayes_header, vertex_scan_data, mbd_correction,
     truth_vertex_reweight_0mrad, truth_vertex_reweight_1p5mrad,
+    ppg_provenance_manifest, ppg_provenance_receipt,
 ) = sys.argv[1:]
 
 def digest(path: str) -> str:
@@ -1227,6 +1744,8 @@ roles = [
     ("libjetbase.so", jetbase),
     ("PhotonClusterBuilder.h", photon_header),
     ("ppg_recoeff_source_macro", recoeff_source),
+    ("ppg_recoeff_roounfold_compat_macro", recoeff_compat_macro),
+    ("ppg_recoeff_roounfold_compat_transform_receipt", recoeff_compat_receipt),
     ("ppg_recoeff_macro", recoeff_macro),
     ("ppg_recoeff_trace_macro", recoeff_trace_macro),
     ("ppg_recoeff_trace_transform_receipt", trace_receipt),
@@ -1241,6 +1760,8 @@ roles = [
     ("ppg_recoeff_yaml_cpp", yaml_cpp),
     ("ppg_recoeff_yaml_cpp_header_tree_receipt", yaml_cpp_header_receipt),
     ("ppg_recoeff_roounfold", roounfold),
+    ("ppg_recoeff_roounfold_pcm", roounfold_pcm),
+    ("ppg_recoeff_roounfold_header_tree_receipt", roounfold_header_receipt),
     ("ppg_recoeff_roounfold_response_header", roounfold_response_header),
     ("ppg_recoeff_roounfold_bayes_header", roounfold_bayes_header),
     ("ppg_recoeff_vertex_scan_data", vertex_scan_data),
@@ -1258,6 +1779,13 @@ roles.extend(
     for name in model_names
 )
 roles.append(("ppg_apply_npb_model", str(apply_root / "npb_models" / "npb_score_split_tmva.root")))
+if ppg_provenance_manifest or ppg_provenance_receipt:
+    if not ppg_provenance_manifest or not ppg_provenance_receipt:
+        raise SystemExit("source-runtime provenance roles must be supplied together")
+    roles.extend((
+        ("ppg_source_runtime_manifest", ppg_provenance_manifest),
+        ("ppg_source_build_receipt", ppg_provenance_receipt),
+    ))
 data = {
     "schema_version": 1,
     "runtime_profile": "new.17",

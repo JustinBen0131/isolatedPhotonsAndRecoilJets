@@ -10,7 +10,22 @@ bash -n "$driver"
 bash -n "$worker"
 python3 -m py_compile "$auditor"
 
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+
 for invariant in \
+  'failure_report="${output_dir}/worker_failure.log"' \
+  'trap '\''capture_worker_error "$?" "$LINENO" "$BASH_COMMAND"'\'' ERR' \
+  'PPG12_PAIRED_ORACLE_WORKER_FAILURE_V1' \
+  'tail -n 160 -- "$path" 2>/dev/null | tail -c 32768' \
+  'failure_stage="ppg12_apply_bdt"' \
+  'failure_stage="ppg12_recoeff_baseline"' \
+  'failure_stage="ppg12_recoeff_${label}_vertex_scan"' \
+  'failure_stage="ppg12_recoeff_${label}_analysis"' \
+  'failure_stage="recoiljets_reconstruction"' \
+  'failure_stage="candidate_comparison"' \
+  'failure_stage="postrun_audit"' \
+  'gSystem->Exit(0);' \
   'calo_calib="${calo_macro_dir}/Calo_Calib.C"' \
   'gROOT->SetMacroPath((std::string(' \
   'export ROOT_INCLUDE_PATH="${calo_macro_dir}:${base_root_include_path}"' \
@@ -20,6 +35,299 @@ for invariant in \
     exit 1
   }
 done
+
+# Exercise the capture design itself in an isolated shell: stderr stays
+# visible, RUN_STATE becomes FAILED, the durable receipt is bounded, and both
+# an ordinary stderr line and the selected stage log tail survive.
+failure_harness="${tmp}/failure-capture-harness.sh"
+python3 - "$worker" "$failure_harness" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+worker, output = map(Path, sys.argv[1:])
+text = worker.read_text()
+start = text.index('capture_worker_error() {')
+end = text.index('\n# Preserve the worker\'s stderr', start)
+functions = text[start:end]
+output.write_text(
+    '#!/usr/bin/env bash\n'
+    'set -Eeuo pipefail\n'
+    + functions
+    + '''
+output_dir="$1"
+mkdir -p "$output_dir"
+state_file="${output_dir}/RUN_STATE"
+failure_report="${output_dir}/worker_failure.log"
+failure_stderr_spool="${output_dir}/.worker_stderr.spool"
+failure_stderr_fifo="${output_dir}/.worker_stderr.pipe"
+failure_stage="synthetic_apply_stage"
+failure_stage_log="${output_dir}/synthetic_stage.log"
+failure_exit_status=""
+failure_line=0
+failure_command=""
+printf 'RUNNING\\n' > "$state_file"
+printf 'synthetic stage detail\\n' > "$failure_stage_log"
+completed=0
+rm -f "$failure_stderr_spool" "$failure_stderr_fifo" "$failure_report"
+mkfifo "$failure_stderr_fifo"
+exec 9>&2
+tee "$failure_stderr_spool" < "$failure_stderr_fifo" >&9 &
+failure_tee_pid=$!
+exec 2> "$failure_stderr_fifo"
+rm -f "$failure_stderr_fifo"
+trap 'capture_worker_error "$?" "$LINENO" "$BASH_COMMAND"' ERR
+trap finish_state EXIT
+printf 'synthetic worker stderr\\n' >&2
+if [[ "${2:-err}" == exit ]]; then
+  exit 7
+fi
+false
+'''
+)
+output.chmod(0o755)
+PY
+failure_out="${tmp}/failure-output"
+set +e
+failure_console="$($failure_harness "$failure_out" 2>&1)"
+failure_status=$?
+set -e
+[[ $failure_status -eq 1 ]]
+grep -Fxq 'FAILED' "${failure_out}/RUN_STATE"
+grep -Fq 'synthetic worker stderr' <<<"$failure_console"
+failure_receipt="${failure_out}/worker_failure.log"
+grep -Fq 'PPG12_PAIRED_ORACLE_WORKER_FAILURE_V1' "$failure_receipt"
+grep -Fq 'stage=synthetic_apply_stage' "$failure_receipt"
+grep -Fq 'exit_status=1' "$failure_receipt"
+grep -Fq 'synthetic worker stderr' "$failure_receipt"
+grep -Fq 'synthetic stage detail' "$failure_receipt"
+[[ $(wc -c < "$failure_receipt") -le 70000 ]]
+[[ ! -e "${failure_out}/.worker_stderr.spool" ]]
+[[ ! -e "${failure_out}/.worker_stderr.pipe" ]]
+
+# An explicit exit does not fire Bash's ERR trap.  The EXIT trap must still
+# record the real status rather than the empty ERR-trap placeholder.
+explicit_exit_out="${tmp}/explicit-exit-output"
+set +e
+"$failure_harness" "$explicit_exit_out" exit >/dev/null 2>&1
+explicit_exit_status=$?
+set -e
+[[ $explicit_exit_status -eq 7 ]]
+grep -Fxq 'FAILED' "${explicit_exit_out}/RUN_STATE"
+grep -Fq 'stage=synthetic_apply_stage' "${explicit_exit_out}/worker_failure.log"
+grep -Fq 'exit_status=7' "${explicit_exit_out}/worker_failure.log"
+[[ ! -e "${explicit_exit_out}/.worker_stderr.spool" ]]
+
+# Runtime roles are executable only while their manifest hash still matches.
+# This specifically prevents ROOT from falling back to a stale external
+# RooUnfold dictionary after the sealed PCM changes or disappears.
+role_harness="${tmp}/manifest-role-path-harness.sh"
+python3 - "$worker" "$role_harness" <<'PY'
+from pathlib import Path
+import sys
+
+worker, output = map(Path, sys.argv[1:])
+text = worker.read_text()
+start = text.index('manifest_role_path() {')
+end = text.index('\n}\n\nrecoeff_period_role=', start) + 3
+output.write_text(
+    '#!/usr/bin/env bash\nset -euo pipefail\n'
+    + text[start:end]
+    + '\nrecoil_runtime_manifest="$1"\nmanifest_role_path "$2"\n'
+)
+output.chmod(0o755)
+PY
+role_dir="${tmp}/role-runtime/lib"
+role_manifest="${tmp}/role-runtime/runtime_manifest.json"
+mkdir -p "$role_dir"
+printf 'sealed RooUnfold library\n' > "${role_dir}/libRooUnfold.so"
+printf 'sealed RooUnfold dictionary\n' > "${role_dir}/RooUnfoldDict_rdict.pcm"
+python3 - "$role_manifest" "${role_dir}/libRooUnfold.so" \
+  "${role_dir}/RooUnfoldDict_rdict.pcm" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import sys
+
+manifest = Path(sys.argv[1])
+paths = [Path(value).resolve() for value in sys.argv[2:]]
+roles = ("ppg_recoeff_roounfold", "ppg_recoeff_roounfold_pcm")
+manifest.write_text(json.dumps({
+    "files": [
+        {
+            "role": role,
+            "path": str(path),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+        for role, path in zip(roles, paths)
+    ]
+}) + "\n")
+PY
+[[ "$($role_harness "$role_manifest" ppg_recoeff_roounfold_pcm)" == \
+  "${role_dir}/RooUnfoldDict_rdict.pcm" ]]
+printf 'dictionary drift\n' >> "${role_dir}/RooUnfoldDict_rdict.pcm"
+if "$role_harness" "$role_manifest" ppg_recoeff_roounfold_pcm \
+    >"${tmp}/role-drift.out" 2>"${tmp}/role-drift.err"; then
+  echo "drifted RooUnfold PCM unexpectedly passed manifest validation" >&2
+  exit 1
+fi
+grep -Fq 'hash drifted' "${tmp}/role-drift.err"
+
+# A manifest may be internally recomputed around substituted bytes.  The
+# execution worker must independently reject that payload against the pinned
+# historical RooUnfold library digest before ROOT can load it.
+pin_harness="${tmp}/roounfold-library-pin-harness.sh"
+python3 - "$worker" "$pin_harness" <<'PY'
+from pathlib import Path
+import sys
+
+worker, output = map(Path, sys.argv[1:])
+text = worker.read_text()
+constant = next(
+    line for line in text.splitlines()
+    if line.startswith("expected_roounfold_library_sha256=")
+)
+die_start = text.index('die() {')
+die_end = text.index('\n}\n\n[[ $#', die_start) + 3
+hash_start = text.index('sha256_file() {')
+hash_end = text.index('\npreserve_reused_ppg_evidence() {', hash_start)
+output.write_text(
+    '#!/usr/bin/env bash\nset -euo pipefail\n'
+    + text[die_start:die_end]
+    + constant + '\n'
+    + text[hash_start:hash_end]
+    + '\nvalidate_pinned_roounfold_library "$1"\n'
+)
+output.chmod(0o755)
+PY
+substituted_library="${role_dir}/libRooUnfold.so"
+printf 'internally consistent but substituted RooUnfold library\n' \
+  > "$substituted_library"
+python3 - "$role_manifest" "$substituted_library" \
+  "${role_dir}/RooUnfoldDict_rdict.pcm" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import sys
+
+manifest = Path(sys.argv[1])
+paths = [Path(value).resolve() for value in sys.argv[2:]]
+roles = ("ppg_recoeff_roounfold", "ppg_recoeff_roounfold_pcm")
+manifest.write_text(json.dumps({
+    "files": [
+        {
+            "role": role,
+            "path": str(path),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+        for role, path in zip(roles, paths)
+    ]
+}) + "\n")
+PY
+[[ "$($role_harness "$role_manifest" ppg_recoeff_roounfold)" == \
+  "$substituted_library" ]]
+if "$pin_harness" "$substituted_library" \
+    >"${tmp}/library-pin.out" 2>"${tmp}/library-pin.err"; then
+  echo "recomputed manifest blessed a substituted RooUnfold library" >&2
+  exit 1
+fi
+grep -Fq 'sealed RooUnfold library differs from pinned historical digest' \
+  "${tmp}/library-pin.err"
+
+# Raw reuse must preserve the full producer log byte-for-byte.  The receipt
+# binds both copies of the raw ROOT, both copies of the log, and the exact
+# source contract so the later postrun log audit remains truthful.
+reuse_evidence_harness="${tmp}/reuse-evidence-harness.sh"
+python3 - "$worker" "$reuse_evidence_harness" <<'PY'
+from pathlib import Path
+import sys
+
+worker, output = map(Path, sys.argv[1:])
+text = worker.read_text()
+start = text.index('preserve_reused_ppg_evidence() {')
+end = text.index('\n}\n\ntoken_first_ph_seed=', start) + 3
+output.write_text(
+    '#!/usr/bin/env bash\n'
+    'set -euo pipefail\n'
+    + text[start:end]
+    + '\npreserve_reused_ppg_evidence "$@"\n'
+)
+output.chmod(0o755)
+PY
+reuse_evidence_dir="${tmp}/reuse-evidence"
+mkdir -p "$reuse_evidence_dir/source" "$reuse_evidence_dir/copied"
+reuse_source_raw="${reuse_evidence_dir}/source/caloana.root"
+reuse_copied_raw="${reuse_evidence_dir}/copied/caloana.root"
+reuse_source_log="${reuse_evidence_dir}/source/ppg12.log"
+reuse_copied_log="${reuse_evidence_dir}/copied/ppg12.log"
+reuse_source_contract="${reuse_evidence_dir}/source/paired_oracle_contract.json"
+reuse_evidence_receipt="${reuse_evidence_dir}/copied/ppg12_raw_reuse_receipt.json"
+printf 'exact raw ROOT bytes\n' > "$reuse_source_raw"
+cp "$reuse_source_raw" "$reuse_copied_raw"
+printf '%s\n' \
+  'ORACLE_RUNTIME side=ppg12 profile=new.17 offline_main=/sealed/new.17' \
+  'ORACLE_SEED_CONTRACT side=ppg12 mode=historical_fifo_replay_v2' \
+  'ORACLE_SOURCE_GRAPH side=ppg12 columns=NONE,g4,truthjet,NONE,NONE' \
+  'ORACLE_DYNAMIC_LIBRARY side=ppg12 name=libCaloAna24.so path=/sealed/libCaloAna24.so' \
+  > "$reuse_source_log"
+python3 - "$reuse_source_contract" "$reuse_source_log" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+contract, log = map(Path, sys.argv[1:])
+contract.write_text(json.dumps({"paths": {"ppg_log": str(log)}}) + "\n")
+PY
+"$reuse_evidence_harness" \
+  "$reuse_source_contract" "$reuse_source_raw" "$reuse_copied_raw" \
+  "$reuse_copied_log" "$reuse_evidence_receipt"
+cmp -s "$reuse_source_log" "$reuse_copied_log"
+python3 - "$reuse_evidence_receipt" "$reuse_source_contract" \
+  "$reuse_source_raw" "$reuse_copied_raw" "$reuse_source_log" \
+  "$reuse_copied_log" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import sys
+
+receipt, source_contract, source_raw, copied_raw, source_log, copied_log = map(
+    Path, sys.argv[1:]
+)
+data = json.loads(receipt.read_text())
+assert data["schema_version"] == 1
+assert data["mode"] == "exact_contract_bound"
+
+def digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+for role, path in (
+    ("source_contract", source_contract),
+    ("source_raw_root", source_raw),
+    ("copied_raw_root", copied_raw),
+    ("source_ppg_log", source_log),
+    ("copied_ppg_log", copied_log),
+):
+    assert data[role] == {"path": str(path), "sha256": digest(path)}
+assert data["source_raw_root"]["sha256"] == data["copied_raw_root"]["sha256"]
+assert data["source_ppg_log"]["sha256"] == data["copied_ppg_log"]["sha256"]
+PY
+
+# A mismatched copied raw ROOT must fail before it can emit evidence or replace
+# the destination log.
+printf 'mutated copied ROOT\n' > "$reuse_copied_raw"
+rm -f "$reuse_copied_log" "$reuse_evidence_receipt"
+if "$reuse_evidence_harness" \
+    "$reuse_source_contract" "$reuse_source_raw" "$reuse_copied_raw" \
+    "$reuse_copied_log" "$reuse_evidence_receipt" \
+    >"${tmp}/reuse-evidence-mismatch.out" \
+    2>"${tmp}/reuse-evidence-mismatch.err"; then
+  echo "mismatched reused raw ROOT unexpectedly produced evidence" >&2
+  exit 1
+fi
+grep -Fq 'copied PPG12 raw ROOT differs' "${tmp}/reuse-evidence-mismatch.err"
+[[ ! -e "$reuse_copied_log" ]]
+[[ ! -e "$reuse_evidence_receipt" ]]
+
 for invariant in \
   'ppg_raw_root="${ppg_dir}/caloana.root"' \
   'ppg_scored_root="${ppg_dir}/caloana_with_bdt_split.root"' \
@@ -37,9 +345,37 @@ for invariant in \
   'FAILED-run reuse is limited to the known attempt6 raw ROOT' \
   'known FAILED-run reuse lacks the 5000-event completion log' \
   'FAILED-run reuse is not the known missing-yaml-header failure' \
+  'ppg12_raw_reuse_receipt.json' \
+  'preserve_reused_ppg_evidence' \
   'input.TestBit(TFile::kRecovered)' \
   'ppg_recoeff_truth_vertex_reweight' \
   'ppg_recoeff_yaml_cpp_header_tree_receipt' \
+  'ppg_recoeff_roounfold_pcm' \
+  'ppg_recoeff_roounfold_compat_macro' \
+  'ppg_recoeff_roounfold_compat_transform_receipt' \
+  'expected_recoeff_roounfold_compat_sha256="f5a12905952a0f49a7521868935e7868eca7cf8de1facae12c26e0dd9b712891"' \
+  'ppg12_recoeff_roounfold_constructor_compat_v1' \
+  'remove_unsupported_explicit_false_constructor_argument' \
+  'RooUnfold compatibility macro cannot be re-derived exactly' \
+  'executable RecoEff baseline cannot be re-derived from the pinned' \
+  'executable RecoEff path rewrite is not exact-once' \
+  'runtime_smoke_requires_default_overflow_false' \
+  'selection_or_fill_expression_replaced' \
+  'purity_estimator_expression_replaced' \
+  'ppg_recoeff_roounfold_header_tree_receipt' \
+  'expected_roounfold_library_sha256="d135771391ae250bcb64c0889571825abe9924649485890e7a9c64648ee99062"' \
+  'expected_roounfold_pcm_sha256="2d91962a7b42acf246c7a80339eee71ca2f7e6df18ef76051d24a83bc61d4244"' \
+  'expected_roounfold_header_tree_sha256="ea9b923a8f6bc57b28027b7183b10e87246810c326208b1e36bf2b4b7491a458"' \
+  'validate_pinned_roounfold_library "$recoeff_roounfold"' \
+  'sealed RooUnfold library differs from pinned historical digest' \
+  'sealed RooUnfold PCM differs from pinned historical digest' \
+  'sealed RooUnfold header tree differs from pinned digest' \
+  'RooUnfold header inventory differs from exact nine-file contract' \
+  'runtime manifest role {role} hash drifted' \
+  'sealed RooUnfold library and PCM are not co-located' \
+  "return f'''#include <TUnfold.h>" \
+  'gSystem->Load({json.dumps(roounfold)})' \
+  'ROOT_INCLUDE_PATH="${recoeff_roounfold_include_root}:${recoeff_include_root}:${recoeff_yaml_cpp_include_root}:${base_root_include_path}"' \
   'export ROOT_INCLUDE_PATH="${recoeff_yaml_cpp_include_root}:${base_root_include_path}"' \
   '--out-json "$aggregate_report"'; do
   grep -Fq -- "$invariant" "$worker" || {
@@ -47,6 +383,10 @@ for invariant in \
     exit 1
   }
 done
+if grep -Fq 'REUSED token-bound raw CaloAna24 source' "$worker"; then
+  echo "worker still replaces the full producer log with a one-line stub" >&2
+  exit 1
+fi
 if grep -Fq 'ppg_raw_root="${ppg_dir}/output_sim.root"' "$worker"; then
   echo "worker still assumes the non-executable output_sim.root name" >&2
   exit 1
@@ -56,8 +396,6 @@ if grep -Fq 'gSystem->Which(gROOT->GetMacroPath(), "Calo_Calib.C")' "$worker"; t
   exit 1
 fi
 
-tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
 out="${tmp}/oracle-output"
 
 for asset in \
@@ -661,5 +999,25 @@ if grep -Fq 'export RJ_PPG12_PHOTON_YIELD_CLUSTER_ERES=0.04' "$worker"; then
   echo "paired oracle still applies forbidden blanket 4 percent classification smear" >&2
   exit 1
 fi
+
+python3 - "$worker" <<'PY'
+from pathlib import Path
+import sys
+
+text = Path(sys.argv[1]).read_text()
+start = text.index("def runner(call: str) -> str:")
+end = text.index("Path(scan_runner).write_text", start)
+runner = text[start:end]
+prerequisite = "#include <TUnfold.h>"
+library_load = "gSystem->Load({json.dumps(roounfold)})"
+macro_load = "gROOT->LoadMacro({json.dumps(macro)})"
+for required in (prerequisite, library_load, macro_load):
+    if runner.count(required) != 1:
+        raise SystemExit(f"generated RecoEff runner occurrence drifted: {required}")
+if not runner.index(prerequisite) < runner.index(library_load) < runner.index(macro_load):
+    raise SystemExit(
+        "generated RecoEff runner does not load TUnfold before RooUnfold and RecoEff"
+    )
+PY
 
 printf 'PPG12_PAIRED_ORACLE_TEST_PASS\n'

@@ -54,7 +54,46 @@ EXPECTED_OFFLINE_MAIN = (
 )
 EXPECTED_PPG_SOURCE_REVISION = "1c0ff86bf0ebabfba63a1abc4512cbe59fe48e31"
 EXPECTED_ESTIMATOR_REVISION = "29f8223bd9b36dffab07961b597afa94185bbdf1"
+EXPECTED_ROOUNFOLD_LIBRARY_HASH = (
+    "d135771391ae250bcb64c0889571825abe9924649485890e7a9c64648ee99062"
+)
+EXPECTED_ROOUNFOLD_PCM_HASH = (
+    "2d91962a7b42acf246c7a80339eee71ca2f7e6df18ef76051d24a83bc61d4244"
+)
+EXPECTED_ROOUNFOLD_HEADER_TREE_HASH = (
+    "ea9b923a8f6bc57b28027b7183b10e87246810c326208b1e36bf2b4b7491a458"
+)
+EXPECTED_ROOUNFOLD_HEADERS = (
+    "RooUnfold.h",
+    "RooUnfoldResponse.h",
+    "RooUnfoldBayes.h",
+    "RooUnfoldBinByBin.h",
+    "RooUnfoldErrors.h",
+    "RooUnfoldInvert.h",
+    "RooUnfoldParms.h",
+    "RooUnfoldSvd.h",
+    "RooUnfoldTUnfold.h",
+)
 EXPECTED_RECOEFF_SOURCE_HASH = "e9b25fdb6dd8a6bfbbad029cb90aaddc9489fdf2846c630ea63c8c41ac771eee"
+EXPECTED_RECOEFF_ROOUNFOLD_COMPAT_HASH = (
+    "f5a12905952a0f49a7521868935e7868eca7cf8de1facae12c26e0dd9b712891"
+)
+RECOEFF_ROOUNFOLD_COMPAT_NEEDLE = (
+    ', Form("response_matrix_full_%d", ieta), "", false));'
+)
+RECOEFF_ROOUNFOLD_COMPAT_REPLACEMENT = (
+    ', Form("response_matrix_full_%d", ieta), ""));'
+)
+RECOEFF_EXECUTABLE_PATH_REWRITES = (
+    (
+        "/sphenix/u/shuhang98/install/lib64/libyaml-cpp.so",
+        "ppg_recoeff_yaml_cpp",
+    ),
+    (
+        "/sphenix/user/shuhangli/ppg12/efficiencytool/MbdOut.corr",
+        "ppg_recoeff_mbd_correction",
+    ),
+)
 EXPECTED_RECOEFF_CONFIG_HASH = "42b7be1628843d5b7607ab988ffb58c6d019d8ade01b3c4d528611498db95732"
 EXPECTED_RECOEFF_PERIOD_CONFIG_HASHES = {
     "0mrad": "3995033c8867f4b0e21d5ebc025d36395185671da474fceec128b20db7218be2",
@@ -107,6 +146,8 @@ REQUIRED_RECOIL_ROLES = {
     "libjetbase.so",
     "PhotonClusterBuilder.h",
     "ppg_recoeff_source_macro",
+    "ppg_recoeff_roounfold_compat_macro",
+    "ppg_recoeff_roounfold_compat_transform_receipt",
     "ppg_recoeff_macro",
     "ppg_recoeff_trace_macro",
     "ppg_recoeff_trace_transform_receipt",
@@ -123,6 +164,8 @@ REQUIRED_RECOIL_ROLES = {
     "ppg_recoeff_yaml_cpp",
     "ppg_recoeff_yaml_cpp_header_tree_receipt",
     "ppg_recoeff_roounfold",
+    "ppg_recoeff_roounfold_pcm",
+    "ppg_recoeff_roounfold_header_tree_receipt",
     "ppg_recoeff_roounfold_response_header",
     "ppg_recoeff_roounfold_bayes_header",
     "ppg_recoeff_vertex_scan_data",
@@ -140,6 +183,12 @@ EXPECTED_TRACE_OPERATIONS = (
     "candidate_trace_emit",
     "response_trace_emit",
 )
+PPG_BINARY_REBUILD = "source_locked_rebuild"
+PPG_BINARY_IMPORT = "source_locked_runtime_import"
+PPG_IMPORT_ROLES = {
+    "ppg_source_runtime_manifest",
+    "ppg_source_build_receipt",
+}
 
 
 class AuditFailure(RuntimeError):
@@ -373,6 +422,51 @@ def validate_yaml_cpp_header_receipt(path: Path) -> Path:
     return include_root.resolve()
 
 
+def validate_roounfold_header_receipt(
+    path: Path,
+    expected_tree_hash: str = EXPECTED_ROOUNFOLD_HEADER_TREE_HASH,
+) -> dict[str, Path]:
+    data = load_json(path)
+    if (
+        data.get("schema_version") != 1
+        or data.get("role") != "ppg_recoeff_roounfold_header_tree"
+    ):
+        raise AuditFailure("invalid RooUnfold header-tree receipt")
+    include_root = Path(str(data.get("include_root", "")))
+    if not include_root.is_absolute() or not include_root.is_dir():
+        raise AuditFailure("RooUnfold receipt has an invalid include root")
+    rows = data.get("files")
+    if not isinstance(rows, list):
+        raise AuditFailure("RooUnfold receipt has no header inventory")
+    names = tuple(
+        str(row.get("relative_path", "")) if isinstance(row, dict) else ""
+        for row in rows
+    )
+    if names != EXPECTED_ROOUNFOLD_HEADERS or len(set(names)) != len(names):
+        raise AuditFailure("RooUnfold receipt differs from the exact nine-header inventory")
+    headers: dict[str, Path] = {}
+    tree_digest = hashlib.sha256()
+    for row, name in zip(rows, names):
+        expected = str(row.get("sha256", ""))
+        if not re.fullmatch(r"[0-9a-f]{64}", expected):
+            raise AuditFailure(f"RooUnfold receipt has an invalid digest for {name}")
+        header = require_file(str(include_root / name), f"sealed RooUnfold header {name}")
+        if header.resolve().parent != include_root.resolve():
+            raise AuditFailure(f"sealed RooUnfold header escapes its include root: {name}")
+        observed = sha256(header)
+        if observed != expected:
+            raise AuditFailure(f"sealed RooUnfold header drifted: {name}")
+        headers[name] = header
+        tree_digest.update(name.encode())
+        tree_digest.update(b"\0")
+        tree_digest.update(bytes.fromhex(observed))
+    if data.get("tree_sha256") != expected_tree_hash:
+        raise AuditFailure("sealed RooUnfold header tree differs from pinned digest")
+    if tree_digest.hexdigest() != data.get("tree_sha256"):
+        raise AuditFailure("sealed RooUnfold header-tree digest drifted")
+    return headers
+
+
 def require_file(path_value: str, label: str) -> Path:
     if not path_value:
         raise AuditFailure(f"missing path for {label}")
@@ -581,6 +675,318 @@ def is_below(path: Path, root: Path) -> bool:
         return False
 
 
+def validate_ppg_binary_mode(receipt: dict[str, Any]) -> str:
+    ppg_source = receipt.get("ppg12_source", {})
+    rewrites = receipt.get("staged_rewrites", {})
+    if not isinstance(ppg_source, dict) or not isinstance(rewrites, dict):
+        raise AuditFailure("runtime receipt lacks source-locked PPG12 provenance")
+    # Receipts made before binary-import support are source rebuilds.  Keeping
+    # that interpretation preserves the established sealed-runtime contract.
+    mode = str(ppg_source.get("binary_mode", PPG_BINARY_REBUILD))
+    if mode not in {PPG_BINARY_REBUILD, PPG_BINARY_IMPORT}:
+        raise AuditFailure(f"runtime receipt has unsupported PPG12 binary mode: {mode}")
+    rebuild = rewrites.get("ppg12_source_locked_rebuild") is True
+    imported = rewrites.get("ppg12_source_locked_binary_import") is True
+    if mode == PPG_BINARY_REBUILD:
+        if not rebuild or imported:
+            raise AuditFailure("runtime receipt has ambiguous PPG12 source-rebuild gates")
+        if ppg_source.get("rebuilt_in_this_runtime", True) is not True:
+            raise AuditFailure("runtime receipt denies its declared PPG12 source rebuild")
+        if ppg_source.get("source_runtime_import") not in (None, {}):
+            raise AuditFailure("source-rebuild receipt unexpectedly contains import provenance")
+    else:
+        if rebuild or not imported:
+            raise AuditFailure("runtime receipt has ambiguous PPG12 binary-import gates")
+        if ppg_source.get("rebuilt_in_this_runtime") is not False:
+            raise AuditFailure("binary-import receipt claims a local PPG12 rebuild")
+        if not isinstance(ppg_source.get("source_runtime_import"), dict):
+            raise AuditFailure("binary-import receipt lacks immutable origin provenance")
+    return mode
+
+
+def validate_source_locked_ppg_import(
+    receipt: dict[str, Any], by_role: dict[str, Path], expected_offline: str
+) -> None:
+    missing = sorted(PPG_IMPORT_ROLES - set(by_role))
+    if missing:
+        raise AuditFailure(f"binary-import runtime lacks provenance roles: {missing}")
+    ppg_source = receipt["ppg12_source"]
+    metadata = ppg_source.get("source_runtime_import", {})
+    manifest_meta = metadata.get("runtime_manifest", {})
+    receipt_meta = metadata.get("build_receipt", {})
+    for label, item, role in (
+        ("origin runtime manifest", manifest_meta, "ppg_source_runtime_manifest"),
+        ("origin build receipt", receipt_meta, "ppg_source_build_receipt"),
+    ):
+        if not isinstance(item, dict):
+            raise AuditFailure(f"binary-import receipt lacks {label} metadata")
+        if Path(str(item.get("path", ""))).resolve() != by_role[role].resolve():
+            raise AuditFailure(f"binary-import {label} path differs from manifest role")
+        if str(item.get("sha256", "")) != sha256(by_role[role]):
+            raise AuditFailure(f"binary-import {label} digest differs from manifest role")
+    if metadata.get("immutable_provenance_documents") is not True:
+        raise AuditFailure("binary-import provenance documents are not declared immutable")
+
+    origin_manifest_path = by_role["ppg_source_runtime_manifest"]
+    origin_receipt_path = by_role["ppg_source_build_receipt"]
+    origin_manifest = load_json(origin_manifest_path)
+    for field, expected in (
+        ("schema_version", 1),
+        ("runtime_profile", EXPECTED_RUNTIME_PROFILE),
+        ("offline_main", expected_offline),
+        ("isolated_build", True),
+        ("estimator_revision", EXPECTED_ESTIMATOR_REVISION),
+    ):
+        if origin_manifest.get(field) != expected:
+            raise AuditFailure(f"origin runtime manifest changed field {field}")
+    if origin_manifest.get("build_receipt_sha256") != sha256(origin_receipt_path):
+        raise AuditFailure("origin runtime manifest build-receipt digest differs")
+
+    origin_receipt = load_json(origin_receipt_path)
+    origin_source = origin_receipt.get("ppg12_source", {})
+    origin_rewrites = origin_receipt.get("staged_rewrites", {})
+    if not isinstance(origin_source, dict) or not isinstance(origin_rewrites, dict):
+        raise AuditFailure("origin build receipt lacks source-rebuild provenance")
+    if origin_source.get("revision") != EXPECTED_PPG_SOURCE_REVISION:
+        raise AuditFailure("origin build receipt uses the wrong PPG12 source revision")
+    if origin_source.get("working_tree_ignored") is not True:
+        raise AuditFailure("origin build receipt admits mutable PPG12 source edits")
+    if origin_source.get("rebuilt_against_common_runtime") is not True:
+        raise AuditFailure("origin PPG12 binary was not rebuilt against the common runtime")
+    if origin_rewrites.get("archived_ppg12_binary_reused") is not False:
+        raise AuditFailure("origin receipt reused the ABI-incompatible archived binary")
+    if origin_rewrites.get("ppg12_source_locked_rebuild") is not True:
+        raise AuditFailure("origin receipt lacks a source-locked PPG12 rebuild")
+
+    library_rows = [
+        item
+        for item in origin_manifest.get("files", [])
+        if isinstance(item, dict) and item.get("role") == "libCaloAna24.so"
+    ]
+    if len(library_rows) != 1:
+        raise AuditFailure("origin runtime manifest must contain one libCaloAna24.so role")
+    origin_library_digest = str(library_rows[0].get("sha256", ""))
+    if not re.fullmatch(r"[0-9a-f]{64}", origin_library_digest):
+        raise AuditFailure("origin runtime manifest has an invalid libCaloAna24 digest")
+    current_library_digest = sha256(by_role["libCaloAna24.so"])
+    if origin_library_digest != current_library_digest:
+        raise AuditFailure("imported libCaloAna24 differs from the sealed origin binary")
+    if metadata.get("library_sha256") != current_library_digest:
+        raise AuditFailure("binary-import receipt library digest differs from runtime")
+
+
+def validate_roounfold_runtime(
+    estimator: dict[str, Any],
+    by_role: dict[str, Path],
+    expected_library_hash: str = EXPECTED_ROOUNFOLD_LIBRARY_HASH,
+    expected_pcm_hash: str = EXPECTED_ROOUNFOLD_PCM_HASH,
+    expected_header_tree_hash: str = EXPECTED_ROOUNFOLD_HEADER_TREE_HASH,
+) -> None:
+    """Require the historical RooUnfold ELF and its matching sealed dictionary.
+
+    ROOT discovers ``RooUnfoldDict_rdict.pcm`` relative to ``libRooUnfold.so``.
+    Merely hashing the shared library is therefore insufficient: a missing PCM
+    lets ROOT fall back to an unrelated external dictionary.  The runtime pair
+    is accepted only when it is co-located, individually hashed in the receipt,
+    and the library matches the frozen historical binary.
+    """
+
+    library = by_role.get("ppg_recoeff_roounfold")
+    pcm = by_role.get("ppg_recoeff_roounfold_pcm")
+    header_receipt = by_role.get("ppg_recoeff_roounfold_header_tree_receipt")
+    if library is None or pcm is None or header_receipt is None:
+        raise AuditFailure("RooUnfold runtime lacks the sealed library/PCM/header-tree payload")
+    require_hash(library, expected_library_hash, "historical RooUnfold library")
+    require_hash(pcm, expected_pcm_hash, "historical RooUnfold PCM")
+    if pcm.name != "RooUnfoldDict_rdict.pcm":
+        raise AuditFailure("sealed RooUnfold PCM has the wrong basename")
+    if pcm.resolve().parent != library.resolve().parent:
+        raise AuditFailure("sealed RooUnfold library and PCM are not co-located")
+    headers = validate_roounfold_header_receipt(
+        header_receipt, expected_header_tree_hash
+    )
+    for role, name in (
+        ("ppg_recoeff_roounfold_response_header", "RooUnfoldResponse.h"),
+        ("ppg_recoeff_roounfold_bayes_header", "RooUnfoldBayes.h"),
+    ):
+        role_path = by_role.get(role)
+        if role_path is None or role_path.resolve() != headers[name].resolve():
+            raise AuditFailure(f"RooUnfold manifest role {role} differs from header tree")
+
+    assets = estimator.get("runtime_assets")
+    if not isinstance(assets, list):
+        raise AuditFailure("runtime receipt lacks estimator runtime assets")
+    recorded: dict[Path, str] = {}
+    for item in assets:
+        if not isinstance(item, dict):
+            raise AuditFailure("runtime receipt contains malformed runtime-asset metadata")
+        asset_path = Path(str(item.get("path", "")))
+        asset_hash = str(item.get("sha256", ""))
+        if not asset_path.is_absolute() or not re.fullmatch(r"[0-9a-f]{64}", asset_hash):
+            raise AuditFailure("runtime receipt contains invalid runtime-asset metadata")
+        resolved = asset_path.resolve()
+        if resolved in recorded:
+            raise AuditFailure("runtime receipt duplicates one runtime asset")
+        recorded[resolved] = asset_hash
+    required_assets = [
+        ("library", library),
+        ("PCM", pcm),
+        ("header-tree receipt", header_receipt),
+        *((f"header {name}", path) for name, path in headers.items()),
+    ]
+    for label, asset in required_assets:
+        resolved = asset.resolve()
+        if resolved not in recorded:
+            raise AuditFailure(f"runtime receipt omits the RooUnfold {label}")
+        if recorded[resolved] != sha256(asset):
+            raise AuditFailure(f"runtime receipt RooUnfold {label} digest differs")
+
+
+def validate_recoeff_roounfold_compatibility(
+    estimator: dict,
+    by_role: dict[str, Path],
+) -> None:
+    """Re-derive the sole allowed source/API compatibility transformation."""
+
+    metadata = estimator.get("roounfold_compatibility_macro", {})
+    if not isinstance(metadata, dict):
+        raise AuditFailure("runtime receipt lacks RooUnfold compatibility metadata")
+    source = by_role["ppg_recoeff_source_macro"]
+    compat = by_role["ppg_recoeff_roounfold_compat_macro"]
+    receipt_path = by_role["ppg_recoeff_roounfold_compat_transform_receipt"]
+    if Path(str(metadata.get("path", ""))).resolve() != compat.resolve():
+        raise AuditFailure("RooUnfold compatibility metadata path differs from manifest role")
+    if str(metadata.get("sha256", "")) != sha256(compat):
+        raise AuditFailure("RooUnfold compatibility metadata digest differs from manifest role")
+    if Path(str(metadata.get("transform_receipt", ""))).resolve() != receipt_path.resolve():
+        raise AuditFailure("RooUnfold compatibility receipt path differs from manifest role")
+    if str(metadata.get("transform_receipt_sha256", "")) != sha256(receipt_path):
+        raise AuditFailure("RooUnfold compatibility receipt digest differs from manifest role")
+    for key in (
+        "canonical_source_unchanged",
+        "constructor_default_overflow_equals_explicit_false",
+    ):
+        if metadata.get(key) is not True:
+            raise AuditFailure(f"RooUnfold compatibility metadata invariant is false: {key}")
+    for key in (
+        "selection_or_fill_expression_replaced",
+        "purity_estimator_expression_replaced",
+    ):
+        if metadata.get(key) is not False:
+            raise AuditFailure(f"RooUnfold compatibility metadata altered semantics: {key}")
+
+    require_hash(source, EXPECTED_RECOEFF_SOURCE_HASH, "canonical RecoEff source")
+    require_hash(
+        compat,
+        EXPECTED_RECOEFF_ROOUNFOLD_COMPAT_HASH,
+        "RooUnfold compatibility macro",
+    )
+    receipt = load_json(receipt_path)
+    if receipt.get("schema_version") != 1:
+        raise AuditFailure("RooUnfold compatibility receipt schema_version must be 1")
+    if receipt.get("transform") != "ppg12_recoeff_roounfold_constructor_compat_v1":
+        raise AuditFailure("unexpected RooUnfold compatibility transform")
+    if receipt.get("source_revision") != EXPECTED_ESTIMATOR_REVISION:
+        raise AuditFailure("RooUnfold compatibility transform uses the wrong source revision")
+    if Path(str(receipt.get("input_path", ""))).resolve() != source.resolve():
+        raise AuditFailure("RooUnfold compatibility input path differs from source role")
+    if receipt.get("input_sha256") != EXPECTED_RECOEFF_SOURCE_HASH:
+        raise AuditFailure("RooUnfold compatibility input digest differs")
+    if Path(str(receipt.get("output_path", ""))).resolve() != compat.resolve():
+        raise AuditFailure("RooUnfold compatibility output path differs from macro role")
+    if receipt.get("output_sha256") != EXPECTED_RECOEFF_ROOUNFOLD_COMPAT_HASH:
+        raise AuditFailure("RooUnfold compatibility output digest differs")
+
+    operation = receipt.get("operation", {})
+    if not isinstance(operation, dict):
+        raise AuditFailure("RooUnfold compatibility receipt lacks its operation")
+    if operation.get("label") != "remove_unsupported_explicit_false_constructor_argument":
+        raise AuditFailure("RooUnfold compatibility operation label differs")
+    if operation.get("expected_count") != 1 or operation.get("observed_count") != 1:
+        raise AuditFailure("RooUnfold compatibility operation is not exact-once")
+    if operation.get("needle") != RECOEFF_ROOUNFOLD_COMPAT_NEEDLE:
+        raise AuditFailure("RooUnfold compatibility needle differs")
+    if operation.get("replacement") != RECOEFF_ROOUNFOLD_COMPAT_REPLACEMENT:
+        raise AuditFailure("RooUnfold compatibility replacement differs")
+    raw = source.read_bytes()
+    needle = RECOEFF_ROOUNFOLD_COMPAT_NEEDLE.encode()
+    replacement = RECOEFF_ROOUNFOLD_COMPAT_REPLACEMENT.encode()
+    if raw.count(needle) != 1 or raw.replace(needle, replacement) != compat.read_bytes():
+        raise AuditFailure("RooUnfold compatibility macro cannot be re-derived exactly")
+
+    runtime = receipt.get("historical_roounfold_contract", {})
+    if not isinstance(runtime, dict):
+        raise AuditFailure("RooUnfold compatibility receipt lacks runtime contract")
+    for key, expected in (
+        ("library_sha256", EXPECTED_ROOUNFOLD_LIBRARY_HASH),
+        ("pcm_sha256", EXPECTED_ROOUNFOLD_PCM_HASH),
+        ("header_tree_sha256", EXPECTED_ROOUNFOLD_HEADER_TREE_HASH),
+    ):
+        if runtime.get(key) != expected:
+            raise AuditFailure(f"RooUnfold compatibility {key} differs")
+    if runtime.get("runtime_smoke_requires_default_overflow_false") is not True:
+        raise AuditFailure("RooUnfold compatibility lacks overflow-default smoke requirement")
+    for key in (
+        "canonical_source_unchanged",
+        "constructor_default_overflow_equals_explicit_false",
+        "response_object_setup_only",
+    ):
+        if receipt.get(key) is not True:
+            raise AuditFailure(f"RooUnfold compatibility invariant is false: {key}")
+    for key in (
+        "selection_or_fill_expression_replaced",
+        "purity_estimator_expression_replaced",
+    ):
+        if receipt.get(key) is not False:
+            raise AuditFailure(f"RooUnfold compatibility altered forbidden semantics: {key}")
+
+
+def validate_recoeff_executable_baseline(by_role: dict[str, Path]) -> None:
+    """Prove the executed macro is compatibility output plus two path rewrites."""
+
+    compat = by_role["ppg_recoeff_roounfold_compat_macro"]
+    baseline = by_role["ppg_recoeff_macro"]
+    yaml_cpp = by_role["ppg_recoeff_yaml_cpp"]
+    mbd_correction = by_role["ppg_recoeff_mbd_correction"]
+    if compat.parent.name != "macros" or compat.parent.parent.name != "estimator":
+        raise AuditFailure("RooUnfold compatibility macro has an unexpected runtime layout")
+    runtime_root = compat.parent.parent.parent
+    expected_layout = {
+        "ppg_recoeff_macro": compat.parent / "RecoEffCalculator_TTreeReader.C",
+        "ppg_recoeff_yaml_cpp": runtime_root / "lib" / "libyaml-cpp.so",
+        "ppg_recoeff_mbd_correction": (
+            runtime_root / "estimator" / "data" / "MbdOut.corr"
+        ),
+    }
+    actual_layout = {
+        "ppg_recoeff_macro": baseline,
+        "ppg_recoeff_yaml_cpp": yaml_cpp,
+        "ppg_recoeff_mbd_correction": mbd_correction,
+    }
+    for role, expected in expected_layout.items():
+        if actual_layout[role].resolve() != expected.resolve():
+            raise AuditFailure(f"executable RecoEff runtime layout differs for {role}")
+
+    text = compat.read_text()
+    targets = {
+        "ppg_recoeff_yaml_cpp": str(yaml_cpp),
+        "ppg_recoeff_mbd_correction": str(mbd_correction),
+    }
+    for source_path, role in RECOEFF_EXECUTABLE_PATH_REWRITES:
+        observed = text.count(source_path)
+        if observed != 1:
+            raise AuditFailure(
+                "executable RecoEff path rewrite is not exact-once: "
+                f"role={role} observed={observed}"
+            )
+        text = text.replace(source_path, targets[role])
+    if text.encode() != baseline.read_bytes():
+        raise AuditFailure(
+            "executable RecoEff baseline cannot be re-derived from the pinned "
+            "compatibility macro and two allowed path rewrites"
+        )
+
+
 def validate_recoil_manifest(path: Path, expected_offline: str) -> dict[str, Path]:
     data = load_json(path)
     if data.get("schema_version") != 1:
@@ -615,8 +1021,7 @@ def validate_recoil_manifest(path: Path, expected_offline: str) -> dict[str, Pat
         raise AuditFailure("runtime receipt lacks staged-rewrite provenance")
     if rewrites.get("archived_ppg12_binary_reused") is not False:
         raise AuditFailure("runtime receipt reuses the ABI-incompatible archived PPG12 binary")
-    if rewrites.get("ppg12_source_locked_rebuild") is not True:
-        raise AuditFailure("runtime receipt lacks the source-locked PPG12 rebuild gate")
+    ppg_binary_mode = validate_ppg_binary_mode(receipt)
     estimator = receipt.get("ppg12_estimator", {})
     if not isinstance(estimator, dict):
         raise AuditFailure("runtime receipt lacks preserved estimator provenance")
@@ -628,8 +1033,15 @@ def validate_recoil_manifest(path: Path, expected_offline: str) -> dict[str, Pat
         raise AuditFailure("runtime receipt conflates reconstruction and estimator revisions")
     if rewrites.get("estimator_revision_separate_from_reconstruction") is not True:
         raise AuditFailure("runtime receipt lacks the separate-estimator-revision gate")
+    if rewrites.get("estimator_roounfold_api_compatibility_exact_once") is not True:
+        raise AuditFailure("runtime receipt lacks the exact-once RooUnfold compatibility gate")
+    if rewrites.get("estimator_canonical_source_preserved") is not True:
+        raise AuditFailure("runtime receipt does not preserve the canonical estimator source")
     if rewrites.get("estimator_trace_requires_exact_root_equivalence") is not True:
         raise AuditFailure("runtime receipt does not require dual ROOT equivalence")
+    validation = receipt.get("validation", {})
+    if not isinstance(validation, dict) or validation.get("root_load_and_header_smoke") != "pass":
+        raise AuditFailure("runtime receipt lacks a passing RooUnfold load/API smoke")
     isolated_root = build_receipt.parent
     files = data.get("files")
     if not isinstance(files, list):
@@ -657,6 +1069,13 @@ def validate_recoil_manifest(path: Path, expected_offline: str) -> dict[str, Pat
     missing = sorted(REQUIRED_RECOIL_ROLES - set(by_role))
     if missing:
         raise AuditFailure(f"Recoil runtime manifest lacks required roles: {missing}")
+    validate_roounfold_runtime(estimator, by_role)
+    validate_recoeff_roounfold_compatibility(estimator, by_role)
+    validate_recoeff_executable_baseline(by_role)
+    if ppg_binary_mode == PPG_BINARY_IMPORT:
+        validate_source_locked_ppg_import(receipt, by_role, expected_offline)
+    elif PPG_IMPORT_ROLES & set(by_role):
+        raise AuditFailure("source-rebuild runtime unexpectedly contains import provenance roles")
 
     source_meta = estimator.get("canonical_source", {})
     baseline_meta = estimator.get("staged_uninstrumented_macro", {})
@@ -761,8 +1180,10 @@ def validate_recoil_manifest(path: Path, expected_offline: str) -> dict[str, Pat
         require_hash(by_role[role], expected_hash, role)
     if baseline_meta.get("scientific_expression_changes") is not False:
         raise AuditFailure("uninstrumented estimator macro declares scientific changes")
-    if baseline_meta.get("sealed_path_rewrites_only") is not True:
-        raise AuditFailure("uninstrumented estimator macro is not path-rewrite-only")
+    if baseline_meta.get("sealed_path_rewrites_plus_roounfold_api_compatibility") is not True:
+        raise AuditFailure(
+            "uninstrumented estimator macro lacks the sealed path/API compatibility contract"
+        )
     if trace_meta.get("candidate_trace_side_channel_only") is not True:
         raise AuditFailure("instrumented estimator trace is not declared side-channel-only")
     if trace_meta.get("requires_exact_root_equivalence") is not True:

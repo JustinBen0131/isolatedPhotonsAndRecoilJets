@@ -7,6 +7,7 @@ import csv
 import hashlib
 import importlib.util
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -108,7 +109,280 @@ def passing_row() -> dict[str, str]:
     return row
 
 
+def source_import_fixture(root: Path) -> tuple[dict, dict[str, Path]]:
+    current_library = root / "runtime" / "lib" / "libCaloAna24.so"
+    provenance = root / "runtime" / "provenance"
+    provenance.mkdir(parents=True)
+    current_library.parent.mkdir(parents=True, exist_ok=True)
+    current_library.write_bytes(b"exact sealed Attempt-12 binary\n")
+    origin_receipt_path = provenance / "ppg_source_build_receipt.json"
+    origin_manifest_path = provenance / "ppg_source_runtime_manifest.json"
+    origin_receipt = {
+        "schema_version": 1,
+        "ppg12_source": {
+            "revision": AUDIT.EXPECTED_PPG_SOURCE_REVISION,
+            "working_tree_ignored": True,
+            "rebuilt_against_common_runtime": True,
+        },
+        "staged_rewrites": {
+            "archived_ppg12_binary_reused": False,
+            "ppg12_source_locked_rebuild": True,
+        },
+    }
+    origin_receipt_path.write_text(json.dumps(origin_receipt, sort_keys=True) + "\n")
+    origin_manifest = {
+        "schema_version": 1,
+        "runtime_profile": AUDIT.EXPECTED_RUNTIME_PROFILE,
+        "offline_main": AUDIT.EXPECTED_OFFLINE_MAIN,
+        "isolated_build": True,
+        "estimator_revision": AUDIT.EXPECTED_ESTIMATOR_REVISION,
+        # Immutable origin documents preserve their old absolute paths.  The
+        # copied roles and hashes, not those historical paths, are authoritative.
+        "build_receipt": "/retired/origin/build_receipt.json",
+        "build_receipt_sha256": AUDIT.sha256(origin_receipt_path),
+        "files": [{
+            "role": "libCaloAna24.so",
+            "path": "/retired/origin/runtime/lib/libCaloAna24.so",
+            "sha256": AUDIT.sha256(current_library),
+        }],
+    }
+    origin_manifest_path.write_text(json.dumps(origin_manifest, sort_keys=True) + "\n")
+    by_role = {
+        "libCaloAna24.so": current_library,
+        "ppg_source_runtime_manifest": origin_manifest_path,
+        "ppg_source_build_receipt": origin_receipt_path,
+    }
+    receipt = {
+        "ppg12_source": {
+            "revision": AUDIT.EXPECTED_PPG_SOURCE_REVISION,
+            "working_tree_ignored": True,
+            "rebuilt_against_common_runtime": True,
+            "binary_mode": AUDIT.PPG_BINARY_IMPORT,
+            "rebuilt_in_this_runtime": False,
+            "source_runtime_import": {
+                "runtime_manifest": {
+                    "path": str(origin_manifest_path),
+                    "sha256": AUDIT.sha256(origin_manifest_path),
+                },
+                "build_receipt": {
+                    "path": str(origin_receipt_path),
+                    "sha256": AUDIT.sha256(origin_receipt_path),
+                },
+                "library_sha256": AUDIT.sha256(current_library),
+                "immutable_provenance_documents": True,
+            },
+        },
+        "staged_rewrites": {
+            "archived_ppg12_binary_reused": False,
+            "ppg12_source_locked_rebuild": False,
+            "ppg12_source_locked_binary_import": True,
+        },
+    }
+    return receipt, by_role
+
+
+def roounfold_runtime_fixture(
+    root: Path, *, relocate_pcm: bool = False
+) -> tuple[dict, dict[str, Path], str, str, str, Path]:
+    libdir = root / "runtime" / "lib"
+    include_root = root / "runtime" / "estimator" / "include"
+    libdir.mkdir(parents=True)
+    include_root.mkdir(parents=True)
+    library = libdir / "libRooUnfold.so"
+    pcm_root = root / "external" if relocate_pcm else libdir
+    pcm_root.mkdir(parents=True, exist_ok=True)
+    pcm = pcm_root / "RooUnfoldDict_rdict.pcm"
+    library.write_bytes(b"synthetic historical RooUnfold library\n")
+    pcm.write_bytes(b"matching synthetic RooUnfold dictionary\n")
+    rows = []
+    tree_digest = hashlib.sha256()
+    for name in AUDIT.EXPECTED_ROOUNFOLD_HEADERS:
+        header = include_root / name
+        header.write_text(f"// sealed historical {name}\n")
+        digest = AUDIT.sha256(header)
+        rows.append({"relative_path": name, "sha256": digest})
+        tree_digest.update(name.encode())
+        tree_digest.update(b"\0")
+        tree_digest.update(bytes.fromhex(digest))
+    receipt = root / "runtime" / "estimator" / "roounfold_header_tree_receipt.json"
+    receipt.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "role": "ppg_recoeff_roounfold_header_tree",
+                "include_root": str(include_root),
+                "tree_sha256": tree_digest.hexdigest(),
+                "files": rows,
+            }
+        )
+        + "\n"
+    )
+    assets = [library, pcm, receipt] + [
+        include_root / name for name in AUDIT.EXPECTED_ROOUNFOLD_HEADERS
+    ]
+    estimator = {
+        "runtime_assets": [
+            {"path": str(path), "sha256": AUDIT.sha256(path)} for path in assets
+        ]
+    }
+    by_role = {
+        "ppg_recoeff_roounfold": library,
+        "ppg_recoeff_roounfold_pcm": pcm,
+        "ppg_recoeff_roounfold_header_tree_receipt": receipt,
+        "ppg_recoeff_roounfold_response_header": include_root / "RooUnfoldResponse.h",
+        "ppg_recoeff_roounfold_bayes_header": include_root / "RooUnfoldBayes.h",
+    }
+    return (
+        estimator,
+        by_role,
+        AUDIT.sha256(library),
+        AUDIT.sha256(pcm),
+        tree_digest.hexdigest(),
+        include_root,
+    )
+
+
+def recoeff_roounfold_compatibility_fixture(
+    root: Path,
+) -> tuple[dict, dict[str, Path], Path]:
+    repo = MODULE_PATH.parents[3] / "ppg12codeGit"
+    source_bytes = subprocess.check_output(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "show",
+            f"{AUDIT.EXPECTED_ESTIMATOR_REVISION}:efficiencytool/RecoEffCalculator_TTreeReader.C",
+        ]
+    )
+    source = root / "runtime" / "estimator" / "source" / "RecoEffCalculator_TTreeReader.C"
+    compat = (
+        root
+        / "runtime"
+        / "estimator"
+        / "macros"
+        / "RecoEffCalculator_TTreeReader_roounfold_compat.C"
+    )
+    receipt = (
+        root
+        / "runtime"
+        / "estimator"
+        / "recoeff_roounfold_compat_transform_receipt.json"
+    )
+    source.parent.mkdir(parents=True)
+    compat.parent.mkdir(parents=True)
+    yaml_cpp = root / "runtime" / "lib" / "libyaml-cpp.so"
+    mbd_correction = root / "runtime" / "estimator" / "data" / "MbdOut.corr"
+    baseline = compat.parent / "RecoEffCalculator_TTreeReader.C"
+    yaml_cpp.parent.mkdir(parents=True)
+    mbd_correction.parent.mkdir(parents=True)
+    yaml_cpp.write_bytes(b"sealed yaml-cpp test library\n")
+    mbd_correction.write_bytes(b"sealed MBD correction test payload\n")
+    source.write_bytes(source_bytes)
+    needle = AUDIT.RECOEFF_ROOUNFOLD_COMPAT_NEEDLE.encode()
+    replacement = AUDIT.RECOEFF_ROOUNFOLD_COMPAT_REPLACEMENT.encode()
+    if source_bytes.count(needle) != 1:
+        raise AssertionError("test fixture canonical constructor needle drifted")
+    compat.write_bytes(source_bytes.replace(needle, replacement))
+    baseline_text = compat.read_text()
+    for old, target in (
+        (
+            "/sphenix/u/shuhang98/install/lib64/libyaml-cpp.so",
+            yaml_cpp,
+        ),
+        (
+            "/sphenix/user/shuhangli/ppg12/efficiencytool/MbdOut.corr",
+            mbd_correction,
+        ),
+    ):
+        if baseline_text.count(old) != 1:
+            raise AssertionError(f"test fixture path rewrite drifted: {old}")
+        baseline_text = baseline_text.replace(old, str(target))
+    baseline.write_text(baseline_text)
+    payload = {
+        "schema_version": 1,
+        "transform": "ppg12_recoeff_roounfold_constructor_compat_v1",
+        "source_revision": AUDIT.EXPECTED_ESTIMATOR_REVISION,
+        "input_path": str(source.resolve()),
+        "input_sha256": AUDIT.sha256(source),
+        "output_path": str(compat.resolve()),
+        "output_sha256": AUDIT.sha256(compat),
+        "operation": {
+            "label": "remove_unsupported_explicit_false_constructor_argument",
+            "expected_count": 1,
+            "observed_count": 1,
+            "needle": AUDIT.RECOEFF_ROOUNFOLD_COMPAT_NEEDLE,
+            "replacement": AUDIT.RECOEFF_ROOUNFOLD_COMPAT_REPLACEMENT,
+        },
+        "historical_roounfold_contract": {
+            "library_sha256": AUDIT.EXPECTED_ROOUNFOLD_LIBRARY_HASH,
+            "pcm_sha256": AUDIT.EXPECTED_ROOUNFOLD_PCM_HASH,
+            "header_tree_sha256": AUDIT.EXPECTED_ROOUNFOLD_HEADER_TREE_HASH,
+            "available_constructor": (
+                "RooUnfoldResponse(const TH1*,const TH1*,const TH2*,"
+                "const char*,const char*)"
+            ),
+            "runtime_smoke_requires_default_overflow_false": True,
+        },
+        "canonical_source_unchanged": True,
+        "constructor_default_overflow_equals_explicit_false": True,
+        "selection_or_fill_expression_replaced": False,
+        "purity_estimator_expression_replaced": False,
+        "response_object_setup_only": True,
+    }
+    receipt.write_text(json.dumps(payload, sort_keys=True) + "\n")
+    metadata = {
+        "roounfold_compatibility_macro": {
+            "path": str(compat.resolve()),
+            "sha256": AUDIT.sha256(compat),
+            "transform_receipt": str(receipt.resolve()),
+            "transform_receipt_sha256": AUDIT.sha256(receipt),
+            "canonical_source_unchanged": True,
+            "constructor_default_overflow_equals_explicit_false": True,
+            "selection_or_fill_expression_replaced": False,
+            "purity_estimator_expression_replaced": False,
+        }
+    }
+    roles = {
+        "ppg_recoeff_source_macro": source,
+        "ppg_recoeff_roounfold_compat_macro": compat,
+        "ppg_recoeff_roounfold_compat_transform_receipt": receipt,
+        "ppg_recoeff_macro": baseline,
+        "ppg_recoeff_yaml_cpp": yaml_cpp,
+        "ppg_recoeff_mbd_correction": mbd_correction,
+    }
+    return metadata, roles, receipt
+
+
 class TestFirstDivergenceAudit(unittest.TestCase):
+    def test_source_locked_binary_import_provenance_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            receipt, by_role = source_import_fixture(Path(tmp))
+            self.assertEqual(
+                AUDIT.validate_ppg_binary_mode(receipt), AUDIT.PPG_BINARY_IMPORT
+            )
+            AUDIT.validate_source_locked_ppg_import(
+                receipt, by_role, AUDIT.EXPECTED_OFFLINE_MAIN
+            )
+
+    def test_source_locked_binary_import_rejects_library_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            receipt, by_role = source_import_fixture(Path(tmp))
+            by_role["libCaloAna24.so"].write_bytes(b"different binary\n")
+            with self.assertRaisesRegex(
+                AUDIT.AuditFailure, "differs from the sealed origin binary"
+            ):
+                AUDIT.validate_source_locked_ppg_import(
+                    receipt, by_role, AUDIT.EXPECTED_OFFLINE_MAIN
+                )
+
+    def test_source_locked_binary_import_rejects_ambiguous_mode_flags(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            receipt, _ = source_import_fixture(Path(tmp))
+            receipt["staged_rewrites"]["ppg12_source_locked_rebuild"] = True
+            with self.assertRaisesRegex(AUDIT.AuditFailure, "ambiguous"):
+                AUDIT.validate_ppg_binary_mode(receipt)
+
     def test_period_labels_map_to_preserved_config_suffixes(self) -> None:
         self.assertEqual(
             AUDIT.PERIOD_CONFIG_VAR_SUFFIX,
@@ -152,6 +426,144 @@ class TestFirstDivergenceAudit(unittest.TestCase):
             (tree / "yaml.h").write_text("// drifted yaml umbrella\n")
             with self.assertRaisesRegex(AUDIT.AuditFailure, "header drifted"):
                 AUDIT.validate_yaml_cpp_header_receipt(receipt)
+
+    def test_roounfold_runtime_requires_hashed_colocated_pcm(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            estimator, by_role, lib_hash, pcm_hash, tree_hash, _ = \
+                roounfold_runtime_fixture(Path(tmp))
+            AUDIT.validate_roounfold_runtime(
+                estimator, by_role, lib_hash, pcm_hash, tree_hash
+            )
+
+            by_role["ppg_recoeff_roounfold_pcm"].write_bytes(b"drifted dictionary\n")
+            with self.assertRaisesRegex(AUDIT.AuditFailure, "PCM.*hash mismatch"):
+                AUDIT.validate_roounfold_runtime(
+                    estimator, by_role, lib_hash, pcm_hash, tree_hash
+                )
+
+    def test_roounfold_runtime_rejects_non_colocated_pcm(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            estimator, by_role, lib_hash, pcm_hash, tree_hash, _ = roounfold_runtime_fixture(
+                Path(tmp), relocate_pcm=True
+            )
+            with self.assertRaisesRegex(AUDIT.AuditFailure, "not co-located"):
+                AUDIT.validate_roounfold_runtime(
+                    estimator, by_role, lib_hash, pcm_hash, tree_hash
+                )
+
+    def test_roounfold_runtime_rejects_header_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            estimator, by_role, lib_hash, pcm_hash, tree_hash, include_root = \
+                roounfold_runtime_fixture(Path(tmp))
+            (include_root / "RooUnfold.h").write_text("// modern fallback header\n")
+            with self.assertRaisesRegex(AUDIT.AuditFailure, "header drifted"):
+                AUDIT.validate_roounfold_runtime(
+                    estimator, by_role, lib_hash, pcm_hash, tree_hash
+                )
+
+    def test_roounfold_runtime_rejects_recomputed_substitute_pcm(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            estimator, by_role, lib_hash, pcm_hash, tree_hash, _ = \
+                roounfold_runtime_fixture(Path(tmp))
+            pcm = by_role["ppg_recoeff_roounfold_pcm"]
+            pcm.write_bytes(b"internally consistent but substituted PCM\n")
+            for row in estimator["runtime_assets"]:
+                if Path(row["path"]).resolve() == pcm.resolve():
+                    row["sha256"] = AUDIT.sha256(pcm)
+            with self.assertRaisesRegex(AUDIT.AuditFailure, "PCM.*hash mismatch"):
+                AUDIT.validate_roounfold_runtime(
+                    estimator, by_role, lib_hash, pcm_hash, tree_hash
+                )
+
+    def test_roounfold_runtime_rejects_recomputed_substitute_header_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            estimator, by_role, lib_hash, pcm_hash, tree_hash, include_root = \
+                roounfold_runtime_fixture(Path(tmp))
+            receipt = by_role["ppg_recoeff_roounfold_header_tree_receipt"]
+            (include_root / "RooUnfold.h").write_text(
+                "// internally consistent but substituted RooUnfold.h\n"
+            )
+            data = json.loads(receipt.read_text())
+            digest = hashlib.sha256()
+            for row in data["files"]:
+                header = include_root / row["relative_path"]
+                row["sha256"] = AUDIT.sha256(header)
+                digest.update(row["relative_path"].encode())
+                digest.update(b"\0")
+                digest.update(bytes.fromhex(row["sha256"]))
+            data["tree_sha256"] = digest.hexdigest()
+            receipt.write_text(json.dumps(data) + "\n")
+            for row in estimator["runtime_assets"]:
+                path = Path(row["path"])
+                if path.resolve() in {
+                    receipt.resolve(),
+                    (include_root / "RooUnfold.h").resolve(),
+                }:
+                    row["sha256"] = AUDIT.sha256(path)
+            with self.assertRaisesRegex(AUDIT.AuditFailure, "pinned digest"):
+                AUDIT.validate_roounfold_runtime(
+                    estimator, by_role, lib_hash, pcm_hash, tree_hash
+                )
+
+    def test_recoeff_roounfold_compatibility_rederives_exactly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            estimator, by_role, _ = recoeff_roounfold_compatibility_fixture(Path(tmp))
+            AUDIT.validate_recoeff_roounfold_compatibility(estimator, by_role)
+            AUDIT.validate_recoeff_executable_baseline(by_role)
+
+    def test_recoeff_executable_baseline_rejects_rehashed_scientific_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            _, by_role, _ = recoeff_roounfold_compatibility_fixture(Path(tmp))
+            baseline = by_role["ppg_recoeff_macro"]
+            text = baseline.read_text()
+            old = (
+                "float tight_bdt_min_et = tight_bdt_min_slope * "
+                "cluster_Et[icluster] + tight_bdt_min_intercept;"
+            )
+            new = old[:-1] + " + 0.01;"
+            self.assertEqual(text.count(old), 1)
+            baseline.write_text(text.replace(old, new))
+            forged_manifest_hash = AUDIT.sha256(baseline)
+            self.assertEqual(forged_manifest_hash, AUDIT.sha256(baseline))
+            with self.assertRaisesRegex(
+                AUDIT.AuditFailure, "baseline cannot be re-derived"
+            ):
+                AUDIT.validate_recoeff_executable_baseline(by_role)
+
+    def test_recoeff_roounfold_compatibility_rejects_macro_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            estimator, by_role, _ = recoeff_roounfold_compatibility_fixture(Path(tmp))
+            compat = by_role["ppg_recoeff_roounfold_compat_macro"]
+            compat.write_text(compat.read_text() + "// substituted\n")
+            estimator["roounfold_compatibility_macro"]["sha256"] = AUDIT.sha256(compat)
+            with self.assertRaisesRegex(
+                AUDIT.AuditFailure, "compatibility macro"
+            ):
+                AUDIT.validate_recoeff_roounfold_compatibility(estimator, by_role)
+
+    def test_recoeff_roounfold_compatibility_rejects_recomputed_count(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            estimator, by_role, receipt = recoeff_roounfold_compatibility_fixture(Path(tmp))
+            payload = json.loads(receipt.read_text())
+            payload["operation"]["observed_count"] = 2
+            receipt.write_text(json.dumps(payload, sort_keys=True) + "\n")
+            estimator["roounfold_compatibility_macro"][
+                "transform_receipt_sha256"
+            ] = AUDIT.sha256(receipt)
+            with self.assertRaisesRegex(AUDIT.AuditFailure, "not exact-once"):
+                AUDIT.validate_recoeff_roounfold_compatibility(estimator, by_role)
+
+    def test_recoeff_roounfold_compatibility_rejects_semantic_widening(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            estimator, by_role, receipt = recoeff_roounfold_compatibility_fixture(Path(tmp))
+            payload = json.loads(receipt.read_text())
+            payload["selection_or_fill_expression_replaced"] = True
+            receipt.write_text(json.dumps(payload, sort_keys=True) + "\n")
+            estimator["roounfold_compatibility_macro"][
+                "transform_receipt_sha256"
+            ] = AUDIT.sha256(receipt)
+            with self.assertRaisesRegex(AUDIT.AuditFailure, "forbidden semantics"):
+                AUDIT.validate_recoeff_roounfold_compatibility(estimator, by_role)
 
     def analyze(
         self, row: dict[str, str], *, expected_lane_id: str | None = None
