@@ -22,6 +22,7 @@
 //–––– Standard Fun4All ––––––––––––––––––––––––––––––––––––––
 #include <fun4all/SubsysReco.h>
 #include <fun4all/Fun4AllServer.h>
+#include <fun4all/Fun4AllSyncManager.h>
 #include <fun4all/Fun4AllReturnCodes.h>
 #include <fun4all/Fun4AllDstInputManager.h>
 #include <fun4all/Fun4AllNoSyncDstInputManager.h>
@@ -175,6 +176,116 @@ R__LOAD_LIBRARY(libg4mbd.so)
 //======================================================================
 namespace detail
 {
+  // BEGIN RJ_FUN4ALL_TERMINAL_CLASSIFIER_V1_PURE
+  struct Fun4AllTerminalStatusWitnessV1
+  {
+    int nEventsRequested = 0;
+    int runRc = 0;
+    int endRc = 0;
+    int eventOk = 0;
+    int abortProcessingCount = 0;
+    int abortRunCount = 0;
+    int registeredInputManagers = 0;
+    int ordinaryInputManagers = 0;
+    int exhaustedOrdinaryInputManagers = 0;
+    int openOrdinaryInputManagers = 0;
+    int nonemptyOrdinaryFileLists = 0;
+    int permittedRepeatingManagerExpected = 0;
+    int permittedRepeatingManagerMatches = 0;
+  };
+
+  enum class Fun4AllTerminalStatusClassV1
+  {
+    kEventOk,
+    kVerifiedMultiInputEof,
+    kFail
+  };
+
+  struct Fun4AllTerminalStatusDecisionV1
+  {
+    Fun4AllTerminalStatusClassV1 classification =
+      Fun4AllTerminalStatusClassV1::kFail;
+    const char* status = "FAIL";
+    const char* reason = "unclassified";
+  };
+
+  inline Fun4AllTerminalStatusDecisionV1 classify_fun4all_terminal_status(
+      const Fun4AllTerminalStatusWitnessV1& witness)
+  {
+    if (witness.runRc == witness.eventOk &&
+        witness.endRc == witness.eventOk)
+    {
+      return {
+        Fun4AllTerminalStatusClassV1::kEventOk,
+        "PASS",
+        "EVENT_OK"};
+    }
+    if (witness.endRc != witness.eventOk)
+    {
+      return {
+        Fun4AllTerminalStatusClassV1::kFail,
+        "FAIL",
+        "END_NONZERO"};
+    }
+    if (witness.nEventsRequested != 0)
+    {
+      return {
+        Fun4AllTerminalStatusClassV1::kFail,
+        "FAIL",
+        "NEGATIVE_BOUNDED_RUN"};
+    }
+    if (witness.abortProcessingCount != 0 ||
+        witness.abortRunCount != 0)
+    {
+      return {
+        Fun4AllTerminalStatusClassV1::kFail,
+        "FAIL",
+        "ABORT_STATISTIC_NONZERO"};
+    }
+    if (witness.permittedRepeatingManagerExpected < 0 ||
+        witness.permittedRepeatingManagerExpected > 1 ||
+        witness.permittedRepeatingManagerMatches !=
+          witness.permittedRepeatingManagerExpected)
+    {
+      return {
+        Fun4AllTerminalStatusClassV1::kFail,
+        "FAIL",
+        "REPEATING_MANAGER_POINTER_MISMATCH"};
+    }
+    if (witness.ordinaryInputManagers <= 0 ||
+        witness.registeredInputManagers !=
+          witness.ordinaryInputManagers +
+            witness.permittedRepeatingManagerExpected)
+    {
+      return {
+        Fun4AllTerminalStatusClassV1::kFail,
+        "FAIL",
+        "INPUT_MANAGER_ACCOUNTING_MISMATCH"};
+    }
+    if (witness.exhaustedOrdinaryInputManagers !=
+          witness.ordinaryInputManagers ||
+        witness.openOrdinaryInputManagers != 0 ||
+        witness.nonemptyOrdinaryFileLists != 0)
+    {
+      return {
+        Fun4AllTerminalStatusClassV1::kFail,
+        "FAIL",
+        "ORDINARY_INPUT_NOT_EXHAUSTED"};
+    }
+    if (witness.runRc != -witness.ordinaryInputManagers)
+    {
+      return {
+        Fun4AllTerminalStatusClassV1::kFail,
+        "FAIL",
+        "EOF_SUM_MISMATCH"};
+    }
+    return {
+      Fun4AllTerminalStatusClassV1::kVerifiedMultiInputEof,
+      "PASS",
+      "VERIFIED_MULTI_INPUT_EOF"};
+  }
+  // END RJ_FUN4ALL_TERMINAL_CLASSIFIER_V1_PURE
+
   /// Throw a nicely formatted exception on unrecoverable error
   [[noreturn]] void bail(const std::string& msg)
   {
@@ -187,28 +298,99 @@ namespace detail
   /// mode. ScopedSilence redirects the C++ iostream buffers only; the narrow
   /// C stderr record remains visible without restoring ordinary batch chatter.
   inline void enforce_fun4all_status(const char* path,
+                                     Fun4AllServer* server,
+                                     const int nEvents,
                                      const int runRc,
-                                     const int endRc)
+                                     const int endRc,
+                                     const Fun4AllInputManager*
+                                       permittedRepeatingManager)
   {
+    Fun4AllTerminalStatusWitnessV1 witness;
+    witness.nEventsRequested = nEvents;
+    witness.runRc = runRc;
+    witness.endRc = endRc;
+    witness.eventOk = Fun4AllReturnCodes::EVENT_OK;
+    witness.permittedRepeatingManagerExpected =
+      permittedRepeatingManager ? 1 : 0;
+
+    if (server)
+    {
+      witness.abortProcessingCount =
+        server->retcodestats(Fun4AllReturnCodes::ABORTPROCESSING);
+      witness.abortRunCount =
+        server->retcodestats(Fun4AllReturnCodes::ABORTRUN);
+      auto* syncManager = server->getSyncManager();
+      if (syncManager)
+      {
+        const auto& inputManagers = syncManager->GetInputManagers();
+        witness.registeredInputManagers =
+          static_cast<int>(inputManagers.size());
+        for (const auto* inputManager : inputManagers)
+        {
+          if (inputManager == permittedRepeatingManager)
+          {
+            ++witness.permittedRepeatingManagerMatches;
+            continue;
+          }
+          ++witness.ordinaryInputManagers;
+          if (!inputManager)
+          {
+            continue;
+          }
+          if (inputManager->IsOpen())
+          {
+            ++witness.openOrdinaryInputManagers;
+          }
+          if (!inputManager->FileListEmpty())
+          {
+            ++witness.nonemptyOrdinaryFileLists;
+          }
+          if (!inputManager->IsOpen() &&
+              inputManager->FileListEmpty())
+          {
+            ++witness.exhaustedOrdinaryInputManagers;
+          }
+        }
+      }
+    }
+
+    const auto decision = classify_fun4all_terminal_status(witness);
     const bool ok =
-      runRc == Fun4AllReturnCodes::EVENT_OK &&
-      endRc == Fun4AllReturnCodes::EVENT_OK;
+      decision.classification != Fun4AllTerminalStatusClassV1::kFail;
     std::fprintf(
       stderr,
-      "RECOILJETS_FUN4ALL_STATUS_V1 path=%s run_rc=%d end_rc=%d status=%s\n",
+      "RECOILJETS_FUN4ALL_STATUS_V2 path=%s run_rc=%d end_rc=%d"
+      " n_events=%d registered_inputs=%d ordinary_inputs=%d"
+      " exhausted_ordinary_inputs=%d open_ordinary_inputs=%d"
+      " nonempty_ordinary_file_lists=%d"
+      " repeating_expected=%d repeating_matches=%d"
+      " abort_processing=%d abort_run=%d status=%s reason=%s\n",
       path,
       runRc,
       endRc,
-      ok ? "PASS" : "FAIL");
+      nEvents,
+      witness.registeredInputManagers,
+      witness.ordinaryInputManagers,
+      witness.exhaustedOrdinaryInputManagers,
+      witness.openOrdinaryInputManagers,
+      witness.nonemptyOrdinaryFileLists,
+      witness.permittedRepeatingManagerExpected,
+      witness.permittedRepeatingManagerMatches,
+      witness.abortProcessingCount,
+      witness.abortRunCount,
+      decision.status,
+      decision.reason);
     std::fflush(stderr);
     if (ok) return;
 
     std::fprintf(
       stderr,
-      "[FATAL] Fun4All_recoilJets status failure: path=%s run_rc=%d end_rc=%d\n",
+      "[FATAL] Fun4All_recoilJets status failure:"
+      " path=%s run_rc=%d end_rc=%d reason=%s\n",
       path,
       runRc,
-      endRc);
+      endRc,
+      decision.reason);
     std::fflush(stderr);
     if (gSystem) gSystem->Exit(90);
     throw std::runtime_error("Fun4All returned a nonzero terminal status");
@@ -3062,6 +3244,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
     }
     
     Fun4AllServer* se = Fun4AllServer::instance();
+    Fun4AllInputManager* permittedRepeatingPedestalInputManager = nullptr;
     if (!se) detail::bail("unable to obtain Fun4AllServer instance!");
     
     
@@ -4289,6 +4472,7 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
         pedIn->AddFile(pedName.str());
         pedIn->Repeat();
         se->registerInputManager(pedIn);
+        permittedRepeatingPedestalInputManager = pedIn;
 
         if (ppg12ClosureCanary)
         {
@@ -4870,7 +5054,13 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             const int runRc = se->run(nEvents);
             if (vlevel > 0) std::cout << "[INFO] Calling se->End() ..." << std::endl;
             const int endRc = se->End();
-            detail::enforce_fun4all_status("scaled-trigger-only", runRc, endRc);
+            detail::enforce_fun4all_status(
+                "scaled-trigger-only",
+                se,
+                nEvents,
+                runRc,
+                endRc,
+                permittedRepeatingPedestalInputManager);
             if (vlevel > 0) std::cout << "[INFO] Finished scaled-trigger-only job." << std::endl;
         }
         catch (const std::exception& e)
@@ -7819,7 +8009,13 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
 
         if (vlevel > 0) std::cout << "[INFO] Calling se->End() …" << std::endl;
         const int endRc = se->End();
-        detail::enforce_fun4all_status("analysis", runRc, endRc);
+        detail::enforce_fun4all_status(
+            "analysis",
+            se,
+            nEvents,
+            runRc,
+            endRc,
+            permittedRepeatingPedestalInputManager);
         if (vlevel > 0) std::cout << "[INFO] Finished successfully." << std::endl;
     }
     catch (const std::exception& e)

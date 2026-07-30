@@ -51,10 +51,26 @@ def contract_failures(wrapper: str, controller: str, macro: str) -> list[str]:
         failures.append("THE-134 p+p lane lacks one exact ana.560 prefix")
 
     macro_requirements = {
-        "quiet-safe status record": "std::fprintf(\n      stderr,\n      \"RECOILJETS_FUN4ALL_STATUS_V1",
+        "quiet-safe status record": "RECOILJETS_FUN4ALL_STATUS_V2 path=%s",
         "ROOT failure propagation": "if (gSystem) gSystem->Exit(90);",
         "run return capture": "runRc = se->run(nEvents);",
         "End return capture": "const int endRc = se->End();",
+        "pure terminal classifier": "classify_fun4all_terminal_status(",
+        "exact EOF sum": (
+            "witness.runRc != -witness.ordinaryInputManagers"
+        ),
+        "ABORTPROCESSING statistic": (
+            "server->retcodestats(Fun4AllReturnCodes::ABORTPROCESSING)"
+        ),
+        "ABORTRUN statistic": (
+            "server->retcodestats(Fun4AllReturnCodes::ABORTRUN)"
+        ),
+        "pedestal pointer declaration": (
+            "Fun4AllInputManager* permittedRepeatingPedestalInputManager = nullptr;"
+        ),
+        "pedestal pointer assignment": (
+            "permittedRepeatingPedestalInputManager = pedIn;"
+        ),
     }
     for label, needle in macro_requirements.items():
         if needle not in macro:
@@ -139,8 +155,26 @@ class WorkerRuntimeContractTest(unittest.TestCase):
     def test_rejects_unchecked_execution_path_mutation(self) -> None:
         self.assert_mutation_rejected(
             macro=self.macro.replace(
-                'detail::enforce_fun4all_status("scaled-trigger-only", runRc, endRc);',
-                "",
+                "detail::enforce_fun4all_status(",
+                "detail::unchecked_fun4all_status(",
+                1,
+            )
+        )
+
+    def test_rejects_missing_abort_statistic_mutation(self) -> None:
+        self.assert_mutation_rejected(
+            macro=self.macro.replace(
+                "server->retcodestats(Fun4AllReturnCodes::ABORTPROCESSING)",
+                "0",
+                1,
+            )
+        )
+
+    def test_rejects_pedestal_pointer_substitution_mutation(self) -> None:
+        self.assert_mutation_rejected(
+            macro=self.macro.replace(
+                "permittedRepeatingPedestalInputManager = pedIn;",
+                "permittedRepeatingPedestalInputManager = nullptr;",
                 1,
             )
         )
