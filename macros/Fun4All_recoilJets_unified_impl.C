@@ -192,6 +192,7 @@ namespace detail
     int nonemptyOrdinaryFileLists = 0;
     int permittedRepeatingManagerExpected = 0;
     int permittedRepeatingManagerMatches = 0;
+    int permittedRunNodeInputManagers = 0;
   };
 
   enum class Fun4AllTerminalStatusClassV1
@@ -253,9 +254,11 @@ namespace detail
         "REPEATING_MANAGER_POINTER_MISMATCH"};
     }
     if (witness.ordinaryInputManagers <= 0 ||
+        witness.permittedRunNodeInputManagers < 0 ||
         witness.registeredInputManagers !=
           witness.ordinaryInputManagers +
-            witness.permittedRepeatingManagerExpected)
+            witness.permittedRepeatingManagerExpected +
+            witness.permittedRunNodeInputManagers)
     {
       return {
         Fun4AllTerminalStatusClassV1::kFail,
@@ -330,24 +333,33 @@ namespace detail
         {
           const bool isPermittedRepeating =
             inputManager == permittedRepeatingManager;
+          const bool isPermittedRunNode =
+            dynamic_cast<const Fun4AllRunNodeInputManager*>(inputManager) !=
+              nullptr;
           const bool isOpen = inputManager && inputManager->IsOpen();
           const bool fileListEmpty =
             inputManager && inputManager->FileListEmpty();
           std::fprintf(
             stderr,
             "RECOILJETS_FUN4ALL_INPUT_STATUS_V1"
-            " path=%s index=%d name=%s repeating=%d"
+            " path=%s index=%d name=%s repeating=%d run_node_auxiliary=%d"
             " open=%d file_list_empty=%d\n",
             path,
             inputManagerIndex,
             inputManager ? inputManager->Name().c_str() : "<null>",
             isPermittedRepeating ? 1 : 0,
+            isPermittedRunNode ? 1 : 0,
             isOpen ? 1 : 0,
             fileListEmpty ? 1 : 0);
           ++inputManagerIndex;
           if (inputManager == permittedRepeatingManager)
           {
             ++witness.permittedRepeatingManagerMatches;
+            continue;
+          }
+          if (isPermittedRunNode)
+          {
+            ++witness.permittedRunNodeInputManagers;
             continue;
           }
           ++witness.ordinaryInputManagers;
@@ -381,6 +393,7 @@ namespace detail
       " exhausted_ordinary_inputs=%d open_ordinary_inputs=%d"
       " nonempty_ordinary_file_lists=%d"
       " repeating_expected=%d repeating_matches=%d"
+      " run_node_auxiliary_inputs=%d"
       " abort_processing=%d abort_run=%d status=%s reason=%s\n",
       path,
       runRc,
@@ -393,6 +406,7 @@ namespace detail
       witness.nonemptyOrdinaryFileLists,
       witness.permittedRepeatingManagerExpected,
       witness.permittedRepeatingManagerMatches,
+      witness.permittedRunNodeInputManagers,
       witness.abortProcessingCount,
       witness.abortRunCount,
       decision.status,

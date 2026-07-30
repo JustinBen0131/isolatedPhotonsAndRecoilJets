@@ -58,7 +58,8 @@ void require_class(
 
 Fun4AllTerminalStatusWitnessV1 verified_eof(
     const int ordinaryManagers,
-    const bool repeatingPedestal)
+    const bool repeatingPedestal,
+    const int runNodeManagers)
 {
   Fun4AllTerminalStatusWitnessV1 witness;
   witness.nEventsRequested = 0;
@@ -66,13 +67,14 @@ Fun4AllTerminalStatusWitnessV1 verified_eof(
   witness.endRc = 0;
   witness.eventOk = 0;
   witness.registeredInputManagers =
-    ordinaryManagers + (repeatingPedestal ? 1 : 0);
+    ordinaryManagers + (repeatingPedestal ? 1 : 0) + runNodeManagers;
   witness.ordinaryInputManagers = ordinaryManagers;
   witness.exhaustedOrdinaryInputManagers = ordinaryManagers;
   witness.permittedRepeatingManagerExpected =
     repeatingPedestal ? 1 : 0;
   witness.permittedRepeatingManagerMatches =
     repeatingPedestal ? 1 : 0;
+  witness.permittedRunNodeInputManagers = runNodeManagers;
   return witness;
 }
 }
@@ -84,11 +86,17 @@ int main()
   Fun4AllTerminalStatusWitnessV1 eventOk;
   require_class(eventOk, Class::kEventOk, "unchanged EVENT_OK path");
 
-  const auto pp = verified_eof(5, true);
-  require_class(pp, Class::kVerifiedMultiInputEof, "pp five-manager EOF");
+  const auto pp = verified_eof(5, true, 1);
+  require_class(
+      pp,
+      Class::kVerifiedMultiInputEof,
+      "pp five-manager EOF with run-node provider");
 
-  const auto auau = verified_eof(4, false);
-  require_class(auau, Class::kVerifiedMultiInputEof, "AuAu four-manager EOF");
+  const auto auau = verified_eof(4, false, 1);
+  require_class(
+      auau,
+      Class::kVerifiedMultiInputEof,
+      "AuAu four-manager EOF with run-node provider");
 
   auto mutation = pp;
   mutation.nEventsRequested = 1;
@@ -131,8 +139,12 @@ int main()
   require_class(mutation, Class::kFail, "duplicate repeating pointer");
 
   mutation = pp;
-  mutation.registeredInputManagers = 7;
+  mutation.registeredInputManagers = 8;
   require_class(mutation, Class::kFail, "unaccounted input manager");
+
+  mutation = pp;
+  mutation.permittedRunNodeInputManagers = -1;
+  require_class(mutation, Class::kFail, "negative run-node accounting");
 
   mutation = auau;
   mutation.ordinaryInputManagers = 0;
@@ -150,7 +162,7 @@ int main()
       "unknown negative with unexhausted manager");
 
   std::cout << "FUN4ALL_TERMINAL_CLASSIFIER_V1_TEST_PASS"
-            << " positives=3 negative_mutations=13" << std::endl;
+            << " positives=3 negative_mutations=14" << std::endl;
   return 0;
 }
 CPP
@@ -187,6 +199,7 @@ class Fun4AllInputManager
     , m_name(name)
   {
   }
+  virtual ~Fun4AllInputManager() = default;
   bool IsOpen() const { return m_open; }
   bool FileListEmpty() const { return m_empty; }
   const std::string& Name() const { return m_name; }
@@ -195,6 +208,12 @@ class Fun4AllInputManager
   bool m_open = false;
   bool m_empty = true;
   std::string m_name;
+};
+
+class Fun4AllRunNodeInputManager : public Fun4AllInputManager
+{
+ public:
+  using Fun4AllInputManager::Fun4AllInputManager;
 };
 
 class Fun4AllSyncManager
@@ -304,17 +323,18 @@ int main()
 
   Fun4AllInputManager exhausted(false, true);
   Fun4AllInputManager pedestal(true, false);
+  Fun4AllRunNodeInputManager runNode(true, false, "DST_GEO");
   Fun4AllSyncManager ppSync;
   ppSync.managers = {
       &exhausted, &exhausted, &exhausted, &exhausted, &exhausted,
-      &pedestal};
+      &pedestal, &runNode};
   Fun4AllServer ppServer;
   ppServer.sync = &ppSync;
   require_pass("pp-eof", &ppServer, 0, -5, 0, &pedestal);
 
   Fun4AllSyncManager auauSync;
   auauSync.managers = {
-      &exhausted, &exhausted, &exhausted, &exhausted};
+      &exhausted, &exhausted, &exhausted, &exhausted, &runNode};
   Fun4AllServer auauServer;
   auauServer.sync = &auauSync;
   require_pass("auau-eof", &auauServer, 0, -4, 0, nullptr);
@@ -327,8 +347,17 @@ int main()
   require_fail(
       "abort-statistic", &ppServer, 0, -5, 0, &pedestal);
 
+  Fun4AllInputManager unknownOpen(true, false, "UNKNOWN_OPEN_INPUT");
+  Fun4AllSyncManager unknownSync;
+  unknownSync.managers = {
+      &exhausted, &exhausted, &exhausted, &exhausted, &unknownOpen};
+  Fun4AllServer unknownServer;
+  unknownServer.sync = &unknownSync;
+  require_fail(
+      "unknown-open-ordinary", &unknownServer, 0, -4, 0, nullptr);
+
   std::cout << "FUN4ALL_TERMINAL_ADAPTER_V1_TEST_PASS"
-            << " positives=3 negative_mutations=2" << std::endl;
+            << " positives=3 negative_mutations=3" << std::endl;
   return 0;
 }
 CPP
