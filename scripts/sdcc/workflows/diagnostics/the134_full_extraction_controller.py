@@ -1921,7 +1921,7 @@ def validate_terminal_snapshot(
                 "job_status",
                 "exit_code",
                 "num_job_starts",
-                "analysis_root",
+                "ephemeral_analysis_health",
                 "staged_chunk_list",
                 "training_sidecar_root",
                 "sidecar_health",
@@ -1955,13 +1955,58 @@ def validate_terminal_snapshot(
             label=f"{row_id}.{row_index}.staged_chunk_list",
         )
 
-        analysis = validate_health_artifact(
-            job.get("analysis_root"),
-            label=f"{row_id}.{row_index}.analysis_root",
-            minimum_bytes=50_000,
+        analysis_health = require_mapping(
+            job.get("ephemeral_analysis_health"),
+            f"{row_id}.{row_index}.ephemeral_analysis_health",
         )
-        if not path_below(analysis["path"], row["analysis_output_namespace"]):
-            raise ControllerError(f"{row_id}.{row_index} analysis output escapes row")
+        require_exact_keys(
+            analysis_health,
+            {
+                "schema",
+                "status",
+                "mode",
+                "analysis_size_bytes",
+                "analysis_minimum_bytes",
+                "analysis_key_inventory_sha256",
+                "analysis_config_present",
+                "analysis_directory_present",
+                "analysis_histogram_present",
+                "analysis_root_non_zombie",
+                "analysis_root_non_recovered",
+                "analysis_root_retained",
+                "sidecar_size_bytes",
+                "sidecar_tree_entries",
+            },
+            "ephemeral analysis health",
+        )
+        if (
+            analysis_health.get("schema")
+            != "THE134_EPHEMERAL_ANALYSIS_HEALTH_V1"
+            or analysis_health.get("status") != "PASS"
+            or analysis_health.get("mode") != "EPHEMERAL_CONDOR_SCRATCH"
+            or analysis_health.get("analysis_minimum_bytes") != 50_000
+            or analysis_health.get("analysis_config_present") is not True
+            or analysis_health.get("analysis_directory_present") is not True
+            or analysis_health.get("analysis_histogram_present") is not True
+            or analysis_health.get("analysis_root_non_zombie") is not True
+            or analysis_health.get("analysis_root_non_recovered") is not True
+            or analysis_health.get("analysis_root_retained") is not False
+        ):
+            raise ControllerError(
+                f"{row_id}.{row_index} ephemeral analysis health differs"
+            )
+        require_positive_int(
+            analysis_health.get("analysis_size_bytes"),
+            f"{row_id}.{row_index}.analysis_size_bytes",
+        )
+        if analysis_health["analysis_size_bytes"] < 50_000:
+            raise ControllerError(
+                f"{row_id}.{row_index} ephemeral analysis ROOT is too small"
+            )
+        require_sha256(
+            analysis_health.get("analysis_key_inventory_sha256"),
+            f"{row_id}.{row_index}.analysis_key_inventory_sha256",
+        )
 
         sidecar = validate_health_artifact(
             job.get("training_sidecar_root"),
@@ -1977,7 +2022,6 @@ def validate_terminal_snapshot(
             raise ControllerError(f"{row_id}.{row_index} sidecar path differs")
         for artifact_path in (
             staged_chunk["path"],
-            analysis["path"],
             sidecar["path"],
         ):
             if artifact_path in seen_paths:
@@ -2044,6 +2088,21 @@ def validate_terminal_snapshot(
         tree_entries = require_nonnegative_int(
             health.get("tree_entries"), "sidecar tree entries"
         )
+        if (
+            require_positive_int(
+                analysis_health.get("sidecar_size_bytes"),
+                f"{row_id}.{row_index}.sidecar_size_bytes",
+            )
+            != sidecar["size_bytes"]
+            or require_nonnegative_int(
+                analysis_health.get("sidecar_tree_entries"),
+                f"{row_id}.{row_index}.sidecar_tree_entries",
+            )
+            != tree_entries
+        ):
+            raise ControllerError(
+                f"{row_id}.{row_index} worker sidecar health differs"
+            )
         occurrence = health.get("source_occurrence_id_hex")
         if (
             not isinstance(occurrence, str)
@@ -2080,7 +2139,7 @@ def validate_terminal_snapshot(
             {
                 **job,
                 "staged_chunk_list": staged_chunk,
-                "analysis_root": analysis,
+                "ephemeral_analysis_health": dict(analysis_health),
                 "training_sidecar_root": sidecar,
                 "sidecar_health": dict(health),
             }
@@ -2107,7 +2166,8 @@ def terminal_receipt(
         "counts": {
             "row_count": EXPECTED_ROW_COUNT,
             "job_count": len(jobs),
-            "analysis_root_count": len(jobs),
+            "ephemeral_analysis_health_count": len(jobs),
+            "retained_analysis_root_count": 0,
             "training_sidecar_root_count": len(jobs),
             "output_pair_count": len(jobs),
         },
@@ -2180,7 +2240,8 @@ def validate_terminal_receipt(
     if (
         counts.get("row_count") != EXPECTED_ROW_COUNT
         or counts.get("job_count") != EXPECTED_JOB_COUNT
-        or counts.get("analysis_root_count") != EXPECTED_JOB_COUNT
+        or counts.get("ephemeral_analysis_health_count") != EXPECTED_JOB_COUNT
+        or counts.get("retained_analysis_root_count") != 0
         or counts.get("training_sidecar_root_count") != EXPECTED_JOB_COUNT
         or counts.get("output_pair_count") != EXPECTED_JOB_COUNT
     ):

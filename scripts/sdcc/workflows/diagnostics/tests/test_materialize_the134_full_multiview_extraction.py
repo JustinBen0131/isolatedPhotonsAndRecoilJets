@@ -587,6 +587,8 @@ class FullControllerFixture:
             "expected_analysis_output_count": 18_577,
             "expected_sidecar_output_count": 18_577,
             "expected_physical_root_artifact_count": 37_154,
+            "expected_retained_analysis_output_count": 0,
+            "expected_durable_root_artifact_count": 18_577,
             "expected_source_occurrence_count": 18_577,
             "source_occurrences_per_output_pair": 1,
             "row_partition_records_sha256": controller.canonical_sha256(

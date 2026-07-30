@@ -488,7 +488,7 @@ class TestFullExtractionResolver(unittest.TestCase):
             partition = plan["execution_partition"]
             self.assertEqual(
                 partition["schema"],
-                "THE134_FULL_EXTRACTION_PARTITION_CONTRACT_V2",
+                "THE134_FULL_EXTRACTION_PARTITION_CONTRACT_V3",
             )
             self.assertEqual(partition["group_size"], 7)
             self.assertEqual(partition["source_tuple_count"], 26)
@@ -499,6 +499,12 @@ class TestFullExtractionResolver(unittest.TestCase):
             self.assertEqual(partition["expected_sidecar_output_count"], 13)
             self.assertEqual(
                 partition["expected_physical_root_artifact_count"], 26
+            )
+            self.assertEqual(
+                partition["expected_retained_analysis_output_count"], 0
+            )
+            self.assertEqual(
+                partition["expected_durable_root_artifact_count"], 13
             )
             self.assertEqual(
                 partition["expected_source_occurrence_count"], 13
@@ -526,30 +532,9 @@ class TestFullExtractionResolver(unittest.TestCase):
             )
             pp_rows = [row for row in rows if row["system"] == "pp"]
             auau_rows = [row for row in rows if row["system"] == "auau"]
-            sidecar_only_profile = {
-                "schema": (
-                    "THE134_MULTIVIEW_SIDECAR_ONLY_ARTIFACT_PROFILE_V1"
-                ),
-                "artifact_profile": "THE134_MULTIVIEW_SIDECAR_ONLY_V1",
-                "analysis_root_role": (
-                    "ANALYSIS_AND_LEGACY_TRAINING_WITH_VALIDATION_MARKERS"
-                ),
-                "training_sidecar_role": "RJPhotonTrainingViewV1",
-                "replay_transaction": "CONSTRUCTED_AND_VALIDATED",
-                "replay_serialization": "DISABLED",
-                "cache_replay_applicability": "NOT_APPLICABLE",
-                "top_level_identity_markers": {
-                    "rj_replay_schema_sha256": "RJ_REPLAY_SCHEMA_SHA256",
-                    "rj_replay_semantic_sha256": (
-                        "RJ_REPLAY_SEMANTIC_SHA256"
-                    ),
-                    "rj_replay_source_sha256": "RJ_REPLAY_SOURCE_SHA256",
-                    "rj_replay_model_sha256": "RJ_REPLAY_MODEL_SHA256",
-                    "rj_replay_config_sha256": "RJ_REPLAY_CONFIG_SHA256",
-                    "rj_replay_code_sha256": "RJ_REPLAY_CODE_SHA256",
-                },
-                "full_training_authority": 0,
-            }
+            sidecar_only_profile = dict(
+                resolver.SIDECAR_ONLY_ARTIFACT_PROFILE
+            )
             self.assertEqual(plan["artifact_profile"], sidecar_only_profile)
             self.assertEqual(
                 receipt["artifact_profile_sha256"],
@@ -914,27 +899,11 @@ class TestFullExtractionResolver(unittest.TestCase):
     def test_sidecar_only_contract_rejects_flag_or_profile_mutations(
         self,
     ) -> None:
-        environment = {"RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1": "1"}
-        profile = {
-            "schema": "THE134_MULTIVIEW_SIDECAR_ONLY_ARTIFACT_PROFILE_V1",
-            "artifact_profile": "THE134_MULTIVIEW_SIDECAR_ONLY_V1",
-            "analysis_root_role": (
-                "ANALYSIS_AND_LEGACY_TRAINING_WITH_VALIDATION_MARKERS"
-            ),
-            "training_sidecar_role": "RJPhotonTrainingViewV1",
-            "replay_transaction": "CONSTRUCTED_AND_VALIDATED",
-            "replay_serialization": "DISABLED",
-            "cache_replay_applicability": "NOT_APPLICABLE",
-            "top_level_identity_markers": {
-                "rj_replay_schema_sha256": "RJ_REPLAY_SCHEMA_SHA256",
-                "rj_replay_semantic_sha256": "RJ_REPLAY_SEMANTIC_SHA256",
-                "rj_replay_source_sha256": "RJ_REPLAY_SOURCE_SHA256",
-                "rj_replay_model_sha256": "RJ_REPLAY_MODEL_SHA256",
-                "rj_replay_config_sha256": "RJ_REPLAY_CONFIG_SHA256",
-                "rj_replay_code_sha256": "RJ_REPLAY_CODE_SHA256",
-            },
-            "full_training_authority": 0,
+        environment = {
+            "RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1": "1",
+            "RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT": "1",
         }
+        profile = dict(resolver.SIDECAR_ONLY_ARTIFACT_PROFILE)
         resolver.validate_sidecar_only_contract(environment, profile)
         for mutated_environment in ({}, {
             "RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1": "0"
@@ -942,6 +911,20 @@ class TestFullExtractionResolver(unittest.TestCase):
             with self.assertRaisesRegex(
                 resolver.ControllerError,
                 "RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1 must remain",
+            ):
+                resolver.validate_sidecar_only_contract(
+                    mutated_environment, profile
+                )
+        for mutated_environment in (
+            {"RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1": "1"},
+            {
+                "RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1": "1",
+                "RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT": "0",
+            },
+        ):
+            with self.assertRaisesRegex(
+                resolver.ControllerError,
+                "RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT must remain",
             ):
                 resolver.validate_sidecar_only_contract(
                     mutated_environment, profile
@@ -971,6 +954,33 @@ class TestFullExtractionResolver(unittest.TestCase):
                     resolver.validate_sidecar_only_contract(
                         environment, changed
                     )
+
+    def test_ephemeral_analysis_worker_contract_is_explicit_and_scoped(
+        self,
+    ) -> None:
+        wrapper_root = HERE.parents[3] / "runtime" / "condor"
+        for name in ("RecoilJets_Condor.sh", "RecoilJets_Condor_AuAu.sh"):
+            with self.subTest(wrapper=name):
+                text = (wrapper_root / name).read_text(encoding="utf-8")
+                self.assertIn(
+                    "RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT", text
+                )
+                self.assertIn("_CONDOR_SCRATCH_DIR", text)
+                self.assertIn(
+                    "writable non-/sphenix _CONDOR_SCRATCH_DIR", text
+                )
+                self.assertIn(
+                    "analysis ROOT is worker-scratch-only", text
+                )
+                self.assertIn(
+                    '"schema": "THE134_EPHEMERAL_ANALYSIS_HEALTH_V1"',
+                    text,
+                )
+                self.assertIn('"analysis_root_retained": False', text)
+                self.assertIn(
+                    "RECOILJETS_THE134_EPHEMERAL_ANALYSIS_V1", text
+                )
+                self.assertNotIn('rm -f "$out_root"', text)
 
     def test_explicit_pp_period_si_contract_controls_every_pp_row(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

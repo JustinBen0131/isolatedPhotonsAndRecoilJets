@@ -353,13 +353,49 @@ if [[ -z "$dest_base" ]]; then
 fi
 
 # ------------------------ Paths & naming -------------------
-# Output directory (one folder per run)
-out_dir="${dest_base}/${run8}"
-mkdir -p "$out_dir"
-
-# The output file name follows the chunk list name (group name) for consistency
+# The output file name follows the chunk list name (group name) for consistency.
 chunk_base="$(basename "$chunk_list")"               # e.g. run00048721_grp001.list
 chunk_tag="${chunk_base%.list}"                      # e.g. run00048721_grp001
+
+the134_ephemeral_analysis_enabled() {
+  case "${RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT:-0}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+the134_ephemeral_analysis_base=""
+if the134_ephemeral_analysis_enabled; then
+  [[ "${RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1:-0}" == "1" ]] || {
+    echo "[FATAL] Ephemeral THE-134 analysis output requires RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1=1"
+    exit 12
+  }
+  [[ "${RJ_THE134_MULTIVIEW_TRAINING_V1:-0}" == "1" ]] || {
+    echo "[FATAL] Ephemeral THE-134 analysis output requires RJ_THE134_MULTIVIEW_TRAINING_V1=1"
+    exit 12
+  }
+  [[ "${RJ_THE134_MULTIVIEW_TRAINING_FILE:-}" == /sphenix/*/training_views/*.root ]] || {
+    echo "[FATAL] Ephemeral THE-134 analysis output requires an absolute remote training-sidecar path"
+    exit 12
+  }
+  the134_condor_scratch="${_CONDOR_SCRATCH_DIR:-}"
+  [[ -n "$the134_condor_scratch" && "$the134_condor_scratch" == /* &&
+     -d "$the134_condor_scratch" && -w "$the134_condor_scratch" &&
+     "$the134_condor_scratch" != /sphenix/* ]] || {
+    echo "[FATAL] Ephemeral THE-134 analysis output requires writable non-/sphenix _CONDOR_SCRATCH_DIR"
+    exit 12
+  }
+  the134_ephemeral_analysis_base="${the134_condor_scratch}/the134_ephemeral_analysis/${cluster_id}/${chunk_tag}"
+  out_dir="${the134_ephemeral_analysis_base}/${run8}"
+  mkdir -p "$out_dir" "$(dirname "$RJ_THE134_MULTIVIEW_TRAINING_FILE")"
+  echo "[INFO] THE-134 retention: analysis ROOT is worker-scratch-only; training sidecar is durable"
+else
+  # Normal direct/writer production remains byte-for-byte on its historical
+  # destination path.  Only the explicit extraction-only mode above is local.
+  out_dir="${dest_base}/${run8}"
+  mkdir -p "$out_dir"
+fi
+
 out_root="${out_dir}/RecoilJets_${analysis_tag}_${chunk_tag}.root"
 
 echo "[INFO] Output path = $out_root"
@@ -379,7 +415,15 @@ if [[ -n "${RJ_ID_FANOUT_DIRS_FILE:-}" ]]; then
     fan_tight="${fan_cols[3]:-}"
     fan_nonTight="${fan_cols[4]:-}"
     [[ -z "${fan_dest:-}" || "${fan_dest:0:1}" == "#" ]] && continue
-    fan_out_dir="${fan_dest}/${run8}"
+    if the134_ephemeral_analysis_enabled; then
+      [[ "$fan_cfg" =~ ^[A-Za-z0-9._-]+$ ]] || {
+        echo "[FATAL] Unsafe fanout identity for ephemeral THE-134 analysis output: $fan_cfg"
+        exit 12
+      }
+      fan_out_dir="${the134_ephemeral_analysis_base}/fanout/${fan_cfg}/${run8}"
+    else
+      fan_out_dir="${fan_dest}/${run8}"
+    fi
     if [[ -z "${fanout_dir_seen[$fan_out_dir]:-}" ]]; then
       mkdir -p "$fan_out_dir"
       fanout_dir_seen["$fan_out_dir"]=1
@@ -495,6 +539,101 @@ has_config = any(key.GetName() == "analysis_config_yaml" for key in keys)
 has_directory = any(key.ReadObj().InheritsFrom("TDirectory") for key in keys)
 tf.Close()
 sys.exit(0 if (has_config and has_directory) else 1)
+PY
+}
+
+emit_the134_ephemeral_analysis_health() {
+  the134_ephemeral_analysis_enabled || return 0
+  if (( ${#fanout_outputs[@]} > 1 )); then
+    echo "[ERROR] Ephemeral THE-134 extraction requires exactly one analysis ROOT, observed ${#fanout_outputs[@]}"
+    return 12
+  fi
+  python3 - "$out_root" "$RJ_THE134_MULTIVIEW_TRAINING_FILE" "$(min_output_bytes)" <<'PY'
+import hashlib
+import json
+import os
+import sys
+
+import ROOT
+
+analysis_path, sidecar_path, minimum_text = sys.argv[1:]
+minimum_bytes = int(minimum_text)
+ROOT.gROOT.SetBatch(True)
+
+analysis = ROOT.TFile.Open(analysis_path)
+if (
+    not analysis
+    or analysis.IsZombie()
+    or analysis.TestBit(ROOT.TFile.kRecovered)
+):
+    raise SystemExit("ephemeral analysis ROOT failed health validation")
+
+inventory = []
+has_directory = False
+has_histogram = False
+
+def walk(directory, prefix=""):
+    global has_directory, has_histogram
+    for key in directory.GetListOfKeys():
+        name = key.GetName()
+        class_name = key.GetClassName()
+        full_name = f"{prefix}/{name}" if prefix else name
+        inventory.append(f"{full_name}|{class_name}")
+        klass = ROOT.TClass.GetClass(class_name)
+        if klass and klass.InheritsFrom("TDirectory"):
+            has_directory = True
+            child = key.ReadObj()
+            walk(child, full_name)
+        elif klass and klass.InheritsFrom("TH1"):
+            has_histogram = True
+
+walk(analysis)
+analysis_size = os.path.getsize(analysis_path)
+has_config = analysis.GetListOfKeys().FindObject("analysis_config_yaml") is not None
+analysis.Close()
+if (
+    analysis_size < minimum_bytes
+    or not has_config
+    or not has_directory
+    or not has_histogram
+):
+    raise SystemExit("ephemeral analysis ROOT lacks required structure")
+
+sidecar = ROOT.TFile.Open(sidecar_path)
+if (
+    not sidecar
+    or sidecar.IsZombie()
+    or sidecar.TestBit(ROOT.TFile.kRecovered)
+):
+    raise SystemExit("THE-134 training sidecar failed health validation")
+tree = sidecar.Get("RJPhotonTrainingViewV1")
+if tree is None or not tree.InheritsFrom("TTree"):
+    raise SystemExit("THE-134 training sidecar tree is missing")
+tree_entries = int(tree.GetEntries())
+sidecar.Close()
+
+payload = {
+    "schema": "THE134_EPHEMERAL_ANALYSIS_HEALTH_V1",
+    "status": "PASS",
+    "mode": "EPHEMERAL_CONDOR_SCRATCH",
+    "analysis_size_bytes": analysis_size,
+    "analysis_minimum_bytes": minimum_bytes,
+    "analysis_key_inventory_sha256": hashlib.sha256(
+        ("\n".join(sorted(inventory)) + "\n").encode("utf-8")
+    ).hexdigest(),
+    "analysis_config_present": True,
+    "analysis_directory_present": True,
+    "analysis_histogram_present": True,
+    "analysis_root_non_zombie": True,
+    "analysis_root_non_recovered": True,
+    "analysis_root_retained": False,
+    "sidecar_size_bytes": os.path.getsize(sidecar_path),
+    "sidecar_tree_entries": tree_entries,
+}
+print(
+    "RECOILJETS_THE134_EPHEMERAL_ANALYSIS_V1 "
+    + json.dumps(payload, sort_keys=True, separators=(",", ":"))
+)
 PY
 }
 
@@ -680,4 +819,5 @@ else
   fi
   echo "[OK]   Finished successfully → $(ls -l "$out_root" 2>/dev/null || echo '(file not found!)')"
 fi
+emit_the134_ephemeral_analysis_health || exit $?
 exit 0

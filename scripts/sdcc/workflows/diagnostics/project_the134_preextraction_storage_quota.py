@@ -108,6 +108,8 @@ EXPECTED_OUTPUT_PAIRS = 18_577
 EXPECTED_ANALYSIS_OUTPUTS = 18_577
 EXPECTED_SIDECAR_OUTPUTS = 18_577
 EXPECTED_ROOT_ARTIFACTS = 37_154
+EXPECTED_RETAINED_ANALYSIS_OUTPUTS = 0
+EXPECTED_DURABLE_ROOT_ARTIFACTS = EXPECTED_SIDECAR_OUTPUTS
 EXPECTED_SOURCE_OCCURRENCES = 18_577
 EXPECTED_REQUEST_MEMORY_MB = 8_000
 
@@ -128,9 +130,9 @@ STORAGE_DOMAINS = (
 ARTIFACT_CLASS_CONTRACT = {
     "analysis_root": {
         "domain": "bulk_science",
-        "count_per_job": 1,
-        "basis": "CONSERVATIVE_CAPACITY_WITNESS_ENVELOPE",
-        "requires_witness": True,
+        "count_per_job": 0,
+        "basis": "EPHEMERAL_CONDOR_SCRATCH_VALIDATED_NOT_RETAINED",
+        "requires_witness": False,
     },
     "training_sidecar_root": {
         "domain": "bulk_science",
@@ -463,9 +465,15 @@ def validate_plan_counts(plan: Mapping[str, Any]) -> tuple[list[dict[str, Any]],
             execution_contract.get("materialization_environment"),
             f"{row_id}.materialization_environment",
         )
+        worker_environment = require_mapping(
+            execution_contract.get("worker_environment"),
+            f"{row_id}.worker_environment",
+        )
         if (
             materialization_environment.get("RJ_REQUEST_MEMORY")
             != f"{EXPECTED_REQUEST_MEMORY_MB}MB"
+            or worker_environment.get("RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT")
+            != "1"
         ):
             blockers.append("COUNT_CONTRACT_DRIFT")
         system = row.get("system")
@@ -492,6 +500,12 @@ def validate_plan_counts(plan: Mapping[str, Any]) -> tuple[list[dict[str, Any]],
         "expected_analysis_output_count": EXPECTED_ANALYSIS_OUTPUTS,
         "expected_sidecar_output_count": EXPECTED_SIDECAR_OUTPUTS,
         "expected_physical_root_artifact_count": EXPECTED_ROOT_ARTIFACTS,
+        "expected_retained_analysis_output_count": (
+            EXPECTED_RETAINED_ANALYSIS_OUTPUTS
+        ),
+        "expected_durable_root_artifact_count": (
+            EXPECTED_DURABLE_ROOT_ARTIFACTS
+        ),
         "expected_source_occurrence_count": EXPECTED_SOURCE_OCCURRENCES,
         "source_occurrences_per_output_pair": 1,
     }
@@ -1667,6 +1681,12 @@ def build_storage_manifest_from_validated(
                 "expected_analysis_output_count": EXPECTED_ANALYSIS_OUTPUTS,
                 "expected_sidecar_output_count": EXPECTED_SIDECAR_OUTPUTS,
                 "expected_physical_root_artifact_count": EXPECTED_ROOT_ARTIFACTS,
+                "expected_retained_analysis_output_count": (
+                    EXPECTED_RETAINED_ANALYSIS_OUTPUTS
+                ),
+                "expected_durable_root_artifact_count": (
+                    EXPECTED_DURABLE_ROOT_ARTIFACTS
+                ),
                 "expected_source_occurrence_count": EXPECTED_SOURCE_OCCURRENCES,
                 "request_memory_mb": EXPECTED_REQUEST_MEMORY_MB,
             },
@@ -2335,14 +2355,14 @@ def validate_measurement_derivation(
         raise ProjectionError("measurement row aggregate counts differ")
     if (
         derived_artifact_counts["analysis_root"]
-        != EXPECTED_ANALYSIS_OUTPUTS
+        != EXPECTED_RETAINED_ANALYSIS_OUTPUTS
         or derived_artifact_counts["training_sidecar_root"]
         != EXPECTED_SIDECAR_OUTPUTS
         or (
             derived_artifact_counts["analysis_root"]
             + derived_artifact_counts["training_sidecar_root"]
         )
-        != EXPECTED_ROOT_ARTIFACTS
+        != EXPECTED_DURABLE_ROOT_ARTIFACTS
         or any(
             derived_artifact_counts[name] != EXPECTED_JOBS
             for name in (
@@ -2583,6 +2603,12 @@ def validate_storage_manifest(payload: Mapping[str, Any]) -> dict[str, Any]:
         "expected_analysis_output_count": EXPECTED_ANALYSIS_OUTPUTS,
         "expected_sidecar_output_count": EXPECTED_SIDECAR_OUTPUTS,
         "expected_physical_root_artifact_count": EXPECTED_ROOT_ARTIFACTS,
+        "expected_retained_analysis_output_count": (
+            EXPECTED_RETAINED_ANALYSIS_OUTPUTS
+        ),
+        "expected_durable_root_artifact_count": (
+            EXPECTED_DURABLE_ROOT_ARTIFACTS
+        ),
         "expected_source_occurrence_count": EXPECTED_SOURCE_OCCURRENCES,
         "request_memory_mb": EXPECTED_REQUEST_MEMORY_MB,
     }

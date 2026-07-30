@@ -68,7 +68,7 @@ ROW_SCHEMA = "THE134_FULL_MULTIVIEW_EXTRACTION_ROW_V2"
 RECEIPT_SCHEMA = "THE134_FULL_MULTIVIEW_EXTRACTION_PREFLIGHT_RECEIPT_V2"
 DUPLICATE_SCHEMA = "THE134_FULL_MULTIVIEW_EXTRACTION_DUPLICATE_CONTRACT_V1"
 EXECUTION_SCHEMA = "THE134_FULL_MULTIVIEW_EXTRACTION_EXECUTION_CONTRACT_V2"
-PARTITION_SCHEMA = "THE134_FULL_EXTRACTION_PARTITION_CONTRACT_V2"
+PARTITION_SCHEMA = "THE134_FULL_EXTRACTION_PARTITION_CONTRACT_V3"
 ROW_PARTITION_SCHEMA = "THE134_FULL_EXTRACTION_ROW_PARTITION_V1"
 CHUNK_SCHEMA = "THE134_FULL_EXTRACTION_CHUNK_V1"
 CHUNK_KEYS = frozenset(
@@ -140,11 +140,11 @@ FROZEN_AUAU_FULL_EXTRACTION_CONTROLS = {
     "RJ_SIM_ALLOW_NONE_LISTS": "1",
 }
 SIDECAR_ONLY_ARTIFACT_PROFILE = {
-    "schema": "THE134_MULTIVIEW_SIDECAR_ONLY_ARTIFACT_PROFILE_V1",
-    "artifact_profile": "THE134_MULTIVIEW_SIDECAR_ONLY_V1",
-    "analysis_root_role": (
-        "ANALYSIS_AND_LEGACY_TRAINING_WITH_VALIDATION_MARKERS"
-    ),
+    "schema": "THE134_MULTIVIEW_SIDECAR_ONLY_ARTIFACT_PROFILE_V2",
+    "artifact_profile": "THE134_MULTIVIEW_SIDECAR_ONLY_V2",
+    "analysis_root_role": "EPHEMERAL_CONDOR_SCRATCH_VALIDATED_NOT_RETAINED",
+    "analysis_health_record": "WORKER_STDOUT_STRUCTURED_V1",
+    "retained_analysis_root_count_per_job": 0,
     "training_sidecar_role": "RJPhotonTrainingViewV1",
     "replay_transaction": "CONSTRUCTED_AND_VALIDATED",
     "replay_serialization": "DISABLED",
@@ -1289,6 +1289,10 @@ def validate_sidecar_only_contract(
         raise ControllerError(
             "RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1 must remain '1'"
         )
+    if environment.get("RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT") != "1":
+        raise ControllerError(
+            "RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT must remain '1'"
+        )
     if artifact_profile != SIDECAR_ONLY_ARTIFACT_PROFILE:
         raise ControllerError(
             "THE-134 sidecar-only artifact profile differs from the frozen "
@@ -1337,6 +1341,7 @@ def runtime_environment(
         "RJ_THE134_MULTIVIEW_TRAINING_V1": "1",
         "RJ_THE134_MULTIVIEW_TRAINING_FILE": sidecar_template,
         "RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1": "1",
+        "RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT": "1",
         "RJ_THE134_EXPECTED_SOURCE_ROLE": row["source_role"],
         "RJ_ID_FANOUT_MAX_ROWS": "1",
         "RJ_AUTO_MERGE": "0",
@@ -1777,6 +1782,10 @@ def aggregate_partition_contract(
         "expected_sidecar_output_count": expected_sidecar_output_count,
         "expected_physical_root_artifact_count": (
             expected_analysis_output_count + expected_sidecar_output_count
+        ),
+        "expected_retained_analysis_output_count": 0,
+        "expected_durable_root_artifact_count": (
+            expected_sidecar_output_count
         ),
         "expected_source_occurrence_count": (
             expected_source_occurrence_count

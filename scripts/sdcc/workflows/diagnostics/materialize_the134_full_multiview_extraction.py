@@ -62,6 +62,8 @@ EXPECTED_OUTPUT_PAIRS = 18_577
 EXPECTED_ANALYSIS_OUTPUTS = 18_577
 EXPECTED_SIDECAR_OUTPUTS = 18_577
 EXPECTED_PHYSICAL_ARTIFACTS = 37_154
+EXPECTED_RETAINED_ANALYSIS_OUTPUTS = 0
+EXPECTED_DURABLE_ROOT_ARTIFACTS = EXPECTED_SIDECAR_OUTPUTS
 EXPECTED_REQUEST_MEMORY_MB = 8_000
 
 OUTPUT_FILENAMES = (
@@ -875,6 +877,12 @@ def validate_partition(
         "expected_analysis_output_count": EXPECTED_ANALYSIS_OUTPUTS,
         "expected_sidecar_output_count": EXPECTED_SIDECAR_OUTPUTS,
         "expected_physical_root_artifact_count": EXPECTED_PHYSICAL_ARTIFACTS,
+        "expected_retained_analysis_output_count": (
+            EXPECTED_RETAINED_ANALYSIS_OUTPUTS
+        ),
+        "expected_durable_root_artifact_count": (
+            EXPECTED_DURABLE_ROOT_ARTIFACTS
+        ),
         "expected_source_occurrence_count": EXPECTED_JOB_COUNT,
         "source_occurrences_per_output_pair": 1,
     }
@@ -1137,6 +1145,12 @@ def validate_storage_certificate(
         "expected_analysis_output_count": EXPECTED_ANALYSIS_OUTPUTS,
         "expected_sidecar_output_count": EXPECTED_SIDECAR_OUTPUTS,
         "expected_physical_root_artifact_count": EXPECTED_PHYSICAL_ARTIFACTS,
+        "expected_retained_analysis_output_count": (
+            EXPECTED_RETAINED_ANALYSIS_OUTPUTS
+        ),
+        "expected_durable_root_artifact_count": (
+            EXPECTED_DURABLE_ROOT_ARTIFACTS
+        ),
         "expected_source_occurrence_count": EXPECTED_JOB_COUNT,
         "request_memory_mb": EXPECTED_REQUEST_MEMORY_MB,
     }

@@ -308,17 +308,27 @@ class FullExtractionControllerTests(unittest.TestCase):
                                 expected_chunk["tuple_input_sha256s"]
                             ),
                         },
-                        "analysis_root": {
-                            "path": (
-                                f"{row['analysis_output_namespace']}/analysis/"
-                                f"{cluster}.{row_job_index}.root"
+                        "ephemeral_analysis_health": {
+                            "schema": (
+                                "THE134_EPHEMERAL_ANALYSIS_HEALTH_V1"
                             ),
-                            "size_bytes": 50_000 + global_index,
-                            "sha256": sha256_bytes(f"analysis:{global_index}"),
                             "status": "PASS",
-                            "readable": True,
-                            "zombie": False,
-                            "recovered": False,
+                            "mode": "EPHEMERAL_CONDOR_SCRATCH",
+                            "analysis_size_bytes": 50_000 + global_index,
+                            "analysis_minimum_bytes": 50_000,
+                            "analysis_key_inventory_sha256": sha256_bytes(
+                                f"analysis-keys:{global_index}"
+                            ),
+                            "analysis_config_present": True,
+                            "analysis_directory_present": True,
+                            "analysis_histogram_present": True,
+                            "analysis_root_non_zombie": True,
+                            "analysis_root_non_recovered": True,
+                            "analysis_root_retained": False,
+                            "sidecar_size_bytes": 1_000 + global_index,
+                            "sidecar_tree_entries": (
+                                len(controller.SHOWER_VIEWS) * 2
+                            ),
                         },
                         "training_sidecar_root": {
                             "path": sidecar_path,
@@ -916,6 +926,9 @@ class FullExtractionControllerTests(unittest.TestCase):
 
         first_health = snapshot_payload["jobs"][0]["sidecar_health"]
         first_health["tree_entries"] = 0
+        snapshot_payload["jobs"][0]["ephemeral_analysis_health"][
+            "sidecar_tree_entries"
+        ] = 0
         first_health["selected_training_rows_by_view"] = {
             view: 0 for view in controller.SHOWER_VIEWS
         }

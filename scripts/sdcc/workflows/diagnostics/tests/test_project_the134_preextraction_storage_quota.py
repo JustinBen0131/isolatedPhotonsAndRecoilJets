@@ -494,6 +494,9 @@ class PreExtractionStorageTests(unittest.TestCase):
                         "source_occurrences_per_output_pair": 1,
                     },
                     "execution_contract": {
+                        "worker_environment": {
+                            "RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT": "1"
+                        },
                         "materialization_environment": {
                             "RJ_REQUEST_MEMORY": (
                                 f"{projector.EXPECTED_REQUEST_MEMORY_MB}MB"
@@ -522,6 +525,12 @@ class PreExtractionStorageTests(unittest.TestCase):
                 ),
                 "expected_physical_root_artifact_count": (
                     projector.EXPECTED_ROOT_ARTIFACTS
+                ),
+                "expected_retained_analysis_output_count": (
+                    projector.EXPECTED_RETAINED_ANALYSIS_OUTPUTS
+                ),
+                "expected_durable_root_artifact_count": (
+                    projector.EXPECTED_DURABLE_ROOT_ARTIFACTS
                 ),
                 "expected_source_occurrence_count": (
                     projector.EXPECTED_SOURCE_OCCURRENCES
@@ -692,6 +701,8 @@ class PreExtractionStorageTests(unittest.TestCase):
                 "expected_analysis_output_count": 18_577,
                 "expected_sidecar_output_count": 18_577,
                 "expected_physical_root_artifact_count": 37_154,
+                "expected_retained_analysis_output_count": 0,
+                "expected_durable_root_artifact_count": 18_577,
                 "expected_source_occurrence_count": 18_577,
                 "request_memory_mb": 8_000,
             },
@@ -798,7 +809,7 @@ class PreExtractionStorageTests(unittest.TestCase):
             forged["artifact_measurement"]["storage_domain_totals"][
                 "bulk_science"
             ]["projected_increment_bytes"],
-            81_739,
+            40_870,
         )
         with self.assertRaisesRegex(
             projector.ProjectionError,
@@ -1027,9 +1038,17 @@ class PreExtractionStorageTests(unittest.TestCase):
 
     def test_capacity_witness_is_not_silently_used_as_ceiling(self) -> None:
         spec = self.measurement_spec()
-        first = spec["row_envelopes"][0]["artifact_classes"][0]
-        witness = self.witnesses["pp_background_jet8"]["analysis_root"]
-        first["bytes_per_artifact_ceiling"] = witness["size_bytes"]
+        sidecar = next(
+            artifact_class
+            for artifact_class in spec["row_envelopes"][0][
+                "artifact_classes"
+            ]
+            if artifact_class["artifact_class"] == "training_sidecar_root"
+        )
+        witness = self.witnesses["pp_background_jet8"][
+            "training_sidecar_root"
+        ]
+        sidecar["bytes_per_artifact_ceiling"] = witness["size_bytes"]
         result = projector.build_storage_manifest_from_validated(
             spec,
             plan=self.plan,
