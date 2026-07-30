@@ -2600,13 +2600,17 @@ if capacity_mode:
             raise SystemExit(f"{label} drifted before ROOT validation: {path}")
     full_plan = json.loads(full_plan_path.read_text(encoding="utf-8"))
     artifact_profile = full_plan.get("artifact_profile", {})
-    ephemeral_analysis_mode = artifact_profile == {
+    required_ephemeral_profile = {
         "analysis_root_role": "EPHEMERAL_CONDOR_SCRATCH_VALIDATED_NOT_RETAINED",
         "artifact_profile": "THE134_MULTIVIEW_SIDECAR_ONLY_V2",
         "retained_analysis_root_count_per_job": 0,
         "schema": "THE134_MULTIVIEW_SIDECAR_ONLY_ARTIFACT_PROFILE_V2",
         "training_sidecar_role": "RJPhotonTrainingViewV1",
     }
+    ephemeral_analysis_mode = isinstance(artifact_profile, dict) and all(
+        artifact_profile.get(key) == value
+        for key, value in required_ephemeral_profile.items()
+    )
 if expected_fast_extraction and not ephemeral_analysis_mode:
     raise SystemExit(
         "fast extraction requires the exact frozen sidecar-only ephemeral artifact profile"
@@ -3603,7 +3607,11 @@ expected_artifact_profile = {
     "schema": "THE134_MULTIVIEW_SIDECAR_ONLY_ARTIFACT_PROFILE_V2",
     "training_sidecar_role": "RJPhotonTrainingViewV1",
 }
-ephemeral_analysis_mode = full_plan.get("artifact_profile") == expected_artifact_profile
+observed_artifact_profile = full_plan.get("artifact_profile", {})
+ephemeral_analysis_mode = isinstance(observed_artifact_profile, dict) and all(
+    observed_artifact_profile.get(key) == value
+    for key, value in expected_artifact_profile.items()
+)
 expected_analysis_health_profile = (
     {
         "schema": "RJ_ARTIFACT_HEALTH_PROFILE_V1",

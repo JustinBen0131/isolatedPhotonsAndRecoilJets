@@ -366,8 +366,13 @@ import sys
 path = Path(sys.argv[1])
 payload = json.loads(path.read_text())
 payload["artifact_profile"] = {
+    "analysis_health_record": "WORKER_STDOUT_STRUCTURED_V1",
     "analysis_root_role": "EPHEMERAL_CONDOR_SCRATCH_VALIDATED_NOT_RETAINED",
     "artifact_profile": "THE134_MULTIVIEW_SIDECAR_ONLY_V2",
+    "cache_replay_applicability": "NOT_APPLICABLE",
+    "full_training_authority": 0,
+    "replay_serialization": "DISABLED",
+    "replay_transaction": "CONSTRUCTED_AND_VALIDATED",
     "retained_analysis_root_count_per_job": 0,
     "schema": "THE134_MULTIVIEW_SIDECAR_ONLY_ARTIFACT_PROFILE_V2",
     "training_sidecar_role": "RJPhotonTrainingViewV1",
@@ -1234,6 +1239,8 @@ def validate(text: str) -> None:
         'validate_capacity_postrun_authority',
         'write_runtime_authority_manifest verify',
         'root_health_identity_join_certificate_capacity_v6.json',
+        'required_ephemeral_profile.items()',
+        'expected_artifact_profile.items()',
         'pp_capacity_multiview_audit_v2.json',
         'auau_capacity_multiview_audit_v2.json',
         '"validation_authority": validation_authority',
