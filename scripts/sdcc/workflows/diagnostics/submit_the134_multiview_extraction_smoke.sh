@@ -758,6 +758,10 @@ external/ana.560/libcalo_io.so|${release_calo_io}
 external/ana.560/libclusteriso.so|${release_clusteriso}
 external/ana.560/libjetbase.so|${release_jetbase}
 scripts/sdcc/workflows/diagnostics/submit_the134_multiview_extraction_smoke.sh|scripts/sdcc/workflows/diagnostics/submit_the134_multiview_extraction_smoke.sh
+scripts/sdcc/workflows/diagnostics/materialize_the134_full_multiview_extraction.py|scripts/sdcc/workflows/diagnostics/materialize_the134_full_multiview_extraction.py
+scripts/sdcc/workflows/diagnostics/project_the134_preextraction_storage_quota.py|scripts/sdcc/workflows/diagnostics/project_the134_preextraction_storage_quota.py
+scripts/sdcc/workflows/diagnostics/resolve_the134_full_multiview_extraction.py|scripts/sdcc/workflows/diagnostics/resolve_the134_full_multiview_extraction.py
+scripts/sdcc/workflows/diagnostics/the134_full_extraction_controller.py|scripts/sdcc/workflows/diagnostics/the134_full_extraction_controller.py
 EOF
 }
 

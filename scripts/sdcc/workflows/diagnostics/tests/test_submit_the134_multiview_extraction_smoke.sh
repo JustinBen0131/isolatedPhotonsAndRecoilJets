@@ -13,6 +13,40 @@ grep -Fq 'RJ_THE134_CAPACITY_SELECTED_ROW' "$controller"
 grep -Fq 'RJ_THE134_CAPACITY_COMBINE_TAG' "$controller"
 grep -Fq 'capacity repair matrix must contain exactly its selected frozen witness' "$controller"
 grep -Fq 'full capacity mode must not name a preserved partner campaign' "$controller"
+python3 - "$controller" <<'PY'
+from pathlib import Path
+import sys
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+required_tail = [
+    "scripts/sdcc/workflows/diagnostics/submit_the134_multiview_extraction_smoke.sh",
+    "scripts/sdcc/workflows/diagnostics/materialize_the134_full_multiview_extraction.py",
+    "scripts/sdcc/workflows/diagnostics/project_the134_preextraction_storage_quota.py",
+    "scripts/sdcc/workflows/diagnostics/resolve_the134_full_multiview_extraction.py",
+    "scripts/sdcc/workflows/diagnostics/the134_full_extraction_controller.py",
+]
+
+
+def validate(text: str) -> None:
+    body = text.split("compute_code_sha() {", 1)[1].split("\nEOF\n}", 1)[0]
+    logical = [
+        line.split("|", 1)[0]
+        for line in body.splitlines()
+        if "|" in line and not line.lstrip().startswith(("while ", "done "))
+    ]
+    if logical[-len(required_tail) :] != required_tail:
+        raise ValueError("aggregate-code inputs do not match the frozen V10/V11 manifest order")
+
+
+validate(source)
+mutated = source.replace(required_tail[1] + "|", "removed-authority-input|", 1)
+try:
+    validate(mutated)
+except ValueError:
+    pass
+else:
+    raise SystemExit("aggregate-code membership mutation was not rejected")
+PY
 grep -Fq 'std::string ppg12_base_e_model_file = "";' "$macro"
 grep -Fq 'cfg.ppg12_base_e_model_file = detail::trim(AfterColon(line));' "$macro"
 grep -Fq 'std::string baseEModelFile = cfg.ppg12_base_e_model_file;' "$macro"
