@@ -2478,11 +2478,13 @@ SNAPSHOT_PROVIDER_FAMILIES = (
     "libclusteriso.so",
     "libjetbase.so",
 )
-RUNTIME_AUTHORITY_SCHEMA = "THE134_SINGLE_PROVIDER_RUNTIME_AUTHORITY_V2"
+RUNTIME_AUTHORITY_SCHEMA = "THE134_SINGLE_PROVIDER_RUNTIME_AUTHORITY_V3"
 RUNTIME_AUTHORITY_KEYS = frozenset(
     {
         "calo_reco",
+        "capacity_execution",
         "pp_sim_weight_contract",
+        "ppg12_base_e_model",
         "release",
         "schema",
         "status",
@@ -2511,6 +2513,10 @@ RUNTIME_WEIGHT_KEYS = frozenset(
         "period_lumi_weight",
         "vertex_reweight",
     }
+)
+RUNTIME_BASE_E_KEYS = frozenset({"path", "sha256"})
+RUNTIME_CAPACITY_EXECUTION_KEYS = frozenset(
+    {"combine_tag", "selected_row"}
 )
 EXPECTED_PP_SIM_WEIGHT_CONTRACT = {
     "interaction": "SI",
@@ -2747,9 +2753,55 @@ def validate_runtime_authority_artifact(
         raise AmendmentError(
             "capacity runtime p+p simulation weight contract differs"
         )
+    base_e = require_mapping(
+        "capacity runtime authority ppg12_base_e_model",
+        payload.get("ppg12_base_e_model"),
+    )
+    require_exact_keys(
+        "capacity runtime authority ppg12_base_e_model",
+        base_e,
+        RUNTIME_BASE_E_KEYS,
+    )
+    normalized_base_e = normalize_runtime_artifact_ref(
+        "capacity runtime authority ppg12_base_e_model",
+        base_e.get("path"),
+        base_e.get("sha256"),
+    )
+    capacity_execution = require_mapping(
+        "capacity runtime authority capacity_execution",
+        payload.get("capacity_execution"),
+    )
+    require_exact_keys(
+        "capacity runtime authority capacity_execution",
+        capacity_execution,
+        RUNTIME_CAPACITY_EXECUTION_KEYS,
+    )
+    selected_row = capacity_execution.get("selected_row")
+    combine_tag = capacity_execution.get("combine_tag")
+    if selected_row not in (
+        "",
+        "pp_background_jet8",
+        "auau_background_jet12",
+    ):
+        raise AmendmentError(
+            "capacity runtime selected row is not a frozen witness"
+        )
+    if not isinstance(combine_tag, str):
+        raise AmendmentError("capacity runtime combine tag is not text")
+    if selected_row:
+        if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,160}", combine_tag):
+            raise AmendmentError(
+                "one-row capacity runtime requires a safe combine tag"
+            )
+    elif combine_tag:
+        raise AmendmentError(
+            "full capacity runtime must not name a combine tag"
+        )
     return {
         "payload": payload,
         "calo_reco": normalized_calo,
+        "capacity_execution": dict(capacity_execution),
+        "ppg12_base_e_model": normalized_base_e,
         "release_dirs": {
             name: str(path) for name, path in release_dirs.items()
         },

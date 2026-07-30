@@ -221,6 +221,8 @@ class CapacityCountAmendmentRuntimeTests(unittest.TestCase):
         }
         for family, role in amendment.RUNTIME_PROVIDER_ROLE_BY_FAMILY.items():
             shutil.copyfile(bundle_paths[role], provider_paths[family])
+        base_e_model = authority_root / "model_base_E.root"
+        base_e_model.write_bytes(b"historical-ppg12-base-E-model\n")
 
         payload = {
             "schema": amendment.RUNTIME_AUTHORITY_SCHEMA,
@@ -260,6 +262,14 @@ class CapacityCountAmendmentRuntimeTests(unittest.TestCase):
             "pp_sim_weight_contract": copy.deepcopy(
                 amendment.EXPECTED_PP_SIM_WEIGHT_CONTRACT
             ),
+            "ppg12_base_e_model": {
+                "path": str(base_e_model),
+                "sha256": self.sha256(base_e_model),
+            },
+            "capacity_execution": {
+                "combine_tag": "",
+                "selected_row": "",
+            },
         }
         authority_path = authority_root / "runtime_authority.json"
         authority_path.write_text(
@@ -457,7 +467,26 @@ class CapacityCountAmendmentRuntimeTests(unittest.TestCase):
         ) -> None:
             payload["pp_sim_weight_contract"]["period_lumi_weight"] = False
 
+        def mutate_base_e(
+            payload: dict[str, Any],
+            _artifact: dict[str, str],
+            _immutable: dict[str, Any],
+        ) -> None:
+            payload["ppg12_base_e_model"]["sha256"] = "0" * 64
+
+        def mutate_capacity_execution(
+            payload: dict[str, Any],
+            _artifact: dict[str, str],
+            _immutable: dict[str, Any],
+        ) -> None:
+            payload["capacity_execution"] = {
+                "combine_tag": "",
+                "selected_row": "not_a_frozen_row",
+            }
+
         mutations = {
+            "base_e": mutate_base_e,
+            "capacity_execution": mutate_capacity_execution,
             "schema": mutate_schema,
             "key": mutate_key,
             "hash": mutate_hash,

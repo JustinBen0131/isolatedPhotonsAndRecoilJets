@@ -9,10 +9,40 @@ pp_config="${repo_root}/macros/analysis_config_the119_pp_replay_foundation.yaml"
 bash -n "$controller"
 grep -Fq 'RJ_THE134_PP_BASE_E_MODEL is required for the PPG12 p+p-SIM route' "$controller"
 grep -Fq 'p+p config/base_E model path mismatch' "$controller"
+grep -Fq 'RJ_THE134_CAPACITY_SELECTED_ROW' "$controller"
+grep -Fq 'RJ_THE134_CAPACITY_COMBINE_TAG' "$controller"
+grep -Fq 'capacity repair matrix must contain exactly its selected frozen witness' "$controller"
+grep -Fq 'full capacity mode must not name a preserved partner campaign' "$controller"
 grep -Fq 'std::string ppg12_base_e_model_file = "";' "$macro"
 grep -Fq 'cfg.ppg12_base_e_model_file = detail::trim(AfterColon(line));' "$macro"
 grep -Fq 'std::string baseEModelFile = cfg.ppg12_base_e_model_file;' "$macro"
 grep -Fq 'ppg12_base_e_model_file: /sphenix/user/shuhangli/ppg12/FunWithxgboost/binned_models/model_base_E_split_single_tmva.root' "$pp_config"
+if RJ_THE134_CAPACITY_SELECTED_ROW=not_a_frozen_row \
+  "$controller" capacity-preflight >"${TMPDIR:-/tmp}/the134_invalid_capacity_selector.$$" 2>&1; then
+  printf 'invalid capacity selector was accepted\n' >&2
+  exit 1
+fi
+grep -Fq 'capacity selector is not a frozen witness row' \
+  "${TMPDIR:-/tmp}/the134_invalid_capacity_selector.$$"
+rm -f "${TMPDIR:-/tmp}/the134_invalid_capacity_selector.$$"
+
+if RJ_THE134_CAPACITY_SELECTED_ROW=pp_background_jet8 \
+  "$controller" capacity-preflight >"${TMPDIR:-/tmp}/the134_missing_combine_tag.$$" 2>&1; then
+  printf 'one-row capacity repair without a combine tag was accepted\n' >&2
+  exit 1
+fi
+grep -Fq 'one-row capacity repair requires a safe RJ_THE134_CAPACITY_COMBINE_TAG' \
+  "${TMPDIR:-/tmp}/the134_missing_combine_tag.$$"
+rm -f "${TMPDIR:-/tmp}/the134_missing_combine_tag.$$"
+
+if RJ_THE134_CAPACITY_COMBINE_TAG=unexpected_partner \
+  "$controller" capacity-preflight >"${TMPDIR:-/tmp}/the134_unexpected_combine_tag.$$" 2>&1; then
+  printf 'full capacity mode with a preserved-partner tag was accepted\n' >&2
+  exit 1
+fi
+grep -Fq 'full capacity mode must not name a preserved partner campaign' \
+  "${TMPDIR:-/tmp}/the134_unexpected_combine_tag.$$"
+rm -f "${TMPDIR:-/tmp}/the134_unexpected_combine_tag.$$"
 if grep -Eq '(^|[^[:alnum:]_])(/usr/bin/)?(say|afplay)([^[:alnum:]_]|$)|osascript|NSSound' "$controller"; then
   printf 'forbidden local audio command in controller: %s\n' "$controller" >&2
   exit 1
@@ -81,6 +111,8 @@ done
 
 capacity_mode=1
 capacity_canary_id=the134_capacity_fixture
+capacity_selected_row=
+capacity_combine_tag=
 capacity_pp_row=pp_background_jet8
 capacity_auau_row=auau_background_jet12
 output_root=/sphenix/tg/example/replay_foundation/the134_capacity_fixture
@@ -1057,7 +1089,7 @@ def validate(text: str) -> None:
         'write_runtime_authority_manifest verify',
         'runtime-authority manifest/fingerprint pair is incomplete',
         'existing runtime authority manifest differs from current frozen authority',
-        '"schema": "THE134_SINGLE_PROVIDER_RUNTIME_AUTHORITY_V2"',
+        '"schema": "THE134_SINGLE_PROVIDER_RUNTIME_AUTHORITY_V3"',
         '"interaction": "SI"',
         '"mix_weight": "period_auto"',
         '"vertex_reweight": "period_auto"',

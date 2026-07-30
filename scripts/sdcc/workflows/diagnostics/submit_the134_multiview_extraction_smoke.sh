@@ -6,13 +6,16 @@ set -euo pipefail
 #
 # This is a narrow controller over the established RecoilJets Condor executor.
 # Ordinary smoke mode owns exactly one input tuple and one Condor proc for each
-# frozen training source.  Capacity mode owns exactly one seven-tuple proc for
-# the fixed p+p Jet8 and Au+Au embedded-Jet12 capacity witnesses.  It never
-# submits data, p+p Jet40, a direct arm, a merge, or a model training job.  The
-# caller must select exactly 0mrad or 1p5mrad through RJ_THE134_PP_PERIOD; the
-# other period requires a distinct tag/execution, and DI remains the separately
-# typed archived-source path.  `inventory` is read-only and emits the exact
-# frozen-source manifest to stdout; submission remains an explicit action.
+# frozen training source.  Capacity mode normally owns exactly one seven-tuple
+# proc for each of the fixed p+p Jet8 and Au+Au embedded-Jet12 capacity
+# witnesses.  A bounded repair may select exactly one of those rows while
+# naming the preserved partner campaign that will supply aggregate closure.
+# It never submits data, p+p Jet40, a direct arm, a merge, or a model training
+# job.  The caller must select exactly 0mrad or 1p5mrad through
+# RJ_THE134_PP_PERIOD; the other period requires a distinct tag/execution, and
+# DI remains the separately typed archived-source path.  `inventory` is
+# read-only and emits the exact frozen-source manifest to stdout; submission
+# remains an explicit action.
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd -P)"
 cd "$repo_root"
@@ -60,6 +63,8 @@ auau_model="${RJ_THE134_AUAU_MODEL:-/sphenix/tg/tg01/bulk/jbennett/thesisAnaTrai
 source_hash_manifest="${RJ_THE134_SOURCE_HASH_MANIFEST:-}"
 pp_period="${RJ_THE134_PP_PERIOD:-}"
 capacity_canary_id="${RJ_THE134_CAPACITY_CANARY_ID:-}"
+capacity_selected_row="${RJ_THE134_CAPACITY_SELECTED_ROW:-}"
+capacity_combine_tag="${RJ_THE134_CAPACITY_COMBINE_TAG:-}"
 capacity_preflight_receipt="${RJ_THE134_CAPACITY_PREFLIGHT_RECEIPT:-}"
 capacity_preflight_receipt_sha="${RJ_THE134_CAPACITY_PREFLIGHT_RECEIPT_SHA256:-}"
 capacity_full_plan="${RJ_THE134_CAPACITY_FULL_PLAN:-}"
@@ -114,8 +119,24 @@ readonly capacity_pp_row="pp_background_jet8"
 readonly capacity_auau_row="auau_background_jet12"
 if (( capacity_mode )); then
   readonly execution_group_size="$capacity_group_size"
-  readonly execution_row_count="2"
+  case "$capacity_selected_row" in
+    "")
+      readonly execution_row_count="2"
+      ;;
+    "$capacity_pp_row"|"$capacity_auau_row")
+      readonly execution_row_count="1"
+      ;;
+    *)
+      printf '[THE134-EXTRACT][ERROR] capacity selector is not a frozen witness row: %s\n' \
+        "$capacity_selected_row" >&2
+      exit 2
+      ;;
+  esac
 else
+  if [[ -n "$capacity_selected_row" || -n "$capacity_combine_tag" ]]; then
+    printf '[THE134-EXTRACT][ERROR] capacity repair selectors are invalid outside capacity mode\n' >&2
+    exit 2
+  fi
   readonly execution_group_size="$ordinary_group_size"
   readonly execution_row_count="13"
 fi
@@ -323,9 +344,14 @@ emit_matrix() {
 
 emit_execution_matrix() {
   if (( capacity_mode )); then
-    emit_matrix | awk -F'|' \
-      -v pp="$capacity_pp_row" -v auau="$capacity_auau_row" \
-      '$1==pp || $1==auau'
+    if [[ -n "$capacity_selected_row" ]]; then
+      emit_matrix | awk -F'|' -v selected="$capacity_selected_row" \
+        '$1==selected'
+    else
+      emit_matrix | awk -F'|' \
+        -v pp="$capacity_pp_row" -v auau="$capacity_auau_row" \
+        '$1==pp || $1==auau'
+    fi
   else
     emit_matrix
   fi
@@ -354,10 +380,21 @@ validate_matrix() {
   [[ "$(emit_execution_matrix | wc -l | tr -d ' ')" == "$execution_row_count" ]] ||
     die "execution matrix row count differs from the selected mode"
   if (( capacity_mode )); then
-    [[ "$(emit_execution_matrix | awk -F'|' '$1=="pp_background_jet8" && $2=="pp" && $5=="run28_jet8" {n++} END{print n+0}')" == 1 ]] ||
-      die "capacity matrix must contain exactly the frozen p+p Jet8 witness"
-    [[ "$(emit_execution_matrix | awk -F'|' '$1=="auau_background_jet12" && $2=="auau" && $5=="run28_embeddedJet12" {n++} END{print n+0}')" == 1 ]] ||
-      die "capacity matrix must contain exactly the frozen Au+Au embedded-Jet12 witness"
+    if [[ -z "$capacity_selected_row" ]]; then
+      [[ -z "$capacity_combine_tag" ]] ||
+        die "full capacity mode must not name a preserved partner campaign"
+      [[ "$(emit_execution_matrix | awk -F'|' '$1=="pp_background_jet8" && $2=="pp" && $5=="run28_jet8" {n++} END{print n+0}')" == 1 ]] ||
+        die "capacity matrix must contain exactly the frozen p+p Jet8 witness"
+      [[ "$(emit_execution_matrix | awk -F'|' '$1=="auau_background_jet12" && $2=="auau" && $5=="run28_embeddedJet12" {n++} END{print n+0}')" == 1 ]] ||
+        die "capacity matrix must contain exactly the frozen Au+Au embedded-Jet12 witness"
+    else
+      [[ -n "$capacity_combine_tag" &&
+         ${#capacity_combine_tag} -le 160 &&
+         "$capacity_combine_tag" =~ ^[A-Za-z0-9_.:-]+$ ]] ||
+        die "one-row capacity repair requires a safe RJ_THE134_CAPACITY_COMBINE_TAG"
+      [[ "$(emit_execution_matrix | awk -F'|' -v selected="$capacity_selected_row" '$1==selected {n++} END{print n+0}')" == 1 ]] ||
+        die "capacity repair matrix must contain exactly its selected frozen witness"
+    fi
   fi
 }
 
@@ -779,9 +816,15 @@ write_submission_manifest() {
     fi
   done < <(emit_execution_matrix)
   if (( capacity_mode )); then
-    [[ "$(wc -l < "${evidence_root}/pp_multiview_sidecars.list" | tr -d ' ')" == 1 ]] ||
+    local expected_pp=1 expected_auau=1
+    if [[ "$capacity_selected_row" == "$capacity_pp_row" ]]; then
+      expected_auau=0
+    elif [[ "$capacity_selected_row" == "$capacity_auau_row" ]]; then
+      expected_pp=0
+    fi
+    [[ "$(wc -l < "${evidence_root}/pp_multiview_sidecars.list" | tr -d ' ')" == "$expected_pp" ]] ||
       die "capacity p+p sidecar manifest closure failed"
-    [[ "$(wc -l < "${evidence_root}/auau_multiview_sidecars.list" | tr -d ' ')" == 1 ]] ||
+    [[ "$(wc -l < "${evidence_root}/auau_multiview_sidecars.list" | tr -d ' ')" == "$expected_auau" ]] ||
       die "capacity Au+Au sidecar manifest closure failed"
   else
     [[ "$(wc -l < "${evidence_root}/pp_multiview_sidecars.list" | tr -d ' ')" == 7 ]] ||
@@ -810,6 +853,7 @@ write_runtime_authority_manifest() {
     "$release_clusteriso" "$RJ_THE134_RELEASE_CLUSTERISO_SHA256" \
     "$release_jetbase" "$RJ_THE134_RELEASE_JETBASE_SHA256" \
     "$pp_base_e_model" "$RJ_THE134_PP_BASE_E_MODEL_SHA256" \
+    "$capacity_selected_row" "$capacity_combine_tag" \
     "$pinned_release_name" "$pinned_offline_main" \
     "$pinned_calo_reco_soname" "$pp_period" <<'PY'
 from pathlib import Path
@@ -836,6 +880,8 @@ import sys
     jetbase_sha,
     pp_base_e_model,
     pp_base_e_model_sha,
+    capacity_selected_row,
+    capacity_combine_tag,
     release_name,
     offline_main,
     calo_reco_soname,
@@ -874,7 +920,11 @@ payload = {
         "path": pp_base_e_model,
         "sha256": pp_base_e_model_sha,
     },
-    "schema": "THE134_SINGLE_PROVIDER_RUNTIME_AUTHORITY_V2",
+    "capacity_execution": {
+        "combine_tag": capacity_combine_tag,
+        "selected_row": capacity_selected_row,
+    },
+    "schema": "THE134_SINGLE_PROVIDER_RUNTIME_AUTHORITY_V3",
     "status": "PASS",
 }
 if action == "ensure":
