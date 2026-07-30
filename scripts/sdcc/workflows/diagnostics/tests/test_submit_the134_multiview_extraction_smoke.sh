@@ -3,8 +3,16 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../.." && pwd -P)"
 controller="${repo_root}/scripts/sdcc/workflows/diagnostics/submit_the134_multiview_extraction_smoke.sh"
+macro="${repo_root}/macros/Fun4All_recoilJets_unified_impl.C"
+pp_config="${repo_root}/macros/analysis_config_the119_pp_replay_foundation.yaml"
 
 bash -n "$controller"
+grep -Fq 'RJ_THE134_PP_BASE_E_MODEL is required for the PPG12 p+p-SIM route' "$controller"
+grep -Fq 'p+p config/base_E model path mismatch' "$controller"
+grep -Fq 'std::string ppg12_base_e_model_file = "";' "$macro"
+grep -Fq 'cfg.ppg12_base_e_model_file = detail::trim(AfterColon(line));' "$macro"
+grep -Fq 'std::string baseEModelFile = cfg.ppg12_base_e_model_file;' "$macro"
+grep -Fq 'ppg12_base_e_model_file: /sphenix/user/shuhangli/ppg12/FunWithxgboost/binned_models/model_base_E_split_single_tmva.root' "$pp_config"
 if grep -Eq '(^|[^[:alnum:]_])(/usr/bin/)?(say|afplay)([^[:alnum:]_]|$)|osascript|NSSound' "$controller"; then
   printf 'forbidden local audio command in controller: %s\n' "$controller" >&2
   exit 1
@@ -731,6 +739,8 @@ release_clusteriso="/release/lib64/libclusteriso.so"
 RJ_THE134_RELEASE_CLUSTERISO_SHA256="$frozen_sha"
 release_jetbase="/release/lib64/libjetbase.so"
 RJ_THE134_RELEASE_JETBASE_SHA256="$frozen_sha"
+pp_base_e_model="/frozen/model_base_E.root"
+RJ_THE134_PP_BASE_E_MODEL_SHA256="$frozen_sha"
 pinned_release_name="ana.560"
 pinned_offline_main="/release/ana.560"
 pinned_calo_reco_soname="libcalo_reco.so.0"

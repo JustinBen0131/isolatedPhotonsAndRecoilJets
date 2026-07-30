@@ -55,6 +55,7 @@ auau_config="${RJ_THE134_AUAU_CONFIG:-${repo_root}/macros/analysis_config_the112
 pp_library="${RJ_THE134_PP_LIBRARY:-}"
 auau_library="${RJ_THE134_AUAU_LIBRARY:-}"
 pp_model="${RJ_THE134_PP_MODEL:-/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/the116_models/the116_pp_matched_basev3e_15to35_20260720/models/bdt_ppg12_basev3e_15to35/pp_tight_bdt_ppg12_base_v3E_bdt_noIso_tmva.root}"
+pp_base_e_model="${RJ_THE134_PP_BASE_E_MODEL:-}"
 auau_model="${RJ_THE134_AUAU_MODEL:-/sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/the111_models/the111_combined_corrected_shower_ppg12_labels_20260719_1618/combined/auau_tight_bdt_centAsFeatBase3x3_pt15to35_tmva.root}"
 source_hash_manifest="${RJ_THE134_SOURCE_HASH_MANIFEST:-}"
 pp_period="${RJ_THE134_PP_PERIOD:-}"
@@ -808,6 +809,7 @@ write_runtime_authority_manifest() {
     "$release_calo_io" "$RJ_THE134_RELEASE_CALO_IO_SHA256" \
     "$release_clusteriso" "$RJ_THE134_RELEASE_CLUSTERISO_SHA256" \
     "$release_jetbase" "$RJ_THE134_RELEASE_JETBASE_SHA256" \
+    "$pp_base_e_model" "$RJ_THE134_PP_BASE_E_MODEL_SHA256" \
     "$pinned_release_name" "$pinned_offline_main" \
     "$pinned_calo_reco_soname" "$pp_period" <<'PY'
 from pathlib import Path
@@ -832,6 +834,8 @@ import sys
     clusteriso_sha,
     jetbase,
     jetbase_sha,
+    pp_base_e_model,
+    pp_base_e_model_sha,
     release_name,
     offline_main,
     calo_reco_soname,
@@ -865,6 +869,10 @@ payload = {
         "period": pp_period,
         "period_lumi_weight": True,
         "vertex_reweight": "period_auto",
+    },
+    "ppg12_base_e_model": {
+        "path": pp_base_e_model,
+        "sha256": pp_base_e_model_sha,
     },
     "schema": "THE134_SINGLE_PROVIDER_RUNTIME_AUTHORITY_V2",
     "status": "PASS",
@@ -912,7 +920,7 @@ PY
 
 require_inputs_and_hashes() {
   local actual_code actual_replay_schema actual_training_schema actual_semantic
-  local pp_yaml_model auau_yaml_model
+  local pp_yaml_model pp_yaml_base_e_model auau_yaml_model
   validate_matrix || die "frozen source matrix validation failed"
   validate_pp_sim_weight_contract "$pp_period" ||
     die "p+p period and simulation-weight contract validation failed"
@@ -923,6 +931,8 @@ require_inputs_and_hashes() {
   [[ -x "$auau_executor" ]] || die "Au+Au RecoilJets executor is not executable: ${auau_executor}"
   [[ -n "$pp_library" ]] || die "RJ_THE134_PP_LIBRARY is required; mutable or historical default libraries are forbidden"
   [[ -n "$auau_library" ]] || die "RJ_THE134_AUAU_LIBRARY is required; mutable or historical default libraries are forbidden"
+  [[ -n "$pp_base_e_model" ]] ||
+    die "RJ_THE134_PP_BASE_E_MODEL is required for the PPG12 p+p-SIM route"
   [[ -n "${RJ_CODEX_CHAT_NAME:-}" ]] || die "RJ_CODEX_CHAT_NAME is required"
   [[ -n "${RJ_CODEX_THREAD_ID:-}" ]] || die "RJ_CODEX_THREAD_ID is required"
   [[ -n "$source_hash_manifest" ]] || die "RJ_THE134_SOURCE_HASH_MANIFEST is required"
@@ -956,6 +966,7 @@ require_inputs_and_hashes() {
   : "${RJ_THE134_PP_CONFIG_SHA256:?set frozen p+p base-config SHA-256}"
   : "${RJ_THE134_AUAU_CONFIG_SHA256:?set frozen Au+Au base-config SHA-256}"
   : "${RJ_THE134_PP_MODEL_SHA256:?set frozen p+p model SHA-256}"
+  : "${RJ_THE134_PP_BASE_E_MODEL_SHA256:?set frozen PPG12 base_E model SHA-256}"
   : "${RJ_THE134_AUAU_MODEL_SHA256:?set frozen Au+Au model SHA-256}"
   : "${RJ_THE134_CODE_SHA256:?set frozen aggregate code SHA-256}"
   : "${RJ_THE134_REPLAY_SCHEMA_SHA256:?set frozen replay-schema SHA-256}"
@@ -976,6 +987,7 @@ require_inputs_and_hashes() {
   require_file_hash "p+p base config" "$pp_config" "$RJ_THE134_PP_CONFIG_SHA256"
   require_file_hash "Au+Au base config" "$auau_config" "$RJ_THE134_AUAU_CONFIG_SHA256"
   require_file_hash "p+p model" "$pp_model" "$RJ_THE134_PP_MODEL_SHA256"
+  require_file_hash "PPG12 base_E model" "$pp_base_e_model" "$RJ_THE134_PP_BASE_E_MODEL_SHA256"
   require_file_hash "Au+Au model" "$auau_model" "$RJ_THE134_AUAU_MODEL_SHA256"
   require_file_hash "PhotonClusterv1 build header" "$photon_cluster_header" "$RJ_THE134_PHOTON_CLUSTER_HEADER_SHA256"
   require_file_hash "PhotonClusterBuilder build header" "$photon_cluster_builder_header" "$RJ_THE134_PHOTON_CLUSTER_BUILDER_HEADER_SHA256"
@@ -999,9 +1011,13 @@ require_inputs_and_hashes() {
 
   pp_yaml_model="$(yaml_value "$pp_config" tight_bdt_model_file)" ||
     die "p+p model path could not be resolved from the frozen configuration"
+  pp_yaml_base_e_model="$(yaml_value "$pp_config" ppg12_base_e_model_file)" ||
+    die "PPG12 base_E model path could not be resolved from the frozen p+p configuration"
   auau_yaml_model="$(yaml_value "$auau_config" auau_tight_bdt_centInputBase3x3_model_file)" ||
     die "Au+Au model path could not be resolved from the frozen configuration"
   [[ "$pp_yaml_model" == "$pp_model" ]] || die "p+p config/model path mismatch: config=${pp_yaml_model} frozen=${pp_model}"
+  [[ "$pp_yaml_base_e_model" == "$pp_base_e_model" ]] ||
+    die "p+p config/base_E model path mismatch: config=${pp_yaml_base_e_model} frozen=${pp_base_e_model}"
   [[ "$auau_yaml_model" == "$auau_model" ]] || die "Au+Au config/model path mismatch: config=${auau_yaml_model} frozen=${auau_model}"
 
   actual_code="$(compute_code_sha)" ||

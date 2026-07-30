@@ -37,6 +37,7 @@ npb_cut: 0.5
 npb_features: [cluster_Et, cluster_Eta, vertexz, e11_over_e33, e32_over_e35, e11_over_e22, e11_over_e13, e11_over_e15, e11_over_e17, e11_over_e31, e11_over_e51, e11_over_e71, e22_over_e33, e22_over_e35, e22_over_e37, e22_over_e53, cluster_weta_cogx, cluster_wphi_cogx, cluster_et1, cluster_et2, cluster_et3, cluster_et4, cluster_w32, cluster_w52, cluster_w72]
 
 tight_bdt_model_file: /sphenix/tg/tg01/bulk/jbennett/thesisAnaTraining/the116_models/the116_pp_matched_basev3e_15to35_20260720/models/bdt_ppg12_basev3e_15to35/pp_tight_bdt_ppg12_base_v3E_bdt_noIso_tmva.root
+ppg12_base_e_model_file: /sphenix/user/shuhangli/ppg12/FunWithxgboost/binned_models/model_base_E_split_single_tmva.root
 # Selection-line compatibility only.  Authoritative WP70/80/90 are the exact
 # binned values supplied to the replay writer and are applied offline.
 tight_bdt_min_intercept: -1.0

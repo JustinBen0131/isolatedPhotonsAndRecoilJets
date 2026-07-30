@@ -993,6 +993,7 @@ namespace yamlcfg
         std::vector<std::string> npb_features;
 
         std::string tight_bdt_model_file = "";
+        std::string ppg12_base_e_model_file = "";
         double tight_bdt_min_intercept = 0.815625;
         double tight_bdt_min_slope = -0.0015625;
         double tight_bdt_max = 1.0;
@@ -1802,6 +1803,10 @@ namespace yamlcfg
             else if (StartsWithKey(line, "tight_bdt_model_file"))
             {
                 cfg.tight_bdt_model_file = detail::trim(AfterColon(line));
+            }
+            else if (StartsWithKey(line, "ppg12_base_e_model_file"))
+            {
+                cfg.ppg12_base_e_model_file = detail::trim(AfterColon(line));
             }
             else if (StartsWithKey(line, "tight_bdt_min_intercept"))
             {
@@ -6520,17 +6525,23 @@ void Fun4All_recoilJets_unified_impl(const int   nEvents   =  0,
             // RecoilJets performs the route after materializing that ET.
             if (ppg12PhotonYieldPPSim)
             {
-                std::string baseEModelFile = cfg.tight_bdt_model_file;
-                const std::string baseV3EToken = "base_v3E";
-                const std::size_t modelTokenPos = baseEModelFile.find(baseV3EToken);
-                if (modelTokenPos == std::string::npos)
+                std::string baseEModelFile = cfg.ppg12_base_e_model_file;
+                if (baseEModelFile.empty())
                 {
-                    detail::bail(
-                        "PPG12 pp-SIM photon-yield mode requires a base_v3E "
-                        "tight_bdt_model_file so the deployed base_E fallback "
-                        "path can be resolved; received " + baseEModelFile);
+                    baseEModelFile = cfg.tight_bdt_model_file;
+                    const std::string baseV3EToken = "base_v3E";
+                    const std::size_t modelTokenPos = baseEModelFile.find(baseV3EToken);
+                    if (modelTokenPos == std::string::npos)
+                    {
+                        detail::bail(
+                            "PPG12 pp-SIM photon-yield mode requires either "
+                            "ppg12_base_e_model_file or a base_v3E "
+                            "tight_bdt_model_file whose legacy sibling path "
+                            "can be resolved; received " + baseEModelFile);
+                    }
+                    baseEModelFile.replace(
+                        modelTokenPos, baseV3EToken.size(), "base_E");
                 }
-                baseEModelFile.replace(modelTokenPos, baseV3EToken.size(), "base_E");
                 const std::vector<std::string> baseEFeatures = {
                     "cluster_Et", "vertexz", "cluster_Eta", "e11_over_e33",
                     "cluster_et1", "cluster_et2", "cluster_et3", "cluster_et4"};
