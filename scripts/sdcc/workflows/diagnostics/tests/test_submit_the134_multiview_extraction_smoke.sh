@@ -190,6 +190,126 @@ path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 PY
 capacity_preflight_receipt_sha="$(sha_file "$capacity_preflight_receipt")"
 validate_capacity_preflight_contract
+python3 - "$capacity_full_plan" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text())
+payload["artifact_profile"] = {
+    "analysis_root_role": "EPHEMERAL_CONDOR_SCRATCH_VALIDATED_NOT_RETAINED",
+    "artifact_profile": "THE134_MULTIVIEW_SIDECAR_ONLY_V2",
+    "retained_analysis_root_count_per_job": 0,
+    "schema": "THE134_MULTIVIEW_SIDECAR_ONLY_ARTIFACT_PROFILE_V2",
+    "training_sidecar_role": "RJPhotonTrainingViewV1",
+}
+payload["execution_partition"].update(
+    {
+        "expected_durable_root_artifact_count": 18577,
+        "expected_job_count": 18577,
+        "expected_retained_analysis_output_count": 0,
+        "expected_sidecar_output_count": 18577,
+        "schema": "THE134_FULL_EXTRACTION_PARTITION_CONTRACT_V3",
+    }
+)
+path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+PY
+capacity_full_plan_sha="$(sha_file "$capacity_full_plan")"
+python3 - "$capacity_preflight_receipt" "$capacity_full_plan_sha" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text())
+payload["artifacts"]["plan"]["sha256"] = sys.argv[2]
+path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+PY
+capacity_preflight_receipt_sha="$(sha_file "$capacity_preflight_receipt")"
+validate_capacity_preflight_contract
+python3 - "$capacity_full_plan" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text())
+payload["execution_partition"]["expected_retained_analysis_output_count"] = 1
+path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+PY
+capacity_full_plan_sha="$(sha_file "$capacity_full_plan")"
+python3 - "$capacity_preflight_receipt" "$capacity_full_plan_sha" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text())
+payload["artifacts"]["plan"]["sha256"] = sys.argv[2]
+path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+PY
+capacity_preflight_receipt_sha="$(sha_file "$capacity_preflight_receipt")"
+if ( validate_capacity_preflight_contract ) >/dev/null 2>&1; then
+  printf 'V3 partition with retained analysis outputs was accepted\n' >&2
+  exit 1
+fi
+python3 - "$capacity_full_plan" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text())
+payload["execution_partition"]["expected_retained_analysis_output_count"] = 0
+payload["artifact_profile"]["artifact_profile"] = "THE134_MULTIVIEW_SIDECAR_ONLY_V1"
+path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+PY
+capacity_full_plan_sha="$(sha_file "$capacity_full_plan")"
+python3 - "$capacity_preflight_receipt" "$capacity_full_plan_sha" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text())
+payload["artifacts"]["plan"]["sha256"] = sys.argv[2]
+path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+PY
+capacity_preflight_receipt_sha="$(sha_file "$capacity_preflight_receipt")"
+if ( validate_capacity_preflight_contract ) >/dev/null 2>&1; then
+  printf 'V3 partition with a non-V2 sidecar artifact profile was accepted\n' >&2
+  exit 1
+fi
+python3 - "$capacity_full_plan" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text())
+payload.pop("artifact_profile")
+payload["execution_partition"] = {
+    "capacity_authority_earned": False,
+    "capacity_canary_required_before_submission": True,
+    "group_size": 7,
+    "schema": "THE134_FULL_EXTRACTION_PARTITION_CONTRACT_V2",
+}
+path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+PY
+capacity_full_plan_sha="$(sha_file "$capacity_full_plan")"
+python3 - "$capacity_preflight_receipt" "$capacity_full_plan_sha" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text())
+payload["artifacts"]["plan"]["sha256"] = sys.argv[2]
+path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+PY
+capacity_preflight_receipt_sha="$(sha_file "$capacity_preflight_receipt")"
+validate_capacity_preflight_contract
 python3 - "$capacity_preflight_receipt" <<'PY'
 from pathlib import Path
 import json

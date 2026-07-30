@@ -468,8 +468,32 @@ if (
 if receipt.get("artifacts", {}).get("plan", {}).get("sha256") != plan_sha:
     raise SystemExit("capacity preflight receipt does not bind the exact full plan")
 partition = plan.get("execution_partition", {})
+partition_schema = partition.get("schema")
+ephemeral_sidecar_partition = (
+    receipt_schema == "THE134_FULL_MULTIVIEW_EXTRACTION_PREFLIGHT_RECEIPT_V2"
+    and partition_schema == "THE134_FULL_EXTRACTION_PARTITION_CONTRACT_V3"
+)
+if ephemeral_sidecar_partition:
+    profile = plan.get("artifact_profile", {})
+    if (
+        profile.get("schema")
+        != "THE134_MULTIVIEW_SIDECAR_ONLY_ARTIFACT_PROFILE_V2"
+        or profile.get("artifact_profile") != "THE134_MULTIVIEW_SIDECAR_ONLY_V2"
+        or profile.get("analysis_root_role")
+        != "EPHEMERAL_CONDOR_SCRATCH_VALIDATED_NOT_RETAINED"
+        or profile.get("training_sidecar_role") != "RJPhotonTrainingViewV1"
+        or int(profile.get("retained_analysis_root_count_per_job", -1)) != 0
+        or int(partition.get("expected_retained_analysis_output_count", -1)) != 0
+        or int(partition.get("expected_durable_root_artifact_count", -1))
+        != int(partition.get("expected_sidecar_output_count", -2))
+        or int(partition.get("expected_durable_root_artifact_count", -1))
+        != int(partition.get("expected_job_count", -2))
+    ):
+        raise SystemExit(
+            "capacity V3 partition lacks the exact ephemeral-analysis retention contract"
+        )
 if (
-    partition.get("schema") != schema_contract[1]
+    (partition_schema != schema_contract[1] and not ephemeral_sidecar_partition)
     or int(partition.get("group_size", -1)) != 7
     or partition.get("capacity_canary_required_before_submission") is not True
     or partition.get("capacity_authority_earned") is not False
