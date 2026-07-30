@@ -2256,7 +2256,8 @@ validate_root_health_and_joins() {
     "$controller_path" "$capacity_controller_sha" "$capacity_validation_commit" \
     "$capacity_submission_manifest_sha" "$capacity_submission_receipt_sha" \
     "$submission_journal" "$capacity_submission_journal_sha" \
-    "$runtime_authority_manifest" "$capacity_runtime_authority_sha" <<'PY'
+    "$runtime_authority_manifest" "$capacity_runtime_authority_sha" \
+    "$capacity_full_plan" "$capacity_full_plan_sha" "$fast_extraction_mode" <<'PY'
 import csv
 import hashlib
 import json
@@ -2288,6 +2289,9 @@ submission_journal_path = Path(sys.argv[15])
 submission_journal_sha256 = sys.argv[16]
 runtime_authority_path = Path(sys.argv[17])
 runtime_authority_sha256 = sys.argv[18]
+full_plan_path = Path(sys.argv[19])
+full_plan_sha256 = sys.argv[20]
+expected_fast_extraction = bool(int(sys.argv[21]))
 with manifest_path.open(newline="") as stream:
     manifests = {row["row_id"]: row for row in csv.DictReader(stream, delimiter="\t")}
 with receipt_path.open(newline="") as stream:
@@ -2319,6 +2323,13 @@ ANALYSIS_HEALTH_PROFILE = {
     "name": "analysis_writer_root_v1",
     "minimum_bytes": ANALYSIS_MINIMUM_BYTES,
     "minimum_bytes_mode": "hard_gate",
+}
+EPHEMERAL_ANALYSIS_HEALTH_PROFILE = {
+    "schema": "RJ_ARTIFACT_HEALTH_PROFILE_V1",
+    "name": "analysis_writer_root_ephemeral_receipt_v1",
+    "minimum_bytes": ANALYSIS_MINIMUM_BYTES,
+    "minimum_bytes_mode": "worker_guard",
+    "retention": "ephemeral_condor_scratch_not_retained",
 }
 SIDECAR_HEALTH_PROFILE = {
     "schema": "RJ_ARTIFACT_HEALTH_PROFILE_V1",
@@ -2425,6 +2436,157 @@ def expected_source_execution(
     }
 
 
+def derive_source_identity(
+    receipt: dict[str, str], manifest: dict[str, str]
+) -> tuple[
+    dict[str, object],
+    dict[str, object],
+    str,
+    tuple[int, int],
+]:
+    source_execution = expected_source_execution(receipt, manifest)
+    source_contract = {
+        "lane": manifest["lane"],
+        "dataset": manifest["dataset"],
+        "sample": manifest["sample"],
+        "period": expected_pp_period if manifest["system"] == "pp" else "AUAU_RUN24",
+        "run": source_execution["run"],
+        "segment": source_execution["chunk_index"],
+        "si_di_role": "SI" if manifest["system"] == "pp" else "EMBEDDED",
+        "ownership_state": "source_role_frozen",
+        "input_uri_hash": receipt["staged_chunk_sha256"],
+        "input_file_sha256": receipt["staged_chunk_sha256"],
+        "source_manifest_sha256": manifest["source_manifest_sha256"],
+    }
+    canonical_source_identity = "|".join(
+        str(source_contract[field])
+        for field in (
+            "lane",
+            "dataset",
+            "sample",
+            "period",
+            "run",
+            "segment",
+            "input_uri_hash",
+            "input_file_sha256",
+            "source_manifest_sha256",
+        )
+    )
+    source_identity_sha256 = hashlib.sha256(
+        canonical_source_identity.encode("utf-8")
+    ).hexdigest()
+    source_identity = (
+        int(source_identity_sha256[:16], 16),
+        int(source_identity_sha256[16:32], 16),
+    )
+    if source_identity == (0, 0):
+        source_identity = (0, 1)
+    return source_execution, source_contract, source_identity_sha256, source_identity
+
+
+def parse_ephemeral_analysis_receipt(
+    receipt: dict[str, str],
+) -> tuple[Path, str, dict[str, object]]:
+    stdout_path = Path(receipt["condor_stdout"])
+    if stdout_path.is_symlink() or not stdout_path.is_file():
+        raise ValueError(f"missing or symlinked Condor stdout receipt:{stdout_path}")
+    prefix = "RECOILJETS_THE134_EPHEMERAL_ANALYSIS_V1 "
+    matching = [
+        line[len(prefix):]
+        for line in stdout_path.read_text(encoding="utf-8", errors="strict").splitlines()
+        if line.startswith(prefix)
+    ]
+    if len(matching) != 1:
+        raise ValueError(
+            "ephemeral analysis health receipt cardinality differs:"
+            f"{stdout_path}:{len(matching)}"
+        )
+    try:
+        payload = json.loads(matching[0])
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"malformed ephemeral analysis health receipt:{stdout_path}") from exc
+    base_keys = {
+        "schema",
+        "status",
+        "mode",
+        "analysis_size_bytes",
+        "analysis_minimum_bytes",
+        "analysis_key_inventory_sha256",
+        "analysis_config_present",
+        "analysis_directory_present",
+        "analysis_histogram_present",
+        "analysis_root_non_zombie",
+        "analysis_root_non_recovered",
+        "analysis_root_retained",
+        "sidecar_size_bytes",
+        "sidecar_tree_entries",
+    }
+    fast_keys = {
+        "fast_extraction_marker_present",
+        "dependency_slice_validated",
+        "sidecar_only_marker_present",
+        "replay_serialization_disabled",
+        "legacy_analysis_histogram_required",
+    }
+    expected_keys = base_keys | (fast_keys if expected_fast_extraction else set())
+    if set(payload) != expected_keys:
+        raise ValueError(
+            "ephemeral analysis health receipt key inventory differs:"
+            f"missing={sorted(expected_keys-set(payload))}:"
+            f"extra={sorted(set(payload)-expected_keys)}"
+        )
+    expected_schema = (
+        "THE134_FAST_EXTRACTION_HEALTH_V1"
+        if expected_fast_extraction
+        else "THE134_EPHEMERAL_ANALYSIS_HEALTH_V1"
+    )
+    expected_mode = (
+        "FAST_EXTRACTION_DEPENDENCY_SLICE"
+        if expected_fast_extraction
+        else "EPHEMERAL_CONDOR_SCRATCH"
+    )
+    minimum_bytes = 1 if expected_fast_extraction else ANALYSIS_MINIMUM_BYTES
+    required_true = {
+        "analysis_config_present",
+        "analysis_root_non_zombie",
+        "analysis_root_non_recovered",
+    }
+    if not expected_fast_extraction:
+        required_true |= {"analysis_directory_present", "analysis_histogram_present"}
+    if (
+        payload["schema"] != expected_schema
+        or payload["status"] != "PASS"
+        or payload["mode"] != expected_mode
+        or payload["analysis_minimum_bytes"] != minimum_bytes
+        or isinstance(payload["analysis_size_bytes"], bool)
+        or not isinstance(payload["analysis_size_bytes"], int)
+        or payload["analysis_size_bytes"] < minimum_bytes
+        or not HEX64.fullmatch(str(payload["analysis_key_inventory_sha256"]))
+        or payload["analysis_root_retained"] is not False
+        or any(payload[key] is not True for key in required_true)
+        or isinstance(payload["sidecar_size_bytes"], bool)
+        or not isinstance(payload["sidecar_size_bytes"], int)
+        or payload["sidecar_size_bytes"] < 0
+        or isinstance(payload["sidecar_tree_entries"], bool)
+        or not isinstance(payload["sidecar_tree_entries"], int)
+        or payload["sidecar_tree_entries"] < 0
+    ):
+        raise ValueError("ephemeral analysis health receipt semantic contract differs")
+    if expected_fast_extraction and (
+        payload["fast_extraction_marker_present"] is not True
+        or payload["dependency_slice_validated"] is not True
+        or payload["sidecar_only_marker_present"] is not True
+        or payload["replay_serialization_disabled"] is not True
+        or payload["legacy_analysis_histogram_required"] is not False
+        or payload["analysis_directory_present"] is not False
+        or payload["analysis_histogram_present"] is not False
+    ):
+        raise ValueError("fast-extraction health receipt dependency-slice contract differs")
+    return stdout_path.resolve(), file_sha256(stdout_path), payload
+
+
+ephemeral_analysis_mode = False
+artifact_profile: dict[str, object] = {}
 if capacity_mode:
     for label, path, expected_sha in (
         ("validation controller", controller_path, controller_sha256),
@@ -2432,9 +2594,23 @@ if capacity_mode:
         ("submission receipt", receipt_path, submission_receipt_sha256),
         ("submission journal", submission_journal_path, submission_journal_sha256),
         ("runtime authority", runtime_authority_path, runtime_authority_sha256),
+        ("full extraction plan", full_plan_path, full_plan_sha256),
     ):
         if not path.is_file() or file_sha256(path) != expected_sha:
             raise SystemExit(f"{label} drifted before ROOT validation: {path}")
+    full_plan = json.loads(full_plan_path.read_text(encoding="utf-8"))
+    artifact_profile = full_plan.get("artifact_profile", {})
+    ephemeral_analysis_mode = artifact_profile == {
+        "analysis_root_role": "EPHEMERAL_CONDOR_SCRATCH_VALIDATED_NOT_RETAINED",
+        "artifact_profile": "THE134_MULTIVIEW_SIDECAR_ONLY_V2",
+        "retained_analysis_root_count_per_job": 0,
+        "schema": "THE134_MULTIVIEW_SIDECAR_ONLY_ARTIFACT_PROFILE_V2",
+        "training_sidecar_role": "RJPhotonTrainingViewV1",
+    }
+if expected_fast_extraction and not ephemeral_analysis_mode:
+    raise SystemExit(
+        "fast extraction requires the exact frozen sidecar-only ephemeral artifact profile"
+    )
 
 
 def verify_frozen_snapshot_receipts(
@@ -2625,133 +2801,127 @@ for receipt in receipts:
         seen_sidecars.add(sidecar_text)
         analysis_path = Path(analysis_text)
         sidecar_path = Path(sidecar_text)
-
-        analysis, analysis_size = open_healthy(
-            analysis_path,
-            minimum_bytes=ANALYSIS_MINIMUM_BYTES,
-            artifact_class="analysis",
-        )
-        replay = analysis.GetDirectory("ReplayFoundationV1")
-        if not replay:
-            raise ValueError("missing ReplayFoundationV1 directory")
-        observed_trees = {
-            str(key.GetName())
-            for key in replay.GetListOfKeys()
-            if str(key.GetClassName()) == "TTree"
-        }
-        if observed_trees != EXPECTED_REPLAY_TREES:
-            raise ValueError(
-                f"ReplayFoundation tree inventory drift missing={sorted(EXPECTED_REPLAY_TREES-observed_trees)} "
-                f"extra={sorted(observed_trees-EXPECTED_REPLAY_TREES)}"
-            )
-        replay_expected = {
-            "rj_replay_schema": "RJ_REPLAY_FOUNDATION_V1",
-            "rj_replay_schema_version": "2",
-            "rj_replay_complete": "1",
-            "schema_sha256": manifest["replay_schema_sha256"],
-            "semantic_sha256": manifest["semantic_sha256"],
-            "source_sha256": manifest["source_manifest_sha256"],
-            "model_sha256": manifest["model_sha256"],
-            "config_sha256": manifest["resolved_config_sha256"],
-            "code_sha256": manifest["code_sha256"],
-        }
-        for key, expected in replay_expected.items():
-            observed = named_title(replay, key)
-            if observed != expected:
-                raise ValueError(f"ReplayFoundation metadata drift:{key}:{observed}!={expected}")
-
-        source_tree = replay.Get("RJSourceOccurrenceV1")
-        event_tree = replay.Get("RJEventV1")
-        candidate_tree = replay.Get("RJPhotonCandidateV1")
-        if int(source_tree.GetEntries()) != expected_source_count:
-            raise ValueError(
-                "replay source-row population differs from the per-output contract: "
-                f"expected={expected_source_count} observed={int(source_tree.GetEntries())}"
-            )
-        source_rows = list(source_tree)
-        source_ids = {identity(row, "source_occurrence_id") for row in source_rows}
-        if len(source_ids) != expected_source_count:
-            raise ValueError(
-                "replay source identities differ from the per-output contract: "
-                f"expected={expected_source_count} observed={len(source_ids)}"
-            )
-        source_row = source_rows[0]
-        source_execution = expected_source_execution(receipt, manifest)
-        expected_source_contract = {
-            "lane": manifest["lane"],
-            "dataset": manifest["dataset"],
-            "sample": manifest["sample"],
-            "period": expected_pp_period if manifest["system"] == "pp" else "AUAU_RUN24",
-            "run": source_execution["run"],
-            "segment": source_execution["chunk_index"],
-            "si_di_role": "SI" if manifest["system"] == "pp" else "EMBEDDED",
-            "ownership_state": "source_role_frozen",
-            "input_uri_hash": receipt["staged_chunk_sha256"],
-            "input_file_sha256": receipt["staged_chunk_sha256"],
-            "source_manifest_sha256": manifest["source_manifest_sha256"],
-        }
-        observed_source_contract = {
-            "lane": str(source_row.lane),
-            "dataset": str(source_row.dataset),
-            "sample": str(source_row.sample),
-            "period": str(source_row.period),
-            "run": int(source_row.run),
-            "segment": int(source_row.segment),
-            "si_di_role": str(source_row.si_di_role),
-            "ownership_state": str(source_row.ownership_state),
-            "input_uri_hash": str(source_row.input_uri_hash),
-            "input_file_sha256": str(source_row.input_file_sha256),
-            "source_manifest_sha256": str(source_row.source_manifest_sha256),
-        }
-        if observed_source_contract != expected_source_contract:
-            raise ValueError(
-                "replay source-row contract differs from the immutable "
-                f"manifest/receipt: observed={observed_source_contract} "
-                f"expected={expected_source_contract}"
-            )
-        canonical_source_identity = "|".join(
-            str(expected_source_contract[field])
-            for field in (
-                "lane",
-                "dataset",
-                "sample",
-                "period",
-                "run",
-                "segment",
-                "input_uri_hash",
-                "input_file_sha256",
-                "source_manifest_sha256",
-            )
-        )
-        source_identity_sha256 = hashlib.sha256(
-            canonical_source_identity.encode("utf-8")
-        ).hexdigest()
-        expected_source_identity = (
-            int(source_identity_sha256[:16], 16),
-            int(source_identity_sha256[16:32], 16),
-        )
-        if expected_source_identity == (0, 0):
-            expected_source_identity = (0, 1)
-        observed_source_identity = identity(source_row, "source_occurrence_id")
-        if observed_source_identity != expected_source_identity:
-            raise ValueError(
-                "replay source identity differs from its canonical source contract: "
-                f"observed={observed_source_identity} expected={expected_source_identity}"
-            )
+        (
+            source_execution,
+            expected_source_contract,
+            source_identity_sha256,
+            expected_source_identity,
+        ) = derive_source_identity(receipt, manifest)
+        ephemeral_stdout_path: Path | None = None
+        ephemeral_stdout_sha256 = ""
+        ephemeral_receipt: dict[str, object] | None = None
+        analysis = None
         event_to_source: dict[tuple[int, int], tuple[int, int]] = {}
-        for row in event_tree:
-            event_id = identity(row, "event_id")
-            source_id = identity(row, "source_occurrence_id")
-            if event_id in event_to_source or source_id not in source_ids:
-                raise ValueError("duplicate event identity or orphan source foreign key")
-            event_to_source[event_id] = source_id
         candidate_to_event: dict[tuple[int, int], tuple[int, int]] = {}
-        for row in candidate_tree:
-            candidate_id = identity(row, "candidate_id")
-            event_id = identity(row, "event_id")
-            if candidate_id in candidate_to_event or event_id not in event_to_source:
-                raise ValueError("duplicate candidate identity or orphan event foreign key")
-            candidate_to_event[candidate_id] = event_id
+
+        if ephemeral_analysis_mode:
+            (
+                ephemeral_stdout_path,
+                ephemeral_stdout_sha256,
+                ephemeral_receipt,
+            ) = parse_ephemeral_analysis_receipt(receipt)
+            analysis_size = int(ephemeral_receipt["analysis_size_bytes"])
+            observed_trees: set[str] = set()
+            source_ids = {expected_source_identity}
+            observed_source_contract = expected_source_contract
+            observed_source_identity = expected_source_identity
+        else:
+            analysis, analysis_size = open_healthy(
+                analysis_path,
+                minimum_bytes=ANALYSIS_MINIMUM_BYTES,
+                artifact_class="analysis",
+            )
+            replay = analysis.GetDirectory("ReplayFoundationV1")
+            if not replay:
+                raise ValueError("missing ReplayFoundationV1 directory")
+            observed_trees = {
+                str(key.GetName())
+                for key in replay.GetListOfKeys()
+                if str(key.GetClassName()) == "TTree"
+            }
+            if observed_trees != EXPECTED_REPLAY_TREES:
+                raise ValueError(
+                    f"ReplayFoundation tree inventory drift missing={sorted(EXPECTED_REPLAY_TREES-observed_trees)} "
+                    f"extra={sorted(observed_trees-EXPECTED_REPLAY_TREES)}"
+                )
+            replay_expected = {
+                "rj_replay_schema": "RJ_REPLAY_FOUNDATION_V1",
+                "rj_replay_schema_version": "2",
+                "rj_replay_complete": "1",
+                "schema_sha256": manifest["replay_schema_sha256"],
+                "semantic_sha256": manifest["semantic_sha256"],
+                "source_sha256": manifest["source_manifest_sha256"],
+                "model_sha256": manifest["model_sha256"],
+                "config_sha256": manifest["resolved_config_sha256"],
+                "code_sha256": manifest["code_sha256"],
+            }
+            for key, expected in replay_expected.items():
+                observed = named_title(replay, key)
+                if observed != expected:
+                    raise ValueError(
+                        f"ReplayFoundation metadata drift:{key}:{observed}!={expected}"
+                    )
+
+            source_tree = replay.Get("RJSourceOccurrenceV1")
+            event_tree = replay.Get("RJEventV1")
+            candidate_tree = replay.Get("RJPhotonCandidateV1")
+            if int(source_tree.GetEntries()) != expected_source_count:
+                raise ValueError(
+                    "replay source-row population differs from the per-output contract: "
+                    f"expected={expected_source_count} observed={int(source_tree.GetEntries())}"
+                )
+            source_rows = list(source_tree)
+            source_ids = {identity(row, "source_occurrence_id") for row in source_rows}
+            if len(source_ids) != expected_source_count:
+                raise ValueError(
+                    "replay source identities differ from the per-output contract: "
+                    f"expected={expected_source_count} observed={len(source_ids)}"
+                )
+            source_row = source_rows[0]
+            observed_source_contract = {
+                "lane": str(source_row.lane),
+                "dataset": str(source_row.dataset),
+                "sample": str(source_row.sample),
+                "period": str(source_row.period),
+                "run": int(source_row.run),
+                "segment": int(source_row.segment),
+                "si_di_role": str(source_row.si_di_role),
+                "ownership_state": str(source_row.ownership_state),
+                "input_uri_hash": str(source_row.input_uri_hash),
+                "input_file_sha256": str(source_row.input_file_sha256),
+                "source_manifest_sha256": str(source_row.source_manifest_sha256),
+            }
+            if observed_source_contract != expected_source_contract:
+                raise ValueError(
+                    "replay source-row contract differs from the immutable "
+                    f"manifest/receipt: observed={observed_source_contract} "
+                    f"expected={expected_source_contract}"
+                )
+            observed_source_identity = identity(source_row, "source_occurrence_id")
+            if observed_source_identity != expected_source_identity:
+                raise ValueError(
+                    "replay source identity differs from its canonical source contract: "
+                    f"observed={observed_source_identity} expected={expected_source_identity}"
+                )
+            for row in event_tree:
+                event_id = identity(row, "event_id")
+                source_id = identity(row, "source_occurrence_id")
+                if event_id in event_to_source or source_id not in source_ids:
+                    raise ValueError(
+                        "duplicate event identity or orphan source foreign key"
+                    )
+                event_to_source[event_id] = source_id
+            for row in candidate_tree:
+                candidate_id = identity(row, "candidate_id")
+                event_id = identity(row, "event_id")
+                if (
+                    candidate_id in candidate_to_event
+                    or event_id not in event_to_source
+                ):
+                    raise ValueError(
+                        "duplicate candidate identity or orphan event foreign key"
+                    )
+                candidate_to_event[candidate_id] = event_id
 
         sidecar, sidecar_size = open_healthy(
             sidecar_path,
@@ -2799,11 +2969,21 @@ for receipt in receipts:
             candidate_id = identity(row, "candidate_id")
             definition = str(row.definition_name)
             if source_id not in source_ids:
-                raise ValueError("sidecar source identity does not join ReplayFoundation")
-            if event_to_source.get(event_id) != source_id:
-                raise ValueError("sidecar event/source identity join failed")
-            if candidate_to_event.get(candidate_id) != event_id:
-                raise ValueError("sidecar candidate/event identity join failed")
+                raise ValueError(
+                    "sidecar source identity does not join the frozen source authority"
+                )
+            if ephemeral_analysis_mode:
+                prior_source = event_to_source.setdefault(event_id, source_id)
+                prior_event = candidate_to_event.setdefault(candidate_id, event_id)
+                if prior_source != source_id or prior_event != event_id:
+                    raise ValueError(
+                        "sidecar internal source/event/candidate foreign-key binding failed"
+                    )
+            else:
+                if event_to_source.get(event_id) != source_id:
+                    raise ValueError("sidecar event/source identity join failed")
+                if candidate_to_event.get(candidate_id) != event_id:
+                    raise ValueError("sidecar candidate/event identity join failed")
             if definition in candidate_definitions[candidate_id]:
                 raise ValueError("duplicate sidecar candidate/definition identity")
             candidate_definitions[candidate_id].add(definition)
@@ -2818,18 +2998,47 @@ for receipt in receipts:
         population_state = (
             "POPULATED" if candidate_definitions else "VALID_EMPTY"
         )
+        if ephemeral_analysis_mode:
+            assert ephemeral_receipt is not None
+            if (
+                int(ephemeral_receipt["sidecar_size_bytes"]) != sidecar_size
+                or int(ephemeral_receipt["sidecar_tree_entries"]) != entry_count
+            ):
+                raise ValueError(
+                    "ephemeral worker receipt does not bind the retained sidecar"
+                )
+            analysis_report_fields = {
+                "analysis_artifact_state": "EPHEMERAL_VALIDATED_NOT_RETAINED",
+                "analysis_output_root": analysis_text,
+                "analysis_bytes": analysis_size,
+                "analysis_key_inventory_sha256": ephemeral_receipt[
+                    "analysis_key_inventory_sha256"
+                ],
+                "analysis_health_receipt": {
+                    "path": str(ephemeral_stdout_path),
+                    "sha256": ephemeral_stdout_sha256,
+                    "payload": ephemeral_receipt,
+                },
+            }
+        else:
+            analysis_report_fields = {
+                "analysis_artifact_state": "DURABLE_VALIDATED",
+                "analysis_output_root": analysis_text,
+                "analysis_bytes": analysis_size,
+                "analysis_sha256": file_sha256(analysis_path),
+            }
 
         report.update(
             {
                 "status": "PASS",
-                "analysis_output_root": analysis_text,
-                "analysis_bytes": analysis_size,
-                "analysis_sha256": file_sha256(analysis_path),
+                **analysis_report_fields,
                 "sidecar": sidecar_text,
                 "sidecar_bytes": sidecar_size,
                 "sidecar_sha256": file_sha256(sidecar_path),
                 "sidecar_size_diagnostic": sidecar_size_diagnostic,
-                "replay_tree_count": len(observed_trees),
+                "replay_tree_count": (
+                    len(observed_trees) if not ephemeral_analysis_mode else 0
+                ),
                 "replay_sources": len(source_ids),
                 "source_contract": observed_source_contract,
                 "source_execution_contract": source_execution,
@@ -2850,7 +3059,8 @@ for receipt in receipts:
             }
         )
         sidecar.Close()
-        analysis.Close()
+        if analysis is not None:
+            analysis.Close()
     except Exception as exc:
         failures.append(f"{row_id}:{exc}")
         report.update({"status": "FAIL", "failure": str(exc)})
@@ -2895,7 +3105,12 @@ payload = {
     "valid_empty_rows": valid_empty_rows,
     "populated_row_count": len(populated_rows),
     "valid_empty_row_count": len(valid_empty_rows),
-    "analysis_health_profile": ANALYSIS_HEALTH_PROFILE,
+    "analysis_health_profile": (
+        EPHEMERAL_ANALYSIS_HEALTH_PROFILE
+        if ephemeral_analysis_mode
+        else ANALYSIS_HEALTH_PROFILE
+    ),
+    "artifact_profile": artifact_profile,
     "sidecar_health_profile": SIDECAR_HEALTH_PROFILE,
     "capacity_authority_earned": bool(capacity_mode and not failures),
     "validation_authority": ({
@@ -2919,6 +3134,10 @@ payload = {
         "runtime_authority": {
             "path": str(runtime_authority_path.resolve()),
             "sha256": runtime_authority_sha256,
+        },
+        "full_extraction_plan": {
+            "path": str(full_plan_path.resolve()),
+            "sha256": full_plan_sha256,
         },
     } if capacity_mode else {}),
     "row_count": len(reports),
@@ -3375,7 +3594,31 @@ if digest(preflight_receipt_path) != preflight_receipt_sha:
 if digest(full_plan_path) != full_plan_sha:
     raise SystemExit("capacity full plan drifted before resource certification")
 preflight = json.loads(preflight_receipt_path.read_text(encoding="utf-8"))
+full_plan = json.loads(full_plan_path.read_text(encoding="utf-8"))
 root_certificate = json.loads(root_certificate_path.read_text(encoding="utf-8"))
+expected_artifact_profile = {
+    "analysis_root_role": "EPHEMERAL_CONDOR_SCRATCH_VALIDATED_NOT_RETAINED",
+    "artifact_profile": "THE134_MULTIVIEW_SIDECAR_ONLY_V2",
+    "retained_analysis_root_count_per_job": 0,
+    "schema": "THE134_MULTIVIEW_SIDECAR_ONLY_ARTIFACT_PROFILE_V2",
+    "training_sidecar_role": "RJPhotonTrainingViewV1",
+}
+ephemeral_analysis_mode = full_plan.get("artifact_profile") == expected_artifact_profile
+expected_analysis_health_profile = (
+    {
+        "schema": "RJ_ARTIFACT_HEALTH_PROFILE_V1",
+        "name": "analysis_writer_root_ephemeral_receipt_v1",
+        "minimum_bytes": 50000,
+        "minimum_bytes_mode": "worker_guard",
+        "retention": "ephemeral_condor_scratch_not_retained",
+    }
+    if ephemeral_analysis_mode
+    else {
+        "name": "analysis_writer_root_v1",
+        "minimum_bytes": 50000,
+        "minimum_bytes_mode": "hard_gate",
+    }
+)
 if (
     root_certificate.get("status") != "PASS"
     or root_certificate.get("scope") != "capacity"
@@ -3387,11 +3630,8 @@ if (
     + int(root_certificate.get("valid_empty_row_count", -1))
     != int(root_certificate.get("row_count", -1))
     or root_certificate.get("analysis_health_profile")
-    != {
-        "name": "analysis_writer_root_v1",
-        "minimum_bytes": 50000,
-        "minimum_bytes_mode": "hard_gate",
-    }
+    != expected_analysis_health_profile
+    or root_certificate.get("artifact_profile") != full_plan.get("artifact_profile", {})
     or root_certificate.get("sidecar_health_profile")
     != {
         "schema": "RJ_ARTIFACT_HEALTH_PROFILE_V1",
@@ -3416,6 +3656,7 @@ for label in (
     "submission_receipt",
     "submission_journal",
     "runtime_authority",
+    "full_extraction_plan",
 ):
     authority = validation_authority.get(label, {})
     path = Path(str(authority.get("path", "")))
@@ -3431,14 +3672,37 @@ root_reports = {
 for row_id, report in root_reports.items():
     analysis_path = Path(str(report.get("analysis_output_root", "")))
     sidecar_path = Path(str(report.get("sidecar", "")))
-    if (
-        not analysis_path.is_file()
-        or not sidecar_path.is_file()
+    if not sidecar_path.is_file() or digest(sidecar_path) != report.get(
+        "sidecar_sha256"
+    ):
+        raise SystemExit(f"capacity sidecar bytes drifted after validation: {row_id}")
+    if ephemeral_analysis_mode:
+        health_receipt = report.get("analysis_health_receipt", {})
+        health_path = Path(str(health_receipt.get("path", "")))
+        payload = health_receipt.get("payload", {})
+        if (
+            report.get("analysis_artifact_state")
+            != "EPHEMERAL_VALIDATED_NOT_RETAINED"
+            or analysis_path.exists()
+            or not health_path.is_file()
+            or digest(health_path) != health_receipt.get("sha256")
+            or payload.get("status") != "PASS"
+            or payload.get("analysis_root_retained") is not False
+            or int(payload.get("sidecar_size_bytes", -1))
+            != sidecar_path.stat().st_size
+            or int(payload.get("sidecar_tree_entries", -1))
+            != int(report.get("sidecar_entries", -2))
+        ):
+            raise SystemExit(
+                f"capacity ephemeral analysis receipt drifted after validation: {row_id}"
+            )
+    elif (
+        report.get("analysis_artifact_state") != "DURABLE_VALIDATED"
+        or not analysis_path.is_file()
         or digest(analysis_path) != report.get("analysis_sha256")
-        or digest(sidecar_path) != report.get("sidecar_sha256")
     ):
         raise SystemExit(
-            f"capacity ROOT bytes drifted after health validation: {row_id}"
+            f"capacity analysis ROOT bytes drifted after health validation: {row_id}"
         )
 expected_audits = (
     ("pp", "pp_background_jet8", pp_audit_path),

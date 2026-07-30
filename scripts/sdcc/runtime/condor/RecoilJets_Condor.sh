@@ -496,6 +496,11 @@ file_size_bytes() {
 }
 
 require_non_tiny_output() {
+  case "${RJ_THE134_FAST_EXTRACTION_V1:-0}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 1
+      ;;
+  esac
   case "${RJ_REQUIRE_NON_TINY_OUTPUT:-0}" in
     1|true|TRUE|yes|YES|on|ON) return 0 ;;
     *) return 1 ;;
@@ -548,7 +553,8 @@ emit_the134_ephemeral_analysis_health() {
     echo "[ERROR] Ephemeral THE-134 extraction requires exactly one analysis ROOT, observed ${#fanout_outputs[@]}"
     return 12
   fi
-  python3 - "$out_root" "$RJ_THE134_MULTIVIEW_TRAINING_FILE" "$(min_output_bytes)" <<'PY'
+  python3 - "$out_root" "$RJ_THE134_MULTIVIEW_TRAINING_FILE" \
+    "$(min_output_bytes)" "${RJ_THE134_FAST_EXTRACTION_V1:-0}" <<'PY'
 import hashlib
 import json
 import os
@@ -556,8 +562,9 @@ import sys
 
 import ROOT
 
-analysis_path, sidecar_path, minimum_text = sys.argv[1:]
+analysis_path, sidecar_path, minimum_text, fast_text = sys.argv[1:]
 minimum_bytes = int(minimum_text)
+fast_extraction = fast_text == "1"
 ROOT.gROOT.SetBatch(True)
 
 analysis = ROOT.TFile.Open(analysis_path)
@@ -590,14 +597,45 @@ def walk(directory, prefix=""):
 walk(analysis)
 analysis_size = os.path.getsize(analysis_path)
 has_config = analysis.GetListOfKeys().FindObject("analysis_config_yaml") is not None
+
+def named_title(name):
+    obj = analysis.Get(name)
+    if obj is None or not obj.InheritsFrom("TNamed"):
+        return None
+    return obj.GetTitle()
+
+fast_marker_present = named_title("rj_the134_fast_extraction_v1") == "1"
+dependency_slice_validated = (
+    named_title("rj_replay_transaction_state")
+    == "SIDECAR_DEPENDENCY_SLICE_VALIDATED"
+)
+sidecar_only_marker_present = (
+    named_title("rj_the134_multiview_sidecar_only_v1") == "1"
+)
+serialization_disabled = (
+    named_title("rj_replay_serialization_state") == "DISABLED"
+)
 analysis.Close()
-if (
-    analysis_size < minimum_bytes
-    or not has_config
-    or not has_directory
-    or not has_histogram
-):
-    raise SystemExit("ephemeral analysis ROOT lacks required structure")
+if fast_extraction:
+    if (
+        analysis_size < 1
+        or not has_config
+        or not fast_marker_present
+        or not dependency_slice_validated
+        or not sidecar_only_marker_present
+        or not serialization_disabled
+    ):
+        raise SystemExit(
+            "fast-extraction compact ROOT lacks required dependency-slice markers"
+        )
+else:
+    if (
+        analysis_size < minimum_bytes
+        or not has_config
+        or not has_directory
+        or not has_histogram
+    ):
+        raise SystemExit("ephemeral analysis ROOT lacks required structure")
 
 sidecar = ROOT.TFile.Open(sidecar_path)
 if (
@@ -613,23 +651,41 @@ tree_entries = int(tree.GetEntries())
 sidecar.Close()
 
 payload = {
-    "schema": "THE134_EPHEMERAL_ANALYSIS_HEALTH_V1",
+    "schema": (
+        "THE134_FAST_EXTRACTION_HEALTH_V1"
+        if fast_extraction
+        else "THE134_EPHEMERAL_ANALYSIS_HEALTH_V1"
+    ),
     "status": "PASS",
-    "mode": "EPHEMERAL_CONDOR_SCRATCH",
+    "mode": (
+        "FAST_EXTRACTION_DEPENDENCY_SLICE"
+        if fast_extraction
+        else "EPHEMERAL_CONDOR_SCRATCH"
+    ),
     "analysis_size_bytes": analysis_size,
-    "analysis_minimum_bytes": minimum_bytes,
+    "analysis_minimum_bytes": 1 if fast_extraction else minimum_bytes,
     "analysis_key_inventory_sha256": hashlib.sha256(
         ("\n".join(sorted(inventory)) + "\n").encode("utf-8")
     ).hexdigest(),
     "analysis_config_present": True,
-    "analysis_directory_present": True,
-    "analysis_histogram_present": True,
+    "analysis_directory_present": has_directory,
+    "analysis_histogram_present": has_histogram,
     "analysis_root_non_zombie": True,
     "analysis_root_non_recovered": True,
     "analysis_root_retained": False,
     "sidecar_size_bytes": os.path.getsize(sidecar_path),
     "sidecar_tree_entries": tree_entries,
 }
+if fast_extraction:
+    payload.update(
+        {
+            "fast_extraction_marker_present": True,
+            "dependency_slice_validated": True,
+            "sidecar_only_marker_present": True,
+            "replay_serialization_disabled": True,
+            "legacy_analysis_histogram_required": False,
+        }
+    )
 print(
     "RECOILJETS_THE134_EPHEMERAL_ANALYSIS_V1 "
     + json.dumps(payload, sort_keys=True, separators=(",", ":"))

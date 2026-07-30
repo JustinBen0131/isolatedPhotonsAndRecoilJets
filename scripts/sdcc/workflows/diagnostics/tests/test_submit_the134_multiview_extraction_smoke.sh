@@ -18,6 +18,13 @@ grep -Fq 'sidecar="${row_output}/training_views/${sample}/RJPhotonTrainingViewV1
 grep -Fq 'fast_extraction_mode="${RJ_THE134_FAST_EXTRACTION_V1:-0}"' "$controller"
 grep -Fq 'RJ_THE134_FAST_EXTRACTION_V1 must be exactly 0 or 1' "$controller"
 grep -Fq 'extra="${extra};RJ_THE134_FAST_EXTRACTION_V1=1"' "$controller"
+grep -Fq 'def parse_ephemeral_analysis_receipt(' "$controller"
+grep -Fq 'RECOILJETS_THE134_EPHEMERAL_ANALYSIS_V1 ' "$controller"
+grep -Fq 'THE134_MULTIVIEW_SIDECAR_ONLY_ARTIFACT_PROFILE_V2' "$controller"
+grep -Fq '"analysis_artifact_state": "EPHEMERAL_VALIDATED_NOT_RETAINED"' "$controller"
+grep -Fq '"analysis_artifact_state": "DURABLE_VALIDATED"' "$controller"
+grep -Fq '"full_extraction_plan": {' "$controller"
+grep -Fq 'analysis_path.exists()' "$controller"
 
 invalid_fast_log="${TMPDIR:-/tmp}/the134_invalid_fast_extraction.$$"
 if RJ_THE134_FAST_EXTRACTION_V1=2 "$controller" inventory >"$invalid_fast_log" 2>&1; then
@@ -28,9 +35,88 @@ grep -Fq 'RJ_THE134_FAST_EXTRACTION_V1 must be exactly 0 or 1' "$invalid_fast_lo
 rm -f "$invalid_fast_log"
 python3 - "$controller" <<'PY'
 from pathlib import Path
+import ast
+import hashlib
+import json
+import re
 import sys
+import tempfile
 
 source = Path(sys.argv[1]).read_text(encoding="utf-8")
+root_validator = source.split(
+    '"$capacity_full_plan" "$capacity_full_plan_sha" "$fast_extraction_mode" <<\'PY\'\n',
+    1,
+)[1].split("\nPY\n}", 1)[0]
+compile(root_validator, "<validate_root_health_and_joins>", "exec")
+for required in (
+    "ephemeral analysis health receipt cardinality differs",
+    "ephemeral worker receipt does not bind the retained sidecar",
+    "fast extraction requires the exact frozen sidecar-only ephemeral artifact profile",
+    "analysis_writer_root_ephemeral_receipt_v1",
+    "analysis_writer_root_v1",
+):
+    if required not in root_validator:
+        raise ValueError(f"missing ephemeral/durable validation contract: {required}")
+tree = ast.parse(root_validator)
+selected = [
+    node
+    for node in tree.body
+    if isinstance(node, ast.FunctionDef)
+    and node.name in {"file_sha256", "parse_ephemeral_analysis_receipt"}
+]
+namespace = {
+    "Path": Path,
+    "hashlib": hashlib,
+    "json": json,
+    "HEX64": re.compile(r"^[0-9a-f]{64}$"),
+    "ANALYSIS_MINIMUM_BYTES": 50_000,
+    "expected_fast_extraction": False,
+}
+exec(compile(ast.Module(body=selected, type_ignores=[]), "<receipt-parser>", "exec"), namespace)
+payload = {
+    "schema": "THE134_EPHEMERAL_ANALYSIS_HEALTH_V1",
+    "status": "PASS",
+    "mode": "EPHEMERAL_CONDOR_SCRATCH",
+    "analysis_size_bytes": 50_000,
+    "analysis_minimum_bytes": 50_000,
+    "analysis_key_inventory_sha256": "a" * 64,
+    "analysis_config_present": True,
+    "analysis_directory_present": True,
+    "analysis_histogram_present": True,
+    "analysis_root_non_zombie": True,
+    "analysis_root_non_recovered": True,
+    "analysis_root_retained": False,
+    "sidecar_size_bytes": 12_345,
+    "sidecar_tree_entries": 7,
+}
+prefix = "RECOILJETS_THE134_EPHEMERAL_ANALYSIS_V1 "
+with tempfile.TemporaryDirectory() as temporary:
+    stdout = Path(temporary) / "worker.out"
+    stdout.write_text(prefix + json.dumps(payload, sort_keys=True) + "\n")
+    parsed_path, parsed_sha, parsed_payload = namespace[
+        "parse_ephemeral_analysis_receipt"
+    ]({"condor_stdout": str(stdout)})
+    assert parsed_path == stdout.resolve()
+    assert parsed_sha == hashlib.sha256(stdout.read_bytes()).hexdigest()
+    assert parsed_payload == payload
+    for mutation in ("duplicate", "schema", "missing_key"):
+        changed = dict(payload)
+        if mutation == "schema":
+            changed["schema"] = "DRIFT"
+        elif mutation == "missing_key":
+            changed.pop("analysis_config_present")
+        text = prefix + json.dumps(changed, sort_keys=True) + "\n"
+        if mutation == "duplicate":
+            text += text
+        stdout.write_text(text)
+        try:
+            namespace["parse_ephemeral_analysis_receipt"](
+                {"condor_stdout": str(stdout)}
+            )
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"ephemeral receipt mutation accepted: {mutation}")
 required_tail = [
     "scripts/sdcc/workflows/diagnostics/submit_the134_multiview_extraction_smoke.sh",
     "scripts/sdcc/workflows/diagnostics/materialize_the134_full_multiview_extraction.py",

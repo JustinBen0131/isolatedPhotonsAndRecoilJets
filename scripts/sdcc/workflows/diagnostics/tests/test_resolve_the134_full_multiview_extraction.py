@@ -973,12 +973,28 @@ class TestFullExtractionResolver(unittest.TestCase):
                     "analysis ROOT is worker-scratch-only", text
                 )
                 self.assertIn(
-                    '"schema": "THE134_EPHEMERAL_ANALYSIS_HEALTH_V1"',
+                    '"THE134_EPHEMERAL_ANALYSIS_HEALTH_V1"',
                     text,
                 )
                 self.assertIn('"analysis_root_retained": False', text)
                 self.assertIn(
                     "RECOILJETS_THE134_EPHEMERAL_ANALYSIS_V1", text
+                )
+                self.assertIn(
+                    '"THE134_FAST_EXTRACTION_HEALTH_V1"', text
+                )
+                self.assertIn(
+                    '"FAST_EXTRACTION_DEPENDENCY_SLICE"', text
+                )
+                self.assertIn(
+                    'named_title("rj_the134_fast_extraction_v1") == "1"',
+                    text,
+                )
+                self.assertIn(
+                    '"legacy_analysis_histogram_required": False', text
+                )
+                self.assertIn(
+                    "THE134_FAST_EXTRACTION_HEALTH_V1", text
                 )
                 self.assertNotIn('rm -f "$out_root"', text)
 
