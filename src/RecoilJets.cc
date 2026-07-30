@@ -3586,8 +3586,15 @@ void RecoilJets::fillPPPhotonIDTrainingTree(const SSVars& v,
   m_bdtTrain_ppg12_shape_center_ieta = featureValue(v.ppg12_shape_center_ieta);
   m_bdtTrain_ppg12_shape_center_iphi = featureValue(v.ppg12_shape_center_iphi);
 
-  m_ppPhotonIDTrainingTree->Fill();
-  ++m_ppPhotonIDTrainingTreeEntries;
+  // THE134_FAST_EXTRACTION_V1 preserves the legacy calculation and label
+  // authority above, but the broad extraction artifact owns only the
+  // normalized seven-view sidecar.  Do not serialize the redundant legacy
+  // tree in that explicitly gated mode.
+  if (!m_the134FastExtraction)
+  {
+    m_ppPhotonIDTrainingTree->Fill();
+    ++m_ppPhotonIDTrainingTreeEntries;
+  }
 
   if (m_photonTrainingViewRuntime)
   {
@@ -4941,6 +4948,8 @@ bool RecoilJets::initReplayFoundation()
       RJReplayRuntimeV1::envEnabled("RJ_THE134_MULTIVIEW_TRAINING_V1");
   m_the134MultiviewSidecarOnly =
       RJReplayRuntimeV1::envEnabled("RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1");
+  m_the134FastExtraction =
+      RJReplayRuntimeV1::envEnabled("RJ_THE134_FAST_EXTRACTION_V1");
   if (multiviewTrainingEnabled && !m_replayFoundationEnabled)
   {
     LOG(0, CLR_RED, "[RJPhotonTrainingViewV1][FATAL] the multiview training artifact requires RJ_REPLAY_FOUNDATION_V1=1");
@@ -4955,6 +4964,14 @@ bool RecoilJets::initReplayFoundation()
         "[RJPhotonTrainingViewV1][FATAL] "
         "RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1=1 requires p+p replay, "
         "multiview training, extract-only mode, and the legacy training tree");
+    return false;
+  }
+  if (m_the134FastExtraction && !m_the134MultiviewSidecarOnly)
+  {
+    LOG(0, CLR_RED,
+        "[RJPhotonTrainingViewV1][FATAL] "
+        "RJ_THE134_FAST_EXTRACTION_V1=1 requires the complete "
+        "RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1 extraction contract");
     return false;
   }
   if (!m_replayFoundationEnabled) return true;
@@ -5283,6 +5300,8 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode, int termin
         }
       }
 
+      if (m_the134FastExtraction) continue;
+
       for (double radius : {0.3,0.4})
       {
         IsolationWitnessRow witness; witness.candidate_id=candidate.id;
@@ -5319,6 +5338,44 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode, int termin
     }
 
     replayMark("candidate_loop_complete");
+
+    if (m_the134FastExtraction)
+    {
+      // The sidecar depends only on the accepted label ledger, stable
+      // event/candidate identities, retained shower cells, and the seven
+      // feature views constructed above.  Validate exactly that dependency
+      // slice, then stop before isolation, reco-jet, pair, response, and
+      // normalized-replay row assembly that cannot affect a sidecar branch.
+      bundle.event.candidate_count =
+          static_cast<int>(bundle.candidates.size());
+      bundle.event.tag_count = static_cast<int>(std::count_if(
+          bundle.models.begin(),bundle.models.end(),
+          [](const ModelEvaluationRow& row)
+          {
+            return std::isfinite(row.wp80) && std::isfinite(row.raw_score) &&
+                   row.raw_score > row.wp80;
+          }));
+      bundle.event.recoil_count = 0;
+      std::string error;
+      if (m_photonTrainingViewRuntime &&
+          !m_photonTrainingViewRuntime->finishEvent(
+              bundle.event.event_sequence,&error))
+      {
+        m_replayWriteFailed = true;
+        LOG(0,CLR_RED,
+            "[RJPhotonTrainingViewV1][FATAL] fast-extraction event "
+            "transaction failed: " << error);
+        return;
+      }
+      if (!m_replayRuntime->write(bundle,&error))
+      {
+        m_replayWriteFailed = true;
+        LOG(0,CLR_RED,
+            "[ReplayFoundationV1][FATAL] fast-extraction dependency-slice "
+            "validation failed: " << error);
+      }
+      return;
+    }
 
     auto appendJetConstituents = [&](const Jet* jet, const JetRow& parent)
     {
@@ -7953,7 +8010,10 @@ int RecoilJets::End(PHCompositeNode*)
         const auto& replayMetadata = m_replayRuntime->metadata();
         const std::pair<std::string,std::string> markers[] = {
             {"rj_the134_multiview_sidecar_only_v1","1"},
-            {"rj_replay_transaction_state","CONSTRUCTED_AND_VALIDATED"},
+            {"rj_replay_transaction_state",
+             m_the134FastExtraction
+                 ? "SIDECAR_DEPENDENCY_SLICE_VALIDATED"
+                 : "CONSTRUCTED_AND_VALIDATED"},
             {"rj_replay_serialization_state","DISABLED"},
             {"rj_replay_cache_applicability","NOT_APPLICABLE"},
             {"rj_replay_schema_sha256",
@@ -7975,6 +8035,17 @@ int RecoilJets::End(PHCompositeNode*)
           {
             warn("THE-134 sidecar-only marker write failed: " +
                  std::string(marker.first));
+            return Fun4AllReturnCodes::ABORTRUN;
+          }
+        }
+        if (m_the134FastExtraction)
+        {
+          TNamed fastMarker("rj_the134_fast_extraction_v1","1");
+          if (fastMarker.Write(
+                  "rj_the134_fast_extraction_v1",
+                  TObject::kOverwrite) <= 0)
+          {
+            warn("THE-134 fast-extraction marker write failed");
             return Fun4AllReturnCodes::ABORTRUN;
           }
         }

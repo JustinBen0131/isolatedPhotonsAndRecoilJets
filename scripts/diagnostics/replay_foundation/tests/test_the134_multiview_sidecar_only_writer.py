@@ -585,7 +585,7 @@ class TestThe134MultiviewSidecarOnlyWriter(unittest.TestCase):
         )
         markers = (
             '{"rj_the134_multiview_sidecar_only_v1","1"}',
-            '{"rj_replay_transaction_state","CONSTRUCTED_AND_VALIDATED"}',
+            '"CONSTRUCTED_AND_VALIDATED"',
             '{"rj_replay_serialization_state","DISABLED"}',
             '{"rj_replay_cache_applicability","NOT_APPLICABLE"}',
             "m_replayRuntime->metadata()",
@@ -634,8 +634,8 @@ class TestThe134MultiviewSidecarOnlyWriter(unittest.TestCase):
         source = CONTROLLER.read_text(encoding="utf-8")
         fragments = (
             '"RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1": "1"',
-            '"artifact_profile": "THE134_MULTIVIEW_SIDECAR_ONLY_V1"',
-            '"ANALYSIS_AND_LEGACY_TRAINING_WITH_VALIDATION_MARKERS"',
+            '"artifact_profile": "THE134_MULTIVIEW_SIDECAR_ONLY_V2"',
+            '"analysis_root_role": "EPHEMERAL_CONDOR_SCRATCH_VALIDATED_NOT_RETAINED"',
             '"replay_transaction": "CONSTRUCTED_AND_VALIDATED"',
             '"replay_serialization": "DISABLED"',
             '"cache_replay_applicability": "NOT_APPLICABLE"',
@@ -654,6 +654,58 @@ class TestThe134MultiviewSidecarOnlyWriter(unittest.TestCase):
                 mutated = source.replace(fragment, "")
                 with self.assertRaises(AssertionError):
                     assert_static_contract(mutated, fragments)
+
+    def test_fast_extraction_is_opt_in_and_preserves_ordinary_paths(self) -> None:
+        facade_contracts = (
+            (
+                PP_FACADE.read_text(encoding="utf-8"),
+                PP_HEADER.read_text(encoding="utf-8"),
+                "m_ppPhotonIDTrainingTree->Fill();",
+            ),
+            (
+                AUAU_FACADE.read_text(encoding="utf-8"),
+                AUAU_HEADER.read_text(encoding="utf-8"),
+                "m_auauBDTTrainingTree->Fill();",
+            ),
+        )
+        fragments = (
+            'envEnabled("RJ_THE134_FAST_EXTRACTION_V1")',
+            "m_the134FastExtraction && !m_the134MultiviewSidecarOnly",
+            "if (!m_the134FastExtraction)",
+            "if (m_the134FastExtraction) continue;",
+            "SIDECAR_DEPENDENCY_SLICE_VALIDATED",
+            'TNamed fastMarker("rj_the134_fast_extraction_v1","1")',
+            "m_photonTrainingViewRuntime->finishEvent(",
+            "m_replayRuntime->write(bundle,&error)",
+        )
+        for index, (source, header, legacy_fill) in enumerate(facade_contracts):
+            with self.subTest(facade=index):
+                compact_source = "".join(source.split())
+                compact_fragments = tuple(
+                    "".join(fragment.split()) for fragment in fragments
+                )
+                assert_static_contract(
+                    compact_source,
+                    compact_fragments + ("".join(legacy_fill.split()),),
+                )
+                self.assertIn(
+                    "bool m_the134FastExtraction = false;", header
+                )
+                self.assertEqual(
+                    source.count(
+                        'envEnabled("RJ_THE134_FAST_EXTRACTION_V1")'
+                    ),
+                    1,
+                )
+                self.assertIn("CONSTRUCTED_AND_VALIDATED", source)
+                for fragment in fragments:
+                    with self.subTest(facade=index, mutation=fragment):
+                        compact_fragment = "".join(fragment.split())
+                        mutated = compact_source.replace(compact_fragment, "")
+                        with self.assertRaises(AssertionError):
+                            assert_static_contract(
+                                mutated, compact_fragments
+                            )
 
     def test_runtime_write_body_remains_unchanged_by_mode(self) -> None:
         source = RUNTIME.read_text(encoding="utf-8")

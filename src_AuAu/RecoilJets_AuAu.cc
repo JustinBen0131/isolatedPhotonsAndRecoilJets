@@ -3942,8 +3942,13 @@ void RecoilJets::fillAuAuBDTTrainingTree(const SSVars& v,
   m_bdtTrain_auau_tight_bdt_mlp_score = std::isfinite(v.auau_tight_bdt_mlp_score) ? static_cast<float>(v.auau_tight_bdt_mlp_score) : -2.0f;
   m_bdtTrain_auau_tight_logreg_score = std::isfinite(v.auau_tight_logreg_score) ? static_cast<float>(v.auau_tight_logreg_score) : -2.0f;
 
-  m_auauBDTTrainingTree->Fill();
-  ++m_auauBDTTrainingTreeEntries;
+  // Preserve the accepted Au+Au label calculations while avoiding redundant
+  // legacy-tree serialization in the explicitly gated THE-134 fast extractor.
+  if(!m_the134FastExtraction)
+  {
+    m_auauBDTTrainingTree->Fill();
+    ++m_auauBDTTrainingTreeEntries;
+  }
 
   if (m_photonTrainingViewRuntime)
   {
@@ -7517,6 +7522,7 @@ bool RecoilJets::initReplayFoundation()
     m_replayFoundationEnabled = RJReplayRuntimeV1::envEnabled("RJ_REPLAY_FOUNDATION_V1");
     const bool multiviewTrainingEnabled=RJReplayRuntimeV1::envEnabled("RJ_THE134_MULTIVIEW_TRAINING_V1");
     m_the134MultiviewSidecarOnly=RJReplayRuntimeV1::envEnabled("RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1");
+    m_the134FastExtraction=RJReplayRuntimeV1::envEnabled("RJ_THE134_FAST_EXTRACTION_V1");
     if(multiviewTrainingEnabled&&!m_replayFoundationEnabled)
     { LOG(0,CLR_RED,"[RJPhotonTrainingViewV1][FATAL] the multiview training artifact requires RJ_REPLAY_FOUNDATION_V1=1"); return false; }
     if(m_the134MultiviewSidecarOnly&&
@@ -7527,6 +7533,14 @@ bool RecoilJets::initReplayFoundation()
           "[RJPhotonTrainingViewV1][FATAL] "
           "RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1=1 requires Au+Au replay, "
           "multiview training, extract-only mode, and the legacy training tree");
+      return false;
+    }
+    if(m_the134FastExtraction&&!m_the134MultiviewSidecarOnly)
+    {
+      LOG(0,CLR_RED,
+          "[RJPhotonTrainingViewV1][FATAL] "
+          "RJ_THE134_FAST_EXTRACTION_V1=1 requires the complete "
+          "RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1 extraction contract");
       return false;
     }
     if (!m_replayFoundationEnabled) return true;
@@ -7693,6 +7707,7 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode,int termina
           RJPhotonTrainingViewV1::CandidateContext context;context.event_id=bundle.event.id;context.candidate_id=candidate.id;context.run=bundle.event.run;context.event_sequence=bundle.event.event_sequence;context.encounter_ordinal=candidate.encounter_ordinal;context.cluster_map_key=static_cast<std::uint64_t>(it->first);context.cluster_et=pt;context.eta=eta;context.phi=phi;context.vertex_z=m_vz;context.centrality=m_centPercent;context.event_weight=m_mcEventWeight;
           std::string trainingError;if(!m_photonTrainingViewRuntime->appendCandidate(context,candidateViews,&trainingError)){m_replayWriteFailed=true;LOG(0,CLR_RED,"[RJPhotonTrainingViewV1][FATAL] candidate capture failed: "<<trainingError);return;}
         }
+        if(m_the134FastExtraction)continue;
         for(double radius:{0.3,0.4}){IsolationWitnessRow witness;witness.candidate_id=candidate.id;witness.isolation_id=makeIdentity(candidate.id.hex()+"|standard_sub1|R"+std::to_string(radius));witness.radius=radius;witness.subtraction_method=2;witness.reconstructed_or_truth=0;witness.cone_sum=eisoForCone(photon,radius);witness.threshold=radius<0.35?(5.97-0.0507*m_centBin):(7.57-0.0658*m_centBin);witness.pass_state=std::isfinite(witness.cone_sum)&&witness.cone_sum<witness.threshold;bundle.isolation_witnesses.push_back(witness);}
         // PhotonClusterBuilder's registered Au+Au isolation contract uses the
         // PPG12 COG-tower axis, not the reconstructed cluster axis.  Persist
@@ -7757,6 +7772,37 @@ void RecoilJets::writeReplayFoundationEvent(PHCompositeNode* topNode,int termina
             bundle.isolation_constituents.push_back(row);
           }
         }
+      }
+      if(m_the134FastExtraction)
+      {
+        bundle.event.candidate_count=static_cast<int>(bundle.candidates.size());
+        bundle.event.tag_count=static_cast<int>(std::count_if(
+            bundle.models.begin(),bundle.models.end(),
+            [](const ModelEvaluationRow& row)
+            {
+              return std::isfinite(row.wp80)&&std::isfinite(row.raw_score)&&
+                     row.raw_score>row.wp80;
+            }));
+        bundle.event.recoil_count=0;
+        std::string error;
+        if(m_photonTrainingViewRuntime&&
+           !m_photonTrainingViewRuntime->finishEvent(
+               bundle.event.event_sequence,&error))
+        {
+          m_replayWriteFailed=true;
+          LOG(0,CLR_RED,
+              "[RJPhotonTrainingViewV1][FATAL] fast-extraction event "
+              "transaction failed: "<<error);
+          return;
+        }
+        if(!m_replayRuntime->write(bundle,&error))
+        {
+          m_replayWriteFailed=true;
+          LOG(0,CLR_RED,
+              "[ReplayFoundationV1][FATAL] fast-extraction dependency-slice "
+              "validation failed: "<<error);
+        }
+        return;
       }
       auto appendJetConstituents=[&](const Jet* jet,const JetRow& parent)
       {
@@ -10065,7 +10111,10 @@ int RecoilJets::End(PHCompositeNode*)
       const auto& replayMetadata = m_replayRuntime->metadata();
       const std::pair<std::string,std::string> markers[] = {
           {"rj_the134_multiview_sidecar_only_v1","1"},
-          {"rj_replay_transaction_state","CONSTRUCTED_AND_VALIDATED"},
+          {"rj_replay_transaction_state",
+           m_the134FastExtraction
+               ? "SIDECAR_DEPENDENCY_SLICE_VALIDATED"
+               : "CONSTRUCTED_AND_VALIDATED"},
           {"rj_replay_serialization_state","DISABLED"},
           {"rj_replay_cache_applicability","NOT_APPLICABLE"},
           {"rj_replay_schema_sha256",
@@ -10087,6 +10136,17 @@ int RecoilJets::End(PHCompositeNode*)
         {
           warn("THE-134 sidecar-only marker write failed: " +
                std::string(marker.first));
+          return Fun4AllReturnCodes::ABORTRUN;
+        }
+      }
+      if(m_the134FastExtraction)
+      {
+        TNamed fastMarker("rj_the134_fast_extraction_v1","1");
+        if(fastMarker.Write(
+               "rj_the134_fast_extraction_v1",
+               TObject::kOverwrite)<=0)
+        {
+          warn("THE-134 fast-extraction marker write failed");
           return Fun4AllReturnCodes::ABORTRUN;
         }
       }
