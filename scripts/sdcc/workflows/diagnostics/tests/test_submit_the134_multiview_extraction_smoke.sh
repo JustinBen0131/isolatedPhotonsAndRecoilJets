@@ -14,6 +14,7 @@ grep -Fq 'RJ_THE134_CAPACITY_COMBINE_TAG' "$controller"
 grep -Fq 'capacity repair matrix must contain exactly its selected frozen witness' "$controller"
 grep -Fq 'full capacity mode must not name a preserved partner campaign' "$controller"
 grep -Fq 'RJ_THE134_MULTIVIEW_TRAINING_FILE=${sidecar};RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1=1;RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT=1;RJ_THE134_EXPECTED_SOURCE_ROLE=${role}' "$controller"
+grep -Fq 'sidecar="${row_output}/training_views/${sample}/RJPhotonTrainingViewV1.root"' "$controller"
 python3 - "$controller" <<'PY'
 from pathlib import Path
 import sys

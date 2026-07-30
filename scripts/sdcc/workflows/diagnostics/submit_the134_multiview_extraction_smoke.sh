@@ -803,7 +803,9 @@ write_submission_manifest() {
       model_sha="$RJ_THE134_AUAU_MODEL_SHA256"
     fi
     row_output="${output_root}/${row_id}"
-    sidecar="${row_output}/${sample}/RJPhotonTrainingViewV1.root"
+    # Match the source-complete resolver's durable sidecar namespace so the
+    # capacity witness exercises the exact production retention contract.
+    sidecar="${row_output}/training_views/${sample}/RJPhotonTrainingViewV1.root"
     row_submit="${submit_root}/${row_id}"
     [[ "$tuple_count" =~ ^[1-9][0-9]*$ ]] || die "${row_id} executable tuple count is invalid"
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t1\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
