@@ -1141,7 +1141,7 @@ def validate_immutable_authority(
         ),
         "bundle_semantic_fingerprint_sha256": require_sha256(
             "immutable bundle semantic fingerprint",
-            bundle["semantic_fingerprint_sha256"],
+            bundle["bundle_identity_sha256"],
         ),
         "public_commit": require_nonempty_text(
             "immutable public commit", bundle["public_commit"]

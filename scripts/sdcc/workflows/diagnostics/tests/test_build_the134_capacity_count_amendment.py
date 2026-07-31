@@ -245,6 +245,10 @@ class CapacityCountAmendmentTests(unittest.TestCase):
 
         self.assertEqual(observed["status"], "PASS")
         self.assertEqual(
+            observed["bundle_semantic_fingerprint_sha256"],
+            bundle["bundle_identity_sha256"],
+        )
+        self.assertEqual(
             binding.call_args.kwargs["materialization_path"],
             materialization_alias,
         )
