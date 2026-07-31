@@ -26,6 +26,27 @@ grep -Fq '"analysis_artifact_state": "DURABLE_VALIDATED"' "$controller"
 grep -Fq '"full_extraction_plan": {' "$controller"
 grep -Fq 'analysis_path.exists()' "$controller"
 grep -Fq 'root_health_identity_join_certificate_capacity_v7.json' "$controller"
+grep -Fq 'safe_resume_gate="${repo_root}/scripts/sdcc/runtime/audit/sdcc_safe_resume_gate.py"' "$controller"
+grep -Fq 'ordinary smoke submission is disabled until it has a typed SDCC safe-resume operation class' "$controller"
+grep -Fq 'capacity resume-submit is disabled after the SDCC incident' "$controller"
+
+python3 - "$controller" <<'PY'
+from pathlib import Path
+import sys
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+submit_body = source.split("submit_all() {", 1)[1].split("\n}\n\nresume_submit()", 1)[0]
+required = [
+    "validate_safe_resume_certificate",
+    "preflight",
+    "assert_fresh_submission",
+    "write_safe_resume_binding",
+    'mkdir -p "$evidence_root" "$submit_root"',
+]
+positions = [submit_body.index(token) for token in required]
+if positions != sorted(positions):
+    raise SystemExit("safe-resume gate is not ordered before submission mutation")
+PY
 
 invalid_fast_log="${TMPDIR:-/tmp}/the134_invalid_fast_extraction.$$"
 if RJ_THE134_FAST_EXTRACTION_V1=2 "$controller" inventory >"$invalid_fast_log" 2>&1; then
@@ -123,6 +144,7 @@ required_tail = [
     "scripts/sdcc/workflows/diagnostics/materialize_the134_full_multiview_extraction.py",
     "scripts/sdcc/workflows/diagnostics/project_the134_preextraction_storage_quota.py",
     "scripts/sdcc/workflows/diagnostics/resolve_the134_full_multiview_extraction.py",
+    "scripts/sdcc/runtime/audit/sdcc_safe_resume_gate.py",
     "scripts/sdcc/workflows/diagnostics/the134_full_extraction_controller.py",
 ]
 
@@ -1417,10 +1439,14 @@ def validate(text: str) -> None:
         "resume_submit() {", 1
     )[0]
     if not re.search(
-        r"submit_all\(\) \{\n  preflight\n  assert_fresh_submission\n",
+        r"submit_all\(\) \{\n  validate_safe_resume_certificate\n"
+        r"  preflight\n  assert_fresh_submission\n"
+        r"  write_safe_resume_binding\n",
         "submit_all() {" + submit_all_block,
     ):
-        raise ValueError("submit must perform idempotent preflight before freshness checks")
+        raise ValueError(
+            "submit must validate and bind safe resume before submission mutation"
+        )
 
     manifest_block = text.split("write_submission_manifest() {", 1)[1].split(
         "write_runtime_authority_manifest() {", 1

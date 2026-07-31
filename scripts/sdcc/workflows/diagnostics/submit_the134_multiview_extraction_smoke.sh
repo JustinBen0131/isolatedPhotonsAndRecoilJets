@@ -21,6 +21,7 @@ umask 0022
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd -P)"
 cd "$repo_root"
 controller_path="${repo_root}/scripts/sdcc/workflows/diagnostics/submit_the134_multiview_extraction_smoke.sh"
+safe_resume_gate="${repo_root}/scripts/sdcc/runtime/audit/sdcc_safe_resume_gate.py"
 
 requested_mode="${1:-preflight}"
 capacity_mode=0
@@ -78,6 +79,8 @@ capacity_submission_manifest_sha="${RJ_THE134_CAPACITY_SUBMISSION_MANIFEST_SHA25
 capacity_submission_receipt_sha="${RJ_THE134_CAPACITY_SUBMISSION_RECEIPT_SHA256:-}"
 capacity_submission_journal_sha="${RJ_THE134_CAPACITY_SUBMISSION_JOURNAL_SHA256:-}"
 capacity_runtime_authority_sha="${RJ_THE134_CAPACITY_RUNTIME_AUTHORITY_SHA256:-}"
+safe_resume_certificate="${RJ_SDCC_SAFE_RESUME_CERTIFICATE:-}"
+safe_resume_certificate_sha="${RJ_SDCC_SAFE_RESUME_CERTIFICATE_SHA256:-}"
 fast_extraction_mode="${RJ_THE134_FAST_EXTRACTION_V1:-0}"
 
 resolved_config_root="${evidence_root}/resolved_configs"
@@ -95,6 +98,7 @@ else
   root_health_join_certificate="${evidence_root}/root_health_identity_join_certificate.json"
 fi
 capacity_resource_certificate="${evidence_root}/capacity_resource_certificate.json"
+safe_resume_binding="${evidence_root}/sdcc_safe_resume_binding.json"
 capacity_pp_multiview_audit="${evidence_root}/pp_capacity_multiview_audit_v2.json"
 capacity_auau_multiview_audit="${evidence_root}/auau_capacity_multiview_audit_v2.json"
 runtime_authority_manifest="${evidence_root}/runtime_authority_manifest.json"
@@ -543,6 +547,88 @@ for row_id, (system, sample) in expected.items():
 PY
 }
 
+validate_safe_resume_certificate() {
+  local submit_host verification
+  (( capacity_mode )) ||
+    die "ordinary smoke submission is disabled until it has a typed SDCC safe-resume operation class"
+  [[ "$execution_row_count" == 2 ]] ||
+    die "SDCC safe resume currently authorizes only the exact two-row capacity witness"
+  [[ -x "$safe_resume_gate" ]] ||
+    die "SDCC safe-resume gate is missing or not executable: ${safe_resume_gate}"
+  require_file_hash "SDCC safe-resume certificate" \
+    "$safe_resume_certificate" "$safe_resume_certificate_sha"
+  submit_host="$(hostname -s)"
+  if ! verification="$(
+    python3 "$safe_resume_gate" verify-certificate \
+      --certificate "$safe_resume_certificate" \
+      --certificate-sha256 "$safe_resume_certificate_sha" \
+      --operation-class watched_capacity_canary \
+      --campaign-tag "$tag" \
+      --submit-host "$submit_host"
+  )"; then
+    die "SDCC safe-resume certificate verification failed before any submission mutation"
+  fi
+  [[ "$verification" == *'"status": "SITE_ADMISSION_PASS"'* &&
+     "$verification" == *'"submission_performed": false'* ]] ||
+    die "SDCC safe-resume verifier did not return the exact non-submitting admission state"
+}
+
+write_safe_resume_binding() {
+  [[ ! -e "$safe_resume_binding" ]] ||
+    die "SDCC safe-resume binding already exists; preserve it and use a fresh campaign identity"
+  python3 - \
+    "$safe_resume_certificate" "$safe_resume_certificate_sha" \
+    "$safe_resume_gate" "$safe_resume_binding" "$tag" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import os
+import sys
+
+certificate_path, certificate_sha, gate_path, output_path, campaign_tag = sys.argv[1:]
+certificate = Path(certificate_path).resolve(strict=True)
+gate = Path(gate_path).resolve(strict=True)
+output = Path(output_path)
+
+def digest(path: Path) -> str:
+    value = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            value.update(block)
+    return value.hexdigest()
+
+if digest(certificate) != certificate_sha:
+    raise SystemExit("safe-resume certificate changed before binding")
+payload = {
+    "schema": "THE134_SDCC_SAFE_RESUME_BINDING_V1",
+    "status": "SITE_ADMISSION_PASS_SUBMISSION_NOT_STARTED",
+    "campaign_tag": campaign_tag,
+    "operation_class": "watched_capacity_canary",
+    "certificate": {
+        "path": str(certificate),
+        "sha256": certificate_sha,
+        "size_bytes": certificate.stat().st_size,
+    },
+    "gate": {
+        "path": str(gate),
+        "sha256": digest(gate),
+        "size_bytes": gate.stat().st_size,
+    },
+    "submission_performed": False,
+    "production_authorized": False,
+}
+data = (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode()
+descriptor = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+os.fchmod(descriptor, 0o644)
+with os.fdopen(descriptor, "wb") as stream:
+    stream.write(data)
+    stream.flush()
+    os.fsync(stream.fileno())
+if output.read_bytes() != data:
+    raise SystemExit("safe-resume binding readback differs")
+PY
+}
+
 capacity_receipt_value() {
   local key="$1"
   python3 - "$capacity_preflight_receipt" "$key" <<'PY'
@@ -767,6 +853,7 @@ scripts/sdcc/workflows/diagnostics/submit_the134_multiview_extraction_smoke.sh|s
 scripts/sdcc/workflows/diagnostics/materialize_the134_full_multiview_extraction.py|scripts/sdcc/workflows/diagnostics/materialize_the134_full_multiview_extraction.py
 scripts/sdcc/workflows/diagnostics/project_the134_preextraction_storage_quota.py|scripts/sdcc/workflows/diagnostics/project_the134_preextraction_storage_quota.py
 scripts/sdcc/workflows/diagnostics/resolve_the134_full_multiview_extraction.py|scripts/sdcc/workflows/diagnostics/resolve_the134_full_multiview_extraction.py
+scripts/sdcc/runtime/audit/sdcc_safe_resume_gate.py|scripts/sdcc/runtime/audit/sdcc_safe_resume_gate.py
 scripts/sdcc/workflows/diagnostics/the134_full_extraction_controller.py|scripts/sdcc/workflows/diagnostics/the134_full_extraction_controller.py
 EOF
 }
@@ -2140,8 +2227,10 @@ verify_resume_contract() {
 }
 
 submit_all() {
+  validate_safe_resume_certificate
   preflight
   assert_fresh_submission
+  write_safe_resume_binding
   mkdir -p "$evidence_root" "$submit_root"
   printf 'row_id\tcluster_proc\tsubmit_log\tsubmitted_at_utc\n' > "$submission_journal"
   printf 'row_id\tcluster_proc\tsubmit_file\targs_file\tstaged_chunk_list\tstaged_chunk_sha256\tfanout_contract_file\tfanout_contract_sha256\tcondor_log\tcondor_stdout\tcondor_stderr\tanalysis_output_root\tmultiview_sidecar\tsidecar_owner_count\tsubmitted_args_sha256\tsnapshot_dir\tsnapshot_builder_header\tsnapshot_builder_header_sha256\tsnapshot_calo_reco_library\tsnapshot_calo_reco_library_sha256\tsnapshot_analysis_library\tsnapshot_analysis_library_sha256\tmaterialized_config\tmaterialized_config_sha256\tsnapshot_loader_receipt\tsnapshot_loader_receipt_sha256\tsnapshot_manifest\tsnapshot_manifest_sha256\n' > "$submission_receipt"
@@ -2165,30 +2254,10 @@ PY
 }
 
 resume_submit() {
-  local row_id system lane dataset sample role mb_gate row_match row_log
-  [[ -s "$submission_manifest" && -s "$duplicate_fingerprint" ]] || die "frozen preflight manifest is required for resume"
-  [[ -s "$submission_journal" && -s "$submission_receipt" ]] || die "durable journal and receipt are required for resume"
-  verify_resume_contract
-  while IFS='|' read -r row_id system lane dataset sample role mb_gate row_match; do
-    if table_has_row "$submission_journal" "$row_id"; then
-      table_has_row "$submission_receipt" "$row_id" ||
-        die "${row_id} has a submitted cluster but an incomplete receipt; preserve evidence and recover manually without resubmission"
-      log_line "RESUME_SKIP already_submitted=${row_id} cluster=$(awk -F'\t' -v row="$row_id" '$1==row {print $2}' "$submission_journal")"
-      continue
-    fi
-    row_log="${evidence_root}/submit_${row_id}.log"
-    if [[ -s "$row_log" ]] && grep -Eq 'job\(s\) submitted to cluster [0-9]+' "$row_log"; then
-      die "${row_id} has an unjournaled successful submit log; manual cluster recovery is required before resume"
-    fi
-    submit_row "$row_id" "$system" "$lane" "$dataset" "$sample" "$role" "$mb_gate" "$row_match"
-  done < <(emit_execution_matrix)
-  [[ "$(wc -l < "$submission_receipt" | tr -d ' ')" == "$((execution_row_count + 1))" ]] ||
-    die "resumed submission receipt is incomplete"
-  awk -F'\t' 'NF != 28 {exit 1}' "$submission_receipt" ||
-    die "resumed submission receipt must contain exactly 28 tab-separated fields on every row"
-  [[ "$(wc -l < "$submission_journal" | tr -d ' ')" == "$((execution_row_count + 1))" ]] ||
-    die "resumed submission journal is incomplete"
-  log_line "RESUME_SUBMISSION_PASS rows=${execution_row_count} group_size=${execution_group_size} receipt=${submission_receipt}"
+  if (( capacity_mode )); then
+    die "capacity resume-submit is disabled after the SDCC incident; preserve evidence and use a fresh bounded repair identity"
+  fi
+  die "ordinary resume-submit is disabled until it has a typed SDCC safe-resume operation class"
 }
 
 status() {
@@ -2209,7 +2278,15 @@ status() {
       printf '%s\tHISTORY\t%s\n' "$row_id" "${state:-NOT_FOUND}"
     fi
   done < "$submission_journal"
-  find "$output_root" -type f \( -name '*.root' -o -name '*.log' -o -name '*.json' \) -printf '%s\t%p\n' 2>/dev/null | sort -k2 || true
+  if [[ -s "$submission_receipt" ]]; then
+    awk -F'\t' 'NR > 1 {for (column=9; column<=13; ++column) print $column}' \
+      "$submission_receipt" |
+      sort -u |
+      while IFS= read -r artifact; do
+        [[ -n "$artifact" && -f "$artifact" ]] || continue
+        printf '%s\t%s\n' "$(wc -c < "$artifact" | tr -d ' ')" "$artifact"
+      done
+  fi
 }
 
 validate_capacity_postrun_authority() {

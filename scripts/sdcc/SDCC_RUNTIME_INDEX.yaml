@@ -76,6 +76,10 @@ entries:
     canonical_path: "scripts/sdcc/workflows/diagnostics/the134_full_extraction_controller.py"
     domain: "sdcc/workflows/diagnostics"
     hard_aliases: []
+  - id: sdcc_safe_resume_gate
+    canonical_path: "scripts/sdcc/runtime/audit/sdcc_safe_resume_gate.py"
+    domain: "sdcc/runtime/audit"
+    hard_aliases: []
   - id: the134_h70_contract
     canonical_path: "scripts/ml/contracts/the134_h70_contract.py"
     domain: "ml/contracts"

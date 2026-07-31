@@ -52,6 +52,12 @@ def file_sha256(path: Path) -> str:
 class FullExtractionControllerTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        cls.submit_host_patch = mock.patch.object(
+            controller.socket,
+            "gethostname",
+            return_value="sphnxuser05",
+        )
+        cls.submit_host_patch.start()
         cls.temporary = tempfile.TemporaryDirectory()
         cls.root = Path(cls.temporary.name).resolve()
         cls.fixture = fixture_module.FullControllerFixture(cls.root / "fixture")
@@ -114,10 +120,144 @@ class FullExtractionControllerTests(unittest.TestCase):
         cls.execution = controller.validate_execution_manifest(
             cls.execution_payload
         )
+        cls.execution_path = cls.root / "execution_manifest.json"
+        cls.execution_path.write_bytes(
+            controller.canonical_json_bytes(cls.execution_payload)
+        )
         cls.execution_artifact = {
-            "path": str(cls.root / "execution_manifest.json"),
-            "sha256": "b" * 64,
-            "size_bytes": len(controller.canonical_json_bytes(cls.execution_payload)),
+            "path": str(cls.execution_path),
+            "sha256": file_sha256(cls.execution_path),
+            "size_bytes": cls.execution_path.stat().st_size,
+        }
+        safe_records: dict[str, dict] = {}
+        for name, payload in {
+            "science": {"status": "PASS"},
+            "permissions": {"status": "PASS", "tree_walk_performed": False},
+            "duplicate": {"status": "PASS", "active_matching_jobs": 0},
+            "capacity": {"status": "PASS", "group_size": 7},
+            "measurement": {"status": "PASS", "max_memory_mb": 1221},
+            "quota": {"status": "PASS", "authoritative": True},
+        }.items():
+            path = cls.root / f"safe_resume_{name}.json"
+            path.write_text(json.dumps(payload, sort_keys=True) + "\n")
+            safe_records[name] = {
+                "path": str(path),
+                "sha256": file_sha256(path),
+                "assertions": [
+                    {"path": "status", "equals": payload["status"]}
+                ],
+            }
+        safe_records["execution"] = {
+            "path": str(cls.execution_path),
+            "sha256": file_sha256(cls.execution_path),
+            "assertions": [
+                {"path": "status", "equals": controller.READY_STATUS}
+            ],
+        }
+        safe_contract = {
+            "schema": controller.safe_resume_gate.CONTRACT_SCHEMA,
+            "status": "PREPARED_NOT_SUBMITTED",
+            "operation": {
+                "class": "full_extraction",
+                "campaign_tag": cls.execution["campaign"]["tag"],
+                "submit_host": "sphnxuser05",
+                "row_count": controller.EXPECTED_ROW_COUNT,
+                "logical_job_count": controller.EXPECTED_JOB_COUNT,
+                "cluster_count": controller.EXPECTED_ROW_COUNT,
+                "group_size": controller.EXPECTED_GROUP_SIZE,
+                "request_memory_mb": controller.EXPECTED_REQUEST_MEMORY_MB,
+                "max_materialize_per_cluster": 20,
+                "max_idle_per_cluster": 5,
+                "attended_submission": True,
+                "automatic_job_control": False,
+                "auto_memory_retry": False,
+                "hold_failed_workers": True,
+            },
+            "login_node": {
+                "explicit_path_count": 16,
+                "max_explicit_paths": 256,
+                "manifest_validation_rows": 13,
+                "hard_manifest_validation_limit": 256,
+                "max_group_files_per_row": 2048,
+                "tree_walk": False,
+                "unbounded_glob": False,
+                "per_manifest_row_subprocess": False,
+                "max_concurrent_submitters": 1,
+                "submitter_timeout_seconds": 600,
+                "capture_limit_bytes": 262144,
+                "high_cardinality_location": "condor",
+            },
+            "network": {
+                "allowed_services": [
+                    "sdcc_ssh",
+                    "condor_schedd",
+                    "sphenix_cvmfs",
+                ],
+                "scanning": False,
+                "arbitrary_upload": False,
+                "host_switch": False,
+                "model_directed_exploration": False,
+            },
+            "resources": {
+                "measured_peak_memory_mb": 1221,
+                "measured_witness_count": 2,
+                "request_memory_mb": controller.EXPECTED_REQUEST_MEMORY_MB,
+                "minimum_headroom_ratio": 1.5,
+                "maximum_headroom_ratio": 3.0,
+                "automatic_widening": False,
+                "measurement_receipt": safe_records["measurement"],
+            },
+            "evidence": {
+                "scientific_certificate": safe_records["science"],
+                "permission_receipt": safe_records["permissions"],
+                "duplicate_receipt": safe_records["duplicate"],
+                "execution_binding": safe_records["execution"],
+                "capacity_certificate": safe_records["capacity"],
+                "quota_certificate": safe_records["quota"],
+            },
+            "authority": {
+                "site_admin_acknowledged": True,
+                "user_approved": True,
+                "exact_scope": "full_extraction",
+                "submission_authority": True,
+                "full_extraction_authority": True,
+                "the121_authority": False,
+                "the122_authority": False,
+                "canonical_promotion": False,
+            },
+            "lifecycle": {
+                "LOCAL_CHECK": "PASS",
+                "SCIENTIFIC_CERTIFICATE": "PASS",
+                "SITE_ADMISSION": "PENDING",
+                "SUBMISSION": "NOT_STARTED",
+                "RUNNING": "NOT_STARTED",
+                "TERMINAL": "NOT_STARTED",
+                "PRODUCTION_AUTHORIZED": False,
+            },
+            "expires_at_unix": 1_900_000_600,
+        }
+        safe_contract_path = cls.root / "safe_resume_contract.json"
+        safe_contract_path.write_text(
+            json.dumps(safe_contract, sort_keys=True) + "\n"
+        )
+        safe_certificate = controller.safe_resume_gate.certify_contract(
+            safe_contract_path,
+            now_seconds=1_900_000_000,
+        )
+        cls.safe_resume_certificate_path = (
+            cls.root / "safe_resume_certificate.json"
+        )
+        controller.safe_resume_gate.write_new_json(
+            cls.safe_resume_certificate_path,
+            safe_certificate,
+        )
+        cls.safe_resume_certificate_sha256 = file_sha256(
+            cls.safe_resume_certificate_path
+        )
+        cls.safe_resume_artifact = {
+            "path": str(cls.safe_resume_certificate_path),
+            "sha256": cls.safe_resume_certificate_sha256,
+            "size_bytes": cls.safe_resume_certificate_path.stat().st_size,
         }
 
     def test_shared_receipts_override_restrictive_caller_umask(self) -> None:
@@ -160,6 +300,7 @@ class FullExtractionControllerTests(unittest.TestCase):
             except FileNotFoundError:
                 pass
         cls.temporary.cleanup()
+        cls.submit_host_patch.stop()
 
     @classmethod
     def make_authorization_payload(cls) -> dict:
@@ -226,6 +367,7 @@ class FullExtractionControllerTests(unittest.TestCase):
         receipt = controller.submission_receipt_base(
             cls.execution_artifact,
             cls.execution,
+            cls.safe_resume_artifact,
         )
         receipt["status"] = controller.SUBMITTED_STATUS
         receipt["submission_performed"] = True
@@ -414,6 +556,20 @@ class FullExtractionControllerTests(unittest.TestCase):
         self.assertFalse(self.execution["authority"]["submission_performed"])
         self.assertTrue(self.execution["authority"]["submission_authority"])
         self.assertFalse(self.execution["authority"]["full_extraction_authority"])
+
+    def test_submit_validation_does_not_rewalk_partition_manifest(self) -> None:
+        with mock.patch.object(
+            controller,
+            "load_bound_partition_chunks",
+            side_effect=AssertionError(
+                "submit-time validation must not traverse 18,577 chunks"
+            ),
+        ):
+            normalized = controller.validate_execution_manifest(
+                self.execution_payload,
+                load_partition_chunks=False,
+            )
+        self.assertEqual(normalized["_partition_chunks"], [])
 
     def test_dry_stage_byte_mutation_fails_closed(self) -> None:
         mutated_root = self.root / f"mutated_{self._testMethodName}"
@@ -788,6 +944,8 @@ class FullExtractionControllerTests(unittest.TestCase):
                 controller.execute_submission(
                     self.execution,
                     self.execution_artifact,
+                    self.safe_resume_certificate_path,
+                    self.safe_resume_certificate_sha256,
                     Path(self.execution["campaign"]["evidence_root"])
                     / "binding_failure",
                     runner=forbidden_runner,
@@ -815,17 +973,45 @@ class FullExtractionControllerTests(unittest.TestCase):
 
         with self.assertRaisesRegex(
             controller.ControllerError,
-            "differs from reconstructed materializer output",
+            "in-memory execution differs from sealed manifest",
         ):
             controller.execute_submission(
                 candidate,
                 self.execution_artifact,
+                self.safe_resume_certificate_path,
+                self.safe_resume_certificate_sha256,
                 Path(candidate["campaign"]["evidence_root"])
                 / "forged_row_failure",
                 runner=forbidden_runner,
                 now_seconds=1_900_000_000,
             )
         self.assertFalse(runner_called)
+
+    def test_submit_requires_live_safe_resume_before_namespace_creation(self) -> None:
+        evidence_root = Path(self.execution["campaign"]["evidence_root"])
+        self.assertFalse(evidence_root.exists())
+        runner_called = False
+
+        def forbidden_runner(*_args, **_kwargs):
+            nonlocal runner_called
+            runner_called = True
+            raise AssertionError("runner must not be reached")
+
+        with self.assertRaisesRegex(
+            controller.ControllerError,
+            "safe-resume certificate rejected: certificate is expired",
+        ):
+            controller.execute_submission(
+                self.execution,
+                self.execution_artifact,
+                self.safe_resume_certificate_path,
+                self.safe_resume_certificate_sha256,
+                evidence_root / "expired_safe_resume",
+                runner=forbidden_runner,
+                now_seconds=1_900_001_000,
+            )
+        self.assertFalse(runner_called)
+        self.assertFalse(evidence_root.exists())
 
     def test_submit_requires_switch_and_fake_runner_is_exact_once(self) -> None:
         execution_path = self.root / "execution_manifest_cli.json"
@@ -886,6 +1072,8 @@ class FullExtractionControllerTests(unittest.TestCase):
         receipt = controller.execute_submission(
             self.execution,
             self.execution_artifact,
+            self.safe_resume_certificate_path,
+            self.safe_resume_certificate_sha256,
             evidence_root / "fake_submission",
             runner=fake_runner,
             now_seconds=1_900_000_000,
@@ -932,6 +1120,8 @@ class FullExtractionControllerTests(unittest.TestCase):
             controller.execute_submission(
                 self.execution,
                 self.execution_artifact,
+                self.safe_resume_certificate_path,
+                self.safe_resume_certificate_sha256,
                 evidence_root / "forbidden_replay",
                 runner=replay_runner,
                 now_seconds=1_900_000_000,
@@ -966,6 +1156,8 @@ class FullExtractionControllerTests(unittest.TestCase):
             controller.execute_submission(
                 self.execution,
                 self.execution_artifact,
+                self.safe_resume_certificate_path,
+                self.safe_resume_certificate_sha256,
                 evidence_root / "fake_partial_failure",
                 runner=nonzero_after_submit_runner,
                 now_seconds=1_900_000_000,

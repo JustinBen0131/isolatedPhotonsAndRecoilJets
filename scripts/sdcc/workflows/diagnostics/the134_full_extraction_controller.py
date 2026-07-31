@@ -51,6 +51,7 @@ import importlib.util
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import time
@@ -66,6 +67,9 @@ SHARED_FILE_MODE = 0o644
 HERE = Path(__file__).resolve().parent
 MATERIALIZER_PATH = HERE / "materialize_the134_full_multiview_extraction.py"
 CONTRACT_PATH = HERE.parents[2] / "ml" / "contracts" / "the134_h70_contract.py"
+SAFE_RESUME_GATE_PATH = (
+    HERE.parents[1] / "runtime" / "audit" / "sdcc_safe_resume_gate.py"
+)
 
 
 def _load_local_module(name: str, path: Path) -> Any:
@@ -81,6 +85,9 @@ materializer = _load_local_module(
     "the134_full_materializer_for_execution", MATERIALIZER_PATH
 )
 h70_contract = _load_local_module("the134_h70_contract_for_execution", CONTRACT_PATH)
+safe_resume_gate = _load_local_module(
+    "sdcc_safe_resume_gate_for_execution", SAFE_RESUME_GATE_PATH
+)
 
 
 AUTHORIZATION_SCHEMA = "THE134_FULL_EXTRACTION_SUBMISSION_AUTHORIZATION_V1"
@@ -863,7 +870,11 @@ def load_bound_partition_chunks(
     return chunks
 
 
-def validate_execution_manifest(payload: Mapping[str, Any]) -> dict[str, Any]:
+def validate_execution_manifest(
+    payload: Mapping[str, Any],
+    *,
+    load_partition_chunks: bool = True,
+) -> dict[str, Any]:
     require_exact_keys(
         payload,
         {
@@ -1130,8 +1141,10 @@ def validate_execution_manifest(payload: Mapping[str, Any]) -> dict[str, Any]:
     normalized = dict(payload)
     normalized["_authorization_expires_at_unix"] = expires_at
     normalized["_rows"] = rows
-    normalized["_partition_chunks"] = load_bound_partition_chunks(
-        bindings, rows
+    normalized["_partition_chunks"] = (
+        load_bound_partition_chunks(bindings, rows)
+        if load_partition_chunks
+        else []
     )
     return normalized
 
@@ -1293,60 +1306,114 @@ def revalidate_bound_artifacts(
     ):
         raise ControllerError("bound submission authorization content differs")
 
-    validation_root = materializer_revalidation_root(
-        Path(str(bindings["plan"]["path"])).parent
-        / f".the134_execution_revalidation_{os.getpid()}"
+    dry_binding = require_mapping(
+        bindings["dry_materialization"],
+        "execution dry-materialization binding",
     )
-    namespace = argparse.Namespace(
-        plan=Path(str(bindings["plan"]["path"])),
-        plan_sha256=str(bindings["plan"]["sha256"]),
-        preflight_receipt=Path(
-            str(bindings["resolver_preflight_receipt"]["path"])
-        ),
-        preflight_receipt_sha256=str(
-            bindings["resolver_preflight_receipt"]["sha256"]
-        ),
-        storage_certificate=Path(str(bindings["storage_certificate"]["path"])),
-        storage_certificate_sha256=str(
-            bindings["storage_certificate"]["sha256"]
-        ),
-        controller_budget=Path(str(bindings["controller_budget"]["path"])),
-        controller_budget_sha256=str(bindings["controller_budget"]["sha256"]),
-        artifact_profile=ARTIFACT_PROFILE,
-        staging_root=validation_root,
-        overwrite=False,
+    dry_manifest, observed_dry_artifact = load_pinned_json(
+        Path(str(dry_binding["path"])),
+        str(dry_binding["sha256"]),
+        "bound dry-materialization manifest",
     )
-    try:
-        context = materializer.validate_plan_and_evidence(namespace)
-    except materializer.ControllerError as exc:
-        raise ControllerError(
-            f"bound materializer prerequisites no longer validate: {exc}"
-        ) from exc
-    dry_root = Path(str(bindings["dry_materialization"]["path"])).parent
-    dry_stage = validate_dry_stage(
-        context,
-        dry_root,
-        str(bindings["dry_materialization"]["sha256"]),
+    for field in ("path", "sha256", "size_bytes"):
+        if dry_binding.get(field) != observed_dry_artifact.get(field):
+            raise ControllerError(
+                f"bound dry-materialization manifest {field} differs"
+            )
+    counts = require_mapping(
+        dry_manifest.get("counts"), "dry-materialization counts"
     )
-    expected_execution = build_execution_manifest(
-        context,
-        dry_stage,
-        validated,
+    authority = require_mapping(
+        dry_manifest.get("authority"), "dry-materialization authority"
     )
-    observed_execution = {
-        key: value for key, value in execution.items() if not key.startswith("_")
-    }
-    if canonical_json_bytes(observed_execution) != canonical_json_bytes(
-        expected_execution
+    if (
+        dry_manifest.get("schema") != materializer.MANIFEST_SCHEMA
+        or dry_manifest.get("status")
+        != "PASS_DRY_MATERIALIZED_LOCAL_ONLY"
+        or dry_manifest.get("artifact_profile") != ARTIFACT_PROFILE
+        or counts.get("logical_source_row_count") != EXPECTED_ROW_COUNT
+        or counts.get("job_count") != EXPECTED_JOB_COUNT
+        or counts.get("group_size") != EXPECTED_GROUP_SIZE
+        or counts.get("request_memory_mb") != EXPECTED_REQUEST_MEMORY_MB
+        or authority.get("submission_performed") is not False
+        or authority.get("submission_authority") is not False
     ):
         raise ControllerError(
-            "sealed execution manifest differs from reconstructed materializer output"
+            "bound dry-materialization compact authority differs"
         )
+
+
+def validate_safe_resume_certificate_artifact(
+    certificate_path: Path,
+    expected_sha256: str,
+    execution: Mapping[str, Any],
+    execution_artifact: Mapping[str, Any],
+    *,
+    now_seconds: int | None = None,
+) -> dict[str, Any]:
+    """Verify site admission and bind it to this exact sealed execution."""
+
+    payload, artifact = load_pinned_json(
+        certificate_path,
+        expected_sha256,
+        "SDCC safe-resume certificate",
+    )
+    submit_host = socket.gethostname().split(".")[0]
+    try:
+        verified = safe_resume_gate.verify_certificate(
+            certificate_path.absolute(),
+            expected_sha256,
+            operation_class="full_extraction",
+            campaign_tag=str(execution["campaign"]["tag"]),
+            submit_host=submit_host,
+            now_seconds=now_seconds,
+        )
+    except safe_resume_gate.SafeResumeError as exc:
+        raise ControllerError(
+            f"SDCC safe-resume certificate rejected: {exc}"
+        ) from exc
+    if verified != payload:
+        raise ControllerError("SDCC safe-resume certificate readback differs")
+    evidence = require_mapping(
+        verified.get("evidence"), "SDCC safe-resume evidence"
+    )
+    execution_binding = require_mapping(
+        evidence.get("execution_binding"),
+        "SDCC safe-resume execution binding",
+    )
+    for field in ("path", "sha256", "size_bytes"):
+        if execution_binding.get(field) != execution_artifact.get(field):
+            raise ControllerError(
+                f"SDCC safe-resume execution binding {field} differs"
+            )
+    operation = require_mapping(
+        verified.get("operation"), "SDCC safe-resume operation"
+    )
+    if {
+        "row_count": operation.get("row_count"),
+        "logical_job_count": operation.get("logical_job_count"),
+        "group_size": operation.get("group_size"),
+        "request_memory_mb": operation.get("request_memory_mb"),
+        "max_materialize_per_cluster": operation.get(
+            "max_materialize_per_cluster"
+        ),
+        "max_idle_per_cluster": operation.get("max_idle_per_cluster"),
+    } != {
+        "row_count": EXPECTED_ROW_COUNT,
+        "logical_job_count": EXPECTED_JOB_COUNT,
+        "group_size": EXPECTED_GROUP_SIZE,
+        "request_memory_mb": EXPECTED_REQUEST_MEMORY_MB,
+        "max_materialize_per_cluster": 20,
+        "max_idle_per_cluster": 5,
+    }:
+        raise ControllerError("SDCC safe-resume execution limits differ")
+    return artifact
 
 
 def submission_receipt_base(
     execution_artifact: Mapping[str, Any],
     execution: Mapping[str, Any],
+    safe_resume_certificate: Mapping[str, Any],
 ) -> dict[str, Any]:
     return {
         "schema": SUBMISSION_SCHEMA,
@@ -1354,6 +1421,7 @@ def submission_receipt_base(
         "artifact_profile": ARTIFACT_PROFILE,
         "campaign": dict(execution["campaign"]),
         "execution_manifest": dict(execution_artifact),
+        "safe_resume_certificate": dict(safe_resume_certificate),
         "counts": {
             "expected_row_count": EXPECTED_ROW_COUNT,
             "expected_job_count": EXPECTED_JOB_COUNT,
@@ -1375,6 +1443,7 @@ def submission_receipt_base(
 def acquire_campaign_attempt_lock(
     execution: Mapping[str, Any],
     execution_artifact: Mapping[str, Any],
+    safe_resume_certificate: Mapping[str, Any],
     receipt_root: Path,
     *,
     now_seconds: int,
@@ -1391,6 +1460,7 @@ def acquire_campaign_attempt_lock(
         "status": "ATTEMPT_STARTED_NO_AUTOMATIC_RETRY",
         "campaign": dict(execution["campaign"]),
         "execution_manifest": dict(execution_artifact),
+        "safe_resume_certificate": dict(safe_resume_certificate),
         "authorization": dict(execution["bindings"]["authorization"]),
         "receipt_root": str(receipt_root),
         "started_at_unix": now_seconds,
@@ -1408,6 +1478,8 @@ def acquire_campaign_attempt_lock(
 def execute_submission(
     execution: Mapping[str, Any],
     execution_artifact: Mapping[str, Any],
+    safe_resume_certificate_path: Path,
+    safe_resume_certificate_sha256: str,
     receipt_dir: Path,
     *,
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
@@ -1425,6 +1497,36 @@ def execute_submission(
             "campaign submission-attempt lock already exists; preserve it and "
             "do not replay this campaign"
         )
+    sealed_payload, observed_execution_artifact = load_pinned_json(
+        Path(str(execution_artifact["path"])),
+        str(execution_artifact["sha256"]),
+        "sealed execution manifest",
+    )
+    if observed_execution_artifact != execution_artifact:
+        raise ControllerError("sealed execution manifest artifact differs")
+    sealed_execution = validate_execution_manifest(
+        sealed_payload,
+        load_partition_chunks=False,
+    )
+    observed_execution = {
+        key: value for key, value in execution.items() if not key.startswith("_")
+    }
+    observed_sealed_execution = {
+        key: value
+        for key, value in sealed_execution.items()
+        if not key.startswith("_")
+    }
+    if canonical_json_bytes(observed_execution) != canonical_json_bytes(
+        observed_sealed_execution
+    ):
+        raise ControllerError("in-memory execution differs from sealed manifest")
+    safe_resume_certificate = validate_safe_resume_certificate_artifact(
+        safe_resume_certificate_path,
+        safe_resume_certificate_sha256,
+        execution,
+        execution_artifact,
+        now_seconds=now,
+    )
     evidence_root = safe_fresh_local_tree_output(
         evidence_root_requested, "campaign evidence root"
     )
@@ -1461,13 +1563,18 @@ def execute_submission(
     attempt_lock_path = acquire_campaign_attempt_lock(
         execution,
         execution_artifact,
+        safe_resume_certificate,
         receipt_root,
         now_seconds=now,
     )
     receipt_root.mkdir(mode=SHARED_DIRECTORY_MODE, parents=False, exist_ok=False)
     receipt_root.chmod(SHARED_DIRECTORY_MODE)
     receipt_path = receipt_root / "submission_receipt.json"
-    receipt = submission_receipt_base(execution_artifact, execution)
+    receipt = submission_receipt_base(
+        execution_artifact,
+        execution,
+        safe_resume_certificate,
+    )
     receipt["attempt_lock"] = {
         "path": str(attempt_lock_path),
         "sha256": file_sha256(attempt_lock_path),
@@ -1647,6 +1754,7 @@ def validate_submission_receipt(
             "artifact_profile",
             "campaign",
             "execution_manifest",
+            "safe_resume_certificate",
             "counts",
             "submission_performed",
             "attempt_lock",
@@ -1675,6 +1783,50 @@ def validate_submission_receipt(
         raise ControllerError("submission receipt schema/status/authority differs")
     if payload.get("campaign") != execution["campaign"]:
         raise ControllerError("submission receipt campaign differs")
+    safe_resume_binding = require_mapping(
+        payload.get("safe_resume_certificate"),
+        "submission safe-resume certificate",
+    )
+    require_exact_keys(
+        safe_resume_binding,
+        {"path", "sha256", "size_bytes"},
+        "submission safe-resume certificate",
+    )
+    safe_resume_payload, observed_safe_resume = load_pinned_json(
+        Path(str(safe_resume_binding.get("path"))),
+        str(safe_resume_binding.get("sha256")),
+        "bound SDCC safe-resume certificate",
+    )
+    if observed_safe_resume != safe_resume_binding:
+        raise ControllerError("submission safe-resume artifact differs")
+    safe_operation = require_mapping(
+        safe_resume_payload.get("operation"),
+        "bound SDCC safe-resume operation",
+    )
+    safe_evidence = require_mapping(
+        safe_resume_payload.get("evidence"),
+        "bound SDCC safe-resume evidence",
+    )
+    safe_execution = require_mapping(
+        safe_evidence.get("execution_binding"),
+        "bound SDCC safe-resume execution binding",
+    )
+    if (
+        safe_resume_payload.get("schema")
+        != safe_resume_gate.CERTIFICATE_SCHEMA
+        or safe_resume_payload.get("status") != "SITE_ADMISSION_PASS"
+        or safe_resume_payload.get("submission_performed") is not False
+        or safe_operation.get("class") != "full_extraction"
+        or safe_operation.get("campaign_tag")
+        != execution["campaign"]["tag"]
+        or any(
+            safe_execution.get(field) != execution_artifact.get(field)
+            for field in ("path", "sha256", "size_bytes")
+        )
+    ):
+        raise ControllerError(
+            "submission safe-resume authority or execution binding differs"
+        )
     attempt_lock = require_mapping(
         payload.get("attempt_lock"), "submission attempt lock"
     )
@@ -1722,6 +1874,7 @@ def validate_submission_receipt(
                 "status",
                 "campaign",
                 "execution_manifest",
+                "safe_resume_certificate",
                 "authorization",
                 "receipt_root",
                 "started_at_unix",
@@ -1742,6 +1895,8 @@ def validate_submission_receipt(
             != "ATTEMPT_STARTED_NO_AUTOMATIC_RETRY"
             or lock_payload.get("campaign") != execution["campaign"]
             or lock_payload.get("execution_manifest") != execution_artifact
+            or lock_payload.get("safe_resume_certificate")
+            != safe_resume_binding
             or lock_payload.get("authorization")
             != execution["bindings"]["authorization"]
             or lock_payload.get("provenance")
@@ -2636,6 +2791,8 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     )
     submit.add_argument("--execution-manifest", type=Path, required=True)
     submit.add_argument("--execution-manifest-sha256", required=True)
+    submit.add_argument("--safe-resume-certificate", type=Path)
+    submit.add_argument("--safe-resume-certificate-sha256")
     submit.add_argument("--receipt-dir", type=Path, required=True)
     submit.add_argument(
         "--execute",
@@ -2672,13 +2829,21 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
 
 def load_execution(
     args: argparse.Namespace,
+    *,
+    load_partition_chunks: bool = True,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     payload, artifact = load_pinned_json(
         args.execution_manifest,
         args.execution_manifest_sha256,
         "execution manifest",
     )
-    return validate_execution_manifest(payload), artifact
+    return (
+        validate_execution_manifest(
+            payload,
+            load_partition_chunks=load_partition_chunks,
+        ),
+        artifact,
+    )
 
 
 def main(argv: Iterable[str] | None = None) -> int:
@@ -2737,14 +2902,28 @@ def main(argv: Iterable[str] | None = None) -> int:
             )
             return 0
 
-        execution, execution_artifact = load_execution(args)
+        execution, execution_artifact = load_execution(
+            args,
+            load_partition_chunks=args.action != "submit",
+        )
         if args.action == "submit":
             if not args.execute:
                 raise ControllerError(
                     "submit requires --execute after exact external authorization"
                 )
+            if (
+                args.safe_resume_certificate is None
+                or args.safe_resume_certificate_sha256 is None
+            ):
+                raise ControllerError(
+                    "submit requires one exact SDCC safe-resume certificate"
+                )
             receipt = execute_submission(
-                execution, execution_artifact, args.receipt_dir
+                execution,
+                execution_artifact,
+                args.safe_resume_certificate,
+                args.safe_resume_certificate_sha256,
+                args.receipt_dir,
             )
             print(json.dumps(receipt, sort_keys=True))
             return 0

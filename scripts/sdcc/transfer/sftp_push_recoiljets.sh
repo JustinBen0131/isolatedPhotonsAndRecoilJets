@@ -10,6 +10,7 @@ REMOTE_SSH_TARGET="${RJ_SDCC_SSH_TARGET:-sphnxuser05.sdcc.bnl.gov}"
 
 LOCAL_FILES=(
   "scripts/sdcc/runtime/audit/audit_auau_grl_projection.sh"
+  "scripts/sdcc/runtime/audit/sdcc_safe_resume_gate.py"
   "scripts/ml/audits/audit_auau_ml_training_smoke.py"
   "scripts/diagnostics/auau_split/audit_auau_truth_tags.py"
   "scripts/sdcc/pipelines/auau/auau_tight_bdt_pipeline.sh"
@@ -232,6 +233,7 @@ LOCAL_FILES=(
 
 REMOTE_FILES=(
   "scripts/sdcc/runtime/audit/audit_auau_grl_projection.sh"
+  "scripts/sdcc/runtime/audit/sdcc_safe_resume_gate.py"
   "scripts/ml/audits/audit_auau_ml_training_smoke.py"
   "scripts/diagnostics/auau_split/audit_auau_truth_tags.py"
   "scripts/sdcc/pipelines/auau/auau_tight_bdt_pipeline.sh"
@@ -491,6 +493,7 @@ GROUP_MACROS=(
 
 GROUP_SCRIPTS=(
   "scripts/sdcc/runtime/audit/audit_auau_grl_projection.sh"
+  "scripts/sdcc/runtime/audit/sdcc_safe_resume_gate.py"
   "scripts/sdcc/workflows/diagnostics/submit_the134_multiview_extraction_smoke.sh"
   "scripts/sdcc/workflows/diagnostics/resolve_the134_full_multiview_extraction.py"
   "scripts/sdcc/workflows/diagnostics/build_the134_source_authority_manifest.py"
