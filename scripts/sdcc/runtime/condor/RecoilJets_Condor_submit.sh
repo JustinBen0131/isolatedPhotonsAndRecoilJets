@@ -4745,6 +4745,330 @@ PY
   fi
 }
 
+the134_full_extraction_requested() {
+  env_truthy "${RJ_THE134_MULTIVIEW_TRAINING_V1:-0}" && return 0
+  env_truthy "${RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1:-0}" && return 0
+  env_truthy "${RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT:-0}" && return 0
+  [[ -n "${RJ_THE134_EXTRACTION_EXECUTION_MANIFEST:-}" ]] && return 0
+  return 1
+}
+
+# THE-134's source-complete training extraction is not a PPG12 stitched-purity
+# production.  It does, however, deliberately reuse the frozen PPG12 Run-28
+# source/period/weight implementation.  Admit that one operation only when the
+# independent full-extraction controller exposes its exact, hash-pinned,
+# unexpired execution and authorization receipts for the current row.
+#
+# This is not a flag-only exemption: the receipts bind all thirteen rows, the
+# group-of-seven partition, immutable submitter/config/code/source identities,
+# output namespaces, duplicate guard, quota guard, and Justin's exact-scope
+# authorization.  Any missing or mutated binding fails before condor_submit.
+validate_the134_full_extraction_admission() {
+  [[ "${ACTION:-}" == "condorDoAll" ]] || {
+    err "THE-134 full extraction admission permits only condorDoAll."
+    return 99
+  }
+  if [[ "${GROUP_SIZE_EXPLICIT:-0}" -ne 1 || "${GROUP_SIZE:-0}" -ne 7 ]]; then
+    err "THE-134 full extraction admission requires explicit groupSize 7."
+    return 99
+  fi
+  if auto_merge_enabled; then
+    err "THE-134 full extraction admission requires RJ_AUTO_MERGE=0."
+    return 99
+  fi
+  for key in \
+    RJ_THE134_MULTIVIEW_TRAINING_V1 \
+    RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1 \
+    RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT \
+    RJ_PP_PHOTONID_EXTRACT_ONLY \
+    RJ_PP_PHOTONID_TRAINING_TREE
+  do
+    env_truthy "${!key:-0}" || {
+      err "THE-134 full extraction admission requires ${key}=1."
+      return 99
+    }
+  done
+  [[ "${RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES:-}" == "0" ]] || {
+    err "THE-134 full extraction admission requires an untruncated training tree."
+    return 99
+  }
+
+  local execution_manifest="${RJ_THE134_EXTRACTION_EXECUTION_MANIFEST:-}"
+  local execution_sha="${RJ_THE134_EXTRACTION_EXECUTION_MANIFEST_SHA256:-}"
+  local authorization_receipt="${RJ_THE134_EXTRACTION_AUTHORIZATION_RECEIPT:-}"
+  local authorization_sha="${RJ_THE134_EXTRACTION_AUTHORIZATION_RECEIPT_SHA256:-}"
+  local row_id="${RJ_THE134_EXTRACTION_ROW_ID:-}"
+  local row_fingerprint="${RJ_THE134_EXTRACTION_ROW_FINGERPRINT_SHA256:-}"
+  if [[ ! -f "$execution_manifest" || -L "$execution_manifest" ||
+        ! "$execution_sha" =~ ^[0-9a-f]{64}$ ||
+        "$(ppg12_sha256_file "$execution_manifest")" != "$execution_sha" ]]; then
+    err "THE-134 full extraction requires an exact regular execution manifest."
+    return 99
+  fi
+  if [[ ! -f "$authorization_receipt" || -L "$authorization_receipt" ||
+        ! "$authorization_sha" =~ ^[0-9a-f]{64}$ ||
+        "$(ppg12_sha256_file "$authorization_receipt")" != "$authorization_sha" ]]; then
+    err "THE-134 full extraction requires an exact regular authorization receipt."
+    return 99
+  fi
+  if [[ -z "$row_id" || ! "$row_id" =~ ^[a-z0-9_]+$ ||
+        ! "$row_fingerprint" =~ ^[0-9a-f]{64}$ ]]; then
+    err "THE-134 full extraction row identity is missing or malformed."
+    return 99
+  fi
+  [[ -s "${SIM_CLEAN_LIST:-}" ]] || {
+    err "THE-134 full extraction cleaned source list is missing."
+    return 99
+  }
+
+  local observed_jobs
+  observed_jobs="$(( ($(wc -l < "$SIM_CLEAN_LIST") + 6) / 7 ))"
+  if ! env \
+    THE134_EXECUTION_MANIFEST="$execution_manifest" \
+    THE134_EXECUTION_SHA256="$execution_sha" \
+    THE134_AUTHORIZATION_RECEIPT="$authorization_receipt" \
+    THE134_AUTHORIZATION_SHA256="$authorization_sha" \
+    THE134_ROW_ID="$row_id" \
+    THE134_ROW_FINGERPRINT_SHA256="$row_fingerprint" \
+    THE134_EXPECTED_JOB_COUNT="$observed_jobs" \
+    THE134_SUBMITTER_PATH="${RJ_THE134_EXTRACTION_SUBMITTER_PATH:-$0}" \
+    THE134_ACTION="${ACTION:-}" \
+    THE134_DATASET="${DATASET:-}" \
+    THE134_SAMPLE="${SIM_SAMPLE:-}" \
+    THE134_OUTPUT_NAMESPACE="${RJ_DEST_BASE_OVERRIDE:-}" \
+    THE134_SUBMIT_NAMESPACE="${RJ_CONDOR_SUB_DIR:-}" \
+    THE134_SUBMISSION_NAMESPACE="${RJ_SUBMISSION_NAMESPACE:-}" \
+    THE134_CONFIG_PATH="${RJ_CONFIG_YAML:-}" \
+    python3 - <<'PY'
+import hashlib
+import json
+import os
+import re
+import time
+from pathlib import Path
+
+HEX64 = re.compile(r"^[0-9a-f]{64}$")
+
+def fail(message):
+    print(
+        f"ERROR: THE-134 full extraction admission rejected: {message}",
+        file=os.sys.stderr,
+    )
+    raise SystemExit(99)
+
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+def read_json(path, label):
+    try:
+        payload = json.loads(path.read_text())
+    except Exception as exc:
+        fail(f"cannot read {label}: {exc}")
+    if not isinstance(payload, dict):
+        fail(f"{label} is not a JSON object")
+    return payload
+
+def require_sha(value, label):
+    if not isinstance(value, str) or not HEX64.fullmatch(value):
+        fail(f"{label} is not a SHA-256")
+    return value
+
+execution_path = Path(os.environ["THE134_EXECUTION_MANIFEST"]).resolve()
+authorization_path = Path(os.environ["THE134_AUTHORIZATION_RECEIPT"]).resolve()
+execution_sha = require_sha(
+    os.environ["THE134_EXECUTION_SHA256"], "execution manifest hash"
+)
+authorization_sha = require_sha(
+    os.environ["THE134_AUTHORIZATION_SHA256"], "authorization receipt hash"
+)
+if file_sha256(execution_path) != execution_sha:
+    fail("execution manifest hash drift")
+if file_sha256(authorization_path) != authorization_sha:
+    fail("authorization receipt hash drift")
+
+execution = read_json(execution_path, "execution manifest")
+authorization = read_json(authorization_path, "authorization receipt")
+if (
+    execution.get("schema") != "THE134_FULL_EXTRACTION_EXECUTION_MANIFEST_V1"
+    or execution.get("status") != "READY_TO_SUBMIT_EXACT_GROUP7"
+):
+    fail("execution manifest schema/status differs")
+if (
+    authorization.get("schema")
+    != "THE134_FULL_EXTRACTION_SUBMISSION_AUTHORIZATION_V1"
+    or authorization.get("status") != "PASS_EXACT_SUBMISSION_AUTHORIZED"
+):
+    fail("authorization schema/status differs")
+campaign = execution.get("campaign")
+if not isinstance(campaign, dict) or authorization.get("campaign") != campaign:
+    fail("execution and authorization campaigns differ")
+bindings = execution.get("bindings")
+if not isinstance(bindings, dict):
+    fail("execution bindings are missing")
+authorization_binding = bindings.get("authorization")
+if (
+    not isinstance(authorization_binding, dict)
+    or Path(str(authorization_binding.get("path", ""))).resolve()
+    != authorization_path
+    or authorization_binding.get("sha256") != authorization_sha
+):
+    fail("execution authorization binding differs")
+approval = authorization.get("approval")
+if (
+    not isinstance(approval, dict)
+    or approval.get("explicit") is not True
+    or approval.get("scope") != "THE134_FULL_SOURCE_COMPLETE_GROUP7_EXTRACTION"
+):
+    fail("exact-scope approval is missing")
+expires = authorization.get("expires_at_unix")
+if not isinstance(expires, int) or expires <= int(time.time()):
+    fail("authorization is expired")
+duplicate = authorization.get("duplicate_guard")
+quota = authorization.get("quota_guard")
+capacity = authorization.get("capacity_guard")
+if (
+    not isinstance(duplicate, dict)
+    or duplicate.get("status") != "PASS_NO_ACTIVE_DUPLICATE"
+    or duplicate.get("active_matching_jobs") != 0
+):
+    fail("duplicate guard is not PASS")
+if (
+    not isinstance(quota, dict)
+    or quota.get("status") != "PASS"
+    or quota.get("authoritative") is not True
+):
+    fail("quota guard is not authoritative PASS")
+if capacity != {"status": "PASS", "group_size": 7, "request_memory_mb": 8000}:
+    fail("capacity guard differs")
+counts = execution.get("counts")
+if (
+    not isinstance(counts, dict)
+    or counts.get("row_count") != 13
+    or counts.get("group_size") != 7
+    or counts.get("request_memory_mb") != 8000
+):
+    fail("execution limits differ")
+authority = execution.get("authority")
+if (
+    not isinstance(authority, dict)
+    or authority.get("submission_authority") is not True
+    or authority.get("broad_production_authority") is not False
+    or authority.get("the121_authority") is not False
+    or authority.get("the122_authority") is not False
+    or authority.get("canonical_promotion") is not False
+):
+    fail("execution authority boundary differs")
+
+row_id = os.environ["THE134_ROW_ID"]
+row_fingerprint = require_sha(
+    os.environ["THE134_ROW_FINGERPRINT_SHA256"], "row fingerprint"
+)
+rows = execution.get("rows")
+if (
+    not isinstance(rows, list)
+    or len(rows) != counts.get("row_count")
+    or any(not isinstance(candidate, dict) for candidate in rows)
+    or len({candidate.get("row_id") for candidate in rows}) != len(rows)
+    or sum(
+        candidate.get("expected_job_count", 0)
+        for candidate in rows
+        if isinstance(candidate.get("expected_job_count"), int)
+    )
+    != counts.get("job_count")
+):
+    fail("execution rows are missing")
+matching = [row for row in rows if isinstance(row, dict) and row.get("row_id") == row_id]
+if len(matching) != 1:
+    fail("execution row is missing or duplicated")
+row = matching[0]
+if row.get("row_fingerprint_sha256") != row_fingerprint:
+    fail("row fingerprint differs")
+if (
+    row.get("dataset") != os.environ["THE134_DATASET"]
+    or row.get("sample") != os.environ["THE134_SAMPLE"]
+    or row.get("expected_job_count") != int(os.environ["THE134_EXPECTED_JOB_COUNT"])
+):
+    fail("row dataset/sample/job-count differs")
+if (
+    row.get("analysis_output_namespace") != os.environ["THE134_OUTPUT_NAMESPACE"]
+    or row.get("submit_namespace") != os.environ["THE134_SUBMIT_NAMESPACE"]
+    or row.get("evidence_namespace")
+    != f"{campaign.get('evidence_root')}/{row_id}"
+    or os.environ["THE134_SUBMISSION_NAMESPACE"] != row_id
+):
+    fail("row namespace differs")
+expected_sidecar = (
+    f"{row['analysis_output_namespace']}/training_views/"
+    "$(Cluster).$(Process).root"
+)
+if row.get("training_sidecar_template") != expected_sidecar:
+    fail("row sidecar template differs")
+submitter = row.get("submitter")
+submitter_path = Path(os.environ["THE134_SUBMITTER_PATH"]).resolve()
+if (
+    not isinstance(submitter, dict)
+    or Path(str(submitter.get("path", ""))).resolve() != submitter_path
+    or file_sha256(submitter_path)
+    != require_sha(submitter.get("sha256"), "row submitter hash")
+):
+    fail("row submitter binding differs")
+if os.environ["THE134_ACTION"] != "condorDoAll":
+    fail("row action differs")
+config_path = Path(os.environ["THE134_CONFIG_PATH"]).resolve()
+if (
+    not config_path.is_file()
+    or file_sha256(config_path)
+    != require_sha(row.get("config_sha256"), "row config hash")
+):
+    fail("row configuration binding differs")
+sealed = row.get("materialization_environment")
+if not isinstance(sealed, dict):
+    fail("row materialization environment is missing")
+expected_environment = {
+    "RJ_DAG_DRYRUN": "1",
+    "RJ_AUTO_MERGE": "0",
+    "RJ_REQUEST_MEMORY": "8000MB",
+    "RJ_DEST_BASE_OVERRIDE": os.environ["THE134_OUTPUT_NAMESPACE"],
+    "RJ_CONDOR_SUB_DIR": os.environ["THE134_SUBMIT_NAMESPACE"],
+    "RJ_SUBMISSION_NAMESPACE": row_id,
+    "RJ_THE134_MULTIVIEW_TRAINING_V1": "1",
+    "RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1": "1",
+    "RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT": "1",
+    "RJ_PP_PHOTONID_EXTRACT_ONLY": "1",
+    "RJ_PP_PHOTONID_TRAINING_TREE": "1",
+    "RJ_PP_PHOTONID_TRAINING_TREE_MAX_ENTRIES": "0",
+    "RJ_PPG12_PHOTON_YIELD": "1",
+    "RJ_PPG12_PHOTON_YIELD_DOUBLE": "0",
+}
+for key, value in expected_environment.items():
+    if sealed.get(key) != value:
+        fail(f"row sealed environment differs for {key}")
+for row_field, environment_key in (
+    ("full_source_manifest_sha256", "RJ_REPLAY_SOURCE_MANIFEST_SHA256"),
+    ("config_sha256", "RJ_REPLAY_CONFIG_SHA256"),
+    ("code_sha256", "RJ_REPLAY_CODE_SHA256"),
+):
+    if sealed.get(environment_key) != row.get(row_field):
+        fail(f"row identity binding differs for {environment_key}")
+profile = sealed.get("RJ_PROFILE_LABEL")
+if profile != f"{campaign.get('tag')}_{row_id}":
+    fail("row profile/campaign binding differs")
+
+print(
+    "THE134_FULL_EXTRACTION_ADMISSION_PASS "
+    f"row={row_id} jobs={row['expected_job_count']} execution={execution_sha}"
+)
+PY
+  then
+    return 99
+  fi
+  say "    [sim_init] THE-134 source-complete sidecar extraction admitted: row=${row_id} execution_sha256=${execution_sha}" >&2
+}
+
 # Fail closed before any broad Run-28 pp photon+jet or inclusive-jet
 # submission.  A deliberately bounded admission canary is the sole manifest
 # exemption: exactly one five-file group per lane, isolated output namespace,
@@ -4819,6 +5143,11 @@ validate_ppg12_stitched_purity_admission() {
       say "    [sim_init] bounded replay-foundation canary admitted: lane=${RJ_REPLAY_LANE} sample=${sample} groupSize=1 maxJobs=1 autoMerge=off" >&2
     fi
     return 0
+  fi
+
+  if the134_full_extraction_requested; then
+    validate_the134_full_extraction_admission
+    return $?
   fi
 
   if env_truthy "${RJ_PPG12_CLOSURE_CANARY:-0}"; then

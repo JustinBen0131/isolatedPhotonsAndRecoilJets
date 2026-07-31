@@ -1140,6 +1140,8 @@ def parse_submit_report(output: str, expected_job_count: int) -> tuple[int, int]
 def sealed_submit_environment(
     row: Mapping[str, Any],
     provenance: Mapping[str, Any],
+    execution_artifact: Mapping[str, Any],
+    authorization_artifact: Mapping[str, Any],
     ambient: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
     source = dict(os.environ if ambient is None else ambient)
@@ -1170,6 +1172,25 @@ def sealed_submit_environment(
     environment["RJ_DAG_DRYRUN"] = "0"
     environment["RJ_CODEX_CHAT_NAME"] = str(provenance["codex_chat_name"])
     environment["RJ_CODEX_THREAD_ID"] = str(provenance["codex_thread_id"])
+    environment["RJ_THE134_EXTRACTION_EXECUTION_MANIFEST"] = str(
+        execution_artifact["path"]
+    )
+    environment["RJ_THE134_EXTRACTION_EXECUTION_MANIFEST_SHA256"] = str(
+        execution_artifact["sha256"]
+    )
+    environment["RJ_THE134_EXTRACTION_AUTHORIZATION_RECEIPT"] = str(
+        authorization_artifact["path"]
+    )
+    environment["RJ_THE134_EXTRACTION_AUTHORIZATION_RECEIPT_SHA256"] = str(
+        authorization_artifact["sha256"]
+    )
+    environment["RJ_THE134_EXTRACTION_ROW_ID"] = str(row["row_id"])
+    environment["RJ_THE134_EXTRACTION_ROW_FINGERPRINT_SHA256"] = str(
+        row["row_fingerprint_sha256"]
+    )
+    environment["RJ_THE134_EXTRACTION_SUBMITTER_PATH"] = str(
+        row["submitter"]["path"]
+    )
     return environment
 
 
@@ -1462,7 +1483,12 @@ def execute_submission(
         stdout_path = receipt_root / f"{row_id}.stdout.txt"
         stderr_path = receipt_root / f"{row_id}.stderr.txt"
         started = int(time.time())
-        submission_environment = sealed_submit_environment(row, provenance)
+        submission_environment = sealed_submit_environment(
+            row,
+            provenance,
+            execution_artifact,
+            execution["bindings"]["authorization"],
+        )
         inherited_environment = {
             key: submission_environment[key]
             for key in sorted(SAFE_SUBMIT_AMBIENT_KEYS)
@@ -1776,6 +1802,8 @@ def validate_submission_receipt(
             sealed_submit_environment(
                 expected,
                 execution["authorization"]["provenance"],
+                execution_artifact,
+                execution["bindings"]["authorization"],
                 ambient=inherited_environment,
             )
         )

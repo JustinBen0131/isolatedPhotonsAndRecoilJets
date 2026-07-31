@@ -233,6 +233,8 @@ class FullExtractionControllerTests(unittest.TestCase):
                         controller.sealed_submit_environment(
                             row,
                             provenance,
+                            cls.execution_artifact,
+                            cls.execution["bindings"]["authorization"],
                             ambient={},
                         )
                     ),
@@ -469,6 +471,8 @@ class FullExtractionControllerTests(unittest.TestCase):
         environment = controller.sealed_submit_environment(
             row,
             provenance,
+            self.execution_artifact,
+            self.execution["bindings"]["authorization"],
             ambient={
                 "PATH": "/usr/bin",
                 "LD_LIBRARY_PATH": "/opt/sphenix/lib:/usr/lib64",
@@ -494,6 +498,34 @@ class FullExtractionControllerTests(unittest.TestCase):
             environment["RJ_CODEX_THREAD_ID"],
             provenance["codex_thread_id"],
         )
+        self.assertEqual(
+            environment["RJ_THE134_EXTRACTION_EXECUTION_MANIFEST"],
+            self.execution_artifact["path"],
+        )
+        self.assertEqual(
+            environment["RJ_THE134_EXTRACTION_EXECUTION_MANIFEST_SHA256"],
+            self.execution_artifact["sha256"],
+        )
+        self.assertEqual(
+            environment["RJ_THE134_EXTRACTION_AUTHORIZATION_RECEIPT"],
+            self.execution["bindings"]["authorization"]["path"],
+        )
+        self.assertEqual(
+            environment["RJ_THE134_EXTRACTION_AUTHORIZATION_RECEIPT_SHA256"],
+            self.execution["bindings"]["authorization"]["sha256"],
+        )
+        self.assertEqual(
+            environment["RJ_THE134_EXTRACTION_ROW_ID"],
+            row["row_id"],
+        )
+        self.assertEqual(
+            environment["RJ_THE134_EXTRACTION_ROW_FINGERPRINT_SHA256"],
+            row["row_fingerprint_sha256"],
+        )
+        self.assertEqual(
+            environment["RJ_THE134_EXTRACTION_SUBMITTER_PATH"],
+            row["submitter"]["path"],
+        )
         with self.assertRaisesRegex(
             controller.ControllerError,
             "ambient LD_LIBRARY_PATH is unsafe",
@@ -501,6 +533,8 @@ class FullExtractionControllerTests(unittest.TestCase):
             controller.sealed_submit_environment(
                 row,
                 provenance,
+                self.execution_artifact,
+                self.execution["bindings"]["authorization"],
                 ambient={
                     "PATH": "/usr/bin",
                     "LD_LIBRARY_PATH": "/valid/lib:../escape",
@@ -799,6 +833,16 @@ class FullExtractionControllerTests(unittest.TestCase):
             self.assertEqual(argv, expected["submitter_argv"])
             self.assertFalse(kwargs["check"])
             self.assertEqual(kwargs["env"]["RJ_DAG_DRYRUN"], "0")
+            self.assertEqual(
+                kwargs["env"]["RJ_THE134_EXTRACTION_ROW_ID"],
+                expected["row_id"],
+            )
+            self.assertEqual(
+                kwargs["env"][
+                    "RJ_THE134_EXTRACTION_EXECUTION_MANIFEST_SHA256"
+                ],
+                self.execution_artifact["sha256"],
+            )
             calls.append(list(argv))
             return subprocess.CompletedProcess(
                 argv,
