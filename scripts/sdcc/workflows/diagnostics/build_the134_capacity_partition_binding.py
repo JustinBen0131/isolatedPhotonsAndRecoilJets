@@ -69,6 +69,9 @@ EXPECTED_SIDECAR_OUTPUTS = 18_577
 EXPECTED_ROOT_ARTIFACTS = 37_154
 EXPECTED_SOURCE_OCCURRENCES = 18_577
 EXPECTED_REQUEST_MEMORY_MB = 8_000
+CAPACITY_OPERATIONAL_BUNDLE_ROLES = frozenset(
+    {"code_manifest", "submitter"}
+)
 
 SPEC_KEYS = frozenset(
     {"schema", "immutable_authority", "preflight", "capacity"}
@@ -242,6 +245,149 @@ def canonical_json_bytes(payload: Any) -> bytes:
     ).encode("utf-8")
 
 
+def _validated_plan_bundle_operational_authority(
+    payload: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Validate one plan bundle and separate operational from science roles.
+
+    Capacity measurements remain reusable across a controller/submitter-only
+    bundle refresh only when both immutable receipts rehash and every
+    non-operational artifact role, hash, and size remains identical.  The
+    resulting science fingerprint is retained in the normalized plan, so a
+    library, executor, configuration, model, schema, or provider change cannot
+    be hidden by bundle-identity normalization.
+    """
+
+    raw_manifests = payload.get("input_manifests")
+    if raw_manifests is None:
+        return None
+    manifests = require_mapping(raw_manifests, "capacity plan input_manifests")
+    bundle_record = require_mapping(
+        manifests.get("bundle"),
+        "capacity plan input_manifests.bundle",
+    )
+    materialization_record = require_mapping(
+        manifests.get("materialization"),
+        "capacity plan input_manifests.materialization",
+    )
+    try:
+        bundle_path = Path(str(bundle_record.get("path", ""))).resolve(
+            strict=True
+        )
+        materialization_path = Path(
+            str(materialization_record.get("path", ""))
+        ).resolve(strict=True)
+    except (FileNotFoundError, OSError, RuntimeError) as exc:
+        raise BindingError("capacity plan immutable bundle is missing") from exc
+    for label, path, record in (
+        ("bundle", bundle_path, bundle_record),
+        ("materialization", materialization_path, materialization_record),
+    ):
+        expected_sha = str(record.get("sha256", ""))
+        if (
+            not re.fullmatch(r"[0-9a-f]{64}", expected_sha)
+            or not path.is_file()
+            or file_sha256(path) != expected_sha
+        ):
+            raise BindingError(
+                f"capacity plan immutable {label} receipt hash differs"
+            )
+    try:
+        bundle_payload = require_mapping(
+            evidence.strict_json_loads(
+                bundle_path.read_text(encoding="utf-8")
+            ),
+            "capacity plan immutable bundle",
+        )
+        validated_bundle = resolver.validate_bundle(dict(bundle_payload))
+        materialization_payload = require_mapping(
+            evidence.strict_json_loads(
+                materialization_path.read_text(encoding="utf-8")
+            ),
+            "capacity plan immutable materialization",
+        )
+        validated_materialization = resolver.validate_materialization_binding(
+            dict(materialization_payload),
+            materialization_path=materialization_path,
+            bundle_path=bundle_path,
+            bundle_file_sha256=file_sha256(bundle_path),
+            bundle=validated_bundle,
+        )
+    except (
+        OSError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        resolver.ControllerError,
+    ) as exc:
+        raise BindingError(
+            f"capacity plan immutable bundle validation failed: {exc}"
+        ) from exc
+    by_role = require_mapping(
+        validated_bundle.get("artifact_by_role"),
+        "capacity plan immutable artifact_by_role",
+    )
+    submitter = require_mapping(
+        by_role.get("submitter"),
+        "capacity plan immutable submitter",
+    )
+    science_inventory = [
+        {
+            "role": role,
+            "sha256": str(record["sha256"]),
+            "size_bytes": int(record["size_bytes"]),
+        }
+        for role, record in sorted(by_role.items())
+        if role not in CAPACITY_OPERATIONAL_BUNDLE_ROLES
+    ]
+    science_fingerprint = semantic_sha256(
+        {
+            "public_commit": validated_bundle["public_commit"],
+            "replay_schema_sha256": validated_bundle[
+                "replay_schema_sha256"
+            ],
+            "training_schema_sha256": validated_bundle[
+                "training_schema_sha256"
+            ],
+            "semantic_sha256": validated_bundle["semantic_sha256"],
+            "runtime": {
+                key: validated_bundle["runtime"][key]
+                for key in (
+                    "release",
+                    "offline_main",
+                    "calo_reco_soname",
+                    "request_memory_mb",
+                )
+            },
+            "science_artifacts": science_inventory,
+        }
+    )
+    bundle_root = Path(
+        str(validated_materialization["digest_named_bundle_path"])
+    )
+    return {
+        "bundle_roots": sorted(
+            {
+                str(bundle_root),
+                str(bundle_root.resolve(strict=True)),
+            },
+            key=len,
+            reverse=True,
+        ),
+        "bundle_identity_sha256": validated_bundle[
+            "bundle_identity_sha256"
+        ],
+        "bundle_file_sha256": file_sha256(bundle_path),
+        "bundle_semantic_fingerprint_sha256": validated_bundle[
+            "semantic_fingerprint_sha256"
+        ],
+        "materialization_file_sha256": file_sha256(materialization_path),
+        "code_sha256": validated_bundle["code_sha256"],
+        "submitter_sha256": submitter["sha256"],
+        "submitter_size_bytes": int(submitter["size_bytes"]),
+        "science_bundle_fingerprint_sha256": science_fingerprint,
+    }
+
+
 def _capacity_plan_namespace_normal_form(
     payload: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -261,25 +407,65 @@ def _capacity_plan_namespace_normal_form(
     if not isinstance(tag, str) or not tag:
         raise BindingError("capacity plan campaign tag must be nonempty")
 
+    bundle_authority = _validated_plan_bundle_operational_authority(payload)
+    replacements: list[tuple[str, str]] = []
+    if bundle_authority is not None:
+        replacements.extend(
+            (root, "__THE134_IMMUTABLE_BUNDLE__")
+            for root in bundle_authority["bundle_roots"]
+        )
+        replacements.extend(
+            (
+                (bundle_authority["bundle_identity_sha256"],
+                 "__THE134_BUNDLE_IDENTITY__"),
+                (bundle_authority["bundle_file_sha256"],
+                 "__THE134_BUNDLE_RECEIPT_SHA__"),
+                (bundle_authority["bundle_semantic_fingerprint_sha256"],
+                 "__THE134_BUNDLE_SEMANTIC_FINGERPRINT__"),
+                (bundle_authority["materialization_file_sha256"],
+                 "__THE134_MATERIALIZATION_RECEIPT_SHA__"),
+                (bundle_authority["code_sha256"],
+                 "__THE134_OPERATIONAL_CODE_SHA__"),
+                (bundle_authority["submitter_sha256"],
+                 "__THE134_OPERATIONAL_SUBMITTER_SHA__"),
+            )
+        )
+
     def normalize(value: Any) -> Any:
         if isinstance(value, dict):
-            return {
+            result = {
                 key: normalize(item)
                 for key, item in value.items()
                 if key not in {
+                    "duplicate_fingerprint_sha256",
                     "execution_fingerprint_sha256",
                     "row_fingerprint_sha256",
                 }
             }
+            if (
+                bundle_authority is not None
+                and result.get("sha256")
+                == "__THE134_OPERATIONAL_SUBMITTER_SHA__"
+                and "size_bytes" in result
+            ):
+                result["size_bytes"] = "__THE134_OPERATIONAL_SUBMITTER_SIZE__"
+            return result
         if isinstance(value, list):
             return [normalize(item) for item in value]
         if isinstance(value, str):
-            return value.replace(tag, "__THE134_CAMPAIGN_TAG__")
+            result = value.replace(tag, "__THE134_CAMPAIGN_TAG__")
+            for old, new in replacements:
+                result = result.replace(old, new)
+            return result
         return value
 
     normalized = normalize(dict(payload))
     if not isinstance(normalized, dict):
         raise BindingError("capacity plan normal form must be an object")
+    if bundle_authority is not None:
+        normalized[
+            "_capacity_science_bundle_fingerprint_sha256"
+        ] = bundle_authority["science_bundle_fingerprint_sha256"]
     rows = normalized.get("rows")
     if not isinstance(rows, list):
         raise BindingError("capacity plan rows must be a list")

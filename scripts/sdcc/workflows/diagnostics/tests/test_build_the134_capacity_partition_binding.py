@@ -404,6 +404,155 @@ class CapacityPartitionBindingTests(unittest.TestCase):
         ):
             binding.validate_capacity_plan_binding(resource, current)
 
+    def test_capacity_plan_allows_only_verified_operational_bundle_refresh(
+        self,
+    ) -> None:
+        old_tag = "the134_old_bundle"
+        new_tag = "the134_new_bundle"
+
+        def plan(
+            tag: str,
+            bundle_id: str,
+            code_sha: str,
+            submitter_sha: str,
+            submitter_size: int,
+        ) -> dict[str, object]:
+            root = (
+                f"/immutable_bundles/the134_bundle_sha256_{bundle_id}"
+            )
+            return {
+                "schema": "THE134_FULL_EXTRACTION_PLAN_V3",
+                "campaign": {
+                    "tag": tag,
+                    "output_root": f"/output/{tag}",
+                    "evidence_root": f"/evidence/{tag}",
+                    "submit_root": f"/submit/{tag}",
+                },
+                "duplicate_fingerprint_sha256": "1" * 64,
+                "execution_fingerprint_sha256": "2" * 64,
+                "input_manifests": {
+                    "bundle": {
+                        "path": f"{root}/metadata/resolver_bundle_receipt.json",
+                        "sha256": bundle_id,
+                        "semantic_fingerprint_sha256": bundle_id,
+                    },
+                    "materialization": {
+                        "path": f"{root}/metadata/materialization_receipt.json",
+                        "sha256": bundle_id,
+                        "bundle_identity_sha256": bundle_id,
+                        "digest_named_bundle_path": root,
+                    },
+                },
+                "duplicate_contract": {
+                    "bundle_semantic_fingerprint_sha256": bundle_id,
+                },
+                "rows": [
+                    {
+                        "row_id": "pp_background_jet8",
+                        "row_fingerprint_sha256": "3" * 64,
+                        "bundle_contract": {
+                            "code_sha256": code_sha,
+                            "library": {
+                                "path": f"{root}/artifacts/pp_library/lib.so",
+                                "sha256": "a" * 64,
+                            },
+                            "submitter": {
+                                "path": (
+                                    f"{root}/artifacts/submitter/submit.sh"
+                                ),
+                                "sha256": submitter_sha,
+                                "size_bytes": submitter_size,
+                            },
+                        },
+                        "execution_contract": {
+                            "submit_namespace": f"/submit/{tag}/row",
+                            "worker_environment": {
+                                "RJ_PROFILE_LABEL": f"{tag}_row",
+                                "RJ_REPLAY_CODE_SHA256": code_sha,
+                                "RJ_REPLAY_PHOTON_CAPTURE_ET_MIN": 5.0,
+                            },
+                        },
+                    }
+                ],
+            }
+
+        old_plan = plan(
+            old_tag, "4" * 64, "5" * 64, "6" * 64, 100
+        )
+        new_plan = plan(
+            new_tag, "7" * 64, "8" * 64, "9" * 64, 200
+        )
+        authorities = {
+            old_tag: {
+                "bundle_roots": [
+                    f"/immutable_bundles/the134_bundle_sha256_{'4' * 64}"
+                ],
+                "bundle_identity_sha256": "4" * 64,
+                "bundle_file_sha256": "4" * 64,
+                "bundle_semantic_fingerprint_sha256": "4" * 64,
+                "materialization_file_sha256": "4" * 64,
+                "code_sha256": "5" * 64,
+                "submitter_sha256": "6" * 64,
+                "submitter_size_bytes": 100,
+                "science_bundle_fingerprint_sha256": "a" * 64,
+            },
+            new_tag: {
+                "bundle_roots": [
+                    f"/immutable_bundles/the134_bundle_sha256_{'7' * 64}"
+                ],
+                "bundle_identity_sha256": "7" * 64,
+                "bundle_file_sha256": "7" * 64,
+                "bundle_semantic_fingerprint_sha256": "7" * 64,
+                "materialization_file_sha256": "7" * 64,
+                "code_sha256": "8" * 64,
+                "submitter_sha256": "9" * 64,
+                "submitter_size_bytes": 200,
+                "science_bundle_fingerprint_sha256": "a" * 64,
+            },
+        }
+
+        def authority(payload):
+            return authorities[payload["campaign"]["tag"]]
+
+        old_path = self.root / "old_bundle_plan.json"
+        new_path = self.root / "new_bundle_plan.json"
+        old_path.write_text(json.dumps(old_plan), encoding="utf-8")
+        new_path.write_text(json.dumps(new_plan), encoding="utf-8")
+        resource = {
+            "full_plan": str(old_path),
+            "full_plan_sha256": sha256_bytes(old_path.read_bytes()),
+        }
+        current = {
+            "plan": {
+                "path": str(new_path),
+                "sha256": sha256_bytes(new_path.read_bytes()),
+            }
+        }
+        with mock.patch.object(
+            binding,
+            "_validated_plan_bundle_operational_authority",
+            side_effect=authority,
+        ):
+            observed = binding.validate_capacity_plan_binding(
+                resource, current
+            )
+        self.assertEqual(
+            observed["mode"],
+            "FRESH_NAMESPACE_AND_PINNED_PROVIDER_EQUIVALENT_PLAN",
+        )
+
+        authorities[new_tag][
+            "science_bundle_fingerprint_sha256"
+        ] = "b" * 64
+        with mock.patch.object(
+            binding,
+            "_validated_plan_bundle_operational_authority",
+            side_effect=authority,
+        ), self.assertRaisesRegex(
+            binding.BindingError, "differs beyond campaign namespace"
+        ):
+            binding.validate_capacity_plan_binding(resource, current)
+
     def test_capacity_plan_accepts_only_byte_identical_pinned_provider_routing(
         self,
     ) -> None:
