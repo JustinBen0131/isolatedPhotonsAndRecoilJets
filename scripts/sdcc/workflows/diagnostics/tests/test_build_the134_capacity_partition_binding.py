@@ -775,10 +775,14 @@ class CapacityPartitionBindingTests(unittest.TestCase):
             return {
                 "schema": "THE134_FULL_EXTRACTION_PREFLIGHT_V3",
                 "execution_fingerprint_sha256": "1" * 64,
+                "duplicate_fingerprint_sha256": "2" * 64,
+                "bundle_manifest_sha256": "3" * 64,
+                "materialization_receipt_sha256": "4" * 64,
                 "artifacts": {
                     "plan": {"sha256": plan_sha},
                     "rows": {"sha256": rows_sha},
                     "partition": {"sha256": partition_sha},
+                    "duplicate_fingerprint": {"sha256": "5" * 64},
                 },
             }
 
@@ -802,6 +806,19 @@ class CapacityPartitionBindingTests(unittest.TestCase):
                 "sha256": sha256_bytes(new_receipt.read_bytes()),
             }
         }
+        current_payload = json.loads(new_receipt.read_text(encoding="utf-8"))
+        current_payload["duplicate_fingerprint_sha256"] = "6" * 64
+        current_payload["bundle_manifest_sha256"] = "7" * 64
+        current_payload["materialization_receipt_sha256"] = "8" * 64
+        current_payload["artifacts"]["duplicate_fingerprint"]["sha256"] = (
+            "9" * 64
+        )
+        new_receipt.write_text(
+            json.dumps(current_payload), encoding="utf-8"
+        )
+        current["preflight_receipt"]["sha256"] = sha256_bytes(
+            new_receipt.read_bytes()
+        )
         observed = binding.validate_capacity_preflight_binding(
             resource, current
         )

@@ -695,8 +695,22 @@ def validate_capacity_preflight_binding(
                 artifacts.get(field), f"capacity preflight artifacts.{field}"
             )
             record["sha256"] = "__NAMESPACE_DERIVED_SHA256__"
+        duplicate_record = require_mapping(
+            artifacts.get("duplicate_fingerprint"),
+            "capacity preflight artifacts.duplicate_fingerprint",
+        )
+        duplicate_record["sha256"] = "__NAMESPACE_DERIVED_SHA256__"
         normalized["execution_fingerprint_sha256"] = (
             "__NAMESPACE_DERIVED_SHA256__"
+        )
+        normalized["duplicate_fingerprint_sha256"] = (
+            "__NAMESPACE_DERIVED_SHA256__"
+        )
+        normalized["bundle_manifest_sha256"] = (
+            "__OPERATIONAL_BUNDLE_DERIVED_SHA256__"
+        )
+        normalized["materialization_receipt_sha256"] = (
+            "__OPERATIONAL_BUNDLE_DERIVED_SHA256__"
         )
         return normalized
 
