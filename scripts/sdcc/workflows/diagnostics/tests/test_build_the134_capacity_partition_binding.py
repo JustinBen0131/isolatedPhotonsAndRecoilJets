@@ -385,7 +385,8 @@ class CapacityPartitionBindingTests(unittest.TestCase):
         }
         observed = binding.validate_capacity_plan_binding(resource, current)
         self.assertEqual(
-            observed["mode"], "FRESH_NAMESPACE_ONLY_EQUIVALENT_PLAN"
+            observed["mode"],
+            "FRESH_NAMESPACE_AND_PINNED_PROVIDER_EQUIVALENT_PLAN",
         )
         self.assertEqual(
             observed["namespace_normalized_sha256"],
@@ -400,6 +401,99 @@ class CapacityPartitionBindingTests(unittest.TestCase):
         current["plan"]["sha256"] = sha256_bytes(new_path.read_bytes())
         with self.assertRaisesRegex(
             binding.BindingError, "differs beyond campaign namespace"
+        ):
+            binding.validate_capacity_plan_binding(resource, current)
+
+    def test_capacity_plan_accepts_only_byte_identical_pinned_provider_routing(
+        self,
+    ) -> None:
+        old_tag = "the134_old_provider_attempt"
+        new_tag = "the134_new_provider_attempt"
+        release_lib = self.root / "release" / "lib"
+        release_lib64 = self.root / "release" / "lib64"
+        release_lib.mkdir(parents=True)
+        release_lib64.mkdir(parents=True)
+        bundle_root = (
+            self.root
+            / "immutable_bundles"
+            / f"the134_bundle_sha256_{'a' * 64}"
+            / "artifacts"
+        )
+        provider_rows = (
+            ("libcalo_io.so", "release_calo_io", "CALO_IO"),
+            ("libclusteriso.so", "release_clusteriso", "CLUSTERISO"),
+            ("libjetbase.so", "release_jetbase", "JETBASE"),
+        )
+        old_paths = {}
+        new_paths = {}
+        hashes = {}
+        for family, role, _suffix in provider_rows:
+            release_path = release_lib / family
+            release_path.write_text(f"{family}|provider\n", encoding="utf-8")
+            bundle_path = bundle_root / role / family
+            bundle_path.parent.mkdir(parents=True)
+            bundle_path.write_bytes(release_path.read_bytes())
+            old_paths[family] = str(bundle_path)
+            new_paths[family] = str(release_path)
+            hashes[family] = binding.file_sha256(release_path)
+
+        def plan(tag: str, paths: dict[str, str]) -> dict[str, object]:
+            environment = {
+                "RJ_RELEASE_CORE_LIB_DIR": str(release_lib),
+                "RJ_RELEASE_CORE_LIB64_DIR": str(release_lib64),
+            }
+            for family, _role, suffix in provider_rows:
+                environment[f"RJ_PINNED_RELEASE_{suffix}_PATH"] = paths[family]
+                environment[f"RJ_PINNED_RELEASE_{suffix}_SHA256"] = hashes[family]
+            return {
+                "schema": "THE134_FULL_EXTRACTION_PLAN_V3",
+                "campaign": {
+                    "tag": tag,
+                    "output_root": f"/output/{tag}",
+                    "evidence_root": f"/evidence/{tag}",
+                    "submit_root": f"/submit/{tag}",
+                },
+                "execution_fingerprint_sha256": "1" * 64,
+                "rows": [
+                    {
+                        "row_id": "pp_background_jet8",
+                        "row_fingerprint_sha256": "2" * 64,
+                        "execution_contract": {
+                            "submit_namespace": f"/submit/{tag}/row",
+                            "materialization_environment": environment,
+                            "worker_environment": {
+                                "RJ_PROFILE_LABEL": f"{tag}_row",
+                            },
+                        },
+                    }
+                ],
+            }
+
+        old_path = self.root / "old_provider_plan.json"
+        new_path = self.root / "new_provider_plan.json"
+        old_path.write_text(json.dumps(plan(old_tag, old_paths)), encoding="utf-8")
+        new_path.write_text(json.dumps(plan(new_tag, new_paths)), encoding="utf-8")
+        resource = {
+            "full_plan": str(old_path),
+            "full_plan_sha256": binding.file_sha256(old_path),
+        }
+        current = {
+            "plan": {
+                "path": str(new_path),
+                "sha256": binding.file_sha256(new_path),
+            }
+        }
+        observed = binding.validate_capacity_plan_binding(resource, current)
+        self.assertEqual(
+            observed["mode"],
+            "FRESH_NAMESPACE_AND_PINNED_PROVIDER_EQUIVALENT_PLAN",
+        )
+
+        (release_lib / "libclusteriso.so").write_text(
+            "hash drift\n", encoding="utf-8"
+        )
+        with self.assertRaisesRegex(
+            binding.BindingError, "pinned provider hash differs"
         ):
             binding.validate_capacity_plan_binding(resource, current)
 

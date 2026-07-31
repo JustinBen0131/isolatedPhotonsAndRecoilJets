@@ -245,13 +245,15 @@ def canonical_json_bytes(payload: Any) -> bytes:
 def _capacity_plan_namespace_normal_form(
     payload: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Remove only campaign-namespace identity and its derived fingerprints.
+    """Remove campaign identity and byte-equivalent provider locations.
 
     A failed zero-cluster submission must use a fresh tag and namespaces.  The
     already-certified capacity pair remains applicable only when the new plan
-    is otherwise identical.  This normal form deliberately retains every
-    source, partition, executable, physics, resource, ordering, and worker
-    configuration field.
+    is otherwise identical.  A versioned release provider and its immutable
+    bundle copy may differ lexically, but only when the exact file at either
+    location rehashes to the unchanged pinned SHA-256.  Every source,
+    partition, executable, physics, resource, ordering, worker field, and
+    provider hash remains authoritative.
     """
 
     campaign = require_mapping(payload.get("campaign"), "capacity plan campaign")
@@ -278,6 +280,96 @@ def _capacity_plan_namespace_normal_form(
     normalized = normalize(dict(payload))
     if not isinstance(normalized, dict):
         raise BindingError("capacity plan normal form must be an object")
+    rows = normalized.get("rows")
+    if not isinstance(rows, list):
+        raise BindingError("capacity plan rows must be a list")
+    provider_fields = (
+        (
+            "RJ_PINNED_RELEASE_CALO_IO_PATH",
+            "RJ_PINNED_RELEASE_CALO_IO_SHA256",
+            "libcalo_io.so",
+            "release_calo_io",
+        ),
+        (
+            "RJ_PINNED_RELEASE_CLUSTERISO_PATH",
+            "RJ_PINNED_RELEASE_CLUSTERISO_SHA256",
+            "libclusteriso.so",
+            "release_clusteriso",
+        ),
+        (
+            "RJ_PINNED_RELEASE_JETBASE_PATH",
+            "RJ_PINNED_RELEASE_JETBASE_SHA256",
+            "libjetbase.so",
+            "release_jetbase",
+        ),
+    )
+
+    def beneath(path: Path, root: Path) -> bool:
+        try:
+            path.relative_to(root)
+            return True
+        except ValueError:
+            return False
+
+    for row_index, raw_row in enumerate(rows):
+        row = require_mapping(raw_row, f"capacity plan rows[{row_index}]")
+        execution = require_mapping(
+            row.get("execution_contract"),
+            f"capacity plan rows[{row_index}].execution_contract",
+        )
+        environment = execution.get("materialization_environment")
+        if environment is None:
+            continue
+        environment = require_mapping(
+            environment,
+            f"capacity plan rows[{row_index}].materialization_environment",
+        )
+        release_roots = []
+        for key in ("RJ_RELEASE_CORE_LIB64_DIR", "RJ_RELEASE_CORE_LIB_DIR"):
+            raw_root = environment.get(key)
+            if not isinstance(raw_root, str) or not raw_root.startswith("/"):
+                raise BindingError(
+                    f"capacity plan provider root is invalid: {key}"
+                )
+            release_roots.append(Path(raw_root).resolve(strict=True))
+        for path_key, sha_key, family, bundle_role in provider_fields:
+            raw_path = environment.get(path_key)
+            expected_sha = environment.get(sha_key)
+            if (
+                not isinstance(raw_path, str)
+                or not raw_path.startswith("/")
+                or not isinstance(expected_sha, str)
+                or not re.fullmatch(r"[0-9a-f]{64}", expected_sha)
+            ):
+                raise BindingError(
+                    f"capacity plan pinned provider contract is invalid: {path_key}"
+                )
+            provider = Path(raw_path)
+            try:
+                provider_real = provider.resolve(strict=True)
+            except (FileNotFoundError, OSError, RuntimeError) as exc:
+                raise BindingError(
+                    f"capacity plan pinned provider is missing: {path_key}"
+                ) from exc
+            if not provider_real.is_file() or file_sha256(provider_real) != expected_sha:
+                raise BindingError(
+                    f"capacity plan pinned provider hash differs: {path_key}"
+                )
+            in_release = any(
+                beneath(provider_real, root)
+                for root in release_roots
+            )
+            immutable_pattern = re.compile(
+                r"/immutable_bundles/the134_bundle_sha256_[0-9a-f]{64}/"
+                rf"artifacts/{bundle_role}/{re.escape(family)}$"
+            )
+            in_bundle = immutable_pattern.search(str(provider_real)) is not None
+            if not (in_release or in_bundle):
+                raise BindingError(
+                    f"capacity plan pinned provider escaped immutable authority: "
+                    f"{path_key}"
+                )
+            environment[path_key] = f"__PINNED_RELEASE_PROVIDER__/{family}"
     return normalized
 
 
@@ -285,7 +377,7 @@ def validate_capacity_plan_binding(
     resource: Mapping[str, Any],
     current: Mapping[str, Any],
 ) -> dict[str, str]:
-    """Require the exact plan or a namespace-only fresh-attempt equivalent."""
+    """Require the exact plan or one bounded execution-equivalent fresh plan."""
 
     resource_path = Path(str(resource.get("full_plan", ""))).absolute()
     resource_sha256 = str(resource.get("full_plan_sha256", ""))
@@ -344,10 +436,11 @@ def validate_capacity_plan_binding(
         or resource_normal_sha256 != current_normal_sha256
     ):
         raise BindingError(
-            "capacity plan differs beyond campaign namespace and fingerprints"
+            "capacity plan differs beyond campaign namespace, fingerprints, "
+            "and byte-identical pinned-provider routing"
         )
     return {
-        "mode": "FRESH_NAMESPACE_ONLY_EQUIVALENT_PLAN",
+        "mode": "FRESH_NAMESPACE_AND_PINNED_PROVIDER_EQUIVALENT_PLAN",
         "capacity_plan_sha256": resource_sha256,
         "current_plan_sha256": current_sha256,
         "namespace_normalized_sha256": current_normal_sha256,
