@@ -20,6 +20,15 @@ SPEC = importlib.util.spec_from_file_location("the134_full_resolver", CONTROLLER
 assert SPEC is not None and SPEC.loader is not None
 resolver = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(resolver)
+MATERIALIZER = (
+    HERE.parents[1] / "materialize_the134_full_multiview_extraction.py"
+)
+MATERIALIZER_SPEC = importlib.util.spec_from_file_location(
+    "the134_full_materializer_contract", MATERIALIZER
+)
+assert MATERIALIZER_SPEC is not None and MATERIALIZER_SPEC.loader is not None
+materializer = importlib.util.module_from_spec(MATERIALIZER_SPEC)
+MATERIALIZER_SPEC.loader.exec_module(materializer)
 AMENDMENT = HERE.parents[1] / "build_the134_capacity_count_amendment.py"
 AMENDMENT_SPEC = importlib.util.spec_from_file_location(
     "the134_capacity_count_amendment", AMENDMENT
@@ -630,11 +639,31 @@ class TestFullExtractionResolver(unittest.TestCase):
                 family: str(fixture.release_lib / family)
                 for family in resolver.RELEASE_PROVIDER_ROLES
             }
+            normalized_bundle, materializer_roles = materializer.validate_bundle(
+                json.loads(fixture.bundle.read_text(encoding="utf-8"))
+            )
             for row in plan["rows"]:
                 materialization = row["execution_contract"][
                     "materialization_environment"
                 ]
                 worker = row["execution_contract"]["worker_environment"]
+                self.assertEqual(
+                    {
+                        key: materialization.get(key)
+                        for key in resolver.SUBMIT_HOST_SAFETY_ENVIRONMENT
+                    },
+                    resolver.SUBMIT_HOST_SAFETY_ENVIRONMENT,
+                )
+                self.assertEqual(
+                    materialization,
+                    materializer.expected_materialization_environment(
+                        row,
+                        campaign=plan["campaign"],
+                        bundle=normalized_bundle,
+                        by_role=materializer_roles,
+                        worker_environment=worker,
+                    ),
+                )
                 for key in resolver.COMMON_SUBMITTER_ADMISSION_KEYS:
                     self.assertEqual(materialization[key], worker[key])
                 if row["system"] == "pp":
