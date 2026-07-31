@@ -529,6 +529,10 @@ class FullExtractionControllerTests(unittest.TestCase):
                 ),
                 requested,
             )
+            self.assertEqual(
+                controller.materializer_revalidation_root(requested),
+                canonical_root / "alice" / "evidence" / "campaign",
+            )
 
     def test_fresh_evidence_tree_rejects_wrong_user_alias_target(self) -> None:
         alias_root = self.root / "wrong_user_alias"

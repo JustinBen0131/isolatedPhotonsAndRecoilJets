@@ -363,6 +363,17 @@ def validate_standard_sdcc_scratch_alias(path: Path, label: str) -> bool:
     return True
 
 
+def materializer_revalidation_root(path: Path) -> Path:
+    """Return a canonical GPFS path only after exact scratch-alias proof."""
+
+    if validate_standard_sdcc_scratch_alias(
+        path,
+        "materializer execution revalidation root",
+    ):
+        return path.resolve(strict=False)
+    return path
+
+
 def safe_fresh_local_tree_output(path: Path, label: str) -> Path:
     """Validate a fresh absolute output whose parent chain may not exist yet."""
 
@@ -1228,7 +1239,7 @@ def revalidate_bound_artifacts(
     ):
         raise ControllerError("bound submission authorization content differs")
 
-    validation_root = (
+    validation_root = materializer_revalidation_root(
         Path(str(bindings["plan"]["path"])).parent
         / f".the134_execution_revalidation_{os.getpid()}"
     )
