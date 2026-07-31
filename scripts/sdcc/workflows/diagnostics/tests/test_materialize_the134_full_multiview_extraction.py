@@ -16,6 +16,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 HERE = Path(__file__).resolve().parent
@@ -1480,6 +1481,86 @@ class FullControllerTests(unittest.TestCase):
         finally:
             overlapping.parent.rmdir()
             overlapping.parent.parent.rmdir()
+
+    def test_exact_sdcc_scratch_alias_resolves_to_canonical_gpfs(self) -> None:
+        alias_root = self.root / "sphenix_u"
+        canonical_root = self.root / "gpfs_user"
+        (alias_root / "alice").mkdir(parents=True)
+        (canonical_root / "alice" / "evidence").mkdir(parents=True)
+        (alias_root / "alice" / "scratch").symlink_to(
+            canonical_root / "alice",
+            target_is_directory=True,
+        )
+        requested = alias_root / "alice" / "scratch" / "evidence" / "stage"
+        with (
+            mock.patch.object(controller, "SDCC_USER_ALIAS_ROOT", alias_root),
+            mock.patch.object(
+                controller,
+                "SDCC_CANONICAL_USER_ROOT",
+                canonical_root,
+            ),
+        ):
+            self.assertEqual(
+                controller.validate_staging_root(requested),
+                canonical_root / "alice" / "evidence" / "stage",
+            )
+
+    def test_sdcc_scratch_alias_rejects_wrong_user_target(self) -> None:
+        alias_root = self.root / "wrong_user_alias"
+        canonical_root = self.root / "wrong_user_gpfs"
+        (alias_root / "alice").mkdir(parents=True)
+        (canonical_root / "alice").mkdir(parents=True)
+        (canonical_root / "bob").mkdir(parents=True)
+        (alias_root / "alice" / "scratch").symlink_to(
+            canonical_root / "bob",
+            target_is_directory=True,
+        )
+        with (
+            mock.patch.object(controller, "SDCC_USER_ALIAS_ROOT", alias_root),
+            mock.patch.object(
+                controller,
+                "SDCC_CANONICAL_USER_ROOT",
+                canonical_root,
+            ),
+            self.assertRaisesRegex(
+                controller.ControllerError,
+                "does not target the exact user GPFS root",
+            ),
+        ):
+            controller.validate_staging_root(
+                alias_root / "alice" / "scratch" / "stage"
+            )
+
+    def test_sdcc_scratch_alias_rejects_nested_escape(self) -> None:
+        alias_root = self.root / "nested_alias"
+        canonical_root = self.root / "nested_gpfs_user"
+        external_root = self.root / "nested_external"
+        (alias_root / "alice").mkdir(parents=True)
+        (canonical_root / "alice").mkdir(parents=True)
+        external_root.mkdir()
+        (alias_root / "alice" / "scratch").symlink_to(
+            canonical_root / "alice",
+            target_is_directory=True,
+        )
+        (canonical_root / "alice" / "evidence").symlink_to(
+            external_root,
+            target_is_directory=True,
+        )
+        with (
+            mock.patch.object(controller, "SDCC_USER_ALIAS_ROOT", alias_root),
+            mock.patch.object(
+                controller,
+                "SDCC_CANONICAL_USER_ROOT",
+                canonical_root,
+            ),
+            self.assertRaisesRegex(
+                controller.ControllerError,
+                "resolution is unstable or escapes GPFS",
+            ),
+        ):
+            controller.validate_staging_root(
+                alias_root / "alice" / "scratch" / "evidence" / "stage"
+            )
 
     def test_cli_help_lists_only_non_submitting_actions(self) -> None:
         result = subprocess.run(

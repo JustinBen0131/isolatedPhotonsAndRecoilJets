@@ -75,6 +75,9 @@ OUTPUT_FILENAMES = (
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 ENV_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
+SAFE_SDCC_USER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+SDCC_USER_ALIAS_ROOT = Path("/sphenix/u")
+SDCC_CANONICAL_USER_ROOT = Path("/gpfs/mnt/gpfs02/sphenix/user")
 
 FORBIDDEN_POSITIVE_AUTHORITY_FIELDS = frozenset(
     {
@@ -250,6 +253,58 @@ def validate_remote_root(value: object, label: str) -> str:
     return value.rstrip("/")
 
 
+def resolve_standard_sdcc_scratch_alias(path: Path) -> Path | None:
+    """Resolve only SDCC's exact per-user scratch alias to canonical GPFS."""
+
+    try:
+        relative = path.relative_to(SDCC_USER_ALIAS_ROOT)
+    except ValueError:
+        return None
+    parts = relative.parts
+    if (
+        len(parts) < 3
+        or parts[1] != "scratch"
+        or SAFE_SDCC_USER_RE.fullmatch(parts[0]) is None
+    ):
+        raise ControllerError("staging root is not a valid SDCC scratch alias path")
+    user = parts[0]
+    alias_root = SDCC_USER_ALIAS_ROOT / user / "scratch"
+    canonical_root = SDCC_CANONICAL_USER_ROOT / user
+    expected = canonical_root.joinpath(*parts[2:])
+    try:
+        if not alias_root.is_symlink():
+            raise ControllerError("SDCC scratch alias root is not a symlink")
+        alias_target = alias_root.resolve(strict=True)
+        canonical_target = canonical_root.resolve(strict=True)
+    except OSError as exc:
+        raise ControllerError("SDCC scratch alias root cannot be resolved") from exc
+    if alias_target != canonical_root or canonical_target != canonical_root:
+        raise ControllerError(
+            "SDCC scratch alias does not target the exact user GPFS root"
+        )
+    first_resolution = path.resolve(strict=False)
+    second_resolution = path.resolve(strict=False)
+    if first_resolution != expected or second_resolution != expected:
+        raise ControllerError(
+            "SDCC scratch alias resolution is unstable or escapes GPFS"
+        )
+    ancestor = expected.parent
+    while not os.path.lexists(ancestor):
+        if ancestor == canonical_root:
+            break
+        ancestor = ancestor.parent
+    if canonical_root not in (ancestor, *ancestor.parents):
+        raise ControllerError("SDCC scratch target escapes its user root")
+    cursor = ancestor
+    while cursor != canonical_root:
+        if cursor.is_symlink():
+            raise ControllerError(
+                "canonical GPFS staging parent chain contains a symlink"
+            )
+        cursor = cursor.parent
+    return expected
+
+
 def validate_staging_root(path: Path) -> Path:
     if not path.is_absolute():
         raise ControllerError("staging root must be an absolute local path")
@@ -261,6 +316,17 @@ def validate_staging_root(path: Path) -> Path:
         raise ControllerError("staging root is unsafe")
     if os.path.lexists(path):
         raise ControllerError(f"staging root already exists: {path}")
+    resolved_alias = resolve_standard_sdcc_scratch_alias(path)
+    if resolved_alias is not None:
+        if not path.parent.is_dir():
+            raise ControllerError(
+                f"staging-root parent must already exist locally: {path.parent}"
+            )
+        if os.path.lexists(resolved_alias):
+            raise ControllerError(
+                f"resolved staging root already exists: {resolved_alias}"
+            )
+        return resolved_alias
     parent = path.parent
     if not parent.is_dir():
         raise ControllerError(
