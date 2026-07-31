@@ -402,6 +402,37 @@ def envelope_artifact(path: Path) -> dict[str, Any]:
     }
 
 
+def measure_staged_job_records(
+    chunks: Sequence[Mapping[str, Any]],
+    rows_by_id: Mapping[str, Mapping[str, Any]],
+) -> dict[str, int]:
+    """Measure exact staged-job serialization without retaining every record."""
+
+    record_count = 0
+    exact_bytes = 0
+    min_bytes: int | None = None
+    max_bytes = 0
+    for chunk in chunks:
+        record_bytes = canonical_json_bytes(
+            materializer.staged_job(chunk, rows_by_id[chunk["row_id"]])
+        )
+        size_bytes = len(record_bytes)
+        record_count += 1
+        exact_bytes += size_bytes
+        min_bytes = (
+            size_bytes if min_bytes is None else min(min_bytes, size_bytes)
+        )
+        max_bytes = max(max_bytes, size_bytes)
+    if record_count == 0 or min_bytes is None or max_bytes <= 0:
+        raise BudgetError("serialized per-job measurements are empty or invalid")
+    return {
+        "record_count": record_count,
+        "exact_bytes": exact_bytes,
+        "min_bytes": min_bytes,
+        "max_bytes": max_bytes,
+    }
+
+
 def derive_budget(
     context: Mapping[str, Any],
     *,
@@ -411,25 +442,17 @@ def derive_budget(
     row_records = [
         materializer.staged_row(row) for row in context["rows"]
     ]
-    job_record_bytes = [
-        canonical_json_bytes(
-            materializer.staged_job(
-                chunk, context["rows_by_id"][chunk["row_id"]]
-            )
-        )
-        for chunk in context["chunks"]
-    ]
+    job_measurements = measure_staged_job_records(
+        context["chunks"], context["rows_by_id"]
+    )
     if (
         len(row_records) != materializer.EXPECTED_ROW_COUNT
-        or len(job_record_bytes) != materializer.EXPECTED_JOB_COUNT
+        or job_measurements["record_count"] != materializer.EXPECTED_JOB_COUNT
     ):
         raise BudgetError("exact serializer record counts differ")
     row_bytes = materializer.jsonl_bytes(row_records)
-    job_bytes = b"".join(job_record_bytes)
     description_bytes = materializer.submit_description_bytes(context)
-    bytes_per_job = max(len(record) for record in job_record_bytes)
-    if bytes_per_job <= 0:
-        raise BudgetError("serialized per-job byte ceiling is not positive")
+    bytes_per_job = job_measurements["max_bytes"]
 
     fixed_inodes = len(materializer.OUTPUT_FILENAMES)
     inodes_per_job = 1
@@ -476,7 +499,8 @@ def derive_budget(
     actual_envelope_bytes = sum(len(payload) for payload in rendered.values())
     actual_envelope_inodes = len(rendered)
     if (
-        len(job_bytes) > materializer.EXPECTED_JOB_COUNT * bytes_per_job
+        job_measurements["exact_bytes"]
+        > materializer.EXPECTED_JOB_COUNT * bytes_per_job
         or actual_envelope_bytes > projected_bytes
         or actual_envelope_inodes > projected_inodes
     ):
@@ -534,9 +558,9 @@ def derive_budget(
         "measurements": {
             "row_record_count": len(row_records),
             "row_manifest_bytes": len(row_bytes),
-            "job_record_count": len(job_record_bytes),
-            "job_manifest_exact_bytes": len(job_bytes),
-            "job_record_min_bytes": min(len(record) for record in job_record_bytes),
+            "job_record_count": job_measurements["record_count"],
+            "job_manifest_exact_bytes": job_measurements["exact_bytes"],
+            "job_record_min_bytes": job_measurements["min_bytes"],
             "job_record_max_bytes": bytes_per_job,
             "job_record_ceiling_bytes": (
                 materializer.EXPECTED_JOB_COUNT * bytes_per_job

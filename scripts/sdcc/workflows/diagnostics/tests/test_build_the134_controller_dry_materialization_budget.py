@@ -202,6 +202,27 @@ class ControllerBudgetBuilderTest(unittest.TestCase):
             builder.artifact_record(derivation_path),
         )
 
+    def test_streamed_job_measurements_match_legacy_record_list(self) -> None:
+        chunks = self.validation_context["chunks"][:7]
+        rows_by_id = self.validation_context["rows_by_id"]
+        legacy_records = [
+            builder.canonical_json_bytes(
+                builder.materializer.staged_job(
+                    chunk, rows_by_id[chunk["row_id"]]
+                )
+            )
+            for chunk in chunks
+        ]
+        self.assertEqual(
+            builder.measure_staged_job_records(chunks, rows_by_id),
+            {
+                "record_count": len(legacy_records),
+                "exact_bytes": len(b"".join(legacy_records)),
+                "min_bytes": min(map(len, legacy_records)),
+                "max_bytes": max(map(len, legacy_records)),
+            },
+        )
+
     def test_resealed_fabricated_low_measurement_is_rejected(self) -> None:
         result = self.invoke("fabricated_low_source")
         self.assertEqual(result.returncode, 0, result.stderr)
