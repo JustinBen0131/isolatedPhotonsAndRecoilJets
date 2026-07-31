@@ -188,6 +188,39 @@ class CapacityPartitionBindingTests(unittest.TestCase):
         ):
             return binding.build_binding(spec)
 
+    def test_current_preflight_derivation_is_exact_and_normalized(self) -> None:
+        receipt = {
+            "status": "PASS",
+            "derivation": copy.deepcopy(binding.CURRENT_PREFLIGHT_DERIVATION),
+        }
+        self.assertEqual(
+            binding.normalize_current_preflight_receipt(receipt),
+            {"status": "PASS"},
+        )
+        self.assertIn("derivation", receipt)
+
+    def test_current_preflight_derivation_mutation_is_rejected(self) -> None:
+        for field, replacement in (
+            ("condor_mutation", True),
+            ("manifest_path_checks", 1),
+            ("partition_rebuilt", True),
+            ("mode", "UNBOUNDED_REBUILD"),
+            ("parent_plan_sha256", "0" * 64),
+            ("parent_rows_sha256", "0" * 64),
+        ):
+            with self.subTest(field=field):
+                receipt = {
+                    "derivation": copy.deepcopy(
+                        binding.CURRENT_PREFLIGHT_DERIVATION
+                    )
+                }
+                receipt["derivation"][field] = replacement
+                with self.assertRaisesRegex(
+                    binding.BindingError,
+                    "current preflight derivation differs",
+                ):
+                    binding.normalize_current_preflight_receipt(receipt)
+
     def test_current_binding_has_exact_counts_and_no_legacy_authority(self) -> None:
         payload = self.assemble()
         self.assertEqual(payload["schema"], binding.BINDING_SCHEMA)

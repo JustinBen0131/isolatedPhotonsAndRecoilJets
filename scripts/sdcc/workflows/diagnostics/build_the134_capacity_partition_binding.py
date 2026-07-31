@@ -69,6 +69,18 @@ EXPECTED_SIDECAR_OUTPUTS = 18_577
 EXPECTED_ROOT_ARTIFACTS = 37_154
 EXPECTED_SOURCE_OCCURRENCES = 18_577
 EXPECTED_REQUEST_MEMORY_MB = 3_000
+CURRENT_PREFLIGHT_DERIVATION = {
+    "condor_mutation": False,
+    "manifest_path_checks": 0,
+    "mode": "SEALED_V43_PARTITION_STREAM_COPY_AND_13_ROW_REBIND",
+    "parent_plan_sha256": (
+        "c6ef26e8f31e1449349608d200db1e270e556f0cb4e3013f4c55f7e68b271bc4"
+    ),
+    "parent_rows_sha256": (
+        "b366829232fc57ac15d2d08799e37a50a18ea589737176621b160ab1ce00a16b"
+    ),
+    "partition_rebuilt": False,
+}
 CAPACITY_OPERATIONAL_BUNDLE_ROLES = frozenset(
     {"code_manifest", "submitter"}
 )
@@ -815,6 +827,26 @@ def artifact_input(
     return {"path": path, "sha256": sha256}
 
 
+def normalize_current_preflight_receipt(
+    receipt: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Validate the sealed V43 derivation before legacy V2 validation.
+
+    The historical validator deliberately rejects every extra receipt field.
+    Current plans add one exact derivation object documenting that their large
+    partition was streamed from the already-sealed parent rather than rebuilt
+    or path-walked on the login node.  Validate that stronger receipt here,
+    then remove only that one proven field from the copy passed to the legacy
+    validator.  The immutable artifact and SHA remain the original receipt.
+    """
+
+    normalized = dict(receipt)
+    derivation = normalized.pop("derivation", None)
+    if derivation != CURRENT_PREFLIGHT_DERIVATION:
+        raise BindingError("current preflight derivation differs")
+    return normalized
+
+
 def load_spec(path: Path, expected_sha256: str) -> dict[str, Any]:
     try:
         expected = evidence.require_sha256(
@@ -893,10 +925,11 @@ def _load_current_preflight(
         "duplicate_fingerprint": duplicate_artifact,
         "partition": partition_artifact,
     }
+    normalized_receipt = normalize_current_preflight_receipt(receipt)
     try:
         current = evidence.validate_corrected_preflight(
             plan,
-            receipt,
+            normalized_receipt,
             source,
             source_records,
             rows,
