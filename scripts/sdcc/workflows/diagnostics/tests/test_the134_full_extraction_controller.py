@@ -471,6 +471,7 @@ class FullExtractionControllerTests(unittest.TestCase):
             provenance,
             ambient={
                 "PATH": "/usr/bin",
+                "LD_LIBRARY_PATH": "/opt/sphenix/lib:/usr/lib64",
                 "HOME": "/tmp/home",
                 "RJ_UNSEALED": "bad",
                 "CODEX_BAD": "bad",
@@ -479,6 +480,10 @@ class FullExtractionControllerTests(unittest.TestCase):
             },
         )
         self.assertEqual(environment["PATH"], "/usr/bin")
+        self.assertEqual(
+            environment["LD_LIBRARY_PATH"],
+            "/opt/sphenix/lib:/usr/lib64",
+        )
         self.assertEqual(environment["HOME"], "/tmp/home")
         self.assertNotIn("RJ_UNSEALED", environment)
         self.assertNotIn("CODEX_BAD", environment)
@@ -489,6 +494,18 @@ class FullExtractionControllerTests(unittest.TestCase):
             environment["RJ_CODEX_THREAD_ID"],
             provenance["codex_thread_id"],
         )
+        with self.assertRaisesRegex(
+            controller.ControllerError,
+            "ambient LD_LIBRARY_PATH is unsafe",
+        ):
+            controller.sealed_submit_environment(
+                row,
+                provenance,
+                ambient={
+                    "PATH": "/usr/bin",
+                    "LD_LIBRARY_PATH": "/valid/lib:../escape",
+                },
+            )
 
     def test_fresh_evidence_tree_rejects_symlinked_parent(self) -> None:
         real_parent = self.root / "real_evidence_parent"

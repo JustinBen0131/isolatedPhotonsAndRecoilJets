@@ -139,6 +139,7 @@ FORBIDDEN_AUTHORITY_TRUE = frozenset(
 SAFE_SUBMIT_AMBIENT_KEYS = frozenset(
     {
         "PATH",
+        "LD_LIBRARY_PATH",
         "HOME",
         "USER",
         "LOGNAME",
@@ -1147,6 +1148,21 @@ def sealed_submit_environment(
         for key, value in source.items()
         if key in SAFE_SUBMIT_AMBIENT_KEYS
     }
+    library_path = environment.get("LD_LIBRARY_PATH")
+    if library_path is not None:
+        entries = library_path.split(":")
+        if (
+            not library_path
+            or "\x00" in library_path
+            or "\n" in library_path
+            or any(
+                not entry
+                or not Path(entry).is_absolute()
+                or ".." in Path(entry).parts
+                for entry in entries
+            )
+        ):
+            raise ControllerError("ambient LD_LIBRARY_PATH is unsafe")
     sealed = require_mapping(
         row.get("materialization_environment"), "row materialization environment"
     )
