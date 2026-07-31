@@ -31,6 +31,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import math
 import os
 import re
 import shutil
@@ -289,6 +290,22 @@ def require_positive_int(value: object, label: str) -> int:
     if result == 0:
         raise ProjectionError(f"{label} must be greater than zero")
     return result
+
+
+def require_positive_integral_seconds(value: object, label: str) -> int:
+    """Normalize Condor JSON whole-second floats without accepting fractions."""
+
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value <= 0
+        or int(value) != value
+    ):
+        raise ProjectionError(
+            f"{label} must be a finite positive integral second count"
+        )
+    return int(value)
 
 
 def require_exact_int(value: object, expected: int, label: str) -> None:
@@ -685,7 +702,7 @@ def derive_capacity_witnesses(
             "system": system,
             "tuple_count": EXPECTED_GROUP_SIZE,
             "request_memory_mb": EXPECTED_REQUEST_MEMORY_MB,
-            "wall_time_seconds": require_positive_int(
+            "wall_time_seconds": require_positive_integral_seconds(
                 row.get("remote_wall_clock_seconds"),
                 f"{row_id}.remote_wall_clock_seconds",
             ),

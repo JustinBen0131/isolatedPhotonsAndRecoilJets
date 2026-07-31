@@ -149,6 +149,23 @@ class PreExtractionStorageTests(unittest.TestCase):
         self.amendment_validator_patch.stop()
         self.temporary.cleanup()
 
+    def test_condor_integral_wall_time_float_is_normalized_fail_closed(
+        self,
+    ) -> None:
+        self.assertEqual(
+            projector.require_positive_integral_seconds(
+                2628.0, "remote wall clock"
+            ),
+            2628,
+        )
+        for value in (2628.5, 0.0, -1.0, float("inf"), float("nan"), True, "1"):
+            with self.subTest(value=value), self.assertRaises(
+                projector.ProjectionError
+            ):
+                projector.require_positive_integral_seconds(
+                    value, "remote wall clock"
+                )
+
     def write_capacity_chain(self) -> tuple[dict, dict]:
         amendment_path = self.root / "amendment.json"
         selected_rows = []
