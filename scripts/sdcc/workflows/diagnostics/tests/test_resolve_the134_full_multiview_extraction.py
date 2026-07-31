@@ -638,6 +638,11 @@ class TestFullExtractionResolver(unittest.TestCase):
                 for key in resolver.COMMON_SUBMITTER_ADMISSION_KEYS:
                     self.assertEqual(materialization[key], worker[key])
                 if row["system"] == "pp":
+                    for key, value in worker.items():
+                        if key.startswith("RJ_PPG12_") or key.startswith(
+                            "RJ_PP_PHOTONID_"
+                        ):
+                            self.assertEqual(materialization[key], value)
                     for key in resolver.PP_SUBMITTER_ADMISSION_KEYS:
                         self.assertEqual(materialization[key], worker[key])
                 else:

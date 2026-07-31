@@ -1490,7 +1490,23 @@ def submitter_admission_environment(
         )
     keys = list(COMMON_SUBMITTER_ADMISSION_KEYS)
     if system == "pp":
-        keys.extend(PP_SUBMITTER_ADMISSION_KEYS)
+        keys.extend(
+            key
+            for key in worker_environment
+            if key.startswith("RJ_PPG12_")
+            or key.startswith("RJ_PP_PHOTONID_")
+        )
+        missing_required = [
+            key
+            for key in PP_SUBMITTER_ADMISSION_KEYS
+            if key not in worker_environment
+        ]
+        if missing_required:
+            raise ControllerError(
+                "p+p worker environment is missing required submitter bindings: "
+                + ",".join(missing_required)
+            )
+    keys = list(dict.fromkeys(keys))
     missing = [key for key in keys if key not in worker_environment]
     if missing:
         raise ControllerError(
