@@ -274,9 +274,10 @@ def _validated_plan_bundle_operational_authority(
         bundle_path = Path(str(bundle_record.get("path", ""))).resolve(
             strict=True
         )
-        materialization_path = Path(
+        materialization_input_path = Path(
             str(materialization_record.get("path", ""))
-        ).resolve(strict=True)
+        )
+        materialization_path = materialization_input_path.resolve(strict=True)
     except (FileNotFoundError, OSError, RuntimeError) as exc:
         raise BindingError("capacity plan immutable bundle is missing") from exc
     for label, path, record in (
@@ -308,7 +309,7 @@ def _validated_plan_bundle_operational_authority(
         )
         validated_materialization = resolver.validate_materialization_binding(
             dict(materialization_payload),
-            materialization_path=materialization_path,
+            materialization_path=materialization_input_path,
             bundle_path=bundle_path,
             bundle_file_sha256=file_sha256(bundle_path),
             bundle=validated_bundle,

@@ -553,6 +553,82 @@ class CapacityPartitionBindingTests(unittest.TestCase):
         ):
             binding.validate_capacity_plan_binding(resource, current)
 
+    def test_bundle_validation_preserves_materialization_alias_path(
+        self,
+    ) -> None:
+        actual_root = self.root / "gpfs"
+        alias_root = self.root / "sphenix_u"
+        bundle_name = f"the134_bundle_sha256_{'a' * 64}"
+        metadata = actual_root / bundle_name / "metadata"
+        metadata.mkdir(parents=True)
+        alias_root.symlink_to(actual_root, target_is_directory=True)
+        bundle_path = metadata / "resolver_bundle_receipt.json"
+        materialization_path = metadata / "materialization_receipt.json"
+        bundle_path.write_text("{}\n", encoding="utf-8")
+        materialization_path.write_text("{}\n", encoding="utf-8")
+        alias_bundle_path = (
+            alias_root / bundle_name / "metadata" / bundle_path.name
+        )
+        alias_materialization_path = (
+            alias_root / bundle_name / "metadata" / materialization_path.name
+        )
+        plan = {
+            "input_manifests": {
+                "bundle": {
+                    "path": str(alias_bundle_path),
+                    "sha256": sha256_bytes(bundle_path.read_bytes()),
+                },
+                "materialization": {
+                    "path": str(alias_materialization_path),
+                    "sha256": sha256_bytes(materialization_path.read_bytes()),
+                },
+            }
+        }
+        validated_bundle = {
+            "artifact_by_role": {
+                "submitter": {"sha256": "b" * 64, "size_bytes": 10},
+                "pp_library": {"sha256": "c" * 64, "size_bytes": 20},
+            },
+            "bundle_identity_sha256": "a" * 64,
+            "semantic_fingerprint_sha256": "d" * 64,
+            "code_sha256": "e" * 64,
+            "public_commit": "f" * 40,
+            "replay_schema_sha256": "1" * 64,
+            "training_schema_sha256": "2" * 64,
+            "semantic_sha256": "3" * 64,
+            "runtime": {
+                "release": "ana.561",
+                "offline_main": "new",
+                "calo_reco_soname": "libcalo_reco.so",
+                "request_memory_mb": 8000,
+            },
+        }
+
+        def validate_materialization(payload, **kwargs):
+            self.assertEqual(
+                kwargs["materialization_path"], alias_materialization_path
+            )
+            self.assertEqual(kwargs["bundle_path"], bundle_path)
+            return {"digest_named_bundle_path": str(alias_root / bundle_name)}
+
+        with mock.patch.object(
+            binding.resolver,
+            "validate_bundle",
+            return_value=validated_bundle,
+        ), mock.patch.object(
+            binding.resolver,
+            "validate_materialization_binding",
+            side_effect=validate_materialization,
+        ):
+            observed = binding._validated_plan_bundle_operational_authority(
+                plan
+            )
+        self.assertEqual(observed["bundle_identity_sha256"], "a" * 64)
+        self.assertEqual(
+            observed["materialization_file_sha256"],
+            sha256_bytes(materialization_path.read_bytes()),
+        )
+
     def test_capacity_plan_accepts_only_byte_identical_pinned_provider_routing(
         self,
     ) -> None:
