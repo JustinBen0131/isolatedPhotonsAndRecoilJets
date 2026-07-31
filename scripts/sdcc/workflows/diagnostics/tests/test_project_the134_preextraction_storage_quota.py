@@ -592,10 +592,11 @@ class PreExtractionStorageTests(unittest.TestCase):
                     "quota_probe_path": quota_probe_path,
                     "quota_domain_id": quota_domain_id,
                     "filesystem": filesystem,
+                    "quota_backend": projector.LUSTRE_QUOTA_BACKEND,
                     "query_argv": [
                         "lfs",
                         "quota",
-                        "-h",
+                        "-v",
                         "-u",
                         "fixture",
                         quota_probe_path,
@@ -613,6 +614,9 @@ class PreExtractionStorageTests(unittest.TestCase):
                     "quota_bytes": parsed["quota_bytes"],
                     "used_inodes": parsed["used_inodes"],
                     "quota_inodes": parsed["quota_inodes"],
+                    "byte_usage_kind": parsed["byte_usage_kind"],
+                    "inode_limit_kind": parsed["inode_limit_kind"],
+                    "active_ost_count": parsed["active_ost_count"],
                     "usage_authoritative": parsed["usage_authoritative"],
                     "blocker_codes": parsed["blocker_codes"],
                 }
@@ -672,6 +676,9 @@ class PreExtractionStorageTests(unittest.TestCase):
                 "quota_bytes": parsed.get("quota_bytes"),
                 "used_inodes": parsed.get("used_inodes"),
                 "quota_inodes": parsed.get("quota_inodes"),
+                "byte_usage_kind": parsed.get("byte_usage_kind"),
+                "inode_limit_kind": parsed.get("inode_limit_kind"),
+                "active_ost_count": parsed.get("active_ost_count"),
                 "usage_authoritative": parsed["usage_authoritative"],
                 "blocker_codes": parsed["blocker_codes"],
             }
@@ -1185,6 +1192,145 @@ class PreExtractionStorageTests(unittest.TestCase):
         self.assertTrue(parsed["usage_authoritative"])
         self.assertEqual(parsed["quota_bytes"], 5 * 1024**4)
         self.assertEqual(parsed["quota_inodes"], 10_240_000)
+
+    def test_lustre_verbose_active_ost_sum_is_lower_bound(self) -> None:
+        verbose = (
+            "Disk quotas for usr fixture:\n"
+            "Filesystem kbytes quota limit grace files quota limit grace\n"
+            "/sphenix/tg/tg01 [7G] 5T 5T - 6792320 10240000 12288000 -\n"
+            "sphnx02-OST0001_UUID\n"
+            " 700000000 - 0 - - - - -\n"
+            "sphnx02-OST0002_UUID[inact]\n"
+            " [0] - [0] - - - - -\n"
+            "sphnx02-OST0003_UUID\n"
+            " 800000000 - 0 - - - - -\n"
+            "Some errors happened when getting quota info. "
+            "The data in \"[]\" is inaccurate.\n"
+        )
+        parsed = projector.parse_lfs_quota_output(verbose, "", 5)
+        self.assertFalse(parsed["usage_authoritative"])
+        self.assertEqual(
+            parsed["byte_usage_kind"], projector.BYTE_USAGE_LOWER_BOUND
+        )
+        self.assertEqual(parsed["active_ost_count"], 2)
+        self.assertEqual(parsed["used_bytes"], 1_500_000_000 * 1024)
+        self.assertEqual(parsed["blocker_codes"], [])
+
+    def test_gpfs_quota_supports_unlimited_inode_contract(self) -> None:
+        raw = (
+            "Block Limits | File Limits\n"
+            "Filesystem Fileset type KB quota limit in_doubt grace | "
+            "files quota limit in_doubt grace Remarks\n"
+            "gpfs02 sphenix-user USR 3768619776 5368709120 5767168000 "
+            "46557696 none | 8525436 0 0 4168 none rcf02.bnl.gov\n"
+        )
+        parsed = projector.parse_gpfs_quota_output(raw, "", 0)
+        self.assertTrue(parsed["usage_authoritative"])
+        self.assertEqual(parsed["byte_usage_kind"], projector.BYTE_USAGE_EXACT)
+        self.assertEqual(parsed["inode_limit_kind"], projector.INODE_UNLIMITED)
+        self.assertIsNone(parsed["quota_inodes"])
+
+        manifest = self.passed_manifest()
+        snapshot = self.quota_snapshot(manifest)
+        for record in snapshot["storage_domains"]:
+            record["filesystem"] = "gpfs02"
+            record["quota_domain_id"] = projector.semantic_sha256(
+                {"principal": "fixture", "filesystem": "gpfs02"}
+            )
+            record["quota_backend"] = projector.GPFS_QUOTA_BACKEND
+            record["query_argv"] = [
+                "/usr/lpp/mmfs/bin/mmlsquota",
+                "-u",
+                "fixture",
+                "gpfs02",
+            ]
+            record["query_exit_code"] = 0
+            record["stdout"] = raw
+            record["stderr"] = ""
+            record["stdout_sha256"] = hashlib.sha256(
+                raw.encode("utf-8")
+            ).hexdigest()
+            record["stderr_sha256"] = hashlib.sha256(b"").hexdigest()
+            record["used_bytes"] = parsed["used_bytes"]
+            record["quota_bytes"] = parsed["quota_bytes"]
+            record["used_inodes"] = parsed["used_inodes"]
+            record["quota_inodes"] = None
+            record["byte_usage_kind"] = parsed["byte_usage_kind"]
+            record["inode_limit_kind"] = parsed["inode_limit_kind"]
+            record["active_ost_count"] = 0
+            record["usage_authoritative"] = True
+            record["blocker_codes"] = []
+        del snapshot["snapshot_semantic_sha256"]
+        seal(snapshot, "snapshot_semantic_sha256")
+        projector.validate_quota_snapshot(snapshot)
+        manifest_path, snapshot_path = self.write_projection_inputs(
+            manifest, snapshot
+        )
+        certificate = projector.build_projection(
+            manifest_path, snapshot_path, now_seconds=1001
+        )
+        self.assertEqual(certificate["status"], projector.PASS_STATUS)
+        group = certificate["quota_domain_projections"][0]
+        self.assertEqual(group["inode_limit_kind"], projector.INODE_UNLIMITED)
+        self.assertIsNone(group["projected_free_inodes"])
+        self.assertTrue(group["inode_headroom_at_least_20_percent"])
+
+        mutated = json.loads(json.dumps(snapshot))
+        mutated["storage_domains"][0]["quota_inodes"] = 1
+        del mutated["snapshot_semantic_sha256"]
+        seal(mutated, "snapshot_semantic_sha256")
+        with self.assertRaisesRegex(
+            projector.ProjectionError,
+            "quota_inodes",
+        ):
+            projector.validate_quota_snapshot(mutated)
+
+    def test_lustre_lower_bound_can_prove_capacity_failure_only(self) -> None:
+        manifest = self.passed_manifest()
+        snapshot = self.quota_snapshot(manifest)
+        quota_bytes = 5 * 1024**4
+        lower_bound = 9 * 1024**4
+        verbose = (
+            "Disk quotas for usr fixture:\n"
+            "Filesystem kbytes quota limit grace files quota limit grace\n"
+            f"/remote [7G] 5T 5T - 100 10000000 12000000 -\n"
+            "sphnx02-OST0001_UUID\n"
+            f" {lower_bound // 1024} - 0 - - - - -\n"
+            "Some errors happened when getting quota info. "
+            "The data in \"[]\" is inaccurate.\n"
+        )
+        parsed = projector.parse_lfs_quota_output(verbose, "", 5)
+        for record in snapshot["storage_domains"]:
+            record["query_exit_code"] = 5
+            record["stdout"] = verbose
+            record["stderr"] = ""
+            record["stdout_sha256"] = hashlib.sha256(
+                verbose.encode("utf-8")
+            ).hexdigest()
+            record["stderr_sha256"] = hashlib.sha256(b"").hexdigest()
+            record["used_bytes"] = parsed["used_bytes"]
+            record["quota_bytes"] = quota_bytes
+            record["used_inodes"] = parsed["used_inodes"]
+            record["quota_inodes"] = parsed["quota_inodes"]
+            record["byte_usage_kind"] = parsed["byte_usage_kind"]
+            record["inode_limit_kind"] = parsed["inode_limit_kind"]
+            record["active_ost_count"] = parsed["active_ost_count"]
+            record["usage_authoritative"] = False
+            record["blocker_codes"] = []
+        del snapshot["snapshot_semantic_sha256"]
+        seal(snapshot, "snapshot_semantic_sha256")
+        projector.validate_quota_snapshot(snapshot)
+        manifest_path, snapshot_path = self.write_projection_inputs(
+            manifest, snapshot
+        )
+        certificate = projector.build_projection(
+            manifest_path, snapshot_path, now_seconds=1001
+        )
+        self.assertEqual(certificate["status"], projector.FAIL_STATUS)
+        self.assertIn("BYTE_HEADROOM_LT_20PCT", certificate["blocker_codes"])
+        self.assertNotIn(
+            "QUOTA_USAGE_UNAUTHORITATIVE", certificate["blocker_codes"]
+        )
 
     def test_per_row_chunk_redistribution_is_count_drift(self) -> None:
         plan = self.count_plan()

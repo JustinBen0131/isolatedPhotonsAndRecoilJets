@@ -9,14 +9,17 @@ This controller is intentionally non-submitting.  It has three actions:
     storage manifest.
 
 ``snapshot``
-    Read live Lustre quota state for the four logical storage domains bound by
-    the corrected extraction plan.  Intended namespaces are checked for
-    freshness, while quota queries use the nearest existing parent.
+    Read live backend-native Lustre or GPFS quota state for the four logical
+    storage domains bound by the corrected extraction plan.  Intended
+    namespaces are checked for freshness, while quota queries use the nearest
+    existing parent.
 
 ``project``
     Combine a passed measurement manifest with a fresh authoritative quota
     snapshot.  Logical domains sharing one physical quota domain are grouped
-    before applying the >=20% byte and inode headroom gates.
+    before applying the >=20% byte and bounded-inode headroom gates.  An
+    explicitly unlimited native inode quota is represented as unlimited, not
+    fabricated into a numeric ceiling.
 
 None of these actions invokes Condor, creates a production namespace, grants
 training/science/production authority, or promotes an artifact to CANONICAL.
@@ -69,7 +72,7 @@ MEASUREMENT_SPEC_SCHEMA = (
     "THE134_PREEXTRACTION_ARTIFACT_MEASUREMENT_SPEC_V1"
 )
 MEASUREMENT_SCHEMA = "THE134_PREEXTRACTION_ARTIFACT_MEASUREMENT_V1"
-QUOTA_SNAPSHOT_SCHEMA = "THE134_PREEXTRACTION_LIVE_QUOTA_SNAPSHOT_V1"
+QUOTA_SNAPSHOT_SCHEMA = "THE134_PREEXTRACTION_LIVE_QUOTA_SNAPSHOT_V2"
 STORAGE_MANIFEST_SCHEMA = "THE134_PREEXTRACTION_STORAGE_MANIFEST_V1"
 STORAGE_CERTIFICATE_SCHEMA = (
     "THE134_PREEXTRACTION_STORAGE_CERTIFICATE_V1"
@@ -120,6 +123,14 @@ MIN_RETRY_RESERVE_DENOMINATOR = 10
 MIN_WITNESS_CEILING_NUMERATOR = 5
 MIN_WITNESS_CEILING_DENOMINATOR = 4
 DEFAULT_SNAPSHOT_MAX_AGE_SECONDS = 900
+LUSTRE_QUOTA_BACKEND = "LUSTRE_USER_QUOTA_V1"
+GPFS_QUOTA_BACKEND = "GPFS_USER_QUOTA_V1"
+BYTE_USAGE_EXACT = "EXACT"
+BYTE_USAGE_LOWER_BOUND = "LOWER_BOUND"
+BYTE_USAGE_UNKNOWN = "UNKNOWN"
+INODE_LIMITED = "LIMITED"
+INODE_UNLIMITED = "UNLIMITED"
+INODE_UNKNOWN = "UNKNOWN"
 
 STORAGE_DOMAINS = (
     "bulk_science",
@@ -184,6 +195,7 @@ AUTHORITY_FIELDS = {
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 PRINCIPAL_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,63}$")
 SIZE_RE = re.compile(r"^([0-9]+(?:\.[0-9]+)?)([KMGTPEkmgtpe]?)$")
+GPFS_NAME_RE = re.compile(r"^gpfs[0-9]+$")
 P5A_S_RE = re.compile(r"(?<![A-Z0-9])P5A[\s_-]*S(?![A-Z0-9])", re.IGNORECASE)
 
 BLOCKER_ORDER = (
@@ -1866,11 +1878,13 @@ def parse_lfs_quota_output(
     if tokens is None:
         return {
             "usage_authoritative": False,
+            "byte_usage_kind": BYTE_USAGE_UNKNOWN,
+            "inode_limit_kind": INODE_UNKNOWN,
             "blocker_codes": ["QUOTA_USAGE_UNAUTHORITATIVE"],
         }
     filesystem = tokens[0]
     try:
-        used_bytes = parse_human_size(tokens[1], "quota used bytes")
+        aggregate_used_bytes = parse_human_size(tokens[1], "quota used bytes")
         soft_bytes = parse_human_size(tokens[2], "quota soft bytes")
         hard_bytes = parse_human_size(tokens[3], "quota hard bytes")
         used_inodes = int(tokens[5].rstrip("*[]"))
@@ -1879,15 +1893,129 @@ def parse_lfs_quota_output(
     except (ProjectionError, ValueError):
         return {
             "usage_authoritative": False,
+            "byte_usage_kind": BYTE_USAGE_UNKNOWN,
+            "inode_limit_kind": INODE_UNKNOWN,
             "blocker_codes": ["QUOTA_USAGE_UNAUTHORITATIVE"],
         }
+    active_ost_used_bytes = 0
+    active_ost_count = 0
+    raw_lines = stdout.splitlines()
+    for index, raw_line in enumerate(raw_lines):
+        target = raw_line.strip()
+        if (
+            "-OST" not in target
+            or "_UUID" not in target
+            or "[inact]" in target
+            or index + 1 >= len(raw_lines)
+        ):
+            continue
+        value_tokens = raw_lines[index + 1].split()
+        if not value_tokens:
+            continue
+        try:
+            active_ost_used_bytes += parse_human_size(
+                value_tokens[0], "active OST quota used bytes"
+            )
+        except ProjectionError:
+            continue
+        active_ost_count += 1
     byte_limits = [value for value in (soft_bytes, hard_bytes) if value > 0]
     inode_limits = [value for value in (soft_inodes, hard_inodes) if value > 0]
-    authoritative = (
+    exact_authoritative = (
         returncode == 0
         and not inaccurate
         and bool(byte_limits)
         and bool(inode_limits)
+        and aggregate_used_bytes >= 0
+        and used_inodes >= 0
+    )
+    lower_bound_available = (
+        not exact_authoritative
+        and bool(byte_limits)
+        and bool(inode_limits)
+        and active_ost_count > 0
+        and active_ost_used_bytes >= 0
+        and used_inodes >= 0
+    )
+    used_bytes = (
+        aggregate_used_bytes
+        if exact_authoritative
+        else active_ost_used_bytes if lower_bound_available else None
+    )
+    return {
+        "filesystem": filesystem,
+        "used_bytes": used_bytes,
+        "quota_bytes": min(byte_limits) if byte_limits else None,
+        "used_inodes": used_inodes,
+        "quota_inodes": min(inode_limits) if inode_limits else None,
+        "usage_authoritative": exact_authoritative,
+        "byte_usage_kind": (
+            BYTE_USAGE_EXACT
+            if exact_authoritative
+            else BYTE_USAGE_LOWER_BOUND
+            if lower_bound_available
+            else BYTE_USAGE_UNKNOWN
+        ),
+        "inode_limit_kind": (
+            INODE_LIMITED if inode_limits and used_inodes >= 0 else INODE_UNKNOWN
+        ),
+        "active_ost_count": active_ost_count,
+        "blocker_codes": (
+            []
+            if exact_authoritative or lower_bound_available
+            else ["QUOTA_USAGE_UNAUTHORITATIVE"]
+        ),
+    }
+
+
+def parse_gpfs_quota_output(
+    stdout: str,
+    stderr: str,
+    returncode: int,
+) -> dict[str, Any]:
+    lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+    tokens: list[str] | None = None
+    for line in lines:
+        candidate = line.replace("|", " | ").split()
+        if (
+            len(candidate) >= 14
+            and GPFS_NAME_RE.fullmatch(candidate[0])
+            and "|" in candidate
+        ):
+            tokens = candidate
+            break
+    if tokens is None:
+        return {
+            "usage_authoritative": False,
+            "byte_usage_kind": BYTE_USAGE_UNKNOWN,
+            "inode_limit_kind": INODE_UNKNOWN,
+            "active_ost_count": 0,
+            "blocker_codes": ["QUOTA_USAGE_UNAUTHORITATIVE"],
+        }
+    try:
+        separator = tokens.index("|")
+        filesystem = tokens[0]
+        used_bytes = int(tokens[3]) * 1024
+        soft_bytes = int(tokens[4]) * 1024
+        hard_bytes = int(tokens[5]) * 1024
+        used_inodes = int(tokens[separator + 1])
+        soft_inodes = int(tokens[separator + 2])
+        hard_inodes = int(tokens[separator + 3])
+    except (ValueError, IndexError):
+        return {
+            "usage_authoritative": False,
+            "byte_usage_kind": BYTE_USAGE_UNKNOWN,
+            "inode_limit_kind": INODE_UNKNOWN,
+            "active_ost_count": 0,
+            "blocker_codes": ["QUOTA_USAGE_UNAUTHORITATIVE"],
+        }
+    byte_limits = [value for value in (soft_bytes, hard_bytes) if value > 0]
+    inode_limits = [value for value in (soft_inodes, hard_inodes) if value > 0]
+    inode_limit_kind = INODE_LIMITED if inode_limits else INODE_UNLIMITED
+    authoritative = (
+        returncode == 0
+        and not stderr.strip()
+        and bool(byte_limits)
         and used_bytes >= 0
         and used_inodes >= 0
     )
@@ -1898,8 +2026,48 @@ def parse_lfs_quota_output(
         "used_inodes": used_inodes,
         "quota_inodes": min(inode_limits) if inode_limits else None,
         "usage_authoritative": authoritative,
+        "byte_usage_kind": BYTE_USAGE_EXACT if authoritative else BYTE_USAGE_UNKNOWN,
+        "inode_limit_kind": inode_limit_kind if authoritative else INODE_UNKNOWN,
+        "active_ost_count": 0,
         "blocker_codes": [] if authoritative else ["QUOTA_USAGE_UNAUTHORITATIVE"],
     }
+
+
+def filesystem_type_for_path(
+    path: Path,
+    *,
+    runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> str:
+    argv = ["stat", "-f", "-c", "%T", str(path)]
+    try:
+        result = runner(
+            argv,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ProjectionError(f"cannot identify filesystem for {path}: {exc}") from exc
+    filesystem_type = (result.stdout or "").strip().lower()
+    if result.returncode != 0 or filesystem_type not in {"lustre", "gpfs"}:
+        raise ProjectionError(
+            f"unsupported or unreadable quota filesystem for {path}: "
+            f"{filesystem_type or 'unknown'}"
+        )
+    return filesystem_type
+
+
+def gpfs_name_for_path(path: Path) -> str:
+    try:
+        resolved = path.resolve(strict=True)
+    except OSError as exc:
+        raise ProjectionError(f"cannot resolve GPFS quota path: {path}") from exc
+    for part in resolved.parts:
+        if GPFS_NAME_RE.fullmatch(part):
+            return part
+    raise ProjectionError(f"cannot derive GPFS filesystem name from {resolved}")
 
 
 def build_quota_snapshot(
@@ -1910,6 +2078,8 @@ def build_quota_snapshot(
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
     now_seconds: int | None = None,
     lfs_binary: str | None = None,
+    gpfs_binary: str | None = None,
+    filesystem_type_resolver: Callable[[Path], str] | None = None,
 ) -> dict[str, Any]:
     if PRINCIPAL_RE.fullmatch(principal) is None:
         raise ProjectionError("principal contains unsupported characters")
@@ -1923,7 +2093,6 @@ def build_quota_snapshot(
     del rows
     plan_sha256 = file_sha256(plan_path)
     roots = intended_storage_roots(plan)
-    binary = lfs_binary or shutil.which("lfs")
     observed_seconds = int(time.time()) if now_seconds is None else now_seconds
     require_nonnegative_int(observed_seconds, "observed time")
     domains: list[dict[str, Any]] = []
@@ -1934,16 +2103,50 @@ def build_quota_snapshot(
         if not namespace_fresh:
             blockers.append("NAMESPACE_NOT_FRESH")
         probe_path = nearest_existing_parent(Path(root))
-        argv = [
-            binary or "lfs",
-            "quota",
-            "-h",
-            "-u",
-            principal,
-            str(probe_path),
-        ]
+        if filesystem_type_resolver is not None:
+            filesystem_type = filesystem_type_resolver(probe_path)
+        elif lfs_binary is not None:
+            # Backward-compatible deterministic injection for unit fixtures.
+            filesystem_type = "lustre"
+        else:
+            filesystem_type = filesystem_type_for_path(
+                probe_path, runner=runner
+            )
+        if filesystem_type == "lustre":
+            backend = LUSTRE_QUOTA_BACKEND
+            binary = lfs_binary or shutil.which("lfs")
+            argv = [
+                binary or "lfs",
+                "quota",
+                "-v",
+                "-u",
+                principal,
+                str(probe_path),
+            ]
+            parser = parse_lfs_quota_output
+        else:
+            backend = GPFS_QUOTA_BACKEND
+            binary = (
+                gpfs_binary
+                or shutil.which("mmlsquota")
+                or (
+                    "/usr/lpp/mmfs/bin/mmlsquota"
+                    if Path("/usr/lpp/mmfs/bin/mmlsquota").is_file()
+                    else None
+                )
+            )
+            gpfs_name = gpfs_name_for_path(probe_path)
+            argv = [
+                binary or "mmlsquota",
+                "-u",
+                principal,
+                gpfs_name,
+            ]
+            parser = parse_gpfs_quota_output
         if binary is None:
-            result = subprocess.CompletedProcess(argv, 127, "", "lfs not found")
+            result = subprocess.CompletedProcess(
+                argv, 127, "", f"{Path(argv[0]).name} not found"
+            )
         else:
             try:
                 result = runner(
@@ -1956,7 +2159,7 @@ def build_quota_snapshot(
                 )
             except (OSError, subprocess.SubprocessError) as exc:
                 result = subprocess.CompletedProcess(argv, 126, "", str(exc))
-        parsed = parse_lfs_quota_output(
+        parsed = parser(
             result.stdout or "", result.stderr or "", result.returncode
         )
         blockers.extend(parsed.get("blocker_codes", []))
@@ -1979,6 +2182,7 @@ def build_quota_snapshot(
                 "quota_probe_path": str(probe_path),
                 "quota_domain_id": quota_domain_id,
                 "filesystem": filesystem,
+                "quota_backend": backend,
                 "query_argv": argv,
                 "query_exit_code": result.returncode,
                 "stdout": result.stdout or "",
@@ -1993,6 +2197,13 @@ def build_quota_snapshot(
                 "quota_bytes": parsed.get("quota_bytes"),
                 "used_inodes": parsed.get("used_inodes"),
                 "quota_inodes": parsed.get("quota_inodes"),
+                "byte_usage_kind": parsed.get(
+                    "byte_usage_kind", BYTE_USAGE_UNKNOWN
+                ),
+                "inode_limit_kind": parsed.get(
+                    "inode_limit_kind", INODE_UNKNOWN
+                ),
+                "active_ost_count": parsed.get("active_ost_count", 0),
                 "usage_authoritative": parsed.get(
                     "usage_authoritative", False
                 ),
@@ -2747,6 +2958,7 @@ def validate_quota_snapshot(payload: Mapping[str, Any]) -> dict[str, Any]:
         "quota_probe_path",
         "quota_domain_id",
         "filesystem",
+        "quota_backend",
         "query_argv",
         "query_exit_code",
         "stdout",
@@ -2757,6 +2969,9 @@ def validate_quota_snapshot(payload: Mapping[str, Any]) -> dict[str, Any]:
         "quota_bytes",
         "used_inodes",
         "quota_inodes",
+        "byte_usage_kind",
+        "inode_limit_kind",
+        "active_ost_count",
         "usage_authoritative",
         "blocker_codes",
     }
@@ -2786,18 +3001,33 @@ def validate_quota_snapshot(payload: Mapping[str, Any]) -> dict[str, Any]:
         quota_probe_path = require_absolute_remote_root(
             record.get("quota_probe_path"), f"{name}.quota_probe_path"
         )
-        if (
-            len(query_argv) != 6
-            or Path(query_argv[0]).name != "lfs"
-            or query_argv[1:]
-            != [
-                "quota",
-                "-h",
-                "-u",
-                principal,
-                quota_probe_path,
-            ]
-        ):
+        backend = record.get("quota_backend")
+        if backend == LUSTRE_QUOTA_BACKEND:
+            canonical_query = (
+                len(query_argv) == 6
+                and Path(query_argv[0]).name == "lfs"
+                and query_argv[1:]
+                == [
+                    "quota",
+                    "-v",
+                    "-u",
+                    principal,
+                    quota_probe_path,
+                ]
+            )
+            parser = parse_lfs_quota_output
+        elif backend == GPFS_QUOTA_BACKEND:
+            canonical_query = (
+                len(query_argv) == 4
+                and Path(query_argv[0]).name == "mmlsquota"
+                and query_argv[1:3] == ["-u", principal]
+                and GPFS_NAME_RE.fullmatch(query_argv[3]) is not None
+            )
+            parser = parse_gpfs_quota_output
+        else:
+            canonical_query = False
+            parser = parse_lfs_quota_output
+        if not canonical_query:
             raise ProjectionError(f"{name}.query_argv is not canonical")
         expected_probe = nearest_existing_parent(Path(intended_root))
         if expected_probe != Path(quota_probe_path):
@@ -2829,15 +3059,21 @@ def validate_quota_snapshot(payload: Mapping[str, Any]) -> dict[str, Any]:
             query_exit_code, int
         ):
             raise ProjectionError(f"{name}.query_exit_code differs")
-        reparsed = parse_lfs_quota_output(
-            stdout, stderr, query_exit_code
-        )
+        reparsed = parser(stdout, stderr, query_exit_code)
+        if (
+            backend == GPFS_QUOTA_BACKEND
+            and reparsed.get("filesystem") != query_argv[3]
+        ):
+            raise ProjectionError(f"{name}.GPFS query/result filesystem differs")
         for field in (
             "filesystem",
             "used_bytes",
             "quota_bytes",
             "used_inodes",
             "quota_inodes",
+            "byte_usage_kind",
+            "inode_limit_kind",
+            "active_ost_count",
             "usage_authoritative",
         ):
             if record.get(field) != reparsed.get(field):
@@ -2857,6 +3093,27 @@ def validate_quota_snapshot(payload: Mapping[str, Any]) -> dict[str, Any]:
             raise ProjectionError(
                 f"{name} blockers differ from raw quota output"
             )
+        byte_usage_kind = record.get("byte_usage_kind")
+        inode_limit_kind = record.get("inode_limit_kind")
+        if byte_usage_kind not in {
+            BYTE_USAGE_EXACT,
+            BYTE_USAGE_LOWER_BOUND,
+            BYTE_USAGE_UNKNOWN,
+        }:
+            raise ProjectionError(f"{name}.byte_usage_kind differs")
+        if inode_limit_kind not in {
+            INODE_LIMITED,
+            INODE_UNLIMITED,
+            INODE_UNKNOWN,
+        }:
+            raise ProjectionError(f"{name}.inode_limit_kind differs")
+        require_nonnegative_int(
+            record.get("active_ost_count"), f"{name}.active_ost_count"
+        )
+        evidence_usable = (
+            byte_usage_kind in {BYTE_USAGE_EXACT, BYTE_USAGE_LOWER_BOUND}
+            and inode_limit_kind in {INODE_LIMITED, INODE_UNLIMITED}
+        )
         if authoritative:
             if record.get("query_exit_code") != 0:
                 raise ProjectionError(
@@ -2872,10 +3129,34 @@ def validate_quota_snapshot(payload: Mapping[str, Any]) -> dict[str, Any]:
                 raise ProjectionError(f"{name}.quota_domain_id differs")
             for field in ("used_bytes", "used_inodes"):
                 require_nonnegative_int(record.get(field), f"{name}.{field}")
-            for field in ("quota_bytes", "quota_inodes"):
-                require_positive_int(record.get(field), f"{name}.{field}")
+            require_positive_int(record.get("quota_bytes"), f"{name}.quota_bytes")
+            if inode_limit_kind == INODE_LIMITED:
+                require_positive_int(
+                    record.get("quota_inodes"), f"{name}.quota_inodes"
+                )
+            elif record.get("quota_inodes") is not None:
+                raise ProjectionError(
+                    f"{name}.quota_inodes must be null when unlimited"
+                )
             if "QUOTA_USAGE_UNAUTHORITATIVE" in domain_blockers:
                 raise ProjectionError(f"{name} authority/blockers differ")
+        elif byte_usage_kind == BYTE_USAGE_LOWER_BOUND:
+            require_nonnegative_int(record.get("used_bytes"), f"{name}.used_bytes")
+            require_positive_int(record.get("quota_bytes"), f"{name}.quota_bytes")
+            require_nonnegative_int(
+                record.get("used_inodes"), f"{name}.used_inodes"
+            )
+            require_positive_int(
+                record.get("quota_inodes"), f"{name}.quota_inodes"
+            )
+            if (
+                backend != LUSTRE_QUOTA_BACKEND
+                or record.get("active_ost_count") <= 0
+                or "QUOTA_USAGE_UNAUTHORITATIVE" in domain_blockers
+            ):
+                raise ProjectionError(f"{name} lower-bound authority differs")
+        elif evidence_usable:
+            raise ProjectionError(f"{name} quota authority state differs")
         elif "QUOTA_USAGE_UNAUTHORITATIVE" not in domain_blockers:
             raise ProjectionError(f"{name} missing quota authority blocker")
         if namespace_fresh == (
@@ -2964,7 +3245,11 @@ def build_projection(
             continue
         if quota_record.get("intended_root") != manifest_roots.get(domain):
             blockers.append("PLAN_BINDING_DRIFT")
-        if quota_record.get("usage_authoritative") is not True:
+        byte_usage_kind = quota_record.get("byte_usage_kind")
+        inode_limit_kind = quota_record.get("inode_limit_kind")
+        if byte_usage_kind not in {BYTE_USAGE_EXACT, BYTE_USAGE_LOWER_BOUND}:
+            blockers.append("QUOTA_USAGE_UNAUTHORITATIVE")
+        if inode_limit_kind not in {INODE_LIMITED, INODE_UNLIMITED}:
             blockers.append("QUOTA_USAGE_UNAUTHORITATIVE")
         if quota_record.get("namespace_fresh") is not True:
             blockers.append("NAMESPACE_NOT_FRESH")
@@ -2976,10 +3261,24 @@ def build_projection(
         quota_bytes = quota_record.get("quota_bytes")
         used_inodes = quota_record.get("used_inodes")
         quota_inodes = quota_record.get("quota_inodes")
-        if not all(
+        byte_values_valid = all(
             isinstance(value, int) and not isinstance(value, bool) and value >= 0
-            for value in (used_bytes, quota_bytes, used_inodes, quota_inodes)
-        ) or quota_bytes == 0 or quota_inodes == 0:
+            for value in (used_bytes, quota_bytes)
+        ) and quota_bytes > 0
+        inode_values_valid = (
+            isinstance(used_inodes, int)
+            and not isinstance(used_inodes, bool)
+            and used_inodes >= 0
+            and (
+                inode_limit_kind == INODE_UNLIMITED
+                and quota_inodes is None
+                or inode_limit_kind == INODE_LIMITED
+                and isinstance(quota_inodes, int)
+                and not isinstance(quota_inodes, bool)
+                and quota_inodes > 0
+            )
+        )
+        if not byte_values_valid or not inode_values_valid:
             blockers.append("QUOTA_USAGE_UNAUTHORITATIVE")
             continue
         group = quota_groups.get(quota_domain_id)
@@ -2992,19 +3291,30 @@ def build_projection(
                 "quota_bytes": quota_bytes,
                 "used_inodes": used_inodes,
                 "quota_inodes": quota_inodes,
+                "byte_usage_kind": byte_usage_kind,
+                "inode_limit_kind": inode_limit_kind,
                 "quota_observation_count": 0,
                 "projected_increment_bytes": 0,
                 "projected_increment_inodes": 0,
             }
             quota_groups[quota_domain_id] = group
-        elif group["filesystem"] != quota_record.get("filesystem"):
-            raise ProjectionError(
-                f"shared quota domain {quota_domain_id} filesystem differs"
-            )
+        else:
+            if group["filesystem"] != quota_record.get("filesystem"):
+                raise ProjectionError(
+                    f"shared quota domain {quota_domain_id} filesystem differs"
+                )
+            if (
+                group["byte_usage_kind"] != byte_usage_kind
+                or group["inode_limit_kind"] != inode_limit_kind
+            ):
+                raise ProjectionError(
+                    f"shared quota domain {quota_domain_id} authority differs"
+                )
         group["used_bytes"] = max(group["used_bytes"], used_bytes)
         group["quota_bytes"] = min(group["quota_bytes"], quota_bytes)
         group["used_inodes"] = max(group["used_inodes"], used_inodes)
-        group["quota_inodes"] = min(group["quota_inodes"], quota_inodes)
+        if inode_limit_kind == INODE_LIMITED:
+            group["quota_inodes"] = min(group["quota_inodes"], quota_inodes)
         group["quota_observation_count"] += 1
         group["storage_domains"].append(domain)
         group["projected_increment_bytes"] += require_nonnegative_int(
@@ -3026,19 +3336,29 @@ def build_projection(
         projected_used_inodes = (
             group["used_inodes"] + group["projected_increment_inodes"]
         )
-        projected_free_inodes = group["quota_inodes"] - projected_used_inodes
+        projected_free_inodes = (
+            None
+            if group["inode_limit_kind"] == INODE_UNLIMITED
+            else group["quota_inodes"] - projected_used_inodes
+        )
         byte_headroom_pass = (
             projected_free_bytes >= 0
             and projected_free_bytes * MIN_HEADROOM_DENOMINATOR
             >= group["quota_bytes"] * MIN_HEADROOM_NUMERATOR
         )
         inode_headroom_pass = (
-            projected_free_inodes >= 0
+            True
+            if group["inode_limit_kind"] == INODE_UNLIMITED
+            else projected_free_inodes >= 0
             and projected_free_inodes * MIN_HEADROOM_DENOMINATOR
             >= group["quota_inodes"] * MIN_HEADROOM_NUMERATOR
         )
         if not byte_headroom_pass:
             blockers.append("BYTE_HEADROOM_LT_20PCT")
+        elif group["byte_usage_kind"] == BYTE_USAGE_LOWER_BOUND:
+            # A lower bound may prove failure, but it can never prove spare
+            # capacity.  Fail closed if the bound still appears to pass.
+            blockers.append("QUOTA_USAGE_UNAUTHORITATIVE")
         if not inode_headroom_pass:
             blockers.append("INODE_HEADROOM_LT_20PCT")
         projections.append(
