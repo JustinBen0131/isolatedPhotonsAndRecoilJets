@@ -681,11 +681,24 @@ class CapacityPartitionBindingTests(unittest.TestCase):
             new_paths[family] = str(release_path)
             hashes[family] = binding.file_sha256(release_path)
 
-        def plan(tag: str, paths: dict[str, str]) -> dict[str, object]:
+        def plan(
+            tag: str,
+            paths: dict[str, str],
+            *,
+            mirrored_submitter_bindings: bool = False,
+        ) -> dict[str, object]:
+            worker_environment = {
+                "RJ_PROFILE_LABEL": f"{tag}_row",
+                "RJ_THE134_MULTIVIEW_TRAINING_V1": "1",
+                "RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1": "1",
+                "RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT": "1",
+            }
             environment = {
                 "RJ_RELEASE_CORE_LIB_DIR": str(release_lib),
                 "RJ_RELEASE_CORE_LIB64_DIR": str(release_lib64),
             }
+            if mirrored_submitter_bindings:
+                environment.update(worker_environment)
             for family, _role, suffix in provider_rows:
                 environment[f"RJ_PINNED_RELEASE_{suffix}_PATH"] = paths[family]
                 environment[f"RJ_PINNED_RELEASE_{suffix}_SHA256"] = hashes[family]
@@ -705,9 +718,7 @@ class CapacityPartitionBindingTests(unittest.TestCase):
                         "execution_contract": {
                             "submit_namespace": f"/submit/{tag}/row",
                             "materialization_environment": environment,
-                            "worker_environment": {
-                                "RJ_PROFILE_LABEL": f"{tag}_row",
-                            },
+                            "worker_environment": worker_environment,
                         },
                     }
                 ],
@@ -716,7 +727,16 @@ class CapacityPartitionBindingTests(unittest.TestCase):
         old_path = self.root / "old_provider_plan.json"
         new_path = self.root / "new_provider_plan.json"
         old_path.write_text(json.dumps(plan(old_tag, old_paths)), encoding="utf-8")
-        new_path.write_text(json.dumps(plan(new_tag, new_paths)), encoding="utf-8")
+        new_path.write_text(
+            json.dumps(
+                plan(
+                    new_tag,
+                    new_paths,
+                    mirrored_submitter_bindings=True,
+                )
+            ),
+            encoding="utf-8",
+        )
         resource = {
             "full_plan": str(old_path),
             "full_plan_sha256": binding.file_sha256(old_path),
@@ -732,6 +752,32 @@ class CapacityPartitionBindingTests(unittest.TestCase):
             observed["mode"],
             "FRESH_NAMESPACE_AND_PINNED_PROVIDER_EQUIVALENT_PLAN",
         )
+
+        mismatched = plan(
+            new_tag,
+            new_paths,
+            mirrored_submitter_bindings=True,
+        )
+        mismatched["rows"][0]["execution_contract"][
+            "materialization_environment"
+        ]["RJ_THE134_MULTIVIEW_TRAINING_V1"] = "0"
+        new_path.write_text(json.dumps(mismatched), encoding="utf-8")
+        current["plan"]["sha256"] = binding.file_sha256(new_path)
+        with self.assertRaisesRegex(
+            binding.BindingError, "submitter mirror differs"
+        ):
+            binding.validate_capacity_plan_binding(resource, current)
+        new_path.write_text(
+            json.dumps(
+                plan(
+                    new_tag,
+                    new_paths,
+                    mirrored_submitter_bindings=True,
+                )
+            ),
+            encoding="utf-8",
+        )
+        current["plan"]["sha256"] = binding.file_sha256(new_path)
 
         bundle_authorities = {
             old_tag: {

@@ -504,11 +504,24 @@ def _capacity_plan_namespace_normal_form(
         except ValueError:
             return False
 
+    mirrored_submitter_keys = {
+        "RJ_THE134_MULTIVIEW_TRAINING_V1",
+        "RJ_THE134_MULTIVIEW_SIDECAR_ONLY_V1",
+        "RJ_THE134_EPHEMERAL_ANALYSIS_OUTPUT",
+        "RJ_REPLAY_SOURCE_MANIFEST_SHA256",
+        "RJ_REPLAY_CONFIG_SHA256",
+        "RJ_REPLAY_CODE_SHA256",
+        "RJ_PROFILE_LABEL",
+    }
     for row_index, raw_row in enumerate(rows):
         row = require_mapping(raw_row, f"capacity plan rows[{row_index}]")
         execution = require_mapping(
             row.get("execution_contract"),
             f"capacity plan rows[{row_index}].execution_contract",
+        )
+        worker_environment = require_mapping(
+            execution.get("worker_environment"),
+            f"capacity plan rows[{row_index}].worker_environment",
         )
         environment = execution.get("materialization_environment")
         if environment is None:
@@ -517,6 +530,13 @@ def _capacity_plan_namespace_normal_form(
             environment,
             f"capacity plan rows[{row_index}].materialization_environment",
         )
+        for key in mirrored_submitter_keys & environment.keys():
+            if worker_environment.get(key) != environment[key]:
+                raise BindingError(
+                    "capacity plan submitter mirror differs from worker "
+                    f"environment: {key}"
+                )
+            del environment[key]
         release_roots = []
         for key in ("RJ_RELEASE_CORE_LIB64_DIR", "RJ_RELEASE_CORE_LIB_DIR"):
             raw_root = environment.get(key)
