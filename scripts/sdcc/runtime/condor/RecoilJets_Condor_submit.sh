@@ -5135,6 +5135,11 @@ PY
   then
     return 99
   fi
+  # The admission already proved that this cleaned source list maps to the
+  # exact row count sealed in the execution manifest.  Keep that count in the
+  # current shell so group materialization cannot fall back to the legacy
+  # MAX_JOBS=50000 ceiling.
+  THE134_ADMITTED_EXPECTED_JOB_COUNT="$observed_jobs"
   say "    [sim_init] THE-134 source-complete sidecar extraction admitted: row=${row_id} execution_sha256=${execution_sha}" >&2
 }
 
@@ -5869,7 +5874,9 @@ sim_init() {
 make_sim_groups() {
   local gs="$1"
   local max_groups="${2:-0}"
-  sim_init
+  # This function's stdout is a typed stream containing only group-list
+  # paths.  Initialization diagnostics must never become Condor arguments.
+  sim_init >&2
 
   rm -f "${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_grp"*.list 2>/dev/null || true
 
@@ -9326,12 +9333,36 @@ SUB
           rm -f "${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_LOCAL_"*.list 2>/dev/null || true
           rm -f "${SIM_STAGE_DIR}/${SIM_JOB_PREFIX}_condorTest_"*.list 2>/dev/null || true
 
-          mapfile -t groups < <( make_sim_groups "$GROUP_SIZE" "$MAX_JOBS" )
+          _rj_group_limit="$MAX_JOBS"
+          if [[ -n "${RJ_THE134_EXTRACTION_EXECUTION_MANIFEST:-}" ]]; then
+            if [[ ! "${THE134_ADMITTED_EXPECTED_JOB_COUNT:-}" =~ ^[1-9][0-9]*$ ]]; then
+              err "THE-134 admitted expected job count is missing before group materialization"
+              exit 30
+            fi
+            _rj_group_limit="$THE134_ADMITTED_EXPECTED_JOB_COUNT"
+          fi
+          _rj_group_output=""
+          if ! _rj_group_output="$(make_sim_groups "$GROUP_SIZE" "$_rj_group_limit")"; then
+            err "SIM group materialization failed before Condor submission (sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG})"
+            exit 30
+          fi
+          [[ -n "$_rj_group_output" ]] || {
+            err "No sim groups produced (sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG})"
+            exit 30
+          }
+          mapfile -t groups <<< "$_rj_group_output"
+          unset _rj_group_output
           (( ${#groups[@]} )) || { err "No sim groups produced (sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG})"; exit 30; }
+          if [[ -n "${RJ_THE134_EXTRACTION_EXECUTION_MANIFEST:-}" &&
+                "${#groups[@]}" -ne "$THE134_ADMITTED_EXPECTED_JOB_COUNT" ]]; then
+            err "THE-134 group count differs before Condor submission: expected=${THE134_ADMITTED_EXPECTED_JOB_COUNT} observed=${#groups[@]}"
+            exit 30
+          fi
           if [[ "$MAX_JOBS" =~ ^[0-9]+$ && "$MAX_JOBS" -gt 0 && "${#groups[@]}" -gt "$MAX_JOBS" ]]; then
             say "Capping ${DATASET} group list for sample=${SIM_SAMPLE}, tag=${SIM_CFG_TAG}: ${#groups[@]} → ${MAX_JOBS} jobs"
             groups=( "${groups[@]:0:$MAX_JOBS}" )
           fi
+          unset _rj_group_limit
 
           stamp="$(date +%Y%m%d_%H%M%S)"
           sub="${SUB_DIR}/RecoilJets_sim_${SIM_CFG_TAG}_${SIM_SAMPLE}_${stamp}.sub"

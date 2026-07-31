@@ -1181,6 +1181,50 @@ class FullExtractionControllerTests(unittest.TestCase):
             partial["first_bad"]["cluster_identity_preserved"]
         )
 
+    def test_wrong_submit_count_preserves_reported_cluster_and_stops(self) -> None:
+        evidence_root = Path(self.execution["campaign"]["evidence_root"])
+        # A prior class-scoped fixture deliberately leaves a persistent
+        # first-bad lock.  Reset only this temporary test evidence root.
+        if evidence_root.exists():
+            shutil.rmtree(evidence_root)
+        calls = 0
+
+        def wrong_count_runner(argv, **_kwargs):
+            nonlocal calls
+            calls += 1
+            return subprocess.CompletedProcess(
+                argv,
+                0,
+                "1 job(s) submitted to cluster 9000001.\n",
+                "",
+            )
+
+        with self.assertRaisesRegex(
+            controller.ControllerError,
+            "submitter job count differs",
+        ):
+            controller.execute_submission(
+                self.execution,
+                self.execution_artifact,
+                self.safe_resume_certificate_path,
+                self.safe_resume_certificate_sha256,
+                evidence_root / "wrong_count_failure",
+                runner=wrong_count_runner,
+                now_seconds=1_900_000_000,
+            )
+        self.assertEqual(calls, 1)
+        partial = json.loads(
+            (
+                evidence_root
+                / "wrong_count_failure"
+                / "submission_receipt.json"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertEqual(partial["status"], "PARTIAL_FAILED_HARD_STOP")
+        self.assertEqual(partial["rows"][0]["cluster_id"], 9_000_001)
+        self.assertEqual(partial["rows"][0]["submitted_job_count"], 0)
+        self.assertTrue(partial["first_bad"]["cluster_identity_preserved"])
+
     def test_submission_receipt_accounting_is_fail_closed(self) -> None:
         payload = self.make_submission_receipt()
         normalized = controller.validate_submission_receipt(

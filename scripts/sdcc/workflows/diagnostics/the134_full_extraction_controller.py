@@ -1689,10 +1689,20 @@ def execute_submission(
             "submitted_job_count": 0,
         }
         receipt["rows"].append(row_receipt)
+        submit_report = completed.stdout + "\n" + completed.stderr
+        raw_matches = [
+            (int(match.group("count")), int(match.group("cluster")))
+            for match in SUBMIT_REPORT_RE.finditer(submit_report)
+        ]
+        if len(raw_matches) == 1:
+            # Preserve the exact cluster identity even when a malformed or
+            # partial submit reports the wrong job count.  This makes the
+            # first-bad row queryable without relaxing the count gate.
+            row_receipt["cluster_id"] = raw_matches[0][1]
         parse_error: ControllerError | None = None
         try:
             cluster_id, submitted_jobs = parse_submit_report(
-                completed.stdout + "\n" + completed.stderr,
+                submit_report,
                 row["expected_job_count"],
             )
         except ControllerError as exc:
@@ -1719,7 +1729,7 @@ def execute_submission(
             receipt["first_bad"] = {
                 "row_id": row_id,
                 "failure": str(parse_error),
-                "cluster_identity_preserved": False,
+                "cluster_identity_preserved": row_receipt["cluster_id"] is not None,
             }
             write_replace_json(receipt_path, receipt)
             raise parse_error

@@ -74,6 +74,49 @@ make_sim_groups 3 0
             for path in paths:
                 self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o644)
 
+    def test_full_row_group_stream_is_exact_and_diagnostic_free(self) -> None:
+        function = shell_function("make_sim_groups", "# Dry-run job count for isSim")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source.list"
+            source.write_text(
+                "".join(f"row-{index}\n" for index in range(10_000)),
+                encoding="utf-8",
+            )
+            body = f"""
+set -euo pipefail
+err() {{ printf 'ERROR: %s\\n' "$*" >&2; }}
+say() {{ printf '%s\\n' "$*" >&2; }}
+sim_init() {{ printf 'THE134_FULL_EXTRACTION_ADMISSION_PASS sentinel\\n'; }}
+SIM_CLEAN_LIST={source!s}
+SIM_STAGE_DIR={root!s}
+SIM_JOB_PREFIX=unit
+RJ_LOGIN_NODE_MAX_GROUP_FILES_PER_ROW=2048
+{function}
+make_sim_groups 7 1429
+"""
+            result = self.run_bash(body)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            paths = [Path(line) for line in result.stdout.splitlines()]
+            self.assertEqual(len(paths), 1429)
+            self.assertNotIn("THE134_FULL_EXTRACTION_ADMISSION_PASS", result.stdout)
+            self.assertIn("THE134_FULL_EXTRACTION_ADMISSION_PASS", result.stderr)
+            self.assertEqual(paths[0].name, "unit_grp001.list")
+            self.assertEqual(paths[-1].name, "unit_grp1429.list")
+
+    def test_full_extraction_group_failure_is_checked_before_submit(self) -> None:
+        source = SUBMITTER.read_text(encoding="utf-8")
+        checked = source.index(
+            'if ! _rj_group_output="$(make_sim_groups "$GROUP_SIZE" "$_rj_group_limit")"'
+        )
+        exact_count = source.index(
+            '"${#groups[@]}" -ne "$THE134_ADMITTED_EXPECTED_JOB_COUNT"',
+            checked,
+        )
+        submit = source.index('submit_or_collect_condor "$sub"', exact_count)
+        self.assertLess(checked, exact_count)
+        self.assertLess(exact_count, submit)
+
     def test_group_hard_cap_fails_without_partial_files(self) -> None:
         function = shell_function("make_sim_groups", "# Dry-run job count for isSim")
         with tempfile.TemporaryDirectory() as temporary:
