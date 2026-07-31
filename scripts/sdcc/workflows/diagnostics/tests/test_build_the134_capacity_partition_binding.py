@@ -338,6 +338,130 @@ class CapacityPartitionBindingTests(unittest.TestCase):
                     immutable, authority
                 )
 
+    def test_capacity_plan_reuses_only_fresh_namespace_equivalent_plan(
+        self,
+    ) -> None:
+        old_tag = "the134_old_attempt"
+        new_tag = "the134_new_attempt"
+
+        def plan(tag: str, threshold: float = 5.0) -> dict[str, object]:
+            return {
+                "schema": "THE134_FULL_EXTRACTION_PLAN_V3",
+                "campaign": {
+                    "tag": tag,
+                    "output_root": f"/output/{tag}",
+                    "evidence_root": f"/evidence/{tag}",
+                    "submit_root": f"/submit/{tag}",
+                },
+                "execution_fingerprint_sha256": "1" * 64,
+                "rows": [
+                    {
+                        "row_id": "pp_background_jet8",
+                        "row_fingerprint_sha256": "2" * 64,
+                        "execution_contract": {
+                            "submit_namespace": f"/submit/{tag}/row",
+                            "worker_environment": {
+                                "RJ_PROFILE_LABEL": f"{tag}_row",
+                                "RJ_REPLAY_PHOTON_CAPTURE_ET_MIN": threshold,
+                            },
+                        },
+                    }
+                ],
+            }
+
+        old_path = self.root / "old_plan.json"
+        new_path = self.root / "new_plan.json"
+        old_path.write_text(json.dumps(plan(old_tag)), encoding="utf-8")
+        new_path.write_text(json.dumps(plan(new_tag)), encoding="utf-8")
+        resource = {
+            "full_plan": str(old_path),
+            "full_plan_sha256": sha256_bytes(old_path.read_bytes()),
+        }
+        current = {
+            "plan": {
+                "path": str(new_path),
+                "sha256": sha256_bytes(new_path.read_bytes()),
+            }
+        }
+        observed = binding.validate_capacity_plan_binding(resource, current)
+        self.assertEqual(
+            observed["mode"], "FRESH_NAMESPACE_ONLY_EQUIVALENT_PLAN"
+        )
+        self.assertEqual(
+            observed["namespace_normalized_sha256"],
+            binding.semantic_sha256(
+                binding._capacity_plan_namespace_normal_form(plan(new_tag))
+            ),
+        )
+
+        new_path.write_text(
+            json.dumps(plan(new_tag, threshold=6.0)), encoding="utf-8"
+        )
+        current["plan"]["sha256"] = sha256_bytes(new_path.read_bytes())
+        with self.assertRaisesRegex(
+            binding.BindingError, "differs beyond campaign namespace"
+        ):
+            binding.validate_capacity_plan_binding(resource, current)
+
+    def test_capacity_preflight_reuses_only_derived_identity_changes(
+        self,
+    ) -> None:
+        old_plan = self.root / "old" / "plan.json"
+        old_plan.parent.mkdir()
+        old_receipt = old_plan.parent / "preflight_receipt.json"
+        new_receipt = self.root / "new_receipt.json"
+
+        def receipt(plan_sha: str, rows_sha: str, partition_sha: str):
+            return {
+                "schema": "THE134_FULL_EXTRACTION_PREFLIGHT_V3",
+                "execution_fingerprint_sha256": "1" * 64,
+                "artifacts": {
+                    "plan": {"sha256": plan_sha},
+                    "rows": {"sha256": rows_sha},
+                    "partition": {"sha256": partition_sha},
+                },
+            }
+
+        old_receipt.write_text(
+            json.dumps(receipt("2" * 64, "3" * 64, "4" * 64)),
+            encoding="utf-8",
+        )
+        new_receipt.write_text(
+            json.dumps(receipt("5" * 64, "6" * 64, "4" * 64)),
+            encoding="utf-8",
+        )
+        resource = {
+            "full_plan": str(old_plan),
+            "preflight_receipt_sha256": sha256_bytes(
+                old_receipt.read_bytes()
+            ),
+        }
+        current = {
+            "preflight_receipt": {
+                "path": str(new_receipt),
+                "sha256": sha256_bytes(new_receipt.read_bytes()),
+            }
+        }
+        observed = binding.validate_capacity_preflight_binding(
+            resource, current
+        )
+        self.assertEqual(
+            observed["mode"],
+            "FRESH_NAMESPACE_ONLY_EQUIVALENT_PREFLIGHT",
+        )
+
+        new_receipt.write_text(
+            json.dumps(receipt("5" * 64, "6" * 64, "7" * 64)),
+            encoding="utf-8",
+        )
+        current["preflight_receipt"]["sha256"] = sha256_bytes(
+            new_receipt.read_bytes()
+        )
+        with self.assertRaisesRegex(
+            binding.BindingError, "namespace-derived identities"
+        ):
+            binding.validate_capacity_preflight_binding(resource, current)
+
     def test_reconstruct_spec_contains_only_current_pinned_inputs(self) -> None:
         payload = self.assemble()
         reconstructed = binding.reconstruct_spec(payload)

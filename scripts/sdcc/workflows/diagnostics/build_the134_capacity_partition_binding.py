@@ -242,6 +242,191 @@ def canonical_json_bytes(payload: Any) -> bytes:
     ).encode("utf-8")
 
 
+def _capacity_plan_namespace_normal_form(
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Remove only campaign-namespace identity and its derived fingerprints.
+
+    A failed zero-cluster submission must use a fresh tag and namespaces.  The
+    already-certified capacity pair remains applicable only when the new plan
+    is otherwise identical.  This normal form deliberately retains every
+    source, partition, executable, physics, resource, ordering, and worker
+    configuration field.
+    """
+
+    campaign = require_mapping(payload.get("campaign"), "capacity plan campaign")
+    tag = campaign.get("tag")
+    if not isinstance(tag, str) or not tag:
+        raise BindingError("capacity plan campaign tag must be nonempty")
+
+    def normalize(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: normalize(item)
+                for key, item in value.items()
+                if key not in {
+                    "execution_fingerprint_sha256",
+                    "row_fingerprint_sha256",
+                }
+            }
+        if isinstance(value, list):
+            return [normalize(item) for item in value]
+        if isinstance(value, str):
+            return value.replace(tag, "__THE134_CAMPAIGN_TAG__")
+        return value
+
+    normalized = normalize(dict(payload))
+    if not isinstance(normalized, dict):
+        raise BindingError("capacity plan normal form must be an object")
+    return normalized
+
+
+def validate_capacity_plan_binding(
+    resource: Mapping[str, Any],
+    current: Mapping[str, Any],
+) -> dict[str, str]:
+    """Require the exact plan or a namespace-only fresh-attempt equivalent."""
+
+    resource_path = Path(str(resource.get("full_plan", ""))).absolute()
+    resource_sha256 = str(resource.get("full_plan_sha256", ""))
+    current_path = Path(str(current["plan"]["path"])).absolute()
+    current_sha256 = str(current["plan"]["sha256"])
+    if (
+        resource_path == current_path
+        and resource_sha256 == current_sha256
+    ):
+        return {
+            "mode": "EXACT_PLAN",
+            "capacity_plan_sha256": resource_sha256,
+            "current_plan_sha256": current_sha256,
+            "namespace_normalized_sha256": semantic_sha256(
+                _capacity_plan_namespace_normal_form(
+                    require_mapping(
+                        evidence.strict_json_loads(
+                            current_path.read_text(encoding="utf-8")
+                        ),
+                        "current capacity plan",
+                    )
+                )
+            ),
+        }
+
+    if (
+        not resource_path.is_file()
+        or file_sha256(resource_path) != resource_sha256
+        or not current_path.is_file()
+        or file_sha256(current_path) != current_sha256
+    ):
+        raise BindingError("capacity plan equivalence artifacts differ")
+    try:
+        resource_plan = require_mapping(
+            evidence.strict_json_loads(
+                resource_path.read_text(encoding="utf-8")
+            ),
+            "preserved capacity plan",
+        )
+        current_plan = require_mapping(
+            evidence.strict_json_loads(
+                current_path.read_text(encoding="utf-8")
+            ),
+            "current capacity plan",
+        )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise BindingError("capacity plan equivalence JSON is invalid") from exc
+    if resource_plan.get("schema") != current_plan.get("schema"):
+        raise BindingError("capacity plan equivalence schema differs")
+    resource_normal = _capacity_plan_namespace_normal_form(resource_plan)
+    current_normal = _capacity_plan_namespace_normal_form(current_plan)
+    resource_normal_sha256 = semantic_sha256(resource_normal)
+    current_normal_sha256 = semantic_sha256(current_normal)
+    if (
+        resource_normal != current_normal
+        or resource_normal_sha256 != current_normal_sha256
+    ):
+        raise BindingError(
+            "capacity plan differs beyond campaign namespace and fingerprints"
+        )
+    return {
+        "mode": "FRESH_NAMESPACE_ONLY_EQUIVALENT_PLAN",
+        "capacity_plan_sha256": resource_sha256,
+        "current_plan_sha256": current_sha256,
+        "namespace_normalized_sha256": current_normal_sha256,
+    }
+
+
+def validate_capacity_preflight_binding(
+    resource: Mapping[str, Any],
+    current: Mapping[str, Any],
+) -> dict[str, str]:
+    """Verify the old/current receipts differ only by derived plan identities."""
+
+    resource_plan_path = Path(str(resource.get("full_plan", ""))).absolute()
+    resource_path = resource_plan_path.parent / "preflight_receipt.json"
+    resource_sha256 = str(resource.get("preflight_receipt_sha256", ""))
+    current_path = Path(str(current["preflight_receipt"]["path"])).absolute()
+    current_sha256 = str(current["preflight_receipt"]["sha256"])
+    if (
+        resource_path == current_path
+        and resource_sha256 == current_sha256
+    ):
+        return {
+            "mode": "EXACT_PREFLIGHT",
+            "capacity_preflight_sha256": resource_sha256,
+            "current_preflight_sha256": current_sha256,
+        }
+    if (
+        not resource_path.is_file()
+        or file_sha256(resource_path) != resource_sha256
+        or not current_path.is_file()
+        or file_sha256(current_path) != current_sha256
+    ):
+        raise BindingError("capacity preflight equivalence artifacts differ")
+    try:
+        resource_receipt = require_mapping(
+            evidence.strict_json_loads(
+                resource_path.read_text(encoding="utf-8")
+            ),
+            "preserved capacity preflight receipt",
+        )
+        current_receipt = require_mapping(
+            evidence.strict_json_loads(
+                current_path.read_text(encoding="utf-8")
+            ),
+            "current capacity preflight receipt",
+        )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise BindingError(
+            "capacity preflight equivalence JSON is invalid"
+        ) from exc
+
+    def normal_form(payload: Mapping[str, Any]) -> dict[str, Any]:
+        normalized = json.loads(json.dumps(payload))
+        artifacts = require_mapping(
+            normalized.get("artifacts"), "capacity preflight artifacts"
+        )
+        for field in ("plan", "rows"):
+            record = require_mapping(
+                artifacts.get(field), f"capacity preflight artifacts.{field}"
+            )
+            record["sha256"] = "__NAMESPACE_DERIVED_SHA256__"
+        normalized["execution_fingerprint_sha256"] = (
+            "__NAMESPACE_DERIVED_SHA256__"
+        )
+        return normalized
+
+    resource_normal = normal_form(resource_receipt)
+    current_normal = normal_form(current_receipt)
+    if resource_normal != current_normal:
+        raise BindingError(
+            "capacity preflight differs beyond namespace-derived identities"
+        )
+    return {
+        "mode": "FRESH_NAMESPACE_ONLY_EQUIVALENT_PREFLIGHT",
+        "capacity_preflight_sha256": resource_sha256,
+        "current_preflight_sha256": current_sha256,
+    }
+
+
 def semantic_sha256(payload: Any) -> str:
     return hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
 
@@ -470,13 +655,12 @@ def _load_capacity(
             or payload.get("full_training_authority") != 0
         ):
             raise BindingError(f"{label} authority/count contract differs")
+    plan_binding = validate_capacity_plan_binding(resource, current)
+    preflight_binding = validate_capacity_preflight_binding(resource, current)
     if (
         resource.get("submission_performed") is not True
         or resource.get("selected_rows")
         != list(evidence.SELECTED_CAPACITY_ROWS)
-        or resource.get("full_plan_sha256") != current["plan"]["sha256"]
-        or resource.get("preflight_receipt_sha256")
-        != current["preflight_receipt"]["sha256"]
         or resource.get("bundle_manifest_sha256")
         != immutable["bundle_manifest"]["sha256"]
         or resource.get("materialization_receipt_sha256")
@@ -488,11 +672,6 @@ def _load_capacity(
     ):
         raise BindingError("capacity resource binding to current plan differs")
     try:
-        evidence.require_same_resolved_file(
-            "capacity full-plan binding",
-            resource.get("full_plan"),
-            current["plan"]["path"],
-        )
         evidence.require_same_resolved_file(
             "capacity root/join binding",
             resource.get("root_health_identity_join_certificate"),
@@ -522,18 +701,37 @@ def _load_capacity(
         evidence.require_same_resolved_file(
             "capacity validation full plan",
             validation_authority["full_extraction_plan"]["path"],
-            current["plan"]["path"],
+            resource.get("full_plan"),
         )
     except evidence.AmendmentError as exc:
         raise BindingError(str(exc)) from exc
     if (
         validation_authority["full_extraction_plan"].get("sha256")
-        != current["plan"]["sha256"]
+        != resource.get("full_plan_sha256")
     ):
         raise BindingError("capacity validation authority differs")
     validation_commit_binding = validate_science_validation_commit_binding(
         immutable, validation_authority
     )
+    validation_commit_binding["capacity_plan_binding_mode"] = plan_binding["mode"]
+    validation_commit_binding["capacity_plan_sha256"] = plan_binding[
+        "capacity_plan_sha256"
+    ]
+    validation_commit_binding["current_plan_sha256"] = plan_binding[
+        "current_plan_sha256"
+    ]
+    validation_commit_binding["namespace_normalized_sha256"] = plan_binding[
+        "namespace_normalized_sha256"
+    ]
+    validation_commit_binding["capacity_preflight_binding_mode"] = (
+        preflight_binding["mode"]
+    )
+    validation_commit_binding["capacity_preflight_sha256"] = preflight_binding[
+        "capacity_preflight_sha256"
+    ]
+    validation_commit_binding["current_preflight_sha256"] = preflight_binding[
+        "current_preflight_sha256"
+    ]
 
     audit_by_row = {
         "pp_background_jet8": pp_audit,
